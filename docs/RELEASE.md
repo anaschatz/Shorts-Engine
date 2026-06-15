@@ -22,6 +22,7 @@ npm run demo:smoke
 npm run demo:browser
 npm run demo:browser:ci
 npm run ci:reports
+npm run release:readiness
 npm run release:check
 npm run release:evidence
 ```
@@ -36,7 +37,9 @@ npm run release:evidence
 
 `npm run release:check` verifies the CI workflow contract, package scripts, environment readiness, staging readiness, report freshness, report safety, artifact upload policy and default cloud/browser safety settings.
 
-`npm run release:evidence` writes `release/results/latest.json` plus a timestamped evidence report. The evidence report contains package metadata, checked commands, environment readiness, staging readiness, latest report status, artifact policy, branch-protection guidance and limitations. It must not contain secrets, absolute local paths, storage keys, provider raw errors or broad local state.
+`npm run release:readiness` performs a no-network static readiness check for release/CI proof capabilities. It verifies the required release scripts and CI workflow markers, reports safe GitHub proof commands, and declares `networkCalls: false`, `authStarted: false`, `remoteMutation: false`, `logsDownloaded: false` and `artifactsDownloaded: false`.
+
+`npm run release:evidence` writes `release/results/latest.json` plus a timestamped evidence report. The evidence report contains package metadata, checked commands, environment readiness, staging readiness, release readiness, latest report status, artifact policy, branch-protection guidance and limitations. It must not contain secrets, absolute local paths, storage keys, provider raw errors or broad local state.
 
 Release evidence must also avoid raw provider identifiers. Render service ids, deploy tokens, API keys, signed download tokens and GitHub tokens are treated as sensitive; reports should expose only configured/not-configured booleans and safe provider status metadata.
 

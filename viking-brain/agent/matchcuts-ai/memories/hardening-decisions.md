@@ -37,3 +37,4 @@
 - Validate remote CI proof summary shape before writing release evidence; missing release-job metadata or unsafe branch/SHA/run fields must fail closed.
 - Use `github:setup` as documentation-only onboarding for GitHub CLI; it must not install tools, start auth, request tokens, call network APIs or mutate remote repository settings.
 - Missing GitHub CLI/auth failures should return safe `nextAction` values that guide the user to manual setup instead of exposing raw command output.
+- Expose release/CI readiness in `/health` and release evidence through a local static contract only; it must not invoke GitHub CLI, start auth or inspect remote state.

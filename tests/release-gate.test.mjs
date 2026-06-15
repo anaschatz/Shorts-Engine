@@ -96,6 +96,9 @@ test("release gate verifier accepts the valid workflow contract", () => {
   assert.deepEqual(result.artifactPolicy.allowlist, FAILURE_ARTIFACT_ALLOWLIST);
   assert.equal(result.workflow.realCloudIntegrationDefault, false);
   assert.equal(result.workflow.browserRuntimeSkipAllowed, false);
+  assert.equal(result.releaseReadiness.ready, true);
+  assert.equal(result.releaseReadiness.networkCalls, false);
+  assert.equal(result.releaseReadiness.remoteProof.automaticAuth, false);
   assert.equal(result.staging.ok, true);
   assert.equal(result.staging.workflow.environment, "staging");
 });
@@ -150,6 +153,8 @@ test("release evidence JSON has safe shape and no sensitive leakage", () => {
 
   assert.equal(evidence.schemaVersion, 1);
   assert.equal(evidence.releaseGate.ok, true);
+  assert.equal(evidence.releaseReadiness.ready, true);
+  assert.equal(evidence.releaseReadiness.remoteMutation, false);
   assert.equal(evidence.stagingReadiness.ok, true);
   assert.equal(evidence.latestReports.length, 4);
   assert.equal(evidence.latestReports[0].relativePath, "latest.json");

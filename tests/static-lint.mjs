@@ -14,6 +14,8 @@ const ciReportValidator = readFileSync("demo/validate-ci-reports.mjs", "utf8");
 const envChecker = readFileSync("tools/release/check-environment.mjs", "utf8");
 const stagingReadiness = readFileSync("tools/release/check-staging-readiness.mjs", "utf8");
 const stagingSmoke = readFileSync("tools/release/check-staging-smoke.mjs", "utf8");
+const releaseReadiness = readFileSync("server/release-readiness.cjs", "utf8");
+const releaseReadinessCheck = readFileSync("tools/release/check-release-readiness.mjs", "utf8");
 const renderCheck = readFileSync("tools/release/check-render-staging.mjs", "utf8");
 const renderManual = readFileSync("tools/release/print-render-staging-checklist.mjs", "utf8");
 const renderProof = readFileSync("tools/release/render-staging-proof.mjs", "utf8");
@@ -102,6 +104,7 @@ assert.match(packageJson, /"staging:smoke:full": "node tools\/release\/check-sta
 assert.match(packageJson, /"staging:smoke:cleanup": "node tools\/release\/cleanup-staging-full-smoke\.mjs"/, "package should expose opt-in full staging smoke cleanup");
 assert.match(packageJson, /"release:check": "node tools\/release\/verify-release-gate\.mjs"/, "package should expose release gate verification");
 assert.match(packageJson, /"release:evidence": "node tools\/release\/write-release-evidence\.mjs"/, "package should expose release evidence generation");
+assert.match(packageJson, /"release:readiness": "node tools\/release\/check-release-readiness\.mjs"/, "package should expose release readiness health validation");
 assert.match(packageJson, /"remote:ci": "node tools\/release\/check-remote-ci\.mjs"/, "package should expose remote CI verification");
 assert.match(packageJson, /"remote:ci:proof": "node tools\/release\/write-remote-ci-proof\.mjs"/, "package should expose remote CI proof generation");
 assert.match(packageJson, /"playwright"/, "Playwright should be a scoped dev dependency for browser E2E");
@@ -216,6 +219,18 @@ assert.match(remoteCiProof, /findSensitiveLeak/, "remote CI proof should guard p
 assert.match(remoteCiProof, /logsDownloaded: false/, "remote CI proof should not download logs");
 assert.match(remoteCiProof, /artifactsDownloaded: false/, "remote CI proof should not download artifacts");
 assert.doesNotMatch(remoteCiProof, /ghp_|github_pat_|GITHUB_TOKEN\s*=|download-logs|view --log|artifact download|repo edit|secret set|--method\s+(?:PATCH|PUT|DELETE)/i, "remote CI proof must not hardcode tokens, mutate remotes or download raw logs/artifacts");
+assert.match(releaseReadiness, /REQUIRED_RELEASE_SCRIPTS/, "release readiness should define required release scripts");
+assert.match(releaseReadiness, /local-static-readiness/, "release readiness should stay local and static");
+assert.match(releaseReadiness, /networkCalls: false/, "release readiness should declare no network calls");
+assert.match(releaseReadiness, /authStarted: false/, "release readiness should not start auth");
+assert.match(releaseReadiness, /remoteMutation: false/, "release readiness should not mutate GitHub");
+assert.match(releaseReadiness, /tokensRequested: false/, "release readiness should not request tokens");
+assert.match(releaseReadiness, /logsDownloaded: false/, "release readiness should not download logs");
+assert.match(releaseReadiness, /artifactsDownloaded: false/, "release readiness should not download artifacts");
+assert.match(releaseReadiness, /safeMissingDependencyCode: "GITHUB_CLI_MISSING"/, "release readiness should document safe missing gh behavior");
+assert.doesNotMatch(releaseReadiness, /execFile|spawn|child_process|GITHUB_TOKEN\s*=|secret set|repo edit|--method\s+(?:PATCH|PUT|DELETE)|download-logs|view --log|artifact download|ghp_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}/i, "release readiness must not run commands, hardcode tokens, mutate remotes or download raw logs/artifacts");
+assert.match(releaseReadinessCheck, /createReleaseReadiness/, "release readiness check should reuse the shared readiness module");
+assert.match(releaseReadinessCheck, /result\.ready !== true/, "release readiness check should fail closed when the contract is invalid");
 assert.match(stagingFullSmoke, /SHORTSENGINE_STAGING_FULL_SMOKE/, "full staging smoke should require an explicit opt-in flag");
 assert.match(stagingFullSmoke, /validateStagingUrl/, "full staging smoke should reuse staging URL validation");
 assert.match(stagingFullSmoke, /validateFixturePath/, "full staging smoke should validate fixture safety");
@@ -264,6 +279,8 @@ assert.doesNotMatch(envExample, /sk-[A-Za-z0-9_-]{20,}|AKIA[A-Z0-9]{12,}|Bearer\
 assert.match(releaseGateVerifier, /checkEnvironment/, "release gate verifier should include environment readiness");
 assert.match(releaseGateVerifier, /github:doctor/, "release gate verifier should require the GitHub doctor script to exist");
 assert.match(releaseGateVerifier, /github:setup/, "release gate verifier should require the GitHub setup script to exist");
+assert.match(releaseGateVerifier, /createReleaseReadiness/, "release gate verifier should include release readiness");
+assert.match(releaseGateVerifier, /release:readiness/, "release gate verifier should require the release readiness script to exist");
 assert.match(releaseGateVerifier, /render:check/, "release gate verifier should require the Render staging check script");
 assert.match(releaseGateVerifier, /render:manual/, "release gate verifier should require the Render manual checklist script");
 assert.match(releaseGateVerifier, /render:proof/, "release gate verifier should require the Render no-network proof script");
@@ -281,6 +298,7 @@ assert.match(releaseGateVerifier, /read-only-config-inspection/, "release gate v
 assert.match(releaseEvidenceWriter, /findSensitiveLeak/, "release evidence writer should reject sensitive evidence");
 assert.match(releaseEvidenceWriter, /environmentReadiness/, "release evidence should include environment readiness");
 assert.match(releaseEvidenceWriter, /stagingReadiness/, "release evidence should include staging readiness");
+assert.match(releaseEvidenceWriter, /releaseReadiness/, "release evidence should include release readiness");
 assert.match(releaseEvidenceWriter, /release\/results/, "release evidence writer should use the release results directory");
 assert.doesNotMatch(releaseEvidenceWriter, /\bpath:\s*gate\.reports/, "release evidence should not expose report path keys directly");
 assert.match(manualDocs, /npm run demo:fixture/, "manual docs should explain fixture generation");
@@ -302,6 +320,7 @@ assert.match(ciDocs, /uploads artifacts only when the release gate fails/i, "CI 
 assert.match(ciDocs, /Real cloud integration stays out of the default gate/i, "CI docs should document opt-in cloud integration");
 assert.match(ciDocs, /npm run release:check/, "CI docs should include release gate verification");
 assert.match(ciDocs, /npm run release:evidence/, "CI docs should include release evidence generation");
+assert.match(ciDocs, /npm run release:readiness/, "CI docs should include release readiness validation");
 assert.match(ciDocs, /npm run github:setup/, "CI docs should document GitHub CLI setup guidance");
 assert.match(ciDocs, /npm run github:doctor/, "CI docs should document GitHub CLI doctor");
 assert.match(ciDocs, /npm run remote:ci/, "CI docs should document remote CI verification");
@@ -320,6 +339,7 @@ assert.match(releaseDocs, /staging:smoke:full/, "release docs should document th
 assert.match(releaseDocs, /staging:smoke:cleanup/, "release docs should document the opt-in full staging smoke cleanup command");
 assert.match(releaseDocs, /npm run release:check/, "release docs should explain local release checks");
 assert.match(releaseDocs, /release\/results\/latest\.json/, "release docs should explain release evidence output");
+assert.match(releaseDocs, /npm run release:readiness/, "release docs should explain release readiness checks");
 assert.match(releaseDocs, /npm run github:setup/, "release docs should explain GitHub CLI setup guidance");
 assert.match(releaseDocs, /npm run github:doctor/, "release docs should explain GitHub CLI readiness");
 assert.match(releaseDocs, /npm run remote:ci/, "release docs should explain remote CI verification");

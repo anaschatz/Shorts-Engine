@@ -76,6 +76,7 @@ function buildReleaseEvidence(options = {}) {
       workflow: gate.staging.workflow,
       limitations: gate.staging.limitations,
     },
+    releaseReadiness: gate.releaseReadiness,
     latestReports: gate.reports.reports.map((report) => ({
       label: report.label,
       relativePath: report.path,

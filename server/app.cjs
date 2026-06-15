@@ -22,6 +22,7 @@ const { HOOKS } = require("./edit-plan.cjs");
 const { transcriptionHealth } = require("./transcription.cjs");
 const { JobStore, idempotencyKey } = require("./jobs.cjs");
 const { normalizeSmokeSource } = require("./staging-smoke-metadata.cjs");
+const { createReleaseReadiness } = require("./release-readiness.cjs");
 const { createLocalJobWorker, restoreExportsFromCompletedJobs } = require("./job-worker.cjs");
 const { createWorkerSupervisor } = require("./worker-supervisor.cjs");
 const { createLocalJobQueue } = require("./queue/local-job-queue.cjs");
@@ -308,6 +309,7 @@ async function handleHealth(req, res, rid) {
   const worker = jobWorker.health();
   const supervisor = workerSupervisor.health();
   const queue = jobQueue.health();
+  const releaseReadiness = createReleaseReadiness({ rootDir: CONFIG.rootDir });
   const storageReady = Object.values(storage).every((entry) => entry.exists && entry.readable && entry.writable);
   const repositoriesReady = Object.values(repositories).every((entry) => entry.ready);
   const adaptersReady = Object.values(adapters).every((entry) => entry.ready);
@@ -334,6 +336,7 @@ async function handleHealth(req, res, rid) {
     cleanupLastRunAt: cleanup.lastRunAt,
     cleanupLastResult: cleanup.lastResult,
     realCloudIntegrationEnabled: CONFIG.realCloudIntegrationEnabled,
+    releaseReadiness,
     transcription: provider,
     analysis,
     requestId: rid,

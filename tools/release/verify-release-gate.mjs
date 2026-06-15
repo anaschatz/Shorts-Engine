@@ -5,8 +5,11 @@ import { fileURLToPath } from "node:url";
 import { validateCiReports } from "../../demo/validate-ci-reports.mjs";
 import { checkEnvironment } from "./check-environment.mjs";
 import { checkStagingReadiness } from "./check-staging-readiness.mjs";
+import { createRequire } from "node:module";
 
 const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const require = createRequire(import.meta.url);
+const { createReleaseReadiness } = require("../../server/release-readiness.cjs");
 const CI_WORKFLOW_RELATIVE_PATH = ".github/workflows/ci.yml";
 const PACKAGE_JSON_RELATIVE_PATH = "package.json";
 
@@ -36,6 +39,7 @@ const REQUIRED_PACKAGE_SCRIPTS = Object.freeze({
   "render:proof": "node tools/release/render-staging-proof.mjs",
   "release:check": "node tools/release/verify-release-gate.mjs",
   "release:evidence": "node tools/release/write-release-evidence.mjs",
+  "release:readiness": "node tools/release/check-release-readiness.mjs",
   "remote:ci": "node tools/release/check-remote-ci.mjs",
   "remote:ci:proof": "node tools/release/write-remote-ci-proof.mjs",
   "staging:check": "node tools/release/check-staging-readiness.mjs",
@@ -256,6 +260,10 @@ function verifyReleaseGate(options = {}) {
   const workflowText = options.workflowText ?? readTextFile(rootDir, CI_WORKFLOW_RELATIVE_PATH, "CI workflow");
   const packageScripts = verifyPackageScripts(packageJson);
   const workflow = verifyWorkflowContract(workflowText);
+  const releaseReadiness = createReleaseReadiness({ rootDir, packageJson, workflowText });
+  assert(releaseReadiness.ready === true, "RELEASE_READINESS_INVALID", "Release readiness contract is invalid.", {
+    missing: releaseReadiness.missing,
+  });
   const environment = checkEnvironment({
     env: options.env,
     rootDir,
@@ -286,6 +294,7 @@ function verifyReleaseGate(options = {}) {
     packageScripts,
     environment,
     staging,
+    releaseReadiness,
     workflow,
     reports: reportValidation,
     artifactPolicy: workflow.artifactUpload,

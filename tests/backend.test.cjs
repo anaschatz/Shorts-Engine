@@ -295,10 +295,15 @@ test("API health returns structured status", async () => {
   assert.equal(typeof payload.data.transcription.activeProvider, "string");
   assert.equal(payload.data.analysis.ready, true);
   assert.equal(payload.data.analysis.features.includes("candidate_edit_plans"), true);
+  assert.equal(payload.data.releaseReadiness.ready, true);
+  assert.equal(payload.data.releaseReadiness.networkCalls, false);
+  assert.equal(payload.data.releaseReadiness.remoteMutation, false);
+  assert.equal(payload.data.releaseReadiness.remoteProof.automaticAuth, false);
   assert.doesNotMatch(JSON.stringify(payload.data), /\/Users\//);
   assert.doesNotMatch(JSON.stringify(payload.data), /storageKey|outputPath|jobDir/);
   assert.doesNotMatch(JSON.stringify(payload.data.jobs), /data\/jobs|jobDir|\/private\//);
   assert.doesNotMatch(JSON.stringify(payload.data.queue), /\/Users|\/private|storageKey|outputPath|filePath|secret/i);
+  assert.doesNotMatch(JSON.stringify(payload.data.releaseReadiness), /\/Users|\/private|storageKey|secret|ghp_|github_pat_|Bearer\s+|sk-[A-Za-z0-9_-]{10,}/i);
 });
 
 test("server listen failures are logged as safe structured events", () => {

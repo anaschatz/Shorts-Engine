@@ -137,17 +137,18 @@ The command prints a safe JSON readiness summary. It fails closed for invalid nu
 5. Run `npm run render:manual`.
 6. Run `npm run render:proof`.
 7. Run `npm run release:check`.
-8. If remote GitHub proof is needed, run `npm run github:setup` and authenticate `gh` manually before `npm run github:doctor`.
-9. Start the server with staging env values.
-10. Check `GET /health` and require `status: "ready"` unless a documented degraded dependency is expected.
-11. Run deployed smoke with `SHORTSENGINE_STAGING_URL=... npm run staging:smoke`.
-12. Run opt-in full smoke only when intentional: `SHORTSENGINE_STAGING_FULL_SMOKE=1 SHORTSENGINE_STAGING_URL=... npm run staging:smoke:full`.
-13. Run cleanup dry-run after full smoke: `npm run staging:smoke:cleanup`.
-14. Run explicit smoke cleanup only when intended: `SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP=1 npm run staging:smoke:cleanup`.
-15. Run `npm run demo:fixture`, `npm run demo:smoke`, `npm run demo:browser`, and `npm run demo:browser:ci`.
-16. Run `npm run ci:reports` and `npm run release:evidence`.
-17. Inspect failure-only artifacts only if a gate fails.
-18. Configure GitHub branch protection as documented in `docs/RELEASE.md` and GitHub Environment protection as documented in `docs/STAGING_DEPLOYMENT.md`.
+8. Run `npm run release:readiness`.
+9. If remote GitHub proof is needed, run `npm run github:setup` and authenticate `gh` manually before `npm run github:doctor`.
+10. Start the server with staging env values.
+11. Check `GET /health` and require `status: "ready"` unless a documented degraded dependency is expected.
+12. Run deployed smoke with `SHORTSENGINE_STAGING_URL=... npm run staging:smoke`.
+13. Run opt-in full smoke only when intentional: `SHORTSENGINE_STAGING_FULL_SMOKE=1 SHORTSENGINE_STAGING_URL=... npm run staging:smoke:full`.
+14. Run cleanup dry-run after full smoke: `npm run staging:smoke:cleanup`.
+15. Run explicit smoke cleanup only when intended: `SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP=1 npm run staging:smoke:cleanup`.
+16. Run `npm run demo:fixture`, `npm run demo:smoke`, `npm run demo:browser`, and `npm run demo:browser:ci`.
+17. Run `npm run ci:reports` and `npm run release:evidence`.
+18. Inspect failure-only artifacts only if a gate fails.
+19. Configure GitHub branch protection as documented in `docs/RELEASE.md` and GitHub Environment protection as documented in `docs/STAGING_DEPLOYMENT.md`.
 
 ## Render Staging Runtime
 
