@@ -11,6 +11,8 @@ npm run lint
 npm run env:check
 npm run staging:check
 npm run render:check
+npm run render:manual
+npm run render:proof
 npm run build
 npm test
 npm run eval
@@ -29,6 +31,8 @@ npm run release:evidence
 `npm run staging:check` verifies the staging deployment contract, GitHub Environment workflow shape, staging URL/provider rules, deployed-smoke defaults and secret-safe staging documentation.
 
 `npm run render:check` verifies the live Render staging configuration contract without calling Render APIs. It confirms that provider `none` is no-network readiness-only, and that provider `render` has target `staging`, a `srv-...` service id, a protected deploy token and a public staging URL.
+
+`npm run render:manual` prints the live setup checklist with placeholders only. `npm run render:proof` runs env/staging/render/deploy checks in provider `none` mode and confirms no deploy is triggered locally.
 
 `npm run release:check` verifies the CI workflow contract, package scripts, environment readiness, staging readiness, report freshness, report safety, artifact upload policy and default cloud/browser safety settings.
 
@@ -65,6 +69,8 @@ Render is the first provider-specific path. To enable it, configure the GitHub E
 Unsupported providers, missing service ids, missing tokens and unsafe staging URLs fail closed with safe structured errors.
 
 The Render service should be a Node.js Web Service with build command `npm ci`, start command `npm start`, and health check path `/health`. Render should provide `PORT`; keep `MATCHCUTS_TRANSCRIPTION_PROVIDER=mock`, `MATCHCUTS_PERSISTENCE_ADAPTER=sqlite`, and `MATCHCUTS_STORAGE_ADAPTER=local` or `mock-cloud` for initial staging.
+
+Run the staging workflow with manual dispatch first. Inspect the workflow status and the safe summaries from `env:check`, `staging:check`, `render:check`, `staging:deploy` and `staging:smoke`.
 
 If GitHub reports a staging failure:
 

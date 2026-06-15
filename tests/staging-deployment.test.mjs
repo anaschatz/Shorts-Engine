@@ -28,6 +28,8 @@ import {
   checkRenderStaging,
   safeError as safeRenderCheckError,
 } from "../tools/release/check-render-staging.mjs";
+import { buildRenderStagingChecklist } from "../tools/release/print-render-staging-checklist.mjs";
+import { runRenderStagingProof } from "../tools/release/render-staging-proof.mjs";
 import { buildReleaseEvidence } from "../tools/release/write-release-evidence.mjs";
 
 const ENV_DOCS = readFileSync("docs/ENVIRONMENT.md", "utf8");
@@ -252,6 +254,43 @@ test("Render staging configuration check fails safely for missing token url and 
   assert.equal(findSensitiveLeak(safeRenderCheckError(privateUrl)), null);
 });
 
+test("Render manual checklist contains no secrets or real service ids", () => {
+  const checklist = buildRenderStagingChecklist();
+  assert.equal(checklist.ok, true);
+  assert.equal(checklist.secretsIncluded, false);
+  assert.equal(checklist.networkCalls, false);
+  assert.equal(checklist.renderService.buildCommand, "npm ci");
+  assert.equal(checklist.renderService.startCommand, "npm start");
+  assert.equal(checklist.renderService.healthCheckPath, "/health");
+  assert.equal(JSON.stringify(checklist).includes("copy-from-render-dashboard"), true);
+  assert.doesNotMatch(JSON.stringify(checklist), /srv-[A-Za-z0-9_-]{6,80}/);
+  assert.equal(findSensitiveLeak(checklist), null);
+});
+
+test("Render local proof runs in provider none mode without network", async () => {
+  const summary = await runRenderStagingProof({
+    env: {
+      SHORTSENGINE_DEPLOY_TARGET: "staging",
+      SHORTSENGINE_STAGING_DEPLOY_PROVIDER: "render",
+      SHORTSENGINE_STAGING_SERVICE_ID: "srv-wouldnotbeused",
+      SHORTSENGINE_STAGING_URL: "https://staging.example.test",
+      SHORTSENGINE_STAGING_DEPLOY_TOKEN: "placeholder-deploy-token",
+    },
+    nowMs: Date.parse("2026-06-15T19:30:00.000Z"),
+    fetchImpl: async () => {
+      throw new Error("proof must not fetch");
+    },
+  });
+  assert.equal(summary.ok, true);
+  assert.equal(summary.networkCalls, false);
+  assert.equal(summary.deployTriggered, false);
+  assert.equal(summary.checks.environment, true);
+  assert.equal(summary.checks.staging, true);
+  assert.equal(summary.checks.render, true);
+  assert.equal(summary.checks.deployReadinessOnly, true);
+  assert.equal(findSensitiveLeak(summary), null);
+});
+
 test("staging readiness rejects unsupported provider safely", () => {
   assert.throws(
     () => checkStagingReadiness(readinessOptions({
@@ -330,6 +369,31 @@ test("staging deploy fails safely for missing Render service id", async () => {
   }).catch((caught) => caught);
   assert.equal(safeDeployError(error).code, "STAGING_SERVICE_ID_MISSING");
   assert.equal(findSensitiveLeak(safeDeployError(error)), null);
+});
+
+test("staging deploy fails safely for Render non-2xx and fetch failures", async () => {
+  const env = {
+    SHORTSENGINE_DEPLOY_TARGET: "staging",
+    SHORTSENGINE_STAGING_DEPLOY_PROVIDER: "render",
+    SHORTSENGINE_STAGING_SERVICE_ID: "srv-shortsengine1",
+    SHORTSENGINE_STAGING_URL: "https://staging.example.test",
+    SHORTSENGINE_STAGING_DEPLOY_TOKEN: "placeholder-deploy-token",
+  };
+  const nonSuccess = await runStagingDeploy({
+    env,
+    fetchImpl: async () => new Response("raw provider error should stay hidden", { status: 500 }),
+  }).catch((caught) => caught);
+  assert.equal(safeDeployError(nonSuccess).code, "STAGING_RENDER_DEPLOY_HTTP_FAILED");
+  assert.equal(findSensitiveLeak(safeDeployError(nonSuccess)), null);
+
+  const fetchFailure = await runStagingDeploy({
+    env,
+    fetchImpl: async () => {
+      throw new Error("raw provider connection failure");
+    },
+  }).catch((caught) => caught);
+  assert.equal(safeDeployError(fetchFailure).code, "STAGING_RENDER_DEPLOY_REQUEST_FAILED");
+  assert.equal(findSensitiveLeak(safeDeployError(fetchFailure)), null);
 });
 
 test("Render service id validation is strict", () => {

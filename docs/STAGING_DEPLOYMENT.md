@@ -5,6 +5,8 @@ This milestone prepares ShortsEngine for a real Render staging deployment while 
 Run:
 
 ```bash
+npm run render:manual
+npm run render:proof
 npm run staging:check
 npm run render:check
 ```
@@ -108,9 +110,11 @@ Create a Render Web Service connected to this GitHub repository.
 Recommended service settings:
 
 - Runtime: Node.js
+- Branch: `main`
 - Build command: `npm ci`
 - Start command: `npm start`
 - Health check path: `/health`
+- Auto deploy: keep off or controlled until the staging gate is stable.
 - Node version: use the repository `engines.node` value unless you intentionally pin a newer version in Render settings.
 - Required system tools: `ffmpeg` and `ffprobe` must be available to render real clips. If they are missing, `/health` should report degraded readiness and render jobs should fail safely.
 
@@ -133,6 +137,15 @@ After the service exists:
 5. Add the public Render service URL as `SHORTSENGINE_STAGING_URL`.
 6. Run `npm run render:check` locally with placeholder values first, then run the GitHub staging workflow manually.
 
+Local proof before touching live secrets:
+
+```bash
+npm run render:manual
+npm run render:proof
+```
+
+`npm run render:manual` prints a safe checklist with placeholders only. `npm run render:proof` runs the local readiness chain in provider `none` mode and does not call Render.
+
 ## Workflow Behavior
 
 The staging workflow lives at `.github/workflows/staging.yml`.
@@ -149,6 +162,21 @@ The workflow uses the GitHub Environment named `staging`, runs `npm run env:chec
 - unsupported providers: fail closed with a safe structured error
 
 If `SHORTSENGINE_STAGING_URL` is configured, the workflow also runs `npm run staging:smoke`.
+
+## Live Smoke Proof
+
+Trigger `.github/workflows/staging.yml` manually with `workflow_dispatch` after the GitHub Environment is configured.
+
+Inspect only safe evidence:
+
+- workflow status
+- `env:check` passed
+- `staging:check` passed
+- `render:check` passed
+- `staging:deploy` returned a sanitized deploy-trigger summary
+- `staging:smoke` passed against the public `/health` URL
+
+Do not copy provider raw errors, tokens, service ids, local paths, storage keys or screenshots containing secret values into issues or docs.
 
 ## Deployed Smoke
 
@@ -185,6 +213,7 @@ If GitHub Actions reports a failed staging run:
 - `STAGING_CREDENTIAL_MISSING`: add the GitHub Environment secret `SHORTSENGINE_STAGING_DEPLOY_TOKEN`.
 - `RENDER_STAGING_URL_PUBLIC_REQUIRED`: use the public Render URL, not localhost or a private IP.
 - `STAGING_RENDER_DEPLOY_HTTP_FAILED`: check the Render service id, token permissions and Render service status.
+- `STAGING_RENDER_DEPLOY_REQUEST_FAILED`: check Render availability and GitHub runner network access.
 - smoke failure after deploy: open `/health` on the Render URL and verify FFmpeg, storage, repositories, adapters, transcription and analysis readiness.
 
 ## Local Commands
@@ -193,6 +222,8 @@ If GitHub Actions reports a failed staging run:
 npm run env:check
 npm run staging:check
 npm run render:check
+npm run render:manual
+npm run render:proof
 npm run release:check
 npm run release:evidence
 ```

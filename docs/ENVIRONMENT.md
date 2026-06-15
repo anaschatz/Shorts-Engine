@@ -123,14 +123,16 @@ The command prints a safe JSON readiness summary. It fails closed for invalid nu
 2. Run `npm run env:check`.
 3. Run `npm run staging:check`.
 4. Run `npm run render:check`.
-5. Run `npm run release:check`.
-6. Start the server with staging env values.
-7. Check `GET /health` and require `status: "ready"` unless a documented degraded dependency is expected.
-8. Run deployed smoke with `SHORTSENGINE_STAGING_URL=... npm run staging:smoke`.
-9. Run `npm run demo:fixture`, `npm run demo:smoke`, `npm run demo:browser`, and `npm run demo:browser:ci`.
-10. Run `npm run ci:reports` and `npm run release:evidence`.
-11. Inspect failure-only artifacts only if a gate fails.
-12. Configure GitHub branch protection as documented in `docs/RELEASE.md` and GitHub Environment protection as documented in `docs/STAGING_DEPLOYMENT.md`.
+5. Run `npm run render:manual`.
+6. Run `npm run render:proof`.
+7. Run `npm run release:check`.
+8. Start the server with staging env values.
+9. Check `GET /health` and require `status: "ready"` unless a documented degraded dependency is expected.
+10. Run deployed smoke with `SHORTSENGINE_STAGING_URL=... npm run staging:smoke`.
+11. Run `npm run demo:fixture`, `npm run demo:smoke`, `npm run demo:browser`, and `npm run demo:browser:ci`.
+12. Run `npm run ci:reports` and `npm run release:evidence`.
+13. Inspect failure-only artifacts only if a gate fails.
+14. Configure GitHub branch protection as documented in `docs/RELEASE.md` and GitHub Environment protection as documented in `docs/STAGING_DEPLOYMENT.md`.
 
 ## Render Staging Runtime
 
@@ -145,6 +147,8 @@ For the first live staging deployment, use a Render Node.js Web Service with:
 - `MATCHCUTS_STORAGE_ADAPTER=local` or `mock-cloud`
 
 `npm run render:check` validates the Render-facing environment contract without calling Render APIs. It keeps provider `none` as readiness-only and requires public URL, `srv-...` service id and protected deploy token before provider `render` can proceed.
+
+`npm run render:manual` prints the safe live setup checklist. `npm run render:proof` executes the local readiness chain in provider `none` mode so no Render API call is made.
 
 Render local filesystem storage is ephemeral unless a disk is attached. Treat local/mock-cloud storage as initial staging only; durable staging should move uploads/renders to object storage and use database-backed persistence.
 

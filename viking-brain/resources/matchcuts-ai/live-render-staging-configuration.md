@@ -6,6 +6,8 @@ Decisions:
 
 - Keep `SHORTSENGINE_STAGING_DEPLOY_PROVIDER=none` as the default no-network path.
 - Add `npm run render:check` for no-network Render configuration readiness.
+- Add `npm run render:manual` for the safe manual setup checklist.
+- Add `npm run render:proof` for no-network local proof before live secrets are configured.
 - Run `render:check` in the GitHub staging workflow before `staging:deploy`.
 - Treat Render staging URL as public-only: localhost, private and link-local URLs are invalid for real Render staging.
 - Keep deployed smoke health-only: `GET /health`, no uploads and no render jobs.

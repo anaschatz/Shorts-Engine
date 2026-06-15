@@ -27,3 +27,4 @@
 - Staging health smoke must bound response size before JSON parsing and report oversized/invalid bodies with safe structured errors.
 - Render is the first provider-specific staging deploy path; it requires GitHub Environment `staging` vars plus a protected deploy token, while provider `none` remains the default no-network path.
 - `npm run render:check` validates live Render staging configuration without network calls before the staging workflow triggers a deploy.
+- `npm run render:manual` and `npm run render:proof` provide safe setup/proof evidence without committing real Render service ids, tokens or URLs.

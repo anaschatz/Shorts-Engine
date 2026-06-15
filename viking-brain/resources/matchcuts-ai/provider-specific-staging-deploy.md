@@ -14,6 +14,7 @@ Decision:
   - secret `SHORTSENGINE_STAGING_DEPLOY_TOKEN`
 - Keep deploy logic in `tools/release/staging-deploy.mjs` so the workflow stays readable and provider behavior is testable.
 - Validate Render staging configuration with `tools/release/check-render-staging.mjs` before triggering deploy.
+- Use `tools/release/print-render-staging-checklist.mjs` and `tools/release/render-staging-proof.mjs` before live GitHub Environment secrets are configured.
 - Run `npm run staging:smoke` only after deploy config exists and a staging URL is configured.
 
 Safety contract:
