@@ -89,6 +89,18 @@ The command prints a safe JSON readiness summary. It fails closed for invalid nu
 | --- | --- | --- | --- | --- | --- | --- |
 | `MATCHCUTS_RUN_REAL_CLOUD_TESTS` | No | `0` | `0` or explicit `1` | No | Keep `0` in CI and default staging. | Enabling without object storage config fails readiness. |
 
+## Staging deployment/readiness
+
+| Variable | Required | Default | Allowed values | Secret | Staging recommendation | Fail-closed behavior |
+| --- | --- | --- | --- | --- | --- | --- |
+| `SHORTSENGINE_DEPLOY_TARGET` | No | `local` | `local`, `staging` | No | Keep `local` until a provider deploy step exists. | `staging` requires URL, provider and protected credential. |
+| `SHORTSENGINE_STAGING_DEPLOY_PROVIDER` | Required when target is `staging` | `none` | `none`, `render`, `fly`, `railway`, `vercel`, `cloud-run`, `custom` | No | Keep `none` for readiness-only mode. | Provider without staging target fails readiness; configured provider fails workflow until a real deploy step exists. |
+| `SHORTSENGINE_STAGING_URL` | Required for deployed smoke and staging target | empty | `http` or `https` URL without credentials | No | Set to the deployed staging base URL after a provider is wired. | Missing, invalid, credentialed or unsafe local URLs fail smoke/readiness. |
+| `SHORTSENGINE_STAGING_ALLOW_LOCAL_URL` | No | `0` | boolean | No | Keep disabled for remote staging; enable only for explicit local smoke. | Localhost staging URLs fail unless this is enabled. |
+| `SHORTSENGINE_STAGING_SMOKE_TIMEOUT_MS` | No | `30000` | integer `1000..120000` | No | Keep default. | Invalid timeout fails readiness/smoke. |
+| `SHORTSENGINE_STAGING_SMOKE_RETRIES` | No | `2` | integer `0..5` | No | Keep default. | Invalid retry count fails readiness/smoke. |
+| `SHORTSENGINE_STAGING_DEPLOY_TOKEN` | Required when target is `staging` and provider is not `none` | empty | GitHub Environment secret | Yes | Store only in the GitHub Environment `staging`. | Missing provider credential fails readiness. |
+
 ## Browser/demo/CI flags
 
 | Variable | Required | Default | Allowed values | Secret | Staging recommendation | Fail-closed behavior |
@@ -108,12 +120,14 @@ The command prints a safe JSON readiness summary. It fails closed for invalid nu
 
 1. Install dependencies with `npm ci`.
 2. Run `npm run env:check`.
-3. Run `npm run release:check`.
-4. Start the server with staging env values.
-5. Check `GET /health` and require `status: "ready"`.
-6. Run `npm run demo:fixture`, `npm run demo:smoke`, `npm run demo:browser`, and `npm run demo:browser:ci`.
-7. Run `npm run ci:reports` and `npm run release:evidence`.
-8. Inspect failure-only artifacts only if a gate fails.
-9. Configure GitHub branch protection as documented in `docs/RELEASE.md`.
+3. Run `npm run staging:check`.
+4. Run `npm run release:check`.
+5. Start the server with staging env values.
+6. Check `GET /health` and require `status: "ready"` unless a documented degraded dependency is expected.
+7. Run deployed smoke with `SHORTSENGINE_STAGING_URL=... npm run staging:smoke`.
+8. Run `npm run demo:fixture`, `npm run demo:smoke`, `npm run demo:browser`, and `npm run demo:browser:ci`.
+9. Run `npm run ci:reports` and `npm run release:evidence`.
+10. Inspect failure-only artifacts only if a gate fails.
+11. Configure GitHub branch protection as documented in `docs/RELEASE.md` and GitHub Environment protection as documented in `docs/STAGING_DEPLOYMENT.md`.
 
 Never commit real `.env` files, provider keys, cloud credentials, database files, uploads, renders, or generated reports.

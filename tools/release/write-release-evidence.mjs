@@ -66,6 +66,16 @@ function buildReleaseEvidence(options = {}) {
       ci: gate.environment.ci,
       safeDefaults: gate.environment.safeDefaults,
     },
+    stagingReadiness: {
+      ok: gate.staging.ok,
+      checkedAt: gate.staging.checkedAt,
+      deployment: gate.staging.deployment,
+      githubEnvironment: gate.staging.githubEnvironment,
+      smoke: gate.staging.smoke,
+      environmentReadiness: gate.staging.environmentReadiness,
+      workflow: gate.staging.workflow,
+      limitations: gate.staging.limitations,
+    },
     latestReports: gate.reports.reports.map((report) => ({
       label: report.label,
       relativePath: report.path,

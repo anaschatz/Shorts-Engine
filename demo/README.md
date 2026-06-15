@@ -11,6 +11,7 @@ This folder contains the repeatable local demo harness for the video-to-short fl
 - `npm run demo:browser:e2e` runs the real Playwright Chromium browser flow and writes `demo/results/playwright-latest.json`.
 - `npm run demo:browser:install` installs the Playwright Chromium runtime for local/CI browser E2E.
 - `npm run env:check` validates staging-safe environment defaults, docs, `.env.example`, and secret-safe readiness output.
+- `npm run staging:check` validates provider-neutral staging wiring, GitHub Environment expectations, and deployed-smoke defaults.
 - `npm run ci:reports` validates the latest API demo, browser, Playwright and eval reports before a release gate can pass.
 - `npm run release:check` verifies the CI workflow, package scripts, report safety and artifact policy.
 - `npm run release:evidence` writes the safe release evidence JSON under `release/results/`.

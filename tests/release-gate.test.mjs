@@ -16,9 +16,11 @@ import {
 } from "../tools/release/write-release-evidence.mjs";
 
 const VALID_WORKFLOW = readFileSync(".github/workflows/ci.yml", "utf8");
+const VALID_STAGING_WORKFLOW = readFileSync(".github/workflows/staging.yml", "utf8");
 const VALID_PACKAGE = JSON.parse(readFileSync("package.json", "utf8"));
 const ENV_DOCS = readFileSync("docs/ENVIRONMENT.md", "utf8");
 const ENV_EXAMPLE = readFileSync(".env.example", "utf8");
+const STAGING_DOCS = readFileSync("docs/STAGING_DEPLOYMENT.md", "utf8");
 
 function writeJson(filePath, payload) {
   writeFileSync(filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
@@ -81,6 +83,8 @@ function verifyWithFixture(overrides = {}) {
     nowMs: fixture.nowMs,
     docsText: ENV_DOCS,
     exampleText: ENV_EXAMPLE,
+    stagingDocsText: STAGING_DOCS,
+    stagingWorkflowText: VALID_STAGING_WORKFLOW,
     ...overrides,
   });
 }
@@ -92,6 +96,8 @@ test("release gate verifier accepts the valid workflow contract", () => {
   assert.deepEqual(result.artifactPolicy.allowlist, FAILURE_ARTIFACT_ALLOWLIST);
   assert.equal(result.workflow.realCloudIntegrationDefault, false);
   assert.equal(result.workflow.browserRuntimeSkipAllowed, false);
+  assert.equal(result.staging.ok, true);
+  assert.equal(result.staging.workflow.environment, "staging");
 });
 
 test("release gate verifier rejects missing required commands", () => {
@@ -138,10 +144,13 @@ test("release evidence JSON has safe shape and no sensitive leakage", () => {
     nowMs: fixture.nowMs,
     docsText: ENV_DOCS,
     exampleText: ENV_EXAMPLE,
+    stagingDocsText: STAGING_DOCS,
+    stagingWorkflowText: VALID_STAGING_WORKFLOW,
   });
 
   assert.equal(evidence.schemaVersion, 1);
   assert.equal(evidence.releaseGate.ok, true);
+  assert.equal(evidence.stagingReadiness.ok, true);
   assert.equal(evidence.latestReports.length, 4);
   assert.equal(evidence.latestReports[0].relativePath, "latest.json");
   assert.equal(findSensitiveLeak(evidence), null);
@@ -159,6 +168,8 @@ test("release evidence writer writes latest and timestamped reports", () => {
     nowMs: fixture.nowMs,
     docsText: ENV_DOCS,
     exampleText: ENV_EXAMPLE,
+    stagingDocsText: STAGING_DOCS,
+    stagingWorkflowText: VALID_STAGING_WORKFLOW,
   });
 
   assert.equal(result.ok, true);
@@ -187,6 +198,8 @@ test("release gate verifier is deterministic for fixed inputs", () => {
     nowMs: fixture.nowMs,
     docsText: ENV_DOCS,
     exampleText: ENV_EXAMPLE,
+    stagingDocsText: STAGING_DOCS,
+    stagingWorkflowText: VALID_STAGING_WORKFLOW,
   };
   assert.deepEqual(verifyReleaseGate(options), verifyReleaseGate(options));
 });

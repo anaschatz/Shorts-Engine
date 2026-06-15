@@ -12,14 +12,18 @@ const demoSmoke = readFileSync("demo/run-smoke.mjs", "utf8");
 const reportSafety = readFileSync("demo/report-safety.mjs", "utf8");
 const ciReportValidator = readFileSync("demo/validate-ci-reports.mjs", "utf8");
 const envChecker = readFileSync("tools/release/check-environment.mjs", "utf8");
+const stagingReadiness = readFileSync("tools/release/check-staging-readiness.mjs", "utf8");
+const stagingSmoke = readFileSync("tools/release/check-staging-smoke.mjs", "utf8");
 const releaseGateVerifier = readFileSync("tools/release/verify-release-gate.mjs", "utf8");
 const releaseEvidenceWriter = readFileSync("tools/release/write-release-evidence.mjs", "utf8");
 const envDocs = readFileSync("docs/ENVIRONMENT.md", "utf8");
 const envExample = readFileSync(".env.example", "utf8");
+const stagingDocs = readFileSync("docs/STAGING_DEPLOYMENT.md", "utf8");
 const manualDocs = readFileSync("demo/MANUAL_TESTING.md", "utf8");
 const ciDocs = readFileSync("demo/CI.md", "utf8");
 const releaseDocs = readFileSync("docs/RELEASE.md", "utf8");
 const githubWorkflow = readFileSync(".github/workflows/ci.yml", "utf8");
+const stagingWorkflow = readFileSync(".github/workflows/staging.yml", "utf8");
 const packageJson = readFileSync("package.json", "utf8");
 
 assert.match(html, /Content-Security-Policy/, "index.html should include a CSP meta tag");
@@ -76,6 +80,8 @@ assert.match(packageJson, /"demo:browser:e2e": "node demo\/run-playwright-smoke\
 assert.match(packageJson, /"demo:browser:install": "playwright install chromium"/, "package should expose a Playwright Chromium install helper");
 assert.match(packageJson, /"ci:reports": "node demo\/validate-ci-reports\.mjs"/, "package should expose CI report validation");
 assert.match(packageJson, /"env:check": "node tools\/release\/check-environment\.mjs"/, "package should expose staging environment validation");
+assert.match(packageJson, /"staging:check": "node tools\/release\/check-staging-readiness\.mjs"/, "package should expose staging readiness validation");
+assert.match(packageJson, /"staging:smoke": "node tools\/release\/check-staging-smoke\.mjs"/, "package should expose deployed staging smoke");
 assert.match(packageJson, /"release:check": "node tools\/release\/verify-release-gate\.mjs"/, "package should expose release gate verification");
 assert.match(packageJson, /"release:evidence": "node tools\/release\/write-release-evidence\.mjs"/, "package should expose release evidence generation");
 assert.match(packageJson, /"playwright"/, "Playwright should be a scoped dev dependency for browser E2E");
@@ -101,15 +107,30 @@ assert.match(envChecker, /ENV_PROVIDER_CREDENTIAL_MISSING/, "environment checker
 assert.match(envChecker, /ENV_CLOUD_STORAGE_INCOMPLETE/, "environment checker should reject incomplete cloud storage config");
 assert.match(envChecker, /ENV_BROWSER_SKIP_UNSAFE/, "environment checker should reject browser skip flags");
 assert.match(envChecker, /findSensitiveLeak/, "environment checker should guard readiness output against leaks");
+assert.match(stagingReadiness, /STAGING_ENV_CONTRACT/, "staging readiness should define an explicit staging env contract");
+assert.match(stagingReadiness, /STAGING_URL_CREDENTIALS_UNSAFE/, "staging readiness should reject credentialed URLs");
+assert.match(stagingReadiness, /STAGING_URL_LOCAL_UNSAFE/, "staging readiness should reject localhost without explicit local mode");
+assert.match(stagingReadiness, /verifyStagingWorkflowContract/, "staging readiness should validate the staging workflow contract");
+assert.match(stagingReadiness, /findSensitiveLeak/, "staging readiness should guard summaries against leaks");
+assert.match(stagingSmoke, /SHORTSENGINE_STAGING_URL/, "staging smoke should require an explicit deployed URL");
+assert.match(stagingSmoke, /GET/, "staging smoke should perform a health GET");
+assert.match(stagingSmoke, /validateHealthPayload/, "staging smoke should validate health response shape");
+assert.match(stagingSmoke, /findSensitiveLeak/, "staging smoke should guard health and summary output against leaks");
 assert.match(envDocs, /Staging Readiness Checklist/, "environment docs should include a staging readiness checklist");
 assert.match(envDocs, /npm run env:check/, "environment docs should document the env check command");
+assert.match(envDocs, /npm run staging:check/, "environment docs should document the staging readiness command");
+assert.match(envDocs, /SHORTSENGINE_STAGING_URL/, "environment docs should document staging URL config");
+assert.match(envDocs, /SHORTSENGINE_STAGING_DEPLOY_PROVIDER/, "environment docs should document staging provider config");
 assert.match(envDocs, /MATCHCUTS_TRANSCRIPTION_PROVIDER/, "environment docs should document transcription provider config");
 assert.match(envDocs, /MATCHCUTS_STORAGE_ADAPTER/, "environment docs should document storage adapter config");
 assert.match(envDocs, /OPENAI_API_KEY/, "environment docs should document provider credential handling");
 assert.match(envExample, /MATCHCUTS_TRANSCRIPTION_PROVIDER=mock/, ".env.example should keep mock provider as the default");
 assert.match(envExample, /MATCHCUTS_STORAGE_ADAPTER=local/, ".env.example should keep local storage as the default");
+assert.match(envExample, /SHORTSENGINE_STAGING_DEPLOY_PROVIDER=none/, ".env.example should keep provider-neutral staging as the default");
+assert.match(envExample, /SHORTSENGINE_STAGING_URL=/, ".env.example should leave staging URL empty by default");
 assert.doesNotMatch(envExample, /sk-[A-Za-z0-9_-]{20,}|AKIA[A-Z0-9]{12,}|Bearer\s+[A-Za-z0-9._-]{10,}/, ".env.example must not contain real-looking secrets");
 assert.match(releaseGateVerifier, /checkEnvironment/, "release gate verifier should include environment readiness");
+assert.match(releaseGateVerifier, /checkStagingReadiness/, "release gate verifier should include staging readiness");
 assert.match(releaseGateVerifier, /validateCiReports/, "release gate verifier should reuse CI report validation");
 assert.match(releaseGateVerifier, /REQUIRED_WORKFLOW_COMMANDS/, "release gate verifier should enforce required workflow commands");
 assert.match(releaseGateVerifier, /SHORTSENGINE_BROWSER_E2E_ALLOW_SKIP/, "release gate verifier should reject browser skip flags");
@@ -118,6 +139,7 @@ assert.match(releaseGateVerifier, /FAILURE_ARTIFACT_ALLOWLIST/, "release gate ve
 assert.match(releaseGateVerifier, /read-only-config-inspection/, "release gate verifier should inspect git remote state read-only");
 assert.match(releaseEvidenceWriter, /findSensitiveLeak/, "release evidence writer should reject sensitive evidence");
 assert.match(releaseEvidenceWriter, /environmentReadiness/, "release evidence should include environment readiness");
+assert.match(releaseEvidenceWriter, /stagingReadiness/, "release evidence should include staging readiness");
 assert.match(releaseEvidenceWriter, /release\/results/, "release evidence writer should use the release results directory");
 assert.doesNotMatch(releaseEvidenceWriter, /\bpath:\s*gate\.reports/, "release evidence should not expose report path keys directly");
 assert.match(manualDocs, /npm run demo:fixture/, "manual docs should explain fixture generation");
@@ -126,6 +148,8 @@ assert.match(manualDocs, /UPLOAD_EMPTY/, "manual docs should describe missing up
 assert.match(manualDocs, /port already used/i, "manual docs should include troubleshooting");
 assert.match(ciDocs, /npm run demo:browser:install/, "CI docs should include the Playwright browser install step");
 assert.match(ciDocs, /npm run env:check/, "CI docs should include the environment readiness check");
+assert.match(ciDocs, /npm run staging:check/, "CI docs should include the staging readiness check");
+assert.match(ciDocs, /docs\/STAGING_DEPLOYMENT\.md/, "CI docs should link to staging deployment docs");
 assert.match(ciDocs, /npm run demo:browser:ci/, "CI docs should document the CI browser E2E command");
 assert.match(ciDocs, /SHORTSENGINE_BROWSER_E2E_ALLOW_SKIP/, "CI docs should make missing-runtime skips explicit");
 assert.match(ciDocs, /SHORTSENGINE_BROWSER_E2E_TRACE/, "CI docs should document opt-in trace capture");
@@ -139,12 +163,15 @@ assert.match(ciDocs, /npm run release:check/, "CI docs should include release ga
 assert.match(ciDocs, /npm run release:evidence/, "CI docs should include release evidence generation");
 assert.match(releaseDocs, /Branch Protection Checklist/, "release docs should include branch protection guidance");
 assert.match(releaseDocs, /npm run env:check/, "release docs should include environment readiness checks");
+assert.match(releaseDocs, /npm run staging:check/, "release docs should include staging readiness checks");
+assert.match(releaseDocs, /\.github\/workflows\/staging\.yml/, "release docs should mention the staging workflow");
 assert.match(releaseDocs, /npm run release:check/, "release docs should explain local release checks");
 assert.match(releaseDocs, /release\/results\/latest\.json/, "release docs should explain release evidence output");
 assert.match(releaseDocs, /Real cloud integration remains opt-in/i, "release docs should keep cloud integration opt-in");
 
 for (const command of [
   "npm run env:check",
+  "npm run staging:check",
   "npm run lint",
   "npm run build",
   "npm test",
@@ -178,6 +205,25 @@ assert.doesNotMatch(githubWorkflow, /SHORTSENGINE_BROWSER_E2E_ALLOW_SKIP/, "rele
 assert.doesNotMatch(githubWorkflow, /integration:cloud|MATCHCUTS_RUN_REAL_CLOUD_TESTS/, "release gate must not run real cloud integration by default");
 assert.doesNotMatch(githubWorkflow, /node_modules|data\/(?:uploads|renders|db|jobs|artifacts)|var\/|\.env|secrets?/i, "CI workflow must not upload unsafe local state");
 assert.doesNotMatch(githubWorkflow, /demo\/results\/\*\*|demo\/results\/\*\.json|eval\/results\/\*\.json/, "CI workflow should avoid broad report globs");
+
+assert.match(stagingDocs, /GitHub Environment `staging`/, "staging docs should explain the protected GitHub Environment");
+assert.match(stagingDocs, /SHORTSENGINE_STAGING_DEPLOY_TOKEN/, "staging docs should document the provider-neutral deploy credential");
+assert.match(stagingDocs, /npm run staging:check/, "staging docs should document readiness command");
+assert.match(stagingDocs, /npm run staging:smoke/, "staging docs should document deployed smoke command");
+assert.match(stagingDocs, /does not upload videos/i, "staging docs should keep deployed smoke health-only");
+assert.doesNotMatch(stagingDocs, /sk-[A-Za-z0-9_-]{20,}|AKIA[A-Z0-9]{12,}|Bearer\s+[A-Za-z0-9._-]{10,}/, "staging docs must not contain real-looking secrets");
+
+assert.match(stagingWorkflow, /workflow_dispatch:/, "staging workflow should support manual dispatch");
+assert.match(stagingWorkflow, /workflow_run:[\s\S]*ShortsEngine CI/, "staging workflow should run after successful CI");
+assert.match(stagingWorkflow, /environment:[\s\S]*name:\s*staging/, "staging workflow should use GitHub Environment staging");
+assert.match(stagingWorkflow, /npm run env:check/, "staging workflow should run env readiness");
+assert.match(stagingWorkflow, /npm run staging:check/, "staging workflow should run staging readiness");
+assert.match(stagingWorkflow, /npm run staging:smoke/, "staging workflow should include deployed smoke");
+assert.match(stagingWorkflow, /Provider deploy step is not implemented/, "staging workflow should fail closed for configured providers");
+assert.doesNotMatch(stagingWorkflow, /SHORTSENGINE_BROWSER_E2E_ALLOW_SKIP/, "staging workflow must not skip required browser/runtime checks");
+assert.doesNotMatch(stagingWorkflow, /integration:cloud|MATCHCUTS_RUN_REAL_CLOUD_TESTS/, "staging workflow must not run real cloud integration by default");
+assert.doesNotMatch(stagingWorkflow, /uses:\s*actions\/upload-artifact@v4/, "staging workflow should not upload artifacts by default");
+assert.doesNotMatch(stagingWorkflow, /node_modules|data\/(?:uploads|renders|db|jobs|artifacts)|var\/|\.env|AKIA[A-Z0-9]{12,}|sk-[A-Za-z0-9_-]{20,}|Bearer\s+[A-Za-z0-9._-]{10,}/i, "staging workflow must not include unsafe local state or hardcoded secrets");
 
 assert.match(css, /\[hidden\]\s*{[^}]*display:\s*none\s*!important/s, "hidden controls must not be overridden by display styles");
 assert.match(css, /button:disabled/, "disabled states should be styled");

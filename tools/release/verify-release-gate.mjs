@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { validateCiReports } from "../../demo/validate-ci-reports.mjs";
 import { checkEnvironment } from "./check-environment.mjs";
+import { checkStagingReadiness } from "./check-staging-readiness.mjs";
 
 const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CI_WORKFLOW_RELATIVE_PATH = ".github/workflows/ci.yml";
@@ -11,6 +12,7 @@ const PACKAGE_JSON_RELATIVE_PATH = "package.json";
 
 const REQUIRED_WORKFLOW_COMMANDS = Object.freeze([
   "npm run env:check",
+  "npm run staging:check",
   "npm run lint",
   "npm run build",
   "npm test",
@@ -29,6 +31,8 @@ const REQUIRED_PACKAGE_SCRIPTS = Object.freeze({
   "env:check": "node tools/release/check-environment.mjs",
   "release:check": "node tools/release/verify-release-gate.mjs",
   "release:evidence": "node tools/release/write-release-evidence.mjs",
+  "staging:check": "node tools/release/check-staging-readiness.mjs",
+  "staging:smoke": "node tools/release/check-staging-smoke.mjs",
 });
 
 const FAILURE_ARTIFACT_ALLOWLIST = Object.freeze([
@@ -250,6 +254,15 @@ function verifyReleaseGate(options = {}) {
     exampleText: options.exampleText,
     docsText: options.docsText,
   });
+  const staging = checkStagingReadiness({
+    env: options.env,
+    rootDir,
+    nowMs,
+    environmentExampleText: options.exampleText,
+    environmentDocsText: options.docsText,
+    docsText: options.stagingDocsText,
+    workflowText: options.stagingWorkflowText,
+  });
   const reportValidation = validateCiReports({
     demoResultsDir: options.demoResultsDir,
     evalResultsDir: options.evalResultsDir,
@@ -263,6 +276,7 @@ function verifyReleaseGate(options = {}) {
     package: packageSummary(packageJson),
     packageScripts,
     environment,
+    staging,
     workflow,
     reports: reportValidation,
     artifactPolicy: workflow.artifactUpload,

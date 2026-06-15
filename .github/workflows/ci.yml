@@ -65,6 +65,9 @@ jobs:
       - name: Environment readiness
         run: npm run env:check
 
+      - name: Staging readiness contract
+        run: npm run staging:check
+
       - name: Lint
         run: npm run lint
 

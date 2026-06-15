@@ -1,0 +1,82 @@
+name: ShortsEngine Staging
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - ShortsEngine CI
+    branches:
+      - main
+      - master
+    types:
+      - completed
+
+permissions:
+  contents: read
+
+jobs:
+  staging-readiness:
+    name: Staging readiness
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: staging
+
+    env:
+      CI: "true"
+      MATCHCUTS_TRANSCRIPTION_PROVIDER: ${{ vars.MATCHCUTS_TRANSCRIPTION_PROVIDER || 'mock' }}
+      MATCHCUTS_PERSISTENCE_ADAPTER: ${{ vars.MATCHCUTS_PERSISTENCE_ADAPTER || 'sqlite' }}
+      MATCHCUTS_STORAGE_ADAPTER: ${{ vars.MATCHCUTS_STORAGE_ADAPTER || 'local' }}
+      SHORTSENGINE_DEPLOY_TARGET: ${{ vars.SHORTSENGINE_DEPLOY_TARGET || 'local' }}
+      SHORTSENGINE_STAGING_DEPLOY_PROVIDER: ${{ vars.SHORTSENGINE_STAGING_DEPLOY_PROVIDER || 'none' }}
+      SHORTSENGINE_STAGING_URL: ${{ vars.SHORTSENGINE_STAGING_URL }}
+      SHORTSENGINE_STAGING_DEPLOY_TOKEN: ${{ secrets.SHORTSENGINE_STAGING_DEPLOY_TOKEN }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      MATCHCUTS_STORAGE_BUCKET: ${{ vars.MATCHCUTS_STORAGE_BUCKET }}
+      MATCHCUTS_STORAGE_REGION: ${{ vars.MATCHCUTS_STORAGE_REGION }}
+      MATCHCUTS_STORAGE_ENDPOINT: ${{ vars.MATCHCUTS_STORAGE_ENDPOINT }}
+      MATCHCUTS_STORAGE_ACCESS_KEY_ID: ${{ secrets.MATCHCUTS_STORAGE_ACCESS_KEY_ID }}
+      MATCHCUTS_STORAGE_SECRET_ACCESS_KEY: ${{ secrets.MATCHCUTS_STORAGE_SECRET_ACCESS_KEY }}
+      MATCHCUTS_STORAGE_SESSION_TOKEN: ${{ secrets.MATCHCUTS_STORAGE_SESSION_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f package-lock.json ]]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Environment readiness
+        run: npm run env:check
+
+      - name: Staging readiness
+        run: npm run staging:check
+
+      - name: Provider-neutral deploy guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${SHORTSENGINE_STAGING_DEPLOY_PROVIDER}" == "none" ]]; then
+            echo "::notice title=Staging deploy not configured::Readiness checks passed. Configure the staging GitHub Environment and provider deploy step before real deploy."
+            exit 0
+          fi
+          echo "::error title=Provider deploy step is not implemented::Configured staging providers must add an explicit provider deploy step before this workflow can deploy."
+          exit 1
+
+      - name: Deployed staging smoke
+        if: env.SHORTSENGINE_STAGING_URL != ''
+        run: npm run staging:smoke

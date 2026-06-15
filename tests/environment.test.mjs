@@ -16,6 +16,8 @@ import { buildReleaseEvidence } from "../tools/release/write-release-evidence.mj
 const ENV_DOCS = readFileSync("docs/ENVIRONMENT.md", "utf8");
 const ENV_EXAMPLE = readFileSync(".env.example", "utf8");
 const WORKFLOW = readFileSync(".github/workflows/ci.yml", "utf8");
+const STAGING_DOCS = readFileSync("docs/STAGING_DEPLOYMENT.md", "utf8");
+const STAGING_WORKFLOW = readFileSync(".github/workflows/staging.yml", "utf8");
 const PACKAGE_JSON = JSON.parse(readFileSync("package.json", "utf8"));
 
 function safeOptions(env = {}) {
@@ -81,6 +83,8 @@ function validReportOptions() {
     exampleText: ENV_EXAMPLE,
     packageJson: PACKAGE_JSON,
     workflowText: WORKFLOW,
+    stagingDocsText: STAGING_DOCS,
+    stagingWorkflowText: STAGING_WORKFLOW,
     demoResultsDir: reportDirs.demoResultsDir,
     evalResultsDir: reportDirs.evalResultsDir,
     maxAgeMs: 60_000,

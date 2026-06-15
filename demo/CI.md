@@ -19,6 +19,7 @@ npm run demo:fixture
 ```bash
 npm run lint
 npm run env:check
+npm run staging:check
 npm run build
 npm test
 npm run eval
@@ -31,7 +32,7 @@ npm run ci:reports
 npm run release:check
 ```
 
-`demo:browser:ci` runs the same real Chromium flow as `demo:browser:e2e`. `env:check` validates staging-safe environment defaults without requiring secrets. `ci:reports` validates the latest demo, browser, Playwright and eval reports before the gate can pass. `release:check` verifies the CI workflow contract, artifact allowlist, env readiness and report gate as release evidence.
+`demo:browser:ci` runs the same real Chromium flow as `demo:browser:e2e`. `env:check` validates staging-safe environment defaults without requiring secrets. `staging:check` validates the provider-neutral staging workflow, GitHub Environment contract and deployed-smoke defaults without requiring a staging URL. `ci:reports` validates the latest demo, browser, Playwright and eval reports before the gate can pass. `release:check` verifies the CI workflow contract, artifact allowlist, env readiness, staging readiness and report gate as release evidence.
 
 The GitHub Actions release gate uses `npm ci` when `package-lock.json` is present, installs Playwright Chromium with `npm run demo:browser:install`, then runs every command above. Real cloud integration stays out of the default gate and remains opt-in through its dedicated script/env flags.
 
@@ -94,3 +95,5 @@ Cleanup only targets managed Playwright files under `demo/results/` and `demo/re
 Start with `demo/results/playwright-latest.json` for browser failures, `demo/results/latest.json` for API demo failures, and `eval/results/latest.json` for quality regressions. Each report uses safe relative paths and structured failure codes. Enable trace/video only for temporary debugging by setting `SHORTSENGINE_BROWSER_E2E_TRACE=1` or `SHORTSENGINE_BROWSER_E2E_VIDEO=1`; keep them off in the default release gate unless actively investigating a failure.
 
 See `docs/RELEASE.md` for the branch protection checklist and release evidence contract.
+
+For staging deployment wiring, see `docs/STAGING_DEPLOYMENT.md`. The staging workflow uses the GitHub Environment `staging`, runs `npm run staging:check`, and runs `npm run staging:smoke` only when `SHORTSENGINE_STAGING_URL` is configured.
