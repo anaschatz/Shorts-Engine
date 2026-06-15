@@ -49,3 +49,4 @@ Checklist:
 - Use `render:manual` and `render:proof` for live staging setup evidence before adding real GitHub Environment secrets.
 - Bound provider deploy response bodies before parsing and expose only sanitized provider status metadata.
 - Keep full staging upload/render smoke manual and opt-in; bound fixture, polling, response and download sizes before reporting.
+- For staging smoke cleanup, require source markers plus ownership-chain validation, keep dry-run as the default, and never delete active job artifacts or non-smoke records.

@@ -1,4 +1,5 @@
 const { AppError, SAFE_MESSAGES } = require("../errors.cjs");
+const { normalizeSmokeSource } = require("../staging-smoke-metadata.cjs");
 const { LocalArtifactStore } = require("../storage/artifact-store.cjs");
 const { jsonClone, nowIso, sanitizeText, validateResourceId } = require("./ids.cjs");
 
@@ -68,6 +69,7 @@ function normalizeUpload(record = {}, options = {}) {
     byteSize,
     checksumSha256: sanitizeText(record.checksumSha256 || "", 128),
     metadata: normalizeMetadata(record.metadata),
+    source: normalizeSmokeSource(record.source),
     createdAt,
   };
 }
@@ -114,6 +116,7 @@ class InMemoryUploadRepository {
       byteSize: upload.byteSize,
       mimeType: upload.mimeType,
       metadata: jsonClone(upload.metadata),
+      source: upload.source,
       artifact: {
         id: upload.artifact.id,
         type: upload.artifact.type,

@@ -109,6 +109,9 @@ The command prints a safe JSON readiness summary. It fails closed for invalid nu
 | `SHORTSENGINE_STAGING_FULL_SMOKE_DOWNLOAD_MAX_BYTES` | No | `83886080` | integer `1024..536870912` | No | Keep bounded for staging exports. | Oversized downloads fail full smoke. |
 | `SHORTSENGINE_STAGING_FULL_SMOKE_FIXTURE_MAX_BYTES` | No | `33554432` | integer `1024..262144000` | No | Keep fixture small. | Oversized fixtures fail full smoke. |
 | `SHORTSENGINE_STAGING_FULL_SMOKE_ALLOW_DEGRADED` | No | `0` | boolean | No | Use only when health is degraded but FFmpeg/FFprobe are ready and the degradation is understood. | Degraded health fails full smoke by default. |
+| `SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP` | No | `0` | explicit `1` to delete | No | Keep unset for dry-run cleanup. | Real cleanup is disabled unless exactly `1`. |
+| `SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP_MAX_AGE_SECONDS` | No | `0` | integer `0..31536000` | No | Use `0` for immediate manual smoke cleanup or raise it for retention. | Invalid max age fails cleanup. |
+| `SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP_MAX_COUNT` | No | `20` | integer `1..1000` | No | Keep bounded per run. | Invalid max count fails cleanup. |
 
 ## Browser/demo/CI flags
 
@@ -138,10 +141,12 @@ The command prints a safe JSON readiness summary. It fails closed for invalid nu
 9. Check `GET /health` and require `status: "ready"` unless a documented degraded dependency is expected.
 10. Run deployed smoke with `SHORTSENGINE_STAGING_URL=... npm run staging:smoke`.
 11. Run opt-in full smoke only when intentional: `SHORTSENGINE_STAGING_FULL_SMOKE=1 SHORTSENGINE_STAGING_URL=... npm run staging:smoke:full`.
-12. Run `npm run demo:fixture`, `npm run demo:smoke`, `npm run demo:browser`, and `npm run demo:browser:ci`.
-13. Run `npm run ci:reports` and `npm run release:evidence`.
-14. Inspect failure-only artifacts only if a gate fails.
-15. Configure GitHub branch protection as documented in `docs/RELEASE.md` and GitHub Environment protection as documented in `docs/STAGING_DEPLOYMENT.md`.
+12. Run cleanup dry-run after full smoke: `npm run staging:smoke:cleanup`.
+13. Run explicit smoke cleanup only when intended: `SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP=1 npm run staging:smoke:cleanup`.
+14. Run `npm run demo:fixture`, `npm run demo:smoke`, `npm run demo:browser`, and `npm run demo:browser:ci`.
+15. Run `npm run ci:reports` and `npm run release:evidence`.
+16. Inspect failure-only artifacts only if a gate fails.
+17. Configure GitHub branch protection as documented in `docs/RELEASE.md` and GitHub Environment protection as documented in `docs/STAGING_DEPLOYMENT.md`.
 
 ## Render Staging Runtime
 

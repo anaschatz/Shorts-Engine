@@ -12,6 +12,7 @@ const { randomUUID } = require("node:crypto");
 const { dirname, extname, isAbsolute } = require("node:path");
 const { pipeline } = require("node:stream/promises");
 const { AppError, SAFE_MESSAGES } = require("../errors.cjs");
+const { normalizeSmokeSource } = require("../staging-smoke-metadata.cjs");
 const { assertStoragePath, storagePath } = require("../storage.cjs");
 
 const ARTIFACT_TYPES = Object.freeze([
@@ -142,6 +143,14 @@ function validateOptionalChecksum(value) {
   return safe.toLowerCase();
 }
 
+function assertMarkedArtifact(artifact, source) {
+  const expectedSource = normalizeSmokeSource(source);
+  if (!expectedSource || normalizeSmokeSource(artifact.source) !== expectedSource) {
+    throw new AppError("ARTIFACT_DELETE_FORBIDDEN", SAFE_MESSAGES.ARTIFACT_DELETE_FORBIDDEN, 403);
+  }
+  return artifact;
+}
+
 function defaultArtifactId(type, storageKey) {
   return `${type}_${storageKey.replace(/[^A-Za-z0-9-]/g, "-").slice(0, 80)}`;
 }
@@ -227,6 +236,7 @@ class LocalArtifactStore {
       size: normalizeOptionalSize(input.size),
       contentType: validateArtifactContentType(input.contentType, type),
       checksumSha256: validateOptionalChecksum(input.checksumSha256),
+      source: normalizeSmokeSource(input.source),
       status: validateArtifactStatus(input.status),
       createdAt,
       updatedAt: input.updatedAt || createdAt,
@@ -442,6 +452,16 @@ class LocalArtifactStore {
       unlinkSync(this.resolve(artifact));
     } catch {
       // Best-effort cleanup of temporary render artifacts.
+    }
+    return this.createRecord({ ...artifact, status: "deleted", updatedAt: this.clock() });
+  }
+
+  deleteMarkedArtifact(record, options = {}) {
+    const artifact = assertMarkedArtifact(this.createRecord(record), options.source);
+    try {
+      unlinkSync(this.resolve(artifact));
+    } catch {
+      // Smoke cleanup is best-effort at the storage layer; repository state records the outcome.
     }
     return this.createRecord({ ...artifact, status: "deleted", updatedAt: this.clock() });
   }

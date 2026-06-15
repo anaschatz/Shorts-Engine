@@ -1,4 +1,5 @@
 const { AppError, SAFE_MESSAGES } = require("../errors.cjs");
+const { normalizeSmokeSource } = require("../staging-smoke-metadata.cjs");
 const { jsonClone, nowIso, sanitizeText, validateResourceId } = require("./ids.cjs");
 
 const PROJECT_STATUSES = Object.freeze(["draft", "processing", "ready", "failed", "cancelled"]);
@@ -16,6 +17,7 @@ function normalizeProject(record = {}) {
     uploadId,
     title: sanitizeText(record.title || "ShortsEngine Short", 120),
     status,
+    source: normalizeSmokeSource(record.source),
     createdAt,
     updatedAt: record.updatedAt || createdAt,
   };

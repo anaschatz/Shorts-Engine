@@ -1,4 +1,5 @@
 const { AppError, SAFE_MESSAGES } = require("../errors.cjs");
+const { normalizeSmokeSource } = require("../staging-smoke-metadata.cjs");
 const { DOWNLOAD_ARTIFACT_TYPES, LocalArtifactStore } = require("../storage/artifact-store.cjs");
 const { jsonClone, nowIso, sanitizeText, validateResourceId } = require("./ids.cjs");
 
@@ -86,6 +87,7 @@ function normalizeExport(record = {}, options = {}) {
     outputPath,
     fileName: sanitizeText(record.fileName || `${projectId}-short.mp4`, 180),
     status,
+    source: normalizeSmokeSource(record.source || artifact.source),
     createdAt,
   };
 }
@@ -226,6 +228,7 @@ class InMemoryExportRepository {
       status: safe.artifact.status,
       size: safe.artifact.size,
       contentType: safe.artifact.contentType,
+      source: safe.artifact.source,
       createdAt: safe.artifact.createdAt,
     };
     return safe;

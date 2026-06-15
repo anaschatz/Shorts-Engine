@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { createMultipartBody } from "../../demo/run-smoke.mjs";
 import { findSensitiveLeak } from "../../demo/report-safety.mjs";
+import stagingSmokeMetadata from "../../server/staging-smoke-metadata.cjs";
 import {
   DEFAULT_FIXTURE_PATH,
   ROOT_DIR,
@@ -19,6 +20,10 @@ import {
 } from "./check-staging-smoke.mjs";
 
 const FULL_SMOKE_FLAG = "SHORTSENGINE_STAGING_FULL_SMOKE";
+const {
+  STAGING_FULL_SMOKE_IDEMPOTENCY_PREFIX,
+  STAGING_FULL_SMOKE_SOURCE,
+} = stagingSmokeMetadata;
 const DEFAULT_FULL_TIMEOUT_MS = 120_000;
 const DEFAULT_JOB_TIMEOUT_MS = 90_000;
 const DEFAULT_POLL_INTERVAL_MS = 750;
@@ -227,6 +232,7 @@ function validateHealthForFullSmoke(payload, env = {}) {
 async function uploadFixture({ baseUrl, fetchImpl, fixture }) {
   const multipart = createMultipartBody([
     { name: "title", value: "ShortsEngine Staging Full Smoke" },
+    { name: "source", value: STAGING_FULL_SMOKE_SOURCE },
     {
       name: "video",
       fileName: fixture.public.fileName,
@@ -260,8 +266,9 @@ async function startGenerate({ baseUrl, fetchImpl, projectId, nowMs }) {
       title: "ShortsEngine Staging Full Smoke",
       preset: "hype",
       language: "English",
+      source: STAGING_FULL_SMOKE_SOURCE,
       rightsConfirmed: true,
-      idempotencyKey: `staging_full_${nowMs}`,
+      idempotencyKey: `${STAGING_FULL_SMOKE_IDEMPOTENCY_PREFIX}${nowMs}`,
     }),
   });
   const data = assertApiOk(response, "STAGING_FULL_GENERATE_FAILED", "Full staging smoke generate request failed.");
@@ -389,6 +396,12 @@ async function runStagingFullSmoke(options = {}) {
       sizeBytes: download.sizeBytes,
       sha256: download.sha256,
     },
+    cleanup: {
+      source: STAGING_FULL_SMOKE_SOURCE,
+      idempotencyPrefix: STAGING_FULL_SMOKE_IDEMPOTENCY_PREFIX,
+      dryRunCommand: "npm run staging:smoke:cleanup",
+      explicitCleanupFlag: "SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP=1",
+    },
     bounds: {
       timeoutMs,
       jobTimeoutMs,
@@ -432,6 +445,8 @@ export {
   DEFAULT_POLL_INTERVAL_MS,
   FULL_SMOKE_FLAG,
   StagingFullSmokeError,
+  STAGING_FULL_SMOKE_IDEMPOTENCY_PREFIX,
+  STAGING_FULL_SMOKE_SOURCE,
   downloadExport,
   runStagingFullSmoke,
   safeError,

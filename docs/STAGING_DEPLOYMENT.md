@@ -234,7 +234,9 @@ Remote staging proof:
 SHORTSENGINE_STAGING_FULL_SMOKE=1 SHORTSENGINE_STAGING_URL=https://your-render-staging-host.example npm run staging:smoke:full
 ```
 
-Full smoke is not part of the default CI/release gate because it uploads media, creates a render job and leaves a completed staging export unless a separate cleanup policy is added.
+Full smoke is not part of the default CI/release gate because it uploads media, creates a render job and leaves a completed staging export until the manual cleanup lifecycle is run.
+
+Each full smoke request marks created project, upload, job, artifact and export records with the safe source marker `staging-full-smoke` plus a `staging_full_` idempotency prefix. Cleanup must use those markers and ownership links; titles and filenames are not enough.
 
 Durability interpretation:
 
@@ -242,6 +244,45 @@ Durability interpretation:
 - `durable-capable`: object storage plus database-backed persistence are reported as configured capabilities.
 
 Do not claim production durability from a Render local filesystem proof. Use object storage and database-backed persistence before relying on deployed staging artifacts across restarts.
+
+## Full Staging Smoke Cleanup
+
+`npm run staging:smoke:cleanup` is the manual cleanup lifecycle for artifacts created by `staging:smoke:full`.
+
+Dry-run is the default:
+
+```bash
+npm run staging:smoke:cleanup
+```
+
+Real cleanup requires the explicit delete flag:
+
+```bash
+SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP=1 npm run staging:smoke:cleanup
+```
+
+The cleanup runner scans only records with the `staging-full-smoke` source marker and a validated ownership chain:
+
+- project -> upload
+- upload -> upload artifact
+- job with `staging_full_` idempotency prefix
+- export -> marked export/render artifact
+
+It always protects:
+
+- non-smoke uploads, renders and exports
+- active queued or processing jobs
+- records without the smoke marker
+- records without a valid project/upload/job/export ownership chain
+
+Cleanup output is a sanitized summary with counts only: scanned, eligible, deleted, skipped active, skipped young, skipped unmarked and errors. It must not include storage keys, signed tokens, local paths, provider raw errors or record IDs.
+
+Bounds:
+
+- `SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP_MAX_AGE_SECONDS` defaults to `0`
+- `SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP_MAX_COUNT` defaults to `20`
+
+The cleanup command is not part of default CI because it can delete staging smoke artifacts. Run it manually after reviewing dry-run output.
 
 ## Status Meaning
 
@@ -269,6 +310,7 @@ If GitHub Actions reports a failed staging run:
 - `STAGING_FULL_SMOKE_DISABLED`: set `SHORTSENGINE_STAGING_FULL_SMOKE=1` only when intentionally running full upload/render smoke.
 - `STAGING_FULL_JOB_TIMEOUT`: the render job did not reach a terminal state inside the bounded full smoke timeout.
 - `STAGING_FULL_DOWNLOAD_SIGNATURE_INVALID`: the completed export was not a valid MP4 response.
+- `STAGING_FULL_CLEANUP_FLAG_INVALID`: cleanup deletion requires `SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP=1`; other truthy values are rejected.
 - smoke failure after deploy: open `/health` on the Render URL and verify FFmpeg, storage, repositories, adapters, transcription and analysis readiness.
 
 ## Local Commands

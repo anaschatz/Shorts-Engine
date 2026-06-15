@@ -874,6 +874,17 @@ class S3CompatibleArtifactAdapter {
     return this.createArtifactRecord({ ...artifact, status: "deleted", updatedAt: this.clock() });
   }
 
+  deleteMarkedArtifact(record, options = {}) {
+    const artifact = this.createArtifactRecord(record);
+    this.validator.deleteMarkedArtifact(artifact, { source: options.source });
+    try {
+      this.client.deleteObject(artifact.storageKey);
+    } catch {
+      // Best-effort cleanup of explicitly marked staging smoke artifacts.
+    }
+    return this.createArtifactRecord({ ...artifact, status: "deleted", updatedAt: this.clock() });
+  }
+
   pruneSignedTokens(nowMs = Date.now()) {
     const safeNowMs = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
     for (const [token, entry] of this.signedTokens.entries()) {

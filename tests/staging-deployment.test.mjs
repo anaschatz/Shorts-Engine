@@ -25,6 +25,11 @@ import {
   validateFixturePath,
 } from "../tools/release/check-staging-full-smoke.mjs";
 import {
+  STAGING_FULL_SMOKE_SOURCE,
+  runStagingFullSmokeCleanup,
+  safeError as safeCleanupError,
+} from "../tools/release/cleanup-staging-full-smoke.mjs";
+import {
   MAX_RENDER_DEPLOY_RESPONSE_BYTES,
   runStagingDeploy,
   safeError as safeDeployError,
@@ -179,6 +184,131 @@ function createFullSmokeFetch(options = {}) {
       status: 404,
       headers: { "content-type": "application/json" },
     });
+  };
+}
+
+function repository(records = []) {
+  const rows = new Map(records.map((record) => [record.id, record]));
+  return {
+    records: rows,
+    all: () => [...rows.values()],
+    delete: (id) => rows.delete(id),
+    markDeleted: (id) => {
+      const current = rows.get(id);
+      if (!current) return null;
+      current.status = "deleted";
+      return current;
+    },
+  };
+}
+
+function smokeCleanupState(options = {}) {
+  const createdAt = options.createdAt || "2026-06-14T19:30:00.000Z";
+  const status = options.status || "completed";
+  const source = options.missingSource ? null : STAGING_FULL_SMOKE_SOURCE;
+  const project = {
+    id: "prj_cleanupfull1",
+    uploadId: "upl_cleanupfull1",
+    title: "ShortsEngine Staging Full Smoke",
+    status: "ready",
+    source,
+    createdAt,
+    updatedAt: createdAt,
+  };
+  const uploadArtifact = {
+    id: "upl_cleanupfull1",
+    type: "upload",
+    ownerProjectId: project.id,
+    storageKey: "redacted-upload.mp4",
+    status: "available",
+    source,
+    createdAt,
+    updatedAt: createdAt,
+  };
+  const upload = {
+    id: "upl_cleanupfull1",
+    projectId: project.id,
+    artifact: uploadArtifact,
+    source,
+    createdAt,
+  };
+  const job = {
+    id: "job_cleanupfull1",
+    projectId: project.id,
+    uploadId: upload.id,
+    exportId: "exp_cleanupfull1",
+    status,
+    idempotencyKey: "staging_full_1800000000000",
+    payload: { source: STAGING_FULL_SMOKE_SOURCE, title: "ShortsEngine Staging Full Smoke", preset: "hype", language: "English" },
+    createdAt,
+    updatedAt: createdAt,
+  };
+  const exportArtifact = {
+    id: "exp_cleanupfull1",
+    type: "export",
+    ownerProjectId: project.id,
+    ownerJobId: job.id,
+    storageKey: "redacted-export.mp4",
+    status: "available",
+    source,
+    createdAt,
+    updatedAt: createdAt,
+  };
+  const exportRecord = {
+    id: "exp_cleanupfull1",
+    projectId: project.id,
+    jobId: job.id,
+    artifact: exportArtifact,
+    source,
+    createdAt,
+  };
+  const renderedArtifact = {
+    id: "rendered_video_cleanupfull1",
+    type: "rendered_video",
+    ownerProjectId: project.id,
+    ownerJobId: job.id,
+    storageKey: "redacted-render.mp4",
+    status: "available",
+    source,
+    createdAt,
+    updatedAt: createdAt,
+  };
+  const nonSmokeProject = {
+    id: "prj_regularuser1",
+    uploadId: "upl_regularuser1",
+    title: "User Upload",
+    status: "ready",
+    source: null,
+    createdAt,
+    updatedAt: createdAt,
+  };
+  const nonSmokeArtifact = {
+    id: "exp_regularuser1",
+    type: "export",
+    ownerProjectId: nonSmokeProject.id,
+    ownerJobId: "job_regularuser1",
+    storageKey: "protected-user-export.mp4",
+    status: "available",
+    source: null,
+    createdAt,
+    updatedAt: createdAt,
+  };
+  const deletedArtifacts = [];
+  const artifactStore = {
+    deleteMarkedArtifact: (artifact, deleteOptions = {}) => {
+      if (artifact.source !== deleteOptions.source) throw new Error("forbidden");
+      deletedArtifacts.push(artifact.id);
+      return { ...artifact, status: "deleted" };
+    },
+  };
+  return {
+    deletedArtifacts,
+    artifactStore,
+    projectRepository: repository([project, nonSmokeProject]),
+    uploadRepository: repository([upload]),
+    exportRepository: repository([exportRecord]),
+    artifactRepository: repository([uploadArtifact, exportArtifact, renderedArtifact, nonSmokeArtifact]),
+    jobRecords: [job],
   };
 }
 
@@ -718,6 +848,8 @@ test("full staging smoke completes upload generate job export and download", asy
   assert.equal(summary.flow.exportDownloadable, true);
   assert.equal(summary.flow.pollCount, 2);
   assert.equal(summary.export.contentType, "video/mp4");
+  assert.equal(summary.cleanup.source, STAGING_FULL_SMOKE_SOURCE);
+  assert.equal(summary.cleanup.explicitCleanupFlag, "SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP=1");
   assert.equal(summary.health.durabilityMode, "ephemeral-staging");
   assert.equal(findSensitiveLeak(summary), null);
 });
@@ -791,6 +923,103 @@ test("full staging smoke validates export download content type and MP4 signatur
     fetchImpl: createFullSmokeFetch({ downloadBody: Buffer.from("not-an-mp4") }),
   }).catch((caught) => caught);
   assert.equal(safeFullSmokeError(wrongSignature).code, "STAGING_FULL_DOWNLOAD_SIGNATURE_INVALID");
+});
+
+test("full staging smoke cleanup is dry-run by default and reports safely", async () => {
+  const state = smokeCleanupState();
+  const summary = await runStagingFullSmokeCleanup({
+    ...state,
+    env: {},
+    nowMs: Date.parse("2026-06-16T19:30:00.000Z"),
+  });
+
+  assert.equal(summary.ok, true);
+  assert.equal(summary.dryRun, true);
+  assert.equal(summary.cleanupEnabled, false);
+  assert.equal(summary.eligible, 1);
+  assert.equal(summary.deleted, 0);
+  assert.equal(state.deletedArtifacts.length, 0);
+  assert.equal(state.projectRepository.records.has("prj_cleanupfull1"), true);
+  assert.equal(findSensitiveLeak(summary), null);
+  assert.doesNotMatch(JSON.stringify(summary), /storageKey|redacted-export|\/Users|\/private/);
+});
+
+test("full staging smoke cleanup requires explicit numeric delete flag", async () => {
+  const error = await runStagingFullSmokeCleanup({
+    ...smokeCleanupState(),
+    env: { SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP: "true" },
+    nowMs: Date.parse("2026-06-16T19:30:00.000Z"),
+  }).catch((caught) => caught);
+  const safe = safeCleanupError(error);
+
+  assert.equal(safe.code, "STAGING_FULL_CLEANUP_FLAG_INVALID");
+  assert.equal(findSensitiveLeak(safe), null);
+});
+
+test("full staging smoke cleanup deletes only smoke-marked ownership chains", async () => {
+  const state = smokeCleanupState();
+  const summary = await runStagingFullSmokeCleanup({
+    ...state,
+    env: { SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP: "1" },
+    nowMs: Date.parse("2026-06-16T19:30:00.000Z"),
+  });
+
+  assert.equal(summary.dryRun, false);
+  assert.equal(summary.eligible, 1);
+  assert.equal(summary.deletedArtifacts, 3);
+  assert.equal(state.deletedArtifacts.sort().join(","), "exp_cleanupfull1,rendered_video_cleanupfull1,upl_cleanupfull1");
+  assert.equal(state.projectRepository.records.has("prj_cleanupfull1"), false);
+  assert.equal(state.projectRepository.records.has("prj_regularuser1"), true);
+  assert.equal(state.artifactRepository.records.get("exp_regularuser1").status, "available");
+  assert.equal(findSensitiveLeak(summary), null);
+});
+
+test("full staging smoke cleanup protects active jobs", async () => {
+  const state = smokeCleanupState({ status: "processing" });
+  const summary = await runStagingFullSmokeCleanup({
+    ...state,
+    env: { SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP: "1" },
+    nowMs: Date.parse("2026-06-16T19:30:00.000Z"),
+  });
+
+  assert.equal(summary.eligible, 0);
+  assert.equal(summary.skippedActive, 1);
+  assert.equal(summary.deleted, 0);
+  assert.equal(state.deletedArtifacts.length, 0);
+  assert.equal(state.projectRepository.records.has("prj_cleanupfull1"), true);
+});
+
+test("full staging smoke cleanup ignores missing markers and respects max-age max-count bounds", async () => {
+  const missingMarker = await runStagingFullSmokeCleanup({
+    ...smokeCleanupState({ missingSource: true }),
+    env: { SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP: "1" },
+    nowMs: Date.parse("2026-06-16T19:30:00.000Z"),
+  });
+  assert.equal(missingMarker.eligible, 0);
+  assert.equal(missingMarker.skippedUnmarked, 2);
+  assert.equal(missingMarker.deleted, 0);
+
+  const young = await runStagingFullSmokeCleanup({
+    ...smokeCleanupState({ createdAt: "2026-06-16T19:29:59.000Z" }),
+    env: {
+      SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP: "1",
+      SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP_MAX_AGE_SECONDS: "60",
+    },
+    nowMs: Date.parse("2026-06-16T19:30:00.000Z"),
+  });
+  assert.equal(young.eligible, 0);
+  assert.equal(young.skippedYoung, 1);
+
+  const bounded = await runStagingFullSmokeCleanup({
+    ...smokeCleanupState(),
+    env: {
+      SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP: "1",
+      SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP_MAX_COUNT: "1",
+    },
+    nowMs: Date.parse("2026-06-16T19:30:00.000Z"),
+  });
+  assert.equal(bounded.bounds.maxCount, 1);
+  assert.equal(bounded.eligible, 1);
 });
 
 test("release evidence includes staging readiness safely", () => {

@@ -40,6 +40,8 @@ npm run release:evidence
 
 `npm run staging:smoke:full` is intentionally not part of the default release gate. Run it manually only with `SHORTSENGINE_STAGING_FULL_SMOKE=1` after health smoke is stable, because it uploads the fixture, creates a render job, waits for completion and downloads the resulting MP4.
 
+`npm run staging:smoke:cleanup` is also intentionally outside the default release gate. It is dry-run by default, and real deletion requires `SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP=1`.
+
 ## Branch Protection Checklist
 
 Enable these settings in GitHub manually:
@@ -94,6 +96,13 @@ SHORTSENGINE_STAGING_FULL_SMOKE=1 SHORTSENGINE_STAGING_URL=https://your-staging-
 
 For local proof, add `SHORTSENGINE_STAGING_ALLOW_LOCAL_URL=1` and point `SHORTSENGINE_STAGING_URL` at the local server.
 
+Review and clean up smoke artifacts manually:
+
+```bash
+npm run staging:smoke:cleanup
+SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP=1 npm run staging:smoke:cleanup
+```
+
 ## Failure Artifacts
 
 GitHub Actions uploads diagnostics only when the release gate fails:
@@ -111,3 +120,5 @@ Passing runs should not upload reports or browser artifacts. Playwright trace/vi
 Real cloud integration remains opt-in and must not run in the default CI release gate. Use the dedicated integration command only with explicit credentials and environment flags.
 
 Full staging upload/render smoke also remains opt-in and must not run in default CI. It is a manual proof step for staging environments with known storage and persistence behavior.
+
+Full staging smoke cleanup remains opt-in and dry-run by default. It must not run in default CI because deletion should follow a reviewed staging proof.

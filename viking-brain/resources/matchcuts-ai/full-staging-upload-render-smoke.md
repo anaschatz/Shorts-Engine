@@ -25,8 +25,9 @@ Safety contract:
 - Bound fixture size, JSON response size, polling timeout and download size.
 - Do not write raw response bodies, signed download tokens, storage keys, service ids or local paths into summaries.
 - Label storage/persistence proof as `ephemeral-staging` unless object storage and database-backed persistence are both present.
+- Mark resources with `source: staging-full-smoke` and the `staging_full_` idempotency prefix so manual cleanup can identify them safely.
 
 Limitations:
 
-- Full smoke creates a real staging job/export and does not clean it up until an explicit cleanup policy exists.
+- Full smoke creates a real staging job/export and cleanup remains a separate manual command.
 - Render local filesystem proof is not production durability.

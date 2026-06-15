@@ -31,6 +31,7 @@
     "render:proof": "node tools/release/render-staging-proof.mjs",
     "staging:check": "node tools/release/check-staging-readiness.mjs",
     "staging:deploy": "node tools/release/staging-deploy.mjs",
+    "staging:smoke:cleanup": "node tools/release/cleanup-staging-full-smoke.mjs",
     "staging:smoke:full": "node tools/release/check-staging-full-smoke.mjs",
     "staging:smoke": "node tools/release/check-staging-smoke.mjs",
     "start": "node server/app.cjs",

@@ -147,6 +147,10 @@ class LocalArtifactAdapter {
     return this.store.deleteTempArtifact(record);
   }
 
+  deleteMarkedArtifact(record, options) {
+    return this.store.deleteMarkedArtifact(record, options);
+  }
+
   createSignedDownloadUrl(record, options) {
     return this.store.createSignedDownloadUrl(record, options);
   }

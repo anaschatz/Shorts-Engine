@@ -34,6 +34,7 @@ const ARTIFACT_ADAPTER_METHODS = Object.freeze([
   "cleanupArtifactsByPolicy",
   "deleteStagingArtifact",
   "deleteTempArtifact",
+  "deleteMarkedArtifact",
   "health",
 ]);
 

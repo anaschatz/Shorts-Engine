@@ -21,7 +21,7 @@ try {
 
 const SQLITE_AVAILABLE = Boolean(DatabaseSync);
 
-const LATEST_SCHEMA_VERSION = 1;
+const LATEST_SCHEMA_VERSION = 2;
 const MIGRATIONS = Object.freeze([
   {
     version: 1,
@@ -113,6 +113,15 @@ const MIGRATIONS = Object.freeze([
         createdAt TEXT NOT NULL,
         updatedAt TEXT NOT NULL
       );
+    `,
+  },
+  {
+    version: 2,
+    name: "smoke_source_markers",
+    sql: `
+      ALTER TABLE projects ADD COLUMN source TEXT;
+      ALTER TABLE uploads ADD COLUMN source TEXT;
+      ALTER TABLE exports ADD COLUMN source TEXT;
     `,
   },
 ]);
@@ -293,6 +302,7 @@ class SQLitePersistenceAdapter {
       save: (record) => this.createProject(record),
       get: (projectId) => this.getProject(projectId),
       update: (projectId, patch) => this.updateProject(projectId, patch),
+      delete: (projectId) => this.deleteProject(projectId),
       all: () => [...this.projectRows.values()],
       publicProject: (project) => this.publicProject(project),
       health: () => this.projectHealth(),
@@ -309,6 +319,7 @@ class SQLitePersistenceAdapter {
         const safeProjectId = validateResourceId(projectId, "prj");
         return this.allUploads().find((upload) => upload.projectId === safeProjectId) || null;
       },
+      delete: (uploadId) => this.deleteUpload(uploadId),
       all: () => this.allUploads(),
       publicUpload: (upload) => this.publicUpload(upload),
       health: () => this.repositoryHealth("uploads"),
@@ -344,6 +355,7 @@ class SQLitePersistenceAdapter {
         }
       },
       get: (exportId) => this.getExport(exportId),
+      delete: (exportId) => this.deleteExport(exportId),
       all: () => this.allExports(),
       publicExport: (exportRecord) => this.publicExport(exportRecord),
       getDownloadDescriptor: (exportRecord, options) => this.getExportDownloadDescriptor(exportRecord, options),
@@ -355,11 +367,11 @@ class SQLitePersistenceAdapter {
 
   upsertProject(project) {
     this.prepare(
-      `INSERT INTO projects (id, uploadId, title, status, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO projects (id, uploadId, title, status, source, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET uploadId = excluded.uploadId, title = excluded.title,
-       status = excluded.status, createdAt = excluded.createdAt, updatedAt = excluded.updatedAt`,
-    ).run(project.id, project.uploadId, project.title, project.status, project.createdAt, project.updatedAt);
+       status = excluded.status, source = excluded.source, createdAt = excluded.createdAt, updatedAt = excluded.updatedAt`,
+    ).run(project.id, project.uploadId, project.title, project.status, project.source, project.createdAt, project.updatedAt);
     this.projectRows.set(project.id, project);
     return project;
   }
@@ -385,6 +397,13 @@ class SQLitePersistenceAdapter {
     return this.upsertProject(normalizeProject({ ...current, ...patch, id: current.id, updatedAt: nowIso() }));
   }
 
+  deleteProject(projectId) {
+    const safeProjectId = validateResourceId(projectId, "prj");
+    const result = this.prepare("DELETE FROM projects WHERE id = ?").run(safeProjectId);
+    this.projectRows.delete(safeProjectId);
+    return Number(result && result.changes ? result.changes : 0) > 0;
+  }
+
   publicProject(project) {
     return project ? jsonClone(normalizeProject(project)) : null;
   }
@@ -394,13 +413,13 @@ class SQLitePersistenceAdapter {
     this.prepare(
       `INSERT INTO uploads (
         id, projectId, artifactJson, storageKey, path, originalFilename, mimeType,
-        extension, container, byteSize, checksumSha256, metadataJson, createdAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        extension, container, byteSize, checksumSha256, metadataJson, source, createdAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET projectId = excluded.projectId, artifactJson = excluded.artifactJson,
       storageKey = excluded.storageKey, path = excluded.path, originalFilename = excluded.originalFilename,
       mimeType = excluded.mimeType, extension = excluded.extension, container = excluded.container,
       byteSize = excluded.byteSize, checksumSha256 = excluded.checksumSha256,
-      metadataJson = excluded.metadataJson, createdAt = excluded.createdAt`,
+      metadataJson = excluded.metadataJson, source = excluded.source, createdAt = excluded.createdAt`,
     ).run(
       upload.id,
       upload.projectId,
@@ -414,6 +433,7 @@ class SQLitePersistenceAdapter {
       upload.byteSize,
       upload.checksumSha256,
       stringifyRecord(upload.metadata),
+      upload.source,
       upload.createdAt,
     );
     this.uploadRows.set(upload.id, upload);
@@ -435,6 +455,7 @@ class SQLitePersistenceAdapter {
       byteSize: row.byteSize,
       checksumSha256: row.checksumSha256,
       metadata: safeJsonParse(row.metadataJson, {}),
+      source: row.source,
       createdAt: row.createdAt,
     }, { artifactStore: this.artifactAdapter });
     this.uploadRows.set(upload.id, upload);
@@ -444,6 +465,13 @@ class SQLitePersistenceAdapter {
   getUpload(uploadId) {
     const safeUploadId = validateResourceId(uploadId, "upl");
     return this.uploadFromRow(this.prepare("SELECT * FROM uploads WHERE id = ?").get(safeUploadId));
+  }
+
+  deleteUpload(uploadId) {
+    const safeUploadId = validateResourceId(uploadId, "upl");
+    const result = this.prepare("DELETE FROM uploads WHERE id = ?").run(safeUploadId);
+    this.uploadRows.delete(safeUploadId);
+    return Number(result && result.changes ? result.changes : 0) > 0;
   }
 
   allUploads() {
@@ -567,11 +595,11 @@ class SQLitePersistenceAdapter {
   createExport(record) {
     const exportRecord = this.exportView.create(record);
     this.prepare(
-      `INSERT INTO exports (id, projectId, jobId, artifactJson, storageKey, outputPath, fileName, status, createdAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO exports (id, projectId, jobId, artifactJson, storageKey, outputPath, fileName, status, source, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET projectId = excluded.projectId, jobId = excluded.jobId,
        artifactJson = excluded.artifactJson, storageKey = excluded.storageKey, outputPath = excluded.outputPath,
-       fileName = excluded.fileName, status = excluded.status, createdAt = excluded.createdAt`,
+       fileName = excluded.fileName, status = excluded.status, source = excluded.source, createdAt = excluded.createdAt`,
     ).run(
       exportRecord.id,
       exportRecord.projectId,
@@ -581,6 +609,7 @@ class SQLitePersistenceAdapter {
       exportRecord.outputPath,
       exportRecord.fileName,
       exportRecord.status,
+      exportRecord.source,
       exportRecord.createdAt,
     );
     this.exportRows.set(exportRecord.id, exportRecord);
@@ -598,6 +627,7 @@ class SQLitePersistenceAdapter {
       outputPath: row.outputPath,
       fileName: row.fileName,
       status: row.status,
+      source: row.source,
       createdAt: row.createdAt,
     }, { artifactStore: this.artifactAdapter });
     this.exportRows.set(exportRecord.id, exportRecord);
@@ -607,6 +637,14 @@ class SQLitePersistenceAdapter {
   getExport(exportId) {
     const safeExportId = validateResourceId(exportId, "exp");
     return this.exportFromRow(this.prepare("SELECT * FROM exports WHERE id = ?").get(safeExportId));
+  }
+
+  deleteExport(exportId) {
+    const safeExportId = validateResourceId(exportId, "exp");
+    const result = this.prepare("DELETE FROM exports WHERE id = ?").run(safeExportId);
+    this.exportRows.delete(safeExportId);
+    this.exportView.records.delete(safeExportId);
+    return Number(result && result.changes ? result.changes : 0) > 0;
   }
 
   allExports() {

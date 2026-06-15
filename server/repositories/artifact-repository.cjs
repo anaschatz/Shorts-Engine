@@ -3,6 +3,7 @@ const { existsSync, mkdirSync, readdirSync, readFileSync, statSync } = require("
 const { basename } = require("node:path");
 const { CONFIG } = require("../config.cjs");
 const { AppError, SAFE_MESSAGES } = require("../errors.cjs");
+const { normalizeSmokeSource } = require("../staging-smoke-metadata.cjs");
 const { assertStoragePath, storagePath, writeJsonAtomic } = require("../storage.cjs");
 const {
   AREA_BY_TYPE,
@@ -110,6 +111,7 @@ function normalizeArtifactRecord(record = {}, options = {}) {
     size: normalizeOptionalSize(record.size),
     contentType: normalizeContentType(record.contentType),
     checksumSha256: normalizeChecksum(record.checksumSha256),
+    source: normalizeSmokeSource(record.source),
     storageAdapterMode: normalizeStorageMode(record.storageAdapterMode || options.storageAdapterMode || "local"),
     storageKey: record.storageKey ? validateArtifactKey(record.storageKey) : "",
     path: normalizeArtifactPath(record.path, type),

@@ -3,6 +3,7 @@ const { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileS
 const { basename, dirname, isAbsolute, join, relative, resolve } = require("node:path");
 const { CONFIG } = require("./config.cjs");
 const { AppError, SAFE_MESSAGES, redactForLogs } = require("./errors.cjs");
+const { normalizeSmokeSource } = require("./staging-smoke-metadata.cjs");
 
 function nowIso() {
   return new Date().toISOString();
@@ -190,6 +191,7 @@ function normalizePayload(payload) {
     title: sanitizeText(payload.title || "ShortsEngine Short", 120),
     preset: sanitizeText(payload.preset || "hype", 40).toLowerCase(),
     language: sanitizeText(payload.language || "auto", 32) || "auto",
+    source: normalizeSmokeSource(payload.source),
   };
 }
 

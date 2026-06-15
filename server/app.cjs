@@ -21,6 +21,7 @@ const { validateUploadCandidate, probeMedia, toolHealth, sha256, sanitizeText } 
 const { HOOKS } = require("./edit-plan.cjs");
 const { transcriptionHealth } = require("./transcription.cjs");
 const { JobStore, idempotencyKey } = require("./jobs.cjs");
+const { normalizeSmokeSource } = require("./staging-smoke-metadata.cjs");
 const { createLocalJobWorker, restoreExportsFromCompletedJobs } = require("./job-worker.cjs");
 const { createWorkerSupervisor } = require("./worker-supervisor.cjs");
 const { createLocalJobQueue } = require("./queue/local-job-queue.cjs");
@@ -198,14 +199,15 @@ function validateGeneratePayload(payload, project) {
     throw new AppError("VALIDATION_ERROR", "Unsupported edit preset.", 400);
   }
   const language = sanitizeText(payload.language || "auto", 32) || "auto";
+  const source = payload.source !== undefined ? normalizeSmokeSource(payload.source) : normalizeSmokeSource(project.source);
   if (payload.idempotencyKey !== undefined) {
     const providedKey = sanitizeText(payload.idempotencyKey, 120);
     if (!/^[A-Za-z0-9_-]{8,120}$/.test(providedKey)) {
       throw new AppError("VALIDATION_ERROR", "Idempotency key is invalid.", 400);
     }
-    return { title, preset, language, idempotencyKey: providedKey, rightsConfirmed: Boolean(payload.rightsConfirmed) };
+    return { title, preset, language, source, idempotencyKey: providedKey, rightsConfirmed: Boolean(payload.rightsConfirmed) };
   }
-  return { title, preset, language, idempotencyKey: "", rightsConfirmed: Boolean(payload.rightsConfirmed) };
+  return { title, preset, language, source, idempotencyKey: "", rightsConfirmed: Boolean(payload.rightsConfirmed) };
 }
 
 function parseMultipart(buffer, contentType, options = {}) {
@@ -360,6 +362,9 @@ async function handleUpload(req, res, rid) {
   });
   const uploadId = `upl_${randomUUID()}`;
   const projectId = `prj_${randomUUID()}`;
+  const source = multipart.fields.source === undefined || multipart.fields.source === ""
+    ? null
+    : normalizeSmokeSource(multipart.fields.source);
   let uploadArtifact = artifactStore.writeBuffer({
     id: uploadId,
     type: "upload",
@@ -367,6 +372,7 @@ async function handleUpload(req, res, rid) {
     storageKey: `${uploadId}.${validated.extension}`,
     buffer: file.buffer,
     size: validated.size,
+    source,
     status: "staging",
   });
   let uploadStage;
@@ -402,6 +408,7 @@ async function handleUpload(req, res, rid) {
       checksumSha256,
       path: uploadStage && uploadStage.permanentLocal ? uploadPath : null,
       metadata,
+      source,
       createdAt,
     },
     project: {
@@ -409,6 +416,7 @@ async function handleUpload(req, res, rid) {
       uploadId,
       title: sanitizeText(multipart.fields.title || "ShortsEngine Short", 120),
       status: "draft",
+      source,
       createdAt,
       updatedAt: createdAt,
     },

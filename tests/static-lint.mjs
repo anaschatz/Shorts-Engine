@@ -19,6 +19,7 @@ const renderManual = readFileSync("tools/release/print-render-staging-checklist.
 const renderProof = readFileSync("tools/release/render-staging-proof.mjs", "utf8");
 const stagingDeploy = readFileSync("tools/release/staging-deploy.mjs", "utf8");
 const stagingFullSmoke = readFileSync("tools/release/check-staging-full-smoke.mjs", "utf8");
+const stagingFullCleanup = readFileSync("tools/release/cleanup-staging-full-smoke.mjs", "utf8");
 const releaseGateVerifier = readFileSync("tools/release/verify-release-gate.mjs", "utf8");
 const releaseEvidenceWriter = readFileSync("tools/release/write-release-evidence.mjs", "utf8");
 const envDocs = readFileSync("docs/ENVIRONMENT.md", "utf8");
@@ -92,6 +93,7 @@ assert.match(packageJson, /"staging:check": "node tools\/release\/check-staging-
 assert.match(packageJson, /"staging:deploy": "node tools\/release\/staging-deploy\.mjs"/, "package should expose provider-specific staging deploy");
 assert.match(packageJson, /"staging:smoke": "node tools\/release\/check-staging-smoke\.mjs"/, "package should expose deployed staging smoke");
 assert.match(packageJson, /"staging:smoke:full": "node tools\/release\/check-staging-full-smoke\.mjs"/, "package should expose opt-in full staging smoke");
+assert.match(packageJson, /"staging:smoke:cleanup": "node tools\/release\/cleanup-staging-full-smoke\.mjs"/, "package should expose opt-in full staging smoke cleanup");
 assert.match(packageJson, /"release:check": "node tools\/release\/verify-release-gate\.mjs"/, "package should expose release gate verification");
 assert.match(packageJson, /"release:evidence": "node tools\/release\/write-release-evidence\.mjs"/, "package should expose release evidence generation");
 assert.match(packageJson, /"playwright"/, "Playwright should be a scoped dev dependency for browser E2E");
@@ -166,7 +168,15 @@ assert.match(stagingFullSmoke, /rightsConfirmed: true/, "full staging smoke shou
 assert.match(stagingFullSmoke, /pollJob/, "full staging smoke should poll the generated job");
 assert.match(stagingFullSmoke, /validateMp4/, "full staging smoke should validate downloaded MP4 signatures");
 assert.match(stagingFullSmoke, /durabilityMode/, "full staging smoke should report durable-capable versus ephemeral staging mode");
+assert.match(stagingFullSmoke, /STAGING_FULL_SMOKE_SOURCE/, "full staging smoke should mark created resources with a cleanup source");
+assert.match(stagingFullSmoke, /STAGING_FULL_SMOKE_IDEMPOTENCY_PREFIX/, "full staging smoke should use a cleanup-identifiable idempotency prefix");
 assert.match(stagingFullSmoke, /findSensitiveLeak/, "full staging smoke should guard summaries and responses against leaks");
+assert.match(stagingFullCleanup, /SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP/, "full smoke cleanup should require an explicit delete flag");
+assert.match(stagingFullCleanup, /dryRun: !deleteEnabled/, "full smoke cleanup should be dry-run by default");
+assert.match(stagingFullCleanup, /STAGING_FULL_SMOKE_SOURCE/, "full smoke cleanup should match the full-smoke source marker");
+assert.match(stagingFullCleanup, /deleteMarkedArtifact/, "full smoke cleanup should delete only through the marked artifact boundary");
+assert.match(stagingFullCleanup, /ACTIVE_JOB_STATUSES/, "full smoke cleanup should protect queued and processing jobs");
+assert.match(stagingFullCleanup, /findSensitiveLeak/, "full smoke cleanup should guard summaries against leaks");
 assert.equal(
   [renderCheck, renderManual, renderProof].filter((text) => /api\.render\.com\/v1/.test(text)).length,
   0,
@@ -178,7 +188,9 @@ assert.match(envDocs, /npm run staging:check/, "environment docs should document
 assert.match(envDocs, /npm run render:check/, "environment docs should document the Render readiness command");
 assert.match(envDocs, /npm run render:proof/, "environment docs should document the Render no-network proof command");
 assert.match(envDocs, /staging:smoke:full/, "environment docs should document the opt-in full staging smoke command");
+assert.match(envDocs, /staging:smoke:cleanup/, "environment docs should document the opt-in full staging smoke cleanup command");
 assert.match(envDocs, /SHORTSENGINE_STAGING_FULL_SMOKE/, "environment docs should document the full staging smoke opt-in flag");
+assert.match(envDocs, /SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP/, "environment docs should document the full staging smoke cleanup flag");
 assert.match(envDocs, /SHORTSENGINE_STAGING_URL/, "environment docs should document staging URL config");
 assert.match(envDocs, /SHORTSENGINE_STAGING_DEPLOY_PROVIDER/, "environment docs should document staging provider config");
 assert.match(envDocs, /SHORTSENGINE_STAGING_SERVICE_ID/, "environment docs should document Render service id config");
@@ -191,12 +203,14 @@ assert.match(envExample, /SHORTSENGINE_STAGING_DEPLOY_PROVIDER=none/, ".env.exam
 assert.match(envExample, /SHORTSENGINE_STAGING_SERVICE_ID=/, ".env.example should leave Render service id empty by default");
 assert.match(envExample, /SHORTSENGINE_STAGING_URL=/, ".env.example should leave staging URL empty by default");
 assert.match(envExample, /SHORTSENGINE_STAGING_FULL_SMOKE=0/, ".env.example should keep full staging smoke disabled by default");
+assert.match(envExample, /SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP=0/, ".env.example should keep full staging smoke cleanup deletion disabled by default");
 assert.doesNotMatch(envExample, /sk-[A-Za-z0-9_-]{20,}|AKIA[A-Z0-9]{12,}|Bearer\s+[A-Za-z0-9._-]{10,}/, ".env.example must not contain real-looking secrets");
 assert.match(releaseGateVerifier, /checkEnvironment/, "release gate verifier should include environment readiness");
 assert.match(releaseGateVerifier, /render:check/, "release gate verifier should require the Render staging check script");
 assert.match(releaseGateVerifier, /render:manual/, "release gate verifier should require the Render manual checklist script");
 assert.match(releaseGateVerifier, /render:proof/, "release gate verifier should require the Render no-network proof script");
 assert.match(releaseGateVerifier, /staging:smoke:full/, "release gate verifier should require the full staging smoke script to exist");
+assert.match(releaseGateVerifier, /staging:smoke:cleanup/, "release gate verifier should require the full smoke cleanup script to exist");
 assert.match(releaseGateVerifier, /checkStagingReadiness/, "release gate verifier should include staging readiness");
 assert.match(releaseGateVerifier, /validateCiReports/, "release gate verifier should reuse CI report validation");
 assert.match(releaseGateVerifier, /REQUIRED_WORKFLOW_COMMANDS/, "release gate verifier should enforce required workflow commands");
@@ -229,6 +243,7 @@ assert.match(ciDocs, /Real cloud integration stays out of the default gate/i, "C
 assert.match(ciDocs, /npm run release:check/, "CI docs should include release gate verification");
 assert.match(ciDocs, /npm run release:evidence/, "CI docs should include release evidence generation");
 assert.match(ciDocs, /staging:smoke:full/, "CI docs should mention opt-in full staging smoke");
+assert.match(ciDocs, /staging:smoke:cleanup/, "CI docs should mention opt-in full staging smoke cleanup");
 assert.match(ciDocs, /stays out of the default gate/i, "CI docs should keep full staging smoke out of the default gate");
 assert.match(releaseDocs, /Branch Protection Checklist/, "release docs should include branch protection guidance");
 assert.match(releaseDocs, /npm run env:check/, "release docs should include environment readiness checks");
@@ -236,6 +251,7 @@ assert.match(releaseDocs, /npm run staging:check/, "release docs should include 
 assert.match(releaseDocs, /npm run render:check/, "release docs should include Render staging checks");
 assert.match(releaseDocs, /\.github\/workflows\/staging\.yml/, "release docs should mention the staging workflow");
 assert.match(releaseDocs, /staging:smoke:full/, "release docs should document the opt-in full staging smoke command");
+assert.match(releaseDocs, /staging:smoke:cleanup/, "release docs should document the opt-in full staging smoke cleanup command");
 assert.match(releaseDocs, /npm run release:check/, "release docs should explain local release checks");
 assert.match(releaseDocs, /release\/results\/latest\.json/, "release docs should explain release evidence output");
 assert.match(releaseDocs, /Real cloud integration remains opt-in/i, "release docs should keep cloud integration opt-in");
@@ -258,6 +274,7 @@ for (const command of [
   assert.match(githubWorkflow, new RegExp(command.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `CI workflow should run ${command}`);
 }
 assert.doesNotMatch(githubWorkflow, /staging:smoke:full/, "CI workflow should not run full staging smoke by default");
+assert.doesNotMatch(githubWorkflow, /staging:smoke:cleanup/, "CI workflow should not run full staging smoke cleanup by default");
 assert.match(githubWorkflow, /pull_request:/, "CI workflow should run on pull requests");
 assert.match(githubWorkflow, /push:[\s\S]*branches:[\s\S]*main[\s\S]*master/, "CI workflow should run on main/master pushes");
 assert.match(githubWorkflow, /node-version:\s*"?(?:18|20|22)"?/, "CI workflow should use Node.js 18 or newer");
@@ -288,7 +305,10 @@ assert.match(stagingDocs, /npm run render:proof/, "staging docs should document 
 assert.match(stagingDocs, /npm run staging:deploy/, "staging docs should document provider-specific staging deploy");
 assert.match(stagingDocs, /npm run staging:smoke/, "staging docs should document deployed smoke command");
 assert.match(stagingDocs, /npm run staging:smoke:full/, "staging docs should document opt-in full staging smoke");
+assert.match(stagingDocs, /npm run staging:smoke:cleanup/, "staging docs should document opt-in full staging smoke cleanup");
 assert.match(stagingDocs, /SHORTSENGINE_STAGING_FULL_SMOKE=1/, "staging docs should document the full smoke opt-in flag");
+assert.match(stagingDocs, /SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP=1/, "staging docs should document explicit full smoke cleanup deletion");
+assert.match(stagingDocs, /dry-run/i, "staging docs should document cleanup dry-run behavior");
 assert.match(stagingDocs, /upload.*generate.*job.*export.*download/is, "staging docs should document the full upload/render/download smoke flow");
 assert.match(stagingDocs, /Build command:[\s\S]*npm ci/, "staging docs should document Render build command");
 assert.match(stagingDocs, /Start command:[\s\S]*npm start/, "staging docs should document Render start command");

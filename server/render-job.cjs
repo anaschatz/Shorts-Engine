@@ -129,15 +129,16 @@ function assertPipelineContext({ job, project, upload, payload, deps }) {
   const title = sanitizeText(payload.title || project.title || "ShortsEngine Short", 120);
   const preset = sanitizeText(payload.preset || "hype", 40).toLowerCase();
   const language = sanitizeText(payload.language || "auto", 32) || "auto";
+  const source = payload.source || project.source || upload.source || null;
   if (!title || !preset) {
     throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400);
   }
   const audioKey = `${job.id}.wav`;
   const subtitlesKey = `${job.id}.ass`;
   const outputKey = `${job.id}.mp4`;
-  const audio = localPathForNewArtifact(deps.artifactStore, { type: "extracted_audio", storageKey: audioKey, ownerProjectId: project.id, ownerJobId: job.id });
-  const output = localPathForNewArtifact(deps.artifactStore, { type: "rendered_video", storageKey: outputKey, ownerProjectId: project.id, ownerJobId: job.id });
-  const subtitles = localPathForNewArtifact(deps.artifactStore, { type: "subtitle_temp", storageKey: subtitlesKey, ownerProjectId: project.id, ownerJobId: job.id });
+  const audio = localPathForNewArtifact(deps.artifactStore, { type: "extracted_audio", storageKey: audioKey, ownerProjectId: project.id, ownerJobId: job.id, source });
+  const output = localPathForNewArtifact(deps.artifactStore, { type: "rendered_video", storageKey: outputKey, ownerProjectId: project.id, ownerJobId: job.id, source });
+  const subtitles = localPathForNewArtifact(deps.artifactStore, { type: "subtitle_temp", storageKey: subtitlesKey, ownerProjectId: project.id, ownerJobId: job.id, source });
   return {
     audioKey,
     audioPath: audio.localPath,
@@ -151,6 +152,7 @@ function assertPipelineContext({ job, project, upload, payload, deps }) {
     outputPath: output.localPath,
     outputStage: output,
     preset,
+    source,
     subtitlesKey,
     subtitlesPath: subtitles.localPath,
     subtitlesStage: subtitles,
@@ -497,9 +499,11 @@ async function runRenderJob(options) {
           storageKey: context.outputKey,
           size: renderedArtifact.size ?? artifactSize(deps, context.outputPath),
           contentType: renderedArtifact.contentType || "video/mp4",
+          source: context.source,
           status: "available",
         }),
         fileName: `${project.id}-short.mp4`,
+        source: context.source,
         createdAt: nowIso(),
       },
     });

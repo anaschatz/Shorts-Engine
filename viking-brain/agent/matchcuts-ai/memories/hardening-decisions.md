@@ -30,3 +30,4 @@
 - `npm run render:manual` and `npm run render:proof` provide safe setup/proof evidence without committing real Render service ids, tokens or URLs.
 - Bound Render deploy response bodies and reject invalid provider JSON before writing deploy summaries.
 - Keep full staging upload/render smoke opt-in via `SHORTSENGINE_STAGING_FULL_SMOKE=1`; default staging smoke remains health-only.
+- Keep full staging smoke cleanup dry-run by default; require `SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP=1` and a validated `staging-full-smoke` ownership chain before deleting artifacts.
