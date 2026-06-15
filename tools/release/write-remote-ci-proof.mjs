@@ -96,6 +96,26 @@ function requireBranch(value) {
   return branch;
 }
 
+function requireIsoTimestamp(value, label) {
+  return requireText(value, label, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/, 32);
+}
+
+function safeFailureCode(value) {
+  const code = requireText(value, "failure code", /^[A-Z0-9_]{1,80}$/, 80);
+  if (!code.startsWith("REMOTE_CI_") && !code.startsWith("GITHUB_")) {
+    throw new RemoteCiProofError("REMOTE_CI_PROOF_SUMMARY_INVALID", "Remote CI proof failure code is invalid.");
+  }
+  return code;
+}
+
+function safeFailureMessage(value) {
+  const message = sanitizeText(value || "Remote CI verification failed.", 240);
+  if (!message || findSensitiveLeak(message)) {
+    return "Remote CI verification failed.";
+  }
+  return message;
+}
+
 function validateRemoteCiSummaryForProof(summary) {
   const input = requireObject(summary, "summary");
   assertNoSensitiveProof(input);
@@ -127,6 +147,8 @@ function validateRemoteCiSummaryForProof(summary) {
       name: requireText(workflow.name, "workflow name", /^[A-Za-z0-9 ._:/()#-]{1,120}$/, 120),
       releaseJobName: requireText(workflow.releaseJobName, "release job name", /^[A-Za-z0-9 ._:/()#-]{1,120}$/, 120),
       runId: requireNonNegativeInteger(workflow.runId, "run id", 1),
+      headBranch: requireBranch(workflow.headBranch || input.branch),
+      headSha: requireText(workflow.headSha || sha, "workflow head sha", /^[A-Fa-f0-9]{7,40}$/, 40),
       status: requireText(workflow.status, "workflow status", /^[a-z_]{1,40}$/, 40),
       conclusion: optionalText(workflow.conclusion, "workflow conclusion", /^[a-z_]{1,40}$/, 40),
       url: requireSafeGithubUrl(workflow.url),
@@ -143,6 +165,8 @@ function validateRemoteCiSummaryForProof(summary) {
     },
     polling: {
       attempts: requireNonNegativeInteger(polling.attempts, "polling attempts", 1),
+      startedAt: requireIsoTimestamp(polling.startedAt || input.checkedAt, "polling started timestamp"),
+      waitedMs: requireNonNegativeInteger(polling.waitedMs || 0, "polling waited milliseconds"),
       timeoutMs: requireNonNegativeInteger(polling.timeoutMs, "polling timeout", 1),
       pollIntervalMs: requireNonNegativeInteger(polling.pollIntervalMs, "polling interval", 1),
     },
@@ -183,12 +207,95 @@ function buildRemoteCiProof(summary) {
   return proof;
 }
 
+function buildRemoteCiFailureProof(summary, options = {}) {
+  const safeSummary = requireObject(summary, "failure summary");
+  assertNoSensitiveProof(safeSummary);
+  const nowMs = Number.isFinite(Number(options.nowMs)) ? Number(options.nowMs) : Date.now();
+  const generatedAt = requireIsoTimestamp(new Date(nowMs).toISOString(), "generated timestamp");
+  const attempts = options.error && options.error.details
+    ? Number(options.error.details.attempts || 0)
+    : Number(safeSummary.attempts || 0);
+  const proof = {
+    schemaVersion: 1,
+    generatedAt,
+    remoteCi: {
+      ok: false,
+      checkedAt: generatedAt,
+      repository: {
+        nameWithOwner: null,
+        url: null,
+      },
+      branch: null,
+      commit: {
+        sha: null,
+        shortSha: null,
+      },
+      workflow: {
+        name: null,
+        releaseJobName: null,
+        runId: null,
+        status: "unknown",
+        conclusion: null,
+        url: null,
+      },
+      releaseJob: {
+        name: null,
+        found: false,
+        status: "unknown",
+        conclusion: null,
+      },
+      failedJobs: {
+        count: 0,
+        names: [],
+      },
+      polling: {
+        attempts: Number.isInteger(attempts) && attempts >= 0 ? attempts : 0,
+        startedAt: generatedAt,
+        waitedMs: 0,
+        timeoutMs: 0,
+        pollIntervalMs: 0,
+      },
+      failure: {
+        code: safeFailureCode(safeSummary.code || "REMOTE_CI_FAILED"),
+        message: safeFailureMessage(safeSummary.message),
+        nextAction: requireText(safeSummary.nextAction || "inspect-safe-summary", "failure next action", /^[a-z0-9_-]{1,80}$/, 80),
+      },
+      nextAction: requireText(safeSummary.nextAction || "inspect-safe-summary", "next action", /^[a-z0-9_-]{1,80}$/, 80),
+      logsDownloaded: false,
+      artifactsDownloaded: false,
+    },
+    fixForward: {
+      required: true,
+      nextAction: "inspect-safe-summary-and-fix-forward",
+      rawLogsRequired: false,
+      rawArtifactsRequired: false,
+    },
+  };
+  assertNoSensitiveProof(proof);
+  return proof;
+}
+
+function isSafeFailureSummary(summary) {
+  return Boolean(summary && typeof summary === "object" && summary.ok === false && summary.code);
+}
+
 async function writeRemoteCiProof(options = {}) {
   const rootDir = resolve(options.rootDir || ROOT_DIR);
   const outputDirRelative = safeRelativeFromRoot(rootDir, options.outputDir || RELEASE_RESULTS_RELATIVE_DIR);
   const outputDir = resolve(rootDir, outputDirRelative);
-  const summary = options.summary || await runRemoteCiCheck({ ...options, cwd: options.cwd || rootDir });
-  const proof = buildRemoteCiProof(summary);
+  let proof;
+  if (options.summary) {
+    proof = isSafeFailureSummary(options.summary)
+      ? buildRemoteCiFailureProof(options.summary, options)
+      : buildRemoteCiProof(options.summary);
+  } else {
+    try {
+      const summary = await runRemoteCiCheck({ ...options, cwd: options.cwd || rootDir });
+      proof = buildRemoteCiProof(summary);
+    } catch (error) {
+      proof = buildRemoteCiFailureProof(remoteCiSafeError(error), { ...options, error });
+    }
+  }
   const fileName = `remote-ci-proof-${timestampSlug(proof.generatedAt)}.json`;
   const reportPath = `${outputDirRelative}/${fileName}`;
   const latestPath = `${outputDirRelative}/remote-ci-latest.json`;
@@ -196,17 +303,26 @@ async function writeRemoteCiProof(options = {}) {
   const body = `${JSON.stringify(proof, null, 2)}\n`;
   writeFileSync(resolve(rootDir, reportPath), body, "utf8");
   writeFileSync(resolve(rootDir, latestPath), body, "utf8");
+  const failure = proof.remoteCi.failure || null;
   return {
     ok: proof.remoteCi.ok,
     reportPath,
     latestPath,
     generatedAt: proof.generatedAt,
     status: proof.remoteCi.ok ? "passed" : "failed",
+    code: failure ? failure.code : undefined,
+    nextAction: proof.remoteCi.nextAction,
   };
 }
 
 function safeError(error) {
-  if (error && error.code && String(error.code).startsWith("REMOTE_CI_")) return remoteCiSafeError(error);
+  if (
+    error &&
+    error.code &&
+    (String(error.code).startsWith("REMOTE_CI_") || ["GITHUB_CLI_MISSING", "GITHUB_AUTH_MISSING"].includes(String(error.code)))
+  ) {
+    return remoteCiSafeError(error);
+  }
   return {
     ok: false,
     code: error && error.code ? error.code : "REMOTE_CI_PROOF_FAILED",
@@ -232,6 +348,7 @@ if (isMainModule()) {
 export {
   RELEASE_RESULTS_RELATIVE_DIR,
   RemoteCiProofError,
+  buildRemoteCiFailureProof,
   buildRemoteCiProof,
   safeError,
   validateRemoteCiSummaryForProof,

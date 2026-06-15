@@ -38,3 +38,5 @@
 - Use `github:setup` as documentation-only onboarding for GitHub CLI; it must not install tools, start auth, request tokens, call network APIs or mutate remote repository settings.
 - Missing GitHub CLI/auth failures should return safe `nextAction` values that guide the user to manual setup instead of exposing raw command output.
 - Expose release/CI readiness in `/health` and release evidence through a local static contract only; it must not invoke GitHub CLI, start auth or inspect remote state.
+- Remote CI proof must verify `gh run view` `headSha` against the exact local commit SHA before passing.
+- `remote:ci:proof` should write safe failure evidence for missing `gh`, missing auth, no run, timeout or SHA mismatch while keeping raw logs/artifacts absent.

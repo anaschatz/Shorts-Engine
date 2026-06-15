@@ -47,8 +47,9 @@ test("GitHub CLI setup guide documents safe failure next actions", () => {
 
   assert.equal(guide.errorGuidance.GITHUB_CLI_MISSING.includes("Install GitHub CLI"), true);
   assert.equal(guide.errorGuidance.GITHUB_AUTH_MISSING.includes("gh auth login"), true);
-  assert.equal(guide.errorGuidance.REMOTE_CI_GH_MISSING.includes("npm run github:setup"), true);
-  assert.equal(guide.errorGuidance.REMOTE_CI_GH_AUTH_MISSING.includes("gh auth login"), true);
+  assert.equal(guide.errorGuidance.REMOTE_CI_RUN_NOT_FOUND.includes("branch/SHA"), true);
+  assert.equal(guide.errorGuidance.REMOTE_CI_TIMEOUT.includes("rerun npm run remote:ci"), true);
+  assert.equal(guide.errorGuidance.REMOTE_CI_SHA_MISMATCH.includes("exact pushed commit SHA"), true);
   assert.equal(guide.errorGuidance.GITHUB_BRANCH_PROTECTION_UNKNOWN.includes("GitHub UI"), true);
   assert.equal(guide.nextAction, "install-or-authenticate-gh-then-run-github-doctor");
 });

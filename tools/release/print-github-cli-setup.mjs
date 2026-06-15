@@ -40,8 +40,9 @@ const REQUIRED_COMMANDS = Object.freeze([
 const ERROR_GUIDANCE = Object.freeze({
   GITHUB_CLI_MISSING: "Install GitHub CLI, then run gh --version and npm run github:doctor.",
   GITHUB_AUTH_MISSING: "Run gh auth login yourself, verify gh auth status, then rerun npm run github:doctor.",
-  REMOTE_CI_GH_MISSING: "Run npm run github:setup and install GitHub CLI before remote CI proof.",
-  REMOTE_CI_GH_AUTH_MISSING: "Run gh auth login yourself, verify gh auth status, then rerun npm run remote:ci.",
+  REMOTE_CI_RUN_NOT_FOUND: "Wait for GitHub Actions to create a run for the pushed commit, or confirm branch/SHA.",
+  REMOTE_CI_TIMEOUT: "Wait for the bounded CI run to finish, then rerun npm run remote:ci.",
+  REMOTE_CI_SHA_MISMATCH: "Confirm that the GitHub Actions run is for the exact pushed commit SHA.",
   GITHUB_BRANCH_PROTECTION_UNKNOWN: "Confirm branch protection in the GitHub UI when rulesets or permissions hide metadata.",
 });
 

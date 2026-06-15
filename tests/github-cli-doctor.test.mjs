@@ -112,7 +112,7 @@ test("GitHub CLI doctor fails safely when gh is missing or auth is missing", asy
   }).catch((caught) => caught);
   const missingAuthError = safeError(missingAuth);
   assert.equal(missingAuthError.code, "GITHUB_AUTH_MISSING");
-  assert.equal(missingAuthError.nextAction, "run-gh-auth-login-then-gh-auth-status");
+  assert.equal(missingAuthError.nextAction, "run-gh-auth-login-manually");
   assert.equal(findSensitiveLeak(missingAuthError), null);
 });
 

@@ -37,7 +37,16 @@ Branch protection can return `unknown` when GitHub permissions or repository rul
 
 The proof includes repo owner/name, branch, commit SHA, workflow run id, safe run URL, release-job status, failed job names only, bounded polling settings, and fix-forward guidance.
 
+`remote:ci` must compare the run details `headSha` with the exact local commit SHA. If they differ, it fails closed with `REMOTE_CI_SHA_MISMATCH`.
+
+Missing CLI/auth failures use shared recovery codes:
+
+- `GITHUB_CLI_MISSING`
+- `GITHUB_AUTH_MISSING`
+
 Before persistence, the proof writer validates the summary shape. Missing release-job metadata, malformed branch/SHA/run fields, unsafe URLs, local paths and secret-shaped values fail closed and do not write proof files.
+
+Missing CLI, missing auth, no matching run, timeout and SHA mismatch may write safe failure proof reports. Those reports include structured failure metadata only and still keep logs/artifacts absent.
 
 ## Safety
 

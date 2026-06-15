@@ -52,6 +52,10 @@ test("release readiness exposes safe no-network CI and GitHub proof capability",
   assert.equal(summary.workflow.failureArtifactsOnly, true);
   assert.equal(summary.remoteProof.requiresGithubCli, true);
   assert.equal(summary.remoteProof.automaticAuth, false);
+  assert.equal(summary.remoteProof.safeMissingDependencyCode, "GITHUB_CLI_MISSING");
+  assert.equal(summary.remoteProof.safeMissingAuthCode, "GITHUB_AUTH_MISSING");
+  assert.equal(summary.remoteProof.exactCommitRequired, true);
+  assert.equal(summary.remoteProof.failureProofReports, true);
   assert.equal(summary.nextAction, "run-release-checks-before-push");
   assert.equal(hasSensitiveLeak(summary), false);
 });

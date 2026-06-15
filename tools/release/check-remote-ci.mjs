@@ -110,7 +110,7 @@ function assertNoSensitiveSummary(summary) {
 }
 
 function commandFailureCode(command, error) {
-  if (error && error.code === "ENOENT") return command === "gh" ? "REMOTE_CI_GH_MISSING" : "REMOTE_CI_GIT_MISSING";
+  if (error && error.code === "ENOENT") return command === "gh" ? "GITHUB_CLI_MISSING" : "REMOTE_CI_GIT_MISSING";
   if (command === "gh" && error && Number(error.exitCode || error.code) !== 0) return "REMOTE_CI_GH_COMMAND_FAILED";
   if (command === "git" && error && Number(error.exitCode || error.code) !== 0) return "REMOTE_CI_GIT_COMMAND_FAILED";
   return "REMOTE_CI_COMMAND_FAILED";
@@ -149,7 +149,7 @@ async function runCommand(commandRunner, command, args, options = {}) {
   } catch (error) {
     if (error instanceof RemoteCiError) throw error;
     const code = commandFailureCode(command, error);
-    const message = code === "REMOTE_CI_GH_MISSING"
+    const message = code === "GITHUB_CLI_MISSING"
       ? "GitHub CLI is not available."
       : command === "gh" ? "GitHub CLI command failed." : "Git command failed.";
     throw new RemoteCiError(code, message);
@@ -213,7 +213,7 @@ async function verifyGhReady({ commandRunner, cwd, env }) {
     await runCommand(commandRunner, "gh", ["auth", "status"], { cwd, env });
   } catch (error) {
     if (error instanceof RemoteCiError && error.code === "REMOTE_CI_GH_COMMAND_FAILED") {
-      throw new RemoteCiError("REMOTE_CI_GH_AUTH_MISSING", "GitHub CLI is not authenticated.");
+      throw new RemoteCiError("GITHUB_AUTH_MISSING", "GitHub CLI is not authenticated.");
     }
     throw error;
   }
@@ -291,6 +291,17 @@ function normalizeRunDetails(payload) {
   };
 }
 
+function assertRunMatchesContext(details, context) {
+  const detailSha = validateSha(details.headSha || "", { required: false });
+  if (!detailSha || detailSha.toLowerCase() !== context.sha.toLowerCase()) {
+    throw new RemoteCiError("REMOTE_CI_SHA_MISMATCH", "Remote CI run does not match the current commit SHA.");
+  }
+  const detailBranch = details.headBranch ? validateBranch(details.headBranch) : context.branch;
+  if (detailBranch !== context.branch) {
+    throw new RemoteCiError("REMOTE_CI_BRANCH_MISMATCH", "Remote CI run does not match the current branch.");
+  }
+}
+
 async function loadRunDetails({ commandRunner, cwd, env, runId }) {
   const result = await runCommand(commandRunner, "gh", [
     "run",
@@ -331,13 +342,14 @@ function nextActionFor(details) {
   return "inspect-safe-summary-and-fix-forward";
 }
 
-function buildSummary({ config, context, repository, details, attempts, checkedAt }) {
+function buildSummary({ config, context, repository, details, attempts, startedMs, checkedMs }) {
   const failedJobs = failedJobsFor(details, config.releaseJobName);
   const releaseJob = releaseJobFor(details, config.releaseJobName);
   const ok = details.status === COMPLETED_STATUS && details.conclusion === "success";
+  const waitedMs = Math.max(0, checkedMs - startedMs);
   const summary = {
     ok,
-    checkedAt,
+    checkedAt: new Date(checkedMs).toISOString(),
     repository: {
       detected: repository.detected,
       nameWithOwner: repository.nameWithOwner,
@@ -352,6 +364,8 @@ function buildSummary({ config, context, repository, details, attempts, checkedA
       name: details.workflowName || config.workflowName,
       releaseJobName: config.releaseJobName,
       runId: details.databaseId,
+      headBranch: details.headBranch || context.branch,
+      headSha: details.headSha || context.sha,
       status: details.status,
       conclusion: details.conclusion || null,
       url: details.url,
@@ -360,6 +374,8 @@ function buildSummary({ config, context, repository, details, attempts, checkedA
     failedJobs,
     polling: {
       attempts,
+      startedAt: new Date(startedMs).toISOString(),
+      waitedMs,
       timeoutMs: config.timeoutMs,
       pollIntervalMs: config.pollIntervalMs,
     },
@@ -396,6 +412,7 @@ async function runRemoteCiCheck(options = {}) {
     if (lastRun) {
       const runId = Number(lastRun.databaseId);
       const details = await loadRunDetails({ commandRunner, cwd, env, runId });
+      assertRunMatchesContext(details, context);
       if (details.status === COMPLETED_STATUS || !PENDING_STATUSES.has(details.status)) {
         return buildSummary({
           config,
@@ -403,7 +420,8 @@ async function runRemoteCiCheck(options = {}) {
           repository,
           details,
           attempts,
-          checkedAt: new Date(currentMs).toISOString(),
+          startedMs,
+          checkedMs: currentMs,
         });
       }
     }
@@ -423,9 +441,11 @@ function safeError(error) {
   const code = error && error.code ? error.code : "REMOTE_CI_FAILED";
   const rawMessage = error && error.message ? sanitizeText(error.message, 240) : "Remote CI verification failed.";
   const nextActions = {
-    REMOTE_CI_GH_MISSING: "run-npm-run-github-setup",
-    REMOTE_CI_GH_AUTH_MISSING: "run-gh-auth-login-then-gh-auth-status",
+    GITHUB_CLI_MISSING: "run-npm-run-github-setup",
+    GITHUB_AUTH_MISSING: "run-gh-auth-login-manually",
     REMOTE_CI_RUN_NOT_FOUND: "wait-for-actions-or-confirm-branch-sha",
+    REMOTE_CI_SHA_MISMATCH: "wait-for-actions-or-confirm-branch-sha",
+    REMOTE_CI_BRANCH_MISMATCH: "wait-for-actions-or-confirm-branch-sha",
     REMOTE_CI_TIMEOUT: "wait-for-remote-ci",
     REMOTE_CI_REMOTE_MISSING: "configure-git-origin",
   };

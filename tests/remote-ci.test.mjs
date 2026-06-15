@@ -11,6 +11,7 @@ import {
   safeError,
 } from "../tools/release/check-remote-ci.mjs";
 import {
+  buildRemoteCiFailureProof,
   buildRemoteCiProof,
   safeError as proofSafeError,
   validateRemoteCiSummaryForProof,
@@ -201,7 +202,7 @@ test("remote CI verifier fails safely when gh is missing or unauthenticated", as
     })),
   }).catch((caught) => caught);
   const missingGhError = safeError(missingGh);
-  assert.equal(missingGhError.code, "REMOTE_CI_GH_MISSING");
+  assert.equal(missingGhError.code, "GITHUB_CLI_MISSING");
   assert.equal(missingGhError.nextAction, "run-npm-run-github-setup");
   assert.equal(findSensitiveLeak(missingGhError), null);
 
@@ -211,8 +212,8 @@ test("remote CI verifier fails safely when gh is missing or unauthenticated", as
     })),
   }).catch((caught) => caught);
   const unauthenticatedError = safeError(unauthenticated);
-  assert.equal(unauthenticatedError.code, "REMOTE_CI_GH_AUTH_MISSING");
-  assert.equal(unauthenticatedError.nextAction, "run-gh-auth-login-then-gh-auth-status");
+  assert.equal(unauthenticatedError.code, "GITHUB_AUTH_MISSING");
+  assert.equal(unauthenticatedError.nextAction, "run-gh-auth-login-manually");
   assert.equal(findSensitiveLeak(unauthenticatedError), null);
 });
 
@@ -263,6 +264,30 @@ test("remote CI verifier rejects invalid JSON and unsafe GitHub output", async (
   }).catch((caught) => caught);
   assert.equal(safeError(leakedOutput).code, "REMOTE_CI_OUTPUT_LEAK");
   assert.equal(findSensitiveLeak(safeError(leakedOutput)), null);
+});
+
+test("remote CI verifier fails closed when run details do not match the exact commit", async () => {
+  const mismatch = await check({
+    responses: baseResponses({
+      "gh run view 1001 --json databaseId,headBranch,headSha,status,conclusion,workflowName,url,jobs": {
+        stdout: JSON.stringify({
+          databaseId: 1001,
+          headBranch: "main",
+          headSha: "1111111111111111111111111111111111111111",
+          status: "completed",
+          conclusion: "success",
+          workflowName: "ShortsEngine CI",
+          url: "https://github.com/anaschatz/Shorts-Engine/actions/runs/1001",
+          jobs: [{ name: "Release gate", status: "completed", conclusion: "success" }],
+        }),
+      },
+    }),
+  }).catch((caught) => caught);
+
+  const mismatchError = safeError(mismatch);
+  assert.equal(mismatchError.code, "REMOTE_CI_SHA_MISMATCH");
+  assert.equal(mismatchError.nextAction, "wait-for-actions-or-confirm-branch-sha");
+  assert.equal(findSensitiveLeak(mismatchError), null);
 });
 
 test("remote CI verifier times out while run is pending", async () => {
@@ -318,10 +343,62 @@ test("remote CI proof has safe release evidence shape", async () => {
   assert.equal(proof.remoteCi.repository.nameWithOwner, "anaschatz/Shorts-Engine");
   assert.equal(proof.remoteCi.commit.shortSha, SHA.slice(0, 12));
   assert.equal(proof.remoteCi.workflow.runId, 1001);
+  assert.equal(proof.remoteCi.workflow.headBranch, "main");
+  assert.equal(proof.remoteCi.workflow.headSha, SHA);
   assert.equal(proof.remoteCi.releaseJob.conclusion, "success");
+  assert.equal(proof.remoteCi.polling.startedAt, "2026-06-16T12:00:00.000Z");
+  assert.equal(proof.remoteCi.polling.waitedMs, 0);
   assert.equal(proof.remoteCi.logsDownloaded, false);
   assert.equal(proof.remoteCi.artifactsDownloaded, false);
   assert.equal(proof.fixForward.required, false);
+  assert.equal(findSensitiveLeak(proof), null);
+});
+
+test("remote CI proof writes safe failure reports when GitHub CLI is missing", async () => {
+  const rootDir = mkdtempSync(join(tmpdir(), "shortsengine-remote-ci-proof-failure-"));
+  const result = await writeRemoteCiProof({
+    rootDir,
+    env: {
+      SHORTSENGINE_REMOTE_CI_TIMEOUT_MS: "1000",
+      SHORTSENGINE_REMOTE_CI_POLL_INTERVAL_MS: "500",
+    },
+    nowMs: NOW_MS,
+    commandRunner: mockRunner(baseResponses({
+      "gh --version": Object.assign(new Error("not found"), { code: "ENOENT" }),
+    })),
+    sleep: async () => {},
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.status, "failed");
+  assert.equal(result.code, "GITHUB_CLI_MISSING");
+  assert.equal(result.nextAction, "run-npm-run-github-setup");
+  assert.equal(result.latestPath, "release/results/remote-ci-latest.json");
+  assert.equal(existsSync(join(rootDir, result.latestPath)), true);
+  assert.equal(existsSync(join(rootDir, result.reportPath)), true);
+
+  const latest = JSON.parse(readFileSync(join(rootDir, result.latestPath), "utf8"));
+  assert.equal(latest.remoteCi.failure.code, "GITHUB_CLI_MISSING");
+  assert.equal(latest.remoteCi.failure.nextAction, "run-npm-run-github-setup");
+  assert.equal(latest.remoteCi.logsDownloaded, false);
+  assert.equal(latest.remoteCi.artifactsDownloaded, false);
+  assert.equal(latest.fixForward.rawLogsRequired, false);
+  assert.equal(findSensitiveLeak(latest), null);
+});
+
+test("remote CI failure proof validates safe failure code shape", () => {
+  const proof = buildRemoteCiFailureProof({
+    ok: false,
+    code: "GITHUB_AUTH_MISSING",
+    message: "GitHub CLI is not authenticated.",
+    nextAction: "run-gh-auth-login-manually",
+  }, { nowMs: NOW_MS });
+
+  assert.equal(proof.remoteCi.ok, false);
+  assert.equal(proof.remoteCi.failure.code, "GITHUB_AUTH_MISSING");
+  assert.equal(proof.remoteCi.failure.nextAction, "run-gh-auth-login-manually");
+  assert.equal(proof.remoteCi.repository.nameWithOwner, null);
+  assert.equal(proof.remoteCi.logsDownloaded, false);
   assert.equal(findSensitiveLeak(proof), null);
 });
 

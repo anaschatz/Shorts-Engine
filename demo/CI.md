@@ -92,9 +92,11 @@ npm run remote:ci
 npm run remote:ci:proof
 ```
 
-This command is intentionally outside the CI workflow. It uses `gh` in read-only mode, requires local `gh auth status`, polls the `ShortsEngine CI` workflow for the current commit, and reports whether the `Release gate` job passed. It does not download raw logs or artifacts by default. If it returns failure, use the safe failed-job summary for a fix-forward commit, then rerun local checks and push again.
+This command is intentionally outside the CI workflow. It uses `gh` in read-only mode, requires local `gh auth status`, polls the `ShortsEngine CI` workflow for the current commit, verifies the exact `headSha`, and reports whether the `Release gate` job passed. It does not download raw logs or artifacts by default. If it returns failure, use the safe failed-job summary for a fix-forward commit, then rerun local checks and push again.
 
 `npm run remote:ci:proof` writes `release/results/remote-ci-latest.json` and a timestamped proof report. The proof keeps only safe metadata: repo owner/name, branch, commit, workflow run, release-job status, failed job names, bounded polling metadata and fix-forward guidance. Passing and failing proof reports both keep `logsDownloaded: false` and `artifactsDownloaded: false`.
+
+If `gh` is missing or unauthenticated, proof generation returns `GITHUB_CLI_MISSING` or `GITHUB_AUTH_MISSING` and still writes a safe failure proof. If no exact commit run is found, the run times out, or the run SHA does not match, it returns `REMOTE_CI_RUN_NOT_FOUND`, `REMOTE_CI_TIMEOUT` or `REMOTE_CI_SHA_MISMATCH`. These reports never include raw stderr, tokens, logs or downloaded artifacts.
 
 The proof writer validates the remote CI summary before writing files. Malformed release-job metadata, invalid branch/SHA/run fields, unsafe URLs, local paths or secret-shaped values fail closed with safe structured errors.
 

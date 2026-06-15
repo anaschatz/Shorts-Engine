@@ -344,7 +344,7 @@ function safeError(error) {
   const rawMessage = error && error.message ? sanitizeText(error.message, 240) : "GitHub CLI readiness check failed.";
   const nextActions = {
     GITHUB_CLI_MISSING: "run-npm-run-github-setup",
-    GITHUB_AUTH_MISSING: "run-gh-auth-login-then-gh-auth-status",
+    GITHUB_AUTH_MISSING: "run-gh-auth-login-manually",
     GITHUB_REPO_UNREADABLE: "confirm-origin-and-repository-access",
     GITHUB_ACTIONS_UNREADABLE: "confirm-actions-read-permissions",
     GITHUB_BRANCH_PROTECTION_UNREADABLE: "confirm-branch-protection-in-github-ui",
