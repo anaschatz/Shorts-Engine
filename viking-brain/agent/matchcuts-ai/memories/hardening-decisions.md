@@ -35,3 +35,5 @@
 - Verify remote GitHub Actions after push with a read-only `gh` wrapper that reports safe release-gate status and never downloads raw logs/artifacts by default.
 - Keep GitHub release readiness read-only: `github:doctor` may inspect branch protection and Actions metadata, but proof reports must never mutate repo settings or download raw logs/artifacts.
 - Validate remote CI proof summary shape before writing release evidence; missing release-job metadata or unsafe branch/SHA/run fields must fail closed.
+- Use `github:setup` as documentation-only onboarding for GitHub CLI; it must not install tools, start auth, request tokens, call network APIs or mutate remote repository settings.
+- Missing GitHub CLI/auth failures should return safe `nextAction` values that guide the user to manual setup instead of exposing raw command output.

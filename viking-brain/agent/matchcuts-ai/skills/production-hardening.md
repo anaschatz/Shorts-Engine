@@ -54,3 +54,5 @@ Checklist:
 - After push, prefer safe remote CI summaries from `npm run remote:ci`; if CI fails, fix forward with a new validated commit instead of mutating release evidence or past commits.
 - For GitHub release readiness, run `npm run github:doctor` before remote proof and keep branch protection checks read-only; if permissions return `unknown`, confirm settings in the GitHub UI.
 - Validate release/proof report input shape at the boundary before writing JSON evidence; never persist partial remote summaries.
+- For GitHub CLI enablement, use `npm run github:setup` as a no-network, documentation-only helper. Never automate `gh auth login`, request tokens, mutate repository settings, or download raw Actions logs/artifacts in default release proof.
+- Add safe `nextAction` fields to CLI/auth/remote-CI failures so users can recover without leaking raw stderr, local paths or secrets.

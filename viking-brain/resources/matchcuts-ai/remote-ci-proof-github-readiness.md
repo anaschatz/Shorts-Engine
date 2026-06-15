@@ -5,8 +5,15 @@ ShortsEngine adds a safe GitHub release readiness layer around the existing remo
 ## Commands
 
 - `npm run github:doctor`
+- `npm run github:setup`
 - `npm run remote:ci`
 - `npm run remote:ci:proof`
+
+## GitHub Setup
+
+`github:setup` is a documentation-only helper for local machines that do not yet have `gh` installed or authenticated.
+
+It prints safe JSON with install options, manual auth guidance, `gh auth status`, post-push verification commands and branch-protection `unknown` guidance. It does not install tools, start auth, request tokens, call GitHub APIs, mutate repository settings or download logs/artifacts.
 
 ## GitHub Doctor
 

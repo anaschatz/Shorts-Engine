@@ -100,16 +100,20 @@ test("GitHub CLI doctor fails safely when gh is missing or auth is missing", asy
       "gh --version": Object.assign(new Error("not found"), { code: "ENOENT" }),
     })),
   }).catch((caught) => caught);
-  assert.equal(safeError(missingGh).code, "GITHUB_CLI_MISSING");
-  assert.equal(findSensitiveLeak(safeError(missingGh)), null);
+  const missingGhError = safeError(missingGh);
+  assert.equal(missingGhError.code, "GITHUB_CLI_MISSING");
+  assert.equal(missingGhError.nextAction, "run-npm-run-github-setup");
+  assert.equal(findSensitiveLeak(missingGhError), null);
 
   const missingAuth = await doctor({
     commandRunner: mockRunner(baseResponses({
       "gh auth status": Object.assign(new Error("auth failed"), { exitCode: 1, stderr: "raw token never printed" }),
     })),
   }).catch((caught) => caught);
-  assert.equal(safeError(missingAuth).code, "GITHUB_AUTH_MISSING");
-  assert.equal(findSensitiveLeak(safeError(missingAuth)), null);
+  const missingAuthError = safeError(missingAuth);
+  assert.equal(missingAuthError.code, "GITHUB_AUTH_MISSING");
+  assert.equal(missingAuthError.nextAction, "run-gh-auth-login-then-gh-auth-status");
+  assert.equal(findSensitiveLeak(missingAuthError), null);
 });
 
 test("GitHub CLI doctor fails safely when repo or Actions metadata is unreadable", async () => {

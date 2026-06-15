@@ -41,9 +41,12 @@ For local release proof, run `npm run release:evidence` after the release gate p
 Before post-push verification, check the local GitHub CLI setup:
 
 ```bash
+npm run github:setup
 gh auth status
 npm run github:doctor
 ```
+
+`npm run github:setup` is a no-network setup guide. It prints safe JSON with install options for macOS, Linux and Windows, manual `gh auth login` guidance, required read-only access, branch-protection `unknown` guidance and the next commands to run. It never starts auth, never asks for tokens, never downloads logs/artifacts and never mutates remote GitHub settings.
 
 The doctor is read-only. It verifies `gh`, auth, `origin`, repository metadata, GitHub Actions metadata and branch protection readiness when permissions allow it. It does not mutate GitHub settings and does not download raw logs or artifacts.
 

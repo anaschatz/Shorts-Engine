@@ -19,6 +19,7 @@ for (const file of [
   "tools/release/check-environment.mjs",
   "tools/release/check-staging-readiness.mjs",
   "tools/release/check-staging-smoke.mjs",
+  "tools/release/print-github-cli-setup.mjs",
   "tools/release/verify-release-gate.mjs",
   "tools/release/write-release-evidence.mjs",
   "server/analysis.cjs",
@@ -48,6 +49,7 @@ execFileSync("node", ["--check", "demo/run-smoke.mjs"], { stdio: "pipe" });
 execFileSync("node", ["--check", "tools/release/check-environment.mjs"], { stdio: "pipe" });
 execFileSync("node", ["--check", "tools/release/check-staging-readiness.mjs"], { stdio: "pipe" });
 execFileSync("node", ["--check", "tools/release/check-staging-smoke.mjs"], { stdio: "pipe" });
+execFileSync("node", ["--check", "tools/release/print-github-cli-setup.mjs"], { stdio: "pipe" });
 execFileSync("node", ["--check", "tools/release/verify-release-gate.mjs"], { stdio: "pipe" });
 execFileSync("node", ["--check", "tools/release/write-release-evidence.mjs"], { stdio: "pipe" });
 for (const serverFile of [

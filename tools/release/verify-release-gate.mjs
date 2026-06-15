@@ -30,6 +30,7 @@ const REQUIRED_PACKAGE_SCRIPTS = Object.freeze({
   "ci:reports": "node demo/validate-ci-reports.mjs",
   "env:check": "node tools/release/check-environment.mjs",
   "github:doctor": "node tools/release/check-github-cli.mjs",
+  "github:setup": "node tools/release/print-github-cli-setup.mjs",
   "render:check": "node tools/release/check-render-staging.mjs",
   "render:manual": "node tools/release/print-render-staging-checklist.mjs",
   "render:proof": "node tools/release/render-staging-proof.mjs",

@@ -23,6 +23,7 @@
     "eval": "node eval/run-eval.mjs",
     "eval:ci": "node eval/run-eval.mjs --threshold=80",
     "github:doctor": "node tools/release/check-github-cli.mjs",
+    "github:setup": "node tools/release/print-github-cli-setup.mjs",
     "integration:cloud": "node scripts/run-real-cloud-integration.mjs",
     "lint": "node tests/static-lint.mjs",
     "release:check": "node tools/release/verify-release-gate.mjs",

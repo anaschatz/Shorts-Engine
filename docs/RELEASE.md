@@ -43,9 +43,12 @@ Release evidence must also avoid raw provider identifiers. Render service ids, d
 Before relying on remote GitHub evidence, check the local GitHub CLI setup:
 
 ```bash
+npm run github:setup
 gh auth status
 npm run github:doctor
 ```
+
+`npm run github:setup` prints a documentation-only setup guide. It does not install `gh`, does not run `gh auth login`, does not request tokens, does not call GitHub APIs, and does not mutate repository settings. Use it when `github:doctor`, `remote:ci` or `remote:ci:proof` fail with missing CLI/auth errors. It documents macOS, Linux and Windows install options, manual auth steps, high-level read-only permissions, branch-protection `unknown` guidance and the post-push verification commands.
 
 `github:doctor` is read-only. It verifies that `gh` is installed, authenticated, pointed at a readable `origin` repository, able to read GitHub Actions metadata, and able to inspect branch protection when permissions allow it. Branch protection may return `unknown` when GitHub permissions or rulesets hide the settings; in that case, use the GitHub UI checklist below. The doctor never mutates repository settings, never prints raw stderr, and never downloads logs or artifacts.
 
@@ -62,7 +65,7 @@ npm run remote:ci:proof
 
 Before writing a proof report, the proof writer validates the remote CI summary shape. Missing release-job metadata, invalid branch/SHA/run fields, unsafe URLs, local paths or secret-shaped values fail closed with structured errors instead of writing partial evidence.
 
-Before using it, make sure `gh auth status` succeeds locally. The check fails closed when `gh` is missing, auth is unavailable, no matching run is found, the run times out, GitHub output is invalid JSON, or the summary would leak secrets/paths/provider identifiers.
+Before using it, make sure `gh auth status` succeeds locally. The check fails closed when `gh` is missing, auth is unavailable, no matching run is found, the run times out, GitHub output is invalid JSON, or the summary would leak secrets/paths/provider identifiers. Missing CLI/auth failures include a safe `nextAction`; start with `npm run github:setup` when the local machine has not been prepared yet.
 
 Remote CI polling is bounded:
 

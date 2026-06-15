@@ -200,16 +200,20 @@ test("remote CI verifier fails safely when gh is missing or unauthenticated", as
       "gh --version": Object.assign(new Error("not found"), { code: "ENOENT" }),
     })),
   }).catch((caught) => caught);
-  assert.equal(safeError(missingGh).code, "REMOTE_CI_GH_MISSING");
-  assert.equal(findSensitiveLeak(safeError(missingGh)), null);
+  const missingGhError = safeError(missingGh);
+  assert.equal(missingGhError.code, "REMOTE_CI_GH_MISSING");
+  assert.equal(missingGhError.nextAction, "run-npm-run-github-setup");
+  assert.equal(findSensitiveLeak(missingGhError), null);
 
   const unauthenticated = await check({
     commandRunner: mockRunner(baseResponses({
       "gh auth status": Object.assign(new Error("auth failed"), { exitCode: 1, stderr: "token is not shown" }),
     })),
   }).catch((caught) => caught);
-  assert.equal(safeError(unauthenticated).code, "REMOTE_CI_GH_AUTH_MISSING");
-  assert.equal(findSensitiveLeak(safeError(unauthenticated)), null);
+  const unauthenticatedError = safeError(unauthenticated);
+  assert.equal(unauthenticatedError.code, "REMOTE_CI_GH_AUTH_MISSING");
+  assert.equal(unauthenticatedError.nextAction, "run-gh-auth-login-then-gh-auth-status");
+  assert.equal(findSensitiveLeak(unauthenticatedError), null);
 });
 
 test("remote CI verifier fails safely when git remote or run is missing", async () => {
@@ -225,8 +229,10 @@ test("remote CI verifier fails safely when git remote or run is missing", async 
       },
     }),
   }).catch((caught) => caught);
-  assert.equal(safeError(noRun).code, "REMOTE_CI_RUN_NOT_FOUND");
-  assert.equal(findSensitiveLeak(safeError(noRun)), null);
+  const noRunError = safeError(noRun);
+  assert.equal(noRunError.code, "REMOTE_CI_RUN_NOT_FOUND");
+  assert.equal(noRunError.nextAction, "wait-for-actions-or-confirm-branch-sha");
+  assert.equal(findSensitiveLeak(noRunError), null);
 });
 
 test("remote CI verifier rejects invalid JSON and unsafe GitHub output", async () => {
@@ -283,8 +289,10 @@ test("remote CI verifier times out while run is pending", async () => {
     sleep: async () => {},
   }).catch((caught) => caught);
 
-  assert.equal(safeError(pending).code, "REMOTE_CI_TIMEOUT");
-  assert.equal(findSensitiveLeak(safeError(pending)), null);
+  const pendingError = safeError(pending);
+  assert.equal(pendingError.code, "REMOTE_CI_TIMEOUT");
+  assert.equal(pendingError.nextAction, "wait-for-remote-ci");
+  assert.equal(findSensitiveLeak(pendingError), null);
 });
 
 test("remote CI verifier config is bounded", () => {

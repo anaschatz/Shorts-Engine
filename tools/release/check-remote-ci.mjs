@@ -420,10 +420,20 @@ async function runRemoteCiCheck(options = {}) {
 }
 
 function safeError(error) {
+  const code = error && error.code ? error.code : "REMOTE_CI_FAILED";
+  const rawMessage = error && error.message ? sanitizeText(error.message, 240) : "Remote CI verification failed.";
+  const nextActions = {
+    REMOTE_CI_GH_MISSING: "run-npm-run-github-setup",
+    REMOTE_CI_GH_AUTH_MISSING: "run-gh-auth-login-then-gh-auth-status",
+    REMOTE_CI_RUN_NOT_FOUND: "wait-for-actions-or-confirm-branch-sha",
+    REMOTE_CI_TIMEOUT: "wait-for-remote-ci",
+    REMOTE_CI_REMOTE_MISSING: "configure-git-origin",
+  };
   return {
     ok: false,
-    code: error && error.code ? error.code : "REMOTE_CI_FAILED",
-    message: error && error.message ? error.message : "Remote CI verification failed.",
+    code,
+    message: findSensitiveLeak(rawMessage) ? "Remote CI verification failed." : rawMessage,
+    nextAction: nextActions[code] || "inspect-safe-summary",
   };
 }
 

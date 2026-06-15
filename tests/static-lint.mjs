@@ -19,6 +19,7 @@ const renderManual = readFileSync("tools/release/print-render-staging-checklist.
 const renderProof = readFileSync("tools/release/render-staging-proof.mjs", "utf8");
 const stagingDeploy = readFileSync("tools/release/staging-deploy.mjs", "utf8");
 const githubDoctor = readFileSync("tools/release/check-github-cli.mjs", "utf8");
+const githubSetup = readFileSync("tools/release/print-github-cli-setup.mjs", "utf8");
 const remoteCi = readFileSync("tools/release/check-remote-ci.mjs", "utf8");
 const remoteCiProof = readFileSync("tools/release/write-remote-ci-proof.mjs", "utf8");
 const stagingFullSmoke = readFileSync("tools/release/check-staging-full-smoke.mjs", "utf8");
@@ -90,6 +91,7 @@ assert.match(packageJson, /"demo:browser:install": "playwright install chromium"
 assert.match(packageJson, /"ci:reports": "node demo\/validate-ci-reports\.mjs"/, "package should expose CI report validation");
 assert.match(packageJson, /"env:check": "node tools\/release\/check-environment\.mjs"/, "package should expose staging environment validation");
 assert.match(packageJson, /"github:doctor": "node tools\/release\/check-github-cli\.mjs"/, "package should expose GitHub CLI doctor");
+assert.match(packageJson, /"github:setup": "node tools\/release\/print-github-cli-setup\.mjs"/, "package should expose GitHub CLI setup guidance");
 assert.match(packageJson, /"render:check": "node tools\/release\/check-render-staging\.mjs"/, "package should expose Render staging configuration validation");
 assert.match(packageJson, /"render:manual": "node tools\/release\/print-render-staging-checklist\.mjs"/, "package should expose the live Render manual checklist");
 assert.match(packageJson, /"render:proof": "node tools\/release\/render-staging-proof\.mjs"/, "package should expose the no-network Render staging proof");
@@ -180,7 +182,23 @@ assert.match(githubDoctor, /branchProtectionReadiness/, "GitHub doctor should ch
 assert.match(githubDoctor, /remoteMutation: false/, "GitHub doctor should declare no remote mutation");
 assert.match(githubDoctor, /logsDownloaded: false/, "GitHub doctor should not download logs");
 assert.match(githubDoctor, /artifactsDownloaded: false/, "GitHub doctor should not download artifacts");
+assert.match(githubDoctor, /run-npm-run-github-setup/, "GitHub doctor missing-gh failures should point at setup guidance");
 assert.doesNotMatch(githubDoctor, /ghp_|github_pat_|GITHUB_TOKEN\s*=|secret set|repo edit|--method\s+(?:PATCH|PUT|DELETE)|download-logs|view --log|artifact download/i, "GitHub doctor must not hardcode tokens, mutate remotes or download raw logs/artifacts");
+assert.match(githubSetup, /buildGithubCliSetupGuide/, "GitHub setup should expose a testable guide builder");
+assert.match(githubSetup, /documentation-only/, "GitHub setup should be documentation-only");
+assert.match(githubSetup, /networkCalls: false/, "GitHub setup should declare no network calls");
+assert.match(githubSetup, /authStarted: false/, "GitHub setup should not start auth automatically");
+assert.match(githubSetup, /remoteMutation: false/, "GitHub setup should not mutate remotes");
+assert.match(githubSetup, /tokensRequested: false/, "GitHub setup should not request tokens");
+assert.match(githubSetup, /logsDownloaded: false/, "GitHub setup should not download logs");
+assert.match(githubSetup, /artifactsDownloaded: false/, "GitHub setup should not download artifacts");
+assert.match(githubSetup, /gh auth login/, "GitHub setup should explain manual auth");
+assert.match(githubSetup, /gh auth status/, "GitHub setup should include auth status verification");
+assert.match(githubSetup, /npm run github:doctor/, "GitHub setup should include the doctor command");
+assert.match(githubSetup, /npm run remote:ci/, "GitHub setup should include remote CI verification");
+assert.match(githubSetup, /npm run remote:ci:proof/, "GitHub setup should include remote CI proof");
+assert.match(githubSetup, /findSensitiveLeak/, "GitHub setup should guard output against leaks");
+assert.doesNotMatch(githubSetup, /execFile|spawn|child_process|ghp_|github_pat_|GITHUB_TOKEN\s*=|secret set|repo edit|--method\s+(?:PATCH|PUT|DELETE)|download-logs|view --log|artifact download/i, "GitHub setup must not run commands, hardcode tokens, mutate remotes or download raw logs/artifacts");
 assert.match(remoteCi, /gh/, "remote CI verifier should use GitHub CLI");
 assert.match(remoteCi, /execFile/, "remote CI verifier should avoid shell-based command execution");
 assert.match(remoteCi, /SHORTSENGINE_REMOTE_CI_TIMEOUT_MS/, "remote CI verifier should bound polling timeout");
@@ -245,6 +263,7 @@ assert.match(envExample, /SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP=0/, ".env.exam
 assert.doesNotMatch(envExample, /sk-[A-Za-z0-9_-]{20,}|AKIA[A-Z0-9]{12,}|Bearer\s+[A-Za-z0-9._-]{10,}/, ".env.example must not contain real-looking secrets");
 assert.match(releaseGateVerifier, /checkEnvironment/, "release gate verifier should include environment readiness");
 assert.match(releaseGateVerifier, /github:doctor/, "release gate verifier should require the GitHub doctor script to exist");
+assert.match(releaseGateVerifier, /github:setup/, "release gate verifier should require the GitHub setup script to exist");
 assert.match(releaseGateVerifier, /render:check/, "release gate verifier should require the Render staging check script");
 assert.match(releaseGateVerifier, /render:manual/, "release gate verifier should require the Render manual checklist script");
 assert.match(releaseGateVerifier, /render:proof/, "release gate verifier should require the Render no-network proof script");
@@ -283,6 +302,7 @@ assert.match(ciDocs, /uploads artifacts only when the release gate fails/i, "CI 
 assert.match(ciDocs, /Real cloud integration stays out of the default gate/i, "CI docs should document opt-in cloud integration");
 assert.match(ciDocs, /npm run release:check/, "CI docs should include release gate verification");
 assert.match(ciDocs, /npm run release:evidence/, "CI docs should include release evidence generation");
+assert.match(ciDocs, /npm run github:setup/, "CI docs should document GitHub CLI setup guidance");
 assert.match(ciDocs, /npm run github:doctor/, "CI docs should document GitHub CLI doctor");
 assert.match(ciDocs, /npm run remote:ci/, "CI docs should document remote CI verification");
 assert.match(ciDocs, /npm run remote:ci:proof/, "CI docs should document remote CI proof");
@@ -300,6 +320,7 @@ assert.match(releaseDocs, /staging:smoke:full/, "release docs should document th
 assert.match(releaseDocs, /staging:smoke:cleanup/, "release docs should document the opt-in full staging smoke cleanup command");
 assert.match(releaseDocs, /npm run release:check/, "release docs should explain local release checks");
 assert.match(releaseDocs, /release\/results\/latest\.json/, "release docs should explain release evidence output");
+assert.match(releaseDocs, /npm run github:setup/, "release docs should explain GitHub CLI setup guidance");
 assert.match(releaseDocs, /npm run github:doctor/, "release docs should explain GitHub CLI readiness");
 assert.match(releaseDocs, /npm run remote:ci/, "release docs should explain remote CI verification");
 assert.match(releaseDocs, /npm run remote:ci:proof/, "release docs should explain remote CI proof generation");
