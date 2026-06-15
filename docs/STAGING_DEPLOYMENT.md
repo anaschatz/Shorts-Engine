@@ -6,6 +6,7 @@ Run:
 
 ```bash
 npm run staging:check
+npm run render:check
 ```
 
 For a deployed app, run:
@@ -92,6 +93,46 @@ Required GitHub Environment secret:
 
 The deploy helper calls Render's service deploy API, requests a deploy with cache kept by default, and prints only a sanitized summary. It does not print the API token, the raw provider response, local paths or storage keys.
 
+`npm run render:check` validates this contract without calling Render:
+
+- provider `none` remains readiness-only and no-network
+- provider `render` requires target `staging`, service id, deploy token and public staging URL
+- local/private/link-local staging URLs are rejected for real Render staging
+- mock transcription remains the safe default unless a real provider is explicitly configured
+- output stays sanitized and never includes token values or raw provider data
+
+## Render Service Setup
+
+Create a Render Web Service connected to this GitHub repository.
+
+Recommended service settings:
+
+- Runtime: Node.js
+- Build command: `npm ci`
+- Start command: `npm start`
+- Health check path: `/health`
+- Node version: use the repository `engines.node` value unless you intentionally pin a newer version in Render settings.
+- Required system tools: `ffmpeg` and `ffprobe` must be available to render real clips. If they are missing, `/health` should report degraded readiness and render jobs should fail safely.
+
+Recommended Render environment variables for initial staging:
+
+- `MATCHCUTS_TRANSCRIPTION_PROVIDER=mock`
+- `MATCHCUTS_PERSISTENCE_ADAPTER=sqlite`
+- `MATCHCUTS_STORAGE_ADAPTER=local` or `mock-cloud`
+- Leave `OPENAI_API_KEY` empty until real-provider staging is intentional.
+- Let Render provide `PORT`; do not hardcode it.
+
+Local filesystem storage on Render should be treated as ephemeral unless a Render disk is explicitly attached. Initial staging can use local or mock-cloud storage to prove deployment and health, but durable uploads/renders need object storage and database-backed persistence in a later milestone.
+
+After the service exists:
+
+1. Copy the Render service id, which starts with `srv-`.
+2. Create a Render API token with the least practical scope for triggering deploys.
+3. Add the service id to GitHub Environment `staging` as `SHORTSENGINE_STAGING_SERVICE_ID`.
+4. Add the API token to GitHub Environment `staging` as secret `SHORTSENGINE_STAGING_DEPLOY_TOKEN`.
+5. Add the public Render service URL as `SHORTSENGINE_STAGING_URL`.
+6. Run `npm run render:check` locally with placeholder values first, then run the GitHub staging workflow manually.
+
 ## Workflow Behavior
 
 The staging workflow lives at `.github/workflows/staging.yml`.
@@ -101,7 +142,7 @@ It runs in two cases:
 - manually with `workflow_dispatch`
 - automatically after `ShortsEngine CI` completes successfully
 
-The workflow uses the GitHub Environment named `staging`, runs `npm run env:check` and `npm run staging:check`, then runs `npm run staging:deploy`:
+The workflow uses the GitHub Environment named `staging`, runs `npm run env:check`, `npm run staging:check` and `npm run render:check`, then runs `npm run staging:deploy`:
 
 - provider `none`: pass readiness-only; no fake deploy is claimed
 - provider `render`: trigger a Render deploy only when target, service id, staging URL and protected deploy token are configured
@@ -137,11 +178,21 @@ It does not upload videos, create jobs, render clips, delete artifacts or call r
 - Remove `SHORTSENGINE_STAGING_SERVICE_ID` and `SHORTSENGINE_STAGING_DEPLOY_TOKEN` when disabling Render deploys.
 - Keep generated reports, uploads, renders, databases and `.env` files out of commits.
 
+If GitHub Actions reports a failed staging run:
+
+- `STAGING_URL_REQUIRED`: add `SHORTSENGINE_STAGING_URL` or return to provider `none`.
+- `STAGING_SERVICE_ID_MISSING`: add `SHORTSENGINE_STAGING_SERVICE_ID=srv-...`.
+- `STAGING_CREDENTIAL_MISSING`: add the GitHub Environment secret `SHORTSENGINE_STAGING_DEPLOY_TOKEN`.
+- `RENDER_STAGING_URL_PUBLIC_REQUIRED`: use the public Render URL, not localhost or a private IP.
+- `STAGING_RENDER_DEPLOY_HTTP_FAILED`: check the Render service id, token permissions and Render service status.
+- smoke failure after deploy: open `/health` on the Render URL and verify FFmpeg, storage, repositories, adapters, transcription and analysis readiness.
+
 ## Local Commands
 
 ```bash
 npm run env:check
 npm run staging:check
+npm run render:check
 npm run release:check
 npm run release:evidence
 ```
@@ -151,3 +202,11 @@ Use local smoke only when explicitly needed:
 ```bash
 SHORTSENGINE_STAGING_ALLOW_LOCAL_URL=1 SHORTSENGINE_STAGING_URL=http://127.0.0.1:4175 npm run staging:smoke
 ```
+
+## Render References
+
+- Render Web Services: https://render.com/docs/web-services
+- Render Node.js version/runtime guidance: https://render.com/docs/node-version
+- Render health checks: https://render.com/docs/health-checks
+- Render persistent disks: https://render.com/docs/disks
+- Render API deploys: https://api-docs.render.com/reference/create-deploy

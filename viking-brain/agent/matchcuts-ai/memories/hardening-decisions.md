@@ -26,3 +26,4 @@
 - Staging smoke URLs must reject credentialed, localhost, private and link-local targets by default; explicit local mode is only for developer validation.
 - Staging health smoke must bound response size before JSON parsing and report oversized/invalid bodies with safe structured errors.
 - Render is the first provider-specific staging deploy path; it requires GitHub Environment `staging` vars plus a protected deploy token, while provider `none` remains the default no-network path.
+- `npm run render:check` validates live Render staging configuration without network calls before the staging workflow triggers a deploy.

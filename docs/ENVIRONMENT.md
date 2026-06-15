@@ -122,13 +122,30 @@ The command prints a safe JSON readiness summary. It fails closed for invalid nu
 1. Install dependencies with `npm ci`.
 2. Run `npm run env:check`.
 3. Run `npm run staging:check`.
-4. Run `npm run release:check`.
-5. Start the server with staging env values.
-6. Check `GET /health` and require `status: "ready"` unless a documented degraded dependency is expected.
-7. Run deployed smoke with `SHORTSENGINE_STAGING_URL=... npm run staging:smoke`.
-8. Run `npm run demo:fixture`, `npm run demo:smoke`, `npm run demo:browser`, and `npm run demo:browser:ci`.
-9. Run `npm run ci:reports` and `npm run release:evidence`.
-10. Inspect failure-only artifacts only if a gate fails.
-11. Configure GitHub branch protection as documented in `docs/RELEASE.md` and GitHub Environment protection as documented in `docs/STAGING_DEPLOYMENT.md`.
+4. Run `npm run render:check`.
+5. Run `npm run release:check`.
+6. Start the server with staging env values.
+7. Check `GET /health` and require `status: "ready"` unless a documented degraded dependency is expected.
+8. Run deployed smoke with `SHORTSENGINE_STAGING_URL=... npm run staging:smoke`.
+9. Run `npm run demo:fixture`, `npm run demo:smoke`, `npm run demo:browser`, and `npm run demo:browser:ci`.
+10. Run `npm run ci:reports` and `npm run release:evidence`.
+11. Inspect failure-only artifacts only if a gate fails.
+12. Configure GitHub branch protection as documented in `docs/RELEASE.md` and GitHub Environment protection as documented in `docs/STAGING_DEPLOYMENT.md`.
+
+## Render Staging Runtime
+
+For the first live staging deployment, use a Render Node.js Web Service with:
+
+- Build command: `npm ci`
+- Start command: `npm start`
+- Health check path: `/health`
+- `PORT` supplied by Render
+- `MATCHCUTS_TRANSCRIPTION_PROVIDER=mock`
+- `MATCHCUTS_PERSISTENCE_ADAPTER=sqlite`
+- `MATCHCUTS_STORAGE_ADAPTER=local` or `mock-cloud`
+
+`npm run render:check` validates the Render-facing environment contract without calling Render APIs. It keeps provider `none` as readiness-only and requires public URL, `srv-...` service id and protected deploy token before provider `render` can proceed.
+
+Render local filesystem storage is ephemeral unless a disk is attached. Treat local/mock-cloud storage as initial staging only; durable staging should move uploads/renders to object storage and use database-backed persistence.
 
 Never commit real `.env` files, provider keys, cloud credentials, database files, uploads, renders, or generated reports.

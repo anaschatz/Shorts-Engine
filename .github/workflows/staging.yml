@@ -67,6 +67,9 @@ jobs:
       - name: Staging readiness
         run: npm run staging:check
 
+      - name: Render staging configuration readiness
+        run: npm run render:check
+
       - name: Provider-specific staging deploy
         run: npm run staging:deploy
 

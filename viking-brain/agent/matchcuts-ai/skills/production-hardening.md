@@ -45,3 +45,4 @@ Checklist:
 - Bound deployed health-smoke response bodies before JSON parsing and convert oversized/invalid JSON responses into safe structured failures.
 - Keep staging deploy provider-specific and explicit: Render deploys require target `staging`, provider `render`, a `srv-...` service id, a protected deploy token and a safe staging URL.
 - Unsupported staging deploy providers must fail closed; provider `none` remains a no-network readiness-only path.
+- Validate live Render staging config with `npm run render:check` before deploy; it must remain no-network and public-URL-only.

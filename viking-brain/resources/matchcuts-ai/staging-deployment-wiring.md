@@ -11,6 +11,7 @@ Decisions:
 - Trigger staging workflow manually or after `ShortsEngine CI` succeeds.
 - Do not claim a fake deploy when no provider is configured.
 - Support Render as the first provider-specific deploy path through `tools/release/staging-deploy.mjs`.
+- Validate live Render configuration with `tools/release/check-render-staging.mjs` before deploy.
 - Fail closed when an unsupported provider is configured.
 - Do not run real cloud integration or upload artifacts in the staging workflow by default.
 
@@ -27,6 +28,7 @@ Commands:
 
 - `npm run env:check`
 - `npm run staging:check`
+- `npm run render:check`
 - `npm run staging:deploy`
 - `SHORTSENGINE_STAGING_URL=https://... npm run staging:smoke`
 - `npm run release:check`

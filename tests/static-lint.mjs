@@ -14,6 +14,7 @@ const ciReportValidator = readFileSync("demo/validate-ci-reports.mjs", "utf8");
 const envChecker = readFileSync("tools/release/check-environment.mjs", "utf8");
 const stagingReadiness = readFileSync("tools/release/check-staging-readiness.mjs", "utf8");
 const stagingSmoke = readFileSync("tools/release/check-staging-smoke.mjs", "utf8");
+const renderCheck = readFileSync("tools/release/check-render-staging.mjs", "utf8");
 const stagingDeploy = readFileSync("tools/release/staging-deploy.mjs", "utf8");
 const releaseGateVerifier = readFileSync("tools/release/verify-release-gate.mjs", "utf8");
 const releaseEvidenceWriter = readFileSync("tools/release/write-release-evidence.mjs", "utf8");
@@ -81,6 +82,7 @@ assert.match(packageJson, /"demo:browser:e2e": "node demo\/run-playwright-smoke\
 assert.match(packageJson, /"demo:browser:install": "playwright install chromium"/, "package should expose a Playwright Chromium install helper");
 assert.match(packageJson, /"ci:reports": "node demo\/validate-ci-reports\.mjs"/, "package should expose CI report validation");
 assert.match(packageJson, /"env:check": "node tools\/release\/check-environment\.mjs"/, "package should expose staging environment validation");
+assert.match(packageJson, /"render:check": "node tools\/release\/check-render-staging\.mjs"/, "package should expose Render staging configuration validation");
 assert.match(packageJson, /"staging:check": "node tools\/release\/check-staging-readiness\.mjs"/, "package should expose staging readiness validation");
 assert.match(packageJson, /"staging:deploy": "node tools\/release\/staging-deploy\.mjs"/, "package should expose provider-specific staging deploy");
 assert.match(packageJson, /"staging:smoke": "node tools\/release\/check-staging-smoke\.mjs"/, "package should expose deployed staging smoke");
@@ -123,6 +125,13 @@ assert.match(stagingSmoke, /MAX_HEALTH_RESPONSE_BYTES/, "staging smoke should bo
 assert.match(stagingSmoke, /STAGING_HEALTH_JSON_INVALID/, "staging smoke should reject invalid JSON safely");
 assert.match(stagingSmoke, /validateHealthPayload/, "staging smoke should validate health response shape");
 assert.match(stagingSmoke, /findSensitiveLeak/, "staging smoke should guard health and summary output against leaks");
+assert.match(renderCheck, /RENDER_RUNTIME_CONTRACT/, "Render check should define an explicit runtime contract");
+assert.match(renderCheck, /buildCommand: "npm ci"/, "Render check should document the build command");
+assert.match(renderCheck, /startCommand: "npm start"/, "Render check should document the start command");
+assert.match(renderCheck, /healthCheckPath: "\/health"/, "Render check should document the health check path");
+assert.match(renderCheck, /networkCalls: false/, "Render check should stay no-network");
+assert.match(renderCheck, /RENDER_STAGING_URL_PUBLIC_REQUIRED/, "Render check should require a public staging URL");
+assert.match(renderCheck, /findSensitiveLeak/, "Render check should guard summaries against leaks");
 assert.match(stagingDeploy, /SUPPORTED_DEPLOY_PROVIDERS/, "staging deploy should define explicit supported providers");
 assert.match(stagingDeploy, /render/, "staging deploy should support Render as the first provider");
 assert.match(stagingDeploy, /api\.render\.com\/v1/, "staging deploy should target the Render deploy API");
@@ -132,6 +141,7 @@ assert.match(stagingDeploy, /findSensitiveLeak/, "staging deploy should guard su
 assert.match(envDocs, /Staging Readiness Checklist/, "environment docs should include a staging readiness checklist");
 assert.match(envDocs, /npm run env:check/, "environment docs should document the env check command");
 assert.match(envDocs, /npm run staging:check/, "environment docs should document the staging readiness command");
+assert.match(envDocs, /npm run render:check/, "environment docs should document the Render readiness command");
 assert.match(envDocs, /SHORTSENGINE_STAGING_URL/, "environment docs should document staging URL config");
 assert.match(envDocs, /SHORTSENGINE_STAGING_DEPLOY_PROVIDER/, "environment docs should document staging provider config");
 assert.match(envDocs, /SHORTSENGINE_STAGING_SERVICE_ID/, "environment docs should document Render service id config");
@@ -145,6 +155,7 @@ assert.match(envExample, /SHORTSENGINE_STAGING_SERVICE_ID=/, ".env.example shoul
 assert.match(envExample, /SHORTSENGINE_STAGING_URL=/, ".env.example should leave staging URL empty by default");
 assert.doesNotMatch(envExample, /sk-[A-Za-z0-9_-]{20,}|AKIA[A-Z0-9]{12,}|Bearer\s+[A-Za-z0-9._-]{10,}/, ".env.example must not contain real-looking secrets");
 assert.match(releaseGateVerifier, /checkEnvironment/, "release gate verifier should include environment readiness");
+assert.match(releaseGateVerifier, /render:check/, "release gate verifier should require the Render staging check script");
 assert.match(releaseGateVerifier, /checkStagingReadiness/, "release gate verifier should include staging readiness");
 assert.match(releaseGateVerifier, /validateCiReports/, "release gate verifier should reuse CI report validation");
 assert.match(releaseGateVerifier, /REQUIRED_WORKFLOW_COMMANDS/, "release gate verifier should enforce required workflow commands");
@@ -179,6 +190,7 @@ assert.match(ciDocs, /npm run release:evidence/, "CI docs should include release
 assert.match(releaseDocs, /Branch Protection Checklist/, "release docs should include branch protection guidance");
 assert.match(releaseDocs, /npm run env:check/, "release docs should include environment readiness checks");
 assert.match(releaseDocs, /npm run staging:check/, "release docs should include staging readiness checks");
+assert.match(releaseDocs, /npm run render:check/, "release docs should include Render staging checks");
 assert.match(releaseDocs, /\.github\/workflows\/staging\.yml/, "release docs should mention the staging workflow");
 assert.match(releaseDocs, /npm run release:check/, "release docs should explain local release checks");
 assert.match(releaseDocs, /release\/results\/latest\.json/, "release docs should explain release evidence output");
@@ -225,8 +237,13 @@ assert.match(stagingDocs, /GitHub Environment `staging`/, "staging docs should e
 assert.match(stagingDocs, /SHORTSENGINE_STAGING_DEPLOY_TOKEN/, "staging docs should document the provider-neutral deploy credential");
 assert.match(stagingDocs, /SHORTSENGINE_STAGING_SERVICE_ID/, "staging docs should document the Render service id");
 assert.match(stagingDocs, /npm run staging:check/, "staging docs should document readiness command");
+assert.match(stagingDocs, /npm run render:check/, "staging docs should document Render configuration readiness");
 assert.match(stagingDocs, /npm run staging:deploy/, "staging docs should document provider-specific staging deploy");
 assert.match(stagingDocs, /npm run staging:smoke/, "staging docs should document deployed smoke command");
+assert.match(stagingDocs, /Build command:[\s\S]*npm ci/, "staging docs should document Render build command");
+assert.match(stagingDocs, /Start command:[\s\S]*npm start/, "staging docs should document Render start command");
+assert.match(stagingDocs, /Health check path:[\s\S]*\/health/, "staging docs should document Render health check path");
+assert.match(stagingDocs, /ephemeral/i, "staging docs should document Render ephemeral storage limitation");
 assert.match(stagingDocs, /does not upload videos/i, "staging docs should keep deployed smoke health-only");
 assert.match(stagingDocs, /private-network|link-local/i, "staging docs should document private network URL rejection");
 assert.match(stagingDocs, /bounded health response size/i, "staging docs should document bounded health payloads");
@@ -237,6 +254,7 @@ assert.match(stagingWorkflow, /workflow_run:[\s\S]*ShortsEngine CI/, "staging wo
 assert.match(stagingWorkflow, /environment:[\s\S]*name:\s*staging/, "staging workflow should use GitHub Environment staging");
 assert.match(stagingWorkflow, /npm run env:check/, "staging workflow should run env readiness");
 assert.match(stagingWorkflow, /npm run staging:check/, "staging workflow should run staging readiness");
+assert.match(stagingWorkflow, /npm run render:check/, "staging workflow should run Render staging configuration readiness");
 assert.match(stagingWorkflow, /npm run staging:deploy/, "staging workflow should run provider-specific staging deploy");
 assert.match(stagingWorkflow, /npm run staging:smoke/, "staging workflow should include deployed smoke");
 assert.match(stagingWorkflow, /Provider-specific staging deploy/, "staging workflow should name the provider-specific deploy step");

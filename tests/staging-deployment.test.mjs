@@ -24,6 +24,10 @@ import {
   safeError as safeDeployError,
   validateRenderServiceId,
 } from "../tools/release/staging-deploy.mjs";
+import {
+  checkRenderStaging,
+  safeError as safeRenderCheckError,
+} from "../tools/release/check-render-staging.mjs";
 import { buildReleaseEvidence } from "../tools/release/write-release-evidence.mjs";
 
 const ENV_DOCS = readFileSync("docs/ENVIRONMENT.md", "utf8");
@@ -148,6 +152,104 @@ test("staging readiness accepts Render target with protected credential and serv
   assert.equal(summary.deployment.deployServiceIdConfigured, true);
   assert.equal(summary.deployment.stagingUrlHostType, "remote");
   assert.equal(findSensitiveLeak(summary), null);
+});
+
+test("Render staging configuration check passes default readiness-only mode without network", () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = () => {
+    throw new Error("render check should not fetch");
+  };
+  try {
+    const summary = checkRenderStaging({
+      env: {},
+      nowMs: Date.parse("2026-06-15T19:30:00.000Z"),
+      environmentDocsText: ENV_DOCS,
+      environmentExampleText: ENV_EXAMPLE,
+    });
+    assert.equal(summary.ok, true);
+    assert.equal(summary.provider, "none");
+    assert.equal(summary.readinessOnly, true);
+    assert.equal(summary.networkCalls, false);
+    assert.equal(summary.render.supported, false);
+    assert.equal(summary.render.buildCommand, "npm ci");
+    assert.equal(summary.render.startCommand, "npm start");
+    assert.equal(summary.render.healthCheckPath, "/health");
+    assert.equal(findSensitiveLeak(summary), null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Render staging configuration check accepts valid mocked Render env", () => {
+  const summary = checkRenderStaging({
+    env: {
+      SHORTSENGINE_DEPLOY_TARGET: "staging",
+      SHORTSENGINE_STAGING_DEPLOY_PROVIDER: "render",
+      SHORTSENGINE_STAGING_SERVICE_ID: "srv-shortsengine1",
+      SHORTSENGINE_STAGING_URL: "https://staging.example.test",
+      SHORTSENGINE_STAGING_DEPLOY_TOKEN: "placeholder-deploy-token",
+      MATCHCUTS_TRANSCRIPTION_PROVIDER: "mock",
+      MATCHCUTS_PERSISTENCE_ADAPTER: "sqlite",
+      MATCHCUTS_STORAGE_ADAPTER: "mock-cloud",
+    },
+    nowMs: Date.parse("2026-06-15T19:30:00.000Z"),
+    environmentDocsText: ENV_DOCS,
+    environmentExampleText: ENV_EXAMPLE,
+  });
+  assert.equal(summary.mode, "render-staging");
+  assert.equal(summary.render.supported, true);
+  assert.equal(summary.render.serviceIdConfigured, true);
+  assert.equal(summary.render.deployTokenConfigured, true);
+  assert.equal(summary.render.stagingUrlHostType, "remote");
+  assert.equal(summary.safeDefaults.transcriptionProvider, "mock");
+  assert.equal(summary.safeDefaults.storageAdapter, "mock-cloud");
+  assert.equal(summary.safeDefaults.persistenceAdapter, "sqlite");
+  assert.equal(findSensitiveLeak(summary), null);
+});
+
+test("Render staging configuration check fails safely for missing token url and private URL", () => {
+  const baseEnv = {
+    SHORTSENGINE_DEPLOY_TARGET: "staging",
+    SHORTSENGINE_STAGING_DEPLOY_PROVIDER: "render",
+    SHORTSENGINE_STAGING_SERVICE_ID: "srv-shortsengine1",
+  };
+  const missingUrl = (() => {
+    try {
+      checkRenderStaging({ env: { ...baseEnv, SHORTSENGINE_STAGING_DEPLOY_TOKEN: "placeholder-deploy-token" } });
+      return null;
+    } catch (error) {
+      return error;
+    }
+  })();
+  assert.equal(safeRenderCheckError(missingUrl).code, "STAGING_URL_REQUIRED");
+
+  const missingToken = (() => {
+    try {
+      checkRenderStaging({ env: { ...baseEnv, SHORTSENGINE_STAGING_URL: "https://staging.example.test" } });
+      return null;
+    } catch (error) {
+      return error;
+    }
+  })();
+  assert.equal(safeRenderCheckError(missingToken).code, "STAGING_CREDENTIAL_MISSING");
+
+  const privateUrl = (() => {
+    try {
+      checkRenderStaging({
+        env: {
+          ...baseEnv,
+          SHORTSENGINE_STAGING_URL: "http://10.0.0.5",
+          SHORTSENGINE_STAGING_ALLOW_LOCAL_URL: "1",
+          SHORTSENGINE_STAGING_DEPLOY_TOKEN: "placeholder-deploy-token",
+        },
+      });
+      return null;
+    } catch (error) {
+      return error;
+    }
+  })();
+  assert.equal(safeRenderCheckError(privateUrl).code, "RENDER_STAGING_URL_PUBLIC_REQUIRED");
+  assert.equal(findSensitiveLeak(safeRenderCheckError(privateUrl)), null);
 });
 
 test("staging readiness rejects unsupported provider safely", () => {

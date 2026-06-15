@@ -10,6 +10,7 @@ Run the full acceptance chain before a release candidate:
 npm run lint
 npm run env:check
 npm run staging:check
+npm run render:check
 npm run build
 npm test
 npm run eval
@@ -26,6 +27,8 @@ npm run release:evidence
 `npm run env:check` verifies staging-safe configuration defaults, numeric bounds, adapter/provider readiness and secret-safe environment documentation.
 
 `npm run staging:check` verifies the staging deployment contract, GitHub Environment workflow shape, staging URL/provider rules, deployed-smoke defaults and secret-safe staging documentation.
+
+`npm run render:check` verifies the live Render staging configuration contract without calling Render APIs. It confirms that provider `none` is no-network readiness-only, and that provider `render` has target `staging`, a `srv-...` service id, a protected deploy token and a public staging URL.
 
 `npm run release:check` verifies the CI workflow contract, package scripts, environment readiness, staging readiness, report freshness, report safety, artifact upload policy and default cloud/browser safety settings.
 
@@ -60,6 +63,14 @@ Render is the first provider-specific path. To enable it, configure the GitHub E
 - secret `SHORTSENGINE_STAGING_DEPLOY_TOKEN`
 
 Unsupported providers, missing service ids, missing tokens and unsafe staging URLs fail closed with safe structured errors.
+
+The Render service should be a Node.js Web Service with build command `npm ci`, start command `npm start`, and health check path `/health`. Render should provide `PORT`; keep `MATCHCUTS_TRANSCRIPTION_PROVIDER=mock`, `MATCHCUTS_PERSISTENCE_ADAPTER=sqlite`, and `MATCHCUTS_STORAGE_ADAPTER=local` or `mock-cloud` for initial staging.
+
+If GitHub reports a staging failure:
+
+- `render:check` failure means the GitHub Environment is incomplete or unsafe.
+- `staging:deploy` failure means Render rejected the deploy trigger or the service id/token is wrong.
+- `staging:smoke` failure means the deployed `/health` endpoint is unreachable, invalid, unsafe or degraded beyond the smoke contract.
 
 Use `docs/STAGING_DEPLOYMENT.md` to configure protected environment variables, protected credentials and deployed health smoke. Run deployed smoke manually with:
 

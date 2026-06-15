@@ -253,6 +253,7 @@ function verifyStagingWorkflowContract(workflowText) {
   assert(/npm install/.test(workflowText), "STAGING_WORKFLOW_INSTALL_INVALID", "Staging workflow must retain npm install fallback.");
   assert(/npm run env:check/.test(workflowText), "STAGING_WORKFLOW_ENV_CHECK_MISSING", "Staging workflow must run env:check.");
   assert(/npm run staging:check/.test(workflowText), "STAGING_WORKFLOW_CHECK_MISSING", "Staging workflow must run staging:check.");
+  assert(/npm run render:check/.test(workflowText), "STAGING_WORKFLOW_RENDER_CHECK_MISSING", "Staging workflow must run Render configuration readiness.");
   assert(/npm run staging:deploy/.test(workflowText), "STAGING_WORKFLOW_DEPLOY_MISSING", "Staging workflow must run provider-specific deploy safely.");
   assert(/npm run staging:smoke/.test(workflowText), "STAGING_WORKFLOW_SMOKE_MISSING", "Staging workflow must include deployed staging smoke.");
   assert(/SHORTSENGINE_STAGING_DEPLOY_PROVIDER/.test(workflowText), "STAGING_WORKFLOW_PROVIDER_GUARD_MISSING", "Staging workflow must guard deploy provider configuration.");
