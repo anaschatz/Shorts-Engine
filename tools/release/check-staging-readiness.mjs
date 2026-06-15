@@ -11,7 +11,7 @@ const STAGING_WORKFLOW_RELATIVE_PATH = ".github/workflows/staging.yml";
 
 const DEPLOY_TARGETS = Object.freeze(["local", "staging"]);
 const DEPLOY_PROVIDERS = Object.freeze(["none", "render", "fly", "railway", "vercel", "cloud-run", "custom"]);
-const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"]);
+const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1"]);
 
 const STAGING_ENV_CONTRACT = Object.freeze([
   { name: "SHORTSENGINE_DEPLOY_TARGET", defaultValue: "local", type: "enum", allowedValues: DEPLOY_TARGETS },
@@ -85,9 +85,55 @@ function validateSecretValue(value) {
   return true;
 }
 
-function hostIsLocal(hostname) {
-  const value = String(hostname || "").trim().toLowerCase();
-  return LOCAL_HOSTNAMES.has(value);
+function normalizeHostname(hostname) {
+  return String(hostname || "").trim().toLowerCase().replace(/^\[|\]$/g, "");
+}
+
+function parseIpv4(hostname) {
+  const parts = normalizeHostname(hostname).split(".");
+  if (parts.length !== 4 || parts.some((part) => !/^\d{1,3}$/.test(part))) return null;
+  const octets = parts.map((part) => Number(part));
+  if (octets.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return null;
+  return octets;
+}
+
+function ipv4NetworkType(octets) {
+  const [first, second] = octets;
+  if (first === 127 || first === 0) return "local";
+  if (first === 10) return "private";
+  if (first === 172 && second >= 16 && second <= 31) return "private";
+  if (first === 192 && second === 168) return "private";
+  if (first === 169 && second === 254) return "private";
+  if (first === 100 && second >= 64 && second <= 127) return "private";
+  if (first === 198 && (second === 18 || second === 19)) return "private";
+  if (first >= 224) return "private";
+  return "remote";
+}
+
+function ipv6NetworkType(hostname) {
+  const value = normalizeHostname(hostname);
+  if (!value.includes(":")) return null;
+  if (value === "::" || value === "::1") return "local";
+  if (value.startsWith("::ffff:")) {
+    const mapped = parseIpv4(value.slice("::ffff:".length));
+    return mapped ? ipv4NetworkType(mapped) : "private";
+  }
+  if (value.startsWith("fe80:") || value.startsWith("fc") || value.startsWith("fd")) return "private";
+  return "remote";
+}
+
+function hostNetworkType(hostname) {
+  const value = normalizeHostname(hostname);
+  if (LOCAL_HOSTNAMES.has(value)) return "local";
+  const ipv4 = parseIpv4(value);
+  if (ipv4) return ipv4NetworkType(ipv4);
+  const ipv6 = ipv6NetworkType(value);
+  if (ipv6) return ipv6;
+  return "remote";
+}
+
+function hostIsRestricted(hostname) {
+  return ["local", "private"].includes(hostNetworkType(hostname));
 }
 
 function validateStagingUrl(value, options = {}) {
@@ -112,13 +158,14 @@ function validateStagingUrl(value, options = {}) {
   if (parsed.username || parsed.password) {
     throw new StagingReadinessError("STAGING_URL_CREDENTIALS_UNSAFE", "Staging URL must not embed credentials.");
   }
-  if (hostIsLocal(parsed.hostname) && !allowLocal) {
-    throw new StagingReadinessError("STAGING_URL_LOCAL_UNSAFE", "Local staging URLs require explicit local mode.");
+  if (hostIsRestricted(parsed.hostname) && !allowLocal) {
+    throw new StagingReadinessError("STAGING_URL_LOCAL_UNSAFE", "Private or local staging URLs require explicit local mode.");
   }
+  const hostType = hostNetworkType(parsed.hostname);
   return {
     configured: true,
     protocol: parsed.protocol.replace(":", ""),
-    hostType: hostIsLocal(parsed.hostname) ? "local" : "remote",
+    hostType,
     healthPath: parsed.pathname.replace(/\/+$/, "").endsWith("/health")
       ? parsed.pathname.replace(/\/+$/, "")
       : `${parsed.pathname.replace(/\/+$/, "") || ""}/health`,
@@ -319,6 +366,7 @@ export {
   StagingReadinessError,
   checkStagingReadiness,
   safeError,
+  hostNetworkType,
   validateStagingConfig,
   validateStagingUrl,
   verifyStagingWorkflowContract,

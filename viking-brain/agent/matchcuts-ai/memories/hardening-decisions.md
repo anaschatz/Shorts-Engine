@@ -23,5 +23,5 @@
 - Real cloud integration must stay opt-in and skip safely unless explicit env flag and credentials are present.
 - Numeric runtime config must use bounded validation helpers so deployment mistakes fail closed instead of producing `NaN` behavior.
 - Artifact index paths must be validated against the artifact type storage area before persistence.
-- Staging deployment starts provider-neutral: `none` is readiness-only, real providers fail closed until explicit provider deploy steps and protected GitHub Environment credentials exist.
-- Deployed staging smoke remains read-only health checking by default; upload/render smoke must be a separate explicit milestone.
+- Staging smoke URLs must reject credentialed, localhost, private and link-local targets by default; explicit local mode is only for developer validation.
+- Staging health smoke must bound response size before JSON parsing and report oversized/invalid bodies with safe structured errors.

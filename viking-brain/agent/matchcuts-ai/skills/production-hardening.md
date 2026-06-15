@@ -41,5 +41,5 @@ Checklist:
 - Keep real S3/R2 integration in an explicit `integration:cloud` script that skips safely without `MATCHCUTS_RUN_REAL_CLOUD_TESTS=1` and credentials.
 - Validate numeric env/config values with bounded helpers; never allow `NaN` ports, limits, durations, timeouts or retry counts into runtime.
 - Validate any persisted artifact `path` against the storage area for its artifact type before indexing it.
-- Keep staging deploy provider-neutral until a real provider step exists; configured providers must fail closed rather than pretending a deploy happened.
-- Keep deployed staging smoke health-only (`GET /health`) unless an explicit future milestone adds safe upload/render smoke.
+- Treat staging smoke URLs as untrusted input; reject credentials, localhost/private/link-local targets unless explicit local mode is enabled.
+- Bound deployed health-smoke response bodies before JSON parsing and convert oversized/invalid JSON responses into safe structured failures.

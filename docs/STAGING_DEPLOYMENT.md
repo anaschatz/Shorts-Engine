@@ -32,8 +32,8 @@ Recommended rules:
 | --- | --- | --- | --- | --- | --- |
 | `SHORTSENGINE_DEPLOY_TARGET` | No | `local` | `local`, `staging` | No | Enables strict staging-mode validation when set to `staging`. |
 | `SHORTSENGINE_STAGING_DEPLOY_PROVIDER` | Required when target is `staging` | `none` | `none`, `render`, `fly`, `railway`, `vercel`, `cloud-run`, `custom` | No | Names the deploy provider. `none` means readiness-only, not deployed. |
-| `SHORTSENGINE_STAGING_URL` | Required when target is `staging` or when running smoke | empty | `http` or `https` URL without credentials | No | Base URL for deployed `/health` smoke. |
-| `SHORTSENGINE_STAGING_ALLOW_LOCAL_URL` | No | `0` | boolean | No | Allows localhost smoke only for explicit local testing. Keep disabled for remote staging. |
+| `SHORTSENGINE_STAGING_URL` | Required when target is `staging` or when running smoke | empty | `http` or `https` URL without credentials, private IPs or local-network hosts | No | Base URL for deployed `/health` smoke. |
+| `SHORTSENGINE_STAGING_ALLOW_LOCAL_URL` | No | `0` | boolean | No | Allows localhost/private-network smoke only for explicit local testing. Keep disabled for remote staging. |
 | `SHORTSENGINE_STAGING_SMOKE_TIMEOUT_MS` | No | `30000` | integer `1000..120000` | No | Timeout for each deployed health request. |
 | `SHORTSENGINE_STAGING_SMOKE_RETRIES` | No | `2` | integer `0..5` | No | Bounded retry count for deployed health smoke. |
 | `SHORTSENGINE_STAGING_DEPLOY_TOKEN` | Required when target is `staging` and provider is not `none` | empty | GitHub Environment secret | Yes | Provider-neutral deploy credential placeholder. Provider-specific milestones can replace or expand this. |
@@ -89,10 +89,12 @@ If `SHORTSENGINE_STAGING_URL` is configured, the workflow also runs `npm run sta
 
 - `GET /health`
 - HTTP success response
+- bounded health response size
 - structured response shape
 - `data.status` is `ready` or `degraded`
 - required health sections exist
 - no secret, path or storage-key leakage
+- no private, link-local or localhost target unless explicit local mode is enabled
 
 It does not upload videos, create jobs, render clips, delete artifacts or call real cloud integration.
 

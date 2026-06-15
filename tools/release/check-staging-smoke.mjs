@@ -4,8 +4,11 @@ import { resolve } from "node:path";
 import { findSensitiveLeak } from "../../demo/report-safety.mjs";
 import {
   StagingReadinessError,
+  hostNetworkType,
   validateStagingUrl,
 } from "./check-staging-readiness.mjs";
+
+const MAX_HEALTH_RESPONSE_BYTES = 64 * 1024;
 
 class StagingSmokeError extends Error {
   constructor(code, message, details = {}) {
@@ -39,12 +42,11 @@ function healthUrlFor(baseUrl) {
 
 function safeTargetSummary(baseUrl) {
   const parsed = new URL(baseUrl);
-  const localHostnames = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"]);
   const normalizedBasePath = parsed.pathname.replace(/\/+$/, "");
   return {
     configured: true,
     protocol: parsed.protocol.replace(":", ""),
-    hostType: localHostnames.has(parsed.hostname.toLowerCase()) ? "local" : "remote",
+    hostType: hostNetworkType(parsed.hostname),
     healthPath: normalizedBasePath.endsWith("/health") ? normalizedBasePath : `${normalizedBasePath || ""}/health`,
   };
 }
@@ -86,6 +88,30 @@ function isAbortError(error) {
   return error && (error.name === "AbortError" || error.code === "ABORT_ERR");
 }
 
+async function readBoundedResponseText(response, maxBytes = MAX_HEALTH_RESPONSE_BYTES) {
+  if (!response.body || typeof response.body.getReader !== "function") {
+    const text = await response.text();
+    if (text.length > maxBytes) {
+      throw new StagingSmokeError("STAGING_HEALTH_RESPONSE_TOO_LARGE", "Staging health response is too large.");
+    }
+    return text;
+  }
+  const reader = response.body.getReader();
+  const chunks = [];
+  let totalBytes = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    totalBytes += value.byteLength;
+    if (totalBytes > maxBytes) {
+      await reader.cancel();
+      throw new StagingSmokeError("STAGING_HEALTH_RESPONSE_TOO_LARGE", "Staging health response is too large.");
+    }
+    chunks.push(Buffer.from(value));
+  }
+  return Buffer.concat(chunks, totalBytes).toString("utf8");
+}
+
 async function fetchHealthJson(fetchImpl, url, timeoutMs) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -101,7 +127,12 @@ async function fetchHealthJson(fetchImpl, url, timeoutMs) {
     if (response.status < 200 || response.status >= 300) {
       throw new StagingSmokeError("STAGING_HEALTH_HTTP_FAILED", "Staging health endpoint returned a non-success status.");
     }
-    return await response.json();
+    const body = await readBoundedResponseText(response);
+    try {
+      return JSON.parse(body);
+    } catch {
+      throw new StagingSmokeError("STAGING_HEALTH_JSON_INVALID", "Staging health response is not valid JSON.");
+    }
   } catch (error) {
     if (error instanceof StagingSmokeError) throw error;
     if (isAbortError(error)) {
@@ -140,6 +171,7 @@ async function checkStagingSmoke(options = {}) {
         attempts: attempt + 1,
         timeoutMs,
         retries,
+        maxResponseBytes: MAX_HEALTH_RESPONSE_BYTES,
         uploadsVideo: false,
         expensiveRender: false,
       };
@@ -186,8 +218,10 @@ if (isMainModule()) {
 
 export {
   StagingSmokeError,
+  MAX_HEALTH_RESPONSE_BYTES,
   checkStagingSmoke,
   healthUrlFor,
+  readBoundedResponseText,
   safeError,
   validateHealthPayload,
 };

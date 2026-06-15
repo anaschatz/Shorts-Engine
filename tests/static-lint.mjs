@@ -110,10 +110,14 @@ assert.match(envChecker, /findSensitiveLeak/, "environment checker should guard 
 assert.match(stagingReadiness, /STAGING_ENV_CONTRACT/, "staging readiness should define an explicit staging env contract");
 assert.match(stagingReadiness, /STAGING_URL_CREDENTIALS_UNSAFE/, "staging readiness should reject credentialed URLs");
 assert.match(stagingReadiness, /STAGING_URL_LOCAL_UNSAFE/, "staging readiness should reject localhost without explicit local mode");
+assert.match(stagingReadiness, /hostNetworkType/, "staging readiness should classify local private and remote hosts");
+assert.match(stagingReadiness, /first === 169 && second === 254/, "staging readiness should reject link-local metadata-style targets without explicit local mode");
 assert.match(stagingReadiness, /verifyStagingWorkflowContract/, "staging readiness should validate the staging workflow contract");
 assert.match(stagingReadiness, /findSensitiveLeak/, "staging readiness should guard summaries against leaks");
 assert.match(stagingSmoke, /SHORTSENGINE_STAGING_URL/, "staging smoke should require an explicit deployed URL");
 assert.match(stagingSmoke, /GET/, "staging smoke should perform a health GET");
+assert.match(stagingSmoke, /MAX_HEALTH_RESPONSE_BYTES/, "staging smoke should bound health response size");
+assert.match(stagingSmoke, /STAGING_HEALTH_JSON_INVALID/, "staging smoke should reject invalid JSON safely");
 assert.match(stagingSmoke, /validateHealthPayload/, "staging smoke should validate health response shape");
 assert.match(stagingSmoke, /findSensitiveLeak/, "staging smoke should guard health and summary output against leaks");
 assert.match(envDocs, /Staging Readiness Checklist/, "environment docs should include a staging readiness checklist");
@@ -211,6 +215,8 @@ assert.match(stagingDocs, /SHORTSENGINE_STAGING_DEPLOY_TOKEN/, "staging docs sho
 assert.match(stagingDocs, /npm run staging:check/, "staging docs should document readiness command");
 assert.match(stagingDocs, /npm run staging:smoke/, "staging docs should document deployed smoke command");
 assert.match(stagingDocs, /does not upload videos/i, "staging docs should keep deployed smoke health-only");
+assert.match(stagingDocs, /private-network|link-local/i, "staging docs should document private network URL rejection");
+assert.match(stagingDocs, /bounded health response size/i, "staging docs should document bounded health payloads");
 assert.doesNotMatch(stagingDocs, /sk-[A-Za-z0-9_-]{20,}|AKIA[A-Z0-9]{12,}|Bearer\s+[A-Za-z0-9._-]{10,}/, "staging docs must not contain real-looking secrets");
 
 assert.match(stagingWorkflow, /workflow_dispatch:/, "staging workflow should support manual dispatch");

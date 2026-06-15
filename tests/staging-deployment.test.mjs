@@ -13,6 +13,7 @@ import {
   verifyStagingWorkflowContract,
 } from "../tools/release/check-staging-readiness.mjs";
 import {
+  MAX_HEALTH_RESPONSE_BYTES,
   checkStagingSmoke,
   healthUrlFor,
   safeError as safeSmokeError,
@@ -147,8 +148,21 @@ test("staging URL validation rejects invalid and credentialed URLs", () => {
 });
 
 test("staging URL validation rejects localhost unless explicit local mode is enabled", () => {
-  assert.throws(() => validateStagingUrl("http://127.0.0.1:4175", { required: true }), /Local staging URLs require explicit local mode/);
+  assert.throws(() => validateStagingUrl("http://127.0.0.1:4175", { required: true }), /Private or local staging URLs require explicit local mode/);
   assert.equal(validateStagingUrl("http://127.0.0.1:4175", { required: true, allowLocal: true }).hostType, "local");
+});
+
+test("staging URL validation rejects private and link-local IPs unless explicit local mode is enabled", () => {
+  for (const url of [
+    "http://10.0.0.5",
+    "http://172.16.0.5",
+    "http://192.168.1.5",
+    "http://169.254.169.254",
+    "http://[fd00::1]",
+  ]) {
+    assert.throws(() => validateStagingUrl(url, { required: true }), /Private or local staging URLs require explicit local mode/);
+  }
+  assert.equal(validateStagingUrl("http://10.0.0.5", { required: true, allowLocal: true }).hostType, "private");
 });
 
 test("staging workflow contract is protected and does not publish artifacts", () => {
@@ -188,6 +202,29 @@ test("staging smoke rejects health response leaks", () => {
   assert.throws(
     () => validateHealthPayload(healthPayload({ storageKey: "renders/private/object.mp4" })),
     /contains sensitive data/,
+  );
+});
+
+test("staging smoke rejects oversized and invalid JSON health responses safely", async () => {
+  await assert.rejects(
+    () => checkStagingSmoke({
+      env: {
+        SHORTSENGINE_STAGING_URL: "https://staging.example.test",
+        SHORTSENGINE_STAGING_SMOKE_RETRIES: "0",
+      },
+      fetchImpl: async () => new Response("x".repeat(MAX_HEALTH_RESPONSE_BYTES + 1), { status: 200 }),
+    }),
+    /Staging health response is too large/,
+  );
+  await assert.rejects(
+    () => checkStagingSmoke({
+      env: {
+        SHORTSENGINE_STAGING_URL: "https://staging.example.test",
+        SHORTSENGINE_STAGING_SMOKE_RETRIES: "0",
+      },
+      fetchImpl: async () => new Response("not-json", { status: 200 }),
+    }),
+    /not valid JSON/,
   );
 });
 
