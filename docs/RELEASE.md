@@ -40,13 +40,25 @@ npm run release:evidence
 
 Release evidence must also avoid raw provider identifiers. Render service ids, deploy tokens, API keys, signed download tokens and GitHub tokens are treated as sensitive; reports should expose only configured/not-configured booleans and safe provider status metadata.
 
+Before relying on remote GitHub evidence, check the local GitHub CLI setup:
+
+```bash
+gh auth status
+npm run github:doctor
+```
+
+`github:doctor` is read-only. It verifies that `gh` is installed, authenticated, pointed at a readable `origin` repository, able to read GitHub Actions metadata, and able to inspect branch protection when permissions allow it. Branch protection may return `unknown` when GitHub permissions or rulesets hide the settings; in that case, use the GitHub UI checklist below. The doctor never mutates repository settings, never prints raw stderr, and never downloads logs or artifacts.
+
 After pushing a validated commit, run remote CI verification:
 
 ```bash
 npm run remote:ci
+npm run remote:ci:proof
 ```
 
 `remote:ci` is read-only and uses the GitHub CLI. It checks the current branch and commit against the `ShortsEngine CI` workflow and the `Release gate` job, then returns a safe structured summary with status, conclusion, failed job names and a GitHub run URL when it is safe. It does not download raw logs or artifacts by default.
+
+`remote:ci:proof` writes a safe release proof report to `release/results/remote-ci-latest.json` plus a timestamped `remote-ci-proof-*.json` file. The report includes repository owner/name, branch, commit SHA, workflow/run metadata, release-job status, failed job names only, bounded polling metadata, `logsDownloaded: false`, `artifactsDownloaded: false`, and fix-forward guidance.
 
 Before using it, make sure `gh auth status` succeeds locally. The check fails closed when `gh` is missing, auth is unavailable, no matching run is found, the run times out, GitHub output is invalid JSON, or the summary would leak secrets/paths/provider identifiers.
 
@@ -75,7 +87,7 @@ Enable these settings in GitHub manually:
 - Require conversation resolution before merge.
 - Keep signed commits or signed tags optional until the team explicitly adopts that policy.
 
-The release tooling performs read-only local git remote detection when metadata exists. It does not mutate branch protection, repository settings, secrets or environments.
+The release tooling performs read-only local git remote detection and `github:doctor` can read branch protection readiness when GitHub permissions allow it. It does not mutate branch protection, repository settings, secrets or environments. If branch protection reports `unknown`, confirm the checklist in the GitHub UI before treating the branch as release-ready.
 
 ## Staging Environment Gate
 

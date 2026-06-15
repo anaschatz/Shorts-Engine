@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 import { findSensitiveLeak } from "../demo/report-safety.mjs";
 import {
@@ -7,6 +10,10 @@ import {
   runRemoteCiCheck,
   safeError,
 } from "../tools/release/check-remote-ci.mjs";
+import {
+  buildRemoteCiProof,
+  writeRemoteCiProof,
+} from "../tools/release/write-remote-ci-proof.mjs";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
 const NOW_MS = Date.parse("2026-06-16T12:00:00.000Z");
@@ -98,6 +105,12 @@ test("remote CI verifier returns safe success summary", async () => {
   assert.equal(summary.workflow.releaseJobName, "Release gate");
   assert.equal(summary.workflow.status, "completed");
   assert.equal(summary.workflow.conclusion, "success");
+  assert.deepEqual(summary.releaseJob, {
+    name: "Release gate",
+    found: true,
+    status: "completed",
+    conclusion: "success",
+  });
   assert.equal(summary.failedJobs.count, 0);
   assert.equal(summary.logsDownloaded, false);
   assert.equal(summary.artifactsDownloaded, false);
@@ -128,6 +141,12 @@ test("remote CI verifier reports failed release gate without raw logs", async ()
 
   assert.equal(summary.ok, false);
   assert.equal(summary.workflow.conclusion, "failure");
+  assert.deepEqual(summary.releaseJob, {
+    name: "Release gate",
+    found: true,
+    status: "completed",
+    conclusion: "failure",
+  });
   assert.equal(summary.failedJobs.count, 1);
   assert.deepEqual(summary.failedJobs.names, ["Release gate"]);
   assert.equal(summary.nextAction, "inspect-safe-summary-and-fix-forward");
@@ -276,4 +295,78 @@ test("remote CI verifier config is bounded", () => {
     () => parseRemoteCiConfig({ env: { SHORTSENGINE_REMOTE_CI_POLL_INTERVAL_MS: "999999" } }),
     /out of bounds/,
   );
+});
+
+test("remote CI proof has safe release evidence shape", async () => {
+  const summary = await check();
+  const proof = buildRemoteCiProof(summary);
+
+  assert.equal(proof.schemaVersion, 1);
+  assert.equal(proof.remoteCi.ok, true);
+  assert.equal(proof.remoteCi.repository.nameWithOwner, "anaschatz/Shorts-Engine");
+  assert.equal(proof.remoteCi.commit.shortSha, SHA.slice(0, 12));
+  assert.equal(proof.remoteCi.workflow.runId, 1001);
+  assert.equal(proof.remoteCi.releaseJob.conclusion, "success");
+  assert.equal(proof.remoteCi.logsDownloaded, false);
+  assert.equal(proof.remoteCi.artifactsDownloaded, false);
+  assert.equal(proof.fixForward.required, false);
+  assert.equal(findSensitiveLeak(proof), null);
+});
+
+test("remote CI proof writer writes latest and timestamped reports", async () => {
+  const rootDir = mkdtempSync(join(tmpdir(), "shortsengine-remote-ci-proof-"));
+  const result = await writeRemoteCiProof({
+    rootDir,
+    env: {
+      SHORTSENGINE_REMOTE_CI_TIMEOUT_MS: "1000",
+      SHORTSENGINE_REMOTE_CI_POLL_INTERVAL_MS: "500",
+    },
+    nowMs: NOW_MS,
+    commandRunner: mockRunner(baseResponses()),
+    sleep: async () => {},
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.latestPath, "release/results/remote-ci-latest.json");
+  assert.equal(existsSync(join(rootDir, result.latestPath)), true);
+  assert.equal(existsSync(join(rootDir, result.reportPath)), true);
+  const latest = JSON.parse(readFileSync(join(rootDir, result.latestPath), "utf8"));
+  assert.equal(latest.remoteCi.releaseJob.status, "completed");
+  assert.equal(findSensitiveLeak(latest), null);
+});
+
+test("remote CI proof writer preserves failed CI guidance without logs or artifacts", async () => {
+  const rootDir = mkdtempSync(join(tmpdir(), "shortsengine-remote-ci-failed-proof-"));
+  const result = await writeRemoteCiProof({
+    rootDir,
+    env: {
+      SHORTSENGINE_REMOTE_CI_TIMEOUT_MS: "1000",
+      SHORTSENGINE_REMOTE_CI_POLL_INTERVAL_MS: "500",
+    },
+    nowMs: NOW_MS,
+    commandRunner: mockRunner(baseResponses({
+      "gh run view 1001 --json databaseId,headBranch,headSha,status,conclusion,workflowName,url,jobs": {
+        stdout: JSON.stringify({
+          databaseId: 1001,
+          headBranch: "main",
+          headSha: SHA,
+          status: "completed",
+          conclusion: "failure",
+          workflowName: "ShortsEngine CI",
+          url: "https://github.com/anaschatz/Shorts-Engine/actions/runs/1001",
+          jobs: [{ name: "Release gate", status: "completed", conclusion: "failure" }],
+        }),
+      },
+    })),
+    sleep: async () => {},
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.status, "failed");
+  const latest = JSON.parse(readFileSync(join(rootDir, result.latestPath), "utf8"));
+  assert.equal(latest.remoteCi.failedJobs.count, 1);
+  assert.equal(latest.remoteCi.logsDownloaded, false);
+  assert.equal(latest.remoteCi.artifactsDownloaded, false);
+  assert.equal(latest.fixForward.required, true);
+  assert.equal(findSensitiveLeak(latest), null);
 });

@@ -148,7 +148,11 @@ async function runCommand(commandRunner, command, args, options = {}) {
     return { stdout, stderr, exitCode: Number(result && result.exitCode) || 0 };
   } catch (error) {
     if (error instanceof RemoteCiError) throw error;
-    throw new RemoteCiError(commandFailureCode(command, error), command === "gh" ? "GitHub CLI command failed." : "Git command failed.");
+    const code = commandFailureCode(command, error);
+    const message = code === "REMOTE_CI_GH_MISSING"
+      ? "GitHub CLI is not available."
+      : command === "gh" ? "GitHub CLI command failed." : "Git command failed.";
+    throw new RemoteCiError(code, message);
   }
 }
 
@@ -311,6 +315,16 @@ function failedJobsFor(details, releaseJobName) {
   };
 }
 
+function releaseJobFor(details, releaseJobName) {
+  const job = details.jobs.find((candidate) => candidate.name === releaseJobName) || null;
+  return {
+    name: releaseJobName,
+    found: Boolean(job),
+    status: job ? job.status : details.status,
+    conclusion: job ? (job.conclusion || null) : (details.conclusion || null),
+  };
+}
+
 function nextActionFor(details) {
   if (details.status !== COMPLETED_STATUS || PENDING_STATUSES.has(details.status)) return "wait-for-remote-ci";
   if (details.conclusion === "success") return "none";
@@ -319,6 +333,7 @@ function nextActionFor(details) {
 
 function buildSummary({ config, context, repository, details, attempts, checkedAt }) {
   const failedJobs = failedJobsFor(details, config.releaseJobName);
+  const releaseJob = releaseJobFor(details, config.releaseJobName);
   const ok = details.status === COMPLETED_STATUS && details.conclusion === "success";
   const summary = {
     ok,
@@ -341,6 +356,7 @@ function buildSummary({ config, context, repository, details, attempts, checkedA
       conclusion: details.conclusion || null,
       url: details.url,
     },
+    releaseJob,
     failedJobs,
     polling: {
       attempts,

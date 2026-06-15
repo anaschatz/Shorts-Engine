@@ -38,6 +38,15 @@ The GitHub Actions release gate uses `npm ci` when `package-lock.json` is presen
 
 For local release proof, run `npm run release:evidence` after the release gate passes. It writes `release/results/latest.json` with safe relative references, branch-protection guidance and the latest report statuses.
 
+Before post-push verification, check the local GitHub CLI setup:
+
+```bash
+gh auth status
+npm run github:doctor
+```
+
+The doctor is read-only. It verifies `gh`, auth, `origin`, repository metadata, GitHub Actions metadata and branch protection readiness when permissions allow it. It does not mutate GitHub settings and does not download raw logs or artifacts.
+
 ## Runtime Behavior
 
 - Passed runs exit `0`.
@@ -76,9 +85,12 @@ After a push, verify the remote GitHub Actions result with:
 
 ```bash
 npm run remote:ci
+npm run remote:ci:proof
 ```
 
 This command is intentionally outside the CI workflow. It uses `gh` in read-only mode, requires local `gh auth status`, polls the `ShortsEngine CI` workflow for the current commit, and reports whether the `Release gate` job passed. It does not download raw logs or artifacts by default. If it returns failure, use the safe failed-job summary for a fix-forward commit, then rerun local checks and push again.
+
+`npm run remote:ci:proof` writes `release/results/remote-ci-latest.json` and a timestamped proof report. The proof keeps only safe metadata: repo owner/name, branch, commit, workflow run, release-job status, failed job names, bounded polling metadata and fix-forward guidance. Passing and failing proof reports both keep `logsDownloaded: false` and `artifactsDownloaded: false`.
 
 Remote polling can be tuned without changing code:
 
