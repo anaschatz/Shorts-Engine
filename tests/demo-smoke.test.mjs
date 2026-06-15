@@ -115,9 +115,21 @@ test("demo report leak guard catches unsafe keys, paths and tokens", () => {
   });
   assert.equal(hasSensitiveLeak({ error: { message: "/Users/example/render.mp4 failed" } }), true);
   assert.equal(hasSensitiveLeak({ provider: { stderr: "OPENAI_API_KEY=secret" } }), true);
+  assert.equal(hasSensitiveLeak({ deploy: { serviceId: "srv-realstaging123" } }), true);
+  assert.equal(hasSensitiveLeak({ deploy: { renderService: "srv-realstaging123" } }), true);
+  assert.equal(hasSensitiveLeak({ github: { token: "ghp_abcdefghijklmnopqrstuvwx1234567890" } }), true);
+  assert.deepEqual(findSensitiveLeak({ deploy: { serviceId: "srv-realstaging123" } }), {
+    code: "UNSAFE_KEY",
+    path: "$.deploy.serviceId",
+  });
+  assert.deepEqual(findSensitiveLeak({ deploy: { renderService: "srv-realstaging123" } }), {
+    code: "RENDER_SERVICE_ID",
+    path: "$.deploy.renderService",
+  });
   assert.equal(hasSensitiveLeak({ downloadUrl: `/api/artifacts/download?token=${signedToken}` }), true);
   assert.equal(hasSensitiveLeak({ downloadUrl: `/api/artifacts/download?token=${signedToken}` }, { allowSignedDownloadToken: true }), false);
   assert.equal(hasSensitiveLeak({ health: { credentialsConfigured: false, activeSignedTokens: 0 } }), false);
+  assert.equal(hasSensitiveLeak({ staging: { serviceIdConfigured: true, deployTokenConfigured: false } }), false);
   assert.equal(hasSensitiveLeak({ relativePath: "demo/fixtures/shortsengine-demo-source.mp4", latestPath: "demo/results/latest.json" }), false);
 });
 

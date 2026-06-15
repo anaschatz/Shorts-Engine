@@ -38,6 +38,8 @@ npm run release:evidence
 
 `npm run release:evidence` writes `release/results/latest.json` plus a timestamped evidence report. The evidence report contains package metadata, checked commands, environment readiness, staging readiness, latest report status, artifact policy, branch-protection guidance and limitations. It must not contain secrets, absolute local paths, storage keys, provider raw errors or broad local state.
 
+Release evidence must also avoid raw provider identifiers. Render service ids, deploy tokens, API keys, signed download tokens and GitHub tokens are treated as sensitive; reports should expose only configured/not-configured booleans and safe provider status metadata.
+
 `npm run staging:smoke:full` is intentionally not part of the default release gate. Run it manually only with `SHORTSENGINE_STAGING_FULL_SMOKE=1` after health smoke is stable, because it uploads the fixture, creates a render job, waits for completion and downloads the resulting MP4.
 
 `npm run staging:smoke:cleanup` is also intentionally outside the default release gate. It is dry-run by default, and real deletion requires `SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP=1`.

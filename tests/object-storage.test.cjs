@@ -387,13 +387,14 @@ test("log redaction removes token, storage key and local path details", () => {
   const redacted = redactForLogs({
     token,
     storageKey: "exports/private-key.mp4",
+    serviceId: "srv-realstaging123",
     outputPath: "/Users/example/render.mp4",
-    nested: { filePath: "/private/tmp/render.mp4", apiKey: "sk-secretsecretsecret" },
-    message: `download ${token} OPENAI_API_KEY=secret`,
+    nested: { filePath: "/private/tmp/render.mp4", apiKey: "sk-secretsecretsecret", githubToken: "ghp_abcdefghijklmnopqrstuvwx1234567890" },
+    message: `download ${token} OPENAI_API_KEY=secret srv-realstaging123`,
   });
   const body = JSON.stringify(redacted);
 
   assert.doesNotMatch(body, new RegExp(token));
-  assert.doesNotMatch(body, /exports\/private-key|\/Users|\/private|OPENAI_API_KEY=secret|sk-secret/);
+  assert.doesNotMatch(body, /exports\/private-key|\/Users|\/private|OPENAI_API_KEY=secret|sk-secret|srv-realstaging123|ghp_/);
   assert.match(body, /\[redacted\]/);
 });

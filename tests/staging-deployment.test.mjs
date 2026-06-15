@@ -585,6 +585,24 @@ test("staging deploy sanitizes suspicious Render status strings", async () => {
   assert.equal(findSensitiveLeak(summary), null);
 });
 
+test("staging deploy sanitizes service-id-like Render status strings", async () => {
+  const summary = await runStagingDeploy({
+    env: {
+      SHORTSENGINE_DEPLOY_TARGET: "staging",
+      SHORTSENGINE_STAGING_DEPLOY_PROVIDER: "render",
+      SHORTSENGINE_STAGING_SERVICE_ID: "srv-shortsengine1",
+      SHORTSENGINE_STAGING_URL: "https://staging.example.test",
+      SHORTSENGINE_STAGING_DEPLOY_TOKEN: "placeholder-deploy-token",
+    },
+    fetchImpl: async () => new Response(JSON.stringify({
+      id: "dep_123",
+      status: "srv-realstaging123",
+    }), { status: 201 }),
+  });
+  assert.equal(summary.providerResult.status, "unknown");
+  assert.equal(findSensitiveLeak(summary), null);
+});
+
 test("staging deploy fails safely for missing Render service id", async () => {
   const error = await runStagingDeploy({
     env: {

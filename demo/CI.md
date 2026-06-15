@@ -68,6 +68,8 @@ SHORTSENGINE_BROWSER_E2E_VIDEO=1 npm run demo:browser:ci
 
 Reports include only relative artifact references and are checked by `demo/report-safety.mjs` before persistence.
 
+Report safety treats provider identifiers and credentials as sensitive. Do not persist raw Render service ids, deploy tokens, API keys, GitHub tokens, storage keys, signed download tokens or local paths in demo, browser, CI, staging or release evidence reports.
+
 `npm run ci:reports` is the release-gate proof step for reports. It fails closed when a required latest report is missing, stale, failed, contains sensitive data, contains unsafe relative references, or when a passing Playwright run includes browser artifact files.
 
 GitHub Actions uploads artifacts only when the release gate fails. The upload allowlist is intentionally narrow:

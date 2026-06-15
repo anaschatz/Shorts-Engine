@@ -20,12 +20,14 @@ The report guard fails closed on:
 - OpenAI/API key style secrets
 - bearer tokens, AWS keys and S3 signatures
 - ShortsEngine signed download tokens
+- Render `srv-...` service ids, GitHub tokens and deploy/API token keys
 
 When a leak is detected, reports are replaced with a minimal structured failure containing only safe `leakCode` and `leakPath` metadata.
 
 ## Tests
 
 - `tests/demo-smoke.test.mjs` covers unsafe keys, paths, provider secret text and signed token handling.
+- `tests/object-storage.test.cjs` covers log redaction for storage keys, signed tokens, service ids and provider tokens.
 - `tests/browser-demo.test.mjs` verifies browser reports fail closed with safe leak metadata.
 - `tests/static-lint.mjs` keeps the report-safety boundary present in future changes.
 

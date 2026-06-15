@@ -107,6 +107,9 @@ assert.match(playwrightSmoke, /SHORTSENGINE_BROWSER_E2E_TRACE/, "Playwright trac
 assert.match(playwrightSmoke, /SHORTSENGINE_BROWSER_E2E_VIDEO/, "Playwright video capture should require an explicit env flag");
 assert.match(playwrightSmoke, /cleanupPlaywrightArtifacts/, "Playwright smoke should keep report and artifact retention bounded");
 assert.match(reportSafety, /SIGNED_DOWNLOAD_TOKEN_RE/, "report safety should treat signed download tokens as sensitive in persisted reports");
+assert.match(reportSafety, /RENDER_SERVICE_ID/, "report safety should treat Render service ids as sensitive in persisted reports");
+assert.match(reportSafety, /GITHUB_TOKEN/, "report safety should treat GitHub tokens as sensitive in persisted reports");
+assert.match(reportSafety, /serviceid/, "report safety should reject raw service id keys");
 assert.match(reportSafety, /UNSAFE_KEYS/, "report safety should block unsafe internal report keys");
 assert.match(reportSafety, /redactForLogs/, "report safety should reuse the server log redaction behavior");
 assert.match(ciReportValidator, /findSensitiveLeak/, "CI report validator should reuse leak detection");

@@ -96,7 +96,9 @@ function redactForLogs(value) {
       .replace(/Bearer\s+[A-Za-z0-9._-]+/g, "Bearer [redacted]")
       .replace(/OPENAI_API_KEY=[^\s]+/g, "OPENAI_API_KEY=[redacted]")
       .replace(/sk-[A-Za-z0-9_-]{10,}/g, "sk-[redacted]")
-      .replace(/AKIA[A-Z0-9]{12,}/g, "[redacted-access-key]")
+      .replace(/(?:AKIA|ASIA)[A-Z0-9]{12,}/g, "[redacted-access-key]")
+      .replace(/\b(?:ghp_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g, "[redacted-github-token]")
+      .replace(/\bsrv-[A-Za-z0-9_-]{6,80}\b/g, "srv-[redacted]")
       .replace(/X-Amz-Signature=[A-Fa-f0-9]+/g, "X-Amz-Signature=[redacted]")
       .replace(/X-Amz-Credential=[^&\s]+/g, "X-Amz-Credential=[redacted]")
       .replace(/adt_[A-Fa-f0-9-]{36}_[A-Fa-f0-9]{32}/g, "adt_[redacted]")
@@ -110,7 +112,7 @@ function redactForLogs(value) {
       Object.entries(value)
         .slice(0, 30)
         .map(([key, item]) => {
-          if (/token|secret|accessKey|credential|authorization|signature|storageKey|outputPath|filePath|path$/i.test(key)) {
+          if (/token|secret|accessKey|apiKey|serviceId|credential|authorization|signature|storageKey|outputPath|filePath|path$/i.test(key)) {
             return [key, "[redacted]"];
           }
           return [key, redactForLogs(item)];
