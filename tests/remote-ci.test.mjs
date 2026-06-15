@@ -12,6 +12,8 @@ import {
 } from "../tools/release/check-remote-ci.mjs";
 import {
   buildRemoteCiProof,
+  safeError as proofSafeError,
+  validateRemoteCiSummaryForProof,
   writeRemoteCiProof,
 } from "../tools/release/write-remote-ci-proof.mjs";
 
@@ -299,6 +301,8 @@ test("remote CI verifier config is bounded", () => {
 
 test("remote CI proof has safe release evidence shape", async () => {
   const summary = await check();
+  const normalized = validateRemoteCiSummaryForProof(summary);
+  assert.equal(normalized.workflow.runId, 1001);
   const proof = buildRemoteCiProof(summary);
 
   assert.equal(proof.schemaVersion, 1);
@@ -311,6 +315,41 @@ test("remote CI proof has safe release evidence shape", async () => {
   assert.equal(proof.remoteCi.artifactsDownloaded, false);
   assert.equal(proof.fixForward.required, false);
   assert.equal(findSensitiveLeak(proof), null);
+});
+
+test("remote CI proof rejects malformed or unsafe summaries before writing reports", async () => {
+  const summary = await check();
+  const missingReleaseJob = structuredClone(summary);
+  delete missingReleaseJob.releaseJob;
+  const missingJobError = (() => {
+    try {
+      buildRemoteCiProof(missingReleaseJob);
+      return null;
+    } catch (error) {
+      return error;
+    }
+  })();
+  assert.equal(proofSafeError(missingJobError).code, "REMOTE_CI_PROOF_SUMMARY_INVALID");
+  assert.equal(findSensitiveLeak(proofSafeError(missingJobError)), null);
+
+  const unsafeBranch = { ...summary, branch: "main..unsafe" };
+  assert.throws(
+    () => buildRemoteCiProof(unsafeBranch),
+    /Remote CI proof branch is invalid/,
+  );
+
+  const unsafeOutput = structuredClone(summary);
+  unsafeOutput.failedJobs.names = ["/Users/example/raw-log"];
+  const leaked = (() => {
+    try {
+      buildRemoteCiProof(unsafeOutput);
+      return null;
+    } catch (error) {
+      return error;
+    }
+  })();
+  assert.equal(proofSafeError(leaked).code, "REMOTE_CI_PROOF_LEAK");
+  assert.equal(findSensitiveLeak(proofSafeError(leaked)), null);
 });
 
 test("remote CI proof writer writes latest and timestamped reports", async () => {

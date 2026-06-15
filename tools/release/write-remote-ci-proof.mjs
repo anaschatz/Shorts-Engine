@@ -40,30 +40,141 @@ function assertNoSensitiveProof(proof) {
   }
 }
 
+function sanitizeText(value, maxLength = 160) {
+  return String(value ?? "")
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
+function requireObject(value, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new RemoteCiProofError("REMOTE_CI_PROOF_SUMMARY_INVALID", `Remote CI proof ${label} is invalid.`);
+  }
+  return value;
+}
+
+function requireBoolean(value, label) {
+  if (typeof value !== "boolean") {
+    throw new RemoteCiProofError("REMOTE_CI_PROOF_SUMMARY_INVALID", `Remote CI proof ${label} is invalid.`);
+  }
+  return value;
+}
+
+function requireText(value, label, pattern, maxLength = 160) {
+  const text = sanitizeText(value, maxLength);
+  if (!text || (pattern && !pattern.test(text))) {
+    throw new RemoteCiProofError("REMOTE_CI_PROOF_SUMMARY_INVALID", `Remote CI proof ${label} is invalid.`);
+  }
+  return text;
+}
+
+function optionalText(value, label, pattern, maxLength = 160) {
+  if (value === null || value === undefined || value === "") return null;
+  return requireText(value, label, pattern, maxLength);
+}
+
+function requireSafeGithubUrl(value) {
+  const text = optionalText(value, "workflow URL", /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/actions\/runs\/[0-9]+\/?$/, 240);
+  return text ? text.replace(/\/$/, "") : null;
+}
+
+function requireNonNegativeInteger(value, label, min = 0) {
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < min) {
+    throw new RemoteCiProofError("REMOTE_CI_PROOF_SUMMARY_INVALID", `Remote CI proof ${label} is invalid.`);
+  }
+  return number;
+}
+
+function requireBranch(value) {
+  const branch = requireText(value, "branch", /^[A-Za-z0-9_.\/-]{1,120}$/, 120);
+  if (branch.includes("..") || branch.includes("\\") || branch.startsWith("-")) {
+    throw new RemoteCiProofError("REMOTE_CI_PROOF_SUMMARY_INVALID", "Remote CI proof branch is invalid.");
+  }
+  return branch;
+}
+
+function validateRemoteCiSummaryForProof(summary) {
+  const input = requireObject(summary, "summary");
+  assertNoSensitiveProof(input);
+  const repository = requireObject(input.repository, "repository");
+  const commit = requireObject(input.commit, "commit");
+  const workflow = requireObject(input.workflow, "workflow");
+  const releaseJob = requireObject(input.releaseJob, "release job");
+  const failedJobs = requireObject(input.failedJobs, "failed jobs");
+  const polling = requireObject(input.polling, "polling metadata");
+  const sha = requireText(commit.sha, "commit sha", /^[A-Fa-f0-9]{7,40}$/, 40);
+  const shortSha = requireText(commit.shortSha || sha.slice(0, 12), "commit short sha", /^[A-Fa-f0-9]{7,12}$/, 12);
+  const failedJobNames = Array.isArray(failedJobs.names)
+    ? failedJobs.names.slice(0, 10).map((name) => requireText(name, "failed job name", /^[A-Za-z0-9 ._:/()#-]{1,120}$/, 120))
+    : [];
+  const failedJobCount = requireNonNegativeInteger(failedJobs.count, "failed job count");
+  if (failedJobNames.length > failedJobCount) {
+    throw new RemoteCiProofError("REMOTE_CI_PROOF_SUMMARY_INVALID", "Remote CI proof failed job metadata is invalid.");
+  }
+  return {
+    ok: requireBoolean(input.ok, "status"),
+    checkedAt: requireText(input.checkedAt, "timestamp", /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/, 32),
+    repository: {
+      nameWithOwner: requireText(repository.nameWithOwner, "repository", /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, 120),
+      url: optionalText(repository.url, "repository URL", /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/?$/, 240)?.replace(/\/$/, "") || null,
+    },
+    branch: requireBranch(input.branch),
+    commit: { sha, shortSha },
+    workflow: {
+      name: requireText(workflow.name, "workflow name", /^[A-Za-z0-9 ._:/()#-]{1,120}$/, 120),
+      releaseJobName: requireText(workflow.releaseJobName, "release job name", /^[A-Za-z0-9 ._:/()#-]{1,120}$/, 120),
+      runId: requireNonNegativeInteger(workflow.runId, "run id", 1),
+      status: requireText(workflow.status, "workflow status", /^[a-z_]{1,40}$/, 40),
+      conclusion: optionalText(workflow.conclusion, "workflow conclusion", /^[a-z_]{1,40}$/, 40),
+      url: requireSafeGithubUrl(workflow.url),
+    },
+    releaseJob: {
+      name: requireText(releaseJob.name, "release job name", /^[A-Za-z0-9 ._:/()#-]{1,120}$/, 120),
+      found: requireBoolean(releaseJob.found, "release job found"),
+      status: requireText(releaseJob.status, "release job status", /^[a-z_]{1,40}$/, 40),
+      conclusion: optionalText(releaseJob.conclusion, "release job conclusion", /^[a-z_]{1,40}$/, 40),
+    },
+    failedJobs: {
+      count: failedJobCount,
+      names: failedJobNames,
+    },
+    polling: {
+      attempts: requireNonNegativeInteger(polling.attempts, "polling attempts", 1),
+      timeoutMs: requireNonNegativeInteger(polling.timeoutMs, "polling timeout", 1),
+      pollIntervalMs: requireNonNegativeInteger(polling.pollIntervalMs, "polling interval", 1),
+    },
+    nextAction: requireText(input.nextAction, "next action", /^[a-z0-9_-]{1,80}$/, 80),
+  };
+}
+
 function buildRemoteCiProof(summary) {
+  const safeSummary = validateRemoteCiSummaryForProof(summary);
   const proof = {
     schemaVersion: 1,
-    generatedAt: summary.checkedAt,
+    generatedAt: safeSummary.checkedAt,
     remoteCi: {
-      ok: summary.ok,
-      checkedAt: summary.checkedAt,
+      ok: safeSummary.ok,
+      checkedAt: safeSummary.checkedAt,
       repository: {
-        nameWithOwner: summary.repository.nameWithOwner,
-        url: summary.repository.url,
+        nameWithOwner: safeSummary.repository.nameWithOwner,
+        url: safeSummary.repository.url,
       },
-      branch: summary.branch,
-      commit: summary.commit,
-      workflow: summary.workflow,
-      releaseJob: summary.releaseJob,
-      failedJobs: summary.failedJobs,
-      polling: summary.polling,
-      nextAction: summary.nextAction,
+      branch: safeSummary.branch,
+      commit: safeSummary.commit,
+      workflow: safeSummary.workflow,
+      releaseJob: safeSummary.releaseJob,
+      failedJobs: safeSummary.failedJobs,
+      polling: safeSummary.polling,
+      nextAction: safeSummary.nextAction,
       logsDownloaded: false,
       artifactsDownloaded: false,
     },
     fixForward: {
-      required: summary.ok !== true,
-      nextAction: summary.ok === true ? "none" : "inspect-safe-summary-and-fix-forward",
+      required: safeSummary.ok !== true,
+      nextAction: safeSummary.ok === true ? "none" : "inspect-safe-summary-and-fix-forward",
       rawLogsRequired: false,
       rawArtifactsRequired: false,
     },
@@ -123,5 +234,6 @@ export {
   RemoteCiProofError,
   buildRemoteCiProof,
   safeError,
+  validateRemoteCiSummaryForProof,
   writeRemoteCiProof,
 };

@@ -53,3 +53,4 @@ Checklist:
 - Extend report/log leak guards whenever a new provider identifier, token shape or public artifact delivery mechanism is introduced.
 - After push, prefer safe remote CI summaries from `npm run remote:ci`; if CI fails, fix forward with a new validated commit instead of mutating release evidence or past commits.
 - For GitHub release readiness, run `npm run github:doctor` before remote proof and keep branch protection checks read-only; if permissions return `unknown`, confirm settings in the GitHub UI.
+- Validate release/proof report input shape at the boundary before writing JSON evidence; never persist partial remote summaries.

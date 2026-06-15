@@ -92,6 +92,8 @@ This command is intentionally outside the CI workflow. It uses `gh` in read-only
 
 `npm run remote:ci:proof` writes `release/results/remote-ci-latest.json` and a timestamped proof report. The proof keeps only safe metadata: repo owner/name, branch, commit, workflow run, release-job status, failed job names, bounded polling metadata and fix-forward guidance. Passing and failing proof reports both keep `logsDownloaded: false` and `artifactsDownloaded: false`.
 
+The proof writer validates the remote CI summary before writing files. Malformed release-job metadata, invalid branch/SHA/run fields, unsafe URLs, local paths or secret-shaped values fail closed with safe structured errors.
+
 Remote polling can be tuned without changing code:
 
 ```bash

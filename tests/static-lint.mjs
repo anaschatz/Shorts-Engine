@@ -191,6 +191,8 @@ assert.match(remoteCi, /logsDownloaded: false/, "remote CI verifier should not d
 assert.match(remoteCi, /artifactsDownloaded: false/, "remote CI verifier should not download artifacts by default");
 assert.doesNotMatch(remoteCi, /ghp_|github_pat_|GITHUB_TOKEN\s*=|staging:deploy|staging:smoke:full|download-logs|view --log|artifact download/i, "remote CI verifier must not hardcode tokens, deploy, full smoke or download raw logs/artifacts");
 assert.match(remoteCiProof, /runRemoteCiCheck/, "remote CI proof should build on the verifier");
+assert.match(remoteCiProof, /validateRemoteCiSummaryForProof/, "remote CI proof should validate verifier summary shape before writing reports");
+assert.match(remoteCiProof, /REMOTE_CI_PROOF_SUMMARY_INVALID/, "remote CI proof should fail closed on malformed verifier summaries");
 assert.match(remoteCiProof, /remote-ci-latest\.json/, "remote CI proof should write a stable latest proof report");
 assert.match(remoteCiProof, /findSensitiveLeak/, "remote CI proof should guard proof output against leaks");
 assert.match(remoteCiProof, /logsDownloaded: false/, "remote CI proof should not download logs");

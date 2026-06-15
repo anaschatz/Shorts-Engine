@@ -34,3 +34,4 @@
 - Treat provider identifiers such as Render `srv-...` service ids as sensitive in reports/logs; expose only configured booleans or sanitized status metadata.
 - Verify remote GitHub Actions after push with a read-only `gh` wrapper that reports safe release-gate status and never downloads raw logs/artifacts by default.
 - Keep GitHub release readiness read-only: `github:doctor` may inspect branch protection and Actions metadata, but proof reports must never mutate repo settings or download raw logs/artifacts.
+- Validate remote CI proof summary shape before writing release evidence; missing release-job metadata or unsafe branch/SHA/run fields must fail closed.
