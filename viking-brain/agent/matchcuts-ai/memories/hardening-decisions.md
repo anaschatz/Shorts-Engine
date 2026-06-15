@@ -32,3 +32,4 @@
 - Keep full staging upload/render smoke opt-in via `SHORTSENGINE_STAGING_FULL_SMOKE=1`; default staging smoke remains health-only.
 - Keep full staging smoke cleanup dry-run by default; require `SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP=1` and a validated `staging-full-smoke` ownership chain before deleting artifacts.
 - Treat provider identifiers such as Render `srv-...` service ids as sensitive in reports/logs; expose only configured booleans or sanitized status metadata.
+- Verify remote GitHub Actions after push with a read-only `gh` wrapper that reports safe release-gate status and never downloads raw logs/artifacts by default.

@@ -40,6 +40,25 @@ npm run release:evidence
 
 Release evidence must also avoid raw provider identifiers. Render service ids, deploy tokens, API keys, signed download tokens and GitHub tokens are treated as sensitive; reports should expose only configured/not-configured booleans and safe provider status metadata.
 
+After pushing a validated commit, run remote CI verification:
+
+```bash
+npm run remote:ci
+```
+
+`remote:ci` is read-only and uses the GitHub CLI. It checks the current branch and commit against the `ShortsEngine CI` workflow and the `Release gate` job, then returns a safe structured summary with status, conclusion, failed job names and a GitHub run URL when it is safe. It does not download raw logs or artifacts by default.
+
+Before using it, make sure `gh auth status` succeeds locally. The check fails closed when `gh` is missing, auth is unavailable, no matching run is found, the run times out, GitHub output is invalid JSON, or the summary would leak secrets/paths/provider identifiers.
+
+Remote CI polling is bounded:
+
+```bash
+SHORTSENGINE_REMOTE_CI_TIMEOUT_MS=300000 npm run remote:ci
+SHORTSENGINE_REMOTE_CI_POLL_INTERVAL_MS=10000 npm run remote:ci
+```
+
+If remote CI fails, use the safe summary to identify the failed job, make a fix-forward change locally, rerun the local release chain, commit, push, and run `npm run remote:ci` again. Do not paste raw GitHub logs, tokens or artifact dumps into reports.
+
 `npm run staging:smoke:full` is intentionally not part of the default release gate. Run it manually only with `SHORTSENGINE_STAGING_FULL_SMOKE=1` after health smoke is stable, because it uploads the fixture, creates a render job, waits for completion and downloads the resulting MP4.
 
 `npm run staging:smoke:cleanup` is also intentionally outside the default release gate. It is dry-run by default, and real deletion requires `SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP=1`.

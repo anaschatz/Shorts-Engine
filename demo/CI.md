@@ -72,6 +72,21 @@ Report safety treats provider identifiers and credentials as sensitive. Do not p
 
 `npm run ci:reports` is the release-gate proof step for reports. It fails closed when a required latest report is missing, stale, failed, contains sensitive data, contains unsafe relative references, or when a passing Playwright run includes browser artifact files.
 
+After a push, verify the remote GitHub Actions result with:
+
+```bash
+npm run remote:ci
+```
+
+This command is intentionally outside the CI workflow. It uses `gh` in read-only mode, requires local `gh auth status`, polls the `ShortsEngine CI` workflow for the current commit, and reports whether the `Release gate` job passed. It does not download raw logs or artifacts by default. If it returns failure, use the safe failed-job summary for a fix-forward commit, then rerun local checks and push again.
+
+Remote polling can be tuned without changing code:
+
+```bash
+SHORTSENGINE_REMOTE_CI_TIMEOUT_MS=300000 npm run remote:ci
+SHORTSENGINE_REMOTE_CI_POLL_INTERVAL_MS=10000 npm run remote:ci
+```
+
 GitHub Actions uploads artifacts only when the release gate fails. The upload allowlist is intentionally narrow:
 
 - `demo/results/latest.json`

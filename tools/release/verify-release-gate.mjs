@@ -34,6 +34,7 @@ const REQUIRED_PACKAGE_SCRIPTS = Object.freeze({
   "render:proof": "node tools/release/render-staging-proof.mjs",
   "release:check": "node tools/release/verify-release-gate.mjs",
   "release:evidence": "node tools/release/write-release-evidence.mjs",
+  "remote:ci": "node tools/release/check-remote-ci.mjs",
   "staging:check": "node tools/release/check-staging-readiness.mjs",
   "staging:smoke": "node tools/release/check-staging-smoke.mjs",
   "staging:smoke:cleanup": "node tools/release/cleanup-staging-full-smoke.mjs",

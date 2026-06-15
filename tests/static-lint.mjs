@@ -18,6 +18,7 @@ const renderCheck = readFileSync("tools/release/check-render-staging.mjs", "utf8
 const renderManual = readFileSync("tools/release/print-render-staging-checklist.mjs", "utf8");
 const renderProof = readFileSync("tools/release/render-staging-proof.mjs", "utf8");
 const stagingDeploy = readFileSync("tools/release/staging-deploy.mjs", "utf8");
+const remoteCi = readFileSync("tools/release/check-remote-ci.mjs", "utf8");
 const stagingFullSmoke = readFileSync("tools/release/check-staging-full-smoke.mjs", "utf8");
 const stagingFullCleanup = readFileSync("tools/release/cleanup-staging-full-smoke.mjs", "utf8");
 const releaseGateVerifier = readFileSync("tools/release/verify-release-gate.mjs", "utf8");
@@ -96,6 +97,7 @@ assert.match(packageJson, /"staging:smoke:full": "node tools\/release\/check-sta
 assert.match(packageJson, /"staging:smoke:cleanup": "node tools\/release\/cleanup-staging-full-smoke\.mjs"/, "package should expose opt-in full staging smoke cleanup");
 assert.match(packageJson, /"release:check": "node tools\/release\/verify-release-gate\.mjs"/, "package should expose release gate verification");
 assert.match(packageJson, /"release:evidence": "node tools\/release\/write-release-evidence\.mjs"/, "package should expose release evidence generation");
+assert.match(packageJson, /"remote:ci": "node tools\/release\/check-remote-ci\.mjs"/, "package should expose remote CI verification");
 assert.match(packageJson, /"playwright"/, "Playwright should be a scoped dev dependency for browser E2E");
 assert.match(playwrightSmoke, /setInputFiles/, "Playwright smoke should upload the fixture through the browser context");
 assert.match(playwrightSmoke, /getByTestId\("download-link"\)/, "Playwright smoke should assert download UI state by stable selector");
@@ -163,6 +165,15 @@ assert.match(stagingDeploy, /STAGING_RENDER_DEPLOY_RESPONSE_TOO_LARGE/, "staging
 assert.match(stagingDeploy, /STAGING_RENDER_DEPLOY_JSON_INVALID/, "staging deploy should reject invalid Render JSON safely");
 assert.match(stagingDeploy, /safeDeployStatus/, "staging deploy should sanitize provider status strings");
 assert.match(stagingDeploy, /findSensitiveLeak/, "staging deploy should guard summaries against leaks");
+assert.match(remoteCi, /gh/, "remote CI verifier should use GitHub CLI");
+assert.match(remoteCi, /execFile/, "remote CI verifier should avoid shell-based command execution");
+assert.match(remoteCi, /SHORTSENGINE_REMOTE_CI_TIMEOUT_MS/, "remote CI verifier should bound polling timeout");
+assert.match(remoteCi, /SHORTSENGINE_REMOTE_CI_POLL_INTERVAL_MS/, "remote CI verifier should bound polling interval");
+assert.match(remoteCi, /runRemoteCiCheck/, "remote CI verifier should expose a testable runner");
+assert.match(remoteCi, /findSensitiveLeak/, "remote CI verifier should guard summaries against leaks");
+assert.match(remoteCi, /logsDownloaded: false/, "remote CI verifier should not download logs by default");
+assert.match(remoteCi, /artifactsDownloaded: false/, "remote CI verifier should not download artifacts by default");
+assert.doesNotMatch(remoteCi, /ghp_|github_pat_|GITHUB_TOKEN\s*=|staging:deploy|staging:smoke:full|download-logs|view --log|artifact download/i, "remote CI verifier must not hardcode tokens, deploy, full smoke or download raw logs/artifacts");
 assert.match(stagingFullSmoke, /SHORTSENGINE_STAGING_FULL_SMOKE/, "full staging smoke should require an explicit opt-in flag");
 assert.match(stagingFullSmoke, /validateStagingUrl/, "full staging smoke should reuse staging URL validation");
 assert.match(stagingFullSmoke, /validateFixturePath/, "full staging smoke should validate fixture safety");
@@ -212,6 +223,7 @@ assert.match(releaseGateVerifier, /checkEnvironment/, "release gate verifier sho
 assert.match(releaseGateVerifier, /render:check/, "release gate verifier should require the Render staging check script");
 assert.match(releaseGateVerifier, /render:manual/, "release gate verifier should require the Render manual checklist script");
 assert.match(releaseGateVerifier, /render:proof/, "release gate verifier should require the Render no-network proof script");
+assert.match(releaseGateVerifier, /remote:ci/, "release gate verifier should require the remote CI script to exist");
 assert.match(releaseGateVerifier, /staging:smoke:full/, "release gate verifier should require the full staging smoke script to exist");
 assert.match(releaseGateVerifier, /staging:smoke:cleanup/, "release gate verifier should require the full smoke cleanup script to exist");
 assert.match(releaseGateVerifier, /checkStagingReadiness/, "release gate verifier should include staging readiness");
@@ -245,6 +257,9 @@ assert.match(ciDocs, /uploads artifacts only when the release gate fails/i, "CI 
 assert.match(ciDocs, /Real cloud integration stays out of the default gate/i, "CI docs should document opt-in cloud integration");
 assert.match(ciDocs, /npm run release:check/, "CI docs should include release gate verification");
 assert.match(ciDocs, /npm run release:evidence/, "CI docs should include release evidence generation");
+assert.match(ciDocs, /npm run remote:ci/, "CI docs should document remote CI verification");
+assert.match(ciDocs, /gh auth status/, "CI docs should document GitHub CLI auth requirements");
+assert.match(ciDocs, /does not download raw logs or artifacts/i, "CI docs should keep remote CI evidence log/artifact safe");
 assert.match(ciDocs, /staging:smoke:full/, "CI docs should mention opt-in full staging smoke");
 assert.match(ciDocs, /staging:smoke:cleanup/, "CI docs should mention opt-in full staging smoke cleanup");
 assert.match(ciDocs, /stays out of the default gate/i, "CI docs should keep full staging smoke out of the default gate");
@@ -257,6 +272,9 @@ assert.match(releaseDocs, /staging:smoke:full/, "release docs should document th
 assert.match(releaseDocs, /staging:smoke:cleanup/, "release docs should document the opt-in full staging smoke cleanup command");
 assert.match(releaseDocs, /npm run release:check/, "release docs should explain local release checks");
 assert.match(releaseDocs, /release\/results\/latest\.json/, "release docs should explain release evidence output");
+assert.match(releaseDocs, /npm run remote:ci/, "release docs should explain remote CI verification");
+assert.match(releaseDocs, /fix-forward/i, "release docs should explain fix-forward after remote CI failure");
+assert.match(releaseDocs, /does not download raw logs or artifacts/i, "release docs should keep remote CI logs/artifacts opt-in");
 assert.match(releaseDocs, /Real cloud integration remains opt-in/i, "release docs should keep cloud integration opt-in");
 
 for (const command of [

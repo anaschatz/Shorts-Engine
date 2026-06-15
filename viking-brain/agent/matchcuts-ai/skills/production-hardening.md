@@ -51,3 +51,4 @@ Checklist:
 - Keep full staging upload/render smoke manual and opt-in; bound fixture, polling, response and download sizes before reporting.
 - For staging smoke cleanup, require source markers plus ownership-chain validation, keep dry-run as the default, and never delete active job artifacts or non-smoke records.
 - Extend report/log leak guards whenever a new provider identifier, token shape or public artifact delivery mechanism is introduced.
+- After push, prefer safe remote CI summaries from `npm run remote:ci`; if CI fails, fix forward with a new validated commit instead of mutating release evidence or past commits.
