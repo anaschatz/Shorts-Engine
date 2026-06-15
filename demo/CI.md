@@ -18,6 +18,7 @@ npm run demo:fixture
 
 ```bash
 npm run lint
+npm run env:check
 npm run build
 npm test
 npm run eval
@@ -30,7 +31,7 @@ npm run ci:reports
 npm run release:check
 ```
 
-`demo:browser:ci` runs the same real Chromium flow as `demo:browser:e2e`. `ci:reports` validates the latest demo, browser, Playwright and eval reports before the gate can pass. `release:check` verifies the CI workflow contract, artifact allowlist and report gate as release evidence.
+`demo:browser:ci` runs the same real Chromium flow as `demo:browser:e2e`. `env:check` validates staging-safe environment defaults without requiring secrets. `ci:reports` validates the latest demo, browser, Playwright and eval reports before the gate can pass. `release:check` verifies the CI workflow contract, artifact allowlist, env readiness and report gate as release evidence.
 
 The GitHub Actions release gate uses `npm ci` when `package-lock.json` is present, installs Playwright Chromium with `npm run demo:browser:install`, then runs every command above. Real cloud integration stays out of the default gate and remains opt-in through its dedicated script/env flags.
 

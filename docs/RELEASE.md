@@ -8,6 +8,7 @@ Run the full acceptance chain before a release candidate:
 
 ```bash
 npm run lint
+npm run env:check
 npm run build
 npm test
 npm run eval
@@ -21,9 +22,11 @@ npm run release:check
 npm run release:evidence
 ```
 
-`npm run release:check` verifies the CI workflow contract, package scripts, report freshness, report safety, artifact upload policy and default cloud/browser safety settings.
+`npm run env:check` verifies staging-safe configuration defaults, numeric bounds, adapter/provider readiness and secret-safe environment documentation.
 
-`npm run release:evidence` writes `release/results/latest.json` plus a timestamped evidence report. The evidence report contains package metadata, checked commands, latest report status, artifact policy, branch-protection guidance and limitations. It must not contain secrets, absolute local paths, storage keys, provider raw errors or broad local state.
+`npm run release:check` verifies the CI workflow contract, package scripts, environment readiness, report freshness, report safety, artifact upload policy and default cloud/browser safety settings.
+
+`npm run release:evidence` writes `release/results/latest.json` plus a timestamped evidence report. The evidence report contains package metadata, checked commands, environment readiness, latest report status, artifact policy, branch-protection guidance and limitations. It must not contain secrets, absolute local paths, storage keys, provider raw errors or broad local state.
 
 ## Branch Protection Checklist
 

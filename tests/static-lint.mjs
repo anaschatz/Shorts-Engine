@@ -11,8 +11,11 @@ const playwrightSmoke = readFileSync("demo/run-playwright-smoke.mjs", "utf8");
 const demoSmoke = readFileSync("demo/run-smoke.mjs", "utf8");
 const reportSafety = readFileSync("demo/report-safety.mjs", "utf8");
 const ciReportValidator = readFileSync("demo/validate-ci-reports.mjs", "utf8");
+const envChecker = readFileSync("tools/release/check-environment.mjs", "utf8");
 const releaseGateVerifier = readFileSync("tools/release/verify-release-gate.mjs", "utf8");
 const releaseEvidenceWriter = readFileSync("tools/release/write-release-evidence.mjs", "utf8");
+const envDocs = readFileSync("docs/ENVIRONMENT.md", "utf8");
+const envExample = readFileSync(".env.example", "utf8");
 const manualDocs = readFileSync("demo/MANUAL_TESTING.md", "utf8");
 const ciDocs = readFileSync("demo/CI.md", "utf8");
 const releaseDocs = readFileSync("docs/RELEASE.md", "utf8");
@@ -72,6 +75,7 @@ assert.match(browserSmoke, /findSensitiveLeak/, "browser smoke should fail close
 assert.match(packageJson, /"demo:browser:e2e": "node demo\/run-playwright-smoke\.mjs"/, "package should expose the Playwright browser E2E script");
 assert.match(packageJson, /"demo:browser:install": "playwright install chromium"/, "package should expose a Playwright Chromium install helper");
 assert.match(packageJson, /"ci:reports": "node demo\/validate-ci-reports\.mjs"/, "package should expose CI report validation");
+assert.match(packageJson, /"env:check": "node tools\/release\/check-environment\.mjs"/, "package should expose staging environment validation");
 assert.match(packageJson, /"release:check": "node tools\/release\/verify-release-gate\.mjs"/, "package should expose release gate verification");
 assert.match(packageJson, /"release:evidence": "node tools\/release\/write-release-evidence\.mjs"/, "package should expose release evidence generation");
 assert.match(packageJson, /"playwright"/, "Playwright should be a scoped dev dependency for browser E2E");
@@ -92,6 +96,20 @@ assert.match(ciReportValidator, /CI_REPORT_STALE/, "CI report validator should r
 assert.match(ciReportValidator, /Passing Playwright runs must not publish artifact files/, "CI report validator should enforce failure-only Playwright artifacts");
 assert.match(ciReportValidator, /Passing Playwright runs must not leave failure artifact files/, "CI report validator should reject stale Playwright failure artifacts");
 assert.match(ciReportValidator, /demo\/results\/playwright-artifacts/, "CI report validator should require managed Playwright artifact refs");
+assert.match(envChecker, /ENV_CONTRACT/, "environment checker should define an explicit env contract");
+assert.match(envChecker, /ENV_PROVIDER_CREDENTIAL_MISSING/, "environment checker should reject real providers without credentials");
+assert.match(envChecker, /ENV_CLOUD_STORAGE_INCOMPLETE/, "environment checker should reject incomplete cloud storage config");
+assert.match(envChecker, /ENV_BROWSER_SKIP_UNSAFE/, "environment checker should reject browser skip flags");
+assert.match(envChecker, /findSensitiveLeak/, "environment checker should guard readiness output against leaks");
+assert.match(envDocs, /Staging Readiness Checklist/, "environment docs should include a staging readiness checklist");
+assert.match(envDocs, /npm run env:check/, "environment docs should document the env check command");
+assert.match(envDocs, /MATCHCUTS_TRANSCRIPTION_PROVIDER/, "environment docs should document transcription provider config");
+assert.match(envDocs, /MATCHCUTS_STORAGE_ADAPTER/, "environment docs should document storage adapter config");
+assert.match(envDocs, /OPENAI_API_KEY/, "environment docs should document provider credential handling");
+assert.match(envExample, /MATCHCUTS_TRANSCRIPTION_PROVIDER=mock/, ".env.example should keep mock provider as the default");
+assert.match(envExample, /MATCHCUTS_STORAGE_ADAPTER=local/, ".env.example should keep local storage as the default");
+assert.doesNotMatch(envExample, /sk-[A-Za-z0-9_-]{20,}|AKIA[A-Z0-9]{12,}|Bearer\s+[A-Za-z0-9._-]{10,}/, ".env.example must not contain real-looking secrets");
+assert.match(releaseGateVerifier, /checkEnvironment/, "release gate verifier should include environment readiness");
 assert.match(releaseGateVerifier, /validateCiReports/, "release gate verifier should reuse CI report validation");
 assert.match(releaseGateVerifier, /REQUIRED_WORKFLOW_COMMANDS/, "release gate verifier should enforce required workflow commands");
 assert.match(releaseGateVerifier, /SHORTSENGINE_BROWSER_E2E_ALLOW_SKIP/, "release gate verifier should reject browser skip flags");
@@ -99,6 +117,7 @@ assert.match(releaseGateVerifier, /integration:cloud\|MATCHCUTS_RUN_REAL_CLOUD_T
 assert.match(releaseGateVerifier, /FAILURE_ARTIFACT_ALLOWLIST/, "release gate verifier should enforce the artifact allowlist");
 assert.match(releaseGateVerifier, /read-only-config-inspection/, "release gate verifier should inspect git remote state read-only");
 assert.match(releaseEvidenceWriter, /findSensitiveLeak/, "release evidence writer should reject sensitive evidence");
+assert.match(releaseEvidenceWriter, /environmentReadiness/, "release evidence should include environment readiness");
 assert.match(releaseEvidenceWriter, /release\/results/, "release evidence writer should use the release results directory");
 assert.doesNotMatch(releaseEvidenceWriter, /\bpath:\s*gate\.reports/, "release evidence should not expose report path keys directly");
 assert.match(manualDocs, /npm run demo:fixture/, "manual docs should explain fixture generation");
@@ -106,6 +125,7 @@ assert.match(manualDocs, /npm run demo:browser/, "manual docs should explain bro
 assert.match(manualDocs, /UPLOAD_EMPTY/, "manual docs should describe missing upload behavior");
 assert.match(manualDocs, /port already used/i, "manual docs should include troubleshooting");
 assert.match(ciDocs, /npm run demo:browser:install/, "CI docs should include the Playwright browser install step");
+assert.match(ciDocs, /npm run env:check/, "CI docs should include the environment readiness check");
 assert.match(ciDocs, /npm run demo:browser:ci/, "CI docs should document the CI browser E2E command");
 assert.match(ciDocs, /SHORTSENGINE_BROWSER_E2E_ALLOW_SKIP/, "CI docs should make missing-runtime skips explicit");
 assert.match(ciDocs, /SHORTSENGINE_BROWSER_E2E_TRACE/, "CI docs should document opt-in trace capture");
@@ -118,11 +138,13 @@ assert.match(ciDocs, /Real cloud integration stays out of the default gate/i, "C
 assert.match(ciDocs, /npm run release:check/, "CI docs should include release gate verification");
 assert.match(ciDocs, /npm run release:evidence/, "CI docs should include release evidence generation");
 assert.match(releaseDocs, /Branch Protection Checklist/, "release docs should include branch protection guidance");
+assert.match(releaseDocs, /npm run env:check/, "release docs should include environment readiness checks");
 assert.match(releaseDocs, /npm run release:check/, "release docs should explain local release checks");
 assert.match(releaseDocs, /release\/results\/latest\.json/, "release docs should explain release evidence output");
 assert.match(releaseDocs, /Real cloud integration remains opt-in/i, "release docs should keep cloud integration opt-in");
 
 for (const command of [
+  "npm run env:check",
   "npm run lint",
   "npm run build",
   "npm test",

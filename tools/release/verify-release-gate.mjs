@@ -3,12 +3,14 @@ import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { validateCiReports } from "../../demo/validate-ci-reports.mjs";
+import { checkEnvironment } from "./check-environment.mjs";
 
 const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CI_WORKFLOW_RELATIVE_PATH = ".github/workflows/ci.yml";
 const PACKAGE_JSON_RELATIVE_PATH = "package.json";
 
 const REQUIRED_WORKFLOW_COMMANDS = Object.freeze([
+  "npm run env:check",
   "npm run lint",
   "npm run build",
   "npm test",
@@ -24,6 +26,7 @@ const REQUIRED_WORKFLOW_COMMANDS = Object.freeze([
 
 const REQUIRED_PACKAGE_SCRIPTS = Object.freeze({
   "ci:reports": "node demo/validate-ci-reports.mjs",
+  "env:check": "node tools/release/check-environment.mjs",
   "release:check": "node tools/release/verify-release-gate.mjs",
   "release:evidence": "node tools/release/write-release-evidence.mjs",
 });
@@ -240,6 +243,13 @@ function verifyReleaseGate(options = {}) {
   const workflowText = options.workflowText ?? readTextFile(rootDir, CI_WORKFLOW_RELATIVE_PATH, "CI workflow");
   const packageScripts = verifyPackageScripts(packageJson);
   const workflow = verifyWorkflowContract(workflowText);
+  const environment = checkEnvironment({
+    env: options.env,
+    rootDir,
+    nowMs,
+    exampleText: options.exampleText,
+    docsText: options.docsText,
+  });
   const reportValidation = validateCiReports({
     demoResultsDir: options.demoResultsDir,
     evalResultsDir: options.evalResultsDir,
@@ -252,6 +262,7 @@ function verifyReleaseGate(options = {}) {
     checkedAt: new Date(nowMs).toISOString(),
     package: packageSummary(packageJson),
     packageScripts,
+    environment,
     workflow,
     reports: reportValidation,
     artifactPolicy: workflow.artifactUpload,

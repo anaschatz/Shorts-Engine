@@ -17,6 +17,8 @@ import {
 
 const VALID_WORKFLOW = readFileSync(".github/workflows/ci.yml", "utf8");
 const VALID_PACKAGE = JSON.parse(readFileSync("package.json", "utf8"));
+const ENV_DOCS = readFileSync("docs/ENVIRONMENT.md", "utf8");
+const ENV_EXAMPLE = readFileSync(".env.example", "utf8");
 
 function writeJson(filePath, payload) {
   writeFileSync(filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
@@ -77,6 +79,8 @@ function verifyWithFixture(overrides = {}) {
     evalResultsDir: fixture.evalResultsDir,
     maxAgeMs: 60_000,
     nowMs: fixture.nowMs,
+    docsText: ENV_DOCS,
+    exampleText: ENV_EXAMPLE,
     ...overrides,
   });
 }
@@ -132,6 +136,8 @@ test("release evidence JSON has safe shape and no sensitive leakage", () => {
     evalResultsDir: fixture.evalResultsDir,
     maxAgeMs: 60_000,
     nowMs: fixture.nowMs,
+    docsText: ENV_DOCS,
+    exampleText: ENV_EXAMPLE,
   });
 
   assert.equal(evidence.schemaVersion, 1);
@@ -151,6 +157,8 @@ test("release evidence writer writes latest and timestamped reports", () => {
     evalResultsDir: fixture.evalResultsDir,
     maxAgeMs: 60_000,
     nowMs: fixture.nowMs,
+    docsText: ENV_DOCS,
+    exampleText: ENV_EXAMPLE,
   });
 
   assert.equal(result.ok, true);
@@ -177,6 +185,8 @@ test("release gate verifier is deterministic for fixed inputs", () => {
     evalResultsDir: fixture.evalResultsDir,
     maxAgeMs: 60_000,
     nowMs: fixture.nowMs,
+    docsText: ENV_DOCS,
+    exampleText: ENV_EXAMPLE,
   };
   assert.deepEqual(verifyReleaseGate(options), verifyReleaseGate(options));
 });

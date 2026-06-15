@@ -62,6 +62,9 @@ jobs:
           ffmpeg -version
           ffprobe -version
 
+      - name: Environment readiness
+        run: npm run env:check
+
       - name: Lint
         run: npm run lint
 

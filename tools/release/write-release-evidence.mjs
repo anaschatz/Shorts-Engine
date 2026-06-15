@@ -54,6 +54,18 @@ function buildReleaseEvidence(options = {}) {
       realCloudIntegrationDefault: gate.workflow.realCloudIntegrationDefault,
       browserRuntimeSkipAllowed: gate.workflow.browserRuntimeSkipAllowed,
     },
+    environmentReadiness: {
+      ok: gate.environment.ok,
+      checkedAt: gate.environment.checkedAt,
+      variablesChecked: gate.environment.variablesChecked,
+      docsComplete: gate.environment.docs.complete,
+      storage: gate.environment.storage,
+      persistence: gate.environment.persistence,
+      transcription: gate.environment.transcription,
+      cloudIntegration: gate.environment.cloudIntegration,
+      ci: gate.environment.ci,
+      safeDefaults: gate.environment.safeDefaults,
+    },
     latestReports: gate.reports.reports.map((report) => ({
       label: report.label,
       relativePath: report.path,

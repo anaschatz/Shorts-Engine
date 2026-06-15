@@ -19,6 +19,7 @@
     "demo:manual": "node demo/print-manual.mjs",
     "demo:smoke": "node demo/run-smoke.mjs",
     "dev": "node server/app.cjs",
+    "env:check": "node tools/release/check-environment.mjs",
     "eval": "node eval/run-eval.mjs",
     "eval:ci": "node eval/run-eval.mjs --threshold=80",
     "integration:cloud": "node scripts/run-real-cloud-integration.mjs",
