@@ -94,6 +94,7 @@ Required GitHub Environment secret:
 - `SHORTSENGINE_STAGING_DEPLOY_TOKEN`
 
 The deploy helper calls Render's service deploy API, requests a deploy with cache kept by default, and prints only a sanitized summary. It does not print the API token, the raw provider response, local paths or storage keys.
+Render provider responses are read with a bounded body limit, parsed as JSON only after the size check, and reduced to safe status metadata. Oversized or invalid provider responses fail closed without copying the raw response body into logs or reports.
 
 `npm run render:check` validates this contract without calling Render:
 
@@ -214,6 +215,8 @@ If GitHub Actions reports a failed staging run:
 - `RENDER_STAGING_URL_PUBLIC_REQUIRED`: use the public Render URL, not localhost or a private IP.
 - `STAGING_RENDER_DEPLOY_HTTP_FAILED`: check the Render service id, token permissions and Render service status.
 - `STAGING_RENDER_DEPLOY_REQUEST_FAILED`: check Render availability and GitHub runner network access.
+- `STAGING_RENDER_DEPLOY_RESPONSE_TOO_LARGE`: the provider response exceeded the bounded deploy summary limit.
+- `STAGING_RENDER_DEPLOY_JSON_INVALID`: the provider returned invalid JSON for a successful deploy request.
 - smoke failure after deploy: open `/health` on the Render URL and verify FFmpeg, storage, repositories, adapters, transcription and analysis readiness.
 
 ## Local Commands

@@ -6,6 +6,7 @@ import { StagingReadinessError, validateStagingConfig } from "./check-staging-re
 
 const RENDER_DEPLOY_API_BASE = "https://api.render.com/v1";
 const SUPPORTED_DEPLOY_PROVIDERS = Object.freeze(["none", "render"]);
+const MAX_RENDER_DEPLOY_RESPONSE_BYTES = 32 * 1024;
 
 class StagingDeployError extends Error {
   constructor(code, message, details = {}) {
@@ -59,12 +60,64 @@ function safeProviderSummary(config, options = {}) {
 
 function safeRenderDeploySummary(responsePayload) {
   const deployId = responsePayload && typeof responsePayload.id === "string" ? responsePayload.id : "";
-  const status = responsePayload && typeof responsePayload.status === "string" ? responsePayload.status : "triggered";
+  const status = safeDeployStatus(responsePayload && responsePayload.status);
   return {
     providerRequestAccepted: true,
     deployIdPresent: deployId.length > 0,
     status,
   };
+}
+
+function safeDeployStatus(value) {
+  const status = String(value || "triggered").trim().slice(0, 80);
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$/.test(status)) return "unknown";
+  if (findSensitiveLeak(status)) return "unknown";
+  return status;
+}
+
+async function readBoundedResponseText(response, maxBytes = MAX_RENDER_DEPLOY_RESPONSE_BYTES) {
+  const declaredLength = response.headers && typeof response.headers.get === "function"
+    ? Number(response.headers.get("content-length"))
+    : null;
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    throw new StagingDeployError("STAGING_RENDER_DEPLOY_RESPONSE_TOO_LARGE", "Render deploy response is too large.");
+  }
+  if (!response.body || typeof response.body.getReader !== "function") {
+    const text = await response.text();
+    if (Buffer.byteLength(text, "utf8") > maxBytes) {
+      throw new StagingDeployError("STAGING_RENDER_DEPLOY_RESPONSE_TOO_LARGE", "Render deploy response is too large.");
+    }
+    return text;
+  }
+  const reader = response.body.getReader();
+  const chunks = [];
+  let totalBytes = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    totalBytes += value.byteLength;
+    if (totalBytes > maxBytes) {
+      await reader.cancel();
+      throw new StagingDeployError("STAGING_RENDER_DEPLOY_RESPONSE_TOO_LARGE", "Render deploy response is too large.");
+    }
+    chunks.push(Buffer.from(value));
+  }
+  return Buffer.concat(chunks, totalBytes).toString("utf8");
+}
+
+async function readRenderDeployPayload(response) {
+  const text = await readBoundedResponseText(response);
+  if (!text.trim()) return {};
+  let payload;
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    throw new StagingDeployError("STAGING_RENDER_DEPLOY_JSON_INVALID", "Render deploy response is not valid JSON.");
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new StagingDeployError("STAGING_RENDER_DEPLOY_RESPONSE_INVALID", "Render deploy returned an invalid response.");
+  }
+  return payload;
 }
 
 async function triggerRenderDeploy({ env, fetchImpl }) {
@@ -95,10 +148,7 @@ async function triggerRenderDeploy({ env, fetchImpl }) {
     throw new StagingDeployError("STAGING_RENDER_DEPLOY_HTTP_FAILED", "Render deploy request was rejected.");
   }
 
-  let payload = {};
-  if (typeof response.json === "function") {
-    payload = await response.json().catch(() => ({}));
-  }
+  const payload = await readRenderDeployPayload(response);
   return safeRenderDeploySummary(payload);
 }
 
@@ -161,10 +211,15 @@ if (isMainModule()) {
 
 export {
   RENDER_DEPLOY_API_BASE,
+  MAX_RENDER_DEPLOY_RESPONSE_BYTES,
   SUPPORTED_DEPLOY_PROVIDERS,
   StagingDeployError,
+  readBoundedResponseText,
+  readRenderDeployPayload,
   runStagingDeploy,
   safeError,
+  safeDeployStatus,
+  safeRenderDeploySummary,
   triggerRenderDeploy,
   validateRenderServiceId,
 };

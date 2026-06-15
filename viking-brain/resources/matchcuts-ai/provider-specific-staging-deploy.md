@@ -22,6 +22,7 @@ Safety contract:
 - Unsupported providers fail closed.
 - Missing service id, URL or deploy token fails closed.
 - Render deploy output is sanitized: no token, raw provider error, local path, storage key or absolute path.
+- Render deploy provider responses are bounded before JSON parsing; oversized or invalid successful responses fail closed.
 - Readiness checks inspect contracts without calling Render.
 - `npm run render:check` must stay no-network and public-URL-only.
 - Staging workflow does not upload artifacts or run real cloud integration by default.
@@ -32,3 +33,4 @@ Validation:
 - `npm run render:check` validates live Render setup readiness without network.
 - `npm run staging:deploy` is a no-op summary for provider `none`.
 - Tests mock Render deploy requests and assert no sensitive leakage.
+- Tests cover sanitized provider status, oversized response bodies and invalid provider JSON.

@@ -20,6 +20,7 @@ import {
   validateHealthPayload,
 } from "../tools/release/check-staging-smoke.mjs";
 import {
+  MAX_RENDER_DEPLOY_RESPONSE_BYTES,
   runStagingDeploy,
   safeError as safeDeployError,
   validateRenderServiceId,
@@ -345,7 +346,12 @@ test("staging deploy triggers Render with sanitized output", async () => {
     nowMs: Date.parse("2026-06-15T19:30:00.000Z"),
     fetchImpl: async (url, options) => {
       request = { url, options };
-      return new Response(JSON.stringify({ id: "dep_123", status: "created" }), { status: 201 });
+      return new Response(JSON.stringify({
+        id: "dep_123",
+        status: "created",
+        rawError: "raw provider fields must be ignored",
+        storageKey: "internal/render/key.mp4",
+      }), { status: 201 });
     },
   });
   assert.equal(request.url, "https://api.render.com/v1/services/srv-shortsengine1/deploys");
@@ -355,6 +361,25 @@ test("staging deploy triggers Render with sanitized output", async () => {
   assert.equal(summary.deployTriggered, true);
   assert.equal(summary.providerResult.providerRequestAccepted, true);
   assert.equal(summary.providerResult.deployIdPresent, true);
+  assert.deepEqual(Object.keys(summary.providerResult).sort(), ["deployIdPresent", "providerRequestAccepted", "status"]);
+  assert.equal(findSensitiveLeak(summary), null);
+});
+
+test("staging deploy sanitizes suspicious Render status strings", async () => {
+  const summary = await runStagingDeploy({
+    env: {
+      SHORTSENGINE_DEPLOY_TARGET: "staging",
+      SHORTSENGINE_STAGING_DEPLOY_PROVIDER: "render",
+      SHORTSENGINE_STAGING_SERVICE_ID: "srv-shortsengine1",
+      SHORTSENGINE_STAGING_URL: "https://staging.example.test",
+      SHORTSENGINE_STAGING_DEPLOY_TOKEN: "placeholder-deploy-token",
+    },
+    fetchImpl: async () => new Response(JSON.stringify({
+      id: "dep_123",
+      status: ["Bearer", "raw-provider-token-should-not-survive"].join(" "),
+    }), { status: 201 }),
+  });
+  assert.equal(summary.providerResult.status, "unknown");
   assert.equal(findSensitiveLeak(summary), null);
 });
 
@@ -394,6 +419,29 @@ test("staging deploy fails safely for Render non-2xx and fetch failures", async 
   }).catch((caught) => caught);
   assert.equal(safeDeployError(fetchFailure).code, "STAGING_RENDER_DEPLOY_REQUEST_FAILED");
   assert.equal(findSensitiveLeak(safeDeployError(fetchFailure)), null);
+});
+
+test("staging deploy fails safely for oversized and invalid Render responses", async () => {
+  const env = {
+    SHORTSENGINE_DEPLOY_TARGET: "staging",
+    SHORTSENGINE_STAGING_DEPLOY_PROVIDER: "render",
+    SHORTSENGINE_STAGING_SERVICE_ID: "srv-shortsengine1",
+    SHORTSENGINE_STAGING_URL: "https://staging.example.test",
+    SHORTSENGINE_STAGING_DEPLOY_TOKEN: "placeholder-deploy-token",
+  };
+  const oversized = await runStagingDeploy({
+    env,
+    fetchImpl: async () => new Response("x".repeat(MAX_RENDER_DEPLOY_RESPONSE_BYTES + 1), { status: 201 }),
+  }).catch((caught) => caught);
+  assert.equal(safeDeployError(oversized).code, "STAGING_RENDER_DEPLOY_RESPONSE_TOO_LARGE");
+  assert.equal(findSensitiveLeak(safeDeployError(oversized)), null);
+
+  const invalidJson = await runStagingDeploy({
+    env,
+    fetchImpl: async () => new Response("not-json", { status: 201 }),
+  }).catch((caught) => caught);
+  assert.equal(safeDeployError(invalidJson).code, "STAGING_RENDER_DEPLOY_JSON_INVALID");
+  assert.equal(findSensitiveLeak(safeDeployError(invalidJson)), null);
 });
 
 test("Render service id validation is strict", () => {

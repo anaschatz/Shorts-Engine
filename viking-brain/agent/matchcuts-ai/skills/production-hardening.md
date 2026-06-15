@@ -47,3 +47,4 @@ Checklist:
 - Unsupported staging deploy providers must fail closed; provider `none` remains a no-network readiness-only path.
 - Validate live Render staging config with `npm run render:check` before deploy; it must remain no-network and public-URL-only.
 - Use `render:manual` and `render:proof` for live staging setup evidence before adding real GitHub Environment secrets.
+- Bound provider deploy response bodies before parsing and expose only sanitized provider status metadata.

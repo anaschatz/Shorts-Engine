@@ -151,6 +151,10 @@ assert.match(stagingDeploy, /render/, "staging deploy should support Render as t
 assert.match(stagingDeploy, /api\.render\.com\/v1/, "staging deploy should target the Render deploy API");
 assert.match(stagingDeploy, /STAGING_DEPLOY_PROVIDER_UNSUPPORTED/, "staging deploy should fail closed for unsupported providers");
 assert.match(stagingDeploy, /validateRenderServiceId/, "staging deploy should validate the Render service id");
+assert.match(stagingDeploy, /MAX_RENDER_DEPLOY_RESPONSE_BYTES/, "staging deploy should bound Render provider response bodies");
+assert.match(stagingDeploy, /STAGING_RENDER_DEPLOY_RESPONSE_TOO_LARGE/, "staging deploy should reject oversized Render responses safely");
+assert.match(stagingDeploy, /STAGING_RENDER_DEPLOY_JSON_INVALID/, "staging deploy should reject invalid Render JSON safely");
+assert.match(stagingDeploy, /safeDeployStatus/, "staging deploy should sanitize provider status strings");
 assert.match(stagingDeploy, /findSensitiveLeak/, "staging deploy should guard summaries against leaks");
 assert.equal(
   [renderCheck, renderManual, renderProof].filter((text) => /api\.render\.com\/v1/.test(text)).length,
@@ -275,6 +279,8 @@ assert.match(stagingDocs, /provider `none`/i, "staging docs should document roll
 assert.match(stagingDocs, /does not upload videos/i, "staging docs should keep deployed smoke health-only");
 assert.match(stagingDocs, /private-network|link-local/i, "staging docs should document private network URL rejection");
 assert.match(stagingDocs, /bounded health response size/i, "staging docs should document bounded health payloads");
+assert.match(stagingDocs, /bounded deploy summary/i, "staging docs should document bounded Render deploy summaries");
+assert.match(stagingDocs, /STAGING_RENDER_DEPLOY_JSON_INVALID/, "staging docs should document invalid Render deploy JSON failures");
 assert.doesNotMatch(stagingDocs, /sk-[A-Za-z0-9_-]{20,}|AKIA[A-Z0-9]{12,}|Bearer\s+[A-Za-z0-9._-]{10,}/, "staging docs must not contain real-looking secrets");
 
 assert.match(stagingWorkflow, /workflow_dispatch:/, "staging workflow should support manual dispatch");

@@ -9,6 +9,7 @@ Decisions:
 - Add `npm run render:proof` to run env/staging/render/deploy checks in provider `none` mode without network.
 - Keep `npm run render:check` no-network and keep `npm run staging:deploy` as the only Render API caller.
 - Keep deployed smoke health-only: `GET /health`, no uploads and no render jobs.
+- Bound and sanitize successful Render deploy responses before summarizing them.
 
 Manual live proof:
 
