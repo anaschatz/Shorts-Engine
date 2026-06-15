@@ -30,6 +30,7 @@ jobs:
       MATCHCUTS_STORAGE_ADAPTER: ${{ vars.MATCHCUTS_STORAGE_ADAPTER || 'local' }}
       SHORTSENGINE_DEPLOY_TARGET: ${{ vars.SHORTSENGINE_DEPLOY_TARGET || 'local' }}
       SHORTSENGINE_STAGING_DEPLOY_PROVIDER: ${{ vars.SHORTSENGINE_STAGING_DEPLOY_PROVIDER || 'none' }}
+      SHORTSENGINE_STAGING_SERVICE_ID: ${{ vars.SHORTSENGINE_STAGING_SERVICE_ID }}
       SHORTSENGINE_STAGING_URL: ${{ vars.SHORTSENGINE_STAGING_URL }}
       SHORTSENGINE_STAGING_DEPLOY_TOKEN: ${{ secrets.SHORTSENGINE_STAGING_DEPLOY_TOKEN }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -66,16 +67,8 @@ jobs:
       - name: Staging readiness
         run: npm run staging:check
 
-      - name: Provider-neutral deploy guard
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ "${SHORTSENGINE_STAGING_DEPLOY_PROVIDER}" == "none" ]]; then
-            echo "::notice title=Staging deploy not configured::Readiness checks passed. Configure the staging GitHub Environment and provider deploy step before real deploy."
-            exit 0
-          fi
-          echo "::error title=Provider deploy step is not implemented::Configured staging providers must add an explicit provider deploy step before this workflow can deploy."
-          exit 1
+      - name: Provider-specific staging deploy
+        run: npm run staging:deploy
 
       - name: Deployed staging smoke
         if: env.SHORTSENGINE_STAGING_URL != ''

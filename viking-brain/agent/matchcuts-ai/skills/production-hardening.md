@@ -43,3 +43,5 @@ Checklist:
 - Validate any persisted artifact `path` against the storage area for its artifact type before indexing it.
 - Treat staging smoke URLs as untrusted input; reject credentials, localhost/private/link-local targets unless explicit local mode is enabled.
 - Bound deployed health-smoke response bodies before JSON parsing and convert oversized/invalid JSON responses into safe structured failures.
+- Keep staging deploy provider-specific and explicit: Render deploys require target `staging`, provider `render`, a `srv-...` service id, a protected deploy token and a safe staging URL.
+- Unsupported staging deploy providers must fail closed; provider `none` remains a no-network readiness-only path.

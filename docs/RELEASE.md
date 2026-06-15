@@ -49,7 +49,17 @@ The release tooling performs read-only local git remote detection when metadata 
 
 The staging workflow lives at `.github/workflows/staging.yml` and uses the GitHub Environment named `staging`.
 
-It runs after `ShortsEngine CI` completes successfully or when manually dispatched. By default it is readiness-only: provider `none` passes the env/staging checks and prints a notice that no deploy occurred. Any configured provider fails closed until a provider-specific deploy step is added.
+It runs after `ShortsEngine CI` completes successfully or when manually dispatched. By default it is readiness-only: provider `none` passes the env/staging checks and records that no deploy occurred.
+
+Render is the first provider-specific path. To enable it, configure the GitHub Environment `staging` with:
+
+- `SHORTSENGINE_DEPLOY_TARGET=staging`
+- `SHORTSENGINE_STAGING_DEPLOY_PROVIDER=render`
+- `SHORTSENGINE_STAGING_SERVICE_ID=srv-...`
+- `SHORTSENGINE_STAGING_URL=https://your-staging-host.example`
+- secret `SHORTSENGINE_STAGING_DEPLOY_TOKEN`
+
+Unsupported providers, missing service ids, missing tokens and unsafe staging URLs fail closed with safe structured errors.
 
 Use `docs/STAGING_DEPLOYMENT.md` to configure protected environment variables, protected credentials and deployed health smoke. Run deployed smoke manually with:
 

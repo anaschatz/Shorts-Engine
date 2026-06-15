@@ -19,6 +19,11 @@ import {
   safeError as safeSmokeError,
   validateHealthPayload,
 } from "../tools/release/check-staging-smoke.mjs";
+import {
+  runStagingDeploy,
+  safeError as safeDeployError,
+  validateRenderServiceId,
+} from "../tools/release/staging-deploy.mjs";
 import { buildReleaseEvidence } from "../tools/release/write-release-evidence.mjs";
 
 const ENV_DOCS = readFileSync("docs/ENVIRONMENT.md", "utf8");
@@ -128,18 +133,106 @@ test("staging readiness fails closed when staging target lacks required values",
   assert.equal(findSensitiveLeak(safeReadinessError(error)), null);
 });
 
-test("staging readiness accepts explicit provider target with protected credential", () => {
+test("staging readiness accepts Render target with protected credential and service id", () => {
   const summary = checkStagingReadiness(readinessOptions({
     SHORTSENGINE_DEPLOY_TARGET: "staging",
-    SHORTSENGINE_STAGING_DEPLOY_PROVIDER: "custom",
+    SHORTSENGINE_STAGING_DEPLOY_PROVIDER: "render",
+    SHORTSENGINE_STAGING_SERVICE_ID: "srv-shortsengine1",
     SHORTSENGINE_STAGING_URL: "https://staging.example.test",
     SHORTSENGINE_STAGING_DEPLOY_TOKEN: "placeholder-deploy-token",
   }));
   assert.equal(summary.deployment.target, "staging");
+  assert.equal(summary.deployment.provider, "render");
   assert.equal(summary.deployment.providerConfigured, true);
   assert.equal(summary.deployment.deployCredentialConfigured, true);
+  assert.equal(summary.deployment.deployServiceIdConfigured, true);
   assert.equal(summary.deployment.stagingUrlHostType, "remote");
   assert.equal(findSensitiveLeak(summary), null);
+});
+
+test("staging readiness rejects unsupported provider safely", () => {
+  assert.throws(
+    () => checkStagingReadiness(readinessOptions({
+      SHORTSENGINE_DEPLOY_TARGET: "staging",
+      SHORTSENGINE_STAGING_DEPLOY_PROVIDER: "custom",
+      SHORTSENGINE_STAGING_SERVICE_ID: "srv-shortsengine1",
+      SHORTSENGINE_STAGING_URL: "https://staging.example.test",
+      SHORTSENGINE_STAGING_DEPLOY_TOKEN: "placeholder-deploy-token",
+    })),
+    /not supported/,
+  );
+});
+
+test("staging readiness rejects Render target without service id", () => {
+  assert.throws(
+    () => checkStagingReadiness(readinessOptions({
+      SHORTSENGINE_DEPLOY_TARGET: "staging",
+      SHORTSENGINE_STAGING_DEPLOY_PROVIDER: "render",
+      SHORTSENGINE_STAGING_URL: "https://staging.example.test",
+      SHORTSENGINE_STAGING_DEPLOY_TOKEN: "placeholder-deploy-token",
+    })),
+    /service id/,
+  );
+});
+
+test("staging deploy passes readiness-only mode without network", async () => {
+  const summary = await runStagingDeploy({
+    env: {},
+    nowMs: Date.parse("2026-06-15T19:30:00.000Z"),
+    fetchImpl: async () => {
+      throw new Error("should not fetch in readiness-only mode");
+    },
+  });
+  assert.equal(summary.ok, true);
+  assert.equal(summary.provider, "none");
+  assert.equal(summary.mode, "readiness-only");
+  assert.equal(summary.deployTriggered, false);
+  assert.equal(summary.providerResult, null);
+  assert.equal(findSensitiveLeak(summary), null);
+});
+
+test("staging deploy triggers Render with sanitized output", async () => {
+  let request;
+  const summary = await runStagingDeploy({
+    env: {
+      SHORTSENGINE_DEPLOY_TARGET: "staging",
+      SHORTSENGINE_STAGING_DEPLOY_PROVIDER: "render",
+      SHORTSENGINE_STAGING_SERVICE_ID: "srv-shortsengine1",
+      SHORTSENGINE_STAGING_URL: "https://staging.example.test",
+      SHORTSENGINE_STAGING_DEPLOY_TOKEN: "placeholder-deploy-token",
+    },
+    nowMs: Date.parse("2026-06-15T19:30:00.000Z"),
+    fetchImpl: async (url, options) => {
+      request = { url, options };
+      return new Response(JSON.stringify({ id: "dep_123", status: "created" }), { status: 201 });
+    },
+  });
+  assert.equal(request.url, "https://api.render.com/v1/services/srv-shortsengine1/deploys");
+  assert.equal(request.options.method, "POST");
+  assert.match(request.options.headers.authorization, /^Bearer /);
+  assert.equal(summary.provider, "render");
+  assert.equal(summary.deployTriggered, true);
+  assert.equal(summary.providerResult.providerRequestAccepted, true);
+  assert.equal(summary.providerResult.deployIdPresent, true);
+  assert.equal(findSensitiveLeak(summary), null);
+});
+
+test("staging deploy fails safely for missing Render service id", async () => {
+  const error = await runStagingDeploy({
+    env: {
+      SHORTSENGINE_DEPLOY_TARGET: "staging",
+      SHORTSENGINE_STAGING_DEPLOY_PROVIDER: "render",
+      SHORTSENGINE_STAGING_URL: "https://staging.example.test",
+      SHORTSENGINE_STAGING_DEPLOY_TOKEN: "placeholder-deploy-token",
+    },
+  }).catch((caught) => caught);
+  assert.equal(safeDeployError(error).code, "STAGING_SERVICE_ID_MISSING");
+  assert.equal(findSensitiveLeak(safeDeployError(error)), null);
+});
+
+test("Render service id validation is strict", () => {
+  assert.equal(validateRenderServiceId("srv-shortsengine1"), "srv-shortsengine1");
+  assert.throws(() => validateRenderServiceId("service-123"), /valid service id/);
 });
 
 test("staging URL validation rejects invalid and credentialed URLs", () => {

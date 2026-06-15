@@ -27,6 +27,7 @@
     "release:check": "node tools/release/verify-release-gate.mjs",
     "release:evidence": "node tools/release/write-release-evidence.mjs",
     "staging:check": "node tools/release/check-staging-readiness.mjs",
+    "staging:deploy": "node tools/release/staging-deploy.mjs",
     "staging:smoke": "node tools/release/check-staging-smoke.mjs",
     "start": "node server/app.cjs",
     "test": "node --test --test-concurrency=1 tests/*.test.js tests/*.test.mjs tests/*.test.cjs"

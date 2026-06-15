@@ -93,13 +93,14 @@ The command prints a safe JSON readiness summary. It fails closed for invalid nu
 
 | Variable | Required | Default | Allowed values | Secret | Staging recommendation | Fail-closed behavior |
 | --- | --- | --- | --- | --- | --- | --- |
-| `SHORTSENGINE_DEPLOY_TARGET` | No | `local` | `local`, `staging` | No | Keep `local` until a provider deploy step exists. | `staging` requires URL, provider and protected credential. |
-| `SHORTSENGINE_STAGING_DEPLOY_PROVIDER` | Required when target is `staging` | `none` | `none`, `render`, `fly`, `railway`, `vercel`, `cloud-run`, `custom` | No | Keep `none` for readiness-only mode. | Provider without staging target fails readiness; configured provider fails workflow until a real deploy step exists. |
+| `SHORTSENGINE_DEPLOY_TARGET` | No | `local` | `local`, `staging` | No | Keep `local` until Render staging is configured. | `staging` requires URL, supported provider and protected credential. |
+| `SHORTSENGINE_STAGING_DEPLOY_PROVIDER` | Required when target is `staging` | `none` | `none`, `render` | No | Keep `none` for readiness-only mode; use `render` only after the GitHub Environment is configured. | Provider without staging target or unsupported provider fails readiness/deploy safely. |
+| `SHORTSENGINE_STAGING_SERVICE_ID` | Required for Render staging deploy | empty | Render service id beginning with `srv-` | No | Store as a protected GitHub Environment variable. | Missing or invalid Render service id fails readiness/deploy. |
 | `SHORTSENGINE_STAGING_URL` | Required for deployed smoke and staging target | empty | `http` or `https` URL without credentials, private IPs or local-network hosts | No | Set to the deployed staging base URL after a provider is wired. | Missing, invalid, credentialed, private, link-local or unsafe local URLs fail smoke/readiness. |
 | `SHORTSENGINE_STAGING_ALLOW_LOCAL_URL` | No | `0` | boolean | No | Keep disabled for remote staging; enable only for explicit local smoke. | Localhost/private-network staging URLs fail unless this is enabled. |
 | `SHORTSENGINE_STAGING_SMOKE_TIMEOUT_MS` | No | `30000` | integer `1000..120000` | No | Keep default. | Invalid timeout fails readiness/smoke. |
 | `SHORTSENGINE_STAGING_SMOKE_RETRIES` | No | `2` | integer `0..5` | No | Keep default. | Invalid retry count fails readiness/smoke. |
-| `SHORTSENGINE_STAGING_DEPLOY_TOKEN` | Required when target is `staging` and provider is not `none` | empty | GitHub Environment secret | Yes | Store only in the GitHub Environment `staging`. | Missing provider credential fails readiness. |
+| `SHORTSENGINE_STAGING_DEPLOY_TOKEN` | Required when target is `staging` and provider is `render` | empty | GitHub Environment secret | Yes | Store only in the GitHub Environment `staging`. | Missing provider credential fails readiness/deploy. |
 
 ## Browser/demo/CI flags
 

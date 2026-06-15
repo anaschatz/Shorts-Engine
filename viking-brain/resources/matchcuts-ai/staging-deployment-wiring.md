@@ -10,7 +10,8 @@ Decisions:
 - Use GitHub Environment `staging` in `.github/workflows/staging.yml`.
 - Trigger staging workflow manually or after `ShortsEngine CI` succeeds.
 - Do not claim a fake deploy when no provider is configured.
-- Fail closed when a real provider is configured before provider-specific deploy steps exist.
+- Support Render as the first provider-specific deploy path through `tools/release/staging-deploy.mjs`.
+- Fail closed when an unsupported provider is configured.
 - Do not run real cloud integration or upload artifacts in the staging workflow by default.
 
 Safety contract:
@@ -20,11 +21,13 @@ Safety contract:
 - Reject localhost URLs unless `SHORTSENGINE_STAGING_ALLOW_LOCAL_URL=1`.
 - Keep deployed smoke read-only: `GET /health` only, no uploads, no render jobs.
 - Keep reports free of secrets, absolute local paths and storage keys.
+- Require Render staging deploys to provide target `staging`, provider `render`, a `srv-...` service id, a protected deploy token and a safe staging URL.
 
 Commands:
 
 - `npm run env:check`
 - `npm run staging:check`
+- `npm run staging:deploy`
 - `SHORTSENGINE_STAGING_URL=https://... npm run staging:smoke`
 - `npm run release:check`
 - `npm run release:evidence`

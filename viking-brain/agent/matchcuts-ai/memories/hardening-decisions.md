@@ -25,3 +25,4 @@
 - Artifact index paths must be validated against the artifact type storage area before persistence.
 - Staging smoke URLs must reject credentialed, localhost, private and link-local targets by default; explicit local mode is only for developer validation.
 - Staging health smoke must bound response size before JSON parsing and report oversized/invalid bodies with safe structured errors.
+- Render is the first provider-specific staging deploy path; it requires GitHub Environment `staging` vars plus a protected deploy token, while provider `none` remains the default no-network path.

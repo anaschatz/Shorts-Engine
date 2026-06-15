@@ -10,13 +10,14 @@ const STAGING_DOC_RELATIVE_PATH = "docs/STAGING_DEPLOYMENT.md";
 const STAGING_WORKFLOW_RELATIVE_PATH = ".github/workflows/staging.yml";
 
 const DEPLOY_TARGETS = Object.freeze(["local", "staging"]);
-const DEPLOY_PROVIDERS = Object.freeze(["none", "render", "fly", "railway", "vercel", "cloud-run", "custom"]);
+const DEPLOY_PROVIDERS = Object.freeze(["none", "render"]);
 const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1"]);
 
 const STAGING_ENV_CONTRACT = Object.freeze([
   { name: "SHORTSENGINE_DEPLOY_TARGET", defaultValue: "local", type: "enum", allowedValues: DEPLOY_TARGETS },
   { name: "SHORTSENGINE_STAGING_DEPLOY_PROVIDER", defaultValue: "none", type: "enum", allowedValues: DEPLOY_PROVIDERS },
   { name: "SHORTSENGINE_STAGING_URL", defaultValue: "", type: "url" },
+  { name: "SHORTSENGINE_STAGING_SERVICE_ID", defaultValue: "", type: "string" },
   { name: "SHORTSENGINE_STAGING_ALLOW_LOCAL_URL", defaultValue: "false", type: "boolean" },
   { name: "SHORTSENGINE_STAGING_SMOKE_TIMEOUT_MS", defaultValue: "30000", type: "integer", min: 1000, max: 120000 },
   { name: "SHORTSENGINE_STAGING_SMOKE_RETRIES", defaultValue: "2", type: "integer", min: 0, max: 5 },
@@ -81,6 +82,20 @@ function validateSecretValue(value) {
   const text = String(value);
   if (text.length < 8 || text.length > 2048 || /[\u0000-\u001f\u007f]/.test(text)) {
     throw new StagingReadinessError("STAGING_CREDENTIAL_INVALID", "Staging credential value is invalid.");
+  }
+  return true;
+}
+
+function validateRenderServiceId(value, required = false) {
+  const serviceId = String(value || "").trim();
+  if (!serviceId) {
+    if (required) {
+      throw new StagingReadinessError("STAGING_SERVICE_ID_MISSING", "Render staging deploy requires a service id.");
+    }
+    return false;
+  }
+  if (!/^srv-[A-Za-z0-9_-]{6,80}$/.test(serviceId)) {
+    throw new StagingReadinessError("STAGING_SERVICE_ID_INVALID", "Render staging service id is invalid.");
   }
   return true;
 }
@@ -180,11 +195,16 @@ function validateStagingConfig(env) {
     if (spec.type === "integer") values[spec.name] = parseInteger(value, spec);
     if (spec.type === "boolean") values[spec.name] = boolFromEnv(value);
     if (spec.type === "secret") values[spec.name] = validateSecretValue(value);
+    if (spec.type === "string") values[spec.name] = String(value || "").trim();
     if (spec.type === "url") values[spec.name] = String(value || "").trim();
   }
   const target = values.SHORTSENGINE_DEPLOY_TARGET;
   const provider = values.SHORTSENGINE_STAGING_DEPLOY_PROVIDER;
   const deployCredentialConfigured = values.SHORTSENGINE_STAGING_DEPLOY_TOKEN;
+  const deployServiceIdConfigured = validateRenderServiceId(
+    values.SHORTSENGINE_STAGING_SERVICE_ID,
+    target === "staging" && provider === "render",
+  );
   const url = validateStagingUrl(values.SHORTSENGINE_STAGING_URL, {
     required: target === "staging",
     allowLocal: values.SHORTSENGINE_STAGING_ALLOW_LOCAL_URL,
@@ -208,6 +228,7 @@ function validateStagingConfig(env) {
     smokeTimeoutMs: values.SHORTSENGINE_STAGING_SMOKE_TIMEOUT_MS,
     smokeRetries: values.SHORTSENGINE_STAGING_SMOKE_RETRIES,
     deployCredentialConfigured,
+    deployServiceIdConfigured,
   };
 }
 
@@ -232,9 +253,11 @@ function verifyStagingWorkflowContract(workflowText) {
   assert(/npm install/.test(workflowText), "STAGING_WORKFLOW_INSTALL_INVALID", "Staging workflow must retain npm install fallback.");
   assert(/npm run env:check/.test(workflowText), "STAGING_WORKFLOW_ENV_CHECK_MISSING", "Staging workflow must run env:check.");
   assert(/npm run staging:check/.test(workflowText), "STAGING_WORKFLOW_CHECK_MISSING", "Staging workflow must run staging:check.");
+  assert(/npm run staging:deploy/.test(workflowText), "STAGING_WORKFLOW_DEPLOY_MISSING", "Staging workflow must run provider-specific deploy safely.");
   assert(/npm run staging:smoke/.test(workflowText), "STAGING_WORKFLOW_SMOKE_MISSING", "Staging workflow must include deployed staging smoke.");
   assert(/SHORTSENGINE_STAGING_DEPLOY_PROVIDER/.test(workflowText), "STAGING_WORKFLOW_PROVIDER_GUARD_MISSING", "Staging workflow must guard deploy provider configuration.");
-  assert(/Provider deploy step is not implemented/.test(workflowText), "STAGING_WORKFLOW_FAIL_CLOSED_MISSING", "Staging workflow must fail closed for configured providers without a deploy step.");
+  assert(/SHORTSENGINE_STAGING_SERVICE_ID/.test(workflowText), "STAGING_WORKFLOW_RENDER_SERVICE_MISSING", "Staging workflow must expose the Render service id contract.");
+  assert(/Provider-specific staging deploy/.test(workflowText), "STAGING_WORKFLOW_PROVIDER_STEP_MISSING", "Staging workflow must include a provider-specific deploy step.");
   assert(!/SHORTSENGINE_BROWSER_E2E_ALLOW_SKIP/.test(workflowText), "STAGING_WORKFLOW_BROWSER_SKIP_UNSAFE", "Staging workflow must not allow browser runtime skips.");
   assert(!/integration:cloud|MATCHCUTS_RUN_REAL_CLOUD_TESTS/.test(workflowText), "STAGING_WORKFLOW_CLOUD_UNSAFE", "Staging workflow must not run real cloud integration by default.");
   assert(!/uses:\s*actions\/upload-artifact@v4/.test(workflowText), "STAGING_WORKFLOW_ARTIFACT_UPLOAD_UNSAFE", "Staging workflow must not upload artifacts by default.");
@@ -289,6 +312,7 @@ function checkStagingReadiness(options = {}) {
       stagingUrlHostType: config.url.configured ? config.url.hostType : "not-configured",
       localUrlAllowed: config.allowLocalUrl,
       deployCredentialConfigured: config.deployCredentialConfigured,
+      deployServiceIdConfigured: config.deployServiceIdConfigured,
     },
     githubEnvironment: {
       name: "staging",
@@ -296,6 +320,7 @@ function checkStagingReadiness(options = {}) {
       protectedVariables: [
         "SHORTSENGINE_DEPLOY_TARGET",
         "SHORTSENGINE_STAGING_DEPLOY_PROVIDER",
+        "SHORTSENGINE_STAGING_SERVICE_ID",
         "SHORTSENGINE_STAGING_URL",
       ],
       credentialRefs: config.provider === "none" ? [] : ["SHORTSENGINE_STAGING_DEPLOY_TOKEN"],
@@ -326,7 +351,7 @@ function checkStagingReadiness(options = {}) {
       complete: true,
     },
     limitations: [
-      "No provider-specific deploy step is enabled by default.",
+      "Render is the first supported provider-specific staging deploy path.",
       "GitHub Environment protection and protected credentials must be configured in GitHub.",
       "Deployed smoke checks are health-only until an explicit staging URL exists.",
     ],
