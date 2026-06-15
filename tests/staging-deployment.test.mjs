@@ -20,6 +20,11 @@ import {
   validateHealthPayload,
 } from "../tools/release/check-staging-smoke.mjs";
 import {
+  runStagingFullSmoke,
+  safeError as safeFullSmokeError,
+  validateFixturePath,
+} from "../tools/release/check-staging-full-smoke.mjs";
+import {
   MAX_RENDER_DEPLOY_RESPONSE_BYTES,
   runStagingDeploy,
   safeError as safeDeployError,
@@ -108,6 +113,73 @@ function createReportDirs(nowMs) {
     failedCases: [],
   });
   return { demoResultsDir, evalResultsDir };
+}
+
+function createFullSmokeFixture(bytes = Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from("ftypisom"), Buffer.alloc(32)])) {
+  const root = mkdtempSync(join(tmpdir(), "shortsengine-full-smoke-"));
+  const fixtureDir = join(root, "demo", "fixtures");
+  mkdirSync(fixtureDir, { recursive: true });
+  const fixtureFile = join(fixtureDir, "shortsengine-demo-source.mp4");
+  writeFileSync(fixtureFile, bytes);
+  return { root, fixtureFile };
+}
+
+function fullSmokeEnv(extra = {}) {
+  return {
+    SHORTSENGINE_STAGING_FULL_SMOKE: "1",
+    SHORTSENGINE_STAGING_URL: "https://staging.example.test",
+    SHORTSENGINE_STAGING_FULL_SMOKE_JOB_TIMEOUT_MS: "1000",
+    SHORTSENGINE_STAGING_FULL_SMOKE_POLL_INTERVAL_MS: "100",
+    ...extra,
+  };
+}
+
+function mp4Buffer() {
+  return Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from("ftypisom"), Buffer.alloc(128)]);
+}
+
+function createFullSmokeFetch(options = {}) {
+  const jobStates = [...(options.jobStates || [{ status: "completed", exportId: "exp_stagingfull1" }])];
+  return async (url, request = {}) => {
+    const parsed = new URL(url);
+    if (request.method === "GET" && parsed.pathname.endsWith("/health")) {
+      return new Response(JSON.stringify(options.healthPayload || healthPayload({
+        adapters: {
+          artifacts: { ready: true, mode: "local", objectStorage: false },
+          persistence: { ready: true, mode: "sqlite", database: true },
+        },
+      })), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (request.method === "POST" && parsed.pathname === "/api/uploads") {
+      return new Response(JSON.stringify(options.uploadPayload || {
+        ok: true,
+        data: { project: { id: "prj_stagingfull1" }, upload: { id: "upl_stagingfull1" } },
+      }), { status: options.uploadStatus || 201, headers: { "content-type": "application/json" } });
+    }
+    if (request.method === "POST" && parsed.pathname === "/api/projects/prj_stagingfull1/generate") {
+      return new Response(JSON.stringify(options.generatePayload || {
+        ok: true,
+        data: { job: { id: "job_stagingfull1" } },
+      }), { status: options.generateStatus || 202, headers: { "content-type": "application/json" } });
+    }
+    if (request.method === "GET" && parsed.pathname === "/api/jobs/job_stagingfull1") {
+      const state = jobStates.length > 1 ? jobStates.shift() : jobStates[0];
+      return new Response(JSON.stringify({
+        ok: true,
+        data: { job: { id: "job_stagingfull1", projectId: "prj_stagingfull1", uploadId: "upl_stagingfull1", ...state } },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (request.method === "GET" && parsed.pathname === "/api/exports/exp_stagingfull1/download") {
+      return new Response(options.downloadBody || mp4Buffer(), {
+        status: options.downloadStatus || 200,
+        headers: { "content-type": options.downloadContentType || "video/mp4" },
+      });
+    }
+    return new Response(JSON.stringify({ ok: false, error: { code: "NOT_FOUND" } }), {
+      status: 404,
+      headers: { "content-type": "application/json" },
+    });
+  };
 }
 
 test("staging docs mention all staging environment variables", () => {
@@ -540,6 +612,185 @@ test("staging smoke health URL is derived without query strings", () => {
     healthUrlFor("https://staging.example.test/app?token=redacted#frag"),
     "https://staging.example.test/app/health",
   );
+});
+
+test("full staging smoke is disabled by default", async () => {
+  const { root, fixtureFile } = createFullSmokeFixture();
+  const error = await runStagingFullSmoke({
+    env: { SHORTSENGINE_STAGING_URL: "https://staging.example.test" },
+    rootDir: root,
+    fixturePath: fixtureFile,
+    fetchImpl: createFullSmokeFetch(),
+  }).catch((caught) => caught);
+  assert.equal(safeFullSmokeError(error).code, "STAGING_FULL_SMOKE_DISABLED");
+  assert.equal(findSensitiveLeak(safeFullSmokeError(error)), null);
+});
+
+test("full staging smoke rejects unsafe URLs and allows local only explicitly", async () => {
+  const { root, fixtureFile } = createFullSmokeFixture();
+  const unsafe = await runStagingFullSmoke({
+    env: fullSmokeEnv({ SHORTSENGINE_STAGING_URL: "http://127.0.0.1:4175" }),
+    rootDir: root,
+    fixturePath: fixtureFile,
+    fetchImpl: createFullSmokeFetch(),
+  }).catch((caught) => caught);
+  assert.equal(safeFullSmokeError(unsafe).code, "STAGING_URL_LOCAL_UNSAFE");
+
+  const summary = await runStagingFullSmoke({
+    env: fullSmokeEnv({
+      SHORTSENGINE_STAGING_URL: "http://127.0.0.1:4175",
+      SHORTSENGINE_STAGING_ALLOW_LOCAL_URL: "1",
+    }),
+    rootDir: root,
+    fixturePath: fixtureFile,
+    fetchImpl: createFullSmokeFetch(),
+    nowMs: Date.parse("2026-06-15T19:30:00.000Z"),
+  });
+  assert.equal(summary.target.hostType, "local");
+  assert.equal(summary.flow.jobCompleted, true);
+  assert.equal(findSensitiveLeak(summary), null);
+});
+
+test("full staging smoke validates fixture safety and size bounds", () => {
+  const { root, fixtureFile } = createFullSmokeFixture(Buffer.alloc(4096));
+  assert.equal(validateFixturePath({ rootDir: root, fixturePath: fixtureFile }).public.relativePath, "demo/fixtures/shortsengine-demo-source.mp4");
+  assert.throws(
+    () => validateFixturePath({ rootDir: root, fixturePath: "../unsafe.mp4" }),
+    /inside demo fixtures/,
+  );
+  assert.throws(
+    () => validateFixturePath({
+      rootDir: root,
+      fixturePath: fixtureFile,
+      env: { SHORTSENGINE_STAGING_FULL_SMOKE_FIXTURE_MAX_BYTES: "1024" },
+    }),
+    /too large/,
+  );
+});
+
+test("full staging smoke reuses health validation and reports durability safely", async () => {
+  const { root, fixtureFile } = createFullSmokeFixture();
+  const notReady = await runStagingFullSmoke({
+    env: fullSmokeEnv(),
+    rootDir: root,
+    fixturePath: fixtureFile,
+    fetchImpl: createFullSmokeFetch({ healthPayload: healthPayload({ status: "degraded" }) }),
+  }).catch((caught) => caught);
+  assert.equal(safeFullSmokeError(notReady).code, "STAGING_FULL_HEALTH_NOT_READY");
+
+  const summary = await runStagingFullSmoke({
+    env: fullSmokeEnv(),
+    rootDir: root,
+    fixturePath: fixtureFile,
+    fetchImpl: createFullSmokeFetch({
+      healthPayload: healthPayload({
+        adapters: {
+          artifacts: { ready: true, mode: "s3", objectStorage: true },
+          persistence: { ready: true, mode: "sqlite", database: true },
+        },
+      }),
+    }),
+  });
+  assert.equal(summary.health.durabilityMode, "durable-capable");
+  assert.equal(findSensitiveLeak(summary), null);
+});
+
+test("full staging smoke completes upload generate job export and download", async () => {
+  const { root, fixtureFile } = createFullSmokeFixture();
+  const summary = await runStagingFullSmoke({
+    env: fullSmokeEnv(),
+    rootDir: root,
+    fixturePath: fixtureFile,
+    fetchImpl: createFullSmokeFetch({
+      jobStates: [
+        { status: "processing", progress: 55 },
+        { status: "completed", exportId: "exp_stagingfull1" },
+      ],
+    }),
+    nowMs: Date.parse("2026-06-15T19:30:00.000Z"),
+  });
+  assert.equal(summary.ok, true);
+  assert.equal(summary.gated.explicitFlag, true);
+  assert.equal(summary.gated.healthOnly, false);
+  assert.equal(summary.flow.uploadAccepted, true);
+  assert.equal(summary.flow.generateAccepted, true);
+  assert.equal(summary.flow.jobCompleted, true);
+  assert.equal(summary.flow.exportDownloadable, true);
+  assert.equal(summary.flow.pollCount, 2);
+  assert.equal(summary.export.contentType, "video/mp4");
+  assert.equal(summary.health.durabilityMode, "ephemeral-staging");
+  assert.equal(findSensitiveLeak(summary), null);
+});
+
+test("full staging smoke fails closed for invalid upload response and response leaks", async () => {
+  const { root, fixtureFile } = createFullSmokeFixture();
+  const invalidUpload = await runStagingFullSmoke({
+    env: fullSmokeEnv(),
+    rootDir: root,
+    fixturePath: fixtureFile,
+    fetchImpl: createFullSmokeFetch({
+      uploadPayload: { ok: true, data: { project: { id: "bad" }, upload: { id: "upl_stagingfull1" } } },
+    }),
+  }).catch((caught) => caught);
+  assert.equal(safeFullSmokeError(invalidUpload).code, "STAGING_FULL_UPLOAD_RESPONSE_INVALID");
+
+  const tokenValue = ["adt", "11111111-1111-4111-8111-111111111111", "abcdefabcdefabcdefabcdefabcdefab"].join("_");
+  const leaked = await runStagingFullSmoke({
+    env: fullSmokeEnv(),
+    rootDir: root,
+    fixturePath: fixtureFile,
+    fetchImpl: createFullSmokeFetch({
+      uploadPayload: { ok: true, data: { project: { id: "prj_stagingfull1" }, upload: { id: "upl_stagingfull1" }, signed: tokenValue } },
+    }),
+  }).catch((caught) => caught);
+  assert.equal(safeFullSmokeError(leaked).code, "STAGING_FULL_RESPONSE_LEAK");
+  assert.equal(findSensitiveLeak(safeFullSmokeError(leaked)), null);
+});
+
+test("full staging smoke fails closed for job failure timeout and missing export", async () => {
+  const { root, fixtureFile } = createFullSmokeFixture();
+  const failedJob = await runStagingFullSmoke({
+    env: fullSmokeEnv(),
+    rootDir: root,
+    fixturePath: fixtureFile,
+    fetchImpl: createFullSmokeFetch({ jobStates: [{ status: "failed", error: { code: "RENDER_FAILED" } }] }),
+  }).catch((caught) => caught);
+  assert.equal(safeFullSmokeError(failedJob).code, "STAGING_FULL_JOB_TERMINAL_FAILURE");
+
+  const missingExport = await runStagingFullSmoke({
+    env: fullSmokeEnv(),
+    rootDir: root,
+    fixturePath: fixtureFile,
+    fetchImpl: createFullSmokeFetch({ jobStates: [{ status: "completed" }] }),
+  }).catch((caught) => caught);
+  assert.equal(safeFullSmokeError(missingExport).code, "STAGING_FULL_EXPORT_MISSING");
+
+  const timeout = await runStagingFullSmoke({
+    env: fullSmokeEnv({ SHORTSENGINE_STAGING_FULL_SMOKE_JOB_TIMEOUT_MS: "1000" }),
+    rootDir: root,
+    fixturePath: fixtureFile,
+    fetchImpl: createFullSmokeFetch({ jobStates: [{ status: "processing" }] }),
+  }).catch((caught) => caught);
+  assert.equal(safeFullSmokeError(timeout).code, "STAGING_FULL_JOB_TIMEOUT");
+});
+
+test("full staging smoke validates export download content type and MP4 signature", async () => {
+  const { root, fixtureFile } = createFullSmokeFixture();
+  const wrongType = await runStagingFullSmoke({
+    env: fullSmokeEnv(),
+    rootDir: root,
+    fixturePath: fixtureFile,
+    fetchImpl: createFullSmokeFetch({ downloadContentType: "text/plain" }),
+  }).catch((caught) => caught);
+  assert.equal(safeFullSmokeError(wrongType).code, "STAGING_FULL_DOWNLOAD_CONTENT_TYPE_INVALID");
+
+  const wrongSignature = await runStagingFullSmoke({
+    env: fullSmokeEnv(),
+    rootDir: root,
+    fixturePath: fixtureFile,
+    fetchImpl: createFullSmokeFetch({ downloadBody: Buffer.from("not-an-mp4") }),
+  }).catch((caught) => caught);
+  assert.equal(safeFullSmokeError(wrongSignature).code, "STAGING_FULL_DOWNLOAD_SIGNATURE_INVALID");
 });
 
 test("release evidence includes staging readiness safely", () => {

@@ -48,3 +48,4 @@ Checklist:
 - Validate live Render staging config with `npm run render:check` before deploy; it must remain no-network and public-URL-only.
 - Use `render:manual` and `render:proof` for live staging setup evidence before adding real GitHub Environment secrets.
 - Bound provider deploy response bodies before parsing and expose only sanitized provider status metadata.
+- Keep full staging upload/render smoke manual and opt-in; bound fixture, polling, response and download sizes before reporting.

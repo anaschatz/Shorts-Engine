@@ -38,6 +38,8 @@ npm run release:evidence
 
 `npm run release:evidence` writes `release/results/latest.json` plus a timestamped evidence report. The evidence report contains package metadata, checked commands, environment readiness, staging readiness, latest report status, artifact policy, branch-protection guidance and limitations. It must not contain secrets, absolute local paths, storage keys, provider raw errors or broad local state.
 
+`npm run staging:smoke:full` is intentionally not part of the default release gate. Run it manually only with `SHORTSENGINE_STAGING_FULL_SMOKE=1` after health smoke is stable, because it uploads the fixture, creates a render job, waits for completion and downloads the resulting MP4.
+
 ## Branch Protection Checklist
 
 Enable these settings in GitHub manually:
@@ -84,6 +86,14 @@ Use `docs/STAGING_DEPLOYMENT.md` to configure protected environment variables, p
 SHORTSENGINE_STAGING_URL=https://your-staging-host.example npm run staging:smoke
 ```
 
+Run full upload/render smoke manually only when intended:
+
+```bash
+SHORTSENGINE_STAGING_FULL_SMOKE=1 SHORTSENGINE_STAGING_URL=https://your-staging-host.example npm run staging:smoke:full
+```
+
+For local proof, add `SHORTSENGINE_STAGING_ALLOW_LOCAL_URL=1` and point `SHORTSENGINE_STAGING_URL` at the local server.
+
 ## Failure Artifacts
 
 GitHub Actions uploads diagnostics only when the release gate fails:
@@ -99,3 +109,5 @@ Passing runs should not upload reports or browser artifacts. Playwright trace/vi
 ## Opt-In Integrations
 
 Real cloud integration remains opt-in and must not run in the default CI release gate. Use the dedicated integration command only with explicit credentials and environment flags.
+
+Full staging upload/render smoke also remains opt-in and must not run in default CI. It is a manual proof step for staging environments with known storage and persistence behavior.

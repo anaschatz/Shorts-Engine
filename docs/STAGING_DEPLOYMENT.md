@@ -17,6 +17,12 @@ For a deployed app, run:
 SHORTSENGINE_STAGING_URL=https://your-staging-host.example npm run staging:smoke
 ```
 
+For an explicit full upload/render/download proof, run only after health smoke is stable:
+
+```bash
+SHORTSENGINE_STAGING_FULL_SMOKE=1 SHORTSENGINE_STAGING_URL=https://your-staging-host.example npm run staging:smoke:full
+```
+
 ## GitHub Environment `staging`
 
 Create a GitHub Environment named `staging` and protect it before adding real deploy credentials.
@@ -194,6 +200,49 @@ Do not copy provider raw errors, tokens, service ids, local paths, storage keys 
 
 It does not upload videos, create jobs, render clips, delete artifacts or call real cloud integration.
 
+## Full Staging Smoke
+
+`npm run staging:smoke:full` is opt-in and manual. It never runs unless `SHORTSENGINE_STAGING_FULL_SMOKE=1` is set.
+
+The full smoke proves the deployed public API flow:
+
+```text
+upload fixture video -> generate job -> poll job -> completed export -> download rendered MP4
+```
+
+It uses the fixture at `demo/fixtures/shortsengine-demo-source.mp4` by default. Override with `SHORTSENGINE_STAGING_FULL_SMOKE_FIXTURE` only for another safe file under `demo/fixtures/`.
+
+Safety bounds:
+
+- validates `SHORTSENGINE_STAGING_URL` with the same public URL rules as health smoke
+- rejects localhost/private/link-local targets unless `SHORTSENGINE_STAGING_ALLOW_LOCAL_URL=1`
+- requires `SHORTSENGINE_STAGING_FULL_SMOKE=1`
+- validates fixture extension, location and size
+- bounds JSON responses, polling time, fixture size and MP4 download size
+- does not store raw response bodies or signed download tokens
+- reports only booleans, durations, sizes, modes and safe host type metadata
+
+Local proof:
+
+```bash
+SHORTSENGINE_STAGING_FULL_SMOKE=1 SHORTSENGINE_STAGING_ALLOW_LOCAL_URL=1 SHORTSENGINE_STAGING_URL=http://127.0.0.1:4175 npm run staging:smoke:full
+```
+
+Remote staging proof:
+
+```bash
+SHORTSENGINE_STAGING_FULL_SMOKE=1 SHORTSENGINE_STAGING_URL=https://your-render-staging-host.example npm run staging:smoke:full
+```
+
+Full smoke is not part of the default CI/release gate because it uploads media, creates a render job and leaves a completed staging export unless a separate cleanup policy is added.
+
+Durability interpretation:
+
+- `ephemeral-staging`: local/mock storage or local filesystem-backed SQLite can prove the flow, but not restart durability on Render.
+- `durable-capable`: object storage plus database-backed persistence are reported as configured capabilities.
+
+Do not claim production durability from a Render local filesystem proof. Use object storage and database-backed persistence before relying on deployed staging artifacts across restarts.
+
 ## Status Meaning
 
 - `ready`: FFmpeg, FFprobe, storage, repositories, adapters, transcription provider and analysis layer are ready.
@@ -217,6 +266,9 @@ If GitHub Actions reports a failed staging run:
 - `STAGING_RENDER_DEPLOY_REQUEST_FAILED`: check Render availability and GitHub runner network access.
 - `STAGING_RENDER_DEPLOY_RESPONSE_TOO_LARGE`: the provider response exceeded the bounded deploy summary limit.
 - `STAGING_RENDER_DEPLOY_JSON_INVALID`: the provider returned invalid JSON for a successful deploy request.
+- `STAGING_FULL_SMOKE_DISABLED`: set `SHORTSENGINE_STAGING_FULL_SMOKE=1` only when intentionally running full upload/render smoke.
+- `STAGING_FULL_JOB_TIMEOUT`: the render job did not reach a terminal state inside the bounded full smoke timeout.
+- `STAGING_FULL_DOWNLOAD_SIGNATURE_INVALID`: the completed export was not a valid MP4 response.
 - smoke failure after deploy: open `/health` on the Render URL and verify FFmpeg, storage, repositories, adapters, transcription and analysis readiness.
 
 ## Local Commands

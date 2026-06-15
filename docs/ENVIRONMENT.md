@@ -101,6 +101,14 @@ The command prints a safe JSON readiness summary. It fails closed for invalid nu
 | `SHORTSENGINE_STAGING_SMOKE_TIMEOUT_MS` | No | `30000` | integer `1000..120000` | No | Keep default. | Invalid timeout fails readiness/smoke. |
 | `SHORTSENGINE_STAGING_SMOKE_RETRIES` | No | `2` | integer `0..5` | No | Keep default. | Invalid retry count fails readiness/smoke. |
 | `SHORTSENGINE_STAGING_DEPLOY_TOKEN` | Required when target is `staging` and provider is `render` | empty | GitHub Environment secret | Yes | Store only in the GitHub Environment `staging`. | Missing provider credential fails readiness/deploy. |
+| `SHORTSENGINE_STAGING_FULL_SMOKE` | No | `0` | explicit `1` to enable | No | Keep disabled except for manual full upload/render proof. | Full staging smoke fails closed unless enabled. |
+| `SHORTSENGINE_STAGING_FULL_SMOKE_FIXTURE` | No | `demo/fixtures/shortsengine-demo-source.mp4` | safe file under `demo/fixtures/` | No | Use the default fixture for deterministic staging proof. | Traversal, unsupported extensions or missing files fail full smoke. |
+| `SHORTSENGINE_STAGING_FULL_SMOKE_TIMEOUT_MS` | No | `120000` | integer `5000..600000` | No | Keep default. | Invalid timeout fails full smoke. |
+| `SHORTSENGINE_STAGING_FULL_SMOKE_JOB_TIMEOUT_MS` | No | `90000` | integer within full timeout | No | Keep default. | Invalid job timeout fails full smoke. |
+| `SHORTSENGINE_STAGING_FULL_SMOKE_POLL_INTERVAL_MS` | No | `750` | integer `100..10000` | No | Keep default. | Invalid poll interval fails full smoke. |
+| `SHORTSENGINE_STAGING_FULL_SMOKE_DOWNLOAD_MAX_BYTES` | No | `83886080` | integer `1024..536870912` | No | Keep bounded for staging exports. | Oversized downloads fail full smoke. |
+| `SHORTSENGINE_STAGING_FULL_SMOKE_FIXTURE_MAX_BYTES` | No | `33554432` | integer `1024..262144000` | No | Keep fixture small. | Oversized fixtures fail full smoke. |
+| `SHORTSENGINE_STAGING_FULL_SMOKE_ALLOW_DEGRADED` | No | `0` | boolean | No | Use only when health is degraded but FFmpeg/FFprobe are ready and the degradation is understood. | Degraded health fails full smoke by default. |
 
 ## Browser/demo/CI flags
 
@@ -129,10 +137,11 @@ The command prints a safe JSON readiness summary. It fails closed for invalid nu
 8. Start the server with staging env values.
 9. Check `GET /health` and require `status: "ready"` unless a documented degraded dependency is expected.
 10. Run deployed smoke with `SHORTSENGINE_STAGING_URL=... npm run staging:smoke`.
-11. Run `npm run demo:fixture`, `npm run demo:smoke`, `npm run demo:browser`, and `npm run demo:browser:ci`.
-12. Run `npm run ci:reports` and `npm run release:evidence`.
-13. Inspect failure-only artifacts only if a gate fails.
-14. Configure GitHub branch protection as documented in `docs/RELEASE.md` and GitHub Environment protection as documented in `docs/STAGING_DEPLOYMENT.md`.
+11. Run opt-in full smoke only when intentional: `SHORTSENGINE_STAGING_FULL_SMOKE=1 SHORTSENGINE_STAGING_URL=... npm run staging:smoke:full`.
+12. Run `npm run demo:fixture`, `npm run demo:smoke`, `npm run demo:browser`, and `npm run demo:browser:ci`.
+13. Run `npm run ci:reports` and `npm run release:evidence`.
+14. Inspect failure-only artifacts only if a gate fails.
+15. Configure GitHub branch protection as documented in `docs/RELEASE.md` and GitHub Environment protection as documented in `docs/STAGING_DEPLOYMENT.md`.
 
 ## Render Staging Runtime
 

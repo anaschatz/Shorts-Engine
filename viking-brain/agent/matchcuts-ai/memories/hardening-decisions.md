@@ -29,3 +29,4 @@
 - `npm run render:check` validates live Render staging configuration without network calls before the staging workflow triggers a deploy.
 - `npm run render:manual` and `npm run render:proof` provide safe setup/proof evidence without committing real Render service ids, tokens or URLs.
 - Bound Render deploy response bodies and reject invalid provider JSON before writing deploy summaries.
+- Keep full staging upload/render smoke opt-in via `SHORTSENGINE_STAGING_FULL_SMOKE=1`; default staging smoke remains health-only.

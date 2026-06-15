@@ -10,6 +10,7 @@ Decisions:
 - Keep `npm run render:check` no-network and keep `npm run staging:deploy` as the only Render API caller.
 - Keep deployed smoke health-only: `GET /health`, no uploads and no render jobs.
 - Bound and sanitize successful Render deploy responses before summarizing them.
+- Use `staging:smoke:full` only as a separate manual proof after health smoke is stable.
 
 Manual live proof:
 
