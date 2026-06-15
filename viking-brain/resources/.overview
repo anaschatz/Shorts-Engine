@@ -1,0 +1,9 @@
+# Resources
+
+Use this area for durable source material. Prefer directory-level `.abstract` and `.overview` files before loading detailed files.
+
+Primary resource groups:
+
+- `matchcuts-ai/`: current frontend prototype, hardening layer, tests, and production notes.
+- `openviking-reference/`: distilled notes from the cloned OpenViking repo.
+- `external-repos/`: local pointers to cloned research/tooling repos.

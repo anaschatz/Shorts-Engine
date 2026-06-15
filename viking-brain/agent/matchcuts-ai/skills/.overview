@@ -1,0 +1,8 @@
+# MatchCuts AI Skills
+
+Skills are practical playbooks the agent can load on demand:
+
+- `video-pipeline.md`: AI video pipeline sequence and contracts.
+- `production-hardening.md`: safety and stability checklist.
+- `retrieval-debugging.md`: how to inspect retrieval traces and tune context.
+- `evaluation.md`: how to evaluate prompts/captions using promptfoo-style thinking.

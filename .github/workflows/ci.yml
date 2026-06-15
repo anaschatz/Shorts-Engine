@@ -1,0 +1,110 @@
+name: ShortsEngine CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  release-gate:
+    name: Release gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      CI: "true"
+      MATCHCUTS_TRANSCRIPTION_PROVIDER: mock
+      MATCHCUTS_PERSISTENCE_ADAPTER: sqlite
+      SHORTSENGINE_BROWSER_E2E_RETENTION_MAX: "20"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Cache Playwright Chromium
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json', 'package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f package-lock.json ]]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Install Playwright Chromium
+        run: npm run demo:browser:install
+
+      - name: Verify runtime tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --version
+          npm --version
+          ffmpeg -version
+          ffprobe -version
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Tests
+        run: npm test
+
+      - name: Evaluation
+        run: npm run eval
+
+      - name: Brain health
+        run: npm run brain:health
+
+      - name: Demo fixture
+        run: npm run demo:fixture
+
+      - name: API demo smoke
+        run: npm run demo:smoke
+
+      - name: Browser contract smoke
+        run: npm run demo:browser
+
+      - name: Playwright browser CI
+        run: npm run demo:browser:ci
+
+      - name: Validate CI reports
+        run: npm run ci:reports
+
+      - name: Release gate self check
+        run: npm run release:check
+
+      - name: Upload failure reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shortsengine-ci-failure-reports
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            demo/results/latest.json
+            demo/results/browser-latest.json
+            demo/results/playwright-latest.json
+            demo/results/playwright-artifacts/
+            eval/results/latest.json

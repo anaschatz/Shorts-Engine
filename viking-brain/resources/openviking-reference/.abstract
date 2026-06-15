@@ -1,0 +1,1 @@
+OpenViking organizes agent context as viking:// filesystem paths with L0 abstracts, L1 overviews, L2 details, recursive retrieval, traces, and session memory.

@@ -1,0 +1,25 @@
+# Hardening Decisions
+
+- Keep the current app static and dependency-light until backend requirements are concrete.
+- Validate uploads before preview.
+- Use structured safe errors.
+- Render generated UI content with DOM APIs.
+- Use local tests for validation, static lint, and build smoke checks.
+- Treat client-side validation as convenience only; production backend must enforce all checks.
+- Keep HTTP routes thin; route files should delegate video/render orchestration to dedicated modules.
+- Protect job lifecycle with explicit states and do not create exports before successful render output verification.
+- Test orchestration with mocked providers/tools so provider, render, AI-output, and cancellation failures are deterministic.
+- Persist job records under `data/jobs` with atomic writes and rebuild idempotency on startup.
+- Requeue stale processing jobs only while attempts remain under the local retry limit; otherwise fail with `JOB_STALE`.
+- Keep public job responses path-safe while allowing storage-safe internal paths in durable records for recovery.
+- Reject terminal job mutations except idempotent same-status checks, and expose only safe aggregate queue health in `/health`.
+- Keep project/upload/export persistence behind repository interfaces and artifact paths behind `LocalArtifactStore` before introducing database or object-storage adapters.
+- Keep local storage as the default, use `mock-cloud` for object-storage-shaped tests, use the S3-compatible adapter for `s3`/`r2`, and keep `gcs` fail-closed until its dedicated adapter is implemented.
+- FFmpeg must use adapter-owned local staging paths for cloud-shaped storage; cleanup staging files after commit/failure without deleting uploads or committed renders.
+- Signed delivery should prefer opaque server-side tokens so public responses avoid bucket, endpoint and storage-key leakage.
+- Working product name is ShortsEngine for now; existing internal MatchCuts paths may remain until a dedicated rename milestone.
+- Artifact cleanup should be driven by a DB-ready artifact index with public no-leak views, not direct filesystem/object-storage scans.
+- Scheduled cleanup must be temp-type only, bounded, dry-run capable and protective of active job-owned artifacts.
+- Real cloud integration must stay opt-in and skip safely unless explicit env flag and credentials are present.
+- Numeric runtime config must use bounded validation helpers so deployment mistakes fail closed instead of producing `NaN` behavior.
+- Artifact index paths must be validated against the artifact type storage area before persistence.

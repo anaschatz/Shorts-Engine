@@ -1,0 +1,9 @@
+# External Repositories
+
+Downloaded locally:
+
+- `OpenViking/`: agent context database and memory paradigm.
+- `promptfoo/`: LLM evaluation, prompt testing, and red-team style workflows.
+- `pm-skills/`: product-management skills and agent playbooks.
+
+Use these as resources. Do not bulk-load them; retrieve by directory and targeted files.

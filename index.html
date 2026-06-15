@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="el">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+    />
+    <meta name="referrer" content="no-referrer" />
+    <title>ShortsEngine Studio</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#studioMain">Skip to studio</a>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand-block">
+          <div class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" role="img">
+              <path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v11a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17.5z" />
+              <path d="M8 12h8M12 8v8" />
+            </svg>
+          </div>
+          <div>
+            <p class="eyebrow">AI sports short-form studio</p>
+            <h1>ShortsEngine</h1>
+          </div>
+        </div>
+        <div class="project-strip" aria-label="Project status">
+          <span>Olympiacos vs AEK</span>
+          <strong id="projectStatus" data-testid="project-status" data-status="draft">Draft</strong>
+        </div>
+        <div class="topbar-actions">
+          <button class="ghost-btn" type="button" id="saveBtn">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M5 4h11l3 3v13H5z" />
+              <path d="M8 4v6h8V4M8 20v-7h8v7" />
+            </svg>
+            Save
+          </button>
+          <button class="ghost-btn danger-action" type="button" id="clearBtn">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 6h18" />
+              <path d="M8 6V4h8v2" />
+              <path d="m19 6-1 14H6L5 6" />
+              <path d="M10 11v5M14 11v5" />
+            </svg>
+            Clear
+          </button>
+          <button class="primary-btn" type="button" id="exportBtn" data-testid="export-button" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3v12" />
+              <path d="m7 10 5 5 5-5" />
+              <path d="M5 21h14" />
+            </svg>
+            Export
+          </button>
+        </div>
+      </header>
+
+      <main class="workspace" id="studioMain">
+        <aside class="panel ingest-panel" aria-label="Upload and match setup">
+          <section class="panel-section">
+            <div class="section-heading">
+              <p class="eyebrow">Input</p>
+              <h2>Αρχείο αγώνα</h2>
+            </div>
+            <label class="dropzone" for="videoInput">
+              <input
+                id="videoInput"
+                data-testid="video-upload-input"
+                type="file"
+                accept=".mp4,.mov,.webm,video/mp4,video/quicktime,video/webm"
+                aria-describedby="fileLabel uploadError"
+              />
+              <span class="drop-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M12 3v12" />
+                  <path d="m7 8 5-5 5 5" />
+                  <path d="M5 15v4h14v-4" />
+                </svg>
+              </span>
+              <strong>Ανέβασε highlights</strong>
+              <small id="fileLabel">MP4, MOV ή WEBM · μέχρι 30 λεπτά · μέχρι 250 MB</small>
+            </label>
+            <p class="field-error" id="uploadError" hidden></p>
+          </section>
+
+          <section class="panel-section">
+            <div class="section-heading">
+              <p class="eyebrow">Match context</p>
+              <h2>Πληροφορίες</h2>
+            </div>
+            <label class="field-label" for="matchTitle">Τίτλος</label>
+            <input
+              id="matchTitle"
+              class="text-input"
+              maxlength="120"
+              autocomplete="off"
+              value="Olympiacos vs AEK - Derby Highlights"
+            />
+
+            <label class="field-label" for="languageSelect">Γλώσσα υποτίτλων</label>
+            <select id="languageSelect" class="select-input">
+              <option>Ελληνικά</option>
+              <option>English</option>
+              <option>Spanish</option>
+              <option>Arabic</option>
+            </select>
+
+            <label class="checkbox-row" for="rightsCheckbox">
+              <input type="checkbox" id="rightsCheckbox" data-testid="rights-checkbox" />
+              <span>Έχω δικαίωμα χρήσης και επεξεργασίας του βίντεο</span>
+            </label>
+            <small class="helper-text">Το production backend πρέπει να ξαναελέγχει αυτό το consent.</small>
+          </section>
+
+          <section class="panel-section metric-stack">
+            <div class="metric">
+              <span>Detected moments</span>
+              <strong id="momentCount">3</strong>
+            </div>
+            <div class="metric">
+              <span>Shorts ready</span>
+              <strong id="shortCount">0</strong>
+            </div>
+            <div class="metric">
+              <span>Estimated exports</span>
+              <strong>9:16, 1:1</strong>
+            </div>
+          </section>
+        </aside>
+
+        <section class="stage" aria-label="Video preview and timeline">
+          <div class="stage-toolbar">
+            <div>
+              <p class="eyebrow">Preview</p>
+              <h2 id="previewTitle">Hook-driven vertical cut</h2>
+            </div>
+            <div class="segmented-control" aria-label="Aspect ratio">
+              <button type="button" class="active" data-ratio="vertical">9:16</button>
+              <button type="button" data-ratio="square">1:1</button>
+              <button type="button" data-ratio="wide">16:9</button>
+            </div>
+          </div>
+
+          <div class="preview-layout">
+            <div class="phone-preview" id="phonePreview">
+              <video
+                id="videoPreview"
+                controls
+                playsinline
+                preload="metadata"
+                aria-label="Uploaded football highlight preview"
+                hidden
+              ></video>
+              <div class="synthetic-preview" id="syntheticPreview" aria-label="Football highlight preview">
+                <div class="scorebug">
+                  <span>OLY</span>
+                  <strong>2 - 1</strong>
+                  <span>AEK</span>
+                </div>
+                <div class="field-lines" aria-hidden="true">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </div>
+                <div class="player-dot striker"></div>
+                <div class="player-dot winger"></div>
+                <div class="player-dot keeper"></div>
+                <div class="motion-path"></div>
+                <div class="caption-bubble" id="captionPreview">ΤΟ ΓΚΟΛ ΠΟΥ ΑΛΛΑΞΕ ΤΟ ΜΑΤΣ</div>
+              </div>
+            </div>
+
+            <div class="ai-output">
+              <div class="output-header">
+                <p class="eyebrow">AI cut plan</p>
+                <div class="output-actions">
+                  <button class="ghost-btn compact-btn" id="retryBtn" data-testid="retry-button" type="button" hidden>
+                    Retry
+                  </button>
+                  <button class="ghost-btn compact-btn" id="cancelJobBtn" data-testid="cancel-job-button" type="button" hidden>
+                    Cancel
+                  </button>
+                  <button class="secondary-btn" id="generateBtn" data-testid="generate-button" type="button">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M13 2 4 14h7l-1 8 10-13h-7z" />
+                    </svg>
+                    Generate shorts
+                  </button>
+                </div>
+              </div>
+              <div class="error-panel" id="errorPanel" data-testid="error-panel" role="alert" hidden></div>
+              <div class="job-progress" id="jobProgress" data-testid="job-progress" hidden>
+                <div class="job-progress-row">
+                  <span id="jobStepLabel">Waiting</span>
+                  <strong id="jobProgressValue">0%</strong>
+                </div>
+                <div class="progress-track" aria-hidden="true">
+                  <span id="jobProgressBar" data-testid="job-progress-bar" style="width: 0%"></span>
+                </div>
+              </div>
+              <a class="download-link" id="downloadLink" data-testid="download-link" href="#" download hidden>
+                Download rendered MP4
+              </a>
+              <div class="moment-list" id="momentList" aria-live="polite"></div>
+            </div>
+          </div>
+
+          <div class="timeline-panel">
+            <div class="timeline-header">
+              <p class="eyebrow">Edit timeline</p>
+              <strong id="timelineLabel">00:18 short · 4 scenes · 7 caption beats</strong>
+            </div>
+            <div class="timeline-track" aria-label="Generated edit timeline">
+              <div class="clip-block intro" style="--start: 0; --width: 22">Hook</div>
+              <div class="clip-block action" style="--start: 22; --width: 31">Build-up</div>
+              <div class="clip-block peak" style="--start: 53; --width: 23">Goal</div>
+              <div class="clip-block outro" style="--start: 76; --width: 24">Replay</div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="panel controls-panel" aria-label="AI styling controls">
+          <section class="panel-section">
+            <div class="section-heading">
+              <p class="eyebrow">Style engine</p>
+              <h2>Ρυθμίσεις edit</h2>
+            </div>
+            <div class="preset-grid" id="presetGrid">
+              <button type="button" class="preset active" data-preset="hype">
+                <span>Hype reel</span>
+                <small>Fast zooms, punch captions</small>
+              </button>
+              <button type="button" class="preset" data-preset="drama">
+                <span>Drama cut</span>
+                <small>Slow ramp, crowd hit</small>
+              </button>
+              <button type="button" class="preset" data-preset="tactical">
+                <span>Tactical pulse</span>
+                <small>Arrows, xG, player tags</small>
+              </button>
+              <button type="button" class="preset" data-preset="fan">
+                <span>Fan reaction</span>
+                <small>Memetic captions</small>
+              </button>
+            </div>
+          </section>
+
+          <section class="panel-section">
+            <label class="toggle-row">
+              <span>
+                <strong>Auto subtitles</strong>
+                <small>Word-by-word kinetic captions</small>
+              </span>
+              <input type="checkbox" checked id="captionsToggle" />
+            </label>
+            <label class="toggle-row">
+              <span>
+                <strong>Smart reframing</strong>
+                <small>Keep ball and players centered</small>
+              </span>
+              <input type="checkbox" checked />
+            </label>
+            <label class="toggle-row">
+              <span>
+                <strong>Brand safe music</strong>
+                <small>Beat sync without rights risk</small>
+              </span>
+              <input type="checkbox" />
+            </label>
+          </section>
+
+          <section class="panel-section range-section">
+            <label for="paceRange">
+              <span>Pace</span>
+              <strong id="paceValue">72</strong>
+            </label>
+            <input id="paceRange" type="range" min="20" max="100" value="72" />
+
+            <label for="motionRange">
+              <span>Animation intensity</span>
+              <strong id="motionValue">64</strong>
+            </label>
+            <input id="motionRange" type="range" min="0" max="100" value="64" />
+          </section>
+
+          <section class="panel-section export-panel">
+            <div class="section-heading">
+              <p class="eyebrow">Deliverables</p>
+              <h2>Exports</h2>
+            </div>
+            <div class="export-grid">
+              <button type="button" data-export-target="tiktok" disabled>TikTok 1080x1920</button>
+              <button type="button" data-export-target="reels" disabled>Reels 1080x1920</button>
+              <button type="button" data-export-target="shorts" disabled>Shorts 1080x1920</button>
+              <button type="button" data-export-target="square" disabled>Square feed 1080</button>
+            </div>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="hardening.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

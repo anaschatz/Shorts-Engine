@@ -1,0 +1,1 @@
+Sessions hold append-only transcripts before they are committed into durable agent memories.

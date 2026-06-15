@@ -1,0 +1,3 @@
+# Sessions
+
+Use `session-add` to append user/assistant turns and `session-commit` to compress them into `agent/matchcuts-ai/memories/sessions/`.

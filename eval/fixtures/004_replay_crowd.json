@@ -1,0 +1,39 @@
+{
+  "id": "replay_crowd",
+  "title": "Crowd reaction and replay angle",
+  "language": "English",
+  "durationSeconds": 26,
+  "transcript": {
+    "provider": "fixture",
+    "language": "en",
+    "captions": [
+      { "start": 1.0, "end": 2.6, "text": "The stadium noise is rising" },
+      { "start": 7.8, "end": 9.9, "text": "The crowd roar tells you how close this shot was!" },
+      { "start": 12.0, "end": 14.2, "text": "Replay this angle again from behind the goal" }
+    ]
+  },
+  "mediaSignals": {
+    "durationSeconds": 26,
+    "width": 1920,
+    "height": 1080,
+    "hasAudio": true,
+    "audioPeaks": [{ "time": 8.8, "energyScore": 0.91, "source": "fixture" }],
+    "sceneChanges": [
+      { "time": 8.7, "confidence": 0.78, "source": "fixture" },
+      { "time": 12.6, "confidence": 0.75, "source": "fixture" }
+    ],
+    "highMotionCandidates": [{ "time": 8.8, "confidence": 0.73, "source": "fixture" }]
+  },
+  "expected": {
+    "highlights": [{ "start": 6.0, "end": 12.8 }],
+    "reasonCodes": ["crowd_reaction", "audio_peak", "commentator_emphasis", "scene_change_cluster"],
+    "stylePreset": "fan"
+  },
+  "thresholds": {
+    "minAggregateScore": 76,
+    "minTop1Overlap": 0.4,
+    "minTop3Recall": 1,
+    "minReasonPrecision": 0.55,
+    "minRetentionScore": 64
+  }
+}

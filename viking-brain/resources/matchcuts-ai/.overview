@@ -1,0 +1,28 @@
+# ShortsEngine Resource Overview
+
+The project currently contains a static frontend studio with production-hardening scaffolding.
+
+Important files:
+
+- `index.html`: studio shell, CSP, upload controls, consent, retry/cancel/export UI.
+- `styles.css`: responsive UI, error states, disabled states, status badges, reduced motion.
+- `app.js`: guarded frontend state machine for upload validation, generate/export jobs, retry/cancel, and safe UI rendering.
+- `hardening.js`: shared validation/contracts layer with structured responses, file validation, idempotency, rate limits, job helpers.
+- `server/jobs.cjs`: durable job store with atomic JSON persistence, recovery policy, attempts, heartbeat, and idempotency reload.
+- `server/job-worker.cjs`: local durable worker that processes queued jobs and restarts recovered work safely.
+- `server/render-job.cjs`: dedicated render orchestration layer with injected adapters and safe job failure handling.
+- `server/storage/artifact-store.cjs`: local artifact store contract for uploads, audio, subtitles, renders and exports.
+- `server/repositories/`: in-memory repository boundaries for projects, uploads, exports and project/render state.
+- `server/adapters/`: explicit persistence/artifact adapter contracts and local adapter stubs for future DB/object storage.
+- `PRODUCTION_HARDENING.md`: backend/API/database/video pipeline contract.
+- `resources/matchcuts-ai/job-orchestration.md`: route decomposition and orchestration architecture notes.
+- `resources/matchcuts-ai/durable-queue.md`: local durable queue and worker recovery contract.
+- `resources/matchcuts-ai/production-persistence-foundation.md`: repository and artifact lifecycle contracts.
+- `resources/matchcuts-ai/database-object-storage-adapters.md`: database/object-storage adapter contract notes.
+- `resources/matchcuts-ai/cloud-storage-staging.md`: S3/R2/GCS-ready artifact adapter modes and FFmpeg local staging contracts.
+- `resources/matchcuts-ai/real-cloud-object-storage.md`: real S3/R2-compatible adapter, signed delivery and cloud failure handling.
+- `resources/matchcuts-ai/async-cloud-streaming-lifecycle.md`: streaming-oriented S3/R2 staging, multipart uploads and temp artifact lifecycle cleanup.
+- `resources/matchcuts-ai/scheduled-cleanup-artifact-index.md`: DB-ready artifact index, scheduled cleanup worker and opt-in real cloud integration suite.
+- `resources/matchcuts-ai/production-risk-reduction-20260615.md`: scoped hardening pass for numeric config validation and artifact index path safety.
+- `resources/matchcuts-ai/http-startup-hardening.md`: HTTP bounds, safe headers and startup restore filtering.
+- `tests/`: no-dependency unit/static/build checks.

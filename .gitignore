@@ -1,0 +1,17 @@
+data/
+tmp/
+var/
+node_modules/
+OpenViking/
+pm-skills/
+promptfoo/
+demo/results/
+eval/results/*.json
+release/results/*.json
+*.refresh-backup-*
+*.unreadable-*
+*.previous-*
+viking-brain/trajectories/
+*.log
+.DS_Store
+viking-brain/.DS_Store

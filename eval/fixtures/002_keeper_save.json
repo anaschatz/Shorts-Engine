@@ -1,0 +1,39 @@
+{
+  "id": "keeper_save",
+  "title": "Keeper save with replay marker",
+  "language": "English",
+  "durationSeconds": 28,
+  "transcript": {
+    "provider": "fixture",
+    "language": "en",
+    "captions": [
+      { "start": 2.0, "end": 4.0, "text": "The passing lane opens in midfield" },
+      { "start": 11.2, "end": 13.4, "text": "Huge save by the keeper after the shot!" },
+      { "start": 18.0, "end": 20.0, "text": "Replay this angle, he reacts so late" }
+    ]
+  },
+  "mediaSignals": {
+    "durationSeconds": 28,
+    "width": 1920,
+    "height": 1080,
+    "hasAudio": true,
+    "audioPeaks": [{ "time": 12.1, "energyScore": 0.86, "source": "fixture" }],
+    "sceneChanges": [
+      { "time": 11.9, "confidence": 0.76, "source": "fixture" },
+      { "time": 18.6, "confidence": 0.66, "source": "fixture" }
+    ],
+    "highMotionCandidates": [{ "time": 12.0, "confidence": 0.74, "source": "fixture" }]
+  },
+  "expected": {
+    "highlights": [{ "start": 9.0, "end": 15.5 }],
+    "reasonCodes": ["goal_like_phrase", "audio_peak", "commentator_emphasis", "scene_change_cluster"],
+    "stylePreset": "drama"
+  },
+  "thresholds": {
+    "minAggregateScore": 76,
+    "minTop1Overlap": 0.4,
+    "minTop3Recall": 1,
+    "minReasonPrecision": 0.55,
+    "minRetentionScore": 68
+  }
+}

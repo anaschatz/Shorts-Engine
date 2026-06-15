@@ -1,0 +1,380 @@
+const { execFileSync } = require("node:child_process");
+const { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } = require("node:fs");
+const { basename, join } = require("node:path");
+const { createCandidateEditPlans, detectHighlights } = require("../server/analysis.cjs");
+const { AppError } = require("../server/errors.cjs");
+
+const DEFAULT_THRESHOLDS = Object.freeze({
+  minAggregateScore: 78,
+  minTop1Overlap: 0.35,
+  minTop3Recall: 0.67,
+  minReasonPrecision: 0.5,
+  minRetentionScore: 55,
+});
+
+const REQUIRED_FIXTURE_FIELDS = Object.freeze([
+  "id",
+  "title",
+  "language",
+  "durationSeconds",
+  "transcript",
+  "mediaSignals",
+  "expected",
+  "thresholds",
+]);
+
+function toNumber(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function round(value, digits = 2) {
+  const factor = 10 ** digits;
+  return Math.round(toNumber(value) * factor) / factor;
+}
+
+function scoreToPercent(score) {
+  return Math.max(0, Math.min(100, Math.round(toNumber(score) * 100)));
+}
+
+function sanitizeReportText(value, maxLength = 300) {
+  return String(value ?? "")
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted-email]")
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/g, "Bearer [redacted]")
+    .replace(/OPENAI_API_KEY=[^\s]+/g, "OPENAI_API_KEY=[redacted]")
+    .replace(/\/Users\/[^\s"']+/g, "[redacted-path]")
+    .replace(/\/private\/[^\s"']+/g, "[redacted-path]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
+function validateWindow(window, label) {
+  if (!window || typeof window !== "object") {
+    throw new AppError("VALIDATION_ERROR", `${label} must be an object.`, 400);
+  }
+  const start = toNumber(window.start, Number.NaN);
+  const end = toNumber(window.end, Number.NaN);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) {
+    throw new AppError("VALIDATION_ERROR", `${label} has an invalid start/end range.`, 400);
+  }
+  return { start, end };
+}
+
+function validateFixture(fixture) {
+  if (!fixture || typeof fixture !== "object") {
+    throw new AppError("VALIDATION_ERROR", "Fixture must be an object.", 400);
+  }
+  for (const field of REQUIRED_FIXTURE_FIELDS) {
+    if (!(field in fixture)) throw new AppError("VALIDATION_ERROR", `Fixture missing ${field}.`, 400);
+  }
+  if (!/^[a-z0-9][a-z0-9_-]{2,80}$/.test(String(fixture.id))) {
+    throw new AppError("VALIDATION_ERROR", "Fixture id is invalid.", 400);
+  }
+  if (!Array.isArray(fixture.transcript.captions) || fixture.transcript.captions.length === 0) {
+    throw new AppError("VALIDATION_ERROR", "Fixture transcript needs captions.", 400);
+  }
+  if (!Array.isArray(fixture.expected.highlights) || fixture.expected.highlights.length === 0) {
+    throw new AppError("VALIDATION_ERROR", "Fixture expected highlights are required.", 400);
+  }
+  fixture.expected.highlights.forEach((highlight, index) => validateWindow(highlight, `expected.highlights[${index}]`));
+  if (!Array.isArray(fixture.expected.reasonCodes) || fixture.expected.reasonCodes.length === 0) {
+    throw new AppError("VALIDATION_ERROR", "Fixture expected reason codes are required.", 400);
+  }
+  return true;
+}
+
+function overlapRatio(candidate, expected) {
+  const left = Math.max(toNumber(candidate.start), toNumber(expected.start));
+  const right = Math.min(toNumber(candidate.end), toNumber(expected.end));
+  const intersection = Math.max(0, right - left);
+  const expectedDuration = Math.max(0.001, toNumber(expected.end) - toNumber(expected.start));
+  return round(intersection / expectedDuration, 4);
+}
+
+function bestOverlap(candidate, expectedWindows) {
+  return Math.max(0, ...(expectedWindows || []).map((expected) => overlapRatio(candidate, expected)));
+}
+
+function top3Recall(moments, expectedWindows, minOverlap) {
+  const top = (moments || []).slice(0, 3);
+  if (!expectedWindows || expectedWindows.length === 0) return 0;
+  const covered = expectedWindows.filter((expected) => top.some((moment) => overlapRatio(moment, expected) >= minOverlap));
+  return round(covered.length / expectedWindows.length, 4);
+}
+
+function reasonCodePrecision(actualReasons, expectedReasons) {
+  const actual = [...new Set(actualReasons || [])];
+  const expected = new Set(expectedReasons || []);
+  if (!actual.length) return 0;
+  const matches = actual.filter((reason) => expected.has(reason)).length;
+  return round(matches / actual.length, 4);
+}
+
+function reasonCodeRecall(actualReasons, expectedReasons) {
+  const actual = new Set(actualReasons || []);
+  const expected = [...new Set(expectedReasons || [])];
+  if (!expected.length) return 1;
+  const matches = expected.filter((reason) => actual.has(reason)).length;
+  return round(matches / expected.length, 4);
+}
+
+function captionsHaveValidTiming(plan) {
+  if (!plan || !Array.isArray(plan.captions) || plan.captions.length === 0) return false;
+  const duration = toNumber(plan.sourceEnd) - toNumber(plan.sourceStart);
+  return plan.captions.every((caption) => {
+    const start = toNumber(caption.start, Number.NaN);
+    const end = toNumber(caption.end, Number.NaN);
+    return Number.isFinite(start) && Number.isFinite(end) && start >= 0 && end > start && end <= duration + 0.25;
+  });
+}
+
+function scoreFixture(fixture) {
+  validateFixture(fixture);
+  const thresholds = { ...DEFAULT_THRESHOLDS, ...(fixture.thresholds || {}) };
+  const metadata = {
+    durationSeconds: fixture.durationSeconds,
+    width: fixture.mediaSignals.width || 1920,
+    height: fixture.mediaSignals.height || 1080,
+    hasAudio: fixture.mediaSignals.hasAudio !== false,
+  };
+  const highlightResult = detectHighlights({
+    transcript: fixture.transcript,
+    signals: fixture.mediaSignals,
+    preset: fixture.expected.stylePreset || "hype",
+  });
+  const candidatePlans = createCandidateEditPlans({
+    moments: highlightResult.moments,
+    metadata,
+    transcript: fixture.transcript,
+    title: fixture.title,
+    preset: fixture.expected.stylePreset || "hype",
+  });
+  const topMoment = highlightResult.moments[0] || null;
+  const topPlan = candidatePlans[0] || null;
+  const top1Overlap = topMoment ? bestOverlap(topMoment, fixture.expected.highlights) : 0;
+  const recall = top3Recall(highlightResult.moments, fixture.expected.highlights, thresholds.minTop1Overlap);
+  const reasonPrecision = reasonCodePrecision(topMoment ? topMoment.reasonCodes : [], fixture.expected.reasonCodes);
+  const reasonRecall = reasonCodeRecall(topMoment ? topMoment.reasonCodes : [], fixture.expected.reasonCodes);
+  const retentionScore = topMoment ? toNumber(topMoment.retentionScore) : 0;
+  const retentionSanity = retentionScore >= thresholds.minRetentionScore ? 1 : Math.max(0, retentionScore / thresholds.minRetentionScore);
+  const candidatePlanValidity = candidatePlans.length > 0 && candidatePlans.every((plan) => plan.aspectRatio === "9:16" && plan.export.format === "mp4") ? 1 : 0;
+  const captionTimingValidity = candidatePlans.every(captionsHaveValidTiming) ? 1 : 0;
+  const fallbackUsed = Boolean(highlightResult.fallback);
+  const fallbackScore = fallbackUsed ? 0 : 1;
+  const weightedScore = Math.round(
+    scoreToPercent(top1Overlap) * 0.24 +
+      scoreToPercent(recall) * 0.2 +
+      scoreToPercent(reasonPrecision) * 0.16 +
+      scoreToPercent(reasonRecall) * 0.12 +
+      scoreToPercent(retentionSanity) * 0.1 +
+      scoreToPercent(candidatePlanValidity) * 0.1 +
+      scoreToPercent(captionTimingValidity) * 0.05 +
+      scoreToPercent(fallbackScore) * 0.03,
+  );
+  const passed =
+    weightedScore >= thresholds.minAggregateScore &&
+    top1Overlap >= thresholds.minTop1Overlap &&
+    recall >= thresholds.minTop3Recall &&
+    reasonPrecision >= thresholds.minReasonPrecision &&
+    candidatePlanValidity === 1 &&
+    captionTimingValidity === 1;
+
+  return {
+    id: fixture.id,
+    title: sanitizeReportText(fixture.title, 160),
+    language: sanitizeReportText(fixture.language, 40),
+    passed,
+    score: weightedScore,
+    thresholds,
+    metrics: {
+      top1Overlap,
+      top3Recall: recall,
+      reasonCodePrecision: reasonPrecision,
+      reasonCodeRecall: reasonRecall,
+      retentionScore,
+      retentionSanity: round(retentionSanity, 4),
+      candidatePlanValidity,
+      captionTimingValidity,
+      fallbackUsed,
+    },
+    expected: {
+      highlights: fixture.expected.highlights.map((item) => ({ start: item.start, end: item.end })),
+      reasonCodes: [...fixture.expected.reasonCodes],
+      stylePreset: fixture.expected.stylePreset,
+    },
+    actual: {
+      topMoment: topMoment
+        ? {
+            start: topMoment.start,
+            end: topMoment.end,
+            retentionScore: topMoment.retentionScore,
+            reasonCodes: topMoment.reasonCodes,
+            source: topMoment.source,
+          }
+        : null,
+      candidatePlans: candidatePlans.map((plan) => ({
+        rank: plan.rank,
+        sourceStart: plan.sourceStart,
+        sourceEnd: plan.sourceEnd,
+        retentionScore: plan.retentionScore,
+        reasonCodes: plan.reasonCodes,
+        captions: plan.captions.length,
+        effects: plan.effects,
+      })),
+    },
+    notes: debuggingNotes({
+      top1Overlap,
+      recall,
+      reasonPrecision,
+      retentionScore,
+      candidatePlanValidity,
+      captionTimingValidity,
+      fallbackUsed,
+      thresholds,
+    }),
+  };
+}
+
+function debuggingNotes(metrics) {
+  const notes = [];
+  if (metrics.top1Overlap < metrics.thresholds.minTop1Overlap) notes.push("Top-ranked moment misses the expected highlight window.");
+  if (metrics.recall < metrics.thresholds.minTop3Recall) notes.push("Top-3 ranking does not cover enough expected moments.");
+  if (metrics.reasonPrecision < metrics.thresholds.minReasonPrecision) notes.push("Reason codes are noisy against expected labels.");
+  if (metrics.retentionScore < metrics.thresholds.minRetentionScore) notes.push("Retention score looks too weak for a highlight candidate.");
+  if (!metrics.candidatePlanValidity) notes.push("Candidate edit plan validation failed.");
+  if (!metrics.captionTimingValidity) notes.push("Caption timings are outside the selected source window.");
+  if (metrics.fallbackUsed) notes.push("Analysis fell back to deterministic fallback moments.");
+  return notes;
+}
+
+function loadFixtures(fixturesDir) {
+  const files = readdirSync(fixturesDir)
+    .filter((file) => file.endsWith(".json"))
+    .sort();
+  return files.map((fileName) => {
+    const raw = JSON.parse(readFileSync(join(fixturesDir, fileName), "utf8"));
+    validateFixture(raw);
+    return raw;
+  });
+}
+
+function aggregateResults(results) {
+  const count = results.length || 1;
+  const avg = (selector) => round(results.reduce((sum, result) => sum + selector(result), 0) / count, 4);
+  const aggregateScore = Math.round(results.reduce((sum, result) => sum + result.score, 0) / count);
+  return {
+    fixtureCount: results.length,
+    aggregateScore,
+    passRate: avg((result) => (result.passed ? 1 : 0)),
+    top1Overlap: avg((result) => result.metrics.top1Overlap),
+    top3Recall: avg((result) => result.metrics.top3Recall),
+    reasonCodePrecision: avg((result) => result.metrics.reasonCodePrecision),
+    reasonCodeRecall: avg((result) => result.metrics.reasonCodeRecall),
+    fallbackUsageRate: avg((result) => (result.metrics.fallbackUsed ? 1 : 0)),
+    candidatePlanValidity: avg((result) => result.metrics.candidatePlanValidity),
+    captionTimingValidity: avg((result) => result.metrics.captionTimingValidity),
+  };
+}
+
+function workspaceMetadata() {
+  const metadata = {
+    gitAvailable: false,
+    commit: null,
+    branch: null,
+    dirty: null,
+  };
+  try {
+    const gitOptions = { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 1000 };
+    metadata.commit = execFileSync("git", ["rev-parse", "--short", "HEAD"], gitOptions).trim();
+    metadata.branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], gitOptions).trim();
+    const status = execFileSync("git", ["status", "--porcelain"], gitOptions).trim();
+    metadata.dirty = Boolean(status);
+    metadata.gitAvailable = true;
+  } catch {
+    metadata.gitAvailable = false;
+  }
+  return metadata;
+}
+
+function buildReport({ fixtures, results, minAggregateScore = DEFAULT_THRESHOLDS.minAggregateScore, timestamp = new Date().toISOString() }) {
+  const aggregate = aggregateResults(results);
+  const failedCases = results
+    .filter((result) => !result.passed)
+    .map((result) => ({
+      id: result.id,
+      score: result.score,
+      notes: result.notes,
+    }));
+  return {
+    schemaVersion: 1,
+    generatedAt: timestamp,
+    metadata: {
+      workspace: workspaceMetadata(),
+      fixtureCount: fixtures.length,
+      runner: "matchcuts-local-eval",
+    },
+    thresholds: {
+      minAggregateScore,
+    },
+    aggregate,
+    passed: aggregate.aggregateScore >= minAggregateScore && failedCases.length === 0,
+    failedCases,
+    fixtures: results,
+    suggestedDebuggingNotes: failedCases.length
+      ? [...new Set(failedCases.flatMap((item) => item.notes))].slice(0, 10)
+      : ["Evaluation passed. Track aggregate score and reason precision over time."],
+  };
+}
+
+function runEvaluation({ fixturesDir, minAggregateScore = DEFAULT_THRESHOLDS.minAggregateScore } = {}) {
+  if (!fixturesDir || !existsSync(fixturesDir)) {
+    throw new AppError("VALIDATION_ERROR", "Evaluation fixtures directory is missing.", 400);
+  }
+  const fixtures = loadFixtures(fixturesDir);
+  const results = fixtures.map(scoreFixture);
+  return buildReport({ fixtures, results, minAggregateScore });
+}
+
+function safeWriteReportFile(filePath, payload) {
+  if (existsSync(filePath)) {
+    try {
+      renameSync(filePath, `${filePath}.previous-${Date.now()}`);
+    } catch {
+      // If rotation fails, the write attempt below will surface the filesystem problem.
+    }
+  }
+  writeFileSync(filePath, payload, "utf8");
+}
+
+function writeReport(report, resultsDir) {
+  mkdirSync(resultsDir, { recursive: true });
+  const safeTimestamp = report.generatedAt.replace(/[:.]/g, "-");
+  const fileName = `matchcuts-eval-${safeTimestamp}.json`;
+  const payload = `${JSON.stringify(report, null, 2)}\n`;
+  const target = join(resultsDir, fileName);
+  safeWriteReportFile(target, payload);
+  safeWriteReportFile(join(resultsDir, "latest.json"), payload);
+  return {
+    fileName: basename(target),
+    latest: "latest.json",
+  };
+}
+
+module.exports = {
+  DEFAULT_THRESHOLDS,
+  aggregateResults,
+  bestOverlap,
+  buildReport,
+  captionsHaveValidTiming,
+  loadFixtures,
+  overlapRatio,
+  reasonCodePrecision,
+  reasonCodeRecall,
+  runEvaluation,
+  sanitizeReportText,
+  scoreFixture,
+  top3Recall,
+  validateFixture,
+  writeReport,
+};

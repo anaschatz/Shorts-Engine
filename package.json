@@ -1,0 +1,37 @@
+{
+  "name": "shortsengine-static-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Hardened local prototype for the ShortsEngine AI football highlights short-form studio.",
+  "scripts": {
+    "build": "node tests/build-smoke.mjs",
+    "brain:find": "node tools/openviking-lite.mjs find",
+    "brain:health": "node tools/openviking-lite.mjs health",
+    "brain:init": "node tools/openviking-lite.mjs init",
+    "brain:tree": "node tools/openviking-lite.mjs tree",
+    "ci:reports": "node demo/validate-ci-reports.mjs",
+    "demo:browser": "node demo/run-browser-smoke.mjs",
+    "demo:browser:ci": "node demo/run-playwright-smoke.mjs",
+    "demo:browser:e2e": "node demo/run-playwright-smoke.mjs",
+    "demo:browser:install": "playwright install chromium",
+    "demo:e2e": "node demo/run-smoke.mjs",
+    "demo:fixture": "node demo/create-fixture.mjs",
+    "demo:manual": "node demo/print-manual.mjs",
+    "demo:smoke": "node demo/run-smoke.mjs",
+    "dev": "node server/app.cjs",
+    "eval": "node eval/run-eval.mjs",
+    "eval:ci": "node eval/run-eval.mjs --threshold=80",
+    "integration:cloud": "node scripts/run-real-cloud-integration.mjs",
+    "lint": "node tests/static-lint.mjs",
+    "release:check": "node tools/release/verify-release-gate.mjs",
+    "release:evidence": "node tools/release/write-release-evidence.mjs",
+    "start": "node server/app.cjs",
+    "test": "node --test --test-concurrency=1 tests/*.test.js tests/*.test.mjs tests/*.test.cjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "playwright": "^1.61.0"
+  }
+}

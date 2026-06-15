@@ -1,0 +1,13 @@
+# OpenViking Reference Overview
+
+Distilled from the cloned `OpenViking` repository.
+
+Core ideas applied here:
+
+- Filesystem management paradigm: resources, memories, and skills are directories.
+- Tiered loading: `.abstract` is L0, `.overview` is L1, normal files are L2.
+- Directory recursive retrieval: score directories first, then drill into promising branches.
+- Visualized retrieval trajectory: every search writes a trace under `trajectories/`.
+- Automatic session management: append turns to `sessions/inbox/`, then commit summaries into agent memories.
+
+Native OpenViking server can replace this local implementation later when model provider and embedding config are ready.

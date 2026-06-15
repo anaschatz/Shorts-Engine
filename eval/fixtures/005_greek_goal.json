@@ -1,0 +1,36 @@
+{
+  "id": "greek_goal",
+  "title": "Greek commentary goal moment",
+  "language": "Ελληνικά",
+  "durationSeconds": 25,
+  "transcript": {
+    "provider": "fixture",
+    "language": "el",
+    "captions": [
+      { "start": 2.0, "end": 4.0, "text": "Η πάσα ανοίγει όλη την άμυνα" },
+      { "start": 9.0, "end": 11.0, "text": "ΓΚΟΛ! Τρομερό τελείωμα μέσα στην περιοχή" },
+      { "start": 15.0, "end": 17.0, "text": "Ξανά η φάση από άλλη γωνία" }
+    ]
+  },
+  "mediaSignals": {
+    "durationSeconds": 25,
+    "width": 1920,
+    "height": 1080,
+    "hasAudio": true,
+    "audioPeaks": [{ "time": 10.0, "energyScore": 0.95, "source": "fixture" }],
+    "sceneChanges": [{ "time": 10.1, "confidence": 0.8, "source": "fixture" }],
+    "highMotionCandidates": [{ "time": 10.0, "confidence": 0.82, "source": "fixture" }]
+  },
+  "expected": {
+    "highlights": [{ "start": 7.0, "end": 13.4 }],
+    "reasonCodes": ["goal_like_phrase", "tactical_build_up", "audio_peak", "commentator_emphasis", "scene_change_cluster"],
+    "stylePreset": "hype"
+  },
+  "thresholds": {
+    "minAggregateScore": 78,
+    "minTop1Overlap": 0.45,
+    "minTop3Recall": 1,
+    "minReasonPrecision": 0.55,
+    "minRetentionScore": 70
+  }
+}

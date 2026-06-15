@@ -1,0 +1,12 @@
+# ShortsEngine Brain Overview
+
+This local OpenViking-style brain applies the filesystem management paradigm to the ShortsEngine project. The previous internal working name was MatchCuts AI.
+
+- `resources/`: project code, OpenViking reference notes, downloaded repos, and production contracts.
+- `user/default/memories/`: user goals, preferences, and product direction.
+- `agent/matchcuts-ai/memories/`: implementation decisions, hardening outcomes, and session-derived experience.
+- `agent/matchcuts-ai/skills/`: reusable execution playbooks for video AI, safety hardening, retrieval debugging, and PM evaluation.
+- `trajectories/`: JSON and HTML traces from recursive retrieval runs.
+- `sessions/inbox/`: append-only session transcripts waiting for commit.
+
+Context loading follows OpenViking's L0/L1/L2 idea: read `.abstract` first, `.overview` second, and only open detailed files when the retrieval path justifies it.
