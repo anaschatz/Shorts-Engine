@@ -88,7 +88,7 @@ function safeMetadata(metadata = {}) {
     title: metadata.title ? String(metadata.title).slice(0, 120) : null,
     durationSeconds: Number.isFinite(duration) && duration > 0 ? duration : null,
     metadataStatus: String(metadata.metadataStatus || "unavailable").slice(0, 40),
-    ingestAvailable: Boolean(metadata.ingestAvailable),
+    ingestAvailable: metadata.ingestAvailable === true,
   };
 }
 
@@ -128,20 +128,73 @@ async function validateYouTubeSource(input = {}) {
 }
 
 function youtubeIngestHealth(adapter) {
-  let health = {};
+  if (!adapter || typeof adapter.health !== "function") {
+    return {
+      ready: true,
+      mode: "mock",
+      enabled: false,
+      networkCalls: false,
+      downloaderConfigured: false,
+      ingestAvailable: false,
+    };
+  }
+  let health = null;
   try {
-    health = adapter && typeof adapter.health === "function" ? adapter.health() : {};
+    health = adapter.health();
   } catch {
-    health = { ready: false, mode: "unknown" };
+    return {
+      ready: false,
+      mode: "unknown",
+      enabled: false,
+      networkCalls: false,
+      downloaderConfigured: false,
+      ingestAvailable: false,
+    };
+  }
+  if (!health || typeof health !== "object" || Array.isArray(health)) {
+    return {
+      ready: false,
+      mode: "unknown",
+      enabled: false,
+      networkCalls: false,
+      downloaderConfigured: false,
+      ingestAvailable: false,
+    };
+  }
+  const mode = safeHealthMode(health.mode);
+  const ready = strictHealthBoolean(health, "ready");
+  const enabled = strictHealthBoolean(health, "enabled");
+  const networkCalls = strictHealthBoolean(health, "networkCalls");
+  const downloaderConfigured = strictHealthBoolean(health, "downloaderConfigured");
+  const ingestAvailable = strictHealthBoolean(health, "ingestAvailable");
+  if ([ready, enabled, networkCalls, downloaderConfigured, ingestAvailable].some((value) => value === null)) {
+    return {
+      ready: false,
+      mode,
+      enabled: false,
+      networkCalls: false,
+      downloaderConfigured: false,
+      ingestAvailable: false,
+    };
   }
   return {
-    ready: health.ready !== false,
-    mode: health.mode || "mock",
-    enabled: Boolean(health.enabled),
-    networkCalls: Boolean(health.networkCalls),
-    downloaderConfigured: Boolean(health.downloaderConfigured),
-    ingestAvailable: Boolean(health.enabled && health.downloaderConfigured && health.ready !== false),
+    ready,
+    mode,
+    enabled,
+    networkCalls,
+    downloaderConfigured,
+    ingestAvailable: Boolean(ready && enabled && downloaderConfigured && ingestAvailable),
   };
+}
+
+function safeHealthMode(value) {
+  const mode = String(value || "unknown").trim().toLowerCase();
+  return /^[a-z0-9_-]{1,40}$/.test(mode) ? mode : "unknown";
+}
+
+function strictHealthBoolean(health, key) {
+  if (!Object.prototype.hasOwnProperty.call(health, key)) return null;
+  return typeof health[key] === "boolean" ? health[key] : null;
 }
 
 module.exports = {

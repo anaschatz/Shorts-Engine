@@ -228,6 +228,31 @@ test("youtube adapter failures fail closed without leaking raw provider errors",
   });
 });
 
+test("youtube ingest health rejects malformed adapter readiness without leaking output", () => {
+  const adapter = {
+    health() {
+      return {
+        ready: "true",
+        mode: "/Users/example OPENAI_API_KEY=secret",
+        enabled: "true",
+        networkCalls: "yes",
+        downloaderConfigured: "true",
+        ingestAvailable: "true",
+      };
+    },
+  };
+  const health = youtubeIngestHealth(adapter);
+  assert.deepEqual(health, {
+    ready: false,
+    mode: "unknown",
+    enabled: false,
+    networkCalls: false,
+    downloaderConfigured: false,
+    ingestAvailable: false,
+  });
+  assert.doesNotMatch(JSON.stringify(health), /\/Users|OPENAI_API_KEY|secret/i);
+});
+
 test("local youtube downloader adapter builds explicit safe args without shell strings", async () => {
   const uploadId = "upl_12345678-1234-1234-1234-123456789abc";
   const { stageDir, outputPath } = createYouTubeStagePaths(uploadId);
