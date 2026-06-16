@@ -5,6 +5,8 @@
   "description": "Hardened local prototype for the ShortsEngine AI football highlights short-form studio.",
   "scripts": {
     "build": "node tests/build-smoke.mjs",
+    "branch:doctor": "node tools/release/check-branch-protection.mjs",
+    "branch:proof": "node tools/release/write-branch-protection-proof.mjs",
     "brain:find": "node tools/openviking-lite.mjs find",
     "brain:health": "node tools/openviking-lite.mjs health",
     "brain:init": "node tools/openviking-lite.mjs init",

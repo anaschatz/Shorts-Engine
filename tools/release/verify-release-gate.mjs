@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { validateCiReports } from "../../demo/validate-ci-reports.mjs";
 import { checkEnvironment } from "./check-environment.mjs";
 import { checkStagingReadiness } from "./check-staging-readiness.mjs";
+import { BRANCH_PROTECTION_LATEST_RELATIVE_PATH, EXPECTED_BRANCH_POLICY } from "./check-branch-protection.mjs";
 import { createRequire } from "node:module";
 
 const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -31,6 +32,8 @@ const REQUIRED_WORKFLOW_COMMANDS = Object.freeze([
 ]);
 
 const REQUIRED_PACKAGE_SCRIPTS = Object.freeze({
+  "branch:doctor": "node tools/release/check-branch-protection.mjs",
+  "branch:proof": "node tools/release/write-branch-protection-proof.mjs",
   "ci:reports": "node demo/validate-ci-reports.mjs",
   "env:check": "node tools/release/check-environment.mjs",
   "github:doctor": "node tools/release/check-github-cli.mjs",
@@ -59,15 +62,7 @@ const FAILURE_ARTIFACT_ALLOWLIST = Object.freeze([
   "eval/results/latest.json",
 ]);
 
-const BRANCH_PROTECTION_GUIDANCE = Object.freeze([
-  "Require pull request before merge.",
-  "Require the GitHub Actions job named Release gate.",
-  "Require branches to be up to date before merge.",
-  "Block force pushes.",
-  "Block branch deletions.",
-  "Require conversation resolution before merge.",
-  "Keep signed commits or signed tags optional until the team commits to that policy.",
-]);
+const BRANCH_PROTECTION_GUIDANCE = Object.freeze(EXPECTED_BRANCH_POLICY.manualChecklist);
 
 class ReleaseGateError extends Error {
   constructor(code, message, details = {}) {
@@ -310,8 +305,13 @@ function verifyReleaseGate(options = {}) {
     reports: reportValidation,
     artifactPolicy: workflow.artifactUpload,
     branchProtection: {
-      mode: "manual-read-only",
-      requiredStatusChecks: [workflow.name],
+      mode: "read-only-or-manual",
+      requiredStatusChecks: EXPECTED_BRANCH_POLICY.requiredStatusChecks,
+      expectedPolicy: EXPECTED_BRANCH_POLICY,
+      doctorCommand: "npm run branch:doctor",
+      proofCommand: "npm run branch:proof",
+      latestProof: BRANCH_PROTECTION_LATEST_RELATIVE_PATH,
+      automaticMutation: false,
       guidance: BRANCH_PROTECTION_GUIDANCE,
     },
     remote,

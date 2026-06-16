@@ -32,6 +32,8 @@ npm run demo:browser:ci
 npm run ci:reports
 npm run release:readiness
 npm run release:check
+npm run branch:doctor
+npm run branch:proof
 ```
 
 `demo:browser:ci` runs the same real Chromium flow as `demo:browser:e2e`. `env:check` validates staging-safe environment defaults without requiring secrets. `staging:check` validates the provider-neutral staging workflow, GitHub Environment contract and deployed-smoke defaults without requiring a staging URL. `youtube:doctor` validates the default-disabled YouTube ingest runtime without network or downloader calls. `ci:reports` validates the latest demo, browser, Playwright and eval reports before the gate can pass. `release:readiness` is a no-network static check for release scripts, CI workflow markers and safe GitHub proof capability. `release:check` verifies the CI workflow contract, artifact allowlist, env readiness, staging readiness, release readiness and report gate as release evidence.
@@ -41,6 +43,15 @@ The GitHub Actions release gate uses `npm ci` when `package-lock.json` is presen
 For the first real downloader proof, follow `docs/YOUTUBE_INGEST_MANUAL_SMOKE.md`. It keeps downloader install, legal/rights review, smoke flags, report reading and cleanup as manual operator actions outside the release gate. The explicit local command is `npm run youtube:proof:operator`; without the live opt-in flags it must write a skipped report and start no server or downloader work.
 
 For local release proof, run `npm run release:evidence` after the release gate passes. It writes `release/results/latest.json` with safe relative references, branch-protection guidance, release readiness and the latest report statuses.
+
+For branch policy proof, run:
+
+```bash
+npm run branch:doctor
+npm run branch:proof
+```
+
+These commands are read-only. They check GitHub CLI readiness, the exact local commit and remote `main` SHA, classic branch protection when visible, repository rulesets when visible, and the expected `Release gate` policy. They never mutate GitHub settings and never download logs or artifacts. If GitHub returns `unknown` because branch protection or rulesets are not readable, confirm the checklist in `docs/RELEASE.md` manually in the GitHub UI.
 
 Before post-push verification, check the local GitHub CLI setup:
 

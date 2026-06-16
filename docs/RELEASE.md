@@ -24,6 +24,8 @@ npm run demo:browser:ci
 npm run ci:reports
 npm run release:readiness
 npm run release:check
+npm run branch:doctor
+npm run branch:proof
 npm run release:evidence
 ```
 
@@ -37,13 +39,17 @@ npm run release:evidence
 
 `npm run release:check` verifies the CI workflow contract, package scripts, environment readiness, staging readiness, report freshness, report safety, artifact upload policy and default cloud/browser safety settings.
 
+`npm run branch:doctor` performs a read-only GitHub branch policy check. It reuses GitHub CLI readiness, checks the exact local commit against `origin/main`, attempts to read classic branch protection, attempts to read repository rulesets, and summarizes whether the required release policy is `verified`, `incomplete` or `unknown`. It never changes branch protection, rulesets, secrets or repository settings.
+
+`npm run branch:proof` writes `release/results/branch-protection-latest.json` plus a timestamped `branch-protection-proof-*.json` report. The proof includes repository, branch, commit SHA, remote `main` SHA, GitHub CLI readiness, branch protection status, ruleset status, required checks detected, expected checks, manual verification checklist, `logsDownloaded: false`, `artifactsDownloaded: false` and `remoteMutation: false`.
+
 The CI workflow must install the Ubuntu `ffmpeg` package before runtime verification, then run both `ffmpeg -version` and `ffprobe -version`. This keeps render and media validation checks independent of whatever happens to be preinstalled on the GitHub runner image.
 
 The default CI job and demo smoke runners must not force `MATCHCUTS_PERSISTENCE_ADAPTER=sqlite` globally. The test suite verifies that local remains the safe default on Node 20 while sqlite behavior is covered by focused adapter tests and staging configuration.
 
 `npm run release:readiness` performs a no-network static readiness check for release/CI proof capabilities. It verifies the required release scripts and CI workflow markers, reports safe GitHub proof commands, and declares `networkCalls: false`, `authStarted: false`, `remoteMutation: false`, `logsDownloaded: false` and `artifactsDownloaded: false`.
 
-`npm run release:evidence` writes `release/results/latest.json` plus a timestamped evidence report. The evidence report contains package metadata, checked commands, environment readiness, staging readiness, release readiness, latest report status, artifact policy, branch-protection guidance and limitations. It must not contain secrets, absolute local paths, storage keys, provider raw errors or broad local state.
+`npm run release:evidence` writes `release/results/latest.json` plus a timestamped evidence report. The evidence report contains package metadata, checked commands, environment readiness, staging readiness, release readiness, latest report status, artifact policy, branch-protection guidance, branch proof command/report references and limitations. It must not contain secrets, absolute local paths, storage keys, provider raw errors or broad local state.
 
 Release evidence must also avoid raw provider identifiers. Render service ids, deploy tokens, API keys, signed download tokens, GitHub/GitLab/Slack tokens, private-key blocks and YouTube cookies are treated as sensitive; reports should expose only configured/not-configured booleans and safe provider status metadata.
 
@@ -64,6 +70,8 @@ After pushing a validated commit, run remote CI verification:
 ```bash
 npm run remote:ci
 npm run remote:ci:proof
+npm run branch:doctor
+npm run branch:proof
 ```
 
 `remote:ci` is read-only and uses the GitHub CLI. It checks the current branch and commit against the `ShortsEngine CI` workflow and the `Release gate` job, then returns a safe structured summary with status, conclusion, failed job names and a GitHub run URL when it is safe. It does not download raw logs or artifacts by default.
@@ -113,6 +121,24 @@ Enable these settings in GitHub manually:
 - Keep signed commits or signed tags optional until the team explicitly adopts that policy.
 
 The release tooling performs read-only local git remote detection and `github:doctor` can read branch protection readiness when GitHub permissions allow it. It does not mutate branch protection, repository settings, secrets or environments. If branch protection reports `unknown`, confirm the checklist in the GitHub UI before treating the branch as release-ready.
+
+`branch:doctor` and `branch:proof` are the stronger release-policy checks:
+
+- `verified`: GitHub exposed enough metadata to confirm either classic branch protection or an active ruleset includes the required machine-checkable policy.
+- `incomplete`: GitHub exposed metadata and one or more required settings are missing, such as `Release gate`, PR requirement, up-to-date branches, force-push block or deletion block.
+- `unknown`: GitHub did not expose enough branch-protection/ruleset metadata. This is safe but not fully automated proof; use the manual checklist in the GitHub UI.
+
+The expected policy for `main` is:
+
+- Required status check: `Release gate`.
+- Pull request required before merge.
+- Branch must be up to date before merge.
+- Force pushes blocked.
+- Branch deletion blocked.
+- Conversation resolution required before merge.
+- Direct-push/bypass actors limited to trusted operator/admin policy.
+
+If GitHub API permissions hide branch protection or repository rulesets, `branch:proof` records `GITHUB_BRANCH_PROTECTION_UNREADABLE` and/or `GITHUB_RULESET_UNREADABLE` with safe `nextAction` guidance instead of raw provider errors. This project never applies branch protection automatically; any settings changes must be done by a repository admin in the GitHub UI.
 
 ## Staging Environment Gate
 

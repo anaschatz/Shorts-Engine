@@ -42,6 +42,7 @@ Checklist:
 - Validate numeric env/config values with bounded helpers; never allow `NaN` ports, limits, durations, timeouts or retry counts into runtime.
 - Validate any persisted artifact `path` against the storage area for its artifact type before indexing it.
 - Treat URL query strings as untrusted; report safety and log redaction must catch OAuth tokens, external `token` params and S3/GCS signed URL credentials without exposing values.
+- Branch protection and repository ruleset verification must stay read-only; unknown GitHub metadata should produce safe manual checklist guidance instead of API mutations or raw provider errors.
 - Treat staging smoke URLs as untrusted input; reject credentials, localhost/private/link-local targets unless explicit local mode is enabled.
 - Bound deployed health-smoke response bodies before JSON parsing and convert oversized/invalid JSON responses into safe structured failures.
 - Keep staging deploy provider-specific and explicit: Render deploys require target `staging`, provider `render`, a `srv-...` service id, a protected deploy token and a safe staging URL.

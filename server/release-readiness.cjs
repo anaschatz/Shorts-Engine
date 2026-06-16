@@ -2,6 +2,8 @@ const { existsSync, readFileSync } = require("node:fs");
 const { isAbsolute, relative, resolve } = require("node:path");
 
 const REQUIRED_RELEASE_SCRIPTS = Object.freeze({
+  "branch:doctor": "node tools/release/check-branch-protection.mjs",
+  "branch:proof": "node tools/release/write-branch-protection-proof.mjs",
   "ci:reports": "node demo/validate-ci-reports.mjs",
   "github:doctor": "node tools/release/check-github-cli.mjs",
   "github:setup": "node tools/release/print-github-cli-setup.mjs",
@@ -19,6 +21,7 @@ const REQUIRED_WORKFLOW_MARKERS = Object.freeze([
 ]);
 
 const SAFE_RELATIVE_REPORTS = Object.freeze({
+  branchProtectionProofLatest: "release/results/branch-protection-latest.json",
   releaseEvidenceLatest: "release/results/latest.json",
   remoteCiProofLatest: "release/results/remote-ci-latest.json",
 });
@@ -139,6 +142,16 @@ function createReleaseReadiness(options = {}) {
       safeMissingAuthCode: "GITHUB_AUTH_MISSING",
       exactCommitRequired: true,
       failureProofReports: true,
+    },
+    branchPolicyProof: {
+      requiresGithubCli: true,
+      doctorCommand: "npm run branch:doctor",
+      proofCommand: "npm run branch:proof",
+      automaticAuth: false,
+      remoteMutation: false,
+      safeUnknownBranchProtectionCode: "GITHUB_BRANCH_PROTECTION_UNREADABLE",
+      safeUnknownRulesetCode: "GITHUB_RULESET_UNREADABLE",
+      manualVerificationFallback: true,
     },
     missing,
     nextAction: ready ? "run-release-checks-before-push" : "fix-release-readiness-contract",
