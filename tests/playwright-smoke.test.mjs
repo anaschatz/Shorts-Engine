@@ -11,11 +11,15 @@ import {
   buildPlaywrightReport,
   buildRuntimeUnavailableReport,
   cleanupPlaywrightArtifacts,
+  resolveYouTubeLiveBrowserConfig,
   runPlaywrightSmoke,
   safeArtifactName,
   safeArtifactRef,
   writePlaywrightReport,
 } from "../demo/run-playwright-smoke.mjs";
+
+const VIDEO_ID = "dQw4w9WgXcQ";
+const SAFE_URL = `https://www.youtube.com/watch?v=${VIDEO_ID}`;
 
 test("playwright report shape is safe and groups browser E2E checks", () => {
   const report = buildPlaywrightReport({
@@ -142,6 +146,34 @@ test("missing Playwright runtime fails by default and can skip only when explici
   });
   assert.equal(skipped.status, "skipped");
   assert.equal(skipped.failedCases[0].code, "PLAYWRIGHT_NOT_AVAILABLE");
+});
+
+test("youtube live browser config is explicit and validates rights and URL before browser work", () => {
+  assert.deepEqual(resolveYouTubeLiveBrowserConfig({}), { enabled: false });
+  assert.throws(
+    () => resolveYouTubeLiveBrowserConfig({
+      SHORTSENGINE_YOUTUBE_LIVE_E2E_BROWSER: "1",
+      SHORTSENGINE_YOUTUBE_LIVE_E2E_URL: SAFE_URL,
+    }),
+    (error) => error.code === "YOUTUBE_LIVE_E2E_RIGHTS_REQUIRED",
+  );
+  assert.throws(
+    () => resolveYouTubeLiveBrowserConfig({
+      SHORTSENGINE_YOUTUBE_LIVE_E2E_BROWSER: "1",
+      SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED: "1",
+      SHORTSENGINE_YOUTUBE_LIVE_E2E_URL: `${SAFE_URL}&list=PL123`,
+    }),
+    (error) => error.code === "YOUTUBE_PLAYLIST_UNSUPPORTED",
+  );
+  const config = resolveYouTubeLiveBrowserConfig({
+    SHORTSENGINE_YOUTUBE_LIVE_E2E_BROWSER: "1",
+    SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED: "1",
+    SHORTSENGINE_YOUTUBE_LIVE_E2E_URL: SAFE_URL,
+    SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED: "1",
+  });
+  assert.equal(config.enabled, true);
+  assert.equal(config.videoId, VIDEO_ID);
+  assert.equal(config.url, SAFE_URL);
 });
 
 test("playwright report writer creates latest report", () => {

@@ -18,6 +18,7 @@
     "demo:fixture": "node demo/create-fixture.mjs",
     "demo:manual": "node demo/print-manual.mjs",
     "demo:smoke": "node demo/run-smoke.mjs",
+    "demo:youtube:live": "node demo/run-youtube-live-e2e.mjs",
     "dev": "node server/app.cjs",
     "env:check": "node tools/release/check-environment.mjs",
     "eval": "node eval/run-eval.mjs",
@@ -42,6 +43,7 @@
     "start": "node server/app.cjs",
     "test": "node --test --test-concurrency=1 tests/*.test.js tests/*.test.mjs tests/*.test.cjs",
     "youtube:doctor": "node tools/release/check-youtube-ingest.mjs",
+    "youtube:e2e:local": "node demo/run-youtube-live-e2e.mjs",
     "youtube:smoke": "node demo/run-youtube-smoke.mjs"
   },
   "engines": {

@@ -104,6 +104,44 @@ SHORTSENGINE_YOUTUBE_SMOKE_DOWNLOAD_MAX_BYTES=83886080
 
 Raise timeouts only for an intentional manual proof with a known short source.
 
+## Run Local Live E2E Proof
+
+Use this when you want the script to start a local server, verify doctor readiness, run validate -> ingest -> generate -> render -> download, and write a dedicated local proof report.
+
+```bash
+SHORTSENGINE_YOUTUBE_LIVE_E2E=1 \
+SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED=1 \
+SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1 \
+SHORTSENGINE_YOUTUBE_LIVE_E2E_URL="https://www.youtube.com/watch?v=<authorized-video-id>" \
+SHORTSENGINE_YOUTUBE_SMOKE_ALLOWED_IDS="<authorized-video-id>" \
+npm run youtube:e2e:local
+```
+
+For a reviewed one-off URL, use the same explicit unlisted gate as smoke:
+
+```bash
+SHORTSENGINE_YOUTUBE_LIVE_E2E=1 \
+SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED=1 \
+SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1 \
+SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED=1 \
+SHORTSENGINE_YOUTUBE_LIVE_E2E_URL="https://www.youtube.com/watch?v=<authorized-video-id>" \
+npm run youtube:e2e:local
+```
+
+The default command is safe and skips without starting a server:
+
+```bash
+npm run youtube:e2e:local
+```
+
+The report is written to:
+
+```bash
+demo/results/youtube-live-e2e-latest.json
+```
+
+The live E2E wrapper does not call the downloader directly. It runs `youtube:doctor`, starts the local app with ingest enabled only after explicit flags are present, then reuses the same leak-guarded `youtube:smoke` pipeline against that local server.
+
 ## Run Local UI E2E Demo
 
 Use this path after `npm run youtube:doctor` is passing with ingest enabled and a live `/health` URL.
@@ -128,12 +166,33 @@ Expected disabled states:
 
 If ingest is disabled, the validate-only UI path should still work safely and explain that local uploads remain available.
 
+## Run Opt-In Browser Live E2E
+
+If Playwright Chromium is installed and the local environment permits server binding, the browser runner can exercise the YouTube UI path too:
+
+```bash
+SHORTSENGINE_YOUTUBE_LIVE_E2E_BROWSER=1 \
+SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED=1 \
+SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1 \
+SHORTSENGINE_YOUTUBE_LIVE_E2E_URL="https://www.youtube.com/watch?v=<authorized-video-id>" \
+SHORTSENGINE_YOUTUBE_SMOKE_ALLOWED_IDS="<authorized-video-id>" \
+npm run demo:browser:ci
+```
+
+This path opens the app, selects `YouTube URL`, validates the source, checks safe preview metadata, ingests only if health reports readiness, generates the render, and verifies Download after completion. If local server binding fails with `EPERM`, treat it as an environment limitation and use the generated safe report rather than diagnosing it as a product regression.
+
 ## Read The Report
 
 Open:
 
 ```bash
 demo/results/youtube-smoke-latest.json
+```
+
+For local live E2E proof, open:
+
+```bash
+demo/results/youtube-live-e2e-latest.json
 ```
 
 Expected passing report:
@@ -179,6 +238,9 @@ If cleanup requires deleting committed artifacts or exports, stop and add a dedi
 | `YOUTUBE_SMOKE_MP4_SIGNATURE_INVALID` | Downloaded file did not have an MP4 signature. | Check render output and download contract. |
 | `YOUTUBE_SMOKE_RESPONSE_LEAK` | Public API response included unsafe fields. | Remove internal fields from public response. |
 | `YOUTUBE_SMOKE_REPORT_LEAK` | Smoke report leak guard failed closed. | Remove sensitive output before storing reports. |
+| `YOUTUBE_LIVE_E2E_DISABLED` | Local live proof was not explicitly enabled. | Set `SHORTSENGINE_YOUTUBE_LIVE_E2E=1` for manual proof. |
+| `YOUTUBE_LIVE_E2E_RIGHTS_REQUIRED` | Local live proof has no explicit rights confirmation. | Set `SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED=1` after rights review. |
+| `YOUTUBE_LIVE_E2E_SERVER_BIND_FAILED` | Local server could not bind, often due to sandbox restrictions. | Run outside the restricted sandbox or choose an available local port. |
 
 ## Default CI Contract
 
@@ -186,4 +248,6 @@ Default CI and local checks must remain no-network and no-downloader:
 
 - `npm run youtube:doctor` is safe with defaults and should skip real ingest.
 - `npm run youtube:smoke` is skipped unless `SHORTSENGINE_YOUTUBE_SMOKE=1`.
+- `npm run youtube:e2e:local` is skipped unless `SHORTSENGINE_YOUTUBE_LIVE_E2E=1`.
+- the Playwright YouTube live path is disabled unless `SHORTSENGINE_YOUTUBE_LIVE_E2E_BROWSER=1`.
 - Real cloud integration, downloader installation, and authorized YouTube smoke remain manual operator actions.

@@ -52,6 +52,28 @@ SHORTSENGINE_YOUTUBE_SMOKE_BASE_URL="http://127.0.0.1:4175" \
 npm run youtube:smoke
 ```
 
+Run the opt-in local YouTube E2E proof when you want the script to boot a local server and prove validate -> ingest -> generate -> download:
+
+```bash
+SHORTSENGINE_YOUTUBE_LIVE_E2E=1 \
+SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED=1 \
+SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1 \
+SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED=1 \
+SHORTSENGINE_YOUTUBE_LIVE_E2E_URL="https://www.youtube.com/watch?v=<video-id>" \
+npm run youtube:e2e:local
+```
+
+Run the opt-in browser YouTube live path only when Playwright and server binding are available:
+
+```bash
+SHORTSENGINE_YOUTUBE_LIVE_E2E_BROWSER=1 \
+SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED=1 \
+SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1 \
+SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED=1 \
+SHORTSENGINE_YOUTUBE_LIVE_E2E_URL="https://www.youtube.com/watch?v=<video-id>" \
+npm run demo:browser:ci
+```
+
 For the full rights, downloader, doctor, smoke, report-reading and cleanup checklist, use `docs/YOUTUBE_INGEST_MANUAL_SMOKE.md`.
 
 Install the Playwright Chromium runtime:
@@ -122,6 +144,8 @@ Open `http://127.0.0.1:4175` unless you set a different `PORT`.
 - Upload rejected: regenerate the fixture with `npm run demo:fixture` and confirm it is an MP4.
 - Render failed: run `npm run demo:smoke` and inspect `demo/results/latest.json`.
 - YouTube ingest disabled: run `npm run youtube:doctor`; default skipped output is expected until `SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1`.
+- YouTube live E2E skipped: expected until `SHORTSENGINE_YOUTUBE_LIVE_E2E=1` and `SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED=1` are set.
+- YouTube live E2E server bind failed: `YOUTUBE_LIVE_E2E_SERVER_BIND_FAILED` usually means the current sandbox cannot bind a local server; rerun outside that restriction.
 - YouTube downloader missing: install/configure the downloader and rerun doctor; `YOUTUBE_DOWNLOADER_MISSING` is a safe fail-closed runtime state.
 - YouTube download timed out: keep the test video short and raise `SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS` only for intentional manual proof.
 - YouTube smoke URL rejected: playlists, live, embeds, channels, search pages, credentialed URLs and non-YouTube hosts are blocked before network/downloader work.
@@ -137,6 +161,7 @@ Open `http://127.0.0.1:4175` unless you set a different `PORT`.
 
 - `npm run demo:browser` remains dependency-light and does not drive a real browser by itself.
 - `npm run demo:browser:e2e` drives Chromium through Playwright and is the automated proof for the full browser upload/generate/render/download path.
+- `npm run youtube:e2e:local` is the scripted local YouTube link-to-shorts proof, but it remains skipped by default and requires explicit operator flags.
 - Real YouTube ingest is implemented behind the explicit local downloader adapter and remains disabled by default. Keep it manual until staging policy, downloader operations and authorized-source review are complete.
 - CI setup, skip semantics and retention policy live in `demo/CI.md`.
 - Internal `MatchCutsCore` identifiers remain until a dedicated internal rename milestone.

@@ -45,11 +45,22 @@ YouTube URL validation remains available through `POST /api/youtube/validate`. R
 | `SHORTSENGINE_YOUTUBE_SMOKE_POLL_INTERVAL_MS` | No | `750` | integer `100..10000` | No | Keep default unless staging needs slower polling. | Invalid poll interval fails smoke. |
 | `SHORTSENGINE_YOUTUBE_SMOKE_DOWNLOAD_MAX_BYTES` | No | `83886080` | integer `1024..536870912` | No | Keep downloads bounded for smoke reports. | Oversized download fails smoke before report write. |
 
+Operator-only local proof flags:
+
+| Variable | Purpose |
+| --- | --- |
+| `SHORTSENGINE_YOUTUBE_LIVE_E2E` | Enables `npm run youtube:e2e:local`; defaults to skipped and must be paired with ingest enablement, URL, rights confirmation and the smoke allowlist or explicit unlisted gate. |
+| `SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED` | Explicit confirmation that the operator has rights to process the configured URL. |
+| `SHORTSENGINE_YOUTUBE_LIVE_E2E_URL` | Authorized YouTube URL for local live proof; same URL restrictions as smoke. |
+| `SHORTSENGINE_YOUTUBE_LIVE_E2E_BROWSER` | Enables the optional Playwright browser YouTube live path; defaults off and must not be used in CI release gates. |
+
 The user must explicitly confirm usage rights before validation or ingest. Playlists, live streams, credentialed URLs, unsupported hosts, embeds, channels and search pages are rejected before any downloader call. Public responses, doctor output and smoke reports never include local paths, storage keys, raw stdout/stderr, signed tokens or secrets.
 
 Run `npm run youtube:doctor` at any time. With default config it returns a safe skipped summary and next action; with ingest enabled it validates downloader, FFmpeg/FFprobe, storage staging readiness and optionally a live `/health` `youtubeIngest` shape when `SHORTSENGINE_YOUTUBE_DOCTOR_URL` is configured.
 
 Run `npm run youtube:smoke` only for manual authorized proof. It requires `SHORTSENGINE_YOUTUBE_SMOKE=1`, `SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1`, a safe URL, downloader readiness, and either a smoke URL allowlist or `SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED=1`. It validates `/health`, `/api/youtube/validate`, `/api/youtube/ingest`, generate, job polling, export download and MP4 signature, then writes `demo/results/youtube-smoke-latest.json`.
+
+Run `npm run youtube:e2e:local` only for manual local proof. It defaults to skipped, requires `SHORTSENGINE_YOUTUBE_LIVE_E2E=1`, `SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED=1`, a safe URL, `SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1`, downloader readiness, and the same smoke allowlist or explicit unlisted gate. It writes `demo/results/youtube-live-e2e-latest.json`.
 
 Use `docs/YOUTUBE_INGEST_MANUAL_SMOKE.md` before the first real downloader run. It documents rights review, downloader verification, safe env flags, report reading, safe cleanup and troubleshooting codes.
 

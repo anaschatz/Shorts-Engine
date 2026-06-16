@@ -19,6 +19,7 @@ import {
 } from "./create-fixture.mjs";
 import { RESULTS_DIR } from "./run-smoke.mjs";
 import { findSensitiveLeak, safeError } from "./report-safety.mjs";
+import { validateSmokeSource } from "./run-youtube-smoke.mjs";
 
 const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PLAYWRIGHT_LATEST = resolve(RESULTS_DIR, "playwright-latest.json");
@@ -27,6 +28,9 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 const HEALTH_TIMEOUT_MS = 15_000;
 const JOB_TIMEOUT_MS = 90_000;
 const DEFAULT_RETENTION_COUNT = 20;
+const YOUTUBE_LIVE_BROWSER_FLAG = "SHORTSENGINE_YOUTUBE_LIVE_E2E_BROWSER";
+const YOUTUBE_LIVE_RIGHTS_FLAG = "SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED";
+const YOUTUBE_LIVE_URL_FLAG = "SHORTSENGINE_YOUTUBE_LIVE_E2E_URL";
 const VIEWPORTS = Object.freeze([
   { name: "desktop", width: 1280, height: 900 },
   { name: "mobile", width: 390, height: 844 },
@@ -61,6 +65,32 @@ function boundedInteger(value, { fallback, min, max }) {
 
 function boolFlag(value) {
   return ["1", "true", "yes", "on"].includes(String(value || "").toLowerCase());
+}
+
+function rawValue(env, name) {
+  return Object.prototype.hasOwnProperty.call(env, name) ? env[name] : undefined;
+}
+
+function resolveYouTubeLiveBrowserConfig(env = process.env) {
+  if (!boolFlag(rawValue(env, YOUTUBE_LIVE_BROWSER_FLAG))) return { enabled: false };
+  if (!boolFlag(rawValue(env, YOUTUBE_LIVE_RIGHTS_FLAG))) {
+    const error = new Error("YouTube live browser E2E requires explicit rights confirmation.");
+    error.code = "YOUTUBE_LIVE_E2E_RIGHTS_REQUIRED";
+    throw error;
+  }
+  const source = validateSmokeSource({
+    ...env,
+    SHORTSENGINE_YOUTUBE_SMOKE: "1",
+    SHORTSENGINE_YOUTUBE_SMOKE_URL: String(
+      rawValue(env, YOUTUBE_LIVE_URL_FLAG) || rawValue(env, "SHORTSENGINE_YOUTUBE_SMOKE_URL") || "",
+    ).trim(),
+  });
+  return {
+    enabled: true,
+    url: source.canonicalUrl,
+    kind: source.kind,
+    videoId: source.videoId,
+  };
 }
 
 function safeStamp(value = nowIso()) {
@@ -201,11 +231,12 @@ async function getFreePort() {
   });
 }
 
-function startServer(port) {
+function startServer(port, extraEnv = {}) {
   const child = spawn(process.execPath, ["server/app.cjs"], {
     cwd: ROOT_DIR,
     env: {
       ...process.env,
+      ...extraEnv,
       PORT: String(port),
       MATCHCUTS_TRANSCRIPTION_PROVIDER: "mock",
       MATCHCUTS_PERSISTENCE_ADAPTER: "sqlite",
@@ -447,7 +478,7 @@ async function measureOverflow(page, viewport) {
   };
 }
 
-async function runBrowserFlow({ baseUrl, fixturePath, page, timeoutMs }) {
+async function runBrowserFlow({ baseUrl, fixturePath, page, timeoutMs, youtubeLive = null }) {
   const checks = [];
   const viewportChecks = [];
   const uiStateChecks = [];
@@ -488,6 +519,65 @@ async function runBrowserFlow({ baseUrl, fixturePath, page, timeoutMs }) {
   addCheck(uiStateChecks, "initial_download_hidden", await isHidden(downloadLink));
   addCheck(uiStateChecks, "initial_cancel_hidden", await isHidden(cancelButton));
   addCheck(uiStateChecks, "initial_progress_hidden", await isHidden(progress));
+
+  if (youtubeLive && youtubeLive.enabled) {
+    await sourceYoutubeButton.click();
+    addCheck(uiStateChecks, "youtube_live_source_generate_disabled_before_ingest", await generateButton.isDisabled());
+    addCheck(uiStateChecks, "youtube_live_url_input_visible", !(await isHidden(youtubeUrlInput)));
+    await youtubeUrlInput.fill(youtubeLive.url);
+    addCheck(uiStateChecks, "youtube_live_validate_disabled_until_rights", await youtubeValidateButton.isDisabled());
+    await youtubeRightsCheckbox.check();
+    await youtubeValidateButton.click();
+    await youtubePreview.waitFor({ state: "visible", timeout: 10_000 });
+    const previewText = await youtubePreview.textContent();
+    addCheck(uiStateChecks, "youtube_live_preview_visible", !(await isHidden(youtubePreview)));
+    addCheck(uiStateChecks, "youtube_live_preview_safe", previewText.includes(youtubeLive.videoId) && !/https?:\/\//i.test(previewText));
+    addCheck(uiStateChecks, "youtube_live_ingest_enabled_after_ready_validation", !(await youtubeIngestButton.isDisabled()));
+    if (!(await youtubeIngestButton.isDisabled())) {
+      await youtubeIngestButton.click();
+      await page.waitForFunction(() => {
+        const status = document.querySelector('[data-testid="project-status"]')?.textContent || "";
+        const generate = document.querySelector('[data-testid="generate-button"]');
+        return status === "YouTube ingested" || (generate && !generate.disabled);
+      }, null, { timeout: 120_000 });
+    }
+    addCheck(uploadGenerateDownloadChecks, "youtube_live_ingest_created_project_state", (await projectStatus.textContent()) === "YouTube ingested");
+    addCheck(uploadGenerateDownloadChecks, "youtube_live_generate_enabled_after_ingest", !(await generateButton.isDisabled()));
+
+    await rightsCheckbox.check();
+    await generateButton.click();
+    await progress.waitFor({ state: "visible", timeout: 10_000 });
+    addCheck(uploadGenerateDownloadChecks, "youtube_live_job_progress_visible", !(await isHidden(progress)));
+    await page.waitForFunction(() => {
+      const status = document.querySelector('[data-testid="project-status"]')?.textContent || "";
+      const error = document.querySelector('[data-testid="error-panel"]');
+      return status === "Rendered" || (error && !error.hidden && error.textContent);
+    }, null, { timeout: timeoutMs });
+
+    const finalStatus = await projectStatus.textContent();
+    addCheck(uploadGenerateDownloadChecks, "youtube_live_job_completed_with_rendered_status", finalStatus === "Rendered", { status: finalStatus });
+    addCheck(uploadGenerateDownloadChecks, "youtube_live_download_hidden_until_completed_render", finalStatus === "Rendered" && !(await isHidden(downloadLink)));
+    let download = { status: 0, contentType: "", sizeBytes: 0 };
+    if (finalStatus === "Rendered") {
+      download = await page.evaluate(async () => {
+        const href = document.querySelector('[data-testid="download-link"]')?.getAttribute("href") || "";
+        const response = await fetch(href);
+        const buffer = await response.arrayBuffer();
+        return {
+          status: response.status,
+          contentType: response.headers.get("content-type") || "",
+          sizeBytes: buffer.byteLength,
+        };
+      });
+    }
+    addCheck(uploadGenerateDownloadChecks, "youtube_live_download_endpoint_returns_video", download.status === 200 && download.contentType.includes("video/mp4") && download.sizeBytes > 0, {
+      status: download.status,
+      contentType: download.contentType,
+      sizeBytes: download.sizeBytes,
+    });
+    checks.push(...viewportChecks, ...uiStateChecks, ...uploadGenerateDownloadChecks);
+    return { checks, viewportChecks, uiStateChecks, uploadGenerateDownloadChecks };
+  }
 
   await sourceYoutubeButton.click();
   addCheck(uiStateChecks, "youtube_source_generate_disabled", await generateButton.isDisabled());
@@ -603,10 +693,14 @@ async function runPlaywrightSmoke(options = {}) {
   let health = null;
   let traceStarted = false;
   const notes = [];
+  let youtubeLive = null;
   try {
+    youtubeLive = resolveYouTubeLiveBrowserConfig(options.env || process.env);
     const port = Number(options.port || process.env.PLAYWRIGHT_SMOKE_PORT) || await getFreePort();
     baseUrl = `http://127.0.0.1:${port}`;
-    server = startServer(port);
+    server = startServer(port, youtubeLive.enabled
+      ? { ...(options.env || {}), SHORTSENGINE_YOUTUBE_INGEST_ENABLED: "1" }
+      : {});
     health = await waitForHealth(baseUrl);
     if (!health || !health.ok || health.payload?.data?.status !== "ready") {
       return buildPlaywrightReport({
@@ -657,6 +751,7 @@ async function runPlaywrightSmoke(options = {}) {
       fixturePath,
       page,
       timeoutMs: Number(options.jobTimeoutMs || process.env.PLAYWRIGHT_SMOKE_JOB_TIMEOUT_MS) || JOB_TIMEOUT_MS,
+      youtubeLive,
     });
     const failedCases = flow.checks
       .filter((check) => !check.passed)
@@ -797,6 +892,7 @@ export {
   cleanupPlaywrightArtifacts,
   runBrowserFlow,
   runPlaywrightSmoke,
+  resolveYouTubeLiveBrowserConfig,
   safeArtifactName,
   safeArtifactRef,
   writePlaywrightReport,
