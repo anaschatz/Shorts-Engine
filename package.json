@@ -7,6 +7,7 @@
     "build": "node tests/build-smoke.mjs",
     "branch:doctor": "node tools/release/check-branch-protection.mjs",
     "branch:proof": "node tools/release/write-branch-protection-proof.mjs",
+    "branch:setup": "node tools/release/print-branch-ruleset-setup.mjs",
     "brain:find": "node tools/openviking-lite.mjs find",
     "brain:health": "node tools/openviking-lite.mjs health",
     "brain:init": "node tools/openviking-lite.mjs init",

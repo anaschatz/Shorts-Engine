@@ -8,6 +8,7 @@ import {
   runBranchProtectionCheck,
   safeError as branchPolicySafeError,
 } from "./check-branch-protection.mjs";
+import { buildBranchRulesetSetupReference } from "./print-branch-ruleset-setup.mjs";
 
 const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const RELEASE_RESULTS_RELATIVE_DIR = "release/results";
@@ -95,6 +96,10 @@ async function buildBranchPolicyProof(options = {}) {
     branchProtection: summary.branchProtection,
     rulesets: summary.rulesets,
     releasePolicy: summary.releasePolicy,
+    uiSetupReference: buildBranchRulesetSetupReference({
+      repository: summary.repository?.nameWithOwner,
+      branch: summary.branch,
+    }),
     logsDownloaded: false,
     artifactsDownloaded: false,
     remoteMutation: false,

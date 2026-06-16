@@ -24,6 +24,7 @@ npm run demo:browser:ci
 npm run ci:reports
 npm run release:readiness
 npm run release:check
+npm run branch:setup
 npm run branch:doctor
 npm run branch:proof
 npm run release:evidence
@@ -39,9 +40,11 @@ npm run release:evidence
 
 `npm run release:check` verifies the CI workflow contract, package scripts, environment readiness, staging readiness, report freshness, report safety, artifact upload policy and default cloud/browser safety settings.
 
+`npm run branch:setup` prints a documentation-only GitHub Ruleset setup guide. It does not call GitHub APIs, does not request tokens, does not start auth, and does not mutate branch protection or repository rulesets. Use it when `branch:proof` returns `incomplete` or `unknown`.
+
 `npm run branch:doctor` performs a read-only GitHub branch policy check. It reuses GitHub CLI readiness, checks the exact local commit against `origin/main`, attempts to read classic branch protection, attempts to read repository rulesets, and summarizes whether the required release policy is `verified`, `incomplete` or `unknown`. It never changes branch protection, rulesets, secrets or repository settings.
 
-`npm run branch:proof` writes `release/results/branch-protection-latest.json` plus a timestamped `branch-protection-proof-*.json` report. The proof includes repository, branch, commit SHA, remote `main` SHA, GitHub CLI readiness, branch protection status, ruleset status, required checks detected, expected checks, manual verification checklist, `logsDownloaded: false`, `artifactsDownloaded: false` and `remoteMutation: false`.
+`npm run branch:proof` writes `release/results/branch-protection-latest.json` plus a timestamped `branch-protection-proof-*.json` report. The proof includes repository, branch, commit SHA, remote `main` SHA, GitHub CLI readiness, branch protection status, ruleset status, required checks detected, expected checks, manual verification checklist, a UI setup reference, `logsDownloaded: false`, `artifactsDownloaded: false` and `remoteMutation: false`.
 
 The CI workflow must install the Ubuntu `ffmpeg` package before runtime verification, then run both `ffmpeg -version` and `ffprobe -version`. This keeps render and media validation checks independent of whatever happens to be preinstalled on the GitHub runner image.
 
@@ -70,6 +73,7 @@ After pushing a validated commit, run remote CI verification:
 ```bash
 npm run remote:ci
 npm run remote:ci:proof
+npm run branch:setup
 npm run branch:doctor
 npm run branch:proof
 ```
@@ -122,6 +126,31 @@ Enable these settings in GitHub manually:
 
 The release tooling performs read-only local git remote detection and `github:doctor` can read branch protection readiness when GitHub permissions allow it. It does not mutate branch protection, repository settings, secrets or environments. If branch protection reports `unknown`, confirm the checklist in the GitHub UI before treating the branch as release-ready.
 
+Run the operator setup guide before changing GitHub settings:
+
+```bash
+npm run branch:setup
+```
+
+The guide prints safe JSON with the exact manual UI steps. It is documentation-only and keeps `networkCalls: false`, `tokensRequested: false`, `remoteMutation: false`, `branchProtectionMutation: false` and `rulesetMutation: false`.
+
+Manual GitHub Ruleset setup:
+
+1. Open GitHub repository `anaschatz/Shorts-Engine`.
+2. Go to Settings -> Rules -> Rulesets.
+3. Create a new branch ruleset.
+4. Set target branch to `main`.
+5. Set enforcement to Active.
+6. Enable Require pull request before merging.
+7. Enable Require status checks to pass.
+8. Add required status check `Release gate`.
+9. Enable Require branches to be up to date before merging.
+10. Enable Block force pushes.
+11. Enable Block deletions.
+12. Enable Require conversation resolution before merge.
+13. Review bypass actors and direct-push exceptions; keep only trusted operator/admin policy.
+14. Save the ruleset.
+
 `branch:doctor` and `branch:proof` are the stronger release-policy checks:
 
 - `verified`: GitHub exposed enough metadata to confirm either classic branch protection or an active ruleset includes the required machine-checkable policy.
@@ -139,6 +168,15 @@ The expected policy for `main` is:
 - Direct-push/bypass actors limited to trusted operator/admin policy.
 
 If GitHub API permissions hide branch protection or repository rulesets, `branch:proof` records `GITHUB_BRANCH_PROTECTION_UNREADABLE` and/or `GITHUB_RULESET_UNREADABLE` with safe `nextAction` guidance instead of raw provider errors. This project never applies branch protection automatically; any settings changes must be done by a repository admin in the GitHub UI.
+
+After saving the ruleset, rerun:
+
+```bash
+npm run branch:doctor
+npm run branch:proof
+npm run remote:ci
+npm run remote:ci:proof
+```
 
 ## Staging Environment Gate
 

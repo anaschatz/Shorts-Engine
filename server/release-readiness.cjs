@@ -4,6 +4,7 @@ const { isAbsolute, relative, resolve } = require("node:path");
 const REQUIRED_RELEASE_SCRIPTS = Object.freeze({
   "branch:doctor": "node tools/release/check-branch-protection.mjs",
   "branch:proof": "node tools/release/write-branch-protection-proof.mjs",
+  "branch:setup": "node tools/release/print-branch-ruleset-setup.mjs",
   "ci:reports": "node demo/validate-ci-reports.mjs",
   "github:doctor": "node tools/release/check-github-cli.mjs",
   "github:setup": "node tools/release/print-github-cli-setup.mjs",
@@ -145,10 +146,13 @@ function createReleaseReadiness(options = {}) {
     },
     branchPolicyProof: {
       requiresGithubCli: true,
+      setupCommand: "npm run branch:setup",
       doctorCommand: "npm run branch:doctor",
       proofCommand: "npm run branch:proof",
+      setupMode: "documentation-only",
       automaticAuth: false,
       remoteMutation: false,
+      automaticRulesetMutation: false,
       safeUnknownBranchProtectionCode: "GITHUB_BRANCH_PROTECTION_UNREADABLE",
       safeUnknownRulesetCode: "GITHUB_RULESET_UNREADABLE",
       manualVerificationFallback: true,

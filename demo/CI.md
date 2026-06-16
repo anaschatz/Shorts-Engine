@@ -32,6 +32,7 @@ npm run demo:browser:ci
 npm run ci:reports
 npm run release:readiness
 npm run release:check
+npm run branch:setup
 npm run branch:doctor
 npm run branch:proof
 ```
@@ -47,11 +48,14 @@ For local release proof, run `npm run release:evidence` after the release gate p
 For branch policy proof, run:
 
 ```bash
+npm run branch:setup
 npm run branch:doctor
 npm run branch:proof
 ```
 
-These commands are read-only. They check GitHub CLI readiness, the exact local commit and remote `main` SHA, classic branch protection when visible, repository rulesets when visible, and the expected `Release gate` policy. They never mutate GitHub settings and never download logs or artifacts. If GitHub returns `unknown` because branch protection or rulesets are not readable, confirm the checklist in `docs/RELEASE.md` manually in the GitHub UI.
+`branch:setup` is documentation-only. It prints the manual GitHub UI path `Settings -> Rules -> Rulesets`, the required active branch ruleset for `main`, the required status check `Release gate`, and the post-setup proof commands. It does not call GitHub APIs, request tokens, start auth, mutate rulesets, or download logs/artifacts.
+
+`branch:doctor` and `branch:proof` are read-only. They check GitHub CLI readiness, the exact local commit and remote `main` SHA, classic branch protection when visible, repository rulesets when visible, and the expected `Release gate` policy. They never mutate GitHub settings and never download logs or artifacts. If GitHub returns `incomplete`, configure the missing ruleset in the GitHub UI. If GitHub returns `unknown` because branch protection or rulesets are not readable, confirm the checklist in `docs/RELEASE.md` manually in the GitHub UI.
 
 Before post-push verification, check the local GitHub CLI setup:
 

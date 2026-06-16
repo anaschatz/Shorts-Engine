@@ -10,6 +10,7 @@ import {
   rulesetReadiness,
   safeError,
 } from "../tools/release/check-branch-protection.mjs";
+import { buildBranchRulesetSetupGuide } from "../tools/release/print-branch-ruleset-setup.mjs";
 import { writeBranchPolicyProof } from "../tools/release/write-branch-protection-proof.mjs";
 
 const NOW_MS = Date.parse("2026-06-16T21:00:00.000Z");
@@ -241,10 +242,49 @@ test("branch proof writer creates safe latest and timestamped reports", async ()
   assert.equal(latest.schemaVersion, 1);
   assert.equal(latest.command, "branch:proof");
   assert.equal(latest.branch, "main");
+  assert.equal(latest.uiSetupReference.command, "branch:setup");
+  assert.equal(latest.uiSetupReference.githubUiNavigation, "Settings -> Rules -> Rulesets");
+  assert.deepEqual(latest.uiSetupReference.nextCommands, [
+    "npm run branch:doctor",
+    "npm run branch:proof",
+    "npm run remote:ci",
+    "npm run remote:ci:proof",
+  ]);
   assert.equal(latest.remoteMutation, false);
   assert.equal(latest.logsDownloaded, false);
   assert.equal(latest.artifactsDownloaded, false);
   assert.equal(findSensitiveLeak(latest), null);
+});
+
+test("branch ruleset setup guide is safe documentation-only output", () => {
+  const guide = buildBranchRulesetSetupGuide({ nowMs: NOW_MS });
+
+  assert.equal(guide.ok, true);
+  assert.equal(guide.command, "branch:setup");
+  assert.equal(guide.mode, "documentation-only");
+  assert.equal(guide.safety.networkCalls, false);
+  assert.equal(guide.safety.authStarted, false);
+  assert.equal(guide.safety.tokensRequested, false);
+  assert.equal(guide.safety.remoteMutation, false);
+  assert.equal(guide.safety.branchProtectionMutation, false);
+  assert.equal(guide.safety.rulesetMutation, false);
+  assert.equal(guide.repository.nameWithOwner, "anaschatz/Shorts-Engine");
+  assert.equal(guide.githubUi.navigation, "Settings -> Rules -> Rulesets");
+  assert.equal(guide.githubUi.targetBranch, "main");
+  assert.equal(guide.githubUi.enforcement, "Active");
+  assert.equal(guide.githubUi.requiredStatusCheck, "Release gate");
+  assert.match(guide.githubUi.setupSteps.join(" "), /New branch ruleset|Create a new branch ruleset/);
+  assert.match(guide.githubUi.setupSteps.join(" "), /Require pull request before merging/);
+  assert.match(guide.githubUi.setupSteps.join(" "), /Require status checks to pass/);
+  assert.match(guide.githubUi.setupSteps.join(" "), /Block force pushes/);
+  assert.match(guide.githubUi.setupSteps.join(" "), /Block deletions/);
+  assert.deepEqual(guide.verification.nextCommands, [
+    "npm run branch:doctor",
+    "npm run branch:proof",
+    "npm run remote:ci",
+    "npm run remote:ci:proof",
+  ]);
+  assert.equal(findSensitiveLeak(guide), null);
 });
 
 test("branch policy safe errors hide raw command output", async () => {

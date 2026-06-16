@@ -25,6 +25,7 @@
 - Artifact index paths must be validated against the artifact type storage area before persistence.
 - Report safety and server log redaction must treat URL query credentials, including OAuth tokens, external `token` params and S3/GCS signed URL credentials, as sensitive by default.
 - Branch protection/ruleset verification is release evidence only: read GitHub metadata when available, write safe `unknown` proof when hidden, and never mutate repository settings automatically.
+- GitHub Ruleset setup is a manual operator action documented by `branch:setup`; the app can verify evidence after setup but must not mutate GitHub policy.
 - Staging smoke URLs must reject credentialed, localhost, private and link-local targets by default; explicit local mode is only for developer validation.
 - Staging health smoke must bound response size before JSON parsing and report oversized/invalid bodies with safe structured errors.
 - Render is the first provider-specific staging deploy path; it requires GitHub Environment `staging` vars plus a protected deploy token, while provider `none` remains the default no-network path.
