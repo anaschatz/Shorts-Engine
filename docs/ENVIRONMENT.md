@@ -33,8 +33,23 @@ YouTube URL validation remains available through `POST /api/youtube/validate`. R
 | `SHORTSENGINE_YOUTUBE_DOWNLOADER_BIN` | Only when ingest enabled | `yt-dlp` | command name or absolute binary path without spaces/shell metacharacters | No | Install/manage the downloader outside the app image or platform build step. | Missing downloader returns `YOUTUBE_DOWNLOADER_MISSING`; invalid config fails startup. |
 | `SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS` | No | `120000` | integer `1000..600000` | No | Keep bounded; raise only for known long videos within upload limits. | Timeout returns `YOUTUBE_DOWNLOAD_TIMEOUT`. |
 | `SHORTSENGINE_YOUTUBE_DOWNLOADER_OUTPUT_BYTES` | No | `65536` | integer `1024..1048576` | No | Keep small to avoid raw provider output in memory. | Oversized downloader output fails safely as `YOUTUBE_DOWNLOAD_FAILED`. |
+| `SHORTSENGINE_YOUTUBE_DOCTOR_URL` | No | empty | `http` or `https` base URL | No | Leave empty for no-network local checks; set only when checking a live local/staging `/health`. | Missing value skips live health validation safely. |
+| `SHORTSENGINE_YOUTUBE_DOCTOR_TIMEOUT_MS` | No | `5000` | integer `1000..120000` | No | Keep short; doctor should not become a long-running smoke. | Invalid timeout fails doctor safely. |
+| `SHORTSENGINE_YOUTUBE_SMOKE` | No | `0` | explicit `1` to enable | No | Keep disabled except for manual authorized real-ingest proof. | Smoke exits as skipped and performs no network work unless enabled. |
+| `SHORTSENGINE_YOUTUBE_SMOKE_URL` | Only when smoke enabled | empty | supported YouTube watch, shortlink or shorts URL | No | Use only a URL you are authorized to download/process. | Empty, playlist, live, embed, channel, search, credentialed or non-YouTube URLs fail before network. |
+| `SHORTSENGINE_YOUTUBE_SMOKE_BASE_URL` | No | local `PORT` base | `http` or `https` base URL without credentials | No | Set to local/staging app base URL when testing a running server. | Invalid base URL fails before network. |
+| `SHORTSENGINE_YOUTUBE_SMOKE_ALLOWED_IDS` | No | empty | comma-separated YouTube video ids | No | Prefer allowlisting known safe smoke videos. | If unset, `SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED=1` is required. |
+| `SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED` | No | `0` | boolean | No | Use only for intentional manual smoke runs. | Smoke fails before network when URL is not allowlisted and this is disabled. |
+| `SHORTSENGINE_YOUTUBE_SMOKE_TIMEOUT_MS` | No | `120000` | integer `1000..900000` | No | Keep bounded. | Invalid timeout fails smoke. |
+| `SHORTSENGINE_YOUTUBE_SMOKE_JOB_TIMEOUT_MS` | No | `90000` | integer `1000..600000` | No | Keep bounded for render proof. | Invalid job timeout fails smoke. |
+| `SHORTSENGINE_YOUTUBE_SMOKE_POLL_INTERVAL_MS` | No | `750` | integer `100..10000` | No | Keep default unless staging needs slower polling. | Invalid poll interval fails smoke. |
+| `SHORTSENGINE_YOUTUBE_SMOKE_DOWNLOAD_MAX_BYTES` | No | `83886080` | integer `1024..536870912` | No | Keep downloads bounded for smoke reports. | Oversized download fails smoke before report write. |
 
-The user must explicitly confirm usage rights before validation or ingest. Playlists, live streams, credentialed URLs, unsupported hosts, embeds, channels and search pages are rejected before any downloader call. Public responses and health output never include local paths, storage keys, raw stdout/stderr or secrets.
+The user must explicitly confirm usage rights before validation or ingest. Playlists, live streams, credentialed URLs, unsupported hosts, embeds, channels and search pages are rejected before any downloader call. Public responses, doctor output and smoke reports never include local paths, storage keys, raw stdout/stderr, signed tokens or secrets.
+
+Run `npm run youtube:doctor` at any time. With default config it returns a safe skipped summary and next action; with ingest enabled it validates downloader, FFmpeg/FFprobe, storage staging readiness and optionally a live `/health` `youtubeIngest` shape when `SHORTSENGINE_YOUTUBE_DOCTOR_URL` is configured.
+
+Run `npm run youtube:smoke` only for manual authorized proof. It requires `SHORTSENGINE_YOUTUBE_SMOKE=1`, `SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1`, a safe URL, downloader readiness, and either a smoke URL allowlist or `SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED=1`. It validates `/health`, `/api/youtube/validate`, `/api/youtube/ingest`, generate, job polling, export download and MP4 signature, then writes `demo/results/youtube-smoke-latest.json`.
 
 ## FFmpeg/render limits
 
@@ -153,16 +168,18 @@ The user must explicitly confirm usage rights before validation or ingest. Playl
 8. Run `npm run release:readiness`.
 9. If remote GitHub proof is needed, run `npm run github:setup` and authenticate `gh` manually before `npm run github:doctor`.
 10. After a validated push, run `npm run remote:ci` and `npm run remote:ci:proof`; the proof must match the exact commit SHA and uses `GITHUB_CLI_MISSING`, `GITHUB_AUTH_MISSING`, `REMOTE_CI_RUN_NOT_FOUND`, `REMOTE_CI_TIMEOUT` and `REMOTE_CI_SHA_MISMATCH` as safe recovery codes.
-11. Start the server with staging env values.
-12. Check `GET /health` and require `status: "ready"` unless a documented degraded dependency is expected.
-13. Run deployed smoke with `SHORTSENGINE_STAGING_URL=... npm run staging:smoke`.
-14. Run opt-in full smoke only when intentional: `SHORTSENGINE_STAGING_FULL_SMOKE=1 SHORTSENGINE_STAGING_URL=... npm run staging:smoke:full`.
-15. Run cleanup dry-run after full smoke: `npm run staging:smoke:cleanup`.
-16. Run explicit smoke cleanup only when intended: `SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP=1 npm run staging:smoke:cleanup`.
-17. Run `npm run demo:fixture`, `npm run demo:smoke`, `npm run demo:browser`, and `npm run demo:browser:ci`.
-18. Run `npm run ci:reports` and `npm run release:evidence`.
-19. Inspect failure-only artifacts only if a gate fails.
-20. Configure GitHub branch protection as documented in `docs/RELEASE.md` and GitHub Environment protection as documented in `docs/STAGING_DEPLOYMENT.md`.
+11. Run `npm run youtube:doctor`; default disabled mode should return a safe skipped summary.
+12. Start the server with staging env values.
+13. Check `GET /health` and require `status: "ready"` unless a documented degraded dependency is expected.
+14. Run deployed smoke with `SHORTSENGINE_STAGING_URL=... npm run staging:smoke`.
+15. Run opt-in full smoke only when intentional: `SHORTSENGINE_STAGING_FULL_SMOKE=1 SHORTSENGINE_STAGING_URL=... npm run staging:smoke:full`.
+16. Run opt-in YouTube smoke only when authorized and downloader-ready: `SHORTSENGINE_YOUTUBE_SMOKE=1 SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1 SHORTSENGINE_YOUTUBE_SMOKE_URL=... npm run youtube:smoke`.
+17. Run cleanup dry-run after full smoke: `npm run staging:smoke:cleanup`.
+18. Run explicit smoke cleanup only when intended: `SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP=1 npm run staging:smoke:cleanup`.
+19. Run `npm run demo:fixture`, `npm run demo:smoke`, `npm run demo:browser`, and `npm run demo:browser:ci`.
+20. Run `npm run ci:reports` and `npm run release:evidence`.
+21. Inspect failure-only artifacts only if a gate fails.
+22. Configure GitHub branch protection as documented in `docs/RELEASE.md` and GitHub Environment protection as documented in `docs/STAGING_DEPLOYMENT.md`.
 
 ## Render Staging Runtime
 

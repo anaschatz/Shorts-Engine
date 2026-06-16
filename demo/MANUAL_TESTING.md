@@ -35,6 +35,23 @@ Run the real Playwright browser E2E smoke:
 npm run demo:browser:e2e
 ```
 
+Check YouTube ingest runtime readiness without downloading anything:
+
+```bash
+npm run youtube:doctor
+```
+
+Run the opt-in authorized YouTube ingest smoke only when a downloader is installed and the URL is safe to process:
+
+```bash
+SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1 \
+SHORTSENGINE_YOUTUBE_SMOKE=1 \
+SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED=1 \
+SHORTSENGINE_YOUTUBE_SMOKE_URL="https://www.youtube.com/watch?v=<video-id>" \
+SHORTSENGINE_YOUTUBE_SMOKE_BASE_URL="http://127.0.0.1:4175" \
+npm run youtube:smoke
+```
+
 Install the Playwright Chromium runtime:
 
 ```bash
@@ -85,7 +102,7 @@ Open `http://127.0.0.1:4175` unless you set a different `PORT`.
 ## Expected UI States
 
 - Missing upload: safe `UPLOAD_EMPTY` message.
-- YouTube source: safe URL validation only; `YOUTUBE_RIGHTS_REQUIRED`, playlist/live/unsafe URL errors are user-facing; render/export stay disabled.
+- YouTube source: safe URL validation is available by default; `YOUTUBE_RIGHTS_REQUIRED`, playlist/live/unsafe URL errors are user-facing; render/export stay disabled until a successful authorized ingest creates a local MP4 artifact.
 - Active job: progress visible, generate disabled, cancel visible.
 - Completed job: project status rendered/ready, download visible, export enabled.
 - Failed job: retry visible, download hidden, safe error shown.
@@ -97,12 +114,16 @@ Open `http://127.0.0.1:4175` unless you set a different `PORT`.
 - Browser runtime unavailable in constrained CI: use `SHORTSENGINE_BROWSER_E2E_ALLOW_SKIP=1 npm run demo:browser:e2e` only when the skip is intentional and visible in the report.
 - Upload rejected: regenerate the fixture with `npm run demo:fixture` and confirm it is an MP4.
 - Render failed: run `npm run demo:smoke` and inspect `demo/results/latest.json`.
+- YouTube ingest disabled: run `npm run youtube:doctor`; default skipped output is expected until `SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1`.
+- YouTube downloader missing: install/configure the downloader and rerun doctor; `YOUTUBE_DOWNLOADER_MISSING` is a safe fail-closed runtime state.
+- YouTube download timed out: keep the test video short and raise `SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS` only for intentional manual proof.
+- YouTube smoke URL rejected: playlists, live, embeds, channels, search pages, credentialed URLs and non-YouTube hosts are blocked before network/downloader work.
 - Browser E2E failed: inspect `demo/results/playwright-latest.json`; reports include safe check names and failure codes only.
 - Failure screenshots: only failed browser E2E runs write screenshots under `demo/results/playwright-artifacts/`.
 - Trace/video: enable only for debugging with `SHORTSENGINE_BROWSER_E2E_TRACE=1` or `SHORTSENGINE_BROWSER_E2E_VIDEO=1`.
 - Port already used: start with a different port, e.g. `PORT=4182 npm run dev`.
 - No API key: expected for local demo; mock transcription is the safe default.
-- YouTube link does not render: expected for this foundation milestone. Only authorized URL validation is enabled until a real ingest adapter creates an MP4 artifact.
+- Real YouTube ingest is opt-in and manual. It requires `SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1`, downloader readiness, explicit rights confirmation and a smoke allowlist or `SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED=1`.
 
 ## Known Limitations
 

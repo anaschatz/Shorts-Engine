@@ -68,6 +68,9 @@ jobs:
       - name: Staging readiness contract
         run: npm run staging:check
 
+      - name: YouTube ingest doctor
+        run: npm run youtube:doctor
+
       - name: Lint
         run: npm run lint
 

@@ -16,6 +16,7 @@ const PACKAGE_JSON_RELATIVE_PATH = "package.json";
 const REQUIRED_WORKFLOW_COMMANDS = Object.freeze([
   "npm run env:check",
   "npm run staging:check",
+  "npm run youtube:doctor",
   "npm run lint",
   "npm run build",
   "npm test",
@@ -46,6 +47,8 @@ const REQUIRED_PACKAGE_SCRIPTS = Object.freeze({
   "staging:smoke": "node tools/release/check-staging-smoke.mjs",
   "staging:smoke:cleanup": "node tools/release/cleanup-staging-full-smoke.mjs",
   "staging:smoke:full": "node tools/release/check-staging-full-smoke.mjs",
+  "youtube:doctor": "node tools/release/check-youtube-ingest.mjs",
+  "youtube:smoke": "node demo/run-youtube-smoke.mjs",
 });
 
 const FAILURE_ARTIFACT_ALLOWLIST = Object.freeze([

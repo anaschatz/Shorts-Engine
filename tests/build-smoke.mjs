@@ -16,9 +16,11 @@ for (const file of [
   "demo/print-manual.mjs",
   "demo/run-browser-smoke.mjs",
   "demo/run-smoke.mjs",
+  "demo/run-youtube-smoke.mjs",
   "tools/release/check-environment.mjs",
   "tools/release/check-staging-readiness.mjs",
   "tools/release/check-staging-smoke.mjs",
+  "tools/release/check-youtube-ingest.mjs",
   "tools/release/check-release-readiness.mjs",
   "tools/release/check-remote-ci.mjs",
   "tools/release/print-github-cli-setup.mjs",
@@ -55,9 +57,11 @@ execFileSync("node", ["--check", "demo/create-fixture.mjs"], { stdio: "pipe" });
 execFileSync("node", ["--check", "demo/print-manual.mjs"], { stdio: "pipe" });
 execFileSync("node", ["--check", "demo/run-browser-smoke.mjs"], { stdio: "pipe" });
 execFileSync("node", ["--check", "demo/run-smoke.mjs"], { stdio: "pipe" });
+execFileSync("node", ["--check", "demo/run-youtube-smoke.mjs"], { stdio: "pipe" });
 execFileSync("node", ["--check", "tools/release/check-environment.mjs"], { stdio: "pipe" });
 execFileSync("node", ["--check", "tools/release/check-staging-readiness.mjs"], { stdio: "pipe" });
 execFileSync("node", ["--check", "tools/release/check-staging-smoke.mjs"], { stdio: "pipe" });
+execFileSync("node", ["--check", "tools/release/check-youtube-ingest.mjs"], { stdio: "pipe" });
 execFileSync("node", ["--check", "tools/release/check-release-readiness.mjs"], { stdio: "pipe" });
 execFileSync("node", ["--check", "tools/release/check-remote-ci.mjs"], { stdio: "pipe" });
 execFileSync("node", ["--check", "tools/release/print-github-cli-setup.mjs"], { stdio: "pipe" });
