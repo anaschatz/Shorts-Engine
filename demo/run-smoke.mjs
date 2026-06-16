@@ -109,8 +109,6 @@ function startServer(port) {
       ...process.env,
       PORT: String(port),
       MATCHCUTS_TRANSCRIPTION_PROVIDER: "mock",
-      MATCHCUTS_PERSISTENCE_ADAPTER: "sqlite",
-      MATCHCUTS_SQLITE_FILE: "demo-smoke.sqlite",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });

@@ -412,8 +412,6 @@ function startServer(port, env) {
       PORT: String(port),
       SHORTSENGINE_YOUTUBE_INGEST_ENABLED: "1",
       MATCHCUTS_TRANSCRIPTION_PROVIDER: "mock",
-      MATCHCUTS_PERSISTENCE_ADAPTER: "sqlite",
-      MATCHCUTS_SQLITE_FILE: "youtube-live-e2e.sqlite",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });

@@ -16,6 +16,7 @@ diagnosis, so no raw logs or artifacts were downloaded or persisted.
 - Enforce the FFmpeg setup through `verify-release-gate`, `static-lint`, and a focused release-gate test.
 - Keep local persistence as the default CI adapter; sqlite remains covered by focused adapter tests and staging config.
 - Enforce that CI does not set `MATCHCUTS_PERSISTENCE_ADAPTER=sqlite` globally.
+- Remove hardcoded sqlite env from demo smoke server runners so Node 20 CI can run with local persistence defaults.
 - Preserve failure-only artifacts, no browser skip, and no real cloud integration in default CI.
 
 ## Follow-Up

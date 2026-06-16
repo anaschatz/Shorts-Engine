@@ -30,11 +30,18 @@ override changed safe defaults that the suite intentionally verifies. The releas
 now keeps local persistence as the default and relies on focused sqlite tests plus
 staging configuration for sqlite coverage.
 
+The following remote run then passed tests/eval/brain and failed at `API demo smoke`.
+Structured step metadata showed the failure happened only when the demo server path ran.
+The demo smoke runners were also forcing sqlite internally, which is unsafe for Node 20
+CI where `node:sqlite` may be unavailable. Demo smoke runners now inherit the default
+local persistence adapter unless an operator explicitly provides an environment override.
+
 ## Safety Notes
 
 - No raw GitHub logs or artifacts are persisted.
 - Failed job summaries include only safe job/step names.
 - The CI workflow must not force `MATCHCUTS_PERSISTENCE_ADAPTER=sqlite` globally.
+- Demo smoke server runners must not force sqlite internally.
 - Browser runtime skip remains forbidden in the release gate.
 - Failure artifacts remain failure-only and allowlisted.
 - Real cloud integration remains opt-in and outside default CI.
