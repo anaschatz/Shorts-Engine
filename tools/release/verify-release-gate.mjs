@@ -178,6 +178,8 @@ function verifyWorkflowContract(workflowText) {
   assert(/npm ci/.test(workflowText), "RELEASE_INSTALL_INVALID", "CI workflow must use npm ci when a lockfile exists.");
   assert(/npm install/.test(workflowText), "RELEASE_INSTALL_INVALID", "CI workflow must retain npm install fallback.");
   assert(/npm run demo:browser:install/.test(workflowText), "RELEASE_PLAYWRIGHT_INSTALL_MISSING", "CI workflow must install Playwright Chromium.");
+  assert(/apt-get\s+install[\s\S]*\bffmpeg\b/.test(workflowText), "RELEASE_FFMPEG_INSTALL_MISSING", "CI workflow must install FFmpeg tools before runtime verification.");
+  assert(/ffmpeg\s+-version/.test(workflowText) && /ffprobe\s+-version/.test(workflowText), "RELEASE_RUNTIME_VERIFY_MISSING", "CI workflow must verify FFmpeg and FFprobe availability.");
   assert(/uses:\s*actions\/upload-artifact@v4/.test(workflowText), "RELEASE_ARTIFACT_UPLOAD_MISSING", "CI workflow must upload diagnostics on failure.");
   assert(/if:\s*failure\(\)/.test(workflowText), "RELEASE_ARTIFACT_UPLOAD_UNSAFE", "CI workflow must upload artifacts only on failure.");
   assert(!/SHORTSENGINE_BROWSER_E2E_ALLOW_SKIP/.test(workflowText), "RELEASE_BROWSER_SKIP_UNSAFE", "Release gate must not skip missing Playwright runtime.");
@@ -196,6 +198,10 @@ function verifyWorkflowContract(workflowText) {
     artifactUpload: {
       failureOnly: true,
       allowlist: artifactPaths,
+    },
+    runtimeTools: {
+      ffmpegInstallRequired: true,
+      ffmpegVerifyRequired: true,
     },
     realCloudIntegrationDefault: false,
     browserRuntimeSkipAllowed: false,

@@ -578,6 +578,8 @@ assert.match(githubWorkflow, /~\/\.cache\/ms-playwright/, "CI workflow should ca
 assert.match(githubWorkflow, /npm ci/, "CI workflow should use npm ci when a lockfile exists");
 assert.match(githubWorkflow, /npm install/, "CI workflow should retain npm install fallback when no lockfile exists");
 assert.match(githubWorkflow, /npm run demo:browser:install/, "CI workflow should install Playwright Chromium");
+assert.match(githubWorkflow, /apt-get\s+install[\s\S]*\bffmpeg\b/, "CI workflow should install FFmpeg tools before runtime verification");
+assert.match(githubWorkflow, /ffmpeg\s+-version[\s\S]*ffprobe\s+-version/, "CI workflow should verify FFmpeg and FFprobe availability");
 assert.match(githubWorkflow, /uses:\s*actions\/upload-artifact@v4/, "CI workflow should use upload-artifact for failure diagnostics");
 assert.match(githubWorkflow, /if:\s*failure\(\)/, "CI workflow should upload artifacts only on failure");
 assert.match(githubWorkflow, /demo\/results\/latest\.json/, "CI workflow should upload API smoke latest report on failure");

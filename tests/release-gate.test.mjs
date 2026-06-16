@@ -96,6 +96,10 @@ test("release gate verifier accepts the valid workflow contract", () => {
   assert.deepEqual(result.artifactPolicy.allowlist, FAILURE_ARTIFACT_ALLOWLIST);
   assert.equal(result.workflow.realCloudIntegrationDefault, false);
   assert.equal(result.workflow.browserRuntimeSkipAllowed, false);
+  assert.deepEqual(result.workflow.runtimeTools, {
+    ffmpegInstallRequired: true,
+    ffmpegVerifyRequired: true,
+  });
   assert.equal(result.releaseReadiness.ready, true);
   assert.equal(result.releaseReadiness.networkCalls, false);
   assert.equal(result.releaseReadiness.remoteProof.automaticAuth, false);
@@ -116,6 +120,14 @@ test("release gate verifier rejects browser runtime skip flags", () => {
   assert.throws(
     () => verifyWithFixture({ workflowText }),
     /Release gate must not skip missing Playwright runtime/,
+  );
+});
+
+test("release gate verifier rejects missing FFmpeg runtime setup", () => {
+  const workflowText = VALID_WORKFLOW.replace(/      - name: Install FFmpeg tools[\s\S]*?(?=      - name: Verify runtime tools)/, "");
+  assert.throws(
+    () => verifyWithFixture({ workflowText }),
+    /CI workflow must install FFmpeg tools before runtime verification/,
   );
 });
 
