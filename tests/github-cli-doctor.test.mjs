@@ -111,6 +111,11 @@ test("GitHub CLI doctor fails safely when gh is missing or auth is missing", asy
   assert.equal(missingGhError.passed, false);
   assert.equal(missingGhError.skipped, false);
   assert.equal(missingGhError.nextAction, "run-npm-run-github-setup");
+  assert.equal(missingGhError.operatorRecovery.setupCommand, "npm run github:setup");
+  assert.equal(missingGhError.operatorRecovery.installCommand, "brew install gh");
+  assert.equal(missingGhError.operatorRecovery.verifyCommand, "gh --version");
+  assert.equal(missingGhError.operatorRecovery.nextCommand, "npm run github:doctor");
+  assert.equal(missingGhError.operatorRecovery.manualOnly, true);
   assert.equal(findSensitiveLeak(missingGhError), null);
 
   const missingAuth = await doctor({
@@ -122,6 +127,10 @@ test("GitHub CLI doctor fails safely when gh is missing or auth is missing", asy
   assert.equal(missingAuthError.code, "GITHUB_AUTH_MISSING");
   assert.equal(missingAuthError.phase, "github-auth");
   assert.equal(missingAuthError.nextAction, "run-gh-auth-login-manually");
+  assert.equal(missingAuthError.operatorRecovery.authCommand, "gh auth login");
+  assert.equal(missingAuthError.operatorRecovery.verifyCommand, "gh auth status");
+  assert.equal(missingAuthError.operatorRecovery.nextCommand, "npm run github:doctor");
+  assert.equal(missingAuthError.operatorRecovery.manualOnly, true);
   assert.equal(findSensitiveLeak(missingAuthError), null);
 });
 
@@ -138,6 +147,8 @@ test("GitHub CLI doctor classifies network failures separately", async () => {
   assert.equal(networkError.code, "GITHUB_NETWORK_UNAVAILABLE");
   assert.equal(networkError.phase, "network");
   assert.equal(networkError.nextAction, "check-network-and-github-connectivity-then-rerun");
+  assert.equal(networkError.operatorRecovery.verifyCommand, "gh auth status");
+  assert.equal(networkError.operatorRecovery.nextCommand, "npm run github:doctor");
   assert.equal(findSensitiveLeak(networkError), null);
 });
 

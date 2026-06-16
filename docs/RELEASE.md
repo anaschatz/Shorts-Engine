@@ -68,20 +68,20 @@ npm run remote:ci:proof
 
 `remote:ci:proof` writes a safe release proof report to `release/results/remote-ci-latest.json` plus a timestamped `remote-ci-proof-*.json` file. The report includes repository owner/name, branch, commit SHA, workflow/run metadata, release-job status, failed job names only, bounded polling metadata, `logsDownloaded: false`, `artifactsDownloaded: false`, and fix-forward guidance.
 
-When GitHub CLI is missing, auth is missing, no matching run exists or the run times out, `remote:ci:proof` still writes a safe failure proof. Failure proofs include only a structured code/message/nextAction, empty repo/commit/run fields, bounded wait metadata, and `rawLogsRequired: false` / `rawArtifactsRequired: false`.
+When GitHub CLI is missing, auth is missing, no matching run exists or the run times out, `remote:ci:proof` still writes a safe failure proof. Failure proofs include only a structured code/message/nextAction, safe manual `operatorRecovery` commands, empty repo/commit/run fields, bounded wait metadata, and `rawLogsRequired: false` / `rawArtifactsRequired: false`.
 
 Before writing a proof report, the proof writer validates the remote CI summary shape. Missing release-job metadata, invalid branch/SHA/run fields, unsafe URLs, local paths or secret-shaped values fail closed with structured errors instead of writing partial evidence.
 
 Before using it, make sure `gh auth status` succeeds locally. The check fails closed when `gh` is missing, auth is unavailable, no matching run is found, the run times out, GitHub output is invalid JSON, the remote run does not match the exact commit SHA, or the summary would leak secrets/paths/provider identifiers. Missing CLI/auth failures use shared codes:
 
-- `GITHUB_CLI_MISSING`: install GitHub CLI, then rerun `npm run github:doctor`.
+- `GITHUB_CLI_MISSING`: install GitHub CLI, for example `brew install gh` on macOS, verify `gh --version`, then rerun `npm run github:doctor`.
 - `GITHUB_AUTH_MISSING`: run `gh auth login` manually, verify `gh auth status`, then rerun remote proof.
 - `GITHUB_NETWORK_UNAVAILABLE`: check network/GitHub connectivity, then rerun `npm run github:doctor`.
 - `REMOTE_CI_RUN_NOT_FOUND`: wait for GitHub Actions or confirm branch/SHA.
 - `REMOTE_CI_TIMEOUT`: wait for the bounded run to finish.
 - `REMOTE_CI_SHA_MISMATCH`: confirm the proof is checking the pushed commit.
 
-Missing CLI/auth failures include a safe `nextAction`; start with `npm run github:setup` when the local machine has not been prepared yet.
+Missing CLI/auth failures include a safe `nextAction` and `operatorRecovery` command hints; start with `npm run github:setup` when the local machine has not been prepared yet. The app never runs install/auth commands automatically.
 
 Remote CI polling is bounded:
 

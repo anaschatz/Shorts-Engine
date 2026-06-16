@@ -18,6 +18,43 @@ class RemoteCiProofError extends Error {
   }
 }
 
+const DEFAULT_OPERATOR_RECOVERY_BY_CODE = Object.freeze({
+  GITHUB_CLI_MISSING: {
+    setupCommand: "npm run github:setup",
+    installCommand: "brew install gh",
+    verifyCommand: "gh --version",
+    nextCommand: "npm run github:doctor",
+    manualOnly: true,
+  },
+  GITHUB_AUTH_MISSING: {
+    setupCommand: "npm run github:setup",
+    authCommand: "gh auth login",
+    verifyCommand: "gh auth status",
+    nextCommand: "npm run github:doctor",
+    manualOnly: true,
+  },
+  REMOTE_CI_NETWORK_UNAVAILABLE: {
+    setupCommand: "npm run github:setup",
+    verifyCommand: "gh auth status",
+    nextCommand: "npm run remote:ci",
+    manualOnly: true,
+  },
+  REMOTE_CI_RUN_NOT_FOUND: {
+    verifyCommand: "git rev-parse HEAD",
+    nextCommand: "npm run remote:ci",
+    manualOnly: true,
+  },
+  REMOTE_CI_TIMEOUT: {
+    nextCommand: "npm run remote:ci",
+    manualOnly: true,
+  },
+  REMOTE_CI_SHA_MISMATCH: {
+    verifyCommand: "git rev-parse HEAD",
+    nextCommand: "npm run remote:ci",
+    manualOnly: true,
+  },
+});
+
 function safeRelativeFromRoot(rootDir, filePath) {
   const target = resolve(rootDir, filePath);
   const fromRoot = relative(rootDir, target);
@@ -97,6 +134,27 @@ function requireNonNegativeInteger(value, label, min = 0) {
   return number;
 }
 
+function optionalSafeCommand(value, label) {
+  if (value === null || value === undefined || value === "") return null;
+  return requireText(value, label, /^[A-Za-z0-9 .:_/-]{1,140}$/, 140);
+}
+
+function safeOperatorRecovery(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const recovery = {};
+  for (const key of ["setupCommand", "installCommand", "authCommand", "verifyCommand", "nextCommand"]) {
+    const command = optionalSafeCommand(value[key], `operator recovery ${key}`);
+    if (command) recovery[key] = command;
+  }
+  if (typeof value.manualOnly === "boolean") recovery.manualOnly = value.manualOnly;
+  return Object.keys(recovery).length > 0 ? recovery : null;
+}
+
+function defaultOperatorRecoveryForCode(code) {
+  const recovery = DEFAULT_OPERATOR_RECOVERY_BY_CODE[code];
+  return recovery ? { ...recovery } : null;
+}
+
 function requireBranch(value) {
   const branch = requireText(value, "branch", /^[A-Za-z0-9_.\/-]{1,120}$/, 120);
   if (branch.includes("..") || branch.includes("\\") || branch.startsWith("-")) {
@@ -152,6 +210,7 @@ function buildRemoteCiTriage({ phase, status, nextAction, failure = null, summar
     phase,
     status,
     nextAction,
+    operatorRecovery: failure?.operatorRecovery || null,
     githubCli: {
       available: failure ? failure.code !== "GITHUB_CLI_MISSING" : true,
       authenticated: failure ? !["GITHUB_CLI_MISSING", "GITHUB_AUTH_MISSING"].includes(failure.code) : true,
@@ -289,6 +348,8 @@ function buildRemoteCiFailureProof(summary, options = {}) {
     status: safeStatus(safeSummary.status || statusForFailureCode(failureCode)),
     nextAction: failureNextAction,
   };
+  const operatorRecovery = safeOperatorRecovery(safeSummary.operatorRecovery || defaultOperatorRecoveryForCode(failureCode));
+  if (operatorRecovery) failure.operatorRecovery = operatorRecovery;
   const attempts = options.error && options.error.details
     ? Number(options.error.details.attempts || 0)
     : Number(safeSummary.attempts || 0);
@@ -401,6 +462,7 @@ async function writeRemoteCiProof(options = {}) {
     skipped: proof.skipped,
     code: failure ? failure.code : undefined,
     nextAction: proof.remoteCi.nextAction,
+    operatorRecovery: failure ? failure.operatorRecovery || null : undefined,
   };
 }
 

@@ -17,6 +17,29 @@ const GITHUB_DOCTOR_PHASES = Object.freeze({
   COMPLETED: "completed",
 });
 
+const OPERATOR_RECOVERY_BY_CODE = Object.freeze({
+  GITHUB_CLI_MISSING: {
+    setupCommand: "npm run github:setup",
+    installCommand: "brew install gh",
+    verifyCommand: "gh --version",
+    nextCommand: "npm run github:doctor",
+    manualOnly: true,
+  },
+  GITHUB_AUTH_MISSING: {
+    setupCommand: "npm run github:setup",
+    authCommand: "gh auth login",
+    verifyCommand: "gh auth status",
+    nextCommand: "npm run github:doctor",
+    manualOnly: true,
+  },
+  GITHUB_NETWORK_UNAVAILABLE: {
+    setupCommand: "npm run github:setup",
+    verifyCommand: "gh auth status",
+    nextCommand: "npm run github:doctor",
+    manualOnly: true,
+  },
+});
+
 class GithubCliDoctorError extends Error {
   constructor(code, message, details = {}) {
     super(message);
@@ -375,6 +398,11 @@ function phaseForCode(code) {
   return GITHUB_DOCTOR_PHASES.GIT_CONTEXT;
 }
 
+function operatorRecoveryForCode(code) {
+  const recovery = OPERATOR_RECOVERY_BY_CODE[code];
+  return recovery ? { ...recovery } : null;
+}
+
 function safeError(error) {
   const code = error && error.code ? error.code : "GITHUB_DOCTOR_FAILED";
   const rawMessage = error && error.message ? sanitizeText(error.message, 240) : "GitHub CLI readiness check failed.";
@@ -395,6 +423,7 @@ function safeError(error) {
     code,
     message: findSensitiveLeak(rawMessage) ? "GitHub CLI readiness check failed." : rawMessage,
     nextAction: nextActions[code] || "inspect-safe-summary",
+    operatorRecovery: operatorRecoveryForCode(code),
   };
 }
 

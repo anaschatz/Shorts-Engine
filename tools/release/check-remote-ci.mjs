@@ -23,6 +23,43 @@ const REMOTE_CI_PHASES = Object.freeze({
   COMPLETED: "completed",
 });
 
+const OPERATOR_RECOVERY_BY_CODE = Object.freeze({
+  GITHUB_CLI_MISSING: {
+    setupCommand: "npm run github:setup",
+    installCommand: "brew install gh",
+    verifyCommand: "gh --version",
+    nextCommand: "npm run github:doctor",
+    manualOnly: true,
+  },
+  GITHUB_AUTH_MISSING: {
+    setupCommand: "npm run github:setup",
+    authCommand: "gh auth login",
+    verifyCommand: "gh auth status",
+    nextCommand: "npm run github:doctor",
+    manualOnly: true,
+  },
+  REMOTE_CI_NETWORK_UNAVAILABLE: {
+    setupCommand: "npm run github:setup",
+    verifyCommand: "gh auth status",
+    nextCommand: "npm run remote:ci",
+    manualOnly: true,
+  },
+  REMOTE_CI_RUN_NOT_FOUND: {
+    verifyCommand: "git rev-parse HEAD",
+    nextCommand: "npm run remote:ci",
+    manualOnly: true,
+  },
+  REMOTE_CI_TIMEOUT: {
+    nextCommand: "npm run remote:ci",
+    manualOnly: true,
+  },
+  REMOTE_CI_SHA_MISMATCH: {
+    verifyCommand: "git rev-parse HEAD",
+    nextCommand: "npm run remote:ci",
+    manualOnly: true,
+  },
+});
+
 class RemoteCiError extends Error {
   constructor(code, message, details = {}) {
     super(message);
@@ -382,6 +419,11 @@ function statusForFailureCode(code) {
   return "failed";
 }
 
+function operatorRecoveryForCode(code) {
+  const recovery = OPERATOR_RECOVERY_BY_CODE[code];
+  return recovery ? { ...recovery } : null;
+}
+
 function buildSummary({ config, context, repository, details, attempts, startedMs, checkedMs }) {
   const failedJobs = failedJobsFor(details, config.releaseJobName);
   const releaseJob = releaseJobFor(details, config.releaseJobName);
@@ -503,6 +545,7 @@ function safeError(error) {
     code,
     message: findSensitiveLeak(rawMessage) ? "Remote CI verification failed." : rawMessage,
     nextAction: nextActions[code] || "inspect-safe-summary",
+    operatorRecovery: operatorRecoveryForCode(code),
   };
 }
 

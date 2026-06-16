@@ -21,6 +21,8 @@ Close the local `GITHUB_CLI_MISSING` limitation by making GitHub CLI setup and r
 
 `remote:ci` and `remote:ci:proof` verify the exact commit SHA. They do not download logs/artifacts and do not mutate GitHub settings.
 
+Safe missing-CLI/auth/network/no-run failures may include `operatorRecovery` command hints such as `npm run github:setup`, `brew install gh`, `gh --version`, `gh auth login`, `gh auth status` and `npm run remote:ci`. These are manual instructions only; ShortsEngine must never execute install or auth commands automatically.
+
 ## Safe Failure Codes
 
 - `GITHUB_CLI_MISSING`

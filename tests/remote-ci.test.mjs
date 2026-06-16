@@ -240,6 +240,10 @@ test("remote CI verifier fails safely when gh is missing or unauthenticated", as
   assert.equal(missingGhError.phase, "github-cli");
   assert.equal(missingGhError.status, "failed");
   assert.equal(missingGhError.nextAction, "run-npm-run-github-setup");
+  assert.equal(missingGhError.operatorRecovery.setupCommand, "npm run github:setup");
+  assert.equal(missingGhError.operatorRecovery.installCommand, "brew install gh");
+  assert.equal(missingGhError.operatorRecovery.verifyCommand, "gh --version");
+  assert.equal(missingGhError.operatorRecovery.nextCommand, "npm run github:doctor");
   assert.equal(findSensitiveLeak(missingGhError), null);
 
   const unauthenticated = await check({
@@ -251,6 +255,9 @@ test("remote CI verifier fails safely when gh is missing or unauthenticated", as
   assert.equal(unauthenticatedError.code, "GITHUB_AUTH_MISSING");
   assert.equal(unauthenticatedError.phase, "github-auth");
   assert.equal(unauthenticatedError.nextAction, "run-gh-auth-login-manually");
+  assert.equal(unauthenticatedError.operatorRecovery.authCommand, "gh auth login");
+  assert.equal(unauthenticatedError.operatorRecovery.verifyCommand, "gh auth status");
+  assert.equal(unauthenticatedError.operatorRecovery.nextCommand, "npm run github:doctor");
   assert.equal(findSensitiveLeak(unauthenticatedError), null);
 });
 
@@ -267,6 +274,8 @@ test("remote CI verifier reports network failures without raw output", async () 
   assert.equal(networkError.code, "REMOTE_CI_NETWORK_UNAVAILABLE");
   assert.equal(networkError.phase, "network");
   assert.equal(networkError.nextAction, "check-network-and-github-connectivity-then-rerun");
+  assert.equal(networkError.operatorRecovery.verifyCommand, "gh auth status");
+  assert.equal(networkError.operatorRecovery.nextCommand, "npm run remote:ci");
   assert.equal(findSensitiveLeak(networkError), null);
 });
 
@@ -286,6 +295,8 @@ test("remote CI verifier fails safely when git remote or run is missing", async 
   const noRunError = safeError(noRun);
   assert.equal(noRunError.code, "REMOTE_CI_RUN_NOT_FOUND");
   assert.equal(noRunError.nextAction, "wait-for-actions-or-confirm-branch-sha");
+  assert.equal(noRunError.operatorRecovery.verifyCommand, "git rev-parse HEAD");
+  assert.equal(noRunError.operatorRecovery.nextCommand, "npm run remote:ci");
   assert.equal(findSensitiveLeak(noRunError), null);
 });
 
@@ -340,6 +351,8 @@ test("remote CI verifier fails closed when run details do not match the exact co
   const mismatchError = safeError(mismatch);
   assert.equal(mismatchError.code, "REMOTE_CI_SHA_MISMATCH");
   assert.equal(mismatchError.nextAction, "wait-for-actions-or-confirm-branch-sha");
+  assert.equal(mismatchError.operatorRecovery.verifyCommand, "git rev-parse HEAD");
+  assert.equal(mismatchError.operatorRecovery.nextCommand, "npm run remote:ci");
   assert.equal(findSensitiveLeak(mismatchError), null);
 });
 
@@ -372,6 +385,7 @@ test("remote CI verifier times out while run is pending", async () => {
   assert.equal(pendingError.phase, "workflow");
   assert.equal(pendingError.status, "pending");
   assert.equal(pendingError.nextAction, "wait-for-remote-ci");
+  assert.equal(pendingError.operatorRecovery.nextCommand, "npm run remote:ci");
   assert.equal(findSensitiveLeak(pendingError), null);
 });
 
@@ -450,9 +464,14 @@ test("remote CI proof writes safe failure reports when GitHub CLI is missing", a
   assert.equal(latest.passed, false);
   assert.equal(latest.skipped, false);
   assert.equal(latest.nextAction, "run-npm-run-github-setup");
+  assert.equal(latest.triage.operatorRecovery.installCommand, "brew install gh");
+  assert.equal(latest.triage.operatorRecovery.verifyCommand, "gh --version");
   assert.equal(latest.triage.githubCli.available, false);
   assert.equal(latest.remoteCi.failure.code, "GITHUB_CLI_MISSING");
   assert.equal(latest.remoteCi.failure.nextAction, "run-npm-run-github-setup");
+  assert.equal(latest.remoteCi.failure.operatorRecovery.setupCommand, "npm run github:setup");
+  assert.equal(latest.remoteCi.failure.operatorRecovery.installCommand, "brew install gh");
+  assert.equal(latest.remoteCi.failure.operatorRecovery.nextCommand, "npm run github:doctor");
   assert.equal(latest.remoteCi.logsDownloaded, false);
   assert.equal(latest.remoteCi.artifactsDownloaded, false);
   assert.equal(latest.fixForward.rawLogsRequired, false);
@@ -472,8 +491,10 @@ test("remote CI failure proof validates safe failure code shape", () => {
   assert.equal(proof.status, "failed");
   assert.equal(proof.nextAction, "run-gh-auth-login-manually");
   assert.equal(proof.triage.githubCli.authenticated, false);
+  assert.equal(proof.triage.operatorRecovery.authCommand, "gh auth login");
   assert.equal(proof.remoteCi.failure.code, "GITHUB_AUTH_MISSING");
   assert.equal(proof.remoteCi.failure.nextAction, "run-gh-auth-login-manually");
+  assert.equal(proof.remoteCi.failure.operatorRecovery.verifyCommand, "gh auth status");
   assert.equal(proof.remoteCi.repository.nameWithOwner, null);
   assert.equal(proof.remoteCi.logsDownloaded, false);
   assert.equal(findSensitiveLeak(proof), null);

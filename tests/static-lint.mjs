@@ -313,6 +313,9 @@ assert.match(githubDoctor, /remoteMutation: false/, "GitHub doctor should declar
 assert.match(githubDoctor, /logsDownloaded: false/, "GitHub doctor should not download logs");
 assert.match(githubDoctor, /artifactsDownloaded: false/, "GitHub doctor should not download artifacts");
 assert.match(githubDoctor, /run-npm-run-github-setup/, "GitHub doctor missing-gh failures should point at setup guidance");
+assert.match(githubDoctor, /operatorRecoveryForCode/, "GitHub doctor should attach safe operator recovery commands");
+assert.match(githubDoctor, /brew install gh/, "GitHub doctor missing-gh recovery should include the macOS install command");
+assert.match(githubDoctor, /gh auth login/, "GitHub doctor missing-auth recovery should include manual auth guidance");
 assert.doesNotMatch(githubDoctor, /ghp_|github_pat_|GITHUB_TOKEN\s*=|secret set|repo edit|--method\s+(?:PATCH|PUT|DELETE)|download-logs|view --log|artifact download/i, "GitHub doctor must not hardcode tokens, mutate remotes or download raw logs/artifacts");
 assert.match(githubSetup, /buildGithubCliSetupGuide/, "GitHub setup should expose a testable guide builder");
 assert.match(githubSetup, /documentation-only/, "GitHub setup should be documentation-only");
@@ -350,6 +353,9 @@ assert.match(remoteCi, /waitedMs/, "remote CI verifier should report bounded wai
 assert.match(remoteCi, /findSensitiveLeak/, "remote CI verifier should guard summaries against leaks");
 assert.match(remoteCi, /logsDownloaded: false/, "remote CI verifier should not download logs by default");
 assert.match(remoteCi, /artifactsDownloaded: false/, "remote CI verifier should not download artifacts by default");
+assert.match(remoteCi, /operatorRecoveryForCode/, "remote CI verifier should attach safe operator recovery commands");
+assert.match(remoteCi, /brew install gh/, "remote CI missing-gh recovery should include the macOS install command");
+assert.match(remoteCi, /gh auth login/, "remote CI missing-auth recovery should include manual auth guidance");
 assert.doesNotMatch(remoteCi, /ghp_|github_pat_|GITHUB_TOKEN\s*=|staging:deploy|staging:smoke:full|download-logs|view --log|artifact download/i, "remote CI verifier must not hardcode tokens, deploy, full smoke or download raw logs/artifacts");
 assert.match(remoteCiProof, /runRemoteCiCheck/, "remote CI proof should build on the verifier");
 assert.match(remoteCiProof, /buildRemoteCiFailureProof/, "remote CI proof should write safe failure proofs for missing gh/auth/no-run cases");
@@ -361,6 +367,7 @@ assert.match(remoteCiProof, /triage:\s*buildRemoteCiTriage/, "remote CI proof sh
 assert.match(remoteCiProof, /passed:\s*safeSummary\.ok/, "remote CI proof should include a passed boolean");
 assert.match(remoteCiProof, /skipped:\s*false/, "remote CI proof should declare that remote proof is not skipped");
 assert.match(remoteCiProof, /failure/, "remote CI proof should include a structured safe failure section");
+assert.match(remoteCiProof, /safeOperatorRecovery/, "remote CI proof should validate operator recovery commands before persistence");
 assert.match(remoteCiProof, /rawLogsRequired: false/, "remote CI proof should not require raw logs by default");
 assert.match(remoteCiProof, /rawArtifactsRequired: false/, "remote CI proof should not require raw artifacts by default");
 assert.match(remoteCiProof, /findSensitiveLeak/, "remote CI proof should guard proof output against leaks");

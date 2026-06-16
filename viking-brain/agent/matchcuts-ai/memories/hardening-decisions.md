@@ -52,3 +52,4 @@
 - Remote CI proof should distinguish missing CLI, missing auth, network unavailable, pending, failed and cancelled states with safe phases/statuses while keeping logs/artifacts absent.
 - GitHub CLI doctor should classify missing CLI, missing auth, network unavailable, repository, Actions and branch-protection readiness with safe phase/status metadata and no raw stderr/logs.
 - Report-safety and log redaction must stay aligned for GitHub/GitLab/Slack tokens, private-key blocks, YouTube cookies, signed download tokens, raw log fields and provider ids.
+- GitHub CLI missing/auth/network/no-run proofs may include safe manual `operatorRecovery` commands, but ShortsEngine must never execute install/auth commands automatically.

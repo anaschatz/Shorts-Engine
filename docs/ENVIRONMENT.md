@@ -187,7 +187,7 @@ Use `docs/YOUTUBE_INGEST_MANUAL_SMOKE.md` before the first real downloader run. 
 6. Run `npm run render:proof`.
 7. Run `npm run release:check`.
 8. Run `npm run release:readiness`.
-9. If remote GitHub proof is needed, run `npm run github:setup` and authenticate `gh` manually before `npm run github:doctor`.
+9. If remote GitHub proof is needed, run `npm run github:setup` and authenticate `gh` manually before `npm run github:doctor`; safe failures may suggest `brew install gh`, `gh --version`, `gh auth login` and `gh auth status`, but ShortsEngine never executes those setup/auth commands automatically.
 10. After a validated push, run `npm run remote:ci` and `npm run remote:ci:proof`; the proof must match the exact commit SHA and uses `GITHUB_CLI_MISSING`, `GITHUB_AUTH_MISSING`, `GITHUB_NETWORK_UNAVAILABLE`, `REMOTE_CI_NETWORK_UNAVAILABLE`, `REMOTE_CI_RUN_NOT_FOUND`, `REMOTE_CI_TIMEOUT` and `REMOTE_CI_SHA_MISMATCH` as safe recovery codes.
 11. Run `npm run youtube:doctor`; default disabled mode should return a safe skipped summary.
 12. Start the server with staging env values.
