@@ -1,32 +1,103 @@
 const { CONFIG } = require("./config.cjs");
 const { AppError, SAFE_MESSAGES } = require("./errors.cjs");
-const { createFallbackCaptions, HOOKS, validateEditPlan } = require("./edit-plan.cjs");
+const {
+  createAnimationCues,
+  createCaptionEmphasis,
+  createCropStrategy,
+  createFallbackCaptions,
+  framingModeForMetadata,
+  hasGoalLanguage,
+  hookForHighlightType,
+  validateEditPlan,
+} = require("./edit-plan.cjs");
 const { commandAvailable, sanitizeText } = require("./media.cjs");
 const { runFfmpeg } = require("./render.cjs");
 
-const GOAL_TERMS = [
-  "goal",
-  "finish",
-  "finishes",
-  "score",
-  "scores",
+const SHOT_TERMS = [
   "shot",
   "strike",
-  "save",
-  "keeper",
-  "γκολ",
+  "effort",
+  "on target",
+  "σουτ",
   "τελειωμα",
   "τελείωμα",
-  "σουτ",
-  "αποκρουση",
-  "απόκρουση",
-  "δοκαρι",
-  "δοκάρι",
-  "δικτυα",
-  "δίχτυα",
+  "προσπαθεια",
+  "προσπάθεια",
 ];
 
-const TACTICAL_TERMS = [
+const SAVE_TERMS = [
+  "save",
+  "keeper",
+  "goalkeeper",
+  "stops it",
+  "αποκρουση",
+  "απόκρουση",
+  "τερματοφυλακας",
+  "τερματοφύλακας",
+];
+
+const BIG_CHANCE_TERMS = [
+  "chance",
+  "big chance",
+  "so close",
+  "nearly",
+  "almost",
+  "δοκαρι",
+  "δοκάρι",
+  "ευκαιρια",
+  "ευκαιρία",
+];
+
+const FOUL_TERMS = [
+  "foul",
+  "challenge",
+  "tackle",
+  "contact",
+  "σύγκρουση",
+  "συγκρουση",
+  "φαουλ",
+  "φάουλ",
+  "μαρκαρισμα",
+  "μαρκάρισμα",
+];
+
+const HARD_FOUL_TERMS = [
+  "heavy contact",
+  "bad foul",
+  "hard foul",
+  "late challenge",
+  "dangerous tackle",
+  "σκληρο",
+  "σκληρό",
+  "δυνατο",
+  "δυνατό",
+];
+
+const CARD_TERMS = ["yellow card", "red card", "card", "booking", "sent off", "κάρτα", "καρτα", "αποβολη", "αποβολή"];
+
+const COUNTER_TERMS = [
+  "counter",
+  "counter attack",
+  "break",
+  "transition",
+  "final attack",
+  "αντεπιθεση",
+  "αντεπίθεση",
+];
+
+const SKILL_TERMS = [
+  "dribble",
+  "nutmeg",
+  "skill",
+  "touch",
+  "turn",
+  "ντριμπλα",
+  "ντρίμπλα",
+  "προσποιηση",
+  "προσποίηση",
+];
+
+const BUILD_UP_TERMS = [
   "assist",
   "pass",
   "run",
@@ -35,14 +106,13 @@ const TACTICAL_TERMS = [
   "build-up",
   "build up",
   "press",
+  "movement",
   "πάσα",
   "πασα",
   "κινηση",
   "κίνηση",
   "αμυνα",
   "άμυνα",
-  "αντεπιθεση",
-  "αντεπίθεση",
 ];
 
 const REPLAY_TERMS = ["replay", "again", "angle", "ριπλεϊ", "ριπλει", "ξανα", "επανάληψη", "επαναληψη"];
@@ -199,7 +269,15 @@ function normalizedCaptions(transcript) {
 
 function hasTerm(text, terms) {
   const normalized = sanitizeText(text, 400).toLowerCase();
-  return terms.some((term) => normalized.includes(term));
+  return terms.some((term) => {
+    const normalizedTerm = sanitizeText(term, 80).toLowerCase();
+    if (!normalizedTerm) return false;
+    if (/^[a-z0-9\s-]+$/.test(normalizedTerm)) {
+      const escaped = normalizedTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+      return new RegExp(`\\b${escaped}\\b`, "i").test(normalized);
+    }
+    return normalized.includes(normalizedTerm);
+  });
 }
 
 function nearby(items, center, radiusSeconds) {
@@ -210,46 +288,101 @@ function reasonCodesForCaption(caption, signals) {
   const text = caption.text || "";
   const center = (caption.start + caption.end) / 2;
   const reasons = [];
-  if (hasTerm(text, GOAL_TERMS)) reasons.push("goal_like_phrase");
-  if (hasTerm(text, TACTICAL_TERMS)) reasons.push("tactical_build_up");
-  if (hasTerm(text, REPLAY_TERMS)) reasons.push("replay_marker");
+  if (hasGoalLanguage(text)) reasons.push("goal");
+  if (hasTerm(text, HARD_FOUL_TERMS)) reasons.push("hard_foul");
+  if (hasTerm(text, FOUL_TERMS)) reasons.push("foul");
+  if (hasTerm(text, CARD_TERMS)) reasons.push("card_moment");
+  if (hasTerm(text, SAVE_TERMS)) reasons.push("save");
+  if (hasTerm(text, BIG_CHANCE_TERMS)) reasons.push("big_chance");
+  if (hasTerm(text, SHOT_TERMS)) reasons.push("shot_on_target");
+  if (hasTerm(text, COUNTER_TERMS)) reasons.push("counter_attack");
+  if (hasTerm(text, SKILL_TERMS)) reasons.push("skill_move");
+  if (hasTerm(text, BUILD_UP_TERMS)) reasons.push("replay_worthy_moment");
+  if (hasTerm(text, REPLAY_TERMS)) reasons.push("replay_worthy_moment");
   if (hasTerm(text, CROWD_TERMS)) reasons.push("crowd_reaction");
   if (/[!]{1,}|[Α-ΩA-Z]{5,}/.test(text)) reasons.push("commentator_emphasis");
-  if (nearby(signals.audioPeaks, center, 4).length) reasons.push("audio_peak");
+  if (nearby(signals.audioPeaks, center, 4).length) reasons.push("audio_energy_spike");
   if (nearby(signals.sceneChanges, center, 3).length >= 1) reasons.push("scene_change_cluster");
+  if (!reasons.length) reasons.push("generic_highlight");
   return [...new Set(reasons)];
 }
 
 function scoreReasons(reasons) {
   const weights = {
-    goal_like_phrase: 0.3,
-    audio_peak: 0.18,
+    goal: 0.32,
+    big_chance: 0.22,
+    save: 0.21,
+    hard_foul: 0.2,
+    shot_on_target: 0.18,
+    counter_attack: 0.16,
+    skill_move: 0.14,
+    audio_energy_spike: 0.14,
+    audio_peak: 0.14,
     commentator_emphasis: 0.14,
     crowd_reaction: 0.12,
     scene_change_cluster: 0.1,
-    replay_marker: 0.08,
-    tactical_build_up: 0.08,
+    replay_worthy_moment: 0.08,
+    foul: 0.08,
+    card_moment: 0.08,
+    generic_highlight: 0.03,
   };
   return clamp(0.22 + reasons.reduce((sum, reason) => sum + (weights[reason] || 0.04), 0), 0.12, 0.99);
 }
 
+function highlightTypeForReasons(reasons = []) {
+  if (reasons.includes("goal")) return "goal";
+  if (reasons.includes("hard_foul")) return "hard_foul";
+  if (reasons.includes("card_moment")) return "card_moment";
+  if (reasons.includes("foul")) return "foul";
+  if (reasons.includes("save")) return "save";
+  if (reasons.includes("big_chance")) return "big_chance";
+  if (reasons.includes("shot_on_target")) return "shot_on_target";
+  if (reasons.includes("counter_attack")) return "counter_attack";
+  if (reasons.includes("skill_move")) return "skill_move";
+  if (reasons.includes("crowd_reaction")) return "crowd_reaction";
+  if (reasons.includes("replay_worthy_moment")) return "replay_worthy_moment";
+  if (reasons.includes("audio_energy_spike") || reasons.includes("audio_peak")) return "audio_energy_spike";
+  return "generic_highlight";
+}
+
+function titleForHighlightType(highlightType) {
+  const titles = {
+    goal: "Goal impact beat",
+    shot_on_target: "Shot on target",
+    big_chance: "Big chance",
+    save: "Keeper save",
+    foul: "Foul tempo shift",
+    hard_foul: "Hard foul reaction",
+    card_moment: "Card moment",
+    counter_attack: "Counter attack window",
+    skill_move: "Skill move highlight",
+    crowd_reaction: "Crowd reaction",
+    replay_worthy_moment: "Replay-worthy play",
+    audio_energy_spike: "Audio energy spike",
+    generic_highlight: "High-intensity moment",
+  };
+  return titles[highlightType] || titles.generic_highlight;
+}
+
 function hookForMoment(moment, preset) {
-  if (moment.reasonCodes.includes("goal_like_phrase")) return HOOKS.hype;
-  if (moment.reasonCodes.includes("tactical_build_up")) return HOOKS.tactical;
-  if (moment.reasonCodes.includes("crowd_reaction")) return HOOKS.fan;
-  return HOOKS[preset] || HOOKS.hype;
+  return hookForHighlightType(moment.highlightType || highlightTypeForReasons(moment.reasonCodes), preset);
 }
 
 function captionBeatsForMoment(moment, captions, preset) {
   const selected = captions.filter((caption) => caption.start < moment.end && caption.end > moment.start).slice(0, 4);
-  if (selected.length) {
+  const highlightType = moment.highlightType || highlightTypeForReasons(moment.reasonCodes);
+  const selectedHasMisleadingGoal = highlightType !== "goal" && selected.some((caption) => hasGoalLanguage(caption.text));
+  if (selected.length && !selectedHasMisleadingGoal) {
     return selected.map((caption) => ({
       start: Number(Math.max(0, caption.start - moment.start).toFixed(2)),
       end: Number(Math.min(moment.end - moment.start, caption.end - moment.start).toFixed(2)),
       text: caption.text,
     }));
   }
-  return createFallbackCaptions(moment.end - moment.start, preset);
+  return createFallbackCaptions(moment.end - moment.start, preset, {
+    highlightType,
+    hook: moment.hook || hookForHighlightType(highlightType, preset),
+  });
 }
 
 function createFallbackMoments(signals, preset) {
@@ -261,7 +394,8 @@ function createFallbackMoments(signals, preset) {
   return centers.slice(0, 2).map((center, index) => {
     const start = Number(clamp(center - 3.5, 0, Math.max(0, duration - 6)).toFixed(2));
     const end = Number(clamp(start + Math.min(10, duration - start), start + 3, duration).toFixed(2));
-    const reasonCodes = index === 0 ? ["audio_peak"] : ["scene_change_cluster"];
+    const reasonCodes = index === 0 ? ["audio_energy_spike"] : ["replay_worthy_moment", "scene_change_cluster"];
+    const highlightType = highlightTypeForReasons(reasonCodes);
     const score = scoreReasons(reasonCodes) - 0.12;
     return {
       id: `mom_fallback_${index + 1}`,
@@ -269,13 +403,14 @@ function createFallbackMoments(signals, preset) {
       start,
       end,
       center,
-      title: index === 0 ? "Estimated impact moment" : "Estimated replay window",
+      title: titleForHighlightType(highlightType),
       summary: "Deterministic fallback because transcript or signals were limited.",
       reasonCodes,
+      highlightType,
       confidence: Number(score.toFixed(2)),
       retentionScore: Math.round(score * 100),
       suggestedPreset: preset,
-      hook: HOOKS[preset] || HOOKS.hype,
+      hook: hookForHighlightType(highlightType, preset),
       source: "fallback",
     };
   });
@@ -290,6 +425,7 @@ function detectHighlights({ transcript, signals, preset = "hype" } = {}) {
     const start = Number(clamp(center - 4, 0, Math.max(0, duration - 6)).toFixed(2));
     const end = Number(clamp(Math.max(center + 5, start + 6), start + 3, duration).toFixed(2));
     const reasonCodes = reasonCodesForCaption(caption, safeSignals);
+    const highlightType = highlightTypeForReasons(reasonCodes);
     const score = scoreReasons(reasonCodes);
     const moment = {
       id: `mom_${index + 1}`,
@@ -297,12 +433,13 @@ function detectHighlights({ transcript, signals, preset = "hype" } = {}) {
       start,
       end,
       center: Number(center.toFixed(2)),
-      title: reasonCodes.includes("goal_like_phrase") ? "Goal-like impact beat" : "Short-form highlight beat",
+      title: titleForHighlightType(highlightType),
       summary: caption.text,
       reasonCodes,
+      highlightType,
       confidence: Number(score.toFixed(2)),
       retentionScore: Math.round(score * 100),
-      suggestedPreset: reasonCodes.includes("tactical_build_up") ? "tactical" : preset,
+      suggestedPreset: reasonCodes.includes("counter_attack") || reasonCodes.includes("skill_move") ? "tactical" : preset,
       source: "analysis",
     };
     moment.hook = hookForMoment(moment, preset);
@@ -313,7 +450,8 @@ function detectHighlights({ transcript, signals, preset = "hype" } = {}) {
     const center = clamp(peak.time, 0, duration);
     const start = Number(clamp(center - 4, 0, Math.max(0, duration - 6)).toFixed(2));
     const end = Number(clamp(start + 8, start + 3, duration).toFixed(2));
-    const reasonCodes = ["audio_peak", nearby(safeSignals.sceneChanges, center, 3).length ? "scene_change_cluster" : ""].filter(Boolean);
+    const reasonCodes = ["audio_energy_spike", nearby(safeSignals.sceneChanges, center, 3).length ? "scene_change_cluster" : ""].filter(Boolean);
+    const highlightType = highlightTypeForReasons(reasonCodes);
     const score = scoreReasons(reasonCodes) - 0.04;
     return {
       id: `mom_signal_${index + 1}`,
@@ -321,13 +459,14 @@ function detectHighlights({ transcript, signals, preset = "hype" } = {}) {
       start,
       end,
       center: Number(center.toFixed(2)),
-      title: "Audio energy spike",
+      title: titleForHighlightType(highlightType),
       summary: "Detected from media signals.",
       reasonCodes,
+      highlightType,
       confidence: Number(score.toFixed(2)),
       retentionScore: Math.round(score * 100),
       suggestedPreset: preset,
-      hook: HOOKS[preset] || HOOKS.hype,
+      hook: hookForHighlightType(highlightType, preset),
       source: "analysis",
     };
   });
@@ -353,25 +492,46 @@ function detectHighlights({ transcript, signals, preset = "hype" } = {}) {
 }
 
 function effectsForReasons(reasons) {
-  const effects = ["center_crop_9_16", "punch_captions", "brand_safe_template"];
-  if (reasons.includes("audio_peak")) effects.push("beat_sync_cut");
+  const effects = ["wide_safe_framing", "social_caption_pop", "caption_emphasis", "brand_safe_template"];
+  if (reasons.includes("audio_energy_spike") || reasons.includes("audio_peak")) effects.push("beat_sync_pulse");
   if (reasons.includes("scene_change_cluster")) effects.push("scene_snap_zoom");
-  if (reasons.includes("tactical_build_up")) effects.push("passing_lane_emphasis");
-  if (reasons.includes("replay_marker")) effects.push("replay_stutter");
+  if (reasons.includes("counter_attack") || reasons.includes("skill_move")) effects.push("action_lane_emphasis");
+  if (reasons.includes("replay_worthy_moment")) effects.push("replay_stutter");
   return [...new Set(effects)];
 }
 
 function createCandidateEditPlans({ moments, metadata, title = "ShortsEngine Short", preset = "hype" } = {}) {
   const candidates = (Array.isArray(moments) ? moments : []).slice(0, 3).map((moment) => {
+    const duration = moment.end - moment.start;
+    const highlightType = moment.highlightType || highlightTypeForReasons(moment.reasonCodes || []);
+    const hook = sanitizeText(moment.hook || hookForHighlightType(highlightType, preset), 96);
+    const captions = moment.captionBeats && moment.captionBeats.length
+      ? moment.captionBeats
+      : createFallbackCaptions(duration, preset, { highlightType, hook });
+    const framingMode = framingModeForMetadata(metadata);
+    const captionEmphasis = createCaptionEmphasis(captions, highlightType);
+    const animationCues = createAnimationCues(duration, moment.reasonCodes || []);
     const plan = {
       sourceStart: moment.start,
       sourceEnd: moment.end,
       aspectRatio: "9:16",
-      hook: sanitizeText(moment.hook || HOOKS[preset] || HOOKS.hype, 96),
+      highlightType,
+      confidence: moment.confidence,
+      hook,
       title: sanitizeText(title, 120),
-      captions: moment.captionBeats && moment.captionBeats.length ? moment.captionBeats : createFallbackCaptions(moment.end - moment.start, preset),
+      captions,
       effects: effectsForReasons(moment.reasonCodes || []),
-      stylePreset: moment.suggestedPreset || preset,
+      framingMode,
+      cropStrategy: createCropStrategy(metadata, framingMode),
+      stylePreset: "social_sports_v1",
+      captionEmphasis,
+      animationCues,
+      safetyNotes: [
+        "No object or ball tracking is claimed in v1.",
+        framingMode === "wide_safe"
+          ? "Wide-safe framing keeps the full source frame visible over a blurred fill."
+          : "Center framing is bounded and conservative.",
+      ],
       candidateId: moment.id,
       rank: moment.rank,
       retentionScore: moment.retentionScore,
@@ -381,6 +541,7 @@ function createCandidateEditPlans({ moments, metadata, title = "ShortsEngine Sho
         title: moment.title,
         summary: moment.summary,
         confidence: moment.confidence,
+        highlightType,
         retentionScore: moment.retentionScore,
         reasonCodes: moment.reasonCodes || [],
         source: moment.source,
@@ -404,7 +565,7 @@ function analysisHealth() {
     ready: true,
     mode: "deterministic-signal-ranking",
     ffmpegSignals: commandAvailable(CONFIG.ffmpegBin),
-    features: ["media_signals", "highlight_ranking", "candidate_edit_plans"],
+    features: ["media_signals", "football_highlight_taxonomy", "false_goal_guard", "highlight_ranking", "candidate_edit_plans"],
   };
 }
 
@@ -418,6 +579,8 @@ module.exports = {
   extractMediaSignals,
   fallbackAudioPeaks,
   fallbackSceneChanges,
+  highlightTypeForReasons,
   reasonCodesForCaption,
   scoreReasons,
+  titleForHighlightType,
 };

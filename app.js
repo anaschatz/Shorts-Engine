@@ -4,7 +4,7 @@
   const Core = window.MatchCutsCore;
 
   const PRESET_CAPTIONS = Object.freeze({
-    hype: "ΤΟ ΓΚΟΛ ΠΟΥ ΑΛΛΑΞΕ ΤΟ ΜΑΤΣ",
+    hype: "Η ΦΑΣΗ ΠΟΥ ΑΝΕΒΑΣΕ ΤΗΝ ΕΝΤΑΣΗ",
     drama: "ΟΛΑ ΠΑΙΧΤΗΚΑΝ ΣΕ ΑΥΤΑ ΤΑ 3 ΔΕΥΤΕΡΟΛΕΠΤΑ",
     tactical: "Η ΚΙΝΗΣΗ ΠΟΥ ΑΝΟΙΞΕ ΟΛΗ ΤΗΝ ΑΜΥΝΑ",
     fan: "ΑΥΤΟ ΔΕΝ ΓΙΝΕΤΑΙ ΝΑ ΜΗΝ ΤΟ ΞΑΝΑΔΕΙΣ",
@@ -17,6 +17,7 @@
       subtitle: "Ξεκινά με το πιο έντονο frame για retention.",
       score: "92%",
       caption: PRESET_CAPTIONS.hype,
+      stylePreset: "social_sports_v1",
     },
     {
       time: "00:13",
@@ -24,13 +25,15 @@
       subtitle: "Auto zoom στο passing lane και nameplate animation.",
       score: "87%",
       caption: "Η ΠΑΣΑ ΠΟΥ ΕΣΠΑΣΕ ΤΗΝ ΑΜΥΝΑ",
+      stylePreset: "social_sports_v1",
     },
     {
       time: "00:18",
-      title: "Goal impact beat",
-      subtitle: "Beat drop, speed ramp, punch subtitle και crowd swell.",
+      title: "Peak action beat",
+      subtitle: "Beat pulse, safer framing και punch subtitle.",
       score: "98%",
-      caption: "ΚΟΙΤΑ ΤΗΝ ΚΙΝΗΣΗ ΠΡΙΝ ΤΟ ΤΕΛΕΙΩΜΑ",
+      caption: "ΚΟΙΤΑ ΤΗΝ ΚΙΝΗΣΗ ΠΡΙΝ ΤΗ ΦΑΣΗ",
+      stylePreset: "social_sports_v1",
     },
   ];
 
@@ -458,9 +461,21 @@
       const subtitle = document.createElement("span");
       subtitle.textContent = moment.subtitle;
       copy.append(title, subtitle);
-      if (Array.isArray(moment.reasons) && moment.reasons.length) {
+      if ((Array.isArray(moment.reasons) && moment.reasons.length) || moment.highlightType || moment.stylePreset) {
         const reasons = document.createElement("span");
         reasons.className = "reason-row";
+        if (moment.highlightType) {
+          const typeChip = document.createElement("small");
+          typeChip.className = "reason-chip highlight-chip";
+          typeChip.textContent = moment.highlightType.replace(/_/g, " ");
+          reasons.appendChild(typeChip);
+        }
+        if (moment.stylePreset) {
+          const styleChip = document.createElement("small");
+          styleChip.className = "reason-chip style-chip";
+          styleChip.textContent = moment.stylePreset === "social_sports_v1" ? "Social sports" : moment.stylePreset.replace(/_/g, " ");
+          reasons.appendChild(styleChip);
+        }
         moment.reasons.slice(0, 3).forEach((reason) => {
           const chip = document.createElement("small");
           chip.className = "reason-chip";
@@ -795,6 +810,9 @@
         subtitle: analysisMoment.summary || `${Math.round(plan.sourceEnd - plan.sourceStart)}s candidate · ${reasons.join(", ")}`,
         score: `${Math.round(plan.retentionScore || analysisMoment.retentionScore || 90)}%`,
         caption: firstCaption,
+        highlightType: plan.highlightType || analysisMoment.highlightType || "generic_highlight",
+        stylePreset: plan.stylePreset || "",
+        framingMode: plan.framingMode || "",
         reasons,
       };
     });
@@ -822,7 +840,9 @@
     state.moments = Core.validateAiOutput(momentsFromCandidatePlans(candidatePlans, editPlan)).data || state.moments;
     els.downloadLink.href = state.downloadUrl;
     els.downloadLink.hidden = false;
-    els.timelineLabel.textContent = `${Math.round(editPlan.sourceEnd - editPlan.sourceStart)}s short · ${candidatePlans.length || 1} candidates · ${editPlan.captions.length} captions`;
+    const styleLabel = editPlan.stylePreset === "social_sports_v1" ? "Social sports" : editPlan.stylePreset || "Style";
+    const framingLabel = editPlan.framingMode ? editPlan.framingMode.replace(/_/g, " ") : "safe framing";
+    els.timelineLabel.textContent = `${Math.round(editPlan.sourceEnd - editPlan.sourceStart)}s short · ${candidatePlans.length || 1} candidates · ${styleLabel} · ${framingLabel}`;
     els.momentCount.textContent = String(state.moments.length);
     els.shortCount.textContent = "1";
     setProjectStatus("ready", "Rendered");

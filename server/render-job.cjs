@@ -228,6 +228,8 @@ function validateHighlightResult(result, metadata = {}) {
       rank: Number.isFinite(Number(moment.rank)) ? Number(moment.rank) : index + 1,
       start,
       end,
+      highlightType: sanitizeText(moment.highlightType || "generic_highlight", 60),
+      confidence: Number.isFinite(Number(moment.confidence)) ? Number(moment.confidence) : 0,
       reasonCodes: moment.reasonCodes.map((reason) => sanitizeText(reason, 60)).filter(Boolean),
       retentionScore: Number.isFinite(Number(moment.retentionScore)) ? Number(moment.retentionScore) : 0,
     };
@@ -447,6 +449,19 @@ async function runRenderJob(options) {
       throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
     }
     const editPlan = deps.validateEditPlan(candidatePlans[0], context.metadata);
+    logInfo(deps.logger, {
+      event: "edit_plan_selected",
+      requestId,
+      projectId: project.id,
+      jobId: job.id,
+      highlightType: editPlan.highlightType,
+      confidence: editPlan.confidence,
+      framingMode: editPlan.framingMode,
+      stylePreset: editPlan.stylePreset,
+      captionSafetyStatus: editPlan.highlightType === "goal" ? "goal-language-allowed" : "false-goal-guarded",
+      falseGoalGuardTriggered: editPlan.highlightType !== "goal",
+      animationCueCount: Array.isArray(editPlan.animationCues) ? editPlan.animationCues.length : 0,
+    });
 
     updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 82, step: "render_short" });
     await deps.renderShort({
@@ -527,7 +542,20 @@ async function runRenderJob(options) {
       exportId,
       exportRecord,
     });
-    logInfo(deps.logger, { event: "job_completed", requestId, projectId: project.id, jobId: job.id, exportId });
+    logInfo(deps.logger, {
+      event: "job_completed",
+      requestId,
+      projectId: project.id,
+      jobId: job.id,
+      exportId,
+      highlightType: editPlan.highlightType,
+      confidence: editPlan.confidence,
+      framingMode: editPlan.framingMode,
+      stylePreset: editPlan.stylePreset,
+      captionSafetyStatus: editPlan.highlightType === "goal" ? "goal-language-allowed" : "false-goal-guarded",
+      falseGoalGuardTriggered: editPlan.highlightType !== "goal",
+      animationCueCount: Array.isArray(editPlan.animationCues) ? editPlan.animationCues.length : 0,
+    });
   } catch (error) {
     if ((signal && signal.aborted) || (job && job.status === "cancelled") || error.code === "JOB_CANCELLED") {
       completeCancelledJob({ jobs, job, logger: deps.logger, projectId: project && project.id, requestId });

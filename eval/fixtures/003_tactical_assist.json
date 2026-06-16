@@ -26,8 +26,9 @@
       { "start": 7.0, "end": 13.6 },
       { "start": 12.0, "end": 18.2 }
     ],
-    "reasonCodes": ["tactical_build_up", "audio_peak", "commentator_emphasis", "scene_change_cluster"],
-    "stylePreset": "tactical"
+    "reasonCodes": ["replay_worthy_moment", "audio_energy_spike", "commentator_emphasis", "scene_change_cluster"],
+    "highlightType": "replay_worthy_moment",
+    "stylePreset": "social_sports_v1"
   },
   "thresholds": {
     "minAggregateScore": 72,

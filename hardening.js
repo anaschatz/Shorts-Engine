@@ -18,6 +18,21 @@
     allowedPresets: Object.freeze(["hype", "drama", "tactical", "fan"]),
     allowedRatios: Object.freeze(["vertical", "square", "wide"]),
     allowedExportTargets: Object.freeze(["tiktok", "reels", "shorts", "square"]),
+    allowedHighlightTypes: Object.freeze([
+      "goal",
+      "shot_on_target",
+      "big_chance",
+      "save",
+      "foul",
+      "hard_foul",
+      "card_moment",
+      "counter_attack",
+      "skill_move",
+      "crowd_reaction",
+      "replay_worthy_moment",
+      "audio_energy_spike",
+      "generic_highlight",
+    ]),
   });
 
   const JOB_STATUS = Object.freeze({
@@ -416,6 +431,9 @@
       subtitle: sanitizeText(moment.subtitle, 180),
       score: sanitizeText(moment.score, 8) || "0%",
       caption,
+      highlightType: CONFIG.allowedHighlightTypes.includes(moment.highlightType) ? moment.highlightType : "generic_highlight",
+      stylePreset: sanitizeText(moment.stylePreset, 40) || "",
+      framingMode: sanitizeText(moment.framingMode, 40) || "",
       reasons: Array.isArray(moment.reasons)
         ? moment.reasons.map((reason) => sanitizeText(reason, 40)).filter(Boolean).slice(0, 5)
         : [],

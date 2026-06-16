@@ -111,11 +111,12 @@ The generate job now includes deterministic analysis before render:
 1. `extract_audio`: FFmpeg WAV extraction when source audio exists.
 2. `analyze_media`: duration/resolution/aspect ratio, audio activity peaks, scene-change candidates, high-motion candidates and sample timestamps.
 3. `transcribe`: OpenAI provider when configured, otherwise mock fallback with segments/captions.
-4. `detect_highlights`: ranked short-form moments with reason codes such as `goal_like_phrase`, `audio_peak`, `scene_change_cluster`, `replay_marker`, `crowd_reaction`, and `tactical_build_up`.
-5. `create_edit_plan`: 2-3 validated candidate plans, with the top candidate selected for MVP render.
+4. `detect_highlights`: ranked short-form moments with football-aware reason codes such as `goal`, `shot_on_target`, `big_chance`, `save`, `hard_foul`, `crowd_reaction`, `audio_energy_spike`, `scene_change_cluster`, and `replay_worthy_moment`.
+5. `create_edit_plan`: 2-3 validated candidate plans, with highlight type, confidence, `social_sports_v1` style metadata, conservative framing metadata, caption emphasis, animation cues, and the top candidate selected for MVP render.
 6. `render_short`: FFmpeg 9:16 MP4 render with burned-in captions.
 
 The analysis layer fails closed when candidate plans cannot validate, and uses deterministic fallback moments only when transcript/signals are limited but still safe to render.
+Goal language is only allowed when the highlight type or reason codes contain real goal evidence. Audio spikes, saves, fouls, shots and generic pressure phases must use neutral captions.
 
 ## Evaluation Quality Loop
 
@@ -132,12 +133,12 @@ eval/fixtures/   synthetic football highlight fixtures
 eval/results/    generated JSON reports
 ```
 
-The runner measures top-1 overlap, top-3 recall, reason-code precision/recall, retention sanity, candidate edit-plan validity, caption timing validity and fallback usage rate. It exits non-zero when aggregate or per-fixture thresholds fail.
+The runner measures top-1 overlap, top-3 recall, reason-code precision/recall, highlight-type accuracy, false-goal caption rate, caption safety, framing safety, animation cue validity, retention sanity, candidate edit-plan validity, caption timing validity and fallback usage rate. It exits non-zero when aggregate or per-fixture thresholds fail.
 
 ## Current MVP Limitations
 
 - Jobs are durable on local disk, but this is still a local single-process queue rather than Redis/SQS/database-backed multi-worker infrastructure.
 - Upload parsing is dependency-free and currently buffers the request in memory.
-- Smart crop is deterministic center crop, not ball/player tracking.
-- Trendy editing is still template-based: 9:16 crop, slight punchy color treatment, hook caption, burned-in subtitles, reason-driven effects metadata.
+- Football framing is conservative `wide_safe`/bounded-center metadata and blurred-fill rendering, not ball/player tracking.
+- Trendy editing is still template-based: social sports captions, top label, caption emphasis, end beat, and deterministic animation cue metadata rather than full creative AI editing.
 - Auth, multi-user ownership, object storage, Redis queue, malware scanning, and billing are not implemented yet.

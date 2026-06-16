@@ -1,0 +1,37 @@
+{
+  "id": "generic_pressure_no_goal",
+  "title": "Generic pressure phase without a final action",
+  "language": "English",
+  "durationSeconds": 22,
+  "transcript": {
+    "provider": "fixture",
+    "language": "en",
+    "captions": [
+      { "start": 3.0, "end": 4.8, "text": "Both teams compress the middle third" },
+      { "start": 9.0, "end": 11.0, "text": "The tempo rises through midfield" },
+      { "start": 15.0, "end": 16.8, "text": "The shape resets before the next phase" }
+    ]
+  },
+  "mediaSignals": {
+    "durationSeconds": 22,
+    "width": 1920,
+    "height": 1080,
+    "hasAudio": false,
+    "audioPeaks": [],
+    "sceneChanges": [],
+    "highMotionCandidates": []
+  },
+  "expected": {
+    "highlights": [{ "start": 0.0, "end": 8.9 }],
+    "reasonCodes": ["generic_highlight"],
+    "highlightType": "generic_highlight",
+    "stylePreset": "social_sports_v1"
+  },
+  "thresholds": {
+    "minAggregateScore": 70,
+    "minTop1Overlap": 0.35,
+    "minTop3Recall": 1,
+    "minReasonPrecision": 0.5,
+    "minRetentionScore": 20
+  }
+}

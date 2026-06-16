@@ -58,3 +58,6 @@
 - Report-safety and log redaction must treat credential-shaped object keys such as `clientSecret`, `refreshToken`, `privateKey`, `accessKeyId` and `sessionToken` as sensitive even when the value is not obviously secret-shaped.
 - GitHub CLI missing/auth/network/no-run proofs may include safe manual `operatorRecovery` commands, but ShortsEngine must never execute install/auth commands automatically.
 - Treat YouTube ingest adapter health as untrusted boundary output: health booleans must be strict booleans, unsafe mode strings become `unknown`, and malformed readiness fails closed.
+- Football highlights must infer `goal` only from explicit scoring language, not generic goal-area context; no-goal clips should choose save, foul, chance, reaction or generic highlight types.
+- Default short rendering should preserve the full source frame in wide-safe mode with contained foreground plus background fill until real vision-based ball/action tracking exists.
+- Social sports styling should stay schema-validated: captions, animation cues, style preset, framing mode and false-goal safety metrics must be covered by tests and eval fixtures.

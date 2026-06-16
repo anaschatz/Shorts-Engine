@@ -20,7 +20,49 @@ function escapeAss(text) {
     .trim();
 }
 
+function escapeRegExp(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function labelForHighlightType(highlightType) {
+  const labels = {
+    goal: "GOAL",
+    shot_on_target: "SHOT ON TARGET",
+    big_chance: "BIG CHANCE",
+    save: "KEEPER SAVE",
+    foul: "FOUL",
+    hard_foul: "HARD FOUL",
+    card_moment: "CARD MOMENT",
+    counter_attack: "COUNTER ATTACK",
+    skill_move: "SKILL MOVE",
+    crowd_reaction: "CROWD REACTION",
+    replay_worthy_moment: "REPLAY-WORTHY",
+    audio_energy_spike: "ENERGY SPIKE",
+    generic_highlight: "KEY MOMENT",
+  };
+  return labels[highlightType] || labels.generic_highlight;
+}
+
+function emphasizedAssText(caption, plan) {
+  let text = escapeAss(caption.text);
+  if (plan.stylePreset !== "social_sports_v1") return text;
+  const emphasis = Array.isArray(plan.captionEmphasis)
+    ? plan.captionEmphasis.find((item) => Number(item.captionIndex) === Number(caption.index))
+    : null;
+  const words = emphasis && Array.isArray(emphasis.words) ? emphasis.words.slice(0, 3) : [];
+  for (const word of words) {
+    const safeWord = escapeAss(word).trim();
+    if (!safeWord) continue;
+    const pattern = new RegExp(`\\b(${escapeRegExp(safeWord)})\\b`, "gi");
+    text = text.replace(pattern, "{\\c&H005EF4F4&\\b1}$1{\\rSocialCaption}");
+  }
+  return `{\\t(0,220,\\fscx106\\fscy106)}${text}`;
+}
+
 function writeAssSubtitles(plan, outputPath) {
+  const duration = Math.max(0.1, Number(plan.sourceEnd - plan.sourceStart) || 0.1);
+  const social = plan.stylePreset === "social_sports_v1";
+  const captionStyle = social ? "SocialCaption" : "Caption";
   const lines = [
     "[Script Info]",
     "ScriptType: v4.00+",
@@ -32,14 +74,27 @@ function writeAssSubtitles(plan, outputPath) {
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
     "Style: Hook,Arial,78,&H00FFFFFF,&H000000FF,&H00151A18,&H99000000,-1,0,0,0,100,100,0,0,1,5,1,5,70,70,760,1",
     "Style: Caption,Arial,58,&H00FFFFFF,&H000000FF,&H00151A18,&H99000000,-1,0,0,0,100,100,0,0,1,4,1,2,70,70,190,1",
+    "Style: SocialCaption,Arial,64,&H00FFFFFF,&H000000FF,&H00151A18,&HAA000000,-1,0,0,0,100,100,0,0,1,5,2,2,60,60,210,1",
+    "Style: TopLabel,Arial,42,&H00FFFFFF,&H000000FF,&H00151A18,&HCC111614,-1,0,0,0,100,100,0,0,1,3,1,8,60,60,78,1",
+    "Style: EndBeat,Arial,46,&H00F4D35E,&H000000FF,&H00151A18,&HAA000000,-1,0,0,0,100,100,0,0,1,4,1,2,70,70,96,1",
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
-    `Dialogue: 0,${assTime(0)},${assTime(Math.min(2, plan.sourceEnd - plan.sourceStart))},Hook,,0,0,0,,${escapeAss(plan.hook)}`,
+    `Dialogue: 0,${assTime(0)},${assTime(Math.min(2, duration))},Hook,,0,0,0,,${escapeAss(plan.hook)}`,
   ];
+  if (social) {
+    lines.push(
+      `Dialogue: 1,${assTime(0)},${assTime(Math.min(2.4, duration))},TopLabel,,0,0,0,,${escapeAss(labelForHighlightType(plan.highlightType))} · SOCIAL SPORTS`,
+    );
+  }
   for (const caption of plan.captions) {
     lines.push(
-      `Dialogue: 0,${assTime(caption.start)},${assTime(caption.end)},Caption,,0,0,0,,${escapeAss(caption.text)}`,
+      `Dialogue: 0,${assTime(caption.start)},${assTime(caption.end)},${captionStyle},,0,0,0,,${emphasizedAssText(caption, plan)}`,
+    );
+  }
+  if (social && duration >= 2.2) {
+    lines.push(
+      `Dialogue: 1,${assTime(Math.max(0, duration - 1.35))},${assTime(duration)},EndBeat,,0,0,0,,RUN IT BACK`,
     );
   }
   writeFileSync(outputPath, `${lines.join("\n")}\n`, "utf8");
@@ -100,13 +155,20 @@ async function extractAudio(inputPath, outputPath, { signal } = {}) {
 async function renderShort({ inputPath, outputPath, subtitlesPath, plan, signal }) {
   writeAssSubtitles(plan, subtitlesPath);
   const duration = Number((plan.sourceEnd - plan.sourceStart).toFixed(2));
-  const filter = [
-    "scale=1124:1998:force_original_aspect_ratio=increase",
-    "crop=1080:1920",
-    "setsar=1",
-    "eq=contrast=1.08:saturation=1.12",
-    `subtitles=filename='${escapeFilterPath(subtitlesPath)}'`,
-  ].join(",");
+  const subtitlesFilter = `subtitles=filename='${escapeFilterPath(subtitlesPath)}'`;
+  const filter = plan.framingMode === "wide_safe"
+    ? [
+        "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=18:1[bg]",
+        "[0:v]scale=1080:1920:force_original_aspect_ratio=decrease[fg]",
+        `[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1,eq=contrast=1.08:saturation=1.12,${subtitlesFilter}[v]`,
+      ].join(";")
+    : [
+        "[0:v]scale=1124:1998:force_original_aspect_ratio=increase",
+        "crop=1080:1920",
+        "setsar=1",
+        "eq=contrast=1.08:saturation=1.12",
+        `${subtitlesFilter}[v]`,
+      ].join(",");
   const args = [
     "-y",
     "-ss",
@@ -115,10 +177,10 @@ async function renderShort({ inputPath, outputPath, subtitlesPath, plan, signal 
     inputPath,
     "-t",
     String(duration),
-    "-vf",
+    "-filter_complex",
     filter,
     "-map",
-    "0:v:0",
+    "[v]",
     "-map",
     "0:a?",
     "-c:v",

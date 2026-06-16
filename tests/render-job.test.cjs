@@ -32,9 +32,10 @@ function validMoment() {
     start: 0,
     end: 8,
     center: 4,
-    title: "Goal-like impact beat",
+    title: "Goal impact beat",
     summary: "What a goal",
-    reasonCodes: ["goal_like_phrase", "audio_peak"],
+    reasonCodes: ["goal", "audio_energy_spike"],
+    highlightType: "goal",
     confidence: 0.92,
     retentionScore: 92,
     suggestedPreset: "hype",
@@ -51,13 +52,37 @@ function validPlan() {
     sourceStart: 0,
     sourceEnd: 8,
     aspectRatio: "9:16",
+    highlightType: "goal",
+    confidence: 0.92,
     hook: "ΤΟ ΓΚΟΛ ΠΟΥ ΑΛΛΑΞΕ ΤΟ ΜΑΤΣ",
     title: "Derby Final",
     captions: [
       { start: 0, end: 2, text: "What a goal" },
       { start: 2.2, end: 4.4, text: "The crowd reacts" },
     ],
-    effects: ["center_crop_9_16", "punch_captions"],
+    effects: ["wide_safe_framing", "social_caption_pop", "caption_emphasis", "beat_sync_pulse"],
+    framingMode: "wide_safe",
+    cropStrategy: {
+      type: "wide_safe_contain",
+      x: 0,
+      y: 0,
+      width: 1280,
+      height: 720,
+      zoom: 1,
+      background: "blurred_fill",
+      preserveFullFrame: true,
+      maxCropPercent: 0,
+    },
+    stylePreset: "social_sports_v1",
+    captionEmphasis: [{ captionIndex: 0, words: ["GOAL"], style: "kinetic_bold", start: 0, end: 2 }],
+    animationCues: [
+      { type: "intro_hook", start: 0, end: 1.2 },
+      { type: "caption_pop", start: 0.2, end: 1.8 },
+      { type: "beat_pulse", start: 1.6, end: 2.1 },
+      { type: "end_replay_prompt", start: 6.7, end: 8 },
+    ],
+    safetyNotes: ["No object or ball tracking is claimed in v1."],
+    reasonCodes: ["goal", "audio_energy_spike"],
     export: { width: 1080, height: 1920, format: "mp4" },
   };
 }
@@ -176,6 +201,11 @@ test("render orchestration completes success path with mocked adapters", async (
     context.logs.filter((entry) => entry.event === "job_step").map((entry) => entry.step),
     ["extract_audio", "analyze_media", "transcribe", "detect_highlights", "create_edit_plan", "render_short"],
   );
+  const selectedPlanLog = context.logs.find((entry) => entry.event === "edit_plan_selected");
+  assert.equal(selectedPlanLog.highlightType, "goal");
+  assert.equal(selectedPlanLog.stylePreset, "social_sports_v1");
+  assert.equal(selectedPlanLog.framingMode, "wide_safe");
+  assert.equal(selectedPlanLog.falseGoalGuardTriggered, false);
 });
 
 test("render orchestration uses mock provider fallback when upload has no audio", async () => {

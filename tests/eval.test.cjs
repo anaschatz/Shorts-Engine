@@ -7,8 +7,10 @@ const { spawnSync } = require("node:child_process");
 
 const {
   buildReport,
+  framingIsSafe,
   loadFixtures,
   overlapRatio,
+  planHasGoalLanguage,
   reasonCodePrecision,
   reasonCodeRecall,
   runEvaluation,
@@ -46,8 +48,8 @@ test("overlap and recall scoring are deterministic", () => {
 });
 
 test("reason code precision and recall score expected labels", () => {
-  assert.equal(reasonCodePrecision(["goal_like_phrase", "audio_peak", "noise"], ["goal_like_phrase", "audio_peak"]), 0.6667);
-  assert.equal(reasonCodeRecall(["goal_like_phrase"], ["goal_like_phrase", "audio_peak"]), 0.5);
+  assert.equal(reasonCodePrecision(["goal", "audio_energy_spike", "noise"], ["goal", "audio_energy_spike"]), 0.6667);
+  assert.equal(reasonCodeRecall(["goal"], ["goal", "audio_energy_spike"]), 0.5);
 });
 
 test("fixture scoring returns reportable metrics and candidate plans", () => {
@@ -56,6 +58,10 @@ test("fixture scoring returns reportable metrics and candidate plans", () => {
   assert.equal(result.passed, true);
   assert.ok(result.score >= fixture.thresholds.minAggregateScore);
   assert.ok(result.metrics.top1Overlap >= fixture.thresholds.minTop1Overlap);
+  assert.equal(result.metrics.highlightTypeAccuracy, 1);
+  assert.equal(result.metrics.falseGoalCaptionRate, 0);
+  assert.equal(result.metrics.framingSafety, 1);
+  assert.equal(result.metrics.animationCueValidity, 1);
   assert.ok(result.actual.candidatePlans.length > 0);
 });
 
@@ -64,8 +70,49 @@ test("evaluation report has aggregate metrics and no local path leakage", () => 
   assert.equal(report.passed, true);
   assert.ok(report.aggregate.aggregateScore >= 70);
   assert.equal(report.aggregate.fixtureCount >= 5, true);
+  assert.equal(report.aggregate.falseGoalCaptionRate, 0);
+  assert.equal(report.aggregate.highlightTypeAccuracy, 1);
+  assert.equal(report.aggregate.framingSafety, 1);
+  assert.equal(report.aggregate.animationCueValidity, 1);
   assert.doesNotMatch(JSON.stringify(report), /\/Users\//);
   assert.doesNotMatch(JSON.stringify(report), /OPENAI_API_KEY/);
+});
+
+test("football-aware eval helpers detect misleading goal captions and unsafe framing", () => {
+  assert.equal(
+    planHasGoalLanguage({
+      hook: "WHAT A GOAL",
+      captions: [{ text: "Goal changes everything" }],
+    }),
+    true,
+  );
+  assert.equal(
+    planHasGoalLanguage({
+      hook: "THE CROWD FELT THIS ONE",
+      captions: [{ text: "Replay the angle from behind the goal" }],
+    }),
+    false,
+  );
+  assert.equal(
+    framingIsSafe(
+      {
+        framingMode: "wide_safe",
+        cropStrategy: { type: "wide_safe_contain", zoom: 1, preserveFullFrame: true, maxCropPercent: 0 },
+      },
+      { width: 1920, height: 1080 },
+    ),
+    true,
+  );
+  assert.equal(
+    framingIsSafe(
+      {
+        framingMode: "safe_center",
+        cropStrategy: { type: "center_crop", zoom: 1.5, maxCropPercent: 0.5 },
+      },
+      { width: 1920, height: 1080 },
+    ),
+    false,
+  );
 });
 
 test("report shape is deterministic for fixed inputs", () => {
@@ -87,6 +134,8 @@ test("runner writes a JSON report", () => {
   assert.equal(result.status, 0, result.stderr);
   const summary = JSON.parse(result.stdout);
   assert.equal(summary.passed, true);
+  assert.equal(summary.falseGoalCaptionRate, 0);
+  assert.equal(summary.highlightTypeAccuracy, 1);
   const latest = JSON.parse(readFileSync(join(resultsDir, "latest.json"), "utf8"));
   assert.equal(latest.aggregate.fixtureCount >= 5, true);
 });

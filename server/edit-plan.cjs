@@ -2,14 +2,87 @@ const { AppError, SAFE_MESSAGES } = require("./errors.cjs");
 const { sanitizeText } = require("./media.cjs");
 
 const HOOKS = Object.freeze({
-  hype: "ΤΟ ΓΚΟΛ ΠΟΥ ΑΛΛΑΞΕ ΤΟ ΜΑΤΣ",
+  hype: "Η ΦΑΣΗ ΠΟΥ ΑΝΕΒΑΣΕ ΤΗΝ ΕΝΤΑΣΗ",
   drama: "ΟΛΑ ΠΑΙΧΤΗΚΑΝ ΣΕ ΑΥΤΑ ΤΑ 3 ΔΕΥΤΕΡΟΛΕΠΤΑ",
   tactical: "Η ΚΙΝΗΣΗ ΠΟΥ ΑΝΟΙΞΕ ΟΛΗ ΤΗΝ ΑΜΥΝΑ",
   fan: "ΑΥΤΟ ΔΕΝ ΓΙΝΕΤΑΙ ΝΑ ΜΗΝ ΤΟ ΞΑΝΑΔΕΙΣ",
 });
 
+const HIGHLIGHT_TYPES = Object.freeze([
+  "goal",
+  "shot_on_target",
+  "big_chance",
+  "save",
+  "foul",
+  "hard_foul",
+  "card_moment",
+  "counter_attack",
+  "skill_move",
+  "crowd_reaction",
+  "replay_worthy_moment",
+  "audio_energy_spike",
+  "generic_highlight",
+]);
+
+const FRAMING_MODES = Object.freeze(["safe_center", "action_bias", "wide_safe"]);
+const STYLE_PRESETS = Object.freeze(["hype", "drama", "tactical", "fan", "social_sports_v1"]);
+const ANIMATION_CUE_TYPES = Object.freeze(["intro_hook", "caption_pop", "beat_pulse", "subtle_punch_in", "end_replay_prompt"]);
+const GOAL_LANGUAGE_RE = /\b(scored|scores|winner|what a finish|back of the net|into the net|finds the net)\b|γκολ|σκοραρ|σκόραρ/i;
+const GOAL_WORD_RE = /\bgo+als?\b/gi;
+const NON_EVENT_GOAL_CONTEXT_RE = /\b(?:behind|towards?|near|around|beside|from behind|in front of)\s+(?:the\s+)?goals?\b|\bno\s+goals?\b/i;
+
+const HIGHLIGHT_HOOKS = Object.freeze({
+  goal: "ΤΟ ΓΚΟΛ ΠΟΥ ΑΛΛΑΞΕ ΤΟ ΜΑΤΣ",
+  shot_on_target: "SO CLOSE",
+  big_chance: "BIG CHANCE, BIGGER REACTION",
+  save: "BIG SAVE, BIGGER REACTION",
+  foul: "THAT CHALLENGE CHANGED THE TEMPO",
+  hard_foul: "HEAVY CONTACT, HUGE REACTION",
+  card_moment: "THE MOMENT THE MATCH GOT HEATED",
+  counter_attack: "WATCH THE BREAK OPEN UP",
+  skill_move: "THE TOUCH THAT OPENED SPACE",
+  crowd_reaction: "THE CROWD FELT THIS ONE",
+  replay_worthy_moment: "THE MOMENT EVERYONE REPLAYED",
+  audio_energy_spike: "THE ENERGY JUMPED INSTANTLY",
+  generic_highlight: "WATCH THE BUILD-UP",
+});
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, Number(value) || min));
+}
+
+function normalizeHighlightType(value) {
+  const safe = sanitizeText(value, 40).toLowerCase();
+  return HIGHLIGHT_TYPES.includes(safe) ? safe : "generic_highlight";
+}
+
+function normalizeFramingMode(value) {
+  const safe = sanitizeText(value, 40).toLowerCase();
+  return FRAMING_MODES.includes(safe) ? safe : "wide_safe";
+}
+
+function normalizeStylePreset(value) {
+  const safe = sanitizeText(value, 40).toLowerCase();
+  return STYLE_PRESETS.includes(safe) ? safe : "social_sports_v1";
+}
+
+function hasGoalLanguage(value) {
+  const text = sanitizeText(value, 240);
+  if (GOAL_LANGUAGE_RE.test(text)) return true;
+  const matches = [...text.matchAll(GOAL_WORD_RE)];
+  return matches.some((match) => {
+    const context = text.slice(Math.max(0, match.index - 28), Math.min(text.length, match.index + match[0].length + 28));
+    return !NON_EVENT_GOAL_CONTEXT_RE.test(context);
+  });
+}
+
+function assertNoMisleadingGoalLanguage({ hook, captions, highlightType, reasonCodes }) {
+  const hasGoalEvidence = highlightType === "goal" || (Array.isArray(reasonCodes) && reasonCodes.includes("goal"));
+  if (hasGoalEvidence) return;
+  const texts = [hook, ...(Array.isArray(captions) ? captions.map((caption) => caption && caption.text) : [])];
+  if (texts.some(hasGoalLanguage)) {
+    throw new AppError("VALIDATION_ERROR", "Edit plan uses goal language without goal evidence.", 400);
+  }
 }
 
 function normalizeCaptions(captions, sourceStart, sourceEnd) {
@@ -33,14 +106,30 @@ function normalizeCaptions(captions, sourceStart, sourceEnd) {
   return normalized;
 }
 
-function createFallbackCaptions(duration, preset) {
-  const hook = HOOKS[preset] || HOOKS.hype;
-  const beats = [
-    hook,
-    "Η ΦΑΣΗ ΧΤΙΖΕΤΑΙ ΜΕ ΤΕΛΕΙΟ TIMING",
-    "ΚΟΙΤΑ ΤΗΝ ΚΙΝΗΣΗ ΠΡΙΝ ΤΟ ΤΕΛΕΙΩΜΑ",
-    "ΑΥΤΟ ΕΙΝΑΙ SHORT ΠΟΥ ΚΡΑΤΑΕΙ RETENTION",
-  ];
+function hookForHighlightType(highlightType, preset) {
+  const safeType = normalizeHighlightType(highlightType);
+  return sanitizeText(HIGHLIGHT_HOOKS[safeType] || HOOKS[preset] || HOOKS.hype, 96);
+}
+
+function createFallbackCaptions(duration, preset, options = {}) {
+  const highlightType = normalizeHighlightType(options.highlightType);
+  const hook = options.hook || hookForHighlightType(highlightType, preset);
+  const beatsByType = {
+    goal: [hook, "THE FINISH CHANGED THE MATCH", "WATCH THE MOVEMENT BEFORE IT", "REPLAY THE BUILD-UP"],
+    shot_on_target: [hook, "THE CHANCE OPENS FAST", "ONE TOUCH CREATES THE DANGER", "REPLAY THE PRESSURE"],
+    big_chance: [hook, "THE WINDOW OPENS FOR A SECOND", "SO CLOSE TO THE BIG MOMENT", "WATCH THE RUN"],
+    save: [hook, "THE KEEPER REACTS JUST IN TIME", "SO CLOSE", "RUN IT BACK"],
+    foul: [hook, "THE TEMPO CHANGES HERE", "CONTACT, REACTION, PRESSURE", "WATCH THE AFTERMATH"],
+    hard_foul: [hook, "HEAVY CONTACT, HUGE REACTION", "THE MATCH GETS HEATED", "REPLAY THE CHALLENGE"],
+    card_moment: [hook, "THE REFEREE HAS A DECISION", "EVERYONE REACTS", "WATCH THE TEMPO SHIFT"],
+    counter_attack: [hook, "SPACE OPENS INSTANTLY", "THE BREAK IS ON", "WATCH THE RUNNER"],
+    skill_move: [hook, "ONE TOUCH CHANGES THE PLAY", "THE DEFENDER HAS TO TURN", "REPLAY THE MOVE"],
+    crowd_reaction: [hook, "THE STADIUM TELLS THE STORY", "THE ENERGY JUMPS", "RUN IT BACK"],
+    replay_worthy_moment: [hook, "THE DETAIL IS IN THE BUILD-UP", "WATCH IT AGAIN", "REPLAY-WORTHY"],
+    audio_energy_spike: [hook, "THE CROWD TELLS YOU EVERYTHING", "THE ENERGY JUMPS", "WATCH THE BUILD-UP"],
+    generic_highlight: [hook, "THE PRESSURE BUILDS", "THE PLAY OPENS UP", "WATCH THE DETAIL"],
+  };
+  const beats = beatsByType[highlightType] || beatsByType.generic_highlight;
   const segment = Math.max(1.8, duration / beats.length);
   return beats.map((text, index) => ({
     start: Number((index * segment).toFixed(2)),
@@ -49,23 +138,116 @@ function createFallbackCaptions(duration, preset) {
   }));
 }
 
+function createCaptionEmphasis(captions, highlightType) {
+  const priorityWords = {
+    goal: ["GOAL", "FINISH"],
+    shot_on_target: ["CLOSE", "CHANCE"],
+    big_chance: ["CHANCE", "CLOSE"],
+    save: ["SAVE", "KEEPER"],
+    foul: ["CHALLENGE", "CONTACT"],
+    hard_foul: ["CONTACT", "REACTION"],
+    card_moment: ["DECISION", "HEATED"],
+    counter_attack: ["BREAK", "SPACE"],
+    skill_move: ["TOUCH", "MOVE"],
+    crowd_reaction: ["CROWD", "ENERGY"],
+    replay_worthy_moment: ["REPLAY", "DETAIL"],
+    audio_energy_spike: ["ENERGY", "CROWD"],
+    generic_highlight: ["WATCH", "BUILD-UP"],
+  };
+  return (Array.isArray(captions) ? captions : []).slice(0, 2).map((caption, index) => ({
+    captionIndex: index,
+    words: (priorityWords[highlightType] || priorityWords.generic_highlight).slice(0, 2),
+    style: "kinetic_bold",
+    start: Number(caption.start || 0),
+    end: Number(caption.end || 0),
+  }));
+}
+
+function createAnimationCues(duration, reasonCodes = []) {
+  const safeDuration = Math.max(1, Number(duration) || 1);
+  const cues = [
+    { type: "intro_hook", start: 0, end: Math.min(1.2, safeDuration) },
+    { type: "caption_pop", start: 0.2, end: Math.min(1.8, safeDuration) },
+    { type: "end_replay_prompt", start: Math.max(0, safeDuration - 1.3), end: safeDuration },
+  ];
+  if (reasonCodes.includes("audio_energy_spike") || reasonCodes.includes("audio_peak")) {
+    cues.push({ type: "beat_pulse", start: Math.min(1.6, safeDuration - 0.2), end: Math.min(2.1, safeDuration) });
+  }
+  if (reasonCodes.includes("scene_change_cluster") || reasonCodes.includes("replay_worthy_moment")) {
+    cues.push({ type: "subtle_punch_in", start: Math.min(2.2, safeDuration - 0.2), end: Math.min(3.2, safeDuration) });
+  }
+  return cues.filter((cue) => cue.end > cue.start).map((cue) => ({
+    type: cue.type,
+    start: Number(cue.start.toFixed(2)),
+    end: Number(cue.end.toFixed(2)),
+  }));
+}
+
+function createCropStrategy(metadata = {}, framingMode = "wide_safe") {
+  const width = Math.max(1, Number(metadata.width) || 1920);
+  const height = Math.max(1, Number(metadata.height) || 1080);
+  const mode = normalizeFramingMode(framingMode);
+  if (mode === "wide_safe") {
+    return {
+      type: "wide_safe_contain",
+      x: 0,
+      y: 0,
+      width,
+      height,
+      zoom: 1,
+      background: "blurred_fill",
+      preserveFullFrame: true,
+      maxCropPercent: 0,
+    };
+  }
+  return {
+    type: mode === "action_bias" ? "bounded_center_bias" : "center_crop",
+    x: 0,
+    y: 0,
+    width,
+    height,
+    zoom: mode === "action_bias" ? 1.04 : 1.02,
+    background: "none",
+    preserveFullFrame: false,
+    maxCropPercent: mode === "action_bias" ? 0.18 : 0.22,
+  };
+}
+
+function framingModeForMetadata(metadata = {}) {
+  const width = Number(metadata.width || 0);
+  const height = Number(metadata.height || 0);
+  if (!width || !height) return "wide_safe";
+  return width / height > 1.2 ? "wide_safe" : "safe_center";
+}
+
 function createEditPlan({ metadata, transcript, preset = "hype", title = "ShortsEngine Short" }) {
   const sourceStart = 0;
   const sourceEnd = Math.min(Number(metadata.durationSeconds || 0), 18);
   const safeEnd = sourceEnd >= 3 ? sourceEnd : Math.min(Number(metadata.durationSeconds || 3), 3);
   const duration = safeEnd - sourceStart;
+  const highlightType = "generic_highlight";
+  const hook = hookForHighlightType(highlightType, preset);
   const captions =
     transcript && Array.isArray(transcript.captions) && transcript.captions.length > 0
       ? normalizeCaptions(transcript.captions, sourceStart, safeEnd)
-      : createFallbackCaptions(duration, preset);
+      : createFallbackCaptions(duration, preset, { highlightType, hook });
+  const framingMode = framingModeForMetadata(metadata);
   return {
     sourceStart,
     sourceEnd: Number(safeEnd.toFixed(2)),
     aspectRatio: "9:16",
-    hook: sanitizeText(HOOKS[preset] || HOOKS.hype, 96),
+    highlightType,
+    confidence: 0.5,
+    hook,
     title: sanitizeText(title, 120),
-    captions: captions.length ? captions : createFallbackCaptions(duration, preset),
-    effects: ["center_crop_9_16", "subtle_zoom", "punch_captions", "brand_safe_template"],
+    captions: captions.length ? captions : createFallbackCaptions(duration, preset, { highlightType, hook }),
+    effects: ["wide_safe_framing", "social_caption_pop", "caption_emphasis", "brand_safe_template"],
+    framingMode,
+    cropStrategy: createCropStrategy(metadata, framingMode),
+    stylePreset: "social_sports_v1",
+    captionEmphasis: createCaptionEmphasis(captions, highlightType),
+    animationCues: createAnimationCues(duration, ["generic_highlight"]),
+    safetyNotes: ["No ball tracking claim; wide-safe framing preserves the full source frame when needed."],
     export: {
       width: 1080,
       height: 1920,
@@ -96,24 +278,87 @@ function validateEditPlan(plan, metadata = {}) {
   if (!plan.export || plan.export.width !== 1080 || plan.export.height !== 1920 || plan.export.format !== "mp4") {
     throw new AppError("VALIDATION_ERROR", "Export settings must be 1080x1920 MP4.", 400);
   }
+  const highlightType = normalizeHighlightType(plan.highlightType);
+  const framingMode = normalizeFramingMode(plan.framingMode);
+  const stylePreset = normalizeStylePreset(plan.stylePreset);
+  if (plan.stylePreset && !STYLE_PRESETS.includes(sanitizeText(plan.stylePreset, 40).toLowerCase())) {
+    throw new AppError("VALIDATION_ERROR", "Unsupported edit style preset.", 400);
+  }
+  const reasonCodes = Array.isArray(plan.reasonCodes) ? plan.reasonCodes.map((reason) => sanitizeText(reason, 60)).filter(Boolean) : [];
   const captions = normalizeCaptions(plan.captions, sourceStart, sourceEnd);
   if (captions.length === 0) {
     throw new AppError("VALIDATION_ERROR", "Edit plan needs at least one caption.", 400);
+  }
+  const hook = sanitizeText(plan.hook || hookForHighlightType(highlightType, stylePreset), 96);
+  assertNoMisleadingGoalLanguage({ hook, captions, highlightType, reasonCodes });
+  const cropStrategy = plan.cropStrategy && typeof plan.cropStrategy === "object"
+    ? {
+        type: sanitizeText(plan.cropStrategy.type || "wide_safe_contain", 40),
+        x: clamp(plan.cropStrategy.x, 0, Number(metadata.width || 1920)),
+        y: clamp(plan.cropStrategy.y, 0, Number(metadata.height || 1080)),
+        width: clamp(plan.cropStrategy.width, 1, Number(metadata.width || plan.cropStrategy.width || 1920)),
+        height: clamp(plan.cropStrategy.height, 1, Number(metadata.height || plan.cropStrategy.height || 1080)),
+        zoom: clamp(plan.cropStrategy.zoom || 1, 1, 1.08),
+        background: sanitizeText(plan.cropStrategy.background || "blurred_fill", 40),
+        preserveFullFrame: Boolean(plan.cropStrategy.preserveFullFrame),
+        maxCropPercent: clamp(plan.cropStrategy.maxCropPercent || 0, 0, 0.35),
+      }
+    : createCropStrategy(metadata, framingMode);
+  if (cropStrategy.x + cropStrategy.width > Number(metadata.width || cropStrategy.width) + 0.25) {
+    throw new AppError("VALIDATION_ERROR", "Crop strategy exceeds media width.", 400);
+  }
+  if (cropStrategy.y + cropStrategy.height > Number(metadata.height || cropStrategy.height) + 0.25) {
+    throw new AppError("VALIDATION_ERROR", "Crop strategy exceeds media height.", 400);
+  }
+  const duration = sourceEnd - sourceStart;
+  const captionEmphasis = Array.isArray(plan.captionEmphasis) ? plan.captionEmphasis.slice(0, 6).map((item) => ({
+    captionIndex: Math.max(0, Math.floor(Number(item.captionIndex) || 0)),
+    words: Array.isArray(item.words) ? item.words.map((word) => sanitizeText(word, 24)).filter(Boolean).slice(0, 3) : [],
+    style: sanitizeText(item.style || "kinetic_bold", 32),
+    start: clamp(item.start, 0, duration),
+    end: clamp(item.end, 0, duration),
+  })).filter((item) => item.words.length && item.end >= item.start) : createCaptionEmphasis(captions, highlightType);
+  const animationCues = Array.isArray(plan.animationCues) ? plan.animationCues.slice(0, 8).map((cue) => ({
+    type: sanitizeText(cue.type, 40),
+    start: clamp(cue.start, 0, duration),
+    end: clamp(cue.end, 0, duration),
+  })).filter((cue) => ANIMATION_CUE_TYPES.includes(cue.type) && cue.end > cue.start) : createAnimationCues(duration, reasonCodes);
+  if (plan.animationCues && animationCues.length !== plan.animationCues.length) {
+    throw new AppError("VALIDATION_ERROR", "Animation cue timing or type is invalid.", 400);
   }
   return {
     ...plan,
     sourceStart,
     sourceEnd,
-    hook: sanitizeText(plan.hook, 96),
+    hook,
+    highlightType,
+    confidence: clamp(plan.confidence, 0, 1),
+    framingMode,
+    cropStrategy,
+    stylePreset,
+    captionEmphasis,
+    animationCues,
+    safetyNotes: Array.isArray(plan.safetyNotes) ? plan.safetyNotes.map((note) => sanitizeText(note, 160)).filter(Boolean).slice(0, 6) : [],
     captions,
     effects: Array.isArray(plan.effects) ? plan.effects.map((effect) => sanitizeText(effect, 40)).filter(Boolean) : [],
+    reasonCodes,
     export: { width: 1080, height: 1920, format: "mp4" },
   };
 }
 
 module.exports = {
+  ANIMATION_CUE_TYPES,
+  FRAMING_MODES,
+  HIGHLIGHT_TYPES,
   HOOKS,
+  STYLE_PRESETS,
   createFallbackCaptions,
+  createAnimationCues,
+  createCaptionEmphasis,
+  createCropStrategy,
   createEditPlan,
+  framingModeForMetadata,
+  hasGoalLanguage,
+  hookForHighlightType,
   validateEditPlan,
 };

@@ -29,8 +29,9 @@
   },
   "expected": {
     "highlights": [{ "start": 19.0, "end": 26.0 }],
-    "reasonCodes": ["goal_like_phrase", "audio_peak", "commentator_emphasis", "scene_change_cluster"],
-    "stylePreset": "hype"
+    "reasonCodes": ["goal", "audio_energy_spike", "commentator_emphasis", "scene_change_cluster"],
+    "highlightType": "goal",
+    "stylePreset": "social_sports_v1"
   },
   "thresholds": {
     "minAggregateScore": 78,

@@ -937,6 +937,18 @@ input[type="checkbox"] {
   text-transform: capitalize;
 }
 
+.highlight-chip {
+  color: #fff;
+  background: var(--surface-strong);
+  border-color: var(--surface-strong);
+}
+
+.style-chip {
+  color: #5f3f00;
+  background: rgba(217, 155, 34, 0.14);
+  border-color: rgba(217, 155, 34, 0.32);
+}
+
 .moment-score {
   min-width: 48px;
   text-align: right;

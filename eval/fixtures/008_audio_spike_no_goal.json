@@ -1,0 +1,37 @@
+{
+  "id": "audio_spike_no_goal",
+  "title": "Crowd energy jump without semantic certainty",
+  "language": "English",
+  "durationSeconds": 24,
+  "transcript": {
+    "provider": "fixture",
+    "language": "en",
+    "captions": [
+      { "start": 2.0, "end": 3.8, "text": "The ball moves across midfield" },
+      { "start": 9.8, "end": 11.3, "text": "Listen to that reaction from the stands" },
+      { "start": 16.0, "end": 17.8, "text": "The pace settles again after the burst" }
+    ]
+  },
+  "mediaSignals": {
+    "durationSeconds": 24,
+    "width": 1920,
+    "height": 1080,
+    "hasAudio": true,
+    "audioPeaks": [{ "time": 10.5, "energyScore": 0.94, "source": "fixture" }],
+    "sceneChanges": [{ "time": 10.4, "confidence": 0.74, "source": "fixture" }],
+    "highMotionCandidates": [{ "time": 10.5, "confidence": 0.66, "source": "fixture" }]
+  },
+  "expected": {
+    "highlights": [{ "start": 6.5, "end": 14.5 }],
+    "reasonCodes": ["audio_energy_spike", "scene_change_cluster"],
+    "highlightType": "audio_energy_spike",
+    "stylePreset": "social_sports_v1"
+  },
+  "thresholds": {
+    "minAggregateScore": 72,
+    "minTop1Overlap": 0.4,
+    "minTop3Recall": 1,
+    "minReasonPrecision": 0.5,
+    "minRetentionScore": 40
+  }
+}

@@ -266,8 +266,8 @@ test("AI output validation normalizes valid moments and rejects unusable output"
   assert.equal(output.ok, true);
   assert.equal(output.data.length, 1);
   assert.equal(output.data[0].caption, "GOAL");
-  const withReasons = Core.validateAiOutput([{ title: "Goal", caption: "GOAL", reasons: ["audio_peak"] }]);
-  assert.deepEqual(withReasons.data[0].reasons, ["audio_peak"]);
+  const withReasons = Core.validateAiOutput([{ title: "Big save", caption: "SO CLOSE", reasons: ["audio_energy_spike"] }]);
+  assert.deepEqual(withReasons.data[0].reasons, ["audio_energy_spike"]);
 });
 
 test("completed job export validation gates demo download state", () => {

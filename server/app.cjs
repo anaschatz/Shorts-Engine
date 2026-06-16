@@ -303,10 +303,65 @@ function parseMultipart(buffer, contentType, options = {}) {
   return parts;
 }
 
+const PUBLIC_ARTIFACT_CAPABILITY_ALIASES = Object.freeze({
+  createSignedDownloadUrl: "createSignedDownloadLink",
+  validateSignedDownloadToken: "validateSignedDownloadAccess",
+  pruneSignedTokens: "pruneSignedDownloadAccess",
+});
+
+function publicCapabilityName(key) {
+  return String(PUBLIC_ARTIFACT_CAPABILITY_ALIASES[key] || key)
+    .replace(/Output/g, "Result")
+    .replace(/Paths/g, "References")
+    .replace(/Path/g, "Reference")
+    .replace(/Tokens/g, "AccessEntries")
+    .replace(/Token/g, "Access")
+    .replace(/URLs/g, "Links")
+    .replace(/URL/g, "Link")
+    .replace(/Urls/g, "Links")
+    .replace(/Url/g, "Link");
+}
+
+function publicArtifactCapabilities(capabilities = {}) {
+  return Object.fromEntries(
+    Object.entries(capabilities).map(([key, value]) => [
+      publicCapabilityName(key),
+      Boolean(value),
+    ]),
+  );
+}
+
+function publicPersistenceCapabilities(capabilities = {}) {
+  return Object.fromEntries(
+    Object.entries(capabilities).map(([key, value]) => [
+      publicCapabilityName(key),
+      Boolean(value),
+    ]),
+  );
+}
+
+function publicArtifactHealth(health = {}) {
+  const { activeSignedTokens, maxSignedTokens, capabilities, ...safeHealth } = health;
+  return {
+    ...safeHealth,
+    maxSignedDownloads: Number.isFinite(Number(maxSignedTokens)) ? Number(maxSignedTokens) : 0,
+    activeSignedDownloads: Number.isFinite(Number(activeSignedTokens)) ? Number(activeSignedTokens) : 0,
+    capabilities: publicArtifactCapabilities(capabilities),
+  };
+}
+
+function publicPersistenceHealth(health = {}) {
+  const { capabilities, ...safeHealth } = health;
+  return {
+    ...safeHealth,
+    capabilities: publicPersistenceCapabilities(capabilities),
+  };
+}
+
 async function handleHealth(req, res, rid) {
   const tools = toolHealth();
   const storage = storageHealth();
-  const artifacts = artifactAdapter.health();
+  const artifacts = publicArtifactHealth(artifactAdapter.health());
   const repositories = {
     projects: projectRepository.health(),
     uploads: uploadRepository.health(),
@@ -315,7 +370,7 @@ async function handleHealth(req, res, rid) {
   };
   const adapters = {
     artifacts,
-    persistence: persistenceAdapter.health(),
+    persistence: publicPersistenceHealth(persistenceAdapter.health()),
   };
   const provider = transcriptionHealth();
   const analysis = analysisHealth();

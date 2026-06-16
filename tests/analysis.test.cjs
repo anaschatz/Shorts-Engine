@@ -8,6 +8,7 @@ const {
   extractMediaSignals,
   reasonCodesForCaption,
 } = require("../server/analysis.cjs");
+const { hasGoalLanguage } = require("../server/edit-plan.cjs");
 const {
   MockTranscriptionProvider,
   OpenAITranscriptionProvider,
@@ -47,7 +48,7 @@ test("media signal extraction can use mocked FFmpeg scene and audio outputs", as
   assert.ok(signals.audioPeaks.some((peak) => peak.time > 5 && peak.time < 10));
 });
 
-test("highlight detection ranks goal-like audio peak moments first", () => {
+test("highlight detection ranks confirmed goal moments first", () => {
   const signals = {
     durationSeconds: 22,
     hasAudio: true,
@@ -56,8 +57,9 @@ test("highlight detection ranks goal-like audio peak moments first", () => {
   };
   const result = detectHighlights({ transcript, signals, preset: "hype" });
   assert.equal(result.fallback, false);
-  assert.equal(result.moments[0].reasonCodes.includes("goal_like_phrase"), true);
-  assert.equal(result.moments[0].reasonCodes.includes("audio_peak"), true);
+  assert.equal(result.moments[0].highlightType, "goal");
+  assert.equal(result.moments[0].reasonCodes.includes("goal"), true);
+  assert.equal(result.moments[0].reasonCodes.includes("audio_energy_spike"), true);
   assert.ok(result.moments[0].retentionScore > result.moments[1].retentionScore);
 });
 
@@ -74,7 +76,13 @@ test("candidate edit plans are validated 9:16 MP4 exports", () => {
   assert.equal(plans[0].aspectRatio, "9:16");
   assert.equal(plans[0].export.width, 1080);
   assert.equal(plans[0].export.height, 1920);
-  assert.equal(plans[0].reasonCodes.includes("goal_like_phrase"), true);
+  assert.equal(plans[0].highlightType, "goal");
+  assert.equal(plans[0].stylePreset, "social_sports_v1");
+  assert.equal(plans[0].framingMode, "wide_safe");
+  assert.equal(plans[0].cropStrategy.preserveFullFrame, true);
+  assert.ok(plans[0].captionEmphasis.length > 0);
+  assert.ok(plans[0].animationCues.length > 0);
+  assert.equal(plans[0].reasonCodes.includes("goal"), true);
 });
 
 test("reason code extraction recognizes football and replay signals", () => {
@@ -85,10 +93,57 @@ test("reason code extraction recognizes football and replay signals", () => {
       sceneChanges: [{ time: 6.2, confidence: 0.8 }],
     },
   );
-  assert.equal(reasons.includes("goal_like_phrase"), true);
-  assert.equal(reasons.includes("replay_marker"), true);
+  assert.equal(reasons.includes("goal"), true);
+  assert.equal(reasons.includes("replay_worthy_moment"), true);
   assert.equal(reasons.includes("crowd_reaction"), true);
-  assert.equal(reasons.includes("audio_peak"), true);
+  assert.equal(reasons.includes("audio_energy_spike"), true);
+});
+
+test("audio-only spike is not promoted to goal without semantic evidence", () => {
+  const result = detectHighlights({
+    transcript: {
+      provider: "fixture",
+      language: "en",
+      captions: [{ start: 9, end: 11, text: "Listen to that reaction from the stands" }],
+    },
+    signals: {
+      durationSeconds: 24,
+      hasAudio: true,
+      audioPeaks: [{ time: 10, energyScore: 0.95, source: "fixture" }],
+      sceneChanges: [{ time: 10.1, confidence: 0.75, source: "fixture" }],
+    },
+    preset: "hype",
+  });
+  assert.equal(result.moments[0].highlightType, "audio_energy_spike");
+  assert.equal(result.moments[0].reasonCodes.includes("goal"), false);
+  assert.equal(hasGoalLanguage(result.moments[0].hook), false);
+});
+
+test("save and foul language map to football-aware non-goal types", () => {
+  const saveReasons = reasonCodesForCaption(
+    { start: 11, end: 13, text: "Huge save by the keeper after the shot!" },
+    { audioPeaks: [{ time: 12, energyScore: 0.9 }], sceneChanges: [{ time: 12, confidence: 0.8 }] },
+  );
+  assert.equal(saveReasons.includes("save"), true);
+  assert.equal(saveReasons.includes("shot_on_target"), true);
+  assert.equal(saveReasons.includes("goal"), false);
+
+  const foulReasons = reasonCodesForCaption(
+    { start: 7, end: 9, text: "Heavy contact! That late challenge changes the tempo" },
+    { audioPeaks: [{ time: 8, energyScore: 0.88 }], sceneChanges: [{ time: 8.1, confidence: 0.76 }] },
+  );
+  assert.equal(foulReasons.includes("hard_foul"), true);
+  assert.equal(foulReasons.includes("foul"), true);
+  assert.equal(foulReasons.includes("goal"), false);
+});
+
+test("non-event goal context does not create goal evidence", () => {
+  const reasons = reasonCodesForCaption(
+    { start: 12, end: 14, text: "Replay the angle from behind the goal" },
+    { audioPeaks: [], sceneChanges: [] },
+  );
+  assert.equal(reasons.includes("goal"), false);
+  assert.equal(reasons.includes("replay_worthy_moment"), true);
 });
 
 test("transcription provider keeps mock fallback and language normalization", async () => {
@@ -118,4 +173,6 @@ test("analysis health reports deterministic readiness", () => {
   const health = analysisHealth();
   assert.equal(health.ready, true);
   assert.equal(health.features.includes("highlight_ranking"), true);
+  assert.equal(health.features.includes("football_highlight_taxonomy"), true);
+  assert.equal(health.features.includes("false_goal_guard"), true);
 });

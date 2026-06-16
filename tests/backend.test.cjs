@@ -156,8 +156,28 @@ test("edit plan validation enforces 9:16 MP4 with captions", () => {
   assert.equal(validated.export.width, 1080);
   assert.equal(validated.export.height, 1920);
   assert.equal(validated.captions.length, 2);
+  assert.equal(validated.highlightType, "generic_highlight");
+  assert.equal(validated.stylePreset, "social_sports_v1");
+  assert.equal(validated.framingMode, "wide_safe");
+  assert.equal(validated.cropStrategy.preserveFullFrame, true);
+  assert.ok(validated.animationCues.length > 0);
+  assert.ok(validated.captionEmphasis.length > 0);
 
   assert.throws(() => validateEditPlan({ ...plan, aspectRatio: "1:1" }, metadata), /Only 9:16/);
+  assert.throws(
+    () =>
+      validateEditPlan(
+        {
+          ...plan,
+          highlightType: "save",
+          reasonCodes: ["save"],
+          hook: "WHAT A GOAL",
+          captions: [{ start: 0, end: 2, text: "Goal changes everything" }],
+        },
+        metadata,
+      ),
+    /goal language/i,
+  );
 });
 
 test("job lifecycle supports idempotency and cancellation", () => {
