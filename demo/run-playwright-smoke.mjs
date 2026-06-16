@@ -525,11 +525,11 @@ async function runBrowserFlow({ baseUrl, fixturePath, page, timeoutMs, youtubeLi
     addCheck(uiStateChecks, "youtube_live_source_generate_disabled_before_ingest", await generateButton.isDisabled());
     addCheck(uiStateChecks, "youtube_live_url_input_visible", !(await isHidden(youtubeUrlInput)));
     await youtubeUrlInput.fill(youtubeLive.url);
-    addCheck(uiStateChecks, "youtube_live_validate_disabled_until_rights", await youtubeValidateButton.isDisabled());
+    addCheck(uiStateChecks, "youtube_live_validate_retry_hidden_until_needed", await isHidden(youtubeValidateButton));
     await youtubeRightsCheckbox.check();
-    await youtubeValidateButton.click();
     await youtubePreview.waitFor({ state: "visible", timeout: 10_000 });
     const previewText = await youtubePreview.textContent();
+    addCheck(uiStateChecks, "youtube_live_auto_validation_completed", !(await isHidden(youtubePreview)));
     addCheck(uiStateChecks, "youtube_live_preview_visible", !(await isHidden(youtubePreview)));
     addCheck(uiStateChecks, "youtube_live_preview_safe", previewText.includes(youtubeLive.videoId) && !/https?:\/\//i.test(previewText));
     addCheck(uiStateChecks, "youtube_live_ingest_enabled_after_ready_validation", !(await youtubeIngestButton.isDisabled()));
@@ -585,10 +585,10 @@ async function runBrowserFlow({ baseUrl, fixturePath, page, timeoutMs, youtubeLi
   addCheck(uiStateChecks, "youtube_ingest_disabled_by_default", await youtubeIngestButton.isDisabled());
   addCheck(uiStateChecks, "youtube_ingest_status_visible", /disabled by default|unavailable/i.test(await youtubeIngestStatus.textContent()));
   await youtubeUrlInput.fill("https://www.youtube.com/shorts/dQw4w9WgXcQ");
-  addCheck(uiStateChecks, "youtube_validate_disabled_until_rights", await youtubeValidateButton.isDisabled());
+  addCheck(uiStateChecks, "youtube_validate_retry_hidden_until_needed", await isHidden(youtubeValidateButton));
   await youtubeRightsCheckbox.check();
-  await youtubeValidateButton.click();
   await youtubePreview.waitFor({ state: "visible", timeout: 5000 });
+  addCheck(uiStateChecks, "youtube_auto_validate_preview_visible", !(await isHidden(youtubePreview)));
   addCheck(uiStateChecks, "youtube_validate_only_preview_visible", !(await isHidden(youtubePreview)));
   addCheck(uiStateChecks, "youtube_generate_stays_disabled_after_validation", await generateButton.isDisabled());
   addCheck(uiStateChecks, "youtube_ingest_stays_disabled_after_validation_without_adapter", await youtubeIngestButton.isDisabled());

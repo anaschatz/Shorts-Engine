@@ -71,8 +71,8 @@ function collectStaticBrowserChecks({ app, css, html, manual }) {
   addCheck(checks, "youtube_validate_only_contract", /\/api\/youtube\/validate/.test(app) && /YOUTUBE_INGEST_NOT_ENABLED/.test(app));
   addCheck(checks, "youtube_render_disabled_contract", /state\.sourceType === "youtube"/.test(app) && /Ingest disabled/.test(app));
   addCheck(checks, "youtube_ui_shared_gate_contract", /deriveYouTubeUiState/.test(app) && /currentYouTubeUiState/.test(app));
-  addCheck(checks, "youtube_validate_requires_url_and_rights_contract", /validateYoutubeBtn\.disabled = !youtubeUi\.canValidate/.test(app));
   addCheck(checks, "youtube_auto_validate_debounce_contract", /YOUTUBE_AUTO_VALIDATE_DELAY_MS/.test(app) && /scheduleYouTubeAutoValidate/.test(app));
+  addCheck(checks, "youtube_validate_retry_only_contract", /validateYoutubeBtn\.hidden = !showValidationFallback/.test(app) && /Retry validation/.test(app));
   addCheck(checks, "youtube_ingest_requires_health_contract", /ingestYoutubeBtn\.disabled = !youtubeUi\.canIngest/.test(app));
   addCheck(checks, "youtube_generate_after_ingest_contract", /generateBtn\.disabled = !youtubeUi\.canGenerate/.test(app));
   addCheck(checks, "youtube_preview_safe_summary_contract", /createYouTubePreviewSummary/.test(app) && /youtubePreviewUrl\.textContent = summary\.label/.test(app));

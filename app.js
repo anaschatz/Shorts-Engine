@@ -300,6 +300,7 @@
     const youtubeUi = currentYouTubeUiState();
     const busy = youtubeUi.busy;
     const youtubeSource = youtubeUi.youtubeSource;
+    const showValidationFallback = youtubeSource && ["validating", "failed"].includes(state.youtubeAction);
     els.generateBtn.disabled = !youtubeUi.canGenerate;
     if (!busy && youtubeSource && !youtubeUi.ingested) {
       setButtonContent(els.generateBtn, "Ingest first", "bolt");
@@ -315,9 +316,10 @@
     els.videoInput.disabled = busy || youtubeSource;
     els.youtubeUrlInput.disabled = busy || !youtubeSource;
     els.youtubeRightsCheckbox.disabled = busy || !youtubeSource;
-    els.validateYoutubeBtn.disabled = !youtubeUi.canValidate;
+    els.validateYoutubeBtn.hidden = !showValidationFallback;
+    els.validateYoutubeBtn.disabled = state.youtubeAction === "validating" || !youtubeUi.canValidate;
     els.ingestYoutubeBtn.disabled = !youtubeUi.canIngest;
-    els.validateYoutubeBtn.textContent = state.youtubeAction === "validating" ? "Validating..." : "Validate now";
+    els.validateYoutubeBtn.textContent = state.youtubeAction === "validating" ? "Validating..." : "Retry validation";
     els.ingestYoutubeBtn.textContent = state.youtubeAction === "ingesting" ? "Ingesting..." : "Ingest video";
     els.youtubeSourcePanel.dataset.flowState = youtubeUi.status;
     els.exportBtn.disabled = !youtubeUi.canDownload;
@@ -408,6 +410,8 @@
       els.youtubeIngestStatus.textContent = "Ingesting authorized YouTube source into a local MP4 artifact...";
     } else if (uiState && uiState.ingested) {
       els.youtubeIngestStatus.textContent = "YouTube source ingested. Generate shorts is ready.";
+    } else if (state.youtubeAction === "failed") {
+      els.youtubeIngestStatus.textContent = "Validation failed. Check the link or retry validation.";
     } else if (uiState && uiState.urlReady && !uiState.rightsConfirmed) {
       els.youtubeIngestStatus.textContent = "Confirm rights to auto-validate this YouTube URL.";
     } else if (uiState && uiState.urlReady && uiState.rightsConfirmed && !uiState.validated) {
@@ -443,6 +447,8 @@
         ingestAvailable: false,
       };
     } finally {
+      if (state.youtubeValidation) renderYouTubePreview(state.youtubeValidation);
+      scheduleYouTubeAutoValidate();
       renderYouTubeIngestStatus();
       updateActionStates();
     }

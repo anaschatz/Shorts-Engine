@@ -90,7 +90,9 @@ assert.match(app, /validateCompletedJobForExport/, "app.js should validate compl
 assert.match(app, /EXPORT_NOT_READY/, "app.js should fail closed when download/export is not ready");
 assert.match(app, /validateYouTubeSourceInput/, "app.js should validate YouTube URLs before API calls");
 assert.match(app, /deriveYouTubeUiState/, "app.js should derive YouTube control state from a shared helper");
-assert.match(app, /validateYoutubeBtn\.disabled = !youtubeUi\.canValidate/, "YouTube validation should be disabled until URL and rights are ready");
+assert.match(app, /scheduleYouTubeAutoValidate/, "YouTube validation should run automatically after URL and rights are ready");
+assert.match(app, /validateYoutubeBtn\.hidden = !showValidationFallback/, "YouTube validation button should be retry/loading feedback, not the primary flow");
+assert.match(app, /validateYoutubeBtn\.textContent = state\.youtubeAction === "validating" \? "Validating\.\.\." : "Retry validation"/, "YouTube validation fallback should clearly communicate retry behavior");
 assert.match(app, /ingestYoutubeBtn\.disabled = !youtubeUi\.canIngest/, "YouTube ingest should be disabled until validation and health readiness pass");
 assert.match(app, /generateBtn\.disabled = !youtubeUi\.canGenerate/, "YouTube generate should remain disabled until ingest creates project/upload state");
 assert.match(app, /createYouTubePreviewSummary/, "YouTube preview should use a safe summary helper");

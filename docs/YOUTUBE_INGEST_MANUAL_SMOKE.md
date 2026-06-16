@@ -164,7 +164,7 @@ Use this path after `npm run youtube:doctor` is passing with ingest enabled and 
 3. Switch the source selector to `YouTube URL`.
 4. Paste only an authorized YouTube watch, Shorts or youtu.be URL.
 5. Confirm the YouTube-specific rights checkbox.
-6. Confirm validation starts automatically after typing stops; use `Validate now` only as a fallback.
+6. Confirm validation starts automatically after typing stops; use `Retry validation` only if validation fails.
 7. Confirm the preview shows only safe source metadata such as video id/kind, not a raw canonical URL.
 8. If `/health` reports `youtubeIngest` ready, click `Ingest video`.
 9. Confirm the status changes to ready-to-generate and the main `Generate shorts` action becomes available.
@@ -172,7 +172,7 @@ Use this path after `npm run youtube:doctor` is passing with ingest enabled and 
 
 Expected disabled states:
 
-- Auto validation waits until URL and rights confirmation are present; `Validate now` remains disabled until the same gate passes.
+- Auto validation waits until URL and rights confirmation are present; the retry control stays hidden unless validation is running or fails.
 - `Ingest video` is disabled until validation passes and health says downloader-backed ingest is ready.
 - `Generate shorts` is disabled for YouTube sources until ingest creates project/upload state.
 - Export and Download stay disabled/hidden until render completion.
