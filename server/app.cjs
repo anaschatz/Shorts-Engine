@@ -27,8 +27,9 @@ const { createLocalJobWorker, restoreExportsFromCompletedJobs } = require("./job
 const { createWorkerSupervisor } = require("./worker-supervisor.cjs");
 const { createLocalJobQueue } = require("./queue/local-job-queue.cjs");
 const { createArtifactCleanupWorker } = require("./artifact-cleanup-worker.cjs");
-const { createMockYouTubeIngestAdapter } = require("./adapters/mock-youtube-ingest-adapter.cjs");
+const { createYouTubeIngestAdapter } = require("./adapters/youtube-ingest-adapter.cjs");
 const { validateYouTubeSource, youtubeIngestHealth } = require("./youtube-ingest.cjs");
+const { createYouTubeIngestService } = require("./youtube-ingest-service.cjs");
 const {
   safeResolve,
   storageHealth,
@@ -59,7 +60,16 @@ const jobQueue = createLocalJobQueue({ jobs, logger: console });
 const uploadLimiter = createRateLimiter({ limit: 12, windowMs: 60 * 1000 });
 const generateLimiter = createRateLimiter({ limit: 20, windowMs: 60 * 1000 });
 const youtubeValidateLimiter = createRateLimiter({ limit: 30, windowMs: 60 * 1000 });
-const youtubeIngestAdapter = createMockYouTubeIngestAdapter();
+const youtubeIngestLimiter = createRateLimiter({ limit: 6, windowMs: 60 * 1000 });
+const youtubeIngestAdapter = createYouTubeIngestAdapter();
+const youtubeIngestService = createYouTubeIngestService({
+  adapter: youtubeIngestAdapter,
+  dependencies: {
+    artifactStore,
+    persistenceAdapter,
+    logger: console,
+  },
+});
 const STATIC_ASSETS = new Set(["index.html", "styles.css", "hardening.js", "app.js"]);
 const BLOCKED_STATIC_PREFIXES = ["/server/", "/data/", "/tests/", "/OpenViking/", "/promptfoo/", "/pm-skills/", "/viking-brain/"];
 const MAX_MULTIPART_FIELDS = 12;
@@ -318,7 +328,7 @@ async function handleHealth(req, res, rid) {
   const storageReady = Object.values(storage).every((entry) => entry.exists && entry.readable && entry.writable);
   const repositoriesReady = Object.values(repositories).every((entry) => entry.ready);
   const adaptersReady = Object.values(adapters).every((entry) => entry.ready);
-  const ready = tools.ffmpeg && tools.ffprobe && storageReady && repositoriesReady && adaptersReady && provider.ready && analysis.ready;
+  const ready = tools.ffmpeg && tools.ffprobe && storageReady && repositoriesReady && adaptersReady && provider.ready && analysis.ready && youtubeIngest.ready;
   sendOk(res, {
     service: "shortsengine-mvp",
     status: ready ? "ready" : "degraded",
@@ -372,6 +382,31 @@ async function handleYouTubeValidate(req, res, rid) {
     ingestAvailable: source.ingestAvailable,
   }));
   sendOk(res, { source });
+}
+
+async function handleYouTubeIngest(req, res, rid) {
+  if (!youtubeIngestLimiter.check(clientKey(req))) {
+    throw new AppError("RATE_LIMITED", SAFE_MESSAGES.RATE_LIMITED, 429);
+  }
+  validateJsonContentType(req);
+  enforceContentLength(req, MAX_JSON_BODY_BYTES);
+  const payload = await readJsonBody(req, MAX_JSON_BODY_BYTES);
+  const result = await youtubeIngestService.ingest({
+    url: payload.url,
+    rightsConfirmed: payload.rightsConfirmed,
+    title: payload.title,
+    requestId: rid,
+  });
+  console.info(JSON.stringify({
+    level: "info",
+    event: "youtube_ingest_accepted",
+    requestId: rid,
+    sourceType: "youtube",
+    videoId: result.source.videoId,
+    projectId: result.project.id,
+    uploadId: result.upload.id,
+  }));
+  sendOk(res, result, 201);
 }
 
 async function handleUpload(req, res, rid) {
@@ -589,6 +624,7 @@ async function route(req, res) {
   try {
     if (req.method === "GET" && pathname === "/health") return await handleHealth(req, res, rid);
     if (req.method === "POST" && pathname === "/api/youtube/validate") return await handleYouTubeValidate(req, res, rid);
+    if (req.method === "POST" && pathname === "/api/youtube/ingest") return await handleYouTubeIngest(req, res, rid);
     if (req.method === "POST" && pathname === "/api/uploads") return await handleUpload(req, res, rid);
 
     const generateMatch = pathname.match(/^\/api\/projects\/([^/]+)\/generate$/);

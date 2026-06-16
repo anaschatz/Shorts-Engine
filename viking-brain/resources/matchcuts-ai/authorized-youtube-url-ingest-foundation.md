@@ -2,12 +2,12 @@
 
 ## Purpose
 
-ShortsEngine can validate a user-provided YouTube URL and explicit rights confirmation before a future downloader/ingest worker exists.
+ShortsEngine can validate a user-provided YouTube URL and explicit rights confirmation before any downloader work. A later milestone added opt-in local ingest behind a dedicated adapter; the default remains validate-only/no-network.
 
-This milestone is intentionally validate-only:
+The default install is intentionally validate-only:
 
-- No server-side media download.
-- No `yt-dlp`, `youtube-dl`, browser scraping, shell execution or network calls.
+- No server-side media download unless `SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1`.
+- No `yt-dlp`, `youtube-dl`, browser scraping, shell execution or network calls in the default mock adapter.
 - No project/upload/export record is created from a YouTube URL.
 - Generate/render/export stays disabled until a real MP4 artifact exists in artifact storage.
 
@@ -45,9 +45,9 @@ This milestone is intentionally validate-only:
 - Generate/export/download remain disabled for YouTube mode until a real ingested MP4 artifact exists.
 - Switching sources clears stale render state and avoids old downloads/previews leaking into the active mode.
 
-## Next Milestone
+## Implemented Follow-Up
 
-Implement a legal/authorized downloader boundary with local staging, artifact creation, duration/size/container validation and provider-specific opt-in behavior.
+`authorized-youtube-ingest-adapter-local-staging.md` documents the opt-in local adapter, local staging strategy, artifact creation, duration/size/container validation and provider-specific safety behavior.
 
 ## Hardening Follow-Up: 2026-06-16
 

@@ -1,3 +1,5 @@
+const { AppError, SAFE_MESSAGES } = require("../errors.cjs");
+
 function finiteDuration(value) {
   const duration = Number(value);
   return Number.isFinite(duration) && duration > 0 ? duration : null;
@@ -31,6 +33,9 @@ function createMockYouTubeIngestAdapter(options = {}) {
         metadataStatus: durationSeconds ? "mock" : "mock-unavailable",
         ingestAvailable: false,
       };
+    },
+    async ingest() {
+      throw new AppError("YOUTUBE_INGEST_NOT_ENABLED", SAFE_MESSAGES.YOUTUBE_INGEST_NOT_ENABLED, 503);
     },
     health() {
       return {

@@ -471,6 +471,8 @@ async function runBrowserFlow({ baseUrl, fixturePath, page, timeoutMs }) {
   const youtubeUrlInput = page.getByTestId("youtube-url-input");
   const youtubeRightsCheckbox = page.getByTestId("youtube-rights-checkbox");
   const youtubeValidateButton = page.getByTestId("youtube-validate-button");
+  const youtubeIngestButton = page.getByTestId("youtube-ingest-button");
+  const youtubeIngestStatus = page.getByTestId("youtube-ingest-status");
   const youtubePreview = page.getByTestId("youtube-preview");
   const rightsCheckbox = page.getByTestId("rights-checkbox");
   const generateButton = page.getByTestId("generate-button");
@@ -490,6 +492,8 @@ async function runBrowserFlow({ baseUrl, fixturePath, page, timeoutMs }) {
   await sourceYoutubeButton.click();
   addCheck(uiStateChecks, "youtube_source_generate_disabled", await generateButton.isDisabled());
   addCheck(uiStateChecks, "youtube_url_input_visible", !(await isHidden(youtubeUrlInput)));
+  addCheck(uiStateChecks, "youtube_ingest_disabled_by_default", await youtubeIngestButton.isDisabled());
+  addCheck(uiStateChecks, "youtube_ingest_status_visible", /disabled by default|unavailable/i.test(await youtubeIngestStatus.textContent()));
   await youtubeUrlInput.fill("https://www.youtube.com/shorts/dQw4w9WgXcQ");
   await youtubeValidateButton.click();
   await errorPanel.waitFor({ state: "visible", timeout: 5000 });
@@ -499,6 +503,7 @@ async function runBrowserFlow({ baseUrl, fixturePath, page, timeoutMs }) {
   await youtubePreview.waitFor({ state: "visible", timeout: 5000 });
   addCheck(uiStateChecks, "youtube_validate_only_preview_visible", !(await isHidden(youtubePreview)));
   addCheck(uiStateChecks, "youtube_generate_stays_disabled_after_validation", await generateButton.isDisabled());
+  addCheck(uiStateChecks, "youtube_ingest_stays_disabled_after_validation_without_adapter", await youtubeIngestButton.isDisabled());
   await sourceLocalButton.click();
 
   await generateButton.click();

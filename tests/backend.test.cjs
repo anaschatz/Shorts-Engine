@@ -341,6 +341,33 @@ test("API validates authorized YouTube URLs without creating renderable uploads"
   assert.doesNotMatch(JSON.stringify(payload), /\/Users|\/private|storageKey|secret|token|outputPath|filePath/i);
 });
 
+test("API keeps YouTube ingest disabled by default without creating records", async () => {
+  const body = Buffer.from(JSON.stringify({
+    url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    rightsConfirmed: true,
+  }));
+  const beforeUploads = uploads.size;
+  const beforeProjects = projects.size;
+  const req = mockRequest({
+    method: "POST",
+    url: "/api/youtube/ingest",
+    headers: {
+      "content-type": "application/json",
+      "content-length": String(body.length),
+    },
+    body,
+  });
+  const res = mockResponse();
+  await route(req, res);
+  const payload = JSON.parse(res.body.toString("utf8"));
+  assert.equal(res.statusCode, 503);
+  assert.equal(payload.ok, false);
+  assert.equal(payload.error.code, "YOUTUBE_INGEST_NOT_ENABLED");
+  assert.equal(uploads.size, beforeUploads);
+  assert.equal(projects.size, beforeProjects);
+  assert.doesNotMatch(JSON.stringify(payload), /\/Users|\/private|storageKey|secret|token|outputPath|filePath|stderr|stack/i);
+});
+
 test("API rejects unsafe YouTube validation input with safe structured errors", async () => {
   for (const [url, rightsConfirmed, code] of [
     ["https://www.youtube.com/watch?v=dQw4w9WgXcQ", false, "YOUTUBE_RIGHTS_REQUIRED"],

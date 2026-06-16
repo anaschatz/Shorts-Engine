@@ -51,6 +51,8 @@
     youtubeUrlInput: "#youtubeUrlInput",
     youtubeRightsCheckbox: "#youtubeRightsCheckbox",
     validateYoutubeBtn: "#validateYoutubeBtn",
+    ingestYoutubeBtn: "#ingestYoutubeBtn",
+    youtubeIngestStatus: "#youtubeIngestStatus",
     youtubePreview: "#youtubePreview",
     youtubePreviewUrl: "#youtubePreviewUrl",
     youtubePreviewVideoId: "#youtubePreviewVideoId",
@@ -91,6 +93,14 @@
     activeJob: null,
     sourceType: "local",
     youtubeValidation: null,
+    youtubeHealth: {
+      ready: false,
+      enabled: false,
+      mode: "mock",
+      networkCalls: false,
+      downloaderConfigured: false,
+      ingestAvailable: false,
+    },
     pollTimer: null,
     generated: false,
     exportId: null,
@@ -226,7 +236,7 @@
       pace: els.paceRange.value,
       motion: els.motionRange.value,
       captionsEnabled: els.captionsToggle.checked,
-      rightsConfirmed: els.rightsCheckbox.checked,
+      rightsConfirmed: state.sourceType === "youtube" ? els.youtubeRightsCheckbox.checked : els.rightsCheckbox.checked,
       ...(extra || {}),
     });
   }
@@ -238,9 +248,11 @@
   function updateActionStates() {
     const busy = isBusy();
     const youtubeSource = state.sourceType === "youtube";
-    els.generateBtn.disabled = busy || youtubeSource;
-    if (!busy && youtubeSource) {
-      setButtonContent(els.generateBtn, "Ingest disabled", "bolt");
+    const youtubeIngested = youtubeSource && state.activeUpload && state.activeProject;
+    const youtubeCanIngest = youtubeSource && state.youtubeValidation && state.youtubeHealth.ingestAvailable && !youtubeIngested;
+    els.generateBtn.disabled = busy || (youtubeSource && !youtubeIngested);
+    if (!busy && youtubeSource && !youtubeIngested) {
+      setButtonContent(els.generateBtn, "Ingest first", "bolt");
     } else if (!busy && !state.generated) {
       setButtonContent(els.generateBtn, "Generate shorts", "bolt");
     }
@@ -254,12 +266,14 @@
     els.youtubeUrlInput.disabled = busy || !youtubeSource;
     els.youtubeRightsCheckbox.disabled = busy || !youtubeSource;
     els.validateYoutubeBtn.disabled = busy || !youtubeSource;
+    els.ingestYoutubeBtn.disabled = busy || !youtubeCanIngest;
     els.exportBtn.disabled = busy || !state.generated || !state.downloadUrl;
     els.exportButtons.forEach((button) => {
       button.disabled = busy || !state.generated || !state.downloadUrl;
     });
     els.downloadLink.hidden = !(state.generated && state.downloadUrl);
     els.momentList.setAttribute("aria-busy", busy ? "true" : "false");
+    renderYouTubeIngestStatus();
   }
 
   function resetVideoPreview() {
@@ -280,6 +294,15 @@
       els.youtubeUrlInput.value = "";
       els.youtubeRightsCheckbox.checked = false;
     }
+  }
+
+  function clearYouTubeProjectState() {
+    resetRenderState();
+    state.activeUpload = null;
+    state.activeProject = null;
+    clearYouTubeValidation();
+    resetFileInput();
+    setProjectStatus("draft", "URL source");
   }
 
   function syncSourcePanels() {
@@ -304,6 +327,7 @@
       resetVideoPreview();
       resetFileInput();
       setProjectStatus("draft", "URL source");
+      refreshYouTubeHealth();
     } else {
       clearYouTubeValidation();
       setProjectStatus("draft", state.activeProject ? "Uploaded" : "Draft");
@@ -316,15 +340,49 @@
     els.youtubePreview.hidden = false;
     els.youtubePreviewVideoId.textContent = source.videoId;
     els.youtubePreviewUrl.textContent = source.canonicalUrl;
-    els.youtubePreviewStatus.textContent = "Validated. Rendering stays disabled until a real MP4 artifact exists.";
+    els.youtubePreviewStatus.textContent = state.youtubeHealth.ingestAvailable
+      ? "Validated. Ingest is available for this environment."
+      : "Validated. Ingest is unavailable in this environment.";
   }
 
-  function showYouTubeError(error) {
-    const response = showSafeError(error, "youtube-validate");
+  function renderYouTubeIngestStatus() {
+    const health = state.youtubeHealth || {};
+    const ready = Boolean(health.ingestAvailable);
+    els.youtubeIngestStatus.dataset.ready = ready ? "true" : "false";
+    if (ready) {
+      els.youtubeIngestStatus.textContent = "YouTube ingest is enabled. Validate the URL before ingest.";
+    } else if (health.enabled && !health.downloaderConfigured) {
+      els.youtubeIngestStatus.textContent = "YouTube ingest is enabled but the downloader is unavailable.";
+    } else {
+      els.youtubeIngestStatus.textContent = "YouTube ingest is disabled by default. Local uploads still work.";
+    }
+  }
+
+  function showYouTubeError(error, context = "youtube-validate") {
+    const response = showSafeError(error, context);
     els.youtubeError.hidden = false;
     els.youtubeError.textContent = `${response.error.message} (${response.error.code})`;
     els.youtubeUrlInput.setAttribute("aria-invalid", "true");
     return response;
+  }
+
+  async function refreshYouTubeHealth() {
+    try {
+      const data = await apiFetch("/health");
+      state.youtubeHealth = data.youtubeIngest || state.youtubeHealth;
+    } catch {
+      state.youtubeHealth = {
+        ready: false,
+        enabled: false,
+        mode: "unknown",
+        networkCalls: false,
+        downloaderConfigured: false,
+        ingestAvailable: false,
+      };
+    } finally {
+      renderYouTubeIngestStatus();
+      updateActionStates();
+    }
   }
 
   function updateProgress(job) {
@@ -537,7 +595,12 @@
       state.youtubeValidation = data.source;
       renderYouTubePreview(data.source);
       setProjectStatus("draft", "URL checked");
-      showToast("Το YouTube source πέρασε validation. Το ingest/render μένει κλειδωμένο.", "success");
+      showToast(
+        state.youtubeHealth.ingestAvailable
+          ? "Το YouTube source πέρασε validation. Μπορείς να κάνεις ingest."
+          : "Το YouTube source πέρασε validation. Το ingest μένει κλειδωμένο.",
+        "success",
+      );
     } catch (error) {
       showYouTubeError(error);
     } finally {
@@ -545,9 +608,62 @@
     }
   }
 
+  async function handleYouTubeIngest() {
+    clearError();
+    if (!state.youtubeValidation) {
+      showYouTubeError(Core.fail("YOUTUBE_URL_INVALID"), "youtube-ingest");
+      updateActionStates();
+      return;
+    }
+    if (!state.youtubeHealth.ingestAvailable) {
+      const code = state.youtubeHealth.enabled && !state.youtubeHealth.downloaderConfigured
+        ? "YOUTUBE_DOWNLOADER_MISSING"
+        : "YOUTUBE_INGEST_NOT_ENABLED";
+      showYouTubeError(Core.fail(code), "youtube-ingest");
+      updateActionStates();
+      return;
+    }
+    const clientValidation = Core.validateYouTubeSourceInput({
+      url: state.youtubeValidation.canonicalUrl,
+      rightsConfirmed: els.youtubeRightsCheckbox.checked,
+    });
+    if (!clientValidation.ok) {
+      showYouTubeError(clientValidation, "youtube-ingest");
+      updateActionStates();
+      return;
+    }
+    try {
+      els.ingestYoutubeBtn.textContent = "Ingesting...";
+      setProjectStatus("processing", "Ingesting");
+      const data = await apiFetch("/api/youtube/ingest", {
+        method: "POST",
+        body: JSON.stringify({
+          url: clientValidation.data.canonicalUrl,
+          rightsConfirmed: true,
+          title: els.matchTitle.value,
+        }),
+      });
+      state.activeUpload = data.upload;
+      state.activeProject = data.project;
+      state.youtubeValidation = data.source;
+      els.fileLabel.textContent = formatUploadLabel(data.upload);
+      renderYouTubePreview(data.source);
+      setProjectStatus("draft", "YouTube ingested");
+      showToast("Το YouTube video έγινε ασφαλές MP4 artifact και είναι έτοιμο για generate.", "success");
+    } catch (error) {
+      state.activeUpload = null;
+      state.activeProject = null;
+      setProjectStatus("failed", "Ingest failed");
+      showYouTubeError(error, "youtube-ingest");
+    } finally {
+      els.ingestYoutubeBtn.textContent = "Ingest video";
+      updateActionStates();
+    }
+  }
+
   async function handleGenerate() {
     clearError();
-    if (state.sourceType === "youtube") {
+    if (state.sourceType === "youtube" && (!state.activeUpload || !state.activeProject)) {
       showSafeError(Core.fail("YOUTUBE_INGEST_NOT_ENABLED"), "generate-youtube");
       updateActionStates();
       return;
@@ -815,16 +931,17 @@
     els.sourceLocalBtn.addEventListener("click", () => selectSource("local"));
     els.sourceYoutubeBtn.addEventListener("click", () => selectSource("youtube"));
     els.youtubeUrlInput.addEventListener("input", () => {
-      clearYouTubeValidation();
+      clearYouTubeProjectState();
       clearYouTubeFieldError();
       updateActionStates();
     });
     els.youtubeRightsCheckbox.addEventListener("change", () => {
-      clearYouTubeValidation();
+      clearYouTubeProjectState();
       clearYouTubeFieldError();
       updateActionStates();
     });
     els.validateYoutubeBtn.addEventListener("click", handleYouTubeValidate);
+    els.ingestYoutubeBtn.addEventListener("click", handleYouTubeIngest);
     els.videoInput.addEventListener("change", handleVideoInputChange);
     els.generateBtn.addEventListener("click", handleGenerate);
     els.retryBtn.addEventListener("click", retryLastFailedAction);
@@ -858,6 +975,7 @@
     syncSourcePanels();
     els.jobProgress.hidden = true;
     updateActionStates();
+    refreshYouTubeHealth();
   }
 
   init();

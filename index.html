@@ -120,7 +120,7 @@
                 autocomplete="off"
                 maxlength="2048"
                 placeholder="https://www.youtube.com/watch?v=..."
-                aria-describedby="youtubeHelp youtubeError"
+                aria-describedby="youtubeHelp youtubeIngestStatus youtubeError"
               />
               <small class="helper-text" id="youtubeHelp">Υποστηρίζονται video, Shorts και youtu.be links. Playlists και live streams απορρίπτονται.</small>
               <label class="checkbox-row" for="youtubeRightsCheckbox">
@@ -130,6 +130,12 @@
               <button class="secondary-btn full-width-btn" id="validateYoutubeBtn" data-testid="youtube-validate-button" type="button">
                 Validate source
               </button>
+              <button class="secondary-btn full-width-btn" id="ingestYoutubeBtn" data-testid="youtube-ingest-button" type="button" disabled>
+                Ingest video
+              </button>
+              <small class="helper-text youtube-ingest-status" id="youtubeIngestStatus" data-testid="youtube-ingest-status" aria-live="polite">
+                YouTube ingest is disabled by default.
+              </small>
               <div class="youtube-source-card" id="youtubePreview" data-testid="youtube-preview" hidden>
                 <span>Validated source</span>
                 <strong id="youtubePreviewVideoId">Pending</strong>

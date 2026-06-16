@@ -352,6 +352,15 @@ h2 {
   overflow-wrap: anywhere;
 }
 
+.youtube-ingest-status {
+  overflow-wrap: anywhere;
+}
+
+.youtube-ingest-status[data-ready="true"] {
+  color: var(--green-dark);
+  font-weight: 800;
+}
+
 .dropzone {
   min-height: 168px;
   display: grid;

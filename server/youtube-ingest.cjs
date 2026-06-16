@@ -111,16 +111,19 @@ async function validateYouTubeSource(input = {}) {
   const adapter = input.adapter;
   const maxDurationSeconds = Number(input.maxDurationSeconds || CONFIG.maxDurationSeconds);
   const metadata = await readAdapterMetadata(adapter, source);
+  const health = youtubeIngestHealth(adapter);
   if (metadata.durationSeconds && metadata.durationSeconds > maxDurationSeconds) {
     fail("YOUTUBE_DURATION_TOO_LONG");
   }
+  const ingestAvailable = Boolean(health.ingestAvailable || metadata.ingestAvailable);
   return {
     ...source,
+    title: metadata.title,
     durationSeconds: metadata.durationSeconds,
     metadataStatus: metadata.metadataStatus,
-    ingestAvailable: false,
-    downloaderConfigured: Boolean(adapter && adapter.downloaderConfigured),
-    nextAction: "youtube-ingest-disabled-until-mp4-artifact-exists",
+    ingestAvailable,
+    downloaderConfigured: Boolean(health.downloaderConfigured),
+    nextAction: ingestAvailable ? "youtube-ingest-ready" : "youtube-ingest-disabled-until-mp4-artifact-exists",
   };
 }
 
@@ -137,7 +140,7 @@ function youtubeIngestHealth(adapter) {
     enabled: Boolean(health.enabled),
     networkCalls: Boolean(health.networkCalls),
     downloaderConfigured: Boolean(health.downloaderConfigured),
-    ingestAvailable: false,
+    ingestAvailable: Boolean(health.enabled && health.downloaderConfigured && health.ready !== false),
   };
 }
 

@@ -40,3 +40,4 @@
 - Expose release/CI readiness in `/health` and release evidence through a local static contract only; it must not invoke GitHub CLI, start auth or inspect remote state.
 - Remote CI proof must verify `gh run view` `headSha` against the exact local commit SHA before passing.
 - `remote:ci:proof` should write safe failure evidence for missing `gh`, missing auth, no run, timeout or SHA mismatch while keeping raw logs/artifacts absent.
+- YouTube ingest remains disabled by default. Real ingest is opt-in, goes through a dedicated adapter/service boundary, writes to local staging first, and creates project/upload records only after upload validation, FFprobe and artifact commit succeed.

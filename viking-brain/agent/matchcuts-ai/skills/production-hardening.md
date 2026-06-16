@@ -61,3 +61,4 @@ Checklist:
 - Failure proof reports may be written for missing CLI/auth/no-run/timeout/SHA mismatch, but they must contain only safe codes, next actions and no raw logs, artifacts, stderr, tokens or local paths.
 - For remote media URL features, start with a validate-only adapter: require explicit rights confirmation, reject playlists/live/unsafe protocols/credentialed URLs, report no-network health, and keep generate/export disabled until an artifact-store MP4 exists.
 - Never add server-side URL download, downloader CLI execution or scraper behavior to default flows without a dedicated adapter boundary, staging validation, tests, opt-in config and legal/rights UX.
+- Real YouTube ingest must stay opt-in, downloader calls must use `execFile` with explicit args and bounded output/time, and downloaded files must pass staging cleanup plus upload/FFprobe validation before project/upload records are created.

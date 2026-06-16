@@ -16,6 +16,7 @@ const FFMPEG_FULL_BIN = "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg";
 const FFPROBE_FULL_BIN = "/opt/homebrew/opt/ffmpeg-full/bin/ffprobe";
 const STORAGE_ADAPTER_MODES = Object.freeze(["local", "mock-cloud", "s3", "r2", "gcs"]);
 const PERSISTENCE_ADAPTER_MODES = Object.freeze(["local", "sqlite"]);
+const DEFAULT_YOUTUBE_DOWNLOADER_BIN = "yt-dlp";
 
 function boolFromEnv(value) {
   return ["1", "true", "yes", "on"].includes(String(value || "").toLowerCase());
@@ -179,6 +180,51 @@ function validateDatabaseConfig(input = {}) {
   };
 }
 
+function validateExecutableReference(value, options = {}) {
+  const fallback = options.fallback || "";
+  const name = options.name || "executable";
+  const raw = value === undefined || value === null || value === "" ? fallback : String(value).trim();
+  if (
+    !raw ||
+    raw.length > 240 ||
+    /[\u0000-\u001f\u007f\s`$;&|<>]/.test(raw) ||
+    raw.includes("\\") ||
+    raw.includes("..")
+  ) {
+    throw new Error(`Invalid ${name} configuration.`);
+  }
+  if (raw.includes("/")) {
+    if (!raw.startsWith("/") || !/^\/[A-Za-z0-9._/@:+-]+$/.test(raw)) {
+      throw new Error(`Invalid ${name} configuration.`);
+    }
+  } else if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$/.test(raw)) {
+    throw new Error(`Invalid ${name} configuration.`);
+  }
+  return raw;
+}
+
+function validateYouTubeIngestConfig(input = {}) {
+  return {
+    enabled: Boolean(input.enabled),
+    downloaderBin: validateExecutableReference(input.downloaderBin, {
+      name: "YouTube downloader binary",
+      fallback: DEFAULT_YOUTUBE_DOWNLOADER_BIN,
+    }),
+    timeoutMs: validatePositiveIntegerConfig(input.timeoutMs, {
+      name: "YouTube ingest timeout",
+      fallback: 2 * 60 * 1000,
+      min: 1000,
+      max: 10 * 60 * 1000,
+    }),
+    maxOutputBytes: validateByteConfig(input.maxOutputBytes, {
+      name: "YouTube downloader output bytes",
+      fallback: 64 * 1024,
+      min: 1024,
+      max: 1024 * 1024,
+    }),
+  };
+}
+
 const STORAGE_CONFIG = validateStorageConfig({
   adapter: process.env.MATCHCUTS_STORAGE_ADAPTER || "local",
   bucket: process.env.MATCHCUTS_STORAGE_BUCKET || "",
@@ -198,6 +244,12 @@ const STORAGE_CONFIG = validateStorageConfig({
 const DATABASE_CONFIG = validateDatabaseConfig({
   adapter: process.env.MATCHCUTS_PERSISTENCE_ADAPTER || "local",
   fileName: process.env.MATCHCUTS_SQLITE_FILE || "shortsengine.sqlite",
+});
+const YOUTUBE_INGEST_CONFIG = validateYouTubeIngestConfig({
+  enabled: boolFromEnv(process.env.SHORTSENGINE_YOUTUBE_INGEST_ENABLED),
+  downloaderBin: process.env.SHORTSENGINE_YOUTUBE_DOWNLOADER_BIN || DEFAULT_YOUTUBE_DOWNLOADER_BIN,
+  timeoutMs: process.env.SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS,
+  maxOutputBytes: process.env.SHORTSENGINE_YOUTUBE_DOWNLOADER_OUTPUT_BYTES,
 });
 
 const PORT = validatePositiveIntegerConfig(process.env.PORT, {
@@ -292,6 +344,7 @@ const CONFIG = Object.freeze({
   storageAdapter: STORAGE_CONFIG.adapter,
   persistence: Object.freeze(DATABASE_CONFIG),
   persistenceAdapter: DATABASE_CONFIG.adapter,
+  youtubeIngest: Object.freeze(YOUTUBE_INGEST_CONFIG),
   artifactCleanupIntervalMs: validatePositiveIntegerConfig(process.env.MATCHCUTS_ARTIFACT_CLEANUP_INTERVAL_MS, {
     name: "artifact cleanup interval",
     fallback: 0,
@@ -333,7 +386,9 @@ module.exports = {
   validateDatabaseConfig,
   validatePersistenceAdapterMode,
   validatePositiveIntegerConfig,
+  validateExecutableReference,
   validateSignedUrlTtlSeconds,
   validateStorageAdapterMode,
   validateStorageConfig,
+  validateYouTubeIngestConfig,
 };

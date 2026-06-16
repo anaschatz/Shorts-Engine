@@ -23,14 +23,18 @@ The command prints a safe JSON readiness summary. It fails closed for invalid nu
 | `MATCHCUTS_MAX_UPLOAD_BYTES` | No | `262144000` | integer `1024..21474836480` | No | Keep conservative until storage/render capacity is measured. | Invalid size fails readiness. |
 | `MATCHCUTS_MAX_DURATION_SECONDS` | No | `1800` | integer `1..86400` | No | Keep short for staging smoke tests. | Invalid duration fails readiness. |
 
-## Remote URL ingest foundation
+## Remote URL ingest
 
-YouTube URL ingest is currently validation-only. The app accepts authorized YouTube video, Shorts and `youtu.be` links through `POST /api/youtube/validate`, rejects playlists/live streams/unsafe protocols, and reports `youtubeIngest` in `/health` as a mock, no-network adapter. It does not download media, shell out to downloader tools, create uploads/projects, or enable render/export until a future milestone produces a real MP4 artifact.
+YouTube URL validation remains available through `POST /api/youtube/validate`. Real YouTube ingest is disabled by default and requires explicit opt-in with `SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1`. When enabled, the local adapter invokes the configured downloader with `execFile`, writes only to controlled local staging, validates the MP4 with the same upload/container/size/duration/FFprobe checks, then creates upload/project records only after artifact commit succeeds.
 
-| Setting | Current default | Secret | Production note |
-| --- | --- | --- | --- |
-| YouTube ingest adapter | `mock` | No | No env var is required. Keep no-network validation as the default until a downloader/staging strategy is implemented and tested. |
-| Download/render from YouTube | disabled | No | Generate/export controls stay disabled for YouTube sources until a real ingested artifact exists. |
+| Variable | Required | Default | Allowed values | Secret | Staging recommendation | Fail-closed behavior |
+| --- | --- | --- | --- | --- | --- | --- |
+| `SHORTSENGINE_YOUTUBE_INGEST_ENABLED` | No | `0` | boolean | No | Keep disabled until downloader/legal policy is reviewed. | Disabled mode returns `YOUTUBE_INGEST_NOT_ENABLED` and performs no network/downloader work. |
+| `SHORTSENGINE_YOUTUBE_DOWNLOADER_BIN` | Only when ingest enabled | `yt-dlp` | command name or absolute binary path without spaces/shell metacharacters | No | Install/manage the downloader outside the app image or platform build step. | Missing downloader returns `YOUTUBE_DOWNLOADER_MISSING`; invalid config fails startup. |
+| `SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS` | No | `120000` | integer `1000..600000` | No | Keep bounded; raise only for known long videos within upload limits. | Timeout returns `YOUTUBE_DOWNLOAD_TIMEOUT`. |
+| `SHORTSENGINE_YOUTUBE_DOWNLOADER_OUTPUT_BYTES` | No | `65536` | integer `1024..1048576` | No | Keep small to avoid raw provider output in memory. | Oversized downloader output fails safely as `YOUTUBE_DOWNLOAD_FAILED`. |
+
+The user must explicitly confirm usage rights before validation or ingest. Playlists, live streams, credentialed URLs, unsupported hosts, embeds, channels and search pages are rejected before any downloader call. Public responses and health output never include local paths, storage keys, raw stdout/stderr or secrets.
 
 ## FFmpeg/render limits
 

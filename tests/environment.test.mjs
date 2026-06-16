@@ -109,6 +109,8 @@ test("environment check passes with default safe config", () => {
   assert.equal(summary.ok, true);
   assert.equal(summary.storage.adapter, "local");
   assert.equal(summary.transcription.activeProvider, "mock");
+  assert.equal(summary.youtubeIngest.enabled, false);
+  assert.equal(summary.youtubeIngest.defaultDisabled, true);
   assert.equal(summary.cloudIntegration.enabled, false);
   assert.equal(findSensitiveLeak(summary), null);
 });
@@ -152,6 +154,13 @@ test("environment check rejects signed URL TTL out of bounds", () => {
   assert.throws(
     () => checkEnvironment(safeOptions({ MATCHCUTS_STORAGE_SIGNED_URL_TTL_SECONDS: "99999" })),
     /Numeric environment value is out of bounds/,
+  );
+});
+
+test("environment check rejects unsafe YouTube downloader command config", () => {
+  assert.throws(
+    () => checkEnvironment(safeOptions({ SHORTSENGINE_YOUTUBE_DOWNLOADER_BIN: "yt-dlp;cat" })),
+    /Command environment value is invalid/,
   );
 });
 

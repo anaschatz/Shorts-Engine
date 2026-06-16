@@ -20,6 +20,10 @@ const ENV_CONTRACT = Object.freeze([
   { name: "FFPROBE_BIN", category: "FFmpeg/render limits", required: false, defaultValue: "ffprobe", type: "command", secret: false },
   { name: "MATCHCUTS_MAX_UPLOAD_BYTES", category: "Upload/media limits", required: false, defaultValue: String(250 * BYTE_1_MB), type: "integer", min: 1024, max: 20 * 1024 * BYTE_1_MB, secret: false },
   { name: "MATCHCUTS_MAX_DURATION_SECONDS", category: "Upload/media limits", required: false, defaultValue: String(30 * 60), type: "integer", min: 1, max: 24 * 60 * 60, secret: false },
+  { name: "SHORTSENGINE_YOUTUBE_INGEST_ENABLED", category: "Remote URL ingest", required: false, defaultValue: "false", type: "boolean", secret: false },
+  { name: "SHORTSENGINE_YOUTUBE_DOWNLOADER_BIN", category: "Remote URL ingest", required: false, defaultValue: "yt-dlp", type: "command", secret: false },
+  { name: "SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS", category: "Remote URL ingest", required: false, defaultValue: String(2 * 60 * 1000), type: "integer", min: 1000, max: 10 * 60 * 1000, secret: false },
+  { name: "SHORTSENGINE_YOUTUBE_DOWNLOADER_OUTPUT_BYTES", category: "Remote URL ingest", required: false, defaultValue: String(64 * 1024), type: "integer", min: 1024, max: BYTE_1_MB, secret: false },
   { name: "MATCHCUTS_RENDER_TIMEOUT_MS", category: "FFmpeg/render limits", required: false, defaultValue: String(5 * 60 * 1000), type: "integer", min: 1000, max: 60 * 60 * 1000, secret: false },
   { name: "MATCHCUTS_ANALYSIS_TIMEOUT_MS", category: "FFmpeg/render limits", required: false, defaultValue: String(45 * 1000), type: "integer", min: 1000, max: 10 * 60 * 1000, secret: false },
   { name: "MATCHCUTS_TRANSCRIPTION_TIMEOUT_MS", category: "Transcription/AI provider", required: false, defaultValue: String(60 * 1000), type: "integer", min: 1000, max: 15 * 60 * 1000, secret: false },
@@ -129,6 +133,33 @@ function validateBooleanValue(value, spec) {
   return boolFromEnv(value);
 }
 
+function validateCommandValue(value, spec) {
+  const command = String(value || "").trim();
+  if (
+    !command ||
+    command.length > 240 ||
+    /[\u0000-\u001f\u007f\s`$;&|<>]/.test(command) ||
+    command.includes("\\") ||
+    command.includes("..")
+  ) {
+    throw new EnvironmentCheckError("ENV_COMMAND_INVALID", "Command environment value is invalid.", {
+      category: spec.category,
+    });
+  }
+  if (command.includes("/")) {
+    if (!command.startsWith("/") || !/^\/[A-Za-z0-9._/@:+-]+$/.test(command)) {
+      throw new EnvironmentCheckError("ENV_COMMAND_INVALID", "Command environment path is invalid.", {
+        category: spec.category,
+      });
+    }
+  } else if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$/.test(command)) {
+    throw new EnvironmentCheckError("ENV_COMMAND_INVALID", "Command environment name is invalid.", {
+      category: spec.category,
+    });
+  }
+  return true;
+}
+
 function validateEndpoint(value) {
   if (!value) return "";
   try {
@@ -200,6 +231,7 @@ function validateContractValues(env) {
     if (spec.type === "integer") numeric[spec.name] = parseInteger(value, spec);
     if (spec.type === "enum") normalizeEnum(value, spec);
     if (spec.type === "boolean") booleans[spec.name] = validateBooleanValue(value, spec);
+    if (spec.type === "command") validateCommandValue(value, spec);
     if (spec.type === "url") validateEndpoint(value);
     if (spec.type === "sqlite-file") validateSqliteFileName(value);
     if (spec.type === "secret") validateSecretValue(value, spec.category);
@@ -363,6 +395,13 @@ function checkEnvironment(options = {}) {
       transcriptionTimeoutMs: numeric.MATCHCUTS_TRANSCRIPTION_TIMEOUT_MS,
       transcriptionRetries: numeric.MATCHCUTS_TRANSCRIPTION_RETRIES,
     },
+    youtubeIngest: {
+      enabled: Boolean(boolFromEnv(rawValue(env, "SHORTSENGINE_YOUTUBE_INGEST_ENABLED"))),
+      downloaderConfigured: Boolean(valueOrDefault(env, ENV_CONTRACT.find((spec) => spec.name === "SHORTSENGINE_YOUTUBE_DOWNLOADER_BIN"))),
+      timeoutMs: numeric.SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS,
+      outputBytes: numeric.SHORTSENGINE_YOUTUBE_DOWNLOADER_OUTPUT_BYTES,
+      defaultDisabled: !boolFromEnv(rawValue(env, "SHORTSENGINE_YOUTUBE_INGEST_ENABLED")),
+    },
     worker: {
       pollIntervalMs: numeric.MATCHCUTS_WORKER_POLL_INTERVAL_MS,
       shutdownTimeoutMs: numeric.MATCHCUTS_WORKER_SHUTDOWN_TIMEOUT_MS,
@@ -393,6 +432,7 @@ function checkEnvironment(options = {}) {
       mockTranscriptionDefault: true,
       localStorageDefault: true,
       localPersistenceDefault: true,
+      youtubeIngestOptIn: true,
       realCloudOptIn: true,
     },
   };
