@@ -107,6 +107,7 @@ Raise timeouts only for an intentional manual proof with a known short source.
 ## Run Local Live E2E Proof
 
 Use this when you want the script to start a local server, verify doctor readiness, run validate -> ingest -> generate -> render -> download, and write a dedicated local proof report.
+Run `npm run env:check` first; it validates the live proof flags, URL shape, rights confirmation, ingest enablement and allowlist/manual gate before any server or downloader work.
 
 ```bash
 SHORTSENGINE_YOUTUBE_LIVE_E2E=1 \

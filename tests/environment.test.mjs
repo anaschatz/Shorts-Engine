@@ -19,6 +19,8 @@ const WORKFLOW = readFileSync(".github/workflows/ci.yml", "utf8");
 const STAGING_DOCS = readFileSync("docs/STAGING_DEPLOYMENT.md", "utf8");
 const STAGING_WORKFLOW = readFileSync(".github/workflows/staging.yml", "utf8");
 const PACKAGE_JSON = JSON.parse(readFileSync("package.json", "utf8"));
+const YOUTUBE_VIDEO_ID = "dQw4w9WgXcQ";
+const YOUTUBE_SAFE_URL = `https://www.youtube.com/watch?v=${YOUTUBE_VIDEO_ID}`;
 
 function safeOptions(env = {}) {
   return {
@@ -111,6 +113,9 @@ test("environment check passes with default safe config", () => {
   assert.equal(summary.transcription.activeProvider, "mock");
   assert.equal(summary.youtubeIngest.enabled, false);
   assert.equal(summary.youtubeIngest.defaultDisabled, true);
+  assert.equal(summary.youtubeIngest.liveE2E.enabled, false);
+  assert.equal(summary.youtubeIngest.liveE2E.browserEnabled, false);
+  assert.equal(summary.youtubeIngest.liveE2E.defaultDisabled, true);
   assert.equal(summary.cloudIntegration.enabled, false);
   assert.equal(findSensitiveLeak(summary), null);
 });
@@ -162,6 +167,85 @@ test("environment check rejects unsafe YouTube downloader command config", () =>
     () => checkEnvironment(safeOptions({ SHORTSENGINE_YOUTUBE_DOWNLOADER_BIN: "yt-dlp;cat" })),
     /Command environment value is invalid/,
   );
+});
+
+test("environment check validates live YouTube E2E flags before live work", () => {
+  assert.throws(
+    () => checkEnvironment(safeOptions({ SHORTSENGINE_YOUTUBE_LIVE_E2E: "1" })),
+    (error) => error.code === "ENV_YOUTUBE_LIVE_E2E_INGEST_DISABLED",
+  );
+
+  assert.throws(
+    () => checkEnvironment(safeOptions({
+      SHORTSENGINE_YOUTUBE_LIVE_E2E: "1",
+      SHORTSENGINE_YOUTUBE_INGEST_ENABLED: "1",
+    })),
+    (error) => error.code === "ENV_YOUTUBE_LIVE_E2E_RIGHTS_REQUIRED",
+  );
+
+  assert.throws(
+    () => checkEnvironment(safeOptions({
+      SHORTSENGINE_YOUTUBE_LIVE_E2E: "1",
+      SHORTSENGINE_YOUTUBE_INGEST_ENABLED: "1",
+      SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED: "1",
+      SHORTSENGINE_YOUTUBE_LIVE_E2E_URL: `${YOUTUBE_SAFE_URL}&list=PL123`,
+    })),
+    (error) => error.code === "ENV_YOUTUBE_LIVE_E2E_URL_INVALID" &&
+      error.details.sourceCode === "YOUTUBE_PLAYLIST_UNSUPPORTED",
+  );
+
+  assert.throws(
+    () => checkEnvironment(safeOptions({
+      SHORTSENGINE_YOUTUBE_LIVE_E2E: "1",
+      SHORTSENGINE_YOUTUBE_INGEST_ENABLED: "1",
+      SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED: "1",
+      SHORTSENGINE_YOUTUBE_LIVE_E2E_URL: YOUTUBE_SAFE_URL,
+    })),
+    (error) => error.code === "ENV_YOUTUBE_LIVE_E2E_URL_NOT_ALLOWED",
+  );
+});
+
+test("environment check accepts fully gated live YouTube E2E config safely", () => {
+  const summary = checkEnvironment(safeOptions({
+    SHORTSENGINE_YOUTUBE_LIVE_E2E: "1",
+    SHORTSENGINE_YOUTUBE_INGEST_ENABLED: "1",
+    SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED: "1",
+    SHORTSENGINE_YOUTUBE_LIVE_E2E_URL: YOUTUBE_SAFE_URL,
+    SHORTSENGINE_YOUTUBE_SMOKE_ALLOWED_IDS: YOUTUBE_VIDEO_ID,
+  }));
+  assert.equal(summary.youtubeIngest.liveE2E.enabled, true);
+  assert.equal(summary.youtubeIngest.liveE2E.rightsConfirmed, true);
+  assert.equal(summary.youtubeIngest.liveE2E.sourceConfigured, true);
+  assert.equal(summary.youtubeIngest.liveE2E.allowlistedSourceConfigured, true);
+  assert.equal(summary.youtubeIngest.liveE2E.defaultDisabled, false);
+  assert.equal(findSensitiveLeak(summary), null);
+  assert.doesNotMatch(JSON.stringify(summary), new RegExp(YOUTUBE_SAFE_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.doesNotMatch(JSON.stringify(summary), new RegExp(YOUTUBE_VIDEO_ID));
+});
+
+test("environment check keeps browser live YouTube E2E behind the same gates", () => {
+  assert.throws(
+    () => checkEnvironment(safeOptions({
+      SHORTSENGINE_YOUTUBE_LIVE_E2E_BROWSER: "1",
+      SHORTSENGINE_YOUTUBE_INGEST_ENABLED: "1",
+      SHORTSENGINE_YOUTUBE_LIVE_E2E_URL: YOUTUBE_SAFE_URL,
+      SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED: "1",
+    })),
+    (error) => error.code === "ENV_YOUTUBE_LIVE_E2E_RIGHTS_REQUIRED",
+  );
+
+  const summary = checkEnvironment(safeOptions({
+    SHORTSENGINE_YOUTUBE_LIVE_E2E_BROWSER: "1",
+    SHORTSENGINE_YOUTUBE_INGEST_ENABLED: "1",
+    SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED: "1",
+    SHORTSENGINE_YOUTUBE_LIVE_E2E_URL: YOUTUBE_SAFE_URL,
+    SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED: "1",
+  }));
+  assert.equal(summary.youtubeIngest.liveE2E.enabled, false);
+  assert.equal(summary.youtubeIngest.liveE2E.browserEnabled, true);
+  assert.equal(summary.youtubeIngest.liveE2E.allowUnlisted, true);
+  assert.equal(summary.youtubeIngest.liveE2E.defaultDisabled, false);
+  assert.equal(findSensitiveLeak(summary), null);
 });
 
 test("environment check rejects unsafe browser skip flag", () => {

@@ -1,13 +1,18 @@
 import { existsSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { findSensitiveLeak } from "../../demo/report-safety.mjs";
 
+const require = createRequire(import.meta.url);
+const { normalizeYouTubeUrl } = require("../../server/youtube-ingest.cjs");
+
 const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const ENV_DOC_RELATIVE_PATH = "docs/ENVIRONMENT.md";
 const ENV_EXAMPLE_RELATIVE_PATH = ".env.example";
 const BYTE_1_MB = 1024 * 1024;
+const YOUTUBE_LIVE_E2E_TIMEOUT_MS = 15 * 60 * 1000;
 
 const STORAGE_ADAPTERS = Object.freeze(["local", "mock-cloud", "s3", "r2", "gcs"]);
 const STAGING_READY_STORAGE_ADAPTERS = Object.freeze(["local", "mock-cloud", "s3", "r2"]);
@@ -35,6 +40,12 @@ const ENV_CONTRACT = Object.freeze([
   { name: "SHORTSENGINE_YOUTUBE_SMOKE_JOB_TIMEOUT_MS", category: "Remote URL ingest", required: false, defaultValue: "90000", type: "integer", min: 1000, max: 10 * 60 * 1000, secret: false },
   { name: "SHORTSENGINE_YOUTUBE_SMOKE_POLL_INTERVAL_MS", category: "Remote URL ingest", required: false, defaultValue: "750", type: "integer", min: 100, max: 10000, secret: false },
   { name: "SHORTSENGINE_YOUTUBE_SMOKE_DOWNLOAD_MAX_BYTES", category: "Remote URL ingest", required: false, defaultValue: String(80 * BYTE_1_MB), type: "integer", min: 1024, max: 512 * BYTE_1_MB, secret: false },
+  { name: "SHORTSENGINE_YOUTUBE_LIVE_E2E", category: "Remote URL ingest", required: false, defaultValue: "false", type: "boolean", secret: false },
+  { name: "SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED", category: "Remote URL ingest", required: false, defaultValue: "false", type: "boolean", secret: false },
+  { name: "SHORTSENGINE_YOUTUBE_LIVE_E2E_URL", category: "Remote URL ingest", required: false, defaultValue: "", type: "string", secret: false },
+  { name: "SHORTSENGINE_YOUTUBE_LIVE_E2E_PORT", category: "Remote URL ingest", required: false, defaultValue: "", type: "integer", min: 1, max: 65535, secret: false },
+  { name: "SHORTSENGINE_YOUTUBE_LIVE_E2E_TIMEOUT_MS", category: "Remote URL ingest", required: false, defaultValue: String(YOUTUBE_LIVE_E2E_TIMEOUT_MS), type: "integer", min: 1000, max: YOUTUBE_LIVE_E2E_TIMEOUT_MS, secret: false },
+  { name: "SHORTSENGINE_YOUTUBE_LIVE_E2E_BROWSER", category: "Remote URL ingest", required: false, defaultValue: "false", type: "boolean", secret: false },
   { name: "MATCHCUTS_RENDER_TIMEOUT_MS", category: "FFmpeg/render limits", required: false, defaultValue: String(5 * 60 * 1000), type: "integer", min: 1000, max: 60 * 60 * 1000, secret: false },
   { name: "MATCHCUTS_ANALYSIS_TIMEOUT_MS", category: "FFmpeg/render limits", required: false, defaultValue: String(45 * 1000), type: "integer", min: 1000, max: 10 * 60 * 1000, secret: false },
   { name: "MATCHCUTS_TRANSCRIPTION_TIMEOUT_MS", category: "Transcription/AI provider", required: false, defaultValue: String(60 * 1000), type: "integer", min: 1000, max: 15 * 60 * 1000, secret: false },
@@ -338,6 +349,71 @@ function validateCloudReadiness(env, storage) {
   return { enabled, defaultOptIn: false };
 }
 
+function configuredVideoIds(env) {
+  return new Set(
+    String(rawValue(env, "SHORTSENGINE_YOUTUBE_SMOKE_ALLOWED_IDS") || "")
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean),
+  );
+}
+
+function validateConfiguredYouTubeSource(env) {
+  const configuredUrl = String(rawValue(env, "SHORTSENGINE_YOUTUBE_LIVE_E2E_URL") || "").trim();
+  if (!configuredUrl) return null;
+  try {
+    return normalizeYouTubeUrl(configuredUrl);
+  } catch (error) {
+    throw new EnvironmentCheckError("ENV_YOUTUBE_LIVE_E2E_URL_INVALID", "Live YouTube E2E URL is invalid or unsupported.", {
+      category: "Remote URL ingest",
+      sourceCode: error?.code || "YOUTUBE_URL_INVALID",
+    });
+  }
+}
+
+function validateYouTubeLiveE2EReadiness(env) {
+  const liveEnabled = boolFromEnv(rawValue(env, "SHORTSENGINE_YOUTUBE_LIVE_E2E"));
+  const browserEnabled = boolFromEnv(rawValue(env, "SHORTSENGINE_YOUTUBE_LIVE_E2E_BROWSER"));
+  const rightsConfirmed = boolFromEnv(rawValue(env, "SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED"));
+  const ingestEnabled = boolFromEnv(rawValue(env, "SHORTSENGINE_YOUTUBE_INGEST_ENABLED"));
+  const allowUnlisted = boolFromEnv(rawValue(env, "SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED"));
+  const source = validateConfiguredYouTubeSource(env);
+  const allowedIds = configuredVideoIds(env);
+  const allowlistedSourceConfigured = Boolean(source && allowedIds.has(source.videoId));
+  const requiresLiveProofConfig = liveEnabled || browserEnabled;
+
+  if (requiresLiveProofConfig && !ingestEnabled) {
+    throw new EnvironmentCheckError("ENV_YOUTUBE_LIVE_E2E_INGEST_DISABLED", "Live YouTube E2E requires explicit ingest enablement.", {
+      category: "Remote URL ingest",
+    });
+  }
+  if (requiresLiveProofConfig && !rightsConfirmed) {
+    throw new EnvironmentCheckError("ENV_YOUTUBE_LIVE_E2E_RIGHTS_REQUIRED", "Live YouTube E2E requires explicit rights confirmation.", {
+      category: "Remote URL ingest",
+    });
+  }
+  if (requiresLiveProofConfig && !source) {
+    throw new EnvironmentCheckError("ENV_YOUTUBE_LIVE_E2E_URL_MISSING", "Live YouTube E2E requires an authorized YouTube URL.", {
+      category: "Remote URL ingest",
+    });
+  }
+  if (requiresLiveProofConfig && source && !allowUnlisted && !allowlistedSourceConfigured) {
+    throw new EnvironmentCheckError("ENV_YOUTUBE_LIVE_E2E_URL_NOT_ALLOWED", "Live YouTube E2E URL must be allowlisted or explicitly marked as a manual unlisted target.", {
+      category: "Remote URL ingest",
+    });
+  }
+
+  return {
+    enabled: liveEnabled,
+    browserEnabled,
+    rightsConfirmed,
+    sourceConfigured: Boolean(source),
+    allowUnlisted,
+    allowlistedSourceConfigured,
+    defaultDisabled: !liveEnabled && !browserEnabled,
+  };
+}
+
 function validateCiReadiness(env, numeric) {
   const browserSkip = boolFromEnv(rawValue(env, "SHORTSENGINE_BROWSER_E2E_ALLOW_SKIP"));
   if (browserSkip) {
@@ -376,6 +452,7 @@ function checkEnvironment(options = {}) {
   const storage = validateStorageReadiness(env);
   const transcription = validateTranscriptionReadiness(env);
   const cloudIntegration = validateCloudReadiness(env, storage);
+  const youtubeLiveE2E = validateYouTubeLiveE2EReadiness(env);
   const ci = validateCiReadiness(env, numeric);
   const persistenceAdapter = normalizeEnum(valueOrDefault(env, ENV_CONTRACT.find((spec) => spec.name === "MATCHCUTS_PERSISTENCE_ADAPTER")), {
     allowedValues: PERSISTENCE_ADAPTERS,
@@ -420,6 +497,11 @@ function checkEnvironment(options = {}) {
       smokeTimeoutMs: numeric.SHORTSENGINE_YOUTUBE_SMOKE_TIMEOUT_MS,
       smokeJobTimeoutMs: numeric.SHORTSENGINE_YOUTUBE_SMOKE_JOB_TIMEOUT_MS,
       smokeDownloadMaxBytes: numeric.SHORTSENGINE_YOUTUBE_SMOKE_DOWNLOAD_MAX_BYTES,
+      liveE2E: {
+        ...youtubeLiveE2E,
+        portConfigured: Boolean(rawValue(env, "SHORTSENGINE_YOUTUBE_LIVE_E2E_PORT")),
+        timeoutMs: numeric.SHORTSENGINE_YOUTUBE_LIVE_E2E_TIMEOUT_MS,
+      },
     },
     worker: {
       pollIntervalMs: numeric.MATCHCUTS_WORKER_POLL_INTERVAL_MS,

@@ -46,3 +46,4 @@
 - Manual YouTube downloader proof must have an operator guide before live use: legal/rights review, no auto-install, safe env flags, doctor/smoke commands, safe reports and temp-only cleanup.
 - YouTube link-to-shorts UI uses shared frontend state derivation so validation requires URL plus rights, ingest requires validation plus health readiness, generate requires a completed ingest, and preview metadata stays path/URL safe.
 - Live local YouTube E2E proof must stay skipped by default, require explicit live and rights flags, run `youtube:doctor` before local server smoke, and report server-bind `EPERM` as an environment limitation.
+- Live YouTube E2E env flags must be part of the central `env:check` contract so ingest, rights, URL shape, allowlist/manual gate, port and timeout failures are caught before server/browser/downloader work.

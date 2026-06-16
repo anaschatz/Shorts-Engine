@@ -68,3 +68,4 @@ Checklist:
 - For manual YouTube downloader proof, document rights review, operator-managed downloader install, safe doctor/smoke flags, failure-code next actions, report reading and temp-only cleanup before any real run.
 - For YouTube link-to-shorts UX, centralize UI gating in a tested helper: URL plus rights for validation, validation plus health readiness for ingest, completed ingest for generate, and completed render for download/export.
 - For live local YouTube E2E proof, keep default skipped/no-network, require explicit rights and ingest flags, reuse doctor plus smoke contracts, and persist only leak-guarded reports.
+- Add operator-only live proof flags to central environment validation before exposing them through demo/browser scripts; summaries should use booleans and bounded numbers, not raw URLs or provider output.

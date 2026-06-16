@@ -44,17 +44,25 @@ YouTube URL validation remains available through `POST /api/youtube/validate`. R
 | `SHORTSENGINE_YOUTUBE_SMOKE_JOB_TIMEOUT_MS` | No | `90000` | integer `1000..600000` | No | Keep bounded for render proof. | Invalid job timeout fails smoke. |
 | `SHORTSENGINE_YOUTUBE_SMOKE_POLL_INTERVAL_MS` | No | `750` | integer `100..10000` | No | Keep default unless staging needs slower polling. | Invalid poll interval fails smoke. |
 | `SHORTSENGINE_YOUTUBE_SMOKE_DOWNLOAD_MAX_BYTES` | No | `83886080` | integer `1024..536870912` | No | Keep downloads bounded for smoke reports. | Oversized download fails smoke before report write. |
+| `SHORTSENGINE_YOUTUBE_LIVE_E2E` | No | `0` | boolean | No | Keep disabled except for an operator-run local proof. | Enabled mode fails `env:check` unless ingest, rights, URL and allowlist/manual gate are configured. |
+| `SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED` | No | `0` | boolean | No | Set only after rights/legal review for the configured URL. | Live proof fails before doctor/server work when missing. |
+| `SHORTSENGINE_YOUTUBE_LIVE_E2E_URL` | Only when live/browser proof enabled | empty | supported YouTube watch, shortlink or shorts URL | No | Use only an authorized URL you are allowed to process. | Empty, playlist, live, embed, channel, search, credentialed or non-YouTube URLs fail before network. |
+| `SHORTSENGINE_YOUTUBE_LIVE_E2E_PORT` | No | auto | integer `1..65535` | No | Leave unset unless a fixed local port is required. | Invalid port fails readiness/proof before server bind. |
+| `SHORTSENGINE_YOUTUBE_LIVE_E2E_TIMEOUT_MS` | No | `900000` | integer `1000..900000` | No | Keep bounded; lower for short local proof runs if needed. | Invalid timeout fails readiness/proof. |
+| `SHORTSENGINE_YOUTUBE_LIVE_E2E_BROWSER` | No | `0` | boolean | No | Keep disabled in CI release gates; enable only for manual UI proof. | Enabled mode uses the same ingest, rights, URL and allowlist/manual gates. |
 
-Operator-only local proof flags:
+Operator-only local proof guardrails:
 
 | Variable | Purpose |
 | --- | --- |
 | `SHORTSENGINE_YOUTUBE_LIVE_E2E` | Enables `npm run youtube:e2e:local`; defaults to skipped and must be paired with ingest enablement, URL, rights confirmation and the smoke allowlist or explicit unlisted gate. |
 | `SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED` | Explicit confirmation that the operator has rights to process the configured URL. |
 | `SHORTSENGINE_YOUTUBE_LIVE_E2E_URL` | Authorized YouTube URL for local live proof; same URL restrictions as smoke. |
+| `SHORTSENGINE_YOUTUBE_LIVE_E2E_PORT` | Optional fixed local server port; invalid values fail before server bind. |
+| `SHORTSENGINE_YOUTUBE_LIVE_E2E_TIMEOUT_MS` | Bounded wall-clock timeout for the local proof. |
 | `SHORTSENGINE_YOUTUBE_LIVE_E2E_BROWSER` | Enables the optional Playwright browser YouTube live path; defaults off and must not be used in CI release gates. |
 
-The user must explicitly confirm usage rights before validation or ingest. Playlists, live streams, credentialed URLs, unsupported hosts, embeds, channels and search pages are rejected before any downloader call. Public responses, doctor output and smoke reports never include local paths, storage keys, raw stdout/stderr, signed tokens or secrets.
+`npm run env:check` validates these live proof flags too. The user must explicitly confirm usage rights before validation or ingest. Playlists, live streams, credentialed URLs, unsupported hosts, embeds, channels and search pages are rejected before any downloader call. Public responses, doctor output and smoke reports never include local paths, storage keys, raw stdout/stderr, signed tokens or secrets.
 
 Run `npm run youtube:doctor` at any time. With default config it returns a safe skipped summary and next action; with ingest enabled it validates downloader, FFmpeg/FFprobe, storage staging readiness and optionally a live `/health` `youtubeIngest` shape when `SHORTSENGINE_YOUTUBE_DOCTOR_URL` is configured.
 

@@ -235,6 +235,10 @@ assert.match(envChecker, /ENV_CONTRACT/, "environment checker should define an e
 assert.match(envChecker, /ENV_PROVIDER_CREDENTIAL_MISSING/, "environment checker should reject real providers without credentials");
 assert.match(envChecker, /ENV_CLOUD_STORAGE_INCOMPLETE/, "environment checker should reject incomplete cloud storage config");
 assert.match(envChecker, /ENV_BROWSER_SKIP_UNSAFE/, "environment checker should reject browser skip flags");
+assert.match(envChecker, /ENV_YOUTUBE_LIVE_E2E_INGEST_DISABLED/, "environment checker should require ingest before live YouTube proof");
+assert.match(envChecker, /ENV_YOUTUBE_LIVE_E2E_RIGHTS_REQUIRED/, "environment checker should require rights before live YouTube proof");
+assert.match(envChecker, /ENV_YOUTUBE_LIVE_E2E_URL_NOT_ALLOWED/, "environment checker should require allowlist or manual gate for live YouTube proof");
+assert.match(envChecker, /normalizeYouTubeUrl/, "environment checker should validate live YouTube proof URLs through the domain parser");
 assert.match(envChecker, /findSensitiveLeak/, "environment checker should guard readiness output against leaks");
 assert.match(stagingReadiness, /STAGING_ENV_CONTRACT/, "staging readiness should define an explicit staging env contract");
 assert.match(stagingReadiness, /STAGING_URL_CREDENTIALS_UNSAFE/, "staging readiness should reject credentialed URLs");
@@ -456,6 +460,9 @@ assert.match(youtubeManualDocs, /Validate source` is disabled until URL and righ
 assert.match(youtubeManualDocs, /Generate shorts` is disabled for YouTube sources until ingest creates project\/upload state/, "YouTube manual smoke guide should document generate gating");
 assert.match(youtubeManualDocs, /Default CI and local checks must remain no-network and no-downloader/i, "YouTube manual smoke guide should keep CI default-safe");
 assert.match(youtubeManualDocs, /SHORTSENGINE_YOUTUBE_LIVE_E2E_BROWSER=1/, "YouTube manual smoke guide should document the opt-in browser live path");
+assert.match(youtubeManualDocs, /npm run env:check/, "YouTube manual smoke guide should run env validation before local live proof");
+assert.match(envDocs, /SHORTSENGINE_YOUTUBE_LIVE_E2E_TIMEOUT_MS/, "environment docs should document live YouTube E2E timeout bounds");
+assert.match(envDocs, /SHORTSENGINE_YOUTUBE_LIVE_E2E_PORT/, "environment docs should document live YouTube E2E port bounds");
 assert.match(ciDocs, /npm run demo:browser:install/, "CI docs should include the Playwright browser install step");
 assert.match(ciDocs, /npm run env:check/, "CI docs should include the environment readiness check");
 assert.match(ciDocs, /npm run staging:check/, "CI docs should include the staging readiness check");
