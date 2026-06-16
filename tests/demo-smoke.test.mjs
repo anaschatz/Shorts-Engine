@@ -118,9 +118,22 @@ test("demo report leak guard catches unsafe keys, paths and tokens", () => {
   assert.equal(hasSensitiveLeak({ provider: { message: "SHORTSENGINE_YOUTUBE_SMOKE_TOKEN secret-value" } }), true);
   assert.equal(hasSensitiveLeak({ provider: { message: "YOUTUBE_COOKIE: private-cookie-value" } }), true);
   assert.equal(hasSensitiveLeak({ provider: { message: "YT_DLP_COOKIES=private-cookie-value" } }), true);
+  assert.equal(hasSensitiveLeak({ provider: { message: "VISITOR_INFO1_LIVE=private-cookie-value" } }), true);
   assert.equal(hasSensitiveLeak({ deploy: { serviceId: "srv-realstaging123" } }), true);
   assert.equal(hasSensitiveLeak({ deploy: { renderService: "srv-realstaging123" } }), true);
   assert.equal(hasSensitiveLeak({ github: { token: "ghp_abcdefghijklmnopqrstuvwx1234567890" } }), true);
+  assert.equal(hasSensitiveLeak({ github: { message: "ghs_abcdefghijklmnopqrstuvwx1234567890" } }), true);
+  assert.equal(hasSensitiveLeak({ gitlab: { message: "glpat-abcdefghijklmnopqrstuvwx123456" } }), true);
+  assert.equal(hasSensitiveLeak({ slack: { message: "xoxb-1234567890-private-token" } }), true);
+  assert.equal(hasSensitiveLeak({ pem: { message: "-----BEGIN PRIVATE KEY-----" } }), true);
+  assert.deepEqual(findSensitiveLeak({ youtube: { cookies: "SID=private-cookie-value" } }), {
+    code: "UNSAFE_KEY",
+    path: "$.youtube.cookies",
+  });
+  assert.deepEqual(findSensitiveLeak({ logs: { rawLogs: "provider output" } }), {
+    code: "UNSAFE_KEY",
+    path: "$.logs.rawLogs",
+  });
   assert.deepEqual(findSensitiveLeak({ deploy: { serviceId: "srv-realstaging123" } }), {
     code: "UNSAFE_KEY",
     path: "$.deploy.serviceId",

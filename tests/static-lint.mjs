@@ -232,7 +232,14 @@ assert.match(reportSafety, /SIGNED_DOWNLOAD_TOKEN_RE/, "report safety should tre
 assert.match(reportSafety, /APP_SECRET_VALUE/, "report safety should catch app/provider secret values without relying only on unsafe keys");
 assert.match(reportSafety, /RENDER_SERVICE_ID/, "report safety should treat Render service ids as sensitive in persisted reports");
 assert.match(reportSafety, /GITHUB_TOKEN/, "report safety should treat GitHub tokens as sensitive in persisted reports");
+assert.match(reportSafety, /GITLAB_TOKEN/, "report safety should treat GitLab tokens as sensitive in persisted reports");
+assert.match(reportSafety, /SLACK_TOKEN/, "report safety should treat Slack tokens as sensitive in persisted reports");
+assert.match(reportSafety, /PRIVATE_KEY_BLOCK/, "report safety should reject private key blocks in persisted reports");
+assert.match(reportSafety, /YOUTUBE_COOKIE_VALUE/, "report safety should reject raw YouTube cookie values in persisted reports");
 assert.match(reportSafety, /serviceid/, "report safety should reject raw service id keys");
+assert.match(reportSafety, /rawlogs/, "report safety should reject raw log keys");
+assert.match(reportSafety, /privatekey/, "report safety should reject private key fields");
+assert.match(reportSafety, /cookies/, "report safety should reject cookie fields");
 assert.match(reportSafety, /UNSAFE_KEYS/, "report safety should block unsafe internal report keys");
 assert.match(reportSafety, /redactForLogs/, "report safety should reuse the server log redaction behavior");
 assert.match(ciReportValidator, /findSensitiveLeak/, "CI report validator should reuse leak detection");

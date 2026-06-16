@@ -41,7 +41,7 @@ npm run release:evidence
 
 `npm run release:evidence` writes `release/results/latest.json` plus a timestamped evidence report. The evidence report contains package metadata, checked commands, environment readiness, staging readiness, release readiness, latest report status, artifact policy, branch-protection guidance and limitations. It must not contain secrets, absolute local paths, storage keys, provider raw errors or broad local state.
 
-Release evidence must also avoid raw provider identifiers. Render service ids, deploy tokens, API keys, signed download tokens and GitHub tokens are treated as sensitive; reports should expose only configured/not-configured booleans and safe provider status metadata.
+Release evidence must also avoid raw provider identifiers. Render service ids, deploy tokens, API keys, signed download tokens, GitHub/GitLab/Slack tokens, private-key blocks and YouTube cookies are treated as sensitive; reports should expose only configured/not-configured booleans and safe provider status metadata.
 
 Before relying on remote GitHub evidence, check the local GitHub CLI setup:
 

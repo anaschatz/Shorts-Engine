@@ -51,3 +51,4 @@
 - Authorized YouTube operator proof should expose a dedicated `youtube:proof:operator` command and every proof report should include `command`, `passed`, `skipped`, `phase`, `nextAction` and no-leak triage metadata.
 - Remote CI proof should distinguish missing CLI, missing auth, network unavailable, pending, failed and cancelled states with safe phases/statuses while keeping logs/artifacts absent.
 - GitHub CLI doctor should classify missing CLI, missing auth, network unavailable, repository, Actions and branch-protection readiness with safe phase/status metadata and no raw stderr/logs.
+- Report-safety and log redaction must stay aligned for GitHub/GitLab/Slack tokens, private-key blocks, YouTube cookies, signed download tokens, raw log fields and provider ids.

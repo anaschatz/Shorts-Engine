@@ -13,7 +13,11 @@ const SENSITIVE_VALUE_PATTERNS = Object.freeze([
   { code: "SHORTSENGINE_SECRET", pattern: /SHORTSENGINE_[A-Z0-9_]*(?:SECRET|TOKEN|ACCESS_KEY|SERVICE_ID)[A-Z0-9_]*\s*=\s*[^\s"']+/i },
   { code: "APP_SECRET_VALUE", pattern: /\b(?:MATCHCUTS|SHORTSENGINE|YOUTUBE|YT_DLP|GOOGLE)[A-Z0-9_]*(?:SECRET|TOKEN|ACCESS_KEY|API_KEY|COOKIE|COOKIES|CREDENTIAL|CREDENTIALS|SERVICE_ID)[A-Z0-9_]*(?:\s*[:=]\s*|\s+)[^\s"']+/i },
   { code: "AWS_ACCESS_KEY", pattern: /(?:AKIA|ASIA)[A-Z0-9]{12,}/ },
-  { code: "GITHUB_TOKEN", pattern: /\b(?:ghp_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/ },
+  { code: "GITHUB_TOKEN", pattern: /\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/ },
+  { code: "GITLAB_TOKEN", pattern: /\bglpat-[A-Za-z0-9_-]{20,}\b/ },
+  { code: "SLACK_TOKEN", pattern: /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/i },
+  { code: "PRIVATE_KEY_BLOCK", pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/ },
+  { code: "YOUTUBE_COOKIE_VALUE", pattern: /\b(?:VISITOR_INFO1_LIVE|LOGIN_INFO|SAPISID|HSID|SSID|APISID|SID)=[^\s"']+/i },
   { code: "BEARER_TOKEN", pattern: /Bearer\s+[A-Za-z0-9._-]+/i },
   { code: "MODEL_API_KEY", pattern: /sk-[A-Za-z0-9_-]{10,}/ },
   { code: "RENDER_SERVICE_ID", pattern: /\bsrv-[A-Za-z0-9_-]{6,80}\b/ },
@@ -23,6 +27,10 @@ const SENSITIVE_VALUE_PATTERNS = Object.freeze([
 const UNSAFE_KEYS = new Set([
   "absolutepath",
   "authorization",
+  "cookie",
+  "cookies",
+  "credential",
+  "credentials",
   "accesstoken",
   "apikey",
   "deploytoken",
@@ -31,7 +39,9 @@ const UNSAFE_KEYS = new Set([
   "localpath",
   "outputpath",
   "path",
+  "privatekey",
   "rawerror",
+  "rawlogs",
   "secret",
   "secretaccesskey",
   "sessiontoken",
@@ -40,6 +50,7 @@ const UNSAFE_KEYS = new Set([
   "stderr",
   "storagekey",
   "stdout",
+  "token",
 ]);
 
 const SAFE_PATH_KEYS = new Set(["latestpath", "relativepath", "reportpath"]);

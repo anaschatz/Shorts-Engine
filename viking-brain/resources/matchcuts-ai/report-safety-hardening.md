@@ -19,8 +19,9 @@ The report guard fails closed on:
 - stdout/stderr/stack/raw provider output fields
 - OpenAI/API key style secrets
 - bearer tokens, AWS keys and S3 signatures
+- GitHub/GitLab/Slack tokens, private-key blocks and YouTube cookie values
 - ShortsEngine signed download tokens
-- Render `srv-...` service ids, GitHub tokens and deploy/API token keys
+- Render `srv-...` service ids and deploy/API token keys
 
 When a leak is detected, reports are replaced with a minimal structured failure containing only safe `leakCode` and `leakPath` metadata.
 

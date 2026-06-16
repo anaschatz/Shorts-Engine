@@ -73,3 +73,4 @@ Checklist:
 - Give explicit operator proof commands their own `command` metadata and include `passed`/`skipped` booleans in persisted proof reports.
 - For remote CI proof, classify missing CLI, missing auth, network unavailable, pending timeout, failed release gate and cancelled workflow states separately; never download raw GitHub logs/artifacts in default proof.
 - For GitHub CLI readiness, keep setup documentation-only and doctor read-only; classify failures with `phase`, `status`, `nextAction`, `passed: false`, `skipped: false`, and never automate install/auth/token handling.
+- Keep report-safety and log redaction aligned for GitHub/GitLab/Slack tokens, private-key blocks, YouTube cookies, signed download tokens, raw log fields and provider ids.

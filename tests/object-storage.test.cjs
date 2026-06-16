@@ -389,13 +389,19 @@ test("log redaction removes token, storage key and local path details", () => {
     storageKey: "exports/private-key.mp4",
     serviceId: "srv-realstaging123",
     outputPath: "/Users/example/render.mp4",
-    nested: { filePath: "/private/tmp/render.mp4", apiKey: "sk-secretsecretsecret", githubToken: "ghp_abcdefghijklmnopqrstuvwx1234567890" },
+    nested: {
+      filePath: "/private/tmp/render.mp4",
+      apiKey: "sk-secretsecretsecret",
+      githubToken: "ghs_abcdefghijklmnopqrstuvwx1234567890",
+      gitlabToken: "glpat-abcdefghijklmnopqrstuvwx123456",
+      slackToken: "xoxb-1234567890-private-token",
+    },
     staging: "/tmp/shortsengine/private.mp4",
-    message: `download ${token} OPENAI_API_KEY=secret srv-realstaging123 SHORTSENGINE_YOUTUBE_SMOKE_TOKEN secret YOUTUBE_COOKIE: private-cookie`,
+    message: `download ${token} OPENAI_API_KEY=secret srv-realstaging123 SHORTSENGINE_YOUTUBE_SMOKE_TOKEN secret VISITOR_INFO1_LIVE=private-cookie -----BEGIN PRIVATE KEY----- private -----END PRIVATE KEY-----`,
   });
   const body = JSON.stringify(redacted);
 
   assert.doesNotMatch(body, new RegExp(token));
-  assert.doesNotMatch(body, /exports\/private-key|\/Users|\/private|\/tmp|OPENAI_API_KEY=secret|sk-secret|srv-realstaging123|ghp_|SHORTSENGINE_YOUTUBE_SMOKE_TOKEN secret|YOUTUBE_COOKIE: private-cookie/);
+  assert.doesNotMatch(body, /exports\/private-key|\/Users|\/private|\/tmp|OPENAI_API_KEY=secret|sk-secret|srv-realstaging123|ghs_|glpat-|xoxb-|SHORTSENGINE_YOUTUBE_SMOKE_TOKEN secret|VISITOR_INFO1_LIVE=private-cookie|BEGIN PRIVATE KEY/);
   assert.match(body, /\[redacted\]/);
 });

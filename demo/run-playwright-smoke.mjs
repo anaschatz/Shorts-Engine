@@ -587,9 +587,7 @@ async function runBrowserFlow({ baseUrl, fixturePath, page, timeoutMs, youtubeLi
   addCheck(uiStateChecks, "youtube_ingest_disabled_by_default", await youtubeIngestButton.isDisabled());
   addCheck(uiStateChecks, "youtube_ingest_status_visible", /disabled by default|unavailable/i.test(await youtubeIngestStatus.textContent()));
   await youtubeUrlInput.fill("https://www.youtube.com/shorts/dQw4w9WgXcQ");
-  await youtubeValidateButton.click();
-  await errorPanel.waitFor({ state: "visible", timeout: 5000 });
-  addCheck(uiStateChecks, "youtube_rights_required_safe_error", /YOUTUBE_RIGHTS_REQUIRED/.test(await errorPanel.textContent()));
+  addCheck(uiStateChecks, "youtube_validate_disabled_until_rights", await youtubeValidateButton.isDisabled());
   await youtubeRightsCheckbox.check();
   await youtubeValidateButton.click();
   await youtubePreview.waitFor({ state: "visible", timeout: 5000 });
