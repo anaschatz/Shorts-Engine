@@ -104,6 +104,10 @@ function redactForLogs(value) {
       .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted-email]")
       .replace(/Bearer\s+[A-Za-z0-9._-]+/g, "Bearer [redacted]")
       .replace(/OPENAI_API_KEY=[^\s]+/g, "OPENAI_API_KEY=[redacted]")
+      .replace(
+        /\b((?:MATCHCUTS|SHORTSENGINE|YOUTUBE|YT_DLP|GOOGLE)[A-Z0-9_]*(?:SECRET|TOKEN|ACCESS_KEY|API_KEY|COOKIE|COOKIES|CREDENTIAL|CREDENTIALS|SERVICE_ID)[A-Z0-9_]*)(\s*[:=]\s*|\s+)[^\s"']+/gi,
+        "$1$2[redacted]",
+      )
       .replace(/sk-[A-Za-z0-9_-]{10,}/g, "sk-[redacted]")
       .replace(/(?:AKIA|ASIA)[A-Z0-9]{12,}/g, "[redacted-access-key]")
       .replace(/\b(?:ghp_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g, "[redacted-github-token]")
@@ -113,6 +117,7 @@ function redactForLogs(value) {
       .replace(/adt_[A-Fa-f0-9-]{36}_[A-Fa-f0-9]{32}/g, "adt_[redacted]")
       .replace(/\/Users\/[^\s"']+/g, "[redacted-path]")
       .replace(/\/private\/[^\s"']+/g, "[redacted-path]")
+      .replace(/\/(?:tmp|var\/folders)\/[^\s"']+/g, "[redacted-path]")
       .slice(0, 1600);
   }
   if (Array.isArray(value)) return value.slice(0, 20).map(redactForLogs);

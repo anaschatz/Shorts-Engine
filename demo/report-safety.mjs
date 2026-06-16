@@ -11,6 +11,7 @@ const SENSITIVE_VALUE_PATTERNS = Object.freeze([
   { code: "OPENAI_API_KEY", pattern: /OPENAI_API_KEY\s*=?\s*[^\s"']*/i },
   { code: "MATCHCUTS_SECRET", pattern: /MATCHCUTS_[A-Z0-9_]*(?:SECRET|TOKEN|ACCESS_KEY)[A-Z0-9_]*\s*=?\s*[^\s"']*/i },
   { code: "SHORTSENGINE_SECRET", pattern: /SHORTSENGINE_[A-Z0-9_]*(?:SECRET|TOKEN|ACCESS_KEY|SERVICE_ID)[A-Z0-9_]*\s*=\s*[^\s"']+/i },
+  { code: "APP_SECRET_VALUE", pattern: /\b(?:MATCHCUTS|SHORTSENGINE|YOUTUBE|YT_DLP|GOOGLE)[A-Z0-9_]*(?:SECRET|TOKEN|ACCESS_KEY|API_KEY|COOKIE|COOKIES|CREDENTIAL|CREDENTIALS|SERVICE_ID)[A-Z0-9_]*(?:\s*[:=]\s*|\s+)[^\s"']+/i },
   { code: "AWS_ACCESS_KEY", pattern: /(?:AKIA|ASIA)[A-Z0-9]{12,}/ },
   { code: "GITHUB_TOKEN", pattern: /\b(?:ghp_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/ },
   { code: "BEARER_TOKEN", pattern: /Bearer\s+[A-Za-z0-9._-]+/i },

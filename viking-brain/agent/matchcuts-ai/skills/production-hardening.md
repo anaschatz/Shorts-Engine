@@ -64,3 +64,4 @@ Checklist:
 - Real YouTube ingest must stay opt-in, downloader calls must use `execFile` with explicit args and bounded output/time, and downloaded files must pass staging cleanup plus upload/FFprobe validation before project/upload records are created.
 - Keep `youtube:doctor` no-network/downloader-free when ingest is disabled; check downloader availability only after explicit ingest enablement.
 - Keep `youtube:smoke` manual and opt-in; reject unsafe YouTube URLs before fetch, require allowlist/manual flag, bound JSON/downloads, validate MP4 signatures and leak-guard reports.
+- Treat raw provider/downloader secret strings as sensitive even when they arrive in freeform messages rather than unsafe object keys.

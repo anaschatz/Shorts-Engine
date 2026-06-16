@@ -390,11 +390,12 @@ test("log redaction removes token, storage key and local path details", () => {
     serviceId: "srv-realstaging123",
     outputPath: "/Users/example/render.mp4",
     nested: { filePath: "/private/tmp/render.mp4", apiKey: "sk-secretsecretsecret", githubToken: "ghp_abcdefghijklmnopqrstuvwx1234567890" },
-    message: `download ${token} OPENAI_API_KEY=secret srv-realstaging123`,
+    staging: "/tmp/shortsengine/private.mp4",
+    message: `download ${token} OPENAI_API_KEY=secret srv-realstaging123 SHORTSENGINE_YOUTUBE_SMOKE_TOKEN secret YOUTUBE_COOKIE: private-cookie`,
   });
   const body = JSON.stringify(redacted);
 
   assert.doesNotMatch(body, new RegExp(token));
-  assert.doesNotMatch(body, /exports\/private-key|\/Users|\/private|OPENAI_API_KEY=secret|sk-secret|srv-realstaging123|ghp_/);
+  assert.doesNotMatch(body, /exports\/private-key|\/Users|\/private|\/tmp|OPENAI_API_KEY=secret|sk-secret|srv-realstaging123|ghp_|SHORTSENGINE_YOUTUBE_SMOKE_TOKEN secret|YOUTUBE_COOKIE: private-cookie/);
   assert.match(body, /\[redacted\]/);
 });

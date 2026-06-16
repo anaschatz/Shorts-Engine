@@ -293,11 +293,11 @@ test("youtube smoke timeout and runtime failures produce safe summaries", async 
   const report = await runYouTubeSmoke({
     env: smokeEnv(),
     fetchImpl: async () => {
-      throw new Error("/Users/local/path SHORTSENGINE_SECRET_TOKEN=secret");
+      throw new Error("/tmp/local/path SHORTSENGINE_YOUTUBE_SMOKE_TOKEN secret YOUTUBE_COOKIE: private-cookie");
     },
   });
   assert.equal(report.status, "failed");
   assert.equal(report.failedCases[0].code, "YOUTUBE_SMOKE_FETCH_FAILED");
   assert.equal(findSensitiveLeak(report), null);
-  assert.doesNotMatch(JSON.stringify(report), /\/Users|SECRET_TOKEN|secret/);
+  assert.doesNotMatch(JSON.stringify(report), /\/tmp|SHORTSENGINE_YOUTUBE_SMOKE_TOKEN|YOUTUBE_COOKIE|private-cookie|secret/);
 });

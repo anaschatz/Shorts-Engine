@@ -115,6 +115,9 @@ test("demo report leak guard catches unsafe keys, paths and tokens", () => {
   });
   assert.equal(hasSensitiveLeak({ error: { message: "/Users/example/render.mp4 failed" } }), true);
   assert.equal(hasSensitiveLeak({ provider: { stderr: "OPENAI_API_KEY=secret" } }), true);
+  assert.equal(hasSensitiveLeak({ provider: { message: "SHORTSENGINE_YOUTUBE_SMOKE_TOKEN secret-value" } }), true);
+  assert.equal(hasSensitiveLeak({ provider: { message: "YOUTUBE_COOKIE: private-cookie-value" } }), true);
+  assert.equal(hasSensitiveLeak({ provider: { message: "YT_DLP_COOKIES=private-cookie-value" } }), true);
   assert.equal(hasSensitiveLeak({ deploy: { serviceId: "srv-realstaging123" } }), true);
   assert.equal(hasSensitiveLeak({ deploy: { renderService: "srv-realstaging123" } }), true);
   assert.equal(hasSensitiveLeak({ github: { token: "ghp_abcdefghijklmnopqrstuvwx1234567890" } }), true);

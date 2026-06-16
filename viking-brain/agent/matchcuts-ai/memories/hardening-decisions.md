@@ -42,3 +42,4 @@
 - `remote:ci:proof` should write safe failure evidence for missing `gh`, missing auth, no run, timeout or SHA mismatch while keeping raw logs/artifacts absent.
 - YouTube ingest remains disabled by default. Real ingest is opt-in, goes through a dedicated adapter/service boundary, writes to local staging first, and creates project/upload records only after upload validation, FFprobe and artifact commit succeed.
 - YouTube ingest proof uses a default-safe `youtube:doctor` and a manual `youtube:smoke`; smoke requires explicit flags, URL allowlist/manual gate and leak-guarded bounded reports.
+- Report and log leak guards must catch provider/downloader secret values even when they arrive as raw message text, not only as unsafe object keys.
