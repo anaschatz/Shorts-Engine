@@ -44,6 +44,7 @@
     "test": "node --test --test-concurrency=1 tests/*.test.js tests/*.test.mjs tests/*.test.cjs",
     "youtube:doctor": "node tools/release/check-youtube-ingest.mjs",
     "youtube:e2e:local": "node demo/run-youtube-live-e2e.mjs",
+    "youtube:proof": "node demo/run-youtube-live-e2e.mjs",
     "youtube:smoke": "node demo/run-youtube-smoke.mjs"
   },
   "engines": {

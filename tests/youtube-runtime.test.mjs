@@ -504,8 +504,104 @@ test("youtube live local e2e skips safely without explicit flag", async () => {
     },
   });
   assert.equal(report.status, "skipped");
+  assert.equal(report.phase, "skipped");
+  assert.match(report.nextAction, /SHORTSENGINE_YOUTUBE_LIVE_E2E/);
+  assert.match(report.triage.nextAction, /SHORTSENGINE_YOUTUBE_LIVE_E2E/);
+  assert.equal(report.triage.preflight.ingestEnabled, false);
   assert.equal(report.checks[0].code, "YOUTUBE_LIVE_E2E_DISABLED");
   assert.equal(serverStarted, false);
+  assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube live local e2e runs env check before doctor or server work", async () => {
+  const order = [];
+  const report = await runYouTubeLiveE2E({
+    env: liveEnv(),
+    checkEnvironment: () => {
+      order.push("env");
+      return {
+        ok: true,
+        youtubeIngest: {
+          enabled: true,
+          liveE2E: {
+            enabled: true,
+            rightsConfirmed: true,
+            sourceConfigured: true,
+            allowlistedSourceConfigured: false,
+            allowUnlisted: true,
+            portConfigured: false,
+            timeoutMs: 900000,
+          },
+        },
+      };
+    },
+    checkYouTubeIngest: async () => {
+      order.push("doctor");
+      return passedDoctor();
+    },
+    getFreePort: async () => {
+      order.push("port");
+      return 4175;
+    },
+    startServer: () => {
+      order.push("server");
+      return { child: { exitCode: null, signalCode: null }, events: [] };
+    },
+    stopServer: async () => {},
+    runYouTubeSmoke: async () => {
+      order.push("smoke");
+      return passedSmokeReport();
+    },
+  });
+  assert.equal(report.status, "passed");
+  assert.deepEqual(order, ["env", "doctor", "port", "server", "smoke"]);
+  assert.equal(report.triage.preflight.sourceConfigured, true);
+  assert.equal(report.triage.doctor.downloaderConfigured, true);
+});
+
+test("youtube live local e2e env failures stop before doctor or server", async () => {
+  let doctorCalled = false;
+  let serverStarted = false;
+  const error = Object.assign(new Error("Live YouTube E2E requires an authorized YouTube URL."), {
+    code: "ENV_YOUTUBE_LIVE_E2E_URL_MISSING",
+  });
+  const report = await runYouTubeLiveE2E({
+    env: liveEnv({ SHORTSENGINE_YOUTUBE_LIVE_E2E_URL: "" }),
+    checkEnvironment: () => {
+      throw error;
+    },
+    checkYouTubeIngest: async () => {
+      doctorCalled = true;
+      return passedDoctor();
+    },
+    startServer: () => {
+      serverStarted = true;
+      throw new Error("should not start");
+    },
+  });
+  assert.equal(report.status, "failed");
+  assert.equal(report.phase, "env");
+  assert.equal(report.failedCases[0].code, "ENV_YOUTUBE_LIVE_E2E_URL_MISSING");
+  assert.equal(report.failedCases[0].phase, "env");
+  assert.match(report.failedCases[0].nextAction, /SHORTSENGINE_YOUTUBE_LIVE_E2E_URL/);
+  assert.equal(doctorCalled, false);
+  assert.equal(serverStarted, false);
+  assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube live local e2e requires ingest before proof work", async () => {
+  let doctorCalled = false;
+  const report = await runYouTubeLiveE2E({
+    env: liveEnv({ SHORTSENGINE_YOUTUBE_INGEST_ENABLED: "0" }),
+    checkYouTubeIngest: async () => {
+      doctorCalled = true;
+      return passedDoctor();
+    },
+  });
+  assert.equal(report.status, "failed");
+  assert.equal(report.phase, "env");
+  assert.equal(report.failedCases[0].code, "ENV_YOUTUBE_LIVE_E2E_INGEST_DISABLED");
+  assert.equal(doctorCalled, false);
   assert.equal(findSensitiveLeak(report), null);
 });
 
@@ -524,9 +620,26 @@ test("youtube live local e2e requires rights confirmation before server work", a
     },
   });
   assert.equal(report.status, "failed");
-  assert.equal(report.failedCases[0].code, "YOUTUBE_LIVE_E2E_RIGHTS_REQUIRED");
+  assert.equal(report.phase, "env");
+  assert.equal(report.failedCases[0].code, "ENV_YOUTUBE_LIVE_E2E_RIGHTS_REQUIRED");
   assert.equal(doctorCalled, false);
   assert.equal(serverStarted, false);
+  assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube live local e2e requires a configured URL before server work", async () => {
+  let doctorCalled = false;
+  const report = await runYouTubeLiveE2E({
+    env: liveEnv({ SHORTSENGINE_YOUTUBE_LIVE_E2E_URL: "" }),
+    checkYouTubeIngest: async () => {
+      doctorCalled = true;
+      return passedDoctor();
+    },
+  });
+  assert.equal(report.status, "failed");
+  assert.equal(report.phase, "env");
+  assert.equal(report.failedCases[0].code, "ENV_YOUTUBE_LIVE_E2E_URL_MISSING");
+  assert.equal(doctorCalled, false);
   assert.equal(findSensitiveLeak(report), null);
 });
 
@@ -543,7 +656,27 @@ test("youtube live local e2e rejects unsafe URL before doctor and server", async
     },
   });
   assert.equal(report.status, "failed");
-  assert.equal(report.failedCases[0].code, "YOUTUBE_PLAYLIST_UNSUPPORTED");
+  assert.equal(report.phase, "env");
+  assert.equal(report.failedCases[0].code, "ENV_YOUTUBE_LIVE_E2E_URL_INVALID");
+  assert.equal(doctorCalled, false);
+  assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube live local e2e rejects unallowlisted URL before doctor and server", async () => {
+  let doctorCalled = false;
+  const report = await runYouTubeLiveE2E({
+    env: liveEnv({
+      SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED: "0",
+      SHORTSENGINE_YOUTUBE_SMOKE_ALLOWED_IDS: "",
+    }),
+    checkYouTubeIngest: async () => {
+      doctorCalled = true;
+      return passedDoctor();
+    },
+  });
+  assert.equal(report.status, "failed");
+  assert.equal(report.phase, "env");
+  assert.equal(report.failedCases[0].code, "ENV_YOUTUBE_LIVE_E2E_URL_NOT_ALLOWED");
   assert.equal(doctorCalled, false);
   assert.equal(findSensitiveLeak(report), null);
 });
@@ -565,7 +698,11 @@ test("youtube live local e2e fails safely when doctor is not ready", async () =>
     },
   });
   assert.equal(report.status, "failed");
+  assert.equal(report.phase, "doctor");
   assert.equal(report.failedCases[0].code, "YOUTUBE_DOWNLOADER_MISSING");
+  assert.equal(report.failedCases[0].phase, "doctor");
+  assert.equal(report.triage.failedPhase, "doctor");
+  assert.match(report.triage.nextAction, /downloader|SHORTSENGINE_YOUTUBE_DOWNLOADER_BIN/);
   assert.equal(report.doctor.code, "YOUTUBE_DOWNLOADER_MISSING");
   assert.equal(serverStarted, false);
   assert.equal(findSensitiveLeak(report), null);
@@ -580,7 +717,9 @@ test("youtube live local e2e reports server bind failures as environment limitat
     },
   });
   assert.equal(report.status, "failed");
+  assert.equal(report.phase, "server-bind");
   assert.equal(report.failedCases[0].code, "YOUTUBE_LIVE_E2E_SERVER_BIND_FAILED");
+  assert.equal(report.failedCases[0].phase, "server-bind");
   assert.match(report.failedCases[0].nextAction, /restricted-sandbox|local-port/);
   assert.equal(findSensitiveLeak(report), null);
 });
@@ -596,7 +735,8 @@ test("youtube live local e2e rejects invalid configured port safely", async () =
     },
   });
   assert.equal(report.status, "failed");
-  assert.equal(report.failedCases[0].code, "YOUTUBE_LIVE_E2E_PORT_INVALID");
+  assert.equal(report.phase, "env");
+  assert.equal(report.failedCases[0].code, "ENV_NUMERIC_INVALID");
   assert.equal(serverStarted, false);
   assert.equal(findSensitiveLeak(report), null);
 });
@@ -618,7 +758,13 @@ test("youtube live local e2e mocked success wraps smoke proof without raw URL le
     },
   });
   assert.equal(report.status, "passed");
+  assert.equal(report.phase, "completed");
   assert.equal(report.source.videoId, VIDEO_ID);
+  assert.equal(report.triage.failedPhase, null);
+  assert.equal(report.triage.preflight.ingestEnabled, true);
+  assert.equal(report.triage.preflight.rightsConfirmed, true);
+  assert.equal(report.triage.preflight.sourceConfigured, true);
+  assert.equal(report.triage.preflight.manualUnlistedGate, true);
   assert.equal(report.smoke.ids.projectId, "prj_12345678");
   assert.equal(report.smoke.export.contentType, "video/mp4");
   assert.equal(stopped, true);

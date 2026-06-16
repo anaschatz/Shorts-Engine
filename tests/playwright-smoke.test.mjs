@@ -154,19 +154,32 @@ test("youtube live browser config is explicit and validates rights and URL befor
     () => resolveYouTubeLiveBrowserConfig({
       SHORTSENGINE_YOUTUBE_LIVE_E2E_BROWSER: "1",
       SHORTSENGINE_YOUTUBE_LIVE_E2E_URL: SAFE_URL,
+      SHORTSENGINE_YOUTUBE_INGEST_ENABLED: "1",
+      SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED: "1",
     }),
-    (error) => error.code === "YOUTUBE_LIVE_E2E_RIGHTS_REQUIRED",
+    (error) => error.code === "ENV_YOUTUBE_LIVE_E2E_RIGHTS_REQUIRED",
   );
   assert.throws(
     () => resolveYouTubeLiveBrowserConfig({
       SHORTSENGINE_YOUTUBE_LIVE_E2E_BROWSER: "1",
       SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED: "1",
+      SHORTSENGINE_YOUTUBE_LIVE_E2E_URL: SAFE_URL,
+      SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED: "1",
+    }),
+    (error) => error.code === "ENV_YOUTUBE_LIVE_E2E_INGEST_DISABLED",
+  );
+  assert.throws(
+    () => resolveYouTubeLiveBrowserConfig({
+      SHORTSENGINE_YOUTUBE_LIVE_E2E_BROWSER: "1",
+      SHORTSENGINE_YOUTUBE_INGEST_ENABLED: "1",
+      SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED: "1",
       SHORTSENGINE_YOUTUBE_LIVE_E2E_URL: `${SAFE_URL}&list=PL123`,
     }),
-    (error) => error.code === "YOUTUBE_PLAYLIST_UNSUPPORTED",
+    (error) => error.code === "ENV_YOUTUBE_LIVE_E2E_URL_INVALID",
   );
   const config = resolveYouTubeLiveBrowserConfig({
     SHORTSENGINE_YOUTUBE_LIVE_E2E_BROWSER: "1",
+    SHORTSENGINE_YOUTUBE_INGEST_ENABLED: "1",
     SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED: "1",
     SHORTSENGINE_YOUTUBE_LIVE_E2E_URL: SAFE_URL,
     SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED: "1",

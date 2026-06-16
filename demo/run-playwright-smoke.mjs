@@ -20,6 +20,7 @@ import {
 import { RESULTS_DIR } from "./run-smoke.mjs";
 import { findSensitiveLeak, safeError } from "./report-safety.mjs";
 import { validateSmokeSource } from "./run-youtube-smoke.mjs";
+import { checkEnvironment } from "../tools/release/check-environment.mjs";
 
 const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PLAYWRIGHT_LATEST = resolve(RESULTS_DIR, "playwright-latest.json");
@@ -73,6 +74,7 @@ function rawValue(env, name) {
 
 function resolveYouTubeLiveBrowserConfig(env = process.env) {
   if (!boolFlag(rawValue(env, YOUTUBE_LIVE_BROWSER_FLAG))) return { enabled: false };
+  checkEnvironment({ env });
   if (!boolFlag(rawValue(env, YOUTUBE_LIVE_RIGHTS_FLAG))) {
     const error = new Error("YouTube live browser E2E requires explicit rights confirmation.");
     error.code = "YOUTUBE_LIVE_E2E_RIGHTS_REQUIRED";

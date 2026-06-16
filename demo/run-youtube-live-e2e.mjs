@@ -10,6 +10,7 @@ import {
   runYouTubeSmoke,
   validateSmokeSource,
 } from "./run-youtube-smoke.mjs";
+import { checkEnvironment } from "../tools/release/check-environment.mjs";
 import { checkYouTubeIngest } from "../tools/release/check-youtube-ingest.mjs";
 
 const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -18,6 +19,11 @@ const LIVE_RIGHTS_FLAG = "SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED";
 const LIVE_URL_FLAG = "SHORTSENGINE_YOUTUBE_LIVE_E2E_URL";
 const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
 const NEXT_ACTIONS = Object.freeze({
+  ENV_YOUTUBE_LIVE_E2E_INGEST_DISABLED: "set-SHORTSENGINE_YOUTUBE_INGEST_ENABLED-1",
+  ENV_YOUTUBE_LIVE_E2E_RIGHTS_REQUIRED: "set-SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED-1-after-rights-review",
+  ENV_YOUTUBE_LIVE_E2E_URL_MISSING: "set-SHORTSENGINE_YOUTUBE_LIVE_E2E_URL-to-an-authorized-video",
+  ENV_YOUTUBE_LIVE_E2E_URL_INVALID: "use-a-supported-authorized-youtube-watch-shorts-or-shortlink-url",
+  ENV_YOUTUBE_LIVE_E2E_URL_NOT_ALLOWED: "set-SHORTSENGINE_YOUTUBE_SMOKE_ALLOWED_IDS-or-SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED-1",
   YOUTUBE_LIVE_E2E_DISABLED: "set-SHORTSENGINE_YOUTUBE_LIVE_E2E-1-for-manual-local-proof",
   YOUTUBE_LIVE_E2E_RIGHTS_REQUIRED: "set-SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED-1-after-rights-review",
   YOUTUBE_LIVE_E2E_INGEST_DISABLED: "set-SHORTSENGINE_YOUTUBE_INGEST_ENABLED-1",
@@ -25,8 +31,24 @@ const NEXT_ACTIONS = Object.freeze({
   YOUTUBE_LIVE_E2E_DOCTOR_FAILED: "run-npm-run-youtube-doctor-and-fix-failed-checks",
   YOUTUBE_LIVE_E2E_SMOKE_FAILED: "inspect-demo-results-youtube-live-e2e-latest-json",
   YOUTUBE_LIVE_E2E_REPORT_LEAK: "remove-sensitive-output-from-live-e2e-report",
+  YOUTUBE_LIVE_E2E_TIMEOUT: "check-local-server-and-downloader-before-rerun-or-increase-timeout-only-if-expected",
   YOUTUBE_SMOKE_URL_MISSING: "set-SHORTSENGINE_YOUTUBE_LIVE_E2E_URL-or-SHORTSENGINE_YOUTUBE_SMOKE_URL",
   YOUTUBE_SMOKE_URL_NOT_ALLOWED: "set-SHORTSENGINE_YOUTUBE_SMOKE_ALLOWED_IDS-or-SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED-1",
+});
+
+const PHASES = Object.freeze({
+  ENV: "env",
+  DOCTOR: "doctor",
+  SERVER_BIND: "server-bind",
+  VALIDATION: "validation",
+  INGEST: "ingest",
+  PROBE: "probe",
+  RENDER: "render",
+  DOWNLOAD: "download",
+  BROWSER: "browser",
+  REPORT: "report",
+  SKIPPED: "skipped",
+  COMPLETED: "completed",
 });
 
 class YouTubeLiveE2EError extends Error {
@@ -74,6 +96,39 @@ function nextActionForCode(code) {
   return NEXT_ACTIONS[code] || "inspect-youtube-live-e2e-configuration";
 }
 
+function phaseForCode(code) {
+  const text = String(code || "");
+  if (text.startsWith("ENV_") || [
+    "YOUTUBE_LIVE_E2E_DISABLED",
+    "YOUTUBE_LIVE_E2E_INGEST_DISABLED",
+    "YOUTUBE_LIVE_E2E_RIGHTS_REQUIRED",
+    "YOUTUBE_LIVE_E2E_PORT_INVALID",
+    "YOUTUBE_LIVE_E2E_TIMEOUT_INVALID",
+    "YOUTUBE_SMOKE_URL_MISSING",
+    "YOUTUBE_SMOKE_URL_NOT_ALLOWED",
+    "YOUTUBE_PLAYLIST_UNSUPPORTED",
+    "YOUTUBE_LIVE_UNSUPPORTED",
+    "YOUTUBE_URL_INVALID",
+  ].includes(text)) {
+    return PHASES.ENV;
+  }
+  if (
+    text.startsWith("YOUTUBE_DOCTOR") ||
+    ["YOUTUBE_DOWNLOADER_MISSING", "FFMPEG_MISSING", "FFPROBE_MISSING", "YOUTUBE_STAGING_STORAGE_UNAVAILABLE"].includes(text)
+  ) {
+    return PHASES.DOCTOR;
+  }
+  if (text.includes("SERVER_BIND")) return PHASES.SERVER_BIND;
+  if (text.includes("VALIDATE") || text.includes("VALIDATION")) return PHASES.VALIDATION;
+  if (text.includes("INGEST") || text.includes("ARTIFACT") || text.includes("SOURCE_RESPONSE")) return PHASES.INGEST;
+  if (text.startsWith("FILE_") || text.startsWith("VIDEO_") || text.includes("DURATION")) return PHASES.PROBE;
+  if (text.includes("JOB") || text.includes("GENERATE") || text.includes("EXPORT_MISSING")) return PHASES.RENDER;
+  if (text.includes("DOWNLOAD") || text.includes("MP4")) return PHASES.DOWNLOAD;
+  if (text.includes("BROWSER") || text.includes("PLAYWRIGHT")) return PHASES.BROWSER;
+  if (text.includes("REPORT_LEAK")) return PHASES.REPORT;
+  return "proof";
+}
+
 function safeFailure(error) {
   const safe = safeReportError(error) || { code: "YOUTUBE_LIVE_E2E_FAILED", message: "YouTube live E2E failed." };
   const code = error && error.code ? error.code : safe.code;
@@ -81,6 +136,7 @@ function safeFailure(error) {
     code,
     message: safe.message,
     nextAction: error?.details?.nextAction || nextActionForCode(code),
+    phase: error?.details?.phase || phaseForCode(code),
   };
 }
 
@@ -159,6 +215,61 @@ function safeSmokeSummary(report) {
   };
 }
 
+function safePreflightSummary(summary) {
+  const youtube = summary?.youtubeIngest || {};
+  const live = youtube.liveE2E || {};
+  return {
+    ok: Boolean(summary?.ok),
+    ingestEnabled: Boolean(youtube.enabled),
+    rightsConfirmed: Boolean(live.rightsConfirmed),
+    sourceConfigured: Boolean(live.sourceConfigured),
+    allowlistConfigured: Boolean(live.allowlistedSourceConfigured),
+    manualUnlistedGate: Boolean(live.allowUnlisted),
+    portConfigured: Boolean(live.portConfigured),
+    timeoutMs: Number.isFinite(Number(live.timeoutMs)) ? Number(live.timeoutMs) : null,
+  };
+}
+
+function safeDoctorTriage(result) {
+  if (!result || typeof result !== "object") {
+    return {
+      checked: false,
+      downloaderConfigured: false,
+      ffmpegReady: false,
+      ffprobeReady: false,
+      storageReady: false,
+    };
+  }
+  return {
+    checked: true,
+    status: result.status || null,
+    code: result.code || null,
+    downloaderConfigured: Boolean(result.youtubeIngest?.downloaderConfigured),
+    ffmpegReady: Boolean(result.ffmpeg?.ffmpeg),
+    ffprobeReady: Boolean(result.ffmpeg?.ffprobe),
+    storageReady: Boolean(result.storage?.stagingReady && result.storage?.tmpReady && result.storage?.artifactsReady),
+    ingestAvailable: Boolean(result.youtubeIngest?.ingestAvailable),
+  };
+}
+
+function reportNextAction({ checks, failedCases, status }) {
+  const failure = failedCases[0] || null;
+  if (failure?.nextAction) return failure.nextAction;
+  if (status === "skipped") return checks.find((check) => check.nextAction)?.nextAction || null;
+  return null;
+}
+
+function buildTriage({ checks, doctor, envSummary, failedCases, status }) {
+  const failure = failedCases[0] || null;
+  return {
+    status,
+    failedPhase: failure?.phase || null,
+    nextAction: reportNextAction({ checks, failedCases, status }),
+    preflight: safePreflightSummary(envSummary),
+    doctor: safeDoctorTriage(doctor),
+  };
+}
+
 function safeReport(report) {
   const leak = findSensitiveLeak(report);
   if (!leak) return report;
@@ -166,6 +277,8 @@ function safeReport(report) {
     timestamp: report.timestamp || nowIso(),
     status: "failed",
     mode: "youtube-live-local-e2e",
+    phase: PHASES.REPORT,
+    nextAction: nextActionForCode("YOUTUBE_LIVE_E2E_REPORT_LEAK"),
     durationMs: report.durationMs || 0,
     source: report.source || null,
     checks: [{
@@ -184,6 +297,7 @@ function safeReport(report) {
       code: "YOUTUBE_LIVE_E2E_REPORT_LEAK",
       leakCode: leak.code,
       leakPath: leak.path,
+      phase: PHASES.REPORT,
       nextAction: nextActionForCode("YOUTUBE_LIVE_E2E_REPORT_LEAK"),
     }],
   };
@@ -194,20 +308,27 @@ function buildReport({
   doctor,
   durationMs,
   failedCases,
+  envSummary,
   serverEvents,
   smoke,
   source,
   status,
   steps,
 }) {
+  const failure = failedCases[0] || null;
+  const phase = failure?.phase || (status === "skipped" ? PHASES.SKIPPED : status === "passed" ? PHASES.COMPLETED : null);
+  const nextAction = reportNextAction({ checks, failedCases, status });
   return safeReport({
     timestamp: nowIso(),
     status,
     mode: "youtube-live-local-e2e",
+    phase,
+    nextAction,
     durationMs,
     source: source ? { sourceType: "youtube", kind: source.kind, videoId: source.videoId } : null,
     checks,
     steps,
+    triage: buildTriage({ checks, doctor, envSummary, failedCases, status }),
     doctor: safeDoctorSummary(doctor),
     smoke: safeSmokeSummary(smoke),
     serverEvents: sanitizeServerEvents(serverEvents),
@@ -335,9 +456,11 @@ async function runYouTubeLiveE2E(options = {}) {
   let doctor = null;
   let smoke = null;
   let server = null;
+  let envSummary = null;
 
   const deps = {
     checkYouTubeIngest: options.checkYouTubeIngest || checkYouTubeIngest,
+    checkEnvironment: options.checkEnvironment || checkEnvironment,
     getFreePort: options.getFreePort || getFreePort,
     runYouTubeSmoke: options.runYouTubeSmoke || runYouTubeSmoke,
     startServer: options.startServer || startServer,
@@ -345,6 +468,11 @@ async function runYouTubeLiveE2E(options = {}) {
   };
 
   try {
+    envSummary = deps.checkEnvironment({ env });
+    addStep(steps, "env", "passed", {
+      liveE2E: Boolean(envSummary.youtubeIngest?.liveE2E?.enabled),
+      sourceConfigured: Boolean(envSummary.youtubeIngest?.liveE2E?.sourceConfigured),
+    });
     const config = validateLiveConfig(env);
     if (config.skipped) {
       addCheck(checks, "youtube_live_e2e_explicit_flag", true, {
@@ -356,6 +484,7 @@ async function runYouTubeLiveE2E(options = {}) {
         doctor,
         durationMs: Date.now() - started,
         failedCases,
+        envSummary,
         serverEvents,
         smoke,
         source,
@@ -422,7 +551,7 @@ async function runYouTubeLiveE2E(options = {}) {
   } catch (error) {
     const failure = safeFailure(error);
     failedCases.push({ name: "youtube_live_e2e", ...failure });
-    addStep(steps, "failure", "failed", { code: failure.code, nextAction: failure.nextAction });
+    addStep(steps, "failure", "failed", { code: failure.code, phase: failure.phase, nextAction: failure.nextAction });
   } finally {
     if (server) {
       serverEvents.push(...(server.events || []));
@@ -438,6 +567,7 @@ async function runYouTubeLiveE2E(options = {}) {
     doctor,
     durationMs: Date.now() - started,
     failedCases,
+    envSummary,
     serverEvents,
     smoke,
     source,
@@ -499,16 +629,26 @@ if (isMainModule()) {
           timestamp: nowIso(),
           status: "failed",
           mode: "youtube-live-local-e2e",
+          phase: PHASES.RENDER,
+          nextAction: "check-local-server-and-downloader-before-rerun",
           durationMs: timeout,
           source: null,
           checks: [{ name: "youtube_live_e2e_timeout", passed: false, code: "YOUTUBE_LIVE_E2E_TIMEOUT" }],
           steps: [],
+          triage: {
+            status: "failed",
+            failedPhase: PHASES.RENDER,
+            nextAction: "check-local-server-and-downloader-before-rerun",
+            preflight: safePreflightSummary(null),
+            doctor: safeDoctorTriage(null),
+          },
           doctor: null,
           smoke: null,
           serverEvents: [],
           failedCases: [{
             name: "youtube_live_e2e_timeout",
             code: "YOUTUBE_LIVE_E2E_TIMEOUT",
+            phase: PHASES.RENDER,
             nextAction: "check-local-server-and-downloader-before-rerun",
           }],
         });

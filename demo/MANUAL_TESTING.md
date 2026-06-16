@@ -63,6 +63,14 @@ SHORTSENGINE_YOUTUBE_LIVE_E2E_URL="https://www.youtube.com/watch?v=<video-id>" \
 npm run youtube:e2e:local
 ```
 
+The same operator proof is also available as:
+
+```bash
+npm run youtube:proof
+```
+
+The proof runs `env:check` before doctor/server work and writes `demo/results/youtube-live-e2e-latest.json` with safe `phase`, `nextAction`, `triage.preflight`, and `triage.doctor` fields for report-driven debugging.
+
 Run the opt-in browser YouTube live path only when Playwright and server binding are available:
 
 ```bash
@@ -145,7 +153,8 @@ Open `http://127.0.0.1:4175` unless you set a different `PORT`.
 - Render failed: run `npm run demo:smoke` and inspect `demo/results/latest.json`.
 - YouTube ingest disabled: run `npm run youtube:doctor`; default skipped output is expected until `SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1`.
 - YouTube live E2E skipped: expected until `SHORTSENGINE_YOUTUBE_LIVE_E2E=1` and `SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED=1` are set.
-- YouTube live E2E server bind failed: `YOUTUBE_LIVE_E2E_SERVER_BIND_FAILED` usually means the current sandbox cannot bind a local server; rerun outside that restriction.
+- YouTube live E2E env failure: report `phase: "env"` means `env:check` stopped the proof before doctor, server or downloader work; fix the missing ingest, rights, URL or allowlist/manual gate.
+- YouTube live E2E server bind failed: `YOUTUBE_LIVE_E2E_SERVER_BIND_FAILED` with `phase: "server-bind"` usually means the current sandbox cannot bind a local server; rerun outside that restriction or set a different `SHORTSENGINE_YOUTUBE_LIVE_E2E_PORT`.
 - YouTube downloader missing: install/configure the downloader and rerun doctor; `YOUTUBE_DOWNLOADER_MISSING` is a safe fail-closed runtime state.
 - YouTube download timed out: keep the test video short and raise `SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS` only for intentional manual proof.
 - YouTube smoke URL rejected: playlists, live, embeds, channels, search pages, credentialed URLs and non-YouTube hosts are blocked before network/downloader work.

@@ -68,7 +68,7 @@ Run `npm run youtube:doctor` at any time. With default config it returns a safe 
 
 Run `npm run youtube:smoke` only for manual authorized proof. It requires `SHORTSENGINE_YOUTUBE_SMOKE=1`, `SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1`, a safe URL, downloader readiness, and either a smoke URL allowlist or `SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED=1`. It validates `/health`, `/api/youtube/validate`, `/api/youtube/ingest`, generate, job polling, export download and MP4 signature, then writes `demo/results/youtube-smoke-latest.json`.
 
-Run `npm run youtube:e2e:local` only for manual local proof. It defaults to skipped, requires `SHORTSENGINE_YOUTUBE_LIVE_E2E=1`, `SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED=1`, a safe URL, `SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1`, downloader readiness, and the same smoke allowlist or explicit unlisted gate. It writes `demo/results/youtube-live-e2e-latest.json`.
+Run `npm run youtube:e2e:local` or its alias `npm run youtube:proof` only for manual local proof. It defaults to skipped, runs `env:check` before doctor/server work, requires `SHORTSENGINE_YOUTUBE_LIVE_E2E=1`, `SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED=1`, a safe URL, `SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1`, downloader readiness, and the same smoke allowlist or explicit unlisted gate. It writes `demo/results/youtube-live-e2e-latest.json` with safe `phase`, `nextAction` and triage summaries.
 
 Use `docs/YOUTUBE_INGEST_MANUAL_SMOKE.md` before the first real downloader run. It documents rights review, downloader verification, safe env flags, report reading, safe cleanup and troubleshooting codes.
 

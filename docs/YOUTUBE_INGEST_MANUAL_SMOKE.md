@@ -107,7 +107,7 @@ Raise timeouts only for an intentional manual proof with a known short source.
 ## Run Local Live E2E Proof
 
 Use this when you want the script to start a local server, verify doctor readiness, run validate -> ingest -> generate -> render -> download, and write a dedicated local proof report.
-Run `npm run env:check` first; it validates the live proof flags, URL shape, rights confirmation, ingest enablement and allowlist/manual gate before any server or downloader work.
+Run `npm run env:check` first; the proof runner also executes the same env readiness gate before doctor, server bind, browser work or downloader-backed smoke. It validates the live proof flags, URL shape, rights confirmation, ingest enablement and allowlist/manual gate before any server or downloader work.
 
 ```bash
 SHORTSENGINE_YOUTUBE_LIVE_E2E=1 \
@@ -116,6 +116,17 @@ SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1 \
 SHORTSENGINE_YOUTUBE_LIVE_E2E_URL="https://www.youtube.com/watch?v=<authorized-video-id>" \
 SHORTSENGINE_YOUTUBE_SMOKE_ALLOWED_IDS="<authorized-video-id>" \
 npm run youtube:e2e:local
+```
+
+`npm run youtube:proof` is an alias for the same operator proof:
+
+```bash
+SHORTSENGINE_YOUTUBE_LIVE_E2E=1 \
+SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED=1 \
+SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1 \
+SHORTSENGINE_YOUTUBE_LIVE_E2E_URL="https://www.youtube.com/watch?v=<authorized-video-id>" \
+SHORTSENGINE_YOUTUBE_SMOKE_ALLOWED_IDS="<authorized-video-id>" \
+npm run youtube:proof
 ```
 
 For a reviewed one-off URL, use the same explicit unlisted gate as smoke:
@@ -199,13 +210,17 @@ demo/results/youtube-live-e2e-latest.json
 Expected passing report:
 
 - `status: "passed"`
+- `phase: "completed"`
+- `triage.failedPhase: null`
+- `triage.preflight` booleans for ingest, rights, source and allowlist/manual gate readiness
+- `triage.doctor` booleans for downloader, FFmpeg, FFprobe and storage readiness
 - safe `source` with `sourceType`, `kind`, and `videoId`
 - safe `target` with protocol, host type, and mount only
 - project/upload/job/export ids
 - `health.requestIdPresent` and per-step `requestIdPresent`
 - export `contentType`, `sizeBytes`, and `sha256Prefix`
 
-Failure reports should include only safe codes and `nextAction`. They must not contain raw URLs, local absolute paths, storage keys, stdout, stderr, cookies, tokens, secrets, or raw provider/downloader errors.
+Failure reports should include only safe `code`, `phase`, `nextAction` and bounded readiness summaries. Common phases are `env`, `doctor`, `server-bind`, `validation`, `ingest`, `probe`, `render`, `download` and `browser`. They must not contain raw URLs, local absolute paths, storage keys, stdout, stderr, cookies, tokens, secrets, or raw provider/downloader errors.
 
 ## Safe Cleanup
 
@@ -242,6 +257,9 @@ If cleanup requires deleting committed artifacts or exports, stop and add a dedi
 | `YOUTUBE_LIVE_E2E_DISABLED` | Local live proof was not explicitly enabled. | Set `SHORTSENGINE_YOUTUBE_LIVE_E2E=1` for manual proof. |
 | `YOUTUBE_LIVE_E2E_RIGHTS_REQUIRED` | Local live proof has no explicit rights confirmation. | Set `SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED=1` after rights review. |
 | `YOUTUBE_LIVE_E2E_SERVER_BIND_FAILED` | Local server could not bind, often due to sandbox restrictions. | Run outside the restricted sandbox or choose an available local port. |
+| `ENV_YOUTUBE_LIVE_E2E_INGEST_DISABLED` | Env readiness rejected live proof before doctor/server work. | Set `SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1` only for the manual proof. |
+| `ENV_YOUTUBE_LIVE_E2E_URL_MISSING` | Env readiness found no authorized URL. | Set `SHORTSENGINE_YOUTUBE_LIVE_E2E_URL`. |
+| `ENV_YOUTUBE_LIVE_E2E_URL_NOT_ALLOWED` | Env readiness found no allowlist/manual gate. | Set `SHORTSENGINE_YOUTUBE_SMOKE_ALLOWED_IDS` or `SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED=1`. |
 
 ## Default CI Contract
 

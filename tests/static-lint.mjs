@@ -173,6 +173,9 @@ assert.match(youtubeSmoke, /SMOKE_NEXT_ACTIONS/, "YouTube smoke should centraliz
 assert.doesNotMatch(youtubeSmoke, /yt-dlp|youtube-dl|execFile|spawn|child_process/, "YouTube smoke runner should not invoke downloader tools directly");
 assert.match(youtubeLiveE2E, /SHORTSENGINE_YOUTUBE_LIVE_E2E/, "YouTube live E2E should require an explicit live proof flag");
 assert.match(youtubeLiveE2E, /SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED/, "YouTube live E2E should require explicit rights confirmation");
+assert.match(youtubeLiveE2E, /checkEnvironment/, "YouTube live E2E should run env readiness before doctor/server work");
+assert.match(youtubeLiveE2E, /phaseForCode/, "YouTube live E2E should classify failures by triage phase");
+assert.match(youtubeLiveE2E, /safePreflightSummary/, "YouTube live E2E should include a safe preflight triage summary");
 assert.match(youtubeLiveE2E, /checkYouTubeIngest/, "YouTube live E2E should run the doctor before server smoke work");
 assert.match(youtubeLiveE2E, /runYouTubeSmoke/, "YouTube live E2E should reuse the safe smoke pipeline");
 assert.match(youtubeLiveE2E, /youtube-live-e2e-latest\.json/, "YouTube live E2E should write a stable latest report");
@@ -205,11 +208,13 @@ assert.match(packageJson, /"remote:ci:proof": "node tools\/release\/write-remote
 assert.match(packageJson, /"youtube:doctor": "node tools\/release\/check-youtube-ingest\.mjs"/, "package should expose the YouTube ingest doctor");
 assert.match(packageJson, /"youtube:smoke": "node demo\/run-youtube-smoke\.mjs"/, "package should expose the opt-in YouTube smoke");
 assert.match(packageJson, /"youtube:e2e:local": "node demo\/run-youtube-live-e2e\.mjs"/, "package should expose the opt-in local YouTube E2E proof");
+assert.match(packageJson, /"youtube:proof": "node demo\/run-youtube-live-e2e\.mjs"/, "package should expose the operator YouTube proof alias");
 assert.match(packageJson, /"demo:youtube:live": "node demo\/run-youtube-live-e2e\.mjs"/, "package should expose the demo YouTube live proof alias");
 assert.match(packageJson, /"playwright"/, "Playwright should be a scoped dev dependency for browser E2E");
 assert.match(playwrightSmoke, /setInputFiles/, "Playwright smoke should upload the fixture through the browser context");
 assert.match(playwrightSmoke, /youtube-ingest-button/, "Playwright smoke should cover the disabled YouTube ingest path");
 assert.match(playwrightSmoke, /SHORTSENGINE_YOUTUBE_LIVE_E2E_BROWSER/, "Playwright smoke should expose an opt-in YouTube live browser path");
+assert.match(playwrightSmoke, /checkEnvironment/, "Playwright live YouTube path should reuse the central env readiness gates");
 assert.match(playwrightSmoke, /youtube_live_ingest_created_project_state/, "Playwright live path should verify ingest-created project state");
 assert.match(playwrightSmoke, /getByTestId\("download-link"\)/, "Playwright smoke should assert download UI state by stable selector");
 assert.match(playwrightSmoke, /download_endpoint_returns_video/, "Playwright smoke should verify the rendered MP4 endpoint");
