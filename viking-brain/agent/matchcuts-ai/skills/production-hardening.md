@@ -65,3 +65,4 @@ Checklist:
 - Keep `youtube:doctor` no-network/downloader-free when ingest is disabled; check downloader availability only after explicit ingest enablement.
 - Keep `youtube:smoke` manual and opt-in; reject unsafe YouTube URLs before fetch, require allowlist/manual flag, bound JSON/downloads, validate MP4 signatures and leak-guard reports.
 - Treat raw provider/downloader secret strings as sensitive even when they arrive in freeform messages rather than unsafe object keys.
+- For manual YouTube downloader proof, document rights review, operator-managed downloader install, safe doctor/smoke flags, failure-code next actions, report reading and temp-only cleanup before any real run.

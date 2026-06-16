@@ -36,6 +36,7 @@ const stagingFullCleanup = readFileSync("tools/release/cleanup-staging-full-smok
 const releaseGateVerifier = readFileSync("tools/release/verify-release-gate.mjs", "utf8");
 const releaseEvidenceWriter = readFileSync("tools/release/write-release-evidence.mjs", "utf8");
 const envDocs = readFileSync("docs/ENVIRONMENT.md", "utf8");
+const youtubeManualDocs = readFileSync("docs/YOUTUBE_INGEST_MANUAL_SMOKE.md", "utf8");
 const envExample = readFileSync(".env.example", "utf8");
 const stagingDocs = readFileSync("docs/STAGING_DEPLOYMENT.md", "utf8");
 const manualDocs = readFileSync("demo/MANUAL_TESTING.md", "utf8");
@@ -144,6 +145,9 @@ assert.match(youtubeDoctor, /commandAvailable/, "YouTube doctor should validate 
 assert.match(youtubeDoctor, /storageHealth/, "YouTube doctor should validate local storage readiness");
 assert.match(youtubeDoctor, /validateHealthYoutubeShape/, "YouTube doctor should validate live health youtubeIngest shape when configured");
 assert.match(youtubeDoctor, /findSensitiveLeak/, "YouTube doctor should guard summaries and health responses against leaks");
+assert.match(youtubeDoctor, /DOCTOR_NEXT_ACTIONS/, "YouTube doctor should centralize safe operator next actions");
+assert.match(youtubeDoctor, /install-configure-downloader-or-set-SHORTSENGINE_YOUTUBE_DOWNLOADER_BIN/, "YouTube doctor should guide missing downloader failures safely");
+assert.match(youtubeDoctor, /fix-live-health-youtubeIngest-shape-or-use-local-doctor/, "YouTube doctor should guide invalid live health shape safely");
 assert.match(youtubeSmoke, /SHORTSENGINE_YOUTUBE_SMOKE/, "YouTube smoke should require an explicit smoke flag");
 assert.match(youtubeSmoke, /SHORTSENGINE_YOUTUBE_SMOKE_URL/, "YouTube smoke should read the authorized test URL from env");
 assert.match(youtubeSmoke, /SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED/, "YouTube smoke should require allowlist or explicit manual unlisted flag");
@@ -155,6 +159,9 @@ assert.match(youtubeSmoke, /\/api\/exports\/\$\{ids\.exportId\}\/download/, "You
 assert.match(youtubeSmoke, /ftyp/, "YouTube smoke should validate MP4 signatures");
 assert.match(youtubeSmoke, /findSensitiveLeak/, "YouTube smoke should guard reports and public responses against leaks");
 assert.match(youtubeSmoke, /youtube-smoke-latest\.json/, "YouTube smoke should write a stable latest report");
+assert.match(youtubeSmoke, /YOUTUBE_SMOKE_HEALTH_NOT_READY/, "YouTube smoke should fail closed when live health is not ready");
+assert.match(youtubeSmoke, /requestIdPresent/, "YouTube smoke reports should keep request id presence instead of raw ids");
+assert.match(youtubeSmoke, /SMOKE_NEXT_ACTIONS/, "YouTube smoke should centralize safe operator next actions");
 assert.doesNotMatch(youtubeSmoke, /yt-dlp|youtube-dl|execFile|spawn|child_process/, "YouTube smoke runner should not invoke downloader tools directly");
 assert.match(browserSmoke, /browser-latest\.json|BROWSER_LATEST/, "browser smoke should write a browser latest report");
 assert.match(browserSmoke, /REQUIRED_TEST_IDS/, "browser smoke should assert stable selectors");
@@ -363,6 +370,7 @@ assert.match(envDocs, /SHORTSENGINE_YOUTUBE_SMOKE_URL/, "environment docs should
 assert.match(envDocs, /SHORTSENGINE_YOUTUBE_DOCTOR_URL/, "environment docs should document optional live health validation for YouTube doctor");
 assert.match(envDocs, /disabled by default/i, "environment docs should document YouTube no-network default behavior");
 assert.match(envDocs, /local staging/i, "environment docs should document YouTube local staging behavior");
+assert.match(envDocs, /docs\/YOUTUBE_INGEST_MANUAL_SMOKE\.md/, "environment docs should link to manual YouTube ingest smoke guidance");
 assert.match(envDocs, /OPENAI_API_KEY/, "environment docs should document provider credential handling");
 assert.match(envExample, /MATCHCUTS_TRANSCRIPTION_PROVIDER=mock/, ".env.example should keep mock provider as the default");
 assert.match(envExample, /MATCHCUTS_STORAGE_ADAPTER=local/, ".env.example should keep local storage as the default");
@@ -407,7 +415,18 @@ assert.match(manualDocs, /YOUTUBE_RIGHTS_REQUIRED/, "manual docs should describe
 assert.match(manualDocs, /npm run youtube:doctor/, "manual docs should explain YouTube ingest doctor");
 assert.match(manualDocs, /npm run youtube:smoke/, "manual docs should explain opt-in YouTube smoke");
 assert.match(manualDocs, /YOUTUBE_DOWNLOADER_MISSING/, "manual docs should document YouTube downloader troubleshooting");
+assert.match(manualDocs, /docs\/YOUTUBE_INGEST_MANUAL_SMOKE\.md/, "manual docs should link to the detailed YouTube ingest smoke guide");
 assert.match(manualDocs, /port already used/i, "manual docs should include troubleshooting");
+assert.match(youtubeManualDocs, /Use only videos you own, have licensed, or are otherwise authorized/i, "YouTube manual smoke guide should document rights requirements");
+assert.match(youtubeManualDocs, /never installs a downloader automatically/i, "YouTube manual smoke guide should keep downloader install manual");
+assert.match(youtubeManualDocs, /npm run youtube:doctor/, "YouTube manual smoke guide should document the doctor command");
+assert.match(youtubeManualDocs, /npm run youtube:smoke/, "YouTube manual smoke guide should document the smoke command");
+assert.match(youtubeManualDocs, /SHORTSENGINE_YOUTUBE_SMOKE=1/, "YouTube manual smoke guide should document explicit smoke opt-in");
+assert.match(youtubeManualDocs, /demo\/results\/youtube-smoke-latest\.json/, "YouTube manual smoke guide should document report reading");
+assert.match(youtubeManualDocs, /YOUTUBE_SMOKE_REPORT_LEAK/, "YouTube manual smoke guide should document report leak failures");
+assert.match(youtubeManualDocs, /YOUTUBE_SMOKE_HEALTH_NOT_READY/, "YouTube manual smoke guide should document health readiness failures");
+assert.match(youtubeManualDocs, /YOUTUBE_DOWNLOADER_MISSING/, "YouTube manual smoke guide should document missing downloader failures");
+assert.match(youtubeManualDocs, /Default CI and local checks must remain no-network and no-downloader/i, "YouTube manual smoke guide should keep CI default-safe");
 assert.match(ciDocs, /npm run demo:browser:install/, "CI docs should include the Playwright browser install step");
 assert.match(ciDocs, /npm run env:check/, "CI docs should include the environment readiness check");
 assert.match(ciDocs, /npm run staging:check/, "CI docs should include the staging readiness check");
@@ -436,6 +455,7 @@ assert.match(ciDocs, /stays out of the default gate/i, "CI docs should keep full
 assert.match(ciDocs, /npm run youtube:doctor/, "CI docs should document the no-network YouTube doctor");
 assert.match(ciDocs, /npm run youtube:smoke/, "CI docs should document the opt-in YouTube smoke command");
 assert.match(ciDocs, /YouTube smoke stays out of the default gate/i, "CI docs should keep real YouTube smoke out of default CI");
+assert.match(ciDocs, /docs\/YOUTUBE_INGEST_MANUAL_SMOKE\.md/, "CI docs should link to the manual YouTube ingest smoke guide");
 assert.match(releaseDocs, /Branch Protection Checklist/, "release docs should include branch protection guidance");
 assert.match(releaseDocs, /npm run env:check/, "release docs should include environment readiness checks");
 assert.match(releaseDocs, /npm run staging:check/, "release docs should include staging readiness checks");

@@ -6,7 +6,11 @@ import { tmpdir } from "node:os";
 
 import { findSensitiveLeak } from "../demo/report-safety.mjs";
 import { runYouTubeSmoke, writeYouTubeSmokeReport } from "../demo/run-youtube-smoke.mjs";
-import { checkYouTubeIngest } from "../tools/release/check-youtube-ingest.mjs";
+import {
+  YouTubeDoctorError,
+  checkYouTubeIngest,
+  safeError as safeDoctorError,
+} from "../tools/release/check-youtube-ingest.mjs";
 
 const VIDEO_ID = "dQw4w9WgXcQ";
 const SAFE_URL = `https://www.youtube.com/watch?v=${VIDEO_ID}`;
@@ -170,6 +174,7 @@ test("youtube doctor disabled default returns a safe skipped summary", async () 
   assert.equal(result.status, "skipped");
   assert.equal(result.code, "YOUTUBE_INGEST_DISABLED");
   assert.equal(result.youtubeIngest.enabled, false);
+  assert.match(result.nextAction, /SHORTSENGINE_YOUTUBE_INGEST_ENABLED/);
   assert.equal(downloaderChecked, false);
   assert.equal(findSensitiveLeak(result), null);
 });
@@ -185,7 +190,42 @@ test("youtube doctor enabled reports missing downloader safely", async () => {
   assert.equal(result.status, "failed");
   assert.equal(result.code, "YOUTUBE_DOWNLOADER_MISSING");
   assert.equal(result.youtubeIngest.ingestAvailable, false);
+  assert.match(result.nextAction, /downloader|SHORTSENGINE_YOUTUBE_DOWNLOADER_BIN/);
   assert.equal(findSensitiveLeak(result), null);
+});
+
+test("youtube doctor live health shape failures include safe next actions", async () => {
+  const result = await checkYouTubeIngest({
+    env: {
+      SHORTSENGINE_YOUTUBE_INGEST_ENABLED: "1",
+      SHORTSENGINE_YOUTUBE_DOCTOR_URL: "http://127.0.0.1:4175",
+    },
+    commandAvailable: () => true,
+    downloaderAvailable: () => true,
+    storageHealth: readyStorage,
+    fetchImpl: async () => jsonResponse({
+      ok: true,
+      data: {
+        service: "shortsengine-mvp",
+        status: "ready",
+      },
+    }),
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "YOUTUBE_DOCTOR_HEALTH_YOUTUBE_MISSING");
+  assert.equal(result.serverHealth.code, "YOUTUBE_DOCTOR_HEALTH_YOUTUBE_MISSING");
+  assert.match(result.serverHealth.nextAction, /youtubeIngest-shape/);
+  assert.equal(findSensitiveLeak(result), null);
+});
+
+test("youtube doctor safeError maps live health shape errors to operator guidance", () => {
+  const safe = safeDoctorError(new YouTubeDoctorError(
+    "YOUTUBE_DOCTOR_HEALTH_YOUTUBE_INVALID",
+    "Health youtubeIngest readiness shape is invalid.",
+  ));
+  assert.equal(safe.status, "failed");
+  assert.match(safe.nextAction, /youtubeIngest-shape/);
+  assert.equal(findSensitiveLeak(safe), null);
 });
 
 test("youtube smoke skips safely without explicit flag", async () => {
@@ -243,6 +283,8 @@ test("youtube smoke successful mocked flow validates ingest generate job and dow
   assert.equal(report.ids.exportId, "exp_12345678");
   assert.equal(report.export.contentType, "video/mp4");
   assert.equal(report.export.sizeBytes > 0, true);
+  assert.equal(report.steps.every((step) => !Object.hasOwn(step, "requestId")), true);
+  assert.equal(report.steps.every((step) => step.status !== "passed" || step.requestIdPresent === true || step.step === "job"), true);
   assert.deepEqual(calls.map((call) => call.key), [
     "GET /health",
     "POST /api/youtube/validate",
@@ -251,6 +293,33 @@ test("youtube smoke successful mocked flow validates ingest generate job and dow
     "GET /api/jobs/job_12345678",
     "GET /api/exports/exp_12345678/download",
   ]);
+  assert.doesNotMatch(JSON.stringify(report), new RegExp(SAFE_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube smoke fails closed when health is not ready", async () => {
+  const { fetchImpl } = createFetchMock({
+    "GET /health": () => jsonResponse({
+      ok: true,
+      data: {
+        service: "shortsengine-mvp",
+        status: "degraded",
+        requestId: "rid_health",
+        ffmpeg: { ffmpeg: true, ffprobe: true },
+        youtubeIngest: {
+          enabled: true,
+          mode: "local",
+          ready: false,
+          downloaderConfigured: true,
+          ingestAvailable: true,
+        },
+      },
+    }),
+  });
+  const report = await runYouTubeSmoke({ env: smokeEnv(), fetchImpl });
+  assert.equal(report.status, "failed");
+  assert.equal(report.failedCases[0].code, "YOUTUBE_SMOKE_HEALTH_NOT_READY");
+  assert.match(report.failedCases[0].nextAction, /ready-server/);
   assert.equal(findSensitiveLeak(report), null);
 });
 
@@ -286,6 +355,47 @@ test("youtube smoke fails closed when public responses leak unsafe fields", asyn
   const report = await runYouTubeSmoke({ env: smokeEnv(), fetchImpl });
   assert.equal(report.status, "failed");
   assert.equal(report.failedCases[0].code, "YOUTUBE_SMOKE_RESPONSE_LEAK");
+  assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube smoke fails closed when public responses contain raw downloader output", async () => {
+  const { fetchImpl } = createFetchMock({
+    "POST /api/youtube/validate": () => jsonResponse({
+      ok: true,
+      data: {
+        source: {
+          sourceType: "youtube",
+          kind: "watch",
+          videoId: VIDEO_ID,
+          ingestAvailable: true,
+          downloaderConfigured: true,
+          stdout: "yt-dlp --cookies /tmp/private-cookie.txt",
+        },
+      },
+    }, 200),
+  });
+  const report = await runYouTubeSmoke({ env: smokeEnv(), fetchImpl });
+  assert.equal(report.status, "failed");
+  assert.equal(report.failedCases[0].code, "YOUTUBE_SMOKE_RESPONSE_LEAK");
+  assert.match(report.failedCases[0].nextAction, /public-api-response/);
+  assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube smoke validates downloaded MP4 signature", async () => {
+  const { fetchImpl } = createFetchMock({
+    "GET /api/exports/exp_12345678/download": () => new Response(Buffer.from("not an mp4"), {
+      status: 200,
+      headers: {
+        "content-type": "video/mp4",
+        "content-length": "10",
+        "x-request-id": "req_download",
+      },
+    }),
+  });
+  const report = await runYouTubeSmoke({ env: smokeEnv(), fetchImpl });
+  assert.equal(report.status, "failed");
+  assert.equal(report.failedCases[0].code, "YOUTUBE_SMOKE_MP4_SIGNATURE_INVALID");
+  assert.match(report.failedCases[0].nextAction, /render-output/);
   assert.equal(findSensitiveLeak(report), null);
 });
 

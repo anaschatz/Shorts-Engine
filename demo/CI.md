@@ -38,6 +38,8 @@ npm run release:check
 
 The GitHub Actions release gate uses `npm ci` when `package-lock.json` is present, installs Playwright Chromium with `npm run demo:browser:install`, then runs every command above. Real cloud integration stays out of the default gate and remains opt-in through its dedicated script/env flags. Full staging upload/render smoke also stays out of the default gate; `npm run staging:smoke:full` requires `SHORTSENGINE_STAGING_FULL_SMOKE=1` and is reserved for manual staging proof because it uploads a fixture, starts a render job and downloads the rendered MP4. Full smoke cleanup also stays out of the default gate; `npm run staging:smoke:cleanup` is dry-run by default and real deletion requires `SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP=1`. YouTube smoke stays out of the default gate; `npm run youtube:smoke` requires `SHORTSENGINE_YOUTUBE_SMOKE=1`, enabled ingest, a downloader and an authorized allowlisted/manual URL.
 
+For the first real downloader proof, follow `docs/YOUTUBE_INGEST_MANUAL_SMOKE.md`. It keeps downloader install, legal/rights review, smoke flags, report reading and cleanup as manual operator actions outside the release gate.
+
 For local release proof, run `npm run release:evidence` after the release gate passes. It writes `release/results/latest.json` with safe relative references, branch-protection guidance, release readiness and the latest report statuses.
 
 Before post-push verification, check the local GitHub CLI setup:

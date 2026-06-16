@@ -52,6 +52,8 @@ SHORTSENGINE_YOUTUBE_SMOKE_BASE_URL="http://127.0.0.1:4175" \
 npm run youtube:smoke
 ```
 
+For the full rights, downloader, doctor, smoke, report-reading and cleanup checklist, use `docs/YOUTUBE_INGEST_MANUAL_SMOKE.md`.
+
 Install the Playwright Chromium runtime:
 
 ```bash
@@ -124,11 +126,12 @@ Open `http://127.0.0.1:4175` unless you set a different `PORT`.
 - Port already used: start with a different port, e.g. `PORT=4182 npm run dev`.
 - No API key: expected for local demo; mock transcription is the safe default.
 - Real YouTube ingest is opt-in and manual. It requires `SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1`, downloader readiness, explicit rights confirmation and a smoke allowlist or `SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED=1`.
+- Manual YouTube smoke details: see `docs/YOUTUBE_INGEST_MANUAL_SMOKE.md`.
 
 ## Known Limitations
 
 - `npm run demo:browser` remains dependency-light and does not drive a real browser by itself.
 - `npm run demo:browser:e2e` drives Chromium through Playwright and is the automated proof for the full browser upload/generate/render/download path.
-- YouTube URL support is validate-only. The backend does not download from YouTube, call external downloader tools, or create renderable artifacts yet.
+- Real YouTube ingest is implemented behind the explicit local downloader adapter and remains disabled by default. Keep it manual until staging policy, downloader operations and authorized-source review are complete.
 - CI setup, skip semantics and retention policy live in `demo/CI.md`.
 - Internal `MatchCutsCore` identifiers remain until a dedicated internal rename milestone.

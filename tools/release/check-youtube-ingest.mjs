@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
@@ -13,6 +12,25 @@ const { downloaderAvailable } = require("../../server/adapters/local-youtube-ing
 
 const DEFAULT_HEALTH_TIMEOUT_MS = 5000;
 const MAX_HEALTH_RESPONSE_BYTES = 64 * 1024;
+const DOCTOR_NEXT_ACTIONS = {
+  YOUTUBE_INGEST_DISABLED: "set-SHORTSENGINE_YOUTUBE_INGEST_ENABLED-1-and-configure-downloader-for-real-ingest",
+  YOUTUBE_DOWNLOADER_MISSING: "install-configure-downloader-or-set-SHORTSENGINE_YOUTUBE_DOWNLOADER_BIN",
+  FFMPEG_MISSING: "install-ffmpeg-or-set-FFMPEG_BIN",
+  FFPROBE_MISSING: "install-ffprobe-or-set-FFPROBE_BIN",
+  YOUTUBE_STAGING_STORAGE_UNAVAILABLE: "check-data-directory-permissions-and-staging-storage",
+  YOUTUBE_DOCTOR_HEALTH_URL_NOT_CONFIGURED: "set-SHORTSENGINE_YOUTUBE_DOCTOR_URL-to-check-live-/health",
+  YOUTUBE_DOCTOR_HEALTH_URL_INVALID: "set-SHORTSENGINE_YOUTUBE_DOCTOR_URL-to-a-http-or-https-base-url",
+  YOUTUBE_DOCTOR_HEALTH_TIMEOUT: "start-server-or-set-SHORTSENGINE_YOUTUBE_DOCTOR_URL-and-timeout",
+  YOUTUBE_DOCTOR_HEALTH_FETCH_FAILED: "start-server-or-set-SHORTSENGINE_YOUTUBE_DOCTOR_URL",
+  YOUTUBE_DOCTOR_HEALTH_FETCH_INVALID: "check-live-health-server-response",
+  YOUTUBE_DOCTOR_HEALTH_HTTP_FAILED: "check-live-health-server-status",
+  YOUTUBE_DOCTOR_HEALTH_JSON_INVALID: "fix-live-health-json-or-use-local-doctor",
+  YOUTUBE_DOCTOR_HEALTH_SHAPE_INVALID: "fix-live-health-youtubeIngest-shape-or-use-local-doctor",
+  YOUTUBE_DOCTOR_HEALTH_YOUTUBE_MISSING: "fix-live-health-youtubeIngest-shape-or-use-local-doctor",
+  YOUTUBE_DOCTOR_HEALTH_YOUTUBE_INVALID: "fix-live-health-youtubeIngest-shape-or-use-local-doctor",
+  YOUTUBE_DOCTOR_HEALTH_LEAK: "remove-sensitive-fields-from-live-health-output",
+  YOUTUBE_DOCTOR_HEALTH_TOO_LARGE: "reduce-live-health-response-size",
+};
 
 class YouTubeDoctorError extends Error {
   constructor(code, message, details = {}) {
@@ -124,6 +142,10 @@ function validateHealthYoutubeShape(payload) {
   };
 }
 
+function nextActionForCode(code) {
+  return DOCTOR_NEXT_ACTIONS[code] || "inspect-youtube-doctor-configuration";
+}
+
 async function fetchHealthSummary(fetchImpl, healthUrl, timeoutMs) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -159,7 +181,11 @@ async function fetchHealthSummary(fetchImpl, healthUrl, timeoutMs) {
 }
 
 function addCheck(checks, name, status, details = {}) {
-  checks.push({ name, status, passed: status === "passed" || status === "skipped", ...details });
+  const check = { name, status, passed: status === "passed" || status === "skipped", ...details };
+  if (check.code && !check.nextAction) {
+    check.nextAction = nextActionForCode(check.code);
+  }
+  checks.push(check);
 }
 
 function safeCommandAvailable(command, checker = commandAvailable) {
@@ -246,12 +272,25 @@ async function checkYouTubeIngest(options = {}) {
 
   let serverHealth = { checked: false };
   if (healthUrl) {
-    serverHealth = {
-      checked: true,
-      target: safeTargetSummary(healthUrl),
-      summary: await fetchHealthSummary(options.fetchImpl || globalThis.fetch, healthUrlFor(healthUrl), healthTimeoutMs),
-    };
-    addCheck(checks, "server_health_youtube_ingest_shape", "passed");
+    const target = safeTargetSummary(healthUrl);
+    try {
+      serverHealth = {
+        checked: true,
+        target,
+        summary: await fetchHealthSummary(options.fetchImpl || globalThis.fetch, healthUrlFor(healthUrl), healthTimeoutMs),
+      };
+      addCheck(checks, "server_health_youtube_ingest_shape", "passed");
+    } catch (error) {
+      const code = error && error.code ? error.code : "YOUTUBE_DOCTOR_HEALTH_FETCH_FAILED";
+      serverHealth = {
+        checked: true,
+        target,
+        status: "failed",
+        code,
+        nextAction: nextActionForCode(code),
+      };
+      addCheck(checks, "server_health_youtube_ingest_shape", "failed", { code });
+    }
   } else {
     addCheck(checks, "server_health_youtube_ingest_shape", "skipped", {
       code: "YOUTUBE_DOCTOR_HEALTH_URL_NOT_CONFIGURED",
@@ -296,7 +335,7 @@ function safeError(error) {
     status: "failed",
     code,
     message,
-    nextAction: code === "YOUTUBE_DOWNLOADER_MISSING" ? "install-configure-downloader-or-disable-youtube-ingest" : "inspect-youtube-doctor-configuration",
+    nextAction: nextActionForCode(code),
   });
 }
 

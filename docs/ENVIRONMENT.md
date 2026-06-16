@@ -51,6 +51,8 @@ Run `npm run youtube:doctor` at any time. With default config it returns a safe 
 
 Run `npm run youtube:smoke` only for manual authorized proof. It requires `SHORTSENGINE_YOUTUBE_SMOKE=1`, `SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1`, a safe URL, downloader readiness, and either a smoke URL allowlist or `SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED=1`. It validates `/health`, `/api/youtube/validate`, `/api/youtube/ingest`, generate, job polling, export download and MP4 signature, then writes `demo/results/youtube-smoke-latest.json`.
 
+Use `docs/YOUTUBE_INGEST_MANUAL_SMOKE.md` before the first real downloader run. It documents rights review, downloader verification, safe env flags, report reading, safe cleanup and troubleshooting codes.
+
 ## FFmpeg/render limits
 
 | Variable | Required | Default | Allowed values | Secret | Staging recommendation | Fail-closed behavior |

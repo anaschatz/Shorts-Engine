@@ -17,6 +17,25 @@ const DEFAULT_JOB_TIMEOUT_MS = 90_000;
 const DEFAULT_POLL_INTERVAL_MS = 750;
 const DEFAULT_JSON_RESPONSE_BYTES = 256 * 1024;
 const DEFAULT_DOWNLOAD_MAX_BYTES = 80 * 1024 * 1024;
+const SMOKE_NEXT_ACTIONS = {
+  YOUTUBE_SMOKE_DISABLED: "set-SHORTSENGINE_YOUTUBE_SMOKE-1-for-manual-real-ingest-smoke",
+  YOUTUBE_SMOKE_INGEST_DISABLED: "set-SHORTSENGINE_YOUTUBE_INGEST_ENABLED-1",
+  YOUTUBE_SMOKE_URL_MISSING: "set-SHORTSENGINE_YOUTUBE_SMOKE_URL-to-an-authorized-video",
+  YOUTUBE_SMOKE_URL_NOT_ALLOWED: "set-SHORTSENGINE_YOUTUBE_SMOKE_ALLOWED_IDS-or-SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED-1",
+  YOUTUBE_SMOKE_BASE_URL_INVALID: "set-SHORTSENGINE_YOUTUBE_SMOKE_BASE_URL-to-http-or-https",
+  YOUTUBE_SMOKE_HEALTH_NOT_READY: "start-ready-server-with-youtube-ingest-enabled-and-downloader-configured",
+  YOUTUBE_SMOKE_HEALTH_SHAPE_INVALID: "fix-health-response-shape-before-running-smoke",
+  YOUTUBE_SMOKE_FFMPEG_UNAVAILABLE: "install-ffmpeg-and-ffprobe-before-running-smoke",
+  YOUTUBE_DOWNLOADER_MISSING: "install-configure-downloader-or-set-SHORTSENGINE_YOUTUBE_DOWNLOADER_BIN",
+  YOUTUBE_SMOKE_FETCH_FAILED: "start-server-or-check-SHORTSENGINE_YOUTUBE_SMOKE_BASE_URL",
+  YOUTUBE_SMOKE_REQUEST_TIMEOUT: "check-server-readiness-or-increase-smoke-timeout",
+  YOUTUBE_SMOKE_TIMEOUT: "check-server-and-smoke-timeout-before-rerun",
+  YOUTUBE_SMOKE_JOB_TIMEOUT: "inspect-job-progress-and-increase-job-timeout-only-if-expected",
+  YOUTUBE_SMOKE_DOWNLOAD_NOT_MP4: "check-render-export-download-contract",
+  YOUTUBE_SMOKE_MP4_SIGNATURE_INVALID: "check-render-output-and-download-contract",
+  YOUTUBE_SMOKE_REPORT_LEAK: "inspect-report-leak-guard-and-remove-sensitive-output",
+  YOUTUBE_SMOKE_RESPONSE_LEAK: "remove-sensitive-fields-from-public-api-response",
+};
 
 class YouTubeSmokeError extends Error {
   constructor(code, message, details = {}) {
@@ -132,6 +151,10 @@ function validateSmokeSource(env) {
     videoId: source.videoId,
     canonicalUrl: source.canonicalUrl,
   };
+}
+
+function nextActionForCode(code) {
+  return SMOKE_NEXT_ACTIONS[code] || "inspect-youtube-smoke-configuration";
 }
 
 async function readBoundedResponseBuffer(response, maxBytes, code) {
@@ -281,6 +304,9 @@ function validateHealthForSmoke(payload) {
   if (!youtubeIngest.downloaderConfigured || !youtubeIngest.ingestAvailable) {
     throw new YouTubeSmokeError("YOUTUBE_DOWNLOADER_MISSING", "YouTube smoke requires an available downloader.");
   }
+  if (data.status !== "ready" || youtubeIngest.ready !== true) {
+    throw new YouTubeSmokeError("YOUTUBE_SMOKE_HEALTH_NOT_READY", "YouTube smoke requires ready health before ingest.");
+  }
   return {
     status: data.status || null,
     ffmpeg: true,
@@ -405,9 +431,7 @@ function addStep(steps, step, status, details = {}) {
 function safeFailure(error) {
   const base = safeReportError(error) || { code: "YOUTUBE_SMOKE_FAILED", message: "YouTube smoke failed." };
   const code = error && error.code ? error.code : base.code;
-  const nextAction = error?.details?.nextAction ||
-    (code === "YOUTUBE_DOWNLOADER_MISSING" ? "install-configure-downloader-or-disable-youtube-ingest" : null) ||
-    (code === "YOUTUBE_SMOKE_URL_NOT_ALLOWED" ? "set-SHORTSENGINE_YOUTUBE_SMOKE_ALLOWED_IDS-or-SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED-1" : null);
+  const nextAction = error?.details?.nextAction || nextActionForCode(code);
   return { code, message: base.message, nextAction };
 }
 
@@ -419,7 +443,13 @@ function safeReport(report) {
     status: "failed",
     durationMs: report.durationMs || 0,
     checks: [{ name: "youtube_smoke_report_no_sensitive_leaks", passed: false, code: "YOUTUBE_SMOKE_REPORT_LEAK", leakCode: leak.code, leakPath: leak.path }],
-    failedCases: [{ name: "youtube_smoke_report_no_sensitive_leaks", code: "YOUTUBE_SMOKE_REPORT_LEAK", leakCode: leak.code, leakPath: leak.path }],
+    failedCases: [{
+      name: "youtube_smoke_report_no_sensitive_leaks",
+      code: "YOUTUBE_SMOKE_REPORT_LEAK",
+      leakCode: leak.code,
+      leakPath: leak.path,
+      nextAction: nextActionForCode("YOUTUBE_SMOKE_REPORT_LEAK"),
+    }],
   };
 }
 
@@ -465,7 +495,7 @@ async function runYouTubeSmoke(options = {}) {
   try {
     if (!boolFromEnv(rawValue(env, "SHORTSENGINE_YOUTUBE_INGEST_ENABLED"))) {
       throw new YouTubeSmokeError("YOUTUBE_SMOKE_INGEST_DISABLED", "YouTube ingest must be enabled before running smoke.", {
-        nextAction: "set-SHORTSENGINE_YOUTUBE_INGEST_ENABLED-1",
+        nextAction: nextActionForCode("YOUTUBE_SMOKE_INGEST_DISABLED"),
       });
     }
     if (typeof fetchImpl !== "function") {
@@ -484,7 +514,7 @@ async function runYouTubeSmoke(options = {}) {
 
     const healthResponse = await fetchJson(fetchImpl, endpointUrl(baseUrl, "/health"), { method: "GET" });
     health = validateHealthForSmoke(healthResponse.payload);
-    addStep(steps, "health", "passed", { requestId: healthResponse.requestId, status: health.status });
+    addStep(steps, "health", "passed", { requestIdPresent: Boolean(healthResponse.requestId), status: health.status });
 
     const validateResponse = await fetchJson(fetchImpl, endpointUrl(baseUrl, "/api/youtube/validate"), {
       method: "POST",
@@ -492,7 +522,7 @@ async function runYouTubeSmoke(options = {}) {
     });
     const validatedSource = validateSourceResponse(assertApiOk(validateResponse, "YOUTUBE_SMOKE_VALIDATE_FAILED", "YouTube validation API failed."), source);
     addStep(steps, "validate", "passed", {
-      requestId: validateResponse.requestId,
+      requestIdPresent: Boolean(validateResponse.requestId),
       sourceType: validatedSource.sourceType,
       videoId: validatedSource.videoId,
     });
@@ -506,7 +536,7 @@ async function runYouTubeSmoke(options = {}) {
     ids.uploadId = ingested.uploadId;
     ids.artifactId = ingested.artifactId;
     addStep(steps, "ingest", "passed", {
-      requestId: ingestResponse.requestId,
+      requestIdPresent: Boolean(ingestResponse.requestId),
       projectId: ingested.projectId,
       uploadId: ingested.uploadId,
       durationSeconds: ingested.durationSeconds,
@@ -524,7 +554,7 @@ async function runYouTubeSmoke(options = {}) {
     });
     const generateData = assertApiOk(generateResponse, "YOUTUBE_SMOKE_GENERATE_FAILED", "YouTube smoke generate API failed.");
     ids.jobId = assertId(generateData?.job?.id, "job", "YOUTUBE_SMOKE_JOB_RESPONSE_INVALID");
-    addStep(steps, "generate", "passed", { requestId: generateResponse.requestId, jobId: ids.jobId });
+    addStep(steps, "generate", "passed", { requestIdPresent: Boolean(generateResponse.requestId), jobId: ids.jobId });
 
     const polled = await pollJob({ baseUrl, fetchImpl, jobId: ids.jobId, jobTimeoutMs, pollIntervalMs });
     lifecycle = polled.lifecycle;
@@ -540,7 +570,7 @@ async function runYouTubeSmoke(options = {}) {
     });
     downloadSummary = validateMp4Download(download);
     addStep(steps, "download", "passed", {
-      requestId: download.requestId,
+      requestIdPresent: Boolean(download.requestId),
       exportId: ids.exportId,
       sizeBytes: downloadSummary.sizeBytes,
     });
@@ -609,7 +639,11 @@ if (isMainModule()) {
         health: null,
         jobLifecycle: [],
         export: null,
-        failedCases: [{ name: "youtube_smoke_timeout", code: "YOUTUBE_SMOKE_TIMEOUT" }],
+        failedCases: [{
+          name: "youtube_smoke_timeout",
+          code: "YOUTUBE_SMOKE_TIMEOUT",
+          nextAction: nextActionForCode("YOUTUBE_SMOKE_TIMEOUT"),
+        }],
       });
     }, timeout);
     if (timeoutId && typeof timeoutId.unref === "function") timeoutId.unref();
