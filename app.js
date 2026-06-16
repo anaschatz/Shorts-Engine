@@ -44,6 +44,18 @@
     saveBtn: "#saveBtn",
     clearBtn: "#clearBtn",
     toast: "#toast",
+    sourceLocalBtn: "#sourceLocalBtn",
+    sourceYoutubeBtn: "#sourceYoutubeBtn",
+    localSourcePanel: "#localSourcePanel",
+    youtubeSourcePanel: "#youtubeSourcePanel",
+    youtubeUrlInput: "#youtubeUrlInput",
+    youtubeRightsCheckbox: "#youtubeRightsCheckbox",
+    validateYoutubeBtn: "#validateYoutubeBtn",
+    youtubePreview: "#youtubePreview",
+    youtubePreviewUrl: "#youtubePreviewUrl",
+    youtubePreviewVideoId: "#youtubePreviewVideoId",
+    youtubePreviewStatus: "#youtubePreviewStatus",
+    youtubeError: "#youtubeError",
     videoInput: "#videoInput",
     fileLabel: "#fileLabel",
     uploadError: "#uploadError",
@@ -77,6 +89,8 @@
     activeUpload: null,
     activeProject: null,
     activeJob: null,
+    sourceType: "local",
+    youtubeValidation: null,
     pollTimer: null,
     generated: false,
     exportId: null,
@@ -159,6 +173,9 @@
     els.errorPanel.textContent = "";
     els.uploadError.hidden = true;
     els.uploadError.textContent = "";
+    els.youtubeError.hidden = true;
+    els.youtubeError.textContent = "";
+    els.youtubeUrlInput.removeAttribute("aria-invalid");
     document.querySelector(".dropzone")?.classList.remove("invalid");
   }
 
@@ -216,18 +233,94 @@
 
   function updateActionStates() {
     const busy = isBusy();
-    els.generateBtn.disabled = busy;
+    const youtubeSource = state.sourceType === "youtube";
+    els.generateBtn.disabled = busy || youtubeSource;
+    if (!busy && youtubeSource) {
+      setButtonContent(els.generateBtn, "Ingest disabled", "bolt");
+    } else if (!busy && !state.generated) {
+      setButtonContent(els.generateBtn, "Generate shorts", "bolt");
+    }
     els.cancelJobBtn.hidden = !busy;
     els.retryBtn.hidden = !(state.activeJob && state.activeJob.status === "failed");
     els.saveBtn.disabled = busy;
     els.clearBtn.disabled = busy;
-    els.videoInput.disabled = busy;
+    els.sourceLocalBtn.disabled = busy;
+    els.sourceYoutubeBtn.disabled = busy;
+    els.videoInput.disabled = busy || youtubeSource;
+    els.youtubeUrlInput.disabled = busy || !youtubeSource;
+    els.youtubeRightsCheckbox.disabled = busy || !youtubeSource;
+    els.validateYoutubeBtn.disabled = busy || !youtubeSource;
     els.exportBtn.disabled = busy || !state.generated || !state.downloadUrl;
     els.exportButtons.forEach((button) => {
       button.disabled = busy || !state.generated || !state.downloadUrl;
     });
     els.downloadLink.hidden = !(state.generated && state.downloadUrl);
     els.momentList.setAttribute("aria-busy", busy ? "true" : "false");
+  }
+
+  function resetVideoPreview() {
+    if (state.activeObjectUrl) URL.revokeObjectURL(state.activeObjectUrl);
+    state.activeObjectUrl = null;
+    els.videoPreview.removeAttribute("src");
+    els.videoPreview.hidden = true;
+    els.syntheticPreview.hidden = false;
+  }
+
+  function clearYouTubeValidation(options = {}) {
+    state.youtubeValidation = null;
+    els.youtubePreview.hidden = true;
+    els.youtubePreviewVideoId.textContent = "Pending";
+    els.youtubePreviewUrl.textContent = "";
+    els.youtubePreviewStatus.textContent = "Ingest disabled until an MP4 artifact exists.";
+    if (options.clearInput) {
+      els.youtubeUrlInput.value = "";
+      els.youtubeRightsCheckbox.checked = false;
+    }
+  }
+
+  function syncSourcePanels() {
+    const youtubeSource = state.sourceType === "youtube";
+    els.sourceLocalBtn.classList.toggle("active", !youtubeSource);
+    els.sourceYoutubeBtn.classList.toggle("active", youtubeSource);
+    els.sourceLocalBtn.setAttribute("aria-pressed", youtubeSource ? "false" : "true");
+    els.sourceYoutubeBtn.setAttribute("aria-pressed", youtubeSource ? "true" : "false");
+    els.localSourcePanel.hidden = youtubeSource;
+    els.youtubeSourcePanel.hidden = !youtubeSource;
+  }
+
+  function selectSource(type) {
+    const nextType = type === "youtube" ? "youtube" : "local";
+    if (state.sourceType === nextType) return;
+    clearError();
+    resetRenderState();
+    state.sourceType = nextType;
+    if (nextType === "youtube") {
+      state.activeUpload = null;
+      state.activeProject = null;
+      resetVideoPreview();
+      resetFileInput();
+      setProjectStatus("draft", "URL source");
+    } else {
+      clearYouTubeValidation();
+      setProjectStatus("draft", state.activeProject ? "Uploaded" : "Draft");
+    }
+    syncSourcePanels();
+    updateActionStates();
+  }
+
+  function renderYouTubePreview(source) {
+    els.youtubePreview.hidden = false;
+    els.youtubePreviewVideoId.textContent = source.videoId;
+    els.youtubePreviewUrl.textContent = source.canonicalUrl;
+    els.youtubePreviewStatus.textContent = "Validated. Rendering stays disabled until a real MP4 artifact exists.";
+  }
+
+  function showYouTubeError(error) {
+    const response = showSafeError(error, "youtube-validate");
+    els.youtubeError.hidden = false;
+    els.youtubeError.textContent = `${response.error.message} (${response.error.code})`;
+    els.youtubeUrlInput.setAttribute("aria-invalid", "true");
+    return response;
   }
 
   function updateProgress(job) {
@@ -334,6 +427,9 @@
 
   async function handleVideoInputChange(event) {
     clearError();
+    state.sourceType = "local";
+    clearYouTubeValidation();
+    syncSourcePanels();
     const file = event.target.files && event.target.files[0];
     resetRenderState();
     const basics = Core.validateUploadFile(file);
@@ -411,8 +507,47 @@
     els.fileLabel.textContent = "MP4, MOV ή WEBM · μέχρι 30 λεπτά · μέχρι 250 MB";
   }
 
+  async function handleYouTubeValidate() {
+    clearError();
+    resetRenderState();
+    state.activeUpload = null;
+    state.activeProject = null;
+    clearYouTubeValidation();
+    const clientValidation = Core.validateYouTubeSourceInput({
+      url: els.youtubeUrlInput.value,
+      rightsConfirmed: els.youtubeRightsCheckbox.checked,
+    });
+    if (!clientValidation.ok) {
+      showYouTubeError(clientValidation);
+      updateActionStates();
+      return;
+    }
+    try {
+      const data = await apiFetch("/api/youtube/validate", {
+        method: "POST",
+        body: JSON.stringify({
+          url: clientValidation.data.canonicalUrl,
+          rightsConfirmed: true,
+        }),
+      });
+      state.youtubeValidation = data.source;
+      renderYouTubePreview(data.source);
+      setProjectStatus("draft", "URL checked");
+      showToast("Το YouTube source πέρασε validation. Το ingest/render μένει κλειδωμένο.", "success");
+    } catch (error) {
+      showYouTubeError(error);
+    } finally {
+      updateActionStates();
+    }
+  }
+
   async function handleGenerate() {
     clearError();
+    if (state.sourceType === "youtube") {
+      showSafeError(Core.fail("YOUTUBE_INGEST_NOT_ENABLED"), "generate-youtube");
+      updateActionStates();
+      return;
+    }
     if (!state.activeUpload || !state.activeProject) {
       showSafeError({ code: "UPLOAD_EMPTY", message: "Ανέβασε πρώτα ένα βίντεο." }, "generate");
       return;
@@ -615,6 +750,8 @@
       activeUpload: null,
       activeProject: null,
       activeJob: null,
+      sourceType: "local",
+      youtubeValidation: null,
       generated: false,
       exportId: null,
       downloadUrl: null,
@@ -632,6 +769,8 @@
     els.momentCount.textContent = "3";
     els.shortCount.textContent = "0";
     resetFileInput();
+    clearYouTubeValidation({ clearInput: true });
+    syncSourcePanels();
     clearError();
     setProjectStatus("draft", "Draft");
     setButtonContent(els.generateBtn, "Generate shorts", "bolt");
@@ -669,6 +808,17 @@
   function bindEvents() {
     els.ratioButtons.forEach((button) => button.addEventListener("click", () => updateRatio(button)));
     els.presetButtons.forEach((button) => button.addEventListener("click", () => updatePreset(button)));
+    els.sourceLocalBtn.addEventListener("click", () => selectSource("local"));
+    els.sourceYoutubeBtn.addEventListener("click", () => selectSource("youtube"));
+    els.youtubeUrlInput.addEventListener("input", () => {
+      clearYouTubeValidation();
+      updateActionStates();
+    });
+    els.youtubeRightsCheckbox.addEventListener("change", () => {
+      clearYouTubeValidation();
+      updateActionStates();
+    });
+    els.validateYoutubeBtn.addEventListener("click", handleYouTubeValidate);
     els.videoInput.addEventListener("change", handleVideoInputChange);
     els.generateBtn.addEventListener("click", handleGenerate);
     els.retryBtn.addEventListener("click", retryLastFailedAction);
@@ -698,6 +848,8 @@
     setButtonContent(els.generateBtn, "Generate shorts", "bolt");
     setButtonContent(els.exportBtn, "Export", "download");
     resetFileInput();
+    clearYouTubeValidation({ clearInput: false });
+    syncSourcePanels();
     els.jobProgress.hidden = true;
     updateActionStates();
   }

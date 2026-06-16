@@ -248,6 +248,11 @@ h2 {
   font-size: 0.84rem;
 }
 
+.full-width-btn {
+  width: 100%;
+  margin-top: 12px;
+}
+
 .workspace {
   display: grid;
   grid-template-columns: minmax(248px, 290px) minmax(0, 1fr) minmax(280px, 330px);
@@ -283,6 +288,68 @@ h2 {
 
 .section-heading {
   margin-bottom: 14px;
+}
+
+.source-selector {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  min-height: 44px;
+  margin-bottom: 12px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+}
+
+.source-option {
+  min-width: 0;
+  min-height: 38px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 900;
+}
+
+.source-option.active {
+  color: #fff;
+  background: var(--surface-strong);
+}
+
+.source-panel {
+  min-width: 0;
+}
+
+.youtube-source-panel {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fbfcf9;
+}
+
+.youtube-source-card {
+  display: grid;
+  gap: 5px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid rgba(23, 168, 91, 0.24);
+  border-radius: var(--radius);
+  background: rgba(23, 168, 91, 0.08);
+}
+
+.youtube-source-card span,
+.youtube-source-card small {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.youtube-source-card strong {
+  overflow-wrap: anywhere;
 }
 
 .dropzone {

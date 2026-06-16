@@ -466,6 +466,12 @@ async function runBrowserFlow({ baseUrl, fixturePath, page, timeoutMs }) {
   await page.setViewportSize({ width: VIEWPORTS[0].width, height: VIEWPORTS[0].height });
 
   const uploadInput = page.getByTestId("video-upload-input");
+  const sourceYoutubeButton = page.getByTestId("source-youtube-button");
+  const sourceLocalButton = page.getByTestId("source-local-button");
+  const youtubeUrlInput = page.getByTestId("youtube-url-input");
+  const youtubeRightsCheckbox = page.getByTestId("youtube-rights-checkbox");
+  const youtubeValidateButton = page.getByTestId("youtube-validate-button");
+  const youtubePreview = page.getByTestId("youtube-preview");
   const rightsCheckbox = page.getByTestId("rights-checkbox");
   const generateButton = page.getByTestId("generate-button");
   const cancelButton = page.getByTestId("cancel-job-button");
@@ -480,6 +486,20 @@ async function runBrowserFlow({ baseUrl, fixturePath, page, timeoutMs }) {
   addCheck(uiStateChecks, "initial_download_hidden", await isHidden(downloadLink));
   addCheck(uiStateChecks, "initial_cancel_hidden", await isHidden(cancelButton));
   addCheck(uiStateChecks, "initial_progress_hidden", await isHidden(progress));
+
+  await sourceYoutubeButton.click();
+  addCheck(uiStateChecks, "youtube_source_generate_disabled", await generateButton.isDisabled());
+  addCheck(uiStateChecks, "youtube_url_input_visible", !(await isHidden(youtubeUrlInput)));
+  await youtubeUrlInput.fill("https://www.youtube.com/shorts/dQw4w9WgXcQ");
+  await youtubeValidateButton.click();
+  await errorPanel.waitFor({ state: "visible", timeout: 5000 });
+  addCheck(uiStateChecks, "youtube_rights_required_safe_error", /YOUTUBE_RIGHTS_REQUIRED/.test(await errorPanel.textContent()));
+  await youtubeRightsCheckbox.check();
+  await youtubeValidateButton.click();
+  await youtubePreview.waitFor({ state: "visible", timeout: 5000 });
+  addCheck(uiStateChecks, "youtube_validate_only_preview_visible", !(await isHidden(youtubePreview)));
+  addCheck(uiStateChecks, "youtube_generate_stays_disabled_after_validation", await generateButton.isDisabled());
+  await sourceLocalButton.click();
 
   await generateButton.click();
   await errorPanel.waitFor({ state: "visible", timeout: 5000 });

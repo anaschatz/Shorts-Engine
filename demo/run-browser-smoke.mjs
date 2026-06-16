@@ -10,6 +10,15 @@ const BROWSER_LATEST = resolve(RESULTS_DIR, "browser-latest.json");
 const MANUAL_DOC = resolve(ROOT_DIR, "demo", "MANUAL_TESTING.md");
 
 const REQUIRED_TEST_IDS = Object.freeze({
+  sourceLocalButton: "source-local-button",
+  sourceYoutubeButton: "source-youtube-button",
+  localSourcePanel: "local-source-panel",
+  youtubeSourcePanel: "youtube-source-panel",
+  youtubeUrlInput: "youtube-url-input",
+  youtubeRightsCheckbox: "youtube-rights-checkbox",
+  youtubeValidateButton: "youtube-validate-button",
+  youtubePreview: "youtube-preview",
+  youtubeError: "youtube-error",
   uploadInput: "video-upload-input",
   rightsCheckbox: "rights-checkbox",
   generateButton: "generate-button",
@@ -59,6 +68,8 @@ function collectStaticBrowserChecks({ app, css, html, manual }) {
   addCheck(checks, "missing_upload_safe_error_contract", /UPLOAD_EMPTY/.test(app) && /showSafeError/.test(app));
   addCheck(checks, "completed_job_export_gate_contract", /validateCompletedJobForExport/.test(app) && /downloadLink\.href/.test(app));
   addCheck(checks, "download_route_contract", /\/api\/exports\/\$\{exportId\}\/download/.test(app));
+  addCheck(checks, "youtube_validate_only_contract", /\/api\/youtube\/validate/.test(app) && /YOUTUBE_INGEST_NOT_ENABLED/.test(app));
+  addCheck(checks, "youtube_render_disabled_contract", /state\.sourceType === "youtube"/.test(app) && /Ingest disabled/.test(app));
   addCheck(checks, "responsive_css_contract", /@media\s*\(/.test(css) && /min-width:\s*320px/.test(css));
   addCheck(checks, "hidden_css_contract", /\[hidden\]\s*{[^}]*display:\s*none\s*!important/s.test(css));
   addCheck(checks, "manual_doc_exists", Boolean(manual));

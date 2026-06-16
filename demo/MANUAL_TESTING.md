@@ -62,23 +62,30 @@ Open `http://127.0.0.1:4175` unless you set a different `PORT`.
    - Export is disabled.
    - Download is hidden.
    - No horizontal overflow on desktop.
-3. Click `Generate shorts` without uploading a file.
-4. Confirm the UI shows a safe `UPLOAD_EMPTY` error and does not show download/export.
-5. Click the upload control and choose `demo/fixtures/shortsengine-demo-source.mp4`.
-6. Confirm the UI shows the uploaded file state and video preview.
-7. Enable the rights checkbox.
-8. Click `Generate shorts`.
-9. Confirm progress/loading state appears.
-10. Confirm `Cancel` appears while the job is active.
-11. Wait for the job to complete.
-12. Confirm Export/Download are enabled only after completion.
-13. Confirm the download link points to `/api/exports/<export id>/download`.
-14. Download the MP4 and confirm the file opens.
-15. Repeat a quick mobile viewport check and confirm there is no horizontal overflow.
+3. Switch to `YouTube URL`.
+4. Enter a valid YouTube/Shorts URL and click `Validate source` without rights consent.
+5. Confirm the UI shows a safe `YOUTUBE_RIGHTS_REQUIRED` error.
+6. Enable the YouTube rights checkbox, validate again, and confirm a validated preview appears.
+7. Confirm `Generate shorts`, Export, and Download remain disabled for the YouTube source because real ingest is not enabled yet.
+8. Switch back to `Local upload`.
+9. Click `Generate shorts` without uploading a file.
+10. Confirm the UI shows a safe `UPLOAD_EMPTY` error and does not show download/export.
+11. Click the upload control and choose `demo/fixtures/shortsengine-demo-source.mp4`.
+12. Confirm the UI shows the uploaded file state and video preview.
+13. Enable the rights checkbox.
+14. Click `Generate shorts`.
+15. Confirm progress/loading state appears.
+16. Confirm `Cancel` appears while the job is active.
+17. Wait for the job to complete.
+18. Confirm Export/Download are enabled only after completion.
+19. Confirm the download link points to `/api/exports/<export id>/download`.
+20. Download the MP4 and confirm the file opens.
+21. Repeat a quick mobile viewport check and confirm there is no horizontal overflow.
 
 ## Expected UI States
 
 - Missing upload: safe `UPLOAD_EMPTY` message.
+- YouTube source: safe URL validation only; `YOUTUBE_RIGHTS_REQUIRED`, playlist/live/unsafe URL errors are user-facing; render/export stay disabled.
 - Active job: progress visible, generate disabled, cancel visible.
 - Completed job: project status rendered/ready, download visible, export enabled.
 - Failed job: retry visible, download hidden, safe error shown.
@@ -95,10 +102,12 @@ Open `http://127.0.0.1:4175` unless you set a different `PORT`.
 - Trace/video: enable only for debugging with `SHORTSENGINE_BROWSER_E2E_TRACE=1` or `SHORTSENGINE_BROWSER_E2E_VIDEO=1`.
 - Port already used: start with a different port, e.g. `PORT=4182 npm run dev`.
 - No API key: expected for local demo; mock transcription is the safe default.
+- YouTube link does not render: expected for this foundation milestone. Only authorized URL validation is enabled until a real ingest adapter creates an MP4 artifact.
 
 ## Known Limitations
 
 - `npm run demo:browser` remains dependency-light and does not drive a real browser by itself.
 - `npm run demo:browser:e2e` drives Chromium through Playwright and is the automated proof for the full browser upload/generate/render/download path.
+- YouTube URL support is validate-only. The backend does not download from YouTube, call external downloader tools, or create renderable artifacts yet.
 - CI setup, skip semantics and retention policy live in `demo/CI.md`.
 - Internal `MatchCutsCore` identifiers remain until a dedicated internal rename milestone.

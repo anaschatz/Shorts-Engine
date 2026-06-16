@@ -46,6 +46,12 @@ const SAFE_MESSAGES = Object.freeze({
   VIDEO_TOO_LONG: "The video is longer than the 30 minute limit.",
   VIDEO_TOO_SHORT: "The video is too short to process.",
   VALIDATION_ERROR: "The request did not pass validation.",
+  YOUTUBE_DURATION_TOO_LONG: "The YouTube video is longer than the configured duration limit.",
+  YOUTUBE_INGEST_NOT_ENABLED: "YouTube ingest is not enabled for rendering yet.",
+  YOUTUBE_LIVE_UNSUPPORTED: "YouTube live streams are not supported.",
+  YOUTUBE_PLAYLIST_UNSUPPORTED: "YouTube playlists are not supported.",
+  YOUTUBE_RIGHTS_REQUIRED: "Confirm that you have rights to use this YouTube video.",
+  YOUTUBE_URL_INVALID: "Enter a supported YouTube video or Shorts URL.",
   UNEXPECTED: "Something went wrong. Please retry.",
 });
 

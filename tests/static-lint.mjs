@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs";
 const html = readFileSync("index.html", "utf8");
 const app = readFileSync("app.js", "utf8");
 const serverApp = readFileSync("server/app.cjs", "utf8");
+const youtubeIngest = readFileSync("server/youtube-ingest.cjs", "utf8");
+const mockYoutubeAdapter = readFileSync("server/adapters/mock-youtube-ingest-adapter.cjs", "utf8");
 const css = readFileSync("styles.css", "utf8");
 const fixtureScript = readFileSync("demo/create-fixture.mjs", "utf8");
 const browserSmoke = readFileSync("demo/run-browser-smoke.mjs", "utf8");
@@ -45,6 +47,12 @@ assert.match(html, /id="rightsCheckbox"/, "rights consent checkbox must be expli
 assert.match(html, /id="errorPanel"/, "global error panel must exist");
 assert.match(html, /id="downloadLink"[^>]*hidden/, "download link should start hidden");
 assert.match(html, /data-testid="video-upload-input"/, "upload input needs a stable browser test selector");
+assert.match(html, /data-testid="source-local-button"/, "local source selector needs a stable browser test selector");
+assert.match(html, /data-testid="source-youtube-button"/, "YouTube source selector needs a stable browser test selector");
+assert.match(html, /data-testid="youtube-url-input"/, "YouTube URL input needs a stable browser test selector");
+assert.match(html, /data-testid="youtube-rights-checkbox"/, "YouTube rights checkbox needs a stable browser test selector");
+assert.match(html, /data-testid="youtube-validate-button"/, "YouTube validate button needs a stable browser test selector");
+assert.match(html, /data-testid="youtube-preview"/, "YouTube validation preview needs a stable browser test selector");
 assert.match(html, /data-testid="rights-checkbox"/, "rights checkbox needs a stable browser test selector");
 assert.match(html, /data-testid="generate-button"/, "generate button needs a stable browser test selector");
 assert.match(html, /data-testid="cancel-job-button"/, "cancel button needs a stable browser test selector");
@@ -68,6 +76,10 @@ assert.match(app, /function formatJobStep/, "app.js should show friendly analysi
 assert.match(app, /momentsFromCandidatePlans/, "app.js should render generated candidate moments");
 assert.match(app, /validateCompletedJobForExport/, "app.js should validate completed jobs before enabling downloads");
 assert.match(app, /EXPORT_NOT_READY/, "app.js should fail closed when download/export is not ready");
+assert.match(app, /validateYouTubeSourceInput/, "app.js should validate YouTube URLs before API calls");
+assert.match(app, /\/api\/youtube\/validate/, "app.js should use the validate-only YouTube source endpoint");
+assert.match(app, /YOUTUBE_INGEST_NOT_ENABLED/, "app.js should fail closed before YouTube rendering is implemented");
+assert.match(app, /state\.sourceType === "youtube"/, "app.js should branch YouTube source state explicitly");
 
 assert.match(serverApp, /createLocalJobWorker/, "server should use the durable local worker abstraction");
 assert.match(serverApp, /createLocalJobQueue/, "server should use the queue contract adapter boundary");
@@ -75,6 +87,15 @@ assert.match(serverApp, /createWorkerSupervisor/, "server should use the worker 
 assert.match(serverApp, /jobQueue\.enqueue/, "server routes should enqueue through the queue contract boundary");
 assert.match(serverApp, /workerSupervisor\.enqueue/, "server routes should delegate render orchestration through the worker supervisor");
 assert.doesNotMatch(serverApp, /function renderPipeline|async function renderPipeline/, "server/app.cjs should not own the render pipeline");
+assert.match(serverApp, /handleYouTubeValidate/, "server should expose a thin YouTube validation route");
+assert.match(serverApp, /validateYouTubeSource/, "server route should delegate YouTube validation to domain logic");
+assert.match(serverApp, /youtubeIngestHealth/, "health should include YouTube ingest readiness");
+assert.match(youtubeIngest, /YOUTUBE_PLAYLIST_UNSUPPORTED/, "YouTube validation should reject playlists explicitly");
+assert.match(youtubeIngest, /YOUTUBE_LIVE_UNSUPPORTED/, "YouTube validation should reject live streams explicitly");
+assert.match(youtubeIngest, /canonicalUrl/, "YouTube validation should return a canonical URL");
+assert.match(mockYoutubeAdapter, /networkCalls:\s*false/, "mock YouTube adapter must declare no network calls");
+assert.match(mockYoutubeAdapter, /downloaderConfigured:\s*false/, "mock YouTube adapter must keep downloader disabled");
+assert.doesNotMatch(mockYoutubeAdapter, /\bfetch\s*\(|child_process|spawn|execFile|yt-dlp|youtube-dl/i, "mock YouTube adapter must not download or spawn tools");
 
 assert.match(fixtureScript, /testsrc2/, "demo fixture should be generated deterministically");
 assert.match(fixtureScript, /sine=frequency=880/, "demo fixture should include a simple audio track for transcription fallback coverage");
@@ -280,6 +301,8 @@ assert.match(envDocs, /SHORTSENGINE_STAGING_DEPLOY_PROVIDER/, "environment docs 
 assert.match(envDocs, /SHORTSENGINE_STAGING_SERVICE_ID/, "environment docs should document Render service id config");
 assert.match(envDocs, /MATCHCUTS_TRANSCRIPTION_PROVIDER/, "environment docs should document transcription provider config");
 assert.match(envDocs, /MATCHCUTS_STORAGE_ADAPTER/, "environment docs should document storage adapter config");
+assert.match(envDocs, /YouTube URL ingest is currently validation-only/, "environment docs should document validate-only YouTube ingest");
+assert.match(envDocs, /no-network adapter/i, "environment docs should document YouTube no-network behavior");
 assert.match(envDocs, /OPENAI_API_KEY/, "environment docs should document provider credential handling");
 assert.match(envExample, /MATCHCUTS_TRANSCRIPTION_PROVIDER=mock/, ".env.example should keep mock provider as the default");
 assert.match(envExample, /MATCHCUTS_STORAGE_ADAPTER=local/, ".env.example should keep local storage as the default");
@@ -317,6 +340,8 @@ assert.doesNotMatch(releaseEvidenceWriter, /\bpath:\s*gate\.reports/, "release e
 assert.match(manualDocs, /npm run demo:fixture/, "manual docs should explain fixture generation");
 assert.match(manualDocs, /npm run demo:browser/, "manual docs should explain browser smoke");
 assert.match(manualDocs, /UPLOAD_EMPTY/, "manual docs should describe missing upload behavior");
+assert.match(manualDocs, /YOUTUBE_RIGHTS_REQUIRED/, "manual docs should describe YouTube rights validation");
+assert.match(manualDocs, /validate-only/, "manual docs should document current YouTube limitation");
 assert.match(manualDocs, /port already used/i, "manual docs should include troubleshooting");
 assert.match(ciDocs, /npm run demo:browser:install/, "CI docs should include the Playwright browser install step");
 assert.match(ciDocs, /npm run env:check/, "CI docs should include the environment readiness check");

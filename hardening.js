@@ -8,6 +8,7 @@
     maxDurationSeconds: 30 * 60,
     maxTitleLength: 120,
     maxFileNameLength: 160,
+    maxYouTubeUrlLength: 2048,
     maxMoments: 20,
     metadataTimeoutMs: 7000,
     jobTimeoutMs: 8000,
@@ -49,6 +50,12 @@
     JOB_TIMEOUT: "Η ενέργεια ξεπέρασε το χρονικό όριο.",
     AI_OUTPUT_INVALID: "Το AI output δεν πέρασε validation.",
     EXPORT_PAYLOAD_INVALID: "Το ολοκληρωμένο render δεν έχει έγκυρα στοιχεία export.",
+    YOUTUBE_DURATION_TOO_LONG: "Το YouTube video ξεπερνά το όριο διάρκειας.",
+    YOUTUBE_INGEST_NOT_ENABLED: "Το YouTube ingest δεν είναι ακόμα ενεργό για render.",
+    YOUTUBE_LIVE_UNSUPPORTED: "Τα YouTube live streams δεν υποστηρίζονται.",
+    YOUTUBE_PLAYLIST_UNSUPPORTED: "Τα YouTube playlists δεν υποστηρίζονται.",
+    YOUTUBE_RIGHTS_REQUIRED: "Επιβεβαίωσε ότι έχεις δικαίωμα χρήσης αυτού του YouTube video.",
+    YOUTUBE_URL_INVALID: "Βάλε ένα έγκυρο YouTube video ή Shorts link.",
     UNEXPECTED: "Κάτι πήγε στραβά. Δοκίμασε ξανά.",
   });
 
@@ -225,6 +232,73 @@
     if (duration < CONFIG.minDurationSeconds) return fail("VIDEO_TOO_SHORT");
     if (duration > CONFIG.maxDurationSeconds) return fail("VIDEO_TOO_LONG");
     return ok({ durationSeconds: duration });
+  }
+
+  function youtubeUrlObject(value) {
+    const raw = String(value ?? "").trim();
+    if (!raw || raw.length > CONFIG.maxYouTubeUrlLength || /[\u0000-\u001f\u007f]/.test(raw)) {
+      return fail("YOUTUBE_URL_INVALID");
+    }
+    try {
+      return ok(new global.URL(raw));
+    } catch {
+      return fail("YOUTUBE_URL_INVALID");
+    }
+  }
+
+  function normalizedHostname(hostname) {
+    return String(hostname || "").toLowerCase().replace(/\.$/, "");
+  }
+
+  function youtubePathSegments(pathname) {
+    return String(pathname || "")
+      .split("/")
+      .map((segment) => segment.trim())
+      .filter(Boolean);
+  }
+
+  function normalizeYouTubeVideoId(value) {
+    const id = String(value || "").trim();
+    return /^[A-Za-z0-9_-]{11}$/.test(id) ? id : "";
+  }
+
+  function normalizeYouTubeUrl(value) {
+    const parsed = youtubeUrlObject(value);
+    if (!parsed.ok) return parsed;
+    const url = parsed.data;
+    if (!["http:", "https:"].includes(url.protocol)) return fail("YOUTUBE_URL_INVALID");
+    if (url.username || url.password) return fail("YOUTUBE_URL_INVALID");
+    const host = normalizedHostname(url.hostname);
+    const segments = youtubePathSegments(url.pathname);
+    if (url.searchParams.has("list") || segments[0] === "playlist") return fail("YOUTUBE_PLAYLIST_UNSUPPORTED");
+    if (segments[0] === "live" || url.searchParams.get("live") === "1") return fail("YOUTUBE_LIVE_UNSUPPORTED");
+
+    let kind = "";
+    let videoId = "";
+    if (host === "youtu.be") {
+      kind = "shortlink";
+      videoId = normalizeYouTubeVideoId(segments[0]);
+    } else if (["youtube.com", "www.youtube.com", "m.youtube.com"].includes(host)) {
+      if (segments.length === 0 || segments[0] === "watch") {
+        kind = "watch";
+        videoId = normalizeYouTubeVideoId(url.searchParams.get("v"));
+      } else if (segments[0] === "shorts") {
+        kind = "shorts";
+        videoId = normalizeYouTubeVideoId(segments[1]);
+      }
+    }
+    if (!videoId) return fail("YOUTUBE_URL_INVALID");
+    return ok({
+      sourceType: "youtube",
+      kind,
+      videoId,
+      canonicalUrl: `https://www.youtube.com/watch?v=${videoId}`,
+    });
+  }
+
+  function validateYouTubeSourceInput(input) {
+    if (!input || input.rightsConfirmed !== true) return fail("YOUTUBE_RIGHTS_REQUIRED");
+    return normalizeYouTubeUrl(input.url);
   }
 
   function toBoundedInteger(value, min, max, fallback) {
@@ -523,6 +597,8 @@
     validateVideoSignature,
     readBlobHeader,
     validateVideoDuration,
+    normalizeYouTubeUrl,
+    validateYouTubeSourceInput,
     toBoundedInteger,
     normalizeProjectSettings,
     validateProjectForJob,

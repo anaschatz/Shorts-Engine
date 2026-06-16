@@ -85,6 +85,47 @@ test("duration validation enforces finite production limits", () => {
   assert.equal(Core.validateVideoDuration(90).ok, true);
 });
 
+test("youtube source validation normalizes supported urls", () => {
+  const watch = Core.validateYouTubeSourceInput({
+    url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    rightsConfirmed: true,
+  });
+  assert.equal(watch.ok, true);
+  assert.equal(watch.data.sourceType, "youtube");
+  assert.equal(watch.data.videoId, "dQw4w9WgXcQ");
+  assert.equal(watch.data.canonicalUrl, "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+
+  const short = Core.validateYouTubeSourceInput({
+    url: "https://youtu.be/dQw4w9WgXcQ",
+    rightsConfirmed: true,
+  });
+  assert.equal(short.ok, true);
+  assert.equal(short.data.kind, "shortlink");
+});
+
+test("youtube source validation rejects unsafe or unsupported sources", () => {
+  assert.equal(
+    Core.validateYouTubeSourceInput({ url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ", rightsConfirmed: false }).error.code,
+    "YOUTUBE_RIGHTS_REQUIRED",
+  );
+  assert.equal(
+    Core.validateYouTubeSourceInput({ url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL123", rightsConfirmed: true }).error.code,
+    "YOUTUBE_PLAYLIST_UNSUPPORTED",
+  );
+  assert.equal(
+    Core.validateYouTubeSourceInput({ url: "https://www.youtube.com/live/dQw4w9WgXcQ", rightsConfirmed: true }).error.code,
+    "YOUTUBE_LIVE_UNSUPPORTED",
+  );
+  assert.equal(
+    Core.validateYouTubeSourceInput({ url: "javascript:alert(1)", rightsConfirmed: true }).error.code,
+    "YOUTUBE_URL_INVALID",
+  );
+  assert.equal(
+    Core.validateYouTubeSourceInput({ url: "https://user:pass@www.youtube.com/watch?v=dQw4w9WgXcQ", rightsConfirmed: true }).error.code,
+    "YOUTUBE_URL_INVALID",
+  );
+});
+
 test("project settings are normalized and consent is required for jobs", () => {
   const settings = Core.normalizeProjectSettings({
     title: "  Derby Final  ",

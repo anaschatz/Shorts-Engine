@@ -59,3 +59,5 @@ Checklist:
 - Add release/CI readiness to health and evidence only through local static checks. Health endpoints must not perform network calls, GitHub auth or remote mutation.
 - For remote GitHub proof, require exact commit matching with `headSha`; fail closed with `REMOTE_CI_SHA_MISMATCH` if the remote run is not the pushed commit.
 - Failure proof reports may be written for missing CLI/auth/no-run/timeout/SHA mismatch, but they must contain only safe codes, next actions and no raw logs, artifacts, stderr, tokens or local paths.
+- For remote media URL features, start with a validate-only adapter: require explicit rights confirmation, reject playlists/live/unsafe protocols/credentialed URLs, report no-network health, and keep generate/export disabled until an artifact-store MP4 exists.
+- Never add server-side URL download, downloader CLI execution or scraper behavior to default flows without a dedicated adapter boundary, staging validation, tests, opt-in config and legal/rights UX.

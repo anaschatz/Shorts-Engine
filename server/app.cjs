@@ -27,6 +27,8 @@ const { createLocalJobWorker, restoreExportsFromCompletedJobs } = require("./job
 const { createWorkerSupervisor } = require("./worker-supervisor.cjs");
 const { createLocalJobQueue } = require("./queue/local-job-queue.cjs");
 const { createArtifactCleanupWorker } = require("./artifact-cleanup-worker.cjs");
+const { createMockYouTubeIngestAdapter } = require("./adapters/mock-youtube-ingest-adapter.cjs");
+const { validateYouTubeSource, youtubeIngestHealth } = require("./youtube-ingest.cjs");
 const {
   safeResolve,
   storageHealth,
@@ -56,6 +58,8 @@ const jobs = new JobStore({
 const jobQueue = createLocalJobQueue({ jobs, logger: console });
 const uploadLimiter = createRateLimiter({ limit: 12, windowMs: 60 * 1000 });
 const generateLimiter = createRateLimiter({ limit: 20, windowMs: 60 * 1000 });
+const youtubeValidateLimiter = createRateLimiter({ limit: 30, windowMs: 60 * 1000 });
+const youtubeIngestAdapter = createMockYouTubeIngestAdapter();
 const STATIC_ASSETS = new Set(["index.html", "styles.css", "hardening.js", "app.js"]);
 const BLOCKED_STATIC_PREFIXES = ["/server/", "/data/", "/tests/", "/OpenViking/", "/promptfoo/", "/pm-skills/", "/viking-brain/"];
 const MAX_MULTIPART_FIELDS = 12;
@@ -305,6 +309,7 @@ async function handleHealth(req, res, rid) {
   };
   const provider = transcriptionHealth();
   const analysis = analysisHealth();
+  const youtubeIngest = youtubeIngestHealth(youtubeIngestAdapter);
   const cleanup = artifactCleanupWorker.health();
   const worker = jobWorker.health();
   const supervisor = workerSupervisor.health();
@@ -339,8 +344,34 @@ async function handleHealth(req, res, rid) {
     releaseReadiness,
     transcription: provider,
     analysis,
+    youtubeIngest,
     requestId: rid,
   });
+}
+
+async function handleYouTubeValidate(req, res, rid) {
+  if (!youtubeValidateLimiter.check(clientKey(req))) {
+    throw new AppError("RATE_LIMITED", SAFE_MESSAGES.RATE_LIMITED, 429);
+  }
+  validateJsonContentType(req);
+  enforceContentLength(req, MAX_JSON_BODY_BYTES);
+  const payload = await readJsonBody(req, MAX_JSON_BODY_BYTES);
+  const source = await validateYouTubeSource({
+    url: payload.url,
+    rightsConfirmed: payload.rightsConfirmed,
+    adapter: youtubeIngestAdapter,
+    maxDurationSeconds: CONFIG.maxDurationSeconds,
+  });
+  console.info(JSON.stringify({
+    level: "info",
+    event: "youtube_source_validated",
+    requestId: rid,
+    sourceType: source.sourceType,
+    videoId: source.videoId,
+    metadataStatus: source.metadataStatus,
+    ingestAvailable: source.ingestAvailable,
+  }));
+  sendOk(res, { source });
 }
 
 async function handleUpload(req, res, rid) {
@@ -557,6 +588,7 @@ async function route(req, res) {
   const pathname = url.pathname;
   try {
     if (req.method === "GET" && pathname === "/health") return await handleHealth(req, res, rid);
+    if (req.method === "POST" && pathname === "/api/youtube/validate") return await handleYouTubeValidate(req, res, rid);
     if (req.method === "POST" && pathname === "/api/uploads") return await handleUpload(req, res, rid);
 
     const generateMatch = pathname.match(/^\/api\/projects\/([^/]+)\/generate$/);

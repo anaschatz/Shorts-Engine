@@ -23,6 +23,15 @@ The command prints a safe JSON readiness summary. It fails closed for invalid nu
 | `MATCHCUTS_MAX_UPLOAD_BYTES` | No | `262144000` | integer `1024..21474836480` | No | Keep conservative until storage/render capacity is measured. | Invalid size fails readiness. |
 | `MATCHCUTS_MAX_DURATION_SECONDS` | No | `1800` | integer `1..86400` | No | Keep short for staging smoke tests. | Invalid duration fails readiness. |
 
+## Remote URL ingest foundation
+
+YouTube URL ingest is currently validation-only. The app accepts authorized YouTube video, Shorts and `youtu.be` links through `POST /api/youtube/validate`, rejects playlists/live streams/unsafe protocols, and reports `youtubeIngest` in `/health` as a mock, no-network adapter. It does not download media, shell out to downloader tools, create uploads/projects, or enable render/export until a future milestone produces a real MP4 artifact.
+
+| Setting | Current default | Secret | Production note |
+| --- | --- | --- | --- |
+| YouTube ingest adapter | `mock` | No | No env var is required. Keep no-network validation as the default until a downloader/staging strategy is implemented and tested. |
+| Download/render from YouTube | disabled | No | Generate/export controls stay disabled for YouTube sources until a real ingested artifact exists. |
+
 ## FFmpeg/render limits
 
 | Variable | Required | Default | Allowed values | Secret | Staging recommendation | Fail-closed behavior |

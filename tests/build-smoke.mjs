@@ -28,11 +28,13 @@ for (const file of [
   "server/analysis.cjs",
   "server/config.cjs",
   "server/app.cjs",
+  "server/adapters/mock-youtube-ingest-adapter.cjs",
   "server/edit-plan.cjs",
   "server/errors.cjs",
   "server/job-worker.cjs",
   "server/jobs.cjs",
   "server/media.cjs",
+  "server/youtube-ingest.cjs",
   "server/release-readiness.cjs",
   "server/render-job.cjs",
   "server/render.cjs",
@@ -63,11 +65,13 @@ for (const serverFile of [
   "server/analysis.cjs",
   "server/config.cjs",
   "server/app.cjs",
+  "server/adapters/mock-youtube-ingest-adapter.cjs",
   "server/edit-plan.cjs",
   "server/errors.cjs",
   "server/job-worker.cjs",
   "server/jobs.cjs",
   "server/media.cjs",
+  "server/youtube-ingest.cjs",
   "server/release-readiness.cjs",
   "server/render-job.cjs",
   "server/render.cjs",
@@ -85,5 +89,6 @@ for (const asset of ["styles.css", "hardening.js", "app.js"]) {
 const Core = require("../hardening.js");
 assert.equal(Core.validateUploadFile({ name: "test.mp4", size: 1024, type: "video/mp4" }).ok, true);
 assert.equal(Core.validateAiOutput([{ title: "Goal", caption: "GOAL" }]).ok, true);
+assert.equal(Core.validateYouTubeSourceInput({ url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ", rightsConfirmed: true }).ok, true);
 
 console.log("Build smoke checks passed");

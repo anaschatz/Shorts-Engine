@@ -64,27 +64,81 @@
           <section class="panel-section">
             <div class="section-heading">
               <p class="eyebrow">Input</p>
-              <h2>Αρχείο αγώνα</h2>
+              <h2>Πηγή βίντεο</h2>
             </div>
-            <label class="dropzone" for="videoInput">
+
+            <div class="source-selector" role="group" aria-label="Video source">
+              <button
+                class="source-option active"
+                id="sourceLocalBtn"
+                data-testid="source-local-button"
+                type="button"
+                aria-pressed="true"
+              >
+                Local upload
+              </button>
+              <button
+                class="source-option"
+                id="sourceYoutubeBtn"
+                data-testid="source-youtube-button"
+                type="button"
+                aria-pressed="false"
+              >
+                YouTube URL
+              </button>
+            </div>
+
+            <div class="source-panel" id="localSourcePanel" data-testid="local-source-panel">
+              <label class="dropzone" for="videoInput">
+                <input
+                  id="videoInput"
+                  data-testid="video-upload-input"
+                  type="file"
+                  accept=".mp4,.mov,.webm,video/mp4,video/quicktime,video/webm"
+                  aria-describedby="fileLabel uploadError"
+                />
+                <span class="drop-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M12 3v12" />
+                    <path d="m7 8 5-5 5 5" />
+                    <path d="M5 15v4h14v-4" />
+                  </svg>
+                </span>
+                <strong>Ανέβασε highlights</strong>
+                <small id="fileLabel">MP4, MOV ή WEBM · μέχρι 30 λεπτά · μέχρι 250 MB</small>
+              </label>
+            </div>
+
+            <div class="source-panel youtube-source-panel" id="youtubeSourcePanel" data-testid="youtube-source-panel" hidden>
+              <label class="field-label" for="youtubeUrlInput">YouTube video link</label>
               <input
-                id="videoInput"
-                data-testid="video-upload-input"
-                type="file"
-                accept=".mp4,.mov,.webm,video/mp4,video/quicktime,video/webm"
-                aria-describedby="fileLabel uploadError"
+                id="youtubeUrlInput"
+                data-testid="youtube-url-input"
+                class="text-input"
+                type="url"
+                inputmode="url"
+                autocomplete="off"
+                maxlength="2048"
+                placeholder="https://www.youtube.com/watch?v=..."
+                aria-describedby="youtubeHelp youtubeError"
               />
-              <span class="drop-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M12 3v12" />
-                  <path d="m7 8 5-5 5 5" />
-                  <path d="M5 15v4h14v-4" />
-                </svg>
-              </span>
-              <strong>Ανέβασε highlights</strong>
-              <small id="fileLabel">MP4, MOV ή WEBM · μέχρι 30 λεπτά · μέχρι 250 MB</small>
-            </label>
+              <small class="helper-text" id="youtubeHelp">Υποστηρίζονται video, Shorts και youtu.be links. Playlists και live streams απορρίπτονται.</small>
+              <label class="checkbox-row" for="youtubeRightsCheckbox">
+                <input type="checkbox" id="youtubeRightsCheckbox" data-testid="youtube-rights-checkbox" />
+                <span>Έχω δικαίωμα να χρησιμοποιήσω αυτό το YouTube video</span>
+              </label>
+              <button class="secondary-btn full-width-btn" id="validateYoutubeBtn" data-testid="youtube-validate-button" type="button">
+                Validate source
+              </button>
+              <div class="youtube-source-card" id="youtubePreview" data-testid="youtube-preview" hidden>
+                <span>Validated source</span>
+                <strong id="youtubePreviewVideoId">Pending</strong>
+                <small id="youtubePreviewUrl"></small>
+                <small id="youtubePreviewStatus">Ingest disabled until an MP4 artifact exists.</small>
+              </div>
+            </div>
             <p class="field-error" id="uploadError" hidden></p>
+            <p class="field-error" id="youtubeError" data-testid="youtube-error" hidden></p>
           </section>
 
           <section class="panel-section">

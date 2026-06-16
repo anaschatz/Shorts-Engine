@@ -295,6 +295,11 @@ test("API health returns structured status", async () => {
   assert.equal(typeof payload.data.transcription.activeProvider, "string");
   assert.equal(payload.data.analysis.ready, true);
   assert.equal(payload.data.analysis.features.includes("candidate_edit_plans"), true);
+  assert.equal(payload.data.youtubeIngest.mode, "mock");
+  assert.equal(payload.data.youtubeIngest.enabled, false);
+  assert.equal(payload.data.youtubeIngest.networkCalls, false);
+  assert.equal(payload.data.youtubeIngest.downloaderConfigured, false);
+  assert.equal(payload.data.youtubeIngest.ingestAvailable, false);
   assert.equal(payload.data.releaseReadiness.ready, true);
   assert.equal(payload.data.releaseReadiness.networkCalls, false);
   assert.equal(payload.data.releaseReadiness.remoteMutation, false);
@@ -304,6 +309,63 @@ test("API health returns structured status", async () => {
   assert.doesNotMatch(JSON.stringify(payload.data.jobs), /data\/jobs|jobDir|\/private\//);
   assert.doesNotMatch(JSON.stringify(payload.data.queue), /\/Users|\/private|storageKey|outputPath|filePath|secret/i);
   assert.doesNotMatch(JSON.stringify(payload.data.releaseReadiness), /\/Users|\/private|storageKey|secret|ghp_|github_pat_|Bearer\s+|sk-[A-Za-z0-9_-]{10,}/i);
+});
+
+test("API validates authorized YouTube URLs without creating renderable uploads", async () => {
+  const body = Buffer.from(JSON.stringify({
+    url: "https://www.youtube.com/shorts/dQw4w9WgXcQ",
+    rightsConfirmed: true,
+  }));
+  const req = mockRequest({
+    method: "POST",
+    url: "/api/youtube/validate",
+    headers: {
+      "content-type": "application/json",
+      "content-length": String(body.length),
+    },
+    body,
+  });
+  const res = mockResponse();
+  await route(req, res);
+  const payload = JSON.parse(res.body.toString("utf8"));
+  assert.equal(res.statusCode, 200);
+  assert.equal(payload.ok, true);
+  assert.equal(payload.data.source.sourceType, "youtube");
+  assert.equal(payload.data.source.videoId, "dQw4w9WgXcQ");
+  assert.equal(payload.data.source.canonicalUrl, "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+  assert.equal(payload.data.source.ingestAvailable, false);
+  assert.equal(payload.data.source.downloaderConfigured, false);
+  assert.equal(payload.data.source.nextAction, "youtube-ingest-disabled-until-mp4-artifact-exists");
+  assert.equal(payload.data.upload, undefined);
+  assert.equal(payload.data.project, undefined);
+  assert.doesNotMatch(JSON.stringify(payload), /\/Users|\/private|storageKey|secret|token|outputPath|filePath/i);
+});
+
+test("API rejects unsafe YouTube validation input with safe structured errors", async () => {
+  for (const [url, rightsConfirmed, code] of [
+    ["https://www.youtube.com/watch?v=dQw4w9WgXcQ", false, "YOUTUBE_RIGHTS_REQUIRED"],
+    ["https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL123", true, "YOUTUBE_PLAYLIST_UNSUPPORTED"],
+    ["https://www.youtube.com/live/dQw4w9WgXcQ", true, "YOUTUBE_LIVE_UNSUPPORTED"],
+    ["file:///Users/example/video.mp4", true, "YOUTUBE_URL_INVALID"],
+    ["https://user:pass@www.youtube.com/watch?v=dQw4w9WgXcQ", true, "YOUTUBE_URL_INVALID"],
+  ]) {
+    const body = Buffer.from(JSON.stringify({ url, rightsConfirmed }));
+    const req = mockRequest({
+      method: "POST",
+      url: "/api/youtube/validate",
+      headers: {
+        "content-type": "application/json",
+        "content-length": String(body.length),
+      },
+      body,
+    });
+    const res = mockResponse();
+    await route(req, res);
+    const payload = JSON.parse(res.body.toString("utf8"));
+    assert.equal(payload.ok, false);
+    assert.equal(payload.error.code, code);
+    assert.doesNotMatch(JSON.stringify(payload), /\/Users|user:pass|storageKey|secret|token|stack/i);
+  }
 });
 
 test("server listen failures are logged as safe structured events", () => {
