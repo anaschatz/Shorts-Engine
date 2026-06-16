@@ -92,6 +92,7 @@
     activeProject: null,
     activeJob: null,
     sourceType: "local",
+    youtubeAction: "idle",
     youtubeValidation: null,
     youtubeHealth: {
       ready: false,
@@ -245,18 +246,33 @@
     return state.activeJob && ["queued", "processing"].includes(state.activeJob.status);
   }
 
+  function currentYouTubeUiState() {
+    return Core.deriveYouTubeUiState({
+      sourceType: state.sourceType,
+      youtubeAction: state.youtubeAction,
+      youtubeValidation: state.youtubeValidation,
+      youtubeHealth: state.youtubeHealth,
+      activeUpload: state.activeUpload,
+      activeProject: state.activeProject,
+      generated: state.generated,
+      downloadUrl: state.downloadUrl,
+      renderBusy: isBusy(),
+      url: els.youtubeUrlInput.value,
+      rightsConfirmed: els.youtubeRightsCheckbox.checked,
+    });
+  }
+
   function updateActionStates() {
-    const busy = isBusy();
-    const youtubeSource = state.sourceType === "youtube";
-    const youtubeIngested = youtubeSource && state.activeUpload && state.activeProject;
-    const youtubeCanIngest = youtubeSource && state.youtubeValidation && state.youtubeHealth.ingestAvailable && !youtubeIngested;
-    els.generateBtn.disabled = busy || (youtubeSource && !youtubeIngested);
-    if (!busy && youtubeSource && !youtubeIngested) {
+    const youtubeUi = currentYouTubeUiState();
+    const busy = youtubeUi.busy;
+    const youtubeSource = youtubeUi.youtubeSource;
+    els.generateBtn.disabled = !youtubeUi.canGenerate;
+    if (!busy && youtubeSource && !youtubeUi.ingested) {
       setButtonContent(els.generateBtn, "Ingest first", "bolt");
     } else if (!busy && !state.generated) {
       setButtonContent(els.generateBtn, "Generate shorts", "bolt");
     }
-    els.cancelJobBtn.hidden = !busy;
+    els.cancelJobBtn.hidden = !isBusy();
     els.retryBtn.hidden = !(state.activeJob && state.activeJob.status === "failed");
     els.saveBtn.disabled = busy;
     els.clearBtn.disabled = busy;
@@ -265,15 +281,18 @@
     els.videoInput.disabled = busy || youtubeSource;
     els.youtubeUrlInput.disabled = busy || !youtubeSource;
     els.youtubeRightsCheckbox.disabled = busy || !youtubeSource;
-    els.validateYoutubeBtn.disabled = busy || !youtubeSource;
-    els.ingestYoutubeBtn.disabled = busy || !youtubeCanIngest;
-    els.exportBtn.disabled = busy || !state.generated || !state.downloadUrl;
+    els.validateYoutubeBtn.disabled = !youtubeUi.canValidate;
+    els.ingestYoutubeBtn.disabled = !youtubeUi.canIngest;
+    els.validateYoutubeBtn.textContent = state.youtubeAction === "validating" ? "Validating..." : "Validate source";
+    els.ingestYoutubeBtn.textContent = state.youtubeAction === "ingesting" ? "Ingesting..." : "Ingest video";
+    els.youtubeSourcePanel.dataset.flowState = youtubeUi.status;
+    els.exportBtn.disabled = !youtubeUi.canDownload;
     els.exportButtons.forEach((button) => {
-      button.disabled = busy || !state.generated || !state.downloadUrl;
+      button.disabled = !youtubeUi.canDownload;
     });
-    els.downloadLink.hidden = !(state.generated && state.downloadUrl);
+    els.downloadLink.hidden = !youtubeUi.canDownload;
     els.momentList.setAttribute("aria-busy", busy ? "true" : "false");
-    renderYouTubeIngestStatus();
+    renderYouTubeIngestStatus(youtubeUi);
   }
 
   function resetVideoPreview() {
@@ -286,6 +305,7 @@
 
   function clearYouTubeValidation(options = {}) {
     state.youtubeValidation = null;
+    state.youtubeAction = "idle";
     els.youtubePreview.hidden = true;
     els.youtubePreviewVideoId.textContent = "Pending";
     els.youtubePreviewUrl.textContent = "";
@@ -337,19 +357,24 @@
   }
 
   function renderYouTubePreview(source) {
+    const summary = Core.createYouTubePreviewSummary(source, state.youtubeHealth.ingestAvailable);
     els.youtubePreview.hidden = false;
-    els.youtubePreviewVideoId.textContent = source.videoId;
-    els.youtubePreviewUrl.textContent = source.canonicalUrl;
-    els.youtubePreviewStatus.textContent = state.youtubeHealth.ingestAvailable
-      ? "Validated. Ingest is available for this environment."
-      : "Validated. Ingest is unavailable in this environment.";
+    els.youtubePreviewVideoId.textContent = summary.videoId;
+    els.youtubePreviewUrl.textContent = summary.label;
+    els.youtubePreviewStatus.textContent = summary.status;
   }
 
-  function renderYouTubeIngestStatus() {
+  function renderYouTubeIngestStatus(uiState) {
     const health = state.youtubeHealth || {};
-    const ready = Boolean(health.ingestAvailable);
+    const ready = Boolean(uiState ? uiState.ingestAvailable : health.ingestAvailable);
     els.youtubeIngestStatus.dataset.ready = ready ? "true" : "false";
-    if (ready) {
+    if (state.youtubeAction === "validating") {
+      els.youtubeIngestStatus.textContent = "Validating YouTube source...";
+    } else if (state.youtubeAction === "ingesting") {
+      els.youtubeIngestStatus.textContent = "Ingesting authorized YouTube source into a local MP4 artifact...";
+    } else if (uiState && uiState.ingested) {
+      els.youtubeIngestStatus.textContent = "YouTube source ingested. Generate shorts is ready.";
+    } else if (ready) {
       els.youtubeIngestStatus.textContent = "YouTube ingest is enabled. Validate the URL before ingest.";
     } else if (health.enabled && !health.downloaderConfigured) {
       els.youtubeIngestStatus.textContent = "YouTube ingest is enabled but the downloader is unavailable.";
@@ -575,6 +600,7 @@
     state.activeUpload = null;
     state.activeProject = null;
     clearYouTubeValidation();
+    updateActionStates();
     const clientValidation = Core.validateYouTubeSourceInput({
       url: els.youtubeUrlInput.value,
       rightsConfirmed: els.youtubeRightsCheckbox.checked,
@@ -585,6 +611,9 @@
       return;
     }
     try {
+      state.youtubeAction = "validating";
+      setProjectStatus("processing", "Validating URL");
+      updateActionStates();
       const data = await apiFetch("/api/youtube/validate", {
         method: "POST",
         body: JSON.stringify({
@@ -593,6 +622,7 @@
         }),
       });
       state.youtubeValidation = data.source;
+      state.youtubeAction = "validated";
       renderYouTubePreview(data.source);
       setProjectStatus("draft", "URL checked");
       showToast(
@@ -602,6 +632,7 @@
         "success",
       );
     } catch (error) {
+      state.youtubeAction = "failed";
       showYouTubeError(error);
     } finally {
       updateActionStates();
@@ -633,8 +664,9 @@
       return;
     }
     try {
-      els.ingestYoutubeBtn.textContent = "Ingesting...";
+      state.youtubeAction = "ingesting";
       setProjectStatus("processing", "Ingesting");
+      updateActionStates();
       const data = await apiFetch("/api/youtube/ingest", {
         method: "POST",
         body: JSON.stringify({
@@ -646,6 +678,7 @@
       state.activeUpload = data.upload;
       state.activeProject = data.project;
       state.youtubeValidation = data.source;
+      state.youtubeAction = "ready_to_generate";
       els.fileLabel.textContent = formatUploadLabel(data.upload);
       renderYouTubePreview(data.source);
       setProjectStatus("draft", "YouTube ingested");
@@ -653,10 +686,10 @@
     } catch (error) {
       state.activeUpload = null;
       state.activeProject = null;
+      state.youtubeAction = "failed";
       setProjectStatus("failed", "Ingest failed");
       showYouTubeError(error, "youtube-ingest");
     } finally {
-      els.ingestYoutubeBtn.textContent = "Ingest video";
       updateActionStates();
     }
   }
@@ -871,6 +904,7 @@
       activeProject: null,
       activeJob: null,
       sourceType: "local",
+      youtubeAction: "idle",
       youtubeValidation: null,
       generated: false,
       exportId: null,

@@ -70,6 +70,12 @@ function collectStaticBrowserChecks({ app, css, html, manual }) {
   addCheck(checks, "download_route_contract", /\/api\/exports\/\$\{exportId\}\/download/.test(app));
   addCheck(checks, "youtube_validate_only_contract", /\/api\/youtube\/validate/.test(app) && /YOUTUBE_INGEST_NOT_ENABLED/.test(app));
   addCheck(checks, "youtube_render_disabled_contract", /state\.sourceType === "youtube"/.test(app) && /Ingest disabled/.test(app));
+  addCheck(checks, "youtube_ui_shared_gate_contract", /deriveYouTubeUiState/.test(app) && /currentYouTubeUiState/.test(app));
+  addCheck(checks, "youtube_validate_requires_url_and_rights_contract", /validateYoutubeBtn\.disabled = !youtubeUi\.canValidate/.test(app));
+  addCheck(checks, "youtube_ingest_requires_health_contract", /ingestYoutubeBtn\.disabled = !youtubeUi\.canIngest/.test(app));
+  addCheck(checks, "youtube_generate_after_ingest_contract", /generateBtn\.disabled = !youtubeUi\.canGenerate/.test(app));
+  addCheck(checks, "youtube_preview_safe_summary_contract", /createYouTubePreviewSummary/.test(app) && /youtubePreviewUrl\.textContent = summary\.label/.test(app));
+  addCheck(checks, "youtube_frontend_no_downloader_contract", !/yt-dlp|youtube-dl|execFile|spawn|child_process|stdout|stderr|storageKey|document\.cookie/i.test(app));
   addCheck(checks, "responsive_css_contract", /@media\s*\(/.test(css) && /min-width:\s*320px/.test(css));
   addCheck(checks, "hidden_css_contract", /\[hidden\]\s*{[^}]*display:\s*none\s*!important/s.test(css));
   addCheck(checks, "manual_doc_exists", Boolean(manual));

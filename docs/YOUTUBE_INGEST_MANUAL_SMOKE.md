@@ -104,6 +104,30 @@ SHORTSENGINE_YOUTUBE_SMOKE_DOWNLOAD_MAX_BYTES=83886080
 
 Raise timeouts only for an intentional manual proof with a known short source.
 
+## Run Local UI E2E Demo
+
+Use this path after `npm run youtube:doctor` is passing with ingest enabled and a live `/health` URL.
+
+1. Start the app with `SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1 npm run dev`.
+2. Open the local URL printed by the server, usually `http://127.0.0.1:4175`.
+3. Switch the source selector to `YouTube URL`.
+4. Paste only an authorized YouTube watch, Shorts or youtu.be URL.
+5. Confirm the YouTube-specific rights checkbox.
+6. Click `Validate source`.
+7. Confirm the preview shows only safe source metadata such as video id/kind, not a raw canonical URL.
+8. If `/health` reports `youtubeIngest` ready, click `Ingest video`.
+9. Confirm the status changes to ready-to-generate and the main `Generate shorts` action becomes available.
+10. Click `Generate shorts`, wait for job progress to complete, then download the MP4.
+
+Expected disabled states:
+
+- `Validate source` is disabled until URL and rights confirmation are present.
+- `Ingest video` is disabled until validation passes and health says downloader-backed ingest is ready.
+- `Generate shorts` is disabled for YouTube sources until ingest creates project/upload state.
+- Export and Download stay disabled/hidden until render completion.
+
+If ingest is disabled, the validate-only UI path should still work safely and explain that local uploads remain available.
+
 ## Read The Report
 
 Open:

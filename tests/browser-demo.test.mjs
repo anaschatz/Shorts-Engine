@@ -32,6 +32,8 @@ test("static browser contract checks cover UI, docs and safe states", () => {
   assert.ok(checks.length >= 20);
   assert.equal(checks.every((check) => check.passed), true);
   assert.ok(checks.some((check) => check.name === "missing_upload_safe_error_contract"));
+  assert.ok(checks.some((check) => check.name === "youtube_validate_requires_url_and_rights_contract"));
+  assert.ok(checks.some((check) => check.name === "youtube_preview_safe_summary_contract"));
   assert.ok(checks.some((check) => check.name === "manual_doc_has_troubleshooting"));
 });
 

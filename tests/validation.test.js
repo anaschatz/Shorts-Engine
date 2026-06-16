@@ -141,6 +141,96 @@ test("youtube source validation rejects unsafe or unsupported sources", () => {
   );
 });
 
+test("youtube UI state gates validate ingest generate and download", () => {
+  const unavailable = Core.deriveYouTubeUiState({
+    sourceType: "youtube",
+    url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    rightsConfirmed: false,
+    youtubeValidation: null,
+    youtubeHealth: { ready: true, enabled: false, downloaderConfigured: false, ingestAvailable: false },
+  });
+  assert.equal(unavailable.canValidate, false);
+  assert.equal(unavailable.canIngest, false);
+  assert.equal(unavailable.canGenerate, false);
+  assert.equal(unavailable.canDownload, false);
+
+  const validatedButUnavailable = Core.deriveYouTubeUiState({
+    sourceType: "youtube",
+    url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    rightsConfirmed: true,
+    youtubeValidation: { videoId: "dQw4w9WgXcQ" },
+    youtubeHealth: { ready: true, enabled: false, downloaderConfigured: false, ingestAvailable: false },
+  });
+  assert.equal(validatedButUnavailable.canValidate, true);
+  assert.equal(validatedButUnavailable.canIngest, false);
+  assert.equal(validatedButUnavailable.canGenerate, false);
+
+  const readyToIngest = Core.deriveYouTubeUiState({
+    sourceType: "youtube",
+    url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    rightsConfirmed: true,
+    youtubeValidation: { videoId: "dQw4w9WgXcQ" },
+    youtubeHealth: { ready: true, enabled: true, downloaderConfigured: true, ingestAvailable: true },
+  });
+  assert.equal(readyToIngest.canIngest, true);
+  assert.equal(readyToIngest.canGenerate, false);
+
+  const ingested = Core.deriveYouTubeUiState({
+    sourceType: "youtube",
+    url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    rightsConfirmed: true,
+    youtubeValidation: { videoId: "dQw4w9WgXcQ" },
+    youtubeHealth: { ready: true, enabled: true, downloaderConfigured: true, ingestAvailable: true },
+    activeUpload: { id: "upl_12345678" },
+    activeProject: { id: "prj_12345678" },
+  });
+  assert.equal(ingested.ingested, true);
+  assert.equal(ingested.canIngest, false);
+  assert.equal(ingested.canGenerate, true);
+
+  const completed = Core.deriveYouTubeUiState({
+    ...ingested,
+    sourceType: "youtube",
+    url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    rightsConfirmed: true,
+    youtubeValidation: { videoId: "dQw4w9WgXcQ" },
+    youtubeHealth: { ready: true, enabled: true, downloaderConfigured: true, ingestAvailable: true },
+    activeUpload: { id: "upl_12345678" },
+    activeProject: { id: "prj_12345678" },
+    generated: true,
+    downloadUrl: "/api/exports/exp_12345678/download",
+  });
+  assert.equal(completed.canDownload, true);
+
+  const busy = Core.deriveYouTubeUiState({
+    sourceType: "youtube",
+    youtubeAction: "ingesting",
+    url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    rightsConfirmed: true,
+    youtubeValidation: { videoId: "dQw4w9WgXcQ" },
+    youtubeHealth: { ready: true, enabled: true, downloaderConfigured: true, ingestAvailable: true },
+  });
+  assert.equal(busy.youtubeBusy, true);
+  assert.equal(busy.canValidate, false);
+  assert.equal(busy.canIngest, false);
+  assert.equal(busy.canGenerate, false);
+});
+
+test("youtube UI preview summary avoids raw canonical URLs", () => {
+  const summary = Core.createYouTubePreviewSummary(
+    {
+      kind: "watch",
+      videoId: "dQw4w9WgXcQ",
+      canonicalUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    },
+    true,
+  );
+  assert.equal(summary.videoId, "dQw4w9WgXcQ");
+  assert.equal(summary.label, "watch video - dQw4w9WgXcQ");
+  assert.equal(summary.status, "Validated. Ingest is available for this environment.");
+  assert.doesNotMatch(JSON.stringify(summary), /https:\/\/www\.youtube\.com/);
+});
+
 test("project settings are normalized and consent is required for jobs", () => {
   const settings = Core.normalizeProjectSettings({
     title: "  Derby Final  ",

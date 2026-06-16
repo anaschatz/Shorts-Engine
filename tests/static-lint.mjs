@@ -85,12 +85,19 @@ assert.match(app, /momentsFromCandidatePlans/, "app.js should render generated c
 assert.match(app, /validateCompletedJobForExport/, "app.js should validate completed jobs before enabling downloads");
 assert.match(app, /EXPORT_NOT_READY/, "app.js should fail closed when download/export is not ready");
 assert.match(app, /validateYouTubeSourceInput/, "app.js should validate YouTube URLs before API calls");
+assert.match(app, /deriveYouTubeUiState/, "app.js should derive YouTube control state from a shared helper");
+assert.match(app, /validateYoutubeBtn\.disabled = !youtubeUi\.canValidate/, "YouTube validation should be disabled until URL and rights are ready");
+assert.match(app, /ingestYoutubeBtn\.disabled = !youtubeUi\.canIngest/, "YouTube ingest should be disabled until validation and health readiness pass");
+assert.match(app, /generateBtn\.disabled = !youtubeUi\.canGenerate/, "YouTube generate should remain disabled until ingest creates project/upload state");
+assert.match(app, /createYouTubePreviewSummary/, "YouTube preview should use a safe summary helper");
+assert.match(app, /youtubePreviewUrl\.textContent = summary\.label/, "YouTube preview should show a safe source label instead of raw canonical URL");
 assert.match(app, /\/api\/youtube\/validate/, "app.js should use the validate-only YouTube source endpoint");
 assert.match(app, /\/api\/youtube\/ingest/, "app.js should call the dedicated YouTube ingest endpoint only after validation");
 assert.match(app, /youtubeHealth/, "app.js should gate YouTube ingest on backend health");
 assert.match(app, /ingestYoutubeBtn\.disabled/, "app.js should keep YouTube ingest disabled until validation and readiness pass");
 assert.match(app, /YOUTUBE_INGEST_NOT_ENABLED/, "app.js should fail closed before YouTube ingest creates an upload");
 assert.match(app, /state\.sourceType === "youtube"/, "app.js should branch YouTube source state explicitly");
+assert.doesNotMatch(app, /yt-dlp|youtube-dl|execFile|spawn|child_process|stdout|stderr|storageKey|document\.cookie/i, "frontend must not contain downloader logic or unsafe internal fields");
 
 assert.match(serverApp, /createLocalJobWorker/, "server should use the durable local worker abstraction");
 assert.match(serverApp, /createLocalJobQueue/, "server should use the queue contract adapter boundary");
@@ -426,6 +433,9 @@ assert.match(youtubeManualDocs, /demo\/results\/youtube-smoke-latest\.json/, "Yo
 assert.match(youtubeManualDocs, /YOUTUBE_SMOKE_REPORT_LEAK/, "YouTube manual smoke guide should document report leak failures");
 assert.match(youtubeManualDocs, /YOUTUBE_SMOKE_HEALTH_NOT_READY/, "YouTube manual smoke guide should document health readiness failures");
 assert.match(youtubeManualDocs, /YOUTUBE_DOWNLOADER_MISSING/, "YouTube manual smoke guide should document missing downloader failures");
+assert.match(youtubeManualDocs, /Run Local UI E2E Demo/, "YouTube manual smoke guide should document the local UI E2E path");
+assert.match(youtubeManualDocs, /Validate source` is disabled until URL and rights confirmation are present/, "YouTube manual smoke guide should document URL and rights gating");
+assert.match(youtubeManualDocs, /Generate shorts` is disabled for YouTube sources until ingest creates project\/upload state/, "YouTube manual smoke guide should document generate gating");
 assert.match(youtubeManualDocs, /Default CI and local checks must remain no-network and no-downloader/i, "YouTube manual smoke guide should keep CI default-safe");
 assert.match(ciDocs, /npm run demo:browser:install/, "CI docs should include the Playwright browser install step");
 assert.match(ciDocs, /npm run env:check/, "CI docs should include the environment readiness check");

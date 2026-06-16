@@ -304,6 +304,72 @@
     return normalizeYouTubeUrl(input.url);
   }
 
+  function hasUsableYouTubeUrl(value) {
+    const raw = String(value ?? "").trim();
+    return Boolean(raw && raw.length <= CONFIG.maxYouTubeUrlLength && !/[\u0000-\u001f\u007f]/.test(raw));
+  }
+
+  function createYouTubePreviewSummary(source, ingestAvailable) {
+    const videoId = normalizeYouTubeVideoId(source && source.videoId);
+    const kind = sanitizeText(source && source.kind, 24) || "watch";
+    return {
+      sourceType: "youtube",
+      kind,
+      videoId: videoId || "unknown",
+      label: `${kind} video - ${videoId || "unknown id"}`,
+      status: ingestAvailable
+        ? "Validated. Ingest is available for this environment."
+        : "Validated. Ingest is unavailable in this environment.",
+    };
+  }
+
+  function deriveYouTubeUiState(input) {
+    const sourceType = input && input.sourceType;
+    const youtubeSource = sourceType === "youtube";
+    const youtubeAction = sanitizeText(input && input.youtubeAction, 32) || "idle";
+    const youtubeBusy = youtubeAction === "validating" || youtubeAction === "ingesting";
+    const renderBusy = Boolean(input && input.renderBusy);
+    const busy = Boolean(renderBusy || youtubeBusy);
+    const urlReady = hasUsableYouTubeUrl(input && input.url);
+    const rightsConfirmed = Boolean(input && input.rightsConfirmed);
+    const validation = input && input.youtubeValidation;
+    const validated = Boolean(validation && normalizeYouTubeVideoId(validation.videoId));
+    const health = (input && input.youtubeHealth) || {};
+    const ingestAvailable = Boolean(
+      health.ready !== false &&
+        health.enabled &&
+        health.downloaderConfigured &&
+        health.ingestAvailable,
+    );
+    const ingested = Boolean(youtubeSource && input && input.activeUpload && input.activeProject);
+    const generated = Boolean(input && input.generated);
+    const downloadReady = Boolean(generated && input && input.downloadUrl);
+
+    return {
+      youtubeSource,
+      youtubeAction,
+      youtubeBusy,
+      renderBusy,
+      busy,
+      urlReady,
+      rightsConfirmed,
+      validated,
+      ingestAvailable,
+      ingested,
+      canValidate: Boolean(youtubeSource && !busy && urlReady && rightsConfirmed),
+      canIngest: Boolean(youtubeSource && !busy && urlReady && rightsConfirmed && validated && ingestAvailable && !ingested),
+      canGenerate: Boolean(!busy && (!youtubeSource || ingested)),
+      canDownload: Boolean(!busy && downloadReady),
+      status: youtubeBusy
+        ? youtubeAction
+        : ingested
+          ? "ready_to_generate"
+          : validated
+            ? "validated"
+            : "idle",
+    };
+  }
+
   function toBoundedInteger(value, min, max, fallback) {
     const parsed = Number.parseInt(value, 10);
     if (!Number.isFinite(parsed)) return fallback;
@@ -602,6 +668,8 @@
     validateVideoDuration,
     normalizeYouTubeUrl,
     validateYouTubeSourceInput,
+    createYouTubePreviewSummary,
+    deriveYouTubeUiState,
     toBoundedInteger,
     normalizeProjectSettings,
     validateProjectForJob,

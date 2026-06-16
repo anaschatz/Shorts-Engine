@@ -85,21 +85,26 @@ Open `http://127.0.0.1:4175` unless you set a different `PORT`.
 4. Enter a valid YouTube/Shorts URL and click `Validate source` without rights consent.
 5. Confirm the UI shows a safe `YOUTUBE_RIGHTS_REQUIRED` error.
 6. Enable the YouTube rights checkbox, validate again, and confirm a validated preview appears.
-7. Confirm `Generate shorts`, Export, and Download remain disabled for the YouTube source because real ingest is not enabled yet.
-8. Switch back to `Local upload`.
-9. Click `Generate shorts` without uploading a file.
-10. Confirm the UI shows a safe `UPLOAD_EMPTY` error and does not show download/export.
-11. Click the upload control and choose `demo/fixtures/shortsengine-demo-source.mp4`.
-12. Confirm the UI shows the uploaded file state and video preview.
-13. Enable the rights checkbox.
-14. Click `Generate shorts`.
-15. Confirm progress/loading state appears.
-16. Confirm `Cancel` appears while the job is active.
-17. Wait for the job to complete.
-18. Confirm Export/Download are enabled only after completion.
-19. Confirm the download link points to `/api/exports/<export id>/download`.
-20. Download the MP4 and confirm the file opens.
-21. Repeat a quick mobile viewport check and confirm there is no horizontal overflow.
+7. Confirm the preview shows safe video id/kind metadata, not a raw canonical URL.
+8. In default mode, confirm `Ingest video`, `Generate shorts`, Export, and Download remain disabled because real ingest is not enabled.
+9. If you intentionally started the server with `SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1` and doctor reports ready, click `Ingest video`.
+10. Confirm successful ingest creates upload/project state and `Generate shorts` becomes enabled.
+11. Click `Generate shorts`, confirm progress/loading state appears, and confirm `Cancel` appears while the job is active.
+12. Wait for completion, then confirm Export/Download are enabled only after render completion.
+13. Switch back to `Local upload`.
+14. Click `Generate shorts` without uploading a file.
+15. Confirm the UI shows a safe `UPLOAD_EMPTY` error and does not show download/export.
+16. Click the upload control and choose `demo/fixtures/shortsengine-demo-source.mp4`.
+17. Confirm the UI shows the uploaded file state and video preview.
+18. Enable the rights checkbox.
+19. Click `Generate shorts`.
+20. Confirm progress/loading state appears.
+21. Confirm `Cancel` appears while the job is active.
+22. Wait for the job to complete.
+23. Confirm Export/Download are enabled only after completion.
+24. Confirm the download link points to `/api/exports/<export id>/download`.
+25. Download the MP4 and confirm the file opens.
+26. Repeat a quick mobile viewport check and confirm there is no horizontal overflow.
 
 ## Expected UI States
 

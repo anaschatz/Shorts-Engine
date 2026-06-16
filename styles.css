@@ -327,6 +327,20 @@ h2 {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: #fbfcf9;
+  transition:
+    border-color 180ms ease,
+    background-color 180ms ease;
+}
+
+.youtube-source-panel[data-flow-state="validating"],
+.youtube-source-panel[data-flow-state="ingesting"] {
+  border-color: rgba(31, 105, 183, 0.34);
+  background: #f6f9ff;
+}
+
+.youtube-source-panel[data-flow-state="ready_to_generate"],
+.youtube-source-panel[data-flow-state="validated"] {
+  border-color: rgba(23, 168, 91, 0.28);
 }
 
 .youtube-source-card {
