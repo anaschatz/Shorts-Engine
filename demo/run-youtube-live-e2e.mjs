@@ -17,6 +17,7 @@ const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const LIVE_FLAG = "SHORTSENGINE_YOUTUBE_LIVE_E2E";
 const LIVE_RIGHTS_FLAG = "SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED";
 const LIVE_URL_FLAG = "SHORTSENGINE_YOUTUBE_LIVE_E2E_URL";
+const DEFAULT_COMMAND_NAME = "youtube:proof";
 const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
 const NEXT_ACTIONS = Object.freeze({
   ENV_YOUTUBE_LIVE_E2E_INGEST_DISABLED: "set-SHORTSENGINE_YOUTUBE_INGEST_ENABLED-1",
@@ -275,7 +276,10 @@ function safeReport(report) {
   if (!leak) return report;
   return {
     timestamp: report.timestamp || nowIso(),
+    command: report.command || DEFAULT_COMMAND_NAME,
     status: "failed",
+    passed: false,
+    skipped: false,
     mode: "youtube-live-local-e2e",
     phase: PHASES.REPORT,
     nextAction: nextActionForCode("YOUTUBE_LIVE_E2E_REPORT_LEAK"),
@@ -305,6 +309,7 @@ function safeReport(report) {
 
 function buildReport({
   checks,
+  commandName,
   doctor,
   durationMs,
   failedCases,
@@ -320,7 +325,10 @@ function buildReport({
   const nextAction = reportNextAction({ checks, failedCases, status });
   return safeReport({
     timestamp: nowIso(),
+    command: commandName || DEFAULT_COMMAND_NAME,
     status,
+    passed: status === "passed",
+    skipped: status === "skipped",
     mode: "youtube-live-local-e2e",
     phase,
     nextAction,
@@ -457,6 +465,7 @@ async function runYouTubeLiveE2E(options = {}) {
   let smoke = null;
   let server = null;
   let envSummary = null;
+  const commandName = options.commandName || DEFAULT_COMMAND_NAME;
 
   const deps = {
     checkYouTubeIngest: options.checkYouTubeIngest || checkYouTubeIngest,
@@ -481,6 +490,7 @@ async function runYouTubeLiveE2E(options = {}) {
       });
       return buildReport({
         checks,
+        commandName,
         doctor,
         durationMs: Date.now() - started,
         failedCases,
@@ -564,6 +574,7 @@ async function runYouTubeLiveE2E(options = {}) {
   }
   return buildReport({
     checks,
+    commandName,
     doctor,
     durationMs: Date.now() - started,
     failedCases,
@@ -595,6 +606,7 @@ function isMainModule() {
 }
 
 if (isMainModule()) {
+  const commandName = process.argv.includes("--operator") ? "youtube:proof:operator" : DEFAULT_COMMAND_NAME;
   let timeout = DEFAULT_TIMEOUT_MS;
   try {
     timeout = parseInteger(
@@ -608,6 +620,7 @@ if (isMainModule()) {
     const failure = safeFailure(error);
     const report = buildReport({
       checks: [{ name: "youtube_live_e2e_timeout_config_valid", passed: false, code: failure.code }],
+      commandName,
       doctor: null,
       durationMs: 0,
       failedCases: [{ name: "youtube_live_e2e_timeout_config_valid", ...failure }],
@@ -627,7 +640,10 @@ if (isMainModule()) {
       timeoutId = setTimeout(() => {
         resolveTimeout({
           timestamp: nowIso(),
+          command: commandName,
           status: "failed",
+          passed: false,
+          skipped: false,
           mode: "youtube-live-local-e2e",
           phase: PHASES.RENDER,
           nextAction: "check-local-server-and-downloader-before-rerun",
@@ -655,7 +671,7 @@ if (isMainModule()) {
       }, timeout);
       if (timeoutId && typeof timeoutId.unref === "function") timeoutId.unref();
     });
-    const report = await Promise.race([runYouTubeLiveE2E(), timeoutPromise]);
+    const report = await Promise.race([runYouTubeLiveE2E({ commandName }), timeoutPromise]);
     if (timeoutId) clearTimeout(timeoutId);
     const written = writeYouTubeLiveE2EReport(report);
     console.log(JSON.stringify({ status: report.status, failedCases: report.failedCases, ...written }, null, 2));
@@ -665,6 +681,7 @@ if (isMainModule()) {
 
 export {
   DEFAULT_TIMEOUT_MS,
+  DEFAULT_COMMAND_NAME,
   LIVE_FLAG,
   LIVE_RIGHTS_FLAG,
   LIVE_URL_FLAG,

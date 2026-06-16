@@ -174,6 +174,9 @@ assert.doesNotMatch(youtubeSmoke, /yt-dlp|youtube-dl|execFile|spawn|child_proces
 assert.match(youtubeLiveE2E, /SHORTSENGINE_YOUTUBE_LIVE_E2E/, "YouTube live E2E should require an explicit live proof flag");
 assert.match(youtubeLiveE2E, /SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED/, "YouTube live E2E should require explicit rights confirmation");
 assert.match(youtubeLiveE2E, /checkEnvironment/, "YouTube live E2E should run env readiness before doctor/server work");
+assert.match(youtubeLiveE2E, /command:\s*commandName/, "YouTube live E2E reports should include the operator command");
+assert.match(youtubeLiveE2E, /passed:\s*status === "passed"/, "YouTube live E2E reports should include a passed boolean");
+assert.match(youtubeLiveE2E, /skipped:\s*status === "skipped"/, "YouTube live E2E reports should include a skipped boolean");
 assert.match(youtubeLiveE2E, /phaseForCode/, "YouTube live E2E should classify failures by triage phase");
 assert.match(youtubeLiveE2E, /safePreflightSummary/, "YouTube live E2E should include a safe preflight triage summary");
 assert.match(youtubeLiveE2E, /checkYouTubeIngest/, "YouTube live E2E should run the doctor before server smoke work");
@@ -209,6 +212,7 @@ assert.match(packageJson, /"youtube:doctor": "node tools\/release\/check-youtube
 assert.match(packageJson, /"youtube:smoke": "node demo\/run-youtube-smoke\.mjs"/, "package should expose the opt-in YouTube smoke");
 assert.match(packageJson, /"youtube:e2e:local": "node demo\/run-youtube-live-e2e\.mjs"/, "package should expose the opt-in local YouTube E2E proof");
 assert.match(packageJson, /"youtube:proof": "node demo\/run-youtube-live-e2e\.mjs"/, "package should expose the operator YouTube proof alias");
+assert.match(packageJson, /"youtube:proof:operator": "node demo\/run-youtube-live-e2e\.mjs --operator"/, "package should expose the explicit operator YouTube proof command");
 assert.match(packageJson, /"demo:youtube:live": "node demo\/run-youtube-live-e2e\.mjs"/, "package should expose the demo YouTube live proof alias");
 assert.match(packageJson, /"playwright"/, "Playwright should be a scoped dev dependency for browser E2E");
 assert.match(playwrightSmoke, /setInputFiles/, "Playwright smoke should upload the fixture through the browser context");
@@ -323,6 +327,9 @@ assert.match(remoteCi, /GITHUB_CLI_MISSING/, "remote CI verifier should use the 
 assert.match(remoteCi, /GITHUB_AUTH_MISSING/, "remote CI verifier should use the shared missing-auth code");
 assert.match(remoteCi, /assertRunMatchesContext/, "remote CI verifier should assert the run belongs to the current commit");
 assert.match(remoteCi, /REMOTE_CI_SHA_MISMATCH/, "remote CI verifier should fail closed on commit SHA mismatch");
+assert.match(remoteCi, /REMOTE_CI_NETWORK_UNAVAILABLE/, "remote CI verifier should classify network failures safely");
+assert.match(remoteCi, /statusForDetails/, "remote CI verifier should classify success pending failure and cancelled states");
+assert.match(remoteCi, /phaseForFailureCode/, "remote CI verifier should classify failure phases");
 assert.match(remoteCi, /headSha/, "remote CI verifier should read and report the workflow run head SHA");
 assert.match(remoteCi, /waitedMs/, "remote CI verifier should report bounded wait metadata");
 assert.match(remoteCi, /findSensitiveLeak/, "remote CI verifier should guard summaries against leaks");
@@ -334,6 +341,10 @@ assert.match(remoteCiProof, /buildRemoteCiFailureProof/, "remote CI proof should
 assert.match(remoteCiProof, /validateRemoteCiSummaryForProof/, "remote CI proof should validate verifier summary shape before writing reports");
 assert.match(remoteCiProof, /REMOTE_CI_PROOF_SUMMARY_INVALID/, "remote CI proof should fail closed on malformed verifier summaries");
 assert.match(remoteCiProof, /remote-ci-latest\.json/, "remote CI proof should write a stable latest proof report");
+assert.match(remoteCiProof, /command:\s*DEFAULT_COMMAND_NAME/, "remote CI proof should include the proof command");
+assert.match(remoteCiProof, /triage:\s*buildRemoteCiTriage/, "remote CI proof should include report-driven triage");
+assert.match(remoteCiProof, /passed:\s*safeSummary\.ok/, "remote CI proof should include a passed boolean");
+assert.match(remoteCiProof, /skipped:\s*false/, "remote CI proof should declare that remote proof is not skipped");
 assert.match(remoteCiProof, /failure/, "remote CI proof should include a structured safe failure section");
 assert.match(remoteCiProof, /rawLogsRequired: false/, "remote CI proof should not require raw logs by default");
 assert.match(remoteCiProof, /rawArtifactsRequired: false/, "remote CI proof should not require raw artifacts by default");

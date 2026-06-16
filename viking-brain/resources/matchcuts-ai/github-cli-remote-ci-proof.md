@@ -17,6 +17,8 @@ The verifier must:
 
 - Detect missing GitHub CLI as `GITHUB_CLI_MISSING`.
 - Detect missing auth as `GITHUB_AUTH_MISSING`.
+- Detect GitHub/network reachability failures as `REMOTE_CI_NETWORK_UNAVAILABLE`.
+- Distinguish pending, passed, failed and cancelled workflow states.
 - Never start `gh auth login`.
 - Never mutate GitHub settings.
 - Never download Actions logs or artifacts by default.
@@ -31,6 +33,8 @@ The verifier must:
 - timestamped `release/results/remote-ci-proof-*.json`
 
 Successful and failed workflow results include repository, branch, commit, workflow, release-job, failed-job and polling metadata.
+
+All proof reports also include top-level `command`, `phase`, `status`, `passed`, `skipped`, `nextAction` and `triage` fields for report-driven triage.
 
 Missing CLI, missing auth, no-run, timeout and SHA mismatch cases write safe failure evidence with only:
 

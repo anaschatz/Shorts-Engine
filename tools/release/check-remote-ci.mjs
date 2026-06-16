@@ -12,6 +12,16 @@ const MAX_COMMAND_OUTPUT_BYTES = 256 * 1024;
 const COMPLETED_STATUS = "completed";
 const PENDING_STATUSES = new Set(["queued", "in_progress", "requested", "pending", "waiting"]);
 const FAILURE_CONCLUSIONS = new Set(["failure", "cancelled", "timed_out", "action_required", "startup_failure"]);
+const REMOTE_CI_PHASES = Object.freeze({
+  GITHUB_CLI: "github-cli",
+  GITHUB_AUTH: "github-auth",
+  GIT_CONTEXT: "git-context",
+  REPOSITORY: "repository",
+  WORKFLOW: "workflow",
+  RELEASE_GATE: "release-gate",
+  NETWORK: "network",
+  COMPLETED: "completed",
+});
 
 class RemoteCiError extends Error {
   constructor(code, message, details = {}) {
@@ -111,9 +121,17 @@ function assertNoSensitiveSummary(summary) {
 
 function commandFailureCode(command, error) {
   if (error && error.code === "ENOENT") return command === "gh" ? "GITHUB_CLI_MISSING" : "REMOTE_CI_GIT_MISSING";
+  if (looksLikeNetworkFailure(error)) return "REMOTE_CI_NETWORK_UNAVAILABLE";
   if (command === "gh" && error && Number(error.exitCode || error.code) !== 0) return "REMOTE_CI_GH_COMMAND_FAILED";
   if (command === "git" && error && Number(error.exitCode || error.code) !== 0) return "REMOTE_CI_GIT_COMMAND_FAILED";
   return "REMOTE_CI_COMMAND_FAILED";
+}
+
+function looksLikeNetworkFailure(error) {
+  const code = String(error?.code || error?.exitCode || "").toUpperCase();
+  if (["ENOTFOUND", "ETIMEDOUT", "ECONNRESET", "ECONNREFUSED", "EAI_AGAIN", "ENETUNREACH"].includes(code)) return true;
+  const text = sanitizeText(`${error?.message || ""} ${error?.stderr || ""} ${error?.stdout || ""}`, 500).toLowerCase();
+  return /could not resolve|network|timed out|timeout|connection refused|connection reset|tls|temporary failure|failed to connect/.test(text);
 }
 
 async function defaultCommandRunner(command, args, options = {}) {
@@ -342,6 +360,28 @@ function nextActionFor(details) {
   return "inspect-safe-summary-and-fix-forward";
 }
 
+function statusForDetails(details) {
+  if (details.status !== COMPLETED_STATUS || PENDING_STATUSES.has(details.status)) return "pending";
+  if (details.conclusion === "success") return "passed";
+  if (details.conclusion === "cancelled") return "cancelled";
+  return "failed";
+}
+
+function phaseForFailureCode(code) {
+  if (code === "GITHUB_CLI_MISSING") return REMOTE_CI_PHASES.GITHUB_CLI;
+  if (code === "GITHUB_AUTH_MISSING") return REMOTE_CI_PHASES.GITHUB_AUTH;
+  if (code === "REMOTE_CI_NETWORK_UNAVAILABLE") return REMOTE_CI_PHASES.NETWORK;
+  if (String(code || "").startsWith("REMOTE_CI_GIT") || code === "REMOTE_CI_REMOTE_MISSING") return REMOTE_CI_PHASES.GIT_CONTEXT;
+  if (String(code || "").includes("REPOSITORY")) return REMOTE_CI_PHASES.REPOSITORY;
+  if (String(code || "").includes("RUN") || String(code || "").includes("WORKFLOW") || code === "REMOTE_CI_TIMEOUT") return REMOTE_CI_PHASES.WORKFLOW;
+  return REMOTE_CI_PHASES.RELEASE_GATE;
+}
+
+function statusForFailureCode(code) {
+  if (code === "REMOTE_CI_TIMEOUT") return "pending";
+  return "failed";
+}
+
 function buildSummary({ config, context, repository, details, attempts, startedMs, checkedMs }) {
   const failedJobs = failedJobsFor(details, config.releaseJobName);
   const releaseJob = releaseJobFor(details, config.releaseJobName);
@@ -349,6 +389,10 @@ function buildSummary({ config, context, repository, details, attempts, startedM
   const waitedMs = Math.max(0, checkedMs - startedMs);
   const summary = {
     ok,
+    phase: ok ? REMOTE_CI_PHASES.COMPLETED : REMOTE_CI_PHASES.RELEASE_GATE,
+    status: statusForDetails(details),
+    passed: ok,
+    skipped: false,
     checkedAt: new Date(checkedMs).toISOString(),
     repository: {
       detected: repository.detected,
@@ -443,6 +487,7 @@ function safeError(error) {
   const nextActions = {
     GITHUB_CLI_MISSING: "run-npm-run-github-setup",
     GITHUB_AUTH_MISSING: "run-gh-auth-login-manually",
+    REMOTE_CI_NETWORK_UNAVAILABLE: "check-network-and-github-connectivity-then-rerun",
     REMOTE_CI_RUN_NOT_FOUND: "wait-for-actions-or-confirm-branch-sha",
     REMOTE_CI_SHA_MISMATCH: "wait-for-actions-or-confirm-branch-sha",
     REMOTE_CI_BRANCH_MISMATCH: "wait-for-actions-or-confirm-branch-sha",
@@ -451,6 +496,10 @@ function safeError(error) {
   };
   return {
     ok: false,
+    phase: phaseForFailureCode(code),
+    status: statusForFailureCode(code),
+    passed: false,
+    skipped: false,
     code,
     message: findSensitiveLeak(rawMessage) ? "Remote CI verification failed." : rawMessage,
     nextAction: nextActions[code] || "inspect-safe-summary",
@@ -478,6 +527,7 @@ export {
   DEFAULT_TIMEOUT_MS,
   DEFAULT_WORKFLOW_NAME,
   RemoteCiError,
+  REMOTE_CI_PHASES,
   parseRemoteCiConfig,
   runRemoteCiCheck,
   safeError,

@@ -68,7 +68,7 @@ Run `npm run youtube:doctor` at any time. With default config it returns a safe 
 
 Run `npm run youtube:smoke` only for manual authorized proof. It requires `SHORTSENGINE_YOUTUBE_SMOKE=1`, `SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1`, a safe URL, downloader readiness, and either a smoke URL allowlist or `SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED=1`. It validates `/health`, `/api/youtube/validate`, `/api/youtube/ingest`, generate, job polling, export download and MP4 signature, then writes `demo/results/youtube-smoke-latest.json`.
 
-Run `npm run youtube:e2e:local` or its alias `npm run youtube:proof` only for manual local proof. It defaults to skipped, runs `env:check` before doctor/server work, requires `SHORTSENGINE_YOUTUBE_LIVE_E2E=1`, `SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED=1`, a safe URL, `SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1`, downloader readiness, and the same smoke allowlist or explicit unlisted gate. It writes `demo/results/youtube-live-e2e-latest.json` with safe `phase`, `nextAction` and triage summaries.
+Run `npm run youtube:e2e:local`, `npm run youtube:proof`, or the explicit operator alias `npm run youtube:proof:operator` only for manual local proof. They default to skipped, run `env:check` before doctor/server work, require `SHORTSENGINE_YOUTUBE_LIVE_E2E=1`, `SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED=1`, a safe URL, `SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1`, downloader readiness, and the same smoke allowlist or explicit unlisted gate. They write `demo/results/youtube-live-e2e-latest.json` with safe `command`, `phase`, `passed`, `skipped`, `nextAction` and triage summaries.
 
 Use `docs/YOUTUBE_INGEST_MANUAL_SMOKE.md` before the first real downloader run. It documents rights review, downloader verification, safe env flags, report reading, safe cleanup and troubleshooting codes.
 
@@ -188,19 +188,20 @@ Use `docs/YOUTUBE_INGEST_MANUAL_SMOKE.md` before the first real downloader run. 
 7. Run `npm run release:check`.
 8. Run `npm run release:readiness`.
 9. If remote GitHub proof is needed, run `npm run github:setup` and authenticate `gh` manually before `npm run github:doctor`.
-10. After a validated push, run `npm run remote:ci` and `npm run remote:ci:proof`; the proof must match the exact commit SHA and uses `GITHUB_CLI_MISSING`, `GITHUB_AUTH_MISSING`, `REMOTE_CI_RUN_NOT_FOUND`, `REMOTE_CI_TIMEOUT` and `REMOTE_CI_SHA_MISMATCH` as safe recovery codes.
+10. After a validated push, run `npm run remote:ci` and `npm run remote:ci:proof`; the proof must match the exact commit SHA and uses `GITHUB_CLI_MISSING`, `GITHUB_AUTH_MISSING`, `REMOTE_CI_NETWORK_UNAVAILABLE`, `REMOTE_CI_RUN_NOT_FOUND`, `REMOTE_CI_TIMEOUT` and `REMOTE_CI_SHA_MISMATCH` as safe recovery codes.
 11. Run `npm run youtube:doctor`; default disabled mode should return a safe skipped summary.
 12. Start the server with staging env values.
 13. Check `GET /health` and require `status: "ready"` unless a documented degraded dependency is expected.
 14. Run deployed smoke with `SHORTSENGINE_STAGING_URL=... npm run staging:smoke`.
 15. Run opt-in full smoke only when intentional: `SHORTSENGINE_STAGING_FULL_SMOKE=1 SHORTSENGINE_STAGING_URL=... npm run staging:smoke:full`.
 16. Run opt-in YouTube smoke only when authorized and downloader-ready: `SHORTSENGINE_YOUTUBE_SMOKE=1 SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1 SHORTSENGINE_YOUTUBE_SMOKE_URL=... npm run youtube:smoke`.
-17. Run cleanup dry-run after full smoke: `npm run staging:smoke:cleanup`.
-18. Run explicit smoke cleanup only when intended: `SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP=1 npm run staging:smoke:cleanup`.
-19. Run `npm run demo:fixture`, `npm run demo:smoke`, `npm run demo:browser`, and `npm run demo:browser:ci`.
-20. Run `npm run ci:reports` and `npm run release:evidence`.
-21. Inspect failure-only artifacts only if a gate fails.
-22. Configure GitHub branch protection as documented in `docs/RELEASE.md` and GitHub Environment protection as documented in `docs/STAGING_DEPLOYMENT.md`.
+17. Run explicit operator YouTube proof only when authorized and downloader-ready: `SHORTSENGINE_YOUTUBE_LIVE_E2E=1 SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED=1 SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1 SHORTSENGINE_YOUTUBE_LIVE_E2E_URL=... npm run youtube:proof:operator`.
+18. Run cleanup dry-run after full smoke: `npm run staging:smoke:cleanup`.
+19. Run explicit smoke cleanup only when intended: `SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP=1 npm run staging:smoke:cleanup`.
+20. Run `npm run demo:fixture`, `npm run demo:smoke`, `npm run demo:browser`, and `npm run demo:browser:ci`.
+21. Run `npm run ci:reports` and `npm run release:evidence`.
+22. Inspect failure-only artifacts only if a gate fails.
+23. Configure GitHub branch protection as documented in `docs/RELEASE.md` and GitHub Environment protection as documented in `docs/STAGING_DEPLOYMENT.md`.
 
 ## Render Staging Runtime
 

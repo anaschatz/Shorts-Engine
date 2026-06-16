@@ -45,6 +45,7 @@
     "youtube:doctor": "node tools/release/check-youtube-ingest.mjs",
     "youtube:e2e:local": "node demo/run-youtube-live-e2e.mjs",
     "youtube:proof": "node demo/run-youtube-live-e2e.mjs",
+    "youtube:proof:operator": "node demo/run-youtube-live-e2e.mjs --operator",
     "youtube:smoke": "node demo/run-youtube-smoke.mjs"
   },
   "engines": {

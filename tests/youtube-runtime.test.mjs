@@ -504,12 +504,35 @@ test("youtube live local e2e skips safely without explicit flag", async () => {
     },
   });
   assert.equal(report.status, "skipped");
+  assert.equal(report.command, "youtube:proof");
+  assert.equal(report.passed, false);
+  assert.equal(report.skipped, true);
   assert.equal(report.phase, "skipped");
   assert.match(report.nextAction, /SHORTSENGINE_YOUTUBE_LIVE_E2E/);
   assert.match(report.triage.nextAction, /SHORTSENGINE_YOUTUBE_LIVE_E2E/);
   assert.equal(report.triage.preflight.ingestEnabled, false);
   assert.equal(report.checks[0].code, "YOUTUBE_LIVE_E2E_DISABLED");
   assert.equal(serverStarted, false);
+  assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube operator proof command skips safely by default", async () => {
+  let serverStarted = false;
+  const report = await runYouTubeLiveE2E({
+    commandName: "youtube:proof:operator",
+    env: {},
+    startServer: () => {
+      serverStarted = true;
+      throw new Error("should not start");
+    },
+  });
+  assert.equal(report.command, "youtube:proof:operator");
+  assert.equal(report.status, "skipped");
+  assert.equal(report.phase, "skipped");
+  assert.equal(report.passed, false);
+  assert.equal(report.skipped, true);
+  assert.equal(serverStarted, false);
+  assert.match(report.nextAction, /SHORTSENGINE_YOUTUBE_LIVE_E2E/);
   assert.equal(findSensitiveLeak(report), null);
 });
 
@@ -554,6 +577,8 @@ test("youtube live local e2e runs env check before doctor or server work", async
     },
   });
   assert.equal(report.status, "passed");
+  assert.equal(report.passed, true);
+  assert.equal(report.skipped, false);
   assert.deepEqual(order, ["env", "doctor", "port", "server", "smoke"]);
   assert.equal(report.triage.preflight.sourceConfigured, true);
   assert.equal(report.triage.doctor.downloaderConfigured, true);
@@ -758,6 +783,9 @@ test("youtube live local e2e mocked success wraps smoke proof without raw URL le
     },
   });
   assert.equal(report.status, "passed");
+  assert.equal(report.command, "youtube:proof");
+  assert.equal(report.passed, true);
+  assert.equal(report.skipped, false);
   assert.equal(report.phase, "completed");
   assert.equal(report.source.videoId, VIDEO_ID);
   assert.equal(report.triage.failedPhase, null);

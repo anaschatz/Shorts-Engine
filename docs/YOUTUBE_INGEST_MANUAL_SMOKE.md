@@ -118,7 +118,7 @@ SHORTSENGINE_YOUTUBE_SMOKE_ALLOWED_IDS="<authorized-video-id>" \
 npm run youtube:e2e:local
 ```
 
-`npm run youtube:proof` is an alias for the same operator proof:
+`npm run youtube:proof` is an alias for the same proof, and `npm run youtube:proof:operator` labels the generated report as the explicit operator proof command:
 
 ```bash
 SHORTSENGINE_YOUTUBE_LIVE_E2E=1 \
@@ -126,7 +126,7 @@ SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED=1 \
 SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1 \
 SHORTSENGINE_YOUTUBE_LIVE_E2E_URL="https://www.youtube.com/watch?v=<authorized-video-id>" \
 SHORTSENGINE_YOUTUBE_SMOKE_ALLOWED_IDS="<authorized-video-id>" \
-npm run youtube:proof
+npm run youtube:proof:operator
 ```
 
 For a reviewed one-off URL, use the same explicit unlisted gate as smoke:
@@ -144,6 +144,7 @@ The default command is safe and skips without starting a server:
 
 ```bash
 npm run youtube:e2e:local
+npm run youtube:proof:operator
 ```
 
 The report is written to:
@@ -210,6 +211,9 @@ demo/results/youtube-live-e2e-latest.json
 Expected passing report:
 
 - `status: "passed"`
+- `command: "youtube:proof"` or `command: "youtube:proof:operator"`
+- `passed: true`
+- `skipped: false`
 - `phase: "completed"`
 - `triage.failedPhase: null`
 - `triage.preflight` booleans for ingest, rights, source and allowlist/manual gate readiness
@@ -221,6 +225,8 @@ Expected passing report:
 - export `contentType`, `sizeBytes`, and `sha256Prefix`
 
 Failure reports should include only safe `code`, `phase`, `nextAction` and bounded readiness summaries. Common phases are `env`, `doctor`, `server-bind`, `validation`, `ingest`, `probe`, `render`, `download` and `browser`. They must not contain raw URLs, local absolute paths, storage keys, stdout, stderr, cookies, tokens, secrets, or raw provider/downloader errors.
+
+Default skipped reports should show `status: "skipped"`, `passed: false`, `skipped: true`, `phase: "skipped"` and a `nextAction` that points at the missing opt-in flag. A skipped proof must not start the server, call the downloader or run network ingest.
 
 ## Safe Cleanup
 

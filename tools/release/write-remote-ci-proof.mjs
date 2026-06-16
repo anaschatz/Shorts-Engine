@@ -7,6 +7,7 @@ import { runRemoteCiCheck, safeError as remoteCiSafeError } from "./check-remote
 
 const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const RELEASE_RESULTS_RELATIVE_DIR = "release/results";
+const DEFAULT_COMMAND_NAME = "remote:ci:proof";
 
 class RemoteCiProofError extends Error {
   constructor(code, message, details = {}) {
@@ -80,6 +81,14 @@ function requireSafeGithubUrl(value) {
   return text ? text.replace(/\/$/, "") : null;
 }
 
+function safePhase(value) {
+  return requireText(value || "remote-ci", "proof phase", /^[a-z0-9_-]{1,80}$/, 80);
+}
+
+function safeStatus(value) {
+  return requireText(value || "failed", "proof status", /^[a-z0-9_-]{1,40}$/, 40);
+}
+
 function requireNonNegativeInteger(value, label, min = 0) {
   const number = Number(value);
   if (!Number.isInteger(number) || number < min) {
@@ -114,6 +123,50 @@ function safeFailureMessage(value) {
     return "Remote CI verification failed.";
   }
   return message;
+}
+
+function statusForWorkflow(workflow) {
+  if (workflow.status !== "completed") return "pending";
+  if (workflow.conclusion === "success") return "passed";
+  if (workflow.conclusion === "cancelled") return "cancelled";
+  return "failed";
+}
+
+function phaseForFailureCode(code) {
+  if (code === "GITHUB_CLI_MISSING") return "github-cli";
+  if (code === "GITHUB_AUTH_MISSING") return "github-auth";
+  if (code === "REMOTE_CI_NETWORK_UNAVAILABLE") return "network";
+  if (String(code || "").startsWith("REMOTE_CI_GIT") || code === "REMOTE_CI_REMOTE_MISSING") return "git-context";
+  if (String(code || "").includes("REPOSITORY")) return "repository";
+  if (String(code || "").includes("RUN") || String(code || "").includes("WORKFLOW") || code === "REMOTE_CI_TIMEOUT") return "workflow";
+  return "release-gate";
+}
+
+function statusForFailureCode(code) {
+  if (code === "REMOTE_CI_TIMEOUT") return "pending";
+  return "failed";
+}
+
+function buildRemoteCiTriage({ phase, status, nextAction, failure = null, summary = null }) {
+  return {
+    phase,
+    status,
+    nextAction,
+    githubCli: {
+      available: failure ? failure.code !== "GITHUB_CLI_MISSING" : true,
+      authenticated: failure ? !["GITHUB_CLI_MISSING", "GITHUB_AUTH_MISSING"].includes(failure.code) : true,
+    },
+    remoteCi: {
+      workflowStatus: summary?.workflow?.status || "unknown",
+      workflowConclusion: summary?.workflow?.conclusion || null,
+      releaseJobStatus: summary?.releaseJob?.status || "unknown",
+      releaseJobConclusion: summary?.releaseJob?.conclusion || null,
+      failedJobCount: Number.isInteger(summary?.failedJobs?.count) ? summary.failedJobs.count : 0,
+      logsDownloaded: false,
+      artifactsDownloaded: false,
+    },
+    failure,
+  };
 }
 
 function validateRemoteCiSummaryForProof(summary) {
@@ -176,9 +229,24 @@ function validateRemoteCiSummaryForProof(summary) {
 
 function buildRemoteCiProof(summary) {
   const safeSummary = validateRemoteCiSummaryForProof(summary);
+  const status = statusForWorkflow(safeSummary.workflow);
+  const phase = safeSummary.ok ? "completed" : "release-gate";
   const proof = {
     schemaVersion: 1,
+    timestamp: safeSummary.checkedAt,
     generatedAt: safeSummary.checkedAt,
+    command: DEFAULT_COMMAND_NAME,
+    phase,
+    status,
+    passed: safeSummary.ok,
+    skipped: false,
+    nextAction: safeSummary.nextAction,
+    triage: buildRemoteCiTriage({
+      phase,
+      status,
+      nextAction: safeSummary.nextAction,
+      summary: safeSummary,
+    }),
     remoteCi: {
       ok: safeSummary.ok,
       checkedAt: safeSummary.checkedAt,
@@ -212,12 +280,34 @@ function buildRemoteCiFailureProof(summary, options = {}) {
   assertNoSensitiveProof(safeSummary);
   const nowMs = Number.isFinite(Number(options.nowMs)) ? Number(options.nowMs) : Date.now();
   const generatedAt = requireIsoTimestamp(new Date(nowMs).toISOString(), "generated timestamp");
+  const failureCode = safeFailureCode(safeSummary.code || "REMOTE_CI_FAILED");
+  const failureNextAction = requireText(safeSummary.nextAction || "inspect-safe-summary", "failure next action", /^[a-z0-9_-]{1,80}$/, 80);
+  const failure = {
+    code: failureCode,
+    message: safeFailureMessage(safeSummary.message),
+    phase: safePhase(safeSummary.phase || phaseForFailureCode(failureCode)),
+    status: safeStatus(safeSummary.status || statusForFailureCode(failureCode)),
+    nextAction: failureNextAction,
+  };
   const attempts = options.error && options.error.details
     ? Number(options.error.details.attempts || 0)
     : Number(safeSummary.attempts || 0);
   const proof = {
     schemaVersion: 1,
+    timestamp: generatedAt,
     generatedAt,
+    command: DEFAULT_COMMAND_NAME,
+    phase: failure.phase,
+    status: failure.status,
+    passed: false,
+    skipped: false,
+    nextAction: failure.nextAction,
+    triage: buildRemoteCiTriage({
+      phase: failure.phase,
+      status: failure.status,
+      nextAction: failure.nextAction,
+      failure,
+    }),
     remoteCi: {
       ok: false,
       checkedAt: generatedAt,
@@ -255,12 +345,8 @@ function buildRemoteCiFailureProof(summary, options = {}) {
         timeoutMs: 0,
         pollIntervalMs: 0,
       },
-      failure: {
-        code: safeFailureCode(safeSummary.code || "REMOTE_CI_FAILED"),
-        message: safeFailureMessage(safeSummary.message),
-        nextAction: requireText(safeSummary.nextAction || "inspect-safe-summary", "failure next action", /^[a-z0-9_-]{1,80}$/, 80),
-      },
-      nextAction: requireText(safeSummary.nextAction || "inspect-safe-summary", "next action", /^[a-z0-9_-]{1,80}$/, 80),
+      failure,
+      nextAction: failure.nextAction,
       logsDownloaded: false,
       artifactsDownloaded: false,
     },
@@ -309,7 +395,10 @@ async function writeRemoteCiProof(options = {}) {
     reportPath,
     latestPath,
     generatedAt: proof.generatedAt,
-    status: proof.remoteCi.ok ? "passed" : "failed",
+    phase: proof.phase,
+    status: proof.status,
+    passed: proof.passed,
+    skipped: proof.skipped,
     code: failure ? failure.code : undefined,
     nextAction: proof.remoteCi.nextAction,
   };
@@ -325,8 +414,13 @@ function safeError(error) {
   }
   return {
     ok: false,
+    phase: "proof",
+    status: "failed",
+    passed: false,
+    skipped: false,
     code: error && error.code ? error.code : "REMOTE_CI_PROOF_FAILED",
-    message: error && error.message ? error.message : "Remote CI proof generation failed.",
+    message: safeFailureMessage(error && error.message ? error.message : "Remote CI proof generation failed."),
+    nextAction: "inspect-safe-summary",
   };
 }
 
@@ -347,6 +441,7 @@ if (isMainModule()) {
 
 export {
   RELEASE_RESULTS_RELATIVE_DIR,
+  DEFAULT_COMMAND_NAME,
   RemoteCiProofError,
   buildRemoteCiFailureProof,
   buildRemoteCiProof,

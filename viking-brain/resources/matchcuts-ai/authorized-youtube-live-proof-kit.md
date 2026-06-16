@@ -6,7 +6,7 @@ The YouTube link-to-shorts path should be testable by an operator with an author
 
 ## Flow
 
-`npm run youtube:e2e:local` and `npm run youtube:proof` run the same proof:
+`npm run youtube:e2e:local`, `npm run youtube:proof` and `npm run youtube:proof:operator` run the same proof. The operator alias labels the persisted report with `command: "youtube:proof:operator"` so release evidence can distinguish explicit operator proof from the generic alias.
 
 1. Run central `env:check` first.
 2. Validate explicit live proof flag, ingest enablement, rights confirmation, URL shape and allowlist/manual gate.
@@ -18,6 +18,10 @@ The YouTube link-to-shorts path should be testable by an operator with an author
 
 Reports include:
 
+- `command`
+- `status`
+- `passed`
+- `skipped`
 - `phase`
 - `nextAction`
 - `triage.preflight`

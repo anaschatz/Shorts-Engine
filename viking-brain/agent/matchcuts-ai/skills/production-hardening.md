@@ -70,3 +70,5 @@ Checklist:
 - For live local YouTube E2E proof, keep default skipped/no-network, require explicit rights and ingest flags, reuse doctor plus smoke contracts, and persist only leak-guarded reports.
 - Add operator-only live proof flags to central environment validation before exposing them through demo/browser scripts; summaries should use booleans and bounded numbers, not raw URLs or provider output.
 - For operator proof kits, run env readiness before any doctor/server/provider work and classify failures with safe phases plus `nextAction` so humans can debug from reports without raw logs.
+- Give explicit operator proof commands their own `command` metadata and include `passed`/`skipped` booleans in persisted proof reports.
+- For remote CI proof, classify missing CLI, missing auth, network unavailable, pending timeout, failed release gate and cancelled workflow states separately; never download raw GitHub logs/artifacts in default proof.
