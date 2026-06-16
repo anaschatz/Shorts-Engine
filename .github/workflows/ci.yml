@@ -19,7 +19,6 @@ jobs:
     env:
       CI: "true"
       MATCHCUTS_TRANSCRIPTION_PROVIDER: mock
-      MATCHCUTS_PERSISTENCE_ADAPTER: sqlite
       SHORTSENGINE_BROWSER_E2E_RETENTION_MAX: "20"
 
     steps:

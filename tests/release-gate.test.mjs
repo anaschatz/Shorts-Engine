@@ -100,6 +100,7 @@ test("release gate verifier accepts the valid workflow contract", () => {
     ffmpegInstallRequired: true,
     ffmpegVerifyRequired: true,
   });
+  assert.equal(result.workflow.persistenceAdapterDefault, "local");
   assert.equal(result.releaseReadiness.ready, true);
   assert.equal(result.releaseReadiness.networkCalls, false);
   assert.equal(result.releaseReadiness.remoteProof.automaticAuth, false);
@@ -128,6 +129,17 @@ test("release gate verifier rejects missing FFmpeg runtime setup", () => {
   assert.throws(
     () => verifyWithFixture({ workflowText }),
     /CI workflow must install FFmpeg tools before runtime verification/,
+  );
+});
+
+test("release gate verifier rejects global sqlite persistence overrides", () => {
+  const workflowText = VALID_WORKFLOW.replace(
+    "      MATCHCUTS_TRANSCRIPTION_PROVIDER: mock",
+    "      MATCHCUTS_TRANSCRIPTION_PROVIDER: mock\n      MATCHCUTS_PERSISTENCE_ADAPTER: sqlite",
+  );
+  assert.throws(
+    () => verifyWithFixture({ workflowText }),
+    /CI workflow must not force the sqlite persistence adapter globally/,
   );
 });
 

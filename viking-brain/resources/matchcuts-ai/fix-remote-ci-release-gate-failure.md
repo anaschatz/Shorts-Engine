@@ -24,11 +24,17 @@ Add an explicit `Install FFmpeg tools` step before `Verify runtime tools`:
 Keep the existing `ffmpeg -version` and `ffprobe -version` verification. The release-gate
 verifier and static lint now enforce this runtime setup contract.
 
+The next remote run confirmed the runtime steps passed, then failed at the `Tests` step.
+Local reproduction with the workflow environment showed the global sqlite persistence
+override changed safe defaults that the suite intentionally verifies. The release gate
+now keeps local persistence as the default and relies on focused sqlite tests plus
+staging configuration for sqlite coverage.
+
 ## Safety Notes
 
 - No raw GitHub logs or artifacts are persisted.
 - Failed job summaries include only safe job/step names.
+- The CI workflow must not force `MATCHCUTS_PERSISTENCE_ADAPTER=sqlite` globally.
 - Browser runtime skip remains forbidden in the release gate.
 - Failure artifacts remain failure-only and allowlisted.
 - Real cloud integration remains opt-in and outside default CI.
-

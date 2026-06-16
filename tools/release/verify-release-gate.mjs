@@ -182,6 +182,7 @@ function verifyWorkflowContract(workflowText) {
   assert(/ffmpeg\s+-version/.test(workflowText) && /ffprobe\s+-version/.test(workflowText), "RELEASE_RUNTIME_VERIFY_MISSING", "CI workflow must verify FFmpeg and FFprobe availability.");
   assert(/uses:\s*actions\/upload-artifact@v4/.test(workflowText), "RELEASE_ARTIFACT_UPLOAD_MISSING", "CI workflow must upload diagnostics on failure.");
   assert(/if:\s*failure\(\)/.test(workflowText), "RELEASE_ARTIFACT_UPLOAD_UNSAFE", "CI workflow must upload artifacts only on failure.");
+  assert(!/MATCHCUTS_PERSISTENCE_ADAPTER\s*:\s*sqlite/.test(workflowText), "RELEASE_PERSISTENCE_DEFAULT_UNSAFE", "CI workflow must not force the sqlite persistence adapter globally.");
   assert(!/SHORTSENGINE_BROWSER_E2E_ALLOW_SKIP/.test(workflowText), "RELEASE_BROWSER_SKIP_UNSAFE", "Release gate must not skip missing Playwright runtime.");
   assert(!/integration:cloud|MATCHCUTS_RUN_REAL_CLOUD_TESTS/.test(workflowText), "RELEASE_CLOUD_INTEGRATION_UNSAFE", "Real cloud integration must stay out of the default CI gate.");
 
@@ -203,6 +204,7 @@ function verifyWorkflowContract(workflowText) {
       ffmpegInstallRequired: true,
       ffmpegVerifyRequired: true,
     },
+    persistenceAdapterDefault: "local",
     realCloudIntegrationDefault: false,
     browserRuntimeSkipAllowed: false,
   };

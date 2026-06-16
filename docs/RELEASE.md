@@ -39,6 +39,8 @@ npm run release:evidence
 
 The CI workflow must install the Ubuntu `ffmpeg` package before runtime verification, then run both `ffmpeg -version` and `ffprobe -version`. This keeps render and media validation checks independent of whatever happens to be preinstalled on the GitHub runner image.
 
+The default CI job must not force `MATCHCUTS_PERSISTENCE_ADAPTER=sqlite` globally. The test suite verifies that local remains the safe default while sqlite behavior is covered by focused adapter tests and staging configuration.
+
 `npm run release:readiness` performs a no-network static readiness check for release/CI proof capabilities. It verifies the required release scripts and CI workflow markers, reports safe GitHub proof commands, and declares `networkCalls: false`, `authStarted: false`, `remoteMutation: false`, `logsDownloaded: false` and `artifactsDownloaded: false`.
 
 `npm run release:evidence` writes `release/results/latest.json` plus a timestamped evidence report. The evidence report contains package metadata, checked commands, environment readiness, staging readiness, release readiness, latest report status, artifact policy, branch-protection guidance and limitations. It must not contain secrets, absolute local paths, storage keys, provider raw errors or broad local state.

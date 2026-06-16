@@ -14,6 +14,8 @@ diagnosis, so no raw logs or artifacts were downloaded or persisted.
 - Install the Ubuntu `ffmpeg` package explicitly in CI before runtime verification.
 - Keep `ffmpeg -version` and `ffprobe -version` as hard release-gate checks.
 - Enforce the FFmpeg setup through `verify-release-gate`, `static-lint`, and a focused release-gate test.
+- Keep local persistence as the default CI adapter; sqlite remains covered by focused adapter tests and staging config.
+- Enforce that CI does not set `MATCHCUTS_PERSISTENCE_ADAPTER=sqlite` globally.
 - Preserve failure-only artifacts, no browser skip, and no real cloud integration in default CI.
 
 ## Follow-Up
@@ -21,4 +23,3 @@ diagnosis, so no raw logs or artifacts were downloaded or persisted.
 After local validation, commit and push a fix-forward commit, then rerun
 `npm run github:doctor`, `npm run remote:ci`, and `npm run remote:ci:proof`
 against the new exact commit.
-
