@@ -37,6 +37,8 @@
     },
   ];
 
+  const YOUTUBE_AUTO_VALIDATE_DELAY_MS = 650;
+
   const REQUIRED_SELECTORS = Object.freeze({
     momentList: "#momentList",
     captionPreview: "#captionPreview",
@@ -114,6 +116,9 @@
       generate: Core.createRateLimiter({ limit: 8, windowMs: 60 * 1000 }),
     },
   };
+
+  let youtubeAutoValidateTimer = null;
+  let youtubeValidationRequestId = 0;
 
   const els = resolveElements();
   if (!els) return;
@@ -265,6 +270,32 @@
     });
   }
 
+  function invalidateYouTubeValidationRequest() {
+    youtubeValidationRequestId += 1;
+    return youtubeValidationRequestId;
+  }
+
+  function clearScheduledYouTubeAutoValidation() {
+    window.clearTimeout(youtubeAutoValidateTimer);
+    youtubeAutoValidateTimer = null;
+  }
+
+  function scheduleYouTubeAutoValidate() {
+    clearScheduledYouTubeAutoValidation();
+    const youtubeUi = currentYouTubeUiState();
+    if (!youtubeUi.canValidate) return;
+    const clientValidation = Core.validateYouTubeSourceInput({
+      url: els.youtubeUrlInput.value,
+      rightsConfirmed: els.youtubeRightsCheckbox.checked,
+    });
+    if (!clientValidation.ok) return;
+    if (state.youtubeValidation?.canonicalUrl === clientValidation.data.canonicalUrl) return;
+    const requestId = invalidateYouTubeValidationRequest();
+    youtubeAutoValidateTimer = window.setTimeout(() => {
+      handleYouTubeValidate({ automatic: true, requestId });
+    }, YOUTUBE_AUTO_VALIDATE_DELAY_MS);
+  }
+
   function updateActionStates() {
     const youtubeUi = currentYouTubeUiState();
     const busy = youtubeUi.busy;
@@ -286,7 +317,7 @@
     els.youtubeRightsCheckbox.disabled = busy || !youtubeSource;
     els.validateYoutubeBtn.disabled = !youtubeUi.canValidate;
     els.ingestYoutubeBtn.disabled = !youtubeUi.canIngest;
-    els.validateYoutubeBtn.textContent = state.youtubeAction === "validating" ? "Validating..." : "Validate source";
+    els.validateYoutubeBtn.textContent = state.youtubeAction === "validating" ? "Validating..." : "Validate now";
     els.ingestYoutubeBtn.textContent = state.youtubeAction === "ingesting" ? "Ingesting..." : "Ingest video";
     els.youtubeSourcePanel.dataset.flowState = youtubeUi.status;
     els.exportBtn.disabled = !youtubeUi.canDownload;
@@ -377,12 +408,16 @@
       els.youtubeIngestStatus.textContent = "Ingesting authorized YouTube source into a local MP4 artifact...";
     } else if (uiState && uiState.ingested) {
       els.youtubeIngestStatus.textContent = "YouTube source ingested. Generate shorts is ready.";
+    } else if (uiState && uiState.urlReady && !uiState.rightsConfirmed) {
+      els.youtubeIngestStatus.textContent = "Confirm rights to auto-validate this YouTube URL.";
+    } else if (uiState && uiState.urlReady && uiState.rightsConfirmed && !uiState.validated) {
+      els.youtubeIngestStatus.textContent = "Ready. Auto-validates after typing stops.";
     } else if (ready) {
-      els.youtubeIngestStatus.textContent = "YouTube ingest is enabled. Validate the URL before ingest.";
+      els.youtubeIngestStatus.textContent = "YouTube ingest is enabled. URL validation runs automatically.";
     } else if (health.enabled && !health.downloaderConfigured) {
       els.youtubeIngestStatus.textContent = "YouTube ingest is enabled but the downloader is unavailable.";
     } else {
-      els.youtubeIngestStatus.textContent = "YouTube ingest is disabled by default. Local uploads still work.";
+      els.youtubeIngestStatus.textContent = "YouTube ingest is disabled by default. URL validation still works.";
     }
   }
 
@@ -609,8 +644,15 @@
     els.fileLabel.textContent = "MP4, MOV ή WEBM · μέχρι 30 λεπτά · μέχρι 250 MB";
   }
 
-  async function handleYouTubeValidate() {
-    clearError();
+  async function handleYouTubeValidate(options = {}) {
+    const automatic = Boolean(options.automatic);
+    const requestId = options.requestId || invalidateYouTubeValidationRequest();
+    clearScheduledYouTubeAutoValidation();
+    if (automatic) {
+      clearYouTubeFieldError();
+    } else {
+      clearError();
+    }
     resetRenderState();
     state.activeUpload = null;
     state.activeProject = null;
@@ -621,6 +663,10 @@
       rightsConfirmed: els.youtubeRightsCheckbox.checked,
     });
     if (!clientValidation.ok) {
+      if (automatic && clientValidation.error?.code === "YOUTUBE_RIGHTS_REQUIRED") {
+        updateActionStates();
+        return;
+      }
       showYouTubeError(clientValidation);
       updateActionStates();
       return;
@@ -636,21 +682,25 @@
           rightsConfirmed: true,
         }),
       });
+      if (requestId !== youtubeValidationRequestId) return;
       state.youtubeValidation = data.source;
       state.youtubeAction = "validated";
       renderYouTubePreview(data.source);
       setProjectStatus("draft", "URL checked");
-      showToast(
-        state.youtubeHealth.ingestAvailable
-          ? "Το YouTube source πέρασε validation. Μπορείς να κάνεις ingest."
-          : "Το YouTube source πέρασε validation. Το ingest μένει κλειδωμένο.",
-        "success",
-      );
+      if (!automatic) {
+        showToast(
+          state.youtubeHealth.ingestAvailable
+            ? "Το YouTube source πέρασε validation. Μπορείς να κάνεις ingest."
+            : "Το YouTube source πέρασε validation. Το ingest μένει κλειδωμένο.",
+          "success",
+        );
+      }
     } catch (error) {
+      if (requestId !== youtubeValidationRequestId) return;
       state.youtubeAction = "failed";
       showYouTubeError(error);
     } finally {
-      updateActionStates();
+      if (requestId === youtubeValidationRequestId) updateActionStates();
     }
   }
 
@@ -985,16 +1035,23 @@
     els.sourceLocalBtn.addEventListener("click", () => selectSource("local"));
     els.sourceYoutubeBtn.addEventListener("click", () => selectSource("youtube"));
     els.youtubeUrlInput.addEventListener("input", () => {
+      invalidateYouTubeValidationRequest();
+      clearScheduledYouTubeAutoValidation();
       clearYouTubeProjectState();
       clearYouTubeFieldError();
       updateActionStates();
+      scheduleYouTubeAutoValidate();
     });
     els.youtubeRightsCheckbox.addEventListener("change", () => {
+      invalidateYouTubeValidationRequest();
+      clearScheduledYouTubeAutoValidation();
       clearYouTubeProjectState();
       clearYouTubeFieldError();
       updateActionStates();
+      scheduleYouTubeAutoValidate();
     });
-    els.validateYoutubeBtn.addEventListener("click", handleYouTubeValidate);
+    els.youtubeUrlInput.addEventListener("blur", scheduleYouTubeAutoValidate);
+    els.validateYoutubeBtn.addEventListener("click", () => handleYouTubeValidate({ automatic: false }));
     els.ingestYoutubeBtn.addEventListener("click", handleYouTubeIngest);
     els.videoInput.addEventListener("change", handleVideoInputChange);
     els.generateBtn.addEventListener("click", handleGenerate);

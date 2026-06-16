@@ -122,19 +122,19 @@
                 placeholder="https://www.youtube.com/watch?v=..."
                 aria-describedby="youtubeHelp youtubeIngestStatus youtubeError"
               />
-              <small class="helper-text" id="youtubeHelp">Υποστηρίζονται video, Shorts και youtu.be links. Playlists και live streams απορρίπτονται.</small>
+              <small class="helper-text" id="youtubeHelp">Υποστηρίζονται video, Shorts και youtu.be links. Το validation ξεκινά αυτόματα μόλις μπει link και επιβεβαιωθούν τα δικαιώματα.</small>
               <label class="checkbox-row" for="youtubeRightsCheckbox">
                 <input type="checkbox" id="youtubeRightsCheckbox" data-testid="youtube-rights-checkbox" />
                 <span>Έχω δικαίωμα να χρησιμοποιήσω αυτό το YouTube video</span>
               </label>
               <button class="secondary-btn full-width-btn" id="validateYoutubeBtn" data-testid="youtube-validate-button" type="button">
-                Validate source
+                Validate now
               </button>
               <button class="secondary-btn full-width-btn" id="ingestYoutubeBtn" data-testid="youtube-ingest-button" type="button" disabled>
                 Ingest video
               </button>
               <small class="helper-text youtube-ingest-status" id="youtubeIngestStatus" data-testid="youtube-ingest-status" aria-live="polite">
-                YouTube ingest is disabled by default.
+                YouTube ingest is disabled by default. URL validation still works.
               </small>
               <div class="youtube-source-card" id="youtubePreview" data-testid="youtube-preview" hidden>
                 <span>Validated source</span>

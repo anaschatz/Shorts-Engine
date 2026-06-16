@@ -553,7 +553,7 @@ assert.match(youtubeManualDocs, /YOUTUBE_SMOKE_REPORT_LEAK/, "YouTube manual smo
 assert.match(youtubeManualDocs, /YOUTUBE_SMOKE_HEALTH_NOT_READY/, "YouTube manual smoke guide should document health readiness failures");
 assert.match(youtubeManualDocs, /YOUTUBE_DOWNLOADER_MISSING/, "YouTube manual smoke guide should document missing downloader failures");
 assert.match(youtubeManualDocs, /Run Local UI E2E Demo/, "YouTube manual smoke guide should document the local UI E2E path");
-assert.match(youtubeManualDocs, /Validate source` is disabled until URL and rights confirmation are present/, "YouTube manual smoke guide should document URL and rights gating");
+assert.match(youtubeManualDocs, /Auto validation waits until URL and rights confirmation are present/, "YouTube manual smoke guide should document URL and rights gating");
 assert.match(youtubeManualDocs, /Generate shorts` is disabled for YouTube sources until ingest creates project\/upload state/, "YouTube manual smoke guide should document generate gating");
 assert.match(youtubeManualDocs, /Default CI and local checks must remain no-network and no-downloader/i, "YouTube manual smoke guide should keep CI default-safe");
 assert.match(youtubeManualDocs, /SHORTSENGINE_YOUTUBE_LIVE_E2E_BROWSER=1/, "YouTube manual smoke guide should document the opt-in browser live path");

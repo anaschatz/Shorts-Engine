@@ -112,9 +112,9 @@ Open `http://127.0.0.1:4175` unless you set a different `PORT`.
    - Download is hidden.
    - No horizontal overflow on desktop.
 3. Switch to `YouTube URL`.
-4. Enter a valid YouTube/Shorts URL and click `Validate source` without rights consent.
-5. Confirm the UI shows a safe `YOUTUBE_RIGHTS_REQUIRED` error.
-6. Enable the YouTube rights checkbox, validate again, and confirm a validated preview appears.
+4. Enter a valid YouTube/Shorts URL without rights consent.
+5. Confirm the UI asks for rights confirmation and does not validate yet.
+6. Enable the YouTube rights checkbox and confirm validation starts automatically after typing stops.
 7. Confirm the preview shows safe video id/kind metadata, not a raw canonical URL.
 8. In default mode, confirm `Ingest video`, `Generate shorts`, Export, and Download remain disabled because real ingest is not enabled.
 9. If you intentionally started the server with `SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1` and doctor reports ready, click `Ingest video`.
