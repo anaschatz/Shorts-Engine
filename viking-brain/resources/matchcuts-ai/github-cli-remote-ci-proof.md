@@ -17,6 +17,7 @@ The verifier must:
 
 - Detect missing GitHub CLI as `GITHUB_CLI_MISSING`.
 - Detect missing auth as `GITHUB_AUTH_MISSING`.
+- Detect doctor network reachability failures as `GITHUB_NETWORK_UNAVAILABLE`.
 - Detect GitHub/network reachability failures as `REMOTE_CI_NETWORK_UNAVAILABLE`.
 - Distinguish pending, passed, failed and cancelled workflow states.
 - Never start `gh auth login`.
@@ -24,6 +25,10 @@ The verifier must:
 - Never download Actions logs or artifacts by default.
 - Reject any run whose `headSha` does not match the current commit with `REMOTE_CI_SHA_MISMATCH`.
 - Return safe JSON with bounded polling metadata.
+
+`github:setup` remains documentation-only and should include official install links, manual `gh auth login` guidance, expected repository `anaschatz/Shorts-Engine`, expected workflow/job names and read-only access requirements.
+
+`github:doctor` should return safe `phase`, `status`, `passed`, `skipped` and `nextAction` fields for missing CLI, missing auth, network unavailable, unreadable repo, unreadable Actions metadata, branch-protection unknown/unreadable and unsafe output.
 
 ## Proof Reports
 

@@ -82,6 +82,10 @@ test("GitHub CLI doctor returns safe readiness summary", async () => {
   const summary = await doctor();
 
   assert.equal(summary.ok, true);
+  assert.equal(summary.phase, "completed");
+  assert.equal(summary.status, "passed");
+  assert.equal(summary.passed, true);
+  assert.equal(summary.skipped, false);
   assert.equal(summary.githubCli.available, true);
   assert.equal(summary.githubCli.authenticated, true);
   assert.equal(summary.repository.nameWithOwner, "anaschatz/Shorts-Engine");
@@ -102,6 +106,10 @@ test("GitHub CLI doctor fails safely when gh is missing or auth is missing", asy
   }).catch((caught) => caught);
   const missingGhError = safeError(missingGh);
   assert.equal(missingGhError.code, "GITHUB_CLI_MISSING");
+  assert.equal(missingGhError.phase, "github-cli");
+  assert.equal(missingGhError.status, "failed");
+  assert.equal(missingGhError.passed, false);
+  assert.equal(missingGhError.skipped, false);
   assert.equal(missingGhError.nextAction, "run-npm-run-github-setup");
   assert.equal(findSensitiveLeak(missingGhError), null);
 
@@ -112,8 +120,25 @@ test("GitHub CLI doctor fails safely when gh is missing or auth is missing", asy
   }).catch((caught) => caught);
   const missingAuthError = safeError(missingAuth);
   assert.equal(missingAuthError.code, "GITHUB_AUTH_MISSING");
+  assert.equal(missingAuthError.phase, "github-auth");
   assert.equal(missingAuthError.nextAction, "run-gh-auth-login-manually");
   assert.equal(findSensitiveLeak(missingAuthError), null);
+});
+
+test("GitHub CLI doctor classifies network failures separately", async () => {
+  const network = await doctor({
+    commandRunner: mockRunner(baseResponses({
+      "gh repo view --json nameWithOwner,url": Object.assign(new Error("could not resolve host github.com"), {
+        exitCode: 1,
+        stderr: "could not resolve host github.com",
+      }),
+    })),
+  }).catch((caught) => caught);
+  const networkError = safeError(network);
+  assert.equal(networkError.code, "GITHUB_NETWORK_UNAVAILABLE");
+  assert.equal(networkError.phase, "network");
+  assert.equal(networkError.nextAction, "check-network-and-github-connectivity-then-rerun");
+  assert.equal(findSensitiveLeak(networkError), null);
 });
 
 test("GitHub CLI doctor fails safely when repo or Actions metadata is unreadable", async () => {
@@ -122,15 +147,19 @@ test("GitHub CLI doctor fails safely when repo or Actions metadata is unreadable
       "gh repo view --json nameWithOwner,url": Object.assign(new Error("forbidden"), { exitCode: 1 }),
     })),
   }).catch((caught) => caught);
-  assert.equal(safeError(repoUnreadable).code, "GITHUB_REPO_UNREADABLE");
+  const repoError = safeError(repoUnreadable);
+  assert.equal(repoError.code, "GITHUB_REPO_UNREADABLE");
+  assert.equal(repoError.phase, "repository");
 
   const actionsUnreadable = await doctor({
     commandRunner: mockRunner(baseResponses({
       "gh run list --limit 1 --json databaseId,status,conclusion,workflowName,url,headBranch,headSha,createdAt,updatedAt,name": Object.assign(new Error("forbidden"), { exitCode: 1 }),
     })),
   }).catch((caught) => caught);
-  assert.equal(safeError(actionsUnreadable).code, "GITHUB_ACTIONS_UNREADABLE");
-  assert.equal(findSensitiveLeak(safeError(actionsUnreadable)), null);
+  const actionsError = safeError(actionsUnreadable);
+  assert.equal(actionsError.code, "GITHUB_ACTIONS_UNREADABLE");
+  assert.equal(actionsError.phase, "actions");
+  assert.equal(findSensitiveLeak(actionsError), null);
 });
 
 test("GitHub CLI doctor rejects unsafe GitHub output", async () => {
@@ -167,6 +196,7 @@ test("branch protection readiness reports incomplete and unknown states safely",
     })),
   });
   assert.equal(unknown.branchProtection.status, "unknown");
+  assert.equal(unknown.branchProtection.code, "GITHUB_BRANCH_PROTECTION_UNREADABLE");
   assert.equal(unknown.branchProtection.nextAction, "confirm-branch-protection-in-github-ui");
   assert.equal(findSensitiveLeak(unknown), null);
 });

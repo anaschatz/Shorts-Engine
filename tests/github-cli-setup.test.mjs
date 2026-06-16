@@ -16,6 +16,10 @@ test("GitHub CLI setup guide is deterministic documentation-only output", () => 
   assert.equal(guide.ok, true);
   assert.equal(guide.generatedAt, "2026-06-16T14:00:00.000Z");
   assert.equal(guide.mode, "documentation-only");
+  assert.equal(guide.expectedRemote.repository, "anaschatz/Shorts-Engine");
+  assert.equal(guide.expectedRemote.workflow, "ShortsEngine CI");
+  assert.equal(guide.expectedRemote.releaseJob, "Release gate");
+  assert.equal(guide.expectedRemote.exactCommitRequired, true);
   assert.equal(guide.safety.networkCalls, false);
   assert.equal(guide.safety.authStarted, false);
   assert.equal(guide.safety.remoteMutation, false);
@@ -32,6 +36,8 @@ test("GitHub CLI setup guide includes install, auth and post-push commands", () 
   const guideText = JSON.stringify(buildGithubCliSetupGuide({ nowMs: NOW_MS }));
 
   assert.match(guideText, /brew install gh/);
+  assert.match(guideText, /https:\/\/cli\.github\.com\//);
+  assert.match(guideText, /https:\/\/github\.com\/cli\/cli#installation/);
   assert.match(guideText, /official GitHub CLI package repository/);
   assert.match(guideText, /winget install --id GitHub\.cli/);
   assert.match(guideText, /gh auth login/);
@@ -39,6 +45,9 @@ test("GitHub CLI setup guide includes install, auth and post-push commands", () 
   assert.match(guideText, /npm run github:doctor/);
   assert.match(guideText, /npm run remote:ci/);
   assert.match(guideText, /npm run remote:ci:proof/);
+  assert.match(guideText, /anaschatz\/Shorts-Engine/);
+  assert.match(guideText, /repo metadata read/);
+  assert.match(guideText, /actions read/);
   assert.doesNotMatch(guideText, /ghp_|github_pat_|GITHUB_TOKEN\s*=|secret set|repo edit|download-logs|view --log|artifact download/i);
 });
 
@@ -47,6 +56,7 @@ test("GitHub CLI setup guide documents safe failure next actions", () => {
 
   assert.equal(guide.errorGuidance.GITHUB_CLI_MISSING.includes("Install GitHub CLI"), true);
   assert.equal(guide.errorGuidance.GITHUB_AUTH_MISSING.includes("gh auth login"), true);
+  assert.equal(guide.errorGuidance.GITHUB_NETWORK_UNAVAILABLE.includes("network"), true);
   assert.equal(guide.errorGuidance.REMOTE_CI_RUN_NOT_FOUND.includes("branch/SHA"), true);
   assert.equal(guide.errorGuidance.REMOTE_CI_TIMEOUT.includes("rerun npm run remote:ci"), true);
   assert.equal(guide.errorGuidance.REMOTE_CI_SHA_MISMATCH.includes("exact pushed commit SHA"), true);

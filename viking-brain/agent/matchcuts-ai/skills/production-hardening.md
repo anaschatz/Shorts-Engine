@@ -72,3 +72,4 @@ Checklist:
 - For operator proof kits, run env readiness before any doctor/server/provider work and classify failures with safe phases plus `nextAction` so humans can debug from reports without raw logs.
 - Give explicit operator proof commands their own `command` metadata and include `passed`/`skipped` booleans in persisted proof reports.
 - For remote CI proof, classify missing CLI, missing auth, network unavailable, pending timeout, failed release gate and cancelled workflow states separately; never download raw GitHub logs/artifacts in default proof.
+- For GitHub CLI readiness, keep setup documentation-only and doctor read-only; classify failures with `phase`, `status`, `nextAction`, `passed: false`, `skipped: false`, and never automate install/auth/token handling.

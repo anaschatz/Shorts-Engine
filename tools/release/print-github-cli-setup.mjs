@@ -30,6 +30,12 @@ const INSTALL_OPTIONS = Object.freeze([
   },
 ]);
 
+const EXPECTED_REMOTE = Object.freeze({
+  repository: "anaschatz/Shorts-Engine",
+  workflow: "ShortsEngine CI",
+  releaseJob: "Release gate",
+});
+
 const REQUIRED_COMMANDS = Object.freeze([
   "gh auth status",
   "npm run github:doctor",
@@ -40,6 +46,7 @@ const REQUIRED_COMMANDS = Object.freeze([
 const ERROR_GUIDANCE = Object.freeze({
   GITHUB_CLI_MISSING: "Install GitHub CLI, then run gh --version and npm run github:doctor.",
   GITHUB_AUTH_MISSING: "Run gh auth login yourself, verify gh auth status, then rerun npm run github:doctor.",
+  GITHUB_NETWORK_UNAVAILABLE: "Check network and GitHub connectivity, then rerun npm run github:doctor.",
   REMOTE_CI_RUN_NOT_FOUND: "Wait for GitHub Actions to create a run for the pushed commit, or confirm branch/SHA.",
   REMOTE_CI_TIMEOUT: "Wait for the bounded CI run to finish, then rerun npm run remote:ci.",
   REMOTE_CI_SHA_MISMATCH: "Confirm that the GitHub Actions run is for the exact pushed commit SHA.",
@@ -73,6 +80,8 @@ function buildGithubCliSetupGuide(options = {}) {
       secretsIncluded: false,
     },
     install: {
+      officialDocs: "https://cli.github.com/",
+      manualDownload: "https://github.com/cli/cli#installation",
       options: INSTALL_OPTIONS,
       verifyCommand: "gh --version",
     },
@@ -89,7 +98,16 @@ function buildGithubCliSetupGuide(options = {}) {
         "Read GitHub Actions workflow runs and job status.",
         "Read branch protection or ruleset metadata only when your account already has permission.",
       ],
+      expectedRepository: EXPECTED_REMOTE.repository,
+      requiredScopes: ["repo metadata read", "actions read"],
       writeAccessRequired: false,
+    },
+    expectedRemote: {
+      repository: EXPECTED_REMOTE.repository,
+      branch: options.branch || "current-branch",
+      workflow: EXPECTED_REMOTE.workflow,
+      releaseJob: EXPECTED_REMOTE.releaseJob,
+      exactCommitRequired: true,
     },
     postPushVerification: {
       commands: REQUIRED_COMMANDS,

@@ -51,9 +51,9 @@ gh auth status
 npm run github:doctor
 ```
 
-`npm run github:setup` prints a documentation-only setup guide. It does not install `gh`, does not run `gh auth login`, does not request tokens, does not call GitHub APIs, and does not mutate repository settings. Use it when `github:doctor`, `remote:ci` or `remote:ci:proof` fail with missing CLI/auth errors. It documents macOS, Linux and Windows install options, manual auth steps, high-level read-only permissions, branch-protection `unknown` guidance and the post-push verification commands.
+`npm run github:setup` prints a documentation-only setup guide. It does not install `gh`, does not run `gh auth login`, does not request tokens, does not call GitHub APIs, and does not mutate repository settings. Use it when `github:doctor`, `remote:ci` or `remote:ci:proof` fail with missing CLI/auth errors. It documents macOS, Linux and Windows install options, official GitHub CLI install links, manual auth steps, high-level read-only permissions, expected repository `anaschatz/Shorts-Engine`, expected workflow/job names, branch-protection `unknown` guidance and the post-push verification commands.
 
-`github:doctor` is read-only. It verifies that `gh` is installed, authenticated, pointed at a readable `origin` repository, able to read GitHub Actions metadata, and able to inspect branch protection when permissions allow it. Branch protection may return `unknown` when GitHub permissions or rulesets hide the settings; in that case, use the GitHub UI checklist below. The doctor never mutates repository settings, never prints raw stderr, and never downloads logs or artifacts.
+`github:doctor` is read-only. It verifies that `gh` is installed, authenticated, pointed at a readable `origin` repository, able to read GitHub Actions metadata, and able to inspect branch protection when permissions allow it. Branch protection may return `unknown` when GitHub permissions or rulesets hide the settings; in that case, use the GitHub UI checklist below. The doctor returns safe `phase`, `status`, `passed`, `skipped` and `nextAction` fields for failures such as `GITHUB_CLI_MISSING`, `GITHUB_AUTH_MISSING`, `GITHUB_NETWORK_UNAVAILABLE`, `GITHUB_REPO_UNREADABLE`, `GITHUB_ACTIONS_UNREADABLE`, `GITHUB_BRANCH_PROTECTION_UNREADABLE` and `GITHUB_OUTPUT_UNSAFE`. The doctor never mutates repository settings, never prints raw stderr, and never downloads logs or artifacts.
 
 After pushing a validated commit, run remote CI verification:
 
@@ -76,6 +76,7 @@ Before using it, make sure `gh auth status` succeeds locally. The check fails cl
 
 - `GITHUB_CLI_MISSING`: install GitHub CLI, then rerun `npm run github:doctor`.
 - `GITHUB_AUTH_MISSING`: run `gh auth login` manually, verify `gh auth status`, then rerun remote proof.
+- `GITHUB_NETWORK_UNAVAILABLE`: check network/GitHub connectivity, then rerun `npm run github:doctor`.
 - `REMOTE_CI_RUN_NOT_FOUND`: wait for GitHub Actions or confirm branch/SHA.
 - `REMOTE_CI_TIMEOUT`: wait for the bounded run to finish.
 - `REMOTE_CI_SHA_MISMATCH`: confirm the proof is checking the pushed commit.

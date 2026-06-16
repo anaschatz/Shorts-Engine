@@ -6,6 +6,16 @@ import { findSensitiveLeak } from "../../demo/report-safety.mjs";
 
 const MAX_COMMAND_OUTPUT_BYTES = 256 * 1024;
 const DEFAULT_REQUIRED_STATUS_CHECK = "Release gate";
+const GITHUB_DOCTOR_PHASES = Object.freeze({
+  GIT_CONTEXT: "git-context",
+  GITHUB_CLI: "github-cli",
+  GITHUB_AUTH: "github-auth",
+  REPOSITORY: "repository",
+  ACTIONS: "actions",
+  BRANCH_PROTECTION: "branch-protection",
+  NETWORK: "network",
+  COMPLETED: "completed",
+});
 
 class GithubCliDoctorError extends Error {
   constructor(code, message, details = {}) {
@@ -63,6 +73,13 @@ function assertNoSensitiveOutput(value) {
   }
 }
 
+function looksLikeNetworkFailure(error) {
+  const code = String(error?.code || error?.exitCode || "").toUpperCase();
+  if (["ENOTFOUND", "ETIMEDOUT", "ECONNRESET", "ECONNREFUSED", "EAI_AGAIN", "ENETUNREACH"].includes(code)) return true;
+  const text = sanitizeText(`${error?.message || ""} ${error?.stderr || ""} ${error?.stdout || ""}`, 500).toLowerCase();
+  return /could not resolve|network|timed out|timeout|connection refused|connection reset|tls|temporary failure|failed to connect/.test(text);
+}
+
 async function defaultCommandRunner(command, args, options = {}) {
   return await new Promise((resolveCommand, rejectCommand) => {
     execFile(command, args, {
@@ -97,6 +114,9 @@ async function runCommand(commandRunner, command, args, options = {}) {
     if (error instanceof GithubCliDoctorError) throw error;
     if (command === "gh" && error && error.code === "ENOENT") {
       throw new GithubCliDoctorError("GITHUB_CLI_MISSING", "GitHub CLI is not available.");
+    }
+    if (command === "gh" && looksLikeNetworkFailure(error)) {
+      throw new GithubCliDoctorError("GITHUB_NETWORK_UNAVAILABLE", "GitHub network access is unavailable.");
     }
     throw new GithubCliDoctorError(options.failureCode || "GITHUB_COMMAND_FAILED", options.failureMessage || "GitHub readiness command failed.");
   }
@@ -231,6 +251,7 @@ function unknownBranchProtection(branch, reasonCode = "permission-or-ruleset-una
     mode: "read-only",
     branch,
     status: "unknown",
+    code: "GITHUB_BRANCH_PROTECTION_UNREADABLE",
     reasonCode,
     requiredStatusChecks: [DEFAULT_REQUIRED_STATUS_CHECK],
     checks: {
@@ -317,6 +338,10 @@ async function runGithubCliDoctor(options = {}) {
   });
   const summary = {
     ok: true,
+    phase: GITHUB_DOCTOR_PHASES.COMPLETED,
+    status: "passed",
+    passed: true,
+    skipped: false,
     checkedAt: new Date(nowMs).toISOString(),
     githubCli: {
       available: true,
@@ -339,18 +364,34 @@ async function runGithubCliDoctor(options = {}) {
   return summary;
 }
 
+function phaseForCode(code) {
+  if (code === "GITHUB_CLI_MISSING") return GITHUB_DOCTOR_PHASES.GITHUB_CLI;
+  if (code === "GITHUB_AUTH_MISSING") return GITHUB_DOCTOR_PHASES.GITHUB_AUTH;
+  if (code === "GITHUB_NETWORK_UNAVAILABLE") return GITHUB_DOCTOR_PHASES.NETWORK;
+  if (code === "GITHUB_REPO_UNREADABLE") return GITHUB_DOCTOR_PHASES.REPOSITORY;
+  if (code === "GITHUB_ACTIONS_UNREADABLE") return GITHUB_DOCTOR_PHASES.ACTIONS;
+  if (code === "GITHUB_BRANCH_PROTECTION_UNREADABLE") return GITHUB_DOCTOR_PHASES.BRANCH_PROTECTION;
+  if (String(code || "").includes("OUTPUT")) return "output-safety";
+  return GITHUB_DOCTOR_PHASES.GIT_CONTEXT;
+}
+
 function safeError(error) {
   const code = error && error.code ? error.code : "GITHUB_DOCTOR_FAILED";
   const rawMessage = error && error.message ? sanitizeText(error.message, 240) : "GitHub CLI readiness check failed.";
   const nextActions = {
     GITHUB_CLI_MISSING: "run-npm-run-github-setup",
     GITHUB_AUTH_MISSING: "run-gh-auth-login-manually",
+    GITHUB_NETWORK_UNAVAILABLE: "check-network-and-github-connectivity-then-rerun",
     GITHUB_REPO_UNREADABLE: "confirm-origin-and-repository-access",
     GITHUB_ACTIONS_UNREADABLE: "confirm-actions-read-permissions",
     GITHUB_BRANCH_PROTECTION_UNREADABLE: "confirm-branch-protection-in-github-ui",
   };
   return {
     ok: false,
+    phase: phaseForCode(code),
+    status: "failed",
+    passed: false,
+    skipped: false,
     code,
     message: findSensitiveLeak(rawMessage) ? "GitHub CLI readiness check failed." : rawMessage,
     nextAction: nextActions[code] || "inspect-safe-summary",
@@ -372,6 +413,7 @@ if (isMainModule()) {
 
 export {
   DEFAULT_REQUIRED_STATUS_CHECK,
+  GITHUB_DOCTOR_PHASES,
   GithubCliDoctorError,
   branchProtectionReadiness,
   runGithubCliDoctor,
