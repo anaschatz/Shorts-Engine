@@ -119,6 +119,13 @@ test("demo report leak guard catches unsafe keys, paths and tokens", () => {
   assert.equal(hasSensitiveLeak({ provider: { message: "YOUTUBE_COOKIE: private-cookie-value" } }), true);
   assert.equal(hasSensitiveLeak({ provider: { message: "YT_DLP_COOKIES=private-cookie-value" } }), true);
   assert.equal(hasSensitiveLeak({ provider: { message: "VISITOR_INFO1_LIVE=private-cookie-value" } }), true);
+  assert.deepEqual(findSensitiveLeak({ provider: { callback: "https://provider.example/callback?access_token=secret-value" } }), {
+    code: "URL_SECRET_QUERY",
+    path: "$.provider.callback",
+  });
+  assert.equal(hasSensitiveLeak({ provider: { callback: "https://provider.example/callback?token=opaque-provider-token" } }), true);
+  assert.equal(hasSensitiveLeak({ storage: { signedUrl: "https://storage.example/object.mp4?X-Amz-Security-Token=session-secret" } }), true);
+  assert.equal(hasSensitiveLeak({ storage: { signedUrl: "https://storage.example/object.mp4?X-Goog-Signature=abc123" } }), true);
   assert.equal(hasSensitiveLeak({ deploy: { serviceId: "srv-realstaging123" } }), true);
   assert.equal(hasSensitiveLeak({ deploy: { renderService: "srv-realstaging123" } }), true);
   assert.equal(hasSensitiveLeak({ github: { token: "ghp_abcdefghijklmnopqrstuvwx1234567890" } }), true);

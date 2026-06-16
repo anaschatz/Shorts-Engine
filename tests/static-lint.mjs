@@ -236,6 +236,8 @@ for (const [label, script] of Object.entries({ demoSmoke, playwrightSmoke, youtu
   );
 }
 assert.match(reportSafety, /SIGNED_DOWNLOAD_TOKEN_RE/, "report safety should treat signed download tokens as sensitive in persisted reports");
+assert.match(reportSafety, /URL_SECRET_QUERY/, "report safety should treat URL query credentials as sensitive in persisted reports");
+assert.match(reportSafety, /SECRET_QUERY_KEYS/, "report safety should keep query credential names centralized");
 assert.match(reportSafety, /APP_SECRET_VALUE/, "report safety should catch app/provider secret values without relying only on unsafe keys");
 assert.match(reportSafety, /RENDER_SERVICE_ID/, "report safety should treat Render service ids as sensitive in persisted reports");
 assert.match(reportSafety, /GITHUB_TOKEN/, "report safety should treat GitHub tokens as sensitive in persisted reports");

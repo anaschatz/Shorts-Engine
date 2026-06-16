@@ -64,6 +64,8 @@ const SAFE_RESPONSE_HEADERS = Object.freeze({
   "x-content-type-options": "nosniff",
   "x-frame-options": "DENY",
 });
+const URL_SECRET_QUERY_PARAM_RE =
+  /([?&](?:access_token|api_key|auth_token|client_secret|id_token|oauth_token|refresh_token|signature|token|x-amz-credential|x-amz-security-token|x-amz-signature|x-goog-credential|x-goog-security-token|x-goog-signature)=)[^&\s"']+/gi;
 
 class AppError extends Error {
   constructor(code, message, status = 400, details = null) {
@@ -118,6 +120,7 @@ function redactForLogs(value) {
       .replace(/\bsrv-[A-Za-z0-9_-]{6,80}\b/g, "srv-[redacted]")
       .replace(/X-Amz-Signature=[A-Fa-f0-9]+/g, "X-Amz-Signature=[redacted]")
       .replace(/X-Amz-Credential=[^&\s]+/g, "X-Amz-Credential=[redacted]")
+      .replace(URL_SECRET_QUERY_PARAM_RE, "$1[redacted]")
       .replace(/adt_[A-Fa-f0-9-]{36}_[A-Fa-f0-9]{32}/g, "adt_[redacted]")
       .replace(/\/Users\/[^\s"']+/g, "[redacted-path]")
       .replace(/\/private\/[^\s"']+/g, "[redacted-path]")

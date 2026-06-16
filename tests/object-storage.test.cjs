@@ -397,11 +397,11 @@ test("log redaction removes token, storage key and local path details", () => {
       slackToken: "xoxb-1234567890-private-token",
     },
     staging: "/tmp/shortsengine/private.mp4",
-    message: `download ${token} OPENAI_API_KEY=secret srv-realstaging123 SHORTSENGINE_YOUTUBE_SMOKE_TOKEN secret VISITOR_INFO1_LIVE=private-cookie -----BEGIN PRIVATE KEY----- private -----END PRIVATE KEY-----`,
+    message: `download ${token} OPENAI_API_KEY=secret srv-realstaging123 SHORTSENGINE_YOUTUBE_SMOKE_TOKEN secret VISITOR_INFO1_LIVE=private-cookie https://provider.example/cb?access_token=oauth-secret https://storage.example/object?X-Amz-Security-Token=session-secret -----BEGIN PRIVATE KEY----- private -----END PRIVATE KEY-----`,
   });
   const body = JSON.stringify(redacted);
 
   assert.doesNotMatch(body, new RegExp(token));
-  assert.doesNotMatch(body, /exports\/private-key|\/Users|\/private|\/tmp|OPENAI_API_KEY=secret|sk-secret|srv-realstaging123|ghs_|glpat-|xoxb-|SHORTSENGINE_YOUTUBE_SMOKE_TOKEN secret|VISITOR_INFO1_LIVE=private-cookie|BEGIN PRIVATE KEY/);
+  assert.doesNotMatch(body, /exports\/private-key|\/Users|\/private|\/tmp|OPENAI_API_KEY=secret|sk-secret|srv-realstaging123|ghs_|glpat-|xoxb-|SHORTSENGINE_YOUTUBE_SMOKE_TOKEN secret|VISITOR_INFO1_LIVE=private-cookie|oauth-secret|session-secret|BEGIN PRIVATE KEY/);
   assert.match(body, /\[redacted\]/);
 });

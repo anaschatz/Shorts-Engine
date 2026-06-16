@@ -4,6 +4,24 @@ const require = createRequire(import.meta.url);
 const { redactForLogs } = require("../server/errors.cjs");
 
 const SIGNED_DOWNLOAD_TOKEN_RE = /adt_[A-Fa-f0-9-]{36}_[A-Fa-f0-9]{32}/;
+const URL_WITH_QUERY_RE = /(?:https?:\/\/|\/)[^\s"']*\?[^\s"']*/gi;
+const SECRET_QUERY_KEYS = new Set([
+  "access_token",
+  "api_key",
+  "auth_token",
+  "client_secret",
+  "id_token",
+  "oauth_token",
+  "refresh_token",
+  "signature",
+  "token",
+  "x-amz-credential",
+  "x-amz-security-token",
+  "x-amz-signature",
+  "x-goog-credential",
+  "x-goog-security-token",
+  "x-goog-signature",
+]);
 const SENSITIVE_VALUE_PATTERNS = Object.freeze([
   { code: "LOCAL_PATH", pattern: /(?:^|[\s"'=])\/(?:Users|private|var\/folders|tmp)\/[^\s"']*/i },
   { code: "FILE_URL", pattern: /file:\/\/[^\s"']+/i },
@@ -54,6 +72,7 @@ const UNSAFE_KEYS = new Set([
 ]);
 
 const SAFE_PATH_KEYS = new Set(["latestpath", "relativepath", "reportpath"]);
+const INTERNAL_ARTIFACT_DOWNLOAD_PATH = "/api/artifacts/download";
 
 function keyPath(parent, key) {
   return parent ? `${parent}.${key}` : String(key);
@@ -70,8 +89,31 @@ function valueLeak(value, options = {}) {
   if (!options.allowSignedDownloadToken && SIGNED_DOWNLOAD_TOKEN_RE.test(text)) {
     return { code: "SIGNED_DOWNLOAD_TOKEN" };
   }
+  const queryLeak = urlQuerySecretLeak(text);
+  if (queryLeak) return queryLeak;
   for (const entry of SENSITIVE_VALUE_PATTERNS) {
     if (entry.pattern.test(text)) return { code: entry.code };
+  }
+  return null;
+}
+
+function urlQuerySecretLeak(text) {
+  const candidates = String(text || "").match(URL_WITH_QUERY_RE) || [];
+  for (const candidate of candidates) {
+    let parsed;
+    try {
+      parsed = new URL(candidate, "http://shortsengine.local");
+    } catch {
+      continue;
+    }
+    const isInternalArtifactDownload =
+      parsed.origin === "http://shortsengine.local" &&
+      parsed.pathname === INTERNAL_ARTIFACT_DOWNLOAD_PATH;
+    for (const key of parsed.searchParams.keys()) {
+      const normalizedKey = String(key || "").toLowerCase();
+      if (isInternalArtifactDownload && normalizedKey === "token") continue;
+      if (SECRET_QUERY_KEYS.has(normalizedKey)) return { code: "URL_SECRET_QUERY" };
+    }
   }
   return null;
 }
