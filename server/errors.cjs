@@ -66,6 +66,33 @@ const SAFE_RESPONSE_HEADERS = Object.freeze({
 });
 const URL_SECRET_QUERY_PARAM_RE =
   /([?&](?:access_token|api_key|auth_token|client_secret|id_token|oauth_token|refresh_token|signature|token|x-amz-credential|x-amz-security-token|x-amz-signature|x-goog-credential|x-goog-security-token|x-goog-signature)=)[^&\s"']+/gi;
+const SAFE_LOG_STATUS_KEYS = new Set([
+  "activesignedtokens",
+  "artifactsdownloaded",
+  "authstarted",
+  "branchprotectionmutation",
+  "credentialconfigured",
+  "credentialsconfigured",
+  "credentialsetconfigured",
+  "deploycredentialconfigured",
+  "deploytokenconfigured",
+  "credentialrefs",
+  "githubenvironmentsecrets",
+  "logsdownloaded",
+  "networkcalls",
+  "providercredentialconfigured",
+  "rawartifactsrequired",
+  "rawlogsrequired",
+  "remotemutation",
+  "repositorymutation",
+  "rulesetmutation",
+  "secretsincluded",
+  "serviceidconfigured",
+  "sessioncredentialconfigured",
+  "tokensrequested",
+]);
+const LOG_REDACT_KEY_RE =
+  /(?:authorization|bearer|clientsecret|cookie|credential|privatekey|refresh|sessiontoken|signature|storagekey|accesstoken|accesskey|apikey|deploytoken|secret|token|rawlogs|rawerror|stderr|stdout|stack|outputpath|filepath|localpath|fullpath|absolutepath|password)/i;
 
 class AppError extends Error {
   constructor(code, message, status = 400, details = null) {
@@ -133,7 +160,8 @@ function redactForLogs(value) {
       Object.entries(value)
         .slice(0, 30)
         .map(([key, item]) => {
-          if (/token|secret|accessKey|apiKey|serviceId|credential|authorization|signature|storageKey|outputPath|filePath|path$/i.test(key)) {
+          const normalizedKey = String(key || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+          if (!SAFE_LOG_STATUS_KEYS.has(normalizedKey) && LOG_REDACT_KEY_RE.test(normalizedKey)) {
             return [key, "[redacted]"];
           }
           return [key, redactForLogs(item)];

@@ -129,6 +129,22 @@ test("demo report leak guard catches unsafe keys, paths and tokens", () => {
   assert.equal(hasSensitiveLeak({ deploy: { serviceId: "srv-realstaging123" } }), true);
   assert.equal(hasSensitiveLeak({ deploy: { renderService: "srv-realstaging123" } }), true);
   assert.equal(hasSensitiveLeak({ github: { token: "ghp_abcdefghijklmnopqrstuvwx1234567890" } }), true);
+  assert.deepEqual(findSensitiveLeak({ oauth: { clientSecret: "provider-secret" } }), {
+    code: "UNSAFE_KEY",
+    path: "$.oauth.clientSecret",
+  });
+  assert.deepEqual(findSensitiveLeak({ oauth: { refreshToken: "provider-refresh-token" } }), {
+    code: "UNSAFE_KEY",
+    path: "$.oauth.refreshToken",
+  });
+  assert.deepEqual(findSensitiveLeak({ pem: { privateKey: "-----BEGIN PRIVATE KEY-----" } }), {
+    code: "UNSAFE_KEY",
+    path: "$.pem.privateKey",
+  });
+  assert.deepEqual(findSensitiveLeak({ storage: { accessKeyId: "AKIATESTKEY123456" } }), {
+    code: "UNSAFE_KEY",
+    path: "$.storage.accessKeyId",
+  });
   assert.equal(hasSensitiveLeak({ github: { message: "ghs_abcdefghijklmnopqrstuvwx1234567890" } }), true);
   assert.equal(hasSensitiveLeak({ gitlab: { message: "glpat-abcdefghijklmnopqrstuvwx123456" } }), true);
   assert.equal(hasSensitiveLeak({ slack: { message: "xoxb-1234567890-private-token" } }), true);
@@ -152,7 +168,12 @@ test("demo report leak guard catches unsafe keys, paths and tokens", () => {
   assert.equal(hasSensitiveLeak({ downloadUrl: `/api/artifacts/download?token=${signedToken}` }), true);
   assert.equal(hasSensitiveLeak({ downloadUrl: `/api/artifacts/download?token=${signedToken}` }, { allowSignedDownloadToken: true }), false);
   assert.equal(hasSensitiveLeak({ health: { credentialsConfigured: false, activeSignedTokens: 0 } }), false);
+  assert.equal(hasSensitiveLeak({ transcription: { providerCredentialConfigured: false } }), false);
   assert.equal(hasSensitiveLeak({ staging: { serviceIdConfigured: true, deployTokenConfigured: false } }), false);
+  assert.equal(hasSensitiveLeak({ githubEnvironment: { credentialRefs: ["SHORTSENGINE_STAGING_DEPLOY_TOKEN"] } }), false);
+  assert.equal(hasSensitiveLeak({ render: { githubEnvironmentSecrets: ["SHORTSENGINE_STAGING_DEPLOY_TOKEN"] } }), false);
+  assert.equal(hasSensitiveLeak({ fixForward: { rawLogsRequired: false, rawArtifactsRequired: false } }), false);
+  assert.equal(hasSensitiveLeak({ proof: { tokensRequested: false, secretsIncluded: false, logsDownloaded: false } }), false);
   assert.equal(hasSensitiveLeak({ relativePath: "demo/fixtures/shortsengine-demo-source.mp4", latestPath: "demo/results/latest.json" }), false);
 });
 

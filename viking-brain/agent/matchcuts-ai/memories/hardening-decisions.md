@@ -55,5 +55,6 @@
 - Remote CI proof should distinguish missing CLI, missing auth, network unavailable, pending, failed and cancelled states with safe phases/statuses while keeping logs/artifacts absent.
 - GitHub CLI doctor should classify missing CLI, missing auth, network unavailable, repository, Actions and branch-protection readiness with safe phase/status metadata and no raw stderr/logs.
 - Report-safety and log redaction must stay aligned for GitHub/GitLab/Slack tokens, private-key blocks, YouTube cookies, signed download tokens, raw log fields and provider ids.
+- Report-safety and log redaction must treat credential-shaped object keys such as `clientSecret`, `refreshToken`, `privateKey`, `accessKeyId` and `sessionToken` as sensitive even when the value is not obviously secret-shaped.
 - GitHub CLI missing/auth/network/no-run proofs may include safe manual `operatorRecovery` commands, but ShortsEngine must never execute install/auth commands automatically.
 - Treat YouTube ingest adapter health as untrusted boundary output: health booleans must be strict booleans, unsafe mode strings become `unknown`, and malformed readiness fails closed.

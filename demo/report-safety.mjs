@@ -72,6 +72,33 @@ const UNSAFE_KEYS = new Set([
 ]);
 
 const SAFE_PATH_KEYS = new Set(["latestpath", "relativepath", "reportpath"]);
+const SAFE_SENSITIVE_STATUS_KEYS = new Set([
+  "activesignedtokens",
+  "artifactsdownloaded",
+  "authstarted",
+  "branchprotectionmutation",
+  "credentialconfigured",
+  "credentialsconfigured",
+  "credentialsetconfigured",
+  "deploycredentialconfigured",
+  "deploytokenconfigured",
+  "credentialrefs",
+  "githubenvironmentsecrets",
+  "logsdownloaded",
+  "networkcalls",
+  "providercredentialconfigured",
+  "rawartifactsrequired",
+  "rawlogsrequired",
+  "remotemutation",
+  "repositorymutation",
+  "rulesetmutation",
+  "secretsincluded",
+  "serviceidconfigured",
+  "sessioncredentialconfigured",
+  "tokensrequested",
+]);
+const UNSAFE_KEY_FAMILY_RE =
+  /(?:authorization|bearer|clientsecret|cookie|credential|privatekey|refresh|sessiontoken|signature|storagekey|accesstoken|accesstokenid|accesskey|apikey|deploytoken|secret|token|rawlogs|rawerror|stderr|stdout|stack|outputpath|filepath|localpath|fullpath|absolutepath|password)/i;
 const INTERNAL_ARTIFACT_DOWNLOAD_PATH = "/api/artifacts/download";
 
 function keyPath(parent, key) {
@@ -79,9 +106,10 @@ function keyPath(parent, key) {
 }
 
 function isUnsafeKey(key) {
-  const normalized = String(key || "").toLowerCase();
+  const normalized = String(key || "").toLowerCase().replace(/[^a-z0-9]/g, "");
   if (SAFE_PATH_KEYS.has(normalized)) return false;
-  return UNSAFE_KEYS.has(normalized);
+  if (SAFE_SENSITIVE_STATUS_KEYS.has(normalized)) return false;
+  return UNSAFE_KEYS.has(normalized) || UNSAFE_KEY_FAMILY_RE.test(normalized);
 }
 
 function valueLeak(value, options = {}) {

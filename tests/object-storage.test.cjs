@@ -405,3 +405,50 @@ test("log redaction removes token, storage key and local path details", () => {
   assert.doesNotMatch(body, /exports\/private-key|\/Users|\/private|\/tmp|OPENAI_API_KEY=secret|sk-secret|srv-realstaging123|ghs_|glpat-|xoxb-|SHORTSENGINE_YOUTUBE_SMOKE_TOKEN secret|VISITOR_INFO1_LIVE=private-cookie|oauth-secret|session-secret|BEGIN PRIVATE KEY/);
   assert.match(body, /\[redacted\]/);
 });
+
+test("log redaction covers modern credential-shaped keys without hiding readiness booleans", () => {
+  const redacted = redactForLogs({
+    oauth: {
+      clientSecret: "provider-secret",
+      refreshToken: "provider-refresh-token",
+      authorizationHeader: "Bearer provider-token",
+    },
+    storage: {
+      accessKeyId: "AKIATESTKEY123456",
+      sessionToken: "session-secret",
+      privateKey: "-----BEGIN PRIVATE KEY----- private -----END PRIVATE KEY-----",
+    },
+    readiness: {
+      credentialsConfigured: false,
+      deployTokenConfigured: false,
+      providerCredentialConfigured: false,
+      serviceIdConfigured: true,
+      tokensRequested: false,
+      secretsIncluded: false,
+      credentialRefs: ["SHORTSENGINE_STAGING_DEPLOY_TOKEN"],
+      githubEnvironmentSecrets: ["SHORTSENGINE_STAGING_DEPLOY_TOKEN"],
+      rawLogsRequired: false,
+      rawArtifactsRequired: false,
+    },
+  });
+
+  assert.equal(redacted.oauth.clientSecret, "[redacted]");
+  assert.equal(redacted.oauth.refreshToken, "[redacted]");
+  assert.equal(redacted.oauth.authorizationHeader, "[redacted]");
+  assert.equal(redacted.storage.accessKeyId, "[redacted]");
+  assert.equal(redacted.storage.sessionToken, "[redacted]");
+  assert.equal(redacted.storage.privateKey, "[redacted]");
+  assert.deepEqual(redacted.readiness, {
+    credentialsConfigured: false,
+    deployTokenConfigured: false,
+    providerCredentialConfigured: false,
+    serviceIdConfigured: true,
+    tokensRequested: false,
+    secretsIncluded: false,
+    credentialRefs: ["SHORTSENGINE_STAGING_DEPLOY_TOKEN"],
+    githubEnvironmentSecrets: ["SHORTSENGINE_STAGING_DEPLOY_TOKEN"],
+    rawLogsRequired: false,
+    rawArtifactsRequired: false,
+  });
+  assert.doesNotMatch(JSON.stringify(redacted), /provider-secret|provider-refresh-token|AKIATEST|session-secret|BEGIN PRIVATE KEY|Bearer provider-token/);
+});
