@@ -48,3 +48,11 @@ This milestone is intentionally validate-only:
 ## Next Milestone
 
 Implement a legal/authorized downloader boundary with local staging, artifact creation, duration/size/container validation and provider-specific opt-in behavior.
+
+## Hardening Follow-Up: 2026-06-16
+
+- Adapter metadata failures must become safe `YOUTUBE_INGEST_NOT_ENABLED` responses and must not leak raw provider messages.
+- Health must tolerate adapter health failures and return safe aggregate readiness only.
+- URL validation must explicitly cover overlong input, control characters and unsupported YouTube paths such as `/embed/...`.
+- Static lint must forbid network APIs, downloader CLIs and child process usage in the validate-only YouTube domain.
+- Inline YouTube field errors should clear when the user edits the URL or rights confirmation and should use accessible alert semantics.

@@ -173,10 +173,14 @@
     els.errorPanel.textContent = "";
     els.uploadError.hidden = true;
     els.uploadError.textContent = "";
+    clearYouTubeFieldError();
+    document.querySelector(".dropzone")?.classList.remove("invalid");
+  }
+
+  function clearYouTubeFieldError() {
     els.youtubeError.hidden = true;
     els.youtubeError.textContent = "";
     els.youtubeUrlInput.removeAttribute("aria-invalid");
-    document.querySelector(".dropzone")?.classList.remove("invalid");
   }
 
   function safeErrorResponse(error) {
@@ -812,10 +816,12 @@
     els.sourceYoutubeBtn.addEventListener("click", () => selectSource("youtube"));
     els.youtubeUrlInput.addEventListener("input", () => {
       clearYouTubeValidation();
+      clearYouTubeFieldError();
       updateActionStates();
     });
     els.youtubeRightsCheckbox.addEventListener("change", () => {
       clearYouTubeValidation();
+      clearYouTubeFieldError();
       updateActionStates();
     });
     els.validateYoutubeBtn.addEventListener("click", handleYouTubeValidate);

@@ -92,7 +92,12 @@ assert.match(serverApp, /validateYouTubeSource/, "server route should delegate Y
 assert.match(serverApp, /youtubeIngestHealth/, "health should include YouTube ingest readiness");
 assert.match(youtubeIngest, /YOUTUBE_PLAYLIST_UNSUPPORTED/, "YouTube validation should reject playlists explicitly");
 assert.match(youtubeIngest, /YOUTUBE_LIVE_UNSUPPORTED/, "YouTube validation should reject live streams explicitly");
+assert.match(youtubeIngest, /YOUTUBE_INGEST_NOT_ENABLED/, "YouTube adapter failures should fail closed with a safe code");
+assert.match(youtubeIngest, /readAdapterMetadata/, "YouTube metadata adapter reads should stay behind a small defensive boundary");
 assert.match(youtubeIngest, /canonicalUrl/, "YouTube validation should return a canonical URL");
+assert.match(html, /id="youtubeError"[^>]*role="alert"/, "YouTube field errors should be announced accessibly");
+assert.match(app, /clearYouTubeFieldError/, "YouTube field errors should clear when the user edits the source");
+assert.doesNotMatch(youtubeIngest, /\bfetch\s*\(|child_process|spawn|execFile|yt-dlp|youtube-dl|https\.request|http\.request/i, "YouTube domain validation must not download, call network APIs or spawn tools");
 assert.match(mockYoutubeAdapter, /networkCalls:\s*false/, "mock YouTube adapter must declare no network calls");
 assert.match(mockYoutubeAdapter, /downloaderConfigured:\s*false/, "mock YouTube adapter must keep downloader disabled");
 assert.doesNotMatch(mockYoutubeAdapter, /\bfetch\s*\(|child_process|spawn|execFile|yt-dlp|youtube-dl/i, "mock YouTube adapter must not download or spawn tools");

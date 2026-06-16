@@ -117,7 +117,22 @@ test("youtube source validation rejects unsafe or unsupported sources", () => {
     "YOUTUBE_LIVE_UNSUPPORTED",
   );
   assert.equal(
+    Core.validateYouTubeSourceInput({ url: "https://www.youtube.com/embed/dQw4w9WgXcQ", rightsConfirmed: true }).error.code,
+    "YOUTUBE_URL_INVALID",
+  );
+  assert.equal(
     Core.validateYouTubeSourceInput({ url: "javascript:alert(1)", rightsConfirmed: true }).error.code,
+    "YOUTUBE_URL_INVALID",
+  );
+  assert.equal(
+    Core.validateYouTubeSourceInput({
+      url: `https://www.youtube.com/watch?v=dQw4w9WgXcQ${"a".repeat(Core.CONFIG.maxYouTubeUrlLength)}`,
+      rightsConfirmed: true,
+    }).error.code,
+    "YOUTUBE_URL_INVALID",
+  );
+  assert.equal(
+    Core.validateYouTubeSourceInput({ url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ\u0000", rightsConfirmed: true }).error.code,
     "YOUTUBE_URL_INVALID",
   );
   assert.equal(

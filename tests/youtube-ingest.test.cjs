@@ -2,7 +2,12 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const { createMockYouTubeIngestAdapter } = require("../server/adapters/mock-youtube-ingest-adapter.cjs");
-const { normalizeYouTubeUrl, validateYouTubeSource, youtubeIngestHealth } = require("../server/youtube-ingest.cjs");
+const {
+  MAX_YOUTUBE_URL_LENGTH,
+  normalizeYouTubeUrl,
+  validateYouTubeSource,
+  youtubeIngestHealth,
+} = require("../server/youtube-ingest.cjs");
 
 test("youtube url normalization accepts supported video formats", () => {
   assert.deepEqual(normalizeYouTubeUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ"), {
@@ -29,6 +34,18 @@ test("youtube url normalization rejects unsupported and unsafe urls", () => {
   assert.throws(
     () => normalizeYouTubeUrl("https://www.youtube.com/live/dQw4w9WgXcQ"),
     (error) => error.code === "YOUTUBE_LIVE_UNSUPPORTED",
+  );
+  assert.throws(
+    () => normalizeYouTubeUrl("https://www.youtube.com/embed/dQw4w9WgXcQ"),
+    (error) => error.code === "YOUTUBE_URL_INVALID",
+  );
+  assert.throws(
+    () => normalizeYouTubeUrl(`https://www.youtube.com/watch?v=dQw4w9WgXcQ${"a".repeat(MAX_YOUTUBE_URL_LENGTH)}`),
+    (error) => error.code === "YOUTUBE_URL_INVALID",
+  );
+  assert.throws(
+    () => normalizeYouTubeUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ\u0000"),
+    (error) => error.code === "YOUTUBE_URL_INVALID",
   );
 });
 
@@ -79,4 +96,36 @@ test("youtube source validation requires rights and enforces duration limits", a
     }),
     (error) => error.code === "YOUTUBE_DURATION_TOO_LONG",
   );
+});
+
+test("youtube adapter failures fail closed without leaking raw provider errors", async () => {
+  const adapter = {
+    downloaderConfigured: true,
+    async getMetadata() {
+      throw new Error("/Users/example OPENAI_API_KEY=secret raw provider failure");
+    },
+    health() {
+      throw new Error("/Users/example secret health failure");
+    },
+  };
+  await assert.rejects(
+    () => validateYouTubeSource({
+      url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      rightsConfirmed: true,
+      adapter,
+    }),
+    (error) => {
+      assert.equal(error.code, "YOUTUBE_INGEST_NOT_ENABLED");
+      assert.doesNotMatch(error.userMessage, /\/Users|OPENAI_API_KEY|raw provider/i);
+      return true;
+    },
+  );
+  assert.deepEqual(youtubeIngestHealth(adapter), {
+    ready: false,
+    mode: "unknown",
+    enabled: false,
+    networkCalls: false,
+    downloaderConfigured: false,
+    ingestAvailable: false,
+  });
 });

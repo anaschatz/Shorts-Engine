@@ -96,14 +96,21 @@ function validateRightsConfirmed(value) {
   if (value !== true) fail("YOUTUBE_RIGHTS_REQUIRED");
 }
 
+async function readAdapterMetadata(adapter, source) {
+  if (!adapter || typeof adapter.getMetadata !== "function") return safeMetadata();
+  try {
+    return safeMetadata(await adapter.getMetadata(source));
+  } catch {
+    fail("YOUTUBE_INGEST_NOT_ENABLED", 503);
+  }
+}
+
 async function validateYouTubeSource(input = {}) {
   validateRightsConfirmed(input.rightsConfirmed);
   const source = normalizeYouTubeUrl(input.url);
   const adapter = input.adapter;
   const maxDurationSeconds = Number(input.maxDurationSeconds || CONFIG.maxDurationSeconds);
-  const metadata = adapter && typeof adapter.getMetadata === "function"
-    ? safeMetadata(await adapter.getMetadata(source))
-    : safeMetadata();
+  const metadata = await readAdapterMetadata(adapter, source);
   if (metadata.durationSeconds && metadata.durationSeconds > maxDurationSeconds) {
     fail("YOUTUBE_DURATION_TOO_LONG");
   }
@@ -118,7 +125,12 @@ async function validateYouTubeSource(input = {}) {
 }
 
 function youtubeIngestHealth(adapter) {
-  const health = adapter && typeof adapter.health === "function" ? adapter.health() : {};
+  let health = {};
+  try {
+    health = adapter && typeof adapter.health === "function" ? adapter.health() : {};
+  } catch {
+    health = { ready: false, mode: "unknown" };
+  }
   return {
     ready: health.ready !== false,
     mode: health.mode || "mock",

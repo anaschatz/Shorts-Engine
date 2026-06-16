@@ -346,6 +346,9 @@ test("API rejects unsafe YouTube validation input with safe structured errors", 
     ["https://www.youtube.com/watch?v=dQw4w9WgXcQ", false, "YOUTUBE_RIGHTS_REQUIRED"],
     ["https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL123", true, "YOUTUBE_PLAYLIST_UNSUPPORTED"],
     ["https://www.youtube.com/live/dQw4w9WgXcQ", true, "YOUTUBE_LIVE_UNSUPPORTED"],
+    ["https://www.youtube.com/embed/dQw4w9WgXcQ", true, "YOUTUBE_URL_INVALID"],
+    [`https://www.youtube.com/watch?v=dQw4w9WgXcQ${"a".repeat(2200)}`, true, "YOUTUBE_URL_INVALID"],
+    ["https://www.youtube.com/watch?v=dQw4w9WgXcQ\u0000", true, "YOUTUBE_URL_INVALID"],
     ["file:///Users/example/video.mp4", true, "YOUTUBE_URL_INVALID"],
     ["https://user:pass@www.youtube.com/watch?v=dQw4w9WgXcQ", true, "YOUTUBE_URL_INVALID"],
   ]) {
@@ -366,6 +369,46 @@ test("API rejects unsafe YouTube validation input with safe structured errors", 
     assert.equal(payload.error.code, code);
     assert.doesNotMatch(JSON.stringify(payload), /\/Users|user:pass|storageKey|secret|token|stack/i);
   }
+});
+
+test("API YouTube validation enforces JSON content type and bounded body size", async () => {
+  const validBody = Buffer.from(JSON.stringify({
+    url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    rightsConfirmed: true,
+  }));
+  const wrongType = mockRequest({
+    method: "POST",
+    url: "/api/youtube/validate",
+    headers: {
+      "content-type": "text/plain",
+      "content-length": String(validBody.length),
+    },
+    body: validBody,
+  });
+  const wrongTypeRes = mockResponse();
+  await route(wrongType, wrongTypeRes);
+  const wrongTypePayload = JSON.parse(wrongTypeRes.body.toString("utf8"));
+  assert.equal(wrongTypeRes.statusCode, 415);
+  assert.equal(wrongTypePayload.ok, false);
+  assert.equal(wrongTypePayload.error.code, "VALIDATION_ERROR");
+
+  const oversized = Buffer.alloc(MAX_JSON_BODY_BYTES + 1, "a");
+  const tooLarge = mockRequest({
+    method: "POST",
+    url: "/api/youtube/validate",
+    headers: {
+      "content-type": "application/json",
+      "content-length": String(oversized.length),
+    },
+    body: oversized,
+  });
+  const tooLargeRes = mockResponse();
+  await route(tooLarge, tooLargeRes);
+  const tooLargePayload = JSON.parse(tooLargeRes.body.toString("utf8"));
+  assert.equal(tooLargeRes.statusCode, 413);
+  assert.equal(tooLargePayload.ok, false);
+  assert.equal(tooLargePayload.error.code, "FILE_TOO_LARGE");
+  assert.doesNotMatch(JSON.stringify(tooLargePayload), /\/Users|\/private|storageKey|secret|token|stack/i);
 });
 
 test("server listen failures are logged as safe structured events", () => {
