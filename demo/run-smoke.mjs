@@ -414,11 +414,20 @@ async function runDemoSmoke(options = {}) {
         noFalseGoalClaim: Number(review.payload?.data?.review?.metrics?.noFalseGoalClaim || 0),
         captionActionAlignment: Number(review.payload?.data?.review?.metrics?.captionActionAlignment || 0),
         framingSafety: Number(review.payload?.data?.review?.metrics?.framingSafety || 0),
+        suggestionCount: Array.isArray(review.payload?.data?.review?.suggestions)
+          ? review.payload.data.review.suggestions.length
+          : 0,
+        blockingSuggestionCount: Number(review.payload?.data?.review?.blockingSuggestionCount || 0),
+        regenerationAvailable: Boolean(review.payload?.data?.review?.regenerationAvailable),
         draftLatest: review.payload?.data?.draft?.latest || null,
       };
       addCheck(checks, "review_registration_created_after_export", review.ok && reviewRegistration.passed && reviewRegistration.overallScore >= 82, {
         status: review.status,
         overallScore: reviewRegistration.overallScore,
+      });
+      addCheck(checks, "review_registration_suggestions_are_safe_and_manual", review.ok && reviewRegistration.regenerationAvailable === false && reviewRegistration.blockingSuggestionCount === 0, {
+        suggestionCount: reviewRegistration.suggestionCount,
+        blockingSuggestionCount: reviewRegistration.blockingSuggestionCount,
       });
       addCheck(checks, "review_registration_response_no_sensitive_leaks", !hasSensitiveLeak(review));
     }

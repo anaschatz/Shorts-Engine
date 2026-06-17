@@ -292,6 +292,19 @@
                 </p>
                 <div class="review-metrics" id="reviewMetrics" data-testid="review-metrics" hidden></div>
                 <div class="review-failures" id="reviewFailures" data-testid="review-failures" hidden></div>
+                <div class="review-suggestions" id="reviewSuggestions" data-testid="review-suggestions" hidden>
+                  <div class="review-suggestions-header">
+                    <strong>Fix suggestions</strong>
+                    <small id="reviewSuggestionSummary" data-testid="review-suggestion-summary"></small>
+                  </div>
+                  <div class="review-suggestion-list" id="reviewSuggestionList" data-testid="review-suggestion-list"></div>
+                </div>
+                <div class="review-regeneration" id="reviewRegeneration" data-testid="review-regeneration" hidden>
+                  <span id="reviewRegenerationStatus">Regeneration is not available yet.</span>
+                  <button class="secondary-btn compact-btn" id="reviewRegenerateBtn" data-testid="review-regenerate-button" type="button" disabled>
+                    Regenerate later
+                  </button>
+                </div>
               </div>
               <div class="moment-list" id="momentList" aria-live="polite"></div>
             </div>

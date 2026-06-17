@@ -121,7 +121,7 @@ function writeBackendReviewRecords(overrides = {}) {
   else writeFileSync(uploadPath, Buffer.from("review-source-video"));
   if (overrides.writeRender === false) rmSync(renderPath, { force: true });
   else writeFileSync(renderPath, Buffer.from("review-rendered-video"));
-  const editPlan = validateEditPlan(
+  let editPlan = validateEditPlan(
     createEditPlan({
       metadata: { durationSeconds: 16, width: 1920, height: 1080 },
       transcript: {
@@ -136,6 +136,9 @@ function writeBackendReviewRecords(overrides = {}) {
     }),
     { durationSeconds: 16 },
   );
+  if (typeof overrides.mutateEditPlan === "function") {
+    editPlan = overrides.mutateEditPlan(editPlan) || editPlan;
+  }
   const projectRecord = {
     project: {
       id: ids.projectId,
@@ -818,7 +821,48 @@ test("API registers completed render for local review with safe summary", async 
   assert.equal(payload.data.status, "registered");
   assert.equal(payload.data.review.passed, true);
   assert.equal(payload.data.review.metrics.noFalseGoalClaim, 1);
+  assert.deepEqual(payload.data.review.suggestions, []);
+  assert.equal(payload.data.review.blockingSuggestionCount, 0);
+  assert.equal(payload.data.review.regenerationAvailable, false);
+  assert.equal(payload.data.review.regenerationPlan, null);
   assert.match(payload.data.draft.latest, /^eval\/review-drafts\/review-draft-latest\.json$/);
+  assert.doesNotMatch(JSON.stringify(payload), /\/Users|\/private|storageKey|outputPath|secret|token|stdout|stderr|stack/i);
+});
+
+test("API review registration returns safe fix suggestions for failed review metrics", async () => {
+  const ids = writeBackendReviewRecords({
+    suffix: "abcf",
+    mutateEditPlan(editPlan) {
+      editPlan.captions[0].text = "GOAL FROM NOWHERE";
+      return editPlan;
+    },
+  });
+  const body = Buffer.from(JSON.stringify({
+    projectId: ids.projectId,
+    jobId: ids.jobId,
+    exportId: ids.exportId,
+    rightsConfirmed: true,
+  }));
+  const req = mockRequest({
+    method: "POST",
+    url: "/api/review/register",
+    headers: {
+      "content-type": "application/json",
+      "content-length": String(body.length),
+    },
+    body,
+  });
+  const res = mockResponse();
+  await route(req, res);
+  const payload = JSON.parse(res.body.toString("utf8"));
+
+  assert.equal(res.statusCode, 201);
+  assert.equal(payload.ok, true);
+  assert.equal(payload.data.review.passed, false);
+  assert.equal(payload.data.review.regenerationAvailable, false);
+  assert.equal(payload.data.review.regenerationPlan, null);
+  assert.equal(payload.data.review.blockingSuggestionCount, 1);
+  assert.equal(payload.data.review.suggestions.some((item) => item.type === "false_goal_guard" && item.canAutoApply === false), true);
   assert.doesNotMatch(JSON.stringify(payload), /\/Users|\/private|storageKey|outputPath|secret|token|stdout|stderr|stack/i);
 });
 

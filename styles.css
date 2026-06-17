@@ -999,6 +999,107 @@ input[type="checkbox"] {
   line-height: 1.35;
 }
 
+.review-suggestions {
+  display: grid;
+  gap: 8px;
+}
+
+.review-suggestions-header,
+.review-regeneration {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.review-suggestions-header strong,
+.review-regeneration span {
+  min-width: 0;
+  font-size: 0.82rem;
+  line-height: 1.25;
+}
+
+.review-suggestions-header small {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.review-suggestion-list {
+  display: grid;
+  gap: 8px;
+}
+
+.review-suggestion {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid rgba(203, 214, 199, 0.82);
+  border-left: 4px solid #3568ff;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.review-suggestion.severity-warning {
+  border-left-color: #d99b22;
+}
+
+.review-suggestion.severity-blocking {
+  border-left-color: #e34f3d;
+}
+
+.review-suggestion-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.review-suggestion-meta span {
+  min-height: 22px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #edf3ff;
+  color: #224aa5;
+  font-size: 0.68rem;
+  font-weight: 900;
+  line-height: 1.35;
+  text-transform: uppercase;
+}
+
+.review-suggestion strong {
+  color: var(--ink);
+  font-size: 0.82rem;
+  line-height: 1.3;
+}
+
+.review-suggestion p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.38;
+  overflow-wrap: anywhere;
+}
+
+.review-regeneration {
+  min-width: 0;
+  padding: 8px;
+  border: 1px dashed rgba(53, 104, 255, 0.32);
+  border-radius: 6px;
+  background: #f7f9ff;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.review-regeneration .secondary-btn {
+  min-height: 36px;
+  padding: 8px 10px;
+  white-space: nowrap;
+}
+
 .moment-list {
   display: grid;
   align-content: start;
@@ -1450,6 +1551,20 @@ input[type="range"] {
   }
 
   .review-header .secondary-btn {
+    width: 100%;
+  }
+
+  .review-suggestions-header,
+  .review-regeneration {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .review-suggestions-header small {
+    white-space: normal;
+  }
+
+  .review-regeneration .secondary-btn {
     width: 100%;
   }
 

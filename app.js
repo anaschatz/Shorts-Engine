@@ -98,6 +98,12 @@
     reviewSummary: "#reviewSummary",
     reviewMetrics: "#reviewMetrics",
     reviewFailures: "#reviewFailures",
+    reviewSuggestions: "#reviewSuggestions",
+    reviewSuggestionSummary: "#reviewSuggestionSummary",
+    reviewSuggestionList: "#reviewSuggestionList",
+    reviewRegeneration: "#reviewRegeneration",
+    reviewRegenerationStatus: "#reviewRegenerationStatus",
+    reviewRegenerateBtn: "#reviewRegenerateBtn",
   });
 
   const state = {
@@ -441,6 +447,12 @@
     els.reviewMetrics.replaceChildren();
     els.reviewFailures.hidden = true;
     els.reviewFailures.replaceChildren();
+    els.reviewSuggestions.hidden = true;
+    els.reviewSuggestionSummary.textContent = "";
+    els.reviewSuggestionList.replaceChildren();
+    els.reviewRegeneration.hidden = true;
+    els.reviewRegenerationStatus.textContent = "Regeneration is not available yet.";
+    els.reviewRegenerateBtn.disabled = true;
 
     if (status === "registering") {
       els.reviewStatus.textContent = "Registering draft";
@@ -472,6 +484,34 @@
           els.reviewFailures.appendChild(item);
         });
       }
+      const suggestions = Array.isArray(review.suggestions) ? review.suggestions.slice(0, 6) : [];
+      if (suggestions.length) {
+        els.reviewSuggestions.hidden = false;
+        els.reviewSuggestionSummary.textContent = `${suggestions.length} shown · ${Number(review.blockingSuggestionCount) || 0} blocking`;
+        suggestions.forEach((suggestion) => {
+          const item = document.createElement("article");
+          item.className = `review-suggestion severity-${suggestion.severity || "info"}`;
+          const meta = document.createElement("div");
+          meta.className = "review-suggestion-meta";
+          const severity = document.createElement("span");
+          severity.textContent = suggestion.severity || "info";
+          const target = document.createElement("span");
+          target.textContent = suggestion.target || "review";
+          meta.append(severity, target);
+          const title = document.createElement("strong");
+          title.textContent = suggestion.message || "Review suggestion";
+          const action = document.createElement("p");
+          action.textContent = suggestion.safeAction || "Review this item manually before regenerating.";
+          item.append(meta, title, action);
+          els.reviewSuggestionList.appendChild(item);
+        });
+      }
+      els.reviewRegeneration.hidden = false;
+      els.reviewRegenerationStatus.textContent = review.regenerationAvailable
+        ? "Regeneration is ready for the next milestone."
+        : suggestions.length
+          ? "Manual review required before future regeneration."
+          : "No regeneration suggestions are needed.";
       return;
     }
 

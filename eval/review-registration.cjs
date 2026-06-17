@@ -15,6 +15,10 @@ const {
   findReviewSensitiveLeak,
   validateReviewInput,
 } = require("./review-comparison.cjs");
+const {
+  buildRegenerationReadiness,
+  buildReviewFixSuggestions,
+} = require("./review-fix-suggestions.cjs");
 
 const REVIEW_DRAFT_SCHEMA_VERSION = 1;
 const DEFAULT_DRAFTS_DIR = "eval/review-drafts";
@@ -412,7 +416,21 @@ function buildReviewDraft({ renderRecord, projectRecord, input, rootDir }) {
     reviewerNotes: input.reviewerNotes,
   };
   const validated = validateReviewInput(draft, { rootDir });
-  const report = buildReviewComparisonReport(validated, { timestamp: input.timestamp });
+  const comparisonReport = buildReviewComparisonReport(validated, { timestamp: input.timestamp });
+  const suggestions = buildReviewFixSuggestions(comparisonReport);
+  const regenerationReadiness = buildRegenerationReadiness(suggestions);
+  const report = {
+    ...comparisonReport,
+    suggestions,
+    suggestionSummary: {
+      suggestionCount: regenerationReadiness.suggestionCount,
+      blockingSuggestionCount: regenerationReadiness.blockingSuggestionCount,
+      regenerationAvailable: regenerationReadiness.regenerationAvailable,
+    },
+    regenerationAvailable: regenerationReadiness.regenerationAvailable,
+    regenerationPlan: regenerationReadiness.regenerationPlan,
+    nextAction: suggestions.length ? regenerationReadiness.nextAction : comparisonReport.nextAction,
+  };
   const leak = findReviewSensitiveLeak(draft) || findReviewSensitiveLeak(report);
   if (leak) {
     throw safeFailure("VALIDATION_ERROR", "Review registration produced unsafe draft content.", leak.path);

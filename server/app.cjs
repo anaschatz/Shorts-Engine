@@ -681,6 +681,22 @@ async function handleDownloadUrl(req, res, exportId) {
 function publicReviewRegistrationResult(result) {
   const report = result.comparisonPreview || {};
   const metrics = report.metrics || {};
+  const suggestions = Array.isArray(report.suggestions)
+    ? report.suggestions.slice(0, 12).map((item) => ({
+        id: sanitizeText(item.id, 100),
+        type: sanitizeText(item.type, 80),
+        severity: sanitizeText(item.severity, 40),
+        target: sanitizeText(item.target, 40),
+        message: sanitizeText(item.message, 180),
+        reasonCode: sanitizeText(item.reasonCode, 80),
+        safeAction: sanitizeText(item.safeAction, 220),
+        canAutoApply: false,
+        requiresHumanReview: item.requiresHumanReview !== false,
+        relatedMetric: item.relatedMetric ? sanitizeText(item.relatedMetric, 80) : null,
+        relatedFailureCode: item.relatedFailureCode ? sanitizeText(item.relatedFailureCode, 80) : null,
+      }))
+    : [];
+  const blockingSuggestionCount = suggestions.filter((item) => item.severity === "blocking").length;
   return {
     status: "registered",
     draft: result.output
@@ -718,6 +734,10 @@ function publicReviewRegistrationResult(result) {
             field: item.field ? sanitizeText(item.field, 100) : undefined,
           }))
         : [],
+      suggestions,
+      blockingSuggestionCount,
+      regenerationAvailable: false,
+      regenerationPlan: null,
       nextAction: sanitizeText(report.nextAction || "Run review comparison and inspect failed criteria.", 180),
     },
   };
@@ -754,6 +774,15 @@ async function handleReviewRegister(req, res, rid) {
     exportId: exportId || (result.draft && result.draft.generatedMetadata && result.draft.generatedMetadata.registration.exportId),
     status: result.comparisonPreview && result.comparisonPreview.status,
     passed: Boolean(result.comparisonPreview && result.comparisonPreview.passed),
+    suggestionCount: Array.isArray(result.comparisonPreview && result.comparisonPreview.suggestions)
+      ? result.comparisonPreview.suggestions.length
+      : 0,
+    blockingSuggestionCount: result.comparisonPreview && result.comparisonPreview.suggestionSummary
+      ? result.comparisonPreview.suggestionSummary.blockingSuggestionCount
+      : 0,
+    suggestionTypes: Array.isArray(result.comparisonPreview && result.comparisonPreview.suggestions)
+      ? result.comparisonPreview.suggestions.map((item) => item.type).slice(0, 12)
+      : [],
   })));
   sendOk(res, publicReviewRegistrationResult(result), 201);
 }

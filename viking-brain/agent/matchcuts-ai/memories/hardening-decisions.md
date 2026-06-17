@@ -64,3 +64,4 @@
 - YouTube downloader failures must be classified at the adapter boundary into safe codes and public recovery fields. Validation may surface auth/bot/cookie risk warnings, but authorized import stays disabled by default and never accepts cookies/tokens until a reviewed adapter exists.
 - Generated-output review registration should stay outside the render path, require completed jobs plus explicit rights confirmation, write ignored local drafts, and expose only workspace-relative media refs.
 - Operator review registration UI must stay completed-export and rights gated, and API responses should expose only bounded review metrics plus safe workspace-relative draft refs.
+- Review fix suggestions must be deterministic, schema-validated, leak-guarded and manual-only until a dedicated regeneration milestone exists.

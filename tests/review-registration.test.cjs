@@ -166,6 +166,10 @@ test("review registration writes a compare-ready draft from completed render rec
   assert.equal(result.draft.media.source.relativePath, "data/uploads/source.mp4");
   assert.equal(result.draft.generatedMetadata.registration.projectId, PROJECT_ID);
   assert.equal(result.comparisonPreview.passed, true);
+  assert.deepEqual(result.comparisonPreview.suggestions, []);
+  assert.equal(result.comparisonPreview.suggestionSummary.suggestionCount, 0);
+  assert.equal(result.comparisonPreview.regenerationAvailable, false);
+  assert.equal(result.comparisonPreview.regenerationPlan, null);
 
   const input = validateReviewInput(result.draft, { rootDir });
   assert.equal(input.failedCases.length, 0);
@@ -176,6 +180,29 @@ test("review registration writes a compare-ready draft from completed render rec
     write: false,
   });
   assert.equal(comparison.report.passed, true);
+});
+
+test("review registration produces safe fix suggestions for failed generated output", () => {
+  const rootDir = createWorkspace();
+  writeRecords(rootDir, {
+    editPlan: {
+      captions: [
+        { start: 0, end: 1.1, role: "opening_hook", text: "GOAL FROM NOTHING" },
+        { start: 1.2, end: 3.2, role: "context", text: "Pressure builds around the box" },
+        { start: 3.3, end: 5.5, role: "action_callout", text: "Almost punished in one touch" },
+        { start: 5.6, end: 7.8, role: "closing_punch", text: "Replay the timing" },
+      ],
+    },
+  });
+
+  const result = register(rootDir);
+  const suggestions = result.comparisonPreview.suggestions;
+  assert.equal(result.comparisonPreview.passed, false);
+  assert.equal(suggestions.some((item) => item.type === "false_goal_guard" && item.severity === "blocking"), true);
+  assert.equal(result.comparisonPreview.suggestionSummary.blockingSuggestionCount, 1);
+  assert.equal(result.comparisonPreview.regenerationAvailable, false);
+  assert.equal(result.comparisonPreview.regenerationPlan, null);
+  assert.equal(findReviewSensitiveLeak(result.comparisonPreview), null);
 });
 
 test("review registration fails closed unless rights are confirmed", () => {

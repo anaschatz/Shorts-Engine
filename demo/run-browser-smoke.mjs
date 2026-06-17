@@ -36,6 +36,11 @@ const REQUIRED_TEST_IDS = Object.freeze({
   reviewSummary: "review-summary",
   reviewMetrics: "review-metrics",
   reviewFailures: "review-failures",
+  reviewSuggestions: "review-suggestions",
+  reviewSuggestionSummary: "review-suggestion-summary",
+  reviewSuggestionList: "review-suggestion-list",
+  reviewRegeneration: "review-regeneration",
+  reviewRegenerateButton: "review-regenerate-button",
   errorPanel: "error-panel",
   jobProgress: "job-progress",
   progressBar: "job-progress-bar",
@@ -81,6 +86,8 @@ function collectStaticBrowserChecks({ app, css, html, manual }) {
   addCheck(checks, "completed_job_export_gate_contract", /validateCompletedJobForExport/.test(app) && /downloadLink\.href/.test(app));
   addCheck(checks, "review_register_after_export_contract", /\/api\/review\/register/.test(app) && /canRegisterReview/.test(app) && /reviewRegisterBtn\.disabled = !canRegisterReview/.test(app));
   addCheck(checks, "review_summary_safe_metrics_contract", /noFalseGoalClaim/.test(app) && /captionActionAlignment/.test(app) && /framingSafety/.test(app) && /reviewFailures/.test(app));
+  addCheck(checks, "review_fix_suggestions_contract", /review\.suggestions/.test(app) && /reviewSuggestionList/.test(app) && /regenerationAvailable/.test(app));
+  addCheck(checks, "review_regeneration_disabled_contract", elementWithTestIdHasAttribute(html, REQUIRED_TEST_IDS.reviewRegenerateButton, "disabled") && /Regenerate later/.test(html));
   addCheck(checks, "download_route_contract", /\/api\/exports\/\$\{exportId\}\/download/.test(app));
   addCheck(checks, "youtube_validate_only_contract", /\/api\/youtube\/validate/.test(app) && /YOUTUBE_INGEST_NOT_ENABLED/.test(app));
   addCheck(checks, "youtube_render_disabled_contract", /state\.sourceType === "youtube"/.test(app) && /Ingest disabled/.test(app));
@@ -110,6 +117,7 @@ function apiChecksFromReport(apiReport) {
     "download_url_created_after_success",
     "download_returns_rendered_video",
     "review_registration_created_after_export",
+    "review_registration_suggestions_are_safe_and_manual",
   ]);
   return (apiReport?.checks || []).filter((check) => names.has(check.name));
 }
