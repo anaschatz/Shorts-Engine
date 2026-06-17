@@ -17,6 +17,7 @@ const {
 } = require("./errors.cjs");
 const { createRateLimiter } = require("./rate-limit.cjs");
 const { analysisHealth } = require("./analysis.cjs");
+const { EDIT_INTENSITIES, STYLE_TARGETS, normalizeEditIntensity, normalizeStyleTarget } = require("./football-story-planner.cjs");
 const { frameExtractionHealth } = require("./frame-extraction.cjs");
 const { visionHealth } = require("./vision.cjs");
 const { validateUploadCandidate, probeMedia, toolHealth, sha256, sanitizeText } = require("./media.cjs");
@@ -216,15 +217,28 @@ function validateGeneratePayload(payload, project) {
     throw new AppError("VALIDATION_ERROR", "Unsupported edit preset.", 400);
   }
   const language = sanitizeText(payload.language || "auto", 32) || "auto";
+  const rawStyleTarget = sanitizeText(payload.styleTarget || "vertical_9_16", 40).toLowerCase();
+  const styleTargetAliases = ["vertical", "shorts", "square"];
+  if (payload.styleTarget !== undefined && !STYLE_TARGETS.includes(rawStyleTarget) && !styleTargetAliases.includes(rawStyleTarget)) {
+    throw new AppError("VALIDATION_ERROR", "Unsupported style target.", 400);
+  }
+  const styleTarget = normalizeStyleTarget(rawStyleTarget);
+  const editIntensity = normalizeEditIntensity(payload.editIntensity || payload.intensity || "balanced");
+  if (
+    payload.editIntensity !== undefined &&
+    !EDIT_INTENSITIES.includes(sanitizeText(payload.editIntensity, 40).toLowerCase())
+  ) {
+    throw new AppError("VALIDATION_ERROR", "Unsupported edit intensity.", 400);
+  }
   const source = payload.source !== undefined ? normalizeSmokeSource(payload.source) : normalizeSmokeSource(project.source);
   if (payload.idempotencyKey !== undefined) {
     const providedKey = sanitizeText(payload.idempotencyKey, 120);
     if (!/^[A-Za-z0-9_-]{8,120}$/.test(providedKey)) {
       throw new AppError("VALIDATION_ERROR", "Idempotency key is invalid.", 400);
     }
-    return { title, preset, language, source, idempotencyKey: providedKey, rightsConfirmed: Boolean(payload.rightsConfirmed) };
+    return { title, preset, language, styleTarget, editIntensity, source, idempotencyKey: providedKey, rightsConfirmed: Boolean(payload.rightsConfirmed) };
   }
-  return { title, preset, language, source, idempotencyKey: "", rightsConfirmed: Boolean(payload.rightsConfirmed) };
+  return { title, preset, language, styleTarget, editIntensity, source, idempotencyKey: "", rightsConfirmed: Boolean(payload.rightsConfirmed) };
 }
 
 function parseMultipart(buffer, contentType, options = {}) {
@@ -590,6 +604,8 @@ async function handleGenerate(req, res, rid, projectId) {
     projectId: safeProjectId,
     uploadId: upload.id,
     preset: validatedPayload.preset,
+    styleTarget: validatedPayload.styleTarget,
+    editIntensity: validatedPayload.editIntensity,
     title: validatedPayload.title,
   });
   const job = jobQueue.create({

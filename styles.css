@@ -290,6 +290,10 @@ h2 {
   margin-bottom: 14px;
 }
 
+.compact-heading {
+  margin-bottom: 10px;
+}
+
 .source-selector {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -576,6 +580,33 @@ input[type="checkbox"] {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface-soft);
+}
+
+.mode-control {
+  min-height: 44px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+}
+
+.mode-control button {
+  min-width: 0;
+  min-height: 38px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.mode-control button.active {
+  color: #fff;
+  background: var(--surface-strong);
 }
 
 .segmented-control button {

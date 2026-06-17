@@ -199,7 +199,46 @@ test("visual-only save moments use aligned fallback captions instead of generic 
   const plans = createCandidateEditPlans({ moments: result.moments, metadata, transcript: { captions: [] }, title: "Save clip" });
 
   assert.equal(plans[0].highlightType, "save");
-  assert.match(plans[0].captions.map((caption) => caption.text).join(" "), /KEEPER|SO CLOSE|RUN IT BACK/);
+  assert.match(plans[0].captions.map((caption) => caption.text).join(" "), /HUGE SAVE|keeper|Watch/i);
+  assert.equal(hasGoalLanguage(plans[0].captions.map((caption) => caption.text).join(" ")), false);
+});
+
+test("candidate plans support square reference-style output with contextual captions", () => {
+  const result = detectHighlights({
+    transcript: {
+      provider: "fixture",
+      language: "en",
+      captions: [{ start: 8.8, end: 10.1, text: "Listen to the stands react" }],
+    },
+    signals: {
+      durationSeconds: 24,
+      hasAudio: true,
+      audioPeaks: [{ time: 9.4, energyScore: 0.92, source: "fixture" }],
+      sceneChanges: [{ time: 9.5, confidence: 0.76, source: "fixture" }],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [{ start: 8.2, end: 11.2, labels: ["crowd_reaction"], confidence: 0.82 }],
+    },
+    preset: "hype",
+  });
+  const plans = createCandidateEditPlans({
+    moments: result.moments,
+    metadata,
+    transcript: { captions: [] },
+    title: "Reference-style crowd reaction",
+    styleTarget: "square_1_1",
+    editIntensity: "punchy",
+  });
+
+  assert.equal(plans[0].aspectRatio, "1:1");
+  assert.equal(plans[0].export.width, 1080);
+  assert.equal(plans[0].export.height, 1080);
+  assert.equal(plans[0].footballStoryPlan.storyType, "reaction_story");
+  assert.equal(plans[0].captions.some((caption) => /crowd|reaction/i.test(caption.text)), true);
+  assert.equal(plans[0].captions.some((caption) => /STADIUM TELLS THE STORY|RUN IT BACK/.test(caption.text)), false);
+  assert.equal(plans[0].animationCues.some((cue) => cue.type === "kinetic_caption"), true);
   assert.equal(hasGoalLanguage(plans[0].captions.map((caption) => caption.text).join(" ")), false);
 });
 

@@ -138,7 +138,7 @@ test("backend upload validation rejects unsafe media candidates", () => {
   );
 });
 
-test("edit plan validation enforces 9:16 MP4 with captions", () => {
+test("edit plan validation enforces safe MP4 export shapes with captions", () => {
   const metadata = { durationSeconds: 20 };
   const plan = createEditPlan({
     metadata,
@@ -163,7 +163,10 @@ test("edit plan validation enforces 9:16 MP4 with captions", () => {
   assert.ok(validated.animationCues.length > 0);
   assert.ok(validated.captionEmphasis.length > 0);
 
-  assert.throws(() => validateEditPlan({ ...plan, aspectRatio: "1:1" }, metadata), /Only 9:16/);
+  const square = validateEditPlan({ ...plan, aspectRatio: "1:1", export: { width: 1080, height: 1080, format: "mp4" } }, metadata);
+  assert.equal(square.aspectRatio, "1:1");
+  assert.equal(square.export.height, 1080);
+  assert.throws(() => validateEditPlan({ ...plan, aspectRatio: "4:5" }, metadata), /Unsupported export aspect ratio/);
   assert.throws(() => validateEditPlan({ ...plan, highlightType: "goalish" }, metadata), /Unsupported highlight type/);
   assert.throws(() => validateEditPlan({ ...plan, framingMode: "tight_crop" }, metadata), /Unsupported framing mode/);
   assert.throws(() => validateEditPlan({ ...plan, effects: ["wide_safe_framing", "secret_effect"] }, metadata), /effect is invalid/);

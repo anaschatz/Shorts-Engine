@@ -16,11 +16,14 @@
     allowedMimeTypes: Object.freeze(["video/mp4", "video/quicktime", "video/webm"]),
     allowedLanguages: Object.freeze(["Ελληνικά", "English", "Spanish", "Arabic"]),
     allowedPresets: Object.freeze(["hype", "drama", "tactical", "fan"]),
-    allowedRatios: Object.freeze(["vertical", "square", "wide"]),
+    allowedRatios: Object.freeze(["vertical", "square", "auto"]),
+    allowedStyleTargets: Object.freeze(["vertical_9_16", "square_1_1", "auto"]),
+    allowedEditIntensities: Object.freeze(["clean", "balanced", "punchy"]),
     allowedExportTargets: Object.freeze(["tiktok", "reels", "shorts", "square"]),
     allowedHighlightTypes: Object.freeze([
       "goal",
       "shot_on_target",
+      "near_miss",
       "big_chance",
       "save",
       "foul",
@@ -29,8 +32,11 @@
       "counter_attack",
       "skill_move",
       "crowd_reaction",
+      "commentator_peak",
+      "replay_or_reaction",
       "replay_worthy_moment",
       "audio_energy_spike",
+      "unknown_action",
       "generic_highlight",
     ]),
   });
@@ -488,11 +494,19 @@
       ? input.language
       : CONFIG.allowedLanguages[0];
     const preset = CONFIG.allowedPresets.includes(input && input.preset) ? input.preset : "hype";
+    const styleTarget = CONFIG.allowedStyleTargets.includes(input && input.styleTarget)
+      ? input.styleTarget
+      : "vertical_9_16";
+    const editIntensity = CONFIG.allowedEditIntensities.includes(input && input.editIntensity)
+      ? input.editIntensity
+      : "balanced";
 
     return ok({
       title,
       language,
       preset,
+      styleTarget,
+      editIntensity,
       pace: toBoundedInteger(input && input.pace, 20, 100, 72),
       motion: toBoundedInteger(input && input.motion, 0, 100, 64),
       captionsEnabled: Boolean(input && input.captionsEnabled),
@@ -552,6 +566,7 @@
     if (!Number.isFinite(sourceStart) || !Number.isFinite(sourceEnd) || sourceStart < 0 || sourceEnd <= sourceStart) {
       return fail("EXPORT_PAYLOAD_INVALID");
     }
+    const duration = sourceEnd - sourceStart;
     if (!Array.isArray(plan.captions) || plan.captions.length === 0) {
       return fail("EXPORT_PAYLOAD_INVALID");
     }
@@ -565,8 +580,8 @@
       .filter((caption) => (
         Number.isFinite(caption.start) &&
         Number.isFinite(caption.end) &&
-        caption.start >= sourceStart &&
-        caption.end <= sourceEnd &&
+        caption.start >= 0 &&
+        caption.end <= duration + 0.25 &&
         caption.end > caption.start &&
         Boolean(caption.text)
       ));

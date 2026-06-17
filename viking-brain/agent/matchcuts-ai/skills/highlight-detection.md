@@ -8,7 +8,7 @@ Workflow:
 2. Normalize transcript captions/segments.
 3. Score candidate moments by football phrases, audio peaks, scene changes, replay markers, crowd reaction, tactical build-up and safe visual signal windows.
 4. Return 2-3 candidate moments with start/end, reason codes, confidence and retention score.
-5. Convert candidates into validated 9:16 MP4 edit plans.
+5. Convert candidates through `server/football-story-planner.cjs` into validated 9:16 or 1:1 MP4 edit plans.
 6. Render only the top candidate in the MVP.
 
 Guardrails:
@@ -20,3 +20,4 @@ Guardrails:
 - Visual signals are contextual evidence only. They may support saves, fouls, shots, counters and unknown action, but must never imply a goal without explicit `goal` reason evidence.
 - Sampled frames may improve visual context, but the local adapter is conservative: no brittle object tracking, no false goal inference and no public path leakage.
 - Provider-backed vision labels must be schema-validated. Runtime provider failures may fall back safely, but malformed semantic output such as visual-only `goal` labels must fail closed.
+- Story planning must keep captions tied to the classified moment type and must strip title/context goal language when there is no explicit goal evidence.

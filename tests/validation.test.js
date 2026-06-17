@@ -303,6 +303,8 @@ test("project settings are normalized and consent is required for jobs", () => {
     title: "  Derby Final  ",
     language: "Unknown",
     preset: "not-real",
+    styleTarget: "square_1_1",
+    editIntensity: "punchy",
     pace: 999,
     motion: -4,
     captionsEnabled: true,
@@ -313,9 +315,20 @@ test("project settings are normalized and consent is required for jobs", () => {
   assert.equal(settings.data.title, "Derby Final");
   assert.equal(settings.data.language, "Ελληνικά");
   assert.equal(settings.data.preset, "hype");
+  assert.equal(settings.data.styleTarget, "square_1_1");
+  assert.equal(settings.data.editIntensity, "punchy");
   assert.equal(settings.data.pace, 100);
   assert.equal(settings.data.motion, 0);
   assert.equal(Core.validateProjectForJob(settings.data, "generate").error.code, "RIGHTS_REQUIRED");
+
+  const fallback = Core.normalizeProjectSettings({
+    title: "Derby Final",
+    styleTarget: "unsafe",
+    editIntensity: "chaos",
+    rightsConfirmed: true,
+  });
+  assert.equal(fallback.data.styleTarget, "vertical_9_16");
+  assert.equal(fallback.data.editIntensity, "balanced");
 });
 
 test("AI output validation normalizes valid moments and rejects unusable output", () => {
@@ -344,7 +357,7 @@ test("completed job export validation gates demo download state", () => {
     editPlan: {
       sourceStart: 2,
       sourceEnd: 14,
-      captions: [{ start: 2, end: 4, text: "Opening hook" }],
+      captions: [{ start: 0, end: 2, text: "Opening hook" }],
     },
     candidatePlans: [{ sourceStart: 2, sourceEnd: 14 }],
   });

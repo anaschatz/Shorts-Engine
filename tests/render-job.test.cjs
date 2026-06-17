@@ -111,7 +111,7 @@ function makeContext(options = {}) {
       hasAudio: options.hasAudio !== false,
     },
   };
-  const payload = { title: "Derby Final", preset: "hype", language: "en" };
+  const payload = { title: "Derby Final", preset: "hype", language: "en", styleTarget: "square_1_1", editIntensity: "punchy" };
   const calls = [];
   const logs = [];
   const writes = [];
@@ -191,7 +191,8 @@ function makeContext(options = {}) {
       };
     },
     detectHighlights: () => options.highlightResult || { fallback: false, moments: [validMoment()] },
-    createCandidateEditPlans: () => {
+    createCandidateEditPlans: (input) => {
+      context.createPlanInput = input;
       if (Object.prototype.hasOwnProperty.call(options, "candidatePlans")) return options.candidatePlans;
       return [validPlan()];
     },
@@ -251,10 +252,14 @@ test("render orchestration completes success path with mocked adapters", async (
       "analyze_visuals",
       "transcribe",
       "detect_highlights",
+      "plan_story",
       "create_edit_plan",
       "render_short",
     ],
   );
+  assert.equal(context.createPlanInput.styleTarget, "square_1_1");
+  assert.equal(context.createPlanInput.editIntensity, "punchy");
+  assert.equal(context.createPlanInput.language, "en");
   assert.equal(context.calls.includes("analyze_frames"), true);
   assert.equal(context.calls.includes("extract_sampled_frames"), true);
   assert.equal(context.visualCandidateWindows.length > 0, true);

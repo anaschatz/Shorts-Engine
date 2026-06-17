@@ -24,6 +24,8 @@ function payloadForJob(job, project) {
     title: (job.payload && job.payload.title) || project.title || "ShortsEngine Short",
     preset: (job.payload && job.payload.preset) || "hype",
     language: (job.payload && job.payload.language) || "auto",
+    styleTarget: (job.payload && job.payload.styleTarget) || "vertical_9_16",
+    editIntensity: (job.payload && job.payload.editIntensity) || "balanced",
   };
 }
 

@@ -30,7 +30,22 @@ const HIGHLIGHT_TYPES = Object.freeze([
 
 const FRAMING_MODES = Object.freeze(["safe_center", "action_bias", "wide_safe", "wide_safe_vertical"]);
 const STYLE_PRESETS = Object.freeze(["hype", "drama", "tactical", "fan", "social_sports_v1"]);
-const ANIMATION_CUE_TYPES = Object.freeze(["intro_hook", "caption_pop", "beat_pulse", "subtle_punch_in", "end_replay_prompt"]);
+const ASPECT_RATIOS = Object.freeze(["9:16", "1:1"]);
+const ANIMATION_CUE_TYPES = Object.freeze([
+  "intro_hook",
+  "caption_pop",
+  "beat_pulse",
+  "subtle_punch_in",
+  "end_replay_prompt",
+  "punch_zoom",
+  "impact_flash",
+  "kinetic_caption",
+  "scorebug_blur_guard",
+  "replay_stutter",
+  "freeze_frame",
+  "beat_cut",
+  "subtle_camera_push",
+]);
 const CAPTION_EMPHASIS_STYLES = Object.freeze(["kinetic_bold"]);
 const EFFECT_TYPES = Object.freeze([
   "wide_safe_framing",
@@ -236,7 +251,7 @@ function createAnimationCues(duration, reasonCodes = []) {
   const safeDuration = Math.max(1, Number(duration) || 1);
   const cues = [
     { type: "intro_hook", start: 0, end: Math.min(1.2, safeDuration) },
-    { type: "caption_pop", start: 0.2, end: Math.min(1.8, safeDuration) },
+    { type: "kinetic_caption", start: 0.2, end: Math.min(1.8, safeDuration) },
     { type: "end_replay_prompt", start: Math.max(0, safeDuration - 1.3), end: safeDuration },
   ];
   if (reasonCodes.includes("audio_energy_spike") || reasonCodes.includes("audio_peak")) {
@@ -250,13 +265,19 @@ function createAnimationCues(duration, reasonCodes = []) {
     reasonCodes.includes("visual_foul_like_contact") ||
     reasonCodes.includes("visual_fast_break")
   ) {
-    cues.push({ type: "subtle_punch_in", start: Math.min(2.2, safeDuration - 0.2), end: Math.min(3.2, safeDuration) });
+    cues.push({ type: "subtle_camera_push", start: Math.min(2.2, safeDuration - 0.2), end: Math.min(3.2, safeDuration) });
   }
   return cues.filter((cue) => cue.end > cue.start).map((cue) => ({
     type: cue.type,
     start: Number(cue.start.toFixed(2)),
     end: Number(cue.end.toFixed(2)),
   }));
+}
+
+function exportForAspectRatio(aspectRatio) {
+  return aspectRatio === "1:1"
+    ? { width: 1080, height: 1080, format: "mp4" }
+    : { width: 1080, height: 1920, format: "mp4" };
 }
 
 function createCropStrategy(metadata = {}, framingMode = "wide_safe_vertical") {
@@ -396,11 +417,18 @@ function validateEditPlan(plan, metadata = {}) {
   if (sourceEnd > mediaDuration + 0.25) {
     throw new AppError("VALIDATION_ERROR", "Edit plan exceeds media duration.", 400);
   }
-  if (plan.aspectRatio !== "9:16") {
-    throw new AppError("VALIDATION_ERROR", "Only 9:16 export is supported in this MVP.", 400);
+  const aspectRatio = ASPECT_RATIOS.includes(sanitizeText(plan.aspectRatio || "9:16", 12)) ? sanitizeText(plan.aspectRatio || "9:16", 12) : null;
+  if (!aspectRatio) {
+    throw new AppError("VALIDATION_ERROR", "Unsupported export aspect ratio.", 400);
   }
-  if (!plan.export || plan.export.width !== 1080 || plan.export.height !== 1920 || plan.export.format !== "mp4") {
-    throw new AppError("VALIDATION_ERROR", "Export settings must be 1080x1920 MP4.", 400);
+  const expectedExport = exportForAspectRatio(aspectRatio);
+  if (
+    !plan.export ||
+    plan.export.width !== expectedExport.width ||
+    plan.export.height !== expectedExport.height ||
+    plan.export.format !== expectedExport.format
+  ) {
+    throw new AppError("VALIDATION_ERROR", "Export settings do not match the selected aspect ratio.", 400);
   }
   const highlightType = assertAllowedToken(plan.highlightType, HIGHLIGHT_TYPES, "Unsupported highlight type.", 40);
   const rawFramingMode = sanitizeText(plan.framingMode || "wide_safe_vertical", 40).toLowerCase();
@@ -448,18 +476,26 @@ function validateEditPlan(plan, metadata = {}) {
   const captionEmphasis = Array.isArray(plan.captionEmphasis)
     ? normalizeCaptionEmphasisItems(plan.captionEmphasis, duration)
     : createCaptionEmphasis(captions, highlightType);
-  const animationCues = Array.isArray(plan.animationCues) ? plan.animationCues.slice(0, 8).map((cue) => ({
-    type: sanitizeText(cue.type, 40),
-    start: clamp(cue.start, 0, duration),
-    end: clamp(cue.end, 0, duration),
-  })).filter((cue) => ANIMATION_CUE_TYPES.includes(cue.type) && cue.end > cue.start) : createAnimationCues(duration, reasonCodes);
-  if (plan.animationCues && animationCues.length !== plan.animationCues.length) {
-    throw new AppError("VALIDATION_ERROR", "Animation cue timing or type is invalid.", 400);
-  }
+  const rawAnimationCues = Array.isArray(plan.animationCues) ? plan.animationCues.slice(0, 10) : null;
+  const unsupportedAnimationCues = [];
+  let animationCues = rawAnimationCues
+    ? rawAnimationCues.map((cue) => {
+        const type = sanitizeText(cue && cue.type, 40);
+        const start = clamp(cue && cue.start, 0, duration);
+        const end = clamp(cue && cue.end, 0, duration);
+        if (!ANIMATION_CUE_TYPES.includes(type) || end <= start) {
+          unsupportedAnimationCues.push({ type: type || "unknown", reason: "unsupported_or_invalid_timing" });
+          return null;
+        }
+        return { type, start, end };
+      }).filter(Boolean)
+    : createAnimationCues(duration, reasonCodes);
+  if (!animationCues.length) animationCues = createAnimationCues(duration, reasonCodes);
   return {
     ...plan,
     sourceStart,
     sourceEnd,
+    aspectRatio,
     hook,
     highlightType,
     confidence: clamp(plan.confidence, 0, 1),
@@ -471,16 +507,18 @@ function validateEditPlan(plan, metadata = {}) {
     stylePreset,
     captionEmphasis,
     animationCues,
+    unsupportedAnimationCues,
     safetyNotes: Array.isArray(plan.safetyNotes) ? plan.safetyNotes.map((note) => sanitizeText(note, 160)).filter(Boolean).slice(0, 6) : [],
     captions,
     effects: normalizeEffects(plan.effects),
     reasonCodes,
-    export: { width: 1080, height: 1920, format: "mp4" },
+    export: expectedExport,
   };
 }
 
 module.exports = {
   ANIMATION_CUE_TYPES,
+  ASPECT_RATIOS,
   CAPTION_EMPHASIS_STYLES,
   EFFECT_TYPES,
   FRAMING_MODES,

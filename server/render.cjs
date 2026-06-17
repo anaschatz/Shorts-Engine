@@ -47,6 +47,23 @@ function labelForHighlightType(highlightType) {
   return labels[highlightType] || labels.generic_highlight;
 }
 
+function renderDimensions(plan = {}) {
+  const output = plan.export && typeof plan.export === "object" ? plan.export : {};
+  const width = Number(output.width);
+  const height = Number(output.height);
+  if (width === 1080 && height === 1080) return { width, height };
+  return { width: 1080, height: 1920 };
+}
+
+function endBeatText(plan = {}) {
+  if (plan.endBeatText) return escapeAss(plan.endBeatText);
+  const storyCaptions = plan.footballStoryPlan && Array.isArray(plan.footballStoryPlan.captionBeats)
+    ? plan.footballStoryPlan.captionBeats
+    : [];
+  const closing = storyCaptions.find((caption) => caption.role === "closing_punch") || storyCaptions[storyCaptions.length - 1];
+  return escapeAss((closing && closing.text) || "WATCH IT AGAIN");
+}
+
 function emphasizedAssText(caption, plan) {
   let text = escapeAss(caption.text);
   if (plan.stylePreset !== "social_sports_v1") return text;
@@ -65,20 +82,26 @@ function emphasizedAssText(caption, plan) {
 
 function writeAssSubtitles(plan, outputPath) {
   const duration = Math.max(0.1, Number(plan.sourceEnd - plan.sourceStart) || 0.1);
+  const dimensions = renderDimensions(plan);
   const social = plan.stylePreset === "social_sports_v1";
   const captionStyle = social ? "SocialCaption" : "Caption";
+  const square = dimensions.width === dimensions.height;
+  const captionFont = square ? 48 : 64;
+  const hookFont = square ? 56 : 78;
+  const bottomMargin = square ? 82 : 210;
+  const hookMargin = square ? 410 : 760;
   const lines = [
     "[Script Info]",
     "ScriptType: v4.00+",
     "ScaledBorderAndShadow: yes",
-    "PlayResX: 1080",
-    "PlayResY: 1920",
+    `PlayResX: ${dimensions.width}`,
+    `PlayResY: ${dimensions.height}`,
     "",
     "[V4+ Styles]",
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-    "Style: Hook,Arial,78,&H00FFFFFF,&H000000FF,&H00151A18,&H99000000,-1,0,0,0,100,100,0,0,1,5,1,5,70,70,760,1",
+    `Style: Hook,Arial,${hookFont},&H00FFFFFF,&H000000FF,&H00151A18,&H99000000,-1,0,0,0,100,100,0,0,1,5,1,5,70,70,${hookMargin},1`,
     "Style: Caption,Arial,58,&H00FFFFFF,&H000000FF,&H00151A18,&H99000000,-1,0,0,0,100,100,0,0,1,4,1,2,70,70,190,1",
-    "Style: SocialCaption,Arial,64,&H00FFFFFF,&H000000FF,&H00151A18,&HAA000000,-1,0,0,0,100,100,0,0,1,5,2,2,60,60,210,1",
+    `Style: SocialCaption,Arial,${captionFont},&H00FFFFFF,&H000000FF,&H00151A18,&HAA000000,-1,0,0,0,100,100,0,0,1,5,2,2,60,60,${bottomMargin},1`,
     "Style: TopLabel,Arial,42,&H00FFFFFF,&H000000FF,&H00151A18,&HCC111614,-1,0,0,0,100,100,0,0,1,3,1,8,60,60,78,1",
     "Style: EndBeat,Arial,46,&H00F4D35E,&H000000FF,&H00151A18,&HAA000000,-1,0,0,0,100,100,0,0,1,4,1,2,70,70,96,1",
     "",
@@ -98,7 +121,7 @@ function writeAssSubtitles(plan, outputPath) {
   }
   if (social && duration >= 2.2) {
     lines.push(
-      `Dialogue: 1,${assTime(Math.max(0, duration - 1.35))},${assTime(duration)},EndBeat,,0,0,0,,RUN IT BACK`,
+      `Dialogue: 1,${assTime(Math.max(0, duration - 1.35))},${assTime(duration)},EndBeat,,0,0,0,,${endBeatText(plan)}`,
     );
   }
   writeFileSync(outputPath, `${lines.join("\n")}\n`, "utf8");
@@ -159,16 +182,17 @@ async function extractAudio(inputPath, outputPath, { signal } = {}) {
 async function renderShort({ inputPath, outputPath, subtitlesPath, plan, signal }) {
   writeAssSubtitles(plan, subtitlesPath);
   const duration = Number((plan.sourceEnd - plan.sourceStart).toFixed(2));
+  const dimensions = renderDimensions(plan);
   const subtitlesFilter = `subtitles=filename='${escapeFilterPath(subtitlesPath)}'`;
   const filter = ["wide_safe", "wide_safe_vertical"].includes(plan.framingMode)
     ? [
-        "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=18:1[bg]",
-        "[0:v]scale=1080:1920:force_original_aspect_ratio=decrease[fg]",
+        `[0:v]scale=${dimensions.width}:${dimensions.height}:force_original_aspect_ratio=increase,crop=${dimensions.width}:${dimensions.height},boxblur=18:1[bg]`,
+        `[0:v]scale=${dimensions.width}:${dimensions.height}:force_original_aspect_ratio=decrease[fg]`,
         `[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1,eq=contrast=1.08:saturation=1.12,${subtitlesFilter}[v]`,
       ].join(";")
     : [
-        "[0:v]scale=1124:1998:force_original_aspect_ratio=increase",
-        "crop=1080:1920",
+        `[0:v]scale=${Math.round(dimensions.width * 1.04)}:${Math.round(dimensions.height * 1.04)}:force_original_aspect_ratio=increase`,
+        `crop=${dimensions.width}:${dimensions.height}`,
         "setsar=1",
         "eq=contrast=1.08:saturation=1.12",
         `${subtitlesFilter}[v]`,

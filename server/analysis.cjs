@@ -18,6 +18,11 @@ const {
   visualHighlightTypeForReasons,
   visualReasonCodesForWindow,
 } = require("./vision.cjs");
+const {
+  createFootballStoryPlan,
+  normalizeEditIntensity,
+  normalizeStyleTarget,
+} = require("./football-story-planner.cjs");
 
 const SHOT_TERMS = [
   "shot",
@@ -739,26 +744,54 @@ function framingReasonForVisualSummary(summary) {
   return "wide_safe_visual_context_no_object_tracking";
 }
 
-function createCandidateEditPlans({ moments, metadata, title = "ShortsEngine Short", preset = "hype" } = {}) {
+function createCandidateEditPlans({
+  moments,
+  metadata,
+  title = "ShortsEngine Short",
+  preset = "hype",
+  transcript = null,
+  mediaSignals = null,
+  visualSignals = null,
+  language = "auto",
+  styleTarget = "vertical_9_16",
+  editIntensity = "balanced",
+} = {}) {
   const candidates = (Array.isArray(moments) ? moments : []).slice(0, 3).map((moment) => {
-    const duration = moment.end - moment.start;
-    const highlightType = moment.highlightType || highlightTypeForReasons(moment.reasonCodes || []);
-    const hook = sanitizeText(moment.hook || hookForHighlightType(highlightType, preset), 96);
-    const captions = moment.captionBeats && moment.captionBeats.length
-      ? moment.captionBeats
-      : createFallbackCaptions(duration, preset, { highlightType, hook });
-    const framingMode = framingModeForMetadata(metadata);
     const visualEvidenceSummary = visualEvidenceSummaryForMoment(moment);
+    const storyPlan = createFootballStoryPlan({
+      title,
+      language: language || (transcript && transcript.language) || "auto",
+      transcript,
+      mediaSignals,
+      visualSignals,
+      metadata,
+      moments,
+      selectedMoment: moment,
+      visualEvidenceSummary,
+      styleTarget: normalizeStyleTarget(styleTarget),
+      editIntensity: normalizeEditIntensity(editIntensity),
+    });
+    const highlightType = storyPlan.selectedMoment.highlightType || moment.highlightType || highlightTypeForReasons(moment.reasonCodes || []);
+    const duration = storyPlan.selectedMoment.end - storyPlan.selectedMoment.start;
+    const hook = sanitizeText(storyPlan.hook || moment.hook || hookForHighlightType(highlightType, preset), 96);
+    const captions = Array.isArray(storyPlan.captionBeats) && storyPlan.captionBeats.length
+      ? storyPlan.captionBeats
+      : createFallbackCaptions(duration, preset, { highlightType, hook });
+    const framingMode = storyPlan.framingIntent.mode || framingModeForMetadata(metadata);
     const actionFocusConfidence = visualEvidenceSummary.actionFocusConfidence;
-    const framingReason = framingReasonForVisualSummary(visualEvidenceSummary);
-    const captionEmphasis = createCaptionEmphasis(captions, highlightType);
-    const animationCues = createAnimationCues(duration, moment.reasonCodes || []);
+    const framingReason = storyPlan.framingIntent.reason || framingReasonForVisualSummary(visualEvidenceSummary);
+    const captionEmphasis = Array.isArray(storyPlan.captionEmphasis) && storyPlan.captionEmphasis.length
+      ? storyPlan.captionEmphasis
+      : createCaptionEmphasis(captions, highlightType);
+    const animationCues = Array.isArray(storyPlan.animationCues) && storyPlan.animationCues.length
+      ? storyPlan.animationCues
+      : createAnimationCues(duration, moment.reasonCodes || []);
     const plan = {
-      sourceStart: moment.start,
-      sourceEnd: moment.end,
-      aspectRatio: "9:16",
+      sourceStart: storyPlan.selectedMoment.start,
+      sourceEnd: storyPlan.selectedMoment.end,
+      aspectRatio: storyPlan.aspectRatio,
       highlightType,
-      confidence: moment.confidence,
+      confidence: storyPlan.confidence || moment.confidence,
       hook,
       title: sanitizeText(title, 120),
       captions,
@@ -767,11 +800,15 @@ function createCandidateEditPlans({ moments, metadata, title = "ShortsEngine Sho
       framingReason,
       actionFocusConfidence,
       visualEvidenceSummary,
-      cropStrategy: createCropStrategy(metadata, framingMode),
+      cropStrategy: storyPlan.cropStrategy || createCropStrategy(metadata, framingMode),
       stylePreset: "social_sports_v1",
+      styleTarget: storyPlan.styleTarget,
+      editIntensity: storyPlan.editIntensity,
+      footballStoryPlan: storyPlan,
       captionEmphasis,
       animationCues,
       safetyNotes: [
+        ...storyPlan.safetyNotes,
         "No object or ball tracking is claimed in v1.",
         "Visual signals are contextual only and never imply a goal without explicit goal evidence.",
         framingMode === "wide_safe_vertical"
@@ -795,9 +832,7 @@ function createCandidateEditPlans({ moments, metadata, title = "ShortsEngine Sho
         source: moment.source,
       },
       export: {
-        width: 1080,
-        height: 1920,
-        format: "mp4",
+        ...storyPlan.export,
       },
     };
     return validateEditPlan(plan, metadata);
@@ -820,6 +855,9 @@ function analysisHealth() {
       "commentary_crowd_signal_scoring",
       "vision_safe_action_signals",
       "false_goal_guard",
+      "football_story_planner",
+      "contextual_caption_planning",
+      "reference_style_animation_cues",
       "highlight_ranking",
       "candidate_edit_plans",
     ],

@@ -158,6 +158,36 @@ test("idempotency survives durable store reload", () => {
   assert.equal(secondStore.get(first.id).id, first.id);
 });
 
+test("job payload persistence preserves style target and edit intensity", () => {
+  const jobDir = tempJobDir();
+  const firstStore = createPersistentStore(jobDir);
+  const first = firstStore.create({
+    projectId: PROJECT_ID,
+    uploadId: UPLOAD_ID,
+    action: "generate",
+    idempotencyKey: "style-settings",
+    payload: {
+      title: "Derby Final",
+      preset: "hype",
+      language: "el",
+      styleTarget: "square_1_1",
+      editIntensity: "punchy",
+    },
+  });
+
+  const raw = persistedJob(jobDir, first.id);
+  assert.equal(raw.payload.styleTarget, "square_1_1");
+  assert.equal(raw.payload.editIntensity, "punchy");
+
+  const secondStore = createPersistentStore(jobDir);
+  const summary = secondStore.recover();
+  const recovered = secondStore.get(first.id);
+
+  assert.equal(summary.records, 1);
+  assert.equal(recovered.payload.styleTarget, "square_1_1");
+  assert.equal(recovered.payload.editIntensity, "punchy");
+});
+
 test("recovery requeues stale processing jobs and keeps terminal jobs terminal", () => {
   const jobDir = tempJobDir();
   const firstStore = createPersistentStore(jobDir);

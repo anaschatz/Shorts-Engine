@@ -9,9 +9,9 @@ Core path:
 3. `POST /api/projects/:projectId/generate` creates an idempotent render job.
 4. Extract WAV audio with FFmpeg when audio exists.
 5. Transcribe with configured provider or deterministic mock fallback.
-6. Generate and validate a 9:16 MP4 edit plan.
+6. Plan a football story, then generate and validate a 9:16 or 1:1 MP4 edit plan.
 7. Write ASS subtitles with hook and caption styles.
-8. Render via FFmpeg using center crop, color punch, subtitles, H.264 MP4.
+8. Render via FFmpeg using safe contain framing, color punch, subtitles, H.264 MP4.
 9. Poll `GET /api/jobs/:jobId`.
 10. Download via `GET /api/exports/:exportId/download`.
 
@@ -36,3 +36,4 @@ Safety notes:
 - Persist only safe job state; never persist `_controller`, raw provider errors, secrets, or public absolute paths.
 - Treat missing project/upload context as a safe job failure, not an uncaught orchestration crash.
 - Treat object storage/database migration as an adapter swap after repository and artifact contracts are stable.
+- 1:1 square sports edits are supported through validated export dimensions; unsupported animation cues should be ignored with metadata instead of failing render.

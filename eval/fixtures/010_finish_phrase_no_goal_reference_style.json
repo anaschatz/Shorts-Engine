@@ -25,7 +25,10 @@
     "highlights": [{ "start": 5.0, "end": 12.8 }],
     "reasonCodes": ["crowd_reaction", "crowd_spike", "audio_energy_spike", "scene_change_cluster"],
     "highlightType": "crowd_reaction",
-    "stylePreset": "social_sports_v1"
+    "stylePreset": "social_sports_v1",
+    "styleTarget": "square_1_1",
+    "aspectRatio": "1:1",
+    "editIntensity": "punchy"
   },
   "thresholds": {
     "minAggregateScore": 74,

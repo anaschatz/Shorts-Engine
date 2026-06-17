@@ -134,6 +134,8 @@ function assertPipelineContext({ job, project, upload, payload, deps }) {
   const title = sanitizeText(payload.title || project.title || "ShortsEngine Short", 120);
   const preset = sanitizeText(payload.preset || "hype", 40).toLowerCase();
   const language = sanitizeText(payload.language || "auto", 32) || "auto";
+  const styleTarget = sanitizeText(payload.styleTarget || "vertical_9_16", 40).toLowerCase() || "vertical_9_16";
+  const editIntensity = sanitizeText(payload.editIntensity || "balanced", 40).toLowerCase() || "balanced";
   const source = payload.source || project.source || upload.source || null;
   if (!title || !preset) {
     throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400);
@@ -161,6 +163,8 @@ function assertPipelineContext({ job, project, upload, payload, deps }) {
     subtitlesKey,
     subtitlesPath: subtitles.localPath,
     subtitlesStage: subtitles,
+    styleTarget,
+    editIntensity,
     title,
   };
 }
@@ -520,13 +524,20 @@ async function runRenderJob(options) {
       context.metadata,
     );
 
-    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 70, step: "create_edit_plan" });
+    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 66, step: "plan_story" });
+
+    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 72, step: "create_edit_plan" });
     const candidatePlans = deps.createCandidateEditPlans({
       moments: highlightResult.moments,
       metadata: context.metadata,
       transcript,
+      mediaSignals,
+      visualSignals,
       preset: context.preset,
       title: context.title,
+      language: context.language,
+      styleTarget: context.styleTarget,
+      editIntensity: context.editIntensity,
     });
     if (!Array.isArray(candidatePlans) || candidatePlans.length === 0) {
       throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
@@ -541,6 +552,9 @@ async function runRenderJob(options) {
       confidence: editPlan.confidence,
       framingMode: editPlan.framingMode,
       stylePreset: editPlan.stylePreset,
+      styleTarget: editPlan.styleTarget,
+      editIntensity: editPlan.editIntensity,
+      aspectRatio: editPlan.aspectRatio,
       captionSafetyStatus: editPlan.highlightType === "goal" ? "goal-language-allowed" : "false-goal-guarded",
       falseGoalGuardTriggered: editPlan.highlightType !== "goal",
       visualProviderMode: visualSignals.providerMode,
@@ -548,6 +562,7 @@ async function runRenderJob(options) {
       actionFocusConfidence: editPlan.actionFocusConfidence,
       framingReason: editPlan.framingReason,
       animationCueCount: Array.isArray(editPlan.animationCues) ? editPlan.animationCues.length : 0,
+      unsupportedAnimationCueCount: Array.isArray(editPlan.unsupportedAnimationCues) ? editPlan.unsupportedAnimationCues.length : 0,
     });
 
     updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 82, step: "render_short" });
@@ -643,6 +658,9 @@ async function runRenderJob(options) {
       confidence: editPlan.confidence,
       framingMode: editPlan.framingMode,
       stylePreset: editPlan.stylePreset,
+      styleTarget: editPlan.styleTarget,
+      editIntensity: editPlan.editIntensity,
+      aspectRatio: editPlan.aspectRatio,
       captionSafetyStatus: editPlan.highlightType === "goal" ? "goal-language-allowed" : "false-goal-guarded",
       falseGoalGuardTriggered: editPlan.highlightType !== "goal",
       visualProviderMode: visualSignals.providerMode,
@@ -650,6 +668,7 @@ async function runRenderJob(options) {
       actionFocusConfidence: editPlan.actionFocusConfidence,
       framingReason: editPlan.framingReason,
       animationCueCount: Array.isArray(editPlan.animationCues) ? editPlan.animationCues.length : 0,
+      unsupportedAnimationCueCount: Array.isArray(editPlan.unsupportedAnimationCues) ? editPlan.unsupportedAnimationCues.length : 0,
     });
   } catch (error) {
     if ((signal && signal.aborted) || (job && job.status === "cancelled") || error.code === "JOB_CANCELLED") {

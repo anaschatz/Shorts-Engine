@@ -26,6 +26,13 @@ function idempotencyKey(action, payload) {
 const JOB_STATUSES = Object.freeze(["queued", "processing", "completed", "failed", "cancelled"]);
 const ACTIVE_JOB_STATUSES = Object.freeze(["queued", "processing"]);
 const TERMINAL_JOB_STATUSES = Object.freeze(["completed", "failed", "cancelled"]);
+const JOB_STYLE_TARGETS = Object.freeze(["auto", "vertical_9_16", "square_1_1"]);
+const JOB_STYLE_ALIASES = Object.freeze({
+  shorts: "vertical_9_16",
+  square: "square_1_1",
+  vertical: "vertical_9_16",
+});
+const JOB_EDIT_INTENSITIES = Object.freeze(["clean", "balanced", "punchy"]);
 
 const DEFAULT_RECOVERY_POLICY = Object.freeze({
   maxAttempts: 2,
@@ -185,12 +192,25 @@ function normalizeError(error) {
   };
 }
 
+function normalizeStyleTarget(value) {
+  const safe = sanitizeText(value || "vertical_9_16", 40).toLowerCase();
+  if (JOB_STYLE_TARGETS.includes(safe)) return safe;
+  return JOB_STYLE_ALIASES[safe] || "vertical_9_16";
+}
+
+function normalizeEditIntensity(value) {
+  const safe = sanitizeText(value || "balanced", 40).toLowerCase();
+  return JOB_EDIT_INTENSITIES.includes(safe) ? safe : "balanced";
+}
+
 function normalizePayload(payload) {
   if (!payload || typeof payload !== "object") return null;
   return {
     title: sanitizeText(payload.title || "ShortsEngine Short", 120),
     preset: sanitizeText(payload.preset || "hype", 40).toLowerCase(),
     language: sanitizeText(payload.language || "auto", 32) || "auto",
+    styleTarget: normalizeStyleTarget(payload.styleTarget),
+    editIntensity: normalizeEditIntensity(payload.editIntensity),
     source: normalizeSmokeSource(payload.source),
   };
 }

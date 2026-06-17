@@ -218,8 +218,13 @@ function scoreFixture(fixture) {
     moments: highlightResult.moments,
     metadata,
     transcript: fixture.transcript,
+    mediaSignals: fixture.mediaSignals,
+    visualSignals,
     title: fixture.title,
     preset: fixture.expected.stylePreset || "hype",
+    language: fixture.language,
+    styleTarget: fixture.expected.styleTarget || "vertical_9_16",
+    editIntensity: fixture.expected.editIntensity || "balanced",
   });
   const topMoment = highlightResult.moments[0] || null;
   const topPlan = candidatePlans[0] || null;
@@ -233,7 +238,11 @@ function scoreFixture(fixture) {
   const visualReasonRecall = expectedVisualReasons.length ? reasonCodeRecall(actualVisualReasons, expectedVisualReasons) : 1;
   const retentionScore = topMoment ? toNumber(topMoment.retentionScore) : 0;
   const retentionSanity = retentionScore >= thresholds.minRetentionScore ? 1 : Math.max(0, retentionScore / thresholds.minRetentionScore);
-  const candidatePlanValidity = candidatePlans.length > 0 && candidatePlans.every((plan) => plan.aspectRatio === "9:16" && plan.export.format === "mp4") ? 1 : 0;
+  const expectedAspectRatio = fixture.expected.aspectRatio || "9:16";
+  const candidatePlanValidity = candidatePlans.length > 0 &&
+    candidatePlans.every((plan) => plan.aspectRatio === expectedAspectRatio && plan.export.format === "mp4")
+    ? 1
+    : 0;
   const captionTimingValidity = candidatePlans.every(captionsHaveValidTiming) ? 1 : 0;
   const expectedHighlightType = fixture.expected.highlightType || null;
   const highlightTypeAccuracy = expectedHighlightType && topMoment ? (topMoment.highlightType === expectedHighlightType ? 1 : 0) : 1;
@@ -318,6 +327,8 @@ function scoreFixture(fixture) {
       reasonCodes: [...fixture.expected.reasonCodes],
       highlightType: expectedHighlightType,
       stylePreset: fixture.expected.stylePreset,
+      styleTarget: fixture.expected.styleTarget || "vertical_9_16",
+      aspectRatio: expectedAspectRatio,
     },
     actual: {
       topMoment: topMoment
@@ -346,6 +357,10 @@ function scoreFixture(fixture) {
         reasonCodes: plan.reasonCodes,
         highlightType: plan.highlightType,
         stylePreset: plan.stylePreset,
+        styleTarget: plan.styleTarget,
+        editIntensity: plan.editIntensity,
+        aspectRatio: plan.aspectRatio,
+        storyType: plan.footballStoryPlan && plan.footballStoryPlan.storyType,
         framingMode: plan.framingMode,
         framingReason: plan.framingReason,
         actionFocusConfidence: plan.actionFocusConfidence,

@@ -97,6 +97,8 @@
   const state = {
     activeMoment: 0,
     activePreset: "hype",
+    activeRatio: "vertical",
+    activeIntensity: "balanced",
     activeObjectUrl: null,
     activeUpload: null,
     activeProject: null,
@@ -145,6 +147,7 @@
     });
     resolved.ratioButtons = Array.from(document.querySelectorAll(".segmented-control button"));
     resolved.presetButtons = Array.from(document.querySelectorAll(".preset"));
+    resolved.intensityButtons = Array.from(document.querySelectorAll("[data-intensity]"));
     resolved.exportButtons = Array.from(document.querySelectorAll("[data-export-target]"));
     if (missing.length) {
       renderFatalError(`Missing required UI elements: ${missing.join(", ")}`);
@@ -256,12 +259,20 @@
       title: els.matchTitle.value,
       language: els.languageSelect.value,
       preset: state.activePreset,
+      styleTarget: styleTargetForRatio(state.activeRatio),
+      editIntensity: state.activeIntensity,
       pace: els.paceRange.value,
       motion: els.motionRange.value,
       captionsEnabled: els.captionsToggle.checked,
       rightsConfirmed: state.sourceType === "youtube" ? els.youtubeRightsCheckbox.checked : els.rightsCheckbox.checked,
       ...(extra || {}),
     });
+  }
+
+  function styleTargetForRatio(ratio) {
+    if (ratio === "square") return "square_1_1";
+    if (ratio === "auto") return "auto";
+    return "vertical_9_16";
   }
 
   function isBusy() {
@@ -494,10 +505,13 @@
       queued: "Queued",
       extract_audio: "Extracting audio",
       analyze_media: "Analyzing media signals",
+      extract_sampled_frames: "Sampling vision frames",
+      analyze_visuals: "Analyzing visual context",
       transcribe: "Transcribing commentary",
       detect_highlights: "Detecting highlights",
+      plan_story: "Planning football story",
       create_edit_plan: "Creating edit plans",
-      render_short: "Rendering 9:16 short",
+      render_short: "Rendering short",
       completed: "Completed",
       cancelled: "Cancelled",
     };
@@ -858,10 +872,14 @@
           title: settings.data.title,
           preset: settings.data.preset,
           language: settings.data.language,
+          styleTarget: settings.data.styleTarget,
+          editIntensity: settings.data.editIntensity,
           rightsConfirmed: settings.data.rightsConfirmed,
           idempotencyKey: Core.createIdempotencyKey("generate", {
             uploadId: state.activeUpload.id,
             preset: settings.data.preset,
+            styleTarget: settings.data.styleTarget,
+            editIntensity: settings.data.editIntensity,
             title: settings.data.title,
           }),
         }),
@@ -960,7 +978,8 @@
     els.downloadLink.hidden = false;
     const styleLabel = editPlan.stylePreset === "social_sports_v1" ? "Social sports" : editPlan.stylePreset || "Style";
     const framingLabel = editPlan.framingMode ? editPlan.framingMode.replace(/_/g, " ") : "safe framing";
-    els.timelineLabel.textContent = `${Math.round(editPlan.sourceEnd - editPlan.sourceStart)}s short · ${candidatePlans.length || 1} candidates · ${styleLabel} · ${framingLabel}`;
+    const ratioLabel = editPlan.aspectRatio || "9:16";
+    els.timelineLabel.textContent = `${Math.round(editPlan.sourceEnd - editPlan.sourceStart)}s short · ${ratioLabel} · ${candidatePlans.length || 1} candidates · ${styleLabel} · ${framingLabel}`;
     els.momentCount.textContent = String(state.moments.length);
     els.shortCount.textContent = "1";
     setProjectStatus("ready", "Rendered");
@@ -968,7 +987,7 @@
     setButtonContent(els.exportBtn, "Download", "download");
     renderMoments();
     selectMoment(0);
-    showToast("Το 9:16 MP4 render είναι έτοιμο για download.", "success");
+    showToast(`Το ${ratioLabel} MP4 render είναι έτοιμο για download.`, "success");
     updateActionStates();
   }
 
@@ -1037,6 +1056,8 @@
     if (state.activeObjectUrl) URL.revokeObjectURL(state.activeObjectUrl);
     Object.assign(state, {
       activeMoment: 0,
+      activeRatio: "vertical",
+      activeIntensity: "balanced",
       activeObjectUrl: null,
       activeUpload: null,
       activeProject: null,
@@ -1058,6 +1079,9 @@
     els.downloadLink.href = "#";
     els.jobProgress.hidden = true;
     els.timelineLabel.textContent = "00:18 short · 4 scenes · 7 caption beats";
+    els.ratioButtons.forEach((item) => item.classList.toggle("active", item.dataset.ratio === "vertical"));
+    els.phonePreview.classList.remove("square", "wide");
+    els.intensityButtons.forEach((item) => item.classList.toggle("active", item.dataset.intensity === "balanced"));
     els.momentCount.textContent = "3";
     els.shortCount.textContent = "0";
     resetFileInput();
@@ -1076,11 +1100,21 @@
   function updateRatio(button) {
     const ratio = button.dataset.ratio;
     if (!Core.CONFIG.allowedRatios.includes(ratio)) return;
+    state.activeRatio = ratio;
     els.ratioButtons.forEach((item) => item.classList.remove("active"));
     button.classList.add("active");
     els.phonePreview.classList.remove("square", "wide");
     if (ratio === "square") els.phonePreview.classList.add("square");
-    if (ratio === "wide") els.phonePreview.classList.add("wide");
+    updateActionStates();
+  }
+
+  function updateIntensity(button) {
+    const intensity = button.dataset.intensity;
+    if (!Core.CONFIG.allowedEditIntensities.includes(intensity)) return;
+    state.activeIntensity = intensity;
+    els.intensityButtons.forEach((item) => item.classList.remove("active"));
+    button.classList.add("active");
+    updateActionStates();
   }
 
   function updatePreset(button) {
@@ -1100,6 +1134,7 @@
   function bindEvents() {
     els.ratioButtons.forEach((button) => button.addEventListener("click", () => updateRatio(button)));
     els.presetButtons.forEach((button) => button.addEventListener("click", () => updatePreset(button)));
+    els.intensityButtons.forEach((button) => button.addEventListener("click", () => updateIntensity(button)));
     els.sourceLocalBtn.addEventListener("click", () => selectSource("local"));
     els.sourceYoutubeBtn.addEventListener("click", () => selectSource("youtube"));
     els.youtubeUrlInput.addEventListener("input", () => {
