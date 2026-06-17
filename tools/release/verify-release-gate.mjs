@@ -22,6 +22,7 @@ const REQUIRED_WORKFLOW_COMMANDS = Object.freeze([
   "npm run build",
   "npm test",
   "npm run eval",
+  "npm run eval:reference",
   "npm run brain:health",
   "npm run demo:fixture",
   "npm run demo:smoke",
@@ -61,6 +62,7 @@ const FAILURE_ARTIFACT_ALLOWLIST = Object.freeze([
   "demo/results/playwright-latest.json",
   "demo/results/playwright-artifacts/",
   "eval/results/latest.json",
+  "eval/results/reference-latest.json",
 ]);
 
 const BRANCH_PROTECTION_GUIDANCE = Object.freeze(EXPECTED_BRANCH_POLICY.manualChecklist);

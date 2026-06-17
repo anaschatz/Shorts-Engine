@@ -67,6 +67,13 @@ function createFixtureRoot() {
     aggregate: { aggregateScore: 99, fixtureCount: 6 },
     failedCases: [],
   });
+  writeJson(join(evalResultsDir, "reference-latest.json"), {
+    generatedAt: timestamp,
+    passed: true,
+    aggregate: { aggregateScore: 95, fixtureCount: 8 },
+    failedCases: [],
+    borderlineCases: [],
+  });
 
   return { rootDir, demoResultsDir, evalResultsDir, nowMs };
 }
@@ -180,7 +187,7 @@ test("release evidence JSON has safe shape and no sensitive leakage", () => {
   assert.equal(evidence.releaseReadiness.ready, true);
   assert.equal(evidence.releaseReadiness.remoteMutation, false);
   assert.equal(evidence.stagingReadiness.ok, true);
-  assert.equal(evidence.latestReports.length, 4);
+  assert.equal(evidence.latestReports.length, 5);
   assert.equal(evidence.latestReports[0].relativePath, "latest.json");
   assert.equal(findSensitiveLeak(evidence), null);
 });

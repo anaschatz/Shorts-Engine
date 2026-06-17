@@ -1,0 +1,50 @@
+{
+  "id": "reference_keeper_save",
+  "title": "Reference style keeper save",
+  "language": "English",
+  "durationSeconds": 26,
+  "transcript": {
+    "provider": "fixture",
+    "language": "en",
+    "captions": [
+      { "start": 6.0, "end": 7.5, "text": "The chance looks open" },
+      { "start": 10.0, "end": 11.5, "text": "The keeper makes the save" },
+      { "start": 15.0, "end": 16.5, "text": "That stop keeps it alive" }
+    ]
+  },
+  "mediaSignals": {
+    "durationSeconds": 26,
+    "width": 1920,
+    "height": 1080,
+    "hasAudio": true,
+    "audioPeaks": [{ "time": 10.9, "energyScore": 0.87, "source": "fixture" }],
+    "sceneChanges": [{ "time": 11.1, "confidence": 0.76, "source": "fixture" }],
+    "highMotionCandidates": [{ "time": 10.9, "confidence": 0.78, "source": "fixture" }]
+  },
+  "visualSignals": {
+    "providerMode": "fixture-visual",
+    "fallbackUsed": false,
+    "confidence": 0.88,
+    "windows": [
+      { "start": 9.4, "end": 12.6, "labels": ["ball_visible", "save_like_motion"], "confidence": 0.88, "source": "fixture" }
+    ]
+  },
+  "expected": {
+    "highlights": [{ "start": 9.0, "end": 13.2 }],
+    "reasonCodes": ["save", "audio_energy_spike", "visual_save_like_motion"],
+    "highlightType": "save",
+    "captionRoles": ["opening_hook", "context", "action_callout", "reaction", "closing_punch"],
+    "captionMustMentionAny": [
+      { "role": "opening_hook", "terms": ["save"] },
+      { "role": "action_callout", "terms": ["keeper", "reacts"] },
+      { "role": "reaction", "terms": ["stop", "alive"] }
+    ],
+    "forbiddenClaims": ["goal", "scored"],
+    "requiredAnimationCues": ["intro_hook", "kinetic_caption", "subtle_camera_push", "end_replay_prompt"],
+    "aspectRatio": "9:16",
+    "stylePreset": "social_sports_v1",
+    "safeFraming": { "preserveFullFrame": true },
+    "durationRange": [6, 16],
+    "minQualityScore": 82
+  }
+}

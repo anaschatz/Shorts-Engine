@@ -745,6 +745,45 @@ function framingReasonForVisualSummary(summary) {
   return "wide_safe_visual_context_no_object_tracking";
 }
 
+function audioEvidenceSummaryForMoment(moment, mediaSignals = {}) {
+  const audioPeaks = Array.isArray(mediaSignals && mediaSignals.audioPeaks) ? mediaSignals.audioPeaks : [];
+  const start = seconds(moment && moment.start);
+  const end = seconds(moment && moment.end);
+  const nearbyPeaks = audioPeaks.filter((peak) => seconds(peak.time) >= start - 0.5 && seconds(peak.time) <= end + 0.5);
+  const maxEnergyScore = nearbyPeaks.length
+    ? Math.max(...nearbyPeaks.map((peak) => seconds(peak.energyScore)))
+    : 0;
+  return {
+    audioPeakCount: nearbyPeaks.length,
+    maxEnergyScore: Number(maxEnergyScore.toFixed(2)),
+    crowdOrCommentaryEvidence: Boolean((moment && moment.reasonCodes || []).some((reason) => (
+      ["audio_energy_spike", "crowd_spike", "commentary_peak", "crowd_reaction"].includes(reason)
+    ))),
+  };
+}
+
+function planHasGoalLanguageSafe(plan) {
+  const captionTexts = Array.isArray(plan && plan.captions) ? plan.captions.map((caption) => caption.text) : [];
+  return [plan && plan.hook, ...captionTexts].some(hasGoalLanguage);
+}
+
+function reviewMetadataForPlan(plan, moment, mediaSignals = {}) {
+  return {
+    renderStylePreset: plan.stylePreset,
+    captionRoles: Array.isArray(plan.captions) ? plan.captions.map((caption) => caption.role) : [],
+    animationCueTypes: Array.isArray(plan.animationCues) ? [...new Set(plan.animationCues.map((cue) => cue.type).filter(Boolean))] : [],
+    targetAspectRatio: plan.aspectRatio,
+    highlightType: plan.highlightType,
+    forbiddenClaimChecks: {
+      goalLanguage: planHasGoalLanguageSafe(plan),
+      goalEvidence: plan.highlightType === "goal" && Array.isArray(plan.reasonCodes) && plan.reasonCodes.includes("goal"),
+    },
+    framingMode: plan.framingMode,
+    visualEvidenceSummary: plan.visualEvidenceSummary || null,
+    audioEvidenceSummary: audioEvidenceSummaryForMoment(moment, mediaSignals),
+  };
+}
+
 function createCandidateEditPlans({
   moments,
   metadata,
@@ -838,7 +877,11 @@ function createCandidateEditPlans({
         ...storyPlan.export,
       },
     };
-    return validateEditPlan(plan, metadata);
+    const validated = validateEditPlan(plan, metadata);
+    return {
+      ...validated,
+      reviewMetadata: reviewMetadataForPlan(validated, moment, mediaSignals),
+    };
   });
   if (!candidates.length) {
     throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
@@ -879,6 +922,7 @@ module.exports = {
   fallbackSceneChanges,
   evidenceForReasons,
   highlightTypeForReasons,
+  reviewMetadataForPlan,
   captionIntentForHighlightType,
   reasonCodesForCaption,
   scoreReasons,

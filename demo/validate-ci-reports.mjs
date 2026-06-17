@@ -177,6 +177,7 @@ function validateCiReports(options = {}) {
     { label: "browser-contract", filePath: resolve(demoResultsDir, "browser-latest.json") },
     { label: "playwright-browser", filePath: resolve(demoResultsDir, "playwright-latest.json") },
     { label: "evaluation", filePath: resolve(evalResultsDir, "latest.json") },
+    { label: "reference-review", filePath: resolve(evalResultsDir, "reference-latest.json") },
   ];
   let playwrightStatus = "unknown";
   const validated = reports.map((entry) => {

@@ -1,0 +1,50 @@
+{
+  "id": "reference_crowd_reaction_no_goal",
+  "title": "Reference style crowd reaction without goal claim",
+  "language": "English",
+  "durationSeconds": 22,
+  "transcript": {
+    "provider": "fixture",
+    "language": "en",
+    "captions": [
+      { "start": 5.0, "end": 6.2, "text": "The stadium starts to lift" },
+      { "start": 9.1, "end": 10.7, "text": "Listen to the crowd react" },
+      { "start": 14.0, "end": 15.3, "text": "The energy jumps into the next play" }
+    ]
+  },
+  "mediaSignals": {
+    "durationSeconds": 22,
+    "width": 1920,
+    "height": 1080,
+    "hasAudio": true,
+    "audioPeaks": [{ "time": 10.0, "energyScore": 0.94, "source": "fixture" }],
+    "sceneChanges": [],
+    "highMotionCandidates": []
+  },
+  "visualSignals": {
+    "providerMode": "fixture-visual",
+    "fallbackUsed": false,
+    "confidence": 0.84,
+    "windows": [
+      { "start": 8.8, "end": 11.8, "labels": ["crowd_reaction"], "confidence": 0.84, "source": "fixture" }
+    ]
+  },
+  "expected": {
+    "highlights": [{ "start": 8.4, "end": 12.4 }],
+    "reasonCodes": ["crowd_reaction", "audio_energy_spike", "crowd_spike", "visual_crowd_reaction"],
+    "highlightType": "crowd_reaction",
+    "captionRoles": ["opening_hook", "context", "action_callout", "reaction", "closing_punch"],
+    "captionMustMentionAny": [
+      { "role": "opening_hook", "terms": ["crowd", "stadium"] },
+      { "role": "reaction", "terms": ["energy"] },
+      { "role": "closing_punch", "terms": ["watch", "caused"] }
+    ],
+    "forbiddenClaims": ["goal", "scored", "winner"],
+    "requiredAnimationCues": ["intro_hook", "kinetic_caption", "beat_cut", "punch_zoom", "impact_flash", "end_replay_prompt"],
+    "aspectRatio": "9:16",
+    "stylePreset": "punchy_highlight",
+    "safeFraming": { "preserveFullFrame": true },
+    "durationRange": [6, 15],
+    "minQualityScore": 84
+  }
+}

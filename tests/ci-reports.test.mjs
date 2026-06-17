@@ -57,6 +57,13 @@ function writeValidReports({ demoResultsDir, evalResultsDir, timestamp }) {
     aggregate: { aggregateScore: 99, fixtureCount: 6 },
     failedCases: [],
   });
+  writeJson(join(evalResultsDir, "reference-latest.json"), {
+    generatedAt: timestamp,
+    passed: true,
+    aggregate: { aggregateScore: 95, fixtureCount: 8 },
+    failedCases: [],
+    borderlineCases: [],
+  });
 }
 
 test("CI report validator accepts fresh safe reports", () => {
@@ -71,6 +78,7 @@ test("CI report validator accepts fresh safe reports", () => {
     "browser-contract",
     "playwright-browser",
     "evaluation",
+    "reference-review",
   ]);
   assert.equal(result.artifacts.exists, false);
 });

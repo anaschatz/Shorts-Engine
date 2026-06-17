@@ -1,0 +1,50 @@
+{
+  "id": "reference_hard_foul",
+  "title": "Reference style hard foul without goal claim",
+  "language": "English",
+  "durationSeconds": 28,
+  "transcript": {
+    "provider": "fixture",
+    "language": "en",
+    "captions": [
+      { "start": 7.2, "end": 8.7, "text": "That was a hard foul" },
+      { "start": 10.2, "end": 11.7, "text": "Heavy contact in midfield" },
+      { "start": 15.2, "end": 16.7, "text": "Everyone reacts after the challenge" }
+    ]
+  },
+  "mediaSignals": {
+    "durationSeconds": 28,
+    "width": 1920,
+    "height": 1080,
+    "hasAudio": true,
+    "audioPeaks": [{ "time": 10.8, "energyScore": 0.88, "source": "fixture" }],
+    "sceneChanges": [{ "time": 10.7, "confidence": 0.73, "source": "fixture" }],
+    "highMotionCandidates": [{ "time": 10.9, "confidence": 0.8, "source": "fixture" }]
+  },
+  "visualSignals": {
+    "providerMode": "fixture-visual",
+    "fallbackUsed": false,
+    "confidence": 0.86,
+    "windows": [
+      { "start": 9.4, "end": 12.2, "labels": ["foul_like_contact", "player_cluster"], "confidence": 0.86, "source": "fixture" }
+    ]
+  },
+  "expected": {
+    "highlights": [{ "start": 9.0, "end": 13.0 }],
+    "reasonCodes": ["hard_foul", "foul", "audio_energy_spike", "visual_foul_like_contact"],
+    "highlightType": "hard_foul",
+    "captionRoles": ["opening_hook", "context", "action_callout", "reaction", "closing_punch"],
+    "captionMustMentionAny": [
+      { "role": "opening_hook", "terms": ["contact"] },
+      { "role": "action_callout", "terms": ["heavy"] },
+      { "role": "closing_punch", "terms": ["challenge"] }
+    ],
+    "forbiddenClaims": ["goal", "scored"],
+    "requiredAnimationCues": ["intro_hook", "kinetic_caption", "punch_zoom", "impact_flash", "end_replay_prompt"],
+    "aspectRatio": "9:16",
+    "stylePreset": "punchy_highlight",
+    "safeFraming": { "preserveFullFrame": true },
+    "durationRange": [6, 16],
+    "minQualityScore": 83
+  }
+}

@@ -649,6 +649,7 @@ for (const command of [
   "npm run build",
   "npm test",
   "npm run eval",
+  "npm run eval:reference",
   "npm run brain:health",
   "npm run demo:fixture",
   "npm run demo:smoke",
@@ -679,6 +680,7 @@ assert.match(githubWorkflow, /demo\/results\/browser-latest\.json/, "CI workflow
 assert.match(githubWorkflow, /demo\/results\/playwright-latest\.json/, "CI workflow should upload Playwright latest report on failure");
 assert.match(githubWorkflow, /demo\/results\/playwright-artifacts\//, "CI workflow should upload failure-only Playwright artifacts");
 assert.match(githubWorkflow, /eval\/results\/latest\.json/, "CI workflow should upload eval latest report on failure");
+assert.match(githubWorkflow, /eval\/results\/reference-latest\.json/, "CI workflow should upload reference review latest report on failure");
 assert.doesNotMatch(githubWorkflow, /SHORTSENGINE_BROWSER_E2E_ALLOW_SKIP/, "release gate must not skip missing Playwright runtime");
 assert.doesNotMatch(githubWorkflow, /integration:cloud|MATCHCUTS_RUN_REAL_CLOUD_TESTS/, "release gate must not run real cloud integration by default");
 assert.doesNotMatch(githubWorkflow, /node_modules|data\/(?:uploads|renders|db|jobs|artifacts)|var\/|\.env|secrets?/i, "CI workflow must not upload unsafe local state");

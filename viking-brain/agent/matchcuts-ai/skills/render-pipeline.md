@@ -41,3 +41,5 @@ Safety notes:
 - Supported renderer styles are `clean_sports`, `social_sports_v1` and `punchy_highlight`; unknown styles must fail closed before enqueue/render.
 - Kinetic captions must keep role, emphasis, layout, timing and style tokens valid before ASS generation.
 - Punchy effects should use bounded overlays/background push and must not imply ball/player tracking or crop away the full foreground frame.
+- Candidate edit plans expose `reviewMetadata` for reference-style quality review: render style, caption roles, cue types, aspect ratio, highlight type, forbidden claim checks, framing and evidence summaries.
+- Use `npm run eval:reference` before release when changing ASS captions, cue timing, style presets, framing or football story output.

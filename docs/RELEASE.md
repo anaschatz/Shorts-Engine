@@ -16,6 +16,7 @@ npm run render:proof
 npm run build
 npm test
 npm run eval
+npm run eval:reference
 npm run brain:health
 npm run demo:fixture
 npm run demo:smoke
@@ -39,6 +40,8 @@ npm run release:evidence
 `npm run render:manual` prints the live setup checklist with placeholders only. `npm run render:proof` runs env/staging/render/deploy checks in provider `none` mode and confirms no deploy is triggered locally.
 
 `npm run release:check` verifies the CI workflow contract, package scripts, environment readiness, staging readiness, report freshness, report safety, artifact upload policy and default cloud/browser safety settings.
+
+`npm run eval:reference` runs the deterministic reference-style football editing review. It checks expected vs actual moment type, caption/action alignment, no-goal safety, kinetic animation relevance, framing safety and aspect ratio using local fixtures only. It writes `eval/results/reference-latest.json` and must not require network or API keys.
 
 `npm run branch:setup` prints a documentation-only GitHub Ruleset setup guide. It does not call GitHub APIs, does not request tokens, does not start auth, and does not mutate branch protection or repository rulesets. Use it when `branch:proof` returns `incomplete` or `unknown`.
 

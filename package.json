@@ -26,6 +26,7 @@
     "env:check": "node tools/release/check-environment.mjs",
     "eval": "node eval/run-eval.mjs",
     "eval:ci": "node eval/run-eval.mjs --threshold=80",
+    "eval:reference": "node eval/run-reference-review.mjs",
     "github:doctor": "node tools/release/check-github-cli.mjs",
     "github:setup": "node tools/release/print-github-cli-setup.mjs",
     "integration:cloud": "node scripts/run-real-cloud-integration.mjs",

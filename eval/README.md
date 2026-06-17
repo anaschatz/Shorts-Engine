@@ -6,9 +6,12 @@ This folder contains the local quality loop for the Real AI Analysis Layer.
 
 ```bash
 npm run eval
+npm run eval:reference
 ```
 
 The runner is deterministic and does not require API keys or network access. It loads JSON fixtures from `eval/fixtures/`, runs them through `server/analysis.cjs`, validates candidate edit plans, and writes reports to `eval/results/`.
+
+`npm run eval:reference` runs the reference-style review fixtures in `eval/reference-fixtures/`. It compares expected vs actual moment type, caption roles, caption/action alignment, animation cue relevance, framing safety, aspect ratio, hook strength and false goal claims. It writes `eval/results/reference-latest.json` plus a timestamped `reference-review-*.json` report.
 
 ## Metrics
 
@@ -24,6 +27,16 @@ The runner is deterministic and does not require API keys or network access. It 
 - `fallbackUsageRate`: how often deterministic fallback was used.
 - `visualFallbackUsageRate`: how often visual analysis used the safe heuristic fallback.
 
+Reference review additionally reports:
+
+- `momentRelevance`: top moment type, overlap and reason-code fit.
+- `noFalseGoalClaim`: hard guardrail for no-goal fixtures.
+- `captionActionAlignment`: whether captions match the detected football moment.
+- `captionRoleSequence`: validated short-form story arc.
+- `animationCueRelevance`: whether kinetic/beat cues match the evidence.
+- `framingSafety` and `aspectRatioCorrectness`: safe vertical/square output expectations.
+- `hookStrength` and `replayOutroUsefulness`: reference-style opening and closing structure.
+
 ## Fixture Schema
 
 Each fixture includes:
@@ -36,5 +49,16 @@ Each fixture includes:
 - `expected.reasonCodes`
 - `expected.stylePreset`
 - `thresholds`
+
+Reference fixtures include:
+
+- `expected.highlightType`
+- `expected.captionRoles`
+- `expected.captionMustMentionAny`
+- `expected.forbiddenClaims`
+- `expected.requiredAnimationCues`
+- `expected.aspectRatio`
+- `expected.safeFraming`
+- `expected.minQualityScore`
 
 Reports must not include secrets, raw provider errors, or local absolute paths.

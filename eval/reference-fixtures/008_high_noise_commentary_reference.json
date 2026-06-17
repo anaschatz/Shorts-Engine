@@ -1,0 +1,50 @@
+{
+  "id": "reference_high_noise_commentary_no_goal",
+  "title": "Reference style high-noise commentary without goal claim",
+  "language": "English",
+  "durationSeconds": 24,
+  "transcript": {
+    "provider": "fixture",
+    "language": "en",
+    "captions": [
+      { "start": 5.0, "end": 6.4, "text": "THE CALL TELLS THE STORY" },
+      { "start": 9.0, "end": 10.5, "text": "The commentator feels the pressure" },
+      { "start": 13.0, "end": 14.4, "text": "The crowd rises with the moment" }
+    ]
+  },
+  "mediaSignals": {
+    "durationSeconds": 24,
+    "width": 1920,
+    "height": 1080,
+    "hasAudio": true,
+    "audioPeaks": [{ "time": 9.7, "energyScore": 0.95, "source": "fixture" }],
+    "sceneChanges": [{ "time": 9.8, "confidence": 0.66, "source": "fixture" }],
+    "highMotionCandidates": [{ "time": 9.7, "confidence": 0.7, "source": "fixture" }]
+  },
+  "visualSignals": {
+    "providerMode": "fixture-visual",
+    "fallbackUsed": false,
+    "confidence": 0.72,
+    "windows": [
+      { "start": 8.7, "end": 11.2, "labels": ["camera_pan", "crowd_reaction"], "confidence": 0.72, "source": "fixture" }
+    ]
+  },
+  "expected": {
+    "highlights": [{ "start": 8.4, "end": 12.2 }],
+    "reasonCodes": ["commentator_peak", "audio_energy_spike", "crowd_reaction", "visual_crowd_reaction"],
+    "highlightType": "crowd_reaction",
+    "captionRoles": ["opening_hook", "context", "action_callout", "reaction", "closing_punch"],
+    "captionMustMentionAny": [
+      { "role": "opening_hook", "terms": ["crowd", "stadium"] },
+      { "role": "action_callout", "terms": ["reaction"] },
+      { "role": "closing_punch", "terms": ["watch"] }
+    ],
+    "forbiddenClaims": ["goal", "scored", "γκολ"],
+    "requiredAnimationCues": ["intro_hook", "kinetic_caption", "beat_cut", "punch_zoom", "impact_flash", "end_replay_prompt"],
+    "aspectRatio": "9:16",
+    "stylePreset": "punchy_highlight",
+    "safeFraming": { "preserveFullFrame": true },
+    "durationRange": [6, 15],
+    "minQualityScore": 82
+  }
+}

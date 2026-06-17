@@ -117,6 +117,13 @@ function createReportDirs(nowMs) {
     aggregate: { aggregateScore: 99 },
     failedCases: [],
   });
+  writeJson(join(evalResultsDir, "reference-latest.json"), {
+    generatedAt: timestamp,
+    passed: true,
+    aggregate: { aggregateScore: 95, fixtureCount: 8 },
+    failedCases: [],
+    borderlineCases: [],
+  });
   return { demoResultsDir, evalResultsDir };
 }
 

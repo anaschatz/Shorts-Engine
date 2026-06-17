@@ -89,6 +89,9 @@ jobs:
       - name: Evaluation
         run: npm run eval
 
+      - name: Reference style review
+        run: npm run eval:reference
+
       - name: Brain health
         run: npm run brain:health
 
@@ -123,3 +126,4 @@ jobs:
             demo/results/playwright-latest.json
             demo/results/playwright-artifacts/
             eval/results/latest.json
+            eval/results/reference-latest.json
