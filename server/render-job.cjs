@@ -177,9 +177,11 @@ function assertPipelineContext({ job, project, upload, payload, deps }) {
           approvalId: sanitizeText(payload.regenerationApproval.approvalId || "", 80),
           regenerationPlanId: sanitizeText(payload.regenerationApproval.regenerationPlanId || "", 120),
           draftHash: sanitizeText(payload.regenerationApproval.draftHash || "", 80),
+          draftRecordId: sanitizeText(payload.regenerationApproval.draftRecordId || "", 80),
           sourceJobId: sanitizeText(payload.regenerationApproval.sourceJobId || "", 120),
           sourceExportId: sanitizeText(payload.regenerationApproval.sourceExportId || "", 120),
           approvedAt: sanitizeText(payload.regenerationApproval.approvedAt || "", 80),
+          approvedBy: sanitizeText(payload.regenerationApproval.approvedBy || "", 80),
         }
       : null,
   };
@@ -429,6 +431,46 @@ function cleanupPipelineStages({ deps, context, logger, requestId, projectId, jo
   }
 }
 
+function updateApprovalAudit({ deps, context, job, projectId, requestId, status, exportId, error }) {
+  const repository = deps && deps.regenerationApprovalRepository;
+  const approvalId = context && context.regenerationApproval && context.regenerationApproval.approvalId;
+  if (!repository || !approvalId) return null;
+  try {
+    let record = null;
+    if (status === "render_processing" && typeof repository.markRenderProcessing === "function") {
+      record = repository.markRenderProcessing(approvalId, job && job.id);
+    } else if (status === "render_completed" && typeof repository.markRenderCompleted === "function") {
+      record = repository.markRenderCompleted(approvalId, { jobId: job && job.id, exportId });
+    } else if (status === "render_failed" && typeof repository.markRenderFailed === "function") {
+      record = repository.markRenderFailed(approvalId, {
+        jobId: job && job.id,
+        errorCode: (error && error.code) || "RENDER_FAILED",
+      });
+    } else if (status === "cancelled" && typeof repository.markRenderCancelled === "function") {
+      record = repository.markRenderCancelled(approvalId, { jobId: job && job.id });
+    }
+    logInfo(deps.logger, {
+      event: "approval_audit_updated",
+      requestId,
+      projectId,
+      jobId: job && job.id,
+      approvalId,
+      status,
+    });
+    return record;
+  } catch (auditError) {
+    logInfo(deps.logger, {
+      event: "approval_audit_update_failed",
+      requestId,
+      projectId,
+      jobId: job && job.id,
+      approvalId,
+      code: auditError.code || "APPROVAL_AUDIT_UPDATE_FAILED",
+    });
+    return null;
+  }
+}
+
 function transcriptFromApprovedPlan(plan, context) {
   const captions = Array.isArray(plan.captions)
     ? plan.captions.map((caption) => ({
@@ -512,6 +554,14 @@ async function runRenderJob(options) {
     indexPipelineStages(deps, context);
 
     if (context.approvedEditPlan) {
+      updateApprovalAudit({
+        deps,
+        context,
+        job,
+        projectId: project.id,
+        requestId,
+        status: "render_processing",
+      });
       updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 72, step: "approved_edit_plan" });
       editPlan = deps.validateEditPlan(context.approvedEditPlan, context.metadata);
       candidatePlans = [editPlan];
@@ -745,6 +795,15 @@ async function runRenderJob(options) {
       sampledFrames: sampledFrameSummary,
       step: "completed",
     });
+    updateApprovalAudit({
+      deps,
+      context,
+      job,
+      projectId: project.id,
+      requestId,
+      status: "render_completed",
+      exportId,
+    });
     persistRenderResult(deps, {
       project,
       job: jobs.publicJob(job),
@@ -783,9 +842,27 @@ async function runRenderJob(options) {
   } catch (error) {
     if ((signal && signal.aborted) || (job && job.status === "cancelled") || error.code === "JOB_CANCELLED") {
       completeCancelledJob({ jobs, job, logger: deps.logger, projectId: project && project.id, requestId });
+      updateApprovalAudit({
+        deps,
+        context,
+        job,
+        projectId: project && project.id,
+        requestId,
+        status: "cancelled",
+        error,
+      });
       return;
     }
     failJob({ jobs, job, project, error, logger: deps.logger, requestId });
+    updateApprovalAudit({
+      deps,
+      context,
+      job,
+      projectId: project && project.id,
+      requestId,
+      status: "render_failed",
+      error,
+    });
   } finally {
     if (sampledFrames && typeof deps.cleanupSampledFrames === "function") {
       const cleanupResult = deps.cleanupSampledFrames({

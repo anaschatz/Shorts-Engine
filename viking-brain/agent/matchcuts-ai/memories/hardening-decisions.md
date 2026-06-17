@@ -67,3 +67,4 @@
 - Review fix suggestions must be deterministic, schema-validated, leak-guarded and manual-only until a dedicated regeneration milestone exists.
 - Suggestion-based regeneration can create validated edit-plan drafts only; `canRender` must stay false and human approval is required before any future render-from-draft flow.
 - Regeneration drafts require explicit human approval before render; approved draft jobs carry a validated edit plan and bounded approval metadata, while exports/downloads remain gated on completed render.
+- Regeneration draft versions and approval lifecycles should be persisted in dedicated audit repositories with safe summaries only; never store full edit plans, raw captions, paths, storage keys or provider output in approval audit records.

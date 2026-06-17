@@ -457,6 +457,8 @@ test("API health returns structured status", async () => {
   assert.equal(payload.data.repositories.projects.ready, true);
   assert.equal(typeof payload.data.repositories.uploads.total, "number");
   assert.equal(payload.data.repositories.artifacts.ready, true);
+  assert.equal(payload.data.repositories.regenerationDrafts.ready, true);
+  assert.equal(payload.data.repositories.regenerationApprovals.ready, true);
   assert.equal(payload.data.artifactIndexReady, true);
   assert.equal(typeof payload.data.cleanupWorkerConfigured, "boolean");
   assert.equal(payload.data.cleanupLastRunAt === null || typeof payload.data.cleanupLastRunAt === "string", true);
@@ -984,6 +986,8 @@ test("API approves validated regeneration draft and keeps approval idempotent", 
   });
   assert.equal(draft.res.statusCode, 201);
   const plan = draft.payload.data.regenerationPlan;
+  assert.equal(draft.payload.data.draftRecord.draftHash, plan.draftHash);
+  assert.equal(draft.payload.data.draftRecord.status, "draft");
   const beforeCount = jobs.all().length;
   const request = {
     projectId: ids.projectId,
@@ -1004,6 +1008,10 @@ test("API approves validated regeneration draft and keeps approval idempotent", 
   assert.equal(first.payload.data.canRender, true);
   assert.equal(first.payload.data.requiresHumanApproval, false);
   assert.equal(first.payload.data.renderQueued, true);
+  assert.equal(first.payload.data.draftRecordId, draft.payload.data.draftRecord.id);
+  assert.equal(first.payload.data.approvalStatus, "render_queued");
+  assert.equal(first.payload.data.audit.persisted, true);
+  assert.equal(first.payload.data.audit.draftRecordId, draft.payload.data.draftRecord.id);
   assert.equal(first.payload.data.job.action, "regeneration_render");
   assert.equal(first.payload.data.job.payload.approvedEditPlan.captionCount > 0, true);
   assert.equal(first.payload.data.job.payload.approvedEditPlan.highlightType, "generic_highlight");

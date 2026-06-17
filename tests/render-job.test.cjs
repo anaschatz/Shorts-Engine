@@ -297,6 +297,17 @@ test("render orchestration completes success path with mocked adapters", async (
 test("approved regeneration render uses the validated draft without rerunning AI analysis", async () => {
   const context = makeContext();
   const approvedEditPlan = validateEditPlan(validPlan(), context.upload.metadata);
+  const auditUpdates = [];
+  context.dependencies.regenerationApprovalRepository = {
+    markRenderProcessing(approvalId, jobId) {
+      auditUpdates.push({ status: "render_processing", approvalId, jobId });
+      return { approvalId, status: "render_processing", newRenderJobId: jobId };
+    },
+    markRenderCompleted(approvalId, { jobId, exportId }) {
+      auditUpdates.push({ status: "render_completed", approvalId, jobId, exportId });
+      return { approvalId, status: "render_completed", newRenderJobId: jobId, completedExportId: exportId };
+    },
+  };
   context.job.payload = {
     ...context.payload,
     approvedEditPlan,
@@ -323,9 +334,53 @@ test("approved regeneration render uses the validated draft without rerunning AI
   assert.equal(context.job.candidatePlans.length, 1);
   assert.equal(context.job.sampledFrames.providerMode, "approved_regeneration_draft");
   assert.equal(context.job.visualSignals.providerMode, "approved_regeneration_draft");
+  assert.deepEqual(auditUpdates.map((item) => item.status), ["render_processing", "render_completed"]);
+  assert.equal(auditUpdates[1].exportId, "exp_orchestration_test");
   const selectedPlanLog = context.logs.find((entry) => entry.event === "approved_edit_plan_selected");
   assert.equal(selectedPlanLog.approvalId, "appr_1234567890abcdef1234567890abcdef");
   assert.doesNotMatch(JSON.stringify(selectedPlanLog), /\/Users|storageKey|secret|caption/i);
+});
+
+test("approved regeneration render failures update approval audit without creating exports", async () => {
+  const context = makeContext({
+    renderError: new AppError("RENDER_FAILED", SAFE_MESSAGES.RENDER_FAILED, 500, {
+      stderr: "/Users/example/secret render stderr",
+    }),
+  });
+  const approvedEditPlan = validateEditPlan(validPlan(), context.upload.metadata);
+  const auditUpdates = [];
+  context.dependencies.regenerationApprovalRepository = {
+    markRenderProcessing(approvalId, jobId) {
+      auditUpdates.push({ status: "render_processing", approvalId, jobId });
+      return { approvalId, status: "render_processing" };
+    },
+    markRenderFailed(approvalId, { jobId, errorCode }) {
+      auditUpdates.push({ status: "render_failed", approvalId, jobId, errorCode });
+      return { approvalId, status: "render_failed", errorCode };
+    },
+  };
+  context.job.payload = {
+    ...context.payload,
+    approvedEditPlan,
+    regenerationApproval: {
+      approvalId: "appr_abcdefabcdefabcdefabcdefabcdefab",
+      regenerationPlanId: "regen_abcdefabcdefabcdefabcdefabcdefab",
+      draftHash: "abcdefabcdefabcdefabcdefabcdefab",
+      draftRecordId: "rdft_abcdefabcdefabcdefabcdefabcdefab",
+      sourceJobId: "job_source12345678",
+      sourceExportId: "exp_source12345678",
+      approvedAt: new Date().toISOString(),
+    },
+  };
+  context.payload = context.job.payload;
+
+  await runContext(context);
+
+  assert.equal(context.job.status, "failed");
+  assert.equal(context.exportsById.size, 0);
+  assert.deepEqual(auditUpdates.map((item) => item.status), ["render_processing", "render_failed"]);
+  assert.equal(auditUpdates[1].errorCode, "RENDER_FAILED");
+  assert.doesNotMatch(JSON.stringify(context.job.error), /\/Users|secret|stderr/i);
 });
 
 test("render orchestration uses mock provider fallback when upload has no audio", async () => {

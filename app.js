@@ -514,6 +514,13 @@
     return labels[key] || String(key || "Metric").replace(/([A-Z])/g, " $1").trim();
   }
 
+  function formatAuditToken(value) {
+    const text = String(value || "").trim();
+    if (!text) return "pending";
+    if (text.length <= 18) return text;
+    return `${text.slice(0, 10)}...${text.slice(-6)}`;
+  }
+
   function renderReviewPanel() {
     const status = state.review.status;
     els.reviewPanel.dataset.status = status;
@@ -594,6 +601,8 @@
       } else if (state.review.regeneration.status === "drafted" && state.review.regeneration.result) {
         const plan = state.review.regeneration.result.regenerationPlan || {};
         const approval = state.review.regeneration.approval || { status: "idle" };
+        const draftRecord = state.review.regeneration.result.draftRecord || null;
+        const approvalAudit = approval.result && (approval.result.audit || approval.result);
         const hasBlockingReasons = Array.isArray(plan.blockingReasons) && plan.blockingReasons.length > 0;
         els.reviewRegenerationStatus.textContent = `${plan.status === "draft" ? "Draft ready" : "No draft needed"} · render locked until human approval.`;
         els.reviewApproval.hidden = false;
@@ -623,6 +632,12 @@
         const summary = document.createElement("p");
         summary.textContent = `${(plan.appliedSuggestionIds || []).length} applied · ${(plan.skippedSuggestionIds || []).length} manual · ${(plan.blockingReasons || []).length} blocked`;
         els.reviewRegenerationDetails.appendChild(summary);
+        if (draftRecord || approvalAudit) {
+          const audit = document.createElement("p");
+          const auditStatus = approval.status || (approvalAudit && approvalAudit.status) || "approval_required";
+          audit.textContent = `Audit ${formatAuditToken(draftRecord && draftRecord.id)} · v${draftRecord && draftRecord.version ? draftRecord.version : 1} · ${auditStatus.replace(/_/g, " ")}`;
+          els.reviewRegenerationDetails.appendChild(audit);
+        }
         const changes = Array.isArray(plan.proposedChanges) ? plan.proposedChanges.slice(0, 5) : [];
         if (changes.length) {
           const list = document.createElement("ul");

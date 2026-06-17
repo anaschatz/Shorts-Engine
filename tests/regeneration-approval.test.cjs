@@ -6,6 +6,8 @@ const { tmpdir } = require("node:os");
 
 const { approveRegenerationDraft, validateApprovalRequest } = require("../server/regeneration-approval.cjs");
 const { createEditPlan, validateEditPlan } = require("../server/edit-plan.cjs");
+const { RegenerationApprovalRepository } = require("../server/repositories/regeneration-approval-repository.cjs");
+const { RegenerationDraftRepository } = require("../server/repositories/regeneration-draft-repository.cjs");
 
 function ids(suffix = "appr") {
   return {
@@ -124,7 +126,7 @@ function fakeQueue() {
     create(record) {
       if (jobsByKey.has(record.idempotencyKey)) return jobsByKey.get(record.idempotencyKey);
       const job = {
-        id: `job_approval_render_${String(created.length + 1).padStart(8, "0")}`,
+        id: `job_approvalrender${String(created.length + 1).padStart(8, "0")}`,
         projectId: record.projectId,
         uploadId: record.uploadId,
         action: record.action,
@@ -165,6 +167,8 @@ test("approval request requires explicit approve and valid ids", () => {
 test("approval accepts a validated draft and creates one idempotent render job", () => {
   const workspace = createReviewWorkspace("aprb");
   const queue = fakeQueue();
+  const regenerationDraftRepository = new RegenerationDraftRepository({ persist: false });
+  const regenerationApprovalRepository = new RegenerationApprovalRepository({ persist: false });
   const enqueued = [];
   const first = approveRegenerationDraft({
     request: {
@@ -178,6 +182,8 @@ test("approval accepts a validated draft and creates one idempotent render job",
     },
     rootDir: workspace.rootDir,
     persistenceAdapter: { getProject: () => workspace.project },
+    regenerationDraftRepository,
+    regenerationApprovalRepository,
     jobQueue: queue,
     workerSupervisor: {
       enqueue(job) {
@@ -198,18 +204,27 @@ test("approval accepts a validated draft and creates one idempotent render job",
     },
     rootDir: workspace.rootDir,
     persistenceAdapter: { getProject: () => workspace.project },
+    regenerationDraftRepository,
+    regenerationApprovalRepository,
     jobQueue: queue,
     workerSupervisor: { enqueue() {} },
     requestId: "req_approval_unit",
   });
 
   assert.equal(first.status, "render_queued");
+  assert.equal(first.draftRecord.status, "draft");
+  assert.equal(first.approvalRecord.status, "render_queued");
   assert.equal(first.canRender, true);
   assert.equal(first.blockingSuggestionCount, 0);
   assert.equal(first.job.action, "regeneration_render");
   assert.equal(first.job.payload.approvedEditPlan.captions.some((caption) => /goal/i.test(caption.text)), false);
   assert.equal(first.job.payload.regenerationApproval.regenerationPlanId, workspace.ids.regenerationPlanId);
+  assert.equal(first.job.payload.regenerationApproval.draftRecordId, first.draftRecord.id);
   assert.equal(second.job.id, first.job.id);
+  assert.equal(second.draftRecord.id, first.draftRecord.id);
+  assert.equal(second.approvalRecord.approvalId, first.approvalRecord.approvalId);
   assert.equal(queue.created.length, 1);
+  assert.equal(regenerationDraftRepository.all().length, 1);
+  assert.equal(regenerationApprovalRepository.all().length, 1);
   assert.deepEqual(enqueued, [first.job.id]);
 });

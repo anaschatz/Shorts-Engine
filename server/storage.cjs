@@ -19,6 +19,8 @@ const STORAGE_ROOTS = Object.freeze({
   projects: CONFIG.projectDir,
   jobs: CONFIG.jobDir,
   artifacts: CONFIG.artifactDir,
+  reviewDrafts: CONFIG.reviewDraftDir,
+  reviewApprovals: CONFIG.reviewApprovalDir,
   db: CONFIG.dbDir,
   tmp: CONFIG.tmpDir,
   staging: CONFIG.stagingDir,

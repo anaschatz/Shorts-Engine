@@ -36,6 +36,8 @@ const { createYouTubeIngestService } = require("./youtube-ingest-service.cjs");
 const { registerReviewDraft } = require("../eval/review-registration.cjs");
 const { approveRegenerationDraft, publicApprovalResult } = require("./regeneration-approval.cjs");
 const { createRegenerationPlanFromReviewRegistration } = require("./regeneration-plan.cjs");
+const { RegenerationDraftRepository } = require("./repositories/regeneration-draft-repository.cjs");
+const { RegenerationApprovalRepository } = require("./repositories/regeneration-approval-repository.cjs");
 const {
   safeResolve,
   storageHealth,
@@ -50,6 +52,8 @@ const projectRepository = persistenceAdapter.projectRepository;
 const uploadRepository = persistenceAdapter.uploadRepository;
 const artifactRepository = persistenceAdapter.artifactRepository;
 const exportRepository = persistenceAdapter.exportRepository;
+const regenerationDraftRepository = new RegenerationDraftRepository();
+const regenerationApprovalRepository = new RegenerationApprovalRepository();
 const uploads = uploadRepository.records;
 const projects = projectRepository.records;
 const artifacts = artifactRepository.records;
@@ -87,6 +91,8 @@ const MAX_MULTIPART_HEADER_BYTES = 8 * 1024;
 const MAX_UPLOAD_BODY_OVERHEAD_BYTES = 64 * 1024;
 const MAX_JSON_BODY_BYTES = 16 * 1024;
 const UPLOAD_FILE_FIELD = "video";
+const restoredDraftAudits = regenerationDraftRepository.restore();
+const restoredApprovalAudits = regenerationApprovalRepository.restore();
 const restoredState = persistenceAdapter.restoreState();
 const recoveredJobs = jobs.recover();
 const jobWorker = createLocalJobWorker({
@@ -98,6 +104,7 @@ const jobWorker = createLocalJobWorker({
   artifactStore,
   dependencies: {
     artifactRepository,
+    regenerationApprovalRepository,
     persistenceAdapter,
     persistRenderRecord: (record) => persistenceAdapter.persistRenderRecord(record),
   },
@@ -120,6 +127,14 @@ if (restoredState.records > 0) {
 }
 if (recoveredJobs.records > 0 || recoveredJobs.ignored > 0) {
   console.info(JSON.stringify({ level: "info", event: "jobs_rehydrated", ...recoveredJobs, exports: recoveredExports }));
+}
+if (restoredDraftAudits.records > 0 || restoredDraftAudits.ignored > 0 || restoredApprovalAudits.records > 0 || restoredApprovalAudits.ignored > 0) {
+  console.info(JSON.stringify(redactForLogs({
+    level: "info",
+    event: "review_audit_rehydrated",
+    drafts: restoredDraftAudits,
+    approvals: restoredApprovalAudits,
+  })));
 }
 const { queued: queuedOnStartup } = workerSupervisor.start({ requestId: "startup_recovery" });
 if (queuedOnStartup > 0) {
@@ -392,6 +407,8 @@ async function handleHealth(req, res, rid) {
     uploads: uploadRepository.health(),
     artifacts: artifactRepository.health(),
     exports: exportRepository.health(),
+    regenerationDrafts: regenerationDraftRepository.health(),
+    regenerationApprovals: regenerationApprovalRepository.health(),
   };
   const adapters = {
     artifacts,
@@ -785,7 +802,7 @@ function publicRegenerationEditPlan(plan = {}) {
   };
 }
 
-function publicRegenerationPlanResult(result) {
+function publicRegenerationPlanResult(result, draftRecord = null) {
   const plan = result.regenerationPlan || {};
   const report = result.registered && result.registered.comparisonPreview || {};
   const suggestions = Array.isArray(report.suggestions) ? report.suggestions : [];
@@ -827,6 +844,17 @@ function publicRegenerationPlanResult(result) {
       createdAt: sanitizeText(plan.createdAt || "", 80),
       nextAction: sanitizeText(plan.nextAction || "Review this draft manually before rendering.", 180),
     },
+    draftRecord: draftRecord
+      ? {
+          id: sanitizeText(draftRecord.id || "", 80),
+          version: Number.isFinite(Number(draftRecord.version)) ? Number(draftRecord.version) : 1,
+          draftHash: draftRecord.draftHash ? sanitizeText(draftRecord.draftHash, 80) : null,
+          status: sanitizeText(draftRecord.status || "draft", 40),
+          validationStatus: sanitizeText(draftRecord.validationStatus || "valid", 40),
+          createdAt: sanitizeText(draftRecord.createdAt || "", 80),
+          updatedAt: sanitizeText(draftRecord.updatedAt || "", 80),
+        }
+      : null,
   };
 }
 
@@ -898,6 +926,11 @@ async function handleReviewRegenerationPlan(req, res, rid) {
     rootDir: CONFIG.rootDir,
   });
   const plan = result.regenerationPlan || {};
+  const draftRecord = regenerationDraftRepository.createFromPlan(plan, {
+    projectId,
+    sourceJobId: jobId,
+    sourceExportId: exportId || plan.exportId,
+  });
   console.info(JSON.stringify(redactForLogs({
     level: "info",
     event: "review_regeneration_plan_created",
@@ -906,6 +939,9 @@ async function handleReviewRegenerationPlan(req, res, rid) {
     jobId,
     exportId: exportId || plan.exportId,
     regenerationPlanId: plan.regenerationPlanId,
+    draftRecordId: draftRecord.id,
+    draftVersion: draftRecord.version,
+    draftValidationStatus: draftRecord.validationStatus,
     suggestionCount: Array.isArray(result.registered && result.registered.comparisonPreview && result.registered.comparisonPreview.suggestions)
       ? result.registered.comparisonPreview.suggestions.length
       : 0,
@@ -913,7 +949,7 @@ async function handleReviewRegenerationPlan(req, res, rid) {
     blockedSuggestionCount: Array.isArray(plan.blockingReasons) ? plan.blockingReasons.length : 0,
     canRender: false,
   })));
-  sendOk(res, publicRegenerationPlanResult(result), 201);
+  sendOk(res, publicRegenerationPlanResult(result, draftRecord), 201);
 }
 
 async function handleReviewRegenerationApproval(req, res, rid) {
@@ -945,6 +981,8 @@ async function handleReviewRegenerationApproval(req, res, rid) {
     },
     rootDir: CONFIG.rootDir,
     persistenceAdapter,
+    regenerationDraftRepository,
+    regenerationApprovalRepository,
     jobQueue,
     workerSupervisor,
     requestId: rid,
@@ -958,6 +996,8 @@ async function handleReviewRegenerationApproval(req, res, rid) {
     exportId,
     regenerationPlanId,
     approvalId: result.approvalId,
+    draftRecordId: result.draftRecord && result.draftRecord.id,
+    approvalStatus: result.approvalRecord && result.approvalRecord.status,
     newRenderJobId: result.job && result.job.id,
     status: result.status,
     renderQueued: result.renderQueued,
@@ -1155,6 +1195,8 @@ module.exports = {
   uploadRepository,
   artifactRepository,
   exportRepository,
+  regenerationDraftRepository,
+  regenerationApprovalRepository,
   artifactCleanupWorker,
   workerSupervisor,
   stopWorkers,

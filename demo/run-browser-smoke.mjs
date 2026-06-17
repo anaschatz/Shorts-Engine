@@ -92,6 +92,7 @@ function collectStaticBrowserChecks({ app, css, html, manual }) {
   addCheck(checks, "review_fix_suggestions_contract", /review\.suggestions/.test(app) && /reviewSuggestionList/.test(app) && /regenerationAvailable/.test(app));
   addCheck(checks, "review_regeneration_draft_contract", /\/api\/review\/regeneration-plan/.test(app) && /handleReviewRegenerationPlan/.test(app) && /reviewRegenerationDetails/.test(app));
   addCheck(checks, "review_regeneration_approval_contract", /\/api\/review\/regeneration-approval/.test(app) && /handleReviewRegenerationApproval/.test(app) && /reviewApproveBtn\.disabled/.test(app));
+  addCheck(checks, "review_audit_status_contract", /formatAuditToken/.test(app) && /draftRecord/.test(app) && /approvalAudit/.test(app) && /Audit \$\{formatAuditToken/.test(app));
   addCheck(checks, "review_regeneration_disabled_contract", elementWithTestIdHasAttribute(html, REQUIRED_TEST_IDS.reviewRegenerateButton, "disabled") && /Create draft/.test(html));
   addCheck(checks, "review_approval_disabled_contract", elementWithTestIdHasAttribute(html, REQUIRED_TEST_IDS.reviewApproveButton, "disabled") && elementWithTestIdHasAttribute(html, REQUIRED_TEST_IDS.reviewApproveButton, "hidden"));
   addCheck(checks, "download_route_contract", /\/api\/exports\/\$\{exportId\}\/download/.test(app));

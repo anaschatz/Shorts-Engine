@@ -130,18 +130,63 @@ function jobStatusToApprovalState(job) {
   return "approved";
 }
 
+function persistDraftRecord(repository, plan, request, createdAt) {
+  if (!repository || typeof repository.createFromPlan !== "function") return null;
+  return repository.createFromPlan(plan, {
+    projectId: request.projectId,
+    sourceJobId: request.sourceJobId,
+    sourceExportId: request.exportId,
+    createdAt,
+  });
+}
+
+function persistApprovalRecord(repository, record) {
+  if (!repository || typeof repository.createIdempotent !== "function") return null;
+  return repository.createIdempotent(record);
+}
+
+function markApprovalForJob(repository, approvalId, job) {
+  if (!repository || !approvalId || !job) return null;
+  if (job.status === "queued" && typeof repository.markRenderQueued === "function") {
+    return repository.markRenderQueued(approvalId, job.id);
+  }
+  if (job.status === "processing" && typeof repository.markRenderProcessing === "function") {
+    return repository.markRenderProcessing(approvalId, job.id);
+  }
+  if (job.status === "completed" && typeof repository.markRenderCompleted === "function") {
+    return repository.markRenderCompleted(approvalId, { jobId: job.id, exportId: job.exportId });
+  }
+  if (job.status === "failed" && typeof repository.markRenderFailed === "function") {
+    return repository.markRenderFailed(approvalId, { jobId: job.id, errorCode: job.error && job.error.code });
+  }
+  if (job.status === "cancelled" && typeof repository.markRenderCancelled === "function") {
+    return repository.markRenderCancelled(approvalId, { jobId: job.id });
+  }
+  return repository.get && typeof repository.get === "function" ? repository.get(approvalId) : null;
+}
+
 function publicApprovalResult(result = {}) {
   const job = result.job || null;
+  const approvalRecord = result.approvalRecord || null;
+  const draftRecord = result.draftRecord || null;
+  const status = approvalRecord && APPROVAL_STATES.includes(approvalRecord.status)
+    ? approvalRecord.status
+    : APPROVAL_STATES.includes(result.status)
+      ? result.status
+      : "approval_required";
   return {
     schemaVersion: APPROVAL_SCHEMA_VERSION,
     approvalId: sanitizeText(result.approvalId || "", 80),
     regenerationPlanId: sanitizeText(result.regenerationPlanId || "", 120),
     draftHash: result.draftHash ? sanitizeText(result.draftHash, 80) : null,
+    draftRecordId: draftRecord && draftRecord.id ? sanitizeText(draftRecord.id, 80) : approvalRecord && approvalRecord.draftRecordId ? sanitizeText(approvalRecord.draftRecordId, 80) : null,
     projectId: sanitizeText(result.projectId || "", 120),
     sourceJobId: sanitizeText(result.sourceJobId || "", 120),
     sourceExportId: sanitizeText(result.sourceExportId || "", 120),
     newRenderJobId: job ? sanitizeText(job.id, 120) : null,
-    status: APPROVAL_STATES.includes(result.status) ? result.status : "approval_required",
+    completedExportId: approvalRecord && approvalRecord.completedExportId ? sanitizeText(approvalRecord.completedExportId, 120) : null,
+    approvalStatus: status,
+    status,
     canRender: result.canRender === true,
     renderQueued: Boolean(result.renderQueued),
     requiresHumanApproval: false,
@@ -150,6 +195,12 @@ function publicApprovalResult(result = {}) {
     appliedSuggestionCount: Number.isFinite(Number(result.appliedSuggestionCount)) ? Number(result.appliedSuggestionCount) : 0,
     skippedSuggestionCount: Number.isFinite(Number(result.skippedSuggestionCount)) ? Number(result.skippedSuggestionCount) : 0,
     blockingSuggestionCount: Number.isFinite(Number(result.blockingSuggestionCount)) ? Number(result.blockingSuggestionCount) : 0,
+    audit: {
+      approvalId: sanitizeText(result.approvalId || "", 80),
+      draftRecordId: draftRecord && draftRecord.id ? sanitizeText(draftRecord.id, 80) : approvalRecord && approvalRecord.draftRecordId ? sanitizeText(approvalRecord.draftRecordId, 80) : null,
+      status,
+      persisted: Boolean(approvalRecord),
+    },
     job: job && result.publicJob ? result.publicJob(job) : null,
   };
 }
@@ -200,6 +251,21 @@ function approveRegenerationDraft(options = {}) {
     regenerationPlanId: request.regenerationPlanId,
     draftHash: regenerationPlan.draftHash,
   });
+  const draftRecord = persistDraftRecord(options.regenerationDraftRepository, regenerationPlan, request, createdAt);
+  let approvalRecord = persistApprovalRecord(options.regenerationApprovalRepository, {
+    approvalId,
+    regenerationPlanId: request.regenerationPlanId,
+    draftHash: regenerationPlan.draftHash,
+    projectId: request.projectId,
+    sourceJobId: request.sourceJobId,
+    sourceExportId: request.exportId,
+    idempotencyKey: key,
+    approvedAt: createdAt,
+    approvedBy: "operator/manual/local",
+    status: "approved",
+    draftRecordId: draftRecord && draftRecord.id,
+    createdAt,
+  });
   const registeredProject = registered.draft && registered.draft.generatedMetadata && registered.draft.generatedMetadata.registration
     ? {
         id: registered.draft.generatedMetadata.registration.projectId,
@@ -239,13 +305,15 @@ function approveRegenerationDraft(options = {}) {
         approvalId,
         regenerationPlanId: request.regenerationPlanId,
         draftHash: regenerationPlan.draftHash,
+        draftRecordId: draftRecord && draftRecord.id,
         sourceJobId: request.sourceJobId,
         sourceExportId: request.exportId,
         approvedAt: createdAt,
-        operatorNote: request.operatorNote,
+        approvedBy: "operator/manual/local",
       },
     },
   });
+  approvalRecord = markApprovalForJob(options.regenerationApprovalRepository, approvalId, job) || approvalRecord;
   let renderQueued = ["queued", "processing"].includes(job.status);
   if (job.status === "queued" && options.workerSupervisor && typeof options.workerSupervisor.enqueue === "function") {
     const enqueued = queue.enqueue(job, { requestId: options.requestId || "regeneration_approval" });
@@ -259,6 +327,8 @@ function approveRegenerationDraft(options = {}) {
     projectId: request.projectId,
     sourceJobId: request.sourceJobId,
     sourceExportId: request.exportId,
+    draftRecord,
+    approvalRecord,
     job,
     status: jobStatusToApprovalState(job),
     canRender: true,
