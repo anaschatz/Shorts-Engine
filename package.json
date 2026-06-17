@@ -17,6 +17,7 @@
     "demo:browser:ci": "node demo/run-playwright-smoke.mjs",
     "demo:browser:e2e": "node demo/run-playwright-smoke.mjs",
     "demo:browser:install": "playwright install chromium",
+    "demo:compare": "node demo/run-side-by-side-review.mjs",
     "demo:e2e": "node demo/run-smoke.mjs",
     "demo:fixture": "node demo/create-fixture.mjs",
     "demo:manual": "node demo/print-manual.mjs",
