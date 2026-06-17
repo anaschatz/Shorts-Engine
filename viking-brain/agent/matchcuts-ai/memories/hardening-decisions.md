@@ -68,3 +68,4 @@
 - Suggestion-based regeneration can create validated edit-plan drafts only; `canRender` must stay false and human approval is required before any future render-from-draft flow.
 - Regeneration drafts require explicit human approval before render; approved draft jobs carry a validated edit plan and bounded approval metadata, while exports/downloads remain gated on completed render.
 - Regeneration draft versions and approval lifecycles should be persisted in dedicated audit repositories with safe summaries only; never store full edit plans, raw captions, paths, storage keys or provider output in approval audit records.
+- Authorized live rerender proof may save verified MP4 artifacts only under ignored `manual-downloads/`, and `demo:human-review` must keep output `pending_human_review` until an operator scores playback against the reference.

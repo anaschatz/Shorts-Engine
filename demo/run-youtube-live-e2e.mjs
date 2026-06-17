@@ -212,6 +212,7 @@ function safeSmokeSummary(report) {
     health: report.health || null,
     jobLifecycle: Array.isArray(report.jobLifecycle) ? report.jobLifecycle : [],
     export: report.export || null,
+    generatedArtifact: report.generatedArtifact || null,
     failedCases: Array.isArray(report.failedCases) ? report.failedCases : [],
   };
 }
@@ -295,6 +296,7 @@ function safeReport(report) {
     steps: [],
     doctor: null,
     smoke: null,
+    generatedArtifact: null,
     serverEvents: [],
     failedCases: [{
       name: "youtube_live_e2e_report_no_sensitive_leaks",
@@ -339,6 +341,7 @@ function buildReport({
     triage: buildTriage({ checks, doctor, envSummary, failedCases, status }),
     doctor: safeDoctorSummary(doctor),
     smoke: safeSmokeSummary(smoke),
+    generatedArtifact: smoke?.generatedArtifact || null,
     serverEvents: sanitizeServerEvents(serverEvents),
     failedCases,
   });
@@ -385,6 +388,7 @@ function smokeEnvForLive(env, baseUrl) {
       rawValue(env, LIVE_URL_FLAG) || rawValue(env, "SHORTSENGINE_YOUTUBE_SMOKE_URL") || "",
     ).trim(),
     SHORTSENGINE_YOUTUBE_SMOKE_BASE_URL: baseUrl,
+    SHORTSENGINE_YOUTUBE_SMOKE_SAVE_DOWNLOAD: "1",
   };
 }
 

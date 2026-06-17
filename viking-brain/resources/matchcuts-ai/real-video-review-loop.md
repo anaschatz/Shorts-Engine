@@ -9,6 +9,7 @@ ShortsEngine now has a local, deterministic review layer for real generated shor
 ```bash
 npm run review:compare
 npm run review:summary
+npm run demo:human-review
 ```
 
 `review:compare` reads `eval/review-fixtures/demo-reference-style-review.json` by default and writes safe JSON to `eval/review-results/`.
@@ -20,6 +21,11 @@ npm run review:compare -- --input=eval/review-fixtures/my-review.json
 ```
 
 `review:summary` aggregates review comparison reports in `eval/review-results/`.
+
+`demo:human-review` is the operator-facing bridge after authorized live
+YouTube proof. It reads `demo/results/youtube-live-e2e-latest.json` by default,
+extracts the safe `generatedArtifact.relativePath`, compares it against a safe
+reference MP4, and writes `demo/results/human-visual-review-latest.json`.
 
 ## Input Contract
 
@@ -74,10 +80,19 @@ Optional `humanReview` captures operator checks:
 
 Human review changes the report only. It does not mutate fixtures, provider behavior, model prompts or training data.
 
+The human visual review report stays pending until a review JSON is supplied.
+Pending reports keep `productReady: false` even when structural metadata is
+healthy. Operator scoring is required for action sequence visibility,
+shot/contact coverage, ball/goal-mouth/keeper/payoff visibility, reaction as
+support, caption/action alignment, text obstruction, false-goal safety and
+reference-style pacing.
+
 ## Safety Decisions
 
 - No API keys or network are required.
 - Reports are ignored by git under `eval/review-results/*.json`.
+- Demo review reports and generated live proof videos are ignored by git under
+  `demo/results/` and `manual-downloads/`.
 - Missing media, path traversal, unsupported extensions, missing rights confirmation and false goal claims fail closed.
 - Reports include relative media refs only and set `logsDownloaded: false`, `artifactsDownloaded: false`, `rawProviderOutputIncluded: false`, and `trainingDataMutation: false`.
 

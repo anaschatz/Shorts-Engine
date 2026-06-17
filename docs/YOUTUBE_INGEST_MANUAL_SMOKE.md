@@ -226,10 +226,45 @@ Expected passing report:
 - project/upload/job/export ids
 - `health.requestIdPresent` and per-step `requestIdPresent`
 - export `contentType`, `sizeBytes`, and `sha256Prefix`
+- `generatedArtifact.relativePath` under `manual-downloads/` for successful live operator proof
+- `generatedArtifact.downloadVerified: true` with project/job/export ids and safe media metadata
 
 Failure reports should include only safe `code`, `phase`, `nextAction` and bounded readiness summaries. Common phases are `env`, `doctor`, `server-bind`, `validation`, `ingest`, `probe`, `render`, `download` and `browser`. They must not contain raw URLs, local absolute paths, storage keys, stdout, stderr, cookies, tokens, secrets, or raw provider/downloader errors.
 
 Default skipped reports should show `status: "skipped"`, `passed: false`, `skipped: true`, `phase: "skipped"` and a `nextAction` that points at the missing opt-in flag. A skipped proof must not start the server, call the downloader or run network ingest.
+
+## Human Visual Review After Live Proof
+
+After a successful `npm run youtube:proof:operator`, create the human visual review report:
+
+```bash
+npm run demo:human-review -- --reference=manual-downloads/shortsengine-reference-rZZUzMSfaQ.mp4
+```
+
+The command reads `demo/results/youtube-live-e2e-latest.json`, extracts the safe
+`generatedArtifact.relativePath`, runs the side-by-side structural comparison,
+and writes:
+
+```bash
+demo/results/human-visual-review-latest.json
+```
+
+Without a human review JSON, the report should be `status:
+"pending_human_review"` and `productReady: false`. To score creative readiness,
+create a small JSON review under `demo/reviews/` and rerun:
+
+```bash
+npm run demo:human-review -- \
+  --reference=manual-downloads/shortsengine-reference-rZZUzMSfaQ.mp4 \
+  --review=demo/reviews/example-side-by-side-review.json
+```
+
+The review checklist covers action/goal sequence visibility, shot/contact,
+ball/goal-mouth/keeper/payoff visibility, reaction-as-support, payoff timing,
+ball/player framing, caption/action alignment, false-goal safety, text
+obstruction and reference-style pacing. Reports must include only safe relative
+refs and must not include raw downloader logs, absolute paths, storage keys,
+cookies or tokens.
 
 ## Safe Cleanup
 

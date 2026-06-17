@@ -9,6 +9,7 @@ OpenViking/
 pm-skills/
 promptfoo/
 demo/results/
+manual-downloads/
 eval/results/*.json
 eval/review-results/*.json
 eval/review-drafts/*.json

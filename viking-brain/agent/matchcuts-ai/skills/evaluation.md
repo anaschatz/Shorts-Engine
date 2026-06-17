@@ -17,6 +17,7 @@ Evaluate:
 - Evaluate regeneration approvals as a separate gate: draft creation is not render approval, and approved render jobs must use the validated draft plan.
 - Real generated short review with `npm run review:compare`.
 - Aggregate real-video review reports with `npm run review:summary`.
+- Run authorized live proof visual review with `npm run demo:human-review` after `npm run youtube:proof:operator`.
 
 Review generated shorts against:
 
@@ -24,4 +25,5 @@ Review generated shorts against:
 - caption/action alignment and caption specificity.
 - ball/player framing, aspect ratio and pacing.
 - reference-style animation cue coverage.
+- action sequence, shot/contact, payoff timing, reaction-as-support and text obstruction in the human visual checklist.
 - optional human review notes without mutating fixtures or training data.

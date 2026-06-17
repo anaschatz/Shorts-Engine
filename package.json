@@ -20,6 +20,7 @@
     "demo:compare": "node demo/run-side-by-side-review.mjs",
     "demo:e2e": "node demo/run-smoke.mjs",
     "demo:fixture": "node demo/create-fixture.mjs",
+    "demo:human-review": "node demo/run-human-visual-review.mjs",
     "demo:manual": "node demo/print-manual.mjs",
     "demo:smoke": "node demo/run-smoke.mjs",
     "demo:youtube:live": "node demo/run-youtube-live-e2e.mjs",

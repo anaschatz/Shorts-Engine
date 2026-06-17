@@ -18,6 +18,7 @@ const playwrightSmoke = readFileSync("demo/run-playwright-smoke.mjs", "utf8");
 const demoSmoke = readFileSync("demo/run-smoke.mjs", "utf8");
 const youtubeSmoke = readFileSync("demo/run-youtube-smoke.mjs", "utf8");
 const youtubeLiveE2E = readFileSync("demo/run-youtube-live-e2e.mjs", "utf8");
+const humanVisualReview = readFileSync("demo/run-human-visual-review.mjs", "utf8");
 const reportSafety = readFileSync("demo/report-safety.mjs", "utf8");
 const ciReportValidator = readFileSync("demo/validate-ci-reports.mjs", "utf8");
 const envChecker = readFileSync("tools/release/check-environment.mjs", "utf8");
@@ -51,6 +52,7 @@ const releaseDocs = readFileSync("docs/RELEASE.md", "utf8");
 const githubWorkflow = readFileSync(".github/workflows/ci.yml", "utf8");
 const stagingWorkflow = readFileSync(".github/workflows/staging.yml", "utf8");
 const packageJson = readFileSync("package.json", "utf8");
+const gitignore = readFileSync(".gitignore", "utf8");
 
 assert.match(html, /Content-Security-Policy/, "index.html should include a CSP meta tag");
 assert.match(html, /ShortsEngine/, "index.html should use the current user-facing product name");
@@ -200,6 +202,15 @@ assert.match(youtubeLiveE2E, /runYouTubeSmoke/, "YouTube live E2E should reuse t
 assert.match(youtubeLiveE2E, /youtube-live-e2e-latest\.json/, "YouTube live E2E should write a stable latest report");
 assert.match(youtubeLiveE2E, /YOUTUBE_LIVE_E2E_SERVER_BIND_FAILED/, "YouTube live E2E should classify server bind failures safely");
 assert.doesNotMatch(youtubeLiveE2E, /yt-dlp|youtube-dl|execFile|shell:\s*true|storageKey/, "YouTube live E2E should not execute downloader tools or persist unsafe internals");
+assert.match(humanVisualReview, /human-visual-review-latest\.json/, "human visual review should write a stable latest report");
+assert.match(humanVisualReview, /generatedArtifactFromProof/, "human visual review should extract generated video artifacts from live proof");
+assert.match(humanVisualReview, /pending_human_review/, "human visual review should distinguish machine pass from pending human product review");
+assert.match(humanVisualReview, /HUMAN_VISUAL_CHECKLIST/, "human visual review should keep a stable operator checklist");
+assert.match(humanVisualReview, /findSensitiveLeak/, "human visual review should guard reports against leaks");
+assert.match(humanVisualReview, /logsDownloaded: false/, "human visual review should not download raw logs");
+assert.match(humanVisualReview, /artifactsDownloaded: false/, "human visual review should not download remote artifacts");
+assert.doesNotMatch(humanVisualReview, /rawLogsIncluded/, "human visual review reports should avoid unsafe raw log field names");
+assert.match(gitignore, /^manual-downloads\/$/m, "manual generated and reference videos should stay out of git");
 assert.match(browserSmoke, /browser-latest\.json|BROWSER_LATEST/, "browser smoke should write a browser latest report");
 assert.match(browserSmoke, /REQUIRED_TEST_IDS/, "browser smoke should assert stable selectors");
 assert.match(browserSmoke, /manualChecklistRequired/, "browser smoke should document dependency-light fallback");
@@ -234,6 +245,7 @@ assert.match(packageJson, /"youtube:e2e:local": "node demo\/run-youtube-live-e2e
 assert.match(packageJson, /"youtube:proof": "node demo\/run-youtube-live-e2e\.mjs"/, "package should expose the operator YouTube proof alias");
 assert.match(packageJson, /"youtube:proof:operator": "node demo\/run-youtube-live-e2e\.mjs --operator"/, "package should expose the explicit operator YouTube proof command");
 assert.match(packageJson, /"demo:youtube:live": "node demo\/run-youtube-live-e2e\.mjs"/, "package should expose the demo YouTube live proof alias");
+assert.match(packageJson, /"demo:human-review": "node demo\/run-human-visual-review\.mjs"/, "package should expose the human visual review runner");
 assert.match(packageJson, /"playwright"/, "Playwright should be a scoped dev dependency for browser E2E");
 assert.match(playwrightSmoke, /setInputFiles/, "Playwright smoke should upload the fixture through the browser context");
 assert.match(playwrightSmoke, /youtube-ingest-button/, "Playwright smoke should cover the disabled YouTube ingest path");
@@ -580,6 +592,8 @@ assert.match(youtubeManualDocs, /SHORTSENGINE_YOUTUBE_LIVE_E2E=1/, "YouTube manu
 assert.match(youtubeManualDocs, /SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED=1/, "YouTube manual smoke guide should document local live rights confirmation");
 assert.match(youtubeManualDocs, /demo\/results\/youtube-smoke-latest\.json/, "YouTube manual smoke guide should document report reading");
 assert.match(youtubeManualDocs, /demo\/results\/youtube-live-e2e-latest\.json/, "YouTube manual smoke guide should document local live report reading");
+assert.match(youtubeManualDocs, /generatedArtifact\.relativePath/, "YouTube manual smoke guide should document the generated artifact reference");
+assert.match(youtubeManualDocs, /npm run demo:human-review/, "YouTube manual smoke guide should document human visual review after live proof");
 assert.match(youtubeManualDocs, /YOUTUBE_SMOKE_REPORT_LEAK/, "YouTube manual smoke guide should document report leak failures");
 assert.match(youtubeManualDocs, /YOUTUBE_SMOKE_HEALTH_NOT_READY/, "YouTube manual smoke guide should document health readiness failures");
 assert.match(youtubeManualDocs, /YOUTUBE_DOWNLOADER_MISSING/, "YouTube manual smoke guide should document missing downloader failures");

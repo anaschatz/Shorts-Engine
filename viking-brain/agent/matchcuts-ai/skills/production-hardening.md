@@ -90,3 +90,4 @@ Checklist:
 - Goal claims need explicit goal evidence. Shot-like motion, crowd noise, coach reaction, scoreboard context and goal-area visibility alone must stay non-goal.
 - Goal-sequence windows should be action-first: build-up, shot/contact, ball trajectory, goal mouth or keeper action, payoff, then reaction support. Reaction-only windows should be demoted unless they are the strongest available evidence.
 - Goal-sequence metrics such as `goalSequenceRecall`, `shotToPayoffCoverage`, `actionWindowCoverage`, `falseVisualGoalRate` and `noFalseGoalClaim` should be covered by eval/reference gates after analysis or caption changes.
+- Authorized live rerender artifacts should be saved only after verified MP4 download, under ignored `manual-downloads/`, and product readiness should require `demo:human-review` operator playback scoring.

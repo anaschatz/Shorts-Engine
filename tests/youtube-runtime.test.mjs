@@ -9,7 +9,7 @@ import {
   runYouTubeLiveE2E,
   writeYouTubeLiveE2EReport,
 } from "../demo/run-youtube-live-e2e.mjs";
-import { runYouTubeSmoke, writeYouTubeSmokeReport } from "../demo/run-youtube-smoke.mjs";
+import { runYouTubeSmoke, safeDownloadArtifactRef, writeYouTubeSmokeReport } from "../demo/run-youtube-smoke.mjs";
 import {
   YouTubeDoctorError,
   checkYouTubeIngest,
@@ -162,6 +162,10 @@ function smokeEnv(overrides = {}) {
   };
 }
 
+function savedArtifactRef() {
+  return `manual-downloads/test-youtube-smoke-${Date.now()}-${Math.random().toString(16).slice(2)}.mp4`;
+}
+
 test("youtube doctor disabled default returns a safe skipped summary", async () => {
   let downloaderChecked = false;
   const result = await checkYouTubeIngest({
@@ -299,6 +303,38 @@ test("youtube smoke successful mocked flow validates ingest generate job and dow
   ]);
   assert.doesNotMatch(JSON.stringify(report), new RegExp(SAFE_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube smoke can save a verified generated artifact under manual-downloads", async () => {
+  const artifactRef = savedArtifactRef();
+  const { fetchImpl } = createFetchMock();
+  const report = await runYouTubeSmoke({
+    env: smokeEnv({
+      SHORTSENGINE_YOUTUBE_SMOKE_SAVE_DOWNLOAD: "1",
+      SHORTSENGINE_YOUTUBE_SMOKE_DOWNLOAD_ARTIFACT: artifactRef,
+    }),
+    fetchImpl,
+  });
+  assert.equal(report.status, "passed");
+  assert.equal(report.generatedArtifact.relativePath, artifactRef);
+  assert.equal(report.generatedArtifact.downloadVerified, true);
+  assert.equal(report.generatedArtifact.projectId, "prj_12345678");
+  assert.equal(report.generatedArtifact.jobId, "job_12345678");
+  assert.equal(report.generatedArtifact.exportId, "exp_12345678");
+  assert.equal(report.generatedArtifact.durationSeconds, 12);
+  assert.equal(existsSync(artifactRef), true);
+  assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube smoke artifact refs fail closed outside manual-downloads", () => {
+  assert.throws(
+    () => safeDownloadArtifactRef("demo/results/generated.mp4"),
+    /manual-downloads/,
+  );
+  assert.throws(
+    () => safeDownloadArtifactRef("manual-downloads/../generated.mp4"),
+    /manual-downloads|workspace/,
+  );
 });
 
 test("youtube smoke fails closed when health is not ready", async () => {
@@ -487,6 +523,26 @@ function passedSmokeReport() {
       { id: "job_12345678", status: "completed", progress: 100, exportId: "exp_12345678" },
     ],
     export: { status: 200, contentType: "video/mp4", sizeBytes: 140, sha256Prefix: "abc123" },
+    generatedArtifact: {
+      type: "rendered_video",
+      status: "available",
+      relativePath: "manual-downloads/shortsengine-youtube-dQw4w9WgXcQ-test.mp4",
+      sourceType: "youtube",
+      videoId: VIDEO_ID,
+      projectId: "prj_12345678",
+      uploadId: "upl_12345678",
+      jobId: "job_12345678",
+      exportId: "exp_12345678",
+      sizeBytes: 140,
+      contentType: "video/mp4",
+      sha256Prefix: "abc123",
+      durationSeconds: 12,
+      width: 1280,
+      height: 720,
+      downloadVerified: true,
+      logsDownloaded: false,
+      rawDownloaderOutputIncluded: false,
+    },
     failedCases: [],
   };
 }
@@ -795,9 +851,12 @@ test("youtube live local e2e mocked success wraps smoke proof without raw URL le
   assert.equal(report.triage.preflight.manualUnlistedGate, true);
   assert.equal(report.smoke.ids.projectId, "prj_12345678");
   assert.equal(report.smoke.export.contentType, "video/mp4");
+  assert.equal(report.generatedArtifact.relativePath, "manual-downloads/shortsengine-youtube-dQw4w9WgXcQ-test.mp4");
+  assert.equal(report.generatedArtifact.downloadVerified, true);
   assert.equal(stopped, true);
   assert.equal(smokeEnvSeen.SHORTSENGINE_YOUTUBE_SMOKE, "1");
   assert.equal(smokeEnvSeen.SHORTSENGINE_YOUTUBE_SMOKE_BASE_URL, "http://127.0.0.1:4175");
+  assert.equal(smokeEnvSeen.SHORTSENGINE_YOUTUBE_SMOKE_SAVE_DOWNLOAD, "1");
   assert.doesNotMatch(JSON.stringify(report), new RegExp(SAFE_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.equal(findSensitiveLeak(report), null);
 });

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, relative, resolve } from "node:path";
+import { dirname, extname, join, relative, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
@@ -17,6 +17,8 @@ const DEFAULT_JOB_TIMEOUT_MS = 90_000;
 const DEFAULT_POLL_INTERVAL_MS = 750;
 const DEFAULT_JSON_RESPONSE_BYTES = 256 * 1024;
 const DEFAULT_DOWNLOAD_MAX_BYTES = 80 * 1024 * 1024;
+const DEFAULT_DOWNLOAD_ARTIFACT_DIR = "manual-downloads";
+const SAVE_DOWNLOAD_FLAG = "SHORTSENGINE_YOUTUBE_SMOKE_SAVE_DOWNLOAD";
 const SMOKE_NEXT_ACTIONS = {
   YOUTUBE_SMOKE_DISABLED: "set-SHORTSENGINE_YOUTUBE_SMOKE-1-for-manual-real-ingest-smoke",
   YOUTUBE_SMOKE_INGEST_DISABLED: "set-SHORTSENGINE_YOUTUBE_INGEST_ENABLED-1",
@@ -344,7 +346,10 @@ function validateIngestResponse(data, expected) {
   const projectId = assertId(data?.project?.id, "prj", "YOUTUBE_SMOKE_INGEST_RESPONSE_INVALID");
   const uploadId = assertId(data?.upload?.id, "upl", "YOUTUBE_SMOKE_INGEST_RESPONSE_INVALID");
   const artifact = data?.upload?.artifact;
-  const durationSeconds = Number(data?.upload?.metadata?.durationSeconds || data?.source?.durationSeconds);
+  const metadata = data?.upload?.metadata || {};
+  const durationSeconds = Number(metadata.durationSeconds || data?.source?.durationSeconds);
+  const width = Number(metadata.width);
+  const height = Number(metadata.height);
   if (!artifact || artifact.type !== "upload" || artifact.status !== "available") {
     throw new YouTubeSmokeError("YOUTUBE_SMOKE_ARTIFACT_RESPONSE_INVALID", "YouTube ingest artifact public record is invalid.");
   }
@@ -359,6 +364,81 @@ function validateIngestResponse(data, expected) {
     uploadId,
     artifactId: artifact.id || uploadId,
     durationSeconds,
+    width: Number.isFinite(width) && width > 0 ? width : null,
+    height: Number.isFinite(height) && height > 0 ? height : null,
+  };
+}
+
+function safeTimestamp(value) {
+  return String(value || nowIso()).replace(/[:.]/g, "-").replace(/[^A-Za-z0-9TZ_-]/g, "-");
+}
+
+function safeDownloadArtifactRef(candidate) {
+  const text = String(candidate || "").trim().replace(/\\/g, "/");
+  if (
+    !text ||
+    text.startsWith("/") ||
+    /^[A-Za-z]:\//.test(text) ||
+    text.includes("\0") ||
+    text.split("/").some((part) => part === "..") ||
+    !text.startsWith(`${DEFAULT_DOWNLOAD_ARTIFACT_DIR}/`) ||
+    extname(text).toLowerCase() !== ".mp4"
+  ) {
+    throw new YouTubeSmokeError(
+      "YOUTUBE_SMOKE_DOWNLOAD_ARTIFACT_REF_UNSAFE",
+      "YouTube smoke download artifact reference must stay under manual-downloads.",
+    );
+  }
+  const resolvedRoot = resolve(ROOT_DIR);
+  const resolvedFile = resolve(resolvedRoot, text);
+  const rel = relative(resolvedRoot, resolvedFile);
+  if (!rel || rel.startsWith("..") || resolve(rel).startsWith("..")) {
+    throw new YouTubeSmokeError(
+      "YOUTUBE_SMOKE_DOWNLOAD_ARTIFACT_REF_UNSAFE",
+      "YouTube smoke download artifact reference must stay inside the workspace.",
+    );
+  }
+  return { relativePath: text, resolvedFile };
+}
+
+function defaultDownloadArtifactRef(source, timestamp) {
+  const videoId = String(source?.videoId || "unknown")
+    .replace(/[^A-Za-z0-9_-]/g, "")
+    .slice(0, 32) || "unknown";
+  return `${DEFAULT_DOWNLOAD_ARTIFACT_DIR}/shortsengine-youtube-${videoId}-${safeTimestamp(timestamp)}.mp4`;
+}
+
+function maybeWriteDownloadArtifact({ buffer, downloadSummary, env, ids, ingested, source, timestamp }) {
+  if (!boolFromEnv(rawValue(env, SAVE_DOWNLOAD_FLAG))) return null;
+  if (!Buffer.isBuffer(buffer) || !downloadSummary) {
+    throw new YouTubeSmokeError(
+      "YOUTUBE_SMOKE_DOWNLOAD_ARTIFACT_MISSING",
+      "YouTube smoke download artifact could not be written without a verified MP4.",
+    );
+  }
+  const requestedRef = rawValue(env, "SHORTSENGINE_YOUTUBE_SMOKE_DOWNLOAD_ARTIFACT");
+  const target = safeDownloadArtifactRef(requestedRef || defaultDownloadArtifactRef(source, timestamp));
+  mkdirSync(dirname(target.resolvedFile), { recursive: true });
+  writeFileSync(target.resolvedFile, buffer);
+  return {
+    type: "rendered_video",
+    status: "available",
+    relativePath: target.relativePath,
+    sourceType: "youtube",
+    videoId: source?.videoId || null,
+    projectId: ids.projectId || null,
+    uploadId: ids.uploadId || null,
+    jobId: ids.jobId || null,
+    exportId: ids.exportId || null,
+    sizeBytes: downloadSummary.sizeBytes,
+    contentType: downloadSummary.contentType,
+    sha256Prefix: downloadSummary.sha256Prefix,
+    durationSeconds: Number.isFinite(Number(ingested?.durationSeconds)) ? Number(ingested.durationSeconds) : null,
+    width: Number.isFinite(Number(ingested?.width)) ? Number(ingested.width) : null,
+    height: Number.isFinite(Number(ingested?.height)) ? Number(ingested.height) : null,
+    downloadVerified: true,
+    logsDownloaded: false,
+    rawDownloaderOutputIncluded: false,
   };
 }
 
@@ -453,7 +533,7 @@ function safeReport(report) {
   };
 }
 
-function buildBaseReport({ status, started, source = null, target = null, checks = [], steps = [], ids = {}, health = null, lifecycle = [], download = null, failedCases = [] }) {
+function buildBaseReport({ status, started, source = null, target = null, checks = [], steps = [], ids = {}, health = null, lifecycle = [], download = null, generatedArtifact = null, failedCases = [] }) {
   return safeReport({
     timestamp: nowIso(),
     status,
@@ -466,6 +546,7 @@ function buildBaseReport({ status, started, source = null, target = null, checks
     health,
     jobLifecycle: lifecycle,
     export: download,
+    generatedArtifact,
     failedCases,
   });
 }
@@ -483,6 +564,8 @@ async function runYouTubeSmoke(options = {}) {
   let health = null;
   let lifecycle = [];
   let downloadSummary = null;
+  let generatedArtifact = null;
+  let ingested = null;
 
   if (!boolFromEnv(rawValue(env, YOUTUBE_SMOKE_FLAG))) {
     addCheck(checks, "youtube_smoke_explicit_flag", true, {
@@ -531,7 +614,7 @@ async function runYouTubeSmoke(options = {}) {
       method: "POST",
       body: JSON.stringify({ url: source.canonicalUrl, rightsConfirmed: true, title: "ShortsEngine YouTube Smoke" }),
     });
-    const ingested = validateIngestResponse(assertApiOk(ingestResponse, "YOUTUBE_SMOKE_INGEST_FAILED", "YouTube ingest API failed."), source);
+    ingested = validateIngestResponse(assertApiOk(ingestResponse, "YOUTUBE_SMOKE_INGEST_FAILED", "YouTube ingest API failed."), source);
     ids.projectId = ingested.projectId;
     ids.uploadId = ingested.uploadId;
     ids.artifactId = ingested.artifactId;
@@ -569,10 +652,20 @@ async function runYouTubeSmoke(options = {}) {
       maxBytes: downloadMaxBytes,
     });
     downloadSummary = validateMp4Download(download);
+    generatedArtifact = maybeWriteDownloadArtifact({
+      buffer: download.buffer,
+      downloadSummary,
+      env,
+      ids,
+      ingested,
+      source,
+      timestamp: nowIso(),
+    });
     addStep(steps, "download", "passed", {
       requestIdPresent: Boolean(download.requestId),
       exportId: ids.exportId,
       sizeBytes: downloadSummary.sizeBytes,
+      artifactSaved: Boolean(generatedArtifact),
     });
 
     for (const [name, passed] of [
@@ -590,7 +683,7 @@ async function runYouTubeSmoke(options = {}) {
   }
 
   const status = failedCases.length ? "failed" : "passed";
-  return buildBaseReport({ status, started, source, target, checks, steps, ids, health, lifecycle, download: downloadSummary, failedCases });
+  return buildBaseReport({ status, started, source, target, checks, steps, ids, health, lifecycle, download: downloadSummary, generatedArtifact, failedCases });
 }
 
 function relativeFromRoot(fileName) {
@@ -662,6 +755,7 @@ export {
   RESULTS_DIR,
   YouTubeSmokeError,
   runYouTubeSmoke,
+  safeDownloadArtifactRef,
   validateHealthForSmoke,
   validateMp4Download,
   validateSmokeSource,
