@@ -129,7 +129,7 @@ test("reference review produces safe expected-vs-actual report", () => {
   assert.equal(report.passed, true);
   assert.equal(report.aggregate.fixtureCount >= 8, true);
   assert.equal(report.aggregate.metrics.noFalseGoalClaim, 1);
-  assert.equal(report.aggregate.metrics.captionActionAlignment >= 0.75, true);
+  assert.equal(report.aggregate.metrics.captionActionAlignment >= 0.9, true);
   assert.equal(report.aggregate.metrics.captionSpecificityScore >= 0.95, true);
   assert.equal(report.aggregate.metrics.reactionAsSupportScore >= 0.95, true);
   assert.equal(report.aggregate.metrics.weakEvidenceNeutralityScore >= 0.95, true);
@@ -233,6 +233,7 @@ test("eval:reference runner writes a JSON report and fails thresholds", () => {
   const summary = JSON.parse(pass.stdout);
   assert.equal(summary.passed, true);
   assert.equal(summary.fixtureCount >= 8, true);
+  assert.equal(summary.captionActionAlignment >= 0.9, true);
   assert.equal(summary.captionSpecificityScore >= 0.95, true);
   assert.equal(summary.reactionAsSupportScore >= 0.95, true);
   assert.equal(summary.weakEvidenceNeutralityScore >= 0.95, true);

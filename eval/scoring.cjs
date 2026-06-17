@@ -42,6 +42,20 @@ const REACTION_REASON_CODES = Object.freeze([
   "crowd_spike",
   "visual_crowd_reaction",
 ]);
+const REPLAY_REASON_CODES = Object.freeze([
+  "replay_or_reaction",
+  "replay_worthy_moment",
+  "visual_replay_indicator",
+]);
+const CLEAR_CONTEXT_REASON_CODES = Object.freeze([
+  "commentator_peak",
+  "crowd_reaction",
+  "crowd_spike",
+  "replay_or_reaction",
+  "replay_worthy_moment",
+  "visual_crowd_reaction",
+  "visual_replay_indicator",
+]);
 const ACTION_REASON_CODES = Object.freeze([
   "big_chance",
   "card_moment",
@@ -298,7 +312,10 @@ function reactionAsSupportScore(plan) {
   if (!plan || !Array.isArray(plan.reasonCodes)) return 0;
   const reasonSet = new Set(plan.reasonCodes);
   const hasReaction = REACTION_REASON_CODES.some((reason) => reasonSet.has(reason));
+  const hasReplayContext = REPLAY_REASON_CODES.some((reason) => reasonSet.has(reason)) ||
+    ["replay_or_reaction", "replay_worthy_moment"].includes(plan.highlightType);
   const hasAction = ACTION_REASON_CODES.some((reason) => reasonSet.has(reason)) || ACTION_HIGHLIGHT_TYPES.includes(plan.highlightType);
+  if (hasReplayContext) return captionSpecificityScore(plan);
   if (!hasReaction) return 1;
   const openingAndAction = `${captionTextForRole(plan, "opening_hook")} ${captionTextForRole(plan, "action_callout")}`;
   const reactionText = captionTextForRole(plan, "reaction");
@@ -313,8 +330,9 @@ function weakEvidenceNeutralityScore(plan) {
   if (!plan || !Array.isArray(plan.reasonCodes)) return 0;
   const reasonSet = new Set(plan.reasonCodes);
   const hasAction = ACTION_REASON_CODES.some((reason) => reasonSet.has(reason));
+  const hasClearContext = CLEAR_CONTEXT_REASON_CODES.some((reason) => reasonSet.has(reason));
   const weakEvidence = ["unknown_action", "generic_highlight"].includes(plan.highlightType) ||
-    (["visual_goal_area", "visual_scoreboard_context", "visual_unknown_action"].some((reason) => reasonSet.has(reason)) && !hasAction);
+    (["visual_goal_area", "visual_scoreboard_context", "visual_unknown_action"].some((reason) => reasonSet.has(reason)) && !hasAction && !hasClearContext);
   if (!weakEvidence) return 1;
   const text = captionText(plan);
   if (planHasGoalLanguage(plan)) return 0;

@@ -6,6 +6,7 @@ const {
   createCandidateEditPlans,
   detectHighlights,
   extractMediaSignals,
+  highlightTypeForReasons,
   reasonCodesForCaption,
 } = require("../server/analysis.cjs");
 const { hasGoalLanguage } = require("../server/edit-plan.cjs");
@@ -330,6 +331,89 @@ test("visual crowd reaction plus audio ranks as crowd reaction without goal clai
   assert.equal(result.moments[0].reasonCodes.includes("visual_crowd_reaction"), true);
   assert.equal(result.moments[0].reasonCodes.includes("goal"), false);
   assert.equal(result.moments[0].evidence.visual.goalClaimAllowed, false);
+});
+
+test("replay-heavy evidence becomes replay-worthy without inventing action or goal", () => {
+  const result = detectHighlights({
+    transcript: {
+      provider: "fixture",
+      language: "en",
+      captions: [
+        { start: 5, end: 6.5, text: "Watch the replay angle" },
+        { start: 9, end: 10.5, text: "The detail is easy to miss" },
+        { start: 13, end: 14.4, text: "Run it back once" },
+      ],
+    },
+    signals: {
+      durationSeconds: 24,
+      hasAudio: true,
+      audioPeaks: [{ time: 9.7, energyScore: 0.72, source: "fixture" }],
+      sceneChanges: [{ time: 9.4, confidence: 0.79, source: "fixture" }],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [{ start: 8.4, end: 11.4, labels: ["replay_indicator"], confidence: 0.81 }],
+    },
+    preset: "hype",
+  });
+
+  assert.equal(result.moments[0].highlightType, "replay_worthy_moment");
+  assert.equal(result.moments[0].reasonCodes.includes("replay_worthy_moment"), true);
+  assert.equal(result.moments[0].reasonCodes.includes("visual_replay_indicator"), true);
+  assert.equal(result.moments[0].reasonCodes.includes("goal"), false);
+
+  const plans = createCandidateEditPlans({ moments: result.moments, metadata, transcript: { captions: [] }, title: "Replay detail" });
+  const byRole = Object.fromEntries(plans[0].captions.map((caption) => [caption.role, caption.text]));
+  assert.match(byRole.opening_hook, /timing/i);
+  assert.match(byRole.action_callout, /angle/i);
+  assert.match(byRole.closing_punch, /run.*back|back.*run/i);
+  assert.equal(hasGoalLanguage(plans[0].captions.map((caption) => caption.text).join(" ")), false);
+});
+
+test("commentary and crowd spike evidence keeps reaction wording without false goal", () => {
+  const result = detectHighlights({
+    transcript: {
+      provider: "fixture",
+      language: "en",
+      captions: [
+        { start: 5, end: 6.4, text: "THE CALL TELLS THE STORY" },
+        { start: 9, end: 10.5, text: "The commentator feels the pressure" },
+        { start: 13, end: 14.4, text: "The crowd rises with the moment" },
+      ],
+    },
+    signals: {
+      durationSeconds: 24,
+      hasAudio: true,
+      audioPeaks: [{ time: 9.7, energyScore: 0.95, source: "fixture" }],
+      sceneChanges: [{ time: 9.8, confidence: 0.66, source: "fixture" }],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [{ start: 8.7, end: 11.2, labels: ["camera_pan", "crowd_reaction"], confidence: 0.72 }],
+    },
+    preset: "hype",
+  });
+
+  assert.equal(result.moments[0].highlightType, "crowd_reaction");
+  assert.equal(result.moments.some((moment) => moment.reasonCodes.includes("commentator_peak")), true);
+  assert.equal(result.moments[0].reasonCodes.includes("audio_energy_spike"), true);
+  assert.equal(result.moments[0].reasonCodes.includes("goal"), false);
+
+  const plans = createCandidateEditPlans({ moments: result.moments, metadata, transcript: { captions: [] }, title: "Commentary reaction" });
+  const byRole = Object.fromEntries(plans[0].captions.map((caption) => [caption.role, caption.text]));
+  assert.match(byRole.opening_hook, /crowd|stadium/i);
+  assert.match(byRole.action_callout, /reaction/i);
+  assert.match(byRole.closing_punch, /watch/i);
+  assert.equal(hasGoalLanguage(plans[0].captions.map((caption) => caption.text).join(" ")), false);
+});
+
+test("scoreboard and visual shot-like context still fail closed for goal inference", () => {
+  assert.equal(highlightTypeForReasons(["visual_replay_indicator", "scene_change_cluster"]), "replay_or_reaction");
+  assert.equal(highlightTypeForReasons(["visual_replay_indicator", "replay_worthy_moment"]), "replay_worthy_moment");
+  assert.equal(highlightTypeForReasons(["visual_scoreboard_context", "scene_change_cluster"]), "unknown_action");
+  assert.equal(highlightTypeForReasons(["visual_goal_area", "visual_shot_like_motion"]), "big_chance");
 });
 
 test("visual scoreboard context does not become a goal or action claim", () => {

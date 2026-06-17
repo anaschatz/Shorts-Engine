@@ -32,3 +32,4 @@ Guardrails:
 - Caption generation now lives behind `server/caption-generation.cjs` and `server/adapters/caption-provider-adapter.cjs`. Keep the deterministic provider as default and inject future LLM providers only behind this boundary.
 - Run `npm run eval` after ranking/caption changes; it checks caption evidence metadata, caption/action alignment, generic hype penalties, caption specificity, reaction-as-support, weak-evidence neutrality and provider fallback rate.
 - Use `npm run feedback:summary` when human reviewers add local feedback in `eval/human-feedback/`; the summary is safe and must not mutate training data automatically.
+- Replay and commentary wording must stay evidence-specific: replay indicators may use timing/angle/run-it-back captions, and crowd/commentary spikes may use crowd/reaction/watch wording, but both must continue to avoid goal language unless explicit `goal` evidence exists.

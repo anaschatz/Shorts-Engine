@@ -43,6 +43,18 @@ const WEAK_REASONS = Object.freeze([
   "visual_scoreboard_context",
   "visual_unknown_action",
 ]);
+const REPLAY_REASONS = Object.freeze([
+  "replay_or_reaction",
+  "replay_worthy_moment",
+  "visual_replay_indicator",
+]);
+const CONTEXT_HIGHLIGHT_TYPES = Object.freeze([
+  "audio_energy_spike",
+  "commentator_peak",
+  "crowd_reaction",
+  "replay_or_reaction",
+  "replay_worthy_moment",
+]);
 const STRONG_ACTION_TYPES = Object.freeze([
   "big_chance",
   "card_moment",
@@ -83,12 +95,15 @@ function evidenceKind({ highlightType, reasonCodes = [] } = {}) {
   const normalizedReasons = safeReasons(reasonCodes);
   const actionLed = STRONG_ACTION_TYPES.includes(highlightType) || hasAnyReason(normalizedReasons, ACTION_REASONS);
   const hasReactionContext = hasAnyReason(normalizedReasons, REACTION_REASONS);
+  const hasReplayContext = REPLAY_REASONS.includes(highlightType) || hasAnyReason(normalizedReasons, REPLAY_REASONS);
+  const contextLed = CONTEXT_HIGHLIGHT_TYPES.includes(highlightType) && (hasReactionContext || hasReplayContext);
   const hasWeakEvidence = hasAnyReason(normalizedReasons, WEAK_REASONS);
   return {
     actionLed,
     hasReactionContext,
-    reactionOnly: hasReactionContext && !actionLed,
-    weakOrUnknown: ["unknown_action", "generic_highlight"].includes(highlightType) || (hasWeakEvidence && !actionLed),
+    hasReplayContext,
+    reactionOnly: hasReactionContext && !actionLed && !hasReplayContext,
+    weakOrUnknown: ["unknown_action", "generic_highlight"].includes(highlightType) || (hasWeakEvidence && !actionLed && !contextLed),
   };
 }
 

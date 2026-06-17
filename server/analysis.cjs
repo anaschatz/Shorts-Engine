@@ -142,6 +142,18 @@ const BUILD_UP_TERMS = [
 const REPLAY_TERMS = ["replay", "again", "angle", "ριπλεϊ", "ριπλει", "ξανα", "επανάληψη", "επαναληψη"];
 const CROWD_TERMS = ["crowd", "stadium", "fans", "roar", "κερκιδα", "κερκίδα", "κόσμος", "κοσμος"];
 const CROWD_REACTION_TERMS = [...CROWD_TERMS, "stands", "supporters", "reaction", "noise", "κερκίδα", "αντιδραση", "αντίδραση"];
+const COMMENTARY_TERMS = [
+  "the call tells",
+  "commentator",
+  "commentary",
+  "broadcast voice",
+  "φωνη εκφωνητη",
+  "φωνή εκφωνητή",
+  "εκφωνητης",
+  "εκφωνητής",
+  "περιγραφη",
+  "περιγραφή",
+];
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, Number(value) || min));
@@ -395,6 +407,7 @@ function reasonCodesForCaption(caption, signals, visualSignals) {
   if (hasTerm(text, BUILD_UP_TERMS)) reasons.push("replay_worthy_moment");
   if (hasTerm(text, REPLAY_TERMS)) reasons.push("replay_worthy_moment");
   if (hasTerm(text, CROWD_REACTION_TERMS)) reasons.push("crowd_reaction");
+  if (hasTerm(text, COMMENTARY_TERMS)) reasons.push("commentator_peak");
   if (/[!]{1,}|[Α-ΩA-Z]{5,}/.test(text)) reasons.push("commentator_peak");
   if (nearbyAudioPeaks.length) reasons.push("audio_energy_spike");
   if (nearbyAudioPeaks.some((peak) => Number(peak.energyScore || 0) >= 0.88) && hasTerm(text, CROWD_REACTION_TERMS)) {
@@ -402,6 +415,9 @@ function reasonCodesForCaption(caption, signals, visualSignals) {
   }
   if (nearbySceneChanges.length >= 1) reasons.push("scene_change_cluster");
   reasons.push(...nearbyVisualReasons);
+  if (nearbyVisualReasons.includes("visual_replay_indicator")) {
+    reasons.push("replay_worthy_moment");
+  }
   if (!reasons.length) reasons.push("generic_highlight");
   return [...new Set(reasons)];
 }
@@ -514,10 +530,9 @@ function highlightTypeForReasons(reasons = []) {
   }
   if (reasons.includes("visual_shot_like_motion")) return "big_chance";
   if (reasons.includes("visual_crowd_reaction")) return "crowd_reaction";
-  if (reasons.includes("visual_replay_indicator")) return "replay_or_reaction";
-  if (reasons.includes("crowd_reaction") || reasons.includes("crowd_spike")) return "crowd_reaction";
-  if (reasons.includes("replay_or_reaction")) return "replay_or_reaction";
   if (reasons.includes("replay_worthy_moment")) return "replay_worthy_moment";
+  if (reasons.includes("visual_replay_indicator") || reasons.includes("replay_or_reaction")) return "replay_or_reaction";
+  if (reasons.includes("crowd_reaction") || reasons.includes("crowd_spike")) return "crowd_reaction";
   if (reasons.includes("commentator_peak")) return "commentator_peak";
   if (reasons.includes("audio_energy_spike") || reasons.includes("audio_peak")) return "audio_energy_spike";
   if (reasons.includes("unknown_action")) return "unknown_action";

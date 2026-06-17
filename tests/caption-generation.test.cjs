@@ -148,3 +148,45 @@ test("crowd-only captions stay reaction-oriented and weak evidence stays neutral
   assert.match(text, /pressure|play|develop|detail/i);
   assert.doesNotMatch(text, /goal|save|foul|counter/i);
 });
+
+test("replay and commentary evidence keep reference wording without goal claims", () => {
+  const replay = generateEvidenceAwareCaptions({
+    copy: {
+      hook: "LOOK AT THE TIMING",
+      context: "The detail is easy to miss",
+      main: "Watch the angle",
+      reaction: "The replay explains it",
+      closing: "Run it back once",
+    },
+    highlightType: "replay_worthy_moment",
+    reasonCodes: ["replay_worthy_moment", "visual_replay_indicator", "scene_change_cluster"],
+    duration: 9,
+    language: "English",
+  });
+  const replayByRole = Object.fromEntries(replay.captions.map((caption) => [caption.role, caption.text]));
+  assert.match(replayByRole.opening_hook, /timing/i);
+  assert.match(replayByRole.action_callout, /angle/i);
+  assert.match(replayByRole.closing_punch, /run.*back|back.*run/i);
+  assert.equal(hasGoalLanguage(replay.captions.map((caption) => caption.text).join(" ")), false);
+  assert.ok(replay.captions.every((caption) => caption.captionEvidence.alignedHighlightType === "replay_worthy_moment"));
+
+  const commentary = generateEvidenceAwareCaptions({
+    copy: {
+      hook: "THE CROWD FELT THAT",
+      context: "The stadium reacts before the replay",
+      main: "That reaction says enough",
+      reaction: "The energy jumps",
+      closing: "Watch what caused it",
+    },
+    highlightType: "crowd_reaction",
+    reasonCodes: ["commentator_peak", "audio_energy_spike", "crowd_reaction", "visual_crowd_reaction", "visual_unknown_action"],
+    duration: 9,
+    language: "English",
+  });
+  const commentaryByRole = Object.fromEntries(commentary.captions.map((caption) => [caption.role, caption.text]));
+  assert.match(commentaryByRole.opening_hook, /crowd|stadium/i);
+  assert.match(commentaryByRole.action_callout, /reaction/i);
+  assert.match(commentaryByRole.closing_punch, /watch/i);
+  assert.ok(commentary.captions.some((caption) => caption.captionRiskFlags.includes("crowd_context_only")));
+  assert.equal(hasGoalLanguage(commentary.captions.map((caption) => caption.text).join(" ")), false);
+});
