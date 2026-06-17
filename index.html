@@ -120,7 +120,7 @@
                 autocomplete="off"
                 maxlength="2048"
                 placeholder="https://www.youtube.com/watch?v=..."
-                aria-describedby="youtubeHelp youtubeIngestStatus youtubeError"
+                aria-describedby="youtubeHelp youtubeIngestStatus youtubeWarning youtubeError"
               />
               <small class="helper-text" id="youtubeHelp">Υποστηρίζονται video, Shorts και youtu.be links. Το validation ξεκινά αυτόματα μόλις μπει link και επιβεβαιωθούν τα δικαιώματα.</small>
               <label class="checkbox-row" for="youtubeRightsCheckbox">
@@ -136,6 +136,7 @@
               <small class="helper-text youtube-ingest-status" id="youtubeIngestStatus" data-testid="youtube-ingest-status" aria-live="polite">
                 YouTube ingest is disabled by default. URL validation still works.
               </small>
+              <p class="field-warning" id="youtubeWarning" data-testid="youtube-warning" aria-live="polite" hidden></p>
               <div class="youtube-source-card" id="youtubePreview" data-testid="youtube-preview" hidden>
                 <span>Validated source</span>
                 <strong id="youtubePreviewVideoId">Pending</strong>
@@ -145,6 +146,17 @@
             </div>
             <p class="field-error" id="uploadError" role="alert" aria-live="polite" hidden></p>
             <p class="field-error" id="youtubeError" data-testid="youtube-error" role="alert" aria-live="polite" hidden></p>
+            <div class="youtube-recovery-actions" id="youtubeRecoveryActions" data-testid="youtube-recovery-actions" hidden>
+              <button class="secondary-btn compact-btn" id="retryYoutubeIngestBtn" data-testid="youtube-retry-ingest-button" type="button">
+                Retry ingest
+              </button>
+              <button class="ghost-btn compact-btn" id="useAnotherYoutubeBtn" data-testid="youtube-use-another-button" type="button">
+                Use another link
+              </button>
+              <button class="ghost-btn compact-btn" id="uploadMp4FallbackBtn" data-testid="youtube-upload-mp4-fallback-button" type="button">
+                Upload MP4
+              </button>
+            </div>
           </section>
 
           <section class="panel-section">

@@ -434,6 +434,8 @@ async function handleYouTubeValidate(req, res, rid) {
     sourceType: source.sourceType,
     videoId: source.videoId,
     metadataStatus: source.metadataStatus,
+    ingestRisk: source.ingestRisk,
+    warningCode: source.warningCode,
     ingestAvailable: source.ingestAvailable,
   }));
   sendOk(res, { source });

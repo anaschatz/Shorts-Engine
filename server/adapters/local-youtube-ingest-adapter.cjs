@@ -4,6 +4,10 @@ const { basename } = require("node:path");
 const { CONFIG } = require("../config.cjs");
 const { AppError, SAFE_MESSAGES } = require("../errors.cjs");
 const { assertStoragePath } = require("../storage.cjs");
+const {
+  metadataWarningFromFailure,
+  toSafeYouTubeDownloaderError,
+} = require("../youtube-downloader-errors.cjs");
 
 const YOUTUBE_OUTPUT_FILE = "source.mp4";
 const METADATA_TIMEOUT_MS = 15 * 1000;
@@ -78,6 +82,8 @@ function execFileSafe(execFileImpl, command, args, options) {
   return new Promise((resolve, reject) => {
     execFileImpl(command, args, options, (error, stdout, stderr) => {
       if (error) {
+        if (stdout !== undefined) error.stdout = stdout;
+        if (stderr !== undefined) error.stderr = stderr;
         reject(error);
         return;
       }
@@ -87,19 +93,7 @@ function execFileSafe(execFileImpl, command, args, options) {
 }
 
 function toDownloaderError(error) {
-  if (error && (error.code === "ENOENT" || error.code === "EACCES")) {
-    return new AppError("YOUTUBE_DOWNLOADER_MISSING", SAFE_MESSAGES.YOUTUBE_DOWNLOADER_MISSING, 503, {
-      reason: "downloader_unavailable",
-    });
-  }
-  if (error && (error.killed || error.signal || error.code === "ETIMEDOUT")) {
-    return new AppError("YOUTUBE_DOWNLOAD_TIMEOUT", SAFE_MESSAGES.YOUTUBE_DOWNLOAD_TIMEOUT, 504, {
-      reason: "timeout",
-    });
-  }
-  return new AppError("YOUTUBE_DOWNLOAD_FAILED", SAFE_MESSAGES.YOUTUBE_DOWNLOAD_FAILED, 502, {
-    reason: "download_failed",
-  });
+  return toSafeYouTubeDownloaderError(error);
 }
 
 function safeMetadataTitle(value) {
@@ -141,6 +135,7 @@ function createLocalYouTubeIngestAdapter(options = {}) {
       networkCalls: Boolean(config.enabled),
       downloaderConfigured: configured,
       ingestAvailable: Boolean(config.enabled && configured),
+      authorizedImportAvailable: false,
     };
   }
 
@@ -174,7 +169,9 @@ function createLocalYouTubeIngestAdapter(options = {}) {
           metadataStatus: metadata.title || metadata.durationSeconds ? "local" : "local-unavailable",
           ingestAvailable: true,
         };
-      } catch {
+      } catch (error) {
+        const warning = metadataWarningFromFailure(error);
+        if (warning) return warning;
         return {
           title: null,
           durationSeconds: null,

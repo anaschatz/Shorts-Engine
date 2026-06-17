@@ -229,7 +229,10 @@ function createYouTubeIngestService(options = {}) {
         videoId: source.videoId,
         uploadId,
         projectId,
+        step: "download_staging",
         code: error && error.code ? error.code : "UNEXPECTED",
+        retryable: error && error.details ? error.details.retryable === true : false,
+        authorizedImportRequired: error && error.details ? error.details.authorizedImportRequired === true : false,
       });
       throw error;
     } finally {

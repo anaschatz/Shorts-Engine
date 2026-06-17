@@ -375,6 +375,24 @@ h2 {
   font-weight: 800;
 }
 
+.youtube-recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.youtube-recovery-actions[hidden] {
+  display: none;
+}
+
+.youtube-recovery-actions .compact-btn {
+  flex: 1 1 118px;
+  min-width: 0;
+  white-space: normal;
+  line-height: 1.15;
+}
+
 .dropzone {
   min-height: 168px;
   display: grid;
@@ -475,6 +493,7 @@ h2 {
 }
 
 .helper-text,
+.field-warning,
 .field-error {
   display: block;
   margin: 8px 0 0;
@@ -484,6 +503,11 @@ h2 {
 
 .helper-text {
   color: var(--muted);
+}
+
+.field-warning {
+  color: #7a4a00;
+  font-weight: 800;
 }
 
 .field-error {

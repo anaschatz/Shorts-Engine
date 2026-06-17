@@ -30,6 +30,7 @@ YouTube URL validation remains available through `POST /api/youtube/validate`. R
 | Variable | Required | Default | Allowed values | Secret | Staging recommendation | Fail-closed behavior |
 | --- | --- | --- | --- | --- | --- | --- |
 | `SHORTSENGINE_YOUTUBE_INGEST_ENABLED` | No | `0` | boolean | No | Keep disabled until downloader/legal policy is reviewed. | Disabled mode returns `YOUTUBE_INGEST_NOT_ENABLED` and performs no network/downloader work. |
+| `SHORTSENGINE_YOUTUBE_AUTHORIZED_IMPORT_ENABLED` | No | `0` | boolean | No | Foundation flag only; keep disabled until a reviewed authorized import adapter exists. | `/health` reports `authorizedImportAvailable: false`; no cookies/tokens are accepted or stored. |
 | `SHORTSENGINE_YOUTUBE_DOWNLOADER_BIN` | Only when ingest enabled | `yt-dlp` | command name or absolute binary path without spaces/shell metacharacters | No | Install/manage the downloader outside the app image or platform build step. | Missing downloader returns `YOUTUBE_DOWNLOADER_MISSING`; invalid config fails startup. |
 | `SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS` | No | `120000` | integer `1000..600000` | No | Keep bounded; raise only for known long videos within upload limits. | Timeout returns `YOUTUBE_DOWNLOAD_TIMEOUT`. |
 | `SHORTSENGINE_YOUTUBE_DOWNLOADER_OUTPUT_BYTES` | No | `65536` | integer `1024..1048576` | No | Keep small to avoid raw provider output in memory. | Oversized downloader output fails safely as `YOUTUBE_DOWNLOAD_FAILED`. |
@@ -62,7 +63,7 @@ Operator-only local proof guardrails:
 | `SHORTSENGINE_YOUTUBE_LIVE_E2E_TIMEOUT_MS` | Bounded wall-clock timeout for the local proof. |
 | `SHORTSENGINE_YOUTUBE_LIVE_E2E_BROWSER` | Enables the optional Playwright browser YouTube live path; defaults off and must not be used in CI release gates. |
 
-`npm run env:check` validates these live proof flags too. The user must explicitly confirm usage rights before validation or ingest. Playlists, live streams, credentialed URLs, unsupported hosts, embeds, channels and search pages are rejected before any downloader call. Public responses, doctor output and smoke reports never include local paths, storage keys, raw stdout/stderr, signed tokens or secrets.
+`npm run env:check` validates these live proof flags too. The user must explicitly confirm usage rights before validation or ingest. Playlists, live streams, credentialed URLs, unsupported hosts, embeds, channels and search pages are rejected before any downloader call. Downloader failures are classified into safe codes such as `YOUTUBE_AUTH_REQUIRED`, `YOUTUBE_BOT_CHECK_REQUIRED`, `YOUTUBE_COOKIES_REQUIRED`, `YOUTUBE_VIDEO_PRIVATE`, `YOUTUBE_VIDEO_UNAVAILABLE`, `YOUTUBE_GEO_RESTRICTED`, `YOUTUBE_AGE_RESTRICTED` and `YOUTUBE_RATE_LIMITED`; the recovery path is another public video, retry when marked retryable, or MP4 fallback until authorized import is built. Public responses, doctor output and smoke reports never include local paths, storage keys, raw stdout/stderr, signed tokens or secrets.
 
 Run `npm run youtube:doctor` at any time. With default config it returns a safe skipped summary and next action; with ingest enabled it validates downloader, FFmpeg/FFprobe, storage staging readiness and optionally a live `/health` `youtubeIngest` shape when `SHORTSENGINE_YOUTUBE_DOCTOR_URL` is configured.
 

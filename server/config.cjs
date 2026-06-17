@@ -206,6 +206,7 @@ function validateExecutableReference(value, options = {}) {
 function validateYouTubeIngestConfig(input = {}) {
   return {
     enabled: Boolean(input.enabled),
+    authorizedImportEnabled: Boolean(input.authorizedImportEnabled),
     downloaderBin: validateExecutableReference(input.downloaderBin, {
       name: "YouTube downloader binary",
       fallback: DEFAULT_YOUTUBE_DOWNLOADER_BIN,
@@ -247,6 +248,7 @@ const DATABASE_CONFIG = validateDatabaseConfig({
 });
 const YOUTUBE_INGEST_CONFIG = validateYouTubeIngestConfig({
   enabled: boolFromEnv(process.env.SHORTSENGINE_YOUTUBE_INGEST_ENABLED),
+  authorizedImportEnabled: boolFromEnv(process.env.SHORTSENGINE_YOUTUBE_AUTHORIZED_IMPORT_ENABLED),
   downloaderBin: process.env.SHORTSENGINE_YOUTUBE_DOWNLOADER_BIN || DEFAULT_YOUTUBE_DOWNLOADER_BIN,
   timeoutMs: process.env.SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS,
   maxOutputBytes: process.env.SHORTSENGINE_YOUTUBE_DOWNLOADER_OUTPUT_BYTES,

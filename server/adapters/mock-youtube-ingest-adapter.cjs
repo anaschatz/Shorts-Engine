@@ -24,6 +24,7 @@ function createMockYouTubeIngestAdapter(options = {}) {
     networkCalls: false,
     downloaderConfigured: false,
     ingestAvailable: false,
+    authorizedImportAvailable: false,
     async getMetadata(source) {
       const metadata = metadataByVideoId[source.videoId] || {};
       const durationSeconds = finiteDuration(metadata.durationSeconds);
@@ -45,6 +46,7 @@ function createMockYouTubeIngestAdapter(options = {}) {
         networkCalls: false,
         downloaderConfigured: false,
         ingestAvailable: false,
+        authorizedImportAvailable: false,
       };
     },
   };

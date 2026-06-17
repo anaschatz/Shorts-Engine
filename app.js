@@ -62,7 +62,12 @@
     youtubePreviewUrl: "#youtubePreviewUrl",
     youtubePreviewVideoId: "#youtubePreviewVideoId",
     youtubePreviewStatus: "#youtubePreviewStatus",
+    youtubeWarning: "#youtubeWarning",
     youtubeError: "#youtubeError",
+    youtubeRecoveryActions: "#youtubeRecoveryActions",
+    retryYoutubeIngestBtn: "#retryYoutubeIngestBtn",
+    useAnotherYoutubeBtn: "#useAnotherYoutubeBtn",
+    uploadMp4FallbackBtn: "#uploadMp4FallbackBtn",
     videoInput: "#videoInput",
     fileLabel: "#fileLabel",
     uploadError: "#uploadError",
@@ -106,6 +111,7 @@
       networkCalls: false,
       downloaderConfigured: false,
       ingestAvailable: false,
+      authorizedImportAvailable: false,
     },
     titleEdited: false,
     lastAutoTitle: "",
@@ -201,7 +207,13 @@
   function clearYouTubeFieldError() {
     els.youtubeError.hidden = true;
     els.youtubeError.textContent = "";
+    els.youtubeRecoveryActions.hidden = true;
     els.youtubeUrlInput.removeAttribute("aria-invalid");
+  }
+
+  function clearYouTubeWarning() {
+    els.youtubeWarning.hidden = true;
+    els.youtubeWarning.textContent = "";
   }
 
   function safeErrorResponse(error) {
@@ -321,6 +333,9 @@
     els.validateYoutubeBtn.hidden = !showValidationFallback;
     els.validateYoutubeBtn.disabled = state.youtubeAction === "validating" || !youtubeUi.canValidate;
     els.ingestYoutubeBtn.disabled = !youtubeUi.canIngest;
+    els.retryYoutubeIngestBtn.disabled = !youtubeUi.canIngest;
+    els.useAnotherYoutubeBtn.disabled = busy || !youtubeSource;
+    els.uploadMp4FallbackBtn.disabled = busy;
     els.validateYoutubeBtn.textContent = state.youtubeAction === "validating" ? "Validating..." : "Retry validation";
     els.ingestYoutubeBtn.textContent = state.youtubeAction === "ingesting" ? "Ingesting..." : "Ingest video";
     els.youtubeSourcePanel.dataset.flowState = youtubeUi.status;
@@ -348,6 +363,7 @@
     els.youtubePreviewVideoId.textContent = "Pending";
     els.youtubePreviewUrl.textContent = "";
     els.youtubePreviewStatus.textContent = "Ingest disabled until an MP4 artifact exists.";
+    clearYouTubeWarning();
     if (options.clearInput) {
       els.youtubeUrlInput.value = "";
       els.youtubeRightsCheckbox.checked = false;
@@ -400,6 +416,13 @@
     els.youtubePreviewVideoId.textContent = summary.videoId;
     els.youtubePreviewUrl.textContent = summary.label;
     els.youtubePreviewStatus.textContent = summary.status;
+    renderYouTubeWarning(source);
+  }
+
+  function renderYouTubeWarning(source) {
+    const warning = Core.createYouTubeWarningMessage(source);
+    els.youtubeWarning.hidden = !warning;
+    els.youtubeWarning.textContent = warning;
   }
 
   function renderYouTubeIngestStatus(uiState) {
@@ -413,7 +436,7 @@
     } else if (uiState && uiState.ingested) {
       els.youtubeIngestStatus.textContent = "YouTube source ingested. Generate shorts is ready.";
     } else if (state.youtubeAction === "failed") {
-      els.youtubeIngestStatus.textContent = "Validation failed. Check the link or retry validation.";
+      els.youtubeIngestStatus.textContent = "Ingest failed safely. Use retry, another link, or MP4 fallback.";
     } else if (uiState && uiState.urlReady && !uiState.rightsConfirmed) {
       els.youtubeIngestStatus.textContent = "Confirm rights to auto-validate this YouTube URL.";
     } else if (uiState && uiState.urlReady && uiState.rightsConfirmed && !uiState.validated) {
@@ -430,7 +453,8 @@
   function showYouTubeError(error, context = "youtube-validate") {
     const response = showSafeError(error, context);
     els.youtubeError.hidden = false;
-    els.youtubeError.textContent = `${response.error.message} (${response.error.code})`;
+    els.youtubeError.textContent = `${Core.createYouTubeRecoveryMessage(response)} (${response.error.code})`;
+    els.youtubeRecoveryActions.hidden = false;
     els.youtubeUrlInput.setAttribute("aria-invalid", "true");
     return response;
   }
@@ -447,6 +471,7 @@
         networkCalls: false,
         downloaderConfigured: false,
         ingestAvailable: false,
+        authorizedImportAvailable: false,
       };
     } finally {
       if (state.youtubeValidation) renderYouTubePreview(state.youtubeValidation);
@@ -786,6 +811,22 @@
     }
   }
 
+  function focusAnotherYouTubeLink() {
+    invalidateYouTubeValidationRequest();
+    clearScheduledYouTubeAutoValidation();
+    clearYouTubeProjectState();
+    clearYouTubeFieldError();
+    clearYouTubeWarning();
+    els.youtubeUrlInput.focus();
+    els.youtubeUrlInput.select();
+    updateActionStates();
+  }
+
+  function useMp4Fallback() {
+    selectSource("local");
+    window.setTimeout(() => els.videoInput.focus(), 0);
+  }
+
   async function handleGenerate() {
     clearError();
     if (state.sourceType === "youtube" && (!state.activeUpload || !state.activeProject)) {
@@ -1066,6 +1107,7 @@
       clearScheduledYouTubeAutoValidation();
       clearYouTubeProjectState();
       clearYouTubeFieldError();
+      clearYouTubeWarning();
       updateActionStates();
       scheduleYouTubeAutoValidate();
     });
@@ -1074,12 +1116,16 @@
       clearScheduledYouTubeAutoValidation();
       clearYouTubeProjectState();
       clearYouTubeFieldError();
+      clearYouTubeWarning();
       updateActionStates();
       scheduleYouTubeAutoValidate();
     });
     els.youtubeUrlInput.addEventListener("blur", scheduleYouTubeAutoValidate);
     els.validateYoutubeBtn.addEventListener("click", () => handleYouTubeValidate({ automatic: false }));
     els.ingestYoutubeBtn.addEventListener("click", handleYouTubeIngest);
+    els.retryYoutubeIngestBtn.addEventListener("click", handleYouTubeIngest);
+    els.useAnotherYoutubeBtn.addEventListener("click", focusAnotherYouTubeLink);
+    els.uploadMp4FallbackBtn.addEventListener("click", useMp4Fallback);
     els.videoInput.addEventListener("change", handleVideoInputChange);
     els.generateBtn.addEventListener("click", handleGenerate);
     els.retryBtn.addEventListener("click", retryLastFailedAction);

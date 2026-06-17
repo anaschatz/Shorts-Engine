@@ -47,14 +47,22 @@ const SAFE_MESSAGES = Object.freeze({
   VIDEO_TOO_SHORT: "The video is too short to process.",
   VALIDATION_ERROR: "The request did not pass validation.",
   YOUTUBE_DURATION_TOO_LONG: "The YouTube video is longer than the configured duration limit.",
+  YOUTUBE_AGE_RESTRICTED: "This YouTube video needs age-gated or authorized access before ingest.",
+  YOUTUBE_AUTH_REQUIRED: "This YouTube video requires authorized access before ingest.",
+  YOUTUBE_BOT_CHECK_REQUIRED: "YouTube blocked this download with an anti-bot check.",
+  YOUTUBE_COOKIES_REQUIRED: "This YouTube video requires an authorized browser/cookie import flow.",
   YOUTUBE_DOWNLOAD_FAILED: "The YouTube ingest download failed safely.",
   YOUTUBE_DOWNLOAD_TIMEOUT: "The YouTube ingest download timed out.",
   YOUTUBE_DOWNLOADER_MISSING: "The YouTube downloader is not available.",
+  YOUTUBE_GEO_RESTRICTED: "This YouTube video is not available from this environment.",
   YOUTUBE_INGEST_NOT_ENABLED: "YouTube ingest is not enabled for rendering yet.",
   YOUTUBE_LIVE_UNSUPPORTED: "YouTube live streams are not supported.",
   YOUTUBE_PLAYLIST_UNSUPPORTED: "YouTube playlists are not supported.",
+  YOUTUBE_RATE_LIMITED: "YouTube rate-limited this ingest request. Retry later.",
   YOUTUBE_RIGHTS_REQUIRED: "Confirm that you have rights to use this YouTube video.",
   YOUTUBE_URL_INVALID: "Enter a supported YouTube video or Shorts URL.",
+  YOUTUBE_VIDEO_PRIVATE: "This YouTube video is private.",
+  YOUTUBE_VIDEO_UNAVAILABLE: "This YouTube video is unavailable.",
   UNEXPECTED: "Something went wrong. Please retry.",
 });
 
@@ -109,14 +117,39 @@ function ok(data) {
   return { ok: true, data: data ?? null, error: null };
 }
 
-function fail(code, message) {
+const PUBLIC_ERROR_DETAIL_KEYS = new Set([
+  "authorizedImportRequired",
+  "ingestRisk",
+  "metadataStatus",
+  "nextAction",
+  "retryable",
+]);
+
+function publicErrorDetails(details) {
+  if (!details || typeof details !== "object" || Array.isArray(details)) return null;
+  const safeDetails = {};
+  for (const key of PUBLIC_ERROR_DETAIL_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(details, key)) continue;
+    const value = details[key];
+    if (typeof value === "boolean") {
+      safeDetails[key] = value;
+    } else if (typeof value === "string" && /^[a-z0-9_-]{1,80}$/.test(value)) {
+      safeDetails[key] = value;
+    }
+  }
+  return Object.keys(safeDetails).length ? safeDetails : null;
+}
+
+function fail(code, message, details = null) {
   const safeCode = code || "UNEXPECTED";
+  const safeDetails = publicErrorDetails(details);
   return {
     ok: false,
     data: null,
     error: {
       code: safeCode,
       message: message || SAFE_MESSAGES[safeCode] || SAFE_MESSAGES.UNEXPECTED,
+      ...(safeDetails || {}),
     },
   };
 }
@@ -200,7 +233,7 @@ function sendError(res, error, context = {}) {
       details: appError.details ? redactForLogs(appError.details) : undefined,
     }),
   );
-  sendJson(res, appError.status || 500, fail(appError.code, appError.userMessage));
+  sendJson(res, appError.status || 500, fail(appError.code, appError.userMessage, appError.details));
 }
 
 async function readRequestBody(req, maxBytes) {
@@ -232,6 +265,7 @@ module.exports = {
   AppError,
   ok,
   fail,
+  publicErrorDetails,
   toAppError,
   redactForLogs,
   requestId,

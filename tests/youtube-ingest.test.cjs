@@ -10,6 +10,10 @@ const {
   createLocalYouTubeIngestAdapter,
   parseMetadataOutput,
 } = require("../server/adapters/local-youtube-ingest-adapter.cjs");
+const {
+  classifyYouTubeDownloaderFailure,
+  toSafeYouTubeDownloaderError,
+} = require("../server/youtube-downloader-errors.cjs");
 const { createMockYouTubeIngestAdapter } = require("../server/adapters/mock-youtube-ingest-adapter.cjs");
 const {
   cleanupYouTubeStage,
@@ -177,6 +181,7 @@ test("mock youtube ingest adapter is validate-only and no-network", async () => 
     networkCalls: false,
     downloaderConfigured: false,
     ingestAvailable: false,
+    authorizedImportAvailable: false,
   });
 });
 
@@ -193,6 +198,45 @@ test("youtube source validation sanitizes adapter title metadata", async () => {
     maxDurationSeconds: 180,
   });
   assert.equal(source.title, "Derby Final Highlights");
+});
+
+test("youtube source validation carries safe ingest warnings from metadata probes", async () => {
+  const adapter = {
+    async getMetadata() {
+      return {
+        metadataStatus: "auth-required",
+        ingestRisk: "authorized-import-required",
+        warningCode: "YOUTUBE_AUTH_REQUIRED",
+        nextAction: "try-public-video-or-use-authorized-import",
+        retryable: false,
+        authorizedImportRequired: true,
+        ingestAvailable: true,
+      };
+    },
+    health() {
+      return {
+        ready: true,
+        mode: "local",
+        enabled: true,
+        networkCalls: true,
+        downloaderConfigured: true,
+        ingestAvailable: true,
+        authorizedImportAvailable: false,
+      };
+    },
+  };
+  const source = await validateYouTubeSource({
+    url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    rightsConfirmed: true,
+    adapter,
+  });
+  assert.equal(source.metadataStatus, "auth-required");
+  assert.equal(source.ingestRisk, "authorized-import-required");
+  assert.equal(source.warningCode, "YOUTUBE_AUTH_REQUIRED");
+  assert.equal(source.authorizedImportRequired, true);
+  assert.equal(source.nextAction, "try-public-video-or-use-authorized-import");
+  assert.equal(source.authorizedImportAvailable, false);
+  assert.doesNotMatch(JSON.stringify(source), /stderr|stdout|\/Users|cookies/i);
 });
 
 test("youtube source validation requires rights and enforces duration limits", async () => {
@@ -245,6 +289,7 @@ test("youtube adapter failures fail closed without leaking raw provider errors",
     networkCalls: false,
     downloaderConfigured: false,
     ingestAvailable: false,
+    authorizedImportAvailable: false,
   });
 });
 
@@ -269,6 +314,7 @@ test("youtube ingest health rejects malformed adapter readiness without leaking 
     networkCalls: false,
     downloaderConfigured: false,
     ingestAvailable: false,
+    authorizedImportAvailable: false,
   });
   assert.doesNotMatch(JSON.stringify(health), /\/Users|OPENAI_API_KEY|secret/i);
 });
@@ -358,6 +404,52 @@ test("local youtube metadata helpers sanitize output and fail open to manual tit
   });
 });
 
+test("youtube downloader classifier maps auth bot and availability failures to safe contracts", () => {
+  const bot = classifyYouTubeDownloaderFailure(Object.assign(new Error("Sign in to confirm you are not a bot"), {
+    stderr: "Use --cookies-from-browser or --cookies",
+  }));
+  assert.equal(bot.code, "YOUTUBE_BOT_CHECK_REQUIRED");
+  assert.equal(bot.metadataStatus, "bot-check-required");
+  assert.equal(bot.ingestRisk, "authorized-import-required");
+  assert.equal(bot.authorizedImportRequired, true);
+  assert.equal(bot.retryable, false);
+
+  const privateVideo = classifyYouTubeDownloaderFailure(new Error("This video is private"));
+  assert.equal(privateVideo.code, "YOUTUBE_VIDEO_PRIVATE");
+  assert.equal(privateVideo.retryable, false);
+
+  const rateLimited = classifyYouTubeDownloaderFailure(new Error("HTTP Error 429: too many requests"));
+  assert.equal(rateLimited.code, "YOUTUBE_RATE_LIMITED");
+  assert.equal(rateLimited.retryable, true);
+
+  const safeError = toSafeYouTubeDownloaderError(Object.assign(new Error("/Users/raw cookie secret"), {
+    stderr: "Sign in to confirm you are not a bot. Use --cookies-from-browser.",
+  }));
+  assert.equal(safeError.code, "YOUTUBE_BOT_CHECK_REQUIRED");
+  assert.equal(safeError.details.authorizedImportRequired, true);
+  assert.doesNotMatch(safeError.userMessage, /\/Users|cookies-from-browser|secret/i);
+  assert.doesNotMatch(JSON.stringify(safeError.details), /\/Users|cookies-from-browser|secret/i);
+});
+
+test("local youtube metadata surfaces authorized import warning without raw downloader output", async () => {
+  const adapter = createLocalYouTubeIngestAdapter({
+    config: { enabled: true, downloaderBin: "yt-dlp", timeoutMs: 120000, maxOutputBytes: 4096 },
+    spawnSync: () => ({ status: 0 }),
+    execFile: (_command, _args, _options, callback) => callback(
+      Object.assign(new Error("raw failure"), {
+        stderr: "Sign in to confirm you are not a bot. Use --cookies-from-browser.",
+      }),
+    ),
+  });
+  const metadata = await adapter.getMetadata(normalizeYouTubeUrl("https://youtu.be/dQw4w9WgXcQ"));
+  assert.equal(metadata.metadataStatus, "bot-check-required");
+  assert.equal(metadata.ingestRisk, "authorized-import-required");
+  assert.equal(metadata.warningCode, "YOUTUBE_BOT_CHECK_REQUIRED");
+  assert.equal(metadata.authorizedImportRequired, true);
+  assert.equal(metadata.ingestAvailable, true);
+  assert.doesNotMatch(JSON.stringify(metadata), /cookies-from-browser|raw failure|\/Users/i);
+});
+
 test("local youtube downloader adapter maps timeout and missing tools to safe errors", async () => {
   const uploadId = "upl_abcdef12-1234-1234-1234-123456789abc";
   const { stageDir, outputPath } = createYouTubeStagePaths(uploadId);
@@ -418,6 +510,65 @@ test("youtube ingest service blocks invalid input before downloader calls", asyn
   );
   assert.equal(adapter.calls.length, 0);
   assert.equal(created.length, 0);
+});
+
+test("youtube ingest service keeps authorized import failures safe and creates no records", async () => {
+  const created = [];
+  const logs = [];
+  const adapter = {
+    async getMetadata() {
+      return {
+        metadataStatus: "bot-check-required",
+        ingestRisk: "authorized-import-required",
+        warningCode: "YOUTUBE_BOT_CHECK_REQUIRED",
+        nextAction: "try-public-video-or-use-authorized-import",
+        authorizedImportRequired: true,
+        retryable: false,
+        ingestAvailable: true,
+      };
+    },
+    async ingest() {
+      throw toSafeYouTubeDownloaderError(Object.assign(new Error("/Users/raw token"), {
+        stderr: "Sign in to confirm you are not a bot. Use --cookies-from-browser.",
+      }));
+    },
+    health() {
+      return {
+        ready: true,
+        mode: "local",
+        enabled: true,
+        networkCalls: true,
+        downloaderConfigured: true,
+        ingestAvailable: true,
+        authorizedImportAvailable: false,
+      };
+    },
+  };
+  const service = createYouTubeIngestService({
+    adapter,
+    dependencies: {
+      artifactStore: createFakeArtifactStore(),
+      persistenceAdapter: createFakePersistenceAdapter(created),
+      logger: { info: (line) => logs.push(line), error: (line) => logs.push(line) },
+      probeMedia: async () => ({ durationSeconds: 18, width: 1280, height: 720, hasAudio: true }),
+    },
+  });
+  await assert.rejects(
+    () => service.ingest({
+      url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      rightsConfirmed: true,
+    }),
+    (error) => {
+      assert.equal(error.code, "YOUTUBE_BOT_CHECK_REQUIRED");
+      assert.equal(error.details.authorizedImportRequired, true);
+      return true;
+    },
+  );
+  assert.equal(created.length, 0);
+  const combinedLogs = logs.join("\n");
+  assert.match(combinedLogs, /YOUTUBE_BOT_CHECK_REQUIRED/);
+  assert.match(combinedLogs, /authorizedImportRequired/);
+  assert.doesNotMatch(combinedLogs, /\/Users|cookies-from-browser|token|stderr|stdout/i);
 });
 
 test("youtube ingest service creates upload and project only after validation", async () => {

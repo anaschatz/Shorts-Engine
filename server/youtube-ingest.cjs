@@ -93,11 +93,20 @@ function safeMetadataTitle(value) {
 
 function safeMetadata(metadata = {}) {
   const duration = Number(metadata.durationSeconds);
+  const safeStatus = safeStatusToken(metadata.metadataStatus || "unavailable", "unavailable");
+  const safeRisk = safeOptionalStatusToken(metadata.ingestRisk);
+  const safeWarningCode = safeOptionalCodeToken(metadata.warningCode);
+  const safeNextAction = safeOptionalStatusToken(metadata.nextAction);
   return {
     title: safeMetadataTitle(metadata.title),
     durationSeconds: Number.isFinite(duration) && duration > 0 ? duration : null,
-    metadataStatus: String(metadata.metadataStatus || "unavailable").slice(0, 40),
+    metadataStatus: safeStatus,
     ingestAvailable: metadata.ingestAvailable === true,
+    ingestRisk: safeRisk,
+    warningCode: safeWarningCode,
+    nextAction: safeNextAction,
+    retryable: metadata.retryable === true,
+    authorizedImportRequired: metadata.authorizedImportRequired === true,
   };
 }
 
@@ -125,14 +134,21 @@ async function validateYouTubeSource(input = {}) {
     fail("YOUTUBE_DURATION_TOO_LONG");
   }
   const ingestAvailable = Boolean(health.ingestAvailable || metadata.ingestAvailable);
+  const nextAction = metadata.nextAction ||
+    (ingestAvailable ? "youtube-ingest-ready" : "youtube-ingest-disabled-until-mp4-artifact-exists");
   return {
     ...source,
     title: metadata.title,
     durationSeconds: metadata.durationSeconds,
     metadataStatus: metadata.metadataStatus,
+    warningCode: metadata.warningCode,
+    ingestRisk: metadata.ingestRisk,
+    retryable: metadata.retryable,
+    authorizedImportRequired: metadata.authorizedImportRequired,
     ingestAvailable,
     downloaderConfigured: Boolean(health.downloaderConfigured),
-    nextAction: ingestAvailable ? "youtube-ingest-ready" : "youtube-ingest-disabled-until-mp4-artifact-exists",
+    authorizedImportAvailable: Boolean(health.authorizedImportAvailable),
+    nextAction,
   };
 }
 
@@ -145,6 +161,7 @@ function youtubeIngestHealth(adapter) {
       networkCalls: false,
       downloaderConfigured: false,
       ingestAvailable: false,
+      authorizedImportAvailable: false,
     };
   }
   let health = null;
@@ -158,6 +175,7 @@ function youtubeIngestHealth(adapter) {
       networkCalls: false,
       downloaderConfigured: false,
       ingestAvailable: false,
+      authorizedImportAvailable: false,
     };
   }
   if (!health || typeof health !== "object" || Array.isArray(health)) {
@@ -168,6 +186,7 @@ function youtubeIngestHealth(adapter) {
       networkCalls: false,
       downloaderConfigured: false,
       ingestAvailable: false,
+      authorizedImportAvailable: false,
     };
   }
   const mode = safeHealthMode(health.mode);
@@ -176,6 +195,7 @@ function youtubeIngestHealth(adapter) {
   const networkCalls = strictHealthBoolean(health, "networkCalls");
   const downloaderConfigured = strictHealthBoolean(health, "downloaderConfigured");
   const ingestAvailable = strictHealthBoolean(health, "ingestAvailable");
+  const authorizedImportAvailable = strictOptionalHealthBoolean(health, "authorizedImportAvailable");
   if ([ready, enabled, networkCalls, downloaderConfigured, ingestAvailable].some((value) => value === null)) {
     return {
       ready: false,
@@ -184,6 +204,7 @@ function youtubeIngestHealth(adapter) {
       networkCalls: false,
       downloaderConfigured: false,
       ingestAvailable: false,
+      authorizedImportAvailable: false,
     };
   }
   return {
@@ -193,7 +214,24 @@ function youtubeIngestHealth(adapter) {
     networkCalls,
     downloaderConfigured,
     ingestAvailable: Boolean(ready && enabled && downloaderConfigured && ingestAvailable),
+    authorizedImportAvailable: Boolean(authorizedImportAvailable),
   };
+}
+
+function safeStatusToken(value, fallback) {
+  const token = String(value || "").trim().toLowerCase();
+  return /^[a-z0-9_-]{1,80}$/.test(token) ? token : fallback;
+}
+
+function safeOptionalStatusToken(value) {
+  if (value === null || value === undefined || value === "") return null;
+  return safeStatusToken(value, null);
+}
+
+function safeOptionalCodeToken(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const code = String(value || "").trim().toUpperCase();
+  return /^[A-Z0-9_]{1,80}$/.test(code) ? code : null;
 }
 
 function safeHealthMode(value) {
@@ -204,6 +242,11 @@ function safeHealthMode(value) {
 function strictHealthBoolean(health, key) {
   if (!Object.prototype.hasOwnProperty.call(health, key)) return null;
   return typeof health[key] === "boolean" ? health[key] : null;
+}
+
+function strictOptionalHealthBoolean(health, key) {
+  if (!Object.prototype.hasOwnProperty.call(health, key)) return false;
+  return typeof health[key] === "boolean" ? health[key] : false;
 }
 
 module.exports = {

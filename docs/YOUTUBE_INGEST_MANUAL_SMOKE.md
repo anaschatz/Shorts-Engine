@@ -40,6 +40,7 @@ export SHORTSENGINE_YOUTUBE_DOWNLOADER_BIN="/path/to/managed/yt-dlp"
 ```
 
 Do not use shell aliases, command strings with spaces, cookies, or downloader configs that require private credentials.
+`SHORTSENGINE_YOUTUBE_AUTHORIZED_IMPORT_ENABLED=0` is the safe default. It is a foundation flag only; this milestone does not accept cookies, tokens, browser sessions or private video credentials.
 
 ## Enable Manual Ingest
 
@@ -179,6 +180,7 @@ Expected disabled states:
 - Export and Download stay disabled/hidden until render completion.
 
 If ingest is disabled, the validate-only UI path should still work safely and explain that local uploads remain available.
+If validation passes but ingest later fails with `YOUTUBE_AUTH_REQUIRED`, `YOUTUBE_BOT_CHECK_REQUIRED`, `YOUTUBE_COOKIES_REQUIRED`, `YOUTUBE_AGE_RESTRICTED`, `YOUTUBE_VIDEO_PRIVATE`, `YOUTUBE_VIDEO_UNAVAILABLE`, `YOUTUBE_GEO_RESTRICTED` or `YOUTUBE_RATE_LIMITED`, the UI should keep Generate/Download disabled, show retry/another-link/MP4 fallback recovery controls, and avoid raw downloader output.
 
 ## Run Opt-In Browser Live E2E
 
@@ -246,6 +248,14 @@ If cleanup requires deleting committed artifacts or exports, stop and add a dedi
 | --- | --- | --- |
 | `YOUTUBE_INGEST_DISABLED` | Real ingest is intentionally off. | Set `SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1` only for manual proof. |
 | `YOUTUBE_DOWNLOADER_MISSING` | The configured downloader is unavailable. | Install/configure downloader or set `SHORTSENGINE_YOUTUBE_DOWNLOADER_BIN`. |
+| `YOUTUBE_AUTH_REQUIRED` | YouTube requires authorized access for this video. | Use another public video or upload an MP4 fallback until authorized import is built. |
+| `YOUTUBE_BOT_CHECK_REQUIRED` | YouTube blocked the download with an anti-bot check. | Use another public video or upload an MP4 fallback; do not paste cookies/tokens into the app. |
+| `YOUTUBE_COOKIES_REQUIRED` | The downloader says browser/cookie authorization is required. | Use MP4 fallback; authorized import is not enabled yet. |
+| `YOUTUBE_VIDEO_PRIVATE` | The video is private. | Use a public authorized video or MP4 fallback. |
+| `YOUTUBE_VIDEO_UNAVAILABLE` | The video is unavailable or removed. | Check the link or use another video. |
+| `YOUTUBE_GEO_RESTRICTED` | The video is unavailable from this environment. | Use an accessible authorized video or MP4 fallback. |
+| `YOUTUBE_AGE_RESTRICTED` | The video requires age-gated access. | Use MP4 fallback until authorized import is built. |
+| `YOUTUBE_RATE_LIMITED` | YouTube rate-limited the ingest attempt. | Retry later or upload MP4 fallback. |
 | `FFMPEG_MISSING` | FFmpeg is unavailable. | Install FFmpeg or set `FFMPEG_BIN`. |
 | `FFPROBE_MISSING` | FFprobe is unavailable. | Install FFprobe or set `FFPROBE_BIN`. |
 | `YOUTUBE_STAGING_STORAGE_UNAVAILABLE` | Local staging storage is not ready. | Check data directory permissions and staging storage. |

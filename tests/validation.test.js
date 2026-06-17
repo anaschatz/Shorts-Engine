@@ -255,6 +255,49 @@ test("youtube UI preview summary avoids raw canonical URLs", () => {
   assert.doesNotMatch(JSON.stringify(summary), /https:\/\/www\.youtube\.com/);
 });
 
+test("youtube UI warning and recovery copy handles authorized import failures safely", () => {
+  const warning = Core.createYouTubeWarningMessage({
+    videoId: "dQw4w9WgXcQ",
+    ingestRisk: "authorized-import-required",
+    authorizedImportRequired: true,
+  });
+  assert.match(warning, /authorized import/i);
+
+  const summary = Core.createYouTubePreviewSummary(
+    {
+      kind: "watch",
+      videoId: "dQw4w9WgXcQ",
+      ingestRisk: "authorized-import-required",
+      authorizedImportRequired: true,
+    },
+    true,
+  );
+  assert.match(summary.status, /authorized import/i);
+  assert.doesNotMatch(JSON.stringify(summary), /https:\/\/www\.youtube\.com|cookies-from-browser|\/Users/i);
+
+  const recovery = Core.createYouTubeRecoveryMessage(Core.fail("YOUTUBE_BOT_CHECK_REQUIRED", null, {
+    authorizedImportRequired: true,
+    nextAction: "try-public-video-or-use-authorized-import",
+  }));
+  assert.match(recovery, /upload the MP4 fallback/i);
+  assert.doesNotMatch(recovery, /cookies-from-browser|\/Users|stderr|stdout/i);
+
+  const ui = Core.deriveYouTubeUiState({
+    sourceType: "youtube",
+    url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    rightsConfirmed: true,
+    youtubeValidation: {
+      videoId: "dQw4w9WgXcQ",
+      ingestRisk: "authorized-import-required",
+      authorizedImportRequired: true,
+    },
+    youtubeHealth: { ready: true, enabled: true, downloaderConfigured: true, ingestAvailable: true },
+  });
+  assert.equal(ui.authorizedImportRequired, true);
+  assert.equal(ui.canGenerate, false);
+  assert.equal(ui.canDownload, false);
+});
+
 test("project settings are normalized and consent is required for jobs", () => {
   const settings = Core.normalizeProjectSettings({
     title: "  Derby Final  ",

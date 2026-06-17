@@ -320,6 +320,7 @@ test("API health returns structured status", async () => {
   assert.equal(payload.data.youtubeIngest.networkCalls, false);
   assert.equal(payload.data.youtubeIngest.downloaderConfigured, false);
   assert.equal(payload.data.youtubeIngest.ingestAvailable, false);
+  assert.equal(payload.data.youtubeIngest.authorizedImportAvailable, false);
   assert.equal(payload.data.releaseReadiness.ready, true);
   assert.equal(payload.data.releaseReadiness.networkCalls, false);
   assert.equal(payload.data.releaseReadiness.remoteMutation, false);

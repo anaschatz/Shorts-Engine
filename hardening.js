@@ -66,14 +66,22 @@
     AI_OUTPUT_INVALID: "Το AI output δεν πέρασε validation.",
     EXPORT_PAYLOAD_INVALID: "Το ολοκληρωμένο render δεν έχει έγκυρα στοιχεία export.",
     YOUTUBE_DURATION_TOO_LONG: "Το YouTube video ξεπερνά το όριο διάρκειας.",
+    YOUTUBE_AGE_RESTRICTED: "Το YouTube video χρειάζεται age-gated ή authorized access.",
+    YOUTUBE_AUTH_REQUIRED: "Το YouTube video χρειάζεται authorized access πριν γίνει ingest.",
+    YOUTUBE_BOT_CHECK_REQUIRED: "Το YouTube μπλόκαρε το download με anti-bot check.",
+    YOUTUBE_COOKIES_REQUIRED: "Αυτό το YouTube video χρειάζεται authorized browser/cookie import flow.",
     YOUTUBE_DOWNLOAD_FAILED: "Το YouTube ingest απέτυχε με ασφαλή τρόπο.",
     YOUTUBE_DOWNLOAD_TIMEOUT: "Το YouTube ingest άργησε πολύ και σταμάτησε.",
     YOUTUBE_DOWNLOADER_MISSING: "Ο YouTube downloader δεν είναι διαθέσιμος σε αυτό το περιβάλλον.",
+    YOUTUBE_GEO_RESTRICTED: "Το YouTube video δεν είναι διαθέσιμο από αυτό το περιβάλλον.",
     YOUTUBE_INGEST_NOT_ENABLED: "Το YouTube ingest δεν είναι ακόμα ενεργό για render.",
     YOUTUBE_LIVE_UNSUPPORTED: "Τα YouTube live streams δεν υποστηρίζονται.",
     YOUTUBE_PLAYLIST_UNSUPPORTED: "Τα YouTube playlists δεν υποστηρίζονται.",
+    YOUTUBE_RATE_LIMITED: "Το YouTube έκανε rate limit στο ingest. Δοκίμασε αργότερα.",
     YOUTUBE_RIGHTS_REQUIRED: "Επιβεβαίωσε ότι έχεις δικαίωμα χρήσης αυτού του YouTube video.",
     YOUTUBE_URL_INVALID: "Βάλε ένα έγκυρο YouTube video ή Shorts link.",
+    YOUTUBE_VIDEO_PRIVATE: "Το YouTube video είναι private.",
+    YOUTUBE_VIDEO_UNAVAILABLE: "Το YouTube video δεν είναι διαθέσιμο.",
     UNEXPECTED: "Κάτι πήγε στραβά. Δοκίμασε ξανά.",
   });
 
@@ -91,14 +99,34 @@
     return { ok: true, data: data ?? null, error: null };
   }
 
-  function fail(code, message) {
+  const YOUTUBE_AUTHORIZED_IMPORT_CODES = Object.freeze([
+    "YOUTUBE_AGE_RESTRICTED",
+    "YOUTUBE_AUTH_REQUIRED",
+    "YOUTUBE_BOT_CHECK_REQUIRED",
+    "YOUTUBE_COOKIES_REQUIRED",
+  ]);
+
+  function safeErrorDetails(details) {
+    if (!details || typeof details !== "object" || Array.isArray(details)) return null;
+    const safeDetails = {};
+    for (const key of ["authorizedImportRequired", "ingestRisk", "metadataStatus", "nextAction", "retryable"]) {
+      const value = details[key];
+      if (typeof value === "boolean") safeDetails[key] = value;
+      if (typeof value === "string" && /^[a-z0-9_-]{1,80}$/.test(value)) safeDetails[key] = value;
+    }
+    return Object.keys(safeDetails).length ? safeDetails : null;
+  }
+
+  function fail(code, message, details) {
     const safeCode = code || "UNEXPECTED";
+    const publicDetails = safeErrorDetails(details);
     return {
       ok: false,
       data: null,
       error: {
         code: safeCode,
         message: message || SAFE_MESSAGES[safeCode] || SAFE_MESSAGES.UNEXPECTED,
+        ...(publicDetails || {}),
       },
     };
   }
@@ -344,15 +372,55 @@
   function createYouTubePreviewSummary(source, ingestAvailable) {
     const videoId = normalizeYouTubeVideoId(source && source.videoId);
     const kind = sanitizeText(source && source.kind, 24) || "watch";
+    const warning = createYouTubeWarningMessage(source);
     return {
       sourceType: "youtube",
       kind,
       videoId: videoId || "unknown",
       label: `${kind} video - ${videoId || "unknown id"}`,
-      status: ingestAvailable
+      status: warning || (ingestAvailable
         ? "Validated. Ingest is available for this environment."
-        : "Validated. Ingest is unavailable in this environment.",
+        : "Validated. Ingest is unavailable in this environment."),
     };
+  }
+
+  function isAuthorizedImportRequired(value) {
+    const code = sanitizeText(value && value.code, 80);
+    return Boolean(
+      value &&
+        (value.authorizedImportRequired === true ||
+          value.ingestRisk === "authorized-import-required" ||
+          YOUTUBE_AUTHORIZED_IMPORT_CODES.includes(code)),
+    );
+  }
+
+  function createYouTubeWarningMessage(source) {
+    if (!source) return "";
+    if (isAuthorizedImportRequired(source)) {
+      return "Validated, but this video may need an authorized import flow before it can be downloaded.";
+    }
+    if (source.ingestRisk === "source-unavailable") {
+      return "Validated URL, but this video may not be accessible for ingest from this environment.";
+    }
+    if (source.ingestRisk === "retry-later") {
+      return "Validated URL, but ingest may need a retry later.";
+    }
+    return "";
+  }
+
+  function createYouTubeRecoveryMessage(error) {
+    const response = error && error.ok === false ? error : fail(error && error.code, error && error.message, error);
+    const details = response.error || {};
+    if (isAuthorizedImportRequired(details)) {
+      return `${details.message} Authorized import is not enabled yet, so use another public video or upload the MP4 fallback.`;
+    }
+    if (details.nextAction === "check-link-or-use-another-video") {
+      return `${details.message} Check the link or use another video.`;
+    }
+    if (details.retryable === true) {
+      return `${details.message} You can retry ingest or upload the MP4 fallback.`;
+    }
+    return details.message;
   }
 
   function deriveYouTubeUiState(input) {
@@ -373,6 +441,8 @@
         health.downloaderConfigured &&
         health.ingestAvailable,
     );
+    const authorizedImportRequired = isAuthorizedImportRequired(validation);
+    const ingestRisk = sanitizeText(validation && validation.ingestRisk, 80);
     const ingested = Boolean(youtubeSource && input && input.activeUpload && input.activeProject);
     const generated = Boolean(input && input.generated);
     const downloadReady = Boolean(generated && input && input.downloadUrl);
@@ -387,6 +457,8 @@
       rightsConfirmed,
       validated,
       ingestAvailable,
+      ingestRisk,
+      authorizedImportRequired,
       ingested,
       canValidate: Boolean(youtubeSource && !busy && urlReady && rightsConfirmed),
       canIngest: Boolean(youtubeSource && !busy && urlReady && rightsConfirmed && validated && ingestAvailable && !ingested),
@@ -705,6 +777,8 @@
     normalizeYouTubeUrl,
     validateYouTubeSourceInput,
     createYouTubePreviewSummary,
+    createYouTubeRecoveryMessage,
+    createYouTubeWarningMessage,
     deriveYouTubeUiState,
     toBoundedInteger,
     normalizeProjectSettings,
