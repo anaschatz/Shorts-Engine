@@ -41,6 +41,8 @@
     "render:check": "node tools/release/check-render-staging.mjs",
     "render:manual": "node tools/release/print-render-staging-checklist.mjs",
     "render:proof": "node tools/release/render-staging-proof.mjs",
+    "review:compare": "node eval/run-review-comparison.mjs",
+    "review:summary": "node eval/run-review-summary.mjs",
     "staging:check": "node tools/release/check-staging-readiness.mjs",
     "staging:deploy": "node tools/release/staging-deploy.mjs",
     "staging:smoke:cleanup": "node tools/release/cleanup-staging-full-smoke.mjs",

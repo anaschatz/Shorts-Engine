@@ -8,6 +8,8 @@ This folder contains the local quality loop for the Real AI Analysis Layer.
 npm run eval
 npm run eval:reference
 npm run feedback:summary
+npm run review:compare
+npm run review:summary
 ```
 
 The runner is deterministic and does not require API keys or network access. It loads JSON fixtures from `eval/fixtures/`, runs them through `server/analysis.cjs`, validates candidate edit plans, and writes reports to `eval/results/`.
@@ -15,6 +17,10 @@ The runner is deterministic and does not require API keys or network access. It 
 `npm run eval:reference` runs the reference-style review fixtures in `eval/reference-fixtures/`. It compares expected vs actual moment type, caption roles, caption/action alignment, animation cue relevance, framing safety, aspect ratio, hook strength and false goal claims. It writes `eval/results/reference-latest.json` plus a timestamped `reference-review-*.json` report.
 
 `npm run feedback:summary` loads local human review JSON from `eval/human-feedback/` and writes `eval/results/feedback-latest.json` plus a timestamped `feedback-summary-*.json` report. It is local-only, does not mutate training data, and rejects unsafe generated short refs.
+
+`npm run review:compare` loads a real-video review fixture from `eval/review-fixtures/`, validates safe generated/source/reference media refs, compares generated metadata against expected moment/style/caption/framing constraints, and writes safe reports to `eval/review-results/`. It is deterministic, no-network, API-key-free, and can use a reference-style rubric fallback when no reference video is committed.
+
+`npm run review:summary` aggregates the latest real-video review reports in `eval/review-results/` into a local summary. It does not mutate fixtures, feedback, providers or training data.
 
 ## Metrics
 
@@ -45,6 +51,17 @@ Reference review additionally reports:
 - `framingSafety` and `aspectRatioCorrectness`: safe vertical/square output expectations.
 - `hookStrength` and `replayOutroUsefulness`: reference-style opening and closing structure.
 
+Real-video review comparison additionally reports:
+
+- `momentTypeMatch`: whether the generated short selected the expected football moment type.
+- `noFalseGoalClaim`: hard guardrail against unsupported goal language.
+- `captionActionAlignment` and `captionSpecificity`: whether text matches the visible/action metadata.
+- `framingSafety` and `aspectRatioCorrectness`: safe ball/player framing and expected output format.
+- `pacingScore`: whether the selected source window fits the expected short-form range.
+- `animationCueCoverage`: whether required reference-style animation cues are present.
+- `referenceStyleSimilarity`: compact style-fit score from captions, framing, pacing and cues.
+- `reviewerReadinessScore`: whether the sample is ready for human review or already reviewed.
+
 ## Fixture Schema
 
 Each fixture includes:
@@ -68,6 +85,18 @@ Reference fixtures include:
 - `expected.aspectRatio`
 - `expected.safeFraming`
 - `expected.minQualityScore`
+
+Real-video review fixtures include:
+
+- `media.generated`, `media.source`, and optional `media.reference`
+- `expected.momentType`, `expected.aspectRatio`, `expected.durationRange`
+- `expected.captionMustMentionAny`
+- `expected.requiredAnimationCues`
+- `expected.safety.noFalseGoalClaim`
+- `generatedMetadata.selectedMoment`
+- `generatedMetadata.editPlan`
+- `consent.rightsConfirmed`
+- optional `humanReview`
 
 Reports must not include secrets, raw provider errors, or local absolute paths.
 

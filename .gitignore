@@ -10,6 +10,7 @@ pm-skills/
 promptfoo/
 demo/results/
 eval/results/*.json
+eval/review-results/*.json
 release/results/*.json
 *.refresh-backup-*
 *.unreadable-*
