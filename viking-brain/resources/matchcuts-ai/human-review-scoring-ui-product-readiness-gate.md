@@ -15,6 +15,8 @@ they must not mark a video as product-ready without explicit human scoring.
   references.
 - Public responses are curated and must not include local absolute paths,
   storage keys, raw logs, provider output, tokens or secrets.
+- Public review summaries must be allowlisted: known metrics, known flags,
+  sanitized criterion/hint summaries and safe MP4 refs only.
 - `productReady` is true only when a valid human review is present and all
   critical criteria/flags pass.
 

@@ -39,3 +39,9 @@ bounded notes, known 0-5 criterion ids, known flags and leak-guarded payloads.
 Generated/reference video previews are served through `/api/review/media` only
 for `manual-downloads/*.mp4`; reports and public responses must never include
 raw local paths, storage keys, logs, tokens or provider output.
+
+Public review responses are allowlisted summaries, not raw persisted reports.
+Only known metric keys, known human flags, sanitized criterion summaries and
+safe MP4 refs are returned. If generated/reference refs are malformed, product
+readiness stays locked in the public response even if a persisted report claims
+otherwise.

@@ -20,6 +20,7 @@ const {
   serverListenFailurePayload,
   parseMultipart,
   safeDownloadFileName,
+  publicHumanVisualReviewReport,
   MAX_JSON_BODY_BYTES,
   MAX_MULTIPART_FIELD_BYTES,
   jobs,
@@ -1157,6 +1158,104 @@ test("API human review submit and media preview reject unsafe inputs safely", as
   assert.equal(mediaPayload.ok, false);
   assert.equal(mediaPayload.error.code, "VALIDATION_ERROR");
   assert.doesNotMatch(JSON.stringify([submit.payload, mediaPayload]), /\/Users|\/private|storageKey|outputPath|secret|token|stdout|stderr|stack/i);
+});
+
+test("public human review summary strips unapproved nested report fields", () => {
+  const publicReport = publicHumanVisualReviewReport({
+    schemaVersion: 1,
+    generatedAt: "2026-06-18T10:00:00.000Z",
+    status: "product_ready",
+    passed: true,
+    productReady: true,
+    source: {
+      mode: "direct_refs",
+      generatedArtifact: {
+        relativePath: "../outside.mp4",
+        sourceType: "youtube",
+        videoId: "dQw4w9WgXcQ",
+        durationSeconds: 12,
+        width: 1080,
+        height: 1920,
+        downloadVerified: true,
+        storageKey: "should-not-leak",
+      },
+    },
+    comparison: {
+      generated: {
+        relativePath: "manual-downloads/generated.mp4",
+        readable: true,
+        durationSeconds: 12,
+        width: 1080,
+        height: 1920,
+        orientation: "vertical",
+        storageKey: "should-not-leak",
+      },
+      reference: {
+        relativePath: "/Users/example/reference.mp4",
+        readable: true,
+        durationSeconds: 12,
+        width: 1080,
+        height: 1920,
+      },
+    },
+    machineStructuralMetrics: {
+      structuralScore: 91,
+      aspectRatioFit: true,
+      storageKey: "should-not-leak",
+      rawProviderOutput: "should-not-leak",
+    },
+    humanReview: {
+      status: "product_ready",
+      present: true,
+      humanScore: 96,
+      combinedScore: 94,
+      productReady: true,
+      failedCriteria: [{ id: "caption_action_alignment", score: 3, status: "failed", storageKey: "should-not-leak" }],
+      borderlineCriteria: [{ id: "text_readability", score: 4, status: "borderline", rawLogs: "should-not-leak" }],
+      improvementHints: [{ id: "fix_text", target: "caption", note: "Move text higher.", storageKey: "should-not-leak" }],
+      operatorReview: {
+        present: true,
+        reviewer: "operator",
+        reviewedAt: "2026-06-18T10:00:00.000Z",
+        flags: {
+          falseGoalClaim: false,
+          missingPayoff: true,
+          customDanger: true,
+        },
+      },
+    },
+  });
+
+  assert.equal(publicReport.productReady, false);
+  assert.equal(publicReport.humanReview.productReady, false);
+  assert.equal(publicReport.source.generatedArtifact, null);
+  assert.equal(publicReport.comparison.generated.relativePath, "manual-downloads/generated.mp4");
+  assert.equal(publicReport.comparison.reference, null);
+  assert.deepEqual(Object.keys(publicReport.machineStructuralMetrics), [
+    "structuralScore",
+    "aspectRatioFit",
+    "durationFit",
+    "resolutionFit",
+    "fileReadable",
+    "contactSheetAvailable",
+  ]);
+  assert.deepEqual(Object.keys(publicReport.humanReview.operatorReview.flags), [
+    "falseGoalClaim",
+    "wrongMoment",
+    "badCrop",
+    "captionMismatch",
+    "textBlocksAction",
+    "missingPayoff",
+    "reactionOnly",
+    "lowEnergy",
+    "missingTrendEditing",
+  ]);
+  assert.equal(publicReport.humanReview.operatorReview.flags.missingPayoff, true);
+  assert.equal(publicReport.humanReview.operatorReview.flags.customDanger, undefined);
+  assert.doesNotMatch(
+    JSON.stringify(publicReport),
+    /storageKey|rawProviderOutput|rawLogs|customDanger|should-not-leak|\/Users|outside\.mp4/i,
+  );
 });
 
 test("render smoke creates a vertical MP4 when FFmpeg is installed", async (t) => {

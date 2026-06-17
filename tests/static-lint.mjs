@@ -216,6 +216,9 @@ assert.doesNotMatch(humanVisualReview, /rawLogsIncluded/, "human visual review r
 assert.match(serverApp, /handleHumanReviewLatest/, "server should expose a thin human review latest handler");
 assert.match(serverApp, /handleHumanReviewSubmit/, "server should expose a thin human review submit handler");
 assert.match(serverApp, /safeReviewMediaRef/, "server should validate human review media refs through a dedicated helper");
+assert.match(serverApp, /publicHumanReviewMetrics/, "server should allowlist public human review metrics");
+assert.match(serverApp, /publicHumanReviewFlags/, "server should allowlist public human review flags");
+assert.match(serverApp, /publicHumanReviewCriterion/, "server should sanitize public human review criteria");
 assert.match(serverApp, /\/api\/review\/latest/, "server should expose human review latest API");
 assert.match(serverApp, /\/api\/review\/human/, "server should expose human review submit API");
 assert.match(serverApp, /\/api\/review\/media/, "server should expose safe review media previews");

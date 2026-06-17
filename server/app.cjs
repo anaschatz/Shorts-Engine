@@ -93,6 +93,17 @@ const MAX_UPLOAD_BODY_OVERHEAD_BYTES = 64 * 1024;
 const MAX_JSON_BODY_BYTES = 16 * 1024;
 const UPLOAD_FILE_FIELD = "video";
 const REVIEW_MEDIA_PREFIX = "manual-downloads/";
+const HUMAN_REVIEW_PUBLIC_FLAGS = Object.freeze([
+  "falseGoalClaim",
+  "wrongMoment",
+  "badCrop",
+  "captionMismatch",
+  "textBlocksAction",
+  "missingPayoff",
+  "reactionOnly",
+  "lowEnergy",
+  "missingTrendEditing",
+]);
 const restoredState = persistenceAdapter.restoreState();
 function restoreSummary(value) {
   if (value && typeof value === "object") {
@@ -1098,71 +1109,133 @@ function safeReviewMediaRef(value) {
   };
 }
 
+function publicRelativeMp4Ref(value) {
+  const text = sanitizeText(value || "", 260).replace(/\\/g, "/");
+  if (
+    !text ||
+    text.startsWith("/") ||
+    /^[A-Za-z]:\//.test(text) ||
+    text.includes("\0") ||
+    text.split("/").some((part) => part === "..") ||
+    extname(text).toLowerCase() !== ".mp4"
+  ) {
+    return null;
+  }
+  return text;
+}
+
+function publicFiniteNumber(value) {
+  return Number.isFinite(Number(value)) ? Number(value) : null;
+}
+
+function publicHumanReviewFlags(flags = {}) {
+  const output = {};
+  for (const flag of HUMAN_REVIEW_PUBLIC_FLAGS) output[flag] = Boolean(flags[flag]);
+  return output;
+}
+
+function publicHumanReviewCriterion(item = {}) {
+  return {
+    id: sanitizeText(item.id || "", 100),
+    score: publicFiniteNumber(item.score),
+    status: sanitizeText(item.status || "unknown", 40),
+  };
+}
+
+function publicImprovementHint(item = {}) {
+  return {
+    id: sanitizeText(item.id || "", 100),
+    target: sanitizeText(item.target || "", 120),
+    note: sanitizeText(item.note || "", 240),
+  };
+}
+
+function publicHumanReviewMetrics(metrics) {
+  if (!metrics || typeof metrics !== "object" || Array.isArray(metrics)) return null;
+  return {
+    structuralScore: publicFiniteNumber(metrics.structuralScore),
+    aspectRatioFit: metrics.aspectRatioFit === null || metrics.aspectRatioFit === undefined ? null : Boolean(metrics.aspectRatioFit),
+    durationFit: metrics.durationFit === null || metrics.durationFit === undefined ? null : Boolean(metrics.durationFit),
+    resolutionFit: metrics.resolutionFit === null || metrics.resolutionFit === undefined ? null : Boolean(metrics.resolutionFit),
+    fileReadable: metrics.fileReadable === null || metrics.fileReadable === undefined ? null : Boolean(metrics.fileReadable),
+    contactSheetAvailable: metrics.contactSheetAvailable === null || metrics.contactSheetAvailable === undefined ? null : Boolean(metrics.contactSheetAvailable),
+  };
+}
+
+function publicHumanReviewVideoMetadata(video = {}) {
+  const relativePath = publicRelativeMp4Ref(video.relativePath);
+  if (!relativePath) return null;
+  return {
+    relativePath,
+    readable: video.readable === true,
+    durationSeconds: publicFiniteNumber(video.durationSeconds),
+    width: publicFiniteNumber(video.width),
+    height: publicFiniteNumber(video.height),
+    orientation: sanitizeText(video.orientation || "unknown", 40),
+  };
+}
+
+function publicHumanReviewSourceArtifact(artifact = {}) {
+  const relativePath = publicRelativeMp4Ref(artifact.relativePath);
+  if (!relativePath) return null;
+  return {
+    relativePath,
+    sourceType: sanitizeText(artifact.sourceType || "direct", 40),
+    videoId: artifact.videoId ? sanitizeText(artifact.videoId, 80) : null,
+    durationSeconds: publicFiniteNumber(artifact.durationSeconds),
+    width: publicFiniteNumber(artifact.width),
+    height: publicFiniteNumber(artifact.height),
+    downloadVerified: artifact.downloadVerified === true,
+  };
+}
+
 function publicHumanVisualReviewReport(report = {}) {
   const humanReview = report.humanReview || {};
   const sourceArtifact = report.source && report.source.generatedArtifact;
   const generated = report.comparison && report.comparison.generated;
   const reference = report.comparison && report.comparison.reference;
+  const publicSourceArtifact = sourceArtifact ? publicHumanReviewSourceArtifact(sourceArtifact) : null;
+  const publicGenerated = generated ? publicHumanReviewVideoMetadata(generated) : null;
+  const publicReference = reference ? publicHumanReviewVideoMetadata(reference) : null;
+  const comparisonSafe = !report.comparison || Boolean(publicGenerated && publicReference);
   return {
     schemaVersion: Number.isFinite(Number(report.schemaVersion)) ? Number(report.schemaVersion) : 1,
     generatedAt: sanitizeText(report.generatedAt || "", 80),
     status: sanitizeText(report.status || "pending_human_review", 60),
     passed: report.passed === true,
-    productReady: report.productReady === true && humanReview.present === true,
+    productReady: report.productReady === true && humanReview.present === true && comparisonSafe,
     source: {
       mode: sanitizeText(report.source && report.source.mode || "direct_refs", 40),
-      generatedArtifact: sourceArtifact
-        ? {
-            relativePath: sanitizeText(sourceArtifact.relativePath || "", 260),
-            sourceType: sanitizeText(sourceArtifact.sourceType || "direct", 40),
-            videoId: sourceArtifact.videoId ? sanitizeText(sourceArtifact.videoId, 80) : null,
-            durationSeconds: Number.isFinite(Number(sourceArtifact.durationSeconds)) ? Number(sourceArtifact.durationSeconds) : null,
-            width: Number.isFinite(Number(sourceArtifact.width)) ? Number(sourceArtifact.width) : null,
-            height: Number.isFinite(Number(sourceArtifact.height)) ? Number(sourceArtifact.height) : null,
-            downloadVerified: sourceArtifact.downloadVerified === true,
-          }
-        : null,
+      generatedArtifact: publicSourceArtifact,
     },
     comparison: report.comparison
       ? {
-          generated: generated
-            ? {
-                relativePath: sanitizeText(generated.relativePath || "", 260),
-                readable: generated.readable === true,
-                durationSeconds: Number.isFinite(Number(generated.durationSeconds)) ? Number(generated.durationSeconds) : null,
-                width: Number.isFinite(Number(generated.width)) ? Number(generated.width) : null,
-                height: Number.isFinite(Number(generated.height)) ? Number(generated.height) : null,
-                orientation: sanitizeText(generated.orientation || "unknown", 40),
-              }
-            : null,
-          reference: reference
-            ? {
-                relativePath: sanitizeText(reference.relativePath || "", 260),
-                readable: reference.readable === true,
-                durationSeconds: Number.isFinite(Number(reference.durationSeconds)) ? Number(reference.durationSeconds) : null,
-                width: Number.isFinite(Number(reference.width)) ? Number(reference.width) : null,
-                height: Number.isFinite(Number(reference.height)) ? Number(reference.height) : null,
-                orientation: sanitizeText(reference.orientation || "unknown", 40),
-              }
-            : null,
+          generated: publicGenerated,
+          reference: publicReference,
         }
       : null,
-    machineStructuralMetrics: report.machineStructuralMetrics || null,
+    machineStructuralMetrics: publicHumanReviewMetrics(report.machineStructuralMetrics),
     humanReview: {
       status: sanitizeText(humanReview.status || "pending_human_review", 80),
       present: humanReview.present === true,
       humanScore: Number.isFinite(Number(humanReview.humanScore)) ? Number(humanReview.humanScore) : null,
       combinedScore: Number.isFinite(Number(humanReview.combinedScore)) ? Number(humanReview.combinedScore) : null,
-      productReady: humanReview.productReady === true,
-      failedCriteria: Array.isArray(humanReview.failedCriteria) ? humanReview.failedCriteria.slice(0, 12) : [],
-      borderlineCriteria: Array.isArray(humanReview.borderlineCriteria) ? humanReview.borderlineCriteria.slice(0, 12) : [],
-      improvementHints: Array.isArray(humanReview.improvementHints) ? humanReview.improvementHints.slice(0, 12) : [],
+      productReady: humanReview.productReady === true && comparisonSafe,
+      failedCriteria: Array.isArray(humanReview.failedCriteria)
+        ? humanReview.failedCriteria.slice(0, 12).map(publicHumanReviewCriterion)
+        : [],
+      borderlineCriteria: Array.isArray(humanReview.borderlineCriteria)
+        ? humanReview.borderlineCriteria.slice(0, 12).map(publicHumanReviewCriterion)
+        : [],
+      improvementHints: Array.isArray(humanReview.improvementHints)
+        ? humanReview.improvementHints.slice(0, 12).map(publicImprovementHint)
+        : [],
       operatorReview: humanReview.operatorReview && humanReview.operatorReview.present === true
         ? {
             present: true,
             reviewer: sanitizeText(humanReview.operatorReview.reviewer || "operator", 80),
             reviewedAt: sanitizeText(humanReview.operatorReview.reviewedAt || "", 80),
-            flags: humanReview.operatorReview.flags || {},
+            flags: publicHumanReviewFlags(humanReview.operatorReview.flags),
           }
         : { present: false },
     },
@@ -1394,6 +1467,7 @@ module.exports = {
   route,
   parseMultipart,
   safeDownloadFileName,
+  publicHumanVisualReviewReport,
   MAX_JSON_BODY_BYTES,
   MAX_MULTIPART_FIELD_BYTES,
   MAX_UPLOAD_BODY_OVERHEAD_BYTES,
