@@ -5,9 +5,11 @@ const { CONFIG } = require("../config.cjs");
 const { AppError, SAFE_MESSAGES } = require("../errors.cjs");
 const { jsonClone, nowIso, sanitizeText, validateResourceId } = require("./ids.cjs");
 
-const APPROVAL_OUTBOX_SCHEMA_VERSION = 1;
+const APPROVAL_OUTBOX_SCHEMA_VERSION = 2;
 const OUTBOX_EVENT_FILE_RE = /^aout_[a-f0-9]{32}\.json$/;
 const MAX_OUTBOX_EVENT_BYTES = 64 * 1024;
+const DEFAULT_OUTBOX_MAX_ATTEMPTS = 5;
+const DEFAULT_STALE_LOCK_MS = 5 * 60 * 1000;
 const APPROVAL_OUTBOX_EVENT_TYPES = Object.freeze([
   "approval_created",
   "render_queued",
@@ -16,7 +18,11 @@ const APPROVAL_OUTBOX_EVENT_TYPES = Object.freeze([
   "render_failed",
   "render_cancelled",
 ]);
-const APPROVAL_OUTBOX_STATUSES = Object.freeze(["pending", "processed", "failed"]);
+const APPROVAL_OUTBOX_STATUSES = Object.freeze(["pending", "processing", "delivered", "failed", "dead_letter"]);
+const TERMINAL_OUTBOX_STATUSES = Object.freeze(["delivered", "dead_letter"]);
+const OUTBOX_STATUS_ALIASES = Object.freeze({
+  processed: "delivered",
+});
 const SAFE_PAYLOAD_FIELDS = Object.freeze([
   "requestId",
   "projectId",
@@ -59,6 +65,15 @@ function validateOutboxEventId(value) {
   return safe;
 }
 
+function validateOutboxWorkerId(value) {
+  if (!value) return null;
+  const safe = sanitizeText(value, 100);
+  if (!/^obw_[A-Za-z0-9-]{8,80}$/.test(safe)) {
+    throw new AppError("RESOURCE_ID_INVALID", SAFE_MESSAGES.RESOURCE_ID_INVALID, 400);
+  }
+  return safe;
+}
+
 function validateApprovalId(value) {
   const safe = sanitizeText(value, 80);
   if (!/^appr_[a-f0-9]{32}$/.test(safe)) {
@@ -86,10 +101,70 @@ function normalizeEventType(value) {
 
 function normalizeOutboxStatus(value) {
   const safe = sanitizeText(value || "pending", 40);
-  if (!APPROVAL_OUTBOX_STATUSES.includes(safe)) {
+  const normalized = OUTBOX_STATUS_ALIASES[safe] || safe;
+  if (!APPROVAL_OUTBOX_STATUSES.includes(normalized)) {
     throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "status" });
   }
+  return normalized;
+}
+
+function normalizeOutboxAttempts(value) {
+  const raw = Number(value || 0);
+  if (!Number.isFinite(raw)) return 0;
+  return Math.max(0, Math.min(100, Math.floor(raw)));
+}
+
+function normalizeOutboxMaxAttempts(value) {
+  const raw = value === undefined || value === null || value === "" ? DEFAULT_OUTBOX_MAX_ATTEMPTS : Number(value);
+  if (!Number.isFinite(raw)) return DEFAULT_OUTBOX_MAX_ATTEMPTS;
+  return Math.max(1, Math.min(20, Math.floor(raw)));
+}
+
+function normalizeIsoTimestamp(value) {
+  if (!value) return null;
+  const safe = sanitizeText(value, 40);
+  const parsed = Date.parse(safe);
+  if (!Number.isFinite(parsed)) {
+    throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "timestamp" });
+  }
   return safe;
+}
+
+function nextAttemptDue(record, nowMs) {
+  const nextMs = Date.parse(record && record.nextAttemptAt ? record.nextAttemptAt : "");
+  return !Number.isFinite(nextMs) || nextMs <= nowMs;
+}
+
+function staleLock(record, nowMs, staleLockMs = DEFAULT_STALE_LOCK_MS) {
+  if (!record || record.status !== "processing") return false;
+  const lockedMs = Date.parse(record.lockedAt || "");
+  if (!Number.isFinite(lockedMs)) return true;
+  const ttl = Math.max(1000, Math.min(Number(staleLockMs || DEFAULT_STALE_LOCK_MS), 60 * 60 * 1000));
+  return lockedMs + ttl <= nowMs;
+}
+
+function canClaim(record, nowMs) {
+  if (!record || TERMINAL_OUTBOX_STATUSES.includes(record.status)) return false;
+  if (record.status === "pending") return true;
+  if (record.status === "failed") return nextAttemptDue(record, nowMs);
+  return false;
+}
+
+function validateStatusTransition(currentStatus, nextStatus) {
+  const current = normalizeOutboxStatus(currentStatus);
+  const next = normalizeOutboxStatus(nextStatus);
+  if (current === next) return;
+  if (TERMINAL_OUTBOX_STATUSES.includes(current)) {
+    throw new AppError("OUTBOX_STATE_INVALID", SAFE_MESSAGES.OUTBOX_STATE_INVALID, 409);
+  }
+  const allowed = {
+    pending: ["processing", "failed", "dead_letter"],
+    failed: ["processing", "dead_letter"],
+    processing: ["delivered", "failed", "dead_letter"],
+  };
+  if (!allowed[current] || !allowed[current].includes(next)) {
+    throw new AppError("OUTBOX_STATE_INVALID", SAFE_MESSAGES.OUTBOX_STATE_INVALID, 409);
+  }
 }
 
 function normalizeSafeToken(value, maxLength = 100) {
@@ -169,15 +244,21 @@ function normalizeOutboxEvent(record = {}) {
         errorCode: payload.errorCode,
       });
   const createdAt = sanitizeText(record.createdAt || nowIso(), 40);
+  const status = normalizeOutboxStatus(record.status || "pending");
+  const deliveredAt = normalizeIsoTimestamp(record.deliveredAt);
   return {
     schemaVersion: APPROVAL_OUTBOX_SCHEMA_VERSION,
     id,
     eventType,
     approvalId,
     payload,
-    status: normalizeOutboxStatus(record.status || "pending"),
-    attempts: Math.max(0, Math.min(100, Math.floor(Number(record.attempts || 0)))),
-    nextAttemptAt: record.nextAttemptAt ? sanitizeText(record.nextAttemptAt, 40) : null,
+    status,
+    attempts: normalizeOutboxAttempts(record.attempts),
+    maxAttempts: normalizeOutboxMaxAttempts(record.maxAttempts),
+    nextAttemptAt: normalizeIsoTimestamp(record.nextAttemptAt),
+    lockedAt: normalizeIsoTimestamp(record.lockedAt),
+    lockOwner: validateOutboxWorkerId(record.lockOwner),
+    deliveredAt: status === "delivered" ? (deliveredAt || sanitizeText(record.updatedAt || createdAt, 40)) : deliveredAt,
     lastErrorCode: record.lastErrorCode ? normalizeErrorCode(record.lastErrorCode) : null,
     createdAt,
     updatedAt: sanitizeText(record.updatedAt || createdAt, 40),
@@ -232,34 +313,136 @@ class ApprovalOutboxRepository {
     return this.all().filter((record) => record.status === "pending").slice(0, max);
   }
 
-  markProcessed(eventId, updatedAt = nowIso()) {
+  listDue(options = {}) {
+    const nowMs = Number.isFinite(Number(options.nowMs)) ? Number(options.nowMs) : Date.now();
+    const max = Math.max(1, Math.min(500, Math.floor(Number(options.limit || 100))));
+    return this.all().filter((record) => canClaim(record, nowMs)).slice(0, max);
+  }
+
+  updateLifecycle(eventId, patch = {}) {
     const current = this.get(eventId);
-    if (!current) throw new AppError("OUTBOX_EVENT_NOT_FOUND", "Approval outbox event was not found.", 404);
+    if (!current) throw new AppError("OUTBOX_EVENT_NOT_FOUND", SAFE_MESSAGES.OUTBOX_EVENT_NOT_FOUND, 404);
+    validateStatusTransition(current.status, patch.status || current.status);
     const updated = normalizeOutboxEvent({
       ...current,
-      status: "processed",
-      lastErrorCode: null,
-      updatedAt,
+      ...patch,
+      updatedAt: patch.updatedAt || nowIso(),
     });
     this.records.set(updated.id, updated);
     this.persistRecord(updated);
     return updated;
   }
 
-  markFailed(eventId, { errorCode = "OUTBOX_DELIVERY_FAILED", nextAttemptAt = null, updatedAt = nowIso() } = {}) {
+  claimDue(options = {}) {
+    const workerId = validateOutboxWorkerId(options.workerId);
+    const nowMs = Number.isFinite(Number(options.nowMs)) ? Number(options.nowMs) : Date.now();
+    const limit = Math.max(1, Math.min(100, Math.floor(Number(options.limit || 10))));
+    const claimed = [];
+    for (const record of this.listDue({ nowMs, limit: 500 })) {
+      if (claimed.length >= limit) break;
+      const current = this.get(record.id);
+      if (!canClaim(current, nowMs)) continue;
+      if (Number(current.attempts || 0) >= Number(current.maxAttempts || DEFAULT_OUTBOX_MAX_ATTEMPTS)) {
+        this.markDeadLetter(current.id, {
+          errorCode: current.lastErrorCode || "OUTBOX_MAX_ATTEMPTS",
+          updatedAt: new Date(nowMs).toISOString(),
+        });
+        continue;
+      }
+      claimed.push(this.updateLifecycle(current.id, {
+        status: "processing",
+        attempts: Number(current.attempts || 0) + 1,
+        lockedAt: new Date(nowMs).toISOString(),
+        lockOwner: workerId,
+        nextAttemptAt: null,
+        lastErrorCode: null,
+        updatedAt: new Date(nowMs).toISOString(),
+      }));
+    }
+    return claimed;
+  }
+
+  assertLockOwner(record, workerId) {
+    const owner = validateOutboxWorkerId(workerId);
+    if (owner && record.lockOwner && record.lockOwner !== owner) {
+      throw new AppError("OUTBOX_STATE_INVALID", SAFE_MESSAGES.OUTBOX_STATE_INVALID, 409);
+    }
+  }
+
+  markDelivered(eventId, { workerId = null, updatedAt = nowIso() } = {}) {
     const current = this.get(eventId);
-    if (!current) throw new AppError("OUTBOX_EVENT_NOT_FOUND", "Approval outbox event was not found.", 404);
-    const updated = normalizeOutboxEvent({
-      ...current,
+    if (!current) throw new AppError("OUTBOX_EVENT_NOT_FOUND", SAFE_MESSAGES.OUTBOX_EVENT_NOT_FOUND, 404);
+    if (current.status === "delivered") return current;
+    this.assertLockOwner(current, workerId);
+    return this.updateLifecycle(eventId, {
+      status: "delivered",
+      lockedAt: null,
+      lockOwner: null,
+      nextAttemptAt: null,
+      lastErrorCode: null,
+      deliveredAt: updatedAt,
+      updatedAt,
+    });
+  }
+
+  markProcessed(eventId, updatedAt = nowIso()) {
+    return this.markDelivered(eventId, { updatedAt });
+  }
+
+  markFailed(eventId, {
+    errorCode = "OUTBOX_DELIVERY_FAILED",
+    nextAttemptAt = null,
+    updatedAt = nowIso(),
+    workerId = null,
+  } = {}) {
+    const current = this.get(eventId);
+    if (!current) throw new AppError("OUTBOX_EVENT_NOT_FOUND", SAFE_MESSAGES.OUTBOX_EVENT_NOT_FOUND, 404);
+    if (current.status === "dead_letter") return current;
+    this.assertLockOwner(current, workerId);
+    const attempts = current.status === "processing" ? Number(current.attempts || 0) : Number(current.attempts || 0) + 1;
+    if (attempts >= Number(current.maxAttempts || DEFAULT_OUTBOX_MAX_ATTEMPTS)) {
+      return this.markDeadLetter(eventId, { errorCode, updatedAt, workerId });
+    }
+    return this.updateLifecycle(eventId, {
       status: "failed",
-      attempts: Number(current.attempts || 0) + 1,
+      attempts,
+      lockedAt: null,
+      lockOwner: null,
       lastErrorCode: errorCode,
       nextAttemptAt,
       updatedAt,
     });
-    this.records.set(updated.id, updated);
-    this.persistRecord(updated);
-    return updated;
+  }
+
+  markDeadLetter(eventId, { errorCode = "OUTBOX_DEAD_LETTER", updatedAt = nowIso(), workerId = null } = {}) {
+    const current = this.get(eventId);
+    if (!current) throw new AppError("OUTBOX_EVENT_NOT_FOUND", SAFE_MESSAGES.OUTBOX_EVENT_NOT_FOUND, 404);
+    if (current.status === "dead_letter") return current;
+    this.assertLockOwner(current, workerId);
+    return this.updateLifecycle(eventId, {
+      status: "dead_letter",
+      lockedAt: null,
+      lockOwner: null,
+      lastErrorCode: errorCode,
+      nextAttemptAt: null,
+      updatedAt,
+    });
+  }
+
+  recoverStaleLocks(options = {}) {
+    const nowMs = Number.isFinite(Number(options.nowMs)) ? Number(options.nowMs) : Date.now();
+    const staleLockMs = Number.isFinite(Number(options.staleLockMs)) ? Number(options.staleLockMs) : DEFAULT_STALE_LOCK_MS;
+    const updatedAt = new Date(nowMs).toISOString();
+    const recovered = [];
+    for (const record of this.all()) {
+      if (!staleLock(record, nowMs, staleLockMs)) continue;
+      recovered.push(this.markFailed(record.id, {
+        errorCode: "OUTBOX_LOCK_STALE",
+        nextAttemptAt: updatedAt,
+        updatedAt,
+      }));
+    }
+    return recovered;
   }
 
   all() {
@@ -300,9 +483,15 @@ class ApprovalOutboxRepository {
   health() {
     const byStatus = Object.fromEntries(APPROVAL_OUTBOX_STATUSES.map((status) => [status, 0]));
     const byType = Object.fromEntries(APPROVAL_OUTBOX_EVENT_TYPES.map((type) => [type, 0]));
+    const nowMs = Date.now();
+    let oldestPendingMs = null;
     for (const record of this.records.values()) {
       byStatus[record.status] = Number(byStatus[record.status] || 0) + 1;
       byType[record.eventType] = Number(byType[record.eventType] || 0) + 1;
+      if (["pending", "failed"].includes(record.status)) {
+        const createdMs = Date.parse(record.createdAt || "");
+        if (Number.isFinite(createdMs)) oldestPendingMs = oldestPendingMs === null ? createdMs : Math.min(oldestPendingMs, createdMs);
+      }
     }
     return {
       ready: true,
@@ -311,6 +500,7 @@ class ApprovalOutboxRepository {
       persistent: this.persist,
       statuses: byStatus,
       eventTypes: byType,
+      oldestPendingAgeMs: oldestPendingMs === null ? 0 : Math.max(0, nowMs - oldestPendingMs),
     };
   }
 }
@@ -319,8 +509,12 @@ module.exports = {
   APPROVAL_OUTBOX_EVENT_TYPES,
   APPROVAL_OUTBOX_SCHEMA_VERSION,
   APPROVAL_OUTBOX_STATUSES,
+  DEFAULT_OUTBOX_MAX_ATTEMPTS,
+  DEFAULT_STALE_LOCK_MS,
   ApprovalOutboxRepository,
+  TERMINAL_OUTBOX_STATUSES,
   normalizeOutboxEvent,
   outboxEventIdFor,
   validateOutboxEventId,
+  validateOutboxWorkerId,
 };

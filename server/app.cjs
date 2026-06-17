@@ -28,6 +28,7 @@ const { normalizeSmokeSource } = require("./staging-smoke-metadata.cjs");
 const { createReleaseReadiness } = require("./release-readiness.cjs");
 const { createLocalJobWorker, restoreExportsFromCompletedJobs } = require("./job-worker.cjs");
 const { createWorkerSupervisor } = require("./worker-supervisor.cjs");
+const { createOutboxWorker } = require("./outbox-worker.cjs");
 const { createLocalJobQueue } = require("./queue/local-job-queue.cjs");
 const { recoverApprovalAudits } = require("./approval-audit-recovery.cjs");
 const { createArtifactCleanupWorker } = require("./artifact-cleanup-worker.cjs");
@@ -127,6 +128,10 @@ const artifactCleanupWorker = createArtifactCleanupWorker({
   artifactRepository,
   artifactStore,
   jobs,
+  logger: console,
+});
+const outboxWorker = createOutboxWorker({
+  repository: approvalOutboxRepository,
   logger: console,
 });
 const workerSupervisor = createWorkerSupervisor({
@@ -450,6 +455,7 @@ async function handleHealth(req, res, rid) {
   const vision = visionHealth();
   const youtubeIngest = youtubeIngestHealth(youtubeIngestAdapter);
   const cleanup = artifactCleanupWorker.health();
+  const outbox = outboxWorker.health();
   const worker = jobWorker.health();
   const supervisor = workerSupervisor.health();
   const queue = jobQueue.health();
@@ -482,6 +488,7 @@ async function handleHealth(req, res, rid) {
     adapters,
     jobs: jobs.health(),
     queue,
+    outbox,
     worker,
     supervisor,
     cleanup,
@@ -1231,6 +1238,7 @@ module.exports = {
   regenerationApprovalRepository,
   approvalOutboxRepository,
   artifactCleanupWorker,
+  outboxWorker,
   workerSupervisor,
   stopWorkers,
 };

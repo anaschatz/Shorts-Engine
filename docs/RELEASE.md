@@ -240,6 +240,19 @@ GitHub Actions uploads diagnostics only when the release gate fails:
 
 Passing runs should not upload reports or browser artifacts. Playwright trace/video capture stays opt-in for debugging and disabled in the default release gate.
 
+## Approval Outbox Operations
+
+Approval/render lifecycle events are persisted in the approval outbox before delivery. The default delivery path is intentionally local and no-op: it proves claim, retry, stale-lock recovery and dead-letter behavior without email, webhook, cloud queue or network side effects.
+
+Use:
+
+```bash
+npm run outbox:health
+npm run outbox:drain
+```
+
+`outbox:health` restores persisted state and prints safe aggregate repository/worker readiness. `outbox:drain` claims due events, runs the no-op handler, marks delivered events idempotently and retries or dead-letters failures with bounded backoff. Both commands output safe JSON only and must not require API keys, download artifacts, mutate GitHub, expose local paths or include raw provider errors.
+
 ## Opt-In Integrations
 
 Real cloud integration remains opt-in and must not run in the default CI release gate. Use the dedicated integration command only with explicit credentials and environment flags.

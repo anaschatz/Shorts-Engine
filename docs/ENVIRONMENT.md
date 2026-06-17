@@ -119,6 +119,8 @@ Use `docs/YOUTUBE_INGEST_MANUAL_SMOKE.md` before the first real downloader run. 
 
 When `sqlite` is enabled, the adapter owns projects, uploads, artifacts, exports, jobs, regeneration draft audits, regeneration approvals and approval outbox rows behind the same repository boundary used by local defaults. Approval audit/outbox rows store only safe identifiers, lifecycle statuses, timestamps and error codes; they must not include raw edit plans, captions, provider output, local paths, storage keys or secrets. `/health` reports aggregate repository readiness and outbox counts only.
 
+The approval outbox has a worker-ready lifecycle: `pending`, `processing`, `delivered`, `failed` and `dead_letter`. `processed` is treated as a legacy alias for `delivered` during restore. The default worker uses a local no-op audit handler, so `npm run outbox:health` and `npm run outbox:drain` require no secrets, no network and no external delivery provider. Stale processing locks are recovered with bounded retries and dead-lettering after max attempts. `/health` exposes only aggregate outbox readiness, counts, oldest pending age and worker configuration; it must not expose payload internals, storage keys, local paths or raw handler/provider errors.
+
 ## Transcription/AI provider
 
 | Variable | Required | Default | Allowed values | Secret | Staging recommendation | Fail-closed behavior |
@@ -202,9 +204,10 @@ When `sqlite` is enabled, the adapter owns projects, uploads, artifacts, exports
 18. Run cleanup dry-run after full smoke: `npm run staging:smoke:cleanup`.
 19. Run explicit smoke cleanup only when intended: `SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP=1 npm run staging:smoke:cleanup`.
 20. Run `npm run demo:fixture`, `npm run demo:smoke`, `npm run demo:browser`, and `npm run demo:browser:ci`.
-21. Run `npm run ci:reports` and `npm run release:evidence`.
-22. Inspect failure-only artifacts only if a gate fails.
-23. Configure GitHub branch protection as documented in `docs/RELEASE.md` and GitHub Environment protection as documented in `docs/STAGING_DEPLOYMENT.md`.
+21. Run `npm run outbox:health` and, when pending approval lifecycle events should be locally delivered to the no-op handler, `npm run outbox:drain`.
+22. Run `npm run ci:reports` and `npm run release:evidence`.
+23. Inspect failure-only artifacts only if a gate fails.
+24. Configure GitHub branch protection as documented in `docs/RELEASE.md` and GitHub Environment protection as documented in `docs/STAGING_DEPLOYMENT.md`.
 
 ## Render Staging Runtime
 

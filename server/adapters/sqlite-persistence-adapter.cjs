@@ -24,7 +24,7 @@ try {
 
 const SQLITE_AVAILABLE = Boolean(DatabaseSync);
 
-const LATEST_SCHEMA_VERSION = 3;
+const LATEST_SCHEMA_VERSION = 4;
 const MIGRATIONS = Object.freeze([
   {
     version: 1,
@@ -199,6 +199,20 @@ const MIGRATIONS = Object.freeze([
         ON approval_outbox (status, createdAt);
       CREATE INDEX IF NOT EXISTS idx_approval_outbox_approval
         ON approval_outbox (approvalId, eventType);
+    `,
+  },
+  {
+    version: 4,
+    name: "approval_outbox_delivery_lifecycle",
+    sql: `
+      ALTER TABLE approval_outbox ADD COLUMN maxAttempts INTEGER;
+      ALTER TABLE approval_outbox ADD COLUMN lockedAt TEXT;
+      ALTER TABLE approval_outbox ADD COLUMN lockOwner TEXT;
+      ALTER TABLE approval_outbox ADD COLUMN deliveredAt TEXT;
+      CREATE INDEX IF NOT EXISTS idx_approval_outbox_delivery
+        ON approval_outbox (status, nextAttemptAt, createdAt);
+      CREATE INDEX IF NOT EXISTS idx_approval_outbox_lock
+        ON approval_outbox (status, lockedAt, lockOwner);
     `,
   },
 ]);
@@ -526,14 +540,13 @@ class SQLitePersistenceAdapter {
       createLifecycleEvent: (input) => this.createApprovalOutboxLifecycleEvent(input),
       get: (eventId) => this.getApprovalOutboxEvent(eventId),
       listPending: (limit) => this.listPendingApprovalOutboxEvents(limit),
-      markProcessed: (eventId, updatedAt) => this.updateApprovalOutboxEvent(eventId, { status: "processed", lastErrorCode: null, updatedAt }),
-      markFailed: (eventId, options = {}) => this.updateApprovalOutboxEvent(eventId, {
-        status: "failed",
-        attempts: undefined,
-        lastErrorCode: options.errorCode || "OUTBOX_DELIVERY_FAILED",
-        nextAttemptAt: options.nextAttemptAt || null,
-        updatedAt: options.updatedAt,
-      }),
+      listDue: (options) => this.listDueApprovalOutboxEvents(options),
+      claimDue: (options) => this.claimDueApprovalOutboxEvents(options),
+      markDelivered: (eventId, options) => this.markApprovalOutboxDelivered(eventId, options),
+      markProcessed: (eventId, updatedAt) => this.markApprovalOutboxDelivered(eventId, { updatedAt }),
+      markFailed: (eventId, options) => this.markApprovalOutboxFailed(eventId, options),
+      markDeadLetter: (eventId, options) => this.markApprovalOutboxDeadLetter(eventId, options),
+      recoverStaleLocks: (options) => this.recoverStaleApprovalOutboxLocks(options),
       all: () => this.allApprovalOutboxEvents(),
       publicEvent: (record) => this.approvalOutboxView.publicEvent(record),
       restore: () => this.restoreApprovalOutboxEvents(),
@@ -1073,12 +1086,15 @@ class SQLitePersistenceAdapter {
     const event = normalizeOutboxEvent(record);
     this.prepare(
       `INSERT INTO approval_outbox (
-        id, eventType, approvalId, status, attempts, nextAttemptAt, lastErrorCode,
+        id, eventType, approvalId, status, attempts, maxAttempts, nextAttemptAt,
+        lockedAt, lockOwner, deliveredAt, lastErrorCode,
         payloadJson, createdAt, updatedAt, recordJson
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET eventType = excluded.eventType,
       approvalId = excluded.approvalId, status = excluded.status, attempts = excluded.attempts,
-      nextAttemptAt = excluded.nextAttemptAt, lastErrorCode = excluded.lastErrorCode,
+      maxAttempts = excluded.maxAttempts, nextAttemptAt = excluded.nextAttemptAt,
+      lockedAt = excluded.lockedAt, lockOwner = excluded.lockOwner, deliveredAt = excluded.deliveredAt,
+      lastErrorCode = excluded.lastErrorCode,
       payloadJson = excluded.payloadJson, createdAt = excluded.createdAt,
       updatedAt = excluded.updatedAt, recordJson = excluded.recordJson`,
     ).run(
@@ -1087,7 +1103,11 @@ class SQLitePersistenceAdapter {
       event.approvalId,
       event.status,
       event.attempts,
+      event.maxAttempts,
       event.nextAttemptAt,
+      event.lockedAt,
+      event.lockOwner,
+      event.deliveredAt,
       event.lastErrorCode,
       stringifyRecord(event.payload),
       event.createdAt,
@@ -1111,16 +1131,55 @@ class SQLitePersistenceAdapter {
   }
 
   updateApprovalOutboxEvent(eventId, patch = {}) {
-    const current = this.getApprovalOutboxEvent(eventId);
-    if (!current) throw new AppError("OUTBOX_EVENT_NOT_FOUND", "Approval outbox event was not found.", 404);
-    const attempts = patch.status === "failed" && patch.attempts === undefined
-      ? Number(current.attempts || 0) + 1
-      : patch.attempts;
-    return this.upsertApprovalOutboxEvent({
-      ...current,
-      ...patch,
-      attempts: attempts === undefined ? current.attempts : attempts,
-      updatedAt: patch.updatedAt || nowIso(),
+    this.getApprovalOutboxEvent(eventId);
+    const updated = this.approvalOutboxView.updateLifecycle(eventId, patch);
+    return this.upsertApprovalOutboxEvent(updated);
+  }
+
+  listDueApprovalOutboxEvents(options = {}) {
+    this.allApprovalOutboxEvents();
+    return this.approvalOutboxView.listDue(options);
+  }
+
+  claimDueApprovalOutboxEvents(options = {}) {
+    return this.transaction(() => {
+      this.allApprovalOutboxEvents();
+      const claimed = this.approvalOutboxView.claimDue(options);
+      for (const event of claimed) this.upsertApprovalOutboxEvent(event);
+      return claimed;
+    });
+  }
+
+  markApprovalOutboxDelivered(eventId, options = {}) {
+    return this.transaction(() => {
+      this.getApprovalOutboxEvent(eventId);
+      const updated = this.approvalOutboxView.markDelivered(eventId, options);
+      return this.upsertApprovalOutboxEvent(updated);
+    });
+  }
+
+  markApprovalOutboxFailed(eventId, options = {}) {
+    return this.transaction(() => {
+      this.getApprovalOutboxEvent(eventId);
+      const updated = this.approvalOutboxView.markFailed(eventId, options);
+      return this.upsertApprovalOutboxEvent(updated);
+    });
+  }
+
+  markApprovalOutboxDeadLetter(eventId, options = {}) {
+    return this.transaction(() => {
+      this.getApprovalOutboxEvent(eventId);
+      const updated = this.approvalOutboxView.markDeadLetter(eventId, options);
+      return this.upsertApprovalOutboxEvent(updated);
+    });
+  }
+
+  recoverStaleApprovalOutboxLocks(options = {}) {
+    return this.transaction(() => {
+      this.allApprovalOutboxEvents();
+      const recovered = this.approvalOutboxView.recoverStaleLocks(options);
+      for (const event of recovered) this.upsertApprovalOutboxEvent(event);
+      return recovered;
     });
   }
 
@@ -1488,21 +1547,13 @@ class SQLitePersistenceAdapter {
   }
 
   approvalOutboxHealth() {
-    const byStatus = {};
-    const byType = {};
-    for (const row of this.prepare("SELECT status, COUNT(*) AS total FROM approval_outbox GROUP BY status").all()) {
-      byStatus[row.status] = Number(row.total || 0);
-    }
-    for (const row of this.prepare("SELECT eventType, COUNT(*) AS total FROM approval_outbox GROUP BY eventType").all()) {
-      byType[row.eventType] = Number(row.total || 0);
-    }
+    const health = this.approvalOutboxView.health();
     return {
+      ...health,
       ready: true,
       repository: "sqlite-approval-outbox",
       durable: true,
       total: rowCount(this.db, "approval_outbox"),
-      statuses: byStatus,
-      eventTypes: byType,
     };
   }
 

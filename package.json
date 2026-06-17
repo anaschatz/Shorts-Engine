@@ -33,6 +33,8 @@
     "github:setup": "node tools/release/print-github-cli-setup.mjs",
     "integration:cloud": "node scripts/run-real-cloud-integration.mjs",
     "lint": "node tests/static-lint.mjs",
+    "outbox:drain": "node tools/outbox-drain.mjs",
+    "outbox:health": "node tools/outbox-health.mjs",
     "release:check": "node tools/release/verify-release-gate.mjs",
     "release:evidence": "node tools/release/write-release-evidence.mjs",
     "release:readiness": "node tools/release/check-release-readiness.mjs",

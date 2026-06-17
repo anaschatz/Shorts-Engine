@@ -376,7 +376,19 @@ sqliteTest("sqlite persists regeneration drafts approvals and approval outbox ev
       assert.equal(summary.approvalOutbox, 1);
       assert.equal(restored.regenerationApprovalRepository.getByRenderJobId(renderJobId).status, "render_completed");
       assert.equal(restored.approvalOutboxRepository.listPending().length, 1);
+      const claimed = restored.approvalOutboxRepository.claimDue({
+        workerId: "obw_sqlite-worker-0001",
+        nowMs: Date.parse("2026-06-18T00:00:00.000Z"),
+      });
+      assert.equal(claimed.length, 1);
+      assert.equal(claimed[0].status, "processing");
+      restored.approvalOutboxRepository.markDelivered(claimed[0].id, {
+        workerId: "obw_sqlite-worker-0001",
+        updatedAt: "2026-06-18T00:00:01.000Z",
+      });
+      assert.equal(restored.approvalOutboxRepository.get(outbox.id).status, "delivered");
       assert.equal(restored.health().repositories.approvalOutbox.ready, true);
+      assert.equal(restored.health().repositories.approvalOutbox.statuses.delivered, 1);
       assert.doesNotMatch(JSON.stringify(restored.health()), PUBLIC_LEAK_RE);
     } finally {
       closeAdapter(restored);

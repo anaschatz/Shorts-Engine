@@ -189,14 +189,36 @@ test("approval outbox repository stores safe deterministic lifecycle events", ()
   assert.equal(created.payload.path, undefined);
   assert.doesNotMatch(JSON.stringify(repo.publicEvent(created)), /\/Users|secret|token|storageKey|rawProviderError|stdout|stderr/i);
 
-  const processed = repo.markProcessed(created.id);
-  assert.equal(processed.status, "processed");
-  const failed = repo.markFailed(created.id, { errorCode: "OUTBOX_DELIVERY_FAILED" });
+  repo.claimDue({
+    workerId: "obw_audit-worker-0001",
+    nowMs: Date.parse("2026-06-18T00:00:00.000Z"),
+  });
+  const delivered = repo.markDelivered(created.id, {
+    workerId: "obw_audit-worker-0001",
+    updatedAt: "2026-06-18T00:00:01.000Z",
+  });
+  assert.equal(delivered.status, "delivered");
+  assert.throws(
+    () => repo.markFailed(created.id, { errorCode: "OUTBOX_DELIVERY_FAILED" }),
+    (error) => error.code === "OUTBOX_STATE_INVALID",
+  );
+
+  const retryable = repo.create({
+    eventType: "render_failed",
+    approvalId: SAFE_IDS.approvalId,
+    payload: {
+      approvalId: SAFE_IDS.approvalId,
+      projectId: SAFE_IDS.projectId,
+      newRenderJobId: SAFE_IDS.jobId,
+      errorCode: "RENDER_FAILED",
+    },
+  });
+  const failed = repo.markFailed(retryable.id, { errorCode: "OUTBOX_DELIVERY_FAILED" });
   assert.equal(failed.status, "failed");
   assert.equal(failed.attempts, 1);
 
   writeFileSync(join(dir, "aout_ffffffffffffffffffffffffffffffff.json"), "{not-json", "utf8");
   const restored = new ApprovalOutboxRepository({ dir });
-  assert.deepEqual(restored.restore(), { records: 1, ignored: 1 });
-  assert.equal(restored.get(created.id).status, "failed");
+  assert.deepEqual(restored.restore(), { records: 2, ignored: 1 });
+  assert.equal(restored.get(created.id).status, "delivered");
 });

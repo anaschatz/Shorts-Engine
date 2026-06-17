@@ -459,6 +459,13 @@ test("API health returns structured status", async () => {
   assert.equal(payload.data.repositories.artifacts.ready, true);
   assert.equal(payload.data.repositories.regenerationDrafts.ready, true);
   assert.equal(payload.data.repositories.regenerationApprovals.ready, true);
+  assert.equal(payload.data.repositories.approvalOutbox.ready, true);
+  assert.equal(typeof payload.data.repositories.approvalOutbox.statuses.pending, "number");
+  assert.equal(payload.data.outbox.ready, true);
+  assert.equal(payload.data.outbox.externalDeliveryEnabled, false);
+  assert.equal(typeof payload.data.outbox.pending, "number");
+  assert.equal(typeof payload.data.outbox.processing, "number");
+  assert.equal(typeof payload.data.outbox.deadLetter, "number");
   assert.equal(payload.data.artifactIndexReady, true);
   assert.equal(typeof payload.data.cleanupWorkerConfigured, "boolean");
   assert.equal(payload.data.cleanupLastRunAt === null || typeof payload.data.cleanupLastRunAt === "string", true);
@@ -508,6 +515,7 @@ test("API health returns structured status", async () => {
   assert.doesNotMatch(JSON.stringify(payload.data), /storageKey|outputPath|jobDir/);
   assert.doesNotMatch(JSON.stringify(payload.data.jobs), /data\/jobs|jobDir|\/private\//);
   assert.doesNotMatch(JSON.stringify(payload.data.queue), /\/Users|\/private|storageKey|outputPath|filePath|secret/i);
+  assert.doesNotMatch(JSON.stringify(payload.data.outbox), /\/Users|\/private|storageKey|outputPath|filePath|secret|token/i);
   assert.doesNotMatch(JSON.stringify(payload.data.releaseReadiness), /\/Users|\/private|storageKey|secret|ghp_|github_pat_|Bearer\s+|sk-[A-Za-z0-9_-]{10,}/i);
 });
 
