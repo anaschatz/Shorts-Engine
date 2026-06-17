@@ -62,3 +62,4 @@
 - Default short rendering should preserve the full source frame in wide-safe mode with contained foreground plus background fill until real vision-based ball/action tracking exists.
 - Social sports styling should stay schema-validated: captions, animation cues, style preset, framing mode and false-goal safety metrics must be covered by tests and eval fixtures.
 - YouTube downloader failures must be classified at the adapter boundary into safe codes and public recovery fields. Validation may surface auth/bot/cookie risk warnings, but authorized import stays disabled by default and never accepts cookies/tokens until a reviewed adapter exists.
+- Generated-output review registration should stay outside the render path, require completed jobs plus explicit rights confirmation, write ignored local drafts, and expose only workspace-relative media refs.

@@ -11,6 +11,7 @@ promptfoo/
 demo/results/
 eval/results/*.json
 eval/review-results/*.json
+eval/review-drafts/*.json
 release/results/*.json
 *.refresh-backup-*
 *.unreadable-*
