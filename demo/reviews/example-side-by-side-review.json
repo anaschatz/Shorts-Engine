@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "generatedRelativePath": "manual-downloads/shortsengine-gxiRyFZXJV8-result.mp4",
+  "referenceRelativePath": "manual-downloads/shortsengine-youtube-short.mp4",
+  "reviewer": "operator-example",
+  "reviewedAt": "2026-06-17T15:05:00.000Z",
+  "criteria": {
+    "moment_selection": {
+      "score": 1,
+      "notes": "Generated result focuses on crowd and reaction shots while the reference is an action sequence near the box."
+    },
+    "caption_action_alignment": {
+      "score": 2,
+      "notes": "Text is generic and repeats energy language instead of tracking the visible football action."
+    },
+    "ball_player_framing": {
+      "score": 2,
+      "notes": "Some frames are readable, but the key football action is not consistently framed."
+    },
+    "reference_style_editing": {
+      "score": 1,
+      "notes": "The edit does not yet match the reference-style kinetic captions and action-led pacing."
+    },
+    "false_goal_guard": {
+      "score": 5,
+      "notes": "The generated result does not falsely claim a goal."
+    },
+    "hook_strength": {
+      "score": 2,
+      "notes": "The opening hook is understandable but not tied to a specific action beat."
+    },
+    "pacing_energy": {
+      "score": 2,
+      "notes": "The pacing feels calmer than the reference and needs stronger beat/action timing."
+    },
+    "text_readability": {
+      "score": 4,
+      "notes": "Text is readable, but the content needs stronger action alignment."
+    },
+    "replay_or_context_use": {
+      "score": 1,
+      "notes": "Context shots are used where the reference prioritizes the live attacking action."
+    },
+    "overall_short_quality": {
+      "score": 2,
+      "notes": "Useful diagnostic output, but not yet product-ready against the reference."
+    }
+  },
+  "flags": {
+    "falseGoalClaim": false,
+    "badCrop": true,
+    "captionMismatch": true,
+    "lowEnergy": true,
+    "wrongMoment": true,
+    "missingTrendEditing": true
+  },
+  "notes": "This example review captures the current gap: vertical structure is good, but the selected moment, caption/action fit and reference-style editing need the next AI/product pass."
+}

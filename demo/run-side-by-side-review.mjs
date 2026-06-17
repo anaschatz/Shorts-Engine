@@ -11,6 +11,11 @@ import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { findSensitiveLeak } from "./report-safety.mjs";
+import {
+  SIDE_BY_SIDE_RUBRIC,
+  buildQualitySummary,
+  validateManualReview,
+} from "./side-by-side-rubric.mjs";
 
 const require = createRequire(import.meta.url);
 const { commandAvailable } = require("../server/media.cjs");
@@ -232,7 +237,20 @@ function buildMetrics(generated, reference, contactSheets) {
   };
 }
 
-function checklistFromMetrics(metrics) {
+function checklistFromMetrics(metrics, quality) {
+  const humanCriteria = quality?.criterionBreakdown
+    ? quality.criterionBreakdown.map((entry) => ({
+        id: entry.id,
+        label: entry.label,
+        status: entry.status,
+        evidence: `Operator score ${entry.score}/5; pass threshold ${entry.passThreshold}/5.`,
+      }))
+    : SIDE_BY_SIDE_RUBRIC.map((criterion) => ({
+        id: criterion.id,
+        label: criterion.label,
+        status: "needs_human_review",
+        evidence: `Needs operator score from ${criterion.scoreRange[0]}-${criterion.scoreRange[1]}; pass threshold ${criterion.passThreshold}.`,
+      }));
   return [
     {
       id: "aspect_ratio",
@@ -246,36 +264,7 @@ function checklistFromMetrics(metrics) {
       status: metrics.durationFit >= 0.8 ? "passed" : "needs_review",
       evidence: "Machine scored from generated/reference duration delta.",
     },
-    {
-      id: "moment_selection",
-      label: "Moment selection matches the most engaging football action",
-      status: "needs_human_review",
-      evidence: "Requires visual/audio review of chance, save, foul, counter, replay or crowd reaction context.",
-    },
-    {
-      id: "caption_action_alignment",
-      label: "On-screen text matches what is happening in the clip",
-      status: "needs_human_review",
-      evidence: "Requires comparing captions against visible action and commentary context.",
-    },
-    {
-      id: "ball_player_framing",
-      label: "Crop keeps the ball, players and key action visible",
-      status: "needs_human_review",
-      evidence: "Requires reviewing contact sheets and playback; this runner does not infer ball location.",
-    },
-    {
-      id: "trend_editing_style",
-      label: "Editing rhythm, captions and animations feel close to the reference style",
-      status: "needs_human_review",
-      evidence: "Requires playback review; metadata alone cannot validate style quality.",
-    },
-    {
-      id: "false_goal_guard",
-      label: "The result does not claim goal without explicit evidence",
-      status: "needs_human_review",
-      evidence: "Requires caption/text review against the actual moment.",
-    },
+    ...humanCriteria,
   ];
 }
 
@@ -318,7 +307,88 @@ function createContactSheet(input, role, rootDir, options = {}) {
   return { role, generated: true, relativePath: output.relativePath };
 }
 
-function failureCasesFromInputs(generatedInput, referenceInput, generatedProbe, referenceProbe, leak) {
+function loadManualReview(options, rootDir, generatedRelativePath, referenceRelativePath) {
+  if (options.reviewPayload) {
+    const validation = validateManualReview(options.reviewPayload, {
+      expectedGeneratedRelativePath: generatedRelativePath,
+      expectedReferenceRelativePath: referenceRelativePath,
+    });
+    return {
+      present: true,
+      ok: validation.ok,
+      review: validation.review,
+      failedCases: validation.failedCases,
+      relativePath: options.reviewRelativePath || null,
+    };
+  }
+  if (!options.review) {
+    return { present: false, ok: true, review: null, failedCases: [], relativePath: null };
+  }
+  const reviewRef = safeRelativeRef(rootDir, options.review);
+  if (!reviewRef.ok) {
+    return {
+      present: true,
+      ok: false,
+      review: null,
+      failedCases: [{ code: reviewRef.code, message: reviewRef.message, field: "review" }],
+      relativePath: null,
+    };
+  }
+  if (extname(reviewRef.resolvedFile).toLowerCase() !== ".json") {
+    return {
+      present: true,
+      ok: false,
+      review: null,
+      failedCases: [{
+        code: "SIDE_BY_SIDE_REVIEW_EXTENSION_UNSUPPORTED",
+        message: "Manual review must be a JSON file.",
+        field: "review",
+      }],
+      relativePath: reviewRef.relativePath,
+    };
+  }
+  if (!existsSync(reviewRef.resolvedFile)) {
+    return {
+      present: true,
+      ok: false,
+      review: null,
+      failedCases: [{
+        code: "SIDE_BY_SIDE_REVIEW_MISSING",
+        message: "Manual review file does not exist.",
+        field: "review",
+      }],
+      relativePath: reviewRef.relativePath,
+    };
+  }
+  try {
+    const payload = JSON.parse(readFileSync(reviewRef.resolvedFile, "utf8"));
+    const validation = validateManualReview(payload, {
+      expectedGeneratedRelativePath: generatedRelativePath,
+      expectedReferenceRelativePath: referenceRelativePath,
+    });
+    return {
+      present: true,
+      ok: validation.ok,
+      review: validation.review,
+      failedCases: validation.failedCases,
+      relativePath: reviewRef.relativePath,
+    };
+  } catch {
+    return {
+      present: true,
+      ok: false,
+      review: null,
+      failedCases: [{
+        code: "SIDE_BY_SIDE_REVIEW_JSON_INVALID",
+        message: "Manual review JSON could not be parsed.",
+        field: "review",
+      }],
+      relativePath: reviewRef.relativePath,
+    };
+  }
+}
+
+function failureCasesFromInputs(generatedInput, referenceInput, generatedProbe, referenceProbe, manualReview, leak) {
   const failures = [];
   if (!generatedInput.ok) failures.push({ code: generatedInput.code, role: "generated", message: generatedInput.message });
   if (!referenceInput.ok) failures.push({ code: referenceInput.code, role: "reference", message: referenceInput.message });
@@ -335,6 +405,9 @@ function failureCasesFromInputs(generatedInput, referenceInput, generatedProbe, 
       role: "reference",
       message: "Reference video could not be read safely.",
     });
+  }
+  if (manualReview.present && !manualReview.ok) {
+    failures.push(...manualReview.failedCases);
   }
   if (leak) {
     failures.push({
@@ -368,6 +441,9 @@ function buildSideBySideReview(options = {}) {
   const generated = publicVideoMetadata("generated", generatedInput, generatedProbe);
   const reference = publicVideoMetadata("reference", referenceInput, referenceProbe);
   const metrics = buildMetrics(generated, reference, contactSheets);
+  const manualReview = loadManualReview(options, rootDir, generated.relativePath, reference.relativePath);
+  const quality = buildQualitySummary(metrics, manualReview);
+  metrics.humanReviewRequired = quality.humanReviewRequired;
   const report = {
     schemaVersion: REVIEW_SCHEMA_VERSION,
     generatedAt: timestamp,
@@ -381,7 +457,29 @@ function buildSideBySideReview(options = {}) {
       reference,
     },
     metrics,
-    checklist: checklistFromMetrics(metrics),
+    quality,
+    operatorReview: manualReview.present && manualReview.ok
+      ? {
+          present: true,
+          relativePath: manualReview.relativePath,
+          reviewer: manualReview.review.reviewer,
+          reviewedAt: manualReview.review.reviewedAt,
+          videoRefs: manualReview.review.videoRefs,
+          flags: manualReview.review.flags,
+          notes: manualReview.review.notes,
+        }
+      : {
+          present: manualReview.present,
+          relativePath: manualReview.relativePath,
+          status: manualReview.present ? "invalid" : "not_provided",
+        },
+    rubric: {
+      schemaVersion: 1,
+      scoreRange: [0, 5],
+      criteriaCount: SIDE_BY_SIDE_RUBRIC.length,
+      humanScoredCriteria: SIDE_BY_SIDE_RUBRIC.map((criterion) => criterion.id),
+    },
+    checklist: checklistFromMetrics(metrics, quality),
     artifacts: {
       contactSheets,
       logsDownloaded: false,
@@ -390,13 +488,17 @@ function buildSideBySideReview(options = {}) {
     failedCases: [],
     limitations: [
       "This runner scores structural video metadata and creates review artifacts; it does not replace human visual judgement.",
-      "Moment quality, caption/action fit, ball tracking and animation taste stay marked for human review.",
+      "Moment quality, caption/action fit, ball tracking and animation taste require operator rubric scores.",
       "No raw logs, absolute paths, provider output or external artifacts are included in reports.",
     ],
-    nextAction: "Review both contact sheets and playback, then score the checklist items that require human judgement.",
+    nextAction: quality.productReady
+      ? "Use this result as a product review sample."
+      : quality.humanReviewRequired
+        ? "Review both contact sheets and playback, then rerun with -- --review=<review-json>."
+        : "Use failed criteria and improvement hints to guide the next AI/product fix.",
   };
   const leak = findSensitiveLeak(report);
-  const failedCases = failureCasesFromInputs(generatedInput, referenceInput, generatedProbe, referenceProbe, leak);
+  const failedCases = failureCasesFromInputs(generatedInput, referenceInput, generatedProbe, referenceProbe, manualReview, leak);
   if (failedCases.length > 0) {
     report.status = "failed";
     report.passed = false;
@@ -454,6 +556,7 @@ function parseArgs(argv = process.argv.slice(2)) {
   for (const arg of argv) {
     if (arg.startsWith("--generated=")) options.generated = arg.slice("--generated=".length);
     else if (arg.startsWith("--reference=")) options.reference = arg.slice("--reference=".length);
+    else if (arg.startsWith("--review=")) options.review = arg.slice("--review=".length);
     else if (arg.startsWith("--results=")) options.resultsDir = arg.slice("--results=".length);
     else if (arg === "--no-contact-sheet") options.createContactSheets = false;
   }
@@ -468,7 +571,12 @@ function runCli() {
   const summary = {
     status: written.report.status,
     passed: written.report.passed,
-    machineScore: written.report.metrics?.machineScore ?? null,
+    structuralScore: written.report.quality?.structuralScore ?? written.report.metrics?.machineScore ?? null,
+    humanScore: written.report.quality?.humanScore ?? null,
+    combinedScore: written.report.quality?.combinedScore ?? null,
+    qualityStatus: written.report.quality?.qualityStatus ?? null,
+    productReady: written.report.quality?.productReady ?? false,
+    reviewApplied: written.report.operatorReview?.present === true && written.report.operatorReview?.status !== "invalid",
     latestPath: written.latestPath,
     reportPath: written.reportPath,
     failedCases: written.report.failedCases,
@@ -487,6 +595,7 @@ export {
   REVIEW_SCHEMA_VERSION,
   buildMetrics,
   buildSideBySideReview,
+  loadManualReview,
   parseArgs,
   probeVideo,
   safeRelativeRef,
