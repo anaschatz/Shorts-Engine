@@ -204,7 +204,7 @@ test("render orchestration completes success path with mocked adapters", async (
   const selectedPlanLog = context.logs.find((entry) => entry.event === "edit_plan_selected");
   assert.equal(selectedPlanLog.highlightType, "goal");
   assert.equal(selectedPlanLog.stylePreset, "social_sports_v1");
-  assert.equal(selectedPlanLog.framingMode, "wide_safe");
+  assert.equal(selectedPlanLog.framingMode, "wide_safe_vertical");
   assert.equal(selectedPlanLog.falseGoalGuardTriggered, false);
 });
 

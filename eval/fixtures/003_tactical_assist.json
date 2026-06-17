@@ -26,7 +26,7 @@
       { "start": 7.0, "end": 13.6 },
       { "start": 12.0, "end": 18.2 }
     ],
-    "reasonCodes": ["replay_worthy_moment", "audio_energy_spike", "commentator_emphasis", "scene_change_cluster"],
+    "reasonCodes": ["replay_worthy_moment", "audio_energy_spike", "commentator_peak", "scene_change_cluster"],
     "highlightType": "replay_worthy_moment",
     "stylePreset": "social_sports_v1"
   },

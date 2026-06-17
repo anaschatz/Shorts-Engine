@@ -23,8 +23,8 @@
   },
   "expected": {
     "highlights": [{ "start": 6.5, "end": 14.5 }],
-    "reasonCodes": ["audio_energy_spike", "scene_change_cluster"],
-    "highlightType": "audio_energy_spike",
+    "reasonCodes": ["crowd_reaction", "crowd_spike", "audio_energy_spike", "scene_change_cluster"],
+    "highlightType": "crowd_reaction",
     "stylePreset": "social_sports_v1"
   },
   "thresholds": {

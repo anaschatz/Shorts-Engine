@@ -158,7 +158,7 @@ test("edit plan validation enforces 9:16 MP4 with captions", () => {
   assert.equal(validated.captions.length, 2);
   assert.equal(validated.highlightType, "generic_highlight");
   assert.equal(validated.stylePreset, "social_sports_v1");
-  assert.equal(validated.framingMode, "wide_safe");
+  assert.equal(validated.framingMode, "wide_safe_vertical");
   assert.equal(validated.cropStrategy.preserveFullFrame, true);
   assert.ok(validated.animationCues.length > 0);
   assert.ok(validated.captionEmphasis.length > 0);

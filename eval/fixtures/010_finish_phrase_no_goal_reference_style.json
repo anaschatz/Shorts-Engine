@@ -1,0 +1,37 @@
+{
+  "id": "finish_phrase_no_goal_reference_style",
+  "title": "Reference-style short without goal evidence",
+  "language": "English",
+  "durationSeconds": 18,
+  "transcript": {
+    "provider": "fixture",
+    "language": "en",
+    "captions": [
+      { "start": 1.0, "end": 2.8, "text": "The attack starts down the right side" },
+      { "start": 7.8, "end": 9.3, "text": "What a finish" },
+      { "start": 11.2, "end": 13.0, "text": "Listen to the reaction from the stands" }
+    ]
+  },
+  "mediaSignals": {
+    "durationSeconds": 18,
+    "width": 1080,
+    "height": 1920,
+    "hasAudio": true,
+    "audioPeaks": [{ "time": 8.8, "energyScore": 0.92, "source": "fixture" }],
+    "sceneChanges": [{ "time": 8.7, "confidence": 0.78, "source": "fixture" }],
+    "highMotionCandidates": [{ "time": 8.9, "confidence": 0.7, "source": "fixture" }]
+  },
+  "expected": {
+    "highlights": [{ "start": 5.0, "end": 12.8 }],
+    "reasonCodes": ["crowd_reaction", "crowd_spike", "audio_energy_spike", "scene_change_cluster"],
+    "highlightType": "crowd_reaction",
+    "stylePreset": "social_sports_v1"
+  },
+  "thresholds": {
+    "minAggregateScore": 74,
+    "minTop1Overlap": 0.4,
+    "minTop3Recall": 1,
+    "minReasonPrecision": 0.5,
+    "minRetentionScore": 50
+  }
+}

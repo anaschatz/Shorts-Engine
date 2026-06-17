@@ -133,20 +133,20 @@ function captionsHaveValidTiming(plan) {
 function planHasGoalLanguage(plan) {
   if (!plan || typeof plan !== "object") return false;
   const captionTexts = Array.isArray(plan.captions) ? plan.captions.map((caption) => caption.text) : [];
-  const text = [plan.hook, plan.title, ...captionTexts].filter(Boolean).join(" ");
+  const text = [plan.hook, ...captionTexts].filter(Boolean).join(" ");
   return hasGoalLanguage(text);
 }
 
 function framingIsSafe(plan, metadata = {}) {
   if (!plan || typeof plan !== "object") return false;
-  if (!["wide_safe", "safe_center", "action_bias"].includes(plan.framingMode)) return false;
+  if (!["wide_safe", "wide_safe_vertical", "safe_center", "action_bias"].includes(plan.framingMode)) return false;
   const crop = plan.cropStrategy;
   if (!crop || typeof crop !== "object") return false;
   const inputWidth = Math.max(1, toNumber(metadata.width, 1920));
   const inputHeight = Math.max(1, toNumber(metadata.height, 1080));
   const zoom = toNumber(crop.zoom, 1);
   if (!Number.isFinite(zoom) || zoom < 0.5 || zoom > 1.35) return false;
-  if (plan.framingMode === "wide_safe" && crop.preserveFullFrame !== true) return false;
+  if (["wide_safe", "wide_safe_vertical"].includes(plan.framingMode) && crop.preserveFullFrame !== true) return false;
   if (crop.maxCropPercent !== undefined && toNumber(crop.maxCropPercent, 1) > 0.35) return false;
   if (crop.bounds && typeof crop.bounds === "object") {
     const left = toNumber(crop.bounds.left, Number.NaN);

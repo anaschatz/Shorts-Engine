@@ -28,6 +28,7 @@ function labelForHighlightType(highlightType) {
   const labels = {
     goal: "GOAL",
     shot_on_target: "SHOT ON TARGET",
+    near_miss: "NEAR MISS",
     big_chance: "BIG CHANCE",
     save: "KEEPER SAVE",
     foul: "FOUL",
@@ -36,8 +37,11 @@ function labelForHighlightType(highlightType) {
     counter_attack: "COUNTER ATTACK",
     skill_move: "SKILL MOVE",
     crowd_reaction: "CROWD REACTION",
+    commentator_peak: "COMMENTATOR PEAK",
+    replay_or_reaction: "REPLAY MOMENT",
     replay_worthy_moment: "REPLAY-WORTHY",
     audio_energy_spike: "ENERGY SPIKE",
+    unknown_action: "KEY PHASE",
     generic_highlight: "KEY MOMENT",
   };
   return labels[highlightType] || labels.generic_highlight;
@@ -156,7 +160,7 @@ async function renderShort({ inputPath, outputPath, subtitlesPath, plan, signal 
   writeAssSubtitles(plan, subtitlesPath);
   const duration = Number((plan.sourceEnd - plan.sourceStart).toFixed(2));
   const subtitlesFilter = `subtitles=filename='${escapeFilterPath(subtitlesPath)}'`;
-  const filter = plan.framingMode === "wide_safe"
+  const filter = ["wide_safe", "wide_safe_vertical"].includes(plan.framingMode)
     ? [
         "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=18:1[bg]",
         "[0:v]scale=1080:1920:force_original_aspect_ratio=decrease[fg]",

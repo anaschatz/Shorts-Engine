@@ -14,10 +14,10 @@ class MockTranscriptionProvider extends TranscriptionProvider {
   async transcribe({ metadata, preset = "hype", language = "auto" }) {
     const duration = Math.min(Number(metadata.durationSeconds || 18), 18);
     const cueTexts = {
-      hype: ["What a finish", "The build-up is clean", "Watch the final touch", "This is the moment"],
-      drama: ["Everything changes here", "One pass opens the game", "The stadium feels it", "Replay this angle"],
+      hype: ["The pressure jumps", "The build-up is clean", "Watch the next touch", "This is the key phase"],
+      drama: ["Everything changes here", "One pass opens the game", "The stadium reacts", "Replay this angle"],
       tactical: ["Look at the run", "The passing lane opens", "The defender steps late", "That is the pattern"],
-      fan: ["No way this happened", "Look at the keeper", "That first touch", "Comments will argue this"],
+      fan: ["The crowd reacts", "Look at the pressure", "That first touch matters", "Run this phase back"],
     };
     const lines = cueTexts[preset] || cueTexts.hype;
     const segment = Math.max(1.6, duration / lines.length);

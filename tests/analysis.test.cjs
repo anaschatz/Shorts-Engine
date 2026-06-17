@@ -78,7 +78,7 @@ test("candidate edit plans are validated 9:16 MP4 exports", () => {
   assert.equal(plans[0].export.height, 1920);
   assert.equal(plans[0].highlightType, "goal");
   assert.equal(plans[0].stylePreset, "social_sports_v1");
-  assert.equal(plans[0].framingMode, "wide_safe");
+  assert.equal(plans[0].framingMode, "wide_safe_vertical");
   assert.equal(plans[0].cropStrategy.preserveFullFrame, true);
   assert.ok(plans[0].captionEmphasis.length > 0);
   assert.ok(plans[0].animationCues.length > 0);
@@ -97,6 +97,7 @@ test("reason code extraction recognizes football and replay signals", () => {
   assert.equal(reasons.includes("replay_worthy_moment"), true);
   assert.equal(reasons.includes("crowd_reaction"), true);
   assert.equal(reasons.includes("audio_energy_spike"), true);
+  assert.equal(reasons.includes("commentator_peak"), true);
 });
 
 test("audio-only spike is not promoted to goal without semantic evidence", () => {
@@ -114,9 +115,29 @@ test("audio-only spike is not promoted to goal without semantic evidence", () =>
     },
     preset: "hype",
   });
-  assert.equal(result.moments[0].highlightType, "audio_energy_spike");
+  assert.equal(result.moments[0].highlightType, "crowd_reaction");
   assert.equal(result.moments[0].reasonCodes.includes("goal"), false);
   assert.equal(hasGoalLanguage(result.moments[0].hook), false);
+});
+
+test("finish phrasing alone is not goal evidence", () => {
+  const reasons = reasonCodesForCaption(
+    { start: 3, end: 5, text: "What a finish" },
+    {
+      audioPeaks: [{ time: 4, energyScore: 0.9 }],
+      sceneChanges: [{ time: 4.1, confidence: 0.8 }],
+    },
+  );
+  assert.equal(reasons.includes("goal"), false);
+  assert.equal(hasGoalLanguage("What a finish"), false);
+});
+
+test("mock fallback transcription does not invent goal captions", async () => {
+  const provider = chooseTranscriptionProvider({ forceMock: true });
+  const result = await provider.transcribe({ metadata, preset: "hype", language: "English" });
+  const text = result.captions.map((caption) => caption.text).join(" ");
+  assert.equal(hasGoalLanguage(text), false);
+  assert.doesNotMatch(text, /finish/i);
 });
 
 test("save and foul language map to football-aware non-goal types", () => {

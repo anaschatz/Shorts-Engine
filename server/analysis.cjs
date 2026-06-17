@@ -117,6 +117,7 @@ const BUILD_UP_TERMS = [
 
 const REPLAY_TERMS = ["replay", "again", "angle", "ριπλεϊ", "ριπλει", "ξανα", "επανάληψη", "επαναληψη"];
 const CROWD_TERMS = ["crowd", "stadium", "fans", "roar", "κερκιδα", "κερκίδα", "κόσμος", "κοσμος"];
+const CROWD_REACTION_TERMS = [...CROWD_TERMS, "stands", "supporters", "reaction", "noise", "κερκίδα", "αντιδραση", "αντίδραση"];
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, Number(value) || min));
@@ -288,6 +289,8 @@ function reasonCodesForCaption(caption, signals) {
   const text = caption.text || "";
   const center = (caption.start + caption.end) / 2;
   const reasons = [];
+  const nearbyAudioPeaks = nearby(signals.audioPeaks, center, 4);
+  const nearbySceneChanges = nearby(signals.sceneChanges, center, 3);
   if (hasGoalLanguage(text)) reasons.push("goal");
   if (hasTerm(text, HARD_FOUL_TERMS)) reasons.push("hard_foul");
   if (hasTerm(text, FOUL_TERMS)) reasons.push("foul");
@@ -299,10 +302,13 @@ function reasonCodesForCaption(caption, signals) {
   if (hasTerm(text, SKILL_TERMS)) reasons.push("skill_move");
   if (hasTerm(text, BUILD_UP_TERMS)) reasons.push("replay_worthy_moment");
   if (hasTerm(text, REPLAY_TERMS)) reasons.push("replay_worthy_moment");
-  if (hasTerm(text, CROWD_TERMS)) reasons.push("crowd_reaction");
-  if (/[!]{1,}|[Α-ΩA-Z]{5,}/.test(text)) reasons.push("commentator_emphasis");
-  if (nearby(signals.audioPeaks, center, 4).length) reasons.push("audio_energy_spike");
-  if (nearby(signals.sceneChanges, center, 3).length >= 1) reasons.push("scene_change_cluster");
+  if (hasTerm(text, CROWD_REACTION_TERMS)) reasons.push("crowd_reaction");
+  if (/[!]{1,}|[Α-ΩA-Z]{5,}/.test(text)) reasons.push("commentator_peak");
+  if (nearbyAudioPeaks.length) reasons.push("audio_energy_spike");
+  if (nearbyAudioPeaks.some((peak) => Number(peak.energyScore || 0) >= 0.88) && hasTerm(text, CROWD_REACTION_TERMS)) {
+    reasons.push("crowd_spike");
+  }
+  if (nearbySceneChanges.length >= 1) reasons.push("scene_change_cluster");
   if (!reasons.length) reasons.push("generic_highlight");
   return [...new Set(reasons)];
 }
@@ -318,12 +324,15 @@ function scoreReasons(reasons) {
     skill_move: 0.14,
     audio_energy_spike: 0.14,
     audio_peak: 0.14,
-    commentator_emphasis: 0.14,
+    commentator_peak: 0.14,
+    crowd_spike: 0.13,
     crowd_reaction: 0.12,
     scene_change_cluster: 0.1,
     replay_worthy_moment: 0.08,
+    replay_or_reaction: 0.08,
     foul: 0.08,
     card_moment: 0.08,
+    unknown_action: 0.02,
     generic_highlight: 0.03,
   };
   return clamp(0.22 + reasons.reduce((sum, reason) => sum + (weights[reason] || 0.04), 0), 0.12, 0.99);
@@ -339,9 +348,12 @@ function highlightTypeForReasons(reasons = []) {
   if (reasons.includes("shot_on_target")) return "shot_on_target";
   if (reasons.includes("counter_attack")) return "counter_attack";
   if (reasons.includes("skill_move")) return "skill_move";
-  if (reasons.includes("crowd_reaction")) return "crowd_reaction";
+  if (reasons.includes("crowd_reaction") || reasons.includes("crowd_spike")) return "crowd_reaction";
+  if (reasons.includes("replay_or_reaction")) return "replay_or_reaction";
   if (reasons.includes("replay_worthy_moment")) return "replay_worthy_moment";
+  if (reasons.includes("commentator_peak")) return "commentator_peak";
   if (reasons.includes("audio_energy_spike") || reasons.includes("audio_peak")) return "audio_energy_spike";
+  if (reasons.includes("unknown_action")) return "unknown_action";
   return "generic_highlight";
 }
 
@@ -349,6 +361,7 @@ function titleForHighlightType(highlightType) {
   const titles = {
     goal: "Goal impact beat",
     shot_on_target: "Shot on target",
+    near_miss: "Near miss reaction",
     big_chance: "Big chance",
     save: "Keeper save",
     foul: "Foul tempo shift",
@@ -357,11 +370,51 @@ function titleForHighlightType(highlightType) {
     counter_attack: "Counter attack window",
     skill_move: "Skill move highlight",
     crowd_reaction: "Crowd reaction",
+    commentator_peak: "Commentator peak",
+    replay_or_reaction: "Replay or reaction beat",
     replay_worthy_moment: "Replay-worthy play",
     audio_energy_spike: "Audio energy spike",
+    unknown_action: "Unknown action pressure phase",
     generic_highlight: "High-intensity moment",
   };
   return titles[highlightType] || titles.generic_highlight;
+}
+
+function evidenceForReasons(reasons = [], caption = null, signals = {}, center = null) {
+  const reasonSet = new Set(reasons);
+  const nearbyAudio = center == null ? [] : nearby(signals.audioPeaks, center, 4);
+  const nearbyScenes = center == null ? [] : nearby(signals.sceneChanges, center, 3);
+  return {
+    goalEvidence: reasonSet.has("goal"),
+    captionEvidence: caption ? sanitizeText(caption.text, 160) : null,
+    audioPeakCount: nearbyAudio.length,
+    strongestAudioScore: nearbyAudio.reduce((max, item) => Math.max(max, Number(item.energyScore || 0)), 0),
+    sceneChangeCount: nearbyScenes.length,
+    reasonCodes: [...reasonSet],
+  };
+}
+
+function captionIntentForHighlightType(highlightType) {
+  const intents = {
+    goal: "goal_claim_allowed",
+    shot_on_target: "chance_pressure",
+    near_miss: "near_miss_reaction",
+    big_chance: "big_chance_pressure",
+    save: "keeper_save_reaction",
+    foul: "foul_contact",
+    hard_foul: "hard_contact_reaction",
+    card_moment: "referee_decision",
+    counter_attack: "transition_space",
+    skill_move: "skill_detail",
+    crowd_reaction: "crowd_energy",
+    commentator_peak: "commentary_energy",
+    replay_or_reaction: "replay_detail",
+    replay_worthy_moment: "replay_detail",
+    audio_energy_spike: "audio_energy",
+    unknown_action: "neutral_pressure",
+    generic_highlight: "neutral_pressure",
+  };
+  return intents[highlightType] || intents.generic_highlight;
 }
 
 function hookForMoment(moment, preset) {
@@ -411,6 +464,8 @@ function createFallbackMoments(signals, preset) {
       retentionScore: Math.round(score * 100),
       suggestedPreset: preset,
       hook: hookForHighlightType(highlightType, preset),
+      evidence: evidenceForReasons(reasonCodes, null, signals, center),
+      captionIntent: captionIntentForHighlightType(highlightType),
       source: "fallback",
     };
   });
@@ -440,6 +495,8 @@ function detectHighlights({ transcript, signals, preset = "hype" } = {}) {
       confidence: Number(score.toFixed(2)),
       retentionScore: Math.round(score * 100),
       suggestedPreset: reasonCodes.includes("counter_attack") || reasonCodes.includes("skill_move") ? "tactical" : preset,
+      evidence: evidenceForReasons(reasonCodes, caption, safeSignals, center),
+      captionIntent: captionIntentForHighlightType(highlightType),
       source: "analysis",
     };
     moment.hook = hookForMoment(moment, preset);
@@ -450,7 +507,11 @@ function detectHighlights({ transcript, signals, preset = "hype" } = {}) {
     const center = clamp(peak.time, 0, duration);
     const start = Number(clamp(center - 4, 0, Math.max(0, duration - 6)).toFixed(2));
     const end = Number(clamp(start + 8, start + 3, duration).toFixed(2));
-    const reasonCodes = ["audio_energy_spike", nearby(safeSignals.sceneChanges, center, 3).length ? "scene_change_cluster" : ""].filter(Boolean);
+    const reasonCodes = [
+      "audio_energy_spike",
+      Number(peak.energyScore || 0) >= 0.88 ? "crowd_spike" : "",
+      nearby(safeSignals.sceneChanges, center, 3).length ? "scene_change_cluster" : "",
+    ].filter(Boolean);
     const highlightType = highlightTypeForReasons(reasonCodes);
     const score = scoreReasons(reasonCodes) - 0.04;
     return {
@@ -467,6 +528,8 @@ function detectHighlights({ transcript, signals, preset = "hype" } = {}) {
       retentionScore: Math.round(score * 100),
       suggestedPreset: preset,
       hook: hookForHighlightType(highlightType, preset),
+      evidence: evidenceForReasons(reasonCodes, null, safeSignals, center),
+      captionIntent: captionIntentForHighlightType(highlightType),
       source: "analysis",
     };
   });
@@ -528,7 +591,7 @@ function createCandidateEditPlans({ moments, metadata, title = "ShortsEngine Sho
       animationCues,
       safetyNotes: [
         "No object or ball tracking is claimed in v1.",
-        framingMode === "wide_safe"
+        framingMode === "wide_safe_vertical"
           ? "Wide-safe framing keeps the full source frame visible over a blurred fill."
           : "Center framing is bounded and conservative.",
       ],
@@ -544,6 +607,8 @@ function createCandidateEditPlans({ moments, metadata, title = "ShortsEngine Sho
         highlightType,
         retentionScore: moment.retentionScore,
         reasonCodes: moment.reasonCodes || [],
+        evidence: moment.evidence || null,
+        captionIntent: moment.captionIntent || captionIntentForHighlightType(highlightType),
         source: moment.source,
       },
       export: {
@@ -565,7 +630,15 @@ function analysisHealth() {
     ready: true,
     mode: "deterministic-signal-ranking",
     ffmpegSignals: commandAvailable(CONFIG.ffmpegBin),
-    features: ["media_signals", "football_highlight_taxonomy", "false_goal_guard", "highlight_ranking", "candidate_edit_plans"],
+    features: [
+      "media_signals",
+      "football_highlight_taxonomy",
+      "evidence_based_goal_guard",
+      "commentary_crowd_signal_scoring",
+      "false_goal_guard",
+      "highlight_ranking",
+      "candidate_edit_plans",
+    ],
   };
 }
 
@@ -579,7 +652,9 @@ module.exports = {
   extractMediaSignals,
   fallbackAudioPeaks,
   fallbackSceneChanges,
+  evidenceForReasons,
   highlightTypeForReasons,
+  captionIntentForHighlightType,
   reasonCodesForCaption,
   scoreReasons,
   titleForHighlightType,

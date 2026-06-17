@@ -29,7 +29,7 @@
   },
   "expected": {
     "highlights": [{ "start": 19.0, "end": 26.0 }],
-    "reasonCodes": ["goal", "audio_energy_spike", "commentator_emphasis", "scene_change_cluster"],
+    "reasonCodes": ["goal", "audio_energy_spike", "commentator_peak", "scene_change_cluster"],
     "highlightType": "goal",
     "stylePreset": "social_sports_v1"
   },

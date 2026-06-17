@@ -11,6 +11,7 @@ const HOOKS = Object.freeze({
 const HIGHLIGHT_TYPES = Object.freeze([
   "goal",
   "shot_on_target",
+  "near_miss",
   "big_chance",
   "save",
   "foul",
@@ -19,32 +20,39 @@ const HIGHLIGHT_TYPES = Object.freeze([
   "counter_attack",
   "skill_move",
   "crowd_reaction",
+  "commentator_peak",
+  "replay_or_reaction",
   "replay_worthy_moment",
   "audio_energy_spike",
+  "unknown_action",
   "generic_highlight",
 ]);
 
-const FRAMING_MODES = Object.freeze(["safe_center", "action_bias", "wide_safe"]);
+const FRAMING_MODES = Object.freeze(["safe_center", "action_bias", "wide_safe", "wide_safe_vertical"]);
 const STYLE_PRESETS = Object.freeze(["hype", "drama", "tactical", "fan", "social_sports_v1"]);
 const ANIMATION_CUE_TYPES = Object.freeze(["intro_hook", "caption_pop", "beat_pulse", "subtle_punch_in", "end_replay_prompt"]);
-const GOAL_LANGUAGE_RE = /\b(scored|scores|winner|what a finish|back of the net|into the net|finds the net)\b|γκολ|σκοραρ|σκόραρ/i;
+const GOAL_LANGUAGE_RE = /\b(scored|scores|equalises|equalizes|back of the net|into the net|finds the net)\b|γκολ|σκοραρ|σκόραρ/i;
 const GOAL_WORD_RE = /\bgo+als?\b/gi;
 const NON_EVENT_GOAL_CONTEXT_RE = /\b(?:behind|towards?|near|around|beside|from behind|in front of)\s+(?:the\s+)?goals?\b|\bno\s+goals?\b/i;
 
 const HIGHLIGHT_HOOKS = Object.freeze({
   goal: "ΤΟ ΓΚΟΛ ΠΟΥ ΑΛΛΑΞΕ ΤΟ ΜΑΤΣ",
-  shot_on_target: "SO CLOSE",
-  big_chance: "BIG CHANCE, BIGGER REACTION",
-  save: "BIG SAVE, BIGGER REACTION",
-  foul: "THAT CHALLENGE CHANGED THE TEMPO",
-  hard_foul: "HEAVY CONTACT, HUGE REACTION",
-  card_moment: "THE MOMENT THE MATCH GOT HEATED",
-  counter_attack: "WATCH THE BREAK OPEN UP",
-  skill_move: "THE TOUCH THAT OPENED SPACE",
-  crowd_reaction: "THE CROWD FELT THIS ONE",
-  replay_worthy_moment: "THE MOMENT EVERYONE REPLAYED",
-  audio_energy_spike: "THE ENERGY JUMPED INSTANTLY",
-  generic_highlight: "WATCH THE BUILD-UP",
+  shot_on_target: "ΣΟΥΤ ΠΟΥ ΑΝΕΒΑΣΕ ΤΗΝ ΕΝΤΑΣΗ",
+  near_miss: "ΠΑΡΑ ΛΙΓΟ ΝΑ ΜΠΕΙ",
+  big_chance: "Η ΜΕΓΑΛΗ ΦΑΣΗ",
+  save: "Η ΑΠΟΚΡΟΥΣΗ ΠΟΥ ΚΡΑΤΗΣΕ ΤΟ ΜΑΤΣ",
+  foul: "ΤΟ ΜΑΡΚΑΡΙΣΜΑ ΠΟΥ ΑΛΛΑΞΕ ΤΟΝ ΡΥΘΜΟ",
+  hard_foul: "ΣΚΛΗΡΗ ΕΠΑΦΗ, ΜΕΓΑΛΗ ΑΝΤΙΔΡΑΣΗ",
+  card_moment: "Η ΦΑΣΗ ΠΟΥ ΑΝΑΨΕ ΤΟ ΜΑΤΣ",
+  counter_attack: "Η ΑΝΤΕΠΙΘΕΣΗ ΑΝΟΙΞΕ ΧΩΡΟ",
+  skill_move: "Η ΚΙΝΗΣΗ ΠΟΥ ΑΝΟΙΞΕ ΤΗ ΦΑΣΗ",
+  crowd_reaction: "ΑΚΟΥ ΤΗΝ ΚΕΡΚΙΔΑ",
+  commentator_peak: "Ο ΕΚΦΩΝΗΤΗΣ ΤΟ ΕΝΙΩΣΕ",
+  replay_or_reaction: "Η ΦΑΣΗ ΠΟΥ ΘΕΛΕΙ REPLAY",
+  replay_worthy_moment: "Η ΦΑΣΗ ΠΟΥ ΘΕΛΕΙ REPLAY",
+  audio_energy_spike: "Η ΕΝΤΑΣΗ ΑΝΕΒΗΚΕ ΑΠΟΤΟΜΑ",
+  unknown_action: "ΔΕΣ ΠΩΣ ΑΝΕΒΑΙΝΕΙ Η ΠΙΕΣΗ",
+  generic_highlight: "ΔΕΣ ΤΗΝ ΕΞΕΛΙΞΗ ΤΗΣ ΦΑΣΗΣ",
 });
 
 function clamp(value, min, max) {
@@ -58,7 +66,8 @@ function normalizeHighlightType(value) {
 
 function normalizeFramingMode(value) {
   const safe = sanitizeText(value, 40).toLowerCase();
-  return FRAMING_MODES.includes(safe) ? safe : "wide_safe";
+  if (safe === "wide_safe") return "wide_safe_vertical";
+  return FRAMING_MODES.includes(safe) ? safe : "wide_safe_vertical";
 }
 
 function normalizeStylePreset(value) {
@@ -77,7 +86,7 @@ function hasGoalLanguage(value) {
 }
 
 function assertNoMisleadingGoalLanguage({ hook, captions, highlightType, reasonCodes }) {
-  const hasGoalEvidence = highlightType === "goal" || (Array.isArray(reasonCodes) && reasonCodes.includes("goal"));
+  const hasGoalEvidence = highlightType === "goal" && Array.isArray(reasonCodes) && reasonCodes.includes("goal");
   if (hasGoalEvidence) return;
   const texts = [hook, ...(Array.isArray(captions) ? captions.map((caption) => caption && caption.text) : [])];
   if (texts.some(hasGoalLanguage)) {
@@ -113,21 +122,24 @@ function hookForHighlightType(highlightType, preset) {
 
 function createFallbackCaptions(duration, preset, options = {}) {
   const highlightType = normalizeHighlightType(options.highlightType);
-  const hook = options.hook || hookForHighlightType(highlightType, preset);
   const beatsByType = {
-    goal: [hook, "THE FINISH CHANGED THE MATCH", "WATCH THE MOVEMENT BEFORE IT", "REPLAY THE BUILD-UP"],
-    shot_on_target: [hook, "THE CHANCE OPENS FAST", "ONE TOUCH CREATES THE DANGER", "REPLAY THE PRESSURE"],
-    big_chance: [hook, "THE WINDOW OPENS FOR A SECOND", "SO CLOSE TO THE BIG MOMENT", "WATCH THE RUN"],
-    save: [hook, "THE KEEPER REACTS JUST IN TIME", "SO CLOSE", "RUN IT BACK"],
-    foul: [hook, "THE TEMPO CHANGES HERE", "CONTACT, REACTION, PRESSURE", "WATCH THE AFTERMATH"],
-    hard_foul: [hook, "HEAVY CONTACT, HUGE REACTION", "THE MATCH GETS HEATED", "REPLAY THE CHALLENGE"],
-    card_moment: [hook, "THE REFEREE HAS A DECISION", "EVERYONE REACTS", "WATCH THE TEMPO SHIFT"],
-    counter_attack: [hook, "SPACE OPENS INSTANTLY", "THE BREAK IS ON", "WATCH THE RUNNER"],
-    skill_move: [hook, "ONE TOUCH CHANGES THE PLAY", "THE DEFENDER HAS TO TURN", "REPLAY THE MOVE"],
-    crowd_reaction: [hook, "THE STADIUM TELLS THE STORY", "THE ENERGY JUMPS", "RUN IT BACK"],
-    replay_worthy_moment: [hook, "THE DETAIL IS IN THE BUILD-UP", "WATCH IT AGAIN", "REPLAY-WORTHY"],
-    audio_energy_spike: [hook, "THE CROWD TELLS YOU EVERYTHING", "THE ENERGY JUMPS", "WATCH THE BUILD-UP"],
-    generic_highlight: [hook, "THE PRESSURE BUILDS", "THE PLAY OPENS UP", "WATCH THE DETAIL"],
+    goal: ["THE FINISH CHANGED THE MATCH", "WATCH THE MOVEMENT BEFORE IT", "REPLAY THE BUILD-UP"],
+    shot_on_target: ["THE CHANCE OPENS FAST", "ONE TOUCH CREATES THE DANGER", "REPLAY THE PRESSURE"],
+    near_miss: ["THE CROWD THOUGHT IT WAS IN", "SO CLOSE TO THE BIG MOMENT", "RUN IT BACK"],
+    big_chance: ["THE WINDOW OPENS FOR A SECOND", "THE PRESSURE HITS FAST", "WATCH THE RUN"],
+    save: ["THE KEEPER REACTS JUST IN TIME", "SO CLOSE", "RUN IT BACK"],
+    foul: ["THE TEMPO CHANGES HERE", "CONTACT, REACTION, PRESSURE", "WATCH THE AFTERMATH"],
+    hard_foul: ["HEAVY CONTACT, HUGE REACTION", "THE MATCH GETS HEATED", "REPLAY THE CHALLENGE"],
+    card_moment: ["THE REFEREE HAS A DECISION", "EVERYONE REACTS", "WATCH THE TEMPO SHIFT"],
+    counter_attack: ["SPACE OPENS INSTANTLY", "THE BREAK IS ON", "WATCH THE RUNNER"],
+    skill_move: ["ONE TOUCH CHANGES THE PLAY", "THE DEFENDER HAS TO TURN", "REPLAY THE MOVE"],
+    crowd_reaction: ["THE STADIUM TELLS THE STORY", "THE ENERGY JUMPS", "RUN IT BACK"],
+    commentator_peak: ["THE CALL TELLS YOU THE MOMENT", "THE PRESSURE JUMPS", "WATCH THE REACTION"],
+    replay_or_reaction: ["THE DETAIL IS IN THE BUILD-UP", "WATCH IT AGAIN", "REPLAY-WORTHY"],
+    replay_worthy_moment: ["THE DETAIL IS IN THE BUILD-UP", "WATCH IT AGAIN", "REPLAY-WORTHY"],
+    audio_energy_spike: ["THE CROWD TELLS YOU EVERYTHING", "THE ENERGY JUMPS", "WATCH THE BUILD-UP"],
+    unknown_action: ["THE PRESSURE BUILDS", "THE PLAY OPENS UP", "WATCH THE DETAIL"],
+    generic_highlight: ["THE PRESSURE BUILDS", "THE PLAY OPENS UP", "WATCH THE DETAIL"],
   };
   const beats = beatsByType[highlightType] || beatsByType.generic_highlight;
   const segment = Math.max(1.8, duration / beats.length);
@@ -142,6 +154,7 @@ function createCaptionEmphasis(captions, highlightType) {
   const priorityWords = {
     goal: ["GOAL", "FINISH"],
     shot_on_target: ["CLOSE", "CHANCE"],
+    near_miss: ["CLOSE", "REACTION"],
     big_chance: ["CHANCE", "CLOSE"],
     save: ["SAVE", "KEEPER"],
     foul: ["CHALLENGE", "CONTACT"],
@@ -150,8 +163,11 @@ function createCaptionEmphasis(captions, highlightType) {
     counter_attack: ["BREAK", "SPACE"],
     skill_move: ["TOUCH", "MOVE"],
     crowd_reaction: ["CROWD", "ENERGY"],
+    commentator_peak: ["CALL", "PRESSURE"],
+    replay_or_reaction: ["REPLAY", "DETAIL"],
     replay_worthy_moment: ["REPLAY", "DETAIL"],
     audio_energy_spike: ["ENERGY", "CROWD"],
+    unknown_action: ["WATCH", "PRESSURE"],
     generic_highlight: ["WATCH", "BUILD-UP"],
   };
   return (Array.isArray(captions) ? captions : []).slice(0, 2).map((caption, index) => ({
@@ -183,11 +199,11 @@ function createAnimationCues(duration, reasonCodes = []) {
   }));
 }
 
-function createCropStrategy(metadata = {}, framingMode = "wide_safe") {
+function createCropStrategy(metadata = {}, framingMode = "wide_safe_vertical") {
   const width = Math.max(1, Number(metadata.width) || 1920);
   const height = Math.max(1, Number(metadata.height) || 1080);
   const mode = normalizeFramingMode(framingMode);
-  if (mode === "wide_safe") {
+  if (mode === "wide_safe_vertical") {
     return {
       type: "wide_safe_contain",
       x: 0,
@@ -216,8 +232,8 @@ function createCropStrategy(metadata = {}, framingMode = "wide_safe") {
 function framingModeForMetadata(metadata = {}) {
   const width = Number(metadata.width || 0);
   const height = Number(metadata.height || 0);
-  if (!width || !height) return "wide_safe";
-  return width / height > 1.2 ? "wide_safe" : "safe_center";
+  if (!width || !height) return "wide_safe_vertical";
+  return width / height > 1.2 ? "wide_safe_vertical" : "safe_center";
 }
 
 function createEditPlan({ metadata, transcript, preset = "hype", title = "ShortsEngine Short" }) {
