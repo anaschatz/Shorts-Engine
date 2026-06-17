@@ -22,6 +22,7 @@ const {
   safeDownloadFileName,
   MAX_JSON_BODY_BYTES,
   MAX_MULTIPART_FIELD_BYTES,
+  jobs,
 } = require("../server/app.cjs");
 
 const mp4Header = Buffer.from([
@@ -111,6 +112,14 @@ function backendReviewIds(suffix = "aaaa") {
     jobId: `job_${suffix}${suffix}${suffix}${suffix}-${suffix}-4${suffix.slice(1)}-${suffix}-${suffix}${suffix}${suffix}`,
     exportId: `exp_${suffix}${suffix}${suffix}${suffix}-${suffix}-4${suffix.slice(1)}-${suffix}-${suffix}${suffix}${suffix}`,
   };
+}
+
+let backendReviewSuffixCounter = 0;
+
+function isolatedReviewSuffix(seed = "t") {
+  backendReviewSuffixCounter += 1;
+  const suffixSeed = `${seed}${process.pid}${Date.now()}${backendReviewSuffixCounter}`;
+  return suffixSeed.toLowerCase().replace(/[^a-z0-9]/g, "").slice(-4).padStart(4, "a");
 }
 
 function writeBackendReviewRecords(overrides = {}) {
@@ -208,6 +217,22 @@ function writeBackendReviewRecords(overrides = {}) {
   writeJsonAtomic(storagePath("projects", `${ids.projectId}.json`), projectRecord);
   writeJsonAtomic(storagePath("projects", `${ids.projectId}.render.json`), renderRecord);
   return ids;
+}
+
+async function postJson(url, payload) {
+  const body = Buffer.from(JSON.stringify(payload));
+  const req = mockRequest({
+    method: "POST",
+    url,
+    headers: {
+      "content-type": "application/json",
+      "content-length": String(body.length),
+    },
+    body,
+  });
+  const res = mockResponse();
+  await route(req, res);
+  return { res, payload: JSON.parse(res.body.toString("utf8")) };
 }
 
 test("backend upload validation rejects unsafe media candidates", () => {
@@ -905,6 +930,88 @@ test("API creates manual-only regeneration draft without triggering render", asy
   assert.equal(payload.data.regenerationPlan.proposedEditPlan.framingMode, "wide_safe_vertical");
   assert.equal(payload.data.regenerationPlan.safetyChecks.some((check) => check.code === "NO_AUTO_RENDER" && check.status === "passed"), true);
   assert.doesNotMatch(JSON.stringify(payload), /\/Users|\/private|storageKey|outputPath|secret|token|stdout|stderr|stack/i);
+});
+
+test("API rejects regeneration approval without explicit human approval", async () => {
+  const ids = writeBackendReviewRecords({
+    suffix: "abdh",
+    mutateEditPlan(editPlan) {
+      editPlan.captions[0].text = "GOAL FROM NOWHERE";
+      return editPlan;
+    },
+  });
+  const draft = await postJson("/api/review/regeneration-plan", {
+    projectId: ids.projectId,
+    jobId: ids.jobId,
+    exportId: ids.exportId,
+    rightsConfirmed: true,
+  });
+  assert.equal(draft.res.statusCode, 201);
+  const beforeCount = jobs.all().length;
+
+  const approval = await postJson("/api/review/regeneration-approval", {
+    projectId: ids.projectId,
+    sourceJobId: ids.jobId,
+    exportId: ids.exportId,
+    regenerationPlanId: draft.payload.data.regenerationPlan.regenerationPlanId,
+    selectedDraftHash: draft.payload.data.regenerationPlan.draftHash,
+    idempotencyKey: "regen_approval_missing_approve_abdh",
+    approve: false,
+    rightsConfirmed: true,
+  });
+
+  assert.equal(approval.res.statusCode, 400);
+  assert.equal(approval.payload.ok, false);
+  assert.equal(approval.payload.error.code, "VALIDATION_ERROR");
+  assert.equal(jobs.all().length, beforeCount);
+  assert.doesNotMatch(JSON.stringify(approval.payload), /\/Users|\/private|storageKey|outputPath|secret|token|stdout|stderr|stack/i);
+});
+
+test("API approves validated regeneration draft and keeps approval idempotent", async () => {
+  const suffix = isolatedReviewSuffix("appr");
+  const ids = writeBackendReviewRecords({
+    suffix,
+    mutateEditPlan(editPlan) {
+      editPlan.captions[0].text = "GOAL FROM NOWHERE";
+      return editPlan;
+    },
+  });
+  const draft = await postJson("/api/review/regeneration-plan", {
+    projectId: ids.projectId,
+    jobId: ids.jobId,
+    exportId: ids.exportId,
+    rightsConfirmed: true,
+  });
+  assert.equal(draft.res.statusCode, 201);
+  const plan = draft.payload.data.regenerationPlan;
+  const beforeCount = jobs.all().length;
+  const request = {
+    projectId: ids.projectId,
+    sourceJobId: ids.jobId,
+    exportId: ids.exportId,
+    regenerationPlanId: plan.regenerationPlanId,
+    selectedDraftHash: plan.draftHash,
+    idempotencyKey: `regen_approval_valid_${suffix}_001`,
+    approve: true,
+    rightsConfirmed: true,
+  };
+
+  const first = await postJson("/api/review/regeneration-approval", request);
+  const second = await postJson("/api/review/regeneration-approval", request);
+
+  assert.equal(first.res.statusCode, 202);
+  assert.equal(first.payload.ok, true);
+  assert.equal(first.payload.data.canRender, true);
+  assert.equal(first.payload.data.requiresHumanApproval, false);
+  assert.equal(first.payload.data.renderQueued, true);
+  assert.equal(first.payload.data.job.action, "regeneration_render");
+  assert.equal(first.payload.data.job.payload.approvedEditPlan.captionCount > 0, true);
+  assert.equal(first.payload.data.job.payload.approvedEditPlan.highlightType, "generic_highlight");
+  assert.equal(second.res.statusCode, 202);
+  assert.equal(second.payload.data.newRenderJobId, first.payload.data.newRenderJobId);
+  assert.equal(jobs.all().length, beforeCount + 1);
+  assert.equal(first.payload.data.job.exportId, null);
+  assert.doesNotMatch(JSON.stringify(first.payload), /\/Users|\/private|storageKey|outputPath|secret|token|stdout|stderr|stack/i);
 });
 
 test("API review registration rejects missing rights and non-completed jobs safely", async () => {

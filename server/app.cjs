@@ -34,6 +34,7 @@ const { createYouTubeIngestAdapter } = require("./adapters/youtube-ingest-adapte
 const { validateYouTubeSource, youtubeIngestHealth } = require("./youtube-ingest.cjs");
 const { createYouTubeIngestService } = require("./youtube-ingest-service.cjs");
 const { registerReviewDraft } = require("../eval/review-registration.cjs");
+const { approveRegenerationDraft, publicApprovalResult } = require("./regeneration-approval.cjs");
 const { createRegenerationPlanFromReviewRegistration } = require("./regeneration-plan.cjs");
 const {
   safeResolve,
@@ -798,6 +799,7 @@ function publicRegenerationPlanResult(result) {
     regenerationPlan: {
       schemaVersion: Number.isFinite(Number(plan.schemaVersion)) ? Number(plan.schemaVersion) : 1,
       regenerationPlanId: sanitizeText(plan.regenerationPlanId || "", 120),
+      draftHash: plan.draftHash ? sanitizeText(plan.draftHash, 80) : null,
       status: sanitizeText(plan.status || "draft", 40),
       sourceReviewId: plan.sourceReviewId ? sanitizeText(plan.sourceReviewId, 120) : null,
       projectId: plan.projectId ? sanitizeText(plan.projectId, 120) : null,
@@ -914,6 +916,56 @@ async function handleReviewRegenerationPlan(req, res, rid) {
   sendOk(res, publicRegenerationPlanResult(result), 201);
 }
 
+async function handleReviewRegenerationApproval(req, res, rid) {
+  if (!reviewLimiter.check(clientKey(req))) {
+    throw new AppError("RATE_LIMITED", SAFE_MESSAGES.RATE_LIMITED, 429);
+  }
+  validateJsonContentType(req);
+  enforceContentLength(req, MAX_JSON_BODY_BYTES);
+  const payload = await readJsonBody(req, MAX_JSON_BODY_BYTES);
+  const projectId = validateRouteId(payload.projectId, "prj");
+  const sourceJobId = validateRouteId(payload.sourceJobId || payload.jobId, "job");
+  const exportId = validateRouteId(payload.exportId, "exp");
+  const regenerationPlanId = validateRouteId(payload.regenerationPlanId, "regen");
+  const result = approveRegenerationDraft({
+    request: {
+      projectId,
+      sourceJobId,
+      exportId,
+      regenerationPlanId,
+      idempotencyKey: payload.idempotencyKey,
+      approve: payload.approve,
+      rightsConfirmed: payload.rightsConfirmed,
+      selectedDraftHash: payload.selectedDraftHash || payload.draftHash,
+      operatorNote: payload.operatorNote,
+      reviewerNotes: payload.reviewerNotes,
+      humanNotes: payload.humanNotes,
+      title: payload.title,
+      reference: payload.reference,
+    },
+    rootDir: CONFIG.rootDir,
+    persistenceAdapter,
+    jobQueue,
+    workerSupervisor,
+    requestId: rid,
+  });
+  console.info(JSON.stringify(redactForLogs({
+    level: "info",
+    event: "review_regeneration_approved",
+    requestId: rid,
+    projectId,
+    sourceJobId,
+    exportId,
+    regenerationPlanId,
+    approvalId: result.approvalId,
+    newRenderJobId: result.job && result.job.id,
+    status: result.status,
+    renderQueued: result.renderQueued,
+    blockingSuggestionCount: result.blockingSuggestionCount,
+  })));
+  sendOk(res, publicApprovalResult(result), 202);
+}
+
 async function handleSignedArtifactDownload(req, res, url) {
   const artifact = artifactAdapter.validateSignedDownloadToken(url.searchParams.get("token"));
   if (!artifact || !artifact.id || !String(artifact.id).startsWith("exp_")) {
@@ -961,6 +1013,7 @@ async function route(req, res) {
     if (req.method === "POST" && pathname === "/api/uploads") return await handleUpload(req, res, rid);
     if (req.method === "POST" && pathname === "/api/review/register") return await handleReviewRegister(req, res, rid);
     if (req.method === "POST" && pathname === "/api/review/regeneration-plan") return await handleReviewRegenerationPlan(req, res, rid);
+    if (req.method === "POST" && pathname === "/api/review/regeneration-approval") return await handleReviewRegenerationApproval(req, res, rid);
 
     const generateMatch = pathname.match(/^\/api\/projects\/([^/]+)\/generate$/);
     if (req.method === "POST" && generateMatch) return await handleGenerate(req, res, rid, generateMatch[1]);

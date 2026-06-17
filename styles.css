@@ -1100,6 +1100,48 @@ input[type="checkbox"] {
   white-space: nowrap;
 }
 
+.review-regeneration .primary-btn {
+  min-height: 36px;
+  padding: 8px 10px;
+  white-space: nowrap;
+}
+
+.review-approval {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid rgba(53, 104, 255, 0.28);
+  border-radius: 6px;
+  background: #f7f9ff;
+}
+
+.review-approval[data-status="failed"] {
+  border-color: rgba(227, 79, 61, 0.38);
+  background: #fff6f4;
+}
+
+.review-approval[data-status="render_completed"] {
+  border-color: rgba(38, 138, 82, 0.34);
+  background: #f3fbf6;
+}
+
+.review-approval strong {
+  color: var(--ink);
+  font-size: 0.8rem;
+  line-height: 1.3;
+}
+
+.review-approval p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 750;
+  line-height: 1.38;
+  overflow-wrap: anywhere;
+}
+
 .review-regeneration-details {
   display: grid;
   gap: 6px;
@@ -1605,6 +1647,10 @@ input[type="range"] {
   }
 
   .review-regeneration .secondary-btn {
+    width: 100%;
+  }
+
+  .review-regeneration .primary-btn {
     width: 100%;
   }
 

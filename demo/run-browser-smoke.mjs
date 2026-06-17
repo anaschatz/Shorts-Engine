@@ -41,6 +41,8 @@ const REQUIRED_TEST_IDS = Object.freeze({
   reviewSuggestionList: "review-suggestion-list",
   reviewRegeneration: "review-regeneration",
   reviewRegenerateButton: "review-regenerate-button",
+  reviewApproveButton: "review-approve-button",
+  reviewApproval: "review-approval",
   reviewRegenerationDetails: "review-regeneration-details",
   errorPanel: "error-panel",
   jobProgress: "job-progress",
@@ -89,7 +91,9 @@ function collectStaticBrowserChecks({ app, css, html, manual }) {
   addCheck(checks, "review_summary_safe_metrics_contract", /noFalseGoalClaim/.test(app) && /captionActionAlignment/.test(app) && /framingSafety/.test(app) && /reviewFailures/.test(app));
   addCheck(checks, "review_fix_suggestions_contract", /review\.suggestions/.test(app) && /reviewSuggestionList/.test(app) && /regenerationAvailable/.test(app));
   addCheck(checks, "review_regeneration_draft_contract", /\/api\/review\/regeneration-plan/.test(app) && /handleReviewRegenerationPlan/.test(app) && /reviewRegenerationDetails/.test(app));
+  addCheck(checks, "review_regeneration_approval_contract", /\/api\/review\/regeneration-approval/.test(app) && /handleReviewRegenerationApproval/.test(app) && /reviewApproveBtn\.disabled/.test(app));
   addCheck(checks, "review_regeneration_disabled_contract", elementWithTestIdHasAttribute(html, REQUIRED_TEST_IDS.reviewRegenerateButton, "disabled") && /Create draft/.test(html));
+  addCheck(checks, "review_approval_disabled_contract", elementWithTestIdHasAttribute(html, REQUIRED_TEST_IDS.reviewApproveButton, "disabled") && elementWithTestIdHasAttribute(html, REQUIRED_TEST_IDS.reviewApproveButton, "hidden"));
   addCheck(checks, "download_route_contract", /\/api\/exports\/\$\{exportId\}\/download/.test(app));
   addCheck(checks, "youtube_validate_only_contract", /\/api\/youtube\/validate/.test(app) && /YOUTUBE_INGEST_NOT_ENABLED/.test(app));
   addCheck(checks, "youtube_render_disabled_contract", /state\.sourceType === "youtube"/.test(app) && /Ingest disabled/.test(app));

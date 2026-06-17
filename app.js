@@ -104,6 +104,10 @@
     reviewRegeneration: "#reviewRegeneration",
     reviewRegenerationStatus: "#reviewRegenerationStatus",
     reviewRegenerateBtn: "#reviewRegenerateBtn",
+    reviewApproveBtn: "#reviewApproveBtn",
+    reviewApproval: "#reviewApproval",
+    reviewApprovalStatus: "#reviewApprovalStatus",
+    reviewApprovalSummary: "#reviewApprovalSummary",
     reviewRegenerationDetails: "#reviewRegenerationDetails",
   });
 
@@ -143,6 +147,11 @@
         status: "idle",
         result: null,
         error: null,
+        approval: {
+          status: "idle",
+          result: null,
+          error: null,
+        },
       },
     },
     moments: Core.validateAiOutput(DEFAULT_MOMENTS).data || [],
@@ -162,6 +171,11 @@
       status: "idle",
       result: null,
       error: null,
+      approval: {
+        status: "idle",
+        result: null,
+        error: null,
+      },
     };
   }
 
@@ -424,7 +438,21 @@
       hasReviewSuggestions &&
       review.regenerationAvailable === true &&
       canRegisterReview();
+    const draftPlan = state.review.regeneration.result && state.review.regeneration.result.regenerationPlan;
+    const canApproveRegenerationDraft =
+      state.review.status === "registered" &&
+      state.review.regeneration.status === "drafted" &&
+      state.review.regeneration.approval &&
+      state.review.regeneration.approval.status !== "approving" &&
+      draftPlan &&
+      draftPlan.status === "draft" &&
+      Array.isArray(draftPlan.appliedSuggestionIds) &&
+      draftPlan.appliedSuggestionIds.length > 0 &&
+      (!Array.isArray(draftPlan.blockingReasons) || draftPlan.blockingReasons.length === 0) &&
+      canRegisterReview();
     els.reviewRegenerateBtn.disabled = !canCreateRegenerationDraft;
+    els.reviewApproveBtn.hidden = !(state.review.regeneration.status === "drafted");
+    els.reviewApproveBtn.disabled = !canApproveRegenerationDraft;
     setButtonContent(
       els.reviewRegisterBtn,
       state.review.status === "registering" ? "Registering..." : state.review.status === "registered" ? "Registered" : "Register",
@@ -438,6 +466,19 @@
           ? "Draft ready"
           : "Create draft",
       state.review.regeneration.status === "drafted" ? "check" : null,
+    );
+    setButtonContent(
+      els.reviewApproveBtn,
+      state.review.regeneration.approval && state.review.regeneration.approval.status === "approving"
+        ? "Approving..."
+        : state.review.regeneration.approval && state.review.regeneration.approval.status === "render_queued"
+          ? "Render queued"
+          : state.review.regeneration.approval && state.review.regeneration.approval.status === "render_processing"
+            ? "Rendering..."
+            : state.review.regeneration.approval && state.review.regeneration.approval.status === "render_completed"
+              ? "Approved"
+              : "Approve render",
+      state.review.regeneration.approval && state.review.regeneration.approval.status === "render_completed" ? "check" : null,
     );
     els.momentList.setAttribute("aria-busy", busy ? "true" : "false");
     renderReviewPanel();
@@ -486,6 +527,12 @@
     els.reviewRegeneration.hidden = true;
     els.reviewRegenerationStatus.textContent = "Regeneration draft is not available yet.";
     els.reviewRegenerateBtn.disabled = true;
+    els.reviewApproveBtn.hidden = true;
+    els.reviewApproveBtn.disabled = true;
+    els.reviewApproval.hidden = true;
+    els.reviewApproval.dataset.status = "idle";
+    els.reviewApprovalStatus.textContent = "Approval required";
+    els.reviewApprovalSummary.textContent = "A validated draft needs explicit human approval before render.";
     els.reviewRegenerationDetails.hidden = true;
     els.reviewRegenerationDetails.replaceChildren();
 
@@ -546,7 +593,32 @@
         els.reviewRegenerationStatus.textContent = "Creating a manual-only regeneration draft.";
       } else if (state.review.regeneration.status === "drafted" && state.review.regeneration.result) {
         const plan = state.review.regeneration.result.regenerationPlan || {};
+        const approval = state.review.regeneration.approval || { status: "idle" };
+        const hasBlockingReasons = Array.isArray(plan.blockingReasons) && plan.blockingReasons.length > 0;
         els.reviewRegenerationStatus.textContent = `${plan.status === "draft" ? "Draft ready" : "No draft needed"} · render locked until human approval.`;
+        els.reviewApproval.hidden = false;
+        els.reviewApproval.dataset.status = approval.status || "approval_required";
+        if (hasBlockingReasons) {
+          els.reviewApprovalStatus.textContent = "Manual fix required";
+          els.reviewApprovalSummary.textContent = "Resolve blocking suggestions before approval can queue a render.";
+        } else if (approval.status === "approving") {
+          els.reviewApprovalStatus.textContent = "Approving draft";
+          els.reviewApprovalSummary.textContent = "Validating the draft and preparing the regeneration render job.";
+        } else if (approval.status === "render_queued" || approval.status === "render_processing") {
+          els.reviewApprovalStatus.textContent = approval.status === "render_processing" ? "Rendering approved draft" : "Render queued";
+          els.reviewApprovalSummary.textContent = approval.result && approval.result.newRenderJobId
+            ? `Regeneration job ${approval.result.newRenderJobId} is ${approval.status.replace(/_/g, " ")}.`
+            : "The approved regeneration render is moving through the job queue.";
+        } else if (approval.status === "render_completed") {
+          els.reviewApprovalStatus.textContent = "Approved render completed";
+          els.reviewApprovalSummary.textContent = "The regeneration job completed. Download/export controls use the completed render gate.";
+        } else if (approval.status === "failed" && approval.error) {
+          els.reviewApprovalStatus.textContent = "Approval failed";
+          els.reviewApprovalSummary.textContent = approval.error.message || "The draft could not be approved safely.";
+        } else {
+          els.reviewApprovalStatus.textContent = "Approval required";
+          els.reviewApprovalSummary.textContent = "Review the draft summary, then explicitly approve to queue a regeneration render.";
+        }
         els.reviewRegenerationDetails.hidden = false;
         const summary = document.createElement("p");
         summary.textContent = `${(plan.appliedSuggestionIds || []).length} applied · ${(plan.skippedSuggestionIds || []).length} manual · ${(plan.blockingReasons || []).length} blocked`;
@@ -1215,7 +1287,26 @@
     state.generated = true;
     state.exportId = exportId;
     state.downloadUrl = `/api/exports/${exportId}/download`;
-    resetReviewState();
+    const completedApproval = job.payload && job.payload.regenerationApproval;
+    if (completedApproval && state.review && state.review.regeneration) {
+      state.review = {
+        ...state.review,
+        regeneration: {
+          ...state.review.regeneration,
+          approval: {
+            status: "render_completed",
+            result: {
+              ...(state.review.regeneration.approval && state.review.regeneration.approval.result),
+              newRenderJobId: job.id,
+              status: "render_completed",
+            },
+            error: null,
+          },
+        },
+      };
+    } else {
+      resetReviewState();
+    }
     state.moments = Core.validateAiOutput(momentsFromCandidatePlans(candidatePlans, editPlan)).data || state.moments;
     els.downloadLink.href = state.downloadUrl;
     els.downloadLink.hidden = false;
@@ -1235,6 +1326,19 @@
   }
 
   function handleJobFailed(job) {
+    if (job && job.payload && job.payload.regenerationApproval && state.review && state.review.regeneration) {
+      state.review = {
+        ...state.review,
+        regeneration: {
+          ...state.review.regeneration,
+          approval: {
+            status: "failed",
+            result: state.review.regeneration.approval && state.review.regeneration.approval.result,
+            error: job.error || { code: "RENDER_FAILED", message: "The approved regeneration render failed." },
+          },
+        },
+      };
+    }
     setProjectStatus("failed", "Failed");
     setButtonContent(els.generateBtn, "Generate shorts", "bolt");
     showSafeError(job.error || { code: "RENDER_FAILED", message: "Το render απέτυχε." }, "job");
@@ -1336,6 +1440,7 @@
           status: "failed",
           result: null,
           error: { message: "A completed failed review with safe suggestions is required before creating a regeneration draft." },
+          approval: { status: "idle", result: null, error: null },
         },
       };
       updateActionStates();
@@ -1344,7 +1449,7 @@
     try {
       state.review = {
         ...state.review,
-        regeneration: { status: "creating", result: null, error: null },
+        regeneration: { status: "creating", result: null, error: null, approval: { status: "idle", result: null, error: null } },
       };
       updateActionStates();
       const data = await apiFetch("/api/review/regeneration-plan", {
@@ -1359,7 +1464,7 @@
       });
       state.review = {
         ...state.review,
-        regeneration: { status: "drafted", result: data, error: null },
+        regeneration: { status: "drafted", result: data, error: null, approval: { status: "idle", result: null, error: null } },
       };
       showToast("Το regeneration draft είναι έτοιμο για manual review.", "success");
     } catch (error) {
@@ -1373,9 +1478,110 @@
             code: response.error.code,
             message: response.error.message || "Draft could not be created safely.",
           },
+          approval: { status: "idle", result: null, error: null },
         },
       };
       showSafeError(response, "review-regeneration");
+    } finally {
+      updateActionStates();
+    }
+  }
+
+  function regenerationApprovalKey(plan) {
+    const parts = [
+      state.activeProject && state.activeProject.id,
+      state.activeJob && state.activeJob.id,
+      state.exportId,
+      plan && plan.regenerationPlanId,
+      plan && plan.draftHash,
+    ].filter(Boolean);
+    return `regen_${parts.join("_").replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 150)}`;
+  }
+
+  async function handleReviewRegenerationApproval() {
+    clearError();
+    const draftResult = state.review.regeneration.result;
+    const plan = draftResult && draftResult.regenerationPlan;
+    const blockingReasons = plan && Array.isArray(plan.blockingReasons) ? plan.blockingReasons : [];
+    if (
+      state.review.status !== "registered" ||
+      state.review.regeneration.status !== "drafted" ||
+      !plan ||
+      plan.status !== "draft" ||
+      blockingReasons.length > 0 ||
+      !canRegisterReview()
+    ) {
+      state.review = {
+        ...state.review,
+        regeneration: {
+          ...state.review.regeneration,
+          approval: {
+            status: "failed",
+            result: null,
+            error: { message: "A validated draft without blocking issues is required before approval." },
+          },
+        },
+      };
+      updateActionStates();
+      return;
+    }
+    try {
+      state.review = {
+        ...state.review,
+        regeneration: {
+          ...state.review.regeneration,
+          approval: { status: "approving", result: null, error: null },
+        },
+      };
+      updateActionStates();
+      const data = await apiFetch("/api/review/regeneration-approval", {
+        method: "POST",
+        body: JSON.stringify({
+          projectId: state.activeProject.id,
+          sourceJobId: state.activeJob.id,
+          exportId: state.exportId,
+          regenerationPlanId: plan.regenerationPlanId,
+          selectedDraftHash: plan.draftHash,
+          idempotencyKey: regenerationApprovalKey(plan),
+          approve: true,
+          rightsConfirmed: true,
+          title: els.matchTitle.value,
+        }),
+      });
+      state.review = {
+        ...state.review,
+        regeneration: {
+          ...state.review.regeneration,
+          approval: { status: data.status || "render_queued", result: data, error: null },
+        },
+      };
+      if (data.job) {
+        state.activeJob = data.job;
+        updateProgress(data.job);
+        if (["queued", "processing"].includes(data.job.status)) {
+          pollJob(data.job.id);
+        } else if (data.job.status === "completed") {
+          handleJobComplete(data.job);
+        }
+      }
+      showToast("Το approved regeneration render μπήκε στην ουρά.", "success");
+    } catch (error) {
+      const response = safeErrorResponse(error);
+      state.review = {
+        ...state.review,
+        regeneration: {
+          ...state.review.regeneration,
+          approval: {
+            status: "failed",
+            result: null,
+            error: {
+              code: response.error.code,
+              message: response.error.message || "Draft approval failed safely.",
+            },
+          },
+        },
+      };
+      showSafeError(response, "review-regeneration-approval");
     } finally {
       updateActionStates();
     }
@@ -1541,6 +1747,7 @@
     els.cancelJobBtn.addEventListener("click", cancelCurrentJob);
     els.reviewRegisterBtn.addEventListener("click", handleReviewRegister);
     els.reviewRegenerateBtn.addEventListener("click", handleReviewRegenerationPlan);
+    els.reviewApproveBtn.addEventListener("click", handleReviewRegenerationApproval);
     els.saveBtn.addEventListener("click", handleSave);
     els.clearBtn.addEventListener("click", clearProject);
     els.exportBtn.addEventListener("click", downloadExport);

@@ -14,6 +14,7 @@ Evaluate:
 - Register the same completed generated render from the operator UI or `POST /api/review/register` only after export success and rights confirmation.
 - Convert failed or borderline review metrics into safe operator fix suggestions without automatic regeneration.
 - Convert review fix suggestions into manual-only regeneration drafts; never treat a draft as render approval.
+- Evaluate regeneration approvals as a separate gate: draft creation is not render approval, and approved render jobs must use the validated draft plan.
 - Real generated short review with `npm run review:compare`.
 - Aggregate real-video review reports with `npm run review:summary`.
 

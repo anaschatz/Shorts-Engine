@@ -20,7 +20,7 @@ function outputExists(outputPath) {
 }
 
 function payloadForJob(job, project) {
-  return {
+  const payload = {
     title: (job.payload && job.payload.title) || project.title || "ShortsEngine Short",
     preset: (job.payload && job.payload.preset) || "hype",
     language: (job.payload && job.payload.language) || "auto",
@@ -28,6 +28,10 @@ function payloadForJob(job, project) {
     editIntensity: (job.payload && job.payload.editIntensity) || "balanced",
     stylePreset: (job.payload && job.payload.stylePreset) || "social_sports_v1",
   };
+  if (job.payload && job.payload.source) payload.source = job.payload.source;
+  if (job.payload && job.payload.approvedEditPlan) payload.approvedEditPlan = job.payload.approvedEditPlan;
+  if (job.payload && job.payload.regenerationApproval) payload.regenerationApproval = job.payload.regenerationApproval;
+  return payload;
 }
 
 function createWorkerId() {

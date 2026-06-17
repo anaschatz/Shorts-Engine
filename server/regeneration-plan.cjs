@@ -1,4 +1,4 @@
-const { randomUUID } = require("node:crypto");
+const { createHash, randomUUID } = require("node:crypto");
 const { AppError } = require("./errors.cjs");
 const {
   ANIMATION_CUE_TYPES,
@@ -37,6 +37,19 @@ function round(value, digits = 2) {
 
 function jsonClone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+}
+
+function stableStringify(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  return `{${Object.keys(value)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+    .join(",")}}`;
+}
+
+function draftHashFor(value) {
+  return createHash("sha256").update(stableStringify(value || null)).digest("hex").slice(0, 32);
 }
 
 function safeToken(value, fallback = "unknown", maxLength = 80) {
@@ -268,6 +281,9 @@ function validateRegenerationPlan(plan, metadata) {
     throw new AppError("VALIDATION_ERROR", "Regeneration plan schema version is unsupported.", 400);
   }
   safeId(plan.regenerationPlanId, "regen");
+  if (plan.draftHash && !/^[a-f0-9]{16,64}$/.test(String(plan.draftHash))) {
+    throw new AppError("VALIDATION_ERROR", "Regeneration draft hash is invalid.", 400);
+  }
   if (!["draft", "not_needed"].includes(plan.status)) {
     throw new AppError("VALIDATION_ERROR", "Regeneration plan status is invalid.", 400);
   }
@@ -309,6 +325,7 @@ function buildRegenerationPlan(options = {}) {
     skippedSuggestionIds: [],
     proposedChanges: [],
     proposedEditPlan: null,
+    draftHash: null,
     safetyChecks: [],
     blockingReasons: [],
     canRender: false,
@@ -321,6 +338,13 @@ function buildRegenerationPlan(options = {}) {
   };
   if (!suggestions.length) {
     base.safetyChecks.push({ code: "NO_REGENERATION_NEEDED", status: "passed" });
+    base.draftHash = draftHashFor({
+      status: base.status,
+      projectId: base.projectId,
+      jobId: base.jobId,
+      exportId: base.exportId,
+      proposedEditPlan: null,
+    });
     return validateRegenerationPlan(base, metadata);
   }
 
@@ -360,6 +384,15 @@ function buildRegenerationPlan(options = {}) {
   base.blockingReasons = context.blockingReasons.slice(0, MAX_BLOCKING_REASONS);
   base.proposedChanges = [...context.appliedChanges].slice(0, 12);
   base.proposedEditPlan = validatedEditPlan;
+  base.draftHash = draftHashFor({
+    projectId: base.projectId,
+    jobId: base.jobId,
+    exportId: base.exportId,
+    appliedSuggestionIds: base.appliedSuggestionIds,
+    skippedSuggestionIds: base.skippedSuggestionIds,
+    proposedChanges: base.proposedChanges,
+    proposedEditPlan: validatedEditPlan,
+  });
   base.safetyChecks = [
     {
       code: "NO_AUTO_RENDER",
@@ -415,6 +448,7 @@ function createRegenerationPlanFromReviewRegistration(options = {}) {
       height: editPlan.sourceHeight,
     },
     humanNotes: options.humanNotes,
+    regenerationPlanId: options.regenerationPlanId,
     ids: {
       sourceReviewId: registered.draft.id,
       projectId: registration.projectId,
@@ -429,5 +463,6 @@ module.exports = {
   REGENERATION_PLAN_SCHEMA_VERSION,
   buildRegenerationPlan,
   createRegenerationPlanFromReviewRegistration,
+  draftHashFor,
   validateRegenerationPlan,
 };

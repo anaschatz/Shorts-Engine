@@ -304,6 +304,13 @@
                   <button class="secondary-btn compact-btn" id="reviewRegenerateBtn" data-testid="review-regenerate-button" type="button" disabled>
                     Create draft
                   </button>
+                  <button class="primary-btn compact-btn" id="reviewApproveBtn" data-testid="review-approve-button" type="button" disabled hidden>
+                    Approve render
+                  </button>
+                </div>
+                <div class="review-approval" id="reviewApproval" data-testid="review-approval" data-status="idle" hidden>
+                  <strong id="reviewApprovalStatus">Approval required</strong>
+                  <p id="reviewApprovalSummary">A validated draft needs explicit human approval before render.</p>
                 </div>
                 <div class="review-regeneration-details" id="reviewRegenerationDetails" data-testid="review-regeneration-details" hidden></div>
               </div>

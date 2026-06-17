@@ -294,6 +294,40 @@ test("render orchestration completes success path with mocked adapters", async (
   assert.equal(context.job.visualSignals.summary.goalClaimAllowed, false);
 });
 
+test("approved regeneration render uses the validated draft without rerunning AI analysis", async () => {
+  const context = makeContext();
+  const approvedEditPlan = validateEditPlan(validPlan(), context.upload.metadata);
+  context.job.payload = {
+    ...context.payload,
+    approvedEditPlan,
+    regenerationApproval: {
+      approvalId: "appr_1234567890abcdef1234567890abcdef",
+      regenerationPlanId: "regen_1234567890abcdef1234567890abcdef",
+      draftHash: "1234567890abcdef1234567890abcdef",
+      sourceJobId: "job_source12345678",
+      sourceExportId: "exp_source12345678",
+      approvedAt: new Date().toISOString(),
+    },
+  };
+  context.payload = context.job.payload;
+
+  await runContext(context);
+
+  assert.equal(context.job.status, "completed");
+  assert.equal(context.exportsById.size, 1);
+  assert.equal(context.calls.includes("extract_media_signals"), false);
+  assert.equal(context.calls.includes("extract_sampled_frames"), false);
+  assert.equal(context.calls.includes("analyze_frames"), false);
+  assert.equal(context.calls.includes("render_short"), true);
+  assert.equal(context.job.editPlan.highlightType, approvedEditPlan.highlightType);
+  assert.equal(context.job.candidatePlans.length, 1);
+  assert.equal(context.job.sampledFrames.providerMode, "approved_regeneration_draft");
+  assert.equal(context.job.visualSignals.providerMode, "approved_regeneration_draft");
+  const selectedPlanLog = context.logs.find((entry) => entry.event === "approved_edit_plan_selected");
+  assert.equal(selectedPlanLog.approvalId, "appr_1234567890abcdef1234567890abcdef");
+  assert.doesNotMatch(JSON.stringify(selectedPlanLog), /\/Users|storageKey|secret|caption/i);
+});
+
 test("render orchestration uses mock provider fallback when upload has no audio", async () => {
   const context = makeContext({ hasAudio: false });
   await runContext(context);

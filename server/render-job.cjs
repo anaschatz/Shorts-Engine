@@ -141,6 +141,9 @@ function assertPipelineContext({ job, project, upload, payload, deps }) {
   if (!title || !preset) {
     throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400);
   }
+  const approvedEditPlan = payload.approvedEditPlan
+    ? deps.validateEditPlan(payload.approvedEditPlan, metadata)
+    : null;
   const audioKey = `${job.id}.wav`;
   const subtitlesKey = `${job.id}.ass`;
   const outputKey = `${job.id}.mp4`;
@@ -168,6 +171,17 @@ function assertPipelineContext({ job, project, upload, payload, deps }) {
     styleTarget,
     editIntensity,
     title,
+    approvedEditPlan,
+    regenerationApproval: payload.regenerationApproval && typeof payload.regenerationApproval === "object"
+      ? {
+          approvalId: sanitizeText(payload.regenerationApproval.approvalId || "", 80),
+          regenerationPlanId: sanitizeText(payload.regenerationApproval.regenerationPlanId || "", 120),
+          draftHash: sanitizeText(payload.regenerationApproval.draftHash || "", 80),
+          sourceJobId: sanitizeText(payload.regenerationApproval.sourceJobId || "", 120),
+          sourceExportId: sanitizeText(payload.regenerationApproval.sourceExportId || "", 120),
+          approvedAt: sanitizeText(payload.regenerationApproval.approvedAt || "", 80),
+        }
+      : null,
   };
 }
 
@@ -415,6 +429,60 @@ function cleanupPipelineStages({ deps, context, logger, requestId, projectId, jo
   }
 }
 
+function transcriptFromApprovedPlan(plan, context) {
+  const captions = Array.isArray(plan.captions)
+    ? plan.captions.map((caption) => ({
+        start: caption.start,
+        end: caption.end,
+        text: sanitizeText(caption.text, 160),
+      }))
+    : [];
+  return validateTranscript({
+    provider: "approved_regeneration_draft",
+    language: context.language,
+    text: captions.map((caption) => caption.text).join(" "),
+    captions,
+    segments: captions,
+  }, context.metadata);
+}
+
+function mediaSignalsFromApprovedPlan(context) {
+  return validateMediaSignals({
+    durationSeconds: context.metadata.durationSeconds,
+    audioPeaks: [],
+    sceneChanges: [],
+    highMotionCandidates: [],
+  }, context.metadata);
+}
+
+function visualSignalsFromApprovedPlan(plan, context) {
+  return validateVisualSignals({
+    providerMode: "approved_regeneration_draft",
+    fallbackUsed: false,
+    confidence: Number.isFinite(Number(plan.actionFocusConfidence)) ? Number(plan.actionFocusConfidence) : 0,
+    providerMetadata: {
+      model: "human-approved-draft",
+      latencyMs: 0,
+    },
+    windows: [],
+  }, context.metadata);
+}
+
+function highlightResultFromApprovedPlan(plan) {
+  return {
+    moments: [{
+      id: "approved_regeneration_moment",
+      rank: 1,
+      start: plan.sourceStart,
+      end: plan.sourceEnd,
+      highlightType: plan.highlightType || "generic_highlight",
+      confidence: Number.isFinite(Number(plan.confidence)) ? Number(plan.confidence) : 0.8,
+      reasonCodes: Array.isArray(plan.reasonCodes) ? plan.reasonCodes : [plan.highlightType || "generic_highlight"],
+      retentionScore: Number.isFinite(Number(plan.retentionScore)) ? Number(plan.retentionScore) : 88,
+    }],
+  };
+}
+
 async function runRenderJob(options) {
   const {
     jobs,
@@ -433,119 +501,156 @@ async function runRenderJob(options) {
   let context = null;
   let sampledFrames = null;
   let sampledFrameSummary = null;
+  let transcript = null;
+  let mediaSignals = null;
+  let visualSignals = null;
+  let highlightResult = null;
+  let candidatePlans = null;
+  let editPlan = null;
   try {
     context = assertPipelineContext({ job, project, upload, payload, deps });
     indexPipelineStages(deps, context);
 
-    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 8, step: "extract_audio" });
-    if (context.metadata.hasAudio) {
-      await deps.extractAudio(context.inputPath, context.audioPath, { signal });
-    }
+    if (context.approvedEditPlan) {
+      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 72, step: "approved_edit_plan" });
+      editPlan = deps.validateEditPlan(context.approvedEditPlan, context.metadata);
+      candidatePlans = [editPlan];
+      highlightResult = validateHighlightResult(highlightResultFromApprovedPlan(editPlan), context.metadata);
+      mediaSignals = mediaSignalsFromApprovedPlan(context);
+      visualSignals = visualSignalsFromApprovedPlan(editPlan, context);
+      transcript = transcriptFromApprovedPlan(editPlan, context);
+      sampledFrameSummary = {
+        providerMode: "approved_regeneration_draft",
+        fallbackUsed: false,
+        summary: {
+          frameCount: 0,
+          sampledWindows: 0,
+          skippedWindows: 0,
+        },
+        frames: [],
+      };
+      logInfo(deps.logger, {
+        event: "approved_edit_plan_selected",
+        requestId,
+        projectId: project.id,
+        jobId: job.id,
+        approvalId: context.regenerationApproval && context.regenerationApproval.approvalId,
+        regenerationPlanId: context.regenerationApproval && context.regenerationApproval.regenerationPlanId,
+        highlightType: editPlan.highlightType,
+        framingMode: editPlan.framingMode,
+        aspectRatio: editPlan.aspectRatio,
+      });
+    } else {
+      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 8, step: "extract_audio" });
+      if (context.metadata.hasAudio) {
+        await deps.extractAudio(context.inputPath, context.audioPath, { signal });
+      }
 
-    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 22, step: "analyze_media" });
-    const mediaSignals = validateMediaSignals(
-      await deps.extractMediaSignals({
-        inputPath: context.inputPath,
-        metadata: context.metadata,
-        signal,
-      }),
-      context.metadata,
-    );
+      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 22, step: "analyze_media" });
+      mediaSignals = validateMediaSignals(
+        await deps.extractMediaSignals({
+          inputPath: context.inputPath,
+          metadata: context.metadata,
+          signal,
+        }),
+        context.metadata,
+      );
 
-    const visualCandidateWindows = visualCandidateWindowsFromSignals(mediaSignals);
-    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 30, step: "extract_sampled_frames" });
-    sampledFrames = await deps.extractSampledFrames({
-      inputPath: context.inputPath,
-      metadata: context.metadata,
-      candidateWindows: visualCandidateWindows,
-      signal,
-    });
-    sampledFrameSummary = publicFrameSummary(sampledFrames);
-    logInfo(deps.logger, {
-      event: "frame_extraction_completed",
-      requestId,
-      projectId: project.id,
-      jobId: job.id,
-      step: "extract_sampled_frames",
-      providerMode: sampledFrameSummary.providerMode,
-      fallbackUsed: sampledFrameSummary.fallbackUsed,
-      frameCount: sampledFrameSummary.summary.frameCount,
-      sampledWindows: sampledFrameSummary.summary.sampledWindows,
-      skippedWindows: sampledFrameSummary.summary.skippedWindows,
-    });
-
-    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 38, step: "analyze_visuals" });
-    const visualSignals = validateVisualSignals(
-      await deps.analyzeFrames({
+      const visualCandidateWindows = visualCandidateWindowsFromSignals(mediaSignals);
+      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 30, step: "extract_sampled_frames" });
+      sampledFrames = await deps.extractSampledFrames({
         inputPath: context.inputPath,
         metadata: context.metadata,
         candidateWindows: visualCandidateWindows,
-        mediaSignals,
-        frames: sampledFrames.frames,
-        frameSummary: sampledFrameSummary,
         signal,
-      }),
-      context.metadata,
-    );
-    logInfo(deps.logger, {
-      event: "visual_analysis_completed",
-      requestId,
-      projectId: project.id,
-      jobId: job.id,
-      step: "analyze_visuals",
-      providerMode: visualSignals.providerMode,
-      frameCount: sampledFrameSummary.summary.frameCount,
-      visualWindowCount: visualSignals.summary.windowCount,
-      fallbackUsed: visualSignals.fallbackUsed,
-      latencyMs: visualSignals.providerMetadata && visualSignals.providerMetadata.latencyMs,
-      errorCode: visualSignals.failure && visualSignals.failure.code,
-    });
+      });
+      sampledFrameSummary = publicFrameSummary(sampledFrames);
+      logInfo(deps.logger, {
+        event: "frame_extraction_completed",
+        requestId,
+        projectId: project.id,
+        jobId: job.id,
+        step: "extract_sampled_frames",
+        providerMode: sampledFrameSummary.providerMode,
+        fallbackUsed: sampledFrameSummary.fallbackUsed,
+        frameCount: sampledFrameSummary.summary.frameCount,
+        sampledWindows: sampledFrameSummary.summary.sampledWindows,
+        skippedWindows: sampledFrameSummary.summary.skippedWindows,
+      });
 
-    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 46, step: "transcribe" });
-    const provider = deps.chooseTranscriptionProvider({ forceMock: !context.metadata.hasAudio });
-    const transcript = validateTranscript(
-      await provider.transcribe({
-        audioPath: context.audioPath,
+      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 38, step: "analyze_visuals" });
+      visualSignals = validateVisualSignals(
+        await deps.analyzeFrames({
+          inputPath: context.inputPath,
+          metadata: context.metadata,
+          candidateWindows: visualCandidateWindows,
+          mediaSignals,
+          frames: sampledFrames.frames,
+          frameSummary: sampledFrameSummary,
+          signal,
+        }),
+        context.metadata,
+      );
+      logInfo(deps.logger, {
+        event: "visual_analysis_completed",
+        requestId,
+        projectId: project.id,
+        jobId: job.id,
+        step: "analyze_visuals",
+        providerMode: visualSignals.providerMode,
+        frameCount: sampledFrameSummary.summary.frameCount,
+        visualWindowCount: visualSignals.summary.windowCount,
+        fallbackUsed: visualSignals.fallbackUsed,
+        latencyMs: visualSignals.providerMetadata && visualSignals.providerMetadata.latencyMs,
+        errorCode: visualSignals.failure && visualSignals.failure.code,
+      });
+
+      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 46, step: "transcribe" });
+      const provider = deps.chooseTranscriptionProvider({ forceMock: !context.metadata.hasAudio });
+      transcript = validateTranscript(
+        await provider.transcribe({
+          audioPath: context.audioPath,
+          metadata: context.metadata,
+          preset: context.preset,
+          title: context.title,
+          language: context.language,
+        }),
+        context.metadata,
+      );
+
+      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 58, step: "detect_highlights" });
+      highlightResult = validateHighlightResult(
+        deps.detectHighlights({
+          transcript,
+          signals: mediaSignals,
+          visualSignals,
+          preset: context.preset,
+          title: context.title,
+        }),
+        context.metadata,
+      );
+
+      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 66, step: "plan_story" });
+
+      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 72, step: "create_edit_plan" });
+      candidatePlans = deps.createCandidateEditPlans({
+        moments: highlightResult.moments,
         metadata: context.metadata,
-        preset: context.preset,
-        title: context.title,
-        language: context.language,
-      }),
-      context.metadata,
-    );
-
-    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 58, step: "detect_highlights" });
-    const highlightResult = validateHighlightResult(
-      deps.detectHighlights({
         transcript,
-        signals: mediaSignals,
+        mediaSignals,
         visualSignals,
         preset: context.preset,
         title: context.title,
-      }),
-      context.metadata,
-    );
-
-    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 66, step: "plan_story" });
-
-    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 72, step: "create_edit_plan" });
-    const candidatePlans = deps.createCandidateEditPlans({
-      moments: highlightResult.moments,
-      metadata: context.metadata,
-      transcript,
-      mediaSignals,
-      visualSignals,
-      preset: context.preset,
-      title: context.title,
-      language: context.language,
-      styleTarget: context.styleTarget,
-      editIntensity: context.editIntensity,
-      stylePreset: context.stylePreset,
-    });
-    if (!Array.isArray(candidatePlans) || candidatePlans.length === 0) {
-      throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
+        language: context.language,
+        styleTarget: context.styleTarget,
+        editIntensity: context.editIntensity,
+        stylePreset: context.stylePreset,
+      });
+      if (!Array.isArray(candidatePlans) || candidatePlans.length === 0) {
+        throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
+      }
+      editPlan = deps.validateEditPlan(candidatePlans[0], context.metadata);
     }
-    const editPlan = deps.validateEditPlan(candidatePlans[0], context.metadata);
     logInfo(deps.logger, {
       event: "edit_plan_selected",
       requestId,

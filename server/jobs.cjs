@@ -179,6 +179,16 @@ function jsonClone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function safePayloadObject(value, maxBytes = 30000) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const cloned = jsonClone(value);
+  const byteLength = Buffer.byteLength(JSON.stringify(cloned), "utf8");
+  if (byteLength <= 0 || byteLength > maxBytes) {
+    throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400);
+  }
+  return cloned;
+}
+
 function publicJsonClone(value) {
   if (value === null || value === undefined) return value;
   return JSON.parse(JSON.stringify(redactForLogs(value)));
@@ -211,7 +221,7 @@ function normalizeRenderStylePreset(value) {
 
 function normalizePayload(payload) {
   if (!payload || typeof payload !== "object") return null;
-  return {
+  const normalized = {
     title: sanitizeText(payload.title || "ShortsEngine Short", 120),
     preset: sanitizeText(payload.preset || "hype", 40).toLowerCase(),
     language: sanitizeText(payload.language || "auto", 32) || "auto",
@@ -220,6 +230,37 @@ function normalizePayload(payload) {
     stylePreset: normalizeRenderStylePreset(payload.stylePreset),
     source: normalizeSmokeSource(payload.source),
   };
+  if (payload.approvedEditPlan) normalized.approvedEditPlan = safePayloadObject(payload.approvedEditPlan);
+  if (payload.regenerationApproval) {
+    const approval = safePayloadObject(payload.regenerationApproval, 6000);
+    normalized.regenerationApproval = {
+      schemaVersion: Number.isFinite(Number(approval.schemaVersion)) ? Number(approval.schemaVersion) : 1,
+      approvalId: sanitizeText(approval.approvalId || "", 80),
+      regenerationPlanId: sanitizeText(approval.regenerationPlanId || "", 120),
+      draftHash: sanitizeText(approval.draftHash || "", 80),
+      sourceJobId: sanitizeText(approval.sourceJobId || "", 120),
+      sourceExportId: sanitizeText(approval.sourceExportId || "", 120),
+      approvedAt: sanitizeText(approval.approvedAt || "", 80),
+      operatorNote: sanitizeText(approval.operatorNote || "", 500),
+    };
+  }
+  return normalized;
+}
+
+function publicPayload(payload) {
+  if (!payload || typeof payload !== "object") return payload;
+  const safe = jsonClone(payload);
+  if (safe.approvedEditPlan) {
+    safe.approvedEditPlan = {
+      aspectRatio: sanitizeText(safe.approvedEditPlan.aspectRatio || "", 20),
+      highlightType: sanitizeText(safe.approvedEditPlan.highlightType || "", 80),
+      framingMode: sanitizeText(safe.approvedEditPlan.framingMode || "", 80),
+      stylePreset: sanitizeText(safe.approvedEditPlan.stylePreset || "", 80),
+      captionCount: Array.isArray(safe.approvedEditPlan.captions) ? safe.approvedEditPlan.captions.length : 0,
+      animationCueCount: Array.isArray(safe.approvedEditPlan.animationCues) ? safe.approvedEditPlan.animationCues.length : 0,
+    };
+  }
+  return safe;
 }
 
 function atomicWriteJson(filePath, payload) {
@@ -390,6 +431,7 @@ class JobStore {
     delete publicSafe.leaseId;
     delete publicSafe.claimedAt;
     delete publicSafe.leaseExpiresAt;
+    if (publicSafe.payload) publicSafe.payload = publicPayload(publicSafe.payload);
     return publicJsonClone(publicSafe);
   }
 
