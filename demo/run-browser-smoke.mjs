@@ -76,6 +76,7 @@ function collectStaticBrowserChecks({ app, css, html, manual }) {
   addCheck(checks, "youtube_ingest_requires_health_contract", /ingestYoutubeBtn\.disabled = !youtubeUi\.canIngest/.test(app));
   addCheck(checks, "youtube_generate_after_ingest_contract", /generateBtn\.disabled = !youtubeUi\.canGenerate/.test(app));
   addCheck(checks, "youtube_preview_safe_summary_contract", /createYouTubePreviewSummary/.test(app) && /youtubePreviewUrl\.textContent = summary\.label/.test(app));
+  addCheck(checks, "source_title_autofill_contract", /autoFillMatchTitle/.test(app) && /createProjectTitleCandidate/.test(app) && /titleEdited/.test(app));
   addCheck(checks, "youtube_frontend_no_downloader_contract", !/yt-dlp|youtube-dl|execFile|spawn|child_process|stdout|stderr|storageKey|document\.cookie/i.test(app));
   addCheck(checks, "responsive_css_contract", /@media\s*\(/.test(css) && /min-width:\s*320px/.test(css));
   addCheck(checks, "hidden_css_contract", /\[hidden\]\s*{[^}]*display:\s*none\s*!important/s.test(css));

@@ -5,7 +5,11 @@ const { dirname, join } = require("node:path");
 
 const { CONFIG } = require("../server/config.cjs");
 const { AppError, SAFE_MESSAGES } = require("../server/errors.cjs");
-const { createLocalYouTubeIngestAdapter } = require("../server/adapters/local-youtube-ingest-adapter.cjs");
+const {
+  buildMetadataArgs,
+  createLocalYouTubeIngestAdapter,
+  parseMetadataOutput,
+} = require("../server/adapters/local-youtube-ingest-adapter.cjs");
 const { createMockYouTubeIngestAdapter } = require("../server/adapters/mock-youtube-ingest-adapter.cjs");
 const {
   cleanupYouTubeStage,
@@ -160,6 +164,7 @@ test("mock youtube ingest adapter is validate-only and no-network", async () => 
     maxDurationSeconds: 180,
   });
   assert.equal(source.videoId, "dQw4w9WgXcQ");
+  assert.equal(source.title, "Safe title");
   assert.equal(source.metadataStatus, "mock");
   assert.equal(source.durationSeconds, 120);
   assert.equal(source.ingestAvailable, false);
@@ -173,6 +178,21 @@ test("mock youtube ingest adapter is validate-only and no-network", async () => 
     downloaderConfigured: false,
     ingestAvailable: false,
   });
+});
+
+test("youtube source validation sanitizes adapter title metadata", async () => {
+  const adapter = createMockYouTubeIngestAdapter({
+    metadataByVideoId: {
+      dQw4w9WgXcQ: { title: "  Derby\u0000 Final\tHighlights  ", durationSeconds: 120 },
+    },
+  });
+  const source = await validateYouTubeSource({
+    url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    rightsConfirmed: true,
+    adapter,
+    maxDurationSeconds: 180,
+  });
+  assert.equal(source.title, "Derby Final Highlights");
 });
 
 test("youtube source validation requires rights and enforces duration limits", async () => {
@@ -285,6 +305,57 @@ test("local youtube downloader adapter builds explicit safe args without shell s
   assert.equal(captured.options.timeout, 1000);
   assert.equal(captured.options.maxBuffer, 4096);
   assert.doesNotMatch(captured.args.join(" "), /[;&|`$<>]/);
+});
+
+test("local youtube downloader adapter reads bounded metadata without downloading media", async () => {
+  let captured = null;
+  const adapter = createLocalYouTubeIngestAdapter({
+    config: {
+      enabled: true,
+      downloaderBin: "yt-dlp",
+      timeoutMs: 120000,
+      maxOutputBytes: 4096,
+    },
+    spawnSync: () => ({ status: 0 }),
+    execFile: (command, args, options, callback) => {
+      captured = { command, args, options };
+      callback(null, "title:Derby Final Highlights\nduration:93\n", "");
+    },
+  });
+  const metadata = await adapter.getMetadata(normalizeYouTubeUrl("https://youtu.be/dQw4w9WgXcQ"));
+  assert.equal(metadata.title, "Derby Final Highlights");
+  assert.equal(metadata.durationSeconds, 93);
+  assert.equal(metadata.metadataStatus, "local");
+  assert.equal(captured.command, "yt-dlp");
+  assert.equal(captured.args.includes("--skip-download"), true);
+  assert.equal(captured.args.includes("--output"), false);
+  assert.equal(captured.args.at(-1), "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+  assert.equal(captured.options.maxBuffer, 4096);
+  assert.equal(captured.options.timeout, 15000);
+  assert.doesNotMatch(captured.args.join(" "), /[;&|`$<>]/);
+});
+
+test("local youtube metadata helpers sanitize output and fail open to manual title entry", async () => {
+  assert.deepEqual(parseMetadataOutput("title:  Derby\u0000 Final   \nduration:not-a-number\n"), {
+    title: "Derby Final",
+    durationSeconds: null,
+  });
+  const args = buildMetadataArgs(normalizeYouTubeUrl("https://www.youtube.com/shorts/dQw4w9WgXcQ"));
+  assert.equal(args.includes("--skip-download"), true);
+  assert.equal(args.includes("--output"), false);
+
+  const adapter = createLocalYouTubeIngestAdapter({
+    config: { enabled: true, downloaderBin: "yt-dlp", timeoutMs: 120000, maxOutputBytes: 4096 },
+    spawnSync: () => ({ status: 0 }),
+    execFile: (_command, _args, _options, callback) => callback(new Error("/Users/raw downloader failure")),
+  });
+  const metadata = await adapter.getMetadata(normalizeYouTubeUrl("https://youtu.be/dQw4w9WgXcQ"));
+  assert.deepEqual(metadata, {
+    title: null,
+    durationSeconds: null,
+    metadataStatus: "local-unavailable",
+    ingestAvailable: true,
+  });
 });
 
 test("local youtube downloader adapter maps timeout and missing tools to safe errors", async () => {

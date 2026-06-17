@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 
 const html = readFileSync("index.html", "utf8");
 const app = readFileSync("app.js", "utf8");
+const hardening = readFileSync("hardening.js", "utf8");
 const serverApp = readFileSync("server/app.cjs", "utf8");
 const youtubeIngest = readFileSync("server/youtube-ingest.cjs", "utf8");
 const localYoutubeAdapter = readFileSync("server/adapters/local-youtube-ingest-adapter.cjs", "utf8");
@@ -97,6 +98,9 @@ assert.match(app, /ingestYoutubeBtn\.disabled = !youtubeUi\.canIngest/, "YouTube
 assert.match(app, /generateBtn\.disabled = !youtubeUi\.canGenerate/, "YouTube generate should remain disabled until ingest creates project/upload state");
 assert.match(app, /createYouTubePreviewSummary/, "YouTube preview should use a safe summary helper");
 assert.match(app, /youtubePreviewUrl\.textContent = summary\.label/, "YouTube preview should show a safe source label instead of raw canonical URL");
+assert.match(app, /autoFillMatchTitle/, "app.js should auto-fill match title from safe source metadata when available");
+assert.match(app, /state\.titleEdited = true/, "app.js should preserve user-edited match titles");
+assert.match(hardening, /createProjectTitleCandidate/, "hardening.js should expose a safe project title candidate helper");
 assert.match(app, /\/api\/youtube\/validate/, "app.js should use the validate-only YouTube source endpoint");
 assert.match(app, /\/api\/youtube\/ingest/, "app.js should call the dedicated YouTube ingest endpoint only after validation");
 assert.match(app, /youtubeHealth/, "app.js should gate YouTube ingest on backend health");

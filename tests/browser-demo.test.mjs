@@ -35,6 +35,7 @@ test("static browser contract checks cover UI, docs and safe states", () => {
   assert.ok(checks.some((check) => check.name === "youtube_auto_validate_debounce_contract"));
   assert.ok(checks.some((check) => check.name === "youtube_validate_retry_only_contract"));
   assert.ok(checks.some((check) => check.name === "youtube_preview_safe_summary_contract"));
+  assert.ok(checks.some((check) => check.name === "source_title_autofill_contract"));
   assert.ok(checks.some((check) => check.name === "manual_doc_has_troubleshooting"));
 });
 

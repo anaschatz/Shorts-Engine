@@ -6,6 +6,7 @@ const { AppError, SAFE_MESSAGES } = require("../errors.cjs");
 const { assertStoragePath } = require("../storage.cjs");
 
 const YOUTUBE_OUTPUT_FILE = "source.mp4";
+const METADATA_TIMEOUT_MS = 15 * 1000;
 
 function downloaderAvailable(downloaderBin, spawnSyncImpl = spawnSync) {
   try {
@@ -59,6 +60,20 @@ function buildDownloaderArgs(source, outputPath) {
   ];
 }
 
+function buildMetadataArgs(source) {
+  const safeSource = assertValidatedYouTubeSource(source);
+  return [
+    "--no-playlist",
+    "--no-warnings",
+    "--skip-download",
+    "--print",
+    "title:%(title)s",
+    "--print",
+    "duration:%(duration)s",
+    safeSource.canonicalUrl,
+  ];
+}
+
 function execFileSafe(execFileImpl, command, args, options) {
   return new Promise((resolve, reject) => {
     execFileImpl(command, args, options, (error, stdout, stderr) => {
@@ -85,6 +100,30 @@ function toDownloaderError(error) {
   return new AppError("YOUTUBE_DOWNLOAD_FAILED", SAFE_MESSAGES.YOUTUBE_DOWNLOAD_FAILED, 502, {
     reason: "download_failed",
   });
+}
+
+function safeMetadataTitle(value) {
+  const title = String(value || "")
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120);
+  return title || null;
+}
+
+function parseMetadataOutput(stdout) {
+  const lines = String(stdout || "").split(/\r?\n/);
+  const parsed = {};
+  for (const line of lines) {
+    if (line.startsWith("title:")) parsed.title = line.slice("title:".length);
+    if (line.startsWith("duration:")) parsed.durationSeconds = Number(line.slice("duration:".length));
+  }
+  return {
+    title: safeMetadataTitle(parsed.title),
+    durationSeconds: Number.isFinite(parsed.durationSeconds) && parsed.durationSeconds > 0
+      ? parsed.durationSeconds
+      : null,
+  };
 }
 
 function createLocalYouTubeIngestAdapter(options = {}) {
@@ -115,12 +154,34 @@ function createLocalYouTubeIngestAdapter(options = {}) {
     async getMetadata(source) {
       assertValidatedYouTubeSource(source);
       const currentHealth = health();
-      return {
-        title: null,
-        durationSeconds: null,
-        metadataStatus: currentHealth.ingestAvailable ? "local-deferred" : "downloader-unavailable",
-        ingestAvailable: currentHealth.ingestAvailable,
-      };
+      if (!currentHealth.ingestAvailable) {
+        return {
+          title: null,
+          durationSeconds: null,
+          metadataStatus: "downloader-unavailable",
+          ingestAvailable: false,
+        };
+      }
+      try {
+        const result = await execFileSafe(execFileImpl, downloaderBin, buildMetadataArgs(source), {
+          timeout: Math.min(config.timeoutMs, METADATA_TIMEOUT_MS),
+          maxBuffer: config.maxOutputBytes,
+          windowsHide: true,
+        });
+        const metadata = parseMetadataOutput(result.stdout);
+        return {
+          ...metadata,
+          metadataStatus: metadata.title || metadata.durationSeconds ? "local" : "local-unavailable",
+          ingestAvailable: true,
+        };
+      } catch {
+        return {
+          title: null,
+          durationSeconds: null,
+          metadataStatus: "local-unavailable",
+          ingestAvailable: true,
+        };
+      }
     },
     async ingest(source, options = {}) {
       assertValidatedYouTubeSource(source);
@@ -165,7 +226,9 @@ function createLocalYouTubeIngestAdapter(options = {}) {
 module.exports = {
   YOUTUBE_OUTPUT_FILE,
   buildDownloaderArgs,
+  buildMetadataArgs,
   createLocalYouTubeIngestAdapter,
   downloaderAvailable,
+  parseMetadataOutput,
   validateDownloaderOutputPath,
 };

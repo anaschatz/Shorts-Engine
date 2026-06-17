@@ -107,6 +107,8 @@
       downloaderConfigured: false,
       ingestAvailable: false,
     },
+    titleEdited: false,
+    lastAutoTitle: "",
     pollTimer: null,
     generated: false,
     exportId: null,
@@ -553,6 +555,22 @@
     return `${upload.originalFilename} · ${Core.formatBytes(upload.byteSize)} · ${duration}`;
   }
 
+  function canAutoFillMatchTitle() {
+    const currentTitle = Core.sanitizeText(els.matchTitle.value, Core.CONFIG.maxTitleLength);
+    return !currentTitle || !state.titleEdited || currentTitle === state.lastAutoTitle;
+  }
+
+  function autoFillMatchTitle(input) {
+    if (!canAutoFillMatchTitle()) return false;
+    const candidate = Core.createProjectTitleCandidate(input);
+    if (!candidate.ok) return false;
+    els.matchTitle.value = candidate.data.title;
+    state.lastAutoTitle = candidate.data.title;
+    state.titleEdited = false;
+    updateActionStates();
+    return true;
+  }
+
   function resetRenderState() {
     window.clearInterval(state.pollTimer);
     Object.assign(state, {
@@ -588,6 +606,7 @@
       Core.throwIfFailed(Core.validateVideoSignature(header, basics.data.extension, basics.data.mimeType));
       const metadata = await previewAndReadMetadata(file);
       Core.throwIfFailed(Core.validateVideoDuration(metadata.duration));
+      autoFillMatchTitle({ fileName: basics.data.sanitizedName });
 
       els.fileLabel.textContent = "Uploading to backend...";
       const form = new FormData();
@@ -691,6 +710,7 @@
       if (requestId !== youtubeValidationRequestId) return;
       state.youtubeValidation = data.source;
       state.youtubeAction = "validated";
+      autoFillMatchTitle({ title: data.source && data.source.title });
       renderYouTubePreview(data.source);
       setProjectStatus("draft", "URL checked");
       if (!automatic) {
@@ -750,6 +770,7 @@
       state.activeProject = data.project;
       state.youtubeValidation = data.source;
       state.youtubeAction = "ready_to_generate";
+      autoFillMatchTitle({ title: data.project && data.project.title });
       els.fileLabel.textContent = formatUploadLabel(data.upload);
       renderYouTubePreview(data.source);
       setProjectStatus("draft", "YouTube ingested");
@@ -1077,7 +1098,10 @@
       els.captionPreview.style.display = els.captionsToggle.checked ? "grid" : "none";
     });
     els.rightsCheckbox.addEventListener("change", updateActionStates);
-    els.matchTitle.addEventListener("input", updateActionStates);
+    els.matchTitle.addEventListener("input", () => {
+      state.titleEdited = true;
+      updateActionStates();
+    });
     els.languageSelect.addEventListener("change", updateActionStates);
   }
 
@@ -1087,6 +1111,7 @@
     selectMoment(0);
     setButtonContent(els.generateBtn, "Generate shorts", "bolt");
     setButtonContent(els.exportBtn, "Export", "download");
+    state.lastAutoTitle = Core.sanitizeText(els.matchTitle.value, Core.CONFIG.maxTitleLength);
     resetFileInput();
     clearYouTubeValidation({ clearInput: false });
     syncSourcePanels();

@@ -82,10 +82,19 @@ function normalizeYouTubeUrl(value) {
   };
 }
 
+function safeMetadataTitle(value) {
+  const title = String(value || "")
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120);
+  return title || null;
+}
+
 function safeMetadata(metadata = {}) {
   const duration = Number(metadata.durationSeconds);
   return {
-    title: metadata.title ? String(metadata.title).slice(0, 120) : null,
+    title: safeMetadataTitle(metadata.title),
     durationSeconds: Number.isFinite(duration) && duration > 0 ? duration : null,
     metadataStatus: String(metadata.metadataStatus || "unavailable").slice(0, 40),
     ingestAvailable: metadata.ingestAvailable === true,

@@ -182,6 +182,23 @@
     });
   }
 
+  function createProjectTitleCandidate(input) {
+    const sourceTitle = sanitizeText(input && input.title, CONFIG.maxTitleLength);
+    const rawFileName = sanitizeText(input && input.fileName, CONFIG.maxFileNameLength);
+    let candidate = sourceTitle;
+    if (!candidate && rawFileName) {
+      const safeName = sanitizeFileName(rawFileName);
+      const extension = getExtension(safeName);
+      candidate = extension ? safeName.slice(0, -(extension.length + 1)) : safeName;
+    }
+    const title = sanitizeText(candidate, CONFIG.maxTitleLength)
+      .replace(/[_-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (title.length < 3) return fail("TITLE_INVALID");
+    return ok({ title });
+  }
+
   function toByteArray(input) {
     if (!input) return new Uint8Array();
     if (input instanceof Uint8Array) return input;
@@ -680,6 +697,7 @@
     getExtension,
     validateFileName,
     validateUploadFile,
+    createProjectTitleCandidate,
     detectVideoContainer,
     validateVideoSignature,
     readBlobHeader,

@@ -85,6 +85,30 @@ test("duration validation enforces finite production limits", () => {
   assert.equal(Core.validateVideoDuration(90).ok, true);
 });
 
+test("project title candidates use source metadata or safe filenames", () => {
+  assert.deepEqual(Core.createProjectTitleCandidate({ title: "  Derby Final Highlights  " }), {
+    ok: true,
+    data: { title: "Derby Final Highlights" },
+    error: null,
+  });
+  assert.equal(
+    Core.createProjectTitleCandidate({ title: "\u0000" }).error.code,
+    "TITLE_INVALID",
+  );
+  assert.equal(
+    Core.createProjectTitleCandidate({ fileName: "olympiacos_aek-final-cut.mp4" }).data.title,
+    "olympiacos aek final cut",
+  );
+  assert.equal(
+    Core.createProjectTitleCandidate({ fileName: "../unsafe.mp4" }).data.title,
+    "unsafe",
+  );
+  assert.equal(
+    Core.createProjectTitleCandidate({ fileName: "a.mp4" }).error.code,
+    "TITLE_INVALID",
+  );
+});
+
 test("youtube source validation normalizes supported urls", () => {
   const watch = Core.validateYouTubeSourceInput({
     url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",

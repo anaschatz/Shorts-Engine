@@ -166,9 +166,10 @@ Use this path after `npm run youtube:doctor` is passing with ingest enabled and 
 5. Confirm the YouTube-specific rights checkbox.
 6. Confirm validation starts automatically after typing stops; use `Retry validation` only if validation fails.
 7. Confirm the preview shows only safe source metadata such as video id/kind, not a raw canonical URL.
-8. If `/health` reports `youtubeIngest` ready, click `Ingest video`.
-9. Confirm the status changes to ready-to-generate and the main `Generate shorts` action becomes available.
-10. Click `Generate shorts`, wait for job progress to complete, then download the MP4.
+8. Confirm the match title fills from safe source metadata when available; if no title is available, type it manually.
+9. If `/health` reports `youtubeIngest` ready, click `Ingest video`.
+10. Confirm the status changes to ready-to-generate and the main `Generate shorts` action becomes available.
+11. Click `Generate shorts`, wait for job progress to complete, then download the MP4.
 
 Expected disabled states:
 
