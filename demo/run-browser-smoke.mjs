@@ -30,6 +30,12 @@ const REQUIRED_TEST_IDS = Object.freeze({
   cancelJobButton: "cancel-job-button",
   exportButton: "export-button",
   downloadLink: "download-link",
+  reviewPanel: "review-panel",
+  reviewRegisterButton: "review-register-button",
+  reviewStatus: "review-status",
+  reviewSummary: "review-summary",
+  reviewMetrics: "review-metrics",
+  reviewFailures: "review-failures",
   errorPanel: "error-panel",
   jobProgress: "job-progress",
   progressBar: "job-progress-bar",
@@ -68,10 +74,13 @@ function collectStaticBrowserChecks({ app, css, html, manual }) {
   }
   addCheck(checks, "initial_export_disabled_in_markup", elementWithTestIdHasAttribute(html, REQUIRED_TEST_IDS.exportButton, "disabled"));
   addCheck(checks, "initial_download_hidden_in_markup", elementWithTestIdHasAttribute(html, REQUIRED_TEST_IDS.downloadLink, "hidden"));
+  addCheck(checks, "initial_review_register_disabled_in_markup", elementWithTestIdHasAttribute(html, REQUIRED_TEST_IDS.reviewRegisterButton, "disabled"));
   addCheck(checks, "initial_cancel_hidden_in_markup", elementWithTestIdHasAttribute(html, REQUIRED_TEST_IDS.cancelJobButton, "hidden"));
   addCheck(checks, "initial_progress_hidden_in_markup", elementWithTestIdHasAttribute(html, REQUIRED_TEST_IDS.jobProgress, "hidden"));
   addCheck(checks, "missing_upload_safe_error_contract", /UPLOAD_EMPTY/.test(app) && /showSafeError/.test(app));
   addCheck(checks, "completed_job_export_gate_contract", /validateCompletedJobForExport/.test(app) && /downloadLink\.href/.test(app));
+  addCheck(checks, "review_register_after_export_contract", /\/api\/review\/register/.test(app) && /canRegisterReview/.test(app) && /reviewRegisterBtn\.disabled = !canRegisterReview/.test(app));
+  addCheck(checks, "review_summary_safe_metrics_contract", /noFalseGoalClaim/.test(app) && /captionActionAlignment/.test(app) && /framingSafety/.test(app) && /reviewFailures/.test(app));
   addCheck(checks, "download_route_contract", /\/api\/exports\/\$\{exportId\}\/download/.test(app));
   addCheck(checks, "youtube_validate_only_contract", /\/api\/youtube\/validate/.test(app) && /YOUTUBE_INGEST_NOT_ENABLED/.test(app));
   addCheck(checks, "youtube_render_disabled_contract", /state\.sourceType === "youtube"/.test(app) && /Ingest disabled/.test(app));
@@ -100,6 +109,7 @@ function apiChecksFromReport(apiReport) {
     "job_completed_with_export",
     "download_url_created_after_success",
     "download_returns_rendered_video",
+    "review_registration_created_after_export",
   ]);
   return (apiReport?.checks || []).filter((check) => names.has(check.name));
 }

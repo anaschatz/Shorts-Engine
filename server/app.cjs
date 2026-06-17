@@ -33,6 +33,7 @@ const { createArtifactCleanupWorker } = require("./artifact-cleanup-worker.cjs")
 const { createYouTubeIngestAdapter } = require("./adapters/youtube-ingest-adapter.cjs");
 const { validateYouTubeSource, youtubeIngestHealth } = require("./youtube-ingest.cjs");
 const { createYouTubeIngestService } = require("./youtube-ingest-service.cjs");
+const { registerReviewDraft } = require("../eval/review-registration.cjs");
 const {
   safeResolve,
   storageHealth,
@@ -64,6 +65,7 @@ const uploadLimiter = createRateLimiter({ limit: 12, windowMs: 60 * 1000 });
 const generateLimiter = createRateLimiter({ limit: 20, windowMs: 60 * 1000 });
 const youtubeValidateLimiter = createRateLimiter({ limit: 30, windowMs: 60 * 1000 });
 const youtubeIngestLimiter = createRateLimiter({ limit: 6, windowMs: 60 * 1000 });
+const reviewLimiter = createRateLimiter({ limit: 20, windowMs: 60 * 1000 });
 const youtubeIngestAdapter = createYouTubeIngestAdapter();
 const youtubeIngestService = createYouTubeIngestService({
   adapter: youtubeIngestAdapter,
@@ -676,6 +678,86 @@ async function handleDownloadUrl(req, res, exportId) {
   sendOk(res, signed);
 }
 
+function publicReviewRegistrationResult(result) {
+  const report = result.comparisonPreview || {};
+  const metrics = report.metrics || {};
+  return {
+    status: "registered",
+    draft: result.output
+      ? {
+          latest: result.output.latestPath,
+          report: result.output.draftPath,
+        }
+      : null,
+    compareCommand: result.compareCommand,
+    review: {
+      passed: Boolean(report.passed),
+      status: sanitizeText(report.status || "unknown", 40),
+      overallScore: Number.isFinite(Number(metrics.overallScore)) ? Number(metrics.overallScore) : 0,
+      threshold: Number.isFinite(Number(report.threshold)) ? Number(report.threshold) : 0,
+      metrics: {
+        noFalseGoalClaim: Number.isFinite(Number(metrics.noFalseGoalClaim)) ? Number(metrics.noFalseGoalClaim) : 0,
+        captionActionAlignment: Number.isFinite(Number(metrics.captionActionAlignment)) ? Number(metrics.captionActionAlignment) : 0,
+        framingSafety: Number.isFinite(Number(metrics.framingSafety)) ? Number(metrics.framingSafety) : 0,
+        aspectRatioCorrectness: Number.isFinite(Number(metrics.aspectRatioCorrectness)) ? Number(metrics.aspectRatioCorrectness) : 0,
+        animationCueCoverage: Number.isFinite(Number(metrics.animationCueCoverage)) ? Number(metrics.animationCueCoverage) : 0,
+        reviewerReadinessScore: Number.isFinite(Number(metrics.reviewerReadinessScore)) ? Number(metrics.reviewerReadinessScore) : 0,
+      },
+      failedCriteria: Array.isArray(report.failedCriteria)
+        ? report.failedCriteria.slice(0, 12).map((item) => ({
+            metric: sanitizeText(item.metric, 80),
+            score: Number.isFinite(Number(item.score)) ? Number(item.score) : 0,
+            min: Number.isFinite(Number(item.min)) ? Number(item.min) : 0,
+            note: sanitizeText(item.note, 180),
+          }))
+        : [],
+      failedCases: Array.isArray(report.failedCases)
+        ? report.failedCases.slice(0, 12).map((item) => ({
+            code: sanitizeText(item.code, 80),
+            message: sanitizeText(item.message, 180),
+            field: item.field ? sanitizeText(item.field, 100) : undefined,
+          }))
+        : [],
+      nextAction: sanitizeText(report.nextAction || "Run review comparison and inspect failed criteria.", 180),
+    },
+  };
+}
+
+async function handleReviewRegister(req, res, rid) {
+  if (!reviewLimiter.check(clientKey(req))) {
+    throw new AppError("RATE_LIMITED", SAFE_MESSAGES.RATE_LIMITED, 429);
+  }
+  validateJsonContentType(req);
+  enforceContentLength(req, MAX_JSON_BODY_BYTES);
+  const payload = await readJsonBody(req, MAX_JSON_BODY_BYTES);
+  const projectId = validateRouteId(payload.projectId, "prj");
+  const jobId = validateRouteId(payload.jobId, "job");
+  const exportId = payload.exportId === undefined || payload.exportId === null || payload.exportId === ""
+    ? null
+    : validateRouteId(payload.exportId, "exp");
+  const result = registerReviewDraft({
+    projectId,
+    jobId,
+    exportId,
+    rightsConfirmed: payload.rightsConfirmed,
+    reference: payload.reference,
+    reviewerNotes: payload.reviewerNotes,
+    title: payload.title,
+    rootDir: CONFIG.rootDir,
+  });
+  console.info(JSON.stringify(redactForLogs({
+    level: "info",
+    event: "review_registered",
+    requestId: rid,
+    projectId,
+    jobId,
+    exportId: exportId || (result.draft && result.draft.generatedMetadata && result.draft.generatedMetadata.registration.exportId),
+    status: result.comparisonPreview && result.comparisonPreview.status,
+    passed: Boolean(result.comparisonPreview && result.comparisonPreview.passed),
+  })));
+  sendOk(res, publicReviewRegistrationResult(result), 201);
+}
+
 async function handleSignedArtifactDownload(req, res, url) {
   const artifact = artifactAdapter.validateSignedDownloadToken(url.searchParams.get("token"));
   if (!artifact || !artifact.id || !String(artifact.id).startsWith("exp_")) {
@@ -721,6 +803,7 @@ async function route(req, res) {
     if (req.method === "POST" && pathname === "/api/youtube/validate") return await handleYouTubeValidate(req, res, rid);
     if (req.method === "POST" && pathname === "/api/youtube/ingest") return await handleYouTubeIngest(req, res, rid);
     if (req.method === "POST" && pathname === "/api/uploads") return await handleUpload(req, res, rid);
+    if (req.method === "POST" && pathname === "/api/review/register") return await handleReviewRegister(req, res, rid);
 
     const generateMatch = pathname.match(/^\/api\/projects\/([^/]+)\/generate$/);
     if (req.method === "POST" && generateMatch) return await handleGenerate(req, res, rid, generateMatch[1]);

@@ -900,6 +900,105 @@ input[type="checkbox"] {
   text-decoration: none;
 }
 
+.review-panel {
+  display: grid;
+  gap: 10px;
+  margin: 12px 12px 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+}
+
+.review-panel[data-status="registered"] {
+  border-color: rgba(23, 168, 91, 0.32);
+  background: rgba(23, 168, 91, 0.05);
+}
+
+.review-panel[data-status="failed"] {
+  border-color: rgba(227, 79, 61, 0.3);
+  background: #fff7f5;
+}
+
+.review-panel[data-status="registering"] {
+  border-color: rgba(53, 104, 255, 0.28);
+  background: #f7f9ff;
+}
+
+.review-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.review-header > div {
+  min-width: 0;
+}
+
+.review-header strong {
+  display: block;
+  line-height: 1.25;
+}
+
+.review-summary {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.review-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.review-metric {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px;
+  border: 1px solid rgba(203, 214, 199, 0.82);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.review-metric span {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.review-metric strong {
+  color: var(--green-dark);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
+}
+
+.review-failures {
+  display: grid;
+  gap: 6px;
+}
+
+.review-failures p {
+  margin: 0;
+  padding: 8px;
+  color: #7a4a00;
+  background: rgba(217, 155, 34, 0.12);
+  border: 1px solid rgba(217, 155, 34, 0.26);
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
 .moment-list {
   display: grid;
   align-content: start;
@@ -1339,6 +1438,19 @@ input[type="range"] {
 
   .moment-card {
     grid-template-columns: 50px 1fr;
+  }
+
+  .review-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .review-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .review-header .secondary-btn {
+    width: 100%;
   }
 
   .moment-score {

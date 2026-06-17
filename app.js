@@ -92,6 +92,12 @@
     jobProgressValue: "#jobProgressValue",
     jobProgressBar: "#jobProgressBar",
     downloadLink: "#downloadLink",
+    reviewPanel: "#reviewPanel",
+    reviewRegisterBtn: "#reviewRegisterBtn",
+    reviewStatus: "#reviewStatus",
+    reviewSummary: "#reviewSummary",
+    reviewMetrics: "#reviewMetrics",
+    reviewFailures: "#reviewFailures",
   });
 
   const state = {
@@ -122,6 +128,11 @@
     generated: false,
     exportId: null,
     downloadUrl: null,
+    review: {
+      status: "idle",
+      result: null,
+      error: null,
+    },
     moments: Core.validateAiOutput(DEFAULT_MOMENTS).data || [],
     rateLimiters: {
       generate: Core.createRateLimiter({ limit: 8, windowMs: 60 * 1000 }),
@@ -183,6 +194,7 @@
     const nodes = [];
     if (icon === "bolt") nodes.push(createSvg(["M13 2 4 14h7l-1 8 10-13h-7z"]));
     if (icon === "download") nodes.push(createSvg(["M12 3v12", "m7 10 5 5 5-5", "M5 21h14"]));
+    if (icon === "check") nodes.push(createSvg(["M20 6 9 17l-5-5"]));
     nodes.push(document.createTextNode(label));
     button.replaceChildren(...nodes);
   }
@@ -291,6 +303,22 @@
     return state.activeJob && ["queued", "processing"].includes(state.activeJob.status);
   }
 
+  function rightsConfirmedForActiveSource() {
+    return state.sourceType === "youtube" ? els.youtubeRightsCheckbox.checked : els.rightsCheckbox.checked;
+  }
+
+  function canRegisterReview() {
+    return Boolean(
+      state.generated &&
+      state.exportId &&
+      state.activeProject &&
+      state.activeJob &&
+      state.activeJob.status === "completed" &&
+      rightsConfirmedForActiveSource() &&
+      !["registering", "registered"].includes(state.review.status),
+    );
+  }
+
   function currentYouTubeUiState() {
     return Core.deriveYouTubeUiState({
       sourceType: state.sourceType,
@@ -367,8 +395,102 @@
       button.disabled = !youtubeUi.canDownload;
     });
     els.downloadLink.hidden = !youtubeUi.canDownload;
+    els.reviewRegisterBtn.disabled = !canRegisterReview();
+    setButtonContent(
+      els.reviewRegisterBtn,
+      state.review.status === "registering" ? "Registering..." : state.review.status === "registered" ? "Registered" : "Register",
+      state.review.status === "registered" ? "check" : null,
+    );
     els.momentList.setAttribute("aria-busy", busy ? "true" : "false");
+    renderReviewPanel();
     renderYouTubeIngestStatus(youtubeUi);
+  }
+
+  function resetReviewState() {
+    state.review = {
+      status: "idle",
+      result: null,
+      error: null,
+    };
+    renderReviewPanel();
+  }
+
+  function formatReviewMetric(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return "--";
+    if (numeric <= 1) return `${Math.round(numeric * 100)}%`;
+    return `${Math.round(numeric)}%`;
+  }
+
+  function reviewMetricLabel(key) {
+    const labels = {
+      noFalseGoalClaim: "No false goal",
+      captionActionAlignment: "Caption/action",
+      framingSafety: "Framing",
+      aspectRatioCorrectness: "Aspect ratio",
+      animationCueCoverage: "Animation cues",
+      reviewerReadinessScore: "Reviewer ready",
+    };
+    return labels[key] || String(key || "Metric").replace(/([A-Z])/g, " $1").trim();
+  }
+
+  function renderReviewPanel() {
+    const status = state.review.status;
+    els.reviewPanel.dataset.status = status;
+    els.reviewMetrics.hidden = true;
+    els.reviewMetrics.replaceChildren();
+    els.reviewFailures.hidden = true;
+    els.reviewFailures.replaceChildren();
+
+    if (status === "registering") {
+      els.reviewStatus.textContent = "Registering draft";
+      els.reviewSummary.textContent = "Preparing a local review draft from the completed render.";
+      return;
+    }
+
+    if (status === "registered" && state.review.result) {
+      const review = state.review.result.review || {};
+      els.reviewStatus.textContent = review.passed ? "Review passed" : "Needs review";
+      els.reviewSummary.textContent = `${Math.round(Number(review.overallScore) || 0)} overall score · ${review.nextAction || "Inspect review criteria."}`;
+      els.reviewMetrics.hidden = false;
+      Object.entries(review.metrics || {}).forEach(([key, value]) => {
+        const item = document.createElement("div");
+        item.className = "review-metric";
+        const label = document.createElement("span");
+        label.textContent = reviewMetricLabel(key);
+        const score = document.createElement("strong");
+        score.textContent = formatReviewMetric(value);
+        item.append(label, score);
+        els.reviewMetrics.appendChild(item);
+      });
+      const failures = [...(review.failedCriteria || []), ...(review.failedCases || [])].slice(0, 6);
+      if (failures.length) {
+        els.reviewFailures.hidden = false;
+        failures.forEach((failure) => {
+          const item = document.createElement("p");
+          item.textContent = failure.note || failure.message || failure.metric || failure.code || "Review criterion needs attention.";
+          els.reviewFailures.appendChild(item);
+        });
+      }
+      return;
+    }
+
+    if (status === "failed" && state.review.error) {
+      els.reviewStatus.textContent = "Review not registered";
+      els.reviewSummary.textContent = state.review.error.message || "This render cannot be registered for local review. Rerun a local render or use a future cloud review adapter.";
+      return;
+    }
+
+    if (state.generated && state.exportId) {
+      els.reviewStatus.textContent = rightsConfirmedForActiveSource() ? "Ready for review" : "Confirm rights";
+      els.reviewSummary.textContent = rightsConfirmedForActiveSource()
+        ? "Register this completed render as a local review draft."
+        : "Confirm footage rights before registering this render for review.";
+      return;
+    }
+
+    els.reviewStatus.textContent = "Waiting for render";
+    els.reviewSummary.textContent = "A completed render with rights confirmation can be registered for local review.";
   }
 
   function resetVideoPreview() {
@@ -632,6 +754,7 @@
       exportId: null,
       downloadUrl: null,
     });
+    resetReviewState();
     els.downloadLink.hidden = true;
     els.downloadLink.href = "#";
     updateProgress(null);
@@ -989,6 +1112,7 @@
     state.generated = true;
     state.exportId = exportId;
     state.downloadUrl = `/api/exports/${exportId}/download`;
+    resetReviewState();
     state.moments = Core.validateAiOutput(momentsFromCandidatePlans(candidatePlans, editPlan)).data || state.moments;
     els.downloadLink.href = state.downloadUrl;
     els.downloadLink.hidden = false;
@@ -1041,6 +1165,55 @@
     window.location.href = state.downloadUrl;
   }
 
+  async function handleReviewRegister() {
+    clearError();
+    if (!canRegisterReview()) {
+      state.review = {
+        status: "failed",
+        result: null,
+        error: {
+          message: "A completed render, export, and rights confirmation are required before review registration.",
+        },
+      };
+      updateActionStates();
+      return;
+    }
+    try {
+      state.review = { status: "registering", result: null, error: null };
+      updateActionStates();
+      const data = await apiFetch("/api/review/register", {
+        method: "POST",
+        body: JSON.stringify({
+          projectId: state.activeProject.id,
+          jobId: state.activeJob.id,
+          exportId: state.exportId,
+          rightsConfirmed: true,
+          title: els.matchTitle.value,
+        }),
+      });
+      state.review = { status: "registered", result: data, error: null };
+      showToast(
+        data.review && data.review.passed ? "Το review draft πέρασε το quality check." : "Το review draft χρειάζεται έλεγχο.",
+        data.review && data.review.passed ? "success" : "warning",
+      );
+    } catch (error) {
+      const response = safeErrorResponse(error);
+      state.review = {
+        status: "failed",
+        result: null,
+        error: {
+          code: response.error.code,
+          message: response.error.code === "ARTIFACT_NOT_FOUND"
+            ? "This render cannot be registered for local review because the generated media artifact is not locally available."
+            : response.error.message,
+        },
+      };
+      showSafeError(response, "review-register");
+    } finally {
+      updateActionStates();
+    }
+  }
+
   function handleSave() {
     const settings = readSettings({ generated: state.generated });
     if (!settings.ok) {
@@ -1085,6 +1258,11 @@
       generated: false,
       exportId: null,
       downloadUrl: null,
+      review: {
+        status: "idle",
+        result: null,
+        error: null,
+      },
       moments: Core.validateAiOutput(DEFAULT_MOMENTS).data || [],
     });
     window.localStorage.removeItem("shortsengine:draft");
@@ -1193,6 +1371,7 @@
     els.generateBtn.addEventListener("click", handleGenerate);
     els.retryBtn.addEventListener("click", retryLastFailedAction);
     els.cancelJobBtn.addEventListener("click", cancelCurrentJob);
+    els.reviewRegisterBtn.addEventListener("click", handleReviewRegister);
     els.saveBtn.addEventListener("click", handleSave);
     els.clearBtn.addEventListener("click", clearProject);
     els.exportBtn.addEventListener("click", downloadExport);

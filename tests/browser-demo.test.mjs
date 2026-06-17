@@ -23,6 +23,7 @@ test("browser demo selectors exist and initial UI is fail-closed", () => {
   }
   assert.match(html, /data-testid="export-button"[^>]*disabled/);
   assert.match(html, /data-testid="download-link"[^>]*hidden/);
+  assert.match(html, /data-testid="review-register-button"[^>]*disabled/);
   assert.match(html, /data-testid="cancel-job-button"[^>]*hidden/);
   assert.match(html, /data-testid="job-progress"[^>]*hidden/);
 });

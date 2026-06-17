@@ -87,6 +87,19 @@ async function requestDownload(baseUrl, path) {
   };
 }
 
+async function registerReview(baseUrl, { projectId, jobId, exportId }) {
+  return requestJson(baseUrl, "/api/review/register", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      projectId,
+      jobId,
+      exportId,
+      rightsConfirmed: true,
+    }),
+  });
+}
+
 async function getFreePort() {
   return new Promise((resolvePort, rejectPort) => {
     const server = createServer();
@@ -253,6 +266,7 @@ function buildReport({
   fixture,
   health,
   jobLifecycle,
+  reviewRegistration,
   serverEvents,
   status,
 }) {
@@ -271,6 +285,7 @@ function buildReport({
     checks,
     jobLifecycle,
     export: exportResult,
+    reviewRegistration,
     failedCases,
     serverEvents,
   };
@@ -298,6 +313,7 @@ async function runDemoSmoke(options = {}) {
   let health = null;
   let jobLifecycle = [];
   let exportResult = null;
+  let reviewRegistration = null;
   const fixtureResult = ensureDemoFixture({ outputPath: options.fixturePath || DEFAULT_FIXTURE_PATH });
   addCheck(checks, "demo_fixture_ready", fixtureResult.ok, { code: fixtureResult.error?.code || null });
   if (!fixtureResult.ok) {
@@ -386,6 +402,25 @@ async function runDemoSmoke(options = {}) {
         status: download.status,
         sizeBytes: download.sizeBytes,
       });
+      const review = await registerReview(baseUrl, {
+        projectId,
+        jobId: finalJob.id,
+        exportId: finalJob.exportId,
+      });
+      reviewRegistration = {
+        status: review.status,
+        passed: Boolean(review.payload?.data?.review?.passed),
+        overallScore: Number(review.payload?.data?.review?.overallScore || 0),
+        noFalseGoalClaim: Number(review.payload?.data?.review?.metrics?.noFalseGoalClaim || 0),
+        captionActionAlignment: Number(review.payload?.data?.review?.metrics?.captionActionAlignment || 0),
+        framingSafety: Number(review.payload?.data?.review?.metrics?.framingSafety || 0),
+        draftLatest: review.payload?.data?.draft?.latest || null,
+      };
+      addCheck(checks, "review_registration_created_after_export", review.ok && reviewRegistration.passed && reviewRegistration.overallScore >= 82, {
+        status: review.status,
+        overallScore: reviewRegistration.overallScore,
+      });
+      addCheck(checks, "review_registration_response_no_sensitive_leaks", !hasSensitiveLeak(review));
     }
   } catch (error) {
     failedCases.push({ name: "demo_smoke_unexpected", ...safeError(error) });
@@ -408,6 +443,7 @@ async function runDemoSmoke(options = {}) {
     fixture: fixtureMetadata(options.fixturePath || DEFAULT_FIXTURE_PATH),
     health,
     jobLifecycle,
+    reviewRegistration,
     serverEvents,
     status,
   });
@@ -442,6 +478,7 @@ if (isMainModule()) {
         checks: [{ name: "demo_smoke_timeout", passed: false, code: "DEMO_SMOKE_TIMEOUT" }],
         jobLifecycle: [],
         export: null,
+        reviewRegistration: null,
         failedCases: [{ name: "demo_smoke_timeout", code: "DEMO_SMOKE_TIMEOUT" }],
         serverEvents: [],
       });
@@ -464,6 +501,7 @@ export {
   createMultipartBody,
   hasSensitiveLeak,
   pollJob,
+  registerReview,
   runDemoSmoke,
   safeJobSnapshot,
   writeDemoReport,

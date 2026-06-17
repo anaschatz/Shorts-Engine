@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } = require("node:fs");
+const { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } = require("node:fs");
 const { join } = require("node:path");
 const { spawnSync } = require("node:child_process");
 
@@ -102,6 +102,109 @@ function stagedUploadArtifacts(byteLength, startedAtMs) {
       return { fileName, size: stat.size, mtimeMs: stat.mtimeMs };
     })
     .filter((entry) => entry.size === byteLength && entry.mtimeMs >= startedAtMs - 1000);
+}
+
+function backendReviewIds(suffix = "aaaa") {
+  return {
+    projectId: `prj_${suffix}${suffix}${suffix}${suffix}-${suffix}-4${suffix.slice(1)}-${suffix}-${suffix}${suffix}${suffix}`,
+    uploadId: `upl_${suffix}${suffix}${suffix}${suffix}-${suffix}-4${suffix.slice(1)}-${suffix}-${suffix}${suffix}${suffix}`,
+    jobId: `job_${suffix}${suffix}${suffix}${suffix}-${suffix}-4${suffix.slice(1)}-${suffix}-${suffix}${suffix}${suffix}`,
+    exportId: `exp_${suffix}${suffix}${suffix}${suffix}-${suffix}-4${suffix.slice(1)}-${suffix}-${suffix}${suffix}${suffix}`,
+  };
+}
+
+function writeBackendReviewRecords(overrides = {}) {
+  const ids = overrides.ids || backendReviewIds(overrides.suffix || "aaaa");
+  const uploadPath = overrides.uploadPath || storagePath("uploads", `${ids.uploadId}.mp4`);
+  const renderPath = overrides.renderPath || storagePath("renders", `${ids.jobId}.mp4`);
+  if (overrides.writeUpload === false) rmSync(uploadPath, { force: true });
+  else writeFileSync(uploadPath, Buffer.from("review-source-video"));
+  if (overrides.writeRender === false) rmSync(renderPath, { force: true });
+  else writeFileSync(renderPath, Buffer.from("review-rendered-video"));
+  const editPlan = validateEditPlan(
+    createEditPlan({
+      metadata: { durationSeconds: 16, width: 1920, height: 1080 },
+      transcript: {
+        captions: [
+          { start: 0, end: 2, text: "The chance opens" },
+          { start: 2, end: 4, text: "Pressure builds fast" },
+          { start: 4, end: 7, text: "Almost punished in one touch" },
+        ],
+      },
+      preset: "hype",
+      title: "Review registration API sample",
+    }),
+    { durationSeconds: 16 },
+  );
+  const projectRecord = {
+    project: {
+      id: ids.projectId,
+      uploadId: ids.uploadId,
+      title: "Review registration API sample",
+      status: "ready",
+    },
+    upload: {
+      id: ids.uploadId,
+      projectId: ids.projectId,
+      path: uploadPath,
+      metadata: { durationSeconds: 16, width: 1920, height: 1080 },
+      byteSize: 19,
+      extension: "mp4",
+      artifact: {
+        id: ids.uploadId,
+        type: "upload",
+        ownerProjectId: ids.projectId,
+        status: "available",
+        size: 19,
+        contentType: "video/mp4",
+        storageKey: `${ids.uploadId}.mp4`,
+      },
+    },
+  };
+  const renderRecord = {
+    project: projectRecord.project,
+    job: {
+      id: ids.jobId,
+      projectId: ids.projectId,
+      uploadId: ids.uploadId,
+      status: overrides.jobStatus || "completed",
+      exportId: ids.exportId,
+      payload: {
+        language: "English",
+        stylePreset: "social_sports_v1",
+        styleTarget: "vertical_9_16_reference_style",
+      },
+    },
+    exportId: ids.exportId,
+    exportRecord: {
+      id: ids.exportId,
+      projectId: ids.projectId,
+      jobId: ids.jobId,
+      outputPath: renderPath,
+      fileName: `${ids.projectId}-short.mp4`,
+      artifact: {
+        id: ids.exportId,
+        type: "export",
+        ownerProjectId: ids.projectId,
+        ownerJobId: ids.jobId,
+        status: "available",
+        size: 21,
+        contentType: "video/mp4",
+        storageKey: `${ids.jobId}.mp4`,
+      },
+    },
+    highlights: [{
+      start: editPlan.sourceStart,
+      end: editPlan.sourceEnd,
+      highlightType: "big_chance",
+      reasonCodes: ["big_chance", "audio_energy_spike", "crowd_reaction"],
+      retentionScore: 88,
+    }],
+    editPlan,
+  };
+  writeJsonAtomic(storagePath("projects", `${ids.projectId}.json`), projectRecord);
+  writeJsonAtomic(storagePath("projects", `${ids.projectId}.render.json`), renderRecord);
+  return ids;
 }
 
 test("backend upload validation rejects unsafe media candidates", () => {
@@ -687,6 +790,131 @@ test("API rejects malformed resource ids and unsafe idempotency keys", async () 
     projects.delete(projectId);
     uploads.delete(uploadId);
   }
+});
+
+test("API registers completed render for local review with safe summary", async () => {
+  const ids = writeBackendReviewRecords({ suffix: "abca" });
+  const body = Buffer.from(JSON.stringify({
+    projectId: ids.projectId,
+    jobId: ids.jobId,
+    exportId: ids.exportId,
+    rightsConfirmed: true,
+  }));
+  const req = mockRequest({
+    method: "POST",
+    url: "/api/review/register",
+    headers: {
+      "content-type": "application/json",
+      "content-length": String(body.length),
+    },
+    body,
+  });
+  const res = mockResponse();
+  await route(req, res);
+  const payload = JSON.parse(res.body.toString("utf8"));
+
+  assert.equal(res.statusCode, 201);
+  assert.equal(payload.ok, true);
+  assert.equal(payload.data.status, "registered");
+  assert.equal(payload.data.review.passed, true);
+  assert.equal(payload.data.review.metrics.noFalseGoalClaim, 1);
+  assert.match(payload.data.draft.latest, /^eval\/review-drafts\/review-draft-latest\.json$/);
+  assert.doesNotMatch(JSON.stringify(payload), /\/Users|\/private|storageKey|outputPath|secret|token|stdout|stderr|stack/i);
+});
+
+test("API review registration rejects missing rights and non-completed jobs safely", async () => {
+  const rightsIds = writeBackendReviewRecords({ suffix: "abcb" });
+  const missingRightsBody = Buffer.from(JSON.stringify({
+    projectId: rightsIds.projectId,
+    jobId: rightsIds.jobId,
+    rightsConfirmed: false,
+  }));
+  const missingRightsReq = mockRequest({
+    method: "POST",
+    url: "/api/review/register",
+    headers: {
+      "content-type": "application/json",
+      "content-length": String(missingRightsBody.length),
+    },
+    body: missingRightsBody,
+  });
+  const missingRightsRes = mockResponse();
+  await route(missingRightsReq, missingRightsRes);
+  const missingRightsPayload = JSON.parse(missingRightsRes.body.toString("utf8"));
+  assert.equal(missingRightsRes.statusCode, 400);
+  assert.equal(missingRightsPayload.ok, false);
+  assert.equal(missingRightsPayload.error.code, "VALIDATION_ERROR");
+
+  const failedIds = writeBackendReviewRecords({ suffix: "abcc", jobStatus: "failed" });
+  const failedBody = Buffer.from(JSON.stringify({
+    projectId: failedIds.projectId,
+    jobId: failedIds.jobId,
+    rightsConfirmed: true,
+  }));
+  const failedReq = mockRequest({
+    method: "POST",
+    url: "/api/review/register",
+    headers: {
+      "content-type": "application/json",
+      "content-length": String(failedBody.length),
+    },
+    body: failedBody,
+  });
+  const failedRes = mockResponse();
+  await route(failedReq, failedRes);
+  const failedPayload = JSON.parse(failedRes.body.toString("utf8"));
+  assert.equal(failedRes.statusCode, 400);
+  assert.equal(failedPayload.ok, false);
+  assert.equal(failedPayload.error.code, "JOB_STATE_INVALID");
+  assert.doesNotMatch(JSON.stringify([missingRightsPayload, failedPayload]), /\/Users|\/private|storageKey|outputPath|secret|token|stdout|stderr|stack/i);
+});
+
+test("API review registration rejects missing artifacts and unsafe references", async () => {
+  const missingIds = writeBackendReviewRecords({ suffix: "abcd", writeRender: false });
+  const missingBody = Buffer.from(JSON.stringify({
+    projectId: missingIds.projectId,
+    jobId: missingIds.jobId,
+    rightsConfirmed: true,
+  }));
+  const missingReq = mockRequest({
+    method: "POST",
+    url: "/api/review/register",
+    headers: {
+      "content-type": "application/json",
+      "content-length": String(missingBody.length),
+    },
+    body: missingBody,
+  });
+  const missingRes = mockResponse();
+  await route(missingReq, missingRes);
+  const missingPayload = JSON.parse(missingRes.body.toString("utf8"));
+  assert.equal(missingRes.statusCode, 400);
+  assert.equal(missingPayload.ok, false);
+  assert.equal(missingPayload.error.code, "ARTIFACT_NOT_FOUND");
+
+  const unsafeIds = writeBackendReviewRecords({ suffix: "abce" });
+  const unsafeBody = Buffer.from(JSON.stringify({
+    projectId: unsafeIds.projectId,
+    jobId: unsafeIds.jobId,
+    rightsConfirmed: true,
+    reference: "../outside.mp4",
+  }));
+  const unsafeReq = mockRequest({
+    method: "POST",
+    url: "/api/review/register",
+    headers: {
+      "content-type": "application/json",
+      "content-length": String(unsafeBody.length),
+    },
+    body: unsafeBody,
+  });
+  const unsafeRes = mockResponse();
+  await route(unsafeReq, unsafeRes);
+  const unsafePayload = JSON.parse(unsafeRes.body.toString("utf8"));
+  assert.equal(unsafeRes.statusCode, 400);
+  assert.equal(unsafePayload.ok, false);
+  assert.equal(unsafePayload.error.code, "VALIDATION_ERROR");
+  assert.doesNotMatch(JSON.stringify([missingPayload, unsafePayload]), /\/Users|\/private|storageKey|outputPath|secret|token|stdout|stderr|stack/i);
 });
 
 test("render smoke creates a vertical MP4 when FFmpeg is installed", async (t) => {

@@ -11,6 +11,7 @@ Evaluate:
 - Stable output format.
 - Regression cases for failed upload, missing captions, and failed render.
 - Register a completed generated render as a local review draft with `npm run review:register -- --project=<project-id> --job=<job-id> --rights-confirmed=1`.
+- Register the same completed generated render from the operator UI or `POST /api/review/register` only after export success and rights confirmation.
 - Real generated short review with `npm run review:compare`.
 - Aggregate real-video review reports with `npm run review:summary`.
 

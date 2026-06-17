@@ -277,6 +277,22 @@
               <a class="download-link" id="downloadLink" data-testid="download-link" href="#" download hidden>
                 Download rendered MP4
               </a>
+              <div class="review-panel" id="reviewPanel" data-testid="review-panel" data-status="idle">
+                <div class="review-header">
+                  <div>
+                    <p class="eyebrow">Quality review</p>
+                    <strong id="reviewStatus" data-testid="review-status">Waiting for render</strong>
+                  </div>
+                  <button class="secondary-btn compact-btn" id="reviewRegisterBtn" data-testid="review-register-button" type="button" disabled>
+                    Register
+                  </button>
+                </div>
+                <p class="review-summary" id="reviewSummary" data-testid="review-summary" aria-live="polite">
+                  A completed render with rights confirmation can be registered for local review.
+                </p>
+                <div class="review-metrics" id="reviewMetrics" data-testid="review-metrics" hidden></div>
+                <div class="review-failures" id="reviewFailures" data-testid="review-failures" hidden></div>
+              </div>
               <div class="moment-list" id="momentList" aria-live="polite"></div>
             </div>
           </div>
