@@ -147,7 +147,7 @@ function createFallbackCaptions(duration, preset, options = {}) {
     start: Number((index * segment).toFixed(2)),
     end: Number(Math.min(duration, index * segment + segment - 0.15).toFixed(2)),
     text,
-  }));
+  })).filter((caption) => caption.end > caption.start);
 }
 
 function createCaptionEmphasis(captions, highlightType) {

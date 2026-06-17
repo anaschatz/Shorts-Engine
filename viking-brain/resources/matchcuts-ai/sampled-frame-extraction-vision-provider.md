@@ -26,6 +26,7 @@ Public job/render records may include `sampledFrames`, but never `localPath`, ab
 The local provider can use sampled frames plus candidate windows as contextual evidence.
 It does not perform brittle ball/player tracking and does not claim goals.
 External vision stays opt-in through an injected client and is not the default for tests, eval or local demo.
+Provider-backed labeling builds on this boundary with strict label validation, latency/failure metadata and explicit no-goal guardrails.
 
 ## Safety Rules
 

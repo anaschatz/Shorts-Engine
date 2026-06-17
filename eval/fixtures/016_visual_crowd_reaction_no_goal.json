@@ -1,0 +1,56 @@
+{
+  "id": "visual_crowd_reaction_no_goal",
+  "title": "Visual crowd reaction with audio spike without goal claim",
+  "language": "English",
+  "durationSeconds": 22,
+  "transcript": {
+    "provider": "fixture",
+    "language": "en",
+    "captions": [
+      { "start": 4.0, "end": 5.4, "text": "The stadium starts to lift" },
+      { "start": 9.2, "end": 10.8, "text": "Listen to the stands react" },
+      { "start": 15.0, "end": 16.4, "text": "The energy carries into the next play" }
+    ]
+  },
+  "mediaSignals": {
+    "durationSeconds": 22,
+    "width": 1920,
+    "height": 1080,
+    "hasAudio": true,
+    "audioPeaks": [{ "time": 10.0, "energyScore": 0.93, "source": "fixture" }],
+    "sceneChanges": [],
+    "highMotionCandidates": []
+  },
+  "visualSignals": {
+    "providerMode": "fixture-visual",
+    "fallbackUsed": false,
+    "confidence": 0.82,
+    "windows": [
+      {
+        "start": 8.6,
+        "end": 11.6,
+        "labels": ["crowd_reaction"],
+        "confidence": 0.82,
+        "source": "fixture"
+      }
+    ]
+  },
+  "sampledFrames": {
+    "providerMode": "fixture-frame-sampling",
+    "fallbackUsed": false,
+    "summary": { "frameCount": 2 }
+  },
+  "expected": {
+    "highlights": [{ "start": 8.4, "end": 12.4 }],
+    "reasonCodes": ["crowd_reaction", "audio_energy_spike", "crowd_spike", "visual_crowd_reaction"],
+    "highlightType": "crowd_reaction",
+    "stylePreset": "social_sports_v1"
+  },
+  "thresholds": {
+    "minAggregateScore": 72,
+    "minTop1Overlap": 0.5,
+    "minTop3Recall": 1,
+    "minReasonPrecision": 0.5,
+    "minRetentionScore": 50
+  }
+}

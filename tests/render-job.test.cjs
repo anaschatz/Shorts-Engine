@@ -180,6 +180,7 @@ function makeContext(options = {}) {
         providerMode: "mock-vision",
         fallbackUsed: true,
         confidence: 0.72,
+        providerMetadata: { latencyMs: 5, frameCount: context.visualFrameCount },
         windows: [{ start: 2.7, end: 5.1, type: "unknown_visual_action", confidence: 0.72 }],
       };
     },
@@ -268,6 +269,13 @@ test("render orchestration completes success path with mocked adapters", async (
   assert.equal(selectedPlanLog.falseGoalGuardTriggered, false);
   assert.equal(selectedPlanLog.visualProviderMode, "mock-vision");
   assert.equal(typeof selectedPlanLog.actionFocusConfidence, "number");
+  const visualAnalysisLog = context.logs.find((entry) => entry.event === "visual_analysis_completed");
+  assert.equal(visualAnalysisLog.providerMode, "mock-vision");
+  assert.equal(visualAnalysisLog.frameCount, 1);
+  assert.equal(visualAnalysisLog.visualWindowCount, 1);
+  assert.equal(visualAnalysisLog.fallbackUsed, true);
+  assert.equal(visualAnalysisLog.latencyMs, 5);
+  assert.doesNotMatch(JSON.stringify(visualAnalysisLog), /\/Users|storageKey|localPath|secret/i);
   assert.equal(context.job.visualSignals.summary.goalClaimAllowed, false);
 });
 

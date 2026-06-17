@@ -320,6 +320,9 @@ test("API health returns structured status", async () => {
   assert.equal(payload.data.frameExtraction.objectTracking, false);
   assert.equal(payload.data.vision.ready, true);
   assert.equal(payload.data.vision.goalClaimAllowed, false);
+  assert.equal(payload.data.vision.externalProviderEnabled, false);
+  assert.equal(payload.data.vision.fallbackAvailable, true);
+  assert.equal(payload.data.vision.allowedLabels.includes("crowd_reaction"), true);
   assert.equal(payload.data.youtubeIngest.mode, "mock");
   assert.equal(payload.data.youtubeIngest.enabled, false);
   assert.equal(payload.data.youtubeIngest.networkCalls, false);

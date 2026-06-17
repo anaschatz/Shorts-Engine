@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
+  analyzeVision,
   analyzeFrames,
   createVisionProvider,
   frameToVisualWindow,
@@ -41,9 +42,12 @@ test("visual signal validation normalizes safe action windows", () => {
 
 test("visual reasons map to non-goal football moment types", () => {
   assert.equal(reasonCodeForVisualType("save_like_motion"), "visual_save_like_motion");
+  assert.equal(reasonCodeForVisualType("crowd_reaction"), "visual_crowd_reaction");
+  assert.equal(reasonCodeForVisualType("scoreboard_context"), "visual_scoreboard_context");
   assert.equal(visualHighlightTypeForReasons(["visual_shot_like_motion", "visual_goal_area"]), "big_chance");
   assert.equal(visualHighlightTypeForReasons(["visual_save_like_motion"]), "save");
   assert.equal(visualHighlightTypeForReasons(["visual_foul_like_contact"]), "foul");
+  assert.equal(visualHighlightTypeForReasons(["visual_crowd_reaction"]), "crowd_reaction");
   assert.equal(visualHighlightTypeForReasons(["visual_goal_area"]), "unknown_action");
 });
 
@@ -86,6 +90,34 @@ test("local frame inspection adapter uses sampled frames without leaking paths",
   assert.doesNotMatch(JSON.stringify(publicVisualSignals(result)), /\/Users|private-frame|localPath|secret/i);
 });
 
+test("local frame inspection adapter can infer crowd context from sampled frames and audio", async () => {
+  const result = await analyzeVision({
+    metadata,
+    mediaSignals: {
+      audioPeaks: [{ time: 8, energyScore: 0.91 }],
+      sceneChanges: [{ time: 8.2, confidence: 0.75 }],
+    },
+    frames: [
+      {
+        id: "frame_1",
+        timestamp: 8,
+        windowStart: 6.8,
+        windowEnd: 9.6,
+        width: 640,
+        height: 360,
+        localPath: "/Users/example/private-frame.jpg",
+        source: "audio_peak_context",
+      },
+    ],
+    candidateWindows: [{ time: 8, confidence: 0.6, source: "audio_peak_context" }],
+  });
+
+  assert.equal(result.providerMode, "frame-inspection-local");
+  assert.equal(result.summary.crowdReaction.present, true);
+  assert.equal(result.summary.goalClaimAllowed, false);
+  assert.deepEqual(visualReasonCodesForWindow(result.windows[0]), ["visual_crowd_reaction"]);
+});
+
 test("frameToVisualWindow rejects malformed frames and never infers goals", () => {
   assert.equal(frameToVisualWindow({ timestamp: 2, width: 0, height: 360 }, [], metadata), null);
   const window = frameToVisualWindow(
@@ -95,6 +127,31 @@ test("frameToVisualWindow rejects malformed frames and never infers goals", () =
   );
   assert.equal(window.type, "unknown_visual_action");
   assert.equal(window.evidence.goalClaimAllowed, false);
+});
+
+test("visual validation rejects visual-only goal labels", () => {
+  assert.throws(
+    () => validateVisualSignals({
+      providerMode: "bad-provider",
+      fallbackUsed: false,
+      windows: [{ start: 2, end: 4, labels: ["goal"], confidence: 0.9 }],
+    }, metadata),
+    (error) => error.code === "AI_OUTPUT_INVALID",
+  );
+});
+
+test("mock vision provider returns deterministic safe labels", async () => {
+  const result = await analyzeVision({
+    providerMode: "mock-vision-provider",
+    metadata,
+    mockLabels: ["fast_break_motion"],
+    candidateWindows: [{ time: 8, confidence: 0.8, source: "fixture" }],
+  });
+  assert.equal(result.providerMode, "mock-vision-provider");
+  assert.equal(result.fallbackUsed, false);
+  assert.equal(result.windows[0].type, "fast_break_motion");
+  assert.equal(result.providerMetadata.frameCount, 0);
+  assert.equal(result.summary.goalClaimAllowed, false);
 });
 
 test("external vision provider adapter is opt-in and falls back safely without a client", async () => {
@@ -108,6 +165,7 @@ test("external vision provider adapter is opt-in and falls back safely without a
   });
   assert.equal(result.providerMode, "safe-heuristic");
   assert.equal(result.fallbackUsed, true);
+  assert.equal(result.failure.code, "VISION_PROVIDER_DISABLED");
 });
 
 test("external vision provider adapter validates injected provider output", async () => {
@@ -129,10 +187,70 @@ test("external vision provider adapter validates injected provider output", asyn
   assert.equal(result.summary.goalClaimAllowed, false);
 });
 
+test("external vision provider runtime failure falls back without raw provider leakage", async () => {
+  const provider = createVisionProvider({
+    mode: "external",
+    client: {
+      analyzeFrames: async () => {
+        const error = new Error("/Users/example OPENAI_API_KEY=secret provider failed");
+        error.code = "VISION_UPSTREAM_FAILED";
+        throw error;
+      },
+    },
+  });
+
+  const result = await provider.analyzeFrames({
+    metadata,
+    candidateWindows: [{ time: 8.1, confidence: 0.74, source: "signal_cluster" }],
+  });
+  assert.equal(result.providerMode, "safe-heuristic");
+  assert.equal(result.fallbackUsed, true);
+  assert.equal(result.failure.code, "VISION_UPSTREAM_FAILED");
+  assert.doesNotMatch(JSON.stringify(publicVisualSignals(result)), /\/Users|OPENAI_API_KEY|secret|provider failed/i);
+});
+
+test("external vision provider timeout falls back with bounded safe metadata", async () => {
+  const provider = createVisionProvider({
+    mode: "external",
+    client: {
+      analyzeFrames: async () => new Promise(() => {}),
+    },
+  });
+  const result = await provider.analyzeFrames({
+    metadata,
+    timeoutMs: 10,
+    frames: [{ timestamp: 8, windowStart: 7, windowEnd: 9, width: 640, height: 360 }],
+    candidateWindows: [{ time: 8, confidence: 0.74, source: "signal_cluster" }],
+  });
+
+  assert.equal(result.providerMode, "safe-heuristic");
+  assert.equal(result.fallbackUsed, true);
+  assert.equal(result.failure.code, "VISION_PROVIDER_TIMEOUT");
+  assert.equal(result.providerMetadata.providerTimedOut, true);
+  assert.equal(result.providerMetadata.frameCount, 1);
+});
+
+test("external vision provider cancellation stops before provider work", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const provider = createVisionProvider({
+    mode: "external",
+    client: { analyzeFrames: async () => ({ windows: [] }) },
+  });
+
+  await assert.rejects(
+    () => provider.analyzeFrames({ metadata, signal: controller.signal }),
+    (error) => error.code === "JOB_CANCELLED",
+  );
+});
+
 test("vision health is safe and explicit about heuristic mode", () => {
   const health = visionHealth();
   assert.equal(health.ready, true);
   assert.equal(health.defaultProvider, "frame-inspection-local");
+  assert.equal(health.externalProviderEnabled, false);
+  assert.equal(health.fallbackAvailable, true);
+  assert.equal(health.allowedLabels.includes("crowd_reaction"), true);
   assert.equal(health.objectTracking, false);
   assert.equal(health.goalClaimAllowed, false);
   assert.equal(health.features.includes("safe_no_goal_inference"), true);

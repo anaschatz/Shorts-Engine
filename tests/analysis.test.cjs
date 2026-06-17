@@ -181,6 +181,76 @@ test("candidate plans include visual evidence summary and safe framing reason", 
   assert.equal(plans[0].cropStrategy.preserveFullFrame, true);
 });
 
+test("visual-only save moments use aligned fallback captions instead of generic transcript copy", () => {
+  const result = detectHighlights({
+    transcript: {
+      provider: "fixture",
+      language: "en",
+      captions: [{ start: 10, end: 11.4, text: "Everyone reacts in the box" }],
+    },
+    signals: { durationSeconds: 22, hasAudio: true, audioPeaks: [], sceneChanges: [] },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [{ start: 9.7, end: 12.8, labels: ["save_like_motion"], confidence: 0.88 }],
+    },
+    preset: "hype",
+  });
+  const plans = createCandidateEditPlans({ moments: result.moments, metadata, transcript: { captions: [] }, title: "Save clip" });
+
+  assert.equal(plans[0].highlightType, "save");
+  assert.match(plans[0].captions.map((caption) => caption.text).join(" "), /KEEPER|SO CLOSE|RUN IT BACK/);
+  assert.equal(hasGoalLanguage(plans[0].captions.map((caption) => caption.text).join(" ")), false);
+});
+
+test("visual crowd reaction plus audio ranks as crowd reaction without goal claim", () => {
+  const result = detectHighlights({
+    transcript: {
+      provider: "fixture",
+      language: "en",
+      captions: [{ start: 8.8, end: 10.1, text: "Listen to the stands react" }],
+    },
+    signals: {
+      durationSeconds: 24,
+      hasAudio: true,
+      audioPeaks: [{ time: 9.4, energyScore: 0.92, source: "fixture" }],
+      sceneChanges: [{ time: 9.5, confidence: 0.76, source: "fixture" }],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [{ start: 8.2, end: 11.2, labels: ["crowd_reaction"], confidence: 0.82 }],
+    },
+    preset: "hype",
+  });
+
+  assert.equal(result.moments[0].highlightType, "crowd_reaction");
+  assert.equal(result.moments[0].reasonCodes.includes("visual_crowd_reaction"), true);
+  assert.equal(result.moments[0].reasonCodes.includes("goal"), false);
+  assert.equal(result.moments[0].evidence.visual.goalClaimAllowed, false);
+});
+
+test("visual scoreboard context does not become a goal or action claim", () => {
+  const result = detectHighlights({
+    transcript: {
+      provider: "fixture",
+      language: "en",
+      captions: [{ start: 5, end: 6.2, text: "The camera cuts to the scoreboard" }],
+    },
+    signals: { durationSeconds: 18, hasAudio: true, audioPeaks: [], sceneChanges: [] },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [{ start: 4.8, end: 7.2, labels: ["scoreboard_context"], confidence: 0.78 }],
+    },
+    preset: "hype",
+  });
+
+  assert.notEqual(result.moments[0].highlightType, "goal");
+  assert.equal(result.moments[0].reasonCodes.includes("goal"), false);
+  assert.equal(result.moments[0].reasonCodes.includes("visual_scoreboard_context"), true);
+});
+
 test("finish phrasing alone is not goal evidence", () => {
   const reasons = reasonCodesForCaption(
     { start: 3, end: 5, text: "What a finish" },

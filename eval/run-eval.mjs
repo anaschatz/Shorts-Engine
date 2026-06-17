@@ -33,6 +33,8 @@ try {
     top3Recall: report.aggregate.top3Recall,
     reasonCodePrecision: report.aggregate.reasonCodePrecision,
     visualReasonPrecision: report.aggregate.visualReasonPrecision,
+    visualLabelPrecision: report.aggregate.visualLabelPrecision,
+    visualLabelRecall: report.aggregate.visualLabelRecall,
     falseVisualGoalRate: report.aggregate.falseVisualGoalRate,
     highlightTypeAccuracy: report.aggregate.highlightTypeAccuracy,
     falseGoalCaptionRate: report.aggregate.falseGoalCaptionRate,

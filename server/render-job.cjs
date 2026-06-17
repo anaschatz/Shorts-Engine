@@ -474,12 +474,26 @@ async function runRenderJob(options) {
         inputPath: context.inputPath,
         metadata: context.metadata,
         candidateWindows: visualCandidateWindows,
+        mediaSignals,
         frames: sampledFrames.frames,
         frameSummary: sampledFrameSummary,
         signal,
       }),
       context.metadata,
     );
+    logInfo(deps.logger, {
+      event: "visual_analysis_completed",
+      requestId,
+      projectId: project.id,
+      jobId: job.id,
+      step: "analyze_visuals",
+      providerMode: visualSignals.providerMode,
+      frameCount: sampledFrameSummary.summary.frameCount,
+      visualWindowCount: visualSignals.summary.windowCount,
+      fallbackUsed: visualSignals.fallbackUsed,
+      latencyMs: visualSignals.providerMetadata && visualSignals.providerMetadata.latencyMs,
+      errorCode: visualSignals.failure && visualSignals.failure.code,
+    });
 
     updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 46, step: "transcribe" });
     const provider = deps.chooseTranscriptionProvider({ forceMock: !context.metadata.hasAudio });

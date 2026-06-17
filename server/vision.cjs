@@ -3,6 +3,7 @@ const { sanitizeText } = require("./media.cjs");
 
 const VISUAL_SIGNAL_TYPES = Object.freeze([
   "ball_visible",
+  "player_cluster",
   "goal_area_visible",
   "penalty_box_visible",
   "shot_like_motion",
@@ -10,8 +11,9 @@ const VISUAL_SIGNAL_TYPES = Object.freeze([
   "foul_like_contact",
   "fast_break_motion",
   "replay_indicator",
+  "crowd_reaction",
   "camera_pan",
-  "player_cluster",
+  "scoreboard_context",
   "unknown_visual_action",
 ]);
 
@@ -23,6 +25,8 @@ const VISUAL_REASON_CODES = Object.freeze([
   "visual_foul_like_contact",
   "visual_fast_break",
   "visual_replay_indicator",
+  "visual_crowd_reaction",
+  "visual_scoreboard_context",
   "visual_unknown_action",
 ]);
 
@@ -35,10 +39,15 @@ const VISUAL_REASON_BY_TYPE = Object.freeze({
   foul_like_contact: "visual_foul_like_contact",
   fast_break_motion: "visual_fast_break",
   replay_indicator: "visual_replay_indicator",
+  crowd_reaction: "visual_crowd_reaction",
   camera_pan: "visual_unknown_action",
   player_cluster: "visual_unknown_action",
+  scoreboard_context: "visual_scoreboard_context",
   unknown_visual_action: "visual_unknown_action",
 });
+
+const DEFAULT_PROVIDER_TIMEOUT_MS = 12000;
+const DISALLOWED_VISUAL_LABELS = Object.freeze(["goal", "scored", "goal_scored"]);
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, Number(value) || min));
@@ -52,6 +61,20 @@ function seconds(value, fallback = 0) {
 function normalizeVisualType(value) {
   const safe = sanitizeText(value, 48).toLowerCase();
   return VISUAL_SIGNAL_TYPES.includes(safe) ? safe : "unknown_visual_action";
+}
+
+function rawVisualTypes(window) {
+  if (!window || typeof window !== "object") return [];
+  if (Array.isArray(window.labels) && window.labels.length) return window.labels;
+  if (Array.isArray(window.types) && window.types.length) return window.types;
+  return [window.type || window.label].filter(Boolean);
+}
+
+function hasDisallowedVisualLabel(values = []) {
+  return (Array.isArray(values) ? values : [values]).some((value) => {
+    const safe = sanitizeText(value, 48).toLowerCase();
+    return DISALLOWED_VISUAL_LABELS.includes(safe);
+  });
 }
 
 function reasonCodeForVisualType(type) {
@@ -70,6 +93,7 @@ function visualHighlightTypeForReasons(reasons = []) {
   if (reasonSet.has("visual_foul_like_contact")) return "foul";
   if (reasonSet.has("visual_fast_break")) return "counter_attack";
   if (reasonSet.has("visual_shot_like_motion")) return "big_chance";
+  if (reasonSet.has("visual_crowd_reaction")) return "crowd_reaction";
   if (reasonSet.has("visual_replay_indicator")) return "replay_or_reaction";
   return "unknown_action";
 }
@@ -90,9 +114,13 @@ function normalizeVisualWindow(window, metadata = {}) {
   const start = Number(clamp(rawStart, 0, Math.max(0, duration || rawEnd)).toFixed(2));
   const end = Number(clamp(rawEnd, start + 0.4, duration || rawEnd).toFixed(2));
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
-  const types = Array.isArray(window.types) && window.types.length
-    ? window.types.map(normalizeVisualType)
-    : [normalizeVisualType(window.type)];
+  const rawTypes = rawVisualTypes(window);
+  if (hasDisallowedVisualLabel(rawTypes)) {
+    throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
+  }
+  const types = rawTypes.length
+    ? rawTypes.map(normalizeVisualType)
+    : ["unknown_visual_action"];
   const uniqueTypes = [...new Set(types)].slice(0, 4);
   const confidence = Number(clamp(window.confidence, 0.05, 0.95).toFixed(2));
   return {
@@ -101,6 +129,7 @@ function normalizeVisualWindow(window, metadata = {}) {
     center: Number(((start + end) / 2).toFixed(2)),
     type: uniqueTypes[0],
     types: uniqueTypes,
+    labels: uniqueTypes,
     confidence,
     source: sanitizeText(window.source || "heuristic", 40),
     evidence: {
@@ -144,9 +173,29 @@ function summarizeVisualSignals(input = {}) {
     saveLikeMotion: safeSummaryValue(windows, "save_like_motion"),
     foulLikeContact: safeSummaryValue(windows, "foul_like_contact"),
     fastBreakMotion: safeSummaryValue(windows, "fast_break_motion"),
+    crowdReaction: safeSummaryValue(windows, "crowd_reaction"),
     cameraPanIntensity: safeSummaryValue(windows, "camera_pan"),
     replayIndicator: safeSummaryValue(windows, "replay_indicator"),
+    scoreboardContext: safeSummaryValue(windows, "scoreboard_context"),
     goalClaimAllowed: false,
+  };
+}
+
+function normalizeProviderMetadata(value = {}) {
+  const metadata = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    latencyMs: Math.max(0, Math.min(120000, Math.round(Number(metadata.latencyMs || 0)))),
+    frameCount: Math.max(0, Math.min(64, Math.round(Number(metadata.frameCount || 0)))),
+    providerTimedOut: Boolean(metadata.providerTimedOut),
+  };
+}
+
+function normalizeFailure(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    code: sanitizeText(value.code || "VISION_PROVIDER_FAILED", 80),
+    phase: sanitizeText(value.phase || "vision_provider", 80),
+    retryable: Boolean(value.retryable),
   };
 }
 
@@ -167,6 +216,8 @@ function validateVisualSignals(signals, metadata = {}) {
     providerMode: sanitizeText(signals.providerMode || "mock", 40),
     fallbackUsed: Boolean(signals.fallbackUsed),
     confidence: Number(clamp(signals.confidence ?? (windows.length ? 0.5 : 0), 0, 1).toFixed(2)),
+    providerMetadata: normalizeProviderMetadata(signals.providerMetadata || signals.metadata),
+    failure: normalizeFailure(signals.failure),
     windows,
   };
   return {
@@ -268,6 +319,35 @@ function frameToVisualWindow(frame, candidateWindows = [], metadata = {}) {
   }, metadata);
 }
 
+function nearbyMediaItems(items, timestamp, radiusSeconds) {
+  return (Array.isArray(items) ? items : []).filter((item) => Math.abs(seconds(item.time, Number.NaN) - timestamp) <= radiusSeconds);
+}
+
+function inferLabelsForFrame(frame, candidateWindows = [], mediaSignals = {}) {
+  const timestamp = seconds(frame && frame.timestamp, Number.NaN);
+  if (!Number.isFinite(timestamp)) return ["unknown_visual_action"];
+  const matchedCandidate = closestCandidate(frame, candidateWindows);
+  const candidateHints = Array.isArray(matchedCandidate && matchedCandidate.visualHints) ? matchedCandidate.visualHints : [];
+  const frameHints = Array.isArray(frame && frame.visualHints) ? frame.visualHints : [];
+  const hints = [...frameHints, ...candidateHints].map(normalizeVisualType).filter(Boolean);
+  if (hints.length) return [...new Set(hints)].slice(0, 4);
+  const audioPeaks = nearbyMediaItems(mediaSignals.audioPeaks, timestamp, 3.5);
+  const sceneChanges = nearbyMediaItems(mediaSignals.sceneChanges, timestamp, 2.5);
+  const labels = [];
+  const source = sanitizeText((frame && frame.source) || (matchedCandidate && matchedCandidate.source) || "", 80);
+  if (source.includes("audio_peak") && audioPeaks.some((peak) => Number(peak.energyScore || 0) >= 0.85)) labels.push("crowd_reaction");
+  if (source.includes("scene_change") && sceneChanges.length) labels.push("replay_indicator");
+  if (source.includes("high_motion") || source.includes("motion_candidate") || source.includes("signal_cluster")) labels.push("unknown_visual_action");
+  if (!labels.length && audioPeaks.length && sceneChanges.length) labels.push("crowd_reaction");
+  if (!labels.length) labels.push("unknown_visual_action");
+  return [...new Set(labels.map(normalizeVisualType))].slice(0, 4);
+}
+
+function frameToProviderWindow(frame, candidateWindows = [], metadata = {}, mediaSignals = {}) {
+  const labels = inferLabelsForFrame(frame, candidateWindows, mediaSignals);
+  return frameToVisualWindow({ ...frame, visualHints: labels }, candidateWindows, metadata);
+}
+
 function mergeWindows(windows) {
   const seen = new Set();
   return windows.filter((window) => {
@@ -276,6 +356,40 @@ function mergeWindows(windows) {
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
+  });
+}
+
+function providerMetadata(startedAt, input = {}, extra = {}) {
+  return normalizeProviderMetadata({
+    latencyMs: Date.now() - startedAt,
+    frameCount: Array.isArray(input.frames) ? input.frames.length : 0,
+    ...extra,
+  });
+}
+
+function safeProviderFailure(code, phase = "vision_provider", retryable = false) {
+  return normalizeFailure({ code, phase, retryable });
+}
+
+function cancellationError() {
+  return new AppError("JOB_CANCELLED", SAFE_MESSAGES.JOB_CANCELLED, 409);
+}
+
+function raceWithTimeout(promise, { signal, timeoutMs = DEFAULT_PROVIDER_TIMEOUT_MS } = {}) {
+  if (signal && signal.aborted) return Promise.reject(cancellationError());
+  let timer = null;
+  return new Promise((resolve, reject) => {
+    const finish = (fn, value) => {
+      if (timer) clearTimeout(timer);
+      fn(value);
+    };
+    timer = setTimeout(() => {
+      finish(reject, new AppError("VISION_PROVIDER_TIMEOUT", SAFE_MESSAGES.AI_OUTPUT_INVALID, 504));
+    }, Math.max(250, Math.min(DEFAULT_PROVIDER_TIMEOUT_MS, Number(timeoutMs) || DEFAULT_PROVIDER_TIMEOUT_MS)));
+    Promise.resolve(promise).then(
+      (value) => finish(resolve, value),
+      (error) => finish(reject, error),
+    );
   });
 }
 
@@ -295,11 +409,13 @@ class SafeHeuristicVisionProvider {
   }
 
   async analyzeFrames({ metadata = {}, candidateWindows = [] } = {}) {
+    const startedAt = Date.now();
     const windows = safeHeuristicWindows({ metadata, candidateWindows });
     return validateVisualSignals({
       providerMode: "safe-heuristic",
       fallbackUsed: true,
       confidence: windows.length ? Math.max(...windows.map((window) => window.confidence)) : 0,
+      providerMetadata: providerMetadata(startedAt, { frames: [] }),
       windows,
     }, metadata);
   }
@@ -310,17 +426,49 @@ class FrameInspectionLocalVisionProvider extends SafeHeuristicVisionProvider {
     super({ mode: "frame-inspection-local" });
   }
 
-  async analyzeFrames({ metadata = {}, candidateWindows = [], frames = [] } = {}) {
+  async analyzeFrames({ metadata = {}, candidateWindows = [], frames = [], mediaSignals = {} } = {}) {
+    const startedAt = Date.now();
     const safeFrames = Array.isArray(frames) ? frames : [];
     const heuristicWindows = safeHeuristicWindows({ metadata, candidateWindows });
     const frameWindows = safeFrames
-      .map((frame) => frameToVisualWindow(frame, candidateWindows, metadata))
+      .map((frame) => frameToProviderWindow(frame, candidateWindows, metadata, mediaSignals))
       .filter(Boolean);
     const windows = mergeWindows([...frameWindows, ...heuristicWindows]).slice(0, 16);
     return validateVisualSignals({
       providerMode: safeFrames.length ? "frame-inspection-local" : "safe-heuristic",
       fallbackUsed: safeFrames.length === 0,
       confidence: windows.length ? Math.max(...windows.map((window) => window.confidence)) : 0,
+      providerMetadata: providerMetadata(startedAt, { frames: safeFrames }),
+      windows,
+    }, metadata);
+  }
+}
+
+class MockVisionProvider extends SafeHeuristicVisionProvider {
+  constructor() {
+    super({ mode: "mock-vision-provider" });
+  }
+
+  async analyzeFrames({ metadata = {}, candidateWindows = [], frames = [], mockLabels = [] } = {}) {
+    const startedAt = Date.now();
+    const safeFrames = Array.isArray(frames) ? frames : [];
+    const labels = Array.isArray(mockLabels) && mockLabels.length ? mockLabels : ["unknown_visual_action"];
+    const windows = (safeFrames.length ? safeFrames : candidateWindows).slice(0, 6).map((item, index) => normalizeVisualWindow({
+      start: item.start ?? item.windowStart,
+      end: item.end ?? item.windowEnd,
+      time: item.time ?? item.timestamp,
+      center: item.center,
+      confidence: item.confidence || 0.74,
+      labels,
+      source: "mock_vision_provider",
+      providerMode: "mock-vision-provider",
+      label: `mock visual label ${index + 1}`,
+    }, metadata)).filter(Boolean);
+    return validateVisualSignals({
+      providerMode: "mock-vision-provider",
+      fallbackUsed: false,
+      confidence: windows.length ? Math.max(...windows.map((window) => window.confidence)) : 0,
+      providerMetadata: providerMetadata(startedAt, { frames: safeFrames }),
       windows,
     }, metadata);
   }
@@ -343,26 +491,53 @@ class ExternalVisionProviderAdapter extends SafeHeuristicVisionProvider {
   }
 
   async analyzeFrames(input = {}) {
+    const startedAt = Date.now();
     if (!this.client || typeof this.client.analyzeFrames !== "function") {
       const fallback = new SafeHeuristicVisionProvider();
-      return fallback.analyzeFrames(input);
+      const result = await fallback.analyzeFrames(input);
+      return validateVisualSignals({
+        ...result,
+        failure: safeProviderFailure("VISION_PROVIDER_DISABLED", "vision_provider", false),
+      }, input.metadata || {});
     }
-    const result = await this.client.analyzeFrames({
-      metadata: input.metadata || {},
-      candidateWindows: Array.isArray(input.candidateWindows) ? input.candidateWindows : [],
-      frames: Array.isArray(input.frames) ? input.frames : [],
-    });
-    return validateVisualSignals({
-      ...result,
-      providerMode: "external-vision-adapter",
-      fallbackUsed: Boolean(result && result.fallbackUsed),
-    }, input.metadata || {});
+    try {
+      const result = await raceWithTimeout(
+        this.client.analyzeFrames({
+          metadata: input.metadata || {},
+          candidateWindows: Array.isArray(input.candidateWindows) ? input.candidateWindows : [],
+          mediaSignals: input.mediaSignals || {},
+          frames: Array.isArray(input.frames) ? input.frames : [],
+        }),
+        { signal: input.signal, timeoutMs: input.timeoutMs },
+      );
+      return validateVisualSignals({
+        ...result,
+        providerMode: "external-vision-adapter",
+        fallbackUsed: Boolean(result && result.fallbackUsed),
+        providerMetadata: {
+          ...providerMetadata(startedAt, input),
+          ...((result && (result.providerMetadata || result.metadata)) || {}),
+        },
+      }, input.metadata || {});
+    } catch (error) {
+      if (error && error.code === "JOB_CANCELLED") throw error;
+      if (error && error.code === "AI_OUTPUT_INVALID") throw error;
+      const fallback = new SafeHeuristicVisionProvider();
+      const result = await fallback.analyzeFrames(input);
+      return validateVisualSignals({
+        ...result,
+        fallbackUsed: true,
+        providerMetadata: providerMetadata(startedAt, input, { providerTimedOut: error && error.code === "VISION_PROVIDER_TIMEOUT" }),
+        failure: safeProviderFailure(error && error.code ? error.code : "VISION_PROVIDER_FAILED", "vision_provider", true),
+      }, input.metadata || {});
+    }
   }
 }
 
 function normalizeVisionProviderMode(mode, frames = []) {
   const safe = sanitizeText(mode || "", 60).toLowerCase();
   if (safe === "safe-heuristic" || safe === "mock") return "safe-heuristic";
+  if (safe === "mock-vision-provider") return "mock-vision-provider";
   if (safe === "external-vision-adapter" || safe === "external") return "external-vision-adapter";
   if (safe === "frame-inspection-local") return "frame-inspection-local";
   return Array.isArray(frames) && frames.length ? "frame-inspection-local" : "safe-heuristic";
@@ -370,6 +545,7 @@ function normalizeVisionProviderMode(mode, frames = []) {
 
 function createVisionProvider({ mode, client, frames = [] } = {}) {
   const providerMode = normalizeVisionProviderMode(mode, frames);
+  if (providerMode === "mock-vision-provider") return new MockVisionProvider();
   if (providerMode === "external-vision-adapter") return new ExternalVisionProviderAdapter({ client });
   if (providerMode === "frame-inspection-local") return new FrameInspectionLocalVisionProvider();
   return new SafeHeuristicVisionProvider();
@@ -377,11 +553,15 @@ function createVisionProvider({ mode, client, frames = [] } = {}) {
 
 async function analyzeFrames(input = {}) {
   const provider = createVisionProvider({
-    mode: input.mode,
-    client: input.client,
+    mode: input.providerMode || input.mode,
+    client: input.providerClient || input.client,
     frames: input.frames,
   });
   return provider.analyzeFrames(input);
+}
+
+async function analyzeVision(input = {}) {
+  return analyzeFrames(input);
 }
 
 function publicVisualSignals(signals) {
@@ -390,12 +570,15 @@ function publicVisualSignals(signals) {
     providerMode: safe.providerMode,
     fallbackUsed: safe.fallbackUsed,
     confidence: safe.confidence,
+    providerMetadata: safe.providerMetadata,
+    failure: safe.failure,
     summary: safe.summary,
     windows: safe.windows.map((window) => ({
       start: window.start,
       end: window.end,
       type: window.type,
       types: window.types,
+      labels: window.labels,
       confidence: window.confidence,
       reasonCodes: visualReasonCodesForWindow(window),
     })),
@@ -411,6 +594,11 @@ function visionHealth() {
     goalClaimAllowed: false,
     defaultProvider: "frame-inspection-local",
     fallbackProvider: "safe-heuristic",
+    fallbackAvailable: true,
+    externalProviderEnabled: false,
+    providerTimeoutMs: DEFAULT_PROVIDER_TIMEOUT_MS,
+    allowedLabels: VISUAL_SIGNAL_TYPES,
+    disallowedLabels: DISALLOWED_VISUAL_LABELS,
     features: [
       "visual_signal_contract",
       "vision_provider_adapter",
@@ -426,9 +614,12 @@ function visionHealth() {
 module.exports = {
   VISUAL_REASON_CODES,
   VISUAL_SIGNAL_TYPES,
+  analyzeVision,
   analyzeFrames,
   createVisionProvider,
+  inferLabelsForFrame,
   frameToVisualWindow,
+  frameToProviderWindow,
   publicVisualSignals,
   reasonCodeForVisualType,
   safeHeuristicWindows,

@@ -1,0 +1,56 @@
+{
+  "id": "visual_counter_attack_no_goal",
+  "title": "Visual counter attack without goal claim",
+  "language": "English",
+  "durationSeconds": 24,
+  "transcript": {
+    "provider": "fixture",
+    "language": "en",
+    "captions": [
+      { "start": 3.0, "end": 4.4, "text": "The move starts deep" },
+      { "start": 11.2, "end": 12.8, "text": "The pace suddenly changes" },
+      { "start": 18.0, "end": 19.2, "text": "Replay the run from midfield" }
+    ]
+  },
+  "mediaSignals": {
+    "durationSeconds": 24,
+    "width": 1920,
+    "height": 1080,
+    "hasAudio": true,
+    "audioPeaks": [],
+    "sceneChanges": [],
+    "highMotionCandidates": []
+  },
+  "visualSignals": {
+    "providerMode": "fixture-visual",
+    "fallbackUsed": false,
+    "confidence": 0.88,
+    "windows": [
+      {
+        "start": 10.6,
+        "end": 14.4,
+        "labels": ["fast_break_motion", "ball_visible"],
+        "confidence": 0.88,
+        "source": "fixture"
+      }
+    ]
+  },
+  "sampledFrames": {
+    "providerMode": "fixture-frame-sampling",
+    "fallbackUsed": false,
+    "summary": { "frameCount": 3 }
+  },
+  "expected": {
+    "highlights": [{ "start": 10.2, "end": 15.0 }],
+    "reasonCodes": ["visual_fast_break", "visual_ball_visible"],
+    "highlightType": "counter_attack",
+    "stylePreset": "social_sports_v1"
+  },
+  "thresholds": {
+    "minAggregateScore": 72,
+    "minTop1Overlap": 0.5,
+    "minTop3Recall": 1,
+    "minReasonPrecision": 0.5,
+    "minRetentionScore": 50
+  }
+}

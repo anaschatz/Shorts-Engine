@@ -351,7 +351,9 @@ function scoreReasons(reasons) {
     visual_foul_like_contact: 0.18,
     visual_shot_like_motion: 0.17,
     visual_fast_break: 0.16,
+    visual_crowd_reaction: 0.15,
     visual_replay_indicator: 0.1,
+    visual_scoreboard_context: 0.04,
     visual_goal_area: 0.06,
     visual_ball_visible: 0.05,
     visual_unknown_action: 0.03,
@@ -379,7 +381,11 @@ function highlightTypeForReasons(reasons = []) {
   if (reasons.includes("visual_save_like_motion")) return "save";
   if (reasons.includes("visual_foul_like_contact")) return "foul";
   if (reasons.includes("visual_fast_break")) return "counter_attack";
+  if (reasons.includes("visual_crowd_reaction") && (reasons.includes("audio_energy_spike") || reasons.includes("crowd_spike"))) {
+    return "crowd_reaction";
+  }
   if (reasons.includes("visual_shot_like_motion")) return "big_chance";
+  if (reasons.includes("visual_crowd_reaction")) return "crowd_reaction";
   if (reasons.includes("visual_replay_indicator")) return "replay_or_reaction";
   if (reasons.includes("crowd_reaction") || reasons.includes("crowd_spike")) return "crowd_reaction";
   if (reasons.includes("replay_or_reaction")) return "replay_or_reaction";
@@ -387,7 +393,12 @@ function highlightTypeForReasons(reasons = []) {
   if (reasons.includes("commentator_peak")) return "commentator_peak";
   if (reasons.includes("audio_energy_spike") || reasons.includes("audio_peak")) return "audio_energy_spike";
   if (reasons.includes("unknown_action")) return "unknown_action";
-  if (reasons.includes("visual_unknown_action") || reasons.includes("visual_goal_area") || reasons.includes("visual_ball_visible")) {
+  if (
+    reasons.includes("visual_unknown_action") ||
+    reasons.includes("visual_goal_area") ||
+    reasons.includes("visual_scoreboard_context") ||
+    reasons.includes("visual_ball_visible")
+  ) {
     return "unknown_action";
   }
   return "generic_highlight";
@@ -480,6 +491,39 @@ function captionIntentForHighlightType(highlightType) {
   return intents[highlightType] || intents.generic_highlight;
 }
 
+function captionMatchesMomentIntent(text, highlightType) {
+  if (!text) return false;
+  if (highlightType === "goal") return hasGoalLanguage(text);
+  const checks = {
+    shot_on_target: [...SHOT_TERMS, ...BIG_CHANCE_TERMS],
+    near_miss: BIG_CHANCE_TERMS,
+    big_chance: [...BIG_CHANCE_TERMS, ...SHOT_TERMS],
+    save: SAVE_TERMS,
+    foul: FOUL_TERMS,
+    hard_foul: [...FOUL_TERMS, ...HARD_FOUL_TERMS],
+    card_moment: CARD_TERMS,
+    counter_attack: COUNTER_TERMS,
+    skill_move: SKILL_TERMS,
+    crowd_reaction: CROWD_REACTION_TERMS,
+    commentator_peak: CROWD_REACTION_TERMS,
+    replay_or_reaction: REPLAY_TERMS,
+    replay_worthy_moment: REPLAY_TERMS,
+    audio_energy_spike: CROWD_REACTION_TERMS,
+  };
+  const terms = checks[highlightType];
+  if (!terms) return ["unknown_action", "generic_highlight"].includes(highlightType);
+  return hasTerm(text, terms);
+}
+
+function momentNeedsAlignedFallback(moment, selected) {
+  if (!moment || !Array.isArray(selected) || !selected.length) return false;
+  const visualOnly = moment.source === "vision" || (Array.isArray(moment.reasonCodes) && moment.reasonCodes.some((reason) => /^visual_/.test(reason)));
+  if (!visualOnly) return false;
+  const highlightType = moment.highlightType || highlightTypeForReasons(moment.reasonCodes || []);
+  if (["unknown_action", "generic_highlight"].includes(highlightType)) return false;
+  return !selected.some((caption) => captionMatchesMomentIntent(caption.text, highlightType));
+}
+
 function hookForMoment(moment, preset) {
   return hookForHighlightType(moment.highlightType || highlightTypeForReasons(moment.reasonCodes), preset);
 }
@@ -488,7 +532,7 @@ function captionBeatsForMoment(moment, captions, preset) {
   const selected = captions.filter((caption) => caption.start < moment.end && caption.end > moment.start).slice(0, 4);
   const highlightType = moment.highlightType || highlightTypeForReasons(moment.reasonCodes);
   const selectedHasMisleadingGoal = highlightType !== "goal" && selected.some((caption) => hasGoalLanguage(caption.text));
-  if (selected.length && !selectedHasMisleadingGoal) {
+  if (selected.length && !selectedHasMisleadingGoal && !momentNeedsAlignedFallback(moment, selected)) {
     return selected.map((caption) => ({
       start: Number(Math.max(0, caption.start - moment.start).toFixed(2)),
       end: Number(Math.min(moment.end - moment.start, caption.end - moment.start).toFixed(2)),
@@ -658,6 +702,7 @@ function effectsForReasons(reasons) {
   }
   if (reasons.includes("visual_shot_like_motion") || reasons.includes("visual_save_like_motion")) effects.push("subtle_punch_in");
   if (reasons.includes("visual_foul_like_contact")) effects.push("impact_freeze_frame");
+  if (reasons.includes("visual_crowd_reaction") || reasons.includes("crowd_spike")) effects.push("beat_sync_pulse");
   if (reasons.includes("replay_worthy_moment") || reasons.includes("visual_replay_indicator")) effects.push("replay_stutter");
   return [...new Set(effects)];
 }
