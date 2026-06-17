@@ -35,6 +35,12 @@ Without a human review JSON, the report status is `pending_human_review` and
 `productReady: false`. With a review JSON under `demo/reviews/`, the report can
 become `product_ready` only if critical criteria pass.
 
+The browser UI can now apply the same review contract through
+`GET /api/review/latest` and `POST /api/review/human`. Generated/reference
+previews are limited to safe `manual-downloads/*.mp4` refs through
+`/api/review/media`, and product readiness remains false until explicit operator
+scores pass with no critical flags.
+
 ## Review Checklist
 
 The human visual checklist covers:

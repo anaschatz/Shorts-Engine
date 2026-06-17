@@ -92,6 +92,7 @@ const MAX_MULTIPART_HEADER_BYTES = 8 * 1024;
 const MAX_UPLOAD_BODY_OVERHEAD_BYTES = 64 * 1024;
 const MAX_JSON_BODY_BYTES = 16 * 1024;
 const UPLOAD_FILE_FIELD = "video";
+const REVIEW_MEDIA_PREFIX = "manual-downloads/";
 const restoredState = persistenceAdapter.restoreState();
 function restoreSummary(value) {
   if (value && typeof value === "object") {
@@ -1072,6 +1073,178 @@ function safeDownloadFileName(value, fallback = "shortsengine-short.mp4") {
   return withExtension;
 }
 
+async function loadHumanReviewModule() {
+  return import("../demo/run-human-visual-review.mjs");
+}
+
+function safeReviewMediaRef(value) {
+  const text = sanitizeText(value || "", 260).replace(/\\/g, "/");
+  if (
+    !text ||
+    text.startsWith("/") ||
+    /^[A-Za-z]:\//.test(text) ||
+    text.includes("\0") ||
+    text.split("/").some((part) => part === "..") ||
+    !text.startsWith(REVIEW_MEDIA_PREFIX) ||
+    extname(text).toLowerCase() !== ".mp4"
+  ) {
+    throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, {
+      nextAction: "use-safe-manual-downloads-mp4-reference",
+    });
+  }
+  return {
+    relativePath: text,
+    resolvedPath: safeResolve(CONFIG.rootDir, text),
+  };
+}
+
+function publicHumanVisualReviewReport(report = {}) {
+  const humanReview = report.humanReview || {};
+  const sourceArtifact = report.source && report.source.generatedArtifact;
+  const generated = report.comparison && report.comparison.generated;
+  const reference = report.comparison && report.comparison.reference;
+  return {
+    schemaVersion: Number.isFinite(Number(report.schemaVersion)) ? Number(report.schemaVersion) : 1,
+    generatedAt: sanitizeText(report.generatedAt || "", 80),
+    status: sanitizeText(report.status || "pending_human_review", 60),
+    passed: report.passed === true,
+    productReady: report.productReady === true && humanReview.present === true,
+    source: {
+      mode: sanitizeText(report.source && report.source.mode || "direct_refs", 40),
+      generatedArtifact: sourceArtifact
+        ? {
+            relativePath: sanitizeText(sourceArtifact.relativePath || "", 260),
+            sourceType: sanitizeText(sourceArtifact.sourceType || "direct", 40),
+            videoId: sourceArtifact.videoId ? sanitizeText(sourceArtifact.videoId, 80) : null,
+            durationSeconds: Number.isFinite(Number(sourceArtifact.durationSeconds)) ? Number(sourceArtifact.durationSeconds) : null,
+            width: Number.isFinite(Number(sourceArtifact.width)) ? Number(sourceArtifact.width) : null,
+            height: Number.isFinite(Number(sourceArtifact.height)) ? Number(sourceArtifact.height) : null,
+            downloadVerified: sourceArtifact.downloadVerified === true,
+          }
+        : null,
+    },
+    comparison: report.comparison
+      ? {
+          generated: generated
+            ? {
+                relativePath: sanitizeText(generated.relativePath || "", 260),
+                readable: generated.readable === true,
+                durationSeconds: Number.isFinite(Number(generated.durationSeconds)) ? Number(generated.durationSeconds) : null,
+                width: Number.isFinite(Number(generated.width)) ? Number(generated.width) : null,
+                height: Number.isFinite(Number(generated.height)) ? Number(generated.height) : null,
+                orientation: sanitizeText(generated.orientation || "unknown", 40),
+              }
+            : null,
+          reference: reference
+            ? {
+                relativePath: sanitizeText(reference.relativePath || "", 260),
+                readable: reference.readable === true,
+                durationSeconds: Number.isFinite(Number(reference.durationSeconds)) ? Number(reference.durationSeconds) : null,
+                width: Number.isFinite(Number(reference.width)) ? Number(reference.width) : null,
+                height: Number.isFinite(Number(reference.height)) ? Number(reference.height) : null,
+                orientation: sanitizeText(reference.orientation || "unknown", 40),
+              }
+            : null,
+        }
+      : null,
+    machineStructuralMetrics: report.machineStructuralMetrics || null,
+    humanReview: {
+      status: sanitizeText(humanReview.status || "pending_human_review", 80),
+      present: humanReview.present === true,
+      humanScore: Number.isFinite(Number(humanReview.humanScore)) ? Number(humanReview.humanScore) : null,
+      combinedScore: Number.isFinite(Number(humanReview.combinedScore)) ? Number(humanReview.combinedScore) : null,
+      productReady: humanReview.productReady === true,
+      failedCriteria: Array.isArray(humanReview.failedCriteria) ? humanReview.failedCriteria.slice(0, 12) : [],
+      borderlineCriteria: Array.isArray(humanReview.borderlineCriteria) ? humanReview.borderlineCriteria.slice(0, 12) : [],
+      improvementHints: Array.isArray(humanReview.improvementHints) ? humanReview.improvementHints.slice(0, 12) : [],
+      operatorReview: humanReview.operatorReview && humanReview.operatorReview.present === true
+        ? {
+            present: true,
+            reviewer: sanitizeText(humanReview.operatorReview.reviewer || "operator", 80),
+            reviewedAt: sanitizeText(humanReview.operatorReview.reviewedAt || "", 80),
+            flags: humanReview.operatorReview.flags || {},
+          }
+        : { present: false },
+    },
+    checklist: Array.isArray(report.checklist)
+      ? report.checklist.slice(0, 16).map((item) => ({
+          id: sanitizeText(item.id || "", 100),
+          label: sanitizeText(item.label || "", 160),
+          status: sanitizeText(item.status || "unknown", 80),
+          evidence: sanitizeText(item.evidence || "", 240),
+        }))
+      : [],
+    recommendedNextFix: sanitizeText(report.recommendedNextFix || "complete-human-visual-review", 120),
+    failedCases: Array.isArray(report.failedCases)
+      ? report.failedCases.slice(0, 12).map((item) => ({
+          code: sanitizeText(item.code || "", 100),
+          message: sanitizeText(item.message || "", 180),
+          field: item.field ? sanitizeText(item.field, 100) : undefined,
+        }))
+      : [],
+    logsDownloaded: false,
+    artifactsDownloaded: false,
+  };
+}
+
+async function handleHumanReviewLatest(req, res) {
+  const review = await loadHumanReviewModule();
+  const result = review.loadLatestHumanVisualReviewReport({ rootDir: CONFIG.rootDir });
+  if (!result.ok) {
+    throw new AppError(result.error.code, result.error.message, 400, { nextAction: result.error.nextAction });
+  }
+  sendOk(res, {
+    status: result.exists ? "available" : "missing",
+    latestPath: result.latestPath,
+    review: publicHumanVisualReviewReport(result.report),
+  });
+}
+
+async function handleHumanReviewSubmit(req, res, rid) {
+  if (!reviewLimiter.check(clientKey(req))) {
+    throw new AppError("RATE_LIMITED", SAFE_MESSAGES.RATE_LIMITED, 429);
+  }
+  validateJsonContentType(req);
+  enforceContentLength(req, MAX_JSON_BODY_BYTES);
+  const payload = await readJsonBody(req, MAX_JSON_BODY_BYTES);
+  const review = await loadHumanReviewModule();
+  const result = review.writeHumanVisualReviewFromPayload(payload, { rootDir: CONFIG.rootDir });
+  if (!result.ok) {
+    throw new AppError(result.error.code, result.error.message, 400, { nextAction: result.error.nextAction });
+  }
+  console.info(JSON.stringify(redactForLogs({
+    level: "info",
+    event: "human_visual_review_submitted",
+    requestId: rid,
+    status: result.report && result.report.status,
+    productReady: Boolean(result.report && result.report.productReady),
+    humanReviewPresent: Boolean(result.report && result.report.humanReview && result.report.humanReview.present),
+    recommendedNextFix: result.report && result.report.recommendedNextFix,
+  })));
+  sendOk(res, {
+    latestPath: result.latestPath,
+    reportPath: result.reportPath,
+    review: publicHumanVisualReviewReport(result.report),
+  }, 201);
+}
+
+async function handleHumanReviewMedia(req, res, url) {
+  const media = safeReviewMediaRef(url.searchParams.get("ref"));
+  if (!existsSync(media.resolvedPath) || statSync(media.resolvedPath).isDirectory()) {
+    throw new AppError("ARTIFACT_NOT_FOUND", SAFE_MESSAGES.ARTIFACT_NOT_FOUND, 404);
+  }
+  res.writeHead(200, {
+    ...SAFE_RESPONSE_HEADERS,
+    "content-type": "video/mp4",
+    "content-disposition": `inline; filename="${safeDownloadFileName(media.relativePath.split("/").pop(), "review-video.mp4")}"`,
+  });
+  const stream = createReadStream(media.resolvedPath);
+  stream.on("error", () => {
+    res.destroy();
+  });
+  stream.pipe(res);
+}
+
 function serveStatic(req, res, pathname) {
   const target = safeStaticPath(pathname);
   if (!target || !existsSync(target) || statSync(target).isDirectory()) return false;
@@ -1091,6 +1264,9 @@ async function route(req, res) {
     if (req.method === "POST" && pathname === "/api/youtube/ingest") return await handleYouTubeIngest(req, res, rid);
     if (req.method === "POST" && pathname === "/api/uploads") return await handleUpload(req, res, rid);
     if (req.method === "POST" && pathname === "/api/review/register") return await handleReviewRegister(req, res, rid);
+    if (req.method === "GET" && pathname === "/api/review/latest") return await handleHumanReviewLatest(req, res);
+    if (req.method === "POST" && pathname === "/api/review/human") return await handleHumanReviewSubmit(req, res, rid);
+    if (req.method === "GET" && pathname === "/api/review/media") return await handleHumanReviewMedia(req, res, url);
     if (req.method === "POST" && pathname === "/api/review/regeneration-plan") return await handleReviewRegenerationPlan(req, res, rid);
     if (req.method === "POST" && pathname === "/api/review/regeneration-approval") return await handleReviewRegenerationApproval(req, res, rid);
 

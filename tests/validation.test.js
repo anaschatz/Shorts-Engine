@@ -306,6 +306,67 @@ test("youtube UI warning and recovery copy handles authorized import failures sa
   assert.equal(ui.canDownload, false);
 });
 
+test("human review validation accepts complete scoring payload", () => {
+  const criteria = Object.fromEntries(Core.HUMAN_REVIEW_CRITERIA.map((criterion) => [criterion.id, 5]));
+  const flags = Object.fromEntries(Core.HUMAN_REVIEW_FLAGS.map((flag) => [flag.id, false]));
+  const result = Core.validateHumanReviewInput({
+    generatedRelativePath: "manual-downloads/generated.mp4",
+    referenceRelativePath: "manual-downloads/reference.mp4",
+    reviewer: "operator",
+    criteria,
+    flags,
+    notes: "Action, caption, crop and pacing reviewed in the UI.",
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.data.generatedRelativePath, "manual-downloads/generated.mp4");
+  assert.equal(result.data.flags.textBlocksAction, false);
+  assert.equal(result.data.flags.missingPayoff, false);
+  assert.equal(result.data.flags.reactionOnly, false);
+});
+
+test("human review validation rejects unsafe refs missing scores and leaks", () => {
+  const criteria = Object.fromEntries(Core.HUMAN_REVIEW_CRITERIA.map((criterion) => [criterion.id, 5]));
+  const flags = Object.fromEntries(Core.HUMAN_REVIEW_FLAGS.map((flag) => [flag.id, false]));
+
+  assert.equal(
+    Core.validateHumanReviewInput({
+      generatedRelativePath: "../generated.mp4",
+      referenceRelativePath: "manual-downloads/reference.mp4",
+      criteria,
+      flags,
+    }).error.code,
+    "HUMAN_REVIEW_REF_UNSAFE",
+  );
+
+  const incompleteCriteria = { ...criteria };
+  delete incompleteCriteria.moment_selection;
+  assert.equal(
+    Core.validateHumanReviewInput({
+      generatedRelativePath: "manual-downloads/generated.mp4",
+      referenceRelativePath: "manual-downloads/reference.mp4",
+      criteria: incompleteCriteria,
+      flags,
+    }).error.code,
+    "HUMAN_REVIEW_CRITERIA_INVALID",
+  );
+
+  assert.equal(
+    Core.validateHumanReviewInput({
+      generatedRelativePath: "manual-downloads/generated.mp4",
+      referenceRelativePath: "manual-downloads/reference.mp4",
+      criteria,
+      flags,
+      notes: "Bearer secret-token-value-1234567890",
+    }).error.code,
+    "HUMAN_REVIEW_LEAK_GUARD",
+  );
+
+  assert.equal(Core.HUMAN_REVIEW_FLAGS.some((flag) => flag.id === "textBlocksAction" && flag.critical), true);
+  assert.equal(Core.HUMAN_REVIEW_FLAGS.some((flag) => flag.id === "missingPayoff" && flag.critical), true);
+  assert.equal(Core.HUMAN_REVIEW_FLAGS.some((flag) => flag.id === "reactionOnly" && flag.critical), true);
+});
+
 test("project settings are normalized and consent is required for jobs", () => {
   const settings = Core.normalizeProjectSettings({
     title: "  Derby Final  ",

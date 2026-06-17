@@ -266,6 +266,21 @@ obstruction and reference-style pacing. Reports must include only safe relative
 refs and must not include raw downloader logs, absolute paths, storage keys,
 cookies or tokens.
 
+The browser UI can complete the same review without editing JSON by hand. After
+the generated MP4 and reference MP4 are available under `manual-downloads/`,
+open the app, use the Human review section, confirm the generated/reference
+refs, score every criterion from `0` to `5`, set any relevant issue flags, add
+bounded notes and submit. The UI calls `GET /api/review/latest` and
+`POST /api/review/human`; previews use `/api/review/media?ref=...` and only
+serve safe `manual-downloads/*.mp4` files.
+
+`productReady` must stay `false` until a human review is present. It also stays
+`false` whenever critical flags are enabled, including false goal claim, wrong
+moment, bad crop, caption mismatch, text blocking action, missing payoff or
+reaction-only output. This keeps the product gate honest when a clip has no
+goal, starts on the wrong beat, loses the ball, or copies reference energy
+without showing the actual football action.
+
 ## Safe Cleanup
 
 Do not manually delete uploads, renders, exports, database files, or object-storage records unless a dedicated lifecycle policy says so.

@@ -96,6 +96,20 @@
     reviewRegisterBtn: "#reviewRegisterBtn",
     reviewStatus: "#reviewStatus",
     reviewSummary: "#reviewSummary",
+    humanReviewForm: "#humanReviewForm",
+    humanReviewStatus: "#humanReviewStatus",
+    humanReviewVerdict: "#humanReviewVerdict",
+    humanGeneratedRef: "#humanGeneratedRef",
+    humanReferenceRef: "#humanReferenceRef",
+    humanReviewVideos: "#humanReviewVideos",
+    humanGeneratedPreview: "#humanGeneratedPreview",
+    humanReferencePreview: "#humanReferencePreview",
+    humanReviewCriteria: "#humanReviewCriteria",
+    humanReviewFlags: "#humanReviewFlags",
+    humanReviewNotes: "#humanReviewNotes",
+    humanReviewSubmitBtn: "#humanReviewSubmitBtn",
+    humanReviewNextAction: "#humanReviewNextAction",
+    humanReviewError: "#humanReviewError",
     reviewMetrics: "#reviewMetrics",
     reviewFailures: "#reviewFailures",
     reviewSuggestions: "#reviewSuggestions",
@@ -143,6 +157,12 @@
       status: "idle",
       result: null,
       error: null,
+      human: {
+        status: "idle",
+        latest: null,
+        result: null,
+        error: null,
+      },
       regeneration: {
         status: "idle",
         result: null,
@@ -176,6 +196,15 @@
         result: null,
         error: null,
       },
+    };
+  }
+
+  function idleHumanReviewState() {
+    return {
+      status: "idle",
+      latest: null,
+      result: null,
+      error: null,
     };
   }
 
@@ -490,8 +519,10 @@
       status: "idle",
       result: null,
       error: null,
+      human: idleHumanReviewState(),
       regeneration: idleRegenerationState(),
     };
+    clearHumanReviewError();
     renderReviewPanel();
   }
 
@@ -519,6 +550,180 @@
     if (!text) return "pending";
     if (text.length <= 18) return text;
     return `${text.slice(0, 10)}...${text.slice(-6)}`;
+  }
+
+  function clearHumanReviewError() {
+    els.humanReviewError.hidden = true;
+    els.humanReviewError.textContent = "";
+  }
+
+  function humanReviewMediaUrl(relativePath) {
+    return `/api/review/media?ref=${encodeURIComponent(relativePath)}`;
+  }
+
+  function renderHumanReviewControls() {
+    els.humanReviewCriteria.replaceChildren();
+    Core.HUMAN_REVIEW_CRITERIA.forEach((criterion) => {
+      const row = document.createElement("label");
+      row.className = "human-review-score";
+      row.setAttribute("for", `human-score-${criterion.id}`);
+      const label = document.createElement("span");
+      label.textContent = criterion.label;
+      const control = document.createElement("input");
+      control.id = `human-score-${criterion.id}`;
+      control.type = "range";
+      control.min = "0";
+      control.max = "5";
+      control.step = "1";
+      control.value = "0";
+      control.dataset.reviewCriterion = criterion.id;
+      control.setAttribute("aria-label", `${criterion.label} score`);
+      const value = document.createElement("strong");
+      value.textContent = "0";
+      control.addEventListener("input", () => {
+        value.textContent = control.value;
+        validateHumanReviewForm();
+      });
+      row.append(label, control, value);
+      els.humanReviewCriteria.appendChild(row);
+    });
+
+    els.humanReviewFlags.replaceChildren();
+    Core.HUMAN_REVIEW_FLAGS.forEach((flag) => {
+      const row = document.createElement("label");
+      row.className = `human-review-flag${flag.critical ? " critical" : ""}`;
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.dataset.reviewFlag = flag.id;
+      input.addEventListener("change", validateHumanReviewForm);
+      const text = document.createElement("span");
+      text.textContent = flag.label;
+      row.append(input, text);
+      els.humanReviewFlags.appendChild(row);
+    });
+  }
+
+  function readHumanReviewPayload() {
+    const criteria = {};
+    els.humanReviewCriteria.querySelectorAll("[data-review-criterion]").forEach((input) => {
+      criteria[input.dataset.reviewCriterion] = Number(input.value);
+    });
+    const flags = {};
+    els.humanReviewFlags.querySelectorAll("[data-review-flag]").forEach((input) => {
+      flags[input.dataset.reviewFlag] = input.checked;
+    });
+    return {
+      schemaVersion: 1,
+      generatedRelativePath: els.humanGeneratedRef.value.trim(),
+      referenceRelativePath: els.humanReferenceRef.value.trim(),
+      reviewer: "operator",
+      reviewedAt: new Date().toISOString(),
+      criteria,
+      flags,
+      notes: els.humanReviewNotes.value,
+    };
+  }
+
+  function setHumanReviewVideoPreview(generatedRef, referenceRef) {
+    const generated = Core.validateReviewRelativePath(generatedRef || "");
+    const reference = Core.validateReviewRelativePath(referenceRef || "");
+    const ready = generated.ok && reference.ok;
+    els.humanReviewVideos.hidden = !ready;
+    if (!ready) {
+      els.humanGeneratedPreview.removeAttribute("src");
+      els.humanReferencePreview.removeAttribute("src");
+      return;
+    }
+    els.humanGeneratedPreview.src = humanReviewMediaUrl(generated.data.relativePath);
+    els.humanReferencePreview.src = humanReviewMediaUrl(reference.data.relativePath);
+  }
+
+  function applyHumanReviewReport(report) {
+    if (!report) return;
+    const generatedRef =
+      report.comparison?.generated?.relativePath ||
+      report.source?.generatedArtifact?.relativePath ||
+      "";
+    const referenceRef = report.comparison?.reference?.relativePath || "";
+    if (generatedRef) els.humanGeneratedRef.value = generatedRef;
+    if (referenceRef) els.humanReferenceRef.value = referenceRef;
+    setHumanReviewVideoPreview(els.humanGeneratedRef.value, els.humanReferenceRef.value);
+    els.humanReviewStatus.dataset.status = report.status || "pending_human_review";
+    const title = els.humanReviewStatus.querySelector("strong");
+    if (title) {
+      title.textContent = report.productReady
+        ? "Product ready"
+        : report.humanReview?.present
+          ? "Needs improvement"
+          : "Pending human review";
+    }
+    els.humanReviewVerdict.textContent = report.productReady
+      ? "Ready sample"
+      : report.recommendedNextFix || "Product readiness locked";
+    els.humanReviewNextAction.textContent = report.recommendedNextFix || "Complete scores to unlock verdict.";
+  }
+
+  function validateHumanReviewForm(options = {}) {
+    const validation = Core.validateHumanReviewInput(readHumanReviewPayload());
+    els.humanReviewSubmitBtn.disabled = !validation.ok || state.review.human.status === "submitting";
+    if (options.refreshPreview) {
+      setHumanReviewVideoPreview(els.humanGeneratedRef.value, els.humanReferenceRef.value);
+    }
+    if (validation.ok) clearHumanReviewError();
+    return validation;
+  }
+
+  async function refreshHumanReviewLatest() {
+    try {
+      state.review.human = { ...state.review.human, status: "loading", error: null };
+      const data = await apiFetch("/api/review/latest");
+      state.review.human = { status: "loaded", latest: data, result: null, error: null };
+      applyHumanReviewReport(data.review);
+    } catch (error) {
+      const response = safeErrorResponse(error);
+      state.review.human = {
+        ...state.review.human,
+        status: "failed",
+        error: { code: response.error.code, message: response.error.message },
+      };
+      els.humanReviewNextAction.textContent = "Latest review is unavailable.";
+    } finally {
+      validateHumanReviewForm({ refreshPreview: true });
+    }
+  }
+
+  async function handleHumanReviewSubmit(event) {
+    event.preventDefault();
+    clearHumanReviewError();
+    const validation = validateHumanReviewForm();
+    if (!validation.ok) {
+      els.humanReviewError.hidden = false;
+      els.humanReviewError.textContent = validation.error.message;
+      return;
+    }
+    try {
+      state.review.human = { ...state.review.human, status: "submitting", error: null };
+      validateHumanReviewForm();
+      const data = await apiFetch("/api/review/human", {
+        method: "POST",
+        body: JSON.stringify(validation.data),
+      });
+      state.review.human = { status: "submitted", latest: data, result: data, error: null };
+      applyHumanReviewReport(data.review);
+      showToast(data.review.productReady ? "Human review marked this result product ready." : "Human review saved. Improvements are still needed.", data.review.productReady ? "success" : "warning");
+    } catch (error) {
+      const response = safeErrorResponse(error);
+      state.review.human = {
+        ...state.review.human,
+        status: "failed",
+        error: { code: response.error.code, message: response.error.message },
+      };
+      els.humanReviewError.hidden = false;
+      els.humanReviewError.textContent = response.error.message;
+      showSafeError(response, "human-review-submit");
+    } finally {
+      validateHumanReviewForm();
+    }
   }
 
   function renderReviewPanel() {
@@ -1391,6 +1596,7 @@
     clearError();
     if (!canRegisterReview()) {
       state.review = {
+        ...state.review,
         status: "failed",
         result: null,
         error: {
@@ -1402,7 +1608,7 @@
       return;
     }
     try {
-      state.review = { status: "registering", result: null, error: null, regeneration: idleRegenerationState() };
+      state.review = { ...state.review, status: "registering", result: null, error: null, regeneration: idleRegenerationState() };
       updateActionStates();
       const data = await apiFetch("/api/review/register", {
         method: "POST",
@@ -1414,7 +1620,7 @@
           title: els.matchTitle.value,
         }),
       });
-      state.review = { status: "registered", result: data, error: null, regeneration: idleRegenerationState() };
+      state.review = { ...state.review, status: "registered", result: data, error: null, regeneration: idleRegenerationState() };
       showToast(
         data.review && data.review.passed ? "Το review draft πέρασε το quality check." : "Το review draft χρειάζεται έλεγχο.",
         data.review && data.review.passed ? "success" : "warning",
@@ -1422,6 +1628,7 @@
     } catch (error) {
       const response = safeErrorResponse(error);
       state.review = {
+        ...state.review,
         status: "failed",
         result: null,
         error: {
@@ -1650,6 +1857,7 @@
         status: "idle",
         result: null,
         error: null,
+        human: idleHumanReviewState(),
         regeneration: idleRegenerationState(),
       },
       moments: Core.validateAiOutput(DEFAULT_MOMENTS).data || [],
@@ -1763,6 +1971,10 @@
     els.reviewRegisterBtn.addEventListener("click", handleReviewRegister);
     els.reviewRegenerateBtn.addEventListener("click", handleReviewRegenerationPlan);
     els.reviewApproveBtn.addEventListener("click", handleReviewRegenerationApproval);
+    els.humanReviewForm.addEventListener("submit", handleHumanReviewSubmit);
+    els.humanGeneratedRef.addEventListener("input", () => validateHumanReviewForm({ refreshPreview: true }));
+    els.humanReferenceRef.addEventListener("input", () => validateHumanReviewForm({ refreshPreview: true }));
+    els.humanReviewNotes.addEventListener("input", validateHumanReviewForm);
     els.saveBtn.addEventListener("click", handleSave);
     els.clearBtn.addEventListener("click", clearProject);
     els.exportBtn.addEventListener("click", downloadExport);
@@ -1786,6 +1998,7 @@
 
   function init() {
     bindEvents();
+    renderHumanReviewControls();
     renderMoments();
     selectMoment(0);
     setButtonContent(els.generateBtn, "Generate shorts", "bolt");
@@ -1795,8 +2008,10 @@
     clearYouTubeValidation({ clearInput: false });
     syncSourcePanels();
     els.jobProgress.hidden = true;
+    validateHumanReviewForm({ refreshPreview: true });
     updateActionStates();
     refreshYouTubeHealth();
+    refreshHumanReviewLatest();
   }
 
   init();

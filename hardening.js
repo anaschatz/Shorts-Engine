@@ -50,6 +50,31 @@
     CANCELLED: "cancelled",
   });
 
+  const HUMAN_REVIEW_CRITERIA = Object.freeze([
+    { id: "moment_selection", label: "Moment selection" },
+    { id: "caption_action_alignment", label: "Caption/action alignment" },
+    { id: "ball_player_framing", label: "Ball/player framing" },
+    { id: "reference_style_editing", label: "Reference-style editing" },
+    { id: "false_goal_guard", label: "False-goal guard" },
+    { id: "hook_strength", label: "Hook strength" },
+    { id: "pacing_energy", label: "Pacing and energy" },
+    { id: "text_readability", label: "Text readability" },
+    { id: "replay_or_context_use", label: "Replay/context use" },
+    { id: "overall_short_quality", label: "Overall short quality" },
+  ]);
+
+  const HUMAN_REVIEW_FLAGS = Object.freeze([
+    { id: "falseGoalClaim", label: "False goal claim", critical: true },
+    { id: "wrongMoment", label: "Wrong moment", critical: true },
+    { id: "badCrop", label: "Bad crop", critical: true },
+    { id: "captionMismatch", label: "Caption mismatch", critical: true },
+    { id: "textBlocksAction", label: "Text blocks action", critical: true },
+    { id: "missingPayoff", label: "Missing payoff", critical: true },
+    { id: "reactionOnly", label: "Reaction only", critical: true },
+    { id: "lowEnergy", label: "Low energy", critical: false },
+    { id: "missingTrendEditing", label: "Weak trend editing", critical: false },
+  ]);
+
   const SAFE_MESSAGES = Object.freeze({
     UPLOAD_EMPTY: "Διάλεξε ένα αρχείο βίντεο πριν συνεχίσεις.",
     FILE_TOO_LARGE: "Το αρχείο είναι μεγαλύτερο από το επιτρεπτό όριο.",
@@ -72,6 +97,11 @@
     JOB_TIMEOUT: "Η ενέργεια ξεπέρασε το χρονικό όριο.",
     AI_OUTPUT_INVALID: "Το AI output δεν πέρασε validation.",
     EXPORT_PAYLOAD_INVALID: "Το ολοκληρωμένο render δεν έχει έγκυρα στοιχεία export.",
+    HUMAN_REVIEW_INVALID: "Το human review δεν πέρασε validation.",
+    HUMAN_REVIEW_REF_UNSAFE: "Τα review video refs πρέπει να είναι safe relative MP4 paths.",
+    HUMAN_REVIEW_CRITERIA_INVALID: "Συμπλήρωσε όλα τα review scores από 0 έως 5.",
+    HUMAN_REVIEW_NOTES_TOO_LONG: "Τα review notes είναι πολύ μεγάλα.",
+    HUMAN_REVIEW_LEAK_GUARD: "Το review περιέχει unsafe ή sensitive data.",
     YOUTUBE_DURATION_TOO_LONG: "Το YouTube video ξεπερνά το όριο διάρκειας.",
     YOUTUBE_AGE_RESTRICTED: "Το YouTube video χρειάζεται age-gated ή authorized access.",
     YOUTUBE_AUTH_REQUIRED: "Το YouTube video χρειάζεται authorized access πριν γίνει ingest.",
@@ -166,6 +196,72 @@
       .replace(/\s+/g, " ")
       .trim();
     return cleaned.slice(0, CONFIG.maxFileNameLength) || "untitled-video";
+  }
+
+  function hasSensitiveReviewText(value) {
+    const text = String(value ?? "");
+    return /(?:gh[pousr]_[A-Za-z0-9_]{10,}|github_pat_|sk-[A-Za-z0-9_-]{10,}|Bearer\s+[A-Za-z0-9._-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|cookie|storageKey|rawLogs|stderr|stdout|\/Users\/|\/private\/)/i.test(text);
+  }
+
+  function validateReviewRelativePath(value) {
+    const text = String(value ?? "").trim().replace(/\\/g, "/");
+    if (
+      !text ||
+      text.startsWith("/") ||
+      /^[A-Za-z]:\//.test(text) ||
+      text.includes("\0") ||
+      text.split("/").some((part) => part === "..") ||
+      !text.toLowerCase().endsWith(".mp4") ||
+      hasSensitiveReviewText(text)
+    ) {
+      return fail("HUMAN_REVIEW_REF_UNSAFE");
+    }
+    return ok({ relativePath: sanitizeText(text, 260) });
+  }
+
+  function validateHumanReviewInput(payload) {
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) return fail("HUMAN_REVIEW_INVALID");
+    if (hasSensitiveReviewText(JSON.stringify(payload).slice(0, 6000))) return fail("HUMAN_REVIEW_LEAK_GUARD");
+    const generated = validateReviewRelativePath(payload.generatedRelativePath || payload.generated?.relativePath);
+    if (!generated.ok) return generated;
+    const reference = validateReviewRelativePath(payload.referenceRelativePath || payload.reference?.relativePath);
+    if (!reference.ok) return reference;
+    const criteria = payload.criteria;
+    if (!criteria || typeof criteria !== "object" || Array.isArray(criteria)) return fail("HUMAN_REVIEW_CRITERIA_INVALID");
+    const normalizedCriteria = {};
+    const allowedCriteria = HUMAN_REVIEW_CRITERIA.map((item) => item.id);
+    for (const key of Object.keys(criteria)) {
+      if (!allowedCriteria.includes(key)) return fail("HUMAN_REVIEW_CRITERIA_INVALID");
+    }
+    for (const criterion of HUMAN_REVIEW_CRITERIA) {
+      const raw = criteria[criterion.id];
+      const score = typeof raw === "object" && raw ? Number(raw.score) : Number(raw);
+      if (!Number.isFinite(score) || score < 0 || score > 5) return fail("HUMAN_REVIEW_CRITERIA_INVALID");
+      normalizedCriteria[criterion.id] = Number(score.toFixed(2));
+    }
+    const flagsInput = payload.flags || {};
+    if (typeof flagsInput !== "object" || Array.isArray(flagsInput)) return fail("HUMAN_REVIEW_INVALID");
+    const allowedFlags = HUMAN_REVIEW_FLAGS.map((item) => item.id);
+    const flags = {};
+    for (const key of Object.keys(flagsInput)) {
+      if (!allowedFlags.includes(key)) return fail("HUMAN_REVIEW_INVALID");
+    }
+    HUMAN_REVIEW_FLAGS.forEach((flag) => {
+      flags[flag.id] = Boolean(flagsInput[flag.id]);
+    });
+    const notes = String(payload.notes ?? "");
+    if (notes.length > 1000) return fail("HUMAN_REVIEW_NOTES_TOO_LONG");
+    if (hasSensitiveReviewText(notes)) return fail("HUMAN_REVIEW_LEAK_GUARD");
+    return ok({
+      schemaVersion: 1,
+      generatedRelativePath: generated.data.relativePath,
+      referenceRelativePath: reference.data.relativePath,
+      reviewer: sanitizeText(payload.reviewer || "operator", 80) || "operator",
+      reviewedAt: payload.reviewedAt || new Date().toISOString(),
+      criteria: normalizedCriteria,
+      flags,
+      notes: sanitizeText(notes, 1000),
+    });
   }
 
   function getExtension(fileName) {
@@ -778,6 +874,8 @@
   const api = {
     CONFIG,
     JOB_STATUS,
+    HUMAN_REVIEW_CRITERIA,
+    HUMAN_REVIEW_FLAGS,
     SAFE_MESSAGES,
     SafeAppError,
     ok,
@@ -789,6 +887,8 @@
     getExtension,
     validateFileName,
     validateUploadFile,
+    validateReviewRelativePath,
+    validateHumanReviewInput,
     createProjectTitleCandidate,
     detectVideoContainer,
     validateVideoSignature,

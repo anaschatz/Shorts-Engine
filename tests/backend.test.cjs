@@ -1125,6 +1125,40 @@ test("API review registration rejects missing artifacts and unsafe references", 
   assert.doesNotMatch(JSON.stringify([missingPayload, unsafePayload]), /\/Users|\/private|storageKey|outputPath|secret|token|stdout|stderr|stack/i);
 });
 
+test("API human review submit and media preview reject unsafe inputs safely", async () => {
+  const criteria = {
+    moment_selection: 5,
+    caption_action_alignment: 5,
+    ball_player_framing: 5,
+    reference_style_editing: 5,
+    false_goal_guard: 5,
+    hook_strength: 5,
+    pacing_energy: 5,
+    text_readability: 5,
+    replay_or_context_use: 5,
+    overall_short_quality: 5,
+  };
+  const submit = await postJson("/api/review/human", {
+    generatedRelativePath: "../outside.mp4",
+    referenceRelativePath: "manual-downloads/reference.mp4",
+    criteria,
+    flags: {},
+    notes: "Unsafe ref should be rejected before any report is written.",
+  });
+  assert.equal(submit.res.statusCode, 400);
+  assert.equal(submit.payload.ok, false);
+  assert.equal(submit.payload.error.code, "HUMAN_VISUAL_REVIEW_MEDIA_REF_UNSAFE");
+
+  const mediaReq = mockRequest({ method: "GET", url: "/api/review/media?ref=../outside.mp4" });
+  const mediaRes = mockResponse();
+  await route(mediaReq, mediaRes);
+  const mediaPayload = JSON.parse(mediaRes.body.toString("utf8"));
+  assert.equal(mediaRes.statusCode, 400);
+  assert.equal(mediaPayload.ok, false);
+  assert.equal(mediaPayload.error.code, "VALIDATION_ERROR");
+  assert.doesNotMatch(JSON.stringify([submit.payload, mediaPayload]), /\/Users|\/private|storageKey|outputPath|secret|token|stdout|stderr|stack/i);
+});
+
 test("render smoke creates a vertical MP4 when FFmpeg is installed", async (t) => {
   if (!commandAvailable(CONFIG.ffmpegBin) || !commandAvailable(CONFIG.ffprobeBin)) {
     t.skip("FFmpeg/FFprobe not installed in this environment");

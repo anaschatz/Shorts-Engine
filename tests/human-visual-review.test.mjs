@@ -7,8 +7,12 @@ import { tmpdir } from "node:os";
 import { findSensitiveLeak } from "../demo/report-safety.mjs";
 import {
   buildHumanVisualReview,
+  buildHumanVisualReviewFromPayload,
   generatedArtifactFromProof,
+  loadLatestHumanVisualReviewReport,
+  normalizeApiReviewPayload,
   writeHumanVisualReviewReport,
+  writeHumanVisualReviewFromPayload,
 } from "../demo/run-human-visual-review.mjs";
 import { SIDE_BY_SIDE_RUBRIC } from "../demo/side-by-side-rubric.mjs";
 
@@ -64,6 +68,9 @@ function reviewPayload(overrides = {}) {
       falseGoalClaim: false,
       badCrop: false,
       captionMismatch: false,
+      textBlocksAction: false,
+      missingPayoff: false,
+      reactionOnly: false,
       lowEnergy: false,
       wrongMoment: false,
       missingTrendEditing: false,
@@ -166,6 +173,82 @@ test("human visual review applies operator scores and can become product ready",
   assert.equal(report.humanReview.humanScore, 100);
   assert.equal(report.checklist.every((item) => item.status === "passed"), true);
   assert.equal(findSensitiveLeak(report), null);
+});
+
+test("human visual review API payload validation rejects unsafe refs and sensitive notes", () => {
+  const rootDir = mkdtempSync(join(tmpdir(), "shortsengine-human-review-api-invalid-"));
+  const unsafeRef = normalizeApiReviewPayload(
+    reviewPayload({ generatedRelativePath: "../outside.mp4" }),
+    { rootDir, now: "2026-06-18T10:00:00.000Z" },
+  );
+  assert.equal(unsafeRef.ok, false);
+  assert.equal(unsafeRef.error.code, "HUMAN_VISUAL_REVIEW_MEDIA_REF_UNSAFE");
+
+  const leaked = normalizeApiReviewPayload(
+    reviewPayload({ notes: "Bearer secret-token-value-1234567890 should never persist" }),
+    { rootDir, now: "2026-06-18T10:00:00.000Z" },
+  );
+  assert.equal(leaked.ok, false);
+  assert.equal(leaked.error.code, "HUMAN_VISUAL_REVIEW_PAYLOAD_LEAK_GUARD");
+});
+
+for (const flag of ["textBlocksAction", "missingPayoff", "reactionOnly"]) {
+  test(`human visual review blocks product readiness when ${flag} is flagged`, () => {
+    const rootDir = mkdtempSync(join(tmpdir(), `shortsengine-human-review-${flag}-`));
+    createVideoFixture(rootDir, "manual-downloads/generated.mp4");
+    createVideoFixture(rootDir, "manual-downloads/reference.mp4");
+
+    const result = buildHumanVisualReviewFromPayload(
+      reviewPayload({ flags: { ...reviewPayload().flags, [flag]: true } }),
+      {
+        rootDir,
+        now: "2026-06-18T10:00:00.000Z",
+        probeVideo: fakeProbe,
+        createContactSheets: false,
+      },
+    );
+
+    assert.equal(result.ok, true);
+    assert.equal(result.report.status, "needs_improvement");
+    assert.equal(result.report.productReady, false);
+    assert.equal(result.report.humanReview.operatorReview.flags[flag], true);
+    assert.equal(
+      result.report.humanReview.failedCriteria.length > 0,
+      true,
+    );
+    assert.equal(findSensitiveLeak(result.report), null);
+  });
+}
+
+test("human visual review API writer writes safe latest and timestamped reports", () => {
+  const rootDir = mkdtempSync(join(tmpdir(), "shortsengine-human-review-api-write-"));
+  createVideoFixture(rootDir, "manual-downloads/generated.mp4");
+  createVideoFixture(rootDir, "manual-downloads/reference.mp4");
+
+  const written = writeHumanVisualReviewFromPayload(reviewPayload(), {
+    rootDir,
+    now: "2026-06-18T10:00:00.000Z",
+    probeVideo: fakeProbe,
+    createContactSheets: false,
+  });
+
+  assert.equal(written.ok, true);
+  assert.equal(written.latestPath, "demo/results/human-visual-review-latest.json");
+  assert.match(written.reportPath, /demo\/results\/human-visual-review-2026-06-18T10-00-00-000Z\.json/);
+  assert.equal(written.report.productReady, true);
+  assert.equal(findSensitiveLeak(written.report), null);
+});
+
+test("latest human visual review returns safe pending report when missing", () => {
+  const rootDir = mkdtempSync(join(tmpdir(), "shortsengine-human-review-latest-missing-"));
+  const result = loadLatestHumanVisualReviewReport({ rootDir });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.exists, false);
+  assert.equal(result.report.status, "pending_human_review");
+  assert.equal(result.report.productReady, false);
+  assert.equal(result.report.humanReview.present, false);
+  assert.equal(findSensitiveLeak(result.report), null);
 });
 
 test("human visual review fails closed when proof has no generated artifact", () => {

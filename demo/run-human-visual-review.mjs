@@ -7,6 +7,7 @@ import {
   buildSideBySideReview,
   safeRelativeRef,
 } from "./run-side-by-side-review.mjs";
+import { validateManualReview } from "./side-by-side-rubric.mjs";
 
 const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_PROOF = "demo/results/youtube-live-e2e-latest.json";
@@ -239,6 +240,80 @@ function sourceSummaryFromProof(proofRelativePath, proof, artifact = null) {
   };
 }
 
+function loadLatestHumanVisualReviewReport(options = {}) {
+  const rootDir = resolve(options.rootDir || ROOT_DIR);
+  const latestRef = safeRelativeRef(rootDir, options.latest || join(DEFAULT_RESULTS_DIR, "human-visual-review-latest.json"));
+  if (!latestRef.ok) {
+    return {
+      ok: false,
+      error: failure(
+        "HUMAN_VISUAL_REVIEW_LATEST_REF_UNSAFE",
+        "Human visual review latest report reference is unsafe.",
+        "use-default-human-visual-review-latest-report",
+      ),
+    };
+  }
+  if (!existsSync(latestRef.resolvedFile)) {
+    return {
+      ok: true,
+      report: {
+        schemaVersion: REVIEW_SCHEMA_VERSION,
+        generatedAt: nowIso(),
+        phase: "human_visual_review",
+        status: "pending_human_review",
+        passed: true,
+        skipped: false,
+        productReady: false,
+        source: sourceSummaryFromProof(null, null),
+        comparison: null,
+        machineStructuralMetrics: null,
+        humanReview: {
+          status: "pending_human_review",
+          present: false,
+          productReady: false,
+        },
+        checklist: HUMAN_VISUAL_CHECKLIST.map((item) => ({
+          id: item.id,
+          label: item.label,
+          status: "needs_human_review",
+          evidence: "No latest generated/reference comparison has been reviewed yet.",
+        })),
+        recommendedNextFix: "run-authorized-live-proof-or-enter-safe-video-refs",
+        failedCases: [],
+        logsDownloaded: false,
+        artifactsDownloaded: false,
+      },
+      latestPath: latestRef.relativePath,
+      exists: false,
+    };
+  }
+  try {
+    const report = JSON.parse(readFileSync(latestRef.resolvedFile, "utf8"));
+    const leak = findSensitiveLeak(report);
+    if (leak) {
+      return {
+        ok: false,
+        error: failure(
+          "HUMAN_VISUAL_REVIEW_LATEST_LEAK_GUARD",
+          "Human visual review latest report contains unsafe data.",
+          "regenerate-safe-human-visual-review-report",
+          { leakCode: leak.code, leakPath: leak.path },
+        ),
+      };
+    }
+    return { ok: true, report, latestPath: latestRef.relativePath, exists: true };
+  } catch {
+    return {
+      ok: false,
+      error: failure(
+        "HUMAN_VISUAL_REVIEW_LATEST_JSON_INVALID",
+        "Human visual review latest report could not be parsed.",
+        "regenerate-safe-human-visual-review-report",
+      ),
+    };
+  }
+}
+
 function statusForHumanReview(sideReport) {
   if (!sideReport || sideReport.status !== "passed") return "failed";
   if (sideReport.quality?.productReady) return "product_ready";
@@ -423,6 +498,127 @@ function buildHumanVisualReview(options = {}) {
   });
 }
 
+function normalizeApiReviewPayload(payload, options = {}) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return {
+      ok: false,
+      error: failure(
+        "HUMAN_VISUAL_REVIEW_PAYLOAD_INVALID",
+        "Human review payload must be a JSON object.",
+        "submit-valid-human-review-payload",
+      ),
+    };
+  }
+  const leak = findSensitiveLeak(payload);
+  if (leak) {
+    return {
+      ok: false,
+      error: failure(
+        "HUMAN_VISUAL_REVIEW_PAYLOAD_LEAK_GUARD",
+        "Human review payload contains unsafe data.",
+        "remove-sensitive-values-from-human-review-payload",
+        { leakCode: leak.code, leakPath: leak.path },
+      ),
+    };
+  }
+  const rootDir = resolve(options.rootDir || ROOT_DIR);
+  const generated = String(payload.generatedRelativePath || payload.generated?.relativePath || "").trim();
+  const reference = String(payload.referenceRelativePath || payload.reference?.relativePath || "").trim();
+  const generatedRef = safeRelativeRef(rootDir, generated);
+  const referenceRef = safeRelativeRef(rootDir, reference);
+  if (!generatedRef.ok || !referenceRef.ok) {
+    return {
+      ok: false,
+      error: failure(
+        "HUMAN_VISUAL_REVIEW_MEDIA_REF_UNSAFE",
+        "Generated and reference video refs must be safe workspace-relative paths.",
+        "use-safe-relative-generated-and-reference-refs",
+      ),
+    };
+  }
+  if (extname(generatedRef.resolvedFile).toLowerCase() !== ".mp4" || extname(referenceRef.resolvedFile).toLowerCase() !== ".mp4") {
+    return {
+      ok: false,
+      error: failure(
+        "HUMAN_VISUAL_REVIEW_MEDIA_EXTENSION_UNSUPPORTED",
+        "Generated and reference video refs must point to MP4 files.",
+        "use-mp4-generated-and-reference-refs",
+      ),
+    };
+  }
+  const reviewPayload = {
+    schemaVersion: Number(payload.schemaVersion || 1),
+    generatedRelativePath: generatedRef.relativePath,
+    referenceRelativePath: referenceRef.relativePath,
+    reviewer: payload.reviewer || "operator",
+    reviewedAt: payload.reviewedAt || options.now || nowIso(),
+    criteria: payload.criteria,
+    flags: payload.flags || {},
+    notes: payload.notes || "",
+  };
+  const validation = validateManualReview(reviewPayload, {
+    expectedGeneratedRelativePath: generatedRef.relativePath,
+    expectedReferenceRelativePath: referenceRef.relativePath,
+  });
+  if (!validation.ok) {
+    return {
+      ok: false,
+      error: failure(
+        validation.failedCases[0]?.code || "HUMAN_VISUAL_REVIEW_INPUT_INVALID",
+        validation.failedCases[0]?.message || "Human review payload is invalid.",
+        "fix-human-review-scores-flags-notes-and-refs",
+        { failedCases: validation.failedCases.slice(0, 8) },
+      ),
+    };
+  }
+  return {
+    ok: true,
+    rootDir,
+    generated: generatedRef.relativePath,
+    reference: referenceRef.relativePath,
+    reviewPayload,
+  };
+}
+
+function buildHumanVisualReviewFromPayload(payload, options = {}) {
+  const normalized = normalizeApiReviewPayload(payload, options);
+  if (!normalized.ok) return normalized;
+  const report = buildHumanVisualReview({
+    rootDir: normalized.rootDir,
+    generated: normalized.generated,
+    reference: normalized.reference,
+    reviewPayload: normalized.reviewPayload,
+    now: normalized.reviewPayload.reviewedAt,
+    probeVideo: options.probeVideo,
+    createContactSheets: options.createContactSheets,
+  });
+  if (report.status === "failed") {
+    return {
+      ok: false,
+      error: failure(
+        report.failedCases[0]?.code || "HUMAN_VISUAL_REVIEW_FAILED",
+        report.failedCases[0]?.message || "Human visual review could not be created safely.",
+        report.recommendedNextFix || "fix-human-visual-review-inputs",
+        { failedCases: (report.failedCases || []).slice(0, 8) },
+      ),
+      report,
+    };
+  }
+  return { ok: true, report };
+}
+
+function writeHumanVisualReviewFromPayload(payload, options = {}) {
+  const built = buildHumanVisualReviewFromPayload(payload, options);
+  if (!built.ok) return built;
+  const rootDir = resolve(options.rootDir || ROOT_DIR);
+  const written = writeHumanVisualReviewReport(
+    built.report,
+    options.resultsDir || DEFAULT_RESULTS_DIR,
+    rootDir,
+  );
+  return { ok: true, ...written };
+}
+
 function writeHumanVisualReviewReport(report, resultsDir = DEFAULT_RESULTS_DIR, rootDir = ROOT_DIR) {
   const outputDir = safeRelativeRef(rootDir, resultsDir);
   if (!outputDir.ok) throw new Error("HUMAN_VISUAL_REVIEW_RESULTS_DIR_UNSAFE");
@@ -499,6 +695,10 @@ export {
   HUMAN_VISUAL_CHECKLIST,
   REVIEW_SCHEMA_VERSION,
   buildHumanVisualReview,
+  buildHumanVisualReviewFromPayload,
   generatedArtifactFromProof,
+  loadLatestHumanVisualReviewReport,
+  normalizeApiReviewPayload,
+  writeHumanVisualReviewFromPayload,
   writeHumanVisualReviewReport,
 };

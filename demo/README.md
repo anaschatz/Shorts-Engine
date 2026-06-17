@@ -34,3 +34,11 @@ rights confirmation and downloader readiness, then run `npm run
 demo:human-review -- --reference=<safe-relative-reference-mp4>`. Without a human
 review JSON the result remains `pending_human_review`, which keeps machine
 metadata separate from creative judgement.
+
+The browser UI also exposes the same human review contract after a generated
+artifact is available. It loads `GET /api/review/latest`, submits explicit
+operator scores through `POST /api/review/human`, and previews only safe
+`manual-downloads/*.mp4` refs through `/api/review/media`. `productReady` is
+never true from machine metrics alone; an operator must score every criterion
+and leave all critical flags such as false goal, wrong moment, bad crop, caption
+mismatch, text blocking action, missing payoff and reaction-only disabled.

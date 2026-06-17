@@ -949,6 +949,181 @@ input[type="checkbox"] {
   overflow-wrap: anywhere;
 }
 
+.human-review-form {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.human-review-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid rgba(203, 214, 199, 0.86);
+  border-radius: 6px;
+  background: #f8faf7;
+}
+
+.human-review-status strong,
+.human-review-status span {
+  min-width: 0;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.human-review-status strong {
+  font-size: 0.86rem;
+}
+
+.human-review-status span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.human-review-status[data-status="product_ready"] {
+  border-color: rgba(23, 168, 91, 0.35);
+  background: rgba(23, 168, 91, 0.08);
+}
+
+.human-review-status[data-status="needs_improvement"],
+.human-review-status[data-status="failed"] {
+  border-color: rgba(217, 155, 34, 0.34);
+  background: rgba(217, 155, 34, 0.1);
+}
+
+.human-review-refs {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+
+.human-review-refs input,
+.human-review-form textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  background: #fff;
+  font: inherit;
+  font-size: 0.86rem;
+}
+
+.human-review-form textarea {
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.human-review-videos {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.human-review-videos video {
+  width: 100%;
+  max-width: 100%;
+  aspect-ratio: 9 / 16;
+  border: 1px solid rgba(203, 214, 199, 0.86);
+  border-radius: 6px;
+  background: #111;
+  object-fit: contain;
+}
+
+.human-review-criteria,
+.human-review-flags {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.human-review-score {
+  display: grid;
+  grid-template-columns: minmax(96px, 1fr) minmax(110px, 1fr) 24px;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 7px 8px;
+  border: 1px solid rgba(203, 214, 199, 0.72);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.human-review-score span {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.human-review-score input {
+  width: 100%;
+  min-width: 0;
+  accent-color: var(--green-dark);
+}
+
+.human-review-score strong {
+  text-align: right;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.human-review-flags {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.human-review-flag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px;
+  border: 1px solid rgba(203, 214, 199, 0.72);
+  border-radius: 6px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.82);
+  font-size: 0.76rem;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.human-review-flag.critical {
+  border-color: rgba(227, 79, 61, 0.22);
+}
+
+.human-review-flag input {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  accent-color: #e34f3d;
+}
+
+.human-review-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.human-review-actions span {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .review-metrics {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1625,6 +1800,34 @@ input[type="range"] {
 
   .review-metrics {
     grid-template-columns: 1fr;
+  }
+
+  .human-review-status,
+  .human-review-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .human-review-videos,
+  .human-review-flags {
+    grid-template-columns: 1fr;
+  }
+
+  .human-review-score {
+    grid-template-columns: minmax(0, 1fr) 42px;
+  }
+
+  .human-review-score input {
+    grid-column: 1 / -1;
+    order: 3;
+  }
+
+  .human-review-score strong {
+    order: 2;
+  }
+
+  .human-review-actions .primary-btn {
+    width: 100%;
   }
 
   .review-header {

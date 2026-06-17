@@ -151,6 +151,9 @@ const REVIEW_FLAGS = Object.freeze([
   "falseGoalClaim",
   "badCrop",
   "captionMismatch",
+  "textBlocksAction",
+  "missingPayoff",
+  "reactionOnly",
   "lowEnergy",
   "wrongMoment",
   "missingTrendEditing",
@@ -160,6 +163,9 @@ const FLAG_TO_CRITERION = Object.freeze({
   falseGoalClaim: "false_goal_guard",
   badCrop: "ball_player_framing",
   captionMismatch: "caption_action_alignment",
+  textBlocksAction: "text_readability",
+  missingPayoff: "pacing_energy",
+  reactionOnly: "replay_or_context_use",
   lowEnergy: "pacing_energy",
   wrongMoment: "moment_selection",
   missingTrendEditing: "reference_style_editing",
@@ -169,13 +175,30 @@ const FLAG_PENALTIES = Object.freeze({
   falseGoalClaim: 35,
   badCrop: 20,
   captionMismatch: 18,
+  textBlocksAction: 18,
+  missingPayoff: 22,
+  reactionOnly: 16,
   lowEnergy: 8,
   wrongMoment: 25,
   missingTrendEditing: 10,
 });
 
-const CRITICAL_FLAGS = Object.freeze(["falseGoalClaim", "badCrop", "captionMismatch", "wrongMoment"]);
-const CRITICAL_CRITERIA = Object.freeze(["moment_selection", "caption_action_alignment", "ball_player_framing", "false_goal_guard"]);
+const CRITICAL_FLAGS = Object.freeze([
+  "falseGoalClaim",
+  "badCrop",
+  "captionMismatch",
+  "textBlocksAction",
+  "missingPayoff",
+  "reactionOnly",
+  "wrongMoment",
+]);
+const CRITICAL_CRITERIA = Object.freeze([
+  "moment_selection",
+  "caption_action_alignment",
+  "ball_player_framing",
+  "false_goal_guard",
+  "text_readability",
+]);
 
 const IMPROVEMENT_HINTS = Object.freeze({
   moment_selection: {
@@ -527,6 +550,9 @@ function scoreManualReview(review, structuralScore = null) {
   if (review.flags.wrongMoment) combinedScore = Math.min(combinedScore, 55);
   if (review.flags.badCrop) combinedScore = Math.min(combinedScore, 65);
   if (review.flags.captionMismatch) combinedScore = Math.min(combinedScore, 70);
+  if (review.flags.textBlocksAction) combinedScore = Math.min(combinedScore, 70);
+  if (review.flags.missingPayoff) combinedScore = Math.min(combinedScore, 62);
+  if (review.flags.reactionOnly) combinedScore = Math.min(combinedScore, 68);
 
   const failedCriteria = criteria.filter((entry) => entry.status === "failed");
   const borderlineCriteria = criteria.filter((entry) => entry.status === "borderline");

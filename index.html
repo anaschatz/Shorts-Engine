@@ -290,6 +290,55 @@
                 <p class="review-summary" id="reviewSummary" data-testid="review-summary" aria-live="polite">
                   A completed render with rights confirmation can be registered for local review.
                 </p>
+                <form class="human-review-form" id="humanReviewForm" data-testid="human-review-form" novalidate>
+                  <div class="human-review-status" id="humanReviewStatus" data-testid="human-review-status" data-status="pending_human_review">
+                    <strong>Pending human review</strong>
+                    <span id="humanReviewVerdict" data-testid="human-review-verdict">Product readiness locked</span>
+                  </div>
+                  <div class="human-review-refs">
+                    <label class="field-label" for="humanGeneratedRef">Generated MP4 ref</label>
+                    <input
+                      id="humanGeneratedRef"
+                      data-testid="human-review-generated-ref"
+                      type="text"
+                      inputmode="url"
+                      autocomplete="off"
+                      spellcheck="false"
+                      placeholder="manual-downloads/generated.mp4"
+                    />
+                    <label class="field-label" for="humanReferenceRef">Reference MP4 ref</label>
+                    <input
+                      id="humanReferenceRef"
+                      data-testid="human-review-reference-ref"
+                      type="text"
+                      inputmode="url"
+                      autocomplete="off"
+                      spellcheck="false"
+                      placeholder="manual-downloads/reference.mp4"
+                    />
+                  </div>
+                  <div class="human-review-videos" id="humanReviewVideos" data-testid="human-review-videos" hidden>
+                    <video id="humanGeneratedPreview" data-testid="human-review-generated-preview" controls preload="metadata"></video>
+                    <video id="humanReferencePreview" data-testid="human-review-reference-preview" controls preload="metadata"></video>
+                  </div>
+                  <div class="human-review-criteria" id="humanReviewCriteria" data-testid="human-review-criteria"></div>
+                  <div class="human-review-flags" id="humanReviewFlags" data-testid="human-review-flags"></div>
+                  <label class="field-label" for="humanReviewNotes">Review notes</label>
+                  <textarea
+                    id="humanReviewNotes"
+                    data-testid="human-review-notes"
+                    maxlength="1000"
+                    rows="3"
+                    placeholder="Action-first sequence, captions, framing, payoff..."
+                  ></textarea>
+                  <div class="human-review-actions">
+                    <button class="primary-btn compact-btn" id="humanReviewSubmitBtn" data-testid="human-review-submit-button" type="submit" disabled>
+                      Submit review
+                    </button>
+                    <span id="humanReviewNextAction" data-testid="human-review-next-action">Complete scores to unlock verdict.</span>
+                  </div>
+                  <p class="field-error" id="humanReviewError" data-testid="human-review-error" role="alert" aria-live="polite" hidden></p>
+                </form>
                 <div class="review-metrics" id="reviewMetrics" data-testid="review-metrics" hidden></div>
                 <div class="review-failures" id="reviewFailures" data-testid="review-failures" hidden></div>
                 <div class="review-suggestions" id="reviewSuggestions" data-testid="review-suggestions" hidden>

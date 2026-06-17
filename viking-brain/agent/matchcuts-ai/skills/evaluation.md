@@ -18,6 +18,8 @@ Evaluate:
 - Real generated short review with `npm run review:compare`.
 - Aggregate real-video review reports with `npm run review:summary`.
 - Run authorized live proof visual review with `npm run demo:human-review` after `npm run youtube:proof:operator`.
+- Use the Human review UI or `POST /api/review/human` to apply explicit 0-5 operator scores; product readiness must stay false without valid human review.
+- Treat `textBlocksAction`, `missingPayoff` and `reactionOnly` as critical flags that block product readiness alongside false goal, wrong moment, bad crop and caption mismatch.
 
 Review generated shorts against:
 
