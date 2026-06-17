@@ -859,10 +859,51 @@ test("API review registration returns safe fix suggestions for failed review met
   assert.equal(res.statusCode, 201);
   assert.equal(payload.ok, true);
   assert.equal(payload.data.review.passed, false);
-  assert.equal(payload.data.review.regenerationAvailable, false);
+  assert.equal(payload.data.review.regenerationAvailable, true);
   assert.equal(payload.data.review.regenerationPlan, null);
   assert.equal(payload.data.review.blockingSuggestionCount, 1);
   assert.equal(payload.data.review.suggestions.some((item) => item.type === "false_goal_guard" && item.canAutoApply === false), true);
+  assert.doesNotMatch(JSON.stringify(payload), /\/Users|\/private|storageKey|outputPath|secret|token|stdout|stderr|stack/i);
+});
+
+test("API creates manual-only regeneration draft without triggering render", async () => {
+  const ids = writeBackendReviewRecords({
+    suffix: "abdg",
+    mutateEditPlan(editPlan) {
+      editPlan.captions[0].text = "GOAL FROM NOWHERE";
+      return editPlan;
+    },
+  });
+  const body = Buffer.from(JSON.stringify({
+    projectId: ids.projectId,
+    jobId: ids.jobId,
+    exportId: ids.exportId,
+    rightsConfirmed: true,
+    humanNotes: "Keep the chance wording neutral.",
+  }));
+  const req = mockRequest({
+    method: "POST",
+    url: "/api/review/regeneration-plan",
+    headers: {
+      "content-type": "application/json",
+      "content-length": String(body.length),
+    },
+    body,
+  });
+  const res = mockResponse();
+  await route(req, res);
+  const payload = JSON.parse(res.body.toString("utf8"));
+
+  assert.equal(res.statusCode, 201);
+  assert.equal(payload.ok, true);
+  assert.equal(payload.data.status, "draft");
+  assert.equal(payload.data.regenerationPlan.canRender, false);
+  assert.equal(payload.data.regenerationPlan.requiresHumanApproval, true);
+  assert.equal(payload.data.regenerationPlan.appliedSuggestionIds.includes("sug_false_goal_guard"), true);
+  assert.equal(payload.data.regenerationPlan.proposedEditPlan.captions.some((caption) => /goal/i.test(caption.text)), false);
+  assert.equal(payload.data.regenerationPlan.proposedEditPlan.aspectRatio, "9:16");
+  assert.equal(payload.data.regenerationPlan.proposedEditPlan.framingMode, "wide_safe_vertical");
+  assert.equal(payload.data.regenerationPlan.safetyChecks.some((check) => check.code === "NO_AUTO_RENDER" && check.status === "passed"), true);
   assert.doesNotMatch(JSON.stringify(payload), /\/Users|\/private|storageKey|outputPath|secret|token|stdout|stderr|stack/i);
 });
 

@@ -65,3 +65,4 @@
 - Generated-output review registration should stay outside the render path, require completed jobs plus explicit rights confirmation, write ignored local drafts, and expose only workspace-relative media refs.
 - Operator review registration UI must stay completed-export and rights gated, and API responses should expose only bounded review metrics plus safe workspace-relative draft refs.
 - Review fix suggestions must be deterministic, schema-validated, leak-guarded and manual-only until a dedicated regeneration milestone exists.
+- Suggestion-based regeneration can create validated edit-plan drafts only; `canRender` must stay false and human approval is required before any future render-from-draft flow.

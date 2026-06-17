@@ -13,6 +13,7 @@ Evaluate:
 - Register a completed generated render as a local review draft with `npm run review:register -- --project=<project-id> --job=<job-id> --rights-confirmed=1`.
 - Register the same completed generated render from the operator UI or `POST /api/review/register` only after export success and rights confirmation.
 - Convert failed or borderline review metrics into safe operator fix suggestions without automatic regeneration.
+- Convert review fix suggestions into manual-only regeneration drafts; never treat a draft as render approval.
 - Real generated short review with `npm run review:compare`.
 - Aggregate real-video review reports with `npm run review:summary`.
 

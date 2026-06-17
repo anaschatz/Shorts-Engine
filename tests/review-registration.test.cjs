@@ -200,7 +200,7 @@ test("review registration produces safe fix suggestions for failed generated out
   assert.equal(result.comparisonPreview.passed, false);
   assert.equal(suggestions.some((item) => item.type === "false_goal_guard" && item.severity === "blocking"), true);
   assert.equal(result.comparisonPreview.suggestionSummary.blockingSuggestionCount, 1);
-  assert.equal(result.comparisonPreview.regenerationAvailable, false);
+  assert.equal(result.comparisonPreview.regenerationAvailable, true);
   assert.equal(result.comparisonPreview.regenerationPlan, null);
   assert.equal(findReviewSensitiveLeak(result.comparisonPreview), null);
 });

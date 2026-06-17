@@ -57,6 +57,9 @@ test("false goal failures produce blocking false goal guard suggestions", () => 
   assert.equal(suggestions[0].target, "review");
   assert.equal(suggestions[0].canAutoApply, false);
   assert.equal(suggestions[0].requiresHumanReview, true);
+  const readiness = buildRegenerationReadiness(suggestions);
+  assert.equal(readiness.regenerationAvailable, true);
+  assert.equal(readiness.regenerationPlan, null);
 });
 
 test("caption, framing, aspect and animation metrics map to specific suggestions", () => {

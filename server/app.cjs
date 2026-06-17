@@ -34,6 +34,7 @@ const { createYouTubeIngestAdapter } = require("./adapters/youtube-ingest-adapte
 const { validateYouTubeSource, youtubeIngestHealth } = require("./youtube-ingest.cjs");
 const { createYouTubeIngestService } = require("./youtube-ingest-service.cjs");
 const { registerReviewDraft } = require("../eval/review-registration.cjs");
+const { createRegenerationPlanFromReviewRegistration } = require("./regeneration-plan.cjs");
 const {
   safeResolve,
   storageHealth,
@@ -736,9 +737,93 @@ function publicReviewRegistrationResult(result) {
         : [],
       suggestions,
       blockingSuggestionCount,
-      regenerationAvailable: false,
+      regenerationAvailable: suggestions.length > 0,
       regenerationPlan: null,
       nextAction: sanitizeText(report.nextAction || "Run review comparison and inspect failed criteria.", 180),
+    },
+  };
+}
+
+function publicRegenerationEditPlan(plan = {}) {
+  return {
+    sourceStart: Number.isFinite(Number(plan.sourceStart)) ? Number(plan.sourceStart) : 0,
+    sourceEnd: Number.isFinite(Number(plan.sourceEnd)) ? Number(plan.sourceEnd) : 0,
+    aspectRatio: sanitizeText(plan.aspectRatio || "9:16", 20),
+    highlightType: sanitizeText(plan.highlightType || "generic_highlight", 80),
+    framingMode: sanitizeText(plan.framingMode || "wide_safe_vertical", 80),
+    stylePreset: sanitizeText(plan.stylePreset || "social_sports_v1", 80),
+    export: plan.export && typeof plan.export === "object"
+      ? {
+          width: Number.isFinite(Number(plan.export.width)) ? Number(plan.export.width) : 1080,
+          height: Number.isFinite(Number(plan.export.height)) ? Number(plan.export.height) : 1920,
+          format: sanitizeText(plan.export.format || "mp4", 20),
+        }
+      : null,
+    cropStrategy: plan.cropStrategy && typeof plan.cropStrategy === "object"
+      ? {
+          type: sanitizeText(plan.cropStrategy.type || "wide_safe_contain", 80),
+          preserveFullFrame: plan.cropStrategy.preserveFullFrame !== false,
+          maxCropPercent: Number.isFinite(Number(plan.cropStrategy.maxCropPercent)) ? Number(plan.cropStrategy.maxCropPercent) : 0,
+        }
+      : null,
+    captions: Array.isArray(plan.captions)
+      ? plan.captions.slice(0, 12).map((caption) => ({
+          start: Number.isFinite(Number(caption.start)) ? Number(caption.start) : 0,
+          end: Number.isFinite(Number(caption.end)) ? Number(caption.end) : 0,
+          role: sanitizeText(caption.role || "caption", 60),
+          text: sanitizeText(caption.text || "", 120),
+        }))
+      : [],
+    animationCues: Array.isArray(plan.animationCues)
+      ? plan.animationCues.slice(0, 10).map((cue) => ({
+          type: sanitizeText(cue.type || "unknown", 60),
+          start: Number.isFinite(Number(cue.start)) ? Number(cue.start) : 0,
+          end: Number.isFinite(Number(cue.end)) ? Number(cue.end) : 0,
+        }))
+      : [],
+  };
+}
+
+function publicRegenerationPlanResult(result) {
+  const plan = result.regenerationPlan || {};
+  const report = result.registered && result.registered.comparisonPreview || {};
+  const suggestions = Array.isArray(report.suggestions) ? report.suggestions : [];
+  return {
+    status: sanitizeText(plan.status || "draft", 40),
+    review: {
+      passed: Boolean(report.passed),
+      suggestionCount: suggestions.length,
+      blockingSuggestionCount: suggestions.filter((item) => item.severity === "blocking").length,
+    },
+    regenerationPlan: {
+      schemaVersion: Number.isFinite(Number(plan.schemaVersion)) ? Number(plan.schemaVersion) : 1,
+      regenerationPlanId: sanitizeText(plan.regenerationPlanId || "", 120),
+      status: sanitizeText(plan.status || "draft", 40),
+      sourceReviewId: plan.sourceReviewId ? sanitizeText(plan.sourceReviewId, 120) : null,
+      projectId: plan.projectId ? sanitizeText(plan.projectId, 120) : null,
+      jobId: plan.jobId ? sanitizeText(plan.jobId, 120) : null,
+      exportId: plan.exportId ? sanitizeText(plan.exportId, 120) : null,
+      appliedSuggestionIds: Array.isArray(plan.appliedSuggestionIds) ? plan.appliedSuggestionIds.slice(0, 12).map((id) => sanitizeText(id, 100)) : [],
+      skippedSuggestionIds: Array.isArray(plan.skippedSuggestionIds) ? plan.skippedSuggestionIds.slice(0, 12).map((id) => sanitizeText(id, 100)) : [],
+      proposedChanges: Array.isArray(plan.proposedChanges) ? plan.proposedChanges.slice(0, 12).map((item) => sanitizeText(item, 120)) : [],
+      blockingReasons: Array.isArray(plan.blockingReasons)
+        ? plan.blockingReasons.slice(0, 12).map((item) => ({
+            code: sanitizeText(item.code || "MANUAL_REVIEW_REQUIRED", 100),
+            suggestionId: item.suggestionId ? sanitizeText(item.suggestionId, 100) : null,
+            message: sanitizeText(item.message || "Manual review is required.", 180),
+          }))
+        : [],
+      safetyChecks: Array.isArray(plan.safetyChecks)
+        ? plan.safetyChecks.slice(0, 12).map((item) => ({
+            code: sanitizeText(item.code || "CHECK", 100),
+            status: sanitizeText(item.status || "unknown", 40),
+          }))
+        : [],
+      proposedEditPlan: plan.proposedEditPlan ? publicRegenerationEditPlan(plan.proposedEditPlan) : null,
+      canRender: false,
+      requiresHumanApproval: true,
+      createdAt: sanitizeText(plan.createdAt || "", 80),
+      nextAction: sanitizeText(plan.nextAction || "Review this draft manually before rendering.", 180),
     },
   };
 }
@@ -787,6 +872,48 @@ async function handleReviewRegister(req, res, rid) {
   sendOk(res, publicReviewRegistrationResult(result), 201);
 }
 
+async function handleReviewRegenerationPlan(req, res, rid) {
+  if (!reviewLimiter.check(clientKey(req))) {
+    throw new AppError("RATE_LIMITED", SAFE_MESSAGES.RATE_LIMITED, 429);
+  }
+  validateJsonContentType(req);
+  enforceContentLength(req, MAX_JSON_BODY_BYTES);
+  const payload = await readJsonBody(req, MAX_JSON_BODY_BYTES);
+  const projectId = validateRouteId(payload.projectId, "prj");
+  const jobId = validateRouteId(payload.jobId, "job");
+  const exportId = payload.exportId === undefined || payload.exportId === null || payload.exportId === ""
+    ? null
+    : validateRouteId(payload.exportId, "exp");
+  const result = createRegenerationPlanFromReviewRegistration({
+    projectId,
+    jobId,
+    exportId,
+    rightsConfirmed: payload.rightsConfirmed,
+    reference: payload.reference,
+    reviewerNotes: payload.reviewerNotes,
+    humanNotes: payload.humanNotes,
+    title: payload.title,
+    rootDir: CONFIG.rootDir,
+  });
+  const plan = result.regenerationPlan || {};
+  console.info(JSON.stringify(redactForLogs({
+    level: "info",
+    event: "review_regeneration_plan_created",
+    requestId: rid,
+    projectId,
+    jobId,
+    exportId: exportId || plan.exportId,
+    regenerationPlanId: plan.regenerationPlanId,
+    suggestionCount: Array.isArray(result.registered && result.registered.comparisonPreview && result.registered.comparisonPreview.suggestions)
+      ? result.registered.comparisonPreview.suggestions.length
+      : 0,
+    appliedSuggestionCount: Array.isArray(plan.appliedSuggestionIds) ? plan.appliedSuggestionIds.length : 0,
+    blockedSuggestionCount: Array.isArray(plan.blockingReasons) ? plan.blockingReasons.length : 0,
+    canRender: false,
+  })));
+  sendOk(res, publicRegenerationPlanResult(result), 201);
+}
+
 async function handleSignedArtifactDownload(req, res, url) {
   const artifact = artifactAdapter.validateSignedDownloadToken(url.searchParams.get("token"));
   if (!artifact || !artifact.id || !String(artifact.id).startsWith("exp_")) {
@@ -833,6 +960,7 @@ async function route(req, res) {
     if (req.method === "POST" && pathname === "/api/youtube/ingest") return await handleYouTubeIngest(req, res, rid);
     if (req.method === "POST" && pathname === "/api/uploads") return await handleUpload(req, res, rid);
     if (req.method === "POST" && pathname === "/api/review/register") return await handleReviewRegister(req, res, rid);
+    if (req.method === "POST" && pathname === "/api/review/regeneration-plan") return await handleReviewRegenerationPlan(req, res, rid);
 
     const generateMatch = pathname.match(/^\/api\/projects\/([^/]+)\/generate$/);
     if (req.method === "POST" && generateMatch) return await handleGenerate(req, res, rid, generateMatch[1]);

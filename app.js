@@ -104,6 +104,7 @@
     reviewRegeneration: "#reviewRegeneration",
     reviewRegenerationStatus: "#reviewRegenerationStatus",
     reviewRegenerateBtn: "#reviewRegenerateBtn",
+    reviewRegenerationDetails: "#reviewRegenerationDetails",
   });
 
   const state = {
@@ -138,6 +139,11 @@
       status: "idle",
       result: null,
       error: null,
+      regeneration: {
+        status: "idle",
+        result: null,
+        error: null,
+      },
     },
     moments: Core.validateAiOutput(DEFAULT_MOMENTS).data || [],
     rateLimiters: {
@@ -150,6 +156,14 @@
 
   const els = resolveElements();
   if (!els) return;
+
+  function idleRegenerationState() {
+    return {
+      status: "idle",
+      result: null,
+      error: null,
+    };
+  }
 
   function resolveElements() {
     if (!Core) {
@@ -402,10 +416,28 @@
     });
     els.downloadLink.hidden = !youtubeUi.canDownload;
     els.reviewRegisterBtn.disabled = !canRegisterReview();
+    const review = state.review.result && state.review.result.review;
+    const hasReviewSuggestions = Boolean(review && Array.isArray(review.suggestions) && review.suggestions.length);
+    const canCreateRegenerationDraft =
+      state.review.status === "registered" &&
+      state.review.regeneration.status !== "creating" &&
+      hasReviewSuggestions &&
+      review.regenerationAvailable === true &&
+      canRegisterReview();
+    els.reviewRegenerateBtn.disabled = !canCreateRegenerationDraft;
     setButtonContent(
       els.reviewRegisterBtn,
       state.review.status === "registering" ? "Registering..." : state.review.status === "registered" ? "Registered" : "Register",
       state.review.status === "registered" ? "check" : null,
+    );
+    setButtonContent(
+      els.reviewRegenerateBtn,
+      state.review.regeneration.status === "creating"
+        ? "Creating..."
+        : state.review.regeneration.status === "drafted"
+          ? "Draft ready"
+          : "Create draft",
+      state.review.regeneration.status === "drafted" ? "check" : null,
     );
     els.momentList.setAttribute("aria-busy", busy ? "true" : "false");
     renderReviewPanel();
@@ -417,6 +449,7 @@
       status: "idle",
       result: null,
       error: null,
+      regeneration: idleRegenerationState(),
     };
     renderReviewPanel();
   }
@@ -451,8 +484,10 @@
     els.reviewSuggestionSummary.textContent = "";
     els.reviewSuggestionList.replaceChildren();
     els.reviewRegeneration.hidden = true;
-    els.reviewRegenerationStatus.textContent = "Regeneration is not available yet.";
+    els.reviewRegenerationStatus.textContent = "Regeneration draft is not available yet.";
     els.reviewRegenerateBtn.disabled = true;
+    els.reviewRegenerationDetails.hidden = true;
+    els.reviewRegenerationDetails.replaceChildren();
 
     if (status === "registering") {
       els.reviewStatus.textContent = "Registering draft";
@@ -507,11 +542,39 @@
         });
       }
       els.reviewRegeneration.hidden = false;
-      els.reviewRegenerationStatus.textContent = review.regenerationAvailable
-        ? "Regeneration is ready for the next milestone."
-        : suggestions.length
-          ? "Manual review required before future regeneration."
-          : "No regeneration suggestions are needed.";
+      if (state.review.regeneration.status === "creating") {
+        els.reviewRegenerationStatus.textContent = "Creating a manual-only regeneration draft.";
+      } else if (state.review.regeneration.status === "drafted" && state.review.regeneration.result) {
+        const plan = state.review.regeneration.result.regenerationPlan || {};
+        els.reviewRegenerationStatus.textContent = `${plan.status === "draft" ? "Draft ready" : "No draft needed"} · render locked until human approval.`;
+        els.reviewRegenerationDetails.hidden = false;
+        const summary = document.createElement("p");
+        summary.textContent = `${(plan.appliedSuggestionIds || []).length} applied · ${(plan.skippedSuggestionIds || []).length} manual · ${(plan.blockingReasons || []).length} blocked`;
+        els.reviewRegenerationDetails.appendChild(summary);
+        const changes = Array.isArray(plan.proposedChanges) ? plan.proposedChanges.slice(0, 5) : [];
+        if (changes.length) {
+          const list = document.createElement("ul");
+          changes.forEach((change) => {
+            const item = document.createElement("li");
+            item.textContent = String(change || "").replace(/_/g, " ");
+            list.appendChild(item);
+          });
+          els.reviewRegenerationDetails.appendChild(list);
+        }
+        if (plan.proposedEditPlan) {
+          const draft = document.createElement("p");
+          draft.textContent = `${plan.proposedEditPlan.aspectRatio || "9:16"} · ${plan.proposedEditPlan.framingMode || "wide safe"} · ${(plan.proposedEditPlan.animationCues || []).length} animation cues`;
+          els.reviewRegenerationDetails.appendChild(draft);
+        }
+      } else if (state.review.regeneration.status === "failed" && state.review.regeneration.error) {
+        els.reviewRegenerationStatus.textContent = state.review.regeneration.error.message || "Draft could not be created safely.";
+      } else {
+        els.reviewRegenerationStatus.textContent = review.regenerationAvailable
+          ? "Create a draft plan for manual review. Rendering stays locked."
+          : suggestions.length
+            ? "Suggestions need manual triage before draft creation."
+            : "No regeneration suggestions are needed.";
+      }
       return;
     }
 
@@ -1214,12 +1277,13 @@
         error: {
           message: "A completed render, export, and rights confirmation are required before review registration.",
         },
+        regeneration: idleRegenerationState(),
       };
       updateActionStates();
       return;
     }
     try {
-      state.review = { status: "registering", result: null, error: null };
+      state.review = { status: "registering", result: null, error: null, regeneration: idleRegenerationState() };
       updateActionStates();
       const data = await apiFetch("/api/review/register", {
         method: "POST",
@@ -1231,7 +1295,7 @@
           title: els.matchTitle.value,
         }),
       });
-      state.review = { status: "registered", result: data, error: null };
+      state.review = { status: "registered", result: data, error: null, regeneration: idleRegenerationState() };
       showToast(
         data.review && data.review.passed ? "Το review draft πέρασε το quality check." : "Το review draft χρειάζεται έλεγχο.",
         data.review && data.review.passed ? "success" : "warning",
@@ -1247,8 +1311,71 @@
             ? "This render cannot be registered for local review because the generated media artifact is not locally available."
             : response.error.message,
         },
+        regeneration: idleRegenerationState(),
       };
       showSafeError(response, "review-register");
+    } finally {
+      updateActionStates();
+    }
+  }
+
+  async function handleReviewRegenerationPlan() {
+    clearError();
+    const review = state.review.result && state.review.result.review;
+    if (
+      state.review.status !== "registered" ||
+      !review ||
+      !Array.isArray(review.suggestions) ||
+      review.suggestions.length === 0 ||
+      review.regenerationAvailable !== true ||
+      !canRegisterReview()
+    ) {
+      state.review = {
+        ...state.review,
+        regeneration: {
+          status: "failed",
+          result: null,
+          error: { message: "A completed failed review with safe suggestions is required before creating a regeneration draft." },
+        },
+      };
+      updateActionStates();
+      return;
+    }
+    try {
+      state.review = {
+        ...state.review,
+        regeneration: { status: "creating", result: null, error: null },
+      };
+      updateActionStates();
+      const data = await apiFetch("/api/review/regeneration-plan", {
+        method: "POST",
+        body: JSON.stringify({
+          projectId: state.activeProject.id,
+          jobId: state.activeJob.id,
+          exportId: state.exportId,
+          rightsConfirmed: true,
+          title: els.matchTitle.value,
+        }),
+      });
+      state.review = {
+        ...state.review,
+        regeneration: { status: "drafted", result: data, error: null },
+      };
+      showToast("Το regeneration draft είναι έτοιμο για manual review.", "success");
+    } catch (error) {
+      const response = safeErrorResponse(error);
+      state.review = {
+        ...state.review,
+        regeneration: {
+          status: "failed",
+          result: null,
+          error: {
+            code: response.error.code,
+            message: response.error.message || "Draft could not be created safely.",
+          },
+        },
+      };
+      showSafeError(response, "review-regeneration");
     } finally {
       updateActionStates();
     }
@@ -1302,6 +1429,7 @@
         status: "idle",
         result: null,
         error: null,
+        regeneration: idleRegenerationState(),
       },
       moments: Core.validateAiOutput(DEFAULT_MOMENTS).data || [],
     });
@@ -1412,6 +1540,7 @@
     els.retryBtn.addEventListener("click", retryLastFailedAction);
     els.cancelJobBtn.addEventListener("click", cancelCurrentJob);
     els.reviewRegisterBtn.addEventListener("click", handleReviewRegister);
+    els.reviewRegenerateBtn.addEventListener("click", handleReviewRegenerationPlan);
     els.saveBtn.addEventListener("click", handleSave);
     els.clearBtn.addEventListener("click", clearProject);
     els.exportBtn.addEventListener("click", downloadExport);

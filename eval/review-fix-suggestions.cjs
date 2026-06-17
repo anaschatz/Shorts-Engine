@@ -302,14 +302,14 @@ function buildRegenerationReadiness(suggestions) {
   const safeSuggestions = dedupeSuggestions(suggestions || []);
   const blockingSuggestionCount = safeSuggestions.filter((item) => item.severity === "blocking").length;
   return {
-    regenerationAvailable: false,
+    regenerationAvailable: safeSuggestions.length > 0,
     regenerationPlan: null,
     suggestionCount: safeSuggestions.length,
     blockingSuggestionCount,
     nextAction: safeSuggestions.length
       ? blockingSuggestionCount
-        ? "Resolve blocking suggestions with manual review before future regeneration support."
-        : "Review suggestions manually; automatic regeneration is not enabled yet."
+        ? "Create a safe regeneration draft, then resolve blocking items manually before any render."
+        : "Create a safe regeneration draft for operator review; render remains locked."
       : "No regeneration suggestions are needed for this passing review.",
   };
 }

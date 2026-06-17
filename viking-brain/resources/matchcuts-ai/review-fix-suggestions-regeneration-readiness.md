@@ -34,11 +34,11 @@ Supported suggestion types:
 
 ## Regeneration Readiness
 
-- Automatic regeneration is not available in this milestone.
-- Public responses include `regenerationAvailable: false`.
+- Automatic rendering is not available from review suggestions.
+- After the controlled regeneration milestone, public responses can include `regenerationAvailable: true` only to mean a manual draft plan can be created.
 - `regenerationPlan` is always `null`.
 - Every suggestion defaults to `canAutoApply: false`.
-- Blocking suggestions must be resolved with manual review before any future regeneration adapter is introduced.
+- Blocking suggestions must be resolved with manual review before any future render step.
 
 ## Safety
 
@@ -51,7 +51,7 @@ Supported suggestion types:
 
 - The operator Review panel shows Fix suggestions only after registration and only when suggestions exist.
 - Suggestions show severity, target, message and safe action.
-- The regenerate control is visible as disabled/read-only, making future support explicit without implying available automation.
+- The regeneration control creates a draft only after operator action; rendering remains locked.
 - The layout stays compact and mobile-safe with wrapping text and no horizontal overflow.
 
 ## Validation
