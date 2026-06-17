@@ -87,3 +87,6 @@ Checklist:
 - For YouTube ingest failure UX, classify downloader stderr/stdout internally and expose only safe codes plus `nextAction`, `retryable`, `authorizedImportRequired`, `ingestRisk` and `metadataStatus`. Do not implement cookie/browser-session import without a dedicated reviewed adapter.
 - Provider and edit-plan outputs must use strict allowlists for visual labels, visual evidence, highlight types, effects and caption-emphasis styles; unknown values should fail closed instead of silently downgrading to generic output.
 - Human-approved regeneration flows need persistent draft/approval audit records with safe summaries only; approval idempotency, render lifecycle status and no-leak public views must be tested.
+- Goal claims need explicit goal evidence. Shot-like motion, crowd noise, coach reaction, scoreboard context and goal-area visibility alone must stay non-goal.
+- Goal-sequence windows should be action-first: build-up, shot/contact, ball trajectory, goal mouth or keeper action, payoff, then reaction support. Reaction-only windows should be demoted unless they are the strongest available evidence.
+- Goal-sequence metrics such as `goalSequenceRecall`, `shotToPayoffCoverage`, `actionWindowCoverage`, `falseVisualGoalRate` and `noFalseGoalClaim` should be covered by eval/reference gates after analysis or caption changes.

@@ -44,11 +44,47 @@ test("visual reasons map to non-goal football moment types", () => {
   assert.equal(reasonCodeForVisualType("save_like_motion"), "visual_save_like_motion");
   assert.equal(reasonCodeForVisualType("crowd_reaction"), "visual_crowd_reaction");
   assert.equal(reasonCodeForVisualType("scoreboard_context"), "visual_scoreboard_context");
+  assert.equal(reasonCodeForVisualType("ball_toward_goal"), "visual_ball_toward_goal");
+  assert.equal(reasonCodeForVisualType("ball_in_net"), "visual_ball_in_net");
+  assert.equal(reasonCodeForVisualType("celebration_after_shot"), "visual_celebration_after_shot");
   assert.equal(visualHighlightTypeForReasons(["visual_shot_like_motion", "visual_goal_area"]), "big_chance");
+  assert.equal(visualHighlightTypeForReasons(["visual_ball_toward_goal", "visual_goal_mouth"]), "big_chance");
   assert.equal(visualHighlightTypeForReasons(["visual_save_like_motion"]), "save");
   assert.equal(visualHighlightTypeForReasons(["visual_foul_like_contact"]), "foul");
   assert.equal(visualHighlightTypeForReasons(["visual_crowd_reaction"]), "crowd_reaction");
   assert.equal(visualHighlightTypeForReasons(["visual_goal_area"]), "unknown_action");
+});
+
+test("visual validation accepts explicit goal-sequence cues without accepting raw goal labels", () => {
+  const signals = validateVisualSignals({
+    providerMode: "fixture-provider",
+    fallbackUsed: false,
+    windows: [
+      {
+        start: 6,
+        end: 9,
+        types: ["shot_contact", "ball_toward_goal", "goal_mouth_visible", "ball_visible"],
+        confidence: 0.9,
+      },
+      {
+        start: 9,
+        end: 12,
+        types: ["ball_in_net", "celebration_after_shot"],
+        confidence: 0.88,
+      },
+    ],
+  }, metadata);
+
+  assert.equal(signals.summary.goalClaimAllowed, false);
+  assert.equal(signals.summary.ballTowardGoal.present, true);
+  assert.equal(signals.summary.ballInNet.present, true);
+  assert.equal(signals.summary.celebrationAfterShot.present, true);
+  assert.deepEqual(visualReasonCodesForWindow(signals.windows[0]), [
+    "visual_shot_contact",
+    "visual_ball_toward_goal",
+    "visual_goal_mouth",
+    "visual_ball_visible",
+  ]);
 });
 
 test("safe heuristic frame analysis does not claim tracking or goals", async () => {

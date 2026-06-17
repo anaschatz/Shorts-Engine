@@ -214,6 +214,107 @@ test("action-led visual evidence outranks crowd-only reaction when no goal exist
   assert.ok(plans[0].captions.every((caption) => Array.isArray(caption.captionRiskFlags)));
 });
 
+test("explicit goal evidence sequence outranks reaction shots and keeps shot-to-payoff window", () => {
+  const result = detectHighlights({
+    transcript: {
+      provider: "fixture",
+      language: "en",
+      captions: [
+        { start: 3, end: 4.2, text: "The crowd starts to rise" },
+        { start: 8.4, end: 9.4, text: "The attack reaches the box" },
+        { start: 14, end: 15.2, text: "The stadium explodes after the finish" },
+      ],
+    },
+    signals: {
+      durationSeconds: 24,
+      hasAudio: true,
+      audioPeaks: [{ time: 14.2, energyScore: 0.95, source: "fixture" }],
+      sceneChanges: [{ time: 8.6, confidence: 0.75, source: "fixture" }],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [
+        { start: 2.5, end: 4.6, labels: ["crowd_reaction"], confidence: 0.86 },
+        { start: 7.4, end: 9.1, labels: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.91 },
+        { start: 9.0, end: 11.2, labels: ["goal_mouth_visible", "keeper_action"], confidence: 0.88 },
+        { start: 11.1, end: 12.6, labels: ["ball_in_net"], confidence: 0.9 },
+        { start: 12.5, end: 15.4, labels: ["celebration_after_shot", "crowd_reaction"], confidence: 0.87 },
+      ],
+    },
+    preset: "hype",
+  });
+
+  const top = result.moments[0];
+  assert.equal(top.highlightType, "goal");
+  assert.equal(top.source, "vision_goal_sequence");
+  assert.equal(top.reasonCodes.includes("goal"), true);
+  assert.equal(top.reasonCodes.includes("visual_ball_in_net"), true);
+  assert.equal(top.evidence.goalEvidence.goalClaimAllowed, true);
+  assert.equal(top.evidence.goalEvidence.evidenceLevel, "strong");
+  assert.ok(top.start <= 5);
+  assert.ok(top.end >= 16);
+  const crowdMoment = result.moments.find((moment) => moment.highlightType === "crowd_reaction");
+  if (crowdMoment) assert.ok(top.retentionScore > crowdMoment.retentionScore);
+
+  const plans = createCandidateEditPlans({
+    moments: result.moments,
+    metadata: { durationSeconds: 24, width: 1920, height: 1080, hasAudio: true },
+    transcript: { captions: [] },
+    title: "Goal evidence sequence",
+    editIntensity: "balanced",
+  });
+  assert.equal(plans[0].highlightType, "goal");
+  assert.ok(plans[0].sourceStart <= 7.4);
+  assert.ok(plans[0].sourceEnd >= 15.4);
+  assert.equal(plans[0].footballStoryPlan.storyType, "goal_story");
+  assert.match(plans[0].captions.map((caption) => caption.text).join(" "), /FINISH|SHOT|build-up|payoff/i);
+  assert.equal(plans[0].cropStrategy.preserveFullFrame, true);
+});
+
+test("partial goal-mouth sequence stays a big chance and does not claim goal", () => {
+  const result = detectHighlights({
+    transcript: {
+      provider: "fixture",
+      language: "en",
+      captions: [
+        { start: 4, end: 5.4, text: "The shot opens inside the box" },
+        { start: 11, end: 12.2, text: "The crowd reacts to the chance" },
+      ],
+    },
+    signals: {
+      durationSeconds: 20,
+      hasAudio: true,
+      audioPeaks: [{ time: 11.1, energyScore: 0.9, source: "fixture" }],
+      sceneChanges: [{ time: 5.1, confidence: 0.7, source: "fixture" }],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [
+        { start: 4.4, end: 6.8, labels: ["shot_like_motion", "goal_mouth_visible", "ball_visible"], confidence: 0.88 },
+        { start: 10.6, end: 12.4, labels: ["crowd_reaction"], confidence: 0.84 },
+      ],
+    },
+    preset: "hype",
+  });
+
+  assert.equal(result.moments[0].highlightType, "big_chance");
+  assert.equal(result.moments[0].reasonCodes.includes("goal"), false);
+  assert.equal(result.moments[0].evidence.goalEvidence.goalClaimAllowed, false);
+  assert.equal(result.moments[0].evidence.goalEvidence.evidenceLevel, "weak");
+
+  const plans = createCandidateEditPlans({
+    moments: result.moments,
+    metadata: { durationSeconds: 20, width: 1920, height: 1080, hasAudio: true },
+    transcript: { captions: [] },
+    title: "Chance without goal",
+  });
+  const text = plans[0].captions.map((caption) => caption.text).join(" ");
+  assert.equal(plans[0].highlightType, "big_chance");
+  assert.equal(hasGoalLanguage(text), false);
+});
+
 test("candidate plans include visual evidence summary and safe framing reason", () => {
   const result = detectHighlights({
     transcript: {

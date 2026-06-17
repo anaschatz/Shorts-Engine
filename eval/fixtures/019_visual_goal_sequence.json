@@ -1,0 +1,62 @@
+{
+  "id": "visual_goal_sequence",
+  "title": "Reference-style goal sequence with shot and payoff",
+  "language": "English",
+  "durationSeconds": 24,
+  "transcript": {
+    "provider": "fixture",
+    "language": "en",
+    "captions": [
+      { "start": 2.8, "end": 4.0, "text": "The crowd starts to rise" },
+      { "start": 8.1, "end": 9.4, "text": "The attack reaches the box" },
+      { "start": 13.4, "end": 15.0, "text": "The stadium explodes after the finish" }
+    ]
+  },
+  "mediaSignals": {
+    "durationSeconds": 24,
+    "width": 1920,
+    "height": 1080,
+    "hasAudio": true,
+    "audioPeaks": [{ "time": 14.1, "energyScore": 0.95, "source": "fixture" }],
+    "sceneChanges": [{ "time": 8.5, "confidence": 0.76, "source": "fixture" }],
+    "highMotionCandidates": [{ "time": 9.0, "confidence": 0.82, "source": "fixture" }]
+  },
+  "visualSignals": {
+    "providerMode": "fixture-visual",
+    "fallbackUsed": false,
+    "windows": [
+      { "start": 2.6, "end": 4.6, "labels": ["crowd_reaction"], "confidence": 0.84 },
+      { "start": 7.5, "end": 9.1, "labels": ["shot_contact", "ball_toward_goal", "ball_visible"], "confidence": 0.91 },
+      { "start": 9.0, "end": 11.2, "labels": ["goal_mouth_visible", "keeper_action"], "confidence": 0.88 },
+      { "start": 11.1, "end": 12.7, "labels": ["ball_in_net"], "confidence": 0.9 },
+      { "start": 12.6, "end": 15.3, "labels": ["celebration_after_shot", "crowd_reaction"], "confidence": 0.87 }
+    ]
+  },
+  "expected": {
+    "highlights": [{ "start": 5.0, "end": 17.0 }],
+    "goalSequence": { "shotStart": 7.5, "payoffEnd": 15.3 },
+    "reasonCodes": [
+      "goal",
+      "audio_energy_spike",
+      "scene_change_cluster",
+      "visual_shot_contact",
+      "visual_ball_toward_goal",
+      "visual_goal_mouth",
+      "visual_keeper_action",
+      "visual_ball_in_net",
+      "visual_celebration_after_shot",
+      "visual_crowd_reaction",
+      "visual_ball_visible"
+    ],
+    "highlightType": "goal",
+    "stylePreset": "social_sports_v1",
+    "editIntensity": "balanced"
+  },
+  "thresholds": {
+    "minAggregateScore": 82,
+    "minTop1Overlap": 0.55,
+    "minTop3Recall": 1,
+    "minReasonPrecision": 0.6,
+    "minRetentionScore": 80
+  }
+}

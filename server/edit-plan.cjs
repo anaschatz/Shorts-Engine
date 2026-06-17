@@ -96,8 +96,14 @@ const VISUAL_EVIDENCE_TYPES = Object.freeze([
   "player_cluster",
   "goal_area_visible",
   "penalty_box_visible",
+  "goal_mouth_visible",
   "shot_like_motion",
+  "shot_contact",
+  "ball_toward_goal",
   "save_like_motion",
+  "keeper_action",
+  "ball_in_net",
+  "celebration_after_shot",
   "foul_like_contact",
   "fast_break_motion",
   "replay_indicator",
@@ -109,8 +115,14 @@ const VISUAL_EVIDENCE_TYPES = Object.freeze([
 const VISUAL_EVIDENCE_REASON_CODES = Object.freeze([
   "visual_ball_visible",
   "visual_goal_area",
+  "visual_goal_mouth",
   "visual_shot_like_motion",
+  "visual_shot_contact",
+  "visual_ball_toward_goal",
   "visual_save_like_motion",
+  "visual_keeper_action",
+  "visual_ball_in_net",
+  "visual_celebration_after_shot",
   "visual_foul_like_contact",
   "visual_fast_break",
   "visual_replay_indicator",
@@ -479,7 +491,11 @@ function createAnimationCues(duration, reasonCodes = []) {
     reasonCodes.includes("scene_change_cluster") ||
     reasonCodes.includes("replay_worthy_moment") ||
     reasonCodes.includes("visual_shot_like_motion") ||
+    reasonCodes.includes("visual_shot_contact") ||
+    reasonCodes.includes("visual_ball_toward_goal") ||
     reasonCodes.includes("visual_save_like_motion") ||
+    reasonCodes.includes("visual_keeper_action") ||
+    reasonCodes.includes("visual_ball_in_net") ||
     reasonCodes.includes("visual_foul_like_contact") ||
     reasonCodes.includes("visual_fast_break")
   ) {

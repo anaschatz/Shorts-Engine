@@ -33,6 +33,11 @@ const ACTION_REASONS = Object.freeze([
   "skill_move",
   "visual_fast_break",
   "visual_foul_like_contact",
+  "visual_keeper_action",
+  "visual_ball_in_net",
+  "visual_celebration_after_shot",
+  "visual_ball_toward_goal",
+  "visual_shot_contact",
   "visual_save_like_motion",
   "visual_shot_like_motion",
 ]);

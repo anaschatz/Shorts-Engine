@@ -336,7 +336,12 @@ function visualReasonCodesNear(visualSignals, center, radiusSeconds) {
 
 const ACTION_VISUAL_REASONS = Object.freeze([
   "visual_shot_like_motion",
+  "visual_shot_contact",
+  "visual_ball_toward_goal",
   "visual_save_like_motion",
+  "visual_keeper_action",
+  "visual_ball_in_net",
+  "visual_celebration_after_shot",
   "visual_foul_like_contact",
   "visual_fast_break",
   "visual_replay_indicator",
@@ -353,7 +358,12 @@ const PRIMARY_ACTION_REASONS = Object.freeze([
   "counter_attack",
   "skill_move",
   "visual_shot_like_motion",
+  "visual_shot_contact",
+  "visual_ball_toward_goal",
   "visual_save_like_motion",
+  "visual_keeper_action",
+  "visual_ball_in_net",
+  "visual_celebration_after_shot",
   "visual_foul_like_contact",
   "visual_fast_break",
 ]);
@@ -374,8 +384,31 @@ const SUPPORTING_CONTEXT_REASONS = Object.freeze([
   "visual_replay_indicator",
   "visual_scoreboard_context",
   "visual_goal_area",
+  "visual_goal_mouth",
   "visual_ball_visible",
   "visual_unknown_action",
+]);
+
+const GOAL_SEQUENCE_REASON_CODES = Object.freeze([
+  "goal",
+  "shot_on_target",
+  "big_chance",
+  "visual_shot_like_motion",
+  "visual_shot_contact",
+  "visual_ball_toward_goal",
+  "visual_goal_area",
+  "visual_goal_mouth",
+  "visual_keeper_action",
+  "visual_save_like_motion",
+  "visual_ball_in_net",
+  "visual_celebration_after_shot",
+  "visual_ball_visible",
+  "audio_energy_spike",
+  "crowd_spike",
+  "crowd_reaction",
+  "commentator_peak",
+  "visual_crowd_reaction",
+  "visual_scoreboard_context",
 ]);
 
 function visualReasonsAreScoreboardOnly(reasons = []) {
@@ -385,7 +418,8 @@ function visualReasonsAreScoreboardOnly(reasons = []) {
 function shouldTreatCaptionAsSkillMove(text, visualReasons = []) {
   if (hasTerm(text, STRONG_SKILL_TERMS)) return true;
   if (!hasTerm(text, WEAK_SKILL_TERMS)) return false;
-  return !visualReasonsAreScoreboardOnly(visualReasons);
+  if (visualReasonsAreScoreboardOnly(visualReasons)) return false;
+  return visualReasons.some((reason) => ACTION_VISUAL_REASONS.includes(reason));
 }
 
 function reasonCodesForCaption(caption, signals, visualSignals) {
@@ -437,13 +471,19 @@ function scoreReasons(reasons) {
     crowd_spike: 0.13,
     crowd_reaction: 0.12,
     visual_save_like_motion: 0.2,
+    visual_keeper_action: 0.18,
     visual_foul_like_contact: 0.18,
     visual_shot_like_motion: 0.17,
+    visual_shot_contact: 0.19,
+    visual_ball_toward_goal: 0.17,
+    visual_ball_in_net: 0.24,
+    visual_celebration_after_shot: 0.2,
     visual_fast_break: 0.16,
     visual_crowd_reaction: 0.15,
     visual_replay_indicator: 0.1,
     visual_scoreboard_context: 0.04,
     visual_goal_area: 0.06,
+    visual_goal_mouth: 0.08,
     visual_ball_visible: 0.05,
     visual_unknown_action: 0.03,
     scene_change_cluster: 0.1,
@@ -464,6 +504,157 @@ function scoreReasons(reasons) {
   return clamp(base + actionBoost - reactionOnlyPenalty - scoreboardOnlyPenalty, 0.12, 0.99);
 }
 
+function firstWindowTime(windows = [], predicate, fallback = null) {
+  const match = windows
+    .filter((window) => predicate(new Set(visualReasonCodesForWindow(window)), window))
+    .sort((a, b) => seconds(a.start) - seconds(b.start))[0];
+  if (!match) return fallback;
+  return Number(seconds(match.start).toFixed(2));
+}
+
+function lastWindowTime(windows = [], predicate, fallback = null) {
+  const match = windows
+    .filter((window) => predicate(new Set(visualReasonCodesForWindow(window)), window))
+    .sort((a, b) => seconds(b.end) - seconds(a.end))[0];
+  if (!match) return fallback;
+  return Number(seconds(match.end).toFixed(2));
+}
+
+function goalEvidenceForContext({ reasons = [], visualWindows = [], center = null } = {}) {
+  const reasonSet = new Set(reasons);
+  const visualReasons = new Set(visualWindows.flatMap(visualReasonCodesForWindow));
+  const allReasons = new Set([...reasonSet, ...visualReasons]);
+  const hasExplicitTextGoal = reasonSet.has("goal");
+  const hasShotContact = hasExplicitTextGoal ||
+    allReasons.has("shot_on_target") ||
+    allReasons.has("big_chance") ||
+    allReasons.has("visual_shot_like_motion") ||
+    allReasons.has("visual_shot_contact");
+  const hasBallTowardGoal = allReasons.has("visual_ball_toward_goal");
+  const hasGoalMouthFrame = allReasons.has("visual_goal_mouth") || allReasons.has("visual_goal_area");
+  const hasKeeperAction = allReasons.has("visual_keeper_action") || allReasons.has("visual_save_like_motion");
+  const hasBallInNetOrLineCross = allReasons.has("visual_ball_in_net");
+  const hasCelebrationAfterShot = allReasons.has("visual_celebration_after_shot");
+  const hasSupportingReaction = [
+    "audio_energy_spike",
+    "crowd_spike",
+    "crowd_reaction",
+    "commentator_peak",
+    "visual_crowd_reaction",
+    "visual_scoreboard_context",
+  ].some((reason) => allReasons.has(reason));
+  const strongVisualChain = hasShotContact &&
+    hasBallTowardGoal &&
+    hasGoalMouthFrame &&
+    (hasBallInNetOrLineCross || hasCelebrationAfterShot);
+  const mediumVisualChain = hasShotContact &&
+    hasGoalMouthFrame &&
+    (hasBallTowardGoal || hasKeeperAction) &&
+    (hasBallInNetOrLineCross || hasCelebrationAfterShot || hasSupportingReaction);
+  const weakVisualChain = hasShotContact && hasGoalMouthFrame;
+  const evidenceLevel = hasExplicitTextGoal || strongVisualChain
+    ? "strong"
+    : mediumVisualChain
+      ? "medium"
+      : weakVisualChain
+        ? "weak"
+        : "none";
+  const cueCount = [
+    hasShotContact,
+    hasBallTowardGoal,
+    hasGoalMouthFrame,
+    hasKeeperAction,
+    hasBallInNetOrLineCross,
+    hasCelebrationAfterShot,
+    hasSupportingReaction,
+  ].filter(Boolean).length;
+  const maxVisualConfidence = visualWindows.length
+    ? Math.max(...visualWindows.map((window) => Number(window.confidence || 0)))
+    : 0;
+  const confidence = Number(clamp(
+    (hasExplicitTextGoal ? 0.76 : 0.2) + cueCount * 0.075 + maxVisualConfidence * 0.22,
+    evidenceLevel === "none" ? 0 : 0.12,
+    0.96,
+  ).toFixed(2));
+  const shotStart = firstWindowTime(
+    visualWindows,
+    (windowReasons) => (
+      windowReasons.has("visual_shot_contact") ||
+      windowReasons.has("visual_shot_like_motion") ||
+      windowReasons.has("visual_ball_toward_goal")
+    ),
+    Number.isFinite(Number(center)) ? Number(Math.max(0, Number(center) - 1.5).toFixed(2)) : null,
+  );
+  const payoffEnd = lastWindowTime(
+    visualWindows,
+    (windowReasons) => (
+      windowReasons.has("visual_ball_in_net") ||
+      windowReasons.has("visual_celebration_after_shot") ||
+      windowReasons.has("visual_crowd_reaction")
+    ),
+    Number.isFinite(Number(center)) ? Number((Number(center) + 2).toFixed(2)) : null,
+  );
+  return {
+    hasShotContact,
+    hasBallTowardGoal,
+    hasGoalMouthFrame,
+    hasKeeperAction,
+    hasBallInNetOrLineCross,
+    hasCelebrationAfterShot,
+    hasSupportingReaction,
+    explicitTextGoal: hasExplicitTextGoal,
+    confidence,
+    evidenceLevel,
+    goalClaimAllowed: evidenceLevel === "strong",
+    shotStart,
+    payoffEnd,
+    reasonCodes: [...allReasons].filter((reason) => GOAL_SEQUENCE_REASON_CODES.includes(reason)).slice(0, 16),
+  };
+}
+
+function goalEvidenceForMomentContext({ reasons = [], center = null, start = null, end = null, visualSignals = null } = {}) {
+  const rangeStart = Number.isFinite(Number(start)) ? seconds(start) : Number(center) - 8;
+  const rangeEnd = Number.isFinite(Number(end)) ? seconds(end) : Number(center) + 8;
+  const windows = Array.isArray(visualSignals && visualSignals.windows) ? visualSignals.windows : [];
+  const visualWindows = windows.filter((window) => {
+    const windowStart = seconds(window.start);
+    const windowEnd = seconds(window.end);
+    const windowCenter = seconds(window.center ?? (windowStart + windowEnd) / 2);
+    return windowEnd >= rangeStart - 3 && windowStart <= rangeEnd + 3 && (
+      !Number.isFinite(Number(center)) || Math.abs(windowCenter - Number(center)) <= 9
+    );
+  });
+  return goalEvidenceForContext({ reasons, visualWindows, center });
+}
+
+function reasonCodesWithGoalEvidence(reasons = [], goalEvidence = {}) {
+  const safeReasons = [...new Set(Array.isArray(reasons) ? reasons : [])];
+  if (goalEvidence.goalClaimAllowed && !safeReasons.includes("goal")) {
+    return ["goal", ...safeReasons];
+  }
+  if (!goalEvidence.goalClaimAllowed) {
+    return safeReasons.filter((reason) => reason !== "goal");
+  }
+  return safeReasons;
+}
+
+function actionFirstScore(score, reasons = [], goalEvidence = {}) {
+  const reasonSet = new Set(reasons);
+  const primaryActionCount = PRIMARY_ACTION_REASONS.filter((reason) => reasonSet.has(reason)).length;
+  const reactionContextCount = REACTION_CONTEXT_REASONS.filter((reason) => reasonSet.has(reason)).length;
+  const reactionOnly = reactionContextCount > 0 && primaryActionCount === 0;
+  const goalBoost = goalEvidence.goalClaimAllowed
+    ? 0.24
+    : goalEvidence.evidenceLevel === "medium"
+      ? 0.12
+      : goalEvidence.evidenceLevel === "weak"
+        ? 0.04
+        : 0;
+  const reactionPenalty = reactionOnly ? 0.18 : 0;
+  const supportPenalty = reasonSet.has("visual_crowd_reaction") && primaryActionCount === 0 ? 0.08 : 0;
+  return clamp(score + goalBoost - reactionPenalty - supportPenalty, 0.12, 0.99);
+}
+
 function actionEvidenceStrength(reasons = []) {
   const reasonSet = new Set(reasons);
   if (reasonSet.has("goal")) return 1;
@@ -481,7 +672,7 @@ function safeCueList(reasons = [], allowed = []) {
   return [...new Set(reasons.filter((reason) => allowedSet.has(reason)).map((reason) => sanitizeText(reason, 60)))].slice(0, 8);
 }
 
-function rankingExplanationForMoment({ reasons = [], score = 0, source = "analysis", visualSignals = null } = {}) {
+function rankingExplanationForMoment({ reasons = [], score = 0, source = "analysis", visualSignals = null, goalEvidence = null } = {}) {
   const reasonSet = new Set(reasons);
   const actionCues = safeCueList(reasons, PRIMARY_ACTION_REASONS);
   const reactionCues = safeCueList(reasons, REACTION_CONTEXT_REASONS);
@@ -495,13 +686,17 @@ function rankingExplanationForMoment({ reasons = [], score = 0, source = "analys
   if (visualReasonsAreScoreboardOnly(reasons)) {
     suppressedCues.push("scoreboard_context_support_only");
   }
-  if (!reasonSet.has("goal") && (reasonSet.has("visual_goal_area") || reasonSet.has("visual_shot_like_motion"))) {
+  if (!reasonSet.has("goal") && (reasonSet.has("visual_goal_area") || reasonSet.has("visual_goal_mouth") || reasonSet.has("visual_shot_like_motion"))) {
     rejectedClaims.push("goal_claim_rejected_without_explicit_goal_evidence");
   }
+  if (goalEvidence && goalEvidence.evidenceLevel && goalEvidence.evidenceLevel !== "none" && !goalEvidence.goalClaimAllowed) {
+    rejectedClaims.push("goal_claim_rejected_until_goal_sequence_is_stronger");
+  }
   return {
-    rankingVersion: 2,
+    rankingVersion: 3,
     score: Number(clamp(score, 0, 1).toFixed(2)),
     actionEvidenceStrength: actionStrength,
+    goalEvidence: goalEvidence || null,
     boostCues: actionCues,
     supportingCues,
     reactionContextCues: reactionCues,
@@ -596,12 +791,20 @@ function visualEvidenceForCenter(visualSignals, center) {
   };
 }
 
-function evidenceForReasons(reasons = [], caption = null, signals = {}, center = null, visualSignals = null) {
+function evidenceForReasons(reasons = [], caption = null, signals = {}, center = null, visualSignals = null, range = {}) {
   const reasonSet = new Set(reasons);
   const nearbyAudio = center == null ? [] : nearby(signals.audioPeaks, center, 4);
   const nearbyScenes = center == null ? [] : nearby(signals.sceneChanges, center, 3);
+  const goalEvidence = goalEvidenceForMomentContext({
+    reasons,
+    center,
+    start: range.start,
+    end: range.end,
+    visualSignals,
+  });
   return {
-    goalEvidence: reasonSet.has("goal"),
+    goalEvidence,
+    goalClaimAllowed: reasonSet.has("goal") && goalEvidence.goalClaimAllowed,
     captionEvidence: caption ? sanitizeText(caption.text, 160) : null,
     audioPeakCount: nearbyAudio.length,
     strongestAudioScore: nearbyAudio.reduce((max, item) => Math.max(max, Number(item.energyScore || 0)), 0),
@@ -722,6 +925,128 @@ function createFallbackMoments(signals, preset, visualSignals = null) {
   });
 }
 
+function expandWindowForGoalEvidence(moment, duration, goalEvidence = {}) {
+  const hasGoalSequence = ["strong", "medium"].includes(goalEvidence.evidenceLevel);
+  if (!hasGoalSequence) return { start: moment.start, end: moment.end };
+  const mediaDuration = Math.max(0, Number(duration) || 0);
+  if (!mediaDuration) return { start: moment.start, end: moment.end };
+  const shotStart = Number.isFinite(Number(goalEvidence.shotStart)) ? Number(goalEvidence.shotStart) : Number(moment.center || moment.start);
+  const payoffEnd = Number.isFinite(Number(goalEvidence.payoffEnd)) ? Number(goalEvidence.payoffEnd) : Number(moment.end);
+  const minDuration = goalEvidence.goalClaimAllowed ? 12 : 10;
+  const maxDuration = goalEvidence.goalClaimAllowed ? 22 : 16;
+  let start = Math.min(Number(moment.start), Math.max(0, shotStart - 3.5));
+  let end = Math.max(Number(moment.end), Math.min(mediaDuration, payoffEnd + 4.5));
+  if (end - start < minDuration) {
+    const missing = minDuration - (end - start);
+    start = Math.max(0, start - missing * 0.55);
+    end = Math.min(mediaDuration, end + missing * 0.45);
+  }
+  if (end - start > maxDuration) {
+    start = Math.max(0, Math.min(start, shotStart - 3));
+    end = Math.min(mediaDuration, start + maxDuration);
+    if (payoffEnd > end) {
+      end = Math.min(mediaDuration, payoffEnd + 2);
+      start = Math.max(0, end - maxDuration);
+    }
+  }
+  return {
+    start: Number(start.toFixed(2)),
+    end: Number(end.toFixed(2)),
+  };
+}
+
+function normalizeMomentWithEvidence(moment, { signals = {}, visualSignals = null, preset = "hype" } = {}) {
+  const { _caption: sourceCaption, ...publicMoment } = moment || {};
+  const duration = seconds(signals.durationSeconds || 18);
+  const initialReasons = Array.isArray(publicMoment.reasonCodes) ? publicMoment.reasonCodes : [];
+  const initialGoalEvidence = goalEvidenceForMomentContext({
+    reasons: initialReasons,
+    center: publicMoment.center,
+    start: publicMoment.start,
+    end: publicMoment.end,
+    visualSignals,
+  });
+  const reasonCodes = reasonCodesWithGoalEvidence(initialReasons, initialGoalEvidence);
+  const window = expandWindowForGoalEvidence({ ...publicMoment, reasonCodes }, duration, initialGoalEvidence);
+  const center = Number(((window.start + window.end) / 2).toFixed(2));
+  const goalEvidence = goalEvidenceForMomentContext({
+    reasons: reasonCodes,
+    center,
+    start: window.start,
+    end: window.end,
+    visualSignals,
+  });
+  const finalReasons = reasonCodesWithGoalEvidence(reasonCodes, goalEvidence);
+  const highlightType = highlightTypeForReasons(finalReasons);
+  const baseScore = Number(publicMoment.confidence ?? scoreReasons(finalReasons));
+  const score = actionFirstScore(baseScore, finalReasons, goalEvidence);
+  return {
+    ...publicMoment,
+    start: window.start,
+    end: window.end,
+    center,
+    title: titleForHighlightType(highlightType),
+    reasonCodes: finalReasons,
+    highlightType,
+    confidence: Number(score.toFixed(2)),
+    retentionScore: Math.round(score * 100),
+    suggestedPreset: finalReasons.includes("counter_attack") || finalReasons.includes("skill_move") ? "tactical" : (publicMoment.suggestedPreset || preset),
+    hook: hookForHighlightType(highlightType, preset),
+    evidence: evidenceForReasons(finalReasons, sourceCaption || null, signals, center, visualSignals, window),
+    captionIntent: captionIntentForHighlightType(highlightType),
+    rankingExplanation: rankingExplanationForMoment({
+      reasons: finalReasons,
+      score,
+      source: publicMoment.source,
+      visualSignals,
+      goalEvidence,
+    }),
+  };
+}
+
+function createGoalSequenceMoments(safeVisualSignals, safeSignals, preset = "hype") {
+  const windows = Array.isArray(safeVisualSignals && safeVisualSignals.windows) ? safeVisualSignals.windows : [];
+  const duration = seconds(safeSignals.durationSeconds || 18);
+  if (!windows.length) return [];
+  const sorted = [...windows].sort((a, b) => seconds(a.start) - seconds(b.start));
+  const moments = [];
+  for (let index = 0; index < sorted.length; index += 1) {
+    const anchor = sorted[index];
+    const anchorCenter = seconds(anchor.center ?? (seconds(anchor.start) + seconds(anchor.end)) / 2);
+    const cluster = sorted.filter((window) => {
+      const center = seconds(window.center ?? (seconds(window.start) + seconds(window.end)) / 2);
+      return Math.abs(center - anchorCenter) <= 9;
+    });
+    const reasons = [...new Set(cluster.flatMap(visualReasonCodesForWindow))];
+    const goalEvidence = goalEvidenceForContext({ reasons, visualWindows: cluster, center: anchorCenter });
+    if (!["strong", "medium"].includes(goalEvidence.evidenceLevel)) continue;
+    const start = Number(clamp(Math.min(...cluster.map((window) => seconds(window.start))) - 2.5, 0, duration).toFixed(2));
+    const end = Number(clamp(Math.max(...cluster.map((window) => seconds(window.end))) + 3.5, start + 3, duration).toFixed(2));
+    const reasonCodes = reasonCodesWithGoalEvidence(reasons, goalEvidence);
+    const base = scoreReasons(reasonCodes) + 0.08;
+    const moment = normalizeMomentWithEvidence({
+      id: `mom_goal_sequence_${moments.length + 1}`,
+      rank: moments.length + 1,
+      start,
+      end,
+      center: Number(((start + end) / 2).toFixed(2)),
+      title: titleForHighlightType(highlightTypeForReasons(reasonCodes)),
+      summary: goalEvidence.goalClaimAllowed
+        ? "Detected from explicit goal sequence evidence."
+        : "Detected from goal-mouth action sequence without final goal claim.",
+      reasonCodes,
+      highlightType: highlightTypeForReasons(reasonCodes),
+      confidence: Number(clamp(base, 0.12, 0.95).toFixed(2)),
+      retentionScore: Math.round(clamp(base, 0.12, 0.95) * 100),
+      suggestedPreset: preset,
+      source: "vision_goal_sequence",
+    }, { signals: safeSignals, visualSignals: safeVisualSignals, preset });
+    moments.push(moment);
+    if (moments.length >= 2) break;
+  }
+  return moments;
+}
+
 function detectHighlights({ transcript, signals, visualSignals, preset = "hype" } = {}) {
   const safeSignals = signals || { durationSeconds: 18, audioPeaks: [], sceneChanges: [] };
   const duration = seconds(safeSignals.durationSeconds || 18);
@@ -737,7 +1062,7 @@ function detectHighlights({ transcript, signals, visualSignals, preset = "hype" 
     const reasonCodes = reasonCodesForCaption(caption, safeSignals, safeVisualSignals);
     const highlightType = highlightTypeForReasons(reasonCodes);
     const score = scoreReasons(reasonCodes);
-    const moment = {
+    const moment = normalizeMomentWithEvidence({
       id: `mom_${index + 1}`,
       rank: index + 1,
       start,
@@ -750,12 +1075,12 @@ function detectHighlights({ transcript, signals, visualSignals, preset = "hype" 
       confidence: Number(score.toFixed(2)),
       retentionScore: Math.round(score * 100),
       suggestedPreset: reasonCodes.includes("counter_attack") || reasonCodes.includes("skill_move") ? "tactical" : preset,
-      evidence: evidenceForReasons(reasonCodes, caption, safeSignals, center, safeVisualSignals),
+      evidence: evidenceForReasons(reasonCodes, caption, safeSignals, center, safeVisualSignals, { start, end }),
       captionIntent: captionIntentForHighlightType(highlightType),
       rankingExplanation: rankingExplanationForMoment({ reasons: reasonCodes, score, source: "analysis", visualSignals: safeVisualSignals }),
       source: "analysis",
-    };
-    moment.hook = hookForMoment(moment, preset);
+      _caption: caption,
+    }, { signals: safeSignals, visualSignals: safeVisualSignals, preset });
     return moment;
   });
 
@@ -771,7 +1096,7 @@ function detectHighlights({ transcript, signals, visualSignals, preset = "hype" 
     ].filter(Boolean);
     const highlightType = highlightTypeForReasons(reasonCodes);
     const score = scoreReasons(reasonCodes) - 0.04;
-    return {
+    return normalizeMomentWithEvidence({
       id: `mom_signal_${index + 1}`,
       rank: index + 1,
       start,
@@ -785,21 +1110,24 @@ function detectHighlights({ transcript, signals, visualSignals, preset = "hype" 
       retentionScore: Math.round(score * 100),
       suggestedPreset: preset,
       hook: hookForHighlightType(highlightType, preset),
-      evidence: evidenceForReasons(reasonCodes, null, safeSignals, center, safeVisualSignals),
+      evidence: evidenceForReasons(reasonCodes, null, safeSignals, center, safeVisualSignals, { start, end }),
       captionIntent: captionIntentForHighlightType(highlightType),
       rankingExplanation: rankingExplanationForMoment({ reasons: reasonCodes, score, source: "signals", visualSignals: safeVisualSignals }),
       source: "analysis",
-    };
+    }, { signals: safeSignals, visualSignals: safeVisualSignals, preset });
   });
 
   const visualOnlyMoments = safeVisualSignals.windows.slice(0, 4).map((window, index) => {
     const center = clamp(window.center, 0, duration);
     const start = Number(clamp(window.start, 0, Math.max(0, duration - 3)).toFixed(2));
     const end = Number(clamp(window.end, start + 3, duration).toFixed(2));
-    const reasonCodes = visualReasonCodesForWindow(window);
+    const reasonCodes = [
+      ...visualReasonCodesForWindow(window),
+      visualReasonCodesForWindow(window).includes("visual_replay_indicator") ? "replay_worthy_moment" : "",
+    ].filter(Boolean);
     const highlightType = visualHighlightTypeForReasons(reasonCodes);
     const score = scoreReasons(reasonCodes) + Number(window.confidence || 0) * 0.16;
-    return {
+    return normalizeMomentWithEvidence({
       id: `mom_visual_${index + 1}`,
       rank: index + 1,
       start,
@@ -813,14 +1141,16 @@ function detectHighlights({ transcript, signals, visualSignals, preset = "hype" 
       retentionScore: Math.round(clamp(score, 0.12, 0.9) * 100),
       suggestedPreset: highlightType === "counter_attack" ? "tactical" : preset,
       hook: hookForHighlightType(highlightType, preset),
-      evidence: evidenceForReasons(reasonCodes, null, safeSignals, center, safeVisualSignals),
+      evidence: evidenceForReasons(reasonCodes, null, safeSignals, center, safeVisualSignals, { start, end }),
       captionIntent: captionIntentForHighlightType(highlightType),
       rankingExplanation: rankingExplanationForMoment({ reasons: reasonCodes, score, source: "vision", visualSignals: safeVisualSignals }),
       source: "vision",
-    };
+    }, { signals: safeSignals, visualSignals: safeVisualSignals, preset });
   });
 
-  const merged = [...captionMoments, ...signalOnlyMoments, ...visualOnlyMoments]
+  const goalSequenceMoments = createGoalSequenceMoments(safeVisualSignals, safeSignals, preset);
+
+  const merged = [...goalSequenceMoments, ...captionMoments, ...signalOnlyMoments, ...visualOnlyMoments]
     .filter((moment) => moment.end - moment.start >= 3)
     .sort((a, b) => b.retentionScore - a.retentionScore || a.start - b.start);
   const deduped = [];
@@ -871,7 +1201,13 @@ function effectsForReasons(reasons) {
   if (reasons.includes("counter_attack") || reasons.includes("skill_move") || reasons.includes("visual_fast_break")) {
     effects.push("action_lane_emphasis");
   }
-  if (reasons.includes("visual_shot_like_motion") || reasons.includes("visual_save_like_motion")) effects.push("subtle_punch_in");
+  if (
+    reasons.includes("visual_shot_like_motion") ||
+    reasons.includes("visual_shot_contact") ||
+    reasons.includes("visual_ball_toward_goal") ||
+    reasons.includes("visual_save_like_motion") ||
+    reasons.includes("visual_keeper_action")
+  ) effects.push("subtle_punch_in");
   if (reasons.includes("visual_foul_like_contact")) effects.push("impact_freeze_frame");
   if (reasons.includes("visual_crowd_reaction") || reasons.includes("crowd_spike")) effects.push("beat_sync_pulse");
   if (reasons.includes("replay_worthy_moment") || reasons.includes("visual_replay_indicator")) effects.push("replay_stutter");
@@ -1071,6 +1407,8 @@ function analysisHealth() {
       "evidence_based_goal_guard",
       "commentary_crowd_signal_scoring",
       "vision_safe_action_signals",
+      "goal_evidence_sequence_detection",
+      "action_first_story_windows",
       "false_goal_guard",
       "football_story_planner",
       "contextual_caption_planning",

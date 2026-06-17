@@ -18,10 +18,10 @@ const MOMENT_COPY = Object.freeze({
   en: {
     goal: {
       storyType: "goal_story",
-      hook: "THE FINISH CHANGES EVERYTHING",
+      hook: "THE FINISH CHANGES THE MATCH",
       context: "Watch the move before it happens",
-      main: "That touch makes the moment",
-      reaction: "The reaction tells you enough",
+      main: "The shot writes the moment",
+      reaction: "The payoff hits after the finish",
       closing: "Run the build-up back",
     },
     shot_on_target: {
@@ -156,10 +156,10 @@ const MOMENT_COPY = Object.freeze({
   el: {
     goal: {
       storyType: "goal_story",
-      hook: "Η ΦΑΣΗ ΑΛΛΑΖΕΙ ΤΟ ΜΑΤΣ",
+      hook: "ΤΟ ΤΕΛΕΙΩΜΑ ΠΟΥ ΑΛΛΑΞΕ ΤΟ ΜΑΤΣ",
       context: "Δες την κίνηση πριν γίνει",
-      main: "Αυτό το άγγιγμα φτιάχνει τη στιγμή",
-      reaction: "Η αντίδραση τα λέει όλα",
+      main: "Το σουτ γράφει τη στιγμή",
+      reaction: "Η αντίδραση έρχεται μετά το τελείωμα",
       closing: "Ξαναδές το χτίσιμο",
     },
     shot_on_target: {
@@ -338,6 +338,16 @@ function hasExplicitGoalEvidence(moment = {}) {
   return moment.highlightType === "goal" && Array.isArray(moment.reasonCodes) && moment.reasonCodes.includes("goal");
 }
 
+function goalEvidenceObject(moment = {}) {
+  const evidence = moment && moment.evidence && moment.evidence.goalEvidence;
+  return evidence && typeof evidence === "object" && !Array.isArray(evidence) ? evidence : null;
+}
+
+function hasGoalSequenceEvidence(moment = {}) {
+  const goalEvidence = goalEvidenceObject(moment);
+  return Boolean(goalEvidence && ["strong", "medium"].includes(goalEvidence.evidenceLevel));
+}
+
 function safeHighlightType(moment = {}) {
   const type = sanitizeText(moment.highlightType || "generic_highlight", 60).toLowerCase();
   if (type === "goal" && !hasExplicitGoalEvidence(moment)) return "big_chance";
@@ -420,8 +430,11 @@ function storyDurationFor({ metadata = {}, selectedMoment = {}, editIntensity })
   const mediaDuration = Math.max(0, Number(metadata.durationSeconds || 0));
   const momentDuration = Math.max(0, Number(selectedMoment.end || 0) - Number(selectedMoment.start || 0));
   const intensity = normalizeEditIntensity(editIntensity);
-  const target = intensity === "punchy" ? 14 : intensity === "clean" ? 10 : 12;
-  const desired = Math.max(8, Math.min(25, Math.max(momentDuration, target)));
+  const goalStory = hasExplicitGoalEvidence(selectedMoment) || hasGoalSequenceEvidence(selectedMoment);
+  const target = goalStory
+    ? (intensity === "punchy" ? 18 : intensity === "clean" ? 14 : 16)
+    : (intensity === "punchy" ? 14 : intensity === "clean" ? 10 : 12);
+  const desired = Math.max(goalStory ? 12 : 8, Math.min(goalStory ? 22 : 25, Math.max(momentDuration, target)));
   if (mediaDuration > 0) return Math.min(mediaDuration, desired);
   return desired;
 }
@@ -438,7 +451,15 @@ function sourceWindowForMoment({ selectedMoment = {}, metadata = {}, editIntensi
       sourceEnd: Number((mediaDuration || duration).toFixed(2)),
     };
   }
-  const start = clamp(center - duration * 0.45, 0, Math.max(0, mediaDuration - duration));
+  const goalEvidence = goalEvidenceObject(selectedMoment);
+  const shotStart = goalEvidence && Number.isFinite(Number(goalEvidence.shotStart)) ? Number(goalEvidence.shotStart) : null;
+  const payoffEnd = goalEvidence && Number.isFinite(Number(goalEvidence.payoffEnd)) ? Number(goalEvidence.payoffEnd) : null;
+  let start = clamp(center - duration * 0.45, 0, Math.max(0, mediaDuration - duration));
+  if (shotStart != null || payoffEnd != null) {
+    const preferredStart = shotStart != null ? Math.max(0, shotStart - 3.5) : start;
+    const preferredEnd = payoffEnd != null ? Math.min(mediaDuration, payoffEnd + 4.5) : preferredStart + duration;
+    start = clamp(Math.min(preferredStart, preferredEnd - duration), 0, Math.max(0, mediaDuration - duration));
+  }
   return {
     sourceStart: Number(start.toFixed(2)),
     sourceEnd: Number(Math.min(mediaDuration, start + duration).toFixed(2)),
@@ -605,6 +626,7 @@ function animationCuesForStory({ duration, highlightType, reasonCodes = [], edit
     intensity === "punchy" &&
     [
       "big_chance",
+      "goal",
       "shot_on_target",
       "near_miss",
       "save",
@@ -618,7 +640,7 @@ function animationCuesForStory({ duration, highlightType, reasonCodes = [], edit
   ) {
     cues.push({ type: "punch_zoom", start: Math.min(3.1, safeDuration - 0.2), end: Math.min(4.2, safeDuration) });
   }
-  if (intensity === "punchy" && ["foul", "hard_foul", "save", "big_chance", "crowd_reaction", "commentator_peak"].includes(highlightType)) {
+  if (intensity === "punchy" && ["goal", "foul", "hard_foul", "save", "big_chance", "crowd_reaction", "commentator_peak"].includes(highlightType)) {
     cues.push({ type: "impact_flash", start: Math.min(4.25, safeDuration - 0.1), end: Math.min(4.38, safeDuration) });
   }
   if (reasonCodes.includes("visual_replay_indicator") || ["replay_or_reaction", "replay_worthy_moment"].includes(highlightType)) {

@@ -6,8 +6,14 @@ const VISUAL_SIGNAL_TYPES = Object.freeze([
   "player_cluster",
   "goal_area_visible",
   "penalty_box_visible",
+  "goal_mouth_visible",
   "shot_like_motion",
+  "shot_contact",
+  "ball_toward_goal",
   "save_like_motion",
+  "keeper_action",
+  "ball_in_net",
+  "celebration_after_shot",
   "foul_like_contact",
   "fast_break_motion",
   "replay_indicator",
@@ -20,8 +26,14 @@ const VISUAL_SIGNAL_TYPES = Object.freeze([
 const VISUAL_REASON_CODES = Object.freeze([
   "visual_ball_visible",
   "visual_goal_area",
+  "visual_goal_mouth",
   "visual_shot_like_motion",
+  "visual_shot_contact",
+  "visual_ball_toward_goal",
   "visual_save_like_motion",
+  "visual_keeper_action",
+  "visual_ball_in_net",
+  "visual_celebration_after_shot",
   "visual_foul_like_contact",
   "visual_fast_break",
   "visual_replay_indicator",
@@ -34,8 +46,14 @@ const VISUAL_REASON_BY_TYPE = Object.freeze({
   ball_visible: "visual_ball_visible",
   goal_area_visible: "visual_goal_area",
   penalty_box_visible: "visual_goal_area",
+  goal_mouth_visible: "visual_goal_mouth",
   shot_like_motion: "visual_shot_like_motion",
+  shot_contact: "visual_shot_contact",
+  ball_toward_goal: "visual_ball_toward_goal",
   save_like_motion: "visual_save_like_motion",
+  keeper_action: "visual_keeper_action",
+  ball_in_net: "visual_ball_in_net",
+  celebration_after_shot: "visual_celebration_after_shot",
   foul_like_contact: "visual_foul_like_contact",
   fast_break_motion: "visual_fast_break",
   replay_indicator: "visual_replay_indicator",
@@ -106,7 +124,15 @@ function visualHighlightTypeForReasons(reasons = []) {
   if (reasonSet.has("visual_save_like_motion")) return "save";
   if (reasonSet.has("visual_foul_like_contact")) return "foul";
   if (reasonSet.has("visual_fast_break")) return "counter_attack";
-  if (reasonSet.has("visual_shot_like_motion")) return "big_chance";
+  if (
+    reasonSet.has("visual_shot_like_motion") ||
+    reasonSet.has("visual_shot_contact") ||
+    reasonSet.has("visual_ball_toward_goal") ||
+    reasonSet.has("visual_ball_in_net") ||
+    reasonSet.has("visual_celebration_after_shot")
+  ) {
+    return "big_chance";
+  }
   if (reasonSet.has("visual_crowd_reaction")) return "crowd_reaction";
   if (reasonSet.has("visual_replay_indicator")) return "replay_or_reaction";
   return "unknown_action";
@@ -178,8 +204,14 @@ function summarizeVisualSignals(input = {}) {
     playerDensity: safeSummaryValue(windows, "player_cluster"),
     goalAreaPresence: safeSummaryValue(windows, "goal_area_visible"),
     penaltyBoxPresence: safeSummaryValue(windows, "penalty_box_visible"),
+    goalMouthPresence: safeSummaryValue(windows, "goal_mouth_visible"),
     shotLikeMotion: safeSummaryValue(windows, "shot_like_motion"),
+    shotContact: safeSummaryValue(windows, "shot_contact"),
+    ballTowardGoal: safeSummaryValue(windows, "ball_toward_goal"),
     saveLikeMotion: safeSummaryValue(windows, "save_like_motion"),
+    keeperAction: safeSummaryValue(windows, "keeper_action"),
+    ballInNet: safeSummaryValue(windows, "ball_in_net"),
+    celebrationAfterShot: safeSummaryValue(windows, "celebration_after_shot"),
     foulLikeContact: safeSummaryValue(windows, "foul_like_contact"),
     fastBreakMotion: safeSummaryValue(windows, "fast_break_motion"),
     crowdReaction: safeSummaryValue(windows, "crowd_reaction"),

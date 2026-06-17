@@ -33,3 +33,5 @@ Guardrails:
 - Run `npm run eval` after ranking/caption changes; it checks caption evidence metadata, caption/action alignment, generic hype penalties, caption specificity, reaction-as-support, weak-evidence neutrality and provider fallback rate.
 - Use `npm run feedback:summary` when human reviewers add local feedback in `eval/human-feedback/`; the summary is safe and must not mutate training data automatically.
 - Replay and commentary wording must stay evidence-specific: replay indicators may use timing/angle/run-it-back captions, and crowd/commentary spikes may use crowd/reaction/watch wording, but both must continue to avoid goal language unless explicit `goal` evidence exists.
+- Goal evidence can be composed from a strong action sequence: shot/contact, ball toward goal, goal-mouth context and ball-in-net/line-crossing or celebration after the shot. Partial visual sequences should rank as chances or support, not goals.
+- Goal-sequence planning should keep the source window action-first and long enough to show shot-to-payoff, typically 12-22 seconds for medium/strong goal evidence.

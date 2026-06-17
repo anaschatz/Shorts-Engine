@@ -20,6 +20,12 @@ Allowed visual types:
 - `replay_indicator`
 - `camera_pan`
 - `player_cluster`
+- `goal_mouth_visible`
+- `shot_contact`
+- `ball_toward_goal`
+- `keeper_action`
+- `ball_in_net`
+- `celebration_after_shot`
 - `unknown_visual_action`
 
 Allowed visual reason codes:
@@ -31,6 +37,12 @@ Allowed visual reason codes:
 - `visual_foul_like_contact`
 - `visual_fast_break`
 - `visual_replay_indicator`
+- `visual_goal_mouth`
+- `visual_shot_contact`
+- `visual_ball_toward_goal`
+- `visual_keeper_action`
+- `visual_ball_in_net`
+- `visual_celebration_after_shot`
 - `visual_unknown_action`
 
 ## Pipeline Integration
@@ -44,6 +56,10 @@ The default analyzer is a safe heuristic fallback. It can mark `unknown_visual_a
 - foul-like visual contact as `foul`
 - fast-break visual motion as `counter_attack`
 - goal-area-only visibility as `unknown_action`
+- full goal-sequence evidence as `goal`
+
+Full goal-sequence evidence requires a strong action chain. Goal-mouth context or
+shot-like motion alone still cannot create a goal claim.
 
 ## Edit Plan Metadata
 
@@ -71,6 +87,9 @@ Evaluation reports now include:
 - `visualReasonRecall`
 - `falseVisualGoalRate`
 - `visualFallbackUsageRate`
+- `goalSequenceRecall`
+- `shotToPayoffCoverage`
+- `actionWindowCoverage`
 
 Acceptance guardrail: `falseVisualGoalRate` must stay `0`.
 

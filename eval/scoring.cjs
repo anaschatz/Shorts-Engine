@@ -68,6 +68,11 @@ const ACTION_REASON_CODES = Object.freeze([
   "skill_move",
   "visual_fast_break",
   "visual_foul_like_contact",
+  "visual_keeper_action",
+  "visual_ball_in_net",
+  "visual_celebration_after_shot",
+  "visual_ball_toward_goal",
+  "visual_shot_contact",
   "visual_save_like_motion",
   "visual_shot_like_motion",
 ]);
@@ -344,6 +349,53 @@ function captionProviderFallbackRate(plan) {
   return plan && plan.footballStoryPlan && plan.footballStoryPlan.captionGeneration && plan.footballStoryPlan.captionGeneration.fallbackUsed ? 1 : 0;
 }
 
+function goalEvidenceForPlan(plan) {
+  const evidence = plan &&
+    plan.analysisMoment &&
+    plan.analysisMoment.evidence &&
+    plan.analysisMoment.evidence.goalEvidence;
+  return evidence && typeof evidence === "object" && !Array.isArray(evidence) ? evidence : null;
+}
+
+function goalSequenceRecallScore(topMoment, topPlan, expected = {}) {
+  if (expected.highlightType !== "goal") return 1;
+  const goalEvidence = goalEvidenceForPlan(topPlan);
+  if (!topMoment || !goalEvidence) return 0;
+  if (!["strong", "medium"].includes(goalEvidence.evidenceLevel)) return 0;
+  return topMoment.reasonCodes.includes("goal") && goalEvidence.goalClaimAllowed ? 1 : 0.75;
+}
+
+function shotToPayoffCoverageScore(topPlan, expected = {}) {
+  const sequence = expected.goalSequence || expected.shotToPayoff || null;
+  if (!sequence || typeof sequence !== "object") return 1;
+  if (!topPlan) return 0;
+  const shotStart = toNumber(sequence.shotStart, Number.NaN);
+  const payoffEnd = toNumber(sequence.payoffEnd, Number.NaN);
+  if (!Number.isFinite(shotStart) || !Number.isFinite(payoffEnd)) return 1;
+  return topPlan.sourceStart <= shotStart + 0.25 && topPlan.sourceEnd >= payoffEnd - 0.25 ? 1 : 0;
+}
+
+function actionWindowCoverageScore(topMoment, expectedWindows = []) {
+  if (!topMoment || !expectedWindows.length) return 0;
+  return Math.min(1, bestOverlap(topMoment, expectedWindows) / 0.75);
+}
+
+function ballPlayerVisibilityScore(topPlan) {
+  const summary = topPlan && topPlan.visualEvidenceSummary;
+  if (!summary || !Array.isArray(summary.topTypes) || !summary.topTypes.length) return 1;
+  const types = new Set(summary.topTypes);
+  if (types.has("ball_visible") || types.has("player_cluster")) return 1;
+  return summary.windowCount > 0 && summary.actionFocusConfidence >= 0.7 ? 0.8 : 0.5;
+}
+
+function referenceStyleSimilarityScore(topPlan) {
+  if (!topPlan) return 0;
+  const roleScore = Array.isArray(topPlan.captions) && topPlan.captions.some((caption) => caption.role === "opening_hook") ? 0.35 : 0;
+  const animationScore = Array.isArray(topPlan.animationCues) && topPlan.animationCues.length >= 3 ? 0.35 : 0;
+  const framingScore = topPlan.framingMode === "wide_safe_vertical" ? 0.3 : 0.15;
+  return round(roleScore + animationScore + framingScore, 4);
+}
+
 function renderStylePresetIsValid(plan) {
   return Boolean(plan && RENDER_STYLE_PRESETS.includes(plan.stylePreset));
 }
@@ -466,6 +518,12 @@ function scoreFixture(fixture) {
   const reactionAsSupportScoreValue = topPlan ? reactionAsSupportScore(topPlan) : 0;
   const weakEvidenceNeutralityScoreValue = topPlan ? weakEvidenceNeutralityScore(topPlan) : 0;
   const providerFallbackRate = topPlan ? captionProviderFallbackRate(topPlan) : 0;
+  const goalSequenceRecall = goalSequenceRecallScore(topMoment, topPlan, fixture.expected);
+  const reactionAsSupportNotMain = reactionAsSupportScoreValue;
+  const actionWindowCoverage = actionWindowCoverageScore(topMoment, fixture.expected.highlights);
+  const shotToPayoffCoverage = shotToPayoffCoverageScore(topPlan, fixture.expected);
+  const ballPlayerVisibilityScoreValue = ballPlayerVisibilityScore(topPlan);
+  const referenceStyleSimilarity = referenceStyleSimilarityScore(topPlan);
   const renderStylePresetValidity = candidatePlans.every(renderStylePresetIsValid) ? 1 : 0;
   const unsupportedCueCount = topPlan && Array.isArray(topPlan.unsupportedAnimationCues) ? topPlan.unsupportedAnimationCues.length : 0;
   const animationCueCount = topPlan && Array.isArray(topPlan.animationCues) ? topPlan.animationCues.length : 0;
@@ -561,6 +619,12 @@ function scoreFixture(fixture) {
       reactionAsSupportScore: reactionAsSupportScoreValue,
       weakEvidenceNeutralityScore: weakEvidenceNeutralityScoreValue,
       providerFallbackRate,
+      goalSequenceRecall,
+      reactionAsSupportNotMain,
+      actionWindowCoverage,
+      shotToPayoffCoverage,
+      ballPlayerVisibilityScore: ballPlayerVisibilityScoreValue,
+      referenceStyleSimilarity,
       renderStylePresetValidity,
       unsupportedCueRate,
       highlightTypeAccuracy,
@@ -596,6 +660,18 @@ function scoreFixture(fixture) {
                   topTypes: topMoment.evidence.visual.topTypes,
                   actionFocusConfidence: topMoment.evidence.visual.actionFocusConfidence,
                   goalClaimAllowed: false,
+                }
+              : null,
+            goalEvidence: topMoment.evidence && topMoment.evidence.goalEvidence
+              ? {
+                  evidenceLevel: sanitizeReportText(topMoment.evidence.goalEvidence.evidenceLevel, 24),
+                  confidence: topMoment.evidence.goalEvidence.confidence,
+                  goalClaimAllowed: Boolean(topMoment.evidence.goalEvidence.goalClaimAllowed),
+                  hasShotContact: Boolean(topMoment.evidence.goalEvidence.hasShotContact),
+                  hasBallTowardGoal: Boolean(topMoment.evidence.goalEvidence.hasBallTowardGoal),
+                  hasGoalMouthFrame: Boolean(topMoment.evidence.goalEvidence.hasGoalMouthFrame),
+                  hasBallInNetOrLineCross: Boolean(topMoment.evidence.goalEvidence.hasBallInNetOrLineCross),
+                  hasCelebrationAfterShot: Boolean(topMoment.evidence.goalEvidence.hasCelebrationAfterShot),
                 }
               : null,
             source: topMoment.source,
@@ -724,8 +800,14 @@ function aggregateResults(results) {
     genericCaptionPenaltyRate: avg((result) => result.metrics.genericCaptionPenaltyRate),
     captionSpecificityScore: avg((result) => result.metrics.captionSpecificityScore),
     reactionAsSupportScore: avg((result) => result.metrics.reactionAsSupportScore),
+    reactionAsSupportNotMain: avg((result) => result.metrics.reactionAsSupportNotMain),
     weakEvidenceNeutralityScore: avg((result) => result.metrics.weakEvidenceNeutralityScore),
     providerFallbackRate: avg((result) => result.metrics.providerFallbackRate),
+    goalSequenceRecall: avg((result) => result.metrics.goalSequenceRecall),
+    actionWindowCoverage: avg((result) => result.metrics.actionWindowCoverage),
+    shotToPayoffCoverage: avg((result) => result.metrics.shotToPayoffCoverage),
+    ballPlayerVisibilityScore: avg((result) => result.metrics.ballPlayerVisibilityScore),
+    referenceStyleSimilarity: avg((result) => result.metrics.referenceStyleSimilarity),
     renderStylePresetValidity: avg((result) => result.metrics.renderStylePresetValidity),
     unsupportedCueRate: avg((result) => result.metrics.unsupportedCueRate),
     fallbackUsageRate: avg((result) => (result.metrics.fallbackUsed ? 1 : 0)),

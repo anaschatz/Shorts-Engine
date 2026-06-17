@@ -131,6 +131,25 @@ The approval outbox has a worker-ready lifecycle: `pending`, `processing`, `deli
 | `OPENAI_TRANSCRIPTION_MODEL` | No | `gpt-4o-mini-transcribe` | provider model name | No | Set only when testing a specific model. | Value is not used unless provider is real. |
 | `OPENAI_API_KEY` | Required only for `openai` provider | empty | deployment secret | Yes | Store only in the hosting provider secret manager. | Real provider without credential fails readiness. |
 
+## Football analysis safety
+
+Goal classification is evidence-gated. The analysis layer may use sampled visual
+labels such as `shot_contact`, `ball_toward_goal`, `goal_mouth_visible`,
+`keeper_action`, `ball_in_net` and `celebration_after_shot`, but it must not
+claim `goal` from crowd noise, coach reaction, goal-area visibility or shot-like
+motion alone. A goal claim requires a strong action sequence, such as shot or
+contact evidence, ball trajectory toward the goal, goal-mouth context and either
+ball-in-net/line-crossing evidence or celebration after the shot. Weak or medium
+visual evidence remains a chance/save/reaction style moment.
+
+Action-first story windows prefer build-up, shot/contact, ball trajectory,
+goal-mouth/keeper action and payoff before reaction shots. Strong or medium
+goal-sequence evidence may expand the selected source window to a 12-22 second
+story segment; reaction-only windows are demoted unless they support an action
+moment. Evaluation reports include safe aggregate metrics such as
+`goalSequenceRecall`, `shotToPayoffCoverage`, `actionWindowCoverage`,
+`ballPlayerVisibilityScore` and `referenceStyleSimilarity`.
+
 ## Signed delivery
 
 | Variable | Required | Default | Allowed values | Secret | Staging recommendation | Fail-closed behavior |
