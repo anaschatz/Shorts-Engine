@@ -120,6 +120,67 @@ test("audio-only spike is not promoted to goal without semantic evidence", () =>
   assert.equal(hasGoalLanguage(result.moments[0].hook), false);
 });
 
+test("visual shot-like evidence ranks a big chance without inventing a goal", () => {
+  const result = detectHighlights({
+    transcript: {
+      provider: "fixture",
+      language: "en",
+      captions: [{ start: 7, end: 8.5, text: "The pressure rises in the box" }],
+    },
+    signals: {
+      durationSeconds: 20,
+      hasAudio: true,
+      audioPeaks: [],
+      sceneChanges: [],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [
+        {
+          start: 6.8,
+          end: 10.2,
+          types: ["shot_like_motion", "goal_area_visible", "ball_visible"],
+          confidence: 0.86,
+        },
+      ],
+    },
+    preset: "hype",
+  });
+
+  assert.equal(result.moments[0].highlightType, "big_chance");
+  assert.equal(result.moments[0].reasonCodes.includes("visual_shot_like_motion"), true);
+  assert.equal(result.moments[0].reasonCodes.includes("goal"), false);
+  assert.equal(result.moments[0].evidence.visual.goalClaimAllowed, false);
+  assert.equal(hasGoalLanguage(result.moments[0].hook), false);
+});
+
+test("candidate plans include visual evidence summary and safe framing reason", () => {
+  const result = detectHighlights({
+    transcript: {
+      provider: "fixture",
+      language: "en",
+      captions: [{ start: 10, end: 11.4, text: "Everyone reacts to the save" }],
+    },
+    signals: { durationSeconds: 22, hasAudio: true, audioPeaks: [], sceneChanges: [] },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [{ start: 9.7, end: 12.8, type: "save_like_motion", confidence: 0.88 }],
+    },
+    preset: "hype",
+  });
+  const plans = createCandidateEditPlans({ moments: result.moments, metadata, transcript: { captions: [] }, title: "Save clip" });
+
+  assert.equal(plans[0].highlightType, "save");
+  assert.equal(plans[0].visualEvidenceSummary.goalClaimAllowed, false);
+  assert.equal(plans[0].visualEvidenceSummary.topTypes.includes("save_like_motion"), true);
+  assert.equal(plans[0].actionFocusConfidence, 0.88);
+  assert.match(plans[0].framingReason, /^wide_safe_/);
+  assert.equal(plans[0].framingMode, "wide_safe_vertical");
+  assert.equal(plans[0].cropStrategy.preserveFullFrame, true);
+});
+
 test("finish phrasing alone is not goal evidence", () => {
   const reasons = reasonCodesForCaption(
     { start: 3, end: 5, text: "What a finish" },
@@ -196,4 +257,5 @@ test("analysis health reports deterministic readiness", () => {
   assert.equal(health.features.includes("highlight_ranking"), true);
   assert.equal(health.features.includes("football_highlight_taxonomy"), true);
   assert.equal(health.features.includes("false_goal_guard"), true);
+  assert.equal(health.features.includes("vision_safe_action_signals"), true);
 });

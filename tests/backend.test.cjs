@@ -315,6 +315,8 @@ test("API health returns structured status", async () => {
   assert.equal(typeof payload.data.transcription.activeProvider, "string");
   assert.equal(payload.data.analysis.ready, true);
   assert.equal(payload.data.analysis.features.includes("candidate_edit_plans"), true);
+  assert.equal(payload.data.vision.ready, true);
+  assert.equal(payload.data.vision.goalClaimAllowed, false);
   assert.equal(payload.data.youtubeIngest.mode, "mock");
   assert.equal(payload.data.youtubeIngest.enabled, false);
   assert.equal(payload.data.youtubeIngest.networkCalls, false);

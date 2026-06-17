@@ -17,6 +17,7 @@ const {
 } = require("./errors.cjs");
 const { createRateLimiter } = require("./rate-limit.cjs");
 const { analysisHealth } = require("./analysis.cjs");
+const { visionHealth } = require("./vision.cjs");
 const { validateUploadCandidate, probeMedia, toolHealth, sha256, sanitizeText } = require("./media.cjs");
 const { HOOKS } = require("./edit-plan.cjs");
 const { transcriptionHealth } = require("./transcription.cjs");
@@ -374,6 +375,7 @@ async function handleHealth(req, res, rid) {
   };
   const provider = transcriptionHealth();
   const analysis = analysisHealth();
+  const vision = visionHealth();
   const youtubeIngest = youtubeIngestHealth(youtubeIngestAdapter);
   const cleanup = artifactCleanupWorker.health();
   const worker = jobWorker.health();
@@ -383,7 +385,16 @@ async function handleHealth(req, res, rid) {
   const storageReady = Object.values(storage).every((entry) => entry.exists && entry.readable && entry.writable);
   const repositoriesReady = Object.values(repositories).every((entry) => entry.ready);
   const adaptersReady = Object.values(adapters).every((entry) => entry.ready);
-  const ready = tools.ffmpeg && tools.ffprobe && storageReady && repositoriesReady && adaptersReady && provider.ready && analysis.ready && youtubeIngest.ready;
+  const ready =
+    tools.ffmpeg &&
+    tools.ffprobe &&
+    storageReady &&
+    repositoriesReady &&
+    adaptersReady &&
+    provider.ready &&
+    analysis.ready &&
+    vision.ready &&
+    youtubeIngest.ready;
   sendOk(res, {
     service: "shortsengine-mvp",
     status: ready ? "ready" : "degraded",
@@ -409,6 +420,7 @@ async function handleHealth(req, res, rid) {
     releaseReadiness,
     transcription: provider,
     analysis,
+    vision,
     youtubeIngest,
     requestId: rid,
   });

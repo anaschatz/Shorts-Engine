@@ -4,6 +4,7 @@ const { basename, join } = require("node:path");
 const { createCandidateEditPlans, detectHighlights } = require("../server/analysis.cjs");
 const { hasGoalLanguage } = require("../server/edit-plan.cjs");
 const { AppError } = require("../server/errors.cjs");
+const { validateVisualSignals } = require("../server/vision.cjs");
 
 const DEFAULT_THRESHOLDS = Object.freeze({
   minAggregateScore: 78,
@@ -120,6 +121,10 @@ function reasonCodeRecall(actualReasons, expectedReasons) {
   return round(matches / expected.length, 4);
 }
 
+function visualReasonCodes(reasons = []) {
+  return (Array.isArray(reasons) ? reasons : []).filter((reason) => /^visual_/.test(reason));
+}
+
 function captionsHaveValidTiming(plan) {
   if (!plan || !Array.isArray(plan.captions) || plan.captions.length === 0) return false;
   const duration = toNumber(plan.sourceEnd) - toNumber(plan.sourceStart);
@@ -187,9 +192,14 @@ function scoreFixture(fixture) {
     height: fixture.mediaSignals.height || 1080,
     hasAudio: fixture.mediaSignals.hasAudio !== false,
   };
+  const visualSignals = validateVisualSignals(
+    fixture.visualSignals || fixture.mediaSignals.visualSignals || { providerMode: "fixture-none", fallbackUsed: true, windows: [] },
+    metadata,
+  );
   const highlightResult = detectHighlights({
     transcript: fixture.transcript,
     signals: fixture.mediaSignals,
+    visualSignals,
     preset: fixture.expected.stylePreset || "hype",
   });
   const candidatePlans = createCandidateEditPlans({
@@ -205,6 +215,10 @@ function scoreFixture(fixture) {
   const recall = top3Recall(highlightResult.moments, fixture.expected.highlights, thresholds.minTop1Overlap);
   const reasonPrecision = reasonCodePrecision(topMoment ? topMoment.reasonCodes : [], fixture.expected.reasonCodes);
   const reasonRecall = reasonCodeRecall(topMoment ? topMoment.reasonCodes : [], fixture.expected.reasonCodes);
+  const expectedVisualReasons = visualReasonCodes(fixture.expected.reasonCodes);
+  const actualVisualReasons = visualReasonCodes(topMoment ? topMoment.reasonCodes : []);
+  const visualReasonPrecision = expectedVisualReasons.length ? reasonCodePrecision(actualVisualReasons, expectedVisualReasons) : 1;
+  const visualReasonRecall = expectedVisualReasons.length ? reasonCodeRecall(actualVisualReasons, expectedVisualReasons) : 1;
   const retentionScore = topMoment ? toNumber(topMoment.retentionScore) : 0;
   const retentionSanity = retentionScore >= thresholds.minRetentionScore ? 1 : Math.max(0, retentionScore / thresholds.minRetentionScore);
   const candidatePlanValidity = candidatePlans.length > 0 && candidatePlans.every((plan) => plan.aspectRatio === "9:16" && plan.export.format === "mp4") ? 1 : 0;
@@ -212,11 +226,19 @@ function scoreFixture(fixture) {
   const expectedHighlightType = fixture.expected.highlightType || null;
   const highlightTypeAccuracy = expectedHighlightType && topMoment ? (topMoment.highlightType === expectedHighlightType ? 1 : 0) : 1;
   const falseGoalCaption = expectedHighlightType !== "goal" && planHasGoalLanguage(topPlan) ? 1 : 0;
+  const falseVisualGoal = topMoment &&
+    topMoment.highlightType === "goal" &&
+    !topMoment.reasonCodes.includes("goal") &&
+    actualVisualReasons.length > 0
+    ? 1
+    : 0;
   const falseGoalCaptionRate = falseGoalCaption;
+  const falseVisualGoalRate = falseVisualGoal;
   const captionSafety = falseGoalCaption ? 0 : 1;
   const framingSafety = topPlan && framingIsSafe(topPlan, metadata) ? 1 : 0;
   const animationCueValidity = topPlan && animationCuesAreValid(topPlan) ? 1 : 0;
   const fallbackUsed = Boolean(highlightResult.fallback);
+  const visualFallbackUsed = Boolean(visualSignals.fallbackUsed);
   const fallbackScore = fallbackUsed ? 0 : 1;
   const weightedScore = Math.round(
     scoreToPercent(top1Overlap) * 0.18 +
@@ -237,10 +259,12 @@ function scoreFixture(fixture) {
     top1Overlap >= thresholds.minTop1Overlap &&
     recall >= thresholds.minTop3Recall &&
     reasonPrecision >= thresholds.minReasonPrecision &&
+    visualReasonPrecision >= thresholds.minReasonPrecision &&
     candidatePlanValidity === 1 &&
     captionTimingValidity === 1 &&
     highlightTypeAccuracy === 1 &&
     captionSafety === 1 &&
+    falseVisualGoalRate === 0 &&
     framingSafety === 1 &&
     animationCueValidity === 1;
 
@@ -256,16 +280,20 @@ function scoreFixture(fixture) {
       top3Recall: recall,
       reasonCodePrecision: reasonPrecision,
       reasonCodeRecall: reasonRecall,
+      visualReasonPrecision,
+      visualReasonRecall,
       retentionScore,
       retentionSanity: round(retentionSanity, 4),
       candidatePlanValidity,
       captionTimingValidity,
       highlightTypeAccuracy,
       falseGoalCaptionRate,
+      falseVisualGoalRate,
       captionSafety,
       framingSafety,
       animationCueValidity,
       fallbackUsed,
+      visualFallbackUsed,
     },
     expected: {
       highlights: fixture.expected.highlights.map((item) => ({ start: item.start, end: item.end })),
@@ -281,6 +309,14 @@ function scoreFixture(fixture) {
             retentionScore: topMoment.retentionScore,
             reasonCodes: topMoment.reasonCodes,
             highlightType: topMoment.highlightType,
+            visualEvidence: topMoment.evidence && topMoment.evidence.visual
+              ? {
+                  windowCount: topMoment.evidence.visual.windowCount,
+                  topTypes: topMoment.evidence.visual.topTypes,
+                  actionFocusConfidence: topMoment.evidence.visual.actionFocusConfidence,
+                  goalClaimAllowed: false,
+                }
+              : null,
             source: topMoment.source,
           }
         : null,
@@ -293,6 +329,9 @@ function scoreFixture(fixture) {
         highlightType: plan.highlightType,
         stylePreset: plan.stylePreset,
         framingMode: plan.framingMode,
+        framingReason: plan.framingReason,
+        actionFocusConfidence: plan.actionFocusConfidence,
+        visualEvidenceSummary: plan.visualEvidenceSummary,
         animationCueCount: Array.isArray(plan.animationCues) ? plan.animationCues.length : 0,
         captions: plan.captions.length,
         effects: plan.effects,
@@ -302,11 +341,13 @@ function scoreFixture(fixture) {
       top1Overlap,
       recall,
       reasonPrecision,
+      visualReasonPrecision,
       retentionScore,
       candidatePlanValidity,
       captionTimingValidity,
       highlightTypeAccuracy,
       captionSafety,
+      falseVisualGoalRate,
       framingSafety,
       animationCueValidity,
       fallbackUsed,
@@ -320,11 +361,13 @@ function debuggingNotes(metrics) {
   if (metrics.top1Overlap < metrics.thresholds.minTop1Overlap) notes.push("Top-ranked moment misses the expected highlight window.");
   if (metrics.recall < metrics.thresholds.minTop3Recall) notes.push("Top-3 ranking does not cover enough expected moments.");
   if (metrics.reasonPrecision < metrics.thresholds.minReasonPrecision) notes.push("Reason codes are noisy against expected labels.");
+  if (metrics.visualReasonPrecision < metrics.thresholds.minReasonPrecision) notes.push("Visual reason codes are noisy against expected labels.");
   if (metrics.retentionScore < metrics.thresholds.minRetentionScore) notes.push("Retention score looks too weak for a highlight candidate.");
   if (!metrics.candidatePlanValidity) notes.push("Candidate edit plan validation failed.");
   if (!metrics.captionTimingValidity) notes.push("Caption timings are outside the selected source window.");
   if (!metrics.highlightTypeAccuracy) notes.push("Top-ranked moment has the wrong football highlight type.");
   if (!metrics.captionSafety) notes.push("No-goal fixture received misleading goal language.");
+  if (metrics.falseVisualGoalRate) notes.push("Visual signals created goal classification without explicit goal evidence.");
   if (!metrics.framingSafety) notes.push("Candidate edit plan is missing safe vertical framing metadata.");
   if (!metrics.animationCueValidity) notes.push("Social edit animation cues are missing or invalid.");
   if (metrics.fallbackUsed) notes.push("Analysis fell back to deterministic fallback moments.");
@@ -354,12 +397,16 @@ function aggregateResults(results) {
     top3Recall: avg((result) => result.metrics.top3Recall),
     reasonCodePrecision: avg((result) => result.metrics.reasonCodePrecision),
     reasonCodeRecall: avg((result) => result.metrics.reasonCodeRecall),
+    visualReasonPrecision: avg((result) => result.metrics.visualReasonPrecision),
+    visualReasonRecall: avg((result) => result.metrics.visualReasonRecall),
     highlightTypeAccuracy: avg((result) => result.metrics.highlightTypeAccuracy),
     falseGoalCaptionRate: avg((result) => result.metrics.falseGoalCaptionRate),
+    falseVisualGoalRate: avg((result) => result.metrics.falseVisualGoalRate),
     captionSafety: avg((result) => result.metrics.captionSafety),
     framingSafety: avg((result) => result.metrics.framingSafety),
     animationCueValidity: avg((result) => result.metrics.animationCueValidity),
     fallbackUsageRate: avg((result) => (result.metrics.fallbackUsed ? 1 : 0)),
+    visualFallbackUsageRate: avg((result) => (result.metrics.visualFallbackUsed ? 1 : 0)),
     candidatePlanValidity: avg((result) => result.metrics.candidatePlanValidity),
     captionTimingValidity: avg((result) => result.metrics.captionTimingValidity),
   };

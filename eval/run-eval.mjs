@@ -32,6 +32,8 @@ try {
     top1Overlap: report.aggregate.top1Overlap,
     top3Recall: report.aggregate.top3Recall,
     reasonCodePrecision: report.aggregate.reasonCodePrecision,
+    visualReasonPrecision: report.aggregate.visualReasonPrecision,
+    falseVisualGoalRate: report.aggregate.falseVisualGoalRate,
     highlightTypeAccuracy: report.aggregate.highlightTypeAccuracy,
     falseGoalCaptionRate: report.aggregate.falseGoalCaptionRate,
     framingSafety: report.aggregate.framingSafety,

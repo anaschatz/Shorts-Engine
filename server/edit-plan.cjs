@@ -189,7 +189,14 @@ function createAnimationCues(duration, reasonCodes = []) {
   if (reasonCodes.includes("audio_energy_spike") || reasonCodes.includes("audio_peak")) {
     cues.push({ type: "beat_pulse", start: Math.min(1.6, safeDuration - 0.2), end: Math.min(2.1, safeDuration) });
   }
-  if (reasonCodes.includes("scene_change_cluster") || reasonCodes.includes("replay_worthy_moment")) {
+  if (
+    reasonCodes.includes("scene_change_cluster") ||
+    reasonCodes.includes("replay_worthy_moment") ||
+    reasonCodes.includes("visual_shot_like_motion") ||
+    reasonCodes.includes("visual_save_like_motion") ||
+    reasonCodes.includes("visual_foul_like_contact") ||
+    reasonCodes.includes("visual_fast_break")
+  ) {
     cues.push({ type: "subtle_punch_in", start: Math.min(2.2, safeDuration - 0.2), end: Math.min(3.2, safeDuration) });
   }
   return cues.filter((cue) => cue.end > cue.start).map((cue) => ({
@@ -229,6 +236,21 @@ function createCropStrategy(metadata = {}, framingMode = "wide_safe_vertical") {
   };
 }
 
+function normalizeVisualEvidenceSummary(value) {
+  const summary = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    providerMode: sanitizeText(summary.providerMode || "mock", 40),
+    fallbackUsed: Boolean(summary.fallbackUsed),
+    windowCount: clamp(summary.windowCount || 0, 0, 24),
+    topTypes: Array.isArray(summary.topTypes) ? summary.topTypes.map((type) => sanitizeText(type, 48)).filter(Boolean).slice(0, 8) : [],
+    reasonCodes: Array.isArray(summary.reasonCodes)
+      ? summary.reasonCodes.map((reason) => sanitizeText(reason, 60)).filter(Boolean).slice(0, 8)
+      : [],
+    actionFocusConfidence: Number(clamp(summary.actionFocusConfidence, 0, 1).toFixed(2)),
+    goalClaimAllowed: false,
+  };
+}
+
 function framingModeForMetadata(metadata = {}) {
   const width = Number(metadata.width || 0);
   const height = Number(metadata.height || 0);
@@ -259,6 +281,9 @@ function createEditPlan({ metadata, transcript, preset = "hype", title = "Shorts
     captions: captions.length ? captions : createFallbackCaptions(duration, preset, { highlightType, hook }),
     effects: ["wide_safe_framing", "social_caption_pop", "caption_emphasis", "brand_safe_template"],
     framingMode,
+    framingReason: "wide_safe_default_no_visual_tracking",
+    actionFocusConfidence: 0,
+    visualEvidenceSummary: normalizeVisualEvidenceSummary(null),
     cropStrategy: createCropStrategy(metadata, framingMode),
     stylePreset: "social_sports_v1",
     captionEmphasis: createCaptionEmphasis(captions, highlightType),
@@ -297,6 +322,12 @@ function validateEditPlan(plan, metadata = {}) {
   const highlightType = normalizeHighlightType(plan.highlightType);
   const framingMode = normalizeFramingMode(plan.framingMode);
   const stylePreset = normalizeStylePreset(plan.stylePreset);
+  const visualEvidenceSummary = normalizeVisualEvidenceSummary(plan.visualEvidenceSummary);
+  const actionFocusConfidence = Number(clamp(plan.actionFocusConfidence ?? visualEvidenceSummary.actionFocusConfidence, 0, 1).toFixed(2));
+  const framingReason = sanitizeText(plan.framingReason || "wide_safe_default_no_visual_tracking", 120);
+  if (framingMode === "action_bias" && actionFocusConfidence < 0.82) {
+    throw new AppError("VALIDATION_ERROR", "Action-biased framing needs high-confidence visual action focus.", 400);
+  }
   if (plan.stylePreset && !STYLE_PRESETS.includes(sanitizeText(plan.stylePreset, 40).toLowerCase())) {
     throw new AppError("VALIDATION_ERROR", "Unsupported edit style preset.", 400);
   }
@@ -350,6 +381,9 @@ function validateEditPlan(plan, metadata = {}) {
     highlightType,
     confidence: clamp(plan.confidence, 0, 1),
     framingMode,
+    framingReason,
+    actionFocusConfidence,
+    visualEvidenceSummary,
     cropStrategy,
     stylePreset,
     captionEmphasis,

@@ -7,6 +7,7 @@ const { sanitizeText } = require("./media.cjs");
 const { extractAudio, renderShort } = require("./render.cjs");
 const { chooseTranscriptionProvider } = require("./transcription.cjs");
 const { assertStoragePath, storagePath, writeJsonAtomic } = require("./storage.cjs");
+const { analyzeFrames, publicVisualSignals, validateVisualSignals } = require("./vision.cjs");
 
 function isRegularFile(filePath) {
   try {
@@ -22,6 +23,7 @@ function createDefaultDependencies(overrides = {}) {
     assertStoragePath,
     artifactStore: new LocalArtifactAdapter(),
     chooseTranscriptionProvider,
+    analyzeFrames,
     createCandidateEditPlans,
     createExportId: () => `exp_${randomUUID()}`,
     detectHighlights,
@@ -206,6 +208,32 @@ function validateMediaSignals(signals, metadata = {}) {
     sceneChanges: Array.isArray(signals.sceneChanges) ? signals.sceneChanges : [],
     highMotionCandidates: Array.isArray(signals.highMotionCandidates) ? signals.highMotionCandidates : [],
   };
+}
+
+function visualCandidateWindowsFromSignals(mediaSignals = {}) {
+  const windows = [];
+  for (const item of Array.isArray(mediaSignals.highMotionCandidates) ? mediaSignals.highMotionCandidates : []) {
+    windows.push({
+      time: item.time,
+      confidence: item.confidence,
+      source: item.source || "high_motion_candidate",
+    });
+  }
+  for (const item of Array.isArray(mediaSignals.audioPeaks) ? mediaSignals.audioPeaks : []) {
+    windows.push({
+      time: item.time,
+      confidence: Math.min(0.78, Number(item.energyScore || 0.55)),
+      source: item.source || "audio_peak_context",
+    });
+  }
+  for (const item of Array.isArray(mediaSignals.sceneChanges) ? mediaSignals.sceneChanges : []) {
+    windows.push({
+      time: item.time,
+      confidence: Math.min(0.72, Number(item.confidence || 0.5)),
+      source: item.source || "scene_change_context",
+    });
+  }
+  return windows.slice(0, 16);
 }
 
 function validateHighlightResult(result, metadata = {}) {
@@ -413,7 +441,18 @@ async function runRenderJob(options) {
       context.metadata,
     );
 
-    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 38, step: "transcribe" });
+    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 34, step: "analyze_visuals" });
+    const visualSignals = validateVisualSignals(
+      await deps.analyzeFrames({
+        inputPath: context.inputPath,
+        metadata: context.metadata,
+        candidateWindows: visualCandidateWindowsFromSignals(mediaSignals),
+        signal,
+      }),
+      context.metadata,
+    );
+
+    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 42, step: "transcribe" });
     const provider = deps.chooseTranscriptionProvider({ forceMock: !context.metadata.hasAudio });
     const transcript = validateTranscript(
       await provider.transcribe({
@@ -426,18 +465,19 @@ async function runRenderJob(options) {
       context.metadata,
     );
 
-    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 54, step: "detect_highlights" });
+    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 58, step: "detect_highlights" });
     const highlightResult = validateHighlightResult(
       deps.detectHighlights({
         transcript,
         signals: mediaSignals,
+        visualSignals,
         preset: context.preset,
         title: context.title,
       }),
       context.metadata,
     );
 
-    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 68, step: "create_edit_plan" });
+    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 70, step: "create_edit_plan" });
     const candidatePlans = deps.createCandidateEditPlans({
       moments: highlightResult.moments,
       metadata: context.metadata,
@@ -460,6 +500,10 @@ async function runRenderJob(options) {
       stylePreset: editPlan.stylePreset,
       captionSafetyStatus: editPlan.highlightType === "goal" ? "goal-language-allowed" : "false-goal-guarded",
       falseGoalGuardTriggered: editPlan.highlightType !== "goal",
+      visualProviderMode: visualSignals.providerMode,
+      visualWindowCount: visualSignals.summary.windowCount,
+      actionFocusConfidence: editPlan.actionFocusConfidence,
+      framingReason: editPlan.framingReason,
       animationCueCount: Array.isArray(editPlan.animationCues) ? editPlan.animationCues.length : 0,
     });
 
@@ -529,6 +573,7 @@ async function runRenderJob(options) {
       candidatePlans,
       highlights: highlightResult.moments,
       mediaSignals: publicMediaSignals(mediaSignals),
+      visualSignals: publicVisualSignals(visualSignals),
       step: "completed",
     });
     persistRenderResult(deps, {
@@ -536,6 +581,7 @@ async function runRenderJob(options) {
       job: jobs.publicJob(job),
       transcript,
       mediaSignals,
+      visualSignals,
       highlights: highlightResult.moments,
       candidatePlans,
       editPlan,
@@ -554,6 +600,10 @@ async function runRenderJob(options) {
       stylePreset: editPlan.stylePreset,
       captionSafetyStatus: editPlan.highlightType === "goal" ? "goal-language-allowed" : "false-goal-guarded",
       falseGoalGuardTriggered: editPlan.highlightType !== "goal",
+      visualProviderMode: visualSignals.providerMode,
+      visualWindowCount: visualSignals.summary.windowCount,
+      actionFocusConfidence: editPlan.actionFocusConfidence,
+      framingReason: editPlan.framingReason,
       animationCueCount: Array.isArray(editPlan.animationCues) ? editPlan.animationCues.length : 0,
     });
   } catch (error) {
@@ -606,5 +656,6 @@ module.exports = {
   validateHighlightResult,
   validateMediaSignals,
   validateTranscript,
+  visualCandidateWindowsFromSignals,
   resolveLocalArtifactPath,
 };

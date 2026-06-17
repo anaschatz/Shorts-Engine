@@ -1,0 +1,52 @@
+{
+  "id": "visual_goal_area_only_no_goal",
+  "title": "Goal area visibility without goal claim",
+  "language": "English",
+  "durationSeconds": 16,
+  "transcript": {
+    "provider": "fixture",
+    "language": "en",
+    "captions": [
+      { "start": 2.0, "end": 3.4, "text": "The camera stays near the penalty area" },
+      { "start": 7.0, "end": 8.2, "text": "Players gather around the box" },
+      { "start": 11.0, "end": 12.4, "text": "Players reset after the pressure" }
+    ]
+  },
+  "mediaSignals": {
+    "durationSeconds": 16,
+    "width": 1920,
+    "height": 1080,
+    "hasAudio": true,
+    "audioPeaks": [],
+    "sceneChanges": [],
+    "highMotionCandidates": []
+  },
+  "visualSignals": {
+    "providerMode": "fixture-visual",
+    "fallbackUsed": false,
+    "confidence": 0.78,
+    "windows": [
+      {
+        "start": 6.5,
+        "end": 9.4,
+        "type": "goal_area_visible",
+        "types": ["goal_area_visible", "penalty_box_visible", "player_cluster"],
+        "confidence": 0.78,
+        "source": "fixture"
+      }
+    ]
+  },
+  "expected": {
+    "highlights": [{ "start": 6.0, "end": 10.0 }],
+    "reasonCodes": ["visual_goal_area", "visual_unknown_action"],
+    "highlightType": "unknown_action",
+    "stylePreset": "social_sports_v1"
+  },
+  "thresholds": {
+    "minAggregateScore": 70,
+    "minTop1Overlap": 0.5,
+    "minTop3Recall": 1,
+    "minReasonPrecision": 0.66,
+    "minRetentionScore": 45
+  }
+}

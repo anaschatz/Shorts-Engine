@@ -12,6 +12,12 @@ const {
 } = require("./edit-plan.cjs");
 const { commandAvailable, sanitizeText } = require("./media.cjs");
 const { runFfmpeg } = require("./render.cjs");
+const {
+  summarizeVisualSignals,
+  validateVisualSignals,
+  visualHighlightTypeForReasons,
+  visualReasonCodesForWindow,
+} = require("./vision.cjs");
 
 const SHOT_TERMS = [
   "shot",
@@ -285,7 +291,20 @@ function nearby(items, center, radiusSeconds) {
   return (items || []).filter((item) => Math.abs(seconds(item.time) - center) <= radiusSeconds);
 }
 
-function reasonCodesForCaption(caption, signals) {
+function visualWindowsNear(visualSignals, center, radiusSeconds) {
+  const windows = Array.isArray(visualSignals && visualSignals.windows) ? visualSignals.windows : [];
+  return windows.filter((window) => {
+    const visualCenter = seconds(window.center ?? (seconds(window.start) + seconds(window.end)) / 2);
+    const overlaps = seconds(window.start) <= center + radiusSeconds && seconds(window.end) >= center - radiusSeconds;
+    return overlaps || Math.abs(visualCenter - center) <= radiusSeconds;
+  });
+}
+
+function visualReasonCodesNear(visualSignals, center, radiusSeconds) {
+  return [...new Set(visualWindowsNear(visualSignals, center, radiusSeconds).flatMap(visualReasonCodesForWindow))];
+}
+
+function reasonCodesForCaption(caption, signals, visualSignals) {
   const text = caption.text || "";
   const center = (caption.start + caption.end) / 2;
   const reasons = [];
@@ -309,6 +328,7 @@ function reasonCodesForCaption(caption, signals) {
     reasons.push("crowd_spike");
   }
   if (nearbySceneChanges.length >= 1) reasons.push("scene_change_cluster");
+  reasons.push(...visualReasonCodesNear(visualSignals, center, 3));
   if (!reasons.length) reasons.push("generic_highlight");
   return [...new Set(reasons)];
 }
@@ -327,6 +347,14 @@ function scoreReasons(reasons) {
     commentator_peak: 0.14,
     crowd_spike: 0.13,
     crowd_reaction: 0.12,
+    visual_save_like_motion: 0.2,
+    visual_foul_like_contact: 0.18,
+    visual_shot_like_motion: 0.17,
+    visual_fast_break: 0.16,
+    visual_replay_indicator: 0.1,
+    visual_goal_area: 0.06,
+    visual_ball_visible: 0.05,
+    visual_unknown_action: 0.03,
     scene_change_cluster: 0.1,
     replay_worthy_moment: 0.08,
     replay_or_reaction: 0.08,
@@ -348,12 +376,20 @@ function highlightTypeForReasons(reasons = []) {
   if (reasons.includes("shot_on_target")) return "shot_on_target";
   if (reasons.includes("counter_attack")) return "counter_attack";
   if (reasons.includes("skill_move")) return "skill_move";
+  if (reasons.includes("visual_save_like_motion")) return "save";
+  if (reasons.includes("visual_foul_like_contact")) return "foul";
+  if (reasons.includes("visual_fast_break")) return "counter_attack";
+  if (reasons.includes("visual_shot_like_motion")) return "big_chance";
+  if (reasons.includes("visual_replay_indicator")) return "replay_or_reaction";
   if (reasons.includes("crowd_reaction") || reasons.includes("crowd_spike")) return "crowd_reaction";
   if (reasons.includes("replay_or_reaction")) return "replay_or_reaction";
   if (reasons.includes("replay_worthy_moment")) return "replay_worthy_moment";
   if (reasons.includes("commentator_peak")) return "commentator_peak";
   if (reasons.includes("audio_energy_spike") || reasons.includes("audio_peak")) return "audio_energy_spike";
   if (reasons.includes("unknown_action")) return "unknown_action";
+  if (reasons.includes("visual_unknown_action") || reasons.includes("visual_goal_area") || reasons.includes("visual_ball_visible")) {
+    return "unknown_action";
+  }
   return "generic_highlight";
 }
 
@@ -380,7 +416,33 @@ function titleForHighlightType(highlightType) {
   return titles[highlightType] || titles.generic_highlight;
 }
 
-function evidenceForReasons(reasons = [], caption = null, signals = {}, center = null) {
+function visualEvidenceForCenter(visualSignals, center) {
+  const nearbyVisualWindows = center == null ? [] : visualWindowsNear(visualSignals, center, 3);
+  const summary = summarizeVisualSignals({
+    providerMode: visualSignals && visualSignals.providerMode,
+    fallbackUsed: visualSignals && visualSignals.fallbackUsed,
+    windows: nearbyVisualWindows,
+  });
+  return {
+    providerMode: summary.providerMode,
+    fallbackUsed: summary.fallbackUsed,
+    windowCount: summary.windowCount,
+    topTypes: summary.topTypes,
+    reasonCodes: summary.reasonCodes,
+    actionFocusConfidence: summary.actionFocusConfidence,
+    goalClaimAllowed: false,
+    windows: nearbyVisualWindows.map((window) => ({
+      start: window.start,
+      end: window.end,
+      type: window.type,
+      types: window.types,
+      confidence: window.confidence,
+      reasonCodes: visualReasonCodesForWindow(window),
+    })),
+  };
+}
+
+function evidenceForReasons(reasons = [], caption = null, signals = {}, center = null, visualSignals = null) {
   const reasonSet = new Set(reasons);
   const nearbyAudio = center == null ? [] : nearby(signals.audioPeaks, center, 4);
   const nearbyScenes = center == null ? [] : nearby(signals.sceneChanges, center, 3);
@@ -391,6 +453,7 @@ function evidenceForReasons(reasons = [], caption = null, signals = {}, center =
     strongestAudioScore: nearbyAudio.reduce((max, item) => Math.max(max, Number(item.energyScore || 0)), 0),
     sceneChangeCount: nearbyScenes.length,
     reasonCodes: [...reasonSet],
+    visual: visualEvidenceForCenter(visualSignals, center),
   };
 }
 
@@ -438,7 +501,7 @@ function captionBeatsForMoment(moment, captions, preset) {
   });
 }
 
-function createFallbackMoments(signals, preset) {
+function createFallbackMoments(signals, preset, visualSignals = null) {
   const duration = seconds(signals.durationSeconds || 18);
   const centers = uniqueTimes(
     [signals.audioPeaks && signals.audioPeaks[0] ? signals.audioPeaks[0].time : duration * 0.42, duration * 0.68],
@@ -464,22 +527,26 @@ function createFallbackMoments(signals, preset) {
       retentionScore: Math.round(score * 100),
       suggestedPreset: preset,
       hook: hookForHighlightType(highlightType, preset),
-      evidence: evidenceForReasons(reasonCodes, null, signals, center),
+      evidence: evidenceForReasons(reasonCodes, null, signals, center, visualSignals),
       captionIntent: captionIntentForHighlightType(highlightType),
       source: "fallback",
     };
   });
 }
 
-function detectHighlights({ transcript, signals, preset = "hype" } = {}) {
+function detectHighlights({ transcript, signals, visualSignals, preset = "hype" } = {}) {
   const safeSignals = signals || { durationSeconds: 18, audioPeaks: [], sceneChanges: [] };
   const duration = seconds(safeSignals.durationSeconds || 18);
+  const safeVisualSignals = validateVisualSignals(
+    visualSignals || safeSignals.visualSignals || { providerMode: "mock", fallbackUsed: true, windows: [] },
+    safeSignals,
+  );
   const captions = normalizedCaptions(transcript);
   const captionMoments = captions.map((caption, index) => {
     const center = clamp((caption.start + caption.end) / 2, 0, duration);
     const start = Number(clamp(center - 4, 0, Math.max(0, duration - 6)).toFixed(2));
     const end = Number(clamp(Math.max(center + 5, start + 6), start + 3, duration).toFixed(2));
-    const reasonCodes = reasonCodesForCaption(caption, safeSignals);
+    const reasonCodes = reasonCodesForCaption(caption, safeSignals, safeVisualSignals);
     const highlightType = highlightTypeForReasons(reasonCodes);
     const score = scoreReasons(reasonCodes);
     const moment = {
@@ -495,7 +562,7 @@ function detectHighlights({ transcript, signals, preset = "hype" } = {}) {
       confidence: Number(score.toFixed(2)),
       retentionScore: Math.round(score * 100),
       suggestedPreset: reasonCodes.includes("counter_attack") || reasonCodes.includes("skill_move") ? "tactical" : preset,
-      evidence: evidenceForReasons(reasonCodes, caption, safeSignals, center),
+      evidence: evidenceForReasons(reasonCodes, caption, safeSignals, center, safeVisualSignals),
       captionIntent: captionIntentForHighlightType(highlightType),
       source: "analysis",
     };
@@ -511,6 +578,7 @@ function detectHighlights({ transcript, signals, preset = "hype" } = {}) {
       "audio_energy_spike",
       Number(peak.energyScore || 0) >= 0.88 ? "crowd_spike" : "",
       nearby(safeSignals.sceneChanges, center, 3).length ? "scene_change_cluster" : "",
+      ...visualReasonCodesNear(safeVisualSignals, center, 3),
     ].filter(Boolean);
     const highlightType = highlightTypeForReasons(reasonCodes);
     const score = scoreReasons(reasonCodes) - 0.04;
@@ -528,13 +596,40 @@ function detectHighlights({ transcript, signals, preset = "hype" } = {}) {
       retentionScore: Math.round(score * 100),
       suggestedPreset: preset,
       hook: hookForHighlightType(highlightType, preset),
-      evidence: evidenceForReasons(reasonCodes, null, safeSignals, center),
+      evidence: evidenceForReasons(reasonCodes, null, safeSignals, center, safeVisualSignals),
       captionIntent: captionIntentForHighlightType(highlightType),
       source: "analysis",
     };
   });
 
-  const merged = [...captionMoments, ...signalOnlyMoments]
+  const visualOnlyMoments = safeVisualSignals.windows.slice(0, 4).map((window, index) => {
+    const center = clamp(window.center, 0, duration);
+    const start = Number(clamp(window.start, 0, Math.max(0, duration - 3)).toFixed(2));
+    const end = Number(clamp(window.end, start + 3, duration).toFixed(2));
+    const reasonCodes = visualReasonCodesForWindow(window);
+    const highlightType = visualHighlightTypeForReasons(reasonCodes);
+    const score = scoreReasons(reasonCodes) + Number(window.confidence || 0) * 0.12;
+    return {
+      id: `mom_visual_${index + 1}`,
+      rank: index + 1,
+      start,
+      end,
+      center: Number(center.toFixed(2)),
+      title: titleForHighlightType(highlightType),
+      summary: "Detected from safe visual motion signals.",
+      reasonCodes,
+      highlightType,
+      confidence: Number(clamp(score, 0.12, 0.9).toFixed(2)),
+      retentionScore: Math.round(clamp(score, 0.12, 0.9) * 100),
+      suggestedPreset: highlightType === "counter_attack" ? "tactical" : preset,
+      hook: hookForHighlightType(highlightType, preset),
+      evidence: evidenceForReasons(reasonCodes, null, safeSignals, center, safeVisualSignals),
+      captionIntent: captionIntentForHighlightType(highlightType),
+      source: "vision",
+    };
+  });
+
+  const merged = [...captionMoments, ...signalOnlyMoments, ...visualOnlyMoments]
     .filter((moment) => moment.end - moment.start >= 3)
     .sort((a, b) => b.retentionScore - a.retentionScore || a.start - b.start);
   const deduped = [];
@@ -543,7 +638,7 @@ function detectHighlights({ transcript, signals, preset = "hype" } = {}) {
     deduped.push({ ...moment, rank: deduped.length + 1 });
     if (deduped.length >= 3) break;
   }
-  const moments = deduped.length ? deduped : createFallbackMoments(safeSignals, preset);
+  const moments = deduped.length ? deduped : createFallbackMoments(safeSignals, preset, safeVisualSignals);
   return {
     fallback: moments.every((moment) => moment.source === "fallback"),
     moments: moments.map((moment, index) => ({
@@ -558,9 +653,45 @@ function effectsForReasons(reasons) {
   const effects = ["wide_safe_framing", "social_caption_pop", "caption_emphasis", "brand_safe_template"];
   if (reasons.includes("audio_energy_spike") || reasons.includes("audio_peak")) effects.push("beat_sync_pulse");
   if (reasons.includes("scene_change_cluster")) effects.push("scene_snap_zoom");
-  if (reasons.includes("counter_attack") || reasons.includes("skill_move")) effects.push("action_lane_emphasis");
-  if (reasons.includes("replay_worthy_moment")) effects.push("replay_stutter");
+  if (reasons.includes("counter_attack") || reasons.includes("skill_move") || reasons.includes("visual_fast_break")) {
+    effects.push("action_lane_emphasis");
+  }
+  if (reasons.includes("visual_shot_like_motion") || reasons.includes("visual_save_like_motion")) effects.push("subtle_punch_in");
+  if (reasons.includes("visual_foul_like_contact")) effects.push("impact_freeze_frame");
+  if (reasons.includes("replay_worthy_moment") || reasons.includes("visual_replay_indicator")) effects.push("replay_stutter");
   return [...new Set(effects)];
+}
+
+function visualEvidenceSummaryForMoment(moment) {
+  const visual = moment && moment.evidence && moment.evidence.visual;
+  if (!visual || typeof visual !== "object") {
+    return {
+      providerMode: "mock",
+      fallbackUsed: true,
+      windowCount: 0,
+      topTypes: [],
+      reasonCodes: [],
+      actionFocusConfidence: 0,
+      goalClaimAllowed: false,
+    };
+  }
+  return {
+    providerMode: sanitizeText(visual.providerMode || "mock", 40),
+    fallbackUsed: Boolean(visual.fallbackUsed),
+    windowCount: Math.max(0, Number(visual.windowCount || 0)),
+    topTypes: Array.isArray(visual.topTypes) ? visual.topTypes.map((type) => sanitizeText(type, 48)).filter(Boolean).slice(0, 8) : [],
+    reasonCodes: Array.isArray(visual.reasonCodes)
+      ? visual.reasonCodes.map((reason) => sanitizeText(reason, 60)).filter(Boolean).slice(0, 8)
+      : [],
+    actionFocusConfidence: Number(clamp(visual.actionFocusConfidence, 0, 1).toFixed(2)),
+    goalClaimAllowed: false,
+  };
+}
+
+function framingReasonForVisualSummary(summary) {
+  if (!summary || !summary.windowCount) return "wide_safe_default_no_visual_tracking";
+  if (summary.actionFocusConfidence < 0.82) return "wide_safe_visual_context_low_confidence";
+  return "wide_safe_visual_context_no_object_tracking";
 }
 
 function createCandidateEditPlans({ moments, metadata, title = "ShortsEngine Short", preset = "hype" } = {}) {
@@ -572,6 +703,9 @@ function createCandidateEditPlans({ moments, metadata, title = "ShortsEngine Sho
       ? moment.captionBeats
       : createFallbackCaptions(duration, preset, { highlightType, hook });
     const framingMode = framingModeForMetadata(metadata);
+    const visualEvidenceSummary = visualEvidenceSummaryForMoment(moment);
+    const actionFocusConfidence = visualEvidenceSummary.actionFocusConfidence;
+    const framingReason = framingReasonForVisualSummary(visualEvidenceSummary);
     const captionEmphasis = createCaptionEmphasis(captions, highlightType);
     const animationCues = createAnimationCues(duration, moment.reasonCodes || []);
     const plan = {
@@ -585,12 +719,16 @@ function createCandidateEditPlans({ moments, metadata, title = "ShortsEngine Sho
       captions,
       effects: effectsForReasons(moment.reasonCodes || []),
       framingMode,
+      framingReason,
+      actionFocusConfidence,
+      visualEvidenceSummary,
       cropStrategy: createCropStrategy(metadata, framingMode),
       stylePreset: "social_sports_v1",
       captionEmphasis,
       animationCues,
       safetyNotes: [
         "No object or ball tracking is claimed in v1.",
+        "Visual signals are contextual only and never imply a goal without explicit goal evidence.",
         framingMode === "wide_safe_vertical"
           ? "Wide-safe framing keeps the full source frame visible over a blurred fill."
           : "Center framing is bounded and conservative.",
@@ -635,6 +773,7 @@ function analysisHealth() {
       "football_highlight_taxonomy",
       "evidence_based_goal_guard",
       "commentary_crowd_signal_scoring",
+      "vision_safe_action_signals",
       "false_goal_guard",
       "highlight_ranking",
       "candidate_edit_plans",
@@ -658,4 +797,5 @@ module.exports = {
   reasonCodesForCaption,
   scoreReasons,
   titleForHighlightType,
+  visualEvidenceSummaryForMoment,
 };

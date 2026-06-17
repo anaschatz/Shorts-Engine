@@ -1,0 +1,52 @@
+{
+  "id": "visual_foul_contact_no_goal",
+  "title": "Visual foul-like contact without goal claim",
+  "language": "English",
+  "durationSeconds": 18,
+  "transcript": {
+    "provider": "fixture",
+    "language": "en",
+    "captions": [
+      { "start": 1.0, "end": 2.4, "text": "Both players arrive at the same time" },
+      { "start": 6.1, "end": 7.4, "text": "The tempo changes after that challenge" },
+      { "start": 10.4, "end": 11.8, "text": "Everyone reacts to the contact" }
+    ]
+  },
+  "mediaSignals": {
+    "durationSeconds": 18,
+    "width": 1920,
+    "height": 1080,
+    "hasAudio": true,
+    "audioPeaks": [],
+    "sceneChanges": [],
+    "highMotionCandidates": []
+  },
+  "visualSignals": {
+    "providerMode": "fixture-visual",
+    "fallbackUsed": false,
+    "confidence": 0.82,
+    "windows": [
+      {
+        "start": 5.6,
+        "end": 8.2,
+        "type": "foul_like_contact",
+        "types": ["foul_like_contact", "player_cluster"],
+        "confidence": 0.82,
+        "source": "fixture"
+      }
+    ]
+  },
+  "expected": {
+    "highlights": [{ "start": 5.1, "end": 8.8 }],
+    "reasonCodes": ["visual_foul_like_contact", "visual_unknown_action"],
+    "highlightType": "foul",
+    "stylePreset": "social_sports_v1"
+  },
+  "thresholds": {
+    "minAggregateScore": 72,
+    "minTop1Overlap": 0.5,
+    "minTop3Recall": 1,
+    "minReasonPrecision": 0.66,
+    "minRetentionScore": 48
+  }
+}

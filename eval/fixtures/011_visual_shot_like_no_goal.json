@@ -1,0 +1,52 @@
+{
+  "id": "visual_shot_like_no_goal",
+  "title": "Visual shot-like pressure without goal claim",
+  "language": "English",
+  "durationSeconds": 20,
+  "transcript": {
+    "provider": "fixture",
+    "language": "en",
+    "captions": [
+      { "start": 2.0, "end": 3.4, "text": "The move opens on the edge of the box" },
+      { "start": 7.4, "end": 8.8, "text": "The pressure rises quickly" },
+      { "start": 13.2, "end": 14.6, "text": "The crowd reacts to the chance" }
+    ]
+  },
+  "mediaSignals": {
+    "durationSeconds": 20,
+    "width": 1920,
+    "height": 1080,
+    "hasAudio": true,
+    "audioPeaks": [],
+    "sceneChanges": [],
+    "highMotionCandidates": []
+  },
+  "visualSignals": {
+    "providerMode": "fixture-visual",
+    "fallbackUsed": false,
+    "confidence": 0.84,
+    "windows": [
+      {
+        "start": 7.1,
+        "end": 10.4,
+        "type": "shot_like_motion",
+        "types": ["shot_like_motion", "goal_area_visible", "ball_visible"],
+        "confidence": 0.84,
+        "source": "fixture"
+      }
+    ]
+  },
+  "expected": {
+    "highlights": [{ "start": 6.5, "end": 11.2 }],
+    "reasonCodes": ["visual_shot_like_motion", "visual_goal_area", "visual_ball_visible"],
+    "highlightType": "big_chance",
+    "stylePreset": "social_sports_v1"
+  },
+  "thresholds": {
+    "minAggregateScore": 72,
+    "minTop1Overlap": 0.5,
+    "minTop3Recall": 1,
+    "minReasonPrecision": 0.66,
+    "minRetentionScore": 48
+  }
+}

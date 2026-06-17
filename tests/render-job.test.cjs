@@ -139,6 +139,16 @@ function makeContext(options = {}) {
         highMotionCandidates: [{ time: 4, confidence: 0.7 }],
       };
     },
+    analyzeFrames: async ({ candidateWindows }) => {
+      calls.push("analyze_frames");
+      context.visualCandidateWindows = candidateWindows;
+      return options.visualSignals || {
+        providerMode: "mock-vision",
+        fallbackUsed: true,
+        confidence: 0.72,
+        windows: [{ start: 2.7, end: 5.1, type: "unknown_visual_action", confidence: 0.72 }],
+      };
+    },
     chooseTranscriptionProvider: (providerOpts) => {
       providerOptions.push(providerOpts);
       return {
@@ -199,13 +209,18 @@ test("render orchestration completes success path with mocked adapters", async (
   assert.equal(context.writes.length, 1);
   assert.deepEqual(
     context.logs.filter((entry) => entry.event === "job_step").map((entry) => entry.step),
-    ["extract_audio", "analyze_media", "transcribe", "detect_highlights", "create_edit_plan", "render_short"],
+    ["extract_audio", "analyze_media", "analyze_visuals", "transcribe", "detect_highlights", "create_edit_plan", "render_short"],
   );
+  assert.equal(context.calls.includes("analyze_frames"), true);
+  assert.equal(context.visualCandidateWindows.length > 0, true);
   const selectedPlanLog = context.logs.find((entry) => entry.event === "edit_plan_selected");
   assert.equal(selectedPlanLog.highlightType, "goal");
   assert.equal(selectedPlanLog.stylePreset, "social_sports_v1");
   assert.equal(selectedPlanLog.framingMode, "wide_safe_vertical");
   assert.equal(selectedPlanLog.falseGoalGuardTriggered, false);
+  assert.equal(selectedPlanLog.visualProviderMode, "mock-vision");
+  assert.equal(typeof selectedPlanLog.actionFocusConfidence, "number");
+  assert.equal(context.job.visualSignals.summary.goalClaimAllowed, false);
 });
 
 test("render orchestration uses mock provider fallback when upload has no audio", async () => {
@@ -286,6 +301,20 @@ test("invalid transcript and highlight outputs are rejected before render", asyn
   assert.equal(context.job.status, "failed");
   assert.equal(context.job.error.code, "AI_OUTPUT_INVALID");
   assert.equal(context.calls.includes("render_short"), false);
+});
+
+test("invalid visual analysis output fails safely before transcription and render", async () => {
+  const context = makeContext({
+    dependencies: {
+      analyzeFrames: async () => ({ providerMode: "bad", windows: [{ start: 9, end: 4, type: "shot_like_motion" }] }),
+    },
+  });
+  await runContext(context);
+
+  assert.equal(context.job.status, "failed");
+  assert.equal(context.job.error.code, "AI_OUTPUT_INVALID");
+  assert.equal(context.calls.includes("render_short"), false);
+  assert.doesNotMatch(JSON.stringify(context.job.error), /\/Users|secret|storageKey/i);
 });
 
 test("render orchestration fails safely when project context is missing", async () => {

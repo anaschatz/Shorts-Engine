@@ -1,0 +1,52 @@
+{
+  "id": "visual_save_no_goal",
+  "title": "Visual save-like action without goal claim",
+  "language": "English",
+  "durationSeconds": 22,
+  "transcript": {
+    "provider": "fixture",
+    "language": "en",
+    "captions": [
+      { "start": 3.0, "end": 4.5, "text": "The attack comes through the middle" },
+      { "start": 10.3, "end": 11.8, "text": "Big reaction from everyone in the box" },
+      { "start": 15.0, "end": 16.4, "text": "Replay that defensive moment" }
+    ]
+  },
+  "mediaSignals": {
+    "durationSeconds": 22,
+    "width": 1920,
+    "height": 1080,
+    "hasAudio": true,
+    "audioPeaks": [],
+    "sceneChanges": [],
+    "highMotionCandidates": []
+  },
+  "visualSignals": {
+    "providerMode": "fixture-visual",
+    "fallbackUsed": false,
+    "confidence": 0.86,
+    "windows": [
+      {
+        "start": 9.7,
+        "end": 12.9,
+        "type": "save_like_motion",
+        "types": ["save_like_motion", "ball_visible", "goal_area_visible"],
+        "confidence": 0.86,
+        "source": "fixture"
+      }
+    ]
+  },
+  "expected": {
+    "highlights": [{ "start": 9.0, "end": 13.4 }],
+    "reasonCodes": ["visual_save_like_motion", "visual_ball_visible", "visual_goal_area"],
+    "highlightType": "save",
+    "stylePreset": "social_sports_v1"
+  },
+  "thresholds": {
+    "minAggregateScore": 72,
+    "minTop1Overlap": 0.5,
+    "minTop3Recall": 1,
+    "minReasonPrecision": 0.66,
+    "minRetentionScore": 50
+  }
+}
