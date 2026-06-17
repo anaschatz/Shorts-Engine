@@ -4,6 +4,7 @@ const { mkdtempSync, writeFileSync } = require("node:fs");
 const { join } = require("node:path");
 const { tmpdir } = require("node:os");
 
+const { ApprovalOutboxRepository } = require("../server/repositories/approval-outbox-repository.cjs");
 const { RegenerationApprovalRepository } = require("../server/repositories/regeneration-approval-repository.cjs");
 const { RegenerationDraftRepository } = require("../server/repositories/regeneration-draft-repository.cjs");
 
@@ -157,4 +158,45 @@ test("regeneration approval repository records safe failed and cancelled states"
   const cancelled = repo.markRenderCancelled(SAFE_IDS.approvalId, { jobId: SAFE_IDS.jobId });
   assert.equal(cancelled.status, "cancelled");
   assert.equal(cancelled.errorCode, "JOB_CANCELLED");
+});
+
+test("approval outbox repository stores safe deterministic lifecycle events", () => {
+  const dir = tempDir("shortsengine-approval-outbox-");
+  const repo = new ApprovalOutboxRepository({ dir });
+  const approval = approvalRecord({ status: "render_queued", newRenderJobId: SAFE_IDS.jobId });
+  const created = repo.createLifecycleEvent({
+    eventType: "render_queued",
+    requestId: "req_safe_outbox",
+    approvalRecord: approval,
+    jobId: SAFE_IDS.jobId,
+    payload: {
+      path: "/Users/example/secret.mp4",
+      storageKey: "secret-key",
+      rawProviderError: "token",
+    },
+  });
+  const duplicate = repo.createLifecycleEvent({
+    eventType: "render_queued",
+    requestId: "req_safe_outbox",
+    approvalRecord: approval,
+    jobId: SAFE_IDS.jobId,
+  });
+
+  assert.equal(duplicate.id, created.id);
+  assert.equal(repo.listPending().length, 1);
+  assert.equal(created.payload.approvalId, SAFE_IDS.approvalId);
+  assert.equal(created.payload.newRenderJobId, SAFE_IDS.jobId);
+  assert.equal(created.payload.path, undefined);
+  assert.doesNotMatch(JSON.stringify(repo.publicEvent(created)), /\/Users|secret|token|storageKey|rawProviderError|stdout|stderr/i);
+
+  const processed = repo.markProcessed(created.id);
+  assert.equal(processed.status, "processed");
+  const failed = repo.markFailed(created.id, { errorCode: "OUTBOX_DELIVERY_FAILED" });
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.attempts, 1);
+
+  writeFileSync(join(dir, "aout_ffffffffffffffffffffffffffffffff.json"), "{not-json", "utf8");
+  const restored = new ApprovalOutboxRepository({ dir });
+  assert.deepEqual(restored.restore(), { records: 1, ignored: 1 });
+  assert.equal(restored.get(created.id).status, "failed");
 });

@@ -1,6 +1,9 @@
 const { InMemoryExportRepository } = require("../repositories/export-repository.cjs");
 const { InMemoryArtifactRepository } = require("../repositories/artifact-repository.cjs");
+const { ApprovalOutboxRepository } = require("../repositories/approval-outbox-repository.cjs");
 const { InMemoryProjectRepository } = require("../repositories/project-repository.cjs");
+const { RegenerationApprovalRepository } = require("../repositories/regeneration-approval-repository.cjs");
+const { RegenerationDraftRepository } = require("../repositories/regeneration-draft-repository.cjs");
 const { CONFIG, validatePersistenceAdapterMode } = require("../config.cjs");
 const {
   loadPersistedProjectState,
@@ -65,6 +68,9 @@ class LocalPersistenceAdapter {
       storageAdapterMode: this.artifactAdapter.mode || "local",
     });
     this.exportRepository = options.exportRepository || new InMemoryExportRepository({ artifactStore: this.artifactAdapter });
+    this.regenerationDraftRepository = options.regenerationDraftRepository || new RegenerationDraftRepository();
+    this.regenerationApprovalRepository = options.regenerationApprovalRepository || new RegenerationApprovalRepository();
+    this.approvalOutboxRepository = options.approvalOutboxRepository || new ApprovalOutboxRepository();
     this.projects = this.projectRepository.records;
     this.uploads = this.uploadRepository.records;
     this.artifacts = this.artifactRepository.records;
@@ -321,6 +327,9 @@ class LocalPersistenceAdapter {
 
   restoreState() {
     const artifactIndex = this.artifactRepository.restore();
+    const draftAudits = this.regenerationDraftRepository.restore();
+    const approvalAudits = this.regenerationApprovalRepository.restore();
+    const approvalOutbox = this.approvalOutboxRepository.restore();
     const projectState = loadPersistedProjectState({
       projectRepository: this.projectRepository,
       uploadRepository: this.uploadRepository,
@@ -332,7 +341,22 @@ class LocalPersistenceAdapter {
       ...projectState,
       artifactIndex,
       indexedArtifacts,
+      draftAudits,
+      approvalAudits,
+      approvalOutbox,
     };
+  }
+
+  getRegenerationDraftRepository() {
+    return this.regenerationDraftRepository;
+  }
+
+  getRegenerationApprovalRepository() {
+    return this.regenerationApprovalRepository;
+  }
+
+  getApprovalOutboxRepository() {
+    return this.approvalOutboxRepository;
   }
 
   health() {
@@ -341,6 +365,9 @@ class LocalPersistenceAdapter {
       uploads: this.uploadRepository.health(),
       artifacts: this.artifactRepository.health(),
       exports: this.exportRepository.health(),
+      regenerationDrafts: this.regenerationDraftRepository.health(),
+      regenerationApprovals: this.regenerationApprovalRepository.health(),
+      approvalOutbox: this.approvalOutboxRepository.health(),
     };
     return {
       ready: Object.values(repositories).every((entry) => entry.ready),

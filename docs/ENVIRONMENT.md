@@ -117,6 +117,8 @@ Use `docs/YOUTUBE_INGEST_MANUAL_SMOKE.md` before the first real downloader run. 
 | `MATCHCUTS_PERSISTENCE_ADAPTER` | No | `local` | `local`, `sqlite` | No | Use `sqlite` for staging-like durable behavior. | Unsupported adapter fails readiness. |
 | `MATCHCUTS_SQLITE_FILE` | No | `shortsengine.sqlite` | filename ending `.sqlite`, `.sqlite3`, or `.db` | No | Use a simple filename only. | Traversal, separators or invalid extension fail readiness. |
 
+When `sqlite` is enabled, the adapter owns projects, uploads, artifacts, exports, jobs, regeneration draft audits, regeneration approvals and approval outbox rows behind the same repository boundary used by local defaults. Approval audit/outbox rows store only safe identifiers, lifecycle statuses, timestamps and error codes; they must not include raw edit plans, captions, provider output, local paths, storage keys or secrets. `/health` reports aggregate repository readiness and outbox counts only.
+
 ## Transcription/AI provider
 
 | Variable | Required | Default | Allowed values | Secret | Staging recommendation | Fail-closed behavior |

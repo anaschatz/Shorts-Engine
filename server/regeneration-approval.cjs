@@ -1,5 +1,5 @@
 const { createHash } = require("node:crypto");
-const { AppError, SAFE_MESSAGES } = require("./errors.cjs");
+const { AppError, SAFE_MESSAGES, redactForLogs } = require("./errors.cjs");
 const { validateEditPlan } = require("./edit-plan.cjs");
 const { idempotencyKey } = require("./jobs.cjs");
 const { jsonClone, sanitizeText, validateResourceId } = require("./repositories/ids.cjs");
@@ -165,6 +165,31 @@ function markApprovalForJob(repository, approvalId, job) {
   return repository.get && typeof repository.get === "function" ? repository.get(approvalId) : null;
 }
 
+function logInfo(logger, payload) {
+  if (!logger || typeof logger.info !== "function") return;
+  logger.info(JSON.stringify(redactForLogs({ level: "info", ...payload })));
+}
+
+function createApprovalOutboxEvent(repository, input = {}) {
+  if (!repository || typeof repository.createLifecycleEvent !== "function") return null;
+  return repository.createLifecycleEvent(input);
+}
+
+function runInPersistenceTransaction(adapter, callback) {
+  if (adapter && typeof adapter.transaction === "function") {
+    return adapter.transaction(callback);
+  }
+  return callback();
+}
+
+function markApprovalFailed(repository, approvalId, job, error) {
+  if (!repository || !approvalId || typeof repository.markRenderFailed !== "function") return null;
+  return repository.markRenderFailed(approvalId, {
+    jobId: job && job.id,
+    errorCode: (error && error.code) || "REGENERATION_RENDER_QUEUE_FAILED",
+  });
+}
+
 function publicApprovalResult(result = {}) {
   const job = result.job || null;
   const approvalRecord = result.approvalRecord || null;
@@ -251,21 +276,6 @@ function approveRegenerationDraft(options = {}) {
     regenerationPlanId: request.regenerationPlanId,
     draftHash: regenerationPlan.draftHash,
   });
-  const draftRecord = persistDraftRecord(options.regenerationDraftRepository, regenerationPlan, request, createdAt);
-  let approvalRecord = persistApprovalRecord(options.regenerationApprovalRepository, {
-    approvalId,
-    regenerationPlanId: request.regenerationPlanId,
-    draftHash: regenerationPlan.draftHash,
-    projectId: request.projectId,
-    sourceJobId: request.sourceJobId,
-    sourceExportId: request.exportId,
-    idempotencyKey: key,
-    approvedAt: createdAt,
-    approvedBy: "operator/manual/local",
-    status: "approved",
-    draftRecordId: draftRecord && draftRecord.id,
-    createdAt,
-  });
   const registeredProject = registered.draft && registered.draft.generatedMetadata && registered.draft.generatedMetadata.registration
     ? {
         id: registered.draft.generatedMetadata.registration.projectId,
@@ -286,34 +296,102 @@ function approveRegenerationDraft(options = {}) {
   if (!queue || typeof queue.create !== "function" || typeof queue.publicJob !== "function") {
     throw new AppError("ADAPTER_CONTRACT_INVALID", SAFE_MESSAGES.ADAPTER_CONTRACT_INVALID, 500);
   }
-  const job = queue.create({
-    projectId: request.projectId,
-    uploadId: projectForRender.uploadId,
-    action: "regeneration_render",
-    idempotencyKey: key,
-    payload: {
-      title: request.title || projectForRender.title || "ShortsEngine Short",
-      preset: "hype",
-      language: (registered.draft.generatedMetadata.registration && registered.draft.generatedMetadata.registration.language) || "auto",
-      styleTarget: approvedEditPlan.styleTarget || "vertical_9_16",
-      editIntensity: approvedEditPlan.editIntensity || "balanced",
-      stylePreset: approvedEditPlan.stylePreset || "social_sports_v1",
-      source: projectForRender.source,
-      approvedEditPlan: jsonClone(approvedEditPlan),
-      regenerationApproval: {
-        schemaVersion: APPROVAL_SCHEMA_VERSION,
+  let draftRecord = null;
+  let approvalRecord = null;
+  let job = null;
+  try {
+    ({ draftRecord, approvalRecord, job } = runInPersistenceTransaction(options.persistenceAdapter, () => {
+      const persistedDraft = persistDraftRecord(options.regenerationDraftRepository, regenerationPlan, request, createdAt);
+      let persistedApproval = persistApprovalRecord(options.regenerationApprovalRepository, {
         approvalId,
         regenerationPlanId: request.regenerationPlanId,
         draftHash: regenerationPlan.draftHash,
-        draftRecordId: draftRecord && draftRecord.id,
+        projectId: request.projectId,
         sourceJobId: request.sourceJobId,
         sourceExportId: request.exportId,
+        idempotencyKey: key,
         approvedAt: createdAt,
         approvedBy: "operator/manual/local",
-      },
-    },
-  });
-  approvalRecord = markApprovalForJob(options.regenerationApprovalRepository, approvalId, job) || approvalRecord;
+        status: "approved",
+        draftRecordId: persistedDraft && persistedDraft.id,
+        createdAt,
+      });
+      createApprovalOutboxEvent(options.approvalOutboxRepository, {
+        eventType: "approval_created",
+        requestId: options.requestId,
+        approvalRecord: persistedApproval,
+        status: "approved",
+        createdAt,
+      });
+      logInfo(options.logger || console, {
+        event: "approval_audit_created",
+        requestId: options.requestId,
+        projectId: request.projectId,
+        approvalId,
+        draftRecordId: persistedDraft && persistedDraft.id,
+        status: "approved",
+      });
+      const createdJob = queue.create({
+        projectId: request.projectId,
+        uploadId: projectForRender.uploadId,
+        action: "regeneration_render",
+        idempotencyKey: key,
+        payload: {
+          title: request.title || projectForRender.title || "ShortsEngine Short",
+          preset: "hype",
+          language: (registered.draft.generatedMetadata.registration && registered.draft.generatedMetadata.registration.language) || "auto",
+          styleTarget: approvedEditPlan.styleTarget || "vertical_9_16",
+          editIntensity: approvedEditPlan.editIntensity || "balanced",
+          stylePreset: approvedEditPlan.stylePreset || "social_sports_v1",
+          source: projectForRender.source,
+          approvedEditPlan: jsonClone(approvedEditPlan),
+          regenerationApproval: {
+            schemaVersion: APPROVAL_SCHEMA_VERSION,
+            approvalId,
+            regenerationPlanId: request.regenerationPlanId,
+            draftHash: regenerationPlan.draftHash,
+            draftRecordId: persistedDraft && persistedDraft.id,
+            sourceJobId: request.sourceJobId,
+            sourceExportId: request.exportId,
+            approvedAt: createdAt,
+            approvedBy: "operator/manual/local",
+          },
+        },
+      });
+      persistedApproval = markApprovalForJob(options.regenerationApprovalRepository, approvalId, createdJob) || persistedApproval;
+      createApprovalOutboxEvent(options.approvalOutboxRepository, {
+        eventType: "render_queued",
+        requestId: options.requestId,
+        approvalRecord: persistedApproval,
+        jobId: createdJob && createdJob.id,
+        status: persistedApproval && persistedApproval.status,
+        createdAt,
+      });
+      return { draftRecord: persistedDraft, approvalRecord: persistedApproval, job: createdJob };
+    }));
+  } catch (error) {
+    const failedApproval = markApprovalFailed(options.regenerationApprovalRepository, approvalId, job, error);
+    if (failedApproval) {
+      createApprovalOutboxEvent(options.approvalOutboxRepository, {
+        eventType: "render_failed",
+        requestId: options.requestId,
+        approvalRecord: failedApproval,
+        jobId: job && job.id,
+        errorCode: failedApproval.errorCode || error.code,
+        status: failedApproval.status,
+        createdAt: nowIso(),
+      });
+      logInfo(options.logger || console, {
+        event: "approval_audit_failed",
+        requestId: options.requestId,
+        projectId: request.projectId,
+        approvalId,
+        jobId: job && job.id,
+        code: failedApproval.errorCode || error.code || "REGENERATION_RENDER_QUEUE_FAILED",
+      });
+    }
+    throw error;
+  }
   let renderQueued = ["queued", "processing"].includes(job.status);
   if (job.status === "queued" && options.workerSupervisor && typeof options.workerSupervisor.enqueue === "function") {
     const enqueued = queue.enqueue(job, { requestId: options.requestId || "regeneration_approval" });

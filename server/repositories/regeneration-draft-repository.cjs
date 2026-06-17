@@ -296,5 +296,6 @@ module.exports = {
   DRAFT_AUDIT_SCHEMA_VERSION,
   RegenerationDraftRepository,
   draftRecordIdFor,
+  normalizeDraftRecord,
   summarizeEditPlan,
 };

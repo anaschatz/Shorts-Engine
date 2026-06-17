@@ -2,9 +2,12 @@ const { mkdirSync } = require("node:fs");
 const { dirname, resolve } = require("node:path");
 const { CONFIG } = require("../config.cjs");
 const { AppError, SAFE_MESSAGES } = require("../errors.cjs");
+const { ApprovalOutboxRepository, normalizeOutboxEvent } = require("../repositories/approval-outbox-repository.cjs");
 const { InMemoryExportRepository, normalizeExport } = require("../repositories/export-repository.cjs");
 const { normalizeArtifactRecord, publicArtifactRecord, ARTIFACT_INDEX_STATUSES } = require("../repositories/artifact-repository.cjs");
 const { PROJECT_STATUSES, normalizeProject } = require("../repositories/project-repository.cjs");
+const { RegenerationApprovalRepository, normalizeApprovalRecord } = require("../repositories/regeneration-approval-repository.cjs");
+const { RegenerationDraftRepository, normalizeDraftRecord } = require("../repositories/regeneration-draft-repository.cjs");
 const { normalizeUpload } = require("../repositories/upload-repository.cjs");
 const { jsonClone, nowIso, sanitizeText, validateResourceId } = require("../repositories/ids.cjs");
 const { assertStoragePath } = require("../storage.cjs");
@@ -21,7 +24,7 @@ try {
 
 const SQLITE_AVAILABLE = Boolean(DatabaseSync);
 
-const LATEST_SCHEMA_VERSION = 2;
+const LATEST_SCHEMA_VERSION = 3;
 const MIGRATIONS = Object.freeze([
   {
     version: 1,
@@ -124,6 +127,80 @@ const MIGRATIONS = Object.freeze([
       ALTER TABLE exports ADD COLUMN source TEXT;
     `,
   },
+  {
+    version: 3,
+    name: "approval_audit_and_outbox",
+    sql: `
+      CREATE TABLE IF NOT EXISTS regeneration_drafts (
+        id TEXT PRIMARY KEY,
+        projectId TEXT NOT NULL,
+        sourceJobId TEXT NOT NULL,
+        sourceExportId TEXT NOT NULL,
+        regenerationPlanId TEXT NOT NULL,
+        draftHash TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        validationStatus TEXT NOT NULL,
+        proposedEditPlanSummaryJson TEXT,
+        appliedSuggestionIdsJson TEXT NOT NULL,
+        skippedSuggestionIdsJson TEXT NOT NULL,
+        proposedChangesJson TEXT NOT NULL,
+        blockingReasonCodesJson TEXT NOT NULL,
+        safetyChecksJson TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        recordJson TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_regeneration_drafts_source
+        ON regeneration_drafts (projectId, sourceJobId, sourceExportId);
+      CREATE INDEX IF NOT EXISTS idx_regeneration_drafts_plan_hash
+        ON regeneration_drafts (regenerationPlanId, draftHash);
+
+      CREATE TABLE IF NOT EXISTS regeneration_approvals (
+        approvalId TEXT PRIMARY KEY,
+        projectId TEXT NOT NULL,
+        sourceJobId TEXT NOT NULL,
+        sourceExportId TEXT NOT NULL,
+        regenerationPlanId TEXT NOT NULL,
+        draftHash TEXT NOT NULL,
+        idempotencyKey TEXT NOT NULL UNIQUE,
+        draftRecordId TEXT,
+        newRenderJobId TEXT,
+        completedExportId TEXT,
+        approvedAt TEXT NOT NULL,
+        approvedBy TEXT NOT NULL,
+        status TEXT NOT NULL,
+        errorCode TEXT,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        recordJson TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_regeneration_approvals_source
+        ON regeneration_approvals (projectId, sourceJobId, sourceExportId);
+      CREATE INDEX IF NOT EXISTS idx_regeneration_approvals_render_job
+        ON regeneration_approvals (newRenderJobId);
+      CREATE INDEX IF NOT EXISTS idx_regeneration_approvals_status
+        ON regeneration_approvals (status);
+
+      CREATE TABLE IF NOT EXISTS approval_outbox (
+        id TEXT PRIMARY KEY,
+        eventType TEXT NOT NULL,
+        approvalId TEXT NOT NULL,
+        status TEXT NOT NULL,
+        attempts INTEGER NOT NULL,
+        nextAttemptAt TEXT,
+        lastErrorCode TEXT,
+        payloadJson TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        recordJson TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_approval_outbox_status
+        ON approval_outbox (status, createdAt);
+      CREATE INDEX IF NOT EXISTS idx_approval_outbox_approval
+        ON approval_outbox (approvalId, eventType);
+    `,
+  },
 ]);
 
 function safeJsonParse(value, fallback = null) {
@@ -190,6 +267,16 @@ function rowCount(db, tableName) {
   return Number(db.prepare(`SELECT COUNT(*) AS total FROM ${tableName}`).get().total || 0);
 }
 
+function sameApprovalRequest(a = {}, b = {}) {
+  return (
+    a.projectId === b.projectId &&
+    a.sourceJobId === b.sourceJobId &&
+    a.sourceExportId === b.sourceExportId &&
+    a.regenerationPlanId === b.regenerationPlanId &&
+    a.draftHash === b.draftHash
+  );
+}
+
 class SQLitePersistenceAdapter {
   constructor(options = {}) {
     this.mode = "sqlite";
@@ -206,13 +293,22 @@ class SQLitePersistenceAdapter {
     this.uploadRows = new Map();
     this.artifactRows = new Map();
     this.exportRows = new Map();
+    this.regenerationDraftRows = new Map();
+    this.regenerationApprovalRows = new Map();
+    this.approvalOutboxRows = new Map();
     this.exportView = new InMemoryExportRepository({ artifactStore: this.artifactAdapter });
+    this.regenerationDraftView = new RegenerationDraftRepository({ records: this.regenerationDraftRows, persist: false });
+    this.regenerationApprovalView = new RegenerationApprovalRepository({ records: this.regenerationApprovalRows, persist: false });
+    this.approvalOutboxView = new ApprovalOutboxRepository({ records: this.approvalOutboxRows, persist: false });
     this.transactionDepth = 0;
     this.migrationVersion = 0;
     this.projectRepository = this.createProjectRepositoryFacade();
     this.uploadRepository = this.createUploadRepositoryFacade();
     this.artifactRepository = this.createArtifactRepositoryFacade();
     this.exportRepository = this.createExportRepositoryFacade();
+    this.regenerationDraftRepository = this.createRegenerationDraftRepositoryFacade();
+    this.regenerationApprovalRepository = this.createRegenerationApprovalRepositoryFacade();
+    this.approvalOutboxRepository = this.createApprovalOutboxRepositoryFacade();
     this.projects = this.projectRows;
     this.uploads = this.uploadRows;
     this.artifacts = this.artifactRows;
@@ -265,6 +361,9 @@ class SQLitePersistenceAdapter {
       artifacts: new Map(this.artifactRows),
       exports: new Map(this.exportRows),
       exportView: new Map(this.exportView.records),
+      regenerationDrafts: new Map(this.regenerationDraftRows),
+      regenerationApprovals: new Map(this.regenerationApprovalRows),
+      approvalOutbox: new Map(this.approvalOutboxRows),
     };
     this.exec("BEGIN IMMEDIATE;");
     this.transactionDepth += 1;
@@ -283,11 +382,17 @@ class SQLitePersistenceAdapter {
       this.artifactRows.clear();
       this.exportRows.clear();
       this.exportView.records.clear();
+      this.regenerationDraftRows.clear();
+      this.regenerationApprovalRows.clear();
+      this.approvalOutboxRows.clear();
       for (const [key, value] of snapshot.projects) this.projectRows.set(key, value);
       for (const [key, value] of snapshot.uploads) this.uploadRows.set(key, value);
       for (const [key, value] of snapshot.artifacts) this.artifactRows.set(key, value);
       for (const [key, value] of snapshot.exports) this.exportRows.set(key, value);
       for (const [key, value] of snapshot.exportView) this.exportView.records.set(key, value);
+      for (const [key, value] of snapshot.regenerationDrafts) this.regenerationDraftRows.set(key, value);
+      for (const [key, value] of snapshot.regenerationApprovals) this.regenerationApprovalRows.set(key, value);
+      for (const [key, value] of snapshot.approvalOutbox) this.approvalOutboxRows.set(key, value);
       if (error instanceof AppError) throw error;
       throw new AppError("DB_TRANSACTION_FAILED", SAFE_MESSAGES.DB_TRANSACTION_FAILED, 500);
     } finally {
@@ -362,6 +467,77 @@ class SQLitePersistenceAdapter {
       createSignedDownload: (exportRecord, options) => this.createSignedExportDownload(exportRecord, options),
       resolveOutputPath: (exportRecord) => this.resolveExportOutputPath(exportRecord),
       health: () => this.repositoryHealth("exports", { completed: rowCount(this.db, "exports") }),
+    };
+  }
+
+  createRegenerationDraftRepositoryFacade() {
+    return {
+      records: this.regenerationDraftRows,
+      create: (record) => this.createRegenerationDraft(record),
+      createFromPlan: (plan, options) => this.createRegenerationDraftFromPlan(plan, options),
+      get: (draftRecordId) => this.getRegenerationDraft(draftRecordId),
+      getByPlanHash: (options) => this.getRegenerationDraftByPlanHash(options),
+      listForSource: (options) => this.listRegenerationDraftsForSource(options),
+      all: () => this.allRegenerationDrafts(),
+      publicDraft: (record) => this.regenerationDraftView.publicDraft(record),
+      restore: () => this.restoreRegenerationDrafts(),
+      health: () => this.repositoryHealth("regeneration_drafts", { repository: "sqlite-regeneration-drafts", durable: true }),
+    };
+  }
+
+  createRegenerationApprovalRepositoryFacade() {
+    return {
+      records: this.regenerationApprovalRows,
+      createIdempotent: (record) => this.createRegenerationApprovalIdempotent(record),
+      update: (approvalId, patch) => this.updateRegenerationApproval(approvalId, patch),
+      markRenderQueued: (approvalId, jobId) => this.updateRegenerationApproval(approvalId, { status: "render_queued", newRenderJobId: jobId, errorCode: null }),
+      markRenderProcessing: (approvalId, jobId) => this.updateRegenerationApproval(approvalId, { status: "render_processing", newRenderJobId: jobId, errorCode: null }),
+      markRenderCompleted: (approvalId, options = {}) => this.updateRegenerationApproval(approvalId, {
+        status: "render_completed",
+        newRenderJobId: options.jobId,
+        completedExportId: options.exportId,
+        errorCode: null,
+      }),
+      markRenderFailed: (approvalId, options = {}) => this.updateRegenerationApproval(approvalId, {
+        status: "render_failed",
+        newRenderJobId: options.jobId,
+        errorCode: options.errorCode || "RENDER_FAILED",
+      }),
+      markRenderCancelled: (approvalId, options = {}) => this.updateRegenerationApproval(approvalId, {
+        status: "cancelled",
+        newRenderJobId: options.jobId,
+        errorCode: "JOB_CANCELLED",
+      }),
+      get: (approvalId) => this.getRegenerationApproval(approvalId),
+      getByIdempotencyKey: (key) => this.getRegenerationApprovalByIdempotencyKey(key),
+      getByRenderJobId: (jobId) => this.getRegenerationApprovalByRenderJobId(jobId),
+      listForSource: (options) => this.listRegenerationApprovalsForSource(options),
+      all: () => this.allRegenerationApprovals(),
+      publicApproval: (record) => this.regenerationApprovalView.publicApproval(record),
+      restore: () => this.restoreRegenerationApprovals(),
+      health: () => this.repositoryHealth("regeneration_approvals", { repository: "sqlite-regeneration-approvals", durable: true }),
+    };
+  }
+
+  createApprovalOutboxRepositoryFacade() {
+    return {
+      records: this.approvalOutboxRows,
+      create: (record) => this.createApprovalOutboxEvent(record),
+      createLifecycleEvent: (input) => this.createApprovalOutboxLifecycleEvent(input),
+      get: (eventId) => this.getApprovalOutboxEvent(eventId),
+      listPending: (limit) => this.listPendingApprovalOutboxEvents(limit),
+      markProcessed: (eventId, updatedAt) => this.updateApprovalOutboxEvent(eventId, { status: "processed", lastErrorCode: null, updatedAt }),
+      markFailed: (eventId, options = {}) => this.updateApprovalOutboxEvent(eventId, {
+        status: "failed",
+        attempts: undefined,
+        lastErrorCode: options.errorCode || "OUTBOX_DELIVERY_FAILED",
+        nextAttemptAt: options.nextAttemptAt || null,
+        updatedAt: options.updatedAt,
+      }),
+      all: () => this.allApprovalOutboxEvents(),
+      publicEvent: (record) => this.approvalOutboxView.publicEvent(record),
+      restore: () => this.restoreApprovalOutboxEvents(),
+      health: () => this.approvalOutboxHealth(),
     };
   }
 
@@ -667,6 +843,354 @@ class SQLitePersistenceAdapter {
     return this.exportView.resolveOutputPath(exportRecord);
   }
 
+  upsertRegenerationDraft(record) {
+    const draft = normalizeDraftRecord(record);
+    this.prepare(
+      `INSERT INTO regeneration_drafts (
+        id, projectId, sourceJobId, sourceExportId, regenerationPlanId, draftHash,
+        version, status, validationStatus, proposedEditPlanSummaryJson,
+        appliedSuggestionIdsJson, skippedSuggestionIdsJson, proposedChangesJson,
+        blockingReasonCodesJson, safetyChecksJson, createdAt, updatedAt, recordJson
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET projectId = excluded.projectId, sourceJobId = excluded.sourceJobId,
+      sourceExportId = excluded.sourceExportId, regenerationPlanId = excluded.regenerationPlanId,
+      draftHash = excluded.draftHash, version = excluded.version, status = excluded.status,
+      validationStatus = excluded.validationStatus, proposedEditPlanSummaryJson = excluded.proposedEditPlanSummaryJson,
+      appliedSuggestionIdsJson = excluded.appliedSuggestionIdsJson,
+      skippedSuggestionIdsJson = excluded.skippedSuggestionIdsJson,
+      proposedChangesJson = excluded.proposedChangesJson,
+      blockingReasonCodesJson = excluded.blockingReasonCodesJson,
+      safetyChecksJson = excluded.safetyChecksJson,
+      createdAt = excluded.createdAt, updatedAt = excluded.updatedAt, recordJson = excluded.recordJson`,
+    ).run(
+      draft.id,
+      draft.projectId,
+      draft.sourceJobId,
+      draft.sourceExportId,
+      draft.regenerationPlanId,
+      draft.draftHash,
+      draft.version,
+      draft.status,
+      draft.validationStatus,
+      stringifyRecord(draft.proposedEditPlanSummary || null),
+      stringifyRecord(draft.appliedSuggestionIds),
+      stringifyRecord(draft.skippedSuggestionIds),
+      stringifyRecord(draft.proposedChanges),
+      stringifyRecord(draft.blockingReasonCodes),
+      stringifyRecord(draft.safetyChecks),
+      draft.createdAt,
+      draft.updatedAt,
+      stringifyRecord(draft),
+    );
+    this.regenerationDraftRows.set(draft.id, draft);
+    return draft;
+  }
+
+  createRegenerationDraft(record) {
+    const draft = this.regenerationDraftView.create(record);
+    return this.upsertRegenerationDraft(draft);
+  }
+
+  createRegenerationDraftFromPlan(plan, options = {}) {
+    const draft = this.regenerationDraftView.createFromPlan(plan, options);
+    return this.upsertRegenerationDraft(draft);
+  }
+
+  regenerationDraftFromRow(row) {
+    if (!row) return null;
+    const draft = normalizeDraftRecord(safeJsonParse(row.recordJson, row));
+    this.regenerationDraftRows.set(draft.id, draft);
+    return draft;
+  }
+
+  getRegenerationDraft(draftRecordId) {
+    const safeId = sanitizeText(draftRecordId, 80);
+    const row = this.prepare("SELECT recordJson FROM regeneration_drafts WHERE id = ?").get(safeId);
+    return this.regenerationDraftFromRow(row);
+  }
+
+  getRegenerationDraftByPlanHash(options = {}) {
+    const safePlanId = validateResourceId(options.regenerationPlanId, "regen");
+    const safeHash = sanitizeText(options.draftHash, 80).toLowerCase();
+    const safeProjectId = options.projectId ? validateResourceId(options.projectId, "prj") : null;
+    const safeJobId = options.sourceJobId ? validateResourceId(options.sourceJobId, "job") : null;
+    const safeExportId = options.sourceExportId ? validateResourceId(options.sourceExportId, "exp") : null;
+    const rows = this.prepare(
+      `SELECT recordJson FROM regeneration_drafts
+       WHERE regenerationPlanId = ? AND draftHash = ?
+       ORDER BY version ASC, createdAt ASC`,
+    ).all(safePlanId, safeHash);
+    return rows.map((row) => this.regenerationDraftFromRow(row)).find((record) => (
+      (!safeProjectId || record.projectId === safeProjectId) &&
+      (!safeJobId || record.sourceJobId === safeJobId) &&
+      (!safeExportId || record.sourceExportId === safeExportId)
+    )) || null;
+  }
+
+  listRegenerationDraftsForSource(options = {}) {
+    const safeProjectId = options.projectId ? validateResourceId(options.projectId, "prj") : null;
+    const safeJobId = (options.sourceJobId || options.jobId) ? validateResourceId(options.sourceJobId || options.jobId, "job") : null;
+    const safeExportId = (options.sourceExportId || options.exportId) ? validateResourceId(options.sourceExportId || options.exportId, "exp") : null;
+    return this.allRegenerationDrafts().filter((record) => (
+      (!safeProjectId || record.projectId === safeProjectId) &&
+      (!safeJobId || record.sourceJobId === safeJobId) &&
+      (!safeExportId || record.sourceExportId === safeExportId)
+    ));
+  }
+
+  allRegenerationDrafts() {
+    return this.prepare("SELECT recordJson FROM regeneration_drafts ORDER BY projectId ASC, sourceJobId ASC, sourceExportId ASC, version ASC")
+      .all()
+      .map((row) => this.regenerationDraftFromRow(row))
+      .filter(Boolean);
+  }
+
+  upsertRegenerationApproval(record) {
+    const approval = normalizeApprovalRecord(record);
+    this.prepare(
+      `INSERT INTO regeneration_approvals (
+        approvalId, projectId, sourceJobId, sourceExportId, regenerationPlanId,
+        draftHash, idempotencyKey, draftRecordId, newRenderJobId, completedExportId,
+        approvedAt, approvedBy, status, errorCode, createdAt, updatedAt, recordJson
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(approvalId) DO UPDATE SET projectId = excluded.projectId,
+      sourceJobId = excluded.sourceJobId, sourceExportId = excluded.sourceExportId,
+      regenerationPlanId = excluded.regenerationPlanId, draftHash = excluded.draftHash,
+      idempotencyKey = excluded.idempotencyKey, draftRecordId = excluded.draftRecordId,
+      newRenderJobId = excluded.newRenderJobId, completedExportId = excluded.completedExportId,
+      approvedAt = excluded.approvedAt, approvedBy = excluded.approvedBy,
+      status = excluded.status, errorCode = excluded.errorCode,
+      createdAt = excluded.createdAt, updatedAt = excluded.updatedAt, recordJson = excluded.recordJson`,
+    ).run(
+      approval.approvalId,
+      approval.projectId,
+      approval.sourceJobId,
+      approval.sourceExportId,
+      approval.regenerationPlanId,
+      approval.draftHash,
+      approval.idempotencyKey,
+      approval.draftRecordId,
+      approval.newRenderJobId,
+      approval.completedExportId,
+      approval.approvedAt,
+      approval.approvedBy,
+      approval.status,
+      approval.errorCode,
+      approval.createdAt,
+      approval.updatedAt,
+      stringifyRecord(approval),
+    );
+    this.regenerationApprovalRows.set(approval.approvalId, approval);
+    return approval;
+  }
+
+  createRegenerationApprovalIdempotent(record) {
+    const normalized = normalizeApprovalRecord(record);
+    const byKey = this.getRegenerationApprovalByIdempotencyKey(normalized.idempotencyKey);
+    if (byKey) {
+      if (!sameApprovalRequest(byKey, normalized)) {
+        throw new AppError("VALIDATION_ERROR", "Approval idempotency key belongs to another draft.", 409, {
+          field: "idempotencyKey",
+          nextAction: "refresh-regeneration-draft",
+        });
+      }
+      return byKey;
+    }
+    const byId = this.getRegenerationApproval(normalized.approvalId);
+    if (byId) {
+      if (!sameApprovalRequest(byId, normalized)) {
+        throw new AppError("VALIDATION_ERROR", "Approval id belongs to another draft.", 409, {
+          field: "approvalId",
+          nextAction: "refresh-regeneration-draft",
+        });
+      }
+      return byId;
+    }
+    return this.upsertRegenerationApproval(normalized);
+  }
+
+  updateRegenerationApproval(approvalId, patch = {}) {
+    const current = this.getRegenerationApproval(approvalId);
+    if (!current) throw new AppError("APPROVAL_NOT_FOUND", "Approval audit record was not found.", 404);
+    return this.upsertRegenerationApproval({
+      ...current,
+      ...patch,
+      approvalId: current.approvalId,
+      idempotencyKey: current.idempotencyKey,
+      projectId: current.projectId,
+      sourceJobId: current.sourceJobId,
+      sourceExportId: current.sourceExportId,
+      regenerationPlanId: current.regenerationPlanId,
+      draftHash: current.draftHash,
+      updatedAt: patch.updatedAt || nowIso(),
+    });
+  }
+
+  regenerationApprovalFromRow(row) {
+    if (!row) return null;
+    const approval = normalizeApprovalRecord(safeJsonParse(row.recordJson, row));
+    this.regenerationApprovalRows.set(approval.approvalId, approval);
+    return approval;
+  }
+
+  getRegenerationApproval(approvalId) {
+    const safeId = sanitizeText(approvalId, 80);
+    const row = this.prepare("SELECT recordJson FROM regeneration_approvals WHERE approvalId = ?").get(safeId);
+    return this.regenerationApprovalFromRow(row);
+  }
+
+  getRegenerationApprovalByIdempotencyKey(key) {
+    const safeKey = validateIdempotencyKey(key);
+    const row = this.prepare("SELECT recordJson FROM regeneration_approvals WHERE idempotencyKey = ?").get(safeKey);
+    return this.regenerationApprovalFromRow(row);
+  }
+
+  getRegenerationApprovalByRenderJobId(jobId) {
+    const safeJobId = validateResourceId(jobId, "job");
+    const row = this.prepare("SELECT recordJson FROM regeneration_approvals WHERE newRenderJobId = ? ORDER BY updatedAt DESC").get(safeJobId);
+    return this.regenerationApprovalFromRow(row);
+  }
+
+  listRegenerationApprovalsForSource(options = {}) {
+    const safeProjectId = options.projectId ? validateResourceId(options.projectId, "prj") : null;
+    const safeJobId = (options.sourceJobId || options.jobId) ? validateResourceId(options.sourceJobId || options.jobId, "job") : null;
+    const safeExportId = (options.sourceExportId || options.exportId) ? validateResourceId(options.sourceExportId || options.exportId, "exp") : null;
+    return this.allRegenerationApprovals().filter((record) => (
+      (!safeProjectId || record.projectId === safeProjectId) &&
+      (!safeJobId || record.sourceJobId === safeJobId) &&
+      (!safeExportId || record.sourceExportId === safeExportId)
+    ));
+  }
+
+  allRegenerationApprovals() {
+    return this.prepare("SELECT recordJson FROM regeneration_approvals ORDER BY createdAt ASC, approvalId ASC")
+      .all()
+      .map((row) => this.regenerationApprovalFromRow(row))
+      .filter(Boolean);
+  }
+
+  upsertApprovalOutboxEvent(record) {
+    const event = normalizeOutboxEvent(record);
+    this.prepare(
+      `INSERT INTO approval_outbox (
+        id, eventType, approvalId, status, attempts, nextAttemptAt, lastErrorCode,
+        payloadJson, createdAt, updatedAt, recordJson
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET eventType = excluded.eventType,
+      approvalId = excluded.approvalId, status = excluded.status, attempts = excluded.attempts,
+      nextAttemptAt = excluded.nextAttemptAt, lastErrorCode = excluded.lastErrorCode,
+      payloadJson = excluded.payloadJson, createdAt = excluded.createdAt,
+      updatedAt = excluded.updatedAt, recordJson = excluded.recordJson`,
+    ).run(
+      event.id,
+      event.eventType,
+      event.approvalId,
+      event.status,
+      event.attempts,
+      event.nextAttemptAt,
+      event.lastErrorCode,
+      stringifyRecord(event.payload),
+      event.createdAt,
+      event.updatedAt,
+      stringifyRecord(event),
+    );
+    this.approvalOutboxRows.set(event.id, event);
+    return event;
+  }
+
+  createApprovalOutboxEvent(record) {
+    const event = normalizeOutboxEvent(record);
+    const existing = this.getApprovalOutboxEvent(event.id);
+    if (existing) return existing;
+    return this.upsertApprovalOutboxEvent(event);
+  }
+
+  createApprovalOutboxLifecycleEvent(input) {
+    const event = this.approvalOutboxView.createLifecycleEvent(input);
+    return this.createApprovalOutboxEvent(event);
+  }
+
+  updateApprovalOutboxEvent(eventId, patch = {}) {
+    const current = this.getApprovalOutboxEvent(eventId);
+    if (!current) throw new AppError("OUTBOX_EVENT_NOT_FOUND", "Approval outbox event was not found.", 404);
+    const attempts = patch.status === "failed" && patch.attempts === undefined
+      ? Number(current.attempts || 0) + 1
+      : patch.attempts;
+    return this.upsertApprovalOutboxEvent({
+      ...current,
+      ...patch,
+      attempts: attempts === undefined ? current.attempts : attempts,
+      updatedAt: patch.updatedAt || nowIso(),
+    });
+  }
+
+  approvalOutboxEventFromRow(row) {
+    if (!row) return null;
+    const event = normalizeOutboxEvent(safeJsonParse(row.recordJson, row));
+    this.approvalOutboxRows.set(event.id, event);
+    return event;
+  }
+
+  getApprovalOutboxEvent(eventId) {
+    const safeId = sanitizeText(eventId, 80);
+    const row = this.prepare("SELECT recordJson FROM approval_outbox WHERE id = ?").get(safeId);
+    return this.approvalOutboxEventFromRow(row);
+  }
+
+  listPendingApprovalOutboxEvents(limit = 100) {
+    const max = Math.max(1, Math.min(500, Math.floor(Number(limit || 100))));
+    return this.prepare("SELECT recordJson FROM approval_outbox WHERE status = 'pending' ORDER BY createdAt ASC, id ASC LIMIT ?")
+      .all(max)
+      .map((row) => this.approvalOutboxEventFromRow(row))
+      .filter(Boolean);
+  }
+
+  allApprovalOutboxEvents() {
+    return this.prepare("SELECT recordJson FROM approval_outbox ORDER BY createdAt ASC, id ASC")
+      .all()
+      .map((row) => this.approvalOutboxEventFromRow(row))
+      .filter(Boolean);
+  }
+
+  restoreRegenerationDrafts() {
+    let records = 0;
+    let ignored = 0;
+    for (const row of this.prepare("SELECT recordJson FROM regeneration_drafts ORDER BY createdAt ASC").all()) {
+      try {
+        if (this.regenerationDraftFromRow(row)) records += 1;
+      } catch {
+        ignored += 1;
+      }
+    }
+    return { records, ignored };
+  }
+
+  restoreRegenerationApprovals() {
+    let records = 0;
+    let ignored = 0;
+    for (const row of this.prepare("SELECT recordJson FROM regeneration_approvals ORDER BY createdAt ASC").all()) {
+      try {
+        if (this.regenerationApprovalFromRow(row)) records += 1;
+      } catch {
+        ignored += 1;
+      }
+    }
+    return { records, ignored };
+  }
+
+  restoreApprovalOutboxEvents() {
+    let records = 0;
+    let ignored = 0;
+    for (const row of this.prepare("SELECT recordJson FROM approval_outbox ORDER BY createdAt ASC").all()) {
+      try {
+        if (this.approvalOutboxEventFromRow(row)) records += 1;
+      } catch {
+        ignored += 1;
+      }
+    }
+    return { records, ignored };
+  }
+
   createProjectUpload({ project, upload } = {}) {
     return this.transaction(() => {
       const uploadRecord = this.createUpload(upload);
@@ -850,6 +1374,18 @@ class SQLitePersistenceAdapter {
     return { projectId, exportId, jobId };
   }
 
+  getRegenerationDraftRepository() {
+    return this.regenerationDraftRepository;
+  }
+
+  getRegenerationApprovalRepository() {
+    return this.regenerationApprovalRepository;
+  }
+
+  getApprovalOutboxRepository() {
+    return this.approvalOutboxRepository;
+  }
+
   completeRenderTransaction({ project, exportRecord, renderRecord } = {}) {
     return this.transaction(() => {
       const createdExport = this.createExport(exportRecord);
@@ -901,6 +1437,14 @@ class SQLitePersistenceAdapter {
         summary.ignored += 1;
       }
     }
+    const draftAudits = this.restoreRegenerationDrafts();
+    const approvalAudits = this.restoreRegenerationApprovals();
+    const approvalOutbox = this.restoreApprovalOutboxEvents();
+    summary.records += draftAudits.records + approvalAudits.records + approvalOutbox.records;
+    summary.ignored += draftAudits.ignored + approvalAudits.ignored + approvalOutbox.ignored;
+    summary.draftAudits = draftAudits.records;
+    summary.approvalAudits = approvalAudits.records;
+    summary.approvalOutbox = approvalOutbox.records;
     return summary;
   }
 
@@ -943,6 +1487,25 @@ class SQLitePersistenceAdapter {
     };
   }
 
+  approvalOutboxHealth() {
+    const byStatus = {};
+    const byType = {};
+    for (const row of this.prepare("SELECT status, COUNT(*) AS total FROM approval_outbox GROUP BY status").all()) {
+      byStatus[row.status] = Number(row.total || 0);
+    }
+    for (const row of this.prepare("SELECT eventType, COUNT(*) AS total FROM approval_outbox GROUP BY eventType").all()) {
+      byType[row.eventType] = Number(row.total || 0);
+    }
+    return {
+      ready: true,
+      repository: "sqlite-approval-outbox",
+      durable: true,
+      total: rowCount(this.db, "approval_outbox"),
+      statuses: byStatus,
+      eventTypes: byType,
+    };
+  }
+
   migrationHealth() {
     const applied = this.prepare("SELECT version, name, appliedAt FROM schema_migrations ORDER BY version ASC").all();
     const currentVersion = applied.reduce((max, row) => Math.max(max, Number(row.version || 0)), 0);
@@ -963,6 +1526,9 @@ class SQLitePersistenceAdapter {
       exports: this.repositoryHealth("exports", { completed: rowCount(this.db, "exports") }),
       jobs: this.repositoryHealth("jobs"),
       idempotency: this.repositoryHealth("idempotency_keys"),
+      regenerationDrafts: this.repositoryHealth("regeneration_drafts", { repository: "sqlite-regeneration-drafts", durable: true }),
+      regenerationApprovals: this.repositoryHealth("regeneration_approvals", { repository: "sqlite-regeneration-approvals", durable: true }),
+      approvalOutbox: this.approvalOutboxHealth(),
     };
     return {
       ready: migrations.ready && Object.values(repositories).every((entry) => entry.ready),

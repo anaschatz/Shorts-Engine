@@ -34,6 +34,9 @@ const PERSISTENCE_ADAPTER_METHODS = Object.freeze([
   "getIdempotencyJobId",
   "persistRenderRecord",
   "restoreState",
+  "getRegenerationDraftRepository",
+  "getRegenerationApprovalRepository",
+  "getApprovalOutboxRepository",
   "health",
 ]);
 

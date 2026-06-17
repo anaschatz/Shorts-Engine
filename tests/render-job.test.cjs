@@ -298,6 +298,7 @@ test("approved regeneration render uses the validated draft without rerunning AI
   const context = makeContext();
   const approvedEditPlan = validateEditPlan(validPlan(), context.upload.metadata);
   const auditUpdates = [];
+  const outboxEvents = [];
   context.dependencies.regenerationApprovalRepository = {
     markRenderProcessing(approvalId, jobId) {
       auditUpdates.push({ status: "render_processing", approvalId, jobId });
@@ -306,6 +307,12 @@ test("approved regeneration render uses the validated draft without rerunning AI
     markRenderCompleted(approvalId, { jobId, exportId }) {
       auditUpdates.push({ status: "render_completed", approvalId, jobId, exportId });
       return { approvalId, status: "render_completed", newRenderJobId: jobId, completedExportId: exportId };
+    },
+  };
+  context.dependencies.approvalOutboxRepository = {
+    createLifecycleEvent(event) {
+      outboxEvents.push(event);
+      return { id: `aout_${outboxEvents.length}`, ...event };
     },
   };
   context.job.payload = {
@@ -336,6 +343,7 @@ test("approved regeneration render uses the validated draft without rerunning AI
   assert.equal(context.job.visualSignals.providerMode, "approved_regeneration_draft");
   assert.deepEqual(auditUpdates.map((item) => item.status), ["render_processing", "render_completed"]);
   assert.equal(auditUpdates[1].exportId, "exp_orchestration_test");
+  assert.deepEqual(outboxEvents.map((event) => event.eventType), ["render_processing", "render_completed"]);
   const selectedPlanLog = context.logs.find((entry) => entry.event === "approved_edit_plan_selected");
   assert.equal(selectedPlanLog.approvalId, "appr_1234567890abcdef1234567890abcdef");
   assert.doesNotMatch(JSON.stringify(selectedPlanLog), /\/Users|storageKey|secret|caption/i);
@@ -349,6 +357,7 @@ test("approved regeneration render failures update approval audit without creati
   });
   const approvedEditPlan = validateEditPlan(validPlan(), context.upload.metadata);
   const auditUpdates = [];
+  const outboxEvents = [];
   context.dependencies.regenerationApprovalRepository = {
     markRenderProcessing(approvalId, jobId) {
       auditUpdates.push({ status: "render_processing", approvalId, jobId });
@@ -357,6 +366,12 @@ test("approved regeneration render failures update approval audit without creati
     markRenderFailed(approvalId, { jobId, errorCode }) {
       auditUpdates.push({ status: "render_failed", approvalId, jobId, errorCode });
       return { approvalId, status: "render_failed", errorCode };
+    },
+  };
+  context.dependencies.approvalOutboxRepository = {
+    createLifecycleEvent(event) {
+      outboxEvents.push(event);
+      return { id: `aout_${outboxEvents.length}`, ...event };
     },
   };
   context.job.payload = {
@@ -380,6 +395,7 @@ test("approved regeneration render failures update approval audit without creati
   assert.equal(context.exportsById.size, 0);
   assert.deepEqual(auditUpdates.map((item) => item.status), ["render_processing", "render_failed"]);
   assert.equal(auditUpdates[1].errorCode, "RENDER_FAILED");
+  assert.deepEqual(outboxEvents.map((event) => event.eventType), ["render_processing", "render_failed"]);
   assert.doesNotMatch(JSON.stringify(context.job.error), /\/Users|secret|stderr/i);
 });
 

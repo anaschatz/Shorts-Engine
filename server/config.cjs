@@ -11,6 +11,7 @@ const JOB_DIR = join(DATA_DIR, "jobs");
 const ARTIFACT_DIR = join(DATA_DIR, "artifacts");
 const REVIEW_DRAFT_DIR = join(DATA_DIR, "review-drafts");
 const REVIEW_APPROVAL_DIR = join(DATA_DIR, "review-approvals");
+const REVIEW_APPROVAL_OUTBOX_DIR = join(DATA_DIR, "review-approval-outbox");
 const DB_DIR = join(DATA_DIR, "db");
 const TMP_DIR = join(DATA_DIR, "tmp");
 const STAGING_DIR = join(TMP_DIR, "staging");
@@ -343,6 +344,7 @@ const CONFIG = Object.freeze({
   artifactDir: ARTIFACT_DIR,
   reviewDraftDir: REVIEW_DRAFT_DIR,
   reviewApprovalDir: REVIEW_APPROVAL_DIR,
+  reviewApprovalOutboxDir: REVIEW_APPROVAL_OUTBOX_DIR,
   dbDir: DB_DIR,
   tmpDir: TMP_DIR,
   stagingDir: STAGING_DIR,
@@ -378,7 +380,7 @@ const CONFIG = Object.freeze({
 });
 
 function ensureDataDirs() {
-  for (const dir of [DATA_DIR, UPLOAD_DIR, AUDIO_DIR, RENDER_DIR, PROJECT_DIR, JOB_DIR, ARTIFACT_DIR, REVIEW_DRAFT_DIR, REVIEW_APPROVAL_DIR, DB_DIR, TMP_DIR, STAGING_DIR]) {
+  for (const dir of [DATA_DIR, UPLOAD_DIR, AUDIO_DIR, RENDER_DIR, PROJECT_DIR, JOB_DIR, ARTIFACT_DIR, REVIEW_DRAFT_DIR, REVIEW_APPROVAL_DIR, REVIEW_APPROVAL_OUTBOX_DIR, DB_DIR, TMP_DIR, STAGING_DIR]) {
     mkdirSync(dir, { recursive: true });
   }
 }

@@ -433,21 +433,46 @@ function cleanupPipelineStages({ deps, context, logger, requestId, projectId, jo
 
 function updateApprovalAudit({ deps, context, job, projectId, requestId, status, exportId, error }) {
   const repository = deps && deps.regenerationApprovalRepository;
+  const outboxRepository = deps && deps.approvalOutboxRepository;
   const approvalId = context && context.regenerationApproval && context.regenerationApproval.approvalId;
   if (!repository || !approvalId) return null;
   try {
     let record = null;
+    let eventType = null;
     if (status === "render_processing" && typeof repository.markRenderProcessing === "function") {
       record = repository.markRenderProcessing(approvalId, job && job.id);
+      eventType = "render_processing";
     } else if (status === "render_completed" && typeof repository.markRenderCompleted === "function") {
       record = repository.markRenderCompleted(approvalId, { jobId: job && job.id, exportId });
+      eventType = "render_completed";
     } else if (status === "render_failed" && typeof repository.markRenderFailed === "function") {
       record = repository.markRenderFailed(approvalId, {
         jobId: job && job.id,
         errorCode: (error && error.code) || "RENDER_FAILED",
       });
+      eventType = "render_failed";
     } else if (status === "cancelled" && typeof repository.markRenderCancelled === "function") {
       record = repository.markRenderCancelled(approvalId, { jobId: job && job.id });
+      eventType = "render_cancelled";
+    }
+    if (record && eventType && outboxRepository && typeof outboxRepository.createLifecycleEvent === "function") {
+      outboxRepository.createLifecycleEvent({
+        eventType,
+        requestId,
+        approvalRecord: record,
+        jobId: job && job.id,
+        exportId,
+        errorCode: (error && error.code) || (record && record.errorCode),
+        status: record.status,
+      });
+      logInfo(deps.logger, {
+        event: "approval_outbox_created",
+        requestId,
+        projectId,
+        jobId: job && job.id,
+        approvalId,
+        eventType,
+      });
     }
     logInfo(deps.logger, {
       event: "approval_audit_updated",

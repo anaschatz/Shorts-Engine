@@ -302,5 +302,6 @@ module.exports = {
   APPROVAL_AUDIT_SCHEMA_VERSION,
   APPROVAL_STATUSES,
   RegenerationApprovalRepository,
+  normalizeApprovalRecord,
   validateApprovalId,
 };

@@ -6,6 +6,7 @@ const { tmpdir } = require("node:os");
 
 const { approveRegenerationDraft, validateApprovalRequest } = require("../server/regeneration-approval.cjs");
 const { createEditPlan, validateEditPlan } = require("../server/edit-plan.cjs");
+const { ApprovalOutboxRepository } = require("../server/repositories/approval-outbox-repository.cjs");
 const { RegenerationApprovalRepository } = require("../server/repositories/regeneration-approval-repository.cjs");
 const { RegenerationDraftRepository } = require("../server/repositories/regeneration-draft-repository.cjs");
 
@@ -169,6 +170,7 @@ test("approval accepts a validated draft and creates one idempotent render job",
   const queue = fakeQueue();
   const regenerationDraftRepository = new RegenerationDraftRepository({ persist: false });
   const regenerationApprovalRepository = new RegenerationApprovalRepository({ persist: false });
+  const approvalOutboxRepository = new ApprovalOutboxRepository({ persist: false });
   const enqueued = [];
   const first = approveRegenerationDraft({
     request: {
@@ -184,6 +186,7 @@ test("approval accepts a validated draft and creates one idempotent render job",
     persistenceAdapter: { getProject: () => workspace.project },
     regenerationDraftRepository,
     regenerationApprovalRepository,
+    approvalOutboxRepository,
     jobQueue: queue,
     workerSupervisor: {
       enqueue(job) {
@@ -206,6 +209,7 @@ test("approval accepts a validated draft and creates one idempotent render job",
     persistenceAdapter: { getProject: () => workspace.project },
     regenerationDraftRepository,
     regenerationApprovalRepository,
+    approvalOutboxRepository,
     jobQueue: queue,
     workerSupervisor: { enqueue() {} },
     requestId: "req_approval_unit",
@@ -226,5 +230,7 @@ test("approval accepts a validated draft and creates one idempotent render job",
   assert.equal(queue.created.length, 1);
   assert.equal(regenerationDraftRepository.all().length, 1);
   assert.equal(regenerationApprovalRepository.all().length, 1);
+  assert.equal(approvalOutboxRepository.all().length, 2);
+  assert.deepEqual(approvalOutboxRepository.all().map((event) => event.eventType), ["approval_created", "render_queued"]);
   assert.deepEqual(enqueued, [first.job.id]);
 });

@@ -22,6 +22,8 @@ Checklist:
 - Keep startup restore filters strict so unrelated/corrupt local metadata cannot slow or block app boot.
 - Put project/upload/export persistence behind repositories before adding real databases.
 - Put uploads, audio, subtitles, renders and exports behind artifact-store contracts before adding object storage.
+- Put regeneration draft/approval audit and approval outbox writes behind persistence adapter repositories before relying on DB-backed review workflows.
+- Approval lifecycle audit rows and outbox events should store only safe ids, statuses, timestamps and error codes; never raw captions, edit plans, storage keys, provider output or paths.
 - Validate persistence and artifact adapter capabilities at startup before swapping in database or object-storage implementations.
 - Keep adapter health limited to mode/capability/readiness metadata, never raw paths or storage keys.
 - Treat artifact storage keys as internal only; never include them in public responses or health payloads.

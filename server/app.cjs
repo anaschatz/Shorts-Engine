@@ -29,6 +29,7 @@ const { createReleaseReadiness } = require("./release-readiness.cjs");
 const { createLocalJobWorker, restoreExportsFromCompletedJobs } = require("./job-worker.cjs");
 const { createWorkerSupervisor } = require("./worker-supervisor.cjs");
 const { createLocalJobQueue } = require("./queue/local-job-queue.cjs");
+const { recoverApprovalAudits } = require("./approval-audit-recovery.cjs");
 const { createArtifactCleanupWorker } = require("./artifact-cleanup-worker.cjs");
 const { createYouTubeIngestAdapter } = require("./adapters/youtube-ingest-adapter.cjs");
 const { validateYouTubeSource, youtubeIngestHealth } = require("./youtube-ingest.cjs");
@@ -36,8 +37,6 @@ const { createYouTubeIngestService } = require("./youtube-ingest-service.cjs");
 const { registerReviewDraft } = require("../eval/review-registration.cjs");
 const { approveRegenerationDraft, publicApprovalResult } = require("./regeneration-approval.cjs");
 const { createRegenerationPlanFromReviewRegistration } = require("./regeneration-plan.cjs");
-const { RegenerationDraftRepository } = require("./repositories/regeneration-draft-repository.cjs");
-const { RegenerationApprovalRepository } = require("./repositories/regeneration-approval-repository.cjs");
 const {
   safeResolve,
   storageHealth,
@@ -52,8 +51,9 @@ const projectRepository = persistenceAdapter.projectRepository;
 const uploadRepository = persistenceAdapter.uploadRepository;
 const artifactRepository = persistenceAdapter.artifactRepository;
 const exportRepository = persistenceAdapter.exportRepository;
-const regenerationDraftRepository = new RegenerationDraftRepository();
-const regenerationApprovalRepository = new RegenerationApprovalRepository();
+const regenerationDraftRepository = persistenceAdapter.getRegenerationDraftRepository();
+const regenerationApprovalRepository = persistenceAdapter.getRegenerationApprovalRepository();
+const approvalOutboxRepository = persistenceAdapter.getApprovalOutboxRepository();
 const uploads = uploadRepository.records;
 const projects = projectRepository.records;
 const artifacts = artifactRepository.records;
@@ -91,9 +91,22 @@ const MAX_MULTIPART_HEADER_BYTES = 8 * 1024;
 const MAX_UPLOAD_BODY_OVERHEAD_BYTES = 64 * 1024;
 const MAX_JSON_BODY_BYTES = 16 * 1024;
 const UPLOAD_FILE_FIELD = "video";
-const restoredDraftAudits = regenerationDraftRepository.restore();
-const restoredApprovalAudits = regenerationApprovalRepository.restore();
 const restoredState = persistenceAdapter.restoreState();
+function restoreSummary(value) {
+  if (value && typeof value === "object") {
+    return {
+      records: Number(value.records || 0),
+      ignored: Number(value.ignored || 0),
+    };
+  }
+  return {
+    records: Number(value || 0),
+    ignored: 0,
+  };
+}
+const restoredDraftAudits = restoreSummary(restoredState.draftAudits);
+const restoredApprovalAudits = restoreSummary(restoredState.approvalAudits);
+const restoredApprovalOutbox = restoreSummary(restoredState.approvalOutbox);
 const recoveredJobs = jobs.recover();
 const jobWorker = createLocalJobWorker({
   jobs,
@@ -105,6 +118,7 @@ const jobWorker = createLocalJobWorker({
   dependencies: {
     artifactRepository,
     regenerationApprovalRepository,
+    approvalOutboxRepository,
     persistenceAdapter,
     persistRenderRecord: (record) => persistenceAdapter.persistRenderRecord(record),
   },
@@ -122,18 +136,33 @@ const workerSupervisor = createWorkerSupervisor({
   logger: console,
 });
 const recoveredExports = restoreExportsFromCompletedJobs({ jobs, exportRepository, artifactStore, logger: console });
+const recoveredApprovalAudits = recoverApprovalAudits({
+  regenerationApprovalRepository,
+  approvalOutboxRepository,
+  jobs,
+  logger: console,
+  requestId: "startup_recovery",
+});
 if (restoredState.records > 0) {
   console.info(JSON.stringify({ level: "info", event: "state_rehydrated", records: restoredState.records }));
 }
 if (recoveredJobs.records > 0 || recoveredJobs.ignored > 0) {
   console.info(JSON.stringify({ level: "info", event: "jobs_rehydrated", ...recoveredJobs, exports: recoveredExports }));
 }
-if (restoredDraftAudits.records > 0 || restoredDraftAudits.ignored > 0 || restoredApprovalAudits.records > 0 || restoredApprovalAudits.ignored > 0) {
+if (
+  restoredDraftAudits.records > 0 ||
+  restoredDraftAudits.ignored > 0 ||
+  restoredApprovalAudits.records > 0 ||
+  restoredApprovalAudits.ignored > 0 ||
+  restoredApprovalOutbox.records > 0 ||
+  restoredApprovalOutbox.ignored > 0
+) {
   console.info(JSON.stringify(redactForLogs({
     level: "info",
     event: "review_audit_rehydrated",
     drafts: restoredDraftAudits,
     approvals: restoredApprovalAudits,
+    outbox: restoredApprovalOutbox,
   })));
 }
 const { queued: queuedOnStartup } = workerSupervisor.start({ requestId: "startup_recovery" });
@@ -409,6 +438,7 @@ async function handleHealth(req, res, rid) {
     exports: exportRepository.health(),
     regenerationDrafts: regenerationDraftRepository.health(),
     regenerationApprovals: regenerationApprovalRepository.health(),
+    approvalOutbox: approvalOutboxRepository.health(),
   };
   const adapters = {
     artifacts,
@@ -455,6 +485,7 @@ async function handleHealth(req, res, rid) {
     worker,
     supervisor,
     cleanup,
+    approvalRecovery: recoveredApprovalAudits,
     artifactIndexReady: repositories.artifacts.ready,
     cleanupWorkerConfigured: cleanup.configured,
     cleanupLastRunAt: cleanup.lastRunAt,
@@ -983,6 +1014,7 @@ async function handleReviewRegenerationApproval(req, res, rid) {
     persistenceAdapter,
     regenerationDraftRepository,
     regenerationApprovalRepository,
+    approvalOutboxRepository,
     jobQueue,
     workerSupervisor,
     requestId: rid,
@@ -1197,6 +1229,7 @@ module.exports = {
   exportRepository,
   regenerationDraftRepository,
   regenerationApprovalRepository,
+  approvalOutboxRepository,
   artifactCleanupWorker,
   workerSupervisor,
   stopWorkers,

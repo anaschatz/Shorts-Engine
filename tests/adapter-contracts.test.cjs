@@ -41,7 +41,9 @@ test("default local adapters satisfy explicit contracts and expose safe health",
   assert.equal(persistenceHealth.capabilities.createProject, true);
   assert.equal(persistenceHealth.capabilities.createArtifact, true);
   assert.equal(persistenceHealth.capabilities.restoreState, true);
+  assert.equal(persistenceHealth.capabilities.getApprovalOutboxRepository, true);
   assert.equal(persistenceHealth.repositories.artifacts.ready, true);
+  assert.equal(persistenceHealth.repositories.approvalOutbox.ready, true);
   assert.doesNotMatch(JSON.stringify({ artifactHealth, persistenceHealth }), /\/Users|\/private|storageKey|outputPath/);
 });
 

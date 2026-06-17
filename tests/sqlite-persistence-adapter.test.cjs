@@ -301,3 +301,87 @@ sqliteTest("sqlite stores idempotency and sanitized job records without public l
     cleanupDatabase(dbPath);
   }
 });
+
+sqliteTest("sqlite persists regeneration drafts approvals and approval outbox events", () => {
+  const { adapter, databasePath: dbPath } = makeAdapter();
+  const projectId = id("prj");
+  const sourceJobId = id("job");
+  const sourceExportId = id("exp");
+  const renderJobId = id("job");
+  const completedExportId = id("exp");
+  const regenerationPlanId = id("regen");
+  const approvalId = "appr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const draftHash = "abcdefabcdefabcdefabcdefabcdefab";
+  try {
+    const draft = adapter.regenerationDraftRepository.createFromPlan({
+      projectId,
+      jobId: sourceJobId,
+      exportId: sourceExportId,
+      regenerationPlanId,
+      draftHash,
+      status: "draft",
+      proposedChanges: ["captions"],
+      safetyChecks: [{ code: "NO_FALSE_GOAL", status: "passed" }],
+      proposedEditPlan: {
+        aspectRatio: "9:16",
+        highlightType: "big_chance",
+        framingMode: "wide_safe",
+        stylePreset: "social_sports_v1",
+        styleTarget: "vertical_9_16",
+        editIntensity: "balanced",
+        sourceStart: 1,
+        sourceEnd: 8,
+        captions: [{ start: 0, end: 1, text: "/Users/example should never persist raw text" }],
+      },
+    });
+    const approval = adapter.regenerationApprovalRepository.createIdempotent({
+      approvalId,
+      regenerationPlanId,
+      draftHash,
+      projectId,
+      sourceJobId,
+      sourceExportId,
+      idempotencyKey: "sqliteapprovalkey123",
+      approvedBy: "operator/manual/local",
+      status: "approved",
+      draftRecordId: draft.id,
+    });
+    const queued = adapter.regenerationApprovalRepository.markRenderQueued(approval.approvalId, renderJobId);
+    const completed = adapter.regenerationApprovalRepository.markRenderCompleted(approval.approvalId, {
+      jobId: renderJobId,
+      exportId: completedExportId,
+    });
+    const outbox = adapter.approvalOutboxRepository.createLifecycleEvent({
+      eventType: "render_completed",
+      requestId: "req_sqlite_outbox",
+      approvalRecord: completed,
+      jobId: renderJobId,
+      exportId: completedExportId,
+    });
+
+    assert.equal(queued.status, "render_queued");
+    assert.equal(completed.completedExportId, completedExportId);
+    assert.equal(adapter.regenerationDraftRepository.get(draft.id).id, draft.id);
+    assert.equal(adapter.regenerationApprovalRepository.getByRenderJobId(renderJobId).approvalId, approvalId);
+    assert.equal(adapter.approvalOutboxRepository.get(outbox.id).eventType, "render_completed");
+    assert.doesNotMatch(JSON.stringify(adapter.regenerationDraftRepository.publicDraft(draft)), PUBLIC_LEAK_RE);
+    assert.doesNotMatch(JSON.stringify(adapter.approvalOutboxRepository.publicEvent(outbox)), PUBLIC_LEAK_RE);
+
+    closeAdapter(adapter);
+    const restored = new SQLitePersistenceAdapter({ databasePath: dbPath });
+    try {
+      const summary = restored.restoreState();
+      assert.equal(summary.draftAudits, 1);
+      assert.equal(summary.approvalAudits, 1);
+      assert.equal(summary.approvalOutbox, 1);
+      assert.equal(restored.regenerationApprovalRepository.getByRenderJobId(renderJobId).status, "render_completed");
+      assert.equal(restored.approvalOutboxRepository.listPending().length, 1);
+      assert.equal(restored.health().repositories.approvalOutbox.ready, true);
+      assert.doesNotMatch(JSON.stringify(restored.health()), PUBLIC_LEAK_RE);
+    } finally {
+      closeAdapter(restored);
+    }
+  } finally {
+    cleanupDatabase(dbPath);
+  }
+});
