@@ -71,13 +71,21 @@ test("candidate edit plans are validated 9:16 MP4 exports", () => {
     sceneChanges: [{ time: 8.4, confidence: 0.81, source: "fixture" }],
   };
   const { moments } = detectHighlights({ transcript, signals, preset: "hype" });
-  const plans = createCandidateEditPlans({ moments, metadata, transcript, title: "Fixture Derby", preset: "hype" });
+  const plans = createCandidateEditPlans({
+    moments,
+    metadata,
+    transcript,
+    title: "Fixture Derby",
+    preset: "hype",
+    stylePreset: "punchy_highlight",
+  });
   assert.ok(plans.length >= 2);
   assert.equal(plans[0].aspectRatio, "9:16");
   assert.equal(plans[0].export.width, 1080);
   assert.equal(plans[0].export.height, 1920);
   assert.equal(plans[0].highlightType, "goal");
-  assert.equal(plans[0].stylePreset, "social_sports_v1");
+  assert.equal(plans[0].stylePreset, "punchy_highlight");
+  assert.equal(plans[0].captions[0].role, "opening_hook");
   assert.equal(plans[0].framingMode, "wide_safe_vertical");
   assert.equal(plans[0].cropStrategy.preserveFullFrame, true);
   assert.ok(plans[0].captionEmphasis.length > 0);
@@ -230,12 +238,14 @@ test("candidate plans support square reference-style output with contextual capt
     title: "Reference-style crowd reaction",
     styleTarget: "square_1_1",
     editIntensity: "punchy",
+    stylePreset: "punchy_highlight",
   });
 
   assert.equal(plans[0].aspectRatio, "1:1");
   assert.equal(plans[0].export.width, 1080);
   assert.equal(plans[0].export.height, 1080);
   assert.equal(plans[0].footballStoryPlan.storyType, "reaction_story");
+  assert.equal(plans[0].stylePreset, "punchy_highlight");
   assert.equal(plans[0].captions.some((caption) => /crowd|reaction/i.test(caption.text)), true);
   assert.equal(plans[0].captions.some((caption) => /STADIUM TELLS THE STORY|RUN IT BACK/.test(caption.text)), false);
   assert.equal(plans[0].animationCues.some((cue) => cue.type === "kinetic_caption"), true);

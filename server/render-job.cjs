@@ -136,6 +136,7 @@ function assertPipelineContext({ job, project, upload, payload, deps }) {
   const language = sanitizeText(payload.language || "auto", 32) || "auto";
   const styleTarget = sanitizeText(payload.styleTarget || "vertical_9_16", 40).toLowerCase() || "vertical_9_16";
   const editIntensity = sanitizeText(payload.editIntensity || "balanced", 40).toLowerCase() || "balanced";
+  const stylePreset = sanitizeText(payload.stylePreset || "social_sports_v1", 40).toLowerCase() || "social_sports_v1";
   const source = payload.source || project.source || upload.source || null;
   if (!title || !preset) {
     throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400);
@@ -163,6 +164,7 @@ function assertPipelineContext({ job, project, upload, payload, deps }) {
     subtitlesKey,
     subtitlesPath: subtitles.localPath,
     subtitlesStage: subtitles,
+    stylePreset,
     styleTarget,
     editIntensity,
     title,
@@ -538,6 +540,7 @@ async function runRenderJob(options) {
       language: context.language,
       styleTarget: context.styleTarget,
       editIntensity: context.editIntensity,
+      stylePreset: context.stylePreset,
     });
     if (!Array.isArray(candidatePlans) || candidatePlans.length === 0) {
       throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
@@ -565,7 +568,9 @@ async function runRenderJob(options) {
       unsupportedAnimationCueCount: Array.isArray(editPlan.unsupportedAnimationCues) ? editPlan.unsupportedAnimationCues.length : 0,
     });
 
-    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 82, step: "render_short" });
+    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 78, step: "render_kinetic_captions" });
+    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 82, step: "render_beat_effects" });
+    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 86, step: "render_short" });
     await deps.renderShort({
       inputPath: context.inputPath,
       outputPath: context.outputPath,

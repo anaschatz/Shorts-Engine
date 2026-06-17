@@ -29,7 +29,14 @@ const HIGHLIGHT_TYPES = Object.freeze([
 ]);
 
 const FRAMING_MODES = Object.freeze(["safe_center", "action_bias", "wide_safe", "wide_safe_vertical"]);
-const STYLE_PRESETS = Object.freeze(["hype", "drama", "tactical", "fan", "social_sports_v1"]);
+const RENDER_STYLE_PRESETS = Object.freeze(["clean_sports", "social_sports_v1", "punchy_highlight"]);
+const STYLE_PRESET_ALIASES = Object.freeze({
+  hype: "punchy_highlight",
+  drama: "social_sports_v1",
+  tactical: "clean_sports",
+  fan: "punchy_highlight",
+});
+const STYLE_PRESETS = Object.freeze([...RENDER_STYLE_PRESETS, ...Object.keys(STYLE_PRESET_ALIASES)]);
 const ASPECT_RATIOS = Object.freeze(["9:16", "1:1"]);
 const ANIMATION_CUE_TYPES = Object.freeze([
   "intro_hook",
@@ -47,6 +54,25 @@ const ANIMATION_CUE_TYPES = Object.freeze([
   "subtle_camera_push",
 ]);
 const CAPTION_EMPHASIS_STYLES = Object.freeze(["kinetic_bold"]);
+const CAPTION_ROLES = Object.freeze(["opening_hook", "context", "action_callout", "reaction", "closing_punch"]);
+const CAPTION_EMPHASIS = Object.freeze(["normal", "strong", "shout", "detail", "warning"]);
+const CAPTION_LAYOUTS = Object.freeze(["bottom", "center", "top", "split"]);
+const CAPTION_HIGHLIGHT_COLORS = Object.freeze(["white", "gold", "cyan", "red", "green"]);
+const ANIMATION_CUE_LIMITS = Object.freeze({
+  intro_hook: 1.8,
+  caption_pop: 2.4,
+  beat_pulse: 0.55,
+  subtle_punch_in: 1.4,
+  end_replay_prompt: 1.8,
+  punch_zoom: 1.25,
+  impact_flash: 0.18,
+  kinetic_caption: 3,
+  scorebug_blur_guard: 3,
+  replay_stutter: 1.4,
+  freeze_frame: 0.75,
+  beat_cut: 0.45,
+  subtle_camera_push: 3.5,
+});
 const EFFECT_TYPES = Object.freeze([
   "wide_safe_framing",
   "social_caption_pop",
@@ -127,7 +153,13 @@ function normalizeFramingMode(value) {
 
 function normalizeStylePreset(value) {
   const safe = sanitizeText(value, 40).toLowerCase();
-  return STYLE_PRESETS.includes(safe) ? safe : "social_sports_v1";
+  if (RENDER_STYLE_PRESETS.includes(safe)) return safe;
+  return STYLE_PRESET_ALIASES[safe] || "social_sports_v1";
+}
+
+function isKnownStylePreset(value) {
+  const safe = sanitizeText(value, 40).toLowerCase();
+  return RENDER_STYLE_PRESETS.includes(safe) || Object.prototype.hasOwnProperty.call(STYLE_PRESET_ALIASES, safe);
 }
 
 function assertAllowedToken(value, allowed, message, maxLength = 60) {
@@ -162,24 +194,97 @@ function assertNoMisleadingGoalLanguage({ hook, captions, highlightType, reasonC
   }
 }
 
+function captionRoleForIndex(value, index, total) {
+  const safe = sanitizeText(value, 40).toLowerCase();
+  if (CAPTION_ROLES.includes(safe)) return safe;
+  if (safe === "story_beat") {
+    if (index === 1) return "context";
+    if (index >= total - 2) return "reaction";
+    return "action_callout";
+  }
+  if (index === 0) return "opening_hook";
+  if (index === total - 1) return "closing_punch";
+  if (index === 1) return "context";
+  if (index === total - 2) return "reaction";
+  return "action_callout";
+}
+
+function captionEmphasisForRole(value, role) {
+  const safe = sanitizeText(value, 40).toLowerCase();
+  if (CAPTION_EMPHASIS.includes(safe)) return safe;
+  if (role === "opening_hook") return "shout";
+  if (role === "context") return "detail";
+  if (role === "closing_punch") return "strong";
+  if (role === "reaction") return "strong";
+  return "strong";
+}
+
+function captionLayoutForRole(value, role) {
+  const safe = sanitizeText(value, 40).toLowerCase();
+  if (CAPTION_LAYOUTS.includes(safe)) return safe;
+  if (role === "opening_hook") return "center";
+  if (role === "context") return "top";
+  if (role === "action_callout") return "bottom";
+  if (role === "reaction") return "bottom";
+  return "bottom";
+}
+
+function captionStyleForRole(caption, role, emphasis, layout) {
+  const style = caption && typeof caption.style === "object" && !Array.isArray(caption.style) ? caption.style : {};
+  const defaultColor = emphasis === "warning" ? "red" : emphasis === "detail" ? "cyan" : "gold";
+  const highlightColor = assertAllowedToken(style.highlightColor || caption.highlightColor || defaultColor, CAPTION_HIGHLIGHT_COLORS, "Caption highlight color is invalid.", 24);
+  return {
+    fontScale: Number(clamp(style.fontScale ?? caption.fontScale ?? (role === "context" ? 0.82 : role === "opening_hook" ? 1.12 : 1), 0.72, 1.25).toFixed(2)),
+    stroke: Number(clamp(style.stroke ?? caption.stroke ?? (emphasis === "detail" ? 3 : 5), 2, 7).toFixed(1)),
+    shadow: Number(clamp(style.shadow ?? caption.shadow ?? 2, 0, 4).toFixed(1)),
+    highlightColor,
+    uppercase: Boolean(style.uppercase ?? caption.uppercase ?? emphasis === "shout"),
+    maxLines: Math.max(1, Math.min(3, Math.round(Number(style.maxLines ?? caption.maxLines ?? (layout === "top" ? 1 : 2)) || 2))),
+  };
+}
+
+function captionTimingTokens(caption, role) {
+  const timing = caption && typeof caption.timing === "object" && !Array.isArray(caption.timing) ? caption.timing : {};
+  const entranceFallback = role === "opening_hook" ? 180 : role === "context" ? 130 : 160;
+  return {
+    entranceMs: Math.round(clamp(timing.entranceMs ?? caption.entranceMs ?? entranceFallback, 80, 450)),
+    exitMs: Math.round(clamp(timing.exitMs ?? caption.exitMs ?? 120, 80, 350)),
+  };
+}
+
+function normalizeCaptionItem(caption, index, total, sourceStart, sourceEnd) {
+  const duration = sourceEnd - sourceStart;
+  const start = clamp(caption.start, 0, duration);
+  const end = clamp(caption.end, start + 0.4, duration);
+  const text = sanitizeText(caption.text, 96);
+  if (!text) return null;
+  const role = captionRoleForIndex(caption.role, index, total);
+  const emphasis = captionEmphasisForRole(caption.emphasis, role);
+  const layout = captionLayoutForRole(caption.layout, role);
+  return {
+    start: Number(start.toFixed(2)),
+    end: Number(end.toFixed(2)),
+    text,
+    index,
+    role,
+    emphasis,
+    layout,
+    timing: captionTimingTokens(caption, role),
+    style: captionStyleForRole(caption, role, emphasis, layout),
+  };
+}
+
 function normalizeCaptions(captions, sourceStart, sourceEnd) {
   const duration = sourceEnd - sourceStart;
   const safe = Array.isArray(captions) ? captions : [];
   const normalized = safe
-    .map((caption, index) => {
-      const start = clamp(caption.start, 0, duration);
-      const end = clamp(caption.end, start + 0.4, duration);
-      const text = sanitizeText(caption.text, 96);
-      if (!text) return null;
-      return {
-        start: Number(start.toFixed(2)),
-        end: Number(end.toFixed(2)),
-        text,
-        index,
-      };
-    })
+    .map((caption, index) => normalizeCaptionItem(caption || {}, index, safe.length, sourceStart, sourceEnd))
     .filter(Boolean)
     .sort((a, b) => a.start - b.start);
+  normalized.forEach((caption, index) => {
+    caption.index = index;
+  });
+  if (duration <= 0) return [];
   return normalized;
 }
 
@@ -215,6 +320,7 @@ function createFallbackCaptions(duration, preset, options = {}) {
     start: Number((index * segment).toFixed(2)),
     end: Number(Math.min(duration, index * segment + segment - 0.15).toFixed(2)),
     text,
+    role: index === 0 ? "opening_hook" : index === beats.length - 1 ? "closing_punch" : index === 1 ? "action_callout" : "reaction",
   })).filter((caption) => caption.end > caption.start);
 }
 
@@ -350,6 +456,29 @@ function normalizeCaptionEmphasisItems(items, duration) {
   return normalized;
 }
 
+function normalizeAnimationCue(cue, duration, unsupportedAnimationCues) {
+  const type = sanitizeText(cue && cue.type, 40).toLowerCase();
+  const start = clamp(cue && cue.start, 0, duration);
+  let end = clamp(cue && cue.end, 0, duration);
+  if (!ANIMATION_CUE_TYPES.includes(type) || end <= start) {
+    unsupportedAnimationCues.push({ type: type || "unknown", reason: "unsupported_or_invalid_timing" });
+    return null;
+  }
+  const maxDuration = ANIMATION_CUE_LIMITS[type] || 2;
+  if (end - start > maxDuration) {
+    end = Math.min(duration, start + maxDuration);
+  }
+  if (end <= start) {
+    unsupportedAnimationCues.push({ type, reason: "duration_limit_invalidated_cue" });
+    return null;
+  }
+  return {
+    type,
+    start: Number(start.toFixed(2)),
+    end: Number(end.toFixed(2)),
+  };
+}
+
 function normalizeEffects(effects) {
   if (!Array.isArray(effects)) return [];
   return assertAllowedList(effects, EFFECT_TYPES, "Edit plan effect is invalid.", 40);
@@ -389,7 +518,7 @@ function createEditPlan({ metadata, transcript, preset = "hype", title = "Shorts
     actionFocusConfidence: 0,
     visualEvidenceSummary: normalizeVisualEvidenceSummary(null),
     cropStrategy: createCropStrategy(metadata, framingMode),
-    stylePreset: "social_sports_v1",
+    stylePreset: normalizeStylePreset("social_sports_v1"),
     captionEmphasis: createCaptionEmphasis(captions, highlightType),
     animationCues: createAnimationCues(duration, ["generic_highlight"]),
     safetyNotes: ["No ball tracking claim; wide-safe framing preserves the full source frame when needed."],
@@ -443,7 +572,7 @@ function validateEditPlan(plan, metadata = {}) {
   if (framingMode === "action_bias" && actionFocusConfidence < 0.82) {
     throw new AppError("VALIDATION_ERROR", "Action-biased framing needs high-confidence visual action focus.", 400);
   }
-  if (plan.stylePreset && !STYLE_PRESETS.includes(sanitizeText(plan.stylePreset, 40).toLowerCase())) {
+  if (plan.stylePreset && !isKnownStylePreset(plan.stylePreset)) {
     throw new AppError("VALIDATION_ERROR", "Unsupported edit style preset.", 400);
   }
   const reasonCodes = Array.isArray(plan.reasonCodes) ? plan.reasonCodes.map((reason) => sanitizeText(reason, 60)).filter(Boolean) : [];
@@ -479,16 +608,7 @@ function validateEditPlan(plan, metadata = {}) {
   const rawAnimationCues = Array.isArray(plan.animationCues) ? plan.animationCues.slice(0, 10) : null;
   const unsupportedAnimationCues = [];
   let animationCues = rawAnimationCues
-    ? rawAnimationCues.map((cue) => {
-        const type = sanitizeText(cue && cue.type, 40);
-        const start = clamp(cue && cue.start, 0, duration);
-        const end = clamp(cue && cue.end, 0, duration);
-        if (!ANIMATION_CUE_TYPES.includes(type) || end <= start) {
-          unsupportedAnimationCues.push({ type: type || "unknown", reason: "unsupported_or_invalid_timing" });
-          return null;
-        }
-        return { type, start, end };
-      }).filter(Boolean)
+    ? rawAnimationCues.map((cue) => normalizeAnimationCue(cue, duration, unsupportedAnimationCues)).filter(Boolean)
     : createAnimationCues(duration, reasonCodes);
   if (!animationCues.length) animationCues = createAnimationCues(duration, reasonCodes);
   return {
@@ -518,12 +638,18 @@ function validateEditPlan(plan, metadata = {}) {
 
 module.exports = {
   ANIMATION_CUE_TYPES,
+  ANIMATION_CUE_LIMITS,
   ASPECT_RATIOS,
+  CAPTION_EMPHASIS,
   CAPTION_EMPHASIS_STYLES,
+  CAPTION_HIGHLIGHT_COLORS,
+  CAPTION_LAYOUTS,
+  CAPTION_ROLES,
   EFFECT_TYPES,
   FRAMING_MODES,
   HIGHLIGHT_TYPES,
   HOOKS,
+  RENDER_STYLE_PRESETS,
   STYLE_PRESETS,
   createFallbackCaptions,
   createAnimationCues,
@@ -533,5 +659,8 @@ module.exports = {
   framingModeForMetadata,
   hasGoalLanguage,
   hookForHighlightType,
+  isKnownStylePreset,
+  normalizeCaptions,
+  normalizeStylePreset,
   validateEditPlan,
 };

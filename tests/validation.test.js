@@ -305,6 +305,7 @@ test("project settings are normalized and consent is required for jobs", () => {
     preset: "not-real",
     styleTarget: "square_1_1",
     editIntensity: "punchy",
+    stylePreset: "punchy_highlight",
     pace: 999,
     motion: -4,
     captionsEnabled: true,
@@ -317,6 +318,7 @@ test("project settings are normalized and consent is required for jobs", () => {
   assert.equal(settings.data.preset, "hype");
   assert.equal(settings.data.styleTarget, "square_1_1");
   assert.equal(settings.data.editIntensity, "punchy");
+  assert.equal(settings.data.stylePreset, "punchy_highlight");
   assert.equal(settings.data.pace, 100);
   assert.equal(settings.data.motion, 0);
   assert.equal(Core.validateProjectForJob(settings.data, "generate").error.code, "RIGHTS_REQUIRED");
@@ -325,10 +327,12 @@ test("project settings are normalized and consent is required for jobs", () => {
     title: "Derby Final",
     styleTarget: "unsafe",
     editIntensity: "chaos",
+    stylePreset: "unknown_render_style",
     rightsConfirmed: true,
   });
   assert.equal(fallback.data.styleTarget, "vertical_9_16");
   assert.equal(fallback.data.editIntensity, "balanced");
+  assert.equal(fallback.data.stylePreset, "social_sports_v1");
 });
 
 test("AI output validation normalizes valid moments and rejects unusable output", () => {

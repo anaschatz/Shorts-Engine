@@ -342,8 +342,16 @@ function safeHighlightType(moment = {}) {
 function primarySubjectFromTitle(title, options = {}) {
   const safeTitle = sanitizeText(title, 120);
   if (!safeTitle || /^shortsengine short$/i.test(safeTitle)) return null;
-  const beforeDash = safeTitle.split(/\s[-|:]\s/)[0].trim();
-  const compact = beforeDash.length >= 3 ? beforeDash : safeTitle;
+  const parts = safeTitle
+    .split(/\s*\|\s*/)
+    .map((part) => sanitizeText(part, 54))
+    .filter(Boolean);
+  const matchupRe = /(?:\bvs\.?\b|\bv\b|\s-\s)/i;
+  const genericRe = /\b(highlights?|shorts?|group|round|friendly|full match)\b|μουντιάλ|παγκόσμιο|στιγμιότυπα/i;
+  const matchupPart = parts.find((part) => matchupRe.test(part));
+  const descriptivePart = parts.find((part) => !genericRe.test(part));
+  const fallback = safeTitle.split(/\s[-:]\s/)[0].trim();
+  const compact = matchupPart || descriptivePart || (fallback.length >= 3 ? fallback : safeTitle);
   if (options.goalEvidence !== true && hasGoalLanguage(compact)) return null;
   return sanitizeText(compact, 54) || null;
 }
@@ -352,8 +360,8 @@ function contextLineForTitle(title, highlightType, language, options = {}) {
   const copy = highlightCopy(highlightType, language);
   const subject = primarySubjectFromTitle(title, { goalEvidence: options.goalEvidence });
   if (!subject) return copy.context;
-  if (languageKey(language) === "el") return `Από το ματς: ${subject}`;
-  return `From the match: ${subject}`;
+  if (languageKey(language) === "el") return `Ματς: ${subject}`;
+  return `Match: ${subject}`;
 }
 
 function storyDurationFor({ metadata = {}, selectedMoment = {}, editIntensity }) {
@@ -403,7 +411,35 @@ function captionBeats({ copy, title, highlightType, language, duration, includeT
   return lines.map((text, index) => ({
     ...captionTiming(duration, index, lines.length),
     text: sanitizeText(text, 96),
-    role: index === 0 ? "opening_hook" : index === lines.length - 1 ? "closing_punch" : "story_beat",
+    role: index === 0
+      ? "opening_hook"
+      : index === 1
+        ? "context"
+        : index === lines.length - 1
+          ? "closing_punch"
+          : index === lines.length - 2
+            ? "reaction"
+            : "action_callout",
+    emphasis: index === 0
+      ? "shout"
+      : index === 1
+        ? "detail"
+        : index === lines.length - 1
+          ? "strong"
+          : "strong",
+    layout: index === 0 ? "center" : index === 1 ? "top" : "bottom",
+    timing: {
+      entranceMs: index === 0 ? 180 : 140,
+      exitMs: 120,
+    },
+    style: {
+      fontScale: index === 0 ? 1.12 : index === 1 ? 0.78 : 1,
+      stroke: index === 1 ? 3 : 5,
+      shadow: 2,
+      highlightColor: index === 1 ? "cyan" : "gold",
+      uppercase: index !== 1,
+      maxLines: index === 1 ? 1 : 2,
+    },
   })).filter((caption) => caption.end > caption.start && caption.text);
 }
 
@@ -420,11 +456,22 @@ function animationCuesForStory({ duration, highlightType, reasonCodes = [], edit
   }
   if (
     intensity === "punchy" &&
-    ["big_chance", "shot_on_target", "near_miss", "save", "foul", "hard_foul", "counter_attack"].includes(highlightType)
+    [
+      "big_chance",
+      "shot_on_target",
+      "near_miss",
+      "save",
+      "foul",
+      "hard_foul",
+      "counter_attack",
+      "crowd_reaction",
+      "commentator_peak",
+      "audio_energy_spike",
+    ].includes(highlightType)
   ) {
     cues.push({ type: "punch_zoom", start: Math.min(3.1, safeDuration - 0.2), end: Math.min(4.2, safeDuration) });
   }
-  if (intensity === "punchy" && ["foul", "hard_foul", "save", "big_chance"].includes(highlightType)) {
+  if (intensity === "punchy" && ["foul", "hard_foul", "save", "big_chance", "crowd_reaction", "commentator_peak"].includes(highlightType)) {
     cues.push({ type: "impact_flash", start: Math.min(4.25, safeDuration - 0.1), end: Math.min(4.38, safeDuration) });
   }
   if (reasonCodes.includes("visual_replay_indicator") || ["replay_or_reaction", "replay_worthy_moment"].includes(highlightType)) {

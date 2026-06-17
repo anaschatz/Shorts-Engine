@@ -33,6 +33,7 @@ const JOB_STYLE_ALIASES = Object.freeze({
   vertical: "vertical_9_16",
 });
 const JOB_EDIT_INTENSITIES = Object.freeze(["clean", "balanced", "punchy"]);
+const JOB_RENDER_STYLE_PRESETS = Object.freeze(["clean_sports", "social_sports_v1", "punchy_highlight"]);
 
 const DEFAULT_RECOVERY_POLICY = Object.freeze({
   maxAttempts: 2,
@@ -203,6 +204,11 @@ function normalizeEditIntensity(value) {
   return JOB_EDIT_INTENSITIES.includes(safe) ? safe : "balanced";
 }
 
+function normalizeRenderStylePreset(value) {
+  const safe = sanitizeText(value || "social_sports_v1", 40).toLowerCase();
+  return JOB_RENDER_STYLE_PRESETS.includes(safe) ? safe : "social_sports_v1";
+}
+
 function normalizePayload(payload) {
   if (!payload || typeof payload !== "object") return null;
   return {
@@ -211,6 +217,7 @@ function normalizePayload(payload) {
     language: sanitizeText(payload.language || "auto", 32) || "auto",
     styleTarget: normalizeStyleTarget(payload.styleTarget),
     editIntensity: normalizeEditIntensity(payload.editIntensity),
+    stylePreset: normalizeRenderStylePreset(payload.stylePreset),
     source: normalizeSmokeSource(payload.source),
   };
 }

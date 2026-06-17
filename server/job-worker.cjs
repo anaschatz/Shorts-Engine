@@ -26,6 +26,7 @@ function payloadForJob(job, project) {
     language: (job.payload && job.payload.language) || "auto",
     styleTarget: (job.payload && job.payload.styleTarget) || "vertical_9_16",
     editIntensity: (job.payload && job.payload.editIntensity) || "balanced",
+    stylePreset: (job.payload && job.payload.stylePreset) || "social_sports_v1",
   };
 }
 

@@ -8,6 +8,7 @@ const {
   framingModeForMetadata,
   hasGoalLanguage,
   hookForHighlightType,
+  normalizeStylePreset,
   validateEditPlan,
 } = require("./edit-plan.cjs");
 const { commandAvailable, sanitizeText } = require("./media.cjs");
@@ -755,7 +756,9 @@ function createCandidateEditPlans({
   language = "auto",
   styleTarget = "vertical_9_16",
   editIntensity = "balanced",
+  stylePreset = "social_sports_v1",
 } = {}) {
+  const renderStylePreset = normalizeStylePreset(stylePreset);
   const candidates = (Array.isArray(moments) ? moments : []).slice(0, 3).map((moment) => {
     const visualEvidenceSummary = visualEvidenceSummaryForMoment(moment);
     const storyPlan = createFootballStoryPlan({
@@ -801,7 +804,7 @@ function createCandidateEditPlans({
       actionFocusConfidence,
       visualEvidenceSummary,
       cropStrategy: storyPlan.cropStrategy || createCropStrategy(metadata, framingMode),
-      stylePreset: "social_sports_v1",
+      stylePreset: renderStylePreset,
       styleTarget: storyPlan.styleTarget,
       editIntensity: storyPlan.editIntensity,
       footballStoryPlan: storyPlan,

@@ -158,6 +158,8 @@ test("edit plan validation enforces safe MP4 export shapes with captions", () =>
   assert.equal(validated.captions.length, 2);
   assert.equal(validated.highlightType, "generic_highlight");
   assert.equal(validated.stylePreset, "social_sports_v1");
+  assert.equal(validated.captions[0].role, "opening_hook");
+  assert.equal(validated.captions[1].role, "closing_punch");
   assert.equal(validated.framingMode, "wide_safe_vertical");
   assert.equal(validated.cropStrategy.preserveFullFrame, true);
   assert.ok(validated.animationCues.length > 0);
@@ -169,6 +171,7 @@ test("edit plan validation enforces safe MP4 export shapes with captions", () =>
   assert.throws(() => validateEditPlan({ ...plan, aspectRatio: "4:5" }, metadata), /Unsupported export aspect ratio/);
   assert.throws(() => validateEditPlan({ ...plan, highlightType: "goalish" }, metadata), /Unsupported highlight type/);
   assert.throws(() => validateEditPlan({ ...plan, framingMode: "tight_crop" }, metadata), /Unsupported framing mode/);
+  assert.throws(() => validateEditPlan({ ...plan, stylePreset: "neon_chaos" }, metadata), /Unsupported edit style preset/);
   assert.throws(() => validateEditPlan({ ...plan, effects: ["wide_safe_framing", "secret_effect"] }, metadata), /effect is invalid/);
   assert.throws(
     () =>

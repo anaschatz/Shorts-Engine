@@ -21,7 +21,7 @@ const { EDIT_INTENSITIES, STYLE_TARGETS, normalizeEditIntensity, normalizeStyleT
 const { frameExtractionHealth } = require("./frame-extraction.cjs");
 const { visionHealth } = require("./vision.cjs");
 const { validateUploadCandidate, probeMedia, toolHealth, sha256, sanitizeText } = require("./media.cjs");
-const { HOOKS } = require("./edit-plan.cjs");
+const { HOOKS, RENDER_STYLE_PRESETS, normalizeStylePreset } = require("./edit-plan.cjs");
 const { transcriptionHealth } = require("./transcription.cjs");
 const { JobStore, idempotencyKey } = require("./jobs.cjs");
 const { normalizeSmokeSource } = require("./staging-smoke-metadata.cjs");
@@ -230,15 +230,20 @@ function validateGeneratePayload(payload, project) {
   ) {
     throw new AppError("VALIDATION_ERROR", "Unsupported edit intensity.", 400);
   }
+  const rawStylePreset = sanitizeText(payload.stylePreset || "social_sports_v1", 40).toLowerCase();
+  if (payload.stylePreset !== undefined && !RENDER_STYLE_PRESETS.includes(rawStylePreset)) {
+    throw new AppError("VALIDATION_ERROR", "Unsupported render style preset.", 400);
+  }
+  const stylePreset = normalizeStylePreset(rawStylePreset);
   const source = payload.source !== undefined ? normalizeSmokeSource(payload.source) : normalizeSmokeSource(project.source);
   if (payload.idempotencyKey !== undefined) {
     const providedKey = sanitizeText(payload.idempotencyKey, 120);
     if (!/^[A-Za-z0-9_-]{8,120}$/.test(providedKey)) {
       throw new AppError("VALIDATION_ERROR", "Idempotency key is invalid.", 400);
     }
-    return { title, preset, language, styleTarget, editIntensity, source, idempotencyKey: providedKey, rightsConfirmed: Boolean(payload.rightsConfirmed) };
+    return { title, preset, language, styleTarget, editIntensity, stylePreset, source, idempotencyKey: providedKey, rightsConfirmed: Boolean(payload.rightsConfirmed) };
   }
-  return { title, preset, language, styleTarget, editIntensity, source, idempotencyKey: "", rightsConfirmed: Boolean(payload.rightsConfirmed) };
+  return { title, preset, language, styleTarget, editIntensity, stylePreset, source, idempotencyKey: "", rightsConfirmed: Boolean(payload.rightsConfirmed) };
 }
 
 function parseMultipart(buffer, contentType, options = {}) {
@@ -606,6 +611,7 @@ async function handleGenerate(req, res, rid, projectId) {
     preset: validatedPayload.preset,
     styleTarget: validatedPayload.styleTarget,
     editIntensity: validatedPayload.editIntensity,
+    stylePreset: validatedPayload.stylePreset,
     title: validatedPayload.title,
   });
   const job = jobQueue.create({

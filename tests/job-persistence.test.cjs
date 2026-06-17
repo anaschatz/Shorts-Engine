@@ -38,13 +38,13 @@ function createPersistentStore(jobDir, options = {}) {
   });
 }
 
-function createJob(store, key = "persist-key") {
+function createJob(store, key = "persist-key", payload = {}) {
   return store.create({
     projectId: PROJECT_ID,
     uploadId: UPLOAD_ID,
     action: "generate",
     idempotencyKey: key,
-    payload: { title: "Derby Final", preset: "hype", language: "en" },
+    payload: { title: "Derby Final", preset: "hype", language: "en", ...payload },
   });
 }
 
@@ -158,7 +158,7 @@ test("idempotency survives durable store reload", () => {
   assert.equal(secondStore.get(first.id).id, first.id);
 });
 
-test("job payload persistence preserves style target and edit intensity", () => {
+test("job payload persistence preserves style target edit intensity and render style", () => {
   const jobDir = tempJobDir();
   const firstStore = createPersistentStore(jobDir);
   const first = firstStore.create({
@@ -172,12 +172,14 @@ test("job payload persistence preserves style target and edit intensity", () => 
       language: "el",
       styleTarget: "square_1_1",
       editIntensity: "punchy",
+      stylePreset: "punchy_highlight",
     },
   });
 
   const raw = persistedJob(jobDir, first.id);
   assert.equal(raw.payload.styleTarget, "square_1_1");
   assert.equal(raw.payload.editIntensity, "punchy");
+  assert.equal(raw.payload.stylePreset, "punchy_highlight");
 
   const secondStore = createPersistentStore(jobDir);
   const summary = secondStore.recover();
@@ -186,6 +188,7 @@ test("job payload persistence preserves style target and edit intensity", () => 
   assert.equal(summary.records, 1);
   assert.equal(recovered.payload.styleTarget, "square_1_1");
   assert.equal(recovered.payload.editIntensity, "punchy");
+  assert.equal(recovered.payload.stylePreset, "punchy_highlight");
 });
 
 test("recovery requeues stale processing jobs and keeps terminal jobs terminal", () => {
@@ -258,10 +261,15 @@ test("corrupt and unsafe persisted job records are ignored safely", () => {
 test("worker processes queued durable jobs with mocked render", async () => {
   const jobDir = tempJobDir();
   const store = createPersistentStore(jobDir);
-  const job = createJob(store, "worker-success");
+  const job = createJob(store, "worker-success", {
+    styleTarget: "square_1_1",
+    editIntensity: "punchy",
+    stylePreset: "punchy_highlight",
+  });
   const projects = new Map([[PROJECT_ID, { id: PROJECT_ID, uploadId: UPLOAD_ID, title: "Derby Final", status: "draft" }]]);
   const uploads = new Map([[UPLOAD_ID, { id: UPLOAD_ID, projectId: PROJECT_ID, metadata: { durationSeconds: 12 }, path: storagePath("uploads", "worker.mp4") }]]);
   const exportsById = new Map();
+  let observedPayload = null;
   const worker = createLocalJobWorker({
     jobs: store,
     projects,
@@ -269,7 +277,8 @@ test("worker processes queued durable jobs with mocked render", async () => {
     exportsById,
     dependencies: {
       logger: null,
-      runRenderJob: async ({ jobs, job: runningJob }) => {
+      runRenderJob: async ({ jobs, job: runningJob, payload }) => {
+        observedPayload = payload;
         jobs.complete(runningJob, {
           exportId: "exp_dddddddd-dddd-4ddd-dddd-dddddddddddd",
           outputPath: storagePath("renders", "worker-success.mp4"),
@@ -285,6 +294,9 @@ test("worker processes queued durable jobs with mocked render", async () => {
   assert.equal(raw.status, "completed");
   assert.equal(raw.attempts, 1);
   assert.equal(raw.exportId, "exp_dddddddd-dddd-4ddd-dddd-dddddddddddd");
+  assert.equal(observedPayload.styleTarget, "square_1_1");
+  assert.equal(observedPayload.editIntensity, "punchy");
+  assert.equal(observedPayload.stylePreset, "punchy_highlight");
 });
 
 test("worker failures increment attempts and persist safe failed state", async () => {

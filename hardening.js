@@ -16,6 +16,7 @@
     allowedMimeTypes: Object.freeze(["video/mp4", "video/quicktime", "video/webm"]),
     allowedLanguages: Object.freeze(["Ελληνικά", "English", "Spanish", "Arabic"]),
     allowedPresets: Object.freeze(["hype", "drama", "tactical", "fan"]),
+    allowedRenderStylePresets: Object.freeze(["clean_sports", "social_sports_v1", "punchy_highlight"]),
     allowedRatios: Object.freeze(["vertical", "square", "auto"]),
     allowedStyleTargets: Object.freeze(["vertical_9_16", "square_1_1", "auto"]),
     allowedEditIntensities: Object.freeze(["clean", "balanced", "punchy"]),
@@ -500,6 +501,9 @@
     const editIntensity = CONFIG.allowedEditIntensities.includes(input && input.editIntensity)
       ? input.editIntensity
       : "balanced";
+    const stylePreset = CONFIG.allowedRenderStylePresets.includes(input && input.stylePreset)
+      ? input.stylePreset
+      : "social_sports_v1";
 
     return ok({
       title,
@@ -507,6 +511,7 @@
       preset,
       styleTarget,
       editIntensity,
+      stylePreset,
       pace: toBoundedInteger(input && input.pace, 20, 100, 72),
       motion: toBoundedInteger(input && input.motion, 0, 100, 64),
       captionsEnabled: Boolean(input && input.captionsEnabled),

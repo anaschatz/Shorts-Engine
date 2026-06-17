@@ -99,6 +99,7 @@
     activePreset: "hype",
     activeRatio: "vertical",
     activeIntensity: "balanced",
+    activeStylePreset: "social_sports_v1",
     activeObjectUrl: null,
     activeUpload: null,
     activeProject: null,
@@ -148,6 +149,7 @@
     resolved.ratioButtons = Array.from(document.querySelectorAll(".segmented-control button"));
     resolved.presetButtons = Array.from(document.querySelectorAll(".preset"));
     resolved.intensityButtons = Array.from(document.querySelectorAll("[data-intensity]"));
+    resolved.stylePresetButtons = Array.from(document.querySelectorAll("[data-style-preset]"));
     resolved.exportButtons = Array.from(document.querySelectorAll("[data-export-target]"));
     if (missing.length) {
       renderFatalError(`Missing required UI elements: ${missing.join(", ")}`);
@@ -188,6 +190,15 @@
   function setProjectStatus(status, label) {
     els.projectStatus.dataset.status = status;
     els.projectStatus.textContent = label;
+  }
+
+  function formatRenderStyleLabel(value) {
+    const labels = {
+      clean_sports: "Clean sports",
+      social_sports_v1: "Social sports",
+      punchy_highlight: "Punchy highlight",
+    };
+    return labels[value] || String(value || "Style").replace(/_/g, " ");
   }
 
   function showToast(message, kind = "info") {
@@ -261,6 +272,7 @@
       preset: state.activePreset,
       styleTarget: styleTargetForRatio(state.activeRatio),
       editIntensity: state.activeIntensity,
+      stylePreset: state.activeStylePreset,
       pace: els.paceRange.value,
       motion: els.motionRange.value,
       captionsEnabled: els.captionsToggle.checked,
@@ -512,6 +524,8 @@
       plan_story: "Planning football story",
       create_edit_plan: "Creating edit plans",
       render_short: "Rendering short",
+      render_kinetic_captions: "Composing kinetic captions",
+      render_beat_effects: "Applying beat effects",
       completed: "Completed",
       cancelled: "Cancelled",
     };
@@ -555,7 +569,7 @@
         if (moment.stylePreset) {
           const styleChip = document.createElement("small");
           styleChip.className = "reason-chip style-chip";
-          styleChip.textContent = moment.stylePreset === "social_sports_v1" ? "Social sports" : moment.stylePreset.replace(/_/g, " ");
+          styleChip.textContent = formatRenderStyleLabel(moment.stylePreset);
           reasons.appendChild(styleChip);
         }
         moment.reasons.slice(0, 3).forEach((reason) => {
@@ -874,12 +888,14 @@
           language: settings.data.language,
           styleTarget: settings.data.styleTarget,
           editIntensity: settings.data.editIntensity,
+          stylePreset: settings.data.stylePreset,
           rightsConfirmed: settings.data.rightsConfirmed,
           idempotencyKey: Core.createIdempotencyKey("generate", {
             uploadId: state.activeUpload.id,
             preset: settings.data.preset,
             styleTarget: settings.data.styleTarget,
             editIntensity: settings.data.editIntensity,
+            stylePreset: settings.data.stylePreset,
             title: settings.data.title,
           }),
         }),
@@ -976,7 +992,7 @@
     state.moments = Core.validateAiOutput(momentsFromCandidatePlans(candidatePlans, editPlan)).data || state.moments;
     els.downloadLink.href = state.downloadUrl;
     els.downloadLink.hidden = false;
-    const styleLabel = editPlan.stylePreset === "social_sports_v1" ? "Social sports" : editPlan.stylePreset || "Style";
+    const styleLabel = formatRenderStyleLabel(editPlan.stylePreset);
     const framingLabel = editPlan.framingMode ? editPlan.framingMode.replace(/_/g, " ") : "safe framing";
     const ratioLabel = editPlan.aspectRatio || "9:16";
     els.timelineLabel.textContent = `${Math.round(editPlan.sourceEnd - editPlan.sourceStart)}s short · ${ratioLabel} · ${candidatePlans.length || 1} candidates · ${styleLabel} · ${framingLabel}`;
@@ -1058,6 +1074,7 @@
       activeMoment: 0,
       activeRatio: "vertical",
       activeIntensity: "balanced",
+      activeStylePreset: "social_sports_v1",
       activeObjectUrl: null,
       activeUpload: null,
       activeProject: null,
@@ -1082,6 +1099,7 @@
     els.ratioButtons.forEach((item) => item.classList.toggle("active", item.dataset.ratio === "vertical"));
     els.phonePreview.classList.remove("square", "wide");
     els.intensityButtons.forEach((item) => item.classList.toggle("active", item.dataset.intensity === "balanced"));
+    els.stylePresetButtons.forEach((item) => item.classList.toggle("active", item.dataset.stylePreset === "social_sports_v1"));
     els.momentCount.textContent = "3";
     els.shortCount.textContent = "0";
     resetFileInput();
@@ -1117,6 +1135,15 @@
     updateActionStates();
   }
 
+  function updateStylePreset(button) {
+    const stylePreset = button.dataset.stylePreset;
+    if (!Core.CONFIG.allowedRenderStylePresets.includes(stylePreset)) return;
+    state.activeStylePreset = stylePreset;
+    els.stylePresetButtons.forEach((item) => item.classList.remove("active"));
+    button.classList.add("active");
+    updateActionStates();
+  }
+
   function updatePreset(button) {
     const preset = button.dataset.preset;
     if (!Core.CONFIG.allowedPresets.includes(preset)) {
@@ -1135,6 +1162,7 @@
     els.ratioButtons.forEach((button) => button.addEventListener("click", () => updateRatio(button)));
     els.presetButtons.forEach((button) => button.addEventListener("click", () => updatePreset(button)));
     els.intensityButtons.forEach((button) => button.addEventListener("click", () => updateIntensity(button)));
+    els.stylePresetButtons.forEach((button) => button.addEventListener("click", () => updateStylePreset(button)));
     els.sourceLocalBtn.addEventListener("click", () => selectSource("local"));
     els.sourceYoutubeBtn.addEventListener("click", () => selectSource("youtube"));
     els.youtubeUrlInput.addEventListener("input", () => {

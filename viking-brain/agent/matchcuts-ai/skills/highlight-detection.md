@@ -21,3 +21,5 @@ Guardrails:
 - Sampled frames may improve visual context, but the local adapter is conservative: no brittle object tracking, no false goal inference and no public path leakage.
 - Provider-backed vision labels must be schema-validated. Runtime provider failures may fall back safely, but malformed semantic output such as visual-only `goal` labels must fail closed.
 - Story planning must keep captions tied to the classified moment type and must strip title/context goal language when there is no explicit goal evidence.
+- Story captions should use the validated sequence `opening_hook`, `context`, `action_callout`, `reaction`, `closing_punch` so the renderer can apply kinetic captions predictably.
+- Title-derived context should prefer matchup/team segments over generic competition labels when pipe-separated titles are available.

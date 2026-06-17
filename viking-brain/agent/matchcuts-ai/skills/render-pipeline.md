@@ -10,10 +10,11 @@ Core path:
 4. Extract WAV audio with FFmpeg when audio exists.
 5. Transcribe with configured provider or deterministic mock fallback.
 6. Plan a football story, then generate and validate a 9:16 or 1:1 MP4 edit plan.
-7. Write ASS subtitles with hook and caption styles.
-8. Render via FFmpeg using safe contain framing, color punch, subtitles, H.264 MP4.
-9. Poll `GET /api/jobs/:jobId`.
-10. Download via `GET /api/exports/:exportId/download`.
+7. Write role-specific ASS kinetic captions from the validated caption contract.
+8. Apply bounded beat/cue overlays without cropping away the foreground action.
+9. Render via FFmpeg using safe contain framing, color punch, subtitles, H.264 MP4.
+10. Poll `GET /api/jobs/:jobId`.
+11. Download via `GET /api/exports/:exportId/download`.
 
 Architecture rule:
 
@@ -37,3 +38,6 @@ Safety notes:
 - Treat missing project/upload context as a safe job failure, not an uncaught orchestration crash.
 - Treat object storage/database migration as an adapter swap after repository and artifact contracts are stable.
 - 1:1 square sports edits are supported through validated export dimensions; unsupported animation cues should be ignored with metadata instead of failing render.
+- Supported renderer styles are `clean_sports`, `social_sports_v1` and `punchy_highlight`; unknown styles must fail closed before enqueue/render.
+- Kinetic captions must keep role, emphasis, layout, timing and style tokens valid before ASS generation.
+- Punchy effects should use bounded overlays/background push and must not imply ball/player tracking or crop away the full foreground frame.

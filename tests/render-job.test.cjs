@@ -111,7 +111,14 @@ function makeContext(options = {}) {
       hasAudio: options.hasAudio !== false,
     },
   };
-  const payload = { title: "Derby Final", preset: "hype", language: "en", styleTarget: "square_1_1", editIntensity: "punchy" };
+  const payload = {
+    title: "Derby Final",
+    preset: "hype",
+    language: "en",
+    styleTarget: "square_1_1",
+    editIntensity: "punchy",
+    stylePreset: "punchy_highlight",
+  };
   const calls = [];
   const logs = [];
   const writes = [];
@@ -254,11 +261,14 @@ test("render orchestration completes success path with mocked adapters", async (
       "detect_highlights",
       "plan_story",
       "create_edit_plan",
+      "render_kinetic_captions",
+      "render_beat_effects",
       "render_short",
     ],
   );
   assert.equal(context.createPlanInput.styleTarget, "square_1_1");
   assert.equal(context.createPlanInput.editIntensity, "punchy");
+  assert.equal(context.createPlanInput.stylePreset, "punchy_highlight");
   assert.equal(context.createPlanInput.language, "en");
   assert.equal(context.calls.includes("analyze_frames"), true);
   assert.equal(context.calls.includes("extract_sampled_frames"), true);
