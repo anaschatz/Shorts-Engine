@@ -43,7 +43,7 @@ Disallowed visual labels:
 - `scored`
 - `goal_scored`
 
-Provider output containing a disallowed goal label must fail closed with `AI_OUTPUT_INVALID`.
+Provider output containing a disallowed goal label or unknown label must fail closed with `AI_OUTPUT_INVALID`.
 Runtime provider failures and timeouts may fall back to `safe-heuristic`, but malformed semantic output should not be silently accepted.
 
 ## Safety Rules

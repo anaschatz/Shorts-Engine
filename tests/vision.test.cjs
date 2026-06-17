@@ -140,6 +140,17 @@ test("visual validation rejects visual-only goal labels", () => {
   );
 });
 
+test("visual validation rejects unknown provider labels instead of downgrading", () => {
+  assert.throws(
+    () => validateVisualSignals({
+      providerMode: "bad-provider",
+      fallbackUsed: false,
+      windows: [{ start: 2, end: 4, labels: ["ball_tracker_secret"], confidence: 0.9 }],
+    }, metadata),
+    (error) => error.code === "AI_OUTPUT_INVALID",
+  );
+});
+
 test("mock vision provider returns deterministic safe labels", async () => {
   const result = await analyzeVision({
     providerMode: "mock-vision-provider",
@@ -185,6 +196,23 @@ test("external vision provider adapter validates injected provider output", asyn
   assert.equal(result.providerMode, "external-vision-adapter");
   assert.equal(result.windows[0].type, "foul_like_contact");
   assert.equal(result.summary.goalClaimAllowed, false);
+});
+
+test("external vision provider fails closed on unknown labels", async () => {
+  const provider = createVisionProvider({
+    mode: "external",
+    client: {
+      analyzeFrames: async () => ({
+        confidence: 0.82,
+        windows: [{ start: 3, end: 6, type: "goalish_provider_label", confidence: 0.82 }],
+      }),
+    },
+  });
+
+  await assert.rejects(
+    () => provider.analyzeFrames({ metadata }),
+    (error) => error.code === "AI_OUTPUT_INVALID",
+  );
 });
 
 test("external vision provider runtime failure falls back without raw provider leakage", async () => {
@@ -240,6 +268,21 @@ test("external vision provider cancellation stops before provider work", async (
 
   await assert.rejects(
     () => provider.analyzeFrames({ metadata, signal: controller.signal }),
+    (error) => error.code === "JOB_CANCELLED",
+  );
+});
+
+test("external vision provider cancellation interrupts pending provider work", async () => {
+  const controller = new AbortController();
+  const provider = createVisionProvider({
+    mode: "external",
+    client: { analyzeFrames: async () => new Promise(() => {}) },
+  });
+  const pending = provider.analyzeFrames({ metadata, signal: controller.signal, timeoutMs: 1000 });
+  setTimeout(() => controller.abort(), 5);
+
+  await assert.rejects(
+    () => pending,
     (error) => error.code === "JOB_CANCELLED",
   );
 });

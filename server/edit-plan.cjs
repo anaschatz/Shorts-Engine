@@ -31,6 +31,46 @@ const HIGHLIGHT_TYPES = Object.freeze([
 const FRAMING_MODES = Object.freeze(["safe_center", "action_bias", "wide_safe", "wide_safe_vertical"]);
 const STYLE_PRESETS = Object.freeze(["hype", "drama", "tactical", "fan", "social_sports_v1"]);
 const ANIMATION_CUE_TYPES = Object.freeze(["intro_hook", "caption_pop", "beat_pulse", "subtle_punch_in", "end_replay_prompt"]);
+const CAPTION_EMPHASIS_STYLES = Object.freeze(["kinetic_bold"]);
+const EFFECT_TYPES = Object.freeze([
+  "wide_safe_framing",
+  "social_caption_pop",
+  "caption_emphasis",
+  "brand_safe_template",
+  "beat_sync_pulse",
+  "scene_snap_zoom",
+  "action_lane_emphasis",
+  "subtle_punch_in",
+  "impact_freeze_frame",
+  "replay_stutter",
+]);
+const VISUAL_EVIDENCE_TYPES = Object.freeze([
+  "ball_visible",
+  "player_cluster",
+  "goal_area_visible",
+  "penalty_box_visible",
+  "shot_like_motion",
+  "save_like_motion",
+  "foul_like_contact",
+  "fast_break_motion",
+  "replay_indicator",
+  "crowd_reaction",
+  "camera_pan",
+  "scoreboard_context",
+  "unknown_visual_action",
+]);
+const VISUAL_EVIDENCE_REASON_CODES = Object.freeze([
+  "visual_ball_visible",
+  "visual_goal_area",
+  "visual_shot_like_motion",
+  "visual_save_like_motion",
+  "visual_foul_like_contact",
+  "visual_fast_break",
+  "visual_replay_indicator",
+  "visual_crowd_reaction",
+  "visual_scoreboard_context",
+  "visual_unknown_action",
+]);
 const GOAL_LANGUAGE_RE = /\b(scored|scores|equalises|equalizes|back of the net|into the net|finds the net)\b|γκολ|σκοραρ|σκόραρ/i;
 const GOAL_WORD_RE = /\bgo+als?\b/gi;
 const NON_EVENT_GOAL_CONTEXT_RE = /\b(?:behind|towards?|near|around|beside|from behind|in front of)\s+(?:the\s+)?goals?\b|\bno\s+goals?\b/i;
@@ -73,6 +113,19 @@ function normalizeFramingMode(value) {
 function normalizeStylePreset(value) {
   const safe = sanitizeText(value, 40).toLowerCase();
   return STYLE_PRESETS.includes(safe) ? safe : "social_sports_v1";
+}
+
+function assertAllowedToken(value, allowed, message, maxLength = 60) {
+  const safe = sanitizeText(value, maxLength).toLowerCase();
+  if (!allowed.includes(safe)) {
+    throw new AppError("VALIDATION_ERROR", message, 400);
+  }
+  return safe;
+}
+
+function assertAllowedList(values, allowed, message, maxLength = 60) {
+  const rawValues = Array.isArray(values) ? values : [];
+  return [...new Set(rawValues.map((value) => assertAllowedToken(value, allowed, message, maxLength)))];
 }
 
 function hasGoalLanguage(value) {
@@ -242,13 +295,43 @@ function normalizeVisualEvidenceSummary(value) {
     providerMode: sanitizeText(summary.providerMode || "mock", 40),
     fallbackUsed: Boolean(summary.fallbackUsed),
     windowCount: clamp(summary.windowCount || 0, 0, 24),
-    topTypes: Array.isArray(summary.topTypes) ? summary.topTypes.map((type) => sanitizeText(type, 48)).filter(Boolean).slice(0, 8) : [],
+    topTypes: Array.isArray(summary.topTypes)
+      ? assertAllowedList(summary.topTypes, VISUAL_EVIDENCE_TYPES, "Visual evidence type is invalid.", 48).slice(0, 8)
+      : [],
     reasonCodes: Array.isArray(summary.reasonCodes)
-      ? summary.reasonCodes.map((reason) => sanitizeText(reason, 60)).filter(Boolean).slice(0, 8)
+      ? assertAllowedList(summary.reasonCodes, VISUAL_EVIDENCE_REASON_CODES, "Visual evidence reason code is invalid.", 60).slice(0, 8)
       : [],
     actionFocusConfidence: Number(clamp(summary.actionFocusConfidence, 0, 1).toFixed(2)),
     goalClaimAllowed: false,
   };
+}
+
+function normalizeCaptionEmphasisItems(items, duration) {
+  const rawItems = Array.isArray(items) ? items : [];
+  const normalized = rawItems.slice(0, 6).map((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+    const style = assertAllowedToken(item.style || "kinetic_bold", CAPTION_EMPHASIS_STYLES, "Caption emphasis style is invalid.", 32);
+    const start = clamp(item.start, 0, duration);
+    const end = clamp(item.end, 0, duration);
+    const words = Array.isArray(item.words) ? item.words.map((word) => sanitizeText(word, 24)).filter(Boolean).slice(0, 3) : [];
+    if (!words.length || end <= start) return null;
+    return {
+      captionIndex: Math.max(0, Math.floor(Number(item.captionIndex) || 0)),
+      words,
+      style,
+      start,
+      end,
+    };
+  }).filter(Boolean);
+  if (normalized.length !== rawItems.length) {
+    throw new AppError("VALIDATION_ERROR", "Caption emphasis timing or style is invalid.", 400);
+  }
+  return normalized;
+}
+
+function normalizeEffects(effects) {
+  if (!Array.isArray(effects)) return [];
+  return assertAllowedList(effects, EFFECT_TYPES, "Edit plan effect is invalid.", 40);
 }
 
 function framingModeForMetadata(metadata = {}) {
@@ -319,7 +402,11 @@ function validateEditPlan(plan, metadata = {}) {
   if (!plan.export || plan.export.width !== 1080 || plan.export.height !== 1920 || plan.export.format !== "mp4") {
     throw new AppError("VALIDATION_ERROR", "Export settings must be 1080x1920 MP4.", 400);
   }
-  const highlightType = normalizeHighlightType(plan.highlightType);
+  const highlightType = assertAllowedToken(plan.highlightType, HIGHLIGHT_TYPES, "Unsupported highlight type.", 40);
+  const rawFramingMode = sanitizeText(plan.framingMode || "wide_safe_vertical", 40).toLowerCase();
+  if (rawFramingMode !== "wide_safe" && !FRAMING_MODES.includes(rawFramingMode)) {
+    throw new AppError("VALIDATION_ERROR", "Unsupported framing mode.", 400);
+  }
   const framingMode = normalizeFramingMode(plan.framingMode);
   const stylePreset = normalizeStylePreset(plan.stylePreset);
   const visualEvidenceSummary = normalizeVisualEvidenceSummary(plan.visualEvidenceSummary);
@@ -358,13 +445,9 @@ function validateEditPlan(plan, metadata = {}) {
     throw new AppError("VALIDATION_ERROR", "Crop strategy exceeds media height.", 400);
   }
   const duration = sourceEnd - sourceStart;
-  const captionEmphasis = Array.isArray(plan.captionEmphasis) ? plan.captionEmphasis.slice(0, 6).map((item) => ({
-    captionIndex: Math.max(0, Math.floor(Number(item.captionIndex) || 0)),
-    words: Array.isArray(item.words) ? item.words.map((word) => sanitizeText(word, 24)).filter(Boolean).slice(0, 3) : [],
-    style: sanitizeText(item.style || "kinetic_bold", 32),
-    start: clamp(item.start, 0, duration),
-    end: clamp(item.end, 0, duration),
-  })).filter((item) => item.words.length && item.end >= item.start) : createCaptionEmphasis(captions, highlightType);
+  const captionEmphasis = Array.isArray(plan.captionEmphasis)
+    ? normalizeCaptionEmphasisItems(plan.captionEmphasis, duration)
+    : createCaptionEmphasis(captions, highlightType);
   const animationCues = Array.isArray(plan.animationCues) ? plan.animationCues.slice(0, 8).map((cue) => ({
     type: sanitizeText(cue.type, 40),
     start: clamp(cue.start, 0, duration),
@@ -390,7 +473,7 @@ function validateEditPlan(plan, metadata = {}) {
     animationCues,
     safetyNotes: Array.isArray(plan.safetyNotes) ? plan.safetyNotes.map((note) => sanitizeText(note, 160)).filter(Boolean).slice(0, 6) : [],
     captions,
-    effects: Array.isArray(plan.effects) ? plan.effects.map((effect) => sanitizeText(effect, 40)).filter(Boolean) : [],
+    effects: normalizeEffects(plan.effects),
     reasonCodes,
     export: { width: 1080, height: 1920, format: "mp4" },
   };
@@ -398,6 +481,8 @@ function validateEditPlan(plan, metadata = {}) {
 
 module.exports = {
   ANIMATION_CUE_TYPES,
+  CAPTION_EMPHASIS_STYLES,
+  EFFECT_TYPES,
   FRAMING_MODES,
   HIGHLIGHT_TYPES,
   HOOKS,

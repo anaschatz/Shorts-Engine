@@ -81,3 +81,4 @@ Checklist:
 - GitHub CLI missing/auth failures may include safe `operatorRecovery` commands, but these must remain manual instructions and never trigger automatic install, auth, token prompts, logs or artifacts.
 - For adapter health/readiness, reject truthy strings and malformed objects; expose strict booleans only and sanitize mode/status strings before they reach `/health` or proof reports.
 - For YouTube ingest failure UX, classify downloader stderr/stdout internally and expose only safe codes plus `nextAction`, `retryable`, `authorizedImportRequired`, `ingestRisk` and `metadataStatus`. Do not implement cookie/browser-session import without a dedicated reviewed adapter.
+- Provider and edit-plan outputs must use strict allowlists for visual labels, visual evidence, highlight types, effects and caption-emphasis styles; unknown values should fail closed instead of silently downgrading to generic output.

@@ -63,6 +63,20 @@ function normalizeVisualType(value) {
   return VISUAL_SIGNAL_TYPES.includes(safe) ? safe : "unknown_visual_action";
 }
 
+function assertAllowedVisualTypes(values = []) {
+  const rawValues = Array.isArray(values) ? values : [values];
+  if (hasDisallowedVisualLabel(rawValues)) {
+    throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
+  }
+  return rawValues.map((value) => {
+    const safe = sanitizeText(value, 48).toLowerCase();
+    if (!VISUAL_SIGNAL_TYPES.includes(safe)) {
+      throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
+    }
+    return safe;
+  });
+}
+
 function rawVisualTypes(window) {
   if (!window || typeof window !== "object") return [];
   if (Array.isArray(window.labels) && window.labels.length) return window.labels;
@@ -115,12 +129,7 @@ function normalizeVisualWindow(window, metadata = {}) {
   const end = Number(clamp(rawEnd, start + 0.4, duration || rawEnd).toFixed(2));
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
   const rawTypes = rawVisualTypes(window);
-  if (hasDisallowedVisualLabel(rawTypes)) {
-    throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
-  }
-  const types = rawTypes.length
-    ? rawTypes.map(normalizeVisualType)
-    : ["unknown_visual_action"];
+  const types = rawTypes.length ? assertAllowedVisualTypes(rawTypes) : ["unknown_visual_action"];
   const uniqueTypes = [...new Set(types)].slice(0, 4);
   const confidence = Number(clamp(window.confidence, 0.05, 0.95).toFixed(2));
   return {
@@ -329,7 +338,8 @@ function inferLabelsForFrame(frame, candidateWindows = [], mediaSignals = {}) {
   const matchedCandidate = closestCandidate(frame, candidateWindows);
   const candidateHints = Array.isArray(matchedCandidate && matchedCandidate.visualHints) ? matchedCandidate.visualHints : [];
   const frameHints = Array.isArray(frame && frame.visualHints) ? frame.visualHints : [];
-  const hints = [...frameHints, ...candidateHints].map(normalizeVisualType).filter(Boolean);
+  const rawHints = [...frameHints, ...candidateHints].filter(Boolean);
+  const hints = rawHints.length ? assertAllowedVisualTypes(rawHints) : [];
   if (hints.length) return [...new Set(hints)].slice(0, 4);
   const audioPeaks = nearbyMediaItems(mediaSignals.audioPeaks, timestamp, 3.5);
   const sceneChanges = nearbyMediaItems(mediaSignals.sceneChanges, timestamp, 2.5);
@@ -378,11 +388,19 @@ function cancellationError() {
 function raceWithTimeout(promise, { signal, timeoutMs = DEFAULT_PROVIDER_TIMEOUT_MS } = {}) {
   if (signal && signal.aborted) return Promise.reject(cancellationError());
   let timer = null;
+  let abortListener = null;
   return new Promise((resolve, reject) => {
     const finish = (fn, value) => {
       if (timer) clearTimeout(timer);
+      if (signal && abortListener && typeof signal.removeEventListener === "function") {
+        signal.removeEventListener("abort", abortListener);
+      }
       fn(value);
     };
+    if (signal && typeof signal.addEventListener === "function") {
+      abortListener = () => finish(reject, cancellationError());
+      signal.addEventListener("abort", abortListener, { once: true });
+    }
     timer = setTimeout(() => {
       finish(reject, new AppError("VISION_PROVIDER_TIMEOUT", SAFE_MESSAGES.AI_OUTPUT_INVALID, 504));
     }, Math.max(250, Math.min(DEFAULT_PROVIDER_TIMEOUT_MS, Number(timeoutMs) || DEFAULT_PROVIDER_TIMEOUT_MS)));

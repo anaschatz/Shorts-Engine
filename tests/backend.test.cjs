@@ -164,6 +164,38 @@ test("edit plan validation enforces 9:16 MP4 with captions", () => {
   assert.ok(validated.captionEmphasis.length > 0);
 
   assert.throws(() => validateEditPlan({ ...plan, aspectRatio: "1:1" }, metadata), /Only 9:16/);
+  assert.throws(() => validateEditPlan({ ...plan, highlightType: "goalish" }, metadata), /Unsupported highlight type/);
+  assert.throws(() => validateEditPlan({ ...plan, framingMode: "tight_crop" }, metadata), /Unsupported framing mode/);
+  assert.throws(() => validateEditPlan({ ...plan, effects: ["wide_safe_framing", "secret_effect"] }, metadata), /effect is invalid/);
+  assert.throws(
+    () =>
+      validateEditPlan(
+        {
+          ...plan,
+          visualEvidenceSummary: {
+            providerMode: "fixture",
+            fallbackUsed: false,
+            windowCount: 1,
+            topTypes: ["ball_tracker_secret"],
+            reasonCodes: ["visual_ball_visible"],
+            actionFocusConfidence: 0.5,
+          },
+        },
+        metadata,
+      ),
+    /Visual evidence type is invalid/,
+  );
+  assert.throws(
+    () =>
+      validateEditPlan(
+        {
+          ...plan,
+          captionEmphasis: [{ captionIndex: 0, words: ["OPEN"], style: "unsafe_script", start: 0, end: 1 }],
+        },
+        metadata,
+      ),
+    /Caption emphasis style is invalid/,
+  );
   assert.throws(
     () =>
       validateEditPlan(
