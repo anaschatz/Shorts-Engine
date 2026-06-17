@@ -1,0 +1,65 @@
+{
+  "id": "action_beats_crowd_reaction_no_goal",
+  "title": "Action chance should outrank crowd-only reaction without goal claim",
+  "language": "English",
+  "durationSeconds": 24,
+  "transcript": {
+    "provider": "fixture",
+    "language": "en",
+    "captions": [
+      { "start": 4.2, "end": 5.5, "text": "Listen to the stands react" },
+      { "start": 10.1, "end": 11.4, "text": "The pressure rises in the box" },
+      { "start": 16.0, "end": 17.2, "text": "Replay the reaction from the crowd" }
+    ]
+  },
+  "mediaSignals": {
+    "durationSeconds": 24,
+    "width": 1920,
+    "height": 1080,
+    "hasAudio": true,
+    "audioPeaks": [{ "time": 4.8, "energyScore": 0.94, "source": "fixture" }],
+    "sceneChanges": [{ "time": 10.3, "confidence": 0.74, "source": "fixture" }],
+    "highMotionCandidates": []
+  },
+  "visualSignals": {
+    "providerMode": "fixture-visual",
+    "fallbackUsed": false,
+    "confidence": 0.89,
+    "windows": [
+      {
+        "start": 4.1,
+        "end": 5.7,
+        "labels": ["crowd_reaction"],
+        "confidence": 0.86,
+        "source": "fixture"
+      },
+      {
+        "start": 9.4,
+        "end": 12.3,
+        "labels": ["shot_like_motion", "goal_area_visible", "ball_visible"],
+        "confidence": 0.89,
+        "source": "fixture"
+      }
+    ]
+  },
+  "sampledFrames": {
+    "providerMode": "fixture-frame-sampling",
+    "fallbackUsed": false,
+    "summary": { "frameCount": 3 }
+  },
+  "expected": {
+    "highlights": [{ "start": 8.8, "end": 13.0 }],
+    "reasonCodes": ["visual_shot_like_motion", "visual_goal_area", "visual_ball_visible", "scene_change_cluster"],
+    "highlightType": "big_chance",
+    "stylePreset": "social_sports_v1",
+    "styleTarget": "vertical_9_16",
+    "aspectRatio": "9:16"
+  },
+  "thresholds": {
+    "minAggregateScore": 76,
+    "minTop1Overlap": 0.45,
+    "minTop3Recall": 1,
+    "minReasonPrecision": 0.5,
+    "minRetentionScore": 55
+  }
+}

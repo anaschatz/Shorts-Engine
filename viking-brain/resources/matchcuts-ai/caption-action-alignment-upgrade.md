@@ -45,6 +45,26 @@ Tests:
 - Analysis tests cover scoreboard-only suppression of weak skill claims.
 - Reference review tests now require `captionActionAlignment >= 0.95`.
 
+AI-driven ranking/caption follow-up:
+- Moment ranking now separates primary action evidence from reaction context.
+- Action-led visual cues such as `visual_shot_like_motion`, `visual_save_like_motion`, `visual_foul_like_contact` and `visual_fast_break` receive a bounded boost.
+- Crowd/commentary/audio reaction still matters, but crowd-only reaction receives a bounded penalty when no action evidence exists.
+- Scoreboard-only visual context remains support-only and cannot create action or goal claims.
+- Ranked moments expose `rankingExplanation` with boost cues, supporting cues, reaction cues, suppressed cues and rejected claims.
+- Candidate captions expose `captionIntent`, `captionSource`, `captionEvidence` and `captionRiskFlags`.
+- Edit-plan validation rejects captions that contain goal language without explicit goal evidence.
+- Eval now tracks `captionEvidenceMetadataCompleteness`, `captionActionAlignment` and `genericCaptionPenaltyRate`.
+- Added fixture `017_action_beats_crowd_reaction_no_goal` to verify action chance evidence outranks early crowd-only reaction.
+
+Latest eval result:
+- `npm run eval`
+- Fixture count: `17`
+- Aggregate score: `98`
+- `captionEvidenceMetadataCompleteness`: `1`
+- `captionActionAlignment`: `1`
+- `genericCaptionPenaltyRate`: `0`
+
 Next use:
 - Run `npm run eval:reference` after any change to captions, highlight taxonomy, visual reason codes or story planning.
+- Run `npm run eval` after any ranking or edit-plan metadata change.
 - Treat a drop in caption/action alignment as a product regression even when schema tests still pass.

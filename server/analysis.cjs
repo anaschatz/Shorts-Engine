@@ -327,8 +327,43 @@ const ACTION_VISUAL_REASONS = Object.freeze([
   "visual_save_like_motion",
   "visual_foul_like_contact",
   "visual_fast_break",
-  "visual_crowd_reaction",
   "visual_replay_indicator",
+]);
+
+const PRIMARY_ACTION_REASONS = Object.freeze([
+  "goal",
+  "big_chance",
+  "shot_on_target",
+  "save",
+  "hard_foul",
+  "foul",
+  "card_moment",
+  "counter_attack",
+  "skill_move",
+  "visual_shot_like_motion",
+  "visual_save_like_motion",
+  "visual_foul_like_contact",
+  "visual_fast_break",
+]);
+
+const REACTION_CONTEXT_REASONS = Object.freeze([
+  "crowd_reaction",
+  "crowd_spike",
+  "visual_crowd_reaction",
+  "commentator_peak",
+  "audio_energy_spike",
+  "audio_peak",
+]);
+
+const SUPPORTING_CONTEXT_REASONS = Object.freeze([
+  "scene_change_cluster",
+  "replay_worthy_moment",
+  "replay_or_reaction",
+  "visual_replay_indicator",
+  "visual_scoreboard_context",
+  "visual_goal_area",
+  "visual_ball_visible",
+  "visual_unknown_action",
 ]);
 
 function visualReasonsAreScoreboardOnly(reasons = []) {
@@ -403,7 +438,62 @@ function scoreReasons(reasons) {
     unknown_action: 0.02,
     generic_highlight: 0.03,
   };
-  return clamp(0.22 + reasons.reduce((sum, reason) => sum + (weights[reason] || 0.04), 0), 0.12, 0.99);
+  const base = 0.22 + reasons.reduce((sum, reason) => sum + (weights[reason] || 0.04), 0);
+  const reasonSet = new Set(reasons);
+  const primaryActionCount = PRIMARY_ACTION_REASONS.filter((reason) => reasonSet.has(reason)).length;
+  const reactionContextCount = REACTION_CONTEXT_REASONS.filter((reason) => reasonSet.has(reason)).length;
+  const actionBoost = Math.min(0.18, primaryActionCount * 0.055);
+  const reactionOnlyPenalty = primaryActionCount === 0 && reactionContextCount > 0 ? 0.1 : 0;
+  const scoreboardOnlyPenalty = visualReasonsAreScoreboardOnly(reasons) ? 0.12 : 0;
+  return clamp(base + actionBoost - reactionOnlyPenalty - scoreboardOnlyPenalty, 0.12, 0.99);
+}
+
+function actionEvidenceStrength(reasons = []) {
+  const reasonSet = new Set(reasons);
+  if (reasonSet.has("goal")) return 1;
+  const primaryScore = PRIMARY_ACTION_REASONS.reduce((score, reason) => {
+    if (!reasonSet.has(reason)) return score;
+    if (reason.startsWith("visual_")) return score + 0.18;
+    if (["big_chance", "save", "hard_foul", "counter_attack"].includes(reason)) return score + 0.22;
+    return score + 0.14;
+  }, 0);
+  return Number(clamp(primaryScore, 0, 1).toFixed(2));
+}
+
+function safeCueList(reasons = [], allowed = []) {
+  const allowedSet = new Set(allowed);
+  return [...new Set(reasons.filter((reason) => allowedSet.has(reason)).map((reason) => sanitizeText(reason, 60)))].slice(0, 8);
+}
+
+function rankingExplanationForMoment({ reasons = [], score = 0, source = "analysis", visualSignals = null } = {}) {
+  const reasonSet = new Set(reasons);
+  const actionCues = safeCueList(reasons, PRIMARY_ACTION_REASONS);
+  const reactionCues = safeCueList(reasons, REACTION_CONTEXT_REASONS);
+  const supportingCues = safeCueList(reasons, SUPPORTING_CONTEXT_REASONS);
+  const suppressedCues = [];
+  const rejectedClaims = [];
+  const actionStrength = actionEvidenceStrength(reasons);
+  if (!actionCues.length && reactionCues.length) {
+    suppressedCues.push("reaction_context_without_visible_action");
+  }
+  if (visualReasonsAreScoreboardOnly(reasons)) {
+    suppressedCues.push("scoreboard_context_support_only");
+  }
+  if (!reasonSet.has("goal") && (reasonSet.has("visual_goal_area") || reasonSet.has("visual_shot_like_motion"))) {
+    rejectedClaims.push("goal_claim_rejected_without_explicit_goal_evidence");
+  }
+  return {
+    rankingVersion: 2,
+    score: Number(clamp(score, 0, 1).toFixed(2)),
+    actionEvidenceStrength: actionStrength,
+    boostCues: actionCues,
+    supportingCues,
+    reactionContextCues: reactionCues,
+    suppressedCues: suppressedCues.slice(0, 6),
+    rejectedClaims: rejectedClaims.slice(0, 4),
+    fallbackUsed: source === "fallback" || Boolean(visualSignals && visualSignals.fallbackUsed),
+    selectedAsPrimary: false,
+  };
 }
 
 function highlightTypeForReasons(reasons = []) {
@@ -611,6 +701,7 @@ function createFallbackMoments(signals, preset, visualSignals = null) {
       hook: hookForHighlightType(highlightType, preset),
       evidence: evidenceForReasons(reasonCodes, null, signals, center, visualSignals),
       captionIntent: captionIntentForHighlightType(highlightType),
+      rankingExplanation: rankingExplanationForMoment({ reasons: reasonCodes, score, source: "fallback", visualSignals }),
       source: "fallback",
     };
   });
@@ -646,6 +737,7 @@ function detectHighlights({ transcript, signals, visualSignals, preset = "hype" 
       suggestedPreset: reasonCodes.includes("counter_attack") || reasonCodes.includes("skill_move") ? "tactical" : preset,
       evidence: evidenceForReasons(reasonCodes, caption, safeSignals, center, safeVisualSignals),
       captionIntent: captionIntentForHighlightType(highlightType),
+      rankingExplanation: rankingExplanationForMoment({ reasons: reasonCodes, score, source: "analysis", visualSignals: safeVisualSignals }),
       source: "analysis",
     };
     moment.hook = hookForMoment(moment, preset);
@@ -680,6 +772,7 @@ function detectHighlights({ transcript, signals, visualSignals, preset = "hype" 
       hook: hookForHighlightType(highlightType, preset),
       evidence: evidenceForReasons(reasonCodes, null, safeSignals, center, safeVisualSignals),
       captionIntent: captionIntentForHighlightType(highlightType),
+      rankingExplanation: rankingExplanationForMoment({ reasons: reasonCodes, score, source: "signals", visualSignals: safeVisualSignals }),
       source: "analysis",
     };
   });
@@ -690,7 +783,7 @@ function detectHighlights({ transcript, signals, visualSignals, preset = "hype" 
     const end = Number(clamp(window.end, start + 3, duration).toFixed(2));
     const reasonCodes = visualReasonCodesForWindow(window);
     const highlightType = visualHighlightTypeForReasons(reasonCodes);
-    const score = scoreReasons(reasonCodes) + Number(window.confidence || 0) * 0.12;
+    const score = scoreReasons(reasonCodes) + Number(window.confidence || 0) * 0.16;
     return {
       id: `mom_visual_${index + 1}`,
       rank: index + 1,
@@ -707,6 +800,7 @@ function detectHighlights({ transcript, signals, visualSignals, preset = "hype" 
       hook: hookForHighlightType(highlightType, preset),
       evidence: evidenceForReasons(reasonCodes, null, safeSignals, center, safeVisualSignals),
       captionIntent: captionIntentForHighlightType(highlightType),
+      rankingExplanation: rankingExplanationForMoment({ reasons: reasonCodes, score, source: "vision", visualSignals: safeVisualSignals }),
       source: "vision",
     };
   });
@@ -721,9 +815,33 @@ function detectHighlights({ transcript, signals, visualSignals, preset = "hype" 
     if (deduped.length >= 3) break;
   }
   const moments = deduped.length ? deduped : createFallbackMoments(safeSignals, preset, safeVisualSignals);
+  const rankedMoments = moments.map((moment, index) => ({
+    ...moment,
+    rank: index + 1,
+    rankingExplanation: {
+      ...(moment.rankingExplanation || rankingExplanationForMoment({
+        reasons: moment.reasonCodes || [],
+        score: Number(moment.confidence || 0),
+        source: moment.source,
+        visualSignals: safeVisualSignals,
+      })),
+      selectedAsPrimary: index === 0,
+    },
+  }));
   return {
-    fallback: moments.every((moment) => moment.source === "fallback"),
-    moments: moments.map((moment, index) => ({
+    fallback: rankedMoments.every((moment) => moment.source === "fallback"),
+    explainability: {
+      selectedMomentId: rankedMoments[0] ? rankedMoments[0].id : null,
+      selectedHighlightType: rankedMoments[0] ? rankedMoments[0].highlightType : null,
+      selectedBecause: rankedMoments[0] ? rankedMoments[0].rankingExplanation.boostCues : [],
+      fallbackUsed: rankedMoments.every((moment) => moment.source === "fallback"),
+      goalClaimRejected: rankedMoments.some((moment) => (
+        moment.rankingExplanation &&
+        Array.isArray(moment.rankingExplanation.rejectedClaims) &&
+        moment.rankingExplanation.rejectedClaims.includes("goal_claim_rejected_without_explicit_goal_evidence")
+      )),
+    },
+    moments: rankedMoments.map((moment, index) => ({
       ...moment,
       rank: index + 1,
       captionBeats: captionBeatsForMoment(moment, captions, moment.suggestedPreset || preset),

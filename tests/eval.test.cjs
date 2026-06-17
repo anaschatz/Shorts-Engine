@@ -68,6 +68,9 @@ test("fixture scoring returns reportable metrics and candidate plans", () => {
   assert.equal(result.metrics.framingSafety, 1);
   assert.equal(result.metrics.animationCueValidity, 1);
   assert.equal(result.metrics.captionRoleValidity, 1);
+  assert.equal(result.metrics.captionEvidenceMetadataCompleteness, 1);
+  assert.equal(result.metrics.captionActionAlignment, 1);
+  assert.equal(result.metrics.genericCaptionPenaltyRate, 0);
   assert.equal(result.metrics.renderStylePresetValidity, 1);
   assert.equal(result.metrics.unsupportedCueRate, 0);
   assert.ok(result.actual.candidatePlans.length > 0);
@@ -90,6 +93,9 @@ test("evaluation report has aggregate metrics and no local path leakage", () => 
   assert.equal(report.aggregate.framingSafety, 1);
   assert.equal(report.aggregate.animationCueValidity, 1);
   assert.equal(report.aggregate.captionRoleValidity, 1);
+  assert.equal(report.aggregate.captionEvidenceMetadataCompleteness, 1);
+  assert.equal(report.aggregate.captionActionAlignment, 1);
+  assert.equal(report.aggregate.genericCaptionPenaltyRate, 0);
   assert.equal(report.aggregate.renderStylePresetValidity, 1);
   assert.equal(report.aggregate.unsupportedCueRate, 0);
   assert.doesNotMatch(JSON.stringify(report), /\/Users\//);
@@ -160,6 +166,9 @@ test("runner writes a JSON report", () => {
   assert.equal(typeof summary.sampledFrameCount, "number");
   assert.equal(summary.highlightTypeAccuracy, 1);
   assert.equal(summary.captionRoleValidity, 1);
+  assert.equal(summary.captionEvidenceMetadataCompleteness, 1);
+  assert.equal(summary.captionActionAlignment, 1);
+  assert.equal(summary.genericCaptionPenaltyRate, 0);
   assert.equal(summary.renderStylePresetValidity, 1);
   assert.equal(summary.unsupportedCueRate, 0);
   const latest = JSON.parse(readFileSync(join(resultsDir, "latest.json"), "utf8"));

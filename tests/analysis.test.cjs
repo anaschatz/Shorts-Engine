@@ -91,6 +91,10 @@ test("candidate edit plans are validated 9:16 MP4 exports", () => {
   assert.ok(plans[0].captionEmphasis.length > 0);
   assert.ok(plans[0].animationCues.length > 0);
   assert.equal(plans[0].reasonCodes.includes("goal"), true);
+  assert.ok(plans[0].captions.every((caption) => caption.captionIntent));
+  assert.ok(plans[0].captions.every((caption) => caption.captionSource));
+  assert.ok(plans[0].captions.every((caption) => caption.captionEvidence && caption.captionEvidence.alignedHighlightType === plans[0].highlightType));
+  assert.ok(plans[0].captions.every((caption) => Array.isArray(caption.captionRiskFlags)));
 });
 
 test("reason code extraction recognizes football and replay signals", () => {
@@ -163,6 +167,50 @@ test("visual shot-like evidence ranks a big chance without inventing a goal", ()
   assert.equal(hasGoalLanguage(result.moments[0].hook), false);
 });
 
+test("action-led visual evidence outranks crowd-only reaction when no goal exists", () => {
+  const result = detectHighlights({
+    transcript: {
+      provider: "fixture",
+      language: "en",
+      captions: [
+        { start: 4.2, end: 5.5, text: "Listen to the stands react" },
+        { start: 10.1, end: 11.4, text: "The pressure rises in the box" },
+      ],
+    },
+    signals: {
+      durationSeconds: 24,
+      hasAudio: true,
+      audioPeaks: [{ time: 4.8, energyScore: 0.94, source: "fixture" }],
+      sceneChanges: [{ time: 10.3, confidence: 0.74, source: "fixture" }],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [
+        { start: 4.1, end: 5.7, labels: ["crowd_reaction"], confidence: 0.86 },
+        { start: 9.4, end: 12.3, labels: ["shot_like_motion", "goal_area_visible", "ball_visible"], confidence: 0.89 },
+      ],
+    },
+    preset: "hype",
+  });
+
+  assert.equal(result.moments[0].highlightType, "big_chance");
+  assert.equal(result.moments[0].reasonCodes.includes("visual_shot_like_motion"), true);
+  assert.equal(result.moments[0].reasonCodes.includes("goal"), false);
+  assert.equal(result.moments[0].rankingExplanation.boostCues.includes("visual_shot_like_motion"), true);
+  assert.equal(result.explainability.selectedHighlightType, "big_chance");
+  assert.equal(result.explainability.goalClaimRejected, true);
+
+  const plans = createCandidateEditPlans({ moments: result.moments, metadata, transcript: { captions: [] }, title: "Chance clip" });
+  const captionText = plans[0].captions.map((caption) => caption.text).join(" ");
+  assert.equal(plans[0].highlightType, "big_chance");
+  assert.match(captionText, /CHANCE|pressure|danger|timing|run|window/i);
+  assert.doesNotMatch(captionText, /THE STADIUM TELLS THE STORY|THE ENERGY JUMPS|RUN IT BACK/i);
+  assert.ok(plans[0].captions.every((caption) => caption.captionEvidence.alignedHighlightType === "big_chance"));
+  assert.ok(plans[0].captions.every((caption) => caption.captionSource.startsWith("football_story_planner:big_chance:")));
+  assert.ok(plans[0].captions.every((caption) => Array.isArray(caption.captionRiskFlags)));
+});
+
 test("candidate plans include visual evidence summary and safe framing reason", () => {
   const result = detectHighlights({
     transcript: {
@@ -209,6 +257,9 @@ test("visual-only save moments use aligned fallback captions instead of generic 
   assert.equal(plans[0].highlightType, "save");
   assert.match(plans[0].captions.map((caption) => caption.text).join(" "), /HUGE SAVE|keeper|Watch/i);
   assert.equal(hasGoalLanguage(plans[0].captions.map((caption) => caption.text).join(" ")), false);
+  assert.ok(plans[0].captions.every((caption) => caption.captionEvidence.alignedHighlightType === "save"));
+  assert.ok(plans[0].captions.every((caption) => caption.captionIntent.includes("keeper_save")));
+  assert.equal(plans[0].captions.flatMap((caption) => caption.captionRiskFlags).includes("goal_language_without_evidence"), false);
 });
 
 test("candidate plans support square reference-style output with contextual captions", () => {

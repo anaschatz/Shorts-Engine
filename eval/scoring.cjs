@@ -5,6 +5,7 @@ const { createCandidateEditPlans, detectHighlights } = require("../server/analys
 const {
   CAPTION_EMPHASIS,
   CAPTION_LAYOUTS,
+  CAPTION_RISK_FLAGS,
   CAPTION_ROLES,
   RENDER_STYLE_PRESETS,
   hasGoalLanguage,
@@ -19,6 +20,20 @@ const DEFAULT_THRESHOLDS = Object.freeze({
   minReasonPrecision: 0.5,
   minRetentionScore: 55,
 });
+
+const ACTION_HIGHLIGHT_TYPES = Object.freeze([
+  "shot_on_target",
+  "near_miss",
+  "big_chance",
+  "save",
+  "foul",
+  "hard_foul",
+  "card_moment",
+  "counter_attack",
+  "skill_move",
+]);
+
+const GENERIC_HYPE_RE = /\b(?:THE ENERGY JUMPS|THE STADIUM TELLS|THE CROWD TELLS|WATCH THE DETAIL|THE PRESSURE BUILDS|THE PLAY OPENS UP|RUN IT BACK)\b/i;
 
 const REQUIRED_FIXTURE_FIELDS = Object.freeze([
   "id",
@@ -162,6 +177,60 @@ function captionsHaveValidRoles(plan) {
   ));
 }
 
+function captionEvidenceMetadataIsComplete(plan) {
+  if (!plan || !Array.isArray(plan.captions) || plan.captions.length === 0) return false;
+  return plan.captions.every((caption) => {
+    const evidence = caption && caption.captionEvidence;
+    return (
+      caption &&
+      typeof caption.captionIntent === "string" &&
+      caption.captionIntent.length > 0 &&
+      typeof caption.captionSource === "string" &&
+      caption.captionSource.length > 0 &&
+      evidence &&
+      typeof evidence === "object" &&
+      evidence.alignedHighlightType === plan.highlightType &&
+      Array.isArray(evidence.reasonCodes) &&
+      Array.isArray(evidence.visualReasonCodes) &&
+      Array.isArray(caption.captionRiskFlags) &&
+      caption.captionRiskFlags.every((flag) => CAPTION_RISK_FLAGS.includes(flag))
+    );
+  });
+}
+
+function genericCaptionPenalty(plan) {
+  if (!plan || !Array.isArray(plan.captions) || !ACTION_HIGHLIGHT_TYPES.includes(plan.highlightType)) return 0;
+  const text = plan.captions.map((caption) => caption.text).join(" ");
+  return GENERIC_HYPE_RE.test(text) ? 1 : 0;
+}
+
+function captionActionAlignmentScore(plan) {
+  if (!plan || !Array.isArray(plan.captions) || plan.captions.length === 0) return 0;
+  if (!captionEvidenceMetadataIsComplete(plan)) return 0;
+  if (genericCaptionPenalty(plan)) return 0;
+  const text = plan.captions.map((caption) => caption.text).join(" ");
+  const checks = {
+    shot_on_target: /\b(?:shot|chance|pressure|punished|timing)\b/i,
+    near_miss: /\b(?:close|almost|angle|space|moment)\b/i,
+    big_chance: /\b(?:chance|pressure|danger|punished|timing|run|window)\b/i,
+    save: /\b(?:save|keeper|stop|reacts|chance)\b/i,
+    foul: /\b(?:challenge|contact|tempo|reaction|aftermath)\b/i,
+    hard_foul: /\b(?:contact|challenge|tempo|heavy|reaction)\b/i,
+    card_moment: /\b(?:decision|referee|call|heated)\b/i,
+    counter_attack: /\b(?:break|counter|space|run|runner|transition)\b/i,
+    skill_move: /\b(?:touch|move|angle|defender|turn)\b/i,
+    crowd_reaction: /\b(?:crowd|stadium|reaction|energy)\b/i,
+    commentator_peak: /\b(?:call|commentary|pressure|moment)\b/i,
+    audio_energy_spike: /\b(?:crowd|stadium|noise|energy|reaction)\b/i,
+    replay_or_reaction: /\b(?:replay|timing|angle|detail)\b/i,
+    replay_worthy_moment: /\b(?:replay|timing|angle|detail)\b/i,
+    unknown_action: /\b(?:pressure|play|develop|detail)\b/i,
+    generic_highlight: /\b(?:pressure|play|develop|detail)\b/i,
+  };
+  const matcher = checks[plan.highlightType];
+  return !matcher || matcher.test(text) ? 1 : 0;
+}
+
 function renderStylePresetIsValid(plan) {
   return Boolean(plan && RENDER_STYLE_PRESETS.includes(plan.stylePreset));
 }
@@ -277,6 +346,9 @@ function scoreFixture(fixture) {
     : 0;
   const captionTimingValidity = candidatePlans.every(captionsHaveValidTiming) ? 1 : 0;
   const captionRoleValidity = candidatePlans.every(captionsHaveValidRoles) ? 1 : 0;
+  const captionEvidenceMetadataCompleteness = candidatePlans.every(captionEvidenceMetadataIsComplete) ? 1 : 0;
+  const captionActionAlignment = topPlan ? captionActionAlignmentScore(topPlan) : 0;
+  const genericCaptionPenaltyRate = topPlan ? genericCaptionPenalty(topPlan) : 0;
   const renderStylePresetValidity = candidatePlans.every(renderStylePresetIsValid) ? 1 : 0;
   const unsupportedCueCount = topPlan && Array.isArray(topPlan.unsupportedAnimationCues) ? topPlan.unsupportedAnimationCues.length : 0;
   const animationCueCount = topPlan && Array.isArray(topPlan.animationCues) ? topPlan.animationCues.length : 0;
@@ -327,6 +399,9 @@ function scoreFixture(fixture) {
     candidatePlanValidity === 1 &&
     captionTimingValidity === 1 &&
     captionRoleValidity === 1 &&
+    captionEvidenceMetadataCompleteness === 1 &&
+    captionActionAlignment === 1 &&
+    genericCaptionPenaltyRate === 0 &&
     renderStylePresetValidity === 1 &&
     unsupportedCueRate <= 0.25 &&
     highlightTypeAccuracy === 1 &&
@@ -356,6 +431,9 @@ function scoreFixture(fixture) {
       candidatePlanValidity,
       captionTimingValidity,
       captionRoleValidity,
+      captionEvidenceMetadataCompleteness,
+      captionActionAlignment,
+      genericCaptionPenaltyRate,
       renderStylePresetValidity,
       unsupportedCueRate,
       highlightTypeAccuracy,
@@ -416,6 +494,9 @@ function scoreFixture(fixture) {
         unsupportedAnimationCueCount: Array.isArray(plan.unsupportedAnimationCues) ? plan.unsupportedAnimationCues.length : 0,
         captions: plan.captions.length,
         captionRoles: plan.captions.map((caption) => caption.role),
+        captionIntents: plan.captions.map((caption) => caption.captionIntent),
+        captionSources: plan.captions.map((caption) => caption.captionSource),
+        captionRiskFlags: plan.captions.flatMap((caption) => caption.captionRiskFlags || []),
         effects: plan.effects,
       })),
     },
@@ -428,6 +509,9 @@ function scoreFixture(fixture) {
       candidatePlanValidity,
       captionTimingValidity,
       captionRoleValidity,
+      captionEvidenceMetadataCompleteness,
+      captionActionAlignment,
+      genericCaptionPenaltyRate,
       renderStylePresetValidity,
       unsupportedCueRate,
       highlightTypeAccuracy,
@@ -452,6 +536,9 @@ function debuggingNotes(metrics) {
   if (!metrics.candidatePlanValidity) notes.push("Candidate edit plan validation failed.");
   if (!metrics.captionTimingValidity) notes.push("Caption timings are outside the selected source window.");
   if (!metrics.captionRoleValidity) notes.push("Kinetic caption role/style contract is missing or invalid.");
+  if (!metrics.captionEvidenceMetadataCompleteness) notes.push("Caption evidence metadata is missing or incomplete.");
+  if (!metrics.captionActionAlignment) notes.push("Caption copy does not align with the selected football action type.");
+  if (metrics.genericCaptionPenaltyRate) notes.push("Action-led moment received generic crowd or pressure hype captions.");
   if (!metrics.renderStylePresetValidity) notes.push("Candidate edit plan is missing a supported render style preset.");
   if (metrics.unsupportedCueRate > 0.25) notes.push("Too many animation cues were ignored as unsupported.");
   if (!metrics.highlightTypeAccuracy) notes.push("Top-ranked moment has the wrong football highlight type.");
@@ -498,6 +585,9 @@ function aggregateResults(results) {
     framingSafety: avg((result) => result.metrics.framingSafety),
     animationCueValidity: avg((result) => result.metrics.animationCueValidity),
     captionRoleValidity: avg((result) => result.metrics.captionRoleValidity),
+    captionEvidenceMetadataCompleteness: avg((result) => result.metrics.captionEvidenceMetadataCompleteness),
+    captionActionAlignment: avg((result) => result.metrics.captionActionAlignment),
+    genericCaptionPenaltyRate: avg((result) => result.metrics.genericCaptionPenaltyRate),
     renderStylePresetValidity: avg((result) => result.metrics.renderStylePresetValidity),
     unsupportedCueRate: avg((result) => result.metrics.unsupportedCueRate),
     fallbackUsageRate: avg((result) => (result.metrics.fallbackUsed ? 1 : 0)),

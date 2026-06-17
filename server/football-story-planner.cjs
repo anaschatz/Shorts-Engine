@@ -1,5 +1,6 @@
 const { sanitizeText } = require("./media.cjs");
 const {
+  captionIntentForHighlightType,
   createCaptionEmphasis,
   createCropStrategy,
   hasGoalLanguage,
@@ -447,6 +448,26 @@ function captionTiming(duration, index, count) {
   return { start, end };
 }
 
+function captionEvidenceForStory({ highlightType, reasonCodes = [], goalEvidence = false, role }) {
+  const safeReasons = reasonCodes.map((reason) => sanitizeText(reason, 60)).filter(Boolean).slice(0, 10);
+  return {
+    alignedHighlightType: highlightType,
+    highlightType,
+    reasonCodes: safeReasons,
+    visualReasonCodes: safeReasons.filter((reason) => /^visual_/.test(reason)),
+    goalEvidence: Boolean(goalEvidence),
+    role,
+  };
+}
+
+function captionRiskFlagsForStory({ text, highlightType, goalEvidence }) {
+  const flags = [];
+  if (highlightType !== "goal" && hasGoalLanguage(text) && !goalEvidence) {
+    flags.push("goal_language_without_evidence");
+  }
+  return flags;
+}
+
 function captionBeats({
   copy,
   title,
@@ -468,10 +489,9 @@ function captionBeats({
     copy.reaction,
     copy.closing,
   ].filter(Boolean);
-  return lines.map((text, index) => ({
-    ...captionTiming(duration, index, lines.length),
-    text: sanitizeText(text, 96),
-    role: index === 0
+  return lines.map((line, index) => {
+    const text = sanitizeText(line, 96);
+    const role = index === 0
       ? "opening_hook"
       : index === 1
         ? "context"
@@ -479,28 +499,37 @@ function captionBeats({
           ? "closing_punch"
           : index === lines.length - 2
             ? "reaction"
-            : "action_callout",
-    emphasis: index === 0
-      ? "shout"
-      : index === 1
-        ? "detail"
-        : index === lines.length - 1
-          ? "strong"
-          : "strong",
-    layout: index === 0 ? "center" : index === 1 ? "top" : "bottom",
-    timing: {
-      entranceMs: index === 0 ? 180 : 140,
-      exitMs: 120,
-    },
-    style: {
-      fontScale: index === 0 ? 1.12 : index === 1 ? 0.78 : 1,
-      stroke: index === 1 ? 3 : 5,
-      shadow: 2,
-      highlightColor: index === 1 ? "cyan" : "gold",
-      uppercase: index !== 1,
-      maxLines: index === 1 ? 1 : 2,
-    },
-  })).filter((caption) => caption.end > caption.start && caption.text);
+            : "action_callout";
+    return {
+      ...captionTiming(duration, index, lines.length),
+      text,
+      role,
+      emphasis: index === 0
+        ? "shout"
+        : index === 1
+          ? "detail"
+          : index === lines.length - 1
+            ? "strong"
+            : "strong",
+      layout: index === 0 ? "center" : index === 1 ? "top" : "bottom",
+      timing: {
+        entranceMs: index === 0 ? 180 : 140,
+        exitMs: 120,
+      },
+      style: {
+        fontScale: index === 0 ? 1.12 : index === 1 ? 0.78 : 1,
+        stroke: index === 1 ? 3 : 5,
+        shadow: 2,
+        highlightColor: index === 1 ? "cyan" : "gold",
+        uppercase: index !== 1,
+        maxLines: index === 1 ? 1 : 2,
+      },
+      captionIntent: captionIntentForHighlightType(highlightType, role),
+      captionSource: `football_story_planner:${highlightType}:${role}`,
+      captionEvidence: captionEvidenceForStory({ highlightType, reasonCodes, goalEvidence, role }),
+      captionRiskFlags: captionRiskFlagsForStory({ text, highlightType, goalEvidence }),
+    };
+  }).filter((caption) => caption.end > caption.start && caption.text);
 }
 
 function animationCuesForStory({ duration, highlightType, reasonCodes = [], editIntensity }) {

@@ -58,6 +58,12 @@ const CAPTION_ROLES = Object.freeze(["opening_hook", "context", "action_callout"
 const CAPTION_EMPHASIS = Object.freeze(["normal", "strong", "shout", "detail", "warning"]);
 const CAPTION_LAYOUTS = Object.freeze(["bottom", "center", "top", "split"]);
 const CAPTION_HIGHLIGHT_COLORS = Object.freeze(["white", "gold", "cyan", "red", "green"]);
+const CAPTION_RISK_FLAGS = Object.freeze([
+  "goal_language_without_evidence",
+  "generic_hype_on_action",
+  "caption_action_mismatch",
+  "crowd_context_only",
+]);
 const ANIMATION_CUE_LIMITS = Object.freeze({
   intro_hook: 1.8,
   caption_pop: 2.4,
@@ -252,7 +258,86 @@ function captionTimingTokens(caption, role) {
   };
 }
 
-function normalizeCaptionItem(caption, index, total, sourceStart, sourceEnd) {
+function captionIntentForHighlightType(highlightType, role = "action_callout") {
+  const safeType = normalizeHighlightType(highlightType);
+  const intents = {
+    goal: "goal_claim_allowed",
+    shot_on_target: "chance_pressure",
+    near_miss: "near_miss_reaction",
+    big_chance: "big_chance_pressure",
+    save: "keeper_save_reaction",
+    foul: "foul_contact",
+    hard_foul: "hard_contact_reaction",
+    card_moment: "referee_decision",
+    counter_attack: "transition_space",
+    skill_move: "skill_detail",
+    crowd_reaction: "crowd_energy",
+    commentator_peak: "commentary_energy",
+    replay_or_reaction: "replay_detail",
+    replay_worthy_moment: "replay_detail",
+    audio_energy_spike: "audio_energy",
+    unknown_action: "neutral_pressure",
+    generic_highlight: "neutral_pressure",
+  };
+  const intent = intents[safeType] || intents.generic_highlight;
+  if (role === "context") return `${intent}_context`;
+  if (role === "reaction") return `${intent}_reaction`;
+  if (role === "closing_punch") return `${intent}_replay_prompt`;
+  return intent;
+}
+
+function normalizeCaptionEvidence(value, context, role) {
+  const evidence = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const highlightType = normalizeHighlightType(evidence.highlightType || context.highlightType);
+  const alignedHighlightType = normalizeHighlightType(evidence.alignedHighlightType || evidence.highlightType || context.highlightType);
+  const reasonCodes = Array.isArray(evidence.reasonCodes)
+    ? evidence.reasonCodes
+    : context.reasonCodes;
+  const visualReasonCodes = Array.isArray(evidence.visualReasonCodes)
+    ? evidence.visualReasonCodes
+    : reasonCodes.filter((reason) => /^visual_/.test(reason));
+  return {
+    alignedHighlightType,
+    highlightType,
+    reasonCodes: reasonCodes.map((reason) => sanitizeText(reason, 60)).filter(Boolean).slice(0, 10),
+    visualReasonCodes: visualReasonCodes.map((reason) => sanitizeText(reason, 60)).filter(Boolean).slice(0, 10),
+    goalEvidence: Boolean(evidence.goalEvidence ?? context.goalEvidence),
+    role: sanitizeText(evidence.role || role, 40),
+  };
+}
+
+function normalizeCaptionRiskFlags(value, text, context) {
+  const rawFlags = Array.isArray(value) ? value : [];
+  const flags = rawFlags
+    .map((flag) => sanitizeText(flag, 60).toLowerCase())
+    .filter((flag) => CAPTION_RISK_FLAGS.includes(flag));
+  if (hasGoalLanguage(text) && !context.goalEvidence) flags.push("goal_language_without_evidence");
+  if (context.isReactionOnly) flags.push("crowd_context_only");
+  return [...new Set(flags)].slice(0, 6);
+}
+
+function normalizeCaptionSource(value, highlightType, role) {
+  const safe = sanitizeText(value, 96);
+  if (safe) return safe;
+  return `edit_plan:${normalizeHighlightType(highlightType)}:${sanitizeText(role, 40) || "caption"}`;
+}
+
+function normalizeCaptionContext(context = {}) {
+  const highlightType = normalizeHighlightType(context.highlightType || "generic_highlight");
+  const reasonCodes = Array.isArray(context.reasonCodes)
+    ? context.reasonCodes.map((reason) => sanitizeText(reason, 60)).filter(Boolean).slice(0, 12)
+    : [];
+  const reactionReasons = new Set(["crowd_reaction", "crowd_spike", "visual_crowd_reaction", "commentator_peak", "audio_energy_spike", "audio_peak"]);
+  const actionReasons = new Set(["goal", "big_chance", "shot_on_target", "save", "hard_foul", "foul", "card_moment", "counter_attack", "skill_move", "visual_shot_like_motion", "visual_save_like_motion", "visual_foul_like_contact", "visual_fast_break"]);
+  return {
+    highlightType,
+    reasonCodes,
+    goalEvidence: Boolean(context.goalEvidence || (highlightType === "goal" && reasonCodes.includes("goal"))),
+    isReactionOnly: reasonCodes.some((reason) => reactionReasons.has(reason)) && !reasonCodes.some((reason) => actionReasons.has(reason)),
+  };
+}
+
+function normalizeCaptionItem(caption, index, total, sourceStart, sourceEnd, context = {}) {
   const duration = sourceEnd - sourceStart;
   const start = clamp(caption.start, 0, duration);
   const end = clamp(caption.end, start + 0.4, duration);
@@ -261,6 +346,10 @@ function normalizeCaptionItem(caption, index, total, sourceStart, sourceEnd) {
   const role = captionRoleForIndex(caption.role, index, total);
   const emphasis = captionEmphasisForRole(caption.emphasis, role);
   const layout = captionLayoutForRole(caption.layout, role);
+  const captionIntent = sanitizeText(caption.captionIntent || captionIntentForHighlightType(context.highlightType, role), 80);
+  const captionEvidence = normalizeCaptionEvidence(caption.captionEvidence, context, role);
+  const captionSource = normalizeCaptionSource(caption.captionSource, context.highlightType, role);
+  const captionRiskFlags = normalizeCaptionRiskFlags(caption.captionRiskFlags, text, context);
   return {
     start: Number(start.toFixed(2)),
     end: Number(end.toFixed(2)),
@@ -271,14 +360,19 @@ function normalizeCaptionItem(caption, index, total, sourceStart, sourceEnd) {
     layout,
     timing: captionTimingTokens(caption, role),
     style: captionStyleForRole(caption, role, emphasis, layout),
+    captionIntent,
+    captionEvidence,
+    captionSource,
+    captionRiskFlags,
   };
 }
 
-function normalizeCaptions(captions, sourceStart, sourceEnd) {
+function normalizeCaptions(captions, sourceStart, sourceEnd, context = {}) {
   const duration = sourceEnd - sourceStart;
   const safe = Array.isArray(captions) ? captions : [];
+  const normalizedContext = normalizeCaptionContext(context);
   const normalized = safe
-    .map((caption, index) => normalizeCaptionItem(caption || {}, index, safe.length, sourceStart, sourceEnd))
+    .map((caption, index) => normalizeCaptionItem(caption || {}, index, safe.length, sourceStart, sourceEnd, normalizedContext))
     .filter(Boolean)
     .sort((a, b) => a.start - b.start);
   normalized.forEach((caption, index) => {
@@ -295,6 +389,10 @@ function hookForHighlightType(highlightType, preset) {
 
 function createFallbackCaptions(duration, preset, options = {}) {
   const highlightType = normalizeHighlightType(options.highlightType);
+  const reasonCodes = Array.isArray(options.reasonCodes)
+    ? options.reasonCodes.map((reason) => sanitizeText(reason, 60)).filter(Boolean).slice(0, 10)
+    : [highlightType].filter((reason) => reason !== "generic_highlight");
+  const goalEvidence = Boolean(options.goalEvidence || (highlightType === "goal" && reasonCodes.includes("goal")));
   const beatsByType = {
     goal: ["THE FINISH CHANGED THE MATCH", "WATCH THE MOVEMENT BEFORE IT", "REPLAY THE BUILD-UP"],
     shot_on_target: ["THE CHANCE OPENS FAST", "ONE TOUCH CREATES THE DANGER", "REPLAY THE PRESSURE"],
@@ -316,12 +414,26 @@ function createFallbackCaptions(duration, preset, options = {}) {
   };
   const beats = beatsByType[highlightType] || beatsByType.generic_highlight;
   const segment = Math.max(1.8, duration / beats.length);
-  return beats.map((text, index) => ({
-    start: Number((index * segment).toFixed(2)),
-    end: Number(Math.min(duration, index * segment + segment - 0.15).toFixed(2)),
-    text,
-    role: index === 0 ? "opening_hook" : index === beats.length - 1 ? "closing_punch" : index === 1 ? "action_callout" : "reaction",
-  })).filter((caption) => caption.end > caption.start);
+  return beats.map((text, index) => {
+    const role = index === 0 ? "opening_hook" : index === beats.length - 1 ? "closing_punch" : index === 1 ? "action_callout" : "reaction";
+    return {
+      start: Number((index * segment).toFixed(2)),
+      end: Number(Math.min(duration, index * segment + segment - 0.15).toFixed(2)),
+      text,
+      role,
+      captionIntent: captionIntentForHighlightType(highlightType, role),
+      captionSource: `fallback:${highlightType}:${role}`,
+      captionEvidence: {
+        alignedHighlightType: highlightType,
+        highlightType,
+        reasonCodes,
+        visualReasonCodes: reasonCodes.filter((reason) => /^visual_/.test(reason)),
+        goalEvidence,
+        role,
+      },
+      captionRiskFlags: [],
+    };
+  }).filter((caption) => caption.end > caption.start);
 }
 
 function createCaptionEmphasis(captions, highlightType) {
@@ -497,11 +609,12 @@ function createEditPlan({ metadata, transcript, preset = "hype", title = "Shorts
   const safeEnd = sourceEnd >= 3 ? sourceEnd : Math.min(Number(metadata.durationSeconds || 3), 3);
   const duration = safeEnd - sourceStart;
   const highlightType = "generic_highlight";
+  const reasonCodes = ["generic_highlight"];
   const hook = hookForHighlightType(highlightType, preset);
   const captions =
     transcript && Array.isArray(transcript.captions) && transcript.captions.length > 0
-      ? normalizeCaptions(transcript.captions, sourceStart, safeEnd)
-      : createFallbackCaptions(duration, preset, { highlightType, hook });
+      ? normalizeCaptions(transcript.captions, sourceStart, safeEnd, { highlightType, reasonCodes })
+      : createFallbackCaptions(duration, preset, { highlightType, hook, reasonCodes });
   const framingMode = framingModeForMetadata(metadata);
   return {
     sourceStart,
@@ -511,7 +624,7 @@ function createEditPlan({ metadata, transcript, preset = "hype", title = "Shorts
     confidence: 0.5,
     hook,
     title: sanitizeText(title, 120),
-    captions: captions.length ? captions : createFallbackCaptions(duration, preset, { highlightType, hook }),
+    captions: captions.length ? captions : createFallbackCaptions(duration, preset, { highlightType, hook, reasonCodes }),
     effects: ["wide_safe_framing", "social_caption_pop", "caption_emphasis", "brand_safe_template"],
     framingMode,
     framingReason: "wide_safe_default_no_visual_tracking",
@@ -520,7 +633,7 @@ function createEditPlan({ metadata, transcript, preset = "hype", title = "Shorts
     cropStrategy: createCropStrategy(metadata, framingMode),
     stylePreset: normalizeStylePreset("social_sports_v1"),
     captionEmphasis: createCaptionEmphasis(captions, highlightType),
-    animationCues: createAnimationCues(duration, ["generic_highlight"]),
+    animationCues: createAnimationCues(duration, reasonCodes),
     safetyNotes: ["No ball tracking claim; wide-safe framing preserves the full source frame when needed."],
     export: {
       width: 1080,
@@ -576,12 +689,16 @@ function validateEditPlan(plan, metadata = {}) {
     throw new AppError("VALIDATION_ERROR", "Unsupported edit style preset.", 400);
   }
   const reasonCodes = Array.isArray(plan.reasonCodes) ? plan.reasonCodes.map((reason) => sanitizeText(reason, 60)).filter(Boolean) : [];
-  const captions = normalizeCaptions(plan.captions, sourceStart, sourceEnd);
+  const goalEvidence = highlightType === "goal" && reasonCodes.includes("goal");
+  const captions = normalizeCaptions(plan.captions, sourceStart, sourceEnd, { highlightType, reasonCodes, goalEvidence });
   if (captions.length === 0) {
     throw new AppError("VALIDATION_ERROR", "Edit plan needs at least one caption.", 400);
   }
   const hook = sanitizeText(plan.hook || hookForHighlightType(highlightType, stylePreset), 96);
   assertNoMisleadingGoalLanguage({ hook, captions, highlightType, reasonCodes });
+  if (captions.some((caption) => caption.captionRiskFlags.includes("goal_language_without_evidence"))) {
+    throw new AppError("VALIDATION_ERROR", "Caption uses goal language without goal evidence.", 400);
+  }
   const cropStrategy = plan.cropStrategy && typeof plan.cropStrategy === "object"
     ? {
         type: sanitizeText(plan.cropStrategy.type || "wide_safe_contain", 40),
@@ -644,6 +761,7 @@ module.exports = {
   CAPTION_EMPHASIS_STYLES,
   CAPTION_HIGHLIGHT_COLORS,
   CAPTION_LAYOUTS,
+  CAPTION_RISK_FLAGS,
   CAPTION_ROLES,
   EFFECT_TYPES,
   FRAMING_MODES,
@@ -656,6 +774,7 @@ module.exports = {
   createCaptionEmphasis,
   createCropStrategy,
   createEditPlan,
+  captionIntentForHighlightType,
   framingModeForMetadata,
   hasGoalLanguage,
   hookForHighlightType,

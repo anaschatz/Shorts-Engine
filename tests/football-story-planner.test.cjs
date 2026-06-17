@@ -40,6 +40,9 @@ test("football story planner creates contextual no-goal chance captions", () => 
   assert.equal(plan.captionBeats[0].emphasis, "shout");
   assert.equal(plan.captionBeats[1].layout, "top");
   assert.equal(hasGoalLanguage(plan.captionBeats.map((caption) => caption.text).join(" ")), false);
+  assert.ok(plan.captionBeats.every((caption) => caption.captionEvidence.alignedHighlightType === "big_chance"));
+  assert.ok(plan.captionBeats.every((caption) => caption.captionSource.startsWith("football_story_planner:big_chance:")));
+  assert.ok(plan.captionBeats.every((caption) => Array.isArray(caption.captionRiskFlags)));
 });
 
 test("football story planner uses natural Greek title context copy", () => {

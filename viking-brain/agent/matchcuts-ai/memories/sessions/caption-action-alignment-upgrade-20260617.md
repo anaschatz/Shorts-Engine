@@ -43,6 +43,29 @@ Reference result:
 - Caption/action alignment: `1`
 - No false goal claim: `1`
 
+Follow-up: AI-driven moment ranking + caption metadata
+- Added primary-action vs reaction-context ranking logic so shot/save/foul/counter evidence outranks crowd-only reaction when both are present.
+- Added safe `rankingExplanation` fields to moments and aggregate explainability for selected moment, selected type, boost cues and rejected goal claims.
+- Added caption metadata contract through edit-plan validation:
+  - `captionIntent`
+  - `captionSource`
+  - `captionEvidence`
+  - `captionRiskFlags`
+- Added deterministic eval fixture `017_action_beats_crowd_reaction_no_goal`.
+- Added eval metrics:
+  - `captionEvidenceMetadataCompleteness`
+  - `captionActionAlignment`
+  - `genericCaptionPenaltyRate`
+
+Follow-up validation:
+- Targeted tests: `node --test tests/analysis.test.cjs tests/football-story-planner.test.cjs tests/eval.test.cjs`
+- Eval: `npm run eval`
+- Latest eval score: `98`
+- Fixture count: `17`
+- Caption evidence metadata completeness: `1`
+- Caption/action alignment: `1`
+- Generic caption penalty rate: `0`
+
 Limitations:
 - Templates are still deterministic and evidence-label driven; they do not yet use a full semantic caption generation model.
 - Vision evidence remains conservative and should not infer goals from crowd noise, shot-like motion or scoreboard context.
