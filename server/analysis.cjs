@@ -109,6 +109,18 @@ const SKILL_TERMS = [
   "προσποίηση",
 ];
 
+const STRONG_SKILL_TERMS = [
+  "dribble",
+  "nutmeg",
+  "skill",
+  "ντριμπλα",
+  "ντρίμπλα",
+  "προσποιηση",
+  "προσποίηση",
+];
+
+const WEAK_SKILL_TERMS = ["touch", "turn"];
+
 const BUILD_UP_TERMS = [
   "assist",
   "pass",
@@ -310,12 +322,32 @@ function visualReasonCodesNear(visualSignals, center, radiusSeconds) {
   return [...new Set(visualWindowsNear(visualSignals, center, radiusSeconds).flatMap(visualReasonCodesForWindow))];
 }
 
+const ACTION_VISUAL_REASONS = Object.freeze([
+  "visual_shot_like_motion",
+  "visual_save_like_motion",
+  "visual_foul_like_contact",
+  "visual_fast_break",
+  "visual_crowd_reaction",
+  "visual_replay_indicator",
+]);
+
+function visualReasonsAreScoreboardOnly(reasons = []) {
+  return reasons.includes("visual_scoreboard_context") && !reasons.some((reason) => ACTION_VISUAL_REASONS.includes(reason));
+}
+
+function shouldTreatCaptionAsSkillMove(text, visualReasons = []) {
+  if (hasTerm(text, STRONG_SKILL_TERMS)) return true;
+  if (!hasTerm(text, WEAK_SKILL_TERMS)) return false;
+  return !visualReasonsAreScoreboardOnly(visualReasons);
+}
+
 function reasonCodesForCaption(caption, signals, visualSignals) {
   const text = caption.text || "";
   const center = (caption.start + caption.end) / 2;
   const reasons = [];
   const nearbyAudioPeaks = nearby(signals.audioPeaks, center, 4);
   const nearbySceneChanges = nearby(signals.sceneChanges, center, 3);
+  const nearbyVisualReasons = visualReasonCodesNear(visualSignals, center, 3);
   if (hasGoalLanguage(text)) reasons.push("goal");
   if (hasTerm(text, HARD_FOUL_TERMS)) reasons.push("hard_foul");
   if (hasTerm(text, FOUL_TERMS)) reasons.push("foul");
@@ -324,7 +356,7 @@ function reasonCodesForCaption(caption, signals, visualSignals) {
   if (hasTerm(text, BIG_CHANCE_TERMS)) reasons.push("big_chance");
   if (hasTerm(text, SHOT_TERMS)) reasons.push("shot_on_target");
   if (hasTerm(text, COUNTER_TERMS)) reasons.push("counter_attack");
-  if (hasTerm(text, SKILL_TERMS)) reasons.push("skill_move");
+  if (shouldTreatCaptionAsSkillMove(text, nearbyVisualReasons)) reasons.push("skill_move");
   if (hasTerm(text, BUILD_UP_TERMS)) reasons.push("replay_worthy_moment");
   if (hasTerm(text, REPLAY_TERMS)) reasons.push("replay_worthy_moment");
   if (hasTerm(text, CROWD_REACTION_TERMS)) reasons.push("crowd_reaction");
@@ -334,7 +366,7 @@ function reasonCodesForCaption(caption, signals, visualSignals) {
     reasons.push("crowd_spike");
   }
   if (nearbySceneChanges.length >= 1) reasons.push("scene_change_cluster");
-  reasons.push(...visualReasonCodesNear(visualSignals, center, 3));
+  reasons.push(...nearbyVisualReasons);
   if (!reasons.length) reasons.push("generic_highlight");
   return [...new Set(reasons)];
 }

@@ -129,6 +129,7 @@ test("reference review produces safe expected-vs-actual report", () => {
   assert.equal(report.passed, true);
   assert.equal(report.aggregate.fixtureCount >= 8, true);
   assert.equal(report.aggregate.metrics.noFalseGoalClaim, 1);
+  assert.equal(report.aggregate.metrics.captionActionAlignment >= 0.95, true);
   assert.equal(report.aggregate.metrics.framingSafety, 1);
   assert.equal(report.fixtures[0].expected.captionRoles.includes("opening_hook"), true);
   assert.equal(Array.isArray(report.fixtures[0].actual.editPlan.captionTexts), true);

@@ -65,6 +65,93 @@ test("football story planner uses natural Greek title context copy", () => {
   assert.doesNotMatch(text, /context/i);
 });
 
+test("football story planner preserves evidence context for counter attacks", () => {
+  const plan = createFootballStoryPlan({
+    title: "Reference style counter attack",
+    language: "English",
+    metadata,
+    selectedMoment: {
+      id: "mom_counter",
+      start: 9,
+      end: 13,
+      center: 11,
+      highlightType: "counter_attack",
+      confidence: 0.88,
+      reasonCodes: ["counter_attack", "visual_fast_break", "audio_energy_spike"],
+    },
+    visualEvidenceSummary: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windowCount: 1,
+      topTypes: ["fast_break_motion"],
+      reasonCodes: ["visual_fast_break"],
+      actionFocusConfidence: 0.87,
+      goalClaimAllowed: false,
+    },
+  });
+
+  const byRole = Object.fromEntries(plan.captionBeats.map((caption) => [caption.role, caption.text]));
+  assert.match(byRole.opening_hook, /break/i);
+  assert.match(byRole.context, /space/i);
+  assert.match(byRole.reaction, /run/i);
+  assert.doesNotMatch(byRole.context, /^Match:/);
+  assert.equal(hasGoalLanguage(plan.captionBeats.map((caption) => caption.text).join(" ")), false);
+});
+
+test("football story planner keeps scoreboard-only copy neutral", () => {
+  const plan = createFootballStoryPlan({
+    title: "Reference style scoreboard context without goal claim",
+    language: "English",
+    metadata,
+    selectedMoment: {
+      id: "mom_scoreboard",
+      start: 6,
+      end: 12,
+      center: 8,
+      highlightType: "unknown_action",
+      confidence: 0.62,
+      reasonCodes: ["visual_scoreboard_context", "scene_change_cluster"],
+    },
+    visualEvidenceSummary: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windowCount: 1,
+      topTypes: ["scoreboard_context"],
+      reasonCodes: ["visual_scoreboard_context"],
+      actionFocusConfidence: 0.74,
+      goalClaimAllowed: false,
+    },
+  });
+
+  const byRole = Object.fromEntries(plan.captionBeats.map((caption) => [caption.role, caption.text]));
+  assert.match(byRole.opening_hook, /watch|play|develop/i);
+  assert.match(byRole.context, /pressure/i);
+  assert.match(byRole.closing_punch, /replay|detail/i);
+  assert.equal(hasGoalLanguage(plan.captionBeats.map((caption) => caption.text).join(" ")), false);
+});
+
+test("football story planner avoids unnecessary English in Greek no-goal templates", () => {
+  const plan = createFootballStoryPlan({
+    title: "Σκληρό μαρκάρισμα",
+    language: "Greek",
+    metadata,
+    selectedMoment: {
+      id: "mom_hard_foul_el",
+      start: 6,
+      end: 10,
+      center: 8,
+      highlightType: "hard_foul",
+      confidence: 0.84,
+      reasonCodes: ["hard_foul", "visual_foul_like_contact"],
+    },
+  });
+
+  const text = plan.captionBeats.map((caption) => caption.text).join(" ");
+  assert.doesNotMatch(text, /γκολ/i);
+  assert.doesNotMatch(text, /\b(?:keeper|runner|challenge|build-up|touch)\b/i);
+  assert.match(text, /μαρκάρισμα|επαφή|ρυθμός/i);
+});
+
 test("football story planner supports square reference-style sports edits", () => {
   const plan = createFootballStoryPlan({
     title: "Crowd reaction after a heavy challenge",

@@ -23,4 +23,6 @@ Guardrails:
 - Story planning must keep captions tied to the classified moment type and must strip title/context goal language when there is no explicit goal evidence.
 - Story captions should use the validated sequence `opening_hook`, `context`, `action_callout`, `reaction`, `closing_punch` so the renderer can apply kinetic captions predictably.
 - Title-derived context should prefer matchup/team segments over generic competition labels when pipe-separated titles are available.
+- Evidence-specific context should win over title context for action-heavy moments such as chances, saves, fouls, counters, replays and scoreboard-only unknown action, because the caption role must describe the actual phase.
+- Weak skill words such as “touch” or “turn” are not enough to classify a scoreboard-only visual window as a skill move; keep those cases neutral unless there is stronger skill or action evidence.
 - Reference-style review should be run after highlight/caption changes with `npm run eval:reference`; it checks expected vs actual moment type, caption/action alignment, false goal claims, framing and animation relevance.

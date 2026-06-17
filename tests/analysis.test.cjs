@@ -296,8 +296,29 @@ test("visual scoreboard context does not become a goal or action claim", () => {
   });
 
   assert.notEqual(result.moments[0].highlightType, "goal");
+  assert.equal(result.moments[0].highlightType, "unknown_action");
   assert.equal(result.moments[0].reasonCodes.includes("goal"), false);
   assert.equal(result.moments[0].reasonCodes.includes("visual_scoreboard_context"), true);
+});
+
+test("scoreboard-only context suppresses weak touch or turn skill claims", () => {
+  const reasons = reasonCodesForCaption(
+    { start: 7, end: 8.3, text: "The next touch matters" },
+    {
+      durationSeconds: 18,
+      audioPeaks: [],
+      sceneChanges: [{ time: 8, confidence: 0.58, source: "fixture" }],
+    },
+    {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [{ start: 6.8, end: 9.5, types: ["scoreboard_context"], confidence: 0.74 }],
+    },
+  );
+
+  assert.equal(reasons.includes("visual_scoreboard_context"), true);
+  assert.equal(reasons.includes("skill_move"), false);
+  assert.equal(reasons.includes("goal"), false);
 });
 
 test("finish phrasing alone is not goal evidence", () => {

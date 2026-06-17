@@ -155,7 +155,7 @@ const MOMENT_COPY = Object.freeze({
       context: "Δες την κίνηση πριν γίνει",
       main: "Αυτό το άγγιγμα φτιάχνει τη στιγμή",
       reaction: "Η αντίδραση τα λέει όλα",
-      closing: "Ξαναδές το build-up",
+      closing: "Ξαναδές το χτίσιμο",
     },
     shot_on_target: {
       storyType: "chance_story",
@@ -185,7 +185,7 @@ const MOMENT_COPY = Object.freeze({
       storyType: "save_story",
       hook: "ΤΕΡΑΣΤΙΑ ΑΠΟΚΡΟΥΣΗ",
       context: "Η φάση δείχνει ανοιχτή",
-      main: "Ο keeper αντιδρά στην ώρα του",
+      main: "Ο τερματοφύλακας αντιδρά στην ώρα του",
       reaction: "Αυτή η επέμβαση το κρατάει ζωντανό",
       closing: "Δες την αντίδραση",
     },
@@ -195,7 +195,7 @@ const MOMENT_COPY = Object.freeze({
       context: "Η επαφή κόβει τη ροή της φάσης",
       main: "Αυτό ήταν βαρύ",
       reaction: "Όλοι αντιδρούν",
-      closing: "Ξαναδές το challenge",
+      closing: "Ξαναδές το μαρκάρισμα",
     },
     hard_foul: {
       storyType: "foul_story",
@@ -203,7 +203,7 @@ const MOMENT_COPY = Object.freeze({
       context: "Ο ρυθμός σπάει σε μία στιγμή",
       main: "Αυτό ήταν βαρύ",
       reaction: "Η αντίδραση τα λέει όλα",
-      closing: "Ξαναδές το challenge",
+      closing: "Ξαναδές το μαρκάρισμα",
     },
     card_moment: {
       storyType: "decision_story",
@@ -219,7 +219,7 @@ const MOMENT_COPY = Object.freeze({
       context: "Ο χώρος ανοίγει πίσω από τη γραμμή",
       main: "Η μετάβαση γίνεται γρήγορα",
       reaction: "Μία κίνηση αλλάζει τη φάση",
-      closing: "Δες τον runner",
+      closing: "Δες το τρέξιμο",
     },
     skill_move: {
       storyType: "skill_story",
@@ -227,7 +227,7 @@ const MOMENT_COPY = Object.freeze({
       context: "Ένα άγγιγμα αλλάζει τη γωνία",
       main: "Ο αμυντικός γυρίζει αναγκαστικά",
       reaction: "Η κίνηση ανοίγει τη φάση",
-      closing: "Ξαναδές το touch",
+      closing: "Ξαναδές το άγγιγμα",
     },
     crowd_reaction: {
       storyType: "reaction_story",
@@ -243,7 +243,7 @@ const MOMENT_COPY = Object.freeze({
       context: "Ο εκφωνητής πιάνει την αλλαγή",
       main: "Η πίεση ανεβαίνει",
       reaction: "Ακούς τη στιγμή",
-      closing: "Δες το build-up",
+      closing: "Δες το χτίσιμο",
     },
     replay_or_reaction: {
       storyType: "replay_story",
@@ -364,6 +364,53 @@ function contextLineForTitle(title, highlightType, language, options = {}) {
   return `Match: ${subject}`;
 }
 
+const EVIDENCE_CONTEXT_HIGHLIGHT_TYPES = Object.freeze([
+  "big_chance",
+  "shot_on_target",
+  "near_miss",
+  "save",
+  "foul",
+  "hard_foul",
+  "counter_attack",
+  "replay_or_reaction",
+  "replay_worthy_moment",
+  "unknown_action",
+  "generic_highlight",
+]);
+
+const STRONG_ACTION_REASON_CODES = Object.freeze([
+  "big_chance",
+  "shot_on_target",
+  "near_miss",
+  "save",
+  "foul",
+  "hard_foul",
+  "counter_attack",
+  "visual_shot_like_motion",
+  "visual_save_like_motion",
+  "visual_foul_like_contact",
+  "visual_fast_break",
+  "visual_replay_indicator",
+  "visual_scoreboard_context",
+  "visual_unknown_action",
+]);
+
+function hasAnyReason(reasonCodes, expectedReasons) {
+  const reasonSet = new Set(Array.isArray(reasonCodes) ? reasonCodes : []);
+  return expectedReasons.some((reason) => reasonSet.has(reason));
+}
+
+function hasVisualEvidence(visualEvidenceSummary = {}) {
+  const reasonCodes = Array.isArray(visualEvidenceSummary.reasonCodes) ? visualEvidenceSummary.reasonCodes : [];
+  return Number(visualEvidenceSummary.windowCount || 0) > 0 || reasonCodes.length > 0;
+}
+
+function shouldUseEvidenceContext({ highlightType, reasonCodes, visualEvidenceSummary } = {}) {
+  if (EVIDENCE_CONTEXT_HIGHLIGHT_TYPES.includes(highlightType)) return true;
+  if (hasAnyReason(reasonCodes, STRONG_ACTION_REASON_CODES)) return true;
+  return hasVisualEvidence(visualEvidenceSummary) && ["skill_move", "card_moment"].includes(highlightType);
+}
+
 function storyDurationFor({ metadata = {}, selectedMoment = {}, editIntensity }) {
   const mediaDuration = Math.max(0, Number(metadata.durationSeconds || 0));
   const momentDuration = Math.max(0, Number(selectedMoment.end || 0) - Number(selectedMoment.start || 0));
@@ -400,10 +447,23 @@ function captionTiming(duration, index, count) {
   return { start, end };
 }
 
-function captionBeats({ copy, title, highlightType, language, duration, includeTitleContext = true, goalEvidence = false }) {
+function captionBeats({
+  copy,
+  title,
+  highlightType,
+  language,
+  duration,
+  includeTitleContext = true,
+  goalEvidence = false,
+  reasonCodes = [],
+  visualEvidenceSummary = {},
+}) {
+  const context = includeTitleContext && !shouldUseEvidenceContext({ highlightType, reasonCodes, visualEvidenceSummary })
+    ? contextLineForTitle(title, highlightType, language, { goalEvidence })
+    : copy.context;
   const lines = [
     copy.hook,
-    includeTitleContext ? contextLineForTitle(title, highlightType, language, { goalEvidence }) : copy.context,
+    context,
     copy.main,
     copy.reaction,
     copy.closing,
@@ -523,6 +583,8 @@ function createFootballStoryPlan(input = {}) {
     language,
     duration,
     goalEvidence,
+    reasonCodes: Array.isArray(selectedMoment.reasonCodes) ? selectedMoment.reasonCodes : [],
+    visualEvidenceSummary: input.visualEvidenceSummary || {},
   });
   const visualEvidenceSummary = input.visualEvidenceSummary || {};
   const framingIntent = framingIntentForStory({ visualEvidenceSummary, aspectRatio, highlightType });
