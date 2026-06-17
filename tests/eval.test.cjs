@@ -62,6 +62,8 @@ test("fixture scoring returns reportable metrics and candidate plans", () => {
   assert.equal(result.metrics.falseGoalCaptionRate, 0);
   assert.equal(result.metrics.falseVisualGoalRate, 0);
   assert.equal(result.metrics.visualReasonPrecision, 1);
+  assert.equal(typeof result.metrics.frameExtractionFallbackUsed, "boolean");
+  assert.equal(typeof result.metrics.sampledFrameCount, "number");
   assert.equal(result.metrics.framingSafety, 1);
   assert.equal(result.metrics.animationCueValidity, 1);
   assert.ok(result.actual.candidatePlans.length > 0);
@@ -75,6 +77,8 @@ test("evaluation report has aggregate metrics and no local path leakage", () => 
   assert.equal(report.aggregate.falseGoalCaptionRate, 0);
   assert.equal(report.aggregate.falseVisualGoalRate, 0);
   assert.equal(report.aggregate.visualReasonPrecision >= 0.99, true);
+  assert.equal(typeof report.aggregate.frameExtractionFallbackUsageRate, "number");
+  assert.equal(typeof report.aggregate.sampledFrameCount, "number");
   assert.equal(report.aggregate.highlightTypeAccuracy, 1);
   assert.equal(report.aggregate.framingSafety, 1);
   assert.equal(report.aggregate.animationCueValidity, 1);
@@ -141,6 +145,8 @@ test("runner writes a JSON report", () => {
   assert.equal(summary.falseGoalCaptionRate, 0);
   assert.equal(summary.falseVisualGoalRate, 0);
   assert.equal(summary.visualReasonPrecision >= 0.99, true);
+  assert.equal(typeof summary.frameExtractionFallbackUsageRate, "number");
+  assert.equal(typeof summary.sampledFrameCount, "number");
   assert.equal(summary.highlightTypeAccuracy, 1);
   const latest = JSON.parse(readFileSync(join(resultsDir, "latest.json"), "utf8"));
   assert.equal(latest.aggregate.fixtureCount >= 5, true);

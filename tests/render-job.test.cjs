@@ -139,9 +139,43 @@ function makeContext(options = {}) {
         highMotionCandidates: [{ time: 4, confidence: 0.7 }],
       };
     },
-    analyzeFrames: async ({ candidateWindows }) => {
+    extractSampledFrames: async ({ candidateWindows }) => {
+      calls.push("extract_sampled_frames");
+      context.frameCandidateWindows = candidateWindows;
+      return options.sampledFrames || {
+        providerMode: "mock-frame-extraction",
+        fallbackUsed: false,
+        outputDir: null,
+        frames: [
+          {
+            id: "frame_test_1",
+            windowStart: 2.5,
+            windowEnd: 5.5,
+            timestamp: 4,
+            width: 640,
+            height: 360,
+            localPath: storagePath("staging", "unit-frame-test.jpg"),
+            purpose: "vision_context",
+            source: "unit_test",
+          },
+        ],
+        summary: {
+          frameCount: 1,
+          sampledWindows: 1,
+          skippedWindows: 0,
+          extractionMs: 4,
+        },
+      };
+    },
+    cleanupSampledFrames: ({ frames }) => {
+      calls.push("cleanup_sampled_frames");
+      context.cleanedFrameCount = Array.isArray(frames) ? frames.length : 0;
+      return { cleanedCount: context.cleanedFrameCount };
+    },
+    analyzeFrames: async ({ candidateWindows, frames }) => {
       calls.push("analyze_frames");
       context.visualCandidateWindows = candidateWindows;
+      context.visualFrameCount = Array.isArray(frames) ? frames.length : 0;
       return options.visualSignals || {
         providerMode: "mock-vision",
         fallbackUsed: true,
@@ -209,10 +243,24 @@ test("render orchestration completes success path with mocked adapters", async (
   assert.equal(context.writes.length, 1);
   assert.deepEqual(
     context.logs.filter((entry) => entry.event === "job_step").map((entry) => entry.step),
-    ["extract_audio", "analyze_media", "analyze_visuals", "transcribe", "detect_highlights", "create_edit_plan", "render_short"],
+    [
+      "extract_audio",
+      "analyze_media",
+      "extract_sampled_frames",
+      "analyze_visuals",
+      "transcribe",
+      "detect_highlights",
+      "create_edit_plan",
+      "render_short",
+    ],
   );
   assert.equal(context.calls.includes("analyze_frames"), true);
+  assert.equal(context.calls.includes("extract_sampled_frames"), true);
   assert.equal(context.visualCandidateWindows.length > 0, true);
+  assert.equal(context.visualFrameCount, 1);
+  assert.equal(context.cleanedFrameCount, 1);
+  assert.equal(context.job.sampledFrames.summary.frameCount, 1);
+  assert.doesNotMatch(JSON.stringify(context.job.sampledFrames), /\/Users|storageKey|localPath/i);
   const selectedPlanLog = context.logs.find((entry) => entry.event === "edit_plan_selected");
   assert.equal(selectedPlanLog.highlightType, "goal");
   assert.equal(selectedPlanLog.stylePreset, "social_sports_v1");

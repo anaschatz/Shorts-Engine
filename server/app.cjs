@@ -17,6 +17,7 @@ const {
 } = require("./errors.cjs");
 const { createRateLimiter } = require("./rate-limit.cjs");
 const { analysisHealth } = require("./analysis.cjs");
+const { frameExtractionHealth } = require("./frame-extraction.cjs");
 const { visionHealth } = require("./vision.cjs");
 const { validateUploadCandidate, probeMedia, toolHealth, sha256, sanitizeText } = require("./media.cjs");
 const { HOOKS } = require("./edit-plan.cjs");
@@ -375,6 +376,7 @@ async function handleHealth(req, res, rid) {
   };
   const provider = transcriptionHealth();
   const analysis = analysisHealth();
+  const frameExtraction = frameExtractionHealth();
   const vision = visionHealth();
   const youtubeIngest = youtubeIngestHealth(youtubeIngestAdapter);
   const cleanup = artifactCleanupWorker.health();
@@ -393,6 +395,7 @@ async function handleHealth(req, res, rid) {
     adaptersReady &&
     provider.ready &&
     analysis.ready &&
+    frameExtraction.ready &&
     vision.ready &&
     youtubeIngest.ready;
   sendOk(res, {
@@ -420,6 +423,7 @@ async function handleHealth(req, res, rid) {
     releaseReadiness,
     transcription: provider,
     analysis,
+    frameExtraction,
     vision,
     youtubeIngest,
     requestId: rid,

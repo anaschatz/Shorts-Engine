@@ -39,6 +39,9 @@ try {
     framingSafety: report.aggregate.framingSafety,
     animationCueValidity: report.aggregate.animationCueValidity,
     fallbackUsageRate: report.aggregate.fallbackUsageRate,
+    visualFallbackUsageRate: report.aggregate.visualFallbackUsageRate,
+    frameExtractionFallbackUsageRate: report.aggregate.frameExtractionFallbackUsageRate,
+    sampledFrameCount: report.aggregate.sampledFrameCount,
     report: `eval/results/${output.fileName}`,
     latest: "eval/results/latest.json",
   };

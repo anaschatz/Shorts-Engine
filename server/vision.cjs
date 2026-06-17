@@ -204,16 +204,184 @@ function candidateToVisualWindow(candidate, metadata = {}) {
   }, metadata);
 }
 
-async function analyzeFrames({ metadata = {}, candidateWindows = [] } = {}) {
-  const windows = (Array.isArray(candidateWindows) ? candidateWindows : [])
+function safeHeuristicWindows({ metadata = {}, candidateWindows = [] } = {}) {
+  return (Array.isArray(candidateWindows) ? candidateWindows : [])
     .map((candidate) => candidateToVisualWindow(candidate, metadata))
     .filter(Boolean);
-  return validateVisualSignals({
-    providerMode: "safe-heuristic",
-    fallbackUsed: true,
-    confidence: windows.length ? Math.max(...windows.map((window) => window.confidence)) : 0,
-    windows,
+}
+
+function candidateTimestamp(candidate) {
+  return seconds(candidate && (candidate.timestamp ?? candidate.center ?? candidate.time), Number.NaN);
+}
+
+function closestCandidate(frame, candidateWindows = []) {
+  const timestamp = seconds(frame && frame.timestamp, Number.NaN);
+  if (!Number.isFinite(timestamp)) return null;
+  let best = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const candidate of Array.isArray(candidateWindows) ? candidateWindows : []) {
+    const candidateTime = candidateTimestamp(candidate);
+    if (!Number.isFinite(candidateTime)) continue;
+    const distance = Math.abs(candidateTime - timestamp);
+    const start = seconds(candidate.start, Number.NaN);
+    const end = seconds(candidate.end, Number.NaN);
+    const insideWindow = Number.isFinite(start) && Number.isFinite(end) && timestamp >= start && timestamp <= end;
+    if ((insideWindow || distance <= 2) && distance < bestDistance) {
+      best = candidate;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+function frameToVisualWindow(frame, candidateWindows = [], metadata = {}) {
+  if (!frame || typeof frame !== "object") return null;
+  const timestamp = seconds(frame.timestamp, Number.NaN);
+  const width = Number(frame.width);
+  const height = Number(frame.height);
+  if (!Number.isFinite(timestamp) || !Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null;
+  }
+  const matchedCandidate = closestCandidate(frame, candidateWindows);
+  const rawHints = Array.isArray(frame.visualHints) && frame.visualHints.length
+    ? frame.visualHints
+    : Array.isArray(matchedCandidate && matchedCandidate.visualHints)
+      ? matchedCandidate.visualHints
+      : [];
+  const types = rawHints.length ? rawHints : ["unknown_visual_action"];
+  const confidence = Number(clamp(
+    frame.confidence ?? (matchedCandidate && matchedCandidate.confidence) ?? 0.62,
+    0.05,
+    0.82,
+  ).toFixed(2));
+  return normalizeVisualWindow({
+    start: frame.windowStart,
+    end: frame.windowEnd,
+    time: timestamp,
+    center: timestamp,
+    confidence,
+    types,
+    source: frame.source || "sampled_frame",
+    providerMode: "frame-inspection-local",
+    label: rawHints.length ? "sampled frame with fixture/provider hints" : "sampled frame context",
+    motionScore: confidence,
   }, metadata);
+}
+
+function mergeWindows(windows) {
+  const seen = new Set();
+  return windows.filter((window) => {
+    if (!window) return false;
+    const key = `${window.start}:${window.end}:${(window.types || []).join(",")}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+class SafeHeuristicVisionProvider {
+  constructor({ mode = "safe-heuristic" } = {}) {
+    this.mode = mode;
+  }
+
+  health() {
+    return {
+      ready: true,
+      mode: this.mode,
+      objectTracking: false,
+      goalClaimAllowed: false,
+      networkRequired: false,
+    };
+  }
+
+  async analyzeFrames({ metadata = {}, candidateWindows = [] } = {}) {
+    const windows = safeHeuristicWindows({ metadata, candidateWindows });
+    return validateVisualSignals({
+      providerMode: "safe-heuristic",
+      fallbackUsed: true,
+      confidence: windows.length ? Math.max(...windows.map((window) => window.confidence)) : 0,
+      windows,
+    }, metadata);
+  }
+}
+
+class FrameInspectionLocalVisionProvider extends SafeHeuristicVisionProvider {
+  constructor() {
+    super({ mode: "frame-inspection-local" });
+  }
+
+  async analyzeFrames({ metadata = {}, candidateWindows = [], frames = [] } = {}) {
+    const safeFrames = Array.isArray(frames) ? frames : [];
+    const heuristicWindows = safeHeuristicWindows({ metadata, candidateWindows });
+    const frameWindows = safeFrames
+      .map((frame) => frameToVisualWindow(frame, candidateWindows, metadata))
+      .filter(Boolean);
+    const windows = mergeWindows([...frameWindows, ...heuristicWindows]).slice(0, 16);
+    return validateVisualSignals({
+      providerMode: safeFrames.length ? "frame-inspection-local" : "safe-heuristic",
+      fallbackUsed: safeFrames.length === 0,
+      confidence: windows.length ? Math.max(...windows.map((window) => window.confidence)) : 0,
+      windows,
+    }, metadata);
+  }
+}
+
+class ExternalVisionProviderAdapter extends SafeHeuristicVisionProvider {
+  constructor({ client = null } = {}) {
+    super({ mode: client ? "external-vision-adapter" : "external-vision-disabled" });
+    this.client = client;
+  }
+
+  health() {
+    return {
+      ready: Boolean(this.client),
+      mode: this.mode,
+      objectTracking: false,
+      goalClaimAllowed: false,
+      networkRequired: Boolean(this.client),
+    };
+  }
+
+  async analyzeFrames(input = {}) {
+    if (!this.client || typeof this.client.analyzeFrames !== "function") {
+      const fallback = new SafeHeuristicVisionProvider();
+      return fallback.analyzeFrames(input);
+    }
+    const result = await this.client.analyzeFrames({
+      metadata: input.metadata || {},
+      candidateWindows: Array.isArray(input.candidateWindows) ? input.candidateWindows : [],
+      frames: Array.isArray(input.frames) ? input.frames : [],
+    });
+    return validateVisualSignals({
+      ...result,
+      providerMode: "external-vision-adapter",
+      fallbackUsed: Boolean(result && result.fallbackUsed),
+    }, input.metadata || {});
+  }
+}
+
+function normalizeVisionProviderMode(mode, frames = []) {
+  const safe = sanitizeText(mode || "", 60).toLowerCase();
+  if (safe === "safe-heuristic" || safe === "mock") return "safe-heuristic";
+  if (safe === "external-vision-adapter" || safe === "external") return "external-vision-adapter";
+  if (safe === "frame-inspection-local") return "frame-inspection-local";
+  return Array.isArray(frames) && frames.length ? "frame-inspection-local" : "safe-heuristic";
+}
+
+function createVisionProvider({ mode, client, frames = [] } = {}) {
+  const providerMode = normalizeVisionProviderMode(mode, frames);
+  if (providerMode === "external-vision-adapter") return new ExternalVisionProviderAdapter({ client });
+  if (providerMode === "frame-inspection-local") return new FrameInspectionLocalVisionProvider();
+  return new SafeHeuristicVisionProvider();
+}
+
+async function analyzeFrames(input = {}) {
+  const provider = createVisionProvider({
+    mode: input.mode,
+    client: input.client,
+    frames: input.frames,
+  });
+  return provider.analyzeFrames(input);
 }
 
 function publicVisualSignals(signals) {
@@ -235,13 +403,19 @@ function publicVisualSignals(signals) {
 }
 
 function visionHealth() {
+  const localProvider = createVisionProvider({ mode: "frame-inspection-local" });
   return {
     ready: true,
-    mode: "safe-heuristic",
+    mode: localProvider.health().mode,
     objectTracking: false,
     goalClaimAllowed: false,
+    defaultProvider: "frame-inspection-local",
+    fallbackProvider: "safe-heuristic",
     features: [
       "visual_signal_contract",
+      "vision_provider_adapter",
+      "sampled_frame_contract",
+      "frame_inspection_local",
       "visual_reason_codes",
       "safe_no_goal_inference",
       "wide_safe_framing_support",
@@ -253,8 +427,11 @@ module.exports = {
   VISUAL_REASON_CODES,
   VISUAL_SIGNAL_TYPES,
   analyzeFrames,
+  createVisionProvider,
+  frameToVisualWindow,
   publicVisualSignals,
   reasonCodeForVisualType,
+  safeHeuristicWindows,
   summarizeVisualSignals,
   validateVisualSignals,
   visionHealth,

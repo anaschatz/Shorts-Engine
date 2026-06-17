@@ -3,6 +3,7 @@ const { existsSync, statSync } = require("node:fs");
 const { AppError, SAFE_MESSAGES, redactForLogs } = require("./errors.cjs");
 const { createCandidateEditPlans, detectHighlights, extractMediaSignals } = require("./analysis.cjs");
 const { validateEditPlan } = require("./edit-plan.cjs");
+const { cleanupSampledFrames, extractSampledFrames, publicFrameSummary } = require("./frame-extraction.cjs");
 const { sanitizeText } = require("./media.cjs");
 const { extractAudio, renderShort } = require("./render.cjs");
 const { chooseTranscriptionProvider } = require("./transcription.cjs");
@@ -28,12 +29,14 @@ function createDefaultDependencies(overrides = {}) {
     createExportId: () => `exp_${randomUUID()}`,
     detectHighlights,
     extractAudio,
+    extractSampledFrames,
     extractMediaSignals,
     fileExists: existsSync,
     isRegularFile,
     logger: console,
     renderShort,
     scheduler: setImmediate,
+    cleanupSampledFrames,
     storagePath,
     statFile: statSync,
     validateEditPlan,
@@ -422,6 +425,8 @@ async function runRenderJob(options) {
   const deps = createDefaultDependencies({ exportRepository, projectRepository, ...dependencies });
   const signal = job && job._controller ? job._controller.signal : null;
   let context = null;
+  let sampledFrames = null;
+  let sampledFrameSummary = null;
   try {
     context = assertPipelineContext({ job, project, upload, payload, deps });
     indexPipelineStages(deps, context);
@@ -441,18 +446,42 @@ async function runRenderJob(options) {
       context.metadata,
     );
 
-    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 34, step: "analyze_visuals" });
+    const visualCandidateWindows = visualCandidateWindowsFromSignals(mediaSignals);
+    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 30, step: "extract_sampled_frames" });
+    sampledFrames = await deps.extractSampledFrames({
+      inputPath: context.inputPath,
+      metadata: context.metadata,
+      candidateWindows: visualCandidateWindows,
+      signal,
+    });
+    sampledFrameSummary = publicFrameSummary(sampledFrames);
+    logInfo(deps.logger, {
+      event: "frame_extraction_completed",
+      requestId,
+      projectId: project.id,
+      jobId: job.id,
+      step: "extract_sampled_frames",
+      providerMode: sampledFrameSummary.providerMode,
+      fallbackUsed: sampledFrameSummary.fallbackUsed,
+      frameCount: sampledFrameSummary.summary.frameCount,
+      sampledWindows: sampledFrameSummary.summary.sampledWindows,
+      skippedWindows: sampledFrameSummary.summary.skippedWindows,
+    });
+
+    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 38, step: "analyze_visuals" });
     const visualSignals = validateVisualSignals(
       await deps.analyzeFrames({
         inputPath: context.inputPath,
         metadata: context.metadata,
-        candidateWindows: visualCandidateWindowsFromSignals(mediaSignals),
+        candidateWindows: visualCandidateWindows,
+        frames: sampledFrames.frames,
+        frameSummary: sampledFrameSummary,
         signal,
       }),
       context.metadata,
     );
 
-    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 42, step: "transcribe" });
+    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 46, step: "transcribe" });
     const provider = deps.chooseTranscriptionProvider({ forceMock: !context.metadata.hasAudio });
     const transcript = validateTranscript(
       await provider.transcribe({
@@ -574,6 +603,7 @@ async function runRenderJob(options) {
       highlights: highlightResult.moments,
       mediaSignals: publicMediaSignals(mediaSignals),
       visualSignals: publicVisualSignals(visualSignals),
+      sampledFrames: sampledFrameSummary,
       step: "completed",
     });
     persistRenderResult(deps, {
@@ -582,6 +612,7 @@ async function runRenderJob(options) {
       transcript,
       mediaSignals,
       visualSignals,
+      sampledFrames: sampledFrameSummary,
       highlights: highlightResult.moments,
       candidatePlans,
       editPlan,
@@ -613,6 +644,22 @@ async function runRenderJob(options) {
     }
     failJob({ jobs, job, project, error, logger: deps.logger, requestId });
   } finally {
+    if (sampledFrames && typeof deps.cleanupSampledFrames === "function") {
+      const cleanupResult = deps.cleanupSampledFrames({
+        outputDir: sampledFrames.outputDir,
+        frames: sampledFrames.frames,
+      });
+      if (cleanupResult && cleanupResult.cleanedCount > 0) {
+        logInfo(deps.logger, {
+          event: "sampled_frames_cleaned",
+          requestId,
+          projectId: project && project.id,
+          jobId: job && job.id,
+          step: "cleanup_sampled_frames",
+          cleanedCount: cleanupResult.cleanedCount,
+        });
+      }
+    }
     cleanupPipelineStages({
       deps,
       context,

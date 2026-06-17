@@ -77,4 +77,4 @@ Acceptance guardrail: `falseVisualGoalRate` must stay `0`.
 ## Limitations
 
 This is a safe action-tracking foundation, not real ball/player tracking.
-The next milestone should add sampled frame extraction and provider-backed or local CV inference behind the same adapter contract.
+The sampled-frame milestone adds bounded frame extraction and a provider adapter contract, but local analysis remains conservative until a validated real provider is explicitly enabled.

@@ -183,6 +183,18 @@ function animationCuesAreValid(plan) {
   });
 }
 
+function frameExtractionFixtureSummary(fixture) {
+  const value = fixture.frameExtraction || fixture.sampledFrames || null;
+  if (!value || typeof value !== "object") {
+    return { fallbackUsed: false, frameCount: 0 };
+  }
+  const summary = value.summary && typeof value.summary === "object" ? value.summary : {};
+  return {
+    fallbackUsed: Boolean(value.fallbackUsed),
+    frameCount: toNumber(summary.frameCount ?? value.frameCount, 0),
+  };
+}
+
 function scoreFixture(fixture) {
   validateFixture(fixture);
   const thresholds = { ...DEFAULT_THRESHOLDS, ...(fixture.thresholds || {}) };
@@ -239,6 +251,8 @@ function scoreFixture(fixture) {
   const animationCueValidity = topPlan && animationCuesAreValid(topPlan) ? 1 : 0;
   const fallbackUsed = Boolean(highlightResult.fallback);
   const visualFallbackUsed = Boolean(visualSignals.fallbackUsed);
+  const frameExtraction = frameExtractionFixtureSummary(fixture);
+  const frameExtractionFallbackUsed = frameExtraction.fallbackUsed;
   const fallbackScore = fallbackUsed ? 0 : 1;
   const weightedScore = Math.round(
     scoreToPercent(top1Overlap) * 0.18 +
@@ -294,6 +308,8 @@ function scoreFixture(fixture) {
       animationCueValidity,
       fallbackUsed,
       visualFallbackUsed,
+      frameExtractionFallbackUsed,
+      sampledFrameCount: frameExtraction.frameCount,
     },
     expected: {
       highlights: fixture.expected.highlights.map((item) => ({ start: item.start, end: item.end })),
@@ -351,6 +367,7 @@ function scoreFixture(fixture) {
       framingSafety,
       animationCueValidity,
       fallbackUsed,
+      frameExtractionFallbackUsed,
       thresholds,
     }),
   };
@@ -371,6 +388,7 @@ function debuggingNotes(metrics) {
   if (!metrics.framingSafety) notes.push("Candidate edit plan is missing safe vertical framing metadata.");
   if (!metrics.animationCueValidity) notes.push("Social edit animation cues are missing or invalid.");
   if (metrics.fallbackUsed) notes.push("Analysis fell back to deterministic fallback moments.");
+  if (metrics.frameExtractionFallbackUsed) notes.push("Sampled frame extraction fell back to deterministic frame metadata.");
   return notes;
 }
 
@@ -407,6 +425,8 @@ function aggregateResults(results) {
     animationCueValidity: avg((result) => result.metrics.animationCueValidity),
     fallbackUsageRate: avg((result) => (result.metrics.fallbackUsed ? 1 : 0)),
     visualFallbackUsageRate: avg((result) => (result.metrics.visualFallbackUsed ? 1 : 0)),
+    frameExtractionFallbackUsageRate: avg((result) => (result.metrics.frameExtractionFallbackUsed ? 1 : 0)),
+    sampledFrameCount: avg((result) => result.metrics.sampledFrameCount),
     candidatePlanValidity: avg((result) => result.metrics.candidatePlanValidity),
     captionTimingValidity: avg((result) => result.metrics.captionTimingValidity),
   };

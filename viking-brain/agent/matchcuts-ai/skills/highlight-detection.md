@@ -18,3 +18,4 @@ Guardrails:
 - Keep provider/internal errors out of API responses.
 - Preserve tests for ranking and candidate plan validation.
 - Visual signals are contextual evidence only. They may support saves, fouls, shots, counters and unknown action, but must never imply a goal without explicit `goal` reason evidence.
+- Sampled frames may improve visual context, but the local adapter is conservative: no brittle object tracking, no false goal inference and no public path leakage.
