@@ -71,6 +71,10 @@ test("fixture scoring returns reportable metrics and candidate plans", () => {
   assert.equal(result.metrics.captionEvidenceMetadataCompleteness, 1);
   assert.equal(result.metrics.captionActionAlignment, 1);
   assert.equal(result.metrics.genericCaptionPenaltyRate, 0);
+  assert.equal(result.metrics.captionSpecificityScore, 1);
+  assert.equal(result.metrics.reactionAsSupportScore, 1);
+  assert.equal(result.metrics.weakEvidenceNeutralityScore, 1);
+  assert.equal(result.metrics.providerFallbackRate, 0);
   assert.equal(result.metrics.renderStylePresetValidity, 1);
   assert.equal(result.metrics.unsupportedCueRate, 0);
   assert.ok(result.actual.candidatePlans.length > 0);
@@ -96,6 +100,10 @@ test("evaluation report has aggregate metrics and no local path leakage", () => 
   assert.equal(report.aggregate.captionEvidenceMetadataCompleteness, 1);
   assert.equal(report.aggregate.captionActionAlignment, 1);
   assert.equal(report.aggregate.genericCaptionPenaltyRate, 0);
+  assert.equal(report.aggregate.captionSpecificityScore, 1);
+  assert.equal(report.aggregate.reactionAsSupportScore, 1);
+  assert.equal(report.aggregate.weakEvidenceNeutralityScore, 1);
+  assert.equal(report.aggregate.providerFallbackRate, 0);
   assert.equal(report.aggregate.renderStylePresetValidity, 1);
   assert.equal(report.aggregate.unsupportedCueRate, 0);
   assert.doesNotMatch(JSON.stringify(report), /\/Users\//);
@@ -169,6 +177,10 @@ test("runner writes a JSON report", () => {
   assert.equal(summary.captionEvidenceMetadataCompleteness, 1);
   assert.equal(summary.captionActionAlignment, 1);
   assert.equal(summary.genericCaptionPenaltyRate, 0);
+  assert.equal(summary.captionSpecificityScore, 1);
+  assert.equal(summary.reactionAsSupportScore, 1);
+  assert.equal(summary.weakEvidenceNeutralityScore, 1);
+  assert.equal(summary.providerFallbackRate, 0);
   assert.equal(summary.renderStylePresetValidity, 1);
   assert.equal(summary.unsupportedCueRate, 0);
   const latest = JSON.parse(readFileSync(join(resultsDir, "latest.json"), "utf8"));

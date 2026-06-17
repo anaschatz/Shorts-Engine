@@ -1,0 +1,52 @@
+{
+  "id": "uncertain_visual_neutral_no_goal",
+  "title": "Uncertain visual pressure without explicit action",
+  "language": "English",
+  "durationSeconds": 18,
+  "transcript": {
+    "provider": "fixture",
+    "language": "en",
+    "captions": [
+      { "start": 2.0, "end": 3.4, "text": "The camera follows the play as it develops" },
+      { "start": 8.0, "end": 9.4, "text": "Players reset while pressure builds" },
+      { "start": 13.0, "end": 14.4, "text": "The shape resets for the next phase" }
+    ]
+  },
+  "mediaSignals": {
+    "durationSeconds": 18,
+    "width": 1920,
+    "height": 1080,
+    "hasAudio": true,
+    "audioPeaks": [],
+    "sceneChanges": [{ "time": 8.6, "confidence": 0.64, "source": "fixture" }],
+    "highMotionCandidates": []
+  },
+  "visualSignals": {
+    "providerMode": "fixture-visual",
+    "fallbackUsed": false,
+    "confidence": 0.62,
+    "windows": [
+      {
+        "start": 7.6,
+        "end": 10.8,
+        "type": "unknown_visual_action",
+        "types": ["unknown_visual_action", "camera_pan", "player_cluster"],
+        "confidence": 0.62,
+        "source": "fixture"
+      }
+    ]
+  },
+  "expected": {
+    "highlights": [{ "start": 7.4, "end": 11.2 }],
+    "reasonCodes": ["visual_unknown_action", "scene_change_cluster"],
+    "highlightType": "unknown_action",
+    "stylePreset": "social_sports_v1"
+  },
+  "thresholds": {
+    "minAggregateScore": 70,
+    "minTop1Overlap": 0.5,
+    "minTop3Recall": 1,
+    "minReasonPrecision": 0.5,
+    "minRetentionScore": 30
+  }
+}

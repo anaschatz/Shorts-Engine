@@ -95,6 +95,8 @@ test("candidate edit plans are validated 9:16 MP4 exports", () => {
   assert.ok(plans[0].captions.every((caption) => caption.captionSource));
   assert.ok(plans[0].captions.every((caption) => caption.captionEvidence && caption.captionEvidence.alignedHighlightType === plans[0].highlightType));
   assert.ok(plans[0].captions.every((caption) => Array.isArray(caption.captionRiskFlags)));
+  assert.equal(plans[0].footballStoryPlan.captionGeneration.providerMode, "deterministic");
+  assert.equal(plans[0].footballStoryPlan.captionGeneration.fallbackUsed, false);
 });
 
 test("reason code extraction recognizes football and replay signals", () => {
@@ -207,7 +209,7 @@ test("action-led visual evidence outranks crowd-only reaction when no goal exist
   assert.match(captionText, /CHANCE|pressure|danger|timing|run|window/i);
   assert.doesNotMatch(captionText, /THE STADIUM TELLS THE STORY|THE ENERGY JUMPS|RUN IT BACK/i);
   assert.ok(plans[0].captions.every((caption) => caption.captionEvidence.alignedHighlightType === "big_chance"));
-  assert.ok(plans[0].captions.every((caption) => caption.captionSource.startsWith("football_story_planner:big_chance:")));
+  assert.ok(plans[0].captions.every((caption) => caption.captionSource.startsWith("caption_generation:deterministic:big_chance:")));
   assert.ok(plans[0].captions.every((caption) => Array.isArray(caption.captionRiskFlags)));
 });
 

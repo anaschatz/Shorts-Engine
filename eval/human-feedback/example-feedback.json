@@ -1,0 +1,17 @@
+[
+  {
+    "fixtureId": "017_action_beats_crowd_reaction_no_goal",
+    "generatedShortRef": "eval/reference/017_action_beats_crowd_reaction_no_goal",
+    "selectedMomentCorrect": true,
+    "captionAlignmentScore": 5,
+    "captionSpecificityScore": 5,
+    "falseClaimFlags": [],
+    "notes": "Chance evidence is primary and crowd reaction is used as support.",
+    "preferredCaptionExamples": [
+      "The big chance opens",
+      "The crowd reacts after the big chance"
+    ],
+    "reviewer": "operator",
+    "createdAt": "2026-06-17T00:00:00.000Z"
+  }
+]

@@ -29,4 +29,6 @@ Guardrails:
 - Ranking explanations should stay safe and bounded: expose action boost cues, supporting visual/audio cues, reaction-only penalties and rejected goal claims, but never raw provider errors, logs or local paths.
 - Action-led evidence should outrank crowd-only reaction when clear shot/save/foul/counter evidence exists. Crowd reaction can support an action, but should not become the primary moment unless it is the strongest available evidence.
 - Candidate captions must include `captionIntent`, `captionSource`, `captionEvidence` and `captionRiskFlags` after edit-plan validation. Missing metadata is an eval regression.
-- Run `npm run eval` after ranking/caption changes; it now checks caption evidence metadata, caption/action alignment and generic hype penalties.
+- Caption generation now lives behind `server/caption-generation.cjs` and `server/adapters/caption-provider-adapter.cjs`. Keep the deterministic provider as default and inject future LLM providers only behind this boundary.
+- Run `npm run eval` after ranking/caption changes; it checks caption evidence metadata, caption/action alignment, generic hype penalties, caption specificity, reaction-as-support, weak-evidence neutrality and provider fallback rate.
+- Use `npm run feedback:summary` when human reviewers add local feedback in `eval/human-feedback/`; the summary is safe and must not mutate training data automatically.

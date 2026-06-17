@@ -212,6 +212,7 @@ assert.match(packageJson, /"branch:setup": "node tools\/release\/print-branch-ru
 assert.match(packageJson, /"demo:browser:install": "playwright install chromium"/, "package should expose a Playwright Chromium install helper");
 assert.match(packageJson, /"ci:reports": "node demo\/validate-ci-reports\.mjs"/, "package should expose CI report validation");
 assert.match(packageJson, /"env:check": "node tools\/release\/check-environment\.mjs"/, "package should expose staging environment validation");
+assert.match(packageJson, /"feedback:summary": "node eval\/run-feedback-summary\.mjs"/, "package should expose the human feedback summary runner");
 assert.match(packageJson, /"github:doctor": "node tools\/release\/check-github-cli\.mjs"/, "package should expose GitHub CLI doctor");
 assert.match(packageJson, /"github:setup": "node tools\/release\/print-github-cli-setup\.mjs"/, "package should expose GitHub CLI setup guidance");
 assert.match(packageJson, /"render:check": "node tools\/release\/check-render-staging\.mjs"/, "package should expose Render staging configuration validation");

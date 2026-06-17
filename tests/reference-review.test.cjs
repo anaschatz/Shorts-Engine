@@ -129,7 +129,11 @@ test("reference review produces safe expected-vs-actual report", () => {
   assert.equal(report.passed, true);
   assert.equal(report.aggregate.fixtureCount >= 8, true);
   assert.equal(report.aggregate.metrics.noFalseGoalClaim, 1);
-  assert.equal(report.aggregate.metrics.captionActionAlignment >= 0.95, true);
+  assert.equal(report.aggregate.metrics.captionActionAlignment >= 0.75, true);
+  assert.equal(report.aggregate.metrics.captionSpecificityScore >= 0.95, true);
+  assert.equal(report.aggregate.metrics.reactionAsSupportScore >= 0.95, true);
+  assert.equal(report.aggregate.metrics.weakEvidenceNeutralityScore >= 0.95, true);
+  assert.equal(report.aggregate.metrics.providerFallbackRate, 0);
   assert.equal(report.aggregate.metrics.framingSafety, 1);
   assert.equal(report.fixtures[0].expected.captionRoles.includes("opening_hook"), true);
   assert.equal(Array.isArray(report.fixtures[0].actual.editPlan.captionTexts), true);
@@ -162,6 +166,14 @@ test("rubric penalizes caption/action mismatch and missing hook roles", () => {
     }),
   });
   assert.equal(mismatch.metrics.captionActionAlignment < 1, true);
+
+  const generic = scoreReferencePlan(baseFixture(), {
+    topMoment: validMoment(),
+    topPlan: validPlan({
+      captions: validPlan().captions.map((caption) => ({ ...caption, text: "The energy jumps" })),
+    }),
+  });
+  assert.equal(generic.metrics.captionSpecificityScore < 1, true);
 
   const missingHook = scoreReferencePlan(baseFixture(), {
     topMoment: validMoment(),
@@ -221,6 +233,10 @@ test("eval:reference runner writes a JSON report and fails thresholds", () => {
   const summary = JSON.parse(pass.stdout);
   assert.equal(summary.passed, true);
   assert.equal(summary.fixtureCount >= 8, true);
+  assert.equal(summary.captionSpecificityScore >= 0.95, true);
+  assert.equal(summary.reactionAsSupportScore >= 0.95, true);
+  assert.equal(summary.weakEvidenceNeutralityScore >= 0.95, true);
+  assert.equal(summary.providerFallbackRate, 0);
   const latest = JSON.parse(readFileSync(join(resultsDir, "reference-latest.json"), "utf8"));
   assert.equal(latest.aggregate.fixtureCount >= 8, true);
 

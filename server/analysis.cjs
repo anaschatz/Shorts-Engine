@@ -931,6 +931,9 @@ function reviewMetadataForPlan(plan, moment, mediaSignals = {}) {
     framingMode: plan.framingMode,
     visualEvidenceSummary: plan.visualEvidenceSummary || null,
     audioEvidenceSummary: audioEvidenceSummaryForMoment(moment, mediaSignals),
+    captionGeneration: plan.footballStoryPlan && plan.footballStoryPlan.captionGeneration
+      ? plan.footballStoryPlan.captionGeneration
+      : null,
   };
 }
 
@@ -946,6 +949,7 @@ function createCandidateEditPlans({
   styleTarget = "vertical_9_16",
   editIntensity = "balanced",
   stylePreset = "social_sports_v1",
+  captionProvider = null,
 } = {}) {
   const renderStylePreset = normalizeStylePreset(stylePreset);
   const candidates = (Array.isArray(moments) ? moments : []).slice(0, 3).map((moment) => {
@@ -962,6 +966,8 @@ function createCandidateEditPlans({
       visualEvidenceSummary,
       styleTarget: normalizeStyleTarget(styleTarget),
       editIntensity: normalizeEditIntensity(editIntensity),
+      stylePreset: renderStylePreset,
+      captionProvider,
     });
     const highlightType = storyPlan.selectedMoment.highlightType || moment.highlightType || highlightTypeForReasons(moment.reasonCodes || []);
     const duration = storyPlan.selectedMoment.end - storyPlan.selectedMoment.start;

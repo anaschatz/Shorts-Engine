@@ -6,6 +6,10 @@ const {
   hasGoalLanguage,
   hookForHighlightType,
 } = require("./edit-plan.cjs");
+const {
+  createDeterministicCaptionProvider,
+  generateCaptionsWithProvider,
+} = require("./adapters/caption-provider-adapter.cjs");
 
 const STYLE_TARGETS = Object.freeze(["auto", "vertical_9_16", "square_1_1"]);
 const EDIT_INTENSITIES = Object.freeze(["clean", "balanced", "punchy"]);
@@ -532,6 +536,60 @@ function captionBeats({
   }).filter((caption) => caption.end > caption.start && caption.text);
 }
 
+function transcriptSnippetsForMoment(transcript = {}, selectedMoment = {}) {
+  const captions = Array.isArray(transcript && transcript.captions) ? transcript.captions : [];
+  const start = Number(selectedMoment.start || 0);
+  const end = Number(selectedMoment.end || start);
+  return captions
+    .filter((caption) => Number(caption.start || 0) <= end + 1.5 && Number(caption.end || caption.start || 0) >= start - 1.5)
+    .slice(0, 4)
+    .map((caption) => ({
+      start: Number(Number(caption.start || 0).toFixed(2)),
+      end: Number(Number(caption.end || caption.start || 0).toFixed(2)),
+      text: sanitizeText(caption.text, 120),
+    }))
+    .filter((caption) => caption.text);
+}
+
+function captionGenerationForStory({
+  copy,
+  title,
+  highlightType,
+  language,
+  duration,
+  includeTitleContext = true,
+  goalEvidence = false,
+  reasonCodes = [],
+  visualEvidenceSummary = {},
+  audioEvidenceSummary = null,
+  rankingExplanation = null,
+  transcript = null,
+  selectedMoment = {},
+  stylePreset = "social_sports_v1",
+  editIntensity = "balanced",
+  captionProvider = null,
+}) {
+  const useTitleContext = includeTitleContext && !shouldUseEvidenceContext({ highlightType, reasonCodes, visualEvidenceSummary });
+  const provider = captionProvider || createDeterministicCaptionProvider();
+  return generateCaptionsWithProvider({
+    copy,
+    title,
+    titleContext: contextLineForTitle(title, highlightType, language, { goalEvidence }),
+    useTitleContext,
+    highlightType,
+    language,
+    duration,
+    goalEvidence,
+    reasonCodes,
+    visualEvidenceSummary,
+    audioEvidenceSummary,
+    rankingExplanation,
+    transcriptSnippets: transcriptSnippetsForMoment(transcript, selectedMoment),
+    stylePreset,
+    editIntensity,
+  }, { provider });
+}
+
 function animationCuesForStory({ duration, highlightType, reasonCodes = [], editIntensity }) {
   const safeDuration = Math.max(1, Number(duration) || 1);
   const intensity = normalizeEditIntensity(editIntensity);
@@ -605,19 +663,27 @@ function createFootballStoryPlan(input = {}) {
     editIntensity,
   });
   const duration = Math.max(0.4, sourceEnd - sourceStart);
-  const captions = captionBeats({
+  const reasonCodes = Array.isArray(selectedMoment.reasonCodes) ? selectedMoment.reasonCodes : [];
+  const captionGeneration = captionGenerationForStory({
     copy,
     title: input.title,
     highlightType,
     language,
     duration,
     goalEvidence,
-    reasonCodes: Array.isArray(selectedMoment.reasonCodes) ? selectedMoment.reasonCodes : [],
+    reasonCodes,
     visualEvidenceSummary: input.visualEvidenceSummary || {},
+    audioEvidenceSummary: input.audioEvidenceSummary || null,
+    rankingExplanation: selectedMoment.rankingExplanation || null,
+    transcript: input.transcript,
+    selectedMoment,
+    stylePreset: input.stylePreset || "social_sports_v1",
+    editIntensity,
+    captionProvider: input.captionProvider,
   });
+  const captions = captionGeneration.captions;
   const visualEvidenceSummary = input.visualEvidenceSummary || {};
   const framingIntent = framingIntentForStory({ visualEvidenceSummary, aspectRatio, highlightType });
-  const reasonCodes = Array.isArray(selectedMoment.reasonCodes) ? selectedMoment.reasonCodes : [];
   const animationCues = animationCuesForStory({
     duration,
     highlightType,
@@ -651,6 +717,11 @@ function createFootballStoryPlan(input = {}) {
         end: Number(Number(moment.end || 0).toFixed(2)),
       })),
     captionBeats: captions,
+    captionGeneration: {
+      providerMode: captionGeneration.providerMode,
+      fallbackUsed: captionGeneration.fallbackUsed,
+      warnings: captionGeneration.warnings,
+    },
     framingIntent,
     animationIntent: {
       intensity: editIntensity,

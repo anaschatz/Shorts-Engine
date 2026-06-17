@@ -41,8 +41,10 @@ test("football story planner creates contextual no-goal chance captions", () => 
   assert.equal(plan.captionBeats[1].layout, "top");
   assert.equal(hasGoalLanguage(plan.captionBeats.map((caption) => caption.text).join(" ")), false);
   assert.ok(plan.captionBeats.every((caption) => caption.captionEvidence.alignedHighlightType === "big_chance"));
-  assert.ok(plan.captionBeats.every((caption) => caption.captionSource.startsWith("football_story_planner:big_chance:")));
+  assert.ok(plan.captionBeats.every((caption) => caption.captionSource.startsWith("caption_generation:deterministic:big_chance:")));
   assert.ok(plan.captionBeats.every((caption) => Array.isArray(caption.captionRiskFlags)));
+  assert.equal(plan.captionGeneration.providerMode, "deterministic");
+  assert.equal(plan.captionGeneration.fallbackUsed, false);
 });
 
 test("football story planner uses natural Greek title context copy", () => {
@@ -203,6 +205,36 @@ test("football story planner downgrades visual-only goal moments without explici
 
   assert.equal(plan.selectedMoment.highlightType, "big_chance");
   assert.equal(hasGoalLanguage(plan.hook), false);
+  assert.equal(hasGoalLanguage(plan.captionBeats.map((caption) => caption.text).join(" ")), false);
+});
+
+test("football story planner falls back safely when caption provider fails", () => {
+  const plan = createFootballStoryPlan({
+    title: "Chance provider failure",
+    language: "English",
+    metadata,
+    selectedMoment: {
+      id: "mom_provider_failure",
+      start: 7,
+      end: 10,
+      center: 8.5,
+      highlightType: "big_chance",
+      confidence: 0.84,
+      reasonCodes: ["visual_shot_like_motion"],
+    },
+    captionProvider: {
+      providerMode: "future_llm",
+      generateCaptions() {
+        throw Object.assign(new Error("raw provider path /Users/example OPENAI_API_KEY=secret"), {
+          code: "CAPTION_PROVIDER_TIMEOUT",
+        });
+      },
+    },
+  });
+
+  assert.equal(plan.captionGeneration.fallbackUsed, true);
+  assert.match(plan.captionGeneration.warnings.join(" "), /CAPTION_PROVIDER_TIMEOUT/);
+  assert.doesNotMatch(JSON.stringify(plan.captionGeneration), /\/Users\/|OPENAI_API_KEY|raw provider path/);
   assert.equal(hasGoalLanguage(plan.captionBeats.map((caption) => caption.text).join(" ")), false);
 });
 

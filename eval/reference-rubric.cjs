@@ -11,29 +11,36 @@ const { AppError } = require("../server/errors.cjs");
 const { validateVisualSignals } = require("../server/vision.cjs");
 const {
   bestOverlap,
+  captionProviderFallbackRate,
+  captionSpecificityScore,
   framingIsSafe,
   planHasGoalLanguage,
   reasonCodePrecision,
   reasonCodeRecall,
+  reactionAsSupportScore,
   sanitizeReportText,
+  weakEvidenceNeutralityScore,
 } = require("./scoring.cjs");
 
 const DEFAULT_REFERENCE_THRESHOLD = 82;
 const REQUIRED_FIELDS = Object.freeze(["id", "title", "language", "durationSeconds", "transcript", "mediaSignals", "expected"]);
 const DEFAULT_CAPTION_ROLES = Object.freeze(["opening_hook", "context", "action_callout", "reaction", "closing_punch"]);
 const RUBRIC_WEIGHTS = Object.freeze({
-  momentRelevance: 0.14,
-  noFalseGoalClaim: 0.16,
-  captionActionAlignment: 0.12,
-  captionRoleSequence: 0.1,
-  captionReadability: 0.08,
-  textSafeArea: 0.07,
-  animationCueRelevance: 0.1,
-  pacingDuration: 0.06,
-  framingSafety: 0.06,
+  momentRelevance: 0.12,
+  noFalseGoalClaim: 0.15,
+  captionActionAlignment: 0.1,
+  captionRoleSequence: 0.08,
+  captionReadability: 0.07,
+  textSafeArea: 0.06,
+  animationCueRelevance: 0.09,
+  pacingDuration: 0.05,
+  framingSafety: 0.05,
   aspectRatioCorrectness: 0.04,
-  hookStrength: 0.04,
-  replayOutroUsefulness: 0.03,
+  hookStrength: 0.03,
+  replayOutroUsefulness: 0.02,
+  captionSpecificityScore: 0.06,
+  reactionAsSupportScore: 0.04,
+  weakEvidenceNeutralityScore: 0.04,
 });
 
 function toNumber(value, fallback = 0) {
@@ -329,6 +336,30 @@ function scoreNoFalseGoalClaim(plan, topMoment, expected) {
   return { score: 1, notes: [] };
 }
 
+function scoreCaptionSpecificity(plan) {
+  const score = captionSpecificityScore(plan);
+  return {
+    score,
+    notes: score >= 0.75 ? [] : ["Caption is too generic for the selected football action."],
+  };
+}
+
+function scoreReactionAsSupport(plan) {
+  const score = reactionAsSupportScore(plan);
+  return {
+    score,
+    notes: score >= 0.75 ? [] : ["Crowd reaction is used as the primary copy despite stronger action evidence."],
+  };
+}
+
+function scoreWeakEvidenceNeutrality(plan) {
+  const score = weakEvidenceNeutralityScore(plan);
+  return {
+    score,
+    notes: score >= 0.75 ? [] : ["Safe neutral caption was not used for uncertain moment."],
+  };
+}
+
 function scoreMomentRelevance(topMoment, expected) {
   if (!topMoment) return { score: 0, notes: ["No top moment was generated."] };
   const typeScore = topMoment.highlightType === expected.highlightType ? 1 : 0;
@@ -394,15 +425,25 @@ function scoreReferencePlan(fixture, { topMoment, topPlan } = {}) {
     },
     hookStrength: scoreHookStrength(topPlan),
     replayOutroUsefulness: scoreReplayOutro(topPlan, expected),
+    captionSpecificityScore: scoreCaptionSpecificity(topPlan),
+    reactionAsSupportScore: scoreReactionAsSupport(topPlan),
+    weakEvidenceNeutralityScore: scoreWeakEvidenceNeutrality(topPlan),
   };
-  const metrics = Object.fromEntries(Object.entries(scores).map(([key, value]) => [key, value.score]));
-  const score = Math.round(Object.entries(metrics).reduce((sum, [key, value]) => sum + scoreToPercent(value) * RUBRIC_WEIGHTS[key], 0));
+  const weightedMetrics = Object.fromEntries(Object.entries(scores).map(([key, value]) => [key, value.score]));
+  const metrics = {
+    ...weightedMetrics,
+    providerFallbackRate: captionProviderFallbackRate(topPlan),
+  };
+  const score = Math.round(Object.entries(weightedMetrics).reduce((sum, [key, value]) => sum + scoreToPercent(value) * RUBRIC_WEIGHTS[key], 0));
   const minScore = toNumber(expected.minQualityScore, DEFAULT_REFERENCE_THRESHOLD);
   const notes = [...new Set(Object.values(scores).flatMap((item) => item.notes))].slice(0, 12);
   const passed = score >= minScore &&
     metrics.noFalseGoalClaim === 1 &&
     metrics.aspectRatioCorrectness === 1 &&
-    metrics.framingSafety >= 0.9;
+    metrics.framingSafety >= 0.9 &&
+    metrics.captionSpecificityScore >= 0.75 &&
+    metrics.reactionAsSupportScore >= 0.75 &&
+    metrics.weakEvidenceNeutralityScore >= 0.75;
   return {
     id: fixture.id,
     title: sanitizeReportText(fixture.title, 160),
@@ -434,6 +475,7 @@ function scoreReferencePlan(fixture, { topMoment, topPlan } = {}) {
         captionRoles: topPlan.captions.map((caption) => caption.role),
         captionTexts: topPlan.captions.map((caption) => sanitizeReportText(caption.text, 120)),
         animationCueTypes: [...new Set(topPlan.animationCues.map((cue) => cue.type))],
+        captionGeneration: topPlan.footballStoryPlan && topPlan.footballStoryPlan.captionGeneration || null,
       },
       reviewMetadata: extractActualReviewMetadata(topPlan),
     },
@@ -509,6 +551,7 @@ function aggregateReferenceResults(results) {
   for (const key of metricKeys) {
     metrics[key] = avg((result) => toNumber(result.metrics[key], 0));
   }
+  metrics.providerFallbackRate = avg((result) => toNumber(result.metrics.providerFallbackRate, 0));
   return {
     fixtureCount: results.length,
     aggregateScore: Math.round(results.reduce((sum, result) => sum + result.score, 0) / count),

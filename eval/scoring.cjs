@@ -34,6 +34,31 @@ const ACTION_HIGHLIGHT_TYPES = Object.freeze([
 ]);
 
 const GENERIC_HYPE_RE = /\b(?:THE ENERGY JUMPS|THE STADIUM TELLS|THE CROWD TELLS|WATCH THE DETAIL|THE PRESSURE BUILDS|THE PLAY OPENS UP|RUN IT BACK)\b/i;
+const REACTION_REASON_CODES = Object.freeze([
+  "audio_energy_spike",
+  "audio_peak",
+  "commentator_peak",
+  "crowd_reaction",
+  "crowd_spike",
+  "visual_crowd_reaction",
+]);
+const ACTION_REASON_CODES = Object.freeze([
+  "big_chance",
+  "card_moment",
+  "counter_attack",
+  "foul",
+  "hard_foul",
+  "near_miss",
+  "save",
+  "shot_on_target",
+  "skill_move",
+  "visual_fast_break",
+  "visual_foul_like_contact",
+  "visual_save_like_motion",
+  "visual_shot_like_motion",
+]);
+const REACTION_TEXT_RE = /(?:crowd|stadium|reaction|noise|stands|supporters|κερκιδα|κερκίδα|αντιδραση|αντίδραση|γηπεδο|γήπεδο)/i;
+const STRONG_ACTION_TEXT_RE = /(?:chance|shot|save|keeper|contact|challenge|counter|break|runner|space|almost|foul|pressure|sprint|run|window|stop|touch|angle|σουτ|φάση|ευκαιρία|απόκρουση|τερματοφύλακας|επαφή|μαρκάρισμα|αντεπίθεση|χώρος|γκολ|σκοραρ)/i;
 
 const REQUIRED_FIXTURE_FIELDS = Object.freeze([
   "id",
@@ -231,6 +256,76 @@ function captionActionAlignmentScore(plan) {
   return !matcher || matcher.test(text) ? 1 : 0;
 }
 
+function captionText(plan) {
+  return Array.isArray(plan && plan.captions) ? plan.captions.map((caption) => sanitizeReportText(caption.text, 120)).join(" ") : "";
+}
+
+function captionTextForRole(plan, role) {
+  return Array.isArray(plan && plan.captions)
+    ? plan.captions.filter((caption) => caption.role === role).map((caption) => sanitizeReportText(caption.text, 120)).join(" ")
+    : "";
+}
+
+function captionSpecificityScore(plan) {
+  if (!plan || !Array.isArray(plan.captions) || !plan.captions.length) return 0;
+  const text = captionText(plan);
+  const checks = {
+    shot_on_target: /\b(?:shot|chance|pressure|angle|almost|timing|σουτ|πίεση|φάση)\b/i,
+    near_miss: /\b(?:close|almost|angle|chance|timing|παραλίγο|γωνία|φάση)\b/i,
+    big_chance: /\b(?:chance|pressure|danger|almost|timing|run|window|φάση|κίνδυνος|πίεση|τρέξιμο)\b/i,
+    save: /\b(?:save|keeper|stop|reacts|denied|τερματοφύλακας|απόκρουση|επέμβαση)\b/i,
+    foul: /\b(?:challenge|contact|tempo|reaction|aftermath|επαφή|μαρκάρισμα|ρυθμός)\b/i,
+    hard_foul: /\b(?:contact|challenge|tempo|heavy|reaction|επαφή|μαρκάρισμα|δυνατό|βαρύ)\b/i,
+    card_moment: /\b(?:decision|referee|call|heated|διαιτητής|απόφαση)\b/i,
+    counter_attack: /\b(?:break|counter|space|run|runner|transition|αντεπίθεση|χώρος|τρέξιμο)\b/i,
+    skill_move: /\b(?:touch|move|angle|defender|turn|άγγιγμα|κίνηση|γωνία)\b/i,
+    crowd_reaction: REACTION_TEXT_RE,
+    commentator_peak: /\b(?:call|commentary|pressure|moment|εκφωνητής|περιγραφή|πίεση)\b/i,
+    audio_energy_spike: REACTION_TEXT_RE,
+    replay_or_reaction: /\b(?:replay|timing|angle|detail|ξαναδές|λεπτομέρεια|γωνία)\b/i,
+    replay_worthy_moment: /\b(?:replay|timing|angle|detail|ξαναδές|λεπτομέρεια|γωνία)\b/i,
+    unknown_action: /\b(?:pressure|play|develop|detail|phase|πίεση|φάση|λεπτομέρεια)\b/i,
+    generic_highlight: /\b(?:pressure|play|develop|detail|phase|πίεση|φάση|λεπτομέρεια)\b/i,
+    goal: /(?:goal|finish|scored|scores|γκολ|σκοραρ|σκόραρ|φάση|τελείωμα|τελειωμα)/i,
+  };
+  const matcher = checks[plan.highlightType] || checks.generic_highlight;
+  if (!matcher.test(text)) return 0;
+  if (ACTION_HIGHLIGHT_TYPES.includes(plan.highlightType) && genericCaptionPenalty(plan)) return 0;
+  return 1;
+}
+
+function reactionAsSupportScore(plan) {
+  if (!plan || !Array.isArray(plan.reasonCodes)) return 0;
+  const reasonSet = new Set(plan.reasonCodes);
+  const hasReaction = REACTION_REASON_CODES.some((reason) => reasonSet.has(reason));
+  const hasAction = ACTION_REASON_CODES.some((reason) => reasonSet.has(reason)) || ACTION_HIGHLIGHT_TYPES.includes(plan.highlightType);
+  if (!hasReaction) return 1;
+  const openingAndAction = `${captionTextForRole(plan, "opening_hook")} ${captionTextForRole(plan, "action_callout")}`;
+  const reactionText = captionTextForRole(plan, "reaction");
+  if (hasAction) {
+    if (REACTION_TEXT_RE.test(openingAndAction) && !STRONG_ACTION_TEXT_RE.test(openingAndAction)) return 0;
+    return REACTION_TEXT_RE.test(reactionText) ? 1 : 0.5;
+  }
+  return REACTION_TEXT_RE.test(captionText(plan)) ? 1 : 0;
+}
+
+function weakEvidenceNeutralityScore(plan) {
+  if (!plan || !Array.isArray(plan.reasonCodes)) return 0;
+  const reasonSet = new Set(plan.reasonCodes);
+  const hasAction = ACTION_REASON_CODES.some((reason) => reasonSet.has(reason));
+  const weakEvidence = ["unknown_action", "generic_highlight"].includes(plan.highlightType) ||
+    (["visual_goal_area", "visual_scoreboard_context", "visual_unknown_action"].some((reason) => reasonSet.has(reason)) && !hasAction);
+  if (!weakEvidence) return 1;
+  const text = captionText(plan);
+  if (planHasGoalLanguage(plan)) return 0;
+  if (/\b(?:scores?|finish(?:es)?|denied|save|foul|counter|scored|γκολ|σκόραρε|σκοραρ)\b/i.test(text)) return 0;
+  return /\b(?:pressure|play|develop|detail|phase|πίεση|φάση|λεπτομέρεια|χτίζεται)\b/i.test(text) ? 1 : 0.5;
+}
+
+function captionProviderFallbackRate(plan) {
+  return plan && plan.footballStoryPlan && plan.footballStoryPlan.captionGeneration && plan.footballStoryPlan.captionGeneration.fallbackUsed ? 1 : 0;
+}
+
 function renderStylePresetIsValid(plan) {
   return Boolean(plan && RENDER_STYLE_PRESETS.includes(plan.stylePreset));
 }
@@ -349,6 +444,10 @@ function scoreFixture(fixture) {
   const captionEvidenceMetadataCompleteness = candidatePlans.every(captionEvidenceMetadataIsComplete) ? 1 : 0;
   const captionActionAlignment = topPlan ? captionActionAlignmentScore(topPlan) : 0;
   const genericCaptionPenaltyRate = topPlan ? genericCaptionPenalty(topPlan) : 0;
+  const captionSpecificityScoreValue = topPlan ? captionSpecificityScore(topPlan) : 0;
+  const reactionAsSupportScoreValue = topPlan ? reactionAsSupportScore(topPlan) : 0;
+  const weakEvidenceNeutralityScoreValue = topPlan ? weakEvidenceNeutralityScore(topPlan) : 0;
+  const providerFallbackRate = topPlan ? captionProviderFallbackRate(topPlan) : 0;
   const renderStylePresetValidity = candidatePlans.every(renderStylePresetIsValid) ? 1 : 0;
   const unsupportedCueCount = topPlan && Array.isArray(topPlan.unsupportedAnimationCues) ? topPlan.unsupportedAnimationCues.length : 0;
   const animationCueCount = topPlan && Array.isArray(topPlan.animationCues) ? topPlan.animationCues.length : 0;
@@ -374,21 +473,24 @@ function scoreFixture(fixture) {
   const frameExtractionFallbackUsed = frameExtraction.fallbackUsed;
   const fallbackScore = fallbackUsed ? 0 : 1;
   const weightedScore = Math.round(
-    scoreToPercent(top1Overlap) * 0.17 +
-      scoreToPercent(recall) * 0.13 +
-      scoreToPercent(reasonPrecision) * 0.1 +
-      scoreToPercent(reasonRecall) * 0.08 +
-      scoreToPercent(highlightTypeAccuracy) * 0.11 +
-      scoreToPercent(captionSafety) * 0.09 +
-      scoreToPercent(framingSafety) * 0.06 +
-      scoreToPercent(animationCueValidity) * 0.05 +
-      scoreToPercent(retentionSanity) * 0.04 +
-      scoreToPercent(candidatePlanValidity) * 0.04 +
+    scoreToPercent(top1Overlap) * 0.14 +
+      scoreToPercent(recall) * 0.11 +
+      scoreToPercent(reasonPrecision) * 0.09 +
+      scoreToPercent(reasonRecall) * 0.07 +
+      scoreToPercent(highlightTypeAccuracy) * 0.1 +
+      scoreToPercent(captionSafety) * 0.08 +
+      scoreToPercent(framingSafety) * 0.05 +
+      scoreToPercent(animationCueValidity) * 0.04 +
+      scoreToPercent(retentionSanity) * 0.03 +
+      scoreToPercent(candidatePlanValidity) * 0.03 +
       scoreToPercent(captionTimingValidity) * 0.03 +
       scoreToPercent(fallbackScore) * 0.02 +
-      scoreToPercent(captionRoleValidity) * 0.04 +
+      scoreToPercent(captionRoleValidity) * 0.03 +
       scoreToPercent(renderStylePresetValidity) * 0.02 +
-      scoreToPercent(unsupportedCueScore) * 0.02,
+      scoreToPercent(unsupportedCueScore) * 0.02 +
+      scoreToPercent(captionSpecificityScoreValue) * 0.06 +
+      scoreToPercent(reactionAsSupportScoreValue) * 0.04 +
+      scoreToPercent(weakEvidenceNeutralityScoreValue) * 0.04,
   );
   const passed =
     weightedScore >= thresholds.minAggregateScore &&
@@ -402,6 +504,9 @@ function scoreFixture(fixture) {
     captionEvidenceMetadataCompleteness === 1 &&
     captionActionAlignment === 1 &&
     genericCaptionPenaltyRate === 0 &&
+    captionSpecificityScoreValue >= 0.75 &&
+    reactionAsSupportScoreValue >= 0.75 &&
+    weakEvidenceNeutralityScoreValue >= 0.75 &&
     renderStylePresetValidity === 1 &&
     unsupportedCueRate <= 0.25 &&
     highlightTypeAccuracy === 1 &&
@@ -434,6 +539,10 @@ function scoreFixture(fixture) {
       captionEvidenceMetadataCompleteness,
       captionActionAlignment,
       genericCaptionPenaltyRate,
+      captionSpecificityScore: captionSpecificityScoreValue,
+      reactionAsSupportScore: reactionAsSupportScoreValue,
+      weakEvidenceNeutralityScore: weakEvidenceNeutralityScoreValue,
+      providerFallbackRate,
       renderStylePresetValidity,
       unsupportedCueRate,
       highlightTypeAccuracy,
@@ -497,6 +606,7 @@ function scoreFixture(fixture) {
         captionIntents: plan.captions.map((caption) => caption.captionIntent),
         captionSources: plan.captions.map((caption) => caption.captionSource),
         captionRiskFlags: plan.captions.flatMap((caption) => caption.captionRiskFlags || []),
+        captionGeneration: plan.footballStoryPlan && plan.footballStoryPlan.captionGeneration,
         effects: plan.effects,
       })),
     },
@@ -512,6 +622,9 @@ function scoreFixture(fixture) {
       captionEvidenceMetadataCompleteness,
       captionActionAlignment,
       genericCaptionPenaltyRate,
+      captionSpecificityScore: captionSpecificityScoreValue,
+      reactionAsSupportScore: reactionAsSupportScoreValue,
+      weakEvidenceNeutralityScore: weakEvidenceNeutralityScoreValue,
       renderStylePresetValidity,
       unsupportedCueRate,
       highlightTypeAccuracy,
@@ -539,6 +652,9 @@ function debuggingNotes(metrics) {
   if (!metrics.captionEvidenceMetadataCompleteness) notes.push("Caption evidence metadata is missing or incomplete.");
   if (!metrics.captionActionAlignment) notes.push("Caption copy does not align with the selected football action type.");
   if (metrics.genericCaptionPenaltyRate) notes.push("Action-led moment received generic crowd or pressure hype captions.");
+  if (metrics.captionSpecificityScore < 0.75) notes.push("Caption is too generic for the selected football action.");
+  if (metrics.reactionAsSupportScore < 0.75) notes.push("Crowd reaction is used as the primary copy despite stronger action evidence.");
+  if (metrics.weakEvidenceNeutralityScore < 0.75) notes.push("Safe neutral caption was not used for uncertain moment.");
   if (!metrics.renderStylePresetValidity) notes.push("Candidate edit plan is missing a supported render style preset.");
   if (metrics.unsupportedCueRate > 0.25) notes.push("Too many animation cues were ignored as unsupported.");
   if (!metrics.highlightTypeAccuracy) notes.push("Top-ranked moment has the wrong football highlight type.");
@@ -588,6 +704,10 @@ function aggregateResults(results) {
     captionEvidenceMetadataCompleteness: avg((result) => result.metrics.captionEvidenceMetadataCompleteness),
     captionActionAlignment: avg((result) => result.metrics.captionActionAlignment),
     genericCaptionPenaltyRate: avg((result) => result.metrics.genericCaptionPenaltyRate),
+    captionSpecificityScore: avg((result) => result.metrics.captionSpecificityScore),
+    reactionAsSupportScore: avg((result) => result.metrics.reactionAsSupportScore),
+    weakEvidenceNeutralityScore: avg((result) => result.metrics.weakEvidenceNeutralityScore),
+    providerFallbackRate: avg((result) => result.metrics.providerFallbackRate),
     renderStylePresetValidity: avg((result) => result.metrics.renderStylePresetValidity),
     unsupportedCueRate: avg((result) => result.metrics.unsupportedCueRate),
     fallbackUsageRate: avg((result) => (result.metrics.fallbackUsed ? 1 : 0)),
@@ -691,6 +811,10 @@ module.exports = {
   buildReport,
   captionsHaveValidRoles,
   captionsHaveValidTiming,
+  captionProviderFallbackRate,
+  captionSpecificityScore,
+  reactionAsSupportScore,
+  weakEvidenceNeutralityScore,
   framingIsSafe,
   loadFixtures,
   overlapRatio,

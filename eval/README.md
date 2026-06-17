@@ -7,11 +7,14 @@ This folder contains the local quality loop for the Real AI Analysis Layer.
 ```bash
 npm run eval
 npm run eval:reference
+npm run feedback:summary
 ```
 
 The runner is deterministic and does not require API keys or network access. It loads JSON fixtures from `eval/fixtures/`, runs them through `server/analysis.cjs`, validates candidate edit plans, and writes reports to `eval/results/`.
 
 `npm run eval:reference` runs the reference-style review fixtures in `eval/reference-fixtures/`. It compares expected vs actual moment type, caption roles, caption/action alignment, animation cue relevance, framing safety, aspect ratio, hook strength and false goal claims. It writes `eval/results/reference-latest.json` plus a timestamped `reference-review-*.json` report.
+
+`npm run feedback:summary` loads local human review JSON from `eval/human-feedback/` and writes `eval/results/feedback-latest.json` plus a timestamped `feedback-summary-*.json` report. It is local-only, does not mutate training data, and rejects unsafe generated short refs.
 
 ## Metrics
 
@@ -24,6 +27,10 @@ The runner is deterministic and does not require API keys or network access. It 
 - `retentionScore`: sanity check for the selected moment.
 - `candidatePlanValidity`: validated 9:16 MP4 candidate plans.
 - `captionTimingValidity`: captions remain inside the selected source window.
+- `captionSpecificityScore`: captions use action-specific wording instead of generic hype.
+- `reactionAsSupportScore`: crowd/audio reaction supports stronger action evidence instead of becoming the primary claim.
+- `weakEvidenceNeutralityScore`: uncertain visual evidence gets neutral pressure/developing-play copy.
+- `providerFallbackRate`: how often the caption provider fell back to the deterministic local generator.
 - `fallbackUsageRate`: how often deterministic fallback was used.
 - `visualFallbackUsageRate`: how often visual analysis used the safe heuristic fallback.
 
@@ -32,6 +39,7 @@ Reference review additionally reports:
 - `momentRelevance`: top moment type, overlap and reason-code fit.
 - `noFalseGoalClaim`: hard guardrail for no-goal fixtures.
 - `captionActionAlignment`: whether captions match the detected football moment.
+- `captionSpecificityScore`, `reactionAsSupportScore` and `weakEvidenceNeutralityScore`: evidence-aware caption quality guardrails.
 - `captionRoleSequence`: validated short-form story arc.
 - `animationCueRelevance`: whether kinetic/beat cues match the evidence.
 - `framingSafety` and `aspectRatioCorrectness`: safe vertical/square output expectations.
@@ -62,3 +70,7 @@ Reference fixtures include:
 - `expected.minQualityScore`
 
 Reports must not include secrets, raw provider errors, or local absolute paths.
+
+## Human Feedback
+
+Human feedback files live in `eval/human-feedback/`. Use safe opaque refs such as `eval/reference/fixture-id`, not local file paths or storage keys. The summary report tracks selected moment accuracy, caption alignment, caption specificity, false claim flags and preferred caption examples.
