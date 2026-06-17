@@ -128,6 +128,8 @@ test("youtube url normalization accepts supported video formats", () => {
 
 test("youtube url normalization rejects unsupported and unsafe urls", () => {
   assert.throws(() => normalizeYouTubeUrl("https://vimeo.com/123"), (error) => error.code === "YOUTUBE_URL_INVALID");
+  assert.throws(() => normalizeYouTubeUrl("http://www.youtube.com/watch?v=dQw4w9WgXcQ"), (error) => error.code === "YOUTUBE_URL_INVALID");
+  assert.throws(() => normalizeYouTubeUrl("http://youtu.be/dQw4w9WgXcQ"), (error) => error.code === "YOUTUBE_URL_INVALID");
   assert.throws(() => normalizeYouTubeUrl("javascript:alert(1)"), (error) => error.code === "YOUTUBE_URL_INVALID");
   assert.throws(
     () => normalizeYouTubeUrl("https://user:pass@www.youtube.com/watch?v=dQw4w9WgXcQ"),

@@ -336,7 +336,7 @@
     const parsed = youtubeUrlObject(value);
     if (!parsed.ok) return parsed;
     const url = parsed.data;
-    if (!["http:", "https:"].includes(url.protocol)) return fail("YOUTUBE_URL_INVALID");
+    if (url.protocol !== "https:") return fail("YOUTUBE_URL_INVALID");
     if (url.username || url.password) return fail("YOUTUBE_URL_INVALID");
     const host = normalizedHostname(url.hostname);
     const segments = youtubePathSegments(url.pathname);

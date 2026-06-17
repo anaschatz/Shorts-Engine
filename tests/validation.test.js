@@ -145,6 +145,14 @@ test("youtube source validation rejects unsafe or unsupported sources", () => {
     "YOUTUBE_URL_INVALID",
   );
   assert.equal(
+    Core.validateYouTubeSourceInput({ url: "http://www.youtube.com/watch?v=dQw4w9WgXcQ", rightsConfirmed: true }).error.code,
+    "YOUTUBE_URL_INVALID",
+  );
+  assert.equal(
+    Core.validateYouTubeSourceInput({ url: "http://youtu.be/dQw4w9WgXcQ", rightsConfirmed: true }).error.code,
+    "YOUTUBE_URL_INVALID",
+  );
+  assert.equal(
     Core.validateYouTubeSourceInput({ url: "javascript:alert(1)", rightsConfirmed: true }).error.code,
     "YOUTUBE_URL_INVALID",
   );

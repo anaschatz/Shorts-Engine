@@ -42,7 +42,7 @@ function parseYouTubeUrl(rawUrl) {
   } catch {
     fail("YOUTUBE_URL_INVALID");
   }
-  if (!["http:", "https:"].includes(parsed.protocol)) fail("YOUTUBE_URL_INVALID");
+  if (parsed.protocol !== "https:") fail("YOUTUBE_URL_INVALID");
   if (parsed.username || parsed.password) fail("YOUTUBE_URL_INVALID");
   const host = normalizedHostname(parsed.hostname);
   const segments = pathSegments(parsed.pathname);
