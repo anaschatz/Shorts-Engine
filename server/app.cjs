@@ -1162,9 +1162,19 @@ function publicHumanReviewMetrics(metrics) {
   };
 }
 
-function publicHumanReviewVideoMetadata(video = {}) {
+function reviewMediaExists(relativePath) {
+  try {
+    const media = safeReviewMediaRef(relativePath);
+    return existsSync(media.resolvedPath) && !statSync(media.resolvedPath).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function publicHumanReviewVideoMetadata(video = {}, options = {}) {
   const relativePath = publicRelativeMp4Ref(video.relativePath);
   if (!relativePath) return null;
+  if (options.verifyMediaExists && !reviewMediaExists(relativePath)) return null;
   return {
     relativePath,
     readable: video.readable === true,
@@ -1175,9 +1185,10 @@ function publicHumanReviewVideoMetadata(video = {}) {
   };
 }
 
-function publicHumanReviewSourceArtifact(artifact = {}) {
+function publicHumanReviewSourceArtifact(artifact = {}, options = {}) {
   const relativePath = publicRelativeMp4Ref(artifact.relativePath);
   if (!relativePath) return null;
+  if (options.verifyMediaExists && !reviewMediaExists(relativePath)) return null;
   return {
     relativePath,
     sourceType: sanitizeText(artifact.sourceType || "direct", 40),
@@ -1189,14 +1200,14 @@ function publicHumanReviewSourceArtifact(artifact = {}) {
   };
 }
 
-function publicHumanVisualReviewReport(report = {}) {
+function publicHumanVisualReviewReport(report = {}, options = {}) {
   const humanReview = report.humanReview || {};
   const sourceArtifact = report.source && report.source.generatedArtifact;
   const generated = report.comparison && report.comparison.generated;
   const reference = report.comparison && report.comparison.reference;
-  const publicSourceArtifact = sourceArtifact ? publicHumanReviewSourceArtifact(sourceArtifact) : null;
-  const publicGenerated = generated ? publicHumanReviewVideoMetadata(generated) : null;
-  const publicReference = reference ? publicHumanReviewVideoMetadata(reference) : null;
+  const publicSourceArtifact = sourceArtifact ? publicHumanReviewSourceArtifact(sourceArtifact, options) : null;
+  const publicGenerated = generated ? publicHumanReviewVideoMetadata(generated, options) : null;
+  const publicReference = reference ? publicHumanReviewVideoMetadata(reference, options) : null;
   const comparisonSafe = !report.comparison || Boolean(publicGenerated && publicReference);
   return {
     schemaVersion: Number.isFinite(Number(report.schemaVersion)) ? Number(report.schemaVersion) : 1,
@@ -1269,7 +1280,7 @@ async function handleHumanReviewLatest(req, res) {
   sendOk(res, {
     status: result.exists ? "available" : "missing",
     latestPath: result.latestPath,
-    review: publicHumanVisualReviewReport(result.report),
+    review: publicHumanVisualReviewReport(result.report, { verifyMediaExists: true }),
   });
 }
 

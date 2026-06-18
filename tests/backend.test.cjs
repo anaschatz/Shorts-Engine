@@ -1258,6 +1258,45 @@ test("public human review summary strips unapproved nested report fields", () =>
   );
 });
 
+test("public human review summary drops stale media refs when live verification is enabled", () => {
+  const existingRef = "manual-downloads/backend-live-review-check.mp4";
+  const missingRef = "manual-downloads/backend-live-review-missing.mp4";
+  const existingPath = join(CONFIG.rootDir, existingRef);
+  mkdirSync(join(CONFIG.rootDir, "manual-downloads"), { recursive: true });
+  writeFileSync(existingPath, Buffer.concat([mp4Header, Buffer.alloc(32)]));
+  try {
+    const publicReport = publicHumanVisualReviewReport(
+      {
+        source: {
+          generatedArtifact: {
+            relativePath: existingRef,
+            sourceType: "youtube",
+            videoId: "gxiRyFZXJV8",
+          },
+        },
+        comparison: {
+          generated: {
+            relativePath: existingRef,
+            readable: true,
+          },
+          reference: {
+            relativePath: missingRef,
+            readable: true,
+          },
+        },
+      },
+      { verifyMediaExists: true },
+    );
+
+    assert.equal(publicReport.source.generatedArtifact.relativePath, existingRef);
+    assert.equal(publicReport.comparison.generated.relativePath, existingRef);
+    assert.equal(publicReport.comparison.reference, null);
+    assert.equal(publicReport.productReady, false);
+  } finally {
+    rmSync(existingPath, { force: true });
+  }
+});
+
 test("render smoke creates a vertical MP4 when FFmpeg is installed", async (t) => {
   if (!commandAvailable(CONFIG.ffmpegBin) || !commandAvailable(CONFIG.ffprobeBin)) {
     t.skip("FFmpeg/FFprobe not installed in this environment");

@@ -645,8 +645,8 @@
       report.source?.generatedArtifact?.relativePath ||
       "";
     const referenceRef = report.comparison?.reference?.relativePath || "";
-    if (generatedRef) els.humanGeneratedRef.value = generatedRef;
-    if (referenceRef) els.humanReferenceRef.value = referenceRef;
+    els.humanGeneratedRef.value = generatedRef;
+    els.humanReferenceRef.value = referenceRef;
     setHumanReviewVideoPreview(els.humanGeneratedRef.value, els.humanReferenceRef.value);
     els.humanReviewStatus.dataset.status = report.status || "pending_human_review";
     const title = els.humanReviewStatus.querySelector("strong");
