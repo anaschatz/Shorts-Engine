@@ -24,6 +24,7 @@ const DEFAULT_THRESHOLDS = Object.freeze({
 });
 
 const ACTION_HIGHLIGHT_TYPES = Object.freeze([
+  "goal",
   "shot_on_target",
   "near_miss",
   "big_chance",
@@ -59,6 +60,7 @@ const CLEAR_CONTEXT_REASON_CODES = Object.freeze([
   "visual_replay_indicator",
 ]);
 const ACTION_REASON_CODES = Object.freeze([
+  "goal",
   "big_chance",
   "card_moment",
   "counter_attack",
@@ -318,7 +320,7 @@ function captionSpecificityScore(plan) {
     replay_worthy_moment: /\b(?:replay|timing|angle|detail|ξαναδές|λεπτομέρεια|γωνία)\b/i,
     unknown_action: /\b(?:pressure|play|develop|detail|phase|πίεση|φάση|λεπτομέρεια)\b/i,
     generic_highlight: /\b(?:pressure|play|develop|detail|phase|πίεση|φάση|λεπτομέρεια)\b/i,
-    goal: /(?:goal|finish|scored|scores|γκολ|σκοραρ|σκόραρ|φάση|τελείωμα|τελειωμα)/i,
+    goal: /(?:goal|finish|scored|scores|net|counts?|decision|offside|flag|ruled out|γκολ|σκοραρ|σκόραρ|φάση|τελείωμα|τελειωμα|απόφαση|οφσάιντ|οφσαιντ)/i,
   };
   const matcher = checks[plan.highlightType] || checks.generic_highlight;
   if (!matcher.test(text)) return 0;
@@ -328,6 +330,7 @@ function captionSpecificityScore(plan) {
 
 function reactionAsSupportScore(plan) {
   if (!plan || !Array.isArray(plan.reasonCodes)) return 0;
+  if (plan.goalOutcome && plan.goalOutcome.eventType === "ball_in_net") return captionSpecificityScore(plan);
   const reasonSet = new Set(plan.reasonCodes);
   const hasReaction = REACTION_REASON_CODES.some((reason) => reasonSet.has(reason));
   const hasReplayContext = REPLAY_REASON_CODES.some((reason) => reasonSet.has(reason)) ||
@@ -901,6 +904,17 @@ function scoreFixture(fixture) {
                   hasCelebrationAfterShot: Boolean(topMoment.evidence.goalEvidence.hasCelebrationAfterShot),
                 }
               : null,
+            goalOutcome: topMoment.evidence && topMoment.evidence.goalOutcome
+              ? {
+                  outcome: sanitizeReportText(topMoment.evidence.goalOutcome.outcome, 40),
+                  offsideStatus: sanitizeReportText(topMoment.evidence.goalOutcome.offsideStatus, 32),
+                  decisionTimestamp: topMoment.evidence.goalOutcome.decisionTimestamp,
+                  decisionEvidence: Array.isArray(topMoment.evidence.goalOutcome.decisionEvidence)
+                    ? topMoment.evidence.goalOutcome.decisionEvidence.map((item) => sanitizeReportText(item, 64)).slice(0, 12)
+                    : [],
+                  requiresPostContext: Boolean(topMoment.evidence.goalOutcome.requiresPostContext),
+                }
+              : null,
             source: topMoment.source,
           }
         : null,
@@ -919,6 +933,13 @@ function scoreFixture(fixture) {
               timelineEnd: segment.timelineEnd,
               highlightType: segment.highlightType,
               reasonCodes: segment.reasonCodes,
+              goalOutcome: segment.goalOutcome && segment.goalOutcome.eventType === "ball_in_net"
+                ? {
+                    outcome: sanitizeReportText(segment.goalOutcome.outcome, 40),
+                    offsideStatus: sanitizeReportText(segment.goalOutcome.offsideStatus, 32),
+                    decisionTimestamp: segment.goalOutcome.decisionTimestamp,
+                  }
+                : null,
               whySelected: sanitizeReportText(segment.whySelected, 160),
               safetyFlags: Array.isArray(segment.safetyFlags) ? segment.safetyFlags : [],
             }))
@@ -926,6 +947,16 @@ function scoreFixture(fixture) {
         retentionScore: plan.retentionScore,
         reasonCodes: plan.reasonCodes,
         highlightType: plan.highlightType,
+        goalOutcome: plan.goalOutcome && plan.goalOutcome.eventType === "ball_in_net"
+          ? {
+              outcome: sanitizeReportText(plan.goalOutcome.outcome, 40),
+              offsideStatus: sanitizeReportText(plan.goalOutcome.offsideStatus, 32),
+              decisionTimestamp: plan.goalOutcome.decisionTimestamp,
+              decisionEvidence: Array.isArray(plan.goalOutcome.decisionEvidence)
+                ? plan.goalOutcome.decisionEvidence.map((item) => sanitizeReportText(item, 64)).slice(0, 12)
+                : [],
+            }
+          : null,
         stylePreset: plan.stylePreset,
         styleTarget: plan.styleTarget,
         editIntensity: plan.editIntensity,

@@ -272,8 +272,128 @@ test("explicit goal evidence sequence outranks reaction shots and keeps shot-to-
   assert.equal(plans[0].actionSequenceSummary.goalmouthOrKeeper, true);
   assert.equal(plans[0].actionSequenceSummary.payoff, true);
   assert.equal(plans[0].actionSequenceSummary.reactionOnly, false);
-  assert.match(plans[0].captions.map((caption) => caption.text).join(" "), /FINISH|SHOT|build-up|payoff/i);
+  assert.equal(plans[0].goalOutcome.outcome, "unknown_decision");
+  assert.match(plans[0].captions.map((caption) => caption.text).join(" "), /BALL IN THE NET|DECISION NOT CLEAR/i);
   assert.equal(plans[0].cropStrategy.preserveFullFrame, true);
+});
+
+test("ball-in-net window keeps post context and labels disallowed offside safely", () => {
+  const result = detectHighlights({
+    transcript: {
+      provider: "fixture",
+      language: "en",
+      captions: [
+        { start: 8.2, end: 9.1, text: "The striker is through and finishes into the net" },
+        { start: 18.4, end: 20.2, text: "The flag is up, this goal is ruled out for offside" },
+      ],
+    },
+    signals: {
+      durationSeconds: 32,
+      hasAudio: true,
+      audioPeaks: [{ time: 10.4, energyScore: 0.92, source: "fixture" }],
+      sceneChanges: [{ time: 8.5, confidence: 0.76, source: "fixture" }],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [
+        { start: 6.8, end: 8.2, labels: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.91 },
+        { start: 8.2, end: 10.4, labels: ["goal_mouth_visible", "ball_in_net"], confidence: 0.92 },
+        { start: 10.4, end: 12.6, labels: ["celebration_after_shot", "crowd_reaction"], confidence: 0.88 },
+        { start: 18.2, end: 20.6, labels: ["assistant_referee_flag", "referee_signal"], confidence: 0.86 },
+      ],
+    },
+    preset: "hype",
+  });
+
+  const top = result.moments[0];
+  assert.equal(top.highlightType, "goal");
+  assert.equal(top.evidence.goalOutcome.outcome, "disallowed_offside");
+  assert.equal(top.evidence.goalOutcome.offsideStatus, "offside");
+  assert.equal(top.evidence.goalOutcome.requiresPostContext, true);
+  assert.ok(top.end >= 20);
+  assert.ok(top.end - top.start >= 18);
+
+  const plans = createCandidateEditPlans({
+    moments: result.moments,
+    metadata: { durationSeconds: 32, width: 1920, height: 1080, hasAudio: true },
+    transcript: { captions: [] },
+    title: "Offside goal clip",
+    stylePreset: "punchy_highlight",
+  });
+  const plan = plans.find((candidate) => candidate.goalOutcome && candidate.goalOutcome.outcome === "disallowed_offside") || plans[0];
+  const text = plan.captions.map((caption) => caption.text).join(" ");
+  assert.equal(plan.goalOutcome.outcome, "disallowed_offside");
+  assert.match(text, /OFFSIDE|NO GOAL|RULED OUT|FLAG/i);
+  assert.doesNotMatch(text, /\bGOAL CONFIRMED\b|THE FINISH COUNTS/i);
+  assert.equal(plan.captions.some((caption) => caption.captionRiskFlags.includes("offside_decision_context")), true);
+});
+
+test("ball-in-net without decision stays neutral instead of confirmed goal", () => {
+  const result = detectHighlights({
+    transcript: {
+      provider: "fixture",
+      language: "en",
+      captions: [
+        { start: 7.5, end: 8.8, text: "The shot beats the keeper and hits the net" },
+        { start: 16.5, end: 18.2, text: "Players are waiting for the decision" },
+      ],
+    },
+    signals: {
+      durationSeconds: 28,
+      hasAudio: true,
+      audioPeaks: [{ time: 9.2, energyScore: 0.9, source: "fixture" }],
+      sceneChanges: [{ time: 8, confidence: 0.74, source: "fixture" }],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [
+        { start: 6.8, end: 8.1, labels: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.89 },
+        { start: 8.1, end: 10.2, labels: ["goal_mouth_visible", "ball_in_net"], confidence: 0.9 },
+      ],
+    },
+    preset: "hype",
+  });
+
+  const top = result.moments[0];
+  assert.equal(top.evidence.goalOutcome.outcome, "unknown_decision");
+  assert.equal(top.evidence.goalOutcome.offsideStatus, "unknown");
+  assert.ok(top.end >= 20);
+
+  const plans = createCandidateEditPlans({
+    moments: result.moments,
+    metadata: { durationSeconds: 28, width: 1920, height: 1080, hasAudio: true },
+    transcript: { captions: [] },
+    title: "Unknown decision clip",
+  });
+  const text = plans[0].captions.map((caption) => caption.text).join(" ");
+  assert.match(text, /BALL IN THE NET|DECISION NOT CLEAR/i);
+  assert.doesNotMatch(text, /\bGOAL CONFIRMED\b|THE FINISH COUNTS/i);
+  assert.equal(plans[0].goalOutcome.outcome, "unknown_decision");
+});
+
+test("edit-plan validation rejects inconsistent offside goal outcomes", () => {
+  assert.throws(() => validateEditPlan({
+    sourceStart: 0,
+    sourceEnd: 18,
+    aspectRatio: "9:16",
+    highlightType: "goal",
+    goalOutcome: {
+      eventType: "ball_in_net",
+      outcome: "disallowed_offside",
+      offsideStatus: "onside",
+    },
+    confidence: 0.8,
+    hook: "OFFSIDE - NO GOAL",
+    title: "Invalid outcome",
+    captions: [{ start: 0, end: 2, text: "OFFSIDE - NO GOAL", role: "opening_hook" }],
+    effects: ["wide_safe_framing"],
+    framingMode: "wide_safe_vertical",
+    stylePreset: "punchy_highlight",
+    reasonCodes: ["goal", "visual_ball_in_net"],
+    export: { width: 1080, height: 1920, format: "mp4" },
+  }, { durationSeconds: 22, width: 1920, height: 1080 }), /Disallowed offside outcome needs offside status/);
 });
 
 test("partial goal-mouth sequence stays a big chance and does not claim goal", () => {

@@ -128,7 +128,23 @@ function captionTextByRole(plan, role) {
   return captions.filter((caption) => caption.role === role).map((caption) => caption.text).join(" ");
 }
 
+function isOutcomeAwareGoalPlan(plan, expected = {}) {
+  return expected.highlightType === "goal" &&
+    plan &&
+    plan.goalOutcome &&
+    plan.goalOutcome.eventType === "ball_in_net" &&
+    ["disallowed_offside", "possible_offside", "unknown_decision"].includes(plan.goalOutcome.outcome);
+}
+
 function scoreCaptionActionAlignment(plan, expected) {
+  if (isOutcomeAwareGoalPlan(plan, expected)) {
+    const text = planText(plan);
+    const aligned = /(?:ball|net|decision|offside|flag|ruled out|no goal)/i.test(text);
+    return {
+      score: aligned ? 1 : 0,
+      notes: aligned ? [] : ["Outcome-aware goal caption is missing ball/net/decision wording."],
+    };
+  }
   const groups = Array.isArray(expected.captionMustMentionAny) ? expected.captionMustMentionAny : [];
   if (!groups.length) return { score: 1, notes: [] };
   let matched = 0;
@@ -149,6 +165,14 @@ function scoreCaptionRoleSequence(plan, expected) {
   const expectedRoles = expected.captionRoles || DEFAULT_CAPTION_ROLES;
   const actualRoles = Array.isArray(plan && plan.captions) ? plan.captions.map((caption) => caption.role) : [];
   if (!actualRoles.length) return { score: 0, notes: ["Caption role sequence is missing."] };
+  if (isOutcomeAwareGoalPlan(plan, expected)) {
+    const compactRoles = ["opening_hook", "action_callout", "closing_punch"];
+    const validCompact = compactRoles.every((role, index) => actualRoles[index] === role);
+    return {
+      score: validCompact ? 1 : 0.6,
+      notes: validCompact ? [] : ["Outcome-aware goal caption role order is incomplete."],
+    };
+  }
   const matches = expectedRoles.filter((role, index) => actualRoles[index] === role).length;
   const requiredCoverage = expectedRoles.filter((role) => actualRoles.includes(role)).length / expectedRoles.length;
   const sequenceScore = matches / expectedRoles.length;

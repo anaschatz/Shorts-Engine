@@ -35,3 +35,4 @@ Guardrails:
 - Replay and commentary wording must stay evidence-specific: replay indicators may use timing/angle/run-it-back captions, and crowd/commentary spikes may use crowd/reaction/watch wording, but both must continue to avoid goal language unless explicit `goal` evidence exists.
 - Goal evidence can be composed from a strong action sequence: shot/contact, ball toward goal, goal-mouth context and ball-in-net/line-crossing or celebration after the shot. Partial visual sequences should rank as chances or support, not goals.
 - Goal-sequence planning should keep the source window action-first and long enough to show shot-to-payoff, typically 12-22 seconds for medium/strong goal evidence.
+- Ball-in-net moments should become outcome-aware: keep 10-15 seconds of post-context for flag/offside/VAR/no-goal decisions, include disallowed goals, and avoid confirmed-goal copy unless the outcome is `confirmed_goal`.

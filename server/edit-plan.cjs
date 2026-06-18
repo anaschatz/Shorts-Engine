@@ -61,6 +61,9 @@ const CAPTION_LAYOUTS = Object.freeze(["bottom", "center", "top", "split"]);
 const CAPTION_HIGHLIGHT_COLORS = Object.freeze(["white", "gold", "cyan", "red", "green"]);
 const CAPTION_RISK_FLAGS = Object.freeze([
   "goal_language_without_evidence",
+  "confirmed_goal_without_decision_evidence",
+  "offside_decision_context",
+  "goal_outcome_uncertain",
   "generic_hype_on_action",
   "caption_action_mismatch",
   "crowd_context_only",
@@ -119,6 +122,11 @@ const VISUAL_EVIDENCE_TYPES = Object.freeze([
   "crowd_reaction",
   "camera_pan",
   "scoreboard_context",
+  "assistant_referee_flag",
+  "var_screen",
+  "scoreboard_no_goal",
+  "replay_line",
+  "referee_signal",
   "unknown_visual_action",
 ]);
 const VISUAL_EVIDENCE_REASON_CODES = Object.freeze([
@@ -137,11 +145,37 @@ const VISUAL_EVIDENCE_REASON_CODES = Object.freeze([
   "visual_replay_indicator",
   "visual_crowd_reaction",
   "visual_scoreboard_context",
+  "visual_offside_flag",
+  "visual_var_check",
+  "visual_no_goal_decision",
+  "visual_offside_line",
+  "visual_referee_decision",
   "visual_unknown_action",
 ]);
+const GOAL_EVENT_TYPES = Object.freeze(["none", "ball_in_net"]);
+const GOAL_OUTCOMES = Object.freeze(["none", "confirmed_goal", "disallowed_offside", "possible_offside", "unknown_decision"]);
+const OFFSIDE_STATUSES = Object.freeze(["none", "offside", "onside", "possible", "unknown"]);
+const GOAL_DECISION_EVIDENCE_CODES = Object.freeze([
+  "explicit_goal_language",
+  "ball_in_net",
+  "confirmed_by_commentary",
+  "offside_commentary",
+  "flag_commentary",
+  "disallowed_commentary",
+  "var_check",
+  "no_goal_commentary",
+  "visual_offside_flag",
+  "visual_var_check",
+  "visual_no_goal_decision",
+  "visual_offside_line",
+  "visual_referee_decision",
+  "replay_context",
+]);
+const GOAL_OUTCOME_BADGES = Object.freeze(["CONFIRMED", "OFFSIDE", "POSSIBLE OFFSIDE", "DECISION UNCLEAR"]);
 const GOAL_LANGUAGE_RE = /\b(scored|scores|equalises|equalizes|back of the net|into the net|finds the net)\b|γκολ|σκοραρ|σκόραρ/i;
 const GOAL_WORD_RE = /\bgo+als?\b/gi;
 const NON_EVENT_GOAL_CONTEXT_RE = /\b(?:behind|towards?|near|around|beside|from behind|in front of)\s+(?:the\s+)?goals?\b|\bno\s+goals?\b/i;
+const DECISION_SAFE_GOAL_CONTEXT_RE = /\b(?:offside|flag|ruled\s+out|disallowed|no\s+goal|var|check|decision|chalked\s+off|ακυρ|οφσάιντ|οφσαιντ|σημαια|σημαία|δεν\s+μετρα|δεν\s+μέτρα)\b/i;
 const SEGMENT_PRIMARY_ACTION_REASONS = Object.freeze([
   "goal",
   "big_chance",
@@ -232,11 +266,106 @@ function hasGoalLanguage(value) {
   });
 }
 
-function assertNoMisleadingGoalLanguage({ hook, captions, highlightType, reasonCodes }) {
+function hasDecisionSafeGoalLanguage(value) {
+  const text = sanitizeText(value, 240);
+  if (!hasGoalLanguage(text)) return true;
+  return DECISION_SAFE_GOAL_CONTEXT_RE.test(text);
+}
+
+function normalizeGoalOutcome(value, context = {}) {
+  const raw = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const reasonCodes = Array.isArray(context.reasonCodes) ? context.reasonCodes : [];
+  const eventType = assertAllowedToken(
+    raw.eventType || (reasonCodes.includes("visual_ball_in_net") || context.highlightType === "goal" ? "ball_in_net" : "none"),
+    GOAL_EVENT_TYPES,
+    "Goal outcome event type is invalid.",
+    32,
+  );
+  const defaultOutcome = eventType === "ball_in_net"
+    ? context.highlightType === "goal" && reasonCodes.includes("goal") ? "confirmed_goal" : "unknown_decision"
+    : "none";
+  const outcome = assertAllowedToken(raw.outcome || defaultOutcome, GOAL_OUTCOMES, "Goal outcome is invalid.", 40);
+  const defaultOffsideStatus = outcome === "disallowed_offside"
+    ? "offside"
+    : outcome === "confirmed_goal"
+      ? "onside"
+      : outcome === "possible_offside"
+        ? "possible"
+        : eventType === "ball_in_net"
+          ? "unknown"
+          : "none";
+  const offsideStatus = assertAllowedToken(raw.offsideStatus || defaultOffsideStatus, OFFSIDE_STATUSES, "Offside status is invalid.", 32);
+  if (eventType === "none" && outcome !== "none") {
+    throw new AppError("VALIDATION_ERROR", "Goal outcome needs a ball-in-net event.", 400);
+  }
+  if (eventType === "ball_in_net" && outcome === "none") {
+    throw new AppError("VALIDATION_ERROR", "Ball-in-net event needs a goal outcome.", 400);
+  }
+  if (outcome === "disallowed_offside" && offsideStatus !== "offside") {
+    throw new AppError("VALIDATION_ERROR", "Disallowed offside outcome needs offside status.", 400);
+  }
+  if (outcome === "confirmed_goal" && offsideStatus === "offside") {
+    throw new AppError("VALIDATION_ERROR", "Confirmed goal cannot have offside status.", 400);
+  }
+  const decisionEvidence = Array.isArray(raw.decisionEvidence)
+    ? assertAllowedList(raw.decisionEvidence, GOAL_DECISION_EVIDENCE_CODES, "Goal decision evidence is invalid.", 64).slice(0, 12)
+    : [];
+  const decisionTimestamp = raw.decisionTimestamp == null || raw.decisionTimestamp === ""
+    ? null
+    : Number(raw.decisionTimestamp);
+  if (decisionTimestamp !== null && (!Number.isFinite(decisionTimestamp) || decisionTimestamp < 0)) {
+    throw new AppError("VALIDATION_ERROR", "Goal decision timestamp is invalid.", 400);
+  }
+  const postContextSeconds = raw.postContextSeconds == null || raw.postContextSeconds === ""
+    ? 0
+    : clamp(raw.postContextSeconds, 0, 15);
+  const requiresPostContext = Boolean(raw.requiresPostContext ?? (eventType === "ball_in_net" && outcome !== "confirmed_goal"));
+  const captionSafetyFlags = Array.isArray(raw.captionSafetyFlags)
+    ? raw.captionSafetyFlags.map((flag) => sanitizeText(flag, 80)).filter(Boolean).slice(0, 8)
+    : [];
+  const rawBadge = raw.badge ? sanitizeText(raw.badge, 32).toUpperCase() : null;
+  if (rawBadge && !GOAL_OUTCOME_BADGES.includes(rawBadge)) {
+    throw new AppError("VALIDATION_ERROR", "Goal outcome badge is invalid.", 400);
+  }
+  const badge = rawBadge || (outcome === "confirmed_goal"
+      ? "CONFIRMED"
+      : outcome === "disallowed_offside"
+        ? "OFFSIDE"
+        : outcome === "possible_offside"
+          ? "POSSIBLE OFFSIDE"
+          : eventType === "ball_in_net"
+            ? "DECISION UNCLEAR"
+            : null);
+  return {
+    eventType,
+    outcome,
+    offsideStatus,
+    decisionEvidence,
+    decisionTimestamp: decisionTimestamp === null ? null : Number(decisionTimestamp.toFixed(2)),
+    confidence: Number(clamp(raw.confidence ?? (outcome === "none" ? 0 : 0.5), 0, 1).toFixed(2)),
+    requiresPostContext,
+    postContextSeconds: Number(postContextSeconds.toFixed(2)),
+    badge,
+    captionSafetyFlags,
+  };
+}
+
+function hasConfirmedGoalOutcome(goalOutcome) {
+  return goalOutcome && goalOutcome.eventType === "ball_in_net" && goalOutcome.outcome === "confirmed_goal";
+}
+
+function assertNoMisleadingGoalLanguage({ hook, captions, highlightType, reasonCodes, goalOutcome }) {
   const hasGoalEvidence = highlightType === "goal" && Array.isArray(reasonCodes) && reasonCodes.includes("goal");
-  if (hasGoalEvidence) return;
+  if (hasGoalEvidence && hasConfirmedGoalOutcome(goalOutcome)) return;
   const texts = [hook, ...(Array.isArray(captions) ? captions.map((caption) => caption && caption.text) : [])];
-  if (texts.some(hasGoalLanguage)) {
+  if (goalOutcome && goalOutcome.eventType === "ball_in_net" && goalOutcome.outcome !== "confirmed_goal") {
+    const unsafe = texts.filter((text) => hasGoalLanguage(text) && !hasDecisionSafeGoalLanguage(text));
+    if (unsafe.length) {
+      throw new AppError("VALIDATION_ERROR", "Goal outcome captions need decision-safe language.", 400);
+    }
+    return;
+  }
+  if (texts.some((text) => hasGoalLanguage(text) && !hasDecisionSafeGoalLanguage(text))) {
     throw new AppError("VALIDATION_ERROR", "Edit plan uses goal language without goal evidence.", 400);
   }
 }
@@ -343,6 +472,12 @@ function normalizeCaptionEvidence(value, context, role) {
     reasonCodes: reasonCodes.map((reason) => sanitizeText(reason, 60)).filter(Boolean).slice(0, 10),
     visualReasonCodes: visualReasonCodes.map((reason) => sanitizeText(reason, 60)).filter(Boolean).slice(0, 10),
     goalEvidence: Boolean(evidence.goalEvidence ?? context.goalEvidence),
+    goalOutcome: context.goalOutcome && context.goalOutcome.eventType === "ball_in_net"
+      ? {
+          outcome: context.goalOutcome.outcome,
+          offsideStatus: context.goalOutcome.offsideStatus,
+        }
+      : null,
     role: sanitizeText(evidence.role || role, 40),
   };
 }
@@ -352,7 +487,9 @@ function normalizeCaptionRiskFlags(value, text, context) {
   const flags = rawFlags
     .map((flag) => sanitizeText(flag, 60).toLowerCase())
     .filter((flag) => CAPTION_RISK_FLAGS.includes(flag));
-  if (hasGoalLanguage(text) && !context.goalEvidence) flags.push("goal_language_without_evidence");
+  if (hasGoalLanguage(text) && !context.goalEvidence && !hasDecisionSafeGoalLanguage(text)) flags.push("goal_language_without_evidence");
+  if (context.goalOutcome && context.goalOutcome.outcome === "disallowed_offside") flags.push("offside_decision_context");
+  if (context.goalOutcome && ["possible_offside", "unknown_decision"].includes(context.goalOutcome.outcome)) flags.push("goal_outcome_uncertain");
   if (context.isReactionOnly) flags.push("crowd_context_only");
   return [...new Set(flags)].slice(0, 6);
 }
@@ -370,10 +507,12 @@ function normalizeCaptionContext(context = {}) {
     : [];
   const reactionReasons = new Set(["crowd_reaction", "crowd_spike", "visual_crowd_reaction", "commentator_peak", "audio_energy_spike", "audio_peak"]);
   const actionReasons = new Set(["goal", "big_chance", "shot_on_target", "save", "hard_foul", "foul", "card_moment", "counter_attack", "skill_move", "visual_shot_like_motion", "visual_save_like_motion", "visual_foul_like_contact", "visual_fast_break"]);
+  const goalOutcome = normalizeGoalOutcome(context.goalOutcome, { highlightType, reasonCodes });
   return {
     highlightType,
     reasonCodes,
-    goalEvidence: Boolean(context.goalEvidence || (highlightType === "goal" && reasonCodes.includes("goal"))),
+    goalOutcome,
+    goalEvidence: Boolean(context.goalEvidence || (highlightType === "goal" && reasonCodes.includes("goal") && hasConfirmedGoalOutcome(goalOutcome))),
     isReactionOnly: reasonCodes.some((reason) => reactionReasons.has(reason)) && !reasonCodes.some((reason) => actionReasons.has(reason)),
   };
 }
@@ -433,7 +572,8 @@ function createFallbackCaptions(duration, preset, options = {}) {
   const reasonCodes = Array.isArray(options.reasonCodes)
     ? options.reasonCodes.map((reason) => sanitizeText(reason, 60)).filter(Boolean).slice(0, 10)
     : [highlightType].filter((reason) => reason !== "generic_highlight");
-  const goalEvidence = Boolean(options.goalEvidence || (highlightType === "goal" && reasonCodes.includes("goal")));
+  const goalOutcome = normalizeGoalOutcome(options.goalOutcome, { highlightType, reasonCodes });
+  const goalEvidence = Boolean(options.goalEvidence || (highlightType === "goal" && reasonCodes.includes("goal") && hasConfirmedGoalOutcome(goalOutcome)));
   const beatsByType = {
     goal: ["THE FINISH CHANGED THE MATCH", "WATCH THE MOVEMENT BEFORE IT", "REPLAY THE BUILD-UP"],
     shot_on_target: ["THE CHANCE OPENS FAST", "ONE TOUCH CREATES THE DANGER", "REPLAY THE PRESSURE"],
@@ -453,7 +593,15 @@ function createFallbackCaptions(duration, preset, options = {}) {
     unknown_action: ["THE PRESSURE BUILDS", "THE PLAY OPENS UP", "WATCH THE DETAIL"],
     generic_highlight: ["THE PRESSURE BUILDS", "THE PLAY OPENS UP", "WATCH THE DETAIL"],
   };
-  const beats = beatsByType[highlightType] || beatsByType.generic_highlight;
+  const outcomeBeats = {
+    confirmed_goal: ["GOAL CONFIRMED", "THE FINISH COUNTS", "REPLAY THE BUILD-UP"],
+    disallowed_offside: ["GOAL... BUT THE FLAG IS UP", "OFFSIDE - NO GOAL", "FINISH RULED OUT"],
+    possible_offside: ["WAS HE OFF?", "FLAG CHECK COMING", "DECISION NOT CLEAR"],
+    unknown_decision: ["BALL IN THE NET", "DECISION NOT CLEAR", "WATCH THE FULL CONTEXT"],
+  };
+  const beats = goalOutcome.eventType === "ball_in_net"
+    ? outcomeBeats[goalOutcome.outcome] || outcomeBeats.unknown_decision
+    : beatsByType[highlightType] || beatsByType.generic_highlight;
   const segment = Math.max(1.8, duration / beats.length);
   return beats.map((text, index) => {
     const role = index === 0 ? "opening_hook" : index === beats.length - 1 ? "closing_punch" : index === 1 ? "action_callout" : "reaction";
@@ -470,9 +618,16 @@ function createFallbackCaptions(duration, preset, options = {}) {
         reasonCodes,
         visualReasonCodes: reasonCodes.filter((reason) => /^visual_/.test(reason)),
         goalEvidence,
+        goalOutcome: goalOutcome.eventType === "ball_in_net"
+          ? { outcome: goalOutcome.outcome, offsideStatus: goalOutcome.offsideStatus }
+          : null,
         role,
       },
-      captionRiskFlags: [],
+      captionRiskFlags: goalOutcome.outcome === "disallowed_offside"
+        ? ["offside_decision_context"]
+        : ["possible_offside", "unknown_decision"].includes(goalOutcome.outcome)
+          ? ["goal_outcome_uncertain"]
+          : [],
     };
   }).filter((caption) => caption.end > caption.start);
 }
@@ -689,6 +844,7 @@ function normalizeSegmentItem(segment, index, metadata = {}) {
   if (safetyFlags.includes("opening_context_without_action") && !segmentHasPrimaryAction(reasonCodes, highlightType)) {
     throw new AppError("VALIDATION_ERROR", "Opening context segment needs explicit action evidence.", 400);
   }
+  const goalOutcome = normalizeGoalOutcome(segment.goalOutcome, { highlightType, reasonCodes });
   return {
     id: sanitizeText(segment.id || `segment_${index + 1}`, 64),
     sourceStart: Number(sourceStart.toFixed(2)),
@@ -696,6 +852,7 @@ function normalizeSegmentItem(segment, index, metadata = {}) {
     duration: Number(segmentDuration.toFixed(2)),
     highlightType,
     reasonCodes,
+    goalOutcome,
     confidence: Number(clamp(segment.confidence, 0, 1).toFixed(2)),
     retentionScore: Math.round(clamp(segment.retentionScore || segment.confidence * 100, 0, 100)),
     captionTheme: sanitizeText(segment.captionTheme || captionIntentForHighlightType(highlightType), 80),
@@ -854,14 +1011,15 @@ function validateEditPlan(plan, metadata = {}) {
     throw new AppError("VALIDATION_ERROR", "Unsupported edit style preset.", 400);
   }
   const reasonCodes = Array.isArray(plan.reasonCodes) ? plan.reasonCodes.map((reason) => sanitizeText(reason, 60)).filter(Boolean) : [];
-  const goalEvidence = highlightType === "goal" && reasonCodes.includes("goal");
+  const goalOutcome = normalizeGoalOutcome(plan.goalOutcome, { highlightType, reasonCodes });
+  const goalEvidence = highlightType === "goal" && reasonCodes.includes("goal") && hasConfirmedGoalOutcome(goalOutcome);
   const renderDuration = hasSegments ? totalDuration : sourceEnd - sourceStart;
-  const captions = normalizeCaptions(plan.captions, 0, renderDuration, { highlightType, reasonCodes, goalEvidence });
+  const captions = normalizeCaptions(plan.captions, 0, renderDuration, { highlightType, reasonCodes, goalEvidence, goalOutcome });
   if (captions.length === 0) {
     throw new AppError("VALIDATION_ERROR", "Edit plan needs at least one caption.", 400);
   }
   const hook = sanitizeText(plan.hook || hookForHighlightType(highlightType, stylePreset), 96);
-  assertNoMisleadingGoalLanguage({ hook, captions, highlightType, reasonCodes });
+  assertNoMisleadingGoalLanguage({ hook, captions, highlightType, reasonCodes, goalOutcome });
   if (captions.some((caption) => caption.captionRiskFlags.includes("goal_language_without_evidence"))) {
     throw new AppError("VALIDATION_ERROR", "Caption uses goal language without goal evidence.", 400);
   }
@@ -920,6 +1078,7 @@ function validateEditPlan(plan, metadata = {}) {
     aspectRatio,
     hook,
     highlightType,
+    goalOutcome,
     confidence: clamp(plan.confidence, 0, 1),
     framingMode,
     framingReason,
@@ -951,6 +1110,11 @@ module.exports = {
   CAPTION_ROLES,
   EFFECT_TYPES,
   FRAMING_MODES,
+  GOAL_DECISION_EVIDENCE_CODES,
+  GOAL_EVENT_TYPES,
+  GOAL_OUTCOMES,
+  GOAL_OUTCOME_BADGES,
+  OFFSIDE_STATUSES,
   HIGHLIGHT_TYPES,
   HOOKS,
   RENDER_STYLE_PRESETS,
@@ -964,9 +1128,11 @@ module.exports = {
   captionIntentForHighlightType,
   framingModeForMetadata,
   hasGoalLanguage,
+  hasDecisionSafeGoalLanguage,
   hookForHighlightType,
   isKnownStylePreset,
   normalizeCaptions,
+  normalizeGoalOutcome,
   normalizeStylePreset,
   validateEditPlan,
 };

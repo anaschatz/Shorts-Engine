@@ -101,6 +101,38 @@ function labelForHighlightType(highlightType) {
   return labels[highlightType] || labels.generic_highlight;
 }
 
+function goalOutcomeBadgeLabel(goalOutcome = {}) {
+  if (!goalOutcome || goalOutcome.eventType !== "ball_in_net") return null;
+  const labels = {
+    confirmed_goal: "CONFIRMED",
+    disallowed_offside: "OFFSIDE - NO GOAL",
+    possible_offside: "POSSIBLE OFFSIDE",
+    unknown_decision: "DECISION UNCLEAR",
+  };
+  return labels[goalOutcome.outcome] || null;
+}
+
+function topLabelForPlan(plan = {}) {
+  return goalOutcomeBadgeLabel(plan.goalOutcome) || labelForHighlightType(plan.highlightType);
+}
+
+function goalOutcomeBadges(plan = {}, duration = 0) {
+  const badges = [];
+  const planLabel = goalOutcomeBadgeLabel(plan.goalOutcome);
+  if (planLabel) {
+    badges.push({ start: 0, end: Math.min(Number(duration) || 0, 4.5), label: planLabel });
+  }
+  const segments = Array.isArray(plan.segments) ? plan.segments : [];
+  for (const segment of segments) {
+    const label = goalOutcomeBadgeLabel(segment && segment.goalOutcome);
+    if (!label) continue;
+    const start = Number(segment.timelineStart || 0);
+    const end = Math.min(Number(segment.timelineEnd || start + 4.5), start + 4.5);
+    if (end > start) badges.push({ start, end, label });
+  }
+  return badges.slice(0, 8);
+}
+
 function renderDimensions(plan = {}) {
   const output = plan.export && typeof plan.export === "object" ? plan.export : {};
   const width = Number(output.width);
@@ -243,6 +275,7 @@ function writeAssSubtitles(plan, outputPath) {
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
     ...uniqueStyleLines,
     `Style: TopLabel,Arial,${config.labelFont},&H00FFFFFF,&H000000FF,&H00151A18,&HCC111614,-1,0,0,0,100,100,0,0,1,3,1,8,60,60,${square ? 48 : 72},1`,
+    `Style: OutcomeBadge,Arial,${Math.max(32, Math.round(config.labelFont * 0.82))},&H00FFFFFF,&H000000FF,&H00151A18,&HDD111614,-1,0,0,0,100,100,0,0,1,3,1,9,64,64,${square ? 96 : 142},1`,
     `Style: EndBeat,Arial,${config.endFont},&H005ED3F4,&H000000FF,&H00151A18,&HAA000000,-1,0,0,0,100,100,0,0,1,4,1,2,70,70,${square ? 70 : 92},1`,
     "",
     "[Events]",
@@ -250,7 +283,12 @@ function writeAssSubtitles(plan, outputPath) {
   ];
   if (config.showTopLabel) {
     lines.push(
-      `Dialogue: 1,${assTime(0)},${assTime(Math.min(2.4, duration))},TopLabel,,0,0,0,,${escapeAss(labelForHighlightType(plan.highlightType))} · ${escapeAss(config.name.replace(/_/g, " ").toUpperCase())}`,
+      `Dialogue: 1,${assTime(0)},${assTime(Math.min(2.4, duration))},TopLabel,,0,0,0,,${escapeAss(topLabelForPlan(plan))} · ${escapeAss(config.name.replace(/_/g, " ").toUpperCase())}`,
+    );
+  }
+  for (const badge of goalOutcomeBadges(plan, duration)) {
+    lines.push(
+      `Dialogue: 2,${assTime(badge.start)},${assTime(badge.end)},OutcomeBadge,,0,0,0,,${escapeAss(badge.label)}`,
     );
   }
   for (const caption of captions) {
@@ -405,7 +443,7 @@ function singleWindowPlan(plan, duration) {
     sourceStart: 0,
     sourceEnd: Number(duration.toFixed(2)),
     totalDuration: Number(duration.toFixed(2)),
-    segments: [],
+    segments: Array.isArray(plan.segments) ? plan.segments : [],
   };
 }
 

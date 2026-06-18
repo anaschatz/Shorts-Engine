@@ -20,6 +20,11 @@ const VISUAL_SIGNAL_TYPES = Object.freeze([
   "crowd_reaction",
   "camera_pan",
   "scoreboard_context",
+  "assistant_referee_flag",
+  "var_screen",
+  "scoreboard_no_goal",
+  "replay_line",
+  "referee_signal",
   "unknown_visual_action",
 ]);
 
@@ -39,6 +44,11 @@ const VISUAL_REASON_CODES = Object.freeze([
   "visual_replay_indicator",
   "visual_crowd_reaction",
   "visual_scoreboard_context",
+  "visual_offside_flag",
+  "visual_var_check",
+  "visual_no_goal_decision",
+  "visual_offside_line",
+  "visual_referee_decision",
   "visual_unknown_action",
 ]);
 
@@ -61,6 +71,11 @@ const VISUAL_REASON_BY_TYPE = Object.freeze({
   camera_pan: "visual_unknown_action",
   player_cluster: "visual_unknown_action",
   scoreboard_context: "visual_scoreboard_context",
+  assistant_referee_flag: "visual_offside_flag",
+  var_screen: "visual_var_check",
+  scoreboard_no_goal: "visual_no_goal_decision",
+  replay_line: "visual_offside_line",
+  referee_signal: "visual_referee_decision",
   unknown_visual_action: "visual_unknown_action",
 });
 
@@ -218,6 +233,11 @@ function summarizeVisualSignals(input = {}) {
     cameraPanIntensity: safeSummaryValue(windows, "camera_pan"),
     replayIndicator: safeSummaryValue(windows, "replay_indicator"),
     scoreboardContext: safeSummaryValue(windows, "scoreboard_context"),
+    assistantRefereeFlag: safeSummaryValue(windows, "assistant_referee_flag"),
+    varScreen: safeSummaryValue(windows, "var_screen"),
+    scoreboardNoGoal: safeSummaryValue(windows, "scoreboard_no_goal"),
+    replayLine: safeSummaryValue(windows, "replay_line"),
+    refereeSignal: safeSummaryValue(windows, "referee_signal"),
     goalClaimAllowed: false,
   };
 }
