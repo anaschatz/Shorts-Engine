@@ -864,12 +864,87 @@ test("long football sources produce a chronological multi-moment compilation wit
   assert.equal(plan.segments.some((segment) => segment.highlightType === "big_chance"), true);
   assert.equal(plan.segments.some((segment) => segment.highlightType === "save"), true);
   assert.equal(plan.segments.some((segment) => segment.highlightType === "hard_foul"), true);
-  assert.equal(plan.hook, "EVERY BIG CHANCE");
+  assert.equal(plan.hook, "EVERY BIG MOMENT");
   assert.doesNotMatch(plan.captions.map((caption) => caption.text).join(" "), /PHASE \d|PRESSURE BUILDS/i);
-  assert.match(plan.captions.map((caption) => caption.text).join(" "), /CHANCE OPENS|KEEPER REACTS|CONTACT CHANGES/i);
+  assert.match(plan.captions.map((caption) => caption.text).join(" "), /SHOT OPENS UP|KEEPER HAS TO REACT|CONTACT CHANGES/i);
   assert.equal(hasGoalLanguage(plan.captions.map((caption) => caption.text).join(" ")), false);
   assert.equal(plan.framingMode, "wide_safe_vertical");
   assert.equal(plan.cropStrategy.preserveFullFrame, true);
+});
+
+test("near-goal shot and reaction windows group into story sequences without false goal captions", () => {
+  const longMetadata = { durationSeconds: 132, width: 1920, height: 1080, hasAudio: true };
+  const longTranscript = {
+    provider: "fixture",
+    language: "en",
+    captions: [
+      { start: 4, end: 6, text: "The teams line up before kickoff" },
+      { start: 25, end: 27, text: "The shot opens up from the right side" },
+      { start: 58, end: 60, text: "The keeper has to react quickly" },
+      { start: 90, end: 92, text: "Another big chance has the crowd on edge" },
+    ],
+  };
+  const result = detectHighlights({
+    transcript: longTranscript,
+    signals: {
+      durationSeconds: 132,
+      hasAudio: true,
+      audioPeaks: [
+        { time: 5, energyScore: 0.86, source: "fixture" },
+        { time: 31, energyScore: 0.91, source: "fixture" },
+        { time: 63, energyScore: 0.9, source: "fixture" },
+        { time: 96, energyScore: 0.92, source: "fixture" },
+      ],
+      sceneChanges: [
+        { time: 31.4, confidence: 0.78, source: "fixture" },
+        { time: 63.2, confidence: 0.8, source: "fixture" },
+        { time: 96.1, confidence: 0.79, source: "fixture" },
+      ],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [
+        { start: 4, end: 6, labels: ["crowd_reaction"], confidence: 0.77 },
+        { start: 24.8, end: 26.6, labels: ["shot_like_motion", "ball_toward_goal", "ball_visible"], confidence: 0.91 },
+        { start: 30.4, end: 32.2, labels: ["crowd_reaction"], confidence: 0.86 },
+        { start: 56.8, end: 58.6, labels: ["save_like_motion", "keeper_action", "ball_visible"], confidence: 0.91 },
+        { start: 62.1, end: 64.2, labels: ["crowd_reaction"], confidence: 0.84 },
+        { start: 88.6, end: 90.4, labels: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.92 },
+        { start: 95.2, end: 97, labels: ["crowd_reaction"], confidence: 0.85 },
+      ],
+    },
+    preset: "hype",
+  });
+  const sequenceMoments = result.moments.filter((moment) => moment.source === "vision_football_sequence");
+  assert.ok(sequenceMoments.length >= 3);
+  assert.ok(sequenceMoments.every((moment) => (
+    moment.evidence.actionSequence.footballSequence &&
+    ["near_goal_sequence", "chance_sequence"].includes(moment.evidence.actionSequence.footballSequence.sequenceType)
+  )));
+  assert.ok(sequenceMoments.every((moment) => moment.evidence.goalOutcome.eventType !== "ball_in_net"));
+
+  const plans = createCandidateEditPlans({
+    moments: result.moments,
+    metadata: longMetadata,
+    transcript: longTranscript,
+    title: "Near goal sequence fixture",
+    editIntensity: "balanced",
+    stylePreset: "punchy_highlight",
+  });
+  const plan = validateEditPlan(plans[0], longMetadata);
+  const captionText = plan.captions.map((caption) => caption.text).join(" ");
+  const planSequences = plan.segments
+    .map((segment) => segment.actionSequenceSummary && segment.actionSequenceSummary.footballSequence)
+    .filter(Boolean);
+
+  assert.equal(plan.mode, "multi_moment_compilation");
+  assert.ok(planSequences.length >= 3);
+  assert.equal(plan.hook, "EVERY BIG MOMENT");
+  assert.doesNotMatch(captionText, /CHANCE OPENS|THE CHANCE OPENS/i);
+  assert.match(captionText, /SHOT OPENS UP|KEEPER HAS TO REACT|BIG CHANCE/i);
+  assert.equal(hasGoalLanguage(captionText), false);
+  assert.ok(plan.reviewMetadata.multiMoment.segmentTimestamps.some((segment) => segment.footballSequence));
 });
 
 test("multi-moment compilation trims expanded replay overlaps into a valid timeline", () => {
