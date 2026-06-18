@@ -174,6 +174,7 @@ function validateCiReports(options = {}) {
   const maxAgeMs = options.maxAgeMs || parseMaxAgeMs();
   const reports = [
     { label: "api-demo", filePath: resolve(demoResultsDir, "latest.json") },
+    { label: "ocr-smoke", filePath: resolve(demoResultsDir, "ocr-latest.json") },
     { label: "browser-contract", filePath: resolve(demoResultsDir, "browser-latest.json") },
     { label: "playwright-browser", filePath: resolve(demoResultsDir, "playwright-latest.json") },
     { label: "evaluation", filePath: resolve(evalResultsDir, "latest.json") },

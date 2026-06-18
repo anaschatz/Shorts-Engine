@@ -36,6 +36,8 @@
     "lint": "node tests/static-lint.mjs",
     "outbox:drain": "node tools/outbox-drain.mjs",
     "outbox:health": "node tools/outbox-health.mjs",
+    "ocr:doctor": "node tools/release/check-ocr-runtime.mjs",
+    "ocr:smoke": "node demo/run-ocr-smoke.mjs",
     "release:check": "node tools/release/verify-release-gate.mjs",
     "release:evidence": "node tools/release/write-release-evidence.mjs",
     "release:readiness": "node tools/release/check-release-readiness.mjs",

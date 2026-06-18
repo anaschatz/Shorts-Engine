@@ -99,6 +99,22 @@ function createReportDirs(nowMs) {
   mkdirSync(evalResultsDir, { recursive: true });
   const timestamp = new Date(nowMs).toISOString();
   writeJson(join(demoResultsDir, "latest.json"), { timestamp, status: "passed", failedCases: [] });
+  writeJson(join(demoResultsDir, "ocr-latest.json"), {
+    timestamp,
+    generatedAt: timestamp,
+    status: "passed",
+    passed: true,
+    skipped: true,
+    degraded: true,
+    runtime: {
+      providerMode: "deterministic-scoreboard-ocr",
+      localOcrEnabled: false,
+      fallbackAvailable: true,
+      networkRequired: false,
+    },
+    checks: [{ name: "scoreboard_ocr_output_valid", passed: true }],
+    failedCases: [],
+  });
   writeJson(join(demoResultsDir, "browser-latest.json"), { timestamp, status: "passed", failedCases: [] });
   writeJson(join(demoResultsDir, "playwright-latest.json"), {
     timestamp,

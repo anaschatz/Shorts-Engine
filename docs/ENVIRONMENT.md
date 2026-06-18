@@ -96,9 +96,14 @@ Scoreboard OCR is deterministic fallback by default. Local OCR must be installed
 Manual local OCR check:
 
 ```bash
+npm run ocr:doctor
+npm run ocr:smoke
 tesseract --version
-SHORTSENGINE_SCOREBOARD_OCR_ENABLED=1 SHORTSENGINE_SCOREBOARD_OCR_PROVIDER=local npm run env:check
+SHORTSENGINE_SCOREBOARD_OCR_ENABLED=1 SHORTSENGINE_SCOREBOARD_OCR_PROVIDER=local npm run ocr:doctor
+SHORTSENGINE_SCOREBOARD_OCR_ENABLED=1 SHORTSENGINE_SCOREBOARD_OCR_PROVIDER=local npm run ocr:smoke
 ```
+
+`npm run ocr:doctor` is readiness-only and never installs Tesseract. `npm run ocr:smoke` writes `demo/results/ocr-latest.json` plus a timestamped OCR smoke report. With defaults it passes in deterministic fallback mode; with local OCR explicitly enabled it fails closed when the runtime is missing. OCR smoke reports keep crop thumbnails disabled by default and never persist OCR text, binary paths, local crop paths, stdout, stderr or secrets.
 
 `/health` reports `scoreboardOcr.providerMode`, `localOcrEnabled`, `runtimeAvailable`, `fallbackAvailable` and `networkRequired` without binary paths, local crop paths, raw OCR text, stdout, stderr or secrets.
 

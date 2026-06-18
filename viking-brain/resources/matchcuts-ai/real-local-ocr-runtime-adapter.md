@@ -26,3 +26,9 @@
 - No API keys or network are required for tests, eval or local demo.
 - Local OCR remains disabled by default.
 - Reports and public responses must not contain raw OCR text, absolute paths, storage keys, stdout/stderr, tokens or provider errors.
+
+## Operator Proof
+- `npm run ocr:doctor` checks OCR readiness without installing Tesseract or calling network services.
+- `npm run ocr:smoke` writes `demo/results/ocr-latest.json` plus a timestamped safe proof report.
+- Default OCR smoke passes in deterministic fallback mode; local OCR runtime is required only when explicitly enabled.
+- Crop QA artifacts stay disabled by default under `demo/results/ocr-artifacts/`; reports keep safe relative refs only.

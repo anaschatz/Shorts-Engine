@@ -34,3 +34,4 @@ Review generated shorts against:
 - referee/VAR/offside decision evaluation should track `offsideOutcomeAccuracy`, `disallowedGoalIncluded`, `decisionContextCoverage`, `captionOutcomeAlignment` and `postGoalWindowCoverage`.
 - scoreboard OCR evaluation should track `ocrEvidenceCoverage`, `scoreboardScoreChangeRecall`, `ambiguousOcrFailClosed`, and `noFalseGoalFromOcrOnly` before OCR evidence can support goal decisions.
 - local OCR evaluation should separately track score-changed, score-unchanged, clock-only and unreadable outcomes; unchanged/ambiguous/unreadable OCR must fail closed against confirmed-goal claims.
+- run `npm run ocr:doctor` and `npm run ocr:smoke` before treating local OCR as ready; default fallback reports are acceptable for CI, while enabled local OCR must prove runtime availability.

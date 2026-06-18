@@ -16,12 +16,14 @@ const fixtureScript = readFileSync("demo/create-fixture.mjs", "utf8");
 const browserSmoke = readFileSync("demo/run-browser-smoke.mjs", "utf8");
 const playwrightSmoke = readFileSync("demo/run-playwright-smoke.mjs", "utf8");
 const demoSmoke = readFileSync("demo/run-smoke.mjs", "utf8");
+const ocrSmoke = readFileSync("demo/run-ocr-smoke.mjs", "utf8");
 const youtubeSmoke = readFileSync("demo/run-youtube-smoke.mjs", "utf8");
 const youtubeLiveE2E = readFileSync("demo/run-youtube-live-e2e.mjs", "utf8");
 const humanVisualReview = readFileSync("demo/run-human-visual-review.mjs", "utf8");
 const reportSafety = readFileSync("demo/report-safety.mjs", "utf8");
 const ciReportValidator = readFileSync("demo/validate-ci-reports.mjs", "utf8");
 const envChecker = readFileSync("tools/release/check-environment.mjs", "utf8");
+const ocrDoctor = readFileSync("tools/release/check-ocr-runtime.mjs", "utf8");
 const youtubeDoctor = readFileSync("tools/release/check-youtube-ingest.mjs", "utf8");
 const stagingReadiness = readFileSync("tools/release/check-staging-readiness.mjs", "utf8");
 const stagingSmoke = readFileSync("tools/release/check-staging-smoke.mjs", "utf8");
@@ -178,6 +180,20 @@ assert.match(youtubeDoctor, /findSensitiveLeak/, "YouTube doctor should guard su
 assert.match(youtubeDoctor, /DOCTOR_NEXT_ACTIONS/, "YouTube doctor should centralize safe operator next actions");
 assert.match(youtubeDoctor, /install-configure-downloader-or-set-SHORTSENGINE_YOUTUBE_DOWNLOADER_BIN/, "YouTube doctor should guide missing downloader failures safely");
 assert.match(youtubeDoctor, /fix-live-health-youtubeIngest-shape-or-use-local-doctor/, "YouTube doctor should guide invalid live health shape safely");
+assert.match(ocrDoctor, /scoreboardConfig/, "OCR doctor should inspect the configured scoreboard OCR provider");
+assert.match(ocrDoctor, /ocrCommandAvailable/, "OCR doctor should check the OCR command through the local adapter helper");
+assert.match(ocrDoctor, /storageHealth/, "OCR doctor should validate local staging storage readiness");
+assert.match(ocrDoctor, /frameExtractionHealth/, "OCR doctor should include frame extraction readiness");
+assert.match(ocrDoctor, /findSensitiveLeak/, "OCR doctor should guard readiness output against leaks");
+assert.doesNotMatch(ocrDoctor, /auth login|npm install|brew install|curl\s+|gh secret|stdout|stderr/i, "OCR doctor must not install tools, start auth or expose command output");
+assert.match(ocrSmoke, /ocr-latest\.json/, "OCR smoke should write a stable latest report");
+assert.match(ocrSmoke, /extractSampledFrames/, "OCR smoke should use the frame extraction boundary");
+assert.match(ocrSmoke, /analyzeScoreboardOcr/, "OCR smoke should use the scoreboard OCR provider boundary");
+assert.match(ocrSmoke, /publicScoreboardOcr/, "OCR smoke should persist only public OCR evidence");
+assert.match(ocrSmoke, /findSensitiveLeak/, "OCR smoke should guard reports against leaks");
+assert.match(ocrSmoke, /ocrTextStored:\s*false/, "OCR smoke reports should not store OCR text");
+assert.match(ocrSmoke, /cropArtifacts:[\s\S]*enabled:\s*false/, "OCR smoke crop artifacts should stay disabled by default");
+assert.doesNotMatch(ocrSmoke, /auth login|npm install|brew install|curl\s+|rawOcr|rawText|stdoutIncluded|stderrIncluded/i, "OCR smoke must not install tools or persist raw OCR/debug fields");
 assert.match(youtubeSmoke, /SHORTSENGINE_YOUTUBE_SMOKE/, "YouTube smoke should require an explicit smoke flag");
 assert.match(youtubeSmoke, /SHORTSENGINE_YOUTUBE_SMOKE_URL/, "YouTube smoke should read the authorized test URL from env");
 assert.match(youtubeSmoke, /SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED/, "YouTube smoke should require allowlist or explicit manual unlisted flag");
@@ -262,6 +278,8 @@ assert.match(packageJson, /"env:check": "node tools\/release\/check-environment\
 assert.match(packageJson, /"feedback:summary": "node eval\/run-feedback-summary\.mjs"/, "package should expose the human feedback summary runner");
 assert.match(packageJson, /"github:doctor": "node tools\/release\/check-github-cli\.mjs"/, "package should expose GitHub CLI doctor");
 assert.match(packageJson, /"github:setup": "node tools\/release\/print-github-cli-setup\.mjs"/, "package should expose GitHub CLI setup guidance");
+assert.match(packageJson, /"ocr:doctor": "node tools\/release\/check-ocr-runtime\.mjs"/, "package should expose OCR runtime doctor");
+assert.match(packageJson, /"ocr:smoke": "node demo\/run-ocr-smoke\.mjs"/, "package should expose OCR smoke proof");
 assert.match(packageJson, /"render:check": "node tools\/release\/check-render-staging\.mjs"/, "package should expose Render staging configuration validation");
 assert.match(packageJson, /"render:manual": "node tools\/release\/print-render-staging-checklist\.mjs"/, "package should expose the live Render manual checklist");
 assert.match(packageJson, /"render:proof": "node tools\/release\/render-staging-proof\.mjs"/, "package should expose the no-network Render staging proof");
@@ -591,6 +609,8 @@ assert.match(releaseGateVerifier, /render:manual/, "release gate verifier should
 assert.match(releaseGateVerifier, /render:proof/, "release gate verifier should require the Render no-network proof script");
 assert.match(releaseGateVerifier, /remote:ci/, "release gate verifier should require the remote CI script to exist");
 assert.match(releaseGateVerifier, /remote:ci:proof/, "release gate verifier should require the remote CI proof script to exist");
+assert.match(releaseGateVerifier, /ocr:doctor/, "release gate verifier should require OCR doctor");
+assert.match(releaseGateVerifier, /ocr:smoke/, "release gate verifier should require OCR smoke proof");
 assert.match(releaseGateVerifier, /staging:smoke:full/, "release gate verifier should require the full staging smoke script to exist");
 assert.match(releaseGateVerifier, /staging:smoke:cleanup/, "release gate verifier should require the full smoke cleanup script to exist");
 assert.match(releaseGateVerifier, /checkStagingReadiness/, "release gate verifier should include staging readiness");
@@ -670,12 +690,16 @@ assert.match(ciDocs, /staging:smoke:full/, "CI docs should mention opt-in full s
 assert.match(ciDocs, /staging:smoke:cleanup/, "CI docs should mention opt-in full staging smoke cleanup");
 assert.match(ciDocs, /stays out of the default gate/i, "CI docs should keep full staging smoke out of the default gate");
 assert.match(ciDocs, /npm run youtube:doctor/, "CI docs should document the no-network YouTube doctor");
+assert.match(ciDocs, /npm run ocr:doctor/, "CI docs should document the OCR doctor");
+assert.match(ciDocs, /npm run ocr:smoke/, "CI docs should document the OCR smoke proof");
 assert.match(ciDocs, /npm run youtube:smoke/, "CI docs should document the opt-in YouTube smoke command");
 assert.match(ciDocs, /YouTube smoke stays out of the default gate/i, "CI docs should keep real YouTube smoke out of default CI");
 assert.match(ciDocs, /docs\/YOUTUBE_INGEST_MANUAL_SMOKE\.md/, "CI docs should link to the manual YouTube ingest smoke guide");
 assert.match(releaseDocs, /Branch Protection Checklist/, "release docs should include branch protection guidance");
 assert.match(releaseDocs, /npm run env:check/, "release docs should include environment readiness checks");
 assert.match(releaseDocs, /npm run staging:check/, "release docs should include staging readiness checks");
+assert.match(releaseDocs, /npm run ocr:doctor/, "release docs should include OCR readiness checks");
+assert.match(releaseDocs, /npm run ocr:smoke/, "release docs should include OCR smoke proof");
 assert.match(releaseDocs, /npm run render:check/, "release docs should include Render staging checks");
 assert.match(releaseDocs, /\.github\/workflows\/staging\.yml/, "release docs should mention the staging workflow");
 assert.match(releaseDocs, /staging:smoke:full/, "release docs should document the opt-in full staging smoke command");
@@ -696,6 +720,8 @@ assert.match(releaseDocs, /Real cloud integration remains opt-in/i, "release doc
 for (const command of [
   "npm run env:check",
   "npm run staging:check",
+  "npm run youtube:doctor",
+  "npm run ocr:doctor",
   "npm run lint",
   "npm run build",
   "npm test",
@@ -703,6 +729,7 @@ for (const command of [
   "npm run eval:reference",
   "npm run brain:health",
   "npm run demo:fixture",
+  "npm run ocr:smoke",
   "npm run demo:smoke",
   "npm run demo:browser",
   "npm run demo:browser:ci",
@@ -727,6 +754,7 @@ assert.doesNotMatch(githubWorkflow, /MATCHCUTS_PERSISTENCE_ADAPTER\s*:\s*sqlite/
 assert.match(githubWorkflow, /uses:\s*actions\/upload-artifact@v4/, "CI workflow should use upload-artifact for failure diagnostics");
 assert.match(githubWorkflow, /if:\s*failure\(\)/, "CI workflow should upload artifacts only on failure");
 assert.match(githubWorkflow, /demo\/results\/latest\.json/, "CI workflow should upload API smoke latest report on failure");
+assert.match(githubWorkflow, /demo\/results\/ocr-latest\.json/, "CI workflow should upload OCR smoke latest report on failure");
 assert.match(githubWorkflow, /demo\/results\/browser-latest\.json/, "CI workflow should upload browser smoke latest report on failure");
 assert.match(githubWorkflow, /demo\/results\/playwright-latest\.json/, "CI workflow should upload Playwright latest report on failure");
 assert.match(githubWorkflow, /demo\/results\/playwright-artifacts\//, "CI workflow should upload failure-only Playwright artifacts");

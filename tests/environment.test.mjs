@@ -48,6 +48,23 @@ function createReportDirs(nowMs) {
     reportPath: "demo/results/latest.json",
     failedCases: [],
   });
+  writeJson(join(demoResultsDir, "ocr-latest.json"), {
+    timestamp,
+    generatedAt: timestamp,
+    status: "passed",
+    passed: true,
+    skipped: true,
+    degraded: true,
+    reportPath: "demo/results/ocr-latest.json",
+    runtime: {
+      providerMode: "deterministic-scoreboard-ocr",
+      localOcrEnabled: false,
+      fallbackAvailable: true,
+      networkRequired: false,
+    },
+    checks: [{ name: "scoreboard_ocr_output_valid", passed: true }],
+    failedCases: [],
+  });
   writeJson(join(demoResultsDir, "browser-latest.json"), {
     timestamp,
     status: "passed",

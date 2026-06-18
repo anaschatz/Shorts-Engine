@@ -42,6 +42,23 @@ function createFixtureRoot() {
     checks: [{ name: "download_returns_rendered_video", passed: true }],
     failedCases: [],
   });
+  writeJson(join(demoResultsDir, "ocr-latest.json"), {
+    timestamp,
+    generatedAt: timestamp,
+    status: "passed",
+    passed: true,
+    skipped: true,
+    degraded: true,
+    reportPath: "demo/results/ocr-latest.json",
+    runtime: {
+      providerMode: "deterministic-scoreboard-ocr",
+      localOcrEnabled: false,
+      fallbackAvailable: true,
+      networkRequired: false,
+    },
+    checks: [{ name: "scoreboard_ocr_output_valid", passed: true }],
+    failedCases: [],
+  });
   writeJson(join(demoResultsDir, "browser-latest.json"), {
     timestamp,
     status: "passed",
@@ -197,7 +214,7 @@ test("release evidence JSON has safe shape and no sensitive leakage", () => {
   assert.equal(evidence.releaseReadiness.ready, true);
   assert.equal(evidence.releaseReadiness.remoteMutation, false);
   assert.equal(evidence.stagingReadiness.ok, true);
-  assert.equal(evidence.latestReports.length, 5);
+  assert.equal(evidence.latestReports.length, 6);
   assert.equal(evidence.latestReports[0].relativePath, "latest.json");
   assert.equal(findSensitiveLeak(evidence), null);
 });

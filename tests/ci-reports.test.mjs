@@ -30,6 +30,23 @@ function writeValidReports({ demoResultsDir, evalResultsDir, timestamp }) {
     checks: [{ name: "server_health_ready", passed: true }],
     failedCases: [],
   });
+  writeJson(join(demoResultsDir, "ocr-latest.json"), {
+    timestamp,
+    generatedAt: timestamp,
+    status: "passed",
+    passed: true,
+    skipped: true,
+    degraded: true,
+    runtime: {
+      providerMode: "deterministic-scoreboard-ocr",
+      localOcrEnabled: false,
+      fallbackAvailable: true,
+      networkRequired: false,
+    },
+    fixture: { relativePath: "demo/fixtures/shortsengine-demo-source.mp4" },
+    checks: [{ name: "scoreboard_ocr_output_valid", passed: true }],
+    failedCases: [],
+  });
   writeJson(join(demoResultsDir, "browser-latest.json"), {
     timestamp,
     status: "passed",
@@ -75,6 +92,7 @@ test("CI report validator accepts fresh safe reports", () => {
   assert.equal(result.ok, true);
   assert.deepEqual(result.reports.map((report) => report.label), [
     "api-demo",
+    "ocr-smoke",
     "browser-contract",
     "playwright-browser",
     "evaluation",

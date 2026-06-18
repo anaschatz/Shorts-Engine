@@ -21,12 +21,14 @@ npm run lint
 npm run env:check
 npm run staging:check
 npm run youtube:doctor
+npm run ocr:doctor
 npm run build
 npm test
 npm run eval
 npm run eval:reference
 npm run brain:health
 npm run demo:fixture
+npm run ocr:smoke
 npm run demo:smoke
 npm run demo:browser
 npm run demo:browser:ci
@@ -38,7 +40,7 @@ npm run branch:doctor
 npm run branch:proof
 ```
 
-`demo:browser:ci` runs the same real Chromium flow as `demo:browser:e2e`. `env:check` validates staging-safe environment defaults without requiring secrets. `staging:check` validates the provider-neutral staging workflow, GitHub Environment contract and deployed-smoke defaults without requiring a staging URL. `youtube:doctor` validates the default-disabled YouTube ingest runtime without network or downloader calls. `eval:reference` validates the reference-style football editing quality loop without network or API keys. `ci:reports` validates the latest demo, browser, Playwright, eval and reference review reports before the gate can pass. `release:readiness` is a no-network static check for release scripts, CI workflow markers and safe GitHub proof capability. `release:check` verifies the CI workflow contract, artifact allowlist, env readiness, staging readiness, release readiness and report gate as release evidence.
+`demo:browser:ci` runs the same real Chromium flow as `demo:browser:e2e`. `env:check` validates staging-safe environment defaults without requiring secrets. `staging:check` validates the provider-neutral staging workflow, GitHub Environment contract and deployed-smoke defaults without requiring a staging URL. `youtube:doctor` validates the default-disabled YouTube ingest runtime without network or downloader calls. `ocr:doctor` validates scoreboard OCR readiness without installing Tesseract, starting auth or requiring OCR by default. `ocr:smoke` writes `demo/results/ocr-latest.json` and proves the sampled-frame/OCR fallback contract; local OCR remains opt-in and missing Tesseract fails only when explicitly enabled. `eval:reference` validates the reference-style football editing quality loop without network or API keys. `ci:reports` validates the latest demo, OCR, browser, Playwright, eval and reference review reports before the gate can pass. `release:readiness` is a no-network static check for release scripts, CI workflow markers and safe GitHub proof capability. `release:check` verifies the CI workflow contract, artifact allowlist, env readiness, staging readiness, release readiness and report gate as release evidence.
 
 The GitHub Actions release gate uses `npm ci` when `package-lock.json` is present, installs Playwright Chromium with `npm run demo:browser:install`, installs the Ubuntu `ffmpeg` package, verifies `ffmpeg` and `ffprobe`, then runs every command above. The release gate and demo smoke runners keep the default local persistence adapter so the suite can verify safe defaults on Node 20; sqlite remains covered by focused adapter tests and staging configuration. Real cloud integration stays out of the default gate and remains opt-in through its dedicated script/env flags. Full staging upload/render smoke also stays out of the default gate; `npm run staging:smoke:full` requires `SHORTSENGINE_STAGING_FULL_SMOKE=1` and is reserved for manual staging proof because it uploads a fixture, starts a render job and downloads the rendered MP4. Full smoke cleanup also stays out of the default gate; `npm run staging:smoke:cleanup` is dry-run by default and real deletion requires `SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP=1`. YouTube smoke stays out of the default gate; `npm run youtube:smoke` requires `SHORTSENGINE_YOUTUBE_SMOKE=1`, enabled ingest, a downloader and an authorized allowlisted/manual URL.
 
@@ -129,10 +131,12 @@ SHORTSENGINE_REMOTE_CI_POLL_INTERVAL_MS=10000 npm run remote:ci
 GitHub Actions uploads artifacts only when the release gate fails. The upload allowlist is intentionally narrow:
 
 - `demo/results/latest.json`
+- `demo/results/ocr-latest.json`
 - `demo/results/browser-latest.json`
 - `demo/results/playwright-latest.json`
 - `demo/results/playwright-artifacts/`
 - `eval/results/latest.json`
+- `eval/results/reference-latest.json`
 
 The workflow must not upload `node_modules`, storage directories, uploads, renders, database files, secrets, raw local state, or broad result globs.
 
@@ -148,7 +152,7 @@ Cleanup only targets managed Playwright files under `demo/results/` and `demo/re
 
 ## Reading Failures
 
-Start with `demo/results/playwright-latest.json` for browser failures, `demo/results/latest.json` for API demo failures, and `eval/results/latest.json` for quality regressions. Each report uses safe relative paths and structured failure codes. Enable trace/video only for temporary debugging by setting `SHORTSENGINE_BROWSER_E2E_TRACE=1` or `SHORTSENGINE_BROWSER_E2E_VIDEO=1`; keep them off in the default release gate unless actively investigating a failure.
+Start with `demo/results/playwright-latest.json` for browser failures, `demo/results/latest.json` for API demo failures, `demo/results/ocr-latest.json` for OCR readiness/smoke failures, and `eval/results/latest.json` for quality regressions. Each report uses safe relative paths and structured failure codes. Enable trace/video only for temporary debugging by setting `SHORTSENGINE_BROWSER_E2E_TRACE=1` or `SHORTSENGINE_BROWSER_E2E_VIDEO=1`; keep them off in the default release gate unless actively investigating a failure.
 
 See `docs/RELEASE.md` for the branch protection checklist and release evidence contract.
 

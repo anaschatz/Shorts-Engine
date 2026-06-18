@@ -83,6 +83,9 @@ jobs:
       - name: YouTube ingest doctor
         run: npm run youtube:doctor
 
+      - name: OCR runtime doctor
+        run: npm run ocr:doctor
+
       - name: Lint
         run: npm run lint
 
@@ -103,6 +106,9 @@ jobs:
 
       - name: Demo fixture
         run: npm run demo:fixture
+
+      - name: OCR smoke proof
+        run: npm run ocr:smoke
 
       - name: API demo smoke
         run: npm run demo:smoke
@@ -128,6 +134,7 @@ jobs:
           retention-days: 7
           path: |
             demo/results/latest.json
+            demo/results/ocr-latest.json
             demo/results/browser-latest.json
             demo/results/playwright-latest.json
             demo/results/playwright-artifacts/

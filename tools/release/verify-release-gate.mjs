@@ -18,6 +18,7 @@ const REQUIRED_WORKFLOW_COMMANDS = Object.freeze([
   "npm run env:check",
   "npm run staging:check",
   "npm run youtube:doctor",
+  "npm run ocr:doctor",
   "npm run lint",
   "npm run build",
   "npm test",
@@ -25,6 +26,7 @@ const REQUIRED_WORKFLOW_COMMANDS = Object.freeze([
   "npm run eval:reference",
   "npm run brain:health",
   "npm run demo:fixture",
+  "npm run ocr:smoke",
   "npm run demo:smoke",
   "npm run demo:browser",
   "npm run demo:browser:ci",
@@ -40,6 +42,8 @@ const REQUIRED_PACKAGE_SCRIPTS = Object.freeze({
   "env:check": "node tools/release/check-environment.mjs",
   "github:doctor": "node tools/release/check-github-cli.mjs",
   "github:setup": "node tools/release/print-github-cli-setup.mjs",
+  "ocr:doctor": "node tools/release/check-ocr-runtime.mjs",
+  "ocr:smoke": "node demo/run-ocr-smoke.mjs",
   "render:check": "node tools/release/check-render-staging.mjs",
   "render:manual": "node tools/release/print-render-staging-checklist.mjs",
   "render:proof": "node tools/release/render-staging-proof.mjs",
@@ -58,6 +62,7 @@ const REQUIRED_PACKAGE_SCRIPTS = Object.freeze({
 
 const FAILURE_ARTIFACT_ALLOWLIST = Object.freeze([
   "demo/results/latest.json",
+  "demo/results/ocr-latest.json",
   "demo/results/browser-latest.json",
   "demo/results/playwright-latest.json",
   "demo/results/playwright-artifacts/",

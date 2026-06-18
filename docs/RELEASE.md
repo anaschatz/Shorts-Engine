@@ -10,6 +10,7 @@ Run the full acceptance chain before a release candidate:
 npm run lint
 npm run env:check
 npm run staging:check
+npm run ocr:doctor
 npm run render:check
 npm run render:manual
 npm run render:proof
@@ -19,6 +20,7 @@ npm run eval
 npm run eval:reference
 npm run brain:health
 npm run demo:fixture
+npm run ocr:smoke
 npm run demo:smoke
 npm run demo:browser
 npm run demo:browser:ci
@@ -32,6 +34,8 @@ npm run release:evidence
 ```
 
 `npm run env:check` verifies staging-safe configuration defaults, numeric bounds, adapter/provider readiness and secret-safe environment documentation.
+
+`npm run ocr:doctor` verifies scoreboard OCR readiness with deterministic fallback as the safe default. It never installs Tesseract, never calls network services and never prints binary paths or command output. `npm run ocr:smoke` writes `demo/results/ocr-latest.json` plus a timestamped OCR smoke report. In default CI it passes in fallback mode; when local OCR is explicitly enabled, missing runtime fails closed with `OCR_RUNTIME_MISSING`.
 
 `npm run staging:check` verifies the staging deployment contract, GitHub Environment workflow shape, staging URL/provider rules, deployed-smoke defaults and secret-safe staging documentation.
 
