@@ -90,6 +90,15 @@ function delay(ms) {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 }
 
+function safeNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function safeBoolean(value) {
+  return typeof value === "boolean" ? value : null;
+}
+
 function addCheck(checks, name, passed, details = {}) {
   checks.push({ name, passed: Boolean(passed), ...details });
 }
@@ -154,6 +163,7 @@ function sanitizeServerEvents(events = []) {
     event: event.event || null,
     code: event.code || null,
     service: event.service || null,
+    goalDiscovery: event.goalDiscovery || null,
   }));
 }
 
@@ -519,6 +529,16 @@ function startServer(port, env) {
           code: parsed.code || null,
           service: parsed.service || null,
         };
+        if (parsed.event === "valid_goal_selection_empty") {
+          event.goalDiscovery = {
+            visualWindowCount: safeNumber(parsed.visualWindowCount),
+            bucketCount: safeNumber(parsed.bucketCount),
+            lateBucketInspected: safeBoolean(parsed.lateBucketInspected),
+            selectedValidGoalCount: safeNumber(parsed.selectedValidGoalCount),
+            excludedOffsideOrNoGoalCount: safeNumber(parsed.excludedOffsideOrNoGoalCount),
+            excludedUnconfirmedBallInNetCount: safeNumber(parsed.excludedUnconfirmedBallInNetCount),
+          };
+        }
       } catch {
         // Keep raw process output out of persisted reports.
       }

@@ -1036,3 +1036,52 @@ test("youtube live local e2e report writer creates stable safe latest report", a
   assert.equal(persisted.status, "passed");
   assert.equal(findSensitiveLeak(persisted), null);
 });
+
+test("youtube live local e2e failure report keeps safe valid-goal discovery counts", async () => {
+  const report = await runYouTubeLiveE2E({
+    env: liveEnv(),
+    checkYouTubeIngest: async () => passedDoctor(),
+    getFreePort: async () => 4175,
+    startServer: () => ({
+      child: { exitCode: null, signalCode: null },
+      events: [{
+        stream: "stdout",
+        level: "info",
+        event: "valid_goal_selection_empty",
+        code: "NO_VALID_GOALS_FOUND",
+        goalDiscovery: {
+          visualWindowCount: 24,
+          bucketCount: 7,
+          lateBucketInspected: true,
+          selectedValidGoalCount: 0,
+          excludedOffsideOrNoGoalCount: 2,
+          excludedUnconfirmedBallInNetCount: 1,
+        },
+      }],
+    }),
+    stopServer: async () => {},
+    waitForServerReady: async () => ({ attempts: 1, waitedMs: 5, status: 200 }),
+    runYouTubeSmoke: async () => ({
+      status: "failed",
+      source: { sourceType: "youtube", kind: "watch", videoId: VIDEO_ID },
+      failedCases: [{
+        name: "youtube_smoke",
+        code: "NO_VALID_GOALS_FOUND",
+        nextAction: "inspect-youtube-smoke-configuration",
+      }],
+    }),
+  });
+
+  assert.equal(report.status, "failed");
+  const event = report.serverEvents.find((item) => item.event === "valid_goal_selection_empty");
+  assert.ok(event);
+  assert.deepEqual(event.goalDiscovery, {
+    visualWindowCount: 24,
+    bucketCount: 7,
+    lateBucketInspected: true,
+    selectedValidGoalCount: 0,
+    excludedOffsideOrNoGoalCount: 2,
+    excludedUnconfirmedBallInNetCount: 1,
+  });
+  assert.equal(findSensitiveLeak(report), null);
+});

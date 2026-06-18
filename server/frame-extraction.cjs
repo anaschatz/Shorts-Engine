@@ -7,7 +7,7 @@ const { commandAvailable, sanitizeText } = require("./media.cjs");
 const { runFfmpeg } = require("./render.cjs");
 const { assertStoragePath, safeResolve, storagePath } = require("./storage.cjs");
 
-const DEFAULT_MAX_FRAMES = 6;
+const DEFAULT_MAX_FRAMES = 10;
 const DEFAULT_MAX_DIMENSION = 640;
 const DEFAULT_FRAME_FORMAT = "jpg";
 

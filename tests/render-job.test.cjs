@@ -5,7 +5,13 @@ const { writeFileSync } = require("node:fs");
 const { AppError, SAFE_MESSAGES } = require("../server/errors.cjs");
 const { validateEditPlan } = require("../server/edit-plan.cjs");
 const { JobStore } = require("../server/jobs.cjs");
-const { enqueueRenderJob, runRenderJob, validateHighlightResult, validateTranscript } = require("../server/render-job.cjs");
+const {
+  enqueueRenderJob,
+  runRenderJob,
+  validateHighlightResult,
+  validateTranscript,
+  visualCandidateWindowsFromSignals,
+} = require("../server/render-job.cjs");
 const { storagePath } = require("../server/storage.cjs");
 
 function uniqueUploadPath() {
@@ -334,6 +340,34 @@ test("youtube long-source render requests valid-goals-only planning", async () =
 
   assert.equal(context.job.status, "completed");
   assert.equal(context.createPlanInput.metadata.goalSelectionMode, "valid_goals_only");
+});
+
+test("visual candidate windows keep late long-source regions before frame extraction", () => {
+  const mediaSignals = {
+    durationSeconds: 360,
+    highMotionCandidates: Array.from({ length: 32 }, (_, index) => ({
+      time: 6 + index * 8,
+      confidence: 0.74 + (index % 5) * 0.03,
+      source: "signal_cluster",
+    })),
+    audioPeaks: [
+      { time: 22, energyScore: 0.95, source: "fixture" },
+      { time: 248, energyScore: 0.91, source: "fixture" },
+      { time: 324, energyScore: 0.93, source: "fixture" },
+    ],
+    sceneChanges: [
+      { time: 64, confidence: 0.82, source: "fixture" },
+      { time: 264, confidence: 0.81, source: "fixture" },
+      { time: 337, confidence: 0.83, source: "fixture" },
+    ],
+  };
+
+  const windows = visualCandidateWindowsFromSignals(mediaSignals);
+
+  assert.ok(windows.length <= 24);
+  assert.ok(windows.some((window) => Number(window.time) >= 240));
+  assert.ok(windows.some((window) => Number(window.time) >= 320));
+  assert.ok(windows.some((window) => Array.isArray(window.visualHints) && window.visualHints.includes("shot_like_motion")));
 });
 
 test("youtube valid-goals-only render fails closed when no valid goals are found", async () => {

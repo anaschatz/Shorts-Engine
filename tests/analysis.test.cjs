@@ -1215,6 +1215,101 @@ test("valid goal compilation excludes high-score filler chances and can render t
   assert.ok(plan.totalDuration < 45);
 });
 
+test("valid-goals-only keeps full-source late confirmed goals before early filler", () => {
+  const longMetadata = { durationSeconds: 360, width: 1920, height: 1080, hasAudio: true };
+  const earlyFiller = Array.from({ length: 24 }, (_, index) => ({
+    start: 8 + index * 7,
+    end: 10.8 + index * 7,
+    labels: index % 2 === 0
+      ? ["shot_like_motion", "ball_visible", "crowd_reaction"]
+      : ["crowd_reaction"],
+    confidence: 0.82 + (index % 5) * 0.025,
+  }));
+  const validGoalWindows = [
+    { start: 238, end: 239.6, labels: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.9 },
+    { start: 242.2, end: 243.8, labels: ["goal_mouth_visible", "ball_in_net"], confidence: 0.92 },
+    { start: 254.6, end: 256, labels: ["scoreboard_goal_confirmed", "referee_goal_signal"], confidence: 0.87 },
+    { start: 294, end: 295.7, labels: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.91 },
+    { start: 298.2, end: 299.7, labels: ["goal_mouth_visible", "ball_in_net"], confidence: 0.93 },
+    { start: 312.4, end: 313.8, labels: ["scoreboard_goal_confirmed", "referee_goal_signal"], confidence: 0.88 },
+    { start: 328, end: 329.8, labels: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.91 },
+    { start: 332.2, end: 333.8, labels: ["goal_mouth_visible", "ball_in_net"], confidence: 0.93 },
+    { start: 346.4, end: 347.8, labels: ["scoreboard_goal_confirmed", "referee_goal_signal"], confidence: 0.88 },
+  ];
+  const result = detectHighlights({
+    transcript: {
+      provider: "fixture",
+      language: "en",
+      captions: [
+        { start: 16, end: 18, text: "The crowd is loud early but the chance comes to nothing" },
+        { start: 254.7, end: 256.1, text: "Goal confirmed, the finish counts" },
+        { start: 312.5, end: 313.9, text: "The goal stands after the finish" },
+        { start: 346.5, end: 347.9, text: "Goal confirmed, it counts" },
+      ],
+    },
+    signals: {
+      durationSeconds: 360,
+      hasAudio: true,
+      audioPeaks: [
+        { time: 18, energyScore: 0.99, source: "fixture" },
+        { time: 80, energyScore: 0.96, source: "fixture" },
+        { time: 154, energyScore: 0.97, source: "fixture" },
+        { time: 244, energyScore: 0.91, source: "fixture" },
+        { time: 300, energyScore: 0.92, source: "fixture" },
+        { time: 334, energyScore: 0.93, source: "fixture" },
+      ],
+      sceneChanges: [
+        { time: 17.8, confidence: 0.9, source: "fixture" },
+        { time: 82, confidence: 0.86, source: "fixture" },
+        { time: 156, confidence: 0.86, source: "fixture" },
+        { time: 254.7, confidence: 0.8, source: "fixture" },
+        { time: 312.5, confidence: 0.81, source: "fixture" },
+        { time: 346.5, confidence: 0.82, source: "fixture" },
+      ],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [...earlyFiller, ...validGoalWindows],
+    },
+    preset: "hype",
+  });
+  const confirmedGoals = result.moments.filter((moment) => (
+    moment.highlightType === "goal" &&
+    moment.evidence &&
+    moment.evidence.goalOutcome &&
+    moment.evidence.goalOutcome.outcome === "confirmed_goal"
+  ));
+
+  assert.ok(result.explainability.goalDiscovery.lateBucketInspected);
+  assert.ok(result.explainability.goalDiscovery.selectedValidGoals.length >= 3);
+  assert.equal(confirmedGoals.length >= 3, true);
+
+  const plans = createCandidateEditPlans({
+    moments: result.moments,
+    metadata: { ...longMetadata, goalSelectionMode: "valid_goals_only" },
+    transcript: { captions: [] },
+    title: "Late valid goals fixture",
+    editIntensity: "balanced",
+    stylePreset: "punchy_highlight",
+  });
+  const plan = validateEditPlan(plans[0], longMetadata);
+  const captionText = plan.captions.map((caption) => caption.text).join(" ");
+
+  assert.equal(plan.mode, "multi_moment_compilation");
+  assert.equal(plan.segments.length, 3);
+  assert.ok(plan.segments.every((segment) => segment.highlightType === "goal"));
+  assert.ok(plan.segments.every((segment) => segment.goalOutcome.outcome === "confirmed_goal"));
+  assert.ok(plan.segments.every((segment) => segment.sourceStart >= 230));
+  assert.ok(plan.segments.some((segment) => segment.sourceStart <= 238 && segment.sourceEnd >= 254.6));
+  assert.ok(plan.segments.some((segment) => segment.sourceStart <= 294 && segment.sourceEnd >= 312.4));
+  assert.ok(plan.segments.some((segment) => segment.sourceStart <= 328 && segment.sourceEnd >= 346.4));
+  assert.ok(plan.segments.every((segment) => segment.duration >= 10 && segment.duration <= 24));
+  assert.equal(plan.hook, "VALID FINISHES ONLY");
+  assert.match(captionText, /FINISH COUNTS|ONLY VALID FINISHES/i);
+  assert.doesNotMatch(captionText, /BIG CHANCE|SHOT OPENS UP|CHANCE OPENS|EVERY BIG MOMENT/i);
+});
+
 test("valid-goals-only selection returns no plan for chance-only long sources", () => {
   const result = detectHighlights({
     transcript: {

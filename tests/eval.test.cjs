@@ -85,6 +85,13 @@ test("fixture scoring returns reportable metrics and candidate plans", () => {
   assert.equal(typeof result.metrics.decisionContextCoverage, "number");
   assert.equal(typeof result.metrics.captionOutcomeAlignment, "number");
   assert.equal(typeof result.metrics.postGoalWindowCoverage, "number");
+  assert.equal(typeof result.metrics.validGoalRecall, "number");
+  assert.equal(typeof result.metrics.lateGoalRecall, "number");
+  assert.equal(typeof result.metrics.falseGoalRate, "number");
+  assert.equal(typeof result.metrics.offsideExclusionAccuracy, "number");
+  assert.equal(typeof result.metrics.validGoalOnlyFillerRate, "number");
+  assert.equal(typeof result.metrics.captionGoalClaimAccuracy, "number");
+  assert.equal(typeof result.metrics.segmentTimingCoverage, "number");
   assert.equal(typeof result.metrics.shotToPayoffCoverage, "number");
   assert.equal(typeof result.metrics.actionWindowCoverage, "number");
   assert.equal(result.metrics.captionRoleValidity, 1);
@@ -102,6 +109,23 @@ test("fixture scoring returns reportable metrics and candidate plans", () => {
   assert.equal(typeof result.actual.candidatePlans[0].visualQA.trackingConfidence, "number");
   assert.ok(result.actual.candidatePlans[0].captionRoles.includes("opening_hook"));
   assert.ok(result.actual.candidatePlans[0].captionRoles.includes("closing_punch"));
+});
+
+test("late valid-goals-only fixture recalls every late confirmed goal without filler", () => {
+  const fixture = loadFixtures(fixturesDir).find((item) => item.id === "late_valid_goals_only");
+  assert.ok(fixture);
+  const result = scoreFixture(fixture);
+  assert.equal(result.passed, true);
+  assert.equal(result.metrics.validGoalRecall, 1);
+  assert.equal(result.metrics.lateGoalRecall, 1);
+  assert.equal(result.metrics.falseGoalRate, 0);
+  assert.equal(result.metrics.offsideExclusionAccuracy, 1);
+  assert.equal(result.metrics.validGoalOnlyFillerRate, 0);
+  assert.equal(result.metrics.captionGoalClaimAccuracy, 1);
+  assert.equal(result.metrics.segmentTimingCoverage, 1);
+  assert.equal(result.actual.candidatePlans[0].mode, "multi_moment_compilation");
+  assert.equal(result.actual.candidatePlans[0].selectedMomentCount, 3);
+  assert.ok(result.actual.candidatePlans[0].segments.every((segment) => segment.highlightType === "goal"));
 });
 
 test("evaluation report has aggregate metrics and no local path leakage", () => {
@@ -136,6 +160,13 @@ test("evaluation report has aggregate metrics and no local path leakage", () => 
   assert.equal(report.aggregate.decisionContextCoverage >= 0.9, true);
   assert.equal(report.aggregate.captionOutcomeAlignment >= 0.95, true);
   assert.equal(report.aggregate.postGoalWindowCoverage >= 0.9, true);
+  assert.equal(report.aggregate.validGoalRecall, 1);
+  assert.equal(report.aggregate.lateGoalRecall, 1);
+  assert.equal(report.aggregate.falseGoalRate, 0);
+  assert.equal(report.aggregate.offsideExclusionAccuracy, 1);
+  assert.equal(report.aggregate.validGoalOnlyFillerRate, 0);
+  assert.equal(report.aggregate.captionGoalClaimAccuracy, 1);
+  assert.equal(report.aggregate.segmentTimingCoverage >= 0.95, true);
   assert.equal(report.aggregate.shotToPayoffCoverage >= 0.95, true);
   assert.equal(report.aggregate.actionWindowCoverage >= 0.95, true);
   assert.equal(report.aggregate.captionRoleValidity, 1);
@@ -233,6 +264,13 @@ test("runner writes a JSON report", () => {
   assert.equal(summary.decisionContextCoverage >= 0.9, true);
   assert.equal(summary.captionOutcomeAlignment >= 0.95, true);
   assert.equal(summary.postGoalWindowCoverage >= 0.9, true);
+  assert.equal(summary.validGoalRecall, 1);
+  assert.equal(summary.lateGoalRecall, 1);
+  assert.equal(summary.falseGoalRate, 0);
+  assert.equal(summary.offsideExclusionAccuracy, 1);
+  assert.equal(summary.validGoalOnlyFillerRate, 0);
+  assert.equal(summary.captionGoalClaimAccuracy, 1);
+  assert.equal(summary.segmentTimingCoverage >= 0.95, true);
   assert.equal(summary.shotToPayoffCoverage >= 0.95, true);
   assert.equal(summary.actionWindowCoverage >= 0.95, true);
   assert.equal(summary.captionRoleValidity, 1);

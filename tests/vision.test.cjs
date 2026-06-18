@@ -124,6 +124,38 @@ test("visual validation accepts explicit goal-sequence cues without accepting ra
   ]);
 });
 
+test("visual validation keeps late critical goal windows for long sources", () => {
+  const earlyFiller = Array.from({ length: 26 }, (_, index) => ({
+    start: 6 + index * 7,
+    end: 8 + index * 7,
+    labels: index % 3 === 0 ? ["shot_like_motion", "ball_visible"] : ["crowd_reaction"],
+    confidence: 0.78 + (index % 4) * 0.03,
+  }));
+  const lateGoalEvidence = [
+    { start: 246, end: 247.6, labels: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.88 },
+    { start: 250, end: 251.7, labels: ["goal_mouth_visible", "ball_in_net"], confidence: 0.9 },
+    { start: 263, end: 264.4, labels: ["scoreboard_goal_confirmed", "referee_goal_signal"], confidence: 0.86 },
+    { start: 318, end: 319.5, labels: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.89 },
+    { start: 322, end: 323.6, labels: ["goal_mouth_visible", "ball_in_net"], confidence: 0.91 },
+    { start: 336, end: 337.3, labels: ["scoreboard_goal_confirmed", "referee_goal_signal"], confidence: 0.87 },
+  ];
+
+  const signals = validateVisualSignals({
+    providerMode: "fixture-provider",
+    fallbackUsed: false,
+    windows: [...earlyFiller, ...lateGoalEvidence],
+  }, { durationSeconds: 360, width: 1920, height: 1080 });
+  const lateReasons = signals.windows
+    .filter((window) => window.start >= 240)
+    .flatMap(visualReasonCodesForWindow);
+
+  assert.ok(signals.windows.length <= 24);
+  assert.ok(lateReasons.includes("visual_shot_contact"));
+  assert.ok(lateReasons.includes("visual_ball_in_net"));
+  assert.ok(lateReasons.includes("visual_scoreboard_goal_confirmed"));
+  assert.equal(signals.summary.goalClaimAllowed, false);
+});
+
 test("safe heuristic frame analysis does not claim tracking or goals", async () => {
   const result = await analyzeFrames({
     inputPath: "/Users/example/private.mp4",

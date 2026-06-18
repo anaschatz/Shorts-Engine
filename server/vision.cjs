@@ -108,6 +108,7 @@ const VISUAL_REASON_BY_TYPE = Object.freeze({
 });
 
 const DEFAULT_PROVIDER_TIMEOUT_MS = 12000;
+const MAX_VISUAL_WINDOWS = 24;
 const DISALLOWED_VISUAL_LABELS = Object.freeze(["goal", "scored", "goal_scored"]);
 
 function clamp(value, min, max) {
@@ -160,6 +161,121 @@ function visualReasonCodesForWindow(window) {
   if (!window || typeof window !== "object") return [];
   const types = Array.isArray(window.types) && window.types.length ? window.types : [window.type];
   return [...new Set(types.map(reasonCodeForVisualType).filter(Boolean))];
+}
+
+function windowCenter(window = {}) {
+  const start = seconds(window.start, 0);
+  const end = seconds(window.end, start);
+  return seconds(window.center ?? (start + end) / 2, start);
+}
+
+function visualWindowScore(window = {}) {
+  const reasons = new Set(visualReasonCodesForWindow(window));
+  const weights = {
+    visual_ball_in_net: 1.2,
+    visual_scoreboard_goal_confirmed: 1.05,
+    visual_referee_goal_signal: 1.05,
+    visual_offside_flag: 0.95,
+    visual_no_goal_decision: 0.95,
+    visual_offside_line: 0.9,
+    visual_var_check: 0.82,
+    visual_var_decision: 0.82,
+    visual_scoreboard_goal_removed: 0.9,
+    visual_shot_contact: 0.82,
+    visual_ball_toward_goal: 0.78,
+    visual_goal_mouth: 0.7,
+    visual_goal_area: 0.42,
+    visual_save_like_motion: 0.6,
+    visual_keeper_action: 0.56,
+    visual_shot_like_motion: 0.52,
+    visual_ball_visible: 0.24,
+    visual_crowd_reaction: 0.18,
+    visual_replay_indicator: 0.12,
+  };
+  const reasonScore = [...reasons].reduce((sum, reason) => sum + (weights[reason] || 0), 0);
+  return Number((Number(window.confidence || 0) + reasonScore).toFixed(4));
+}
+
+function visualBucketIndex(window, duration, bucketCount) {
+  if (!duration || bucketCount <= 1) return 0;
+  return Math.min(bucketCount - 1, Math.max(0, Math.floor(windowCenter(window) / (duration / bucketCount))));
+}
+
+function visualWindowKey(window = {}) {
+  return `${window.start}:${window.end}:${(window.types || []).join(",")}`;
+}
+
+function addUniqueWindow(selected, seen, window, maxWindows) {
+  if (!window || selected.length >= maxWindows) return false;
+  const key = visualWindowKey(window);
+  if (seen.has(key)) return false;
+  selected.push(window);
+  seen.add(key);
+  return true;
+}
+
+function selectVisualWindowCoverage(windows = [], metadata = {}, maxWindows = MAX_VISUAL_WINDOWS) {
+  const sorted = (Array.isArray(windows) ? windows : [])
+    .filter((window) => Number.isFinite(windowCenter(window)))
+    .sort((a, b) => seconds(a.start) - seconds(b.start));
+  const limit = Math.max(1, Math.min(MAX_VISUAL_WINDOWS, Math.floor(Number(maxWindows) || MAX_VISUAL_WINDOWS)));
+  if (sorted.length <= limit) return sorted;
+
+  const duration = Math.max(
+    0,
+    seconds(metadata.durationSeconds, 0) || seconds(sorted[sorted.length - 1].end, 0),
+  );
+  const bucketCount = Math.min(8, Math.max(3, Math.ceil((duration || 180) / 60)));
+  const buckets = Array.from({ length: bucketCount }, () => []);
+  for (const window of sorted) {
+    buckets[visualBucketIndex(window, duration, bucketCount)].push(window);
+  }
+
+  const selected = [];
+  const seen = new Set();
+  const ranked = (items) => [...items]
+    .sort((a, b) => visualWindowScore(b) - visualWindowScore(a) || seconds(a.start) - seconds(b.start));
+  const critical = (window) => {
+    const reasons = new Set(visualReasonCodesForWindow(window));
+    return [
+      "visual_ball_in_net",
+      "visual_scoreboard_goal_confirmed",
+      "visual_referee_goal_signal",
+      "visual_offside_flag",
+      "visual_no_goal_decision",
+      "visual_offside_line",
+      "visual_var_check",
+      "visual_var_decision",
+      "visual_scoreboard_goal_removed",
+      "visual_shot_contact",
+      "visual_ball_toward_goal",
+      "visual_goal_mouth",
+    ].some((reason) => reasons.has(reason));
+  };
+
+  const lateBucketStart = Math.max(0, Math.floor(bucketCount * 0.66));
+  for (let bucketIndex = lateBucketStart; bucketIndex < bucketCount; bucketIndex += 1) {
+    for (const window of ranked(buckets[bucketIndex].filter(critical)).slice(0, 4)) {
+      addUniqueWindow(selected, seen, window, limit);
+    }
+  }
+
+  for (let pass = 0; pass < 2; pass += 1) {
+    for (const bucket of buckets) {
+      const candidate = ranked(bucket.filter(critical)).find((window) => !seen.has(visualWindowKey(window)));
+      addUniqueWindow(selected, seen, candidate, limit);
+    }
+  }
+
+  for (const bucket of buckets) {
+    addUniqueWindow(selected, seen, ranked(bucket)[0], limit);
+  }
+
+  for (const window of ranked(sorted)) {
+    addUniqueWindow(selected, seen, window, limit);
+  }
+
+  return selected.sort((a, b) => seconds(a.start) - seconds(b.start));
 }
 
 function visualHighlightTypeForReasons(reasons = []) {
@@ -306,18 +422,18 @@ function validateVisualSignals(signals, metadata = {}) {
   const windows = rawWindows
     .map((window) => normalizeVisualWindow(window, metadata))
     .filter(Boolean)
-    .sort((a, b) => a.start - b.start)
-    .slice(0, 16);
+    .sort((a, b) => a.start - b.start);
   if (rawWindows.length !== windows.length) {
     throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
   }
+  const coveredWindows = selectVisualWindowCoverage(windows, metadata);
   const normalized = {
     providerMode: sanitizeText(signals.providerMode || "mock", 40),
     fallbackUsed: Boolean(signals.fallbackUsed),
-    confidence: Number(clamp(signals.confidence ?? (windows.length ? 0.5 : 0), 0, 1).toFixed(2)),
+    confidence: Number(clamp(signals.confidence ?? (coveredWindows.length ? 0.5 : 0), 0, 1).toFixed(2)),
     providerMetadata: normalizeProviderMetadata(signals.providerMetadata || signals.metadata),
     failure: normalizeFailure(signals.failure),
-    windows,
+    windows: coveredWindows,
   };
   return {
     ...normalized,
@@ -550,7 +666,7 @@ class FrameInspectionLocalVisionProvider extends SafeHeuristicVisionProvider {
     const frameWindows = safeFrames
       .map((frame) => frameToProviderWindow(frame, candidateWindows, metadata, mediaSignals))
       .filter(Boolean);
-    const windows = mergeWindows([...frameWindows, ...heuristicWindows]).slice(0, 16);
+    const windows = selectVisualWindowCoverage(mergeWindows([...frameWindows, ...heuristicWindows]), metadata);
     return validateVisualSignals({
       providerMode: safeFrames.length ? "frame-inspection-local" : "safe-heuristic",
       fallbackUsed: safeFrames.length === 0,
@@ -741,6 +857,7 @@ module.exports = {
   publicVisualSignals,
   reasonCodeForVisualType,
   safeHeuristicWindows,
+  selectVisualWindowCoverage,
   summarizeVisualSignals,
   validateVisualSignals,
   visionHealth,

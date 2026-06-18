@@ -203,7 +203,13 @@ function resolveGoalOutcome({
   payoffEnd = null,
 } = {}) {
   const reasonSet = new Set(Array.isArray(reasons) ? reasons : []);
-  const visualReasonCodes = decisionVisualEvidence(visualWindows);
+  const decisionReasonCodes = [...reasonSet].filter((reason) => [
+    ...DISALLOWED_DECISION_CODES,
+    ...POSSIBLE_DECISION_CODES,
+    ...CONFIRMED_DECISION_CODES,
+    "visual_replay_indicator",
+  ].includes(reason));
+  const visualReasonCodes = [...new Set([...decisionVisualEvidence(visualWindows), ...decisionReasonCodes])];
   const ballInNet = Boolean(
     goalEvidence.hasBallInNetOrLineCross ||
     reasonSet.has("visual_ball_in_net") ||

@@ -253,6 +253,79 @@ function validateMediaSignals(signals, metadata = {}) {
   };
 }
 
+function candidateWindowTime(window = {}) {
+  const parsed = Number(window.time ?? window.center ?? window.timestamp);
+  if (Number.isFinite(parsed)) return parsed;
+  const start = Number(window.start);
+  const end = Number(window.end);
+  return Number.isFinite(start) && Number.isFinite(end) ? (start + end) / 2 : Number.NaN;
+}
+
+function candidateWindowScore(window = {}) {
+  const hints = new Set(Array.isArray(window.visualHints) ? window.visualHints : []);
+  const weights = {
+    shot_contact: 1,
+    ball_toward_goal: 0.9,
+    goal_mouth_visible: 0.82,
+    ball_in_net: 1.2,
+    scoreboard_goal_confirmed: 1.05,
+    referee_goal_signal: 1.05,
+    assistant_referee_flag: 0.9,
+    offside_line_replay: 0.86,
+    scoreboard_goal_removed: 0.86,
+    var_check_graphic: 0.74,
+    shot_like_motion: 0.46,
+    ball_visible: 0.22,
+    crowd_reaction: 0.14,
+    replay_indicator: 0.1,
+  };
+  const hintScore = [...hints].reduce((sum, hint) => sum + (weights[hint] || 0), 0);
+  return Number((Number(window.confidence || 0) + hintScore).toFixed(4));
+}
+
+function selectCandidateWindowCoverage(windows = [], duration = 0, maxWindows = 24) {
+  const safeWindows = (Array.isArray(windows) ? windows : [])
+    .filter((window) => Number.isFinite(candidateWindowTime(window)))
+    .sort((a, b) => candidateWindowTime(a) - candidateWindowTime(b));
+  const limit = Math.max(1, Math.min(24, Math.floor(Number(maxWindows) || 24)));
+  if (safeWindows.length <= limit) return safeWindows;
+
+  const mediaDuration = Math.max(0, Number(duration) || candidateWindowTime(safeWindows[safeWindows.length - 1]) || 0);
+  const bucketCount = Math.min(8, Math.max(3, Math.ceil((mediaDuration || 180) / 60)));
+  const buckets = Array.from({ length: bucketCount }, () => []);
+  for (const window of safeWindows) {
+    const time = candidateWindowTime(window);
+    const index = mediaDuration > 0
+      ? Math.min(bucketCount - 1, Math.max(0, Math.floor(time / (mediaDuration / bucketCount))))
+      : 0;
+    buckets[index].push(window);
+  }
+
+  const selected = [];
+  const seen = new Set();
+  const keyFor = (window) => `${Number(candidateWindowTime(window)).toFixed(2)}:${window.source || ""}:${(window.visualHints || []).join(",")}`;
+  const add = (window) => {
+    if (!window || selected.length >= limit) return false;
+    const key = keyFor(window);
+    if (seen.has(key)) return false;
+    selected.push(window);
+    seen.add(key);
+    return true;
+  };
+  const ranked = (items) => [...items]
+    .sort((a, b) => candidateWindowScore(b) - candidateWindowScore(a) || candidateWindowTime(a) - candidateWindowTime(b));
+  const lateBucketStart = Math.max(0, Math.floor(bucketCount * 0.66));
+
+  for (let bucketIndex = lateBucketStart; bucketIndex < bucketCount; bucketIndex += 1) {
+    for (const window of ranked(buckets[bucketIndex]).slice(0, 3)) add(window);
+  }
+  for (const bucket of buckets) add(ranked(bucket)[0]);
+  for (const bucket of buckets) add(ranked(bucket).find((window) => !seen.has(keyFor(window))));
+  for (const window of ranked(safeWindows)) add(window);
+
+  return selected.sort((a, b) => candidateWindowTime(a) - candidateWindowTime(b));
+}
+
 function visualCandidateWindowsFromSignals(mediaSignals = {}) {
   const windows = [];
   const duration = Number(mediaSignals.durationSeconds || 0);
@@ -282,7 +355,7 @@ function visualCandidateWindowsFromSignals(mediaSignals = {}) {
       visualHints: isPostOpening(item.time) ? ["replay_indicator"] : [],
     });
   }
-  return windows.slice(0, 16);
+  return selectCandidateWindowCoverage(windows, duration);
 }
 
 function validateHighlightResult(result, metadata = {}) {
@@ -793,6 +866,31 @@ async function runRenderJob(options) {
       });
       if (!Array.isArray(candidatePlans) || candidatePlans.length === 0) {
         const code = context.goalSelectionMode === "valid_goals_only" ? "NO_VALID_GOALS_FOUND" : "AI_OUTPUT_INVALID";
+        if (context.goalSelectionMode === "valid_goals_only") {
+          const goalDiscovery = highlightResult &&
+            highlightResult.explainability &&
+            highlightResult.explainability.goalDiscovery;
+          logInfo(deps.logger, {
+            event: "valid_goal_selection_empty",
+            requestId,
+            projectId: project.id,
+            jobId: job.id,
+            step: "create_edit_plan",
+            code,
+            visualWindowCount: goalDiscovery && goalDiscovery.visualWindowCount,
+            bucketCount: goalDiscovery && goalDiscovery.bucketCount,
+            lateBucketInspected: goalDiscovery && goalDiscovery.lateBucketInspected,
+            selectedValidGoalCount: goalDiscovery && Array.isArray(goalDiscovery.selectedValidGoals)
+              ? goalDiscovery.selectedValidGoals.length
+              : 0,
+            excludedOffsideOrNoGoalCount: goalDiscovery && Array.isArray(goalDiscovery.excludedOffsideOrNoGoal)
+              ? goalDiscovery.excludedOffsideOrNoGoal.length
+              : 0,
+            excludedUnconfirmedBallInNetCount: goalDiscovery && Array.isArray(goalDiscovery.excludedUnconfirmedBallInNet)
+              ? goalDiscovery.excludedUnconfirmedBallInNet.length
+              : 0,
+          });
+        }
         throw new AppError(code, SAFE_MESSAGES[code], 422);
       }
       editPlan = deps.validateEditPlan(candidatePlans[0], context.metadata);

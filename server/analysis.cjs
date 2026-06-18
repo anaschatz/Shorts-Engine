@@ -726,13 +726,17 @@ function goalEvidenceForContext({ reasons = [], visualWindows = [], center = nul
 function goalEvidenceForMomentContext({ reasons = [], center = null, start = null, end = null, visualSignals = null } = {}) {
   const rangeStart = Number.isFinite(Number(start)) ? seconds(start) : Number(center) - 8;
   const rangeEnd = Number.isFinite(Number(end)) ? seconds(end) : Number(center) + 8;
+  const hasExplicitRange = Number.isFinite(Number(start)) && Number.isFinite(Number(end));
+  const centerRadius = hasExplicitRange
+    ? Math.max(9, (Math.max(rangeStart, rangeEnd) - Math.min(rangeStart, rangeEnd)) / 2 + 3)
+    : 9;
   const windows = Array.isArray(visualSignals && visualSignals.windows) ? visualSignals.windows : [];
   const visualWindows = windows.filter((window) => {
     const windowStart = seconds(window.start);
     const windowEnd = seconds(window.end);
     const windowCenter = seconds(window.center ?? (windowStart + windowEnd) / 2);
     return windowEnd >= rangeStart - 3 && windowStart <= rangeEnd + 3 && (
-      !Number.isFinite(Number(center)) || Math.abs(windowCenter - Number(center)) <= 9
+      !Number.isFinite(Number(center)) || Math.abs(windowCenter - Number(center)) <= centerRadius
     );
   });
   return goalEvidenceForContext({ reasons, visualWindows, center });
@@ -1498,8 +1502,7 @@ function normalizeMomentWithEvidence(moment, { signals = {}, visualSignals = nul
     end: window.end,
     visualSignals,
   });
-  const finalReasons = reasonCodesWithGoalEvidence(reasonCodes, goalEvidence);
-  const highlightType = highlightTypeForReasons(finalReasons);
+  let finalReasons = reasonCodesWithGoalEvidence(reasonCodes, goalEvidence);
   const visualWindows = Array.isArray(visualSignals && visualSignals.windows)
     ? visualSignals.windows.filter((visualWindow) => seconds(visualWindow.end) >= window.start - 1 && seconds(visualWindow.start) <= window.end + 1)
     : [];
@@ -1512,6 +1515,10 @@ function normalizeMomentWithEvidence(moment, { signals = {}, visualSignals = nul
     end: window.end,
     payoffEnd: goalEvidence.payoffEnd,
   });
+  if (goalOutcome && goalOutcome.eventType === "ball_in_net" && goalOutcome.outcome === "confirmed_goal" && !finalReasons.includes("goal")) {
+    finalReasons = ["goal", ...finalReasons];
+  }
+  const highlightType = highlightTypeForReasons(finalReasons);
   const baseEvidence = evidenceForReasons(finalReasons, sourceCaption || null, signals, center, visualSignals, window);
   const footballSequenceReasons = [...new Set([
     ...finalReasons,
@@ -1571,20 +1578,203 @@ function normalizeMomentWithEvidence(moment, { signals = {}, visualSignals = nul
   };
 }
 
+const GOAL_DISCOVERY_MAX_ANCHORS = 36;
+const GOAL_DISCOVERY_MAX_MOMENTS = 12;
+
+const GOAL_DISCOVERY_CRITICAL_REASONS = Object.freeze([
+  "visual_ball_in_net",
+  "visual_scoreboard_goal_confirmed",
+  "visual_referee_goal_signal",
+  "visual_offside_flag",
+  "visual_no_goal_decision",
+  "visual_offside_line",
+  "visual_var_check",
+  "visual_var_decision",
+  "visual_scoreboard_goal_removed",
+  "visual_shot_contact",
+  "visual_ball_toward_goal",
+  "visual_goal_mouth",
+  "visual_shot_like_motion",
+  "visual_ball_visible",
+]);
+
+function visualWindowCenter(window = {}) {
+  const start = seconds(window.start);
+  const end = seconds(window.end);
+  return seconds(window.center ?? (start + end) / 2);
+}
+
+function visualWindowKey(window = {}) {
+  return `${Number(window.start || 0).toFixed(2)}:${Number(window.end || 0).toFixed(2)}:${visualReasonCodesForWindow(window).join(",")}`;
+}
+
+function visualWindowHasAnyReason(window, reasons = []) {
+  const reasonSet = new Set(visualReasonCodesForWindow(window));
+  return reasons.some((reason) => reasonSet.has(reason));
+}
+
+function goalDiscoveryScoreForWindow(window = {}) {
+  const reasonSet = new Set(visualReasonCodesForWindow(window));
+  const weights = {
+    visual_ball_in_net: 1.28,
+    visual_scoreboard_goal_confirmed: 1.12,
+    visual_referee_goal_signal: 1.08,
+    visual_offside_flag: 0.98,
+    visual_no_goal_decision: 0.98,
+    visual_offside_line: 0.94,
+    visual_var_check: 0.84,
+    visual_var_decision: 0.84,
+    visual_scoreboard_goal_removed: 0.94,
+    visual_shot_contact: 0.86,
+    visual_ball_toward_goal: 0.8,
+    visual_goal_mouth: 0.7,
+    visual_shot_like_motion: 0.5,
+    visual_ball_visible: 0.22,
+    visual_crowd_reaction: 0.12,
+    visual_replay_indicator: 0.08,
+  };
+  const reasonScore = [...reasonSet].reduce((sum, reason) => sum + (weights[reason] || 0), 0);
+  return Number((Number(window.confidence || 0) + reasonScore).toFixed(4));
+}
+
+function goalDiscoveryBucketIndex(window, duration, bucketCount) {
+  if (!duration || bucketCount <= 1) return 0;
+  return Math.min(bucketCount - 1, Math.max(0, Math.floor(visualWindowCenter(window) / (duration / bucketCount))));
+}
+
+function goalDiscoveryBuckets(windows = [], duration = 0) {
+  const bucketCount = Math.min(8, Math.max(3, Math.ceil((duration || 180) / 60)));
+  const buckets = Array.from({ length: bucketCount }, (_, index) => ({
+    index,
+    start: Number(((duration / bucketCount) * index).toFixed(2)),
+    end: Number((index === bucketCount - 1 ? duration : (duration / bucketCount) * (index + 1)).toFixed(2)),
+    windows: [],
+  }));
+  for (const window of windows) {
+    buckets[goalDiscoveryBucketIndex(window, duration, bucketCount)].windows.push(window);
+  }
+  return buckets;
+}
+
+function rankedGoalDiscoveryWindows(windows = []) {
+  return [...windows].sort((a, b) => goalDiscoveryScoreForWindow(b) - goalDiscoveryScoreForWindow(a) || seconds(a.start) - seconds(b.start));
+}
+
+function selectGoalDiscoveryAnchors(sortedWindows = [], duration = 0) {
+  const buckets = goalDiscoveryBuckets(sortedWindows, duration);
+  const selected = [];
+  const seen = new Set();
+  const add = (window) => {
+    if (!window || selected.length >= GOAL_DISCOVERY_MAX_ANCHORS) return false;
+    const key = visualWindowKey(window);
+    if (seen.has(key)) return false;
+    selected.push(window);
+    seen.add(key);
+    return true;
+  };
+  const criticalWindows = (windows) => rankedGoalDiscoveryWindows(
+    windows.filter((window) => visualWindowHasAnyReason(window, GOAL_DISCOVERY_CRITICAL_REASONS)),
+  );
+  const lateBucketStart = Math.max(0, Math.floor(buckets.length * 0.66));
+
+  for (const bucket of buckets.slice(lateBucketStart)) {
+    for (const window of criticalWindows(bucket.windows).slice(0, 4)) add(window);
+  }
+  for (let pass = 0; pass < 2; pass += 1) {
+    for (const bucket of buckets) {
+      const candidate = criticalWindows(bucket.windows).find((window) => !seen.has(visualWindowKey(window)));
+      add(candidate);
+    }
+  }
+  for (const bucket of buckets) add(rankedGoalDiscoveryWindows(bucket.windows)[0]);
+  for (const window of rankedGoalDiscoveryWindows(sortedWindows)) add(window);
+
+  return selected.sort((a, b) => seconds(a.start) - seconds(b.start));
+}
+
+function goalClusterRangeForAnchor(anchor, sortedWindows = [], duration = 0) {
+  const anchorCenter = visualWindowCenter(anchor);
+  const anchorReasons = new Set(visualReasonCodesForWindow(anchor));
+  const decisionAnchor = reasonSetHasAny(anchorReasons, [
+    "visual_scoreboard_goal_confirmed",
+    "visual_referee_goal_signal",
+    "visual_offside_flag",
+    "visual_no_goal_decision",
+    "visual_offside_line",
+    "visual_var_check",
+    "visual_var_decision",
+    "visual_scoreboard_goal_removed",
+    "visual_referee_decision",
+    "visual_referee_no_goal_signal",
+  ]);
+  const range = {
+    start: Math.max(0, anchorCenter - (decisionAnchor ? 18 : 9)),
+    end: Math.min(duration || anchorCenter + 18, anchorCenter + (decisionAnchor ? 6 : 18)),
+  };
+  const initial = sortedWindows.filter((window) => seconds(window.end) >= range.start && seconds(window.start) <= range.end);
+  const payoffStart = firstWindowTime(
+    initial,
+    (windowReasons) => windowReasons.has("visual_ball_in_net") || windowReasons.has("visual_celebration_after_shot"),
+    null,
+  );
+  let decisionStart = decisionContextStartForWindows(initial, null);
+  if (!Number.isFinite(Number(decisionStart)) && Number.isFinite(Number(payoffStart))) {
+    const lateDecisionWindows = sortedWindows.filter((window) => {
+      const windowStart = seconds(window.start);
+      return windowStart >= payoffStart && windowStart <= payoffStart + 18;
+    });
+    decisionStart = decisionContextStartForWindows(lateDecisionWindows, null);
+  }
+  const shotStart = firstWindowTime(
+    sortedWindows.filter((window) => {
+      const windowStart = seconds(window.start);
+      const minPayoff = Number.isFinite(Number(payoffStart)) ? payoffStart : anchorCenter;
+      const maxDecision = Number.isFinite(Number(decisionStart)) ? decisionStart : range.end;
+      return windowStart >= Math.max(0, Math.min(range.start, minPayoff - 16)) && windowStart <= Math.max(maxDecision, minPayoff) + 1;
+    }),
+    (windowReasons) => (
+      windowReasons.has("visual_shot_contact") ||
+      windowReasons.has("visual_shot_like_motion") ||
+      windowReasons.has("visual_ball_toward_goal")
+    ),
+    null,
+  );
+
+  if (Number.isFinite(Number(shotStart))) range.start = Math.max(0, Math.min(range.start, shotStart - 2.5));
+  if (Number.isFinite(Number(decisionStart))) range.end = Math.min(duration || decisionStart + 4, Math.max(range.end, decisionStart + 4));
+  if (Number.isFinite(Number(payoffStart))) range.end = Math.min(duration || payoffStart + 10, Math.max(range.end, payoffStart + 10));
+  return range;
+}
+
+function clusterVisualWindowsForGoalAnchor(anchor, sortedWindows = [], duration = 0) {
+  const range = goalClusterRangeForAnchor(anchor, sortedWindows, duration);
+  return sortedWindows.filter((window) => seconds(window.end) >= range.start && seconds(window.start) <= range.end);
+}
+
+function signalReasonsForVisualRange(safeSignals = {}, start = 0, end = 0) {
+  const signalReasons = [];
+  const nearbyAudioPeaks = (safeSignals.audioPeaks || []).filter((peak) => seconds(peak.time) >= start - 1.5 && seconds(peak.time) <= end + 5);
+  if (nearbyAudioPeaks.length) signalReasons.push("audio_energy_spike");
+  if (nearbyAudioPeaks.some((peak) => Number(peak.energyScore || 0) >= 0.88)) signalReasons.push("crowd_spike");
+  if ((safeSignals.sceneChanges || []).some((change) => seconds(change.time) >= start - 1.5 && seconds(change.time) <= end + 4)) {
+    signalReasons.push("scene_change_cluster");
+  }
+  return [...new Set(signalReasons)];
+}
+
 function createGoalSequenceMoments(safeVisualSignals, safeSignals, captions = [], preset = "hype") {
   const windows = Array.isArray(safeVisualSignals && safeVisualSignals.windows) ? safeVisualSignals.windows : [];
   const duration = seconds(safeSignals.durationSeconds || 18);
   if (!windows.length) return [];
   const sorted = [...windows].sort((a, b) => seconds(a.start) - seconds(b.start));
+  const anchors = duration >= 180 ? selectGoalDiscoveryAnchors(sorted, duration) : sorted;
   const moments = [];
   const coveredRanges = [];
-  for (let index = 0; index < sorted.length; index += 1) {
-    const anchor = sorted[index];
+  for (let index = 0; index < anchors.length; index += 1) {
+    const anchor = anchors[index];
     const anchorCenter = seconds(anchor.center ?? (seconds(anchor.start) + seconds(anchor.end)) / 2);
-    const cluster = sorted.filter((window) => {
-      const center = seconds(window.center ?? (seconds(window.start) + seconds(window.end)) / 2);
-      return Math.abs(center - anchorCenter) <= 9;
-    });
+    const cluster = clusterVisualWindowsForGoalAnchor(anchor, sorted, duration);
+    if (!cluster.length) continue;
     const clusterStart = Math.min(...cluster.map((window) => seconds(window.start)));
     const clusterEnd = Math.max(...cluster.map((window) => seconds(window.end)));
     const alreadyCovered = coveredRanges.some((range) => sourceOverlapSeconds(
@@ -1592,13 +1782,7 @@ function createGoalSequenceMoments(safeVisualSignals, safeSignals, captions = []
       { sourceStart: clusterStart, sourceEnd: clusterEnd },
     ) > 0.5);
     if (alreadyCovered) continue;
-    const signalReasons = [];
-    const nearbyAudioPeaks = (safeSignals.audioPeaks || []).filter((peak) => seconds(peak.time) >= clusterStart - 1.5 && seconds(peak.time) <= clusterEnd + 5);
-    if (nearbyAudioPeaks.length) signalReasons.push("audio_energy_spike");
-    if (nearbyAudioPeaks.some((peak) => Number(peak.energyScore || 0) >= 0.88)) signalReasons.push("crowd_spike");
-    if ((safeSignals.sceneChanges || []).some((change) => seconds(change.time) >= clusterStart - 1.5 && seconds(change.time) <= clusterEnd + 4)) {
-      signalReasons.push("scene_change_cluster");
-    }
+    const signalReasons = signalReasonsForVisualRange(safeSignals, clusterStart, clusterEnd);
     const rawVisualReasons = [...new Set(cluster.flatMap(visualReasonCodesForWindow))];
     const firstShotTime = firstWindowTime(
       cluster,
@@ -1635,11 +1819,28 @@ function createGoalSequenceMoments(safeVisualSignals, safeSignals, captions = []
     const hasChanceSequence = hasFootballActionContext && actionSequence.ballTrajectory && actionSequence.actionStageCount >= 2;
     if (!hasGoalSequence && !hasNearGoalSequence && !hasChanceSequence) continue;
     const preHandle = hasGoalSequence ? 3 : 4.5;
-    const postHandle = hasGoalSequence ? 7.5 : hasNearGoalSequence ? 8.5 : 6;
-    let start = Number(clamp(clusterStart - preHandle, 0, duration).toFixed(2));
+    const hasDecisionContext = reasonSetHasAny(reasonSet, [
+      "visual_scoreboard_goal_confirmed",
+      "visual_referee_goal_signal",
+      "visual_offside_flag",
+      "visual_no_goal_decision",
+      "visual_offside_line",
+      "visual_var_check",
+      "visual_var_decision",
+      "visual_scoreboard_goal_removed",
+      "visual_referee_decision",
+      "visual_referee_no_goal_signal",
+    ]);
+    const postHandle = hasGoalSequence && hasDecisionContext ? 4.5 : hasGoalSequence ? 7.5 : hasNearGoalSequence ? 8.5 : 6;
+    const effectiveClusterStart = !hasGoalSequence &&
+      Number.isFinite(Number(firstShotTime)) &&
+      Number(firstShotTime) - clusterStart > 8
+      ? Number(firstShotTime)
+      : clusterStart;
+    let start = Number(clamp(effectiveClusterStart - preHandle, 0, duration).toFixed(2));
     let end = Number(clamp(clusterEnd + postHandle, start + 3, duration).toFixed(2));
-    const minDuration = hasGoalSequence ? 18 : hasNearGoalSequence ? 16 : 12;
-    const maxDuration = hasGoalSequence ? 30 : hasNearGoalSequence ? 24 : 18;
+    const minDuration = hasGoalSequence && hasDecisionContext ? 12 : hasGoalSequence ? 18 : hasNearGoalSequence ? 16 : 12;
+    const maxDuration = hasGoalSequence && hasDecisionContext ? 22 : hasGoalSequence ? 30 : hasNearGoalSequence ? 24 : 18;
     if (end - start < minDuration) {
       const missing = minDuration - (end - start);
       start = Number(clamp(start - missing * 0.45, 0, duration).toFixed(2));
@@ -1672,9 +1873,125 @@ function createGoalSequenceMoments(safeVisualSignals, safeSignals, captions = []
     }, { signals: safeSignals, visualSignals: safeVisualSignals, captions, preset });
     moments.push(moment);
     coveredRanges.push({ start: moment.start, end: moment.end });
-    if (moments.length >= 6) break;
+    if (moments.length >= GOAL_DISCOVERY_MAX_MOMENTS) break;
+  }
+  if (moments.length < GOAL_DISCOVERY_MAX_MOMENTS) {
+    for (const anchor of sorted) {
+      if (moments.length >= GOAL_DISCOVERY_MAX_MOMENTS) break;
+      const anchorReasons = new Set(visualReasonCodesForWindow(anchor));
+      if (!hasFootballShotOrSaveContext(anchorReasons)) continue;
+      const anchorCenter = visualWindowCenter(anchor);
+      const cluster = sorted.filter((window) => Math.abs(visualWindowCenter(window) - anchorCenter) <= 9);
+      const clusterStart = Math.min(...cluster.map((window) => seconds(window.start)));
+      const clusterEnd = Math.max(...cluster.map((window) => seconds(window.end)));
+      const alreadyCovered = coveredRanges.some((range) => sourceOverlapSeconds(
+        { sourceStart: range.start, sourceEnd: range.end },
+        { sourceStart: clusterStart, sourceEnd: clusterEnd },
+      ) > 0.5);
+      if (alreadyCovered) continue;
+      const signalReasons = signalReasonsForVisualRange(safeSignals, clusterStart, clusterEnd);
+      const rawVisualReasons = [...new Set(cluster.flatMap(visualReasonCodesForWindow))];
+      const sequenceReasons = [...new Set([...rawVisualReasons, ...signalReasons])];
+      const goalEvidence = goalEvidenceForContext({ reasons: sequenceReasons, visualWindows: cluster, center: anchorCenter });
+      if (goalEvidence.hasBallInNetOrLineCross) continue;
+      const actionSequence = actionSequenceForReasons(sequenceReasons, goalEvidence);
+      const reasonSet = new Set(sequenceReasons);
+      const hasFootballActionContext = hasFootballShotOrSaveContext(reasonSet);
+      const hasNearGoalSequence = hasFootballActionContext &&
+        actionSequence.ballTrajectory &&
+        (
+          actionSequence.goalmouthOrKeeper ||
+          actionSequence.payoff ||
+          actionSequence.reactionSupport ||
+          actionSequence.replaySupport
+        );
+      const hasChanceSequence = hasFootballActionContext && actionSequence.ballTrajectory && actionSequence.actionStageCount >= 2;
+      if (!hasNearGoalSequence && !hasChanceSequence) continue;
+      let start = Number(clamp(clusterStart - 4.5, 0, duration).toFixed(2));
+      let end = Number(clamp(clusterEnd + (hasNearGoalSequence ? 8.5 : 6), start + 3, duration).toFixed(2));
+      const minDuration = hasNearGoalSequence ? 16 : 12;
+      const maxDuration = hasNearGoalSequence ? 24 : 18;
+      if (end - start < minDuration) {
+        const missing = minDuration - (end - start);
+        start = Number(clamp(start - missing * 0.45, 0, duration).toFixed(2));
+        end = Number(clamp(end + missing * 0.55, start + 3, duration).toFixed(2));
+      }
+      if (end - start > maxDuration) {
+        end = Number(Math.min(duration, start + maxDuration).toFixed(2));
+      }
+      const reasonCodes = reasonCodesWithGoalEvidence(rawVisualReasons, goalEvidence);
+      const base = scoreReasons(reasonCodes) + 0.04;
+      const moment = normalizeMomentWithEvidence({
+        id: `mom_football_sequence_${moments.length + 1}`,
+        rank: moments.length + 1,
+        start,
+        end,
+        center: Number(((start + end) / 2).toFixed(2)),
+        title: titleForHighlightType(highlightTypeForReasons(reasonCodes)),
+        summary: hasNearGoalSequence
+          ? "Detected from a shot sequence with reaction support and no goal claim."
+          : "Detected from a bounded football action sequence.",
+        reasonCodes,
+        highlightType: highlightTypeForReasons(reasonCodes),
+        confidence: Number(clamp(base, 0.12, 0.9).toFixed(2)),
+        retentionScore: Math.round(clamp(base, 0.12, 0.9) * 100),
+        suggestedPreset: preset,
+        source: "vision_football_sequence",
+        _sequenceSupportReasons: signalReasons,
+      }, { signals: safeSignals, visualSignals: safeVisualSignals, captions, preset });
+      moments.push(moment);
+      coveredRanges.push({ start: moment.start, end: moment.end });
+    }
   }
   return moments;
+}
+
+function goalDiscoverySummary({ safeVisualSignals = {}, safeSignals = {}, goalSequenceMoments = [] } = {}) {
+  const duration = seconds(safeSignals.durationSeconds || 0);
+  const windows = Array.isArray(safeVisualSignals.windows) ? safeVisualSignals.windows : [];
+  const buckets = goalDiscoveryBuckets(windows, duration);
+  const bucketSummaries = buckets.map((bucket) => {
+    const reasonCodes = [...new Set(
+      rankedGoalDiscoveryWindows(bucket.windows)
+        .slice(0, 4)
+        .flatMap(visualReasonCodesForWindow),
+    )].slice(0, 10);
+    return {
+      index: bucket.index,
+      start: bucket.start,
+      end: bucket.end,
+      windowCount: bucket.windows.length,
+      topReasonCodes: reasonCodes,
+    };
+  });
+  const outcomes = goalSequenceMoments.map((moment) => ({
+    id: sanitizeText(moment.id, 80),
+    start: Number(moment.start || 0),
+    end: Number(moment.end || 0),
+    highlightType: sanitizeText(moment.highlightType || "generic_highlight", 48),
+    goalOutcome: moment.evidence && moment.evidence.goalOutcome && moment.evidence.goalOutcome.eventType === "ball_in_net"
+      ? {
+          outcome: sanitizeText(moment.evidence.goalOutcome.outcome, 40),
+          offsideStatus: sanitizeText(moment.evidence.goalOutcome.offsideStatus, 32),
+          decisionTimestamp: moment.evidence.goalOutcome.decisionTimestamp == null
+            ? null
+            : Number(moment.evidence.goalOutcome.decisionTimestamp),
+        }
+      : null,
+    reasonCodes: Array.isArray(moment.reasonCodes) ? moment.reasonCodes.map((reason) => sanitizeText(reason, 64)).slice(0, 12) : [],
+  }));
+  return {
+    version: 1,
+    sourceDuration: Number(duration.toFixed(2)),
+    visualWindowCount: windows.length,
+    bucketCount: buckets.length,
+    lateBucketInspected: bucketSummaries.some((bucket) => bucket.index >= Math.floor(buckets.length * 0.66) && bucket.windowCount > 0),
+    candidateWindowsByBucket: bucketSummaries,
+    selectedValidGoals: outcomes.filter((item) => item.goalOutcome && item.goalOutcome.outcome === "confirmed_goal"),
+    excludedOffsideOrNoGoal: outcomes.filter((item) => item.goalOutcome && ["disallowed_offside", "possible_offside"].includes(item.goalOutcome.outcome)),
+    excludedUnconfirmedBallInNet: outcomes.filter((item) => item.goalOutcome && item.goalOutcome.outcome === "unknown_decision"),
+    excludedBigChances: outcomes.filter((item) => !item.goalOutcome && item.highlightType !== "goal").slice(0, 8),
+  };
 }
 
 function detectHighlights({ transcript, signals, visualSignals, preset = "hype" } = {}) {
@@ -1787,6 +2104,7 @@ function detectHighlights({ transcript, signals, visualSignals, preset = "hype" 
   });
 
   const goalSequenceMoments = createGoalSequenceMoments(safeVisualSignals, safeSignals, captions, preset);
+  const discoverySummary = goalDiscoverySummary({ safeVisualSignals, safeSignals, goalSequenceMoments });
 
   const merged = [...goalSequenceMoments, ...captionMoments, ...signalOnlyMoments, ...visualOnlyMoments]
     .filter((moment) => moment.end - moment.start >= 3)
@@ -1798,6 +2116,9 @@ function detectHighlights({ transcript, signals, visualSignals, preset = "hype" 
     return true;
   };
   for (const moment of merged.filter(isGoalCoverageMoment).sort((a, b) => a.start - b.start)) {
+    addMoment(moment);
+  }
+  for (const moment of goalSequenceMoments.filter((moment) => !isGoalCoverageMoment(moment)).sort((a, b) => a.start - b.start)) {
     addMoment(moment);
   }
   for (const moment of merged) {
@@ -1830,6 +2151,7 @@ function detectHighlights({ transcript, signals, visualSignals, preset = "hype" 
         Array.isArray(moment.rankingExplanation.rejectedClaims) &&
         moment.rankingExplanation.rejectedClaims.includes("goal_claim_rejected_without_explicit_goal_evidence")
       )),
+      goalDiscovery: discoverySummary,
     },
     moments: rankedMoments.map((moment, index) => ({
       ...moment,
@@ -2220,7 +2542,7 @@ function isGoalCoverageMoment(moment = {}) {
 }
 
 function isGoalCoverageCandidate(candidate = {}) {
-  const moment = candidate.analysisMoment || {};
+  const moment = candidate.analysisMoment || candidate || {};
   const reasonCodes = Array.isArray(candidate.reasonCodes)
     ? candidate.reasonCodes
     : Array.isArray(moment.reasonCodes)
@@ -2234,7 +2556,7 @@ function isGoalCoverageCandidate(candidate = {}) {
 }
 
 function isConfirmedGoalCandidate(candidate = {}) {
-  const moment = candidate.analysisMoment || {};
+  const moment = candidate.analysisMoment || candidate || {};
   const reasonCodes = Array.isArray(candidate.reasonCodes)
     ? candidate.reasonCodes
     : Array.isArray(moment.reasonCodes)
@@ -2296,7 +2618,12 @@ function compilationHandlesForCandidate(candidate = {}) {
   const moment = candidate.analysisMoment || {};
   const goalOutcome = candidate.goalOutcome || goalOutcomeForMoment(moment);
   if (isConfirmedGoalCandidate(candidate)) {
-    return { pre: 1.8, post: 2.8 };
+    const sourceEnd = Number(candidate.sourceEnd ?? moment.end);
+    const decisionTimestamp = Number(goalOutcome && goalOutcome.decisionTimestamp);
+    const decisionPost = Number.isFinite(decisionTimestamp) && Number.isFinite(sourceEnd) && decisionTimestamp > sourceEnd
+      ? decisionTimestamp - sourceEnd + 1.2
+      : 4.2;
+    return { pre: 0.6, post: Number(clamp(Math.max(4.2, decisionPost), 4.2, 5.5).toFixed(2)) };
   }
   if (isGoalCoverageCandidate(candidate)) {
     return goalOutcome && goalOutcome.requiresPostContext
@@ -2905,10 +3232,14 @@ function prioritizeCandidateMoments(moments = []) {
     .filter(isGoalCoverageMoment)
     .sort((a, b) => Number(a.start || 0) - Number(b.start || 0));
   const goalIds = new Set(goalMoments.map((moment) => moment.id));
+  const sequenceMoments = safeMoments
+    .filter((moment) => !goalIds.has(moment.id) && moment.source === "vision_football_sequence")
+    .sort((a, b) => Number(a.start || 0) - Number(b.start || 0));
+  const sequenceIds = new Set(sequenceMoments.map((moment) => moment.id));
   const remaining = safeMoments
-    .filter((moment) => !goalIds.has(moment.id))
+    .filter((moment) => !goalIds.has(moment.id) && !sequenceIds.has(moment.id))
     .sort((a, b) => Number(b.retentionScore || 0) - Number(a.retentionScore || 0) || Number(a.start || 0) - Number(b.start || 0));
-  return [...goalMoments, ...remaining].slice(0, 12);
+  return [...goalMoments, ...sequenceMoments, ...remaining].slice(0, 12);
 }
 
 function createCandidateEditPlans({
@@ -2928,7 +3259,15 @@ function createCandidateEditPlans({
 } = {}) {
   const renderStylePreset = normalizeStylePreset(stylePreset);
   const goalSelectionMode = normalizeGoalSelectionMode(metadata && metadata.goalSelectionMode);
-  const allSingleCandidates = prioritizeCandidateMoments(moments).map((moment) => {
+  const prioritizedMoments = prioritizeCandidateMoments(moments);
+  const candidateMoments = goalSelectionMode === GOAL_SELECTION_MODES.validGoalsOnly
+    ? prioritizedMoments.filter(isConfirmedGoalCandidate)
+    : prioritizedMoments;
+  if (!candidateMoments.length) {
+    if (goalSelectionMode === GOAL_SELECTION_MODES.validGoalsOnly) return [];
+    throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
+  }
+  const allSingleCandidates = candidateMoments.map((moment) => {
     const visualEvidenceSummary = visualEvidenceSummaryForMoment(moment);
     const visualTrackingSummary = publicVisualTrackingSummary(visualTracking || null, metadata);
     const actionSequenceSummary = actionSequenceSummaryForMoment(moment);
@@ -3025,6 +3364,7 @@ function createCandidateEditPlans({
         id: moment.id,
         title: moment.title,
         summary: moment.summary,
+        rankingExplanation: moment.rankingExplanation || null,
         confidence: moment.confidence,
         highlightType,
         retentionScore: moment.retentionScore,
