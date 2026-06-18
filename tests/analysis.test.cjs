@@ -864,9 +864,96 @@ test("long football sources produce a chronological multi-moment compilation wit
   assert.equal(plan.segments.some((segment) => segment.highlightType === "big_chance"), true);
   assert.equal(plan.segments.some((segment) => segment.highlightType === "save"), true);
   assert.equal(plan.segments.some((segment) => segment.highlightType === "hard_foul"), true);
+  assert.equal(plan.hook, "EVERY BIG CHANCE");
+  assert.doesNotMatch(plan.captions.map((caption) => caption.text).join(" "), /PHASE \d|PRESSURE BUILDS/i);
+  assert.match(plan.captions.map((caption) => caption.text).join(" "), /CHANCE OPENS|KEEPER REACTS|CONTACT CHANGES/i);
   assert.equal(hasGoalLanguage(plan.captions.map((caption) => caption.text).join(" ")), false);
   assert.equal(plan.framingMode, "wide_safe_vertical");
   assert.equal(plan.cropStrategy.preserveFullFrame, true);
+});
+
+test("multi-moment compilation trims expanded replay overlaps into a valid timeline", () => {
+  const longMetadata = { durationSeconds: 96, width: 1920, height: 1080, hasAudio: true };
+  const moments = [
+    {
+      id: "close_chance",
+      rank: 1,
+      start: 20,
+      end: 32,
+      center: 26,
+      title: "Big chance",
+      summary: "The attack opens the goalmouth.",
+      reasonCodes: ["big_chance", "visual_shot_like_motion", "visual_ball_visible"],
+      highlightType: "big_chance",
+      confidence: 0.89,
+      retentionScore: 89,
+      source: "fixture",
+    },
+    {
+      id: "close_replay",
+      rank: 2,
+      start: 29,
+      end: 39,
+      center: 34,
+      title: "Replay angle",
+      summary: "Replay context follows the chance.",
+      reasonCodes: ["replay_worthy_moment", "visual_replay_indicator"],
+      highlightType: "replay_worthy_moment",
+      confidence: 0.82,
+      retentionScore: 82,
+      source: "fixture",
+    },
+    {
+      id: "keeper_save",
+      rank: 3,
+      start: 50,
+      end: 61,
+      center: 55.5,
+      title: "Keeper save",
+      summary: "The keeper reacts to the shot.",
+      reasonCodes: ["save", "visual_save_like_motion", "visual_keeper_action"],
+      highlightType: "save",
+      confidence: 0.88,
+      retentionScore: 88,
+      source: "fixture",
+    },
+    {
+      id: "late_contact",
+      rank: 4,
+      start: 74,
+      end: 84,
+      center: 79,
+      title: "Heavy contact",
+      summary: "Contact changes the tempo.",
+      reasonCodes: ["hard_foul", "visual_foul_like_contact"],
+      highlightType: "hard_foul",
+      confidence: 0.86,
+      retentionScore: 86,
+      source: "fixture",
+    },
+  ];
+
+  const plans = createCandidateEditPlans({
+    moments,
+    metadata: longMetadata,
+    transcript: { captions: [] },
+    title: "Close replay overlap fixture",
+    editIntensity: "balanced",
+    stylePreset: "punchy_highlight",
+  });
+  const plan = validateEditPlan(plans[0], longMetadata);
+
+  assert.equal(plan.mode, "multi_moment_compilation");
+  assert.ok(plan.segments.length >= 3);
+  for (let index = 1; index < plan.segments.length; index += 1) {
+    const previous = plan.segments[index - 1];
+    const current = plan.segments[index];
+    assert.ok(previous.sourceEnd <= current.sourceStart);
+    assert.ok(previous.duration >= 3);
+    assert.ok(current.duration >= 3);
+  }
+  assert.equal(plan.segments.some((segment) => segment.highlightType === "replay_worthy_moment"), true);
+  assert.ok(plan.totalDuration >= 45);
 });
 
 test("long source highlight detection keeps late visual candidates", () => {
@@ -973,11 +1060,14 @@ test("long goal compilations include every detected confirmed goal before filler
 
   assert.equal(plan.mode, "multi_moment_compilation");
   assert.equal(goalSegments.length, 3);
+  assert.equal(plan.hook, "EVERY FINISH SEQUENCE");
   assert.ok(goalSegments.some((segment) => segment.sourceStart <= 20.6 && segment.sourceEnd >= 28.3));
   assert.ok(goalSegments.some((segment) => segment.sourceStart <= 62.6 && segment.sourceEnd >= 70.3));
   assert.ok(goalSegments.some((segment) => segment.sourceStart <= 106.6 && segment.sourceEnd >= 114.3));
   assert.ok(goalSegments.every((segment) => segment.duration > 18));
   assert.ok(goalSegments.every((segment) => segment.goalOutcome.outcome === "confirmed_goal"));
+  assert.doesNotMatch(plan.captions.map((caption) => caption.text).join(" "), /PHASE \d|PRESSURE BUILDS/i);
+  assert.match(plan.captions.map((caption) => caption.text).join(" "), /FINISH COUNTS|CHECK EVERY DECISION/i);
   assert.ok(plan.totalDuration <= 90);
 });
 

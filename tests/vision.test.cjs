@@ -5,6 +5,7 @@ const {
   analyzeVision,
   analyzeFrames,
   createVisionProvider,
+  inferLabelsForFrame,
   frameToVisualWindow,
   publicVisualSignals,
   reasonCodeForVisualType,
@@ -188,6 +189,59 @@ test("local frame inspection adapter can infer crowd context from sampled frames
   assert.equal(result.summary.crowdReaction.present, true);
   assert.equal(result.summary.goalClaimAllowed, false);
   assert.deepEqual(visualReasonCodesForWindow(result.windows[0]), ["visual_crowd_reaction"]);
+});
+
+test("local frame inspection promotes post-opening high motion to safe chance context", async () => {
+  const result = await analyzeVision({
+    metadata: { durationSeconds: 140, width: 1920, height: 1080 },
+    mediaSignals: {
+      durationSeconds: 140,
+      audioPeaks: [{ time: 62, energyScore: 0.9 }],
+      sceneChanges: [{ time: 62.1, confidence: 0.76 }],
+    },
+    frames: [
+      {
+        id: "frame_1",
+        timestamp: 62,
+        windowStart: 60.5,
+        windowEnd: 63.5,
+        width: 640,
+        height: 360,
+        localPath: "/Users/example/private-frame.jpg",
+        source: "signal_cluster",
+      },
+    ],
+    candidateWindows: [{ time: 62, confidence: 0.74, source: "signal_cluster" }],
+  });
+
+  assert.equal(result.providerMode, "frame-inspection-local");
+  assert.equal(result.summary.shotLikeMotion.present, true);
+  assert.equal(result.summary.ballPresence.present, true);
+  assert.equal(result.summary.goalClaimAllowed, false);
+  assert.equal(visualHighlightTypeForReasons(visualReasonCodesForWindow(result.windows[0])), "big_chance");
+  assert.doesNotMatch(JSON.stringify(publicVisualSignals(result)), /\/Users|private-frame|localPath|secret/i);
+});
+
+test("local frame inspection keeps opening high motion neutral without action hints", () => {
+  const labels = inferLabelsForFrame(
+    {
+      id: "frame_opening",
+      timestamp: 8,
+      width: 640,
+      height: 360,
+      source: "signal_cluster",
+    },
+    [{ time: 8, confidence: 0.8, source: "signal_cluster" }],
+    {
+      durationSeconds: 140,
+      audioPeaks: [{ time: 8, energyScore: 0.91 }],
+      sceneChanges: [{ time: 8.1, confidence: 0.76 }],
+    },
+  );
+
+  assert.equal(labels.includes("shot_like_motion"), false);
+  assert.equal(labels.includes("ball_visible"), false);
+  assert.ok(labels.includes("crowd_reaction") || labels.includes("unknown_visual_action"));
 });
 
 test("frameToVisualWindow rejects malformed frames and never infers goals", () => {

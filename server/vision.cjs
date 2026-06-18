@@ -435,9 +435,18 @@ function inferLabelsForFrame(frame, candidateWindows = [], mediaSignals = {}) {
   const sceneChanges = nearbyMediaItems(mediaSignals.sceneChanges, timestamp, 2.5);
   const labels = [];
   const source = sanitizeText((frame && frame.source) || (matchedCandidate && matchedCandidate.source) || "", 80);
+  const duration = seconds(mediaSignals.durationSeconds, 0);
+  const openingBoundary = duration >= 90 ? Math.min(45, Math.max(18, duration * 0.12)) : 0;
+  const inOpeningContext = openingBoundary > 0 && timestamp <= openingBoundary;
+  const highMotionContext = source.includes("high_motion") || source.includes("motion_candidate") || source.includes("signal_cluster");
+  const strongAudio = audioPeaks.some((peak) => Number(peak.energyScore || 0) >= 0.85);
+  if (highMotionContext && !inOpeningContext) {
+    labels.push("shot_like_motion", "ball_visible");
+    if (strongAudio) labels.push("crowd_reaction");
+  }
   if (source.includes("audio_peak") && audioPeaks.some((peak) => Number(peak.energyScore || 0) >= 0.85)) labels.push("crowd_reaction");
   if (source.includes("scene_change") && sceneChanges.length) labels.push("replay_indicator");
-  if (source.includes("high_motion") || source.includes("motion_candidate") || source.includes("signal_cluster")) labels.push("unknown_visual_action");
+  if (highMotionContext && !labels.length) labels.push("unknown_visual_action");
   if (!labels.length && audioPeaks.length && sceneChanges.length) labels.push("crowd_reaction");
   if (!labels.length) labels.push("unknown_visual_action");
   return [...new Set(labels.map(normalizeVisualType))].slice(0, 4);

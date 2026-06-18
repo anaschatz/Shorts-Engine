@@ -1971,16 +1971,16 @@ function compilationHandlesForCandidate(candidate = {}) {
   const goalOutcome = candidate.goalOutcome || goalOutcomeForMoment(moment);
   if (isGoalCoverageCandidate(candidate)) {
     return goalOutcome && goalOutcome.requiresPostContext
-      ? { pre: 4.5, post: 8 }
-      : { pre: 4, post: 5.5 };
+      ? { pre: 5, post: 12 }
+      : { pre: 5, post: 9 };
   }
   if (hasStrongCompilationAction(candidate)) {
-    return { pre: 2.5, post: 3.5 };
+    return { pre: 3.2, post: 4.5 };
   }
   if (isReactionOnlyMoment(moment)) {
-    return { pre: 2, post: 2.5 };
+    return { pre: 2.6, post: 3.2 };
   }
-  return { pre: 1.5, post: 2 };
+  return { pre: 2, post: 2.8 };
 }
 
 function limitCandidateDurationWithHandles(candidate = {}, maxDuration = 30, mediaDuration = 0) {
@@ -2001,7 +2001,7 @@ function limitCandidateDurationWithHandles(candidate = {}, maxDuration = 30, med
   const extraBudget = Math.max(0, maxDuration - originalDuration);
   const currentPre = Math.max(0, originalStart - Number(candidate.sourceStart));
   const currentPost = Math.max(0, Number(candidate.sourceEnd) - originalEnd);
-  const preBudget = Math.min(currentPre, extraBudget * (isGoalCoverageCandidate(candidate) ? 0.42 : 0.5));
+  const preBudget = Math.min(currentPre, extraBudget * (isGoalCoverageCandidate(candidate) ? 0.36 : 0.5));
   const postBudget = Math.min(currentPost, extraBudget - preBudget);
   const start = Math.max(0, originalStart - preBudget);
   const end = Math.min(mediaDuration || originalEnd + postBudget, originalEnd + postBudget);
@@ -2012,9 +2012,52 @@ function limitCandidateDurationWithHandles(candidate = {}, maxDuration = 30, med
   };
 }
 
+function roundTimestamp(value) {
+  return Number(Number(value || 0).toFixed(2));
+}
+
+function compilationBoundaryBetween(previous = {}, current = {}) {
+  const previousOriginalEnd = Number(previous.originalSourceEnd ?? previous.sourceEnd);
+  const currentOriginalStart = Number(current.originalSourceStart ?? current.sourceStart);
+  if (Number.isFinite(previousOriginalEnd) && Number.isFinite(currentOriginalStart)) {
+    return (previousOriginalEnd + currentOriginalStart) / 2;
+  }
+  return (Number(previous.sourceEnd || 0) + Number(current.sourceStart || 0)) / 2;
+}
+
+function sanitizeExpandedCompilationOverlaps(expanded = []) {
+  const sanitized = [];
+  for (const candidate of expanded) {
+    const current = { ...candidate };
+    if (current.sourceEnd - current.sourceStart < 3) continue;
+    if (!sanitized.length) {
+      sanitized.push(current);
+      continue;
+    }
+
+    const previous = sanitized[sanitized.length - 1];
+    if (previous.sourceEnd > current.sourceStart) {
+      const previousMinEnd = Number((previous.sourceStart + 3).toFixed(2));
+      const currentMaxStart = Number((current.sourceEnd - 3).toFixed(2));
+      if (previousMinEnd > currentMaxStart) continue;
+
+      const boundary = roundTimestamp(clamp(
+        compilationBoundaryBetween(previous, current),
+        previousMinEnd,
+        currentMaxStart,
+      ));
+      previous.sourceEnd = roundTimestamp(Math.min(previous.sourceEnd, boundary));
+      current.sourceStart = roundTimestamp(Math.max(current.sourceStart, boundary));
+    }
+
+    if (current.sourceEnd - current.sourceStart >= 3) sanitized.push(current);
+  }
+  return sanitized;
+}
+
 function expandCompilationCandidateWindows(candidates = [], metadata = {}) {
   const mediaDuration = Math.max(0, Number(metadata.durationSeconds || 0));
-  const maxSegmentDuration = 30;
+  const maxSegmentDuration = 29.5;
   const expanded = candidates
     .map((candidate) => {
       const sourceStart = Number(candidate.sourceStart);
@@ -2031,52 +2074,52 @@ function expandCompilationCandidateWindows(candidates = [], metadata = {}) {
     })
     .sort((a, b) => a.sourceStart - b.sourceStart);
 
-  for (let index = 1; index < expanded.length; index += 1) {
-    const previous = expanded[index - 1];
-    const current = expanded[index];
-    if (previous.sourceEnd <= current.sourceStart) continue;
-    const previousOriginalEnd = Number(previous.originalSourceEnd ?? previous.sourceEnd);
-    const currentOriginalStart = Number(current.originalSourceStart ?? current.sourceStart);
-    if (previousOriginalEnd <= currentOriginalStart) {
-      const boundary = Number(((previousOriginalEnd + currentOriginalStart) / 2).toFixed(2));
-      previous.sourceEnd = Number(Math.max(previous.originalSourceEnd, Math.min(previous.sourceEnd, boundary)).toFixed(2));
-      current.sourceStart = Number(Math.min(current.originalSourceStart, Math.max(current.sourceStart, boundary)).toFixed(2));
-    }
-  }
+  const sanitized = sanitizeExpandedCompilationOverlaps(expanded);
 
-  let totalDuration = expanded.reduce((sum, candidate) => sum + Math.max(0, candidate.sourceEnd - candidate.sourceStart), 0);
-  for (let index = expanded.length - 1; index >= 0 && totalDuration > MULTI_MOMENT_COMPILATION.maxTotalDuration; index -= 1) {
-    const candidate = expanded[index];
+  let totalDuration = sanitized.reduce((sum, candidate) => sum + Math.max(0, candidate.sourceEnd - candidate.sourceStart), 0);
+  for (let index = sanitized.length - 1; index >= 0 && totalDuration > MULTI_MOMENT_COMPILATION.maxTotalDuration; index -= 1) {
+    const candidate = sanitized[index];
     const removablePostHandle = Math.max(0, candidate.sourceEnd - Number(candidate.originalSourceEnd ?? candidate.sourceEnd));
     const cut = Math.min(removablePostHandle, totalDuration - MULTI_MOMENT_COMPILATION.maxTotalDuration);
     if (cut <= 0) continue;
     candidate.sourceEnd = Number((candidate.sourceEnd - cut).toFixed(2));
     totalDuration -= cut;
   }
-  for (let index = 0; index < expanded.length && totalDuration > MULTI_MOMENT_COMPILATION.maxTotalDuration; index += 1) {
-    const candidate = expanded[index];
+  for (let index = 0; index < sanitized.length && totalDuration > MULTI_MOMENT_COMPILATION.maxTotalDuration; index += 1) {
+    const candidate = sanitized[index];
     const removablePreHandle = Math.max(0, Number(candidate.originalSourceStart ?? candidate.sourceStart) - candidate.sourceStart);
     const cut = Math.min(removablePreHandle, totalDuration - MULTI_MOMENT_COMPILATION.maxTotalDuration);
     if (cut <= 0) continue;
     candidate.sourceStart = Number((candidate.sourceStart + cut).toFixed(2));
     totalDuration -= cut;
   }
-  return expanded.map((candidate) => ({
+  return sanitized.map((candidate) => ({
     ...candidate,
     sourceStart: Number(candidate.sourceStart.toFixed(2)),
     sourceEnd: Number(candidate.sourceEnd.toFixed(2)),
-  }));
+  })).filter((candidate) => candidate.sourceEnd - candidate.sourceStart >= 3);
 }
 
 function segmentCaptionText(segment, index) {
-  const phase = `PHASE ${index + 1}`;
+  const phase = `MOMENT ${index + 1}`;
   const outcome = segment && segment.goalOutcome && segment.goalOutcome.eventType === "ball_in_net"
     ? segment.goalOutcome.outcome
     : null;
   if (outcome === "confirmed_goal") return `${phase}: FINISH COUNTS`;
   if (outcome === "disallowed_offside") return `${phase}: OFFSIDE - NO GOAL`;
-  if (outcome === "possible_offside") return `${phase}: WAS HE OFF?`;
-  if (outcome === "unknown_decision") return `${phase}: BALL IN THE NET`;
+  if (outcome === "possible_offside") return `${phase}: VAR CHECK`;
+  if (outcome === "unknown_decision") return `${phase}: DECISION UNCLEAR`;
+  const reasons = new Set(Array.isArray(segment.reasonCodes) ? segment.reasonCodes : []);
+  if (reasons.has("visual_shot_like_motion") || reasons.has("visual_shot_contact") || reasons.has("visual_ball_toward_goal")) {
+    return `${phase}: CHANCE OPENS`;
+  }
+  if (reasons.has("visual_save_like_motion") || reasons.has("visual_keeper_action")) return `${phase}: KEEPER REACTS`;
+  if (reasons.has("visual_fast_break") || reasons.has("counter_attack")) return `${phase}: SPACE OPENS`;
+  if (reasons.has("visual_foul_like_contact")) return `${phase}: CONTACT CHANGES IT`;
+  if (reasons.has("visual_replay_indicator") || reasons.has("replay_worthy_moment")) return `${phase}: CHECK THE ANGLE`;
+  if (reasons.has("visual_crowd_reaction") || reasons.has("crowd_reaction") || reasons.has("audio_energy_spike")) {
+    return `${phase}: REACTION AFTER THE PLAY`;
+  }
   const labels = {
     goal: `${phase}: BALL IN THE NET`,
     big_chance: `${phase}: THE CHANCE OPENS`,
@@ -2092,17 +2135,36 @@ function segmentCaptionText(segment, index) {
     crowd_reaction: `${phase}: REACTION AFTER THE PLAY`,
     commentator_peak: `${phase}: THE CALL FOLLOWS THE ACTION`,
     audio_energy_spike: `${phase}: ENERGY AFTER THE PHASE`,
-    unknown_action: `${phase}: PRESSURE BUILDS`,
-    generic_highlight: `${phase}: PLAY DEVELOPS`,
+    unknown_action: `${phase}: WATCH THE BUILD-UP`,
+    generic_highlight: `${phase}: WATCH THE BUILD-UP`,
   };
   return labels[segment.highlightType] || labels.generic_highlight;
+}
+
+function openingCaptionTextForCompilation(segments = []) {
+  const goalCount = segments.filter((segment) => segment.goalOutcome && segment.goalOutcome.eventType === "ball_in_net").length;
+  if (goalCount >= 2) return "EVERY FINISH SEQUENCE";
+  if (goalCount === 1) return "FINISH + KEY PHASES";
+  const chanceCount = segments.filter((segment) => ["big_chance", "shot_on_target", "near_miss", "save"].includes(segment.highlightType)).length;
+  if (chanceCount >= 2) return "EVERY BIG CHANCE";
+  return "KEY PHASES ONLY";
+}
+
+function closingCaptionTextForCompilation(segments = []) {
+  if (segments.some((segment) => segment.goalOutcome && segment.goalOutcome.eventType === "ball_in_net")) {
+    return "CHECK EVERY DECISION";
+  }
+  if (segments.some((segment) => ["big_chance", "shot_on_target", "near_miss", "save"].includes(segment.highlightType))) {
+    return "RUN THE CHANCES BACK";
+  }
+  return "RUN THE BEST PHASES BACK";
 }
 
 function captionsForCompilation(segments, totalDuration) {
   const captions = [{
     start: 0,
     end: Math.min(2.2, totalDuration),
-    text: "BEST PHASES ONLY",
+    text: openingCaptionTextForCompilation(segments),
     role: "opening_hook",
     emphasis: "shout",
     layout: "center",
@@ -2119,7 +2181,8 @@ function captionsForCompilation(segments, totalDuration) {
     captionRiskFlags: [],
   }];
   for (const [index, segment] of segments.entries()) {
-    const start = Number(Math.min(segment.timelineEnd - 0.5, segment.timelineStart + 0.45).toFixed(2));
+    const firstSegmentCaptionStart = index === 0 ? 2.35 : segment.timelineStart + 0.45;
+    const start = Number(Math.min(segment.timelineEnd - 0.5, firstSegmentCaptionStart).toFixed(2));
     const end = Number(Math.min(segment.timelineEnd, start + Math.min(3.2, Math.max(1.4, segment.duration - 0.7))).toFixed(2));
     if (end <= start) continue;
     const role = index === segments.length - 1 ? "reaction" : "action_callout";
@@ -2155,7 +2218,7 @@ function captionsForCompilation(segments, totalDuration) {
   captions.push({
     start: Math.max(0, Number((totalDuration - 2.4).toFixed(2))),
     end: totalDuration,
-    text: "RUN THE WHOLE SEQUENCE BACK",
+    text: closingCaptionTextForCompilation(segments),
     role: "closing_punch",
     emphasis: "strong",
     layout: "bottom",
@@ -2283,6 +2346,8 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
   const reasonCodes = uniqueReasonCodes(selectedCandidates);
   const captions = captionsForCompilation(segments, totalDuration);
   const primary = selectedCandidates.find((candidate) => hasPrimaryMomentAction(candidate.analysisMoment)) || selectedCandidates[0];
+  const compilationHook = openingCaptionTextForCompilation(segments);
+  const compilationClosing = closingCaptionTextForCompilation(segments);
   const baseCropPlan = primary.cropPlan || calibrateCropPlan({ metadata, targetAspectRatio: primary.aspectRatio || "9:16" });
   const cropPlan = {
     ...baseCropPlan,
@@ -2299,7 +2364,7 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
     aspectRatio: primary.aspectRatio || "9:16",
     highlightType: "generic_highlight",
     confidence: Number(clamp(selectedCandidates.reduce((sum, candidate) => sum + Number(candidate.confidence || 0), 0) / selectedCandidates.length, 0, 1).toFixed(2)),
-    hook: "BEST PHASES ONLY",
+    hook: compilationHook,
     title: sanitizeText(title, 120),
     captions,
     effects: [...new Set(selectedCandidates.flatMap((candidate) => candidate.effects || []))].slice(0, 8),
@@ -2322,8 +2387,8 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
     footballStoryPlan: {
       storyType: "multi_moment_compilation",
       primarySubject: sanitizeText(title, 96),
-      hook: "BEST PHASES ONLY",
-      contextLine: `${segments.length} selected phases in match order`,
+      hook: compilationHook,
+      contextLine: `${segments.length} selected football moments in match order`,
       selectedMoment: {
         id: "multi_moment_compilation",
         start: segments[0].sourceStart,
@@ -2374,6 +2439,7 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
         "Compilation excludes opening context without action evidence.",
         "Reaction moments are included only with action lead-in windows.",
         "Goal language is not used without explicit goal evidence.",
+        "Segment captions describe visible action or decision context instead of generic pressure.",
       ],
       captionEmphasis: createCaptionEmphasis(captions, "generic_highlight"),
       cropStrategy: createCropStrategy(metadata, "wide_safe_vertical"),
@@ -2405,6 +2471,7 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
       actionSequenceSummary: null,
       captionIntent: "multi_moment_compilation",
       source: "multi_moment_builder",
+      endBeatText: compilationClosing,
     },
     export: {
       ...primary.export,

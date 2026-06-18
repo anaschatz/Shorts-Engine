@@ -241,11 +241,15 @@ function validateMediaSignals(signals, metadata = {}) {
 
 function visualCandidateWindowsFromSignals(mediaSignals = {}) {
   const windows = [];
+  const duration = Number(mediaSignals.durationSeconds || 0);
+  const openingBoundary = duration >= 90 ? Math.min(45, Math.max(18, duration * 0.12)) : 0;
+  const isPostOpening = (time) => !openingBoundary || Number(time || 0) > openingBoundary;
   for (const item of Array.isArray(mediaSignals.highMotionCandidates) ? mediaSignals.highMotionCandidates : []) {
     windows.push({
       time: item.time,
       confidence: item.confidence,
       source: item.source || "high_motion_candidate",
+      visualHints: isPostOpening(item.time) ? ["shot_like_motion", "ball_visible"] : [],
     });
   }
   for (const item of Array.isArray(mediaSignals.audioPeaks) ? mediaSignals.audioPeaks : []) {
@@ -253,6 +257,7 @@ function visualCandidateWindowsFromSignals(mediaSignals = {}) {
       time: item.time,
       confidence: Math.min(0.78, Number(item.energyScore || 0.55)),
       source: item.source || "audio_peak_context",
+      visualHints: isPostOpening(item.time) && Number(item.energyScore || 0) >= 0.85 ? ["crowd_reaction"] : [],
     });
   }
   for (const item of Array.isArray(mediaSignals.sceneChanges) ? mediaSignals.sceneChanges : []) {
@@ -260,6 +265,7 @@ function visualCandidateWindowsFromSignals(mediaSignals = {}) {
       time: item.time,
       confidence: Math.min(0.72, Number(item.confidence || 0.5)),
       source: item.source || "scene_change_context",
+      visualHints: isPostOpening(item.time) ? ["replay_indicator"] : [],
     });
   }
   return windows.slice(0, 16);
