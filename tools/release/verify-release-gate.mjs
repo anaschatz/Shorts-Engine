@@ -176,7 +176,18 @@ function verifyWorkflowContract(workflowText) {
   assert(/npm ci/.test(workflowText), "RELEASE_INSTALL_INVALID", "CI workflow must use npm ci when a lockfile exists.");
   assert(/npm install/.test(workflowText), "RELEASE_INSTALL_INVALID", "CI workflow must retain npm install fallback.");
   assert(/npm run demo:browser:install/.test(workflowText), "RELEASE_PLAYWRIGHT_INSTALL_MISSING", "CI workflow must install Playwright Chromium.");
+  assert(
+    /command\s+-v\s+ffmpeg[\s\S]*command\s+-v\s+ffprobe/.test(workflowText),
+    "RELEASE_FFMPEG_PRECHECK_MISSING",
+    "CI workflow must check for existing FFmpeg tools before installing packages.",
+  );
   assert(/apt-get\s+install[\s\S]*\bffmpeg\b/.test(workflowText), "RELEASE_FFMPEG_INSTALL_MISSING", "CI workflow must install FFmpeg tools before runtime verification.");
+  assert(
+    /timeout\s+\d+s\s+sudo\s+apt-get\s+update/.test(workflowText) &&
+      /timeout\s+\d+s\s+sudo\s+apt-get\s+install[\s\S]*\bffmpeg\b/.test(workflowText),
+    "RELEASE_FFMPEG_INSTALL_UNBOUNDED",
+    "CI workflow must bound FFmpeg package installation commands with timeouts.",
+  );
   assert(/ffmpeg\s+-version/.test(workflowText) && /ffprobe\s+-version/.test(workflowText), "RELEASE_RUNTIME_VERIFY_MISSING", "CI workflow must verify FFmpeg and FFprobe availability.");
   assert(/uses:\s*actions\/upload-artifact@v4/.test(workflowText), "RELEASE_ARTIFACT_UPLOAD_MISSING", "CI workflow must upload diagnostics on failure.");
   assert(/if:\s*failure\(\)/.test(workflowText), "RELEASE_ARTIFACT_UPLOAD_UNSAFE", "CI workflow must upload artifacts only on failure.");

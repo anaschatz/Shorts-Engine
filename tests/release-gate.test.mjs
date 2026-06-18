@@ -135,7 +135,17 @@ test("release gate verifier rejects missing FFmpeg runtime setup", () => {
   const workflowText = VALID_WORKFLOW.replace(/      - name: Install FFmpeg tools[\s\S]*?(?=      - name: Verify runtime tools)/, "");
   assert.throws(
     () => verifyWithFixture({ workflowText }),
-    /CI workflow must install FFmpeg tools before runtime verification/,
+    /CI workflow must (check for existing FFmpeg tools|install FFmpeg tools)/,
+  );
+});
+
+test("release gate verifier rejects unbounded FFmpeg package installation", () => {
+  const workflowText = VALID_WORKFLOW
+    .replace("timeout 120s sudo apt-get update", "sudo apt-get update")
+    .replace("timeout 180s sudo apt-get install", "sudo apt-get install");
+  assert.throws(
+    () => verifyWithFixture({ workflowText }),
+    /CI workflow must bound FFmpeg package installation commands with timeouts/,
   );
 });
 
