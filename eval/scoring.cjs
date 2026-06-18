@@ -496,6 +496,28 @@ function validGoalOnlyFillerRate(topPlan, expected = {}) {
   return round(fillerSegments.length / segments.length, 4);
 }
 
+function excludedWindows(expected = {}, key) {
+  return Array.isArray(expected[key]) && expected[key].length
+    ? expected[key].map((item) => validateWindow(item, `expected.${key}[]`))
+    : [];
+}
+
+function exclusionScore(topPlan, expected = {}, key, minOverlap = 0.35) {
+  const windows = excludedWindows(expected, key);
+  if (!windows.length) return 1;
+  const segments = planSegments(topPlan);
+  if (!segments.length) return 1;
+  return segments.some((segment) => windows.some((window) => overlapRatio(segmentWindow(segment), window) >= minOverlap)) ? 0 : 1;
+}
+
+function celebrationOnlyExclusionScore(topPlan, expected = {}, minOverlap = 0.35) {
+  return exclusionScore(topPlan, expected, "celebrationOnly", minOverlap);
+}
+
+function anthemIntroExclusionScore(topPlan, expected = {}, minOverlap = 0.35) {
+  return exclusionScore(topPlan, expected, "anthemIntro", minOverlap);
+}
+
 function captionGoalClaimAccuracyScore(topPlan, expected = {}) {
   const expectedGoals = expectedValidGoalWindows(expected);
   const hasGoalCopy = planHasGoalLanguage(topPlan) || /(?:valid finishes?|finish(?:es)? counts?|goal confirmed|confirmed goal|goal stands)/i.test(captionText(topPlan));
@@ -846,6 +868,7 @@ function scoreFixture(fixture) {
     transcript: fixture.transcript,
     mediaSignals: fixture.mediaSignals,
     visualSignals,
+    ocrEvidence: fixture.ocrEvidence || fixture.scoreboardOcr || fixture.scoreboardEvidence,
   });
   visualSignals = mergeGoalEvidenceIntoVisualSignals(visualSignals, goalEvidence, metadata);
   const trackingProviderOutput = publicTrackingProviderOutput(
@@ -932,6 +955,8 @@ function scoreFixture(fixture) {
   const captionGoalClaimAccuracy = captionGoalClaimAccuracyScore(topPlan, fixture.expected);
   const segmentTimingCoverage = segmentTimingCoverageScore(topPlan, fixture.expected);
   const goalEvidenceCoverage = goalEvidenceCoverageScore(goalEvidence, fixture.expected);
+  const celebrationOnlyExclusion = celebrationOnlyExclusionScore(topPlan, fixture.expected, thresholds.minTop1Overlap);
+  const anthemIntroExclusion = anthemIntroExclusionScore(topPlan, fixture.expected, thresholds.minTop1Overlap);
   const ballPlayerVisibilityScoreValue = ballPlayerVisibilityScore(topPlan);
   const cropSafetyScoreValue = cropSafetyScore(topPlan, metadata);
   const actionSafeZoneCoverage = actionSafeZoneCoverageScore(topPlan, metadata);
@@ -1034,6 +1059,8 @@ function scoreFixture(fixture) {
     falseGoalRate === 0 &&
     offsideExclusionAccuracy === 1 &&
     validGoalOnlyFillerRateValue === 0 &&
+    celebrationOnlyExclusion === 1 &&
+    anthemIntroExclusion === 1 &&
     captionGoalClaimAccuracy >= 0.95 &&
     segmentTimingCoverage >= 0.9 &&
     goalEvidenceCoverage >= 1;
@@ -1080,6 +1107,8 @@ function scoreFixture(fixture) {
       captionGoalClaimAccuracy,
       segmentTimingCoverage,
       goalEvidenceCoverage,
+      celebrationOnlyExclusion,
+      anthemIntroExclusion,
       reactionAsSupportNotMain,
       actionWindowCoverage,
       shotToPayoffCoverage,
@@ -1172,6 +1201,11 @@ function scoreFixture(fixture) {
         offsideOrNoGoalCount: goalEvidence.summary.offsideOrNoGoalCount,
         unconfirmedGoalCount: goalEvidence.summary.unconfirmedGoalCount,
         nonGoalChanceCount: goalEvidence.summary.nonGoalChanceCount,
+        celebrationOnlyCount: goalEvidence.summary.celebrationOnlyCount,
+        anthemOrIntroCount: goalEvidence.summary.anthemOrIntroCount,
+        ocrEvidenceCount: goalEvidence.summary.ocrEvidenceCount,
+        scoreboardConfirmedGoalCount: goalEvidence.summary.scoreboardConfirmedGoalCount,
+        ambiguousOcrCount: goalEvidence.summary.ambiguousOcrCount,
         goalEvidenceCoverage: goalEvidence.summary.goalEvidenceCoverage,
       },
       candidatePlans: candidatePlans.map((plan) => ({
@@ -1414,6 +1448,8 @@ function aggregateResults(results) {
     captionGoalClaimAccuracy: avg((result) => result.metrics.captionGoalClaimAccuracy),
     segmentTimingCoverage: avg((result) => result.metrics.segmentTimingCoverage),
     goalEvidenceCoverage: avg((result) => result.metrics.goalEvidenceCoverage),
+    celebrationOnlyExclusion: avg((result) => result.metrics.celebrationOnlyExclusion),
+    anthemIntroExclusion: avg((result) => result.metrics.anthemIntroExclusion),
     actionWindowCoverage: avg((result) => result.metrics.actionWindowCoverage),
     shotToPayoffCoverage: avg((result) => result.metrics.shotToPayoffCoverage),
     ballPlayerVisibilityScore: avg((result) => result.metrics.ballPlayerVisibilityScore),

@@ -883,6 +883,11 @@ async function runRenderJob(options) {
         validGoalCount: goalEvidence.summary && goalEvidence.summary.validGoalCount,
         offsideOrNoGoalCount: goalEvidence.summary && goalEvidence.summary.offsideOrNoGoalCount,
         unconfirmedGoalCount: goalEvidence.summary && goalEvidence.summary.unconfirmedGoalCount,
+        celebrationOnlyCount: goalEvidence.summary && goalEvidence.summary.celebrationOnlyCount,
+        anthemOrIntroCount: goalEvidence.summary && goalEvidence.summary.anthemOrIntroCount,
+        ocrEvidenceCount: goalEvidence.summary && goalEvidence.summary.ocrEvidenceCount,
+        scoreboardConfirmedGoalCount: goalEvidence.summary && goalEvidence.summary.scoreboardConfirmedGoalCount,
+        ambiguousOcrCount: goalEvidence.summary && goalEvidence.summary.ambiguousOcrCount,
         goalEvidenceCoverage: goalEvidence.summary && goalEvidence.summary.goalEvidenceCoverage,
       });
 
@@ -948,6 +953,10 @@ async function runRenderJob(options) {
             goalEvidenceEventCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.eventCount,
             validGoalEvidenceCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.validGoalCount,
             offsideOrNoGoalEvidenceCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.offsideOrNoGoalCount,
+            celebrationOnlyEvidenceCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.celebrationOnlyCount,
+            anthemOrIntroEvidenceCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.anthemOrIntroCount,
+            ocrEvidenceCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.ocrEvidenceCount,
+            scoreboardConfirmedGoalCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.scoreboardConfirmedGoalCount,
           });
         }
         throw new AppError(code, SAFE_MESSAGES[code], 422);

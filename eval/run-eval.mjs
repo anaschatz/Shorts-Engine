@@ -63,6 +63,8 @@ try {
     captionGoalClaimAccuracy: report.aggregate.captionGoalClaimAccuracy,
     segmentTimingCoverage: report.aggregate.segmentTimingCoverage,
     goalEvidenceCoverage: report.aggregate.goalEvidenceCoverage,
+    celebrationOnlyExclusion: report.aggregate.celebrationOnlyExclusion,
+    anthemIntroExclusion: report.aggregate.anthemIntroExclusion,
     shotToPayoffCoverage: report.aggregate.shotToPayoffCoverage,
     actionWindowCoverage: report.aggregate.actionWindowCoverage,
     ballPlayerVisibilityScore: report.aggregate.ballPlayerVisibilityScore,

@@ -1997,6 +1997,11 @@ function goalDiscoverySummary({ safeVisualSignals = {}, safeSignals = {}, goalSe
           validGoalCount: Number(goalEvidence.summary.validGoalCount || 0),
           offsideOrNoGoalCount: Number(goalEvidence.summary.offsideOrNoGoalCount || 0),
           unconfirmedGoalCount: Number(goalEvidence.summary.unconfirmedGoalCount || 0),
+          celebrationOnlyCount: Number(goalEvidence.summary.celebrationOnlyCount || 0),
+          anthemOrIntroCount: Number(goalEvidence.summary.anthemOrIntroCount || 0),
+          ocrEvidenceCount: Number(goalEvidence.summary.ocrEvidenceCount || 0),
+          scoreboardConfirmedGoalCount: Number(goalEvidence.summary.scoreboardConfirmedGoalCount || 0),
+          ambiguousOcrCount: Number(goalEvidence.summary.ambiguousOcrCount || 0),
           goalEvidenceCoverage: Number(goalEvidence.summary.goalEvidenceCoverage || 0),
         }
       : null,

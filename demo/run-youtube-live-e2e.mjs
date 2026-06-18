@@ -540,6 +540,10 @@ function startServer(port, env) {
             goalEvidenceEventCount: safeNumber(parsed.goalEvidenceEventCount),
             validGoalEvidenceCount: safeNumber(parsed.validGoalEvidenceCount),
             offsideOrNoGoalEvidenceCount: safeNumber(parsed.offsideOrNoGoalEvidenceCount),
+            celebrationOnlyEvidenceCount: safeNumber(parsed.celebrationOnlyEvidenceCount),
+            anthemOrIntroEvidenceCount: safeNumber(parsed.anthemOrIntroEvidenceCount),
+            ocrEvidenceCount: safeNumber(parsed.ocrEvidenceCount),
+            scoreboardConfirmedGoalCount: safeNumber(parsed.scoreboardConfirmedGoalCount),
           };
         }
       } catch {

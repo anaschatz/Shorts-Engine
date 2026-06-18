@@ -92,6 +92,8 @@ test("fixture scoring returns reportable metrics and candidate plans", () => {
   assert.equal(typeof result.metrics.validGoalOnlyFillerRate, "number");
   assert.equal(typeof result.metrics.captionGoalClaimAccuracy, "number");
   assert.equal(typeof result.metrics.segmentTimingCoverage, "number");
+  assert.equal(typeof result.metrics.celebrationOnlyExclusion, "number");
+  assert.equal(typeof result.metrics.anthemIntroExclusion, "number");
   assert.equal(typeof result.metrics.shotToPayoffCoverage, "number");
   assert.equal(typeof result.metrics.actionWindowCoverage, "number");
   assert.equal(result.metrics.captionRoleValidity, 1);
@@ -123,9 +125,25 @@ test("late valid-goals-only fixture recalls every late confirmed goal without fi
   assert.equal(result.metrics.validGoalOnlyFillerRate, 0);
   assert.equal(result.metrics.captionGoalClaimAccuracy, 1);
   assert.equal(result.metrics.segmentTimingCoverage, 1);
+  assert.equal(result.metrics.celebrationOnlyExclusion, 1);
+  assert.equal(result.metrics.anthemIntroExclusion, 1);
   assert.equal(result.actual.candidatePlans[0].mode, "multi_moment_compilation");
   assert.equal(result.actual.candidatePlans[0].selectedMomentCount, 3);
   assert.ok(result.actual.candidatePlans[0].segments.every((segment) => segment.highlightType === "goal"));
+});
+
+test("OCR-confirmed valid-goals fixture selects every goal and excludes intro/celebration", () => {
+  const fixture = loadFixtures(fixturesDir).find((item) => item.id === "ocr_confirmed_valid_goals");
+  assert.ok(fixture);
+  const result = scoreFixture(fixture);
+  assert.equal(result.passed, true);
+  assert.equal(result.metrics.validGoalRecall, 1);
+  assert.equal(result.metrics.goalEvidenceCoverage, 1);
+  assert.equal(result.metrics.celebrationOnlyExclusion, 1);
+  assert.equal(result.metrics.anthemIntroExclusion, 1);
+  assert.equal(result.actual.goalEvidence.ocrEvidenceCount, 3);
+  assert.equal(result.actual.goalEvidence.scoreboardConfirmedGoalCount, 3);
+  assert.equal(result.actual.candidatePlans[0].selectedMomentCount, 3);
 });
 
 test("evaluation report has aggregate metrics and no local path leakage", () => {
@@ -167,6 +185,8 @@ test("evaluation report has aggregate metrics and no local path leakage", () => 
   assert.equal(report.aggregate.validGoalOnlyFillerRate, 0);
   assert.equal(report.aggregate.captionGoalClaimAccuracy, 1);
   assert.equal(report.aggregate.segmentTimingCoverage >= 0.95, true);
+  assert.equal(report.aggregate.celebrationOnlyExclusion, 1);
+  assert.equal(report.aggregate.anthemIntroExclusion, 1);
   assert.equal(report.aggregate.shotToPayoffCoverage >= 0.95, true);
   assert.equal(report.aggregate.actionWindowCoverage >= 0.95, true);
   assert.equal(report.aggregate.captionRoleValidity, 1);
@@ -271,6 +291,8 @@ test("runner writes a JSON report", () => {
   assert.equal(summary.validGoalOnlyFillerRate, 0);
   assert.equal(summary.captionGoalClaimAccuracy, 1);
   assert.equal(summary.segmentTimingCoverage >= 0.95, true);
+  assert.equal(summary.celebrationOnlyExclusion, 1);
+  assert.equal(summary.anthemIntroExclusion, 1);
   assert.equal(summary.shotToPayoffCoverage >= 0.95, true);
   assert.equal(summary.actionWindowCoverage >= 0.95, true);
   assert.equal(summary.captionRoleValidity, 1);

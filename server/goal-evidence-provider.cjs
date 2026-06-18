@@ -13,11 +13,17 @@ const GOAL_EVIDENCE_OUTCOMES = Object.freeze([
   "no_goal",
   "possible_goal_unconfirmed",
   "non_goal_chance",
+  "celebration_only",
+  "anthem_or_intro",
 ]);
 
 const GOAL_EVIDENCE_REASON_CODES = Object.freeze([
   "ball_in_net",
   "visual_ball_in_net",
+  "scoreboard_ocr_score_change",
+  "scoreboard_ocr_score_unchanged",
+  "scoreboard_ocr_ambiguous",
+  "scoreboard_temporal_consistency",
   "visual_scoreboard_goal_confirmed",
   "visual_referee_goal_signal",
   "confirmed_by_commentary",
@@ -38,10 +44,14 @@ const GOAL_EVIDENCE_REASON_CODES = Object.freeze([
   "replay_goal_confirmation",
   "kickoff_after_goal",
   "shot_sequence_support",
+  "celebration_only",
+  "anthem_or_intro",
   "non_goal_chance",
 ]);
 
 const SUPPLEMENTAL_VISUAL_BY_REASON = Object.freeze({
+  scoreboard_ocr_score_change: "scoreboard_goal_confirmed",
+  kickoff_after_goal: "scoreboard_goal_confirmed",
   visual_scoreboard_goal_confirmed: "scoreboard_goal_confirmed",
   visual_referee_goal_signal: "referee_goal_signal",
   visual_offside_flag: "assistant_referee_flag",
@@ -78,6 +88,35 @@ const GOAL_CALL_TERMS = Object.freeze([
 const OFFSIDE_TERMS = Object.freeze(["offside", "flag is up", "flag goes up", "οφσαιντ", "οφσάιντ", "σημαια", "σημαία"]);
 const DISALLOWED_TERMS = Object.freeze(["disallowed", "ruled out", "no goal", "chalked off", "does not count", "δεν μετρά", "ακυρώνεται"]);
 const VAR_TERMS = Object.freeze(["var", "check", "review", "checking", "video assistant", "ελεγχος", "έλεγχος"]);
+const ANTHEM_INTRO_TERMS = Object.freeze([
+  "anthem",
+  "lineups",
+  "kick off approaches",
+  "players walk out",
+  "ceremony",
+  "national anthem",
+  "ύμνος",
+  "υμνος",
+  "ενδεκάδες",
+  "σέντρα πλησιάζει",
+]);
+const CELEBRATION_ONLY_TERMS = Object.freeze([
+  "celebration",
+  "celebrates",
+  "celebrating",
+  "fans celebrate",
+  "πανηγυρ",
+  "πανηγυρισ",
+]);
+
+const OCR_STATUSES = Object.freeze([
+  "score_changed",
+  "score_unchanged",
+  "goal_confirmed",
+  "goal_removed",
+  "ambiguous",
+  "unknown",
+]);
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, Number(value) || min));
@@ -174,8 +213,10 @@ function reasonFlags(reasonCodes = []) {
   const reasons = new Set(reasonCodes);
   return {
     ballInNetEvidence: reasons.has("ball_in_net") || reasons.has("visual_ball_in_net"),
-    scoreboardChanged: reasons.has("visual_scoreboard_goal_confirmed") || reasons.has("visual_scoreboard_goal_removed"),
-    scoreboardGoalConfirmed: reasons.has("visual_scoreboard_goal_confirmed"),
+    scoreboardChanged: reasons.has("visual_scoreboard_goal_confirmed") ||
+      reasons.has("visual_scoreboard_goal_removed") ||
+      reasons.has("scoreboard_ocr_score_change"),
+    scoreboardGoalConfirmed: reasons.has("visual_scoreboard_goal_confirmed") || reasons.has("scoreboard_ocr_score_change"),
     refereeGoalSignal: reasons.has("visual_referee_goal_signal"),
     kickoffAfterGoal: reasons.has("kickoff_after_goal"),
     replayGoalConfirmation: reasons.has("replay_goal_confirmation"),
@@ -183,21 +224,33 @@ function reasonFlags(reasonCodes = []) {
     VARNoGoalSignal: reasons.has("visual_no_goal_decision") ||
       reasons.has("visual_referee_no_goal_signal") ||
       reasons.has("visual_scoreboard_goal_removed") ||
+      reasons.has("scoreboard_ocr_score_unchanged") ||
       reasons.has("disallowed_commentary") ||
       reasons.has("no_goal_commentary"),
     commentatorGoalCall: reasons.has("confirmed_by_commentary") || reasons.has("commentator_goal_call_support"),
     crowdReactionSupport: reasons.has("crowd_reaction_support"),
+    scoreboardOcrEvidence: reasons.has("scoreboard_ocr_score_change") ||
+      reasons.has("scoreboard_ocr_score_unchanged") ||
+      reasons.has("scoreboard_ocr_ambiguous"),
+    celebrationOnlyEvidence: reasons.has("celebration_only"),
+    anthemOrIntroEvidence: reasons.has("anthem_or_intro"),
   };
 }
 
 function outcomeForReasons(reasonCodes = []) {
   const reasons = new Set(reasonCodes);
+  const hasBallInNet = reasons.has("ball_in_net") || reasons.has("visual_ball_in_net");
+  const hasScoreConfirmed = reasons.has("visual_scoreboard_goal_confirmed") || reasons.has("scoreboard_ocr_score_change");
+  const hasVisualGoalDecision = reasons.has("visual_referee_goal_signal") || reasons.has("kickoff_after_goal");
+  const hasReplayConfirmation = reasons.has("replay_goal_confirmation") && hasScoreConfirmed;
+  const hasCommentaryConfirmation = reasons.has("confirmed_by_commentary") || reasons.has("commentator_goal_call_support");
   if (
     reasons.has("visual_offside_flag") ||
     reasons.has("visual_offside_line") ||
     reasons.has("visual_no_goal_decision") ||
     reasons.has("visual_referee_no_goal_signal") ||
     reasons.has("visual_scoreboard_goal_removed") ||
+    reasons.has("scoreboard_ocr_score_unchanged") ||
     reasons.has("offside_commentary") ||
     reasons.has("flag_commentary") ||
     reasons.has("disallowed_commentary") ||
@@ -205,15 +258,29 @@ function outcomeForReasons(reasonCodes = []) {
   ) {
     return "offside_goal";
   }
+  if (reasons.has("anthem_or_intro")) return "anthem_or_intro";
+  if (reasons.has("celebration_only") && !hasBallInNet) return "celebration_only";
   if (
-    reasons.has("visual_scoreboard_goal_confirmed") ||
-    reasons.has("visual_referee_goal_signal") ||
-    reasons.has("confirmed_by_commentary")
+    hasBallInNet &&
+    (
+      hasScoreConfirmed ||
+      hasVisualGoalDecision ||
+      hasReplayConfirmation ||
+      hasCommentaryConfirmation
+    )
   ) {
     return "valid_goal";
   }
-  if (reasons.has("ball_in_net") || reasons.has("visual_ball_in_net")) return "possible_goal_unconfirmed";
+  if (hasBallInNet) return "possible_goal_unconfirmed";
   return "non_goal_chance";
+}
+
+function assertOutcomeMatchesEvidence(outcomeHint, reasonCodes = []) {
+  const computed = outcomeForReasons(reasonCodes);
+  if (outcomeHint === computed) return outcomeHint;
+  if (outcomeHint === "no_goal" && computed === "offside_goal") return "no_goal";
+  if (outcomeHint === "offside_goal" && computed === "no_goal") return "offside_goal";
+  throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
 }
 
 function normalizeReasonCodes(reasonCodes = []) {
@@ -236,7 +303,8 @@ function normalizeEvent(event = {}, metadata = {}, index = 0) {
   }
   const reasonCodes = normalizeReasonCodes(event.reasonCodes);
   if (!reasonCodes.length) throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
-  const outcomeHint = sanitizeText(event.outcomeHint || outcomeForReasons(reasonCodes), 48);
+  const requestedOutcome = sanitizeText(event.outcomeHint || outcomeForReasons(reasonCodes), 48);
+  const outcomeHint = assertOutcomeMatchesEvidence(requestedOutcome, reasonCodes);
   if (!GOAL_EVIDENCE_OUTCOMES.includes(outcomeHint)) {
     throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
   }
@@ -256,10 +324,17 @@ function normalizeEvent(event = {}, metadata = {}, index = 0) {
 
 function eventScore(event = {}) {
   const reasons = new Set(event.reasonCodes || []);
-  const outcomeBoost = event.outcomeHint === "valid_goal" ? 1.1 : event.outcomeHint === "offside_goal" ? 0.9 : 0;
+  const outcomeBoost = event.outcomeHint === "valid_goal"
+    ? 1.1
+    : event.outcomeHint === "offside_goal" || event.outcomeHint === "no_goal"
+      ? 0.9
+      : event.outcomeHint === "celebration_only" || event.outcomeHint === "anthem_or_intro"
+        ? 0.35
+        : 0;
   const evidenceBoost = [
     "ball_in_net",
     "visual_ball_in_net",
+    "scoreboard_ocr_score_change",
     "visual_scoreboard_goal_confirmed",
     "visual_referee_goal_signal",
     "confirmed_by_commentary",
@@ -269,10 +344,98 @@ function eventScore(event = {}) {
   return Number((Number(event.confidence || 0) + outcomeBoost + evidenceBoost).toFixed(4));
 }
 
+function parseScoreText(value) {
+  const safe = sanitizeText(value || "", 40);
+  const match = safe.match(/\b(\d{1,2})\s*[-:]\s*(\d{1,2})\b/);
+  if (!match) return null;
+  return {
+    home: Number(match[1]),
+    away: Number(match[2]),
+    text: `${Number(match[1])}-${Number(match[2])}`,
+  };
+}
+
+function normalizeScore(value) {
+  if (!value) return null;
+  if (typeof value === "string") return parseScoreText(value);
+  if (typeof value === "object" && !Array.isArray(value)) {
+    const home = Number(value.home);
+    const away = Number(value.away);
+    if (Number.isFinite(home) && Number.isFinite(away) && home >= 0 && away >= 0 && home <= 30 && away <= 30) {
+      return { home: Math.round(home), away: Math.round(away), text: `${Math.round(home)}-${Math.round(away)}` };
+    }
+    return parseScoreText(value.text || value.scoreText);
+  }
+  return null;
+}
+
+function scoreDelta(before, after) {
+  if (!before || !after) return 0;
+  return Math.abs(after.home - before.home) + Math.abs(after.away - before.away);
+}
+
+function normalizeOcrEvidenceItem(item = {}, metadata = {}, index = 0) {
+  if (!item || typeof item !== "object" || Array.isArray(item) || hasUnsafeValue(item)) {
+    throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
+  }
+  const duration = seconds(metadata.durationSeconds, 0);
+  const timestamp = round(clamp(item.timestamp ?? item.time ?? item.center, 0, duration || seconds(item.end, 0)));
+  const start = round(clamp(item.start ?? item.windowStart ?? timestamp - 0.8, 0, duration || timestamp));
+  const end = round(clamp(item.end ?? item.windowEnd ?? timestamp + 0.8, start + 0.2, duration || timestamp + 1));
+  const scoreBefore = normalizeScore(item.scoreBefore || item.beforeScore || item.previousScore);
+  const scoreAfter = normalizeScore(item.scoreAfter || item.afterScore || item.currentScore || item.detectedScoreText);
+  const delta = scoreDelta(scoreBefore, scoreAfter);
+  const status = OCR_STATUSES.includes(sanitizeText(item.status || "", 40))
+    ? sanitizeText(item.status, 40)
+    : delta > 0
+      ? "score_changed"
+      : scoreBefore && scoreAfter
+        ? "score_unchanged"
+        : "ambiguous";
+  const confidence = round(clamp(item.confidence, 0.05, 0.98));
+  const temporalConsistency = Boolean(item.temporalConsistency ?? item.temporallyConsistent ?? (delta === 1 && confidence >= 0.72));
+  const ambiguous = Boolean(item.ambiguous) || status === "ambiguous" || confidence < 0.55;
+  const scoreChanged = (status === "score_changed" || status === "goal_confirmed") && delta === 1 && temporalConsistency && !ambiguous;
+  const scoreUnchanged = status === "score_unchanged" || status === "goal_removed";
+  return {
+    id: sanitizeText(item.id || `scoreboard_ocr_${index + 1}`, 80),
+    start,
+    end,
+    timestamp,
+    status,
+    confidence,
+    scoreBefore: scoreBefore ? scoreBefore.text : null,
+    scoreAfter: scoreAfter ? scoreAfter.text : null,
+    scoreChanged,
+    scoreUnchanged,
+    temporalConsistency,
+    ambiguous,
+    source: sanitizeText(item.source || "scoreboard_ocr_contract", 60),
+  };
+}
+
+function normalizeOcrEvidence(items = [], metadata = {}) {
+  const rawItems = Array.isArray(items) ? items : [];
+  return rawItems
+    .map((item, index) => normalizeOcrEvidenceItem(item, metadata, index))
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .slice(0, MAX_EVIDENCE_EVENTS);
+}
+
+function ocrReasonsInRange(ocrEvidence = [], start = 0, end = 0) {
+  const reasons = [];
+  const items = (Array.isArray(ocrEvidence) ? ocrEvidence : []).filter((item) => item.timestamp >= start - 1 && item.timestamp <= end + 1);
+  if (items.some((item) => item.scoreChanged)) reasons.push("scoreboard_ocr_score_change", "scoreboard_temporal_consistency");
+  if (items.some((item) => item.scoreUnchanged)) reasons.push("scoreboard_ocr_score_unchanged");
+  if (items.some((item) => item.ambiguous)) reasons.push("scoreboard_ocr_ambiguous");
+  return [...new Set(reasons)];
+}
+
 function validateGoalEvidenceOutput(output, metadata = {}) {
   if (!output || typeof output !== "object" || Array.isArray(output) || hasUnsafeValue(output)) {
     throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
   }
+  const ocrEvidence = normalizeOcrEvidence(output.ocrEvidence || output.scoreboardOcr || output.scoreboardEvidence, metadata);
   const rawEvents = Array.isArray(output.events) ? output.events : [];
   const events = rawEvents
     .map((event, index) => normalizeEvent(event, metadata, index))
@@ -287,6 +450,7 @@ function validateGoalEvidenceOutput(output, metadata = {}) {
     providerMode: sanitizeText(output.providerMode || "deterministic-goal-evidence", 60),
     fallbackUsed: Boolean(output.fallbackUsed),
     confidence: round(clamp(output.confidence ?? (events.length ? Math.max(...events.map((event) => event.confidence)) : 0), 0, 1)),
+    ocrEvidence,
     events,
     supplementalVisualWindows,
     summary: {
@@ -295,6 +459,11 @@ function validateGoalEvidenceOutput(output, metadata = {}) {
       offsideOrNoGoalCount: events.filter((event) => ["offside_goal", "no_goal"].includes(event.outcomeHint)).length,
       unconfirmedGoalCount: events.filter((event) => event.outcomeHint === "possible_goal_unconfirmed").length,
       nonGoalChanceCount: events.filter((event) => event.outcomeHint === "non_goal_chance").length,
+      celebrationOnlyCount: events.filter((event) => event.outcomeHint === "celebration_only").length,
+      anthemOrIntroCount: events.filter((event) => event.outcomeHint === "anthem_or_intro").length,
+      ocrEvidenceCount: ocrEvidence.length,
+      scoreboardConfirmedGoalCount: events.filter((event) => (event.reasonCodes || []).includes("scoreboard_ocr_score_change")).length,
+      ambiguousOcrCount: ocrEvidence.filter((item) => item.ambiguous).length,
       goalEvidenceCoverage: events.some((event) => event.outcomeHint === "valid_goal") ? 1 : 0,
     },
   };
@@ -328,6 +497,7 @@ function deterministicGoalEvidence(input = {}) {
   const windows = Array.isArray(visualSignals.windows) ? visualSignals.windows : [];
   const transcript = input.transcript || {};
   const captions = Array.isArray(transcript.captions) ? transcript.captions : [];
+  const ocrEvidence = normalizeOcrEvidence(input.ocrEvidence || input.scoreboardOcr || input.scoreboardEvidence, metadata);
   const events = [];
   const ballInNetWindows = windows.filter((window) => windowHasReason(window, "visual_ball_in_net"));
 
@@ -345,7 +515,8 @@ function deterministicGoalEvidence(input = {}) {
         : []),
     ])];
     const textReasons = [...new Set(captionsInRange(captions, range.payoff - 0.5, postEnd).flatMap((item) => item.reasonCodes))];
-    const reasonCodes = normalizeReasonCodes([...visualReasons, ...textReasons]);
+    const ocrReasons = ocrReasonsInRange(ocrEvidence, range.payoff - 0.5, postEnd);
+    const reasonCodes = normalizeReasonCodes([...visualReasons, ...textReasons, ...ocrReasons]);
     events.push({
       id: `goal_event_${index + 1}`,
       start: range.start,
@@ -354,6 +525,46 @@ function deterministicGoalEvidence(input = {}) {
       outcomeHint: outcomeForReasons(reasonCodes),
       evidenceSource: "deterministic_visual_text_goal_evidence",
       reasonCodes,
+    });
+  }
+
+  const celebrationOnlyWindows = windows.filter((window) => (
+    windowHasReason(window, "visual_celebration_after_shot") &&
+    !ballInNetWindows.some((ballWindow) => Math.abs(windowCenter(ballWindow) - windowCenter(window)) <= POST_GOAL_CONTEXT_SECONDS)
+  ));
+  for (const [index, celebrationWindow] of celebrationOnlyWindows.slice(0, 3).entries()) {
+    const start = Math.max(0, seconds(celebrationWindow.start) - 1.5);
+    const end = Math.min(seconds(metadata.durationSeconds, seconds(celebrationWindow.end) + 4), seconds(celebrationWindow.end) + 4);
+    const textReasons = [...new Set(captionsInRange(captions, start, end).flatMap((item) => item.reasonCodes))];
+    if (textReasons.some((reason) => ["confirmed_by_commentary", "commentator_goal_call_support"].includes(reason))) continue;
+    events.push({
+      id: `celebration_only_${index + 1}`,
+      start,
+      end,
+      confidence: Math.min(0.82, Number(celebrationWindow.confidence || 0.64)),
+      outcomeHint: "celebration_only",
+      evidenceSource: "deterministic_visual_text_goal_evidence",
+      reasonCodes: ["celebration_only"],
+    });
+  }
+
+  const openingBoundary = seconds(metadata.durationSeconds, 0) >= 90
+    ? Math.min(45, Math.max(18, seconds(metadata.durationSeconds, 0) * 0.12))
+    : 0;
+  const introCaptions = captions.filter((caption) => (
+    openingBoundary > 0 &&
+    seconds(caption.start) <= openingBoundary &&
+    hasTerm(caption.text || "", ANTHEM_INTRO_TERMS)
+  ));
+  for (const [index, caption] of introCaptions.slice(0, 2).entries()) {
+    events.push({
+      id: `anthem_or_intro_${index + 1}`,
+      start: Math.max(0, seconds(caption.start) - 1),
+      end: Math.min(seconds(metadata.durationSeconds, seconds(caption.end) + 2), seconds(caption.end) + 2),
+      confidence: 0.76,
+      outcomeHint: "anthem_or_intro",
+      evidenceSource: "deterministic_visual_text_goal_evidence",
+      reasonCodes: ["anthem_or_intro"],
     });
   }
 
@@ -378,6 +589,7 @@ function deterministicGoalEvidence(input = {}) {
   return validateGoalEvidenceOutput({
     providerMode: "deterministic-goal-evidence",
     fallbackUsed: false,
+    ocrEvidence,
     events,
   }, metadata);
 }
@@ -420,6 +632,13 @@ class DeterministicGoalEvidenceProvider {
       networkRequired: false,
       goalClaimAllowed: false,
       providerTimeoutMs: DEFAULT_GOAL_EVIDENCE_TIMEOUT_MS,
+      capabilities: [
+        "scoreboard_ocr_contract",
+        "score_change_temporal_consistency",
+        "ball_in_net_confirmation",
+        "offside_no_goal_exclusion",
+        "celebration_intro_exclusion",
+      ],
     };
   }
 
@@ -517,9 +736,26 @@ function publicGoalEvidence(goalEvidence) {
           offsideOrNoGoalCount: Number(safe.summary.offsideOrNoGoalCount || 0),
           unconfirmedGoalCount: Number(safe.summary.unconfirmedGoalCount || 0),
           nonGoalChanceCount: Number(safe.summary.nonGoalChanceCount || 0),
+          celebrationOnlyCount: Number(safe.summary.celebrationOnlyCount || 0),
+          anthemOrIntroCount: Number(safe.summary.anthemOrIntroCount || 0),
+          ocrEvidenceCount: Number(safe.summary.ocrEvidenceCount || 0),
+          scoreboardConfirmedGoalCount: Number(safe.summary.scoreboardConfirmedGoalCount || 0),
+          ambiguousOcrCount: Number(safe.summary.ambiguousOcrCount || 0),
           goalEvidenceCoverage: Number(safe.summary.goalEvidenceCoverage || 0),
         }
       : null,
+    ocrEvidence: Array.isArray(safe.ocrEvidence)
+      ? safe.ocrEvidence.map((item) => ({
+          id: sanitizeText(item.id, 80),
+          timestamp: Number(item.timestamp || 0),
+          status: sanitizeText(item.status || "unknown", 40),
+          confidence: Number(item.confidence || 0),
+          scoreChanged: Boolean(item.scoreChanged),
+          scoreUnchanged: Boolean(item.scoreUnchanged),
+          temporalConsistency: Boolean(item.temporalConsistency),
+          ambiguous: Boolean(item.ambiguous),
+        }))
+      : [],
     events: Array.isArray(safe.events)
       ? safe.events.map((event) => ({
           id: sanitizeText(event.id, 80),
@@ -531,11 +767,17 @@ function publicGoalEvidence(goalEvidence) {
           reasonCodes: Array.isArray(event.reasonCodes) ? event.reasonCodes.map((reason) => sanitizeText(reason, 80)).slice(0, MAX_REASON_CODES) : [],
           ballInNetEvidence: Boolean(event.ballInNetEvidence),
           scoreboardGoalConfirmed: Boolean(event.scoreboardGoalConfirmed),
+          scoreboardChanged: Boolean(event.scoreboardChanged),
+          scoreboardOcrEvidence: Boolean(event.scoreboardOcrEvidence),
+          kickoffAfterGoal: Boolean(event.kickoffAfterGoal),
+          replayGoalConfirmation: Boolean(event.replayGoalConfirmation),
           refereeGoalSignal: Boolean(event.refereeGoalSignal),
           offsideFlag: Boolean(event.offsideFlag),
           VARNoGoalSignal: Boolean(event.VARNoGoalSignal),
           commentatorGoalCall: Boolean(event.commentatorGoalCall),
           crowdReactionSupport: Boolean(event.crowdReactionSupport),
+          celebrationOnlyEvidence: Boolean(event.celebrationOnlyEvidence),
+          anthemOrIntroEvidence: Boolean(event.anthemOrIntroEvidence),
         }))
       : [],
   };
@@ -551,6 +793,7 @@ module.exports = {
   createGoalEvidenceProvider,
   deterministicGoalEvidence,
   mergeGoalEvidenceIntoVisualSignals,
+  normalizeOcrEvidence,
   publicGoalEvidence,
   validateGoalEvidenceOutput,
 };

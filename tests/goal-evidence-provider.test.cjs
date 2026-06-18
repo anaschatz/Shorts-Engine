@@ -5,6 +5,7 @@ const {
   analyzeGoalEvidence,
   deterministicGoalEvidence,
   mergeGoalEvidenceIntoVisualSignals,
+  normalizeOcrEvidence,
   publicGoalEvidence,
   validateGoalEvidenceOutput,
 } = require("../server/goal-evidence-provider.cjs");
@@ -109,6 +110,109 @@ test("goal evidence supplemental windows are safe and merge back into visual sig
   assert.ok(reasons.includes("visual_ball_in_net"));
   assert.ok(reasons.includes("visual_scoreboard_goal_confirmed"));
   assert.doesNotMatch(JSON.stringify(visualSignals), /\/Users|storageKey|localPath|token|secret/i);
+});
+
+test("scoreboard OCR score change confirms goal only with temporal consistency and ball-in-net", () => {
+  const goalEvidence = deterministicGoalEvidence({
+    metadata,
+    transcript: {
+      captions: [{ start: 42.5, end: 44.1, text: "The scoreboard changes after the finish" }],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [
+        { start: 30, end: 32, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.9 },
+        { start: 34, end: 35.2, types: ["goal_mouth_visible", "ball_in_net"], confidence: 0.92 },
+      ],
+    },
+    scoreboardOcr: [{
+      timestamp: 43,
+      scoreBefore: "0-0",
+      scoreAfter: "1-0",
+      status: "score_changed",
+      temporalConsistency: true,
+      confidence: 0.88,
+    }],
+  });
+
+  assert.equal(goalEvidence.summary.validGoalCount, 1);
+  assert.equal(goalEvidence.summary.ocrEvidenceCount, 1);
+  assert.equal(goalEvidence.summary.scoreboardConfirmedGoalCount, 1);
+  assert.equal(goalEvidence.events[0].outcomeHint, "valid_goal");
+  assert.ok(goalEvidence.events[0].reasonCodes.includes("scoreboard_ocr_score_change"));
+  assert.equal(goalEvidence.events[0].scoreboardOcrEvidence, true);
+  assert.equal(goalEvidence.events[0].scoreboardGoalConfirmed, true);
+});
+
+test("ambiguous OCR does not promote a ball-in-net moment to valid goal", () => {
+  const goalEvidence = deterministicGoalEvidence({
+    metadata,
+    transcript: {
+      captions: [{ start: 42.5, end: 44.1, text: "The crowd waits for the decision" }],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [
+        { start: 30, end: 32, types: ["shot_contact", "ball_toward_goal"], confidence: 0.9 },
+        { start: 34, end: 35.2, types: ["ball_in_net"], confidence: 0.92 },
+      ],
+    },
+    scoreboardOcr: [{
+      timestamp: 43,
+      detectedScoreText: "1-?",
+      status: "ambiguous",
+      confidence: 0.42,
+    }],
+  });
+
+  assert.equal(goalEvidence.summary.validGoalCount, 0);
+  assert.equal(goalEvidence.summary.unconfirmedGoalCount, 1);
+  assert.equal(goalEvidence.summary.ambiguousOcrCount, 1);
+  assert.equal(goalEvidence.events[0].outcomeHint, "possible_goal_unconfirmed");
+  assert.ok(goalEvidence.events[0].reasonCodes.includes("scoreboard_ocr_ambiguous"));
+});
+
+test("celebration-only and anthem/intro evidence are explicit non-goal outcomes", () => {
+  const goalEvidence = deterministicGoalEvidence({
+    metadata: { ...metadata, durationSeconds: 120 },
+    transcript: {
+      captions: [
+        { start: 8, end: 10, text: "The anthem plays before kick off" },
+        { start: 54, end: 55, text: "The players celebrate with the fans" },
+      ],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [
+        { start: 52, end: 55, types: ["celebration_after_shot", "crowd_reaction"], confidence: 0.88 },
+      ],
+    },
+  });
+
+  assert.equal(goalEvidence.summary.validGoalCount, 0);
+  assert.equal(goalEvidence.summary.celebrationOnlyCount, 1);
+  assert.equal(goalEvidence.summary.anthemOrIntroCount, 1);
+  assert.deepEqual(goalEvidence.events.map((event) => event.outcomeHint).sort(), ["anthem_or_intro", "celebration_only"]);
+});
+
+test("OCR evidence contract normalizes score changes without raw text leaks", () => {
+  const ocr = normalizeOcrEvidence([{
+    timestamp: 22,
+    scoreBefore: { home: 1, away: 1 },
+    scoreAfter: { home: 2, away: 1 },
+    source: "provider",
+    confidence: 0.91,
+    temporalConsistency: true,
+  }], metadata);
+
+  assert.equal(ocr.length, 1);
+  assert.equal(ocr[0].scoreChanged, true);
+  assert.equal(ocr[0].scoreBefore, "1-1");
+  assert.equal(ocr[0].scoreAfter, "2-1");
+  assert.doesNotMatch(JSON.stringify(ocr), /\/Users|storageKey|localPath|token|secret|stderr|stdout/i);
 });
 
 test("goal evidence contract rejects unsafe provider output", () => {
