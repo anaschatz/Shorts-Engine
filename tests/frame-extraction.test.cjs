@@ -68,6 +68,34 @@ test("extractSampledFrames creates bounded frame records and public summary hide
   assert.equal(existsSync(outputDir), false);
 });
 
+test("extractSampledFrames samples across long candidate timelines", async () => {
+  const inputPath = uniquePath("uploads", "source-long.mp4");
+  const outputDir = uniquePath("staging", "frames-long");
+  const longMetadata = { durationSeconds: 160, width: 1920, height: 1080 };
+  writeFileSync(inputPath, Buffer.from("synthetic-video"));
+
+  const result = await extractSampledFrames({
+    inputPath,
+    outputDir,
+    metadata: longMetadata,
+    ffmpegRunner: fakeFfmpegRunner,
+    maxFrames: 4,
+    candidateWindows: [
+      { time: 8, confidence: 0.82, source: "motion" },
+      { time: 18, confidence: 0.82, source: "motion" },
+      { time: 28, confidence: 0.82, source: "motion" },
+      { time: 78, confidence: 0.82, source: "motion" },
+      { time: 118, confidence: 0.82, source: "motion" },
+      { time: 148, confidence: 0.82, source: "motion" },
+    ],
+  });
+
+  assert.equal(result.frames.length, 4);
+  assert.ok(result.frames.some((frame) => frame.timestamp >= 118));
+
+  cleanupSampledFrames(result);
+});
+
 test("extractSampledFrames falls back safely when input is unavailable", async () => {
   const result = await extractSampledFrames({
     inputPath: uniquePath("uploads", "missing.mp4"),

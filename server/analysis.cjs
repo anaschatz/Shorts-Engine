@@ -229,6 +229,33 @@ function uniqueTimes(times, duration) {
     .sort((a, b) => a - b);
 }
 
+function timeForSignalItem(item) {
+  return seconds(item && item.time, Number.NaN);
+}
+
+function selectTemporalCoverage(items = [], { maxItems = 10, duration = 0, score = () => 0 } = {}) {
+  const safeItems = (Array.isArray(items) ? items : [])
+    .filter((item) => Number.isFinite(timeForSignalItem(item)))
+    .sort((a, b) => timeForSignalItem(a) - timeForSignalItem(b));
+  if (safeItems.length <= maxItems) return safeItems;
+  const mediaDuration = Math.max(0, Number(duration) || timeForSignalItem(safeItems[safeItems.length - 1]) || 0);
+  const minGap = mediaDuration > 0 ? Math.max(3, mediaDuration / maxItems * 0.45) : 3;
+  const selected = [];
+  const ranked = [...safeItems].sort((a, b) => Number(score(b) || 0) - Number(score(a) || 0) || timeForSignalItem(a) - timeForSignalItem(b));
+  for (const item of ranked) {
+    if (selected.length >= maxItems) break;
+    const itemTime = timeForSignalItem(item);
+    if (selected.some((existing) => Math.abs(timeForSignalItem(existing) - itemTime) < minGap)) continue;
+    selected.push(item);
+  }
+  for (const item of safeItems) {
+    if (selected.length >= maxItems) break;
+    if (selected.includes(item)) continue;
+    selected.push(item);
+  }
+  return selected.sort((a, b) => timeForSignalItem(a) - timeForSignalItem(b));
+}
+
 function fallbackAudioPeaks(duration, hasAudio) {
   if (!hasAudio || duration < 3) return [];
   return uniqueTimes([duration * 0.34, duration * 0.62, Math.max(1, duration - 2)], duration).map((time, index) => ({
@@ -267,8 +294,15 @@ async function detectSceneChanges(inputPath, metadata, { signal, ffmpegRunner = 
       { signal, timeoutMs: Math.min(CONFIG.analysisTimeoutMs, 30000) },
     );
     const times = [...String(result.stderr || "").matchAll(/pts_time:([0-9.]+)/g)].map((match) => Number(match[1]));
-    const changes = uniqueTimes(times, duration).slice(0, 12).map((time) => ({
-      time,
+    const changes = selectTemporalCoverage(
+      uniqueTimes(times, duration).map((time) => ({
+        time,
+        confidence: 0.74,
+        source: "ffmpeg_scene",
+      })),
+      { maxItems: 12, duration, score: (item) => item.confidence },
+    ).map((item) => ({
+      time: item.time,
       confidence: 0.74,
       source: "ffmpeg_scene",
     }));
@@ -302,13 +336,12 @@ async function detectAudioPeaks(inputPath, metadata, { signal, ffmpegRunner = ru
       { signal, timeoutMs: Math.min(CONFIG.analysisTimeoutMs, 30000) },
     );
     const segments = nonSilentSegmentsFromSilenceEvents(result.stderr, duration);
-    const peaks = segments
+    const peaks = selectTemporalCoverage(segments
       .map((segment) => ({
         time: Number(((segment.start + segment.end) / 2).toFixed(2)),
         energyScore: Number(clamp((segment.end - segment.start) / 8, 0.45, 0.95).toFixed(2)),
         source: "ffmpeg_audio_activity",
-      }))
-      .slice(0, 10);
+      })), { maxItems: 10, duration, score: (item) => item.energyScore });
     return peaks.length ? peaks : fallbackAudioPeaks(duration, metadata.hasAudio);
   } catch {
     return fallbackAudioPeaks(duration, metadata.hasAudio);
@@ -324,10 +357,11 @@ async function extractMediaSignals({ inputPath, metadata, signal, ffmpegRunner }
     detectAudioPeaks(inputPath, safeMetadata, { signal, ffmpegRunner }),
     detectSceneChanges(inputPath, safeMetadata, { signal, ffmpegRunner }),
   ]);
-  const highMotionCandidates = uniqueTimes(
-    [...sceneChanges.map((item) => item.time), ...audioPeaks.map((item) => item.time)].slice(0, 8),
-    duration,
-  ).map((time) => ({ time, confidence: 0.58, source: "signal_cluster" }));
+  const highMotionCandidates = selectTemporalCoverage(
+    uniqueTimes([...sceneChanges.map((item) => item.time), ...audioPeaks.map((item) => item.time)], duration)
+      .map((time) => ({ time, confidence: 0.58, source: "signal_cluster" })),
+    { maxItems: 12, duration, score: (item) => item.confidence },
+  );
   return {
     durationSeconds: duration,
     width,
@@ -1339,6 +1373,7 @@ function createGoalSequenceMoments(safeVisualSignals, safeSignals, captions = []
   if (!windows.length) return [];
   const sorted = [...windows].sort((a, b) => seconds(a.start) - seconds(b.start));
   const moments = [];
+  const coveredRanges = [];
   for (let index = 0; index < sorted.length; index += 1) {
     const anchor = sorted[index];
     const anchorCenter = seconds(anchor.center ?? (seconds(anchor.start) + seconds(anchor.end)) / 2);
@@ -1346,11 +1381,18 @@ function createGoalSequenceMoments(safeVisualSignals, safeSignals, captions = []
       const center = seconds(window.center ?? (seconds(window.start) + seconds(window.end)) / 2);
       return Math.abs(center - anchorCenter) <= 9;
     });
+    const clusterStart = Math.min(...cluster.map((window) => seconds(window.start)));
+    const clusterEnd = Math.max(...cluster.map((window) => seconds(window.end)));
+    const alreadyCovered = coveredRanges.some((range) => sourceOverlapSeconds(
+      { sourceStart: range.start, sourceEnd: range.end },
+      { sourceStart: clusterStart, sourceEnd: clusterEnd },
+    ) > 0.5);
+    if (alreadyCovered) continue;
     const reasons = [...new Set(cluster.flatMap(visualReasonCodesForWindow))];
     const goalEvidence = goalEvidenceForContext({ reasons, visualWindows: cluster, center: anchorCenter });
     if (!["strong", "medium"].includes(goalEvidence.evidenceLevel)) continue;
-    const start = Number(clamp(Math.min(...cluster.map((window) => seconds(window.start))) - 2.5, 0, duration).toFixed(2));
-    const end = Number(clamp(Math.max(...cluster.map((window) => seconds(window.end))) + 3.5, start + 3, duration).toFixed(2));
+    const start = Number(clamp(clusterStart - 2.5, 0, duration).toFixed(2));
+    const end = Number(clamp(clusterEnd + 3.5, start + 3, duration).toFixed(2));
     const reasonCodes = reasonCodesWithGoalEvidence(reasons, goalEvidence);
     const base = scoreReasons(reasonCodes) + 0.08;
     const moment = normalizeMomentWithEvidence({
@@ -1371,7 +1413,8 @@ function createGoalSequenceMoments(safeVisualSignals, safeSignals, captions = []
       source: "vision_goal_sequence",
     }, { signals: safeSignals, visualSignals: safeVisualSignals, captions, preset });
     moments.push(moment);
-    if (moments.length >= 2) break;
+    coveredRanges.push({ start: moment.start, end: moment.end });
+    if (moments.length >= 6) break;
   }
   return moments;
 }
@@ -1413,7 +1456,11 @@ function detectHighlights({ transcript, signals, visualSignals, preset = "hype" 
     return moment;
   });
 
-  const signalOnlyMoments = (safeSignals.audioPeaks || []).slice(0, 4).map((peak, index) => {
+  const signalOnlyMoments = selectTemporalCoverage(safeSignals.audioPeaks || [], {
+    maxItems: 6,
+    duration,
+    score: (peak) => peak.energyScore,
+  }).map((peak, index) => {
     const center = clamp(peak.time, 0, duration);
     const start = Number(clamp(center - 4, 0, Math.max(0, duration - 6)).toFixed(2));
     const end = Number(clamp(start + 8, start + 3, duration).toFixed(2));
@@ -1446,7 +1493,11 @@ function detectHighlights({ transcript, signals, visualSignals, preset = "hype" 
     }, { signals: safeSignals, visualSignals: safeVisualSignals, captions, preset });
   });
 
-  const visualOnlyMoments = safeVisualSignals.windows.slice(0, 4).map((window, index) => {
+  const visualOnlyMoments = selectTemporalCoverage(safeVisualSignals.windows, {
+    maxItems: 8,
+    duration,
+    score: (window) => window.confidence,
+  }).map((window, index) => {
     const center = clamp(window.center, 0, duration);
     const start = Number(clamp(window.start, 0, Math.max(0, duration - 3)).toFixed(2));
     const end = Number(clamp(window.end, start + 3, duration).toFixed(2));
@@ -1843,9 +1894,23 @@ function isReplayCandidate(candidate = {}) {
     reasonCodes.includes("replay_worthy_moment");
 }
 
+function isGoalCoverageCandidate(candidate = {}) {
+  const moment = candidate.analysisMoment || {};
+  const reasonCodes = Array.isArray(candidate.reasonCodes)
+    ? candidate.reasonCodes
+    : Array.isArray(moment.reasonCodes)
+      ? moment.reasonCodes
+      : [];
+  const goalOutcome = candidate.goalOutcome || goalOutcomeForMoment(moment);
+  return candidate.highlightType === "goal" ||
+    moment.highlightType === "goal" ||
+    reasonCodes.includes("visual_ball_in_net") ||
+    (goalOutcome && goalOutcome.eventType === "ball_in_net");
+}
+
 function hasUnsafeCompilationOverlap(existing = {}, candidate = {}) {
   const overlap = sourceOverlapSeconds(existing, candidate);
-  if (overlap <= 0.05) return false;
+  if (overlap <= 0.5) return false;
   if (isReplayCandidate(existing) || isReplayCandidate(candidate)) {
     return sourceOverlapRatio(existing, candidate) > 0.35;
   }
@@ -1881,7 +1946,7 @@ function segmentCaptionText(segment, index) {
   const outcome = segment && segment.goalOutcome && segment.goalOutcome.eventType === "ball_in_net"
     ? segment.goalOutcome.outcome
     : null;
-  if (outcome === "confirmed_goal") return `${phase}: GOAL CONFIRMED`;
+  if (outcome === "confirmed_goal") return `${phase}: FINISH COUNTS`;
   if (outcome === "disallowed_offside") return `${phase}: OFFSIDE - NO GOAL`;
   if (outcome === "possible_offside") return `${phase}: WAS HE OFF?`;
   if (outcome === "unknown_decision") return `${phase}: BALL IN THE NET`;
@@ -2003,23 +2068,43 @@ function selectCompilationCandidates(singleCandidates = [], metadata = {}) {
   const ranked = singleCandidates
     .filter((candidate) => candidate && !isOpeningFillerMoment(candidate.analysisMoment) && !isWeakOpeningCompilationCandidate(candidate, metadata))
     .sort((a, b) => compilationSelectionScore(b) - compilationSelectionScore(a) || a.sourceStart - b.sourceStart);
-  for (const candidate of ranked) {
-    if (selected.some((existing) => hasUnsafeCompilationOverlap(existing, candidate))) continue;
+
+  const addCandidate = (candidate) => {
+    if (selected.some((existing) => hasUnsafeCompilationOverlap(existing, candidate))) return false;
     const duration = Number((candidate.sourceEnd - candidate.sourceStart).toFixed(2));
-    if (duration < 3) continue;
+    if (duration < 3) return false;
     if (totalDuration + duration > MULTI_MOMENT_COMPILATION.maxTotalDuration) {
-      if (totalDuration >= MULTI_MOMENT_COMPILATION.minTotalDuration) continue;
+      if (totalDuration >= MULTI_MOMENT_COMPILATION.minTotalDuration) return false;
       const remaining = Number((MULTI_MOMENT_COMPILATION.maxTotalDuration - totalDuration).toFixed(2));
-      if (remaining < 6) continue;
+      if (remaining < 6) return false;
       selected.push({ ...candidate, sourceEnd: Number((candidate.sourceStart + remaining).toFixed(2)) });
       totalDuration += remaining;
-      break;
+      return true;
     }
     selected.push(candidate);
     totalDuration += duration;
+    return true;
+  };
+
+  const goalCoverageCandidates = ranked
+    .filter(isGoalCoverageCandidate)
+    .sort((a, b) => a.sourceStart - b.sourceStart);
+  for (const candidate of goalCoverageCandidates) {
+    if (selected.length >= MULTI_MOMENT_COMPILATION.maxSegments) break;
+    addCandidate(candidate);
+  }
+
+  for (const candidate of ranked) {
+    if (selected.includes(candidate)) continue;
+    if (!addCandidate(candidate)) continue;
     if (selected.length >= MULTI_MOMENT_COMPILATION.maxSegments || totalDuration >= MULTI_MOMENT_COMPILATION.minTotalDuration) {
+      const missingGoalCoverage = goalCoverageCandidates.some((goalCandidate) => (
+        !selected.some((existing) => sourceOverlapSeconds(existing, goalCandidate) > 0.5)
+      ));
+      if (missingGoalCoverage && totalDuration < MULTI_MOMENT_COMPILATION.maxTotalDuration) continue;
       const actionCount = selected.filter((item) => hasPrimaryMomentAction(item.analysisMoment)).length;
-      if (selected.length >= MULTI_MOMENT_COMPILATION.minSegments && (actionCount > 0 || selected.length >= 3)) break;
+      const contextCoverageReady = selected.length >= 5 || totalDuration >= 72;
+      if (selected.length >= MULTI_MOMENT_COMPILATION.minSegments && (actionCount > 0 || contextCoverageReady)) break;
     }
   }
   const chronological = selected.sort((a, b) => a.sourceStart - b.sourceStart);

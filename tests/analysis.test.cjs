@@ -49,6 +49,33 @@ test("media signal extraction can use mocked FFmpeg scene and audio outputs", as
   assert.ok(signals.audioPeaks.some((peak) => peak.time > 5 && peak.time < 10));
 });
 
+test("media signal extraction keeps late candidates for long sources", async () => {
+  const longMetadata = { durationSeconds: 150, width: 1920, height: 1080, hasAudio: true };
+  const sceneTimes = Array.from({ length: 28 }, (_, index) => 5 + index * 5);
+  const fakeRunner = async (args) => {
+    const text = args.join(" ");
+    if (text.includes("showinfo")) {
+      return { stderr: sceneTimes.map((time, index) => `n:${index} pts_time:${time} pos:${index}`).join("\n") };
+    }
+    return {
+      stderr: [
+        "silence_start: 3",
+        "silence_end: 12",
+        "silence_start: 42",
+        "silence_end: 51",
+        "silence_start: 92",
+        "silence_end: 101",
+      ].join("\n"),
+    };
+  };
+
+  const signals = await extractMediaSignals({ inputPath: "/tmp/input.mp4", metadata: longMetadata, ffmpegRunner: fakeRunner });
+
+  assert.ok(signals.sceneChanges.length <= 12);
+  assert.ok(signals.sceneChanges.some((change) => change.time >= 100));
+  assert.ok(signals.highMotionCandidates.some((candidate) => candidate.time >= 100));
+});
+
 test("highlight detection ranks confirmed goal moments first", () => {
   const signals = {
     durationSeconds: 22,
@@ -840,6 +867,117 @@ test("long football sources produce a chronological multi-moment compilation wit
   assert.equal(hasGoalLanguage(plan.captions.map((caption) => caption.text).join(" ")), false);
   assert.equal(plan.framingMode, "wide_safe_vertical");
   assert.equal(plan.cropStrategy.preserveFullFrame, true);
+});
+
+test("long source highlight detection keeps late visual candidates", () => {
+  const visualWindows = [
+    18, 36, 54, 72, 108, 138,
+  ].map((start, index) => ({
+    start,
+    end: start + 3,
+    labels: index % 2 === 0 ? ["unknown_visual_action"] : ["crowd_reaction"],
+    confidence: 0.76 + index * 0.01,
+  }));
+  const result = detectHighlights({
+    transcript: {
+      provider: "fixture",
+      language: "en",
+      captions: [{ start: 2, end: 3.5, text: "Opening context before the match moments" }],
+    },
+    signals: {
+      durationSeconds: 150,
+      hasAudio: true,
+      audioPeaks: [
+        { time: 20, energyScore: 0.88, source: "fixture" },
+        { time: 74, energyScore: 0.89, source: "fixture" },
+        { time: 140, energyScore: 0.9, source: "fixture" },
+      ],
+      sceneChanges: [
+        { time: 54, confidence: 0.77, source: "fixture" },
+        { time: 108, confidence: 0.78, source: "fixture" },
+      ],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: visualWindows,
+    },
+    preset: "hype",
+  });
+
+  assert.ok(result.moments.some((moment) => moment.start >= 100));
+});
+
+test("long goal compilations include every detected confirmed goal before filler", () => {
+  const longMetadata = { durationSeconds: 150, width: 1920, height: 1080, hasAudio: true };
+  const longTranscript = {
+    provider: "fixture",
+    language: "en",
+    captions: [
+      { start: 2, end: 4, text: "Opening atmosphere before the match settles" },
+      { start: 26.8, end: 28.1, text: "Goal confirmed, it counts" },
+      { start: 68.8, end: 70.1, text: "Goal confirmed, it counts" },
+      { start: 112.8, end: 114.1, text: "Goal confirmed, it counts" },
+      { start: 130, end: 132, text: "The crowd reacts after the final phase" },
+    ],
+  };
+  const result = detectHighlights({
+    transcript: longTranscript,
+    signals: {
+      durationSeconds: 150,
+      hasAudio: true,
+      audioPeaks: [
+        { time: 24.4, energyScore: 0.92, source: "fixture" },
+        { time: 66.4, energyScore: 0.93, source: "fixture" },
+        { time: 110.4, energyScore: 0.94, source: "fixture" },
+        { time: 130.5, energyScore: 0.89, source: "fixture" },
+      ],
+      sceneChanges: [
+        { time: 22.8, confidence: 0.78, source: "fixture" },
+        { time: 64.8, confidence: 0.8, source: "fixture" },
+        { time: 108.8, confidence: 0.81, source: "fixture" },
+      ],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [
+        { start: 20.6, end: 22.2, labels: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.9 },
+        { start: 22.2, end: 24.2, labels: ["goal_mouth_visible", "ball_in_net"], confidence: 0.91 },
+        { start: 26.6, end: 28.3, labels: ["scoreboard_goal_confirmed", "referee_goal_signal"], confidence: 0.84 },
+        { start: 62.6, end: 64.2, labels: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.9 },
+        { start: 64.2, end: 66.2, labels: ["goal_mouth_visible", "ball_in_net"], confidence: 0.91 },
+        { start: 68.6, end: 70.3, labels: ["scoreboard_goal_confirmed", "referee_goal_signal"], confidence: 0.84 },
+        { start: 106.6, end: 108.2, labels: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.9 },
+        { start: 108.2, end: 110.2, labels: ["goal_mouth_visible", "ball_in_net"], confidence: 0.91 },
+        { start: 112.6, end: 114.3, labels: ["scoreboard_goal_confirmed", "referee_goal_signal"], confidence: 0.84 },
+        { start: 129.6, end: 132.2, labels: ["crowd_reaction"], confidence: 0.82 },
+      ],
+    },
+    preset: "hype",
+  });
+
+  const goalMoments = result.moments.filter((moment) => moment.highlightType === "goal");
+  assert.ok(goalMoments.length >= 3);
+
+  const plans = createCandidateEditPlans({
+    moments: result.moments,
+    metadata: longMetadata,
+    transcript: longTranscript,
+    title: "Three valid goals fixture",
+    editIntensity: "balanced",
+    stylePreset: "punchy_highlight",
+  });
+  const plan = validateEditPlan(plans[0], longMetadata);
+  const goalSegments = plan.segments.filter((segment) => segment.highlightType === "goal");
+
+  assert.equal(plan.mode, "multi_moment_compilation");
+  assert.equal(goalSegments.length, 3);
+  assert.ok(goalSegments.some((segment) => segment.sourceStart <= 20.6 && segment.sourceEnd >= 28.3));
+  assert.ok(goalSegments.some((segment) => segment.sourceStart <= 62.6 && segment.sourceEnd >= 70.3));
+  assert.ok(goalSegments.some((segment) => segment.sourceStart <= 106.6 && segment.sourceEnd >= 114.3));
+  assert.ok(goalSegments.every((segment) => segment.goalOutcome.outcome === "confirmed_goal"));
+  assert.ok(plan.totalDuration <= 90);
 });
 
 test("replay-heavy evidence becomes replay-worthy without inventing action or goal", () => {

@@ -81,6 +81,28 @@ function fallbackWindows(metadata = {}) {
   }));
 }
 
+function selectTemporalCoverage(windows = [], { maxItems = DEFAULT_MAX_FRAMES, duration = 0 } = {}) {
+  const safeWindows = (Array.isArray(windows) ? windows : [])
+    .filter((window) => Number.isFinite(Number(window.timestamp)))
+    .sort((a, b) => a.timestamp - b.timestamp);
+  if (safeWindows.length <= maxItems) return safeWindows;
+  const mediaDuration = Math.max(0, Number(duration) || safeWindows[safeWindows.length - 1].timestamp || 0);
+  const minGap = mediaDuration > 0 ? Math.max(3, mediaDuration / maxItems * 0.45) : 3;
+  const selected = [];
+  const ranked = [...safeWindows].sort((a, b) => Number(b.confidence || 0) - Number(a.confidence || 0) || a.timestamp - b.timestamp);
+  for (const window of ranked) {
+    if (selected.length >= maxItems) break;
+    if (selected.some((existing) => Math.abs(existing.timestamp - window.timestamp) < minGap)) continue;
+    selected.push(window);
+  }
+  for (const window of safeWindows) {
+    if (selected.length >= maxItems) break;
+    if (selected.includes(window)) continue;
+    selected.push(window);
+  }
+  return selected.sort((a, b) => a.timestamp - b.timestamp);
+}
+
 function normalizeFrameExtractionInput(input = {}) {
   const metadata = input.metadata || {};
   const maxFrames = Math.max(1, Math.min(DEFAULT_MAX_FRAMES, Math.floor(Number(input.maxFrames || DEFAULT_MAX_FRAMES))));
@@ -92,9 +114,12 @@ function normalizeFrameExtractionInput(input = {}) {
   const windows = rawWindows
     .map((candidate) => normalizeCandidateWindow(candidate, metadata))
     .filter(Boolean)
-    .sort((a, b) => b.confidence - a.confidence || a.timestamp - b.timestamp)
-    .slice(0, maxFrames);
-  const sampledWindows = windows.length ? windows : fallbackWindows(metadata).slice(0, maxFrames);
+    .sort((a, b) => a.timestamp - b.timestamp);
+  const coveredWindows = selectTemporalCoverage(windows, {
+    maxItems: maxFrames,
+    duration: seconds(metadata.durationSeconds, 0),
+  });
+  const sampledWindows = coveredWindows.length ? coveredWindows : fallbackWindows(metadata).slice(0, maxFrames);
   if (rawWindows.length && !windows.length) {
     throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400);
   }
