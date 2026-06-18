@@ -70,6 +70,37 @@ test("football story planner uses natural Greek title context copy", () => {
   assert.doesNotMatch(text, /context/i);
 });
 
+test("football story planner anchors reaction moments after the action lead-in", () => {
+  const plan = createFootballStoryPlan({
+    title: "Argentina vs Algeria highlights",
+    language: "English",
+    metadata: { durationSeconds: 370, width: 1920, height: 1080, hasAudio: true },
+    selectedMoment: {
+      id: "mom_late_reaction",
+      start: 55.74,
+      end: 67.74,
+      center: 61.74,
+      highlightType: "crowd_reaction",
+      confidence: 0.37,
+      reasonCodes: [
+        "audio_energy_spike",
+        "crowd_spike",
+        "scene_change_cluster",
+        "visual_crowd_reaction",
+        "visual_unknown_action",
+      ],
+    },
+    editIntensity: "balanced",
+  });
+
+  assert.equal(plan.storyType, "reaction_story");
+  assert.equal(plan.selectedMoment.originalStart, 55.74);
+  assert.ok(plan.selectedMoment.start <= 50.1);
+  assert.ok(plan.selectedMoment.end >= 65.5);
+  assert.ok(plan.selectedMoment.end - plan.selectedMoment.start >= 15.5);
+  assert.equal(hasGoalLanguage(plan.captionBeats.map((caption) => caption.text).join(" ")), false);
+});
+
 test("football story planner preserves evidence context for counter attacks", () => {
   const plan = createFootballStoryPlan({
     title: "Reference style counter attack",

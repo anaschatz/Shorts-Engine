@@ -400,19 +400,46 @@ const STRONG_ACTION_REASON_CODES = Object.freeze([
   "save",
   "foul",
   "hard_foul",
+  "card_moment",
   "counter_attack",
+  "skill_move",
   "visual_shot_like_motion",
+  "visual_shot_contact",
+  "visual_ball_toward_goal",
   "visual_save_like_motion",
+  "visual_keeper_action",
   "visual_foul_like_contact",
   "visual_fast_break",
-  "visual_replay_indicator",
-  "visual_scoreboard_context",
-  "visual_unknown_action",
+]);
+
+const REACTION_ANCHOR_HIGHLIGHT_TYPES = Object.freeze([
+  "crowd_reaction",
+  "commentator_peak",
+  "audio_energy_spike",
+]);
+
+const REACTION_ANCHOR_REASON_CODES = Object.freeze([
+  "crowd_reaction",
+  "crowd_spike",
+  "commentator_peak",
+  "audio_energy_spike",
+  "audio_peak",
+  "visual_crowd_reaction",
 ]);
 
 function hasAnyReason(reasonCodes, expectedReasons) {
   const reasonSet = new Set(Array.isArray(reasonCodes) ? reasonCodes : []);
   return expectedReasons.some((reason) => reasonSet.has(reason));
+}
+
+function isReactionAnchoredMoment(selectedMoment = {}) {
+  const highlightType = safeHighlightType(selectedMoment);
+  const reasonCodes = Array.isArray(selectedMoment.reasonCodes) ? selectedMoment.reasonCodes : [];
+  const hasReactionAnchor = REACTION_ANCHOR_HIGHLIGHT_TYPES.includes(highlightType) ||
+    hasAnyReason(reasonCodes, REACTION_ANCHOR_REASON_CODES);
+  if (!hasReactionAnchor) return false;
+  if (hasExplicitGoalEvidence(selectedMoment) || hasGoalSequenceEvidence(selectedMoment)) return false;
+  return !hasAnyReason(reasonCodes, STRONG_ACTION_REASON_CODES);
 }
 
 function hasVisualEvidence(visualEvidenceSummary = {}) {
@@ -431,10 +458,14 @@ function storyDurationFor({ metadata = {}, selectedMoment = {}, editIntensity })
   const momentDuration = Math.max(0, Number(selectedMoment.end || 0) - Number(selectedMoment.start || 0));
   const intensity = normalizeEditIntensity(editIntensity);
   const goalStory = hasExplicitGoalEvidence(selectedMoment) || hasGoalSequenceEvidence(selectedMoment);
+  const reactionAnchored = isReactionAnchoredMoment(selectedMoment);
   const target = goalStory
     ? (intensity === "punchy" ? 18 : intensity === "clean" ? 14 : 16)
+    : reactionAnchored
+      ? (intensity === "punchy" ? 16 : intensity === "clean" ? 12 : 18)
     : (intensity === "punchy" ? 14 : intensity === "clean" ? 10 : 12);
-  const desired = Math.max(goalStory ? 12 : 8, Math.min(goalStory ? 22 : 25, Math.max(momentDuration, target)));
+  const minDuration = goalStory ? 12 : reactionAnchored ? 12 : 8;
+  const desired = Math.max(minDuration, Math.min(goalStory ? 22 : 25, Math.max(momentDuration, target)));
   if (mediaDuration > 0) return Math.min(mediaDuration, desired);
   return desired;
 }
@@ -452,13 +483,17 @@ function sourceWindowForMoment({ selectedMoment = {}, metadata = {}, editIntensi
     };
   }
   const goalEvidence = goalEvidenceObject(selectedMoment);
-  const shotStart = goalEvidence && Number.isFinite(Number(goalEvidence.shotStart)) ? Number(goalEvidence.shotStart) : null;
-  const payoffEnd = goalEvidence && Number.isFinite(Number(goalEvidence.payoffEnd)) ? Number(goalEvidence.payoffEnd) : null;
+  const hasUsableGoalWindow = goalEvidence && ["strong", "medium"].includes(goalEvidence.evidenceLevel);
+  const shotStart = hasUsableGoalWindow && Number.isFinite(Number(goalEvidence.shotStart)) ? Number(goalEvidence.shotStart) : null;
+  const payoffEnd = hasUsableGoalWindow && Number.isFinite(Number(goalEvidence.payoffEnd)) ? Number(goalEvidence.payoffEnd) : null;
   let start = clamp(center - duration * 0.45, 0, Math.max(0, mediaDuration - duration));
   if (shotStart != null || payoffEnd != null) {
     const preferredStart = shotStart != null ? Math.max(0, shotStart - 3.5) : start;
     const preferredEnd = payoffEnd != null ? Math.min(mediaDuration, payoffEnd + 4.5) : preferredStart + duration;
     start = clamp(Math.min(preferredStart, preferredEnd - duration), 0, Math.max(0, mediaDuration - duration));
+  } else if (isReactionAnchoredMoment(selectedMoment)) {
+    const preRoll = Math.min(12, Math.max(8.5, duration * 0.74));
+    start = clamp(center - preRoll, 0, Math.max(0, mediaDuration - duration));
   }
   return {
     sourceStart: Number(start.toFixed(2)),

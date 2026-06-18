@@ -508,17 +508,18 @@ test("visual crowd reaction plus audio ranks as crowd reaction without goal clai
 });
 
 test("long source opening ceremony context is demoted below later match reaction", () => {
+  const longTranscript = {
+    provider: "fixture",
+    language: "en",
+    captions: [
+      { start: 0, end: 4.35, text: "The pressure jumps" },
+      { start: 4.5, end: 8.85, text: "The build-up is clean" },
+      { start: 9, end: 13.35, text: "Watch the next touch" },
+      { start: 13.5, end: 17.85, text: "This is the key phase" },
+    ],
+  };
   const result = detectHighlights({
-    transcript: {
-      provider: "fixture",
-      language: "en",
-      captions: [
-        { start: 0, end: 4.35, text: "The pressure jumps" },
-        { start: 4.5, end: 8.85, text: "The build-up is clean" },
-        { start: 9, end: 13.35, text: "Watch the next touch" },
-        { start: 13.5, end: 17.85, text: "This is the key phase" },
-      ],
-    },
+    transcript: longTranscript,
     signals: {
       durationSeconds: 370,
       hasAudio: true,
@@ -554,6 +555,14 @@ test("long source opening ceremony context is demoted below later match reaction
     openingMoment.rankingExplanation.suppressedCues.includes("opening_context_without_action"),
     true,
   );
+  const plans = createCandidateEditPlans({
+    moments: result.moments,
+    metadata: { durationSeconds: 370, width: 1920, height: 1080, hasAudio: true },
+    transcript: longTranscript,
+    title: "Long source no goal",
+  });
+  assert.ok(plans[0].sourceStart <= result.moments[0].start - 5);
+  assert.ok(plans[0].sourceEnd >= result.moments[0].end);
 });
 
 test("replay-heavy evidence becomes replay-worthy without inventing action or goal", () => {
