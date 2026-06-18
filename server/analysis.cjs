@@ -661,6 +661,31 @@ function actionFirstScore(score, reasons = [], goalEvidence = {}) {
   return clamp(score + goalBoost - reactionPenalty - supportPenalty, 0.12, 0.99);
 }
 
+function openingContextPenalty({ reasons = [], start = 0, center = 0, duration = 0 } = {}) {
+  const mediaDuration = seconds(duration);
+  if (mediaDuration < 90) return null;
+  const safeCenter = Number.isFinite(Number(center)) ? seconds(center) : seconds(start);
+  const openingBoundary = Math.min(45, Math.max(18, mediaDuration * 0.12));
+  if (safeCenter > openingBoundary) return null;
+
+  const reasonSet = new Set(reasons);
+  const primaryActionCount = PRIMARY_ACTION_REASONS.filter((reason) => reasonSet.has(reason)).length;
+  if (primaryActionCount > 0 || reasonSet.has("goal")) return null;
+
+  const reactionContextCount = REACTION_CONTEXT_REASONS.filter((reason) => reasonSet.has(reason)).length;
+  const replayOrWeakContext = [...reasonSet].some((reason) => (
+    SUPPORTING_CONTEXT_REASONS.includes(reason) ||
+    reason === "scene_change_cluster" ||
+    reason === "visual_unknown_action"
+  ));
+  const penalty = reactionContextCount > 0 ? 0.1 : replayOrWeakContext ? 0.18 : 0.12;
+  return {
+    code: "opening_context_without_action",
+    penalty,
+    openingBoundary: Number(openingBoundary.toFixed(2)),
+  };
+}
+
 function actionEvidenceStrength(reasons = []) {
   const reasonSet = new Set(reasons);
   if (reasonSet.has("goal")) return 1;
@@ -678,7 +703,14 @@ function safeCueList(reasons = [], allowed = []) {
   return [...new Set(reasons.filter((reason) => allowedSet.has(reason)).map((reason) => sanitizeText(reason, 60)))].slice(0, 8);
 }
 
-function rankingExplanationForMoment({ reasons = [], score = 0, source = "analysis", visualSignals = null, goalEvidence = null } = {}) {
+function rankingExplanationForMoment({
+  reasons = [],
+  score = 0,
+  source = "analysis",
+  visualSignals = null,
+  goalEvidence = null,
+  contextPenalty = null,
+} = {}) {
   const reasonSet = new Set(reasons);
   const actionCues = safeCueList(reasons, PRIMARY_ACTION_REASONS);
   const reactionCues = safeCueList(reasons, REACTION_CONTEXT_REASONS);
@@ -699,11 +731,21 @@ function rankingExplanationForMoment({ reasons = [], score = 0, source = "analys
   if (goalEvidence && goalEvidence.evidenceLevel && goalEvidence.evidenceLevel !== "none" && !goalEvidence.goalClaimAllowed) {
     rejectedClaims.push("goal_claim_rejected_until_goal_sequence_is_stronger");
   }
+  if (contextPenalty && contextPenalty.code) {
+    suppressedCues.push(contextPenalty.code);
+  }
   return {
     rankingVersion: 3,
     score: Number(clamp(score, 0, 1).toFixed(2)),
     actionEvidenceStrength: actionStrength,
     actionSequence,
+    contextPenalty: contextPenalty
+      ? {
+          code: sanitizeText(contextPenalty.code, 80),
+          penalty: Number(clamp(contextPenalty.penalty, 0, 1).toFixed(2)),
+          openingBoundary: Number(contextPenalty.openingBoundary || 0),
+        }
+      : null,
     goalEvidence: goalEvidence || null,
     boostCues: actionCues,
     supportingCues,
@@ -1054,7 +1096,14 @@ function normalizeMomentWithEvidence(moment, { signals = {}, visualSignals = nul
   const finalReasons = reasonCodesWithGoalEvidence(reasonCodes, goalEvidence);
   const highlightType = highlightTypeForReasons(finalReasons);
   const baseScore = Number(publicMoment.confidence ?? scoreReasons(finalReasons));
-  const score = actionFirstScore(baseScore, finalReasons, goalEvidence);
+  const unpenalizedScore = actionFirstScore(baseScore, finalReasons, goalEvidence);
+  const contextPenalty = openingContextPenalty({
+    reasons: finalReasons,
+    start: window.start,
+    center,
+    duration,
+  });
+  const score = clamp(unpenalizedScore - (contextPenalty ? contextPenalty.penalty : 0), 0.12, 0.99);
   return {
     ...publicMoment,
     start: window.start,
@@ -1075,6 +1124,7 @@ function normalizeMomentWithEvidence(moment, { signals = {}, visualSignals = nul
       source: publicMoment.source,
       visualSignals,
       goalEvidence,
+      contextPenalty,
     }),
   };
 }

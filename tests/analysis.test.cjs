@@ -507,6 +507,55 @@ test("visual crowd reaction plus audio ranks as crowd reaction without goal clai
   assert.equal(result.moments[0].evidence.visual.goalClaimAllowed, false);
 });
 
+test("long source opening ceremony context is demoted below later match reaction", () => {
+  const result = detectHighlights({
+    transcript: {
+      provider: "fixture",
+      language: "en",
+      captions: [
+        { start: 0, end: 4.35, text: "The pressure jumps" },
+        { start: 4.5, end: 8.85, text: "The build-up is clean" },
+        { start: 9, end: 13.35, text: "Watch the next touch" },
+        { start: 13.5, end: 17.85, text: "This is the key phase" },
+      ],
+    },
+    signals: {
+      durationSeconds: 370,
+      hasAudio: true,
+      audioPeaks: [
+        { time: 24.24, energyScore: 0.95, source: "fixture" },
+        { time: 61.74, energyScore: 0.95, source: "fixture" },
+      ],
+      sceneChanges: [
+        { time: 7.08, confidence: 0.74, source: "fixture" },
+        { time: 10.08, confidence: 0.74, source: "fixture" },
+        { time: 61.16, confidence: 0.74, source: "fixture" },
+      ],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [
+        { start: 5.58, end: 8.58, labels: ["unknown_visual_action"], confidence: 0.58 },
+        { start: 22.74, end: 25.74, labels: ["unknown_visual_action"], confidence: 0.78 },
+        { start: 60.24, end: 63.24, labels: ["crowd_reaction"], confidence: 0.78 },
+      ],
+    },
+    preset: "hype",
+  });
+
+  assert.equal(result.moments[0].highlightType, "crowd_reaction");
+  assert.ok(result.moments[0].start >= 50);
+  assert.equal(result.moments[0].reasonCodes.includes("audio_energy_spike"), true);
+  assert.equal(result.moments[0].reasonCodes.includes("goal"), false);
+  const openingMoment = result.moments.find((moment) => moment.start < 15);
+  assert.ok(openingMoment);
+  assert.equal(
+    openingMoment.rankingExplanation.suppressedCues.includes("opening_context_without_action"),
+    true,
+  );
+});
+
 test("replay-heavy evidence becomes replay-worthy without inventing action or goal", () => {
   const result = detectHighlights({
     transcript: {

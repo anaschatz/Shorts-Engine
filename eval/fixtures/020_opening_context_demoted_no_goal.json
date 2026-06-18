@@ -1,0 +1,79 @@
+{
+  "id": "opening_context_demoted_no_goal",
+  "title": "Long source opening context should not beat later match reaction",
+  "language": "English",
+  "durationSeconds": 370,
+  "transcript": {
+    "provider": "fixture",
+    "language": "en",
+    "captions": [
+      { "start": 0.0, "end": 4.35, "text": "The pressure jumps" },
+      { "start": 4.5, "end": 8.85, "text": "The build-up is clean" },
+      { "start": 9.0, "end": 13.35, "text": "Watch the next touch" },
+      { "start": 13.5, "end": 17.85, "text": "This is the key phase" }
+    ]
+  },
+  "mediaSignals": {
+    "durationSeconds": 370,
+    "width": 1920,
+    "height": 1080,
+    "hasAudio": true,
+    "audioPeaks": [
+      { "time": 24.24, "energyScore": 0.95, "source": "fixture" },
+      { "time": 61.74, "energyScore": 0.95, "source": "fixture" }
+    ],
+    "sceneChanges": [
+      { "time": 7.08, "confidence": 0.74, "source": "fixture" },
+      { "time": 10.08, "confidence": 0.74, "source": "fixture" },
+      { "time": 61.16, "confidence": 0.74, "source": "fixture" }
+    ],
+    "highMotionCandidates": [
+      { "time": 7.08, "confidence": 0.58, "source": "opening_scene" },
+      { "time": 24.24, "confidence": 0.58, "source": "opening_audio" },
+      { "time": 61.74, "confidence": 0.66, "source": "fixture" }
+    ]
+  },
+  "visualSignals": {
+    "providerMode": "fixture-visual",
+    "fallbackUsed": false,
+    "confidence": 0.78,
+    "windows": [
+      {
+        "start": 5.58,
+        "end": 8.58,
+        "labels": ["unknown_visual_action"],
+        "confidence": 0.58,
+        "source": "fixture"
+      },
+      {
+        "start": 22.74,
+        "end": 25.74,
+        "labels": ["unknown_visual_action"],
+        "confidence": 0.78,
+        "source": "fixture"
+      },
+      {
+        "start": 60.24,
+        "end": 63.24,
+        "labels": ["crowd_reaction"],
+        "confidence": 0.78,
+        "source": "fixture"
+      }
+    ]
+  },
+  "expected": {
+    "highlights": [{ "start": 55.5, "end": 67.8 }],
+    "reasonCodes": ["audio_energy_spike", "crowd_spike", "scene_change_cluster", "visual_crowd_reaction"],
+    "highlightType": "crowd_reaction",
+    "stylePreset": "social_sports_v1",
+    "styleTarget": "vertical_9_16",
+    "aspectRatio": "9:16"
+  },
+  "thresholds": {
+    "minAggregateScore": 72,
+    "minTop1Overlap": 0.55,
+    "minTop3Recall": 1,
+    "minReasonPrecision": 0.5,
+    "minRetentionScore": 40
+  }
+}
