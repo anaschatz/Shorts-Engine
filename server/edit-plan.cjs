@@ -92,6 +92,14 @@ const EFFECT_TYPES = Object.freeze([
   "impact_freeze_frame",
   "replay_stutter",
 ]);
+const EDIT_PLAN_MODES = Object.freeze(["single_moment", "multi_moment_compilation"]);
+const MULTI_MOMENT_LIMITS = Object.freeze({
+  minSegments: 2,
+  maxSegments: 7,
+  minSegmentDuration: 3,
+  maxSegmentDuration: 22,
+  maxTotalDuration: 60,
+});
 const VISUAL_EVIDENCE_TYPES = Object.freeze([
   "ball_visible",
   "player_cluster",
@@ -134,6 +142,26 @@ const VISUAL_EVIDENCE_REASON_CODES = Object.freeze([
 const GOAL_LANGUAGE_RE = /\b(scored|scores|equalises|equalizes|back of the net|into the net|finds the net)\b|γκολ|σκοραρ|σκόραρ/i;
 const GOAL_WORD_RE = /\bgo+als?\b/gi;
 const NON_EVENT_GOAL_CONTEXT_RE = /\b(?:behind|towards?|near|around|beside|from behind|in front of)\s+(?:the\s+)?goals?\b|\bno\s+goals?\b/i;
+const SEGMENT_PRIMARY_ACTION_REASONS = Object.freeze([
+  "goal",
+  "big_chance",
+  "shot_on_target",
+  "save",
+  "hard_foul",
+  "foul",
+  "card_moment",
+  "counter_attack",
+  "skill_move",
+  "visual_shot_like_motion",
+  "visual_shot_contact",
+  "visual_ball_toward_goal",
+  "visual_save_like_motion",
+  "visual_keeper_action",
+  "visual_ball_in_net",
+  "visual_celebration_after_shot",
+  "visual_foul_like_contact",
+  "visual_fast_break",
+]);
 
 const HIGHLIGHT_HOOKS = Object.freeze({
   goal: "ΤΟ ΓΚΟΛ ΠΟΥ ΑΛΛΑΞΕ ΤΟ ΜΑΤΣ",
@@ -617,6 +645,108 @@ function normalizeEffects(effects) {
   return assertAllowedList(effects, EFFECT_TYPES, "Edit plan effect is invalid.", 40);
 }
 
+function segmentHasPrimaryAction(reasonCodes = [], highlightType = "generic_highlight") {
+  const reasonSet = new Set(Array.isArray(reasonCodes) ? reasonCodes : []);
+  return normalizeHighlightType(highlightType) === "goal" ||
+    SEGMENT_PRIMARY_ACTION_REASONS.some((reason) => reasonSet.has(reason) || reason === normalizeHighlightType(highlightType));
+}
+
+function normalizedEditPlanMode(value, hasSegments) {
+  const safe = sanitizeText(value || (hasSegments ? "multi_moment_compilation" : "single_moment"), 40).toLowerCase();
+  if (EDIT_PLAN_MODES.includes(safe)) return safe;
+  throw new AppError("VALIDATION_ERROR", "Unsupported edit plan mode.", 400);
+}
+
+function overlapSeconds(a, b) {
+  const left = Math.max(a.sourceStart, b.sourceStart);
+  const right = Math.min(a.sourceEnd, b.sourceEnd);
+  return Math.max(0, right - left);
+}
+
+function normalizeSegmentItem(segment, index, metadata = {}) {
+  if (!segment || typeof segment !== "object" || Array.isArray(segment)) {
+    throw new AppError("VALIDATION_ERROR", "Edit plan segment is invalid.", 400);
+  }
+  const mediaDuration = Number(metadata.durationSeconds || 0);
+  const sourceStart = Number(segment.sourceStart);
+  const sourceEnd = Number(segment.sourceEnd);
+  if (!Number.isFinite(sourceStart) || !Number.isFinite(sourceEnd) || sourceStart < 0 || sourceEnd <= sourceStart) {
+    throw new AppError("VALIDATION_ERROR", "Edit plan segment source range is invalid.", 400);
+  }
+  if (mediaDuration > 0 && sourceEnd > mediaDuration + 0.25) {
+    throw new AppError("VALIDATION_ERROR", "Edit plan segment exceeds media duration.", 400);
+  }
+  const segmentDuration = sourceEnd - sourceStart;
+  if (segmentDuration < MULTI_MOMENT_LIMITS.minSegmentDuration || segmentDuration > MULTI_MOMENT_LIMITS.maxSegmentDuration) {
+    throw new AppError("VALIDATION_ERROR", "Edit plan segment duration is outside allowed bounds.", 400);
+  }
+  const highlightType = normalizeHighlightType(segment.highlightType);
+  const reasonCodes = Array.isArray(segment.reasonCodes)
+    ? segment.reasonCodes.map((reason) => sanitizeText(reason, 60)).filter(Boolean).slice(0, 12)
+    : [];
+  const rawSafetyFlags = Array.isArray(segment.safetyFlags) ? segment.safetyFlags : [];
+  const safetyFlags = rawSafetyFlags.map((flag) => sanitizeText(flag, 80)).filter(Boolean).slice(0, 8);
+  if (safetyFlags.includes("opening_context_without_action") && !segmentHasPrimaryAction(reasonCodes, highlightType)) {
+    throw new AppError("VALIDATION_ERROR", "Opening context segment needs explicit action evidence.", 400);
+  }
+  return {
+    id: sanitizeText(segment.id || `segment_${index + 1}`, 64),
+    sourceStart: Number(sourceStart.toFixed(2)),
+    sourceEnd: Number(sourceEnd.toFixed(2)),
+    duration: Number(segmentDuration.toFixed(2)),
+    highlightType,
+    reasonCodes,
+    confidence: Number(clamp(segment.confidence, 0, 1).toFixed(2)),
+    retentionScore: Math.round(clamp(segment.retentionScore || segment.confidence * 100, 0, 100)),
+    captionTheme: sanitizeText(segment.captionTheme || captionIntentForHighlightType(highlightType), 80),
+    actionSequenceSummary: segment.actionSequenceSummary && typeof segment.actionSequenceSummary === "object" && !Array.isArray(segment.actionSequenceSummary)
+      ? segment.actionSequenceSummary
+      : null,
+    whySelected: sanitizeText(segment.whySelected || "Selected as a bounded football phase.", 160),
+    safetyFlags,
+  };
+}
+
+function normalizeSegments(segments, metadata = {}) {
+  const rawSegments = Array.isArray(segments) ? segments : [];
+  if (!rawSegments.length) return [];
+  if (rawSegments.length < MULTI_MOMENT_LIMITS.minSegments || rawSegments.length > MULTI_MOMENT_LIMITS.maxSegments) {
+    throw new AppError("VALIDATION_ERROR", "Edit plan segment count is outside allowed bounds.", 400);
+  }
+  const normalized = rawSegments
+    .map((segment, index) => normalizeSegmentItem(segment, index, metadata))
+    .sort((a, b) => a.sourceStart - b.sourceStart);
+  for (let index = 1; index < normalized.length; index += 1) {
+    const previous = normalized[index - 1];
+    const current = normalized[index];
+    const overlap = overlapSeconds(previous, current);
+    if (!overlap) continue;
+    const smallestDuration = Math.min(previous.duration, current.duration);
+    const intentionalReplay = previous.reasonCodes.includes("visual_replay_indicator") ||
+      previous.reasonCodes.includes("replay_worthy_moment") ||
+      current.reasonCodes.includes("visual_replay_indicator") ||
+      current.reasonCodes.includes("replay_worthy_moment");
+    if (!intentionalReplay || overlap / Math.max(0.1, smallestDuration) > 0.35) {
+      throw new AppError("VALIDATION_ERROR", "Edit plan segments overlap too much.", 400);
+    }
+  }
+  let cursor = 0;
+  const withTimeline = normalized.map((segment) => {
+    const timelineStart = Number(cursor.toFixed(2));
+    cursor += segment.duration;
+    return {
+      ...segment,
+      timelineStart,
+      timelineEnd: Number(cursor.toFixed(2)),
+    };
+  });
+  const totalDuration = Number(cursor.toFixed(2));
+  if (totalDuration > MULTI_MOMENT_LIMITS.maxTotalDuration) {
+    throw new AppError("VALIDATION_ERROR", "Multi-moment edit plan cannot exceed 60 seconds.", 400);
+  }
+  return withTimeline;
+}
+
 function framingModeForMetadata(metadata = {}) {
   const width = Number(metadata.width || 0);
   const height = Number(metadata.height || 0);
@@ -669,16 +799,29 @@ function validateEditPlan(plan, metadata = {}) {
   if (!plan || typeof plan !== "object") {
     throw new AppError("VALIDATION_ERROR", "Edit plan is missing.", 400);
   }
-  const sourceStart = Number(plan.sourceStart);
-  const sourceEnd = Number(plan.sourceEnd);
+  const segments = normalizeSegments(plan.segments, metadata);
+  const hasSegments = segments.length > 0;
+  const mode = normalizedEditPlanMode(plan.mode, hasSegments);
+  if (mode === "multi_moment_compilation" && !hasSegments) {
+    throw new AppError("VALIDATION_ERROR", "Multi-moment edit plan needs segments.", 400);
+  }
+  const totalDuration = hasSegments
+    ? Number(segments.reduce((sum, segment) => sum + segment.duration, 0).toFixed(2))
+    : null;
+  const sourceStart = hasSegments
+    ? Number(segments[0].sourceStart)
+    : Number(plan.sourceStart);
+  const sourceEnd = hasSegments
+    ? Number(Math.max(...segments.map((segment) => segment.sourceEnd)).toFixed(2))
+    : Number(plan.sourceEnd);
   const mediaDuration = Number(metadata.durationSeconds || sourceEnd);
   if (!Number.isFinite(sourceStart) || !Number.isFinite(sourceEnd) || sourceStart < 0 || sourceEnd <= sourceStart) {
     throw new AppError("VALIDATION_ERROR", "Edit plan source range is invalid.", 400);
   }
-  if (sourceEnd - sourceStart > 60) {
+  if (!hasSegments && sourceEnd - sourceStart > 60) {
     throw new AppError("VALIDATION_ERROR", "MVP render window cannot exceed 60 seconds.", 400);
   }
-  if (sourceEnd > mediaDuration + 0.25) {
+  if (!hasSegments && sourceEnd > mediaDuration + 0.25) {
     throw new AppError("VALIDATION_ERROR", "Edit plan exceeds media duration.", 400);
   }
   const aspectRatio = ASPECT_RATIOS.includes(sanitizeText(plan.aspectRatio || "9:16", 12)) ? sanitizeText(plan.aspectRatio || "9:16", 12) : null;
@@ -712,7 +855,8 @@ function validateEditPlan(plan, metadata = {}) {
   }
   const reasonCodes = Array.isArray(plan.reasonCodes) ? plan.reasonCodes.map((reason) => sanitizeText(reason, 60)).filter(Boolean) : [];
   const goalEvidence = highlightType === "goal" && reasonCodes.includes("goal");
-  const captions = normalizeCaptions(plan.captions, sourceStart, sourceEnd, { highlightType, reasonCodes, goalEvidence });
+  const renderDuration = hasSegments ? totalDuration : sourceEnd - sourceStart;
+  const captions = normalizeCaptions(plan.captions, 0, renderDuration, { highlightType, reasonCodes, goalEvidence });
   if (captions.length === 0) {
     throw new AppError("VALIDATION_ERROR", "Edit plan needs at least one caption.", 400);
   }
@@ -757,20 +901,22 @@ function validateEditPlan(plan, metadata = {}) {
   if (cropStrategy.y + cropStrategy.height > Number(metadata.height || cropStrategy.height) + 0.25) {
     throw new AppError("VALIDATION_ERROR", "Crop strategy exceeds media height.", 400);
   }
-  const duration = sourceEnd - sourceStart;
   const captionEmphasis = Array.isArray(plan.captionEmphasis)
-    ? normalizeCaptionEmphasisItems(plan.captionEmphasis, duration)
+    ? normalizeCaptionEmphasisItems(plan.captionEmphasis, renderDuration)
     : createCaptionEmphasis(captions, highlightType);
   const rawAnimationCues = Array.isArray(plan.animationCues) ? plan.animationCues.slice(0, 10) : null;
   const unsupportedAnimationCues = [];
   let animationCues = rawAnimationCues
-    ? rawAnimationCues.map((cue) => normalizeAnimationCue(cue, duration, unsupportedAnimationCues)).filter(Boolean)
-    : createAnimationCues(duration, reasonCodes);
-  if (!animationCues.length) animationCues = createAnimationCues(duration, reasonCodes);
+    ? rawAnimationCues.map((cue) => normalizeAnimationCue(cue, renderDuration, unsupportedAnimationCues)).filter(Boolean)
+    : createAnimationCues(renderDuration, reasonCodes);
+  if (!animationCues.length) animationCues = createAnimationCues(renderDuration, reasonCodes);
   return {
     ...plan,
+    mode,
     sourceStart,
     sourceEnd,
+    segments,
+    totalDuration: hasSegments ? totalDuration : Number(renderDuration.toFixed(2)),
     aspectRatio,
     hook,
     highlightType,

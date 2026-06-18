@@ -29,3 +29,4 @@ Review generated shorts against:
 - reference-style animation cue coverage.
 - action sequence, shot/contact, payoff timing, reaction-as-support and text obstruction in the human visual checklist.
 - optional human review notes without mutating fixtures or training data.
+- multi-moment football shorts should report selected segment count, source/timeline timestamps, total duration, intro exclusion, reaction-as-support behavior, and no-false-goal caption safety.

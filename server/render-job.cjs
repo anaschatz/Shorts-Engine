@@ -270,7 +270,7 @@ function validateHighlightResult(result, metadata = {}) {
     throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
   }
   const durationSeconds = Number(metadata.durationSeconds || 0);
-  const moments = result.moments.slice(0, 3).map((moment, index) => {
+  const moments = result.moments.slice(0, 7).map((moment, index) => {
     const start = Number(moment && moment.start);
     const end = Number(moment && moment.end);
     if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start || end > durationSeconds + 0.25) {

@@ -4,7 +4,7 @@ const { mkdtempSync, readFileSync } = require("node:fs");
 const { join } = require("node:path");
 const { tmpdir } = require("node:os");
 
-const { writeAssSubtitles } = require("../server/render.cjs");
+const { renderShort, writeAssSubtitles } = require("../server/render.cjs");
 const { validateEditPlan } = require("../server/edit-plan.cjs");
 
 const metadata = { durationSeconds: 16, width: 1920, height: 1080 };
@@ -87,4 +87,92 @@ test("ASS renderer writes role-specific kinetic caption styles safely", () => {
   assert.match(ass, /\\N|Ματς: Αργεντινή - Αλγερία/);
   assert.doesNotMatch(ass, /\bGOAL\b|ΓΚΟΛ/);
   assert.doesNotMatch(ass, /\/Users|OPENAI_API_KEY|storageKey/i);
+});
+
+test("multi-segment renderer cuts segments, concatenates them, then applies captions", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "shortsengine-render-multi-"));
+  const outputPath = join(dir, "output.mp4");
+  const subtitlesPath = join(dir, "captions.ass");
+  const calls = [];
+  const plan = validateEditPlan({
+    mode: "multi_moment_compilation",
+    sourceStart: 0,
+    sourceEnd: 72,
+    segments: [
+      {
+        id: "seg_chance",
+        sourceStart: 0,
+        sourceEnd: 12,
+        highlightType: "big_chance",
+        reasonCodes: ["big_chance", "visual_shot_like_motion"],
+        confidence: 0.9,
+        retentionScore: 90,
+      },
+      {
+        id: "seg_save",
+        sourceStart: 30,
+        sourceEnd: 42,
+        highlightType: "save",
+        reasonCodes: ["save", "visual_save_like_motion"],
+        confidence: 0.88,
+        retentionScore: 88,
+      },
+      {
+        id: "seg_foul",
+        sourceStart: 60,
+        sourceEnd: 72,
+        highlightType: "hard_foul",
+        reasonCodes: ["hard_foul", "visual_foul_like_contact"],
+        confidence: 0.86,
+        retentionScore: 86,
+      },
+    ],
+    totalDuration: 36,
+    aspectRatio: "9:16",
+    highlightType: "generic_highlight",
+    confidence: 0.88,
+    hook: "BEST PHASES ONLY",
+    title: "Multi phase render",
+    captions: [
+      { start: 0, end: 2, text: "BEST PHASES ONLY", role: "opening_hook" },
+      { start: 12.4, end: 14.8, text: "PHASE 2: KEEPER REACTS", role: "action_callout" },
+      { start: 33.7, end: 36, text: "RUN THE WHOLE SEQUENCE BACK", role: "closing_punch" },
+    ],
+    effects: ["wide_safe_framing", "caption_emphasis"],
+    framingMode: "wide_safe_vertical",
+    cropStrategy: {
+      type: "wide_safe_contain",
+      x: 0,
+      y: 0,
+      width: 1920,
+      height: 1080,
+      zoom: 1,
+      background: "blurred_fill",
+      preserveFullFrame: true,
+      maxCropPercent: 0,
+    },
+    stylePreset: "punchy_highlight",
+    reasonCodes: ["big_chance", "save", "hard_foul"],
+    export: { width: 1080, height: 1920, format: "mp4" },
+  }, { durationSeconds: 90, width: 1920, height: 1080 });
+
+  await renderShort({
+    inputPath: join(dir, "input.mp4"),
+    outputPath,
+    subtitlesPath,
+    plan,
+    ffmpegRunner: async (args) => {
+      calls.push(args);
+      return { stderr: "" };
+    },
+  });
+
+  assert.equal(calls.length, 5);
+  assert.deepEqual(calls.slice(0, 3).map((args) => args[args.indexOf("-ss") + 1]), ["0", "30", "60"]);
+  assert.equal(calls[3].includes("concat"), true);
+  assert.equal(calls[4].includes("-filter_complex"), true);
+  assert.equal(calls[4][calls[4].indexOf("-t") + 1], "36");
+  const ass = readFileSync(subtitlesPath, "utf8");
+  assert.match(ass, /BEST PHASES ONLY/);
+  assert.doesNotMatch(ass, /\bGOAL\b|ΓΚΟΛ|\/Users|storageKey/i);
 });

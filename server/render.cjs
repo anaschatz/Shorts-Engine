@@ -1,5 +1,6 @@
 const { spawn } = require("node:child_process");
-const { writeFileSync } = require("node:fs");
+const { mkdtempSync, rmSync, writeFileSync } = require("node:fs");
+const { basename, dirname, join } = require("node:path");
 const { CONFIG } = require("./config.cjs");
 const { AppError, SAFE_MESSAGES } = require("./errors.cjs");
 const { normalizeStylePreset } = require("./edit-plan.cjs");
@@ -222,7 +223,10 @@ function captionStyleLine(caption, dimensions, config) {
 }
 
 function writeAssSubtitles(plan, outputPath) {
-  const duration = Math.max(0.1, Number(plan.sourceEnd - plan.sourceStart) || 0.1);
+  const segmentDuration = Array.isArray(plan.segments)
+    ? plan.segments.reduce((sum, segment) => sum + Math.max(0, Number(segment.sourceEnd) - Number(segment.sourceStart)), 0)
+    : 0;
+  const duration = Math.max(0.1, Number(plan.totalDuration) || segmentDuration || Number(plan.sourceEnd - plan.sourceStart) || 0.1);
   const dimensions = renderDimensions(plan);
   const config = renderStyleConfig(plan);
   const square = dimensions.width === dimensions.height;
@@ -375,9 +379,39 @@ async function extractAudio(inputPath, outputPath, { signal } = {}) {
   return outputPath;
 }
 
-async function renderShort({ inputPath, outputPath, subtitlesPath, plan, signal }) {
+function concatFileLine(filePath) {
+  return `file '${filePath.replace(/'/g, "'\\''")}'`;
+}
+
+function normalizedRenderSegments(plan = {}) {
+  const segments = Array.isArray(plan.segments) ? plan.segments : [];
+  return segments.map((segment, index) => {
+    const sourceStart = Number(segment.sourceStart);
+    const sourceEnd = Number(segment.sourceEnd);
+    if (!Number.isFinite(sourceStart) || !Number.isFinite(sourceEnd) || sourceEnd <= sourceStart) return null;
+    return {
+      id: segment.id || `segment_${index + 1}`,
+      sourceStart,
+      sourceEnd,
+      duration: Number((sourceEnd - sourceStart).toFixed(2)),
+    };
+  }).filter(Boolean);
+}
+
+function singleWindowPlan(plan, duration) {
+  return {
+    ...plan,
+    mode: "single_moment",
+    sourceStart: 0,
+    sourceEnd: Number(duration.toFixed(2)),
+    totalDuration: Number(duration.toFixed(2)),
+    segments: [],
+  };
+}
+
+async function renderSingleWindowShort({ inputPath, outputPath, subtitlesPath, plan, signal, ffmpegRunner = runFfmpeg }) {
   writeAssSubtitles(plan, subtitlesPath);
-  const duration = Number((plan.sourceEnd - plan.sourceStart).toFixed(2));
+  const duration = Number((Number(plan.totalDuration) || plan.sourceEnd - plan.sourceStart).toFixed(2));
   const dimensions = renderDimensions(plan);
   const config = renderStyleConfig(plan);
   const subtitlesFilter = `subtitles=filename='${escapeFilterPath(subtitlesPath)}'`;
@@ -437,8 +471,89 @@ async function renderShort({ inputPath, outputPath, subtitlesPath, plan, signal 
     "-shortest",
     outputPath,
   ];
-  await runFfmpeg(args, { signal });
+  await ffmpegRunner(args, { signal });
   return outputPath;
+}
+
+async function renderMultiSegmentShort({ inputPath, outputPath, subtitlesPath, plan, signal, ffmpegRunner = runFfmpeg }) {
+  const segments = normalizedRenderSegments(plan);
+  if (segments.length < 2) {
+    throw new AppError("RENDER_FAILED", "Multi-moment render needs at least two valid segments.", 500);
+  }
+  const totalDuration = Number(segments.reduce((sum, segment) => sum + segment.duration, 0).toFixed(2));
+  if (!Number.isFinite(totalDuration) || totalDuration <= 0 || totalDuration > 60) {
+    throw new AppError("RENDER_FAILED", SAFE_MESSAGES.RENDER_FAILED, 500);
+  }
+  const tempDir = mkdtempSync(join(dirname(outputPath), `.shortsengine-${basename(outputPath, ".mp4")}-`));
+  const segmentPaths = [];
+  try {
+    for (const [index, segment] of segments.entries()) {
+      const segmentPath = join(tempDir, `segment-${String(index + 1).padStart(2, "0")}.mp4`);
+      segmentPaths.push(segmentPath);
+      await ffmpegRunner([
+        "-y",
+        "-ss",
+        String(segment.sourceStart),
+        "-i",
+        inputPath,
+        "-t",
+        String(segment.duration),
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a?",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "23",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-movflags",
+        "+faststart",
+        "-shortest",
+        segmentPath,
+      ], { signal });
+    }
+    const concatListPath = join(tempDir, "concat.txt");
+    const concatPath = join(tempDir, "joined.mp4");
+    writeFileSync(concatListPath, `${segmentPaths.map(concatFileLine).join("\n")}\n`, "utf8");
+    await ffmpegRunner([
+      "-y",
+      "-f",
+      "concat",
+      "-safe",
+      "0",
+      "-i",
+      concatListPath,
+      "-c",
+      "copy",
+      concatPath,
+    ], { signal });
+    await renderSingleWindowShort({
+      inputPath: concatPath,
+      outputPath,
+      subtitlesPath,
+      plan: singleWindowPlan(plan, totalDuration),
+      signal,
+      ffmpegRunner,
+    });
+    return outputPath;
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function renderShort({ inputPath, outputPath, subtitlesPath, plan, signal, ffmpegRunner = runFfmpeg }) {
+  if (Array.isArray(plan && plan.segments) && plan.segments.length > 1) {
+    return renderMultiSegmentShort({ inputPath, outputPath, subtitlesPath, plan, signal, ffmpegRunner });
+  }
+  return renderSingleWindowShort({ inputPath, outputPath, subtitlesPath, plan, signal, ffmpegRunner });
 }
 
 module.exports = {

@@ -1282,7 +1282,7 @@ function detectHighlights({ transcript, signals, visualSignals, preset = "hype" 
   for (const moment of merged) {
     if (deduped.some((existing) => Math.abs(existing.center - moment.center) < 2.5)) continue;
     deduped.push({ ...moment, rank: deduped.length + 1 });
-    if (deduped.length >= 3) break;
+    if (deduped.length >= 7) break;
   }
   const moments = deduped.length ? deduped : createFallbackMoments(safeSignals, preset, safeVisualSignals);
   const rankedMoments = moments.map((moment, index) => ({
@@ -1472,6 +1472,409 @@ function reviewMetadataForPlan(plan, moment, mediaSignals = {}) {
   };
 }
 
+const MULTI_MOMENT_COMPILATION = Object.freeze({
+  minSourceDuration: 45,
+  minSegments: 3,
+  maxSegments: 7,
+  minTotalDuration: 35,
+  maxTotalDuration: 60,
+});
+
+const PRIMARY_MULTI_MOMENT_TYPES = Object.freeze([
+  "goal",
+  "big_chance",
+  "shot_on_target",
+  "near_miss",
+  "save",
+  "hard_foul",
+  "foul",
+  "card_moment",
+  "counter_attack",
+  "skill_move",
+  "replay_worthy_moment",
+]);
+
+function momentSuppressedCues(moment = {}) {
+  return moment.rankingExplanation && Array.isArray(moment.rankingExplanation.suppressedCues)
+    ? moment.rankingExplanation.suppressedCues
+    : [];
+}
+
+function hasPrimaryMomentAction(moment = {}) {
+  const highlightType = sanitizeText(moment.highlightType || "", 40);
+  const reasonCodes = Array.isArray(moment.reasonCodes) ? moment.reasonCodes : [];
+  const reasonSet = new Set(reasonCodes);
+  return PRIMARY_MULTI_MOMENT_TYPES.includes(highlightType) ||
+    PRIMARY_ACTION_REASONS.some((reason) => reasonSet.has(reason));
+}
+
+function isOpeningFillerMoment(moment = {}) {
+  return momentSuppressedCues(moment).includes("opening_context_without_action") && !hasPrimaryMomentAction(moment);
+}
+
+function isReactionOnlyMoment(moment = {}) {
+  const summary = actionSequenceSummaryForMoment(moment);
+  if (summary.reactionOnly) return true;
+  const reasonCodes = Array.isArray(moment.reasonCodes) ? moment.reasonCodes : [];
+  const reasonSet = new Set(reasonCodes);
+  return REACTION_CONTEXT_REASONS.some((reason) => reasonSet.has(reason)) && !hasPrimaryMomentAction(moment);
+}
+
+function compilationSelectionScore(candidate = {}) {
+  const moment = candidate.analysisMoment || {};
+  const actionSummary = candidate.actionSequenceSummary || actionSequenceSummaryForMoment(moment);
+  const actionBoost = hasPrimaryMomentAction(moment) ? 18 : 0;
+  const replayBoost = candidate.highlightType === "replay_worthy_moment" ? 8 : 0;
+  const reactionPenalty = isReactionOnlyMoment(moment) ? 9 : 0;
+  const openingPenalty = isOpeningFillerMoment(moment) ? 100 : 0;
+  const sequenceBoost = Number(actionSummary.actionStageCount || 0) * 2;
+  return Number(candidate.retentionScore || 0) + actionBoost + replayBoost + sequenceBoost - reactionPenalty - openingPenalty;
+}
+
+function sourceOverlapRatio(a = {}, b = {}) {
+  const left = Math.max(Number(a.sourceStart || 0), Number(b.sourceStart || 0));
+  const right = Math.min(Number(a.sourceEnd || 0), Number(b.sourceEnd || 0));
+  const overlap = Math.max(0, right - left);
+  const duration = Math.max(0.1, Math.min(
+    Number(a.sourceEnd || 0) - Number(a.sourceStart || 0),
+    Number(b.sourceEnd || 0) - Number(b.sourceStart || 0),
+  ));
+  return overlap / duration;
+}
+
+function uniqueReasonCodes(candidates = []) {
+  return [...new Set(candidates.flatMap((candidate) => (
+    Array.isArray(candidate.reasonCodes) ? candidate.reasonCodes : []
+  )))].filter((reason) => reason !== "goal").slice(0, 18);
+}
+
+function segmentWhySelected(candidate = {}) {
+  const moment = candidate.analysisMoment || {};
+  if (hasPrimaryMomentAction(moment)) return "Action evidence selected before reaction payoff.";
+  if (candidate.highlightType === "replay_worthy_moment") return "Replay context selected as supporting football detail.";
+  if (isReactionOnlyMoment(moment)) return "Reaction included only with the action lead-in window.";
+  return "Selected as a bounded football phase.";
+}
+
+function segmentSafetyFlags(candidate = {}) {
+  const flags = [];
+  const moment = candidate.analysisMoment || {};
+  if (isOpeningFillerMoment(moment)) flags.push("opening_context_without_action");
+  if (isReactionOnlyMoment(moment)) flags.push("reaction_support_only");
+  if (candidate.framingMode === "wide_safe_vertical") flags.push("wide_safe_full_frame");
+  if (candidate.highlightType !== "goal") flags.push("no_goal_claim_without_evidence");
+  return flags;
+}
+
+function segmentCaptionText(segment, index) {
+  const phase = `PHASE ${index + 1}`;
+  const labels = {
+    goal: `${phase}: SHOT TO PAYOFF`,
+    big_chance: `${phase}: THE CHANCE OPENS`,
+    shot_on_target: `${phase}: SHOT UNDER PRESSURE`,
+    near_miss: `${phase}: SO CLOSE`,
+    save: `${phase}: KEEPER REACTS`,
+    foul: `${phase}: CONTACT CHANGES TEMPO`,
+    hard_foul: `${phase}: HEAVY CONTACT`,
+    card_moment: `${phase}: REFEREE DECISION`,
+    counter_attack: `${phase}: SPACE OPENS FAST`,
+    skill_move: `${phase}: ONE TOUCH OPENS IT`,
+    replay_worthy_moment: `${phase}: REPLAY THE DETAIL`,
+    crowd_reaction: `${phase}: REACTION AFTER THE PLAY`,
+    commentator_peak: `${phase}: THE CALL FOLLOWS THE ACTION`,
+    audio_energy_spike: `${phase}: ENERGY AFTER THE PHASE`,
+    unknown_action: `${phase}: PRESSURE BUILDS`,
+    generic_highlight: `${phase}: PLAY DEVELOPS`,
+  };
+  return labels[segment.highlightType] || labels.generic_highlight;
+}
+
+function captionsForCompilation(segments, totalDuration) {
+  const captions = [{
+    start: 0,
+    end: Math.min(2.2, totalDuration),
+    text: "BEST PHASES ONLY",
+    role: "opening_hook",
+    emphasis: "shout",
+    layout: "center",
+    captionIntent: "multi_moment_hook",
+    captionSource: "multi_moment_builder:opening_hook",
+    captionEvidence: {
+      alignedHighlightType: "generic_highlight",
+      highlightType: "generic_highlight",
+      reasonCodes: ["generic_highlight"],
+      visualReasonCodes: [],
+      goalEvidence: false,
+      role: "opening_hook",
+    },
+    captionRiskFlags: [],
+  }];
+  for (const [index, segment] of segments.entries()) {
+    const start = Number(Math.min(segment.timelineEnd - 0.5, segment.timelineStart + 0.45).toFixed(2));
+    const end = Number(Math.min(segment.timelineEnd, start + Math.min(3.2, Math.max(1.4, segment.duration - 0.7))).toFixed(2));
+    if (end <= start) continue;
+    const role = index === segments.length - 1 ? "reaction" : "action_callout";
+    captions.push({
+      start,
+      end,
+      text: segmentCaptionText(segment, index),
+      role,
+      emphasis: role === "reaction" ? "strong" : "strong",
+      layout: "bottom",
+      captionIntent: captionIntentForHighlightType(segment.highlightType, role),
+      captionSource: `multi_moment_builder:${segment.highlightType}:${index + 1}`,
+      captionEvidence: {
+        alignedHighlightType: segment.highlightType,
+        highlightType: segment.highlightType,
+        reasonCodes: segment.reasonCodes,
+        visualReasonCodes: segment.reasonCodes.filter((reason) => /^visual_/.test(reason)),
+        goalEvidence: false,
+        role,
+      },
+      captionRiskFlags: [],
+    });
+  }
+  captions.push({
+    start: Math.max(0, Number((totalDuration - 2.4).toFixed(2))),
+    end: totalDuration,
+    text: "RUN THE WHOLE SEQUENCE BACK",
+    role: "closing_punch",
+    emphasis: "strong",
+    layout: "bottom",
+    captionIntent: "multi_moment_replay_prompt",
+    captionSource: "multi_moment_builder:closing_punch",
+    captionEvidence: {
+      alignedHighlightType: "generic_highlight",
+      highlightType: "generic_highlight",
+      reasonCodes: ["replay_worthy_moment"],
+      visualReasonCodes: [],
+      goalEvidence: false,
+      role: "closing_punch",
+    },
+    captionRiskFlags: [],
+  });
+  return captions;
+}
+
+function animationCuesForCompilation(segments, totalDuration, reasonCodes = []) {
+  const cues = createAnimationCues(totalDuration, reasonCodes);
+  for (const segment of segments.slice(1, 5)) {
+    const boundary = Math.max(0.1, Number(segment.timelineStart || 0));
+    cues.push({
+      type: "beat_cut",
+      start: Number(Math.max(0, boundary - 0.08).toFixed(2)),
+      end: Number(Math.min(totalDuration, boundary + 0.28).toFixed(2)),
+    });
+  }
+  return cues.filter((cue) => cue.end > cue.start).slice(0, 10);
+}
+
+function selectCompilationCandidates(singleCandidates = [], metadata = {}) {
+  const mediaDuration = Number(metadata.durationSeconds || 0);
+  if (mediaDuration < MULTI_MOMENT_COMPILATION.minSourceDuration) return [];
+  const selected = [];
+  let totalDuration = 0;
+  const ranked = singleCandidates
+    .filter((candidate) => candidate && !isOpeningFillerMoment(candidate.analysisMoment))
+    .sort((a, b) => compilationSelectionScore(b) - compilationSelectionScore(a) || a.sourceStart - b.sourceStart);
+  for (const candidate of ranked) {
+    if (selected.some((existing) => sourceOverlapRatio(existing, candidate) > 0.35)) continue;
+    const duration = Number((candidate.sourceEnd - candidate.sourceStart).toFixed(2));
+    if (duration < 3) continue;
+    if (totalDuration + duration > MULTI_MOMENT_COMPILATION.maxTotalDuration) {
+      if (totalDuration >= MULTI_MOMENT_COMPILATION.minTotalDuration) continue;
+      const remaining = Number((MULTI_MOMENT_COMPILATION.maxTotalDuration - totalDuration).toFixed(2));
+      if (remaining < 6) continue;
+      selected.push({ ...candidate, sourceEnd: Number((candidate.sourceStart + remaining).toFixed(2)) });
+      totalDuration += remaining;
+      break;
+    }
+    selected.push(candidate);
+    totalDuration += duration;
+    if (selected.length >= MULTI_MOMENT_COMPILATION.maxSegments || totalDuration >= MULTI_MOMENT_COMPILATION.minTotalDuration) {
+      const actionCount = selected.filter((item) => hasPrimaryMomentAction(item.analysisMoment)).length;
+      if (selected.length >= MULTI_MOMENT_COMPILATION.minSegments && (actionCount > 0 || selected.length >= 3)) break;
+    }
+  }
+  const chronological = selected.sort((a, b) => a.sourceStart - b.sourceStart);
+  const finalDuration = chronological.reduce((sum, candidate) => sum + Number(candidate.sourceEnd - candidate.sourceStart), 0);
+  if (chronological.length < MULTI_MOMENT_COMPILATION.minSegments) return [];
+  if (finalDuration < MULTI_MOMENT_COMPILATION.minTotalDuration) return [];
+  return chronological.slice(0, MULTI_MOMENT_COMPILATION.maxSegments);
+}
+
+function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, renderStylePreset, styleTarget, editIntensity, mediaSignals }) {
+  const selectedCandidates = selectCompilationCandidates(singleCandidates, metadata);
+  if (!selectedCandidates.length) return null;
+  let cursor = 0;
+  const segments = selectedCandidates.map((candidate, index) => {
+    const duration = Number((candidate.sourceEnd - candidate.sourceStart).toFixed(2));
+    const timelineStart = Number(cursor.toFixed(2));
+    cursor += duration;
+    const moment = candidate.analysisMoment || {};
+    return {
+      id: sanitizeText(candidate.candidateId || moment.id || `multi_segment_${index + 1}`, 64),
+      sourceStart: Number(candidate.sourceStart.toFixed(2)),
+      sourceEnd: Number(candidate.sourceEnd.toFixed(2)),
+      duration,
+      timelineStart,
+      timelineEnd: Number(cursor.toFixed(2)),
+      highlightType: candidate.highlightType,
+      reasonCodes: Array.isArray(candidate.reasonCodes) ? candidate.reasonCodes : [],
+      confidence: candidate.confidence,
+      retentionScore: candidate.retentionScore,
+      captionTheme: captionIntentForHighlightType(candidate.highlightType),
+      actionSequenceSummary: candidate.actionSequenceSummary || actionSequenceSummaryForMoment(moment),
+      whySelected: segmentWhySelected(candidate),
+      safetyFlags: segmentSafetyFlags(candidate),
+    };
+  });
+  const totalDuration = Number(cursor.toFixed(2));
+  const reasonCodes = uniqueReasonCodes(selectedCandidates);
+  const captions = captionsForCompilation(segments, totalDuration);
+  const primary = selectedCandidates.find((candidate) => hasPrimaryMomentAction(candidate.analysisMoment)) || selectedCandidates[0];
+  const baseCropPlan = primary.cropPlan || calibrateCropPlan({ metadata, targetAspectRatio: primary.aspectRatio || "9:16" });
+  const cropPlan = {
+    ...baseCropPlan,
+    mode: baseCropPlan.mode === "soft_follow" ? "wide_safe" : baseCropPlan.mode,
+    fallbackUsed: true,
+    reasonCodes: [...new Set([...(baseCropPlan.reasonCodes || []), "multi_moment_wide_safe_default"])].slice(0, 8),
+  };
+  const plan = {
+    mode: "multi_moment_compilation",
+    sourceStart: segments[0].sourceStart,
+    sourceEnd: Math.max(...segments.map((segment) => segment.sourceEnd)),
+    segments,
+    totalDuration,
+    aspectRatio: primary.aspectRatio || "9:16",
+    highlightType: "generic_highlight",
+    confidence: Number(clamp(selectedCandidates.reduce((sum, candidate) => sum + Number(candidate.confidence || 0), 0) / selectedCandidates.length, 0, 1).toFixed(2)),
+    hook: "BEST PHASES ONLY",
+    title: sanitizeText(title, 120),
+    captions,
+    effects: [...new Set(selectedCandidates.flatMap((candidate) => candidate.effects || []))].slice(0, 8),
+    framingMode: "wide_safe_vertical",
+    framingReason: "wide_safe_multi_moment_preserves_ball_players",
+    actionFocusConfidence: Math.max(...selectedCandidates.map((candidate) => Number(candidate.actionFocusConfidence || 0))),
+    visualEvidenceSummary: primary.visualEvidenceSummary,
+    visualTrackingSummary: primary.visualTrackingSummary,
+    actionSequenceSummary: {
+      ...actionSequenceSummaryForMoment(primary.analysisMoment || {}),
+      multiMomentSegmentCount: segments.length,
+      reactionOnly: false,
+    },
+    cropPlan,
+    cropStrategy: createCropStrategy(metadata, "wide_safe_vertical"),
+    visualQA: null,
+    stylePreset: renderStylePreset,
+    styleTarget,
+    editIntensity,
+    footballStoryPlan: {
+      storyType: "multi_moment_compilation",
+      primarySubject: sanitizeText(title, 96),
+      hook: "BEST PHASES ONLY",
+      contextLine: `${segments.length} selected phases in match order`,
+      selectedMoment: {
+        id: "multi_moment_compilation",
+        start: segments[0].sourceStart,
+        end: Math.max(...segments.map((segment) => segment.sourceEnd)),
+        originalStart: segments[0].sourceStart,
+        originalEnd: Math.max(...segments.map((segment) => segment.sourceEnd)),
+        highlightType: "generic_highlight",
+        reasonCodes,
+        actionSequenceSummary: null,
+      },
+      supportingMoments: segments.map((segment) => ({
+        id: segment.id,
+        highlightType: segment.highlightType,
+        start: segment.sourceStart,
+        end: segment.sourceEnd,
+      })),
+      captionBeats: captions,
+      captionGeneration: {
+        providerMode: "deterministic_multi_moment",
+        fallbackUsed: false,
+        warnings: [],
+      },
+      framingIntent: {
+        mode: "wide_safe_vertical",
+        aspectRatio: primary.aspectRatio || "9:16",
+        punchInAllowed: false,
+        reason: "wide_safe_multi_moment_preserves_ball_players",
+        actionFocusConfidence: Math.max(...selectedCandidates.map((candidate) => Number(candidate.actionFocusConfidence || 0))),
+      },
+      animationIntent: {
+        intensity: editIntensity,
+        cueTypes: animationCuesForCompilation(segments, totalDuration, reasonCodes).map((cue) => cue.type),
+        maxCueCount: 10,
+        excessiveFlashingGuard: true,
+        evidenceAlignedOnly: true,
+      },
+      animationCues: animationCuesForCompilation(segments, totalDuration, reasonCodes),
+      aspectRatio: primary.aspectRatio || "9:16",
+      export: primary.export,
+      confidence: Number(clamp(selectedCandidates.reduce((sum, candidate) => sum + Number(candidate.confidence || 0), 0) / selectedCandidates.length, 0, 1).toFixed(2)),
+      safetyNotes: [
+        "Compilation excludes opening context without action evidence.",
+        "Reaction moments are included only with action lead-in windows.",
+        "Goal language is not used without explicit goal evidence.",
+      ],
+      captionEmphasis: createCaptionEmphasis(captions, "generic_highlight"),
+      cropStrategy: createCropStrategy(metadata, "wide_safe_vertical"),
+      styleTarget,
+      editIntensity,
+    },
+    captionEmphasis: createCaptionEmphasis(captions, "generic_highlight"),
+    animationCues: animationCuesForCompilation(segments, totalDuration, reasonCodes),
+    safetyNotes: [
+      "Multi-moment compilation keeps selected phases in chronological order.",
+      "Opening ceremony and generic intro context are excluded unless action evidence is present.",
+      "Reaction-only evidence is treated as support and rendered with lead-in.",
+      "Wide-safe framing preserves ball/player context across all segments.",
+    ],
+    candidateId: "multi_moment_compilation",
+    rank: 1,
+    retentionScore: Math.round(selectedCandidates.reduce((sum, candidate) => sum + Number(candidate.retentionScore || 0), 0) / selectedCandidates.length),
+    reasonCodes,
+    analysisMoment: {
+      id: "multi_moment_compilation",
+      title: "Multi-moment football compilation",
+      summary: `${segments.length} selected phases in chronological order.`,
+      confidence: Number(clamp(selectedCandidates.reduce((sum, candidate) => sum + Number(candidate.confidence || 0), 0) / selectedCandidates.length, 0, 1).toFixed(2)),
+      highlightType: "generic_highlight",
+      retentionScore: Math.round(selectedCandidates.reduce((sum, candidate) => sum + Number(candidate.retentionScore || 0), 0) / selectedCandidates.length),
+      reasonCodes,
+      evidence: null,
+      visualTrackingSummary: primary.visualTrackingSummary,
+      actionSequenceSummary: null,
+      captionIntent: "multi_moment_compilation",
+      source: "multi_moment_builder",
+    },
+    export: {
+      ...primary.export,
+    },
+  };
+  const validated = validateEditPlan(plan, metadata);
+  validated.visualQA = visualQaForPlan(validated);
+  return {
+    ...validated,
+    reviewMetadata: {
+      ...reviewMetadataForPlan(validated, primary.analysisMoment || {}, mediaSignals),
+      multiMoment: {
+        segmentCount: segments.length,
+        totalDuration,
+        segmentTimestamps: segments.map((segment) => ({
+          sourceStart: segment.sourceStart,
+          sourceEnd: segment.sourceEnd,
+          highlightType: segment.highlightType,
+          whySelected: segment.whySelected,
+          safetyFlags: segment.safetyFlags,
+        })),
+      },
+    },
+  };
+}
+
 function createCandidateEditPlans({
   moments,
   metadata,
@@ -1488,7 +1891,7 @@ function createCandidateEditPlans({
   captionProvider = null,
 } = {}) {
   const renderStylePreset = normalizeStylePreset(stylePreset);
-  const candidates = (Array.isArray(moments) ? moments : []).slice(0, 3).map((moment) => {
+  const singleCandidates = (Array.isArray(moments) ? moments : []).slice(0, 7).map((moment) => {
     const visualEvidenceSummary = visualEvidenceSummaryForMoment(moment);
     const visualTrackingSummary = publicVisualTrackingSummary(visualTracking || null, metadata);
     const actionSequenceSummary = actionSequenceSummaryForMoment(moment);
@@ -1592,9 +1995,21 @@ function createCandidateEditPlans({
       reviewMetadata: reviewMetadataForPlan(validated, moment, mediaSignals),
     };
   });
-  if (!candidates.length) {
+  if (!singleCandidates.length) {
     throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
   }
+  const multiMomentCandidate = createMultiMomentCompilationPlan({
+    singleCandidates,
+    metadata,
+    title,
+    renderStylePreset,
+    styleTarget: normalizeStyleTarget(styleTarget),
+    editIntensity: normalizeEditIntensity(editIntensity),
+    mediaSignals,
+  });
+  const candidates = multiMomentCandidate
+    ? [multiMomentCandidate, ...singleCandidates.map((candidate, index) => ({ ...candidate, rank: index + 2 }))]
+    : singleCandidates;
   return candidates;
 }
 
@@ -1615,6 +2030,7 @@ function analysisHealth() {
       "football_story_planner",
       "contextual_caption_planning",
       "reference_style_animation_cues",
+      "multi_moment_compilation",
       "highlight_ranking",
       "candidate_edit_plans",
     ],

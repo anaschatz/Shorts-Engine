@@ -194,7 +194,10 @@ function visualReasonCodes(reasons = []) {
 
 function captionsHaveValidTiming(plan) {
   if (!plan || !Array.isArray(plan.captions) || plan.captions.length === 0) return false;
-  const duration = toNumber(plan.sourceEnd) - toNumber(plan.sourceStart);
+  const segmentDuration = Array.isArray(plan.segments)
+    ? plan.segments.reduce((sum, segment) => sum + Math.max(0, toNumber(segment.sourceEnd) - toNumber(segment.sourceStart)), 0)
+    : 0;
+  const duration = toNumber(plan.totalDuration) || segmentDuration || (toNumber(plan.sourceEnd) - toNumber(plan.sourceStart));
   return plan.captions.every((caption) => {
     const start = toNumber(caption.start, Number.NaN);
     const end = toNumber(caption.end, Number.NaN);
@@ -225,8 +228,16 @@ function captionsHaveValidRoles(plan) {
 
 function captionEvidenceMetadataIsComplete(plan) {
   if (!plan || !Array.isArray(plan.captions) || plan.captions.length === 0) return false;
+  const segmentHighlightTypes = new Set(
+    Array.isArray(plan.segments)
+      ? plan.segments.map((segment) => segment && segment.highlightType).filter(Boolean)
+      : [],
+  );
   return plan.captions.every((caption) => {
     const evidence = caption && caption.captionEvidence;
+    const alignedType = evidence && evidence.alignedHighlightType;
+    const alignedWithPlan = alignedType === plan.highlightType ||
+      (plan.mode === "multi_moment_compilation" && (segmentHighlightTypes.has(alignedType) || alignedType === "generic_highlight"));
     return (
       caption &&
       typeof caption.captionIntent === "string" &&
@@ -235,7 +246,7 @@ function captionEvidenceMetadataIsComplete(plan) {
       caption.captionSource.length > 0 &&
       evidence &&
       typeof evidence === "object" &&
-      evidence.alignedHighlightType === plan.highlightType &&
+      alignedWithPlan &&
       Array.isArray(evidence.reasonCodes) &&
       Array.isArray(evidence.visualReasonCodes) &&
       Array.isArray(caption.captionRiskFlags) &&
@@ -895,8 +906,23 @@ function scoreFixture(fixture) {
         : null,
       candidatePlans: candidatePlans.map((plan) => ({
         rank: plan.rank,
+        mode: plan.mode || "single_moment",
         sourceStart: plan.sourceStart,
         sourceEnd: plan.sourceEnd,
+        totalDuration: plan.totalDuration,
+        selectedMomentCount: Array.isArray(plan.segments) && plan.segments.length ? plan.segments.length : 1,
+        segments: Array.isArray(plan.segments)
+          ? plan.segments.map((segment) => ({
+              sourceStart: segment.sourceStart,
+              sourceEnd: segment.sourceEnd,
+              timelineStart: segment.timelineStart,
+              timelineEnd: segment.timelineEnd,
+              highlightType: segment.highlightType,
+              reasonCodes: segment.reasonCodes,
+              whySelected: sanitizeReportText(segment.whySelected, 160),
+              safetyFlags: Array.isArray(segment.safetyFlags) ? segment.safetyFlags : [],
+            }))
+          : [],
         retentionScore: plan.retentionScore,
         reasonCodes: plan.reasonCodes,
         highlightType: plan.highlightType,

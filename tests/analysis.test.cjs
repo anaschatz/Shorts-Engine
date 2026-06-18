@@ -9,7 +9,7 @@ const {
   highlightTypeForReasons,
   reasonCodesForCaption,
 } = require("../server/analysis.cjs");
-const { hasGoalLanguage } = require("../server/edit-plan.cjs");
+const { hasGoalLanguage, validateEditPlan } = require("../server/edit-plan.cjs");
 const {
   MockTranscriptionProvider,
   OpenAITranscriptionProvider,
@@ -563,6 +563,83 @@ test("long source opening ceremony context is demoted below later match reaction
   });
   assert.ok(plans[0].sourceStart <= result.moments[0].start - 5);
   assert.ok(plans[0].sourceEnd >= result.moments[0].end);
+});
+
+test("long football sources produce a chronological multi-moment compilation without intro filler", () => {
+  const longMetadata = { durationSeconds: 130, width: 1920, height: 1080, hasAudio: true };
+  const longTranscript = {
+    provider: "fixture",
+    language: "en",
+    captions: [
+      { start: 4, end: 6, text: "Opening ceremony and crowd noise before kick off" },
+      { start: 25, end: 27, text: "Huge chance opens from the left side" },
+      { start: 48, end: 50, text: "The keeper makes a strong save under pressure" },
+      { start: 72, end: 74, text: "Heavy contact changes the tempo" },
+      { start: 96, end: 98, text: "The crowd reacts after the phase" },
+    ],
+  };
+  const result = detectHighlights({
+    transcript: longTranscript,
+    signals: {
+      durationSeconds: 130,
+      hasAudio: true,
+      audioPeaks: [
+        { time: 5, energyScore: 0.9, source: "fixture" },
+        { time: 25.8, energyScore: 0.89, source: "fixture" },
+        { time: 48.8, energyScore: 0.9, source: "fixture" },
+        { time: 72.6, energyScore: 0.88, source: "fixture" },
+        { time: 96.4, energyScore: 0.92, source: "fixture" },
+      ],
+      sceneChanges: [
+        { time: 26, confidence: 0.78, source: "fixture" },
+        { time: 49, confidence: 0.8, source: "fixture" },
+        { time: 73, confidence: 0.77, source: "fixture" },
+        { time: 96.5, confidence: 0.73, source: "fixture" },
+      ],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [
+        { start: 3.5, end: 6.5, labels: ["crowd_reaction"], confidence: 0.78 },
+        { start: 24.2, end: 27.4, labels: ["shot_like_motion", "goal_area_visible", "ball_visible"], confidence: 0.9 },
+        { start: 47.2, end: 50.8, labels: ["save_like_motion", "keeper_action", "ball_visible"], confidence: 0.91 },
+        { start: 71.2, end: 74.5, labels: ["foul_like_contact", "ball_visible"], confidence: 0.88 },
+        { start: 95.2, end: 98.5, labels: ["crowd_reaction"], confidence: 0.83 },
+      ],
+    },
+    preset: "hype",
+  });
+  assert.ok(result.moments.length >= 4);
+  assert.equal(result.moments.some((moment) => (
+    moment.start < 12 &&
+    moment.rankingExplanation.suppressedCues.includes("opening_context_without_action")
+  )), true);
+
+  const plans = createCandidateEditPlans({
+    moments: result.moments,
+    metadata: longMetadata,
+    transcript: longTranscript,
+    title: "Long multi-phase fixture",
+    editIntensity: "balanced",
+    stylePreset: "punchy_highlight",
+  });
+  const plan = validateEditPlan(plans[0], longMetadata);
+  assert.equal(plan.mode, "multi_moment_compilation");
+  assert.ok(plan.segments.length >= 3);
+  assert.ok(plan.totalDuration >= 35);
+  assert.ok(plan.totalDuration <= 60);
+  assert.deepEqual(
+    plan.segments.map((segment) => segment.sourceStart),
+    [...plan.segments.map((segment) => segment.sourceStart)].sort((a, b) => a - b),
+  );
+  assert.equal(plan.segments.some((segment) => segment.sourceStart < 12), false);
+  assert.equal(plan.segments.some((segment) => segment.highlightType === "big_chance"), true);
+  assert.equal(plan.segments.some((segment) => segment.highlightType === "save"), true);
+  assert.equal(plan.segments.some((segment) => segment.highlightType === "hard_foul"), true);
+  assert.equal(hasGoalLanguage(plan.captions.map((caption) => caption.text).join(" ")), false);
+  assert.equal(plan.framingMode, "wide_safe_vertical");
+  assert.equal(plan.cropStrategy.preserveFullFrame, true);
 });
 
 test("replay-heavy evidence becomes replay-worthy without inventing action or goal", () => {
