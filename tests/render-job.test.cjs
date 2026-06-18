@@ -200,11 +200,34 @@ function makeContext(options = {}) {
         windows: [{ start: 2.7, end: 5.1, type: "unknown_visual_action", confidence: 0.72 }],
       };
     },
-    analyzeGoalEvidence: async ({ visualSignals }) => {
+    analyzeScoreboardOcr: async ({ frames, visualSignals }) => {
+      calls.push("analyze_scoreboard_ocr");
+      context.scoreboardOcrFrameCount = Array.isArray(frames) ? frames.length : 0;
+      context.scoreboardOcrVisualWindowCount = visualSignals && Array.isArray(visualSignals.windows)
+        ? visualSignals.windows.length
+        : 0;
+      return options.scoreboardOcr || {
+        providerMode: "mock-scoreboard-ocr",
+        fallbackUsed: true,
+        confidence: 0,
+        evidence: [],
+        summary: {
+          evidenceCount: 0,
+          scoreChangeCount: 0,
+          scoreUnchangedCount: 0,
+          ambiguousCount: 0,
+          sampledFrameCount: context.scoreboardOcrFrameCount,
+          regionCount: 0,
+          fallbackUsed: true,
+        },
+      };
+    },
+    analyzeGoalEvidence: async ({ visualSignals, scoreboardOcr }) => {
       calls.push("analyze_goal_evidence");
       context.goalEvidenceVisualWindowCount = visualSignals && Array.isArray(visualSignals.windows)
         ? visualSignals.windows.length
         : 0;
+      context.goalEvidenceOcrEvidenceCount = Array.isArray(scoreboardOcr) ? scoreboardOcr.length : 0;
       return options.goalEvidence || {
         providerMode: "mock-goal-evidence",
         fallbackUsed: false,
@@ -217,6 +240,11 @@ function makeContext(options = {}) {
           offsideOrNoGoalCount: 0,
           unconfirmedGoalCount: 0,
           nonGoalChanceCount: 0,
+          celebrationOnlyCount: 0,
+          anthemOrIntroCount: 0,
+          ocrEvidenceCount: context.goalEvidenceOcrEvidenceCount,
+          scoreboardConfirmedGoalCount: 0,
+          ambiguousOcrCount: 0,
           goalEvidenceCoverage: 0,
         },
       };
@@ -303,6 +331,7 @@ test("render orchestration completes success path with mocked adapters", async (
       "analyze_media",
       "extract_sampled_frames",
       "analyze_visuals",
+      "analyze_scoreboard_ocr",
       "transcribe",
       "analyze_goal_evidence",
       "detect_highlights",
@@ -319,6 +348,7 @@ test("render orchestration completes success path with mocked adapters", async (
   assert.equal(context.createPlanInput.language, "en");
   assert.equal(context.calls.includes("analyze_frames"), true);
   assert.equal(context.calls.includes("analyze_tracking"), true);
+  assert.equal(context.calls.includes("analyze_scoreboard_ocr"), true);
   assert.equal(context.calls.includes("analyze_goal_evidence"), true);
   assert.equal(context.calls.includes("extract_sampled_frames"), true);
   assert.equal(context.visualCandidateWindows.length > 0, true);
@@ -341,6 +371,8 @@ test("render orchestration completes success path with mocked adapters", async (
   assert.equal(visualAnalysisLog.latencyMs, 5);
   assert.doesNotMatch(JSON.stringify(visualAnalysisLog), /\/Users|storageKey|localPath|secret/i);
   assert.equal(context.job.visualSignals.summary.goalClaimAllowed, false);
+  assert.equal(context.job.scoreboardOcr.providerMode, "mock-scoreboard-ocr");
+  assert.equal(context.job.scoreboardOcr.summary.evidenceCount, 0);
   assert.equal(context.job.goalEvidence.providerMode, "mock-goal-evidence");
   assert.equal(context.job.goalEvidence.summary.eventCount, 0);
   assert.equal(context.job.visualTracking.goalClaimAllowed, false);
@@ -354,9 +386,15 @@ test("render orchestration completes success path with mocked adapters", async (
   assert.equal(visualTrackingLog.ballTrackCount, 0);
   assert.equal(typeof visualTrackingLog.trackingConfidence, "number");
   assert.doesNotMatch(JSON.stringify(visualTrackingLog), /\/Users|storageKey|localPath|secret/i);
+  const scoreboardOcrLog = context.logs.find((entry) => entry.event === "scoreboard_ocr_completed");
+  assert.equal(scoreboardOcrLog.providerMode, "mock-scoreboard-ocr");
+  assert.equal(scoreboardOcrLog.evidenceCount, 0);
+  assert.equal(scoreboardOcrLog.sampledFrameCount, 1);
+  assert.doesNotMatch(JSON.stringify(scoreboardOcrLog), /\/Users|storageKey|localPath|secret|rawOcr|rawText/i);
   const goalEvidenceLog = context.logs.find((entry) => entry.event === "goal_evidence_completed");
   assert.equal(goalEvidenceLog.providerMode, "mock-goal-evidence");
   assert.equal(goalEvidenceLog.evidenceEventCount, 0);
+  assert.equal(context.goalEvidenceOcrEvidenceCount, 0);
   assert.doesNotMatch(JSON.stringify(goalEvidenceLog), /\/Users|storageKey|localPath|secret/i);
 });
 
@@ -369,6 +407,48 @@ test("youtube long-source render requests valid-goals-only planning", async () =
 
   assert.equal(context.job.status, "completed");
   assert.equal(context.createPlanInput.metadata.goalSelectionMode, "valid_goals_only");
+});
+
+test("render orchestration passes scoreboard OCR evidence into goal evidence analysis", async () => {
+  const context = makeContext({
+    scoreboardOcr: {
+      providerMode: "mock-scoreboard-ocr",
+      fallbackUsed: false,
+      confidence: 0.88,
+      evidence: [{
+        id: "ocr_1",
+        timestamp: 6,
+        start: 5.5,
+        end: 6.5,
+        status: "score_changed",
+        scoreBefore: "0-0",
+        scoreAfter: "1-0",
+        confidence: 0.88,
+        temporalConsistency: true,
+        ambiguous: false,
+        scoreChanged: true,
+        scoreUnchanged: false,
+        source: "test_fixture",
+      }],
+      summary: {
+        evidenceCount: 1,
+        scoreChangeCount: 1,
+        scoreUnchangedCount: 0,
+        ambiguousCount: 0,
+        sampledFrameCount: 1,
+        regionCount: 3,
+        fallbackUsed: false,
+      },
+    },
+  });
+  await runContext(context);
+
+  assert.equal(context.job.status, "completed");
+  assert.equal(context.job.scoreboardOcr.summary.evidenceCount, 1);
+  assert.equal(context.goalEvidenceOcrEvidenceCount, 1);
+  const scoreboardOcrLog = context.logs.find((entry) => entry.event === "scoreboard_ocr_completed");
+  assert.equal(scoreboardOcrLog.scoreChangeCount, 1);
+  assert.doesNotMatch(JSON.stringify(context.job.scoreboardOcr), /\/Users|storageKey|localPath|secret|rawOcr|rawText/i);
 });
 
 test("visual candidate windows keep late long-source regions before frame extraction", () => {

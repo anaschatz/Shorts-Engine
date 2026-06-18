@@ -32,3 +32,4 @@ Review generated shorts against:
 - multi-moment football shorts should report selected segment count, source/timeline timestamps, total duration, intro exclusion, reaction-as-support behavior, and no-false-goal caption safety.
 - ball-in-net evaluation should check outcome evidence, offside/no-goal context, post-goal decision coverage and no confirmed-goal copy unless `goalOutcome.outcome` is `confirmed_goal`.
 - referee/VAR/offside decision evaluation should track `offsideOutcomeAccuracy`, `disallowedGoalIncluded`, `decisionContextCoverage`, `captionOutcomeAlignment` and `postGoalWindowCoverage`.
+- scoreboard OCR evaluation should track `ocrEvidenceCoverage`, `scoreboardScoreChangeRecall`, `ambiguousOcrFailClosed`, and `noFalseGoalFromOcrOnly` before OCR evidence can support goal decisions.

@@ -92,6 +92,11 @@
       { "start": 174.0, "end": 190.6 },
       { "start": 270.0, "end": 286.8 }
     ],
+    "scoreboardOcr": [
+      { "timestamp": 104.8, "status": "score_changed" },
+      { "timestamp": 190.6, "status": "score_changed" },
+      { "timestamp": 286.8, "status": "score_changed" }
+    ],
     "celebrationOnly": [
       { "start": 305.0, "end": 308.0 }
     ],

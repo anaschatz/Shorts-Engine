@@ -20,6 +20,7 @@ const { analysisHealth } = require("./analysis.cjs");
 const { EDIT_INTENSITIES, STYLE_TARGETS, normalizeEditIntensity, normalizeStyleTarget } = require("./football-story-planner.cjs");
 const { frameExtractionHealth } = require("./frame-extraction.cjs");
 const { createGoalEvidenceProvider } = require("./goal-evidence-provider.cjs");
+const { scoreboardOcrHealth } = require("./scoreboard-ocr.cjs");
 const { visionHealth } = require("./vision.cjs");
 const { validateUploadCandidate, probeMedia, toolHealth, sha256, sanitizeText } = require("./media.cjs");
 const { HOOKS, RENDER_STYLE_PRESETS, normalizeStylePreset } = require("./edit-plan.cjs");
@@ -466,6 +467,7 @@ async function handleHealth(req, res, rid) {
   const analysis = analysisHealth();
   const frameExtraction = frameExtractionHealth();
   const vision = visionHealth();
+  const scoreboardOcr = scoreboardOcrHealth();
   const goalEvidence = createGoalEvidenceProvider().health();
   const youtubeIngest = youtubeIngestHealth(youtubeIngestAdapter);
   const cleanup = artifactCleanupWorker.health();
@@ -487,6 +489,7 @@ async function handleHealth(req, res, rid) {
     analysis.ready &&
     frameExtraction.ready &&
     vision.ready &&
+    scoreboardOcr.ready &&
     goalEvidence.ready &&
     youtubeIngest.ready;
   sendOk(res, {
@@ -518,6 +521,7 @@ async function handleHealth(req, res, rid) {
     analysis,
     frameExtraction,
     vision,
+    scoreboardOcr,
     goalEvidence,
     youtubeIngest,
     requestId: rid,

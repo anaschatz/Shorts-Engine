@@ -1,6 +1,6 @@
 {
   "id": "visual_goal_sequence",
-  "title": "Reference-style goal sequence with shot and payoff",
+  "title": "Reference-style ball-in-net sequence with unclear decision",
   "language": "English",
   "durationSeconds": 24,
   "transcript": {
@@ -66,9 +66,6 @@
     "highlights": [{ "start": 5.0, "end": 17.0 }],
     "goalSequence": { "shotStart": 7.5, "payoffEnd": 15.3 },
     "reasonCodes": [
-      "goal",
-      "audio_energy_spike",
-      "scene_change_cluster",
       "visual_shot_contact",
       "visual_ball_toward_goal",
       "visual_goal_mouth",
@@ -76,9 +73,11 @@
       "visual_ball_in_net",
       "visual_celebration_after_shot",
       "visual_crowd_reaction",
-      "visual_ball_visible"
+      "visual_ball_visible",
+      "ball_in_net",
+      "crowd_reaction_support"
     ],
-    "highlightType": "goal",
+    "highlightType": "big_chance",
     "cropMode": "soft_follow",
     "stylePreset": "social_sports_v1",
     "editIntensity": "balanced"

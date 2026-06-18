@@ -1,0 +1,72 @@
+{
+  "id": "ambiguous_ocr_fail_closed",
+  "title": "Ball in net with ambiguous scoreboard OCR remains unconfirmed",
+  "language": "English",
+  "durationSeconds": 90,
+  "transcript": {
+    "provider": "fixture",
+    "language": "en",
+    "captions": [
+      { "start": 39.0, "end": 40.4, "text": "The crowd waits for the decision" }
+    ]
+  },
+  "mediaSignals": {
+    "durationSeconds": 90,
+    "width": 1920,
+    "height": 1080,
+    "hasAudio": true,
+    "audioPeaks": [
+      { "time": 31.0, "energyScore": 0.88, "source": "fixture" }
+    ],
+    "sceneChanges": [
+      { "time": 39.0, "confidence": 0.82, "source": "fixture" }
+    ],
+    "highMotionCandidates": [
+      { "time": 26.0, "confidence": 0.86, "source": "fixture" }
+    ]
+  },
+  "visualSignals": {
+    "providerMode": "fixture-visual",
+    "fallbackUsed": false,
+    "windows": [
+      { "start": 25.0, "end": 26.5, "labels": ["shot_contact", "ball_toward_goal", "ball_visible"], "confidence": 0.9 },
+      { "start": 30.0, "end": 31.4, "labels": ["goal_mouth_visible", "ball_in_net"], "confidence": 0.91 }
+    ]
+  },
+  "scoreboardOcr": [
+    {
+      "timestamp": 39.0,
+      "detectedScoreText": "1-?",
+      "status": "ambiguous",
+      "confidence": 0.42,
+      "source": "fixture_ocr"
+    }
+  ],
+  "expected": {
+    "highlights": [
+      { "start": 25.0, "end": 39.0 }
+    ],
+    "scoreboardOcr": [
+      { "timestamp": 39.0, "status": "ambiguous" }
+    ],
+    "expectAmbiguousOcrFailClosed": true,
+    "reasonCodes": [
+      "big_chance",
+      "visual_shot_contact",
+      "visual_ball_toward_goal",
+      "visual_goal_mouth",
+      "visual_ball_in_net"
+    ],
+    "highlightType": "big_chance",
+    "stylePreset": "social_sports_v1",
+    "editIntensity": "balanced",
+    "aspectRatio": "9:16"
+  },
+  "thresholds": {
+    "minAggregateScore": 78,
+    "minTop1Overlap": 0.45,
+    "minTop3Recall": 1,
+    "minReasonPrecision": 0.5,
+    "minRetentionScore": 70
+  }
+}

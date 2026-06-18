@@ -12,6 +12,7 @@ const {
 } = require("../server/edit-plan.cjs");
 const { AppError } = require("../server/errors.cjs");
 const { deterministicGoalEvidence, mergeGoalEvidenceIntoVisualSignals } = require("../server/goal-evidence-provider.cjs");
+const { deterministicScoreboardOcr } = require("../server/scoreboard-ocr.cjs");
 const { analyzeTracking, publicTrackingProviderOutput, validateTrackingProviderOutput } = require("../server/tracking-provider.cjs");
 const { validateVisualSignals } = require("../server/vision.cjs");
 const { analyzeVisualTracking, validateCropPlan } = require("../server/visual-tracking.cjs");
@@ -277,6 +278,13 @@ function captionActionAlignmentScore(plan) {
   if (planIsConfirmedGoalCompilation(plan)) {
     return /(?:goal|finish|counts?|stands|confirmed|valid)/i.test(text) ? 1 : 0;
   }
+  const goalOutcome = goalOutcomeForPlan(plan);
+  if (goalOutcome && goalOutcome.outcome !== "confirmed_goal") {
+    return /(?:decision|unclear|not clear|offside|flag|VAR|no goal|ball in the net|ruled out|disallowed)/i.test(text) &&
+      !/\b(?:finish counts|goal confirmed|confirmed goal|goal stands)\b/i.test(text)
+      ? 1
+      : 0;
+  }
   const checks = {
     shot_on_target: /\b(?:shot|chance|pressure|punished|timing)\b/i,
     near_miss: /\b(?:close|almost|angle|space|moment)\b/i,
@@ -314,6 +322,13 @@ function captionSpecificityScore(plan) {
   const text = captionText(plan);
   if (planIsConfirmedGoalCompilation(plan)) {
     return /(?:goal|finish|counts?|stands|confirmed|valid|net)/i.test(text) ? 1 : 0;
+  }
+  const goalOutcome = goalOutcomeForPlan(plan);
+  if (goalOutcome && goalOutcome.outcome !== "confirmed_goal") {
+    return /(?:decision|unclear|not clear|offside|flag|VAR|no goal|ball in the net|ruled out|disallowed|net)/i.test(text) &&
+      !/\b(?:finish counts|goal confirmed|confirmed goal|goal stands)\b/i.test(text)
+      ? 1
+      : 0;
   }
   const checks = {
     shot_on_target: /\b(?:shot|chance|pressure|angle|almost|timing|σουτ|πίεση|φάση)\b/i,
@@ -541,6 +556,40 @@ function goalEvidenceCoverageScore(goalEvidence, expected = {}) {
   if (!expectedGoals.length) return 1;
   const validGoalCount = Number(goalEvidence && goalEvidence.summary && goalEvidence.summary.validGoalCount || 0);
   return round(Math.min(1, validGoalCount / expectedGoals.length), 4);
+}
+
+function expectedOcrEvidence(expected = {}) {
+  return Array.isArray(expected.scoreboardOcr) && expected.scoreboardOcr.length
+    ? expected.scoreboardOcr
+    : Array.isArray(expected.ocrEvidence) && expected.ocrEvidence.length
+      ? expected.ocrEvidence
+      : [];
+}
+
+function ocrEvidenceCoverageScore(scoreboardOcr, expected = {}) {
+  const expectedOcr = expectedOcrEvidence(expected);
+  if (!expectedOcr.length) return 1;
+  const actualCount = Number(scoreboardOcr && scoreboardOcr.summary && scoreboardOcr.summary.evidenceCount || 0);
+  return round(Math.min(1, actualCount / expectedOcr.length), 4);
+}
+
+function scoreboardScoreChangeRecallScore(scoreboardOcr, expected = {}) {
+  const expectedOcr = expectedOcrEvidence(expected).filter((item) => item.status === "score_changed" || item.scoreChanged);
+  if (!expectedOcr.length) return 1;
+  const actualCount = Number(scoreboardOcr && scoreboardOcr.summary && scoreboardOcr.summary.scoreChangeCount || 0);
+  return round(Math.min(1, actualCount / expectedOcr.length), 4);
+}
+
+function ambiguousOcrFailClosedScore(goalEvidence, expected = {}) {
+  if (!expected.expectAmbiguousOcrFailClosed) return 1;
+  const validGoalCount = Number(goalEvidence && goalEvidence.summary && goalEvidence.summary.validGoalCount || 0);
+  return validGoalCount === 0 ? 1 : 0;
+}
+
+function noFalseGoalFromOcrOnlyScore(goalEvidence, expected = {}) {
+  if (!expected.ocrOnlyNoGoal) return 1;
+  const validGoalCount = Number(goalEvidence && goalEvidence.summary && goalEvidence.summary.validGoalCount || 0);
+  return validGoalCount === 0 ? 1 : 0;
 }
 
 function expectedGoalOutcome(expected = {}) {
@@ -863,12 +912,20 @@ function scoreFixture(fixture) {
     fixture.visualSignals || fixture.mediaSignals.visualSignals || { providerMode: "fixture-none", fallbackUsed: true, windows: [] },
     metadata,
   );
+  const scoreboardOcr = deterministicScoreboardOcr({
+    metadata,
+    frames: fixture.sampledFrames && Array.isArray(fixture.sampledFrames.frames) ? fixture.sampledFrames.frames : [],
+    candidateWindows: fixture.mediaSignals.highMotionCandidates || [],
+    mediaSignals: fixture.mediaSignals,
+    visualSignals,
+    scoreboardOcr: fixture.scoreboardOcr || fixture.ocrEvidence || fixture.scoreboardEvidence,
+  });
   const goalEvidence = deterministicGoalEvidence({
     metadata,
     transcript: fixture.transcript,
     mediaSignals: fixture.mediaSignals,
     visualSignals,
-    ocrEvidence: fixture.ocrEvidence || fixture.scoreboardOcr || fixture.scoreboardEvidence,
+    ocrEvidence: scoreboardOcr.evidence,
   });
   visualSignals = mergeGoalEvidenceIntoVisualSignals(visualSignals, goalEvidence, metadata);
   const trackingProviderOutput = publicTrackingProviderOutput(
@@ -957,6 +1014,10 @@ function scoreFixture(fixture) {
   const goalEvidenceCoverage = goalEvidenceCoverageScore(goalEvidence, fixture.expected);
   const celebrationOnlyExclusion = celebrationOnlyExclusionScore(topPlan, fixture.expected, thresholds.minTop1Overlap);
   const anthemIntroExclusion = anthemIntroExclusionScore(topPlan, fixture.expected, thresholds.minTop1Overlap);
+  const ocrEvidenceCoverage = ocrEvidenceCoverageScore(scoreboardOcr, fixture.expected);
+  const scoreboardScoreChangeRecall = scoreboardScoreChangeRecallScore(scoreboardOcr, fixture.expected);
+  const ambiguousOcrFailClosed = ambiguousOcrFailClosedScore(goalEvidence, fixture.expected);
+  const noFalseGoalFromOcrOnly = noFalseGoalFromOcrOnlyScore(goalEvidence, fixture.expected);
   const ballPlayerVisibilityScoreValue = ballPlayerVisibilityScore(topPlan);
   const cropSafetyScoreValue = cropSafetyScore(topPlan, metadata);
   const actionSafeZoneCoverage = actionSafeZoneCoverageScore(topPlan, metadata);
@@ -1063,7 +1124,11 @@ function scoreFixture(fixture) {
     anthemIntroExclusion === 1 &&
     captionGoalClaimAccuracy >= 0.95 &&
     segmentTimingCoverage >= 0.9 &&
-    goalEvidenceCoverage >= 1;
+    goalEvidenceCoverage >= 1 &&
+    ocrEvidenceCoverage >= 0.9 &&
+    scoreboardScoreChangeRecall >= 0.9 &&
+    ambiguousOcrFailClosed === 1 &&
+    noFalseGoalFromOcrOnly === 1;
 
   return {
     id: fixture.id,
@@ -1109,6 +1174,10 @@ function scoreFixture(fixture) {
       goalEvidenceCoverage,
       celebrationOnlyExclusion,
       anthemIntroExclusion,
+      ocrEvidenceCoverage,
+      scoreboardScoreChangeRecall,
+      ambiguousOcrFailClosed,
+      noFalseGoalFromOcrOnly,
       reactionAsSupportNotMain,
       actionWindowCoverage,
       shotToPayoffCoverage,
@@ -1140,6 +1209,8 @@ function scoreFixture(fixture) {
       sampledFrameCount: frameExtraction.frameCount,
       goalEvidenceProviderMode: goalEvidence.providerMode,
       goalEvidenceEventCount: goalEvidence.summary.eventCount,
+      scoreboardOcrProviderMode: scoreboardOcr.providerMode,
+      scoreboardOcrEvidenceCount: scoreboardOcr.summary.evidenceCount,
     },
     expected: {
       highlights: fixture.expected.highlights.map((item) => ({ start: item.start, end: item.end })),
@@ -1207,6 +1278,15 @@ function scoreFixture(fixture) {
         scoreboardConfirmedGoalCount: goalEvidence.summary.scoreboardConfirmedGoalCount,
         ambiguousOcrCount: goalEvidence.summary.ambiguousOcrCount,
         goalEvidenceCoverage: goalEvidence.summary.goalEvidenceCoverage,
+      },
+      scoreboardOcr: {
+        providerMode: sanitizeReportText(scoreboardOcr.providerMode, 60),
+        fallbackUsed: Boolean(scoreboardOcr.fallbackUsed),
+        evidenceCount: scoreboardOcr.summary.evidenceCount,
+        scoreChangeCount: scoreboardOcr.summary.scoreChangeCount,
+        scoreUnchangedCount: scoreboardOcr.summary.scoreUnchangedCount,
+        ambiguousCount: scoreboardOcr.summary.ambiguousCount,
+        sampledFrameCount: scoreboardOcr.summary.sampledFrameCount,
       },
       candidatePlans: candidatePlans.map((plan) => ({
         rank: plan.rank,
@@ -1450,6 +1530,10 @@ function aggregateResults(results) {
     goalEvidenceCoverage: avg((result) => result.metrics.goalEvidenceCoverage),
     celebrationOnlyExclusion: avg((result) => result.metrics.celebrationOnlyExclusion),
     anthemIntroExclusion: avg((result) => result.metrics.anthemIntroExclusion),
+    ocrEvidenceCoverage: avg((result) => result.metrics.ocrEvidenceCoverage),
+    scoreboardScoreChangeRecall: avg((result) => result.metrics.scoreboardScoreChangeRecall),
+    ambiguousOcrFailClosed: avg((result) => result.metrics.ambiguousOcrFailClosed),
+    noFalseGoalFromOcrOnly: avg((result) => result.metrics.noFalseGoalFromOcrOnly),
     actionWindowCoverage: avg((result) => result.metrics.actionWindowCoverage),
     shotToPayoffCoverage: avg((result) => result.metrics.shotToPayoffCoverage),
     ballPlayerVisibilityScore: avg((result) => result.metrics.ballPlayerVisibilityScore),

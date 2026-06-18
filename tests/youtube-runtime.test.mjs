@@ -1047,6 +1047,18 @@ test("youtube live local e2e failure report keeps safe valid-goal discovery coun
       events: [{
         stream: "stdout",
         level: "info",
+        event: "scoreboard_ocr_completed",
+        scoreboardOcr: {
+          providerMode: "mock-scoreboard-ocr",
+          fallbackUsed: true,
+          sampledFrameCount: 4,
+          evidenceCount: 0,
+          scoreChangeCount: 0,
+          ambiguousCount: 0,
+        },
+      }, {
+        stream: "stdout",
+        level: "info",
         event: "valid_goal_selection_empty",
         code: "NO_VALID_GOALS_FOUND",
         goalDiscovery: {
@@ -1080,6 +1092,16 @@ test("youtube live local e2e failure report keeps safe valid-goal discovery coun
   });
 
   assert.equal(report.status, "failed");
+  const ocrEvent = report.serverEvents.find((item) => item.event === "scoreboard_ocr_completed");
+  assert.ok(ocrEvent);
+  assert.deepEqual(ocrEvent.scoreboardOcr, {
+    providerMode: "mock-scoreboard-ocr",
+    fallbackUsed: true,
+    sampledFrameCount: 4,
+    evidenceCount: 0,
+    scoreChangeCount: 0,
+    ambiguousCount: 0,
+  });
   const event = report.serverEvents.find((item) => item.event === "valid_goal_selection_empty");
   assert.ok(event);
   assert.deepEqual(event.goalDiscovery, {

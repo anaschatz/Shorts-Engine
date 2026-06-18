@@ -130,6 +130,8 @@ assert.match(serverApp, /createYouTubeIngestService/, "server route should deleg
 assert.match(serverApp, /youtubeIngestHealth/, "health should include YouTube ingest readiness");
 assert.match(serverApp, /createGoalEvidenceProvider/, "health should include the goal evidence provider boundary");
 assert.match(serverApp, /goalEvidence/, "health should report safe goal evidence readiness");
+assert.match(serverApp, /scoreboardOcrHealth/, "health should include scoreboard OCR readiness");
+assert.match(serverApp, /scoreboardOcr/, "health should report safe scoreboard OCR readiness");
 assert.match(youtubeIngest, /YOUTUBE_PLAYLIST_UNSUPPORTED/, "YouTube validation should reject playlists explicitly");
 assert.match(youtubeIngest, /YOUTUBE_LIVE_UNSUPPORTED/, "YouTube validation should reject live streams explicitly");
 assert.match(youtubeIngest, /YOUTUBE_INGEST_NOT_ENABLED/, "YouTube adapter failures should fail closed with a safe code");

@@ -38,7 +38,7 @@
   },
   "expected": {
     "highlights": [{ "start": 9.0, "end": 13.4 }],
-    "reasonCodes": ["visual_save_like_motion", "visual_ball_visible", "visual_goal_area"],
+    "reasonCodes": ["visual_save_like_motion", "visual_ball_visible", "visual_goal_area", "non_goal_chance", "shot_sequence_support"],
     "highlightType": "save",
     "stylePreset": "social_sports_v1"
   },

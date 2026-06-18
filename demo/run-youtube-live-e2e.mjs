@@ -95,8 +95,31 @@ function safeNumber(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function safeString(value, maxLength = 80) {
+  return String(value || "")
+    .replace(/\/Users\/[^\s"']+/g, "[redacted-path]")
+    .replace(/\/private\/[^\s"']+/g, "[redacted-path]")
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/g, "Bearer [redacted]")
+    .replace(/token|secret|api[_-]?key/gi, "[redacted]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
 function safeBoolean(value) {
   return typeof value === "boolean" ? value : null;
+}
+
+function safeScoreboardOcrEvent(value = {}) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    providerMode: safeString(value.providerMode, 80),
+    fallbackUsed: safeBoolean(value.fallbackUsed),
+    sampledFrameCount: safeNumber(value.sampledFrameCount),
+    evidenceCount: safeNumber(value.evidenceCount),
+    scoreChangeCount: safeNumber(value.scoreChangeCount),
+    ambiguousCount: safeNumber(value.ambiguousCount),
+  };
 }
 
 function addCheck(checks, name, passed, details = {}) {
@@ -164,6 +187,7 @@ function sanitizeServerEvents(events = []) {
     code: event.code || null,
     service: event.service || null,
     goalDiscovery: event.goalDiscovery || null,
+    scoreboardOcr: safeScoreboardOcrEvent(event.scoreboardOcr),
   }));
 }
 
@@ -544,6 +568,16 @@ function startServer(port, env) {
             anthemOrIntroEvidenceCount: safeNumber(parsed.anthemOrIntroEvidenceCount),
             ocrEvidenceCount: safeNumber(parsed.ocrEvidenceCount),
             scoreboardConfirmedGoalCount: safeNumber(parsed.scoreboardConfirmedGoalCount),
+          };
+        }
+        if (parsed.event === "scoreboard_ocr_completed") {
+          event.scoreboardOcr = {
+            providerMode: safeString(parsed.providerMode, 80),
+            fallbackUsed: safeBoolean(parsed.fallbackUsed),
+            sampledFrameCount: safeNumber(parsed.sampledFrameCount),
+            evidenceCount: safeNumber(parsed.evidenceCount),
+            scoreChangeCount: safeNumber(parsed.scoreChangeCount),
+            ambiguousCount: safeNumber(parsed.ambiguousCount),
           };
         }
       } catch {

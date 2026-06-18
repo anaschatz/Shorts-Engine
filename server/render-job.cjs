@@ -7,6 +7,7 @@ const { cleanupSampledFrames, extractSampledFrames, publicFrameSummary } = requi
 const { analyzeGoalEvidence, mergeGoalEvidenceIntoVisualSignals, publicGoalEvidence } = require("./goal-evidence-provider.cjs");
 const { sanitizeText } = require("./media.cjs");
 const { extractAudio, renderShort } = require("./render.cjs");
+const { analyzeScoreboardOcr, publicScoreboardOcr } = require("./scoreboard-ocr.cjs");
 const { chooseTranscriptionProvider } = require("./transcription.cjs");
 const { assertStoragePath, storagePath, writeJsonAtomic } = require("./storage.cjs");
 const { analyzeTracking, publicTrackingProviderOutput } = require("./tracking-provider.cjs");
@@ -29,6 +30,7 @@ function createDefaultDependencies(overrides = {}) {
     chooseTranscriptionProvider,
     analyzeFrames,
     analyzeGoalEvidence,
+    analyzeScoreboardOcr,
     createCandidateEditPlans,
     createExportId: () => `exp_${randomUUID()}`,
     detectHighlights,
@@ -693,6 +695,7 @@ async function runRenderJob(options) {
   let transcript = null;
   let mediaSignals = null;
   let visualSignals = null;
+  let scoreboardOcr = null;
   let goalEvidence = null;
   let trackingProviderOutput = null;
   let visualTracking = null;
@@ -718,6 +721,7 @@ async function runRenderJob(options) {
       highlightResult = validateHighlightResult(highlightResultFromApprovedPlan(editPlan), context.metadata);
       mediaSignals = mediaSignalsFromApprovedPlan(context);
       visualSignals = visualSignalsFromApprovedPlan(editPlan, context);
+      scoreboardOcr = null;
       goalEvidence = goalEvidenceFromApprovedPlan(editPlan);
       trackingProviderOutput = null;
       visualTracking = publicVisualTrackingSummary(editPlan.visualTrackingSummary || null, context.metadata);
@@ -846,7 +850,32 @@ async function runRenderJob(options) {
         errorCode: trackingProviderOutput.failure && trackingProviderOutput.failure.code,
       });
 
-      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 46, step: "transcribe" });
+      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 46, step: "analyze_scoreboard_ocr" });
+      scoreboardOcr = await deps.analyzeScoreboardOcr({
+        inputPath: context.inputPath,
+        metadata: context.metadata,
+        candidateWindows: visualCandidateWindows,
+        mediaSignals,
+        visualSignals,
+        frames: sampledFrames.frames,
+        frameSummary: sampledFrameSummary,
+        signal,
+      });
+      logInfo(deps.logger, {
+        event: "scoreboard_ocr_completed",
+        requestId,
+        projectId: project.id,
+        jobId: job.id,
+        step: "analyze_scoreboard_ocr",
+        providerMode: scoreboardOcr.providerMode,
+        fallbackUsed: scoreboardOcr.fallbackUsed,
+        sampledFrameCount: scoreboardOcr.summary && scoreboardOcr.summary.sampledFrameCount,
+        evidenceCount: scoreboardOcr.summary && scoreboardOcr.summary.evidenceCount,
+        scoreChangeCount: scoreboardOcr.summary && scoreboardOcr.summary.scoreChangeCount,
+        ambiguousCount: scoreboardOcr.summary && scoreboardOcr.summary.ambiguousCount,
+      });
+
+      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 50, step: "transcribe" });
       const provider = deps.chooseTranscriptionProvider({ forceMock: !context.metadata.hasAudio });
       transcript = validateTranscript(
         await provider.transcribe({
@@ -859,13 +888,14 @@ async function runRenderJob(options) {
         context.metadata,
       );
 
-      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 54, step: "analyze_goal_evidence" });
+      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 56, step: "analyze_goal_evidence" });
       goalEvidence = await deps.analyzeGoalEvidence({
         inputPath: context.inputPath,
         metadata: context.metadata,
         transcript,
         mediaSignals,
         visualSignals,
+        scoreboardOcr: scoreboardOcr && scoreboardOcr.evidence,
         frames: sampledFrames.frames,
         frameSummary: sampledFrameSummary,
         signal,
@@ -982,6 +1012,10 @@ async function runRenderJob(options) {
       falseGoalGuardTriggered: editPlan.highlightType !== "goal",
       visualProviderMode: visualSignals.providerMode,
       visualWindowCount: visualSignals.summary.windowCount,
+      scoreboardOcrProviderMode: scoreboardOcr && scoreboardOcr.providerMode,
+      scoreboardOcrEvidenceCount: scoreboardOcr && scoreboardOcr.summary && scoreboardOcr.summary.evidenceCount,
+      scoreboardOcrScoreChangeCount: scoreboardOcr && scoreboardOcr.summary && scoreboardOcr.summary.scoreChangeCount,
+      scoreboardOcrAmbiguousCount: scoreboardOcr && scoreboardOcr.summary && scoreboardOcr.summary.ambiguousCount,
       goalEvidenceProviderMode: goalEvidence && goalEvidence.providerMode,
       goalEvidenceEventCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.eventCount,
       validGoalEvidenceCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.validGoalCount,
@@ -1063,6 +1097,7 @@ async function runRenderJob(options) {
       highlights: highlightResult.moments,
       mediaSignals: publicMediaSignals(mediaSignals),
       visualSignals: publicVisualSignals(visualSignals),
+      scoreboardOcr: publicScoreboardOcr(scoreboardOcr),
       goalEvidence: publicGoalEvidence(goalEvidence),
       trackingProviderOutput,
       visualTracking,
@@ -1084,6 +1119,7 @@ async function runRenderJob(options) {
       transcript,
       mediaSignals,
       visualSignals,
+      scoreboardOcr: publicScoreboardOcr(scoreboardOcr),
       goalEvidence: publicGoalEvidence(goalEvidence),
       trackingProviderOutput,
       visualTracking,
