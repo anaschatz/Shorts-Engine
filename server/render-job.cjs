@@ -8,6 +8,7 @@ const { sanitizeText } = require("./media.cjs");
 const { extractAudio, renderShort } = require("./render.cjs");
 const { chooseTranscriptionProvider } = require("./transcription.cjs");
 const { assertStoragePath, storagePath, writeJsonAtomic } = require("./storage.cjs");
+const { analyzeTracking, publicTrackingProviderOutput } = require("./tracking-provider.cjs");
 const { analyzeFrames, publicVisualSignals, validateVisualSignals } = require("./vision.cjs");
 const { analyzeVisualTracking, publicVisualTrackingSummary } = require("./visual-tracking.cjs");
 
@@ -33,6 +34,7 @@ function createDefaultDependencies(overrides = {}) {
     extractSampledFrames,
     extractMediaSignals,
     fileExists: existsSync,
+    analyzeTracking,
     analyzeVisualTracking,
     isRegularFile,
     logger: console,
@@ -573,6 +575,7 @@ async function runRenderJob(options) {
   let transcript = null;
   let mediaSignals = null;
   let visualSignals = null;
+  let trackingProviderOutput = null;
   let visualTracking = null;
   let highlightResult = null;
   let candidatePlans = null;
@@ -596,6 +599,7 @@ async function runRenderJob(options) {
       highlightResult = validateHighlightResult(highlightResultFromApprovedPlan(editPlan), context.metadata);
       mediaSignals = mediaSignalsFromApprovedPlan(context);
       visualSignals = visualSignalsFromApprovedPlan(editPlan, context);
+      trackingProviderOutput = null;
       visualTracking = publicVisualTrackingSummary(editPlan.visualTrackingSummary || null, context.metadata);
       transcript = transcriptFromApprovedPlan(editPlan, context);
       sampledFrameSummary = {
@@ -670,12 +674,23 @@ async function runRenderJob(options) {
         }),
         context.metadata,
       );
+      trackingProviderOutput = publicTrackingProviderOutput(await deps.analyzeTracking({
+        inputPath: context.inputPath,
+        metadata: context.metadata,
+        candidateWindows: visualCandidateWindows,
+        mediaSignals,
+        visualSignals,
+        frames: sampledFrames.frames,
+        frameSummary: sampledFrameSummary,
+        signal,
+      }), context.metadata);
       visualTracking = publicVisualTrackingSummary(deps.analyzeVisualTracking({
         inputPath: context.inputPath,
         metadata: context.metadata,
         candidateWindows: visualCandidateWindows,
         mediaSignals,
         visualSignals,
+        trackingProviderOutput,
         frames: sampledFrames.frames,
         frameSummary: sampledFrameSummary,
       }), context.metadata);
@@ -698,11 +713,17 @@ async function runRenderJob(options) {
         projectId: project.id,
         jobId: job.id,
         step: "analyze_visual_tracking",
+        providerMode: trackingProviderOutput.providerMode,
         frameCount: visualTracking.frameCount,
+        ballTrackCount: trackingProviderOutput.ballTrackCount,
+        playerClusterCount: trackingProviderOutput.playerClusterCount,
         trackingConfidence: visualTracking.trackingConfidence,
+        ballCandidateConfidence: visualTracking.ballCandidateConfidence,
+        playerClusterConfidence: visualTracking.playerClusterConfidence,
         recommendedFramingMode: visualTracking.recommendedFramingMode,
         cropSafetyReason: visualTracking.cropSafetyReason,
         fallbackUsed: visualTracking.fallbackUsed,
+        errorCode: trackingProviderOutput.failure && trackingProviderOutput.failure.code,
       });
 
       updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 46, step: "transcribe" });
@@ -751,6 +772,9 @@ async function runRenderJob(options) {
         throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
       }
       editPlan = deps.validateEditPlan(candidatePlans[0], context.metadata);
+      if (candidatePlans[0] && candidatePlans[0].visualQA) {
+        editPlan.visualQA = candidatePlans[0].visualQA;
+      }
     }
     logInfo(deps.logger, {
       event: "edit_plan_selected",
@@ -846,6 +870,7 @@ async function runRenderJob(options) {
       highlights: highlightResult.moments,
       mediaSignals: publicMediaSignals(mediaSignals),
       visualSignals: publicVisualSignals(visualSignals),
+      trackingProviderOutput,
       visualTracking,
       sampledFrames: sampledFrameSummary,
       step: "completed",
@@ -865,6 +890,7 @@ async function runRenderJob(options) {
       transcript,
       mediaSignals,
       visualSignals,
+      trackingProviderOutput,
       visualTracking,
       sampledFrames: sampledFrameSummary,
       highlights: highlightResult.moments,

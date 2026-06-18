@@ -13,6 +13,7 @@ const {
 } = require("./edit-plan.cjs");
 const {
   calibrateCropPlan,
+  containsBox,
   cropStrategyFromPlan,
   publicVisualTrackingSummary,
 } = require("./visual-tracking.cjs");
@@ -1363,6 +1364,32 @@ function planHasGoalLanguageSafe(plan) {
   return [plan && plan.hook, ...captionTexts].some(hasGoalLanguage);
 }
 
+function visualQaForPlan(plan = {}) {
+  const cropPlan = plan.cropPlan && typeof plan.cropPlan === "object" ? plan.cropPlan : null;
+  const tracking = plan.visualTrackingSummary && typeof plan.visualTrackingSummary === "object" ? plan.visualTrackingSummary : {};
+  const actionZones = cropPlan && Array.isArray(cropPlan.actionSafeZones) ? cropPlan.actionSafeZones : [];
+  const actionSafeZoneCoverage = cropPlan && cropPlan.safeArea && actionZones.length
+    ? (actionZones.every((zone) => containsBox(cropPlan.safeArea, zone)) ? 1 : 0)
+    : 1;
+  const softFollowAllowed = Boolean(cropPlan && cropPlan.mode === "soft_follow" && !cropPlan.fallbackUsed && !cropPlan.textObstructionRisk);
+  const fallbackReason = cropPlan && Array.isArray(cropPlan.reasonCodes) ? cropPlan.reasonCodes[0] || null : null;
+  return {
+    selectedCropMode: cropPlan ? cropPlan.mode : "wide_safe",
+    trackingProviderMode: sanitizeText(tracking.trackingProviderMode || "visual-tracking-heuristic", 60),
+    trackingConfidence: Number(tracking.trackingConfidence || 0),
+    ballVisibilityConfidence: Number(tracking.ballCandidateConfidence || 0),
+    playerClusterConfidence: Number(tracking.playerClusterConfidence || 0),
+    ballTrackCount: Number(tracking.ballTrackCount || 0),
+    playerClusterCount: Number(tracking.playerClusterCount || 0),
+    actionSafeZoneCoverage,
+    captionObstructionRisk: Boolean(cropPlan && cropPlan.textObstructionRisk),
+    fallbackReason,
+    softFollowAllowed,
+    softFollowBlockedReason: softFollowAllowed ? null : fallbackReason || "wide_safe_default",
+    goalClaimAllowed: false,
+  };
+}
+
 function reviewMetadataForPlan(plan, moment, mediaSignals = {}) {
   return {
     renderStylePreset: plan.stylePreset,
@@ -1382,9 +1409,10 @@ function reviewMetadataForPlan(plan, moment, mediaSignals = {}) {
           fallbackUsed: plan.cropPlan.fallbackUsed,
           reasonCodes: plan.cropPlan.reasonCodes,
           textObstructionRisk: Boolean(plan.cropPlan.textObstructionRisk),
-        }
+      }
       : null,
     visualTrackingSummary: plan.visualTrackingSummary || null,
+    visualQA: plan.visualQA || visualQaForPlan(plan),
     visualEvidenceSummary: plan.visualEvidenceSummary || null,
     actionSequenceSummary: plan.actionSequenceSummary || actionSequenceSummaryForMoment(moment),
     audioEvidenceSummary: audioEvidenceSummaryForMoment(moment, mediaSignals),
@@ -1470,6 +1498,7 @@ function createCandidateEditPlans({
       actionSequenceSummary,
       cropPlan,
       cropStrategy: cropStrategyFromPlan(cropPlan, metadata) || storyPlan.cropStrategy || createCropStrategy(metadata, framingMode),
+      visualQA: null,
       stylePreset: renderStylePreset,
       styleTarget: storyPlan.styleTarget,
       editIntensity: storyPlan.editIntensity,
@@ -1478,7 +1507,7 @@ function createCandidateEditPlans({
       animationCues,
       safetyNotes: [
         ...storyPlan.safetyNotes,
-        "No object or ball tracking is claimed in v1.",
+        "Tracking metadata is confidence-gated and falls back to wide-safe framing when uncertain.",
         "Visual signals are contextual only and never imply a goal without explicit goal evidence.",
         framingMode === "wide_safe_vertical"
           ? "Wide-safe framing keeps the full source frame visible over a blurred fill."
@@ -1507,6 +1536,7 @@ function createCandidateEditPlans({
       },
     };
     const validated = validateEditPlan(plan, metadata);
+    validated.visualQA = visualQaForPlan(validated);
     return {
       ...validated,
       reviewMetadata: reviewMetadataForPlan(validated, moment, mediaSignals),

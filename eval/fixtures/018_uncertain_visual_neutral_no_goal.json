@@ -36,6 +36,18 @@
       }
     ]
   },
+  "trackingProviderOutput": {
+    "providerMode": "fixture-tracking-provider",
+    "fallbackUsed": true,
+    "frameCount": 1,
+    "ballTracks": [],
+    "playerClusters": [],
+    "actionBounds": null,
+    "actionCenter": null,
+    "cameraMotionLevel": 0.82,
+    "confidence": 0,
+    "reasonCodes": ["tracking_camera_motion"]
+  },
   "expected": {
     "highlights": [{ "start": 7.4, "end": 11.2 }],
     "reasonCodes": ["visual_unknown_action", "scene_change_cluster"],

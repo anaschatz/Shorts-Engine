@@ -1,5 +1,6 @@
 const { AppError, SAFE_MESSAGES } = require("./errors.cjs");
 const { sanitizeText } = require("./media.cjs");
+const { validateTrackingProviderOutput } = require("./tracking-provider.cjs");
 const { visualReasonCodesForWindow } = require("./vision.cjs");
 
 const CROP_PLAN_MODES = Object.freeze(["wide_safe", "soft_follow", "center_safe", "locked_wide"]);
@@ -201,6 +202,10 @@ function normalizeTrackingSummary(summary, metadata = {}) {
     recommendedFramingMode,
     cropSafetyReason: sanitizeText(summary.cropSafetyReason || "wide_safe_default", 100),
     fallbackUsed: Boolean(summary.fallbackUsed || recommendedFramingMode !== "soft_follow"),
+    trackingProviderMode: sanitizeText(summary.trackingProviderMode || summary.providerMode || "visual-tracking-heuristic", 60),
+    trackingProviderFailureCode: summary.trackingProviderFailureCode ? sanitizeText(summary.trackingProviderFailureCode, 80) : null,
+    ballTrackCount: Math.max(0, Math.min(12, Math.round(Number(summary.ballTrackCount || 0)))),
+    playerClusterCount: Math.max(0, Math.min(8, Math.round(Number(summary.playerClusterCount || 0)))),
     goalClaimAllowed: false,
   };
 }
@@ -219,12 +224,65 @@ function createWideSafeTrackingSummary({ metadata = {}, reason = "wide_safe_defa
     recommendedFramingMode: "wide_safe",
     cropSafetyReason: sanitizeText(reason, 100),
     fallbackUsed: true,
+    trackingProviderMode: "visual-tracking-heuristic",
+    trackingProviderFailureCode: null,
+    ballTrackCount: 0,
+    playerClusterCount: 0,
     goalClaimAllowed: false,
   };
 }
 
+function trackingSummaryFromProviderOutput(output, metadata = {}) {
+  const safe = validateTrackingProviderOutput(output, metadata);
+  const ballConfidence = safe.ballTracks.reduce((max, track) => Math.max(max, track.confidence), 0);
+  const playerConfidence = safe.playerClusters.reduce((max, cluster) => Math.max(max, cluster.confidence), 0);
+  let recommendedFramingMode = "wide_safe";
+  let cropSafetyReason = safe.reasonCodes[0] || "tracking_fallback_no_ball_player_evidence";
+  if (safe.cameraMotionLevel >= 0.75) {
+    recommendedFramingMode = "locked_wide";
+    cropSafetyReason = "locked_wide_camera_motion";
+  } else if (!safe.fallbackUsed && safe.confidence >= 0.86 && ballConfidence >= 0.65 && playerConfidence >= 0.55 && safe.actionBounds) {
+    recommendedFramingMode = "soft_follow";
+    cropSafetyReason = "soft_follow_provider_ball_player_action";
+  } else if (!safe.fallbackUsed && safe.confidence >= 0.72 && safe.actionBounds) {
+    recommendedFramingMode = "center_safe";
+    cropSafetyReason = "center_safe_provider_partial_tracking";
+  }
+  const detectedMotionRegions = [];
+  if (safe.actionBounds) {
+    detectedMotionRegions.push({
+      timestamp: safe.ballTracks[0] ? safe.ballTracks[0].timestamp : 0,
+      confidence: safe.confidence,
+      reasonCodes: safe.reasonCodes,
+      bounds: safe.actionBounds,
+    });
+  }
+  return normalizeTrackingSummary({
+    frameCount: safe.frameCount,
+    sampledTimestamps: safe.ballTracks.map((track) => track.timestamp),
+    detectedMotionRegions,
+    estimatedActionCenter: safe.actionCenter,
+    estimatedActionBounds: safe.actionBounds,
+    ballCandidateConfidence: ballConfidence,
+    playerClusterConfidence: playerConfidence,
+    cameraMotionLevel: safe.cameraMotionLevel,
+    trackingConfidence: safe.confidence,
+    recommendedFramingMode,
+    cropSafetyReason,
+    fallbackUsed: safe.fallbackUsed || recommendedFramingMode !== "soft_follow",
+    trackingProviderMode: safe.providerMode,
+    trackingProviderFailureCode: safe.failure && safe.failure.code,
+    ballTrackCount: safe.ballTracks.length,
+    playerClusterCount: safe.playerClusters.length,
+    goalClaimAllowed: false,
+  }, metadata);
+}
+
 function analyzeVisualTracking(input = {}) {
   const metadata = input.metadata || {};
+  if (input.trackingProviderOutput || input.trackingOutput) {
+    return trackingSummaryFromProviderOutput(input.trackingProviderOutput || input.trackingOutput, metadata);
+  }
   if (input.trackingSummary || input.visualTracking) {
     return normalizeTrackingSummary(input.trackingSummary || input.visualTracking, metadata);
   }
@@ -291,6 +349,9 @@ function analyzeVisualTracking(input = {}) {
     recommendedFramingMode,
     cropSafetyReason,
     fallbackUsed: recommendedFramingMode !== "soft_follow",
+    trackingProviderMode: "visual-tracking-heuristic",
+    ballTrackCount: ballCandidateConfidence > 0 ? regions.length : 0,
+    playerClusterCount: playerClusterConfidence > 0 ? regions.length : 0,
   }, metadata);
 }
 
@@ -532,6 +593,10 @@ function publicVisualTrackingSummary(summary, metadata = {}) {
     recommendedFramingMode: safe.recommendedFramingMode,
     cropSafetyReason: safe.cropSafetyReason,
     fallbackUsed: safe.fallbackUsed,
+    trackingProviderMode: safe.trackingProviderMode,
+    trackingProviderFailureCode: safe.trackingProviderFailureCode,
+    ballTrackCount: safe.ballTrackCount,
+    playerClusterCount: safe.playerClusterCount,
     goalClaimAllowed: false,
   };
 }
@@ -545,5 +610,6 @@ module.exports = {
   normalizeTrackingSummary,
   overlapRatio,
   publicVisualTrackingSummary,
+  trackingSummaryFromProviderOutput,
   validateCropPlan,
 };

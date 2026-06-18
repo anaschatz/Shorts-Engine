@@ -32,6 +32,24 @@
       { "start": 12.6, "end": 15.3, "labels": ["celebration_after_shot", "crowd_reaction"], "confidence": 0.87 }
     ]
   },
+  "trackingProviderOutput": {
+    "providerMode": "fixture-tracking-provider",
+    "fallbackUsed": false,
+    "frameCount": 5,
+    "ballTracks": [
+      { "timestamp": 7.8, "confidence": 0.93, "bounds": { "x": 900, "y": 390, "width": 52, "height": 52 } },
+      { "timestamp": 9.6, "confidence": 0.9, "bounds": { "x": 980, "y": 340, "width": 48, "height": 48 } }
+    ],
+    "playerClusters": [
+      { "timestamp": 7.8, "confidence": 0.88, "bounds": { "x": 820, "y": 300, "width": 280, "height": 320 } },
+      { "timestamp": 9.6, "confidence": 0.86, "bounds": { "x": 850, "y": 290, "width": 310, "height": 340 } }
+    ],
+    "actionBounds": { "x": 820, "y": 290, "width": 340, "height": 390 },
+    "actionCenter": { "x": 990, "y": 485 },
+    "cameraMotionLevel": 0.14,
+    "confidence": 0.91,
+    "reasonCodes": ["tracking_ball_visible", "tracking_player_cluster", "tracking_action_bounds"]
+  },
   "visualTracking": {
     "frameCount": 5,
     "sampledTimestamps": [7.8, 9.6, 11.6, 13.2],

@@ -11,6 +11,7 @@ const {
   hasGoalLanguage,
 } = require("../server/edit-plan.cjs");
 const { AppError } = require("../server/errors.cjs");
+const { analyzeTracking, publicTrackingProviderOutput, validateTrackingProviderOutput } = require("../server/tracking-provider.cjs");
 const { validateVisualSignals } = require("../server/vision.cjs");
 const { analyzeVisualTracking, validateCropPlan } = require("../server/visual-tracking.cjs");
 
@@ -449,6 +450,51 @@ function trackingConfidenceCalibrationScore(plan, expected = {}, metadata = {}) 
   return cropPlan.fallbackUsed && cropPlan.confidence <= 0.95 ? 1 : 0;
 }
 
+function trackingOutputValidityScore(output, metadata = {}) {
+  try {
+    validateTrackingProviderOutput(output, metadata);
+    return 1;
+  } catch {
+    return 0;
+  }
+}
+
+function ballTrackCoverageScore(output, expected = {}, metadata = {}) {
+  const safe = validateTrackingProviderOutput(output, metadata);
+  const expectsFollow = (expected.cropMode || expected.expectedCropMode) === "soft_follow";
+  if (!expectsFollow) return 1;
+  return safe.ballTracks.some((track) => track.confidence >= 0.65) ? 1 : 0;
+}
+
+function playerClusterCoverageScore(output, expected = {}, metadata = {}) {
+  const safe = validateTrackingProviderOutput(output, metadata);
+  const expectsFollow = (expected.cropMode || expected.expectedCropMode) === "soft_follow";
+  if (!expectsFollow) return 1;
+  return safe.playerClusters.some((cluster) => cluster.confidence >= 0.55) ? 1 : 0;
+}
+
+function softFollowPrecisionScore(plan, visualTracking = {}) {
+  const cropPlan = plan && plan.cropPlan ? plan.cropPlan : null;
+  if (!cropPlan || cropPlan.mode !== "soft_follow") return 1;
+  return (
+    !cropPlan.fallbackUsed &&
+    !cropPlan.textObstructionRisk &&
+    Number(visualTracking.ballCandidateConfidence || 0) >= 0.65 &&
+    Number(visualTracking.playerClusterConfidence || 0) >= 0.55 &&
+    Number(visualTracking.ballTrackCount || 0) > 0 &&
+    Number(visualTracking.playerClusterCount || 0) > 0
+  ) ? 1 : 0;
+}
+
+function wideSafeFallbackCorrectnessScore(plan, expected = {}) {
+  const cropPlan = plan && plan.cropPlan ? plan.cropPlan : null;
+  if (!cropPlan) return 0;
+  const expectedMode = expected.cropMode || expected.expectedCropMode || null;
+  if (expectedMode === "soft_follow") return 1;
+  if (expectedMode) return cropPlan.mode === expectedMode && cropPlan.fallbackUsed === true ? 1 : 0;
+  return cropPlan.mode === "soft_follow" || cropPlan.fallbackUsed === true ? 1 : 0;
+}
+
 function renderStylePresetIsValid(plan) {
   return Boolean(plan && RENDER_STYLE_PRESETS.includes(plan.stylePreset));
 }
@@ -588,10 +634,20 @@ function scoreFixture(fixture) {
     fixture.visualSignals || fixture.mediaSignals.visualSignals || { providerMode: "fixture-none", fallbackUsed: true, windows: [] },
     metadata,
   );
+  const trackingProviderOutput = publicTrackingProviderOutput(
+    fixture.trackingProviderOutput || analyzeTracking({
+      metadata,
+      visualSignals,
+      mediaSignals: fixture.mediaSignals,
+      frames: fixture.sampledFrames && Array.isArray(fixture.sampledFrames.frames) ? fixture.sampledFrames.frames : [],
+    }),
+    metadata,
+  );
   const visualTracking = analyzeVisualTracking({
     metadata,
     visualSignals,
     mediaSignals: fixture.mediaSignals,
+    trackingProviderOutput,
     visualTracking: fixture.visualTracking,
     frames: fixture.sampledFrames && Array.isArray(fixture.sampledFrames.frames) ? fixture.sampledFrames.frames : [],
   });
@@ -651,6 +707,12 @@ function scoreFixture(fixture) {
   const textObstructionRisk = textObstructionRiskValue(topPlan, metadata);
   const wideSafeFallback = wideSafeFallbackRate(topPlan, metadata);
   const trackingConfidenceCalibration = trackingConfidenceCalibrationScore(topPlan, fixture.expected, metadata);
+  const trackingOutputValidity = trackingOutputValidityScore(trackingProviderOutput, metadata);
+  const ballTrackCoverage = ballTrackCoverageScore(trackingProviderOutput, fixture.expected, metadata);
+  const playerClusterCoverage = playerClusterCoverageScore(trackingProviderOutput, fixture.expected, metadata);
+  const softFollowPrecision = softFollowPrecisionScore(topPlan, visualTracking);
+  const wideSafeFallbackCorrectness = wideSafeFallbackCorrectnessScore(topPlan, fixture.expected);
+  const falseGoalFromTrackingRate = visualTracking && visualTracking.goalClaimAllowed ? 1 : 0;
   const referenceStyleSimilarity = referenceStyleSimilarityScore(topPlan);
   const renderStylePresetValidity = candidatePlans.every(renderStylePresetIsValid) ? 1 : 0;
   const unsupportedCueCount = topPlan && Array.isArray(topPlan.unsupportedAnimationCues) ? topPlan.unsupportedAnimationCues.length : 0;
@@ -723,6 +785,12 @@ function scoreFixture(fixture) {
     actionSafeZoneCoverage >= 0.95 &&
     textObstructionRisk === 0 &&
     trackingConfidenceCalibration >= 0.9 &&
+    trackingOutputValidity === 1 &&
+    ballTrackCoverage === 1 &&
+    playerClusterCoverage === 1 &&
+    softFollowPrecision === 1 &&
+    wideSafeFallbackCorrectness === 1 &&
+    falseGoalFromTrackingRate === 0 &&
     animationCueValidity === 1 &&
     animationCueRelevance >= 0.95;
 
@@ -764,6 +832,12 @@ function scoreFixture(fixture) {
       textObstructionRisk,
       wideSafeFallbackRate: wideSafeFallback,
       trackingConfidenceCalibration,
+      trackingOutputValidity,
+      ballTrackCoverage,
+      playerClusterCoverage,
+      softFollowPrecision,
+      wideSafeFallbackCorrectness,
+      falseGoalFromTrackingRate,
       referenceStyleSimilarity,
       renderStylePresetValidity,
       unsupportedCueRate,
@@ -846,6 +920,7 @@ function scoreFixture(fixture) {
               actionSafeZoneCount: Array.isArray(plan.cropPlan.actionSafeZones) ? plan.cropPlan.actionSafeZones.length : 0,
             }
           : null,
+        visualQA: plan.visualQA || (plan.reviewMetadata && plan.reviewMetadata.visualQA) || null,
         actionSequenceSummary: plan.actionSequenceSummary || (
           plan.analysisMoment && plan.analysisMoment.actionSequenceSummary
         ) || null,
@@ -886,6 +961,12 @@ function scoreFixture(fixture) {
       actionSafeZoneCoverage,
       textObstructionRisk,
       trackingConfidenceCalibration,
+      trackingOutputValidity,
+      ballTrackCoverage,
+      playerClusterCoverage,
+      softFollowPrecision,
+      wideSafeFallbackCorrectness,
+      falseGoalFromTrackingRate,
       animationCueValidity,
       animationCueRelevance,
       fallbackUsed,
@@ -921,6 +1002,12 @@ function debuggingNotes(metrics) {
   if (metrics.actionSafeZoneCoverage < 0.95) notes.push("Action bounds are not covered by the crop safe area.");
   if (metrics.textObstructionRisk) notes.push("Caption safe zones may overlap the likely action area.");
   if (metrics.trackingConfidenceCalibration < 0.9) notes.push("Tracking confidence does not match the selected crop mode.");
+  if (!metrics.trackingOutputValidity) notes.push("Tracking provider output failed schema or safety validation.");
+  if (!metrics.ballTrackCoverage) notes.push("Expected soft-follow crop does not have enough ball track evidence.");
+  if (!metrics.playerClusterCoverage) notes.push("Expected soft-follow crop does not have enough player cluster evidence.");
+  if (!metrics.softFollowPrecision) notes.push("Soft-follow crop was allowed without reliable ball/player tracking.");
+  if (!metrics.wideSafeFallbackCorrectness) notes.push("Tracking fallback did not match the expected safe crop mode.");
+  if (metrics.falseGoalFromTrackingRate) notes.push("Tracking metadata attempted to enable a goal claim.");
   if (!metrics.animationCueValidity) notes.push("Social edit animation cues are missing or invalid.");
   if (metrics.animationCueRelevance < 0.95) notes.push("Animation cues are not aligned with action/contact/payoff evidence.");
   if (metrics.fallbackUsed) notes.push("Analysis fell back to deterministic fallback moments.");
@@ -980,6 +1067,12 @@ function aggregateResults(results) {
     textObstructionRisk: avg((result) => result.metrics.textObstructionRisk),
     wideSafeFallbackRate: avg((result) => result.metrics.wideSafeFallbackRate),
     trackingConfidenceCalibration: avg((result) => result.metrics.trackingConfidenceCalibration),
+    trackingOutputValidity: avg((result) => result.metrics.trackingOutputValidity),
+    ballTrackCoverage: avg((result) => result.metrics.ballTrackCoverage),
+    playerClusterCoverage: avg((result) => result.metrics.playerClusterCoverage),
+    softFollowPrecision: avg((result) => result.metrics.softFollowPrecision),
+    wideSafeFallbackCorrectness: avg((result) => result.metrics.wideSafeFallbackCorrectness),
+    falseGoalFromTrackingRate: avg((result) => result.metrics.falseGoalFromTrackingRate),
     referenceStyleSimilarity: avg((result) => result.metrics.referenceStyleSimilarity),
     renderStylePresetValidity: avg((result) => result.metrics.renderStylePresetValidity),
     unsupportedCueRate: avg((result) => result.metrics.unsupportedCueRate),
@@ -1094,6 +1187,11 @@ module.exports = {
   actionSafeZoneCoverageScore,
   textObstructionRiskValue,
   trackingConfidenceCalibrationScore,
+  trackingOutputValidityScore,
+  ballTrackCoverageScore,
+  playerClusterCoverageScore,
+  softFollowPrecisionScore,
+  wideSafeFallbackCorrectnessScore,
   loadFixtures,
   overlapRatio,
   planHasGoalLanguage,

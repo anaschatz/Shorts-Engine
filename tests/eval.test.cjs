@@ -71,6 +71,12 @@ test("fixture scoring returns reportable metrics and candidate plans", () => {
   assert.equal(result.metrics.textObstructionRisk, 0);
   assert.equal(typeof result.metrics.wideSafeFallbackRate, "number");
   assert.equal(result.metrics.trackingConfidenceCalibration, 1);
+  assert.equal(result.metrics.trackingOutputValidity, 1);
+  assert.equal(result.metrics.ballTrackCoverage, 1);
+  assert.equal(result.metrics.playerClusterCoverage, 1);
+  assert.equal(result.metrics.softFollowPrecision, 1);
+  assert.equal(result.metrics.wideSafeFallbackCorrectness, 1);
+  assert.equal(result.metrics.falseGoalFromTrackingRate, 0);
   assert.equal(result.metrics.animationCueValidity, 1);
   assert.equal(result.metrics.animationCueRelevance, 1);
   assert.equal(typeof result.metrics.goalSequenceRecall, "number");
@@ -87,6 +93,8 @@ test("fixture scoring returns reportable metrics and candidate plans", () => {
   assert.equal(result.metrics.renderStylePresetValidity, 1);
   assert.equal(result.metrics.unsupportedCueRate, 0);
   assert.ok(result.actual.candidatePlans.length > 0);
+  assert.equal(result.actual.candidatePlans[0].visualQA.goalClaimAllowed, false);
+  assert.equal(typeof result.actual.candidatePlans[0].visualQA.trackingConfidence, "number");
   assert.ok(result.actual.candidatePlans[0].captionRoles.includes("opening_hook"));
   assert.ok(result.actual.candidatePlans[0].captionRoles.includes("closing_punch"));
 });
@@ -109,6 +117,12 @@ test("evaluation report has aggregate metrics and no local path leakage", () => 
   assert.equal(report.aggregate.textObstructionRisk, 0);
   assert.equal(typeof report.aggregate.wideSafeFallbackRate, "number");
   assert.equal(report.aggregate.trackingConfidenceCalibration, 1);
+  assert.equal(report.aggregate.trackingOutputValidity, 1);
+  assert.equal(report.aggregate.ballTrackCoverage, 1);
+  assert.equal(report.aggregate.playerClusterCoverage, 1);
+  assert.equal(report.aggregate.softFollowPrecision, 1);
+  assert.equal(report.aggregate.wideSafeFallbackCorrectness, 1);
+  assert.equal(report.aggregate.falseGoalFromTrackingRate, 0);
   assert.equal(report.aggregate.animationCueValidity, 1);
   assert.equal(report.aggregate.animationCueRelevance, 1);
   assert.equal(report.aggregate.goalSequenceRecall >= 0.95, true);
@@ -196,6 +210,12 @@ test("runner writes a JSON report", () => {
   assert.equal(summary.textObstructionRisk, 0);
   assert.equal(typeof summary.wideSafeFallbackRate, "number");
   assert.equal(summary.trackingConfidenceCalibration, 1);
+  assert.equal(summary.trackingOutputValidity, 1);
+  assert.equal(summary.ballTrackCoverage, 1);
+  assert.equal(summary.playerClusterCoverage, 1);
+  assert.equal(summary.softFollowPrecision, 1);
+  assert.equal(summary.wideSafeFallbackCorrectness, 1);
+  assert.equal(summary.falseGoalFromTrackingRate, 0);
   assert.equal(summary.animationCueRelevance, 1);
   assert.equal(summary.goalSequenceRecall >= 0.95, true);
   assert.equal(summary.shotToPayoffCoverage >= 0.95, true);

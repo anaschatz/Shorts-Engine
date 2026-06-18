@@ -402,6 +402,7 @@ function extractActualReviewMetadata(plan) {
         }
       : null),
     visualTrackingSummary: plan.reviewMetadata && plan.reviewMetadata.visualTrackingSummary || plan.visualTrackingSummary || null,
+    visualQA: plan.reviewMetadata && plan.reviewMetadata.visualQA || plan.visualQA || null,
     visualEvidenceSummary: plan.visualEvidenceSummary || null,
     audioEvidenceSummary: plan.reviewMetadata && plan.reviewMetadata.audioEvidenceSummary || null,
   };

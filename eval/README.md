@@ -46,6 +46,11 @@ The runner is deterministic and does not require API keys or network access. It 
 - `textObstructionRisk`: whether caption safe zones overlap the likely action area.
 - `wideSafeFallbackRate`: how often crop calibration correctly falls back to full-frame/wide-safe output.
 - `trackingConfidenceCalibration`: whether crop mode matches tracking confidence and expected fixture behavior.
+- `trackingOutputValidity`: whether provider-backed tracking output satisfies the bounded schema.
+- `ballTrackCoverage` and `playerClusterCoverage`: whether soft-follow expectations have reliable ball/player evidence.
+- `softFollowPrecision`: whether soft-follow crop was allowed only with reliable ball/player tracking.
+- `wideSafeFallbackCorrectness`: whether weak tracking, camera motion or caption obstruction fell back to the expected safe crop mode.
+- `falseGoalFromTrackingRate`: hard guardrail that tracking metadata never creates goal claims.
 - `animationCueRelevance`: whether punch, flash and freeze cues are backed by action/contact/payoff evidence.
 
 Reference review additionally reports:
@@ -78,6 +83,7 @@ Each fixture includes:
 - `transcript.captions`
 - `mediaSignals`
 - optional `visualSignals` with bounded windows and safe reason-code evidence
+- optional `trackingProviderOutput` with bounded ball tracks, player clusters, action bounds and safe provider metadata
 - optional `visualTracking` with conservative action bounds, confidence and crop-mode expectations
 - `expected.highlights`
 - `expected.reasonCodes`

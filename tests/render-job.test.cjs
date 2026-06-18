@@ -191,6 +191,22 @@ function makeContext(options = {}) {
         windows: [{ start: 2.7, end: 5.1, type: "unknown_visual_action", confidence: 0.72 }],
       };
     },
+    analyzeTracking: async ({ frames }) => {
+      calls.push("analyze_tracking");
+      context.trackingFrameCount = Array.isArray(frames) ? frames.length : 0;
+      return options.trackingProviderOutput || {
+        providerMode: "mock-tracking",
+        fallbackUsed: true,
+        frameCount: context.trackingFrameCount,
+        ballTracks: [],
+        playerClusters: [],
+        actionBounds: null,
+        actionCenter: null,
+        cameraMotionLevel: 0,
+        confidence: 0,
+        reasonCodes: ["tracking_fallback_no_ball_player_evidence"],
+      };
+    },
     chooseTranscriptionProvider: (providerOpts) => {
       providerOptions.push(providerOpts);
       return {
@@ -271,6 +287,7 @@ test("render orchestration completes success path with mocked adapters", async (
   assert.equal(context.createPlanInput.stylePreset, "punchy_highlight");
   assert.equal(context.createPlanInput.language, "en");
   assert.equal(context.calls.includes("analyze_frames"), true);
+  assert.equal(context.calls.includes("analyze_tracking"), true);
   assert.equal(context.calls.includes("extract_sampled_frames"), true);
   assert.equal(context.visualCandidateWindows.length > 0, true);
   assert.equal(context.visualFrameCount, 1);
@@ -293,9 +310,14 @@ test("render orchestration completes success path with mocked adapters", async (
   assert.doesNotMatch(JSON.stringify(visualAnalysisLog), /\/Users|storageKey|localPath|secret/i);
   assert.equal(context.job.visualSignals.summary.goalClaimAllowed, false);
   assert.equal(context.job.visualTracking.goalClaimAllowed, false);
+  assert.equal(context.job.trackingProviderOutput.providerMode, "mock-tracking");
+  assert.equal(context.job.trackingProviderOutput.fallbackUsed, true);
+  assert.equal(context.job.trackingProviderOutput.ballTrackCount, 0);
   assert.equal(typeof context.job.visualTracking.trackingConfidence, "number");
   const visualTrackingLog = context.logs.find((entry) => entry.event === "visual_tracking_completed");
+  assert.equal(visualTrackingLog.providerMode, "mock-tracking");
   assert.equal(visualTrackingLog.recommendedFramingMode, "wide_safe");
+  assert.equal(visualTrackingLog.ballTrackCount, 0);
   assert.equal(typeof visualTrackingLog.trackingConfidence, "number");
   assert.doesNotMatch(JSON.stringify(visualTrackingLog), /\/Users|storageKey|localPath|secret/i);
 });
