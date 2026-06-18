@@ -82,6 +82,26 @@ Use `docs/YOUTUBE_INGEST_MANUAL_SMOKE.md` before the first real downloader run. 
 | `MATCHCUTS_RENDER_TIMEOUT_MS` | No | `300000` | integer `1000..3600000` | No | Keep default for staging. | Invalid timeout fails readiness. |
 | `MATCHCUTS_ANALYSIS_TIMEOUT_MS` | No | `45000` | integer `1000..600000` | No | Keep default unless fixtures become slower. | Invalid timeout fails readiness. |
 
+## Scoreboard OCR
+
+Scoreboard OCR is deterministic fallback by default. Local OCR must be installed and enabled by the operator outside ShortsEngine; the app never installs OCR runtimes, never requests tokens and never requires network for OCR. When local OCR is enabled, ShortsEngine crops bounded top scoreboard regions from sampled frames in staging, runs the configured OCR command with `execFile`, normalizes only structured score/clock evidence, and cleans OCR crops after analysis. OCR evidence can support a valid goal only when paired with ball-in-net/action context; OCR-only score changes and ambiguous/unreadable text fail closed.
+
+| Variable | Required | Default | Allowed values | Secret | Staging recommendation | Fail-closed behavior |
+| --- | --- | --- | --- | --- | --- | --- |
+| `SHORTSENGINE_SCOREBOARD_OCR_ENABLED` | No | `0` | boolean | No | Keep disabled until a local OCR runtime is installed and verified manually. | Disabled mode uses deterministic fallback and does not spawn OCR. |
+| `SHORTSENGINE_SCOREBOARD_OCR_PROVIDER` | No | `deterministic` | `deterministic`, `local` | No | Use `local` only for operator-controlled environments with OCR installed. | Unsupported provider fails readiness/startup. |
+| `SHORTSENGINE_SCOREBOARD_OCR_BIN` | No | `tesseract` | command name or absolute binary path without spaces/shell metacharacters | No | Install/manage the OCR command outside the app; verify manually with `tesseract --version`. | Missing runtime reports degraded health and falls back. |
+| `SHORTSENGINE_SCOREBOARD_OCR_TIMEOUT_MS` | No | `10000` | integer `250..60000` | No | Keep bounded; raise only if OCR is consistently timing out on known hardware. | Timeout falls back without raw stdout/stderr in public output. |
+
+Manual local OCR check:
+
+```bash
+tesseract --version
+SHORTSENGINE_SCOREBOARD_OCR_ENABLED=1 SHORTSENGINE_SCOREBOARD_OCR_PROVIDER=local npm run env:check
+```
+
+`/health` reports `scoreboardOcr.providerMode`, `localOcrEnabled`, `runtimeAvailable`, `fallbackAvailable` and `networkRequired` without binary paths, local crop paths, raw OCR text, stdout, stderr or secrets.
+
 ## Worker/job settings
 
 | Variable | Required | Default | Allowed values | Secret | Staging recommendation | Fail-closed behavior |

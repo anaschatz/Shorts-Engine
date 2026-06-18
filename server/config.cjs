@@ -19,7 +19,9 @@ const FFMPEG_FULL_BIN = "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg";
 const FFPROBE_FULL_BIN = "/opt/homebrew/opt/ffmpeg-full/bin/ffprobe";
 const STORAGE_ADAPTER_MODES = Object.freeze(["local", "mock-cloud", "s3", "r2", "gcs"]);
 const PERSISTENCE_ADAPTER_MODES = Object.freeze(["local", "sqlite"]);
+const SCOREBOARD_OCR_PROVIDER_MODES = Object.freeze(["deterministic", "local"]);
 const DEFAULT_YOUTUBE_DOWNLOADER_BIN = "yt-dlp";
+const DEFAULT_SCOREBOARD_OCR_BIN = "tesseract";
 
 function boolFromEnv(value) {
   return ["1", "true", "yes", "on"].includes(String(value || "").toLowerCase());
@@ -229,6 +231,27 @@ function validateYouTubeIngestConfig(input = {}) {
   };
 }
 
+function validateScoreboardOcrConfig(input = {}) {
+  const provider = String(input.provider || "deterministic").trim().toLowerCase();
+  if (!SCOREBOARD_OCR_PROVIDER_MODES.includes(provider)) {
+    throw new Error("Invalid SHORTSENGINE_SCOREBOARD_OCR_PROVIDER value.");
+  }
+  return {
+    enabled: Boolean(input.enabled),
+    provider,
+    bin: validateExecutableReference(input.bin, {
+      name: "scoreboard OCR binary",
+      fallback: DEFAULT_SCOREBOARD_OCR_BIN,
+    }),
+    timeoutMs: validatePositiveIntegerConfig(input.timeoutMs, {
+      name: "scoreboard OCR timeout",
+      fallback: 10 * 1000,
+      min: 250,
+      max: 60 * 1000,
+    }),
+  };
+}
+
 const STORAGE_CONFIG = validateStorageConfig({
   adapter: process.env.MATCHCUTS_STORAGE_ADAPTER || "local",
   bucket: process.env.MATCHCUTS_STORAGE_BUCKET || "",
@@ -255,6 +278,12 @@ const YOUTUBE_INGEST_CONFIG = validateYouTubeIngestConfig({
   downloaderBin: process.env.SHORTSENGINE_YOUTUBE_DOWNLOADER_BIN || DEFAULT_YOUTUBE_DOWNLOADER_BIN,
   timeoutMs: process.env.SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS,
   maxOutputBytes: process.env.SHORTSENGINE_YOUTUBE_DOWNLOADER_OUTPUT_BYTES,
+});
+const SCOREBOARD_OCR_CONFIG = validateScoreboardOcrConfig({
+  enabled: boolFromEnv(process.env.SHORTSENGINE_SCOREBOARD_OCR_ENABLED),
+  provider: process.env.SHORTSENGINE_SCOREBOARD_OCR_PROVIDER || "deterministic",
+  bin: process.env.SHORTSENGINE_SCOREBOARD_OCR_BIN || DEFAULT_SCOREBOARD_OCR_BIN,
+  timeoutMs: process.env.SHORTSENGINE_SCOREBOARD_OCR_TIMEOUT_MS,
 });
 
 const PORT = validatePositiveIntegerConfig(process.env.PORT, {
@@ -353,6 +382,7 @@ const CONFIG = Object.freeze({
   persistence: Object.freeze(DATABASE_CONFIG),
   persistenceAdapter: DATABASE_CONFIG.adapter,
   youtubeIngest: Object.freeze(YOUTUBE_INGEST_CONFIG),
+  scoreboardOcr: Object.freeze(SCOREBOARD_OCR_CONFIG),
   artifactCleanupIntervalMs: validatePositiveIntegerConfig(process.env.MATCHCUTS_ARTIFACT_CLEANUP_INTERVAL_MS, {
     name: "artifact cleanup interval",
     fallback: 0,
@@ -389,6 +419,7 @@ module.exports = {
   CONFIG,
   PERSISTENCE_ADAPTER_MODES,
   STORAGE_ADAPTER_MODES,
+  SCOREBOARD_OCR_PROVIDER_MODES,
   ensureDataDirs,
   validateByteConfig,
   validateDatabaseConfig,
@@ -398,5 +429,6 @@ module.exports = {
   validateSignedUrlTtlSeconds,
   validateStorageAdapterMode,
   validateStorageConfig,
+  validateScoreboardOcrConfig,
   validateYouTubeIngestConfig,
 };

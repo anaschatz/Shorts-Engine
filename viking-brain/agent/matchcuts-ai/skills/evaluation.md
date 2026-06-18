@@ -33,3 +33,4 @@ Review generated shorts against:
 - ball-in-net evaluation should check outcome evidence, offside/no-goal context, post-goal decision coverage and no confirmed-goal copy unless `goalOutcome.outcome` is `confirmed_goal`.
 - referee/VAR/offside decision evaluation should track `offsideOutcomeAccuracy`, `disallowedGoalIncluded`, `decisionContextCoverage`, `captionOutcomeAlignment` and `postGoalWindowCoverage`.
 - scoreboard OCR evaluation should track `ocrEvidenceCoverage`, `scoreboardScoreChangeRecall`, `ambiguousOcrFailClosed`, and `noFalseGoalFromOcrOnly` before OCR evidence can support goal decisions.
+- local OCR evaluation should separately track score-changed, score-unchanged, clock-only and unreadable outcomes; unchanged/ambiguous/unreadable OCR must fail closed against confirmed-goal claims.

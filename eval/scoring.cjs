@@ -1286,6 +1286,8 @@ function scoreFixture(fixture) {
         scoreChangeCount: scoreboardOcr.summary.scoreChangeCount,
         scoreUnchangedCount: scoreboardOcr.summary.scoreUnchangedCount,
         ambiguousCount: scoreboardOcr.summary.ambiguousCount,
+        clockOnlyCount: scoreboardOcr.summary.clockOnlyCount,
+        unreadableCount: scoreboardOcr.summary.unreadableCount,
         sampledFrameCount: scoreboardOcr.summary.sampledFrameCount,
       },
       candidatePlans: candidatePlans.map((plan) => ({

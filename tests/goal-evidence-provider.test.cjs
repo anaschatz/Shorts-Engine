@@ -174,6 +174,37 @@ test("ambiguous OCR does not promote a ball-in-net moment to valid goal", () => 
   assert.ok(goalEvidence.events[0].reasonCodes.includes("scoreboard_ocr_ambiguous"));
 });
 
+test("scoreboard OCR unchanged after ball-in-net supports no-goal context", () => {
+  const goalEvidence = deterministicGoalEvidence({
+    metadata,
+    transcript: {
+      captions: [{ start: 43, end: 44, text: "The decision is still being checked" }],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [
+        { start: 30, end: 32, types: ["shot_contact", "ball_toward_goal"], confidence: 0.9 },
+        { start: 34, end: 35.2, types: ["ball_in_net"], confidence: 0.92 },
+      ],
+    },
+    scoreboardOcr: [{
+      timestamp: 43,
+      scoreBefore: "0-0",
+      scoreAfter: "0-0",
+      status: "score_unchanged",
+      temporalConsistency: true,
+      confidence: 0.82,
+    }],
+  });
+
+  assert.equal(goalEvidence.summary.validGoalCount, 0);
+  assert.equal(goalEvidence.summary.offsideOrNoGoalCount, 1);
+  assert.equal(goalEvidence.events[0].outcomeHint, "offside_goal");
+  assert.ok(goalEvidence.events[0].reasonCodes.includes("scoreboard_ocr_score_unchanged"));
+  assert.equal(goalEvidence.events[0].VARNoGoalSignal, true);
+});
+
 test("celebration-only and anthem/intro evidence are explicit non-goal outcomes", () => {
   const goalEvidence = deterministicGoalEvidence({
     metadata: { ...metadata, durationSeconds: 120 },

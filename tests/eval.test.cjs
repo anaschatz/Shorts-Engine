@@ -158,6 +158,7 @@ test("OCR risk fixtures fail closed for ambiguous and OCR-only evidence", () => 
   const fixtures = loadFixtures(fixturesDir);
   const ambiguous = scoreFixture(fixtures.find((item) => item.id === "ambiguous_ocr_fail_closed"));
   const ocrOnly = scoreFixture(fixtures.find((item) => item.id === "ocr_only_score_change_no_goal"));
+  const scoreUnchanged = scoreFixture(fixtures.find((item) => item.id === "ocr_score_unchanged_disallowed_goal"));
   assert.equal(ambiguous.passed, true);
   assert.equal(ambiguous.metrics.ambiguousOcrFailClosed, 1);
   assert.equal(ambiguous.actual.goalEvidence.validGoalCount, 0);
@@ -166,6 +167,14 @@ test("OCR risk fixtures fail closed for ambiguous and OCR-only evidence", () => 
   assert.equal(ocrOnly.metrics.noFalseGoalFromOcrOnly, 1);
   assert.equal(ocrOnly.actual.goalEvidence.validGoalCount, 0);
   assert.equal(ocrOnly.actual.scoreboardOcr.scoreChangeCount, 1);
+  assert.equal(scoreUnchanged.passed, true);
+  assert.equal(scoreUnchanged.metrics.offsideOutcomeAccuracy, 1);
+  assert.equal(scoreUnchanged.metrics.captionOutcomeAlignment, 1);
+  assert.equal(scoreUnchanged.actual.goalEvidence.validGoalCount, 0);
+  assert.equal(scoreUnchanged.actual.goalEvidence.offsideOrNoGoalCount, 1);
+  assert.equal(scoreUnchanged.actual.scoreboardOcr.scoreUnchangedCount, 1);
+  assert.equal(scoreUnchanged.actual.scoreboardOcr.scoreChangeCount, 0);
+  assert.equal(scoreUnchanged.actual.candidatePlans[0].goalOutcome.outcome, "disallowed_offside");
 });
 
 test("evaluation report has aggregate metrics and no local path leakage", () => {

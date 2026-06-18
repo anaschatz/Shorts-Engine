@@ -114,7 +114,9 @@ const OCR_STATUSES = Object.freeze([
   "score_unchanged",
   "goal_confirmed",
   "goal_removed",
+  "clock_only",
   "ambiguous",
+  "unreadable",
   "unknown",
 ]);
 
@@ -406,6 +408,7 @@ function normalizeOcrEvidenceItem(item = {}, metadata = {}, index = 0) {
     confidence,
     scoreBefore: scoreBefore ? scoreBefore.text : null,
     scoreAfter: scoreAfter ? scoreAfter.text : null,
+    clock: item.clock || item.detectedClock ? sanitizeText(item.clock || item.detectedClock, 16) : null,
     scoreChanged,
     scoreUnchanged,
     temporalConsistency,

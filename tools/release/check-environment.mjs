@@ -18,6 +18,7 @@ const STORAGE_ADAPTERS = Object.freeze(["local", "mock-cloud", "s3", "r2", "gcs"
 const STAGING_READY_STORAGE_ADAPTERS = Object.freeze(["local", "mock-cloud", "s3", "r2"]);
 const PERSISTENCE_ADAPTERS = Object.freeze(["local", "sqlite"]);
 const TRANSCRIPTION_PROVIDERS = Object.freeze(["mock", "openai"]);
+const SCOREBOARD_OCR_PROVIDERS = Object.freeze(["deterministic", "local"]);
 
 const ENV_CONTRACT = Object.freeze([
   { name: "PORT", category: "App/runtime", required: false, defaultValue: "4175", type: "integer", min: 1, max: 65535, secret: false },
@@ -48,6 +49,10 @@ const ENV_CONTRACT = Object.freeze([
   { name: "SHORTSENGINE_YOUTUBE_LIVE_E2E_BROWSER", category: "Remote URL ingest", required: false, defaultValue: "false", type: "boolean", secret: false },
   { name: "MATCHCUTS_RENDER_TIMEOUT_MS", category: "FFmpeg/render limits", required: false, defaultValue: String(5 * 60 * 1000), type: "integer", min: 1000, max: 60 * 60 * 1000, secret: false },
   { name: "MATCHCUTS_ANALYSIS_TIMEOUT_MS", category: "FFmpeg/render limits", required: false, defaultValue: String(45 * 1000), type: "integer", min: 1000, max: 10 * 60 * 1000, secret: false },
+  { name: "SHORTSENGINE_SCOREBOARD_OCR_ENABLED", category: "Scoreboard OCR", required: false, defaultValue: "false", type: "boolean", secret: false },
+  { name: "SHORTSENGINE_SCOREBOARD_OCR_PROVIDER", category: "Scoreboard OCR", required: false, defaultValue: "deterministic", type: "enum", allowedValues: SCOREBOARD_OCR_PROVIDERS, secret: false },
+  { name: "SHORTSENGINE_SCOREBOARD_OCR_BIN", category: "Scoreboard OCR", required: false, defaultValue: "tesseract", type: "command", secret: false },
+  { name: "SHORTSENGINE_SCOREBOARD_OCR_TIMEOUT_MS", category: "Scoreboard OCR", required: false, defaultValue: "10000", type: "integer", min: 250, max: 60000, secret: false },
   { name: "MATCHCUTS_TRANSCRIPTION_TIMEOUT_MS", category: "Transcription/AI provider", required: false, defaultValue: String(60 * 1000), type: "integer", min: 1000, max: 15 * 60 * 1000, secret: false },
   { name: "MATCHCUTS_TRANSCRIPTION_RETRIES", category: "Transcription/AI provider", required: false, defaultValue: "1", type: "integer", min: 0, max: 5, secret: false },
   { name: "MATCHCUTS_TRANSCRIPTION_PROVIDER", category: "Transcription/AI provider", required: false, defaultValue: "mock", type: "enum", allowedValues: TRANSCRIPTION_PROVIDERS, secret: false },
@@ -333,6 +338,25 @@ function validateTranscriptionReadiness(env) {
   };
 }
 
+function validateScoreboardOcrReadiness(env, numeric) {
+  const provider = normalizeEnum(valueOrDefault(env, ENV_CONTRACT.find((spec) => spec.name === "SHORTSENGINE_SCOREBOARD_OCR_PROVIDER")), {
+    allowedValues: SCOREBOARD_OCR_PROVIDERS,
+    defaultValue: "deterministic",
+    category: "Scoreboard OCR",
+  });
+  const enabled = boolFromEnv(rawValue(env, "SHORTSENGINE_SCOREBOARD_OCR_ENABLED"));
+  return {
+    enabled,
+    provider,
+    activeProvider: enabled && provider === "local" ? "local" : "deterministic",
+    localRuntimeRequested: enabled && provider === "local",
+    commandConfigured: Boolean(valueOrDefault(env, ENV_CONTRACT.find((spec) => spec.name === "SHORTSENGINE_SCOREBOARD_OCR_BIN"))),
+    timeoutMs: numeric.SHORTSENGINE_SCOREBOARD_OCR_TIMEOUT_MS,
+    defaultProviderIsDeterministic: !enabled && provider === "deterministic",
+    networkRequired: false,
+  };
+}
+
 function validateCloudReadiness(env, storage) {
   const enabledRaw = rawValue(env, "MATCHCUTS_RUN_REAL_CLOUD_TESTS");
   const enabled = boolFromEnv(enabledRaw);
@@ -451,6 +475,7 @@ function checkEnvironment(options = {}) {
   const { numeric } = validateContractValues(env);
   const storage = validateStorageReadiness(env);
   const transcription = validateTranscriptionReadiness(env);
+  const scoreboardOcr = validateScoreboardOcrReadiness(env, numeric);
   const cloudIntegration = validateCloudReadiness(env, storage);
   const youtubeLiveE2E = validateYouTubeLiveE2EReadiness(env);
   const ci = validateCiReadiness(env, numeric);
@@ -527,6 +552,7 @@ function checkEnvironment(options = {}) {
       database: persistenceAdapter === "sqlite",
     },
     transcription,
+    scoreboardOcr,
     cloudIntegration,
     ci,
     safeDefaults: {
@@ -534,6 +560,7 @@ function checkEnvironment(options = {}) {
       localStorageDefault: true,
       localPersistenceDefault: true,
       youtubeIngestOptIn: true,
+      scoreboardOcrFallbackDefault: true,
       realCloudOptIn: true,
     },
   };

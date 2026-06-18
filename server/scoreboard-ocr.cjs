@@ -1,11 +1,22 @@
+const { randomUUID } = require("node:crypto");
+const { existsSync, mkdirSync, rmSync } = require("node:fs");
+const { basename, join } = require("node:path");
 const { AppError, SAFE_MESSAGES } = require("./errors.cjs");
-const { sanitizeText } = require("./media.cjs");
+const { CONFIG } = require("./config.cjs");
+const { commandAvailable, sanitizeText } = require("./media.cjs");
 const { normalizeOcrEvidence } = require("./goal-evidence-provider.cjs");
+const { runFfmpeg } = require("./render.cjs");
+const { assertStoragePath, safeResolve, storagePath } = require("./storage.cjs");
+const {
+  LocalOcrCommandAdapter,
+  buildScoreboardEvidenceFromObservations,
+} = require("./adapters/local-ocr-adapter.cjs");
 const { visualReasonCodesForWindow } = require("./vision.cjs");
 
 const DEFAULT_SCOREBOARD_OCR_TIMEOUT_MS = 10000;
 const MAX_SCOREBOARD_OCR_FRAMES = 12;
 const MAX_SCOREBOARD_REGIONS = 4;
+const MAX_SCOREBOARD_OCR_CROPS = 18;
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, Number(value) || min));
@@ -24,6 +35,14 @@ function round(value, digits = 2) {
 function hasUnsafeValue(value) {
   const serialized = JSON.stringify(value || {});
   return /\/Users\/|\/private\/|storageKey|localPath|Bearer\s+|OPENAI_API_KEY|api[_-]?key|token|secret|stderr|stdout|rawOcr|rawText/i.test(serialized);
+}
+
+function deterministicFallback(input = {}) {
+  return validateScoreboardOcrOutput({
+    ...deterministicScoreboardOcr(input),
+    providerMode: "deterministic-scoreboard-ocr",
+    fallbackUsed: true,
+  }, input.metadata || {});
 }
 
 function mediaDimensions(metadata = {}, frame = {}) {
@@ -240,6 +259,8 @@ function validateScoreboardOcrOutput(output = {}, metadata = {}) {
       scoreChangeCount: evidence.filter((item) => item.scoreChanged).length,
       scoreUnchangedCount: evidence.filter((item) => item.scoreUnchanged).length,
       ambiguousCount: evidence.filter((item) => item.ambiguous).length,
+      clockOnlyCount: evidence.filter((item) => item.status === "clock_only").length,
+      unreadableCount: evidence.filter((item) => item.status === "unreadable").length,
       sampledFrameCount,
       regionCount,
       fallbackUsed: Boolean(output.fallbackUsed || evidence.length === 0),
@@ -285,6 +306,8 @@ class DeterministicScoreboardOcrProvider {
       providerMode: "deterministic-scoreboard-ocr",
       fallbackAvailable: true,
       realOcrEnabled: false,
+      localOcrEnabled: false,
+      runtimeAvailable: false,
       networkRequired: false,
       maxFrames: MAX_SCOREBOARD_OCR_FRAMES,
       maxRegions: MAX_SCOREBOARD_REGIONS,
@@ -319,11 +342,7 @@ class ExternalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrPro
 
   async analyzeScoreboardOcr(input = {}) {
     if (!this.client || typeof this.client.analyzeScoreboardOcr !== "function") {
-      return validateScoreboardOcrOutput({
-        ...deterministicScoreboardOcr(input),
-        providerMode: "deterministic-scoreboard-ocr",
-        fallbackUsed: true,
-      }, input.metadata || {});
+      return deterministicFallback(input);
     }
     try {
       const output = await raceWithTimeout(this.client.analyzeScoreboardOcr(input), {
@@ -338,25 +357,217 @@ class ExternalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrPro
     } catch (error) {
       if (error && error.code === "JOB_CANCELLED") throw error;
       if (error && error.code === "AI_OUTPUT_INVALID") throw error;
-      return validateScoreboardOcrOutput({
-        ...deterministicScoreboardOcr(input),
-        providerMode: "deterministic-scoreboard-ocr",
-        fallbackUsed: true,
-      }, input.metadata || {});
+      return deterministicFallback(input);
     }
   }
 }
 
-function createScoreboardOcrProvider({ mode, client } = {}) {
-  const safeMode = sanitizeText(mode || "", 80).toLowerCase();
+function safeFilePart(value, fallback = "item") {
+  return sanitizeText(value || fallback, 80).replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 80) || fallback;
+}
+
+function ocrCropOutputDir(input = {}) {
+  if (input.ocrOutputDir) return assertStoragePath(input.ocrOutputDir, "staging");
+  return storagePath("staging", join("scoreboard-ocr", `ocr_${randomUUID()}`));
+}
+
+function assertOcrFrame(frame = {}) {
+  const timestamp = frameTimestamp(frame);
+  if (!Number.isFinite(timestamp)) {
+    throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
+  }
+  if (!frame.localPath) return null;
+  const localPath = assertStoragePath(frame.localPath, "staging");
+  if (!existsSync(localPath)) {
+    throw new AppError("STORAGE_PATH_UNSAFE", SAFE_MESSAGES.STORAGE_PATH_UNSAFE, 403);
+  }
+  return {
+    ...frame,
+    localPath,
+    timestamp,
+  };
+}
+
+function cropPathForRegion(outputDir, frameIndex, region) {
+  const name = `crop_${String(frameIndex + 1).padStart(2, "0")}_${safeFilePart(region.id, "region")}.png`;
+  return safeResolve(outputDir, name);
+}
+
+async function cropScoreboardRegion({
+  frame,
+  region,
+  outputDir,
+  frameIndex = 0,
+  ffmpegRunner = runFfmpeg,
+  signal = null,
+} = {}) {
+  const safeFrame = assertOcrFrame(frame);
+  if (!safeFrame || !safeFrame.localPath) {
+    throw new AppError("STORAGE_PATH_UNSAFE", SAFE_MESSAGES.STORAGE_PATH_UNSAFE, 403);
+  }
+  const safeOutputDir = assertStoragePath(outputDir, "staging");
+  mkdirSync(safeOutputDir, { recursive: true });
+  const cropPath = cropPathForRegion(safeOutputDir, frameIndex, region);
+  await ffmpegRunner([
+    "-y",
+    "-i",
+    safeFrame.localPath,
+    "-vf",
+    `crop=${region.width}:${region.height}:${region.x}:${region.y}`,
+    "-frames:v",
+    "1",
+    cropPath,
+  ], { signal, timeoutMs: Math.min(CONFIG.analysisTimeoutMs, 20000) });
+  if (!existsSync(cropPath)) {
+    throw new AppError("ANALYSIS_FAILED", SAFE_MESSAGES.ANALYSIS_FAILED, 502);
+  }
+  return cropPath;
+}
+
+function cleanupOcrCrops(outputDir) {
+  if (!outputDir) return { cleaned: false };
+  const safeOutputDir = assertStoragePath(outputDir, "staging");
+  if (!basename(safeOutputDir).startsWith("ocr_")) return { cleaned: false };
+  try {
+    rmSync(safeOutputDir, { recursive: true, force: true });
+    return { cleaned: true };
+  } catch {
+    return { cleaned: false };
+  }
+}
+
+class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvider {
+  constructor({
+    enabled = CONFIG.scoreboardOcr.enabled,
+    bin = CONFIG.scoreboardOcr.bin,
+    timeoutMs = CONFIG.scoreboardOcr.timeoutMs,
+    ocrAdapter = null,
+    ocrRunner = null,
+    commandChecker = null,
+    cropper = null,
+    ffmpegRunner = null,
+  } = {}) {
+    super();
+    this.enabled = Boolean(enabled);
+    this.timeoutMs = Math.max(250, Math.min(60000, Number(timeoutMs) || DEFAULT_SCOREBOARD_OCR_TIMEOUT_MS));
+    this.ocrAdapter = ocrAdapter || new LocalOcrCommandAdapter({
+      bin,
+      enabled: this.enabled,
+      timeoutMs: this.timeoutMs,
+      runner: ocrRunner,
+      commandChecker,
+    });
+    this.cropperInjected = Boolean(cropper);
+    this.cropper = cropper || cropScoreboardRegion;
+    this.ffmpegRunner = ffmpegRunner || runFfmpeg;
+  }
+
+  health() {
+    const adapterHealth = this.ocrAdapter.health();
+    return {
+      ...super.health(),
+      status: adapterHealth.status,
+      providerMode: adapterHealth.providerMode,
+      realOcrEnabled: this.enabled,
+      localOcrEnabled: this.enabled,
+      runtimeAvailable: Boolean(adapterHealth.runtimeAvailable),
+      fallbackAvailable: true,
+      networkRequired: false,
+      commandConfigured: Boolean(adapterHealth.commandConfigured),
+      capabilities: [
+        "scoreboard_region_sampling",
+        "local_command_ocr",
+        "safe_empty_fallback",
+      ],
+    };
+  }
+
+  async analyzeScoreboardOcr(input = {}) {
+    if (input.signal && input.signal.aborted) throw cancellationError();
+    if (!this.enabled || !this.ocrAdapter.runtimeAvailable()) return deterministicFallback(input);
+    if (!this.cropperInjected && this.ffmpegRunner === runFfmpeg && !commandAvailable(CONFIG.ffmpegBin)) return deterministicFallback(input);
+
+    const metadata = input.metadata || {};
+    let frames = [];
+    try {
+      frames = selectOcrFrames(input)
+        .map((frame) => assertOcrFrame(frame))
+        .filter((frame) => frame && frame.localPath)
+        .slice(0, MAX_SCOREBOARD_OCR_FRAMES);
+    } catch {
+      return deterministicFallback(input);
+    }
+    if (!frames.length) return deterministicFallback(input);
+
+    const outputDir = ocrCropOutputDir(input);
+    const observations = [];
+    let cropCount = 0;
+    try {
+      for (const [frameIndex, frame] of frames.entries()) {
+        const regions = regionHintsForFrame(frame, metadata).slice(0, MAX_SCOREBOARD_REGIONS);
+        for (const region of regions) {
+          if (cropCount >= MAX_SCOREBOARD_OCR_CROPS) break;
+          if (input.signal && input.signal.aborted) throw cancellationError();
+          const cropPath = await this.cropper({
+            frame,
+            region,
+            outputDir,
+            frameIndex,
+            ffmpegRunner: this.ffmpegRunner,
+            signal: input.signal,
+          });
+          const safeCropPath = assertStoragePath(cropPath, "staging");
+          const ocr = await raceWithTimeout(this.ocrAdapter.readTextFromImage({
+            imagePath: safeCropPath,
+            signal: input.signal,
+            timeoutMs: this.timeoutMs,
+          }), { signal: input.signal, timeoutMs: this.timeoutMs });
+          observations.push({
+            id: `ocr_${frameIndex + 1}_${cropCount + 1}`,
+            timestamp: frame.timestamp,
+            start: frame.windowStart ?? frame.timestamp - 0.8,
+            end: frame.windowEnd ?? frame.timestamp + 0.8,
+            regionId: region.id,
+            text: ocr.text,
+            confidence: ocr.confidence,
+            rejected: ocr.rejected,
+            source: "local_scoreboard_ocr",
+          });
+          cropCount += 1;
+        }
+      }
+      const evidence = buildScoreboardEvidenceFromObservations(observations);
+      return validateScoreboardOcrOutput({
+        providerMode: "local-scoreboard-ocr-command",
+        fallbackUsed: evidence.length === 0,
+        evidence,
+        sampledFrameCount: frames.length,
+        regionCount: cropCount,
+      }, metadata);
+    } catch (error) {
+      if (error && error.code === "JOB_CANCELLED") throw error;
+      return deterministicFallback(input);
+    } finally {
+      cleanupOcrCrops(outputDir);
+    }
+  }
+}
+
+function createScoreboardOcrProvider(options = {}) {
+  const { mode, client } = options;
+  const safeMode = sanitizeText(mode || CONFIG.scoreboardOcr.provider || "", 80).toLowerCase();
   if (safeMode === "external" || safeMode === "external-scoreboard-ocr-adapter") {
     return new ExternalScoreboardOcrProviderAdapter({ client });
+  }
+  if (safeMode === "local" || safeMode === "local-scoreboard-ocr-command") {
+    return new LocalScoreboardOcrProviderAdapter(options);
   }
   return new DeterministicScoreboardOcrProvider();
 }
 
 async function analyzeScoreboardOcr(input = {}) {
   const provider = input.provider || createScoreboardOcrProvider({
+    ...input,
     mode: input.providerMode || input.mode,
     client: input.providerClient || input.client,
   });
@@ -375,6 +586,8 @@ function publicScoreboardOcr(scoreboardOcr) {
           scoreChangeCount: Number(safe.summary.scoreChangeCount || 0),
           scoreUnchangedCount: Number(safe.summary.scoreUnchangedCount || 0),
           ambiguousCount: Number(safe.summary.ambiguousCount || 0),
+          clockOnlyCount: Number(safe.summary.clockOnlyCount || 0),
+          unreadableCount: Number(safe.summary.unreadableCount || 0),
           sampledFrameCount: Number(safe.summary.sampledFrameCount || 0),
           regionCount: Number(safe.summary.regionCount || 0),
           fallbackUsed: Boolean(safe.summary.fallbackUsed),
@@ -394,6 +607,7 @@ function publicScoreboardOcr(scoreboardOcr) {
           ambiguous: Boolean(item.ambiguous),
           scoreChanged: Boolean(item.scoreChanged),
           scoreUnchanged: Boolean(item.scoreUnchanged),
+          clock: item.clock ? sanitizeText(item.clock, 16) : null,
           source: sanitizeText(item.source || "scoreboard_ocr", 60),
         }))
       : [],
@@ -408,9 +622,13 @@ module.exports = {
   DEFAULT_SCOREBOARD_OCR_TIMEOUT_MS,
   MAX_SCOREBOARD_OCR_FRAMES,
   MAX_SCOREBOARD_REGIONS,
+  MAX_SCOREBOARD_OCR_CROPS,
   DeterministicScoreboardOcrProvider,
   ExternalScoreboardOcrProviderAdapter,
+  LocalScoreboardOcrProviderAdapter,
   analyzeScoreboardOcr,
+  cleanupOcrCrops,
+  cropScoreboardRegion,
   createScoreboardOcrProvider,
   defaultScoreboardRegions,
   deterministicScoreboardOcr,
