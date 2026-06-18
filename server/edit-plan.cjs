@@ -100,7 +100,7 @@ const MULTI_MOMENT_LIMITS = Object.freeze({
   minSegments: 2,
   maxSegments: 7,
   minSegmentDuration: 3,
-  maxSegmentDuration: 22,
+  maxSegmentDuration: 30,
   maxTotalDuration: 90,
 });
 const VISUAL_EVIDENCE_TYPES = Object.freeze([

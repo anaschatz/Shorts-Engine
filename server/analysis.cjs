@@ -1534,10 +1534,17 @@ function detectHighlights({ transcript, signals, visualSignals, preset = "hype" 
     .filter((moment) => moment.end - moment.start >= 3)
     .sort((a, b) => b.retentionScore - a.retentionScore || a.start - b.start);
   const deduped = [];
-  for (const moment of merged) {
-    if (deduped.some((existing) => Math.abs(existing.center - moment.center) < 2.5)) continue;
+  const addMoment = (moment) => {
+    if (deduped.some((existing) => Math.abs(existing.center - moment.center) < 2.5)) return false;
     deduped.push({ ...moment, rank: deduped.length + 1 });
-    if (deduped.length >= 7) break;
+    return true;
+  };
+  for (const moment of merged.filter(isGoalCoverageMoment).sort((a, b) => a.start - b.start)) {
+    addMoment(moment);
+  }
+  for (const moment of merged) {
+    if (deduped.length >= 12) break;
+    addMoment(moment);
   }
   const moments = deduped.length ? deduped : createFallbackMoments(safeSignals, preset, safeVisualSignals);
   const rankedMoments = moments.map((moment, index) => ({
@@ -1894,6 +1901,14 @@ function isReplayCandidate(candidate = {}) {
     reasonCodes.includes("replay_worthy_moment");
 }
 
+function isGoalCoverageMoment(moment = {}) {
+  const reasonCodes = Array.isArray(moment.reasonCodes) ? moment.reasonCodes : [];
+  const goalOutcome = goalOutcomeForMoment(moment);
+  return moment.highlightType === "goal" ||
+    reasonCodes.includes("visual_ball_in_net") ||
+    (goalOutcome && goalOutcome.eventType === "ball_in_net");
+}
+
 function isGoalCoverageCandidate(candidate = {}) {
   const moment = candidate.analysisMoment || {};
   const reasonCodes = Array.isArray(candidate.reasonCodes)
@@ -1903,7 +1918,7 @@ function isGoalCoverageCandidate(candidate = {}) {
       : [];
   const goalOutcome = candidate.goalOutcome || goalOutcomeForMoment(moment);
   return candidate.highlightType === "goal" ||
-    moment.highlightType === "goal" ||
+    isGoalCoverageMoment(moment) ||
     reasonCodes.includes("visual_ball_in_net") ||
     (goalOutcome && goalOutcome.eventType === "ball_in_net");
 }
@@ -1939,6 +1954,118 @@ function segmentSafetyFlags(candidate = {}) {
   if (candidate.framingMode === "wide_safe_vertical") flags.push("wide_safe_full_frame");
   if (candidate.highlightType !== "goal") flags.push("no_goal_claim_without_evidence");
   return flags;
+}
+
+function candidateStableKey(candidate = {}) {
+  const moment = candidate.analysisMoment || {};
+  return sanitizeText(
+    candidate.candidateId ||
+      moment.id ||
+      `${candidate.highlightType || "candidate"}:${Number(candidate.sourceStart || 0).toFixed(2)}-${Number(candidate.sourceEnd || 0).toFixed(2)}`,
+    96,
+  );
+}
+
+function compilationHandlesForCandidate(candidate = {}) {
+  const moment = candidate.analysisMoment || {};
+  const goalOutcome = candidate.goalOutcome || goalOutcomeForMoment(moment);
+  if (isGoalCoverageCandidate(candidate)) {
+    return goalOutcome && goalOutcome.requiresPostContext
+      ? { pre: 4.5, post: 8 }
+      : { pre: 4, post: 5.5 };
+  }
+  if (hasStrongCompilationAction(candidate)) {
+    return { pre: 2.5, post: 3.5 };
+  }
+  if (isReactionOnlyMoment(moment)) {
+    return { pre: 2, post: 2.5 };
+  }
+  return { pre: 1.5, post: 2 };
+}
+
+function limitCandidateDurationWithHandles(candidate = {}, maxDuration = 30, mediaDuration = 0) {
+  const originalStart = Number(candidate.originalSourceStart ?? candidate.sourceStart);
+  const originalEnd = Number(candidate.originalSourceEnd ?? candidate.sourceEnd);
+  const originalDuration = Math.max(0, originalEnd - originalStart);
+  if (!Number.isFinite(originalStart) || !Number.isFinite(originalEnd) || originalEnd <= originalStart) return candidate;
+  if (candidate.sourceEnd - candidate.sourceStart <= maxDuration) return candidate;
+
+  if (originalDuration >= maxDuration) {
+    return {
+      ...candidate,
+      sourceStart: Number(originalStart.toFixed(2)),
+      sourceEnd: Number(Math.min(mediaDuration || originalStart + maxDuration, originalStart + maxDuration).toFixed(2)),
+    };
+  }
+
+  const extraBudget = Math.max(0, maxDuration - originalDuration);
+  const currentPre = Math.max(0, originalStart - Number(candidate.sourceStart));
+  const currentPost = Math.max(0, Number(candidate.sourceEnd) - originalEnd);
+  const preBudget = Math.min(currentPre, extraBudget * (isGoalCoverageCandidate(candidate) ? 0.42 : 0.5));
+  const postBudget = Math.min(currentPost, extraBudget - preBudget);
+  const start = Math.max(0, originalStart - preBudget);
+  const end = Math.min(mediaDuration || originalEnd + postBudget, originalEnd + postBudget);
+  return {
+    ...candidate,
+    sourceStart: Number(start.toFixed(2)),
+    sourceEnd: Number(end.toFixed(2)),
+  };
+}
+
+function expandCompilationCandidateWindows(candidates = [], metadata = {}) {
+  const mediaDuration = Math.max(0, Number(metadata.durationSeconds || 0));
+  const maxSegmentDuration = 30;
+  const expanded = candidates
+    .map((candidate) => {
+      const sourceStart = Number(candidate.sourceStart);
+      const sourceEnd = Number(candidate.sourceEnd);
+      const handles = compilationHandlesForCandidate(candidate);
+      const next = {
+        ...candidate,
+        originalSourceStart: Number(sourceStart.toFixed(2)),
+        originalSourceEnd: Number(sourceEnd.toFixed(2)),
+        sourceStart: Number(Math.max(0, sourceStart - handles.pre).toFixed(2)),
+        sourceEnd: Number(Math.min(mediaDuration || sourceEnd + handles.post, sourceEnd + handles.post).toFixed(2)),
+      };
+      return limitCandidateDurationWithHandles(next, maxSegmentDuration, mediaDuration);
+    })
+    .sort((a, b) => a.sourceStart - b.sourceStart);
+
+  for (let index = 1; index < expanded.length; index += 1) {
+    const previous = expanded[index - 1];
+    const current = expanded[index];
+    if (previous.sourceEnd <= current.sourceStart) continue;
+    const previousOriginalEnd = Number(previous.originalSourceEnd ?? previous.sourceEnd);
+    const currentOriginalStart = Number(current.originalSourceStart ?? current.sourceStart);
+    if (previousOriginalEnd <= currentOriginalStart) {
+      const boundary = Number(((previousOriginalEnd + currentOriginalStart) / 2).toFixed(2));
+      previous.sourceEnd = Number(Math.max(previous.originalSourceEnd, Math.min(previous.sourceEnd, boundary)).toFixed(2));
+      current.sourceStart = Number(Math.min(current.originalSourceStart, Math.max(current.sourceStart, boundary)).toFixed(2));
+    }
+  }
+
+  let totalDuration = expanded.reduce((sum, candidate) => sum + Math.max(0, candidate.sourceEnd - candidate.sourceStart), 0);
+  for (let index = expanded.length - 1; index >= 0 && totalDuration > MULTI_MOMENT_COMPILATION.maxTotalDuration; index -= 1) {
+    const candidate = expanded[index];
+    const removablePostHandle = Math.max(0, candidate.sourceEnd - Number(candidate.originalSourceEnd ?? candidate.sourceEnd));
+    const cut = Math.min(removablePostHandle, totalDuration - MULTI_MOMENT_COMPILATION.maxTotalDuration);
+    if (cut <= 0) continue;
+    candidate.sourceEnd = Number((candidate.sourceEnd - cut).toFixed(2));
+    totalDuration -= cut;
+  }
+  for (let index = 0; index < expanded.length && totalDuration > MULTI_MOMENT_COMPILATION.maxTotalDuration; index += 1) {
+    const candidate = expanded[index];
+    const removablePreHandle = Math.max(0, Number(candidate.originalSourceStart ?? candidate.sourceStart) - candidate.sourceStart);
+    const cut = Math.min(removablePreHandle, totalDuration - MULTI_MOMENT_COMPILATION.maxTotalDuration);
+    if (cut <= 0) continue;
+    candidate.sourceStart = Number((candidate.sourceStart + cut).toFixed(2));
+    totalDuration -= cut;
+  }
+  return expanded.map((candidate) => ({
+    ...candidate,
+    sourceStart: Number(candidate.sourceStart.toFixed(2)),
+    sourceEnd: Number(candidate.sourceEnd.toFixed(2)),
+  }));
 }
 
 function segmentCaptionText(segment, index) {
@@ -2064,12 +2191,15 @@ function selectCompilationCandidates(singleCandidates = [], metadata = {}) {
   const mediaDuration = Number(metadata.durationSeconds || 0);
   if (mediaDuration < MULTI_MOMENT_COMPILATION.minSourceDuration) return [];
   const selected = [];
+  const selectedKeys = new Set();
   let totalDuration = 0;
   const ranked = singleCandidates
     .filter((candidate) => candidate && !isOpeningFillerMoment(candidate.analysisMoment) && !isWeakOpeningCompilationCandidate(candidate, metadata))
     .sort((a, b) => compilationSelectionScore(b) - compilationSelectionScore(a) || a.sourceStart - b.sourceStart);
 
   const addCandidate = (candidate) => {
+    const key = candidateStableKey(candidate);
+    if (selectedKeys.has(key)) return false;
     if (selected.some((existing) => hasUnsafeCompilationOverlap(existing, candidate))) return false;
     const duration = Number((candidate.sourceEnd - candidate.sourceStart).toFixed(2));
     if (duration < 3) return false;
@@ -2078,10 +2208,12 @@ function selectCompilationCandidates(singleCandidates = [], metadata = {}) {
       const remaining = Number((MULTI_MOMENT_COMPILATION.maxTotalDuration - totalDuration).toFixed(2));
       if (remaining < 6) return false;
       selected.push({ ...candidate, sourceEnd: Number((candidate.sourceStart + remaining).toFixed(2)) });
+      selectedKeys.add(key);
       totalDuration += remaining;
       return true;
     }
     selected.push(candidate);
+    selectedKeys.add(key);
     totalDuration += duration;
     return true;
   };
@@ -2095,7 +2227,7 @@ function selectCompilationCandidates(singleCandidates = [], metadata = {}) {
   }
 
   for (const candidate of ranked) {
-    if (selected.includes(candidate)) continue;
+    if (selectedKeys.has(candidateStableKey(candidate))) continue;
     if (!addCandidate(candidate)) continue;
     if (selected.length >= MULTI_MOMENT_COMPILATION.maxSegments || totalDuration >= MULTI_MOMENT_COMPILATION.minTotalDuration) {
       const missingGoalCoverage = goalCoverageCandidates.some((goalCandidate) => (
@@ -2107,7 +2239,10 @@ function selectCompilationCandidates(singleCandidates = [], metadata = {}) {
       if (selected.length >= MULTI_MOMENT_COMPILATION.minSegments && (actionCount > 0 || contextCoverageReady)) break;
     }
   }
-  const chronological = selected.sort((a, b) => a.sourceStart - b.sourceStart);
+  const chronological = expandCompilationCandidateWindows(
+    selected.sort((a, b) => a.sourceStart - b.sourceStart),
+    metadata,
+  );
   const finalDuration = chronological.reduce((sum, candidate) => sum + Number(candidate.sourceEnd - candidate.sourceStart), 0);
   if (chronological.length < MULTI_MOMENT_COMPILATION.minSegments) return [];
   if (finalDuration < MULTI_MOMENT_COMPILATION.minTotalDuration) return [];
@@ -2303,6 +2438,18 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
   };
 }
 
+function prioritizeCandidateMoments(moments = []) {
+  const safeMoments = (Array.isArray(moments) ? moments : []).filter(Boolean);
+  const goalMoments = safeMoments
+    .filter(isGoalCoverageMoment)
+    .sort((a, b) => Number(a.start || 0) - Number(b.start || 0));
+  const goalIds = new Set(goalMoments.map((moment) => moment.id));
+  const remaining = safeMoments
+    .filter((moment) => !goalIds.has(moment.id))
+    .sort((a, b) => Number(b.retentionScore || 0) - Number(a.retentionScore || 0) || Number(a.start || 0) - Number(b.start || 0));
+  return [...goalMoments, ...remaining].slice(0, 12);
+}
+
 function createCandidateEditPlans({
   moments,
   metadata,
@@ -2319,7 +2466,7 @@ function createCandidateEditPlans({
   captionProvider = null,
 } = {}) {
   const renderStylePreset = normalizeStylePreset(stylePreset);
-  const singleCandidates = (Array.isArray(moments) ? moments : []).slice(0, 10).map((moment) => {
+  const singleCandidates = prioritizeCandidateMoments(moments).map((moment) => {
     const visualEvidenceSummary = visualEvidenceSummaryForMoment(moment);
     const visualTrackingSummary = publicVisualTrackingSummary(visualTracking || null, metadata);
     const actionSequenceSummary = actionSequenceSummaryForMoment(moment);

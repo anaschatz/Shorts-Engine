@@ -246,6 +246,7 @@ test("multi-segment renderer cuts segments, concatenates them, then applies capt
 
   assert.equal(calls.length, 5);
   assert.deepEqual(calls.slice(0, 3).map((args) => args[args.indexOf("-ss") + 1]), ["0", "30", "60"]);
+  assert.ok(calls.slice(0, 3).every((args) => args.includes("-vf") && /fade=t=in/.test(args[args.indexOf("-vf") + 1]) && /fade=t=out/.test(args[args.indexOf("-vf") + 1])));
   assert.equal(calls[3].includes("concat"), true);
   assert.equal(calls[4].includes("-filter_complex"), true);
   assert.equal(calls[4][calls[4].indexOf("-t") + 1], "36");

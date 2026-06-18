@@ -439,6 +439,14 @@ function normalizedRenderSegments(plan = {}) {
   }).filter(Boolean);
 }
 
+function segmentVideoFadeFilter(segment) {
+  const duration = Math.max(0.1, Number(segment && segment.duration) || 0.1);
+  const fadeIn = Number(Math.min(0.14, Math.max(0.06, duration * 0.012)).toFixed(2));
+  const fadeOut = Number(Math.min(0.18, Math.max(0.08, duration * 0.014)).toFixed(2));
+  const fadeOutStart = Number(Math.max(0, duration - fadeOut).toFixed(2));
+  return `fade=t=in:st=0:d=${fadeIn},fade=t=out:st=${fadeOutStart}:d=${fadeOut}`;
+}
+
 function singleWindowPlan(plan, duration) {
   return {
     ...plan,
@@ -539,6 +547,8 @@ async function renderMultiSegmentShort({ inputPath, outputPath, subtitlesPath, p
         inputPath,
         "-t",
         String(segment.duration),
+        "-vf",
+        segmentVideoFadeFilter(segment),
         "-map",
         "0:v:0",
         "-map",

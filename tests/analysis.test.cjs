@@ -976,6 +976,7 @@ test("long goal compilations include every detected confirmed goal before filler
   assert.ok(goalSegments.some((segment) => segment.sourceStart <= 20.6 && segment.sourceEnd >= 28.3));
   assert.ok(goalSegments.some((segment) => segment.sourceStart <= 62.6 && segment.sourceEnd >= 70.3));
   assert.ok(goalSegments.some((segment) => segment.sourceStart <= 106.6 && segment.sourceEnd >= 114.3));
+  assert.ok(goalSegments.every((segment) => segment.duration > 18));
   assert.ok(goalSegments.every((segment) => segment.goalOutcome.outcome === "confirmed_goal"));
   assert.ok(plan.totalDuration <= 90);
 });

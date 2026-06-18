@@ -73,3 +73,5 @@
 - Authorized live rerender proof may save verified MP4 artifacts only under ignored `manual-downloads/`, and `demo:human-review` must keep output `pending_human_review` until an operator scores playback against the reference.
 - Long-source YouTube analysis must avoid early-candidate bias: FFmpeg scene/audio signals, sampled frames and visual-only moments should use bounded temporal coverage across the source timeline.
 - Multi-moment compilation should include every detected ball-in-net/goal sequence before filler phases, while fallback/local provider mode keeps labels neutral when goals are not explicitly detected.
+- Long-source football compilations should prioritize detected goal coverage moments before generic signal moments when creating edit-plan candidates, then add bounded pre/post context handles to reduce clipped phases.
+- Multi-segment rendering should smooth segment boundaries with short bounded video fades by default; avoid fragile crossfade graphs until a dedicated transition engine exists.
