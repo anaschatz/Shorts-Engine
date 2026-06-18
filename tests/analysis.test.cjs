@@ -1134,16 +1134,135 @@ test("long goal compilations include every detected confirmed goal before filler
   const goalSegments = plan.segments.filter((segment) => segment.highlightType === "goal");
 
   assert.equal(plan.mode, "multi_moment_compilation");
+  assert.equal(plan.segments.length, 3);
   assert.equal(goalSegments.length, 3);
-  assert.equal(plan.hook, "EVERY FINISH SEQUENCE");
+  assert.equal(plan.hook, "VALID FINISHES ONLY");
   assert.ok(goalSegments.some((segment) => segment.sourceStart <= 20.6 && segment.sourceEnd >= 28.3));
   assert.ok(goalSegments.some((segment) => segment.sourceStart <= 62.6 && segment.sourceEnd >= 70.3));
   assert.ok(goalSegments.some((segment) => segment.sourceStart <= 106.6 && segment.sourceEnd >= 114.3));
-  assert.ok(goalSegments.every((segment) => segment.duration > 18));
+  assert.ok(goalSegments.every((segment) => segment.duration >= 10 && segment.duration <= 22));
   assert.ok(goalSegments.every((segment) => segment.goalOutcome.outcome === "confirmed_goal"));
+  assert.ok(plan.segments.every((segment) => segment.goalOutcome.outcome === "confirmed_goal"));
   assert.doesNotMatch(plan.captions.map((caption) => caption.text).join(" "), /PHASE \d|PRESSURE BUILDS/i);
-  assert.match(plan.captions.map((caption) => caption.text).join(" "), /FINISH COUNTS|CHECK EVERY DECISION/i);
+  assert.match(plan.captions.map((caption) => caption.text).join(" "), /FINISH COUNTS|ONLY VALID FINISHES/i);
   assert.ok(plan.totalDuration <= 90);
+});
+
+test("valid goal compilation excludes high-score filler chances and can render two goals only", () => {
+  const longMetadata = { durationSeconds: 160, width: 1920, height: 1080, hasAudio: true };
+  const result = detectHighlights({
+    transcript: {
+      provider: "fixture",
+      language: "en",
+      captions: [
+        { start: 18, end: 20, text: "Huge crowd reaction before the real action" },
+        { start: 42, end: 45, text: "Goal confirmed, the finish counts" },
+        { start: 96, end: 99, text: "The goal stands after the finish" },
+        { start: 128, end: 130, text: "A late chance has the crowd loud" },
+      ],
+    },
+    signals: {
+      durationSeconds: 160,
+      hasAudio: true,
+      audioPeaks: [
+        { time: 18.5, energyScore: 0.98, source: "fixture" },
+        { time: 44.2, energyScore: 0.91, source: "fixture" },
+        { time: 98.1, energyScore: 0.92, source: "fixture" },
+        { time: 128.8, energyScore: 0.97, source: "fixture" },
+      ],
+      sceneChanges: [
+        { time: 18.6, confidence: 0.9, source: "fixture" },
+        { time: 43.5, confidence: 0.78, source: "fixture" },
+        { time: 97.6, confidence: 0.8, source: "fixture" },
+        { time: 129, confidence: 0.86, source: "fixture" },
+      ],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [
+        { start: 17.5, end: 20.2, labels: ["crowd_reaction"], confidence: 0.95 },
+        { start: 39.8, end: 41.4, labels: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.9 },
+        { start: 41.4, end: 43.2, labels: ["goal_mouth_visible", "ball_in_net"], confidence: 0.92 },
+        { start: 44.4, end: 45.6, labels: ["scoreboard_goal_confirmed", "referee_goal_signal"], confidence: 0.86 },
+        { start: 93.8, end: 95.4, labels: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.91 },
+        { start: 95.4, end: 97.1, labels: ["goal_mouth_visible", "ball_in_net"], confidence: 0.93 },
+        { start: 98.2, end: 99.4, labels: ["scoreboard_goal_confirmed", "referee_goal_signal"], confidence: 0.87 },
+        { start: 127.5, end: 130.2, labels: ["shot_like_motion", "ball_visible", "crowd_reaction"], confidence: 0.94 },
+      ],
+    },
+    preset: "hype",
+  });
+  const plans = createCandidateEditPlans({
+    moments: result.moments,
+    metadata: { ...longMetadata, goalSelectionMode: "valid_goals_only" },
+    transcript: { captions: [] },
+    title: "Two valid goals fixture",
+    editIntensity: "balanced",
+    stylePreset: "punchy_highlight",
+  });
+  const plan = validateEditPlan(plans[0], longMetadata);
+  const captionText = plan.captions.map((caption) => caption.text).join(" ");
+
+  assert.equal(plan.mode, "multi_moment_compilation");
+  assert.equal(plan.segments.length, 2);
+  assert.ok(plan.segments.every((segment) => segment.highlightType === "goal"));
+  assert.ok(plan.segments.every((segment) => segment.goalOutcome.outcome === "confirmed_goal"));
+  assert.equal(plan.segments.some((segment) => segment.sourceStart > 120), false);
+  assert.equal(plan.hook, "VALID FINISHES ONLY");
+  assert.match(captionText, /FINISH COUNTS|ONLY VALID FINISHES/i);
+  assert.doesNotMatch(captionText, /BIG CHANCE|SHOT OPENS UP|CHANCE OPENS/i);
+  assert.ok(plan.totalDuration < 45);
+});
+
+test("valid-goals-only selection returns no plan for chance-only long sources", () => {
+  const result = detectHighlights({
+    transcript: {
+      provider: "fixture",
+      language: "en",
+      captions: [
+        { start: 44, end: 46, text: "The shot opens up but no clear goal signal follows" },
+        { start: 122, end: 124, text: "Another big chance has the crowd rising" },
+      ],
+    },
+    signals: {
+      durationSeconds: 180,
+      hasAudio: true,
+      audioPeaks: [
+        { time: 45, energyScore: 0.92, source: "fixture" },
+        { time: 123, energyScore: 0.94, source: "fixture" },
+      ],
+      sceneChanges: [
+        { time: 45.2, confidence: 0.8, source: "fixture" },
+        { time: 123.1, confidence: 0.83, source: "fixture" },
+      ],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [
+        { start: 42.5, end: 46.2, labels: ["shot_like_motion", "ball_visible", "crowd_reaction"], confidence: 0.9 },
+        { start: 120.5, end: 124.3, labels: ["shot_like_motion", "ball_visible", "crowd_reaction"], confidence: 0.91 },
+      ],
+    },
+    preset: "hype",
+  });
+
+  const balancedPlans = createCandidateEditPlans({
+    moments: result.moments,
+    metadata: { durationSeconds: 180, width: 1920, height: 1080, hasAudio: true },
+    transcript: { captions: [] },
+    title: "Chance only fixture",
+  });
+  const validGoalOnlyPlans = createCandidateEditPlans({
+    moments: result.moments,
+    metadata: { durationSeconds: 180, width: 1920, height: 1080, hasAudio: true, goalSelectionMode: "valid_goals_only" },
+    transcript: { captions: [] },
+    title: "Chance only fixture",
+  });
+
+  assert.ok(balancedPlans.length > 0);
+  assert.deepEqual(validGoalOnlyPlans, []);
 });
 
 test("replay-heavy evidence becomes replay-worthy without inventing action or goal", () => {

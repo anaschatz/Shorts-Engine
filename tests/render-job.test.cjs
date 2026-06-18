@@ -98,6 +98,7 @@ function makeContext(options = {}) {
     uploadId: "upl_orchestration",
     title: "Derby Final",
     status: "draft",
+    source: options.source || null,
     updatedAt: new Date().toISOString(),
   };
   const upload = {
@@ -105,11 +106,13 @@ function makeContext(options = {}) {
     projectId: project.id,
     path: uploadPath,
     metadata: {
-      durationSeconds: 12,
+      durationSeconds: options.durationSeconds || 12,
       width: 1280,
       height: 720,
       hasAudio: options.hasAudio !== false,
+      ...(options.metadata || {}),
     },
+    source: options.source || null,
   };
   const payload = {
     title: "Derby Final",
@@ -320,6 +323,33 @@ test("render orchestration completes success path with mocked adapters", async (
   assert.equal(visualTrackingLog.ballTrackCount, 0);
   assert.equal(typeof visualTrackingLog.trackingConfidence, "number");
   assert.doesNotMatch(JSON.stringify(visualTrackingLog), /\/Users|storageKey|localPath|secret/i);
+});
+
+test("youtube long-source render requests valid-goals-only planning", async () => {
+  const context = makeContext({
+    durationSeconds: 180,
+    metadata: { sourceType: "youtube", videoId: "dQw4w9WgXcQ" },
+  });
+  await runContext(context);
+
+  assert.equal(context.job.status, "completed");
+  assert.equal(context.createPlanInput.metadata.goalSelectionMode, "valid_goals_only");
+});
+
+test("youtube valid-goals-only render fails closed when no valid goals are found", async () => {
+  const context = makeContext({
+    durationSeconds: 180,
+    metadata: { sourceType: "youtube", videoId: "dQw4w9WgXcQ" },
+    candidatePlans: [],
+  });
+  await runContext(context);
+
+  assert.equal(context.job.status, "failed");
+  assert.equal(context.project.status, "failed");
+  assert.equal(context.exportsById.size, 0);
+  assert.equal(context.job.error.code, "NO_VALID_GOALS_FOUND");
+  assert.equal(context.calls.includes("render_short"), false);
+  assert.doesNotMatch(JSON.stringify(context.job.error), /\/Users|storageKey|secret|stderr|stdout/i);
 });
 
 test("approved regeneration render uses the validated draft without rerunning AI analysis", async () => {

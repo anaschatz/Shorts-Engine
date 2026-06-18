@@ -32,6 +32,7 @@ const SAFE_MESSAGES = Object.freeze({
   JOB_STALE: "The job did not finish before the worker stopped.",
   METHOD_NOT_ALLOWED: "Method not allowed.",
   MISSING_UPLOAD: "No video file was uploaded.",
+  NO_VALID_GOALS_FOUND: "No valid goals were found with enough evidence for this render.",
   OUTBOX_EVENT_NOT_FOUND: "The approval outbox event was not found.",
   OUTBOX_HANDLER_INVALID: "The approval outbox handler returned an invalid result.",
   OUTBOX_STATE_INVALID: "The approval outbox event moved through an invalid state transition.",

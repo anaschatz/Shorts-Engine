@@ -121,6 +121,18 @@ function assertUploadReady(upload, deps) {
   return { inputArtifact, inputPath, inputStage, metadata: { ...upload.metadata, durationSeconds } };
 }
 
+function isYouTubeLongSource(source, metadata = {}) {
+  const sourceType = (source && source.sourceType) || metadata.sourceType;
+  return Boolean(
+    sourceType === "youtube" &&
+      Number(metadata.durationSeconds || 0) >= 120,
+  );
+}
+
+function goalSelectionModeForSource(source, metadata = {}) {
+  return isYouTubeLongSource(source, metadata) ? "valid_goals_only" : "balanced";
+}
+
 function assertPipelineContext({ job, project, upload, payload, deps }) {
   if (!job || !job.id || !job._controller) {
     throw new AppError("JOB_NOT_FOUND", SAFE_MESSAGES.JOB_NOT_FOUND, 404);
@@ -142,6 +154,7 @@ function assertPipelineContext({ job, project, upload, payload, deps }) {
   const editIntensity = sanitizeText(payload.editIntensity || "balanced", 40).toLowerCase() || "balanced";
   const stylePreset = sanitizeText(payload.stylePreset || "social_sports_v1", 40).toLowerCase() || "social_sports_v1";
   const source = payload.source || project.source || upload.source || null;
+  const goalSelectionMode = goalSelectionModeForSource(source, metadata);
   if (!title || !preset) {
     throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400);
   }
@@ -175,6 +188,7 @@ function assertPipelineContext({ job, project, upload, payload, deps }) {
     styleTarget,
     editIntensity,
     title,
+    goalSelectionMode,
     approvedEditPlan,
     regenerationApproval: payload.regenerationApproval && typeof payload.regenerationApproval === "object"
       ? {
@@ -762,7 +776,10 @@ async function runRenderJob(options) {
       updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 72, step: "create_edit_plan" });
       candidatePlans = deps.createCandidateEditPlans({
         moments: highlightResult.moments,
-        metadata: context.metadata,
+        metadata: {
+          ...context.metadata,
+          goalSelectionMode: context.goalSelectionMode,
+        },
         transcript,
         mediaSignals,
         visualSignals,
@@ -775,7 +792,8 @@ async function runRenderJob(options) {
         stylePreset: context.stylePreset,
       });
       if (!Array.isArray(candidatePlans) || candidatePlans.length === 0) {
-        throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
+        const code = context.goalSelectionMode === "valid_goals_only" ? "NO_VALID_GOALS_FOUND" : "AI_OUTPUT_INVALID";
+        throw new AppError(code, SAFE_MESSAGES[code], 422);
       }
       editPlan = deps.validateEditPlan(candidatePlans[0], context.metadata);
       if (candidatePlans[0] && candidatePlans[0].visualQA) {
