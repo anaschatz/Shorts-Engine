@@ -627,6 +627,10 @@ test("youtube live local e2e runs env check before doctor or server work", async
       return { child: { exitCode: null, signalCode: null }, events: [] };
     },
     stopServer: async () => {},
+    waitForServerReady: async () => {
+      order.push("ready");
+      return { attempts: 2, waitedMs: 25, status: 200 };
+    },
     runYouTubeSmoke: async () => {
       order.push("smoke");
       return passedSmokeReport();
@@ -635,7 +639,8 @@ test("youtube live local e2e runs env check before doctor or server work", async
   assert.equal(report.status, "passed");
   assert.equal(report.passed, true);
   assert.equal(report.skipped, false);
-  assert.deepEqual(order, ["env", "doctor", "port", "server", "smoke"]);
+  assert.deepEqual(order, ["env", "doctor", "port", "server", "ready", "smoke"]);
+  assert.deepEqual(report.steps.map((step) => step.step), ["env", "doctor", "server", "server-ready", "smoke"]);
   assert.equal(report.triage.preflight.sourceConfigured, true);
   assert.equal(report.triage.doctor.downloaderConfigured, true);
 });
@@ -805,6 +810,65 @@ test("youtube live local e2e reports server bind failures as environment limitat
   assert.equal(findSensitiveLeak(report), null);
 });
 
+test("youtube live local e2e waits for server readiness before smoke", async () => {
+  const order = [];
+  const report = await runYouTubeLiveE2E({
+    env: liveEnv(),
+    checkYouTubeIngest: async () => passedDoctor(),
+    getFreePort: async () => 4175,
+    startServer: () => {
+      order.push("server");
+      return { child: { exitCode: null, signalCode: null }, events: [] };
+    },
+    waitForServerReady: async () => {
+      order.push("ready");
+      return { attempts: 3, waitedMs: 50, status: 200 };
+    },
+    runYouTubeSmoke: async () => {
+      order.push("smoke");
+      return passedSmokeReport();
+    },
+    stopServer: async () => {
+      order.push("stop");
+    },
+  });
+  assert.equal(report.status, "passed");
+  assert.deepEqual(order, ["server", "ready", "smoke", "stop"]);
+  const readyStep = report.steps.find((step) => step.step === "server-ready");
+  assert.equal(readyStep.status, "passed");
+  assert.equal(readyStep.attempts, 3);
+  assert.equal(readyStep.waitedMs, 50);
+  assert.equal(readyStep.httpStatus, 200);
+  assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube live local e2e fails safely when server readiness times out", async () => {
+  let smokeCalled = false;
+  const report = await runYouTubeLiveE2E({
+    env: liveEnv(),
+    checkYouTubeIngest: async () => passedDoctor(),
+    getFreePort: async () => 4175,
+    startServer: () => ({ child: { exitCode: null, signalCode: null }, events: [] }),
+    waitForServerReady: async () => {
+      throw Object.assign(new Error("local absolute path should not leak /Users/example"), {
+        code: "YOUTUBE_LIVE_E2E_SERVER_READY_TIMEOUT",
+        details: { phase: "server-ready" },
+      });
+    },
+    runYouTubeSmoke: async () => {
+      smokeCalled = true;
+      return passedSmokeReport();
+    },
+    stopServer: async () => {},
+  });
+  assert.equal(report.status, "failed");
+  assert.equal(report.phase, "server-ready");
+  assert.equal(report.failedCases[0].code, "YOUTUBE_LIVE_E2E_SERVER_READY_TIMEOUT");
+  assert.equal(report.failedCases[0].phase, "server-ready");
+  assert.equal(smokeCalled, false);
+  assert.equal(findSensitiveLeak(report), null);
+});
+
 test("youtube live local e2e rejects invalid configured port safely", async () => {
   let serverStarted = false;
   const report = await runYouTubeLiveE2E({
@@ -833,6 +897,7 @@ test("youtube live local e2e mocked success wraps smoke proof without raw URL le
     stopServer: async () => {
       stopped = true;
     },
+    waitForServerReady: async () => ({ attempts: 1, waitedMs: 10, status: 200 }),
     runYouTubeSmoke: async ({ env }) => {
       smokeEnvSeen = env;
       return passedSmokeReport();
@@ -853,6 +918,7 @@ test("youtube live local e2e mocked success wraps smoke proof without raw URL le
   assert.equal(report.smoke.export.contentType, "video/mp4");
   assert.equal(report.generatedArtifact.relativePath, "manual-downloads/shortsengine-youtube-dQw4w9WgXcQ-test.mp4");
   assert.equal(report.generatedArtifact.downloadVerified, true);
+  assert.deepEqual(report.steps.map((step) => step.step), ["env", "doctor", "server", "server-ready", "smoke"]);
   assert.equal(stopped, true);
   assert.equal(smokeEnvSeen.SHORTSENGINE_YOUTUBE_SMOKE, "1");
   assert.equal(smokeEnvSeen.SHORTSENGINE_YOUTUBE_SMOKE_BASE_URL, "http://127.0.0.1:4175");
@@ -868,6 +934,7 @@ test("youtube live local e2e report writer creates stable safe latest report", a
     getFreePort: async () => 4175,
     startServer: () => ({ child: { exitCode: null, signalCode: null }, events: [] }),
     stopServer: async () => {},
+    waitForServerReady: async () => ({ attempts: 1, waitedMs: 5, status: 200 }),
     runYouTubeSmoke: async () => passedSmokeReport(),
   });
   const outputDir = mkdtempSync(join(tmpdir(), "shortsengine-youtube-live-e2e-"));

@@ -19,6 +19,8 @@ const LIVE_RIGHTS_FLAG = "SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED";
 const LIVE_URL_FLAG = "SHORTSENGINE_YOUTUBE_LIVE_E2E_URL";
 const DEFAULT_COMMAND_NAME = "youtube:proof";
 const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
+const DEFAULT_SERVER_READY_TIMEOUT_MS = 15_000;
+const DEFAULT_SERVER_READY_POLL_INTERVAL_MS = 250;
 const NEXT_ACTIONS = Object.freeze({
   ENV_YOUTUBE_LIVE_E2E_INGEST_DISABLED: "set-SHORTSENGINE_YOUTUBE_INGEST_ENABLED-1",
   ENV_YOUTUBE_LIVE_E2E_RIGHTS_REQUIRED: "set-SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED-1-after-rights-review",
@@ -29,6 +31,8 @@ const NEXT_ACTIONS = Object.freeze({
   YOUTUBE_LIVE_E2E_RIGHTS_REQUIRED: "set-SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED-1-after-rights-review",
   YOUTUBE_LIVE_E2E_INGEST_DISABLED: "set-SHORTSENGINE_YOUTUBE_INGEST_ENABLED-1",
   YOUTUBE_LIVE_E2E_SERVER_BIND_FAILED: "run-outside-restricted-sandbox-or-use-an-available-local-port",
+  YOUTUBE_LIVE_E2E_SERVER_READY_TIMEOUT: "check-local-server-startup-health-and-rerun-youtube-proof",
+  YOUTUBE_LIVE_E2E_SERVER_READY_TIMEOUT_INVALID: "set-SHORTSENGINE_YOUTUBE_LIVE_E2E_SERVER_READY_TIMEOUT_MS-within-safe-bounds",
   YOUTUBE_LIVE_E2E_DOCTOR_FAILED: "run-npm-run-youtube-doctor-and-fix-failed-checks",
   YOUTUBE_LIVE_E2E_SMOKE_FAILED: "inspect-demo-results-youtube-live-e2e-latest-json",
   YOUTUBE_LIVE_E2E_REPORT_LEAK: "remove-sensitive-output-from-live-e2e-report",
@@ -48,6 +52,7 @@ const PHASES = Object.freeze({
   DOWNLOAD: "download",
   BROWSER: "browser",
   REPORT: "report",
+  SERVER_READY: "server-ready",
   SKIPPED: "skipped",
   COMPLETED: "completed",
 });
@@ -119,6 +124,7 @@ function phaseForCode(code) {
   ) {
     return PHASES.DOCTOR;
   }
+  if (text.includes("SERVER_READY")) return PHASES.SERVER_READY;
   if (text.includes("SERVER_BIND")) return PHASES.SERVER_BIND;
   if (text.includes("VALIDATE") || text.includes("VALIDATION")) return PHASES.VALIDATION;
   if (text.includes("INGEST") || text.includes("ARTIFACT") || text.includes("SOURCE_RESPONSE")) return PHASES.INGEST;
@@ -392,6 +398,86 @@ function smokeEnvForLive(env, baseUrl) {
   };
 }
 
+function healthEndpoint(baseUrl) {
+  const parsed = new URL(baseUrl);
+  const mount = parsed.pathname.replace(/\/+$/, "");
+  parsed.pathname = `${mount}/health`;
+  parsed.search = "";
+  parsed.hash = "";
+  return parsed.toString();
+}
+
+async function fetchHealthAttempt(fetchImpl, url, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetchImpl(url, {
+      method: "GET",
+      headers: { accept: "application/json" },
+      signal: controller.signal,
+    });
+    return {
+      ok: Boolean(response?.ok),
+      status: typeof response?.status === "number" ? response.status : null,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: null,
+      errorCode: error?.name === "AbortError" ? "ABORT_ERR" : error?.code || "FETCH_FAILED",
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function waitForServerReady({
+  baseUrl,
+  fetchImpl,
+  timeoutMs = DEFAULT_SERVER_READY_TIMEOUT_MS,
+  pollIntervalMs = DEFAULT_SERVER_READY_POLL_INTERVAL_MS,
+}) {
+  if (typeof fetchImpl !== "function") {
+    throw new YouTubeLiveE2EError(
+      "YOUTUBE_LIVE_E2E_SERVER_READY_TIMEOUT",
+      "Live YouTube E2E could not verify local server readiness.",
+    );
+  }
+  const started = Date.now();
+  const healthUrl = healthEndpoint(baseUrl);
+  let attempts = 0;
+  let lastStatus = null;
+  let lastErrorCode = null;
+
+  while (Date.now() - started < timeoutMs) {
+    attempts += 1;
+    const remainingMs = Math.max(1, timeoutMs - (Date.now() - started));
+    const attempt = await fetchHealthAttempt(fetchImpl, healthUrl, Math.min(1000, remainingMs));
+    lastStatus = attempt.status;
+    lastErrorCode = attempt.errorCode || null;
+    if (attempt.ok) {
+      return {
+        attempts,
+        waitedMs: Date.now() - started,
+        status: attempt.status,
+      };
+    }
+    await delay(Math.min(pollIntervalMs, Math.max(1, timeoutMs - (Date.now() - started))));
+  }
+
+  throw new YouTubeLiveE2EError(
+    "YOUTUBE_LIVE_E2E_SERVER_READY_TIMEOUT",
+    "Live YouTube E2E local server did not become ready in time.",
+    {
+      phase: PHASES.SERVER_READY,
+      attempts,
+      waitedMs: Date.now() - started,
+      httpStatus: lastStatus,
+      causeCode: lastErrorCode,
+    },
+  );
+}
+
 async function getFreePort() {
   return new Promise((resolvePort, rejectPort) => {
     const server = createServer();
@@ -476,6 +562,7 @@ async function runYouTubeLiveE2E(options = {}) {
     runYouTubeSmoke: options.runYouTubeSmoke || runYouTubeSmoke,
     startServer: options.startServer || startServer,
     stopServer: options.stopServer || stopServer,
+    waitForServerReady: options.waitForServerReady || waitForServerReady,
   };
 
   try {
@@ -538,6 +625,24 @@ async function runYouTubeLiveE2E(options = {}) {
     const baseUrl = `http://127.0.0.1:${port}`;
     server = deps.startServer(port, env);
     addStep(steps, "server", "started", { target: "local" });
+    const serverReadyTimeoutMs = parseInteger(
+      rawValue(env, "SHORTSENGINE_YOUTUBE_LIVE_E2E_SERVER_READY_TIMEOUT_MS"),
+      DEFAULT_SERVER_READY_TIMEOUT_MS,
+      1000,
+      120_000,
+      "YOUTUBE_LIVE_E2E_SERVER_READY_TIMEOUT_INVALID",
+    );
+    const ready = await deps.waitForServerReady({
+      baseUrl,
+      fetchImpl: options.fetchImpl || globalThis.fetch,
+      timeoutMs: serverReadyTimeoutMs,
+      pollIntervalMs: DEFAULT_SERVER_READY_POLL_INTERVAL_MS,
+    });
+    addStep(steps, "server-ready", "passed", {
+      attempts: ready.attempts,
+      waitedMs: ready.waitedMs,
+      httpStatus: ready.status,
+    });
 
     smoke = await deps.runYouTubeSmoke({
       env: smokeEnvForLive(env, baseUrl),
