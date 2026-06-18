@@ -1,0 +1,77 @@
+{
+  "id": "goal_disallowed_offside_decision",
+  "title": "Ball-in-net phase ruled out after offside review",
+  "language": "English",
+  "durationSeconds": 34,
+  "transcript": {
+    "provider": "fixture",
+    "language": "en",
+    "captions": [
+      { "start": 6.8, "end": 8.2, "text": "The runner breaks the line" },
+      { "start": 9.1, "end": 10.4, "text": "The finish goes into the net" },
+      { "start": 18.6, "end": 20.2, "text": "VAR check for offside" },
+      { "start": 21.0, "end": 22.4, "text": "No goal, the flag is up" }
+    ]
+  },
+  "mediaSignals": {
+    "durationSeconds": 34,
+    "width": 1920,
+    "height": 1080,
+    "hasAudio": true,
+    "audioPeaks": [{ "time": 10.8, "energyScore": 0.92, "source": "fixture" }],
+    "sceneChanges": [
+      { "time": 7.2, "confidence": 0.74, "source": "fixture" },
+      { "time": 18.8, "confidence": 0.77, "source": "fixture" }
+    ],
+    "highMotionCandidates": [{ "time": 8.7, "confidence": 0.82, "source": "fixture" }]
+  },
+  "visualSignals": {
+    "providerMode": "fixture-visual",
+    "fallbackUsed": false,
+    "windows": [
+      { "start": 6.8, "end": 8.2, "labels": ["shot_contact", "ball_toward_goal", "ball_visible"], "confidence": 0.91 },
+      { "start": 8.2, "end": 10.8, "labels": ["goal_mouth_visible", "ball_in_net"], "confidence": 0.9 },
+      { "start": 10.8, "end": 12.8, "labels": ["celebration_after_shot", "crowd_reaction"], "confidence": 0.83 },
+      { "start": 18.4, "end": 20.4, "labels": ["var_check_graphic", "replay_angle", "offside_line_replay"], "confidence": 0.84 },
+      { "start": 20.8, "end": 22.6, "labels": ["assistant_referee_flag", "referee_no_goal_signal", "scoreboard_goal_removed"], "confidence": 0.88 }
+    ]
+  },
+  "expected": {
+    "highlights": [{ "start": 5.0, "end": 23.0 }],
+    "goalSequence": { "shotStart": 6.8, "payoffEnd": 12.8 },
+    "goalOutcome": {
+      "eventType": "ball_in_net",
+      "outcome": "disallowed_offside",
+      "offsideStatus": "offside",
+      "decisionWindow": { "start": 12.55, "end": 23.0 }
+    },
+    "reasonCodes": [
+      "goal",
+      "audio_energy_spike",
+      "scene_change_cluster",
+      "visual_shot_contact",
+      "visual_ball_toward_goal",
+      "visual_goal_mouth",
+      "visual_ball_in_net",
+      "visual_celebration_after_shot",
+      "visual_crowd_reaction",
+      "visual_var_check",
+      "visual_replay_angle",
+      "visual_offside_line",
+      "visual_offside_flag",
+      "visual_referee_no_goal_signal",
+      "visual_scoreboard_goal_removed",
+      "visual_ball_visible"
+    ],
+    "highlightType": "goal",
+    "stylePreset": "social_sports_v1",
+    "editIntensity": "balanced"
+  },
+  "thresholds": {
+    "minAggregateScore": 84,
+    "minTop1Overlap": 0.55,
+    "minTop3Recall": 1,
+    "minReasonPrecision": 0.55,
+    "minRetentionScore": 78
+  }
+}

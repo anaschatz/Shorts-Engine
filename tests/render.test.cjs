@@ -128,6 +128,44 @@ test("ASS renderer writes offside outcome badge without confirmed-goal copy", ()
   assert.doesNotMatch(ass, /GOAL CONFIRMED|THE FINISH COUNTS|\/Users|storageKey/i);
 });
 
+test("ASS renderer writes VAR check badge for possible offside outcomes", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shortsengine-ass-var-outcome-"));
+  const outputPath = join(dir, "captions.ass");
+  const plan = validateEditPlan({
+    sourceStart: 0,
+    sourceEnd: 20,
+    aspectRatio: "9:16",
+    highlightType: "goal",
+    goalOutcome: {
+      eventType: "ball_in_net",
+      outcome: "possible_offside",
+      offsideStatus: "possible",
+      decisionEvidence: ["ball_in_net", "visual_var_check", "visual_replay_angle"],
+      safeCaptionBadge: "VAR CHECK",
+      decisionWindow: { start: 9.8, end: 20 },
+      confidence: 0.74,
+    },
+    confidence: 0.82,
+    hook: "WAS HE OFF?",
+    title: "VAR check",
+    captions: [
+      { start: 0, end: 2, text: "WAS HE OFF?", role: "opening_hook" },
+      { start: 9, end: 12, text: "VAR CHECK", role: "action_callout" },
+      { start: 16, end: 19, text: "DECISION NOT CLEAR", role: "closing_punch" },
+    ],
+    effects: ["wide_safe_framing", "caption_emphasis"],
+    framingMode: "wide_safe_vertical",
+    stylePreset: "punchy_highlight",
+    reasonCodes: ["goal", "visual_ball_in_net", "visual_var_check"],
+    export: { width: 1080, height: 1920, format: "mp4" },
+  }, { durationSeconds: 24, width: 1920, height: 1080 });
+
+  writeAssSubtitles(plan, outputPath);
+  const ass = readFileSync(outputPath, "utf8");
+  assert.match(ass, /VAR CHECK/);
+  assert.doesNotMatch(ass, /GOAL CONFIRMED|THE FINISH COUNTS|\/Users|storageKey/i);
+});
+
 test("multi-segment renderer cuts segments, concatenates them, then applies captions", async () => {
   const dir = mkdtempSync(join(tmpdir(), "shortsengine-render-multi-"));
   const outputPath = join(dir, "output.mp4");

@@ -26,6 +26,7 @@ const {
   visualHighlightTypeForReasons,
   visualReasonCodesForWindow,
 } = require("./vision.cjs");
+const { resolveGoalOutcome } = require("./goal-outcome.cjs");
 const {
   createFootballStoryPlan,
   normalizeEditIntensity,
@@ -435,9 +436,17 @@ const SUPPORTING_CONTEXT_REASONS = Object.freeze([
   "visual_scoreboard_context",
   "visual_offside_flag",
   "visual_var_check",
+  "visual_var_decision",
   "visual_no_goal_decision",
   "visual_offside_line",
   "visual_referee_decision",
+  "visual_referee_no_goal_signal",
+  "visual_referee_goal_signal",
+  "visual_scoreboard_goal_removed",
+  "visual_scoreboard_goal_confirmed",
+  "visual_replay_angle",
+  "visual_crowd_confusion",
+  "visual_celebration_after_whistle",
   "visual_goal_area",
   "visual_goal_mouth",
   "visual_ball_visible",
@@ -466,9 +475,17 @@ const GOAL_SEQUENCE_REASON_CODES = Object.freeze([
   "visual_scoreboard_context",
   "visual_offside_flag",
   "visual_var_check",
+  "visual_var_decision",
   "visual_no_goal_decision",
   "visual_offside_line",
   "visual_referee_decision",
+  "visual_referee_no_goal_signal",
+  "visual_referee_goal_signal",
+  "visual_scoreboard_goal_removed",
+  "visual_scoreboard_goal_confirmed",
+  "visual_replay_angle",
+  "visual_crowd_confusion",
+  "visual_celebration_after_whistle",
 ]);
 
 function visualReasonsAreScoreboardOnly(reasons = []) {
@@ -1269,7 +1286,7 @@ function normalizeMomentWithEvidence(moment, { signals = {}, visualSignals = nul
   const visualWindows = Array.isArray(visualSignals && visualSignals.windows)
     ? visualSignals.windows.filter((visualWindow) => seconds(visualWindow.end) >= window.start - 1 && seconds(visualWindow.start) <= window.end + 1)
     : [];
-  const goalOutcome = goalOutcomeForContext({
+  const goalOutcome = resolveGoalOutcome({
     reasons: finalReasons,
     goalEvidence,
     visualWindows,
@@ -2289,6 +2306,7 @@ function analysisHealth() {
       "vision_safe_action_signals",
       "goal_evidence_sequence_detection",
       "goal_outcome_offside_context",
+      "referee_var_offside_decision_detection",
       "action_first_story_windows",
       "false_goal_guard",
       "football_story_planner",

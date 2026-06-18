@@ -343,6 +343,11 @@ function goalEvidenceObject(moment = {}) {
   return evidence && typeof evidence === "object" && !Array.isArray(evidence) ? evidence : null;
 }
 
+function goalOutcomeObject(moment = {}) {
+  const outcome = moment && moment.evidence && moment.evidence.goalOutcome;
+  return outcome && typeof outcome === "object" && !Array.isArray(outcome) ? outcome : null;
+}
+
 function hasGoalSequenceEvidence(moment = {}) {
   const goalEvidence = goalEvidenceObject(moment);
   return Boolean(goalEvidence && ["strong", "medium"].includes(goalEvidence.evidenceLevel));
@@ -458,6 +463,8 @@ function storyDurationFor({ metadata = {}, selectedMoment = {}, editIntensity })
   const momentDuration = Math.max(0, Number(selectedMoment.end || 0) - Number(selectedMoment.start || 0));
   const intensity = normalizeEditIntensity(editIntensity);
   const goalStory = hasExplicitGoalEvidence(selectedMoment) || hasGoalSequenceEvidence(selectedMoment);
+  const goalOutcome = goalOutcomeObject(selectedMoment);
+  const decisionAwareGoal = goalOutcome && goalOutcome.eventType === "ball_in_net" && goalOutcome.requiresPostContext;
   const reactionAnchored = isReactionAnchoredMoment(selectedMoment);
   const target = goalStory
     ? (intensity === "punchy" ? 18 : intensity === "clean" ? 14 : 16)
@@ -465,7 +472,8 @@ function storyDurationFor({ metadata = {}, selectedMoment = {}, editIntensity })
       ? (intensity === "punchy" ? 16 : intensity === "clean" ? 12 : 18)
     : (intensity === "punchy" ? 14 : intensity === "clean" ? 10 : 12);
   const minDuration = goalStory ? 12 : reactionAnchored ? 12 : 8;
-  const desired = Math.max(minDuration, Math.min(goalStory ? 22 : 25, Math.max(momentDuration, target)));
+  const maxDuration = goalStory ? (decisionAwareGoal ? 30 : 22) : 25;
+  const desired = Math.max(minDuration, Math.min(maxDuration, Math.max(momentDuration, target)));
   if (mediaDuration > 0) return Math.min(mediaDuration, desired);
   return desired;
 }
@@ -483,6 +491,12 @@ function sourceWindowForMoment({ selectedMoment = {}, metadata = {}, editIntensi
     };
   }
   const goalEvidence = goalEvidenceObject(selectedMoment);
+  const goalOutcome = goalOutcomeObject(selectedMoment);
+  const decisionEnd = goalOutcome &&
+    goalOutcome.decisionWindow &&
+    Number.isFinite(Number(goalOutcome.decisionWindow.end))
+    ? Number(goalOutcome.decisionWindow.end)
+    : null;
   const hasUsableGoalWindow = goalEvidence && ["strong", "medium"].includes(goalEvidence.evidenceLevel);
   const shotStart = hasUsableGoalWindow && Number.isFinite(Number(goalEvidence.shotStart)) ? Number(goalEvidence.shotStart) : null;
   const payoffEnd = hasUsableGoalWindow && Number.isFinite(Number(goalEvidence.payoffEnd)) ? Number(goalEvidence.payoffEnd) : null;
@@ -494,6 +508,9 @@ function sourceWindowForMoment({ selectedMoment = {}, metadata = {}, editIntensi
   } else if (isReactionAnchoredMoment(selectedMoment)) {
     const preRoll = Math.min(12, Math.max(8.5, duration * 0.74));
     start = clamp(center - preRoll, 0, Math.max(0, mediaDuration - duration));
+  }
+  if (decisionEnd != null && start + duration < decisionEnd) {
+    start = clamp(decisionEnd - duration, 0, Math.max(0, mediaDuration - duration));
   }
   return {
     sourceStart: Number(start.toFixed(2)),

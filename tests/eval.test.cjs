@@ -80,6 +80,11 @@ test("fixture scoring returns reportable metrics and candidate plans", () => {
   assert.equal(result.metrics.animationCueValidity, 1);
   assert.equal(result.metrics.animationCueRelevance, 1);
   assert.equal(typeof result.metrics.goalSequenceRecall, "number");
+  assert.equal(typeof result.metrics.offsideOutcomeAccuracy, "number");
+  assert.equal(typeof result.metrics.disallowedGoalIncluded, "number");
+  assert.equal(typeof result.metrics.decisionContextCoverage, "number");
+  assert.equal(typeof result.metrics.captionOutcomeAlignment, "number");
+  assert.equal(typeof result.metrics.postGoalWindowCoverage, "number");
   assert.equal(typeof result.metrics.shotToPayoffCoverage, "number");
   assert.equal(typeof result.metrics.actionWindowCoverage, "number");
   assert.equal(result.metrics.captionRoleValidity, 1);
@@ -126,6 +131,11 @@ test("evaluation report has aggregate metrics and no local path leakage", () => 
   assert.equal(report.aggregate.animationCueValidity, 1);
   assert.equal(report.aggregate.animationCueRelevance, 1);
   assert.equal(report.aggregate.goalSequenceRecall >= 0.95, true);
+  assert.equal(report.aggregate.offsideOutcomeAccuracy >= 0.9, true);
+  assert.equal(report.aggregate.disallowedGoalIncluded, 1);
+  assert.equal(report.aggregate.decisionContextCoverage >= 0.9, true);
+  assert.equal(report.aggregate.captionOutcomeAlignment >= 0.95, true);
+  assert.equal(report.aggregate.postGoalWindowCoverage >= 0.9, true);
   assert.equal(report.aggregate.shotToPayoffCoverage >= 0.95, true);
   assert.equal(report.aggregate.actionWindowCoverage >= 0.95, true);
   assert.equal(report.aggregate.captionRoleValidity, 1);
@@ -218,6 +228,11 @@ test("runner writes a JSON report", () => {
   assert.equal(summary.falseGoalFromTrackingRate, 0);
   assert.equal(summary.animationCueRelevance, 1);
   assert.equal(summary.goalSequenceRecall >= 0.95, true);
+  assert.equal(summary.offsideOutcomeAccuracy >= 0.9, true);
+  assert.equal(summary.disallowedGoalIncluded, 1);
+  assert.equal(summary.decisionContextCoverage >= 0.9, true);
+  assert.equal(summary.captionOutcomeAlignment >= 0.95, true);
+  assert.equal(summary.postGoalWindowCoverage >= 0.9, true);
   assert.equal(summary.shotToPayoffCoverage >= 0.95, true);
   assert.equal(summary.actionWindowCoverage >= 0.95, true);
   assert.equal(summary.captionRoleValidity, 1);

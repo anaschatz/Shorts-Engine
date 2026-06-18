@@ -123,10 +123,20 @@ const VISUAL_EVIDENCE_TYPES = Object.freeze([
   "camera_pan",
   "scoreboard_context",
   "assistant_referee_flag",
+  "referee_no_goal_signal",
+  "referee_goal_signal",
   "var_screen",
+  "var_check_graphic",
+  "var_decision_graphic",
   "scoreboard_no_goal",
+  "scoreboard_goal_removed",
+  "scoreboard_goal_confirmed",
   "replay_line",
+  "offside_line_replay",
+  "replay_angle",
   "referee_signal",
+  "crowd_confusion",
+  "celebration_after_whistle",
   "unknown_visual_action",
 ]);
 const VISUAL_EVIDENCE_REASON_CODES = Object.freeze([
@@ -147,9 +157,17 @@ const VISUAL_EVIDENCE_REASON_CODES = Object.freeze([
   "visual_scoreboard_context",
   "visual_offside_flag",
   "visual_var_check",
+  "visual_var_decision",
   "visual_no_goal_decision",
   "visual_offside_line",
   "visual_referee_decision",
+  "visual_referee_no_goal_signal",
+  "visual_referee_goal_signal",
+  "visual_scoreboard_goal_removed",
+  "visual_scoreboard_goal_confirmed",
+  "visual_replay_angle",
+  "visual_crowd_confusion",
+  "visual_celebration_after_whistle",
   "visual_unknown_action",
 ]);
 const GOAL_EVENT_TYPES = Object.freeze(["none", "ball_in_net"]);
@@ -166,12 +184,31 @@ const GOAL_DECISION_EVIDENCE_CODES = Object.freeze([
   "no_goal_commentary",
   "visual_offside_flag",
   "visual_var_check",
+  "visual_var_decision",
   "visual_no_goal_decision",
   "visual_offside_line",
   "visual_referee_decision",
+  "visual_referee_no_goal_signal",
+  "visual_referee_goal_signal",
+  "visual_scoreboard_goal_removed",
+  "visual_scoreboard_goal_confirmed",
+  "visual_replay_angle",
+  "visual_crowd_confusion",
+  "visual_celebration_after_whistle",
+  "var_decision",
+  "scoreboard_goal_removed",
+  "scoreboard_goal_confirmed",
   "replay_context",
 ]);
-const GOAL_OUTCOME_BADGES = Object.freeze(["CONFIRMED", "OFFSIDE", "POSSIBLE OFFSIDE", "DECISION UNCLEAR"]);
+const GOAL_OUTCOME_BADGES = Object.freeze([
+  "CONFIRMED",
+  "CONFIRMED GOAL",
+  "OFFSIDE",
+  "OFFSIDE - NO GOAL",
+  "VAR CHECK",
+  "POSSIBLE OFFSIDE",
+  "DECISION UNCLEAR",
+]);
 const GOAL_LANGUAGE_RE = /\b(scored|scores|equalises|equalizes|back of the net|into the net|finds the net)\b|γκολ|σκοραρ|σκόραρ/i;
 const GOAL_WORD_RE = /\bgo+als?\b/gi;
 const NON_EVENT_GOAL_CONTEXT_RE = /\b(?:behind|towards?|near|around|beside|from behind|in front of)\s+(?:the\s+)?goals?\b|\bno\s+goals?\b/i;
@@ -319,33 +356,65 @@ function normalizeGoalOutcome(value, context = {}) {
   const postContextSeconds = raw.postContextSeconds == null || raw.postContextSeconds === ""
     ? 0
     : clamp(raw.postContextSeconds, 0, 15);
+  const rawDecisionWindow = raw.decisionWindow && typeof raw.decisionWindow === "object" && !Array.isArray(raw.decisionWindow)
+    ? raw.decisionWindow
+    : null;
+  const decisionWindow = rawDecisionWindow
+    ? {
+        start: Number(rawDecisionWindow.start),
+        end: Number(rawDecisionWindow.end),
+      }
+    : null;
+  if (decisionWindow && (
+    !Number.isFinite(decisionWindow.start) ||
+    !Number.isFinite(decisionWindow.end) ||
+    decisionWindow.start < 0 ||
+    decisionWindow.end <= decisionWindow.start
+  )) {
+    throw new AppError("VALIDATION_ERROR", "Goal decision window is invalid.", 400);
+  }
   const requiresPostContext = Boolean(raw.requiresPostContext ?? (eventType === "ball_in_net" && outcome !== "confirmed_goal"));
   const captionSafetyFlags = Array.isArray(raw.captionSafetyFlags)
     ? raw.captionSafetyFlags.map((flag) => sanitizeText(flag, 80)).filter(Boolean).slice(0, 8)
     : [];
+  const rawSafeCaptionBadge = raw.safeCaptionBadge ? sanitizeText(raw.safeCaptionBadge, 32).toUpperCase() : null;
+  if (rawSafeCaptionBadge && !GOAL_OUTCOME_BADGES.includes(rawSafeCaptionBadge)) {
+    throw new AppError("VALIDATION_ERROR", "Goal outcome badge is invalid.", 400);
+  }
   const rawBadge = raw.badge ? sanitizeText(raw.badge, 32).toUpperCase() : null;
   if (rawBadge && !GOAL_OUTCOME_BADGES.includes(rawBadge)) {
     throw new AppError("VALIDATION_ERROR", "Goal outcome badge is invalid.", 400);
   }
-  const badge = rawBadge || (outcome === "confirmed_goal"
-      ? "CONFIRMED"
-      : outcome === "disallowed_offside"
-        ? "OFFSIDE"
-        : outcome === "possible_offside"
-          ? "POSSIBLE OFFSIDE"
-          : eventType === "ball_in_net"
-            ? "DECISION UNCLEAR"
-            : null);
+  const safeCaptionBadge = rawSafeCaptionBadge || rawBadge || (outcome === "confirmed_goal"
+    ? "CONFIRMED GOAL"
+    : outcome === "disallowed_offside"
+      ? "OFFSIDE - NO GOAL"
+      : outcome === "possible_offside"
+        ? decisionEvidence.some((code) => code === "var_check" || code === "var_decision" || code === "visual_var_check" || code === "visual_var_decision")
+          ? "VAR CHECK"
+          : "POSSIBLE OFFSIDE"
+        : eventType === "ball_in_net"
+          ? "DECISION UNCLEAR"
+          : null);
+  const badge = rawBadge || safeCaptionBadge;
   return {
     eventType,
     outcome,
     offsideStatus,
     decisionEvidence,
     decisionTimestamp: decisionTimestamp === null ? null : Number(decisionTimestamp.toFixed(2)),
+    decisionWindow: decisionWindow
+      ? {
+          start: Number(decisionWindow.start.toFixed(2)),
+          end: Number(decisionWindow.end.toFixed(2)),
+        }
+      : null,
     confidence: Number(clamp(raw.confidence ?? (outcome === "none" ? 0 : 0.5), 0, 1).toFixed(2)),
     requiresPostContext,
     postContextSeconds: Number(postContextSeconds.toFixed(2)),
     badge,
+    safeCaptionBadge,
+    explanation: sanitizeText(raw.explanation || "", 180),
     captionSafetyFlags,
   };
 }

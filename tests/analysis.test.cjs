@@ -373,6 +373,86 @@ test("ball-in-net without decision stays neutral instead of confirmed goal", () 
   assert.equal(plans[0].goalOutcome.outcome, "unknown_decision");
 });
 
+test("VAR-only decision context becomes possible offside without confirmed goal copy", () => {
+  const result = detectHighlights({
+    transcript: {
+      provider: "fixture",
+      language: "en",
+      captions: [
+        { start: 7.8, end: 9.2, text: "The finish hits the net after the through ball" },
+        { start: 15.6, end: 17.2, text: "VAR check for offside, the decision is not clear yet" },
+      ],
+    },
+    signals: {
+      durationSeconds: 30,
+      hasAudio: true,
+      audioPeaks: [{ time: 9.6, energyScore: 0.89, source: "fixture" }],
+      sceneChanges: [{ time: 8.1, confidence: 0.72, source: "fixture" }],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [
+        { start: 6.6, end: 8.2, labels: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.89 },
+        { start: 8.2, end: 10.1, labels: ["goal_mouth_visible", "ball_in_net"], confidence: 0.9 },
+        { start: 15.2, end: 17.4, labels: ["var_check_graphic", "replay_angle"], confidence: 0.82 },
+      ],
+    },
+    preset: "hype",
+  });
+
+  const top = result.moments[0];
+  assert.equal(top.evidence.goalOutcome.outcome, "possible_offside");
+  assert.equal(top.evidence.goalOutcome.safeCaptionBadge, "VAR CHECK");
+  assert.ok(top.evidence.goalOutcome.decisionEvidence.includes("visual_var_check"));
+
+  const plans = createCandidateEditPlans({
+    moments: result.moments,
+    metadata: { durationSeconds: 30, width: 1920, height: 1080, hasAudio: true },
+    transcript: { captions: [] },
+    title: "VAR check clip",
+  });
+  const text = plans[0].captions.map((caption) => caption.text).join(" ");
+  assert.equal(plans[0].goalOutcome.outcome, "possible_offside");
+  assert.match(text, /WAS HE OFF|VAR CHECK|DECISION NOT CLEAR/i);
+  assert.doesNotMatch(text, /\bGOAL CONFIRMED\b|THE FINISH COUNTS/i);
+});
+
+test("scoreboard and referee confirmation are required for confirmed goal outcome", () => {
+  const result = detectHighlights({
+    transcript: {
+      provider: "fixture",
+      language: "en",
+      captions: [
+        { start: 8, end: 9.2, text: "The striker finishes into the net" },
+        { start: 13.6, end: 14.8, text: "Goal confirmed, it counts" },
+      ],
+    },
+    signals: {
+      durationSeconds: 26,
+      hasAudio: true,
+      audioPeaks: [{ time: 9.5, energyScore: 0.91, source: "fixture" }],
+      sceneChanges: [{ time: 8.2, confidence: 0.75, source: "fixture" }],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [
+        { start: 6.9, end: 8.1, labels: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.9 },
+        { start: 8.1, end: 10.3, labels: ["goal_mouth_visible", "ball_in_net"], confidence: 0.9 },
+        { start: 13.4, end: 15, labels: ["scoreboard_goal_confirmed", "referee_goal_signal"], confidence: 0.83 },
+      ],
+    },
+    preset: "hype",
+  });
+
+  const top = result.moments[0];
+  assert.equal(top.evidence.goalOutcome.outcome, "confirmed_goal");
+  assert.equal(top.evidence.goalOutcome.offsideStatus, "onside");
+  assert.equal(top.evidence.goalOutcome.safeCaptionBadge, "CONFIRMED GOAL");
+  assert.equal(top.evidence.goalOutcome.requiresPostContext, false);
+});
+
 test("edit-plan validation rejects inconsistent offside goal outcomes", () => {
   assert.throws(() => validateEditPlan({
     sourceStart: 0,

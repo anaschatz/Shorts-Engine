@@ -36,3 +36,4 @@ Guardrails:
 - Goal evidence can be composed from a strong action sequence: shot/contact, ball toward goal, goal-mouth context and ball-in-net/line-crossing or celebration after the shot. Partial visual sequences should rank as chances or support, not goals.
 - Goal-sequence planning should keep the source window action-first and long enough to show shot-to-payoff, typically 12-22 seconds for medium/strong goal evidence.
 - Ball-in-net moments should become outcome-aware: keep 10-15 seconds of post-context for flag/offside/VAR/no-goal decisions, include disallowed goals, and avoid confirmed-goal copy unless the outcome is `confirmed_goal`.
+- Referee/VAR/offside decision cues should flow through `server/goal-outcome.cjs`; weak VAR/offside review cues become `possible_offside`, no-goal/flag/scoreboard-removal cues become `disallowed_offside`, and confirmed goals require explicit confirmation evidence.

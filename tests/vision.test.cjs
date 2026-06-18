@@ -47,12 +47,48 @@ test("visual reasons map to non-goal football moment types", () => {
   assert.equal(reasonCodeForVisualType("ball_toward_goal"), "visual_ball_toward_goal");
   assert.equal(reasonCodeForVisualType("ball_in_net"), "visual_ball_in_net");
   assert.equal(reasonCodeForVisualType("celebration_after_shot"), "visual_celebration_after_shot");
+  assert.equal(reasonCodeForVisualType("referee_no_goal_signal"), "visual_referee_no_goal_signal");
+  assert.equal(reasonCodeForVisualType("referee_goal_signal"), "visual_referee_goal_signal");
+  assert.equal(reasonCodeForVisualType("var_check_graphic"), "visual_var_check");
+  assert.equal(reasonCodeForVisualType("var_decision_graphic"), "visual_var_decision");
+  assert.equal(reasonCodeForVisualType("scoreboard_goal_removed"), "visual_scoreboard_goal_removed");
+  assert.equal(reasonCodeForVisualType("scoreboard_goal_confirmed"), "visual_scoreboard_goal_confirmed");
+  assert.equal(reasonCodeForVisualType("offside_line_replay"), "visual_offside_line");
+  assert.equal(reasonCodeForVisualType("replay_angle"), "visual_replay_angle");
   assert.equal(visualHighlightTypeForReasons(["visual_shot_like_motion", "visual_goal_area"]), "big_chance");
   assert.equal(visualHighlightTypeForReasons(["visual_ball_toward_goal", "visual_goal_mouth"]), "big_chance");
   assert.equal(visualHighlightTypeForReasons(["visual_save_like_motion"]), "save");
   assert.equal(visualHighlightTypeForReasons(["visual_foul_like_contact"]), "foul");
   assert.equal(visualHighlightTypeForReasons(["visual_crowd_reaction"]), "crowd_reaction");
   assert.equal(visualHighlightTypeForReasons(["visual_goal_area"]), "unknown_action");
+});
+
+test("visual validation accepts decision signals without enabling goal claims", () => {
+  const signals = validateVisualSignals({
+    providerMode: "fixture-provider",
+    fallbackUsed: false,
+    windows: [
+      {
+        start: 11,
+        end: 14,
+        types: ["var_check_graphic", "offside_line_replay", "referee_no_goal_signal", "scoreboard_goal_removed"],
+        confidence: 0.88,
+        source: "fixture",
+      },
+    ],
+  }, metadata);
+
+  assert.equal(signals.summary.goalClaimAllowed, false);
+  assert.equal(signals.summary.varCheckGraphic.present, true);
+  assert.equal(signals.summary.offsideLineReplay.present, true);
+  assert.equal(signals.summary.refereeNoGoalSignal.present, true);
+  assert.equal(signals.summary.scoreboardGoalRemoved.present, true);
+  assert.deepEqual(visualReasonCodesForWindow(signals.windows[0]), [
+    "visual_var_check",
+    "visual_offside_line",
+    "visual_referee_no_goal_signal",
+    "visual_scoreboard_goal_removed",
+  ]);
 });
 
 test("visual validation accepts explicit goal-sequence cues without accepting raw goal labels", () => {

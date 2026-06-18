@@ -103,10 +103,13 @@ function labelForHighlightType(highlightType) {
 
 function goalOutcomeBadgeLabel(goalOutcome = {}) {
   if (!goalOutcome || goalOutcome.eventType !== "ball_in_net") return null;
+  if (goalOutcome.safeCaptionBadge) return escapeAss(goalOutcome.safeCaptionBadge);
   const labels = {
-    confirmed_goal: "CONFIRMED",
+    confirmed_goal: "CONFIRMED GOAL",
     disallowed_offside: "OFFSIDE - NO GOAL",
-    possible_offside: "POSSIBLE OFFSIDE",
+    possible_offside: Array.isArray(goalOutcome.decisionEvidence) && goalOutcome.decisionEvidence.some((code) => code === "var_check" || code === "visual_var_check" || code === "var_decision" || code === "visual_var_decision")
+      ? "VAR CHECK"
+      : "POSSIBLE OFFSIDE",
     unknown_decision: "DECISION UNCLEAR",
   };
   return labels[goalOutcome.outcome] || null;
