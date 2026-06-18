@@ -9,6 +9,7 @@ const { extractAudio, renderShort } = require("./render.cjs");
 const { chooseTranscriptionProvider } = require("./transcription.cjs");
 const { assertStoragePath, storagePath, writeJsonAtomic } = require("./storage.cjs");
 const { analyzeFrames, publicVisualSignals, validateVisualSignals } = require("./vision.cjs");
+const { analyzeVisualTracking, publicVisualTrackingSummary } = require("./visual-tracking.cjs");
 
 function isRegularFile(filePath) {
   try {
@@ -32,6 +33,7 @@ function createDefaultDependencies(overrides = {}) {
     extractSampledFrames,
     extractMediaSignals,
     fileExists: existsSync,
+    analyzeVisualTracking,
     isRegularFile,
     logger: console,
     renderShort,
@@ -571,6 +573,7 @@ async function runRenderJob(options) {
   let transcript = null;
   let mediaSignals = null;
   let visualSignals = null;
+  let visualTracking = null;
   let highlightResult = null;
   let candidatePlans = null;
   let editPlan = null;
@@ -593,6 +596,7 @@ async function runRenderJob(options) {
       highlightResult = validateHighlightResult(highlightResultFromApprovedPlan(editPlan), context.metadata);
       mediaSignals = mediaSignalsFromApprovedPlan(context);
       visualSignals = visualSignalsFromApprovedPlan(editPlan, context);
+      visualTracking = publicVisualTrackingSummary(editPlan.visualTrackingSummary || null, context.metadata);
       transcript = transcriptFromApprovedPlan(editPlan, context);
       sampledFrameSummary = {
         providerMode: "approved_regeneration_draft",
@@ -666,6 +670,15 @@ async function runRenderJob(options) {
         }),
         context.metadata,
       );
+      visualTracking = publicVisualTrackingSummary(deps.analyzeVisualTracking({
+        inputPath: context.inputPath,
+        metadata: context.metadata,
+        candidateWindows: visualCandidateWindows,
+        mediaSignals,
+        visualSignals,
+        frames: sampledFrames.frames,
+        frameSummary: sampledFrameSummary,
+      }), context.metadata);
       logInfo(deps.logger, {
         event: "visual_analysis_completed",
         requestId,
@@ -678,6 +691,18 @@ async function runRenderJob(options) {
         fallbackUsed: visualSignals.fallbackUsed,
         latencyMs: visualSignals.providerMetadata && visualSignals.providerMetadata.latencyMs,
         errorCode: visualSignals.failure && visualSignals.failure.code,
+      });
+      logInfo(deps.logger, {
+        event: "visual_tracking_completed",
+        requestId,
+        projectId: project.id,
+        jobId: job.id,
+        step: "analyze_visual_tracking",
+        frameCount: visualTracking.frameCount,
+        trackingConfidence: visualTracking.trackingConfidence,
+        recommendedFramingMode: visualTracking.recommendedFramingMode,
+        cropSafetyReason: visualTracking.cropSafetyReason,
+        fallbackUsed: visualTracking.fallbackUsed,
       });
 
       updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 46, step: "transcribe" });
@@ -714,6 +739,7 @@ async function runRenderJob(options) {
         transcript,
         mediaSignals,
         visualSignals,
+        visualTracking,
         preset: context.preset,
         title: context.title,
         language: context.language,
@@ -742,6 +768,9 @@ async function runRenderJob(options) {
       falseGoalGuardTriggered: editPlan.highlightType !== "goal",
       visualProviderMode: visualSignals.providerMode,
       visualWindowCount: visualSignals.summary.windowCount,
+      visualTrackingConfidence: visualTracking && visualTracking.trackingConfidence,
+      cropPlanMode: editPlan.cropPlan && editPlan.cropPlan.mode,
+      cropPlanFallbackUsed: editPlan.cropPlan && editPlan.cropPlan.fallbackUsed,
       actionFocusConfidence: editPlan.actionFocusConfidence,
       framingReason: editPlan.framingReason,
       animationCueCount: Array.isArray(editPlan.animationCues) ? editPlan.animationCues.length : 0,
@@ -817,6 +846,7 @@ async function runRenderJob(options) {
       highlights: highlightResult.moments,
       mediaSignals: publicMediaSignals(mediaSignals),
       visualSignals: publicVisualSignals(visualSignals),
+      visualTracking,
       sampledFrames: sampledFrameSummary,
       step: "completed",
     });
@@ -835,6 +865,7 @@ async function runRenderJob(options) {
       transcript,
       mediaSignals,
       visualSignals,
+      visualTracking,
       sampledFrames: sampledFrameSummary,
       highlights: highlightResult.moments,
       candidatePlans,
@@ -859,6 +890,9 @@ async function runRenderJob(options) {
       falseGoalGuardTriggered: editPlan.highlightType !== "goal",
       visualProviderMode: visualSignals.providerMode,
       visualWindowCount: visualSignals.summary.windowCount,
+      visualTrackingConfidence: visualTracking && visualTracking.trackingConfidence,
+      cropPlanMode: editPlan.cropPlan && editPlan.cropPlan.mode,
+      cropPlanFallbackUsed: editPlan.cropPlan && editPlan.cropPlan.fallbackUsed,
       actionFocusConfidence: editPlan.actionFocusConfidence,
       framingReason: editPlan.framingReason,
       animationCueCount: Array.isArray(editPlan.animationCues) ? editPlan.animationCues.length : 0,

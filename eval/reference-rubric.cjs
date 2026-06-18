@@ -9,6 +9,7 @@ const {
 } = require("../server/edit-plan.cjs");
 const { AppError } = require("../server/errors.cjs");
 const { validateVisualSignals } = require("../server/vision.cjs");
+const { analyzeVisualTracking } = require("../server/visual-tracking.cjs");
 const {
   bestOverlap,
   captionProviderFallbackRate,
@@ -203,6 +204,10 @@ function scoreTextSafeArea(plan) {
     score -= 0.25;
     notes.push("Long center caption increases overlap risk.");
   }
+  if (plan && plan.cropPlan && plan.cropPlan.textObstructionRisk) {
+    score -= 0.35;
+    notes.push("Crop/text safe zones indicate likely action obstruction.");
+  }
   for (let index = 1; index < captions.length; index += 1) {
     if (toNumber(captions[index].start) < toNumber(captions[index - 1].end) - 0.08) {
       score -= 0.3;
@@ -387,6 +392,16 @@ function extractActualReviewMetadata(plan) {
       goalEvidence: plan.highlightType === "goal" && plan.reasonCodes.includes("goal"),
     },
     framingMode: plan.reviewMetadata && plan.reviewMetadata.framingMode || plan.framingMode,
+    cropPlan: plan.reviewMetadata && plan.reviewMetadata.cropPlan || (plan.cropPlan
+      ? {
+          mode: plan.cropPlan.mode,
+          confidence: plan.cropPlan.confidence,
+          fallbackUsed: plan.cropPlan.fallbackUsed,
+          reasonCodes: plan.cropPlan.reasonCodes,
+          textObstructionRisk: Boolean(plan.cropPlan.textObstructionRisk),
+        }
+      : null),
+    visualTrackingSummary: plan.reviewMetadata && plan.reviewMetadata.visualTrackingSummary || plan.visualTrackingSummary || null,
     visualEvidenceSummary: plan.visualEvidenceSummary || null,
     audioEvidenceSummary: plan.reviewMetadata && plan.reviewMetadata.audioEvidenceSummary || null,
   };
@@ -504,6 +519,12 @@ function reviewReferenceFixture(fixture) {
     fixture.visualSignals || fixture.mediaSignals.visualSignals || { providerMode: "reference-none", fallbackUsed: true, windows: [] },
     metadata,
   );
+  const visualTracking = analyzeVisualTracking({
+    metadata,
+    visualSignals,
+    mediaSignals: fixture.mediaSignals,
+    visualTracking: fixture.visualTracking,
+  });
   const highlightResult = detectHighlights({
     transcript: fixture.transcript,
     signals: fixture.mediaSignals,
@@ -516,6 +537,7 @@ function reviewReferenceFixture(fixture) {
     transcript: fixture.transcript,
     mediaSignals: fixture.mediaSignals,
     visualSignals,
+    visualTracking,
     title: fixture.title,
     preset: fixture.expected.preset || "hype",
     language: fixture.language,

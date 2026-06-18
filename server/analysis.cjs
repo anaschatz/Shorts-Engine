@@ -11,6 +11,11 @@ const {
   normalizeStylePreset,
   validateEditPlan,
 } = require("./edit-plan.cjs");
+const {
+  calibrateCropPlan,
+  cropStrategyFromPlan,
+  publicVisualTrackingSummary,
+} = require("./visual-tracking.cjs");
 const { commandAvailable, sanitizeText } = require("./media.cjs");
 const { runFfmpeg } = require("./render.cjs");
 const {
@@ -1370,6 +1375,16 @@ function reviewMetadataForPlan(plan, moment, mediaSignals = {}) {
       goalEvidence: plan.highlightType === "goal" && Array.isArray(plan.reasonCodes) && plan.reasonCodes.includes("goal"),
     },
     framingMode: plan.framingMode,
+    cropPlan: plan.cropPlan
+      ? {
+          mode: plan.cropPlan.mode,
+          confidence: plan.cropPlan.confidence,
+          fallbackUsed: plan.cropPlan.fallbackUsed,
+          reasonCodes: plan.cropPlan.reasonCodes,
+          textObstructionRisk: Boolean(plan.cropPlan.textObstructionRisk),
+        }
+      : null,
+    visualTrackingSummary: plan.visualTrackingSummary || null,
     visualEvidenceSummary: plan.visualEvidenceSummary || null,
     actionSequenceSummary: plan.actionSequenceSummary || actionSequenceSummaryForMoment(moment),
     audioEvidenceSummary: audioEvidenceSummaryForMoment(moment, mediaSignals),
@@ -1387,6 +1402,7 @@ function createCandidateEditPlans({
   transcript = null,
   mediaSignals = null,
   visualSignals = null,
+  visualTracking = null,
   language = "auto",
   styleTarget = "vertical_9_16",
   editIntensity = "balanced",
@@ -1396,6 +1412,7 @@ function createCandidateEditPlans({
   const renderStylePreset = normalizeStylePreset(stylePreset);
   const candidates = (Array.isArray(moments) ? moments : []).slice(0, 3).map((moment) => {
     const visualEvidenceSummary = visualEvidenceSummaryForMoment(moment);
+    const visualTrackingSummary = publicVisualTrackingSummary(visualTracking || null, metadata);
     const actionSequenceSummary = actionSequenceSummaryForMoment(moment);
     const storyPlan = createFootballStoryPlan({
       title,
@@ -1422,6 +1439,13 @@ function createCandidateEditPlans({
     const framingMode = storyPlan.framingIntent.mode || framingModeForMetadata(metadata);
     const actionFocusConfidence = visualEvidenceSummary.actionFocusConfidence;
     const framingReason = storyPlan.framingIntent.reason || framingReasonForVisualSummary(visualEvidenceSummary);
+    const cropPlan = calibrateCropPlan({
+      metadata,
+      trackingSummary: visualTrackingSummary,
+      candidateMoment: moment,
+      targetAspectRatio: storyPlan.aspectRatio,
+      captions,
+    });
     const captionEmphasis = Array.isArray(storyPlan.captionEmphasis) && storyPlan.captionEmphasis.length
       ? storyPlan.captionEmphasis
       : createCaptionEmphasis(captions, highlightType);
@@ -1442,8 +1466,10 @@ function createCandidateEditPlans({
       framingReason,
       actionFocusConfidence,
       visualEvidenceSummary,
+      visualTrackingSummary,
       actionSequenceSummary,
-      cropStrategy: storyPlan.cropStrategy || createCropStrategy(metadata, framingMode),
+      cropPlan,
+      cropStrategy: cropStrategyFromPlan(cropPlan, metadata) || storyPlan.cropStrategy || createCropStrategy(metadata, framingMode),
       stylePreset: renderStylePreset,
       styleTarget: storyPlan.styleTarget,
       editIntensity: storyPlan.editIntensity,
@@ -1471,6 +1497,7 @@ function createCandidateEditPlans({
         retentionScore: moment.retentionScore,
         reasonCodes: moment.reasonCodes || [],
         evidence: moment.evidence || null,
+        visualTrackingSummary,
         actionSequenceSummary,
         captionIntent: moment.captionIntent || captionIntentForHighlightType(highlightType),
         source: moment.source,

@@ -40,6 +40,7 @@
     "highlights": [{ "start": 7.4, "end": 11.2 }],
     "reasonCodes": ["visual_unknown_action", "scene_change_cluster"],
     "highlightType": "unknown_action",
+    "cropMode": "locked_wide",
     "stylePreset": "social_sports_v1"
   },
   "thresholds": {

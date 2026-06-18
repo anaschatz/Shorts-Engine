@@ -66,6 +66,11 @@ test("fixture scoring returns reportable metrics and candidate plans", () => {
   assert.equal(typeof result.metrics.frameExtractionFallbackUsed, "boolean");
   assert.equal(typeof result.metrics.sampledFrameCount, "number");
   assert.equal(result.metrics.framingSafety, 1);
+  assert.equal(result.metrics.cropSafetyScore, 1);
+  assert.equal(result.metrics.actionSafeZoneCoverage, 1);
+  assert.equal(result.metrics.textObstructionRisk, 0);
+  assert.equal(typeof result.metrics.wideSafeFallbackRate, "number");
+  assert.equal(result.metrics.trackingConfidenceCalibration, 1);
   assert.equal(result.metrics.animationCueValidity, 1);
   assert.equal(result.metrics.animationCueRelevance, 1);
   assert.equal(typeof result.metrics.goalSequenceRecall, "number");
@@ -99,6 +104,11 @@ test("evaluation report has aggregate metrics and no local path leakage", () => 
   assert.equal(typeof report.aggregate.sampledFrameCount, "number");
   assert.equal(report.aggregate.highlightTypeAccuracy, 1);
   assert.equal(report.aggregate.framingSafety, 1);
+  assert.equal(report.aggregate.cropSafetyScore, 1);
+  assert.equal(report.aggregate.actionSafeZoneCoverage, 1);
+  assert.equal(report.aggregate.textObstructionRisk, 0);
+  assert.equal(typeof report.aggregate.wideSafeFallbackRate, "number");
+  assert.equal(report.aggregate.trackingConfidenceCalibration, 1);
   assert.equal(report.aggregate.animationCueValidity, 1);
   assert.equal(report.aggregate.animationCueRelevance, 1);
   assert.equal(report.aggregate.goalSequenceRecall >= 0.95, true);
@@ -181,6 +191,11 @@ test("runner writes a JSON report", () => {
   assert.equal(typeof summary.frameExtractionFallbackUsageRate, "number");
   assert.equal(typeof summary.sampledFrameCount, "number");
   assert.equal(summary.highlightTypeAccuracy, 1);
+  assert.equal(summary.cropSafetyScore, 1);
+  assert.equal(summary.actionSafeZoneCoverage, 1);
+  assert.equal(summary.textObstructionRisk, 0);
+  assert.equal(typeof summary.wideSafeFallbackRate, "number");
+  assert.equal(summary.trackingConfidenceCalibration, 1);
   assert.equal(summary.animationCueRelevance, 1);
   assert.equal(summary.goalSequenceRecall >= 0.95, true);
   assert.equal(summary.shotToPayoffCoverage >= 0.95, true);

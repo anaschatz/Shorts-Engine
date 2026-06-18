@@ -32,6 +32,18 @@
       { "start": 12.6, "end": 15.3, "labels": ["celebration_after_shot", "crowd_reaction"], "confidence": 0.87 }
     ]
   },
+  "visualTracking": {
+    "frameCount": 5,
+    "sampledTimestamps": [7.8, 9.6, 11.6, 13.2],
+    "estimatedActionBounds": { "x": 820, "y": 300, "width": 280, "height": 320 },
+    "ballCandidateConfidence": 0.93,
+    "playerClusterConfidence": 0.88,
+    "cameraMotionLevel": 0.14,
+    "trackingConfidence": 0.91,
+    "recommendedFramingMode": "soft_follow",
+    "cropSafetyReason": "fixture_stable_goal_sequence_action",
+    "fallbackUsed": false
+  },
   "expected": {
     "highlights": [{ "start": 5.0, "end": 17.0 }],
     "goalSequence": { "shotStart": 7.5, "payoffEnd": 15.3 },
@@ -49,6 +61,7 @@
       "visual_ball_visible"
     ],
     "highlightType": "goal",
+    "cropMode": "soft_follow",
     "stylePreset": "social_sports_v1",
     "editIntensity": "balanced"
   },

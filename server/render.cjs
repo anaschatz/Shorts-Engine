@@ -307,6 +307,26 @@ function visualEffectFilters(plan, dimensions, config) {
   return filters;
 }
 
+function activeSoftFollowCrop(plan = {}) {
+  const cropPlan = plan.cropPlan && typeof plan.cropPlan === "object" ? plan.cropPlan : null;
+  if (
+    !cropPlan ||
+    cropPlan.mode !== "soft_follow" ||
+    cropPlan.fallbackUsed ||
+    cropPlan.textObstructionRisk ||
+    Number(cropPlan.confidence || 0) < 0.86
+  ) return null;
+  const box = cropPlan.cropBox;
+  if (!box || [box.x, box.y, box.width, box.height].some((value) => !Number.isFinite(Number(value)))) return null;
+  if (Number(box.width) <= 1 || Number(box.height) <= 1) return null;
+  return {
+    x: Math.max(0, Math.round(Number(box.x))),
+    y: Math.max(0, Math.round(Number(box.y))),
+    width: Math.max(2, Math.round(Number(box.width))),
+    height: Math.max(2, Math.round(Number(box.height))),
+  };
+}
+
 function runFfmpeg(args, { signal, timeoutMs = CONFIG.renderTimeoutMs, onProgress, ffmpegBin = CONFIG.ffmpegBin } = {}) {
   return new Promise((resolve, reject) => {
     if (!commandAvailable(ffmpegBin)) {
@@ -367,7 +387,15 @@ async function renderShort({ inputPath, outputPath, subtitlesPath, plan, signal 
   const backgroundPush = hasCue(plan, ["subtle_camera_push", "punch_zoom"]) ? 1.035 : 1;
   const backgroundWidth = Math.round(dimensions.width * backgroundPush);
   const backgroundHeight = Math.round(dimensions.height * backgroundPush);
-  const filter = ["wide_safe", "wide_safe_vertical"].includes(plan.framingMode)
+  const softFollowCrop = activeSoftFollowCrop(plan);
+  const filter = softFollowCrop
+    ? [
+        `[0:v]crop=${softFollowCrop.width}:${softFollowCrop.height}:${softFollowCrop.x}:${softFollowCrop.y}`,
+        `scale=${dimensions.width}:${dimensions.height}:force_original_aspect_ratio=increase`,
+        `crop=${dimensions.width}:${dimensions.height}`,
+        `${finishingFilters.join(",")}[v]`,
+      ].join(",")
+    : ["wide_safe", "wide_safe_vertical"].includes(plan.framingMode)
     ? [
         `[0:v]scale=${backgroundWidth}:${backgroundHeight}:force_original_aspect_ratio=increase,crop=${dimensions.width}:${dimensions.height},boxblur=18:1[bg]`,
         `[0:v]scale=${dimensions.width}:${dimensions.height}:force_original_aspect_ratio=decrease[fg]`,

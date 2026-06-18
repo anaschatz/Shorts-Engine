@@ -12,6 +12,7 @@ const {
 } = require("../server/edit-plan.cjs");
 const { AppError } = require("../server/errors.cjs");
 const { validateVisualSignals } = require("../server/vision.cjs");
+const { analyzeVisualTracking, validateCropPlan } = require("../server/visual-tracking.cjs");
 
 const DEFAULT_THRESHOLDS = Object.freeze({
   minAggregateScore: 78,
@@ -392,8 +393,60 @@ function referenceStyleSimilarityScore(topPlan) {
   if (!topPlan) return 0;
   const roleScore = Array.isArray(topPlan.captions) && topPlan.captions.some((caption) => caption.role === "opening_hook") ? 0.35 : 0;
   const animationScore = Array.isArray(topPlan.animationCues) && topPlan.animationCues.length >= 3 ? 0.35 : 0;
-  const framingScore = topPlan.framingMode === "wide_safe_vertical" ? 0.3 : 0.15;
+  const cropMode = topPlan.cropPlan && topPlan.cropPlan.mode;
+  const framingScore = topPlan.framingMode === "wide_safe_vertical" || cropMode === "soft_follow" ? 0.3 : 0.15;
   return round(roleScore + animationScore + framingScore, 4);
+}
+
+function cropPlanForPlan(plan, metadata = {}) {
+  if (!plan || !plan.cropPlan) return null;
+  try {
+    return validateCropPlan(plan.cropPlan, metadata);
+  } catch {
+    return null;
+  }
+}
+
+function cropSafetyScore(plan, metadata = {}) {
+  const cropPlan = cropPlanForPlan(plan, metadata);
+  if (!cropPlan) return 0;
+  if (cropPlan.mode === "soft_follow" && (cropPlan.confidence < 0.86 || cropPlan.fallbackUsed)) return 0;
+  if (cropPlan.mode !== "soft_follow" && cropPlan.fallbackUsed !== true) return 0;
+  return 1;
+}
+
+function actionSafeZoneCoverageScore(plan, metadata = {}) {
+  const cropPlan = cropPlanForPlan(plan, metadata);
+  if (!cropPlan) return 0;
+  if (!cropPlan.actionSafeZones.length) return 1;
+  return cropPlan.actionSafeZones.every((zone) => (
+    zone.x >= cropPlan.safeArea.x - 1 &&
+    zone.y >= cropPlan.safeArea.y - 1 &&
+    zone.x + zone.width <= cropPlan.safeArea.x + cropPlan.safeArea.width + 1 &&
+    zone.y + zone.height <= cropPlan.safeArea.y + cropPlan.safeArea.height + 1
+  )) ? 1 : 0;
+}
+
+function textObstructionRiskValue(plan, metadata = {}) {
+  const cropPlan = cropPlanForPlan(plan, metadata);
+  return cropPlan && cropPlan.textObstructionRisk ? 1 : 0;
+}
+
+function wideSafeFallbackRate(plan, metadata = {}) {
+  const cropPlan = cropPlanForPlan(plan, metadata);
+  return cropPlan && cropPlan.fallbackUsed ? 1 : 0;
+}
+
+function trackingConfidenceCalibrationScore(plan, expected = {}, metadata = {}) {
+  const cropPlan = cropPlanForPlan(plan, metadata);
+  if (!cropPlan) return 0;
+  const expectedMode = expected.cropMode || expected.expectedCropMode || null;
+  if (expectedMode) {
+    if (expectedMode === "soft_follow") return cropPlan.mode === "soft_follow" && cropPlan.confidence >= 0.86 ? 1 : 0;
+    return cropPlan.mode === expectedMode && cropPlan.fallbackUsed === true ? 1 : 0;
+  }
+  if (cropPlan.mode === "soft_follow") return cropPlan.confidence >= 0.86 && !cropPlan.fallbackUsed ? 1 : 0;
+  return cropPlan.fallbackUsed && cropPlan.confidence <= 0.95 ? 1 : 0;
 }
 
 function renderStylePresetIsValid(plan) {
@@ -411,12 +464,13 @@ function framingIsSafe(plan, metadata = {}) {
   if (!plan || typeof plan !== "object") return false;
   if (!["wide_safe", "wide_safe_vertical", "safe_center", "action_bias"].includes(plan.framingMode)) return false;
   const crop = plan.cropStrategy;
+  const cropPlan = cropPlanForPlan(plan, metadata);
   if (!crop || typeof crop !== "object") return false;
   const inputWidth = Math.max(1, toNumber(metadata.width, 1920));
   const inputHeight = Math.max(1, toNumber(metadata.height, 1080));
   const zoom = toNumber(crop.zoom, 1);
   if (!Number.isFinite(zoom) || zoom < 0.5 || zoom > 1.35) return false;
-  if (["wide_safe", "wide_safe_vertical"].includes(plan.framingMode) && crop.preserveFullFrame !== true) return false;
+  if (["wide_safe", "wide_safe_vertical"].includes(plan.framingMode) && crop.preserveFullFrame !== true && !(cropPlan && cropPlan.mode === "soft_follow")) return false;
   if (crop.maxCropPercent !== undefined && toNumber(crop.maxCropPercent, 1) > 0.35) return false;
   if (crop.bounds && typeof crop.bounds === "object") {
     const left = toNumber(crop.bounds.left, Number.NaN);
@@ -534,6 +588,13 @@ function scoreFixture(fixture) {
     fixture.visualSignals || fixture.mediaSignals.visualSignals || { providerMode: "fixture-none", fallbackUsed: true, windows: [] },
     metadata,
   );
+  const visualTracking = analyzeVisualTracking({
+    metadata,
+    visualSignals,
+    mediaSignals: fixture.mediaSignals,
+    visualTracking: fixture.visualTracking,
+    frames: fixture.sampledFrames && Array.isArray(fixture.sampledFrames.frames) ? fixture.sampledFrames.frames : [],
+  });
   const highlightResult = detectHighlights({
     transcript: fixture.transcript,
     signals: fixture.mediaSignals,
@@ -546,6 +607,7 @@ function scoreFixture(fixture) {
     transcript: fixture.transcript,
     mediaSignals: fixture.mediaSignals,
     visualSignals,
+    visualTracking,
     title: fixture.title,
     preset: fixture.expected.preset || "hype",
     language: fixture.language,
@@ -584,6 +646,11 @@ function scoreFixture(fixture) {
   const actionWindowCoverage = actionWindowCoverageScore(topMoment, fixture.expected.highlights);
   const shotToPayoffCoverage = shotToPayoffCoverageScore(topPlan, fixture.expected);
   const ballPlayerVisibilityScoreValue = ballPlayerVisibilityScore(topPlan);
+  const cropSafetyScoreValue = cropSafetyScore(topPlan, metadata);
+  const actionSafeZoneCoverage = actionSafeZoneCoverageScore(topPlan, metadata);
+  const textObstructionRisk = textObstructionRiskValue(topPlan, metadata);
+  const wideSafeFallback = wideSafeFallbackRate(topPlan, metadata);
+  const trackingConfidenceCalibration = trackingConfidenceCalibrationScore(topPlan, fixture.expected, metadata);
   const referenceStyleSimilarity = referenceStyleSimilarityScore(topPlan);
   const renderStylePresetValidity = candidatePlans.every(renderStylePresetIsValid) ? 1 : 0;
   const unsupportedCueCount = topPlan && Array.isArray(topPlan.unsupportedAnimationCues) ? topPlan.unsupportedAnimationCues.length : 0;
@@ -652,6 +719,10 @@ function scoreFixture(fixture) {
     captionSafety === 1 &&
     falseVisualGoalRate === 0 &&
     framingSafety === 1 &&
+    cropSafetyScoreValue === 1 &&
+    actionSafeZoneCoverage >= 0.95 &&
+    textObstructionRisk === 0 &&
+    trackingConfidenceCalibration >= 0.9 &&
     animationCueValidity === 1 &&
     animationCueRelevance >= 0.95;
 
@@ -688,6 +759,11 @@ function scoreFixture(fixture) {
       actionWindowCoverage,
       shotToPayoffCoverage,
       ballPlayerVisibilityScore: ballPlayerVisibilityScoreValue,
+      cropSafetyScore: cropSafetyScoreValue,
+      actionSafeZoneCoverage,
+      textObstructionRisk,
+      wideSafeFallbackRate: wideSafeFallback,
+      trackingConfidenceCalibration,
       referenceStyleSimilarity,
       renderStylePresetValidity,
       unsupportedCueRate,
@@ -710,6 +786,7 @@ function scoreFixture(fixture) {
       stylePreset: fixture.expected.stylePreset,
       styleTarget: fixture.expected.styleTarget || "vertical_9_16",
       aspectRatio: expectedAspectRatio,
+      cropMode: fixture.expected.cropMode || fixture.expected.expectedCropMode || null,
     },
     actual: {
       topMoment: topMoment
@@ -758,6 +835,17 @@ function scoreFixture(fixture) {
         framingReason: plan.framingReason,
         actionFocusConfidence: plan.actionFocusConfidence,
         visualEvidenceSummary: plan.visualEvidenceSummary,
+        visualTrackingSummary: plan.visualTrackingSummary,
+        cropPlan: plan.cropPlan
+          ? {
+              mode: plan.cropPlan.mode,
+              confidence: plan.cropPlan.confidence,
+              fallbackUsed: plan.cropPlan.fallbackUsed,
+              reasonCodes: plan.cropPlan.reasonCodes,
+              textObstructionRisk: Boolean(plan.cropPlan.textObstructionRisk),
+              actionSafeZoneCount: Array.isArray(plan.cropPlan.actionSafeZones) ? plan.cropPlan.actionSafeZones.length : 0,
+            }
+          : null,
         actionSequenceSummary: plan.actionSequenceSummary || (
           plan.analysisMoment && plan.analysisMoment.actionSequenceSummary
         ) || null,
@@ -794,6 +882,10 @@ function scoreFixture(fixture) {
       captionSafety,
       falseVisualGoalRate,
       framingSafety,
+      cropSafetyScore: cropSafetyScoreValue,
+      actionSafeZoneCoverage,
+      textObstructionRisk,
+      trackingConfidenceCalibration,
       animationCueValidity,
       animationCueRelevance,
       fallbackUsed,
@@ -825,6 +917,10 @@ function debuggingNotes(metrics) {
   if (!metrics.captionSafety) notes.push("No-goal fixture received misleading goal language.");
   if (metrics.falseVisualGoalRate) notes.push("Visual signals created goal classification without explicit goal evidence.");
   if (!metrics.framingSafety) notes.push("Candidate edit plan is missing safe vertical framing metadata.");
+  if (!metrics.cropSafetyScore) notes.push("Crop plan is unsafe or missing confidence-gated fallback behavior.");
+  if (metrics.actionSafeZoneCoverage < 0.95) notes.push("Action bounds are not covered by the crop safe area.");
+  if (metrics.textObstructionRisk) notes.push("Caption safe zones may overlap the likely action area.");
+  if (metrics.trackingConfidenceCalibration < 0.9) notes.push("Tracking confidence does not match the selected crop mode.");
   if (!metrics.animationCueValidity) notes.push("Social edit animation cues are missing or invalid.");
   if (metrics.animationCueRelevance < 0.95) notes.push("Animation cues are not aligned with action/contact/payoff evidence.");
   if (metrics.fallbackUsed) notes.push("Analysis fell back to deterministic fallback moments.");
@@ -879,6 +975,11 @@ function aggregateResults(results) {
     actionWindowCoverage: avg((result) => result.metrics.actionWindowCoverage),
     shotToPayoffCoverage: avg((result) => result.metrics.shotToPayoffCoverage),
     ballPlayerVisibilityScore: avg((result) => result.metrics.ballPlayerVisibilityScore),
+    cropSafetyScore: avg((result) => result.metrics.cropSafetyScore),
+    actionSafeZoneCoverage: avg((result) => result.metrics.actionSafeZoneCoverage),
+    textObstructionRisk: avg((result) => result.metrics.textObstructionRisk),
+    wideSafeFallbackRate: avg((result) => result.metrics.wideSafeFallbackRate),
+    trackingConfidenceCalibration: avg((result) => result.metrics.trackingConfidenceCalibration),
     referenceStyleSimilarity: avg((result) => result.metrics.referenceStyleSimilarity),
     renderStylePresetValidity: avg((result) => result.metrics.renderStylePresetValidity),
     unsupportedCueRate: avg((result) => result.metrics.unsupportedCueRate),
@@ -989,6 +1090,10 @@ module.exports = {
   reactionAsSupportScore,
   weakEvidenceNeutralityScore,
   framingIsSafe,
+  cropSafetyScore,
+  actionSafeZoneCoverageScore,
+  textObstructionRiskValue,
+  trackingConfidenceCalibrationScore,
   loadFixtures,
   overlapRatio,
   planHasGoalLanguage,

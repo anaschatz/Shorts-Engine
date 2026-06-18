@@ -40,6 +40,12 @@ The runner is deterministic and does not require API keys or network access. It 
 - `fallbackUsageRate`: how often deterministic fallback was used.
 - `visualFallbackUsageRate`: how often visual analysis used the safe heuristic fallback.
 - `goalSequenceRecall`, `shotToPayoffCoverage` and `actionWindowCoverage`: whether goal/action clips include the shot/contact through payoff instead of only a reaction.
+- `ballPlayerVisibilityScore`: whether visual evidence keeps ball/player context in the selected moment.
+- `cropSafetyScore`: whether the selected crop plan is validated, bounded and confidence-gated.
+- `actionSafeZoneCoverage`: whether likely action bounds remain inside the crop safe area.
+- `textObstructionRisk`: whether caption safe zones overlap the likely action area.
+- `wideSafeFallbackRate`: how often crop calibration correctly falls back to full-frame/wide-safe output.
+- `trackingConfidenceCalibration`: whether crop mode matches tracking confidence and expected fixture behavior.
 - `animationCueRelevance`: whether punch, flash and freeze cues are backed by action/contact/payoff evidence.
 
 Reference review additionally reports:
@@ -72,9 +78,11 @@ Each fixture includes:
 - `transcript.captions`
 - `mediaSignals`
 - optional `visualSignals` with bounded windows and safe reason-code evidence
+- optional `visualTracking` with conservative action bounds, confidence and crop-mode expectations
 - `expected.highlights`
 - `expected.reasonCodes`
 - `expected.stylePreset`
+- optional `expected.cropMode` for `soft_follow`, `wide_safe`, `center_safe` or `locked_wide` crop behavior
 - `thresholds`
 
 Reference fixtures include:

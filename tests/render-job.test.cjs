@@ -292,6 +292,12 @@ test("render orchestration completes success path with mocked adapters", async (
   assert.equal(visualAnalysisLog.latencyMs, 5);
   assert.doesNotMatch(JSON.stringify(visualAnalysisLog), /\/Users|storageKey|localPath|secret/i);
   assert.equal(context.job.visualSignals.summary.goalClaimAllowed, false);
+  assert.equal(context.job.visualTracking.goalClaimAllowed, false);
+  assert.equal(typeof context.job.visualTracking.trackingConfidence, "number");
+  const visualTrackingLog = context.logs.find((entry) => entry.event === "visual_tracking_completed");
+  assert.equal(visualTrackingLog.recommendedFramingMode, "wide_safe");
+  assert.equal(typeof visualTrackingLog.trackingConfidence, "number");
+  assert.doesNotMatch(JSON.stringify(visualTrackingLog), /\/Users|storageKey|localPath|secret/i);
 });
 
 test("approved regeneration render uses the validated draft without rerunning AI analysis", async () => {

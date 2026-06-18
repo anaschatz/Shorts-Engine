@@ -1,5 +1,6 @@
 const { AppError, SAFE_MESSAGES } = require("./errors.cjs");
 const { sanitizeText } = require("./media.cjs");
+const { calibrateCropPlan, cropStrategyFromPlan, validateCropPlan } = require("./visual-tracking.cjs");
 
 const HOOKS = Object.freeze({
   hype: "Η ΦΑΣΗ ΠΟΥ ΑΝΕΒΑΣΕ ΤΗΝ ΕΝΤΑΣΗ",
@@ -544,6 +545,10 @@ function createCropStrategy(metadata = {}, framingMode = "wide_safe_vertical") {
   };
 }
 
+function defaultCropPlan(metadata = {}, aspectRatio = "9:16") {
+  return calibrateCropPlan({ metadata, targetAspectRatio: aspectRatio });
+}
+
 function normalizeVisualEvidenceSummary(value) {
   const summary = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   return {
@@ -646,6 +651,7 @@ function createEditPlan({ metadata, transcript, preset = "hype", title = "Shorts
     framingReason: "wide_safe_default_no_visual_tracking",
     actionFocusConfidence: 0,
     visualEvidenceSummary: normalizeVisualEvidenceSummary(null),
+    cropPlan: defaultCropPlan(metadata, "9:16"),
     cropStrategy: createCropStrategy(metadata, framingMode),
     stylePreset: normalizeStylePreset("social_sports_v1"),
     captionEmphasis: createCaptionEmphasis(captions, highlightType),
@@ -715,19 +721,36 @@ function validateEditPlan(plan, metadata = {}) {
   if (captions.some((caption) => caption.captionRiskFlags.includes("goal_language_without_evidence"))) {
     throw new AppError("VALIDATION_ERROR", "Caption uses goal language without goal evidence.", 400);
   }
-  const cropStrategy = plan.cropStrategy && typeof plan.cropStrategy === "object"
+  const hasExplicitCropPlan = plan.cropPlan && typeof plan.cropPlan === "object";
+  const cropPlan = validateCropPlan(
+    hasExplicitCropPlan
+      ? { ...plan.cropPlan, targetAspectRatio: plan.cropPlan.targetAspectRatio || aspectRatio }
+      : defaultCropPlan(metadata, aspectRatio),
+    metadata,
+  );
+  const derivedCropStrategy = cropStrategyFromPlan(cropPlan, metadata);
+  let cropStrategy = plan.cropStrategy && typeof plan.cropStrategy === "object"
     ? {
-        type: sanitizeText(plan.cropStrategy.type || "wide_safe_contain", 40),
+        type: sanitizeText(plan.cropStrategy.type || derivedCropStrategy.type, 40),
         x: clamp(plan.cropStrategy.x, 0, Number(metadata.width || 1920)),
         y: clamp(plan.cropStrategy.y, 0, Number(metadata.height || 1080)),
         width: clamp(plan.cropStrategy.width, 1, Number(metadata.width || plan.cropStrategy.width || 1920)),
         height: clamp(plan.cropStrategy.height, 1, Number(metadata.height || plan.cropStrategy.height || 1080)),
-        zoom: clamp(plan.cropStrategy.zoom || 1, 1, 1.08),
-        background: sanitizeText(plan.cropStrategy.background || "blurred_fill", 40),
+        zoom: clamp(plan.cropStrategy.zoom || derivedCropStrategy.zoom, 1, 1.08),
+        background: sanitizeText(plan.cropStrategy.background || derivedCropStrategy.background, 40),
         preserveFullFrame: Boolean(plan.cropStrategy.preserveFullFrame),
-        maxCropPercent: clamp(plan.cropStrategy.maxCropPercent || 0, 0, 0.35),
+        maxCropPercent: clamp(plan.cropStrategy.maxCropPercent || derivedCropStrategy.maxCropPercent, 0, 0.35),
       }
-    : createCropStrategy(metadata, framingMode);
+    : derivedCropStrategy;
+  if (cropPlan.mode === "soft_follow" && cropStrategy.preserveFullFrame) {
+    throw new AppError("VALIDATION_ERROR", "Soft-follow crop plan cannot preserve the full frame.", 400);
+  }
+  if (cropPlan.mode !== "soft_follow" && cropStrategy.preserveFullFrame !== true) {
+    if (hasExplicitCropPlan) {
+      throw new AppError("VALIDATION_ERROR", "Low-confidence crop plan must preserve the full frame.", 400);
+    }
+    cropStrategy = derivedCropStrategy;
+  }
   if (cropStrategy.x + cropStrategy.width > Number(metadata.width || cropStrategy.width) + 0.25) {
     throw new AppError("VALIDATION_ERROR", "Crop strategy exceeds media width.", 400);
   }
@@ -756,6 +779,7 @@ function validateEditPlan(plan, metadata = {}) {
     framingReason,
     actionFocusConfidence,
     visualEvidenceSummary,
+    cropPlan,
     cropStrategy,
     stylePreset,
     captionEmphasis,
@@ -789,6 +813,7 @@ module.exports = {
   createAnimationCues,
   createCaptionEmphasis,
   createCropStrategy,
+  defaultCropPlan,
   createEditPlan,
   captionIntentForHighlightType,
   framingModeForMetadata,
