@@ -217,6 +217,7 @@ function safeSmokeSummary(report) {
     ids: report.ids || {},
     health: report.health || null,
     jobLifecycle: Array.isArray(report.jobLifecycle) ? report.jobLifecycle : [],
+    renderPlan: report.renderPlan || null,
     export: report.export || null,
     generatedArtifact: report.generatedArtifact || null,
     failedCases: Array.isArray(report.failedCases) ? report.failedCases : [],

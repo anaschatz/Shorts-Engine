@@ -33,6 +33,8 @@ const SMOKE_NEXT_ACTIONS = {
   YOUTUBE_SMOKE_REQUEST_TIMEOUT: "check-server-readiness-or-increase-smoke-timeout",
   YOUTUBE_SMOKE_TIMEOUT: "check-server-and-smoke-timeout-before-rerun",
   YOUTUBE_SMOKE_JOB_TIMEOUT: "inspect-job-progress-and-increase-job-timeout-only-if-expected",
+  YOUTUBE_SMOKE_RENDER_PLAN_MISSING: "check-job-public-edit-plan-before-trusting-the-live-proof",
+  YOUTUBE_SMOKE_RENDER_PLAN_NOT_MULTI_MOMENT: "fix-multi-moment-selection-before-comparing-reference-style-shorts",
   YOUTUBE_SMOKE_DOWNLOAD_NOT_MP4: "check-render-export-download-contract",
   YOUTUBE_SMOKE_MP4_SIGNATURE_INVALID: "check-render-output-and-download-contract",
   YOUTUBE_SMOKE_REPORT_LEAK: "inspect-report-leak-guard-and-remove-sensitive-output",
@@ -373,6 +375,122 @@ function safeTimestamp(value) {
   return String(value || nowIso()).replace(/[:.]/g, "-").replace(/[^A-Za-z0-9TZ_-]/g, "-");
 }
 
+function sanitizeText(value, maxLength = 120) {
+  return String(value ?? "")
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
+function safeNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Number(number.toFixed(2)) : null;
+}
+
+function safeStringList(values, maxItems = 8, maxLength = 80) {
+  if (!Array.isArray(values)) return [];
+  return values
+    .map((value) => sanitizeText(value, maxLength))
+    .filter(Boolean)
+    .slice(0, maxItems);
+}
+
+function safeGoalOutcome(goalOutcome) {
+  if (!goalOutcome || typeof goalOutcome !== "object") return null;
+  return {
+    eventType: sanitizeText(goalOutcome.eventType || "none", 40),
+    outcome: sanitizeText(goalOutcome.outcome || "none", 40),
+    offsideStatus: sanitizeText(goalOutcome.offsideStatus || "none", 40),
+    safeCaptionBadge: sanitizeText(goalOutcome.safeCaptionBadge || "", 80) || null,
+  };
+}
+
+function safeRenderSegment(segment = {}, index = 0) {
+  return {
+    index: index + 1,
+    id: sanitizeText(segment.id || `segment_${index + 1}`, 64),
+    sourceStart: safeNumber(segment.sourceStart),
+    sourceEnd: safeNumber(segment.sourceEnd),
+    duration: safeNumber(segment.duration || Number(segment.sourceEnd) - Number(segment.sourceStart)),
+    timelineStart: safeNumber(segment.timelineStart),
+    timelineEnd: safeNumber(segment.timelineEnd),
+    highlightType: sanitizeText(segment.highlightType || "generic_highlight", 60),
+    goalOutcome: safeGoalOutcome(segment.goalOutcome),
+    reasonCodes: safeStringList(segment.reasonCodes, 10, 60),
+    whySelected: sanitizeText(segment.whySelected || "", 180) || null,
+    safetyFlags: safeStringList(segment.safetyFlags, 8, 80),
+  };
+}
+
+function safeRenderCaption(caption = {}, index = 0) {
+  return {
+    index: index + 1,
+    start: safeNumber(caption.start),
+    end: safeNumber(caption.end),
+    text: sanitizeText(caption.text || "", 120),
+    role: sanitizeText(caption.role || "caption", 60),
+    riskFlags: safeStringList(caption.captionRiskFlags, 6, 80),
+  };
+}
+
+function safeRenderPlanSummary(job) {
+  const plan = job && job.editPlan && typeof job.editPlan === "object" ? job.editPlan : null;
+  if (!plan) return null;
+  const segments = Array.isArray(plan.segments) ? plan.segments.map(safeRenderSegment).slice(0, 8) : [];
+  const captions = Array.isArray(plan.captions) ? plan.captions.map(safeRenderCaption).slice(0, 12) : [];
+  const animationCueTypes = safeStringList(
+    [...new Set((Array.isArray(plan.animationCues) ? plan.animationCues : []).map((cue) => cue && cue.type))],
+    12,
+    60,
+  );
+  const topCandidates = Array.isArray(job.candidatePlans)
+    ? job.candidatePlans.slice(0, 4).map((candidate, index) => ({
+        index: index + 1,
+        mode: sanitizeText(candidate.mode || "single_moment", 60),
+        highlightType: sanitizeText(candidate.highlightType || "generic_highlight", 60),
+        segmentCount: Array.isArray(candidate.segments) ? candidate.segments.length : 0,
+        totalDuration: safeNumber(candidate.totalDuration || Number(candidate.sourceEnd) - Number(candidate.sourceStart)),
+      }))
+    : [];
+  return {
+    mode: sanitizeText(plan.mode || (segments.length ? "multi_moment_compilation" : "single_moment"), 60),
+    highlightType: sanitizeText(plan.highlightType || "generic_highlight", 60),
+    sourceStart: safeNumber(plan.sourceStart),
+    sourceEnd: safeNumber(plan.sourceEnd),
+    totalDuration: safeNumber(plan.totalDuration || Number(plan.sourceEnd) - Number(plan.sourceStart)),
+    segmentCount: segments.length,
+    segments,
+    captionCount: Array.isArray(plan.captions) ? plan.captions.length : 0,
+    captions,
+    animationCueCount: Array.isArray(plan.animationCues) ? plan.animationCues.length : 0,
+    animationCueTypes,
+    framingMode: sanitizeText(plan.framingMode || "", 60) || null,
+    stylePreset: sanitizeText(plan.stylePreset || "", 60) || null,
+    styleTarget: sanitizeText(plan.styleTarget || "", 60) || null,
+    editIntensity: sanitizeText(plan.editIntensity || "", 60) || null,
+    cropPlanMode: sanitizeText(plan.cropPlan && plan.cropPlan.mode ? plan.cropPlan.mode : "", 60) || null,
+    candidateCount: Array.isArray(job.candidatePlans) ? job.candidatePlans.length : 0,
+    topCandidates,
+  };
+}
+
+function validateRenderPlanSummary(job, ingested) {
+  const summary = safeRenderPlanSummary(job);
+  if (!summary) {
+    throw new YouTubeSmokeError("YOUTUBE_SMOKE_RENDER_PLAN_MISSING", "YouTube smoke completed job is missing a public render plan summary.");
+  }
+  const sourceDuration = Number(ingested?.durationSeconds || 0);
+  if (sourceDuration >= 45 && (summary.mode !== "multi_moment_compilation" || summary.segmentCount < 2)) {
+    throw new YouTubeSmokeError(
+      "YOUTUBE_SMOKE_RENDER_PLAN_NOT_MULTI_MOMENT",
+      "Long YouTube smoke sources must render as a multi-moment compilation.",
+      { nextAction: nextActionForCode("YOUTUBE_SMOKE_RENDER_PLAN_NOT_MULTI_MOMENT") },
+    );
+  }
+  return summary;
+}
+
 function safeDownloadArtifactRef(candidate) {
   const text = String(candidate || "").trim().replace(/\\/g, "/");
   if (
@@ -533,7 +651,7 @@ function safeReport(report) {
   };
 }
 
-function buildBaseReport({ status, started, source = null, target = null, checks = [], steps = [], ids = {}, health = null, lifecycle = [], download = null, generatedArtifact = null, failedCases = [] }) {
+function buildBaseReport({ status, started, source = null, target = null, checks = [], steps = [], ids = {}, health = null, lifecycle = [], download = null, generatedArtifact = null, renderPlan = null, failedCases = [] }) {
   return safeReport({
     timestamp: nowIso(),
     status,
@@ -545,6 +663,7 @@ function buildBaseReport({ status, started, source = null, target = null, checks
     ids,
     health,
     jobLifecycle: lifecycle,
+    renderPlan,
     export: download,
     generatedArtifact,
     failedCases,
@@ -565,6 +684,7 @@ async function runYouTubeSmoke(options = {}) {
   let lifecycle = [];
   let downloadSummary = null;
   let generatedArtifact = null;
+  let renderPlan = null;
   let ingested = null;
 
   if (!boolFromEnv(rawValue(env, YOUTUBE_SMOKE_FLAG))) {
@@ -646,7 +766,14 @@ async function runYouTubeSmoke(options = {}) {
     }
     const completed = validateCompletedJob(polled.job);
     ids.exportId = completed.exportId;
-    addStep(steps, "job", "passed", { jobId: ids.jobId, exportId: ids.exportId });
+    renderPlan = validateRenderPlanSummary(polled.job, ingested);
+    addStep(steps, "job", "passed", {
+      jobId: ids.jobId,
+      exportId: ids.exportId,
+      renderMode: renderPlan.mode,
+      segmentCount: renderPlan.segmentCount,
+      totalDuration: renderPlan.totalDuration,
+    });
 
     const download = await fetchDownload(fetchImpl, endpointUrl(baseUrl, `/api/exports/${ids.exportId}/download`), {
       maxBytes: downloadMaxBytes,
@@ -672,6 +799,7 @@ async function runYouTubeSmoke(options = {}) {
       ["youtube_ingest_created_project", Boolean(ids.projectId)],
       ["youtube_ingest_created_upload", Boolean(ids.uploadId)],
       ["youtube_render_created_export", Boolean(ids.exportId)],
+      ["youtube_render_plan_public_summary", Boolean(renderPlan)],
       ["youtube_download_mp4_signature_valid", Boolean(downloadSummary)],
     ]) {
       addCheck(checks, name, passed);
@@ -683,7 +811,7 @@ async function runYouTubeSmoke(options = {}) {
   }
 
   const status = failedCases.length ? "failed" : "passed";
-  return buildBaseReport({ status, started, source, target, checks, steps, ids, health, lifecycle, download: downloadSummary, generatedArtifact, failedCases });
+  return buildBaseReport({ status, started, source, target, checks, steps, ids, health, lifecycle, download: downloadSummary, generatedArtifact, renderPlan, failedCases });
 }
 
 function relativeFromRoot(fileName) {

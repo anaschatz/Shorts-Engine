@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -50,6 +50,34 @@ function mp4Response() {
       "x-request-id": "req_download",
     },
   });
+}
+
+function completedJobEditPlan(overrides = {}) {
+  return {
+    mode: "single_moment",
+    sourceStart: 0,
+    sourceEnd: 12,
+    totalDuration: 12,
+    aspectRatio: "9:16",
+    highlightType: "big_chance",
+    confidence: 0.86,
+    hook: "THE CHANCE OPENS",
+    captions: [
+      { start: 0.2, end: 2.2, text: "THE CHANCE OPENS", role: "opening_hook", captionRiskFlags: [] },
+      { start: 8.8, end: 11.6, text: "WATCH THE REPLAY", role: "closing_punch", captionRiskFlags: [] },
+    ],
+    animationCues: [
+      { type: "intro_hook", start: 0, end: 1.2 },
+      { type: "beat_cut", start: 7.8, end: 8.1 },
+    ],
+    framingMode: "wide_safe_vertical",
+    stylePreset: "punchy_highlight",
+    styleTarget: "vertical_9_16",
+    editIntensity: "punchy",
+    cropPlan: { mode: "wide_safe", fallbackUsed: true },
+    reasonCodes: ["big_chance", "visual_shot_like_motion"],
+    ...overrides,
+  };
 }
 
 function createFetchMock(overrides = {}) {
@@ -141,6 +169,8 @@ function createFetchMock(overrides = {}) {
             progress: 100,
             step: "completed",
             exportId: "exp_12345678",
+            editPlan: completedJobEditPlan(),
+            candidatePlans: [completedJobEditPlan({ candidateId: "candidate_primary" })],
           },
         },
       }, 200, "req_job");
@@ -291,6 +321,10 @@ test("youtube smoke successful mocked flow validates ingest generate job and dow
   assert.equal(report.ids.exportId, "exp_12345678");
   assert.equal(report.export.contentType, "video/mp4");
   assert.equal(report.export.sizeBytes > 0, true);
+  assert.equal(report.renderPlan.mode, "single_moment");
+  assert.equal(report.renderPlan.totalDuration, 12);
+  assert.equal(report.renderPlan.captionCount, 2);
+  assert.equal(report.renderPlan.animationCueTypes.includes("beat_cut"), true);
   assert.equal(report.steps.every((step) => !Object.hasOwn(step, "requestId")), true);
   assert.equal(report.steps.every((step) => step.status !== "passed" || step.requestIdPresent === true || step.step === "job"), true);
   assert.deepEqual(calls.map((call) => call.key), [
@@ -305,25 +339,57 @@ test("youtube smoke successful mocked flow validates ingest generate job and dow
   assert.equal(findSensitiveLeak(report), null);
 });
 
+test("youtube smoke fails closed when a long source does not expose a multi-moment render plan", async () => {
+  const { fetchImpl } = createFetchMock({
+    "POST /api/youtube/ingest": () => jsonResponse({
+      ok: true,
+      data: {
+        project: { id: "prj_12345678", status: "draft" },
+        upload: {
+          id: "upl_12345678",
+          projectId: "prj_12345678",
+          metadata: { durationSeconds: 120, width: 1280, height: 720 },
+          artifact: { id: "upl_12345678", type: "upload", status: "available", size: 1024 },
+        },
+        source: {
+          sourceType: "youtube",
+          kind: "watch",
+          videoId: VIDEO_ID,
+          durationSeconds: 120,
+        },
+      },
+    }, 201, "req_ingest"),
+  });
+  const report = await runYouTubeSmoke({ env: smokeEnv(), fetchImpl });
+  assert.equal(report.status, "failed");
+  assert.equal(report.failedCases[0].code, "YOUTUBE_SMOKE_RENDER_PLAN_NOT_MULTI_MOMENT");
+  assert.equal(report.renderPlan, null);
+  assert.equal(findSensitiveLeak(report), null);
+});
+
 test("youtube smoke can save a verified generated artifact under manual-downloads", async () => {
   const artifactRef = savedArtifactRef();
   const { fetchImpl } = createFetchMock();
-  const report = await runYouTubeSmoke({
-    env: smokeEnv({
-      SHORTSENGINE_YOUTUBE_SMOKE_SAVE_DOWNLOAD: "1",
-      SHORTSENGINE_YOUTUBE_SMOKE_DOWNLOAD_ARTIFACT: artifactRef,
-    }),
-    fetchImpl,
-  });
-  assert.equal(report.status, "passed");
-  assert.equal(report.generatedArtifact.relativePath, artifactRef);
-  assert.equal(report.generatedArtifact.downloadVerified, true);
-  assert.equal(report.generatedArtifact.projectId, "prj_12345678");
-  assert.equal(report.generatedArtifact.jobId, "job_12345678");
-  assert.equal(report.generatedArtifact.exportId, "exp_12345678");
-  assert.equal(report.generatedArtifact.durationSeconds, 12);
-  assert.equal(existsSync(artifactRef), true);
-  assert.equal(findSensitiveLeak(report), null);
+  try {
+    const report = await runYouTubeSmoke({
+      env: smokeEnv({
+        SHORTSENGINE_YOUTUBE_SMOKE_SAVE_DOWNLOAD: "1",
+        SHORTSENGINE_YOUTUBE_SMOKE_DOWNLOAD_ARTIFACT: artifactRef,
+      }),
+      fetchImpl,
+    });
+    assert.equal(report.status, "passed");
+    assert.equal(report.generatedArtifact.relativePath, artifactRef);
+    assert.equal(report.generatedArtifact.downloadVerified, true);
+    assert.equal(report.generatedArtifact.projectId, "prj_12345678");
+    assert.equal(report.generatedArtifact.jobId, "job_12345678");
+    assert.equal(report.generatedArtifact.exportId, "exp_12345678");
+    assert.equal(report.generatedArtifact.durationSeconds, 12);
+    assert.equal(existsSync(artifactRef), true);
+    assert.equal(findSensitiveLeak(report), null);
+  } finally {
+    rmSync(artifactRef, { force: true });
+  }
 });
 
 test("youtube smoke artifact refs fail closed outside manual-downloads", () => {
@@ -522,6 +588,29 @@ function passedSmokeReport() {
     jobLifecycle: [
       { id: "job_12345678", status: "completed", progress: 100, exportId: "exp_12345678" },
     ],
+    renderPlan: {
+      mode: "single_moment",
+      highlightType: "big_chance",
+      sourceStart: 0,
+      sourceEnd: 12,
+      totalDuration: 12,
+      segmentCount: 0,
+      segments: [],
+      captionCount: 2,
+      captions: [
+        { index: 1, start: 0.2, end: 2.2, text: "THE CHANCE OPENS", role: "opening_hook", riskFlags: [] },
+        { index: 2, start: 8.8, end: 11.6, text: "WATCH THE REPLAY", role: "closing_punch", riskFlags: [] },
+      ],
+      animationCueCount: 2,
+      animationCueTypes: ["intro_hook", "beat_cut"],
+      framingMode: "wide_safe_vertical",
+      stylePreset: "punchy_highlight",
+      styleTarget: "vertical_9_16",
+      editIntensity: "punchy",
+      cropPlanMode: "wide_safe",
+      candidateCount: 1,
+      topCandidates: [{ index: 1, mode: "single_moment", highlightType: "big_chance", segmentCount: 0, totalDuration: 12 }],
+    },
     export: { status: 200, contentType: "video/mp4", sizeBytes: 140, sha256Prefix: "abc123" },
     generatedArtifact: {
       type: "rendered_video",
@@ -916,6 +1005,7 @@ test("youtube live local e2e mocked success wraps smoke proof without raw URL le
   assert.equal(report.triage.preflight.manualUnlistedGate, true);
   assert.equal(report.smoke.ids.projectId, "prj_12345678");
   assert.equal(report.smoke.export.contentType, "video/mp4");
+  assert.equal(report.smoke.renderPlan.mode, "single_moment");
   assert.equal(report.generatedArtifact.relativePath, "manual-downloads/shortsengine-youtube-dQw4w9WgXcQ-test.mp4");
   assert.equal(report.generatedArtifact.downloadVerified, true);
   assert.deepEqual(report.steps.map((step) => step.step), ["env", "doctor", "server", "server-ready", "smoke"]);

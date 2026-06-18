@@ -1708,8 +1708,8 @@ const MULTI_MOMENT_COMPILATION = Object.freeze({
   minSourceDuration: 45,
   minSegments: 3,
   maxSegments: 7,
-  minTotalDuration: 35,
-  maxTotalDuration: 60,
+  minTotalDuration: 45,
+  maxTotalDuration: 90,
 });
 
 const PRIMARY_MULTI_MOMENT_TYPES = Object.freeze([
@@ -1726,6 +1726,40 @@ const PRIMARY_MULTI_MOMENT_TYPES = Object.freeze([
   "replay_worthy_moment",
 ]);
 
+const STRONG_MULTI_MOMENT_ACTION_TYPES = Object.freeze([
+  "goal",
+  "big_chance",
+  "shot_on_target",
+  "near_miss",
+  "save",
+  "hard_foul",
+  "foul",
+  "card_moment",
+  "counter_attack",
+  "skill_move",
+]);
+
+const STRONG_MULTI_MOMENT_ACTION_REASONS = Object.freeze([
+  "goal",
+  "big_chance",
+  "shot_on_target",
+  "near_miss",
+  "save",
+  "hard_foul",
+  "foul",
+  "card_moment",
+  "counter_attack",
+  "skill_move",
+  "visual_shot_like_motion",
+  "visual_shot_contact",
+  "visual_ball_toward_goal",
+  "visual_save_like_motion",
+  "visual_keeper_action",
+  "visual_ball_in_net",
+  "visual_foul_like_contact",
+  "visual_fast_break",
+]);
+
 function momentSuppressedCues(moment = {}) {
   return moment.rankingExplanation && Array.isArray(moment.rankingExplanation.suppressedCues)
     ? moment.rankingExplanation.suppressedCues
@@ -1738,6 +1772,28 @@ function hasPrimaryMomentAction(moment = {}) {
   const reasonSet = new Set(reasonCodes);
   return PRIMARY_MULTI_MOMENT_TYPES.includes(highlightType) ||
     PRIMARY_ACTION_REASONS.some((reason) => reasonSet.has(reason));
+}
+
+function hasStrongCompilationAction(candidate = {}) {
+  const moment = candidate.analysisMoment || {};
+  const highlightType = sanitizeText(candidate.highlightType || moment.highlightType || "", 40);
+  if (STRONG_MULTI_MOMENT_ACTION_TYPES.includes(highlightType)) return true;
+  const reasonCodes = Array.isArray(candidate.reasonCodes)
+    ? candidate.reasonCodes
+    : Array.isArray(moment.reasonCodes)
+      ? moment.reasonCodes
+      : [];
+  const reasonSet = new Set(reasonCodes);
+  return STRONG_MULTI_MOMENT_ACTION_REASONS.some((reason) => reasonSet.has(reason));
+}
+
+function isWeakOpeningCompilationCandidate(candidate = {}, metadata = {}) {
+  const mediaDuration = Number(metadata.durationSeconds || 0);
+  if (mediaDuration < 90) return false;
+  const sourceStart = Number(candidate.sourceStart || 0);
+  const openingCutoff = 16;
+  if (sourceStart >= openingCutoff) return false;
+  return !hasStrongCompilationAction(candidate);
 }
 
 function isOpeningFillerMoment(moment = {}) {
@@ -1772,6 +1828,28 @@ function sourceOverlapRatio(a = {}, b = {}) {
     Number(b.sourceEnd || 0) - Number(b.sourceStart || 0),
   ));
   return overlap / duration;
+}
+
+function sourceOverlapSeconds(a = {}, b = {}) {
+  const left = Math.max(Number(a.sourceStart || 0), Number(b.sourceStart || 0));
+  const right = Math.min(Number(a.sourceEnd || 0), Number(b.sourceEnd || 0));
+  return Math.max(0, right - left);
+}
+
+function isReplayCandidate(candidate = {}) {
+  const reasonCodes = Array.isArray(candidate.reasonCodes) ? candidate.reasonCodes : [];
+  return candidate.highlightType === "replay_worthy_moment" ||
+    reasonCodes.includes("visual_replay_indicator") ||
+    reasonCodes.includes("replay_worthy_moment");
+}
+
+function hasUnsafeCompilationOverlap(existing = {}, candidate = {}) {
+  const overlap = sourceOverlapSeconds(existing, candidate);
+  if (overlap <= 0.05) return false;
+  if (isReplayCandidate(existing) || isReplayCandidate(candidate)) {
+    return sourceOverlapRatio(existing, candidate) > 0.35;
+  }
+  return true;
 }
 
 function uniqueReasonCodes(candidates = []) {
@@ -1923,10 +2001,10 @@ function selectCompilationCandidates(singleCandidates = [], metadata = {}) {
   const selected = [];
   let totalDuration = 0;
   const ranked = singleCandidates
-    .filter((candidate) => candidate && !isOpeningFillerMoment(candidate.analysisMoment))
+    .filter((candidate) => candidate && !isOpeningFillerMoment(candidate.analysisMoment) && !isWeakOpeningCompilationCandidate(candidate, metadata))
     .sort((a, b) => compilationSelectionScore(b) - compilationSelectionScore(a) || a.sourceStart - b.sourceStart);
   for (const candidate of ranked) {
-    if (selected.some((existing) => sourceOverlapRatio(existing, candidate) > 0.35)) continue;
+    if (selected.some((existing) => hasUnsafeCompilationOverlap(existing, candidate))) continue;
     const duration = Number((candidate.sourceEnd - candidate.sourceStart).toFixed(2));
     if (duration < 3) continue;
     if (totalDuration + duration > MULTI_MOMENT_COMPILATION.maxTotalDuration) {
@@ -2156,7 +2234,7 @@ function createCandidateEditPlans({
   captionProvider = null,
 } = {}) {
   const renderStylePreset = normalizeStylePreset(stylePreset);
-  const singleCandidates = (Array.isArray(moments) ? moments : []).slice(0, 7).map((moment) => {
+  const singleCandidates = (Array.isArray(moments) ? moments : []).slice(0, 10).map((moment) => {
     const visualEvidenceSummary = visualEvidenceSummaryForMoment(moment);
     const visualTrackingSummary = publicVisualTrackingSummary(visualTracking || null, metadata);
     const actionSequenceSummary = actionSequenceSummaryForMoment(moment);

@@ -827,8 +827,8 @@ test("long football sources produce a chronological multi-moment compilation wit
   const plan = validateEditPlan(plans[0], longMetadata);
   assert.equal(plan.mode, "multi_moment_compilation");
   assert.ok(plan.segments.length >= 3);
-  assert.ok(plan.totalDuration >= 35);
-  assert.ok(plan.totalDuration <= 60);
+  assert.ok(plan.totalDuration >= 45);
+  assert.ok(plan.totalDuration <= 90);
   assert.deepEqual(
     plan.segments.map((segment) => segment.sourceStart),
     [...plan.segments.map((segment) => segment.sourceStart)].sort((a, b) => a - b),

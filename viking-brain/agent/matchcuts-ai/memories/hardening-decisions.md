@@ -24,6 +24,8 @@
 - Numeric runtime config must use bounded validation helpers so deployment mistakes fail closed instead of producing `NaN` behavior.
 - Artifact index paths must be validated against the artifact type storage area before persistence.
 - Report safety and server log redaction must treat URL query credentials, including OAuth tokens, external `token` params and S3/GCS signed URL credentials, as sensitive by default.
+- Live YouTube proof must include a safe render plan summary and fail closed for long sources that do not produce multi-moment plans.
+- Long-source football compilations should skip weak opening windows without strong football action evidence, preserve non-overlap validation, and allow multi-moment renders up to 90 seconds while single moments stay capped at 60 seconds.
 - Branch protection/ruleset verification is release evidence only: read GitHub metadata when available, write safe `unknown` proof when hidden, and never mutate repository settings automatically.
 - GitHub Ruleset setup is a manual operator action documented by `branch:setup`; the app can verify evidence after setup but must not mutate GitHub policy.
 - Staging smoke URLs must reject credentialed, localhost, private and link-local targets by default; explicit local mode is only for developer validation.

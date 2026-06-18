@@ -11,7 +11,10 @@ Steps:
 5. Detect highlights and rank moments.
 6. Generate edit plan.
 7. Validate AI output.
-8. Render preview.
-9. Export final formats.
+8. For live YouTube proofs, verify the public render plan summary before trusting the MP4 artifact.
+9. Render preview.
+10. Export final formats.
 
 Every step needs schema validation, timeout, retry, idempotency, and traceable artifacts.
+
+For long football sources, default to multi-moment compilation when enough safe post-intro phases exist. The proof/report must show segment timestamps, captions, animation cues, framing mode and artifact hash so stale videos cannot be mistaken for new output.

@@ -101,7 +101,7 @@ const MULTI_MOMENT_LIMITS = Object.freeze({
   maxSegments: 7,
   minSegmentDuration: 3,
   maxSegmentDuration: 22,
-  maxTotalDuration: 60,
+  maxTotalDuration: 90,
 });
 const VISUAL_EVIDENCE_TYPES = Object.freeze([
   "ball_visible",
@@ -968,7 +968,7 @@ function normalizeSegments(segments, metadata = {}) {
   });
   const totalDuration = Number(cursor.toFixed(2));
   if (totalDuration > MULTI_MOMENT_LIMITS.maxTotalDuration) {
-    throw new AppError("VALIDATION_ERROR", "Multi-moment edit plan cannot exceed 60 seconds.", 400);
+    throw new AppError("VALIDATION_ERROR", "Multi-moment edit plan cannot exceed 90 seconds.", 400);
   }
   return withTimeline;
 }
