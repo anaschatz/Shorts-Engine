@@ -40,7 +40,8 @@
       { "role": "closing_punch", "terms": ["watch"] }
     ],
     "forbiddenClaims": ["goal", "scored", "γκολ"],
-    "requiredAnimationCues": ["intro_hook", "kinetic_caption", "beat_cut", "punch_zoom", "impact_flash", "end_replay_prompt"],
+    "requiredAnimationCues": ["intro_hook", "kinetic_caption", "beat_cut", "end_replay_prompt"],
+    "disallowedAnimationCues": ["punch_zoom", "impact_flash", "freeze_frame"],
     "aspectRatio": "9:16",
     "stylePreset": "punchy_highlight",
     "safeFraming": { "preserveFullFrame": true },

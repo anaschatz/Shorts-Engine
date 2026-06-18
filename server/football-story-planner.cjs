@@ -611,45 +611,87 @@ function captionGenerationForStory({
   }, { provider });
 }
 
+const ACTION_ANIMATION_HIGHLIGHT_TYPES = Object.freeze([
+  "goal",
+  "shot_on_target",
+  "near_miss",
+  "big_chance",
+  "save",
+  "foul",
+  "hard_foul",
+  "counter_attack",
+  "skill_move",
+]);
+
+const ACTION_ANIMATION_REASON_CODES = Object.freeze([
+  "big_chance",
+  "shot_on_target",
+  "save",
+  "foul",
+  "hard_foul",
+  "counter_attack",
+  "skill_move",
+  "visual_shot_like_motion",
+  "visual_shot_contact",
+  "visual_ball_toward_goal",
+  "visual_save_like_motion",
+  "visual_keeper_action",
+  "visual_foul_like_contact",
+  "visual_fast_break",
+]);
+
+const IMPACT_ANIMATION_REASON_CODES = Object.freeze([
+  "goal",
+  "save",
+  "foul",
+  "hard_foul",
+  "visual_shot_contact",
+  "visual_ball_in_net",
+  "visual_save_like_motion",
+  "visual_keeper_action",
+  "visual_foul_like_contact",
+]);
+
+function hasAnimationEvidence(reasonCodes = [], allowed = []) {
+  const reasonSet = new Set(Array.isArray(reasonCodes) ? reasonCodes : []);
+  return allowed.some((reason) => reasonSet.has(reason));
+}
+
 function animationCuesForStory({ duration, highlightType, reasonCodes = [], editIntensity }) {
   const safeDuration = Math.max(1, Number(duration) || 1);
   const intensity = normalizeEditIntensity(editIntensity);
+  const hasActionEvidence = ACTION_ANIMATION_HIGHLIGHT_TYPES.includes(highlightType) ||
+    hasAnimationEvidence(reasonCodes, ACTION_ANIMATION_REASON_CODES);
+  const hasImpactEvidence = ["goal", "save", "foul", "hard_foul"].includes(highlightType) ||
+    hasAnimationEvidence(reasonCodes, IMPACT_ANIMATION_REASON_CODES);
+  const hasReplayEvidence = reasonCodes.includes("visual_replay_indicator") ||
+    ["replay_or_reaction", "replay_worthy_moment"].includes(highlightType);
   const cues = [
     { type: "intro_hook", start: 0, end: Math.min(1.2, safeDuration) },
     { type: "kinetic_caption", start: 0.1, end: Math.min(2.1, safeDuration) },
-    { type: "subtle_camera_push", start: Math.min(1.3, safeDuration - 0.2), end: Math.min(3.2, safeDuration) },
   ];
+  if (hasActionEvidence || hasReplayEvidence) {
+    cues.push({ type: "subtle_camera_push", start: Math.min(1.3, safeDuration - 0.2), end: Math.min(3.2, safeDuration) });
+  }
   if (intensity !== "clean") {
     cues.push({ type: "beat_cut", start: Math.min(2.6, safeDuration - 0.2), end: Math.min(2.95, safeDuration) });
   }
-  if (
-    intensity === "punchy" &&
-    [
-      "big_chance",
-      "goal",
-      "shot_on_target",
-      "near_miss",
-      "save",
-      "foul",
-      "hard_foul",
-      "counter_attack",
-      "crowd_reaction",
-      "commentator_peak",
-      "audio_energy_spike",
-    ].includes(highlightType)
-  ) {
+  if (intensity === "punchy" && hasActionEvidence) {
     cues.push({ type: "punch_zoom", start: Math.min(3.1, safeDuration - 0.2), end: Math.min(4.2, safeDuration) });
   }
-  if (intensity === "punchy" && ["goal", "foul", "hard_foul", "save", "big_chance", "crowd_reaction", "commentator_peak"].includes(highlightType)) {
+  if (intensity === "punchy" && hasImpactEvidence) {
     cues.push({ type: "impact_flash", start: Math.min(4.25, safeDuration - 0.1), end: Math.min(4.38, safeDuration) });
   }
-  if (reasonCodes.includes("visual_replay_indicator") || ["replay_or_reaction", "replay_worthy_moment"].includes(highlightType)) {
+  if (intensity === "punchy" && hasImpactEvidence) {
+    cues.push({ type: "freeze_frame", start: Math.min(4.4, safeDuration - 0.2), end: Math.min(4.95, safeDuration) });
+  }
+  if (hasReplayEvidence) {
     cues.push({ type: "replay_stutter", start: Math.max(0, safeDuration - 2.2), end: Math.max(0.4, safeDuration - 1.2) });
   }
   cues.push({ type: "end_replay_prompt", start: Math.max(0, safeDuration - 1.25), end: safeDuration });
   return cues
     .filter((cue) => cue.end > cue.start)
-    .slice(0, intensity === "punchy" ? 7 : 5)
+    .slice(0, intensity === "punchy" ? 8 : 5)
     .map((cue) => ({
       type: cue.type,
       start: Number(cue.start.toFixed(2)),
@@ -728,6 +770,7 @@ function createFootballStoryPlan(input = {}) {
       originalEnd: Number(Number(selectedMoment.end || 0).toFixed(2)),
       highlightType,
       reasonCodes,
+      actionSequenceSummary: input.actionSequenceSummary || null,
     },
     supportingMoments: (Array.isArray(input.moments) ? input.moments : [])
       .filter((moment) => moment && moment.id !== selectedMoment.id)
@@ -748,8 +791,9 @@ function createFootballStoryPlan(input = {}) {
     animationIntent: {
       intensity: editIntensity,
       cueTypes: animationCues.map((cue) => cue.type),
-      maxCueCount: editIntensity === "punchy" ? 7 : 5,
+      maxCueCount: editIntensity === "punchy" ? 8 : 5,
       excessiveFlashingGuard: true,
+      evidenceAlignedOnly: true,
     },
     animationCues,
     aspectRatio,

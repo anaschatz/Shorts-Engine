@@ -680,6 +680,7 @@ function rankingExplanationForMoment({ reasons = [], score = 0, source = "analys
   const suppressedCues = [];
   const rejectedClaims = [];
   const actionStrength = actionEvidenceStrength(reasons);
+  const actionSequence = actionSequenceForReasons(reasons, goalEvidence || {});
   if (!actionCues.length && reactionCues.length) {
     suppressedCues.push("reaction_context_without_visible_action");
   }
@@ -696,6 +697,7 @@ function rankingExplanationForMoment({ reasons = [], score = 0, source = "analys
     rankingVersion: 3,
     score: Number(clamp(score, 0, 1).toFixed(2)),
     actionEvidenceStrength: actionStrength,
+    actionSequence,
     goalEvidence: goalEvidence || null,
     boostCues: actionCues,
     supportingCues,
@@ -791,6 +793,71 @@ function visualEvidenceForCenter(visualSignals, center) {
   };
 }
 
+function reasonSetHasAny(reasonSet, values = []) {
+  return values.some((reason) => reasonSet.has(reason));
+}
+
+function actionSequenceForReasons(reasons = [], goalEvidence = {}) {
+  const reasonSet = new Set(Array.isArray(reasons) ? reasons : []);
+  const buildUp = reasonSetHasAny(reasonSet, [
+    "big_chance",
+    "counter_attack",
+    "skill_move",
+    "visual_fast_break",
+    "visual_ball_visible",
+  ]);
+  const shotOrContact = reasonSetHasAny(reasonSet, [
+    "shot_on_target",
+    "hard_foul",
+    "foul",
+    "save",
+    "visual_shot_like_motion",
+    "visual_shot_contact",
+    "visual_save_like_motion",
+    "visual_foul_like_contact",
+  ]);
+  const ballTrajectory = reasonSetHasAny(reasonSet, [
+    "visual_ball_toward_goal",
+    "visual_ball_visible",
+  ]);
+  const goalmouthOrKeeper = reasonSetHasAny(reasonSet, [
+    "visual_goal_area",
+    "visual_goal_mouth",
+    "visual_keeper_action",
+    "visual_save_like_motion",
+  ]);
+  const payoff = reasonSetHasAny(reasonSet, [
+    "goal",
+    "save",
+    "visual_ball_in_net",
+    "visual_celebration_after_shot",
+    "visual_keeper_action",
+    "visual_save_like_motion",
+  ]);
+  const reactionSupport = reasonSetHasAny(reasonSet, REACTION_CONTEXT_REASONS);
+  const replaySupport = reasonSetHasAny(reasonSet, [
+    "replay_or_reaction",
+    "replay_worthy_moment",
+    "visual_replay_indicator",
+  ]);
+  const actionStageCount = [buildUp, shotOrContact, ballTrajectory, goalmouthOrKeeper, payoff].filter(Boolean).length;
+  const reactionOnly = reactionSupport && actionStageCount === 0 && !replaySupport;
+  return {
+    buildUp,
+    shotOrContact,
+    ballTrajectory,
+    goalmouthOrKeeper,
+    payoff,
+    reactionSupport,
+    replaySupport,
+    reactionOnly,
+    actionStageCount,
+    primaryEvidence: reactionOnly ? "reaction_support" : actionStageCount > 0 ? "action_sequence" : replaySupport ? "replay_context" : "weak_context",
+    goalEvidenceLevel: sanitizeText(goalEvidence && goalEvidence.evidenceLevel || "none", 24),
+    goalClaimAllowed: Boolean(goalEvidence && goalEvidence.goalClaimAllowed),
+  };
+}
+
 function evidenceForReasons(reasons = [], caption = null, signals = {}, center = null, visualSignals = null, range = {}) {
   const reasonSet = new Set(reasons);
   const nearbyAudio = center == null ? [] : nearby(signals.audioPeaks, center, 4);
@@ -802,8 +869,10 @@ function evidenceForReasons(reasons = [], caption = null, signals = {}, center =
     end: range.end,
     visualSignals,
   });
+  const actionSequence = actionSequenceForReasons(reasons, goalEvidence);
   return {
     goalEvidence,
+    actionSequence,
     goalClaimAllowed: reasonSet.has("goal") && goalEvidence.goalClaimAllowed,
     captionEvidence: caption ? sanitizeText(caption.text, 160) : null,
     audioPeakCount: nearbyAudio.length,
@@ -1240,6 +1309,27 @@ function visualEvidenceSummaryForMoment(moment) {
   };
 }
 
+function actionSequenceSummaryForMoment(moment) {
+  const sequence = moment && moment.evidence && moment.evidence.actionSequence;
+  if (!sequence || typeof sequence !== "object" || Array.isArray(sequence)) {
+    return actionSequenceForReasons(moment && moment.reasonCodes || [], moment && moment.evidence && moment.evidence.goalEvidence || {});
+  }
+  return {
+    buildUp: Boolean(sequence.buildUp),
+    shotOrContact: Boolean(sequence.shotOrContact),
+    ballTrajectory: Boolean(sequence.ballTrajectory),
+    goalmouthOrKeeper: Boolean(sequence.goalmouthOrKeeper),
+    payoff: Boolean(sequence.payoff),
+    reactionSupport: Boolean(sequence.reactionSupport),
+    replaySupport: Boolean(sequence.replaySupport),
+    reactionOnly: Boolean(sequence.reactionOnly),
+    actionStageCount: Math.max(0, Math.min(5, Math.round(Number(sequence.actionStageCount || 0)))),
+    primaryEvidence: sanitizeText(sequence.primaryEvidence || "weak_context", 40),
+    goalEvidenceLevel: sanitizeText(sequence.goalEvidenceLevel || "none", 24),
+    goalClaimAllowed: Boolean(sequence.goalClaimAllowed),
+  };
+}
+
 function framingReasonForVisualSummary(summary) {
   if (!summary || !summary.windowCount) return "wide_safe_default_no_visual_tracking";
   if (summary.actionFocusConfidence < 0.82) return "wide_safe_visual_context_low_confidence";
@@ -1281,6 +1371,7 @@ function reviewMetadataForPlan(plan, moment, mediaSignals = {}) {
     },
     framingMode: plan.framingMode,
     visualEvidenceSummary: plan.visualEvidenceSummary || null,
+    actionSequenceSummary: plan.actionSequenceSummary || actionSequenceSummaryForMoment(moment),
     audioEvidenceSummary: audioEvidenceSummaryForMoment(moment, mediaSignals),
     captionGeneration: plan.footballStoryPlan && plan.footballStoryPlan.captionGeneration
       ? plan.footballStoryPlan.captionGeneration
@@ -1305,6 +1396,7 @@ function createCandidateEditPlans({
   const renderStylePreset = normalizeStylePreset(stylePreset);
   const candidates = (Array.isArray(moments) ? moments : []).slice(0, 3).map((moment) => {
     const visualEvidenceSummary = visualEvidenceSummaryForMoment(moment);
+    const actionSequenceSummary = actionSequenceSummaryForMoment(moment);
     const storyPlan = createFootballStoryPlan({
       title,
       language: language || (transcript && transcript.language) || "auto",
@@ -1315,6 +1407,7 @@ function createCandidateEditPlans({
       moments,
       selectedMoment: moment,
       visualEvidenceSummary,
+      actionSequenceSummary,
       styleTarget: normalizeStyleTarget(styleTarget),
       editIntensity: normalizeEditIntensity(editIntensity),
       stylePreset: renderStylePreset,
@@ -1349,6 +1442,7 @@ function createCandidateEditPlans({
       framingReason,
       actionFocusConfidence,
       visualEvidenceSummary,
+      actionSequenceSummary,
       cropStrategy: storyPlan.cropStrategy || createCropStrategy(metadata, framingMode),
       stylePreset: renderStylePreset,
       styleTarget: storyPlan.styleTarget,
@@ -1377,6 +1471,7 @@ function createCandidateEditPlans({
         retentionScore: moment.retentionScore,
         reasonCodes: moment.reasonCodes || [],
         evidence: moment.evidence || null,
+        actionSequenceSummary,
         captionIntent: moment.captionIntent || captionIntentForHighlightType(highlightType),
         source: moment.source,
       },

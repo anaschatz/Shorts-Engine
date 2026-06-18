@@ -67,6 +67,10 @@ test("fixture scoring returns reportable metrics and candidate plans", () => {
   assert.equal(typeof result.metrics.sampledFrameCount, "number");
   assert.equal(result.metrics.framingSafety, 1);
   assert.equal(result.metrics.animationCueValidity, 1);
+  assert.equal(result.metrics.animationCueRelevance, 1);
+  assert.equal(typeof result.metrics.goalSequenceRecall, "number");
+  assert.equal(typeof result.metrics.shotToPayoffCoverage, "number");
+  assert.equal(typeof result.metrics.actionWindowCoverage, "number");
   assert.equal(result.metrics.captionRoleValidity, 1);
   assert.equal(result.metrics.captionEvidenceMetadataCompleteness, 1);
   assert.equal(result.metrics.captionActionAlignment, 1);
@@ -96,6 +100,10 @@ test("evaluation report has aggregate metrics and no local path leakage", () => 
   assert.equal(report.aggregate.highlightTypeAccuracy, 1);
   assert.equal(report.aggregate.framingSafety, 1);
   assert.equal(report.aggregate.animationCueValidity, 1);
+  assert.equal(report.aggregate.animationCueRelevance, 1);
+  assert.equal(report.aggregate.goalSequenceRecall >= 0.95, true);
+  assert.equal(report.aggregate.shotToPayoffCoverage >= 0.95, true);
+  assert.equal(report.aggregate.actionWindowCoverage >= 0.95, true);
   assert.equal(report.aggregate.captionRoleValidity, 1);
   assert.equal(report.aggregate.captionEvidenceMetadataCompleteness, 1);
   assert.equal(report.aggregate.captionActionAlignment, 1);
@@ -173,6 +181,10 @@ test("runner writes a JSON report", () => {
   assert.equal(typeof summary.frameExtractionFallbackUsageRate, "number");
   assert.equal(typeof summary.sampledFrameCount, "number");
   assert.equal(summary.highlightTypeAccuracy, 1);
+  assert.equal(summary.animationCueRelevance, 1);
+  assert.equal(summary.goalSequenceRecall >= 0.95, true);
+  assert.equal(summary.shotToPayoffCoverage >= 0.95, true);
+  assert.equal(summary.actionWindowCoverage >= 0.95, true);
   assert.equal(summary.captionRoleValidity, 1);
   assert.equal(summary.captionEvidenceMetadataCompleteness, 1);
   assert.equal(summary.captionActionAlignment, 1);

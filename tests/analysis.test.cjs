@@ -268,6 +268,10 @@ test("explicit goal evidence sequence outranks reaction shots and keeps shot-to-
   assert.ok(plans[0].sourceStart <= 7.4);
   assert.ok(plans[0].sourceEnd >= 15.4);
   assert.equal(plans[0].footballStoryPlan.storyType, "goal_story");
+  assert.equal(plans[0].actionSequenceSummary.shotOrContact, true);
+  assert.equal(plans[0].actionSequenceSummary.goalmouthOrKeeper, true);
+  assert.equal(plans[0].actionSequenceSummary.payoff, true);
+  assert.equal(plans[0].actionSequenceSummary.reactionOnly, false);
   assert.match(plans[0].captions.map((caption) => caption.text).join(" "), /FINISH|SHOT|build-up|payoff/i);
   assert.equal(plans[0].cropStrategy.preserveFullFrame, true);
 });
@@ -313,6 +317,75 @@ test("partial goal-mouth sequence stays a big chance and does not claim goal", (
   const text = plans[0].captions.map((caption) => caption.text).join(" ");
   assert.equal(plans[0].highlightType, "big_chance");
   assert.equal(hasGoalLanguage(text), false);
+});
+
+test("animation cues stay evidence-aligned and avoid reaction-only punch effects", () => {
+  const reactionResult = detectHighlights({
+    transcript: {
+      provider: "fixture",
+      language: "en",
+      captions: [{ start: 8.8, end: 10.1, text: "Listen to the stands react" }],
+    },
+    signals: {
+      durationSeconds: 24,
+      hasAudio: true,
+      audioPeaks: [{ time: 9.4, energyScore: 0.94, source: "fixture" }],
+      sceneChanges: [{ time: 9.5, confidence: 0.72, source: "fixture" }],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [{ start: 8.2, end: 11.2, labels: ["crowd_reaction"], confidence: 0.82 }],
+    },
+    preset: "hype",
+  });
+  const reactionPlan = createCandidateEditPlans({
+    moments: reactionResult.moments,
+    metadata,
+    transcript: { captions: [] },
+    title: "Crowd reaction",
+    editIntensity: "punchy",
+  })[0];
+  const reactionCueTypes = reactionPlan.animationCues.map((cue) => cue.type);
+  assert.equal(reactionPlan.highlightType, "crowd_reaction");
+  assert.equal(reactionPlan.actionSequenceSummary.reactionOnly, true);
+  assert.equal(reactionCueTypes.includes("punch_zoom"), false);
+  assert.equal(reactionCueTypes.includes("impact_flash"), false);
+  assert.equal(reactionCueTypes.includes("freeze_frame"), false);
+
+  const foulResult = detectHighlights({
+    transcript: {
+      provider: "fixture",
+      language: "en",
+      captions: [{ start: 6.5, end: 8.2, text: "Heavy contact changes the tempo" }],
+    },
+    signals: {
+      durationSeconds: 18,
+      hasAudio: true,
+      audioPeaks: [{ time: 7.1, energyScore: 0.89, source: "fixture" }],
+      sceneChanges: [{ time: 7.0, confidence: 0.75, source: "fixture" }],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [{ start: 6.2, end: 8.7, labels: ["foul_like_contact", "ball_visible"], confidence: 0.88 }],
+    },
+    preset: "hype",
+  });
+  const foulPlan = createCandidateEditPlans({
+    moments: foulResult.moments,
+    metadata: { durationSeconds: 18, width: 1920, height: 1080, hasAudio: true },
+    transcript: { captions: [] },
+    title: "Foul impact",
+    editIntensity: "punchy",
+  })[0];
+  const foulCueTypes = foulPlan.animationCues.map((cue) => cue.type);
+  assert.equal(foulPlan.highlightType, "hard_foul");
+  assert.equal(foulPlan.actionSequenceSummary.shotOrContact, true);
+  assert.equal(foulCueTypes.includes("punch_zoom"), true);
+  assert.equal(foulCueTypes.includes("impact_flash"), true);
+  assert.equal(foulCueTypes.includes("freeze_frame"), true);
+  assert.equal(foulCueTypes.includes("end_replay_prompt"), true);
 });
 
 test("candidate plans include visual evidence summary and safe framing reason", () => {

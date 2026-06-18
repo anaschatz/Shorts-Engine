@@ -39,6 +39,8 @@ The runner is deterministic and does not require API keys or network access. It 
 - `providerFallbackRate`: how often the caption provider fell back to the deterministic local generator.
 - `fallbackUsageRate`: how often deterministic fallback was used.
 - `visualFallbackUsageRate`: how often visual analysis used the safe heuristic fallback.
+- `goalSequenceRecall`, `shotToPayoffCoverage` and `actionWindowCoverage`: whether goal/action clips include the shot/contact through payoff instead of only a reaction.
+- `animationCueRelevance`: whether punch, flash and freeze cues are backed by action/contact/payoff evidence.
 
 Reference review additionally reports:
 

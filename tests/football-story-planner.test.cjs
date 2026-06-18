@@ -181,8 +181,10 @@ test("football story planner supports square reference-style sports edits", () =
   assert.equal(plan.export.height, 1080);
   assert.equal(plan.animationIntent.intensity, "punchy");
   assert.equal(plan.animationCues.some((cue) => cue.type === "kinetic_caption"), true);
-  assert.equal(plan.animationCues.some((cue) => cue.type === "punch_zoom"), true);
-  assert.equal(plan.animationCues.some((cue) => cue.type === "impact_flash"), true);
+  assert.equal(plan.animationCues.some((cue) => cue.type === "beat_cut"), true);
+  assert.equal(plan.animationCues.some((cue) => cue.type === "punch_zoom"), false);
+  assert.equal(plan.animationCues.some((cue) => cue.type === "impact_flash"), false);
+  assert.equal(plan.animationIntent.evidenceAlignedOnly, true);
   assert.equal(plan.captionBeats.some((caption) => /crowd|reaction/i.test(caption.text)), true);
 });
 

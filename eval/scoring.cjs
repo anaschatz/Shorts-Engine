@@ -448,6 +448,67 @@ function animationCuesAreValid(plan) {
   });
 }
 
+function animationCueRelevanceScore(plan) {
+  if (!plan || typeof plan !== "object" || !Array.isArray(plan.animationCues) || !Array.isArray(plan.reasonCodes)) return 0;
+  const cueTypes = new Set(plan.animationCues.map((cue) => cue && cue.type).filter(Boolean));
+  const reasonSet = new Set(plan.reasonCodes);
+  const actionTypes = new Set([
+    "goal",
+    "shot_on_target",
+    "near_miss",
+    "big_chance",
+    "save",
+    "foul",
+    "hard_foul",
+    "counter_attack",
+    "skill_move",
+  ]);
+  const actionReasons = [
+    "big_chance",
+    "shot_on_target",
+    "save",
+    "foul",
+    "hard_foul",
+    "counter_attack",
+    "skill_move",
+    "visual_shot_like_motion",
+    "visual_shot_contact",
+    "visual_ball_toward_goal",
+    "visual_save_like_motion",
+    "visual_keeper_action",
+    "visual_foul_like_contact",
+    "visual_fast_break",
+  ];
+  const impactReasons = [
+    "goal",
+    "save",
+    "foul",
+    "hard_foul",
+    "visual_shot_contact",
+    "visual_ball_in_net",
+    "visual_save_like_motion",
+    "visual_keeper_action",
+    "visual_foul_like_contact",
+  ];
+  const reactionReasons = [
+    "audio_energy_spike",
+    "audio_peak",
+    "commentator_peak",
+    "crowd_reaction",
+    "crowd_spike",
+    "visual_crowd_reaction",
+  ];
+  const hasActionEvidence = actionTypes.has(plan.highlightType) || actionReasons.some((reason) => reasonSet.has(reason));
+  const hasImpactEvidence = ["goal", "save", "foul", "hard_foul"].includes(plan.highlightType) ||
+    impactReasons.some((reason) => reasonSet.has(reason));
+  const reactionOnly = reactionReasons.some((reason) => reasonSet.has(reason)) && !hasActionEvidence;
+  if (reactionOnly && (cueTypes.has("punch_zoom") || cueTypes.has("impact_flash") || cueTypes.has("freeze_frame"))) return 0;
+  if (!hasActionEvidence && cueTypes.has("punch_zoom")) return 0;
+  if (!hasImpactEvidence && (cueTypes.has("impact_flash") || cueTypes.has("freeze_frame"))) return 0;
+  if (hasActionEvidence && !cueTypes.has("subtle_camera_push")) return 0.75;
+  return 1;
+}
+
 function frameExtractionFixtureSummary(fixture) {
   const value = fixture.frameExtraction || fixture.sampledFrames || null;
   if (!value || typeof value !== "object") {
@@ -543,6 +604,7 @@ function scoreFixture(fixture) {
   const captionSafety = falseGoalCaption ? 0 : 1;
   const framingSafety = topPlan && framingIsSafe(topPlan, metadata) ? 1 : 0;
   const animationCueValidity = topPlan && animationCuesAreValid(topPlan) ? 1 : 0;
+  const animationCueRelevance = topPlan ? animationCueRelevanceScore(topPlan) : 0;
   const fallbackUsed = Boolean(highlightResult.fallback);
   const visualFallbackUsed = Boolean(visualSignals.fallbackUsed);
   const frameExtraction = frameExtractionFixtureSummary(fixture);
@@ -556,7 +618,8 @@ function scoreFixture(fixture) {
       scoreToPercent(highlightTypeAccuracy) * 0.1 +
       scoreToPercent(captionSafety) * 0.08 +
       scoreToPercent(framingSafety) * 0.05 +
-      scoreToPercent(animationCueValidity) * 0.04 +
+      scoreToPercent(animationCueValidity) * 0.03 +
+      scoreToPercent(animationCueRelevance) * 0.03 +
       scoreToPercent(retentionSanity) * 0.03 +
       scoreToPercent(candidatePlanValidity) * 0.03 +
       scoreToPercent(captionTimingValidity) * 0.03 +
@@ -589,7 +652,8 @@ function scoreFixture(fixture) {
     captionSafety === 1 &&
     falseVisualGoalRate === 0 &&
     framingSafety === 1 &&
-    animationCueValidity === 1;
+    animationCueValidity === 1 &&
+    animationCueRelevance >= 0.95;
 
   return {
     id: fixture.id,
@@ -633,6 +697,7 @@ function scoreFixture(fixture) {
       captionSafety,
       framingSafety,
       animationCueValidity,
+      animationCueRelevance,
       fallbackUsed,
       visualFallbackUsed,
       frameExtractionFallbackUsed,
@@ -693,7 +758,11 @@ function scoreFixture(fixture) {
         framingReason: plan.framingReason,
         actionFocusConfidence: plan.actionFocusConfidence,
         visualEvidenceSummary: plan.visualEvidenceSummary,
+        actionSequenceSummary: plan.actionSequenceSummary || (
+          plan.analysisMoment && plan.analysisMoment.actionSequenceSummary
+        ) || null,
         animationCueCount: Array.isArray(plan.animationCues) ? plan.animationCues.length : 0,
+        animationCueTypes: Array.isArray(plan.animationCues) ? [...new Set(plan.animationCues.map((cue) => cue.type).filter(Boolean))] : [],
         unsupportedAnimationCueCount: Array.isArray(plan.unsupportedAnimationCues) ? plan.unsupportedAnimationCues.length : 0,
         captions: plan.captions.length,
         captionRoles: plan.captions.map((caption) => caption.role),
@@ -726,6 +795,7 @@ function scoreFixture(fixture) {
       falseVisualGoalRate,
       framingSafety,
       animationCueValidity,
+      animationCueRelevance,
       fallbackUsed,
       frameExtractionFallbackUsed,
       thresholds,
@@ -756,6 +826,7 @@ function debuggingNotes(metrics) {
   if (metrics.falseVisualGoalRate) notes.push("Visual signals created goal classification without explicit goal evidence.");
   if (!metrics.framingSafety) notes.push("Candidate edit plan is missing safe vertical framing metadata.");
   if (!metrics.animationCueValidity) notes.push("Social edit animation cues are missing or invalid.");
+  if (metrics.animationCueRelevance < 0.95) notes.push("Animation cues are not aligned with action/contact/payoff evidence.");
   if (metrics.fallbackUsed) notes.push("Analysis fell back to deterministic fallback moments.");
   if (metrics.frameExtractionFallbackUsed) notes.push("Sampled frame extraction fell back to deterministic frame metadata.");
   return notes;
@@ -794,6 +865,7 @@ function aggregateResults(results) {
     captionSafety: avg((result) => result.metrics.captionSafety),
     framingSafety: avg((result) => result.metrics.framingSafety),
     animationCueValidity: avg((result) => result.metrics.animationCueValidity),
+    animationCueRelevance: avg((result) => result.metrics.animationCueRelevance),
     captionRoleValidity: avg((result) => result.metrics.captionRoleValidity),
     captionEvidenceMetadataCompleteness: avg((result) => result.metrics.captionEvidenceMetadataCompleteness),
     captionActionAlignment: avg((result) => result.metrics.captionActionAlignment),
@@ -907,6 +979,7 @@ module.exports = {
   DEFAULT_THRESHOLDS,
   aggregateResults,
   animationCuesAreValid,
+  animationCueRelevanceScore,
   bestOverlap,
   buildReport,
   captionsHaveValidRoles,
