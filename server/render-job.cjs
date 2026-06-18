@@ -4,6 +4,7 @@ const { AppError, SAFE_MESSAGES, redactForLogs } = require("./errors.cjs");
 const { createCandidateEditPlans, detectHighlights, extractMediaSignals } = require("./analysis.cjs");
 const { validateEditPlan } = require("./edit-plan.cjs");
 const { cleanupSampledFrames, extractSampledFrames, publicFrameSummary } = require("./frame-extraction.cjs");
+const { analyzeGoalEvidence, mergeGoalEvidenceIntoVisualSignals, publicGoalEvidence } = require("./goal-evidence-provider.cjs");
 const { sanitizeText } = require("./media.cjs");
 const { extractAudio, renderShort } = require("./render.cjs");
 const { chooseTranscriptionProvider } = require("./transcription.cjs");
@@ -27,6 +28,7 @@ function createDefaultDependencies(overrides = {}) {
     artifactStore: new LocalArtifactAdapter(),
     chooseTranscriptionProvider,
     analyzeFrames,
+    analyzeGoalEvidence,
     createCandidateEditPlans,
     createExportId: () => `exp_${randomUUID()}`,
     detectHighlights,
@@ -632,6 +634,29 @@ function visualSignalsFromApprovedPlan(plan, context) {
   }, context.metadata);
 }
 
+function goalEvidenceFromApprovedPlan(plan) {
+  const goalOutcome = plan && plan.goalOutcome && plan.goalOutcome.eventType === "ball_in_net"
+    ? plan.goalOutcome
+    : null;
+  const validGoalCount = goalOutcome && goalOutcome.outcome === "confirmed_goal" ? 1 : 0;
+  const offsideOrNoGoalCount = goalOutcome && goalOutcome.outcome === "disallowed_offside" ? 1 : 0;
+  const unconfirmedGoalCount = goalOutcome && goalOutcome.outcome === "unknown_decision" ? 1 : 0;
+  return publicGoalEvidence({
+    providerMode: "approved_regeneration_draft",
+    fallbackUsed: false,
+    confidence: goalOutcome ? Number(goalOutcome.confidence || 1) : 0,
+    events: [],
+    summary: {
+      eventCount: validGoalCount + offsideOrNoGoalCount + unconfirmedGoalCount,
+      validGoalCount,
+      offsideOrNoGoalCount,
+      unconfirmedGoalCount,
+      nonGoalChanceCount: 0,
+      goalEvidenceCoverage: validGoalCount ? 1 : 0,
+    },
+  });
+}
+
 function highlightResultFromApprovedPlan(plan) {
   return {
     moments: [{
@@ -668,6 +693,7 @@ async function runRenderJob(options) {
   let transcript = null;
   let mediaSignals = null;
   let visualSignals = null;
+  let goalEvidence = null;
   let trackingProviderOutput = null;
   let visualTracking = null;
   let highlightResult = null;
@@ -692,6 +718,7 @@ async function runRenderJob(options) {
       highlightResult = validateHighlightResult(highlightResultFromApprovedPlan(editPlan), context.metadata);
       mediaSignals = mediaSignalsFromApprovedPlan(context);
       visualSignals = visualSignalsFromApprovedPlan(editPlan, context);
+      goalEvidence = goalEvidenceFromApprovedPlan(editPlan);
       trackingProviderOutput = null;
       visualTracking = publicVisualTrackingSummary(editPlan.visualTrackingSummary || null, context.metadata);
       transcript = transcriptFromApprovedPlan(editPlan, context);
@@ -832,12 +859,40 @@ async function runRenderJob(options) {
         context.metadata,
       );
 
+      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 54, step: "analyze_goal_evidence" });
+      goalEvidence = await deps.analyzeGoalEvidence({
+        inputPath: context.inputPath,
+        metadata: context.metadata,
+        transcript,
+        mediaSignals,
+        visualSignals,
+        frames: sampledFrames.frames,
+        frameSummary: sampledFrameSummary,
+        signal,
+      });
+      visualSignals = mergeGoalEvidenceIntoVisualSignals(visualSignals, goalEvidence, context.metadata);
+      logInfo(deps.logger, {
+        event: "goal_evidence_completed",
+        requestId,
+        projectId: project.id,
+        jobId: job.id,
+        step: "analyze_goal_evidence",
+        providerMode: goalEvidence.providerMode,
+        fallbackUsed: goalEvidence.fallbackUsed,
+        evidenceEventCount: goalEvidence.summary && goalEvidence.summary.eventCount,
+        validGoalCount: goalEvidence.summary && goalEvidence.summary.validGoalCount,
+        offsideOrNoGoalCount: goalEvidence.summary && goalEvidence.summary.offsideOrNoGoalCount,
+        unconfirmedGoalCount: goalEvidence.summary && goalEvidence.summary.unconfirmedGoalCount,
+        goalEvidenceCoverage: goalEvidence.summary && goalEvidence.summary.goalEvidenceCoverage,
+      });
+
       updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 58, step: "detect_highlights" });
       highlightResult = validateHighlightResult(
         deps.detectHighlights({
           transcript,
           signals: mediaSignals,
           visualSignals,
+          goalEvidence,
           preset: context.preset,
           title: context.title,
         }),
@@ -856,6 +911,7 @@ async function runRenderJob(options) {
         transcript,
         mediaSignals,
         visualSignals,
+        goalEvidence,
         visualTracking,
         preset: context.preset,
         title: context.title,
@@ -889,6 +945,9 @@ async function runRenderJob(options) {
             excludedUnconfirmedBallInNetCount: goalDiscovery && Array.isArray(goalDiscovery.excludedUnconfirmedBallInNet)
               ? goalDiscovery.excludedUnconfirmedBallInNet.length
               : 0,
+            goalEvidenceEventCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.eventCount,
+            validGoalEvidenceCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.validGoalCount,
+            offsideOrNoGoalEvidenceCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.offsideOrNoGoalCount,
           });
         }
         throw new AppError(code, SAFE_MESSAGES[code], 422);
@@ -914,6 +973,9 @@ async function runRenderJob(options) {
       falseGoalGuardTriggered: editPlan.highlightType !== "goal",
       visualProviderMode: visualSignals.providerMode,
       visualWindowCount: visualSignals.summary.windowCount,
+      goalEvidenceProviderMode: goalEvidence && goalEvidence.providerMode,
+      goalEvidenceEventCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.eventCount,
+      validGoalEvidenceCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.validGoalCount,
       visualTrackingConfidence: visualTracking && visualTracking.trackingConfidence,
       cropPlanMode: editPlan.cropPlan && editPlan.cropPlan.mode,
       cropPlanFallbackUsed: editPlan.cropPlan && editPlan.cropPlan.fallbackUsed,
@@ -992,6 +1054,7 @@ async function runRenderJob(options) {
       highlights: highlightResult.moments,
       mediaSignals: publicMediaSignals(mediaSignals),
       visualSignals: publicVisualSignals(visualSignals),
+      goalEvidence: publicGoalEvidence(goalEvidence),
       trackingProviderOutput,
       visualTracking,
       sampledFrames: sampledFrameSummary,
@@ -1012,6 +1075,7 @@ async function runRenderJob(options) {
       transcript,
       mediaSignals,
       visualSignals,
+      goalEvidence: publicGoalEvidence(goalEvidence),
       trackingProviderOutput,
       visualTracking,
       sampledFrames: sampledFrameSummary,
@@ -1038,6 +1102,9 @@ async function runRenderJob(options) {
       falseGoalGuardTriggered: editPlan.highlightType !== "goal",
       visualProviderMode: visualSignals.providerMode,
       visualWindowCount: visualSignals.summary.windowCount,
+      goalEvidenceProviderMode: goalEvidence && goalEvidence.providerMode,
+      goalEvidenceEventCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.eventCount,
+      validGoalEvidenceCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.validGoalCount,
       visualTrackingConfidence: visualTracking && visualTracking.trackingConfidence,
       cropPlanMode: editPlan.cropPlan && editPlan.cropPlan.mode,
       cropPlanFallbackUsed: editPlan.cropPlan && editPlan.cropPlan.fallbackUsed,

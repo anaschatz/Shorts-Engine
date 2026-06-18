@@ -1056,6 +1056,9 @@ test("youtube live local e2e failure report keeps safe valid-goal discovery coun
           selectedValidGoalCount: 0,
           excludedOffsideOrNoGoalCount: 2,
           excludedUnconfirmedBallInNetCount: 1,
+          goalEvidenceEventCount: 3,
+          validGoalEvidenceCount: 0,
+          offsideOrNoGoalEvidenceCount: 2,
         },
       }],
     }),
@@ -1082,6 +1085,9 @@ test("youtube live local e2e failure report keeps safe valid-goal discovery coun
     selectedValidGoalCount: 0,
     excludedOffsideOrNoGoalCount: 2,
     excludedUnconfirmedBallInNetCount: 1,
+    goalEvidenceEventCount: 3,
+    validGoalEvidenceCount: 0,
+    offsideOrNoGoalEvidenceCount: 2,
   });
   assert.equal(findSensitiveLeak(report), null);
 });

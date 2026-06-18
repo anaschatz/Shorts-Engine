@@ -11,6 +11,7 @@ const {
   hasGoalLanguage,
 } = require("../server/edit-plan.cjs");
 const { AppError } = require("../server/errors.cjs");
+const { deterministicGoalEvidence, mergeGoalEvidenceIntoVisualSignals } = require("../server/goal-evidence-provider.cjs");
 const { analyzeTracking, publicTrackingProviderOutput, validateTrackingProviderOutput } = require("../server/tracking-provider.cjs");
 const { validateVisualSignals } = require("../server/vision.cjs");
 const { analyzeVisualTracking, validateCropPlan } = require("../server/visual-tracking.cjs");
@@ -513,6 +514,13 @@ function segmentTimingCoverageScore(topPlan, expected = {}) {
   return round(covered.length / expectedGoals.length, 4);
 }
 
+function goalEvidenceCoverageScore(goalEvidence, expected = {}) {
+  const expectedGoals = expectedValidGoalWindows(expected);
+  if (!expectedGoals.length) return 1;
+  const validGoalCount = Number(goalEvidence && goalEvidence.summary && goalEvidence.summary.validGoalCount || 0);
+  return round(Math.min(1, validGoalCount / expectedGoals.length), 4);
+}
+
 function expectedGoalOutcome(expected = {}) {
   return expected.goalOutcome && typeof expected.goalOutcome === "object" && !Array.isArray(expected.goalOutcome)
     ? expected.goalOutcome
@@ -829,10 +837,17 @@ function scoreFixture(fixture) {
     hasAudio: fixture.mediaSignals.hasAudio !== false,
     goalSelectionMode: fixture.expected.goalSelectionMode,
   };
-  const visualSignals = validateVisualSignals(
+  let visualSignals = validateVisualSignals(
     fixture.visualSignals || fixture.mediaSignals.visualSignals || { providerMode: "fixture-none", fallbackUsed: true, windows: [] },
     metadata,
   );
+  const goalEvidence = deterministicGoalEvidence({
+    metadata,
+    transcript: fixture.transcript,
+    mediaSignals: fixture.mediaSignals,
+    visualSignals,
+  });
+  visualSignals = mergeGoalEvidenceIntoVisualSignals(visualSignals, goalEvidence, metadata);
   const trackingProviderOutput = publicTrackingProviderOutput(
     fixture.trackingProviderOutput || analyzeTracking({
       metadata,
@@ -854,6 +869,7 @@ function scoreFixture(fixture) {
     transcript: fixture.transcript,
     signals: fixture.mediaSignals,
     visualSignals,
+    goalEvidence,
     preset: fixture.expected.preset || "hype",
   });
   const candidatePlans = createCandidateEditPlans({
@@ -862,6 +878,7 @@ function scoreFixture(fixture) {
     transcript: fixture.transcript,
     mediaSignals: fixture.mediaSignals,
     visualSignals,
+    goalEvidence,
     visualTracking,
     title: fixture.title,
     preset: fixture.expected.preset || "hype",
@@ -914,6 +931,7 @@ function scoreFixture(fixture) {
   const validGoalOnlyFillerRateValue = validGoalOnlyFillerRate(topPlan, fixture.expected);
   const captionGoalClaimAccuracy = captionGoalClaimAccuracyScore(topPlan, fixture.expected);
   const segmentTimingCoverage = segmentTimingCoverageScore(topPlan, fixture.expected);
+  const goalEvidenceCoverage = goalEvidenceCoverageScore(goalEvidence, fixture.expected);
   const ballPlayerVisibilityScoreValue = ballPlayerVisibilityScore(topPlan);
   const cropSafetyScoreValue = cropSafetyScore(topPlan, metadata);
   const actionSafeZoneCoverage = actionSafeZoneCoverageScore(topPlan, metadata);
@@ -1017,7 +1035,8 @@ function scoreFixture(fixture) {
     offsideExclusionAccuracy === 1 &&
     validGoalOnlyFillerRateValue === 0 &&
     captionGoalClaimAccuracy >= 0.95 &&
-    segmentTimingCoverage >= 0.9;
+    segmentTimingCoverage >= 0.9 &&
+    goalEvidenceCoverage >= 1;
 
   return {
     id: fixture.id,
@@ -1060,6 +1079,7 @@ function scoreFixture(fixture) {
       validGoalOnlyFillerRate: validGoalOnlyFillerRateValue,
       captionGoalClaimAccuracy,
       segmentTimingCoverage,
+      goalEvidenceCoverage,
       reactionAsSupportNotMain,
       actionWindowCoverage,
       shotToPayoffCoverage,
@@ -1089,6 +1109,8 @@ function scoreFixture(fixture) {
       visualFallbackUsed,
       frameExtractionFallbackUsed,
       sampledFrameCount: frameExtraction.frameCount,
+      goalEvidenceProviderMode: goalEvidence.providerMode,
+      goalEvidenceEventCount: goalEvidence.summary.eventCount,
     },
     expected: {
       highlights: fixture.expected.highlights.map((item) => ({ start: item.start, end: item.end })),
@@ -1143,6 +1165,15 @@ function scoreFixture(fixture) {
             source: topMoment.source,
           }
         : null,
+      goalEvidence: {
+        providerMode: sanitizeReportText(goalEvidence.providerMode, 60),
+        eventCount: goalEvidence.summary.eventCount,
+        validGoalCount: goalEvidence.summary.validGoalCount,
+        offsideOrNoGoalCount: goalEvidence.summary.offsideOrNoGoalCount,
+        unconfirmedGoalCount: goalEvidence.summary.unconfirmedGoalCount,
+        nonGoalChanceCount: goalEvidence.summary.nonGoalChanceCount,
+        goalEvidenceCoverage: goalEvidence.summary.goalEvidenceCoverage,
+      },
       candidatePlans: candidatePlans.map((plan) => ({
         rank: plan.rank,
         mode: plan.mode || "single_moment",
@@ -1264,6 +1295,7 @@ function scoreFixture(fixture) {
       validGoalOnlyFillerRate: validGoalOnlyFillerRateValue,
       captionGoalClaimAccuracy,
       segmentTimingCoverage,
+      goalEvidenceCoverage,
       animationCueValidity,
       animationCueRelevance,
       fallbackUsed,
@@ -1319,6 +1351,7 @@ function debuggingNotes(metrics) {
   if (metrics.validGoalOnlyFillerRate) notes.push("Valid-goals-only output includes non-goal filler.");
   if (metrics.captionGoalClaimAccuracy < 0.95) notes.push("Goal captions do not match valid-goal expectations.");
   if (metrics.segmentTimingCoverage < 0.9) notes.push("Goal segments do not cover the expected shot/payoff/decision window.");
+  if (metrics.goalEvidenceCoverage < 1) notes.push("Goal evidence provider did not cover all expected valid goals.");
   if (metrics.fallbackUsed) notes.push("Analysis fell back to deterministic fallback moments.");
   if (metrics.frameExtractionFallbackUsed) notes.push("Sampled frame extraction fell back to deterministic frame metadata.");
   return notes;
@@ -1380,6 +1413,7 @@ function aggregateResults(results) {
     validGoalOnlyFillerRate: avg((result) => result.metrics.validGoalOnlyFillerRate),
     captionGoalClaimAccuracy: avg((result) => result.metrics.captionGoalClaimAccuracy),
     segmentTimingCoverage: avg((result) => result.metrics.segmentTimingCoverage),
+    goalEvidenceCoverage: avg((result) => result.metrics.goalEvidenceCoverage),
     actionWindowCoverage: avg((result) => result.metrics.actionWindowCoverage),
     shotToPayoffCoverage: avg((result) => result.metrics.shotToPayoffCoverage),
     ballPlayerVisibilityScore: avg((result) => result.metrics.ballPlayerVisibilityScore),

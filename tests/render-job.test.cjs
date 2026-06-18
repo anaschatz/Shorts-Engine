@@ -200,6 +200,27 @@ function makeContext(options = {}) {
         windows: [{ start: 2.7, end: 5.1, type: "unknown_visual_action", confidence: 0.72 }],
       };
     },
+    analyzeGoalEvidence: async ({ visualSignals }) => {
+      calls.push("analyze_goal_evidence");
+      context.goalEvidenceVisualWindowCount = visualSignals && Array.isArray(visualSignals.windows)
+        ? visualSignals.windows.length
+        : 0;
+      return options.goalEvidence || {
+        providerMode: "mock-goal-evidence",
+        fallbackUsed: false,
+        confidence: 0,
+        events: [],
+        supplementalVisualWindows: [],
+        summary: {
+          eventCount: 0,
+          validGoalCount: 0,
+          offsideOrNoGoalCount: 0,
+          unconfirmedGoalCount: 0,
+          nonGoalChanceCount: 0,
+          goalEvidenceCoverage: 0,
+        },
+      };
+    },
     analyzeTracking: async ({ frames }) => {
       calls.push("analyze_tracking");
       context.trackingFrameCount = Array.isArray(frames) ? frames.length : 0;
@@ -283,6 +304,7 @@ test("render orchestration completes success path with mocked adapters", async (
       "extract_sampled_frames",
       "analyze_visuals",
       "transcribe",
+      "analyze_goal_evidence",
       "detect_highlights",
       "plan_story",
       "create_edit_plan",
@@ -297,6 +319,7 @@ test("render orchestration completes success path with mocked adapters", async (
   assert.equal(context.createPlanInput.language, "en");
   assert.equal(context.calls.includes("analyze_frames"), true);
   assert.equal(context.calls.includes("analyze_tracking"), true);
+  assert.equal(context.calls.includes("analyze_goal_evidence"), true);
   assert.equal(context.calls.includes("extract_sampled_frames"), true);
   assert.equal(context.visualCandidateWindows.length > 0, true);
   assert.equal(context.visualFrameCount, 1);
@@ -318,6 +341,8 @@ test("render orchestration completes success path with mocked adapters", async (
   assert.equal(visualAnalysisLog.latencyMs, 5);
   assert.doesNotMatch(JSON.stringify(visualAnalysisLog), /\/Users|storageKey|localPath|secret/i);
   assert.equal(context.job.visualSignals.summary.goalClaimAllowed, false);
+  assert.equal(context.job.goalEvidence.providerMode, "mock-goal-evidence");
+  assert.equal(context.job.goalEvidence.summary.eventCount, 0);
   assert.equal(context.job.visualTracking.goalClaimAllowed, false);
   assert.equal(context.job.trackingProviderOutput.providerMode, "mock-tracking");
   assert.equal(context.job.trackingProviderOutput.fallbackUsed, true);
@@ -329,6 +354,10 @@ test("render orchestration completes success path with mocked adapters", async (
   assert.equal(visualTrackingLog.ballTrackCount, 0);
   assert.equal(typeof visualTrackingLog.trackingConfidence, "number");
   assert.doesNotMatch(JSON.stringify(visualTrackingLog), /\/Users|storageKey|localPath|secret/i);
+  const goalEvidenceLog = context.logs.find((entry) => entry.event === "goal_evidence_completed");
+  assert.equal(goalEvidenceLog.providerMode, "mock-goal-evidence");
+  assert.equal(goalEvidenceLog.evidenceEventCount, 0);
+  assert.doesNotMatch(JSON.stringify(goalEvidenceLog), /\/Users|storageKey|localPath|secret/i);
 });
 
 test("youtube long-source render requests valid-goals-only planning", async () => {

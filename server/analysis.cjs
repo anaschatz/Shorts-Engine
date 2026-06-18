@@ -1946,7 +1946,7 @@ function createGoalSequenceMoments(safeVisualSignals, safeSignals, captions = []
   return moments;
 }
 
-function goalDiscoverySummary({ safeVisualSignals = {}, safeSignals = {}, goalSequenceMoments = [] } = {}) {
+function goalDiscoverySummary({ safeVisualSignals = {}, safeSignals = {}, goalSequenceMoments = [], goalEvidence = null } = {}) {
   const duration = seconds(safeSignals.durationSeconds || 0);
   const windows = Array.isArray(safeVisualSignals.windows) ? safeVisualSignals.windows : [];
   const buckets = goalDiscoveryBuckets(windows, duration);
@@ -1991,10 +1991,19 @@ function goalDiscoverySummary({ safeVisualSignals = {}, safeSignals = {}, goalSe
     excludedOffsideOrNoGoal: outcomes.filter((item) => item.goalOutcome && ["disallowed_offside", "possible_offside"].includes(item.goalOutcome.outcome)),
     excludedUnconfirmedBallInNet: outcomes.filter((item) => item.goalOutcome && item.goalOutcome.outcome === "unknown_decision"),
     excludedBigChances: outcomes.filter((item) => !item.goalOutcome && item.highlightType !== "goal").slice(0, 8),
+    goalEvidence: goalEvidence && goalEvidence.summary
+      ? {
+          eventCount: Number(goalEvidence.summary.eventCount || 0),
+          validGoalCount: Number(goalEvidence.summary.validGoalCount || 0),
+          offsideOrNoGoalCount: Number(goalEvidence.summary.offsideOrNoGoalCount || 0),
+          unconfirmedGoalCount: Number(goalEvidence.summary.unconfirmedGoalCount || 0),
+          goalEvidenceCoverage: Number(goalEvidence.summary.goalEvidenceCoverage || 0),
+        }
+      : null,
   };
 }
 
-function detectHighlights({ transcript, signals, visualSignals, preset = "hype" } = {}) {
+function detectHighlights({ transcript, signals, visualSignals, goalEvidence = null, preset = "hype" } = {}) {
   const safeSignals = signals || { durationSeconds: 18, audioPeaks: [], sceneChanges: [] };
   const duration = seconds(safeSignals.durationSeconds || 18);
   const safeVisualSignals = validateVisualSignals(
@@ -2104,7 +2113,7 @@ function detectHighlights({ transcript, signals, visualSignals, preset = "hype" 
   });
 
   const goalSequenceMoments = createGoalSequenceMoments(safeVisualSignals, safeSignals, captions, preset);
-  const discoverySummary = goalDiscoverySummary({ safeVisualSignals, safeSignals, goalSequenceMoments });
+  const discoverySummary = goalDiscoverySummary({ safeVisualSignals, safeSignals, goalSequenceMoments, goalEvidence });
 
   const merged = [...goalSequenceMoments, ...captionMoments, ...signalOnlyMoments, ...visualOnlyMoments]
     .filter((moment) => moment.end - moment.start >= 3)
@@ -3423,6 +3432,7 @@ function analysisHealth() {
       "goal_evidence_sequence_detection",
       "goal_outcome_offside_context",
       "referee_var_offside_decision_detection",
+      "real_goal_evidence_provider_boundary",
       "action_first_story_windows",
       "false_goal_guard",
       "football_story_planner",

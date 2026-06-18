@@ -19,6 +19,7 @@ const { createRateLimiter } = require("./rate-limit.cjs");
 const { analysisHealth } = require("./analysis.cjs");
 const { EDIT_INTENSITIES, STYLE_TARGETS, normalizeEditIntensity, normalizeStyleTarget } = require("./football-story-planner.cjs");
 const { frameExtractionHealth } = require("./frame-extraction.cjs");
+const { createGoalEvidenceProvider } = require("./goal-evidence-provider.cjs");
 const { visionHealth } = require("./vision.cjs");
 const { validateUploadCandidate, probeMedia, toolHealth, sha256, sanitizeText } = require("./media.cjs");
 const { HOOKS, RENDER_STYLE_PRESETS, normalizeStylePreset } = require("./edit-plan.cjs");
@@ -465,6 +466,7 @@ async function handleHealth(req, res, rid) {
   const analysis = analysisHealth();
   const frameExtraction = frameExtractionHealth();
   const vision = visionHealth();
+  const goalEvidence = createGoalEvidenceProvider().health();
   const youtubeIngest = youtubeIngestHealth(youtubeIngestAdapter);
   const cleanup = artifactCleanupWorker.health();
   const outbox = outboxWorker.health();
@@ -485,6 +487,7 @@ async function handleHealth(req, res, rid) {
     analysis.ready &&
     frameExtraction.ready &&
     vision.ready &&
+    goalEvidence.ready &&
     youtubeIngest.ready;
   sendOk(res, {
     service: "shortsengine-mvp",
@@ -515,6 +518,7 @@ async function handleHealth(req, res, rid) {
     analysis,
     frameExtraction,
     vision,
+    goalEvidence,
     youtubeIngest,
     requestId: rid,
   });

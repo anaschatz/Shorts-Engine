@@ -128,6 +128,8 @@ assert.match(serverApp, /handleYouTubeIngest/, "server should expose a thin YouT
 assert.match(serverApp, /validateYouTubeSource/, "server route should delegate YouTube validation to domain logic");
 assert.match(serverApp, /createYouTubeIngestService/, "server route should delegate YouTube ingest orchestration to a service");
 assert.match(serverApp, /youtubeIngestHealth/, "health should include YouTube ingest readiness");
+assert.match(serverApp, /createGoalEvidenceProvider/, "health should include the goal evidence provider boundary");
+assert.match(serverApp, /goalEvidence/, "health should report safe goal evidence readiness");
 assert.match(youtubeIngest, /YOUTUBE_PLAYLIST_UNSUPPORTED/, "YouTube validation should reject playlists explicitly");
 assert.match(youtubeIngest, /YOUTUBE_LIVE_UNSUPPORTED/, "YouTube validation should reject live streams explicitly");
 assert.match(youtubeIngest, /YOUTUBE_INGEST_NOT_ENABLED/, "YouTube adapter failures should fail closed with a safe code");

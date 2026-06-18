@@ -62,6 +62,7 @@ try {
     validGoalOnlyFillerRate: report.aggregate.validGoalOnlyFillerRate,
     captionGoalClaimAccuracy: report.aggregate.captionGoalClaimAccuracy,
     segmentTimingCoverage: report.aggregate.segmentTimingCoverage,
+    goalEvidenceCoverage: report.aggregate.goalEvidenceCoverage,
     shotToPayoffCoverage: report.aggregate.shotToPayoffCoverage,
     actionWindowCoverage: report.aggregate.actionWindowCoverage,
     ballPlayerVisibilityScore: report.aggregate.ballPlayerVisibilityScore,
