@@ -7,6 +7,8 @@ const DEFAULT_GOAL_EVIDENCE_TIMEOUT_MS = 12000;
 const MAX_EVIDENCE_EVENTS = 16;
 const MAX_REASON_CODES = 14;
 const POST_GOAL_CONTEXT_SECONDS = 15;
+const SCOREBOARD_BACKED_LOOKBACK_SECONDS = 24;
+const SCOREBOARD_BACKED_POST_SECONDS = 2.5;
 
 const GOAL_EVIDENCE_OUTCOMES = Object.freeze([
   "valid_goal",
@@ -24,6 +26,7 @@ const GOAL_EVIDENCE_REASON_CODES = Object.freeze([
   "scoreboard_ocr_score_change",
   "scoreboard_ocr_score_unchanged",
   "scoreboard_ocr_ambiguous",
+  "scoreboard_backed_goal_sequence",
   "scoreboard_temporal_consistency",
   "visual_scoreboard_goal_confirmed",
   "visual_referee_goal_signal",
@@ -52,6 +55,7 @@ const GOAL_EVIDENCE_REASON_CODES = Object.freeze([
 
 const SUPPLEMENTAL_VISUAL_BY_REASON = Object.freeze({
   scoreboard_ocr_score_change: "scoreboard_goal_confirmed",
+  scoreboard_backed_goal_sequence: "scoreboard_goal_confirmed",
   kickoff_after_goal: "scoreboard_goal_confirmed",
   visual_scoreboard_goal_confirmed: "scoreboard_goal_confirmed",
   visual_referee_goal_signal: "referee_goal_signal",
@@ -220,6 +224,7 @@ function reasonFlags(reasonCodes = []) {
       reasons.has("visual_scoreboard_goal_removed") ||
       reasons.has("scoreboard_ocr_score_change"),
     scoreboardGoalConfirmed: reasons.has("visual_scoreboard_goal_confirmed") || reasons.has("scoreboard_ocr_score_change"),
+    scoreboardBackedGoalSequence: reasons.has("scoreboard_backed_goal_sequence"),
     refereeGoalSignal: reasons.has("visual_referee_goal_signal"),
     kickoffAfterGoal: reasons.has("kickoff_after_goal"),
     replayGoalConfirmation: reasons.has("replay_goal_confirmation"),
@@ -243,6 +248,11 @@ function reasonFlags(reasonCodes = []) {
 function outcomeForReasons(reasonCodes = []) {
   const reasons = new Set(reasonCodes);
   const hasBallInNet = reasons.has("ball_in_net") || reasons.has("visual_ball_in_net");
+  const hasScoreboardBackedSequence = reasons.has("scoreboard_backed_goal_sequence") && (
+    reasons.has("shot_sequence_support") ||
+    reasons.has("visual_shot_contact") ||
+    reasons.has("visual_ball_toward_goal")
+  );
   const hasScoreConfirmed = reasons.has("visual_scoreboard_goal_confirmed") || reasons.has("scoreboard_ocr_score_change");
   const hasVisualGoalDecision = reasons.has("visual_referee_goal_signal") || reasons.has("kickoff_after_goal");
   const hasReplayConfirmation = reasons.has("replay_goal_confirmation") && hasScoreConfirmed;
@@ -264,7 +274,7 @@ function outcomeForReasons(reasonCodes = []) {
   if (reasons.has("anthem_or_intro")) return "anthem_or_intro";
   if (reasons.has("celebration_only") && !hasBallInNet) return "celebration_only";
   if (
-    hasBallInNet &&
+    (hasBallInNet || hasScoreboardBackedSequence) &&
     (
       hasScoreConfirmed ||
       hasVisualGoalDecision ||
@@ -337,6 +347,7 @@ function eventScore(event = {}) {
   const evidenceBoost = [
     "ball_in_net",
     "visual_ball_in_net",
+    "scoreboard_backed_goal_sequence",
     "scoreboard_ocr_score_change",
     "visual_scoreboard_goal_confirmed",
     "visual_referee_goal_signal",
@@ -445,6 +456,74 @@ function ocrReasonsInRange(ocrEvidence = [], start = 0, end = 0, ocrQaCalibratio
   return [...new Set(reasons)];
 }
 
+function allowsScoreboardBackedGoalRecovery(ocrQaCalibration = null) {
+  const calibration = normalizeOcrQaCalibrationInput(ocrQaCalibration);
+  return Boolean(calibration.usable) && calibration.decisionSupportLevel === "strong";
+}
+
+function visualReasonsInRange(windows = [], start = 0, end = 0) {
+  return [...new Set((Array.isArray(windows) ? windows : [])
+    .filter((window) => seconds(window.start) <= end && seconds(window.end) >= start)
+    .flatMap(visualReasonCodesForWindow))];
+}
+
+function isShotSequenceReason(reason) {
+  return [
+    "visual_shot_contact",
+    "visual_shot_like_motion",
+    "visual_ball_toward_goal",
+    "visual_goal_mouth",
+    "visual_goal_area",
+  ].includes(reason);
+}
+
+function isNoGoalDecisionReason(reason) {
+  return [
+    "visual_offside_flag",
+    "visual_no_goal_decision",
+    "visual_referee_no_goal_signal",
+    "visual_scoreboard_goal_removed",
+    "visual_offside_line",
+  ].includes(reason);
+}
+
+function scoreChangeAlreadyCovered(scoreItem = {}, events = []) {
+  const timestamp = seconds(scoreItem.timestamp);
+  return events.some((event) => timestamp >= seconds(event.start) - 1 && timestamp <= seconds(event.end) + 1);
+}
+
+function scoreboardBackedGoalWindow(scoreItem = {}, windows = [], metadata = {}) {
+  const timestamp = seconds(scoreItem.timestamp);
+  const duration = seconds(metadata.durationSeconds, timestamp + SCOREBOARD_BACKED_POST_SECONDS);
+  const lookbackStart = Math.max(0, timestamp - SCOREBOARD_BACKED_LOOKBACK_SECONDS);
+  const lookbackEnd = Math.min(duration || timestamp + 1, timestamp + 1);
+  const nearbyWindows = (Array.isArray(windows) ? windows : [])
+    .filter((window) => seconds(window.start) <= lookbackEnd && seconds(window.end) >= lookbackStart);
+  const nearbyReasons = visualReasonsInRange(nearbyWindows, lookbackStart, lookbackEnd);
+  if (nearbyReasons.some(isNoGoalDecisionReason)) return null;
+  if (!nearbyReasons.some(isShotSequenceReason)) return null;
+  const shotWindows = nearbyWindows.filter((window) => visualReasonCodesForWindow(window).some(isShotSequenceReason));
+  const firstShot = shotWindows.sort((a, b) => seconds(a.start) - seconds(b.start))[0];
+  if (!firstShot) return null;
+  return {
+    start: round(Math.max(0, seconds(firstShot.start))),
+    end: round(Math.min(duration || timestamp + SCOREBOARD_BACKED_POST_SECONDS, timestamp + SCOREBOARD_BACKED_POST_SECONDS)),
+    reasonCodes: normalizeReasonCodes([
+      "scoreboard_backed_goal_sequence",
+      "shot_sequence_support",
+      ...nearbyReasons.filter((reason) => [
+        "visual_shot_contact",
+        "visual_shot_like_motion",
+        "visual_ball_toward_goal",
+        "visual_goal_mouth",
+        "visual_goal_area",
+        "visual_scoreboard_goal_confirmed",
+        "visual_referee_goal_signal",
+      ].includes(reason)),
+    ]),
+  };
+}
+
 function validateGoalEvidenceOutput(output, metadata = {}) {
   if (!output || typeof output !== "object" || Array.isArray(output) || hasUnsafeValue(output)) {
     throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
@@ -544,6 +623,31 @@ function deterministicGoalEvidence(input = {}) {
       confidence: Math.max(Number(ballWindow.confidence || 0.72), reasonCodes.includes("confirmed_by_commentary") ? 0.86 : 0.68),
       outcomeHint: outcomeForReasons(reasonCodes),
       evidenceSource: "deterministic_visual_text_goal_evidence",
+      reasonCodes,
+    });
+  }
+
+  const scoreChangedItems = allowsScoreboardBackedGoalRecovery(ocrQaCalibration)
+    ? ocrEvidence.filter((item) => item.scoreChanged && item.temporalConsistency)
+    : [];
+  for (const [index, scoreItem] of scoreChangedItems.entries()) {
+    if (scoreChangeAlreadyCovered(scoreItem, events)) continue;
+    const range = scoreboardBackedGoalWindow(scoreItem, windows, metadata);
+    if (!range) continue;
+    const textReasons = [...new Set(captionsInRange(captions, range.start, range.end).flatMap((item) => item.reasonCodes))];
+    const ocrReasons = ocrReasonsInRange(ocrEvidence, range.start, range.end, ocrQaCalibration);
+    const reasonCodes = normalizeReasonCodes([
+      ...range.reasonCodes,
+      ...textReasons,
+      ...ocrReasons,
+    ]);
+    events.push({
+      id: `scoreboard_backed_goal_${index + 1}`,
+      start: range.start,
+      end: range.end,
+      confidence: Math.max(Number(scoreItem.confidence || 0.78), 0.82),
+      outcomeHint: outcomeForReasons(reasonCodes),
+      evidenceSource: "deterministic_scoreboard_backed_goal_sequence",
       reasonCodes,
     });
   }

@@ -176,6 +176,7 @@ const OFFSIDE_STATUSES = Object.freeze(["none", "offside", "onside", "possible",
 const GOAL_DECISION_EVIDENCE_CODES = Object.freeze([
   "explicit_goal_language",
   "ball_in_net",
+  "scoreboard_backed_goal_sequence",
   "confirmed_by_commentary",
   "offside_commentary",
   "flag_commentary",

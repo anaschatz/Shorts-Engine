@@ -32,6 +32,7 @@ const MATCH_EVENT_OUTCOMES = Object.freeze([
 ]);
 
 const CONFIRMED_SUPPORT_CODES = Object.freeze([
+  "scoreboard_backed_goal_sequence",
   "scoreboard_ocr_score_change",
   "scoreboard_temporal_consistency",
   "visual_scoreboard_goal_confirmed",
@@ -58,6 +59,7 @@ const DISALLOWED_CODES = Object.freeze([
 ]);
 
 const ACTION_CODES = Object.freeze([
+  "scoreboard_backed_goal_sequence",
   "ball_in_net",
   "visual_ball_in_net",
   "visual_shot_contact",
@@ -190,6 +192,7 @@ function eventBaseCodes(event = {}) {
   return uniqueCodes([
     ...(Array.isArray(event.reasonCodes) ? event.reasonCodes : []),
     event.ballInNetEvidence ? "ball_in_net" : "",
+    event.scoreboardBackedGoalSequence ? "scoreboard_backed_goal_sequence" : "",
     event.scoreboardGoalConfirmed ? "scoreboard_ocr_score_change" : "",
     event.offsideFlag ? "visual_offside_flag" : "",
     event.VARNoGoalSignal ? "visual_no_goal_decision" : "",
@@ -232,7 +235,10 @@ function typePriority(type) {
 
 function goalTypeForEvidence(codes = [], event = {}, ocrQaCalibration = null) {
   const ballInNet = hasAny(codes, ["ball_in_net", "visual_ball_in_net"]) || Boolean(event.ballInNetEvidence);
-  const hasAction = ballInNet || hasAny(codes, ACTION_CODES);
+  const scoreboardBackedGoalSequence = hasAny(codes, ["scoreboard_backed_goal_sequence"]) &&
+    hasAny(codes, ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency", "visual_scoreboard_goal_confirmed"]);
+  const hasGoalEventEvidence = ballInNet || scoreboardBackedGoalSequence;
+  const hasAction = hasGoalEventEvidence && hasAny(codes, ACTION_CODES);
   const hasConfirmedSupport = hasAny(codes, CONFIRMED_SUPPORT_CODES);
   const hasOffside = hasAny(codes, OFFSIDE_CODES);
   const hasDisallowed = hasAny(codes, DISALLOWED_CODES);
@@ -243,7 +249,7 @@ function goalTypeForEvidence(codes = [], event = {}, ocrQaCalibration = null) {
   if (hasDisallowed) return hasAny(codes, ["scoreboard_ocr_score_unchanged"]) && hasAny(codes, ["visual_ball_in_net", "ball_in_net"])
     ? "disallowed_offside"
     : "disallowed_no_goal";
-  if (ballInNet && hasAction && hasConfirmedSupport && !(hasOcrOnlySupport && !(ocrQaCalibration && ocrQaCalibration.usable))) {
+  if (hasGoalEventEvidence && hasAction && hasConfirmedSupport && !(hasOcrOnlySupport && !(ocrQaCalibration && ocrQaCalibration.usable))) {
     return "confirmed_goal";
   }
   if (ballInNet) return "possible_goal_unconfirmed";
@@ -287,7 +293,9 @@ function windowSetForDecision({ event, visualSignals, duration }) {
 function missingEvidenceForDecision(type, codes = [], ocrQaCalibration = null) {
   const missing = [];
   if (["confirmed_goal", "disallowed_offside", "disallowed_no_goal", "possible_goal_unconfirmed"].includes(type)) {
-    if (!hasAny(codes, ["ball_in_net", "visual_ball_in_net"])) missing.push("ball_in_net_evidence");
+    if (!hasAny(codes, ["ball_in_net", "visual_ball_in_net", "scoreboard_backed_goal_sequence"])) {
+      missing.push("ball_in_net_or_scoreboard_backed_goal_sequence");
+    }
     if (!hasAny(codes, ["visual_shot_contact", "visual_shot_like_motion", "visual_ball_toward_goal", "shot_sequence_support"])) {
       missing.push("shot_or_ball_trajectory");
     }
@@ -475,7 +483,8 @@ function validateMatchEventTruthOutput(output, metadata = {}) {
         event.type !== "confirmed_goal" ||
         !event.evidenceCodes.includes("scoreboard_ocr_score_change") ||
         event.evidenceCodes.includes("ball_in_net") ||
-        event.evidenceCodes.includes("visual_ball_in_net")
+        event.evidenceCodes.includes("visual_ball_in_net") ||
+        event.evidenceCodes.includes("scoreboard_backed_goal_sequence")
       )) ? 1 : 0,
       ocrQaSupportStatus: output.ocrQaCalibration && output.ocrQaCalibration.usable ? "usable" : "ignored",
     },

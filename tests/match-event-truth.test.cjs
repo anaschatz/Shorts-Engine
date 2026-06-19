@@ -136,6 +136,43 @@ test("keeps OCR-only score changes out of confirmed-goal decisions", () => {
   assert.ok(result.rejectedEvents.every((event) => event.type !== "confirmed_goal"));
 });
 
+test("confirms scoreboard-backed goal sequence when shot evidence and score change agree", () => {
+  const result = analyzeMatchEventTruth({
+    metadata,
+    visualSignals: visualSignals([
+      { start: 204, end: 205.5, type: "shot_contact", confidence: 0.9 },
+      { start: 205, end: 207, type: "ball_toward_goal", confidence: 0.88 },
+      { start: 208, end: 210, type: "goal_mouth_visible", confidence: 0.82 },
+    ]),
+    scoreboardOcr: [{
+      timestamp: 221,
+      status: "score_changed",
+      scoreBefore: "1-1",
+      scoreAfter: "2-1",
+      confidence: 0.94,
+      temporalConsistency: true,
+    }],
+    ocrQaCalibration: strongOcrQaCalibration(),
+    goalEvidence: goalEvidence([{
+      id: "scoreboard_backed_late_goal",
+      start: 204,
+      end: 222,
+      confidence: 0.88,
+      outcomeHint: "valid_goal",
+      reasonCodes: ["scoreboard_backed_goal_sequence", "shot_sequence_support", "scoreboard_ocr_score_change"],
+      scoreboardGoalConfirmed: true,
+      scoreboardBackedGoalSequence: true,
+    }]),
+  });
+
+  assert.equal(result.summary.confirmedGoalCount, 1);
+  assert.equal(result.summary.lateConfirmedGoalCount, 1);
+  assert.equal(result.summary.noFalseGoalFromOcrOnly, 1);
+  assert.equal(result.events[0].type, "confirmed_goal");
+  assert.ok(result.events[0].evidenceCodes.includes("scoreboard_backed_goal_sequence"));
+  assert.ok(result.events[0].missingEvidence.every((code) => code !== "ball_in_net_evidence"));
+});
+
 test("classifies ball-in-net plus offside/decision evidence as disallowed", () => {
   const result = analyzeMatchEventTruth({
     metadata,

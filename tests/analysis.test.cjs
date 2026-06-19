@@ -1364,6 +1364,66 @@ test("valid-goals-only keeps full-source late confirmed goals before early fille
   assert.doesNotMatch(captionText, /BIG CHANCE|SHOT OPENS UP|CHANCE OPENS|EVERY BIG MOMENT/i);
 });
 
+test("valid-goals-only plan keeps every confirmed goal, excludes offside goals, and adds smooth transitions", () => {
+  const longMetadata = { durationSeconds: 360, width: 1920, height: 1080, hasAudio: true };
+  const truth = matchEventTruthFixture([
+    { sourceStart: 58, sourceEnd: 75.2, shotStart: 58, payoffStart: 62.2, payoffEnd: 63.8, decisionStart: 74.6, decisionEnd: 75.2 },
+    { sourceStart: 178, sourceEnd: 195, shotStart: 178, payoffStart: 182.2, payoffEnd: 183.8, decisionStart: 194.4, decisionEnd: 195 },
+    { sourceStart: 304, sourceEnd: 323, shotStart: 304, payoffStart: 308.2, payoffEnd: 309.8, decisionStart: 322.4, decisionEnd: 323 },
+  ], longMetadata.durationSeconds);
+  truth.selectedEvents.push({
+    id: "truth_offside_goal",
+    type: "disallowed_offside",
+    outcome: "disallowed_offside",
+    confidence: 0.9,
+    sourceStart: 112,
+    sourceEnd: 130.8,
+    buildupWindow: { start: 108, end: 112 },
+    shotWindow: { start: 112, end: 116.2 },
+    payoffWindow: { start: 116.2, end: 117.8 },
+    decisionWindow: { start: 125, end: 130.8 },
+    evidenceCodes: ["visual_shot_contact", "visual_ball_toward_goal", "visual_ball_in_net", "visual_offside_flag", "scoreboard_ocr_score_unchanged"],
+    missingEvidence: [],
+    safetyFlags: ["no_confirmed_goal_caption"],
+    captionIntent: "offside_no_goal_caption",
+    renderPriority: 740,
+  });
+
+  const plans = createCandidateEditPlans({
+    moments: [],
+    metadata: { ...longMetadata, goalSelectionMode: "valid_goals_only" },
+    transcript: { captions: [] },
+    matchEventTruth: truth,
+    title: "Mixed valid and offside goals",
+    editIntensity: "balanced",
+    stylePreset: "punchy_highlight",
+  });
+  const plan = validateEditPlan(plans[0], longMetadata);
+  const segments = plan.segments;
+  const overlaps = (segment, window) => Math.max(0, Math.min(segment.sourceEnd, window.end) - Math.max(segment.sourceStart, window.start));
+
+  assert.equal(plan.mode, "multi_moment_compilation");
+  assert.equal(plan.goalSelectionMode, "valid_goals_only");
+  assert.equal(segments.length, 3);
+  assert.ok(segments.every((segment) => segment.highlightType === "goal"));
+  assert.ok(segments.every((segment) => segment.goalOutcome.outcome === "confirmed_goal"));
+  assert.ok(segments.every((segment) => segment.goalOutcome.offsideStatus === "onside"));
+  assert.ok(segments.some((segment) => segment.sourceStart <= 58 && segment.sourceEnd >= 75.2));
+  assert.ok(segments.some((segment) => segment.sourceStart <= 178 && segment.sourceEnd >= 195));
+  assert.ok(segments.some((segment) => segment.sourceStart <= 304 && segment.sourceEnd >= 323));
+  assert.equal(segments.some((segment) => overlaps(segment, { start: 112, end: 130.8 }) >= 1), false);
+  assert.deepEqual(
+    segments.map((segment) => segment.sourceStart),
+    [...segments.map((segment) => segment.sourceStart)].sort((a, b) => a - b),
+  );
+  assert.ok(segments.every((segment) => segment.duration >= 10 && segment.duration <= 30));
+  assert.equal(plan.transitionPlan.length, 2);
+  assert.ok(plan.transitionPlan.every((transition) => transition.type === "short_fade"));
+  assert.equal(plan.reviewMetadata.multiMoment.smoothTransitionCoverage, 1);
+  assert.equal(plan.reviewMetadata.multiMoment.validGoalsOnly, true);
+  assert.doesNotMatch(plan.captions.map((caption) => caption.text).join(" "), /OFFSIDE|NO GOAL|BIG CHANCE/i);
+});
+
 test("valid-goals-only selection returns no plan for chance-only long sources", () => {
   const result = detectHighlights({
     transcript: {

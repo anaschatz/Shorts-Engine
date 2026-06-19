@@ -165,6 +165,68 @@ test("scoreboard OCR score change confirms goal only with temporal consistency a
   assert.equal(goalEvidence.events[0].scoreboardGoalConfirmed, true);
 });
 
+test("scoreboard OCR score change can recover a missed ball-in-net goal only with nearby shot evidence", () => {
+  const goalEvidence = deterministicGoalEvidence({
+    metadata: { ...metadata, durationSeconds: 140 },
+    transcript: {
+      captions: [{ start: 96.8, end: 98.1, text: "The scoreboard changes after the finish" }],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [
+        { start: 82, end: 83.4, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.9 },
+        { start: 84.2, end: 85.5, types: ["goal_mouth_visible"], confidence: 0.82 },
+      ],
+    },
+    scoreboardOcr: [{
+      timestamp: 97,
+      scoreBefore: "1-1",
+      scoreAfter: "2-1",
+      status: "score_changed",
+      temporalConsistency: true,
+      confidence: 0.9,
+    }],
+    ocrQaCalibration: strongOcrQaCalibration(),
+  });
+
+  const recoveredGoal = goalEvidence.events.find((event) => event.outcomeHint === "valid_goal");
+  assert.equal(goalEvidence.summary.validGoalCount, 1);
+  assert.ok(recoveredGoal);
+  assert.equal(recoveredGoal.ballInNetEvidence, false);
+  assert.equal(recoveredGoal.scoreboardBackedGoalSequence, true);
+  assert.ok(recoveredGoal.reasonCodes.includes("scoreboard_backed_goal_sequence"));
+  assert.ok(recoveredGoal.reasonCodes.includes("scoreboard_ocr_score_change"));
+});
+
+test("scoreboard OCR score change alone remains non-goal without nearby shot evidence", () => {
+  const goalEvidence = deterministicGoalEvidence({
+    metadata: { ...metadata, durationSeconds: 140 },
+    transcript: {
+      captions: [{ start: 96.8, end: 98.1, text: "The scoreboard changes" }],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [
+        { start: 92, end: 94, types: ["crowd_reaction"], confidence: 0.82 },
+      ],
+    },
+    scoreboardOcr: [{
+      timestamp: 97,
+      scoreBefore: "1-1",
+      scoreAfter: "2-1",
+      status: "score_changed",
+      temporalConsistency: true,
+      confidence: 0.9,
+    }],
+    ocrQaCalibration: strongOcrQaCalibration(),
+  });
+
+  assert.equal(goalEvidence.summary.validGoalCount, 0);
+  assert.equal(goalEvidence.events.some((event) => event.reasonCodes.includes("scoreboard_backed_goal_sequence")), false);
+});
+
 test("ambiguous OCR does not promote a ball-in-net moment to valid goal", () => {
   const goalEvidence = deterministicGoalEvidence({
     metadata,

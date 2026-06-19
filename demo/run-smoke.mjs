@@ -15,7 +15,7 @@ import { findSensitiveLeak, hasSensitiveLeak, safeError } from "./report-safety.
 const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const RESULTS_DIR = resolve(ROOT_DIR, "demo", "results");
 const DEFAULT_TIMEOUT_MS = 90_000;
-const HEALTH_TIMEOUT_MS = 15_000;
+const HEALTH_TIMEOUT_MS = 45_000;
 const REQUEST_TIMEOUT_MS = 8_000;
 const JOB_TIMEOUT_MS = 75_000;
 const POLL_INTERVAL_MS = 500;

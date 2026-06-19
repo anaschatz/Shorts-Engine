@@ -1821,6 +1821,9 @@ function goalEvidenceContextForProviderEvent(event = null) {
   const reasonSet = new Set(reasonCodes);
   const outcomeHint = sanitizeText(event.outcomeHint || "", 48);
   const hasBallInNet = Boolean(event.ballInNetEvidence || reasonSet.has("ball_in_net") || reasonSet.has("visual_ball_in_net"));
+  const hasScoreboardBackedGoalSequence = reasonSet.has("scoreboard_backed_goal_sequence") &&
+    reasonSet.has("shot_sequence_support") &&
+    reasonSet.has("scoreboard_ocr_score_change");
   const goalClaimAllowed = outcomeHint === "valid_goal";
   const disallowedOrNoGoal = outcomeHint === "offside_goal" || outcomeHint === "no_goal";
   const evidenceLevel = goalClaimAllowed || disallowedOrNoGoal
@@ -1835,7 +1838,7 @@ function goalEvidenceContextForProviderEvent(event = null) {
     hasBallTowardGoal: reasonSet.has("shot_sequence_support") || reasonSet.has("visual_ball_toward_goal"),
     hasGoalMouthFrame: reasonSet.has("visual_goal_mouth") || reasonSet.has("visual_scoreboard_goal_confirmed"),
     hasKeeperAction: reasonSet.has("visual_keeper_action"),
-    hasBallInNetOrLineCross: hasBallInNet,
+    hasBallInNetOrLineCross: hasBallInNet || hasScoreboardBackedGoalSequence,
     hasCelebrationAfterShot: reasonSet.has("celebration_only"),
     hasSupportingReaction: Boolean(event.crowdReactionSupport),
     explicitTextGoal: Boolean(event.commentatorGoalCall),
@@ -1852,6 +1855,8 @@ function goalEvidenceContextForProviderEvent(event = null) {
 function matchEventTruthGoalEvidence(event = {}) {
   const reasonCodes = Array.isArray(event.evidenceCodes) ? event.evidenceCodes : [];
   const reasonSet = new Set(reasonCodes);
+  const hasScoreboardBackedGoalSequence = reasonSet.has("scoreboard_backed_goal_sequence") &&
+    reasonSetHasAny(reasonSet, ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency", "visual_scoreboard_goal_confirmed"]);
   const isGoalDecision = ["confirmed_goal", "disallowed_offside", "disallowed_no_goal", "possible_goal_unconfirmed"].includes(event.type);
   const goalClaimAllowed = event.type === "confirmed_goal";
   return {
@@ -1859,7 +1864,7 @@ function matchEventTruthGoalEvidence(event = {}) {
     hasBallTowardGoal: reasonSetHasAny(reasonSet, ["visual_ball_toward_goal", "shot_sequence_support"]),
     hasGoalMouthFrame: reasonSetHasAny(reasonSet, ["visual_goal_mouth", "visual_goal_area", "visual_scoreboard_goal_confirmed"]),
     hasKeeperAction: reasonSet.has("visual_keeper_action"),
-    hasBallInNetOrLineCross: reasonSetHasAny(reasonSet, ["ball_in_net", "visual_ball_in_net"]),
+    hasBallInNetOrLineCross: reasonSetHasAny(reasonSet, ["ball_in_net", "visual_ball_in_net"]) || hasScoreboardBackedGoalSequence,
     hasCelebrationAfterShot: reasonSet.has("visual_celebration_after_shot"),
     hasSupportingReaction: reasonSetHasAny(reasonSet, ["crowd_reaction_support", "visual_crowd_reaction", "audio_energy_spike"]),
     explicitTextGoal: reasonSetHasAny(reasonSet, ["confirmed_by_commentary", "commentator_goal_call_support"]),
@@ -2658,8 +2663,9 @@ function truthGoalReasonCodes(event = {}) {
   const evidenceCodes = Array.isArray(event.evidenceCodes) ? event.evidenceCodes : [];
   return [...new Set([
     "goal",
-    "visual_ball_in_net",
+    evidenceCodes.includes("scoreboard_backed_goal_sequence") ? "scoreboard_backed_goal_sequence" : "visual_ball_in_net",
     ...evidenceCodes.filter((code) => (
+      code === "scoreboard_backed_goal_sequence" ||
       code === "ball_in_net" ||
       code === "visual_ball_in_net" ||
       code === "visual_shot_contact" ||
@@ -2720,6 +2726,7 @@ function truthGoalOutcomeForEvent(event = {}) {
   if (evidenceSet.has("scoreboard_ocr_score_change") || evidenceSet.has("scoreboard_temporal_consistency")) {
     decisionEvidence.push("scoreboard_goal_confirmed");
   }
+  if (evidenceSet.has("scoreboard_backed_goal_sequence")) decisionEvidence.push("scoreboard_backed_goal_sequence");
   if (evidenceSet.has("visual_scoreboard_goal_confirmed")) decisionEvidence.push("visual_scoreboard_goal_confirmed");
   if (evidenceSet.has("visual_referee_goal_signal")) decisionEvidence.push("visual_referee_goal_signal");
   if (evidenceSet.has("confirmed_by_commentary")) decisionEvidence.push("confirmed_by_commentary");
@@ -2949,9 +2956,13 @@ function isConfirmedGoalCandidate(candidate = {}) {
   const goalOutcome = candidate.goalOutcome || goalOutcomeForMoment(moment);
   const reasonSet = new Set(reasonCodes);
   const hasBallInNetEvidence = reasonSet.has("visual_ball_in_net") || reasonSet.has("ball_in_net");
-  const hasActionEvidence = hasBallInNetEvidence && (
+  const hasScoreboardBackedGoalEvidence = reasonSet.has("scoreboard_backed_goal_sequence") &&
+    (reasonSet.has("scoreboard_ocr_score_change") || reasonSet.has("scoreboard_temporal_consistency"));
+  const hasGoalEventEvidence = hasBallInNetEvidence || hasScoreboardBackedGoalEvidence;
+  const hasActionEvidence = hasGoalEventEvidence && (
     reasonSet.has("visual_shot_contact") ||
     reasonSet.has("visual_ball_toward_goal") ||
+    reasonSet.has("visual_shot_like_motion") ||
     reasonSet.has("shot_sequence_support") ||
     (
       moment.actionSequenceSummary &&
@@ -3019,9 +3030,9 @@ function compilationHandlesForCandidate(candidate = {}) {
     const sourceEnd = Number(candidate.sourceEnd ?? moment.end);
     const decisionTimestamp = Number(goalOutcome && goalOutcome.decisionTimestamp);
     const decisionPost = Number.isFinite(decisionTimestamp) && Number.isFinite(sourceEnd) && decisionTimestamp > sourceEnd
-      ? decisionTimestamp - sourceEnd + 1.2
-      : 4.2;
-    return { pre: 0.6, post: Number(clamp(Math.max(4.2, decisionPost), 4.2, 5.5).toFixed(2)) };
+      ? decisionTimestamp - sourceEnd + 0.8
+      : 0.75;
+    return { pre: 0.25, post: Number(clamp(Math.max(0.75, decisionPost), 0.75, 1.6).toFixed(2)) };
   }
   if (isGoalCoverageCandidate(candidate)) {
     return goalOutcome && goalOutcome.requiresPostContext
@@ -3335,6 +3346,19 @@ function animationCuesForCompilation(segments, totalDuration, reasonCodes = []) 
   return cues.filter((cue) => cue.end > cue.start).slice(0, 10);
 }
 
+function transitionPlanForCompilation(segments = []) {
+  return (Array.isArray(segments) ? segments : []).slice(1).map((segment, index) => ({
+    fromSegmentId: sanitizeText(segments[index] && segments[index].id || `segment_${index + 1}`, 64),
+    toSegmentId: sanitizeText(segment.id || `segment_${index + 2}`, 64),
+    timelineStart: Number(Math.max(0, Number(segment.timelineStart || 0)).toFixed(2)),
+    type: "short_fade",
+    cutStyle: "smooth_beat_cut",
+    fadeOutSeconds: 0.22,
+    fadeInSeconds: 0.18,
+    reasonCode: "smooth_goal_sequence_transition",
+  }));
+}
+
 function selectCompilationCandidates(singleCandidates = [], metadata = {}) {
   const mediaDuration = Number(metadata.durationSeconds || 0);
   if (mediaDuration < MULTI_MOMENT_COMPILATION.minSourceDuration) return [];
@@ -3450,6 +3474,7 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
   const totalDuration = Number(cursor.toFixed(2));
   const reasonCodes = uniqueReasonCodes(selectedCandidates);
   const captions = captionsForCompilation(segments, totalDuration);
+  const transitionPlan = transitionPlanForCompilation(segments);
   const primary = selectedCandidates.find((candidate) => hasPrimaryMomentAction(candidate.analysisMoment)) || selectedCandidates[0];
   const compilationHook = openingCaptionTextForCompilation(segments);
   const compilationClosing = closingCaptionTextForCompilation(segments);
@@ -3465,6 +3490,12 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
     sourceStart: segments[0].sourceStart,
     sourceEnd: Math.max(...segments.map((segment) => segment.sourceEnd)),
     segments,
+    transitionPlan,
+    goalSelectionMode: segments.every((segment) => (
+      segment.highlightType === "goal" &&
+      segment.goalOutcome &&
+      segment.goalOutcome.outcome === "confirmed_goal"
+    )) ? GOAL_SELECTION_MODES.validGoalsOnly : GOAL_SELECTION_MODES.balanced,
     totalDuration,
     aspectRatio: primary.aspectRatio || "9:16",
     highlightType: "generic_highlight",
@@ -3542,6 +3573,8 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
         maxCueCount: 10,
         excessiveFlashingGuard: true,
         evidenceAlignedOnly: true,
+        transitionCount: transitionPlan.length,
+        transitionStyle: transitionPlan.length ? "short_fade" : "single_segment",
       },
       animationCues: animationCuesForCompilation(segments, totalDuration, reasonCodes),
       aspectRatio: primary.aspectRatio || "9:16",
@@ -3619,6 +3652,13 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
           whySelected: segment.whySelected,
           safetyFlags: segment.safetyFlags,
         })),
+        transitionPlan,
+        validGoalsOnly: segments.every((segment) => (
+          segment.highlightType === "goal" &&
+          segment.goalOutcome &&
+          segment.goalOutcome.outcome === "confirmed_goal"
+        )),
+        smoothTransitionCoverage: segments.length <= 1 ? 1 : Number((transitionPlan.length / (segments.length - 1)).toFixed(2)),
       },
     },
   };

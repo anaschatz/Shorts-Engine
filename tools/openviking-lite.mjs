@@ -1,11 +1,14 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync, appendFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, appendFileSync, unlinkSync } from "node:fs";
 import { join, relative, dirname, basename, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const CWD = process.cwd();
 const BRAIN_ROOT = join(CWD, "viking-brain");
 const URI_ROOT = "viking://matchcuts";
+const MAX_READ_BYTES = 4 * 1024;
+const DEFAULT_MAX_SEARCH_FILES = 24;
+const DEFAULT_MAX_SEARCH_NODES = 96;
 const STOP_WORDS = new Set([
   "the",
   "and",
@@ -792,25 +795,21 @@ function ensureDir(path) {
 
 function writeIfMissing(path, content, refresh = false) {
   ensureDir(dirname(path));
-  if (refresh && existsSync(path)) {
-    try {
-      renameSync(path, `${path}.refresh-backup-${Date.now()}`);
-    } catch {
-      // Leave the old file in place if it cannot be moved; the write below will fail visibly.
-    }
+  const nextContent = `${content.trim()}\n`;
+  if (existsSync(path)) {
+    if (!refresh) return;
+    if (readMaybe(path) === nextContent) return;
   }
-  if (refresh || !existsSync(path)) {
-    writeFileSync(path, `${content.trim()}\n`, "utf8");
-  }
+  writeFileSync(path, nextContent, "utf8");
 }
 
-function rotateGeneratedFiles(dir, shouldRotate) {
+function removeGeneratedFiles(dir, shouldRemove) {
   if (!existsSync(dir)) return;
   for (const name of readdirSync(dir)) {
-    if (!shouldRotate(name)) continue;
+    if (!shouldRemove(name)) continue;
     const source = join(dir, name);
     try {
-      renameSync(source, `${source}.refresh-backup-${Date.now()}`);
+      unlinkSync(source);
     } catch {
       // Best-effort cleanup of generated brain artifacts before deterministic refresh.
     }
@@ -826,8 +825,8 @@ function initBrain({ refresh = false } = {}) {
   ensureDir(join(BRAIN_ROOT, "agent", "matchcuts-ai", "memories", "sessions"));
   ensureDir(join(BRAIN_ROOT, "trajectories"));
   if (refresh) {
-    rotateGeneratedFiles(join(BRAIN_ROOT, "sessions", "inbox"), (name) => name.endsWith(".jsonl"));
-    rotateGeneratedFiles(join(BRAIN_ROOT, "trajectories"), (name) => name.endsWith(".json") || name.endsWith(".html"));
+    removeGeneratedFiles(join(BRAIN_ROOT, "sessions", "inbox"), (name) => name.endsWith(".jsonl"));
+    removeGeneratedFiles(join(BRAIN_ROOT, "trajectories"), (name) => name.endsWith(".json") || name.endsWith(".html"));
   }
   return { root: BRAIN_ROOT, files: seedFiles.length };
 }
@@ -852,7 +851,7 @@ function tokenize(text) {
 function readMaybe(path) {
   if (!existsSync(path)) return "";
   try {
-    return readFileSync(path, "utf8");
+    return readFileSync(path, "utf8").slice(0, MAX_READ_BYTES);
   } catch {
     return "";
   }
@@ -904,7 +903,9 @@ function summarizeFile(path) {
   return content.split(/\n+/).slice(0, 8).join(" ").slice(0, 320);
 }
 
-function searchDirectory(dir, queryTokens, options, trace, depth = 0) {
+function searchDirectory(dir, queryTokens, options, trace, depth = 0, state = { visited: new Set(), files: 0 }) {
+  if (state.visited.has(dir) || trace.nodes.length >= options.maxNodes) return [];
+  state.visited.add(dir);
   const abstract = readMaybe(join(dir, ".abstract"));
   const overview = readMaybe(join(dir, ".overview"));
   const dirScore = scoreText(queryTokens, `${abstract}\n${overview}\n${basename(dir)}`);
@@ -918,7 +919,7 @@ function searchDirectory(dir, queryTokens, options, trace, depth = 0) {
     decision: depth === 0 || dirScore >= options.directoryThreshold ? "explore" : "scan-lightly",
     children: [],
   };
-  trace.nodes.push(node);
+  if (trace.nodes.length < options.maxNodes) trace.nodes.push(node);
 
   const results = [];
   const entries = listEntries(dir);
@@ -926,6 +927,8 @@ function searchDirectory(dir, queryTokens, options, trace, depth = 0) {
   const files = entries.filter((entry) => statSync(entry).isFile() && ![".abstract", ".overview"].includes(basename(entry)));
 
   for (const file of files) {
+    if (state.files >= options.maxFiles || trace.nodes.length >= options.maxNodes) break;
+    state.files += 1;
     const content = readMaybe(file);
     const fileScore = scoreText(queryTokens, `${basename(file)}\n${content}`);
     const fileResult = {
@@ -936,13 +939,15 @@ function searchDirectory(dir, queryTokens, options, trace, depth = 0) {
       layer: "L2",
       summary: summarizeFile(file),
     };
-    trace.nodes.push({
-      type: "file",
-      uri: fileResult.uri,
-      depth: depth + 1,
-      score: fileScore,
-      decision: fileScore > 0 ? "candidate" : "low-signal",
-    });
+    if (trace.nodes.length < options.maxNodes) {
+      trace.nodes.push({
+        type: "file",
+        uri: fileResult.uri,
+        depth: depth + 1,
+        score: fileScore,
+        decision: fileScore > 0 ? "candidate" : "low-signal",
+      });
+    }
     if (fileScore > 0) results.push(fileResult);
   }
 
@@ -954,8 +959,9 @@ function searchDirectory(dir, queryTokens, options, trace, depth = 0) {
     .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
 
   for (const child of sortedDirs) {
+    if (trace.nodes.length >= options.maxNodes) break;
     if (depth + 1 > options.maxDepth) continue;
-    const childResults = searchDirectory(child.path, queryTokens, options, trace, depth + 1);
+    const childResults = searchDirectory(child.path, queryTokens, options, trace, depth + 1, state);
     results.push(...childResults);
   }
 
@@ -1028,6 +1034,8 @@ function findContext(query, options = {}) {
   const searchOptions = {
     maxDepth: Number(options.maxDepth || 3),
     directoryThreshold: Number(options.directoryThreshold || 0.01),
+    maxFiles: Number(options.maxFiles || DEFAULT_MAX_SEARCH_FILES),
+    maxNodes: Number(options.maxNodes || DEFAULT_MAX_SEARCH_NODES),
   };
   const results = searchDirectory(BRAIN_ROOT, queryTokens, searchOptions, trace)
     .sort((a, b) => b.score - a.score || a.uri.localeCompare(b.uri))
