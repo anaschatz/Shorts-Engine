@@ -1,7 +1,7 @@
 const { createServer } = require("node:http");
 const { randomUUID } = require("node:crypto");
 const { existsSync, createReadStream, readFileSync, statSync } = require("node:fs");
-const { extname } = require("node:path");
+const { extname, isAbsolute, join, relative, resolve } = require("node:path");
 const { URL } = require("node:url");
 const { CONFIG, ensureDataDirs } = require("./config.cjs");
 const {
@@ -117,6 +117,22 @@ const HUMAN_REVIEW_PUBLIC_FLAGS = Object.freeze([
   "lowEnergy",
   "missingTrendEditing",
 ]);
+
+function safeRootRelativePath(filePath) {
+  const fromRoot = relative(CONFIG.rootDir, resolve(filePath)).replace(/\\/g, "/");
+  if (!fromRoot || fromRoot.startsWith("../") || fromRoot === ".." || isAbsolute(fromRoot)) {
+    throw new AppError("STORAGE_PATH_UNSAFE", "Review records must stay inside the workspace.", 500);
+  }
+  return fromRoot;
+}
+
+function reviewRecordRefs(projectId) {
+  return {
+    projectRecord: safeRootRelativePath(join(CONFIG.projectDir, `${projectId}.json`)),
+    renderRecord: safeRootRelativePath(join(CONFIG.projectDir, `${projectId}.render.json`)),
+  };
+}
+
 const restoredState = persistenceAdapter.restoreState();
 function restoreSummary(value) {
   if (value && typeof value === "object") {
@@ -943,6 +959,7 @@ async function handleReviewRegister(req, res, rid) {
     projectId,
     jobId,
     exportId,
+    ...reviewRecordRefs(projectId),
     rightsConfirmed: payload.rightsConfirmed,
     reference: payload.reference,
     reviewerNotes: payload.reviewerNotes,
@@ -987,6 +1004,7 @@ async function handleReviewRegenerationPlan(req, res, rid) {
     projectId,
     jobId,
     exportId,
+    ...reviewRecordRefs(projectId),
     rightsConfirmed: payload.rightsConfirmed,
     reference: payload.reference,
     reviewerNotes: payload.reviewerNotes,
@@ -1032,6 +1050,7 @@ async function handleReviewRegenerationApproval(req, res, rid) {
   const sourceJobId = validateRouteId(payload.sourceJobId || payload.jobId, "job");
   const exportId = validateRouteId(payload.exportId, "exp");
   const regenerationPlanId = validateRouteId(payload.regenerationPlanId, "regen");
+  const recordRefs = reviewRecordRefs(projectId);
   const result = approveRegenerationDraft({
     request: {
       projectId,
@@ -1049,6 +1068,8 @@ async function handleReviewRegenerationApproval(req, res, rid) {
       reference: payload.reference,
     },
     rootDir: CONFIG.rootDir,
+    projectRecord: recordRefs.projectRecord,
+    renderRecord: recordRefs.renderRecord,
     persistenceAdapter,
     regenerationDraftRepository,
     regenerationApprovalRepository,

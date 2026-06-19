@@ -1,6 +1,16 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { existsSync, unlinkSync } = require("node:fs");
+const { existsSync, mkdirSync, mkdtempSync, rmSync, unlinkSync } = require("node:fs");
+const { resolve } = require("node:path");
+
+const TEST_TMP_ROOT = resolve(__dirname, "..", "tmp");
+mkdirSync(TEST_TMP_ROOT, { recursive: true });
+const TEST_DATA_DIR = mkdtempSync(resolve(TEST_TMP_ROOT, "artifact-cleanup-data-"));
+process.env.MATCHCUTS_DATA_DIR = TEST_DATA_DIR;
+
+test.after(() => {
+  rmSync(TEST_DATA_DIR, { recursive: true, force: true });
+});
 
 const { ArtifactCleanupWorker } = require("../server/artifact-cleanup-worker.cjs");
 const { JobStore } = require("../server/jobs.cjs");

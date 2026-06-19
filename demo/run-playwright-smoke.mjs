@@ -3,8 +3,10 @@ import { createServer } from "node:net";
 import {
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readdirSync,
   renameSync,
+  rmSync,
   statSync,
   unlinkSync,
   writeFileSync,
@@ -27,6 +29,7 @@ const PLAYWRIGHT_LATEST = resolve(RESULTS_DIR, "playwright-latest.json");
 const PLAYWRIGHT_ARTIFACTS_DIR = resolve(RESULTS_DIR, "playwright-artifacts");
 const DEFAULT_TIMEOUT_MS = 120_000;
 const HEALTH_TIMEOUT_MS = 15_000;
+const REQUEST_TIMEOUT_MS = 8_000;
 const JOB_TIMEOUT_MS = 90_000;
 const DEFAULT_RETENTION_COUNT = 20;
 const YOUTUBE_LIVE_BROWSER_FLAG = "SHORTSENGINE_YOUTUBE_LIVE_E2E_BROWSER";
@@ -37,13 +40,40 @@ const VIEWPORTS = Object.freeze([
   { name: "mobile", width: 390, height: 844 },
 ]);
 const SAFE_ARTIFACT_EXTENSIONS = new Set([".png", ".zip", ".webm"]);
+const SERVER_FAILURE_NEXT_ACTIONS = Object.freeze({
+  SERVER_BIND_FAILED: "free-local-port-or-set-PLAYWRIGHT_SMOKE_PORT",
+  SERVER_HEALTH_DEGRADED: "inspect-health-readiness-and-runtime-tools",
+  SERVER_HEALTH_NON_200: "inspect-server-health-response",
+  SERVER_HEALTH_TIMEOUT: "inspect-server-startup-and-localhost-access",
+  SERVER_PROCESS_EXITED: "inspect-server-startup-events",
+  SERVER_START_TIMEOUT: "inspect-server-startup-and-port-access",
+  PLAYWRIGHT_SMOKE_TIMEOUT: "increase-timeout-or-debug-browser-smoke-step",
+});
 
 function nowIso() {
   return new Date().toISOString();
 }
 
-function delay(ms) {
-  return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
+function abortError(code = "PLAYWRIGHT_SMOKE_ABORTED", message = "Playwright smoke was aborted.") {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
+function throwIfAborted(signal, code = "PLAYWRIGHT_SMOKE_ABORTED") {
+  if (signal?.aborted) throw abortError(code);
+}
+
+function delay(ms, signal) {
+  if (!signal) return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
+  return new Promise((resolveDelay, rejectDelay) => {
+    const timeoutId = setTimeout(resolveDelay, ms);
+    const onAbort = () => {
+      clearTimeout(timeoutId);
+      rejectDelay(abortError("PLAYWRIGHT_SMOKE_TIMEOUT", "Playwright smoke exceeded its bounded timeout."));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 function addCheck(checks, name, passed, details = {}) {
@@ -209,7 +239,14 @@ function cleanupPlaywrightArtifacts({ outputDir = RESULTS_DIR, artifactsDir = PL
 }
 
 async function requestJson(baseUrl, path, options = {}) {
-  const response = await fetch(`${baseUrl}${path}`, options);
+  const controller = options.signal ? null : new AbortController();
+  const timeoutId = controller ? setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS) : null;
+  if (timeoutId && typeof timeoutId.unref === "function") timeoutId.unref();
+  const response = await fetch(`${baseUrl}${path}`, {
+    ...options,
+    signal: options.signal || controller?.signal,
+  });
+  if (timeoutId) clearTimeout(timeoutId);
   const payload = await response.json().catch(() => null);
   return {
     ok: response.ok && payload && payload.ok === true,
@@ -234,11 +271,15 @@ async function getFreePort() {
 }
 
 function startServer(port, extraEnv = {}) {
+  const tmpRoot = resolve(ROOT_DIR, "tmp");
+  mkdirSync(tmpRoot, { recursive: true });
+  const dataDir = mkdtempSync(resolve(tmpRoot, "shortsengine-playwright-data-"));
   const child = spawn(process.execPath, ["server/app.cjs"], {
     cwd: ROOT_DIR,
     env: {
       ...process.env,
       ...extraEnv,
+      MATCHCUTS_DATA_DIR: dataDir,
       PORT: String(port),
       MATCHCUTS_TRANSCRIPTION_PROVIDER: "mock",
     },
@@ -266,33 +307,101 @@ function startServer(port, extraEnv = {}) {
   };
   child.stdout.on("data", (chunk) => collect(chunk, "stdout"));
   child.stderr.on("data", (chunk) => collect(chunk, "stderr"));
-  return { child, events };
+  return { child, dataDir, events };
 }
 
-async function stopServer(child) {
-  if (!child || child.exitCode !== null || child.signalCode) return;
-  child.kill("SIGTERM");
-  await Promise.race([
-    new Promise((resolveStop) => child.once("exit", resolveStop)),
-    delay(2500).then(() => {
-      if (child.exitCode === null && !child.signalCode) child.kill("SIGKILL");
-    }),
-  ]);
+async function stopServer(child, dataDir = null) {
+  if (child && child.exitCode === null && !child.signalCode) {
+    child.kill("SIGTERM");
+    await Promise.race([
+      new Promise((resolveStop) => child.once("exit", resolveStop)),
+      delay(2500).then(() => {
+        if (child.exitCode === null && !child.signalCode) child.kill("SIGKILL");
+      }),
+    ]);
+  }
+  if (dataDir) {
+    try {
+      rmSync(dataDir, { recursive: true, force: true });
+    } catch {
+      // Best-effort cleanup for isolated browser smoke storage.
+    }
+  }
 }
 
-async function waitForHealth(baseUrl, timeoutMs = HEALTH_TIMEOUT_MS) {
+function childExited(child) {
+  return Boolean(child && (child.exitCode !== null || child.signalCode));
+}
+
+function serverFailureCode(server = null, fallback = "SERVER_HEALTH_TIMEOUT") {
+  const events = server?.events || [];
+  const bindFailure = events.find((event) => (
+    event?.event === "server_listen_failed" ||
+    ["EADDRINUSE", "EACCES", "EPERM"].includes(event?.code)
+  ));
+  if (bindFailure) return "SERVER_BIND_FAILED";
+  if (childExited(server?.child)) return "SERVER_PROCESS_EXITED";
+  return fallback;
+}
+
+function serverFailureMessage(code) {
+  if (code === "SERVER_BIND_FAILED") return "Local server could not bind to the browser smoke port.";
+  if (code === "SERVER_PROCESS_EXITED") return "Local server exited before health became ready.";
+  if (code === "SERVER_HEALTH_DEGRADED") return "Local server health is degraded.";
+  if (code === "SERVER_HEALTH_NON_200") return "Local server health returned a non-success status.";
+  if (code === "SERVER_START_TIMEOUT") return "Local server did not become reachable before timeout.";
+  return "Local server health did not become ready before timeout.";
+}
+
+function healthFailure(code, details = {}) {
+  return {
+    ok: false,
+    status: Number.isFinite(Number(details.status)) ? Number(details.status) : null,
+    code,
+    message: serverFailureMessage(code),
+    nextAction: SERVER_FAILURE_NEXT_ACTIONS[code] || "inspect-playwright-smoke-report",
+  };
+}
+
+function isHealthReady(health) {
+  return Boolean(health && health.ok && health.payload?.data?.status === "ready");
+}
+
+function healthCheckDetails(health) {
+  const code = health?.code || (health?.ok ? "SERVER_HEALTH_DEGRADED" : "SERVER_HEALTH_TIMEOUT");
+  return {
+    code,
+    status: health?.payload?.data?.status || null,
+    httpStatus: health?.status || null,
+    nextAction: health?.nextAction || SERVER_FAILURE_NEXT_ACTIONS[code] || "inspect-playwright-smoke-report",
+  };
+}
+
+async function waitForHealth(baseUrl, { server = null, signal = null, timeoutMs = HEALTH_TIMEOUT_MS } = {}) {
   const started = Date.now();
   let last = null;
   while (Date.now() - started < timeoutMs) {
+    throwIfAborted(signal, "PLAYWRIGHT_SMOKE_TIMEOUT");
+    if (childExited(server?.child)) {
+      const code = serverFailureCode(server, "SERVER_PROCESS_EXITED");
+      return healthFailure(code);
+    }
     try {
-      last = await requestJson(baseUrl, "/health");
-      if (last.ok) return last;
+      last = await requestJson(baseUrl, "/health", { signal });
+      if (last.ok) {
+        if (last.payload?.data?.status === "ready") return last;
+        return { ...last, code: "SERVER_HEALTH_DEGRADED", nextAction: SERVER_FAILURE_NEXT_ACTIONS.SERVER_HEALTH_DEGRADED };
+      }
+      if (last.status && last.status >= 400) {
+        return { ...last, ...healthFailure("SERVER_HEALTH_NON_200", { status: last.status }) };
+      }
     } catch (error) {
       last = { ok: false, error: safeError(error) };
     }
-    await delay(300);
+    await delay(300, signal);
   }
-  return last || { ok: false, error: { code: "HEALTH_TIMEOUT", message: "Health endpoint did not respond." } };
+  const code = serverFailureCode(server, last ? "SERVER_HEALTH_TIMEOUT" : "SERVER_START_TIMEOUT");
+  return healthFailure(code);
 }
 
 async function resolvePlaywrightRuntime(options = {}) {
@@ -692,19 +801,29 @@ async function runPlaywrightSmoke(options = {}) {
   let traceStarted = false;
   const notes = [];
   let youtubeLive = null;
+  const abortCleanup = () => {
+    if (context) context.close().catch(() => {});
+    if (browser) browser.close().catch(() => {});
+    if (server) stopServer(server.child, server.dataDir).catch(() => {});
+  };
+  options.signal?.addEventListener("abort", abortCleanup, { once: true });
   try {
+    throwIfAborted(options.signal, "PLAYWRIGHT_SMOKE_TIMEOUT");
     youtubeLive = resolveYouTubeLiveBrowserConfig(options.env || process.env);
     const port = Number(options.port || process.env.PLAYWRIGHT_SMOKE_PORT) || await getFreePort();
     baseUrl = `http://127.0.0.1:${port}`;
     server = startServer(port, youtubeLive.enabled
       ? { ...(options.env || {}), SHORTSENGINE_YOUTUBE_INGEST_ENABLED: "1" }
       : {});
-    health = await waitForHealth(baseUrl);
-    if (!health || !health.ok || health.payload?.data?.status !== "ready") {
+    health = await waitForHealth(baseUrl, { server, signal: options.signal });
+    if (!isHealthReady(health)) {
+      const details = healthCheckDetails(health);
       return buildPlaywrightReport({
-        checks: [{ name: "server_health_ready", passed: false, status: health?.payload?.data?.status || null }],
+        checks: [{ name: "server_health_ready", passed: false, ...details }],
         durationMs: Date.now() - started,
-        failedCases: [safeFailure("server_health_ready", "HEALTH_NOT_READY")],
+        failedCases: [safeFailure("server_health_ready", details.code || "SERVER_HEALTH_TIMEOUT", {
+          nextAction: details.nextAction,
+        })],
         fixture,
         health,
         notes: ["Local server did not become ready before browser automation."],
@@ -716,7 +835,13 @@ async function runPlaywrightSmoke(options = {}) {
     }
 
     try {
-      browser = await runtime.playwright.chromium.launch({ headless: true });
+      throwIfAborted(options.signal, "PLAYWRIGHT_SMOKE_TIMEOUT");
+      browser = await Promise.race([
+        runtime.playwright.chromium.launch({ headless: true }),
+        delay(20_000, options.signal).then(() => {
+          throw abortError("PLAYWRIGHT_LAUNCH_TIMEOUT", "Playwright Chromium launch timed out.");
+        }),
+      ]);
     } catch (error) {
       return buildPlaywrightReport({
         checks: [{ name: "playwright_browser_launch", passed: false, code: "PLAYWRIGHT_LAUNCH_FAILED" }],
@@ -808,10 +933,11 @@ async function runPlaywrightSmoke(options = {}) {
       status: "failed",
     });
   } finally {
+    options.signal?.removeEventListener("abort", abortCleanup);
     if (traceStarted && context) await stopTrace(context, runStamp, artifactOptions, false).catch(() => {});
     if (context) await context.close().catch(() => {});
     if (browser) await browser.close().catch(() => {});
-    if (server) await stopServer(server.child);
+    if (server) await stopServer(server.child, server.dataDir);
   }
 }
 
@@ -850,25 +976,25 @@ function isMainModule() {
 
 if (isMainModule()) {
   const timeout = Number(process.env.PLAYWRIGHT_SMOKE_TIMEOUT_MS || DEFAULT_TIMEOUT_MS);
-  let timeoutId;
-  const timeoutPromise = new Promise((resolveTimeout) => {
-    timeoutId = setTimeout(() => {
-      resolveTimeout(buildPlaywrightReport({
-        artifacts: buildArtifactSummary(buildArtifactOptions(), []),
-        checks: [{ name: "playwright_smoke_timeout", passed: false, code: "PLAYWRIGHT_SMOKE_TIMEOUT" }],
-        durationMs: timeout,
-        failedCases: [safeFailure("playwright_smoke_timeout", "PLAYWRIGHT_SMOKE_TIMEOUT")],
-        fixture: fixtureMetadata(),
-        health: null,
-        notes: ["The browser E2E runner exceeded its bounded timeout."],
-        runtime: { ok: false, code: "PLAYWRIGHT_SMOKE_TIMEOUT" },
-        server: { origin: "http://127.0.0.1:<port>" },
-        status: "failed",
-      }));
-    }, timeout);
-    if (timeoutId && typeof timeoutId.unref === "function") timeoutId.unref();
-  });
-  const report = await Promise.race([runPlaywrightSmoke(), timeoutPromise]);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort(abortError("PLAYWRIGHT_SMOKE_TIMEOUT", "Playwright smoke exceeded its bounded timeout."));
+  }, timeout);
+  if (typeof timeoutId.unref === "function") timeoutId.unref();
+  const report = await runPlaywrightSmoke({ signal: controller.signal }).catch((error) => (
+    buildPlaywrightReport({
+      artifacts: buildArtifactSummary(buildArtifactOptions(), []),
+      checks: [{ name: "playwright_smoke_timeout", passed: false, code: safeError(error).code || "PLAYWRIGHT_SMOKE_TIMEOUT" }],
+      durationMs: timeout,
+      failedCases: [{ name: "playwright_smoke_timeout", ...safeError(error) }],
+      fixture: fixtureMetadata(),
+      health: null,
+      notes: ["The browser E2E runner exceeded its bounded timeout or was aborted safely."],
+      runtime: { ok: false, code: safeError(error).code || "PLAYWRIGHT_SMOKE_TIMEOUT" },
+      server: { origin: "http://127.0.0.1:<port>" },
+      status: "failed",
+    })
+  ));
   if (timeoutId) clearTimeout(timeoutId);
   const written = writePlaywrightReport(report);
   console.log(JSON.stringify({ status: report.status, failedCases: report.failedCases, ...written }, null, 2));

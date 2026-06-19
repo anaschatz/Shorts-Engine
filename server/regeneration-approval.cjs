@@ -243,6 +243,8 @@ function approveRegenerationDraft(options = {}) {
     reviewerNotes: request.reviewerNotes,
     humanNotes: request.humanNotes,
     title: request.title,
+    projectRecord: options.projectRecord,
+    renderRecord: options.renderRecord,
     rootDir: options.rootDir,
     regenerationPlanId: request.regenerationPlanId,
   });

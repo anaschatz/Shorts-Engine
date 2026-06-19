@@ -428,6 +428,8 @@ function createRegenerationPlanFromReviewRegistration(options = {}) {
     projectId: options.projectId,
     jobId: options.jobId,
     exportId: options.exportId,
+    projectRecord: options.projectRecord,
+    renderRecord: options.renderRecord,
     rightsConfirmed: options.rightsConfirmed,
     reference: options.reference,
     reviewerNotes: options.reviewerNotes,

@@ -1,8 +1,17 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } = require("node:fs");
-const { join } = require("node:path");
+const { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } = require("node:fs");
+const { join, resolve } = require("node:path");
 const { spawnSync } = require("node:child_process");
+
+const TEST_TMP_ROOT = resolve(__dirname, "..", "tmp");
+mkdirSync(TEST_TMP_ROOT, { recursive: true });
+const TEST_DATA_DIR = mkdtempSync(resolve(TEST_TMP_ROOT, "backend-data-"));
+process.env.MATCHCUTS_DATA_DIR = TEST_DATA_DIR;
+
+test.after(() => {
+  rmSync(TEST_DATA_DIR, { recursive: true, force: true });
+});
 
 const { CONFIG } = require("../server/config.cjs");
 const { detectContainer, validateUploadCandidate, commandAvailable } = require("../server/media.cjs");

@@ -2,15 +2,23 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { randomUUID } = require("node:crypto");
 const { once } = require("node:events");
-const { existsSync, readFileSync, readdirSync, unlinkSync } = require("node:fs");
-const { join } = require("node:path");
+const { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, unlinkSync } = require("node:fs");
+const { join, resolve } = require("node:path");
 const { Writable } = require("node:stream");
 
+const TEST_TMP_ROOT = resolve(__dirname, "..", "tmp");
+mkdirSync(TEST_TMP_ROOT, { recursive: true });
+const TEST_DATA_DIR = mkdtempSync(resolve(TEST_TMP_ROOT, "object-storage-data-"));
+process.env.MATCHCUTS_DATA_DIR = TEST_DATA_DIR;
+
 const {
+  artifactCleanupWorker,
   artifactAdapter,
   jobs,
+  outboxWorker,
   persistenceAdapter,
   route,
+  stopWorkers,
 } = require("../server/app.cjs");
 const { validateArtifactAdapter } = require("../server/adapters/artifact-adapter.cjs");
 const { LocalArtifactAdapter } = require("../server/adapters/local-artifact-adapter.cjs");
@@ -18,6 +26,13 @@ const { CONFIG } = require("../server/config.cjs");
 const { redactForLogs } = require("../server/errors.cjs");
 
 const TEST_JOB_KEY_PREFIXES = Object.freeze(["object-storage-", "object-pending-"]);
+
+test.after(async () => {
+  artifactCleanupWorker.stop();
+  if (outboxWorker && typeof outboxWorker.stop === "function") outboxWorker.stop();
+  await stopWorkers({ requestId: "object_storage_test_shutdown", timeoutMs: 0 });
+  rmSync(TEST_DATA_DIR, { recursive: true, force: true });
+});
 
 function validId(prefix) {
   return `${prefix}_${randomUUID()}`;

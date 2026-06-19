@@ -187,6 +187,12 @@ assert.match(demoSmoke, /invalid_upload_rejected/, "demo smoke should verify inv
 assert.match(demoSmoke, /download_returns_rendered_video/, "demo smoke should verify rendered export download");
 assert.match(demoSmoke, /hasSensitiveLeak/, "demo smoke should guard public outputs against leaks");
 assert.match(demoSmoke, /findSensitiveLeak/, "demo smoke should report safe leak metadata when fail-closed");
+assert.match(demoSmoke, /MATCHCUTS_DATA_DIR/, "demo smoke should use isolated server data so stale local artifacts cannot slow startup");
+assert.match(demoSmoke, /SERVER_HEALTH_TIMEOUT/, "demo smoke should classify server health timeouts safely");
+assert.match(playwrightSmoke, /MATCHCUTS_DATA_DIR/, "Playwright smoke should use isolated server data");
+assert.match(playwrightSmoke, /PLAYWRIGHT_LAUNCH_TIMEOUT/, "Playwright smoke should bound Chromium startup failures");
+assert.match(serverApp, /reviewRecordRefs/, "server review registration should pass explicit project/render record refs");
+assert.match(ciReportValidator, /REPORT_RECOVERY_COMMANDS/, "CI report validation failures should include safe recovery commands");
 assert.match(youtubeDoctor, /SHORTSENGINE_YOUTUBE_INGEST_ENABLED/, "YouTube doctor should check the explicit ingest flag");
 assert.match(youtubeDoctor, /YOUTUBE_DOWNLOADER_MISSING/, "YouTube doctor should fail safely when the downloader is missing");
 assert.match(youtubeDoctor, /commandAvailable/, "YouTube doctor should validate FFmpeg and FFprobe availability");
@@ -333,6 +339,7 @@ assert.match(browserSmoke, /manualChecklistRequired/, "browser smoke should docu
 assert.match(browserSmoke, /api_demo_smoke_passed/, "browser smoke should include the API E2E fallback");
 assert.match(browserSmoke, /findSensitiveLeak/, "browser smoke should fail closed with safe leak metadata");
 assert.match(packageJson, /"demo:browser:e2e": "node demo\/run-playwright-smoke\.mjs"/, "package should expose the Playwright browser E2E script");
+assert.match(packageJson, /--test-timeout=120000/, "npm test should have a bounded timeout instead of hanging silently");
 assert.match(packageJson, /"branch:doctor": "node tools\/release\/check-branch-protection\.mjs"/, "package should expose branch policy doctor");
 assert.match(packageJson, /"branch:proof": "node tools\/release\/write-branch-protection-proof\.mjs"/, "package should expose branch policy proof generation");
 assert.match(packageJson, /"branch:setup": "node tools\/release\/print-branch-ruleset-setup\.mjs"/, "package should expose branch ruleset setup guidance");

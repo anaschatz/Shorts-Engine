@@ -11,6 +11,15 @@ const MAX_REPORT_BYTES = 5 * 1024 * 1024;
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
 const SAFE_RELATIVE_KEYS = new Set(["directory", "latestPath", "relativePath", "reportPath"]);
 const SAFE_PLAYWRIGHT_ARTIFACT_RE = /^playwright-[A-Za-z0-9._-]+\.(png|zip|webm)$/;
+const REPORT_RECOVERY_COMMANDS = Object.freeze({
+  "api-demo": "npm run demo:smoke",
+  "ocr-smoke": "npm run ocr:smoke",
+  "ocr-qa-review": "npm run ocr:qa:review",
+  "browser-contract": "npm run demo:browser",
+  "playwright-browser": "npm run demo:browser:ci",
+  evaluation: "npm run eval",
+  "reference-review": "npm run eval:reference",
+});
 
 class CiReportError extends Error {
   constructor(code, message, details = {}) {
@@ -206,10 +215,16 @@ function validateCiReports(options = {}) {
 }
 
 function safeError(error) {
+  const label = error?.details?.label || null;
   return {
     ok: false,
     code: error && error.code ? error.code : "CI_REPORTS_INVALID",
     message: error && error.message ? error.message : "CI reports did not pass validation.",
+    label,
+    report: error?.details?.report || error?.details?.path || null,
+    nextAction: label && REPORT_RECOVERY_COMMANDS[label]
+      ? REPORT_RECOVERY_COMMANDS[label]
+      : "rerun-required-checks-and-inspect-safe-reports",
   };
 }
 
@@ -233,6 +248,7 @@ export {
   assertPlaywrightArtifacts,
   assertSafeRelativeReferences,
   parseMaxAgeMs,
+  REPORT_RECOVERY_COMMANDS,
   safeReportRef,
   validateCiReports,
   validateReport,

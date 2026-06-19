@@ -1,6 +1,19 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { existsSync, unlinkSync, writeFileSync } = require("node:fs");
+const { existsSync, mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } = require("node:fs");
+const { resolve } = require("node:path");
+
+const TEST_TMP_ROOT = resolve(__dirname, "..", "tmp");
+mkdirSync(TEST_TMP_ROOT, { recursive: true });
+const TEST_DATA_DIR = mkdtempSync(resolve(TEST_TMP_ROOT, "persistence-foundation-data-"));
+process.env.MATCHCUTS_DATA_DIR = TEST_DATA_DIR;
+
+test.after(() => {
+  rmSync(TEST_DATA_DIR, { recursive: true, force: true });
+});
+
+const { ensureDataDirs } = require("../server/config.cjs");
+ensureDataDirs();
 
 const { createLocalJobWorker, restoreExportsFromCompletedJobs } = require("../server/job-worker.cjs");
 const { JobStore } = require("../server/jobs.cjs");

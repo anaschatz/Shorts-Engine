@@ -1,8 +1,29 @@
-const { join, resolve } = require("node:path");
+const { tmpdir } = require("node:os");
+const { isAbsolute, join, relative, resolve } = require("node:path");
 const { existsSync, mkdirSync } = require("node:fs");
 
 const ROOT_DIR = resolve(__dirname, "..");
-const DATA_DIR = join(ROOT_DIR, "data");
+const DEFAULT_DATA_DIR = join(ROOT_DIR, "data");
+function isInside(baseDir, candidatePath) {
+  const fromBase = relative(resolve(baseDir), resolve(candidatePath));
+  return fromBase === "" || (!fromBase.startsWith("..") && !isAbsolute(fromBase));
+}
+
+function validateDataDir(value) {
+  if (value === undefined || value === null || value === "") return DEFAULT_DATA_DIR;
+  const raw = String(value).trim();
+  if (!raw || raw.includes("\u0000") || raw.length > 500) {
+    throw new Error("Invalid data directory configuration.");
+  }
+  const resolved = resolve(raw);
+  const tempRoot = resolve(tmpdir());
+  if (!isInside(ROOT_DIR, resolved) && !isInside(tempRoot, resolved)) {
+    throw new Error("Invalid data directory configuration.");
+  }
+  return resolved;
+}
+
+const DATA_DIR = validateDataDir(process.env.MATCHCUTS_DATA_DIR);
 const UPLOAD_DIR = join(DATA_DIR, "uploads");
 const AUDIO_DIR = join(DATA_DIR, "audio");
 const RENDER_DIR = join(DATA_DIR, "renders");
@@ -423,6 +444,7 @@ module.exports = {
   ensureDataDirs,
   validateByteConfig,
   validateDatabaseConfig,
+  validateDataDir,
   validatePersistenceAdapterMode,
   validatePositiveIntegerConfig,
   validateExecutableReference,
