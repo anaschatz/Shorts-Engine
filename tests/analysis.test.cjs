@@ -34,6 +34,51 @@ const transcript = {
   ],
 };
 
+function matchEventTruthFixture(goals, durationSeconds) {
+  const selectedEvents = goals.map((goal, index) => ({
+    id: `truth_goal_${index + 1}`,
+    type: "confirmed_goal",
+    outcome: "confirmed_goal",
+    confidence: 0.92,
+    sourceStart: goal.sourceStart,
+    sourceEnd: goal.sourceEnd,
+    buildupWindow: { start: Math.max(0, goal.sourceStart - 1.2), end: goal.shotStart || goal.sourceStart },
+    shotWindow: { start: goal.shotStart || goal.sourceStart, end: goal.payoffStart || goal.sourceEnd },
+    payoffWindow: { start: goal.payoffStart || goal.sourceStart, end: goal.payoffEnd || goal.sourceEnd },
+    decisionWindow: { start: goal.decisionStart || goal.sourceEnd - 1.2, end: goal.decisionEnd || goal.sourceEnd },
+    evidenceCodes: [
+      "visual_shot_contact",
+      "visual_ball_toward_goal",
+      "visual_ball_in_net",
+      "visual_scoreboard_goal_confirmed",
+      "visual_referee_goal_signal",
+    ],
+    missingEvidence: [],
+    safetyFlags: ["confirmed_goal_requires_action_and_support"],
+    captionIntent: "confirmed_goal_caption",
+    renderPriority: 1000 + index,
+  }));
+  return {
+    schemaVersion: 1,
+    providerMode: "fixture-match-event-truth",
+    fallbackUsed: false,
+    ocrQaCalibration: null,
+    summary: {
+      eventCount: selectedEvents.length,
+      confirmedGoalCount: selectedEvents.length,
+      disallowedGoalCount: 0,
+      possibleGoalCount: 0,
+      chanceOrSaveCount: 0,
+      rejectedEventCount: 0,
+      lateConfirmedGoalCount: selectedEvents.filter((event) => event.sourceStart >= durationSeconds * 0.66).length,
+      noFalseGoalFromOcrOnly: 1,
+      ocrQaSupportStatus: "ignored",
+    },
+    selectedEvents,
+    rejectedEvents: [],
+  };
+}
+
 test("media signal extraction can use mocked FFmpeg scene and audio outputs", async () => {
   const fakeRunner = async (args) => {
     const text = args.join(" ");
@@ -1197,6 +1242,10 @@ test("valid goal compilation excludes high-score filler chances and can render t
     moments: result.moments,
     metadata: { ...longMetadata, goalSelectionMode: "valid_goals_only" },
     transcript: { captions: [] },
+    matchEventTruth: matchEventTruthFixture([
+      { sourceStart: 39.8, sourceEnd: 45.6, shotStart: 39.8, payoffStart: 41.4, payoffEnd: 43.2, decisionStart: 44.4, decisionEnd: 45.6 },
+      { sourceStart: 93.8, sourceEnd: 99.4, shotStart: 93.8, payoffStart: 95.4, payoffEnd: 97.1, decisionStart: 98.2, decisionEnd: 99.4 },
+    ], longMetadata.durationSeconds),
     title: "Two valid goals fixture",
     editIntensity: "balanced",
     stylePreset: "punchy_highlight",
@@ -1212,7 +1261,7 @@ test("valid goal compilation excludes high-score filler chances and can render t
   assert.equal(plan.hook, "VALID FINISHES ONLY");
   assert.match(captionText, /FINISH COUNTS|ONLY VALID FINISHES/i);
   assert.doesNotMatch(captionText, /BIG CHANCE|SHOT OPENS UP|CHANCE OPENS/i);
-  assert.ok(plan.totalDuration < 45);
+  assert.ok(plan.totalDuration < 60);
 });
 
 test("valid-goals-only keeps full-source late confirmed goals before early filler", () => {
@@ -1289,6 +1338,11 @@ test("valid-goals-only keeps full-source late confirmed goals before early fille
     moments: result.moments,
     metadata: { ...longMetadata, goalSelectionMode: "valid_goals_only" },
     transcript: { captions: [] },
+    matchEventTruth: matchEventTruthFixture([
+      { sourceStart: 238, sourceEnd: 256, shotStart: 238, payoffStart: 242.2, payoffEnd: 243.8, decisionStart: 254.6, decisionEnd: 256 },
+      { sourceStart: 294, sourceEnd: 313.8, shotStart: 294, payoffStart: 298.2, payoffEnd: 299.7, decisionStart: 312.4, decisionEnd: 313.8 },
+      { sourceStart: 328, sourceEnd: 347.8, shotStart: 328, payoffStart: 332.2, payoffEnd: 333.8, decisionStart: 346.4, decisionEnd: 347.8 },
+    ], longMetadata.durationSeconds),
     title: "Late valid goals fixture",
     editIntensity: "balanced",
     stylePreset: "punchy_highlight",
@@ -1304,7 +1358,7 @@ test("valid-goals-only keeps full-source late confirmed goals before early fille
   assert.ok(plan.segments.some((segment) => segment.sourceStart <= 238 && segment.sourceEnd >= 254.6));
   assert.ok(plan.segments.some((segment) => segment.sourceStart <= 294 && segment.sourceEnd >= 312.4));
   assert.ok(plan.segments.some((segment) => segment.sourceStart <= 328 && segment.sourceEnd >= 346.4));
-  assert.ok(plan.segments.every((segment) => segment.duration >= 10 && segment.duration <= 24));
+  assert.ok(plan.segments.every((segment) => segment.duration >= 10 && segment.duration <= 30));
   assert.equal(plan.hook, "VALID FINISHES ONLY");
   assert.match(captionText, /FINISH COUNTS|ONLY VALID FINISHES/i);
   assert.doesNotMatch(captionText, /BIG CHANCE|SHOT OPENS UP|CHANCE OPENS|EVERY BIG MOMENT/i);
@@ -1353,11 +1407,41 @@ test("valid-goals-only selection returns no plan for chance-only long sources", 
     moments: result.moments,
     metadata: { durationSeconds: 180, width: 1920, height: 1080, hasAudio: true, goalSelectionMode: "valid_goals_only" },
     transcript: { captions: [] },
+    matchEventTruth: result.explainability.matchEventTruth,
     title: "Chance only fixture",
   });
 
   assert.ok(balancedPlans.length > 0);
   assert.deepEqual(validGoalOnlyPlans, []);
+});
+
+test("valid-goals-only fails closed when match-event truth is missing", () => {
+  const plans = createCandidateEditPlans({
+    moments: [{
+      id: "mom_fake_valid_goal",
+      start: 10,
+      end: 24,
+      center: 17,
+      title: "Goal",
+      summary: "Legacy moment without truth input.",
+      reasonCodes: ["goal", "visual_ball_in_net", "visual_shot_contact", "visual_ball_toward_goal"],
+      highlightType: "goal",
+      confidence: 0.9,
+      retentionScore: 90,
+      evidence: {
+        goalOutcome: {
+          eventType: "ball_in_net",
+          outcome: "confirmed_goal",
+          offsideStatus: "onside",
+        },
+      },
+    }],
+    metadata: { durationSeconds: 90, width: 1920, height: 1080, hasAudio: true, goalSelectionMode: "valid_goals_only" },
+    transcript: { captions: [] },
+    title: "Missing truth fixture",
+  });
+
+  assert.deepEqual(plans, []);
 });
 
 test("replay-heavy evidence becomes replay-worthy without inventing action or goal", () => {
@@ -1562,4 +1646,5 @@ test("analysis health reports deterministic readiness", () => {
   assert.equal(health.features.includes("football_highlight_taxonomy"), true);
   assert.equal(health.features.includes("false_goal_guard"), true);
   assert.equal(health.features.includes("vision_safe_action_signals"), true);
+  assert.equal(health.features.includes("truth_driven_valid_goals_only"), true);
 });

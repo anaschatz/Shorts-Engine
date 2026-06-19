@@ -396,6 +396,7 @@ test("render orchestration completes success path with mocked adapters", async (
   assert.equal(context.createPlanInput.editIntensity, "punchy");
   assert.equal(context.createPlanInput.stylePreset, "punchy_highlight");
   assert.equal(context.createPlanInput.language, "en");
+  assert.equal(context.createPlanInput.matchEventTruth.providerMode, "mock-match-event-truth");
   assert.equal(context.calls.includes("analyze_frames"), true);
   assert.equal(context.calls.includes("analyze_tracking"), true);
   assert.equal(context.calls.includes("analyze_scoreboard_ocr"), true);

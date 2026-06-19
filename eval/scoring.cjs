@@ -465,6 +465,19 @@ function expectedOffsideGoalWindows(expected = {}) {
     : [];
 }
 
+function expectedNoGoalWindows(expected = {}) {
+  const explicit = Array.isArray(expected.noGoalWindows) && expected.noGoalWindows.length
+    ? expected.noGoalWindows
+    : Array.isArray(expected.disallowedGoals) && expected.disallowedGoals.length
+      ? expected.disallowedGoals
+      : [];
+  if (explicit.length) return explicit.map((item) => validateWindow(item, "expected.noGoalWindows[]"));
+  if (expected.outcome === "disallowed_offside" || expected.outcome === "disallowed_no_goal") {
+    return Array.isArray(expected.highlights) ? expected.highlights.map((item) => validateWindow(item, "expected.highlights[]")) : [];
+  }
+  return [];
+}
+
 function validGoalRecallScore(topPlan, expected = {}, minOverlap = 0.5) {
   const expectedGoals = expectedValidGoalWindows(expected);
   if (!expectedGoals.length) return 1;
@@ -505,12 +518,43 @@ function offsideExclusionAccuracyForValidGoals(topPlan, expected = {}, minOverla
   return confirmedSegments.some((segment) => offsideGoals.some((goal) => overlapRatio(segmentWindow(segment), goal) >= minOverlap)) ? 0 : 1;
 }
 
+function noGoalExclusionAccuracyForValidGoals(topPlan, expected = {}, minOverlap = 0.35) {
+  const noGoalWindows = expectedNoGoalWindows(expected);
+  if (!noGoalWindows.length || expected.goalSelectionMode !== "valid_goals_only") return 1;
+  const confirmedSegments = planSegments(topPlan).filter(isConfirmedValidGoalSegment);
+  return confirmedSegments.some((segment) => noGoalWindows.some((goal) => overlapRatio(segmentWindow(segment), goal) >= minOverlap)) ? 0 : 1;
+}
+
 function validGoalOnlyFillerRate(topPlan, expected = {}) {
   if (expected.goalSelectionMode !== "valid_goals_only") return 0;
   const segments = planSegments(topPlan);
   if (!segments.length) return 1;
   const fillerSegments = segments.filter((segment) => !isConfirmedValidGoalSegment(segment));
   return round(fillerSegments.length / segments.length, 4);
+}
+
+function validGoalsOnlyCoverageScore(topPlan, expected = {}, minOverlap = 0.5) {
+  if (expected.goalSelectionMode !== "valid_goals_only") return 1;
+  const expectedGoals = expectedValidGoalWindows(expected);
+  if (!expectedGoals.length) return planSegments(topPlan).length ? 0 : 1;
+  const recall = validGoalRecallScore(topPlan, expected, minOverlap);
+  return validGoalOnlyFillerRate(topPlan, expected) === 0 ? recall : 0;
+}
+
+function cutSmoothnessScore(topPlan, expected = {}) {
+  if (expected.goalSelectionMode !== "valid_goals_only") return 1;
+  const segments = planSegments(topPlan);
+  if (!segments.length) return expectedValidGoalWindows(expected).length ? 0 : 1;
+  const chronological = segments.every((segment, index) => index === 0 || toNumber(segment.sourceStart) >= toNumber(segments[index - 1].sourceEnd) - 0.25);
+  const noDuplicateOverlap = segments.every((segment, index) => (
+    index === 0 ||
+    overlapRatio(segmentWindow(segment), segmentWindow(segments[index - 1])) <= 0.05
+  ));
+  const boundedDurations = segments.every((segment) => {
+    const duration = toNumber(segment.sourceEnd) - toNumber(segment.sourceStart);
+    return duration >= 10 && duration <= 30;
+  });
+  return chronological && noDuplicateOverlap && boundedDurations ? 1 : 0;
 }
 
 function excludedWindows(expected = {}, key) {
@@ -1097,7 +1141,11 @@ function scoreFixture(fixture) {
   const lateGoalRecall = lateGoalRecallScore(topPlan, fixture.expected, metadata.durationSeconds, thresholds.minTop1Overlap);
   const falseGoalRate = falseGoalRateScore(topPlan, fixture.expected, thresholds.minTop1Overlap);
   const offsideExclusionAccuracy = offsideExclusionAccuracyForValidGoals(topPlan, fixture.expected, thresholds.minTop1Overlap);
+  const noGoalExclusionAccuracy = noGoalExclusionAccuracyForValidGoals(topPlan, fixture.expected, thresholds.minTop1Overlap);
+  const validGoalsOnlyCoverage = validGoalsOnlyCoverageScore(topPlan, fixture.expected, thresholds.minTop1Overlap);
   const validGoalOnlyFillerRateValue = validGoalOnlyFillerRate(topPlan, fixture.expected);
+  const fillerRate = validGoalOnlyFillerRateValue;
+  const cutSmoothness = cutSmoothnessScore(topPlan, fixture.expected);
   const captionGoalClaimAccuracy = captionGoalClaimAccuracyScore(topPlan, fixture.expected);
   const segmentTimingCoverage = segmentTimingCoverageScore(topPlan, fixture.expected);
   const goalEvidenceCoverage = goalEvidenceCoverageScore(goalEvidence, fixture.expected);
@@ -1220,7 +1268,11 @@ function scoreFixture(fixture) {
     lateGoalRecall >= 1 &&
     falseGoalRate === 0 &&
     offsideExclusionAccuracy === 1 &&
+    noGoalExclusionAccuracy === 1 &&
+    validGoalsOnlyCoverage >= 1 &&
     validGoalOnlyFillerRateValue === 0 &&
+    fillerRate === 0 &&
+    cutSmoothness >= 0.9 &&
     celebrationOnlyExclusion === 1 &&
     anthemIntroExclusion === 1 &&
     captionGoalClaimAccuracy >= 0.95 &&
@@ -1274,7 +1326,11 @@ function scoreFixture(fixture) {
       lateGoalRecall,
       falseGoalRate,
       offsideExclusionAccuracy,
+      noGoalExclusionAccuracy,
+      validGoalsOnlyCoverage,
       validGoalOnlyFillerRate: validGoalOnlyFillerRateValue,
+      fillerRate,
+      cutSmoothnessScore: cutSmoothness,
       captionGoalClaimAccuracy,
       segmentTimingCoverage,
       goalEvidenceCoverage,
@@ -1524,7 +1580,11 @@ function scoreFixture(fixture) {
       lateGoalRecall,
       falseGoalRate,
       offsideExclusionAccuracy,
+      noGoalExclusionAccuracy,
+      validGoalsOnlyCoverage,
       validGoalOnlyFillerRate: validGoalOnlyFillerRateValue,
+      fillerRate,
+      cutSmoothnessScore: cutSmoothness,
       captionGoalClaimAccuracy,
       segmentTimingCoverage,
       goalEvidenceCoverage,
@@ -1585,7 +1645,10 @@ function debuggingNotes(metrics) {
   if (metrics.lateGoalRecall < 1) notes.push("Late confirmed goals were not fully covered.");
   if (metrics.falseGoalRate) notes.push("A confirmed-goal segment did not match an expected valid goal.");
   if (metrics.offsideExclusionAccuracy < 1) notes.push("An offside/disallowed goal was included as a valid goal.");
+  if (metrics.noGoalExclusionAccuracy < 1) notes.push("A no-goal/disallowed segment was included as a valid goal.");
+  if (metrics.validGoalsOnlyCoverage < 1) notes.push("Valid-goals-only output does not cleanly cover every confirmed goal.");
   if (metrics.validGoalOnlyFillerRate) notes.push("Valid-goals-only output includes non-goal filler.");
+  if (metrics.cutSmoothnessScore < 0.9) notes.push("Valid-goals-only cuts are overlapping, out of order, too short or too long.");
   if (metrics.captionGoalClaimAccuracy < 0.95) notes.push("Goal captions do not match valid-goal expectations.");
   if (metrics.segmentTimingCoverage < 0.9) notes.push("Goal segments do not cover the expected shot/payoff/decision window.");
   if (metrics.goalEvidenceCoverage < 1) notes.push("Goal evidence provider did not cover all expected valid goals.");
@@ -1652,7 +1715,11 @@ function aggregateResults(results) {
     lateGoalRecall: avg((result) => result.metrics.lateGoalRecall),
     falseGoalRate: avg((result) => result.metrics.falseGoalRate),
     offsideExclusionAccuracy: avg((result) => result.metrics.offsideExclusionAccuracy),
+    noGoalExclusionAccuracy: avg((result) => result.metrics.noGoalExclusionAccuracy),
+    validGoalsOnlyCoverage: avg((result) => result.metrics.validGoalsOnlyCoverage),
     validGoalOnlyFillerRate: avg((result) => result.metrics.validGoalOnlyFillerRate),
+    fillerRate: avg((result) => result.metrics.fillerRate),
+    cutSmoothnessScore: avg((result) => result.metrics.cutSmoothnessScore),
     captionGoalClaimAccuracy: avg((result) => result.metrics.captionGoalClaimAccuracy),
     segmentTimingCoverage: avg((result) => result.metrics.segmentTimingCoverage),
     goalEvidenceCoverage: avg((result) => result.metrics.goalEvidenceCoverage),

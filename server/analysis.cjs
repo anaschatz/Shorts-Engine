@@ -1476,11 +1476,20 @@ function expandWindowForGoalEvidence(moment, duration, goalEvidence = {}) {
     "visual_referee_goal_signal",
     "visual_scoreboard_goal_confirmed",
   ]);
+  const truthDrivenValidGoal = moment.source === "match_event_truth_valid_goals_only";
   const needsDecisionContext = Boolean(goalEvidence.hasBallInNetOrLineCross || goalEvidence.explicitTextGoal);
   const confirmedGoalCandidate = Boolean(goalEvidence.goalClaimAllowed && hasConfirmedDecisionContext && !hasDecisionContext);
   const postContextSeconds = confirmedGoalCandidate ? 5.5 : needsDecisionContext ? 13 : 4.5;
   const minDuration = confirmedGoalCandidate ? 10 : needsDecisionContext ? 18 : goalEvidence.goalClaimAllowed ? 12 : 10;
-  const maxDuration = confirmedGoalCandidate ? 18 : needsDecisionContext ? 30 : goalEvidence.goalClaimAllowed ? 22 : 16;
+  const maxDuration = truthDrivenValidGoal
+    ? VALID_GOAL_ONLY_TIMING.maxSegmentDuration
+    : confirmedGoalCandidate
+      ? 18
+      : needsDecisionContext
+        ? 30
+        : goalEvidence.goalClaimAllowed
+          ? 22
+          : 16;
   let start = Math.min(Number(moment.start), Math.max(0, shotStart - 3.5));
   let end = Math.max(Number(moment.end), Math.min(mediaDuration, payoffEnd + postContextSeconds));
   if (end - start < minDuration) {
@@ -2606,6 +2615,15 @@ const MULTI_MOMENT_COMPILATION = Object.freeze({
   maxTotalDuration: 90,
 });
 
+const VALID_GOAL_ONLY_TIMING = Object.freeze({
+  minSegmentDuration: 10,
+  maxSegmentDuration: 29.5,
+  preContextSeconds: 1.2,
+  postContextSeconds: 3.8,
+  decisionPostSeconds: 1.4,
+  minTransitionGapSeconds: 0.25,
+});
+
 const GOAL_SELECTION_MODES = Object.freeze({
   balanced: "balanced",
   validGoalsOnly: "valid_goals_only",
@@ -2615,6 +2633,149 @@ function normalizeGoalSelectionMode(value) {
   return value === GOAL_SELECTION_MODES.validGoalsOnly
     ? GOAL_SELECTION_MODES.validGoalsOnly
     : GOAL_SELECTION_MODES.balanced;
+}
+
+function truthEventsForValidGoalsOnly(matchEventTruth = null) {
+  const raw = matchEventTruth && typeof matchEventTruth === "object"
+    ? {
+        ...matchEventTruth,
+        events: Array.isArray(matchEventTruth.events)
+          ? matchEventTruth.events
+          : Array.isArray(matchEventTruth.selectedEvents)
+            ? matchEventTruth.selectedEvents
+            : [],
+        rejectedEvents: Array.isArray(matchEventTruth.rejectedEvents) ? matchEventTruth.rejectedEvents : [],
+      }
+    : matchEventTruth;
+  const truth = publicMatchEventTruth(raw);
+  const selectedEvents = Array.isArray(truth.selectedEvents) ? truth.selectedEvents : [];
+  return selectedEvents
+    .filter((event) => event.type === "confirmed_goal" && event.outcome === "confirmed_goal")
+    .sort((a, b) => Number(a.sourceStart || 0) - Number(b.sourceStart || 0));
+}
+
+function truthGoalReasonCodes(event = {}) {
+  const evidenceCodes = Array.isArray(event.evidenceCodes) ? event.evidenceCodes : [];
+  return [...new Set([
+    "goal",
+    "visual_ball_in_net",
+    ...evidenceCodes.filter((code) => (
+      code === "ball_in_net" ||
+      code === "visual_ball_in_net" ||
+      code === "visual_shot_contact" ||
+      code === "visual_shot_like_motion" ||
+      code === "visual_ball_toward_goal" ||
+      code === "visual_goal_mouth" ||
+      code === "visual_scoreboard_goal_confirmed" ||
+      code === "visual_referee_goal_signal" ||
+      code === "confirmed_by_commentary" ||
+      code === "scoreboard_ocr_score_change" ||
+      code === "scoreboard_temporal_consistency" ||
+      code === "audio_energy_spike" ||
+      code === "scene_change_cluster"
+    )),
+  ])].slice(0, 18);
+}
+
+function truthGoalWindowForPlan(event = {}, metadata = {}) {
+  const duration = Math.max(0, Number(metadata.durationSeconds || 0));
+  const eventStart = Number(event.sourceStart || 0);
+  const eventEnd = Math.max(eventStart + 0.5, Number(event.sourceEnd || eventStart + 1));
+  const buildupStart = event.buildupWindow && Number.isFinite(Number(event.buildupWindow.start))
+    ? Number(event.buildupWindow.start)
+    : eventStart;
+  const shotStart = event.shotWindow && Number.isFinite(Number(event.shotWindow.start))
+    ? Number(event.shotWindow.start)
+    : eventStart;
+  const payoffEnd = event.payoffWindow && Number.isFinite(Number(event.payoffWindow.end))
+    ? Number(event.payoffWindow.end)
+    : eventEnd;
+  const decisionEnd = event.decisionWindow && Number.isFinite(Number(event.decisionWindow.end))
+    ? Number(event.decisionWindow.end)
+    : payoffEnd;
+  let sourceStart = Math.max(0, Math.min(eventStart, buildupStart, shotStart) - VALID_GOAL_ONLY_TIMING.preContextSeconds);
+  let sourceEnd = Math.max(
+    eventEnd,
+    payoffEnd + VALID_GOAL_ONLY_TIMING.postContextSeconds,
+    decisionEnd + VALID_GOAL_ONLY_TIMING.decisionPostSeconds,
+  );
+  if (duration > 0) sourceEnd = Math.min(duration, sourceEnd);
+  if (sourceEnd - sourceStart < VALID_GOAL_ONLY_TIMING.minSegmentDuration) {
+    const missing = VALID_GOAL_ONLY_TIMING.minSegmentDuration - (sourceEnd - sourceStart);
+    sourceStart = Math.max(0, sourceStart - missing * 0.55);
+    sourceEnd = Math.min(duration || sourceEnd + missing * 0.45, sourceEnd + missing * 0.45);
+  }
+  if (sourceEnd - sourceStart > VALID_GOAL_ONLY_TIMING.maxSegmentDuration) {
+    sourceEnd = Math.min(duration || sourceStart + VALID_GOAL_ONLY_TIMING.maxSegmentDuration, sourceStart + VALID_GOAL_ONLY_TIMING.maxSegmentDuration);
+  }
+  return {
+    sourceStart: Number(sourceStart.toFixed(2)),
+    sourceEnd: Number(Math.max(sourceStart + 3, sourceEnd).toFixed(2)),
+  };
+}
+
+function truthGoalOutcomeForEvent(event = {}) {
+  const evidenceSet = new Set(Array.isArray(event.evidenceCodes) ? event.evidenceCodes : []);
+  const decisionEvidence = [];
+  if (evidenceSet.has("scoreboard_ocr_score_change") || evidenceSet.has("scoreboard_temporal_consistency")) {
+    decisionEvidence.push("scoreboard_goal_confirmed");
+  }
+  if (evidenceSet.has("visual_scoreboard_goal_confirmed")) decisionEvidence.push("visual_scoreboard_goal_confirmed");
+  if (evidenceSet.has("visual_referee_goal_signal")) decisionEvidence.push("visual_referee_goal_signal");
+  if (evidenceSet.has("confirmed_by_commentary")) decisionEvidence.push("confirmed_by_commentary");
+  return normalizeGoalOutcome({
+    eventType: "ball_in_net",
+    outcome: "confirmed_goal",
+    offsideStatus: "onside",
+    confidence: event.confidence,
+    decisionTimestamp: event.decisionWindow && Number.isFinite(Number(event.decisionWindow.start))
+      ? Number(event.decisionWindow.start)
+      : event.payoffWindow && Number.isFinite(Number(event.payoffWindow.end))
+        ? Number(event.payoffWindow.end)
+        : event.sourceEnd,
+    decisionEvidence,
+  }, { highlightType: "goal", reasonCodes: ["goal", "visual_ball_in_net"] });
+}
+
+function createTruthDrivenValidGoalMoments({ matchEventTruth, metadata, signals, visualSignals, captions, preset = "hype" } = {}) {
+  const events = truthEventsForValidGoalsOnly(matchEventTruth);
+  return events.map((event, index) => {
+    const { sourceStart, sourceEnd } = truthGoalWindowForPlan(event, metadata || signals || {});
+    const reasonCodes = truthGoalReasonCodes(event);
+    const confidence = Number(clamp(Number(event.confidence || 0.9) + 0.04, 0.12, 0.98).toFixed(2));
+    return normalizeMomentWithEvidence({
+      id: `mom_valid_goal_truth_${index + 1}_${event.id}`,
+      rank: index + 1,
+      start: sourceStart,
+      end: sourceEnd,
+      center: Number(((sourceStart + sourceEnd) / 2).toFixed(2)),
+      title: titleForHighlightType("goal"),
+      summary: "Confirmed valid goal selected from match event truth.",
+      reasonCodes,
+      highlightType: "goal",
+      confidence,
+      retentionScore: Math.round(confidence * 100),
+      suggestedPreset: preset,
+      source: "match_event_truth_valid_goals_only",
+      captionIntent: "confirmed_goal_caption",
+      evidence: {
+        goalOutcome: truthGoalOutcomeForEvent(event),
+      },
+      rankingExplanation: rankingExplanationForMoment({
+        reasons: reasonCodes,
+        score: confidence,
+        source: "match_event_truth_valid_goals_only",
+        visualSignals,
+        goalEvidence: matchEventTruthGoalEvidence(event),
+      }),
+    }, {
+      signals: signals || metadata || {},
+      visualSignals,
+      captions,
+      preset,
+      goalEvidenceOverride: matchEventTruthGoalEvidence(event),
+    });
+  });
 }
 
 const PRIMARY_MULTI_MOMENT_TYPES = Object.freeze([
@@ -3488,6 +3649,7 @@ function createCandidateEditPlans({
   mediaSignals = null,
   visualSignals = null,
   visualTracking = null,
+  matchEventTruth = null,
   language = "auto",
   styleTarget = "vertical_9_16",
   editIntensity = "balanced",
@@ -3496,7 +3658,19 @@ function createCandidateEditPlans({
 } = {}) {
   const renderStylePreset = normalizeStylePreset(stylePreset);
   const goalSelectionMode = normalizeGoalSelectionMode(metadata && metadata.goalSelectionMode);
-  const prioritizedMoments = prioritizeCandidateMoments(moments);
+  const truthDrivenValidGoalMoments = goalSelectionMode === GOAL_SELECTION_MODES.validGoalsOnly
+    ? createTruthDrivenValidGoalMoments({
+        matchEventTruth,
+        metadata,
+        signals: mediaSignals || metadata || {},
+        visualSignals,
+        captions: normalizedCaptions(transcript),
+        preset,
+      })
+    : [];
+  const prioritizedMoments = goalSelectionMode === GOAL_SELECTION_MODES.validGoalsOnly
+    ? truthDrivenValidGoalMoments
+    : prioritizeCandidateMoments(moments);
   const candidateMoments = goalSelectionMode === GOAL_SELECTION_MODES.validGoalsOnly
     ? prioritizedMoments.filter(isConfirmedGoalCandidate)
     : prioritizedMoments;
@@ -3524,10 +3698,23 @@ function createCandidateEditPlans({
       stylePreset: renderStylePreset,
       captionProvider,
     });
+    const selectedMoment = goalSelectionMode === GOAL_SELECTION_MODES.validGoalsOnly &&
+      moment.source === "match_event_truth_valid_goals_only"
+      ? {
+          ...storyPlan.selectedMoment,
+          start: Number(moment.start),
+          end: Number(moment.end),
+          originalStart: Number(moment.start),
+          originalEnd: Number(moment.end),
+        }
+      : storyPlan.selectedMoment;
+    const storyPlanForPlan = selectedMoment === storyPlan.selectedMoment
+      ? storyPlan
+      : { ...storyPlan, selectedMoment };
     const goalOutcome = goalOutcomeForMoment(moment);
-    const storyHighlightType = storyPlan.selectedMoment.highlightType || moment.highlightType || highlightTypeForReasons(moment.reasonCodes || []);
+    const storyHighlightType = selectedMoment.highlightType || moment.highlightType || highlightTypeForReasons(moment.reasonCodes || []);
     const highlightType = goalOutcome && goalOutcome.eventType === "ball_in_net" ? "goal" : storyHighlightType;
-    const duration = storyPlan.selectedMoment.end - storyPlan.selectedMoment.start;
+    const duration = selectedMoment.end - selectedMoment.start;
     const hook = sanitizeText(
       goalOutcome.eventType === "ball_in_net"
         ? hookForGoalOutcome(goalOutcome, storyPlan.hook || moment.hook || hookForHighlightType(highlightType, preset))
@@ -3561,8 +3748,8 @@ function createCandidateEditPlans({
       ? storyPlan.animationCues
       : createAnimationCues(duration, moment.reasonCodes || []);
     const plan = {
-      sourceStart: storyPlan.selectedMoment.start,
-      sourceEnd: storyPlan.selectedMoment.end,
+      sourceStart: selectedMoment.start,
+      sourceEnd: selectedMoment.end,
       aspectRatio: storyPlan.aspectRatio,
       highlightType,
       goalOutcome,
@@ -3583,7 +3770,7 @@ function createCandidateEditPlans({
       stylePreset: renderStylePreset,
       styleTarget: storyPlan.styleTarget,
       editIntensity: storyPlan.editIntensity,
-      footballStoryPlan: storyPlan,
+      footballStoryPlan: storyPlanForPlan,
       captionEmphasis,
       animationCues,
       safetyNotes: [
@@ -3661,6 +3848,7 @@ function analysisHealth() {
       "goal_evidence_sequence_detection",
       "goal_outcome_offside_context",
       "match_event_truth_layer",
+      "truth_driven_valid_goals_only",
       "referee_var_offside_decision_detection",
       "real_goal_evidence_provider_boundary",
       "action_first_story_windows",

@@ -131,7 +131,11 @@ test("late valid-goals-only fixture recalls every late confirmed goal without fi
   assert.equal(result.metrics.lateGoalRecall, 1);
   assert.equal(result.metrics.falseGoalRate, 0);
   assert.equal(result.metrics.offsideExclusionAccuracy, 1);
+  assert.equal(result.metrics.noGoalExclusionAccuracy, 1);
+  assert.equal(result.metrics.validGoalsOnlyCoverage, 1);
   assert.equal(result.metrics.validGoalOnlyFillerRate, 0);
+  assert.equal(result.metrics.fillerRate, 0);
+  assert.equal(result.metrics.cutSmoothnessScore, 1);
   assert.equal(result.metrics.captionGoalClaimAccuracy, 1);
   assert.equal(result.metrics.segmentTimingCoverage, 1);
   assert.equal(result.metrics.celebrationOnlyExclusion, 1);
@@ -228,7 +232,11 @@ test("evaluation report has aggregate metrics and no local path leakage", () => 
   assert.equal(report.aggregate.lateGoalRecall, 1);
   assert.equal(report.aggregate.falseGoalRate, 0);
   assert.equal(report.aggregate.offsideExclusionAccuracy, 1);
+  assert.equal(report.aggregate.noGoalExclusionAccuracy, 1);
+  assert.equal(report.aggregate.validGoalsOnlyCoverage, 1);
   assert.equal(report.aggregate.validGoalOnlyFillerRate, 0);
+  assert.equal(report.aggregate.fillerRate, 0);
+  assert.equal(report.aggregate.cutSmoothnessScore, 1);
   assert.equal(report.aggregate.captionGoalClaimAccuracy, 1);
   assert.equal(report.aggregate.segmentTimingCoverage >= 0.95, true);
   assert.equal(report.aggregate.celebrationOnlyExclusion, 1);

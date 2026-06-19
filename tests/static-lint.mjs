@@ -5,6 +5,7 @@ const html = readFileSync("index.html", "utf8");
 const app = readFileSync("app.js", "utf8");
 const hardening = readFileSync("hardening.js", "utf8");
 const serverApp = readFileSync("server/app.cjs", "utf8");
+const analysis = readFileSync("server/analysis.cjs", "utf8");
 const youtubeIngest = readFileSync("server/youtube-ingest.cjs", "utf8");
 const youtubeDownloaderErrors = readFileSync("server/youtube-downloader-errors.cjs", "utf8");
 const localYoutubeAdapter = readFileSync("server/adapters/local-youtube-ingest-adapter.cjs", "utf8");
@@ -146,6 +147,9 @@ assert.match(matchEventTruth, /no_false_goal_from_ocr_only/, "match event truth 
 assert.match(matchEventTruth, /ocr_support_only/, "match event truth should mark OCR as support-only evidence");
 assert.match(matchEventTruth, /hasUnsafeValue/, "match event truth should reject unsafe provider output before reports");
 assert.match(matchEventTruth, /publicMatchEventTruth/, "match event truth should expose a public safe report shape");
+assert.match(analysis, /match_event_truth_valid_goals_only/, "valid-goals-only planning should use match-event truth as the primary source");
+assert.match(analysis, /VALID_GOAL_ONLY_TIMING/, "valid-goals-only timing should be bounded by named constants");
+assert.match(analysis, /truthEventsForValidGoalsOnly/, "analysis should expose a dedicated truth-driven valid goal selector internally");
 assert.match(youtubeIngest, /YOUTUBE_PLAYLIST_UNSUPPORTED/, "YouTube validation should reject playlists explicitly");
 assert.match(youtubeIngest, /YOUTUBE_LIVE_UNSUPPORTED/, "YouTube validation should reject live streams explicitly");
 assert.match(youtubeIngest, /YOUTUBE_INGEST_NOT_ENABLED/, "YouTube adapter failures should fail closed with a safe code");
