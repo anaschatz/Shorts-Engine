@@ -192,7 +192,9 @@ assert.match(ocrSmoke, /analyzeScoreboardOcr/, "OCR smoke should use the scorebo
 assert.match(ocrSmoke, /publicScoreboardOcr/, "OCR smoke should persist only public OCR evidence");
 assert.match(ocrSmoke, /findSensitiveLeak/, "OCR smoke should guard reports against leaks");
 assert.match(ocrSmoke, /ocrTextStored:\s*false/, "OCR smoke reports should not store OCR text");
-assert.match(ocrSmoke, /cropArtifacts:[\s\S]*enabled:\s*false/, "OCR smoke crop artifacts should stay disabled by default");
+assert.match(ocrSmoke, /SHORTSENGINE_OCR_QA_ARTIFACTS/, "OCR smoke crop artifacts should require explicit opt-in env");
+assert.match(ocrSmoke, /cleanupOcrQaArtifacts/, "OCR smoke should clean up old managed OCR QA artifacts");
+assert.match(ocrSmoke, /OCR_ARTIFACTS_RELATIVE_DIR/, "OCR smoke should keep artifact refs under the managed OCR artifacts directory");
 assert.doesNotMatch(ocrSmoke, /auth login|npm install|brew install|curl\s+|rawOcr|rawText|stdoutIncluded|stderrIncluded/i, "OCR smoke must not install tools or persist raw OCR/debug fields");
 assert.match(youtubeSmoke, /SHORTSENGINE_YOUTUBE_SMOKE/, "YouTube smoke should require an explicit smoke flag");
 assert.match(youtubeSmoke, /SHORTSENGINE_YOUTUBE_SMOKE_URL/, "YouTube smoke should read the authorized test URL from env");
@@ -591,6 +593,7 @@ assert.match(envExample, /SHORTSENGINE_STAGING_SERVICE_ID=/, ".env.example shoul
 assert.match(envExample, /SHORTSENGINE_STAGING_URL=/, ".env.example should leave staging URL empty by default");
 assert.match(envExample, /SHORTSENGINE_STAGING_FULL_SMOKE=0/, ".env.example should keep full staging smoke disabled by default");
 assert.match(envExample, /SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP=0/, ".env.example should keep full staging smoke cleanup deletion disabled by default");
+assert.match(envExample, /SHORTSENGINE_OCR_QA_ARTIFACTS=0/, ".env.example should keep OCR QA artifacts disabled by default");
 assert.match(envExample, /SHORTSENGINE_YOUTUBE_INGEST_ENABLED=0/, ".env.example should keep YouTube ingest disabled by default");
 assert.match(envExample, /SHORTSENGINE_YOUTUBE_AUTHORIZED_IMPORT_ENABLED=0/, ".env.example should keep authorized YouTube import disabled by default");
 assert.match(envExample, /SHORTSENGINE_YOUTUBE_SMOKE=0/, ".env.example should keep YouTube smoke disabled by default");
@@ -755,6 +758,7 @@ assert.match(githubWorkflow, /uses:\s*actions\/upload-artifact@v4/, "CI workflow
 assert.match(githubWorkflow, /if:\s*failure\(\)/, "CI workflow should upload artifacts only on failure");
 assert.match(githubWorkflow, /demo\/results\/latest\.json/, "CI workflow should upload API smoke latest report on failure");
 assert.match(githubWorkflow, /demo\/results\/ocr-latest\.json/, "CI workflow should upload OCR smoke latest report on failure");
+assert.doesNotMatch(githubWorkflow, /demo\/results\/ocr-artifacts\//, "CI workflow should not upload OCR QA crop artifacts by default");
 assert.match(githubWorkflow, /demo\/results\/browser-latest\.json/, "CI workflow should upload browser smoke latest report on failure");
 assert.match(githubWorkflow, /demo\/results\/playwright-latest\.json/, "CI workflow should upload Playwright latest report on failure");
 assert.match(githubWorkflow, /demo\/results\/playwright-artifacts\//, "CI workflow should upload failure-only Playwright artifacts");

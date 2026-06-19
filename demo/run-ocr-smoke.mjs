@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
@@ -9,15 +9,15 @@ import {
   DEFAULT_FIXTURE_PATH,
   ensureDemoFixture,
   fixtureMetadata,
-  relativeFromRoot,
 } from "./create-fixture.mjs";
 import { findSensitiveLeak, safeError as safeReportError } from "./report-safety.mjs";
 
 const require = createRequire(import.meta.url);
 const { CONFIG } = require("../server/config.cjs");
+const { runFfmpeg } = require("../server/render.cjs");
 const { storagePath } = require("../server/storage.cjs");
 const { extractSampledFrames, cleanupSampledFrames, publicFrameSummary } = require("../server/frame-extraction.cjs");
-const { analyzeScoreboardOcr, publicScoreboardOcr } = require("../server/scoreboard-ocr.cjs");
+const { analyzeScoreboardOcr, defaultScoreboardRegions, publicScoreboardOcr } = require("../server/scoreboard-ocr.cjs");
 const { ocrCommandAvailable } = require("../server/adapters/local-ocr-adapter.cjs");
 
 const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -25,6 +25,8 @@ const RESULTS_DIR = resolve(ROOT_DIR, "demo", "results");
 const OCR_ARTIFACTS_RELATIVE_DIR = "demo/results/ocr-artifacts";
 const OCR_LATEST_RELATIVE_PATH = "demo/results/ocr-latest.json";
 const MAX_QA_ROWS = 24;
+const MAX_QA_ARTIFACT_CROPS = 12;
+const DEFAULT_QA_ARTIFACT_RETENTION = 8;
 
 function timestampSlug(isoTimestamp) {
   return String(isoTimestamp).replace(/[:.]/g, "-");
@@ -37,6 +39,77 @@ function safeRelative(filePath) {
     return "demo/results/ocr-latest.json";
   }
   return fromRoot;
+}
+
+function boolFromEnv(value) {
+  return ["1", "true", "yes", "on"].includes(String(value || "").trim().toLowerCase());
+}
+
+function parseRetentionMax(value = process.env.SHORTSENGINE_OCR_QA_ARTIFACT_RETENTION) {
+  if (value === undefined || value === null || value === "") return DEFAULT_QA_ARTIFACT_RETENTION;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 50) {
+    const error = new Error("OCR QA artifact retention is invalid.");
+    error.code = "OCR_QA_ARTIFACT_RETENTION_INVALID";
+    throw error;
+  }
+  return parsed;
+}
+
+function normalizeRunId(value = randomUUID()) {
+  const raw = String(value || "").trim();
+  if (
+    !raw ||
+    raw.includes("..") ||
+    raw.includes("/") ||
+    raw.includes("\\") ||
+    raw.includes("\u0000") ||
+    !/^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$/.test(raw)
+  ) {
+    const error = new Error("OCR QA artifact run id is unsafe.");
+    error.code = "OCR_QA_ARTIFACT_PATH_UNSAFE";
+    throw error;
+  }
+  return raw.startsWith("ocr-") ? raw : `ocr-${raw}`;
+}
+
+function isInside(baseDir, candidatePath) {
+  const base = resolve(baseDir);
+  const target = resolve(candidatePath);
+  const fromBase = relative(base, target);
+  return fromBase === "" || (!fromBase.startsWith("..") && !isAbsolute(fromBase));
+}
+
+function safeResolveInside(baseDir, candidate, code = "OCR_QA_ARTIFACT_PATH_UNSAFE") {
+  const target = resolve(baseDir, candidate || ".");
+  if (!isInside(baseDir, target)) {
+    const error = new Error("OCR QA artifact path is unsafe.");
+    error.code = code;
+    throw error;
+  }
+  return target;
+}
+
+function safeFilePart(value, fallback = "item") {
+  const safe = String(value || fallback)
+    .replace(/[^A-Za-z0-9._-]/g, "_")
+    .replace(/_+/g, "_")
+    .slice(0, 64);
+  return safe || fallback;
+}
+
+function ocrArtifactsRoot(resultsDir = RESULTS_DIR) {
+  return safeResolveInside(resolve(resultsDir), "ocr-artifacts");
+}
+
+function resolveOcrArtifactRunDir({ resultsDir = RESULTS_DIR, runId } = {}) {
+  const root = ocrArtifactsRoot(resultsDir);
+  const safeRunId = normalizeRunId(runId);
+  return {
+    root,
+    runId: safeRunId,
+    runDir: safeResolveInside(root, safeRunId),
+  };
 }
 
 function safeFixtureSummary(fixture = {}) {
@@ -147,6 +220,139 @@ function buildChecks({ localRequested, runtimeAvailable, fixtureOk, framePublic,
   return checks;
 }
 
+function cropFileName({ cropIndex, frameIndex, region }) {
+  const index = String(cropIndex + 1).padStart(2, "0");
+  return `ocr-crop-${index}-frame-${frameIndex + 1}-${safeFilePart(region.id, "scoreboard")}.png`;
+}
+
+async function writeOcrQaArtifacts({
+  enabled = false,
+  runId,
+  frames = [],
+  metadata = {},
+  resultsDir = RESULTS_DIR,
+  ffmpegRunner,
+  signal,
+} = {}) {
+  const safeRun = normalizeRunId(runId);
+  const directory = `${OCR_ARTIFACTS_RELATIVE_DIR}/${safeRun}`;
+  if (!enabled) {
+    return {
+      enabled: false,
+      runId: safeRun,
+      directory,
+      cropCount: 0,
+      files: [],
+      unavailableReason: null,
+    };
+  }
+  const runner = ffmpegRunner;
+  const safeFrames = Array.isArray(frames) ? frames.filter((frame) => frame && frame.localPath && existsSync(frame.localPath)) : [];
+  if (!safeFrames.length || typeof runner !== "function") {
+    return {
+      enabled: true,
+      runId: safeRun,
+      directory,
+      cropCount: 0,
+      files: [],
+      unavailableReason: !safeFrames.length ? "no_sampled_frames" : "ffmpeg_runner_unavailable",
+    };
+  }
+  const { runDir } = resolveOcrArtifactRunDir({ resultsDir, runId: safeRun });
+  mkdirSync(runDir, { recursive: true });
+  const files = [];
+  let cropIndex = 0;
+  for (const [frameIndex, frame] of safeFrames.entries()) {
+    if (cropIndex >= MAX_QA_ARTIFACT_CROPS) break;
+    const regions = defaultScoreboardRegions(metadata, frame).slice(0, 3);
+    for (const region of regions) {
+      if (cropIndex >= MAX_QA_ARTIFACT_CROPS) break;
+      const outputFile = cropFileName({ cropIndex, frameIndex, region });
+      const outputPath = safeResolveInside(runDir, outputFile);
+      await runner([
+        "-y",
+        "-i",
+        frame.localPath,
+        "-vf",
+        `crop=${region.width}:${region.height}:${region.x}:${region.y}`,
+        "-frames:v",
+        "1",
+        outputPath,
+      ], { signal, timeoutMs: Math.min(CONFIG.analysisTimeoutMs, 20000) });
+      if (!existsSync(outputPath) || !statSync(outputPath).isFile()) {
+        const error = new Error("OCR QA artifact crop was not created.");
+        error.code = "OCR_QA_ARTIFACT_WRITE_FAILED";
+        throw error;
+      }
+      const relativePath = safeRelative(outputPath);
+      if (!relativePath.startsWith(`${OCR_ARTIFACTS_RELATIVE_DIR}/${safeRun}/`)) {
+        const error = new Error("OCR QA artifact ref is unsafe.");
+        error.code = "OCR_QA_ARTIFACT_PATH_UNSAFE";
+        throw error;
+      }
+      files.push({
+        id: `ocr_crop_${cropIndex + 1}`,
+        frameId: String(frame.id || `frame_${frameIndex + 1}`).slice(0, 80),
+        timestamp: Number(frame.timestamp || 0),
+        regionId: String(region.id || "scoreboard_region").slice(0, 80),
+        width: Number(region.width || 0),
+        height: Number(region.height || 0),
+        relativePath,
+      });
+      cropIndex += 1;
+    }
+  }
+  return {
+    enabled: true,
+    runId: safeRun,
+    directory,
+    cropCount: files.length,
+    files,
+    unavailableReason: files.length ? null : "no_scoreboard_crops",
+  };
+}
+
+function cleanupOcrQaArtifacts({
+  resultsDir = RESULTS_DIR,
+  retentionMax = DEFAULT_QA_ARTIFACT_RETENTION,
+  currentRunId,
+} = {}) {
+  const root = ocrArtifactsRoot(resultsDir);
+  if (!existsSync(root)) {
+    return { retentionMax, removedCount: 0, removed: [], preservedCount: 0 };
+  }
+  const safeCurrent = currentRunId ? normalizeRunId(currentRunId) : null;
+  const managed = readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && /^ocr-[A-Za-z0-9._-]+$/.test(entry.name) && !entry.name.includes(".."))
+    .map((entry) => {
+      const dir = safeResolveInside(root, entry.name);
+      return {
+        name: entry.name,
+        dir,
+        mtimeMs: statSync(dir).mtimeMs,
+      };
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+  const keep = new Set();
+  if (safeCurrent) keep.add(safeCurrent);
+  for (const entry of managed) {
+    if (keep.size >= retentionMax) break;
+    keep.add(entry.name);
+  }
+  const removed = [];
+  for (const entry of managed) {
+    if (keep.has(entry.name)) continue;
+    rmSync(entry.dir, { recursive: true, force: true });
+    removed.push(`${OCR_ARTIFACTS_RELATIVE_DIR}/${entry.name}`);
+  }
+  return {
+    retentionMax,
+    removedCount: removed.length,
+    removed,
+    preservedCount: keep.size,
+  };
+}
+
 function assertSafeReport(report) {
   const leak = findSensitiveLeak(report);
   if (leak) {
@@ -175,8 +381,13 @@ function writeOcrSmokeReport(report, options = {}) {
 async function runOcrSmoke(options = {}) {
   const nowMs = Number.isFinite(Number(options.nowMs)) ? Number(options.nowMs) : Date.now();
   const timestamp = new Date(nowMs).toISOString();
+  const runId = normalizeRunId(options.runId || randomUUID());
   const scoreboardConfig = options.scoreboardConfig || CONFIG.scoreboardOcr;
   const localRequested = Boolean(scoreboardConfig.enabled && scoreboardConfig.provider === "local");
+  const qaArtifactsEnabled = Object.prototype.hasOwnProperty.call(options, "qaArtifactsEnabled")
+    ? Boolean(options.qaArtifactsEnabled)
+    : boolFromEnv(process.env.SHORTSENGINE_OCR_QA_ARTIFACTS);
+  const qaArtifactRetentionMax = parseRetentionMax(options.qaArtifactRetentionMax);
   const commandChecker = options.ocrCommandChecker || ocrCommandAvailable;
   const runtimeAvailable = localRequested ? Boolean(commandChecker(scoreboardConfig.bin)) : false;
   const fixturePath = resolve(options.fixturePath || DEFAULT_FIXTURE_PATH);
@@ -191,6 +402,15 @@ async function runOcrSmoke(options = {}) {
   let frameResult = null;
   let frameCleanup = { cleanedCount: 0 };
   let scoreboardResult = null;
+  let qaArtifacts = {
+    enabled: false,
+    runId,
+    directory: `${OCR_ARTIFACTS_RELATIVE_DIR}/${runId}`,
+    cropCount: 0,
+    files: [],
+    unavailableReason: null,
+  };
+  let qaArtifactCleanup = { retentionMax: qaArtifactRetentionMax, removedCount: 0, removed: [], preservedCount: 0 };
   let runError = null;
 
   try {
@@ -204,6 +424,23 @@ async function runOcrSmoke(options = {}) {
       ffmpegRunner: options.ffmpegRunner,
       signal: options.signal,
     });
+
+    qaArtifacts = await writeOcrQaArtifacts({
+      enabled: qaArtifactsEnabled,
+      runId,
+      frames: frameResult.frames,
+      metadata,
+      resultsDir: options.resultsDir || RESULTS_DIR,
+      ffmpegRunner: options.qaArtifactFfmpegRunner || options.ffmpegRunner || runFfmpeg,
+      signal: options.signal,
+    });
+    if (qaArtifactsEnabled) {
+      qaArtifactCleanup = cleanupOcrQaArtifacts({
+        resultsDir: options.resultsDir || RESULTS_DIR,
+        retentionMax: qaArtifactRetentionMax,
+        currentRunId: runId,
+      });
+    }
 
     scoreboardResult = await analyzeScoreboardOcr({
       metadata,
@@ -239,9 +476,17 @@ async function runOcrSmoke(options = {}) {
     });
   }
   if (runError && localRequested && runtimeAvailable) criticalFailures.push(runError);
+  if (qaArtifactsEnabled && qaArtifacts.cropCount === 0) {
+    criticalFailures.push({
+      code: "OCR_QA_ARTIFACTS_UNAVAILABLE",
+      nextAction: "Verify FFmpeg/frame extraction, then rerun npm run ocr:smoke with SHORTSENGINE_OCR_QA_ARTIFACTS=1.",
+      reason: qaArtifacts.unavailableReason || "no_crops",
+    });
+  }
   const qaRows = buildOcrQaRows(scoreboardPublic);
   const report = {
     schemaVersion: 1,
+    runId,
     timestamp,
     generatedAt: timestamp,
     command: "npm run ocr:smoke",
@@ -263,21 +508,31 @@ async function runOcrSmoke(options = {}) {
       fallbackAvailable: true,
       networkRequired: false,
     },
+    providerMode: localRequested ? "local-scoreboard-ocr-command" : "deterministic-scoreboard-ocr",
+    localOcrEnabled: localRequested,
+    runtimeAvailable,
     fixture: safeFixtureSummary(fixture),
     frameExtraction: framePublic,
+    frameCount: Number(framePublic.summary && framePublic.summary.frameCount || 0),
     scoreboardOcr: scoreboardPublic,
+    evidenceSummary: scoreboardPublic.summary,
+    cropCount: qaArtifacts.cropCount,
+    qaArtifactDirectory: qaArtifacts.directory,
+    cropArtifacts: qaArtifacts.files,
     qa: {
       rowCount: qaRows.length,
       rows: qaRows,
       cropArtifacts: {
-        enabled: false,
-        directory: OCR_ARTIFACTS_RELATIVE_DIR,
-        files: [],
+        enabled: qaArtifacts.enabled,
+        directory: qaArtifacts.directory,
+        files: qaArtifacts.files,
+        unavailableReason: qaArtifacts.unavailableReason,
       },
     },
     cleanup: {
       sampledFramesCleaned: Number(frameCleanup.cleanedCount || 0),
       tempArtifactsDeleted: true,
+      qaArtifactsRetention: qaArtifactCleanup,
     },
     logsDownloaded: false,
     artifactsDownloaded: false,
@@ -286,7 +541,9 @@ async function runOcrSmoke(options = {}) {
     failedCases: criticalFailures,
     limitations: [
       "Default OCR smoke proves fallback safety without requiring Tesseract.",
-      "Crop thumbnails are disabled by default to avoid persisting local frame data.",
+      qaArtifactsEnabled
+        ? "OCR QA crop thumbnails are local debug artifacts and are ignored by git."
+        : "Crop thumbnails are disabled by default to avoid persisting local frame data.",
     ],
   };
   const reportSafe = findSensitiveLeak(report) === null;
@@ -360,7 +617,12 @@ export {
   RESULTS_DIR,
   buildOcrQaRows,
   candidateWindowsForFixture,
+  cleanupOcrQaArtifacts,
+  normalizeRunId,
+  parseRetentionMax,
+  resolveOcrArtifactRunDir,
   runOcrSmoke,
   safeFixtureSummary,
+  writeOcrQaArtifacts,
   writeOcrSmokeReport,
 };

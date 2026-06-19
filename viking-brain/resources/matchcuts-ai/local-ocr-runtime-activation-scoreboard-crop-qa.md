@@ -14,7 +14,9 @@
 - `npm run ocr:smoke` writes `demo/results/ocr-latest.json` plus a timestamped OCR smoke report.
 - Reports include provider mode, fallback/runtime status, sampled frame summary, public scoreboard OCR evidence and bounded QA rows.
 - Reports must not include OCR text dumps, stdout/stderr, binary paths, local crop paths, storage keys, provider raw errors or secrets.
-- Crop artifacts are disabled by default and reserved for explicit future operator debugging.
+- Crop artifacts are disabled by default and require `SHORTSENGINE_OCR_QA_ARTIFACTS=1`.
+- Enabled crop artifacts are written only under `demo/results/ocr-artifacts/<run-id>/`.
+- Retention is bounded by `SHORTSENGINE_OCR_QA_ARTIFACT_RETENTION`.
 
 ## Release Gate
 - CI runs `npm run ocr:doctor` and `npm run ocr:smoke`.

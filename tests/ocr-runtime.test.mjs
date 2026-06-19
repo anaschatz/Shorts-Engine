@@ -1,11 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
 import { findSensitiveLeak } from "../demo/report-safety.mjs";
-import { runOcrSmoke } from "../demo/run-ocr-smoke.mjs";
+import {
+  OCR_ARTIFACTS_RELATIVE_DIR,
+  cleanupOcrQaArtifacts,
+  normalizeRunId,
+  resolveOcrArtifactRunDir,
+  runOcrSmoke,
+} from "../demo/run-ocr-smoke.mjs";
 import { checkOcrRuntime } from "../tools/release/check-ocr-runtime.mjs";
 
 function fakeStorageHealth() {
@@ -117,8 +123,93 @@ test("OCR smoke writes a safe skipped proof with fallback defaults", async () =>
   assert.equal(result.skipped, true);
   assert.equal(result.runtime.networkRequired, false);
   assert.equal(result.frameExtraction.summary.frameCount, 3);
+  assert.equal(result.qa.cropArtifacts.enabled, false);
+  assert.equal(result.cropCount, 0);
+  assert.deepEqual(result.cropArtifacts, []);
   assert.equal(result.latestPath, "demo/results/ocr-latest.json");
   assert.equal(findSensitiveLeak(result), null);
+});
+
+test("OCR smoke writes opt-in crop QA artifacts with safe relative refs", async () => {
+  const fixturePath = createFixtureFile();
+  const runId = `qa-artifacts-${Date.now()}`;
+  const safeRunId = normalizeRunId(runId);
+
+  try {
+    const result = await runOcrSmoke({
+      nowMs: Date.parse("2026-06-19T12:35:00.000Z"),
+      runId,
+      qaArtifactsEnabled: true,
+      qaArtifactRetentionMax: 50,
+      fixturePath,
+      ensureFixture: fakeEnsureFixture,
+      ffmpegRunner: fakeFfmpegRunner,
+      qaArtifactFfmpegRunner: fakeFfmpegRunner,
+      scoreboardConfig: {
+        enabled: false,
+        provider: "deterministic",
+        bin: "tesseract",
+        timeoutMs: 10000,
+      },
+    });
+
+    assert.equal(result.status, "passed");
+    assert.equal(result.qa.cropArtifacts.enabled, true);
+    assert.equal(result.qaArtifactDirectory, `${OCR_ARTIFACTS_RELATIVE_DIR}/${safeRunId}`);
+    assert.equal(result.cropArtifacts.length > 0, true);
+    assert.equal(result.cropCount, result.cropArtifacts.length);
+    for (const artifact of result.cropArtifacts) {
+      assert.match(artifact.relativePath, new RegExp(`^${OCR_ARTIFACTS_RELATIVE_DIR}/${safeRunId}/ocr-crop-`));
+      assert.equal(existsSync(resolve(process.cwd(), artifact.relativePath)), true);
+      assert.doesNotMatch(artifact.relativePath, /\.\.|\\/);
+    }
+    assert.equal(findSensitiveLeak(result), null);
+  } finally {
+    rmSync(resolve(process.cwd(), OCR_ARTIFACTS_RELATIVE_DIR, safeRunId), { recursive: true, force: true });
+  }
+});
+
+test("OCR smoke rejects unsafe artifact run ids", async () => {
+  await assert.rejects(
+    runOcrSmoke({
+      runId: "../bad",
+      qaArtifactsEnabled: true,
+      fixturePath: createFixtureFile(),
+      ensureFixture: fakeEnsureFixture,
+      ffmpegRunner: fakeFfmpegRunner,
+      scoreboardConfig: {
+        enabled: false,
+        provider: "deterministic",
+        bin: "tesseract",
+        timeoutMs: 10000,
+      },
+    }),
+    (error) => error.code === "OCR_QA_ARTIFACT_PATH_UNSAFE",
+  );
+});
+
+test("OCR QA artifact cleanup deletes only managed run directories", () => {
+  const resultsDir = mkdtempSync(join(tmpdir(), "shortsengine-ocr-artifact-cleanup-"));
+  const current = resolveOcrArtifactRunDir({ resultsDir, runId: "current" });
+  const stale = resolveOcrArtifactRunDir({ resultsDir, runId: "stale" });
+  const unmanaged = resolve(current.root, "manual-not-managed");
+  mkdirSync(current.runDir, { recursive: true });
+  mkdirSync(stale.runDir, { recursive: true });
+  mkdirSync(unmanaged, { recursive: true });
+  writeFileSync(join(current.runDir, "crop.png"), "current", "utf8");
+  writeFileSync(join(stale.runDir, "crop.png"), "stale", "utf8");
+  writeFileSync(join(unmanaged, "keep.png"), "keep", "utf8");
+
+  const cleanup = cleanupOcrQaArtifacts({
+    resultsDir,
+    retentionMax: 1,
+    currentRunId: "current",
+  });
+
+  assert.equal(cleanup.removedCount, 1);
+  assert.equal(existsSync(current.runDir), true);
+  assert.equal(existsSync(stale.runDir), false);
+  assert.equal(existsSync(unmanaged), true);
 });
 
 test("OCR smoke validates local runtime output without leaking command text", async () => {
