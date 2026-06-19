@@ -269,6 +269,8 @@ npm run outbox:drain
 
 Real cloud integration remains opt-in and must not run in the default CI release gate. Use the dedicated integration command only with explicit credentials and environment flags.
 
+Manual OCR QA review is also opt-in. Generate managed crop artifacts with `SHORTSENGINE_OCR_QA_ARTIFACTS=1 npm run ocr:smoke`, then use the local UI OCR QA panel or `npm run ocr:qa:review` to write support-only calibration. Release evidence may include `demo/results/ocr-qa-review-latest.json`, but OCR cannot confirm goals without visual football action evidence and reports must not include raw OCR text, full frames, local paths, stdout/stderr, provider output, tokens or secrets.
+
 Full staging upload/render smoke also remains opt-in and must not run in default CI. It is a manual proof step for staging environments with known storage and persistence behavior.
 
 Full staging smoke cleanup remains opt-in and dry-run by default. It must not run in default CI because deletion should follow a reviewed staging proof.

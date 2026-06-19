@@ -367,6 +367,87 @@ test("human review validation rejects unsafe refs missing scores and leaks", () 
   assert.equal(Core.HUMAN_REVIEW_FLAGS.some((flag) => flag.id === "reactionOnly" && flag.critical), true);
 });
 
+test("OCR QA review validation accepts safe managed crop reviews", () => {
+  const manifest = {
+    relativePath: "demo/results/ocr-artifacts/ocr-ui-test/ocr-qa-manifest.json",
+    files: [
+      { id: "ocr-crop-01", kind: "scoreboard_crop", sizeBytes: 1200 },
+      { id: "ocr-crop-02", kind: "scoreboard_crop", sizeBytes: 900 },
+    ],
+  };
+  const result = Core.validateOcrQaReviewInput({
+    manifestPath: manifest.relativePath,
+    operatorDecision: "borderline",
+    crops: [
+      {
+        id: "ocr-crop-01",
+        scoreboardVisible: true,
+        clockVisible: true,
+        scoreVisible: true,
+        readable: false,
+        cropUsefulForDecision: true,
+        notes: "Visible scoreboard, low confidence.",
+      },
+      {
+        id: "ocr-crop-02",
+        scoreboardVisible: false,
+        clockVisible: false,
+        scoreVisible: false,
+        readable: false,
+        cropUsefulForDecision: false,
+        notes: "",
+      },
+    ],
+  }, manifest);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.data.operatorDecision, "borderline");
+  assert.equal(result.data.crops.length, 2);
+});
+
+test("OCR QA review validation rejects unsafe refs unknown crops and raw OCR notes", () => {
+  const manifest = {
+    relativePath: "demo/results/ocr-artifacts/ocr-ui-test/ocr-qa-manifest.json",
+    files: [{ id: "ocr-crop-01", kind: "scoreboard_crop", sizeBytes: 1200 }],
+  };
+  const baseCrop = {
+    id: "ocr-crop-01",
+    scoreboardVisible: true,
+    clockVisible: true,
+    scoreVisible: true,
+    readable: true,
+    cropUsefulForDecision: true,
+    notes: "",
+  };
+
+  assert.equal(
+    Core.validateOcrQaReviewInput({
+      manifestPath: "../ocr-qa-manifest.json",
+      operatorDecision: "useful",
+      crops: [baseCrop],
+    }, manifest).error.code,
+    "OCR_QA_REVIEW_MANIFEST_REF_INVALID",
+  );
+
+  assert.equal(
+    Core.validateOcrQaReviewInput({
+      manifestPath: manifest.relativePath,
+      operatorDecision: "useful",
+      crops: [{ ...baseCrop, id: "unknown-crop" }],
+    }, manifest).error.code,
+    "OCR_QA_REVIEW_CROP_INVALID",
+  );
+
+  assert.equal(
+    Core.validateOcrQaReviewInput({
+      manifestPath: manifest.relativePath,
+      operatorDecision: "useful",
+      crops: [{ ...baseCrop, notes: "raw OCR text was 1-0 with stdout" }],
+    }, manifest).error.code,
+    "OCR_QA_REVIEW_LEAK_GUARD",
+  );
+});
+
 test("project settings are normalized and consent is required for jobs", () => {
   const settings = Core.normalizeProjectSettings({
     title: "  Derby Final  ",

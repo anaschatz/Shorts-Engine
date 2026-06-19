@@ -154,6 +154,8 @@ If Tesseract is missing, the smoke fails with `OCR_RUNTIME_MISSING` and safe `ne
 
 The OCR QA review input must reference the generated `ocr-qa-manifest.json` with a safe relative ref and contain only bounded crop ids, boolean visibility/readability/usefulness fields and short safe notes. Reports never include raw OCR text, full frames, local crop paths, stdout/stderr, provider output, tokens or secrets. Calibration remains `support_only`, so readable OCR can support goal/offside evidence only next to visual football action evidence.
 
+The local browser UI mirrors that contract in the Quality review panel. It loads `GET /api/ocr-qa/latest`, previews thumbnails only through `GET /api/ocr-qa/crop`, and submits reviews through `POST /api/ocr-qa/review`. Missing manifests keep the submit action disabled. The UI is operator-assisted, stays out of the default CI gate, and must never display raw OCR text or use OCR-only evidence to confirm a goal.
+
 ## Retention
 
 The browser runner keeps retention bounded. Default retention is 20 managed Playwright reports/artifacts. You can override it with:

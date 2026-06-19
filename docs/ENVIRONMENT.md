@@ -235,6 +235,22 @@ moment. Evaluation reports include safe aggregate metrics such as
 | `SHORTSENGINE_BROWSER_E2E_VIDEO` | No | `0` | boolean | No | Enable only for debugging failures. | Invalid boolean fails readiness. |
 | `SHORTSENGINE_CI_REPORT_MAX_AGE_MS` | No | `7200000` | integer `60000..86400000` | No | Keep default. | Invalid freshness window fails readiness. |
 
+## Manual OCR QA Review UI
+
+The local UI exposes an operator-only OCR QA panel through safe API boundaries:
+
+- `GET /api/ocr-qa/latest` loads the latest managed OCR crop manifest from the latest OCR smoke report.
+- `GET /api/ocr-qa/crop?manifest=...&id=...` streams only validated managed PNG crop thumbnails.
+- `POST /api/ocr-qa/review` writes support-only calibration to `demo/results/ocr-qa-review-latest.json`.
+
+Generate reviewable crops manually with:
+
+```bash
+SHORTSENGINE_OCR_QA_ARTIFACTS=1 npm run ocr:smoke
+```
+
+The UI never displays raw OCR text, full frames, local absolute paths, storage keys, stdout/stderr or provider output. OCR calibration remains support-only and cannot confirm goals without football action evidence.
+
 ## Staging Readiness Checklist
 
 1. Install dependencies with `npm ci`.

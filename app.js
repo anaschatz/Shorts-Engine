@@ -110,6 +110,18 @@
     humanReviewSubmitBtn: "#humanReviewSubmitBtn",
     humanReviewNextAction: "#humanReviewNextAction",
     humanReviewError: "#humanReviewError",
+    ocrQaPanel: "#ocrQaPanel",
+    ocrQaStatus: "#ocrQaStatus",
+    ocrQaRefreshBtn: "#ocrQaRefreshBtn",
+    ocrQaSummary: "#ocrQaSummary",
+    ocrQaPolicy: "#ocrQaPolicy",
+    ocrQaForm: "#ocrQaForm",
+    ocrQaCrops: "#ocrQaCrops",
+    ocrQaOperatorDecision: "#ocrQaOperatorDecision",
+    ocrQaSubmitBtn: "#ocrQaSubmitBtn",
+    ocrQaNextAction: "#ocrQaNextAction",
+    ocrQaError: "#ocrQaError",
+    ocrQaCalibration: "#ocrQaCalibration",
     reviewMetrics: "#reviewMetrics",
     reviewFailures: "#reviewFailures",
     reviewSuggestions: "#reviewSuggestions",
@@ -163,6 +175,13 @@
         result: null,
         error: null,
       },
+      ocrQa: {
+        status: "idle",
+        latest: null,
+        manifest: null,
+        review: null,
+        error: null,
+      },
       regeneration: {
         status: "idle",
         result: null,
@@ -204,6 +223,16 @@
       status: "idle",
       latest: null,
       result: null,
+      error: null,
+    };
+  }
+
+  function idleOcrQaReviewState() {
+    return {
+      status: "idle",
+      latest: null,
+      manifest: null,
+      review: null,
       error: null,
     };
   }
@@ -520,10 +549,13 @@
       result: null,
       error: null,
       human: idleHumanReviewState(),
+      ocrQa: idleOcrQaReviewState(),
       regeneration: idleRegenerationState(),
     };
     clearHumanReviewError();
+    clearOcrQaError();
     renderReviewPanel();
+    renderOcrQaReviewPanel();
   }
 
   function formatReviewMetric(value) {
@@ -723,6 +755,248 @@
       showSafeError(response, "human-review-submit");
     } finally {
       validateHumanReviewForm();
+    }
+  }
+
+  function clearOcrQaError() {
+    els.ocrQaError.hidden = true;
+    els.ocrQaError.textContent = "";
+  }
+
+  function ocrQaCropUrl(manifestRef, cropId) {
+    return `/api/ocr-qa/crop?manifest=${encodeURIComponent(manifestRef)}&id=${encodeURIComponent(cropId)}`;
+  }
+
+  function applyOcrQaReviewToControls(review) {
+    const calibration = review && review.calibration;
+    if (calibration && calibration.operatorDecision) {
+      els.ocrQaOperatorDecision.value = calibration.operatorDecision;
+    }
+  }
+
+  function renderOcrQaCalibration(review) {
+    els.ocrQaCalibration.replaceChildren();
+    if (!review || !review.calibration) {
+      els.ocrQaCalibration.hidden = true;
+      return;
+    }
+    els.ocrQaCalibration.hidden = false;
+    const calibration = review.calibration;
+    const scores = review.scores || {};
+    const rows = [
+      ["Support", calibration.decisionSupportLevel || "ignore"],
+      ["Crop quality", calibration.scoreboardCropQuality || "unknown"],
+      ["Decision", calibration.operatorDecision || "not useful"],
+      ["OCR-only goals", calibration.goalDecisionAllowed ? "blocked" : "blocked"],
+      ["Readability", formatReviewMetric(scores.readabilityScore)],
+      ["Usefulness", formatReviewMetric(scores.usefulnessScore)],
+    ];
+    rows.forEach(([labelText, valueText]) => {
+      const item = document.createElement("div");
+      item.className = "review-metric";
+      const label = document.createElement("span");
+      label.textContent = labelText;
+      const value = document.createElement("strong");
+      value.textContent = String(valueText).replace(/_/g, " ");
+      item.append(label, value);
+      els.ocrQaCalibration.appendChild(item);
+    });
+  }
+
+  function renderOcrQaCrops(manifest, review) {
+    const previous = new Map((review?.reviewedCrops || []).map((crop) => [crop.id, crop]));
+    els.ocrQaCrops.replaceChildren();
+    (manifest.files || []).forEach((file, index) => {
+      const saved = previous.get(file.id) || {};
+      const card = document.createElement("article");
+      card.className = "ocr-qa-crop-card";
+      card.dataset.ocrQaCropId = file.id;
+
+      const image = document.createElement("img");
+      image.className = "ocr-qa-thumb";
+      image.loading = "lazy";
+      image.decoding = "async";
+      image.alt = `OCR QA crop ${index + 1}`;
+      image.src = file.cropUrl || ocrQaCropUrl(manifest.relativePath, file.id);
+
+      const meta = document.createElement("div");
+      meta.className = "ocr-qa-crop-meta";
+      const title = document.createElement("strong");
+      title.textContent = file.id;
+      const size = document.createElement("span");
+      size.textContent = `${file.kind || "scoreboard_crop"} · ${Core.formatBytes(file.sizeBytes || 0)}`;
+      meta.append(title, size);
+
+      const checks = document.createElement("div");
+      checks.className = "ocr-qa-checks";
+      [
+        ["scoreboardVisible", "Scoreboard"],
+        ["clockVisible", "Clock"],
+        ["scoreVisible", "Score"],
+        ["readable", "Readable"],
+        ["cropUsefulForDecision", "Useful"],
+      ].forEach(([field, labelText]) => {
+        const label = document.createElement("label");
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.dataset.ocrQaField = field;
+        input.checked = saved[field] === true;
+        input.addEventListener("change", validateOcrQaReviewForm);
+        const text = document.createElement("span");
+        text.textContent = labelText;
+        label.append(input, text);
+        checks.appendChild(label);
+      });
+
+      const note = document.createElement("input");
+      note.className = "ocr-qa-note";
+      note.type = "text";
+      note.maxLength = String(Core.CONFIG.maxOcrQaNoteLength || 160);
+      note.placeholder = "Safe note, no raw OCR text";
+      note.dataset.ocrQaNotes = "true";
+      note.value = saved.notes || "";
+      note.addEventListener("input", validateOcrQaReviewForm);
+
+      card.append(image, meta, checks, note);
+      els.ocrQaCrops.appendChild(card);
+    });
+  }
+
+  function readOcrQaReviewPayload() {
+    const manifest = state.review.ocrQa.manifest;
+    return {
+      manifestPath: manifest ? manifest.relativePath : "",
+      operatorDecision: els.ocrQaOperatorDecision.value,
+      crops: Array.from(els.ocrQaCrops.querySelectorAll("[data-ocr-qa-crop-id]")).map((card) => {
+        const crop = { id: card.dataset.ocrQaCropId };
+        card.querySelectorAll("[data-ocr-qa-field]").forEach((input) => {
+          crop[input.dataset.ocrQaField] = input.checked;
+        });
+        const notes = card.querySelector("[data-ocr-qa-notes]");
+        crop.notes = notes ? notes.value : "";
+        return crop;
+      }),
+    };
+  }
+
+  function validateOcrQaReviewForm() {
+    const validation = Core.validateOcrQaReviewInput(readOcrQaReviewPayload(), state.review.ocrQa.manifest);
+    els.ocrQaSubmitBtn.disabled = !validation.ok || state.review.ocrQa.status === "submitting";
+    if (validation.ok) clearOcrQaError();
+    return validation;
+  }
+
+  function renderOcrQaReviewPanel() {
+    const ocrQa = state.review.ocrQa || idleOcrQaReviewState();
+    const manifest = ocrQa.manifest;
+    const review = ocrQa.review || (ocrQa.latest && ocrQa.latest.latestReview);
+    const files = manifest && Array.isArray(manifest.files) ? manifest.files : [];
+    els.ocrQaPanel.dataset.status = ocrQa.status;
+    els.ocrQaForm.hidden = true;
+    els.ocrQaSubmitBtn.disabled = true;
+    els.ocrQaRefreshBtn.disabled = ocrQa.status === "loading" || ocrQa.status === "submitting";
+
+    if (ocrQa.status === "loading") {
+      els.ocrQaStatus.textContent = "Checking crop manifest";
+      els.ocrQaSummary.textContent = "Looking for the latest managed OCR QA artifact manifest.";
+      renderOcrQaCalibration(review);
+      return;
+    }
+
+    if (ocrQa.status === "failed" && ocrQa.error) {
+      els.ocrQaStatus.textContent = "OCR QA unavailable";
+      els.ocrQaSummary.textContent = ocrQa.error.message || "OCR QA could not load safely.";
+      renderOcrQaCalibration(review);
+      return;
+    }
+
+    if (!manifest || !files.length) {
+      els.ocrQaStatus.textContent = "No crop manifest";
+      els.ocrQaSummary.textContent = "Run OCR smoke with QA artifacts to review scoreboard crops. OCR evidence stays disabled by default.";
+      els.ocrQaNextAction.textContent = "Run SHORTSENGINE_OCR_QA_ARTIFACTS=1 npm run ocr:smoke.";
+      els.ocrQaCrops.replaceChildren();
+      renderOcrQaCalibration(review);
+      return;
+    }
+
+    els.ocrQaForm.hidden = false;
+    els.ocrQaStatus.textContent = ocrQa.status === "submitted" ? "OCR QA saved" : "Ready for operator review";
+    els.ocrQaSummary.textContent = `${files.length} managed crop thumbnails loaded. Mark only visibility and usefulness, never raw OCR text.`;
+    els.ocrQaNextAction.textContent = "Submit support-only calibration after reviewing the crop thumbnails.";
+    applyOcrQaReviewToControls(review);
+    renderOcrQaCrops(manifest, review);
+    renderOcrQaCalibration(review);
+    validateOcrQaReviewForm();
+  }
+
+  async function refreshOcrQaLatest() {
+    try {
+      state.review.ocrQa = {
+        ...state.review.ocrQa,
+        status: "loading",
+        error: null,
+      };
+      renderOcrQaReviewPanel();
+      const data = await apiFetch("/api/ocr-qa/latest");
+      state.review.ocrQa = {
+        status: data.status === "available" ? "ready" : "missing",
+        latest: data,
+        manifest: data.manifest || null,
+        review: data.latestReview || null,
+        error: null,
+      };
+    } catch (error) {
+      const response = safeErrorResponse(error);
+      state.review.ocrQa = {
+        ...state.review.ocrQa,
+        status: "failed",
+        error: { code: response.error.code, message: response.error.message },
+      };
+    } finally {
+      renderOcrQaReviewPanel();
+    }
+  }
+
+  async function handleOcrQaReviewSubmit(event) {
+    event.preventDefault();
+    clearOcrQaError();
+    const validation = validateOcrQaReviewForm();
+    if (!validation.ok) {
+      els.ocrQaError.hidden = false;
+      els.ocrQaError.textContent = validation.error.message;
+      return;
+    }
+    try {
+      state.review.ocrQa = {
+        ...state.review.ocrQa,
+        status: "submitting",
+        error: null,
+      };
+      validateOcrQaReviewForm();
+      const data = await apiFetch("/api/ocr-qa/review", {
+        method: "POST",
+        body: JSON.stringify(validation.data),
+      });
+      state.review.ocrQa = {
+        ...state.review.ocrQa,
+        status: "submitted",
+        latest: data,
+        review: data.review,
+        error: null,
+      };
+      showToast("OCR QA calibration saved as support-only evidence.", "success");
+    } catch (error) {
+      const response = safeErrorResponse(error);
+      state.review.ocrQa = {
+        ...state.review.ocrQa,
+        status: "failed",
+        error: { code: response.error.code, message: response.error.message },
+      };
+      els.ocrQaError.hidden = false;
+      els.ocrQaError.textContent = response.error.message;
+      showSafeError(response, "ocr-qa-review-submit");
+    } finally {
+      renderOcrQaReviewPanel();
     }
   }
 
@@ -1858,6 +2132,7 @@
         result: null,
         error: null,
         human: idleHumanReviewState(),
+        ocrQa: idleOcrQaReviewState(),
         regeneration: idleRegenerationState(),
       },
       moments: Core.validateAiOutput(DEFAULT_MOMENTS).data || [],
@@ -1975,6 +2250,9 @@
     els.humanGeneratedRef.addEventListener("input", () => validateHumanReviewForm({ refreshPreview: true }));
     els.humanReferenceRef.addEventListener("input", () => validateHumanReviewForm({ refreshPreview: true }));
     els.humanReviewNotes.addEventListener("input", validateHumanReviewForm);
+    els.ocrQaRefreshBtn.addEventListener("click", refreshOcrQaLatest);
+    els.ocrQaForm.addEventListener("submit", handleOcrQaReviewSubmit);
+    els.ocrQaOperatorDecision.addEventListener("change", validateOcrQaReviewForm);
     els.saveBtn.addEventListener("click", handleSave);
     els.clearBtn.addEventListener("click", clearProject);
     els.exportBtn.addEventListener("click", downloadExport);
@@ -2009,9 +2287,11 @@
     syncSourcePanels();
     els.jobProgress.hidden = true;
     validateHumanReviewForm({ refreshPreview: true });
+    renderOcrQaReviewPanel();
     updateActionStates();
     refreshYouTubeHealth();
     refreshHumanReviewLatest();
+    refreshOcrQaLatest();
   }
 
   init();

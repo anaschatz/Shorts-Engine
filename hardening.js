@@ -10,8 +10,11 @@
     maxFileNameLength: 160,
     maxYouTubeUrlLength: 2048,
     maxMoments: 20,
+    maxOcrQaCrops: 12,
+    maxOcrQaNoteLength: 160,
     metadataTimeoutMs: 7000,
     jobTimeoutMs: 8000,
+    allowedOcrQaOperatorDecisions: Object.freeze(["useful", "borderline", "not_useful"]),
     allowedExtensions: Object.freeze(["mp4", "mov", "webm"]),
     allowedMimeTypes: Object.freeze(["video/mp4", "video/quicktime", "video/webm"]),
     allowedLanguages: Object.freeze(["Ελληνικά", "English", "Spanish", "Arabic"]),
@@ -102,6 +105,13 @@
     HUMAN_REVIEW_CRITERIA_INVALID: "Συμπλήρωσε όλα τα review scores από 0 έως 5.",
     HUMAN_REVIEW_NOTES_TOO_LONG: "Τα review notes είναι πολύ μεγάλα.",
     HUMAN_REVIEW_LEAK_GUARD: "Το review περιέχει unsafe ή sensitive data.",
+    OCR_QA_REVIEW_INVALID: "Το OCR QA review δεν πέρασε validation.",
+    OCR_QA_REVIEW_MANIFEST_REF_INVALID: "Το OCR QA manifest πρέπει να είναι safe managed relative path.",
+    OCR_QA_REVIEW_CROPS_INVALID: "Το OCR QA review χρειάζεται managed crop rows.",
+    OCR_QA_REVIEW_CROP_INVALID: "Το OCR QA crop δεν είναι έγκυρο.",
+    OCR_QA_REVIEW_DECISION_INVALID: "Το OCR QA operator decision δεν είναι έγκυρο.",
+    OCR_QA_REVIEW_NOTE_TOO_LONG: "Το OCR QA note είναι πολύ μεγάλο.",
+    OCR_QA_REVIEW_LEAK_GUARD: "Το OCR QA review περιέχει unsafe ή sensitive data.",
     YOUTUBE_DURATION_TOO_LONG: "Το YouTube video ξεπερνά το όριο διάρκειας.",
     YOUTUBE_AGE_RESTRICTED: "Το YouTube video χρειάζεται age-gated ή authorized access.",
     YOUTUBE_AUTH_REQUIRED: "Το YouTube video χρειάζεται authorized access πριν γίνει ingest.",
@@ -261,6 +271,102 @@
       criteria: normalizedCriteria,
       flags,
       notes: sanitizeText(notes, 1000),
+    });
+  }
+
+  function validateOcrQaManifestRef(value) {
+    const text = String(value ?? "").trim().replace(/\\/g, "/");
+    if (
+      !text ||
+      text.startsWith("/") ||
+      /^[A-Za-z]:\//.test(text) ||
+      /^file:/i.test(text) ||
+      text.includes("\0") ||
+      text.split("/").some((part) => part === "..") ||
+      !/^demo\/results\/ocr-artifacts\/ocr-[A-Za-z0-9._-]+\/ocr-qa-manifest\.json$/.test(text) ||
+      hasSensitiveReviewText(text)
+    ) {
+      return fail("OCR_QA_REVIEW_MANIFEST_REF_INVALID");
+    }
+    return ok({ relativePath: sanitizeText(text, 260) });
+  }
+
+  function normalizeOcrQaManifest(manifest) {
+    if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) return fail("OCR_QA_REVIEW_INVALID");
+    const manifestRef = validateOcrQaManifestRef(manifest.relativePath);
+    if (!manifestRef.ok) return manifestRef;
+    const files = Array.isArray(manifest.files) ? manifest.files.slice(0, CONFIG.maxOcrQaCrops) : [];
+    if (!files.length) return fail("OCR_QA_REVIEW_CROPS_INVALID");
+    const ids = new Set();
+    const normalizedFiles = [];
+    for (const file of files) {
+      const id = sanitizeText(file && file.id, 96);
+      if (!/^[A-Za-z0-9._-]{1,96}$/.test(id) || ids.has(id)) return fail("OCR_QA_REVIEW_CROP_INVALID");
+      ids.add(id);
+      normalizedFiles.push({
+        id,
+        kind: sanitizeText(file.kind || "scoreboard_crop", 48),
+        sizeBytes: Math.max(0, Math.round(Number(file.sizeBytes || 0))),
+      });
+    }
+    return ok({
+      relativePath: manifestRef.data.relativePath,
+      cropCount: normalizedFiles.length,
+      files: normalizedFiles,
+    });
+  }
+
+  function hasUnsafeOcrQaNote(value) {
+    const text = String(value ?? "");
+    return hasSensitiveReviewText(text) || /(?:raw\s+ocr|ocr\s+text|stdout|stderr|token|secret|absolute path|storage key|provider output)/i.test(text);
+  }
+
+  function validateOcrQaReviewInput(payload, manifest) {
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) return fail("OCR_QA_REVIEW_INVALID");
+    if (hasSensitiveReviewText(JSON.stringify(payload).slice(0, 6000))) return fail("OCR_QA_REVIEW_LEAK_GUARD");
+    const normalizedManifest = normalizeOcrQaManifest(manifest || { relativePath: payload.manifestPath || payload.manifestRef, files: [] });
+    if (!normalizedManifest.ok) return normalizedManifest;
+    const manifestRef = validateOcrQaManifestRef(payload.manifestPath || payload.manifestRef);
+    if (!manifestRef.ok || manifestRef.data.relativePath !== normalizedManifest.data.relativePath) {
+      return fail("OCR_QA_REVIEW_MANIFEST_REF_INVALID");
+    }
+    const crops = Array.isArray(payload.crops) ? payload.crops : [];
+    if (!crops.length || crops.length > CONFIG.maxOcrQaCrops || crops.length > normalizedManifest.data.cropCount) {
+      return fail("OCR_QA_REVIEW_CROPS_INVALID");
+    }
+    const allowedIds = new Set(normalizedManifest.data.files.map((file) => file.id));
+    const seen = new Set();
+    const normalizedCrops = [];
+    for (const crop of crops) {
+      if (!crop || typeof crop !== "object" || Array.isArray(crop)) return fail("OCR_QA_REVIEW_CROP_INVALID");
+      const id = sanitizeText(crop.id, 96);
+      if (!allowedIds.has(id) || seen.has(id)) return fail("OCR_QA_REVIEW_CROP_INVALID");
+      seen.add(id);
+      const fields = ["scoreboardVisible", "clockVisible", "scoreVisible", "readable", "cropUsefulForDecision"];
+      for (const field of fields) {
+        if (typeof crop[field] !== "boolean") return fail("OCR_QA_REVIEW_CROP_INVALID");
+      }
+      const notes = String(crop.notes ?? "").trim();
+      if (notes.length > CONFIG.maxOcrQaNoteLength) return fail("OCR_QA_REVIEW_NOTE_TOO_LONG");
+      if (hasUnsafeOcrQaNote(notes)) return fail("OCR_QA_REVIEW_LEAK_GUARD");
+      normalizedCrops.push({
+        id,
+        scoreboardVisible: crop.scoreboardVisible,
+        clockVisible: crop.clockVisible,
+        scoreVisible: crop.scoreVisible,
+        readable: crop.readable,
+        cropUsefulForDecision: crop.cropUsefulForDecision,
+        notes: sanitizeText(notes, CONFIG.maxOcrQaNoteLength),
+      });
+    }
+    const operatorDecision = String(payload.operatorDecision || "not_useful");
+    if (!CONFIG.allowedOcrQaOperatorDecisions.includes(operatorDecision)) {
+      return fail("OCR_QA_REVIEW_DECISION_INVALID");
+    }
+    return ok({
+      manifestPath: manifestRef.data.relativePath,
+      operatorDecision,
+      crops: normalizedCrops,
     });
   }
 
@@ -889,6 +995,8 @@
     validateUploadFile,
     validateReviewRelativePath,
     validateHumanReviewInput,
+    validateOcrQaManifestRef,
+    validateOcrQaReviewInput,
     createProjectTitleCandidate,
     detectVideoContainer,
     validateVideoSignature,

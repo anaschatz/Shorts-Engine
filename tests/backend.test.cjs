@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } = require("node:fs");
+const { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } = require("node:fs");
 const { join } = require("node:path");
 const { spawnSync } = require("node:child_process");
 
@@ -234,6 +234,68 @@ async function postJson(url, payload) {
   const res = mockResponse();
   await route(req, res);
   return { res, payload: JSON.parse(res.body.toString("utf8")) };
+}
+
+function writeOcrQaApiFixture(t) {
+  const runId = `ocr-api-${process.pid}-${Date.now()}`.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+  const relativeDir = `demo/results/ocr-artifacts/${runId}`;
+  const absoluteDir = join(CONFIG.rootDir, relativeDir);
+  const resultsDir = join(CONFIG.rootDir, "demo", "results");
+  const latestReportPath = join(resultsDir, "ocr-latest.json");
+  const reviewLatestPath = join(resultsDir, "ocr-qa-review-latest.json");
+  const beforeFiles = new Set(existsSync(resultsDir) ? readdirSync(resultsDir) : []);
+  const previousLatest = existsSync(latestReportPath) ? readFileSync(latestReportPath) : null;
+  const previousReviewLatest = existsSync(reviewLatestPath) ? readFileSync(reviewLatestPath) : null;
+  mkdirSync(absoluteDir, { recursive: true });
+  const cropRef = `${relativeDir}/ocr-crop-01.png`;
+  writeFileSync(join(CONFIG.rootDir, cropRef), Buffer.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    0x00, 0x00, 0x00, 0x0d,
+  ]));
+  const manifestRef = `${relativeDir}/ocr-qa-manifest.json`;
+  writeFileSync(join(CONFIG.rootDir, manifestRef), JSON.stringify({
+    schemaVersion: 1,
+    kind: "ocr-crop-qa-artifacts",
+    runId,
+    generatedAt: "2026-06-19T00:00:00.000Z",
+    directory: relativeDir,
+    cropCount: 1,
+    maxCropCount: 12,
+    maxArtifactBytes: 512000,
+    files: [{
+      id: "ocr-crop-01",
+      kind: "scoreboard_crop",
+      sizeBytes: 12,
+      relativePath: cropRef,
+    }],
+    relativeRefsOnly: true,
+    fullFramesStored: false,
+    ocrTextStored: false,
+    logsDownloaded: false,
+    artifactsDownloaded: false,
+  }, null, 2));
+  writeFileSync(latestReportPath, JSON.stringify({
+    schemaVersion: 1,
+    status: "passed",
+    qaArtifactManifest: { relativePath: manifestRef },
+  }, null, 2));
+
+  t.after(() => {
+    rmSync(absoluteDir, { recursive: true, force: true });
+    if (previousLatest) writeFileSync(latestReportPath, previousLatest);
+    else rmSync(latestReportPath, { force: true });
+    if (previousReviewLatest) writeFileSync(reviewLatestPath, previousReviewLatest);
+    else rmSync(reviewLatestPath, { force: true });
+    if (existsSync(resultsDir)) {
+      for (const fileName of readdirSync(resultsDir)) {
+        if (!beforeFiles.has(fileName) && /^ocr-qa-review-.*\.json$/.test(fileName)) {
+          rmSync(join(resultsDir, fileName), { force: true });
+        }
+      }
+    }
+  });
+
+  return { manifestRef, cropRef };
 }
 
 test("backend upload validation rejects unsafe media candidates", () => {
@@ -1165,6 +1227,67 @@ test("API human review submit and media preview reject unsafe inputs safely", as
   assert.equal(mediaPayload.ok, false);
   assert.equal(mediaPayload.error.code, "VALIDATION_ERROR");
   assert.doesNotMatch(JSON.stringify([submit.payload, mediaPayload]), /\/Users|\/private|storageKey|outputPath|secret|token|stdout|stderr|stack/i);
+});
+
+test("API OCR QA latest exposes managed crop review manifest safely", async (t) => {
+  writeOcrQaApiFixture(t);
+  const req = mockRequest({ method: "GET", url: "/api/ocr-qa/latest" });
+  const res = mockResponse();
+  await route(req, res);
+  const payload = JSON.parse(res.body.toString("utf8"));
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(payload.ok, true);
+  assert.equal(payload.data.status, "available");
+  assert.equal(payload.data.policy.ocrOnlyGoalAllowed, false);
+  assert.equal(payload.data.manifest.files.length, 1);
+  assert.match(payload.data.manifest.files[0].cropUrl, /^\/api\/ocr-qa\/crop\?/);
+  assert.equal(payload.data.manifest.files[0].relativePath, undefined);
+  assert.doesNotMatch(JSON.stringify(payload), /\/Users|\/private|storageKey|outputPath|secret|token|stdout|stderr|stack|rawOcrText|ocr-crop-01\.png/i);
+});
+
+test("API OCR QA review writes support-only calibration and rejects unsafe notes", async (t) => {
+  const fixture = writeOcrQaApiFixture(t);
+  const valid = await postJson("/api/ocr-qa/review", {
+    manifestPath: fixture.manifestRef,
+    operatorDecision: "useful",
+    crops: [{
+      id: "ocr-crop-01",
+      scoreboardVisible: true,
+      clockVisible: true,
+      scoreVisible: true,
+      readable: true,
+      cropUsefulForDecision: true,
+      notes: "Readable scoreboard crop.",
+    }],
+  });
+
+  assert.equal(valid.res.statusCode, 201);
+  assert.equal(valid.payload.ok, true);
+  assert.equal(valid.payload.data.review.calibration.goalEvidencePolicy, "support_only");
+  assert.equal(valid.payload.data.review.calibration.goalDecisionAllowed, false);
+  assert.equal(valid.payload.data.review.calibration.noFalseGoalFromOcrOnly, true);
+  assert.equal(valid.payload.data.review.logsDownloaded, false);
+  assert.equal(valid.payload.data.review.artifactsDownloaded, false);
+
+  const unsafe = await postJson("/api/ocr-qa/review", {
+    manifestPath: fixture.manifestRef,
+    operatorDecision: "useful",
+    crops: [{
+      id: "ocr-crop-01",
+      scoreboardVisible: true,
+      clockVisible: true,
+      scoreVisible: true,
+      readable: true,
+      cropUsefulForDecision: true,
+      notes: "raw OCR text from stdout should not be accepted",
+    }],
+  });
+
+  assert.equal(unsafe.res.statusCode, 400);
+  assert.equal(unsafe.payload.ok, false);
+  assert.match(unsafe.payload.error.code, /^OCR_QA_REVIEW_/);
+  assert.doesNotMatch(JSON.stringify([valid.payload, unsafe.payload]), /\/Users|\/private|storageKey|outputPath|secret|token|stdout|stderr|stack|rawOcrText/i);
 });
 
 test("public human review summary strips unapproved nested report fields", () => {

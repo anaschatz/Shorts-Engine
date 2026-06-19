@@ -339,6 +339,42 @@
                   </div>
                   <p class="field-error" id="humanReviewError" data-testid="human-review-error" role="alert" aria-live="polite" hidden></p>
                 </form>
+                <div class="ocr-qa-panel" id="ocrQaPanel" data-testid="ocr-qa-panel" data-status="loading">
+                  <div class="ocr-qa-header">
+                    <div>
+                      <p class="eyebrow">OCR QA</p>
+                      <strong id="ocrQaStatus" data-testid="ocr-qa-status">Checking crop manifest</strong>
+                    </div>
+                    <button class="secondary-btn compact-btn" id="ocrQaRefreshBtn" data-testid="ocr-qa-refresh-button" type="button">
+                      Refresh
+                    </button>
+                  </div>
+                  <p class="review-summary" id="ocrQaSummary" data-testid="ocr-qa-summary" aria-live="polite">
+                    Scoreboard OCR remains support-only and cannot confirm goals by itself.
+                  </p>
+                  <div class="ocr-qa-policy" id="ocrQaPolicy" data-testid="ocr-qa-policy">
+                    <span>Support-only</span>
+                    <span>No OCR-only goals</span>
+                    <span>No raw OCR text</span>
+                  </div>
+                  <form class="ocr-qa-form" id="ocrQaForm" data-testid="ocr-qa-form" novalidate hidden>
+                    <div class="ocr-qa-crops" id="ocrQaCrops" data-testid="ocr-qa-crops"></div>
+                    <label class="field-label" for="ocrQaOperatorDecision">Operator decision</label>
+                    <select id="ocrQaOperatorDecision" data-testid="ocr-qa-decision">
+                      <option value="useful">Useful support</option>
+                      <option value="borderline">Borderline support</option>
+                      <option value="not_useful">Not useful</option>
+                    </select>
+                    <div class="ocr-qa-actions">
+                      <button class="primary-btn compact-btn" id="ocrQaSubmitBtn" data-testid="ocr-qa-submit-button" type="submit" disabled>
+                        Submit OCR QA
+                      </button>
+                      <span id="ocrQaNextAction" data-testid="ocr-qa-next-action">Waiting for managed OCR crop artifacts.</span>
+                    </div>
+                    <p class="field-error" id="ocrQaError" data-testid="ocr-qa-error" role="alert" aria-live="polite" hidden></p>
+                  </form>
+                  <div class="ocr-qa-calibration" id="ocrQaCalibration" data-testid="ocr-qa-calibration" hidden></div>
+                </div>
                 <div class="review-metrics" id="reviewMetrics" data-testid="review-metrics" hidden></div>
                 <div class="review-failures" id="reviewFailures" data-testid="review-failures" hidden></div>
                 <div class="review-suggestions" id="reviewSuggestions" data-testid="review-suggestions" hidden>

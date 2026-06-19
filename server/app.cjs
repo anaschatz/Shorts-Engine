@@ -1,6 +1,6 @@
 const { createServer } = require("node:http");
 const { randomUUID } = require("node:crypto");
-const { existsSync, createReadStream, statSync } = require("node:fs");
+const { existsSync, createReadStream, readFileSync, statSync } = require("node:fs");
 const { extname } = require("node:path");
 const { URL } = require("node:url");
 const { CONFIG, ensureDataDirs } = require("./config.cjs");
@@ -95,6 +95,17 @@ const MAX_UPLOAD_BODY_OVERHEAD_BYTES = 64 * 1024;
 const MAX_JSON_BODY_BYTES = 16 * 1024;
 const UPLOAD_FILE_FIELD = "video";
 const REVIEW_MEDIA_PREFIX = "manual-downloads/";
+const OCR_QA_MANIFEST_REF_RE = /^demo\/results\/ocr-artifacts\/ocr-[A-Za-z0-9._-]+\/ocr-qa-manifest\.json$/;
+const OCR_QA_CROP_ID_RE = /^[A-Za-z0-9._-]{1,96}$/;
+const OCR_QA_LATEST_REPORT_REF = "demo/results/ocr-latest.json";
+const OCR_QA_REVIEW_LATEST_REPORT_REF = "demo/results/ocr-qa-review-latest.json";
+const OCR_QA_MAX_REPORT_BYTES = 512 * 1024;
+const OCR_QA_MAX_PUBLIC_CROP_BYTES = 512 * 1024;
+const OCR_QA_SUPPORT_POLICY = Object.freeze({
+  goalEvidencePolicy: "support_only",
+  ocrOnlyGoalAllowed: false,
+  noFalseGoalFromOcrOnly: true,
+});
 const HUMAN_REVIEW_PUBLIC_FLAGS = Object.freeze([
   "falseGoalClaim",
   "wrongMoment",
@@ -1096,6 +1107,10 @@ async function loadHumanReviewModule() {
   return import("../demo/run-human-visual-review.mjs");
 }
 
+async function loadOcrQaReviewModule() {
+  return import("../demo/ocr-qa-review.mjs");
+}
+
 function safeReviewMediaRef(value) {
   const text = sanitizeText(value || "", 260).replace(/\\/g, "/");
   if (
@@ -1117,6 +1132,34 @@ function safeReviewMediaRef(value) {
   };
 }
 
+function safeOcrQaManifestRef(value) {
+  const text = sanitizeText(value || "", 260).replace(/\\/g, "/");
+  if (
+    !text ||
+    text.startsWith("/") ||
+    /^[A-Za-z]:\//.test(text) ||
+    /^file:/i.test(text) ||
+    text.includes("\0") ||
+    text.split("/").some((part) => part === "..") ||
+    !OCR_QA_MANIFEST_REF_RE.test(text)
+  ) {
+    throw new AppError("OCR_QA_REVIEW_MANIFEST_REF_INVALID", "OCR QA manifest ref is invalid.", 400, {
+      nextAction: "run-ocr-smoke-with-qa-artifacts",
+    });
+  }
+  return text;
+}
+
+function safeOcrQaCropId(value) {
+  const text = sanitizeText(value || "", 96);
+  if (!OCR_QA_CROP_ID_RE.test(text)) {
+    throw new AppError("OCR_QA_REVIEW_CROP_INVALID", "OCR QA crop id is invalid.", 400, {
+      nextAction: "refresh-ocr-qa-manifest",
+    });
+  }
+  return text;
+}
+
 function publicRelativeMp4Ref(value) {
   const text = sanitizeText(value || "", 260).replace(/\\/g, "/");
   if (
@@ -1132,8 +1175,136 @@ function publicRelativeMp4Ref(value) {
   return text;
 }
 
+function safeInlinePngFileName(value, fallback = "ocr-crop.png") {
+  const fallbackName = String(fallback || "ocr-crop.png").replace(/[^A-Za-z0-9._-]/g, "_");
+  const normalized = sanitizeText(value || fallbackName, 120)
+    .replace(/[^A-Za-z0-9._-]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^\.+/, "")
+    .replace(/^[^A-Za-z0-9]+/, "")
+    .slice(0, 120);
+  const withExtension = normalized.toLowerCase().endsWith(".png") ? normalized : `${normalized || fallbackName}.png`;
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,119}\.png$/i.test(withExtension)) {
+    return fallbackName.toLowerCase().endsWith(".png") ? fallbackName : `${fallbackName}.png`;
+  }
+  return withExtension;
+}
+
 function publicFiniteNumber(value) {
   return Number.isFinite(Number(value)) ? Number(value) : null;
+}
+
+function publicOcrQaScores(scores = {}) {
+  if (!scores || typeof scores !== "object") return null;
+  return {
+    visibilityScore: publicFiniteNumber(scores.visibilityScore),
+    readabilityScore: publicFiniteNumber(scores.readabilityScore),
+    usefulnessScore: publicFiniteNumber(scores.usefulnessScore),
+    decisionSupportScore: publicFiniteNumber(scores.decisionSupportScore),
+    counts: scores.counts && typeof scores.counts === "object"
+      ? {
+          reviewed: publicFiniteNumber(scores.counts.reviewed),
+          scoreboardVisible: publicFiniteNumber(scores.counts.scoreboardVisible),
+          clockVisible: publicFiniteNumber(scores.counts.clockVisible),
+          scoreVisible: publicFiniteNumber(scores.counts.scoreVisible),
+          readable: publicFiniteNumber(scores.counts.readable),
+          useful: publicFiniteNumber(scores.counts.useful),
+        }
+      : null,
+  };
+}
+
+function publicOcrQaCalibration(calibration = {}) {
+  return {
+    goalEvidencePolicy: sanitizeText(calibration.goalEvidencePolicy || OCR_QA_SUPPORT_POLICY.goalEvidencePolicy, 80),
+    ocrEvidenceUsable: calibration.ocrEvidenceUsable === true,
+    decisionSupportLevel: sanitizeText(calibration.decisionSupportLevel || "ignore", 40),
+    scoreboardCropQuality: sanitizeText(calibration.scoreboardCropQuality || "unknown", 40),
+    operatorDecision: sanitizeText(calibration.operatorDecision || "not_useful", 40),
+    goalDecisionAllowed: calibration.goalDecisionAllowed === true,
+    noFalseGoalFromOcrOnly: calibration.noFalseGoalFromOcrOnly !== false,
+    calibrationNotes: Array.isArray(calibration.calibrationNotes)
+      ? calibration.calibrationNotes.slice(0, 4).map((note) => sanitizeText(note, 180))
+      : [],
+  };
+}
+
+function publicOcrQaManifest(manifest = {}) {
+  if (!manifest || typeof manifest !== "object") return null;
+  const relativePath = safeOcrQaManifestRef(manifest.relativePath);
+  return {
+    relativePath,
+    runId: sanitizeText(manifest.runId || "", 96),
+    directory: sanitizeText(manifest.directory || "", 180),
+    cropCount: publicFiniteNumber(manifest.cropCount),
+    maxCropCount: publicFiniteNumber(manifest.maxCropCount),
+    maxArtifactBytes: publicFiniteNumber(manifest.maxArtifactBytes),
+    files: Array.isArray(manifest.files)
+      ? manifest.files.slice(0, 12).map((file) => ({
+          id: sanitizeText(file.id || "", 96),
+          kind: sanitizeText(file.kind || "scoreboard_crop", 48),
+          sizeBytes: publicFiniteNumber(file.sizeBytes),
+          cropUrl: `/api/ocr-qa/crop?manifest=${encodeURIComponent(relativePath)}&id=${encodeURIComponent(file.id || "")}`,
+        }))
+      : [],
+    relativeRefsOnly: true,
+    fullFramesStored: false,
+    ocrTextStored: false,
+    logsDownloaded: false,
+    artifactsDownloaded: false,
+  };
+}
+
+function publicOcrQaReportManifest(manifest = {}) {
+  if (!manifest || typeof manifest !== "object") return null;
+  return {
+    relativePath: manifest.relativePath ? safeOcrQaManifestRef(manifest.relativePath) : null,
+    runId: sanitizeText(manifest.runId || "", 96),
+    directory: sanitizeText(manifest.directory || "", 180),
+    cropCount: publicFiniteNumber(manifest.cropCount),
+    maxCropCount: publicFiniteNumber(manifest.maxCropCount),
+    maxArtifactBytes: publicFiniteNumber(manifest.maxArtifactBytes),
+  };
+}
+
+function publicOcrQaReviewReport(report = {}) {
+  if (!report || typeof report !== "object") return null;
+  return {
+    schemaVersion: Number.isFinite(Number(report.schemaVersion)) ? Number(report.schemaVersion) : 1,
+    generatedAt: sanitizeText(report.generatedAt || "", 80),
+    status: sanitizeText(report.status || "missing", 60),
+    passed: report.passed === true,
+    skipped: report.skipped === true,
+    degraded: report.degraded === true,
+    nextAction: sanitizeText(report.nextAction || "Run OCR QA review when crop artifacts are available.", 180),
+    manifest: publicOcrQaReportManifest(report.manifest),
+    cropCount: publicFiniteNumber(report.cropCount),
+    reviewedCropCount: publicFiniteNumber(report.reviewedCropCount),
+    scores: publicOcrQaScores(report.scores),
+    calibration: publicOcrQaCalibration(report.calibration),
+    reviewedCrops: Array.isArray(report.reviewedCrops)
+      ? report.reviewedCrops.slice(0, 12).map((crop) => ({
+          id: sanitizeText(crop.id || "", 96),
+          scoreboardVisible: crop.scoreboardVisible === true,
+          clockVisible: crop.clockVisible === true,
+          scoreVisible: crop.scoreVisible === true,
+          readable: crop.readable === true,
+          cropUsefulForDecision: crop.cropUsefulForDecision === true,
+          notes: crop.notes ? sanitizeText(crop.notes, 160) : null,
+        }))
+      : [],
+    failedCases: Array.isArray(report.failedCases)
+      ? report.failedCases.slice(0, 8).map((item) => ({
+          code: sanitizeText(item.code || "", 100),
+          message: sanitizeText(item.message || "", 180),
+          field: item.field ? sanitizeText(item.field, 100) : undefined,
+        }))
+      : [],
+    logsDownloaded: false,
+    artifactsDownloaded: false,
+    ocrTextStored: false,
+    fullFramesStored: false,
+  };
 }
 
 function publicHumanReviewFlags(flags = {}) {
@@ -1279,6 +1450,151 @@ function publicHumanVisualReviewReport(report = {}, options = {}) {
   };
 }
 
+function readSafeJsonRef(relativeRef, maxBytes = OCR_QA_MAX_REPORT_BYTES) {
+  const target = safeResolve(CONFIG.rootDir, relativeRef);
+  if (!existsSync(target)) return null;
+  const stat = statSync(target);
+  if (!stat.isFile() || stat.size <= 0 || stat.size > maxBytes) return null;
+  try {
+    return JSON.parse(readFileSync(target, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function findLatestOcrQaManifestRef() {
+  const latest = readSafeJsonRef(OCR_QA_LATEST_REPORT_REF);
+  if (!latest || typeof latest !== "object") return null;
+  const candidates = [
+    latest.qaArtifactManifest,
+    latest.qa && latest.qa.cropArtifacts && latest.qa.cropArtifacts.manifest,
+  ];
+  for (const candidate of candidates) {
+    const ref = typeof candidate === "string" ? candidate : candidate && candidate.relativePath;
+    if (!ref) continue;
+    return safeOcrQaManifestRef(ref);
+  }
+  return null;
+}
+
+function loadLatestOcrQaReviewReport() {
+  return publicOcrQaReviewReport(readSafeJsonRef(OCR_QA_REVIEW_LATEST_REPORT_REF));
+}
+
+function ocrQaReviewAppError(error) {
+  const code = sanitizeText(error && error.code ? error.code : "OCR_QA_REVIEW_INVALID", 100);
+  return new AppError(code, "OCR QA review failed validation.", 400, {
+    nextAction: "refresh-ocr-qa-manifest-and-review-input",
+  });
+}
+
+async function handleOcrQaLatest(req, res) {
+  const review = await loadOcrQaReviewModule();
+  const latestReview = loadLatestOcrQaReviewReport();
+  const manifestRef = findLatestOcrQaManifestRef();
+  if (!manifestRef) {
+    return sendOk(res, {
+      status: "missing",
+      manifest: null,
+      latestReview,
+      policy: OCR_QA_SUPPORT_POLICY,
+      nextAction: "Run SHORTSENGINE_OCR_QA_ARTIFACTS=1 npm run ocr:smoke.",
+    });
+  }
+  try {
+    const manifest = review.readOcrQaManifest(manifestRef);
+    return sendOk(res, {
+      status: "available",
+      manifest: publicOcrQaManifest(manifest),
+      latestReview,
+      policy: OCR_QA_SUPPORT_POLICY,
+      nextAction: "Review OCR crop thumbnails, then submit support-only calibration.",
+    });
+  } catch {
+    return sendOk(res, {
+      status: "missing",
+      manifest: null,
+      latestReview,
+      policy: OCR_QA_SUPPORT_POLICY,
+      nextAction: "Regenerate OCR QA artifacts before submitting review.",
+    });
+  }
+}
+
+async function handleOcrQaReviewSubmit(req, res, rid) {
+  if (!reviewLimiter.check(clientKey(req))) {
+    throw new AppError("RATE_LIMITED", SAFE_MESSAGES.RATE_LIMITED, 429);
+  }
+  validateJsonContentType(req);
+  enforceContentLength(req, MAX_JSON_BODY_BYTES);
+  const payload = await readJsonBody(req, MAX_JSON_BODY_BYTES);
+  const review = await loadOcrQaReviewModule();
+  let result;
+  try {
+    result = review.runOcrQaReview(payload);
+  } catch (error) {
+    throw ocrQaReviewAppError(error);
+  }
+  console.info(JSON.stringify(redactForLogs({
+    level: "info",
+    event: "ocr_qa_review_submitted",
+    requestId: rid,
+    status: result.status,
+    passed: result.passed === true,
+    reviewedCropCount: Number(result.reviewedCropCount || 0),
+    decisionSupportLevel: result.calibration && result.calibration.decisionSupportLevel,
+  })));
+  return sendOk(res, {
+    latestPath: sanitizeText(result.latestPath || OCR_QA_REVIEW_LATEST_REPORT_REF, 180),
+    reportPath: sanitizeText(result.reportPath || "", 180),
+    review: publicOcrQaReviewReport(result),
+  }, 201);
+}
+
+async function handleOcrQaCrop(req, res, url) {
+  const manifestRef = safeOcrQaManifestRef(url.searchParams.get("manifest"));
+  const cropId = safeOcrQaCropId(url.searchParams.get("id"));
+  const review = await loadOcrQaReviewModule();
+  let manifest;
+  try {
+    manifest = review.readOcrQaManifest(manifestRef);
+  } catch (error) {
+    throw ocrQaReviewAppError(error);
+  }
+  const file = Array.isArray(manifest.files) ? manifest.files.find((item) => item.id === cropId) : null;
+  if (!file || !file.relativePath || !file.relativePath.startsWith(`${manifest.directory}/`) || extname(file.relativePath).toLowerCase() !== ".png") {
+    throw new AppError("OCR_QA_REVIEW_CROP_NOT_FOUND", "OCR QA crop is unavailable.", 404, {
+      nextAction: "refresh-ocr-qa-manifest",
+    });
+  }
+  const target = safeResolve(CONFIG.rootDir, file.relativePath);
+  if (!existsSync(target) || statSync(target).isDirectory()) {
+    throw new AppError("OCR_QA_REVIEW_CROP_NOT_FOUND", "OCR QA crop is unavailable.", 404, {
+      nextAction: "refresh-ocr-qa-manifest",
+    });
+  }
+  const size = statSync(target).size;
+  const maxBytes = Math.min(
+    OCR_QA_MAX_PUBLIC_CROP_BYTES,
+    Math.max(1, Number(manifest.maxArtifactBytes || OCR_QA_MAX_PUBLIC_CROP_BYTES)),
+  );
+  if (size <= 0 || size > maxBytes) {
+    throw new AppError("OCR_QA_REVIEW_CROP_INVALID", "OCR QA crop is invalid.", 400, {
+      nextAction: "regenerate-ocr-qa-artifacts",
+    });
+  }
+  res.writeHead(200, {
+    ...SAFE_RESPONSE_HEADERS,
+    "content-type": "image/png",
+    "content-disposition": `inline; filename="${safeInlinePngFileName(`${cropId}.png`)}"`,
+  });
+  const stream = createReadStream(target);
+  stream.on("error", () => {
+    res.destroy();
+  });
+  stream.pipe(res);
+}
+
 async function handleHumanReviewLatest(req, res) {
   const review = await loadHumanReviewModule();
   const result = review.loadLatestHumanVisualReviewReport({ rootDir: CONFIG.rootDir });
@@ -1359,6 +1675,9 @@ async function route(req, res) {
     if (req.method === "GET" && pathname === "/api/review/latest") return await handleHumanReviewLatest(req, res);
     if (req.method === "POST" && pathname === "/api/review/human") return await handleHumanReviewSubmit(req, res, rid);
     if (req.method === "GET" && pathname === "/api/review/media") return await handleHumanReviewMedia(req, res, url);
+    if (req.method === "GET" && pathname === "/api/ocr-qa/latest") return await handleOcrQaLatest(req, res);
+    if (req.method === "POST" && pathname === "/api/ocr-qa/review") return await handleOcrQaReviewSubmit(req, res, rid);
+    if (req.method === "GET" && pathname === "/api/ocr-qa/crop") return await handleOcrQaCrop(req, res, url);
     if (req.method === "POST" && pathname === "/api/review/regeneration-plan") return await handleReviewRegenerationPlan(req, res, rid);
     if (req.method === "POST" && pathname === "/api/review/regeneration-approval") return await handleReviewRegenerationApproval(req, res, rid);
 
@@ -1487,6 +1806,8 @@ module.exports = {
   parseMultipart,
   safeDownloadFileName,
   publicHumanVisualReviewReport,
+  publicOcrQaReviewReport,
+  publicOcrQaManifest,
   MAX_JSON_BODY_BYTES,
   MAX_MULTIPART_FIELD_BYTES,
   MAX_UPLOAD_BODY_OVERHEAD_BYTES,

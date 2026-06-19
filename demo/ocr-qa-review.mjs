@@ -145,6 +145,7 @@ function validateManifestFileRecord(file, manifest) {
     id,
     kind: String(file.kind || "scoreboard_crop").slice(0, 48),
     sizeBytes: Math.max(0, Math.round(Number(file.sizeBytes || 0))),
+    relativePath,
   };
 }
 
