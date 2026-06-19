@@ -27,6 +27,7 @@ const REQUIRED_WORKFLOW_COMMANDS = Object.freeze([
   "npm run brain:health",
   "npm run demo:fixture",
   "npm run ocr:smoke",
+  "npm run ocr:qa:review",
   "npm run demo:smoke",
   "npm run demo:browser",
   "npm run demo:browser:ci",
@@ -43,6 +44,7 @@ const REQUIRED_PACKAGE_SCRIPTS = Object.freeze({
   "github:doctor": "node tools/release/check-github-cli.mjs",
   "github:setup": "node tools/release/print-github-cli-setup.mjs",
   "ocr:doctor": "node tools/release/check-ocr-runtime.mjs",
+  "ocr:qa:review": "node demo/run-ocr-qa-review.mjs",
   "ocr:smoke": "node demo/run-ocr-smoke.mjs",
   "render:check": "node tools/release/check-render-staging.mjs",
   "render:manual": "node tools/release/print-render-staging-checklist.mjs",
@@ -63,6 +65,7 @@ const REQUIRED_PACKAGE_SCRIPTS = Object.freeze({
 const FAILURE_ARTIFACT_ALLOWLIST = Object.freeze([
   "demo/results/latest.json",
   "demo/results/ocr-latest.json",
+  "demo/results/ocr-qa-review-latest.json",
   "demo/results/browser-latest.json",
   "demo/results/playwright-latest.json",
   "demo/results/playwright-artifacts/",

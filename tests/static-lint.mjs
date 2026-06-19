@@ -17,6 +17,8 @@ const browserSmoke = readFileSync("demo/run-browser-smoke.mjs", "utf8");
 const playwrightSmoke = readFileSync("demo/run-playwright-smoke.mjs", "utf8");
 const demoSmoke = readFileSync("demo/run-smoke.mjs", "utf8");
 const ocrSmoke = readFileSync("demo/run-ocr-smoke.mjs", "utf8");
+const ocrQaReview = readFileSync("demo/ocr-qa-review.mjs", "utf8");
+const ocrQaReviewRunner = readFileSync("demo/run-ocr-qa-review.mjs", "utf8");
 const youtubeSmoke = readFileSync("demo/run-youtube-smoke.mjs", "utf8");
 const youtubeLiveE2E = readFileSync("demo/run-youtube-live-e2e.mjs", "utf8");
 const humanVisualReview = readFileSync("demo/run-human-visual-review.mjs", "utf8");
@@ -198,6 +200,21 @@ assert.match(ocrSmoke, /OCR_ARTIFACTS_RELATIVE_DIR/, "OCR smoke should keep arti
 assert.match(ocrSmoke, /OCR_QA_ARTIFACT_MANIFEST_FILE/, "OCR smoke should write a bounded manifest for opt-in OCR QA artifacts");
 assert.match(ocrSmoke, /validateOcrQaArtifactRecord/, "OCR smoke should validate crop artifact records before report exposure");
 assert.doesNotMatch(ocrSmoke, /auth login|npm install|brew install|curl\s+|rawOcr|rawText|stdoutIncluded|stderrIncluded/i, "OCR smoke must not install tools or persist raw OCR/debug fields");
+assert.match(packageJson, /"ocr:qa:review"\s*:\s*"node demo\/run-ocr-qa-review\.mjs"/, "package scripts should expose the OCR QA review runner");
+assert.match(ocrQaReview, /OCR_QA_REVIEW_LATEST_RELATIVE_PATH/, "OCR QA review should write a stable latest report");
+assert.match(ocrQaReview, /validateManifestRelativeRef/, "OCR QA review should validate manifest refs before reading");
+assert.match(ocrQaReview, /goalEvidencePolicy:\s*"support_only"/, "OCR QA review calibration should remain support-only");
+assert.match(ocrQaReview, /goalDecisionAllowed:\s*false/, "OCR QA review must not allow OCR-only goal decisions");
+assert.match(ocrQaReview, /noFalseGoalFromOcrOnly:\s*true/, "OCR QA review should preserve no-false-goal calibration");
+assert.match(ocrQaReview, /findSensitiveLeak/, "OCR QA review should guard reports against leaks");
+assert.match(ocrQaReview, /ocrTextStored:\s*false/, "OCR QA review reports should not store OCR text");
+assert.match(ocrQaReview, /fullFramesStored:\s*false/, "OCR QA review reports should not store full frames");
+assert.match(ocrQaReview, /logsDownloaded:\s*false/, "OCR QA review should not download logs");
+assert.match(ocrQaReview, /artifactsDownloaded:\s*false/, "OCR QA review should not download remote artifacts");
+assert.match(ocrQaReview, /MAX_REVIEW_CROPS/, "OCR QA review should bound manual crop review size");
+assert.match(ocrQaReviewRunner, /SHORTSENGINE_OCR_QA_REVIEW_INPUT/, "OCR QA review CLI should support explicit operator input");
+assert.doesNotMatch(ocrQaReview, /auth login|npm install|brew install|curl\s+|tesseract --version|gh secret|rawOcrText|stdoutIncluded|stderrIncluded/i, "OCR QA review must not install tools, start auth or persist raw OCR/debug fields");
+assert.doesNotMatch(ocrQaReviewRunner, /auth login|npm install|brew install|curl\s+|tesseract --version|gh secret|rawOcrText|stdoutIncluded|stderrIncluded/i, "OCR QA review runner must stay documentation/input-only and safe");
 assert.match(youtubeSmoke, /SHORTSENGINE_YOUTUBE_SMOKE/, "YouTube smoke should require an explicit smoke flag");
 assert.match(youtubeSmoke, /SHORTSENGINE_YOUTUBE_SMOKE_URL/, "YouTube smoke should read the authorized test URL from env");
 assert.match(youtubeSmoke, /SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED/, "YouTube smoke should require allowlist or explicit manual unlisted flag");
@@ -616,6 +633,7 @@ assert.match(releaseGateVerifier, /remote:ci/, "release gate verifier should req
 assert.match(releaseGateVerifier, /remote:ci:proof/, "release gate verifier should require the remote CI proof script to exist");
 assert.match(releaseGateVerifier, /ocr:doctor/, "release gate verifier should require OCR doctor");
 assert.match(releaseGateVerifier, /ocr:smoke/, "release gate verifier should require OCR smoke proof");
+assert.match(releaseGateVerifier, /ocr:qa:review/, "release gate verifier should require the OCR QA review proof");
 assert.match(releaseGateVerifier, /staging:smoke:full/, "release gate verifier should require the full staging smoke script to exist");
 assert.match(releaseGateVerifier, /staging:smoke:cleanup/, "release gate verifier should require the full smoke cleanup script to exist");
 assert.match(releaseGateVerifier, /checkStagingReadiness/, "release gate verifier should include staging readiness");
@@ -697,6 +715,9 @@ assert.match(ciDocs, /stays out of the default gate/i, "CI docs should keep full
 assert.match(ciDocs, /npm run youtube:doctor/, "CI docs should document the no-network YouTube doctor");
 assert.match(ciDocs, /npm run ocr:doctor/, "CI docs should document the OCR doctor");
 assert.match(ciDocs, /npm run ocr:smoke/, "CI docs should document the OCR smoke proof");
+assert.match(ciDocs, /npm run ocr:qa:review/, "CI docs should document the OCR QA review proof");
+assert.match(ciDocs, /ocr-qa-review-latest\.json/, "CI docs should document the OCR QA review latest report");
+assert.match(ciDocs, /support-only OCR calibration/i, "CI docs should keep OCR QA review calibration support-only");
 assert.match(ciDocs, /npm run youtube:smoke/, "CI docs should document the opt-in YouTube smoke command");
 assert.match(ciDocs, /YouTube smoke stays out of the default gate/i, "CI docs should keep real YouTube smoke out of default CI");
 assert.match(ciDocs, /docs\/YOUTUBE_INGEST_MANUAL_SMOKE\.md/, "CI docs should link to the manual YouTube ingest smoke guide");
@@ -705,6 +726,9 @@ assert.match(releaseDocs, /npm run env:check/, "release docs should include envi
 assert.match(releaseDocs, /npm run staging:check/, "release docs should include staging readiness checks");
 assert.match(releaseDocs, /npm run ocr:doctor/, "release docs should include OCR readiness checks");
 assert.match(releaseDocs, /npm run ocr:smoke/, "release docs should include OCR smoke proof");
+assert.match(releaseDocs, /npm run ocr:qa:review/, "release docs should include OCR QA review proof");
+assert.match(releaseDocs, /ocr-qa-review-latest\.json/, "release docs should document the OCR QA review latest report");
+assert.match(releaseDocs, /cannot confirm a goal by itself/i, "release docs should keep OCR QA review support-only");
 assert.match(releaseDocs, /npm run render:check/, "release docs should include Render staging checks");
 assert.match(releaseDocs, /\.github\/workflows\/staging\.yml/, "release docs should mention the staging workflow");
 assert.match(releaseDocs, /staging:smoke:full/, "release docs should document the opt-in full staging smoke command");
@@ -735,6 +759,7 @@ for (const command of [
   "npm run brain:health",
   "npm run demo:fixture",
   "npm run ocr:smoke",
+  "npm run ocr:qa:review",
   "npm run demo:smoke",
   "npm run demo:browser",
   "npm run demo:browser:ci",
@@ -760,6 +785,7 @@ assert.match(githubWorkflow, /uses:\s*actions\/upload-artifact@v4/, "CI workflow
 assert.match(githubWorkflow, /if:\s*failure\(\)/, "CI workflow should upload artifacts only on failure");
 assert.match(githubWorkflow, /demo\/results\/latest\.json/, "CI workflow should upload API smoke latest report on failure");
 assert.match(githubWorkflow, /demo\/results\/ocr-latest\.json/, "CI workflow should upload OCR smoke latest report on failure");
+assert.match(githubWorkflow, /demo\/results\/ocr-qa-review-latest\.json/, "CI workflow should upload OCR QA review latest report on failure");
 assert.doesNotMatch(githubWorkflow, /demo\/results\/ocr-artifacts\//, "CI workflow should not upload OCR QA crop artifacts by default");
 assert.match(githubWorkflow, /demo\/results\/browser-latest\.json/, "CI workflow should upload browser smoke latest report on failure");
 assert.match(githubWorkflow, /demo\/results\/playwright-latest\.json/, "CI workflow should upload Playwright latest report on failure");

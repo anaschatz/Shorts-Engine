@@ -37,6 +37,7 @@
     "outbox:drain": "node tools/outbox-drain.mjs",
     "outbox:health": "node tools/outbox-health.mjs",
     "ocr:doctor": "node tools/release/check-ocr-runtime.mjs",
+    "ocr:qa:review": "node demo/run-ocr-qa-review.mjs",
     "ocr:smoke": "node demo/run-ocr-smoke.mjs",
     "release:check": "node tools/release/verify-release-gate.mjs",
     "release:evidence": "node tools/release/write-release-evidence.mjs",

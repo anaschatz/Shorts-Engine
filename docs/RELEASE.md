@@ -21,6 +21,7 @@ npm run eval:reference
 npm run brain:health
 npm run demo:fixture
 npm run ocr:smoke
+npm run ocr:qa:review
 npm run demo:smoke
 npm run demo:browser
 npm run demo:browser:ci
@@ -38,6 +39,8 @@ npm run release:evidence
 `npm run ocr:doctor` verifies scoreboard OCR readiness with deterministic fallback as the safe default. It never installs Tesseract, never calls network services and never prints binary paths or command output. `npm run ocr:smoke` writes `demo/results/ocr-latest.json` plus a timestamped OCR smoke report. In default CI it passes in fallback mode; when local OCR is explicitly enabled, missing runtime fails closed with `OCR_RUNTIME_MISSING`.
 
 Optional crop QA artifacts require `SHORTSENGINE_OCR_QA_ARTIFACTS=1`. They are written under `demo/results/ocr-artifacts/<run-id>/`, referenced only with relative paths, described by a bounded `ocr-qa-manifest.json`, ignored by git, bounded by retention and omitted from default CI failure uploads. Use them for local scoreboard crop/readability debugging only; OCR by itself is never valid-goal evidence.
+
+`npm run ocr:qa:review` validates manual/operator crop QA scoring when a review input is supplied, and otherwise writes a safe skipped report at `demo/results/ocr-qa-review-latest.json`. Review reports contain only safe manifest refs, crop ids, boolean visibility/readability/usefulness observations, support-only calibration metrics and bounded notes. They never contain raw OCR text, full frames, local crop paths, stdout/stderr, provider output, tokens or secrets. OCR QA calibration can support goal/offside evidence only alongside football action evidence; it cannot confirm a goal by itself.
 
 `npm run staging:check` verifies the staging deployment contract, GitHub Environment workflow shape, staging URL/provider rules, deployed-smoke defaults and secret-safe staging documentation.
 
@@ -239,10 +242,13 @@ SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP=1 npm run staging:smoke:cleanup
 GitHub Actions uploads diagnostics only when the release gate fails:
 
 - `demo/results/latest.json`
+- `demo/results/ocr-latest.json`
+- `demo/results/ocr-qa-review-latest.json`
 - `demo/results/browser-latest.json`
 - `demo/results/playwright-latest.json`
 - `demo/results/playwright-artifacts/`
 - `eval/results/latest.json`
+- `eval/results/reference-latest.json`
 
 Passing runs should not upload reports or browser artifacts. Playwright trace/video capture stays opt-in for debugging and disabled in the default release gate.
 

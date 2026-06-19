@@ -59,6 +59,29 @@ function createFixtureRoot() {
     checks: [{ name: "scoreboard_ocr_output_valid", passed: true }],
     failedCases: [],
   });
+  writeJson(join(demoResultsDir, "ocr-qa-review-latest.json"), {
+    timestamp,
+    generatedAt: timestamp,
+    command: "npm run ocr:qa:review",
+    phase: "ocr-qa-review-skipped",
+    status: "passed",
+    passed: true,
+    skipped: true,
+    reportPath: "demo/results/ocr-qa-review-latest.json",
+    calibration: {
+      goalEvidencePolicy: "support_only",
+      ocrEvidenceUsable: false,
+      decisionSupportLevel: "ignore",
+      goalDecisionAllowed: false,
+      noFalseGoalFromOcrOnly: true,
+    },
+    checks: [{ name: "ocr_qa_review_skipped_without_manual_input", passed: true }],
+    failedCases: [],
+    logsDownloaded: false,
+    artifactsDownloaded: false,
+    ocrTextStored: false,
+    fullFramesStored: false,
+  });
   writeJson(join(demoResultsDir, "browser-latest.json"), {
     timestamp,
     status: "passed",
@@ -214,8 +237,9 @@ test("release evidence JSON has safe shape and no sensitive leakage", () => {
   assert.equal(evidence.releaseReadiness.ready, true);
   assert.equal(evidence.releaseReadiness.remoteMutation, false);
   assert.equal(evidence.stagingReadiness.ok, true);
-  assert.equal(evidence.latestReports.length, 6);
+  assert.equal(evidence.latestReports.length, 7);
   assert.equal(evidence.latestReports[0].relativePath, "latest.json");
+  assert.ok(evidence.latestReports.some((report) => report.relativePath === "ocr-qa-review-latest.json"));
   assert.equal(findSensitiveLeak(evidence), null);
 });
 

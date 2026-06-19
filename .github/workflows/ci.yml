@@ -110,6 +110,9 @@ jobs:
       - name: OCR smoke proof
         run: npm run ocr:smoke
 
+      - name: OCR QA review proof
+        run: npm run ocr:qa:review
+
       - name: API demo smoke
         run: npm run demo:smoke
 
@@ -135,6 +138,7 @@ jobs:
           path: |
             demo/results/latest.json
             demo/results/ocr-latest.json
+            demo/results/ocr-qa-review-latest.json
             demo/results/browser-latest.json
             demo/results/playwright-latest.json
             demo/results/playwright-artifacts/

@@ -36,3 +36,4 @@ Review generated shorts against:
 - local OCR evaluation should separately track score-changed, score-unchanged, clock-only and unreadable outcomes; unchanged/ambiguous/unreadable OCR must fail closed against confirmed-goal claims.
 - run `npm run ocr:doctor` and `npm run ocr:smoke` before treating local OCR as ready; default fallback reports are acceptable for CI, while enabled local OCR must prove runtime availability.
 - use `SHORTSENGINE_OCR_QA_ARTIFACTS=1 npm run ocr:smoke` only for operator crop QA; evaluate manifest-validated safe relative crop refs, not raw OCR text, full frames, paths or provider output.
+- use `npm run ocr:qa:review` for support-only OCR QA calibration; high crop quality can support football evidence, while low readability is ignored/downweighted and OCR alone never confirms a goal.

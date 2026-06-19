@@ -29,6 +29,7 @@ npm run eval:reference
 npm run brain:health
 npm run demo:fixture
 npm run ocr:smoke
+npm run ocr:qa:review
 npm run demo:smoke
 npm run demo:browser
 npm run demo:browser:ci
@@ -40,7 +41,7 @@ npm run branch:doctor
 npm run branch:proof
 ```
 
-`demo:browser:ci` runs the same real Chromium flow as `demo:browser:e2e`. `env:check` validates staging-safe environment defaults without requiring secrets. `staging:check` validates the provider-neutral staging workflow, GitHub Environment contract and deployed-smoke defaults without requiring a staging URL. `youtube:doctor` validates the default-disabled YouTube ingest runtime without network or downloader calls. `ocr:doctor` validates scoreboard OCR readiness without installing Tesseract, starting auth or requiring OCR by default. `ocr:smoke` writes `demo/results/ocr-latest.json` and proves the sampled-frame/OCR fallback contract; local OCR remains opt-in and missing Tesseract fails only when explicitly enabled. Optional OCR crop thumbnails require `SHORTSENGINE_OCR_QA_ARTIFACTS=1` and stay under `demo/results/ocr-artifacts/<run-id>/` with a bounded `ocr-qa-manifest.json` and safe relative refs only. `eval:reference` validates the reference-style football editing quality loop without network or API keys. `ci:reports` validates the latest demo, OCR, browser, Playwright, eval and reference review reports before the gate can pass. `release:readiness` is a no-network static check for release scripts, CI workflow markers and safe GitHub proof capability. `release:check` verifies the CI workflow contract, artifact allowlist, env readiness, staging readiness, release readiness and report gate as release evidence.
+`demo:browser:ci` runs the same real Chromium flow as `demo:browser:e2e`. `env:check` validates staging-safe environment defaults without requiring secrets. `staging:check` validates the provider-neutral staging workflow, GitHub Environment contract and deployed-smoke defaults without requiring a staging URL. `youtube:doctor` validates the default-disabled YouTube ingest runtime without network or downloader calls. `ocr:doctor` validates scoreboard OCR readiness without installing Tesseract, starting auth or requiring OCR by default. `ocr:smoke` writes `demo/results/ocr-latest.json` and proves the sampled-frame/OCR fallback contract; local OCR remains opt-in and missing Tesseract fails only when explicitly enabled. Optional OCR crop thumbnails require `SHORTSENGINE_OCR_QA_ARTIFACTS=1` and stay under `demo/results/ocr-artifacts/<run-id>/` with a bounded `ocr-qa-manifest.json` and safe relative refs only. `ocr:qa:review` writes `demo/results/ocr-qa-review-latest.json`; in CI/default mode it skips safely without manual input, while operator-provided review JSON produces support-only OCR calibration scores. `eval:reference` validates the reference-style football editing quality loop without network or API keys. `ci:reports` validates the latest demo, OCR, browser, Playwright, eval and reference review reports before the gate can pass. `release:readiness` is a no-network static check for release scripts, CI workflow markers and safe GitHub proof capability. `release:check` verifies the CI workflow contract, artifact allowlist, env readiness, staging readiness, release readiness and report gate as release evidence.
 
 The GitHub Actions release gate uses `npm ci` when `package-lock.json` is present, installs Playwright Chromium with `npm run demo:browser:install`, installs the Ubuntu `ffmpeg` package, verifies `ffmpeg` and `ffprobe`, then runs every command above. The release gate and demo smoke runners keep the default local persistence adapter so the suite can verify safe defaults on Node 20; sqlite remains covered by focused adapter tests and staging configuration. Real cloud integration stays out of the default gate and remains opt-in through its dedicated script/env flags. Full staging upload/render smoke also stays out of the default gate; `npm run staging:smoke:full` requires `SHORTSENGINE_STAGING_FULL_SMOKE=1` and is reserved for manual staging proof because it uploads a fixture, starts a render job and downloads the rendered MP4. Full smoke cleanup also stays out of the default gate; `npm run staging:smoke:cleanup` is dry-run by default and real deletion requires `SHORTSENGINE_STAGING_FULL_SMOKE_CLEANUP=1`. YouTube smoke stays out of the default gate; `npm run youtube:smoke` requires `SHORTSENGINE_YOUTUBE_SMOKE=1`, enabled ingest, a downloader and an authorized allowlisted/manual URL.
 
@@ -132,6 +133,7 @@ GitHub Actions uploads artifacts only when the release gate fails. The upload al
 
 - `demo/results/latest.json`
 - `demo/results/ocr-latest.json`
+- `demo/results/ocr-qa-review-latest.json`
 - `demo/results/browser-latest.json`
 - `demo/results/playwright-latest.json`
 - `demo/results/playwright-artifacts/`
@@ -145,9 +147,12 @@ For local OCR crop QA, run:
 ```bash
 SHORTSENGINE_SCOREBOARD_OCR_ENABLED=1 SHORTSENGINE_SCOREBOARD_OCR_PROVIDER=local npm run ocr:doctor
 SHORTSENGINE_SCOREBOARD_OCR_ENABLED=1 SHORTSENGINE_SCOREBOARD_OCR_PROVIDER=local SHORTSENGINE_OCR_QA_ARTIFACTS=1 npm run ocr:smoke
+SHORTSENGINE_OCR_QA_REVIEW_INPUT=demo/results/ocr-qa-review-input.json npm run ocr:qa:review
 ```
 
 If Tesseract is missing, the smoke fails with `OCR_RUNTIME_MISSING` and safe `nextAction` guidance. The report still avoids raw command output. OCR QA artifacts are local debug-only, manifest-validated and should not be uploaded in passing CI runs.
+
+The OCR QA review input must reference the generated `ocr-qa-manifest.json` with a safe relative ref and contain only bounded crop ids, boolean visibility/readability/usefulness fields and short safe notes. Reports never include raw OCR text, full frames, local crop paths, stdout/stderr, provider output, tokens or secrets. Calibration remains `support_only`, so readable OCR can support goal/offside evidence only next to visual football action evidence.
 
 ## Retention
 

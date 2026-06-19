@@ -47,6 +47,28 @@ function writeValidReports({ demoResultsDir, evalResultsDir, timestamp }) {
     checks: [{ name: "scoreboard_ocr_output_valid", passed: true }],
     failedCases: [],
   });
+  writeJson(join(demoResultsDir, "ocr-qa-review-latest.json"), {
+    timestamp,
+    generatedAt: timestamp,
+    command: "npm run ocr:qa:review",
+    phase: "ocr-qa-review-skipped",
+    status: "passed",
+    passed: true,
+    skipped: true,
+    calibration: {
+      goalEvidencePolicy: "support_only",
+      ocrEvidenceUsable: false,
+      decisionSupportLevel: "ignore",
+      goalDecisionAllowed: false,
+      noFalseGoalFromOcrOnly: true,
+    },
+    checks: [{ name: "ocr_qa_review_skipped_without_manual_input", passed: true }],
+    failedCases: [],
+    logsDownloaded: false,
+    artifactsDownloaded: false,
+    ocrTextStored: false,
+    fullFramesStored: false,
+  });
   writeJson(join(demoResultsDir, "browser-latest.json"), {
     timestamp,
     status: "passed",
@@ -93,6 +115,7 @@ test("CI report validator accepts fresh safe reports", () => {
   assert.deepEqual(result.reports.map((report) => report.label), [
     "api-demo",
     "ocr-smoke",
+    "ocr-qa-review",
     "browser-contract",
     "playwright-browser",
     "evaluation",
