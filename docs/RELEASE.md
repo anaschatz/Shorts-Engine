@@ -37,7 +37,7 @@ npm run release:evidence
 
 `npm run ocr:doctor` verifies scoreboard OCR readiness with deterministic fallback as the safe default. It never installs Tesseract, never calls network services and never prints binary paths or command output. `npm run ocr:smoke` writes `demo/results/ocr-latest.json` plus a timestamped OCR smoke report. In default CI it passes in fallback mode; when local OCR is explicitly enabled, missing runtime fails closed with `OCR_RUNTIME_MISSING`.
 
-Optional crop QA artifacts require `SHORTSENGINE_OCR_QA_ARTIFACTS=1`. They are written under `demo/results/ocr-artifacts/<run-id>/`, referenced only with relative paths, ignored by git, bounded by retention and omitted from default CI failure uploads. Use them for local scoreboard crop/readability debugging only; OCR by itself is never valid-goal evidence.
+Optional crop QA artifacts require `SHORTSENGINE_OCR_QA_ARTIFACTS=1`. They are written under `demo/results/ocr-artifacts/<run-id>/`, referenced only with relative paths, described by a bounded `ocr-qa-manifest.json`, ignored by git, bounded by retention and omitted from default CI failure uploads. Use them for local scoreboard crop/readability debugging only; OCR by itself is never valid-goal evidence.
 
 `npm run staging:check` verifies the staging deployment contract, GitHub Environment workflow shape, staging URL/provider rules, deployed-smoke defaults and secret-safe staging documentation.
 

@@ -24,8 +24,10 @@ const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const RESULTS_DIR = resolve(ROOT_DIR, "demo", "results");
 const OCR_ARTIFACTS_RELATIVE_DIR = "demo/results/ocr-artifacts";
 const OCR_LATEST_RELATIVE_PATH = "demo/results/ocr-latest.json";
+const OCR_QA_ARTIFACT_MANIFEST_FILE = "ocr-qa-manifest.json";
 const MAX_QA_ROWS = 24;
 const MAX_QA_ARTIFACT_CROPS = 12;
+const MAX_QA_ARTIFACT_BYTES = 2 * 1024 * 1024;
 const DEFAULT_QA_ARTIFACT_RETENTION = 8;
 
 function timestampSlug(isoTimestamp) {
@@ -225,6 +227,116 @@ function cropFileName({ cropIndex, frameIndex, region }) {
   return `ocr-crop-${index}-frame-${frameIndex + 1}-${safeFilePart(region.id, "scoreboard")}.png`;
 }
 
+function validateOcrQaArtifactRecord(record = {}, { runId, mustExist = true } = {}) {
+  const safeRun = normalizeRunId(runId);
+  const prefix = `${OCR_ARTIFACTS_RELATIVE_DIR}/${safeRun}/`;
+  if (!record || typeof record !== "object" || Array.isArray(record) || findSensitiveLeak(record)) {
+    const error = new Error("OCR QA artifact metadata is unsafe.");
+    error.code = "OCR_QA_ARTIFACT_METADATA_UNSAFE";
+    throw error;
+  }
+  const relativePath = String(record.relativePath || "");
+  if (
+    !relativePath.startsWith(prefix) ||
+    relativePath.includes("..") ||
+    relativePath.includes("\\") ||
+    relativePath.includes("\u0000") ||
+    !relativePath.endsWith(".png")
+  ) {
+    const error = new Error("OCR QA artifact ref is unsafe.");
+    error.code = "OCR_QA_ARTIFACT_PATH_UNSAFE";
+    throw error;
+  }
+  const runDir = resolve(ROOT_DIR, prefix);
+  const absolutePath = resolve(ROOT_DIR, relativePath);
+  if (!isInside(runDir, absolutePath)) {
+    const error = new Error("OCR QA artifact path is unsafe.");
+    error.code = "OCR_QA_ARTIFACT_PATH_UNSAFE";
+    throw error;
+  }
+  let sizeBytes = Math.max(0, Math.round(Number(record.sizeBytes || 0)));
+  if (mustExist) {
+    if (!existsSync(absolutePath) || !statSync(absolutePath).isFile()) {
+      const error = new Error("OCR QA artifact is missing.");
+      error.code = "OCR_QA_ARTIFACT_MISSING";
+      throw error;
+    }
+    sizeBytes = statSync(absolutePath).size;
+  }
+  if (sizeBytes > MAX_QA_ARTIFACT_BYTES) {
+    const error = new Error("OCR QA artifact is too large.");
+    error.code = "OCR_QA_ARTIFACT_TOO_LARGE";
+    throw error;
+  }
+  return {
+    id: safeFilePart(record.id, "ocr_crop").slice(0, 80),
+    frameId: safeFilePart(record.frameId, "frame").slice(0, 80),
+    timestamp: Number(record.timestamp || 0),
+    regionId: safeFilePart(record.regionId, "scoreboard_region").slice(0, 80),
+    width: Math.max(1, Math.min(2048, Math.round(Number(record.width || 0)))),
+    height: Math.max(1, Math.min(2048, Math.round(Number(record.height || 0)))),
+    sizeBytes,
+    relativePath,
+  };
+}
+
+function buildOcrQaArtifactManifest({
+  runId,
+  directory,
+  files = [],
+  generatedAt = new Date().toISOString(),
+  mustExist = true,
+} = {}) {
+  const safeRun = normalizeRunId(runId);
+  const safeDirectory = `${OCR_ARTIFACTS_RELATIVE_DIR}/${safeRun}`;
+  if (directory && directory !== safeDirectory) {
+    const error = new Error("OCR QA artifact directory is unsafe.");
+    error.code = "OCR_QA_ARTIFACT_PATH_UNSAFE";
+    throw error;
+  }
+  const safeFiles = (Array.isArray(files) ? files : [])
+    .slice(0, MAX_QA_ARTIFACT_CROPS)
+    .map((file) => validateOcrQaArtifactRecord(file, { runId: safeRun, mustExist }));
+  const manifest = {
+    schemaVersion: 1,
+    kind: "ocr-crop-qa-artifacts",
+    runId: safeRun,
+    generatedAt,
+    directory: safeDirectory,
+    cropCount: safeFiles.length,
+    maxCropCount: MAX_QA_ARTIFACT_CROPS,
+    maxArtifactBytes: MAX_QA_ARTIFACT_BYTES,
+    files: safeFiles,
+    relativeRefsOnly: true,
+    fullFramesStored: false,
+    ocrTextStored: false,
+    logsDownloaded: false,
+    artifactsDownloaded: false,
+  };
+  if (findSensitiveLeak(manifest)) {
+    const error = new Error("OCR QA artifact manifest is unsafe.");
+    error.code = "OCR_QA_ARTIFACT_MANIFEST_UNSAFE";
+    throw error;
+  }
+  return manifest;
+}
+
+function writeOcrQaArtifactManifest({ runDir, runId, directory, files, generatedAt } = {}) {
+  const manifest = buildOcrQaArtifactManifest({ runId, directory, files, generatedAt, mustExist: true });
+  const manifestPath = safeResolveInside(runDir, OCR_QA_ARTIFACT_MANIFEST_FILE);
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  const relativePath = safeRelative(manifestPath);
+  if (relativePath !== `${manifest.directory}/${OCR_QA_ARTIFACT_MANIFEST_FILE}`) {
+    const error = new Error("OCR QA artifact manifest ref is unsafe.");
+    error.code = "OCR_QA_ARTIFACT_PATH_UNSAFE";
+    throw error;
+  }
+  return {
+    ...manifest,
+    relativePath,
+  };
+}
+
 async function writeOcrQaArtifacts({
   enabled = false,
   runId,
@@ -243,6 +355,7 @@ async function writeOcrQaArtifacts({
       directory,
       cropCount: 0,
       files: [],
+      manifest: null,
       unavailableReason: null,
     };
   }
@@ -255,6 +368,7 @@ async function writeOcrQaArtifacts({
       directory,
       cropCount: 0,
       files: [],
+      manifest: null,
       unavailableReason: !safeFrames.length ? "no_sampled_frames" : "ffmpeg_runner_unavailable",
     };
   }
@@ -284,6 +398,12 @@ async function writeOcrQaArtifacts({
         error.code = "OCR_QA_ARTIFACT_WRITE_FAILED";
         throw error;
       }
+      const artifactStat = statSync(outputPath);
+      if (artifactStat.size > MAX_QA_ARTIFACT_BYTES) {
+        const error = new Error("OCR QA artifact crop is too large.");
+        error.code = "OCR_QA_ARTIFACT_TOO_LARGE";
+        throw error;
+      }
       const relativePath = safeRelative(outputPath);
       if (!relativePath.startsWith(`${OCR_ARTIFACTS_RELATIVE_DIR}/${safeRun}/`)) {
         const error = new Error("OCR QA artifact ref is unsafe.");
@@ -297,16 +417,34 @@ async function writeOcrQaArtifacts({
         regionId: String(region.id || "scoreboard_region").slice(0, 80),
         width: Number(region.width || 0),
         height: Number(region.height || 0),
+        sizeBytes: artifactStat.size,
         relativePath,
       });
       cropIndex += 1;
     }
   }
+  const manifest = files.length
+    ? writeOcrQaArtifactManifest({
+        runDir,
+        runId: safeRun,
+        directory,
+        files,
+        generatedAt: new Date().toISOString(),
+      })
+    : null;
   return {
     enabled: true,
     runId: safeRun,
     directory,
     cropCount: files.length,
+    manifest: manifest
+      ? {
+          relativePath: manifest.relativePath,
+          cropCount: manifest.cropCount,
+          maxCropCount: manifest.maxCropCount,
+          maxArtifactBytes: manifest.maxArtifactBytes,
+        }
+      : null,
     files,
     unavailableReason: files.length ? null : "no_scoreboard_crops",
   };
@@ -408,6 +546,7 @@ async function runOcrSmoke(options = {}) {
     directory: `${OCR_ARTIFACTS_RELATIVE_DIR}/${runId}`,
     cropCount: 0,
     files: [],
+    manifest: null,
     unavailableReason: null,
   };
   let qaArtifactCleanup = { retentionMax: qaArtifactRetentionMax, removedCount: 0, removed: [], preservedCount: 0 };
@@ -475,7 +614,7 @@ async function runOcrSmoke(options = {}) {
       nextAction: "Install Tesseract manually, verify tesseract --version, then rerun npm run ocr:doctor.",
     });
   }
-  if (runError && localRequested && runtimeAvailable) criticalFailures.push(runError);
+  if (runError && ((localRequested && runtimeAvailable) || qaArtifactsEnabled)) criticalFailures.push(runError);
   if (qaArtifactsEnabled && qaArtifacts.cropCount === 0) {
     criticalFailures.push({
       code: "OCR_QA_ARTIFACTS_UNAVAILABLE",
@@ -518,6 +657,7 @@ async function runOcrSmoke(options = {}) {
     evidenceSummary: scoreboardPublic.summary,
     cropCount: qaArtifacts.cropCount,
     qaArtifactDirectory: qaArtifacts.directory,
+    qaArtifactManifest: qaArtifacts.manifest,
     cropArtifacts: qaArtifacts.files,
     qa: {
       rowCount: qaRows.length,
@@ -525,6 +665,7 @@ async function runOcrSmoke(options = {}) {
       cropArtifacts: {
         enabled: qaArtifacts.enabled,
         directory: qaArtifacts.directory,
+        manifest: qaArtifacts.manifest,
         files: qaArtifacts.files,
         unavailableReason: qaArtifacts.unavailableReason,
       },
@@ -614,8 +755,10 @@ if (isMainModule()) {
 export {
   OCR_ARTIFACTS_RELATIVE_DIR,
   OCR_LATEST_RELATIVE_PATH,
+  OCR_QA_ARTIFACT_MANIFEST_FILE,
   RESULTS_DIR,
   buildOcrQaRows,
+  buildOcrQaArtifactManifest,
   candidateWindowsForFixture,
   cleanupOcrQaArtifacts,
   normalizeRunId,
@@ -623,6 +766,8 @@ export {
   resolveOcrArtifactRunDir,
   runOcrSmoke,
   safeFixtureSummary,
+  validateOcrQaArtifactRecord,
   writeOcrQaArtifacts,
+  writeOcrQaArtifactManifest,
   writeOcrSmokeReport,
 };

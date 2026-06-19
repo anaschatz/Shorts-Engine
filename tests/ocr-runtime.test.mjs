@@ -1,12 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
 import { findSensitiveLeak } from "../demo/report-safety.mjs";
 import {
   OCR_ARTIFACTS_RELATIVE_DIR,
+  OCR_QA_ARTIFACT_MANIFEST_FILE,
+  buildOcrQaArtifactManifest,
   cleanupOcrQaArtifacts,
   normalizeRunId,
   resolveOcrArtifactRunDir,
@@ -57,6 +59,12 @@ async function fakeFfmpegRunner(args) {
   const outputPath = args[args.length - 1];
   mkdirSync(outputPath.split("/").slice(0, -1).join("/"), { recursive: true });
   writeFileSync(outputPath, "fake-frame-or-crop", "utf8");
+}
+
+async function oversizedCropRunner(args) {
+  const outputPath = args[args.length - 1];
+  mkdirSync(outputPath.split("/").slice(0, -1).join("/"), { recursive: true });
+  writeFileSync(outputPath, Buffer.alloc(3 * 1024 * 1024));
 }
 
 test("OCR doctor passes safely with deterministic fallback defaults", () => {
@@ -156,12 +164,24 @@ test("OCR smoke writes opt-in crop QA artifacts with safe relative refs", async 
     assert.equal(result.status, "passed");
     assert.equal(result.qa.cropArtifacts.enabled, true);
     assert.equal(result.qaArtifactDirectory, `${OCR_ARTIFACTS_RELATIVE_DIR}/${safeRunId}`);
+    assert.equal(result.qaArtifactManifest.relativePath, `${OCR_ARTIFACTS_RELATIVE_DIR}/${safeRunId}/${OCR_QA_ARTIFACT_MANIFEST_FILE}`);
+    assert.equal(result.qa.cropArtifacts.manifest.relativePath, result.qaArtifactManifest.relativePath);
     assert.equal(result.cropArtifacts.length > 0, true);
     assert.equal(result.cropCount, result.cropArtifacts.length);
+    const manifestPath = resolve(process.cwd(), result.qaArtifactManifest.relativePath);
+    assert.equal(existsSync(manifestPath), true);
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    assert.equal(manifest.kind, "ocr-crop-qa-artifacts");
+    assert.equal(manifest.cropCount, result.cropArtifacts.length);
+    assert.equal(manifest.ocrTextStored, false);
+    assert.equal(manifest.fullFramesStored, false);
+    assert.equal(manifest.relativeRefsOnly, true);
+    assert.equal(findSensitiveLeak(manifest), null);
     for (const artifact of result.cropArtifacts) {
       assert.match(artifact.relativePath, new RegExp(`^${OCR_ARTIFACTS_RELATIVE_DIR}/${safeRunId}/ocr-crop-`));
       assert.equal(existsSync(resolve(process.cwd(), artifact.relativePath)), true);
       assert.doesNotMatch(artifact.relativePath, /\.\.|\\/);
+      assert.equal(artifact.sizeBytes > 0, true);
     }
     assert.equal(findSensitiveLeak(result), null);
   } finally {
@@ -186,6 +206,59 @@ test("OCR smoke rejects unsafe artifact run ids", async () => {
     }),
     (error) => error.code === "OCR_QA_ARTIFACT_PATH_UNSAFE",
   );
+});
+
+test("OCR QA artifact manifest rejects unsafe refs before report exposure", () => {
+  assert.throws(
+    () => buildOcrQaArtifactManifest({
+      runId: "manifest-safety",
+      directory: `${OCR_ARTIFACTS_RELATIVE_DIR}/ocr-manifest-safety`,
+      mustExist: false,
+      files: [{
+        id: "crop",
+        frameId: "frame",
+        timestamp: 1,
+        regionId: "scoreboard",
+        width: 100,
+        height: 40,
+        sizeBytes: 10,
+        relativePath: `${OCR_ARTIFACTS_RELATIVE_DIR}/ocr-manifest-safety/../leak.png`,
+      }],
+    }),
+    (error) => error.code === "OCR_QA_ARTIFACT_PATH_UNSAFE",
+  );
+});
+
+test("OCR smoke fails closed when opt-in crop artifact is oversized", async () => {
+  const fixturePath = createFixtureFile();
+  const runId = `oversized-${Date.now()}`;
+  const safeRunId = normalizeRunId(runId);
+
+  try {
+    const result = await runOcrSmoke({
+      nowMs: Date.parse("2026-06-19T12:40:00.000Z"),
+      runId,
+      qaArtifactsEnabled: true,
+      qaArtifactRetentionMax: 50,
+      fixturePath,
+      ensureFixture: fakeEnsureFixture,
+      ffmpegRunner: fakeFfmpegRunner,
+      qaArtifactFfmpegRunner: oversizedCropRunner,
+      scoreboardConfig: {
+        enabled: false,
+        provider: "deterministic",
+        bin: "tesseract",
+        timeoutMs: 10000,
+      },
+    });
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.passed, false);
+    assert.equal(result.failedCases.some((failure) => failure.code === "OCR_QA_ARTIFACT_TOO_LARGE"), true);
+    assert.equal(findSensitiveLeak(result), null);
+  } finally {
+    rmSync(resolve(process.cwd(), OCR_ARTIFACTS_RELATIVE_DIR, safeRunId), { recursive: true, force: true });
+  }
 });
 
 test("OCR QA artifact cleanup deletes only managed run directories", () => {

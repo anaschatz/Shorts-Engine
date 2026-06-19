@@ -16,6 +16,7 @@
 - Reports must not include OCR text dumps, stdout/stderr, binary paths, local crop paths, storage keys, provider raw errors or secrets.
 - Crop artifacts are disabled by default and require `SHORTSENGINE_OCR_QA_ARTIFACTS=1`.
 - Enabled crop artifacts are written only under `demo/results/ocr-artifacts/<run-id>/`.
+- Enabled crop artifacts include `ocr-qa-manifest.json` with bounded counts, byte limits and safe relative refs.
 - Retention is bounded by `SHORTSENGINE_OCR_QA_ARTIFACT_RETENTION`.
 
 ## Release Gate

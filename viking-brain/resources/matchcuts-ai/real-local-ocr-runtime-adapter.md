@@ -32,4 +32,4 @@
 - `npm run ocr:smoke` writes `demo/results/ocr-latest.json` plus a timestamped safe proof report.
 - Default OCR smoke passes in deterministic fallback mode; local OCR runtime is required only when explicitly enabled.
 - Crop QA artifacts stay disabled by default under `demo/results/ocr-artifacts/`; reports keep safe relative refs only.
-- `SHORTSENGINE_OCR_QA_ARTIFACTS=1` enables bounded local scoreboard crop thumbnails for operator debugging; CI does not upload the artifact directory by default.
+- `SHORTSENGINE_OCR_QA_ARTIFACTS=1` enables bounded local scoreboard crop thumbnails plus `ocr-qa-manifest.json` for operator debugging; CI does not upload the artifact directory by default.

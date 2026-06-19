@@ -195,6 +195,8 @@ assert.match(ocrSmoke, /ocrTextStored:\s*false/, "OCR smoke reports should not s
 assert.match(ocrSmoke, /SHORTSENGINE_OCR_QA_ARTIFACTS/, "OCR smoke crop artifacts should require explicit opt-in env");
 assert.match(ocrSmoke, /cleanupOcrQaArtifacts/, "OCR smoke should clean up old managed OCR QA artifacts");
 assert.match(ocrSmoke, /OCR_ARTIFACTS_RELATIVE_DIR/, "OCR smoke should keep artifact refs under the managed OCR artifacts directory");
+assert.match(ocrSmoke, /OCR_QA_ARTIFACT_MANIFEST_FILE/, "OCR smoke should write a bounded manifest for opt-in OCR QA artifacts");
+assert.match(ocrSmoke, /validateOcrQaArtifactRecord/, "OCR smoke should validate crop artifact records before report exposure");
 assert.doesNotMatch(ocrSmoke, /auth login|npm install|brew install|curl\s+|rawOcr|rawText|stdoutIncluded|stderrIncluded/i, "OCR smoke must not install tools or persist raw OCR/debug fields");
 assert.match(youtubeSmoke, /SHORTSENGINE_YOUTUBE_SMOKE/, "YouTube smoke should require an explicit smoke flag");
 assert.match(youtubeSmoke, /SHORTSENGINE_YOUTUBE_SMOKE_URL/, "YouTube smoke should read the authorized test URL from env");
