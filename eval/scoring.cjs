@@ -12,6 +12,7 @@ const {
 } = require("../server/edit-plan.cjs");
 const { AppError } = require("../server/errors.cjs");
 const { deterministicGoalEvidence, mergeGoalEvidenceIntoVisualSignals } = require("../server/goal-evidence-provider.cjs");
+const { defaultOcrQaCalibration, publicOcrQaCalibration } = require("../server/ocr-qa-calibration.cjs");
 const { deterministicScoreboardOcr } = require("../server/scoreboard-ocr.cjs");
 const { analyzeTracking, publicTrackingProviderOutput, validateTrackingProviderOutput } = require("../server/tracking-provider.cjs");
 const { validateVisualSignals } = require("../server/vision.cjs");
@@ -592,6 +593,19 @@ function noFalseGoalFromOcrOnlyScore(goalEvidence, expected = {}) {
   return validGoalCount === 0 ? 1 : 0;
 }
 
+function ocrQaCalibrationSupportScore(goalEvidence, expected = {}) {
+  if (!expected.ocrQaCalibration) return 1;
+  const calibration = goalEvidence && goalEvidence.ocrQaCalibration;
+  if (!calibration || typeof calibration !== "object") return 0;
+  const expectedLevel = expected.ocrQaCalibration.decisionSupportLevel || "ignore";
+  return calibration.decisionSupportLevel === expectedLevel &&
+    calibration.goalEvidencePolicy === "support_only" &&
+    calibration.goalDecisionAllowed === false &&
+    calibration.noFalseGoalFromOcrOnly === true
+    ? 1
+    : 0;
+}
+
 function expectedGoalOutcome(expected = {}) {
   return expected.goalOutcome && typeof expected.goalOutcome === "object" && !Array.isArray(expected.goalOutcome)
     ? expected.goalOutcome
@@ -920,12 +934,16 @@ function scoreFixture(fixture) {
     visualSignals,
     scoreboardOcr: fixture.scoreboardOcr || fixture.ocrEvidence || fixture.scoreboardEvidence,
   });
+  const ocrQaCalibration = fixture.ocrQaCalibration
+    ? publicOcrQaCalibration({ schemaVersion: 1, ...fixture.ocrQaCalibration })
+    : defaultOcrQaCalibration("missing");
   const goalEvidence = deterministicGoalEvidence({
     metadata,
     transcript: fixture.transcript,
     mediaSignals: fixture.mediaSignals,
     visualSignals,
     ocrEvidence: scoreboardOcr.evidence,
+    ocrQaCalibration,
   });
   visualSignals = mergeGoalEvidenceIntoVisualSignals(visualSignals, goalEvidence, metadata);
   const trackingProviderOutput = publicTrackingProviderOutput(
@@ -1018,6 +1036,7 @@ function scoreFixture(fixture) {
   const scoreboardScoreChangeRecall = scoreboardScoreChangeRecallScore(scoreboardOcr, fixture.expected);
   const ambiguousOcrFailClosed = ambiguousOcrFailClosedScore(goalEvidence, fixture.expected);
   const noFalseGoalFromOcrOnly = noFalseGoalFromOcrOnlyScore(goalEvidence, fixture.expected);
+  const ocrQaCalibrationSupport = ocrQaCalibrationSupportScore(goalEvidence, fixture.expected);
   const ballPlayerVisibilityScoreValue = ballPlayerVisibilityScore(topPlan);
   const cropSafetyScoreValue = cropSafetyScore(topPlan, metadata);
   const actionSafeZoneCoverage = actionSafeZoneCoverageScore(topPlan, metadata);
@@ -1128,7 +1147,8 @@ function scoreFixture(fixture) {
     ocrEvidenceCoverage >= 0.9 &&
     scoreboardScoreChangeRecall >= 0.9 &&
     ambiguousOcrFailClosed === 1 &&
-    noFalseGoalFromOcrOnly === 1;
+    noFalseGoalFromOcrOnly === 1 &&
+    ocrQaCalibrationSupport === 1;
 
   return {
     id: fixture.id,
@@ -1178,6 +1198,7 @@ function scoreFixture(fixture) {
       scoreboardScoreChangeRecall,
       ambiguousOcrFailClosed,
       noFalseGoalFromOcrOnly,
+      ocrQaCalibrationSupport,
       reactionAsSupportNotMain,
       actionWindowCoverage,
       shotToPayoffCoverage,
@@ -1211,6 +1232,9 @@ function scoreFixture(fixture) {
       goalEvidenceEventCount: goalEvidence.summary.eventCount,
       scoreboardOcrProviderMode: scoreboardOcr.providerMode,
       scoreboardOcrEvidenceCount: scoreboardOcr.summary.evidenceCount,
+      ocrQaStatus: goalEvidence.summary.ocrQaStatus,
+      ocrQaUsable: goalEvidence.summary.ocrQaUsable,
+      ocrQaSupportLevel: goalEvidence.summary.ocrQaSupportLevel,
     },
     expected: {
       highlights: fixture.expected.highlights.map((item) => ({ start: item.start, end: item.end })),
@@ -1278,6 +1302,7 @@ function scoreFixture(fixture) {
         scoreboardConfirmedGoalCount: goalEvidence.summary.scoreboardConfirmedGoalCount,
         ambiguousOcrCount: goalEvidence.summary.ambiguousOcrCount,
         goalEvidenceCoverage: goalEvidence.summary.goalEvidenceCoverage,
+        ocrQaCalibration: goalEvidence.ocrQaCalibration,
       },
       scoreboardOcr: {
         providerMode: sanitizeReportText(scoreboardOcr.providerMode, 60),
@@ -1412,6 +1437,7 @@ function scoreFixture(fixture) {
       captionGoalClaimAccuracy,
       segmentTimingCoverage,
       goalEvidenceCoverage,
+      ocrQaCalibrationSupport,
       animationCueValidity,
       animationCueRelevance,
       fallbackUsed,
@@ -1468,6 +1494,7 @@ function debuggingNotes(metrics) {
   if (metrics.captionGoalClaimAccuracy < 0.95) notes.push("Goal captions do not match valid-goal expectations.");
   if (metrics.segmentTimingCoverage < 0.9) notes.push("Goal segments do not cover the expected shot/payoff/decision window.");
   if (metrics.goalEvidenceCoverage < 1) notes.push("Goal evidence provider did not cover all expected valid goals.");
+  if (metrics.ocrQaCalibrationSupport < 1) notes.push("OCR QA calibration was not applied as support-only evidence.");
   if (metrics.fallbackUsed) notes.push("Analysis fell back to deterministic fallback moments.");
   if (metrics.frameExtractionFallbackUsed) notes.push("Sampled frame extraction fell back to deterministic frame metadata.");
   return notes;
@@ -1536,6 +1563,7 @@ function aggregateResults(results) {
     scoreboardScoreChangeRecall: avg((result) => result.metrics.scoreboardScoreChangeRecall),
     ambiguousOcrFailClosed: avg((result) => result.metrics.ambiguousOcrFailClosed),
     noFalseGoalFromOcrOnly: avg((result) => result.metrics.noFalseGoalFromOcrOnly),
+    ocrQaCalibrationSupport: avg((result) => result.metrics.ocrQaCalibrationSupport),
     actionWindowCoverage: avg((result) => result.metrics.actionWindowCoverage),
     shotToPayoffCoverage: avg((result) => result.metrics.shotToPayoffCoverage),
     ballPlayerVisibilityScore: avg((result) => result.metrics.ballPlayerVisibilityScore),

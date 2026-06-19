@@ -13,6 +13,24 @@ const { visualReasonCodesForWindow } = require("../server/vision.cjs");
 
 const metadata = { durationSeconds: 80, width: 1920, height: 1080 };
 
+function strongOcrQaCalibration() {
+  return {
+    status: "available",
+    available: true,
+    stale: false,
+    invalid: false,
+    usable: true,
+    decisionSupportLevel: "strong",
+    scoreboardCropQuality: "high",
+    goalEvidencePolicy: "support_only",
+    goalDecisionAllowed: false,
+    noFalseGoalFromOcrOnly: true,
+    supportWeight: 1,
+    generatedAt: "2026-06-19T10:00:00.000Z",
+    reasonCode: "ocr_qa_strong",
+  };
+}
+
 test("goal evidence provider confirms ball-in-net only with explicit decision evidence", () => {
   const goalEvidence = deterministicGoalEvidence({
     metadata,
@@ -134,11 +152,13 @@ test("scoreboard OCR score change confirms goal only with temporal consistency a
       temporalConsistency: true,
       confidence: 0.88,
     }],
+    ocrQaCalibration: strongOcrQaCalibration(),
   });
 
   assert.equal(goalEvidence.summary.validGoalCount, 1);
   assert.equal(goalEvidence.summary.ocrEvidenceCount, 1);
   assert.equal(goalEvidence.summary.scoreboardConfirmedGoalCount, 1);
+  assert.equal(goalEvidence.summary.ocrQaUsable, true);
   assert.equal(goalEvidence.events[0].outcomeHint, "valid_goal");
   assert.ok(goalEvidence.events[0].reasonCodes.includes("scoreboard_ocr_score_change"));
   assert.equal(goalEvidence.events[0].scoreboardOcrEvidence, true);
@@ -196,10 +216,12 @@ test("scoreboard OCR unchanged after ball-in-net supports no-goal context", () =
       temporalConsistency: true,
       confidence: 0.82,
     }],
+    ocrQaCalibration: strongOcrQaCalibration(),
   });
 
   assert.equal(goalEvidence.summary.validGoalCount, 0);
   assert.equal(goalEvidence.summary.offsideOrNoGoalCount, 1);
+  assert.equal(goalEvidence.summary.ocrQaUsable, true);
   assert.equal(goalEvidence.events[0].outcomeHint, "offside_goal");
   assert.ok(goalEvidence.events[0].reasonCodes.includes("scoreboard_ocr_score_unchanged"));
   assert.equal(goalEvidence.events[0].VARNoGoalSignal, true);

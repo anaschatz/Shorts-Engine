@@ -50,6 +50,21 @@
       "source": "fixture_ocr"
     }
   ],
+  "ocrQaCalibration": {
+    "status": "available",
+    "available": true,
+    "stale": false,
+    "invalid": false,
+    "usable": true,
+    "decisionSupportLevel": "strong",
+    "scoreboardCropQuality": "high",
+    "goalEvidencePolicy": "support_only",
+    "goalDecisionAllowed": false,
+    "noFalseGoalFromOcrOnly": true,
+    "supportWeight": 1,
+    "generatedAt": "2026-06-19T10:00:00.000Z",
+    "reasonCode": "ocr_qa_strong"
+  },
   "expected": {
     "highlights": [
       { "start": 30.0, "end": 48.6 }
@@ -57,6 +72,9 @@
     "scoreboardOcr": [
       { "timestamp": 48.6, "status": "score_unchanged" }
     ],
+    "ocrQaCalibration": {
+      "decisionSupportLevel": "strong"
+    },
     "goalOutcome": {
       "eventType": "ball_in_net",
       "outcome": "disallowed_offside",

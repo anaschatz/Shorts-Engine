@@ -7,6 +7,7 @@ const { cleanupSampledFrames, extractSampledFrames, publicFrameSummary } = requi
 const { analyzeGoalEvidence, mergeGoalEvidenceIntoVisualSignals, publicGoalEvidence } = require("./goal-evidence-provider.cjs");
 const { sanitizeText } = require("./media.cjs");
 const { extractAudio, renderShort } = require("./render.cjs");
+const { loadOcrQaCalibration, publicOcrQaCalibration } = require("./ocr-qa-calibration.cjs");
 const { analyzeScoreboardOcr, publicScoreboardOcr } = require("./scoreboard-ocr.cjs");
 const { chooseTranscriptionProvider } = require("./transcription.cjs");
 const { assertStoragePath, storagePath, writeJsonAtomic } = require("./storage.cjs");
@@ -36,6 +37,7 @@ function createDefaultDependencies(overrides = {}) {
     detectHighlights,
     extractAudio,
     extractSampledFrames,
+    loadOcrQaCalibration,
     extractMediaSignals,
     fileExists: existsSync,
     analyzeTracking,
@@ -696,6 +698,7 @@ async function runRenderJob(options) {
   let mediaSignals = null;
   let visualSignals = null;
   let scoreboardOcr = null;
+  let ocrQaCalibration = null;
   let goalEvidence = null;
   let trackingProviderOutput = null;
   let visualTracking = null;
@@ -722,6 +725,7 @@ async function runRenderJob(options) {
       mediaSignals = mediaSignalsFromApprovedPlan(context);
       visualSignals = visualSignalsFromApprovedPlan(editPlan, context);
       scoreboardOcr = null;
+      ocrQaCalibration = publicOcrQaCalibration(null);
       goalEvidence = goalEvidenceFromApprovedPlan(editPlan);
       trackingProviderOutput = null;
       visualTracking = publicVisualTrackingSummary(editPlan.visualTrackingSummary || null, context.metadata);
@@ -874,6 +878,21 @@ async function runRenderJob(options) {
         scoreChangeCount: scoreboardOcr.summary && scoreboardOcr.summary.scoreChangeCount,
         ambiguousCount: scoreboardOcr.summary && scoreboardOcr.summary.ambiguousCount,
       });
+      ocrQaCalibration = publicOcrQaCalibration(deps.loadOcrQaCalibration());
+      logInfo(deps.logger, {
+        event: "ocr_qa_calibration_loaded",
+        requestId,
+        projectId: project.id,
+        jobId: job.id,
+        step: "analyze_scoreboard_ocr",
+        status: ocrQaCalibration.status,
+        usable: ocrQaCalibration.usable,
+        decisionSupportLevel: ocrQaCalibration.decisionSupportLevel,
+        scoreboardCropQuality: ocrQaCalibration.scoreboardCropQuality,
+        goalEvidencePolicy: ocrQaCalibration.goalEvidencePolicy,
+        goalDecisionAllowed: ocrQaCalibration.goalDecisionAllowed,
+        noFalseGoalFromOcrOnly: ocrQaCalibration.noFalseGoalFromOcrOnly,
+      });
 
       updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 50, step: "transcribe" });
       const provider = deps.chooseTranscriptionProvider({ forceMock: !context.metadata.hasAudio });
@@ -896,6 +915,7 @@ async function runRenderJob(options) {
         mediaSignals,
         visualSignals,
         scoreboardOcr: scoreboardOcr && scoreboardOcr.evidence,
+        ocrQaCalibration,
         frames: sampledFrames.frames,
         frameSummary: sampledFrameSummary,
         signal,
@@ -919,6 +939,9 @@ async function runRenderJob(options) {
         scoreboardConfirmedGoalCount: goalEvidence.summary && goalEvidence.summary.scoreboardConfirmedGoalCount,
         ambiguousOcrCount: goalEvidence.summary && goalEvidence.summary.ambiguousOcrCount,
         goalEvidenceCoverage: goalEvidence.summary && goalEvidence.summary.goalEvidenceCoverage,
+        ocrQaStatus: goalEvidence.summary && goalEvidence.summary.ocrQaStatus,
+        ocrQaUsable: goalEvidence.summary && goalEvidence.summary.ocrQaUsable,
+        ocrQaSupportLevel: goalEvidence.summary && goalEvidence.summary.ocrQaSupportLevel,
       });
 
       updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 58, step: "detect_highlights" });
@@ -1016,6 +1039,9 @@ async function runRenderJob(options) {
       scoreboardOcrEvidenceCount: scoreboardOcr && scoreboardOcr.summary && scoreboardOcr.summary.evidenceCount,
       scoreboardOcrScoreChangeCount: scoreboardOcr && scoreboardOcr.summary && scoreboardOcr.summary.scoreChangeCount,
       scoreboardOcrAmbiguousCount: scoreboardOcr && scoreboardOcr.summary && scoreboardOcr.summary.ambiguousCount,
+      ocrQaStatus: ocrQaCalibration && ocrQaCalibration.status,
+      ocrQaUsable: ocrQaCalibration && ocrQaCalibration.usable,
+      ocrQaSupportLevel: ocrQaCalibration && ocrQaCalibration.decisionSupportLevel,
       goalEvidenceProviderMode: goalEvidence && goalEvidence.providerMode,
       goalEvidenceEventCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.eventCount,
       validGoalEvidenceCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.validGoalCount,
@@ -1098,6 +1124,7 @@ async function runRenderJob(options) {
       mediaSignals: publicMediaSignals(mediaSignals),
       visualSignals: publicVisualSignals(visualSignals),
       scoreboardOcr: publicScoreboardOcr(scoreboardOcr),
+      ocrQaCalibration: publicOcrQaCalibration(ocrQaCalibration),
       goalEvidence: publicGoalEvidence(goalEvidence),
       trackingProviderOutput,
       visualTracking,
@@ -1120,6 +1147,7 @@ async function runRenderJob(options) {
       mediaSignals,
       visualSignals,
       scoreboardOcr: publicScoreboardOcr(scoreboardOcr),
+      ocrQaCalibration: publicOcrQaCalibration(ocrQaCalibration),
       goalEvidence: publicGoalEvidence(goalEvidence),
       trackingProviderOutput,
       visualTracking,
@@ -1150,6 +1178,9 @@ async function runRenderJob(options) {
       goalEvidenceProviderMode: goalEvidence && goalEvidence.providerMode,
       goalEvidenceEventCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.eventCount,
       validGoalEvidenceCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.validGoalCount,
+      ocrQaStatus: ocrQaCalibration && ocrQaCalibration.status,
+      ocrQaUsable: ocrQaCalibration && ocrQaCalibration.usable,
+      ocrQaSupportLevel: ocrQaCalibration && ocrQaCalibration.decisionSupportLevel,
       visualTrackingConfidence: visualTracking && visualTracking.trackingConfidence,
       cropPlanMode: editPlan.cropPlan && editPlan.cropPlan.mode,
       cropPlanFallbackUsed: editPlan.cropPlan && editPlan.cropPlan.fallbackUsed,

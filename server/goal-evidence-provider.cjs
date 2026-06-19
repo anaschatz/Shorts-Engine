@@ -1,5 +1,6 @@
 const { AppError, SAFE_MESSAGES } = require("./errors.cjs");
 const { sanitizeText } = require("./media.cjs");
+const { normalizeOcrQaCalibrationReport, publicOcrQaCalibration } = require("./ocr-qa-calibration.cjs");
 const { validateVisualSignals, visualReasonCodesForWindow } = require("./vision.cjs");
 
 const DEFAULT_GOAL_EVIDENCE_TIMEOUT_MS = 12000;
@@ -425,11 +426,21 @@ function normalizeOcrEvidence(items = [], metadata = {}) {
     .slice(0, MAX_EVIDENCE_EVENTS);
 }
 
-function ocrReasonsInRange(ocrEvidence = [], start = 0, end = 0) {
+function normalizeOcrQaCalibrationInput(value) {
+  if (!value) return { schemaVersion: 1, ...publicOcrQaCalibration(null) };
+  if (value && typeof value === "object" && value.calibration) {
+    return normalizeOcrQaCalibrationReport(value, { maxAgeMs: Number.MAX_SAFE_INTEGER });
+  }
+  return { schemaVersion: 1, ...publicOcrQaCalibration(value) };
+}
+
+function ocrReasonsInRange(ocrEvidence = [], start = 0, end = 0, ocrQaCalibration = null) {
   const reasons = [];
   const items = (Array.isArray(ocrEvidence) ? ocrEvidence : []).filter((item) => item.timestamp >= start - 1 && item.timestamp <= end + 1);
-  if (items.some((item) => item.scoreChanged)) reasons.push("scoreboard_ocr_score_change", "scoreboard_temporal_consistency");
-  if (items.some((item) => item.scoreUnchanged)) reasons.push("scoreboard_ocr_score_unchanged");
+  const calibration = normalizeOcrQaCalibrationInput(ocrQaCalibration);
+  const usable = Boolean(calibration.usable);
+  if (usable && items.some((item) => item.scoreChanged)) reasons.push("scoreboard_ocr_score_change", "scoreboard_temporal_consistency");
+  if (usable && items.some((item) => item.scoreUnchanged)) reasons.push("scoreboard_ocr_score_unchanged");
   if (items.some((item) => item.ambiguous)) reasons.push("scoreboard_ocr_ambiguous");
   return [...new Set(reasons)];
 }
@@ -439,6 +450,7 @@ function validateGoalEvidenceOutput(output, metadata = {}) {
     throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
   }
   const ocrEvidence = normalizeOcrEvidence(output.ocrEvidence || output.scoreboardOcr || output.scoreboardEvidence, metadata);
+  const ocrQaCalibration = normalizeOcrQaCalibrationInput(output.ocrQaCalibration);
   const rawEvents = Array.isArray(output.events) ? output.events : [];
   const events = rawEvents
     .map((event, index) => normalizeEvent(event, metadata, index))
@@ -468,7 +480,11 @@ function validateGoalEvidenceOutput(output, metadata = {}) {
       scoreboardConfirmedGoalCount: events.filter((event) => (event.reasonCodes || []).includes("scoreboard_ocr_score_change")).length,
       ambiguousOcrCount: ocrEvidence.filter((item) => item.ambiguous).length,
       goalEvidenceCoverage: events.some((event) => event.outcomeHint === "valid_goal") ? 1 : 0,
+      ocrQaStatus: ocrQaCalibration.status,
+      ocrQaUsable: Boolean(ocrQaCalibration.usable),
+      ocrQaSupportLevel: ocrQaCalibration.decisionSupportLevel,
     },
+    ocrQaCalibration: publicOcrQaCalibration(ocrQaCalibration),
   };
 }
 
@@ -501,6 +517,7 @@ function deterministicGoalEvidence(input = {}) {
   const transcript = input.transcript || {};
   const captions = Array.isArray(transcript.captions) ? transcript.captions : [];
   const ocrEvidence = normalizeOcrEvidence(input.ocrEvidence || input.scoreboardOcr || input.scoreboardEvidence, metadata);
+  const ocrQaCalibration = normalizeOcrQaCalibrationInput(input.ocrQaCalibration);
   const events = [];
   const ballInNetWindows = windows.filter((window) => windowHasReason(window, "visual_ball_in_net"));
 
@@ -518,7 +535,7 @@ function deterministicGoalEvidence(input = {}) {
         : []),
     ])];
     const textReasons = [...new Set(captionsInRange(captions, range.payoff - 0.5, postEnd).flatMap((item) => item.reasonCodes))];
-    const ocrReasons = ocrReasonsInRange(ocrEvidence, range.payoff - 0.5, postEnd);
+    const ocrReasons = ocrReasonsInRange(ocrEvidence, range.payoff - 0.5, postEnd, ocrQaCalibration);
     const reasonCodes = normalizeReasonCodes([...visualReasons, ...textReasons, ...ocrReasons]);
     events.push({
       id: `goal_event_${index + 1}`,
@@ -593,6 +610,7 @@ function deterministicGoalEvidence(input = {}) {
     providerMode: "deterministic-goal-evidence",
     fallbackUsed: false,
     ocrEvidence,
+    ocrQaCalibration,
     events,
   }, metadata);
 }
@@ -671,6 +689,7 @@ class ExternalGoalEvidenceProviderAdapter extends DeterministicGoalEvidenceProvi
         ...deterministicGoalEvidence(input),
         providerMode: "deterministic-goal-evidence",
         fallbackUsed: true,
+        ocrQaCalibration: input.ocrQaCalibration,
       }, input.metadata || {});
     }
     try {
@@ -682,6 +701,7 @@ class ExternalGoalEvidenceProviderAdapter extends DeterministicGoalEvidenceProvi
         ...output,
         providerMode: "external-goal-evidence-adapter",
         fallbackUsed: Boolean(output && output.fallbackUsed),
+        ocrQaCalibration: input.ocrQaCalibration,
       }, input.metadata || {});
     } catch (error) {
       if (error && error.code === "JOB_CANCELLED") throw error;
@@ -690,6 +710,7 @@ class ExternalGoalEvidenceProviderAdapter extends DeterministicGoalEvidenceProvi
         ...deterministicGoalEvidence(input),
         providerMode: "deterministic-goal-evidence",
         fallbackUsed: true,
+        ocrQaCalibration: input.ocrQaCalibration,
       }, input.metadata || {});
     }
   }
@@ -745,8 +766,12 @@ function publicGoalEvidence(goalEvidence) {
           scoreboardConfirmedGoalCount: Number(safe.summary.scoreboardConfirmedGoalCount || 0),
           ambiguousOcrCount: Number(safe.summary.ambiguousOcrCount || 0),
           goalEvidenceCoverage: Number(safe.summary.goalEvidenceCoverage || 0),
+          ocrQaStatus: sanitizeText(safe.summary.ocrQaStatus || "missing", 32),
+          ocrQaUsable: Boolean(safe.summary.ocrQaUsable),
+          ocrQaSupportLevel: sanitizeText(safe.summary.ocrQaSupportLevel || "ignore", 32),
         }
       : null,
+    ocrQaCalibration: publicOcrQaCalibration(safe.ocrQaCalibration),
     ocrEvidence: Array.isArray(safe.ocrEvidence)
       ? safe.ocrEvidence.map((item) => ({
           id: sanitizeText(item.id, 80),
@@ -796,6 +821,7 @@ module.exports = {
   createGoalEvidenceProvider,
   deterministicGoalEvidence,
   mergeGoalEvidenceIntoVisualSignals,
+  normalizeOcrQaCalibrationInput,
   normalizeOcrEvidence,
   publicGoalEvidence,
   validateGoalEvidenceOutput,

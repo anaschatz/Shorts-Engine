@@ -69,6 +69,7 @@ try {
     scoreboardScoreChangeRecall: report.aggregate.scoreboardScoreChangeRecall,
     ambiguousOcrFailClosed: report.aggregate.ambiguousOcrFailClosed,
     noFalseGoalFromOcrOnly: report.aggregate.noFalseGoalFromOcrOnly,
+    ocrQaCalibrationSupport: report.aggregate.ocrQaCalibrationSupport,
     shotToPayoffCoverage: report.aggregate.shotToPayoffCoverage,
     actionWindowCoverage: report.aggregate.actionWindowCoverage,
     ballPlayerVisibilityScore: report.aggregate.ballPlayerVisibilityScore,

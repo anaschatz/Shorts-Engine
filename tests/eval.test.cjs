@@ -98,6 +98,7 @@ test("fixture scoring returns reportable metrics and candidate plans", () => {
   assert.equal(typeof result.metrics.scoreboardScoreChangeRecall, "number");
   assert.equal(typeof result.metrics.ambiguousOcrFailClosed, "number");
   assert.equal(typeof result.metrics.noFalseGoalFromOcrOnly, "number");
+  assert.equal(typeof result.metrics.ocrQaCalibrationSupport, "number");
   assert.equal(typeof result.metrics.shotToPayoffCoverage, "number");
   assert.equal(typeof result.metrics.actionWindowCoverage, "number");
   assert.equal(result.metrics.captionRoleValidity, 1);
@@ -145,12 +146,15 @@ test("OCR-confirmed valid-goals fixture selects every goal and excludes intro/ce
   assert.equal(result.metrics.goalEvidenceCoverage, 1);
   assert.equal(result.metrics.ocrEvidenceCoverage, 1);
   assert.equal(result.metrics.scoreboardScoreChangeRecall, 1);
+  assert.equal(result.metrics.ocrQaCalibrationSupport, 1);
   assert.equal(result.metrics.celebrationOnlyExclusion, 1);
   assert.equal(result.metrics.anthemIntroExclusion, 1);
   assert.equal(result.actual.scoreboardOcr.evidenceCount, 3);
   assert.equal(result.actual.scoreboardOcr.scoreChangeCount, 3);
   assert.equal(result.actual.goalEvidence.ocrEvidenceCount, 3);
   assert.equal(result.actual.goalEvidence.scoreboardConfirmedGoalCount, 3);
+  assert.equal(result.actual.goalEvidence.ocrQaCalibration.decisionSupportLevel, "strong");
+  assert.equal(result.actual.goalEvidence.ocrQaCalibration.goalDecisionAllowed, false);
   assert.equal(result.actual.candidatePlans[0].selectedMomentCount, 3);
 });
 
@@ -222,6 +226,7 @@ test("evaluation report has aggregate metrics and no local path leakage", () => 
   assert.equal(report.aggregate.scoreboardScoreChangeRecall, 1);
   assert.equal(report.aggregate.ambiguousOcrFailClosed, 1);
   assert.equal(report.aggregate.noFalseGoalFromOcrOnly, 1);
+  assert.equal(report.aggregate.ocrQaCalibrationSupport, 1);
   assert.equal(report.aggregate.shotToPayoffCoverage >= 0.95, true);
   assert.equal(report.aggregate.actionWindowCoverage >= 0.95, true);
   assert.equal(report.aggregate.captionRoleValidity, 1);
@@ -332,6 +337,7 @@ test("runner writes a JSON report", () => {
   assert.equal(summary.scoreboardScoreChangeRecall, 1);
   assert.equal(summary.ambiguousOcrFailClosed, 1);
   assert.equal(summary.noFalseGoalFromOcrOnly, 1);
+  assert.equal(summary.ocrQaCalibrationSupport, 1);
   assert.equal(summary.shotToPayoffCoverage >= 0.95, true);
   assert.equal(summary.actionWindowCoverage >= 0.95, true);
   assert.equal(summary.captionRoleValidity, 1);

@@ -93,6 +93,24 @@ function validPlan() {
   };
 }
 
+function defaultOcrQaCalibration() {
+  return {
+    status: "missing",
+    available: false,
+    stale: false,
+    invalid: false,
+    usable: false,
+    decisionSupportLevel: "ignore",
+    scoreboardCropQuality: "unknown",
+    goalEvidencePolicy: "support_only",
+    goalDecisionAllowed: false,
+    noFalseGoalFromOcrOnly: true,
+    supportWeight: 0,
+    generatedAt: null,
+    reasonCode: "ocr_qa_missing",
+  };
+}
+
 function makeContext(options = {}) {
   const jobs = new JobStore();
   const job = jobs.create({ projectId: "prj_orchestration", action: "generate", idempotencyKey: `orch-${Math.random()}` });
@@ -222,12 +240,14 @@ function makeContext(options = {}) {
         },
       };
     },
-    analyzeGoalEvidence: async ({ visualSignals, scoreboardOcr }) => {
+    loadOcrQaCalibration: () => options.ocrQaCalibration || defaultOcrQaCalibration(),
+    analyzeGoalEvidence: async ({ visualSignals, scoreboardOcr, ocrQaCalibration }) => {
       calls.push("analyze_goal_evidence");
       context.goalEvidenceVisualWindowCount = visualSignals && Array.isArray(visualSignals.windows)
         ? visualSignals.windows.length
         : 0;
       context.goalEvidenceOcrEvidenceCount = Array.isArray(scoreboardOcr) ? scoreboardOcr.length : 0;
+      context.goalEvidenceOcrQaCalibration = ocrQaCalibration;
       return options.goalEvidence || {
         providerMode: "mock-goal-evidence",
         fallbackUsed: false,
@@ -246,7 +266,11 @@ function makeContext(options = {}) {
           scoreboardConfirmedGoalCount: 0,
           ambiguousOcrCount: 0,
           goalEvidenceCoverage: 0,
+          ocrQaStatus: ocrQaCalibration && ocrQaCalibration.status,
+          ocrQaUsable: Boolean(ocrQaCalibration && ocrQaCalibration.usable),
+          ocrQaSupportLevel: ocrQaCalibration && ocrQaCalibration.decisionSupportLevel,
         },
+        ocrQaCalibration,
       };
     },
     analyzeTracking: async ({ frames }) => {
@@ -375,6 +399,9 @@ test("render orchestration completes success path with mocked adapters", async (
   assert.equal(context.job.scoreboardOcr.summary.evidenceCount, 0);
   assert.equal(context.job.goalEvidence.providerMode, "mock-goal-evidence");
   assert.equal(context.job.goalEvidence.summary.eventCount, 0);
+  assert.equal(context.job.ocrQaCalibration.status, "missing");
+  assert.equal(context.job.ocrQaCalibration.goalDecisionAllowed, false);
+  assert.equal(context.goalEvidenceOcrQaCalibration.status, "missing");
   assert.equal(context.job.visualTracking.goalClaimAllowed, false);
   assert.equal(context.job.trackingProviderOutput.providerMode, "mock-tracking");
   assert.equal(context.job.trackingProviderOutput.fallbackUsed, true);
@@ -394,8 +421,45 @@ test("render orchestration completes success path with mocked adapters", async (
   const goalEvidenceLog = context.logs.find((entry) => entry.event === "goal_evidence_completed");
   assert.equal(goalEvidenceLog.providerMode, "mock-goal-evidence");
   assert.equal(goalEvidenceLog.evidenceEventCount, 0);
+  assert.equal(goalEvidenceLog.ocrQaStatus, "missing");
+  assert.equal(goalEvidenceLog.ocrQaUsable, false);
+  const ocrQaLog = context.logs.find((entry) => entry.event === "ocr_qa_calibration_loaded");
+  assert.equal(ocrQaLog.status, "missing");
+  assert.equal(ocrQaLog.goalEvidencePolicy, "support_only");
+  assert.equal(ocrQaLog.goalDecisionAllowed, false);
   assert.equal(context.goalEvidenceOcrEvidenceCount, 0);
   assert.doesNotMatch(JSON.stringify(goalEvidenceLog), /\/Users|storageKey|localPath|secret/i);
+});
+
+test("render orchestration passes OCR QA calibration into goal evidence analysis", async () => {
+  const context = makeContext({
+    ocrQaCalibration: {
+      status: "available",
+      available: true,
+      stale: false,
+      invalid: false,
+      usable: true,
+      decisionSupportLevel: "strong",
+      scoreboardCropQuality: "high",
+      goalEvidencePolicy: "support_only",
+      goalDecisionAllowed: false,
+      noFalseGoalFromOcrOnly: true,
+      supportWeight: 1,
+      generatedAt: "2026-06-19T10:00:00.000Z",
+      reasonCode: "ocr_qa_strong",
+    },
+  });
+  await runContext(context);
+
+  assert.equal(context.job.status, "completed");
+  assert.equal(context.goalEvidenceOcrQaCalibration.usable, true);
+  assert.equal(context.goalEvidenceOcrQaCalibration.decisionSupportLevel, "strong");
+  assert.equal(context.job.ocrQaCalibration.decisionSupportLevel, "strong");
+  assert.equal(context.job.goalEvidence.summary.ocrQaSupportLevel, "strong");
+  const ocrQaLog = context.logs.find((entry) => entry.event === "ocr_qa_calibration_loaded");
+  assert.equal(ocrQaLog.usable, true);
+  assert.equal(ocrQaLog.decisionSupportLevel, "strong");
+  assert.doesNotMatch(JSON.stringify(ocrQaLog), /\/Users|storageKey|localPath|secret|rawOcr|rawText/i);
 });
 
 test("youtube long-source render requests valid-goals-only planning", async () => {

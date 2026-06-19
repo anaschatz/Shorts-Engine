@@ -81,6 +81,21 @@
       "source": "fixture_ocr"
     }
   ],
+  "ocrQaCalibration": {
+    "status": "available",
+    "available": true,
+    "stale": false,
+    "invalid": false,
+    "usable": true,
+    "decisionSupportLevel": "strong",
+    "scoreboardCropQuality": "high",
+    "goalEvidencePolicy": "support_only",
+    "goalDecisionAllowed": false,
+    "noFalseGoalFromOcrOnly": true,
+    "supportWeight": 1,
+    "generatedAt": "2026-06-19T10:00:00.000Z",
+    "reasonCode": "ocr_qa_strong"
+  },
   "expected": {
     "highlights": [
       { "start": 88.0, "end": 104.8 },
@@ -97,6 +112,9 @@
       { "timestamp": 190.6, "status": "score_changed" },
       { "timestamp": 286.8, "status": "score_changed" }
     ],
+    "ocrQaCalibration": {
+      "decisionSupportLevel": "strong"
+    },
     "celebrationOnly": [
       { "start": 305.0, "end": 308.0 }
     ],
