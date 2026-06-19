@@ -5,6 +5,7 @@ const { createCandidateEditPlans, detectHighlights, extractMediaSignals } = requ
 const { validateEditPlan } = require("./edit-plan.cjs");
 const { cleanupSampledFrames, extractSampledFrames, publicFrameSummary } = require("./frame-extraction.cjs");
 const { analyzeGoalEvidence, mergeGoalEvidenceIntoVisualSignals, publicGoalEvidence } = require("./goal-evidence-provider.cjs");
+const { analyzeMatchEventTruth, publicMatchEventTruth } = require("./match-event-truth.cjs");
 const { sanitizeText } = require("./media.cjs");
 const { extractAudio, renderShort } = require("./render.cjs");
 const { loadOcrQaCalibration, publicOcrQaCalibration } = require("./ocr-qa-calibration.cjs");
@@ -31,6 +32,7 @@ function createDefaultDependencies(overrides = {}) {
     chooseTranscriptionProvider,
     analyzeFrames,
     analyzeGoalEvidence,
+    analyzeMatchEventTruth,
     analyzeScoreboardOcr,
     createCandidateEditPlans,
     createExportId: () => `exp_${randomUUID()}`,
@@ -700,6 +702,7 @@ async function runRenderJob(options) {
   let scoreboardOcr = null;
   let ocrQaCalibration = null;
   let goalEvidence = null;
+  let matchEventTruth = null;
   let trackingProviderOutput = null;
   let visualTracking = null;
   let highlightResult = null;
@@ -727,6 +730,7 @@ async function runRenderJob(options) {
       scoreboardOcr = null;
       ocrQaCalibration = publicOcrQaCalibration(null);
       goalEvidence = goalEvidenceFromApprovedPlan(editPlan);
+      matchEventTruth = publicMatchEventTruth(null);
       trackingProviderOutput = null;
       visualTracking = publicVisualTrackingSummary(editPlan.visualTrackingSummary || null, context.metadata);
       transcript = transcriptFromApprovedPlan(editPlan, context);
@@ -921,6 +925,29 @@ async function runRenderJob(options) {
         signal,
       });
       visualSignals = mergeGoalEvidenceIntoVisualSignals(visualSignals, goalEvidence, context.metadata);
+      matchEventTruth = deps.analyzeMatchEventTruth({
+        metadata: context.metadata,
+        transcript,
+        mediaSignals,
+        visualSignals,
+        goalEvidence,
+        scoreboardOcr: scoreboardOcr && scoreboardOcr.evidence,
+        ocrQaCalibration,
+      });
+      logInfo(deps.logger, {
+        event: "match_event_truth_completed",
+        requestId,
+        projectId: project.id,
+        jobId: job.id,
+        step: "analyze_goal_evidence",
+        providerMode: matchEventTruth.providerMode,
+        confirmedGoalCount: matchEventTruth.summary && matchEventTruth.summary.confirmedGoalCount,
+        disallowedGoalCount: matchEventTruth.summary && matchEventTruth.summary.disallowedGoalCount,
+        possibleGoalCount: matchEventTruth.summary && matchEventTruth.summary.possibleGoalCount,
+        lateConfirmedGoalCount: matchEventTruth.summary && matchEventTruth.summary.lateConfirmedGoalCount,
+        noFalseGoalFromOcrOnly: matchEventTruth.summary && matchEventTruth.summary.noFalseGoalFromOcrOnly,
+        ocrQaSupportStatus: matchEventTruth.summary && matchEventTruth.summary.ocrQaSupportStatus,
+      });
       logInfo(deps.logger, {
         event: "goal_evidence_completed",
         requestId,
@@ -951,6 +978,7 @@ async function runRenderJob(options) {
           signals: mediaSignals,
           visualSignals,
           goalEvidence,
+          matchEventTruth,
           preset: context.preset,
           title: context.title,
         }),
@@ -970,6 +998,7 @@ async function runRenderJob(options) {
         mediaSignals,
         visualSignals,
         goalEvidence,
+        matchEventTruth,
         visualTracking,
         preset: context.preset,
         title: context.title,
@@ -1010,6 +1039,9 @@ async function runRenderJob(options) {
             anthemOrIntroEvidenceCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.anthemOrIntroCount,
             ocrEvidenceCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.ocrEvidenceCount,
             scoreboardConfirmedGoalCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.scoreboardConfirmedGoalCount,
+            matchEventTruthConfirmedGoalCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.confirmedGoalCount,
+            matchEventTruthDisallowedGoalCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.disallowedGoalCount,
+            matchEventTruthPossibleGoalCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.possibleGoalCount,
           });
         }
         throw new AppError(code, SAFE_MESSAGES[code], 422);
@@ -1026,11 +1058,17 @@ async function runRenderJob(options) {
       jobId: job.id,
       highlightType: editPlan.highlightType,
       confidence: editPlan.confidence,
+      actionFocusConfidence: editPlan.actionFocusConfidence,
       framingMode: editPlan.framingMode,
+      framingReason: editPlan.framingReason,
       stylePreset: editPlan.stylePreset,
       styleTarget: editPlan.styleTarget,
       editIntensity: editPlan.editIntensity,
       aspectRatio: editPlan.aspectRatio,
+      cropPlanMode: editPlan.cropPlan && editPlan.cropPlan.mode,
+      cropPlanFallbackUsed: editPlan.cropPlan && editPlan.cropPlan.fallbackUsed,
+      animationCueCount: Array.isArray(editPlan.animationCues) ? editPlan.animationCues.length : 0,
+      unsupportedAnimationCueCount: Array.isArray(editPlan.unsupportedAnimationCues) ? editPlan.unsupportedAnimationCues.length : 0,
       captionSafetyStatus: editPlan.highlightType === "goal" ? "goal-language-allowed" : "false-goal-guarded",
       falseGoalGuardTriggered: editPlan.highlightType !== "goal",
       visualProviderMode: visualSignals.providerMode,
@@ -1045,13 +1083,9 @@ async function runRenderJob(options) {
       goalEvidenceProviderMode: goalEvidence && goalEvidence.providerMode,
       goalEvidenceEventCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.eventCount,
       validGoalEvidenceCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.validGoalCount,
+      matchEventTruthConfirmedGoalCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.confirmedGoalCount,
+      matchEventTruthDisallowedGoalCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.disallowedGoalCount,
       visualTrackingConfidence: visualTracking && visualTracking.trackingConfidence,
-      cropPlanMode: editPlan.cropPlan && editPlan.cropPlan.mode,
-      cropPlanFallbackUsed: editPlan.cropPlan && editPlan.cropPlan.fallbackUsed,
-      actionFocusConfidence: editPlan.actionFocusConfidence,
-      framingReason: editPlan.framingReason,
-      animationCueCount: Array.isArray(editPlan.animationCues) ? editPlan.animationCues.length : 0,
-      unsupportedAnimationCueCount: Array.isArray(editPlan.unsupportedAnimationCues) ? editPlan.unsupportedAnimationCues.length : 0,
     });
 
     updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 78, step: "render_kinetic_captions" });
@@ -1126,6 +1160,7 @@ async function runRenderJob(options) {
       scoreboardOcr: publicScoreboardOcr(scoreboardOcr),
       ocrQaCalibration: publicOcrQaCalibration(ocrQaCalibration),
       goalEvidence: publicGoalEvidence(goalEvidence),
+      matchEventTruth: publicMatchEventTruth(matchEventTruth),
       trackingProviderOutput,
       visualTracking,
       sampledFrames: sampledFrameSummary,
@@ -1149,6 +1184,7 @@ async function runRenderJob(options) {
       scoreboardOcr: publicScoreboardOcr(scoreboardOcr),
       ocrQaCalibration: publicOcrQaCalibration(ocrQaCalibration),
       goalEvidence: publicGoalEvidence(goalEvidence),
+      matchEventTruth: publicMatchEventTruth(matchEventTruth),
       trackingProviderOutput,
       visualTracking,
       sampledFrames: sampledFrameSummary,
@@ -1166,11 +1202,17 @@ async function runRenderJob(options) {
       exportId,
       highlightType: editPlan.highlightType,
       confidence: editPlan.confidence,
+      actionFocusConfidence: editPlan.actionFocusConfidence,
       framingMode: editPlan.framingMode,
+      framingReason: editPlan.framingReason,
       stylePreset: editPlan.stylePreset,
       styleTarget: editPlan.styleTarget,
       editIntensity: editPlan.editIntensity,
       aspectRatio: editPlan.aspectRatio,
+      cropPlanMode: editPlan.cropPlan && editPlan.cropPlan.mode,
+      cropPlanFallbackUsed: editPlan.cropPlan && editPlan.cropPlan.fallbackUsed,
+      animationCueCount: Array.isArray(editPlan.animationCues) ? editPlan.animationCues.length : 0,
+      unsupportedAnimationCueCount: Array.isArray(editPlan.unsupportedAnimationCues) ? editPlan.unsupportedAnimationCues.length : 0,
       captionSafetyStatus: editPlan.highlightType === "goal" ? "goal-language-allowed" : "false-goal-guarded",
       falseGoalGuardTriggered: editPlan.highlightType !== "goal",
       visualProviderMode: visualSignals.providerMode,
@@ -1178,16 +1220,12 @@ async function runRenderJob(options) {
       goalEvidenceProviderMode: goalEvidence && goalEvidence.providerMode,
       goalEvidenceEventCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.eventCount,
       validGoalEvidenceCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.validGoalCount,
+      matchEventTruthConfirmedGoalCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.confirmedGoalCount,
+      matchEventTruthDisallowedGoalCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.disallowedGoalCount,
       ocrQaStatus: ocrQaCalibration && ocrQaCalibration.status,
       ocrQaUsable: ocrQaCalibration && ocrQaCalibration.usable,
       ocrQaSupportLevel: ocrQaCalibration && ocrQaCalibration.decisionSupportLevel,
       visualTrackingConfidence: visualTracking && visualTracking.trackingConfidence,
-      cropPlanMode: editPlan.cropPlan && editPlan.cropPlan.mode,
-      cropPlanFallbackUsed: editPlan.cropPlan && editPlan.cropPlan.fallbackUsed,
-      actionFocusConfidence: editPlan.actionFocusConfidence,
-      framingReason: editPlan.framingReason,
-      animationCueCount: Array.isArray(editPlan.animationCues) ? editPlan.animationCues.length : 0,
-      unsupportedAnimationCueCount: Array.isArray(editPlan.unsupportedAnimationCues) ? editPlan.unsupportedAnimationCues.length : 0,
     });
   } catch (error) {
     if ((signal && signal.aborted) || (job && job.status === "cancelled") || error.code === "JOB_CANCELLED") {

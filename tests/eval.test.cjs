@@ -99,6 +99,10 @@ test("fixture scoring returns reportable metrics and candidate plans", () => {
   assert.equal(typeof result.metrics.ambiguousOcrFailClosed, "number");
   assert.equal(typeof result.metrics.noFalseGoalFromOcrOnly, "number");
   assert.equal(typeof result.metrics.ocrQaCalibrationSupport, "number");
+  assert.equal(typeof result.metrics.matchEventTruthValidGoalRecall, "number");
+  assert.equal(typeof result.metrics.matchEventTruthLateGoalRecall, "number");
+  assert.equal(typeof result.metrics.matchEventTruthDisallowedClassification, "number");
+  assert.equal(typeof result.metrics.matchEventTruthFalseGoalRate, "number");
   assert.equal(typeof result.metrics.shotToPayoffCoverage, "number");
   assert.equal(typeof result.metrics.actionWindowCoverage, "number");
   assert.equal(result.metrics.captionRoleValidity, 1);
@@ -155,6 +159,10 @@ test("OCR-confirmed valid-goals fixture selects every goal and excludes intro/ce
   assert.equal(result.actual.goalEvidence.scoreboardConfirmedGoalCount, 3);
   assert.equal(result.actual.goalEvidence.ocrQaCalibration.decisionSupportLevel, "strong");
   assert.equal(result.actual.goalEvidence.ocrQaCalibration.goalDecisionAllowed, false);
+  assert.equal(result.actual.matchEventTruth.summary.confirmedGoalCount, 3);
+  assert.equal(result.actual.matchEventTruth.summary.noFalseGoalFromOcrOnly, 1);
+  assert.equal(result.metrics.matchEventTruthValidGoalRecall, 1);
+  assert.equal(result.metrics.matchEventTruthFalseGoalRate, 0);
   assert.equal(result.actual.candidatePlans[0].selectedMomentCount, 3);
 });
 
@@ -169,6 +177,8 @@ test("OCR risk fixtures fail closed for ambiguous and OCR-only evidence", () => 
   assert.equal(ambiguous.actual.scoreboardOcr.ambiguousCount, 1);
   assert.equal(ocrOnly.passed, true);
   assert.equal(ocrOnly.metrics.noFalseGoalFromOcrOnly, 1);
+  assert.equal(ocrOnly.metrics.matchEventTruthFalseGoalRate, 0);
+  assert.equal(ocrOnly.actual.matchEventTruth.summary.confirmedGoalCount, 0);
   assert.equal(ocrOnly.actual.goalEvidence.validGoalCount, 0);
   assert.equal(ocrOnly.actual.scoreboardOcr.scoreChangeCount, 1);
   assert.equal(scoreUnchanged.passed, true);
@@ -176,6 +186,7 @@ test("OCR risk fixtures fail closed for ambiguous and OCR-only evidence", () => 
   assert.equal(scoreUnchanged.metrics.captionOutcomeAlignment, 1);
   assert.equal(scoreUnchanged.actual.goalEvidence.validGoalCount, 0);
   assert.equal(scoreUnchanged.actual.goalEvidence.offsideOrNoGoalCount, 1);
+  assert.equal(scoreUnchanged.actual.matchEventTruth.summary.disallowedGoalCount, 1);
   assert.equal(scoreUnchanged.actual.scoreboardOcr.scoreUnchangedCount, 1);
   assert.equal(scoreUnchanged.actual.scoreboardOcr.scoreChangeCount, 0);
   assert.equal(scoreUnchanged.actual.candidatePlans[0].goalOutcome.outcome, "disallowed_offside");
@@ -227,6 +238,10 @@ test("evaluation report has aggregate metrics and no local path leakage", () => 
   assert.equal(report.aggregate.ambiguousOcrFailClosed, 1);
   assert.equal(report.aggregate.noFalseGoalFromOcrOnly, 1);
   assert.equal(report.aggregate.ocrQaCalibrationSupport, 1);
+  assert.equal(report.aggregate.matchEventTruthValidGoalRecall, 1);
+  assert.equal(report.aggregate.matchEventTruthLateGoalRecall, 1);
+  assert.equal(report.aggregate.matchEventTruthDisallowedClassification, 1);
+  assert.equal(report.aggregate.matchEventTruthFalseGoalRate, 0);
   assert.equal(report.aggregate.shotToPayoffCoverage >= 0.95, true);
   assert.equal(report.aggregate.actionWindowCoverage >= 0.95, true);
   assert.equal(report.aggregate.captionRoleValidity, 1);
@@ -338,6 +353,10 @@ test("runner writes a JSON report", () => {
   assert.equal(summary.ambiguousOcrFailClosed, 1);
   assert.equal(summary.noFalseGoalFromOcrOnly, 1);
   assert.equal(summary.ocrQaCalibrationSupport, 1);
+  assert.equal(summary.matchEventTruthValidGoalRecall, 1);
+  assert.equal(summary.matchEventTruthLateGoalRecall, 1);
+  assert.equal(summary.matchEventTruthDisallowedClassification, 1);
+  assert.equal(summary.matchEventTruthFalseGoalRate, 0);
   assert.equal(summary.shotToPayoffCoverage >= 0.95, true);
   assert.equal(summary.actionWindowCoverage >= 0.95, true);
   assert.equal(summary.captionRoleValidity, 1);

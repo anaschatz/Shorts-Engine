@@ -43,6 +43,7 @@ const remoteCiProof = readFileSync("tools/release/write-remote-ci-proof.mjs", "u
 const branchPolicy = readFileSync("tools/release/check-branch-protection.mjs", "utf8");
 const branchPolicyProof = readFileSync("tools/release/write-branch-protection-proof.mjs", "utf8");
 const branchSetup = readFileSync("tools/release/print-branch-ruleset-setup.mjs", "utf8");
+const matchEventTruth = readFileSync("server/match-event-truth.cjs", "utf8");
 const stagingFullSmoke = readFileSync("tools/release/check-staging-full-smoke.mjs", "utf8");
 const stagingFullCleanup = readFileSync("tools/release/cleanup-staging-full-smoke.mjs", "utf8");
 const releaseGateVerifier = readFileSync("tools/release/verify-release-gate.mjs", "utf8");
@@ -137,6 +138,14 @@ assert.match(serverApp, /createGoalEvidenceProvider/, "health should include the
 assert.match(serverApp, /goalEvidence/, "health should report safe goal evidence readiness");
 assert.match(serverApp, /scoreboardOcrHealth/, "health should include scoreboard OCR readiness");
 assert.match(serverApp, /scoreboardOcr/, "health should report safe scoreboard OCR readiness");
+assert.match(matchEventTruth, /MATCH_EVENT_TYPES/, "match event truth should expose a bounded event type contract");
+assert.match(matchEventTruth, /confirmed_goal/, "match event truth should classify confirmed goals explicitly");
+assert.match(matchEventTruth, /disallowed_offside/, "match event truth should classify offside/no-goal outcomes explicitly");
+assert.match(matchEventTruth, /possible_goal_unconfirmed/, "match event truth should keep uncertain ball-in-net events neutral");
+assert.match(matchEventTruth, /no_false_goal_from_ocr_only/, "match event truth should preserve the OCR-only false-goal guard");
+assert.match(matchEventTruth, /ocr_support_only/, "match event truth should mark OCR as support-only evidence");
+assert.match(matchEventTruth, /hasUnsafeValue/, "match event truth should reject unsafe provider output before reports");
+assert.match(matchEventTruth, /publicMatchEventTruth/, "match event truth should expose a public safe report shape");
 assert.match(youtubeIngest, /YOUTUBE_PLAYLIST_UNSUPPORTED/, "YouTube validation should reject playlists explicitly");
 assert.match(youtubeIngest, /YOUTUBE_LIVE_UNSUPPORTED/, "YouTube validation should reject live streams explicitly");
 assert.match(youtubeIngest, /YOUTUBE_INGEST_NOT_ENABLED/, "YouTube adapter failures should fail closed with a safe code");

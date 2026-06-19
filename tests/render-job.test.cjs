@@ -273,6 +273,32 @@ function makeContext(options = {}) {
         ocrQaCalibration,
       };
     },
+    analyzeMatchEventTruth: ({ goalEvidence, ocrQaCalibration }) => {
+      calls.push("analyze_match_event_truth");
+      context.matchEventTruthGoalEvidenceEventCount = goalEvidence && goalEvidence.summary
+        ? goalEvidence.summary.eventCount
+        : 0;
+      context.matchEventTruthOcrQaCalibration = ocrQaCalibration;
+      return options.matchEventTruth || {
+        schemaVersion: 1,
+        providerMode: "mock-match-event-truth",
+        fallbackUsed: false,
+        ocrQaCalibration,
+        events: [],
+        rejectedEvents: [],
+        summary: {
+          eventCount: 0,
+          confirmedGoalCount: 0,
+          disallowedGoalCount: 0,
+          possibleGoalCount: 0,
+          chanceOrSaveCount: 0,
+          rejectedEventCount: 0,
+          lateConfirmedGoalCount: 0,
+          noFalseGoalFromOcrOnly: 1,
+          ocrQaSupportStatus: ocrQaCalibration && ocrQaCalibration.usable ? "usable" : "ignored",
+        },
+      };
+    },
     analyzeTracking: async ({ frames }) => {
       calls.push("analyze_tracking");
       context.trackingFrameCount = Array.isArray(frames) ? frames.length : 0;
@@ -374,6 +400,7 @@ test("render orchestration completes success path with mocked adapters", async (
   assert.equal(context.calls.includes("analyze_tracking"), true);
   assert.equal(context.calls.includes("analyze_scoreboard_ocr"), true);
   assert.equal(context.calls.includes("analyze_goal_evidence"), true);
+  assert.equal(context.calls.includes("analyze_match_event_truth"), true);
   assert.equal(context.calls.includes("extract_sampled_frames"), true);
   assert.equal(context.visualCandidateWindows.length > 0, true);
   assert.equal(context.visualFrameCount, 1);
@@ -399,9 +426,13 @@ test("render orchestration completes success path with mocked adapters", async (
   assert.equal(context.job.scoreboardOcr.summary.evidenceCount, 0);
   assert.equal(context.job.goalEvidence.providerMode, "mock-goal-evidence");
   assert.equal(context.job.goalEvidence.summary.eventCount, 0);
+  assert.equal(context.job.matchEventTruth.providerMode, "mock-match-event-truth");
+  assert.equal(context.job.matchEventTruth.summary.confirmedGoalCount, 0);
+  assert.equal(context.job.matchEventTruth.summary.noFalseGoalFromOcrOnly, 1);
   assert.equal(context.job.ocrQaCalibration.status, "missing");
   assert.equal(context.job.ocrQaCalibration.goalDecisionAllowed, false);
   assert.equal(context.goalEvidenceOcrQaCalibration.status, "missing");
+  assert.equal(context.matchEventTruthOcrQaCalibration.status, "missing");
   assert.equal(context.job.visualTracking.goalClaimAllowed, false);
   assert.equal(context.job.trackingProviderOutput.providerMode, "mock-tracking");
   assert.equal(context.job.trackingProviderOutput.fallbackUsed, true);
@@ -423,6 +454,11 @@ test("render orchestration completes success path with mocked adapters", async (
   assert.equal(goalEvidenceLog.evidenceEventCount, 0);
   assert.equal(goalEvidenceLog.ocrQaStatus, "missing");
   assert.equal(goalEvidenceLog.ocrQaUsable, false);
+  const matchEventTruthLog = context.logs.find((entry) => entry.event === "match_event_truth_completed");
+  assert.equal(matchEventTruthLog.providerMode, "mock-match-event-truth");
+  assert.equal(matchEventTruthLog.confirmedGoalCount, 0);
+  assert.equal(matchEventTruthLog.noFalseGoalFromOcrOnly, 1);
+  assert.doesNotMatch(JSON.stringify(matchEventTruthLog), /\/Users|storageKey|localPath|secret|rawOcr|rawText/i);
   const ocrQaLog = context.logs.find((entry) => entry.event === "ocr_qa_calibration_loaded");
   assert.equal(ocrQaLog.status, "missing");
   assert.equal(ocrQaLog.goalEvidencePolicy, "support_only");
@@ -456,6 +492,8 @@ test("render orchestration passes OCR QA calibration into goal evidence analysis
   assert.equal(context.goalEvidenceOcrQaCalibration.decisionSupportLevel, "strong");
   assert.equal(context.job.ocrQaCalibration.decisionSupportLevel, "strong");
   assert.equal(context.job.goalEvidence.summary.ocrQaSupportLevel, "strong");
+  assert.equal(context.matchEventTruthOcrQaCalibration.decisionSupportLevel, "strong");
+  assert.equal(context.job.matchEventTruth.summary.ocrQaSupportStatus, "usable");
   const ocrQaLog = context.logs.find((entry) => entry.event === "ocr_qa_calibration_loaded");
   assert.equal(ocrQaLog.usable, true);
   assert.equal(ocrQaLog.decisionSupportLevel, "strong");

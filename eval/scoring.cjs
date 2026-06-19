@@ -12,6 +12,7 @@ const {
 } = require("../server/edit-plan.cjs");
 const { AppError } = require("../server/errors.cjs");
 const { deterministicGoalEvidence, mergeGoalEvidenceIntoVisualSignals } = require("../server/goal-evidence-provider.cjs");
+const { analyzeMatchEventTruth, publicMatchEventTruth } = require("../server/match-event-truth.cjs");
 const { defaultOcrQaCalibration, publicOcrQaCalibration } = require("../server/ocr-qa-calibration.cjs");
 const { deterministicScoreboardOcr } = require("../server/scoreboard-ocr.cjs");
 const { analyzeTracking, publicTrackingProviderOutput, validateTrackingProviderOutput } = require("../server/tracking-provider.cjs");
@@ -606,6 +607,65 @@ function ocrQaCalibrationSupportScore(goalEvidence, expected = {}) {
     : 0;
 }
 
+function truthEvents(matchEventTruth = {}) {
+  return Array.isArray(matchEventTruth && matchEventTruth.events)
+    ? matchEventTruth.events
+    : Array.isArray(matchEventTruth && matchEventTruth.selectedEvents)
+      ? matchEventTruth.selectedEvents
+      : [];
+}
+
+function truthEventWindow(event = {}) {
+  return {
+    start: toNumber(event.sourceStart ?? event.start),
+    end: toNumber(event.sourceEnd ?? event.end),
+  };
+}
+
+function matchEventTruthValidGoalRecallScore(matchEventTruth, expected = {}, minOverlap = 0.5) {
+  const expectedGoals = expectedValidGoalWindows(expected);
+  if (!expectedGoals.length) return 1;
+  const confirmed = truthEvents(matchEventTruth).filter((event) => event.type === "confirmed_goal");
+  const covered = expectedGoals.filter((goal) => confirmed.some((event) => overlapRatio(truthEventWindow(event), goal) >= minOverlap));
+  return round(covered.length / expectedGoals.length, 4);
+}
+
+function matchEventTruthLateGoalRecallScore(matchEventTruth, expected = {}, durationSeconds = 0, minOverlap = 0.5) {
+  const expectedGoals = expectedValidGoalWindows(expected);
+  if (!expectedGoals.length) return 1;
+  const lateCutoff = Math.max(0, toNumber(durationSeconds) * 0.66);
+  const lateGoals = expectedGoals.filter((goal) => goal.start >= lateCutoff);
+  if (!lateGoals.length) return 1;
+  const confirmed = truthEvents(matchEventTruth).filter((event) => event.type === "confirmed_goal");
+  const covered = lateGoals.filter((goal) => confirmed.some((event) => overlapRatio(truthEventWindow(event), goal) >= minOverlap));
+  return round(covered.length / lateGoals.length, 4);
+}
+
+function matchEventTruthDisallowedClassificationScore(matchEventTruth, expected = {}, minOverlap = 0.35) {
+  const offsideGoals = expectedOffsideGoalWindows(expected);
+  if (!offsideGoals.length) return 1;
+  const disallowed = truthEvents(matchEventTruth).filter((event) => (
+    event.type === "disallowed_offside" ||
+    event.type === "disallowed_no_goal"
+  ));
+  const covered = offsideGoals.filter((goal) => disallowed.some((event) => overlapRatio(truthEventWindow(event), goal) >= minOverlap));
+  return round(covered.length / offsideGoals.length, 4);
+}
+
+function matchEventTruthFalseGoalRateScore(matchEventTruth, expected = {}, minOverlap = 0.35) {
+  const expectedGoals = expectedValidGoalWindows(expected);
+  const offsideGoals = expectedOffsideGoalWindows(expected);
+  const confirmed = truthEvents(matchEventTruth).filter((event) => event.type === "confirmed_goal");
+  if (!confirmed.length) return 0;
+  const falseGoals = confirmed.filter((event) => {
+    const window = truthEventWindow(event);
+    const matchesValid = expectedGoals.some((goal) => overlapRatio(window, goal) >= minOverlap);
+    const matchesOffside = offsideGoals.some((goal) => overlapRatio(window, goal) >= minOverlap);
+    return !matchesValid || matchesOffside;
+  });
+  return round(falseGoals.length / confirmed.length, 4);
+}
+
 function expectedGoalOutcome(expected = {}) {
   return expected.goalOutcome && typeof expected.goalOutcome === "object" && !Array.isArray(expected.goalOutcome)
     ? expected.goalOutcome
@@ -946,6 +1006,15 @@ function scoreFixture(fixture) {
     ocrQaCalibration,
   });
   visualSignals = mergeGoalEvidenceIntoVisualSignals(visualSignals, goalEvidence, metadata);
+  const matchEventTruth = analyzeMatchEventTruth({
+    metadata,
+    transcript: fixture.transcript,
+    mediaSignals: fixture.mediaSignals,
+    visualSignals,
+    goalEvidence,
+    scoreboardOcr: scoreboardOcr.evidence,
+    ocrQaCalibration,
+  });
   const trackingProviderOutput = publicTrackingProviderOutput(
     fixture.trackingProviderOutput || analyzeTracking({
       metadata,
@@ -968,6 +1037,7 @@ function scoreFixture(fixture) {
     signals: fixture.mediaSignals,
     visualSignals,
     goalEvidence,
+    matchEventTruth,
     preset: fixture.expected.preset || "hype",
   });
   const candidatePlans = createCandidateEditPlans({
@@ -977,6 +1047,7 @@ function scoreFixture(fixture) {
     mediaSignals: fixture.mediaSignals,
     visualSignals,
     goalEvidence,
+    matchEventTruth,
     visualTracking,
     title: fixture.title,
     preset: fixture.expected.preset || "hype",
@@ -1037,6 +1108,10 @@ function scoreFixture(fixture) {
   const ambiguousOcrFailClosed = ambiguousOcrFailClosedScore(goalEvidence, fixture.expected);
   const noFalseGoalFromOcrOnly = noFalseGoalFromOcrOnlyScore(goalEvidence, fixture.expected);
   const ocrQaCalibrationSupport = ocrQaCalibrationSupportScore(goalEvidence, fixture.expected);
+  const matchEventTruthValidGoalRecall = matchEventTruthValidGoalRecallScore(matchEventTruth, fixture.expected, thresholds.minTop1Overlap);
+  const matchEventTruthLateGoalRecall = matchEventTruthLateGoalRecallScore(matchEventTruth, fixture.expected, metadata.durationSeconds, thresholds.minTop1Overlap);
+  const matchEventTruthDisallowedClassification = matchEventTruthDisallowedClassificationScore(matchEventTruth, fixture.expected, thresholds.minTop1Overlap);
+  const matchEventTruthFalseGoalRate = matchEventTruthFalseGoalRateScore(matchEventTruth, fixture.expected, thresholds.minTop1Overlap);
   const ballPlayerVisibilityScoreValue = ballPlayerVisibilityScore(topPlan);
   const cropSafetyScoreValue = cropSafetyScore(topPlan, metadata);
   const actionSafeZoneCoverage = actionSafeZoneCoverageScore(topPlan, metadata);
@@ -1058,10 +1133,17 @@ function scoreFixture(fixture) {
   const expectedHighlightType = fixture.expected.highlightType || null;
   const highlightTypeAccuracy = expectedHighlightType && topMoment ? (topMoment.highlightType === expectedHighlightType ? 1 : 0) : 1;
   const falseGoalCaption = expectedHighlightType !== "goal" && planHasGoalLanguage(topPlan) ? 1 : 0;
+  const topGoalOutcome = topMoment &&
+    topMoment.evidence &&
+    topMoment.evidence.goalOutcome &&
+    topMoment.evidence.goalOutcome.eventType === "ball_in_net"
+    ? topMoment.evidence.goalOutcome
+    : null;
   const falseVisualGoal = topMoment &&
     topMoment.highlightType === "goal" &&
     !topMoment.reasonCodes.includes("goal") &&
-    actualVisualReasons.length > 0
+    actualVisualReasons.length > 0 &&
+    !(topGoalOutcome && topGoalOutcome.outcome !== "confirmed_goal")
     ? 1
     : 0;
   const falseGoalCaptionRate = falseGoalCaption;
@@ -1148,7 +1230,11 @@ function scoreFixture(fixture) {
     scoreboardScoreChangeRecall >= 0.9 &&
     ambiguousOcrFailClosed === 1 &&
     noFalseGoalFromOcrOnly === 1 &&
-    ocrQaCalibrationSupport === 1;
+    ocrQaCalibrationSupport === 1 &&
+    matchEventTruthValidGoalRecall >= 1 &&
+    matchEventTruthLateGoalRecall >= 1 &&
+    matchEventTruthDisallowedClassification >= 1 &&
+    matchEventTruthFalseGoalRate === 0;
 
   return {
     id: fixture.id,
@@ -1199,6 +1285,10 @@ function scoreFixture(fixture) {
       ambiguousOcrFailClosed,
       noFalseGoalFromOcrOnly,
       ocrQaCalibrationSupport,
+      matchEventTruthValidGoalRecall,
+      matchEventTruthLateGoalRecall,
+      matchEventTruthDisallowedClassification,
+      matchEventTruthFalseGoalRate,
       reactionAsSupportNotMain,
       actionWindowCoverage,
       shotToPayoffCoverage,
@@ -1304,6 +1394,7 @@ function scoreFixture(fixture) {
         goalEvidenceCoverage: goalEvidence.summary.goalEvidenceCoverage,
         ocrQaCalibration: goalEvidence.ocrQaCalibration,
       },
+      matchEventTruth: publicMatchEventTruth(matchEventTruth),
       scoreboardOcr: {
         providerMode: sanitizeReportText(scoreboardOcr.providerMode, 60),
         fallbackUsed: Boolean(scoreboardOcr.fallbackUsed),
@@ -1438,6 +1529,10 @@ function scoreFixture(fixture) {
       segmentTimingCoverage,
       goalEvidenceCoverage,
       ocrQaCalibrationSupport,
+      matchEventTruthValidGoalRecall,
+      matchEventTruthLateGoalRecall,
+      matchEventTruthDisallowedClassification,
+      matchEventTruthFalseGoalRate,
       animationCueValidity,
       animationCueRelevance,
       fallbackUsed,
@@ -1495,6 +1590,10 @@ function debuggingNotes(metrics) {
   if (metrics.segmentTimingCoverage < 0.9) notes.push("Goal segments do not cover the expected shot/payoff/decision window.");
   if (metrics.goalEvidenceCoverage < 1) notes.push("Goal evidence provider did not cover all expected valid goals.");
   if (metrics.ocrQaCalibrationSupport < 1) notes.push("OCR QA calibration was not applied as support-only evidence.");
+  if (metrics.matchEventTruthValidGoalRecall < 1) notes.push("Match event truth missed one or more expected confirmed goals.");
+  if (metrics.matchEventTruthLateGoalRecall < 1) notes.push("Match event truth missed a late confirmed goal.");
+  if (metrics.matchEventTruthDisallowedClassification < 1) notes.push("Match event truth did not classify an expected offside/no-goal event.");
+  if (metrics.matchEventTruthFalseGoalRate) notes.push("Match event truth confirmed a false or offside goal.");
   if (metrics.fallbackUsed) notes.push("Analysis fell back to deterministic fallback moments.");
   if (metrics.frameExtractionFallbackUsed) notes.push("Sampled frame extraction fell back to deterministic frame metadata.");
   return notes;
@@ -1564,6 +1663,10 @@ function aggregateResults(results) {
     ambiguousOcrFailClosed: avg((result) => result.metrics.ambiguousOcrFailClosed),
     noFalseGoalFromOcrOnly: avg((result) => result.metrics.noFalseGoalFromOcrOnly),
     ocrQaCalibrationSupport: avg((result) => result.metrics.ocrQaCalibrationSupport),
+    matchEventTruthValidGoalRecall: avg((result) => result.metrics.matchEventTruthValidGoalRecall),
+    matchEventTruthLateGoalRecall: avg((result) => result.metrics.matchEventTruthLateGoalRecall),
+    matchEventTruthDisallowedClassification: avg((result) => result.metrics.matchEventTruthDisallowedClassification),
+    matchEventTruthFalseGoalRate: avg((result) => result.metrics.matchEventTruthFalseGoalRate),
     actionWindowCoverage: avg((result) => result.metrics.actionWindowCoverage),
     shotToPayoffCoverage: avg((result) => result.metrics.shotToPayoffCoverage),
     ballPlayerVisibilityScore: avg((result) => result.metrics.ballPlayerVisibilityScore),
