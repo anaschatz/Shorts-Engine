@@ -180,6 +180,7 @@ const GOAL_DECISION_EVIDENCE_CODES = Object.freeze([
   "scoreboard_backed_goal_sequence",
   "scoreboard_ocr_score_change",
   "scoreboard_ocr_score_unchanged",
+  "scoreboard_ocr_goal_removed",
   "scoreboard_temporal_consistency",
   "confirmed_by_commentary",
   "commentator_goal_call_support",

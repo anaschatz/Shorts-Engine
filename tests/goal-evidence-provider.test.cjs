@@ -216,6 +216,41 @@ test("scoreboard OCR score change confirms goal only with temporal consistency a
   assert.equal(goalEvidence.events[0].scoreboardGoalConfirmed, true);
 });
 
+test("scoreboard OCR score reversion marks ball-in-net as disallowed instead of counted", () => {
+  const goalEvidence = deterministicGoalEvidence({
+    metadata,
+    transcript: {
+      captions: [{ start: 43.5, end: 45.1, text: "The scoreboard returns after the flag" }],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [
+        { start: 30, end: 32, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.9 },
+        { start: 34, end: 35.2, types: ["goal_mouth_visible", "ball_in_net"], confidence: 0.92 },
+      ],
+    },
+    scoreboardOcr: [{
+      timestamp: 43,
+      scoreBefore: "1-0",
+      scoreAfter: "0-0",
+      temporalConsistency: true,
+      confidence: 0.88,
+    }],
+    ocrQaCalibration: strongOcrQaCalibration(),
+  });
+
+  assert.equal(goalEvidence.summary.validGoalCount, 0);
+  assert.equal(goalEvidence.summary.offsideOrNoGoalCount, 1);
+  assert.equal(goalEvidence.summary.scoreboardGoalRemovedCount, 1);
+  assert.equal(goalEvidence.ocrEvidence[0].status, "goal_removed");
+  assert.equal(goalEvidence.ocrEvidence[0].scoreChanged, false);
+  assert.equal(goalEvidence.ocrEvidence[0].scoreReverted, true);
+  assert.equal(goalEvidence.events[0].outcomeHint, "offside_goal");
+  assert.ok(goalEvidence.events[0].reasonCodes.includes("scoreboard_ocr_goal_removed"));
+  assert.ok(goalEvidence.events[0].reasonCodes.includes("scoreboard_ocr_score_unchanged"));
+});
+
 test("scoreboard OCR score change can recover a missed ball-in-net goal only with nearby shot evidence", () => {
   const goalEvidence = deterministicGoalEvidence({
     metadata: { ...metadata, durationSeconds: 140 },

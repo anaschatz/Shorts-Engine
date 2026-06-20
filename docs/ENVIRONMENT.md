@@ -94,6 +94,7 @@ Scoreboard OCR is deterministic fallback by default. Local OCR must be installed
 | `SHORTSENGINE_SCOREBOARD_OCR_TIMEOUT_MS` | No | `10000` | integer `250..60000` | No | Keep bounded; raise only if OCR is consistently timing out on known hardware. | Timeout falls back without raw stdout/stderr in public output. |
 | `SHORTSENGINE_OCR_QA_ARTIFACTS` | No | `0` | boolean | No | Enable only for local/operator debugging. | Disabled mode writes no crop thumbnails. |
 | `SHORTSENGINE_OCR_QA_ARTIFACT_RETENTION` | No | `8` | integer `1..50` | No | Keep bounded so local debug crops do not grow without limit. | Invalid retention fails environment readiness. |
+| `SHORTSENGINE_OCR_QA_REVIEW_REF` | No | `demo/results/ocr-qa-review-latest.json` | safe repo-relative JSON report path | No | Use only with an operator-reviewed OCR QA report when testing local OCR support. | Missing/invalid/stale reports are ignored and OCR remains support-only. |
 
 Manual local OCR check:
 
@@ -106,6 +107,7 @@ SHORTSENGINE_SCOREBOARD_OCR_ENABLED=1 SHORTSENGINE_SCOREBOARD_OCR_PROVIDER=local
 SHORTSENGINE_SCOREBOARD_OCR_ENABLED=1 SHORTSENGINE_SCOREBOARD_OCR_PROVIDER=local SHORTSENGINE_OCR_QA_ARTIFACTS=1 npm run ocr:smoke
 npm run ocr:qa:review
 SHORTSENGINE_OCR_QA_REVIEW_INPUT=demo/results/ocr-qa-review-input.json npm run ocr:qa:review
+SHORTSENGINE_SCOREBOARD_OCR_ENABLED=1 SHORTSENGINE_SCOREBOARD_OCR_PROVIDER=local SHORTSENGINE_OCR_QA_REVIEW_REF=demo/results/ocr-qa-review-2026-06-19T10-00-00-000Z.json npm run youtube:proof:operator
 ```
 
 `npm run ocr:doctor` is readiness-only and never installs Tesseract. `npm run ocr:smoke` writes `demo/results/ocr-latest.json` plus a timestamped OCR smoke report. With defaults it passes in deterministic fallback mode; with local OCR explicitly enabled it fails closed when the runtime is missing. OCR smoke reports keep crop thumbnails disabled by default and never persist OCR text, binary paths, local crop paths, stdout, stderr or secrets.

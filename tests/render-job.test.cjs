@@ -7,6 +7,7 @@ const { validateEditPlan } = require("../server/edit-plan.cjs");
 const { JobStore } = require("../server/jobs.cjs");
 const {
   enqueueRenderJob,
+  ocrQaCalibrationOptionsFromEnv,
   runRenderJob,
   validateHighlightResult,
   validateTranscript,
@@ -240,7 +241,10 @@ function makeContext(options = {}) {
         },
       };
     },
-    loadOcrQaCalibration: () => options.ocrQaCalibration || defaultOcrQaCalibration(),
+    loadOcrQaCalibration: (calibrationOptions) => {
+      context.loadOcrQaCalibrationOptions = calibrationOptions || {};
+      return options.ocrQaCalibration || defaultOcrQaCalibration();
+    },
     analyzeGoalEvidence: async ({ visualSignals, scoreboardOcr, ocrQaCalibration }) => {
       calls.push("analyze_goal_evidence");
       context.goalEvidenceVisualWindowCount = visualSignals && Array.isArray(visualSignals.windows)
@@ -499,6 +503,39 @@ test("render orchestration passes OCR QA calibration into goal evidence analysis
   assert.equal(ocrQaLog.usable, true);
   assert.equal(ocrQaLog.decisionSupportLevel, "strong");
   assert.doesNotMatch(JSON.stringify(ocrQaLog), /\/Users|storageKey|localPath|secret|rawOcr|rawText/i);
+});
+
+test("OCR QA calibration env option is passed to the loader without leaking the ref", async () => {
+  const previousRef = process.env.SHORTSENGINE_OCR_QA_REVIEW_REF;
+  process.env.SHORTSENGINE_OCR_QA_REVIEW_REF = "demo/results/ocr-qa-review-2026-06-19T10-00-00-000Z.json";
+  try {
+    const context = makeContext();
+    await runContext(context);
+
+    assert.equal(
+      context.loadOcrQaCalibrationOptions.reportRef,
+      "demo/results/ocr-qa-review-2026-06-19T10-00-00-000Z.json",
+    );
+    const ocrQaLog = context.logs.find((entry) => entry.event === "ocr_qa_calibration_loaded");
+    assert.equal(ocrQaLog.reportRefConfigured, true);
+    assert.doesNotMatch(
+      JSON.stringify(ocrQaLog),
+      /ocr-qa-review-2026-06-19T10-00-00-000Z|\/Users|storageKey|localPath|secret|rawOcr|rawText/i,
+    );
+  } finally {
+    if (previousRef === undefined) {
+      delete process.env.SHORTSENGINE_OCR_QA_REVIEW_REF;
+    } else {
+      process.env.SHORTSENGINE_OCR_QA_REVIEW_REF = previousRef;
+    }
+  }
+});
+
+test("OCR QA calibration env helper returns an empty option by default", () => {
+  assert.deepEqual(ocrQaCalibrationOptionsFromEnv({}), {});
+  assert.deepEqual(ocrQaCalibrationOptionsFromEnv({ SHORTSENGINE_OCR_QA_REVIEW_REF: "demo/results/ocr-qa-review-latest.json" }), {
+    reportRef: "demo/results/ocr-qa-review-latest.json",
+  });
 });
 
 test("youtube long-source render requests valid-goals-only planning", async () => {

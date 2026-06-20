@@ -56,6 +56,7 @@ const DISALLOWED_CODES = Object.freeze([
   "visual_no_goal_decision",
   "visual_referee_no_goal_signal",
   "visual_scoreboard_goal_removed",
+  "scoreboard_ocr_goal_removed",
   "scoreboard_ocr_score_unchanged",
   "disallowed_commentary",
   "no_goal_commentary",
@@ -221,6 +222,7 @@ function ocrCodesInRange(ocrEvidence = [], start = 0, end = 0, calibration = nul
     .filter((item) => seconds(item.timestamp) >= start - 1 && seconds(item.timestamp) <= end + 1);
   const codes = [];
   if (usable && items.some((item) => item.scoreChanged)) codes.push("scoreboard_ocr_score_change", "scoreboard_temporal_consistency");
+  if (usable && items.some((item) => item.scoreReverted)) codes.push("scoreboard_ocr_goal_removed");
   if (usable && items.some((item) => item.scoreUnchanged)) codes.push("scoreboard_ocr_score_unchanged");
   if (items.some((item) => item.ambiguous)) codes.push("scoreboard_ocr_ambiguous");
   return uniqueCodes(codes);
@@ -424,6 +426,7 @@ function truthContractForDecision({
       commentatorSpike: codes.has("confirmed_by_commentary") || codes.has("commentator_goal_call_support"),
       crowdSpike: codes.has("crowd_reaction_support") || codes.has("crowd_spike") || codes.has("audio_energy_spike"),
       scoreboardChange: codes.has("scoreboard_ocr_score_change") || codes.has("scoreboard_temporal_consistency"),
+      scoreboardReverted: codes.has("scoreboard_ocr_goal_removed"),
       replayConfirmation: codes.has("replay_goal_confirmation") || codes.has("visual_replay_indicator") || codes.has("visual_replay_angle"),
       restartAfterGoal: codes.has("kickoff_after_goal"),
       disallowEvidence: hasAny(evidenceCodes, [...OFFSIDE_CODES, ...DISALLOWED_CODES]),
@@ -706,6 +709,7 @@ function buildVisualDecision({ window, mediaSignals, metadata, index, occupied }
 function clusterRecoveryEnabled(metadata = {}) {
   return metadata.goalSelectionMode === "valid_goals_only" &&
     metadata.sourceType === "youtube" &&
+    metadata.allowCandidateClusterRecovery === true &&
     seconds(metadata.durationSeconds, 0) >= 120;
 }
 

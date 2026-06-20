@@ -144,6 +144,16 @@ test("local OCR parsing extracts scores clocks and transitions safely", () => {
   ]);
   assert.equal(impossibleJump[1].status, "ambiguous");
   assert.equal(impossibleJump[1].temporalConsistency, false);
+
+  const revertedGoal = buildScoreboardEvidenceFromObservations([
+    { timestamp: 10, text: "HOME 0-0 AWAY", confidence: 0.8 },
+    { timestamp: 24, text: "HOME 1-0 AWAY", confidence: 0.8 },
+    { timestamp: 38, text: "HOME 0-0 AWAY", confidence: 0.8 },
+  ]);
+  assert.equal(revertedGoal[1].status, "score_changed");
+  assert.equal(revertedGoal[2].status, "goal_removed");
+  assert.equal(revertedGoal[2].scoreBefore, "1-0");
+  assert.equal(revertedGoal[2].scoreAfter, "0-0");
 });
 
 test("local scoreboard OCR falls back when disabled or binary is unavailable", async () => {

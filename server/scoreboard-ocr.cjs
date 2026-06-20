@@ -258,6 +258,7 @@ function validateScoreboardOcrOutput(output = {}, metadata = {}) {
       evidenceCount: evidence.length,
       scoreChangeCount: evidence.filter((item) => item.scoreChanged).length,
       scoreUnchangedCount: evidence.filter((item) => item.scoreUnchanged).length,
+      scoreRevertedCount: evidence.filter((item) => item.scoreReverted).length,
       ambiguousCount: evidence.filter((item) => item.ambiguous).length,
       clockOnlyCount: evidence.filter((item) => item.status === "clock_only").length,
       unreadableCount: evidence.filter((item) => item.status === "unreadable").length,
@@ -585,6 +586,7 @@ function publicScoreboardOcr(scoreboardOcr) {
           evidenceCount: Number(safe.summary.evidenceCount || 0),
           scoreChangeCount: Number(safe.summary.scoreChangeCount || 0),
           scoreUnchangedCount: Number(safe.summary.scoreUnchangedCount || 0),
+          scoreRevertedCount: Number(safe.summary.scoreRevertedCount || 0),
           ambiguousCount: Number(safe.summary.ambiguousCount || 0),
           clockOnlyCount: Number(safe.summary.clockOnlyCount || 0),
           unreadableCount: Number(safe.summary.unreadableCount || 0),
@@ -607,6 +609,7 @@ function publicScoreboardOcr(scoreboardOcr) {
           ambiguous: Boolean(item.ambiguous),
           scoreChanged: Boolean(item.scoreChanged),
           scoreUnchanged: Boolean(item.scoreUnchanged),
+          scoreReverted: Boolean(item.scoreReverted),
           clock: item.clock ? sanitizeText(item.clock, 16) : null,
           source: sanitizeText(item.source || "scoreboard_ocr", 60),
         }))

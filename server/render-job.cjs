@@ -141,6 +141,11 @@ function goalSelectionModeForSource(source, metadata = {}) {
   return isYouTubeLongSource(source, metadata) ? "valid_goals_only" : "balanced";
 }
 
+function ocrQaCalibrationOptionsFromEnv(env = process.env) {
+  const reportRef = sanitizeText(env && env.SHORTSENGINE_OCR_QA_REVIEW_REF, 160);
+  return reportRef ? { reportRef } : {};
+}
+
 function assertPipelineContext({ job, project, upload, payload, deps }) {
   if (!job || !job.id || !job._controller) {
     throw new AppError("JOB_NOT_FOUND", SAFE_MESSAGES.JOB_NOT_FOUND, 404);
@@ -882,7 +887,8 @@ async function runRenderJob(options) {
         scoreChangeCount: scoreboardOcr.summary && scoreboardOcr.summary.scoreChangeCount,
         ambiguousCount: scoreboardOcr.summary && scoreboardOcr.summary.ambiguousCount,
       });
-      ocrQaCalibration = publicOcrQaCalibration(deps.loadOcrQaCalibration());
+      const ocrQaCalibrationOptions = ocrQaCalibrationOptionsFromEnv();
+      ocrQaCalibration = publicOcrQaCalibration(deps.loadOcrQaCalibration(ocrQaCalibrationOptions));
       logInfo(deps.logger, {
         event: "ocr_qa_calibration_loaded",
         requestId,
@@ -896,6 +902,7 @@ async function runRenderJob(options) {
         goalEvidencePolicy: ocrQaCalibration.goalEvidencePolicy,
         goalDecisionAllowed: ocrQaCalibration.goalDecisionAllowed,
         noFalseGoalFromOcrOnly: ocrQaCalibration.noFalseGoalFromOcrOnly,
+        reportRefConfigured: Boolean(ocrQaCalibrationOptions.reportRef),
       });
 
       updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 50, step: "transcribe" });
@@ -1323,4 +1330,5 @@ module.exports = {
   validateTranscript,
   visualCandidateWindowsFromSignals,
   resolveLocalArtifactPath,
+  ocrQaCalibrationOptionsFromEnv,
 };

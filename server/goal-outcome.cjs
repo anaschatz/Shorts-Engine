@@ -81,6 +81,8 @@ const DISALLOWED_DECISION_CODES = Object.freeze([
   "visual_offside_line",
   "visual_referee_no_goal_signal",
   "visual_scoreboard_goal_removed",
+  "scoreboard_ocr_goal_removed",
+  "scoreboard_ocr_score_unchanged",
 ]);
 
 const POSSIBLE_DECISION_CODES = Object.freeze([

@@ -55,6 +55,21 @@ function scoreDelta(before, after) {
   return Math.abs(after.home - before.home) + Math.abs(after.away - before.away);
 }
 
+function scoreTotal(score) {
+  return score ? Number(score.home || 0) + Number(score.away || 0) : 0;
+}
+
+function scoreTransition(before, after) {
+  const delta = scoreDelta(before, after);
+  if (!before || !after) return { delta, direction: "unknown", consistent: false };
+  if (delta === 0) return { delta, direction: "same", consistent: true };
+  if (delta !== 1) return { delta, direction: "ambiguous", consistent: false };
+  const totalDelta = scoreTotal(after) - scoreTotal(before);
+  if (totalDelta === 1) return { delta, direction: "increase", consistent: true };
+  if (totalDelta === -1) return { delta, direction: "decrease", consistent: true };
+  return { delta, direction: "ambiguous", consistent: false };
+}
+
 function confidenceForObservation({ text, score, clock, rejected } = {}) {
   if (rejected) return 0.05;
   if (score) return 0.78;
@@ -109,12 +124,15 @@ function buildScoreboardEvidenceFromObservations(observations = []) {
     if (observation.rejected || (!observation.score && !observation.clock && !observation.textPresent)) {
       status = "unreadable";
     } else if (observation.score && previousScore) {
-      const delta = scoreDelta(previousScore, observation.score);
+      const transition = scoreTransition(previousScore, observation.score);
       scoreBefore = previousScore.text;
-      if (delta === 1) {
+      if (transition.direction === "increase") {
         status = "score_changed";
         temporalConsistency = true;
-      } else if (delta === 0) {
+      } else if (transition.direction === "decrease") {
+        status = "goal_removed";
+        temporalConsistency = true;
+      } else if (transition.direction === "same") {
         status = "score_unchanged";
         temporalConsistency = true;
       } else {

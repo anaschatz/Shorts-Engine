@@ -136,6 +136,49 @@ test("keeps OCR-only score changes out of confirmed-goal decisions", () => {
   assert.ok(result.rejectedEvents.every((event) => event.type !== "confirmed_goal"));
 });
 
+test("classifies scoreboard score reversion after ball-in-net as disallowed goal", () => {
+  const result = analyzeMatchEventTruth({
+    metadata,
+    visualSignals: visualSignals([
+      { start: 58, end: 59.5, type: "shot_contact", confidence: 0.9 },
+      { start: 59, end: 61, type: "ball_toward_goal", confidence: 0.88 },
+      { start: 62, end: 64, type: "ball_in_net", confidence: 0.92 },
+      { start: 70, end: 72, type: "scoreboard_goal_removed", confidence: 0.9 },
+    ]),
+    scoreboardOcr: [{
+      timestamp: 71,
+      scoreBefore: "1-0",
+      scoreAfter: "0-0",
+      confidence: 0.91,
+      temporalConsistency: true,
+    }],
+    ocrQaCalibration: strongOcrQaCalibration(),
+    goalEvidence: goalEvidence([{
+      id: "score_reverted_goal",
+      start: 58,
+      end: 72,
+      confidence: 0.9,
+      outcomeHint: "offside_goal",
+      reasonCodes: [
+        "visual_shot_contact",
+        "visual_ball_toward_goal",
+        "visual_ball_in_net",
+        "scoreboard_ocr_goal_removed",
+        "scoreboard_ocr_score_unchanged",
+      ],
+      ballInNetEvidence: true,
+      VARNoGoalSignal: true,
+    }]),
+  });
+
+  assert.equal(result.summary.confirmedGoalCount, 0);
+  assert.equal(result.summary.disallowedGoalCount, 1);
+  assert.equal(result.events[0].type, "disallowed_offside");
+  assert.equal(result.events[0].truth.evidence.scoreboardReverted, true);
+  assert.equal(result.events[0].truth.disallowed, true);
+  assert.ok(result.events[0].evidenceCodes.includes("scoreboard_ocr_goal_removed"));
+});
+
 test("confirms scoreboard-backed goal sequence when shot evidence and score change agree", () => {
   const result = analyzeMatchEventTruth({
     metadata,
@@ -285,6 +328,7 @@ test("recovers bounded YouTube valid-goal candidates from source-wide action clu
       height: 1080,
       sourceType: "youtube",
       goalSelectionMode: "valid_goals_only",
+      allowCandidateClusterRecovery: true,
     },
     mediaSignals: {
       durationSeconds: 360,
@@ -352,6 +396,32 @@ test("does not recover crowd-only or non-youtube action clusters as confirmed go
 
   assert.equal(crowdOnly.summary.confirmedGoalCount, 0);
   assert.equal(nonYoutube.summary.confirmedGoalCount, 0);
+});
+
+test("does not recover YouTube action clusters by default without scoreboard authority", () => {
+  const result = analyzeMatchEventTruth({
+    metadata: {
+      durationSeconds: 360,
+      width: 1920,
+      height: 1080,
+      sourceType: "youtube",
+      goalSelectionMode: "valid_goals_only",
+    },
+    mediaSignals: {
+      durationSeconds: 360,
+      audioPeaks: [{ time: 134, energyScore: 0.94 }],
+      sceneChanges: [{ time: 136, confidence: 0.8 }],
+    },
+    visualSignals: visualSignals([
+      { start: 132, end: 136, types: ["shot_like_motion", "ball_visible", "crowd_reaction"], confidence: 0.84 },
+      { start: 202, end: 206, types: ["shot_like_motion", "ball_visible", "crowd_reaction"], confidence: 0.86 },
+      { start: 226, end: 230, types: ["shot_like_motion", "ball_visible", "replay_indicator"], confidence: 0.82 },
+    ]),
+    goalEvidence: goalEvidence([]),
+  });
+
+  assert.equal(result.summary.confirmedGoalCount, 0);
+  assert.ok(result.events.every((event) => event.type !== "confirmed_goal"));
 });
 
 test("public truth reports keep safe late-goal summary and reject leaks", () => {

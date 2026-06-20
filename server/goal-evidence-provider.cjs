@@ -25,6 +25,7 @@ const GOAL_EVIDENCE_REASON_CODES = Object.freeze([
   "visual_ball_in_net",
   "scoreboard_ocr_score_change",
   "scoreboard_ocr_score_unchanged",
+  "scoreboard_ocr_goal_removed",
   "scoreboard_ocr_ambiguous",
   "scoreboard_backed_goal_sequence",
   "scoreboard_temporal_consistency",
@@ -65,6 +66,7 @@ const SUPPLEMENTAL_VISUAL_BY_REASON = Object.freeze({
   visual_no_goal_decision: "scoreboard_no_goal",
   visual_referee_no_goal_signal: "referee_no_goal_signal",
   visual_scoreboard_goal_removed: "scoreboard_goal_removed",
+  scoreboard_ocr_goal_removed: "scoreboard_goal_removed",
   visual_offside_line: "offside_line_replay",
   visual_var_check: "var_check_graphic",
   visual_var_decision: "var_decision_graphic",
@@ -237,6 +239,7 @@ function reasonFlags(reasonCodes = []) {
     VARNoGoalSignal: reasons.has("visual_no_goal_decision") ||
       reasons.has("visual_referee_no_goal_signal") ||
       reasons.has("visual_scoreboard_goal_removed") ||
+      reasons.has("scoreboard_ocr_goal_removed") ||
       reasons.has("scoreboard_ocr_score_unchanged") ||
       reasons.has("disallowed_commentary") ||
       reasons.has("no_goal_commentary"),
@@ -244,6 +247,7 @@ function reasonFlags(reasonCodes = []) {
     crowdReactionSupport: reasons.has("crowd_reaction_support"),
     scoreboardOcrEvidence: reasons.has("scoreboard_ocr_score_change") ||
       reasons.has("scoreboard_ocr_score_unchanged") ||
+      reasons.has("scoreboard_ocr_goal_removed") ||
       reasons.has("scoreboard_ocr_ambiguous"),
     combinedGoalConfirmation: reasons.has("combined_goal_confirmation"),
     liveShotFinishSequence: reasons.has("live_shot_finish_sequence") || reasons.has("shot_sequence_support"),
@@ -274,6 +278,7 @@ function outcomeForReasons(reasonCodes = []) {
     reasons.has("visual_no_goal_decision") ||
     reasons.has("visual_referee_no_goal_signal") ||
     reasons.has("visual_scoreboard_goal_removed") ||
+    reasons.has("scoreboard_ocr_goal_removed") ||
     reasons.has("scoreboard_ocr_score_unchanged") ||
     reasons.has("offside_commentary") ||
     reasons.has("flag_commentary") ||
@@ -470,6 +475,21 @@ function scoreDelta(before, after) {
   return Math.abs(after.home - before.home) + Math.abs(after.away - before.away);
 }
 
+function scoreTotal(score) {
+  return score ? Number(score.home || 0) + Number(score.away || 0) : 0;
+}
+
+function scoreDirection(before, after) {
+  const delta = scoreDelta(before, after);
+  if (!before || !after) return "unknown";
+  if (delta === 0) return "same";
+  if (delta !== 1) return "ambiguous";
+  const totalDelta = scoreTotal(after) - scoreTotal(before);
+  if (totalDelta === 1) return "increase";
+  if (totalDelta === -1) return "decrease";
+  return "ambiguous";
+}
+
 function normalizeOcrEvidenceItem(item = {}, metadata = {}, index = 0) {
   if (!item || typeof item !== "object" || Array.isArray(item) || hasUnsafeValue(item)) {
     throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
@@ -481,18 +501,29 @@ function normalizeOcrEvidenceItem(item = {}, metadata = {}, index = 0) {
   const scoreBefore = normalizeScore(item.scoreBefore || item.beforeScore || item.previousScore);
   const scoreAfter = normalizeScore(item.scoreAfter || item.afterScore || item.currentScore || item.detectedScoreText);
   const delta = scoreDelta(scoreBefore, scoreAfter);
-  const status = OCR_STATUSES.includes(sanitizeText(item.status || "", 40))
-    ? sanitizeText(item.status, 40)
-    : delta > 0
+  const direction = scoreDirection(scoreBefore, scoreAfter);
+  const providedStatus = sanitizeText(item.status || "", 40);
+  let status = OCR_STATUSES.includes(providedStatus)
+    ? providedStatus
+    : direction === "increase"
       ? "score_changed"
-      : scoreBefore && scoreAfter
-        ? "score_unchanged"
-        : "ambiguous";
+      : direction === "decrease"
+        ? "goal_removed"
+        : direction === "same"
+          ? "score_unchanged"
+          : "ambiguous";
+  if (scoreBefore && scoreAfter) {
+    if (direction === "decrease") status = "goal_removed";
+    else if (direction === "ambiguous") status = "ambiguous";
+    else if (direction === "same" && status === "score_changed") status = "score_unchanged";
+    else if (direction === "increase" && status === "score_unchanged") status = "ambiguous";
+  }
   const confidence = round(clamp(item.confidence, 0.05, 0.98));
-  const temporalConsistency = Boolean(item.temporalConsistency ?? item.temporallyConsistent ?? (delta === 1 && confidence >= 0.72));
+  const temporalConsistency = Boolean(item.temporalConsistency ?? item.temporallyConsistent ?? ((delta === 0 || delta === 1) && confidence >= 0.72));
   const ambiguous = Boolean(item.ambiguous) || status === "ambiguous" || confidence < 0.55;
-  const scoreChanged = (status === "score_changed" || status === "goal_confirmed") && delta === 1 && temporalConsistency && !ambiguous;
-  const scoreUnchanged = status === "score_unchanged" || status === "goal_removed";
+  const scoreChanged = (status === "score_changed" || status === "goal_confirmed") && direction === "increase" && temporalConsistency && !ambiguous;
+  const scoreReverted = status === "goal_removed" && direction === "decrease" && temporalConsistency && !ambiguous;
+  const scoreUnchanged = status === "score_unchanged" || scoreReverted;
   return {
     id: sanitizeText(item.id || `scoreboard_ocr_${index + 1}`, 80),
     start,
@@ -505,6 +536,7 @@ function normalizeOcrEvidenceItem(item = {}, metadata = {}, index = 0) {
     clock: item.clock || item.detectedClock ? sanitizeText(item.clock || item.detectedClock, 16) : null,
     scoreChanged,
     scoreUnchanged,
+    scoreReverted,
     temporalConsistency,
     ambiguous,
     source: sanitizeText(item.source || "scoreboard_ocr_contract", 60),
@@ -575,6 +607,7 @@ function ocrReasonsInRange(ocrEvidence = [], start = 0, end = 0, ocrQaCalibratio
   const calibration = normalizeOcrQaCalibrationInput(ocrQaCalibration);
   const usable = Boolean(calibration.usable);
   if (usable && items.some((item) => item.scoreChanged)) reasons.push("scoreboard_ocr_score_change", "scoreboard_temporal_consistency");
+  if (usable && items.some((item) => item.scoreReverted)) reasons.push("scoreboard_ocr_goal_removed");
   if (usable && items.some((item) => item.scoreUnchanged)) reasons.push("scoreboard_ocr_score_unchanged");
   if (items.some((item) => item.ambiguous)) reasons.push("scoreboard_ocr_ambiguous");
   return [...new Set(reasons)];
@@ -632,6 +665,7 @@ function supportsCombinedGoalConfirmation(reasonCodes = []) {
     "visual_referee_no_goal_signal",
     "visual_scoreboard_goal_removed",
     "visual_offside_line",
+    "scoreboard_ocr_goal_removed",
     "scoreboard_ocr_score_unchanged",
     "offside_commentary",
     "flag_commentary",
@@ -713,6 +747,7 @@ function validateGoalEvidenceOutput(output, metadata = {}) {
       anthemOrIntroCount: events.filter((event) => event.outcomeHint === "anthem_or_intro").length,
       ocrEvidenceCount: ocrEvidence.length,
       scoreboardConfirmedGoalCount: events.filter((event) => (event.reasonCodes || []).includes("scoreboard_ocr_score_change")).length,
+      scoreboardGoalRemovedCount: events.filter((event) => (event.reasonCodes || []).includes("scoreboard_ocr_goal_removed")).length,
       ambiguousOcrCount: ocrEvidence.filter((item) => item.ambiguous).length,
       combinedGoalConfirmationCount: events.filter((event) => (event.reasonCodes || []).includes("combined_goal_confirmation")).length,
       replayConfirmationCount: events.filter((event) => (event.reasonCodes || []).includes("replay_goal_confirmation")).length,
@@ -1036,6 +1071,7 @@ function publicGoalEvidence(goalEvidence) {
           anthemOrIntroCount: Number(safe.summary.anthemOrIntroCount || 0),
           ocrEvidenceCount: Number(safe.summary.ocrEvidenceCount || 0),
           scoreboardConfirmedGoalCount: Number(safe.summary.scoreboardConfirmedGoalCount || 0),
+          scoreboardGoalRemovedCount: Number(safe.summary.scoreboardGoalRemovedCount || 0),
           ambiguousOcrCount: Number(safe.summary.ambiguousOcrCount || 0),
           combinedGoalConfirmationCount: Number(safe.summary.combinedGoalConfirmationCount || 0),
           replayConfirmationCount: Number(safe.summary.replayConfirmationCount || 0),
@@ -1055,6 +1091,7 @@ function publicGoalEvidence(goalEvidence) {
           confidence: Number(item.confidence || 0),
           scoreChanged: Boolean(item.scoreChanged),
           scoreUnchanged: Boolean(item.scoreUnchanged),
+          scoreReverted: Boolean(item.scoreReverted),
           temporalConsistency: Boolean(item.temporalConsistency),
           ambiguous: Boolean(item.ambiguous),
         }))
