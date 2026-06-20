@@ -53,6 +53,8 @@ const ENV_CONTRACT = Object.freeze([
   { name: "SHORTSENGINE_SCOREBOARD_OCR_PROVIDER", category: "Scoreboard OCR", required: false, defaultValue: "deterministic", type: "enum", allowedValues: SCOREBOARD_OCR_PROVIDERS, secret: false },
   { name: "SHORTSENGINE_SCOREBOARD_OCR_BIN", category: "Scoreboard OCR", required: false, defaultValue: "tesseract", type: "command", secret: false },
   { name: "SHORTSENGINE_SCOREBOARD_OCR_TIMEOUT_MS", category: "Scoreboard OCR", required: false, defaultValue: "10000", type: "integer", min: 250, max: 60000, secret: false },
+  { name: "SHORTSENGINE_SCOREBOARD_OCR_QA_ARTIFACTS", category: "Scoreboard OCR", required: false, defaultValue: "false", type: "boolean", secret: false },
+  { name: "SHORTSENGINE_SCOREBOARD_OCR_QA_ARTIFACT_RETENTION", category: "Scoreboard OCR", required: false, defaultValue: "8", type: "integer", min: 1, max: 50, secret: false },
   { name: "SHORTSENGINE_OCR_QA_ARTIFACTS", category: "Scoreboard OCR", required: false, defaultValue: "false", type: "boolean", secret: false },
   { name: "SHORTSENGINE_OCR_QA_ARTIFACT_RETENTION", category: "Scoreboard OCR", required: false, defaultValue: "8", type: "integer", min: 1, max: 50, secret: false },
   { name: "MATCHCUTS_TRANSCRIPTION_TIMEOUT_MS", category: "Transcription/AI provider", required: false, defaultValue: String(60 * 1000), type: "integer", min: 1000, max: 15 * 60 * 1000, secret: false },
@@ -354,8 +356,10 @@ function validateScoreboardOcrReadiness(env, numeric) {
     localRuntimeRequested: enabled && provider === "local",
     commandConfigured: Boolean(valueOrDefault(env, ENV_CONTRACT.find((spec) => spec.name === "SHORTSENGINE_SCOREBOARD_OCR_BIN"))),
     timeoutMs: numeric.SHORTSENGINE_SCOREBOARD_OCR_TIMEOUT_MS,
-    qaArtifactsEnabled: boolFromEnv(rawValue(env, "SHORTSENGINE_OCR_QA_ARTIFACTS")),
-    qaArtifactRetention: numeric.SHORTSENGINE_OCR_QA_ARTIFACT_RETENTION,
+    qaArtifactsEnabled: boolFromEnv(rawValue(env, "SHORTSENGINE_SCOREBOARD_OCR_QA_ARTIFACTS")) ||
+      boolFromEnv(rawValue(env, "SHORTSENGINE_OCR_QA_ARTIFACTS")),
+    qaArtifactRetention: numeric.SHORTSENGINE_SCOREBOARD_OCR_QA_ARTIFACT_RETENTION ||
+      numeric.SHORTSENGINE_OCR_QA_ARTIFACT_RETENTION,
     defaultProviderIsDeterministic: !enabled && provider === "deterministic",
     networkRequired: false,
   };

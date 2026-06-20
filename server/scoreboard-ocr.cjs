@@ -1,6 +1,6 @@
 const { randomUUID } = require("node:crypto");
-const { existsSync, mkdirSync, rmSync } = require("node:fs");
-const { basename, join } = require("node:path");
+const { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } = require("node:fs");
+const { basename, isAbsolute, join, relative, resolve } = require("node:path");
 const { AppError, SAFE_MESSAGES } = require("./errors.cjs");
 const { CONFIG } = require("./config.cjs");
 const { commandAvailable, sanitizeText } = require("./media.cjs");
@@ -10,8 +10,10 @@ const { assertStoragePath, safeResolve, storagePath } = require("./storage.cjs")
 const {
   LocalOcrCommandAdapter,
   buildScoreboardEvidenceFromObservations,
+  parseClock,
   parseScoreboardScore,
 } = require("./adapters/local-ocr-adapter.cjs");
+const { readScoreboardCandidate } = require("./scoreboard-reader.cjs");
 const { visualReasonCodesForWindow } = require("./vision.cjs");
 
 const DEFAULT_SCOREBOARD_OCR_TIMEOUT_MS = 10000;
@@ -19,6 +21,12 @@ const MAX_SCOREBOARD_OCR_FRAMES = 24;
 const MAX_SCOREBOARD_REGIONS = 6;
 const MAX_SCOREBOARD_OCR_CROPS = 72;
 const DEFAULT_OCR_FRAME_MAX_DIMENSION = 1280;
+const ROOT_DIR = resolve(__dirname, "..");
+const SCOREBOARD_OCR_QA_RELATIVE_DIR = "demo/results/scoreboard-ocr-artifacts";
+const SCOREBOARD_OCR_QA_LATEST_RELATIVE_PATH = "demo/results/ocr-scoreboard-qa-latest.json";
+const MAX_SCOREBOARD_OCR_QA_ATTEMPTS = 72;
+const MAX_SCOREBOARD_OCR_QA_ARTIFACT_BYTES = 2 * 1024 * 1024;
+const DEFAULT_SCOREBOARD_OCR_QA_RETENTION = 8;
 const OCR_PREPROCESS_VARIANTS = Object.freeze([
   {
     id: "color_whitelist",
@@ -419,6 +427,20 @@ function deterministicScoreboardOcr(input = {}) {
   }, metadata);
 }
 
+function normalizeQaReportSummary(value = {}) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || hasUnsafeValue(value)) return null;
+  return {
+    enabled: Boolean(value.enabled),
+    runId: sanitizeText(value.runId || "", 120) || null,
+    status: sanitizeText(value.status || "unknown", 40),
+    reportPath: value.reportPath ? sanitizeText(value.reportPath, 180) : null,
+    latestPath: value.latestPath ? sanitizeText(value.latestPath, 180) : null,
+    contactSheetPath: value.contactSheetPath ? sanitizeText(value.contactSheetPath, 180) : null,
+    cropCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_QA_ATTEMPTS, Math.round(Number(value.cropCount || 0)))),
+    attemptCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_QA_ATTEMPTS, Math.round(Number(value.attemptCount || 0)))),
+  };
+}
+
 function validateScoreboardOcrOutput(output = {}, metadata = {}) {
   if (!output || typeof output !== "object" || Array.isArray(output) || hasUnsafeValue(output)) {
     throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
@@ -439,11 +461,13 @@ function validateScoreboardOcrOutput(output = {}, metadata = {}) {
       temporalConsistency: Boolean(item.temporalConsistency),
     }))
     .slice(0, MAX_SCOREBOARD_OCR_FRAMES);
+  const qaReport = normalizeQaReportSummary(output.qaReport);
   return {
     providerMode: sanitizeText(output.providerMode || "deterministic-scoreboard-ocr", 60),
     fallbackUsed: Boolean(output.fallbackUsed || evidence.length === 0),
     confidence: round(clamp(output.confidence ?? (evidence.length ? Math.max(...evidence.map((item) => item.confidence)) : 0), 0, 1)),
     evidence,
+    qaReport,
     summary: {
       evidenceCount: evidence.length,
       scoreChangeCount: evidence.filter((item) => item.scoreChanged).length,
@@ -457,6 +481,7 @@ function validateScoreboardOcrOutput(output = {}, metadata = {}) {
       regionIdsUsed,
       preprocessingVariantCount: Math.max(0, Math.min(8, Math.round(Number(output.preprocessingVariantCount || 0)))),
       scoreTimeline,
+      qaReport,
       fallbackUsed: Boolean(output.fallbackUsed || evidence.length === 0),
     },
   };
@@ -560,6 +585,251 @@ function safeFilePart(value, fallback = "item") {
   return sanitizeText(value || fallback, 80).replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 80) || fallback;
 }
 
+function boolFromInput(value, fallback = false) {
+  if (value === undefined || value === null || value === "") return Boolean(fallback);
+  return ["1", "true", "yes", "on"].includes(String(value).trim().toLowerCase());
+}
+
+function rootRelative(filePath) {
+  const target = resolve(filePath);
+  const fromRoot = relative(ROOT_DIR, target).replace(/\\/g, "/");
+  if (!fromRoot || fromRoot.startsWith("../") || fromRoot === ".." || isAbsolute(fromRoot)) {
+    throw new AppError("STORAGE_PATH_UNSAFE", SAFE_MESSAGES.STORAGE_PATH_UNSAFE, 403);
+  }
+  return fromRoot;
+}
+
+function safeQaRunId(value = randomUUID()) {
+  const raw = sanitizeText(value || randomUUID(), 96).replace(/[^A-Za-z0-9._-]/g, "_");
+  const id = raw.startsWith("ocr-scoreboard-") ? raw : `ocr-scoreboard-${raw}`;
+  if (!/^ocr-scoreboard-[A-Za-z0-9._-]{1,96}$/.test(id) || id.includes("..")) {
+    throw new AppError("STORAGE_PATH_UNSAFE", SAFE_MESSAGES.STORAGE_PATH_UNSAFE, 403);
+  }
+  return id.slice(0, 112);
+}
+
+function safeResolveRootRelative(relativePath) {
+  const safeRelative = String(relativePath || "").replace(/\\/g, "/");
+  if (!safeRelative || safeRelative.includes("..") || safeRelative.startsWith("/") || safeRelative.includes("\u0000")) {
+    throw new AppError("STORAGE_PATH_UNSAFE", SAFE_MESSAGES.STORAGE_PATH_UNSAFE, 403);
+  }
+  const target = resolve(ROOT_DIR, safeRelative);
+  if (rootRelative(target) !== safeRelative) {
+    throw new AppError("STORAGE_PATH_UNSAFE", SAFE_MESSAGES.STORAGE_PATH_UNSAFE, 403);
+  }
+  return target;
+}
+
+function qaRetentionMax(value = CONFIG.scoreboardOcr.qaArtifactRetention) {
+  const parsed = Math.round(Number(value || DEFAULT_SCOREBOARD_OCR_QA_RETENTION));
+  return Math.max(1, Math.min(50, Number.isFinite(parsed) ? parsed : DEFAULT_SCOREBOARD_OCR_QA_RETENTION));
+}
+
+function scoreboardOcrQaEnabled(input = {}) {
+  return boolFromInput(input.qaArtifactsEnabled, CONFIG.scoreboardOcr.qaArtifactsEnabled);
+}
+
+function createScoreboardOcrQaContext(input = {}) {
+  const enabled = scoreboardOcrQaEnabled(input);
+  const runId = safeQaRunId(input.qaRunId || randomUUID());
+  const directory = `${SCOREBOARD_OCR_QA_RELATIVE_DIR}/${runId}`;
+  if (!enabled) {
+    return {
+      enabled: false,
+      runId,
+      directory,
+      attempts: [],
+      files: [],
+      contactSheetRows: [],
+    };
+  }
+  const runDir = safeResolveRootRelative(directory);
+  mkdirSync(runDir, { recursive: true });
+  return {
+    enabled: true,
+    runId,
+    directory,
+    runDir,
+    attempts: [],
+    files: [],
+    contactSheetRows: [],
+  };
+}
+
+function cleanupScoreboardOcrQaArtifacts({ currentRunId, retentionMax = DEFAULT_SCOREBOARD_OCR_QA_RETENTION } = {}) {
+  const root = safeResolveRootRelative(SCOREBOARD_OCR_QA_RELATIVE_DIR);
+  if (!existsSync(root)) return { retentionMax: qaRetentionMax(retentionMax), removedCount: 0, removed: [] };
+  const keep = new Set(currentRunId ? [safeQaRunId(currentRunId)] : []);
+  const managed = readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && /^ocr-scoreboard-[A-Za-z0-9._-]+$/.test(entry.name) && !entry.name.includes(".."))
+    .map((entry) => {
+      const dir = resolve(root, entry.name);
+      return { name: entry.name, dir, mtimeMs: statSync(dir).mtimeMs };
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+  for (const entry of managed) {
+    if (keep.size >= qaRetentionMax(retentionMax)) break;
+    keep.add(entry.name);
+  }
+  const removed = [];
+  for (const entry of managed) {
+    if (keep.has(entry.name)) continue;
+    rmSync(entry.dir, { recursive: true, force: true });
+    removed.push(`${SCOREBOARD_OCR_QA_RELATIVE_DIR}/${entry.name}`);
+  }
+  return {
+    retentionMax: qaRetentionMax(retentionMax),
+    removedCount: removed.length,
+    removed,
+  };
+}
+
+function safeOcrTextPreview(value) {
+  return sanitizeText(value || "", 120);
+}
+
+function qaCropFileName({ attemptIndex, frameIndex, regionId, variantId }) {
+  return `ocr-attempt-${String(attemptIndex + 1).padStart(2, "0")}-frame-${String(frameIndex + 1).padStart(2, "0")}-${safeFilePart(regionId, "region")}-${safeFilePart(variantId, "variant")}.png`;
+}
+
+function recordScoreboardOcrQaAttempt({
+  qa,
+  cropPath,
+  frame = {},
+  frameIndex = 0,
+  region = {},
+  variant = {},
+  ocr = {},
+  reader = {},
+} = {}) {
+  if (!qa || !qa.enabled) return;
+  if (qa.attempts.length >= MAX_SCOREBOARD_OCR_QA_ATTEMPTS) return;
+  const attemptIndex = qa.attempts.length;
+  let cropRef = null;
+  let sizeBytes = 0;
+  if (cropPath && existsSync(cropPath)) {
+    const cropStat = statSync(cropPath);
+    if (cropStat.isFile() && cropStat.size <= MAX_SCOREBOARD_OCR_QA_ARTIFACT_BYTES) {
+      const fileName = qaCropFileName({
+        attemptIndex,
+        frameIndex,
+        regionId: region.id,
+        variantId: variant.id,
+      });
+      const targetPath = safeResolveRootRelative(`${qa.directory}/${fileName}`);
+      copyFileSync(cropPath, targetPath);
+      cropRef = rootRelative(targetPath);
+      sizeBytes = statSync(targetPath).size;
+      qa.files.push({
+        id: `scoreboard_ocr_crop_${attemptIndex + 1}`,
+        timestamp: round(frame.timestamp),
+        regionId: sanitizeText(region.id || "scoreboard_region", 80),
+        preprocessingVariant: sanitizeText(variant.id || "default", 60),
+        width: Math.max(1, Math.round(Number(region.width || 0))),
+        height: Math.max(1, Math.round(Number(region.height || 0))),
+        sizeBytes,
+        relativePath: cropRef,
+      });
+    }
+  }
+  const row = {
+    index: attemptIndex + 1,
+    timestamp: round(frame.timestamp),
+    regionId: sanitizeText(region.id || "scoreboard_region", 80),
+    preprocessingVariant: sanitizeText(variant.id || "default", 60),
+    status: sanitizeText(reader.status || "unreadable", 40),
+    score: reader.scoreText || null,
+    clock: reader.clock || null,
+    confidence: round(ocr.confidence || reader.confidence || 0),
+    ambiguityReasons: Array.isArray(reader.ambiguityReasons)
+      ? reader.ambiguityReasons.map((reason) => sanitizeText(reason, 60)).filter(Boolean).slice(0, 6)
+      : [],
+    ocrText: safeOcrTextPreview(ocr.text),
+    cropRef,
+  };
+  qa.attempts.push(row);
+  qa.contactSheetRows.push(row);
+}
+
+function safeScoreboardOcrQaReport(report = {}) {
+  const serialized = JSON.stringify(report || {});
+  if (/\/Users\/|\/private\/|storageKey|localPath|fullPath|absolutePath|Bearer\s+|OPENAI_API_KEY|api[_-]?key|token|secret|stderr|stdout/i.test(serialized)) {
+    throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
+  }
+  return report;
+}
+
+function writeScoreboardOcrQaReport({ qa, scoreboardOcr, status = "completed" } = {}) {
+  if (!qa || !qa.enabled) return null;
+  const generatedAt = new Date().toISOString();
+  const contactSheetRelativePath = `${qa.directory}/contact-sheet.json`;
+  const reportRelativePath = `demo/results/ocr-scoreboard-qa-${generatedAt.replace(/[:.]/g, "-")}.json`;
+  const latestRelativePath = SCOREBOARD_OCR_QA_LATEST_RELATIVE_PATH;
+  const cleanup = cleanupScoreboardOcrQaArtifacts({
+    currentRunId: qa.runId,
+    retentionMax: qaRetentionMax(CONFIG.scoreboardOcr.qaArtifactRetention),
+  });
+  const contactSheet = safeScoreboardOcrQaReport({
+    schemaVersion: 1,
+    kind: "scoreboard-ocr-contact-sheet",
+    generatedAt,
+    runId: qa.runId,
+    rowCount: qa.contactSheetRows.length,
+    rows: qa.contactSheetRows.slice(0, MAX_SCOREBOARD_OCR_QA_ATTEMPTS),
+    relativeRefsOnly: true,
+  });
+  writeFileSync(safeResolveRootRelative(contactSheetRelativePath), `${JSON.stringify(contactSheet, null, 2)}\n`, "utf8");
+  const report = safeScoreboardOcrQaReport({
+    schemaVersion: 1,
+    kind: "scoreboard-ocr-qa-report",
+    generatedAt,
+    status: sanitizeText(status, 40),
+    runId: qa.runId,
+    directory: qa.directory,
+    contactSheet: {
+      relativePath: contactSheetRelativePath,
+      rowCount: contactSheet.rowCount,
+    },
+    cropArtifacts: {
+      enabled: true,
+      cropCount: qa.files.length,
+      maxCropCount: MAX_SCOREBOARD_OCR_QA_ATTEMPTS,
+      maxArtifactBytes: MAX_SCOREBOARD_OCR_QA_ARTIFACT_BYTES,
+      files: qa.files.slice(0, MAX_SCOREBOARD_OCR_QA_ATTEMPTS),
+    },
+    ocrAttempts: qa.attempts.slice(0, MAX_SCOREBOARD_OCR_QA_ATTEMPTS),
+    evidenceSummary: scoreboardOcr && scoreboardOcr.summary
+      ? {
+          evidenceCount: Number(scoreboardOcr.summary.evidenceCount || 0),
+          scoreChangeCount: Number(scoreboardOcr.summary.scoreChangeCount || 0),
+          ambiguousCount: Number(scoreboardOcr.summary.ambiguousCount || 0),
+          unreadableCount: Number(scoreboardOcr.summary.unreadableCount || 0),
+          scoreTimeline: Array.isArray(scoreboardOcr.summary.scoreTimeline)
+            ? scoreboardOcr.summary.scoreTimeline.slice(0, MAX_SCOREBOARD_OCR_FRAMES)
+            : [],
+        }
+      : null,
+    cleanup,
+    relativeRefsOnly: true,
+    logsDownloaded: false,
+    artifactsDownloaded: false,
+  });
+  const reportPath = safeResolveRootRelative(reportRelativePath);
+  const latestPath = safeResolveRootRelative(latestRelativePath);
+  writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+  writeFileSync(latestPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+  return {
+    enabled: true,
+    runId: qa.runId,
+    reportPath: reportRelativePath,
+    latestPath: latestRelativePath,
+    contactSheetPath: contactSheetRelativePath,
+    cropCount: qa.files.length,
+    attemptCount: qa.attempts.length,
+    status: report.status,
+  };
+}
+
 function ocrCropOutputDir(input = {}) {
   if (input.ocrOutputDir) return assertStoragePath(input.ocrOutputDir, "staging");
   return storagePath("staging", join("scoreboard-ocr", `ocr_${randomUUID()}`));
@@ -657,6 +927,7 @@ function scoreboardOcrPreprocessVariants() {
   return OCR_PREPROCESS_VARIANTS.map((variant) => ({
     id: sanitizeText(variant.id, 48),
     psm: sanitizeText(variant.psm || "7", 4),
+    whitelist: sanitizeText(variant.whitelist || "", 120),
     filter: sanitizeText(variant.filter, 180),
   }));
 }
@@ -760,6 +1031,7 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
 
     const metadata = input.metadata || {};
     const outputDir = ocrCropOutputDir(input);
+    const qa = createScoreboardOcrQaContext(input);
     let frames = [];
     try {
       frames = await extractOcrFramesFromSource({
@@ -812,19 +1084,46 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
               signal: input.signal,
               timeoutMs: this.timeoutMs,
             }), { signal: input.signal, timeoutMs: this.timeoutMs });
+            const parsedScore = ocr.rejected ? null : parseScoreboardScore(ocr.text);
+            const parsedClock = ocr.rejected ? null : parseClock(ocr.text);
+            const reader = readScoreboardCandidate({
+              id: `ocr_${frameIndex + 1}_${cropCount + 1}`,
+              timestamp: frame.timestamp,
+              start: frame.windowStart ?? frame.timestamp - 0.8,
+              end: frame.windowEnd ?? frame.timestamp + 0.8,
+              regionId: region.id,
+              preprocessingVariant: variant.id,
+              source: `local_scoreboard_ocr_${variant.id}`,
+              text: ocr.text,
+              score: parsedScore,
+              clock: parsedClock,
+              rejected: ocr.rejected,
+              confidence: ocr.confidence,
+            });
             observations.push({
               id: `ocr_${frameIndex + 1}_${cropCount + 1}`,
               timestamp: frame.timestamp,
               start: frame.windowStart ?? frame.timestamp - 0.8,
               end: frame.windowEnd ?? frame.timestamp + 0.8,
               regionId: region.id,
+              preprocessingVariant: variant.id,
               text: ocr.text,
               confidence: ocr.confidence,
               rejected: ocr.rejected,
               source: `local_scoreboard_ocr_${variant.id}`,
             });
+            recordScoreboardOcrQaAttempt({
+              qa,
+              cropPath: safeCropPath,
+              frame,
+              frameIndex,
+              region,
+              variant,
+              ocr,
+              reader,
+            });
             cropCount += 1;
-            if (!ocr.rejected && parseScoreboardScore(ocr.text)) {
+            if (!ocr.rejected && parsedScore) {
               frameScoreFound.add(frameIndex);
               break;
             }
@@ -834,7 +1133,7 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
         if (cropCount >= MAX_SCOREBOARD_OCR_CROPS) break;
       }
       const evidence = buildScoreboardEvidenceFromObservations(observations);
-      return validateScoreboardOcrOutput({
+      const result = validateScoreboardOcrOutput({
         providerMode: "local-scoreboard-ocr-command",
         fallbackUsed: evidence.length === 0,
         evidence,
@@ -843,6 +1142,10 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
         regionIdsUsed: [...regionIdsUsed],
         preprocessingVariantCount: variants.length,
       }, metadata);
+      const qaReport = writeScoreboardOcrQaReport({ qa, scoreboardOcr: result, status: "completed" });
+      return qaReport
+        ? validateScoreboardOcrOutput({ ...result, qaReport }, metadata)
+        : result;
     } catch (error) {
       if (error && error.code === "JOB_CANCELLED") throw error;
       return deterministicFallback(input);
@@ -894,6 +1197,7 @@ function publicScoreboardOcr(scoreboardOcr) {
             ? safe.summary.regionIdsUsed.map((id) => sanitizeText(id, 64)).filter(Boolean).slice(0, MAX_SCOREBOARD_REGIONS)
             : [],
           preprocessingVariantCount: Number(safe.summary.preprocessingVariantCount || 0),
+          qaReport: normalizeQaReportSummary(safe.summary.qaReport),
           scoreTimeline: Array.isArray(safe.summary.scoreTimeline)
             ? safe.summary.scoreTimeline.map((item) => ({
                 timestamp: Number(item.timestamp || 0),
@@ -906,6 +1210,7 @@ function publicScoreboardOcr(scoreboardOcr) {
           fallbackUsed: Boolean(safe.summary.fallbackUsed),
         }
       : null,
+    qaReport: normalizeQaReportSummary(safe.qaReport),
     evidence: Array.isArray(safe.evidence)
       ? safe.evidence.map((item) => ({
           id: sanitizeText(item.id, 80),
@@ -937,6 +1242,8 @@ module.exports = {
   MAX_SCOREBOARD_OCR_FRAMES,
   MAX_SCOREBOARD_REGIONS,
   MAX_SCOREBOARD_OCR_CROPS,
+  SCOREBOARD_OCR_QA_LATEST_RELATIVE_PATH,
+  SCOREBOARD_OCR_QA_RELATIVE_DIR,
   DeterministicScoreboardOcrProvider,
   ExternalScoreboardOcrProviderAdapter,
   LocalScoreboardOcrProviderAdapter,
@@ -954,4 +1261,5 @@ module.exports = {
   selectOcrFrames,
   selectOcrSamplingWindows,
   validateScoreboardOcrOutput,
+  writeScoreboardOcrQaReport,
 };

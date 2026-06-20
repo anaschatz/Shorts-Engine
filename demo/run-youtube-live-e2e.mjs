@@ -163,6 +163,18 @@ function safeTruthCandidate(value = {}, index = 0) {
 
 function safeScoreboardOcrEvent(value = {}) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const safeQaReport = value.qaReport && typeof value.qaReport === "object" && !Array.isArray(value.qaReport)
+    ? {
+        enabled: safeBoolean(value.qaReport.enabled),
+        runId: safeString(value.qaReport.runId, 120),
+        status: safeString(value.qaReport.status, 40),
+        reportPath: value.qaReport.reportPath ? safeString(value.qaReport.reportPath, 180) : null,
+        latestPath: value.qaReport.latestPath ? safeString(value.qaReport.latestPath, 180) : null,
+        contactSheetPath: value.qaReport.contactSheetPath ? safeString(value.qaReport.contactSheetPath, 180) : null,
+        cropCount: safeNumber(value.qaReport.cropCount),
+        attemptCount: safeNumber(value.qaReport.attemptCount),
+      }
+    : null;
   return {
     providerMode: safeString(value.providerMode, 80),
     fallbackUsed: safeBoolean(value.fallbackUsed),
@@ -174,6 +186,7 @@ function safeScoreboardOcrEvent(value = {}) {
     unreadableCount: safeNumber(value.unreadableCount),
     regionIdsUsed: safeStringList(value.regionIdsUsed, 8, 80),
     preprocessingVariantCount: safeNumber(value.preprocessingVariantCount),
+    qaReport: safeQaReport,
     scoreTimeline: Array.isArray(value.scoreTimeline)
       ? value.scoreTimeline.map((item) => ({
           timestamp: safeNumber(item && item.timestamp),
@@ -947,6 +960,18 @@ function startServer(port, env) {
             unreadableCount: safeNumber(parsed.unreadableCount),
             regionIdsUsed: safeStringList(parsed.regionIdsUsed, 8, 80),
             preprocessingVariantCount: safeNumber(parsed.preprocessingVariantCount),
+            qaReport: parsed.qaReport && typeof parsed.qaReport === "object"
+              ? {
+                  enabled: safeBoolean(parsed.qaReport.enabled),
+                  runId: safeString(parsed.qaReport.runId, 120),
+                  status: safeString(parsed.qaReport.status, 40),
+                  reportPath: parsed.qaReport.reportPath ? safeString(parsed.qaReport.reportPath, 180) : null,
+                  latestPath: parsed.qaReport.latestPath ? safeString(parsed.qaReport.latestPath, 180) : null,
+                  contactSheetPath: parsed.qaReport.contactSheetPath ? safeString(parsed.qaReport.contactSheetPath, 180) : null,
+                  cropCount: safeNumber(parsed.qaReport.cropCount),
+                  attemptCount: safeNumber(parsed.qaReport.attemptCount),
+                }
+              : null,
             scoreTimeline: Array.isArray(parsed.scoreTimeline)
               ? parsed.scoreTimeline.map((item) => ({
                   timestamp: safeNumber(item && item.timestamp),

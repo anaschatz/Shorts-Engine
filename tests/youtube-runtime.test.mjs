@@ -1373,6 +1373,16 @@ test("youtube live local e2e failure report keeps safe valid-goal discovery coun
           unreadableCount: 1,
           regionIdsUsed: ["scorebug_left_compact", "broadcast_top_band"],
           preprocessingVariantCount: 3,
+          qaReport: {
+            enabled: true,
+            runId: "ocr-scoreboard-test",
+            status: "completed",
+            reportPath: "demo/results/ocr-scoreboard-qa-test.json",
+            latestPath: "demo/results/ocr-scoreboard-qa-latest.json",
+            contactSheetPath: "demo/results/scoreboard-ocr-artifacts/ocr-scoreboard-test/contact-sheet.json",
+            cropCount: 2,
+            attemptCount: 4,
+          },
           scoreTimeline: [{
             timestamp: 24.5,
             status: "score_unchanged",
@@ -1430,6 +1440,16 @@ test("youtube live local e2e failure report keeps safe valid-goal discovery coun
     unreadableCount: 1,
     regionIdsUsed: ["scorebug_left_compact", "broadcast_top_band"],
     preprocessingVariantCount: 3,
+    qaReport: {
+      enabled: true,
+      runId: "ocr-scoreboard-test",
+      status: "completed",
+      reportPath: "demo/results/ocr-scoreboard-qa-test.json",
+      latestPath: "demo/results/ocr-scoreboard-qa-latest.json",
+      contactSheetPath: "demo/results/scoreboard-ocr-artifacts/ocr-scoreboard-test/contact-sheet.json",
+      cropCount: 2,
+      attemptCount: 4,
+    },
     scoreTimeline: [{
       timestamp: 24.5,
       status: "score_unchanged",

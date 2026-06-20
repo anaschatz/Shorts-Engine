@@ -1,5 +1,6 @@
 const { execFile } = require("node:child_process");
 const { spawnSync } = require("node:child_process");
+const { buildStableScoreTimeline, readScoreboardCandidate } = require("../scoreboard-reader.cjs");
 const { assertStoragePath } = require("../storage.cjs");
 const { sanitizeText } = require("../media.cjs");
 
@@ -127,26 +128,6 @@ function parseScoreboardScore(text) {
   return unique.length === 1 ? unique[0] : null;
 }
 
-function scoreDelta(before, after) {
-  if (!before || !after) return 0;
-  return Math.abs(after.home - before.home) + Math.abs(after.away - before.away);
-}
-
-function scoreTotal(score) {
-  return score ? Number(score.home || 0) + Number(score.away || 0) : 0;
-}
-
-function scoreTransition(before, after) {
-  const delta = scoreDelta(before, after);
-  if (!before || !after) return { delta, direction: "unknown", consistent: false };
-  if (delta === 0) return { delta, direction: "same", consistent: true };
-  if (delta !== 1) return { delta, direction: "ambiguous", consistent: false };
-  const totalDelta = scoreTotal(after) - scoreTotal(before);
-  if (totalDelta === 1) return { delta, direction: "increase", consistent: true };
-  if (totalDelta === -1) return { delta, direction: "decrease", consistent: true };
-  return { delta, direction: "ambiguous", consistent: false };
-}
-
 function confidenceForObservation({ text, score, clock, rejected } = {}) {
   if (rejected) return 0.05;
   if (score) return 0.78;
@@ -162,6 +143,20 @@ function buildScoreboardEvidenceFromObservations(observations = []) {
       const rejected = Boolean(observation.rejected) || hasUnsafeOcrText(text);
       const score = rejected ? null : parseScoreboardScore(text);
       const clock = rejected ? null : parseClock(text);
+      const reading = readScoreboardCandidate({
+        id: observation.id || `local_ocr_observation_${index + 1}`,
+        timestamp: Number(observation.timestamp || 0),
+        start: Number(observation.start ?? Number(observation.timestamp || 0) - 0.8),
+        end: Number(observation.end ?? Number(observation.timestamp || 0) + 0.8),
+        regionId: observation.regionId || "scoreboard_region",
+        preprocessingVariant: observation.preprocessingVariant || observation.variantId || observation.source,
+        source: observation.source || "local_ocr_command",
+        text,
+        score,
+        clock,
+        rejected,
+        confidence: Number(observation.confidence || confidenceForObservation({ text, score, clock, rejected })),
+      });
       return {
         id: sanitizeText(observation.id || `local_ocr_observation_${index + 1}`, 80),
         timestamp: Number(observation.timestamp || 0),
@@ -174,6 +169,7 @@ function buildScoreboardEvidenceFromObservations(observations = []) {
         textPresent: Boolean(text),
         rejected,
         confidence: Number(observation.confidence || confidenceForObservation({ text, score, clock, rejected })),
+        reading,
       };
     })
     .filter((observation) => Number.isFinite(observation.timestamp))
@@ -191,56 +187,24 @@ function buildScoreboardEvidenceFromObservations(observations = []) {
     if (nextScore > existingScore) Object.assign(existing, observation);
   }
 
-  const evidence = [];
-  let previousScore = null;
-  for (const [index, observation] of bestByTimestamp.entries()) {
-    let status = "unreadable";
-    let scoreBefore = null;
-    let scoreAfter = observation.score ? observation.score.text : null;
-    let temporalConsistency = false;
-    if (observation.rejected || (!observation.score && !observation.clock && !observation.textPresent)) {
-      status = "unreadable";
-    } else if (observation.score && previousScore) {
-      const transition = scoreTransition(previousScore, observation.score);
-      scoreBefore = previousScore.text;
-      if (transition.direction === "increase") {
-        status = "score_changed";
-        temporalConsistency = true;
-      } else if (transition.direction === "decrease") {
-        status = "goal_removed";
-        temporalConsistency = true;
-      } else if (transition.direction === "same") {
-        status = "score_unchanged";
-        temporalConsistency = true;
-      } else {
-        status = "ambiguous";
-      }
-    } else if (observation.score) {
-      status = "ambiguous";
-    } else if (observation.clock) {
-      status = "clock_only";
-    } else {
-      status = "ambiguous";
-    }
-
-    evidence.push({
+  return buildStableScoreTimeline(bestByTimestamp.map((observation) => observation.reading), { minStableReads: 2 })
+    .map((item, index) => ({
       id: `local_scoreboard_ocr_${index + 1}`,
-      timestamp: round(observation.timestamp),
-      start: round(observation.start),
-      end: round(observation.end),
-      status,
-      scoreBefore,
-      scoreAfter,
-      detectedScoreText: scoreAfter,
-      clock: observation.clock,
-      temporalConsistency,
-      confidence: round(observation.confidence),
-      source: observation.source,
-      regionId: observation.regionId,
-    });
-    if (observation.score) previousScore = observation.score;
-  }
-  return evidence;
+      timestamp: round(item.timestamp),
+      start: round(item.start),
+      end: round(item.end),
+      status: item.status,
+      scoreBefore: item.scoreBefore,
+      scoreAfter: item.scoreAfter,
+      detectedScoreText: item.detectedScoreText,
+      clock: item.clock,
+      temporalConsistency: item.temporalConsistency,
+      confidence: round(item.confidence),
+      source: item.source,
+      regionId: item.regionId,
+      preprocessingVariant: item.preprocessingVariant,
+      ambiguityReasons: item.ambiguityReasons,
+    }));
 }
 
 function execFileRunner(command, args, options = {}) {

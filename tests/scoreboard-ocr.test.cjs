@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { mkdirSync, rmSync, writeFileSync } = require("node:fs");
+const { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } = require("node:fs");
 const { join } = require("node:path");
 
 const {
@@ -18,12 +18,18 @@ const {
   selectOcrFrames,
   selectOcrSamplingWindows,
   validateScoreboardOcrOutput,
+  SCOREBOARD_OCR_QA_LATEST_RELATIVE_PATH,
+  SCOREBOARD_OCR_QA_RELATIVE_DIR,
 } = require("../server/scoreboard-ocr.cjs");
 const {
   buildScoreboardEvidenceFromObservations,
   parseClock,
   parseScoreboardScore,
 } = require("../server/adapters/local-ocr-adapter.cjs");
+const {
+  buildStableScoreTimeline,
+  readScoreboardCandidate,
+} = require("../server/scoreboard-reader.cjs");
 const { CONFIG } = require("../server/config.cjs");
 const { safeResolve } = require("../server/storage.cjs");
 
@@ -141,10 +147,11 @@ test("local OCR parsing extracts scores clocks and transitions safely", () => {
     { timestamp: 38, text: "HOME 1-0 AWAY", confidence: 0.8 },
   ]);
   assert.equal(evidence[0].status, "ambiguous");
-  assert.equal(evidence[1].status, "score_changed");
-  assert.equal(evidence[1].scoreBefore, "0-0");
-  assert.equal(evidence[1].scoreAfter, "1-0");
-  assert.equal(evidence[2].status, "score_unchanged");
+  assert.equal(evidence[1].status, "ambiguous");
+  assert.equal(evidence[1].ambiguityReasons.includes("score_change_needs_confirmation"), true);
+  assert.equal(evidence[2].status, "score_changed");
+  assert.equal(evidence[2].scoreBefore, "0-0");
+  assert.equal(evidence[2].scoreAfter, "1-0");
 
   const clockOnly = buildScoreboardEvidenceFromObservations([
     { timestamp: 12, text: "12:44", confidence: 0.8 },
@@ -162,11 +169,49 @@ test("local OCR parsing extracts scores clocks and transitions safely", () => {
     { timestamp: 10, text: "HOME 0-0 AWAY", confidence: 0.8 },
     { timestamp: 24, text: "HOME 1-0 AWAY", confidence: 0.8 },
     { timestamp: 38, text: "HOME 0-0 AWAY", confidence: 0.8 },
+    { timestamp: 44, text: "HOME 0-0 AWAY", confidence: 0.8 },
   ]);
-  assert.equal(revertedGoal[1].status, "score_changed");
-  assert.equal(revertedGoal[2].status, "goal_removed");
-  assert.equal(revertedGoal[2].scoreBefore, "1-0");
-  assert.equal(revertedGoal[2].scoreAfter, "0-0");
+  assert.equal(revertedGoal[1].status, "ambiguous");
+  assert.equal(revertedGoal[2].status, "score_unchanged");
+  assert.equal(revertedGoal[3].status, "score_unchanged");
+});
+
+test("scoreboard reader contract normalizes candidates and requires stable score changes", () => {
+  const readable = readScoreboardCandidate({
+    timestamp: 12,
+    text: "ARG 1 0 ALG",
+    score: { home: 1, away: 0 },
+    confidence: 0.8,
+    regionId: "scorebug_broadcast_compact",
+    preprocessingVariant: "gray_line",
+  });
+  assert.equal(readable.status, "readable");
+  assert.equal(readable.homeScore, 1);
+  assert.equal(readable.awayScore, 0);
+  assert.equal(readable.scoreText, "1-0");
+  assert.doesNotMatch(JSON.stringify(readable), /\/Users|storageKey|token|secret|stdout|stderr/i);
+
+  const timeline = buildStableScoreTimeline([
+    { timestamp: 5, text: "HOME 0-0 AWAY", score: { home: 0, away: 0 }, confidence: 0.8 },
+    { timestamp: 20, text: "HOME 1-0 AWAY", score: { home: 1, away: 0 }, confidence: 0.8 },
+    { timestamp: 26, text: "HOME 1-0 AWAY", score: { home: 1, away: 0 }, confidence: 0.8 },
+    { timestamp: 34, text: "HOME 0-0 AWAY", score: { home: 0, away: 0 }, confidence: 0.8 },
+    { timestamp: 38, text: "HOME 0-0 AWAY", score: { home: 0, away: 0 }, confidence: 0.8 },
+    { timestamp: 42, text: "HOME 3-0 AWAY", score: { home: 3, away: 0 }, confidence: 0.8 },
+  ]);
+  assert.equal(timeline[0].status, "ambiguous");
+  assert.equal(timeline[1].status, "ambiguous");
+  assert.equal(timeline[1].ambiguityReasons.includes("score_change_needs_confirmation"), true);
+  assert.equal(timeline[2].status, "score_changed");
+  assert.equal(timeline[2].scoreBefore, "0-0");
+  assert.equal(timeline[2].scoreAfter, "1-0");
+  assert.equal(timeline[3].status, "ambiguous");
+  assert.equal(timeline[3].ambiguityReasons.includes("score_change_needs_confirmation"), true);
+  assert.equal(timeline[4].status, "goal_removed");
+  assert.equal(timeline[4].scoreBefore, "1-0");
+  assert.equal(timeline[4].scoreAfter, "0-0");
+  assert.equal(timeline[5].status, "ambiguous");
+  assert.equal(timeline[5].ambiguityReasons.includes("impossible_or_non_unit_score_transition"), true);
 });
 
 test("local scoreboard OCR falls back when disabled or binary is unavailable", async () => {
@@ -218,7 +263,7 @@ test("local scoreboard OCR reads cropped frame text into score-change evidence",
     assert.equal(result.providerMode, "local-scoreboard-ocr-command");
     assert.equal(result.fallbackUsed, false);
     assert.equal(result.summary.scoreChangeCount, 1);
-    assert.equal(result.summary.scoreUnchangedCount >= 1, true);
+    assert.equal(result.summary.ambiguousCount >= 2, true);
     assert.equal(result.summary.sampledFrameCount, 3);
     assert.equal(result.summary.preprocessingVariantCount, 4);
     assert.equal(result.summary.regionIdsUsed.length >= 1, true);
@@ -226,6 +271,57 @@ test("local scoreboard OCR reads cropped frame text into score-change evidence",
     assert.doesNotMatch(JSON.stringify(publicScoreboardOcr(result)), /\/Users|storageKey|localPath|token|secret|stdout|stderr|raw/i);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("local scoreboard OCR writes opt-in crop QA report with safe relative refs", async () => {
+  const { dir, frames } = createFrameFixtures();
+  const runId = `scoreboard-qa-test-${Date.now()}`;
+  let calls = 0;
+  try {
+    const result = await analyzeScoreboardOcr({
+      metadata,
+      mode: "local",
+      enabled: true,
+      qaArtifactsEnabled: true,
+      qaRunId: runId,
+      commandChecker: () => true,
+      frames,
+      cropper: async ({ outputDir, frameIndex, region }) => {
+        const cropPath = safeResolve(outputDir, `crop_${frameIndex}_${region.id}.png`);
+        mkdirSync(outputDir, { recursive: true });
+        writeFileSync(cropPath, "fake-crop", "utf8");
+        return cropPath;
+      },
+      ocrRunner: async () => {
+        const text = calls === 0 ? "HOME 0-0 AWAY 10:00" : "HOME 1-0 AWAY 24:00";
+        calls += 1;
+        return { stdout: text };
+      },
+    });
+
+    assert.equal(result.providerMode, "local-scoreboard-ocr-command");
+    assert.equal(result.qaReport.enabled, true);
+    assert.equal(result.qaReport.latestPath, SCOREBOARD_OCR_QA_LATEST_RELATIVE_PATH);
+    assert.match(result.qaReport.reportPath, /^demo\/results\/ocr-scoreboard-qa-/);
+    assert.match(result.qaReport.contactSheetPath, new RegExp(`^${SCOREBOARD_OCR_QA_RELATIVE_DIR}/ocr-scoreboard-`));
+    assert.equal(result.qaReport.cropCount > 0, true);
+    assert.equal(result.qaReport.attemptCount > 0, true);
+    const reportPath = join(process.cwd(), result.qaReport.reportPath);
+    const latestPath = join(process.cwd(), result.qaReport.latestPath);
+    const contactPath = join(process.cwd(), result.qaReport.contactSheetPath);
+    assert.equal(existsSync(reportPath), true);
+    assert.equal(existsSync(latestPath), true);
+    assert.equal(existsSync(contactPath), true);
+    const report = JSON.parse(readFileSync(reportPath, "utf8"));
+    assert.equal(report.kind, "scoreboard-ocr-qa-report");
+    assert.equal(report.relativeRefsOnly, true);
+    assert.equal(report.cropArtifacts.cropCount, result.qaReport.cropCount);
+    assert.equal(report.ocrAttempts.some((attempt) => attempt.ocrText), true);
+    assert.doesNotMatch(JSON.stringify(report), /\/Users|\/private|storageKey|localPath|token|secret|stdout|stderr/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(join(process.cwd(), SCOREBOARD_OCR_QA_RELATIVE_DIR, `ocr-scoreboard-${runId}`), { recursive: true, force: true });
   }
 });
 

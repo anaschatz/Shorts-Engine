@@ -270,6 +270,13 @@ function validateScoreboardOcrConfig(input = {}) {
       min: 250,
       max: 60 * 1000,
     }),
+    qaArtifactsEnabled: Boolean(input.qaArtifactsEnabled),
+    qaArtifactRetention: validatePositiveIntegerConfig(input.qaArtifactRetention, {
+      name: "scoreboard OCR QA artifact retention",
+      fallback: 8,
+      min: 1,
+      max: 50,
+    }),
   };
 }
 
@@ -305,6 +312,10 @@ const SCOREBOARD_OCR_CONFIG = validateScoreboardOcrConfig({
   provider: process.env.SHORTSENGINE_SCOREBOARD_OCR_PROVIDER || "deterministic",
   bin: process.env.SHORTSENGINE_SCOREBOARD_OCR_BIN || DEFAULT_SCOREBOARD_OCR_BIN,
   timeoutMs: process.env.SHORTSENGINE_SCOREBOARD_OCR_TIMEOUT_MS,
+  qaArtifactsEnabled: boolFromEnv(process.env.SHORTSENGINE_SCOREBOARD_OCR_QA_ARTIFACTS) ||
+    boolFromEnv(process.env.SHORTSENGINE_OCR_QA_ARTIFACTS),
+  qaArtifactRetention: process.env.SHORTSENGINE_SCOREBOARD_OCR_QA_ARTIFACT_RETENTION ||
+    process.env.SHORTSENGINE_OCR_QA_ARTIFACT_RETENTION,
 });
 
 const PORT = validatePositiveIntegerConfig(process.env.PORT, {
