@@ -204,6 +204,9 @@ function buildScoreboardEvidenceFromObservations(observations = []) {
         rejected,
         confidence: Number(observation.confidence || confidenceForObservation({ text, score, clock, rejected })),
         reading,
+        imageSegmentationStatus: sanitizeText(observation.imageSegmentationStatus || "", 40) || null,
+        imageDecoderStatus: sanitizeText(observation.imageDecoderStatus || "", 40) || null,
+        imageDecoderMode: sanitizeText(observation.imageDecoderMode || "", 40) || null,
       };
     })
     .filter((observation) => Number.isFinite(observation.timestamp))
@@ -237,6 +240,9 @@ function buildScoreboardEvidenceFromObservations(observations = []) {
       source: item.source,
       regionId: item.regionId,
       preprocessingVariant: item.preprocessingVariant,
+      imageSegmentationStatus: item.imageSegmentationStatus,
+      imageDecoderStatus: item.imageDecoderStatus,
+      imageDecoderMode: item.imageDecoderMode,
       ambiguityReasons: item.ambiguityReasons,
     }));
 }

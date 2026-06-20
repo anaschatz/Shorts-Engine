@@ -129,6 +129,11 @@ const CELEBRATION_SUPPORT_CODES = Object.freeze([
 const GOAL_PHASE_LOOKBACK_SECONDS = 22;
 const GOAL_PHASE_MIN_PRE_SHOT_SECONDS = 10;
 const GOAL_PHASE_MAX_PRE_SHOT_SECONDS = 15;
+const SCORE_CHANGE_MIN_CONFIDENCE = 0.72;
+const SCORE_CHANGE_STRONG_CONFIDENCE = 0.86;
+const SCORE_CHANGE_REVERT_LOOKAHEAD_SECONDS = 28;
+const SCORE_CHANGE_CONFIRMATION_SECONDS = 8;
+const SCORE_CHANGE_POST_SECONDS = 4;
 
 const SENSITIVE_RE = /\/Users\/|\/private\/|storageKey|localPath|fullPath|absolutePath|Bearer\s+|OPENAI_API_KEY|api[_-]?key|token|secret|stderr|stdout|rawOcr|rawText/i;
 const SAFE_SCORE_RE = /^\d{1,2}\s*[-:]\s*\d{1,2}$/;
@@ -321,6 +326,48 @@ function normalizeScoreField(value) {
   if (value == null || value === "") return null;
   const text = sanitizeText(typeof value === "object" ? value.text || value.scoreText : value, 16);
   return SAFE_SCORE_RE.test(text) ? text.replace(/\s+/g, "") : null;
+}
+
+function parseScoreValue(value) {
+  const text = normalizeScoreField(value);
+  if (!text) return null;
+  const [home, away] = text.split("-").map((part) => Number(part));
+  if (!Number.isInteger(home) || !Number.isInteger(away)) return null;
+  if (home < 0 || away < 0 || home > 30 || away > 30) return null;
+  return { home, away, text };
+}
+
+function scoreTotal(score) {
+  return score ? Number(score.home || 0) + Number(score.away || 0) : 0;
+}
+
+function scoreDelta(before, after) {
+  if (!before || !after) return 0;
+  return Math.abs(after.home - before.home) + Math.abs(after.away - before.away);
+}
+
+function sameScore(a, b) {
+  return Boolean(a && b && a.home === b.home && a.away === b.away);
+}
+
+function scoreDirection(before, after) {
+  const delta = scoreDelta(before, after);
+  if (!before || !after) return "unknown";
+  if (delta === 0) return "same";
+  if (delta !== 1) return "ambiguous";
+  const totalDelta = scoreTotal(after) - scoreTotal(before);
+  if (totalDelta === 1) return "increase";
+  if (totalDelta === -1) return "decrease";
+  return "ambiguous";
+}
+
+function scoreTeamSide(before, after) {
+  if (!before || !after) return "unknown";
+  if (after.home - before.home === 1 && after.away === before.away) return "home";
+  if (after.away - before.away === 1 && after.home === before.home) return "away";
+  if (before.home - after.home === 1 && after.away === before.away) return "home";
+  if (before.away - after.away === 1 && after.home === before.home) return "away";
+  return "unknown";
 }
 
 function normalizeTeams(value) {
@@ -634,6 +681,281 @@ function normalizeOptionalWindow(window, minStart, maxEnd, nullable = false) {
   return { start, end };
 }
 
+function safeDecoderStatus(item = {}) {
+  const status = sanitizeText(item.decoderStatus || item.imageDecoderStatus || "unknown", 40);
+  return status || "unknown";
+}
+
+function safeImageSegmentationStatus(item = {}) {
+  const status = sanitizeText(item.imageSegmentationStatus || item.segmentationStatus || "unknown", 40);
+  return status || "unknown";
+}
+
+function scoreObservationReasonCodes(item = {}, calibration = null) {
+  const codes = [];
+  const status = sanitizeText(item.status || "", 40);
+  if (item.scoreChanged || status === "score_changed" || status === "goal_confirmed") codes.push("scoreboard_ocr_score_change");
+  if (item.scoreReverted || status === "goal_removed") codes.push("scoreboard_ocr_goal_removed");
+  if (item.scoreUnchanged || status === "score_unchanged") codes.push("scoreboard_ocr_score_unchanged");
+  if (item.temporalConsistency) codes.push("scoreboard_temporal_consistency");
+  if (item.ambiguous) codes.push("scoreboard_ocr_ambiguous");
+  if (calibration && calibration.usable) codes.push("ocr_qa_calibrated");
+  return uniqueCodes(codes, 12);
+}
+
+function normalizeScoreTimelineObservation(item = {}, index = 0, calibration = null) {
+  const before = parseScoreValue(item.scoreBefore);
+  const after = parseScoreValue(item.scoreAfter);
+  const direction = scoreDirection(before, after);
+  const confidence = round(clamp(item.confidence, 0, 1));
+  const isStable = Boolean(item.temporalConsistency) &&
+    !item.ambiguous &&
+    confidence >= SCORE_CHANGE_MIN_CONFIDENCE &&
+    before &&
+    after &&
+    direction !== "ambiguous" &&
+    direction !== "unknown";
+  return {
+    id: sanitizeText(item.id || `score_observation_${index + 1}`, 80),
+    timestamp: round(seconds(item.timestamp)),
+    homeScore: after ? after.home : null,
+    awayScore: after ? after.away : null,
+    scoreBefore: before ? before.text : null,
+    scoreAfter: after ? after.text : null,
+    confidence,
+    source: sanitizeText(item.source || "ocr", 60),
+    decoderStatus: safeDecoderStatus(item),
+    imageSegmentationStatus: safeImageSegmentationStatus(item),
+    isStable,
+    reasonCodes: scoreObservationReasonCodes(item, calibration),
+    status: sanitizeText(item.status || "unknown", 40),
+    temporalConsistency: Boolean(item.temporalConsistency),
+    ambiguous: Boolean(item.ambiguous),
+  };
+}
+
+function scoreChangeAuthority(item = {}, calibration = null) {
+  const confidence = Number(item.confidence || 0);
+  const calibrated = Boolean(calibration && calibration.usable && calibration.decisionSupportLevel === "strong");
+  const decoderBacked = safeDecoderStatus(item) === "decoded" ||
+    safeImageSegmentationStatus(item) === "readable" ||
+    /scorebug_digit_reader|digit_scorebug/i.test(String(item.source || ""));
+  return Boolean(item.temporalConsistency) &&
+    !item.ambiguous &&
+    (calibrated || (decoderBacked && confidence >= SCORE_CHANGE_STRONG_CONFIDENCE));
+}
+
+function scoreChangePersistedDuration(item = {}, nextRevert = null, duration = 0) {
+  const timestamp = seconds(item.timestamp);
+  if (nextRevert) return Math.max(0, round(seconds(nextRevert.timestamp) - timestamp));
+  const fallbackEnd = duration > timestamp ? Math.min(duration, timestamp + SCORE_CHANGE_CONFIRMATION_SECONDS) : timestamp + SCORE_CHANGE_CONFIRMATION_SECONDS;
+  return Math.max(0, round(fallbackEnd - timestamp));
+}
+
+function matchingRevertForScoreChange(change = {}, laterItems = []) {
+  const before = parseScoreValue(change.scoreBefore);
+  const after = parseScoreValue(change.scoreAfter);
+  if (!before || !after) return null;
+  const changeTime = seconds(change.timestamp);
+  return laterItems.find((item) => {
+    const itemTime = seconds(item.timestamp);
+    if (itemTime <= changeTime || itemTime - changeTime > SCORE_CHANGE_REVERT_LOOKAHEAD_SECONDS) return false;
+    if (!item.scoreReverted || item.ambiguous || !item.temporalConsistency) return false;
+    return sameScore(parseScoreValue(item.scoreBefore), after) && sameScore(parseScoreValue(item.scoreAfter), before);
+  }) || null;
+}
+
+function normalizeScoreChanges(ocrEvidence = [], calibration = null, metadata = {}) {
+  const duration = seconds(metadata.durationSeconds, 0);
+  const stableItems = (Array.isArray(ocrEvidence) ? ocrEvidence : [])
+    .filter((item) => item && typeof item === "object")
+    .sort((a, b) => seconds(a.timestamp) - seconds(b.timestamp));
+  const changes = [];
+  const consumedReverts = new Set();
+  for (const item of stableItems) {
+    if (consumedReverts.has(item.id)) continue;
+    const before = parseScoreValue(item.scoreBefore);
+    const after = parseScoreValue(item.scoreAfter);
+    const direction = scoreDirection(before, after);
+    if (!before || !after || direction === "same" || direction === "unknown" || direction === "ambiguous") continue;
+    if (!scoreChangeAuthority(item, calibration)) {
+      changes.push({
+        id: sanitizeText(item.id || `score_change_${changes.length + 1}`, 80),
+        startScore: before.text,
+        endScore: after.text,
+        changeTime: round(seconds(item.timestamp)),
+        teamSide: scoreTeamSide(before, after),
+        scoreDelta: scoreDelta(before, after),
+        confidence: round(clamp(item.confidence, 0, 1)),
+        persistedDuration: 0,
+        reverted: false,
+        revertedAt: null,
+        outcome: "uncertain_review",
+        reasonCodes: uniqueCodes(["scoreboard_ocr_ambiguous"], 8),
+      });
+      continue;
+    }
+    if (direction === "decrease" || item.scoreReverted) {
+      changes.push({
+        id: sanitizeText(item.id || `score_revert_${changes.length + 1}`, 80),
+        startScore: before.text,
+        endScore: after.text,
+        changeTime: round(seconds(item.timestamp)),
+        teamSide: scoreTeamSide(before, after),
+        scoreDelta: scoreDelta(before, after),
+        confidence: round(clamp(item.confidence, 0, 1)),
+        persistedDuration: 0,
+        reverted: true,
+        revertedAt: round(seconds(item.timestamp)),
+        outcome: "disallowed_goal",
+        reasonCodes: uniqueCodes(["scoreboard_ocr_goal_removed", "scoreboard_temporal_consistency"], 8),
+      });
+      continue;
+    }
+    const revert = matchingRevertForScoreChange(item, stableItems);
+    if (revert && revert.id) consumedReverts.add(revert.id);
+    changes.push({
+      id: sanitizeText(item.id || `score_change_${changes.length + 1}`, 80),
+      startScore: before.text,
+      endScore: after.text,
+      changeTime: round(seconds(item.timestamp)),
+      teamSide: scoreTeamSide(before, after),
+      scoreDelta: scoreDelta(before, after),
+      confidence: round(clamp(item.confidence, 0, 1)),
+      persistedDuration: scoreChangePersistedDuration(item, revert, duration),
+      reverted: Boolean(revert),
+      revertedAt: revert ? round(seconds(revert.timestamp)) : null,
+      outcome: revert ? "disallowed_goal" : "counted_goal",
+      reasonCodes: uniqueCodes([
+        "scoreboard_ocr_score_change",
+        "scoreboard_temporal_consistency",
+        ...(revert ? ["scoreboard_ocr_goal_removed"] : []),
+      ], 8),
+    });
+  }
+  return changes.slice(0, MAX_EVENTS);
+}
+
+function scoreChangeCoveredByDecision(change = {}, decisions = []) {
+  const changeTime = seconds(change.changeTime);
+  return (Array.isArray(decisions) ? decisions : []).some((decision) => (
+    changeTime >= seconds(decision.sourceStart) - 2 &&
+    changeTime <= seconds(decision.sourceEnd) + 2 &&
+    ["confirmed_goal", "disallowed_offside", "disallowed_no_goal"].includes(decision.type)
+  ));
+}
+
+function scoreChangeVisualContext(change = {}, visualSignals = {}, metadata = {}) {
+  const changeTime = seconds(change.changeTime);
+  const duration = seconds(metadata.durationSeconds, changeTime + SCORE_CHANGE_POST_SECONDS);
+  const left = Math.max(0, changeTime - GOAL_PHASE_LOOKBACK_SECONDS);
+  const right = Math.min(duration || changeTime + SCORE_CHANGE_POST_SECONDS, changeTime + SCORE_CHANGE_POST_SECONDS);
+  const contextWindows = sortedWindows(windowsInRange(visualSignals, left, right, 2));
+  const liveWindows = contextWindows.filter((window) => {
+    const codes = visualReasonCodesForWindow(window);
+    return hasAny(codes, LIVE_GOAL_PHASE_CODES) &&
+      !hasAny(codes, REPLAY_SUPPORT_CODES) &&
+      !hasAny(codes, CELEBRATION_SUPPORT_CODES);
+  });
+  const shotWindows = contextWindows.filter((window) => hasAny(visualReasonCodesForWindow(window), SHOT_CODES));
+  const finishWindows = contextWindows.filter((window) => hasAny(visualReasonCodesForWindow(window), GOAL_FINISH_CODES));
+  const decisionWindows = contextWindows.filter((window) => hasAny(visualReasonCodesForWindow(window), DECISION_CODES));
+  const shotStart = firstWindowTime(liveWindows.length ? liveWindows : shotWindows, SHOT_CODES, null);
+  const liveActionStart = firstWindowStart(liveWindows, shotStart == null ? null : Math.max(0, shotStart - GOAL_PHASE_MIN_PRE_SHOT_SECONDS));
+  const finishTime = lastWindowTime(finishWindows, GOAL_FINISH_CODES, changeTime);
+  const decisionStart = firstWindowStart(decisionWindows, changeTime);
+  const replayUsed = contextWindows.some((window) => hasAny(visualReasonCodesForWindow(window), REPLAY_SUPPORT_CODES));
+  const replayOnly = replayUsed && !liveWindows.length;
+  const hasShot = shotStart != null;
+  const hasFinish = finishWindows.length > 0 || change.outcome === "counted_goal";
+  const sourceStart = hasShot
+    ? round(Math.max(0, Math.min(liveActionStart == null ? shotStart : liveActionStart, shotStart - GOAL_PHASE_MIN_PRE_SHOT_SECONDS)))
+    : round(Math.max(0, changeTime - GOAL_PHASE_MIN_PRE_SHOT_SECONDS));
+  const sourceEnd = round(Math.min(duration || changeTime + SCORE_CHANGE_POST_SECONDS, Math.max(changeTime + 2, finishTime + 3, sourceStart + 8)));
+  return {
+    sourceStart,
+    sourceEnd,
+    buildupWindow: { start: sourceStart, end: round(Math.max(sourceStart + 0.5, shotStart == null ? changeTime : shotStart)) },
+    shotWindow: { start: round(shotStart == null ? Math.max(sourceStart, changeTime - 3) : shotStart), end: round(Math.max((shotStart == null ? changeTime - 2 : shotStart) + 0.5, finishTime)) },
+    payoffWindow: { start: round(Math.max(sourceStart, Math.min(finishTime, changeTime))), end: round(Math.max(finishTime + 0.5, changeTime)) },
+    reactionWindow: { start: round(changeTime), end: round(Math.min(duration || changeTime + SCORE_CHANGE_POST_SECONDS, changeTime + SCORE_CHANGE_POST_SECONDS)) },
+    decisionWindow: { start: round(decisionStart == null ? changeTime : decisionStart), end: round(Math.min(duration || changeTime + SCORE_CHANGE_POST_SECONDS, Math.max(changeTime + 1, sourceEnd))) },
+    phaseCoverage: {
+      hasBuildup: hasShot && sourceStart <= shotStart - 6,
+      hasShot,
+      hasFinish,
+      hasConfirmation: true,
+      liveActionStart: round(liveActionStart == null ? sourceStart : liveActionStart),
+      shotStart: round(shotStart == null ? Math.max(sourceStart, changeTime - 3) : shotStart),
+      finishTime: round(finishTime),
+      confirmationTime: round(changeTime),
+      replayUsed,
+      replayOnly,
+    },
+    visualCodes: visualCodesForRange(visualSignals, left, right),
+  };
+}
+
+function buildScoreChangeDecision({ change, visualSignals, metadata, index }) {
+  const context = scoreChangeVisualContext(change, visualSignals, metadata);
+  const hasLiveAction = context.phaseCoverage.hasShot && !context.phaseCoverage.replayOnly;
+  const isCounted = change.outcome === "counted_goal";
+  const isDisallowed = change.outcome === "disallowed_goal";
+  const type = isCounted && hasLiveAction
+    ? "confirmed_goal"
+    : isDisallowed
+      ? "disallowed_no_goal"
+      : "possible_goal_unconfirmed";
+  const evidenceCodes = uniqueCodes([
+    ...context.visualCodes,
+    ...change.reasonCodes,
+    ...(isCounted ? ["scoreboard_backed_goal_sequence"] : []),
+    ...(hasLiveAction ? ["shot_sequence_support", "live_shot_finish_sequence"] : []),
+  ], 32);
+  const missingEvidence = [];
+  if (!hasLiveAction) missingEvidence.push("live_goal_phase");
+  if (context.phaseCoverage.replayOnly) missingEvidence.push("live_goal_phase");
+  if (!isCounted && !isDisallowed) missingEvidence.push("stable_counted_goal_decision");
+  return normalizeDecision({
+    id: `score_change_truth_${index + 1}`,
+    type,
+    outcome: goalOutcomeForType(type),
+    confidence: round(clamp(change.confidence, 0.05, 0.98)),
+    ...context,
+    evidenceCodes,
+    missingEvidence,
+    safetyFlags: uniqueCodes([
+      "scorebug_truth_integration",
+      "no_false_goal_from_ocr_only",
+      ...(context.phaseCoverage.replayOnly ? ["replay_only_rejected_as_primary_goal"] : []),
+    ], MAX_FLAGS),
+    scoreBefore: change.startScore,
+    scoreAfter: change.endScore,
+    captionIntent: captionIntentForType(type),
+    renderPriority: typePriority(type) + 700 + Math.min(250, seconds(change.changeTime) / 2),
+  }, index, metadata);
+}
+
+function buildScoreChangeTruthDecisions({ scoreChanges = [], existingEvents = [], visualSignals = {}, metadata = {} } = {}) {
+  const decisions = [];
+  const rejected = [];
+  for (const change of Array.isArray(scoreChanges) ? scoreChanges : []) {
+    if (scoreChangeCoveredByDecision(change, [...existingEvents, ...decisions])) continue;
+    const decision = buildScoreChangeDecision({
+      change,
+      visualSignals,
+      metadata,
+      index: decisions.length + rejected.length,
+    });
+    if (decision.type === "confirmed_goal" || decision.type === "disallowed_no_goal" || decision.type === "disallowed_offside") {
+      decisions.push(decision);
+    } else {
+      rejected.push(decision);
+    }
+  }
+  return { decisions, rejected };
+}
+
 function buildGoalDecision({ event, metadata, mediaSignals, visualSignals, ocrEvidence, ocrQaCalibration, index }) {
   const duration = seconds(metadata.durationSeconds, seconds(event.end, 0));
   const start = seconds(event.start);
@@ -795,6 +1117,28 @@ function validateMatchEventTruthOutput(output, metadata = {}) {
   if (!output || typeof output !== "object" || Array.isArray(output) || hasUnsafeValue(output)) {
     throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
   }
+  const scoreTimelineObservations = (Array.isArray(output.scoreTimelineObservations) ? output.scoreTimelineObservations : [])
+    .map((item, index) => normalizeScoreTimelineObservation(item, index, output.ocrQaCalibration))
+    .slice(0, MAX_EVENTS);
+  const scoreChanges = (Array.isArray(output.scoreChanges) ? output.scoreChanges : [])
+    .map((change, index) => ({
+      id: sanitizeText(change.id || `score_change_${index + 1}`, 80),
+      startScore: normalizeScoreField(change.startScore),
+      endScore: normalizeScoreField(change.endScore),
+      changeTime: round(seconds(change.changeTime)),
+      teamSide: sanitizeText(change.teamSide || "unknown", 16),
+      scoreDelta: Math.max(0, Math.min(3, Math.round(Number(change.scoreDelta || 0)))),
+      confidence: round(clamp(change.confidence, 0, 1)),
+      persistedDuration: round(clamp(change.persistedDuration, 0, 300)),
+      reverted: Boolean(change.reverted),
+      revertedAt: change.revertedAt == null ? null : round(seconds(change.revertedAt)),
+      outcome: ["counted_goal", "disallowed_goal", "uncertain_review"].includes(change.outcome)
+        ? change.outcome
+        : "uncertain_review",
+      reasonCodes: uniqueCodes(change.reasonCodes, 12),
+    }))
+    .filter((change) => change.startScore && change.endScore && change.scoreDelta === 1)
+    .slice(0, MAX_EVENTS);
   const events = (Array.isArray(output.events) ? output.events : [])
     .map((event, index) => normalizeDecision(event, index, metadata))
     .sort((a, b) => b.renderPriority - a.renderPriority || a.sourceStart - b.sourceStart)
@@ -806,6 +1150,22 @@ function validateMatchEventTruthOutput(output, metadata = {}) {
   const disallowedGoalCount = events.filter((event) => event.type === "disallowed_offside" || event.type === "disallowed_no_goal").length;
   const possibleGoalCount = events.filter((event) => event.type === "possible_goal_unconfirmed").length;
   const lateCutoff = Math.max(0, seconds(metadata.durationSeconds, 0) * 0.66);
+  const countedGoalEventCount = scoreChanges.filter((change) => change.outcome === "counted_goal").length;
+  const disallowedGoalEventCount = scoreChanges.filter((change) => change.outcome === "disallowed_goal").length;
+  const uncertainReviewItems = [
+    ...scoreChanges.filter((change) => change.outcome === "uncertain_review").map((change) => `score_change_${change.id}`),
+    ...rejectedEvents.filter((event) => event.type === "possible_goal_unconfirmed").map((event) => event.id),
+  ].slice(0, MAX_MISSING);
+  const missedGoalReasons = [
+    ...(countedGoalEventCount > confirmedGoalCount ? ["counted_score_change_not_selected"] : []),
+    ...(scoreTimelineObservations.some((item) => item.reasonCodes.includes("scoreboard_ocr_ambiguous")) ? ["ambiguous_scorebug_observation"] : []),
+    ...(rejectedEvents.some((event) => event.missingEvidence.includes("live_goal_phase")) ? ["missing_live_goal_phase"] : []),
+  ].slice(0, MAX_MISSING);
+  const decoderStatuses = scoreTimelineObservations.reduce((acc, item) => {
+    const status = sanitizeText(item.decoderStatus || "unknown", 40);
+    acc[status] = (acc[status] || 0) + 1;
+    return acc;
+  }, {});
   return {
     schemaVersion: MATCH_EVENT_TRUTH_VERSION,
     providerMode: sanitizeText(output.providerMode || "deterministic-match-event-truth", 60),
@@ -822,6 +1182,8 @@ function validateMatchEventTruthOutput(output, metadata = {}) {
       : null,
     events,
     rejectedEvents,
+    scoreTimelineObservations,
+    scoreChanges,
     summary: {
       eventCount: events.length,
       confirmedGoalCount,
@@ -830,6 +1192,15 @@ function validateMatchEventTruthOutput(output, metadata = {}) {
       chanceOrSaveCount: events.filter((event) => event.type === "big_chance" || event.type === "save").length,
       rejectedEventCount: rejectedEvents.length,
       lateConfirmedGoalCount: events.filter((event) => event.type === "confirmed_goal" && event.sourceStart >= lateCutoff).length,
+      scoreTimelineObservationCount: scoreTimelineObservations.length,
+      scoreChangeCount: scoreChanges.length,
+      countedGoalEventCount,
+      disallowedGoalEventCount,
+      selectedGoalCount: confirmedGoalCount,
+      uncertainReviewItemCount: uncertainReviewItems.length,
+      uncertainReviewItems,
+      missedGoalReasons,
+      decoderStatusSummary: decoderStatuses,
       noFalseGoalFromOcrOnly: events.every((event) => (
         event.type !== "confirmed_goal" ||
         !event.evidenceCodes.includes("scoreboard_ocr_score_change") ||
@@ -853,6 +1224,8 @@ function analyzeMatchEventTruth(input = {}) {
     input.ocrEvidence || input.scoreboardOcr || (input.goalEvidence && input.goalEvidence.ocrEvidence),
     metadata,
   );
+  const scoreTimelineObservations = ocrEvidence.map((item, index) => normalizeScoreTimelineObservation(item, index, ocrQaCalibration));
+  const scoreChanges = normalizeScoreChanges(ocrEvidence, ocrQaCalibration, metadata);
   const goalEvents = Array.isArray(input.goalEvidence && input.goalEvidence.events) ? input.goalEvidence.events : [];
   const events = goalEvents.map((event, index) => buildGoalDecision({
     event,
@@ -863,16 +1236,22 @@ function analyzeMatchEventTruth(input = {}) {
     ocrQaCalibration,
     index,
   }));
+  const scoreChangeTruth = buildScoreChangeTruthDecisions({
+    scoreChanges,
+    existingEvents: events,
+    visualSignals,
+    metadata,
+  });
   const occupied = events.map((event) => ({ start: event.sourceStart, end: event.sourceEnd }));
   const visualEvents = (Array.isArray(visualSignals.windows) ? visualSignals.windows : [])
     .map((window, index) => buildVisualDecision({ window, mediaSignals: input.mediaSignals, metadata, index, occupied }))
     .filter(Boolean)
     .slice(0, 10);
-  const recoveryEvents = events.some((event) => event.type === "confirmed_goal")
+  const recoveryEvents = [...events, ...scoreChangeTruth.decisions].some((event) => event.type === "confirmed_goal")
     ? []
     : recoverConfirmedGoalClusters({ visualEvents, metadata });
-  const selectedEvents = [...events, ...recoveryEvents, ...visualEvents].filter((event) => event.type !== "neutral");
-  const rejectedEvents = [...events, ...visualEvents].filter((event) => (
+  const selectedEvents = [...events, ...scoreChangeTruth.decisions, ...recoveryEvents, ...visualEvents].filter((event) => event.type !== "neutral");
+  const rejectedEvents = [...events, ...scoreChangeTruth.rejected, ...visualEvents].filter((event) => (
     event.type === "possible_goal_unconfirmed" ||
     event.type === "crowd_reaction" ||
     event.missingEvidence.length > 0
@@ -883,6 +1262,8 @@ function analyzeMatchEventTruth(input = {}) {
     ocrQaCalibration,
     events: selectedEvents,
     rejectedEvents,
+    scoreTimelineObservations,
+    scoreChanges,
   }, metadata);
 }
 
@@ -894,6 +1275,8 @@ function publicMatchEventTruth(matchEventTruth) {
     ocrQaCalibration: safe.ocrQaCalibration,
     events: Array.isArray(safe.events) ? safe.events : [],
     rejectedEvents: Array.isArray(safe.rejectedEvents) ? safe.rejectedEvents : [],
+    scoreTimelineObservations: Array.isArray(safe.scoreTimelineObservations) ? safe.scoreTimelineObservations : [],
+    scoreChanges: Array.isArray(safe.scoreChanges) ? safe.scoreChanges : [],
   }, { durationSeconds: Number.MAX_SAFE_INTEGER });
   return {
     schemaVersion: normalized.schemaVersion,
@@ -903,6 +1286,8 @@ function publicMatchEventTruth(matchEventTruth) {
     summary: publicSummary(normalized.summary, safe.summary),
     selectedEvents: normalized.events.map(publicDecision),
     rejectedEvents: normalized.rejectedEvents.map(publicDecision),
+    scoreTimelineObservations: normalized.scoreTimelineObservations.map(publicScoreObservation),
+    scoreChanges: normalized.scoreChanges.map(publicScoreChange),
   };
 }
 
@@ -922,8 +1307,57 @@ function publicSummary(normalizedSummary = {}, originalSummary = {}) {
     chanceOrSaveCount: numeric("chanceOrSaveCount"),
     rejectedEventCount: numeric("rejectedEventCount"),
     lateConfirmedGoalCount: numeric("lateConfirmedGoalCount"),
+    scoreTimelineObservationCount: numeric("scoreTimelineObservationCount"),
+    scoreChangeCount: numeric("scoreChangeCount"),
+    countedGoalEventCount: numeric("countedGoalEventCount"),
+    disallowedGoalEventCount: numeric("disallowedGoalEventCount"),
+    selectedGoalCount: numeric("selectedGoalCount"),
+    uncertainReviewItemCount: numeric("uncertainReviewItemCount"),
+    missedGoalReasons: uniqueCodes(original.missedGoalReasons || normalizedSummary.missedGoalReasons, MAX_MISSING),
+    decoderStatusSummary: Object.fromEntries(Object.entries(
+      original.decoderStatusSummary && typeof original.decoderStatusSummary === "object"
+        ? original.decoderStatusSummary
+        : normalizedSummary.decoderStatusSummary || {},
+    )
+      .map(([key, value]) => [sanitizeText(key, 40), Math.max(0, Math.round(Number(value || 0)))])
+      .filter(([key]) => key)),
     noFalseGoalFromOcrOnly: numeric("noFalseGoalFromOcrOnly"),
     ocrQaSupportStatus: sanitizeText(original.ocrQaSupportStatus || normalizedSummary.ocrQaSupportStatus || "ignored", 32),
+  };
+}
+
+function publicScoreObservation(item = {}) {
+  return {
+    id: sanitizeText(item.id, 80),
+    timestamp: Number(item.timestamp || 0),
+    homeScore: Number.isInteger(item.homeScore) ? item.homeScore : null,
+    awayScore: Number.isInteger(item.awayScore) ? item.awayScore : null,
+    scoreBefore: normalizeScoreField(item.scoreBefore),
+    scoreAfter: normalizeScoreField(item.scoreAfter),
+    confidence: round(clamp(item.confidence, 0, 1)),
+    source: sanitizeText(item.source || "ocr", 60),
+    decoderStatus: sanitizeText(item.decoderStatus || "unknown", 40),
+    imageSegmentationStatus: sanitizeText(item.imageSegmentationStatus || "unknown", 40),
+    isStable: Boolean(item.isStable),
+    reasonCodes: uniqueCodes(item.reasonCodes, 12),
+    status: sanitizeText(item.status || "unknown", 40),
+  };
+}
+
+function publicScoreChange(change = {}) {
+  return {
+    id: sanitizeText(change.id, 80),
+    startScore: normalizeScoreField(change.startScore),
+    endScore: normalizeScoreField(change.endScore),
+    changeTime: Number(change.changeTime || 0),
+    teamSide: sanitizeText(change.teamSide || "unknown", 16),
+    scoreDelta: Number(change.scoreDelta || 0),
+    confidence: round(clamp(change.confidence, 0, 1)),
+    persistedDuration: Number(change.persistedDuration || 0),
+    reverted: Boolean(change.reverted),
+    revertedAt: change.revertedAt == null ? null : Number(change.revertedAt),
+    outcome: sanitizeText(change.outcome || "uncertain_review", 32),
+    reasonCodes: uniqueCodes(change.reasonCodes, 12),
   };
 }
 

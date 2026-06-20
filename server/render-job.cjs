@@ -962,6 +962,13 @@ async function runRenderJob(options) {
         disallowedGoalCount: matchEventTruth.summary && matchEventTruth.summary.disallowedGoalCount,
         possibleGoalCount: matchEventTruth.summary && matchEventTruth.summary.possibleGoalCount,
         lateConfirmedGoalCount: matchEventTruth.summary && matchEventTruth.summary.lateConfirmedGoalCount,
+        scoreTimelineObservationCount: matchEventTruth.summary && matchEventTruth.summary.scoreTimelineObservationCount,
+        scoreChangeCount: matchEventTruth.summary && matchEventTruth.summary.scoreChangeCount,
+        countedGoalEventCount: matchEventTruth.summary && matchEventTruth.summary.countedGoalEventCount,
+        disallowedGoalEventCount: matchEventTruth.summary && matchEventTruth.summary.disallowedGoalEventCount,
+        selectedGoalCount: matchEventTruth.summary && matchEventTruth.summary.selectedGoalCount,
+        missedGoalReasons: matchEventTruth.summary && matchEventTruth.summary.missedGoalReasons,
+        decoderStatusSummary: matchEventTruth.summary && matchEventTruth.summary.decoderStatusSummary,
         noFalseGoalFromOcrOnly: matchEventTruth.summary && matchEventTruth.summary.noFalseGoalFromOcrOnly,
         ocrQaSupportStatus: matchEventTruth.summary && matchEventTruth.summary.ocrQaSupportStatus,
       });
@@ -1059,6 +1066,12 @@ async function runRenderJob(options) {
             matchEventTruthConfirmedGoalCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.confirmedGoalCount,
             matchEventTruthDisallowedGoalCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.disallowedGoalCount,
             matchEventTruthPossibleGoalCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.possibleGoalCount,
+            matchEventTruthScoreTimelineObservationCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.scoreTimelineObservationCount,
+            matchEventTruthScoreChangeCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.scoreChangeCount,
+            matchEventTruthCountedGoalEventCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.countedGoalEventCount,
+            matchEventTruthDisallowedGoalEventCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.disallowedGoalEventCount,
+            matchEventTruthSelectedGoalCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.selectedGoalCount,
+            matchEventTruthMissedGoalReasons: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.missedGoalReasons,
             goalEvidenceCandidates: goalDiscovery && Array.isArray(goalDiscovery.goalEvidenceCandidates)
               ? goalDiscovery.goalEvidenceCandidates.slice(0, 12)
               : [],

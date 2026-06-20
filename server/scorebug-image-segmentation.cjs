@@ -306,6 +306,20 @@ function boxFromRoi(role, digit, roi, confidence) {
   };
 }
 
+function classifyDigitPair(image, homeRoi, awayRoi) {
+  const home = classifySevenSegmentDigit(image, homeRoi);
+  const away = classifySevenSegmentDigit(image, awayRoi);
+  if (!home || !away) {
+    return { home, away, readable: false, confidence: 0 };
+  }
+  return {
+    home,
+    away,
+    readable: true,
+    confidence: round(Math.min(home.confidence, away.confidence)),
+  };
+}
+
 function segmentLoadedImage({
   image,
   timestamp = 0,
@@ -342,33 +356,43 @@ function segmentLoadedImage({
     decoderStatus: image.decoderStatus,
     decoderMode: image.decoderMode,
   };
-  if (foregroundGroupCount > MAX_DIGIT_GROUPS) {
-    return ambiguous({
-      timestamp,
-      regionId,
-      reasons: ["clock_like_digit_group_rejected"],
-      details,
-    });
-  }
+  const fullCropHasExtraGroups = foregroundGroupCount > MAX_DIGIT_GROUPS;
   const homeRoi = safeRoi(calibration.homeDigitRoi, DEFAULT_HOME_ROI);
   const awayRoi = safeRoi(calibration.awayDigitRoi, DEFAULT_AWAY_ROI);
-  const home = classifySevenSegmentDigit(image, homeRoi);
-  const away = classifySevenSegmentDigit(image, awayRoi);
-  if (!home || !away) {
+  const layoutCandidates = [
+    { id: "focused_digit_roi", homeRoi, awayRoi },
+    { id: "legacy_wide_digit_roi", homeRoi: safeRoi({}, DEFAULT_HOME_ROI), awayRoi: safeRoi({}, DEFAULT_AWAY_ROI) },
+  ];
+  const attempts = layoutCandidates.map((candidate) => ({
+    ...candidate,
+    ...classifyDigitPair(image, candidate.homeRoi, candidate.awayRoi),
+  }));
+  const readable = attempts
+    .filter((attempt) => attempt.readable)
+    .sort((a, b) => b.confidence - a.confidence)[0];
+  const bestAttempt = readable || attempts.find((attempt) => attempt.home || attempt.away) || attempts[0];
+  if (!readable) {
     return ambiguous({
       timestamp,
       regionId,
-      reasons: [!home && !away ? "home_and_away_digits_unreadable" : "home_or_away_digit_unreadable"],
+      reasons: [
+        !bestAttempt.home && !bestAttempt.away ? "home_and_away_digits_unreadable" : "home_or_away_digit_unreadable",
+        ...(fullCropHasExtraGroups ? ["clock_like_digit_group_rejected"] : []),
+      ],
       details,
-      home,
-      away,
+      home: bestAttempt.home,
+      away: bestAttempt.away,
     });
   }
+  const home = readable.home;
+  const away = readable.away;
+  const selectedHomeRoi = readable.homeRoi;
+  const selectedAwayRoi = readable.awayRoi;
   const confidence = round(Math.min(home.confidence, away.confidence));
   const score = { home: home.digit, away: away.digit, text: `${home.digit}-${away.digit}` };
   const digitBoxes = [
-    boxFromRoi("home", home.digit, homeRoi, home.confidence),
-    boxFromRoi("away", away.digit, awayRoi, away.confidence),
+    boxFromRoi("home", home.digit, selectedHomeRoi, home.confidence),
+    boxFromRoi("away", away.digit, selectedAwayRoi, away.confidence),
   ];
   return {
     status: "readable",
@@ -388,7 +412,10 @@ function segmentLoadedImage({
       decoderMode: image.decoderMode ? sanitizeText(image.decoderMode, 32) : null,
       homeDigitCandidates: [{ digit: String(home.digit), confidence: home.confidence }],
       awayDigitCandidates: [{ digit: String(away.digit), confidence: away.confidence }],
-      reasons: [],
+      reasons: [
+        readable.id === "focused_digit_roi" ? "focused_digit_roi_used" : "legacy_wide_digit_roi_used",
+        ...(fullCropHasExtraGroups ? ["full_crop_had_extra_groups"] : []),
+      ],
     },
   };
 }

@@ -540,6 +540,9 @@ function normalizeOcrEvidenceItem(item = {}, metadata = {}, index = 0) {
     temporalConsistency,
     ambiguous,
     source: sanitizeText(item.source || "scoreboard_ocr_contract", 60),
+    imageSegmentationStatus: sanitizeText(item.imageSegmentationStatus || item.segmentationStatus || "", 40) || null,
+    imageDecoderStatus: sanitizeText(item.imageDecoderStatus || item.decoderStatus || "", 40) || null,
+    imageDecoderMode: sanitizeText(item.imageDecoderMode || item.decoderMode || "", 40) || null,
   };
 }
 
@@ -1094,6 +1097,9 @@ function publicGoalEvidence(goalEvidence) {
           scoreReverted: Boolean(item.scoreReverted),
           temporalConsistency: Boolean(item.temporalConsistency),
           ambiguous: Boolean(item.ambiguous),
+          imageSegmentationStatus: item.imageSegmentationStatus ? sanitizeText(item.imageSegmentationStatus, 40) : null,
+          imageDecoderStatus: item.imageDecoderStatus ? sanitizeText(item.imageDecoderStatus, 40) : null,
+          imageDecoderMode: item.imageDecoderMode ? sanitizeText(item.imageDecoderMode, 40) : null,
         }))
       : [],
     events: Array.isArray(safe.events)

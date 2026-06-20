@@ -491,6 +491,9 @@ function validateScoreboardOcrOutput(output = {}, metadata = {}) {
       scoreBefore: item.scoreBefore ? sanitizeText(item.scoreBefore, 16) : null,
       scoreAfter: item.scoreAfter ? sanitizeText(item.scoreAfter, 16) : null,
       temporalConsistency: Boolean(item.temporalConsistency),
+      imageSegmentationStatus: item.imageSegmentationStatus ? sanitizeText(item.imageSegmentationStatus, 40) : null,
+      imageDecoderStatus: item.imageDecoderStatus ? sanitizeText(item.imageDecoderStatus, 40) : null,
+      imageDecoderMode: item.imageDecoderMode ? sanitizeText(item.imageDecoderMode, 40) : null,
     }))
     .slice(0, MAX_SCOREBOARD_OCR_FRAMES);
   const qaReport = normalizeQaReportSummary(output.qaReport);
@@ -1230,6 +1233,7 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
               calibration: digitCalibration,
               signal: input.signal,
             }));
+            const digitSummary = digitReaderSummary(digitReading);
             const digitScore = digitReading.status === "readable" ? digitReading.score : null;
             const parsedScore = digitScore ||
               (ocr.rejected
@@ -1267,6 +1271,9 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
               confidence: digitScore ? digitReading.confidence : ocr.confidence,
               rejected: ocr.rejected,
               source: digitScore ? `local_scorebug_digit_reader_${variant.id}` : `local_scoreboard_ocr_${variant.id}`,
+              imageSegmentationStatus: digitSummary.imageSegmentationStatus,
+              imageDecoderStatus: digitSummary.imageDecoderStatus,
+              imageDecoderMode: digitSummary.imageDecoderMode,
             });
             recordScoreboardOcrQaAttempt({
               qa,
@@ -1371,6 +1378,9 @@ function publicScoreboardOcr(scoreboardOcr) {
                 scoreBefore: item.scoreBefore ? sanitizeText(item.scoreBefore, 16) : null,
                 scoreAfter: item.scoreAfter ? sanitizeText(item.scoreAfter, 16) : null,
                 temporalConsistency: Boolean(item.temporalConsistency),
+                imageSegmentationStatus: item.imageSegmentationStatus ? sanitizeText(item.imageSegmentationStatus, 40) : null,
+                imageDecoderStatus: item.imageDecoderStatus ? sanitizeText(item.imageDecoderStatus, 40) : null,
+                imageDecoderMode: item.imageDecoderMode ? sanitizeText(item.imageDecoderMode, 40) : null,
               })).slice(0, MAX_SCOREBOARD_OCR_FRAMES)
             : [],
           fallbackUsed: Boolean(safe.summary.fallbackUsed),
@@ -1394,6 +1404,9 @@ function publicScoreboardOcr(scoreboardOcr) {
           scoreReverted: Boolean(item.scoreReverted),
           clock: item.clock ? sanitizeText(item.clock, 16) : null,
           source: sanitizeText(item.source || "scoreboard_ocr", 60),
+          imageSegmentationStatus: item.imageSegmentationStatus ? sanitizeText(item.imageSegmentationStatus, 40) : null,
+          imageDecoderStatus: item.imageDecoderStatus ? sanitizeText(item.imageDecoderStatus, 40) : null,
+          imageDecoderMode: item.imageDecoderMode ? sanitizeText(item.imageDecoderMode, 40) : null,
         }))
       : [],
   };

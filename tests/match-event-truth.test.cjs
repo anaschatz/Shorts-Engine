@@ -136,6 +136,170 @@ test("keeps OCR-only score changes out of confirmed-goal decisions", () => {
   assert.ok(result.rejectedEvents.every((event) => event.type !== "confirmed_goal"));
 });
 
+test("turns stable scorebug score increase into counted goal truth when live action exists", () => {
+  const result = analyzeMatchEventTruth({
+    metadata,
+    visualSignals: visualSignals([
+      { start: 126, end: 128, types: ["ball_visible", "shot_contact"], confidence: 0.9 },
+      { start: 128, end: 131, types: ["ball_toward_goal", "goal_mouth_visible"], confidence: 0.88 },
+      { start: 132, end: 134, type: "ball_in_net", confidence: 0.9 },
+    ]),
+    scoreboardOcr: [{
+      id: "scorebug_counted_goal",
+      timestamp: 141,
+      scoreBefore: "0-0",
+      scoreAfter: "1-0",
+      status: "score_changed",
+      confidence: 0.93,
+      temporalConsistency: true,
+      source: "local_scorebug_digit_reader_gray_line",
+      imageDecoderStatus: "decoded",
+      imageSegmentationStatus: "readable",
+    }],
+    ocrQaCalibration: strongOcrQaCalibration(),
+    goalEvidence: goalEvidence([]),
+  });
+
+  assert.equal(result.summary.confirmedGoalCount, 1);
+  assert.equal(result.summary.scoreTimelineObservationCount, 1);
+  assert.equal(result.summary.countedGoalEventCount, 1);
+  assert.equal(result.summary.selectedGoalCount, 1);
+  assert.equal(result.summary.decoderStatusSummary.decoded, 1);
+  assert.equal(result.scoreChanges[0].outcome, "counted_goal");
+  assert.equal(result.events[0].type, "confirmed_goal");
+  assert.equal(result.events[0].scoreBefore, "0-0");
+  assert.equal(result.events[0].scoreAfter, "1-0");
+  assert.ok(result.events[0].evidenceCodes.includes("scoreboard_ocr_score_change"));
+  assert.ok(result.events[0].evidenceCodes.includes("scoreboard_backed_goal_sequence"));
+  assert.equal(result.events[0].phaseCoverage.replayOnly, false);
+  assert.ok(result.events[0].phaseCoverage.hasShot);
+  assert.ok(result.events[0].phaseCoverage.hasConfirmation);
+});
+
+test("marks score increase followed by scorebug revert as disallowed truth", () => {
+  const result = analyzeMatchEventTruth({
+    metadata,
+    visualSignals: visualSignals([
+      { start: 50, end: 52, type: "shot_contact", confidence: 0.9 },
+      { start: 52, end: 55, type: "ball_toward_goal", confidence: 0.88 },
+      { start: 55, end: 57, type: "ball_in_net", confidence: 0.9 },
+      { start: 65, end: 67, type: "scoreboard_goal_removed", confidence: 0.88 },
+    ]),
+    scoreboardOcr: [
+      {
+        id: "temporary_score_change",
+        timestamp: 58,
+        scoreBefore: "0-0",
+        scoreAfter: "1-0",
+        status: "score_changed",
+        confidence: 0.92,
+        temporalConsistency: true,
+      },
+      {
+        id: "score_reverted",
+        timestamp: 66,
+        scoreBefore: "1-0",
+        scoreAfter: "0-0",
+        status: "goal_removed",
+        confidence: 0.91,
+        temporalConsistency: true,
+      },
+    ],
+    ocrQaCalibration: strongOcrQaCalibration(),
+    goalEvidence: goalEvidence([]),
+  });
+
+  assert.equal(result.summary.confirmedGoalCount, 0);
+  assert.equal(result.summary.disallowedGoalCount, 1);
+  assert.equal(result.summary.disallowedGoalEventCount, 1);
+  assert.equal(result.scoreChanges[0].outcome, "disallowed_goal");
+  assert.equal(result.scoreChanges[0].reverted, true);
+  assert.ok(result.events.some((event) => event.type === "disallowed_no_goal"));
+  assert.ok(result.events.some((event) => event.evidenceCodes.includes("scoreboard_ocr_goal_removed")));
+});
+
+test("keeps noisy scorebug OCR as review item without false goal", () => {
+  const result = analyzeMatchEventTruth({
+    metadata,
+    visualSignals: visualSignals([
+      { start: 100, end: 103, type: "scoreboard_context", confidence: 0.7 },
+    ]),
+    scoreboardOcr: [{
+      id: "noisy_score_change",
+      timestamp: 105,
+      scoreBefore: "1-1",
+      scoreAfter: "2-1",
+      status: "score_changed",
+      confidence: 0.51,
+      temporalConsistency: false,
+      ambiguous: true,
+    }],
+    ocrQaCalibration: strongOcrQaCalibration(),
+    goalEvidence: goalEvidence([]),
+  });
+
+  assert.equal(result.summary.confirmedGoalCount, 0);
+  assert.equal(result.summary.scoreChangeCount, 1);
+  assert.equal(result.scoreChanges[0].outcome, "uncertain_review");
+  assert.ok(result.summary.uncertainReviewItemCount >= 1);
+  assert.ok(result.summary.missedGoalReasons.includes("ambiguous_scorebug_observation"));
+  assert.equal(result.summary.noFalseGoalFromOcrOnly, 1);
+});
+
+test("selects three source-wide counted goals including late scorebug changes", () => {
+  const result = analyzeMatchEventTruth({
+    metadata: { ...metadata, durationSeconds: 420, sourceType: "youtube", goalSelectionMode: "valid_goals_only" },
+    visualSignals: visualSignals([
+      { start: 129, end: 131, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.92 },
+      { start: 133, end: 135, types: ["goal_mouth_visible", "ball_in_net"], confidence: 0.94 },
+      { start: 251, end: 253, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.92 },
+      { start: 255, end: 257, types: ["goal_mouth_visible", "ball_in_net"], confidence: 0.94 },
+      { start: 371, end: 373, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.93 },
+      { start: 375, end: 377, types: ["goal_mouth_visible", "ball_in_net"], confidence: 0.95 },
+    ]),
+    scoreboardOcr: [
+      { timestamp: 144, scoreBefore: "0-0", scoreAfter: "1-0", status: "score_changed", confidence: 0.92, temporalConsistency: true },
+      { timestamp: 266, scoreBefore: "1-0", scoreAfter: "2-0", status: "score_changed", confidence: 0.93, temporalConsistency: true },
+      { timestamp: 386, scoreBefore: "2-0", scoreAfter: "3-0", status: "score_changed", confidence: 0.94, temporalConsistency: true },
+    ],
+    ocrQaCalibration: strongOcrQaCalibration(),
+    goalEvidence: goalEvidence([]),
+  });
+
+  const confirmed = result.events.filter((event) => event.type === "confirmed_goal");
+  assert.equal(result.summary.confirmedGoalCount, 3);
+  assert.equal(result.summary.countedGoalEventCount, 3);
+  assert.equal(result.summary.lateConfirmedGoalCount, 1);
+  assert.deepEqual(confirmed.map((event) => event.scoreAfter), ["1-0", "2-0", "3-0"]);
+  assert.ok(confirmed.every((event) => event.phaseCoverage.replayOnly === false));
+  assert.ok(confirmed.every((event) => event.phaseCoverage.hasShot));
+});
+
+test("rejects scorebug counted candidate when only replay context is visible", () => {
+  const result = analyzeMatchEventTruth({
+    metadata,
+    visualSignals: visualSignals([
+      { start: 118, end: 122, types: ["replay_indicator", "replay_angle"], confidence: 0.9 },
+      { start: 122, end: 124, type: "crowd_reaction", confidence: 0.86 },
+    ]),
+    scoreboardOcr: [{
+      timestamp: 124,
+      scoreBefore: "0-0",
+      scoreAfter: "1-0",
+      status: "score_changed",
+      confidence: 0.93,
+      temporalConsistency: true,
+    }],
+    ocrQaCalibration: strongOcrQaCalibration(),
+    goalEvidence: goalEvidence([]),
+  });
+
+  assert.equal(result.summary.confirmedGoalCount, 0);
+  assert.equal(result.summary.countedGoalEventCount, 1);
+  assert.ok(result.rejectedEvents.some((event) => event.missingEvidence.includes("live_goal_phase")));
+  assert.ok(result.summary.missedGoalReasons.includes("counted_score_change_not_selected"));
+});
+
 test("classifies scoreboard score reversion after ball-in-net as disallowed goal", () => {
   const result = analyzeMatchEventTruth({
     metadata,

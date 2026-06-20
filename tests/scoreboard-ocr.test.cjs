@@ -106,6 +106,26 @@ function writeScorebugCrop(filePath, { home, away }) {
   writeFileSync(filePath, `P2\n${width} ${height}\n255\n${pixels.join(" ")}\n`, "utf8");
 }
 
+function writeNoisyBroadcastScorebugCrop(filePath, { home, away }) {
+  const width = 120;
+  const height = 52;
+  const pixels = Array.from({ length: width * height }, () => 255);
+  const fill = (x0, y0, x1, y1) => {
+    for (let y = Math.max(0, y0); y < Math.min(height, y1); y += 1) {
+      for (let x = Math.max(0, x0); x < Math.min(width, x1); x += 1) {
+        pixels[y * width + x] = 0;
+      }
+    }
+  };
+  fill(3, 8, 18, 16);
+  fill(24, 24, 34, 30);
+  fill(91, 10, 101, 18);
+  fill(108, 30, 116, 38);
+  drawScorebugDigit(pixels, width, height, home, { x: 43, y: 8, width: 18, height: 36 });
+  drawScorebugDigit(pixels, width, height, away, { x: 67, y: 8, width: 18, height: 36 });
+  writeFileSync(filePath, `P2\n${width} ${height}\n255\n${pixels.join(" ")}\n`, "utf8");
+}
+
 function writeFakeScorebugPng(filePath) {
   writeFileSync(filePath, Buffer.from([
     0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
@@ -450,6 +470,43 @@ test("local scoreboard OCR can derive score-change evidence from focused image s
     const report = JSON.parse(readFileSync(join(process.cwd(), result.qaReport.reportPath), "utf8"));
     assert.equal(report.digitReader.imageSegmentationReadableCount >= 3, true);
     assert.equal(report.ocrAttempts.some((attempt) => attempt.imageSegmentationStatus === "readable" && attempt.score === "1-0"), true);
+    assert.doesNotMatch(JSON.stringify(report), /\/Users|\/private|storageKey|localPath|token|secret|stdout|stderr/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(join(process.cwd(), SCOREBOARD_OCR_QA_RELATIVE_DIR, `ocr-scoreboard-${runId}`), { recursive: true, force: true });
+  }
+});
+
+test("local scoreboard OCR reads focused score digits when broadcast crop includes clock and team noise", async () => {
+  const { dir, frames } = createFrameFixtures();
+  const runId = `scorebug-noisy-image-test-${Date.now()}`;
+  try {
+    const result = await analyzeScoreboardOcr({
+      metadata,
+      mode: "local",
+      enabled: true,
+      qaArtifactsEnabled: true,
+      qaRunId: runId,
+      commandChecker: () => true,
+      frames,
+      cropper: async ({ outputDir, frameIndex, region }) => {
+        const cropPath = safeResolve(outputDir, `crop_${frameIndex}_${region.id}.pgm`);
+        mkdirSync(outputDir, { recursive: true });
+        writeNoisyBroadcastScorebugCrop(cropPath, frameIndex === 0 ? { home: 0, away: 0 } : { home: 1, away: 0 });
+        return cropPath;
+      },
+      ocrRunner: async () => ({ stdout: "45:00 ARG ALG" }),
+    });
+
+    assert.equal(result.providerMode, "local-scoreboard-ocr-command");
+    assert.equal(result.summary.scoreChangeCount, 1);
+    assert.equal(result.summary.scoreTimeline.some((item) => item.status === "score_changed" && item.scoreAfter === "1-0"), true);
+    const report = JSON.parse(readFileSync(join(process.cwd(), result.qaReport.reportPath), "utf8"));
+    assert.equal(report.digitReader.imageSegmentationReadableCount >= 3, true);
+    assert.equal(report.ocrAttempts.some((attempt) =>
+      attempt.imageSegmentationStatus === "readable" &&
+      attempt.score === "1-0" &&
+      attempt.imageSegmentationReasons.includes("focused_digit_roi_used")), true);
     assert.doesNotMatch(JSON.stringify(report), /\/Users|\/private|storageKey|localPath|token|secret|stdout|stderr/i);
   } finally {
     rmSync(dir, { recursive: true, force: true });
