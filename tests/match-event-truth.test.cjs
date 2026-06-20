@@ -256,6 +256,11 @@ test("public truth reports keep safe late-goal summary and reject leaks", () => 
   const publicTruth = publicMatchEventTruth(truth);
 
   assert.equal(publicTruth.summary.lateConfirmedGoalCount, 1);
+  assert.equal(publicTruth.selectedEvents[0].eventType, "valid_goal");
+  assert.equal(publicTruth.selectedEvents[0].truthStatus, "valid_goal");
+  assert.equal(publicTruth.selectedEvents[0].decisionWindowStart, null);
+  assert.deepEqual(publicTruth.selectedEvents[0].disqualifiers, []);
+  assert.ok(publicTruth.selectedEvents[0].evidence.includes("visual_ball_in_net"));
   assert.doesNotMatch(JSON.stringify(publicTruth), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);
   assert.throws(
     () => validateMatchEventTruthOutput({
@@ -271,4 +276,35 @@ test("public truth reports keep safe late-goal summary and reject leaks", () => 
     }, metadata),
     (error) => error && error.code === "AI_OUTPUT_INVALID",
   );
+});
+
+test("public truth contract marks disallowed goals with safe disqualifiers", () => {
+  const truth = validateMatchEventTruthOutput({
+    providerMode: "unit-truth",
+    fallbackUsed: false,
+    ocrQaCalibration: strongOcrQaCalibration(),
+    events: [{
+      id: "safe_offside_event",
+      type: "disallowed_offside",
+      outcome: "disallowed_offside",
+      confidence: 0.9,
+      sourceStart: 72,
+      sourceEnd: 88,
+      decisionWindow: { start: 82, end: 88 },
+      evidenceCodes: ["visual_ball_in_net", "visual_offside_flag", "scoreboard_ocr_score_unchanged"],
+      safetyFlags: ["no_confirmed_goal_caption"],
+      renderPriority: 740,
+    }],
+    rejectedEvents: [],
+  }, metadata);
+  const publicTruth = publicMatchEventTruth(truth);
+  const event = publicTruth.selectedEvents[0];
+
+  assert.equal(event.eventType, "disallowed_goal");
+  assert.equal(event.truthStatus, "disallowed_goal");
+  assert.equal(event.decisionWindowStart, 82);
+  assert.equal(event.decisionWindowEnd, 88);
+  assert.ok(event.disqualifiers.includes("offside"));
+  assert.ok(event.disqualifiers.includes("no_goal_decision"));
+  assert.doesNotMatch(JSON.stringify(publicTruth), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);
 });

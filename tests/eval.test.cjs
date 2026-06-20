@@ -90,6 +90,8 @@ test("fixture scoring returns reportable metrics and candidate plans", () => {
   assert.equal(typeof result.metrics.falseGoalRate, "number");
   assert.equal(typeof result.metrics.offsideExclusionAccuracy, "number");
   assert.equal(typeof result.metrics.validGoalOnlyFillerRate, "number");
+  assert.equal(typeof result.metrics.validGoalsOnlyExactSegmentCount, "number");
+  assert.equal(typeof result.metrics.validGoalOrdering, "number");
   assert.equal(typeof result.metrics.captionGoalClaimAccuracy, "number");
   assert.equal(typeof result.metrics.segmentTimingCoverage, "number");
   assert.equal(typeof result.metrics.celebrationOnlyExclusion, "number");
@@ -134,6 +136,8 @@ test("late valid-goals-only fixture recalls every late confirmed goal without fi
   assert.equal(result.metrics.noGoalExclusionAccuracy, 1);
   assert.equal(result.metrics.validGoalsOnlyCoverage, 1);
   assert.equal(result.metrics.validGoalOnlyFillerRate, 0);
+  assert.equal(result.metrics.validGoalsOnlyExactSegmentCount, 1);
+  assert.equal(result.metrics.validGoalOrdering, 1);
   assert.equal(result.metrics.fillerRate, 0);
   assert.equal(result.metrics.cutSmoothnessScore, 1);
   assert.equal(result.metrics.captionGoalClaimAccuracy, 1);
@@ -143,6 +147,38 @@ test("late valid-goals-only fixture recalls every late confirmed goal without fi
   assert.equal(result.actual.candidatePlans[0].mode, "multi_moment_compilation");
   assert.equal(result.actual.candidatePlans[0].selectedMomentCount, 3);
   assert.ok(result.actual.candidatePlans[0].segments.every((segment) => segment.highlightType === "goal"));
+});
+
+test("counted-goals-only fixture keeps exactly counted goals and rejects offside filler", () => {
+  const fixture = loadFixtures(fixturesDir).find((item) => item.id === "counted_goals_only_truth_gate");
+  assert.ok(fixture);
+  const result = scoreFixture(fixture);
+  const topPlan = result.actual.candidatePlans[0];
+
+  assert.equal(result.passed, true);
+  assert.equal(result.metrics.validGoalRecall, 1);
+  assert.equal(result.metrics.lateGoalRecall, 1);
+  assert.equal(result.metrics.falseGoalRate, 0);
+  assert.equal(result.metrics.offsideExclusionAccuracy, 1);
+  assert.equal(result.metrics.noGoalExclusionAccuracy, 1);
+  assert.equal(result.metrics.validGoalsOnlyCoverage, 1);
+  assert.equal(result.metrics.validGoalOnlyFillerRate, 0);
+  assert.equal(result.metrics.validGoalsOnlyExactSegmentCount, 1);
+  assert.equal(result.metrics.validGoalOrdering, 1);
+  assert.equal(result.metrics.celebrationOnlyExclusion, 1);
+  assert.equal(result.metrics.anthemIntroExclusion, 1);
+  assert.equal(result.metrics.matchEventTruthValidGoalRecall, 1);
+  assert.equal(result.metrics.matchEventTruthDisallowedClassification, 1);
+  assert.equal(result.actual.goalEvidence.validGoalCount, 2);
+  assert.equal(result.actual.goalEvidence.offsideOrNoGoalCount, 2);
+  assert.equal(result.actual.matchEventTruth.summary.confirmedGoalCount, 2);
+  assert.equal(result.actual.matchEventTruth.summary.disallowedGoalCount, 2);
+  assert.equal(topPlan.mode, "multi_moment_compilation");
+  assert.equal(topPlan.selectedMomentCount, 2);
+  assert.equal(topPlan.goalSelectionMode, "valid_goals_only");
+  assert.ok(topPlan.segments.every((segment) => segment.highlightType === "goal"));
+  assert.ok(topPlan.segments.every((segment) => segment.goalOutcome.outcome === "confirmed_goal"));
+  assert.equal(topPlan.segments.some((segment) => segment.sourceStart < 200), false);
 });
 
 test("OCR-confirmed valid-goals fixture selects every goal and excludes intro/celebration", () => {
@@ -235,6 +271,8 @@ test("evaluation report has aggregate metrics and no local path leakage", () => 
   assert.equal(report.aggregate.noGoalExclusionAccuracy, 1);
   assert.equal(report.aggregate.validGoalsOnlyCoverage, 1);
   assert.equal(report.aggregate.validGoalOnlyFillerRate, 0);
+  assert.equal(report.aggregate.validGoalsOnlyExactSegmentCount, 1);
+  assert.equal(report.aggregate.validGoalOrdering, 1);
   assert.equal(report.aggregate.fillerRate, 0);
   assert.equal(report.aggregate.cutSmoothnessScore, 1);
   assert.equal(report.aggregate.captionGoalClaimAccuracy, 1);

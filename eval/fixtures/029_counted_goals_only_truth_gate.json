@@ -1,0 +1,180 @@
+{
+  "id": "counted_goals_only_truth_gate",
+  "title": "Counted goals only excludes offside goals and filler",
+  "language": "English",
+  "durationSeconds": 420,
+  "transcript": {
+    "provider": "fixture",
+    "language": "en",
+    "captions": [
+      { "start": 6.0, "end": 8.5, "text": "The anthem plays before kick off" },
+      { "start": 92.0, "end": 94.0, "text": "The flag is up, no goal after the finish" },
+      { "start": 172.0, "end": 174.0, "text": "Another finish is ruled out for offside" },
+      { "start": 286.0, "end": 287.8, "text": "Goal confirmed, the finish counts" },
+      { "start": 372.0, "end": 373.8, "text": "The late goal stands and the score changes" },
+      { "start": 392.0, "end": 394.0, "text": "The fans celebrate the final whistle" }
+    ]
+  },
+  "mediaSignals": {
+    "durationSeconds": 420,
+    "width": 1920,
+    "height": 1080,
+    "hasAudio": true,
+    "audioPeaks": [
+      { "time": 7.0, "energyScore": 0.95, "source": "fixture" },
+      { "time": 84.0, "energyScore": 0.94, "source": "fixture" },
+      { "time": 164.0, "energyScore": 0.94, "source": "fixture" },
+      { "time": 276.5, "energyScore": 0.91, "source": "fixture" },
+      { "time": 362.5, "energyScore": 0.93, "source": "fixture" },
+      { "time": 393.0, "energyScore": 0.96, "source": "fixture" }
+    ],
+    "sceneChanges": [
+      { "time": 7.0, "confidence": 0.9, "source": "fixture" },
+      { "time": 92.2, "confidence": 0.84, "source": "fixture" },
+      { "time": 172.2, "confidence": 0.85, "source": "fixture" },
+      { "time": 286.2, "confidence": 0.84, "source": "fixture" },
+      { "time": 372.2, "confidence": 0.86, "source": "fixture" },
+      { "time": 393.0, "confidence": 0.9, "source": "fixture" }
+    ],
+    "highMotionCandidates": [
+      { "time": 80.0, "confidence": 0.92, "source": "fixture" },
+      { "time": 160.0, "confidence": 0.92, "source": "fixture" },
+      { "time": 272.0, "confidence": 0.9, "source": "fixture" },
+      { "time": 358.0, "confidence": 0.91, "source": "fixture" }
+    ]
+  },
+  "visualSignals": {
+    "providerMode": "fixture-visual",
+    "fallbackUsed": false,
+    "windows": [
+      { "start": 6.0, "end": 8.5, "labels": ["unknown_visual_action"], "confidence": 0.88 },
+      { "start": 79.0, "end": 80.8, "labels": ["shot_contact", "ball_toward_goal", "ball_visible"], "confidence": 0.92 },
+      { "start": 83.2, "end": 84.8, "labels": ["goal_mouth_visible", "ball_in_net"], "confidence": 0.92 },
+      { "start": 88.0, "end": 90.0, "labels": ["assistant_referee_flag", "offside_line_replay", "var_check_graphic"], "confidence": 0.89 },
+      { "start": 92.0, "end": 93.6, "labels": ["referee_no_goal_signal", "scoreboard_context"], "confidence": 0.87 },
+      { "start": 159.0, "end": 160.7, "labels": ["shot_contact", "ball_toward_goal", "ball_visible"], "confidence": 0.91 },
+      { "start": 163.2, "end": 164.8, "labels": ["goal_mouth_visible", "ball_in_net"], "confidence": 0.91 },
+      { "start": 168.0, "end": 170.0, "labels": ["assistant_referee_flag", "offside_line_replay"], "confidence": 0.88 },
+      { "start": 172.0, "end": 173.6, "labels": ["referee_no_goal_signal", "scoreboard_context"], "confidence": 0.86 },
+      { "start": 271.0, "end": 272.8, "labels": ["shot_contact", "ball_toward_goal", "ball_visible"], "confidence": 0.92 },
+      { "start": 275.2, "end": 276.8, "labels": ["goal_mouth_visible", "ball_in_net"], "confidence": 0.93 },
+      { "start": 285.0, "end": 286.6, "labels": ["scoreboard_goal_confirmed", "referee_goal_signal"], "confidence": 0.89 },
+      { "start": 357.0, "end": 358.8, "labels": ["shot_contact", "ball_toward_goal", "ball_visible"], "confidence": 0.92 },
+      { "start": 361.2, "end": 362.9, "labels": ["goal_mouth_visible", "ball_in_net"], "confidence": 0.94 },
+      { "start": 371.0, "end": 372.8, "labels": ["scoreboard_goal_confirmed", "referee_goal_signal"], "confidence": 0.9 },
+      { "start": 392.0, "end": 394.2, "labels": ["celebration_after_shot", "crowd_reaction"], "confidence": 0.88 }
+    ]
+  },
+  "scoreboardOcr": [
+    {
+      "timestamp": 92.2,
+      "scoreBefore": "0-0",
+      "scoreAfter": "0-0",
+      "status": "score_unchanged",
+      "clock": "24:11",
+      "temporalConsistency": true,
+      "confidence": 0.89,
+      "source": "fixture_ocr"
+    },
+    {
+      "timestamp": 172.2,
+      "scoreBefore": "0-0",
+      "scoreAfter": "0-0",
+      "status": "score_unchanged",
+      "clock": "41:37",
+      "temporalConsistency": true,
+      "confidence": 0.89,
+      "source": "fixture_ocr"
+    },
+    {
+      "timestamp": 286.2,
+      "scoreBefore": "0-0",
+      "scoreAfter": "1-0",
+      "status": "score_changed",
+      "temporalConsistency": true,
+      "confidence": 0.91,
+      "source": "fixture_ocr"
+    },
+    {
+      "timestamp": 372.2,
+      "scoreBefore": "1-0",
+      "scoreAfter": "2-0",
+      "status": "score_changed",
+      "temporalConsistency": true,
+      "confidence": 0.92,
+      "source": "fixture_ocr"
+    }
+  ],
+  "ocrQaCalibration": {
+    "status": "available",
+    "available": true,
+    "stale": false,
+    "invalid": false,
+    "usable": true,
+    "decisionSupportLevel": "strong",
+    "scoreboardCropQuality": "high",
+    "goalEvidencePolicy": "support_only",
+    "goalDecisionAllowed": false,
+    "noFalseGoalFromOcrOnly": true,
+    "supportWeight": 1,
+    "generatedAt": "2026-06-20T10:00:00.000Z",
+    "reasonCode": "ocr_qa_strong"
+  },
+  "expected": {
+    "highlights": [
+      { "start": 271.0, "end": 286.2 },
+      { "start": 357.0, "end": 372.2 }
+    ],
+    "validGoals": [
+      { "start": 271.0, "end": 286.2 },
+      { "start": 357.0, "end": 372.2 }
+    ],
+    "offsideGoals": [
+      { "start": 79.0, "end": 93.6 },
+      { "start": 159.0, "end": 173.6 }
+    ],
+    "noGoalWindows": [
+      { "start": 79.0, "end": 93.6 },
+      { "start": 159.0, "end": 173.6 }
+    ],
+    "celebrationOnly": [
+      { "start": 392.0, "end": 394.2 }
+    ],
+    "anthemIntro": [
+      { "start": 6.0, "end": 8.5 }
+    ],
+    "scoreboardOcr": [
+      { "timestamp": 92.2, "status": "score_unchanged" },
+      { "timestamp": 172.2, "status": "score_unchanged" },
+      { "timestamp": 286.2, "status": "score_changed" },
+      { "timestamp": 372.2, "status": "score_changed" }
+    ],
+    "ocrQaCalibration": {
+      "decisionSupportLevel": "strong"
+    },
+    "goalSelectionMode": "valid_goals_only",
+    "finalSegmentCount": 2,
+    "goalSequence": { "shotStart": 271.0, "payoffEnd": 286.2 },
+    "reasonCodes": [
+      "goal",
+      "visual_shot_contact",
+      "visual_ball_toward_goal",
+      "visual_ball_visible",
+      "visual_goal_mouth",
+      "visual_ball_in_net",
+      "visual_scoreboard_goal_confirmed",
+      "visual_referee_goal_signal"
+    ],
+    "highlightType": "goal",
+    "stylePreset": "social_sports_v1",
+    "editIntensity": "balanced",
+    "aspectRatio": "9:16"
+  },
+  "thresholds": {
+    "minAggregateScore": 82,
+    "minTop1Overlap": 0.55,
+    "minTop3Recall": 1,
+    "minReasonPrecision": 0.55,
+    "minRetentionScore": 78
+  }
+}

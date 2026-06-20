@@ -93,6 +93,7 @@ const DECISION_CODES = Object.freeze([
 ]);
 
 const SENSITIVE_RE = /\/Users\/|\/private\/|storageKey|localPath|fullPath|absolutePath|Bearer\s+|OPENAI_API_KEY|api[_-]?key|token|secret|stderr|stdout|rawOcr|rawText/i;
+const SAFE_SCORE_RE = /^\d{1,2}\s*[-:]\s*\d{1,2}$/;
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, Number(value) || min));
@@ -264,6 +265,42 @@ function goalOutcomeForType(type) {
   return type === "neutral" ? "unknown" : "no_goal";
 }
 
+function truthEventTypeForMatchType(type) {
+  if (type === "confirmed_goal") return "valid_goal";
+  if (type === "disallowed_offside" || type === "disallowed_no_goal") return "disallowed_goal";
+  if (type === "possible_goal_unconfirmed") return "goal_candidate";
+  return "unknown";
+}
+
+function truthStatusForMatchType(type) {
+  if (type === "confirmed_goal") return "valid_goal";
+  if (type === "disallowed_offside" || type === "disallowed_no_goal") return "disallowed_goal";
+  return "unknown";
+}
+
+function normalizeScoreField(value) {
+  if (value == null || value === "") return null;
+  const text = sanitizeText(typeof value === "object" ? value.text || value.scoreText : value, 16);
+  return SAFE_SCORE_RE.test(text) ? text.replace(/\s+/g, "") : null;
+}
+
+function normalizeTeams(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || hasUnsafeValue(value)) return null;
+  const home = sanitizeText(value.home || value.homeTeam || "", 48);
+  const away = sanitizeText(value.away || value.awayTeam || "", 48);
+  return home || away ? { home: home || null, away: away || null } : null;
+}
+
+function disqualifiersForDecision(type, codes = [], missingEvidence = []) {
+  const disqualifiers = [];
+  if (type === "disallowed_offside" || hasAny(codes, OFFSIDE_CODES)) disqualifiers.push("offside");
+  if (type === "disallowed_no_goal" || hasAny(codes, DISALLOWED_CODES)) disqualifiers.push("no_goal_decision");
+  if (type === "possible_goal_unconfirmed") disqualifiers.push("unconfirmed_goal_decision");
+  if (missingEvidence.includes("final_goal_decision")) disqualifiers.push("missing_final_goal_decision");
+  if (missingEvidence.includes("usable_ocr_qa_calibration")) disqualifiers.push("missing_usable_ocr_qa");
+  return uniqueCodes(disqualifiers, MAX_FLAGS);
+}
+
 function windowSetForDecision({ event, visualSignals, duration }) {
   const start = seconds(event.start);
   const end = Math.max(start + 0.5, seconds(event.end, start + 1));
@@ -348,9 +385,13 @@ function normalizeDecision(decision = {}, index = 0, metadata = {}) {
   if (!MATCH_EVENT_TYPES.includes(type) || !MATCH_EVENT_OUTCOMES.includes(outcome)) {
     throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
   }
+  const evidenceCodes = uniqueCodes(decision.evidenceCodes);
+  const missingEvidence = uniqueCodes(decision.missingEvidence, MAX_MISSING);
   return {
     id: sanitizeText(decision.id || `match_event_${index + 1}`, 80),
     type,
+    eventType: truthEventTypeForMatchType(type),
+    truthStatus: truthStatusForMatchType(type),
     outcome,
     confidence: round(clamp(decision.confidence, 0.05, 0.98)),
     sourceStart,
@@ -360,8 +401,15 @@ function normalizeDecision(decision = {}, index = 0, metadata = {}) {
     payoffWindow: normalizeOptionalWindow(decision.payoffWindow, sourceStart, sourceEnd),
     reactionWindow: normalizeOptionalWindow(decision.reactionWindow, sourceStart, sourceEnd),
     decisionWindow: normalizeOptionalWindow(decision.decisionWindow, sourceStart, sourceEnd, true),
-    evidenceCodes: uniqueCodes(decision.evidenceCodes),
-    missingEvidence: uniqueCodes(decision.missingEvidence, MAX_MISSING),
+    evidenceCodes,
+    evidence: evidenceCodes,
+    missingEvidence,
+    disqualifiers: disqualifiersForDecision(type, evidenceCodes, missingEvidence),
+    decisionWindowStart: decision.decisionWindow ? normalizeOptionalWindow(decision.decisionWindow, sourceStart, sourceEnd, true).start : null,
+    decisionWindowEnd: decision.decisionWindow ? normalizeOptionalWindow(decision.decisionWindow, sourceStart, sourceEnd, true).end : null,
+    teams: normalizeTeams(decision.teams),
+    scoreBefore: normalizeScoreField(decision.scoreBefore),
+    scoreAfter: normalizeScoreField(decision.scoreAfter),
     safetyFlags: uniqueCodes(decision.safetyFlags, MAX_FLAGS),
     captionIntent: sanitizeText(decision.captionIntent || captionIntentForType(type), 64),
     renderPriority: round(clamp(decision.renderPriority, 0, 1200), 1),
@@ -577,10 +625,19 @@ function publicDecision(event) {
   return {
     id: sanitizeText(event.id, 80),
     type: event.type,
+    eventType: event.eventType || truthEventTypeForMatchType(event.type),
+    truthStatus: event.truthStatus || truthStatusForMatchType(event.type),
     outcome: event.outcome,
     confidence: event.confidence,
     sourceStart: event.sourceStart,
     sourceEnd: event.sourceEnd,
+    decisionWindowStart: event.decisionWindowStart,
+    decisionWindowEnd: event.decisionWindowEnd,
+    teams: event.teams || null,
+    scoreBefore: event.scoreBefore || null,
+    scoreAfter: event.scoreAfter || null,
+    evidence: Array.isArray(event.evidence) ? event.evidence : event.evidenceCodes,
+    disqualifiers: Array.isArray(event.disqualifiers) ? event.disqualifiers : [],
     buildupWindow: event.buildupWindow,
     shotWindow: event.shotWindow,
     payoffWindow: event.payoffWindow,

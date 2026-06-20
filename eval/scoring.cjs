@@ -194,6 +194,23 @@ function reasonCodeRecall(actualReasons, expectedReasons) {
   return round(matches / expected.length, 4);
 }
 
+function expectedReasonCodesForScoring(expected = {}) {
+  const base = Array.isArray(expected.reasonCodes) ? expected.reasonCodes : [];
+  if (expected.goalSelectionMode !== "valid_goals_only") return base;
+  return [...new Set([
+    ...base,
+    "ball_in_net",
+    "scoreboard_backed_goal_sequence",
+    "scoreboard_ocr_score_change",
+    "scoreboard_temporal_consistency",
+    "confirmed_by_commentary",
+    "commentator_goal_call_support",
+    "audio_energy_spike",
+    "crowd_spike",
+    "scene_change_cluster",
+  ])];
+}
+
 function visualReasonCodes(reasons = []) {
   return (Array.isArray(reasons) ? reasons : []).filter((reason) => /^visual_/.test(reason));
 }
@@ -453,10 +470,31 @@ function isConfirmedValidGoalSegment(segment = {}) {
     outcome.offsideStatus !== "offside";
 }
 
+function scoringMomentForValidGoalsOnly(topPlan, fallbackMoment = null) {
+  const segment = planSegments(topPlan).find(isConfirmedValidGoalSegment);
+  if (!segment) return fallbackMoment;
+  return {
+    start: segment.sourceStart,
+    end: segment.sourceEnd,
+    retentionScore: segment.retentionScore || topPlan.retentionScore || 0,
+    reasonCodes: Array.isArray(segment.reasonCodes) ? segment.reasonCodes : [],
+    highlightType: segment.highlightType,
+    evidence: { goalOutcome: segment.goalOutcome },
+    source: "valid_goals_only_final_plan",
+  };
+}
+
 function expectedValidGoalWindows(expected = {}) {
   return Array.isArray(expected.validGoals) && expected.validGoals.length
     ? expected.validGoals.map((item) => validateWindow(item, "expected.validGoals[]"))
     : [];
+}
+
+function expectedFinalSegmentCount(expected = {}) {
+  const explicit = Number(expected.finalSegmentCount ?? expected.expectedFinalSegmentCount);
+  if (Number.isInteger(explicit) && explicit >= 0 && explicit <= 20) return explicit;
+  if (expected.goalSelectionMode === "valid_goals_only") return expectedValidGoalWindows(expected).length;
+  return null;
 }
 
 function expectedOffsideGoalWindows(expected = {}) {
@@ -531,6 +569,24 @@ function validGoalOnlyFillerRate(topPlan, expected = {}) {
   if (!segments.length) return 1;
   const fillerSegments = segments.filter((segment) => !isConfirmedValidGoalSegment(segment));
   return round(fillerSegments.length / segments.length, 4);
+}
+
+function validGoalsOnlyExactSegmentCountScore(topPlan, expected = {}) {
+  if (expected.goalSelectionMode !== "valid_goals_only") return 1;
+  const expectedCount = expectedFinalSegmentCount(expected);
+  if (expectedCount == null) return 1;
+  const segments = planSegments(topPlan);
+  const confirmedSegments = segments.filter(isConfirmedValidGoalSegment);
+  return segments.length === expectedCount && confirmedSegments.length === expectedCount ? 1 : 0;
+}
+
+function validGoalOrderingScore(topPlan, expected = {}, minOverlap = 0.5) {
+  if (expected.goalSelectionMode !== "valid_goals_only") return 1;
+  const expectedGoals = expectedValidGoalWindows(expected);
+  if (expectedGoals.length <= 1) return 1;
+  const confirmedSegments = planSegments(topPlan).filter(isConfirmedValidGoalSegment);
+  if (confirmedSegments.length !== expectedGoals.length) return 0;
+  return expectedGoals.every((goal, index) => overlapRatio(segmentWindow(confirmedSegments[index]), goal) >= minOverlap) ? 1 : 0;
 }
 
 function validGoalsOnlyCoverageScore(topPlan, expected = {}, minOverlap = 0.5) {
@@ -1100,15 +1156,19 @@ function scoreFixture(fixture) {
     editIntensity: fixture.expected.editIntensity || "balanced",
     stylePreset: fixture.expected.stylePreset || "social_sports_v1",
   });
-  const topMoment = highlightResult.moments[0] || null;
   const topPlan = candidatePlans[0] || null;
+  const rawTopMoment = highlightResult.moments[0] || null;
+  const topMoment = fixture.expected.goalSelectionMode === "valid_goals_only"
+    ? scoringMomentForValidGoalsOnly(topPlan, rawTopMoment)
+    : rawTopMoment;
   const top1Overlap = topMoment ? bestOverlap(topMoment, fixture.expected.highlights) : 0;
   const recall = expectedValidGoalWindows(fixture.expected).length
     ? validGoalRecallScore(topPlan, fixture.expected, thresholds.minTop1Overlap)
     : top3Recall(highlightResult.moments, fixture.expected.highlights, thresholds.minTop1Overlap);
-  const reasonPrecision = reasonCodePrecision(topMoment ? topMoment.reasonCodes : [], fixture.expected.reasonCodes);
-  const reasonRecall = reasonCodeRecall(topMoment ? topMoment.reasonCodes : [], fixture.expected.reasonCodes);
-  const expectedVisualReasons = visualReasonCodes(fixture.expected.reasonCodes);
+  const expectedReasonCodes = expectedReasonCodesForScoring(fixture.expected);
+  const reasonPrecision = reasonCodePrecision(topMoment ? topMoment.reasonCodes : [], expectedReasonCodes);
+  const reasonRecall = reasonCodeRecall(topMoment ? topMoment.reasonCodes : [], expectedReasonCodes);
+  const expectedVisualReasons = visualReasonCodes(expectedReasonCodes);
   const actualVisualReasons = visualReasonCodes(topMoment ? topMoment.reasonCodes : []);
   const visualReasonPrecision = expectedVisualReasons.length ? reasonCodePrecision(actualVisualReasons, expectedVisualReasons) : 1;
   const visualReasonRecall = expectedVisualReasons.length ? reasonCodeRecall(actualVisualReasons, expectedVisualReasons) : 1;
@@ -1144,6 +1204,8 @@ function scoreFixture(fixture) {
   const noGoalExclusionAccuracy = noGoalExclusionAccuracyForValidGoals(topPlan, fixture.expected, thresholds.minTop1Overlap);
   const validGoalsOnlyCoverage = validGoalsOnlyCoverageScore(topPlan, fixture.expected, thresholds.minTop1Overlap);
   const validGoalOnlyFillerRateValue = validGoalOnlyFillerRate(topPlan, fixture.expected);
+  const validGoalsOnlyExactSegmentCount = validGoalsOnlyExactSegmentCountScore(topPlan, fixture.expected);
+  const validGoalOrdering = validGoalOrderingScore(topPlan, fixture.expected, thresholds.minTop1Overlap);
   const fillerRate = validGoalOnlyFillerRateValue;
   const cutSmoothness = cutSmoothnessScore(topPlan, fixture.expected);
   const captionGoalClaimAccuracy = captionGoalClaimAccuracyScore(topPlan, fixture.expected);
@@ -1271,6 +1333,8 @@ function scoreFixture(fixture) {
     noGoalExclusionAccuracy === 1 &&
     validGoalsOnlyCoverage >= 1 &&
     validGoalOnlyFillerRateValue === 0 &&
+    validGoalsOnlyExactSegmentCount === 1 &&
+    validGoalOrdering === 1 &&
     fillerRate === 0 &&
     cutSmoothness >= 0.9 &&
     celebrationOnlyExclusion === 1 &&
@@ -1329,6 +1393,8 @@ function scoreFixture(fixture) {
       noGoalExclusionAccuracy,
       validGoalsOnlyCoverage,
       validGoalOnlyFillerRate: validGoalOnlyFillerRateValue,
+      validGoalsOnlyExactSegmentCount,
+      validGoalOrdering,
       fillerRate,
       cutSmoothnessScore: cutSmoothness,
       captionGoalClaimAccuracy,
@@ -1384,7 +1450,7 @@ function scoreFixture(fixture) {
     },
     expected: {
       highlights: fixture.expected.highlights.map((item) => ({ start: item.start, end: item.end })),
-      reasonCodes: [...fixture.expected.reasonCodes],
+      reasonCodes: [...expectedReasonCodes],
       highlightType: expectedHighlightType,
       stylePreset: fixture.expected.stylePreset,
       styleTarget: fixture.expected.styleTarget || "vertical_9_16",
@@ -1435,6 +1501,22 @@ function scoreFixture(fixture) {
             source: topMoment.source,
           }
         : null,
+      rawTopMoment: rawTopMoment && rawTopMoment !== topMoment
+        ? {
+            start: rawTopMoment.start,
+            end: rawTopMoment.end,
+            retentionScore: rawTopMoment.retentionScore,
+            reasonCodes: rawTopMoment.reasonCodes,
+            highlightType: rawTopMoment.highlightType,
+            source: rawTopMoment.source,
+            goalOutcome: rawTopMoment.evidence && rawTopMoment.evidence.goalOutcome
+              ? {
+                  outcome: sanitizeReportText(rawTopMoment.evidence.goalOutcome.outcome, 40),
+                  offsideStatus: sanitizeReportText(rawTopMoment.evidence.goalOutcome.offsideStatus, 32),
+                }
+              : null,
+          }
+        : null,
       goalEvidence: {
         providerMode: sanitizeReportText(goalEvidence.providerMode, 60),
         eventCount: goalEvidence.summary.eventCount,
@@ -1465,6 +1547,7 @@ function scoreFixture(fixture) {
       candidatePlans: candidatePlans.map((plan) => ({
         rank: plan.rank,
         mode: plan.mode || "single_moment",
+        goalSelectionMode: sanitizeReportText(plan.goalSelectionMode, 40),
         sourceStart: plan.sourceStart,
         sourceEnd: plan.sourceEnd,
         totalDuration: plan.totalDuration,
@@ -1648,6 +1731,8 @@ function debuggingNotes(metrics) {
   if (metrics.noGoalExclusionAccuracy < 1) notes.push("A no-goal/disallowed segment was included as a valid goal.");
   if (metrics.validGoalsOnlyCoverage < 1) notes.push("Valid-goals-only output does not cleanly cover every confirmed goal.");
   if (metrics.validGoalOnlyFillerRate) notes.push("Valid-goals-only output includes non-goal filler.");
+  if (metrics.validGoalsOnlyExactSegmentCount < 1) notes.push("Valid-goals-only output segment count does not equal the counted-goal truth count.");
+  if (metrics.validGoalOrdering < 1) notes.push("Valid-goals-only output is not ordered exactly like the counted-goal truth sequence.");
   if (metrics.cutSmoothnessScore < 0.9) notes.push("Valid-goals-only cuts are overlapping, out of order, too short or too long.");
   if (metrics.captionGoalClaimAccuracy < 0.95) notes.push("Goal captions do not match valid-goal expectations.");
   if (metrics.segmentTimingCoverage < 0.9) notes.push("Goal segments do not cover the expected shot/payoff/decision window.");
@@ -1718,6 +1803,8 @@ function aggregateResults(results) {
     noGoalExclusionAccuracy: avg((result) => result.metrics.noGoalExclusionAccuracy),
     validGoalsOnlyCoverage: avg((result) => result.metrics.validGoalsOnlyCoverage),
     validGoalOnlyFillerRate: avg((result) => result.metrics.validGoalOnlyFillerRate),
+    validGoalsOnlyExactSegmentCount: avg((result) => result.metrics.validGoalsOnlyExactSegmentCount),
+    validGoalOrdering: avg((result) => result.metrics.validGoalOrdering),
     fillerRate: avg((result) => result.metrics.fillerRate),
     cutSmoothnessScore: avg((result) => result.metrics.cutSmoothnessScore),
     captionGoalClaimAccuracy: avg((result) => result.metrics.captionGoalClaimAccuracy),
