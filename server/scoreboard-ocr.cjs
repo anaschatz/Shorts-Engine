@@ -15,6 +15,12 @@ const {
   scoreAllowedForRegion,
 } = require("./adapters/local-ocr-adapter.cjs");
 const { readScoreboardCandidate } = require("./scoreboard-reader.cjs");
+const {
+  calibrationSummary,
+  digitReaderSummary,
+  readScorebugDigits,
+  validateScorebugCalibration,
+} = require("./scorebug-digit-reader.cjs");
 const { visualReasonCodesForWindow } = require("./vision.cjs");
 
 const DEFAULT_SCOREBOARD_OCR_TIMEOUT_MS = 10000;
@@ -443,6 +449,26 @@ function normalizeQaReportSummary(value = {}) {
   };
 }
 
+function summarizeDigitReaderRows(rows = []) {
+  const safeRows = Array.isArray(rows) ? rows : [];
+  const statuses = safeRows.reduce((acc, row) => {
+    const status = sanitizeText(row.digitReaderStatus || "unreadable", 32);
+    acc[status] = (acc[status] || 0) + 1;
+    return acc;
+  }, {});
+  return {
+    readableCount: Number(statuses.readable || 0),
+    ambiguousCount: Number(statuses.ambiguous || 0),
+    unreadableCount: Number(statuses.unreadable || 0),
+    digitBoxCount: safeRows.reduce((sum, row) => sum + Math.max(0, Number(row.digitBoxCount || 0)), 0),
+    failClosedReasons: [...new Set(safeRows
+      .flatMap((row) => Array.isArray(row.digitReaderReasons) ? row.digitReaderReasons : [])
+      .map((reason) => sanitizeText(reason, 60))
+      .filter(Boolean))]
+      .slice(0, 12),
+  };
+}
+
 function validateScoreboardOcrOutput(output = {}, metadata = {}) {
   if (!output || typeof output !== "object" || Array.isArray(output) || hasUnsafeValue(output)) {
     throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
@@ -712,6 +738,7 @@ function recordScoreboardOcrQaAttempt({
   variant = {},
   ocr = {},
   reader = {},
+  digitReading = null,
 } = {}) {
   if (!qa || !qa.enabled) return;
   if (qa.attempts.length >= MAX_SCOREBOARD_OCR_QA_ATTEMPTS) return;
@@ -752,6 +779,7 @@ function recordScoreboardOcrQaAttempt({
     score: reader.scoreText || null,
     clock: reader.clock || null,
     confidence: round(ocr.confidence || reader.confidence || 0),
+    ...digitReaderSummary(digitReading || {}),
     ambiguityReasons: Array.isArray(reader.ambiguityReasons)
       ? reader.ambiguityReasons.map((reason) => sanitizeText(reason, 60)).filter(Boolean).slice(0, 6)
       : [],
@@ -783,6 +811,10 @@ function writeScoreboardOcrReviewHtml({ qa, reportRelativePath, contactSheetRela
         <td>${escapeHtml(row.score || "")}</td>
         <td>${escapeHtml(row.clock || "")}</td>
         <td>${escapeHtml(row.confidence)}</td>
+        <td>${escapeHtml(row.digitReaderStatus || "")}</td>
+        <td>${escapeHtml(row.digitBoxCount || 0)}</td>
+        <td>${escapeHtml(row.scoreConfidence || 0)}</td>
+        <td>${escapeHtml((row.digitReaderReasons || []).join(", "))}</td>
         <td>${escapeHtml((row.ambiguityReasons || []).join(", "))}</td>
         <td>${escapeHtml(row.ocrText || "")}</td>
         <td>${row.cropRef ? `<img alt="crop ${escapeHtml(row.index)}" src="${escapeHtml(relative(qa.directory, row.cropRef).replace(/\\/g, "/"))}">` : ""}</td>
@@ -809,7 +841,7 @@ function writeScoreboardOcrReviewHtml({ qa, reportRelativePath, contactSheetRela
   <table>
     <thead>
       <tr>
-        <th>#</th><th>Time</th><th>Region</th><th>Variant</th><th>Status</th><th>Score</th><th>Clock</th><th>Conf</th><th>Reasons</th><th>OCR Text</th><th>Crop</th>
+        <th>#</th><th>Time</th><th>Region</th><th>Variant</th><th>Status</th><th>Score</th><th>Clock</th><th>Conf</th><th>Digit Status</th><th>Digit Boxes</th><th>Score Conf</th><th>Digit Reasons</th><th>Reasons</th><th>OCR Text</th><th>Crop</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
@@ -831,6 +863,7 @@ function writeScoreboardOcrQaReport({ qa, scoreboardOcr, status = "completed" } 
     currentRunId: qa.runId,
     retentionMax: qaRetentionMax(CONFIG.scoreboardOcr.qaArtifactRetention),
   });
+  const digitReader = summarizeDigitReaderRows(qa.contactSheetRows);
   const contactSheet = safeScoreboardOcrQaReport({
     schemaVersion: 1,
     kind: "scoreboard-ocr-contact-sheet",
@@ -872,10 +905,18 @@ function writeScoreboardOcrQaReport({ qa, scoreboardOcr, status = "completed" } 
       files: qa.files.slice(0, MAX_SCOREBOARD_OCR_QA_ATTEMPTS),
     },
     ocrAttempts: qa.attempts.slice(0, MAX_SCOREBOARD_OCR_QA_ATTEMPTS),
+    digitReader,
+    calibrationUsed: qa.digitCalibrationSummary || null,
     evidenceSummary: scoreboardOcr && scoreboardOcr.summary
       ? {
           evidenceCount: Number(scoreboardOcr.summary.evidenceCount || 0),
           scoreChangeCount: Number(scoreboardOcr.summary.scoreChangeCount || 0),
+          scoreChangeEvents: Array.isArray(scoreboardOcr.summary.scoreTimeline)
+            ? scoreboardOcr.summary.scoreTimeline.filter((item) => item.status === "score_changed").slice(0, MAX_SCOREBOARD_OCR_FRAMES)
+            : [],
+          revertedScoreEvents: Array.isArray(scoreboardOcr.summary.scoreTimeline)
+            ? scoreboardOcr.summary.scoreTimeline.filter((item) => item.status === "goal_removed").slice(0, MAX_SCOREBOARD_OCR_FRAMES)
+            : [],
           ambiguousCount: Number(scoreboardOcr.summary.ambiguousCount || 0),
           unreadableCount: Number(scoreboardOcr.summary.unreadableCount || 0),
           scoreTimeline: Array.isArray(scoreboardOcr.summary.scoreTimeline)
@@ -1061,6 +1102,8 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
     commandChecker = null,
     cropper = null,
     ffmpegRunner = null,
+    digitReader = null,
+    digitCalibration = null,
   } = {}) {
     super();
     this.enabled = Boolean(enabled);
@@ -1075,6 +1118,8 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
     this.cropperInjected = Boolean(cropper);
     this.cropper = cropper || cropScoreboardRegion;
     this.ffmpegRunner = ffmpegRunner || runFfmpeg;
+    this.digitReader = digitReader || readScorebugDigits;
+    this.digitCalibration = digitCalibration;
   }
 
   health() {
@@ -1093,6 +1138,7 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
         "scoreboard_region_sampling",
         "full_source_periodic_sampling",
         "ocr_preprocessing_variants",
+        "focused_scorebug_digit_reader",
         "local_command_ocr",
         "safe_empty_fallback",
       ],
@@ -1107,6 +1153,8 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
     const metadata = input.metadata || {};
     const outputDir = ocrCropOutputDir(input);
     const qa = createScoreboardOcrQaContext(input);
+    const digitCalibration = validateScorebugCalibration(input.digitCalibration || input.scorebugDigitCalibration || this.digitCalibration);
+    qa.digitCalibrationSummary = calibrationSummary(digitCalibration);
     let frames = [];
     try {
       frames = await extractOcrFramesFromSource({
@@ -1159,11 +1207,24 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
               signal: input.signal,
               timeoutMs: this.timeoutMs,
             }), { signal: input.signal, timeoutMs: this.timeoutMs });
-            const parsedScore = ocr.rejected ? null : scoreAllowedForRegion({
+            const digitReading = this.digitReader({
+              frame,
+              crop: { timestamp: frame.timestamp },
               regionId: region.id,
-              text: ocr.text,
-              score: parseScoreboardScore(ocr.text),
+              timestamp: frame.timestamp,
+              metadata,
+              calibration: digitCalibration,
+              signal: input.signal,
             });
+            const digitScore = digitReading.status === "readable" ? digitReading.score : null;
+            const parsedScore = digitScore ||
+              (ocr.rejected
+                ? null
+                : scoreAllowedForRegion({
+                    regionId: region.id,
+                    text: ocr.text,
+                    score: parseScoreboardScore(ocr.text),
+                  }));
             const parsedClock = ocr.rejected ? null : parseClock(ocr.text);
             const reader = readScoreboardCandidate({
               id: `ocr_${frameIndex + 1}_${cropCount + 1}`,
@@ -1177,8 +1238,9 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
               score: parsedScore,
               clock: parsedClock,
               rejected: ocr.rejected,
-              confidence: ocr.confidence,
+              confidence: digitScore ? digitReading.confidence : ocr.confidence,
             });
+            if (digitScore) reader.source = `local_scorebug_digit_reader_${variant.id}`;
             observations.push({
               id: `ocr_${frameIndex + 1}_${cropCount + 1}`,
               timestamp: frame.timestamp,
@@ -1187,9 +1249,10 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
               regionId: region.id,
               preprocessingVariant: variant.id,
               text: ocr.text,
-              confidence: ocr.confidence,
+              score: digitScore,
+              confidence: digitScore ? digitReading.confidence : ocr.confidence,
               rejected: ocr.rejected,
-              source: `local_scoreboard_ocr_${variant.id}`,
+              source: digitScore ? `local_scorebug_digit_reader_${variant.id}` : `local_scoreboard_ocr_${variant.id}`,
             });
             recordScoreboardOcrQaAttempt({
               qa,
@@ -1200,9 +1263,10 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
               variant,
               ocr,
               reader,
+              digitReading,
             });
             cropCount += 1;
-            if (!ocr.rejected && parsedScore) {
+            if (parsedScore) {
               frameScoreFound.add(frameIndex);
               break;
             }

@@ -291,6 +291,80 @@ test("local scoreboard OCR reads cropped frame text into score-change evidence",
   }
 });
 
+test("local scoreboard OCR can use calibrated scorebug digit readings instead of loose OCR text", async () => {
+  const { dir, frames } = createFrameFixtures();
+  const runId = `scorebug-digit-test-${Date.now()}`;
+  try {
+    const result = await analyzeScoreboardOcr({
+      metadata,
+      mode: "local",
+      enabled: true,
+      qaArtifactsEnabled: true,
+      qaRunId: runId,
+      commandChecker: () => true,
+      frames,
+      digitCalibration: {
+        layoutId: "fixture-scorebug",
+        minConfidence: 0.78,
+        readings: [
+          {
+            timestamp: 10,
+            regionId: "scorebug_broadcast_compact",
+            score: { home: 0, away: 0 },
+            confidence: 0.92,
+            digitBoxes: [
+              { role: "home", digit: 0, x: 0.42, y: 0.2, width: 0.08, height: 0.55, confidence: 0.9 },
+              { role: "away", digit: 0, x: 0.58, y: 0.2, width: 0.08, height: 0.55, confidence: 0.91 },
+            ],
+          },
+          {
+            timestamp: 24,
+            regionId: "scorebug_broadcast_compact",
+            score: { home: 1, away: 0 },
+            confidence: 0.93,
+            digitBoxes: [
+              { role: "home", digit: 1, x: 0.42, y: 0.2, width: 0.08, height: 0.55, confidence: 0.92 },
+              { role: "away", digit: 0, x: 0.58, y: 0.2, width: 0.08, height: 0.55, confidence: 0.9 },
+            ],
+          },
+          {
+            timestamp: 38,
+            regionId: "scorebug_broadcast_compact",
+            score: { home: 1, away: 0 },
+            confidence: 0.94,
+            digitBoxes: [
+              { role: "home", digit: 1, x: 0.42, y: 0.2, width: 0.08, height: 0.55, confidence: 0.92 },
+              { role: "away", digit: 0, x: 0.58, y: 0.2, width: 0.08, height: 0.55, confidence: 0.91 },
+            ],
+          },
+        ],
+      },
+      cropper: async ({ outputDir, frameIndex, region }) => {
+        const cropPath = safeResolve(outputDir, `crop_${frameIndex}_${region.id}.png`);
+        mkdirSync(outputDir, { recursive: true });
+        writeFileSync(cropPath, "fake-crop", "utf8");
+        return cropPath;
+      },
+      ocrRunner: async () => ({ stdout: "24:00" }),
+    });
+
+    assert.equal(result.providerMode, "local-scoreboard-ocr-command");
+    assert.equal(result.summary.scoreChangeCount, 1);
+    assert.equal(result.summary.scoreTimeline.some((item) => item.status === "score_changed" && item.scoreAfter === "1-0"), true);
+    assert.equal(result.summary.regionIdsUsed.includes("scorebug_broadcast_compact"), true);
+    assert.equal(result.qaReport.enabled, true);
+    const report = JSON.parse(readFileSync(join(process.cwd(), result.qaReport.reportPath), "utf8"));
+    assert.equal(report.digitReader.readableCount >= 3, true);
+    assert.equal(report.calibrationUsed.layoutId, "fixture-scorebug");
+    assert.equal(report.evidenceSummary.scoreChangeEvents.length, 1);
+    assert.equal(report.ocrAttempts.some((attempt) => attempt.digitReaderStatus === "readable" && attempt.score === "1-0"), true);
+    assert.doesNotMatch(JSON.stringify(report), /\/Users|\/private|storageKey|localPath|token|secret|stdout|stderr/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(join(process.cwd(), SCOREBOARD_OCR_QA_RELATIVE_DIR, `ocr-scoreboard-${runId}`), { recursive: true, force: true });
+  }
+});
+
 test("local scoreboard OCR writes opt-in crop QA report with safe relative refs", async () => {
   const { dir, frames } = createFrameFixtures();
   const runId = `scoreboard-qa-test-${Date.now()}`;

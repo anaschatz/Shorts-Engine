@@ -164,11 +164,17 @@ function buildScoreboardEvidenceFromObservations(observations = []) {
     .map((observation, index) => {
       const text = normalizeOcrText(observation.text || "");
       const rejected = Boolean(observation.rejected) || hasUnsafeOcrText(text);
-      const parsedScore = rejected ? null : parseScoreboardScore(text);
+      const structuredScore = observation.score &&
+        Number.isInteger(observation.score.home) &&
+        Number.isInteger(observation.score.away) &&
+        plausibleScore(observation.score.home, observation.score.away)
+        ? { home: observation.score.home, away: observation.score.away, text: `${observation.score.home}-${observation.score.away}` }
+        : null;
+      const parsedScore = rejected || structuredScore ? null : parseScoreboardScore(text);
       const score = rejected ? null : scoreAllowedForRegion({
         regionId: observation.regionId || "scoreboard_region",
         text,
-        score: parsedScore,
+        score: structuredScore || parsedScore,
       });
       const clock = rejected ? null : parseClock(text);
       const reading = readScoreboardCandidate({
