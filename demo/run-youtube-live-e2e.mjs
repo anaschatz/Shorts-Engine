@@ -171,6 +171,7 @@ function safeScoreboardOcrEvent(value = {}) {
         reportPath: value.qaReport.reportPath ? safeString(value.qaReport.reportPath, 180) : null,
         latestPath: value.qaReport.latestPath ? safeString(value.qaReport.latestPath, 180) : null,
         contactSheetPath: value.qaReport.contactSheetPath ? safeString(value.qaReport.contactSheetPath, 180) : null,
+        reviewPath: value.qaReport.reviewPath ? safeString(value.qaReport.reviewPath, 180) : null,
         cropCount: safeNumber(value.qaReport.cropCount),
         attemptCount: safeNumber(value.qaReport.attemptCount),
       }
@@ -968,6 +969,7 @@ function startServer(port, env) {
                   reportPath: parsed.qaReport.reportPath ? safeString(parsed.qaReport.reportPath, 180) : null,
                   latestPath: parsed.qaReport.latestPath ? safeString(parsed.qaReport.latestPath, 180) : null,
                   contactSheetPath: parsed.qaReport.contactSheetPath ? safeString(parsed.qaReport.contactSheetPath, 180) : null,
+                  reviewPath: parsed.qaReport.reviewPath ? safeString(parsed.qaReport.reviewPath, 180) : null,
                   cropCount: safeNumber(parsed.qaReport.cropCount),
                   attemptCount: safeNumber(parsed.qaReport.attemptCount),
                 }

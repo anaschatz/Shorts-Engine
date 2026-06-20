@@ -25,6 +25,7 @@ const {
   buildScoreboardEvidenceFromObservations,
   parseClock,
   parseScoreboardScore,
+  scoreAllowedForRegion,
 } = require("../server/adapters/local-ocr-adapter.cjs");
 const {
   buildStableScoreTimeline,
@@ -138,8 +139,24 @@ test("local OCR parsing extracts scores clocks and transitions safely", () => {
   assert.deepEqual(parseScoreboardScore("36:09 ARG 1 0 ALG"), { home: 1, away: 0, text: "1-0" });
   assert.deepEqual(parseScoreboardScore("36: 09 ARG 1 FIFA 0 ALG2"), { home: 1, away: 0, text: "1-0" });
   assert.equal(parseScoreboardScore("16:38 ARG 0 O68 ALG"), null);
+  assert.equal(parseScoreboardScore("GET:32: ALGO"), null);
+  assert.equal(parseScoreboardScore("Y A P W29 : AS 8 M S A I OZ 5 73"), null);
+  assert.equal(parseScoreboardScore("P A 333 LS PY BARG O 7 DP A L OQ"), null);
+  assert.equal(parseScoreboardScore("SF 4 SY KS 24 04:40 ALG3 X TG W MAT H"), null);
+  assert.equal(parseScoreboardScore("C : O Y AS TH AOUA 5 V 7 ARG YT 5 A 7 W"), null);
+  assert.equal(parseScoreboardScore("BF SOP P 4 J A WJ A Y A AY 44 TS"), null);
   assert.equal(parseScoreboardScore("23:11 first half"), null);
   assert.equal(parseScoreboardScore("HOME 0-0 AWAY 1-0 replay"), null);
+  assert.equal(scoreAllowedForRegion({
+    regionId: "scoreboard_top_left",
+    text: "7 L N2 2 7 ARG ALG F 7 1 2A",
+    score: parseScoreboardScore("7 L N2 2 7 ARG ALG F 7 1 2A"),
+  }), null);
+  assert.deepEqual(scoreAllowedForRegion({
+    regionId: "scorebug_broadcast_compact",
+    text: "ARG 1 0 ALG",
+    score: parseScoreboardScore("ARG 1 0 ALG"),
+  }), { home: 1, away: 0, text: "1-0" });
   assert.equal(parseClock("12:34 first half"), "12:34");
   const evidence = buildScoreboardEvidenceFromObservations([
     { timestamp: 10, text: "HOME 0-0 AWAY", confidence: 0.8 },
@@ -305,20 +322,27 @@ test("local scoreboard OCR writes opt-in crop QA report with safe relative refs"
     assert.equal(result.qaReport.latestPath, SCOREBOARD_OCR_QA_LATEST_RELATIVE_PATH);
     assert.match(result.qaReport.reportPath, /^demo\/results\/ocr-scoreboard-qa-/);
     assert.match(result.qaReport.contactSheetPath, new RegExp(`^${SCOREBOARD_OCR_QA_RELATIVE_DIR}/ocr-scoreboard-`));
+    assert.match(result.qaReport.reviewPath, new RegExp(`^${SCOREBOARD_OCR_QA_RELATIVE_DIR}/ocr-scoreboard-`));
     assert.equal(result.qaReport.cropCount > 0, true);
     assert.equal(result.qaReport.attemptCount > 0, true);
+    assert.equal(result.summary.sampledFrameCount, 3);
+    assert.equal(result.summary.preprocessingVariantCount, 4);
     const reportPath = join(process.cwd(), result.qaReport.reportPath);
     const latestPath = join(process.cwd(), result.qaReport.latestPath);
     const contactPath = join(process.cwd(), result.qaReport.contactSheetPath);
+    const reviewPath = join(process.cwd(), result.qaReport.reviewPath);
     assert.equal(existsSync(reportPath), true);
     assert.equal(existsSync(latestPath), true);
     assert.equal(existsSync(contactPath), true);
+    assert.equal(existsSync(reviewPath), true);
     const report = JSON.parse(readFileSync(reportPath, "utf8"));
     assert.equal(report.kind, "scoreboard-ocr-qa-report");
     assert.equal(report.relativeRefsOnly, true);
+    assert.equal(report.review.relativePath, result.qaReport.reviewPath);
     assert.equal(report.cropArtifacts.cropCount, result.qaReport.cropCount);
     assert.equal(report.ocrAttempts.some((attempt) => attempt.ocrText), true);
     assert.doesNotMatch(JSON.stringify(report), /\/Users|\/private|storageKey|localPath|token|secret|stdout|stderr/i);
+    assert.doesNotMatch(readFileSync(reviewPath, "utf8"), /\/Users|\/private|storageKey|localPath|token|secret|stdout|stderr/i);
   } finally {
     rmSync(dir, { recursive: true, force: true });
     rmSync(join(process.cwd(), SCOREBOARD_OCR_QA_RELATIVE_DIR, `ocr-scoreboard-${runId}`), { recursive: true, force: true });

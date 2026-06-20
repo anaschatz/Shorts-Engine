@@ -6,6 +6,8 @@ const { sanitizeText } = require("../media.cjs");
 
 const DEFAULT_LOCAL_OCR_TIMEOUT_MS = 10000;
 const MAX_OCR_STDOUT_BYTES = 4096;
+const MAX_REASONABLE_TEAM_SCORE = 9;
+const MAX_REASONABLE_TOTAL_SCORE = 12;
 
 function round(value, digits = 2) {
   const factor = 10 ** digits;
@@ -42,20 +44,34 @@ function ocrDigit(value) {
   return text;
 }
 
-function ocrDigitFromToken(value) {
+function ocrDigitFromToken(value, { allowLetterSubstitutions = false } = {}) {
   const token = String(value || "");
   if (token.length > 3) return null;
+  if (!allowLetterSubstitutions && !/^[0-9]$/.test(token)) return null;
   const matches = token.match(/[0-9OoIl|]/g) || [];
   if (matches.length !== 1) return null;
   return ocrDigit(matches[0]);
 }
 
 function isTeamToken(value) {
-  return /^[A-Z]{2,5}[0-9OoIl|]?$/.test(String(value || ""));
+  const token = String(value || "");
+  return /^[A-Z]{2,5}[0-9OoIl|]?$/.test(token) && !/^[A-Z]$/.test(token);
+}
+
+function plausibleScore(home, away) {
+  return Number.isInteger(home) &&
+    Number.isInteger(away) &&
+    home >= 0 &&
+    away >= 0 &&
+    home <= MAX_REASONABLE_TEAM_SCORE &&
+    away <= MAX_REASONABLE_TEAM_SCORE &&
+    home + away <= MAX_REASONABLE_TOTAL_SCORE;
 }
 
 function tokenizedScoreCandidates(text) {
-  const tokens = String(text || "").match(/[A-Z]{2,5}[0-9OoIl|]?|[A-Z]{0,2}[0-9OoIl|][A-Z]{0,2}/g) || [];
+  const tokens = (String(text || "").match(/[A-Z0-9OoIl|]+/g) || [])
+    .filter((token) => isTeamToken(token) || /^[0-9OoIl|]{1,3}$/.test(token));
+  if (tokens.length > 10) return [];
   const candidates = [];
   const teamQuality = (token) => {
     const text = String(token || "");
@@ -66,17 +82,18 @@ function tokenizedScoreCandidates(text) {
   };
   for (let i = 0; i < tokens.length; i += 1) {
     if (!isTeamToken(tokens[i])) continue;
-    for (let j = i + 1; j < Math.min(tokens.length, i + 4); j += 1) {
-      const home = ocrDigitFromToken(tokens[j]);
+    for (let j = i + 1; j < Math.min(tokens.length, i + 3); j += 1) {
+      const home = ocrDigitFromToken(tokens[j], { allowLetterSubstitutions: false });
       if (home === null) continue;
-      for (let k = j + 1; k < Math.min(tokens.length, j + 4); k += 1) {
-        const away = ocrDigitFromToken(tokens[k]);
+      for (let k = j + 1; k < Math.min(tokens.length, j + 3); k += 1) {
+        const away = ocrDigitFromToken(tokens[k], { allowLetterSubstitutions: false });
         if (away === null) continue;
+        if (!plausibleScore(Number(home), Number(away)) || Number(home) + Number(away) > 8) continue;
         const rejectedDigitLikeBetweenScores = tokens
           .slice(j + 1, k)
           .some((token) => /[0-9]/.test(token) && ocrDigitFromToken(token) === null);
         if (rejectedDigitLikeBetweenScores) continue;
-        for (let l = k + 1; l < Math.min(tokens.length, k + 5); l += 1) {
+        for (let l = k + 1; l < Math.min(tokens.length, k + 3); l += 1) {
           if (!isTeamToken(tokens[l])) continue;
           const score = teamQuality(tokens[i]) +
             teamQuality(tokens[l]) +
@@ -92,7 +109,7 @@ function tokenizedScoreCandidates(text) {
     }
   }
   const maxScore = Math.max(0, ...candidates.map((candidate) => candidate.score));
-  if (maxScore < 5) return [];
+  if (maxScore < 7) return [];
   return candidates.filter((candidate) => candidate.score === maxScore);
 }
 
@@ -107,17 +124,14 @@ function parseScoreboardScore(text) {
   const addCandidate = (homeText, awayText) => {
     const home = Number(homeText);
     const away = Number(awayText);
-    if (!Number.isInteger(home) || !Number.isInteger(away)) return;
-    if (home < 0 || away < 0 || home > 30 || away > 30) return;
+    if (!plausibleScore(home, away)) return;
     candidates.push({ home, away, text: `${home}-${away}` });
   };
-  for (const match of safe.matchAll(/(?:^|[^0-9])(\d{1,2})\s*-\s*(\d{1,2})(?!\d)/g)) {
+  for (const match of withoutClock.matchAll(/(?:^|[^0-9])(\d{1,2})\s*-\s*(\d{1,2})(?!\d)/g)) {
     addCandidate(match[1], match[2]);
   }
-  if (!candidates.length) {
-    for (const match of safe.matchAll(/(?:^|[^0-9])([0-9])\s*:\s*([0-9])(?!\d)/g)) {
-      addCandidate(match[1], match[2]);
-    }
+  if (!candidates.length && /\b[A-Z]{2,5}:\d{2}\b/.test(withoutClock)) {
+    return null;
   }
   if (!candidates.length) {
     for (const candidate of tokenizedScoreCandidates(withoutClock)) {
@@ -126,6 +140,15 @@ function parseScoreboardScore(text) {
   }
   const unique = [...new Map(candidates.map((candidate) => [candidate.text, candidate])).values()];
   return unique.length === 1 ? unique[0] : null;
+}
+
+function scoreAllowedForRegion({ regionId = "scoreboard_region", text = "", score = null } = {}) {
+  if (!score) return null;
+  const safeRegion = sanitizeText(regionId || "scoreboard_region", 80);
+  const safeText = normalizeOcrText(text);
+  const broadQaRegion = /^(?:scoreboard_top_|broadcast_top_band)/.test(safeRegion);
+  if (!broadQaRegion) return score;
+  return /[0-9OoIl|]\s*[-]\s*[0-9OoIl|]/.test(safeText) ? score : null;
 }
 
 function confidenceForObservation({ text, score, clock, rejected } = {}) {
@@ -141,7 +164,12 @@ function buildScoreboardEvidenceFromObservations(observations = []) {
     .map((observation, index) => {
       const text = normalizeOcrText(observation.text || "");
       const rejected = Boolean(observation.rejected) || hasUnsafeOcrText(text);
-      const score = rejected ? null : parseScoreboardScore(text);
+      const parsedScore = rejected ? null : parseScoreboardScore(text);
+      const score = rejected ? null : scoreAllowedForRegion({
+        regionId: observation.regionId || "scoreboard_region",
+        text,
+        score: parsedScore,
+      });
       const clock = rejected ? null : parseClock(text);
       const reading = readScoreboardCandidate({
         id: observation.id || `local_ocr_observation_${index + 1}`,
@@ -303,4 +331,5 @@ module.exports = {
   ocrCommandAvailable,
   parseClock,
   parseScoreboardScore,
+  scoreAllowedForRegion,
 };

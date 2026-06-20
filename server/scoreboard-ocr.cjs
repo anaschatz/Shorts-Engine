@@ -12,6 +12,7 @@ const {
   buildScoreboardEvidenceFromObservations,
   parseClock,
   parseScoreboardScore,
+  scoreAllowedForRegion,
 } = require("./adapters/local-ocr-adapter.cjs");
 const { readScoreboardCandidate } = require("./scoreboard-reader.cjs");
 const { visualReasonCodesForWindow } = require("./vision.cjs");
@@ -436,6 +437,7 @@ function normalizeQaReportSummary(value = {}) {
     reportPath: value.reportPath ? sanitizeText(value.reportPath, 180) : null,
     latestPath: value.latestPath ? sanitizeText(value.latestPath, 180) : null,
     contactSheetPath: value.contactSheetPath ? sanitizeText(value.contactSheetPath, 180) : null,
+    reviewPath: value.reviewPath ? sanitizeText(value.reviewPath, 180) : null,
     cropCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_QA_ATTEMPTS, Math.round(Number(value.cropCount || 0)))),
     attemptCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_QA_ATTEMPTS, Math.round(Number(value.attemptCount || 0)))),
   };
@@ -688,6 +690,15 @@ function safeOcrTextPreview(value) {
   return sanitizeText(value || "", 120);
 }
 
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function qaCropFileName({ attemptIndex, frameIndex, regionId, variantId }) {
   return `ocr-attempt-${String(attemptIndex + 1).padStart(2, "0")}-frame-${String(frameIndex + 1).padStart(2, "0")}-${safeFilePart(regionId, "region")}-${safeFilePart(variantId, "variant")}.png`;
 }
@@ -759,6 +770,57 @@ function safeScoreboardOcrQaReport(report = {}) {
   return report;
 }
 
+function writeScoreboardOcrReviewHtml({ qa, reportRelativePath, contactSheetRelativePath, status = "completed" } = {}) {
+  if (!qa || !qa.enabled) return null;
+  const reviewRelativePath = `${qa.directory}/review.html`;
+  const rows = qa.contactSheetRows.slice(0, MAX_SCOREBOARD_OCR_QA_ATTEMPTS).map((row) => `
+      <tr>
+        <td>${escapeHtml(row.index)}</td>
+        <td>${escapeHtml(row.timestamp)}</td>
+        <td>${escapeHtml(row.regionId)}</td>
+        <td>${escapeHtml(row.preprocessingVariant)}</td>
+        <td>${escapeHtml(row.status)}</td>
+        <td>${escapeHtml(row.score || "")}</td>
+        <td>${escapeHtml(row.clock || "")}</td>
+        <td>${escapeHtml(row.confidence)}</td>
+        <td>${escapeHtml((row.ambiguityReasons || []).join(", "))}</td>
+        <td>${escapeHtml(row.ocrText || "")}</td>
+        <td>${row.cropRef ? `<img alt="crop ${escapeHtml(row.index)}" src="${escapeHtml(relative(qa.directory, row.cropRef).replace(/\\/g, "/"))}">` : ""}</td>
+      </tr>`).join("");
+  const html = safeScoreboardOcrQaReport(`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scoreboard OCR QA Review</title>
+  <style>
+    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 24px; color: #151515; background: #f7f7f4; }
+    table { border-collapse: collapse; width: 100%; background: #fff; }
+    th, td { border: 1px solid #d8d8d2; padding: 6px; font-size: 12px; vertical-align: top; }
+    th { background: #ecece4; text-align: left; position: sticky; top: 0; }
+    img { max-width: 280px; max-height: 90px; object-fit: contain; display: block; }
+    code { background: #ecece4; padding: 2px 4px; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <h1>Scoreboard OCR QA Review</h1>
+  <p>Status: <code>${escapeHtml(status)}</code> | Run: <code>${escapeHtml(qa.runId)}</code></p>
+  <p>JSON report: <code>${escapeHtml(reportRelativePath)}</code> | Contact sheet: <code>${escapeHtml(contactSheetRelativePath)}</code></p>
+  <table>
+    <thead>
+      <tr>
+        <th>#</th><th>Time</th><th>Region</th><th>Variant</th><th>Status</th><th>Score</th><th>Clock</th><th>Conf</th><th>Reasons</th><th>OCR Text</th><th>Crop</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>
+</body>
+</html>
+`);
+  writeFileSync(safeResolveRootRelative(reviewRelativePath), html, "utf8");
+  return reviewRelativePath;
+}
+
 function writeScoreboardOcrQaReport({ qa, scoreboardOcr, status = "completed" } = {}) {
   if (!qa || !qa.enabled) return null;
   const generatedAt = new Date().toISOString();
@@ -779,6 +841,12 @@ function writeScoreboardOcrQaReport({ qa, scoreboardOcr, status = "completed" } 
     relativeRefsOnly: true,
   });
   writeFileSync(safeResolveRootRelative(contactSheetRelativePath), `${JSON.stringify(contactSheet, null, 2)}\n`, "utf8");
+  const reviewRelativePath = writeScoreboardOcrReviewHtml({
+    qa,
+    reportRelativePath,
+    contactSheetRelativePath,
+    status,
+  });
   const report = safeScoreboardOcrQaReport({
     schemaVersion: 1,
     kind: "scoreboard-ocr-qa-report",
@@ -790,6 +858,12 @@ function writeScoreboardOcrQaReport({ qa, scoreboardOcr, status = "completed" } 
       relativePath: contactSheetRelativePath,
       rowCount: contactSheet.rowCount,
     },
+    review: reviewRelativePath
+      ? {
+          relativePath: reviewRelativePath,
+          rowCount: contactSheet.rowCount,
+        }
+      : null,
     cropArtifacts: {
       enabled: true,
       cropCount: qa.files.length,
@@ -824,6 +898,7 @@ function writeScoreboardOcrQaReport({ qa, scoreboardOcr, status = "completed" } 
     reportPath: reportRelativePath,
     latestPath: latestRelativePath,
     contactSheetPath: contactSheetRelativePath,
+    reviewPath: reviewRelativePath,
     cropCount: qa.files.length,
     attemptCount: qa.attempts.length,
     status: report.status,
@@ -1084,7 +1159,11 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
               signal: input.signal,
               timeoutMs: this.timeoutMs,
             }), { signal: input.signal, timeoutMs: this.timeoutMs });
-            const parsedScore = ocr.rejected ? null : parseScoreboardScore(ocr.text);
+            const parsedScore = ocr.rejected ? null : scoreAllowedForRegion({
+              regionId: region.id,
+              text: ocr.text,
+              score: parseScoreboardScore(ocr.text),
+            });
             const parsedClock = ocr.rejected ? null : parseClock(ocr.text);
             const reader = readScoreboardCandidate({
               id: `ocr_${frameIndex + 1}_${cropCount + 1}`,
@@ -1144,7 +1223,16 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
       }, metadata);
       const qaReport = writeScoreboardOcrQaReport({ qa, scoreboardOcr: result, status: "completed" });
       return qaReport
-        ? validateScoreboardOcrOutput({ ...result, qaReport }, metadata)
+        ? validateScoreboardOcrOutput({
+            providerMode: result.providerMode,
+            fallbackUsed: result.fallbackUsed,
+            evidence: result.evidence,
+            sampledFrameCount: result.summary.sampledFrameCount,
+            regionCount: result.summary.regionCount,
+            regionIdsUsed: result.summary.regionIdsUsed,
+            preprocessingVariantCount: result.summary.preprocessingVariantCount,
+            qaReport,
+          }, metadata)
         : result;
     } catch (error) {
       if (error && error.code === "JOB_CANCELLED") throw error;
