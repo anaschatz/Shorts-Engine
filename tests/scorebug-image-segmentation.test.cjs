@@ -5,7 +5,10 @@ const { join } = require("node:path");
 
 const { CONFIG } = require("../server/config.cjs");
 const { safeResolve } = require("../server/storage.cjs");
-const { segmentScorebugDigits } = require("../server/scorebug-image-segmentation.cjs");
+const {
+  segmentScorebugDigits,
+  segmentScorebugDigitsAsync,
+} = require("../server/scorebug-image-segmentation.cjs");
 
 const SEGMENTS = Object.freeze({
   0: "abcdef",
@@ -27,7 +30,7 @@ const ZONES = Object.freeze({
   d: { x0: 0.22, x1: 0.78, y0: 0.82, y1: 0.96 },
   e: { x0: 0.12, x1: 0.32, y0: 0.54, y1: 0.86 },
   f: { x0: 0.12, x1: 0.32, y0: 0.14, y1: 0.46 },
-  g: { x0: 0.22, x1: 0.78, y0: 0.43, y1: 0.57 },
+  g: { x0: 0.36, x1: 0.64, y0: 0.43, y1: 0.57 },
 });
 
 function createFixtureDir(name) {
@@ -81,6 +84,13 @@ function writeScorebugPgm(filePath, { home = 1, away = 0, clock = false, noisy =
   }
   const body = pixels.map(String).join(" ");
   writeFileSync(filePath, `P2\n${width} ${height}\n255\n${body}\n`, "utf8");
+}
+
+function writeFakePng(filePath) {
+  writeFileSync(filePath, Buffer.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    0x00, 0x00, 0x00, 0x0d,
+  ]));
 }
 
 test("image segmentation reads a focused synthetic scorebug crop", () => {
@@ -163,6 +173,59 @@ test("image segmentation rejects clock-like, noisy and missing crops", () => {
     });
     assert.equal(missing.status, "unreadable");
     assert.ok(missing.reasons.includes("crop_missing"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("image segmentation can read a decoded live-like PNG crop", async () => {
+  const dir = createFixtureDir("scorebug-segmentation-decoded");
+  let ffmpegCalls = 0;
+  try {
+    const cropPath = join(dir, "scorebug.png");
+    writeFakePng(cropPath);
+    const result = await segmentScorebugDigitsAsync({
+      cropPath,
+      outputDir: dir,
+      regionId: "scorebug_broadcast_compact",
+      timestamp: 32,
+      ffmpegRunner: async (args) => {
+        ffmpegCalls += 1;
+        writeScorebugPgm(args[args.length - 1], { home: 2, away: 1 });
+      },
+    });
+
+    assert.equal(ffmpegCalls, 1);
+    assert.equal(result.status, "readable");
+    assert.deepEqual(result.score, { home: 2, away: 1, text: "2-1" });
+    assert.equal(result.imageSegmentation.decoderStatus, "decoded");
+    assert.equal(result.imageSegmentation.decoderMode, "ffmpeg-pgm");
+    assert.equal(result.imageSegmentation.imageFormat, "png");
+    assert.doesNotMatch(JSON.stringify(result), /\/Users|\/private|storageKey|localPath|token|secret|stdout|stderr/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("image segmentation rejects broad regions before decoding PNG crops", async () => {
+  const dir = createFixtureDir("scorebug-segmentation-broad-decoder");
+  let ffmpegCalls = 0;
+  try {
+    const cropPath = join(dir, "scorebug.png");
+    writeFakePng(cropPath);
+    const result = await segmentScorebugDigitsAsync({
+      cropPath,
+      outputDir: dir,
+      regionId: "broadcast_top_band",
+      timestamp: 32,
+      ffmpegRunner: async () => {
+        ffmpegCalls += 1;
+      },
+    });
+
+    assert.equal(ffmpegCalls, 0);
+    assert.equal(result.status, "unreadable");
+    assert.ok(result.reasons.includes("region_not_focused_for_truth"));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

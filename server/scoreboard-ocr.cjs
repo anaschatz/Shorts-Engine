@@ -18,7 +18,7 @@ const { readScoreboardCandidate } = require("./scoreboard-reader.cjs");
 const {
   calibrationSummary,
   digitReaderSummary,
-  readScorebugDigits,
+  readScorebugDigitsAsync,
   validateScorebugCalibration,
 } = require("./scorebug-digit-reader.cjs");
 const { visualReasonCodesForWindow } = require("./vision.cjs");
@@ -463,6 +463,8 @@ function summarizeDigitReaderRows(rows = []) {
     digitBoxCount: safeRows.reduce((sum, row) => sum + Math.max(0, Number(row.digitBoxCount || 0)), 0),
     imageSegmentationReadableCount: safeRows.filter((row) => row.imageSegmentationStatus === "readable").length,
     imageSegmentationAttemptCount: safeRows.filter((row) => row.imageSegmentationStatus).length,
+    imageDecoderDecodedCount: safeRows.filter((row) => row.imageDecoderStatus === "decoded").length,
+    imageDecoderAttemptCount: safeRows.filter((row) => row.imageDecoderStatus).length,
     failClosedReasons: [...new Set(safeRows
       .flatMap((row) => Array.isArray(row.digitReaderReasons) ? row.digitReaderReasons : [])
       .map((reason) => sanitizeText(reason, 60))
@@ -816,6 +818,8 @@ function writeScoreboardOcrReviewHtml({ qa, reportRelativePath, contactSheetRela
         <td>${escapeHtml(row.digitReaderStatus || "")}</td>
         <td>${escapeHtml(row.digitBoxCount || 0)}</td>
         <td>${escapeHtml(row.scoreConfidence || 0)}</td>
+        <td>${escapeHtml(row.imageDecoderStatus || "")}</td>
+        <td>${escapeHtml(row.imageDecoderMode || "")}</td>
         <td>${escapeHtml(row.imageSegmentationStatus || "")}</td>
         <td>${escapeHtml(row.imageSegmentationGroups || 0)}</td>
         <td>${escapeHtml((row.digitReaderReasons || []).join(", "))}</td>
@@ -845,7 +849,7 @@ function writeScoreboardOcrReviewHtml({ qa, reportRelativePath, contactSheetRela
   <table>
     <thead>
       <tr>
-        <th>#</th><th>Time</th><th>Region</th><th>Variant</th><th>Status</th><th>Score</th><th>Clock</th><th>Conf</th><th>Digit Status</th><th>Digit Boxes</th><th>Score Conf</th><th>Image Seg</th><th>Groups</th><th>Digit Reasons</th><th>Reasons</th><th>OCR Text</th><th>Crop</th>
+        <th>#</th><th>Time</th><th>Region</th><th>Variant</th><th>Status</th><th>Score</th><th>Clock</th><th>Conf</th><th>Digit Status</th><th>Digit Boxes</th><th>Score Conf</th><th>Decoder</th><th>Mode</th><th>Image Seg</th><th>Groups</th><th>Digit Reasons</th><th>Reasons</th><th>OCR Text</th><th>Crop</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
@@ -1122,7 +1126,7 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
     this.cropperInjected = Boolean(cropper);
     this.cropper = cropper || cropScoreboardRegion;
     this.ffmpegRunner = ffmpegRunner || runFfmpeg;
-    this.digitReader = digitReader || readScorebugDigits;
+    this.digitReader = digitReader || readScorebugDigitsAsync;
     this.digitCalibration = digitCalibration;
   }
 
@@ -1211,15 +1215,21 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
               signal: input.signal,
               timeoutMs: this.timeoutMs,
             }), { signal: input.signal, timeoutMs: this.timeoutMs });
-            const digitReading = this.digitReader({
+            const digitReading = await Promise.resolve(this.digitReader({
               frame,
-              crop: { timestamp: frame.timestamp, cropPath: safeCropPath },
+              crop: {
+                timestamp: frame.timestamp,
+                cropPath: safeCropPath,
+                decoderOutputDir: outputDir,
+                ffmpegRunner: this.ffmpegRunner,
+                decoderTimeoutMs: Math.min(this.timeoutMs, 8000),
+              },
               regionId: region.id,
               timestamp: frame.timestamp,
               metadata,
               calibration: digitCalibration,
               signal: input.signal,
-            });
+            }));
             const digitScore = digitReading.status === "readable" ? digitReading.score : null;
             const parsedScore = digitScore ||
               (ocr.rejected

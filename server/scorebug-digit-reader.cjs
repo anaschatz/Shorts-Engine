@@ -1,6 +1,9 @@
 const { AppError, SAFE_MESSAGES } = require("./errors.cjs");
 const { sanitizeText } = require("./media.cjs");
-const { segmentScorebugDigits } = require("./scorebug-image-segmentation.cjs");
+const {
+  segmentScorebugDigits,
+  segmentScorebugDigitsAsync,
+} = require("./scorebug-image-segmentation.cjs");
 
 const DIGIT_READER_STATUSES = Object.freeze(["readable", "ambiguous", "unreadable"]);
 const DEFAULT_LAYOUT_ID = "default-focused-scorebug";
@@ -242,6 +245,36 @@ function imageSegmentationReading({ crop = {}, regionId = "", timestamp = 0, cal
   });
 }
 
+async function imageSegmentationReadingAsync({ crop = {}, regionId = "", timestamp = 0, calibration = {}, signal = null } = {}) {
+  const cropPath = crop.cropPath || crop.imagePath || crop.localPath;
+  const imageProbe = crop.imageProbe;
+  if (!cropPath && typeof imageProbe !== "function") return null;
+  return segmentScorebugDigitsAsync({
+    cropPath,
+    regionId,
+    timestamp,
+    calibration: calibration && calibration.hasExplicitDigitRois ? calibration : {},
+    imageProbe,
+    outputDir: crop.decoderOutputDir,
+    ffmpegRunner: crop.ffmpegRunner,
+    timeoutMs: crop.decoderTimeoutMs,
+    signal,
+  });
+}
+
+function mergeSegmentationFailure({ base, segmented, calibration }) {
+  if (!segmented) return base;
+  if (base.status === "readable") return base;
+  return {
+    ...base,
+    status: segmented.status,
+    confidence: segmented.confidence,
+    reasons: [...segmented.reasons, "calibrated_digit_boxes_missing"].slice(0, 8),
+    imageSegmentation: segmented.imageSegmentation,
+    calibrationUsed: calibrationSummary(calibration),
+  };
+}
+
 function readScorebugDigits({
   frame = {},
   crop = {},
@@ -332,6 +365,37 @@ function readScorebugDigits({
   };
 }
 
+async function readScorebugDigitsAsync(options = {}) {
+  const initial = readScorebugDigits(options);
+  const crop = options.crop || {};
+  const canDecode = crop && typeof crop.ffmpegRunner === "function";
+  const needsDecode = Boolean(initial &&
+    initial.imageSegmentation &&
+    Array.isArray(initial.imageSegmentation.reasons) &&
+    initial.imageSegmentation.reasons.includes("unsupported_image_format"));
+  if (!canDecode || !needsDecode || initial.status === "readable") {
+    return initial;
+  }
+  const safeRegionId = sanitizeText(options.regionId || "scoreboard_region", 80);
+  const frameTimestamp = options.frame && options.frame.timestamp;
+  const safeTimestamp = round(seconds(options.timestamp ?? frameTimestamp ?? crop.timestamp, 0));
+  const safeCalibration = validateScorebugCalibration(options.calibration);
+  const segmented = await imageSegmentationReadingAsync({
+    crop,
+    regionId: safeRegionId,
+    timestamp: safeTimestamp,
+    calibration: safeCalibration,
+    signal: options.signal,
+  });
+  if (segmented && segmented.status === "readable") {
+    return {
+      ...segmented,
+      calibrationUsed: calibrationSummary(safeCalibration),
+    };
+  }
+  return mergeSegmentationFailure({ base: initial, segmented, calibration: safeCalibration });
+}
+
 function digitReaderSummary(reading = {}) {
   const boxes = Array.isArray(reading.digitBoxes) ? reading.digitBoxes : [];
   const homeBoxes = boxes.filter((box) => box.role === "home");
@@ -355,6 +419,12 @@ function digitReaderSummary(reading = {}) {
     imageSegmentationGroups: reading.imageSegmentation
       ? Math.max(0, Math.min(99, Number(reading.imageSegmentation.foregroundGroupCount || 0)))
       : 0,
+    imageDecoderStatus: reading.imageSegmentation
+      ? sanitizeText(reading.imageSegmentation.decoderStatus || "", 32) || null
+      : null,
+    imageDecoderMode: reading.imageSegmentation
+      ? sanitizeText(reading.imageSegmentation.decoderMode || "", 32) || null
+      : null,
     imageSegmentationReasons: reading.imageSegmentation && Array.isArray(reading.imageSegmentation.reasons)
       ? reading.imageSegmentation.reasons.map((reason) => sanitizeText(reason, 60)).filter(Boolean).slice(0, 6)
       : [],
@@ -370,6 +440,7 @@ module.exports = {
   normalizeDigitBoxes,
   normalizeScore,
   readScorebugDigits,
+  readScorebugDigitsAsync,
   scoreText,
   validateScorebugCalibration,
 };

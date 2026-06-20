@@ -59,6 +59,8 @@
     "layoutId": "fixture-scorebug",
     "imageSegmentationBacked": true,
     "imageSegmentationMode": "focused_scorebug_crop_only",
+    "decoderBacked": true,
+    "decoderMode": "ffmpeg-pgm",
     "minConfidence": 0.78,
     "readingCount": 8
   },

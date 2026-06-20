@@ -2,6 +2,7 @@ const { existsSync, readFileSync, statSync } = require("node:fs");
 const { AppError, SAFE_MESSAGES } = require("./errors.cjs");
 const { sanitizeText } = require("./media.cjs");
 const { assertStoragePath } = require("./storage.cjs");
+const { decodeScorebugCrop, parsePgmBuffer } = require("./scorebug-image-decoder.cjs");
 
 const MAX_IMAGE_BYTES = 1024 * 1024;
 const MAX_IMAGE_WIDTH = 512;
@@ -55,6 +56,8 @@ function unreadable({ timestamp, regionId, reasons, details = {} } = {}) {
       componentCount: Math.max(0, Math.min(99, Number(details.componentCount || 0))),
       foregroundGroupCount: Math.max(0, Math.min(99, Number(details.foregroundGroupCount || 0))),
       imageFormat: sanitizeText(details.imageFormat || "unknown", 24),
+      decoderStatus: details.decoderStatus ? sanitizeText(details.decoderStatus, 32) : null,
+      decoderMode: details.decoderMode ? sanitizeText(details.decoderMode, 32) : null,
       homeDigitCandidates: [],
       awayDigitCandidates: [],
       reasons: (Array.isArray(reasons) ? reasons : [reasons]).map(safeReason).filter(Boolean).slice(0, 8),
@@ -72,6 +75,8 @@ function ambiguous({ timestamp, regionId, reasons, details = {}, home = null, aw
       componentCount: Math.max(0, Math.min(99, Number(details.componentCount || 0))),
       foregroundGroupCount: Math.max(0, Math.min(99, Number(details.foregroundGroupCount || 0))),
       imageFormat: sanitizeText(details.imageFormat || "unknown", 24),
+      decoderStatus: details.decoderStatus ? sanitizeText(details.decoderStatus, 32) : null,
+      decoderMode: details.decoderMode ? sanitizeText(details.decoderMode, 32) : null,
       homeDigitCandidates: home ? [{ digit: String(home.digit), confidence: round(home.confidence) }] : [],
       awayDigitCandidates: away ? [{ digit: String(away.digit), confidence: round(away.confidence) }] : [],
       reasons: (Array.isArray(reasons) ? reasons : [reasons]).map(safeReason).filter(Boolean).slice(0, 8),
@@ -89,43 +94,6 @@ function safeRoi(value = {}, fallback = DEFAULT_HOME_ROI) {
     y: round(y, 4),
     width: round(width, 4),
     height: round(height, 4),
-  };
-}
-
-function stripPgmComments(text) {
-  return text
-    .split("\n")
-    .map((line) => line.replace(/#.*/, "").trim())
-    .filter(Boolean)
-    .join(" ");
-}
-
-function parseAsciiPgm(buffer) {
-  const text = buffer.toString("ascii");
-  if (!text.startsWith("P2")) {
-    return null;
-  }
-  const parts = stripPgmComments(text).split(/\s+/);
-  if (parts[0] !== "P2") return null;
-  const width = Number(parts[1]);
-  const height = Number(parts[2]);
-  const maxValue = Number(parts[3]);
-  if (!Number.isInteger(width) || !Number.isInteger(height) || !Number.isInteger(maxValue)) {
-    throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
-  }
-  if (width < 8 || height < 8 || width > MAX_IMAGE_WIDTH || height > MAX_IMAGE_HEIGHT || maxValue < 1 || maxValue > 65535) {
-    throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
-  }
-  const expected = width * height;
-  const values = parts.slice(4, 4 + expected).map((value) => Number(value));
-  if (values.length !== expected || values.some((value) => !Number.isFinite(value) || value < 0 || value > maxValue)) {
-    throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
-  }
-  return {
-    width,
-    height,
-    imageFormat: "pgm-p2",
-    pixels: values.map((value) => Math.round((value / maxValue) * 255)),
   };
 }
 
@@ -159,9 +127,50 @@ function loadImage({ cropPath, imageProbe }) {
     return { unsupportedReason: "crop_too_large", imageFormat: "unknown" };
   }
   const buffer = readFileSync(safeCropPath);
-  const pgm = parseAsciiPgm(buffer);
+  const pgm = parsePgmBuffer(buffer);
   if (pgm) return pgm;
   return { unsupportedReason: "unsupported_image_format", imageFormat: "unsupported" };
+}
+
+async function loadImageWithDecoder({
+  cropPath,
+  imageProbe,
+  outputDir = null,
+  ffmpegRunner = null,
+  signal = null,
+  timeoutMs = null,
+} = {}) {
+  const image = loadImage({ cropPath, imageProbe });
+  if (!image || !image.unsupportedReason || image.unsupportedReason !== "unsupported_image_format") {
+    return image;
+  }
+  if (!cropPath || typeof ffmpegRunner !== "function") return image;
+  const decoded = await decodeScorebugCrop({
+    cropPath,
+    outputDir,
+    ffmpegRunner,
+    signal,
+    timeout: timeoutMs,
+    maxWidth: MAX_IMAGE_WIDTH,
+    maxHeight: MAX_IMAGE_HEIGHT,
+  });
+  if (decoded.status !== "decoded") {
+    return {
+      unsupportedReason: decoded.reasons[0] || "image_decoder_failed_closed",
+      imageFormat: decoded.imageFormat || image.imageFormat,
+      decoderStatus: decoded.status,
+      decoderMode: decoded.decoderMode,
+      decoderReasons: decoded.reasons,
+    };
+  }
+  return {
+    width: decoded.width,
+    height: decoded.height,
+    imageFormat: decoded.imageFormat,
+    pixels: decoded.pixels,
+    decoderStatus: decoded.status,
+    decoderMode: decoded.decoderMode,
+  };
 }
 
 function foregroundPolarity(values) {
@@ -297,6 +306,93 @@ function boxFromRoi(role, digit, roi, confidence) {
   };
 }
 
+function segmentLoadedImage({
+  image,
+  timestamp = 0,
+  regionId = "scoreboard_region",
+  calibration = {},
+} = {}) {
+  if (!image) {
+    return unreadable({
+      timestamp,
+      regionId,
+      reasons: ["crop_path_missing"],
+    });
+  }
+  if (image.unsupportedReason) {
+    const reasons = Array.isArray(image.decoderReasons) && image.decoderReasons.length
+      ? image.decoderReasons
+      : [image.unsupportedReason];
+    return unreadable({
+      timestamp,
+      regionId,
+      reasons,
+      details: {
+        imageFormat: image.imageFormat,
+        decoderStatus: image.decoderStatus,
+        decoderMode: image.decoderMode,
+      },
+    });
+  }
+  const foregroundGroupCount = countForegroundGroups(image);
+  const details = {
+    foregroundGroupCount,
+    componentCount: foregroundGroupCount,
+    imageFormat: image.imageFormat,
+    decoderStatus: image.decoderStatus,
+    decoderMode: image.decoderMode,
+  };
+  if (foregroundGroupCount > MAX_DIGIT_GROUPS) {
+    return ambiguous({
+      timestamp,
+      regionId,
+      reasons: ["clock_like_digit_group_rejected"],
+      details,
+    });
+  }
+  const homeRoi = safeRoi(calibration.homeDigitRoi, DEFAULT_HOME_ROI);
+  const awayRoi = safeRoi(calibration.awayDigitRoi, DEFAULT_AWAY_ROI);
+  const home = classifySevenSegmentDigit(image, homeRoi);
+  const away = classifySevenSegmentDigit(image, awayRoi);
+  if (!home || !away) {
+    return ambiguous({
+      timestamp,
+      regionId,
+      reasons: [!home && !away ? "home_and_away_digits_unreadable" : "home_or_away_digit_unreadable"],
+      details,
+      home,
+      away,
+    });
+  }
+  const confidence = round(Math.min(home.confidence, away.confidence));
+  const score = { home: home.digit, away: away.digit, text: `${home.digit}-${away.digit}` };
+  const digitBoxes = [
+    boxFromRoi("home", home.digit, homeRoi, home.confidence),
+    boxFromRoi("away", away.digit, awayRoi, away.confidence),
+  ];
+  return {
+    status: "readable",
+    timestamp: round(timestamp),
+    regionId,
+    score,
+    confidence,
+    digitBoxes,
+    reasons: [],
+    method: "image-digit-segmentation",
+    imageSegmentation: {
+      status: "readable",
+      componentCount: foregroundGroupCount,
+      foregroundGroupCount,
+      imageFormat: image.imageFormat,
+      decoderStatus: image.decoderStatus ? sanitizeText(image.decoderStatus, 32) : null,
+      decoderMode: image.decoderMode ? sanitizeText(image.decoderMode, 32) : null,
+      homeDigitCandidates: [{ digit: String(home.digit), confidence: home.confidence }],
+      awayDigitCandidates: [{ digit: String(away.digit), confidence: away.confidence }],
+      reasons: [],
+    },
+  };
+}
+
 function segmentScorebugDigits({
   cropPath = null,
   regionId = "scoreboard_region",
@@ -327,77 +423,47 @@ function segmentScorebugDigits({
       reasons: ["image_segmentation_failed_closed"],
     });
   }
-  if (!image) {
+  return segmentLoadedImage({ image, timestamp, regionId: safeRegionId, calibration });
+}
+
+async function segmentScorebugDigitsAsync({
+  cropPath = null,
+  regionId = "scoreboard_region",
+  timestamp = 0,
+  calibration = {},
+  imageProbe = null,
+  outputDir = null,
+  ffmpegRunner = null,
+  timeoutMs = null,
+  signal = null,
+} = {}) {
+  if (signal && signal.aborted) {
+    throw new AppError("JOB_CANCELLED", SAFE_MESSAGES.JOB_CANCELLED, 409);
+  }
+  const safeRegionId = sanitizeText(regionId || "scoreboard_region", 80);
+  if (!isFocusedScorebugRegion(safeRegionId)) {
     return unreadable({
       timestamp,
       regionId: safeRegionId,
-      reasons: ["crop_path_missing"],
+      reasons: ["region_not_focused_for_truth"],
     });
   }
-  if (image.unsupportedReason) {
+  let image = null;
+  try {
+    image = await loadImageWithDecoder({ cropPath, imageProbe, outputDir, ffmpegRunner, timeoutMs, signal });
+  } catch (error) {
+    if (error && error.code) throw error;
     return unreadable({
       timestamp,
       regionId: safeRegionId,
-      reasons: [image.unsupportedReason],
-      details: { imageFormat: image.imageFormat },
+      reasons: ["image_segmentation_failed_closed"],
     });
   }
-  const foregroundGroupCount = countForegroundGroups(image);
-  const details = {
-    foregroundGroupCount,
-    componentCount: foregroundGroupCount,
-    imageFormat: image.imageFormat,
-  };
-  if (foregroundGroupCount > MAX_DIGIT_GROUPS) {
-    return ambiguous({
-      timestamp,
-      regionId: safeRegionId,
-      reasons: ["clock_like_digit_group_rejected"],
-      details,
-    });
-  }
-  const homeRoi = safeRoi(calibration.homeDigitRoi, DEFAULT_HOME_ROI);
-  const awayRoi = safeRoi(calibration.awayDigitRoi, DEFAULT_AWAY_ROI);
-  const home = classifySevenSegmentDigit(image, homeRoi);
-  const away = classifySevenSegmentDigit(image, awayRoi);
-  if (!home || !away) {
-    return ambiguous({
-      timestamp,
-      regionId: safeRegionId,
-      reasons: [!home && !away ? "home_and_away_digits_unreadable" : "home_or_away_digit_unreadable"],
-      details,
-      home,
-      away,
-    });
-  }
-  const confidence = round(Math.min(home.confidence, away.confidence));
-  const score = { home: home.digit, away: away.digit, text: `${home.digit}-${away.digit}` };
-  const digitBoxes = [
-    boxFromRoi("home", home.digit, homeRoi, home.confidence),
-    boxFromRoi("away", away.digit, awayRoi, away.confidence),
-  ];
-  return {
-    status: "readable",
-    timestamp: round(timestamp),
-    regionId: safeRegionId,
-    score,
-    confidence,
-    digitBoxes,
-    reasons: [],
-    method: "image-digit-segmentation",
-    imageSegmentation: {
-      status: "readable",
-      componentCount: foregroundGroupCount,
-      foregroundGroupCount,
-      imageFormat: image.imageFormat,
-      homeDigitCandidates: [{ digit: String(home.digit), confidence: home.confidence }],
-      awayDigitCandidates: [{ digit: String(away.digit), confidence: away.confidence }],
-      reasons: [],
-    },
-  };
+  return segmentLoadedImage({ image, timestamp, regionId: safeRegionId, calibration });
 }
 
 module.exports = {
   MAX_DIGIT_GROUPS,
   segmentScorebugDigits,
+  segmentScorebugDigitsAsync,
 };

@@ -106,6 +106,13 @@ function writeScorebugCrop(filePath, { home, away }) {
   writeFileSync(filePath, `P2\n${width} ${height}\n255\n${pixels.join(" ")}\n`, "utf8");
 }
 
+function writeFakeScorebugPng(filePath) {
+  writeFileSync(filePath, Buffer.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    0x00, 0x00, 0x00, 0x0d,
+  ]));
+}
+
 test("scoreboard OCR normalizes safe scoreboard regions and bounds crop size", () => {
   const region = normalizeRegion({ x: 0.02, y: 0.02, width: 0.3, height: 0.12, anchor: "top_left" }, metadata);
   assert.deepEqual(region, {
@@ -443,6 +450,51 @@ test("local scoreboard OCR can derive score-change evidence from focused image s
     const report = JSON.parse(readFileSync(join(process.cwd(), result.qaReport.reportPath), "utf8"));
     assert.equal(report.digitReader.imageSegmentationReadableCount >= 3, true);
     assert.equal(report.ocrAttempts.some((attempt) => attempt.imageSegmentationStatus === "readable" && attempt.score === "1-0"), true);
+    assert.doesNotMatch(JSON.stringify(report), /\/Users|\/private|storageKey|localPath|token|secret|stdout|stderr/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(join(process.cwd(), SCOREBOARD_OCR_QA_RELATIVE_DIR, `ocr-scoreboard-${runId}`), { recursive: true, force: true });
+  }
+});
+
+test("local scoreboard OCR can decode PNG crops before focused image segmentation", async () => {
+  const { dir, frames } = createFrameFixtures();
+  const runId = `scorebug-png-decoder-test-${Date.now()}`;
+  try {
+    const result = await analyzeScoreboardOcr({
+      metadata,
+      mode: "local",
+      enabled: true,
+      qaArtifactsEnabled: true,
+      qaRunId: runId,
+      commandChecker: () => true,
+      frames,
+      ffmpegRunner: async (args) => {
+        const inputPath = args[2];
+        const outputPath = args[args.length - 1];
+        const frameMatch = /crop_(\d+)_/.exec(inputPath);
+        const frameIndex = frameMatch ? Number(frameMatch[1]) : 0;
+        writeScorebugCrop(outputPath, frameIndex === 0 ? { home: 0, away: 0 } : { home: 1, away: 0 });
+      },
+      cropper: async ({ outputDir, frameIndex, region }) => {
+        const cropPath = safeResolve(outputDir, `crop_${frameIndex}_${region.id}.png`);
+        mkdirSync(outputDir, { recursive: true });
+        writeFakeScorebugPng(cropPath);
+        return cropPath;
+      },
+      ocrRunner: async () => ({ stdout: "24:00" }),
+    });
+
+    assert.equal(result.providerMode, "local-scoreboard-ocr-command");
+    assert.equal(result.summary.scoreChangeCount, 1);
+    assert.equal(result.summary.scoreTimeline.some((item) => item.status === "score_changed" && item.scoreAfter === "1-0"), true);
+    const report = JSON.parse(readFileSync(join(process.cwd(), result.qaReport.reportPath), "utf8"));
+    assert.equal(report.digitReader.imageSegmentationReadableCount >= 3, true);
+    assert.equal(report.ocrAttempts.some((attempt) =>
+      attempt.imageDecoderStatus === "decoded" &&
+      attempt.imageDecoderMode === "ffmpeg-pgm" &&
+      attempt.imageSegmentationStatus === "readable" &&
+      attempt.score === "1-0"), true);
     assert.doesNotMatch(JSON.stringify(report), /\/Users|\/private|storageKey|localPath|token|secret|stdout|stderr/i);
   } finally {
     rmSync(dir, { recursive: true, force: true });
