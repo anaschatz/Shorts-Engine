@@ -4,7 +4,7 @@ const { normalizeOcrEvidence, normalizeOcrQaCalibrationInput } = require("./goal
 const { validateVisualSignals, visualReasonCodesForWindow } = require("./vision.cjs");
 
 const MATCH_EVENT_TRUTH_VERSION = 1;
-const MAX_EVENTS = 24;
+const MAX_EVENTS = 32;
 const MAX_CODES = 32;
 const MAX_MISSING = 8;
 const MAX_FLAGS = 8;

@@ -325,6 +325,8 @@ test("youtube smoke successful mocked flow validates ingest generate job and dow
   assert.equal(report.renderPlan.totalDuration, 12);
   assert.equal(report.renderPlan.captionCount, 2);
   assert.equal(report.renderPlan.animationCueTypes.includes("beat_cut"), true);
+  assert.equal(report.renderPlan.countedGoalProof.finalSegmentCount, 0);
+  assert.deepEqual(report.renderPlan.countedGoalProof.selectedValidGoals, []);
   assert.equal(report.steps.every((step) => !Object.hasOwn(step, "requestId")), true);
   assert.equal(report.steps.every((step) => step.status !== "passed" || step.requestIdPresent === true || step.step === "job"), true);
   assert.deepEqual(calls.map((call) => call.key), [
@@ -336,6 +338,150 @@ test("youtube smoke successful mocked flow validates ingest generate job and dow
     "GET /api/exports/exp_12345678/download",
   ]);
   assert.doesNotMatch(JSON.stringify(report), new RegExp(SAFE_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube smoke render summary includes safe counted-goal proof details", async () => {
+  const validGoalSegments = [
+    {
+      id: "seg_goal_1",
+      sourceStart: 271,
+      sourceEnd: 286,
+      timelineStart: 0,
+      timelineEnd: 15,
+      duration: 15,
+      highlightType: "goal",
+      goalOutcome: { eventType: "ball_in_net", outcome: "confirmed_goal", offsideStatus: "onside", safeCaptionBadge: "GOAL GIVEN" },
+      reasonCodes: ["goal", "scoreboard_backed_goal_sequence", "scoreboard_ocr_score_change"],
+      whySelected: "Confirmed counted goal selected from match truth.",
+      safetyFlags: [],
+    },
+    {
+      id: "seg_goal_2",
+      sourceStart: 357,
+      sourceEnd: 372,
+      timelineStart: 15,
+      timelineEnd: 30,
+      duration: 15,
+      highlightType: "goal",
+      goalOutcome: { eventType: "ball_in_net", outcome: "confirmed_goal", offsideStatus: "onside", safeCaptionBadge: "THIS ONE COUNTS" },
+      reasonCodes: ["goal", "visual_ball_in_net", "visual_referee_goal_signal"],
+      whySelected: "Confirmed counted goal selected from match truth.",
+      safetyFlags: [],
+    },
+  ];
+  const editPlan = completedJobEditPlan({
+    mode: "multi_moment_compilation",
+    highlightType: "generic_highlight",
+    goalSelectionMode: "valid_goals_only",
+    sourceStart: 271,
+    sourceEnd: 372,
+    totalDuration: 30,
+    segments: validGoalSegments,
+  });
+  const { fetchImpl } = createFetchMock({
+    "GET /api/jobs/job_12345678": () => jsonResponse({
+      ok: true,
+      data: {
+        job: {
+          id: "job_12345678",
+          projectId: "prj_12345678",
+          uploadId: "upl_12345678",
+          status: "completed",
+          progress: 100,
+          step: "completed",
+          exportId: "exp_12345678",
+          editPlan,
+          candidatePlans: [editPlan],
+          goalEvidence: {
+            events: [
+              { id: "goal_1", start: 271, end: 286, outcomeHint: "valid_goal", confidence: 0.94, reasonCodes: ["scoreboard_ocr_score_change"] },
+              { id: "offside_1", start: 160, end: 174, outcomeHint: "offside_goal", confidence: 0.9, reasonCodes: ["visual_offside_flag", "scoreboard_ocr_score_unchanged"] },
+              { id: "unknown_1", start: 210, end: 225, outcomeHint: "possible_goal_unconfirmed", confidence: 0.66, reasonCodes: ["visual_ball_in_net"] },
+              { id: "goal_2", start: 357, end: 372, outcomeHint: "valid_goal", confidence: 0.93, reasonCodes: ["visual_referee_goal_signal"] },
+            ],
+          },
+          matchEventTruth: {
+            summary: {
+              confirmedGoalCount: 2,
+              disallowedGoalCount: 1,
+              possibleGoalCount: 1,
+              lateConfirmedGoalCount: 2,
+              noFalseGoalFromOcrOnly: 1,
+            },
+            selectedEvents: [
+              {
+                id: "truth_goal_1",
+                type: "confirmed_goal",
+                eventType: "valid_goal",
+                truthStatus: "valid_goal",
+                outcome: "confirmed_goal",
+                sourceStart: 271,
+                sourceEnd: 286,
+                evidence: ["scoreboard_ocr_score_change", "scoreboard_backed_goal_sequence"],
+                disqualifiers: [],
+                confidence: 0.94,
+              },
+              {
+                id: "truth_goal_2",
+                type: "confirmed_goal",
+                eventType: "valid_goal",
+                truthStatus: "valid_goal",
+                outcome: "confirmed_goal",
+                sourceStart: 357,
+                sourceEnd: 372,
+                evidence: ["visual_ball_in_net", "visual_referee_goal_signal"],
+                disqualifiers: [],
+                confidence: 0.93,
+              },
+            ],
+            rejectedEvents: [
+              {
+                id: "truth_offside_1",
+                type: "disallowed_offside",
+                eventType: "disallowed_goal",
+                truthStatus: "disallowed_goal",
+                outcome: "disallowed_offside",
+                sourceStart: 160,
+                sourceEnd: 174,
+                decisionWindowStart: 171,
+                decisionWindowEnd: 174,
+                evidence: ["visual_offside_flag", "scoreboard_ocr_score_unchanged"],
+                disqualifiers: ["offside", "no_goal_decision"],
+                confidence: 0.9,
+              },
+              {
+                id: "truth_unknown_1",
+                type: "possible_goal_unconfirmed",
+                eventType: "goal_candidate",
+                truthStatus: "unknown",
+                outcome: "possible_goal_unconfirmed",
+                sourceStart: 210,
+                sourceEnd: 225,
+                evidence: ["visual_ball_in_net"],
+                disqualifiers: ["unconfirmed_goal_decision"],
+                confidence: 0.66,
+              },
+            ],
+          },
+        },
+      },
+    }, 200, "req_job"),
+  });
+
+  const report = await runYouTubeSmoke({ env: smokeEnv(), fetchImpl });
+  const proof = report.renderPlan.countedGoalProof;
+
+  assert.equal(report.status, "passed");
+  assert.equal(report.renderPlan.goalSelectionMode, "valid_goals_only");
+  assert.equal(proof.finalSegmentCount, 2);
+  assert.equal(proof.selectedValidGoals.length, 2);
+  assert.equal(proof.excludedOffsideOrNoGoal.length, 1);
+  assert.equal(proof.excludedUnknowns.length, 1);
+  assert.equal(proof.detectedGoalCandidates.length, 4);
+  assert.equal(proof.summary.confirmedGoalCount, 2);
+  assert.equal(proof.logsDownloaded, false);
+  assert.equal(proof.artifactsDownloaded, false);
   assert.equal(findSensitiveLeak(report), null);
 });
 

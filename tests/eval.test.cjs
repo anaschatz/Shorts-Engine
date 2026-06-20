@@ -181,6 +181,33 @@ test("counted-goals-only fixture keeps exactly counted goals and rejects offside
   assert.equal(topPlan.segments.some((segment) => segment.sourceStart < 200), false);
 });
 
+test("real-source counted-goal fixture keeps all three counted goals including the late one", () => {
+  const fixture = loadFixtures(fixturesDir).find((item) => item.id === "real_source_counted_goal_discovery");
+  assert.ok(fixture);
+  const result = scoreFixture(fixture);
+  const topPlan = result.actual.candidatePlans[0];
+
+  assert.equal(result.passed, true);
+  assert.equal(result.metrics.validGoalRecall, 1);
+  assert.equal(result.metrics.lateGoalRecall, 1);
+  assert.equal(result.metrics.falseGoalRate, 0);
+  assert.equal(result.metrics.offsideExclusionAccuracy, 1);
+  assert.equal(result.metrics.noGoalExclusionAccuracy, 1);
+  assert.equal(result.metrics.validGoalOnlyFillerRate, 0);
+  assert.equal(result.metrics.validGoalsOnlyExactSegmentCount, 1);
+  assert.equal(result.metrics.validGoalOrdering, 1);
+  assert.equal(result.actual.goalEvidence.validGoalCount, 3);
+  assert.equal(result.actual.goalEvidence.offsideOrNoGoalCount, 2);
+  assert.equal(result.actual.matchEventTruth.summary.confirmedGoalCount, 3);
+  assert.equal(result.actual.matchEventTruth.summary.disallowedGoalCount, 2);
+  assert.equal(result.actual.matchEventTruth.summary.lateConfirmedGoalCount >= 1, true);
+  assert.equal(topPlan.goalSelectionMode, "valid_goals_only");
+  assert.equal(topPlan.selectedMomentCount, 3);
+  assert.ok(topPlan.segments.every((segment) => segment.highlightType === "goal"));
+  assert.ok(topPlan.segments.every((segment) => segment.goalOutcome.outcome === "confirmed_goal"));
+  assert.ok(topPlan.segments.some((segment) => segment.sourceStart >= 460));
+});
+
 test("OCR-confirmed valid-goals fixture selects every goal and excludes intro/celebration", () => {
   const fixture = loadFixtures(fixturesDir).find((item) => item.id === "ocr_confirmed_valid_goals");
   assert.ok(fixture);

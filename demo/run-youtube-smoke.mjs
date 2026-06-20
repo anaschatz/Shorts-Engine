@@ -434,6 +434,93 @@ function safeRenderCaption(caption = {}, index = 0) {
   };
 }
 
+function safeTruthEvent(event = {}, index = 0) {
+  return {
+    index: index + 1,
+    id: sanitizeText(event.id || `truth_event_${index + 1}`, 64),
+    eventType: sanitizeText(event.eventType || "", 40) || null,
+    truthStatus: sanitizeText(event.truthStatus || "", 40) || null,
+    type: sanitizeText(event.type || "", 48) || null,
+    outcome: sanitizeText(event.outcome || "", 48) || null,
+    sourceStart: safeNumber(event.sourceStart),
+    sourceEnd: safeNumber(event.sourceEnd),
+    decisionWindowStart: safeNumber(event.decisionWindowStart ?? event.decisionWindow?.start),
+    decisionWindowEnd: safeNumber(event.decisionWindowEnd ?? event.decisionWindow?.end),
+    evidence: safeStringList(event.evidence || event.evidenceCodes, 10, 80),
+    disqualifiers: safeStringList(event.disqualifiers, 8, 80),
+    confidence: safeNumber(event.confidence),
+  };
+}
+
+function safeGoalEvidenceEvent(event = {}, index = 0) {
+  return {
+    index: index + 1,
+    id: sanitizeText(event.id || `goal_evidence_${index + 1}`, 64),
+    outcomeHint: sanitizeText(event.outcomeHint || "", 48) || null,
+    start: safeNumber(event.start),
+    end: safeNumber(event.end),
+    reasonCodes: safeStringList(event.reasonCodes, 10, 80),
+    confidence: safeNumber(event.confidence),
+  };
+}
+
+function safeCountedGoalProofSummary(job = {}, segments = []) {
+  const truth = job.matchEventTruth && typeof job.matchEventTruth === "object" ? job.matchEventTruth : {};
+  const selectedEvents = Array.isArray(truth.selectedEvents) ? truth.selectedEvents : [];
+  const rejectedEvents = Array.isArray(truth.rejectedEvents) ? truth.rejectedEvents : [];
+  const truthEvents = [...selectedEvents, ...rejectedEvents];
+  const selectedValidGoals = selectedEvents
+    .filter((event) => event.truthStatus === "valid_goal" || event.eventType === "valid_goal" || event.type === "confirmed_goal")
+    .map(safeTruthEvent);
+  const excludedOffsideOrNoGoal = truthEvents
+    .filter((event) => (
+      event.truthStatus === "disallowed_goal" ||
+      event.eventType === "disallowed_goal" ||
+      event.type === "disallowed_offside" ||
+      event.type === "disallowed_no_goal"
+    ))
+    .map(safeTruthEvent);
+  const excludedUnknowns = truthEvents
+    .filter((event) => (
+      event.truthStatus === "unknown" ||
+      event.eventType === "goal_candidate" ||
+      event.type === "possible_goal_unconfirmed"
+    ))
+    .map(safeTruthEvent);
+  const goalEvidence = job.goalEvidence && typeof job.goalEvidence === "object" ? job.goalEvidence : {};
+  const detectedGoalCandidates = Array.isArray(goalEvidence.events)
+    ? goalEvidence.events
+        .filter((event) => ["valid_goal", "offside_goal", "no_goal", "possible_goal_unconfirmed"].includes(event.outcomeHint))
+        .map(safeGoalEvidenceEvent)
+    : [];
+  return {
+    goalSelectionMode: sanitizeText(job.editPlan?.goalSelectionMode || "", 60) || null,
+    finalSegmentCount: segments.length,
+    selectedTimelineWindows: segments.map((segment) => ({
+      index: segment.index,
+      sourceStart: segment.sourceStart,
+      sourceEnd: segment.sourceEnd,
+      highlightType: segment.highlightType,
+      goalOutcome: segment.goalOutcome,
+    })),
+    detectedGoalCandidates,
+    selectedValidGoals,
+    excludedOffsideOrNoGoal,
+    excludedUnknowns,
+    summary: truth.summary
+      ? {
+          confirmedGoalCount: safeNumber(truth.summary.confirmedGoalCount),
+          disallowedGoalCount: safeNumber(truth.summary.disallowedGoalCount),
+          possibleGoalCount: safeNumber(truth.summary.possibleGoalCount),
+          lateConfirmedGoalCount: safeNumber(truth.summary.lateConfirmedGoalCount),
+          noFalseGoalFromOcrOnly: safeNumber(truth.summary.noFalseGoalFromOcrOnly),
+        }
+      : null,
+    logsDownloaded: false,
+    artifactsDownloaded: false,
+  };
+}
+
 function safeRenderPlanSummary(job) {
   const plan = job && job.editPlan && typeof job.editPlan === "object" ? job.editPlan : null;
   if (!plan) return null;
@@ -471,6 +558,8 @@ function safeRenderPlanSummary(job) {
     editIntensity: sanitizeText(plan.editIntensity || "", 60) || null,
     cropPlanMode: sanitizeText(plan.cropPlan && plan.cropPlan.mode ? plan.cropPlan.mode : "", 60) || null,
     candidateCount: Array.isArray(job.candidatePlans) ? job.candidatePlans.length : 0,
+    goalSelectionMode: sanitizeText(plan.goalSelectionMode || "", 60) || null,
+    countedGoalProof: safeCountedGoalProofSummary(job, segments),
     topCandidates,
   };
 }

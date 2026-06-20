@@ -199,6 +199,46 @@ test("scoreboard OCR score change can recover a missed ball-in-net goal only wit
   assert.ok(recoveredGoal.reasonCodes.includes("scoreboard_ocr_score_change"));
 });
 
+test("goal evidence provider keeps late source-wide counted goals under bounded caps", () => {
+  const durationSeconds = 520;
+  const scoreChanges = Array.from({ length: 36 }, (_, index) => 30 + index * 13);
+  const visualWindows = scoreChanges.flatMap((timestamp, index) => ([
+    { start: timestamp - 13, end: timestamp - 12, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.82 + (index % 3) * 0.02 },
+    { start: timestamp - 11.5, end: timestamp - 10.5, types: ["goal_mouth_visible"], confidence: 0.8 },
+  ]));
+  const goalEvidence = deterministicGoalEvidence({
+    metadata: { ...metadata, durationSeconds },
+    transcript: { captions: [] },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: visualWindows,
+    },
+    scoreboardOcr: scoreChanges.map((timestamp, index) => ({
+      timestamp,
+      scoreBefore: "0-0",
+      scoreAfter: "1-0",
+      status: "score_changed",
+      temporalConsistency: true,
+      confidence: 0.78 + (index % 4) * 0.02,
+    })),
+    ocrQaCalibration: strongOcrQaCalibration(),
+  });
+
+  const validGoals = goalEvidence.events.filter((event) => event.outcomeHint === "valid_goal");
+  assert.equal(goalEvidence.events.length <= 32, true);
+  assert.ok(validGoals.length >= 24);
+  assert.ok(validGoals.some((event) => event.start > durationSeconds * 0.85));
+  assert.ok(validGoals[validGoals.length - 1].start > durationSeconds * 0.85);
+  assert.equal(goalEvidence.summary.validGoalCount, validGoals.length);
+  assert.equal(findSensitiveLeakSafe(publicGoalEvidence(goalEvidence)), null);
+});
+
+function findSensitiveLeakSafe(value) {
+  const text = JSON.stringify(value);
+  return /\/Users|storageKey|localPath|token|secret|stderr|stdout/i.test(text) ? { text } : null;
+}
+
 test("scoreboard OCR score change alone remains non-goal without nearby shot evidence", () => {
   const goalEvidence = deterministicGoalEvidence({
     metadata: { ...metadata, durationSeconds: 140 },

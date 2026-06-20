@@ -4,7 +4,7 @@ const { normalizeOcrQaCalibrationReport, publicOcrQaCalibration } = require("./o
 const { validateVisualSignals, visualReasonCodesForWindow } = require("./vision.cjs");
 
 const DEFAULT_GOAL_EVIDENCE_TIMEOUT_MS = 12000;
-const MAX_EVIDENCE_EVENTS = 16;
+const MAX_EVIDENCE_EVENTS = 32;
 const MAX_REASON_CODES = 14;
 const POST_GOAL_CONTEXT_SECONDS = 15;
 const SCOREBOARD_BACKED_LOOKBACK_SECONDS = 24;
@@ -358,6 +358,76 @@ function eventScore(event = {}) {
   return Number((Number(event.confidence || 0) + outcomeBoost + evidenceBoost).toFixed(4));
 }
 
+function isGoalDecisionEvidence(event = {}) {
+  return [
+    "valid_goal",
+    "offside_goal",
+    "no_goal",
+    "possible_goal_unconfirmed",
+  ].includes(event.outcomeHint);
+}
+
+function temporalBucketIndex(event = {}, duration = 0, bucketCount = 8) {
+  const center = seconds(event.center ?? ((seconds(event.start) + seconds(event.end)) / 2));
+  if (!duration) return 0;
+  return Math.min(bucketCount - 1, Math.max(0, Math.floor((center / duration) * bucketCount)));
+}
+
+function selectTemporalCoverageEvents(events = [], metadata = {}, maxEvents = MAX_EVIDENCE_EVENTS) {
+  const safeEvents = Array.isArray(events) ? events.filter(Boolean) : [];
+  if (safeEvents.length <= maxEvents) return safeEvents.sort((a, b) => seconds(a.start) - seconds(b.start));
+
+  const duration = seconds(metadata.durationSeconds, safeEvents[safeEvents.length - 1]?.end || 0);
+  const selected = [];
+  const selectedIds = new Set();
+  const addEvent = (event) => {
+    if (!event || selectedIds.has(event.id) || selected.length >= maxEvents) return false;
+    selected.push(event);
+    selectedIds.add(event.id);
+    return true;
+  };
+
+  const sortedByTime = [...safeEvents].sort((a, b) => seconds(a.start) - seconds(b.start));
+  addEvent(sortedByTime[0]);
+  addEvent(sortedByTime[sortedByTime.length - 1]);
+
+  const buckets = new Map();
+  for (const event of safeEvents) {
+    const key = temporalBucketIndex(event, duration);
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(event);
+  }
+  for (const bucketEvents of buckets.values()) {
+    const strongest = [...bucketEvents].sort((a, b) => eventScore(b) - eventScore(a) || seconds(a.start) - seconds(b.start))[0];
+    addEvent(strongest);
+  }
+
+  for (const event of [...safeEvents].sort((a, b) => eventScore(b) - eventScore(a) || seconds(a.start) - seconds(b.start))) {
+    addEvent(event);
+  }
+
+  return selected.sort((a, b) => seconds(a.start) - seconds(b.start));
+}
+
+function selectSourceWideEvidenceEvents(events = [], metadata = {}) {
+  const safeEvents = Array.isArray(events) ? events.filter(Boolean) : [];
+  if (safeEvents.length <= MAX_EVIDENCE_EVENTS) {
+    return safeEvents.sort((a, b) => seconds(a.start) - seconds(b.start));
+  }
+
+  const goalDecisionEvents = safeEvents.filter(isGoalDecisionEvidence);
+  const supportEvents = safeEvents.filter((event) => !isGoalDecisionEvidence(event));
+  if (goalDecisionEvents.length >= MAX_EVIDENCE_EVENTS) {
+    return selectTemporalCoverageEvents(goalDecisionEvents, metadata, MAX_EVIDENCE_EVENTS);
+  }
+
+  const remaining = MAX_EVIDENCE_EVENTS - goalDecisionEvents.length;
+  return [
+    ...goalDecisionEvents,
+    ...selectTemporalCoverageEvents(supportEvents, metadata, remaining),
+  ].sort((a, b) => seconds(a.start) - seconds(b.start));
+}
+
 function parseScoreText(value) {
   const safe = sanitizeText(value || "", 40);
   const match = safe.match(/\b(\d{1,2})\s*[-:]\s*(\d{1,2})\b/);
@@ -429,12 +499,54 @@ function normalizeOcrEvidenceItem(item = {}, metadata = {}, index = 0) {
   };
 }
 
+function ocrEvidenceScore(item = {}) {
+  const statusBoost = item.scoreChanged ? 1 : item.scoreUnchanged ? 0.85 : item.ambiguous ? 0.25 : 0.4;
+  const consistencyBoost = item.temporalConsistency ? 0.2 : 0;
+  return Number((Number(item.confidence || 0) + statusBoost + consistencyBoost).toFixed(4));
+}
+
+function selectTemporalCoverageOcrEvidence(items = [], metadata = {}, maxItems = MAX_EVIDENCE_EVENTS) {
+  const safeItems = Array.isArray(items) ? items.filter(Boolean) : [];
+  if (safeItems.length <= maxItems) return safeItems.sort((a, b) => seconds(a.timestamp) - seconds(b.timestamp));
+
+  const duration = seconds(metadata.durationSeconds, safeItems[safeItems.length - 1]?.timestamp || 0);
+  const selected = [];
+  const selectedIds = new Set();
+  const addItem = (item) => {
+    if (!item || selectedIds.has(item.id) || selected.length >= maxItems) return false;
+    selected.push(item);
+    selectedIds.add(item.id);
+    return true;
+  };
+  const sortedByTime = [...safeItems].sort((a, b) => seconds(a.timestamp) - seconds(b.timestamp));
+  addItem(sortedByTime[0]);
+  addItem(sortedByTime[sortedByTime.length - 1]);
+
+  const bucketCount = 8;
+  const buckets = new Map();
+  for (const item of safeItems) {
+    const key = duration
+      ? Math.min(bucketCount - 1, Math.max(0, Math.floor((seconds(item.timestamp) / duration) * bucketCount)))
+      : 0;
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(item);
+  }
+  for (const bucketItems of buckets.values()) {
+    addItem([...bucketItems].sort((a, b) => ocrEvidenceScore(b) - ocrEvidenceScore(a) || seconds(a.timestamp) - seconds(b.timestamp))[0]);
+  }
+  for (const item of [...safeItems].sort((a, b) => ocrEvidenceScore(b) - ocrEvidenceScore(a) || seconds(a.timestamp) - seconds(b.timestamp))) {
+    addItem(item);
+  }
+
+  return selected.sort((a, b) => seconds(a.timestamp) - seconds(b.timestamp));
+}
+
 function normalizeOcrEvidence(items = [], metadata = {}) {
   const rawItems = Array.isArray(items) ? items : [];
-  return rawItems
-    .map((item, index) => normalizeOcrEvidenceItem(item, metadata, index))
-    .sort((a, b) => a.timestamp - b.timestamp)
-    .slice(0, MAX_EVIDENCE_EVENTS);
+  return selectTemporalCoverageOcrEvidence(
+    rawItems.map((item, index) => normalizeOcrEvidenceItem(item, metadata, index)),
+    metadata,
+  );
 }
 
 function normalizeOcrQaCalibrationInput(value) {
@@ -531,12 +643,11 @@ function validateGoalEvidenceOutput(output, metadata = {}) {
   const ocrEvidence = normalizeOcrEvidence(output.ocrEvidence || output.scoreboardOcr || output.scoreboardEvidence, metadata);
   const ocrQaCalibration = normalizeOcrQaCalibrationInput(output.ocrQaCalibration);
   const rawEvents = Array.isArray(output.events) ? output.events : [];
-  const events = rawEvents
+  const normalizedEvents = rawEvents
     .map((event, index) => normalizeEvent(event, metadata, index))
     .sort((a, b) => eventScore(b) - eventScore(a) || a.start - b.start)
-    .slice(0, MAX_EVIDENCE_EVENTS)
-    .sort((a, b) => a.start - b.start);
-  if (rawEvents.length !== events.length && rawEvents.length <= MAX_EVIDENCE_EVENTS) {
+  const events = selectSourceWideEvidenceEvents(normalizedEvents, metadata);
+  if (rawEvents.length !== normalizedEvents.length && rawEvents.length <= MAX_EVIDENCE_EVENTS) {
     throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
   }
   const supplementalVisualWindows = events.flatMap((event) => supplementalWindowsForEvent(event, metadata));
@@ -762,6 +873,8 @@ class DeterministicGoalEvidenceProvider {
         "score_change_temporal_consistency",
         "ball_in_net_confirmation",
         "offside_no_goal_exclusion",
+        "full_source_goal_candidate_scan",
+        "late_goal_temporal_coverage",
         "celebration_intro_exclusion",
       ],
     };
@@ -919,6 +1032,7 @@ module.exports = {
   GOAL_EVIDENCE_OUTCOMES,
   GOAL_EVIDENCE_REASON_CODES,
   POST_GOAL_CONTEXT_SECONDS,
+  selectSourceWideEvidenceEvents,
   DeterministicGoalEvidenceProvider,
   ExternalGoalEvidenceProviderAdapter,
   analyzeGoalEvidence,
@@ -928,5 +1042,6 @@ module.exports = {
   normalizeOcrQaCalibrationInput,
   normalizeOcrEvidence,
   publicGoalEvidence,
+  selectTemporalCoverageOcrEvidence,
   validateGoalEvidenceOutput,
 };
