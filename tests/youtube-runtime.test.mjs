@@ -1,11 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { findSensitiveLeak } from "../demo/report-safety.mjs";
 import {
+  cleanupGeneratedProofArtifacts,
+  isManagedLiveProofMp4,
   runYouTubeLiveE2E,
   writeYouTubeLiveE2EReport,
 } from "../demo/run-youtube-live-e2e.mjs";
@@ -782,6 +784,120 @@ function passedSmokeReport() {
   };
 }
 
+function countedGoalSmokeReport() {
+  const report = passedSmokeReport();
+  const segments = [1, 2, 3].map((goalNumber, index) => {
+    const sourceStart = 90 + index * 90;
+    return {
+      index: goalNumber,
+      id: `goal_${goalNumber}`,
+      sourceStart,
+      shotStart: sourceStart + 10,
+      finishTime: sourceStart + 14,
+      confirmationTime: sourceStart + 22,
+      sourceEnd: sourceStart + 24,
+      duration: 24,
+      timelineStart: index * 24,
+      timelineEnd: (index + 1) * 24,
+      goalNumber,
+      highlightType: "goal",
+      goalOutcome: {
+        eventType: "goal",
+        outcome: "confirmed_goal",
+        offsideStatus: "onside",
+        safeCaptionBadge: "Goal confirmed",
+      },
+      replayUsed: false,
+      replayOnly: false,
+      phaseCoverage: {
+        hasBuildup: true,
+        hasShot: true,
+        hasFinish: true,
+        hasConfirmation: true,
+      },
+      reasonCodes: ["goal", "scoreboard_ocr_score_change"],
+      whySelected: "Confirmed counted goal selected from match truth.",
+      safetyFlags: [],
+    };
+  });
+  report.renderPlan = {
+    ...report.renderPlan,
+    mode: "multi_moment_compilation",
+    highlightType: "goal",
+    totalDuration: 72,
+    segmentCount: 3,
+    segments,
+    goalSelectionMode: "valid_goals_only",
+    countedGoalProof: {
+      goalSelectionMode: "valid_goals_only",
+      finalSegmentCount: 3,
+      selectedTimelineWindows: segments.map((segment) => ({
+        index: segment.index,
+        sourceStart: segment.sourceStart,
+        shotStart: segment.shotStart,
+        finishTime: segment.finishTime,
+        confirmationTime: segment.confirmationTime,
+        sourceEnd: segment.sourceEnd,
+        goalNumber: segment.goalNumber,
+        highlightType: segment.highlightType,
+        goalOutcome: segment.goalOutcome,
+        replayUsed: segment.replayUsed,
+        replayOnly: segment.replayOnly,
+        phaseCoverage: segment.phaseCoverage,
+      })),
+      detectedGoalCandidates: [],
+      selectedValidGoals: segments.map((segment) => ({
+        id: segment.id,
+        type: "confirmed_goal",
+        outcome: "confirmed_goal",
+        sourceStart: segment.sourceStart,
+        sourceEnd: segment.sourceEnd,
+      })),
+      excludedOffsideOrNoGoal: [],
+      excludedUnknowns: [],
+      summary: {
+        confirmedGoalCount: 3,
+        disallowedGoalCount: 0,
+        possibleGoalCount: 0,
+        lateConfirmedGoalCount: 1,
+      },
+      logsDownloaded: false,
+      artifactsDownloaded: false,
+    },
+  };
+  return report;
+}
+
+test("youtube live proof cleanup deletes only managed generated MP4 artifacts", () => {
+  const root = mkdtempSync(join(tmpdir(), "shortsengine-live-cleanup-"));
+  const manual = join(root, "manual-downloads");
+  const data = join(root, "data", "renders");
+  mkdirSync(manual, { recursive: true });
+  mkdirSync(data, { recursive: true });
+  const staleGenerated = join(manual, "shortsengine-youtube-dQw4w9WgXcQ-2026-06-20T11-23-53-191Z.mp4");
+  const staleApproved = join(manual, "shortsengine-manual-approved-gxiRyFZXJV8-2026-06-20T10-20-00Z.mp4");
+  const reference = join(manual, "shortsengine-youtube-short.mp4");
+  const operatorFile = join(manual, "generated.mp4");
+  const render = join(data, "render.mp4");
+  for (const file of [staleGenerated, staleApproved, reference, operatorFile, render]) {
+    writeFileSync(file, "mp4", "utf8");
+  }
+
+  assert.equal(isManagedLiveProofMp4("shortsengine-youtube-short.mp4"), false);
+  assert.equal(isManagedLiveProofMp4("shortsengine-youtube-dQw4w9WgXcQ-2026-06-20T11-23-53-191Z.mp4"), true);
+  const summary = cleanupGeneratedProofArtifacts({ rootDir: root });
+
+  assert.equal(summary.directory, "manual-downloads");
+  assert.equal(summary.deletedCount, 2);
+  assert.equal(existsSync(staleGenerated), false);
+  assert.equal(existsSync(staleApproved), false);
+  assert.equal(existsSync(reference), true);
+  assert.equal(existsSync(operatorFile), true);
+  assert.equal(existsSync(render), true);
+  assert.equal(summary.destructiveOutsideManualDownloads, false);
+  rmSync(root, { recursive: true, force: true });
+});
+
 test("youtube live local e2e skips safely without explicit flag", async () => {
   let serverStarted = false;
   const report = await runYouTubeLiveE2E({
@@ -875,7 +991,7 @@ test("youtube live local e2e runs env check before doctor or server work", async
   assert.equal(report.passed, true);
   assert.equal(report.skipped, false);
   assert.deepEqual(order, ["env", "doctor", "port", "server", "ready", "smoke"]);
-  assert.deepEqual(report.steps.map((step) => step.step), ["env", "doctor", "server", "server-ready", "smoke"]);
+  assert.deepEqual(report.steps.map((step) => step.step), ["env", "fresh-output-cleanup", "doctor", "server", "server-ready", "smoke", "ffprobe"]);
   assert.equal(report.triage.preflight.sourceConfigured, true);
   assert.equal(report.triage.doctor.downloaderConfigured, true);
 });
@@ -1154,12 +1270,64 @@ test("youtube live local e2e mocked success wraps smoke proof without raw URL le
   assert.equal(report.smoke.renderPlan.mode, "single_moment");
   assert.equal(report.generatedArtifact.relativePath, "manual-downloads/shortsengine-youtube-dQw4w9WgXcQ-test.mp4");
   assert.equal(report.generatedArtifact.downloadVerified, true);
-  assert.deepEqual(report.steps.map((step) => step.step), ["env", "doctor", "server", "server-ready", "smoke"]);
+  assert.equal(report.outputProof.source.videoId, VIDEO_ID);
+  assert.equal(report.outputProof.outputMp4.relativePath, "manual-downloads/shortsengine-youtube-dQw4w9WgXcQ-test.mp4");
+  assert.equal(report.outputProof.ffprobe.status, "missing");
+  assert.equal(report.outputProof.countedGoalsFound, 0);
+  assert.equal(report.outputProof.replayOnlySegments, 0);
+  assert.equal(report.outputProof.staleArtifactCleanup.attempted, false);
+  assert.equal(report.outputProof.comparison.ready, false);
+  assert.deepEqual(report.steps.map((step) => step.step), ["env", "fresh-output-cleanup", "doctor", "server", "server-ready", "smoke", "ffprobe"]);
   assert.equal(stopped, true);
   assert.equal(smokeEnvSeen.SHORTSENGINE_YOUTUBE_SMOKE, "1");
   assert.equal(smokeEnvSeen.SHORTSENGINE_YOUTUBE_SMOKE_BASE_URL, "http://127.0.0.1:4175");
   assert.equal(smokeEnvSeen.SHORTSENGINE_YOUTUBE_SMOKE_SAVE_DOWNLOAD, "1");
   assert.doesNotMatch(JSON.stringify(report), new RegExp(SAFE_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube live local e2e reports counted goal coverage and replay-only segment counts", async () => {
+  const report = await runYouTubeLiveE2E({
+    env: liveEnv({ SHORTSENGINE_YOUTUBE_LIVE_E2E_EXPECTED_COUNTED_GOALS: "3" }),
+    checkYouTubeIngest: async () => passedDoctor(),
+    getFreePort: async () => 4175,
+    startServer: () => ({ child: { exitCode: null, signalCode: null }, events: [] }),
+    stopServer: async () => {},
+    waitForServerReady: async () => ({ attempts: 1, waitedMs: 10, status: 200 }),
+    runYouTubeSmoke: async () => countedGoalSmokeReport(),
+  });
+
+  assert.equal(report.status, "passed");
+  assert.equal(report.outputProof.countedGoalsFound, 3);
+  assert.equal(report.outputProof.countedGoalsIncluded, 3);
+  assert.equal(report.outputProof.expectedCountedGoals, 3);
+  assert.equal(report.outputProof.replayOnlySegments, 0);
+  assert.equal(report.outputProof.segmentWindows.length, 3);
+  assert.equal(report.outputProof.segmentWindows[0].shotStart, 100);
+  assert.equal(report.outputProof.segmentWindows[0].phaseCoverage.hasBuildup, true);
+  assert.equal(report.outputProof.comparison.checklist.countedGoals, true);
+  assert.equal(report.outputProof.comparison.checklist.livePhaseVsReplayOnly, true);
+  assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube live local e2e strict mode fails when generated MP4 is missing", async () => {
+  const report = await runYouTubeLiveE2E({
+    env: liveEnv(),
+    checkYouTubeIngest: async () => passedDoctor(),
+    getFreePort: async () => 4175,
+    startServer: () => ({ child: { exitCode: null, signalCode: null }, events: [] }),
+    stopServer: async () => {},
+    waitForServerReady: async () => ({ attempts: 1, waitedMs: 10, status: 200 }),
+    runYouTubeSmoke: async () => passedSmokeReport(),
+    requireOutputValidation: true,
+  });
+
+  assert.equal(report.status, "failed");
+  assert.equal(report.phase, "download");
+  assert.equal(report.failedCases[0].code, "YOUTUBE_LIVE_E2E_OUTPUT_NOT_READY");
+  assert.equal(report.failedCases[0].causeCode, "OUTPUT_MP4_MISSING");
+  assert.equal(report.outputProof.ffprobe.status, "missing");
+  assert.match(report.failedCases[0].nextAction, /generated-mp4|ffprobe/);
   assert.equal(findSensitiveLeak(report), null);
 });
 

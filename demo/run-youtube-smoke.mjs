@@ -407,16 +407,31 @@ function safeGoalOutcome(goalOutcome) {
 }
 
 function safeRenderSegment(segment = {}, index = 0) {
+  const phaseCoverage = segment.phaseCoverage && typeof segment.phaseCoverage === "object"
+    ? {
+        hasBuildup: Boolean(segment.phaseCoverage.hasBuildup),
+        hasShot: Boolean(segment.phaseCoverage.hasShot),
+        hasFinish: Boolean(segment.phaseCoverage.hasFinish),
+        hasConfirmation: Boolean(segment.phaseCoverage.hasConfirmation),
+      }
+    : null;
   return {
     index: index + 1,
     id: sanitizeText(segment.id || `segment_${index + 1}`, 64),
     sourceStart: safeNumber(segment.sourceStart),
+    shotStart: safeNumber(segment.shotStart),
+    finishTime: safeNumber(segment.finishTime),
+    confirmationTime: safeNumber(segment.confirmationTime),
     sourceEnd: safeNumber(segment.sourceEnd),
     duration: safeNumber(segment.duration || Number(segment.sourceEnd) - Number(segment.sourceStart)),
     timelineStart: safeNumber(segment.timelineStart),
     timelineEnd: safeNumber(segment.timelineEnd),
+    goalNumber: Number.isFinite(Number(segment.goalNumber)) ? Number(segment.goalNumber) : null,
     highlightType: sanitizeText(segment.highlightType || "generic_highlight", 60),
     goalOutcome: safeGoalOutcome(segment.goalOutcome),
+    replayUsed: typeof segment.replayUsed === "boolean" ? segment.replayUsed : null,
+    replayOnly: Boolean(segment.replayOnly),
+    phaseCoverage,
     reasonCodes: safeStringList(segment.reasonCodes, 10, 60),
     whySelected: sanitizeText(segment.whySelected || "", 180) || null,
     safetyFlags: safeStringList(segment.safetyFlags, 8, 80),
@@ -499,9 +514,16 @@ function safeCountedGoalProofSummary(job = {}, segments = []) {
     selectedTimelineWindows: segments.map((segment) => ({
       index: segment.index,
       sourceStart: segment.sourceStart,
+      shotStart: segment.shotStart,
+      finishTime: segment.finishTime,
+      confirmationTime: segment.confirmationTime,
       sourceEnd: segment.sourceEnd,
+      goalNumber: segment.goalNumber,
       highlightType: segment.highlightType,
       goalOutcome: segment.goalOutcome,
+      replayUsed: segment.replayUsed,
+      replayOnly: segment.replayOnly,
+      phaseCoverage: segment.phaseCoverage,
     })),
     detectedGoalCandidates,
     selectedValidGoals,
