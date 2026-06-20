@@ -1,5 +1,6 @@
 const { AppError, SAFE_MESSAGES } = require("./errors.cjs");
 const { sanitizeText } = require("./media.cjs");
+const { segmentScorebugDigits } = require("./scorebug-image-segmentation.cjs");
 
 const DIGIT_READER_STATUSES = Object.freeze(["readable", "ambiguous", "unreadable"]);
 const DEFAULT_LAYOUT_ID = "default-focused-scorebug";
@@ -126,6 +127,7 @@ function validateScorebugCalibration(value = {}) {
       timestampToleranceSeconds: 0.75,
       homeDigitRoi: normalizeRoi({}, { x: 0.42, y: 0.24, width: 0.08, height: 0.52 }),
       awayDigitRoi: normalizeRoi({}, { x: 0.58, y: 0.24, width: 0.08, height: 0.52 }),
+      hasExplicitDigitRois: false,
       readings: [],
     };
   }
@@ -143,6 +145,8 @@ function validateScorebugCalibration(value = {}) {
     timestampToleranceSeconds: round(clamp(value.timestampToleranceSeconds ?? 0.75, 0.05, 3)),
     homeDigitRoi: normalizeRoi(value.homeDigitRoi, { x: 0.42, y: 0.24, width: 0.08, height: 0.52 }),
     awayDigitRoi: normalizeRoi(value.awayDigitRoi, { x: 0.58, y: 0.24, width: 0.08, height: 0.52 }),
+    hasExplicitDigitRois: value.hasExplicitDigitRois === true ||
+      (value.hasExplicitDigitRois === undefined && Boolean(value.homeDigitRoi && value.awayDigitRoi)),
     readings,
   };
 }
@@ -224,6 +228,20 @@ function statusFromReading(reading, calibration) {
   return { status: "readable", reasons: [] };
 }
 
+function imageSegmentationReading({ crop = {}, regionId = "", timestamp = 0, calibration = {}, signal = null } = {}) {
+  const cropPath = crop.cropPath || crop.imagePath || crop.localPath;
+  const imageProbe = crop.imageProbe;
+  if (!cropPath && typeof imageProbe !== "function") return null;
+  return segmentScorebugDigits({
+    cropPath,
+    regionId,
+    timestamp,
+    calibration: calibration && calibration.hasExplicitDigitRois ? calibration : {},
+    imageProbe,
+    signal,
+  });
+}
+
 function readScorebugDigits({
   frame = {},
   crop = {},
@@ -251,19 +269,52 @@ function readScorebugDigits({
       calibrationUsed: calibrationSummary(safeCalibration),
     };
   }
-  const reading = readingFromFrameOrCrop({ frame, crop, regionId: safeRegionId, timestamp: safeTimestamp }) ||
-    readingFromCalibration({ calibration: safeCalibration, regionId: safeRegionId, timestamp: safeTimestamp });
+  const explicitReading = readingFromFrameOrCrop({ frame, crop, regionId: safeRegionId, timestamp: safeTimestamp });
+  if (explicitReading) {
+    const boxes = normalizeDigitBoxes(explicitReading.digitBoxes, explicitReading.score, safeCalibration);
+    const status = statusFromReading({ ...explicitReading, digitBoxes: boxes }, safeCalibration);
+    return {
+      status: DIGIT_READER_STATUSES.includes(status.status) ? status.status : "unreadable",
+      timestamp: safeTimestamp,
+      regionId: safeRegionId,
+      score: status.status === "readable" ? explicitReading.score : null,
+      confidence: round(clamp(explicitReading.confidence, 0, 1)),
+      digitBoxes: boxes,
+      reasons: status.reasons,
+      method: "structured-digit-reading",
+      calibrationUsed: calibrationSummary(safeCalibration),
+    };
+  }
+
+  const segmented = imageSegmentationReading({
+    crop,
+    regionId: safeRegionId,
+    timestamp: safeTimestamp,
+    calibration: safeCalibration,
+    signal,
+  });
+  if (segmented && segmented.status === "readable") {
+    return {
+      ...segmented,
+      calibrationUsed: calibrationSummary(safeCalibration),
+    };
+  }
+
+  const reading = readingFromCalibration({ calibration: safeCalibration, regionId: safeRegionId, timestamp: safeTimestamp });
   if (!reading) {
     return {
-      status: "ambiguous",
+      status: segmented ? segmented.status : "ambiguous",
       timestamp: safeTimestamp,
       regionId: safeRegionId,
       score: null,
-      confidence: 0.1,
+      confidence: segmented ? segmented.confidence : 0.1,
       digitBoxes: [],
-      reasons: ["calibrated_digit_boxes_missing"],
+      reasons: segmented
+        ? [...segmented.reasons, "calibrated_digit_boxes_missing"].slice(0, 8)
+        : ["calibrated_digit_boxes_missing"],
       method: "digit-segmentation",
       calibrationUsed: calibrationSummary(safeCalibration),
+      imageSegmentation: segmented ? segmented.imageSegmentation : undefined,
     };
   }
   const boxes = normalizeDigitBoxes(reading.digitBoxes, reading.score, safeCalibration);
@@ -295,6 +346,18 @@ function digitReaderSummary(reading = {}) {
       .map((reason) => sanitizeText(reason, 60))
       .filter(Boolean)
       .slice(0, 6),
+    imageSegmentationStatus: reading.imageSegmentation
+      ? sanitizeText(reading.imageSegmentation.status || "unreadable", 32)
+      : null,
+    imageSegmentationFormat: reading.imageSegmentation
+      ? sanitizeText(reading.imageSegmentation.imageFormat || "unknown", 24)
+      : null,
+    imageSegmentationGroups: reading.imageSegmentation
+      ? Math.max(0, Math.min(99, Number(reading.imageSegmentation.foregroundGroupCount || 0)))
+      : 0,
+    imageSegmentationReasons: reading.imageSegmentation && Array.isArray(reading.imageSegmentation.reasons)
+      ? reading.imageSegmentation.reasons.map((reason) => sanitizeText(reason, 60)).filter(Boolean).slice(0, 6)
+      : [],
     calibrationUsed: reading.calibrationUsed ? calibrationSummary(reading.calibrationUsed) : null,
   };
 }

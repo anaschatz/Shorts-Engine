@@ -461,6 +461,8 @@ function summarizeDigitReaderRows(rows = []) {
     ambiguousCount: Number(statuses.ambiguous || 0),
     unreadableCount: Number(statuses.unreadable || 0),
     digitBoxCount: safeRows.reduce((sum, row) => sum + Math.max(0, Number(row.digitBoxCount || 0)), 0),
+    imageSegmentationReadableCount: safeRows.filter((row) => row.imageSegmentationStatus === "readable").length,
+    imageSegmentationAttemptCount: safeRows.filter((row) => row.imageSegmentationStatus).length,
     failClosedReasons: [...new Set(safeRows
       .flatMap((row) => Array.isArray(row.digitReaderReasons) ? row.digitReaderReasons : [])
       .map((reason) => sanitizeText(reason, 60))
@@ -814,6 +816,8 @@ function writeScoreboardOcrReviewHtml({ qa, reportRelativePath, contactSheetRela
         <td>${escapeHtml(row.digitReaderStatus || "")}</td>
         <td>${escapeHtml(row.digitBoxCount || 0)}</td>
         <td>${escapeHtml(row.scoreConfidence || 0)}</td>
+        <td>${escapeHtml(row.imageSegmentationStatus || "")}</td>
+        <td>${escapeHtml(row.imageSegmentationGroups || 0)}</td>
         <td>${escapeHtml((row.digitReaderReasons || []).join(", "))}</td>
         <td>${escapeHtml((row.ambiguityReasons || []).join(", "))}</td>
         <td>${escapeHtml(row.ocrText || "")}</td>
@@ -841,7 +845,7 @@ function writeScoreboardOcrReviewHtml({ qa, reportRelativePath, contactSheetRela
   <table>
     <thead>
       <tr>
-        <th>#</th><th>Time</th><th>Region</th><th>Variant</th><th>Status</th><th>Score</th><th>Clock</th><th>Conf</th><th>Digit Status</th><th>Digit Boxes</th><th>Score Conf</th><th>Digit Reasons</th><th>Reasons</th><th>OCR Text</th><th>Crop</th>
+        <th>#</th><th>Time</th><th>Region</th><th>Variant</th><th>Status</th><th>Score</th><th>Clock</th><th>Conf</th><th>Digit Status</th><th>Digit Boxes</th><th>Score Conf</th><th>Image Seg</th><th>Groups</th><th>Digit Reasons</th><th>Reasons</th><th>OCR Text</th><th>Crop</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
@@ -1209,7 +1213,7 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
             }), { signal: input.signal, timeoutMs: this.timeoutMs });
             const digitReading = this.digitReader({
               frame,
-              crop: { timestamp: frame.timestamp },
+              crop: { timestamp: frame.timestamp, cropPath: safeCropPath },
               regionId: region.id,
               timestamp: frame.timestamp,
               metadata,

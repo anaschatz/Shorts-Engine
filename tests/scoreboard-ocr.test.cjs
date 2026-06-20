@@ -55,6 +55,57 @@ function createFrameFixtures() {
   return { dir, frames };
 }
 
+const SCOREBUG_SEGMENTS = Object.freeze({
+  0: "abcdef",
+  1: "bc",
+  2: "abged",
+  3: "abgcd",
+  4: "fgbc",
+  5: "afgcd",
+  6: "afgecd",
+  7: "abc",
+  8: "abcdefg",
+  9: "abfgcd",
+});
+
+const SCOREBUG_ZONES = Object.freeze({
+  a: { x0: 0.22, x1: 0.78, y0: 0.04, y1: 0.18 },
+  b: { x0: 0.68, x1: 0.88, y0: 0.14, y1: 0.46 },
+  c: { x0: 0.68, x1: 0.88, y0: 0.54, y1: 0.86 },
+  d: { x0: 0.22, x1: 0.78, y0: 0.82, y1: 0.96 },
+  e: { x0: 0.12, x1: 0.32, y0: 0.54, y1: 0.86 },
+  f: { x0: 0.12, x1: 0.32, y0: 0.14, y1: 0.46 },
+  g: { x0: 0.22, x1: 0.78, y0: 0.43, y1: 0.57 },
+});
+
+function drawScorebugDigit(pixels, width, height, digit, roi) {
+  const fill = (x0, y0, x1, y1) => {
+    for (let y = Math.max(0, y0); y < Math.min(height, y1); y += 1) {
+      for (let x = Math.max(0, x0); x < Math.min(width, x1); x += 1) {
+        pixels[y * width + x] = 0;
+      }
+    }
+  };
+  for (const segment of SCOREBUG_SEGMENTS[digit]) {
+    const zone = SCOREBUG_ZONES[segment];
+    fill(
+      Math.floor(roi.x + zone.x0 * roi.width),
+      Math.floor(roi.y + zone.y0 * roi.height),
+      Math.ceil(roi.x + zone.x1 * roi.width),
+      Math.ceil(roi.y + zone.y1 * roi.height),
+    );
+  }
+}
+
+function writeScorebugCrop(filePath, { home, away }) {
+  const width = 120;
+  const height = 52;
+  const pixels = Array.from({ length: width * height }, () => 255);
+  drawScorebugDigit(pixels, width, height, home, { x: 43, y: 8, width: 18, height: 36 });
+  drawScorebugDigit(pixels, width, height, away, { x: 67, y: 8, width: 18, height: 36 });
+  writeFileSync(filePath, `P2\n${width} ${height}\n255\n${pixels.join(" ")}\n`, "utf8");
+}
+
 test("scoreboard OCR normalizes safe scoreboard regions and bounds crop size", () => {
   const region = normalizeRegion({ x: 0.02, y: 0.02, width: 0.3, height: 0.12, anchor: "top_left" }, metadata);
   assert.deepEqual(region, {
@@ -358,6 +409,40 @@ test("local scoreboard OCR can use calibrated scorebug digit readings instead of
     assert.equal(report.calibrationUsed.layoutId, "fixture-scorebug");
     assert.equal(report.evidenceSummary.scoreChangeEvents.length, 1);
     assert.equal(report.ocrAttempts.some((attempt) => attempt.digitReaderStatus === "readable" && attempt.score === "1-0"), true);
+    assert.doesNotMatch(JSON.stringify(report), /\/Users|\/private|storageKey|localPath|token|secret|stdout|stderr/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(join(process.cwd(), SCOREBOARD_OCR_QA_RELATIVE_DIR, `ocr-scoreboard-${runId}`), { recursive: true, force: true });
+  }
+});
+
+test("local scoreboard OCR can derive score-change evidence from focused image segmentation", async () => {
+  const { dir, frames } = createFrameFixtures();
+  const runId = `scorebug-image-test-${Date.now()}`;
+  try {
+    const result = await analyzeScoreboardOcr({
+      metadata,
+      mode: "local",
+      enabled: true,
+      qaArtifactsEnabled: true,
+      qaRunId: runId,
+      commandChecker: () => true,
+      frames,
+      cropper: async ({ outputDir, frameIndex, region }) => {
+        const cropPath = safeResolve(outputDir, `crop_${frameIndex}_${region.id}.pgm`);
+        mkdirSync(outputDir, { recursive: true });
+        writeScorebugCrop(cropPath, frameIndex === 0 ? { home: 0, away: 0 } : { home: 1, away: 0 });
+        return cropPath;
+      },
+      ocrRunner: async () => ({ stdout: "24:00" }),
+    });
+
+    assert.equal(result.providerMode, "local-scoreboard-ocr-command");
+    assert.equal(result.summary.scoreChangeCount, 1);
+    assert.equal(result.summary.scoreTimeline.some((item) => item.status === "score_changed" && item.scoreAfter === "1-0"), true);
+    const report = JSON.parse(readFileSync(join(process.cwd(), result.qaReport.reportPath), "utf8"));
+    assert.equal(report.digitReader.imageSegmentationReadableCount >= 3, true);
+    assert.equal(report.ocrAttempts.some((attempt) => attempt.imageSegmentationStatus === "readable" && attempt.score === "1-0"), true);
     assert.doesNotMatch(JSON.stringify(report), /\/Users|\/private|storageKey|localPath|token|secret|stdout|stderr/i);
   } finally {
     rmSync(dir, { recursive: true, force: true });

@@ -57,6 +57,8 @@
   },
   "scorebugDigitCalibration": {
     "layoutId": "fixture-scorebug",
+    "imageSegmentationBacked": true,
+    "imageSegmentationMode": "focused_scorebug_crop_only",
     "minConfidence": 0.78,
     "readingCount": 8
   },
