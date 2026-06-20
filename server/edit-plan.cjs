@@ -184,6 +184,8 @@ const GOAL_DECISION_EVIDENCE_CODES = Object.freeze([
   "confirmed_by_commentary",
   "commentator_goal_call_support",
   "crowd_reaction_support",
+  "combined_goal_confirmation",
+  "kickoff_after_goal",
   "offside_commentary",
   "flag_commentary",
   "disallowed_commentary",

@@ -45,6 +45,8 @@ const GOAL_EVIDENCE_REASON_CODES = Object.freeze([
   "var_check",
   "commentator_goal_call_support",
   "crowd_reaction_support",
+  "combined_goal_confirmation",
+  "live_shot_finish_sequence",
   "replay_goal_confirmation",
   "kickoff_after_goal",
   "shot_sequence_support",
@@ -74,6 +76,7 @@ const CONFIRMED_CAPTION_TERMS = Object.freeze([
   "it counts",
   "the goal stands",
   "finish counts",
+  "finish stands",
   "μετραει",
   "μετράει",
 ]);
@@ -93,6 +96,7 @@ const GOAL_CALL_TERMS = Object.freeze([
 const OFFSIDE_TERMS = Object.freeze(["offside", "flag is up", "flag goes up", "οφσαιντ", "οφσάιντ", "σημαια", "σημαία"]);
 const DISALLOWED_TERMS = Object.freeze(["disallowed", "ruled out", "no goal", "chalked off", "does not count", "δεν μετρά", "ακυρώνεται"]);
 const VAR_TERMS = Object.freeze(["var", "check", "review", "checking", "video assistant", "ελεγχος", "έλεγχος"]);
+const RESTART_TERMS = Object.freeze(["restart", "kickoff", "kick off", "back underway", "play restarts", "σεντρα", "σέντρα"]);
 const ANTHEM_INTRO_TERMS = Object.freeze([
   "anthem",
   "lineups",
@@ -157,6 +161,7 @@ function captionEvidence(caption = {}) {
   if (hasTerm(text, OFFSIDE_TERMS)) reasons.push("offside_commentary", "flag_commentary");
   if (hasTerm(text, DISALLOWED_TERMS)) reasons.push("disallowed_commentary", "no_goal_commentary");
   if (hasTerm(text, VAR_TERMS)) reasons.push("var_check");
+  if (hasTerm(text, RESTART_TERMS)) reasons.push("kickoff_after_goal");
   return [...new Set(reasons)];
 }
 
@@ -240,6 +245,8 @@ function reasonFlags(reasonCodes = []) {
     scoreboardOcrEvidence: reasons.has("scoreboard_ocr_score_change") ||
       reasons.has("scoreboard_ocr_score_unchanged") ||
       reasons.has("scoreboard_ocr_ambiguous"),
+    combinedGoalConfirmation: reasons.has("combined_goal_confirmation"),
+    liveShotFinishSequence: reasons.has("live_shot_finish_sequence") || reasons.has("shot_sequence_support"),
     celebrationOnlyEvidence: reasons.has("celebration_only"),
     anthemOrIntroEvidence: reasons.has("anthem_or_intro"),
   };
@@ -257,6 +264,10 @@ function outcomeForReasons(reasonCodes = []) {
   const hasVisualGoalDecision = reasons.has("visual_referee_goal_signal") || reasons.has("kickoff_after_goal");
   const hasReplayConfirmation = reasons.has("replay_goal_confirmation") && hasScoreConfirmed;
   const hasCommentaryConfirmation = reasons.has("confirmed_by_commentary") || reasons.has("commentator_goal_call_support");
+  const hasCombinedConfirmation = reasons.has("combined_goal_confirmation") && (
+    reasons.has("shot_sequence_support") ||
+    reasons.has("live_shot_finish_sequence")
+  );
   if (
     reasons.has("visual_offside_flag") ||
     reasons.has("visual_offside_line") ||
@@ -279,7 +290,8 @@ function outcomeForReasons(reasonCodes = []) {
       hasScoreConfirmed ||
       hasVisualGoalDecision ||
       hasReplayConfirmation ||
-      hasCommentaryConfirmation
+      hasCommentaryConfirmation ||
+      hasCombinedConfirmation
     )
   ) {
     return "valid_goal";
@@ -599,6 +611,39 @@ function isNoGoalDecisionReason(reason) {
   ].includes(reason);
 }
 
+function isGoalSupportDecisionReason(reason) {
+  return [
+    "confirmed_by_commentary",
+    "commentator_goal_call_support",
+    "replay_goal_confirmation",
+    "kickoff_after_goal",
+    "visual_scoreboard_goal_confirmed",
+    "visual_referee_goal_signal",
+    "scoreboard_ocr_score_change",
+    "scoreboard_temporal_consistency",
+  ].includes(reason);
+}
+
+function supportsCombinedGoalConfirmation(reasonCodes = []) {
+  const reasons = new Set(reasonCodes);
+  const hasDisqualifier = [
+    "visual_offside_flag",
+    "visual_no_goal_decision",
+    "visual_referee_no_goal_signal",
+    "visual_scoreboard_goal_removed",
+    "visual_offside_line",
+    "scoreboard_ocr_score_unchanged",
+    "offside_commentary",
+    "flag_commentary",
+    "disallowed_commentary",
+    "no_goal_commentary",
+  ].some((reason) => reasons.has(reason));
+  if (hasDisqualifier) return false;
+  if (!reasons.has("ball_in_net") && !reasons.has("visual_ball_in_net")) return false;
+  if (!reasons.has("shot_sequence_support") && !reasons.has("live_shot_finish_sequence")) return false;
+  return [...reasons].some(isGoalSupportDecisionReason);
+}
+
 function scoreChangeAlreadyCovered(scoreItem = {}, events = []) {
   const timestamp = seconds(scoreItem.timestamp);
   return events.some((event) => timestamp >= seconds(event.start) - 1 && timestamp <= seconds(event.end) + 1);
@@ -669,6 +714,9 @@ function validateGoalEvidenceOutput(output, metadata = {}) {
       ocrEvidenceCount: ocrEvidence.length,
       scoreboardConfirmedGoalCount: events.filter((event) => (event.reasonCodes || []).includes("scoreboard_ocr_score_change")).length,
       ambiguousOcrCount: ocrEvidence.filter((item) => item.ambiguous).length,
+      combinedGoalConfirmationCount: events.filter((event) => (event.reasonCodes || []).includes("combined_goal_confirmation")).length,
+      replayConfirmationCount: events.filter((event) => (event.reasonCodes || []).includes("replay_goal_confirmation")).length,
+      crowdReactionSupportCount: events.filter((event) => (event.reasonCodes || []).includes("crowd_reaction_support")).length,
       goalEvidenceCoverage: events.some((event) => event.outcomeHint === "valid_goal") ? 1 : 0,
       ocrQaStatus: ocrQaCalibration.status,
       ocrQaUsable: Boolean(ocrQaCalibration.usable),
@@ -715,10 +763,13 @@ function deterministicGoalEvidence(input = {}) {
     const range = eventWindowForBallInNet(ballWindow, windows, metadata);
     const postEnd = Math.min(seconds(metadata.durationSeconds, range.end), range.payoff + POST_GOAL_CONTEXT_SECONDS);
     const nearbyWindows = windows.filter((window) => seconds(window.start) <= postEnd && seconds(window.end) >= range.start - 1);
+    const nearbyReasons = [...new Set(nearbyWindows.flatMap(visualReasonCodesForWindow))];
+    const hasShotSequence = nearbyReasons.some(isShotSequenceReason);
     const visualReasons = [...new Set([
       "ball_in_net",
       "visual_ball_in_net",
       ...nearbyWindows.flatMap(visualDecisionReasons),
+      ...(hasShotSequence ? ["shot_sequence_support", "live_shot_finish_sequence"] : []),
       ...(nearbyWindows.some((window) => windowHasReason(window, "visual_crowd_reaction")) ? ["crowd_reaction_support"] : []),
       ...(nearbyWindows.some((window) => windowHasReason(window, "visual_replay_indicator") || windowHasReason(window, "visual_replay_angle"))
         ? ["replay_goal_confirmation"]
@@ -726,7 +777,11 @@ function deterministicGoalEvidence(input = {}) {
     ])];
     const textReasons = [...new Set(captionsInRange(captions, range.payoff - 0.5, postEnd).flatMap((item) => item.reasonCodes))];
     const ocrReasons = ocrReasonsInRange(ocrEvidence, range.payoff - 0.5, postEnd, ocrQaCalibration);
-    const reasonCodes = normalizeReasonCodes([...visualReasons, ...textReasons, ...ocrReasons]);
+    const baseReasonCodes = normalizeReasonCodes([...visualReasons, ...textReasons, ...ocrReasons]);
+    const reasonCodes = normalizeReasonCodes([
+      ...baseReasonCodes,
+      ...(supportsCombinedGoalConfirmation(baseReasonCodes) ? ["combined_goal_confirmation"] : []),
+    ]);
     events.push({
       id: `goal_event_${index + 1}`,
       start: range.start,
@@ -982,6 +1037,9 @@ function publicGoalEvidence(goalEvidence) {
           ocrEvidenceCount: Number(safe.summary.ocrEvidenceCount || 0),
           scoreboardConfirmedGoalCount: Number(safe.summary.scoreboardConfirmedGoalCount || 0),
           ambiguousOcrCount: Number(safe.summary.ambiguousOcrCount || 0),
+          combinedGoalConfirmationCount: Number(safe.summary.combinedGoalConfirmationCount || 0),
+          replayConfirmationCount: Number(safe.summary.replayConfirmationCount || 0),
+          crowdReactionSupportCount: Number(safe.summary.crowdReactionSupportCount || 0),
           goalEvidenceCoverage: Number(safe.summary.goalEvidenceCoverage || 0),
           ocrQaStatus: sanitizeText(safe.summary.ocrQaStatus || "missing", 32),
           ocrQaUsable: Boolean(safe.summary.ocrQaUsable),
@@ -1021,6 +1079,8 @@ function publicGoalEvidence(goalEvidence) {
           VARNoGoalSignal: Boolean(event.VARNoGoalSignal),
           commentatorGoalCall: Boolean(event.commentatorGoalCall),
           crowdReactionSupport: Boolean(event.crowdReactionSupport),
+          combinedGoalConfirmation: Boolean(event.combinedGoalConfirmation),
+          liveShotFinishSequence: Boolean(event.liveShotFinishSequence),
           celebrationOnlyEvidence: Boolean(event.celebrationOnlyEvidence),
           anthemOrIntroEvidence: Boolean(event.anthemOrIntroEvidence),
         }))

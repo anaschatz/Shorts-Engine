@@ -83,6 +83,24 @@ test("goal outcome resolver requires explicit confirmation for confirmed goal", 
   assert.equal(confirmed.requiresPostContext, false);
 });
 
+test("goal outcome resolver keeps decision windows valid when payoff extends beyond candidate end", () => {
+  const outcome = resolveGoalOutcome({
+    reasons: ["goal", "visual_ball_in_net", "combined_goal_confirmation"],
+    goalEvidence: {
+      ...baseGoalEvidence(),
+      payoffEnd: 22.4,
+    },
+    captions: [{ start: 23, end: 24, text: "The goal stands after restart" }],
+    start: 12,
+    end: 20,
+    payoffEnd: 22.4,
+  });
+
+  assert.equal(outcome.outcome, "confirmed_goal");
+  assert.equal(outcome.decisionWindow.start, 22.15);
+  assert.ok(outcome.decisionWindow.end > outcome.decisionWindow.start);
+});
+
 test("goal outcome evidence helpers reject raw logs and expose only safe evidence codes", () => {
   const evidence = captionEvidenceInRange([
     { start: 9, end: 10, text: "No goal after VAR" },

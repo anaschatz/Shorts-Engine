@@ -2190,6 +2190,40 @@ function goalDiscoverySummary({ safeVisualSignals = {}, safeSignals = {}, goalSe
       : null,
     reasonCodes: Array.isArray(moment.reasonCodes) ? moment.reasonCodes.map((reason) => sanitizeText(reason, 64)).slice(0, 12) : [],
   }));
+  const goalEvidenceCandidates = Array.isArray(goalEvidence && goalEvidence.events)
+    ? goalEvidence.events
+        .filter((event) => ["valid_goal", "offside_goal", "no_goal", "possible_goal_unconfirmed"].includes(event.outcomeHint))
+        .slice(0, 12)
+        .map((event, index) => ({
+          index: index + 1,
+          id: sanitizeText(event.id || `goal_evidence_${index + 1}`, 80),
+          outcomeHint: sanitizeText(event.outcomeHint || "possible_goal_unconfirmed", 48),
+          start: Number(event.start || 0),
+          end: Number(event.end || 0),
+          reasonCodes: Array.isArray(event.reasonCodes) ? event.reasonCodes.map((reason) => sanitizeText(reason, 64)).slice(0, 12) : [],
+          combinedGoalConfirmation: Boolean(event.combinedGoalConfirmation),
+          replayGoalConfirmation: Boolean(event.replayGoalConfirmation),
+          crowdReactionSupport: Boolean(event.crowdReactionSupport),
+          offsideFlag: Boolean(event.offsideFlag),
+          noGoalSignal: Boolean(event.VARNoGoalSignal),
+          confidence: Number(event.confidence || 0),
+        }))
+    : [];
+  const matchTruthCandidates = [
+    ...(Array.isArray(matchEventTruth && matchEventTruth.events) ? matchEventTruth.events : []),
+    ...(Array.isArray(matchEventTruth && matchEventTruth.rejectedEvents) ? matchEventTruth.rejectedEvents : []),
+  ].slice(0, 16).map((event, index) => ({
+    index: index + 1,
+    id: sanitizeText(event.id || `truth_event_${index + 1}`, 80),
+    type: sanitizeText(event.type || "neutral", 48),
+    outcome: sanitizeText(event.outcome || "unknown", 48),
+    sourceStart: Number(event.sourceStart || 0),
+    sourceEnd: Number(event.sourceEnd || 0),
+    replayOnly: Boolean(event.replayOnly),
+    evidenceCodes: Array.isArray(event.evidenceCodes) ? event.evidenceCodes.map((reason) => sanitizeText(reason, 64)).slice(0, 12) : [],
+    missingEvidence: Array.isArray(event.missingEvidence) ? event.missingEvidence.map((reason) => sanitizeText(reason, 64)).slice(0, 8) : [],
+    disqualifiers: Array.isArray(event.disqualifiers) ? event.disqualifiers.map((reason) => sanitizeText(reason, 64)).slice(0, 8) : [],
+  }));
   return {
     version: 1,
     sourceDuration: Number(duration.toFixed(2)),
@@ -2201,6 +2235,8 @@ function goalDiscoverySummary({ safeVisualSignals = {}, safeSignals = {}, goalSe
     excludedOffsideOrNoGoal: outcomes.filter((item) => item.goalOutcome && ["disallowed_offside", "possible_offside"].includes(item.goalOutcome.outcome)),
     excludedUnconfirmedBallInNet: outcomes.filter((item) => item.goalOutcome && item.goalOutcome.outcome === "unknown_decision"),
     excludedBigChances: outcomes.filter((item) => !item.goalOutcome && item.highlightType !== "goal").slice(0, 8),
+    goalEvidenceCandidates,
+    matchTruthCandidates,
     goalEvidence: goalEvidence && goalEvidence.summary
       ? {
           eventCount: Number(goalEvidence.summary.eventCount || 0),
@@ -2739,6 +2775,11 @@ function truthGoalReasonCodes(event = {}) {
       code === "visual_scoreboard_goal_confirmed" ||
       code === "visual_referee_goal_signal" ||
       code === "confirmed_by_commentary" ||
+      code === "combined_goal_confirmation" ||
+      code === "goal_candidate_cluster_recovery" ||
+      code === "kickoff_after_goal" ||
+      code === "crowd_reaction_support" ||
+      code === "visual_replay_indicator" ||
       code === "scoreboard_ocr_score_change" ||
       code === "scoreboard_temporal_consistency" ||
       code === "audio_energy_spike" ||
@@ -2837,6 +2878,8 @@ function truthGoalOutcomeForEvent(event = {}) {
   if (evidenceSet.has("visual_scoreboard_goal_confirmed")) decisionEvidence.push("visual_scoreboard_goal_confirmed");
   if (evidenceSet.has("visual_referee_goal_signal")) decisionEvidence.push("visual_referee_goal_signal");
   if (evidenceSet.has("confirmed_by_commentary")) decisionEvidence.push("confirmed_by_commentary");
+  if (evidenceSet.has("combined_goal_confirmation")) decisionEvidence.push("combined_goal_confirmation");
+  if (evidenceSet.has("kickoff_after_goal")) decisionEvidence.push("kickoff_after_goal");
   return normalizeGoalOutcome({
     eventType: "ball_in_net",
     outcome: "confirmed_goal",

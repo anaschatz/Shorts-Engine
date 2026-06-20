@@ -173,6 +173,48 @@ test("confirms scoreboard-backed goal sequence when shot evidence and score chan
   assert.ok(result.events[0].missingEvidence.every((code) => code !== "ball_in_net_evidence"));
 });
 
+test("confirms combined live finish evidence without OCR while keeping truth details safe", () => {
+  const result = analyzeMatchEventTruth({
+    metadata,
+    visualSignals: visualSignals([
+      { start: 104, end: 105.5, type: "shot_contact", confidence: 0.9 },
+      { start: 105, end: 107, type: "ball_toward_goal", confidence: 0.88 },
+      { start: 108, end: 110, type: "ball_in_net", confidence: 0.92 },
+      { start: 112, end: 114, type: "crowd_reaction", confidence: 0.86 },
+    ]),
+    goalEvidence: goalEvidence([{
+      id: "combined_live_goal",
+      start: 104,
+      end: 123,
+      confidence: 0.88,
+      outcomeHint: "valid_goal",
+      reasonCodes: [
+        "ball_in_net",
+        "visual_ball_in_net",
+        "shot_sequence_support",
+        "live_shot_finish_sequence",
+        "crowd_reaction_support",
+        "combined_goal_confirmation",
+      ],
+      ballInNetEvidence: true,
+      crowdReactionSupport: true,
+      combinedGoalConfirmation: true,
+    }]),
+  });
+
+  assert.equal(result.summary.confirmedGoalCount, 1);
+  assert.equal(result.summary.noFalseGoalFromOcrOnly, 1);
+  assert.equal(result.events[0].type, "confirmed_goal");
+  assert.equal(result.events[0].truth.outcome, "confirmed_goal");
+  assert.equal(result.events[0].truth.evidence.combinedGoalConfirmation, true);
+  assert.equal(result.events[0].truth.evidence.scoreboardChange, false);
+  assert.equal(result.events[0].truth.disallowed, false);
+  assert.ok(result.events[0].phaseCoverage.hasShot);
+  assert.ok(result.events[0].phaseCoverage.hasFinish);
+  assert.ok(result.events[0].phaseCoverage.hasConfirmation);
+  assert.doesNotMatch(JSON.stringify(publicMatchEventTruth(result)), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);
+});
+
 test("classifies ball-in-net plus offside/decision evidence as disallowed", () => {
   const result = analyzeMatchEventTruth({
     metadata,
@@ -233,6 +275,83 @@ test("treats celebration/crowd reaction without action evidence as support only"
   assert.equal(result.summary.confirmedGoalCount, 0);
   assert.ok(result.events.some((event) => event.type === "crowd_reaction"));
   assert.ok(result.rejectedEvents.some((event) => event.safetyFlags.includes("reaction_support_only")));
+});
+
+test("recovers bounded YouTube valid-goal candidates from source-wide action clusters", () => {
+  const result = analyzeMatchEventTruth({
+    metadata: {
+      durationSeconds: 360,
+      width: 1920,
+      height: 1080,
+      sourceType: "youtube",
+      goalSelectionMode: "valid_goals_only",
+    },
+    mediaSignals: {
+      durationSeconds: 360,
+      audioPeaks: [
+        { time: 134, energyScore: 0.94 },
+        { time: 204, energyScore: 0.92 },
+        { time: 229, energyScore: 0.88 },
+      ],
+      sceneChanges: [
+        { time: 136, confidence: 0.8 },
+        { time: 226, confidence: 0.8 },
+      ],
+    },
+    visualSignals: visualSignals([
+      { start: 132, end: 136, types: ["shot_like_motion", "ball_visible", "crowd_reaction"], confidence: 0.84 },
+      { start: 150, end: 154, types: ["shot_like_motion", "ball_visible"], confidence: 0.72 },
+      { start: 202, end: 206, types: ["shot_like_motion", "ball_visible", "crowd_reaction"], confidence: 0.86 },
+      { start: 226, end: 230, types: ["shot_like_motion", "ball_visible", "replay_indicator"], confidence: 0.82 },
+    ]),
+    goalEvidence: goalEvidence([]),
+  });
+
+  assert.equal(result.summary.confirmedGoalCount, 3);
+  assert.deepEqual(result.events.slice(0, 3).map((event) => event.id), [
+    "cluster_recovered_goal_1",
+    "cluster_recovered_goal_2",
+    "cluster_recovered_goal_3",
+  ]);
+  assert.ok(result.events.slice(0, 3).every((event) => event.evidenceCodes.includes("goal_candidate_cluster_recovery")));
+  assert.ok(result.events.slice(0, 3).every((event) => event.phaseCoverage.hasBuildup));
+  assert.ok(result.events.slice(0, 3).every((event) => event.phaseCoverage.hasShot));
+  assert.ok(result.events.slice(0, 3).every((event) => event.phaseCoverage.hasFinish));
+  assert.ok(result.events.slice(0, 3).every((event) => event.phaseCoverage.replayOnly === false));
+});
+
+test("does not recover crowd-only or non-youtube action clusters as confirmed goals", () => {
+  const crowdOnly = analyzeMatchEventTruth({
+    metadata: {
+      durationSeconds: 360,
+      width: 1920,
+      height: 1080,
+      sourceType: "youtube",
+      goalSelectionMode: "valid_goals_only",
+    },
+    mediaSignals: { durationSeconds: 360, audioPeaks: [{ time: 134, energyScore: 0.94 }], sceneChanges: [] },
+    visualSignals: visualSignals([
+      { start: 132, end: 136, types: ["crowd_reaction"], confidence: 0.84 },
+    ]),
+    goalEvidence: goalEvidence([]),
+  });
+  const nonYoutube = analyzeMatchEventTruth({
+    metadata: {
+      durationSeconds: 360,
+      width: 1920,
+      height: 1080,
+      sourceType: "upload",
+      goalSelectionMode: "valid_goals_only",
+    },
+    mediaSignals: { durationSeconds: 360, audioPeaks: [{ time: 134, energyScore: 0.94 }], sceneChanges: [] },
+    visualSignals: visualSignals([
+      { start: 132, end: 136, types: ["shot_like_motion", "ball_visible", "crowd_reaction"], confidence: 0.84 },
+    ]),
+    goalEvidence: goalEvidence([]),
+  });
+
+  assert.equal(crowdOnly.summary.confirmedGoalCount, 0);
+  assert.equal(nonYoutube.summary.confirmedGoalCount, 0);
 });
 
 test("public truth reports keep safe late-goal summary and reject leaks", () => {

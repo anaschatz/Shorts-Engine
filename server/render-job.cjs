@@ -926,7 +926,11 @@ async function runRenderJob(options) {
       });
       visualSignals = mergeGoalEvidenceIntoVisualSignals(visualSignals, goalEvidence, context.metadata);
       matchEventTruth = deps.analyzeMatchEventTruth({
-        metadata: context.metadata,
+        metadata: {
+          ...context.metadata,
+          sourceType: (context.source && context.source.sourceType) || context.metadata.sourceType,
+          goalSelectionMode: context.goalSelectionMode,
+        },
         transcript,
         mediaSignals,
         visualSignals,
@@ -1042,6 +1046,12 @@ async function runRenderJob(options) {
             matchEventTruthConfirmedGoalCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.confirmedGoalCount,
             matchEventTruthDisallowedGoalCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.disallowedGoalCount,
             matchEventTruthPossibleGoalCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.possibleGoalCount,
+            goalEvidenceCandidates: goalDiscovery && Array.isArray(goalDiscovery.goalEvidenceCandidates)
+              ? goalDiscovery.goalEvidenceCandidates.slice(0, 12)
+              : [],
+            matchTruthCandidates: goalDiscovery && Array.isArray(goalDiscovery.matchTruthCandidates)
+              ? goalDiscovery.matchTruthCandidates.slice(0, 16)
+              : [],
           });
         }
         throw new AppError(code, SAFE_MESSAGES[code], 422);

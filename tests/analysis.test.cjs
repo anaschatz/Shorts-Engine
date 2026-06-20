@@ -16,6 +16,7 @@ const {
   chooseTranscriptionProvider,
   normalizeLanguageCode,
 } = require("../server/transcription.cjs");
+const { analyzeMatchEventTruth } = require("../server/match-event-truth.cjs");
 
 const metadata = {
   durationSeconds: 22,
@@ -1443,6 +1444,89 @@ test("valid-goals-only plan keeps every confirmed goal, excludes offside goals, 
   assert.equal(plan.reviewMetadata.multiMoment.smoothTransitionCoverage, 1);
   assert.equal(plan.reviewMetadata.multiMoment.validGoalsOnly, true);
   assert.doesNotMatch(plan.captions.map((caption) => caption.text).join(" "), /OFFSIDE|NO GOAL|BIG CHANCE/i);
+});
+
+test("valid-goals-only plan can use combined goal evidence when OCR is unavailable", () => {
+  const longMetadata = { durationSeconds: 360, width: 1920, height: 1080, hasAudio: true };
+  const visualSignals = {
+    providerMode: "fixture-visual",
+    fallbackUsed: false,
+    windows: [
+      { start: 48, end: 50, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.91 },
+      { start: 52, end: 54, types: ["goal_mouth_visible", "ball_in_net"], confidence: 0.93 },
+      { start: 58, end: 60, types: ["crowd_reaction"], confidence: 0.86 },
+      { start: 168, end: 170, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.91 },
+      { start: 172, end: 174, types: ["goal_mouth_visible", "ball_in_net"], confidence: 0.93 },
+      { start: 178, end: 180, types: ["crowd_reaction"], confidence: 0.86 },
+      { start: 298, end: 300, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.91 },
+      { start: 302, end: 304, types: ["goal_mouth_visible", "ball_in_net"], confidence: 0.93 },
+      { start: 308, end: 310, types: ["crowd_reaction"], confidence: 0.86 },
+      { start: 330, end: 332, types: ["celebration_after_shot", "crowd_reaction"], confidence: 0.8 },
+    ],
+  };
+  const goalEvents = [
+    { id: "combined_goal_1", start: 48, end: 63, confidence: 0.88 },
+    { id: "combined_goal_2", start: 168, end: 183, confidence: 0.89 },
+    { id: "combined_goal_3", start: 298, end: 313, confidence: 0.9 },
+  ].map((event) => ({
+    ...event,
+    outcomeHint: "valid_goal",
+    reasonCodes: [
+      "ball_in_net",
+      "visual_ball_in_net",
+      "shot_sequence_support",
+      "live_shot_finish_sequence",
+      "crowd_reaction_support",
+      "combined_goal_confirmation",
+    ],
+    ballInNetEvidence: true,
+    crowdReactionSupport: true,
+    combinedGoalConfirmation: true,
+  }));
+  const truth = analyzeMatchEventTruth({
+    metadata: longMetadata,
+    visualSignals,
+    goalEvidence: {
+      providerMode: "fixture-goal-evidence",
+      fallbackUsed: false,
+      confidence: 0.9,
+      events: goalEvents,
+      summary: {
+        eventCount: 3,
+        validGoalCount: 3,
+        offsideOrNoGoalCount: 0,
+        unconfirmedGoalCount: 0,
+        nonGoalChanceCount: 0,
+        celebrationOnlyCount: 0,
+        anthemOrIntroCount: 0,
+        ocrEvidenceCount: 0,
+        scoreboardConfirmedGoalCount: 0,
+        ambiguousOcrCount: 0,
+        combinedGoalConfirmationCount: 3,
+        goalEvidenceCoverage: 1,
+      },
+    },
+  });
+  const plans = createCandidateEditPlans({
+    moments: [],
+    metadata: { ...longMetadata, goalSelectionMode: "valid_goals_only" },
+    transcript: { captions: [] },
+    visualSignals,
+    matchEventTruth: truth,
+    title: "Combined valid goals",
+    editIntensity: "balanced",
+    stylePreset: "punchy_highlight",
+  });
+  const plan = validateEditPlan(plans[0], longMetadata);
+
+  assert.equal(truth.summary.confirmedGoalCount, 3);
+  assert.equal(plan.mode, "multi_moment_compilation");
+  assert.equal(plan.segments.length, 3);
+  assert.ok(plan.segments.every((segment) => segment.goalOutcome.outcome === "confirmed_goal"));
+  assert.ok(plan.segments.every((segment) => segment.replayOnly === false));
+  assert.ok(plan.segments.every((segment) => segment.phaseCoverage.hasShot));
+  assert.ok(plan.segments.every((segment) => segment.phaseCoverage.hasFinish));
+  assert.ok(plan.segments.every((segment) => segment.phaseCoverage.hasConfirmation));
 });
 
 test("valid-goals-only rejects replay-only confirmed goal candidates", () => {

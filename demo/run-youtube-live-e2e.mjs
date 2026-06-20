@@ -120,6 +120,47 @@ function safeBoolean(value) {
   return typeof value === "boolean" ? value : null;
 }
 
+function safeStringList(values = [], maxItems = 8, maxLength = 80) {
+  return (Array.isArray(values) ? values : [])
+    .map((value) => safeString(value, maxLength))
+    .filter(Boolean)
+    .slice(0, maxItems);
+}
+
+function safeGoalEvidenceCandidate(value = {}, index = 0) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    index: safeNumber(value.index) || index + 1,
+    id: safeString(value.id || `goal_evidence_${index + 1}`, 80),
+    outcomeHint: safeString(value.outcomeHint || "", 48) || null,
+    start: safeNumber(value.start),
+    end: safeNumber(value.end),
+    reasonCodes: safeStringList(value.reasonCodes, 12, 80),
+    combinedGoalConfirmation: safeBoolean(value.combinedGoalConfirmation),
+    replayGoalConfirmation: safeBoolean(value.replayGoalConfirmation),
+    crowdReactionSupport: safeBoolean(value.crowdReactionSupport),
+    offsideFlag: safeBoolean(value.offsideFlag),
+    noGoalSignal: safeBoolean(value.noGoalSignal),
+    confidence: safeNumber(value.confidence),
+  };
+}
+
+function safeTruthCandidate(value = {}, index = 0) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    index: safeNumber(value.index) || index + 1,
+    id: safeString(value.id || `truth_event_${index + 1}`, 80),
+    type: safeString(value.type || "", 48) || null,
+    outcome: safeString(value.outcome || "", 48) || null,
+    sourceStart: safeNumber(value.sourceStart),
+    sourceEnd: safeNumber(value.sourceEnd),
+    replayOnly: safeBoolean(value.replayOnly),
+    evidenceCodes: safeStringList(value.evidenceCodes, 12, 80),
+    missingEvidence: safeStringList(value.missingEvidence, 8, 80),
+    disqualifiers: safeStringList(value.disqualifiers, 8, 80),
+  };
+}
+
 function safeScoreboardOcrEvent(value = {}) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return {
@@ -873,6 +914,12 @@ function startServer(port, env) {
             anthemOrIntroEvidenceCount: safeNumber(parsed.anthemOrIntroEvidenceCount),
             ocrEvidenceCount: safeNumber(parsed.ocrEvidenceCount),
             scoreboardConfirmedGoalCount: safeNumber(parsed.scoreboardConfirmedGoalCount),
+            goalEvidenceCandidates: Array.isArray(parsed.goalEvidenceCandidates)
+              ? parsed.goalEvidenceCandidates.map(safeGoalEvidenceCandidate).filter(Boolean).slice(0, 12)
+              : [],
+            matchTruthCandidates: Array.isArray(parsed.matchTruthCandidates)
+              ? parsed.matchTruthCandidates.map(safeTruthCandidate).filter(Boolean).slice(0, 16)
+              : [],
           };
         }
         if (parsed.event === "scoreboard_ocr_completed") {

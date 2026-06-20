@@ -79,6 +79,33 @@ test("goal evidence provider marks post-goal offside/no-goal context without cre
   assert.equal(goalEvidence.events[0].VARNoGoalSignal, true);
 });
 
+test("goal evidence provider recovers counted goal from live finish plus combined support without OCR", () => {
+  const goalEvidence = deterministicGoalEvidence({
+    metadata,
+    transcript: {
+      captions: [{ start: 42.2, end: 44, text: "The crowd explodes as play restarts" }],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [
+        { start: 30, end: 31.5, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.9 },
+        { start: 34, end: 35.2, types: ["goal_mouth_visible", "ball_in_net"], confidence: 0.92 },
+        { start: 39, end: 41, types: ["crowd_reaction"], confidence: 0.86 },
+      ],
+    },
+  });
+
+  assert.equal(goalEvidence.summary.validGoalCount, 1);
+  assert.equal(goalEvidence.summary.combinedGoalConfirmationCount, 1);
+  assert.equal(goalEvidence.summary.scoreboardConfirmedGoalCount, 0);
+  assert.equal(goalEvidence.events[0].outcomeHint, "valid_goal");
+  assert.ok(goalEvidence.events[0].reasonCodes.includes("shot_sequence_support"));
+  assert.ok(goalEvidence.events[0].reasonCodes.includes("combined_goal_confirmation"));
+  assert.equal(goalEvidence.events[0].combinedGoalConfirmation, true);
+  assert.equal(goalEvidence.events[0].liveShotFinishSequence, true);
+});
+
 test("goal evidence provider does not promote crowd/commentary support without ball-in-net", () => {
   const goalEvidence = deterministicGoalEvidence({
     metadata,
@@ -98,6 +125,30 @@ test("goal evidence provider does not promote crowd/commentary support without b
   assert.equal(goalEvidence.events[0].outcomeHint, "non_goal_chance");
   assert.equal(goalEvidence.events[0].ballInNetEvidence, false);
   assert.equal(goalEvidence.events[0].commentatorGoalCall, false);
+});
+
+test("goal evidence provider does not promote crowd-only ball-in-net sequence to counted goal", () => {
+  const goalEvidence = deterministicGoalEvidence({
+    metadata,
+    transcript: {
+      captions: [{ start: 37.2, end: 39, text: "The crowd explodes after the finish" }],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [
+        { start: 30, end: 31.5, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.9 },
+        { start: 34, end: 35.2, types: ["goal_mouth_visible", "ball_in_net"], confidence: 0.92 },
+        { start: 37, end: 39, types: ["crowd_reaction"], confidence: 0.86 },
+      ],
+    },
+  });
+
+  assert.equal(goalEvidence.summary.validGoalCount, 0);
+  assert.equal(goalEvidence.summary.unconfirmedGoalCount, 1);
+  assert.equal(goalEvidence.summary.combinedGoalConfirmationCount, 0);
+  assert.equal(goalEvidence.events[0].outcomeHint, "possible_goal_unconfirmed");
+  assert.equal(goalEvidence.events[0].combinedGoalConfirmation, false);
 });
 
 test("goal evidence supplemental windows are safe and merge back into visual signals", () => {

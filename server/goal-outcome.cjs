@@ -100,6 +100,8 @@ const CONFIRMED_DECISION_CODES = Object.freeze([
   "visual_referee_goal_signal",
   "visual_scoreboard_goal_confirmed",
   "scoreboard_goal_confirmed",
+  "combined_goal_confirmation",
+  "kickoff_after_goal",
 ]);
 
 function seconds(value, fallback = 0) {
@@ -224,7 +226,7 @@ function resolveGoalOutcome({
   const safeEnd = Math.max(safeStart, seconds(end, safeStart));
   const payoff = Number.isFinite(Number(payoffEnd)) ? seconds(payoffEnd) : seconds(goalEvidence.payoffEnd, safeStart);
   const decisionStart = Math.max(safeStart, payoff - 0.25);
-  const decisionEnd = safeEnd;
+  const decisionEnd = Math.max(safeEnd, decisionStart + 0.75);
   const textEvidenceItems = captionEvidenceInRange(captions, decisionStart, decisionEnd);
   const fullWindowTextEvidenceItems = captionEvidenceInRange(captions, safeStart, safeEnd);
   const textEvidence = [...new Set(textEvidenceItems.flatMap((item) => item.evidence))];

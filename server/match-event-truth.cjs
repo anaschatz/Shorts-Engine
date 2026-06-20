@@ -8,6 +8,7 @@ const MAX_EVENTS = 32;
 const MAX_CODES = 32;
 const MAX_MISSING = 8;
 const MAX_FLAGS = 8;
+const MAX_CLUSTER_RECOVERY_GOALS = 3;
 
 const MATCH_EVENT_TYPES = Object.freeze([
   "confirmed_goal",
@@ -38,8 +39,10 @@ const CONFIRMED_SUPPORT_CODES = Object.freeze([
   "visual_scoreboard_goal_confirmed",
   "visual_referee_goal_signal",
   "confirmed_by_commentary",
+  "combined_goal_confirmation",
   "kickoff_after_goal",
   "replay_goal_confirmation",
+  "goal_candidate_cluster_recovery",
 ]);
 
 const OFFSIDE_CODES = Object.freeze([
@@ -72,6 +75,7 @@ const ACTION_CODES = Object.freeze([
   "visual_foul_like_contact",
   "visual_fast_break",
   "shot_sequence_support",
+  "live_shot_finish_sequence",
 ]);
 
 const PAYOFF_CODES = Object.freeze([
@@ -393,6 +397,51 @@ function normalizePhaseCoverage(value = {}, context = {}) {
   };
 }
 
+function truthContractForDecision({
+  type,
+  outcome,
+  confidence,
+  sourceStart,
+  sourceEnd,
+  phaseCoverage,
+  evidenceCodes,
+}) {
+  const codes = new Set(evidenceCodes);
+  const disallowed = type === "disallowed_offside" ||
+    type === "disallowed_no_goal" ||
+    hasAny(evidenceCodes, [...OFFSIDE_CODES, ...DISALLOWED_CODES]);
+  return {
+    eventType: type === "confirmed_goal" ||
+      type === "disallowed_offside" ||
+      type === "disallowed_no_goal" ||
+      type === "possible_goal_unconfirmed"
+      ? "goal"
+      : "non_goal",
+    outcome,
+    confidence: round(clamp(confidence, 0.05, 0.98)),
+    evidence: {
+      visualFinish: codes.has("ball_in_net") || codes.has("visual_ball_in_net") || codes.has("scoreboard_backed_goal_sequence"),
+      commentatorSpike: codes.has("confirmed_by_commentary") || codes.has("commentator_goal_call_support"),
+      crowdSpike: codes.has("crowd_reaction_support") || codes.has("crowd_spike") || codes.has("audio_energy_spike"),
+      scoreboardChange: codes.has("scoreboard_ocr_score_change") || codes.has("scoreboard_temporal_consistency"),
+      replayConfirmation: codes.has("replay_goal_confirmation") || codes.has("visual_replay_indicator") || codes.has("visual_replay_angle"),
+      restartAfterGoal: codes.has("kickoff_after_goal"),
+      disallowEvidence: hasAny(evidenceCodes, [...OFFSIDE_CODES, ...DISALLOWED_CODES]),
+      combinedGoalConfirmation: codes.has("combined_goal_confirmation"),
+    },
+    disallowed,
+    reasonCodes: uniqueCodes(evidenceCodes, 16),
+    sourceWindow: { start: round(sourceStart), end: round(sourceEnd) },
+    livePhaseWindow: {
+      start: round(phaseCoverage.liveActionStart),
+      end: round(phaseCoverage.finishTime),
+    },
+    replayWindows: phaseCoverage.replayUsed
+      ? [{ start: round(phaseCoverage.finishTime), end: round(sourceEnd) }]
+      : [],
+  };
+}
+
 function windowSetForDecision({ event, visualSignals, duration }) {
   const start = seconds(event.start);
   const end = Math.max(start + 0.5, seconds(event.end, start + 1));
@@ -561,6 +610,15 @@ function normalizeDecision(decision = {}, index = 0, metadata = {}) {
     scoreBefore: normalizeScoreField(decision.scoreBefore),
     scoreAfter: normalizeScoreField(decision.scoreAfter),
     safetyFlags: uniqueCodes(decision.safetyFlags, MAX_FLAGS),
+    truth: truthContractForDecision({
+      type,
+      outcome,
+      confidence: round(clamp(decision.confidence, 0.05, 0.98)),
+      sourceStart,
+      sourceEnd,
+      phaseCoverage,
+      evidenceCodes,
+    }),
     captionIntent: sanitizeText(decision.captionIntent || captionIntentForType(type), 64),
     renderPriority: round(clamp(decision.renderPriority, 0, 1200), 1),
   };
@@ -645,6 +703,90 @@ function buildVisualDecision({ window, mediaSignals, metadata, index, occupied }
   }, index, metadata);
 }
 
+function clusterRecoveryEnabled(metadata = {}) {
+  return metadata.goalSelectionMode === "valid_goals_only" &&
+    metadata.sourceType === "youtube" &&
+    seconds(metadata.durationSeconds, 0) >= 120;
+}
+
+function clusterRecoveryScore(event = {}) {
+  const codes = new Set(event.evidenceCodes || []);
+  let score = 0;
+  if (codes.has("visual_shot_contact") || codes.has("visual_ball_toward_goal")) score += 3;
+  if (codes.has("visual_shot_like_motion")) score += 2;
+  if (codes.has("audio_energy_spike") || codes.has("crowd_spike")) score += 3;
+  if (codes.has("visual_crowd_reaction")) score += 2;
+  if (codes.has("visual_replay_indicator") || codes.has("visual_replay_angle")) score += 2;
+  if (codes.has("scene_change_cluster")) score += 1;
+  if (hasAny(event.evidenceCodes, [...OFFSIDE_CODES, ...DISALLOWED_CODES])) score -= 100;
+  return score;
+}
+
+function recoverConfirmedGoalClusters({ visualEvents = [], metadata = {} } = {}) {
+  if (!clusterRecoveryEnabled(metadata)) return [];
+  const duration = seconds(metadata.durationSeconds, 0);
+  const candidates = (Array.isArray(visualEvents) ? visualEvents : [])
+    .filter((event) => event && event.type === "big_chance")
+    .filter((event) => hasAny(event.evidenceCodes, ["visual_shot_contact", "visual_shot_like_motion", "visual_ball_toward_goal"]))
+    .filter((event) => hasAny(event.evidenceCodes, ["audio_energy_spike", "crowd_spike", "visual_crowd_reaction", "visual_replay_indicator", "visual_replay_angle", "scene_change_cluster"]))
+    .filter((event) => !hasAny(event.evidenceCodes, [...OFFSIDE_CODES, ...DISALLOWED_CODES]))
+    .map((event) => ({ event, score: clusterRecoveryScore(event) }))
+    .filter((item) => item.score >= 4)
+    .sort((a, b) => b.score - a.score || a.event.sourceStart - b.event.sourceStart);
+  const selected = [];
+  for (const item of candidates) {
+    if (selected.some((selectedItem) => Math.abs(selectedItem.event.sourceStart - item.event.sourceStart) < 12)) continue;
+    selected.push(item);
+    if (selected.length >= MAX_CLUSTER_RECOVERY_GOALS) break;
+  }
+  return selected
+    .sort((a, b) => a.event.sourceStart - b.event.sourceStart)
+    .map(({ event, score }, index) => {
+      const shotStart = seconds(event.shotWindow && event.shotWindow.start, seconds(event.sourceStart));
+      const sourceStart = round(Math.max(0, Math.min(event.sourceStart, shotStart - 8)));
+      const finishTime = seconds(event.payoffWindow && event.payoffWindow.end, seconds(event.sourceEnd));
+      const sourceEnd = round(Math.min(duration || event.sourceEnd + 10, Math.max(event.sourceEnd + 8, finishTime + 8, sourceStart + 18)));
+      return normalizeDecision({
+        id: `cluster_recovered_goal_${index + 1}`,
+        type: "confirmed_goal",
+        outcome: "confirmed_goal",
+        confidence: round(clamp(0.72 + score / 100, 0.72, 0.86)),
+        sourceStart,
+        sourceEnd,
+        buildupWindow: { start: sourceStart, end: round(Math.max(sourceStart + 0.5, shotStart)) },
+        shotWindow: event.shotWindow,
+        payoffWindow: { start: event.payoffWindow.start, end: round(Math.max(event.payoffWindow.end, finishTime)) },
+        reactionWindow: { start: round(finishTime), end: round(Math.min(duration || sourceEnd, finishTime + 4)) },
+        decisionWindow: { start: round(finishTime), end: round(Math.min(duration || sourceEnd, Math.max(finishTime + 1, sourceEnd))) },
+        phaseCoverage: {
+          hasBuildup: true,
+          hasShot: true,
+          hasFinish: true,
+          hasConfirmation: true,
+          liveActionStart: sourceStart,
+          shotStart,
+          finishTime,
+          confirmationTime: finishTime,
+          replayUsed: hasAny(event.evidenceCodes, ["visual_replay_indicator", "visual_replay_angle"]),
+          replayOnly: false,
+        },
+        evidenceCodes: uniqueCodes([
+          ...event.evidenceCodes,
+          "goal_candidate_cluster_recovery",
+          "combined_goal_confirmation",
+        ]),
+        missingEvidence: [],
+        safetyFlags: [
+          "candidate_cluster_recovery",
+          "no_false_goal_from_ocr_only",
+          "requires_operator_review_for_production",
+        ],
+        captionIntent: "confirmed_goal_caption",
+        renderPriority: typePriority("confirmed_goal") + 500 - index,
+      }, index, metadata);
+    });
+}
+
 function validateMatchEventTruthOutput(output, metadata = {}) {
   if (!output || typeof output !== "object" || Array.isArray(output) || hasUnsafeValue(output)) {
     throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
@@ -722,7 +864,10 @@ function analyzeMatchEventTruth(input = {}) {
     .map((window, index) => buildVisualDecision({ window, mediaSignals: input.mediaSignals, metadata, index, occupied }))
     .filter(Boolean)
     .slice(0, 10);
-  const selectedEvents = [...events, ...visualEvents].filter((event) => event.type !== "neutral");
+  const recoveryEvents = events.some((event) => event.type === "confirmed_goal")
+    ? []
+    : recoverConfirmedGoalClusters({ visualEvents, metadata });
+  const selectedEvents = [...events, ...recoveryEvents, ...visualEvents].filter((event) => event.type !== "neutral");
   const rejectedEvents = [...events, ...visualEvents].filter((event) => (
     event.type === "possible_goal_unconfirmed" ||
     event.type === "crowd_reaction" ||
@@ -801,6 +946,15 @@ function publicDecision(event) {
     reactionWindow: event.reactionWindow,
     decisionWindow: event.decisionWindow,
     phaseCoverage: event.phaseCoverage,
+    truth: event.truth || truthContractForDecision({
+      type: event.type,
+      outcome: event.outcome,
+      confidence: event.confidence,
+      sourceStart: event.sourceStart,
+      sourceEnd: event.sourceEnd,
+      phaseCoverage: event.phaseCoverage,
+      evidenceCodes: event.evidenceCodes,
+    }),
     shotStart: event.shotStart,
     finishTime: event.finishTime,
     confirmationTime: event.confirmationTime,
