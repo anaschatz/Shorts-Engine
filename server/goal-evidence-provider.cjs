@@ -543,6 +543,8 @@ function normalizeOcrEvidenceItem(item = {}, metadata = {}, index = 0) {
     imageSegmentationStatus: sanitizeText(item.imageSegmentationStatus || item.segmentationStatus || "", 40) || null,
     imageDecoderStatus: sanitizeText(item.imageDecoderStatus || item.decoderStatus || "", 40) || null,
     imageDecoderMode: sanitizeText(item.imageDecoderMode || item.decoderMode || "", 40) || null,
+    layoutId: sanitizeText(item.layoutId || "", 80) || null,
+    scoreOnlyCropRef: item.scoreOnlyCropRef ? sanitizeText(item.scoreOnlyCropRef, 180) : null,
   };
 }
 

@@ -151,7 +151,11 @@ function candidateWindowsForFixture(metadata = {}) {
 
 function buildOcrQaRows(scoreboardPublic = {}) {
   const evidence = Array.isArray(scoreboardPublic.evidence) ? scoreboardPublic.evidence : [];
-  if (!evidence.length) {
+  const scoreTimeline = scoreboardPublic.summary && Array.isArray(scoreboardPublic.summary.scoreTimeline)
+    ? scoreboardPublic.summary.scoreTimeline
+    : [];
+  const rows = scoreTimeline.some((item) => item.status === "score_changed") ? scoreTimeline : evidence;
+  if (!rows.length) {
     return [{
       index: 1,
       timestamp: null,
@@ -163,7 +167,7 @@ function buildOcrQaRows(scoreboardPublic = {}) {
       fallbackUsed: Boolean(scoreboardPublic.fallbackUsed),
     }];
   }
-  return evidence.slice(0, MAX_QA_ROWS).map((item, index) => ({
+  return rows.slice(0, MAX_QA_ROWS).map((item, index) => ({
     index: index + 1,
     timestamp: Number(item.timestamp || 0),
     status: String(item.status || "unknown").slice(0, 40),
@@ -172,6 +176,8 @@ function buildOcrQaRows(scoreboardPublic = {}) {
     clock: item.clock || null,
     confidence: Number(item.confidence || 0),
     temporalConsistency: Boolean(item.temporalConsistency),
+    layoutId: item.layoutId || null,
+    scoreOnlyCropRef: item.scoreOnlyCropRef || null,
     fallbackUsed: Boolean(scoreboardPublic.fallbackUsed),
   }));
 }

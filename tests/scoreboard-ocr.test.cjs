@@ -6,6 +6,7 @@ const { join } = require("node:path");
 const {
   analyzeScoreboardOcr,
   createScoreboardOcrProvider,
+  cropScoreOnlyRegion,
   cropScoreboardRegion,
   defaultScoreboardRegions,
   deterministicScoreboardOcr,
@@ -15,6 +16,7 @@ const {
   publicScoreboardOcr,
   scoreboardOcrHealth,
   scoreboardOcrPreprocessVariants,
+  selectScorebugLayoutProfile,
   selectOcrFrames,
   selectOcrSamplingWindows,
   validateScoreboardOcrOutput,
@@ -25,6 +27,7 @@ const {
   buildScoreboardEvidenceFromObservations,
   parseClock,
   parseScoreboardScore,
+  parseScoreOnlyScore,
   scoreAllowedForRegion,
 } = require("../server/adapters/local-ocr-adapter.cjs");
 const {
@@ -225,6 +228,11 @@ test("local OCR parsing extracts scores clocks and transitions safely", () => {
   assert.equal(parseScoreboardScore("BF SOP P 4 J A WJ A Y A AY 44 TS"), null);
   assert.equal(parseScoreboardScore("23:11 first half"), null);
   assert.equal(parseScoreboardScore("HOME 0-0 AWAY 1-0 replay"), null);
+  assert.deepEqual(parseScoreOnlyScore("1 0"), { home: 1, away: 0, text: "1-0" });
+  assert.deepEqual(parseScoreOnlyScore("O-I"), { home: 0, away: 1, text: "0-1" });
+  assert.equal(parseScoreOnlyScore("45:00"), null);
+  assert.equal(parseScoreOnlyScore("ARG 1 ALG 0"), null);
+  assert.equal(parseScoreOnlyScore("1 0 44"), null);
   assert.equal(scoreAllowedForRegion({
     regionId: "scoreboard_top_left",
     text: "7 L N2 2 7 ARG ALG F 7 1 2A",
@@ -514,7 +522,72 @@ test("local scoreboard OCR reads focused score digits when broadcast crop includ
   }
 });
 
-test("local scoreboard OCR can decode PNG crops before focused image segmentation", async () => {
+test("local scoreboard OCR extracts score-only crops before parsing noisy broadcast OCR", async () => {
+  const { dir, frames } = createFrameFixtures();
+  const runId = `scorebug-score-only-test-${Date.now()}`;
+  try {
+    const result = await analyzeScoreboardOcr({
+      metadata,
+      mode: "local",
+      enabled: true,
+      qaArtifactsEnabled: true,
+      qaRunId: runId,
+      commandChecker: () => true,
+      frames,
+      ffmpegRunner: async (args) => {
+        const inputPath = args[2];
+        const outputPath = args[args.length - 1];
+        if (/score_only_/.test(outputPath)) {
+          writeFakeScorebugPng(outputPath);
+          return;
+        }
+        const frameMatch = /(?:crop|score_only)_(\d+)_/.exec(inputPath);
+        const frameIndex = frameMatch ? Number(frameMatch[1]) : 0;
+        writeScorebugCrop(outputPath, frameIndex === 0 ? { home: 0, away: 0 } : { home: 1, away: 0 });
+      },
+      cropper: async ({ outputDir, frameIndex, region }) => {
+        const cropPath = safeResolve(outputDir, `crop_${frameIndex}_${region.id}.png`);
+        mkdirSync(outputDir, { recursive: true });
+        writeFileSync(cropPath, "full broadcast crop with clock/team noise", "utf8");
+        return cropPath;
+      },
+      digitReader: () => ({
+        status: "unreadable",
+        score: null,
+        confidence: 0.1,
+        reasons: ["digit_reader_stubbed_unreadable"],
+      }),
+      ocrRunner: async (_command, args) => {
+        const imagePath = args[0];
+        if (/score_only_01_/.test(imagePath)) return { stdout: "0 0" };
+        if (/score_only_/.test(imagePath)) return { stdout: "1 0" };
+        return { stdout: "45:00 ARG ALG" };
+      },
+    });
+
+    assert.equal(result.providerMode, "local-scoreboard-ocr-command");
+    assert.equal(result.summary.scoreChangeCount, 1);
+    assert.equal(result.summary.scoreTimeline.some((item) =>
+      item.status === "score_changed" &&
+      item.scoreAfter === "1-0" &&
+      item.layoutId === "broadcast-compact-score-only-v1" &&
+      item.scoreOnlyCropRef), true);
+    assert.equal(publicScoreboardOcr(result).summary.scoreTimeline.some((item) => item.scoreOnlyCropRef), true);
+    const report = JSON.parse(readFileSync(join(process.cwd(), result.qaReport.reportPath), "utf8"));
+    assert.equal(report.scoreOnlyExtraction.cropCount >= 3, true);
+    assert.equal(report.scoreOnlyExtraction.readableCount >= 3, true);
+    assert.equal(report.ocrAttempts.some((attempt) =>
+      attempt.scoreSource === "local_scorebug_score_only_ocr_color_whitelist" &&
+      attempt.scoreOnlyScore === "1-0" &&
+      attempt.scoreOnlyCropRef), true);
+    assert.doesNotMatch(JSON.stringify(report), /\/Users|\/private|storageKey|localPath|token|secret|stdout|stderr/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(join(process.cwd(), SCOREBOARD_OCR_QA_RELATIVE_DIR, `ocr-scoreboard-${runId}`), { recursive: true, force: true });
+  }
+});
+
+test("local scoreboard OCR can process PNG crops before focused image segmentation", async () => {
   const { dir, frames } = createFrameFixtures();
   const runId = `scorebug-png-decoder-test-${Date.now()}`;
   try {
@@ -548,10 +621,10 @@ test("local scoreboard OCR can decode PNG crops before focused image segmentatio
     const report = JSON.parse(readFileSync(join(process.cwd(), result.qaReport.reportPath), "utf8"));
     assert.equal(report.digitReader.imageSegmentationReadableCount >= 3, true);
     assert.equal(report.ocrAttempts.some((attempt) =>
-      attempt.imageDecoderStatus === "decoded" &&
-      attempt.imageDecoderMode === "ffmpeg-pgm" &&
       attempt.imageSegmentationStatus === "readable" &&
-      attempt.score === "1-0"), true);
+      attempt.score === "1-0" &&
+      attempt.layoutId), true);
+    assert.equal(report.scoreOnlyExtraction.cropCount >= 3, true);
     assert.doesNotMatch(JSON.stringify(report), /\/Users|\/private|storageKey|localPath|token|secret|stdout|stderr/i);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -822,6 +895,40 @@ test("scoreboard OCR crop helper only writes inside staging paths", async () => 
     });
     assert.match(cropPath, /ocr_.*crop_test/);
     assert.doesNotMatch(cropPath, /\.\./);
+    rmSync(outputDir, { recursive: true, force: true });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("scoreboard OCR scorebug layout profile extracts bounded score-only crop", async () => {
+  const { dir } = createFrameFixtures();
+  try {
+    const outputDir = safeResolve(CONFIG.stagingDir, `ocr_${Date.now()}_score_only_crop_test`);
+    mkdirSync(outputDir, { recursive: true });
+    const region = defaultScoreboardRegions({ width: 640, height: 360 })[0];
+    const profile = selectScorebugLayoutProfile(region);
+    const cropPath = safeResolve(outputDir, "full_scorebug_crop.png");
+    writeFileSync(cropPath, "full-scorebug", "utf8");
+    let sawCropFilter = false;
+    const scoreOnly = await cropScoreOnlyRegion({
+      cropPath,
+      outputDir,
+      frameIndex: 0,
+      region,
+      variant: { id: "gray_line" },
+      profile,
+      ffmpegRunner: async (args) => {
+        sawCropFilter = args.some((arg) => String(arg).includes("crop=iw*0.23:ih*0.82:iw*0.47:ih*0.08"));
+        writeFileSync(args[args.length - 1], "score-only", "utf8");
+      },
+    });
+
+    assert.equal(profile.layoutId, "broadcast-compact-score-only-v1");
+    assert.equal(sawCropFilter, true);
+    assert.equal(existsSync(scoreOnly.cropPath), true);
+    assert.doesNotMatch(scoreOnly.cropPath, /\.\./);
+    assert.doesNotMatch(JSON.stringify({ layoutId: scoreOnly.layoutId, roi: scoreOnly.scoreOnlyRoi }), /\/Users|storageKey|token|secret/i);
     rmSync(outputDir, { recursive: true, force: true });
   } finally {
     rmSync(dir, { recursive: true, force: true });

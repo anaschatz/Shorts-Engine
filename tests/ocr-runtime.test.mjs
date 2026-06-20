@@ -288,8 +288,6 @@ test("OCR QA artifact cleanup deletes only managed run directories", () => {
 test("OCR smoke validates local runtime output without leaking command text", async () => {
   const fixturePath = createFixtureFile();
   const resultsDir = mkdtempSync(join(tmpdir(), "shortsengine-ocr-results-"));
-  let call = 0;
-
   const result = await runOcrSmoke({
     nowMs: Date.parse("2026-06-19T12:45:00.000Z"),
     fixturePath,
@@ -298,9 +296,11 @@ test("OCR smoke validates local runtime output without leaking command text", as
     ffmpegRunner: fakeFfmpegRunner,
     ocrCropFfmpegRunner: fakeFfmpegRunner,
     ocrCommandChecker: () => true,
-    ocrRunner: async () => {
-      call += 1;
-      if (call <= 1) return { stdout: "HOME 0-0 AWAY 12:00" };
+    ocrRunner: async (_command, args) => {
+      const imagePath = String(args[0] || "");
+      if (/score_only_01_/.test(imagePath)) return { stdout: "0 0" };
+      if (/score_only_/.test(imagePath)) return { stdout: "1 0" };
+      if (/crop_01_/.test(imagePath)) return { stdout: "HOME 0-0 AWAY 12:00" };
       return { stdout: "HOME 1-0 AWAY 23:00" };
     },
     scoreboardConfig: {

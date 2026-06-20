@@ -10,6 +10,7 @@ const { assertStoragePath, safeResolve, storagePath } = require("./storage.cjs")
 const {
   LocalOcrCommandAdapter,
   buildScoreboardEvidenceFromObservations,
+  parseScoreOnlyScore,
   parseClock,
   parseScoreboardScore,
   scoreAllowedForRegion,
@@ -167,6 +168,86 @@ function defaultScoreboardRegions(metadata = {}, frame = {}) {
     { id: "scoreboard_top_right", x: width * 0.55, y: height * 0.01, width: width * 0.44, height: height * 0.16, anchor: "top_right" },
     { id: "broadcast_top_band", x: width * 0.01, y: height * 0.005, width: width * 0.98, height: height * 0.18, anchor: "top_band" },
   ].map((region) => normalizeRegion(region, metadata, frame));
+}
+
+const SCOREBUG_LAYOUT_PROFILES = Object.freeze([
+  {
+    layoutId: "broadcast-compact-score-only-v1",
+    regionPattern: /^scorebug_broadcast_compact$/,
+    scoreOnlyRoi: { x: 0.47, y: 0.08, width: 0.23, height: 0.82 },
+    homeDigitRoi: { x: 0.03, y: 0.12, width: 0.28, height: 0.76 },
+    awayDigitRoi: { x: 0.70, y: 0.12, width: 0.27, height: 0.76 },
+    clockRoi: { x: 0.02, y: 0.04, width: 0.26, height: 0.38 },
+    minConfidence: 0.72,
+  },
+  {
+    layoutId: "left-compact-score-only-v1",
+    regionPattern: /^scorebug_left_compact$/,
+    scoreOnlyRoi: { x: 0.36, y: 0.08, width: 0.44, height: 0.82 },
+    homeDigitRoi: { x: 0.06, y: 0.12, width: 0.34, height: 0.76 },
+    awayDigitRoi: { x: 0.53, y: 0.12, width: 0.34, height: 0.76 },
+    clockRoi: { x: 0.02, y: 0.04, width: 0.30, height: 0.38 },
+    minConfidence: 0.72,
+  },
+  {
+    layoutId: "default-scorebug-score-only-v1",
+    regionPattern: /^scorebug_/,
+    scoreOnlyRoi: { x: 0.35, y: 0.10, width: 0.42, height: 0.78 },
+    homeDigitRoi: { x: 0.06, y: 0.12, width: 0.34, height: 0.76 },
+    awayDigitRoi: { x: 0.54, y: 0.12, width: 0.34, height: 0.76 },
+    clockRoi: null,
+    minConfidence: 0.74,
+  },
+]);
+
+function normalizeRatioRoi(value = {}) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || hasUnsafeValue(value)) return null;
+  const x = clamp(value.x ?? value.left ?? 0, 0, 0.99);
+  const y = clamp(value.y ?? value.top ?? 0, 0, 0.99);
+  const width = clamp(value.width ?? 0.1, 0.02, 1 - x);
+  const height = clamp(value.height ?? 0.1, 0.02, 1 - y);
+  return {
+    x: round(x, 4),
+    y: round(y, 4),
+    width: round(width, 4),
+    height: round(height, 4),
+  };
+}
+
+function safeScorebugLayoutProfile(profile = {}) {
+  const scoreOnlyRoi = normalizeRatioRoi(profile.scoreOnlyRoi);
+  const homeDigitRoi = normalizeRatioRoi(profile.homeDigitRoi);
+  const awayDigitRoi = normalizeRatioRoi(profile.awayDigitRoi);
+  if (!scoreOnlyRoi || !homeDigitRoi || !awayDigitRoi) return null;
+  return {
+    layoutId: sanitizeText(profile.layoutId || "default-scorebug-score-only-v1", 80),
+    scoreOnlyRoi,
+    homeDigitRoi,
+    awayDigitRoi,
+    clockRoi: normalizeRatioRoi(profile.clockRoi),
+    minConfidence: round(clamp(profile.minConfidence ?? 0.74, 0.55, 0.98)),
+  };
+}
+
+function selectScorebugLayoutProfile(region = {}) {
+  const regionId = sanitizeText(region.id || "scoreboard_region", 80);
+  const profile = SCOREBUG_LAYOUT_PROFILES.find((candidate) => candidate.regionPattern.test(regionId));
+  return profile ? safeScorebugLayoutProfile(profile) : null;
+}
+
+function scorebugProfileDigitCalibration(profile = null, baseCalibration = {}) {
+  const safeProfile = profile ? safeScorebugLayoutProfile(profile) : null;
+  if (!safeProfile) return baseCalibration;
+  return validateScorebugCalibration({
+    ...baseCalibration,
+    enabled: true,
+    layoutId: safeProfile.layoutId,
+    minConfidence: Math.min(Number(baseCalibration.minConfidence || 0.82), safeProfile.minConfidence),
+    homeDigitRoi: safeProfile.homeDigitRoi,
+    awayDigitRoi: safeProfile.awayDigitRoi,
+    hasExplicitDigitRois: true,
+    readings: Array.isArray(baseCalibration.readings) ? baseCalibration.readings : [],
+  });
 }
 
 function regionHintsForFrame(frame = {}, metadata = {}) {
@@ -465,6 +546,9 @@ function summarizeDigitReaderRows(rows = []) {
     imageSegmentationAttemptCount: safeRows.filter((row) => row.imageSegmentationStatus).length,
     imageDecoderDecodedCount: safeRows.filter((row) => row.imageDecoderStatus === "decoded").length,
     imageDecoderAttemptCount: safeRows.filter((row) => row.imageDecoderStatus).length,
+    scoreOnlyCropCount: safeRows.filter((row) => row.scoreOnlyCropRef).length,
+    scoreOnlyReadableCount: safeRows.filter((row) => row.scoreOnlyScore).length,
+    layoutIds: [...new Set(safeRows.map((row) => sanitizeText(row.layoutId || "", 80)).filter(Boolean))].slice(0, 8),
     failClosedReasons: [...new Set(safeRows
       .flatMap((row) => Array.isArray(row.digitReaderReasons) ? row.digitReaderReasons : [])
       .map((reason) => sanitizeText(reason, 60))
@@ -494,6 +578,8 @@ function validateScoreboardOcrOutput(output = {}, metadata = {}) {
       imageSegmentationStatus: item.imageSegmentationStatus ? sanitizeText(item.imageSegmentationStatus, 40) : null,
       imageDecoderStatus: item.imageDecoderStatus ? sanitizeText(item.imageDecoderStatus, 40) : null,
       imageDecoderMode: item.imageDecoderMode ? sanitizeText(item.imageDecoderMode, 40) : null,
+      layoutId: item.layoutId ? sanitizeText(item.layoutId, 80) : null,
+      scoreOnlyCropRef: item.scoreOnlyCropRef ? sanitizeText(item.scoreOnlyCropRef, 180) : null,
     }))
     .slice(0, MAX_SCOREBOARD_OCR_FRAMES);
   const qaReport = normalizeQaReportSummary(output.qaReport);
@@ -736,19 +822,28 @@ function qaCropFileName({ attemptIndex, frameIndex, regionId, variantId }) {
   return `ocr-attempt-${String(attemptIndex + 1).padStart(2, "0")}-frame-${String(frameIndex + 1).padStart(2, "0")}-${safeFilePart(regionId, "region")}-${safeFilePart(variantId, "variant")}.png`;
 }
 
+function qaScoreOnlyCropFileName({ attemptIndex, frameIndex, regionId, variantId, layoutId }) {
+  return `ocr-score-only-${String(attemptIndex + 1).padStart(2, "0")}-frame-${String(frameIndex + 1).padStart(2, "0")}-${safeFilePart(regionId, "region")}-${safeFilePart(variantId, "variant")}-${safeFilePart(layoutId, "layout")}.png`;
+}
+
 function recordScoreboardOcrQaAttempt({
   qa,
   cropPath,
+  scoreOnlyCropPath = null,
   frame = {},
   frameIndex = 0,
   region = {},
   variant = {},
   ocr = {},
+  scoreOnlyOcr = null,
+  scoreOnlyScore = null,
+  layoutProfile = null,
+  scoreSource = null,
   reader = {},
   digitReading = null,
 } = {}) {
-  if (!qa || !qa.enabled) return;
-  if (qa.attempts.length >= MAX_SCOREBOARD_OCR_QA_ATTEMPTS) return;
+  if (!qa || !qa.enabled) return null;
+  if (qa.attempts.length >= MAX_SCOREBOARD_OCR_QA_ATTEMPTS) return null;
   const attemptIndex = qa.attempts.length;
   let cropRef = null;
   let sizeBytes = 0;
@@ -777,15 +872,49 @@ function recordScoreboardOcrQaAttempt({
       });
     }
   }
+  let scoreOnlyCropRef = null;
+  if (scoreOnlyCropPath && existsSync(scoreOnlyCropPath)) {
+    const cropStat = statSync(scoreOnlyCropPath);
+    if (cropStat.isFile() && cropStat.size <= MAX_SCOREBOARD_OCR_QA_ARTIFACT_BYTES) {
+      const layoutId = layoutProfile && layoutProfile.layoutId ? layoutProfile.layoutId : "score-only";
+      const fileName = qaScoreOnlyCropFileName({
+        attemptIndex,
+        frameIndex,
+        regionId: region.id,
+        variantId: variant.id,
+        layoutId,
+      });
+      const targetPath = safeResolveRootRelative(`${qa.directory}/${fileName}`);
+      copyFileSync(scoreOnlyCropPath, targetPath);
+      scoreOnlyCropRef = rootRelative(targetPath);
+      qa.files.push({
+        id: `scoreboard_ocr_score_only_crop_${attemptIndex + 1}`,
+        artifactType: "score_only_crop",
+        timestamp: round(frame.timestamp),
+        regionId: sanitizeText(region.id || "scoreboard_region", 80),
+        preprocessingVariant: sanitizeText(variant.id || "default", 60),
+        layoutId: sanitizeText(layoutId, 80),
+        sizeBytes: statSync(targetPath).size,
+        relativePath: scoreOnlyCropRef,
+      });
+    }
+  }
   const row = {
     index: attemptIndex + 1,
     timestamp: round(frame.timestamp),
     regionId: sanitizeText(region.id || "scoreboard_region", 80),
     preprocessingVariant: sanitizeText(variant.id || "default", 60),
+    layoutId: layoutProfile && layoutProfile.layoutId ? sanitizeText(layoutProfile.layoutId, 80) : null,
     status: sanitizeText(reader.status || "unreadable", 40),
     score: reader.scoreText || null,
     clock: reader.clock || null,
     confidence: round(ocr.confidence || reader.confidence || 0),
+    scoreSource: scoreSource ? sanitizeText(scoreSource, 80) : null,
+    scoreOnlyScore: scoreOnlyScore && Number.isInteger(scoreOnlyScore.home) && Number.isInteger(scoreOnlyScore.away)
+      ? `${scoreOnlyScore.home}-${scoreOnlyScore.away}`
+      : null,
+    scoreOnlyOcrText: scoreOnlyOcr ? safeOcrTextPreview(scoreOnlyOcr.text) : "",
+    scoreOnlyCropRef,
     ...digitReaderSummary(digitReading || {}),
     ambiguityReasons: Array.isArray(reader.ambiguityReasons)
       ? reader.ambiguityReasons.map((reason) => sanitizeText(reason, 60)).filter(Boolean).slice(0, 6)
@@ -795,6 +924,7 @@ function recordScoreboardOcrQaAttempt({
   };
   qa.attempts.push(row);
   qa.contactSheetRows.push(row);
+  return row;
 }
 
 function safeScoreboardOcrQaReport(report = {}) {
@@ -814,8 +944,11 @@ function writeScoreboardOcrReviewHtml({ qa, reportRelativePath, contactSheetRela
         <td>${escapeHtml(row.timestamp)}</td>
         <td>${escapeHtml(row.regionId)}</td>
         <td>${escapeHtml(row.preprocessingVariant)}</td>
+        <td>${escapeHtml(row.layoutId || "")}</td>
         <td>${escapeHtml(row.status)}</td>
         <td>${escapeHtml(row.score || "")}</td>
+        <td>${escapeHtml(row.scoreSource || "")}</td>
+        <td>${escapeHtml(row.scoreOnlyScore || "")}</td>
         <td>${escapeHtml(row.clock || "")}</td>
         <td>${escapeHtml(row.confidence)}</td>
         <td>${escapeHtml(row.digitReaderStatus || "")}</td>
@@ -828,7 +961,9 @@ function writeScoreboardOcrReviewHtml({ qa, reportRelativePath, contactSheetRela
         <td>${escapeHtml((row.digitReaderReasons || []).join(", "))}</td>
         <td>${escapeHtml((row.ambiguityReasons || []).join(", "))}</td>
         <td>${escapeHtml(row.ocrText || "")}</td>
+        <td>${escapeHtml(row.scoreOnlyOcrText || "")}</td>
         <td>${row.cropRef ? `<img alt="crop ${escapeHtml(row.index)}" src="${escapeHtml(relative(qa.directory, row.cropRef).replace(/\\/g, "/"))}">` : ""}</td>
+        <td>${row.scoreOnlyCropRef ? `<img alt="score-only ${escapeHtml(row.index)}" src="${escapeHtml(relative(qa.directory, row.scoreOnlyCropRef).replace(/\\/g, "/"))}">` : ""}</td>
       </tr>`).join("");
   const html = safeScoreboardOcrQaReport(`<!doctype html>
 <html lang="en">
@@ -852,7 +987,7 @@ function writeScoreboardOcrReviewHtml({ qa, reportRelativePath, contactSheetRela
   <table>
     <thead>
       <tr>
-        <th>#</th><th>Time</th><th>Region</th><th>Variant</th><th>Status</th><th>Score</th><th>Clock</th><th>Conf</th><th>Digit Status</th><th>Digit Boxes</th><th>Score Conf</th><th>Decoder</th><th>Mode</th><th>Image Seg</th><th>Groups</th><th>Digit Reasons</th><th>Reasons</th><th>OCR Text</th><th>Crop</th>
+        <th>#</th><th>Time</th><th>Region</th><th>Variant</th><th>Layout</th><th>Status</th><th>Score</th><th>Score Source</th><th>Score-Only Score</th><th>Clock</th><th>Conf</th><th>Digit Status</th><th>Digit Boxes</th><th>Score Conf</th><th>Decoder</th><th>Mode</th><th>Image Seg</th><th>Groups</th><th>Digit Reasons</th><th>Reasons</th><th>OCR Text</th><th>Score-Only OCR</th><th>Crop</th><th>Score-Only Crop</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
@@ -875,6 +1010,11 @@ function writeScoreboardOcrQaReport({ qa, scoreboardOcr, status = "completed" } 
     retentionMax: qaRetentionMax(CONFIG.scoreboardOcr.qaArtifactRetention),
   });
   const digitReader = summarizeDigitReaderRows(qa.contactSheetRows);
+  const layoutSummary = qa.contactSheetRows.reduce((acc, row) => {
+    const layoutId = sanitizeText(row.layoutId || "none", 80);
+    acc[layoutId] = (acc[layoutId] || 0) + 1;
+    return acc;
+  }, {});
   const contactSheet = safeScoreboardOcrQaReport({
     schemaVersion: 1,
     kind: "scoreboard-ocr-contact-sheet",
@@ -917,6 +1057,12 @@ function writeScoreboardOcrQaReport({ qa, scoreboardOcr, status = "completed" } 
     },
     ocrAttempts: qa.attempts.slice(0, MAX_SCOREBOARD_OCR_QA_ATTEMPTS),
     digitReader,
+    layoutSummary,
+    scoreOnlyExtraction: {
+      cropCount: digitReader.scoreOnlyCropCount,
+      readableCount: digitReader.scoreOnlyReadableCount,
+      layoutIds: digitReader.layoutIds,
+    },
     calibrationUsed: qa.digitCalibrationSummary || null,
     evidenceSummary: scoreboardOcr && scoreboardOcr.summary
       ? {
@@ -1050,6 +1196,17 @@ function cropPathForRegion(outputDir, frameIndex, region) {
   return safeResolve(outputDir, name);
 }
 
+function scoreOnlyCropPathForRegion(outputDir, frameIndex, region, variant, layoutId) {
+  const name = `score_only_${String(frameIndex + 1).padStart(2, "0")}_${safeFilePart(region.id, "region")}_${safeFilePart(variant && variant.id, "variant")}_${safeFilePart(layoutId, "layout")}.png`;
+  return safeResolve(outputDir, name);
+}
+
+function cropFilterForRatioRoi(roi = {}) {
+  const safe = normalizeRatioRoi(roi);
+  if (!safe) return null;
+  return `crop=iw*${safe.width}:ih*${safe.height}:iw*${safe.x}:ih*${safe.y}`;
+}
+
 function scoreboardOcrPreprocessVariants() {
   return OCR_PREPROCESS_VARIANTS.map((variant) => ({
     id: sanitizeText(variant.id, 48),
@@ -1089,6 +1246,43 @@ async function cropScoreboardRegion({
     throw new AppError("ANALYSIS_FAILED", SAFE_MESSAGES.ANALYSIS_FAILED, 502);
   }
   return cropPath;
+}
+
+async function cropScoreOnlyRegion({
+  cropPath,
+  outputDir,
+  frameIndex = 0,
+  region = {},
+  variant = null,
+  profile = null,
+  ffmpegRunner = runFfmpeg,
+  signal = null,
+} = {}) {
+  const safeProfile = safeScorebugLayoutProfile(profile);
+  if (!safeProfile || !cropPath) return null;
+  const safeCropPath = assertStoragePath(cropPath, "staging");
+  const safeOutputDir = assertStoragePath(outputDir, "staging");
+  mkdirSync(safeOutputDir, { recursive: true });
+  const scoreOnlyPath = scoreOnlyCropPathForRegion(safeOutputDir, frameIndex, region, variant, safeProfile.layoutId);
+  const cropFilter = cropFilterForRatioRoi(safeProfile.scoreOnlyRoi);
+  if (!cropFilter) return null;
+  await ffmpegRunner([
+    "-y",
+    "-i",
+    safeCropPath,
+    "-vf",
+    `${cropFilter},scale=iw*3:ih*3`,
+    "-frames:v",
+    "1",
+    scoreOnlyPath,
+  ], { signal, timeoutMs: Math.min(CONFIG.analysisTimeoutMs, 12000) });
+  if (!existsSync(scoreOnlyPath)) return null;
+  return {
+    cropPath: assertStoragePath(scoreOnlyPath, "staging"),
+    layoutId: safeProfile.layoutId,
+    scoreOnlyRoi: safeProfile.scoreOnlyRoi,
+    digitCalibration: scorebugProfileDigitCalibration(safeProfile),
+  };
 }
 
 function cleanupOcrCrops(outputDir) {
@@ -1149,6 +1343,8 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
         "scoreboard_region_sampling",
         "full_source_periodic_sampling",
         "ocr_preprocessing_variants",
+        "broadcast_scorebug_layout_profiles",
+        "score_only_crop_extraction",
         "focused_scorebug_digit_reader",
         "local_command_ocr",
         "safe_empty_fallback",
@@ -1211,6 +1407,41 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
               signal: input.signal,
             });
             const safeCropPath = assertStoragePath(cropPath, "staging");
+            const layoutProfile = selectScorebugLayoutProfile(region);
+            let scoreOnlyCrop = null;
+            let scoreOnlyOcr = null;
+            let scoreOnlyScore = null;
+            if (layoutProfile) {
+              try {
+                scoreOnlyCrop = await cropScoreOnlyRegion({
+                  cropPath: safeCropPath,
+                  outputDir,
+                  frameIndex,
+                  region,
+                  variant,
+                  profile: layoutProfile,
+                  ffmpegRunner: this.ffmpegRunner,
+                  signal: input.signal,
+                });
+              } catch {
+                scoreOnlyCrop = null;
+              }
+            }
+            if (scoreOnlyCrop && scoreOnlyCrop.cropPath) {
+              try {
+                scoreOnlyOcr = await raceWithTimeout(this.ocrAdapter.readTextFromImage({
+                  imagePath: scoreOnlyCrop.cropPath,
+                  psm: "7",
+                  whitelist: "0123456789OI:-",
+                  signal: input.signal,
+                  timeoutMs: Math.min(this.timeoutMs, 6000),
+                }), { signal: input.signal, timeoutMs: Math.min(this.timeoutMs, 6000) });
+                scoreOnlyScore = scoreOnlyOcr.rejected ? null : parseScoreOnlyScore(scoreOnlyOcr.text);
+              } catch {
+                scoreOnlyOcr = { text: "", confidence: 0.05, rejected: true };
+                scoreOnlyScore = null;
+              }
+            }
             const ocr = await raceWithTimeout(this.ocrAdapter.readTextFromImage({
               imagePath: safeCropPath,
               psm: variant.psm,
@@ -1218,11 +1449,18 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
               signal: input.signal,
               timeoutMs: this.timeoutMs,
             }), { signal: input.signal, timeoutMs: this.timeoutMs });
-            const digitReading = await Promise.resolve(this.digitReader({
+            const digitCropPath = scoreOnlyCrop && scoreOnlyCrop.cropPath ? scoreOnlyCrop.cropPath : safeCropPath;
+            const digitCalibrationForCrop = scoreOnlyCrop && scoreOnlyCrop.digitCalibration
+              ? scoreOnlyCrop.digitCalibration
+              : digitCalibration;
+            let digitReading = await Promise.resolve(this.digitReader({
               frame,
               crop: {
                 timestamp: frame.timestamp,
-                cropPath: safeCropPath,
+                cropPath: digitCropPath,
+                originalCropPath: safeCropPath,
+                scoreOnlyCropPath: scoreOnlyCrop && scoreOnlyCrop.cropPath,
+                layoutId: layoutProfile && layoutProfile.layoutId,
                 decoderOutputDir: outputDir,
                 ffmpegRunner: this.ffmpegRunner,
                 decoderTimeoutMs: Math.min(this.timeoutMs, 8000),
@@ -1230,12 +1468,38 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
               regionId: region.id,
               timestamp: frame.timestamp,
               metadata,
-              calibration: digitCalibration,
+              calibration: digitCalibrationForCrop,
               signal: input.signal,
             }));
+            if (scoreOnlyCrop && digitReading.status !== "readable") {
+              const fullCropDigitReading = await Promise.resolve(this.digitReader({
+                frame,
+                crop: {
+                  timestamp: frame.timestamp,
+                  cropPath: safeCropPath,
+                  scoreOnlyCropPath: scoreOnlyCrop.cropPath,
+                  layoutId: layoutProfile && layoutProfile.layoutId,
+                  decoderOutputDir: outputDir,
+                  ffmpegRunner: this.ffmpegRunner,
+                  decoderTimeoutMs: Math.min(this.timeoutMs, 8000),
+                },
+                regionId: region.id,
+                timestamp: frame.timestamp,
+                metadata,
+                calibration: digitCalibration,
+                signal: input.signal,
+              }));
+              if (fullCropDigitReading.status === "readable") {
+                digitReading = {
+                  ...fullCropDigitReading,
+                  reasons: [...(Array.isArray(fullCropDigitReading.reasons) ? fullCropDigitReading.reasons : []), "full_crop_digit_fallback_used"],
+                };
+              }
+            }
             const digitSummary = digitReaderSummary(digitReading);
             const digitScore = digitReading.status === "readable" ? digitReading.score : null;
-            const parsedScore = digitScore ||
+            const structuredScore = digitScore || scoreOnlyScore;
+            const parsedScore = structuredScore ||
               (ocr.rejected
                 ? null
                 : scoreAllowedForRegion({
@@ -1244,6 +1508,18 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
                     score: parseScoreboardScore(ocr.text),
                   }));
             const parsedClock = ocr.rejected ? null : parseClock(ocr.text);
+            const scoreSource = digitScore
+              ? `local_scorebug_digit_reader_${variant.id}`
+              : scoreOnlyScore
+                ? `local_scorebug_score_only_ocr_${variant.id}`
+                : parsedScore
+                  ? `local_scoreboard_ocr_${variant.id}`
+                  : null;
+            const scoreConfidence = digitScore
+              ? digitReading.confidence
+              : scoreOnlyScore
+                ? Math.max(Number(scoreOnlyOcr && scoreOnlyOcr.confidence || 0), 0.74)
+                : ocr.confidence;
             const reader = readScoreboardCandidate({
               id: `ocr_${frameIndex + 1}_${cropCount + 1}`,
               timestamp: frame.timestamp,
@@ -1251,14 +1527,30 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
               end: frame.windowEnd ?? frame.timestamp + 0.8,
               regionId: region.id,
               preprocessingVariant: variant.id,
-              source: `local_scoreboard_ocr_${variant.id}`,
+              source: scoreSource || `local_scoreboard_ocr_${variant.id}`,
               text: ocr.text,
               score: parsedScore,
               clock: parsedClock,
               rejected: ocr.rejected,
-              confidence: digitScore ? digitReading.confidence : ocr.confidence,
+              confidence: scoreConfidence,
+              layoutId: layoutProfile && layoutProfile.layoutId,
             });
-            if (digitScore) reader.source = `local_scorebug_digit_reader_${variant.id}`;
+            const qaRow = recordScoreboardOcrQaAttempt({
+              qa,
+              cropPath: safeCropPath,
+              scoreOnlyCropPath: scoreOnlyCrop && scoreOnlyCrop.cropPath,
+              frame,
+              frameIndex,
+              region,
+              variant,
+              ocr,
+              scoreOnlyOcr,
+              scoreOnlyScore,
+              layoutProfile,
+              scoreSource,
+              reader,
+              digitReading,
+            });
             observations.push({
               id: `ocr_${frameIndex + 1}_${cropCount + 1}`,
               timestamp: frame.timestamp,
@@ -1267,24 +1559,15 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
               regionId: region.id,
               preprocessingVariant: variant.id,
               text: ocr.text,
-              score: digitScore,
-              confidence: digitScore ? digitReading.confidence : ocr.confidence,
+              score: structuredScore,
+              confidence: scoreConfidence,
               rejected: ocr.rejected,
-              source: digitScore ? `local_scorebug_digit_reader_${variant.id}` : `local_scoreboard_ocr_${variant.id}`,
+              source: scoreSource || `local_scoreboard_ocr_${variant.id}`,
               imageSegmentationStatus: digitSummary.imageSegmentationStatus,
               imageDecoderStatus: digitSummary.imageDecoderStatus,
               imageDecoderMode: digitSummary.imageDecoderMode,
-            });
-            recordScoreboardOcrQaAttempt({
-              qa,
-              cropPath: safeCropPath,
-              frame,
-              frameIndex,
-              region,
-              variant,
-              ocr,
-              reader,
-              digitReading,
+              layoutId: layoutProfile && layoutProfile.layoutId,
+              scoreOnlyCropRef: qaRow && qaRow.scoreOnlyCropRef,
             });
             cropCount += 1;
             if (parsedScore) {
@@ -1381,6 +1664,8 @@ function publicScoreboardOcr(scoreboardOcr) {
                 imageSegmentationStatus: item.imageSegmentationStatus ? sanitizeText(item.imageSegmentationStatus, 40) : null,
                 imageDecoderStatus: item.imageDecoderStatus ? sanitizeText(item.imageDecoderStatus, 40) : null,
                 imageDecoderMode: item.imageDecoderMode ? sanitizeText(item.imageDecoderMode, 40) : null,
+                layoutId: item.layoutId ? sanitizeText(item.layoutId, 80) : null,
+                scoreOnlyCropRef: item.scoreOnlyCropRef ? sanitizeText(item.scoreOnlyCropRef, 180) : null,
               })).slice(0, MAX_SCOREBOARD_OCR_FRAMES)
             : [],
           fallbackUsed: Boolean(safe.summary.fallbackUsed),
@@ -1407,6 +1692,8 @@ function publicScoreboardOcr(scoreboardOcr) {
           imageSegmentationStatus: item.imageSegmentationStatus ? sanitizeText(item.imageSegmentationStatus, 40) : null,
           imageDecoderStatus: item.imageDecoderStatus ? sanitizeText(item.imageDecoderStatus, 40) : null,
           imageDecoderMode: item.imageDecoderMode ? sanitizeText(item.imageDecoderMode, 40) : null,
+          layoutId: item.layoutId ? sanitizeText(item.layoutId, 80) : null,
+          scoreOnlyCropRef: item.scoreOnlyCropRef ? sanitizeText(item.scoreOnlyCropRef, 180) : null,
         }))
       : [],
   };
@@ -1428,6 +1715,7 @@ module.exports = {
   LocalScoreboardOcrProviderAdapter,
   analyzeScoreboardOcr,
   cleanupOcrCrops,
+  cropScoreOnlyRegion,
   cropScoreboardRegion,
   createScoreboardOcrProvider,
   defaultScoreboardRegions,
@@ -1437,6 +1725,7 @@ module.exports = {
   publicScoreboardOcr,
   scoreboardOcrHealth,
   scoreboardOcrPreprocessVariants,
+  selectScorebugLayoutProfile,
   selectOcrFrames,
   selectOcrSamplingWindows,
   validateScoreboardOcrOutput,

@@ -100,6 +100,8 @@ function readScoreboardCandidate(input = {}) {
       regionId: sanitizeText(input.regionId || "scoreboard_region", 80),
       preprocessingVariant: sanitizeText(input.preprocessingVariant || input.variantId || "default", 60),
       source: sanitizeText(input.source || "scoreboard_reader", 80),
+      layoutId: sanitizeText(input.layoutId || "", 80) || null,
+      scoreOnlyCropRef: input.scoreOnlyCropRef ? sanitizeText(input.scoreOnlyCropRef, 180) : null,
       ambiguityReasons: uniqueReasons(input.ambiguityReasons || []),
       safeDebug: {
         textPresent: Boolean(input.ocrText || input.normalizedText || input.text),
@@ -148,6 +150,8 @@ function readScoreboardCandidate(input = {}) {
     regionId: sanitizeText(input.regionId || "scoreboard_region", 80),
     preprocessingVariant: sanitizeText(input.preprocessingVariant || input.variantId || "default", 60),
     source: sanitizeText(input.source || "scoreboard_reader", 80),
+    layoutId: sanitizeText(input.layoutId || "", 80) || null,
+    scoreOnlyCropRef: input.scoreOnlyCropRef ? sanitizeText(input.scoreOnlyCropRef, 180) : null,
     ambiguityReasons: uniqueReasons([...ambiguityReasons, ...(input.ambiguityReasons || [])]),
     safeDebug: {
       textPresent: Boolean(textPreview),
@@ -286,6 +290,8 @@ function buildStableScoreTimeline(readings = [], options = {}) {
       source: reading.source,
       regionId: reading.regionId,
       preprocessingVariant: reading.preprocessingVariant,
+      layoutId: reading.layoutId,
+      scoreOnlyCropRef: reading.scoreOnlyCropRef,
       ambiguityReasons: uniqueReasons(ambiguityReasons),
     });
   }

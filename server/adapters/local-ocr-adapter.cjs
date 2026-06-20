@@ -142,6 +142,21 @@ function parseScoreboardScore(text) {
   return unique.length === 1 ? unique[0] : null;
 }
 
+function parseScoreOnlyScore(text) {
+  const safe = normalizeOcrText(text)
+    .replace(/[–—]/g, "-")
+    .replace(/([0-9OoIl|])\s*[-:]\s*([0-9OoIl|])/g, (_, home, away) => `${ocrDigit(home)}-${ocrDigit(away)}`);
+  if (!safe || parseClock(safe)) return null;
+  const nonDigitLetters = safe.replace(/[0-9OoIl|\s_.:-]/g, "");
+  if (/[A-Z]/i.test(nonDigitLetters)) return null;
+  const digitLike = safe.match(/[0-9OoIl|]/g) || [];
+  if (digitLike.length !== 2) return null;
+  const home = Number(ocrDigit(digitLike[0]));
+  const away = Number(ocrDigit(digitLike[1]));
+  if (!plausibleScore(home, away)) return null;
+  return { home, away, text: `${home}-${away}` };
+}
+
 function scoreAllowedForRegion({ regionId = "scoreboard_region", text = "", score = null } = {}) {
   if (!score) return null;
   const safeRegion = sanitizeText(regionId || "scoreboard_region", 80);
@@ -190,6 +205,8 @@ function buildScoreboardEvidenceFromObservations(observations = []) {
         clock,
         rejected,
         confidence: Number(observation.confidence || confidenceForObservation({ text, score, clock, rejected })),
+        layoutId: observation.layoutId,
+        scoreOnlyCropRef: observation.scoreOnlyCropRef,
       });
       return {
         id: sanitizeText(observation.id || `local_ocr_observation_${index + 1}`, 80),
@@ -207,6 +224,8 @@ function buildScoreboardEvidenceFromObservations(observations = []) {
         imageSegmentationStatus: sanitizeText(observation.imageSegmentationStatus || "", 40) || null,
         imageDecoderStatus: sanitizeText(observation.imageDecoderStatus || "", 40) || null,
         imageDecoderMode: sanitizeText(observation.imageDecoderMode || "", 40) || null,
+        layoutId: sanitizeText(observation.layoutId || "", 80) || null,
+        scoreOnlyCropRef: sanitizeText(observation.scoreOnlyCropRef || "", 180) || null,
       };
     })
     .filter((observation) => Number.isFinite(observation.timestamp))
@@ -243,6 +262,8 @@ function buildScoreboardEvidenceFromObservations(observations = []) {
       imageSegmentationStatus: item.imageSegmentationStatus,
       imageDecoderStatus: item.imageDecoderStatus,
       imageDecoderMode: item.imageDecoderMode,
+      layoutId: item.layoutId,
+      scoreOnlyCropRef: item.scoreOnlyCropRef,
       ambiguityReasons: item.ambiguityReasons,
     }));
 }
@@ -343,5 +364,6 @@ module.exports = {
   ocrCommandAvailable,
   parseClock,
   parseScoreboardScore,
+  parseScoreOnlyScore,
   scoreAllowedForRegion,
 };
