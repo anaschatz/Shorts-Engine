@@ -92,6 +92,39 @@ const DECISION_CODES = Object.freeze([
   "scoreboard_ocr_ambiguous",
 ]);
 
+const SHOT_CODES = Object.freeze([
+  "visual_shot_contact",
+  "visual_shot_like_motion",
+  "visual_ball_toward_goal",
+  "shot_sequence_support",
+]);
+const GOAL_FINISH_CODES = Object.freeze([
+  "ball_in_net",
+  "visual_ball_in_net",
+  "scoreboard_backed_goal_sequence",
+]);
+const LIVE_GOAL_PHASE_CODES = Object.freeze([
+  ...SHOT_CODES,
+  "visual_ball_visible",
+  "visual_fast_break",
+  "visual_goal_area",
+  "visual_goal_mouth",
+]);
+const REPLAY_SUPPORT_CODES = Object.freeze([
+  "visual_replay_indicator",
+  "visual_replay_angle",
+  "replay_goal_confirmation",
+]);
+const CELEBRATION_SUPPORT_CODES = Object.freeze([
+  "visual_celebration_after_shot",
+  "visual_celebration_after_whistle",
+  "visual_crowd_reaction",
+  "crowd_reaction_support",
+]);
+const GOAL_PHASE_LOOKBACK_SECONDS = 22;
+const GOAL_PHASE_MIN_PRE_SHOT_SECONDS = 10;
+const GOAL_PHASE_MAX_PRE_SHOT_SECONDS = 15;
+
 const SENSITIVE_RE = /\/Users\/|\/private\/|storageKey|localPath|fullPath|absolutePath|Bearer\s+|OPENAI_API_KEY|api[_-]?key|token|secret|stderr|stdout|rawOcr|rawText/i;
 const SAFE_SCORE_RE = /^\d{1,2}\s*[-:]\s*\d{1,2}$/;
 
@@ -298,32 +331,128 @@ function disqualifiersForDecision(type, codes = [], missingEvidence = []) {
   if (type === "possible_goal_unconfirmed") disqualifiers.push("unconfirmed_goal_decision");
   if (missingEvidence.includes("final_goal_decision")) disqualifiers.push("missing_final_goal_decision");
   if (missingEvidence.includes("usable_ocr_qa_calibration")) disqualifiers.push("missing_usable_ocr_qa");
+  if (missingEvidence.includes("live_goal_phase")) disqualifiers.push("replay_only_goal_candidate");
   return uniqueCodes(disqualifiers, MAX_FLAGS);
+}
+
+function sortedWindows(windows = []) {
+  return [...windows].sort((a, b) => windowStart(a) - windowStart(b) || windowEnd(a) - windowEnd(b));
+}
+
+function windowsWithCodes(windows = [], codes = []) {
+  return sortedWindows(windows).filter((window) => hasAny(visualReasonCodesForWindow(window), codes));
+}
+
+function firstWindowStart(windows = [], fallback = null) {
+  const first = sortedWindows(windows)[0];
+  return first ? round(windowStart(first)) : fallback;
+}
+
+function hasLiveActionBeforeReplay(windows = [], replayStart = null) {
+  return windowsWithCodes(windows, LIVE_GOAL_PHASE_CODES)
+    .some((window) => replayStart == null || windowStart(window) <= replayStart - 0.25);
+}
+
+function normalizePhaseTimestamp(value, min, max, fallback = null) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return round(clamp(parsed, min, max));
+}
+
+function normalizePhaseCoverage(value = {}, context = {}) {
+  const raw = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const sourceStart = seconds(context.sourceStart);
+  const sourceEnd = Math.max(sourceStart + 0.5, seconds(context.sourceEnd, sourceStart + 1));
+  const evidenceCodes = Array.isArray(context.evidenceCodes) ? context.evidenceCodes : [];
+  const shotWindow = context.shotWindow || {};
+  const payoffWindow = context.payoffWindow || {};
+  const decisionWindow = context.decisionWindow || null;
+  const shotStart = normalizePhaseTimestamp(raw.shotStart, sourceStart, sourceEnd, normalizePhaseTimestamp(shotWindow.start, sourceStart, sourceEnd, sourceStart));
+  const finishTime = normalizePhaseTimestamp(raw.finishTime, sourceStart, sourceEnd, normalizePhaseTimestamp(payoffWindow.end, sourceStart, sourceEnd, sourceEnd));
+  const confirmationTime = normalizePhaseTimestamp(
+    raw.confirmationTime,
+    sourceStart,
+    sourceEnd,
+    decisionWindow ? normalizePhaseTimestamp(decisionWindow.start, sourceStart, sourceEnd, null) : null,
+  );
+  const replayUsed = Boolean(raw.replayUsed) || hasAny(evidenceCodes, REPLAY_SUPPORT_CODES);
+  const replayOnly = Boolean(raw.replayOnly);
+  return {
+    hasBuildup: raw.hasBuildup == null ? sourceStart <= shotStart - 6 : Boolean(raw.hasBuildup),
+    hasShot: raw.hasShot == null ? hasAny(evidenceCodes, SHOT_CODES) : Boolean(raw.hasShot),
+    hasFinish: raw.hasFinish == null ? hasAny(evidenceCodes, GOAL_FINISH_CODES) : Boolean(raw.hasFinish),
+    hasConfirmation: raw.hasConfirmation == null
+      ? context.type === "confirmed_goal" || hasAny(evidenceCodes, CONFIRMED_SUPPORT_CODES)
+      : Boolean(raw.hasConfirmation),
+    liveActionStart: normalizePhaseTimestamp(raw.liveActionStart, sourceStart, sourceEnd, sourceStart),
+    shotStart,
+    finishTime,
+    confirmationTime,
+    replayUsed,
+    replayOnly,
+  };
 }
 
 function windowSetForDecision({ event, visualSignals, duration }) {
   const start = seconds(event.start);
   const end = Math.max(start + 0.5, seconds(event.end, start + 1));
-  const windows = windowsInRange(visualSignals, start, end, 2);
-  const shotStart = firstWindowTime(windows, ["visual_shot_contact", "visual_shot_like_motion", "visual_ball_toward_goal"], start);
-  const payoffStart = firstWindowTime(windows, PAYOFF_CODES, Math.min(end, shotStart + 2));
-  const payoffEnd = lastWindowTime(windows, PAYOFF_CODES, end);
-  const decisionStart = firstWindowTime(windows, DECISION_CODES, null);
-  const sourceStart = round(Math.max(0, Math.min(start, shotStart) - 4));
-  const sourceEnd = round(Math.min(
-    seconds(duration, Math.max(end, payoffEnd) + 10),
-    Math.max(end, payoffEnd, decisionStart || 0) + (decisionStart == null ? 8 : 4),
+  const durationSeconds = seconds(duration, Math.max(end + 10, 0));
+  const eventCodes = eventBaseCodes(event);
+  const contextWindows = sortedWindows(windowsInRange(
+    visualSignals,
+    Math.max(0, start - GOAL_PHASE_LOOKBACK_SECONDS),
+    end,
+    3,
   ));
+  const replayStart = firstWindowTime(contextWindows, REPLAY_SUPPORT_CODES, null);
+  const liveWindowsBeforeReplay = contextWindows.filter((window) => (
+    hasAny(visualReasonCodesForWindow(window), LIVE_GOAL_PHASE_CODES) &&
+    !hasAny(visualReasonCodesForWindow(window), REPLAY_SUPPORT_CODES) &&
+    !hasAny(visualReasonCodesForWindow(window), CELEBRATION_SUPPORT_CODES) &&
+    (replayStart == null || windowStart(window) <= replayStart - 0.25)
+  ));
+  const liveActionStart = firstWindowStart(liveWindowsBeforeReplay, firstWindowTime(contextWindows, LIVE_GOAL_PHASE_CODES, start));
+  const shotStart = firstWindowTime(liveWindowsBeforeReplay, SHOT_CODES, firstWindowTime(contextWindows, SHOT_CODES, start));
+  const payoffStart = firstWindowTime(contextWindows, PAYOFF_CODES, Math.min(end, shotStart + 2));
+  const payoffEnd = lastWindowTime(contextWindows, PAYOFF_CODES, end);
+  const decisionStart = firstWindowTime(contextWindows, DECISION_CODES, null);
+  const hasLivePhase = hasLiveActionBeforeReplay(contextWindows, replayStart) || (!hasAny(eventCodes, REPLAY_SUPPORT_CODES) && hasAny(eventCodes, SHOT_CODES));
+  const replayUsed = replayStart != null || hasAny(eventCodes, REPLAY_SUPPORT_CODES);
+  const replayOnly = replayUsed && !hasLivePhase;
+  const phaseAnchor = Math.min(start, liveActionStart, shotStart);
+  const earliestStart = Math.max(0, shotStart - GOAL_PHASE_MAX_PRE_SHOT_SECONDS);
+  const latestStart = Math.max(0, shotStart - GOAL_PHASE_MIN_PRE_SHOT_SECONDS);
+  const sourceStart = round(clamp(phaseAnchor - 2, earliestStart, latestStart));
+  const sourceEnd = round(Math.min(
+    durationSeconds,
+    Math.max(end, payoffEnd + 4, decisionStart == null ? 0 : decisionStart + 3),
+  ));
+  const boundedSourceEnd = Math.max(sourceStart + 3, sourceEnd);
+  const phaseCoverage = {
+    hasBuildup: !replayOnly && sourceStart <= shotStart - 6,
+    hasShot: !replayOnly && (hasAny(eventCodes, SHOT_CODES) || liveWindowsBeforeReplay.some((window) => hasAny(visualReasonCodesForWindow(window), SHOT_CODES))),
+    hasFinish: hasAny(eventCodes, GOAL_FINISH_CODES) || hasAny(visualCodesForRange(visualSignals, sourceStart, boundedSourceEnd), GOAL_FINISH_CODES),
+    hasConfirmation: decisionStart != null || hasAny(eventCodes, CONFIRMED_SUPPORT_CODES),
+    liveActionStart: round(liveActionStart),
+    shotStart: round(shotStart),
+    finishTime: round(payoffEnd),
+    confirmationTime: decisionStart == null ? null : round(decisionStart),
+    replayUsed,
+    replayOnly,
+  };
   return {
     sourceStart,
-    sourceEnd: Math.max(sourceStart + 3, sourceEnd),
+    sourceEnd: boundedSourceEnd,
     buildupWindow: { start: sourceStart, end: round(Math.max(sourceStart + 0.5, shotStart)) },
     shotWindow: { start: round(shotStart), end: round(Math.max(shotStart + 0.5, payoffStart)) },
     payoffWindow: { start: round(payoffStart), end: round(Math.max(payoffStart + 0.5, payoffEnd)) },
-    reactionWindow: { start: round(payoffEnd), end: round(Math.min(seconds(duration, payoffEnd + 4), payoffEnd + 4)) },
+    reactionWindow: { start: round(payoffEnd), end: round(Math.min(durationSeconds, payoffEnd + 4)) },
     decisionWindow: decisionStart == null
       ? null
-      : { start: round(decisionStart), end: round(Math.min(seconds(duration, decisionStart + 6), Math.max(decisionStart + 1, sourceEnd))) },
+      : { start: round(decisionStart), end: round(Math.min(durationSeconds, Math.max(decisionStart + 1, boundedSourceEnd))) },
+    phaseCoverage,
+    replayUsed,
+    replayOnly,
   };
 }
 
@@ -352,6 +481,7 @@ function safetyFlagsForDecision(type, codes = [], ocrQaCalibration = null) {
   if (type !== "confirmed_goal") flags.push("no_confirmed_goal_caption");
   if (type === "confirmed_goal") flags.push("confirmed_goal_requires_action_and_support");
   if (type === "crowd_reaction") flags.push("reaction_support_only");
+  if (hasAny(codes, REPLAY_SUPPORT_CODES)) flags.push("replay_support_only");
   return flags.slice(0, MAX_FLAGS);
 }
 
@@ -387,6 +517,20 @@ function normalizeDecision(decision = {}, index = 0, metadata = {}) {
   }
   const evidenceCodes = uniqueCodes(decision.evidenceCodes);
   const missingEvidence = uniqueCodes(decision.missingEvidence, MAX_MISSING);
+  const buildupWindow = normalizeOptionalWindow(decision.buildupWindow, sourceStart, sourceEnd);
+  const shotWindow = normalizeOptionalWindow(decision.shotWindow, sourceStart, sourceEnd);
+  const payoffWindow = normalizeOptionalWindow(decision.payoffWindow, sourceStart, sourceEnd);
+  const reactionWindow = normalizeOptionalWindow(decision.reactionWindow, sourceStart, sourceEnd);
+  const decisionWindow = normalizeOptionalWindow(decision.decisionWindow, sourceStart, sourceEnd, true);
+  const phaseCoverage = normalizePhaseCoverage(decision.phaseCoverage, {
+    sourceStart,
+    sourceEnd,
+    evidenceCodes,
+    type,
+    shotWindow,
+    payoffWindow,
+    decisionWindow,
+  });
   return {
     id: sanitizeText(decision.id || `match_event_${index + 1}`, 80),
     type,
@@ -396,17 +540,23 @@ function normalizeDecision(decision = {}, index = 0, metadata = {}) {
     confidence: round(clamp(decision.confidence, 0.05, 0.98)),
     sourceStart,
     sourceEnd,
-    buildupWindow: normalizeOptionalWindow(decision.buildupWindow, sourceStart, sourceEnd),
-    shotWindow: normalizeOptionalWindow(decision.shotWindow, sourceStart, sourceEnd),
-    payoffWindow: normalizeOptionalWindow(decision.payoffWindow, sourceStart, sourceEnd),
-    reactionWindow: normalizeOptionalWindow(decision.reactionWindow, sourceStart, sourceEnd),
-    decisionWindow: normalizeOptionalWindow(decision.decisionWindow, sourceStart, sourceEnd, true),
+    buildupWindow,
+    shotWindow,
+    payoffWindow,
+    reactionWindow,
+    decisionWindow,
+    phaseCoverage,
+    shotStart: phaseCoverage.shotStart,
+    finishTime: phaseCoverage.finishTime,
+    confirmationTime: phaseCoverage.confirmationTime,
+    replayUsed: phaseCoverage.replayUsed,
+    replayOnly: phaseCoverage.replayOnly,
     evidenceCodes,
     evidence: evidenceCodes,
     missingEvidence,
     disqualifiers: disqualifiersForDecision(type, evidenceCodes, missingEvidence),
-    decisionWindowStart: decision.decisionWindow ? normalizeOptionalWindow(decision.decisionWindow, sourceStart, sourceEnd, true).start : null,
-    decisionWindowEnd: decision.decisionWindow ? normalizeOptionalWindow(decision.decisionWindow, sourceStart, sourceEnd, true).end : null,
+    decisionWindowStart: decisionWindow ? decisionWindow.start : null,
+    decisionWindowEnd: decisionWindow ? decisionWindow.end : null,
     teams: normalizeTeams(decision.teams),
     scoreBefore: normalizeScoreField(decision.scoreBefore),
     scoreAfter: normalizeScoreField(decision.scoreAfter),
@@ -436,17 +586,24 @@ function buildGoalDecision({ event, metadata, mediaSignals, visualSignals, ocrEv
   const type = goalTypeForEvidence(evidenceCodes, event, ocrQaCalibration) ||
     (event.outcomeHint === "celebration_only" ? "crowd_reaction" : "neutral");
   const windows = windowSetForDecision({ event, visualSignals, duration });
+  const finalType = type === "confirmed_goal" && windows.phaseCoverage && windows.phaseCoverage.replayOnly
+    ? "possible_goal_unconfirmed"
+    : type;
+  const missingEvidence = missingEvidenceForDecision(finalType, evidenceCodes, ocrQaCalibration);
+  if (windows.phaseCoverage && windows.phaseCoverage.replayOnly) missingEvidence.push("live_goal_phase");
+  const safetyFlags = safetyFlagsForDecision(finalType, evidenceCodes, ocrQaCalibration);
+  if (windows.phaseCoverage && windows.phaseCoverage.replayOnly) safetyFlags.push("replay_only_rejected_as_primary_goal");
   return normalizeDecision({
     id: sanitizeText(event.id || `goal_truth_${index + 1}`, 80),
-    type,
-    outcome: goalOutcomeForType(type),
-    confidence: confidenceForDecision(type, evidenceCodes, event.confidence),
+    type: finalType,
+    outcome: goalOutcomeForType(finalType),
+    confidence: confidenceForDecision(finalType, evidenceCodes, event.confidence),
     ...windows,
     evidenceCodes,
-    missingEvidence: missingEvidenceForDecision(type, evidenceCodes, ocrQaCalibration),
-    safetyFlags: safetyFlagsForDecision(type, evidenceCodes, ocrQaCalibration),
-    captionIntent: captionIntentForType(type),
-    renderPriority: typePriority(type) + Math.min(99, seconds(event.start)),
+    missingEvidence,
+    safetyFlags,
+    captionIntent: captionIntentForType(finalType),
+    renderPriority: typePriority(finalType) + Math.min(99, seconds(event.start)),
   }, index, metadata);
 }
 
@@ -643,6 +800,12 @@ function publicDecision(event) {
     payoffWindow: event.payoffWindow,
     reactionWindow: event.reactionWindow,
     decisionWindow: event.decisionWindow,
+    phaseCoverage: event.phaseCoverage,
+    shotStart: event.shotStart,
+    finishTime: event.finishTime,
+    confirmationTime: event.confirmationTime,
+    replayUsed: Boolean(event.replayUsed),
+    replayOnly: Boolean(event.replayOnly),
     evidenceCodes: event.evidenceCodes,
     missingEvidence: event.missingEvidence,
     safetyFlags: event.safetyFlags,

@@ -645,12 +645,38 @@ function captionGoalClaimAccuracyScore(topPlan, expected = {}) {
 function segmentTimingCoverageScore(topPlan, expected = {}) {
   const expectedGoals = expectedValidGoalWindows(expected);
   if (!expectedGoals.length) return 1;
+  const tolerance = expected.goalSelectionMode === "valid_goals_only" ? 0.75 : 0.25;
   const confirmedSegments = planSegments(topPlan).filter(isConfirmedValidGoalSegment);
   const covered = expectedGoals.filter((goal) => confirmedSegments.some((segment) => (
-    toNumber(segment.sourceStart) <= goal.start + 0.25 &&
-    toNumber(segment.sourceEnd) >= goal.end - 0.25
+    toNumber(segment.sourceStart) <= goal.start + tolerance &&
+    toNumber(segment.sourceEnd) >= goal.end - tolerance
   )));
   return round(covered.length / expectedGoals.length, 4);
+}
+
+function replayOnlyGoalRate(topPlan, expected = {}) {
+  if (expected.goalSelectionMode !== "valid_goals_only") return 0;
+  const confirmedSegments = planSegments(topPlan).filter(isConfirmedValidGoalSegment);
+  if (!confirmedSegments.length) return expectedValidGoalWindows(expected).length ? 1 : 0;
+  const replayOnly = confirmedSegments.filter((segment) => segment.replayOnly === true ||
+    (segment.phaseCoverage && segment.phaseCoverage.replayOnly === true));
+  return round(replayOnly.length / confirmedSegments.length, 4);
+}
+
+function goalPhaseCoverageScore(topPlan, expected = {}) {
+  if (expected.goalSelectionMode !== "valid_goals_only" && !expected.goalPhaseCoverageRequired) return 1;
+  const confirmedSegments = planSegments(topPlan).filter(isConfirmedValidGoalSegment);
+  if (!confirmedSegments.length) return expectedValidGoalWindows(expected).length ? 0 : 1;
+  const covered = confirmedSegments.filter((segment) => {
+    const phase = segment.phaseCoverage || {};
+    return segment.replayOnly !== true &&
+      phase.replayOnly !== true &&
+      phase.hasBuildup === true &&
+      phase.hasShot === true &&
+      phase.hasFinish === true &&
+      phase.hasConfirmation === true;
+  });
+  return round(covered.length / confirmedSegments.length, 4);
 }
 
 function goalEvidenceCoverageScore(goalEvidence, expected = {}) {
@@ -1210,6 +1236,8 @@ function scoreFixture(fixture) {
   const cutSmoothness = cutSmoothnessScore(topPlan, fixture.expected);
   const captionGoalClaimAccuracy = captionGoalClaimAccuracyScore(topPlan, fixture.expected);
   const segmentTimingCoverage = segmentTimingCoverageScore(topPlan, fixture.expected);
+  const goalPhaseCoverage = goalPhaseCoverageScore(topPlan, fixture.expected);
+  const replayOnlyGoalRateValue = replayOnlyGoalRate(topPlan, fixture.expected);
   const goalEvidenceCoverage = goalEvidenceCoverageScore(goalEvidence, fixture.expected);
   const celebrationOnlyExclusion = celebrationOnlyExclusionScore(topPlan, fixture.expected, thresholds.minTop1Overlap);
   const anthemIntroExclusion = anthemIntroExclusionScore(topPlan, fixture.expected, thresholds.minTop1Overlap);
@@ -1341,6 +1369,8 @@ function scoreFixture(fixture) {
     anthemIntroExclusion === 1 &&
     captionGoalClaimAccuracy >= 0.95 &&
     segmentTimingCoverage >= 0.9 &&
+    goalPhaseCoverage >= 1 &&
+    replayOnlyGoalRateValue === 0 &&
     goalEvidenceCoverage >= 1 &&
     ocrEvidenceCoverage >= 0.9 &&
     scoreboardScoreChangeRecall >= 0.9 &&
@@ -1399,6 +1429,8 @@ function scoreFixture(fixture) {
       cutSmoothnessScore: cutSmoothness,
       captionGoalClaimAccuracy,
       segmentTimingCoverage,
+      goalPhaseCoverage,
+      replayOnlyGoalRate: replayOnlyGoalRateValue,
       goalEvidenceCoverage,
       celebrationOnlyExclusion,
       anthemIntroExclusion,
@@ -1736,6 +1768,8 @@ function debuggingNotes(metrics) {
   if (metrics.cutSmoothnessScore < 0.9) notes.push("Valid-goals-only cuts are overlapping, out of order, too short or too long.");
   if (metrics.captionGoalClaimAccuracy < 0.95) notes.push("Goal captions do not match valid-goal expectations.");
   if (metrics.segmentTimingCoverage < 0.9) notes.push("Goal segments do not cover the expected shot/payoff/decision window.");
+  if (metrics.goalPhaseCoverage < 1) notes.push("Confirmed-goal segments do not cover buildup, shot, finish and confirmation.");
+  if (metrics.replayOnlyGoalRate) notes.push("A confirmed-goal segment is replay-only.");
   if (metrics.goalEvidenceCoverage < 1) notes.push("Goal evidence provider did not cover all expected valid goals.");
   if (metrics.ocrQaCalibrationSupport < 1) notes.push("OCR QA calibration was not applied as support-only evidence.");
   if (metrics.matchEventTruthValidGoalRecall < 1) notes.push("Match event truth missed one or more expected confirmed goals.");
@@ -1809,6 +1843,8 @@ function aggregateResults(results) {
     cutSmoothnessScore: avg((result) => result.metrics.cutSmoothnessScore),
     captionGoalClaimAccuracy: avg((result) => result.metrics.captionGoalClaimAccuracy),
     segmentTimingCoverage: avg((result) => result.metrics.segmentTimingCoverage),
+    goalPhaseCoverage: avg((result) => result.metrics.goalPhaseCoverage),
+    replayOnlyGoalRate: avg((result) => result.metrics.replayOnlyGoalRate),
     goalEvidenceCoverage: avg((result) => result.metrics.goalEvidenceCoverage),
     celebrationOnlyExclusion: avg((result) => result.metrics.celebrationOnlyExclusion),
     anthemIntroExclusion: avg((result) => result.metrics.anthemIntroExclusion),

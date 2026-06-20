@@ -1555,6 +1555,9 @@ function normalizeMomentWithEvidence(moment, { signals = {}, visualSignals = nul
     actionSequence: actionSequenceForReasons(finalReasons, goalEvidence),
     goalClaimAllowed: finalReasons.includes("goal") && goalEvidence.goalClaimAllowed,
   };
+  const suppliedEvidence = publicMoment.evidence && typeof publicMoment.evidence === "object" && !Array.isArray(publicMoment.evidence)
+    ? publicMoment.evidence
+    : {};
   const footballSequenceReasons = [...new Set([
     ...finalReasons,
     ...(Array.isArray(sequenceSupportReasons) ? sequenceSupportReasons : []),
@@ -1598,6 +1601,10 @@ function normalizeMomentWithEvidence(moment, { signals = {}, visualSignals = nul
         ...(baseEvidence.actionSequence || actionSequenceForReasons(finalReasons, goalEvidence)),
         footballSequence,
       },
+      goalPhase: suppliedEvidence.goalPhase || null,
+      phaseCoverage: suppliedEvidence.phaseCoverage ||
+        (suppliedEvidence.goalPhase && suppliedEvidence.goalPhase.phaseCoverage) ||
+        null,
       goalOutcome,
     },
     captionIntent: captionIntentForHighlightType(highlightType),
@@ -2621,10 +2628,11 @@ const MULTI_MOMENT_COMPILATION = Object.freeze({
 });
 
 const VALID_GOAL_ONLY_TIMING = Object.freeze({
-  minSegmentDuration: 10,
-  maxSegmentDuration: 29.5,
-  preContextSeconds: 1.2,
-  postContextSeconds: 3.8,
+  minSegmentDuration: 18,
+  maxSegmentDuration: 28,
+  preContextSeconds: 10,
+  maxPreContextSeconds: 15,
+  postContextSeconds: 4.2,
   decisionPostSeconds: 1.4,
   minTransitionGapSeconds: 0.25,
 });
@@ -2638,6 +2646,61 @@ function normalizeGoalSelectionMode(value) {
   return value === GOAL_SELECTION_MODES.validGoalsOnly
     ? GOAL_SELECTION_MODES.validGoalsOnly
     : GOAL_SELECTION_MODES.balanced;
+}
+
+function finiteNumber(value, fallback = null) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function goalPhaseCoverageForEvent(event = {}, window = null) {
+  const evidenceCodes = Array.isArray(event.evidenceCodes) ? event.evidenceCodes : [];
+  const reasonSet = new Set(evidenceCodes);
+  const shotStart = finiteNumber(
+    event.phaseCoverage && event.phaseCoverage.shotStart,
+    finiteNumber(event.shotStart, finiteNumber(event.shotWindow && event.shotWindow.start, finiteNumber(event.sourceStart, 0))),
+  );
+  const finishTime = finiteNumber(
+    event.phaseCoverage && event.phaseCoverage.finishTime,
+    finiteNumber(event.finishTime, finiteNumber(event.payoffWindow && event.payoffWindow.end, finiteNumber(event.sourceEnd, shotStart + 1))),
+  );
+  const confirmationTime = finiteNumber(
+    event.phaseCoverage && event.phaseCoverage.confirmationTime,
+    finiteNumber(event.confirmationTime, finiteNumber(event.decisionWindow && event.decisionWindow.start, null)),
+  );
+  const sourceStart = finiteNumber(window && window.sourceStart, finiteNumber(event.sourceStart, 0));
+  const sourceEnd = finiteNumber(window && window.sourceEnd, finiteNumber(event.sourceEnd, finishTime + 3));
+  const raw = event.phaseCoverage && typeof event.phaseCoverage === "object" && !Array.isArray(event.phaseCoverage)
+    ? event.phaseCoverage
+    : {};
+  const replayUsed = Boolean(raw.replayUsed || event.replayUsed || reasonSet.has("visual_replay_indicator") || reasonSet.has("visual_replay_angle"));
+  const replayOnly = Boolean(raw.replayOnly || event.replayOnly);
+  return {
+    hasBuildup: raw.hasBuildup == null ? sourceStart <= shotStart - 6 : Boolean(raw.hasBuildup),
+    hasShot: raw.hasShot == null
+      ? reasonSet.has("visual_shot_contact") || reasonSet.has("visual_shot_like_motion") || reasonSet.has("visual_ball_toward_goal") || reasonSet.has("shot_sequence_support")
+      : Boolean(raw.hasShot),
+    hasFinish: raw.hasFinish == null
+      ? reasonSet.has("visual_ball_in_net") || reasonSet.has("ball_in_net") || reasonSet.has("scoreboard_backed_goal_sequence")
+      : Boolean(raw.hasFinish),
+    hasConfirmation: raw.hasConfirmation == null
+      ? event.type === "confirmed_goal" || reasonSet.has("visual_scoreboard_goal_confirmed") || reasonSet.has("visual_referee_goal_signal") || reasonSet.has("confirmed_by_commentary")
+      : Boolean(raw.hasConfirmation),
+    liveActionStart: finiteNumber(raw.liveActionStart, sourceStart),
+    shotStart,
+    finishTime,
+    confirmationTime,
+    replayUsed,
+    replayOnly,
+  };
+}
+
+function goalPhaseIsRenderable(event = {}) {
+  const phaseCoverage = goalPhaseCoverageForEvent(event);
+  return !phaseCoverage.replayOnly &&
+    phaseCoverage.hasShot &&
+    phaseCoverage.hasFinish &&
+    phaseCoverage.hasConfirmation;
 }
 
 function truthEventsForValidGoalsOnly(matchEventTruth = null) {
@@ -2656,6 +2719,7 @@ function truthEventsForValidGoalsOnly(matchEventTruth = null) {
   const selectedEvents = Array.isArray(truth.selectedEvents) ? truth.selectedEvents : [];
   return selectedEvents
     .filter((event) => event.type === "confirmed_goal" && event.outcome === "confirmed_goal")
+    .filter(goalPhaseIsRenderable)
     .sort((a, b) => Number(a.sourceStart || 0) - Number(b.sourceStart || 0));
 }
 
@@ -2699,11 +2763,22 @@ function truthGoalWindowForPlan(event = {}, metadata = {}) {
   const decisionEnd = event.decisionWindow && Number.isFinite(Number(event.decisionWindow.end))
     ? Number(event.decisionWindow.end)
     : payoffEnd;
-  let sourceStart = Math.max(0, Math.min(eventStart, buildupStart, shotStart) - VALID_GOAL_ONLY_TIMING.preContextSeconds);
+  const phaseCoverage = goalPhaseCoverageForEvent(event);
+  const phaseShotStart = finiteNumber(phaseCoverage.shotStart, shotStart);
+  const finishTime = finiteNumber(phaseCoverage.finishTime, payoffEnd);
+  const confirmationTime = finiteNumber(phaseCoverage.confirmationTime, decisionEnd);
+  const liveActionStart = finiteNumber(phaseCoverage.liveActionStart, Math.min(eventStart, buildupStart, phaseShotStart));
+  let sourceStart = Math.max(
+    0,
+    Math.max(
+      phaseShotStart - VALID_GOAL_ONLY_TIMING.maxPreContextSeconds,
+      Math.min(eventStart, buildupStart, liveActionStart, phaseShotStart - VALID_GOAL_ONLY_TIMING.preContextSeconds),
+    ),
+  );
   let sourceEnd = Math.max(
     eventEnd,
-    payoffEnd + VALID_GOAL_ONLY_TIMING.postContextSeconds,
-    decisionEnd + VALID_GOAL_ONLY_TIMING.decisionPostSeconds,
+    finishTime + VALID_GOAL_ONLY_TIMING.postContextSeconds,
+    confirmationTime + VALID_GOAL_ONLY_TIMING.decisionPostSeconds,
   );
   if (duration > 0) sourceEnd = Math.min(duration, sourceEnd);
   if (sourceEnd - sourceStart < VALID_GOAL_ONLY_TIMING.minSegmentDuration) {
@@ -2712,11 +2787,43 @@ function truthGoalWindowForPlan(event = {}, metadata = {}) {
     sourceEnd = Math.min(duration || sourceEnd + missing * 0.45, sourceEnd + missing * 0.45);
   }
   if (sourceEnd - sourceStart > VALID_GOAL_ONLY_TIMING.maxSegmentDuration) {
-    sourceEnd = Math.min(duration || sourceStart + VALID_GOAL_ONLY_TIMING.maxSegmentDuration, sourceStart + VALID_GOAL_ONLY_TIMING.maxSegmentDuration);
+    const requiredEnd = Math.min(
+      duration || sourceEnd,
+      Math.max(finishTime + 2.2, confirmationTime + VALID_GOAL_ONLY_TIMING.decisionPostSeconds),
+    );
+    sourceEnd = Math.min(duration || sourceEnd, sourceStart + VALID_GOAL_ONLY_TIMING.maxSegmentDuration);
+    if (requiredEnd > sourceEnd) {
+      sourceEnd = requiredEnd;
+      sourceStart = Math.max(0, sourceEnd - VALID_GOAL_ONLY_TIMING.maxSegmentDuration);
+    }
   }
   return {
     sourceStart: Number(sourceStart.toFixed(2)),
     sourceEnd: Number(Math.max(sourceStart + 3, sourceEnd).toFixed(2)),
+  };
+}
+
+function goalPhaseMetadataForEvent(event = {}, window = {}) {
+  const phaseCoverage = goalPhaseCoverageForEvent(event, window);
+  return {
+    goalNumber: Number(event.goalNumber || 0) || null,
+    shotStart: Number(phaseCoverage.shotStart.toFixed(2)),
+    finishTime: Number(phaseCoverage.finishTime.toFixed(2)),
+    confirmationTime: phaseCoverage.confirmationTime == null ? null : Number(phaseCoverage.confirmationTime.toFixed(2)),
+    replayUsed: phaseCoverage.replayUsed,
+    replayOnly: phaseCoverage.replayOnly,
+    phaseCoverage: {
+      hasBuildup: phaseCoverage.hasBuildup,
+      hasShot: phaseCoverage.hasShot,
+      hasFinish: phaseCoverage.hasFinish,
+      hasConfirmation: phaseCoverage.hasConfirmation,
+      replayUsed: phaseCoverage.replayUsed,
+      replayOnly: phaseCoverage.replayOnly,
+      liveActionStart: Number(finiteNumber(phaseCoverage.liveActionStart, window.sourceStart || 0).toFixed(2)),
+      shotStart: Number(phaseCoverage.shotStart.toFixed(2)),
+      finishTime: Number(phaseCoverage.finishTime.toFixed(2)),
+      confirmationTime: phaseCoverage.confirmationTime == null ? null : Number(phaseCoverage.confirmationTime.toFixed(2)),
+    },
   };
 }
 
@@ -2748,6 +2855,7 @@ function createTruthDrivenValidGoalMoments({ matchEventTruth, metadata, signals,
   const events = truthEventsForValidGoalsOnly(matchEventTruth);
   return events.map((event, index) => {
     const { sourceStart, sourceEnd } = truthGoalWindowForPlan(event, metadata || signals || {});
+    const goalPhase = goalPhaseMetadataForEvent({ ...event, goalNumber: index + 1 }, { sourceStart, sourceEnd });
     const reasonCodes = truthGoalReasonCodes(event);
     const confidence = Number(clamp(Number(event.confidence || 0.9) + 0.04, 0.12, 0.98).toFixed(2));
     return normalizeMomentWithEvidence({
@@ -2767,6 +2875,8 @@ function createTruthDrivenValidGoalMoments({ matchEventTruth, metadata, signals,
       captionIntent: "confirmed_goal_caption",
       evidence: {
         goalOutcome: truthGoalOutcomeForEvent(event),
+        goalPhase,
+        phaseCoverage: goalPhase.phaseCoverage,
       },
       rankingExplanation: rankingExplanationForMoment({
         reasons: reasonCodes,
@@ -2946,6 +3056,30 @@ function isGoalCoverageCandidate(candidate = {}) {
     (goalOutcome && goalOutcome.eventType === "ball_in_net");
 }
 
+function goalPhaseForCandidate(candidate = {}) {
+  const moment = candidate.analysisMoment || candidate || {};
+  const evidence = moment.evidence && typeof moment.evidence === "object" ? moment.evidence : {};
+  return candidate.goalPhase ||
+    candidate.phaseCoverage ||
+    evidence.goalPhase ||
+    evidence.phaseCoverage ||
+    null;
+}
+
+function goalPhaseCoverageForCandidate(candidate = {}) {
+  const phase = goalPhaseForCandidate(candidate);
+  if (!phase) return null;
+  return phase.phaseCoverage && typeof phase.phaseCoverage === "object" ? phase.phaseCoverage : phase;
+}
+
+function confirmedGoalPhaseIsRenderable(candidate = {}) {
+  const phaseCoverage = goalPhaseCoverageForCandidate(candidate);
+  if (!phaseCoverage) return true;
+  return phaseCoverage.replayOnly !== true &&
+    phaseCoverage.hasShot !== false &&
+    phaseCoverage.hasFinish !== false;
+}
+
 function isConfirmedGoalCandidate(candidate = {}) {
   const moment = candidate.analysisMoment || candidate || {};
   const reasonCodes = Array.isArray(candidate.reasonCodes)
@@ -2973,6 +3107,7 @@ function isConfirmedGoalCandidate(candidate = {}) {
   );
   return candidate.highlightType === "goal" &&
     reasonCodes.includes("goal") &&
+    confirmedGoalPhaseIsRenderable(candidate) &&
     hasActionEvidence &&
     goalOutcome &&
     goalOutcome.eventType === "ball_in_net" &&
@@ -3027,12 +3162,7 @@ function compilationHandlesForCandidate(candidate = {}) {
   const moment = candidate.analysisMoment || {};
   const goalOutcome = candidate.goalOutcome || goalOutcomeForMoment(moment);
   if (isConfirmedGoalCandidate(candidate)) {
-    const sourceEnd = Number(candidate.sourceEnd ?? moment.end);
-    const decisionTimestamp = Number(goalOutcome && goalOutcome.decisionTimestamp);
-    const decisionPost = Number.isFinite(decisionTimestamp) && Number.isFinite(sourceEnd) && decisionTimestamp > sourceEnd
-      ? decisionTimestamp - sourceEnd + 0.8
-      : 0.75;
-    return { pre: 0.25, post: Number(clamp(Math.max(0.75, decisionPost), 0.75, 1.6).toFixed(2)) };
+    return { pre: 0, post: 0 };
   }
   if (isGoalCoverageCandidate(candidate)) {
     return goalOutcome && goalOutcome.requiresPostContext
@@ -3450,6 +3580,8 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
     const timelineStart = Number(cursor.toFixed(2));
     cursor += duration;
     const moment = candidate.analysisMoment || {};
+    const candidatePhase = goalPhaseForCandidate(candidate);
+    const phaseCoverage = goalPhaseCoverageForCandidate(candidate);
     return {
       id: sanitizeText(candidate.candidateId || moment.id || `multi_segment_${index + 1}`, 64),
       sourceStart: Number(candidate.sourceStart.toFixed(2)),
@@ -3460,6 +3592,22 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
       highlightType: candidate.highlightType,
       reasonCodes: Array.isArray(candidate.reasonCodes) ? candidate.reasonCodes : [],
       goalOutcome: candidate.goalOutcome || goalOutcomeForMoment(moment),
+      goalNumber: isConfirmedGoalCandidate(candidate) ? index + 1 : null,
+      shotStart: candidatePhase && Number.isFinite(Number(candidatePhase.shotStart)) ? Number(Number(candidatePhase.shotStart).toFixed(2)) : null,
+      finishTime: candidatePhase && Number.isFinite(Number(candidatePhase.finishTime)) ? Number(Number(candidatePhase.finishTime).toFixed(2)) : null,
+      confirmationTime: candidatePhase && Number.isFinite(Number(candidatePhase.confirmationTime)) ? Number(Number(candidatePhase.confirmationTime).toFixed(2)) : null,
+      replayUsed: Boolean(candidatePhase && candidatePhase.replayUsed),
+      replayOnly: Boolean(phaseCoverage && phaseCoverage.replayOnly),
+      phaseCoverage: phaseCoverage
+        ? {
+            hasBuildup: Boolean(phaseCoverage.hasBuildup),
+            hasShot: Boolean(phaseCoverage.hasShot),
+            hasFinish: Boolean(phaseCoverage.hasFinish),
+            hasConfirmation: Boolean(phaseCoverage.hasConfirmation),
+            replayUsed: Boolean(phaseCoverage.replayUsed),
+            replayOnly: Boolean(phaseCoverage.replayOnly),
+          }
+        : null,
       confidence: candidate.confidence,
       retentionScore: candidate.retentionScore,
       captionTheme: captionIntentForHighlightType(candidate.highlightType),
@@ -3649,6 +3797,11 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
                 confidence: segment.actionSequenceSummary.footballSequence.confidence,
               }
             : null,
+          phaseCoverage: segment.phaseCoverage,
+          replayOnly: Boolean(segment.replayOnly),
+          shotStart: segment.shotStart,
+          finishTime: segment.finishTime,
+          confirmationTime: segment.confirmationTime,
           whySelected: segment.whySelected,
           safetyFlags: segment.safetyFlags,
         })),

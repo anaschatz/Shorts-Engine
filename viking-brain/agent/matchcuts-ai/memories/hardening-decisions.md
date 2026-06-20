@@ -75,3 +75,4 @@
 - Multi-moment compilation should include every detected ball-in-net/goal sequence before filler phases, while fallback/local provider mode keeps labels neutral when goals are not explicitly detected.
 - Long-source football compilations should prioritize detected goal coverage moments before generic signal moments when creating edit-plan candidates, then add bounded pre/post context handles to reduce clipped phases.
 - Multi-segment rendering should smooth segment boundaries with short bounded video fades by default; avoid fragile crossfade graphs until a dedicated transition engine exists.
+- Valid-goals-only shorts must reconstruct the live goal phase first: buildup, shot, finish and confirmation. Replay-only or celebration-only goal candidates are support evidence, not primary render segments.

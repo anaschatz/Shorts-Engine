@@ -46,6 +46,23 @@ function matchEventTruthFixture(goals, durationSeconds) {
     shotWindow: { start: goal.shotStart || goal.sourceStart, end: goal.payoffStart || goal.sourceEnd },
     payoffWindow: { start: goal.payoffStart || goal.sourceStart, end: goal.payoffEnd || goal.sourceEnd },
     decisionWindow: { start: goal.decisionStart || goal.sourceEnd - 1.2, end: goal.decisionEnd || goal.sourceEnd },
+    phaseCoverage: {
+      hasBuildup: goal.hasBuildup !== false,
+      hasShot: goal.hasShot !== false,
+      hasFinish: goal.hasFinish !== false,
+      hasConfirmation: goal.hasConfirmation !== false,
+      liveActionStart: goal.liveActionStart || goal.sourceStart,
+      shotStart: goal.shotStart || goal.sourceStart,
+      finishTime: goal.payoffEnd || goal.sourceEnd,
+      confirmationTime: goal.decisionStart || goal.sourceEnd - 1.2,
+      replayUsed: Boolean(goal.replayUsed),
+      replayOnly: Boolean(goal.replayOnly),
+    },
+    shotStart: goal.shotStart || goal.sourceStart,
+    finishTime: goal.payoffEnd || goal.sourceEnd,
+    confirmationTime: goal.decisionStart || goal.sourceEnd - 1.2,
+    replayUsed: Boolean(goal.replayUsed),
+    replayOnly: Boolean(goal.replayOnly),
     evidenceCodes: [
       "visual_shot_contact",
       "visual_ball_toward_goal",
@@ -95,7 +112,7 @@ test("media signal extraction can use mocked FFmpeg scene and audio outputs", as
 });
 
 test("media signal extraction keeps late candidates for long sources", async () => {
-  const longMetadata = { durationSeconds: 150, width: 1920, height: 1080, hasAudio: true };
+  const longMetadata = { durationSeconds: 260, width: 1920, height: 1080, hasAudio: true };
   const sceneTimes = Array.from({ length: 28 }, (_, index) => 5 + index * 5);
   const fakeRunner = async (args) => {
     const text = args.join(" ");
@@ -1185,7 +1202,7 @@ test("long goal compilations include every detected confirmed goal before filler
   assert.ok(goalSegments.some((segment) => segment.sourceStart <= 20.6 && segment.sourceEnd >= 28.3));
   assert.ok(goalSegments.some((segment) => segment.sourceStart <= 62.6 && segment.sourceEnd >= 70.3));
   assert.ok(goalSegments.some((segment) => segment.sourceStart <= 106.6 && segment.sourceEnd >= 114.3));
-  assert.ok(goalSegments.every((segment) => segment.duration >= 10 && segment.duration <= 22));
+  assert.ok(goalSegments.every((segment) => segment.duration >= 10 && segment.duration <= 28));
   assert.ok(goalSegments.every((segment) => segment.goalOutcome.outcome === "confirmed_goal"));
   assert.ok(plan.segments.every((segment) => segment.goalOutcome.outcome === "confirmed_goal"));
   assert.doesNotMatch(plan.captions.map((caption) => caption.text).join(" "), /PHASE \d|PRESSURE BUILDS/i);
@@ -1354,11 +1371,11 @@ test("valid-goals-only keeps full-source late confirmed goals before early fille
   assert.equal(plan.segments.length, 3);
   assert.ok(plan.segments.every((segment) => segment.highlightType === "goal"));
   assert.ok(plan.segments.every((segment) => segment.goalOutcome.outcome === "confirmed_goal"));
-  assert.ok(plan.segments.every((segment) => segment.sourceStart >= 230));
+  assert.ok(plan.segments.every((segment) => segment.sourceStart >= 220));
   assert.ok(plan.segments.some((segment) => segment.sourceStart <= 238 && segment.sourceEnd >= 254.6));
   assert.ok(plan.segments.some((segment) => segment.sourceStart <= 294 && segment.sourceEnd >= 312.4));
   assert.ok(plan.segments.some((segment) => segment.sourceStart <= 328 && segment.sourceEnd >= 346.4));
-  assert.ok(plan.segments.every((segment) => segment.duration >= 10 && segment.duration <= 30));
+  assert.ok(plan.segments.every((segment) => segment.duration >= 18 && segment.duration <= 28));
   assert.equal(plan.hook, "VALID FINISHES ONLY");
   assert.match(captionText, /FINISH COUNTS|ONLY VALID FINISHES/i);
   assert.doesNotMatch(captionText, /BIG CHANCE|SHOT OPENS UP|CHANCE OPENS|EVERY BIG MOMENT/i);
@@ -1408,6 +1425,10 @@ test("valid-goals-only plan keeps every confirmed goal, excludes offside goals, 
   assert.ok(segments.every((segment) => segment.highlightType === "goal"));
   assert.ok(segments.every((segment) => segment.goalOutcome.outcome === "confirmed_goal"));
   assert.ok(segments.every((segment) => segment.goalOutcome.offsideStatus === "onside"));
+  assert.ok(segments.every((segment) => segment.replayOnly === false));
+  assert.ok(segments.every((segment) => segment.phaseCoverage && segment.phaseCoverage.hasBuildup));
+  assert.ok(segments.every((segment) => segment.phaseCoverage && segment.phaseCoverage.hasShot));
+  assert.ok(segments.every((segment) => segment.phaseCoverage && segment.phaseCoverage.hasFinish));
   assert.ok(segments.some((segment) => segment.sourceStart <= 58 && segment.sourceEnd >= 75.2));
   assert.ok(segments.some((segment) => segment.sourceStart <= 178 && segment.sourceEnd >= 195));
   assert.ok(segments.some((segment) => segment.sourceStart <= 304 && segment.sourceEnd >= 323));
@@ -1416,12 +1437,109 @@ test("valid-goals-only plan keeps every confirmed goal, excludes offside goals, 
     segments.map((segment) => segment.sourceStart),
     [...segments.map((segment) => segment.sourceStart)].sort((a, b) => a - b),
   );
-  assert.ok(segments.every((segment) => segment.duration >= 10 && segment.duration <= 30));
+  assert.ok(segments.every((segment) => segment.duration >= 18 && segment.duration <= 28));
   assert.equal(plan.transitionPlan.length, 2);
   assert.ok(plan.transitionPlan.every((transition) => transition.type === "short_fade"));
   assert.equal(plan.reviewMetadata.multiMoment.smoothTransitionCoverage, 1);
   assert.equal(plan.reviewMetadata.multiMoment.validGoalsOnly, true);
   assert.doesNotMatch(plan.captions.map((caption) => caption.text).join(" "), /OFFSIDE|NO GOAL|BIG CHANCE/i);
+});
+
+test("valid-goals-only rejects replay-only confirmed goal candidates", () => {
+  const longMetadata = { durationSeconds: 140, width: 1920, height: 1080, hasAudio: true };
+  const truth = matchEventTruthFixture([
+    {
+      sourceStart: 78,
+      sourceEnd: 92,
+      shotStart: 82,
+      payoffStart: 86,
+      payoffEnd: 88,
+      decisionStart: 90,
+      decisionEnd: 92,
+      replayUsed: true,
+      replayOnly: true,
+      hasBuildup: false,
+      hasShot: false,
+      hasFinish: true,
+      hasConfirmation: true,
+    },
+  ], longMetadata.durationSeconds);
+  truth.selectedEvents[0].evidenceCodes = [
+    "visual_replay_indicator",
+    "visual_replay_angle",
+    "visual_ball_in_net",
+    "visual_scoreboard_goal_confirmed",
+    "replay_goal_confirmation",
+  ];
+
+  const plans = createCandidateEditPlans({
+    moments: [],
+    metadata: { ...longMetadata, goalSelectionMode: "valid_goals_only" },
+    transcript: { captions: [] },
+    matchEventTruth: truth,
+    title: "Replay only rejected",
+    editIntensity: "balanced",
+    stylePreset: "punchy_highlight",
+  });
+
+  assert.deepEqual(plans, []);
+});
+
+test("valid-goals-only maps replay confirmation back to live goal phase", () => {
+  const longMetadata = { durationSeconds: 210, width: 1920, height: 1080, hasAudio: true };
+  const truth = matchEventTruthFixture([
+    {
+      sourceStart: 110,
+      sourceEnd: 124,
+      liveActionStart: 98,
+      shotStart: 104,
+      payoffStart: 108,
+      payoffEnd: 110,
+      decisionStart: 121,
+      decisionEnd: 124,
+      replayUsed: true,
+    },
+    {
+      sourceStart: 150,
+      sourceEnd: 166,
+      shotStart: 152,
+      payoffStart: 156,
+      payoffEnd: 158,
+      decisionStart: 164,
+      decisionEnd: 166,
+    },
+    {
+      sourceStart: 202,
+      sourceEnd: 218,
+      shotStart: 204,
+      payoffStart: 208,
+      payoffEnd: 210,
+      decisionStart: 216,
+      decisionEnd: 218,
+    },
+  ], longMetadata.durationSeconds);
+  truth.selectedEvents[0].evidenceCodes.push("visual_replay_indicator", "visual_replay_angle", "replay_goal_confirmation");
+
+  const plans = createCandidateEditPlans({
+    moments: [],
+    metadata: { ...longMetadata, goalSelectionMode: "valid_goals_only" },
+    transcript: { captions: [] },
+    matchEventTruth: truth,
+    title: "Replay maps to live action",
+    editIntensity: "balanced",
+    stylePreset: "punchy_highlight",
+  });
+  const plan = validateEditPlan(plans[0], longMetadata);
+  const first = plan.segments[0];
+
+  assert.equal(plan.segments.length, 3);
+  assert.equal(first.replayOnly, false);
+  assert.equal(first.replayUsed, true);
+  assert.ok(first.sourceStart <= first.shotStart - 8);
+  assert.ok(first.sourceEnd >= first.finishTime + 2);
+  assert.ok(first.phaseCoverage.hasBuildup);
+  assert.ok(first.phaseCoverage.hasShot);
+  assert.ok(first.phaseCoverage.hasFinish);
 });
 
 test("valid-goals-only selection returns no plan for chance-only long sources", () => {

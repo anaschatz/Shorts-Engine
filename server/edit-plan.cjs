@@ -165,6 +165,7 @@ const VISUAL_EVIDENCE_REASON_CODES = Object.freeze([
   "visual_referee_goal_signal",
   "visual_scoreboard_goal_removed",
   "visual_scoreboard_goal_confirmed",
+  "visual_replay_indicator",
   "visual_replay_angle",
   "visual_crowd_confusion",
   "visual_celebration_after_whistle",
@@ -177,7 +178,12 @@ const GOAL_DECISION_EVIDENCE_CODES = Object.freeze([
   "explicit_goal_language",
   "ball_in_net",
   "scoreboard_backed_goal_sequence",
+  "scoreboard_ocr_score_change",
+  "scoreboard_ocr_score_unchanged",
+  "scoreboard_temporal_consistency",
   "confirmed_by_commentary",
+  "commentator_goal_call_support",
+  "crowd_reaction_support",
   "offside_commentary",
   "flag_commentary",
   "disallowed_commentary",
@@ -193,9 +199,14 @@ const GOAL_DECISION_EVIDENCE_CODES = Object.freeze([
   "visual_referee_goal_signal",
   "visual_scoreboard_goal_removed",
   "visual_scoreboard_goal_confirmed",
+  "visual_replay_indicator",
   "visual_replay_angle",
   "visual_crowd_confusion",
+  "visual_crowd_reaction",
   "visual_celebration_after_whistle",
+  "audio_energy_spike",
+  "scene_change_cluster",
+  "replay_goal_confirmation",
   "var_decision",
   "scoreboard_goal_removed",
   "scoreboard_goal_confirmed",
@@ -284,7 +295,7 @@ function isKnownStylePreset(value) {
 function assertAllowedToken(value, allowed, message, maxLength = 60) {
   const safe = sanitizeText(value, maxLength).toLowerCase();
   if (!allowed.includes(safe)) {
-    throw new AppError("VALIDATION_ERROR", message, 400);
+    throw new AppError("VALIDATION_ERROR", `${message} (${safe || "empty"})`, 400);
   }
   return safe;
 }
@@ -876,6 +887,62 @@ function segmentHasPrimaryAction(reasonCodes = [], highlightType = "generic_high
     SEGMENT_PRIMARY_ACTION_REASONS.some((reason) => reasonSet.has(reason) || reason === normalizeHighlightType(highlightType));
 }
 
+function finiteTimestamp(value, min, max, fallback = null) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Number(clamp(parsed, min, max).toFixed(2));
+}
+
+function normalizeSegmentGoalPhase(segment = {}, context = {}) {
+  const raw = segment.phaseCoverage && typeof segment.phaseCoverage === "object" && !Array.isArray(segment.phaseCoverage)
+    ? segment.phaseCoverage
+    : {};
+  const reasonSet = new Set(context.reasonCodes || []);
+  const confirmedGoal = context.highlightType === "goal" &&
+    context.goalOutcome &&
+    context.goalOutcome.eventType === "ball_in_net" &&
+    context.goalOutcome.outcome === "confirmed_goal";
+  const shotStart = finiteTimestamp(segment.shotStart ?? raw.shotStart, context.sourceStart, context.sourceEnd, null);
+  const finishTime = finiteTimestamp(segment.finishTime ?? raw.finishTime, context.sourceStart, context.sourceEnd, null);
+  const confirmationTime = finiteTimestamp(segment.confirmationTime ?? raw.confirmationTime, context.sourceStart, context.sourceEnd, null);
+  const replayUsed = Boolean(
+    segment.replayUsed ||
+    raw.replayUsed ||
+    reasonSet.has("visual_replay_indicator") ||
+    reasonSet.has("visual_replay_angle") ||
+    reasonSet.has("replay_goal_confirmation"),
+  );
+  const hasShot = raw.hasShot == null
+    ? reasonSet.has("visual_shot_contact") || reasonSet.has("visual_shot_like_motion") || reasonSet.has("visual_ball_toward_goal") || reasonSet.has("shot_sequence_support")
+    : Boolean(raw.hasShot);
+  const hasFinish = raw.hasFinish == null
+    ? reasonSet.has("visual_ball_in_net") || reasonSet.has("ball_in_net") || reasonSet.has("scoreboard_backed_goal_sequence") || confirmedGoal
+    : Boolean(raw.hasFinish);
+  const replayOnly = Boolean(segment.replayOnly || raw.replayOnly) || (replayUsed && !hasShot);
+  const phaseCoverage = {
+    hasBuildup: raw.hasBuildup == null ? (shotStart == null ? context.sourceEnd - context.sourceStart >= 8 : context.sourceStart <= shotStart - 6) : Boolean(raw.hasBuildup),
+    hasShot,
+    hasFinish,
+    hasConfirmation: raw.hasConfirmation == null
+      ? confirmedGoal || reasonSet.has("visual_scoreboard_goal_confirmed") || reasonSet.has("visual_referee_goal_signal") || reasonSet.has("confirmed_by_commentary")
+      : Boolean(raw.hasConfirmation),
+    replayUsed,
+    replayOnly,
+  };
+  if (confirmedGoal && (phaseCoverage.replayOnly || !phaseCoverage.hasShot || !phaseCoverage.hasFinish)) {
+    throw new AppError("VALIDATION_ERROR", "Confirmed goal segment must include live shot and finish evidence.", 400);
+  }
+  return {
+    goalNumber: Number.isFinite(Number(segment.goalNumber)) ? Math.max(1, Math.round(Number(segment.goalNumber))) : null,
+    shotStart,
+    finishTime,
+    confirmationTime,
+    replayUsed,
+    replayOnly,
+    phaseCoverage,
+  };
+}
+
 function normalizedEditPlanMode(value, hasSegments) {
   const safe = sanitizeText(value || (hasSegments ? "multi_moment_compilation" : "single_moment"), 40).toLowerCase();
   if (EDIT_PLAN_MODES.includes(safe)) return safe;
@@ -915,6 +982,13 @@ function normalizeSegmentItem(segment, index, metadata = {}) {
     throw new AppError("VALIDATION_ERROR", "Opening context segment needs explicit action evidence.", 400);
   }
   const goalOutcome = normalizeGoalOutcome(segment.goalOutcome, { highlightType, reasonCodes });
+  const goalPhase = normalizeSegmentGoalPhase(segment, {
+    sourceStart,
+    sourceEnd,
+    highlightType,
+    reasonCodes,
+    goalOutcome,
+  });
   return {
     id: sanitizeText(segment.id || `segment_${index + 1}`, 64),
     sourceStart: Number(sourceStart.toFixed(2)),
@@ -923,6 +997,13 @@ function normalizeSegmentItem(segment, index, metadata = {}) {
     highlightType,
     reasonCodes,
     goalOutcome,
+    goalNumber: goalPhase.goalNumber,
+    shotStart: goalPhase.shotStart,
+    finishTime: goalPhase.finishTime,
+    confirmationTime: goalPhase.confirmationTime,
+    replayUsed: goalPhase.replayUsed,
+    replayOnly: goalPhase.replayOnly,
+    phaseCoverage: goalPhase.phaseCoverage,
     confidence: Number(clamp(segment.confidence, 0, 1).toFixed(2)),
     retentionScore: Math.round(clamp(segment.retentionScore || segment.confidence * 100, 0, 100)),
     captionTheme: sanitizeText(segment.captionTheme || captionIntentForHighlightType(highlightType), 80),
