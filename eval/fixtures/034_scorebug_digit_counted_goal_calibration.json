@@ -70,6 +70,7 @@
       "scoreBefore": "0-0",
       "scoreAfter": "1-0",
       "status": "score_changed",
+      "transitionDecision": "score_changed",
       "temporalConsistency": true,
       "confidence": 0.91,
       "source": "fixture_digit_scorebug"
@@ -78,7 +79,8 @@
       "timestamp": 64.5,
       "scoreBefore": "1-0",
       "scoreAfter": "0-0",
-      "status": "goal_removed",
+      "status": "score_reverted_or_disallowed",
+      "transitionDecision": "score_reverted_or_disallowed",
       "temporalConsistency": true,
       "confidence": 0.9,
       "source": "fixture_digit_scorebug"
@@ -88,6 +90,7 @@
       "scoreBefore": "0-0",
       "scoreAfter": "1-0",
       "status": "score_changed",
+      "transitionDecision": "score_changed",
       "temporalConsistency": true,
       "confidence": 0.92,
       "source": "fixture_digit_scorebug"
@@ -97,6 +100,7 @@
       "scoreBefore": "1-0",
       "scoreAfter": "2-0",
       "status": "score_changed",
+      "transitionDecision": "score_changed",
       "temporalConsistency": true,
       "confidence": 0.93,
       "source": "fixture_digit_scorebug"
@@ -106,6 +110,7 @@
       "scoreBefore": "2-0",
       "scoreAfter": "3-0",
       "status": "score_changed",
+      "transitionDecision": "score_changed",
       "temporalConsistency": true,
       "confidence": 0.94,
       "source": "fixture_digit_scorebug"
@@ -145,10 +150,16 @@
     ],
     "scoreboardOcr": [
       { "timestamp": 54.5, "status": "score_changed" },
-      { "timestamp": 64.5, "status": "goal_removed" },
+      { "timestamp": 64.5, "status": "score_reverted_or_disallowed" },
       { "timestamp": 144.4, "status": "score_changed" },
       { "timestamp": 266.4, "status": "score_changed" },
       { "timestamp": 386.4, "status": "score_changed" }
+    ],
+    "scoreChanges": [
+      { "changeTime": 54.5, "outcome": "disallowed_goal" },
+      { "changeTime": 144.4, "outcome": "counted_goal" },
+      { "changeTime": 266.4, "outcome": "counted_goal" },
+      { "changeTime": 386.4, "outcome": "counted_goal" }
     ],
     "goalSelectionMode": "valid_goals_only",
     "finalSegmentCount": 3,

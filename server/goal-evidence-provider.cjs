@@ -125,6 +125,7 @@ const OCR_STATUSES = Object.freeze([
   "score_unchanged",
   "goal_confirmed",
   "goal_removed",
+  "score_reverted_or_disallowed",
   "clock_only",
   "ambiguous",
   "unreadable",
@@ -513,7 +514,7 @@ function normalizeOcrEvidenceItem(item = {}, metadata = {}, index = 0) {
           ? "score_unchanged"
           : "ambiguous";
   if (scoreBefore && scoreAfter) {
-    if (direction === "decrease") status = "goal_removed";
+    if (direction === "decrease" && status !== "score_reverted_or_disallowed") status = "goal_removed";
     else if (direction === "ambiguous") status = "ambiguous";
     else if (direction === "same" && status === "score_changed") status = "score_unchanged";
     else if (direction === "increase" && status === "score_unchanged") status = "ambiguous";
@@ -522,7 +523,7 @@ function normalizeOcrEvidenceItem(item = {}, metadata = {}, index = 0) {
   const temporalConsistency = Boolean(item.temporalConsistency ?? item.temporallyConsistent ?? ((delta === 0 || delta === 1) && confidence >= 0.72));
   const ambiguous = Boolean(item.ambiguous) || status === "ambiguous" || confidence < 0.55;
   const scoreChanged = (status === "score_changed" || status === "goal_confirmed") && direction === "increase" && temporalConsistency && !ambiguous;
-  const scoreReverted = status === "goal_removed" && direction === "decrease" && temporalConsistency && !ambiguous;
+  const scoreReverted = (status === "goal_removed" || status === "score_reverted_or_disallowed") && direction === "decrease" && temporalConsistency && !ambiguous;
   const scoreUnchanged = status === "score_unchanged" || scoreReverted;
   return {
     id: sanitizeText(item.id || `scoreboard_ocr_${index + 1}`, 80),
@@ -545,6 +546,10 @@ function normalizeOcrEvidenceItem(item = {}, metadata = {}, index = 0) {
     imageDecoderMode: sanitizeText(item.imageDecoderMode || item.decoderMode || "", 40) || null,
     layoutId: sanitizeText(item.layoutId || "", 80) || null,
     scoreOnlyCropRef: item.scoreOnlyCropRef ? sanitizeText(item.scoreOnlyCropRef, 180) : null,
+    transitionDecision: item.transitionDecision ? sanitizeText(item.transitionDecision, 60) : null,
+    transitionReasonCodes: Array.isArray(item.transitionReasonCodes)
+      ? item.transitionReasonCodes.map((reason) => sanitizeText(reason, 80)).filter(Boolean).slice(0, 8)
+      : [],
   };
 }
 
@@ -1102,6 +1107,7 @@ function publicGoalEvidence(goalEvidence) {
           imageSegmentationStatus: item.imageSegmentationStatus ? sanitizeText(item.imageSegmentationStatus, 40) : null,
           imageDecoderStatus: item.imageDecoderStatus ? sanitizeText(item.imageDecoderStatus, 40) : null,
           imageDecoderMode: item.imageDecoderMode ? sanitizeText(item.imageDecoderMode, 40) : null,
+          transitionDecision: item.transitionDecision ? sanitizeText(item.transitionDecision, 60) : null,
         }))
       : [],
     events: Array.isArray(safe.events)

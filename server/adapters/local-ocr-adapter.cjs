@@ -264,6 +264,8 @@ function buildScoreboardEvidenceFromObservations(observations = []) {
       imageDecoderMode: item.imageDecoderMode,
       layoutId: item.layoutId,
       scoreOnlyCropRef: item.scoreOnlyCropRef,
+      transitionDecision: item.transitionDecision,
+      transitionReasonCodes: item.transitionReasonCodes,
       ambiguityReasons: item.ambiguityReasons,
     }));
 }
@@ -332,7 +334,7 @@ class LocalOcrCommandAdapter {
       return { text: "", confidence: 0, skipped: true, reason: "local_ocr_unavailable" };
     }
     const safeImagePath = assertStoragePath(imagePath, "staging");
-    const safePsm = ["6", "7", "11"].includes(String(psm || "")) ? String(psm) : "7";
+    const safePsm = ["6", "7", "10", "11"].includes(String(psm || "")) ? String(psm) : "7";
     const safeWhitelist = safeOcrWhitelist(whitelist);
     const args = [safeImagePath, "stdout", "--psm", safePsm, "--oem", "1"];
     if (safeWhitelist) args.push("-c", `tessedit_char_whitelist=${safeWhitelist}`);

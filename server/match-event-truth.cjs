@@ -695,7 +695,7 @@ function scoreObservationReasonCodes(item = {}, calibration = null) {
   const codes = [];
   const status = sanitizeText(item.status || "", 40);
   if (item.scoreChanged || status === "score_changed" || status === "goal_confirmed") codes.push("scoreboard_ocr_score_change");
-  if (item.scoreReverted || status === "goal_removed") codes.push("scoreboard_ocr_goal_removed");
+  if (item.scoreReverted || status === "goal_removed" || status === "score_reverted_or_disallowed") codes.push("scoreboard_ocr_goal_removed");
   if (item.scoreUnchanged || status === "score_unchanged") codes.push("scoreboard_ocr_score_unchanged");
   if (item.temporalConsistency) codes.push("scoreboard_temporal_consistency");
   if (item.ambiguous) codes.push("scoreboard_ocr_ambiguous");
@@ -729,6 +729,7 @@ function normalizeScoreTimelineObservation(item = {}, index = 0, calibration = n
     isStable,
     reasonCodes: scoreObservationReasonCodes(item, calibration),
     status: sanitizeText(item.status || "unknown", 40),
+    transitionDecision: item.transitionDecision ? sanitizeText(item.transitionDecision, 60) : null,
     temporalConsistency: Boolean(item.temporalConsistency),
     ambiguous: Boolean(item.ambiguous),
   };

@@ -1,5 +1,6 @@
 const { AppError, SAFE_MESSAGES } = require("./errors.cjs");
 const { sanitizeText } = require("./media.cjs");
+const { scorebugTransitionDecision } = require("./scorebug-calibration.cjs");
 
 const SCOREBOARD_READER_STATUSES = Object.freeze([
   "readable",
@@ -11,6 +12,7 @@ const SCOREBOARD_TIMELINE_STATUSES = Object.freeze([
   "score_changed",
   "score_unchanged",
   "goal_removed",
+  "score_reverted_or_disallowed",
   "clock_only",
   "ambiguous",
   "unreadable",
@@ -225,16 +227,24 @@ function buildStableScoreTimeline(readings = [], options = {}) {
     let scoreAfter = currentScore ? currentScore.text : null;
     let temporalConsistency = false;
     let ambiguityReasons = [...reading.ambiguityReasons];
+    let transitionDecision = "unreadable";
+    let transitionReasonCodes = [];
 
     if (reading.status === "unreadable") {
       status = "unreadable";
+      transitionDecision = "unreadable";
     } else if (!currentScore && reading.clock) {
       status = "clock_only";
+      transitionDecision = "rejected_clock";
+      transitionReasonCodes.push("clock_like_text_rejected");
     } else if (!currentScore) {
       status = "ambiguous";
+      transitionDecision = "unreadable";
     } else if (!stableScore) {
       stableScore = currentScore;
       status = "ambiguous";
+      transitionDecision = "initial_score";
+      transitionReasonCodes.push("initial_score_observed");
       ambiguityReasons.push("initial_score_needs_followup");
     } else if (sameScore(currentScore, stableScore)) {
       pending = null;
@@ -242,22 +252,37 @@ function buildStableScoreTimeline(readings = [], options = {}) {
       scoreBefore = stableScore.text;
       scoreAfter = stableScore.text;
       temporalConsistency = true;
+      transitionDecision = "score_unchanged";
+      transitionReasonCodes.push("score_stable_repeat");
     } else {
       const transition = scoreTransition(stableScore, currentScore);
+      const calibrationDecision = scorebugTransitionDecision({
+        previousScore: stableScore,
+        candidateScore: currentScore,
+        confidence: reading.confidence,
+        minConfidence: options.minConfidence || 0.55,
+      });
+      transitionDecision = calibrationDecision.decision;
+      transitionReasonCodes.push(...calibrationDecision.reasonCodes);
       scoreBefore = stableScore.text;
       if (!transition.consistent || transition.direction === "ambiguous") {
         pending = null;
         status = "ambiguous";
+        transitionDecision = "rejected_impossible_transition";
         ambiguityReasons.push("impossible_or_non_unit_score_transition");
       } else if (pending && sameScore(pending.score, currentScore)) {
         pending.count += 1;
         if (pending.count >= minStableReads) {
           status = transition.direction === "increase" ? "score_changed" : "goal_removed";
+          transitionDecision = transition.direction === "increase"
+            ? "score_changed"
+            : "score_reverted_or_disallowed";
           temporalConsistency = true;
           stableScore = currentScore;
           pending = null;
         } else {
           status = "ambiguous";
+          transitionDecision = "score_change_pending_confirmation";
           ambiguityReasons.push("score_change_not_stable");
         }
       } else {
@@ -265,6 +290,9 @@ function buildStableScoreTimeline(readings = [], options = {}) {
         status = minStableReads === 1
           ? transition.direction === "increase" ? "score_changed" : "goal_removed"
           : "ambiguous";
+        transitionDecision = minStableReads === 1
+          ? transition.direction === "increase" ? "score_changed" : "score_reverted_or_disallowed"
+          : "score_change_pending_confirmation";
         temporalConsistency = minStableReads === 1;
         if (minStableReads === 1) {
           stableScore = currentScore;
@@ -292,6 +320,8 @@ function buildStableScoreTimeline(readings = [], options = {}) {
       preprocessingVariant: reading.preprocessingVariant,
       layoutId: reading.layoutId,
       scoreOnlyCropRef: reading.scoreOnlyCropRef,
+      transitionDecision: sanitizeText(transitionDecision, 60),
+      transitionReasonCodes: uniqueReasons(transitionReasonCodes),
       ambiguityReasons: uniqueReasons(ambiguityReasons),
     });
   }

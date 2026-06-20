@@ -305,16 +305,20 @@ test("scoreboard reader contract normalizes candidates and requires stable score
   assert.equal(timeline[0].status, "ambiguous");
   assert.equal(timeline[1].status, "ambiguous");
   assert.equal(timeline[1].ambiguityReasons.includes("score_change_needs_confirmation"), true);
+  assert.equal(timeline[1].transitionDecision, "score_change_pending_confirmation");
   assert.equal(timeline[2].status, "score_changed");
   assert.equal(timeline[2].scoreBefore, "0-0");
   assert.equal(timeline[2].scoreAfter, "1-0");
+  assert.equal(timeline[2].transitionDecision, "score_changed");
   assert.equal(timeline[3].status, "ambiguous");
   assert.equal(timeline[3].ambiguityReasons.includes("score_change_needs_confirmation"), true);
   assert.equal(timeline[4].status, "goal_removed");
   assert.equal(timeline[4].scoreBefore, "1-0");
   assert.equal(timeline[4].scoreAfter, "0-0");
+  assert.equal(timeline[4].transitionDecision, "score_reverted_or_disallowed");
   assert.equal(timeline[5].status, "ambiguous");
   assert.equal(timeline[5].ambiguityReasons.includes("impossible_or_non_unit_score_transition"), true);
+  assert.equal(timeline[5].transitionDecision, "rejected_impossible_transition");
 });
 
 test("local scoreboard OCR falls back when disabled or binary is unavailable", async () => {
@@ -576,10 +580,68 @@ test("local scoreboard OCR extracts score-only crops before parsing noisy broadc
     const report = JSON.parse(readFileSync(join(process.cwd(), result.qaReport.reportPath), "utf8"));
     assert.equal(report.scoreOnlyExtraction.cropCount >= 3, true);
     assert.equal(report.scoreOnlyExtraction.readableCount >= 3, true);
+    assert.equal(report.evidenceSummary.scoreChangeCount, 1);
     assert.equal(report.ocrAttempts.some((attempt) =>
       attempt.scoreSource === "local_scorebug_score_only_ocr_color_whitelist" &&
       attempt.scoreOnlyScore === "1-0" &&
-      attempt.scoreOnlyCropRef), true);
+      attempt.scoreOnlyCropRef &&
+      attempt.finalScoreCandidate === "1-0" &&
+      attempt.transitionDecision), true);
+    assert.doesNotMatch(JSON.stringify(report), /\/Users|\/private|storageKey|localPath|token|secret|stdout|stderr/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(join(process.cwd(), SCOREBOARD_OCR_QA_RELATIVE_DIR, `ocr-scoreboard-${runId}`), { recursive: true, force: true });
+  }
+});
+
+test("local scoreboard OCR can recover score changes from profile digit OCR crops", async () => {
+  const { dir, frames } = createFrameFixtures();
+  const runId = `scorebug-profile-digit-ocr-test-${Date.now()}`;
+  try {
+    const result = await analyzeScoreboardOcr({
+      metadata,
+      mode: "local",
+      enabled: true,
+      qaArtifactsEnabled: true,
+      qaRunId: runId,
+      commandChecker: () => true,
+      frames,
+      ffmpegRunner: async (args) => {
+        const outputPath = args[args.length - 1];
+        writeFakeScorebugPng(outputPath);
+      },
+      cropper: async ({ outputDir, frameIndex, region }) => {
+        const cropPath = safeResolve(outputDir, `crop_${frameIndex}_${region.id}.png`);
+        mkdirSync(outputDir, { recursive: true });
+        writeFileSync(cropPath, "full broadcast crop with clock/team noise", "utf8");
+        return cropPath;
+      },
+      digitReader: () => ({
+        status: "unreadable",
+        score: null,
+        confidence: 0.1,
+        reasons: ["digit_reader_stubbed_unreadable"],
+      }),
+      ocrRunner: async (_command, args) => {
+        const imagePath = args[0];
+        if (/score_only_/.test(imagePath)) return { stdout: "ARG ALG" };
+        if (/profile_digit_home_01_/.test(imagePath)) return { stdout: "0" };
+        if (/profile_digit_away_01_/.test(imagePath)) return { stdout: "0" };
+        if (/profile_digit_home_/.test(imagePath)) return { stdout: "1" };
+        if (/profile_digit_away_/.test(imagePath)) return { stdout: "0" };
+        return { stdout: "45:00 ARG ALG" };
+      },
+    });
+
+    assert.equal(result.providerMode, "local-scoreboard-ocr-command");
+    assert.equal(result.summary.scoreChangeCount, 1);
+    assert.equal(result.summary.scoreTimeline.some((item) =>
+      item.status === "score_changed" &&
+      item.scoreAfter === "1-0" &&
+      item.transitionDecision === "score_changed"), true);
+    const report = JSON.parse(readFileSync(join(process.cwd(), result.qaReport.reportPath), "utf8"));
+    assert.equal(report.evidenceSummary.scoreChangeCount, 1);
+    assert.equal(report.ocrAttempts.some((attempt) => attempt.finalScoreCandidate === "1-0"), true);
     assert.doesNotMatch(JSON.stringify(report), /\/Users|\/private|storageKey|localPath|token|secret|stdout|stderr/i);
   } finally {
     rmSync(dir, { recursive: true, force: true });

@@ -22,6 +22,11 @@ const {
   readScorebugDigitsAsync,
   validateScorebugCalibration,
 } = require("./scorebug-digit-reader.cjs");
+const {
+  buildScorebugAttemptDiagnostic,
+  parseScorebugDigitGroups,
+  safeScorebugAttemptDiagnostic,
+} = require("./scorebug-calibration.cjs");
 const { visualReasonCodesForWindow } = require("./vision.cjs");
 
 const DEFAULT_SCOREBOARD_OCR_TIMEOUT_MS = 10000;
@@ -177,6 +182,8 @@ const SCOREBUG_LAYOUT_PROFILES = Object.freeze([
     scoreOnlyRoi: { x: 0.47, y: 0.08, width: 0.23, height: 0.82 },
     homeDigitRoi: { x: 0.03, y: 0.12, width: 0.28, height: 0.76 },
     awayDigitRoi: { x: 0.70, y: 0.12, width: 0.27, height: 0.76 },
+    fullHomeDigitRoi: { x: 0.49, y: 0.18, width: 0.08, height: 0.62 },
+    fullAwayDigitRoi: { x: 0.65, y: 0.18, width: 0.08, height: 0.62 },
     clockRoi: { x: 0.02, y: 0.04, width: 0.26, height: 0.38 },
     minConfidence: 0.72,
   },
@@ -186,6 +193,8 @@ const SCOREBUG_LAYOUT_PROFILES = Object.freeze([
     scoreOnlyRoi: { x: 0.36, y: 0.08, width: 0.44, height: 0.82 },
     homeDigitRoi: { x: 0.06, y: 0.12, width: 0.34, height: 0.76 },
     awayDigitRoi: { x: 0.53, y: 0.12, width: 0.34, height: 0.76 },
+    fullHomeDigitRoi: { x: 0.36, y: 0.16, width: 0.16, height: 0.68 },
+    fullAwayDigitRoi: { x: 0.56, y: 0.16, width: 0.16, height: 0.68 },
     clockRoi: { x: 0.02, y: 0.04, width: 0.30, height: 0.38 },
     minConfidence: 0.72,
   },
@@ -195,6 +204,8 @@ const SCOREBUG_LAYOUT_PROFILES = Object.freeze([
     scoreOnlyRoi: { x: 0.35, y: 0.10, width: 0.42, height: 0.78 },
     homeDigitRoi: { x: 0.06, y: 0.12, width: 0.34, height: 0.76 },
     awayDigitRoi: { x: 0.54, y: 0.12, width: 0.34, height: 0.76 },
+    fullHomeDigitRoi: { x: 0.36, y: 0.16, width: 0.16, height: 0.68 },
+    fullAwayDigitRoi: { x: 0.56, y: 0.16, width: 0.16, height: 0.68 },
     clockRoi: null,
     minConfidence: 0.74,
   },
@@ -224,6 +235,8 @@ function safeScorebugLayoutProfile(profile = {}) {
     scoreOnlyRoi,
     homeDigitRoi,
     awayDigitRoi,
+    fullHomeDigitRoi: normalizeRatioRoi(profile.fullHomeDigitRoi),
+    fullAwayDigitRoi: normalizeRatioRoi(profile.fullAwayDigitRoi),
     clockRoi: normalizeRatioRoi(profile.clockRoi),
     minConfidence: round(clamp(profile.minConfidence ?? 0.74, 0.55, 0.98)),
   };
@@ -245,6 +258,21 @@ function scorebugProfileDigitCalibration(profile = null, baseCalibration = {}) {
     minConfidence: Math.min(Number(baseCalibration.minConfidence || 0.82), safeProfile.minConfidence),
     homeDigitRoi: safeProfile.homeDigitRoi,
     awayDigitRoi: safeProfile.awayDigitRoi,
+    hasExplicitDigitRois: true,
+    readings: Array.isArray(baseCalibration.readings) ? baseCalibration.readings : [],
+  });
+}
+
+function scorebugProfileFullCropDigitCalibration(profile = null, baseCalibration = {}) {
+  const safeProfile = profile ? safeScorebugLayoutProfile(profile) : null;
+  if (!safeProfile || !safeProfile.fullHomeDigitRoi || !safeProfile.fullAwayDigitRoi) return baseCalibration;
+  return validateScorebugCalibration({
+    ...baseCalibration,
+    enabled: true,
+    layoutId: `${safeProfile.layoutId}-full-crop`,
+    minConfidence: Math.min(Number(baseCalibration.minConfidence || 0.82), safeProfile.minConfidence),
+    homeDigitRoi: safeProfile.fullHomeDigitRoi,
+    awayDigitRoi: safeProfile.fullAwayDigitRoi,
     hasExplicitDigitRois: true,
     readings: Array.isArray(baseCalibration.readings) ? baseCalibration.readings : [],
   });
@@ -537,6 +565,11 @@ function summarizeDigitReaderRows(rows = []) {
     acc[status] = (acc[status] || 0) + 1;
     return acc;
   }, {});
+  const transitionDecisions = safeRows.reduce((acc, row) => {
+    const decision = sanitizeText(row.transitionDecision || "unreadable", 60);
+    acc[decision] = (acc[decision] || 0) + 1;
+    return acc;
+  }, {});
   return {
     readableCount: Number(statuses.readable || 0),
     ambiguousCount: Number(statuses.ambiguous || 0),
@@ -548,9 +581,13 @@ function summarizeDigitReaderRows(rows = []) {
     imageDecoderAttemptCount: safeRows.filter((row) => row.imageDecoderStatus).length,
     scoreOnlyCropCount: safeRows.filter((row) => row.scoreOnlyCropRef).length,
     scoreOnlyReadableCount: safeRows.filter((row) => row.scoreOnlyScore).length,
+    transitionDecisions,
     layoutIds: [...new Set(safeRows.map((row) => sanitizeText(row.layoutId || "", 80)).filter(Boolean))].slice(0, 8),
     failClosedReasons: [...new Set(safeRows
-      .flatMap((row) => Array.isArray(row.digitReaderReasons) ? row.digitReaderReasons : [])
+      .flatMap((row) => [
+        ...(Array.isArray(row.digitReaderReasons) ? row.digitReaderReasons : []),
+        ...(Array.isArray(row.rejectedReasonCodes) ? row.rejectedReasonCodes : []),
+      ])
       .map((reason) => sanitizeText(reason, 60))
       .filter(Boolean))]
       .slice(0, 12),
@@ -580,6 +617,10 @@ function validateScoreboardOcrOutput(output = {}, metadata = {}) {
       imageDecoderMode: item.imageDecoderMode ? sanitizeText(item.imageDecoderMode, 40) : null,
       layoutId: item.layoutId ? sanitizeText(item.layoutId, 80) : null,
       scoreOnlyCropRef: item.scoreOnlyCropRef ? sanitizeText(item.scoreOnlyCropRef, 180) : null,
+      transitionDecision: item.transitionDecision ? sanitizeText(item.transitionDecision, 60) : null,
+      transitionReasonCodes: Array.isArray(item.transitionReasonCodes)
+        ? item.transitionReasonCodes.map((reason) => sanitizeText(reason, 80)).filter(Boolean).slice(0, 8)
+        : [],
     }))
     .slice(0, MAX_SCOREBOARD_OCR_FRAMES);
   const qaReport = normalizeQaReportSummary(output.qaReport);
@@ -841,6 +882,7 @@ function recordScoreboardOcrQaAttempt({
   scoreSource = null,
   reader = {},
   digitReading = null,
+  calibrationDiagnostic = null,
 } = {}) {
   if (!qa || !qa.enabled) return null;
   if (qa.attempts.length >= MAX_SCOREBOARD_OCR_QA_ATTEMPTS) return null;
@@ -899,12 +941,14 @@ function recordScoreboardOcrQaAttempt({
       });
     }
   }
+  const safeDiagnostic = calibrationDiagnostic ? safeScorebugAttemptDiagnostic(calibrationDiagnostic) : null;
   const row = {
     index: attemptIndex + 1,
     timestamp: round(frame.timestamp),
     regionId: sanitizeText(region.id || "scoreboard_region", 80),
     preprocessingVariant: sanitizeText(variant.id || "default", 60),
     layoutId: layoutProfile && layoutProfile.layoutId ? sanitizeText(layoutProfile.layoutId, 80) : null,
+    selectedProfile: safeDiagnostic && safeDiagnostic.selectedProfile,
     status: sanitizeText(reader.status || "unreadable", 40),
     score: reader.scoreText || null,
     clock: reader.clock || null,
@@ -915,6 +959,15 @@ function recordScoreboardOcrQaAttempt({
       : null,
     scoreOnlyOcrText: scoreOnlyOcr ? safeOcrTextPreview(scoreOnlyOcr.text) : "",
     scoreOnlyCropRef,
+    finalScoreCandidate: safeDiagnostic && safeDiagnostic.finalScoreCandidate,
+    transitionDecision: safeDiagnostic ? safeDiagnostic.transitionDecision : null,
+    calibrationConfidence: safeDiagnostic ? safeDiagnostic.confidence : 0,
+    rejectedReasonCodes: safeDiagnostic ? safeDiagnostic.rejectedReasonCodes : [],
+    calibrationReasonCodes: safeDiagnostic ? safeDiagnostic.reasonCodes : [],
+    digitBoxesFound: safeDiagnostic ? safeDiagnostic.digitBoxesFound : 0,
+    homeCandidateGroups: safeDiagnostic ? safeDiagnostic.homeCandidateGroups : 0,
+    awayCandidateGroups: safeDiagnostic ? safeDiagnostic.awayCandidateGroups : 0,
+    foregroundGroupCount: safeDiagnostic ? safeDiagnostic.foregroundGroupCount : 0,
     ...digitReaderSummary(digitReading || {}),
     ambiguityReasons: Array.isArray(reader.ambiguityReasons)
       ? reader.ambiguityReasons.map((reason) => sanitizeText(reason, 60)).filter(Boolean).slice(0, 6)
@@ -945,19 +998,27 @@ function writeScoreboardOcrReviewHtml({ qa, reportRelativePath, contactSheetRela
         <td>${escapeHtml(row.regionId)}</td>
         <td>${escapeHtml(row.preprocessingVariant)}</td>
         <td>${escapeHtml(row.layoutId || "")}</td>
+        <td>${escapeHtml(row.selectedProfile || "")}</td>
         <td>${escapeHtml(row.status)}</td>
         <td>${escapeHtml(row.score || "")}</td>
         <td>${escapeHtml(row.scoreSource || "")}</td>
         <td>${escapeHtml(row.scoreOnlyScore || "")}</td>
+        <td>${escapeHtml(row.finalScoreCandidate || "")}</td>
+        <td>${escapeHtml(row.transitionDecision || "")}</td>
         <td>${escapeHtml(row.clock || "")}</td>
         <td>${escapeHtml(row.confidence)}</td>
         <td>${escapeHtml(row.digitReaderStatus || "")}</td>
         <td>${escapeHtml(row.digitBoxCount || 0)}</td>
+        <td>${escapeHtml(row.homeCandidateGroups || 0)}</td>
+        <td>${escapeHtml(row.awayCandidateGroups || 0)}</td>
         <td>${escapeHtml(row.scoreConfidence || 0)}</td>
         <td>${escapeHtml(row.imageDecoderStatus || "")}</td>
         <td>${escapeHtml(row.imageDecoderMode || "")}</td>
         <td>${escapeHtml(row.imageSegmentationStatus || "")}</td>
         <td>${escapeHtml(row.imageSegmentationGroups || 0)}</td>
+        <td>${escapeHtml((row.imageSegmentationReasons || []).join(", "))}</td>
+        <td>${escapeHtml((row.rejectedReasonCodes || []).join(", "))}</td>
+        <td>${escapeHtml((row.calibrationReasonCodes || []).join(", "))}</td>
         <td>${escapeHtml((row.digitReaderReasons || []).join(", "))}</td>
         <td>${escapeHtml((row.ambiguityReasons || []).join(", "))}</td>
         <td>${escapeHtml(row.ocrText || "")}</td>
@@ -987,7 +1048,7 @@ function writeScoreboardOcrReviewHtml({ qa, reportRelativePath, contactSheetRela
   <table>
     <thead>
       <tr>
-        <th>#</th><th>Time</th><th>Region</th><th>Variant</th><th>Layout</th><th>Status</th><th>Score</th><th>Score Source</th><th>Score-Only Score</th><th>Clock</th><th>Conf</th><th>Digit Status</th><th>Digit Boxes</th><th>Score Conf</th><th>Decoder</th><th>Mode</th><th>Image Seg</th><th>Groups</th><th>Digit Reasons</th><th>Reasons</th><th>OCR Text</th><th>Score-Only OCR</th><th>Crop</th><th>Score-Only Crop</th>
+        <th>#</th><th>Time</th><th>Region</th><th>Variant</th><th>Layout</th><th>Profile</th><th>Status</th><th>Score</th><th>Score Source</th><th>Score-Only Score</th><th>Final Candidate</th><th>Transition Decision</th><th>Clock</th><th>Conf</th><th>Digit Status</th><th>Digit Boxes</th><th>Home Groups</th><th>Away Groups</th><th>Score Conf</th><th>Decoder</th><th>Mode</th><th>Image Seg</th><th>Groups</th><th>Image Reasons</th><th>Rejected</th><th>Calibration Reasons</th><th>Digit Reasons</th><th>Reasons</th><th>OCR Text</th><th>Score-Only OCR</th><th>Crop</th><th>Score-Only Crop</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
@@ -1062,6 +1123,7 @@ function writeScoreboardOcrQaReport({ qa, scoreboardOcr, status = "completed" } 
       cropCount: digitReader.scoreOnlyCropCount,
       readableCount: digitReader.scoreOnlyReadableCount,
       layoutIds: digitReader.layoutIds,
+      transitionDecisions: digitReader.transitionDecisions,
     },
     calibrationUsed: qa.digitCalibrationSummary || null,
     evidenceSummary: scoreboardOcr && scoreboardOcr.summary
@@ -1201,6 +1263,11 @@ function scoreOnlyCropPathForRegion(outputDir, frameIndex, region, variant, layo
   return safeResolve(outputDir, name);
 }
 
+function profileDigitCropPathForRegion(outputDir, frameIndex, region, variant, layoutId, role) {
+  const name = `profile_digit_${safeFilePart(role, "digit")}_${String(frameIndex + 1).padStart(2, "0")}_${safeFilePart(region.id, "region")}_${safeFilePart(variant && variant.id, "variant")}_${safeFilePart(layoutId, "layout")}.png`;
+  return safeResolve(outputDir, name);
+}
+
 function cropFilterForRatioRoi(roi = {}) {
   const safe = normalizeRatioRoi(roi);
   if (!safe) return null;
@@ -1285,6 +1352,115 @@ async function cropScoreOnlyRegion({
   };
 }
 
+async function cropProfileDigitRegion({
+  cropPath,
+  outputDir,
+  frameIndex = 0,
+  region = {},
+  variant = null,
+  profile = null,
+  role = "home",
+  ffmpegRunner = runFfmpeg,
+  signal = null,
+} = {}) {
+  const safeProfile = safeScorebugLayoutProfile(profile);
+  const roi = role === "away" ? safeProfile && safeProfile.fullAwayDigitRoi : safeProfile && safeProfile.fullHomeDigitRoi;
+  if (!safeProfile || !roi || !cropPath) return null;
+  const safeCropPath = assertStoragePath(cropPath, "staging");
+  const safeOutputDir = assertStoragePath(outputDir, "staging");
+  mkdirSync(safeOutputDir, { recursive: true });
+  const outputPath = profileDigitCropPathForRegion(safeOutputDir, frameIndex, region, variant, safeProfile.layoutId, role);
+  const cropFilter = cropFilterForRatioRoi(roi);
+  if (!cropFilter) return null;
+  await ffmpegRunner([
+    "-y",
+    "-i",
+    safeCropPath,
+    "-vf",
+    `${cropFilter},scale=iw*4:ih*4`,
+    "-frames:v",
+    "1",
+    outputPath,
+  ], { signal, timeoutMs: Math.min(CONFIG.analysisTimeoutMs, 12000) });
+  return existsSync(outputPath)
+    ? {
+        cropPath: assertStoragePath(outputPath, "staging"),
+        roi,
+      }
+    : null;
+}
+
+async function readProfileDigitOcr({
+  cropPath,
+  outputDir,
+  frameIndex = 0,
+  region = {},
+  variant = null,
+  profile = null,
+  ocrAdapter,
+  ffmpegRunner = runFfmpeg,
+  timeoutMs = DEFAULT_SCOREBOARD_OCR_TIMEOUT_MS,
+  signal = null,
+} = {}) {
+  const safeProfile = safeScorebugLayoutProfile(profile);
+  if (!safeProfile || !ocrAdapter || typeof ocrAdapter.readTextFromImage !== "function") return null;
+  try {
+    const homeCrop = await cropProfileDigitRegion({
+      cropPath,
+      outputDir,
+      frameIndex,
+      region,
+      variant,
+      profile: safeProfile,
+      role: "home",
+      ffmpegRunner,
+      signal,
+    });
+    const awayCrop = await cropProfileDigitRegion({
+      cropPath,
+      outputDir,
+      frameIndex,
+      region,
+      variant,
+      profile: safeProfile,
+      role: "away",
+      ffmpegRunner,
+      signal,
+    });
+    if (!homeCrop || !awayCrop) return null;
+    const readDigit = async (digitCrop) => raceWithTimeout(ocrAdapter.readTextFromImage({
+      imagePath: digitCrop.cropPath,
+      psm: "10",
+      whitelist: "0123456789OI",
+      signal,
+      timeoutMs: Math.min(timeoutMs, 5000),
+    }), { signal, timeoutMs: Math.min(timeoutMs, 5000) });
+    const [homeOcr, awayOcr] = await Promise.all([readDigit(homeCrop), readDigit(awayCrop)]);
+    const parsed = parseScorebugDigitGroups(`${homeOcr && homeOcr.text || ""} ${awayOcr && awayOcr.text || ""}`);
+    if (!parsed.score) {
+      return {
+        status: "unreadable",
+        score: null,
+        confidence: 0,
+        reasons: parsed.reasonCodes,
+      };
+    }
+    const confidence = round(Math.max(0.74, Math.min(Number(homeOcr.confidence || 0.74), Number(awayOcr.confidence || 0.74))));
+    return {
+      status: "readable",
+      score: parsed.score,
+      confidence,
+      reasons: ["profile_digit_ocr_used"],
+      digitBoxes: [
+        { role: "home", digit: String(parsed.score.home), confidence, ...homeCrop.roi },
+        { role: "away", digit: String(parsed.score.away), confidence, ...awayCrop.roi },
+      ],
+    };
+  } catch {
+    return null;
+  }
+}
+
 function cleanupOcrCrops(outputDir) {
   if (!outputDir) return { cleaned: false };
   const safeOutputDir = assertStoragePath(outputDir, "staging");
@@ -1345,6 +1521,7 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
         "ocr_preprocessing_variants",
         "broadcast_scorebug_layout_profiles",
         "score_only_crop_extraction",
+        "scorebug_digit_calibration_diagnostics",
         "focused_scorebug_digit_reader",
         "local_command_ocr",
         "safe_empty_fallback",
@@ -1383,6 +1560,7 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
 
     const observations = [];
     let cropCount = 0;
+    let previousDiagnosticScore = null;
     const regionIdsUsed = new Set();
     const variants = scoreboardOcrPreprocessVariants();
     try {
@@ -1486,13 +1664,40 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
                 regionId: region.id,
                 timestamp: frame.timestamp,
                 metadata,
-                calibration: digitCalibration,
+                calibration: layoutProfile
+                  ? scorebugProfileFullCropDigitCalibration(layoutProfile, digitCalibration)
+                  : digitCalibration,
                 signal: input.signal,
               }));
               if (fullCropDigitReading.status === "readable") {
                 digitReading = {
                   ...fullCropDigitReading,
                   reasons: [...(Array.isArray(fullCropDigitReading.reasons) ? fullCropDigitReading.reasons : []), "full_crop_digit_fallback_used"],
+                };
+              }
+            }
+            if (layoutProfile && digitReading.status !== "readable") {
+              const profileDigitOcr = await readProfileDigitOcr({
+                cropPath: safeCropPath,
+                outputDir,
+                frameIndex,
+                region,
+                variant,
+                profile: layoutProfile,
+                ocrAdapter: this.ocrAdapter,
+                ffmpegRunner: this.ffmpegRunner,
+                timeoutMs: this.timeoutMs,
+                signal: input.signal,
+              });
+              if (profileDigitOcr && profileDigitOcr.status === "readable") {
+                digitReading = {
+                  ...digitReading,
+                  status: "readable",
+                  score: profileDigitOcr.score,
+                  confidence: profileDigitOcr.confidence,
+                  digitBoxes: profileDigitOcr.digitBoxes,
+                  reasons: profileDigitOcr.reasons,
+                  method: "profile-digit-ocr",
                 };
               }
             }
@@ -1509,7 +1714,9 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
                   }));
             const parsedClock = ocr.rejected ? null : parseClock(ocr.text);
             const scoreSource = digitScore
-              ? `local_scorebug_digit_reader_${variant.id}`
+              ? digitReading.method === "profile-digit-ocr"
+                ? `local_scorebug_profile_digit_ocr_${variant.id}`
+                : `local_scorebug_digit_reader_${variant.id}`
               : scoreOnlyScore
                 ? `local_scorebug_score_only_ocr_${variant.id}`
                 : parsedScore
@@ -1520,6 +1727,22 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
               : scoreOnlyScore
                 ? Math.max(Number(scoreOnlyOcr && scoreOnlyOcr.confidence || 0), 0.74)
                 : ocr.confidence;
+            const calibrationDiagnostic = buildScorebugAttemptDiagnostic({
+              layoutId: layoutProfile && layoutProfile.layoutId,
+              regionId: region.id,
+              score: structuredScore || parsedScore,
+              scoreOnlyText: scoreOnlyOcr && scoreOnlyOcr.text,
+              ocrText: ocr.text,
+              clock: parsedClock,
+              confidence: scoreConfidence,
+              minConfidence: layoutProfile && layoutProfile.minConfidence,
+              source: scoreSource,
+              digitReading,
+              previousScore: previousDiagnosticScore,
+            });
+            if (calibrationDiagnostic.accepted && (structuredScore || parsedScore)) {
+              previousDiagnosticScore = structuredScore || parsedScore;
+            }
             const reader = readScoreboardCandidate({
               id: `ocr_${frameIndex + 1}_${cropCount + 1}`,
               timestamp: frame.timestamp,
@@ -1550,6 +1773,7 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
               scoreSource,
               reader,
               digitReading,
+              calibrationDiagnostic,
             });
             observations.push({
               id: `ocr_${frameIndex + 1}_${cropCount + 1}`,
@@ -1666,6 +1890,10 @@ function publicScoreboardOcr(scoreboardOcr) {
                 imageDecoderMode: item.imageDecoderMode ? sanitizeText(item.imageDecoderMode, 40) : null,
                 layoutId: item.layoutId ? sanitizeText(item.layoutId, 80) : null,
                 scoreOnlyCropRef: item.scoreOnlyCropRef ? sanitizeText(item.scoreOnlyCropRef, 180) : null,
+                transitionDecision: item.transitionDecision ? sanitizeText(item.transitionDecision, 60) : null,
+                transitionReasonCodes: Array.isArray(item.transitionReasonCodes)
+                  ? item.transitionReasonCodes.map((reason) => sanitizeText(reason, 80)).filter(Boolean).slice(0, 8)
+                  : [],
               })).slice(0, MAX_SCOREBOARD_OCR_FRAMES)
             : [],
           fallbackUsed: Boolean(safe.summary.fallbackUsed),
@@ -1694,6 +1922,10 @@ function publicScoreboardOcr(scoreboardOcr) {
           imageDecoderMode: item.imageDecoderMode ? sanitizeText(item.imageDecoderMode, 40) : null,
           layoutId: item.layoutId ? sanitizeText(item.layoutId, 80) : null,
           scoreOnlyCropRef: item.scoreOnlyCropRef ? sanitizeText(item.scoreOnlyCropRef, 180) : null,
+          transitionDecision: item.transitionDecision ? sanitizeText(item.transitionDecision, 60) : null,
+          transitionReasonCodes: Array.isArray(item.transitionReasonCodes)
+            ? item.transitionReasonCodes.map((reason) => sanitizeText(reason, 80)).filter(Boolean).slice(0, 8)
+            : [],
         }))
       : [],
   };
