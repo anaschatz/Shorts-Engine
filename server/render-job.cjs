@@ -885,7 +885,12 @@ async function runRenderJob(options) {
         sampledFrameCount: scoreboardOcr.summary && scoreboardOcr.summary.sampledFrameCount,
         evidenceCount: scoreboardOcr.summary && scoreboardOcr.summary.evidenceCount,
         scoreChangeCount: scoreboardOcr.summary && scoreboardOcr.summary.scoreChangeCount,
+        scoreRevertedCount: scoreboardOcr.summary && scoreboardOcr.summary.scoreRevertedCount,
         ambiguousCount: scoreboardOcr.summary && scoreboardOcr.summary.ambiguousCount,
+        unreadableCount: scoreboardOcr.summary && scoreboardOcr.summary.unreadableCount,
+        regionIdsUsed: scoreboardOcr.summary && scoreboardOcr.summary.regionIdsUsed,
+        preprocessingVariantCount: scoreboardOcr.summary && scoreboardOcr.summary.preprocessingVariantCount,
+        scoreTimeline: scoreboardOcr.summary && scoreboardOcr.summary.scoreTimeline,
       });
       const ocrQaCalibrationOptions = ocrQaCalibrationOptionsFromEnv();
       ocrQaCalibration = publicOcrQaCalibration(deps.loadOcrQaCalibration(ocrQaCalibrationOptions));

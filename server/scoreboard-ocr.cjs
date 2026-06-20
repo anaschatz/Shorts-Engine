@@ -10,13 +10,41 @@ const { assertStoragePath, safeResolve, storagePath } = require("./storage.cjs")
 const {
   LocalOcrCommandAdapter,
   buildScoreboardEvidenceFromObservations,
+  parseScoreboardScore,
 } = require("./adapters/local-ocr-adapter.cjs");
 const { visualReasonCodesForWindow } = require("./vision.cjs");
 
 const DEFAULT_SCOREBOARD_OCR_TIMEOUT_MS = 10000;
-const MAX_SCOREBOARD_OCR_FRAMES = 12;
-const MAX_SCOREBOARD_REGIONS = 4;
-const MAX_SCOREBOARD_OCR_CROPS = 18;
+const MAX_SCOREBOARD_OCR_FRAMES = 24;
+const MAX_SCOREBOARD_REGIONS = 6;
+const MAX_SCOREBOARD_OCR_CROPS = 72;
+const DEFAULT_OCR_FRAME_MAX_DIMENSION = 1280;
+const OCR_PREPROCESS_VARIANTS = Object.freeze([
+  {
+    id: "color_whitelist",
+    psm: "11",
+    whitelist: "0123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    filter: "scale=iw*4:ih*4",
+  },
+  {
+    id: "gray_line",
+    psm: "7",
+    whitelist: "0123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    filter: "scale=iw*2:ih*2,format=gray,eq=contrast=1.35:brightness=0.03,unsharp=5:5:0.7",
+  },
+  {
+    id: "contrast_block",
+    psm: "6",
+    whitelist: "0123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    filter: "scale=iw*2:ih*2,format=gray,eq=contrast=1.65:brightness=0.05,unsharp=5:5:1.0",
+  },
+  {
+    id: "sparse_text",
+    psm: "11",
+    whitelist: "0123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    filter: "scale=iw*2:ih*2,format=gray,eq=contrast=1.45:brightness=0.04,unsharp=5:5:0.8",
+  },
+]);
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, Number(value) || min));
@@ -30,6 +58,24 @@ function seconds(value, fallback = 0) {
 function round(value, digits = 2) {
   const factor = 10 ** digits;
   return Math.round((Number(value) || 0) * factor) / factor;
+}
+
+function even(value) {
+  const rounded = Math.max(2, Math.round(Number(value) || 2));
+  return rounded % 2 === 0 ? rounded : rounded - 1;
+}
+
+function scaledOcrFrameDimensions(metadata = {}, maxDimension = DEFAULT_OCR_FRAME_MAX_DIMENSION) {
+  const sourceWidth = Number(metadata.width || 0);
+  const sourceHeight = Number(metadata.height || 0);
+  if (!Number.isFinite(sourceWidth) || !Number.isFinite(sourceHeight) || sourceWidth <= 0 || sourceHeight <= 0) {
+    return { width: DEFAULT_OCR_FRAME_MAX_DIMENSION, height: even(DEFAULT_OCR_FRAME_MAX_DIMENSION * 9 / 16) };
+  }
+  const scale = Math.min(1, Math.max(320, Math.min(DEFAULT_OCR_FRAME_MAX_DIMENSION, Number(maxDimension) || DEFAULT_OCR_FRAME_MAX_DIMENSION)) / Math.max(sourceWidth, sourceHeight));
+  return {
+    width: even(sourceWidth * scale),
+    height: even(sourceHeight * scale),
+  };
 }
 
 function hasUnsafeValue(value) {
@@ -99,9 +145,12 @@ function normalizeRegion(region = {}, metadata = {}, frame = {}) {
 function defaultScoreboardRegions(metadata = {}, frame = {}) {
   const { width, height } = mediaDimensions(metadata, frame);
   return [
-    { id: "scoreboard_top_left", x: width * 0.02, y: height * 0.02, width: width * 0.34, height: height * 0.14, anchor: "top_left" },
-    { id: "scoreboard_top_center", x: width * 0.33, y: height * 0.02, width: width * 0.34, height: height * 0.14, anchor: "top_center" },
-    { id: "scoreboard_top_right", x: width * 0.64, y: height * 0.02, width: width * 0.34, height: height * 0.14, anchor: "top_right" },
+    { id: "scorebug_broadcast_compact", x: width * 0.035, y: height * 0.035, width: width * 0.40, height: height * 0.095, anchor: "scorebug_top_left" },
+    { id: "scorebug_left_compact", x: width * 0.01, y: height * 0.01, width: width * 0.26, height: height * 0.11, anchor: "top_left" },
+    { id: "scoreboard_top_left", x: width * 0.01, y: height * 0.01, width: width * 0.44, height: height * 0.16, anchor: "top_left" },
+    { id: "scoreboard_top_center", x: width * 0.28, y: height * 0.01, width: width * 0.44, height: height * 0.16, anchor: "top_center" },
+    { id: "scoreboard_top_right", x: width * 0.55, y: height * 0.01, width: width * 0.44, height: height * 0.16, anchor: "top_right" },
+    { id: "broadcast_top_band", x: width * 0.01, y: height * 0.005, width: width * 0.98, height: height * 0.18, anchor: "top_band" },
   ].map((region) => normalizeRegion(region, metadata, frame));
 }
 
@@ -125,6 +174,134 @@ function visualWindowCenter(window = {}) {
   const start = seconds(window.start, 0);
   const end = seconds(window.end, start);
   return seconds(window.center ?? (start + end) / 2, start);
+}
+
+function normalizeOcrSamplingWindow(candidate = {}, metadata = {}) {
+  const duration = seconds(metadata.durationSeconds, 0);
+  const center = seconds(candidate.timestamp ?? candidate.center ?? candidate.time, Number.NaN);
+  if (!Number.isFinite(center)) return null;
+  const boundedCenter = round(clamp(center, 0, duration || center));
+  const start = round(clamp(candidate.start ?? boundedCenter - 1.2, 0, duration || boundedCenter + 1.2));
+  const end = round(clamp(candidate.end ?? boundedCenter + 1.2, Math.min(duration || boundedCenter + 1.2, start + 0.4), duration || boundedCenter + 1.2));
+  return {
+    timestamp: boundedCenter,
+    start,
+    end,
+    confidence: round(clamp(candidate.confidence ?? 0.55, 0.05, 0.98)),
+    source: sanitizeText(candidate.source || "scoreboard_ocr_sample", 48),
+    visualHints: Array.isArray(candidate.visualHints)
+      ? candidate.visualHints.map((hint) => sanitizeText(hint, 48)).filter(Boolean).slice(0, 4)
+      : [],
+  };
+}
+
+function pushSamplingTime(windows, time, metadata = {}, input = {}) {
+  const window = normalizeOcrSamplingWindow({
+    timestamp: time,
+    start: input.start,
+    end: input.end,
+    confidence: input.confidence,
+    source: input.source,
+    visualHints: input.visualHints,
+  }, metadata);
+  if (window) windows.push(window);
+}
+
+function mediaSignalTimes(mediaSignals = {}) {
+  const times = [];
+  for (const peak of Array.isArray(mediaSignals.audioPeaks) ? mediaSignals.audioPeaks : []) {
+    const time = seconds(peak.time ?? peak.timestamp, Number.NaN);
+    if (Number.isFinite(time) && Number(peak.energyScore ?? peak.confidence ?? 0) >= 0.62) {
+      times.push({ time, confidence: Number(peak.energyScore ?? peak.confidence), source: "audio_peak" });
+    }
+  }
+  for (const change of Array.isArray(mediaSignals.sceneChanges) ? mediaSignals.sceneChanges : []) {
+    const time = seconds(change.time ?? change.timestamp, Number.NaN);
+    if (Number.isFinite(time) && Number(change.confidence ?? 0) >= 0.55) {
+      times.push({ time, confidence: Number(change.confidence), source: "scene_change" });
+    }
+  }
+  for (const motion of Array.isArray(mediaSignals.highMotionCandidates) ? mediaSignals.highMotionCandidates : []) {
+    const time = seconds(motion.time ?? motion.center ?? motion.timestamp, Number.NaN);
+    if (Number.isFinite(time) && Number(motion.confidence ?? motion.score ?? 0) >= 0.5) {
+      times.push({ time, confidence: Number(motion.confidence ?? motion.score), source: "high_motion" });
+    }
+  }
+  return times;
+}
+
+function selectOcrSamplingWindows({ frames = [], visualSignals = {}, candidateWindows = [], mediaSignals = {}, metadata = {} } = {}) {
+  const duration = seconds(metadata.durationSeconds, 0);
+  const windows = [];
+  if (duration > 0) {
+    const periodicCount = duration >= 120 ? 18 : Math.min(8, MAX_SCOREBOARD_OCR_FRAMES);
+    for (let index = 0; index < periodicCount; index += 1) {
+      const ratio = (index + 0.5) / periodicCount;
+      pushSamplingTime(windows, duration * ratio, metadata, {
+        confidence: 0.52,
+        source: "full_source_periodic_scoreboard_sample",
+      });
+    }
+  }
+  for (const frame of Array.isArray(frames) ? frames : []) {
+    const timestamp = frameTimestamp(frame);
+    if (!Number.isFinite(timestamp)) continue;
+    pushSamplingTime(windows, timestamp, metadata, {
+      start: frame.windowStart,
+      end: frame.windowEnd,
+      confidence: Number(frame.confidence || 0.58),
+      source: "existing_frame_scoreboard_sample",
+      visualHints: frame.visualHints,
+    });
+  }
+  const visualWindows = Array.isArray(visualSignals.windows) ? visualSignals.windows : [];
+  for (const window of visualWindows.filter(importantVisualWindow)) {
+    const center = visualWindowCenter(window);
+    for (const offset of [-3, 0, 5, 12]) {
+      pushSamplingTime(windows, center + offset, metadata, {
+        start: seconds(window.start, center) + offset,
+        end: seconds(window.end, center) + offset,
+        confidence: Number(window.confidence || 0.7),
+        source: "visual_decision_scoreboard_sample",
+        visualHints: visualReasonCodesForWindow(window).slice(0, 4),
+      });
+    }
+  }
+  for (const candidate of Array.isArray(candidateWindows) ? candidateWindows : []) {
+    const time = seconds(candidate.timestamp ?? candidate.center ?? candidate.time, Number.NaN);
+    if (!Number.isFinite(time) || Number(candidate.confidence || 0) < 0.55) continue;
+    for (const offset of [0, 8]) {
+      pushSamplingTime(windows, time + offset, metadata, {
+        confidence: Number(candidate.confidence),
+        source: "candidate_scoreboard_sample",
+        visualHints: candidate.visualHints,
+      });
+    }
+  }
+  for (const signal of mediaSignalTimes(mediaSignals)) {
+    for (const offset of [0, 8]) {
+      pushSamplingTime(windows, signal.time + offset, metadata, {
+        confidence: signal.confidence,
+        source: `${signal.source}_scoreboard_sample`,
+      });
+    }
+  }
+
+  const selected = [];
+  const sorted = windows
+    .filter((window) => Number.isFinite(window.timestamp))
+    .sort((a, b) => b.confidence - a.confidence || a.timestamp - b.timestamp);
+  const minGap = duration >= 120 ? Math.max(5, duration / MAX_SCOREBOARD_OCR_FRAMES * 0.45) : 2;
+  const takeWindow = (window, gap) => {
+    if (selected.length >= MAX_SCOREBOARD_OCR_FRAMES) return;
+    if (selected.some((item) => Math.abs(item.timestamp - window.timestamp) < gap)) return;
+    selected.push(window);
+  };
+  for (const window of windows.filter((item) => item.source === "full_source_periodic_scoreboard_sample")) {
+    takeWindow(window, minGap);
+  }
+  for (const window of sorted) takeWindow(window, Math.min(3, minGap));
+  return selected.sort((a, b) => a.timestamp - b.timestamp);
 }
 
 function importantVisualWindow(window = {}) {
@@ -249,6 +426,19 @@ function validateScoreboardOcrOutput(output = {}, metadata = {}) {
   const evidence = normalizeOcrEvidence(output.evidence || output.scoreboardOcr || output.ocrEvidence, metadata);
   const sampledFrameCount = Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES, Math.round(Number(output.sampledFrameCount || 0))));
   const regionCount = Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES * MAX_SCOREBOARD_REGIONS, Math.round(Number(output.regionCount || 0))));
+  const regionIdsUsed = Array.isArray(output.regionIdsUsed)
+    ? output.regionIdsUsed.map((id) => sanitizeText(id, 64)).filter(Boolean).slice(0, MAX_SCOREBOARD_REGIONS)
+    : [];
+  const scoreTimeline = evidence
+    .filter((item) => item.scoreBefore || item.scoreAfter || item.status === "clock_only")
+    .map((item) => ({
+      timestamp: round(item.timestamp),
+      status: sanitizeText(item.status || "unknown", 40),
+      scoreBefore: item.scoreBefore ? sanitizeText(item.scoreBefore, 16) : null,
+      scoreAfter: item.scoreAfter ? sanitizeText(item.scoreAfter, 16) : null,
+      temporalConsistency: Boolean(item.temporalConsistency),
+    }))
+    .slice(0, MAX_SCOREBOARD_OCR_FRAMES);
   return {
     providerMode: sanitizeText(output.providerMode || "deterministic-scoreboard-ocr", 60),
     fallbackUsed: Boolean(output.fallbackUsed || evidence.length === 0),
@@ -264,6 +454,9 @@ function validateScoreboardOcrOutput(output = {}, metadata = {}) {
       unreadableCount: evidence.filter((item) => item.status === "unreadable").length,
       sampledFrameCount,
       regionCount,
+      regionIdsUsed,
+      preprocessingVariantCount: Math.max(0, Math.min(8, Math.round(Number(output.preprocessingVariantCount || 0)))),
+      scoreTimeline,
       fallbackUsed: Boolean(output.fallbackUsed || evidence.length === 0),
     },
   };
@@ -389,9 +582,83 @@ function assertOcrFrame(frame = {}) {
   };
 }
 
+function assertProcessingInputPath(inputPath) {
+  try {
+    return assertStoragePath(inputPath, "uploads");
+  } catch {
+    return assertStoragePath(inputPath, "staging");
+  }
+}
+
+function ocrFramePath(outputDir, index) {
+  return safeResolve(outputDir, `ocr_frame_${String(index + 1).padStart(2, "0")}.jpg`);
+}
+
+async function extractOcrFramesFromSource({
+  inputPath,
+  outputDir,
+  metadata = {},
+  frames = [],
+  visualSignals = {},
+  candidateWindows = [],
+  mediaSignals = {},
+  ffmpegRunner = runFfmpeg,
+  signal = null,
+} = {}) {
+  if (!inputPath || !existsSync(inputPath)) return [];
+  if (ffmpegRunner === runFfmpeg && !commandAvailable(CONFIG.ffmpegBin)) return [];
+  const safeInputPath = assertProcessingInputPath(inputPath);
+  const safeOutputDir = assertStoragePath(outputDir, "staging");
+  const windows = selectOcrSamplingWindows({ frames, visualSignals, candidateWindows, mediaSignals, metadata });
+  if (!windows.length) return [];
+  mkdirSync(safeOutputDir, { recursive: true });
+  const dimensions = scaledOcrFrameDimensions(metadata);
+  const extracted = [];
+  for (const [index, window] of windows.entries()) {
+    if (signal && signal.aborted) throw cancellationError();
+    const localPath = ocrFramePath(safeOutputDir, index);
+    await ffmpegRunner([
+      "-y",
+      "-ss",
+      String(window.timestamp),
+      "-i",
+      safeInputPath,
+      "-frames:v",
+      "1",
+      "-vf",
+      `scale=${dimensions.width}:${dimensions.height}`,
+      "-q:v",
+      "3",
+      localPath,
+    ], { signal, timeoutMs: Math.min(CONFIG.analysisTimeoutMs, 30000) });
+    if (!existsSync(localPath)) continue;
+    extracted.push({
+      id: `ocr_frame_${index + 1}`,
+      timestamp: window.timestamp,
+      windowStart: window.start,
+      windowEnd: window.end,
+      width: dimensions.width,
+      height: dimensions.height,
+      localPath,
+      purpose: "scoreboard_ocr",
+      source: window.source,
+      visualHints: window.visualHints,
+    });
+  }
+  return extracted.slice(0, MAX_SCOREBOARD_OCR_FRAMES);
+}
+
 function cropPathForRegion(outputDir, frameIndex, region) {
   const name = `crop_${String(frameIndex + 1).padStart(2, "0")}_${safeFilePart(region.id, "region")}.png`;
   return safeResolve(outputDir, name);
+}
+
+function scoreboardOcrPreprocessVariants() {
+  return OCR_PREPROCESS_VARIANTS.map((variant) => ({
+    id: sanitizeText(variant.id, 48),
+    psm: sanitizeText(variant.psm || "7", 4),
+    filter: sanitizeText(variant.filter, 180),
+  }));
 }
 
 async function cropScoreboardRegion({
@@ -399,6 +666,7 @@ async function cropScoreboardRegion({
   region,
   outputDir,
   frameIndex = 0,
+  variant = null,
   ffmpegRunner = runFfmpeg,
   signal = null,
 } = {}) {
@@ -414,7 +682,7 @@ async function cropScoreboardRegion({
     "-i",
     safeFrame.localPath,
     "-vf",
-    `crop=${region.width}:${region.height}:${region.x}:${region.y}`,
+    [`crop=${region.width}:${region.height}:${region.x}:${region.y}`, variant && variant.filter].filter(Boolean).join(","),
     "-frames:v",
     "1",
     cropPath,
@@ -477,6 +745,8 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
       commandConfigured: Boolean(adapterHealth.commandConfigured),
       capabilities: [
         "scoreboard_region_sampling",
+        "full_source_periodic_sampling",
+        "ocr_preprocessing_variants",
         "local_command_ocr",
         "safe_empty_fallback",
       ],
@@ -489,9 +759,18 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
     if (!this.cropperInjected && this.ffmpegRunner === runFfmpeg && !commandAvailable(CONFIG.ffmpegBin)) return deterministicFallback(input);
 
     const metadata = input.metadata || {};
+    const outputDir = ocrCropOutputDir(input);
     let frames = [];
     try {
-      frames = selectOcrFrames(input)
+      frames = await extractOcrFramesFromSource({
+        ...input,
+        outputDir,
+        ffmpegRunner: this.ffmpegRunner,
+      });
+      if (!frames.length) {
+        frames = selectOcrFrames(input);
+      }
+      frames = frames
         .map((frame) => assertOcrFrame(frame))
         .filter((frame) => frame && frame.localPath)
         .slice(0, MAX_SCOREBOARD_OCR_FRAMES);
@@ -500,42 +779,59 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
     }
     if (!frames.length) return deterministicFallback(input);
 
-    const outputDir = ocrCropOutputDir(input);
     const observations = [];
     let cropCount = 0;
+    const regionIdsUsed = new Set();
+    const variants = scoreboardOcrPreprocessVariants();
     try {
-      for (const [frameIndex, frame] of frames.entries()) {
-        const regions = regionHintsForFrame(frame, metadata).slice(0, MAX_SCOREBOARD_REGIONS);
-        for (const region of regions) {
+      const regionsByFrame = frames.map((frame) => regionHintsForFrame(frame, metadata).slice(0, MAX_SCOREBOARD_REGIONS));
+      const frameScoreFound = new Set();
+      for (const variant of variants) {
+        for (let regionIndex = 0; regionIndex < MAX_SCOREBOARD_REGIONS; regionIndex += 1) {
+          for (const [frameIndex, frame] of frames.entries()) {
+            if (frameScoreFound.has(frameIndex)) continue;
+            if (cropCount >= MAX_SCOREBOARD_OCR_CROPS) break;
+            const region = regionsByFrame[frameIndex] && regionsByFrame[frameIndex][regionIndex];
+            if (!region) continue;
+            regionIdsUsed.add(region.id);
+            if (input.signal && input.signal.aborted) throw cancellationError();
+            const cropPath = await this.cropper({
+              frame,
+              region,
+              outputDir,
+              frameIndex,
+              variant,
+              ffmpegRunner: this.ffmpegRunner,
+              signal: input.signal,
+            });
+            const safeCropPath = assertStoragePath(cropPath, "staging");
+            const ocr = await raceWithTimeout(this.ocrAdapter.readTextFromImage({
+              imagePath: safeCropPath,
+              psm: variant.psm,
+              whitelist: variant.whitelist,
+              signal: input.signal,
+              timeoutMs: this.timeoutMs,
+            }), { signal: input.signal, timeoutMs: this.timeoutMs });
+            observations.push({
+              id: `ocr_${frameIndex + 1}_${cropCount + 1}`,
+              timestamp: frame.timestamp,
+              start: frame.windowStart ?? frame.timestamp - 0.8,
+              end: frame.windowEnd ?? frame.timestamp + 0.8,
+              regionId: region.id,
+              text: ocr.text,
+              confidence: ocr.confidence,
+              rejected: ocr.rejected,
+              source: `local_scoreboard_ocr_${variant.id}`,
+            });
+            cropCount += 1;
+            if (!ocr.rejected && parseScoreboardScore(ocr.text)) {
+              frameScoreFound.add(frameIndex);
+              break;
+            }
+          }
           if (cropCount >= MAX_SCOREBOARD_OCR_CROPS) break;
-          if (input.signal && input.signal.aborted) throw cancellationError();
-          const cropPath = await this.cropper({
-            frame,
-            region,
-            outputDir,
-            frameIndex,
-            ffmpegRunner: this.ffmpegRunner,
-            signal: input.signal,
-          });
-          const safeCropPath = assertStoragePath(cropPath, "staging");
-          const ocr = await raceWithTimeout(this.ocrAdapter.readTextFromImage({
-            imagePath: safeCropPath,
-            signal: input.signal,
-            timeoutMs: this.timeoutMs,
-          }), { signal: input.signal, timeoutMs: this.timeoutMs });
-          observations.push({
-            id: `ocr_${frameIndex + 1}_${cropCount + 1}`,
-            timestamp: frame.timestamp,
-            start: frame.windowStart ?? frame.timestamp - 0.8,
-            end: frame.windowEnd ?? frame.timestamp + 0.8,
-            regionId: region.id,
-            text: ocr.text,
-            confidence: ocr.confidence,
-            rejected: ocr.rejected,
-            source: "local_scoreboard_ocr",
-          });
-          cropCount += 1;
         }
+        if (cropCount >= MAX_SCOREBOARD_OCR_CROPS) break;
       }
       const evidence = buildScoreboardEvidenceFromObservations(observations);
       return validateScoreboardOcrOutput({
@@ -544,6 +840,8 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
         evidence,
         sampledFrameCount: frames.length,
         regionCount: cropCount,
+        regionIdsUsed: [...regionIdsUsed],
+        preprocessingVariantCount: variants.length,
       }, metadata);
     } catch (error) {
       if (error && error.code === "JOB_CANCELLED") throw error;
@@ -592,6 +890,19 @@ function publicScoreboardOcr(scoreboardOcr) {
           unreadableCount: Number(safe.summary.unreadableCount || 0),
           sampledFrameCount: Number(safe.summary.sampledFrameCount || 0),
           regionCount: Number(safe.summary.regionCount || 0),
+          regionIdsUsed: Array.isArray(safe.summary.regionIdsUsed)
+            ? safe.summary.regionIdsUsed.map((id) => sanitizeText(id, 64)).filter(Boolean).slice(0, MAX_SCOREBOARD_REGIONS)
+            : [],
+          preprocessingVariantCount: Number(safe.summary.preprocessingVariantCount || 0),
+          scoreTimeline: Array.isArray(safe.summary.scoreTimeline)
+            ? safe.summary.scoreTimeline.map((item) => ({
+                timestamp: Number(item.timestamp || 0),
+                status: sanitizeText(item.status || "unknown", 40),
+                scoreBefore: item.scoreBefore ? sanitizeText(item.scoreBefore, 16) : null,
+                scoreAfter: item.scoreAfter ? sanitizeText(item.scoreAfter, 16) : null,
+                temporalConsistency: Boolean(item.temporalConsistency),
+              })).slice(0, MAX_SCOREBOARD_OCR_FRAMES)
+            : [],
           fallbackUsed: Boolean(safe.summary.fallbackUsed),
         }
       : null,
@@ -635,9 +946,12 @@ module.exports = {
   createScoreboardOcrProvider,
   defaultScoreboardRegions,
   deterministicScoreboardOcr,
+  extractOcrFramesFromSource,
   normalizeRegion,
   publicScoreboardOcr,
   scoreboardOcrHealth,
+  scoreboardOcrPreprocessVariants,
   selectOcrFrames,
+  selectOcrSamplingWindows,
   validateScoreboardOcrOutput,
 };

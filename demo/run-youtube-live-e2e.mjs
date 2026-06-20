@@ -169,7 +169,20 @@ function safeScoreboardOcrEvent(value = {}) {
     sampledFrameCount: safeNumber(value.sampledFrameCount),
     evidenceCount: safeNumber(value.evidenceCount),
     scoreChangeCount: safeNumber(value.scoreChangeCount),
+    scoreRevertedCount: safeNumber(value.scoreRevertedCount),
     ambiguousCount: safeNumber(value.ambiguousCount),
+    unreadableCount: safeNumber(value.unreadableCount),
+    regionIdsUsed: safeStringList(value.regionIdsUsed, 8, 80),
+    preprocessingVariantCount: safeNumber(value.preprocessingVariantCount),
+    scoreTimeline: Array.isArray(value.scoreTimeline)
+      ? value.scoreTimeline.map((item) => ({
+          timestamp: safeNumber(item && item.timestamp),
+          status: safeString(item && item.status, 40),
+          scoreBefore: item && item.scoreBefore ? safeString(item.scoreBefore, 16) : null,
+          scoreAfter: item && item.scoreAfter ? safeString(item.scoreAfter, 16) : null,
+          temporalConsistency: safeBoolean(item && item.temporalConsistency),
+        })).slice(0, 24)
+      : [],
   };
 }
 
@@ -929,7 +942,20 @@ function startServer(port, env) {
             sampledFrameCount: safeNumber(parsed.sampledFrameCount),
             evidenceCount: safeNumber(parsed.evidenceCount),
             scoreChangeCount: safeNumber(parsed.scoreChangeCount),
+            scoreRevertedCount: safeNumber(parsed.scoreRevertedCount),
             ambiguousCount: safeNumber(parsed.ambiguousCount),
+            unreadableCount: safeNumber(parsed.unreadableCount),
+            regionIdsUsed: safeStringList(parsed.regionIdsUsed, 8, 80),
+            preprocessingVariantCount: safeNumber(parsed.preprocessingVariantCount),
+            scoreTimeline: Array.isArray(parsed.scoreTimeline)
+              ? parsed.scoreTimeline.map((item) => ({
+                  timestamp: safeNumber(item && item.timestamp),
+                  status: safeString(item && item.status, 40),
+                  scoreBefore: item && item.scoreBefore ? safeString(item.scoreBefore, 16) : null,
+                  scoreAfter: item && item.scoreAfter ? safeString(item.scoreAfter, 16) : null,
+                  temporalConsistency: safeBoolean(item && item.temporalConsistency),
+                })).slice(0, 24)
+              : [],
           };
         }
       } catch {

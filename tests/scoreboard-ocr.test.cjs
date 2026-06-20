@@ -9,11 +9,14 @@ const {
   cropScoreboardRegion,
   defaultScoreboardRegions,
   deterministicScoreboardOcr,
+  extractOcrFramesFromSource,
   LocalScoreboardOcrProviderAdapter,
   normalizeRegion,
   publicScoreboardOcr,
   scoreboardOcrHealth,
+  scoreboardOcrPreprocessVariants,
   selectOcrFrames,
+  selectOcrSamplingWindows,
   validateScoreboardOcrOutput,
 } = require("../server/scoreboard-ocr.cjs");
 const {
@@ -55,7 +58,10 @@ test("scoreboard OCR normalizes safe scoreboard regions and bounds crop size", (
     height: 130,
     anchor: "top_left",
   });
-  assert.equal(defaultScoreboardRegions(metadata).length, 3);
+  const regions = defaultScoreboardRegions(metadata);
+  assert.equal(regions.length, 6);
+  assert.equal(regions[0].id, "scorebug_broadcast_compact");
+  assert.equal(regions.some((item) => item.id === "broadcast_top_band"), true);
   assert.throws(
     () => normalizeRegion({ x: 0, y: 0, width: 1920, height: 1080 }, metadata),
     (error) => error.code === "AI_OUTPUT_INVALID",
@@ -121,6 +127,13 @@ test("deterministic scoreboard OCR can return an empty safe fallback", () => {
 
 test("local OCR parsing extracts scores clocks and transitions safely", () => {
   assert.deepEqual(parseScoreboardScore("ARS 0-0 CHE 23:11"), { home: 0, away: 0, text: "0-0" });
+  assert.deepEqual(parseScoreboardScore("HOME O - I AWAY"), { home: 0, away: 1, text: "0-1" });
+  assert.deepEqual(parseScoreboardScore("HOME 1:0 AWAY"), { home: 1, away: 0, text: "1-0" });
+  assert.deepEqual(parseScoreboardScore("36:09 ARG 1 0 ALG"), { home: 1, away: 0, text: "1-0" });
+  assert.deepEqual(parseScoreboardScore("36: 09 ARG 1 FIFA 0 ALG2"), { home: 1, away: 0, text: "1-0" });
+  assert.equal(parseScoreboardScore("16:38 ARG 0 O68 ALG"), null);
+  assert.equal(parseScoreboardScore("23:11 first half"), null);
+  assert.equal(parseScoreboardScore("HOME 0-0 AWAY 1-0 replay"), null);
   assert.equal(parseClock("12:34 first half"), "12:34");
   const evidence = buildScoreboardEvidenceFromObservations([
     { timestamp: 10, text: "HOME 0-0 AWAY", confidence: 0.8 },
@@ -196,7 +209,7 @@ test("local scoreboard OCR reads cropped frame text into score-change evidence",
       frames,
       cropper: async ({ outputDir, frameIndex, region }) => safeResolve(outputDir, `crop_${frameIndex}_${region.id}.png`),
       ocrRunner: async () => {
-        const text = calls < 3 ? "HOME 0-0 AWAY 10:00" : calls < 6 ? "HOME 1-0 AWAY 24:00" : "HOME 1-0 AWAY 38:00";
+        const text = calls === 0 ? "HOME 0-0 AWAY 10:00" : "HOME 1-0 AWAY 24:00";
         calls += 1;
         return { stdout: text };
       },
@@ -207,10 +220,68 @@ test("local scoreboard OCR reads cropped frame text into score-change evidence",
     assert.equal(result.summary.scoreChangeCount, 1);
     assert.equal(result.summary.scoreUnchangedCount >= 1, true);
     assert.equal(result.summary.sampledFrameCount, 3);
+    assert.equal(result.summary.preprocessingVariantCount, 4);
+    assert.equal(result.summary.regionIdsUsed.length >= 1, true);
+    assert.equal(result.summary.scoreTimeline.some((item) => item.status === "score_changed"), true);
     assert.doesNotMatch(JSON.stringify(publicScoreboardOcr(result)), /\/Users|storageKey|localPath|token|secret|stdout|stderr|raw/i);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("scoreboard OCR sampling covers full source and late-game windows", () => {
+  const windows = selectOcrSamplingWindows({
+    metadata: { ...metadata, durationSeconds: 360 },
+    mediaSignals: {
+      audioPeaks: [{ time: 318, energyScore: 0.92 }],
+      sceneChanges: [{ time: 326, confidence: 0.8 }],
+    },
+    visualSignals: {
+      windows: [{ start: 316, end: 320, types: ["shot_contact", "ball_in_net"], confidence: 0.9 }],
+    },
+  });
+
+  assert.equal(windows.length <= 24, true);
+  assert.equal(windows.some((window) => window.source === "full_source_periodic_scoreboard_sample"), true);
+  assert.equal(windows.some((window) => window.timestamp > 320), true);
+  assert.equal(windows.some((window) => window.source === "visual_decision_scoreboard_sample"), true);
+});
+
+test("local scoreboard OCR can extract OCR-specific frames from source video safely", async () => {
+  const { dir } = createFrameFixtures();
+  try {
+    const inputPath = safeResolve(dir, "source.mp4");
+    writeFileSync(inputPath, "fake-source", "utf8");
+    const outputDir = safeResolve(dir, "ocr_frames");
+    const frames = await extractOcrFramesFromSource({
+      inputPath,
+      outputDir,
+      metadata: { durationSeconds: 180, width: 1920, height: 1080 },
+      visualSignals: {
+        windows: [{ start: 150, end: 154, types: ["ball_in_net"], confidence: 0.9 }],
+      },
+      ffmpegRunner: async (args) => {
+        writeFileSync(args[args.length - 1], "frame", "utf8");
+      },
+    });
+
+    assert.equal(frames.length > 8, true);
+    assert.equal(frames.length <= 24, true);
+    assert.equal(frames.some((frame) => frame.timestamp > 150), true);
+    assert.equal(frames[0].width, 1280);
+    assert.doesNotMatch(JSON.stringify(frames.map(({ localPath, ...frame }) => frame)), /\/Users|storageKey|token|secret/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("scoreboard OCR preprocessing variants are bounded and safe", () => {
+  const variants = scoreboardOcrPreprocessVariants();
+  assert.equal(variants.length, 4);
+  assert.deepEqual(variants.map((variant) => variant.psm), ["11", "7", "6", "11"]);
+  assert.equal(variants.every((variant) => variant.id && variant.filter.length < 180), true);
+  assert.equal(variants.every((variant) => !variant.whitelist || /^[A-Z0-9:]+$/.test(variant.whitelist)), true);
+  assert.doesNotMatch(JSON.stringify(variants), /\/Users|storageKey|token|secret|raw/i);
 });
 
 test("local scoreboard OCR treats unsafe stdout as unreadable without leaking it", async () => {

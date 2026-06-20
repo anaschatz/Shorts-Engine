@@ -1368,7 +1368,18 @@ test("youtube live local e2e failure report keeps safe valid-goal discovery coun
           sampledFrameCount: 4,
           evidenceCount: 0,
           scoreChangeCount: 0,
+          scoreRevertedCount: 0,
           ambiguousCount: 0,
+          unreadableCount: 1,
+          regionIdsUsed: ["scorebug_left_compact", "broadcast_top_band"],
+          preprocessingVariantCount: 3,
+          scoreTimeline: [{
+            timestamp: 24.5,
+            status: "score_unchanged",
+            scoreBefore: "0-0",
+            scoreAfter: "0-0",
+            temporalConsistency: true,
+          }],
         },
       }, {
         stream: "stdout",
@@ -1414,7 +1425,18 @@ test("youtube live local e2e failure report keeps safe valid-goal discovery coun
     sampledFrameCount: 4,
     evidenceCount: 0,
     scoreChangeCount: 0,
+    scoreRevertedCount: 0,
     ambiguousCount: 0,
+    unreadableCount: 1,
+    regionIdsUsed: ["scorebug_left_compact", "broadcast_top_band"],
+    preprocessingVariantCount: 3,
+    scoreTimeline: [{
+      timestamp: 24.5,
+      status: "score_unchanged",
+      scoreBefore: "0-0",
+      scoreAfter: "0-0",
+      temporalConsistency: true,
+    }],
   });
   const event = report.serverEvents.find((item) => item.event === "valid_goal_selection_empty");
   assert.ok(event);
