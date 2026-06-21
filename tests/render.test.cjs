@@ -4,7 +4,7 @@ const { mkdtempSync, readFileSync } = require("node:fs");
 const { join } = require("node:path");
 const { tmpdir } = require("node:os");
 
-const { renderShort, writeAssSubtitles } = require("../server/render.cjs");
+const { renderShort, writeAssSubtitles, createRenderPolishSummary } = require("../server/render.cjs");
 const { validateEditPlan } = require("../server/edit-plan.cjs");
 
 const metadata = { durationSeconds: 16, width: 1920, height: 1080 };
@@ -166,6 +166,70 @@ test("ASS renderer writes VAR check badge for possible offside outcomes", () => 
   assert.doesNotMatch(ass, /GOAL CONFIRMED|THE FINISH COUNTS|\/Users|storageKey/i);
 });
 
+test("reference football style delays confirmed-goal badges until confirmation windows", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shortsengine-ass-reference-style-"));
+  const outputPath = join(dir, "captions.ass");
+  const plan = {
+    mode: "multi_moment_compilation",
+    sourceStart: 50,
+    sourceEnd: 164,
+    totalDuration: 48,
+    aspectRatio: "9:16",
+    highlightType: "generic_highlight",
+    hook: "VALID FINISHES ONLY",
+    stylePreset: "reference_football_multi_goal_v1",
+    framingMode: "wide_safe_vertical",
+    export: { width: 1080, height: 1920, format: "mp4" },
+    segments: [
+      {
+        id: "goal_1",
+        sourceStart: 50,
+        sourceEnd: 74,
+        timelineStart: 0,
+        timelineEnd: 24,
+        goalNumber: 1,
+        goalOutcome: {
+          eventType: "ball_in_net",
+          outcome: "confirmed_goal",
+          offsideStatus: "onside",
+          safeCaptionBadge: "CONFIRMED GOAL",
+        },
+        confirmationTime: 72,
+      },
+      {
+        id: "goal_2",
+        sourceStart: 140,
+        sourceEnd: 164,
+        timelineStart: 24,
+        timelineEnd: 48,
+        goalNumber: 2,
+        goalOutcome: {
+          eventType: "ball_in_net",
+          outcome: "confirmed_goal",
+          offsideStatus: "onside",
+          safeCaptionBadge: "CONFIRMED GOAL",
+        },
+        confirmationTime: 162,
+      },
+    ],
+    captions: [
+      { start: 0.2, end: 2.2, text: "VALID FINISHES ONLY", role: "opening_hook", emphasis: "strong" },
+      { start: 21.8, end: 24, text: "GOAL 1 COUNTS", role: "action_callout", emphasis: "detail" },
+      { start: 45.8, end: 48, text: "GOAL 2 COUNTS", role: "closing_punch", emphasis: "detail" },
+    ],
+  };
+
+  writeAssSubtitles(plan, outputPath);
+  const ass = readFileSync(outputPath, "utf8");
+  assert.match(ass, /REFERENCE FOOTBALL MULTI GOAL V1/);
+  assert.match(ass, /GOAL 1 · CONFIRMED/);
+  assert.match(ass, /GOAL 2 · CONFIRMED/);
+  assert.match(ass, /Dialogue: 2,0:00:21\.80,0:00:24\.00,OutcomeBadge.*GOAL 1 · CONFIRMED/);
+  assert.match(ass, /Dialogue: 2,0:00:45\.79,0:00:48\.00,OutcomeBadge.*GOAL 2 · CONFIRMED/);
+  assert.doesNotMatch(ass, /Dialogue: 2,0:00:00\.00.*GOAL 1 · CONFIRMED/);
+  assert.doesNotMatch(ass, /\/Users|OPENAI_API_KEY|storageKey/i);
+});
+
 test("multi-segment renderer cuts segments, concatenates them, then applies captions", async () => {
   const dir = mkdtempSync(join(tmpdir(), "shortsengine-render-multi-"));
   const outputPath = join(dir, "output.mp4");
@@ -250,7 +314,35 @@ test("multi-segment renderer cuts segments, concatenates them, then applies capt
   assert.equal(calls[3].includes("concat"), true);
   assert.equal(calls[4].includes("-filter_complex"), true);
   assert.equal(calls[4][calls[4].indexOf("-t") + 1], "36");
+  assert.equal(plan.renderPolishQA.renderStylePreset, "punchy_highlight");
+  assert.equal(plan.renderPolishQA.transitionRenderedCount, 2);
+  assert.equal(plan.renderPolishQA.hardCutFallbackCount, 0);
+  assert.equal(plan.renderPolishQA.animatedCaptionCount, 3);
+  assert.equal(plan.renderPolishQA.staticCaptionFallbackCount, 0);
+  assert.ok(plan.renderPolishQA.overlayRenderedCount >= 2);
+  assert.ok(plan.renderPolishQA.visualPolishScore >= 95);
   const ass = readFileSync(subtitlesPath, "utf8");
   assert.match(ass, /BEST PHASES ONLY/);
   assert.doesNotMatch(ass, /\bGOAL\b|ΓΚΟΛ|\/Users|storageKey/i);
+});
+
+test("render polish summary reports transition fallback when no multi-segment render happened", () => {
+  const summary = createRenderPolishSummary({
+    stylePreset: "reference_football_multi_goal_v1",
+    totalDuration: 48,
+    segments: [
+      { id: "goal_1", sourceStart: 10, sourceEnd: 34, timelineStart: 0, timelineEnd: 24 },
+      { id: "goal_2", sourceStart: 80, sourceEnd: 104, timelineStart: 24, timelineEnd: 48 },
+    ],
+    captions: [{ start: 0.2, end: 2.2, text: "VALID FINISHES ONLY" }],
+    transitionPlan: [{ fromSegmentId: "goal_1", toSegmentId: "goal_2", timelineStart: 24, type: "short_fade" }],
+    export: { width: 1080, height: 1920, format: "mp4" },
+  }, { transitionRenderedCount: 0 });
+
+  assert.equal(summary.renderStylePreset, "reference_football_multi_goal_v1");
+  assert.equal(summary.transitionRenderedCount, 0);
+  assert.equal(summary.hardCutFallbackCount, 1);
+  assert.equal(summary.animatedCaptionCount, 1);
+  assert.ok(summary.renderPolishWarnings.includes("hard_cut_fallback_used"));
+  assert.doesNotMatch(JSON.stringify(summary), /\/Users|OPENAI_API_KEY|storageKey/i);
 });

@@ -466,6 +466,43 @@ function safeVisualPolishQA(value) {
   };
 }
 
+function safeRenderTransition(value = {}, index = 0) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    index: index + 1,
+    fromSegmentId: sanitizeText(value.fromSegmentId || "", 64) || null,
+    toSegmentId: sanitizeText(value.toSegmentId || "", 64) || null,
+    timelineStart: safeNumber(value.timelineStart),
+    type: sanitizeText(value.type || "", 60) || null,
+    transitionDurationSeconds: safeNumber(value.transitionDurationSeconds),
+    renderedBy: sanitizeText(value.renderedBy || "", 80) || null,
+  };
+}
+
+function safeRenderPolishQA(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    contractVersion: Number.isFinite(Number(value.contractVersion)) ? Number(value.contractVersion) : 1,
+    renderStylePreset: sanitizeText(value.renderStylePreset || "", 80) || null,
+    outputWidth: Number.isFinite(Number(value.outputWidth)) ? Number(value.outputWidth) : null,
+    outputHeight: Number.isFinite(Number(value.outputHeight)) ? Number(value.outputHeight) : null,
+    transitionMode: sanitizeText(value.transitionMode || "", 80) || null,
+    transitionRenderedCount: Number.isFinite(Number(value.transitionRenderedCount)) ? Number(value.transitionRenderedCount) : null,
+    hardCutFallbackCount: Number.isFinite(Number(value.hardCutFallbackCount)) ? Number(value.hardCutFallbackCount) : null,
+    transitions: Array.isArray(value.transitions)
+      ? value.transitions.map(safeRenderTransition).filter(Boolean).slice(0, 8)
+      : [],
+    animatedCaptionCount: Number.isFinite(Number(value.animatedCaptionCount)) ? Number(value.animatedCaptionCount) : null,
+    staticCaptionFallbackCount: Number.isFinite(Number(value.staticCaptionFallbackCount)) ? Number(value.staticCaptionFallbackCount) : null,
+    captionMotion: sanitizeText(value.captionMotion || "", 80) || null,
+    overlayRenderedCount: Number.isFinite(Number(value.overlayRenderedCount)) ? Number(value.overlayRenderedCount) : null,
+    overlayFallbackCount: Number.isFinite(Number(value.overlayFallbackCount)) ? Number(value.overlayFallbackCount) : null,
+    overlayMode: sanitizeText(value.overlayMode || "", 80) || null,
+    visualPolishScore: Number.isFinite(Number(value.visualPolishScore)) ? Number(value.visualPolishScore) : null,
+    renderPolishWarnings: safeStringList(value.renderPolishWarnings, 8, 80),
+  };
+}
+
 function safeEditAssembly(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return {
@@ -659,6 +696,7 @@ function safeRenderPlanSummary(job) {
     goalSelectionMode: sanitizeText(plan.goalSelectionMode || "", 60) || null,
     countedGoalProof: safeCountedGoalProofSummary(job, segments),
     visualPolishQA: safeVisualPolishQA(plan.visualPolishQA),
+    renderPolishQA: safeRenderPolishQA(plan.renderPolishQA),
     editAssembly: safeEditAssembly(plan.editAssembly),
     topCandidates,
   };

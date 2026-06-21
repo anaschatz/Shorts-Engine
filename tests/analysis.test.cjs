@@ -1491,6 +1491,7 @@ test("valid-goals-only plan keeps every confirmed goal, excludes offside goals, 
 
   assert.equal(plan.mode, "multi_moment_compilation");
   assert.equal(plan.goalSelectionMode, "valid_goals_only");
+  assert.equal(plan.stylePreset, "reference_football_multi_goal_v1");
   assert.equal(segments.length, 3);
   assert.ok(segments.every((segment) => segment.highlightType === "goal"));
   assert.ok(segments.every((segment) => segment.goalOutcome.outcome === "confirmed_goal"));

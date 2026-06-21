@@ -54,6 +54,28 @@ function mp4Response() {
   });
 }
 
+function renderPolishQA(overrides = {}) {
+  return {
+    contractVersion: 1,
+    renderStylePreset: "punchy_highlight",
+    outputWidth: 1080,
+    outputHeight: 1920,
+    transitionMode: "segment_fade_concat",
+    transitionRenderedCount: 0,
+    hardCutFallbackCount: 0,
+    transitions: [],
+    animatedCaptionCount: 2,
+    staticCaptionFallbackCount: 0,
+    captionMotion: "ass_fade_scale",
+    overlayRenderedCount: 2,
+    overlayFallbackCount: 0,
+    overlayMode: "ass_goal_badge_and_labels",
+    visualPolishScore: 100,
+    renderPolishWarnings: [],
+    ...overrides,
+  };
+}
+
 function completedJobEditPlan(overrides = {}) {
   return {
     mode: "single_moment",
@@ -90,6 +112,7 @@ function completedJobEditPlan(overrides = {}) {
       score: 0.96,
       referenceSimilarityNotes: ["mock_reference_style_ready"],
     },
+    renderPolishQA: renderPolishQA(),
     ...overrides,
   };
 }
@@ -781,6 +804,7 @@ function passedSmokeReport() {
         score: 0.96,
         referenceSimilarityNotes: ["mock_reference_style_ready"],
       },
+      renderPolishQA: renderPolishQA(),
       editAssembly: {
         contractVersion: 1,
         segmentCount: 0,
@@ -906,6 +930,18 @@ function countedGoalSmokeReport() {
       score: 0.97,
       referenceSimilarityNotes: ["chronological_multi_goal_sequence", "smooth_transitions_declared"],
     },
+    renderPolishQA: renderPolishQA({
+      renderStylePreset: "reference_football_multi_goal_v1",
+      transitionRenderedCount: 2,
+      hardCutFallbackCount: 0,
+      transitions: [
+        { fromSegmentId: "goal_1", toSegmentId: "goal_2", timelineStart: 24, type: "short_fade", transitionDurationSeconds: 0.4, renderedBy: "segment_fade_concat" },
+        { fromSegmentId: "goal_2", toSegmentId: "goal_3", timelineStart: 48, type: "short_fade", transitionDurationSeconds: 0.4, renderedBy: "segment_fade_concat" },
+      ],
+      animatedCaptionCount: 5,
+      overlayRenderedCount: 5,
+      visualPolishScore: 100,
+    }),
   };
   return report;
 }
@@ -1318,6 +1354,11 @@ test("youtube live local e2e mocked success wraps smoke proof without raw URL le
   assert.equal(report.outputProof.countedGoalsFound, 0);
   assert.equal(report.outputProof.replayOnlySegments, 0);
   assert.equal(report.outputProof.visualPolishScore, 96);
+  assert.equal(report.outputProof.renderStylePreset, "punchy_highlight");
+  assert.equal(report.outputProof.transitionRenderedCount, 0);
+  assert.equal(report.outputProof.animatedCaptionCount, 2);
+  assert.equal(report.outputProof.overlayRenderedCount, 2);
+  assert.equal(report.outputProof.renderPolishQA.captionMotion, "ass_fade_scale");
   assert.equal(report.outputProof.abruptCutRiskCount, 0);
   assert.equal(report.outputProof.referenceStyleQA.captionsMisalignedCount, 0);
   assert.equal(report.outputProof.generatedVideoPath, "manual-downloads/shortsengine-youtube-dQw4w9WgXcQ-test.mp4");
@@ -1349,6 +1390,12 @@ test("youtube live local e2e reports counted goal coverage and replay-only segme
   assert.equal(report.outputProof.expectedCountedGoals, 3);
   assert.equal(report.outputProof.replayOnlySegments, 0);
   assert.equal(report.outputProof.visualPolishScore, 97);
+  assert.equal(report.outputProof.renderStylePreset, "reference_football_multi_goal_v1");
+  assert.equal(report.outputProof.transitionRenderedCount, 2);
+  assert.equal(report.outputProof.hardCutFallbackCount, 0);
+  assert.equal(report.outputProof.animatedCaptionCount, 5);
+  assert.equal(report.outputProof.overlayRenderedCount, 5);
+  assert.equal(report.outputProof.renderPolishQA.transitions.length, 2);
   assert.equal(report.outputProof.abruptCutRiskCount, 0);
   assert.equal(report.outputProof.referenceStyleQA.countedGoalsExpected, 3);
   assert.equal(report.outputProof.segmentWindows.length, 3);

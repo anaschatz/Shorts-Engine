@@ -6,7 +6,7 @@ Core changes:
 
 - `server/edit-plan.cjs` validates caption roles: `opening_hook`, `context`, `action_callout`, `reaction`, `closing_punch`.
 - Captions carry emphasis, layout, timing tokens and style tokens for ASS rendering.
-- Supported render styles are `clean_sports`, `social_sports_v1` and `punchy_highlight`.
+- Supported render styles are `clean_sports`, `social_sports_v1`, `punchy_highlight` and `reference_football_multi_goal_v1`.
 - Unknown render styles fail closed at the API/edit-plan boundary.
 - Animation cues are bounded by type; unsupported cues are ignored with metadata instead of crashing render.
 - `server/render.cjs` writes role-specific ASS styles and applies deterministic FFmpeg overlays for intro bars, beat cuts, punch borders, impact flashes and replay stutter marks.

@@ -38,7 +38,7 @@ Safety notes:
 - Treat missing project/upload context as a safe job failure, not an uncaught orchestration crash.
 - Treat object storage/database migration as an adapter swap after repository and artifact contracts are stable.
 - 1:1 square sports edits are supported through validated export dimensions; unsupported animation cues should be ignored with metadata instead of failing render.
-- Supported renderer styles are `clean_sports`, `social_sports_v1` and `punchy_highlight`; unknown styles must fail closed before enqueue/render.
+- Supported renderer styles are `clean_sports`, `social_sports_v1`, `punchy_highlight` and `reference_football_multi_goal_v1`; unknown styles must fail closed before enqueue/render.
 - Kinetic captions must keep role, emphasis, layout, timing and style tokens valid before ASS generation.
 - Punchy effects should use bounded overlays/background push and must not imply ball/player tracking or crop away the full foreground frame.
 - Candidate edit plans expose `reviewMetadata` for reference-style quality review: render style, caption roles, cue types, aspect ratio, highlight type, forbidden claim checks, framing and evidence summaries.

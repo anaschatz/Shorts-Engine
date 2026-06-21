@@ -301,6 +301,7 @@
       clean_sports: "Clean sports",
       social_sports_v1: "Social sports",
       punchy_highlight: "Punchy highlight",
+      reference_football_multi_goal_v1: "Reference goals",
     };
     return labels[value] || String(value || "Style").replace(/_/g, " ");
   }

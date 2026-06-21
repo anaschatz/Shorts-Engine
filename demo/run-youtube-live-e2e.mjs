@@ -105,6 +105,10 @@ function safeNumber(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function hasFiniteNumber(value) {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
 function safeString(value, maxLength = 80) {
   return String(value || "")
     .replace(/\/Users\/[^\s"']+/g, "[redacted-path]")
@@ -522,6 +526,59 @@ function referenceStyleQaFromSmoke(smoke, outputMp4 = null) {
   };
 }
 
+function renderPolishQaFromSmoke(smoke) {
+  const renderPlan = smoke?.renderPlan && typeof smoke.renderPlan === "object" ? smoke.renderPlan : {};
+  const qa = renderPlan.renderPolishQA && typeof renderPlan.renderPolishQA === "object" && !Array.isArray(renderPlan.renderPolishQA)
+    ? renderPlan.renderPolishQA
+    : {};
+  const transitionRenderedCount = Number.isFinite(Number(qa.transitionRenderedCount))
+    ? Number(qa.transitionRenderedCount)
+    : null;
+  const hardCutFallbackCount = Number.isFinite(Number(qa.hardCutFallbackCount))
+    ? Number(qa.hardCutFallbackCount)
+    : null;
+  const animatedCaptionCount = Number.isFinite(Number(qa.animatedCaptionCount))
+    ? Number(qa.animatedCaptionCount)
+    : null;
+  const overlayRenderedCount = Number.isFinite(Number(qa.overlayRenderedCount))
+    ? Number(qa.overlayRenderedCount)
+    : null;
+  return {
+    contractVersion: Number.isFinite(Number(qa.contractVersion)) ? Number(qa.contractVersion) : 1,
+    renderStylePreset: safeString(qa.renderStylePreset || renderPlan.stylePreset || "", 80) || null,
+    outputWidth: safeNumber(qa.outputWidth),
+    outputHeight: safeNumber(qa.outputHeight),
+    transitionMode: safeString(qa.transitionMode || "", 80) || null,
+    transitionRenderedCount,
+    hardCutFallbackCount,
+    transitions: Array.isArray(qa.transitions)
+      ? qa.transitions.slice(0, 8).map((transition, index) => ({
+          index: index + 1,
+          fromSegmentId: safeString(transition && transition.fromSegmentId, 64) || null,
+          toSegmentId: safeString(transition && transition.toSegmentId, 64) || null,
+          timelineStart: safeNumber(transition && transition.timelineStart),
+          type: safeString(transition && transition.type, 60) || null,
+          transitionDurationSeconds: safeNumber(transition && transition.transitionDurationSeconds),
+          renderedBy: safeString(transition && transition.renderedBy, 80) || null,
+        }))
+      : [],
+    animatedCaptionCount,
+    staticCaptionFallbackCount: Number.isFinite(Number(qa.staticCaptionFallbackCount))
+      ? Number(qa.staticCaptionFallbackCount)
+      : null,
+    captionMotion: safeString(qa.captionMotion || "", 80) || null,
+    overlayRenderedCount,
+    overlayFallbackCount: Number.isFinite(Number(qa.overlayFallbackCount))
+      ? Number(qa.overlayFallbackCount)
+      : null,
+    overlayMode: safeString(qa.overlayMode || "", 80) || null,
+    visualPolishScore: Number.isFinite(Number(qa.visualPolishScore))
+      ? Number(qa.visualPolishScore)
+      : null,
+    renderPolishWarnings: safeStringList(qa.renderPolishWarnings, 8, 80),
+  };
+}
+
 function probeGeneratedMp4(artifact) {
   if (!artifact || typeof artifact !== "object" || !artifact.relativePath) {
     return {
@@ -599,6 +656,7 @@ function buildOutputProof({ env, smoke, source, staleArtifactCleanup }) {
       }
     : null;
   const referenceStyleQA = referenceStyleQaFromSmoke(smoke, outputMp4);
+  const renderPolishQA = renderPolishQaFromSmoke(smoke);
   referenceStyleQA.countedGoalsExpected = coverage.expectedCountedGoals;
   referenceStyleQA.countedGoalsIncluded = coverage.countedGoalsIncluded;
   referenceStyleQA.replayOnlySegments = coverage.replayOnlySegments;
@@ -618,9 +676,18 @@ function buildOutputProof({ env, smoke, source, staleArtifactCleanup }) {
     captionsAlignedCount: referenceStyleQA.captionsAlignedCount,
     captionsMisalignedCount: referenceStyleQA.captionsMisalignedCount,
     visualPolishScore: referenceStyleQA.visualPolishScore,
+    transitionRenderedCount: renderPolishQA.transitionRenderedCount,
+    hardCutFallbackCount: renderPolishQA.hardCutFallbackCount,
+    animatedCaptionCount: renderPolishQA.animatedCaptionCount,
+    staticCaptionFallbackCount: renderPolishQA.staticCaptionFallbackCount,
+    overlayRenderedCount: renderPolishQA.overlayRenderedCount,
+    overlayFallbackCount: renderPolishQA.overlayFallbackCount,
+    renderStylePreset: renderPolishQA.renderStylePreset,
+    renderPolishWarnings: renderPolishQA.renderPolishWarnings,
     referenceSimilarityNotes: referenceStyleQA.referenceSimilarityNotes,
     generatedVideoPath: referenceStyleQA.generatedVideoPath,
     referenceStyleQA,
+    renderPolishQA,
     segmentWindows: coverage.segmentWindows,
     staleArtifactCleanup,
     comparison: buildComparisonReadiness({ source, outputMp4, ffprobe, coverage, reference }),
@@ -1274,9 +1341,12 @@ async function runYouTubeLiveE2E(options = {}) {
       ["youtube_live_e2e_render_created_export", Boolean(smoke.ids?.exportId)],
       ["youtube_live_e2e_download_verified", Boolean(smoke.export)],
       ["youtube_live_e2e_output_fresh_path", Boolean(outputProof.outputMp4?.relativePath)],
-      ["youtube_live_e2e_replay_only_segments_reported", Number.isFinite(Number(outputProof.replayOnlySegments))],
-      ["youtube_live_e2e_visual_polish_reported", Number.isFinite(Number(outputProof.visualPolishScore))],
-      ["youtube_live_e2e_abrupt_cut_risk_reported", Number.isFinite(Number(outputProof.abruptCutRiskCount))],
+      ["youtube_live_e2e_replay_only_segments_reported", hasFiniteNumber(outputProof.replayOnlySegments)],
+      ["youtube_live_e2e_visual_polish_reported", hasFiniteNumber(outputProof.visualPolishScore)],
+      ["youtube_live_e2e_abrupt_cut_risk_reported", hasFiniteNumber(outputProof.abruptCutRiskCount)],
+      ["youtube_live_e2e_render_polish_reported", Boolean(outputProof.renderPolishQA)],
+      ["youtube_live_e2e_transition_rendered_reported", hasFiniteNumber(outputProof.transitionRenderedCount)],
+      ["youtube_live_e2e_overlay_rendered_reported", hasFiniteNumber(outputProof.overlayRenderedCount)],
     ]) {
       addCheck(checks, name, passed);
     }

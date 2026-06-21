@@ -19,7 +19,7 @@
     allowedMimeTypes: Object.freeze(["video/mp4", "video/quicktime", "video/webm"]),
     allowedLanguages: Object.freeze(["Ελληνικά", "English", "Spanish", "Arabic"]),
     allowedPresets: Object.freeze(["hype", "drama", "tactical", "fan"]),
-    allowedRenderStylePresets: Object.freeze(["clean_sports", "social_sports_v1", "punchy_highlight"]),
+    allowedRenderStylePresets: Object.freeze(["clean_sports", "social_sports_v1", "punchy_highlight", "reference_football_multi_goal_v1"]),
     allowedRatios: Object.freeze(["vertical", "square", "auto"]),
     allowedStyleTargets: Object.freeze(["vertical_9_16", "square_1_1", "auto"]),
     allowedEditIntensities: Object.freeze(["clean", "balanced", "punchy"]),

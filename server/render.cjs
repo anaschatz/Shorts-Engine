@@ -40,6 +40,17 @@ const RENDER_STYLE_CONFIG = Object.freeze({
     accentAlpha: 0.24,
     showTopLabel: true,
   },
+  reference_football_multi_goal_v1: {
+    captionFont: 66,
+    squareCaptionFont: 52,
+    labelFont: 40,
+    endFont: 48,
+    contrast: 1.1,
+    saturation: 1.14,
+    flashAlpha: 0.08,
+    accentAlpha: 0.2,
+    showTopLabel: true,
+  },
 });
 
 const ASS_COLORS = Object.freeze({
@@ -119,19 +130,42 @@ function topLabelForPlan(plan = {}) {
   return goalOutcomeBadgeLabel(plan.goalOutcome) || labelForHighlightType(plan.highlightType);
 }
 
+function segmentBadgeLabel(segment = {}, label = "") {
+  const goalNumber = Number(segment.goalNumber);
+  if (Number.isFinite(goalNumber) && goalNumber > 0 && /confirmed goal/i.test(label)) {
+    return `GOAL ${Math.round(goalNumber)} · CONFIRMED`;
+  }
+  return label;
+}
+
+function badgeStartForSegment(segment = {}) {
+  const timelineStart = Number(segment.timelineStart || 0);
+  const sourceStart = Number(segment.sourceStart);
+  const confirmationTime = Number(segment.confirmationTime);
+  if (Number.isFinite(sourceStart) && Number.isFinite(confirmationTime) && confirmationTime >= sourceStart) {
+    return Number(Math.max(timelineStart, timelineStart + confirmationTime - sourceStart - 0.2).toFixed(2));
+  }
+  return timelineStart;
+}
+
 function goalOutcomeBadges(plan = {}, duration = 0) {
   const badges = [];
   const planLabel = goalOutcomeBadgeLabel(plan.goalOutcome);
   if (planLabel) {
-    badges.push({ start: 0, end: Math.min(Number(duration) || 0, 4.5), label: planLabel });
+    const decisionTimestamp = Number(plan.goalOutcome && plan.goalOutcome.decisionTimestamp);
+    const sourceStart = Number(plan.sourceStart || 0);
+    const start = Number.isFinite(decisionTimestamp)
+      ? Number(Math.max(0, decisionTimestamp - sourceStart - 0.2).toFixed(2))
+      : 0;
+    badges.push({ start, end: Math.min(Number(duration) || 0, start + 4.5), label: planLabel });
   }
   const segments = Array.isArray(plan.segments) ? plan.segments : [];
   for (const segment of segments) {
     const label = goalOutcomeBadgeLabel(segment && segment.goalOutcome);
     if (!label) continue;
-    const start = Number(segment.timelineStart || 0);
+    const start = badgeStartForSegment(segment);
     const end = Math.min(Number(segment.timelineEnd || start + 4.5), start + 4.5);
-    if (end > start) badges.push({ start, end, label });
+    if (end > start) badges.push({ start, end, label: segmentBadgeLabel(segment, label) });
   }
   return badges.slice(0, 8);
 }
@@ -447,6 +481,86 @@ function segmentVideoFadeFilter(segment) {
   return `fade=t=in:st=0:d=${fadeIn},fade=t=out:st=${fadeOutStart}:d=${fadeOut}`;
 }
 
+function boundedTransitionDuration(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0.4;
+  return Number(Math.max(0.12, Math.min(0.8, parsed)).toFixed(2));
+}
+
+function safeRenderTransitions(plan = {}, segments = []) {
+  const transitionPlan = Array.isArray(plan.transitionPlan) ? plan.transitionPlan : [];
+  const transitions = [];
+  for (let index = 1; index < segments.length; index += 1) {
+    const segment = segments[index];
+    const raw = transitionPlan[index - 1] && typeof transitionPlan[index - 1] === "object"
+      ? transitionPlan[index - 1]
+      : {};
+    const timelineStart = Number(raw.timelineStart ?? segment.timelineStart ?? segments
+      .slice(0, index)
+      .reduce((sum, item) => sum + Number(item.duration || 0), 0));
+    transitions.push({
+      fromSegmentId: String(raw.fromSegmentId || segments[index - 1].id || `segment_${index}`).slice(0, 64),
+      toSegmentId: String(raw.toSegmentId || segment.id || `segment_${index + 1}`).slice(0, 64),
+      timelineStart: Number.isFinite(timelineStart) ? Number(Math.max(0, timelineStart).toFixed(2)) : 0,
+      type: ["short_fade", "crossfade", "segment_fade"].includes(raw.type) ? raw.type : "segment_fade",
+      transitionDurationSeconds: boundedTransitionDuration(raw.transitionDurationSeconds),
+      renderedBy: "segment_fade_concat",
+    });
+  }
+  return transitions;
+}
+
+function captionMotionCount(plan = {}) {
+  return Array.isArray(plan.captions)
+    ? plan.captions.filter((caption) => Number(caption && caption.end) > Number(caption && caption.start)).length
+    : 0;
+}
+
+function createRenderPolishSummary(plan = {}, options = {}) {
+  const dimensions = renderDimensions(plan);
+  const config = renderStyleConfig(plan);
+  const segments = normalizedRenderSegments(plan);
+  const duration = Number(plan.totalDuration) || segments.reduce((sum, segment) => sum + segment.duration, 0) || Number(plan.sourceEnd) - Number(plan.sourceStart) || 0;
+  const transitions = safeRenderTransitions(plan, segments);
+  const transitionTargetCount = Math.max(0, segments.length - 1);
+  const renderedTransitionHint = Number(options.transitionRenderedCount);
+  const transitionRenderedCount = transitionTargetCount > 0
+    ? Math.min(
+        transitionTargetCount,
+        Number.isFinite(renderedTransitionHint)
+          ? Math.max(0, renderedTransitionHint)
+          : transitions.length,
+      )
+    : 0;
+  const hardCutFallbackCount = Math.max(0, transitionTargetCount - transitionRenderedCount);
+  const overlayRenderedCount = goalOutcomeBadges(plan, duration).length +
+    (config.showTopLabel ? 1 : 0) +
+    (config.showTopLabel && duration >= 2.2 ? 1 : 0);
+  const animatedCaptionCount = captionMotionCount(plan);
+  const renderPolishWarnings = [];
+  if (hardCutFallbackCount > 0) renderPolishWarnings.push("hard_cut_fallback_used");
+  if (segments.length > 1 && transitionRenderedCount === 0) renderPolishWarnings.push("missing_transition_render");
+  if (overlayRenderedCount === 0) renderPolishWarnings.push("overlay_not_rendered");
+  return {
+    contractVersion: 1,
+    renderStylePreset: config.name,
+    outputWidth: dimensions.width,
+    outputHeight: dimensions.height,
+    transitionMode: transitionRenderedCount > 0 ? "segment_fade_concat" : "single_window",
+    transitionRenderedCount,
+    hardCutFallbackCount,
+    transitions,
+    animatedCaptionCount,
+    staticCaptionFallbackCount: 0,
+    captionMotion: animatedCaptionCount > 0 ? "ass_fade_scale" : "none",
+    overlayRenderedCount,
+    overlayFallbackCount: 0,
+    overlayMode: overlayRenderedCount > 0 ? "ass_goal_badge_and_labels" : "none",
+    visualPolishScore: Math.max(0, 100 - hardCutFallbackCount * 20 - renderPolishWarnings.length * 5),
+    renderPolishWarnings,
+  };
+}
+
 function singleWindowPlan(plan, duration) {
   return {
     ...plan,
@@ -521,6 +635,7 @@ async function renderSingleWindowShort({ inputPath, outputPath, subtitlesPath, p
     outputPath,
   ];
   await ffmpegRunner(args, { signal });
+  plan.renderPolishQA = createRenderPolishSummary(plan, { transitionRenderedCount: 0 });
   return outputPath;
 }
 
@@ -594,6 +709,9 @@ async function renderMultiSegmentShort({ inputPath, outputPath, subtitlesPath, p
       signal,
       ffmpegRunner,
     });
+    plan.renderPolishQA = createRenderPolishSummary(plan, {
+      transitionRenderedCount: Math.max(0, segments.length - 1),
+    });
     return outputPath;
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
@@ -613,4 +731,5 @@ module.exports = {
   runFfmpeg,
   extractAudio,
   renderShort,
+  createRenderPolishSummary,
 };

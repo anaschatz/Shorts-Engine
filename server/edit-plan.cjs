@@ -30,7 +30,7 @@ const HIGHLIGHT_TYPES = Object.freeze([
 ]);
 
 const FRAMING_MODES = Object.freeze(["safe_center", "action_bias", "wide_safe", "wide_safe_vertical"]);
-const RENDER_STYLE_PRESETS = Object.freeze(["clean_sports", "social_sports_v1", "punchy_highlight"]);
+const RENDER_STYLE_PRESETS = Object.freeze(["clean_sports", "social_sports_v1", "punchy_highlight", "reference_football_multi_goal_v1"]);
 const STYLE_PRESET_ALIASES = Object.freeze({
   hype: "punchy_highlight",
   drama: "social_sports_v1",

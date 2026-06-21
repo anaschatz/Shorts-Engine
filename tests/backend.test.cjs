@@ -371,6 +371,8 @@ test("edit plan validation enforces safe MP4 export shapes with captions", () =>
   const square = validateEditPlan({ ...plan, aspectRatio: "1:1", export: { width: 1080, height: 1080, format: "mp4" } }, metadata);
   assert.equal(square.aspectRatio, "1:1");
   assert.equal(square.export.height, 1080);
+  const referenceStyle = validateEditPlan({ ...plan, stylePreset: "reference_football_multi_goal_v1" }, metadata);
+  assert.equal(referenceStyle.stylePreset, "reference_football_multi_goal_v1");
   assert.throws(() => validateEditPlan({ ...plan, aspectRatio: "4:5" }, metadata), /Unsupported export aspect ratio/);
   assert.throws(() => validateEditPlan({ ...plan, highlightType: "goalish" }, metadata), /Unsupported highlight type/);
   assert.throws(() => validateEditPlan({ ...plan, framingMode: "tight_crop" }, metadata), /Unsupported framing mode/);

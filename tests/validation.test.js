@@ -473,6 +473,14 @@ test("project settings are normalized and consent is required for jobs", () => {
   assert.equal(settings.data.motion, 0);
   assert.equal(Core.validateProjectForJob(settings.data, "generate").error.code, "RIGHTS_REQUIRED");
 
+  const referenceSettings = Core.normalizeProjectSettings({
+    title: "Derby Final",
+    stylePreset: "reference_football_multi_goal_v1",
+    rightsConfirmed: true,
+  });
+  assert.equal(referenceSettings.ok, true);
+  assert.equal(referenceSettings.data.stylePreset, "reference_football_multi_goal_v1");
+
   const fallback = Core.normalizeProjectSettings({
     title: "Derby Final",
     styleTarget: "unsafe",

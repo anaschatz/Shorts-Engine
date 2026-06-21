@@ -33,7 +33,7 @@ const JOB_STYLE_ALIASES = Object.freeze({
   vertical: "vertical_9_16",
 });
 const JOB_EDIT_INTENSITIES = Object.freeze(["clean", "balanced", "punchy"]);
-const JOB_RENDER_STYLE_PRESETS = Object.freeze(["clean_sports", "social_sports_v1", "punchy_highlight"]);
+const JOB_RENDER_STYLE_PRESETS = Object.freeze(["clean_sports", "social_sports_v1", "punchy_highlight", "reference_football_multi_goal_v1"]);
 
 const DEFAULT_RECOVERY_POLICY = Object.freeze({
   maxAttempts: 2,
@@ -192,6 +192,18 @@ function safePayloadObject(value, maxBytes = 30000) {
 function publicJsonClone(value) {
   if (value === null || value === undefined) return value;
   return JSON.parse(JSON.stringify(redactForLogs(value)));
+}
+
+function restoreSafeEditPlanMetadata(publicJob, sourceJob) {
+  if (!publicJob || !sourceJob || !sourceJob.editPlan || typeof sourceJob.editPlan !== "object") return publicJob;
+  const publicPlan = publicJob.editPlan && typeof publicJob.editPlan === "object" ? publicJob.editPlan : {};
+  for (const key of ["visualPolishQA", "renderPolishQA", "editAssembly"]) {
+    if (sourceJob.editPlan[key] && typeof sourceJob.editPlan[key] === "object") {
+      publicPlan[key] = publicJsonClone(sourceJob.editPlan[key]);
+    }
+  }
+  publicJob.editPlan = publicPlan;
+  return publicJob;
 }
 
 function normalizeError(error) {
@@ -432,7 +444,7 @@ class JobStore {
     delete publicSafe.claimedAt;
     delete publicSafe.leaseExpiresAt;
     if (publicSafe.payload) publicSafe.payload = publicPayload(publicSafe.payload);
-    return publicJsonClone(publicSafe);
+    return restoreSafeEditPlanMetadata(publicJsonClone(publicSafe), safe);
   }
 
   serializeJob(job) {

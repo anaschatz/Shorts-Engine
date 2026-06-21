@@ -144,6 +144,51 @@ test("durable job store persists create/update and excludes controllers", () => 
   assert.equal(Object.prototype.hasOwnProperty.call(publicJob, "outputPath"), false);
 });
 
+test("public job keeps safe render QA metadata from large edit plans", () => {
+  const jobDir = tempJobDir();
+  const store = createPersistentStore(jobDir);
+  const job = createJob(store, "public-render-qa");
+  store.update(job, { status: "processing", progress: 86, step: "render_short" });
+  const manyPlanFields = Object.fromEntries(
+    Array.from({ length: 36 }, (_, index) => [`field${index}`, `value-${index}`]),
+  );
+  store.complete(job, {
+    exportId: "exp_cccccccc-cccc-4ccc-cccc-cccccccccccc",
+    editPlan: {
+      ...manyPlanFields,
+      mode: "multi_moment_compilation",
+      stylePreset: "reference_football_multi_goal_v1",
+      renderPolishQA: {
+        contractVersion: 1,
+        renderStylePreset: "reference_football_multi_goal_v1",
+        transitionRenderedCount: 2,
+        hardCutFallbackCount: 0,
+        animatedCaptionCount: 5,
+        overlayRenderedCount: 5,
+        renderPolishWarnings: [],
+      },
+      visualPolishQA: {
+        contractVersion: 1,
+        countedGoalsIncluded: 3,
+        replayOnlySegments: 0,
+        visualPolishScore: 100,
+      },
+      editAssembly: {
+        contractVersion: 1,
+        segmentCount: 3,
+        transitions: [{ fromSegmentId: "goal_1", toSegmentId: "goal_2" }],
+      },
+    },
+  });
+
+  const publicJob = store.publicJob(job);
+  assert.equal(publicJob.editPlan.renderPolishQA.renderStylePreset, "reference_football_multi_goal_v1");
+  assert.equal(publicJob.editPlan.renderPolishQA.transitionRenderedCount, 2);
+  assert.equal(publicJob.editPlan.visualPolishQA.countedGoalsIncluded, 3);
+  assert.equal(publicJob.editPlan.editAssembly.segmentCount, 3);
+  assert.doesNotMatch(JSON.stringify(publicJob), /\/Users|OPENAI_API_KEY|storageKey|outputPath|localPath/i);
+});
+
 test("idempotency survives durable store reload", () => {
   const jobDir = tempJobDir();
   const firstStore = createPersistentStore(jobDir);

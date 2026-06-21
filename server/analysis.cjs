@@ -3855,6 +3855,14 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
   const primary = selectedCandidates.find((candidate) => hasPrimaryMomentAction(candidate.analysisMoment)) || selectedCandidates[0];
   const compilationHook = openingCaptionTextForCompilation(segments);
   const compilationClosing = closingCaptionTextForCompilation(segments);
+  const validGoalCompilation = segments.every((segment) => (
+    segment.highlightType === "goal" &&
+    segment.goalOutcome &&
+    segment.goalOutcome.outcome === "confirmed_goal"
+  ));
+  const compilationStylePreset = validGoalCompilation
+    ? "reference_football_multi_goal_v1"
+    : renderStylePreset;
   const baseCropPlan = primary.cropPlan || calibrateCropPlan({ metadata, targetAspectRatio: primary.aspectRatio || "9:16" });
   const cropPlan = {
     ...baseCropPlan,
@@ -3868,11 +3876,7 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
     sourceEnd: Math.max(...segments.map((segment) => segment.sourceEnd)),
     segments,
     transitionPlan,
-    goalSelectionMode: segments.every((segment) => (
-      segment.highlightType === "goal" &&
-      segment.goalOutcome &&
-      segment.goalOutcome.outcome === "confirmed_goal"
-    )) ? GOAL_SELECTION_MODES.validGoalsOnly : GOAL_SELECTION_MODES.balanced,
+    goalSelectionMode: validGoalCompilation ? GOAL_SELECTION_MODES.validGoalsOnly : GOAL_SELECTION_MODES.balanced,
     totalDuration,
     aspectRatio: primary.aspectRatio || "9:16",
     highlightType: "generic_highlight",
@@ -3894,7 +3898,7 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
     cropPlan,
     cropStrategy: createCropStrategy(metadata, "wide_safe_vertical"),
     visualQA: null,
-    stylePreset: renderStylePreset,
+    stylePreset: compilationStylePreset,
     styleTarget,
     editIntensity,
     footballStoryPlan: {
