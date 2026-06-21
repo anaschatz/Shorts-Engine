@@ -3555,8 +3555,159 @@ function transitionPlanForCompilation(segments = []) {
     cutStyle: "smooth_beat_cut",
     fadeOutSeconds: 0.22,
     fadeInSeconds: 0.18,
+    transitionDurationSeconds: 0.4,
+    continuity: "chronological_goal_sequence",
+    previousCutReason: "goal_phase_complete",
+    nextCutReason: "new_goal_buildup",
     reasonCode: "smooth_goal_sequence_transition",
   }));
+}
+
+function phaseCompleteForReference(segment = {}) {
+  const phase = segment.phaseCoverage || {};
+  return segment.replayOnly !== true &&
+    phase.replayOnly !== true &&
+    phase.hasBuildup === true &&
+    phase.hasShot === true &&
+    phase.hasFinish === true &&
+    phase.hasConfirmation === true;
+}
+
+function abruptCutRisksForSegment(segment = {}) {
+  const risks = [];
+  const duration = Number(segment.duration || Number(segment.sourceEnd || 0) - Number(segment.sourceStart || 0));
+  if (duration < VALID_GOAL_ONLY_TIMING.minSegmentDuration) risks.push("too_short_goal_segment");
+  if (duration > VALID_GOAL_ONLY_TIMING.maxSegmentDuration) risks.push("too_long_goal_segment");
+  if (segment.replayOnly === true || (segment.phaseCoverage && segment.phaseCoverage.replayOnly === true)) {
+    risks.push("replay_only_risk");
+  }
+  if (!phaseCompleteForReference(segment)) risks.push("missing_phase_coverage");
+  const shotStart = finiteNumber(segment.shotStart, null);
+  const finishTime = finiteNumber(segment.finishTime, null);
+  const confirmationTime = finiteNumber(segment.confirmationTime, null);
+  const sourceStart = finiteNumber(segment.sourceStart, 0);
+  const sourceEnd = finiteNumber(segment.sourceEnd, sourceStart + duration);
+  if (shotStart !== null && sourceStart > shotStart - 1.5) risks.push("abrupt_start_before_shot");
+  if (finishTime !== null && sourceEnd < finishTime + 1.2) risks.push("missing_payoff_breathing_room");
+  if (confirmationTime !== null && sourceEnd < confirmationTime + 0.2) risks.push("missing_confirmation_tail");
+  return [...new Set(risks)];
+}
+
+function captionAlignmentForReference(captions = []) {
+  const safeCaptions = Array.isArray(captions) ? captions : [];
+  const aligned = safeCaptions.filter((caption) => {
+    const text = sanitizeText(caption && caption.text, 120);
+    const source = sanitizeText(caption && caption.captionSource, 120);
+    const evidence = caption && caption.captionEvidence && typeof caption.captionEvidence === "object"
+      ? caption.captionEvidence
+      : {};
+    if (/multi_moment_builder:(opening_hook|closing_punch)/.test(source)) {
+      return /valid finishes|finish sequence|only valid|every finish/i.test(text);
+    }
+    if (evidence.goalEvidence === true) {
+      return /finish counts|goal confirmed|goal stands|scoreboard confirms/i.test(text);
+    }
+    return !hasGoalLanguage(text);
+  });
+  return {
+    captionsAlignedCount: aligned.length,
+    captionsMisalignedCount: Math.max(0, safeCaptions.length - aligned.length),
+    captionAlignmentScore: safeCaptions.length ? Number((aligned.length / safeCaptions.length).toFixed(4)) : 1,
+  };
+}
+
+function editAssemblyForCompilation(segments = [], transitionPlan = []) {
+  return {
+    contractVersion: 1,
+    segmentCount: segments.length,
+    segments: segments.map((segment, index) => ({
+      id: sanitizeText(segment.id || `segment_${index + 1}`, 64),
+      goalNumber: Number.isFinite(Number(segment.goalNumber)) ? Number(segment.goalNumber) : index + 1,
+      sourceStart: segment.sourceStart,
+      buildupStart: finiteNumber(segment.buildupStart, segment.sourceStart),
+      shotStart: segment.shotStart,
+      finishTime: segment.finishTime,
+      confirmationTime: segment.confirmationTime,
+      sourceEnd: segment.sourceEnd,
+      duration: segment.duration,
+      replayUsed: Boolean(segment.replayUsed),
+      replayOnly: Boolean(segment.replayOnly),
+      phaseCoverage: segment.phaseCoverage || null,
+      cutQuality: {
+        abruptCutRisk: abruptCutRisksForSegment(segment).length > 0,
+        riskFlags: abruptCutRisksForSegment(segment),
+      },
+    })),
+    transitions: transitionPlan.map((transition) => ({
+      fromSegmentId: transition.fromSegmentId,
+      toSegmentId: transition.toSegmentId,
+      timelineStart: transition.timelineStart,
+      type: transition.type,
+      transitionDurationSeconds: transition.transitionDurationSeconds,
+      continuity: transition.continuity,
+    })),
+  };
+}
+
+function referenceStyleQaForCompilation({ segments = [], captions = [], transitionPlan = [], totalDuration = 0, stylePreset = "social_sports_v1" } = {}) {
+  const safeSegments = Array.isArray(segments) ? segments : [];
+  const durations = safeSegments.map((segment) => Number(segment.duration || 0)).filter((duration) => Number.isFinite(duration) && duration > 0);
+  const averageGoalSegmentDuration = durations.length
+    ? Number((durations.reduce((sum, duration) => sum + duration, 0) / durations.length).toFixed(2))
+    : 0;
+  const phaseCompleteCount = safeSegments.filter(phaseCompleteForReference).length;
+  const abruptCutRiskFlags = safeSegments.flatMap((segment) => abruptCutRisksForSegment(segment));
+  const transitionCoverage = safeSegments.length <= 1
+    ? 1
+    : Number((transitionPlan.length / Math.max(1, safeSegments.length - 1)).toFixed(4));
+  const durationScore = safeSegments.length
+    ? Number((safeSegments.filter((segment) => {
+        const duration = Number(segment.duration || 0);
+        return duration >= VALID_GOAL_ONLY_TIMING.minSegmentDuration &&
+          duration <= VALID_GOAL_ONLY_TIMING.maxSegmentDuration;
+      }).length / safeSegments.length).toFixed(4))
+    : 1;
+  const phaseCoverageScore = safeSegments.length ? Number((phaseCompleteCount / safeSegments.length).toFixed(4)) : 1;
+  const abruptCutScore = safeSegments.length
+    ? Number((Math.max(0, safeSegments.length - abruptCutRiskFlags.length) / safeSegments.length).toFixed(4))
+    : 1;
+  const captionAlignment = captionAlignmentForReference(captions);
+  const score = Number((
+    transitionCoverage * 0.22 +
+    phaseCoverageScore * 0.28 +
+    durationScore * 0.16 +
+    abruptCutScore * 0.18 +
+    captionAlignment.captionAlignmentScore * 0.16
+  ).toFixed(4));
+  return {
+    contractVersion: 1,
+    stylePreset: sanitizeText(stylePreset, 40),
+    countedGoalsIncluded: safeSegments.filter((segment) => segment.goalOutcome && segment.goalOutcome.outcome === "confirmed_goal").length,
+    replayOnlySegments: safeSegments.filter((segment) => segment.replayOnly === true || (segment.phaseCoverage && segment.phaseCoverage.replayOnly === true)).length,
+    averageGoalSegmentDuration,
+    abruptCutRiskCount: abruptCutRiskFlags.length,
+    abruptCutRiskFlags: [...new Set(abruptCutRiskFlags)].slice(0, 8),
+    tooShortGoalSegmentCount: abruptCutRiskFlags.filter((flag) => flag === "too_short_goal_segment").length,
+    tooLongDeadAirCount: abruptCutRiskFlags.filter((flag) => flag === "too_long_goal_segment").length,
+    missingPayoffCount: abruptCutRiskFlags.filter((flag) => flag === "missing_payoff_breathing_room").length,
+    replayOnlyRiskCount: abruptCutRiskFlags.filter((flag) => flag === "replay_only_risk").length,
+    transitionCoverage,
+    phaseCoverageScore,
+    durationScore,
+    captionActionAlignmentScore: captionAlignment.captionAlignmentScore,
+    captionsAlignedCount: captionAlignment.captionsAlignedCount,
+    captionsMisalignedCount: captionAlignment.captionsMisalignedCount,
+    visualPolishScore: Math.round(score * 100),
+    score,
+    totalDuration: Number(Number(totalDuration || 0).toFixed(2)),
+    referenceSimilarityNotes: [
+      safeSegments.length > 1 ? "chronological_multi_goal_sequence" : "single_goal_sequence",
+      transitionCoverage >= 1 ? "smooth_transitions_declared" : "missing_transition_metadata",
+      phaseCoverageScore >= 1 ? "full_goal_phase_coverage" : "phase_coverage_needs_review",
+      captionAlignment.captionAlignmentScore >= 0.95 ? "captions_match_goal_phases" : "caption_alignment_needs_review",
+      "wide_safe_vertical_reference_style",
+    ],
+  };
 }
 
 function selectCompilationCandidates(singleCandidates = [], metadata = {}) {
@@ -3652,6 +3803,13 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
     const moment = candidate.analysisMoment || {};
     const candidatePhase = goalPhaseForCandidate(candidate);
     const phaseCoverage = goalPhaseCoverageForCandidate(candidate);
+    const buildupStart = candidatePhase && Number.isFinite(Number(candidatePhase.buildupStart))
+      ? Number(Number(candidatePhase.buildupStart).toFixed(2))
+      : candidatePhase &&
+          candidatePhase.phaseCoverage &&
+          Number.isFinite(Number(candidatePhase.phaseCoverage.liveActionStart))
+        ? Number(Number(candidatePhase.phaseCoverage.liveActionStart).toFixed(2))
+        : Number(candidate.sourceStart.toFixed(2));
     return {
       id: sanitizeText(candidate.candidateId || moment.id || `multi_segment_${index + 1}`, 64),
       sourceStart: Number(candidate.sourceStart.toFixed(2)),
@@ -3663,6 +3821,7 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
       reasonCodes: Array.isArray(candidate.reasonCodes) ? candidate.reasonCodes : [],
       goalOutcome: candidate.goalOutcome || goalOutcomeForMoment(moment),
       goalNumber: isConfirmedGoalCandidate(candidate) ? index + 1 : null,
+      buildupStart,
       shotStart: candidatePhase && Number.isFinite(Number(candidatePhase.shotStart)) ? Number(Number(candidatePhase.shotStart).toFixed(2)) : null,
       finishTime: candidatePhase && Number.isFinite(Number(candidatePhase.finishTime)) ? Number(Number(candidatePhase.finishTime).toFixed(2)) : null,
       confirmationTime: candidatePhase && Number.isFinite(Number(candidatePhase.confirmationTime)) ? Number(Number(candidatePhase.confirmationTime).toFixed(2)) : null,
@@ -3842,6 +4001,14 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
   };
   const validated = validateEditPlan(plan, metadata);
   validated.visualQA = visualQaForPlan(validated);
+  validated.editAssembly = editAssemblyForCompilation(validated.segments, transitionPlan);
+  validated.visualPolishQA = referenceStyleQaForCompilation({
+    segments: validated.segments,
+    captions: validated.captions,
+    transitionPlan,
+    totalDuration: validated.totalDuration,
+    stylePreset: validated.stylePreset,
+  });
   return {
     ...validated,
     reviewMetadata: {
@@ -3869,6 +4036,7 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
             : null,
           phaseCoverage: segment.phaseCoverage,
           replayOnly: Boolean(segment.replayOnly),
+          buildupStart: segment.buildupStart,
           shotStart: segment.shotStart,
           finishTime: segment.finishTime,
           confirmationTime: segment.confirmationTime,
@@ -3882,6 +4050,8 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
           segment.goalOutcome.outcome === "confirmed_goal"
         )),
         smoothTransitionCoverage: segments.length <= 1 ? 1 : Number((transitionPlan.length / (segments.length - 1)).toFixed(2)),
+        editAssembly: validated.editAssembly,
+        visualPolishQA: validated.visualPolishQA,
       },
     },
   };
@@ -4120,6 +4290,7 @@ function analysisHealth() {
       "contextual_caption_planning",
       "reference_style_animation_cues",
       "multi_moment_compilation",
+      "reference_style_visual_polish_qa",
       "highlight_ranking",
       "candidate_edit_plans",
     ],

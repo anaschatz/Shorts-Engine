@@ -78,6 +78,18 @@ function completedJobEditPlan(overrides = {}) {
     editIntensity: "punchy",
     cropPlan: { mode: "wide_safe", fallbackUsed: true },
     reasonCodes: ["big_chance", "visual_shot_like_motion"],
+    visualPolishQA: {
+      contractVersion: 1,
+      countedGoalsIncluded: 0,
+      replayOnlySegments: 0,
+      averageGoalSegmentDuration: 12,
+      abruptCutRiskCount: 0,
+      captionsAlignedCount: 2,
+      captionsMisalignedCount: 0,
+      visualPolishScore: 96,
+      score: 0.96,
+      referenceSimilarityNotes: ["mock_reference_style_ready"],
+    },
     ...overrides,
   };
 }
@@ -757,6 +769,24 @@ function passedSmokeReport() {
       editIntensity: "punchy",
       cropPlanMode: "wide_safe",
       candidateCount: 1,
+      visualPolishQA: {
+        contractVersion: 1,
+        countedGoalsIncluded: 0,
+        replayOnlySegments: 0,
+        averageGoalSegmentDuration: 12,
+        abruptCutRiskCount: 0,
+        captionsAlignedCount: 2,
+        captionsMisalignedCount: 0,
+        visualPolishScore: 96,
+        score: 0.96,
+        referenceSimilarityNotes: ["mock_reference_style_ready"],
+      },
+      editAssembly: {
+        contractVersion: 1,
+        segmentCount: 0,
+        segments: [],
+        transitions: [],
+      },
       topCandidates: [{ index: 1, mode: "single_moment", highlightType: "big_chance", segmentCount: 0, totalDuration: 12 }],
     },
     export: { status: 200, contentType: "video/mp4", sizeBytes: 140, sha256Prefix: "abc123" },
@@ -863,6 +893,18 @@ function countedGoalSmokeReport() {
       },
       logsDownloaded: false,
       artifactsDownloaded: false,
+    },
+    visualPolishQA: {
+      contractVersion: 1,
+      countedGoalsIncluded: 3,
+      replayOnlySegments: 0,
+      averageGoalSegmentDuration: 24,
+      abruptCutRiskCount: 0,
+      captionsAlignedCount: 5,
+      captionsMisalignedCount: 0,
+      visualPolishScore: 97,
+      score: 0.97,
+      referenceSimilarityNotes: ["chronological_multi_goal_sequence", "smooth_transitions_declared"],
     },
   };
   return report;
@@ -1275,6 +1317,10 @@ test("youtube live local e2e mocked success wraps smoke proof without raw URL le
   assert.equal(report.outputProof.ffprobe.status, "missing");
   assert.equal(report.outputProof.countedGoalsFound, 0);
   assert.equal(report.outputProof.replayOnlySegments, 0);
+  assert.equal(report.outputProof.visualPolishScore, 96);
+  assert.equal(report.outputProof.abruptCutRiskCount, 0);
+  assert.equal(report.outputProof.referenceStyleQA.captionsMisalignedCount, 0);
+  assert.equal(report.outputProof.generatedVideoPath, "manual-downloads/shortsengine-youtube-dQw4w9WgXcQ-test.mp4");
   assert.equal(report.outputProof.staleArtifactCleanup.attempted, false);
   assert.equal(report.outputProof.comparison.ready, false);
   assert.deepEqual(report.steps.map((step) => step.step), ["env", "fresh-output-cleanup", "doctor", "server", "server-ready", "smoke", "ffprobe"]);
@@ -1302,11 +1348,38 @@ test("youtube live local e2e reports counted goal coverage and replay-only segme
   assert.equal(report.outputProof.countedGoalsIncluded, 3);
   assert.equal(report.outputProof.expectedCountedGoals, 3);
   assert.equal(report.outputProof.replayOnlySegments, 0);
+  assert.equal(report.outputProof.visualPolishScore, 97);
+  assert.equal(report.outputProof.abruptCutRiskCount, 0);
+  assert.equal(report.outputProof.referenceStyleQA.countedGoalsExpected, 3);
   assert.equal(report.outputProof.segmentWindows.length, 3);
   assert.equal(report.outputProof.segmentWindows[0].shotStart, 100);
   assert.equal(report.outputProof.segmentWindows[0].phaseCoverage.hasBuildup, true);
   assert.equal(report.outputProof.comparison.checklist.countedGoals, true);
   assert.equal(report.outputProof.comparison.checklist.livePhaseVsReplayOnly, true);
+  assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube live proof derives visual polish QA from public render summary when explicit QA is missing", async () => {
+  const smoke = countedGoalSmokeReport();
+  smoke.renderPlan.visualPolishQA = null;
+  smoke.renderPlan.editAssembly = null;
+  const report = await runYouTubeLiveE2E({
+    env: liveEnv({ SHORTSENGINE_YOUTUBE_LIVE_E2E_EXPECTED_COUNTED_GOALS: "3" }),
+    checkYouTubeIngest: async () => passedDoctor(),
+    getFreePort: async () => 4175,
+    startServer: () => ({ child: { exitCode: null, signalCode: null }, events: [] }),
+    stopServer: async () => {},
+    waitForServerReady: async () => ({ attempts: 1, waitedMs: 10, status: 200 }),
+    runYouTubeSmoke: async () => smoke,
+  });
+
+  assert.equal(report.status, "passed");
+  assert.equal(report.outputProof.countedGoalsIncluded, 3);
+  assert.equal(report.outputProof.replayOnlySegments, 0);
+  assert.equal(report.outputProof.abruptCutRiskCount, 0);
+  assert.equal(report.outputProof.captionsMisalignedCount, 0);
+  assert.equal(report.outputProof.visualPolishScore, 100);
+  assert.equal(report.outputProof.referenceStyleQA.visualPolishScore, 100);
   assert.equal(findSensitiveLeak(report), null);
 });
 

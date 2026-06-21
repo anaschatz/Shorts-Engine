@@ -1510,8 +1510,19 @@ test("valid-goals-only plan keeps every confirmed goal, excludes offside goals, 
   assert.ok(segments.every((segment) => segment.duration >= 18 && segment.duration <= 30));
   assert.equal(plan.transitionPlan.length, 2);
   assert.ok(plan.transitionPlan.every((transition) => transition.type === "short_fade"));
+  assert.ok(plan.transitionPlan.every((transition) => transition.transitionDurationSeconds > 0));
+  assert.ok(plan.transitionPlan.every((transition) => transition.continuity === "chronological_goal_sequence"));
   assert.equal(plan.reviewMetadata.multiMoment.smoothTransitionCoverage, 1);
   assert.equal(plan.reviewMetadata.multiMoment.validGoalsOnly, true);
+  assert.equal(plan.editAssembly.segmentCount, 3);
+  assert.equal(plan.editAssembly.segments.every((segment) => segment.buildupStart <= segment.shotStart), true);
+  assert.equal(plan.editAssembly.segments.every((segment) => segment.cutQuality.abruptCutRisk === false), true);
+  assert.equal(plan.visualPolishQA.countedGoalsIncluded, 3);
+  assert.equal(plan.visualPolishQA.replayOnlySegments, 0);
+  assert.equal(plan.visualPolishQA.abruptCutRiskCount, 0);
+  assert.equal(plan.visualPolishQA.captionsMisalignedCount, 0);
+  assert.ok(plan.visualPolishQA.visualPolishScore >= 95);
+  assert.equal(plan.reviewMetadata.multiMoment.visualPolishQA.visualPolishScore, plan.visualPolishQA.visualPolishScore);
   assert.doesNotMatch(plan.captions.map((caption) => caption.text).join(" "), /OFFSIDE|NO GOAL|BIG CHANCE/i);
 });
 

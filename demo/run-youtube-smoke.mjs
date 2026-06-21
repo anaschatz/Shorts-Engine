@@ -419,6 +419,7 @@ function safeRenderSegment(segment = {}, index = 0) {
     index: index + 1,
     id: sanitizeText(segment.id || `segment_${index + 1}`, 64),
     sourceStart: safeNumber(segment.sourceStart),
+    buildupStart: safeNumber(segment.buildupStart),
     shotStart: safeNumber(segment.shotStart),
     finishTime: safeNumber(segment.finishTime),
     confirmationTime: safeNumber(segment.confirmationTime),
@@ -435,6 +436,81 @@ function safeRenderSegment(segment = {}, index = 0) {
     reasonCodes: safeStringList(segment.reasonCodes, 10, 60),
     whySelected: sanitizeText(segment.whySelected || "", 180) || null,
     safetyFlags: safeStringList(segment.safetyFlags, 8, 80),
+  };
+}
+
+function safeVisualPolishQA(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    contractVersion: Number.isFinite(Number(value.contractVersion)) ? Number(value.contractVersion) : 1,
+    stylePreset: sanitizeText(value.stylePreset || "", 60) || null,
+    countedGoalsIncluded: Number.isFinite(Number(value.countedGoalsIncluded)) ? Number(value.countedGoalsIncluded) : null,
+    replayOnlySegments: Number.isFinite(Number(value.replayOnlySegments)) ? Number(value.replayOnlySegments) : null,
+    averageGoalSegmentDuration: safeNumber(value.averageGoalSegmentDuration),
+    abruptCutRiskCount: Number.isFinite(Number(value.abruptCutRiskCount)) ? Number(value.abruptCutRiskCount) : null,
+    abruptCutRiskFlags: safeStringList(value.abruptCutRiskFlags, 8, 80),
+    tooShortGoalSegmentCount: Number.isFinite(Number(value.tooShortGoalSegmentCount)) ? Number(value.tooShortGoalSegmentCount) : null,
+    tooLongDeadAirCount: Number.isFinite(Number(value.tooLongDeadAirCount)) ? Number(value.tooLongDeadAirCount) : null,
+    missingPayoffCount: Number.isFinite(Number(value.missingPayoffCount)) ? Number(value.missingPayoffCount) : null,
+    replayOnlyRiskCount: Number.isFinite(Number(value.replayOnlyRiskCount)) ? Number(value.replayOnlyRiskCount) : null,
+    transitionCoverage: safeNumber(value.transitionCoverage),
+    phaseCoverageScore: safeNumber(value.phaseCoverageScore),
+    durationScore: safeNumber(value.durationScore),
+    captionActionAlignmentScore: safeNumber(value.captionActionAlignmentScore),
+    captionsAlignedCount: Number.isFinite(Number(value.captionsAlignedCount)) ? Number(value.captionsAlignedCount) : null,
+    captionsMisalignedCount: Number.isFinite(Number(value.captionsMisalignedCount)) ? Number(value.captionsMisalignedCount) : null,
+    visualPolishScore: Number.isFinite(Number(value.visualPolishScore)) ? Number(value.visualPolishScore) : null,
+    score: safeNumber(value.score),
+    totalDuration: safeNumber(value.totalDuration),
+    referenceSimilarityNotes: safeStringList(value.referenceSimilarityNotes, 8, 80),
+  };
+}
+
+function safeEditAssembly(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    contractVersion: Number.isFinite(Number(value.contractVersion)) ? Number(value.contractVersion) : 1,
+    segmentCount: Number.isFinite(Number(value.segmentCount)) ? Number(value.segmentCount) : null,
+    segments: Array.isArray(value.segments)
+      ? value.segments.slice(0, 8).map((segment, index) => ({
+          index: index + 1,
+          id: sanitizeText(segment.id || `segment_${index + 1}`, 64),
+          goalNumber: Number.isFinite(Number(segment.goalNumber)) ? Number(segment.goalNumber) : null,
+          sourceStart: safeNumber(segment.sourceStart),
+          buildupStart: safeNumber(segment.buildupStart),
+          shotStart: safeNumber(segment.shotStart),
+          finishTime: safeNumber(segment.finishTime),
+          confirmationTime: safeNumber(segment.confirmationTime),
+          sourceEnd: safeNumber(segment.sourceEnd),
+          duration: safeNumber(segment.duration),
+          replayUsed: Boolean(segment.replayUsed),
+          replayOnly: Boolean(segment.replayOnly),
+          phaseCoverage: segment.phaseCoverage && typeof segment.phaseCoverage === "object"
+            ? {
+                hasBuildup: Boolean(segment.phaseCoverage.hasBuildup),
+                hasShot: Boolean(segment.phaseCoverage.hasShot),
+                hasFinish: Boolean(segment.phaseCoverage.hasFinish),
+                hasConfirmation: Boolean(segment.phaseCoverage.hasConfirmation),
+              }
+            : null,
+          cutQuality: segment.cutQuality && typeof segment.cutQuality === "object"
+            ? {
+                abruptCutRisk: Boolean(segment.cutQuality.abruptCutRisk),
+                riskFlags: safeStringList(segment.cutQuality.riskFlags, 8, 80),
+              }
+            : null,
+        }))
+      : [],
+    transitions: Array.isArray(value.transitions)
+      ? value.transitions.slice(0, 8).map((transition) => ({
+          fromSegmentId: sanitizeText(transition.fromSegmentId || "", 64) || null,
+          toSegmentId: sanitizeText(transition.toSegmentId || "", 64) || null,
+          timelineStart: safeNumber(transition.timelineStart),
+          type: sanitizeText(transition.type || "", 60) || null,
+          transitionDurationSeconds: safeNumber(transition.transitionDurationSeconds),
+          continuity: sanitizeText(transition.continuity || "", 80) || null,
+        }))
+      : [],
   };
 }
 
@@ -582,6 +658,8 @@ function safeRenderPlanSummary(job) {
     candidateCount: Array.isArray(job.candidatePlans) ? job.candidatePlans.length : 0,
     goalSelectionMode: sanitizeText(plan.goalSelectionMode || "", 60) || null,
     countedGoalProof: safeCountedGoalProofSummary(job, segments),
+    visualPolishQA: safeVisualPolishQA(plan.visualPolishQA),
+    editAssembly: safeEditAssembly(plan.editAssembly),
     topCandidates,
   };
 }

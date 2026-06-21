@@ -905,6 +905,12 @@ function normalizeSegmentGoalPhase(segment = {}, context = {}) {
     context.goalOutcome &&
     context.goalOutcome.eventType === "ball_in_net" &&
     context.goalOutcome.outcome === "confirmed_goal";
+  const buildupStart = finiteTimestamp(
+    segment.buildupStart ?? raw.buildupStart ?? raw.liveActionStart,
+    context.sourceStart,
+    context.sourceEnd,
+    context.sourceStart,
+  );
   const shotStart = finiteTimestamp(segment.shotStart ?? raw.shotStart, context.sourceStart, context.sourceEnd, null);
   const finishTime = finiteTimestamp(segment.finishTime ?? raw.finishTime, context.sourceStart, context.sourceEnd, null);
   const confirmationTime = finiteTimestamp(segment.confirmationTime ?? raw.confirmationTime, context.sourceStart, context.sourceEnd, null);
@@ -937,6 +943,7 @@ function normalizeSegmentGoalPhase(segment = {}, context = {}) {
   }
   return {
     goalNumber: Number.isFinite(Number(segment.goalNumber)) ? Math.max(1, Math.round(Number(segment.goalNumber))) : null,
+    buildupStart,
     shotStart,
     finishTime,
     confirmationTime,
@@ -1001,6 +1008,7 @@ function normalizeSegmentItem(segment, index, metadata = {}) {
     reasonCodes,
     goalOutcome,
     goalNumber: goalPhase.goalNumber,
+    buildupStart: goalPhase.buildupStart,
     shotStart: goalPhase.shotStart,
     finishTime: goalPhase.finishTime,
     confirmationTime: goalPhase.confirmationTime,

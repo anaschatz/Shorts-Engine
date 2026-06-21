@@ -679,6 +679,29 @@ function goalPhaseCoverageScore(topPlan, expected = {}) {
   return round(covered.length / confirmedSegments.length, 4);
 }
 
+function visualPolishQa(topPlan) {
+  return topPlan && (
+    topPlan.visualPolishQA ||
+    (topPlan.reviewMetadata && topPlan.reviewMetadata.multiMoment && topPlan.reviewMetadata.multiMoment.visualPolishQA)
+  ) || null;
+}
+
+function referenceVisualPolishScore(topPlan, expected = {}) {
+  if (expected.goalSelectionMode !== "valid_goals_only") return 1;
+  const qa = visualPolishQa(topPlan);
+  if (!qa) return 0;
+  if (Number.isFinite(Number(qa.score))) return round(Number(qa.score), 4);
+  if (Number.isFinite(Number(qa.visualPolishScore))) return round(Number(qa.visualPolishScore) / 100, 4);
+  return 0;
+}
+
+function abruptCutRiskCount(topPlan, expected = {}) {
+  if (expected.goalSelectionMode !== "valid_goals_only") return 0;
+  const qa = visualPolishQa(topPlan);
+  if (qa && Number.isFinite(Number(qa.abruptCutRiskCount))) return Math.max(0, Math.round(Number(qa.abruptCutRiskCount)));
+  return cutSmoothnessScore(topPlan, expected) >= 0.9 ? 0 : 1;
+}
+
 function goalEvidenceCoverageScore(goalEvidence, expected = {}) {
   const expectedGoals = expectedValidGoalWindows(expected);
   if (!expectedGoals.length) return 1;
@@ -1266,6 +1289,8 @@ function scoreFixture(fixture) {
   const segmentTimingCoverage = segmentTimingCoverageScore(topPlan, fixture.expected);
   const goalPhaseCoverage = goalPhaseCoverageScore(topPlan, fixture.expected);
   const replayOnlyGoalRateValue = replayOnlyGoalRate(topPlan, fixture.expected);
+  const visualPolishScoreValue = referenceVisualPolishScore(topPlan, fixture.expected);
+  const abruptCutRiskCountValue = abruptCutRiskCount(topPlan, fixture.expected);
   const goalEvidenceCoverage = goalEvidenceCoverageScore(goalEvidence, fixture.expected);
   const celebrationOnlyExclusion = celebrationOnlyExclusionScore(topPlan, fixture.expected, thresholds.minTop1Overlap);
   const anthemIntroExclusion = anthemIntroExclusionScore(topPlan, fixture.expected, thresholds.minTop1Overlap);
@@ -1400,6 +1425,8 @@ function scoreFixture(fixture) {
     segmentTimingCoverage >= 0.9 &&
     goalPhaseCoverage >= 1 &&
     replayOnlyGoalRateValue === 0 &&
+    visualPolishScoreValue >= 0.95 &&
+    abruptCutRiskCountValue === 0 &&
     goalEvidenceCoverage >= 1 &&
     ocrEvidenceCoverage >= 0.9 &&
     scoreboardScoreChangeRecall >= 0.9 &&
@@ -1461,6 +1488,8 @@ function scoreFixture(fixture) {
       segmentTimingCoverage,
       goalPhaseCoverage,
       replayOnlyGoalRate: replayOnlyGoalRateValue,
+      visualPolishScore: visualPolishScoreValue,
+      abruptCutRiskCount: abruptCutRiskCountValue,
       goalEvidenceCoverage,
       celebrationOnlyExclusion,
       anthemIntroExclusion,
@@ -1671,6 +1700,16 @@ function scoreFixture(fixture) {
             }
           : null,
         visualQA: plan.visualQA || (plan.reviewMetadata && plan.reviewMetadata.visualQA) || null,
+        visualPolishQA: plan.visualPolishQA || (
+          plan.reviewMetadata &&
+          plan.reviewMetadata.multiMoment &&
+          plan.reviewMetadata.multiMoment.visualPolishQA
+        ) || null,
+        editAssembly: plan.editAssembly || (
+          plan.reviewMetadata &&
+          plan.reviewMetadata.multiMoment &&
+          plan.reviewMetadata.multiMoment.editAssembly
+        ) || null,
         actionSequenceSummary: plan.actionSequenceSummary || (
           plan.analysisMoment && plan.analysisMoment.actionSequenceSummary
         ) || null,
@@ -1802,6 +1841,8 @@ function debuggingNotes(metrics) {
   if (metrics.segmentTimingCoverage < 0.9) notes.push("Goal segments do not cover the expected shot/payoff/decision window.");
   if (metrics.goalPhaseCoverage < 1) notes.push("Confirmed-goal segments do not cover buildup, shot, finish and confirmation.");
   if (metrics.replayOnlyGoalRate) notes.push("A confirmed-goal segment is replay-only.");
+  if (metrics.visualPolishScore < 0.95) notes.push("Reference-style visual polish QA is missing or below threshold.");
+  if (metrics.abruptCutRiskCount) notes.push("Reference-style QA detected abrupt cut risk.");
   if (metrics.goalEvidenceCoverage < 1) notes.push("Goal evidence provider did not cover all expected valid goals.");
   if (metrics.ocrQaCalibrationSupport < 1) notes.push("OCR QA calibration was not applied as support-only evidence.");
   if (metrics.matchEventTruthValidGoalRecall < 1) notes.push("Match event truth missed one or more expected confirmed goals.");
@@ -1878,6 +1919,8 @@ function aggregateResults(results) {
     segmentTimingCoverage: avg((result) => result.metrics.segmentTimingCoverage),
     goalPhaseCoverage: avg((result) => result.metrics.goalPhaseCoverage),
     replayOnlyGoalRate: avg((result) => result.metrics.replayOnlyGoalRate),
+    visualPolishScore: avg((result) => result.metrics.visualPolishScore),
+    abruptCutRiskCount: avg((result) => result.metrics.abruptCutRiskCount),
     goalEvidenceCoverage: avg((result) => result.metrics.goalEvidenceCoverage),
     celebrationOnlyExclusion: avg((result) => result.metrics.celebrationOnlyExclusion),
     anthemIntroExclusion: avg((result) => result.metrics.anthemIntroExclusion),

@@ -459,6 +459,69 @@ function countedGoalCoverageFromSmoke(smoke, source, env) {
   };
 }
 
+function referenceStyleQaFromSmoke(smoke, outputMp4 = null) {
+  const renderPlan = smoke?.renderPlan && typeof smoke.renderPlan === "object" ? smoke.renderPlan : {};
+  const qa = renderPlan.visualPolishQA ||
+    (renderPlan.reviewMetadata && renderPlan.reviewMetadata.multiMoment && renderPlan.reviewMetadata.multiMoment.visualPolishQA) ||
+    {};
+  const segments = Array.isArray(renderPlan.segments) ? renderPlan.segments : [];
+  const captions = Array.isArray(renderPlan.captions) ? renderPlan.captions : [];
+  const durations = segments
+    .map((segment) => safeNumber(Number(segment.sourceEnd) - Number(segment.sourceStart)))
+    .filter((duration) => Number.isFinite(duration) && duration > 0);
+  const averageGoalSegmentDuration = Number.isFinite(Number(qa.averageGoalSegmentDuration))
+    ? Number(qa.averageGoalSegmentDuration)
+    : durations.length
+      ? Number((durations.reduce((sum, duration) => sum + duration, 0) / durations.length).toFixed(2))
+      : null;
+  const replayOnlySegments = Number.isFinite(Number(qa.replayOnlySegments))
+    ? Number(qa.replayOnlySegments)
+    : segments.filter((segment) => segment && segment.replayOnly === true).length;
+  const abruptCutRiskCount = Number.isFinite(Number(qa.abruptCutRiskCount))
+    ? Number(qa.abruptCutRiskCount)
+    : segments.filter((segment) => {
+        const duration = Number(segment.duration || Number(segment.sourceEnd) - Number(segment.sourceStart));
+        const phase = segment.phaseCoverage && typeof segment.phaseCoverage === "object" ? segment.phaseCoverage : {};
+        return segment.replayOnly === true ||
+          !phase.hasShot ||
+          !phase.hasFinish ||
+          !phase.hasConfirmation ||
+          !Number.isFinite(duration) ||
+          duration < 18 ||
+          duration > 32;
+      }).length;
+  const captionsMisalignedCount = Number.isFinite(Number(qa.captionsMisalignedCount))
+    ? Number(qa.captionsMisalignedCount)
+    : captions.filter((caption) => Array.isArray(caption.riskFlags) && caption.riskFlags.length > 0).length;
+  const captionsAlignedCount = Number.isFinite(Number(qa.captionsAlignedCount))
+    ? Number(qa.captionsAlignedCount)
+    : Math.max(0, captions.length - captionsMisalignedCount);
+  const visualPolishScore = Number.isFinite(Number(qa.visualPolishScore))
+    ? Number(qa.visualPolishScore)
+    : Number(Math.max(
+        0,
+        100 -
+          replayOnlySegments * 25 -
+          abruptCutRiskCount * 20 -
+          captionsMisalignedCount * 10 -
+          (averageGoalSegmentDuration !== null && (averageGoalSegmentDuration < 18 || averageGoalSegmentDuration > 30) ? 8 : 0),
+      ).toFixed(2));
+  return {
+    countedGoalsExpected: null,
+    countedGoalsIncluded: Number.isFinite(Number(qa.countedGoalsIncluded)) ? Number(qa.countedGoalsIncluded) : null,
+    replayOnlySegments,
+    averageGoalSegmentDuration,
+    abruptCutRiskCount,
+    captionsAlignedCount,
+    captionsMisalignedCount,
+    visualPolishScore,
+    referenceSimilarityNotes: Array.isArray(qa.referenceSimilarityNotes)
+      ? qa.referenceSimilarityNotes.map((note) => safeString(note, 80)).filter(Boolean).slice(0, 8)
+      : [],
+    generatedVideoPath: outputMp4 && outputMp4.relativePath ? outputMp4.relativePath : null,
+  };
+}
+
 function probeGeneratedMp4(artifact) {
   if (!artifact || typeof artifact !== "object" || !artifact.relativePath) {
     return {
@@ -535,6 +598,10 @@ function buildOutputProof({ env, smoke, source, staleArtifactCleanup }) {
         downloadVerified: Boolean(generatedArtifact.downloadVerified),
       }
     : null;
+  const referenceStyleQA = referenceStyleQaFromSmoke(smoke, outputMp4);
+  referenceStyleQA.countedGoalsExpected = coverage.expectedCountedGoals;
+  referenceStyleQA.countedGoalsIncluded = coverage.countedGoalsIncluded;
+  referenceStyleQA.replayOnlySegments = coverage.replayOnlySegments;
   const reference = String(rawValue(env, "SHORTSENGINE_YOUTUBE_LIVE_E2E_REFERENCE") || "").trim();
   return {
     schemaVersion: LIVE_PROOF_SCHEMA_VERSION,
@@ -546,6 +613,14 @@ function buildOutputProof({ env, smoke, source, staleArtifactCleanup }) {
     countedGoalsIncluded: coverage.countedGoalsIncluded,
     expectedCountedGoals: coverage.expectedCountedGoals,
     replayOnlySegments: coverage.replayOnlySegments,
+    averageGoalSegmentDuration: referenceStyleQA.averageGoalSegmentDuration,
+    abruptCutRiskCount: referenceStyleQA.abruptCutRiskCount,
+    captionsAlignedCount: referenceStyleQA.captionsAlignedCount,
+    captionsMisalignedCount: referenceStyleQA.captionsMisalignedCount,
+    visualPolishScore: referenceStyleQA.visualPolishScore,
+    referenceSimilarityNotes: referenceStyleQA.referenceSimilarityNotes,
+    generatedVideoPath: referenceStyleQA.generatedVideoPath,
+    referenceStyleQA,
     segmentWindows: coverage.segmentWindows,
     staleArtifactCleanup,
     comparison: buildComparisonReadiness({ source, outputMp4, ffprobe, coverage, reference }),
@@ -1200,6 +1275,8 @@ async function runYouTubeLiveE2E(options = {}) {
       ["youtube_live_e2e_download_verified", Boolean(smoke.export)],
       ["youtube_live_e2e_output_fresh_path", Boolean(outputProof.outputMp4?.relativePath)],
       ["youtube_live_e2e_replay_only_segments_reported", Number.isFinite(Number(outputProof.replayOnlySegments))],
+      ["youtube_live_e2e_visual_polish_reported", Number.isFinite(Number(outputProof.visualPolishScore))],
+      ["youtube_live_e2e_abrupt_cut_risk_reported", Number.isFinite(Number(outputProof.abruptCutRiskCount))],
     ]) {
       addCheck(checks, name, passed);
     }
