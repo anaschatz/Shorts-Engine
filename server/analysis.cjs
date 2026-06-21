@@ -1536,7 +1536,16 @@ function normalizeMomentWithEvidence(moment, { signals = {}, visualSignals = nul
   const visualWindows = Array.isArray(visualSignals && visualSignals.windows)
     ? visualSignals.windows.filter((visualWindow) => seconds(visualWindow.end) >= window.start - 1 && seconds(visualWindow.start) <= window.end + 1)
     : [];
-  const goalOutcome = resolveGoalOutcome({
+  const suppliedEvidence = publicMoment.evidence && typeof publicMoment.evidence === "object" && !Array.isArray(publicMoment.evidence)
+    ? publicMoment.evidence
+    : {};
+  const suppliedGoalOutcome = suppliedEvidence.goalOutcome
+    ? normalizeGoalOutcome(suppliedEvidence.goalOutcome, {
+        highlightType: publicMoment.highlightType || highlightTypeForReasons(finalReasons),
+        reasonCodes: finalReasons,
+      })
+    : null;
+  const resolvedGoalOutcome = resolveGoalOutcome({
     reasons: finalReasons,
     goalEvidence,
     visualWindows,
@@ -1545,6 +1554,12 @@ function normalizeMomentWithEvidence(moment, { signals = {}, visualSignals = nul
     end: window.end,
     payoffEnd: goalEvidence.payoffEnd,
   });
+  const goalOutcome = publicMoment.source === "match_event_truth_valid_goals_only" &&
+    suppliedGoalOutcome &&
+    suppliedGoalOutcome.eventType === "ball_in_net" &&
+    suppliedGoalOutcome.outcome === "confirmed_goal"
+    ? suppliedGoalOutcome
+    : resolvedGoalOutcome;
   if (goalOutcome && goalOutcome.eventType === "ball_in_net" && goalOutcome.outcome === "confirmed_goal" && !finalReasons.includes("goal")) {
     finalReasons = ["goal", ...finalReasons];
   }
@@ -1555,9 +1570,6 @@ function normalizeMomentWithEvidence(moment, { signals = {}, visualSignals = nul
     actionSequence: actionSequenceForReasons(finalReasons, goalEvidence),
     goalClaimAllowed: finalReasons.includes("goal") && goalEvidence.goalClaimAllowed,
   };
-  const suppliedEvidence = publicMoment.evidence && typeof publicMoment.evidence === "object" && !Array.isArray(publicMoment.evidence)
-    ? publicMoment.evidence
-    : {};
   const footballSequenceReasons = [...new Set([
     ...finalReasons,
     ...(Array.isArray(sequenceSupportReasons) ? sequenceSupportReasons : []),
@@ -1906,12 +1918,24 @@ function reasonCodesForTruthEvent(event = {}) {
   const signalCodes = ["disallowed_offside", "disallowed_no_goal", "crowd_reaction", "replay"].includes(event.type)
     ? base.filter((code) => code === "audio_energy_spike" || code === "scene_change_cluster")
     : [];
+  const truthCodes = event.type === "confirmed_goal"
+    ? base.filter((code) => (
+        code === "scoreboard_backed_goal_sequence" ||
+        code === "scoreboard_ocr_score_change" ||
+        code === "scoreboard_temporal_consistency" ||
+        code === "shot_sequence_support" ||
+        code === "live_shot_finish_sequence" ||
+        code === "media_high_motion_goal_phase_support" ||
+        code === "combined_goal_confirmation" ||
+        code === "kickoff_after_goal"
+      ))
+    : [];
   const visualCodes = base.filter((code) => {
     if (!/^visual_/.test(code)) return false;
     if (event.type === "possible_goal_unconfirmed" && code === "visual_ball_visible") return false;
     return true;
   });
-  return [...new Set([...(byType[event.type] || []), ...signalCodes, ...visualCodes])].slice(0, 18);
+  return [...new Set([...(byType[event.type] || []), ...signalCodes, ...truthCodes, ...visualCodes])].slice(0, 18);
 }
 
 function highlightTypeForTruthEvent(event = {}, reasonCodes = []) {
@@ -2665,7 +2689,7 @@ const MULTI_MOMENT_COMPILATION = Object.freeze({
 
 const VALID_GOAL_ONLY_TIMING = Object.freeze({
   minSegmentDuration: 18,
-  maxSegmentDuration: 28,
+  maxSegmentDuration: 30,
   preContextSeconds: 10,
   maxPreContextSeconds: 15,
   postContextSeconds: 4.2,
@@ -2778,6 +2802,9 @@ function truthGoalReasonCodes(event = {}) {
       code === "combined_goal_confirmation" ||
       code === "goal_candidate_cluster_recovery" ||
       code === "kickoff_after_goal" ||
+      code === "shot_sequence_support" ||
+      code === "live_shot_finish_sequence" ||
+      code === "media_high_motion_goal_phase_support" ||
       code === "crowd_reaction_support" ||
       code === "visual_replay_indicator" ||
       code === "scoreboard_ocr_score_change" ||

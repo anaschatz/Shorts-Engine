@@ -285,6 +285,47 @@ test("scoreboard OCR score change can recover a missed ball-in-net goal only wit
   assert.ok(recoveredGoal.reasonCodes.includes("scoreboard_ocr_score_change"));
 });
 
+test("scoreboard OCR score change can anchor a delayed confirmation to earlier live action", () => {
+  const goalEvidence = deterministicGoalEvidence({
+    metadata: { ...metadata, durationSeconds: 180 },
+    transcript: {
+      captions: [{ start: 126, end: 128, text: "The scoreboard changes after the finish" }],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [
+        { start: 82, end: 84, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.91 },
+        { start: 86, end: 88, types: ["goal_mouth_visible", "ball_in_net"], confidence: 0.93 },
+      ],
+    },
+    scoreboardOcr: [{
+      timestamp: 126,
+      scoreBefore: "0-0",
+      scoreAfter: "1-0",
+      status: "score_changed",
+      temporalConsistency: true,
+      confidence: 0.93,
+    }],
+    ocrQaCalibration: strongOcrQaCalibration(),
+  });
+
+  const recoveredGoal = goalEvidence.events.find((event) => event.outcomeHint === "valid_goal");
+
+  assert.ok(recoveredGoal);
+  assert.equal(goalEvidence.summary.validGoalCount, 1);
+  assert.equal(goalEvidence.summary.scoreChangeAnchorsFound, 1);
+  assert.equal(goalEvidence.summary.anchorsWithLiveActionEvidence, 1);
+  assert.equal(goalEvidence.summary.anchorsRejected, 0);
+  assert.equal(goalEvidence.summary.ocrOnlyBlockedCount, 0);
+  assert.equal(goalEvidence.summary.missingActionEvidenceCount, 0);
+  assert.equal(recoveredGoal.scoreboardBackedGoalSequence, true);
+  assert.equal(recoveredGoal.start, 82);
+  assert.ok(recoveredGoal.end >= 128);
+  assert.ok(recoveredGoal.reasonCodes.includes("live_shot_finish_sequence"));
+  assert.equal(findSensitiveLeakSafe(publicGoalEvidence(goalEvidence)), null);
+});
+
 test("goal evidence provider keeps late source-wide counted goals under bounded caps", () => {
   const durationSeconds = 520;
   const scoreChanges = Array.from({ length: 36 }, (_, index) => 30 + index * 13);

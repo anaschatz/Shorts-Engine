@@ -7,8 +7,8 @@ const DEFAULT_GOAL_EVIDENCE_TIMEOUT_MS = 12000;
 const MAX_EVIDENCE_EVENTS = 32;
 const MAX_REASON_CODES = 14;
 const POST_GOAL_CONTEXT_SECONDS = 15;
-const SCOREBOARD_BACKED_LOOKBACK_SECONDS = 24;
-const SCOREBOARD_BACKED_POST_SECONDS = 2.5;
+const SCOREBOARD_BACKED_LOOKBACK_SECONDS = 45;
+const SCOREBOARD_BACKED_POST_SECONDS = 8;
 
 const GOAL_EVIDENCE_OUTCOMES = Object.freeze([
   "valid_goal",
@@ -697,7 +697,7 @@ function scoreboardBackedGoalWindow(scoreItem = {}, windows = [], metadata = {})
   const timestamp = seconds(scoreItem.timestamp);
   const duration = seconds(metadata.durationSeconds, timestamp + SCOREBOARD_BACKED_POST_SECONDS);
   const lookbackStart = Math.max(0, timestamp - SCOREBOARD_BACKED_LOOKBACK_SECONDS);
-  const lookbackEnd = Math.min(duration || timestamp + 1, timestamp + 1);
+  const lookbackEnd = Math.min(duration || timestamp + SCOREBOARD_BACKED_POST_SECONDS, timestamp + SCOREBOARD_BACKED_POST_SECONDS);
   const nearbyWindows = (Array.isArray(windows) ? windows : [])
     .filter((window) => seconds(window.start) <= lookbackEnd && seconds(window.end) >= lookbackStart);
   const nearbyReasons = visualReasonsInRange(nearbyWindows, lookbackStart, lookbackEnd);
@@ -706,20 +706,31 @@ function scoreboardBackedGoalWindow(scoreItem = {}, windows = [], metadata = {})
   const shotWindows = nearbyWindows.filter((window) => visualReasonCodesForWindow(window).some(isShotSequenceReason));
   const firstShot = shotWindows.sort((a, b) => seconds(a.start) - seconds(b.start))[0];
   if (!firstShot) return null;
+  const finishWindows = nearbyWindows.filter((window) => visualReasonCodesForWindow(window).some((reason) => (
+    reason === "visual_ball_in_net" ||
+    reason === "visual_goal_mouth" ||
+    reason === "visual_goal_area" ||
+    reason === "visual_scoreboard_goal_confirmed" ||
+    reason === "visual_referee_goal_signal"
+  )));
+  const lastFinish = finishWindows.sort((a, b) => seconds(b.end) - seconds(a.end))[0] || firstShot;
   return {
     start: round(Math.max(0, seconds(firstShot.start))),
-    end: round(Math.min(duration || timestamp + SCOREBOARD_BACKED_POST_SECONDS, timestamp + SCOREBOARD_BACKED_POST_SECONDS)),
+    end: round(Math.min(duration || timestamp + SCOREBOARD_BACKED_POST_SECONDS, Math.max(timestamp + 2, seconds(lastFinish.end) + 4))),
     reasonCodes: normalizeReasonCodes([
       "scoreboard_backed_goal_sequence",
       "shot_sequence_support",
+      "live_shot_finish_sequence",
       ...nearbyReasons.filter((reason) => [
         "visual_shot_contact",
         "visual_shot_like_motion",
         "visual_ball_toward_goal",
         "visual_goal_mouth",
         "visual_goal_area",
+        "visual_ball_in_net",
         "visual_scoreboard_goal_confirmed",
         "visual_referee_goal_signal",
+        "visual_crowd_reaction",
       ].includes(reason)),
     ]),
   };
@@ -740,6 +751,9 @@ function validateGoalEvidenceOutput(output, metadata = {}) {
     throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
   }
   const supplementalVisualWindows = events.flatMap((event) => supplementalWindowsForEvent(event, metadata));
+  const scoreChangeAnchors = ocrEvidence.filter((item) => item.scoreChanged && item.temporalConsistency);
+  const scoreboardBackedEvents = events.filter((event) => event.evidenceSource === "deterministic_scoreboard_backed_goal_sequence");
+  const validScoreboardBackedEvents = scoreboardBackedEvents.filter((event) => event.outcomeHint === "valid_goal");
   return {
     providerMode: sanitizeText(output.providerMode || "deterministic-goal-evidence", 60),
     fallbackUsed: Boolean(output.fallbackUsed),
@@ -759,6 +773,12 @@ function validateGoalEvidenceOutput(output, metadata = {}) {
       scoreboardConfirmedGoalCount: events.filter((event) => (event.reasonCodes || []).includes("scoreboard_ocr_score_change")).length,
       scoreboardGoalRemovedCount: events.filter((event) => (event.reasonCodes || []).includes("scoreboard_ocr_goal_removed")).length,
       ambiguousOcrCount: ocrEvidence.filter((item) => item.ambiguous).length,
+      scoreChangeAnchorsFound: scoreChangeAnchors.length,
+      anchorsWithLiveActionEvidence: validScoreboardBackedEvents.length,
+      anchorsRejected: Math.max(0, scoreChangeAnchors.length - scoreboardBackedEvents.length),
+      selectedCountedGoals: events.filter((event) => event.outcomeHint === "valid_goal").length,
+      ocrOnlyBlockedCount: Math.max(0, scoreChangeAnchors.length - validScoreboardBackedEvents.length),
+      missingActionEvidenceCount: Math.max(0, scoreChangeAnchors.length - scoreboardBackedEvents.length),
       combinedGoalConfirmationCount: events.filter((event) => (event.reasonCodes || []).includes("combined_goal_confirmation")).length,
       replayConfirmationCount: events.filter((event) => (event.reasonCodes || []).includes("replay_goal_confirmation")).length,
       crowdReactionSupportCount: events.filter((event) => (event.reasonCodes || []).includes("crowd_reaction_support")).length,
@@ -1083,6 +1103,12 @@ function publicGoalEvidence(goalEvidence) {
           scoreboardConfirmedGoalCount: Number(safe.summary.scoreboardConfirmedGoalCount || 0),
           scoreboardGoalRemovedCount: Number(safe.summary.scoreboardGoalRemovedCount || 0),
           ambiguousOcrCount: Number(safe.summary.ambiguousOcrCount || 0),
+          scoreChangeAnchorsFound: Number(safe.summary.scoreChangeAnchorsFound || 0),
+          anchorsWithLiveActionEvidence: Number(safe.summary.anchorsWithLiveActionEvidence || 0),
+          anchorsRejected: Number(safe.summary.anchorsRejected || 0),
+          selectedCountedGoals: Number(safe.summary.selectedCountedGoals || 0),
+          ocrOnlyBlockedCount: Number(safe.summary.ocrOnlyBlockedCount || 0),
+          missingActionEvidenceCount: Number(safe.summary.missingActionEvidenceCount || 0),
           combinedGoalConfirmationCount: Number(safe.summary.combinedGoalConfirmationCount || 0),
           replayConfirmationCount: Number(safe.summary.replayConfirmationCount || 0),
           crowdReactionSupportCount: Number(safe.summary.crowdReactionSupportCount || 0),

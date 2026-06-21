@@ -126,14 +126,15 @@ const CELEBRATION_SUPPORT_CODES = Object.freeze([
   "visual_crowd_reaction",
   "crowd_reaction_support",
 ]);
-const GOAL_PHASE_LOOKBACK_SECONDS = 22;
+const GOAL_PHASE_LOOKBACK_SECONDS = 45;
 const GOAL_PHASE_MIN_PRE_SHOT_SECONDS = 10;
 const GOAL_PHASE_MAX_PRE_SHOT_SECONDS = 15;
 const SCORE_CHANGE_MIN_CONFIDENCE = 0.72;
 const SCORE_CHANGE_STRONG_CONFIDENCE = 0.86;
 const SCORE_CHANGE_REVERT_LOOKAHEAD_SECONDS = 28;
 const SCORE_CHANGE_CONFIRMATION_SECONDS = 8;
-const SCORE_CHANGE_POST_SECONDS = 4;
+const SCORE_CHANGE_PENDING_LOOKBACK_SECONDS = 70;
+const SCORE_CHANGE_POST_SECONDS = 20;
 
 const SENSITIVE_RE = /\/Users\/|\/private\/|storageKey|localPath|fullPath|absolutePath|Bearer\s+|OPENAI_API_KEY|api[_-]?key|token|secret|stderr|stdout|rawOcr|rawText/i;
 const SAFE_SCORE_RE = /^\d{1,2}\s*[-:]\s*\d{1,2}$/;
@@ -510,12 +511,17 @@ function windowSetForDecision({ event, visualSignals, duration }) {
     !hasAny(visualReasonCodesForWindow(window), CELEBRATION_SUPPORT_CODES) &&
     (replayStart == null || windowStart(window) <= replayStart - 0.25)
   ));
-  const liveActionStart = firstWindowStart(liveWindowsBeforeReplay, firstWindowTime(contextWindows, LIVE_GOAL_PHASE_CODES, start));
-  const shotStart = firstWindowTime(liveWindowsBeforeReplay, SHOT_CODES, firstWindowTime(contextWindows, SHOT_CODES, start));
+  const anchorLookback = Math.max(GOAL_PHASE_LOOKBACK_SECONDS / 2, GOAL_PHASE_MAX_PRE_SHOT_SECONDS + 8);
+  const anchoredLiveWindows = liveWindowsBeforeReplay.filter((window) => windowEnd(window) >= start - anchorLookback);
+  const livePhaseWindows = anchoredLiveWindows.some((window) => hasAny(visualReasonCodesForWindow(window), SHOT_CODES))
+    ? anchoredLiveWindows
+    : liveWindowsBeforeReplay;
+  const liveActionStart = firstWindowStart(livePhaseWindows, firstWindowTime(contextWindows, LIVE_GOAL_PHASE_CODES, start));
+  const shotStart = firstWindowTime(livePhaseWindows, SHOT_CODES, firstWindowTime(contextWindows, SHOT_CODES, start));
   const payoffStart = firstWindowTime(contextWindows, PAYOFF_CODES, Math.min(end, shotStart + 2));
   const payoffEnd = lastWindowTime(contextWindows, PAYOFF_CODES, end);
   const decisionStart = firstWindowTime(contextWindows, DECISION_CODES, null);
-  const hasLivePhase = hasLiveActionBeforeReplay(contextWindows, replayStart) || (!hasAny(eventCodes, REPLAY_SUPPORT_CODES) && hasAny(eventCodes, SHOT_CODES));
+  const hasLivePhase = hasLiveActionBeforeReplay(livePhaseWindows, replayStart) || (!hasAny(eventCodes, REPLAY_SUPPORT_CODES) && hasAny(eventCodes, SHOT_CODES));
   const replayUsed = replayStart != null || hasAny(eventCodes, REPLAY_SUPPORT_CODES);
   const replayOnly = replayUsed && !hasLivePhase;
   const phaseAnchor = Math.min(start, liveActionStart, shotStart);
@@ -529,7 +535,7 @@ function windowSetForDecision({ event, visualSignals, duration }) {
   const boundedSourceEnd = Math.max(sourceStart + 3, sourceEnd);
   const phaseCoverage = {
     hasBuildup: !replayOnly && sourceStart <= shotStart - 6,
-    hasShot: !replayOnly && (hasAny(eventCodes, SHOT_CODES) || liveWindowsBeforeReplay.some((window) => hasAny(visualReasonCodesForWindow(window), SHOT_CODES))),
+    hasShot: !replayOnly && (hasAny(eventCodes, SHOT_CODES) || livePhaseWindows.some((window) => hasAny(visualReasonCodesForWindow(window), SHOT_CODES))),
     hasFinish: hasAny(eventCodes, GOAL_FINISH_CODES) || hasAny(visualCodesForRange(visualSignals, sourceStart, boundedSourceEnd), GOAL_FINISH_CODES),
     hasConfirmation: decisionStart != null || hasAny(eventCodes, CONFIRMED_SUPPORT_CODES),
     liveActionStart: round(liveActionStart),
@@ -657,8 +663,15 @@ function normalizeDecision(decision = {}, index = 0, metadata = {}) {
     decisionWindowStart: decisionWindow ? decisionWindow.start : null,
     decisionWindowEnd: decisionWindow ? decisionWindow.end : null,
     teams: normalizeTeams(decision.teams),
+    goalNumber: Number.isInteger(Number(decision.goalNumber)) && Number(decision.goalNumber) > 0
+      ? Math.min(99, Math.round(Number(decision.goalNumber)))
+      : null,
     scoreBefore: normalizeScoreField(decision.scoreBefore),
     scoreAfter: normalizeScoreField(decision.scoreAfter),
+    scoreChangeTime: decision.scoreChangeTime == null ? null : round(seconds(decision.scoreChangeTime)),
+    scoringSide: sanitizeText(decision.scoringSide || "unknown", 16),
+    cannotConfirmGoalAlone: Boolean(decision.cannotConfirmGoalAlone),
+    anchorDiagnostics: normalizeAnchorDiagnostics(decision.anchorDiagnostics),
     safetyFlags: uniqueCodes(decision.safetyFlags, MAX_FLAGS),
     truth: truthContractForDecision({
       type,
@@ -679,6 +692,28 @@ function normalizeOptionalWindow(window, minStart, maxEnd, nullable = false) {
   const start = round(clamp(window.start, minStart, maxEnd));
   const end = round(clamp(window.end, start + 0.1, maxEnd));
   return { start, end };
+}
+
+function normalizeAnchorDiagnostics(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || hasUnsafeValue(value)) return null;
+  const searchWindow = value.searchWindow && typeof value.searchWindow === "object" && !Array.isArray(value.searchWindow)
+    ? {
+        start: round(seconds(value.searchWindow.start)),
+        end: round(seconds(value.searchWindow.end)),
+      }
+    : null;
+  return {
+    changeTime: round(seconds(value.changeTime)),
+    actionAnchorTime: value.actionAnchorTime == null ? null : round(seconds(value.actionAnchorTime)),
+    searchWindow,
+    liveWindowCount: Math.max(0, Math.round(Number(value.liveWindowCount || 0))),
+    shotWindowCount: Math.max(0, Math.round(Number(value.shotWindowCount || 0))),
+    finishWindowCount: Math.max(0, Math.round(Number(value.finishWindowCount || 0))),
+    decisionWindowCount: Math.max(0, Math.round(Number(value.decisionWindowCount || 0))),
+    mediaActionWindowCount: Math.max(0, Math.round(Number(value.mediaActionWindowCount || 0))),
+    missingActionEvidence: Boolean(value.missingActionEvidence),
+    ocrOnlyBlocked: Boolean(value.ocrOnlyBlocked),
+  };
 }
 
 function safeDecoderStatus(item = {}) {
@@ -737,13 +772,19 @@ function normalizeScoreTimelineObservation(item = {}, index = 0, calibration = n
 
 function scoreChangeAuthority(item = {}, calibration = null) {
   const confidence = Number(item.confidence || 0);
+  const normalizedScoreChange = Boolean(item.scoreChanged) && confidence >= SCORE_CHANGE_MIN_CONFIDENCE;
+  return Boolean(item.temporalConsistency) &&
+    !item.ambiguous &&
+    (normalizedScoreChange || scoreChangeStrongAuthority(item, calibration));
+}
+
+function scoreChangeStrongAuthority(item = {}, calibration = null) {
+  const confidence = Number(item.confidence || 0);
   const calibrated = Boolean(calibration && calibration.usable && calibration.decisionSupportLevel === "strong");
   const decoderBacked = safeDecoderStatus(item) === "decoded" ||
     safeImageSegmentationStatus(item) === "readable" ||
     /scorebug_digit_reader|digit_scorebug/i.test(String(item.source || ""));
-  return Boolean(item.temporalConsistency) &&
-    !item.ambiguous &&
-    (calibrated || (decoderBacked && confidence >= SCORE_CHANGE_STRONG_CONFIDENCE));
+  return calibrated || (decoderBacked && confidence >= SCORE_CHANGE_STRONG_CONFIDENCE);
 }
 
 function scoreChangePersistedDuration(item = {}, nextRevert = null, duration = 0) {
@@ -766,6 +807,43 @@ function matchingRevertForScoreChange(change = {}, laterItems = []) {
   }) || null;
 }
 
+function pendingObservationForScoreChange(change = {}, earlierItems = []) {
+  const before = parseScoreValue(change.scoreBefore);
+  const after = parseScoreValue(change.scoreAfter);
+  if (!before || !after) return null;
+  const changeTime = seconds(change.timestamp);
+  const matches = (Array.isArray(earlierItems) ? earlierItems : [])
+    .filter((item) => {
+      const itemTime = seconds(item.timestamp);
+      if (itemTime >= changeTime || changeTime - itemTime > SCORE_CHANGE_PENDING_LOOKBACK_SECONDS) return false;
+      if (item.scoreChanged || item.scoreReverted) return false;
+      if (!sameScore(parseScoreValue(item.scoreBefore), before) || !sameScore(parseScoreValue(item.scoreAfter), after)) return false;
+      const pendingDecision = sanitizeText(item.transitionDecision || "", 60) === "score_change_pending_confirmation";
+      const pendingReason = Array.isArray(item.transitionReasonCodes) &&
+        item.transitionReasonCodes.includes("unit_score_increase_candidate");
+      return pendingDecision || pendingReason || (!item.temporalConsistency && item.ambiguous);
+    })
+    .sort((a, b) => seconds(a.timestamp) - seconds(b.timestamp));
+  return matches[0] || null;
+}
+
+function stableConfirmationForPendingObservation(item = {}, laterItems = [], calibration = null) {
+  const before = parseScoreValue(item.scoreBefore);
+  const after = parseScoreValue(item.scoreAfter);
+  if (!before || !after) return null;
+  const itemTime = seconds(item.timestamp);
+  const pendingDecision = sanitizeText(item.transitionDecision || "", 60) === "score_change_pending_confirmation";
+  const pendingReason = Array.isArray(item.transitionReasonCodes) &&
+    item.transitionReasonCodes.includes("unit_score_increase_candidate");
+  if (!pendingDecision && !pendingReason) return null;
+  return (Array.isArray(laterItems) ? laterItems : []).find((candidate) => {
+    const candidateTime = seconds(candidate.timestamp);
+    if (candidateTime <= itemTime || candidateTime - itemTime > SCORE_CHANGE_PENDING_LOOKBACK_SECONDS) return false;
+    if (!sameScore(parseScoreValue(candidate.scoreBefore), before) || !sameScore(parseScoreValue(candidate.scoreAfter), after)) return false;
+    return scoreChangeAuthority(candidate, calibration);
+  }) || null;
+}
+
 function normalizeScoreChanges(ocrEvidence = [], calibration = null, metadata = {}) {
   const duration = seconds(metadata.durationSeconds, 0);
   const stableItems = (Array.isArray(ocrEvidence) ? ocrEvidence : [])
@@ -780,6 +858,7 @@ function normalizeScoreChanges(ocrEvidence = [], calibration = null, metadata = 
     const direction = scoreDirection(before, after);
     if (!before || !after || direction === "same" || direction === "unknown" || direction === "ambiguous") continue;
     if (!scoreChangeAuthority(item, calibration)) {
+      if (stableConfirmationForPendingObservation(item, stableItems, calibration)) continue;
       changes.push({
         id: sanitizeText(item.id || `score_change_${changes.length + 1}`, 80),
         startScore: before.text,
@@ -815,11 +894,15 @@ function normalizeScoreChanges(ocrEvidence = [], calibration = null, metadata = 
     }
     const revert = matchingRevertForScoreChange(item, stableItems);
     if (revert && revert.id) consumedReverts.add(revert.id);
+    const pendingObservation = pendingObservationForScoreChange(item, stableItems);
     changes.push({
       id: sanitizeText(item.id || `score_change_${changes.length + 1}`, 80),
       startScore: before.text,
       endScore: after.text,
       changeTime: round(seconds(item.timestamp)),
+      actionAnchorTime: pendingObservation ? round(seconds(pendingObservation.timestamp)) : round(seconds(item.timestamp)),
+      hasPendingObservation: Boolean(pendingObservation),
+      strongAuthority: scoreChangeStrongAuthority(item, calibration),
       teamSide: scoreTeamSide(before, after),
       scoreDelta: scoreDelta(before, after),
       confidence: round(clamp(item.confidence, 0, 1)),
@@ -846,11 +929,47 @@ function scoreChangeCoveredByDecision(change = {}, decisions = []) {
   ));
 }
 
-function scoreChangeVisualContext(change = {}, visualSignals = {}, metadata = {}) {
-  const changeTime = seconds(change.changeTime);
-  const duration = seconds(metadata.durationSeconds, changeTime + SCORE_CHANGE_POST_SECONDS);
-  const left = Math.max(0, changeTime - GOAL_PHASE_LOOKBACK_SECONDS);
-  const right = Math.min(duration || changeTime + SCORE_CHANGE_POST_SECONDS, changeTime + SCORE_CHANGE_POST_SECONDS);
+function mediaActionContextForScoreChange(change = {}, mediaSignals = {}, metadata = {}) {
+  const stableChangeTime = seconds(change.changeTime);
+  const actionAnchorTime = seconds(change.actionAnchorTime, stableChangeTime);
+  const searchAnchorTime = Math.min(stableChangeTime, actionAnchorTime);
+  const duration = seconds(metadata.durationSeconds, stableChangeTime + SCORE_CHANGE_POST_SECONDS);
+  const left = Math.max(0, searchAnchorTime - GOAL_PHASE_LOOKBACK_SECONDS);
+  const right = Math.min(duration || stableChangeTime + SCORE_CHANGE_POST_SECONDS, stableChangeTime + SCORE_CHANGE_POST_SECONDS);
+  const highMotionCandidates = Array.isArray(mediaSignals && mediaSignals.highMotionCandidates)
+    ? mediaSignals.highMotionCandidates
+    : [];
+  const audioPeaks = Array.isArray(mediaSignals && mediaSignals.audioPeaks) ? mediaSignals.audioPeaks : [];
+  const motion = highMotionCandidates
+    .map((item) => ({
+      time: seconds(item.time ?? item.timestamp),
+      confidence: Number(item.confidence ?? item.energyScore ?? 0),
+    }))
+    .filter((item) => item.time >= left && item.time <= right && item.confidence >= 0.72)
+    .sort((a, b) => Math.abs(searchAnchorTime - b.time) - Math.abs(searchAnchorTime - a.time));
+  if (!motion.length) return null;
+  const anchor = motion[motion.length - 1];
+  const nearbyAudio = audioPeaks.some((item) => {
+    const time = seconds(item.time ?? item.timestamp);
+    const energy = Number(item.energyScore ?? item.confidence ?? 0);
+    return time >= anchor.time - 8 && time <= stableChangeTime + 2 && energy >= 0.75;
+  });
+  return {
+    start: round(Math.max(0, anchor.time - 4)),
+    end: round(Math.min(duration || searchAnchorTime + 2, Math.max(anchor.time + 4, searchAnchorTime))),
+    confidence: round(clamp(anchor.confidence + (nearbyAudio ? 0.05 : 0), 0.05, 0.98)),
+    nearbyAudio,
+  };
+}
+
+function scoreChangeVisualContext(change = {}, visualSignals = {}, metadata = {}, mediaSignals = {}) {
+  const stableChangeTime = seconds(change.changeTime);
+  const actionAnchorTime = seconds(change.actionAnchorTime, stableChangeTime);
+  const confirmationAnchorTime = Math.min(stableChangeTime, actionAnchorTime);
+  const duration = seconds(metadata.durationSeconds, stableChangeTime + SCORE_CHANGE_POST_SECONDS);
+  const left = Math.max(0, confirmationAnchorTime - GOAL_PHASE_LOOKBACK_SECONDS);
+  const right = Math.min(duration || stableChangeTime + SCORE_CHANGE_POST_SECONDS, stableChangeTime + SCORE_CHANGE_POST_SECONDS);
+  const mediaAction = mediaActionContextForScoreChange(change, mediaSignals, metadata);
   const contextWindows = sortedWindows(windowsInRange(visualSignals, left, right, 2));
   const liveWindows = contextWindows.filter((window) => {
     const codes = visualReasonCodesForWindow(window);
@@ -863,46 +982,73 @@ function scoreChangeVisualContext(change = {}, visualSignals = {}, metadata = {}
   const decisionWindows = contextWindows.filter((window) => hasAny(visualReasonCodesForWindow(window), DECISION_CODES));
   const shotStart = firstWindowTime(liveWindows.length ? liveWindows : shotWindows, SHOT_CODES, null);
   const liveActionStart = firstWindowStart(liveWindows, shotStart == null ? null : Math.max(0, shotStart - GOAL_PHASE_MIN_PRE_SHOT_SECONDS));
-  const finishTime = lastWindowTime(finishWindows, GOAL_FINISH_CODES, changeTime);
-  const decisionStart = firstWindowStart(decisionWindows, changeTime);
+  const finishTime = lastWindowTime(finishWindows, GOAL_FINISH_CODES, confirmationAnchorTime);
+  const decisionStart = firstWindowStart(decisionWindows, confirmationAnchorTime);
   const replayUsed = contextWindows.some((window) => hasAny(visualReasonCodesForWindow(window), REPLAY_SUPPORT_CODES));
   const replayOnly = replayUsed && !liveWindows.length;
-  const hasShot = shotStart != null;
-  const hasFinish = finishWindows.length > 0 || change.outcome === "counted_goal";
+  const hasMediaAction = Boolean(mediaAction);
+  const effectiveShotStart = shotStart == null && mediaAction ? mediaAction.start : shotStart;
+  const effectiveLiveActionStart = liveActionStart == null && mediaAction ? mediaAction.start : liveActionStart;
+  const hasShot = effectiveShotStart != null;
+  const hasScoreboardBackedFinish = change.outcome === "counted_goal" &&
+    (Boolean(change.hasPendingObservation) || Boolean(change.strongAuthority));
+  const hasFinish = finishWindows.length > 0 || hasScoreboardBackedFinish;
   const sourceStart = hasShot
-    ? round(Math.max(0, Math.min(liveActionStart == null ? shotStart : liveActionStart, shotStart - GOAL_PHASE_MIN_PRE_SHOT_SECONDS)))
-    : round(Math.max(0, changeTime - GOAL_PHASE_MIN_PRE_SHOT_SECONDS));
-  const sourceEnd = round(Math.min(duration || changeTime + SCORE_CHANGE_POST_SECONDS, Math.max(changeTime + 2, finishTime + 3, sourceStart + 8)));
+    ? round(Math.max(0, Math.min(effectiveLiveActionStart == null ? effectiveShotStart : effectiveLiveActionStart, effectiveShotStart - GOAL_PHASE_MIN_PRE_SHOT_SECONDS)))
+    : round(Math.max(0, confirmationAnchorTime - GOAL_PHASE_MIN_PRE_SHOT_SECONDS));
+  const effectiveFinishTime = finishWindows.length > 0
+    ? finishTime
+    : mediaAction
+      ? Math.max(mediaAction.end, confirmationAnchorTime - 1)
+      : finishTime;
+  const sourceEnd = round(Math.min(duration || stableChangeTime + SCORE_CHANGE_POST_SECONDS, Math.max(confirmationAnchorTime + 2, effectiveFinishTime + 3, sourceStart + 8)));
   return {
     sourceStart,
     sourceEnd,
-    buildupWindow: { start: sourceStart, end: round(Math.max(sourceStart + 0.5, shotStart == null ? changeTime : shotStart)) },
-    shotWindow: { start: round(shotStart == null ? Math.max(sourceStart, changeTime - 3) : shotStart), end: round(Math.max((shotStart == null ? changeTime - 2 : shotStart) + 0.5, finishTime)) },
-    payoffWindow: { start: round(Math.max(sourceStart, Math.min(finishTime, changeTime))), end: round(Math.max(finishTime + 0.5, changeTime)) },
-    reactionWindow: { start: round(changeTime), end: round(Math.min(duration || changeTime + SCORE_CHANGE_POST_SECONDS, changeTime + SCORE_CHANGE_POST_SECONDS)) },
-    decisionWindow: { start: round(decisionStart == null ? changeTime : decisionStart), end: round(Math.min(duration || changeTime + SCORE_CHANGE_POST_SECONDS, Math.max(changeTime + 1, sourceEnd))) },
+    buildupWindow: { start: sourceStart, end: round(Math.max(sourceStart + 0.5, effectiveShotStart == null ? confirmationAnchorTime : effectiveShotStart)) },
+    shotWindow: { start: round(effectiveShotStart == null ? Math.max(sourceStart, confirmationAnchorTime - 3) : effectiveShotStart), end: round(Math.max((effectiveShotStart == null ? confirmationAnchorTime - 2 : effectiveShotStart) + 0.5, effectiveFinishTime)) },
+    payoffWindow: { start: round(Math.max(sourceStart, Math.min(effectiveFinishTime, confirmationAnchorTime))), end: round(Math.max(effectiveFinishTime + 0.5, confirmationAnchorTime)) },
+    reactionWindow: { start: round(confirmationAnchorTime), end: round(Math.min(duration || stableChangeTime + SCORE_CHANGE_POST_SECONDS, confirmationAnchorTime + SCORE_CHANGE_POST_SECONDS)) },
+    decisionWindow: { start: round(decisionStart == null ? confirmationAnchorTime : decisionStart), end: round(Math.min(duration || stableChangeTime + SCORE_CHANGE_POST_SECONDS, Math.max(confirmationAnchorTime + 1, sourceEnd))) },
     phaseCoverage: {
-      hasBuildup: hasShot && sourceStart <= shotStart - 6,
+      hasBuildup: hasShot && sourceStart <= effectiveShotStart - 6,
       hasShot,
       hasFinish,
       hasConfirmation: true,
-      liveActionStart: round(liveActionStart == null ? sourceStart : liveActionStart),
-      shotStart: round(shotStart == null ? Math.max(sourceStart, changeTime - 3) : shotStart),
-      finishTime: round(finishTime),
-      confirmationTime: round(changeTime),
+      liveActionStart: round(effectiveLiveActionStart == null ? sourceStart : effectiveLiveActionStart),
+      shotStart: round(effectiveShotStart == null ? Math.max(sourceStart, confirmationAnchorTime - 3) : effectiveShotStart),
+      finishTime: round(effectiveFinishTime),
+      confirmationTime: round(confirmationAnchorTime),
       replayUsed,
       replayOnly,
     },
-    visualCodes: visualCodesForRange(visualSignals, left, right),
+    visualCodes: uniqueCodes([
+      ...visualCodesForRange(visualSignals, left, right),
+      ...(hasMediaAction ? ["media_high_motion_goal_phase_support", "shot_sequence_support"] : []),
+      ...(mediaAction && mediaAction.nearbyAudio ? ["audio_energy_spike"] : []),
+    ], 32),
+    anchorDiagnostics: {
+      changeTime: round(stableChangeTime),
+      actionAnchorTime: round(actionAnchorTime),
+      searchWindow: { start: round(left), end: round(right) },
+      liveWindowCount: liveWindows.length,
+      shotWindowCount: shotWindows.length,
+      finishWindowCount: finishWindows.length,
+      decisionWindowCount: decisionWindows.length,
+      mediaActionWindowCount: hasMediaAction ? 1 : 0,
+      missingActionEvidence: !hasShot || !hasFinish || replayOnly,
+      ocrOnlyBlocked: !hasShot || !hasFinish || replayOnly,
+    },
   };
 }
 
-function buildScoreChangeDecision({ change, visualSignals, metadata, index }) {
-  const context = scoreChangeVisualContext(change, visualSignals, metadata);
+function buildScoreChangeDecision({ change, visualSignals, mediaSignals, metadata, index, goalNumber = null }) {
+  const context = scoreChangeVisualContext(change, visualSignals, metadata, mediaSignals);
   const hasLiveAction = context.phaseCoverage.hasShot && !context.phaseCoverage.replayOnly;
+  const hasRenderableGoalPhase = hasLiveAction && context.phaseCoverage.hasFinish;
   const isCounted = change.outcome === "counted_goal";
   const isDisallowed = change.outcome === "disallowed_goal";
-  const type = isCounted && hasLiveAction
+  const type = isCounted && hasRenderableGoalPhase
     ? "confirmed_goal"
     : isDisallowed
       ? "disallowed_no_goal"
@@ -916,6 +1062,7 @@ function buildScoreChangeDecision({ change, visualSignals, metadata, index }) {
   const missingEvidence = [];
   if (!hasLiveAction) missingEvidence.push("live_goal_phase");
   if (context.phaseCoverage.replayOnly) missingEvidence.push("live_goal_phase");
+  if (isCounted && !context.phaseCoverage.hasFinish) missingEvidence.push("finish_or_stable_score_confirmation");
   if (!isCounted && !isDisallowed) missingEvidence.push("stable_counted_goal_decision");
   return normalizeDecision({
     id: `score_change_truth_${index + 1}`,
@@ -923,6 +1070,10 @@ function buildScoreChangeDecision({ change, visualSignals, metadata, index }) {
     outcome: goalOutcomeForType(type),
     confidence: round(clamp(change.confidence, 0.05, 0.98)),
     ...context,
+    goalNumber,
+    scoreChangeTime: change.changeTime,
+    scoringSide: change.teamSide,
+    cannotConfirmGoalAlone: true,
     evidenceCodes,
     missingEvidence,
     safetyFlags: uniqueCodes([
@@ -937,16 +1088,20 @@ function buildScoreChangeDecision({ change, visualSignals, metadata, index }) {
   }, index, metadata);
 }
 
-function buildScoreChangeTruthDecisions({ scoreChanges = [], existingEvents = [], visualSignals = {}, metadata = {} } = {}) {
+function buildScoreChangeTruthDecisions({ scoreChanges = [], existingEvents = [], visualSignals = {}, mediaSignals = {}, metadata = {} } = {}) {
   const decisions = [];
   const rejected = [];
+  let countedGoalNumber = 0;
   for (const change of Array.isArray(scoreChanges) ? scoreChanges : []) {
     if (scoreChangeCoveredByDecision(change, [...existingEvents, ...decisions])) continue;
+    const goalNumber = change.outcome === "counted_goal" ? ++countedGoalNumber : null;
     const decision = buildScoreChangeDecision({
       change,
       visualSignals,
+      mediaSignals,
       metadata,
       index: decisions.length + rejected.length,
+      goalNumber,
     });
     if (decision.type === "confirmed_goal" || decision.type === "disallowed_no_goal" || decision.type === "disallowed_offside") {
       decisions.push(decision);
@@ -1127,6 +1282,9 @@ function validateMatchEventTruthOutput(output, metadata = {}) {
       startScore: normalizeScoreField(change.startScore),
       endScore: normalizeScoreField(change.endScore),
       changeTime: round(seconds(change.changeTime)),
+      actionAnchorTime: change.actionAnchorTime == null ? null : round(seconds(change.actionAnchorTime)),
+      hasPendingObservation: Boolean(change.hasPendingObservation),
+      strongAuthority: Boolean(change.strongAuthority),
       teamSide: sanitizeText(change.teamSide || "unknown", 16),
       scoreDelta: Math.max(0, Math.min(3, Math.round(Number(change.scoreDelta || 0)))),
       confidence: round(clamp(change.confidence, 0, 1)),
@@ -1150,6 +1308,40 @@ function validateMatchEventTruthOutput(output, metadata = {}) {
   const confirmedGoalCount = events.filter((event) => event.type === "confirmed_goal").length;
   const disallowedGoalCount = events.filter((event) => event.type === "disallowed_offside" || event.type === "disallowed_no_goal").length;
   const possibleGoalCount = events.filter((event) => event.type === "possible_goal_unconfirmed").length;
+  const allEvents = [...events, ...rejectedEvents];
+  const scoreChangeDecisionEvents = allEvents.filter((event) => /^score_change_truth_/.test(event.id));
+  const scoreChangeEvidenceEvents = allEvents.filter((event) => (
+    event.evidenceCodes.includes("scoreboard_ocr_score_change") &&
+    event.evidenceCodes.includes("scoreboard_temporal_consistency")
+  ));
+  const scoreChangeAnchorEvents = scoreChangeEvidenceEvents.length ? scoreChangeEvidenceEvents : scoreChangeDecisionEvents;
+  const scoreboardSelectedGoals = events.filter((event) => (
+    event.type === "confirmed_goal" &&
+    event.evidenceCodes.includes("scoreboard_ocr_score_change") &&
+    (event.evidenceCodes.includes("scoreboard_backed_goal_sequence") ||
+      event.evidenceCodes.includes("live_shot_finish_sequence"))
+  ));
+  const scoreChangeAnchorsWithLiveAction = scoreChangeAnchorEvents.filter((event) => (
+    event.phaseCoverage &&
+    event.phaseCoverage.hasShot &&
+    event.phaseCoverage.replayOnly !== true
+  ));
+  const replayOnlyCount = allEvents.filter((event) => (
+    event.replayOnly === true ||
+    (event.phaseCoverage && event.phaseCoverage.replayOnly === true)
+  )).length;
+  const celebrationOnlyCount = allEvents.filter((event) => (
+    event.type === "crowd_reaction" ||
+    event.evidenceCodes.includes("visual_celebration_after_shot") ||
+    event.evidenceCodes.includes("visual_celebration_after_whistle")
+  )).length;
+  const missingActionEvidenceCount = scoreChangeAnchorEvents.filter((event) => (
+    event.missingEvidence.includes("live_goal_phase")
+  )).length;
+  const ocrOnlyBlockedCount = scoreChangeAnchorEvents.filter((event) => (
+    event.cannotConfirmGoalAlone &&
+    event.type !== "confirmed_goal"
+  )).length;
   const lateCutoff = Math.max(0, seconds(metadata.durationSeconds, 0) * 0.66);
   const countedGoalEventCount = scoreChanges.filter((change) => change.outcome === "counted_goal").length;
   const disallowedGoalEventCount = scoreChanges.filter((change) => change.outcome === "disallowed_goal").length;
@@ -1198,6 +1390,14 @@ function validateMatchEventTruthOutput(output, metadata = {}) {
       countedGoalEventCount,
       disallowedGoalEventCount,
       selectedGoalCount: confirmedGoalCount,
+      scoreChangeAnchorsFound: scoreChanges.length,
+      anchorsWithLiveActionEvidence: scoreChangeAnchorsWithLiveAction.length,
+      anchorsRejected: Math.max(0, countedGoalEventCount - scoreboardSelectedGoals.length),
+      selectedCountedGoals: scoreboardSelectedGoals.length,
+      replayOnlyCount,
+      celebrationOnlyCount,
+      ocrOnlyBlockedCount,
+      missingActionEvidenceCount,
       uncertainReviewItemCount: uncertainReviewItems.length,
       uncertainReviewItems,
       missedGoalReasons,
@@ -1241,6 +1441,7 @@ function analyzeMatchEventTruth(input = {}) {
     scoreChanges,
     existingEvents: events,
     visualSignals,
+    mediaSignals: input.mediaSignals,
     metadata,
   });
   const occupied = events.map((event) => ({ start: event.sourceStart, end: event.sourceEnd }));
@@ -1313,6 +1514,14 @@ function publicSummary(normalizedSummary = {}, originalSummary = {}) {
     countedGoalEventCount: numeric("countedGoalEventCount"),
     disallowedGoalEventCount: numeric("disallowedGoalEventCount"),
     selectedGoalCount: numeric("selectedGoalCount"),
+    scoreChangeAnchorsFound: numeric("scoreChangeAnchorsFound"),
+    anchorsWithLiveActionEvidence: numeric("anchorsWithLiveActionEvidence"),
+    anchorsRejected: numeric("anchorsRejected"),
+    selectedCountedGoals: numeric("selectedCountedGoals"),
+    replayOnlyCount: numeric("replayOnlyCount"),
+    celebrationOnlyCount: numeric("celebrationOnlyCount"),
+    ocrOnlyBlockedCount: numeric("ocrOnlyBlockedCount"),
+    missingActionEvidenceCount: numeric("missingActionEvidenceCount"),
     uncertainReviewItemCount: numeric("uncertainReviewItemCount"),
     missedGoalReasons: uniqueCodes(original.missedGoalReasons || normalizedSummary.missedGoalReasons, MAX_MISSING),
     decoderStatusSummary: Object.fromEntries(Object.entries(
@@ -1351,6 +1560,9 @@ function publicScoreChange(change = {}) {
     startScore: normalizeScoreField(change.startScore),
     endScore: normalizeScoreField(change.endScore),
     changeTime: Number(change.changeTime || 0),
+    actionAnchorTime: change.actionAnchorTime == null ? null : Number(change.actionAnchorTime),
+    hasPendingObservation: Boolean(change.hasPendingObservation),
+    strongAuthority: Boolean(change.strongAuthority),
     teamSide: sanitizeText(change.teamSide || "unknown", 16),
     scoreDelta: Number(change.scoreDelta || 0),
     confidence: round(clamp(change.confidence, 0, 1)),
@@ -1375,8 +1587,13 @@ function publicDecision(event) {
     decisionWindowStart: event.decisionWindowStart,
     decisionWindowEnd: event.decisionWindowEnd,
     teams: event.teams || null,
+    goalNumber: event.goalNumber || null,
     scoreBefore: event.scoreBefore || null,
     scoreAfter: event.scoreAfter || null,
+    scoreChangeTime: event.scoreChangeTime == null ? null : Number(event.scoreChangeTime),
+    scoringSide: event.scoringSide || "unknown",
+    cannotConfirmGoalAlone: Boolean(event.cannotConfirmGoalAlone),
+    anchorDiagnostics: event.anchorDiagnostics || null,
     evidence: Array.isArray(event.evidence) ? event.evidence : event.evidenceCodes,
     disqualifiers: Array.isArray(event.disqualifiers) ? event.disqualifiers : [],
     buildupWindow: event.buildupWindow,

@@ -176,6 +176,302 @@ test("turns stable scorebug score increase into counted goal truth when live act
   assert.ok(result.events[0].phaseCoverage.hasConfirmation);
 });
 
+test("links delayed scorebug changes back to earlier live goal action", () => {
+  const result = analyzeMatchEventTruth({
+    metadata: { ...metadata, durationSeconds: 180 },
+    visualSignals: visualSignals([
+      { start: 82, end: 84, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.91 },
+      { start: 86, end: 88, types: ["goal_mouth_visible", "ball_in_net"], confidence: 0.93 },
+      { start: 126, end: 127, types: ["scoreboard_goal_confirmed"], confidence: 0.88 },
+    ]),
+    scoreboardOcr: [{
+      id: "delayed_counted_goal",
+      timestamp: 126,
+      scoreBefore: "0-0",
+      scoreAfter: "1-0",
+      status: "score_changed",
+      confidence: 0.93,
+      temporalConsistency: true,
+    }],
+    ocrQaCalibration: strongOcrQaCalibration(),
+    goalEvidence: goalEvidence([]),
+  });
+
+  const publicTruth = publicMatchEventTruth(result);
+
+  assert.equal(result.summary.confirmedGoalCount, 1);
+  assert.equal(result.summary.scoreChangeAnchorsFound, 1);
+  assert.equal(result.summary.anchorsWithLiveActionEvidence, 1);
+  assert.equal(result.summary.selectedCountedGoals, 1);
+  assert.equal(result.summary.anchorsRejected, 0);
+  assert.equal(result.summary.ocrOnlyBlockedCount, 0);
+  assert.equal(result.events[0].scoreChangeTime, 126);
+  assert.equal(result.events[0].cannotConfirmGoalAlone, true);
+  assert.ok(result.events[0].sourceStart <= 82);
+  assert.ok(result.events[0].sourceEnd >= 126);
+  assert.equal(result.events[0].phaseCoverage.replayOnly, false);
+  assert.ok(result.events[0].anchorDiagnostics.searchWindow.start <= 82);
+  assert.ok(result.events[0].anchorDiagnostics.searchWindow.end >= 126);
+  assert.equal(publicTruth.summary.selectedCountedGoals, 1);
+  assert.doesNotMatch(JSON.stringify(publicTruth), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);
+});
+
+test("uses high-motion media support to anchor stable score changes when visual labels are sparse", () => {
+  const result = analyzeMatchEventTruth({
+    metadata: { ...metadata, durationSeconds: 240 },
+    mediaSignals: {
+      durationSeconds: 240,
+      highMotionCandidates: [{ time: 172, confidence: 0.89, source: "fixture" }],
+      audioPeaks: [{ time: 177, energyScore: 0.86, source: "fixture" }],
+    },
+    visualSignals: visualSignals([
+      { start: 205, end: 207, type: "scoreboard_context", confidence: 0.7 },
+    ]),
+    scoreboardOcr: [{
+      id: "media_anchored_score_change",
+      timestamp: 207,
+      scoreBefore: "0-0",
+      scoreAfter: "1-0",
+      status: "score_changed",
+      confidence: 0.93,
+      temporalConsistency: true,
+    }],
+    ocrQaCalibration: strongOcrQaCalibration(),
+    goalEvidence: goalEvidence([]),
+  });
+
+  assert.equal(result.summary.confirmedGoalCount, 1);
+  assert.equal(result.summary.scoreChangeAnchorsFound, 1);
+  assert.equal(result.summary.anchorsWithLiveActionEvidence, 1);
+  assert.equal(result.summary.selectedCountedGoals, 1);
+  assert.equal(result.summary.ocrOnlyBlockedCount, 0);
+  assert.ok(result.events[0].sourceStart <= 168);
+  assert.ok(result.events[0].sourceEnd >= 207);
+  assert.ok(result.events[0].evidenceCodes.includes("media_high_motion_goal_phase_support"));
+  assert.ok(result.events[0].evidenceCodes.includes("scoreboard_backed_goal_sequence"));
+  assert.equal(result.events[0].anchorDiagnostics.mediaActionWindowCount, 1);
+  assert.doesNotMatch(JSON.stringify(publicMatchEventTruth(result)), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);
+});
+
+test("uses normalized local OCR scoreChanged rows as anchors without requiring strong QA", () => {
+  const result = analyzeMatchEventTruth({
+    metadata: { ...metadata, durationSeconds: 360, sourceType: "youtube", goalSelectionMode: "valid_goals_only" },
+    mediaSignals: {
+      durationSeconds: 360,
+      highMotionCandidates: [{ time: 274, confidence: 0.9, source: "fixture" }],
+      audioPeaks: [{ time: 280, energyScore: 0.88, source: "fixture" }],
+    },
+    visualSignals: visualSignals([
+      { start: 275, end: 277, type: "scoreboard_context", confidence: 0.7 },
+      { start: 295, end: 298, type: "scoreboard_context", confidence: 0.72 },
+    ]),
+    scoreboardOcr: [
+      {
+        id: "local_ocr_pending_score_change",
+        timestamp: 277,
+        scoreBefore: "1-0",
+        scoreAfter: "2-0",
+        status: "ambiguous",
+        confidence: 0.86,
+        temporalConsistency: false,
+        ambiguous: true,
+        transitionDecision: "score_change_pending_confirmation",
+        transitionReasonCodes: ["unit_score_increase_candidate"],
+      },
+      {
+        id: "local_ocr_score_change",
+        timestamp: 298,
+        scoreBefore: "1-0",
+        scoreAfter: "2-0",
+        status: "score_changed",
+        confidence: 0.88,
+        temporalConsistency: true,
+        scoreChanged: true,
+        source: "local-scoreboard-ocr-command",
+      },
+    ],
+    ocrQaCalibration: {
+      status: "missing",
+      usable: false,
+      decisionSupportLevel: "ignore",
+      goalEvidencePolicy: "support_only",
+      goalDecisionAllowed: false,
+      noFalseGoalFromOcrOnly: true,
+    },
+    goalEvidence: goalEvidence([]),
+  });
+
+  assert.equal(result.summary.scoreChangeCount, 1);
+  assert.equal(result.summary.countedGoalEventCount, 1);
+  assert.equal(result.summary.confirmedGoalCount, 1);
+  assert.equal(result.summary.anchorsWithLiveActionEvidence, 1);
+  assert.equal(result.summary.selectedCountedGoals, 1);
+  assert.equal(result.summary.ocrOnlyBlockedCount, 0);
+  assert.equal(result.scoreChanges[0].outcome, "counted_goal");
+  assert.equal(result.scoreChanges[0].actionAnchorTime, 277);
+  assert.equal(result.scoreChanges[0].hasPendingObservation, true);
+  assert.equal(result.events[0].scoreAfter, "2-0");
+  assert.ok(result.events[0].evidenceCodes.includes("media_high_motion_goal_phase_support"));
+  assert.ok(result.events[0].evidenceCodes.includes("scoreboard_backed_goal_sequence"));
+  assert.equal(result.summary.noFalseGoalFromOcrOnly, 1);
+  assert.doesNotMatch(JSON.stringify(publicMatchEventTruth(result)), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);
+});
+
+test("uses first observed pending score increase as action anchor for delayed stable changes", () => {
+  const result = analyzeMatchEventTruth({
+    metadata: { ...metadata, durationSeconds: 390, sourceType: "youtube", goalSelectionMode: "valid_goals_only" },
+    mediaSignals: {
+      durationSeconds: 390,
+      highMotionCandidates: [{ time: 305, confidence: 0.9, source: "fixture" }],
+      audioPeaks: [{ time: 311, energyScore: 0.88, source: "fixture" }],
+    },
+    visualSignals: visualSignals([
+      { start: 318, end: 320, type: "scoreboard_context", confidence: 0.72 },
+      { start: 359, end: 361, type: "scoreboard_context", confidence: 0.73 },
+    ]),
+    scoreboardOcr: [
+      {
+        id: "third_goal_pending_score",
+        timestamp: 318,
+        scoreBefore: "2-0",
+        scoreAfter: "3-0",
+        status: "ambiguous",
+        confidence: 0.86,
+        temporalConsistency: false,
+        ambiguous: true,
+        transitionDecision: "score_change_pending_confirmation",
+        transitionReasonCodes: ["unit_score_increase_candidate"],
+      },
+      {
+        id: "third_goal_stable_score",
+        timestamp: 359,
+        scoreBefore: "2-0",
+        scoreAfter: "3-0",
+        status: "score_changed",
+        confidence: 0.9,
+        temporalConsistency: true,
+        scoreChanged: true,
+        source: "local-scoreboard-ocr-command",
+      },
+    ],
+    ocrQaCalibration: {
+      status: "missing",
+      usable: false,
+      decisionSupportLevel: "ignore",
+      goalEvidencePolicy: "support_only",
+      goalDecisionAllowed: false,
+      noFalseGoalFromOcrOnly: true,
+    },
+    goalEvidence: goalEvidence([]),
+  });
+
+  assert.equal(result.summary.confirmedGoalCount, 1);
+  assert.equal(result.summary.countedGoalEventCount, 1);
+  assert.equal(result.summary.selectedCountedGoals, 1);
+  assert.equal(result.scoreChanges[0].changeTime, 359);
+  assert.equal(result.scoreChanges[0].actionAnchorTime, 318);
+  assert.equal(result.events[0].scoreChangeTime, 359);
+  assert.equal(result.events[0].phaseCoverage.confirmationTime, 318);
+  assert.ok(result.events[0].sourceStart <= 305);
+  assert.ok(result.events[0].sourceEnd < 340);
+  assert.equal(result.events[0].anchorDiagnostics.actionAnchorTime, 318);
+  assert.equal(result.summary.noFalseGoalFromOcrOnly, 1);
+  assert.doesNotMatch(JSON.stringify(publicMatchEventTruth(result)), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);
+});
+
+test("blocks local OCR score changes without finish support even when action exists", () => {
+  const result = analyzeMatchEventTruth({
+    metadata: { ...metadata, durationSeconds: 120, sourceType: "youtube", goalSelectionMode: "valid_goals_only" },
+    mediaSignals: {
+      durationSeconds: 120,
+      highMotionCandidates: [{ time: 36, confidence: 0.9, source: "fixture" }],
+      audioPeaks: [{ time: 42, energyScore: 0.9, source: "fixture" }],
+    },
+    visualSignals: visualSignals([
+      { start: 32, end: 36, types: ["shot_like_motion", "ball_visible", "goal_area_visible"], confidence: 0.88 },
+      { start: 43, end: 45, type: "scoreboard_context", confidence: 0.72 },
+    ]),
+    scoreboardOcr: [{
+      id: "local_ocr_action_no_finish",
+      timestamp: 43,
+      scoreBefore: "0-0",
+      scoreAfter: "1-0",
+      status: "score_changed",
+      confidence: 0.88,
+      temporalConsistency: true,
+      scoreChanged: true,
+      source: "local-scoreboard-ocr-command",
+    }],
+    ocrQaCalibration: {
+      status: "missing",
+      usable: false,
+      decisionSupportLevel: "ignore",
+      goalEvidencePolicy: "support_only",
+      goalDecisionAllowed: false,
+      noFalseGoalFromOcrOnly: true,
+    },
+    goalEvidence: goalEvidence([]),
+  });
+
+  assert.equal(result.summary.confirmedGoalCount, 0);
+  assert.equal(result.summary.countedGoalEventCount, 1);
+  assert.equal(result.summary.selectedCountedGoals, 0);
+  assert.equal(result.summary.ocrOnlyBlockedCount, 1);
+  assert.ok(result.rejectedEvents.some((event) => event.missingEvidence.includes("finish_or_stable_score_confirmation")));
+  assert.equal(result.summary.noFalseGoalFromOcrOnly, 1);
+  assert.doesNotMatch(JSON.stringify(publicMatchEventTruth(result)), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);
+});
+
+test("does not let previous disallowed phase contaminate the next counted goal window", () => {
+  const result = analyzeMatchEventTruth({
+    metadata: { ...metadata, durationSeconds: 180 },
+    visualSignals: visualSignals([
+      { start: 61, end: 63, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.91 },
+      { start: 65, end: 66.5, types: ["goal_mouth_visible", "ball_in_net"], confidence: 0.92 },
+      { start: 73, end: 75, types: ["assistant_referee_flag", "offside_line_replay", "referee_no_goal_signal"], confidence: 0.91 },
+      { start: 98, end: 100, types: ["fast_break_motion", "ball_visible"], confidence: 0.84 },
+      { start: 104, end: 106, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.92 },
+      { start: 108, end: 110, types: ["goal_mouth_visible", "ball_in_net"], confidence: 0.94 },
+      { start: 118, end: 120, types: ["scoreboard_goal_confirmed", "referee_goal_signal"], confidence: 0.9 },
+    ]),
+    scoreboardOcr: [{
+      timestamp: 120,
+      scoreBefore: "0-0",
+      scoreAfter: "1-0",
+      status: "score_changed",
+      confidence: 0.91,
+      temporalConsistency: true,
+    }],
+    ocrQaCalibration: strongOcrQaCalibration(),
+    goalEvidence: goalEvidence([{
+      id: "next_counted_goal",
+      start: 108,
+      end: 120,
+      confidence: 0.9,
+      outcomeHint: "valid_goal",
+      reasonCodes: [
+        "visual_shot_contact",
+        "visual_ball_toward_goal",
+        "visual_ball_in_net",
+        "scoreboard_ocr_score_change",
+        "scoreboard_temporal_consistency",
+        "confirmed_by_commentary",
+      ],
+      ballInNetEvidence: true,
+      scoreboardGoalConfirmed: true,
+    }]),
+  });
+
+  assert.equal(result.summary.confirmedGoalCount, 1);
+  assert.equal(result.summary.disallowedGoalCount, 0);
+  assert.ok(result.events[0].sourceStart >= 94);
+  assert.ok(result.events[0].sourceStart <= 104);
+  assert.ok(result.events[0].sourceEnd >= 120);
+  assert.equal(result.events[0].phaseCoverage.replayOnly, false);
+  assert.equal(result.events[0].phaseCoverage.shotStart, 104);
+  assert.doesNotMatch(JSON.stringify(publicMatchEventTruth(result)), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);
+});
+
 test("marks score increase followed by scorebug revert as disallowed truth", () => {
   const result = analyzeMatchEventTruth({
     metadata,
@@ -269,10 +565,19 @@ test("selects three source-wide counted goals including late scorebug changes", 
   const confirmed = result.events.filter((event) => event.type === "confirmed_goal");
   assert.equal(result.summary.confirmedGoalCount, 3);
   assert.equal(result.summary.countedGoalEventCount, 3);
+  assert.equal(result.summary.scoreChangeAnchorsFound, 3);
+  assert.equal(result.summary.anchorsWithLiveActionEvidence, 3);
+  assert.equal(result.summary.selectedCountedGoals, 3);
+  assert.equal(result.summary.anchorsRejected, 0);
+  assert.deepEqual(confirmed.map((event) => event.goalNumber), [1, 2, 3]);
   assert.equal(result.summary.lateConfirmedGoalCount, 1);
   assert.deepEqual(confirmed.map((event) => event.scoreAfter), ["1-0", "2-0", "3-0"]);
+  assert.deepEqual(confirmed.map((event) => event.scoreChangeTime), [144, 266, 386]);
   assert.ok(confirmed.every((event) => event.phaseCoverage.replayOnly === false));
   assert.ok(confirmed.every((event) => event.phaseCoverage.hasShot));
+  assert.ok(confirmed.every((event) => event.cannotConfirmGoalAlone === true));
+  assert.ok(confirmed.every((event) => event.anchorDiagnostics && event.anchorDiagnostics.missingActionEvidence === false));
+  assert.doesNotMatch(JSON.stringify(publicMatchEventTruth(result)), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);
 });
 
 test("rejects scorebug counted candidate when only replay context is visible", () => {
@@ -296,7 +601,14 @@ test("rejects scorebug counted candidate when only replay context is visible", (
 
   assert.equal(result.summary.confirmedGoalCount, 0);
   assert.equal(result.summary.countedGoalEventCount, 1);
+  assert.equal(result.summary.scoreChangeAnchorsFound, 1);
+  assert.equal(result.summary.anchorsWithLiveActionEvidence, 0);
+  assert.equal(result.summary.selectedCountedGoals, 0);
+  assert.equal(result.summary.anchorsRejected, 1);
+  assert.equal(result.summary.ocrOnlyBlockedCount, 1);
+  assert.equal(result.summary.missingActionEvidenceCount, 1);
   assert.ok(result.rejectedEvents.some((event) => event.missingEvidence.includes("live_goal_phase")));
+  assert.ok(result.rejectedEvents.some((event) => event.anchorDiagnostics && event.anchorDiagnostics.ocrOnlyBlocked === true));
   assert.ok(result.summary.missedGoalReasons.includes("counted_score_change_not_selected"));
 });
 

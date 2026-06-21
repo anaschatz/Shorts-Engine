@@ -1071,6 +1071,12 @@ async function runRenderJob(options) {
             matchEventTruthCountedGoalEventCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.countedGoalEventCount,
             matchEventTruthDisallowedGoalEventCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.disallowedGoalEventCount,
             matchEventTruthSelectedGoalCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.selectedGoalCount,
+            matchEventTruthScoreChangeAnchorsFound: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.scoreChangeAnchorsFound,
+            matchEventTruthAnchorsWithLiveActionEvidence: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.anchorsWithLiveActionEvidence,
+            matchEventTruthAnchorsRejected: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.anchorsRejected,
+            matchEventTruthSelectedCountedGoals: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.selectedCountedGoals,
+            matchEventTruthOcrOnlyBlockedCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.ocrOnlyBlockedCount,
+            matchEventTruthMissingActionEvidenceCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.missingActionEvidenceCount,
             matchEventTruthMissedGoalReasons: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.missedGoalReasons,
             goalEvidenceCandidates: goalDiscovery && Array.isArray(goalDiscovery.goalEvidenceCandidates)
               ? goalDiscovery.goalEvidenceCandidates.slice(0, 12)

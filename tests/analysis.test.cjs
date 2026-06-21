@@ -1282,6 +1282,75 @@ test("valid goal compilation excludes high-score filler chances and can render t
   assert.ok(plan.totalDuration < 60);
 });
 
+test("valid-goals-only renders scoreboard-backed truth goals with live action support", () => {
+  const longMetadata = { durationSeconds: 360, width: 1920, height: 1080, hasAudio: true };
+  const truthEvent = {
+    id: "score_change_truth_live_action",
+    type: "confirmed_goal",
+    outcome: "confirmed_goal",
+    confidence: 0.88,
+    sourceStart: 168,
+    sourceEnd: 209,
+    buildupWindow: { start: 168, end: 172 },
+    shotWindow: { start: 168, end: 206 },
+    payoffWindow: { start: 206, end: 207 },
+    decisionWindow: { start: 207, end: 209 },
+    phaseCoverage: {
+      hasBuildup: true,
+      hasShot: true,
+      hasFinish: true,
+      hasConfirmation: true,
+      liveActionStart: 168,
+      shotStart: 168,
+      finishTime: 206,
+      confirmationTime: 207,
+      replayUsed: false,
+      replayOnly: false,
+    },
+    evidenceCodes: [
+      "scoreboard_ocr_score_change",
+      "scoreboard_temporal_consistency",
+      "scoreboard_backed_goal_sequence",
+      "media_high_motion_goal_phase_support",
+      "shot_sequence_support",
+      "live_shot_finish_sequence",
+    ],
+    missingEvidence: [],
+    safetyFlags: ["scorebug_truth_integration", "no_false_goal_from_ocr_only"],
+    captionIntent: "confirmed_goal_caption",
+    renderPriority: 1200,
+    scoreBefore: "0-0",
+    scoreAfter: "1-0",
+    goalNumber: 1,
+    scoreChangeTime: 207,
+    cannotConfirmGoalAlone: true,
+  };
+  const plans = createCandidateEditPlans({
+    moments: [],
+    metadata: { ...longMetadata, goalSelectionMode: "valid_goals_only" },
+    transcript: { captions: [] },
+    mediaSignals: { durationSeconds: longMetadata.durationSeconds },
+    visualSignals: { providerMode: "fixture-visual", fallbackUsed: false, windows: [] },
+    matchEventTruth: {
+      schemaVersion: 1,
+      providerMode: "fixture-truth",
+      fallbackUsed: false,
+      events: [truthEvent],
+      rejectedEvents: [],
+      scoreTimelineObservations: [],
+      scoreChanges: [],
+    },
+    title: "Scorebug truth fixture",
+  });
+
+  assert.ok(plans.length >= 1);
+  assert.equal(plans[0].highlightType, "goal");
+  assert.equal(plans[0].goalOutcome.outcome, "confirmed_goal");
+  assert.ok(plans[0].analysisMoment.reasonCodes.includes("scoreboard_backed_goal_sequence"));
+  assert.ok(plans[0].analysisMoment.reasonCodes.includes("shot_sequence_support"));
+  assert.doesNotMatch(JSON.stringify(plans), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);
+});
+
 test("valid-goals-only keeps full-source late confirmed goals before early filler", () => {
   const longMetadata = { durationSeconds: 360, width: 1920, height: 1080, hasAudio: true };
   const earlyFiller = Array.from({ length: 24 }, (_, index) => ({
@@ -1376,7 +1445,7 @@ test("valid-goals-only keeps full-source late confirmed goals before early fille
   assert.ok(plan.segments.some((segment) => segment.sourceStart <= 238 && segment.sourceEnd >= 254.6));
   assert.ok(plan.segments.some((segment) => segment.sourceStart <= 294 && segment.sourceEnd >= 312.4));
   assert.ok(plan.segments.some((segment) => segment.sourceStart <= 328 && segment.sourceEnd >= 346.4));
-  assert.ok(plan.segments.every((segment) => segment.duration >= 18 && segment.duration <= 28));
+  assert.ok(plan.segments.every((segment) => segment.duration >= 18 && segment.duration <= 30));
   assert.equal(plan.hook, "VALID FINISHES ONLY");
   assert.match(captionText, /FINISH COUNTS|ONLY VALID FINISHES/i);
   assert.doesNotMatch(captionText, /BIG CHANCE|SHOT OPENS UP|CHANCE OPENS|EVERY BIG MOMENT/i);
@@ -1438,7 +1507,7 @@ test("valid-goals-only plan keeps every confirmed goal, excludes offside goals, 
     segments.map((segment) => segment.sourceStart),
     [...segments.map((segment) => segment.sourceStart)].sort((a, b) => a - b),
   );
-  assert.ok(segments.every((segment) => segment.duration >= 18 && segment.duration <= 28));
+  assert.ok(segments.every((segment) => segment.duration >= 18 && segment.duration <= 30));
   assert.equal(plan.transitionPlan.length, 2);
   assert.ok(plan.transitionPlan.every((transition) => transition.type === "short_fade"));
   assert.equal(plan.reviewMetadata.multiMoment.smoothTransitionCoverage, 1);
