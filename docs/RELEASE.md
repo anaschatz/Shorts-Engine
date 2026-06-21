@@ -52,6 +52,8 @@ Optional crop QA artifacts require `SHORTSENGINE_OCR_QA_ARTIFACTS=1`. They are w
 
 `npm run eval:reference` runs the deterministic reference-style football editing review. It checks expected vs actual moment type, caption/action alignment, no-goal safety, kinetic animation relevance, framing safety and aspect ratio using local fixtures only. It writes `eval/results/reference-latest.json` and must not require network or API keys.
 
+`npm run compare:reference` is an operator/product QA check for a generated live proof. It reads `demo/results/youtube-live-e2e-latest.json`, compares the generated short against metadata-only reference expectations, and writes `demo/results/reference-comparison-latest.json` plus `demo/results/reference-comparison-latest.html`. It does not download reference videos, require API keys, or include raw provider output.
+
 `npm run branch:setup` prints a documentation-only GitHub Ruleset setup guide. It does not call GitHub APIs, does not request tokens, does not start auth, and does not mutate branch protection or repository rulesets. Use it when `branch:proof` returns `incomplete` or `unknown`.
 
 `npm run branch:doctor` performs a read-only GitHub branch policy check. It reuses GitHub CLI readiness, checks the exact local commit against `origin/main`, attempts to read classic branch protection, attempts to read repository rulesets, and summarizes whether the required release policy is `verified`, `incomplete` or `unknown`. It never changes branch protection, rulesets, secrets or repository settings.

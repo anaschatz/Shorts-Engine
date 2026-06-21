@@ -13,6 +13,7 @@
     "brain:init": "node tools/openviking-lite.mjs init",
     "brain:tree": "node tools/openviking-lite.mjs tree",
     "ci:reports": "node demo/validate-ci-reports.mjs",
+    "compare:reference": "node eval/run-reference-comparison.mjs",
     "demo:browser": "node demo/run-browser-smoke.mjs",
     "demo:browser:ci": "node demo/run-playwright-smoke.mjs",
     "demo:browser:e2e": "node demo/run-playwright-smoke.mjs",

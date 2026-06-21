@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "football_multi_goal_reference",
+  "title": "Reference-style multi-goal football short",
+  "sport": "football",
+  "sourceUrl": "https://www.youtube.com/shorts/SfN80wMlT6U",
+  "localReferenceRelativePath": null,
+  "expected": {
+    "durationRange": [55, 100],
+    "aspectRatio": "9:16",
+    "expectedCountedGoals": 3,
+    "segmentDurationRange": [18, 32],
+    "maxReplayOnlySegments": 0,
+    "minMotionEvents": 8,
+    "pacingProfile": "chronological_multi_goal_story",
+    "captionStyle": "specific_goal_phase_captions",
+    "transitionStyle": "smooth_short_fades",
+    "goalPhaseBehavior": "buildup_shot_finish_confirmation",
+    "thresholds": {
+      "validGoalRecall": 1,
+      "replayOnlySegments": 0,
+      "cropSafetyScore": 0.9,
+      "phaseCoverageScore": 0.9,
+      "captionActionAlignment": 0.9,
+      "transitionPolishScore": 0.8,
+      "referenceSimilarityScore": 0.75
+    }
+  },
+  "notes": [
+    "Reference metadata only; external video is not downloaded or stored by default.",
+    "Target behavior is a vertical multi-goal short with counted goals only.",
+    "Goal segments should include buildup, shot, finish and confirmation instead of replay-only payoff.",
+    "Captions should describe the visible goal phase rather than generic hype."
+  ]
+}

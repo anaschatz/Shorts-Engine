@@ -11,6 +11,7 @@ This folder contains the repeatable local demo harness for the video-to-short fl
 - `npm run demo:browser:e2e` runs the real Playwright Chromium browser flow and writes `demo/results/playwright-latest.json`.
 - `npm run demo:browser:install` installs the Playwright Chromium runtime for local/CI browser E2E.
 - `npm run demo:compare` compares a generated short and a reference short with structural metrics plus optional operator scoring.
+- `npm run compare:reference` compares the latest live YouTube proof report with reference-style metadata, writes safe JSON plus an HTML side-by-side QA artifact, and highlights what still differs from the target reference.
 - `npm run demo:human-review` turns a successful live YouTube proof or direct generated/reference refs into `demo/results/human-visual-review-latest.json`.
 - `npm run env:check` validates staging-safe environment defaults, docs, `.env.example`, and secret-safe readiness output.
 - `npm run staging:check` validates provider-neutral staging wiring, GitHub Environment expectations, and deployed-smoke defaults.
@@ -34,6 +35,12 @@ rights confirmation and downloader readiness, then run `npm run
 demo:human-review -- --reference=<safe-relative-reference-mp4>`. Without a human
 review JSON the result remains `pending_human_review`, which keeps machine
 metadata separate from creative judgement.
+
+After a live proof exists, run `npm run compare:reference` to generate
+`demo/results/reference-comparison-latest.json` and
+`demo/results/reference-comparison-latest.html`. The runner uses metadata-only
+reference fixtures by default; it does not download external reference shorts or
+store copyrighted videos in the repo.
 
 The browser UI also exposes the same human review contract after a generated
 artifact is available. It loads `GET /api/review/latest`, submits explicit
