@@ -40,6 +40,7 @@ const SCOREBOARD_OCR_QA_LATEST_RELATIVE_PATH = "demo/results/ocr-scoreboard-qa-l
 const MAX_SCOREBOARD_OCR_QA_ATTEMPTS = 72;
 const MAX_SCOREBOARD_OCR_QA_ARTIFACT_BYTES = 2 * 1024 * 1024;
 const DEFAULT_SCOREBOARD_OCR_QA_RETENTION = 8;
+const SENSITIVE_RE = /\/Users\/|\/private\/|storageKey|localPath|fullPath|absolutePath|Bearer\s+|OPENAI_API_KEY|api[_-]?key|token|secret|stderr|stdout|rawOcr|rawText/i;
 const OCR_PREPROCESS_VARIANTS = Object.freeze([
   {
     id: "color_whitelist",
@@ -101,7 +102,7 @@ function scaledOcrFrameDimensions(metadata = {}, maxDimension = DEFAULT_OCR_FRAM
 
 function hasUnsafeValue(value) {
   const serialized = JSON.stringify(value || {});
-  return /\/Users\/|\/private\/|storageKey|localPath|Bearer\s+|OPENAI_API_KEY|api[_-]?key|token|secret|stderr|stdout|rawOcr|rawText/i.test(serialized);
+  return SENSITIVE_RE.test(serialized);
 }
 
 function deterministicFallback(input = {}) {
@@ -179,35 +180,45 @@ const SCOREBUG_LAYOUT_PROFILES = Object.freeze([
   {
     layoutId: "broadcast-compact-score-only-v1",
     regionPattern: /^scorebug_broadcast_compact$/,
-    scoreOnlyRoi: { x: 0.47, y: 0.08, width: 0.23, height: 0.82 },
+    fullScorebugRoi: { x: 0, y: 0, width: 1, height: 1 },
+    scoreOnlyRoi: { x: 0.405, y: 0.08, width: 0.19, height: 0.82 },
     homeDigitRoi: { x: 0.03, y: 0.12, width: 0.28, height: 0.76 },
     awayDigitRoi: { x: 0.70, y: 0.12, width: 0.27, height: 0.76 },
-    fullHomeDigitRoi: { x: 0.49, y: 0.18, width: 0.08, height: 0.62 },
-    fullAwayDigitRoi: { x: 0.65, y: 0.18, width: 0.08, height: 0.62 },
+    fullHomeDigitRoi: { x: 0.415, y: 0.18, width: 0.075, height: 0.62 },
+    fullAwayDigitRoi: { x: 0.545, y: 0.18, width: 0.052, height: 0.62 },
+    separatorRoi: { x: 0.49, y: 0.08, width: 0.055, height: 0.82 },
     clockRoi: { x: 0.02, y: 0.04, width: 0.26, height: 0.38 },
+    teamLabelRejectRoi: { x: 0.27, y: 0.1, width: 0.13, height: 0.72 },
     minConfidence: 0.72,
+    minTemporalStability: 2,
   },
   {
     layoutId: "left-compact-score-only-v1",
     regionPattern: /^scorebug_left_compact$/,
+    fullScorebugRoi: { x: 0, y: 0, width: 1, height: 1 },
     scoreOnlyRoi: { x: 0.36, y: 0.08, width: 0.44, height: 0.82 },
     homeDigitRoi: { x: 0.06, y: 0.12, width: 0.34, height: 0.76 },
     awayDigitRoi: { x: 0.53, y: 0.12, width: 0.34, height: 0.76 },
     fullHomeDigitRoi: { x: 0.36, y: 0.16, width: 0.16, height: 0.68 },
     fullAwayDigitRoi: { x: 0.56, y: 0.16, width: 0.16, height: 0.68 },
+    separatorRoi: { x: 0.48, y: 0.1, width: 0.08, height: 0.8 },
     clockRoi: { x: 0.02, y: 0.04, width: 0.30, height: 0.38 },
     minConfidence: 0.72,
+    minTemporalStability: 2,
   },
   {
     layoutId: "default-scorebug-score-only-v1",
     regionPattern: /^scorebug_/,
+    fullScorebugRoi: { x: 0, y: 0, width: 1, height: 1 },
     scoreOnlyRoi: { x: 0.35, y: 0.10, width: 0.42, height: 0.78 },
     homeDigitRoi: { x: 0.06, y: 0.12, width: 0.34, height: 0.76 },
     awayDigitRoi: { x: 0.54, y: 0.12, width: 0.34, height: 0.76 },
     fullHomeDigitRoi: { x: 0.36, y: 0.16, width: 0.16, height: 0.68 },
     fullAwayDigitRoi: { x: 0.56, y: 0.16, width: 0.16, height: 0.68 },
+    separatorRoi: { x: 0.48, y: 0.1, width: 0.08, height: 0.8 },
     clockRoi: null,
     minConfidence: 0.74,
+    minTemporalStability: 2,
   },
 ]);
 
@@ -232,13 +243,17 @@ function safeScorebugLayoutProfile(profile = {}) {
   if (!scoreOnlyRoi || !homeDigitRoi || !awayDigitRoi) return null;
   return {
     layoutId: sanitizeText(profile.layoutId || "default-scorebug-score-only-v1", 80),
+    fullScorebugRoi: normalizeRatioRoi(profile.fullScorebugRoi),
     scoreOnlyRoi,
     homeDigitRoi,
     awayDigitRoi,
     fullHomeDigitRoi: normalizeRatioRoi(profile.fullHomeDigitRoi),
     fullAwayDigitRoi: normalizeRatioRoi(profile.fullAwayDigitRoi),
+    separatorRoi: normalizeRatioRoi(profile.separatorRoi),
     clockRoi: normalizeRatioRoi(profile.clockRoi),
+    teamLabelRejectRoi: normalizeRatioRoi(profile.teamLabelRejectRoi),
     minConfidence: round(clamp(profile.minConfidence ?? 0.74, 0.55, 0.98)),
+    minTemporalStability: Math.max(1, Math.min(4, Math.round(Number(profile.minTemporalStability || 2)))),
   };
 }
 
@@ -581,6 +596,8 @@ function summarizeDigitReaderRows(rows = []) {
     imageDecoderAttemptCount: safeRows.filter((row) => row.imageDecoderStatus).length,
     scoreOnlyCropCount: safeRows.filter((row) => row.scoreOnlyCropRef).length,
     scoreOnlyReadableCount: safeRows.filter((row) => row.scoreOnlyScore).length,
+    profileDigitOcrReadableCount: safeRows.filter((row) => row.profileDigitOcrStatus === "readable").length,
+    profileDigitCropCount: safeRows.filter((row) => row.homeDigitCropRef || row.awayDigitCropRef).length,
     transitionDecisions,
     layoutIds: [...new Set(safeRows.map((row) => sanitizeText(row.layoutId || "", 80)).filter(Boolean))].slice(0, 8),
     failClosedReasons: [...new Set(safeRows
@@ -850,6 +867,11 @@ function safeOcrTextPreview(value) {
   return sanitizeText(value || "", 120);
 }
 
+function safeDigitOcrTextPreview(value) {
+  const text = safeOcrTextPreview(value);
+  return SENSITIVE_RE.test(text) ? "" : text;
+}
+
 function escapeHtml(value) {
   return String(value || "")
     .replace(/&/g, "&amp;")
@@ -867,10 +889,61 @@ function qaScoreOnlyCropFileName({ attemptIndex, frameIndex, regionId, variantId
   return `ocr-score-only-${String(attemptIndex + 1).padStart(2, "0")}-frame-${String(frameIndex + 1).padStart(2, "0")}-${safeFilePart(regionId, "region")}-${safeFilePart(variantId, "variant")}-${safeFilePart(layoutId, "layout")}.png`;
 }
 
+function qaProfileDigitCropFileName({ attemptIndex, frameIndex, regionId, variantId, layoutId, role }) {
+  return `ocr-profile-digit-${safeFilePart(role, "digit")}-${String(attemptIndex + 1).padStart(2, "0")}-frame-${String(frameIndex + 1).padStart(2, "0")}-${safeFilePart(regionId, "region")}-${safeFilePart(variantId, "variant")}-${safeFilePart(layoutId, "layout")}.png`;
+}
+
+function safeProfileDigitOcrSummary(value = {}) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    status: sanitizeText(value.status || "unreadable", 40),
+    homeOcrText: safeDigitOcrTextPreview(value.homeOcrText || ""),
+    awayOcrText: safeDigitOcrTextPreview(value.awayOcrText || ""),
+    homeDigitConfidence: round(clamp(value.homeDigitConfidence, 0, 1)),
+    awayDigitConfidence: round(clamp(value.awayDigitConfidence, 0, 1)),
+    homeDigitCropPath: value.homeDigitCropPath ? assertStoragePath(value.homeDigitCropPath, "staging") : null,
+    awayDigitCropPath: value.awayDigitCropPath ? assertStoragePath(value.awayDigitCropPath, "staging") : null,
+    reasons: Array.isArray(value.reasons)
+      ? value.reasons.map((reason) => sanitizeText(reason, 80)).filter(Boolean).slice(0, 8)
+      : [],
+  };
+}
+
+function copyQaProfileDigitCrop({ qa, sourcePath, attemptIndex, frameIndex, region, variant, layoutProfile, role }) {
+  if (!qa || !qa.enabled || !sourcePath || !existsSync(sourcePath)) return null;
+  const cropStat = statSync(sourcePath);
+  if (!cropStat.isFile() || cropStat.size > MAX_SCOREBOARD_OCR_QA_ARTIFACT_BYTES) return null;
+  const layoutId = layoutProfile && layoutProfile.layoutId ? layoutProfile.layoutId : "profile-digit";
+  const fileName = qaProfileDigitCropFileName({
+    attemptIndex,
+    frameIndex,
+    regionId: region.id,
+    variantId: variant.id,
+    layoutId,
+    role,
+  });
+  const targetPath = safeResolveRootRelative(`${qa.directory}/${fileName}`);
+  copyFileSync(sourcePath, targetPath);
+  const cropRef = rootRelative(targetPath);
+  qa.files.push({
+    id: `scoreboard_ocr_${safeFilePart(role, "digit")}_digit_crop_${attemptIndex + 1}`,
+    artifactType: "profile_digit_crop",
+    role: sanitizeText(role, 16),
+    timestamp: round(region.timestamp),
+    regionId: sanitizeText(region.id || "scoreboard_region", 80),
+    preprocessingVariant: sanitizeText(variant.id || "default", 60),
+    layoutId: sanitizeText(layoutId, 80),
+    sizeBytes: statSync(targetPath).size,
+    relativePath: cropRef,
+  });
+  return cropRef;
+}
+
 function recordScoreboardOcrQaAttempt({
   qa,
   cropPath,
   scoreOnlyCropPath = null,
+  profileDigitOcr = null,
   frame = {},
   frameIndex = 0,
   region = {},
@@ -942,6 +1015,13 @@ function recordScoreboardOcrQaAttempt({
     }
   }
   const safeDiagnostic = calibrationDiagnostic ? safeScorebugAttemptDiagnostic(calibrationDiagnostic) : null;
+  const digitOcr = safeProfileDigitOcrSummary(profileDigitOcr);
+  const homeDigitCropRef = digitOcr && digitOcr.homeDigitCropPath
+    ? copyQaProfileDigitCrop({ qa, sourcePath: digitOcr.homeDigitCropPath, attemptIndex, frameIndex, region: { ...region, timestamp: frame.timestamp }, variant, layoutProfile, role: "home" })
+    : null;
+  const awayDigitCropRef = digitOcr && digitOcr.awayDigitCropPath
+    ? copyQaProfileDigitCrop({ qa, sourcePath: digitOcr.awayDigitCropPath, attemptIndex, frameIndex, region: { ...region, timestamp: frame.timestamp }, variant, layoutProfile, role: "away" })
+    : null;
   const row = {
     index: attemptIndex + 1,
     timestamp: round(frame.timestamp),
@@ -959,6 +1039,12 @@ function recordScoreboardOcrQaAttempt({
       : null,
     scoreOnlyOcrText: scoreOnlyOcr ? safeOcrTextPreview(scoreOnlyOcr.text) : "",
     scoreOnlyCropRef,
+    homeDigitCropRef,
+    awayDigitCropRef,
+    homeDigitOcrText: digitOcr ? digitOcr.homeOcrText : "",
+    awayDigitOcrText: digitOcr ? digitOcr.awayOcrText : "",
+    profileDigitOcrStatus: digitOcr ? digitOcr.status : null,
+    profileDigitOcrReasons: digitOcr ? digitOcr.reasons : [],
     finalScoreCandidate: safeDiagnostic && safeDiagnostic.finalScoreCandidate,
     transitionDecision: safeDiagnostic ? safeDiagnostic.transitionDecision : null,
     calibrationConfidence: safeDiagnostic ? safeDiagnostic.confidence : 0,
@@ -1023,8 +1109,14 @@ function writeScoreboardOcrReviewHtml({ qa, reportRelativePath, contactSheetRela
         <td>${escapeHtml((row.ambiguityReasons || []).join(", "))}</td>
         <td>${escapeHtml(row.ocrText || "")}</td>
         <td>${escapeHtml(row.scoreOnlyOcrText || "")}</td>
+        <td>${escapeHtml(row.profileDigitOcrStatus || "")}</td>
+        <td>${escapeHtml(row.homeDigitOcrText || "")}</td>
+        <td>${escapeHtml(row.awayDigitOcrText || "")}</td>
+        <td>${escapeHtml((row.profileDigitOcrReasons || []).join(", "))}</td>
         <td>${row.cropRef ? `<img alt="crop ${escapeHtml(row.index)}" src="${escapeHtml(relative(qa.directory, row.cropRef).replace(/\\/g, "/"))}">` : ""}</td>
         <td>${row.scoreOnlyCropRef ? `<img alt="score-only ${escapeHtml(row.index)}" src="${escapeHtml(relative(qa.directory, row.scoreOnlyCropRef).replace(/\\/g, "/"))}">` : ""}</td>
+        <td>${row.homeDigitCropRef ? `<img alt="home digit ${escapeHtml(row.index)}" src="${escapeHtml(relative(qa.directory, row.homeDigitCropRef).replace(/\\/g, "/"))}">` : ""}</td>
+        <td>${row.awayDigitCropRef ? `<img alt="away digit ${escapeHtml(row.index)}" src="${escapeHtml(relative(qa.directory, row.awayDigitCropRef).replace(/\\/g, "/"))}">` : ""}</td>
       </tr>`).join("");
   const html = safeScoreboardOcrQaReport(`<!doctype html>
 <html lang="en">
@@ -1048,7 +1140,7 @@ function writeScoreboardOcrReviewHtml({ qa, reportRelativePath, contactSheetRela
   <table>
     <thead>
       <tr>
-        <th>#</th><th>Time</th><th>Region</th><th>Variant</th><th>Layout</th><th>Profile</th><th>Status</th><th>Score</th><th>Score Source</th><th>Score-Only Score</th><th>Final Candidate</th><th>Transition Decision</th><th>Clock</th><th>Conf</th><th>Digit Status</th><th>Digit Boxes</th><th>Home Groups</th><th>Away Groups</th><th>Score Conf</th><th>Decoder</th><th>Mode</th><th>Image Seg</th><th>Groups</th><th>Image Reasons</th><th>Rejected</th><th>Calibration Reasons</th><th>Digit Reasons</th><th>Reasons</th><th>OCR Text</th><th>Score-Only OCR</th><th>Crop</th><th>Score-Only Crop</th>
+        <th>#</th><th>Time</th><th>Region</th><th>Variant</th><th>Layout</th><th>Profile</th><th>Status</th><th>Score</th><th>Score Source</th><th>Score-Only Score</th><th>Final Candidate</th><th>Transition Decision</th><th>Clock</th><th>Conf</th><th>Digit Status</th><th>Digit Boxes</th><th>Home Groups</th><th>Away Groups</th><th>Score Conf</th><th>Decoder</th><th>Mode</th><th>Image Seg</th><th>Groups</th><th>Image Reasons</th><th>Rejected</th><th>Calibration Reasons</th><th>Digit Reasons</th><th>Reasons</th><th>OCR Text</th><th>Score-Only OCR</th><th>Profile Digit OCR</th><th>Home OCR</th><th>Away OCR</th><th>Profile OCR Reasons</th><th>Crop</th><th>Score-Only Crop</th><th>Home Digit Crop</th><th>Away Digit Crop</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
@@ -1404,6 +1496,19 @@ async function readProfileDigitOcr({
 } = {}) {
   const safeProfile = safeScorebugLayoutProfile(profile);
   if (!safeProfile || !ocrAdapter || typeof ocrAdapter.readTextFromImage !== "function") return null;
+  const emptyResult = (overrides = {}) => ({
+    status: "unreadable",
+    score: null,
+    confidence: 0,
+    reasons: ["profile_digit_ocr_unreadable"],
+    homeDigitCropPath: null,
+    awayDigitCropPath: null,
+    homeOcrText: "",
+    awayOcrText: "",
+    homeDigitConfidence: 0,
+    awayDigitConfidence: 0,
+    ...overrides,
+  });
   try {
     const homeCrop = await cropProfileDigitRegion({
       cropPath,
@@ -1427,7 +1532,13 @@ async function readProfileDigitOcr({
       ffmpegRunner,
       signal,
     });
-    if (!homeCrop || !awayCrop) return null;
+    if (!homeCrop || !awayCrop) {
+      return emptyResult({
+        reasons: ["profile_digit_crop_missing"],
+        homeDigitCropPath: homeCrop && homeCrop.cropPath,
+        awayDigitCropPath: awayCrop && awayCrop.cropPath,
+      });
+    }
     const readDigit = async (digitCrop) => raceWithTimeout(ocrAdapter.readTextFromImage({
       imagePath: digitCrop.cropPath,
       psm: "10",
@@ -1437,13 +1548,18 @@ async function readProfileDigitOcr({
     }), { signal, timeoutMs: Math.min(timeoutMs, 5000) });
     const [homeOcr, awayOcr] = await Promise.all([readDigit(homeCrop), readDigit(awayCrop)]);
     const parsed = parseScorebugDigitGroups(`${homeOcr && homeOcr.text || ""} ${awayOcr && awayOcr.text || ""}`);
+    const homeDigitConfidence = round(clamp(homeOcr && homeOcr.confidence, 0, 1));
+    const awayDigitConfidence = round(clamp(awayOcr && awayOcr.confidence, 0, 1));
     if (!parsed.score) {
-      return {
-        status: "unreadable",
-        score: null,
-        confidence: 0,
+      return emptyResult({
         reasons: parsed.reasonCodes,
-      };
+        homeDigitCropPath: homeCrop.cropPath,
+        awayDigitCropPath: awayCrop.cropPath,
+        homeOcrText: homeOcr && homeOcr.text,
+        awayOcrText: awayOcr && awayOcr.text,
+        homeDigitConfidence,
+        awayDigitConfidence,
+      });
     }
     const confidence = round(Math.max(0.74, Math.min(Number(homeOcr.confidence || 0.74), Number(awayOcr.confidence || 0.74))));
     return {
@@ -1451,13 +1567,19 @@ async function readProfileDigitOcr({
       score: parsed.score,
       confidence,
       reasons: ["profile_digit_ocr_used"],
+      homeDigitCropPath: homeCrop.cropPath,
+      awayDigitCropPath: awayCrop.cropPath,
+      homeOcrText: homeOcr && homeOcr.text,
+      awayOcrText: awayOcr && awayOcr.text,
+      homeDigitConfidence,
+      awayDigitConfidence,
       digitBoxes: [
         { role: "home", digit: String(parsed.score.home), confidence, ...homeCrop.roi },
         { role: "away", digit: String(parsed.score.away), confidence, ...awayCrop.roi },
       ],
     };
   } catch {
-    return null;
+    return emptyResult({ reasons: ["profile_digit_ocr_failed_closed"] });
   }
 }
 
@@ -1676,8 +1798,9 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
                 };
               }
             }
+            let profileDigitOcr = null;
             if (layoutProfile && digitReading.status !== "readable") {
-              const profileDigitOcr = await readProfileDigitOcr({
+              profileDigitOcr = await readProfileDigitOcr({
                 cropPath: safeCropPath,
                 outputDir,
                 frameIndex,
@@ -1773,6 +1896,7 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
               scoreSource,
               reader,
               digitReading,
+              profileDigitOcr,
               calibrationDiagnostic,
             });
             observations.push({
@@ -1796,7 +1920,6 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
             cropCount += 1;
             if (parsedScore) {
               frameScoreFound.add(frameIndex);
-              break;
             }
           }
           if (cropCount >= MAX_SCOREBOARD_OCR_CROPS) break;

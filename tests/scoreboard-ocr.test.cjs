@@ -110,8 +110,8 @@ function writeScorebugCrop(filePath, { home, away }) {
 }
 
 function writeNoisyBroadcastScorebugCrop(filePath, { home, away }) {
-  const width = 120;
-  const height = 52;
+  const width = 512;
+  const height = 96;
   const pixels = Array.from({ length: width * height }, () => 255);
   const fill = (x0, y0, x1, y1) => {
     for (let y = Math.max(0, y0); y < Math.min(height, y1); y += 1) {
@@ -120,12 +120,13 @@ function writeNoisyBroadcastScorebugCrop(filePath, { home, away }) {
       }
     }
   };
-  fill(3, 8, 18, 16);
-  fill(24, 24, 34, 30);
-  fill(91, 10, 101, 18);
-  fill(108, 30, 116, 38);
-  drawScorebugDigit(pixels, width, height, home, { x: 43, y: 8, width: 18, height: 36 });
-  drawScorebugDigit(pixels, width, height, away, { x: 67, y: 8, width: 18, height: 36 });
+  fill(12, 8, 96, 28);
+  fill(146, 34, 194, 46);
+  fill(250, 6, 278, 88);
+  fill(322, 18, 430, 38);
+  fill(454, 52, 496, 72);
+  drawScorebugDigit(pixels, width, height, home, { x: 212, y: 18, width: 38, height: 58 });
+  drawScorebugDigit(pixels, width, height, away, { x: 279, y: 18, width: 28, height: 58 });
   writeFileSync(filePath, `P2\n${width} ${height}\n255\n${pixels.join(" ")}\n`, "utf8");
 }
 
@@ -376,6 +377,39 @@ test("local scoreboard OCR reads cropped frame text into score-change evidence",
     assert.equal(result.summary.regionIdsUsed.length >= 1, true);
     assert.equal(result.summary.scoreTimeline.some((item) => item.status === "score_changed"), true);
     assert.doesNotMatch(JSON.stringify(publicScoreboardOcr(result)), /\/Users|storageKey|localPath|token|secret|stdout|stderr|raw/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("local scoreboard OCR keeps scanning the primary scorebug region after an earlier frame score", async () => {
+  const { dir, frames } = createFrameFixtures();
+  const cropCalls = [];
+  try {
+    await analyzeScoreboardOcr({
+      metadata,
+      mode: "local",
+      enabled: true,
+      commandChecker: () => true,
+      frames,
+      cropper: async ({ outputDir, frameIndex, region }) => {
+        cropCalls.push({ frameIndex, regionId: region.id });
+        const cropPath = safeResolve(outputDir, `crop_${frameIndex}_${region.id}.png`);
+        mkdirSync(outputDir, { recursive: true });
+        writeFileSync(cropPath, "fake-crop", "utf8");
+        return cropPath;
+      },
+      ocrRunner: async (_command, args) => {
+        const frameMatch = /crop_(\d+)_/.exec(args[0]);
+        const frameIndex = frameMatch ? Number(frameMatch[1]) : 0;
+        return { stdout: frameIndex === 0 ? "HOME 0-0 AWAY" : "HOME 1-0 AWAY" };
+      },
+    });
+
+    const primaryFrameIndexes = cropCalls
+      .filter((call) => call.regionId === "scorebug_broadcast_compact")
+      .map((call) => call.frameIndex);
+    assert.deepEqual(primaryFrameIndexes, [0, 1, 2]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -642,6 +676,16 @@ test("local scoreboard OCR can recover score changes from profile digit OCR crop
     const report = JSON.parse(readFileSync(join(process.cwd(), result.qaReport.reportPath), "utf8"));
     assert.equal(report.evidenceSummary.scoreChangeCount, 1);
     assert.equal(report.ocrAttempts.some((attempt) => attempt.finalScoreCandidate === "1-0"), true);
+    assert.equal(report.digitReader.profileDigitOcrReadableCount >= 3, true);
+    assert.equal(report.digitReader.profileDigitCropCount >= 3, true);
+    assert.equal(report.ocrAttempts.some((attempt) =>
+      attempt.profileDigitOcrStatus === "readable" &&
+      attempt.homeDigitCropRef &&
+      attempt.awayDigitCropRef &&
+      attempt.homeDigitOcrText &&
+      attempt.awayDigitOcrText), true);
+    assert.equal(report.cropArtifacts.files.some((artifact) => artifact.artifactType === "profile_digit_crop" && artifact.role === "home"), true);
+    assert.equal(report.cropArtifacts.files.some((artifact) => artifact.artifactType === "profile_digit_crop" && artifact.role === "away"), true);
     assert.doesNotMatch(JSON.stringify(report), /\/Users|\/private|storageKey|localPath|token|secret|stdout|stderr/i);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -981,12 +1025,15 @@ test("scoreboard OCR scorebug layout profile extracts bounded score-only crop", 
       variant: { id: "gray_line" },
       profile,
       ffmpegRunner: async (args) => {
-        sawCropFilter = args.some((arg) => String(arg).includes("crop=iw*0.23:ih*0.82:iw*0.47:ih*0.08"));
+        sawCropFilter = args.some((arg) => String(arg).includes("crop=iw*0.19:ih*0.82:iw*0.405:ih*0.08"));
         writeFileSync(args[args.length - 1], "score-only", "utf8");
       },
     });
 
     assert.equal(profile.layoutId, "broadcast-compact-score-only-v1");
+    assert.deepEqual(profile.fullHomeDigitRoi, { x: 0.415, y: 0.18, width: 0.075, height: 0.62 });
+    assert.deepEqual(profile.fullAwayDigitRoi, { x: 0.545, y: 0.18, width: 0.052, height: 0.62 });
+    assert.deepEqual(profile.separatorRoi, { x: 0.49, y: 0.08, width: 0.055, height: 0.82 });
     assert.equal(sawCropFilter, true);
     assert.equal(existsSync(scoreOnly.cropPath), true);
     assert.doesNotMatch(scoreOnly.cropPath, /\.\./);
