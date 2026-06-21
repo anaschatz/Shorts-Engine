@@ -227,6 +227,37 @@ test("reference comparison applies an abrupt-cut penalty without making paths un
   assertNoUnsafeText(report);
 });
 
+test("reference comparison uses reported boundary smoothness metadata", () => {
+  const rootDir = makeRoot();
+  const proof = baseProof({
+    proofOutput: {
+      ...baseProof().proofOutput,
+      cutSmoothnessScore: 0.96,
+      boundarySmoothingAppliedCount: 3,
+      averagePreActionPaddingSeconds: 2.8,
+      averagePostConfirmationPaddingSeconds: 1.5,
+      segmentWindows: [
+        segment(1, { boundarySmoothing: { applied: true, smoothingLevel: "minimum", preActionPaddingSeconds: 2.4, postConfirmationPaddingSeconds: 1.4 } }),
+        segment(2, { boundarySmoothing: { applied: true, smoothingLevel: "minimum", preActionPaddingSeconds: 2.8, postConfirmationPaddingSeconds: 1.5 } }),
+        segment(3, { boundarySmoothing: { applied: true, smoothingLevel: "minimum", preActionPaddingSeconds: 3.2, postConfirmationPaddingSeconds: 1.6 } }),
+      ],
+    },
+  });
+  const report = buildReferenceComparisonReport({
+    rootDir,
+    fixture: baseFixture(),
+    proofReport: proof,
+    timestamp: "2026-06-21T16:00:00.000Z",
+  });
+
+  assert.equal(report.metrics.cutSmoothnessScore, 0.96);
+  assert.equal(report.generated.boundarySmoothingAppliedCount, 3);
+  assert.equal(report.generated.averagePreActionPaddingSeconds, 2.8);
+  assert.equal(report.generated.averagePostConfirmationPaddingSeconds, 1.5);
+  assert.equal(report.suggestedNextFixes.some((item) => item.id === "smooth_action_boundaries"), false);
+  assertNoUnsafeText(report);
+});
+
 test("reference comparison runner writes latest json and side-by-side html", () => {
   const rootDir = makeRoot();
   writeFileSync(join(rootDir, "demo", "results", "youtube-live-e2e-latest.json"), `${JSON.stringify(baseProof(), null, 2)}\n`);

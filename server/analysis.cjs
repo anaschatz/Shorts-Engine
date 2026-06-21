@@ -2684,17 +2684,21 @@ const MULTI_MOMENT_COMPILATION = Object.freeze({
   minSegments: 3,
   maxSegments: 7,
   minTotalDuration: 45,
-  maxTotalDuration: 90,
+  maxTotalDuration: 100,
 });
 
 const VALID_GOAL_ONLY_TIMING = Object.freeze({
   minSegmentDuration: 18,
-  maxSegmentDuration: 30,
+  maxSegmentDuration: 32,
   preContextSeconds: 10,
   maxPreContextSeconds: 15,
   postContextSeconds: 4.2,
   decisionPostSeconds: 1.4,
   minTransitionGapSeconds: 0.25,
+  idealPreActionSeconds: 6,
+  minPreActionSeconds: 2,
+  idealPostConfirmationSeconds: 2.4,
+  minPostConfirmationSeconds: 1.2,
 });
 
 const GOAL_SELECTION_MODES = Object.freeze({
@@ -2713,16 +2717,57 @@ function finiteNumber(value, fallback = null) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function inferredShotStartForGoalPhase({ sourceStart = 0, sourceEnd = null, finishTime = null } = {}) {
+  const start = finiteNumber(sourceStart, 0);
+  const end = finiteNumber(sourceEnd, start + 1);
+  const finish = finiteNumber(finishTime, end);
+  const availableLead = Math.max(0, finish - start);
+  if (availableLead < VALID_GOAL_ONLY_TIMING.minPreActionSeconds + 1.5) return start;
+  const inferredLead = Math.min(
+    VALID_GOAL_ONLY_TIMING.idealPreActionSeconds,
+    Math.max(VALID_GOAL_ONLY_TIMING.minPreActionSeconds, availableLead * 0.35),
+  );
+  return Number(Math.min(finish - 1, start + inferredLead).toFixed(2));
+}
+
 function goalPhaseCoverageForEvent(event = {}, window = null) {
   const evidenceCodes = Array.isArray(event.evidenceCodes) ? event.evidenceCodes : [];
   const reasonSet = new Set(evidenceCodes);
-  const shotStart = finiteNumber(
-    event.phaseCoverage && event.phaseCoverage.shotStart,
-    finiteNumber(event.shotStart, finiteNumber(event.shotWindow && event.shotWindow.start, finiteNumber(event.sourceStart, 0))),
+  const raw = event.phaseCoverage && typeof event.phaseCoverage === "object" && !Array.isArray(event.phaseCoverage)
+    ? event.phaseCoverage
+    : {};
+  const eventSourceStart = finiteNumber(event.sourceStart, 0);
+  const eventSourceEnd = finiteNumber(event.sourceEnd, eventSourceStart + 1);
+  const rawFinishTime = finiteNumber(
+    raw.finishTime,
+    finiteNumber(event.finishTime, finiteNumber(event.payoffWindow && event.payoffWindow.end, eventSourceEnd)),
   );
+  const explicitShotStart = finiteNumber(
+    raw.shotStart,
+    finiteNumber(event.shotStart, finiteNumber(event.shotWindow && event.shotWindow.start, null)),
+  );
+  const shotWindowStart = finiteNumber(event.shotWindow && event.shotWindow.start, null);
+  const confirmedGoalLike = event.type === "confirmed_goal" ||
+    event.outcome === "confirmed_goal" ||
+    reasonSet.has("scoreboard_backed_goal_sequence") ||
+    reasonSet.has("scoreboard_ocr_score_change");
+  const shotMarkerAtBoundary = explicitShotStart !== null &&
+    explicitShotStart <= eventSourceStart + 0.05 &&
+    (shotWindowStart === null || shotWindowStart <= eventSourceStart + 0.05);
+  const boundaryShotPlaceholder = explicitShotStart !== null &&
+    confirmedGoalLike &&
+    shotMarkerAtBoundary &&
+    rawFinishTime - eventSourceStart >= VALID_GOAL_ONLY_TIMING.minPreActionSeconds + 1.5;
+  const shotStart = explicitShotStart == null || boundaryShotPlaceholder
+    ? inferredShotStartForGoalPhase({
+        sourceStart: eventSourceStart,
+        sourceEnd: eventSourceEnd,
+        finishTime: rawFinishTime,
+      })
+    : explicitShotStart;
   const finishTime = finiteNumber(
     event.phaseCoverage && event.phaseCoverage.finishTime,
-    finiteNumber(event.finishTime, finiteNumber(event.payoffWindow && event.payoffWindow.end, finiteNumber(event.sourceEnd, shotStart + 1))),
+    finiteNumber(event.finishTime, finiteNumber(event.payoffWindow && event.payoffWindow.end, eventSourceEnd)),
   );
   const confirmationTime = finiteNumber(
     event.phaseCoverage && event.phaseCoverage.confirmationTime,
@@ -2730,13 +2775,13 @@ function goalPhaseCoverageForEvent(event = {}, window = null) {
   );
   const sourceStart = finiteNumber(window && window.sourceStart, finiteNumber(event.sourceStart, 0));
   const sourceEnd = finiteNumber(window && window.sourceEnd, finiteNumber(event.sourceEnd, finishTime + 3));
-  const raw = event.phaseCoverage && typeof event.phaseCoverage === "object" && !Array.isArray(event.phaseCoverage)
-    ? event.phaseCoverage
-    : {};
   const replayUsed = Boolean(raw.replayUsed || event.replayUsed || reasonSet.has("visual_replay_indicator") || reasonSet.has("visual_replay_angle"));
   const replayOnly = Boolean(raw.replayOnly || event.replayOnly);
+  const hasBuildupFromWindow = shotStart == null
+    ? sourceEnd - sourceStart >= VALID_GOAL_ONLY_TIMING.minSegmentDuration * 0.45
+    : sourceStart <= shotStart - VALID_GOAL_ONLY_TIMING.minPreActionSeconds;
   return {
-    hasBuildup: raw.hasBuildup == null ? sourceStart <= shotStart - 6 : Boolean(raw.hasBuildup),
+    hasBuildup: raw.hasBuildup == null ? hasBuildupFromWindow : Boolean(raw.hasBuildup) || hasBuildupFromWindow,
     hasShot: raw.hasShot == null
       ? reasonSet.has("visual_shot_contact") || reasonSet.has("visual_shot_like_motion") || reasonSet.has("visual_ball_toward_goal") || reasonSet.has("shot_sequence_support")
       : Boolean(raw.hasShot),
@@ -3232,7 +3277,10 @@ function compilationHandlesForCandidate(candidate = {}) {
   const moment = candidate.analysisMoment || {};
   const goalOutcome = candidate.goalOutcome || goalOutcomeForMoment(moment);
   if (isConfirmedGoalCandidate(candidate)) {
-    return { pre: 0, post: 0 };
+    return {
+      pre: VALID_GOAL_ONLY_TIMING.idealPreActionSeconds,
+      post: VALID_GOAL_ONLY_TIMING.idealPostConfirmationSeconds,
+    };
   }
   if (isGoalCoverageCandidate(candidate)) {
     return goalOutcome && goalOutcome.requiresPostContext
@@ -3248,11 +3296,147 @@ function compilationHandlesForCandidate(candidate = {}) {
   return { pre: 2, post: 2.8 };
 }
 
+function goalTimingForCandidate(candidate = {}) {
+  const phaseCoverage = goalPhaseCoverageForCandidate(candidate) || {};
+  const phase = goalPhaseForCandidate(candidate) || {};
+  return {
+    shotStart: finiteNumber(
+      phaseCoverage.shotStart,
+      finiteNumber(phase.shotStart, finiteNumber(candidate.shotStart, finiteNumber(candidate.originalSourceStart, candidate.sourceStart))),
+    ),
+    finishTime: finiteNumber(
+      phaseCoverage.finishTime,
+      finiteNumber(phase.finishTime, finiteNumber(candidate.finishTime, finiteNumber(candidate.originalSourceEnd, candidate.sourceEnd))),
+    ),
+    confirmationTime: finiteNumber(
+      phaseCoverage.confirmationTime,
+      finiteNumber(phase.confirmationTime, finiteNumber(candidate.confirmationTime, finiteNumber(candidate.originalSourceEnd, candidate.sourceEnd))),
+    ),
+  };
+}
+
+function boundarySmoothingForWindow(candidate = {}) {
+  const sourceStart = finiteNumber(candidate.sourceStart, 0);
+  const sourceEnd = finiteNumber(candidate.sourceEnd, sourceStart);
+  const { shotStart, confirmationTime } = goalTimingForCandidate(candidate);
+  return boundarySmoothingForTimes({ sourceStart, sourceEnd, shotStart, confirmationTime });
+}
+
+function boundarySmoothingForTimes({ sourceStart = 0, sourceEnd = 0, shotStart = null, confirmationTime = null } = {}) {
+  const preActionPaddingSeconds = shotStart === null
+    ? null
+    : Number(Math.max(0, shotStart - sourceStart).toFixed(2));
+  const postConfirmationPaddingSeconds = confirmationTime === null
+    ? null
+    : Number(Math.max(0, sourceEnd - confirmationTime).toFixed(2));
+  const hasMinPre = preActionPaddingSeconds === null ||
+    preActionPaddingSeconds >= VALID_GOAL_ONLY_TIMING.minPreActionSeconds;
+  const hasMinPost = postConfirmationPaddingSeconds === null ||
+    postConfirmationPaddingSeconds >= VALID_GOAL_ONLY_TIMING.minPostConfirmationSeconds;
+  const hasIdealPre = preActionPaddingSeconds === null ||
+    preActionPaddingSeconds >= VALID_GOAL_ONLY_TIMING.idealPreActionSeconds;
+  const hasIdealPost = postConfirmationPaddingSeconds === null ||
+    postConfirmationPaddingSeconds >= VALID_GOAL_ONLY_TIMING.idealPostConfirmationSeconds;
+  return {
+    contractVersion: 1,
+    applied: Boolean(hasMinPre && hasMinPost),
+    targetPreActionSeconds: VALID_GOAL_ONLY_TIMING.idealPreActionSeconds,
+    minPreActionSeconds: VALID_GOAL_ONLY_TIMING.minPreActionSeconds,
+    targetPostConfirmationSeconds: VALID_GOAL_ONLY_TIMING.idealPostConfirmationSeconds,
+    minPostConfirmationSeconds: VALID_GOAL_ONLY_TIMING.minPostConfirmationSeconds,
+    preActionPaddingSeconds,
+    postConfirmationPaddingSeconds,
+    smoothingLevel: hasIdealPre && hasIdealPost ? "ideal" : hasMinPre && hasMinPost ? "minimum" : "insufficient",
+    reason: hasMinPre && hasMinPost
+      ? "goal_phase_boundary_has_action_lead_in_and_confirmation_tail"
+      : "goal_phase_boundary_needs_more_context",
+  };
+}
+
+function limitConfirmedGoalDurationWithHandles(candidate = {}, maxDuration = VALID_GOAL_ONLY_TIMING.maxSegmentDuration, mediaDuration = 0) {
+  const originalStart = Number(candidate.originalSourceStart ?? candidate.sourceStart);
+  const originalEnd = Number(candidate.originalSourceEnd ?? candidate.sourceEnd);
+  if (!Number.isFinite(originalStart) || !Number.isFinite(originalEnd) || originalEnd <= originalStart) return candidate;
+  const currentStart = Number(candidate.sourceStart);
+  const currentEnd = Number(candidate.sourceEnd);
+  const originalDuration = Math.max(0, originalEnd - originalStart);
+  const currentPre = Math.max(0, originalStart - currentStart);
+  const currentPost = Math.max(0, currentEnd - originalEnd);
+  const { confirmationTime } = goalTimingForCandidate(candidate);
+  const existingPost = confirmationTime === null ? VALID_GOAL_ONLY_TIMING.minPostConfirmationSeconds : Math.max(0, originalEnd - confirmationTime);
+  const mediaLimit = mediaDuration || currentEnd;
+  const maxEnd = Math.min(mediaLimit, currentEnd);
+
+  if (currentEnd - currentStart <= maxDuration) {
+    return {
+      ...candidate,
+      boundarySmoothing: boundarySmoothingForWindow(candidate),
+    };
+  }
+
+  if (originalDuration >= maxDuration) {
+    const end = Math.min(maxEnd, Math.max(originalEnd, originalStart + maxDuration));
+    const start = Math.max(0, end - maxDuration);
+    const next = {
+      ...candidate,
+      sourceStart: Number(start.toFixed(2)),
+      sourceEnd: Number(end.toFixed(2)),
+    };
+    return {
+      ...next,
+      boundarySmoothing: boundarySmoothingForWindow(next),
+    };
+  }
+
+  let budget = Math.max(0, maxDuration - originalDuration);
+  const requiredPostTopUp = Math.min(
+    currentPost,
+    Math.max(0, VALID_GOAL_ONLY_TIMING.minPostConfirmationSeconds - existingPost),
+    budget,
+  );
+  let postBudget = requiredPostTopUp;
+  budget -= requiredPostTopUp;
+
+  const targetPre = Math.min(currentPre, VALID_GOAL_ONLY_TIMING.idealPreActionSeconds);
+  const minimumPre = Math.min(currentPre, VALID_GOAL_ONLY_TIMING.minPreActionSeconds);
+  let preBudget = Math.min(targetPre, budget);
+  if (preBudget < minimumPre && budget >= minimumPre) preBudget = minimumPre;
+  budget -= preBudget;
+
+  const currentPostAfterMinimum = existingPost + postBudget;
+  const idealPostTopUp = Math.min(
+    Math.max(0, currentPost - postBudget),
+    Math.max(0, VALID_GOAL_ONLY_TIMING.idealPostConfirmationSeconds - currentPostAfterMinimum),
+    Math.max(0, budget),
+  );
+  postBudget += idealPostTopUp;
+  budget -= idealPostTopUp;
+
+  if (preBudget < targetPre && budget > 0) {
+    const extraPre = Math.min(targetPre - preBudget, budget);
+    preBudget += extraPre;
+    budget -= extraPre;
+  }
+
+  const next = {
+    ...candidate,
+    sourceStart: Number(Math.max(0, originalStart - preBudget).toFixed(2)),
+    sourceEnd: Number(Math.min(mediaLimit, originalEnd + postBudget).toFixed(2)),
+  };
+  return {
+    ...next,
+    boundarySmoothing: boundarySmoothingForWindow(next),
+  };
+}
+
 function limitCandidateDurationWithHandles(candidate = {}, maxDuration = 30, mediaDuration = 0) {
   const originalStart = Number(candidate.originalSourceStart ?? candidate.sourceStart);
   const originalEnd = Number(candidate.originalSourceEnd ?? candidate.sourceEnd);
   const originalDuration = Math.max(0, originalEnd - originalStart);
   if (!Number.isFinite(originalStart) || !Number.isFinite(originalEnd) || originalEnd <= originalStart) return candidate;
+  if (isConfirmedGoalCandidate(candidate)) {
+    return limitConfirmedGoalDurationWithHandles(candidate, maxDuration, mediaDuration);
+  }
   if (candidate.sourceEnd - candidate.sourceStart <= maxDuration) return candidate;
 
   if (originalDuration >= maxDuration) {
@@ -3322,7 +3506,7 @@ function sanitizeExpandedCompilationOverlaps(expanded = []) {
 
 function expandCompilationCandidateWindows(candidates = [], metadata = {}) {
   const mediaDuration = Math.max(0, Number(metadata.durationSeconds || 0));
-  const maxSegmentDuration = 29.5;
+  const maxSegmentDuration = VALID_GOAL_ONLY_TIMING.maxSegmentDuration;
   const expanded = candidates
     .map((candidate) => {
       const sourceStart = Number(candidate.sourceStart);
@@ -3362,6 +3546,7 @@ function expandCompilationCandidateWindows(candidates = [], metadata = {}) {
     ...candidate,
     sourceStart: Number(candidate.sourceStart.toFixed(2)),
     sourceEnd: Number(candidate.sourceEnd.toFixed(2)),
+    boundarySmoothing: isConfirmedGoalCandidate(candidate) ? boundarySmoothingForWindow(candidate) : candidate.boundarySmoothing || null,
   })).filter((candidate) => candidate.sourceEnd - candidate.sourceStart >= 3);
 }
 
@@ -3587,9 +3772,13 @@ function abruptCutRisksForSegment(segment = {}) {
   const confirmationTime = finiteNumber(segment.confirmationTime, null);
   const sourceStart = finiteNumber(segment.sourceStart, 0);
   const sourceEnd = finiteNumber(segment.sourceEnd, sourceStart + duration);
-  if (shotStart !== null && sourceStart > shotStart - 1.5) risks.push("abrupt_start_before_shot");
+  if (shotStart !== null && shotStart - sourceStart < VALID_GOAL_ONLY_TIMING.minPreActionSeconds) {
+    risks.push("abrupt_start_before_shot");
+  }
   if (finishTime !== null && sourceEnd < finishTime + 1.2) risks.push("missing_payoff_breathing_room");
-  if (confirmationTime !== null && sourceEnd < confirmationTime + 0.2) risks.push("missing_confirmation_tail");
+  if (confirmationTime !== null && sourceEnd < confirmationTime + VALID_GOAL_ONLY_TIMING.minPostConfirmationSeconds) {
+    risks.push("missing_confirmation_tail");
+  }
   return [...new Set(risks)];
 }
 
@@ -3620,24 +3809,33 @@ function editAssemblyForCompilation(segments = [], transitionPlan = []) {
   return {
     contractVersion: 1,
     segmentCount: segments.length,
-    segments: segments.map((segment, index) => ({
-      id: sanitizeText(segment.id || `segment_${index + 1}`, 64),
-      goalNumber: Number.isFinite(Number(segment.goalNumber)) ? Number(segment.goalNumber) : index + 1,
-      sourceStart: segment.sourceStart,
-      buildupStart: finiteNumber(segment.buildupStart, segment.sourceStart),
-      shotStart: segment.shotStart,
-      finishTime: segment.finishTime,
-      confirmationTime: segment.confirmationTime,
-      sourceEnd: segment.sourceEnd,
-      duration: segment.duration,
-      replayUsed: Boolean(segment.replayUsed),
-      replayOnly: Boolean(segment.replayOnly),
-      phaseCoverage: segment.phaseCoverage || null,
-      cutQuality: {
-        abruptCutRisk: abruptCutRisksForSegment(segment).length > 0,
-        riskFlags: abruptCutRisksForSegment(segment),
-      },
-    })),
+    segments: segments.map((segment, index) => {
+      const riskFlags = abruptCutRisksForSegment(segment);
+      const boundarySmoothing = segment.boundarySmoothing || boundarySmoothingForWindow(segment);
+      return {
+        id: sanitizeText(segment.id || `segment_${index + 1}`, 64),
+        goalNumber: Number.isFinite(Number(segment.goalNumber)) ? Number(segment.goalNumber) : index + 1,
+        sourceStart: segment.sourceStart,
+        buildupStart: finiteNumber(segment.buildupStart, segment.sourceStart),
+        shotStart: segment.shotStart,
+        finishTime: segment.finishTime,
+        confirmationTime: segment.confirmationTime,
+        sourceEnd: segment.sourceEnd,
+        duration: segment.duration,
+        replayUsed: Boolean(segment.replayUsed),
+        replayOnly: Boolean(segment.replayOnly),
+        phaseCoverage: segment.phaseCoverage || null,
+        boundarySmoothing,
+        cutQuality: {
+          abruptCutRisk: riskFlags.length > 0,
+          riskFlags,
+          smoothingApplied: Boolean(boundarySmoothing && boundarySmoothing.applied),
+          smoothingLevel: boundarySmoothing ? boundarySmoothing.smoothingLevel : "unknown",
+          preActionPaddingSeconds: boundarySmoothing ? boundarySmoothing.preActionPaddingSeconds : null,
+          postConfirmationPaddingSeconds: boundarySmoothing ? boundarySmoothing.postConfirmationPaddingSeconds : null,
+        },
+      };
+    }),
     transitions: transitionPlan.map((transition) => ({
       fromSegmentId: transition.fromSegmentId,
       toSegmentId: transition.toSegmentId,
@@ -3657,6 +3855,20 @@ function referenceStyleQaForCompilation({ segments = [], captions = [], transiti
     : 0;
   const phaseCompleteCount = safeSegments.filter(phaseCompleteForReference).length;
   const abruptCutRiskFlags = safeSegments.flatMap((segment) => abruptCutRisksForSegment(segment));
+  const boundarySmoothing = safeSegments.map((segment) => segment.boundarySmoothing || boundarySmoothingForWindow(segment));
+  const smoothingAppliedCount = boundarySmoothing.filter((item) => item && item.applied).length;
+  const preActionPaddingValues = boundarySmoothing
+    .map((item) => Number(item && item.preActionPaddingSeconds))
+    .filter((value) => Number.isFinite(value));
+  const postConfirmationPaddingValues = boundarySmoothing
+    .map((item) => Number(item && item.postConfirmationPaddingSeconds))
+    .filter((value) => Number.isFinite(value));
+  const averagePreActionPaddingSeconds = preActionPaddingValues.length
+    ? Number((preActionPaddingValues.reduce((sum, value) => sum + value, 0) / preActionPaddingValues.length).toFixed(2))
+    : null;
+  const averagePostConfirmationPaddingSeconds = postConfirmationPaddingValues.length
+    ? Number((postConfirmationPaddingValues.reduce((sum, value) => sum + value, 0) / postConfirmationPaddingValues.length).toFixed(2))
+    : null;
   const transitionCoverage = safeSegments.length <= 1
     ? 1
     : Number((transitionPlan.length / Math.max(1, safeSegments.length - 1)).toFixed(4));
@@ -3671,12 +3883,16 @@ function referenceStyleQaForCompilation({ segments = [], captions = [], transiti
   const abruptCutScore = safeSegments.length
     ? Number((Math.max(0, safeSegments.length - abruptCutRiskFlags.length) / safeSegments.length).toFixed(4))
     : 1;
+  const boundarySmoothingScore = safeSegments.length
+    ? Number((smoothingAppliedCount / safeSegments.length).toFixed(4))
+    : 1;
+  const cutSmoothnessScore = Number((abruptCutScore * 0.65 + boundarySmoothingScore * 0.35).toFixed(4));
   const captionAlignment = captionAlignmentForReference(captions);
   const score = Number((
     transitionCoverage * 0.22 +
     phaseCoverageScore * 0.28 +
     durationScore * 0.16 +
-    abruptCutScore * 0.18 +
+    cutSmoothnessScore * 0.18 +
     captionAlignment.captionAlignmentScore * 0.16
   ).toFixed(4));
   return {
@@ -3687,6 +3903,11 @@ function referenceStyleQaForCompilation({ segments = [], captions = [], transiti
     averageGoalSegmentDuration,
     abruptCutRiskCount: abruptCutRiskFlags.length,
     abruptCutRiskFlags: [...new Set(abruptCutRiskFlags)].slice(0, 8),
+    boundarySmoothingAppliedCount: smoothingAppliedCount,
+    averagePreActionPaddingSeconds,
+    averagePostConfirmationPaddingSeconds,
+    boundarySmoothingScore,
+    cutSmoothnessScore,
     tooShortGoalSegmentCount: abruptCutRiskFlags.filter((flag) => flag === "too_short_goal_segment").length,
     tooLongDeadAirCount: abruptCutRiskFlags.filter((flag) => flag === "too_long_goal_segment").length,
     missingPayoffCount: abruptCutRiskFlags.filter((flag) => flag === "missing_payoff_breathing_room").length,
@@ -3704,6 +3925,7 @@ function referenceStyleQaForCompilation({ segments = [], captions = [], transiti
       safeSegments.length > 1 ? "chronological_multi_goal_sequence" : "single_goal_sequence",
       transitionCoverage >= 1 ? "smooth_transitions_declared" : "missing_transition_metadata",
       phaseCoverageScore >= 1 ? "full_goal_phase_coverage" : "phase_coverage_needs_review",
+      cutSmoothnessScore >= 0.95 ? "smooth_goal_phase_boundaries" : "goal_boundary_timing_needs_review",
       captionAlignment.captionAlignmentScore >= 0.95 ? "captions_match_goal_phases" : "caption_alignment_needs_review",
       "wide_safe_vertical_reference_style",
     ],
@@ -3803,6 +4025,39 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
     const moment = candidate.analysisMoment || {};
     const candidatePhase = goalPhaseForCandidate(candidate);
     const phaseCoverage = goalPhaseCoverageForCandidate(candidate);
+    const originalSourceStart = finiteNumber(candidate.originalSourceStart, null);
+    const phaseShotStart = candidatePhase && Number.isFinite(Number(candidatePhase.shotStart))
+      ? Number(Number(candidatePhase.shotStart).toFixed(2))
+      : null;
+    const finishTime = candidatePhase && Number.isFinite(Number(candidatePhase.finishTime)) ? Number(Number(candidatePhase.finishTime).toFixed(2)) : null;
+    const confirmationTime = candidatePhase && Number.isFinite(Number(candidatePhase.confirmationTime)) ? Number(Number(candidatePhase.confirmationTime).toFixed(2)) : null;
+    let shotStart = phaseShotStart !== null && phaseShotStart > Number(candidate.sourceStart) + 0.05
+      ? phaseShotStart
+      : originalSourceStart !== null && originalSourceStart > Number(candidate.sourceStart) + 0.05
+        ? Number(originalSourceStart.toFixed(2))
+        : phaseShotStart;
+    if (
+      isConfirmedGoalCandidate(candidate) &&
+      phaseCoverage &&
+      phaseCoverage.hasBuildup === true &&
+      (shotStart === null || shotStart <= Number(candidate.sourceStart) + 0.05) &&
+      finishTime !== null &&
+      finishTime - Number(candidate.sourceStart) >= VALID_GOAL_ONLY_TIMING.minPreActionSeconds + 1.5
+    ) {
+      shotStart = inferredShotStartForGoalPhase({
+        sourceStart: Number(candidate.sourceStart),
+        sourceEnd: Number(candidate.sourceEnd),
+        finishTime,
+      });
+    }
+    const boundarySmoothing = isConfirmedGoalCandidate(candidate)
+      ? boundarySmoothingForTimes({
+          sourceStart: Number(candidate.sourceStart),
+          sourceEnd: Number(candidate.sourceEnd),
+          shotStart,
+          confirmationTime,
+        })
+      : candidate.boundarySmoothing || boundarySmoothingForWindow(candidate);
     const buildupStart = candidatePhase && Number.isFinite(Number(candidatePhase.buildupStart))
       ? Number(Number(candidatePhase.buildupStart).toFixed(2))
       : candidatePhase &&
@@ -3822,11 +4077,12 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
       goalOutcome: candidate.goalOutcome || goalOutcomeForMoment(moment),
       goalNumber: isConfirmedGoalCandidate(candidate) ? index + 1 : null,
       buildupStart,
-      shotStart: candidatePhase && Number.isFinite(Number(candidatePhase.shotStart)) ? Number(Number(candidatePhase.shotStart).toFixed(2)) : null,
-      finishTime: candidatePhase && Number.isFinite(Number(candidatePhase.finishTime)) ? Number(Number(candidatePhase.finishTime).toFixed(2)) : null,
-      confirmationTime: candidatePhase && Number.isFinite(Number(candidatePhase.confirmationTime)) ? Number(Number(candidatePhase.confirmationTime).toFixed(2)) : null,
+      shotStart,
+      finishTime,
+      confirmationTime,
       replayUsed: Boolean(candidatePhase && candidatePhase.replayUsed),
       replayOnly: Boolean(phaseCoverage && phaseCoverage.replayOnly),
+      boundarySmoothing,
       phaseCoverage: phaseCoverage
         ? {
             hasBuildup: Boolean(phaseCoverage.hasBuildup),
@@ -4044,6 +4300,7 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
           shotStart: segment.shotStart,
           finishTime: segment.finishTime,
           confirmationTime: segment.confirmationTime,
+          boundarySmoothing: segment.boundarySmoothing,
           whySelected: segment.whySelected,
           safetyFlags: segment.safetyFlags,
         })),

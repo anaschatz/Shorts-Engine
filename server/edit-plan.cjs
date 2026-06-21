@@ -100,8 +100,8 @@ const MULTI_MOMENT_LIMITS = Object.freeze({
   minSegments: 2,
   maxSegments: 7,
   minSegmentDuration: 3,
-  maxSegmentDuration: 30,
-  maxTotalDuration: 90,
+  maxSegmentDuration: 32,
+  maxTotalDuration: 100,
 });
 const VISUAL_EVIDENCE_TYPES = Object.freeze([
   "ball_visible",
@@ -928,8 +928,11 @@ function normalizeSegmentGoalPhase(segment = {}, context = {}) {
     ? reasonSet.has("visual_ball_in_net") || reasonSet.has("ball_in_net") || reasonSet.has("scoreboard_backed_goal_sequence") || confirmedGoal
     : Boolean(raw.hasFinish);
   const replayOnly = Boolean(segment.replayOnly || raw.replayOnly) || (replayUsed && !hasShot);
+  const hasBuildupFromWindow = shotStart == null
+    ? context.sourceEnd - context.sourceStart >= 8
+    : context.sourceStart <= shotStart - 2;
   const phaseCoverage = {
-    hasBuildup: raw.hasBuildup == null ? (shotStart == null ? context.sourceEnd - context.sourceStart >= 8 : context.sourceStart <= shotStart - 6) : Boolean(raw.hasBuildup),
+    hasBuildup: raw.hasBuildup == null ? hasBuildupFromWindow : Boolean(raw.hasBuildup) || hasBuildupFromWindow,
     hasShot,
     hasFinish,
     hasConfirmation: raw.hasConfirmation == null
@@ -978,7 +981,7 @@ function normalizeSegmentItem(segment, index, metadata = {}) {
   if (mediaDuration > 0 && sourceEnd > mediaDuration + 0.25) {
     throw new AppError("VALIDATION_ERROR", "Edit plan segment exceeds media duration.", 400);
   }
-  const segmentDuration = sourceEnd - sourceStart;
+  const segmentDuration = Number((sourceEnd - sourceStart).toFixed(3));
   if (segmentDuration < MULTI_MOMENT_LIMITS.minSegmentDuration || segmentDuration > MULTI_MOMENT_LIMITS.maxSegmentDuration) {
     throw new AppError("VALIDATION_ERROR", "Edit plan segment duration is outside allowed bounds.", 400);
   }
@@ -1015,6 +1018,19 @@ function normalizeSegmentItem(segment, index, metadata = {}) {
     replayUsed: goalPhase.replayUsed,
     replayOnly: goalPhase.replayOnly,
     phaseCoverage: goalPhase.phaseCoverage,
+    boundarySmoothing: segment.boundarySmoothing && typeof segment.boundarySmoothing === "object" && !Array.isArray(segment.boundarySmoothing)
+      ? {
+          applied: Boolean(segment.boundarySmoothing.applied),
+          smoothingLevel: sanitizeText(segment.boundarySmoothing.smoothingLevel || "", 40),
+          preActionPaddingSeconds: Number.isFinite(Number(segment.boundarySmoothing.preActionPaddingSeconds))
+            ? Number(Number(segment.boundarySmoothing.preActionPaddingSeconds).toFixed(2))
+            : null,
+          postConfirmationPaddingSeconds: Number.isFinite(Number(segment.boundarySmoothing.postConfirmationPaddingSeconds))
+            ? Number(Number(segment.boundarySmoothing.postConfirmationPaddingSeconds).toFixed(2))
+            : null,
+          reason: sanitizeText(segment.boundarySmoothing.reason || "", 120),
+        }
+      : null,
     confidence: Number(clamp(segment.confidence, 0, 1).toFixed(2)),
     retentionScore: Math.round(clamp(segment.retentionScore || segment.confidence * 100, 0, 100)),
     captionTheme: sanitizeText(segment.captionTheme || captionIntentForHighlightType(highlightType), 80),
@@ -1061,7 +1077,7 @@ function normalizeSegments(segments, metadata = {}) {
   });
   const totalDuration = Number(cursor.toFixed(2));
   if (totalDuration > MULTI_MOMENT_LIMITS.maxTotalDuration) {
-    throw new AppError("VALIDATION_ERROR", "Multi-moment edit plan cannot exceed 90 seconds.", 400);
+    throw new AppError("VALIDATION_ERROR", "Multi-moment edit plan exceeds allowed total duration.", 400);
   }
   return withTimeline;
 }

@@ -1445,7 +1445,12 @@ test("valid-goals-only keeps full-source late confirmed goals before early fille
   assert.ok(plan.segments.some((segment) => segment.sourceStart <= 238 && segment.sourceEnd >= 254.6));
   assert.ok(plan.segments.some((segment) => segment.sourceStart <= 294 && segment.sourceEnd >= 312.4));
   assert.ok(plan.segments.some((segment) => segment.sourceStart <= 328 && segment.sourceEnd >= 346.4));
-  assert.ok(plan.segments.every((segment) => segment.duration >= 18 && segment.duration <= 30));
+  assert.ok(plan.segments.every((segment) => segment.duration >= 18 && segment.duration <= 32));
+  assert.equal(plan.segments.every((segment) => segment.boundarySmoothing && segment.boundarySmoothing.applied), true);
+  assert.equal(plan.segments.every((segment) => segment.boundarySmoothing.preActionPaddingSeconds >= 2), true);
+  assert.equal(plan.segments.every((segment) => segment.boundarySmoothing.postConfirmationPaddingSeconds >= 1.2), true);
+  assert.equal(plan.visualPolishQA.boundarySmoothingAppliedCount, 3);
+  assert.equal(plan.visualPolishQA.cutSmoothnessScore, 1);
   assert.equal(plan.hook, "VALID FINISHES ONLY");
   assert.match(captionText, /FINISH COUNTS|ONLY VALID FINISHES/i);
   assert.doesNotMatch(captionText, /BIG CHANCE|SHOT OPENS UP|CHANCE OPENS|EVERY BIG MOMENT/i);
@@ -1508,7 +1513,7 @@ test("valid-goals-only plan keeps every confirmed goal, excludes offside goals, 
     segments.map((segment) => segment.sourceStart),
     [...segments.map((segment) => segment.sourceStart)].sort((a, b) => a - b),
   );
-  assert.ok(segments.every((segment) => segment.duration >= 18 && segment.duration <= 30));
+  assert.ok(segments.every((segment) => segment.duration >= 18 && segment.duration <= 32));
   assert.equal(plan.transitionPlan.length, 2);
   assert.ok(plan.transitionPlan.every((transition) => transition.type === "short_fade"));
   assert.ok(plan.transitionPlan.every((transition) => transition.transitionDurationSeconds > 0));
@@ -1518,9 +1523,14 @@ test("valid-goals-only plan keeps every confirmed goal, excludes offside goals, 
   assert.equal(plan.editAssembly.segmentCount, 3);
   assert.equal(plan.editAssembly.segments.every((segment) => segment.buildupStart <= segment.shotStart), true);
   assert.equal(plan.editAssembly.segments.every((segment) => segment.cutQuality.abruptCutRisk === false), true);
+  assert.equal(plan.editAssembly.segments.every((segment) => segment.cutQuality.smoothingApplied === true), true);
+  assert.equal(plan.editAssembly.segments.every((segment) => segment.cutQuality.preActionPaddingSeconds >= 2), true);
+  assert.equal(plan.editAssembly.segments.every((segment) => segment.cutQuality.postConfirmationPaddingSeconds >= 1.2), true);
   assert.equal(plan.visualPolishQA.countedGoalsIncluded, 3);
   assert.equal(plan.visualPolishQA.replayOnlySegments, 0);
   assert.equal(plan.visualPolishQA.abruptCutRiskCount, 0);
+  assert.equal(plan.visualPolishQA.boundarySmoothingAppliedCount, 3);
+  assert.equal(plan.visualPolishQA.cutSmoothnessScore, 1);
   assert.equal(plan.visualPolishQA.captionsMisalignedCount, 0);
   assert.ok(plan.visualPolishQA.visualPolishScore >= 95);
   assert.equal(plan.reviewMetadata.multiMoment.visualPolishQA.visualPolishScore, plan.visualPolishQA.visualPolishScore);

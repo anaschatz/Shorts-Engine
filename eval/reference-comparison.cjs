@@ -227,6 +227,22 @@ function extractSegments(renderPlan, proofOutput) {
     replayOnly: Boolean(segment.replayOnly),
     highlightType: sanitizeReportText(segment.highlightType || "", 80),
     outcome: sanitizeReportText(segment.goalOutcome && segment.goalOutcome.outcome || segment.outcome || "", 80),
+    boundarySmoothing: segment.boundarySmoothing && typeof segment.boundarySmoothing === "object"
+      ? {
+          applied: Boolean(segment.boundarySmoothing.applied),
+          smoothingLevel: sanitizeReportText(segment.boundarySmoothing.smoothingLevel || "", 40),
+          preActionPaddingSeconds: round(segment.boundarySmoothing.preActionPaddingSeconds, 3),
+          postConfirmationPaddingSeconds: round(segment.boundarySmoothing.postConfirmationPaddingSeconds, 3),
+        }
+      : null,
+    cutQuality: segment.cutQuality && typeof segment.cutQuality === "object"
+      ? {
+          abruptCutRisk: Boolean(segment.cutQuality.abruptCutRisk),
+          smoothingApplied: Boolean(segment.cutQuality.smoothingApplied),
+          preActionPaddingSeconds: round(segment.cutQuality.preActionPaddingSeconds, 3),
+          postConfirmationPaddingSeconds: round(segment.cutQuality.postConfirmationPaddingSeconds, 3),
+        }
+      : null,
     phaseCoverage: {
       hasBuildup: Boolean(segment.phaseCoverage && segment.phaseCoverage.hasBuildup),
       hasShot: Boolean(segment.phaseCoverage && segment.phaseCoverage.hasShot),
@@ -308,6 +324,9 @@ function scoreMotionDensity(proofOutput, expected) {
 }
 
 function scoreCutSmoothness(proofOutput, segmentCount) {
+  const qa = proofOutput.visualPolishQA || proofOutput.referenceStyleQA || {};
+  const reported = proofOutput.cutSmoothnessScore ?? qa.cutSmoothnessScore;
+  if (Number.isFinite(Number(reported))) return clamp01(Number(reported));
   const abrupt = toNumber(proofOutput.abruptCutRiskCount ?? proofOutput.visualPolishQA?.abruptCutRiskCount, 0);
   if (abrupt <= 0) return 1;
   return round(Math.max(0, 1 - abrupt / Math.max(1, segmentCount * 2)));
@@ -358,6 +377,24 @@ function analyzeGeneratedVideo({ proofReport, fixture, rootDir = process.cwd() }
     transitionRenderedCount: toNumber(proofOutput.transitionRenderedCount ?? proofOutput.renderPolishQA?.transitionRenderedCount, 0),
     hardCutFallbackCount: toNumber(proofOutput.hardCutFallbackCount ?? proofOutput.renderPolishQA?.hardCutFallbackCount, 0),
     abruptCutRiskCount: toNumber(proofOutput.abruptCutRiskCount ?? proofOutput.visualPolishQA?.abruptCutRiskCount, 0),
+    boundarySmoothingAppliedCount: toNumber(
+      proofOutput.boundarySmoothingAppliedCount ??
+        proofOutput.visualPolishQA?.boundarySmoothingAppliedCount ??
+        proofOutput.referenceStyleQA?.boundarySmoothingAppliedCount,
+      0,
+    ),
+    averagePreActionPaddingSeconds: toNumber(
+      proofOutput.averagePreActionPaddingSeconds ??
+        proofOutput.visualPolishQA?.averagePreActionPaddingSeconds ??
+        proofOutput.referenceStyleQA?.averagePreActionPaddingSeconds,
+      null,
+    ),
+    averagePostConfirmationPaddingSeconds: toNumber(
+      proofOutput.averagePostConfirmationPaddingSeconds ??
+        proofOutput.visualPolishQA?.averagePostConfirmationPaddingSeconds ??
+        proofOutput.referenceStyleQA?.averagePostConfirmationPaddingSeconds,
+      null,
+    ),
   };
   const expectedGoals = Math.max(1, fixture.expected.expectedCountedGoals || generated.expectedCountedGoals || 1);
   const validGoalRecall = fixture.expected.expectedCountedGoals > 0

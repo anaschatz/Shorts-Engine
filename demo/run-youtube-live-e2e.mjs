@@ -425,6 +425,14 @@ function safeSegmentWindow(segment = {}, index = 0) {
     goalNumber: Number.isFinite(Number(segment.goalNumber)) ? Number(segment.goalNumber) : null,
     replayOnly: Boolean(segment.replayOnly),
     replayUsed: typeof segment.replayUsed === "boolean" ? segment.replayUsed : null,
+    boundarySmoothing: segment.boundarySmoothing && typeof segment.boundarySmoothing === "object"
+      ? {
+          applied: Boolean(segment.boundarySmoothing.applied),
+          smoothingLevel: safeString(segment.boundarySmoothing.smoothingLevel || "", 40) || null,
+          preActionPaddingSeconds: safeNumber(segment.boundarySmoothing.preActionPaddingSeconds),
+          postConfirmationPaddingSeconds: safeNumber(segment.boundarySmoothing.postConfirmationPaddingSeconds),
+        }
+      : null,
     phaseCoverage: safePhaseCoverage(segment.phaseCoverage),
   };
 }
@@ -500,6 +508,18 @@ function referenceStyleQaFromSmoke(smoke, outputMp4 = null) {
   const captionsAlignedCount = Number.isFinite(Number(qa.captionsAlignedCount))
     ? Number(qa.captionsAlignedCount)
     : Math.max(0, captions.length - captionsMisalignedCount);
+  const boundarySmoothingAppliedCount = Number.isFinite(Number(qa.boundarySmoothingAppliedCount))
+    ? Number(qa.boundarySmoothingAppliedCount)
+    : segments.filter((segment) => segment && segment.boundarySmoothing && segment.boundarySmoothing.applied === true).length;
+  const averagePreActionPaddingSeconds = Number.isFinite(Number(qa.averagePreActionPaddingSeconds))
+    ? Number(qa.averagePreActionPaddingSeconds)
+    : null;
+  const averagePostConfirmationPaddingSeconds = Number.isFinite(Number(qa.averagePostConfirmationPaddingSeconds))
+    ? Number(qa.averagePostConfirmationPaddingSeconds)
+    : null;
+  const cutSmoothnessScore = Number.isFinite(Number(qa.cutSmoothnessScore))
+    ? Number(qa.cutSmoothnessScore)
+    : Number(Math.max(0, 1 - abruptCutRiskCount / Math.max(1, segments.length * 2)).toFixed(4));
   const visualPolishScore = Number.isFinite(Number(qa.visualPolishScore))
     ? Number(qa.visualPolishScore)
     : Number(Math.max(
@@ -516,6 +536,10 @@ function referenceStyleQaFromSmoke(smoke, outputMp4 = null) {
     replayOnlySegments,
     averageGoalSegmentDuration,
     abruptCutRiskCount,
+    boundarySmoothingAppliedCount,
+    averagePreActionPaddingSeconds,
+    averagePostConfirmationPaddingSeconds,
+    cutSmoothnessScore,
     captionsAlignedCount,
     captionsMisalignedCount,
     visualPolishScore,
@@ -621,7 +645,7 @@ function probeGeneratedMp4(artifact) {
   };
 }
 
-function buildComparisonReadiness({ source, outputMp4, ffprobe, coverage, reference }) {
+function buildComparisonReadiness({ source, outputMp4, ffprobe, coverage, reference, referenceStyleQA = null }) {
   return {
     ready: Boolean(outputMp4?.relativePath && ffprobe?.status === "passed"),
     reference: reference
@@ -636,7 +660,9 @@ function buildComparisonReadiness({ source, outputMp4, ffprobe, coverage, refere
       livePhaseVsReplayOnly: coverage.replayOnlySegments === 0,
       noOffsideNoGoal: null,
       noHymnIntroFiller: null,
-      cutSmoothness: null,
+      cutSmoothness: referenceStyleQA && Number.isFinite(Number(referenceStyleQA.cutSmoothnessScore))
+        ? Number(referenceStyleQA.cutSmoothnessScore) >= 0.9
+        : null,
       duration: ffprobe?.durationSeconds || null,
     },
   };
@@ -673,6 +699,10 @@ function buildOutputProof({ env, smoke, source, staleArtifactCleanup }) {
     replayOnlySegments: coverage.replayOnlySegments,
     averageGoalSegmentDuration: referenceStyleQA.averageGoalSegmentDuration,
     abruptCutRiskCount: referenceStyleQA.abruptCutRiskCount,
+    boundarySmoothingAppliedCount: referenceStyleQA.boundarySmoothingAppliedCount,
+    averagePreActionPaddingSeconds: referenceStyleQA.averagePreActionPaddingSeconds,
+    averagePostConfirmationPaddingSeconds: referenceStyleQA.averagePostConfirmationPaddingSeconds,
+    cutSmoothnessScore: referenceStyleQA.cutSmoothnessScore,
     captionsAlignedCount: referenceStyleQA.captionsAlignedCount,
     captionsMisalignedCount: referenceStyleQA.captionsMisalignedCount,
     visualPolishScore: referenceStyleQA.visualPolishScore,
@@ -690,7 +720,7 @@ function buildOutputProof({ env, smoke, source, staleArtifactCleanup }) {
     renderPolishQA,
     segmentWindows: coverage.segmentWindows,
     staleArtifactCleanup,
-    comparison: buildComparisonReadiness({ source, outputMp4, ffprobe, coverage, reference }),
+    comparison: buildComparisonReadiness({ source, outputMp4, ffprobe, coverage, reference, referenceStyleQA }),
     logsDownloaded: false,
     artifactsDownloaded: false,
   };

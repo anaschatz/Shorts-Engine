@@ -599,6 +599,10 @@ function validGoalsOnlyCoverageScore(topPlan, expected = {}, minOverlap = 0.5) {
 
 function cutSmoothnessScore(topPlan, expected = {}) {
   if (expected.goalSelectionMode !== "valid_goals_only") return 1;
+  const qa = visualPolishQa(topPlan);
+  if (qa && Number.isFinite(Number(qa.cutSmoothnessScore))) {
+    return round(Number(qa.cutSmoothnessScore), 4);
+  }
   const segments = planSegments(topPlan);
   if (!segments.length) return expectedValidGoalWindows(expected).length ? 0 : 1;
   const chronological = segments.every((segment, index) => index === 0 || toNumber(segment.sourceStart) >= toNumber(segments[index - 1].sourceEnd) - 0.25);

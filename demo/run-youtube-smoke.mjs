@@ -432,6 +432,15 @@ function safeRenderSegment(segment = {}, index = 0) {
     goalOutcome: safeGoalOutcome(segment.goalOutcome),
     replayUsed: typeof segment.replayUsed === "boolean" ? segment.replayUsed : null,
     replayOnly: Boolean(segment.replayOnly),
+    boundarySmoothing: segment.boundarySmoothing && typeof segment.boundarySmoothing === "object"
+      ? {
+          applied: Boolean(segment.boundarySmoothing.applied),
+          smoothingLevel: sanitizeText(segment.boundarySmoothing.smoothingLevel || "", 40) || null,
+          preActionPaddingSeconds: safeNumber(segment.boundarySmoothing.preActionPaddingSeconds),
+          postConfirmationPaddingSeconds: safeNumber(segment.boundarySmoothing.postConfirmationPaddingSeconds),
+          reason: sanitizeText(segment.boundarySmoothing.reason || "", 100) || null,
+        }
+      : null,
     phaseCoverage,
     reasonCodes: safeStringList(segment.reasonCodes, 10, 60),
     whySelected: sanitizeText(segment.whySelected || "", 180) || null,
@@ -449,6 +458,11 @@ function safeVisualPolishQA(value) {
     averageGoalSegmentDuration: safeNumber(value.averageGoalSegmentDuration),
     abruptCutRiskCount: Number.isFinite(Number(value.abruptCutRiskCount)) ? Number(value.abruptCutRiskCount) : null,
     abruptCutRiskFlags: safeStringList(value.abruptCutRiskFlags, 8, 80),
+    boundarySmoothingAppliedCount: Number.isFinite(Number(value.boundarySmoothingAppliedCount)) ? Number(value.boundarySmoothingAppliedCount) : null,
+    averagePreActionPaddingSeconds: safeNumber(value.averagePreActionPaddingSeconds),
+    averagePostConfirmationPaddingSeconds: safeNumber(value.averagePostConfirmationPaddingSeconds),
+    boundarySmoothingScore: safeNumber(value.boundarySmoothingScore),
+    cutSmoothnessScore: safeNumber(value.cutSmoothnessScore),
     tooShortGoalSegmentCount: Number.isFinite(Number(value.tooShortGoalSegmentCount)) ? Number(value.tooShortGoalSegmentCount) : null,
     tooLongDeadAirCount: Number.isFinite(Number(value.tooLongDeadAirCount)) ? Number(value.tooLongDeadAirCount) : null,
     missingPayoffCount: Number.isFinite(Number(value.missingPayoffCount)) ? Number(value.missingPayoffCount) : null,
@@ -534,6 +548,19 @@ function safeEditAssembly(value) {
             ? {
                 abruptCutRisk: Boolean(segment.cutQuality.abruptCutRisk),
                 riskFlags: safeStringList(segment.cutQuality.riskFlags, 8, 80),
+                smoothingApplied: Boolean(segment.cutQuality.smoothingApplied),
+                smoothingLevel: sanitizeText(segment.cutQuality.smoothingLevel || "", 40) || null,
+                preActionPaddingSeconds: safeNumber(segment.cutQuality.preActionPaddingSeconds),
+                postConfirmationPaddingSeconds: safeNumber(segment.cutQuality.postConfirmationPaddingSeconds),
+              }
+            : null,
+          boundarySmoothing: segment.boundarySmoothing && typeof segment.boundarySmoothing === "object"
+            ? {
+                applied: Boolean(segment.boundarySmoothing.applied),
+                smoothingLevel: sanitizeText(segment.boundarySmoothing.smoothingLevel || "", 40) || null,
+                preActionPaddingSeconds: safeNumber(segment.boundarySmoothing.preActionPaddingSeconds),
+                postConfirmationPaddingSeconds: safeNumber(segment.boundarySmoothing.postConfirmationPaddingSeconds),
+                reason: sanitizeText(segment.boundarySmoothing.reason || "", 100) || null,
               }
             : null,
         }))

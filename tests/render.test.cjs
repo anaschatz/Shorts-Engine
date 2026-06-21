@@ -326,6 +326,95 @@ test("multi-segment renderer cuts segments, concatenates them, then applies capt
   assert.doesNotMatch(ass, /\bGOAL\b|ΓΚΟΛ|\/Users|storageKey/i);
 });
 
+test("multi-segment renderer accepts full valid-goal compilations up to 100 seconds", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "shortsengine-render-long-goals-"));
+  const outputPath = join(dir, "output.mp4");
+  const subtitlesPath = join(dir, "captions.ass");
+  const calls = [];
+  const plan = validateEditPlan({
+    mode: "multi_moment_compilation",
+    sourceStart: 120,
+    sourceEnd: 392,
+    segments: [
+      {
+        id: "goal_1",
+        sourceStart: 120,
+        sourceEnd: 152,
+        highlightType: "goal",
+        reasonCodes: ["goal", "visual_shot_contact", "visual_ball_in_net", "scoreboard_backed_goal_sequence"],
+        goalOutcome: { eventType: "ball_in_net", outcome: "confirmed_goal", offsideStatus: "onside" },
+        shotStart: 126,
+        finishTime: 142,
+        confirmationTime: 150,
+        phaseCoverage: { hasBuildup: true, hasShot: true, hasFinish: true, hasConfirmation: true },
+        confidence: 0.92,
+        retentionScore: 92,
+      },
+      {
+        id: "goal_2",
+        sourceStart: 240,
+        sourceEnd: 272,
+        highlightType: "goal",
+        reasonCodes: ["goal", "visual_shot_contact", "visual_ball_in_net", "scoreboard_backed_goal_sequence"],
+        goalOutcome: { eventType: "ball_in_net", outcome: "confirmed_goal", offsideStatus: "onside" },
+        shotStart: 246,
+        finishTime: 262,
+        confirmationTime: 270,
+        phaseCoverage: { hasBuildup: true, hasShot: true, hasFinish: true, hasConfirmation: true },
+        confidence: 0.92,
+        retentionScore: 92,
+      },
+      {
+        id: "goal_3",
+        sourceStart: 360,
+        sourceEnd: 392,
+        highlightType: "goal",
+        reasonCodes: ["goal", "visual_shot_contact", "visual_ball_in_net", "scoreboard_backed_goal_sequence"],
+        goalOutcome: { eventType: "ball_in_net", outcome: "confirmed_goal", offsideStatus: "onside" },
+        shotStart: 366,
+        finishTime: 382,
+        confirmationTime: 390,
+        phaseCoverage: { hasBuildup: true, hasShot: true, hasFinish: true, hasConfirmation: true },
+        confidence: 0.92,
+        retentionScore: 92,
+      },
+    ],
+    totalDuration: 96,
+    aspectRatio: "9:16",
+    highlightType: "generic_highlight",
+    confidence: 0.92,
+    hook: "VALID FINISHES ONLY",
+    title: "Three valid goals",
+    captions: [
+      { start: 0, end: 2, text: "VALID FINISHES ONLY", role: "opening_hook" },
+      { start: 32.4, end: 35, text: "MOMENT 2: FINISH COUNTS", role: "action_callout" },
+      { start: 93, end: 96, text: "ONLY VALID FINISHES", role: "closing_punch" },
+    ],
+    effects: ["wide_safe_framing", "caption_emphasis"],
+    framingMode: "wide_safe_vertical",
+    stylePreset: "reference_football_multi_goal_v1",
+    reasonCodes: ["goal", "scoreboard_backed_goal_sequence"],
+    export: { width: 1080, height: 1920, format: "mp4" },
+  }, { durationSeconds: 420, width: 1920, height: 1080 });
+
+  await renderShort({
+    inputPath: join(dir, "input.mp4"),
+    outputPath,
+    subtitlesPath,
+    plan,
+    ffmpegRunner: async (args) => {
+      calls.push(args);
+      return { stderr: "" };
+    },
+  });
+
+  assert.equal(plan.totalDuration, 96);
+  assert.equal(calls.length, 5);
+  assert.equal(calls[4][calls[4].indexOf("-t") + 1], "96");
+  assert.equal(plan.renderPolishQA.transitionRenderedCount, 2);
+  assert.equal(plan.renderPolishQA.hardCutFallbackCount, 0);
+});
+
 test("render polish summary reports transition fallback when no multi-segment render happened", () => {
   const summary = createRenderPolishSummary({
     stylePreset: "reference_football_multi_goal_v1",

@@ -205,7 +205,7 @@ test("real-source counted-goal fixture keeps all three counted goals including t
   assert.equal(topPlan.selectedMomentCount, 3);
   assert.ok(topPlan.segments.every((segment) => segment.highlightType === "goal"));
   assert.ok(topPlan.segments.every((segment) => segment.goalOutcome.outcome === "confirmed_goal"));
-  assert.ok(topPlan.segments.some((segment) => segment.sourceStart >= 460));
+  assert.ok(topPlan.segments.some((segment) => segment.sourceStart >= 458 && segment.sourceEnd >= 490));
 });
 
 test("OCR-confirmed valid-goals fixture selects every goal and excludes intro/celebration", () => {
