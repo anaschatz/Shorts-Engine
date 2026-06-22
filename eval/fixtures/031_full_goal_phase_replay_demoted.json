@@ -145,6 +145,7 @@
       { "start": 354.0, "end": 359.0 }
     ],
     "goalPhaseCoverageRequired": true,
+    "humanVisibleGoalGateRequired": true,
     "goalSelectionMode": "valid_goals_only",
     "finalSegmentCount": 3,
     "reasonCodes": [

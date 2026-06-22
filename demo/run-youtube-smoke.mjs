@@ -406,6 +406,30 @@ function safeGoalOutcome(goalOutcome) {
   };
 }
 
+function safeHumanVisibleGoalGate(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    passed: Boolean(value.passed),
+    confidence: safeNumber(value.confidence),
+    failureCode: value.failureCode ? sanitizeText(value.failureCode, 60) : null,
+    evidence: value.evidence && typeof value.evidence === "object" && !Array.isArray(value.evidence)
+      ? {
+          hasBuildupFrames: Boolean(value.evidence.hasBuildupFrames),
+          hasShotFrames: Boolean(value.evidence.hasShotFrames),
+          hasGoalmouthFrames: Boolean(value.evidence.hasGoalmouthFrames),
+          hasPayoffFrames: Boolean(value.evidence.hasPayoffFrames),
+          hasConfirmationAfterFinish: Boolean(value.evidence.hasConfirmationAfterFinish),
+        }
+      : null,
+    sampledFrames: Array.isArray(value.sampledFrames)
+      ? value.sampledFrames.slice(0, 8).map((frame) => ({
+          label: sanitizeText(frame && frame.label, 40),
+          time: safeNumber(frame && frame.time),
+        })).filter((frame) => frame.label && frame.time !== null)
+      : [],
+  };
+}
+
 function safeRenderSegment(segment = {}, index = 0) {
   const phaseCoverage = segment.phaseCoverage && typeof segment.phaseCoverage === "object"
     ? {
@@ -413,6 +437,15 @@ function safeRenderSegment(segment = {}, index = 0) {
         hasShot: Boolean(segment.phaseCoverage.hasShot),
         hasFinish: Boolean(segment.phaseCoverage.hasFinish),
         hasConfirmation: Boolean(segment.phaseCoverage.hasConfirmation),
+        visualGoalPayoff: segment.phaseCoverage.visualGoalPayoff && typeof segment.phaseCoverage.visualGoalPayoff === "object"
+          ? {
+              hasVisibleGoalPayoff: Boolean(segment.phaseCoverage.visualGoalPayoff.hasVisibleGoalPayoff),
+              hasBallInNetEvidence: Boolean(segment.phaseCoverage.visualGoalPayoff.hasBallInNetEvidence),
+              hasLiveFinishSequence: Boolean(segment.phaseCoverage.visualGoalPayoff.hasLiveFinishSequence),
+              scoreboardOnly: Boolean(segment.phaseCoverage.visualGoalPayoff.scoreboardOnly),
+              evidenceCodes: safeStringList(segment.phaseCoverage.visualGoalPayoff.evidenceCodes, 8, 80),
+            }
+          : null,
       }
     : null;
   return {
@@ -442,6 +475,7 @@ function safeRenderSegment(segment = {}, index = 0) {
         }
       : null,
     phaseCoverage,
+    visualGoalGate: safeHumanVisibleGoalGate(segment.visualGoalGate),
     reasonCodes: safeStringList(segment.reasonCodes, 10, 60),
     whySelected: sanitizeText(segment.whySelected || "", 180) || null,
     safetyFlags: safeStringList(segment.safetyFlags, 8, 80),
@@ -455,6 +489,32 @@ function safeVisualPolishQA(value) {
     stylePreset: sanitizeText(value.stylePreset || "", 60) || null,
     countedGoalsIncluded: Number.isFinite(Number(value.countedGoalsIncluded)) ? Number(value.countedGoalsIncluded) : null,
     countedGoalRecall: safeNumber(value.countedGoalRecall),
+    humanVisibleGoalsIncluded: Number.isFinite(Number(value.humanVisibleGoalsIncluded)) ? Number(value.humanVisibleGoalsIncluded) : null,
+    humanVisibleGoalRecall: safeNumber(value.humanVisibleGoalRecall),
+    passedVisualGate: typeof value.passedVisualGate === "boolean" ? value.passedVisualGate : null,
+    failedVisibleGoalSegments: Array.isArray(value.failedVisibleGoalSegments)
+      ? value.failedVisibleGoalSegments.slice(0, 8).map((segment) => ({
+          index: Number.isFinite(Number(segment.index)) ? Number(segment.index) : null,
+          segmentId: sanitizeText(segment.segmentId || "", 64) || null,
+          failureCode: segment.failureCode ? sanitizeText(segment.failureCode, 60) : null,
+          confidence: safeNumber(segment.confidence),
+          evidence: segment.evidence && typeof segment.evidence === "object"
+            ? {
+                hasBuildupFrames: Boolean(segment.evidence.hasBuildupFrames),
+                hasShotFrames: Boolean(segment.evidence.hasShotFrames),
+                hasGoalmouthFrames: Boolean(segment.evidence.hasGoalmouthFrames),
+                hasPayoffFrames: Boolean(segment.evidence.hasPayoffFrames),
+                hasConfirmationAfterFinish: Boolean(segment.evidence.hasConfirmationAfterFinish),
+              }
+            : null,
+          sampledFrames: Array.isArray(segment.sampledFrames)
+            ? segment.sampledFrames.slice(0, 8).map((frame) => ({
+                label: sanitizeText(frame && frame.label, 40),
+                time: safeNumber(frame && frame.time),
+              })).filter((frame) => frame.label && frame.time !== null)
+            : [],
+        }))
+      : [],
     replayOnlySegments: Number.isFinite(Number(value.replayOnlySegments)) ? Number(value.replayOnlySegments) : null,
     replayOnlyGoalRate: safeNumber(value.replayOnlyGoalRate),
     averageGoalSegmentDuration: safeNumber(value.averageGoalSegmentDuration),
@@ -554,6 +614,7 @@ function safeEditAssembly(value) {
                 hasConfirmation: Boolean(segment.phaseCoverage.hasConfirmation),
               }
             : null,
+          visualGoalGate: safeHumanVisibleGoalGate(segment.visualGoalGate),
           cutQuality: segment.cutQuality && typeof segment.cutQuality === "object"
             ? {
                 abruptCutRisk: Boolean(segment.cutQuality.abruptCutRisk),
@@ -674,6 +735,7 @@ function safeCountedGoalProofSummary(job = {}, segments = []) {
       replayUsed: segment.replayUsed,
       replayOnly: segment.replayOnly,
       phaseCoverage: segment.phaseCoverage,
+      visualGoalGate: segment.visualGoalGate,
     })),
     detectedGoalCandidates,
     selectedValidGoals,

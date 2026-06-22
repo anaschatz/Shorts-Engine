@@ -18,6 +18,7 @@ const { deterministicScoreboardOcr } = require("../server/scoreboard-ocr.cjs");
 const { analyzeTracking, publicTrackingProviderOutput, validateTrackingProviderOutput } = require("../server/tracking-provider.cjs");
 const { validateVisualSignals } = require("../server/vision.cjs");
 const { analyzeVisualTracking, validateCropPlan } = require("../server/visual-tracking.cjs");
+const { publicHumanVisibleGoalGate, validateHumanVisibleGoalSequence } = require("../server/human-visible-goal-gate.cjs");
 
 const DEFAULT_THRESHOLDS = Object.freeze({
   minAggregateScore: 78,
@@ -683,6 +684,34 @@ function goalPhaseCoverageScore(topPlan, expected = {}) {
   return round(covered.length / confirmedSegments.length, 4);
 }
 
+function humanVisibleGateForSegment(segment = {}) {
+  if (segment.visualGoalGate && typeof segment.visualGoalGate === "object" && !Array.isArray(segment.visualGoalGate)) {
+    return publicHumanVisibleGoalGate(segment.visualGoalGate);
+  }
+  return publicHumanVisibleGoalGate(validateHumanVisibleGoalSequence({ segment }));
+}
+
+function humanVisibleGoalRecallScore(topPlan, expected = {}, minOverlap = 0.5) {
+  if (!expected.humanVisibleGoalGateRequired) return 1;
+  const expectedGoals = expectedValidGoalWindows(expected);
+  const confirmedSegments = planSegments(topPlan).filter(isConfirmedValidGoalSegment);
+  if (!confirmedSegments.length) return expectedGoals.length ? 0 : 1;
+  const visibleSegments = confirmedSegments.filter((segment) => humanVisibleGateForSegment(segment).passed);
+  if (!expectedGoals.length) return round(visibleSegments.length / confirmedSegments.length, 4);
+  const covered = expectedGoals.filter((goal) => visibleSegments.some((segment) => (
+    overlapRatio(segmentWindow(segment), goal) >= minOverlap
+  )));
+  return round(covered.length / expectedGoals.length, 4);
+}
+
+function humanVisibleGoalFailureCount(topPlan, expected = {}) {
+  if (!expected.humanVisibleGoalGateRequired) return 0;
+  return planSegments(topPlan)
+    .filter(isConfirmedValidGoalSegment)
+    .filter((segment) => !humanVisibleGateForSegment(segment).passed)
+    .length;
+}
+
 function visualPolishQa(topPlan) {
   return topPlan && (
     topPlan.visualPolishQA ||
@@ -1294,6 +1323,8 @@ function scoreFixture(fixture) {
   const captionGoalClaimAccuracy = captionGoalClaimAccuracyScore(topPlan, fixture.expected);
   const segmentTimingCoverage = segmentTimingCoverageScore(topPlan, fixture.expected);
   const goalPhaseCoverage = goalPhaseCoverageScore(topPlan, fixture.expected);
+  const humanVisibleGoalRecall = humanVisibleGoalRecallScore(topPlan, fixture.expected, thresholds.minTop1Overlap);
+  const humanVisibleGoalFailureCountValue = humanVisibleGoalFailureCount(topPlan, fixture.expected);
   const replayOnlyGoalRateValue = replayOnlyGoalRate(topPlan, fixture.expected);
   const visualPolishScoreValue = referenceVisualPolishScore(topPlan, fixture.expected);
   const abruptCutRiskCountValue = abruptCutRiskCount(topPlan, fixture.expected);
@@ -1430,6 +1461,8 @@ function scoreFixture(fixture) {
     captionGoalClaimAccuracy >= 0.95 &&
     segmentTimingCoverage >= 0.9 &&
     goalPhaseCoverage >= 1 &&
+    humanVisibleGoalRecall >= 1 &&
+    humanVisibleGoalFailureCountValue === 0 &&
     replayOnlyGoalRateValue === 0 &&
     visualPolishScoreValue >= 0.95 &&
     abruptCutRiskCountValue === 0 &&
@@ -1493,6 +1526,8 @@ function scoreFixture(fixture) {
       captionGoalClaimAccuracy,
       segmentTimingCoverage,
       goalPhaseCoverage,
+      humanVisibleGoalRecall,
+      humanVisibleGoalFailureCount: humanVisibleGoalFailureCountValue,
       replayOnlyGoalRate: replayOnlyGoalRateValue,
       visualPolishScore: visualPolishScoreValue,
       abruptCutRiskCount: abruptCutRiskCountValue,
@@ -1668,6 +1703,7 @@ function scoreFixture(fixture) {
                 : null,
               whySelected: sanitizeReportText(segment.whySelected, 160),
               safetyFlags: Array.isArray(segment.safetyFlags) ? segment.safetyFlags : [],
+              visualGoalGate: humanVisibleGateForSegment(segment),
             }))
           : [],
         retentionScore: plan.retentionScore,
@@ -1846,6 +1882,8 @@ function debuggingNotes(metrics) {
   if (metrics.captionGoalClaimAccuracy < 0.95) notes.push("Goal captions do not match valid-goal expectations.");
   if (metrics.segmentTimingCoverage < 0.9) notes.push("Goal segments do not cover the expected shot/payoff/decision window.");
   if (metrics.goalPhaseCoverage < 1) notes.push("Confirmed-goal segments do not cover buildup, shot, finish and confirmation.");
+  if (metrics.humanVisibleGoalRecall < 1) notes.push("Confirmed-goal output does not show every expected goal as a human-visible buildup, shot, finish and confirmation sequence.");
+  if (metrics.humanVisibleGoalFailureCount) notes.push("One or more confirmed-goal segments failed the human-visible goal gate.");
   if (metrics.replayOnlyGoalRate) notes.push("A confirmed-goal segment is replay-only.");
   if (metrics.visualPolishScore < 0.95) notes.push("Reference-style visual polish QA is missing or below threshold.");
   if (metrics.abruptCutRiskCount) notes.push("Reference-style QA detected abrupt cut risk.");
@@ -1924,6 +1962,8 @@ function aggregateResults(results) {
     captionGoalClaimAccuracy: avg((result) => result.metrics.captionGoalClaimAccuracy),
     segmentTimingCoverage: avg((result) => result.metrics.segmentTimingCoverage),
     goalPhaseCoverage: avg((result) => result.metrics.goalPhaseCoverage),
+    humanVisibleGoalRecall: avg((result) => result.metrics.humanVisibleGoalRecall),
+    humanVisibleGoalFailureCount: avg((result) => result.metrics.humanVisibleGoalFailureCount),
     replayOnlyGoalRate: avg((result) => result.metrics.replayOnlyGoalRate),
     visualPolishScore: avg((result) => result.metrics.visualPolishScore),
     abruptCutRiskCount: avg((result) => result.metrics.abruptCutRiskCount),

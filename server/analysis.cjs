@@ -33,6 +33,10 @@ const {
   normalizeEditIntensity,
   normalizeStyleTarget,
 } = require("./football-story-planner.cjs");
+const {
+  publicHumanVisibleGoalGate,
+  validateHumanVisibleGoalSequence,
+} = require("./human-visible-goal-gate.cjs");
 
 const SHOT_TERMS = [
   "shot",
@@ -3930,6 +3934,13 @@ function phaseCompleteForReference(segment = {}) {
     visualPayoff.hasVisibleGoalPayoff === true;
 }
 
+function visualGateForSegment(segment = {}) {
+  if (segment.visualGoalGate && typeof segment.visualGoalGate === "object" && !Array.isArray(segment.visualGoalGate)) {
+    return publicHumanVisibleGoalGate(segment.visualGoalGate);
+  }
+  return publicHumanVisibleGoalGate(validateHumanVisibleGoalSequence({ segment }));
+}
+
 function abruptCutRisksForSegment(segment = {}) {
   const risks = [];
   const duration = Number(segment.duration || Number(segment.sourceEnd || 0) - Number(segment.sourceStart || 0));
@@ -3996,6 +4007,7 @@ function editAssemblyForCompilation(segments = [], transitionPlan = []) {
     segments: segments.map((segment, index) => {
       const riskFlags = abruptCutRisksForSegment(segment);
       const boundarySmoothing = segment.boundarySmoothing || boundarySmoothingForWindow(segment);
+      const visualGoalGate = visualGateForSegment(segment);
       return {
         id: sanitizeText(segment.id || `segment_${index + 1}`, 64),
         goalNumber: Number.isFinite(Number(segment.goalNumber)) ? Number(segment.goalNumber) : index + 1,
@@ -4009,6 +4021,7 @@ function editAssemblyForCompilation(segments = [], transitionPlan = []) {
         replayUsed: Boolean(segment.replayUsed),
         replayOnly: Boolean(segment.replayOnly),
         phaseCoverage: segment.phaseCoverage || null,
+        visualGoalGate,
         boundarySmoothing,
         cutQuality: {
           abruptCutRisk: riskFlags.length > 0,
@@ -4035,6 +4048,25 @@ function referenceStyleQaForCompilation({ segments = [], captions = [], transiti
   const safeSegments = Array.isArray(segments) ? segments : [];
   const durations = safeSegments.map((segment) => Number(segment.duration || 0)).filter((duration) => Number.isFinite(duration) && duration > 0);
   const confirmedGoalSegments = safeSegments.filter((segment) => segment.goalOutcome && segment.goalOutcome.outcome === "confirmed_goal");
+  const visualGateResults = confirmedGoalSegments.map((segment, index) => ({
+    index: Number.isFinite(Number(segment.goalNumber)) ? Number(segment.goalNumber) : index + 1,
+    segmentId: sanitizeText(segment.id || `goal_${index + 1}`, 64),
+    ...visualGateForSegment(segment),
+  }));
+  const humanVisibleGoalsIncluded = visualGateResults.filter((gate) => gate.passed).length;
+  const failedVisibleGoalSegments = visualGateResults
+    .filter((gate) => !gate.passed)
+    .map((gate) => ({
+      index: gate.index,
+      segmentId: gate.segmentId,
+      failureCode: gate.failureCode,
+      confidence: gate.confidence,
+      evidence: gate.evidence,
+      sampledFrames: gate.sampledFrames,
+    }));
+  const humanVisibleGoalRecall = confirmedGoalSegments.length
+    ? Number((humanVisibleGoalsIncluded / confirmedGoalSegments.length).toFixed(4))
+    : 1;
   const averageGoalSegmentDuration = durations.length
     ? Number((durations.reduce((sum, duration) => sum + duration, 0) / durations.length).toFixed(2))
     : 0;
@@ -4124,6 +4156,17 @@ function referenceStyleQaForCompilation({ segments = [], captions = [], transiti
     stylePreset: sanitizeText(stylePreset, 40),
     countedGoalsIncluded: safeSegments.filter((segment) => segment.goalOutcome && segment.goalOutcome.outcome === "confirmed_goal").length,
     countedGoalRecall: safeSegments.length && confirmedGoalSegments.length === safeSegments.length ? 1 : 0,
+    humanVisibleGoalsIncluded,
+    humanVisibleGoalRecall,
+    passedVisualGate: confirmedGoalSegments.length > 0 && humanVisibleGoalRecall === 1,
+    failedVisibleGoalSegments,
+    visualGateFailures: failedVisibleGoalSegments.map((segment) => ({
+      index: segment.index,
+      failureCode: segment.failureCode,
+      confidence: segment.confidence,
+      evidence: segment.evidence,
+      sampledFrames: segment.sampledFrames,
+    })),
     replayOnlySegments: safeSegments.filter((segment) => segment.replayOnly === true || (segment.phaseCoverage && segment.phaseCoverage.replayOnly === true)).length,
     replayOnlyGoalRate,
     visibleGoalPayoffCount,
@@ -4306,7 +4349,7 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
           Number.isFinite(Number(candidatePhase.phaseCoverage.liveActionStart))
         ? Number(Number(candidatePhase.phaseCoverage.liveActionStart).toFixed(2))
         : Number(candidate.sourceStart.toFixed(2));
-    return {
+    const segment = {
       id: sanitizeText(candidate.candidateId || moment.id || `multi_segment_${index + 1}`, 64),
       sourceStart: Number(candidate.sourceStart.toFixed(2)),
       sourceEnd: Number(candidate.sourceEnd.toFixed(2)),
@@ -4344,6 +4387,10 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
       captionSafetyFlags: candidate.goalOutcome && Array.isArray(candidate.goalOutcome.captionSafetyFlags)
         ? candidate.goalOutcome.captionSafetyFlags
         : [],
+    };
+    return {
+      ...segment,
+      visualGoalGate: visualGateForSegment(segment),
     };
   });
   const totalDuration = Number(cursor.toFixed(2));
@@ -4543,6 +4590,7 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
           finishTime: segment.finishTime,
           confirmationTime: segment.confirmationTime,
           boundarySmoothing: segment.boundarySmoothing,
+          visualGoalGate: segment.visualGoalGate,
           whySelected: segment.whySelected,
           safetyFlags: segment.safetyFlags,
         })),
@@ -4794,6 +4842,7 @@ function analysisHealth() {
       "reference_style_animation_cues",
       "multi_moment_compilation",
       "reference_style_visual_polish_qa",
+      "human_visible_goal_gate",
       "highlight_ranking",
       "candidate_edit_plans",
     ],

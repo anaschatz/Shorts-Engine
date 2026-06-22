@@ -94,6 +94,8 @@ test("fixture scoring returns reportable metrics and candidate plans", () => {
   assert.equal(typeof result.metrics.validGoalOrdering, "number");
   assert.equal(typeof result.metrics.captionGoalClaimAccuracy, "number");
   assert.equal(typeof result.metrics.segmentTimingCoverage, "number");
+  assert.equal(typeof result.metrics.humanVisibleGoalRecall, "number");
+  assert.equal(typeof result.metrics.humanVisibleGoalFailureCount, "number");
   assert.equal(typeof result.metrics.celebrationOnlyExclusion, "number");
   assert.equal(typeof result.metrics.anthemIntroExclusion, "number");
   assert.equal(typeof result.metrics.ocrEvidenceCoverage, "number");
@@ -210,6 +212,22 @@ test("real-source counted-goal fixture keeps all three counted goals including t
   assert.equal(result.metrics.visualPolishScore, 1);
 });
 
+test("full goal phase fixture requires every counted goal to be human-visible", () => {
+  const fixture = loadFixtures(fixturesDir).find((item) => item.id === "full_goal_phase_replay_demoted");
+  assert.ok(fixture);
+  assert.equal(fixture.expected.humanVisibleGoalGateRequired, true);
+
+  const result = scoreFixture(fixture);
+  const topPlan = result.actual.candidatePlans[0];
+
+  assert.equal(result.passed, true);
+  assert.equal(result.metrics.humanVisibleGoalRecall, 1);
+  assert.equal(result.metrics.humanVisibleGoalFailureCount, 0);
+  assert.equal(result.metrics.replayOnlyGoalRate, 0);
+  assert.equal(topPlan.selectedMomentCount, 3);
+  assert.ok(topPlan.segments.every((segment) => segment.visualGoalGate.passed === true));
+});
+
 test("OCR-confirmed valid-goals fixture selects every goal and excludes intro/celebration", () => {
   const fixture = loadFixtures(fixturesDir).find((item) => item.id === "ocr_confirmed_valid_goals");
   assert.ok(fixture);
@@ -306,6 +324,8 @@ test("evaluation report has aggregate metrics and no local path leakage", () => 
   assert.equal(report.aggregate.cutSmoothnessScore, 1);
   assert.equal(report.aggregate.captionGoalClaimAccuracy, 1);
   assert.equal(report.aggregate.segmentTimingCoverage >= 0.95, true);
+  assert.equal(report.aggregate.humanVisibleGoalRecall, 1);
+  assert.equal(report.aggregate.humanVisibleGoalFailureCount, 0);
   assert.equal(report.aggregate.celebrationOnlyExclusion, 1);
   assert.equal(report.aggregate.anthemIntroExclusion, 1);
   assert.equal(report.aggregate.ocrEvidenceCoverage, 1);
@@ -421,6 +441,8 @@ test("runner writes a JSON report", () => {
   assert.equal(summary.validGoalOnlyFillerRate, 0);
   assert.equal(summary.captionGoalClaimAccuracy, 1);
   assert.equal(summary.segmentTimingCoverage >= 0.95, true);
+  assert.equal(summary.humanVisibleGoalRecall, 1);
+  assert.equal(summary.humanVisibleGoalFailureCount, 0);
   assert.equal(summary.celebrationOnlyExclusion, 1);
   assert.equal(summary.anthemIntroExclusion, 1);
   assert.equal(summary.ocrEvidenceCoverage, 1);

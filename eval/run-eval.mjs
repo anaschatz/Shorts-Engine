@@ -66,6 +66,8 @@ try {
     cutSmoothnessScore: report.aggregate.cutSmoothnessScore,
     captionGoalClaimAccuracy: report.aggregate.captionGoalClaimAccuracy,
     segmentTimingCoverage: report.aggregate.segmentTimingCoverage,
+    humanVisibleGoalRecall: report.aggregate.humanVisibleGoalRecall,
+    humanVisibleGoalFailureCount: report.aggregate.humanVisibleGoalFailureCount,
     goalEvidenceCoverage: report.aggregate.goalEvidenceCoverage,
     celebrationOnlyExclusion: report.aggregate.celebrationOnlyExclusion,
     anthemIntroExclusion: report.aggregate.anthemIntroExclusion,

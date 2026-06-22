@@ -868,8 +868,41 @@ function countedGoalSmokeReport() {
         hasShot: true,
         hasFinish: true,
         hasConfirmation: true,
+        visualGoalPayoff: {
+          hasVisibleGoalPayoff: true,
+          hasBallInNetEvidence: true,
+          hasLiveFinishSequence: true,
+          scoreboardOnly: false,
+          evidenceCodes: ["visual_ball_in_net", "live_shot_finish_sequence", "scoreboard_goal_confirmation"],
+        },
       },
-      reasonCodes: ["goal", "scoreboard_ocr_score_change"],
+      visualGoalGate: {
+        passed: true,
+        confidence: 1,
+        failureCode: null,
+        evidence: {
+          hasBuildupFrames: true,
+          hasShotFrames: true,
+          hasGoalmouthFrames: true,
+          hasPayoffFrames: true,
+          hasConfirmationAfterFinish: true,
+        },
+        sampledFrames: [
+          { label: "source_start", time: sourceStart },
+          { label: "shot_start", time: sourceStart + 10 },
+          { label: "finish", time: sourceStart + 14 },
+          { label: "confirmation", time: sourceStart + 22 },
+        ],
+      },
+      reasonCodes: [
+        "goal",
+        "visual_shot_contact",
+        "visual_ball_toward_goal",
+        "visual_goal_mouth",
+        "visual_ball_in_net",
+        "visual_scoreboard_goal_confirmed",
+        "scoreboard_ocr_score_change",
+      ],
       whySelected: "Confirmed counted goal selected from match truth.",
       safetyFlags: [],
     };
@@ -898,6 +931,7 @@ function countedGoalSmokeReport() {
         replayUsed: segment.replayUsed,
         replayOnly: segment.replayOnly,
         phaseCoverage: segment.phaseCoverage,
+        visualGoalGate: segment.visualGoalGate,
       })),
       detectedGoalCandidates: [],
       selectedValidGoals: segments.map((segment) => ({
@@ -922,6 +956,10 @@ function countedGoalSmokeReport() {
       contractVersion: 1,
       countedGoalsIncluded: 3,
       countedGoalRecall: 1,
+      humanVisibleGoalsIncluded: 3,
+      humanVisibleGoalRecall: 1,
+      passedVisualGate: true,
+      failedVisibleGoalSegments: [],
       replayOnlySegments: 0,
       replayOnlyGoalRate: 0,
       averageGoalSegmentDuration: 24,
@@ -1397,6 +1435,9 @@ test("youtube live local e2e reports counted goal coverage and replay-only segme
   assert.equal(report.status, "passed");
   assert.equal(report.outputProof.countedGoalsFound, 3);
   assert.equal(report.outputProof.countedGoalsIncluded, 3);
+  assert.equal(report.outputProof.humanVisibleGoalsIncluded, 3);
+  assert.equal(report.outputProof.humanVisibleGoalRecall, 1);
+  assert.equal(report.outputProof.passedVisualGate, true);
   assert.equal(report.outputProof.expectedCountedGoals, 3);
   assert.equal(report.outputProof.replayOnlySegments, 0);
   assert.equal(report.outputProof.nonGoalFillerRate, 0);
@@ -1414,7 +1455,9 @@ test("youtube live local e2e reports counted goal coverage and replay-only segme
   assert.equal(report.outputProof.segmentWindows.length, 3);
   assert.equal(report.outputProof.segmentWindows[0].shotStart, 100);
   assert.equal(report.outputProof.segmentWindows[0].phaseCoverage.hasBuildup, true);
+  assert.equal(report.outputProof.segmentWindows[0].visualGoalGate.passed, true);
   assert.equal(report.outputProof.comparison.checklist.countedGoals, true);
+  assert.equal(report.outputProof.comparison.checklist.humanVisibleGoals, true);
   assert.equal(report.outputProof.comparison.checklist.livePhaseVsReplayOnly, true);
   assert.equal(findSensitiveLeak(report), null);
 });
@@ -1451,6 +1494,62 @@ test("youtube live local e2e fails release proof when expected counted goals are
     report.checks.some((check) => check.name === "youtube_live_e2e_counted_goal_coverage_complete" && check.passed === false),
     true,
   );
+  assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube live local e2e fails release proof when counted goals are not human-visible", async () => {
+  const smoke = countedGoalSmokeReport();
+  smoke.renderPlan.segments[2].visualGoalGate = {
+    passed: false,
+    confidence: 0.4,
+    failureCode: "NO_FINISH_VISIBLE",
+    evidence: {
+      hasBuildupFrames: true,
+      hasShotFrames: true,
+      hasGoalmouthFrames: false,
+      hasPayoffFrames: false,
+      hasConfirmationAfterFinish: true,
+    },
+    sampledFrames: [
+      { label: "shot_start", time: 280 },
+      { label: "finish", time: 284 },
+    ],
+  };
+  smoke.renderPlan.countedGoalProof.selectedTimelineWindows[2].visualGoalGate = smoke.renderPlan.segments[2].visualGoalGate;
+  smoke.renderPlan.visualPolishQA.humanVisibleGoalsIncluded = 2;
+  smoke.renderPlan.visualPolishQA.humanVisibleGoalRecall = 0.6667;
+  smoke.renderPlan.visualPolishQA.passedVisualGate = false;
+  smoke.renderPlan.visualPolishQA.failedVisibleGoalSegments = [{
+    index: 3,
+    segmentId: "goal_3",
+    failureCode: "NO_FINISH_VISIBLE",
+    confidence: 0.4,
+    evidence: smoke.renderPlan.segments[2].visualGoalGate.evidence,
+    sampledFrames: smoke.renderPlan.segments[2].visualGoalGate.sampledFrames,
+  }];
+
+  const report = await runYouTubeLiveE2E({
+    env: liveEnv({ SHORTSENGINE_YOUTUBE_LIVE_E2E_EXPECTED_COUNTED_GOALS: "3" }),
+    checkYouTubeIngest: async () => passedDoctor(),
+    getFreePort: async () => 4175,
+    startServer: () => ({ child: { exitCode: null, signalCode: null }, events: [] }),
+    stopServer: async () => {},
+    waitForServerReady: async () => ({ attempts: 1, waitedMs: 10, status: 200 }),
+    runYouTubeSmoke: async () => smoke,
+    requireOutputValidation: true,
+  });
+
+  assert.equal(report.status, "failed");
+  assert.equal(report.phase, "render");
+  assert.equal(report.failedCases[0].code, "YOUTUBE_LIVE_E2E_HUMAN_VISIBLE_GOAL_INCOMPLETE");
+  assert.equal(report.outputProof.countedGoalsIncluded, 3);
+  assert.equal(report.outputProof.humanVisibleGoalsIncluded, 2);
+  assert.equal(report.outputProof.humanVisibleGoalRecall, 0.6667);
+  assert.equal(report.outputProof.passedVisualGate, false);
+  assert.equal(report.outputProof.failedVisibleGoalSegments[0].failureCode, "NO_FINISH_VISIBLE");
+  assert.equal(report.outputProof.segmentWindows[2].visualGoalGate.failureCode, "NO_FINISH_VISIBLE");
+  assert.equal(report.outputProof.comparison.checklist.countedGoals, true);
+  assert.equal(report.outputProof.comparison.checklist.humanVisibleGoals, false);
   assert.equal(findSensitiveLeak(report), null);
 });
 

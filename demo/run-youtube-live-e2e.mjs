@@ -46,6 +46,7 @@ const NEXT_ACTIONS = Object.freeze({
   YOUTUBE_LIVE_E2E_TIMEOUT: "check-local-server-and-downloader-before-rerun-or-increase-timeout-only-if-expected",
   YOUTUBE_LIVE_E2E_OUTPUT_NOT_READY: "check-generated-mp4-path-and-ffprobe-before-comparison",
   YOUTUBE_LIVE_E2E_GOAL_COVERAGE_INCOMPLETE: "inspect-counted-goal-proof-and-fix-valid-goal-selection-before-release",
+  YOUTUBE_LIVE_E2E_HUMAN_VISIBLE_GOAL_INCOMPLETE: "inspect-human-visible-goal-gate-contact-sheets-and-fix-goal-sequence-selection",
   YOUTUBE_LIVE_E2E_CLEANUP_DIR_UNSAFE: "keep-live-proof-cleanup-inside-manual-downloads",
   NO_VALID_GOALS_FOUND: "inspect-valid-goal-selection-evidence-before-rerun",
   YOUTUBE_SMOKE_URL_MISSING: "set-SHORTSENGINE_YOUTUBE_LIVE_E2E_URL-or-SHORTSENGINE_YOUTUBE_SMOKE_URL",
@@ -244,7 +245,14 @@ function phaseForCode(code) {
   if (text.includes("VALIDATE") || text.includes("VALIDATION")) return PHASES.VALIDATION;
   if (text.includes("INGEST") || text.includes("ARTIFACT") || text.includes("SOURCE_RESPONSE")) return PHASES.INGEST;
   if (text.startsWith("FILE_") || text.startsWith("VIDEO_") || text.includes("DURATION")) return PHASES.PROBE;
-  if (text.includes("JOB") || text.includes("GENERATE") || text.includes("EXPORT_MISSING") || text === "NO_VALID_GOALS_FOUND") return PHASES.RENDER;
+  if (
+    text.includes("JOB") ||
+    text.includes("GENERATE") ||
+    text.includes("EXPORT_MISSING") ||
+    text.includes("GOAL_COVERAGE") ||
+    text.includes("HUMAN_VISIBLE_GOAL") ||
+    text === "NO_VALID_GOALS_FOUND"
+  ) return PHASES.RENDER;
   if (text.includes("DOWNLOAD") || text.includes("MP4") || text.includes("OUTPUT")) return PHASES.DOWNLOAD;
   if (text.includes("BROWSER") || text.includes("PLAYWRIGHT")) return PHASES.BROWSER;
   if (text.includes("REPORT_LEAK")) return PHASES.REPORT;
@@ -415,6 +423,30 @@ function safePhaseCoverage(value) {
   };
 }
 
+function safeHumanVisibleGoalGate(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    passed: Boolean(value.passed),
+    confidence: safeNumber(value.confidence),
+    failureCode: value.failureCode ? safeString(value.failureCode, 60) : null,
+    evidence: value.evidence && typeof value.evidence === "object" && !Array.isArray(value.evidence)
+      ? {
+          hasBuildupFrames: Boolean(value.evidence.hasBuildupFrames),
+          hasShotFrames: Boolean(value.evidence.hasShotFrames),
+          hasGoalmouthFrames: Boolean(value.evidence.hasGoalmouthFrames),
+          hasPayoffFrames: Boolean(value.evidence.hasPayoffFrames),
+          hasConfirmationAfterFinish: Boolean(value.evidence.hasConfirmationAfterFinish),
+        }
+      : null,
+    sampledFrames: Array.isArray(value.sampledFrames)
+      ? value.sampledFrames.slice(0, 8).map((frame) => ({
+          label: safeString(frame && frame.label, 40),
+          time: safeNumber(frame && frame.time),
+        })).filter((frame) => frame.label && frame.time !== null)
+      : [],
+  };
+}
+
 function safeSegmentWindow(segment = {}, index = 0) {
   return {
     index: Number.isFinite(Number(segment.index)) ? Number(segment.index) : index + 1,
@@ -435,6 +467,7 @@ function safeSegmentWindow(segment = {}, index = 0) {
         }
       : null,
     phaseCoverage: safePhaseCoverage(segment.phaseCoverage),
+    visualGoalGate: safeHumanVisibleGoalGate(segment.visualGoalGate),
   };
 }
 
@@ -462,13 +495,80 @@ function countedGoalCoverageFromSmoke(smoke, source, env) {
   const countedGoalsIncluded = segments.filter((segment) => segment.replayOnly !== true).length || Number(proof.finalSegmentCount || 0);
   const replayOnlySegments = segments.filter((segment) => segment.replayOnly === true).length;
   const expectedCountedGoals = expectedCountedGoalsForSource(source, env);
+  const qa = renderPlan.visualPolishQA && typeof renderPlan.visualPolishQA === "object"
+    ? renderPlan.visualPolishQA
+    : {};
+  const segmentVisibleCount = segments.filter((segment) => segment.visualGoalGate && segment.visualGoalGate.passed === true).length;
+  const humanVisibleGoalsIncluded = Number.isFinite(Number(qa.humanVisibleGoalsIncluded))
+    ? Number(qa.humanVisibleGoalsIncluded)
+    : segmentVisibleCount;
+  const failedVisibleGoalSegments = Array.isArray(qa.failedVisibleGoalSegments)
+    ? qa.failedVisibleGoalSegments.map((segment, index) => ({
+        index: Number.isFinite(Number(segment.index)) ? Number(segment.index) : index + 1,
+        segmentId: safeString(segment.segmentId || "", 64) || null,
+        failureCode: segment.failureCode ? safeString(segment.failureCode, 60) : null,
+        confidence: safeNumber(segment.confidence),
+        evidence: segment.evidence && typeof segment.evidence === "object"
+          ? {
+              hasBuildupFrames: Boolean(segment.evidence.hasBuildupFrames),
+              hasShotFrames: Boolean(segment.evidence.hasShotFrames),
+              hasGoalmouthFrames: Boolean(segment.evidence.hasGoalmouthFrames),
+              hasPayoffFrames: Boolean(segment.evidence.hasPayoffFrames),
+              hasConfirmationAfterFinish: Boolean(segment.evidence.hasConfirmationAfterFinish),
+            }
+          : null,
+        sampledFrames: Array.isArray(segment.sampledFrames)
+          ? segment.sampledFrames.slice(0, 8).map((frame) => ({
+              label: safeString(frame && frame.label, 40),
+              time: safeNumber(frame && frame.time),
+            })).filter((frame) => frame.label && frame.time !== null)
+          : [],
+      }))
+    : segments
+        .filter((segment) => !segment.visualGoalGate || segment.visualGoalGate.passed !== true)
+        .map((segment) => ({
+          index: segment.index,
+          segmentId: null,
+          failureCode: segment.visualGoalGate ? segment.visualGoalGate.failureCode : "GOAL_NOT_VISIBLE",
+          confidence: segment.visualGoalGate ? segment.visualGoalGate.confidence : null,
+          evidence: segment.visualGoalGate ? segment.visualGoalGate.evidence : null,
+          sampledFrames: segment.visualGoalGate ? segment.visualGoalGate.sampledFrames : [],
+        }));
+  const failedGateByIndex = new Map(failedVisibleGoalSegments.map((segment) => [
+    Number(segment.index),
+    {
+      passed: false,
+      confidence: segment.confidence,
+      failureCode: segment.failureCode || "GOAL_NOT_VISIBLE",
+      evidence: segment.evidence,
+      sampledFrames: segment.sampledFrames,
+    },
+  ]));
+  const segmentWindows = segments.map((segment) => (
+    segment.visualGoalGate
+      ? segment
+      : {
+          ...segment,
+          visualGoalGate: failedGateByIndex.get(Number(segment.index)) || null,
+        }
+  ));
+  const humanVisibleGoalRecall = Number.isFinite(Number(qa.humanVisibleGoalRecall))
+    ? Number(qa.humanVisibleGoalRecall)
+    : countedGoalsIncluded > 0
+      ? Number((humanVisibleGoalsIncluded / countedGoalsIncluded).toFixed(4))
+      : 1;
   return {
     countedGoalsFound,
     countedGoalsIncluded,
+    humanVisibleGoalsIncluded,
+    humanVisibleGoalRecall,
+    passedVisualGate: humanVisibleGoalsIncluded === countedGoalsIncluded && humanVisibleGoalRecall === 1,
+    failedVisibleGoalSegments,
+    visualGateFailures: failedVisibleGoalSegments,
     expectedCountedGoals,
     replayOnlySegments,
     allExpectedCountedGoalsIncluded: expectedCountedGoals === null ? null : countedGoalsIncluded === expectedCountedGoals,
-    segmentWindows: segments,
+    segmentWindows,
   };
 }
 
@@ -491,6 +591,34 @@ function referenceStyleQaFromSmoke(smoke, outputMp4 = null) {
     ? Number(qa.replayOnlySegments)
     : segments.filter((segment) => segment && segment.replayOnly === true).length;
   const countedGoalRecall = Number.isFinite(Number(qa.countedGoalRecall)) ? Number(qa.countedGoalRecall) : null;
+  const humanVisibleGoalsIncluded = Number.isFinite(Number(qa.humanVisibleGoalsIncluded))
+    ? Number(qa.humanVisibleGoalsIncluded)
+    : segments.filter((segment) => segment && segment.visualGoalGate && segment.visualGoalGate.passed === true).length;
+  const humanVisibleGoalRecall = Number.isFinite(Number(qa.humanVisibleGoalRecall)) ? Number(qa.humanVisibleGoalRecall) : null;
+  const passedVisualGate = typeof qa.passedVisualGate === "boolean" ? qa.passedVisualGate : null;
+  const failedVisibleGoalSegments = Array.isArray(qa.failedVisibleGoalSegments)
+    ? qa.failedVisibleGoalSegments.slice(0, 8).map((segment, index) => ({
+        index: Number.isFinite(Number(segment.index)) ? Number(segment.index) : index + 1,
+        segmentId: safeString(segment.segmentId || "", 64) || null,
+        failureCode: segment.failureCode ? safeString(segment.failureCode, 60) : null,
+        confidence: safeNumber(segment.confidence),
+        evidence: segment.evidence && typeof segment.evidence === "object"
+          ? {
+              hasBuildupFrames: Boolean(segment.evidence.hasBuildupFrames),
+              hasShotFrames: Boolean(segment.evidence.hasShotFrames),
+              hasGoalmouthFrames: Boolean(segment.evidence.hasGoalmouthFrames),
+              hasPayoffFrames: Boolean(segment.evidence.hasPayoffFrames),
+              hasConfirmationAfterFinish: Boolean(segment.evidence.hasConfirmationAfterFinish),
+            }
+          : null,
+        sampledFrames: Array.isArray(segment.sampledFrames)
+          ? segment.sampledFrames.slice(0, 8).map((frame) => ({
+              label: safeString(frame && frame.label, 40),
+              time: safeNumber(frame && frame.time),
+            })).filter((frame) => frame.label && frame.time !== null)
+          : [],
+      }))
+    : [];
   const replayOnlyGoalRate = Number.isFinite(Number(qa.replayOnlyGoalRate)) ? Number(qa.replayOnlyGoalRate) : null;
   const excessiveTailCount = Number.isFinite(Number(qa.excessiveTailCount)) ? Number(qa.excessiveTailCount) : null;
   const excessiveTailRate = Number.isFinite(Number(qa.excessiveTailRate)) ? Number(qa.excessiveTailRate) : null;
@@ -543,6 +671,11 @@ function referenceStyleQaFromSmoke(smoke, outputMp4 = null) {
     countedGoalsExpected: null,
     countedGoalsIncluded: Number.isFinite(Number(qa.countedGoalsIncluded)) ? Number(qa.countedGoalsIncluded) : null,
     countedGoalRecall,
+    humanVisibleGoalsIncluded,
+    humanVisibleGoalRecall,
+    passedVisualGate,
+    failedVisibleGoalSegments,
+    visualGateFailures: failedVisibleGoalSegments,
     replayOnlySegments,
     replayOnlyGoalRate,
     averageGoalSegmentDuration,
@@ -676,6 +809,9 @@ function buildComparisonReadiness({ source, outputMp4, ffprobe, coverage, refere
       countedGoals: coverage.expectedCountedGoals === null
         ? null
         : coverage.countedGoalsIncluded === coverage.expectedCountedGoals,
+      humanVisibleGoals: coverage.expectedCountedGoals === null
+        ? coverage.passedVisualGate
+        : coverage.humanVisibleGoalsIncluded === coverage.expectedCountedGoals,
       livePhaseVsReplayOnly: coverage.replayOnlySegments === 0,
       noOffsideNoGoal: null,
       noHymnIntroFiller: null,
@@ -704,6 +840,11 @@ function buildOutputProof({ env, smoke, source, staleArtifactCleanup }) {
   const renderPolishQA = renderPolishQaFromSmoke(smoke);
   referenceStyleQA.countedGoalsExpected = coverage.expectedCountedGoals;
   referenceStyleQA.countedGoalsIncluded = coverage.countedGoalsIncluded;
+  referenceStyleQA.humanVisibleGoalsIncluded = coverage.humanVisibleGoalsIncluded;
+  referenceStyleQA.humanVisibleGoalRecall = coverage.humanVisibleGoalRecall;
+  referenceStyleQA.passedVisualGate = coverage.passedVisualGate;
+  referenceStyleQA.failedVisibleGoalSegments = coverage.failedVisibleGoalSegments;
+  referenceStyleQA.visualGateFailures = coverage.visualGateFailures;
   referenceStyleQA.replayOnlySegments = coverage.replayOnlySegments;
   const reference = String(rawValue(env, "SHORTSENGINE_YOUTUBE_LIVE_E2E_REFERENCE") || "").trim();
   return {
@@ -714,6 +855,11 @@ function buildOutputProof({ env, smoke, source, staleArtifactCleanup }) {
     ffprobe,
     countedGoalsFound: coverage.countedGoalsFound,
     countedGoalsIncluded: coverage.countedGoalsIncluded,
+    humanVisibleGoalsIncluded: coverage.humanVisibleGoalsIncluded,
+    humanVisibleGoalRecall: coverage.humanVisibleGoalRecall,
+    passedVisualGate: coverage.passedVisualGate,
+    failedVisibleGoalSegments: coverage.failedVisibleGoalSegments,
+    visualGateFailures: coverage.visualGateFailures,
     expectedCountedGoals: coverage.expectedCountedGoals,
     replayOnlySegments: coverage.replayOnlySegments,
     averageGoalSegmentDuration: referenceStyleQA.averageGoalSegmentDuration,
@@ -1395,6 +1541,31 @@ async function runYouTubeLiveE2E(options = {}) {
         },
       );
     }
+    const humanVisibleGoalsIncluded = Number(outputProof.humanVisibleGoalsIncluded);
+    const humanVisibleGoalCoveragePassed = !Number.isFinite(expectedCountedGoals) ||
+      humanVisibleGoalsIncluded === expectedCountedGoals;
+    addCheck(checks, "youtube_live_e2e_human_visible_goal_coverage_complete", humanVisibleGoalCoveragePassed, {
+      code: humanVisibleGoalCoveragePassed ? null : "YOUTUBE_LIVE_E2E_HUMAN_VISIBLE_GOAL_INCOMPLETE",
+      expectedCountedGoals: Number.isFinite(expectedCountedGoals) ? expectedCountedGoals : null,
+      humanVisibleGoalsIncluded: Number.isFinite(humanVisibleGoalsIncluded) ? humanVisibleGoalsIncluded : null,
+      failedVisibleGoalSegments: Array.isArray(outputProof.failedVisibleGoalSegments)
+        ? outputProof.failedVisibleGoalSegments.map((segment) => ({
+            index: segment.index,
+            failureCode: segment.failureCode,
+          })).slice(0, 8)
+        : [],
+    });
+    if (strictOutputValidation && !humanVisibleGoalCoveragePassed) {
+      throw new YouTubeLiveE2EError(
+        "YOUTUBE_LIVE_E2E_HUMAN_VISIBLE_GOAL_INCOMPLETE",
+        "Live YouTube E2E did not include every expected human-visible goal sequence.",
+        {
+          phase: PHASES.RENDER,
+          expectedCountedGoals,
+          humanVisibleGoalsIncluded,
+        },
+      );
+    }
     if (strictOutputValidation && outputProof.ffprobe?.status !== "passed") {
       throw new YouTubeLiveE2EError(
         "YOUTUBE_LIVE_E2E_OUTPUT_NOT_READY",
@@ -1420,6 +1591,7 @@ async function runYouTubeLiveE2E(options = {}) {
       ["youtube_live_e2e_download_verified", Boolean(smoke.export)],
       ["youtube_live_e2e_output_fresh_path", Boolean(outputProof.outputMp4?.relativePath)],
       ["youtube_live_e2e_replay_only_segments_reported", hasFiniteNumber(outputProof.replayOnlySegments)],
+      ["youtube_live_e2e_human_visible_goal_gate_reported", hasFiniteNumber(outputProof.humanVisibleGoalsIncluded)],
       ["youtube_live_e2e_visual_polish_reported", hasFiniteNumber(outputProof.visualPolishScore)],
       ["youtube_live_e2e_abrupt_cut_risk_reported", hasFiniteNumber(outputProof.abruptCutRiskCount)],
       ["youtube_live_e2e_render_polish_reported", Boolean(outputProof.renderPolishQA)],
