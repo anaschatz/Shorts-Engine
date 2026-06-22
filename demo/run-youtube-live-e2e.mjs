@@ -490,6 +490,14 @@ function referenceStyleQaFromSmoke(smoke, outputMp4 = null) {
   const replayOnlySegments = Number.isFinite(Number(qa.replayOnlySegments))
     ? Number(qa.replayOnlySegments)
     : segments.filter((segment) => segment && segment.replayOnly === true).length;
+  const countedGoalRecall = Number.isFinite(Number(qa.countedGoalRecall)) ? Number(qa.countedGoalRecall) : null;
+  const replayOnlyGoalRate = Number.isFinite(Number(qa.replayOnlyGoalRate)) ? Number(qa.replayOnlyGoalRate) : null;
+  const excessiveTailCount = Number.isFinite(Number(qa.excessiveTailCount)) ? Number(qa.excessiveTailCount) : null;
+  const excessiveTailRate = Number.isFinite(Number(qa.excessiveTailRate)) ? Number(qa.excessiveTailRate) : null;
+  const nonGoalFillerCount = Number.isFinite(Number(qa.nonGoalFillerCount)) ? Number(qa.nonGoalFillerCount) : null;
+  const nonGoalFillerRate = Number.isFinite(Number(qa.nonGoalFillerRate)) ? Number(qa.nonGoalFillerRate) : null;
+  const actionBoundaryScore = Number.isFinite(Number(qa.actionBoundaryScore)) ? Number(qa.actionBoundaryScore) : null;
+  const referencePacingScore = Number.isFinite(Number(qa.referencePacingScore)) ? Number(qa.referencePacingScore) : null;
   const abruptCutRiskCount = Number.isFinite(Number(qa.abruptCutRiskCount))
     ? Number(qa.abruptCutRiskCount)
     : segments.filter((segment) => {
@@ -534,13 +542,23 @@ function referenceStyleQaFromSmoke(smoke, outputMp4 = null) {
   return {
     countedGoalsExpected: null,
     countedGoalsIncluded: Number.isFinite(Number(qa.countedGoalsIncluded)) ? Number(qa.countedGoalsIncluded) : null,
+    countedGoalRecall,
     replayOnlySegments,
+    replayOnlyGoalRate,
     averageGoalSegmentDuration,
+    targetGoalSegmentDuration: Number.isFinite(Number(qa.targetGoalSegmentDuration)) ? Number(qa.targetGoalSegmentDuration) : null,
+    referenceMaxGoalSegmentDuration: Number.isFinite(Number(qa.referenceMaxGoalSegmentDuration)) ? Number(qa.referenceMaxGoalSegmentDuration) : null,
+    excessiveTailCount,
+    excessiveTailRate,
+    nonGoalFillerCount,
+    nonGoalFillerRate,
     abruptCutRiskCount,
     boundarySmoothingAppliedCount,
     averagePreActionPaddingSeconds,
     averagePostConfirmationPaddingSeconds,
     cutSmoothnessScore,
+    actionBoundaryScore,
+    referencePacingScore,
     captionsAlignedCount,
     captionsMisalignedCount,
     visualPolishScore,
@@ -699,11 +717,20 @@ function buildOutputProof({ env, smoke, source, staleArtifactCleanup }) {
     expectedCountedGoals: coverage.expectedCountedGoals,
     replayOnlySegments: coverage.replayOnlySegments,
     averageGoalSegmentDuration: referenceStyleQA.averageGoalSegmentDuration,
+    targetGoalSegmentDuration: referenceStyleQA.targetGoalSegmentDuration,
+    referenceMaxGoalSegmentDuration: referenceStyleQA.referenceMaxGoalSegmentDuration,
+    excessiveTailCount: referenceStyleQA.excessiveTailCount,
+    excessiveTailRate: referenceStyleQA.excessiveTailRate,
+    nonGoalFillerCount: referenceStyleQA.nonGoalFillerCount,
+    nonGoalFillerRate: referenceStyleQA.nonGoalFillerRate,
+    replayOnlyGoalRate: referenceStyleQA.replayOnlyGoalRate,
     abruptCutRiskCount: referenceStyleQA.abruptCutRiskCount,
     boundarySmoothingAppliedCount: referenceStyleQA.boundarySmoothingAppliedCount,
     averagePreActionPaddingSeconds: referenceStyleQA.averagePreActionPaddingSeconds,
     averagePostConfirmationPaddingSeconds: referenceStyleQA.averagePostConfirmationPaddingSeconds,
     cutSmoothnessScore: referenceStyleQA.cutSmoothnessScore,
+    actionBoundaryScore: referenceStyleQA.actionBoundaryScore,
+    referencePacingScore: referenceStyleQA.referencePacingScore,
     captionsAlignedCount: referenceStyleQA.captionsAlignedCount,
     captionsMisalignedCount: referenceStyleQA.captionsMisalignedCount,
     visualPolishScore: referenceStyleQA.visualPolishScore,

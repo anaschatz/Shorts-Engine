@@ -1203,12 +1203,12 @@ test("long goal compilations include every detected confirmed goal before filler
   assert.ok(goalSegments.some((segment) => segment.sourceStart <= 20.6 && segment.sourceEnd >= 28.3));
   assert.ok(goalSegments.some((segment) => segment.sourceStart <= 62.6 && segment.sourceEnd >= 70.3));
   assert.ok(goalSegments.some((segment) => segment.sourceStart <= 106.6 && segment.sourceEnd >= 114.3));
-  assert.ok(goalSegments.every((segment) => segment.duration >= 18 && segment.duration <= 64));
+  assert.ok(goalSegments.every((segment) => segment.duration >= 18 && segment.duration <= 45));
   assert.ok(goalSegments.every((segment) => segment.goalOutcome.outcome === "confirmed_goal"));
   assert.ok(plan.segments.every((segment) => segment.goalOutcome.outcome === "confirmed_goal"));
   assert.doesNotMatch(plan.captions.map((caption) => caption.text).join(" "), /PHASE \d|PRESSURE BUILDS/i);
   assert.match(plan.captions.map((caption) => caption.text).join(" "), /FINISH COUNTS|ONLY VALID FINISHES/i);
-  assert.ok(plan.totalDuration <= 210);
+  assert.ok(plan.totalDuration <= 135);
 });
 
 test("valid goal compilation excludes high-score filler chances and can render two goals only", () => {
@@ -1467,13 +1467,13 @@ test("valid-goals-only preserves long live goal phases instead of tail-only conf
 
   assert.equal(plan.mode, "multi_moment_compilation");
   assert.equal(plan.segments.length, 3);
-  assert.ok(plan.segments[0].sourceStart <= 143);
-  assert.ok(plan.segments[0].sourceEnd >= 198);
-  assert.ok(plan.segments[1].sourceStart <= 220);
-  assert.ok(plan.segments[1].sourceEnd >= 280);
-  assert.ok(plan.segments[2].sourceStart <= 266);
-  assert.ok(plan.segments[2].sourceEnd >= 321);
-  assert.ok(plan.segments.every((segment) => segment.duration > 50 && segment.duration <= 64));
+  assert.ok(plan.segments.every((segment) => segment.sourceStart <= segment.shotStart - 4));
+  assert.ok(plan.segments.every((segment) => segment.sourceEnd >= segment.finishTime + 1.2));
+  assert.ok(plan.segments.every((segment) => segment.sourceEnd >= segment.confirmationTime + 1.2));
+  assert.ok(plan.segments.every((segment) => segment.duration >= 18 && segment.duration <= 45));
+  assert.equal(plan.visualPolishQA.referencePacingScore, 1);
+  assert.equal(plan.visualPolishQA.excessiveTailRate, 0);
+  assert.equal(plan.visualPolishQA.nonGoalFillerRate, 0);
   assert.equal(plan.visualPolishQA.missingVisibleGoalPayoffCount, 0);
   assert.equal(plan.visualPolishQA.scoreboardOnlyGoalSegmentCount, 0);
   assert.equal(plan.visualPolishQA.visibleGoalPayoffScore, 1);
@@ -1573,7 +1573,7 @@ test("valid-goals-only keeps full-source late confirmed goals before early fille
   assert.ok(plan.segments.some((segment) => segment.sourceStart <= 238 && segment.sourceEnd >= 254.6));
   assert.ok(plan.segments.some((segment) => segment.sourceStart <= 294 && segment.sourceEnd >= 312.4));
   assert.ok(plan.segments.some((segment) => segment.sourceStart <= 328 && segment.sourceEnd >= 346.4));
-  assert.ok(plan.segments.every((segment) => segment.duration >= 18 && segment.duration <= 64));
+  assert.ok(plan.segments.every((segment) => segment.duration >= 18 && segment.duration <= 45));
   assert.equal(plan.segments.every((segment) => segment.boundarySmoothing && segment.boundarySmoothing.applied), true);
   assert.equal(plan.segments.every((segment) => segment.boundarySmoothing.preActionPaddingSeconds >= 4), true);
   assert.equal(plan.segments.every((segment) => segment.boundarySmoothing.postConfirmationPaddingSeconds >= 1.2), true);
@@ -1641,7 +1641,7 @@ test("valid-goals-only plan keeps every confirmed goal, excludes offside goals, 
     segments.map((segment) => segment.sourceStart),
     [...segments.map((segment) => segment.sourceStart)].sort((a, b) => a - b),
   );
-  assert.ok(segments.every((segment) => segment.duration >= 18 && segment.duration <= 64));
+  assert.ok(segments.every((segment) => segment.duration >= 18 && segment.duration <= 45));
   assert.equal(plan.transitionPlan.length, 2);
   assert.ok(plan.transitionPlan.every((transition) => transition.type === "short_fade"));
   assert.ok(plan.transitionPlan.every((transition) => transition.transitionDurationSeconds > 0));
@@ -1655,7 +1655,12 @@ test("valid-goals-only plan keeps every confirmed goal, excludes offside goals, 
   assert.equal(plan.editAssembly.segments.every((segment) => segment.cutQuality.preActionPaddingSeconds >= 4), true);
   assert.equal(plan.editAssembly.segments.every((segment) => segment.cutQuality.postConfirmationPaddingSeconds >= 1.2), true);
   assert.equal(plan.visualPolishQA.countedGoalsIncluded, 3);
+  assert.equal(plan.visualPolishQA.countedGoalRecall, 1);
   assert.equal(plan.visualPolishQA.replayOnlySegments, 0);
+  assert.equal(plan.visualPolishQA.replayOnlyGoalRate, 0);
+  assert.equal(plan.visualPolishQA.nonGoalFillerRate, 0);
+  assert.equal(plan.visualPolishQA.referencePacingScore, 1);
+  assert.ok(plan.visualPolishQA.averageGoalSegmentDuration <= 45);
   assert.equal(plan.visualPolishQA.abruptCutRiskCount, 0);
   assert.equal(plan.visualPolishQA.boundarySmoothingAppliedCount, 3);
   assert.equal(plan.visualPolishQA.cutSmoothnessScore, 1);

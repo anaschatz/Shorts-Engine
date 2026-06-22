@@ -921,11 +921,21 @@ function countedGoalSmokeReport() {
     visualPolishQA: {
       contractVersion: 1,
       countedGoalsIncluded: 3,
+      countedGoalRecall: 1,
       replayOnlySegments: 0,
+      replayOnlyGoalRate: 0,
       averageGoalSegmentDuration: 24,
+      targetGoalSegmentDuration: 35,
+      referenceMaxGoalSegmentDuration: 45,
+      excessiveTailCount: 0,
+      excessiveTailRate: 0,
+      nonGoalFillerCount: 0,
+      nonGoalFillerRate: 0,
       abruptCutRiskCount: 0,
       captionsAlignedCount: 5,
       captionsMisalignedCount: 0,
+      actionBoundaryScore: 1,
+      referencePacingScore: 1,
       visualPolishScore: 97,
       score: 0.97,
       referenceSimilarityNotes: ["chronological_multi_goal_sequence", "smooth_transitions_declared"],
@@ -1389,6 +1399,9 @@ test("youtube live local e2e reports counted goal coverage and replay-only segme
   assert.equal(report.outputProof.countedGoalsIncluded, 3);
   assert.equal(report.outputProof.expectedCountedGoals, 3);
   assert.equal(report.outputProof.replayOnlySegments, 0);
+  assert.equal(report.outputProof.nonGoalFillerRate, 0);
+  assert.equal(report.outputProof.excessiveTailRate, 0);
+  assert.equal(report.outputProof.referencePacingScore, 1);
   assert.equal(report.outputProof.visualPolishScore, 97);
   assert.equal(report.outputProof.renderStylePreset, "reference_football_multi_goal_v1");
   assert.equal(report.outputProof.transitionRenderedCount, 2);
