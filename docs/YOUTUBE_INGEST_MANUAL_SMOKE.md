@@ -150,8 +150,12 @@ SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1 \
 SHORTSENGINE_YOUTUBE_LIVE_E2E_URL="https://www.youtube.com/watch?v=gxiRyFZXJV8" \
 SHORTSENGINE_YOUTUBE_SMOKE_ALLOWED_IDS="gxiRyFZXJV8" \
 SHORTSENGINE_YOUTUBE_LIVE_E2E_EXPECTED_COUNTED_GOALS=3 \
+SHORTSENGINE_YOUTUBE_LIVE_E2E_SCOREBOARD_OCR=1 \
+SHORTSENGINE_YOUTUBE_LIVE_E2E_SCOREBOARD_OCR_QA=1 \
 npm run youtube:proof:operator
 ```
+
+`SHORTSENGINE_YOUTUBE_LIVE_E2E_SCOREBOARD_OCR=1` maps only this operator proof server to local scoreboard OCR (`SHORTSENGINE_SCOREBOARD_OCR_ENABLED=1`, provider `local` unless overridden). It still requires a local OCR runtime; if OCR is disabled, unavailable, unreadable or ambiguous, the proof fails closed and writes evidence trace fields such as `scoreboardOcrAttempted`, `scoreboardOcrEnabled`, `scoreboardObservationCount`, `scoreChangeCount`, `stableScoreChangeCount`, `missingEvidenceByCandidate` and `nextAction`. OCR QA artifacts are opt-in with `SHORTSENGINE_YOUTUBE_LIVE_E2E_SCOREBOARD_OCR_QA=1` and are referenced only by safe relative paths for local debugging.
 
 The default command is safe and skips without starting a server:
 

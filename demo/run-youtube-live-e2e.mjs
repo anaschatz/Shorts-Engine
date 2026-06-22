@@ -171,6 +171,19 @@ function safeTruthCandidate(value = {}, index = 0) {
   };
 }
 
+function safeMissingEvidenceCandidate(value = {}, index = 0) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    index: safeNumber(value.index) || index + 1,
+    id: safeString(value.id || `goal_evidence_${index + 1}`, 80),
+    outcomeHint: safeString(value.outcomeHint || "", 48) || null,
+    start: safeNumber(value.start),
+    end: safeNumber(value.end),
+    missingEvidence: safeStringList(value.missingEvidence, 8, 80),
+    rejectionReason: value.rejectionReason ? safeString(value.rejectionReason, 80) : null,
+  };
+}
+
 function safeScoreboardOcrEvent(value = {}) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const safeQaReport = value.qaReport && typeof value.qaReport === "object" && !Array.isArray(value.qaReport)
@@ -917,6 +930,46 @@ function latestGoalDiscoveryEvent(serverEvents = []) {
   return [...serverEvents].reverse().find((event) => event && event.goalDiscovery) || null;
 }
 
+function latestScoreboardOcrEvent(serverEvents = []) {
+  if (!Array.isArray(serverEvents)) return null;
+  return [...serverEvents].reverse().find((event) => event && event.scoreboardOcr) || null;
+}
+
+function stableScoreChangeCountFromOcr(scoreboardOcr = null) {
+  if (!scoreboardOcr || typeof scoreboardOcr !== "object") return 0;
+  return (Array.isArray(scoreboardOcr.scoreTimeline) ? scoreboardOcr.scoreTimeline : [])
+    .filter((item) => item && item.status === "score_changed" && item.temporalConsistency)
+    .length;
+}
+
+function scoreboardOcrEnabledForProof(scoreboardOcr = null) {
+  const mode = safeString(scoreboardOcr && scoreboardOcr.providerMode, 80);
+  return Boolean(mode) && ![
+    "deterministic-scoreboard-ocr",
+    "external-scoreboard-ocr-disabled",
+  ].includes(mode);
+}
+
+function evidenceRecoveryNextAction(discovery = null, scoreboardOcr = null, smokeFailure = null) {
+  const configured = discovery && discovery.nextAction ? safeString(discovery.nextAction, 180) : null;
+  if (configured) return configured;
+  if (!discovery && smokeFailure) {
+    return smokeFailure.nextAction
+      ? safeString(smokeFailure.nextAction, 180)
+      : nextActionForCode(smokeFailure.code || "YOUTUBE_LIVE_E2E_SMOKE_FAILED");
+  }
+  if (!scoreboardOcrEnabledForProof(scoreboardOcr)) {
+    return "enable-live-scoreboard-ocr-with-SHORTSENGINE_YOUTUBE_LIVE_E2E_SCOREBOARD_OCR-1-and-local-ocr-runtime";
+  }
+  if (!safeNumber(scoreboardOcr && scoreboardOcr.evidenceCount)) {
+    return "inspect-scoreboard-ocr-crops-or-enable-SHORTSENGINE_SCOREBOARD_OCR_QA_ARTIFACTS-1-for-local-debug";
+  }
+  if (!stableScoreChangeCountFromOcr(scoreboardOcr)) {
+    return "inspect-score-timeline-for-unreadable-or-ambiguous-scorebug";
+  }
+  return "connect-stable-score-changes-to-live-action-windows-before-render";
+}
+
 function latestVideoOutputQAFromSmoke(smoke) {
   if (!smoke || typeof smoke !== "object") return null;
   const lifecycle = Array.isArray(smoke.jobLifecycle) ? smoke.jobLifecycle : [];
@@ -927,6 +980,12 @@ function latestVideoOutputQAFromSmoke(smoke) {
 function buildFailedOutputProof({ env, source, smoke = null, serverEvents, staleArtifactCleanup }) {
   const event = latestGoalDiscoveryEvent(serverEvents);
   const discovery = event?.goalDiscovery || null;
+  const ocrEvent = latestScoreboardOcrEvent(serverEvents);
+  const scoreboardOcr = ocrEvent?.scoreboardOcr || null;
+  const smokeFailure = smoke?.failedCases?.[0] || null;
+  const smokeFailureStep = Array.isArray(smoke?.steps)
+    ? [...smoke.steps].reverse().find((step) => step && step.status === "failed")
+    : null;
   const outputQA = latestVideoOutputQAFromSmoke(smoke);
   const outputExpectedGoalCount = Number.isFinite(Number(outputQA?.expectedGoalCount))
     ? Number(outputQA.expectedGoalCount)
@@ -948,9 +1007,42 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
     expectedCountedGoals,
     replayOnlySegments: 0,
   };
+  const scoreboardOcrAttempted = discovery &&
+    discovery.scoreboardOcrAttempted !== undefined &&
+    discovery.scoreboardOcrAttempted !== null
+    ? Boolean(discovery.scoreboardOcrAttempted)
+    : Boolean(scoreboardOcr);
+  const scoreboardOcrEnabled = discovery &&
+    discovery.scoreboardOcrEnabled !== undefined &&
+    discovery.scoreboardOcrEnabled !== null
+    ? Boolean(discovery.scoreboardOcrEnabled)
+    : scoreboardOcrEnabledForProof(scoreboardOcr);
+  const scoreboardObservationCount = safeNumber(discovery && discovery.scoreboardObservationCount) ??
+    safeNumber(scoreboardOcr && scoreboardOcr.evidenceCount) ??
+    0;
+  const scoreChangeCount = safeNumber(discovery && discovery.scoreChangeCount) ??
+    safeNumber(scoreboardOcr && scoreboardOcr.scoreChangeCount) ??
+    0;
+  const stableScoreChangeCount = safeNumber(discovery && discovery.stableScoreChangeCount) ??
+    stableScoreChangeCountFromOcr(scoreboardOcr);
+  const countedGoalEventCount = safeNumber(discovery && discovery.countedGoalEventCount) ??
+    safeNumber(discovery && discovery.matchEventTruthCountedGoalEventCount) ??
+    0;
+  const missingEvidenceByCandidate = Array.isArray(discovery && discovery.missingEvidenceByCandidate) &&
+    discovery.missingEvidenceByCandidate.length > 0
+    ? discovery.missingEvidenceByCandidate
+    : Array.isArray(discovery && discovery.goalEvidenceCandidates)
+      ? discovery.goalEvidenceCandidates
+        .map(safeMissingEvidenceCandidate)
+        .filter((candidate) => candidate && (candidate.missingEvidence.length || candidate.rejectionReason))
+        .slice(0, 12)
+      : [];
+  const nextAction = evidenceRecoveryNextAction(discovery, scoreboardOcr, smokeFailure);
   return {
     schemaVersion: LIVE_PROOF_SCHEMA_VERSION,
     generatedAt: nowIso(),
+    phase: smokeFailure?.phase || smokeFailureStep?.step || (discovery ? "render" : "pre-render"),
+    code: smokeFailure?.code || null,
     source: source ? { sourceType: "youtube", kind: source.kind, videoId: source.videoId } : null,
     outputMp4: null,
     ffprobe: {
@@ -964,6 +1056,18 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
     coveredGoalCount,
     missingGoalNumbers: Array.isArray(outputQA?.missingGoalNumbers) ? outputQA.missingGoalNumbers : [],
     failedReasons: Array.isArray(outputQA?.failedReasons) ? outputQA.failedReasons : [],
+    scoreboardOcrAttempted,
+    scoreboardOcrEnabled,
+    scoreboardOcrProviderMode: discovery?.scoreboardOcrProviderMode || scoreboardOcr?.providerMode || null,
+    scoreboardObservationCount,
+    scoreboardSampledFrameCount: safeNumber(discovery && discovery.scoreboardSampledFrameCount) ??
+      safeNumber(scoreboardOcr && scoreboardOcr.sampledFrameCount) ??
+      0,
+    scoreChangeCount,
+    stableScoreChangeCount,
+    countedGoalEventCount,
+    missingEvidenceByCandidate,
+    nextAction,
     expectedCountedGoals,
     replayOnlySegments: 0,
     videoOutputQA: outputQA,
@@ -1278,20 +1382,39 @@ async function getFreePort() {
   });
 }
 
+function liveServerEnvironment({ port, dataDir, env = {} } = {}) {
+  const liveScoreboardOcrEnabled = boolFromEnv(rawValue(env, "SHORTSENGINE_YOUTUBE_LIVE_E2E_SCOREBOARD_OCR"));
+  const liveScoreboardOcrQaEnabled = boolFromEnv(rawValue(env, "SHORTSENGINE_YOUTUBE_LIVE_E2E_SCOREBOARD_OCR_QA"));
+  return {
+    ...process.env,
+    ...env,
+    ...(liveScoreboardOcrEnabled
+      ? {
+          SHORTSENGINE_SCOREBOARD_OCR_ENABLED: "1",
+          SHORTSENGINE_SCOREBOARD_OCR_PROVIDER: String(
+            rawValue(env, "SHORTSENGINE_SCOREBOARD_OCR_PROVIDER") || "local",
+          ),
+        }
+      : {}),
+    ...(liveScoreboardOcrQaEnabled
+      ? {
+          SHORTSENGINE_SCOREBOARD_OCR_QA_ARTIFACTS: "1",
+        }
+      : {}),
+    MATCHCUTS_DATA_DIR: dataDir,
+    PORT: String(port),
+    SHORTSENGINE_YOUTUBE_INGEST_ENABLED: "1",
+    MATCHCUTS_TRANSCRIPTION_PROVIDER: "mock",
+  };
+}
+
 function startServer(port, env) {
   const tmpRoot = resolve(ROOT_DIR, "tmp");
   mkdirSync(tmpRoot, { recursive: true });
   const dataDir = mkdtempSync(resolve(tmpRoot, "shortsengine-youtube-live-data-"));
   const child = spawn(process.execPath, ["server/app.cjs"], {
     cwd: ROOT_DIR,
-    env: {
-      ...process.env,
-      ...env,
-      MATCHCUTS_DATA_DIR: dataDir,
-      PORT: String(port),
-      SHORTSENGINE_YOUTUBE_INGEST_ENABLED: "1",
-      MATCHCUTS_TRANSCRIPTION_PROVIDER: "mock",
-    },
+    env: liveServerEnvironment({ port, dataDir, env }),
     stdio: ["ignore", "pipe", "pipe"],
   });
   const events = [];
@@ -1309,6 +1432,14 @@ function startServer(port, env) {
         };
         if (parsed.event === "valid_goal_selection_empty") {
           event.goalDiscovery = {
+            scoreboardOcrAttempted: safeBoolean(parsed.scoreboardOcrAttempted),
+            scoreboardOcrEnabled: safeBoolean(parsed.scoreboardOcrEnabled),
+            scoreboardOcrProviderMode: safeString(parsed.scoreboardOcrProviderMode, 80),
+            scoreboardObservationCount: safeNumber(parsed.scoreboardObservationCount),
+            scoreboardSampledFrameCount: safeNumber(parsed.scoreboardSampledFrameCount),
+            scoreChangeCount: safeNumber(parsed.scoreChangeCount),
+            stableScoreChangeCount: safeNumber(parsed.stableScoreChangeCount),
+            countedGoalEventCount: safeNumber(parsed.countedGoalEventCount),
             visualWindowCount: safeNumber(parsed.visualWindowCount),
             bucketCount: safeNumber(parsed.bucketCount),
             lateBucketInspected: safeBoolean(parsed.lateBucketInspected),
@@ -1339,6 +1470,10 @@ function startServer(port, env) {
             matchEventTruthOcrOnlyBlockedCount: safeNumber(parsed.matchEventTruthOcrOnlyBlockedCount),
             matchEventTruthMissingActionEvidenceCount: safeNumber(parsed.matchEventTruthMissingActionEvidenceCount),
             matchEventTruthMissedGoalReasons: safeStringList(parsed.matchEventTruthMissedGoalReasons, 8, 80),
+            missingEvidenceByCandidate: Array.isArray(parsed.missingEvidenceByCandidate)
+              ? parsed.missingEvidenceByCandidate.map(safeMissingEvidenceCandidate).filter(Boolean).slice(0, 12)
+              : [],
+            nextAction: parsed.nextAction ? safeString(parsed.nextAction, 180) : null,
             goalEvidenceCandidates: Array.isArray(parsed.goalEvidenceCandidates)
               ? parsed.goalEvidenceCandidates.map(safeGoalEvidenceCandidate).filter(Boolean).slice(0, 12)
               : [],
@@ -1790,5 +1925,6 @@ export {
   validateLiveConfig,
   cleanupGeneratedProofArtifacts,
   isManagedLiveProofMp4,
+  liveServerEnvironment,
   writeYouTubeLiveE2EReport,
 };

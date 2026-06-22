@@ -8,6 +8,7 @@ import { findSensitiveLeak } from "../demo/report-safety.mjs";
 import {
   cleanupGeneratedProofArtifacts,
   isManagedLiveProofMp4,
+  liveServerEnvironment,
   runYouTubeLiveE2E,
   writeYouTubeLiveE2EReport,
 } from "../demo/run-youtube-live-e2e.mjs";
@@ -753,6 +754,36 @@ function liveEnv(overrides = {}) {
     ...overrides,
   };
 }
+
+test("youtube live server env enables local scoreboard OCR only with explicit operator alias", () => {
+  const defaultEnv = liveServerEnvironment({
+    port: 4175,
+    dataDir: "tmp/live-proof-data",
+    env: liveEnv({
+      SHORTSENGINE_SCOREBOARD_OCR_ENABLED: undefined,
+      SHORTSENGINE_SCOREBOARD_OCR_PROVIDER: undefined,
+      SHORTSENGINE_SCOREBOARD_OCR_QA_ARTIFACTS: undefined,
+    }),
+  });
+  assert.equal(defaultEnv.SHORTSENGINE_SCOREBOARD_OCR_ENABLED, undefined);
+  assert.equal(defaultEnv.SHORTSENGINE_SCOREBOARD_OCR_PROVIDER, undefined);
+  assert.equal(defaultEnv.SHORTSENGINE_SCOREBOARD_OCR_QA_ARTIFACTS, undefined);
+  assert.equal(defaultEnv.MATCHCUTS_TRANSCRIPTION_PROVIDER, "mock");
+  assert.equal(defaultEnv.SHORTSENGINE_YOUTUBE_INGEST_ENABLED, "1");
+
+  const ocrEnv = liveServerEnvironment({
+    port: 4176,
+    dataDir: "tmp/live-proof-data-ocr",
+    env: liveEnv({
+      SHORTSENGINE_YOUTUBE_LIVE_E2E_SCOREBOARD_OCR: "1",
+      SHORTSENGINE_YOUTUBE_LIVE_E2E_SCOREBOARD_OCR_QA: "1",
+    }),
+  });
+  assert.equal(ocrEnv.SHORTSENGINE_SCOREBOARD_OCR_ENABLED, "1");
+  assert.equal(ocrEnv.SHORTSENGINE_SCOREBOARD_OCR_PROVIDER, "local");
+  assert.equal(ocrEnv.SHORTSENGINE_SCOREBOARD_OCR_QA_ARTIFACTS, "1");
+  assert.equal(ocrEnv.PORT, "4176");
+});
 
 function passedDoctor() {
   return {
@@ -1794,6 +1825,14 @@ test("youtube live local e2e failure report keeps safe valid-goal discovery coun
         event: "valid_goal_selection_empty",
         code: "NO_VALID_GOALS_FOUND",
         goalDiscovery: {
+          scoreboardOcrAttempted: true,
+          scoreboardOcrEnabled: true,
+          scoreboardOcrProviderMode: "mock-scoreboard-ocr",
+          scoreboardObservationCount: 0,
+          scoreboardSampledFrameCount: 4,
+          scoreChangeCount: 0,
+          stableScoreChangeCount: 0,
+          countedGoalEventCount: 0,
           visualWindowCount: 24,
           bucketCount: 7,
           lateBucketInspected: true,
@@ -1807,6 +1846,16 @@ test("youtube live local e2e failure report keeps safe valid-goal discovery coun
           anthemOrIntroEvidenceCount: 1,
           ocrEvidenceCount: 2,
           scoreboardConfirmedGoalCount: 0,
+          missingEvidenceByCandidate: [{
+            index: 1,
+            id: "non_goal_chance_1",
+            outcomeHint: "non_goal_chance",
+            start: 45.38,
+            end: 59.38,
+            missingEvidence: ["explicit_ball_in_net", "decision_or_reaction_confirmation"],
+            rejectionReason: "goalmouth_or_finish_context",
+          }],
+          nextAction: "inspect-score-timeline-for-unreadable-or-ambiguous-scorebug",
         },
       }],
     }),
@@ -1859,6 +1908,14 @@ test("youtube live local e2e failure report keeps safe valid-goal discovery coun
   const event = report.serverEvents.find((item) => item.event === "valid_goal_selection_empty");
   assert.ok(event);
   assert.deepEqual(event.goalDiscovery, {
+    scoreboardOcrAttempted: true,
+    scoreboardOcrEnabled: true,
+    scoreboardOcrProviderMode: "mock-scoreboard-ocr",
+    scoreboardObservationCount: 0,
+    scoreboardSampledFrameCount: 4,
+    scoreChangeCount: 0,
+    stableScoreChangeCount: 0,
+    countedGoalEventCount: 0,
     visualWindowCount: 24,
     bucketCount: 7,
     lateBucketInspected: true,
@@ -1872,11 +1929,76 @@ test("youtube live local e2e failure report keeps safe valid-goal discovery coun
     anthemOrIntroEvidenceCount: 1,
     ocrEvidenceCount: 2,
     scoreboardConfirmedGoalCount: 0,
+    missingEvidenceByCandidate: [{
+      index: 1,
+      id: "non_goal_chance_1",
+      outcomeHint: "non_goal_chance",
+      start: 45.38,
+      end: 59.38,
+      missingEvidence: ["explicit_ball_in_net", "decision_or_reaction_confirmation"],
+      rejectionReason: "goalmouth_or_finish_context",
+    }],
+    nextAction: "inspect-score-timeline-for-unreadable-or-ambiguous-scorebug",
   });
+  assert.equal(report.outputProof.scoreboardOcrAttempted, true);
+  assert.equal(report.outputProof.scoreboardOcrEnabled, true);
+  assert.equal(report.outputProof.scoreboardObservationCount, 0);
+  assert.equal(report.outputProof.scoreChangeCount, 0);
+  assert.equal(report.outputProof.stableScoreChangeCount, 0);
+  assert.equal(report.outputProof.countedGoalEventCount, 0);
+  assert.deepEqual(report.outputProof.missingEvidenceByCandidate, [{
+    index: 1,
+    id: "non_goal_chance_1",
+    outcomeHint: "non_goal_chance",
+    start: 45.38,
+    end: 59.38,
+    missingEvidence: ["explicit_ball_in_net", "decision_or_reaction_confirmation"],
+    rejectionReason: "goalmouth_or_finish_context",
+  }]);
+  assert.equal(report.outputProof.nextAction, "inspect-score-timeline-for-unreadable-or-ambiguous-scorebug");
   assert.equal(report.outputProof.goalDiscovery.selectedValidGoalCount, 0);
   assert.equal(report.outputProof.goalDiscovery.goalEvidenceEventCount, 3);
   assert.equal(report.outputProof.goalDiscovery.offsideOrNoGoalEvidenceCount, 2);
   assert.equal(report.outputProof.ffprobe.code, "OUTPUT_MP4_NOT_CREATED");
+  assert.equal(report.outputProof.logsDownloaded, false);
+  assert.equal(report.outputProof.artifactsDownloaded, false);
+  assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube live failed output proof preserves pre-render download failure action", async () => {
+  const report = await runYouTubeLiveE2E({
+    env: liveEnv(),
+    checkYouTubeIngest: async () => passedDoctor(),
+    getFreePort: async () => 4175,
+    startServer: () => ({
+      child: { exitCode: null, signalCode: null },
+      events: [],
+    }),
+    stopServer: async () => {},
+    waitForServerReady: async () => ({ attempts: 1, waitedMs: 5, status: 200 }),
+    runYouTubeSmoke: async () => ({
+      status: "failed",
+      source: { sourceType: "youtube", kind: "watch", videoId: VIDEO_ID },
+      steps: [{
+        step: "failure",
+        status: "failed",
+        code: "YOUTUBE_DOWNLOAD_FAILED",
+        nextAction: "retry-ingest-or-upload-mp4",
+      }],
+      failedCases: [{
+        name: "youtube_smoke",
+        code: "YOUTUBE_DOWNLOAD_FAILED",
+        nextAction: "retry-ingest-or-upload-mp4",
+      }],
+    }),
+  });
+
+  assert.equal(report.status, "failed");
+  assert.equal(report.outputProof.code, "YOUTUBE_DOWNLOAD_FAILED");
+  assert.equal(report.outputProof.phase, "failure");
+  assert.equal(report.outputProof.outputMp4, null);
+  assert.equal(report.outputProof.nextAction, "retry-ingest-or-upload-mp4");
+  assert.equal(report.outputProof.scoreboardOcrAttempted, false);
   assert.equal(report.outputProof.logsDownloaded, false);
   assert.equal(report.outputProof.artifactsDownloaded, false);
   assert.equal(findSensitiveLeak(report), null);

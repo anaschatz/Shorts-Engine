@@ -75,6 +75,13 @@ function safeNumber(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function safeReasonList(values = [], max = 8) {
+  return (Array.isArray(values) ? values : [])
+    .map((reason) => sanitizeText(reason, 80))
+    .filter(Boolean)
+    .slice(0, max);
+}
+
 function safeGoalEvidenceCandidates(goalEvidence, max = 12) {
   const events = Array.isArray(goalEvidence && goalEvidence.events) ? goalEvidence.events : [];
   return events.slice(0, max).map((event, index) => ({
@@ -98,6 +105,67 @@ function safeGoalEvidenceCandidates(goalEvidence, max = 12) {
     offsideFlag: Boolean(event && event.offsideFlag),
     noGoalSignal: Boolean(event && event.VARNoGoalSignal),
   }));
+}
+
+function missingEvidenceByCandidate(candidates = [], max = 12) {
+  return (Array.isArray(candidates) ? candidates : [])
+    .slice(0, max)
+    .map((candidate, index) => ({
+      index: index + 1,
+      id: sanitizeText(candidate && candidate.id || `goal_evidence_${index + 1}`, 80),
+      outcomeHint: sanitizeText(candidate && candidate.outcomeHint || "unknown", 48),
+      start: safeNumber(candidate && candidate.start),
+      end: safeNumber(candidate && candidate.end),
+      missingEvidence: safeReasonList(candidate && candidate.missingEvidence, 8),
+      rejectionReason: candidate && candidate.rejectionReason ? sanitizeText(candidate.rejectionReason, 80) : null,
+    }))
+    .filter((candidate) => candidate.missingEvidence.length > 0 || candidate.rejectionReason);
+}
+
+function scoreboardOcrEnabledForTrace(scoreboardOcr) {
+  const mode = sanitizeText(scoreboardOcr && scoreboardOcr.providerMode || "", 80);
+  if (!mode) return false;
+  return ![
+    "deterministic-scoreboard-ocr",
+    "external-scoreboard-ocr-disabled",
+  ].includes(mode);
+}
+
+function stableScoreChangeCount(scoreboardOcr) {
+  const evidence = Array.isArray(scoreboardOcr && scoreboardOcr.evidence) ? scoreboardOcr.evidence : [];
+  const stableEvidenceCount = evidence.filter((item) => (
+    item &&
+    item.scoreChanged &&
+    item.temporalConsistency &&
+    !item.ambiguous &&
+    !item.scoreReverted
+  )).length;
+  if (stableEvidenceCount > 0) return stableEvidenceCount;
+  const timeline = scoreboardOcr && scoreboardOcr.summary && Array.isArray(scoreboardOcr.summary.scoreTimeline)
+    ? scoreboardOcr.summary.scoreTimeline
+    : [];
+  return timeline.filter((item) => (
+    item &&
+    item.status === "score_changed" &&
+    item.temporalConsistency
+  )).length;
+}
+
+function goalEvidenceTraceNextAction({ scoreboardOcr, stableChanges, countedGoalEvents }) {
+  const summary = scoreboardOcr && scoreboardOcr.summary ? scoreboardOcr.summary : {};
+  if (!scoreboardOcrEnabledForTrace(scoreboardOcr)) {
+    return "enable-live-scoreboard-ocr-with-SHORTSENGINE_YOUTUBE_LIVE_E2E_SCOREBOARD_OCR-1-and-local-ocr-runtime";
+  }
+  if (safeNumber(summary.evidenceCount) === 0) {
+    return "inspect-scoreboard-ocr-crops-or-enable-SHORTSENGINE_SCOREBOARD_OCR_QA_ARTIFACTS-1-for-local-debug";
+  }
+  if (stableChanges === 0) {
+    return "inspect-score-timeline-for-unreadable-or-ambiguous-scorebug";
+  }
+  if (countedGoalEvents === 0) {
+    return "connect-stable-score-changes-to-live-action-windows-before-render";
+  }
+  return "inspect-valid-goal-selection-evidence-trace";
 }
 
 function resolveLocalArtifactPath(artifactStore, artifact) {
@@ -1072,6 +1140,15 @@ async function runRenderJob(options) {
           const goalDiscovery = highlightResult &&
             highlightResult.explainability &&
             highlightResult.explainability.goalDiscovery;
+          const goalEvidenceCandidates = goalDiscovery &&
+            Array.isArray(goalDiscovery.goalEvidenceCandidates) &&
+            goalDiscovery.goalEvidenceCandidates.length > 0
+            ? goalDiscovery.goalEvidenceCandidates.slice(0, 12)
+            : safeGoalEvidenceCandidates(goalEvidence);
+          const stableChanges = stableScoreChangeCount(scoreboardOcr);
+          const countedGoalEvents = matchEventTruth && matchEventTruth.summary
+            ? safeNumber(matchEventTruth.summary.countedGoalEventCount) || 0
+            : 0;
           logInfo(deps.logger, {
             event: "valid_goal_selection_empty",
             requestId,
@@ -1079,17 +1156,23 @@ async function runRenderJob(options) {
             jobId: job.id,
             step: "create_edit_plan",
             code,
+            scoreboardOcrAttempted: Boolean(scoreboardOcr),
+            scoreboardOcrEnabled: scoreboardOcrEnabledForTrace(scoreboardOcr),
+            scoreboardOcrProviderMode: scoreboardOcr && scoreboardOcr.providerMode,
+            scoreboardObservationCount: scoreboardOcr && scoreboardOcr.summary && scoreboardOcr.summary.evidenceCount,
+            scoreboardSampledFrameCount: scoreboardOcr && scoreboardOcr.summary && scoreboardOcr.summary.sampledFrameCount,
+            scoreChangeCount: scoreboardOcr && scoreboardOcr.summary && scoreboardOcr.summary.scoreChangeCount,
+            stableScoreChangeCount: stableChanges,
+            countedGoalEventCount: countedGoalEvents,
+            missingEvidenceByCandidate: missingEvidenceByCandidate(goalEvidenceCandidates),
+            nextAction: goalEvidenceTraceNextAction({ scoreboardOcr, stableChanges, countedGoalEvents }),
             visualWindowCount: goalDiscovery && goalDiscovery.visualWindowCount,
             bucketCount: goalDiscovery && goalDiscovery.bucketCount,
             lateBucketInspected: goalDiscovery && goalDiscovery.lateBucketInspected,
             selectedValidGoalCount: goalDiscovery && Array.isArray(goalDiscovery.selectedValidGoals)
               ? goalDiscovery.selectedValidGoals.length
               : 0,
-            goalEvidenceCandidates: goalDiscovery &&
-              Array.isArray(goalDiscovery.goalEvidenceCandidates) &&
-              goalDiscovery.goalEvidenceCandidates.length > 0
-              ? goalDiscovery.goalEvidenceCandidates.slice(0, 12)
-              : safeGoalEvidenceCandidates(goalEvidence),
+            goalEvidenceCandidates,
             matchTruthCandidates: goalDiscovery && Array.isArray(goalDiscovery.matchTruthCandidates)
               ? goalDiscovery.matchTruthCandidates.slice(0, 16)
               : [],
