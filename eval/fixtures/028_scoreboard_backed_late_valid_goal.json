@@ -44,7 +44,7 @@
       { "start": 88.2, "end": 89.7, "labels": ["goal_mouth_visible", "ball_in_net"], "confidence": 0.92 },
       { "start": 99.8, "end": 101.0, "labels": ["scoreboard_goal_confirmed", "referee_goal_signal"], "confidence": 0.88 },
       { "start": 252.0, "end": 253.8, "labels": ["shot_contact", "ball_toward_goal", "ball_visible"], "confidence": 0.91 },
-      { "start": 256.0, "end": 258.0, "labels": ["goal_mouth_visible"], "confidence": 0.82 },
+      { "start": 256.0, "end": 258.0, "labels": ["goal_mouth_visible", "ball_in_net"], "confidence": 0.9 },
       { "start": 286.0, "end": 288.0, "labels": ["celebration_after_shot", "crowd_reaction"], "confidence": 0.86 }
     ]
   },

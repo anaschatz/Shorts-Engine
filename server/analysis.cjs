@@ -2220,7 +2220,6 @@ function goalDiscoverySummary({ safeVisualSignals = {}, safeSignals = {}, goalSe
   }));
   const goalEvidenceCandidates = Array.isArray(goalEvidence && goalEvidence.events)
     ? goalEvidence.events
-        .filter((event) => ["valid_goal", "offside_goal", "no_goal", "possible_goal_unconfirmed"].includes(event.outcomeHint))
         .slice(0, 12)
         .map((event, index) => ({
           index: index + 1,

@@ -216,7 +216,70 @@ test("links delayed scorebug changes back to earlier live goal action", () => {
   assert.doesNotMatch(JSON.stringify(publicTruth), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);
 });
 
-test("uses high-motion media support to anchor stable score changes when visual labels are sparse", () => {
+test("score-change recovery rejects scoreboard-only finish even with stable OCR", () => {
+  const result = analyzeMatchEventTruth({
+    metadata: { ...metadata, durationSeconds: 180, sourceType: "youtube", goalSelectionMode: "valid_goals_only" },
+    visualSignals: visualSignals([
+      { start: 124, end: 126, type: "scoreboard_goal_confirmed", confidence: 0.9 },
+      { start: 126, end: 128, type: "scoreboard_context", confidence: 0.82 },
+    ]),
+    scoreboardOcr: [{
+      id: "scoreboard_only_stable_score",
+      timestamp: 126,
+      scoreBefore: "0-0",
+      scoreAfter: "1-0",
+      status: "score_changed",
+      confidence: 0.93,
+      temporalConsistency: true,
+    }],
+    ocrQaCalibration: strongOcrQaCalibration(),
+    goalEvidence: goalEvidence([]),
+  });
+
+  assert.equal(result.summary.confirmedGoalCount, 0);
+  assert.equal(result.summary.countedGoalEventCount, 1);
+  assert.equal(result.summary.selectedCountedGoals, 0);
+  assert.equal(result.summary.anchorsRejected, 1);
+  assert.ok(result.rejectedEvents.some((event) => event.anchorDiagnostics.visibleGoalRecovery.failureCode === "SCOREBOARD_ONLY"));
+  assert.doesNotMatch(JSON.stringify(publicMatchEventTruth(result)), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);
+});
+
+test("score-change recovery selects visible finish over later replay and celebration", () => {
+  const result = analyzeMatchEventTruth({
+    metadata: { ...metadata, durationSeconds: 220, sourceType: "youtube", goalSelectionMode: "valid_goals_only" },
+    visualSignals: visualSignals([
+      { start: 92, end: 94, types: ["fast_break_motion", "ball_visible"], confidence: 0.86 },
+      { start: 102, end: 104, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.92 },
+      { start: 106, end: 108, types: ["goal_mouth_visible", "ball_in_net"], confidence: 0.94 },
+      { start: 118, end: 120, types: ["scoreboard_goal_confirmed", "referee_goal_signal"], confidence: 0.9 },
+      { start: 124, end: 128, types: ["replay_indicator", "replay_angle", "ball_in_net"], confidence: 0.88 },
+      { start: 130, end: 132, type: "celebration_after_shot", confidence: 0.86 },
+    ]),
+    scoreboardOcr: [{
+      id: "visible_score_change",
+      timestamp: 120,
+      scoreBefore: "0-0",
+      scoreAfter: "1-0",
+      status: "score_changed",
+      confidence: 0.93,
+      temporalConsistency: true,
+    }],
+    ocrQaCalibration: strongOcrQaCalibration(),
+    goalEvidence: goalEvidence([]),
+  });
+
+  assert.equal(result.summary.confirmedGoalCount, 1);
+  assert.equal(result.summary.selectedCountedGoals, 1);
+  assert.equal(result.events[0].primarySource, "live_action");
+  assert.equal(result.events[0].phaseCoverage.replayOnly, false);
+  assert.equal(result.events[0].phaseCoverage.visualGoalPayoff.hasVisibleGoalPayoff, true);
+  assert.ok(result.events[0].sourceStart <= 102);
+  assert.ok(result.events[0].visibleGoalRecovery.rejectedReplayWindows.length >= 1);
+  assert.ok(result.events[0].visibleGoalRecovery.rejectedCelebrationWindows.length >= 1);
+  assert.doesNotMatch(JSON.stringify(publicMatchEventTruth(result)), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);
+});
+
+test("uses high-motion media support as review context but not visible goal proof", () => {
   const result = analyzeMatchEventTruth({
     metadata: { ...metadata, durationSeconds: 240 },
     mediaSignals: {
@@ -240,16 +303,17 @@ test("uses high-motion media support to anchor stable score changes when visual 
     goalEvidence: goalEvidence([]),
   });
 
-  assert.equal(result.summary.confirmedGoalCount, 1);
+  assert.equal(result.summary.confirmedGoalCount, 0);
   assert.equal(result.summary.scoreChangeAnchorsFound, 1);
   assert.equal(result.summary.anchorsWithLiveActionEvidence, 1);
-  assert.equal(result.summary.selectedCountedGoals, 1);
-  assert.equal(result.summary.ocrOnlyBlockedCount, 0);
-  assert.ok(result.events[0].sourceStart <= 168);
-  assert.ok(result.events[0].sourceEnd >= 207);
-  assert.ok(result.events[0].evidenceCodes.includes("media_high_motion_goal_phase_support"));
-  assert.ok(result.events[0].evidenceCodes.includes("scoreboard_backed_goal_sequence"));
-  assert.equal(result.events[0].anchorDiagnostics.mediaActionWindowCount, 1);
+  assert.equal(result.summary.selectedCountedGoals, 0);
+  assert.equal(result.summary.ocrOnlyBlockedCount, 1);
+  assert.ok(result.rejectedEvents[0].sourceStart <= 168);
+  assert.ok(result.rejectedEvents[0].sourceEnd >= 207);
+  assert.ok(result.rejectedEvents[0].evidenceCodes.includes("media_high_motion_goal_phase_support"));
+  assert.ok(result.rejectedEvents[0].evidenceCodes.includes("scoreboard_backed_goal_sequence"));
+  assert.equal(result.rejectedEvents[0].anchorDiagnostics.mediaActionWindowCount, 1);
+  assert.equal(result.rejectedEvents[0].anchorDiagnostics.visibleGoalRecovery.failureCode, "SCOREBOARD_ONLY");
   assert.doesNotMatch(JSON.stringify(publicMatchEventTruth(result)), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);
 });
 
@@ -303,16 +367,17 @@ test("uses normalized local OCR scoreChanged rows as anchors without requiring s
 
   assert.equal(result.summary.scoreChangeCount, 1);
   assert.equal(result.summary.countedGoalEventCount, 1);
-  assert.equal(result.summary.confirmedGoalCount, 1);
+  assert.equal(result.summary.confirmedGoalCount, 0);
   assert.equal(result.summary.anchorsWithLiveActionEvidence, 1);
-  assert.equal(result.summary.selectedCountedGoals, 1);
-  assert.equal(result.summary.ocrOnlyBlockedCount, 0);
+  assert.equal(result.summary.selectedCountedGoals, 0);
+  assert.equal(result.summary.ocrOnlyBlockedCount, 1);
   assert.equal(result.scoreChanges[0].outcome, "counted_goal");
   assert.equal(result.scoreChanges[0].actionAnchorTime, 277);
   assert.equal(result.scoreChanges[0].hasPendingObservation, true);
-  assert.equal(result.events[0].scoreAfter, "2-0");
-  assert.ok(result.events[0].evidenceCodes.includes("media_high_motion_goal_phase_support"));
-  assert.ok(result.events[0].evidenceCodes.includes("scoreboard_backed_goal_sequence"));
+  assert.equal(result.rejectedEvents[0].scoreAfter, "2-0");
+  assert.ok(result.rejectedEvents[0].evidenceCodes.includes("media_high_motion_goal_phase_support"));
+  assert.ok(result.rejectedEvents[0].evidenceCodes.includes("scoreboard_backed_goal_sequence"));
+  assert.equal(result.rejectedEvents[0].anchorDiagnostics.visibleGoalRecovery.failureCode, "SCOREBOARD_ONLY");
   assert.equal(result.summary.noFalseGoalFromOcrOnly, 1);
   assert.doesNotMatch(JSON.stringify(publicMatchEventTruth(result)), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);
 });
@@ -365,16 +430,18 @@ test("uses first observed pending score increase as action anchor for delayed st
     goalEvidence: goalEvidence([]),
   });
 
-  assert.equal(result.summary.confirmedGoalCount, 1);
+  assert.equal(result.summary.confirmedGoalCount, 0);
   assert.equal(result.summary.countedGoalEventCount, 1);
-  assert.equal(result.summary.selectedCountedGoals, 1);
+  assert.equal(result.summary.selectedCountedGoals, 0);
+  assert.equal(result.summary.ocrOnlyBlockedCount, 1);
   assert.equal(result.scoreChanges[0].changeTime, 359);
   assert.equal(result.scoreChanges[0].actionAnchorTime, 318);
-  assert.equal(result.events[0].scoreChangeTime, 359);
-  assert.equal(result.events[0].phaseCoverage.confirmationTime, 318);
-  assert.ok(result.events[0].sourceStart <= 305);
-  assert.ok(result.events[0].sourceEnd < 340);
-  assert.equal(result.events[0].anchorDiagnostics.actionAnchorTime, 318);
+  assert.equal(result.rejectedEvents[0].scoreChangeTime, 359);
+  assert.equal(result.rejectedEvents[0].phaseCoverage.confirmationTime, 318);
+  assert.ok(result.rejectedEvents[0].sourceStart <= 305);
+  assert.ok(result.rejectedEvents[0].sourceEnd < 340);
+  assert.equal(result.rejectedEvents[0].anchorDiagnostics.actionAnchorTime, 318);
+  assert.equal(result.rejectedEvents[0].anchorDiagnostics.visibleGoalRecovery.failureCode, "SCOREBOARD_ONLY");
   assert.equal(result.summary.noFalseGoalFromOcrOnly, 1);
   assert.doesNotMatch(JSON.stringify(publicMatchEventTruth(result)), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);
 });
@@ -796,7 +863,7 @@ test("treats celebration/crowd reaction without action evidence as support only"
   assert.ok(result.rejectedEvents.some((event) => event.safetyFlags.includes("reaction_support_only")));
 });
 
-test("recovers bounded YouTube valid-goal candidates from source-wide action clusters", () => {
+test("does not recover bounded YouTube action clusters without strong visible finish support", () => {
   const result = analyzeMatchEventTruth({
     metadata: {
       durationSeconds: 360,
@@ -827,17 +894,60 @@ test("recovers bounded YouTube valid-goal candidates from source-wide action clu
     goalEvidence: goalEvidence([]),
   });
 
-  assert.equal(result.summary.confirmedGoalCount, 3);
-  assert.deepEqual(result.events.slice(0, 3).map((event) => event.id), [
-    "cluster_recovered_goal_1",
-    "cluster_recovered_goal_2",
-    "cluster_recovered_goal_3",
-  ]);
-  assert.ok(result.events.slice(0, 3).every((event) => event.evidenceCodes.includes("goal_candidate_cluster_recovery")));
-  assert.ok(result.events.slice(0, 3).every((event) => event.phaseCoverage.hasBuildup));
-  assert.ok(result.events.slice(0, 3).every((event) => event.phaseCoverage.hasShot));
-  assert.ok(result.events.slice(0, 3).every((event) => event.phaseCoverage.hasFinish));
-  assert.ok(result.events.slice(0, 3).every((event) => event.phaseCoverage.replayOnly === false));
+  assert.equal(result.summary.confirmedGoalCount, 0);
+  assert.equal(result.events.some((event) => event.id.startsWith("cluster_recovered_goal_")), false);
+  assert.equal(result.summary.noFalseGoalFromOcrOnly, 1);
+});
+
+test("recovers bounded YouTube live goal clusters with strong shot, goalmouth and confirmation support", () => {
+  const result = analyzeMatchEventTruth({
+    metadata: {
+      durationSeconds: 360,
+      width: 1920,
+      height: 1080,
+      sourceType: "youtube",
+      goalSelectionMode: "valid_goals_only",
+      allowCandidateClusterRecovery: true,
+    },
+    mediaSignals: {
+      durationSeconds: 360,
+      audioPeaks: [{ time: 145, energyScore: 0.94 }],
+      sceneChanges: [{ time: 148, confidence: 0.8 }],
+    },
+    visualSignals: visualSignals([
+      { start: 136, end: 138, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.9 },
+      { start: 140, end: 142, types: ["goal_mouth_visible", "crowd_reaction"], confidence: 0.86 },
+      { start: 146, end: 149, types: ["replay_indicator", "replay_angle"], confidence: 0.84 },
+    ]),
+    goalEvidence: goalEvidence([{
+      id: "support_only_live_goal_cluster",
+      start: 136,
+      end: 149,
+      confidence: 0.82,
+      outcomeHint: "possible_goal_unconfirmed",
+      reasonCodes: [
+        "visual_shot_contact",
+        "visual_ball_toward_goal",
+        "visual_goal_mouth",
+        "visual_crowd_reaction",
+        "visual_replay_indicator",
+        "replay_goal_confirmation",
+      ],
+      liveShotFinishSequence: true,
+      crowdReactionSupport: true,
+      combinedGoalConfirmation: true,
+    }]),
+  });
+
+  const recovered = result.events.filter((event) => event.id.startsWith("cluster_recovered_goal_"));
+  assert.equal(result.summary.confirmedGoalCount, 1);
+  assert.equal(recovered.length, 1);
+  assert.equal(recovered[0].phaseCoverage.replayOnly, false);
+  assert.equal(recovered[0].phaseCoverage.hasShot, true);
+  assert.equal(recovered[0].phaseCoverage.hasFinish, true);
+  assert.equal(recovered[0].phaseCoverage.visualGoalPayoff.hasVisibleGoalPayoff, true);
+  assert.equal(recovered[0].phaseCoverage.visualGoalPayoff.hasLiveFinishSequence, true);
+  assert.ok(recovered[0].evidenceCodes.includes("live_shot_finish_sequence"));
 });
 
 test("does not recover crowd-only or non-youtube action clusters as confirmed goals", () => {

@@ -68,6 +68,31 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function safeNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function safeGoalEvidenceCandidates(goalEvidence, max = 12) {
+  const events = Array.isArray(goalEvidence && goalEvidence.events) ? goalEvidence.events : [];
+  return events.slice(0, max).map((event, index) => ({
+    index: index + 1,
+    id: sanitizeText(event && event.id || `goal_evidence_${index + 1}`, 80),
+    outcomeHint: sanitizeText(event && event.outcomeHint || "unknown", 48),
+    start: safeNumber(event && event.start),
+    end: safeNumber(event && event.end),
+    confidence: safeNumber(event && event.confidence),
+    reasonCodes: Array.isArray(event && event.reasonCodes)
+      ? event.reasonCodes.map((reason) => sanitizeText(reason, 64)).filter(Boolean).slice(0, 12)
+      : [],
+    combinedGoalConfirmation: Boolean(event && event.combinedGoalConfirmation),
+    replayGoalConfirmation: Boolean(event && event.replayGoalConfirmation),
+    crowdReactionSupport: Boolean(event && event.crowdReactionSupport),
+    offsideFlag: Boolean(event && event.offsideFlag),
+    noGoalSignal: Boolean(event && event.VARNoGoalSignal),
+  }));
+}
+
 function resolveLocalArtifactPath(artifactStore, artifact) {
   if (artifactStore && typeof artifactStore.resolveLocalPath === "function") {
     return artifactStore.resolveLocalPath(artifact);
@@ -1078,9 +1103,11 @@ async function runRenderJob(options) {
             matchEventTruthOcrOnlyBlockedCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.ocrOnlyBlockedCount,
             matchEventTruthMissingActionEvidenceCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.missingActionEvidenceCount,
             matchEventTruthMissedGoalReasons: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.missedGoalReasons,
-            goalEvidenceCandidates: goalDiscovery && Array.isArray(goalDiscovery.goalEvidenceCandidates)
+            goalEvidenceCandidates: goalDiscovery &&
+              Array.isArray(goalDiscovery.goalEvidenceCandidates) &&
+              goalDiscovery.goalEvidenceCandidates.length > 0
               ? goalDiscovery.goalEvidenceCandidates.slice(0, 12)
-              : [],
+              : safeGoalEvidenceCandidates(goalEvidence),
             matchTruthCandidates: goalDiscovery && Array.isArray(goalDiscovery.matchTruthCandidates)
               ? goalDiscovery.matchTruthCandidates.slice(0, 16)
               : [],
