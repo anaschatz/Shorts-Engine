@@ -141,6 +141,18 @@ SHORTSENGINE_YOUTUBE_LIVE_E2E_URL="https://www.youtube.com/watch?v=<authorized-v
 npm run youtube:e2e:local
 ```
 
+For the current three-counted-goal verification fixture, keep the URL allowlisted and set the expected goal count explicitly. The proof must either write a verified MP4 under `manual-downloads/` or fail with the exact missing goal numbers:
+
+```bash
+SHORTSENGINE_YOUTUBE_LIVE_E2E=1 \
+SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED=1 \
+SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1 \
+SHORTSENGINE_YOUTUBE_LIVE_E2E_URL="https://www.youtube.com/watch?v=gxiRyFZXJV8" \
+SHORTSENGINE_YOUTUBE_SMOKE_ALLOWED_IDS="gxiRyFZXJV8" \
+SHORTSENGINE_YOUTUBE_LIVE_E2E_EXPECTED_COUNTED_GOALS=3 \
+npm run youtube:proof:operator
+```
+
 The default command is safe and skips without starting a server:
 
 ```bash
@@ -230,6 +242,8 @@ Expected passing report:
 - `generatedArtifact.downloadVerified: true` with project/job/export ids and safe media metadata
 
 Failure reports should include only safe `code`, `phase`, `nextAction` and bounded readiness summaries. Common phases are `env`, `doctor`, `server-bind`, `validation`, `ingest`, `probe`, `render`, `download` and `browser`. They must not contain raw URLs, local absolute paths, storage keys, stdout, stderr, cookies, tokens, secrets, or raw provider/downloader errors.
+
+When the final video output gate fails, the smoke/live proof report should include bounded QA fields so the operator can see why no MP4 was trusted: `countedGoalEventCount`, `actualConfirmedGoalSegmentCount`, `coveredGoalCount`, `missingGoalNumbers`, `failedReasons`, and `outputProof.videoOutputQA`. These fields are safe summaries only; the report must still keep `logsDownloaded: false` and `artifactsDownloaded: false`.
 
 Default skipped reports should show `status: "skipped"`, `passed: false`, `skipped: true`, `phase: "skipped"` and a `nextAction` that points at the missing opt-in flag. A skipped proof must not start the server, call the downloader or run network ingest.
 

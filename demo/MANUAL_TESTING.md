@@ -71,6 +71,18 @@ npm run youtube:proof
 
 The proof runs `env:check` before doctor/server work and writes `demo/results/youtube-live-e2e-latest.json` with safe `phase`, `nextAction`, `triage.preflight`, and `triage.doctor` fields for report-driven debugging.
 
+For the current 3-counted-goal proof case, use the allowlisted operator command:
+
+```bash
+SHORTSENGINE_YOUTUBE_LIVE_E2E=1 \
+SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED=1 \
+SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1 \
+SHORTSENGINE_YOUTUBE_LIVE_E2E_URL="https://www.youtube.com/watch?v=gxiRyFZXJV8" \
+SHORTSENGINE_YOUTUBE_SMOKE_ALLOWED_IDS="gxiRyFZXJV8" \
+SHORTSENGINE_YOUTUBE_LIVE_E2E_EXPECTED_COUNTED_GOALS=3 \
+npm run youtube:proof:operator
+```
+
 Run the opt-in browser YouTube live path only when Playwright and server binding are available:
 
 ```bash

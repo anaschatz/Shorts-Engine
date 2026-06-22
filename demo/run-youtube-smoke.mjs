@@ -35,6 +35,7 @@ const SMOKE_NEXT_ACTIONS = {
   YOUTUBE_SMOKE_JOB_TIMEOUT: "inspect-job-progress-and-increase-job-timeout-only-if-expected",
   YOUTUBE_SMOKE_RENDER_PLAN_MISSING: "check-job-public-edit-plan-before-trusting-the-live-proof",
   YOUTUBE_SMOKE_RENDER_PLAN_NOT_MULTI_MOMENT: "fix-multi-moment-selection-before-comparing-reference-style-shorts",
+  VIDEO_OUTPUT_QA_FAILED: "inspect-video-output-qa-missing-goals-and-fix-final-edit-plan-before-release",
   YOUTUBE_SMOKE_DOWNLOAD_NOT_MP4: "check-render-export-download-contract",
   YOUTUBE_SMOKE_MP4_SIGNATURE_INVALID: "check-render-output-and-download-contract",
   YOUTUBE_SMOKE_REPORT_LEAK: "inspect-report-leak-guard-and-remove-sensitive-output",
@@ -550,6 +551,42 @@ function safeVisualPolishQA(value) {
   };
 }
 
+function safeVideoOutputQA(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    schemaVersion: Number.isFinite(Number(value.schemaVersion)) ? Number(value.schemaVersion) : null,
+    status: value.status ? String(value.status).slice(0, 40) : null,
+    passed: typeof value.passed === "boolean" ? value.passed : null,
+    goalSelectionMode: value.goalSelectionMode ? String(value.goalSelectionMode).slice(0, 60) : null,
+    expectedGoalCount: safeNumber(value.expectedGoalCount),
+    actualSegmentCount: safeNumber(value.actualSegmentCount),
+    actualConfirmedGoalSegmentCount: safeNumber(value.actualConfirmedGoalSegmentCount),
+    coveredGoalCount: safeNumber(value.coveredGoalCount),
+    missingGoalNumbers: Array.isArray(value.missingGoalNumbers)
+      ? value.missingGoalNumbers.map((goal) => Number(goal)).filter(Number.isFinite).slice(0, 12)
+      : [],
+    extraGoalSegmentCount: safeNumber(value.extraGoalSegmentCount),
+    failedReasons: safeStringList(value.failedReasons, 12, 80),
+    invalidSegments: Array.isArray(value.invalidSegments)
+      ? value.invalidSegments.slice(0, 8).map((segment, index) => ({
+          index: Number.isFinite(Number(segment.index)) ? Number(segment.index) : index + 1,
+          id: segment.id ? String(segment.id).slice(0, 80) : null,
+          reasons: safeStringList(segment.reasons, 8, 80),
+        }))
+      : [],
+    matches: Array.isArray(value.matches)
+      ? value.matches.slice(0, 12).map((match, index) => ({
+          goalNumber: Number.isFinite(Number(match.goalNumber)) ? Number(match.goalNumber) : index + 1,
+          segmentIndex: Number.isFinite(Number(match.segmentIndex)) ? Number(match.segmentIndex) : null,
+          covered: Boolean(match.covered),
+          reasons: safeStringList(match.reasons, 8, 80),
+        }))
+      : [],
+    logsDownloaded: false,
+    artifactsDownloaded: false,
+  };
+}
+
 function safeRenderTransition(value = {}, index = 0) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return {
@@ -891,6 +928,7 @@ function maybeWriteDownloadArtifact({ buffer, downloadSummary, env, ids, ingeste
 
 function safeJobSnapshot(job) {
   if (!job || typeof job !== "object") return null;
+  const videoOutputQA = safeVideoOutputQA(job.videoOutputQA || job.editPlan?.videoOutputQA);
   return {
     id: job.id || null,
     projectId: job.projectId || null,
@@ -900,6 +938,7 @@ function safeJobSnapshot(job) {
     step: job.step || null,
     exportId: job.exportId || null,
     error: safeReportError(job.error),
+    videoOutputQA,
   };
 }
 
@@ -925,7 +964,16 @@ async function pollJob({ baseUrl, fetchImpl, jobId, jobTimeoutMs, pollIntervalMs
 
 function validateCompletedJob(job) {
   if (!job || job.status !== "completed") {
-    throw new YouTubeSmokeError(job?.error?.code || "YOUTUBE_SMOKE_JOB_FAILED", "YouTube smoke render job did not complete.");
+    const videoOutputQA = safeVideoOutputQA(job?.videoOutputQA || job?.editPlan?.videoOutputQA);
+    throw new YouTubeSmokeError(job?.error?.code || "YOUTUBE_SMOKE_JOB_FAILED", "YouTube smoke render job did not complete.", {
+      videoOutputQA,
+      countedGoalEventCount: videoOutputQA ? videoOutputQA.expectedGoalCount : null,
+      actualConfirmedGoalSegmentCount: videoOutputQA ? videoOutputQA.actualConfirmedGoalSegmentCount : null,
+      coveredGoalCount: videoOutputQA ? videoOutputQA.coveredGoalCount : null,
+      missingGoalNumbers: videoOutputQA ? videoOutputQA.missingGoalNumbers : [],
+      failedReasons: videoOutputQA ? videoOutputQA.failedReasons : [],
+      nextAction: videoOutputQA ? nextActionForCode("VIDEO_OUTPUT_QA_FAILED") : nextActionForCode(job?.error?.code || "YOUTUBE_SMOKE_JOB_FAILED"),
+    });
   }
   const exportId = assertId(job.exportId, "exp", "YOUTUBE_SMOKE_EXPORT_MISSING");
   return { exportId };
@@ -959,7 +1007,20 @@ function safeFailure(error) {
   const base = safeReportError(error) || { code: "YOUTUBE_SMOKE_FAILED", message: "YouTube smoke failed." };
   const code = error && error.code ? error.code : base.code;
   const nextAction = error?.details?.nextAction || nextActionForCode(code);
-  return { code, message: base.message, nextAction };
+  const details = error?.details && typeof error.details === "object" ? error.details : {};
+  return {
+    code,
+    message: base.message,
+    nextAction,
+    countedGoalEventCount: safeNumber(details.countedGoalEventCount),
+    actualConfirmedGoalSegmentCount: safeNumber(details.actualConfirmedGoalSegmentCount),
+    coveredGoalCount: safeNumber(details.coveredGoalCount),
+    missingGoalNumbers: Array.isArray(details.missingGoalNumbers)
+      ? details.missingGoalNumbers.map((goal) => Number(goal)).filter(Number.isFinite).slice(0, 12)
+      : [],
+    failedReasons: safeStringList(details.failedReasons, 12, 80),
+    videoOutputQA: safeVideoOutputQA(details.videoOutputQA),
+  };
 }
 
 function safeReport(report) {

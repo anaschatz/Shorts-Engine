@@ -550,6 +550,48 @@ test("youtube smoke fails closed when a long source does not expose a multi-mome
   assert.equal(findSensitiveLeak(report), null);
 });
 
+test("youtube smoke surfaces safe video output QA when the render job fails the final gate", async () => {
+  const videoOutputQA = failedVideoOutputQA();
+  const { fetchImpl } = createFetchMock({
+    "GET /api/jobs/job_12345678": () => jsonResponse({
+      ok: true,
+      data: {
+        job: {
+          id: "job_12345678",
+          projectId: "prj_12345678",
+          uploadId: "upl_12345678",
+          status: "failed",
+          progress: 72,
+          step: "failed",
+          exportId: null,
+          error: { code: "VIDEO_OUTPUT_QA_FAILED", message: "Final video output did not pass QA." },
+          videoOutputQA,
+          editPlan: {
+            ...completedJobEditPlan(),
+            goalSelectionMode: "valid_goals_only",
+            videoOutputQA,
+          },
+        },
+      },
+    }, 200, "req_job"),
+  });
+
+  const report = await runYouTubeSmoke({ env: smokeEnv(), fetchImpl });
+
+  assert.equal(report.status, "failed");
+  assert.equal(report.failedCases[0].code, "VIDEO_OUTPUT_QA_FAILED");
+  assert.equal(report.failedCases[0].countedGoalEventCount, 3);
+  assert.equal(report.failedCases[0].actualConfirmedGoalSegmentCount, 2);
+  assert.equal(report.failedCases[0].coveredGoalCount, 2);
+  assert.deepEqual(report.failedCases[0].missingGoalNumbers, [3]);
+  assert.deepEqual(report.failedCases[0].failedReasons, ["missing_or_invalid_counted_goal_segment"]);
+  assert.equal(report.jobLifecycle.at(-1).videoOutputQA.status, "failed");
+  assert.equal(report.jobLifecycle.at(-1).videoOutputQA.logsDownloaded, false);
+  assert.equal(report.jobLifecycle.at(-1).videoOutputQA.artifactsDownloaded, false);
+  assert.equal(report.renderPlan, null);
+  assert.equal(findSensitiveLeak(report), null);
+});
+
 test("youtube smoke can save a verified generated artifact under manual-downloads", async () => {
   const artifactRef = savedArtifactRef();
   const { fetchImpl } = createFetchMock();
@@ -835,6 +877,31 @@ function passedSmokeReport() {
       rawDownloaderOutputIncluded: false,
     },
     failedCases: [],
+  };
+}
+
+function failedVideoOutputQA(overrides = {}) {
+  return {
+    schemaVersion: 1,
+    status: "failed",
+    passed: false,
+    goalSelectionMode: "valid_goals_only",
+    expectedGoalCount: 3,
+    actualSegmentCount: 2,
+    actualConfirmedGoalSegmentCount: 2,
+    coveredGoalCount: 2,
+    missingGoalNumbers: [3],
+    extraGoalSegmentCount: 0,
+    failedReasons: ["missing_or_invalid_counted_goal_segment"],
+    invalidSegments: [],
+    matches: [
+      { goalNumber: 1, segmentIndex: 1, covered: true, reasons: [] },
+      { goalNumber: 2, segmentIndex: 2, covered: true, reasons: [] },
+      { goalNumber: 3, segmentIndex: null, covered: false, reasons: ["missing_segment_for_counted_goal"] },
+    ],
+    logsDownloaded: false,
+    artifactsDownloaded: false,
+    ...overrides,
   };
 }
 
@@ -1497,6 +1564,68 @@ test("youtube live local e2e fails release proof when expected counted goals are
   assert.equal(findSensitiveLeak(report), null);
 });
 
+test("youtube live local e2e reports final output gate details when smoke fails before MP4", async () => {
+  const videoOutputQA = failedVideoOutputQA();
+  const failedSmoke = {
+    ...passedSmokeReport(),
+    status: "failed",
+    failedCases: [{
+      name: "youtube_smoke",
+      code: "VIDEO_OUTPUT_QA_FAILED",
+      message: "Final video output did not pass QA.",
+      nextAction: "inspect-video-output-qa-missing-goals-and-fix-final-edit-plan-before-release",
+      countedGoalEventCount: 3,
+      actualConfirmedGoalSegmentCount: 2,
+      coveredGoalCount: 2,
+      missingGoalNumbers: [3],
+      failedReasons: ["missing_or_invalid_counted_goal_segment"],
+      videoOutputQA,
+    }],
+    jobLifecycle: [{
+      id: "job_12345678",
+      status: "failed",
+      progress: 72,
+      step: "failed",
+      error: { code: "VIDEO_OUTPUT_QA_FAILED", message: "Final video output did not pass QA." },
+      videoOutputQA,
+    }],
+    renderPlan: null,
+    export: null,
+    generatedArtifact: null,
+  };
+
+  const report = await runYouTubeLiveE2E({
+    env: liveEnv({ SHORTSENGINE_YOUTUBE_LIVE_E2E_EXPECTED_COUNTED_GOALS: "3" }),
+    checkYouTubeIngest: async () => passedDoctor(),
+    getFreePort: async () => 4175,
+    startServer: () => ({ child: { exitCode: null, signalCode: null }, events: [] }),
+    stopServer: async () => {},
+    waitForServerReady: async () => ({ attempts: 1, waitedMs: 10, status: 200 }),
+    runYouTubeSmoke: async () => failedSmoke,
+    requireOutputValidation: true,
+  });
+
+  assert.equal(report.status, "failed");
+  assert.equal(report.phase, "render");
+  assert.equal(report.failedCases[0].code, "VIDEO_OUTPUT_QA_FAILED");
+  assert.equal(report.failedCases[0].countedGoalEventCount, 3);
+  assert.equal(report.failedCases[0].actualConfirmedGoalSegmentCount, 2);
+  assert.equal(report.failedCases[0].coveredGoalCount, 2);
+  assert.deepEqual(report.failedCases[0].missingGoalNumbers, [3]);
+  assert.deepEqual(report.failedCases[0].failedReasons, ["missing_or_invalid_counted_goal_segment"]);
+  assert.equal(report.outputProof.outputMp4, null);
+  assert.equal(report.outputProof.countedGoalsFound, 3);
+  assert.equal(report.outputProof.countedGoalsIncluded, 2);
+  assert.equal(report.outputProof.actualConfirmedGoalSegmentCount, 2);
+  assert.equal(report.outputProof.coveredGoalCount, 2);
+  assert.deepEqual(report.outputProof.missingGoalNumbers, [3]);
+  assert.equal(report.outputProof.videoOutputQA.status, "failed");
+  assert.equal(report.outputProof.ffprobe.code, "OUTPUT_MP4_NOT_CREATED");
+  assert.equal(report.outputProof.logsDownloaded, false);
+  assert.equal(report.outputProof.artifactsDownloaded, false);
+  assert.equal(findSensitiveLeak(report), null);
+});
+
 test("youtube live local e2e fails release proof when counted goals are not human-visible", async () => {
   const smoke = countedGoalSmokeReport();
   smoke.renderPlan.segments[2].visualGoalGate = {
@@ -1744,5 +1873,11 @@ test("youtube live local e2e failure report keeps safe valid-goal discovery coun
     ocrEvidenceCount: 2,
     scoreboardConfirmedGoalCount: 0,
   });
+  assert.equal(report.outputProof.goalDiscovery.selectedValidGoalCount, 0);
+  assert.equal(report.outputProof.goalDiscovery.goalEvidenceEventCount, 3);
+  assert.equal(report.outputProof.goalDiscovery.offsideOrNoGoalEvidenceCount, 2);
+  assert.equal(report.outputProof.ffprobe.code, "OUTPUT_MP4_NOT_CREATED");
+  assert.equal(report.outputProof.logsDownloaded, false);
+  assert.equal(report.outputProof.artifactsDownloaded, false);
   assert.equal(findSensitiveLeak(report), null);
 });

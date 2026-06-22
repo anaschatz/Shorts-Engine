@@ -1133,11 +1133,39 @@ async function runRenderJob(options) {
       }
     }
     if (!context.approvedEditPlan && context.goalSelectionMode === "valid_goals_only") {
-      videoOutputQA = deps.assertVideoOutputCoverage({
-        editPlan,
-        matchEventTruth,
-        goalSelectionMode: context.goalSelectionMode,
-      });
+      try {
+        videoOutputQA = deps.assertVideoOutputCoverage({
+          editPlan,
+          matchEventTruth,
+          goalSelectionMode: context.goalSelectionMode,
+        });
+      } catch (error) {
+        if (error && error.details && typeof error.details === "object" && !Array.isArray(error.details)) {
+          videoOutputQA = error.details;
+          editPlan.videoOutputQA = videoOutputQA;
+          jobs.update(job, {
+            editPlan,
+            videoOutputQA,
+            step: "video_output_qa_failed",
+          });
+          logInfo(deps.logger, {
+            event: "video_output_qa_failed",
+            requestId,
+            projectId: project.id,
+            jobId: job.id,
+            step: "create_edit_plan",
+            status: videoOutputQA.status,
+            expectedGoalCount: videoOutputQA.expectedGoalCount,
+            actualConfirmedGoalSegmentCount: videoOutputQA.actualConfirmedGoalSegmentCount,
+            coveredGoalCount: videoOutputQA.coveredGoalCount,
+            missingGoalNumbers: videoOutputQA.missingGoalNumbers,
+            failedReasonCount: Array.isArray(videoOutputQA.failedReasons) ? videoOutputQA.failedReasons.length : 0,
+            logsDownloaded: false,
+            artifactsDownloaded: false,
+          });
+        }
+        throw error;
+      }
       editPlan.videoOutputQA = videoOutputQA;
       logInfo(deps.logger, {
         event: "video_output_qa_completed",

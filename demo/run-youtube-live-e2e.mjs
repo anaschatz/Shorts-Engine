@@ -48,6 +48,7 @@ const NEXT_ACTIONS = Object.freeze({
   YOUTUBE_LIVE_E2E_GOAL_COVERAGE_INCOMPLETE: "inspect-counted-goal-proof-and-fix-valid-goal-selection-before-release",
   YOUTUBE_LIVE_E2E_HUMAN_VISIBLE_GOAL_INCOMPLETE: "inspect-human-visible-goal-gate-contact-sheets-and-fix-goal-sequence-selection",
   YOUTUBE_LIVE_E2E_CLEANUP_DIR_UNSAFE: "keep-live-proof-cleanup-inside-manual-downloads",
+  VIDEO_OUTPUT_QA_FAILED: "inspect-video-output-qa-missing-goals-and-fix-final-edit-plan-before-release",
   NO_VALID_GOALS_FOUND: "inspect-valid-goal-selection-evidence-before-rerun",
   YOUTUBE_SMOKE_URL_MISSING: "set-SHORTSENGINE_YOUTUBE_LIVE_E2E_URL-or-SHORTSENGINE_YOUTUBE_SMOKE_URL",
   YOUTUBE_SMOKE_URL_NOT_ALLOWED: "set-SHORTSENGINE_YOUTUBE_SMOKE_ALLOWED_IDS-or-SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED-1",
@@ -247,6 +248,7 @@ function phaseForCode(code) {
   if (text.includes("SERVER_BIND")) return PHASES.SERVER_BIND;
   if (text.includes("VALIDATE") || text.includes("VALIDATION")) return PHASES.VALIDATION;
   if (text.includes("INGEST") || text.includes("ARTIFACT") || text.includes("SOURCE_RESPONSE")) return PHASES.INGEST;
+  if (text === "VIDEO_OUTPUT_QA_FAILED") return PHASES.RENDER;
   if (text.startsWith("FILE_") || text.startsWith("VIDEO_") || text.includes("DURATION")) return PHASES.PROBE;
   if (
     text.includes("JOB") ||
@@ -277,6 +279,13 @@ function safeFailure(error) {
     waitedMs: Number.isFinite(Number(details.waitedMs)) ? Number(details.waitedMs) : null,
     httpStatus: Number.isFinite(Number(details.httpStatus)) ? Number(details.httpStatus) : null,
     causeCode: details.causeCode ? safeString(details.causeCode, 60) : null,
+    countedGoalEventCount: safeNumber(details.countedGoalEventCount),
+    actualConfirmedGoalSegmentCount: safeNumber(details.actualConfirmedGoalSegmentCount),
+    coveredGoalCount: safeNumber(details.coveredGoalCount),
+    missingGoalNumbers: Array.isArray(details.missingGoalNumbers)
+      ? details.missingGoalNumbers.map((goal) => Number(goal)).filter(Number.isFinite).slice(0, 12)
+      : [],
+    failedReasons: safeStringList(details.failedReasons, 12, 80),
   };
 }
 
@@ -908,16 +917,34 @@ function latestGoalDiscoveryEvent(serverEvents = []) {
   return [...serverEvents].reverse().find((event) => event && event.goalDiscovery) || null;
 }
 
-function buildFailedOutputProof({ env, source, serverEvents, staleArtifactCleanup }) {
+function latestVideoOutputQAFromSmoke(smoke) {
+  if (!smoke || typeof smoke !== "object") return null;
+  const lifecycle = Array.isArray(smoke.jobLifecycle) ? smoke.jobLifecycle : [];
+  const snapshot = [...lifecycle].reverse().find((item) => item && item.videoOutputQA);
+  return snapshot?.videoOutputQA || smoke.failedCases?.[0]?.videoOutputQA || null;
+}
+
+function buildFailedOutputProof({ env, source, smoke = null, serverEvents, staleArtifactCleanup }) {
   const event = latestGoalDiscoveryEvent(serverEvents);
   const discovery = event?.goalDiscovery || null;
-  const countedGoalsFound = Number.isFinite(Number(discovery?.selectedValidGoalCount))
+  const outputQA = latestVideoOutputQAFromSmoke(smoke);
+  const outputExpectedGoalCount = Number.isFinite(Number(outputQA?.expectedGoalCount))
+    ? Number(outputQA.expectedGoalCount)
+    : null;
+  const discoverySelectedGoalCount = Number.isFinite(Number(discovery?.selectedValidGoalCount))
     ? Number(discovery.selectedValidGoalCount)
+    : null;
+  const countedGoalsFound = outputExpectedGoalCount ?? discoverySelectedGoalCount ?? 0;
+  const actualConfirmedGoalSegmentCount = Number.isFinite(Number(outputQA?.actualConfirmedGoalSegmentCount))
+    ? Number(outputQA.actualConfirmedGoalSegmentCount)
+    : 0;
+  const coveredGoalCount = Number.isFinite(Number(outputQA?.coveredGoalCount))
+    ? Number(outputQA.coveredGoalCount)
     : 0;
   const expectedCountedGoals = expectedCountedGoalsForSource(source, env);
   const coverage = {
     countedGoalsFound,
-    countedGoalsIncluded: 0,
+    countedGoalsIncluded: actualConfirmedGoalSegmentCount,
     expectedCountedGoals,
     replayOnlySegments: 0,
   };
@@ -932,9 +959,14 @@ function buildFailedOutputProof({ env, source, serverEvents, staleArtifactCleanu
       code: "OUTPUT_MP4_NOT_CREATED",
     },
     countedGoalsFound,
-    countedGoalsIncluded: 0,
+    countedGoalsIncluded: actualConfirmedGoalSegmentCount,
+    actualConfirmedGoalSegmentCount,
+    coveredGoalCount,
+    missingGoalNumbers: Array.isArray(outputQA?.missingGoalNumbers) ? outputQA.missingGoalNumbers : [],
+    failedReasons: Array.isArray(outputQA?.failedReasons) ? outputQA.failedReasons : [],
     expectedCountedGoals,
     replayOnlySegments: 0,
+    videoOutputQA: outputQA,
     segmentWindows: [],
     goalDiscovery: discovery,
     staleArtifactCleanup,
@@ -1056,7 +1088,7 @@ function buildReport({
   const phase = failure?.phase || (status === "skipped" ? PHASES.SKIPPED : status === "passed" ? PHASES.COMPLETED : null);
   const nextAction = reportNextAction({ checks, failedCases, status });
   const normalizedOutputProof = outputProof || (status === "failed"
-    ? buildFailedOutputProof({ env: env || {}, source, serverEvents, staleArtifactCleanup })
+    ? buildFailedOutputProof({ env: env || {}, source, smoke, serverEvents, staleArtifactCleanup })
     : null);
   return safeReport({
     schemaVersion: LIVE_PROOF_SCHEMA_VERSION,
@@ -1513,13 +1545,24 @@ async function runYouTubeLiveE2E(options = {}) {
     });
     if (smoke?.status !== "passed") {
       const failure = smoke?.failedCases?.[0] || {};
+      const outputQA = latestVideoOutputQAFromSmoke(smoke);
+      outputProof = buildFailedOutputProof({ env, source, smoke, serverEvents, staleArtifactCleanup });
       const failureNextAction = failure.code && NEXT_ACTIONS[failure.code]
         ? nextActionForCode(failure.code)
         : failure.nextAction || nextActionForCode("YOUTUBE_LIVE_E2E_SMOKE_FAILED");
       throw new YouTubeLiveE2EError(
         failure.code || "YOUTUBE_LIVE_E2E_SMOKE_FAILED",
         "Live YouTube E2E smoke did not pass.",
-        { nextAction: failureNextAction },
+        {
+          nextAction: failureNextAction,
+          countedGoalEventCount: Number.isFinite(Number(outputQA?.expectedGoalCount)) ? Number(outputQA.expectedGoalCount) : null,
+          actualConfirmedGoalSegmentCount: Number.isFinite(Number(outputQA?.actualConfirmedGoalSegmentCount))
+            ? Number(outputQA.actualConfirmedGoalSegmentCount)
+            : null,
+          coveredGoalCount: Number.isFinite(Number(outputQA?.coveredGoalCount)) ? Number(outputQA.coveredGoalCount) : null,
+          missingGoalNumbers: Array.isArray(outputQA?.missingGoalNumbers) ? outputQA.missingGoalNumbers : [],
+          failedReasons: Array.isArray(outputQA?.failedReasons) ? outputQA.failedReasons : [],
+        },
       );
     }
     outputProof = buildOutputProof({ env, smoke, source, staleArtifactCleanup });
@@ -1613,6 +1656,12 @@ async function runYouTubeLiveE2E(options = {}) {
     if (server) {
       serverEvents.push(...(server.events || []));
       await deps.stopServer(server.child, server.dataDir);
+    }
+    if (outputProof && outputProof.outputMp4 === null && serverEvents.length) {
+      const refreshedOutputProof = buildFailedOutputProof({ env, source, smoke, serverEvents, staleArtifactCleanup });
+      if (refreshedOutputProof.goalDiscovery || refreshedOutputProof.videoOutputQA) {
+        outputProof = refreshedOutputProof;
+      }
     }
   }
 

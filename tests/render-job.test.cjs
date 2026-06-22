@@ -859,7 +859,17 @@ test("youtube valid-goals-only output gate fails when final plan misses counted 
   assert.equal(context.project.status, "failed");
   assert.equal(context.exportsById.size, 0);
   assert.equal(context.job.error.code, "VIDEO_OUTPUT_QA_FAILED");
+  assert.equal(context.job.videoOutputQA.status, "failed");
+  assert.equal(context.job.videoOutputQA.expectedGoalCount, 3);
+  assert.equal(context.job.videoOutputQA.actualConfirmedGoalSegmentCount, 2);
+  assert.equal(context.job.videoOutputQA.coveredGoalCount, 2);
+  assert.deepEqual(context.job.videoOutputQA.missingGoalNumbers, [3]);
+  assert.equal(context.job.step, "failed");
+  const qaLog = context.logs.find((entry) => entry.event === "video_output_qa_failed");
+  assert.equal(qaLog.expectedGoalCount, 3);
+  assert.deepEqual(qaLog.missingGoalNumbers, [3]);
   assert.equal(context.calls.includes("render_short"), false);
+  assert.doesNotMatch(JSON.stringify(context.job.videoOutputQA), /\/Users|storageKey|secret|stderr|stdout|rawOcr|rawText/i);
   assert.doesNotMatch(JSON.stringify(context.job.error), /\/Users|storageKey|secret|stderr|stdout|rawOcr|rawText/i);
 });
 
@@ -880,6 +890,8 @@ test("youtube valid-goals-only output gate rejects non-goal filler segments", as
   assert.equal(context.job.status, "failed");
   assert.equal(context.exportsById.size, 0);
   assert.equal(context.job.error.code, "VIDEO_OUTPUT_QA_FAILED");
+  assert.equal(context.job.videoOutputQA.status, "failed");
+  assert.equal(context.job.videoOutputQA.failedReasons.includes("non_goal_segments_present"), true);
   assert.equal(context.calls.includes("render_short"), false);
 });
 
