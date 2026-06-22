@@ -2684,19 +2684,19 @@ const MULTI_MOMENT_COMPILATION = Object.freeze({
   minSegments: 3,
   maxSegments: 7,
   minTotalDuration: 45,
-  maxTotalDuration: 100,
+  maxTotalDuration: 210,
 });
 
 const VALID_GOAL_ONLY_TIMING = Object.freeze({
   minSegmentDuration: 18,
-  maxSegmentDuration: 32,
-  preContextSeconds: 10,
-  maxPreContextSeconds: 15,
+  maxSegmentDuration: 64,
+  preContextSeconds: 16,
+  maxPreContextSeconds: 40,
   postContextSeconds: 4.2,
   decisionPostSeconds: 1.4,
   minTransitionGapSeconds: 0.25,
-  idealPreActionSeconds: 6,
-  minPreActionSeconds: 2,
+  idealPreActionSeconds: 10,
+  minPreActionSeconds: 4,
   idealPostConfirmationSeconds: 2.4,
   minPostConfirmationSeconds: 1.2,
 });
@@ -2730,9 +2730,36 @@ function inferredShotStartForGoalPhase({ sourceStart = 0, sourceEnd = null, fini
   return Number(Math.min(finish - 1, start + inferredLead).toFixed(2));
 }
 
+function goalVisualPayoffSummaryForReasons(reasonCodes = []) {
+  const reasonSet = new Set(Array.isArray(reasonCodes) ? reasonCodes : []);
+  const hasBallInNetEvidence = reasonSet.has("visual_ball_in_net") || reasonSet.has("ball_in_net");
+  const hasLiveFinishSequence = reasonSet.has("live_shot_finish_sequence") && (
+    reasonSet.has("shot_sequence_support") ||
+    reasonSet.has("visual_shot_contact") ||
+    reasonSet.has("visual_shot_like_motion") ||
+    reasonSet.has("visual_ball_toward_goal")
+  );
+  const hasScoreboardBackedGoal = reasonSet.has("scoreboard_backed_goal_sequence") ||
+    reasonSet.has("scoreboard_ocr_score_change") ||
+    reasonSet.has("scoreboard_temporal_consistency");
+  const hasVisibleGoalPayoff = hasBallInNetEvidence || hasLiveFinishSequence;
+  return {
+    hasVisibleGoalPayoff,
+    hasBallInNetEvidence,
+    hasLiveFinishSequence,
+    scoreboardOnly: hasScoreboardBackedGoal && !hasVisibleGoalPayoff,
+    evidenceCodes: [
+      ...(hasBallInNetEvidence ? ["visual_ball_in_net"] : []),
+      ...(hasLiveFinishSequence ? ["live_shot_finish_sequence"] : []),
+      ...(hasScoreboardBackedGoal ? ["scoreboard_goal_confirmation"] : []),
+    ],
+  };
+}
+
 function goalPhaseCoverageForEvent(event = {}, window = null) {
   const evidenceCodes = Array.isArray(event.evidenceCodes) ? event.evidenceCodes : [];
   const reasonSet = new Set(evidenceCodes);
+  const visualPayoff = goalVisualPayoffSummaryForReasons(evidenceCodes);
   const raw = event.phaseCoverage && typeof event.phaseCoverage === "object" && !Array.isArray(event.phaseCoverage)
     ? event.phaseCoverage
     : {};
@@ -2786,8 +2813,8 @@ function goalPhaseCoverageForEvent(event = {}, window = null) {
       ? reasonSet.has("visual_shot_contact") || reasonSet.has("visual_shot_like_motion") || reasonSet.has("visual_ball_toward_goal") || reasonSet.has("shot_sequence_support")
       : Boolean(raw.hasShot),
     hasFinish: raw.hasFinish == null
-      ? reasonSet.has("visual_ball_in_net") || reasonSet.has("ball_in_net") || reasonSet.has("scoreboard_backed_goal_sequence")
-      : Boolean(raw.hasFinish),
+      ? visualPayoff.hasVisibleGoalPayoff
+      : Boolean(raw.hasFinish) && visualPayoff.hasVisibleGoalPayoff,
     hasConfirmation: raw.hasConfirmation == null
       ? event.type === "confirmed_goal" || reasonSet.has("visual_scoreboard_goal_confirmed") || reasonSet.has("visual_referee_goal_signal") || reasonSet.has("confirmed_by_commentary")
       : Boolean(raw.hasConfirmation),
@@ -2797,6 +2824,7 @@ function goalPhaseCoverageForEvent(event = {}, window = null) {
     confirmationTime,
     replayUsed,
     replayOnly,
+    visualGoalPayoff: visualPayoff,
   };
 }
 
@@ -2932,6 +2960,7 @@ function goalPhaseMetadataForEvent(event = {}, window = {}) {
       hasConfirmation: phaseCoverage.hasConfirmation,
       replayUsed: phaseCoverage.replayUsed,
       replayOnly: phaseCoverage.replayOnly,
+      visualGoalPayoff: phaseCoverage.visualGoalPayoff,
       liveActionStart: Number(finiteNumber(phaseCoverage.liveActionStart, window.sourceStart || 0).toFixed(2)),
       shotStart: Number(phaseCoverage.shotStart.toFixed(2)),
       finishTime: Number(phaseCoverage.finishTime.toFixed(2)),
@@ -3192,7 +3221,12 @@ function confirmedGoalPhaseIsRenderable(candidate = {}) {
   if (!phaseCoverage) return true;
   return phaseCoverage.replayOnly !== true &&
     phaseCoverage.hasShot !== false &&
-    phaseCoverage.hasFinish !== false;
+    phaseCoverage.hasFinish !== false &&
+    (!phaseCoverage.visualGoalPayoff || phaseCoverage.visualGoalPayoff.hasVisibleGoalPayoff !== false);
+}
+
+function bothConfirmedGoalCandidates(a = {}, b = {}) {
+  return isConfirmedGoalCandidate(a) && isConfirmedGoalCandidate(b);
 }
 
 function isConfirmedGoalCandidate(candidate = {}) {
@@ -3233,6 +3267,9 @@ function isConfirmedGoalCandidate(candidate = {}) {
 function hasUnsafeCompilationOverlap(existing = {}, candidate = {}) {
   const overlap = sourceOverlapSeconds(existing, candidate);
   if (overlap <= 0.5) return false;
+  if (bothConfirmedGoalCandidates(existing, candidate)) {
+    return sourceOverlapRatio(existing, candidate) > 0.95;
+  }
   if (isReplayCandidate(existing) || isReplayCandidate(candidate)) {
     return sourceOverlapRatio(existing, candidate) > 0.35;
   }
@@ -3486,6 +3523,10 @@ function sanitizeExpandedCompilationOverlaps(expanded = []) {
 
     const previous = sanitized[sanitized.length - 1];
     if (previous.sourceEnd > current.sourceStart) {
+      if (bothConfirmedGoalCandidates(previous, current) && sourceOverlapRatio(previous, current) <= 0.95) {
+        sanitized.push(current);
+        continue;
+      }
       const previousMinEnd = Number((previous.sourceStart + 3).toFixed(2));
       const currentMaxStart = Number((current.sourceEnd - 3).toFixed(2));
       if (previousMinEnd > currentMaxStart) continue;
@@ -3750,12 +3791,14 @@ function transitionPlanForCompilation(segments = []) {
 
 function phaseCompleteForReference(segment = {}) {
   const phase = segment.phaseCoverage || {};
+  const visualPayoff = phase.visualGoalPayoff || goalVisualPayoffSummaryForReasons(segment.reasonCodes || []);
   return segment.replayOnly !== true &&
     phase.replayOnly !== true &&
     phase.hasBuildup === true &&
     phase.hasShot === true &&
     phase.hasFinish === true &&
-    phase.hasConfirmation === true;
+    phase.hasConfirmation === true &&
+    visualPayoff.hasVisibleGoalPayoff === true;
 }
 
 function abruptCutRisksForSegment(segment = {}) {
@@ -3765,6 +3808,14 @@ function abruptCutRisksForSegment(segment = {}) {
   if (duration > VALID_GOAL_ONLY_TIMING.maxSegmentDuration) risks.push("too_long_goal_segment");
   if (segment.replayOnly === true || (segment.phaseCoverage && segment.phaseCoverage.replayOnly === true)) {
     risks.push("replay_only_risk");
+  }
+  const visualPayoff = (segment.phaseCoverage && segment.phaseCoverage.visualGoalPayoff) ||
+    goalVisualPayoffSummaryForReasons(segment.reasonCodes || []);
+  if (segment.goalOutcome && segment.goalOutcome.outcome === "confirmed_goal" && !visualPayoff.hasVisibleGoalPayoff) {
+    risks.push("missing_visible_goal_payoff");
+  }
+  if (segment.goalOutcome && segment.goalOutcome.outcome === "confirmed_goal" && visualPayoff.scoreboardOnly) {
+    risks.push("scoreboard_only_goal_segment");
   }
   if (!phaseCompleteForReference(segment)) risks.push("missing_phase_coverage");
   const shotStart = finiteNumber(segment.shotStart, null);
@@ -3854,6 +3905,17 @@ function referenceStyleQaForCompilation({ segments = [], captions = [], transiti
     ? Number((durations.reduce((sum, duration) => sum + duration, 0) / durations.length).toFixed(2))
     : 0;
   const phaseCompleteCount = safeSegments.filter(phaseCompleteForReference).length;
+  const visualPayoffSummaries = safeSegments.map((segment) => (
+    (segment.phaseCoverage && segment.phaseCoverage.visualGoalPayoff) ||
+      goalVisualPayoffSummaryForReasons(segment.reasonCodes || [])
+  ));
+  const visibleGoalPayoffCount = visualPayoffSummaries.filter((summary) => summary.hasVisibleGoalPayoff).length;
+  const scoreboardOnlyGoalSegmentCount = visualPayoffSummaries.filter((summary, index) => (
+    summary.scoreboardOnly &&
+    safeSegments[index] &&
+    safeSegments[index].goalOutcome &&
+    safeSegments[index].goalOutcome.outcome === "confirmed_goal"
+  )).length;
   const abruptCutRiskFlags = safeSegments.flatMap((segment) => abruptCutRisksForSegment(segment));
   const boundarySmoothing = safeSegments.map((segment) => segment.boundarySmoothing || boundarySmoothingForWindow(segment));
   const smoothingAppliedCount = boundarySmoothing.filter((item) => item && item.applied).length;
@@ -3880,6 +3942,7 @@ function referenceStyleQaForCompilation({ segments = [], captions = [], transiti
       }).length / safeSegments.length).toFixed(4))
     : 1;
   const phaseCoverageScore = safeSegments.length ? Number((phaseCompleteCount / safeSegments.length).toFixed(4)) : 1;
+  const visibleGoalPayoffScore = safeSegments.length ? Number((visibleGoalPayoffCount / safeSegments.length).toFixed(4)) : 1;
   const abruptCutScore = safeSegments.length
     ? Number((Math.max(0, safeSegments.length - abruptCutRiskFlags.length) / safeSegments.length).toFixed(4))
     : 1;
@@ -3889,17 +3952,21 @@ function referenceStyleQaForCompilation({ segments = [], captions = [], transiti
   const cutSmoothnessScore = Number((abruptCutScore * 0.65 + boundarySmoothingScore * 0.35).toFixed(4));
   const captionAlignment = captionAlignmentForReference(captions);
   const score = Number((
-    transitionCoverage * 0.22 +
-    phaseCoverageScore * 0.28 +
-    durationScore * 0.16 +
-    cutSmoothnessScore * 0.18 +
-    captionAlignment.captionAlignmentScore * 0.16
+    transitionCoverage * 0.18 +
+    phaseCoverageScore * 0.24 +
+    visibleGoalPayoffScore * 0.20 +
+    durationScore * 0.14 +
+    cutSmoothnessScore * 0.12 +
+    captionAlignment.captionAlignmentScore * 0.12
   ).toFixed(4));
   return {
     contractVersion: 1,
     stylePreset: sanitizeText(stylePreset, 40),
     countedGoalsIncluded: safeSegments.filter((segment) => segment.goalOutcome && segment.goalOutcome.outcome === "confirmed_goal").length,
     replayOnlySegments: safeSegments.filter((segment) => segment.replayOnly === true || (segment.phaseCoverage && segment.phaseCoverage.replayOnly === true)).length,
+    visibleGoalPayoffCount,
+    missingVisibleGoalPayoffCount: Math.max(0, safeSegments.length - visibleGoalPayoffCount),
+    scoreboardOnlyGoalSegmentCount,
     averageGoalSegmentDuration,
     abruptCutRiskCount: abruptCutRiskFlags.length,
     abruptCutRiskFlags: [...new Set(abruptCutRiskFlags)].slice(0, 8),
@@ -3911,9 +3978,11 @@ function referenceStyleQaForCompilation({ segments = [], captions = [], transiti
     tooShortGoalSegmentCount: abruptCutRiskFlags.filter((flag) => flag === "too_short_goal_segment").length,
     tooLongDeadAirCount: abruptCutRiskFlags.filter((flag) => flag === "too_long_goal_segment").length,
     missingPayoffCount: abruptCutRiskFlags.filter((flag) => flag === "missing_payoff_breathing_room").length,
+    missingVisibleGoalPayoffRiskCount: abruptCutRiskFlags.filter((flag) => flag === "missing_visible_goal_payoff").length,
     replayOnlyRiskCount: abruptCutRiskFlags.filter((flag) => flag === "replay_only_risk").length,
     transitionCoverage,
     phaseCoverageScore,
+    visibleGoalPayoffScore,
     durationScore,
     captionActionAlignmentScore: captionAlignment.captionAlignmentScore,
     captionsAlignedCount: captionAlignment.captionsAlignedCount,

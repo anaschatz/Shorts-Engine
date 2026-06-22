@@ -645,7 +645,7 @@ async function renderMultiSegmentShort({ inputPath, outputPath, subtitlesPath, p
     throw new AppError("RENDER_FAILED", "Multi-moment render needs at least two valid segments.", 500);
   }
   const totalDuration = Number(segments.reduce((sum, segment) => sum + segment.duration, 0).toFixed(2));
-  if (!Number.isFinite(totalDuration) || totalDuration <= 0 || totalDuration > 100) {
+  if (!Number.isFinite(totalDuration) || totalDuration <= 0 || totalDuration > 210) {
     throw new AppError("RENDER_FAILED", SAFE_MESSAGES.RENDER_FAILED, 500);
   }
   const tempDir = mkdtempSync(join(dirname(outputPath), `.shortsengine-${basename(outputPath, ".mp4")}-`));

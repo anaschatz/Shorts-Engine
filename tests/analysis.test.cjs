@@ -1203,12 +1203,12 @@ test("long goal compilations include every detected confirmed goal before filler
   assert.ok(goalSegments.some((segment) => segment.sourceStart <= 20.6 && segment.sourceEnd >= 28.3));
   assert.ok(goalSegments.some((segment) => segment.sourceStart <= 62.6 && segment.sourceEnd >= 70.3));
   assert.ok(goalSegments.some((segment) => segment.sourceStart <= 106.6 && segment.sourceEnd >= 114.3));
-  assert.ok(goalSegments.every((segment) => segment.duration >= 10 && segment.duration <= 28));
+  assert.ok(goalSegments.every((segment) => segment.duration >= 18 && segment.duration <= 64));
   assert.ok(goalSegments.every((segment) => segment.goalOutcome.outcome === "confirmed_goal"));
   assert.ok(plan.segments.every((segment) => segment.goalOutcome.outcome === "confirmed_goal"));
   assert.doesNotMatch(plan.captions.map((caption) => caption.text).join(" "), /PHASE \d|PRESSURE BUILDS/i);
   assert.match(plan.captions.map((caption) => caption.text).join(" "), /FINISH COUNTS|ONLY VALID FINISHES/i);
-  assert.ok(plan.totalDuration <= 90);
+  assert.ok(plan.totalDuration <= 210);
 });
 
 test("valid goal compilation excludes high-score filler chances and can render two goals only", () => {
@@ -1279,7 +1279,7 @@ test("valid goal compilation excludes high-score filler chances and can render t
   assert.equal(plan.hook, "VALID FINISHES ONLY");
   assert.match(captionText, /FINISH COUNTS|ONLY VALID FINISHES/i);
   assert.doesNotMatch(captionText, /BIG CHANCE|SHOT OPENS UP|CHANCE OPENS/i);
-  assert.ok(plan.totalDuration < 60);
+  assert.ok(plan.totalDuration <= 90);
 });
 
 test("valid-goals-only renders scoreboard-backed truth goals with live action support", () => {
@@ -1349,6 +1349,134 @@ test("valid-goals-only renders scoreboard-backed truth goals with live action su
   assert.ok(plans[0].analysisMoment.reasonCodes.includes("scoreboard_backed_goal_sequence"));
   assert.ok(plans[0].analysisMoment.reasonCodes.includes("shot_sequence_support"));
   assert.doesNotMatch(JSON.stringify(plans), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);
+});
+
+test("valid-goals-only rejects scoreboard-only goals without visible payoff", () => {
+  const longMetadata = { durationSeconds: 240, width: 1920, height: 1080, hasAudio: true };
+  const truthEvent = {
+    id: "score_change_without_visible_payoff",
+    type: "confirmed_goal",
+    outcome: "confirmed_goal",
+    confidence: 0.86,
+    sourceStart: 84,
+    sourceEnd: 118,
+    buildupWindow: { start: 84, end: 92 },
+    shotWindow: { start: 92, end: 106 },
+    payoffWindow: { start: 106, end: 110 },
+    decisionWindow: { start: 116, end: 118 },
+    phaseCoverage: {
+      hasBuildup: true,
+      hasShot: true,
+      hasFinish: true,
+      hasConfirmation: true,
+      liveActionStart: 84,
+      shotStart: 92,
+      finishTime: 110,
+      confirmationTime: 116,
+      replayUsed: false,
+      replayOnly: false,
+    },
+    evidenceCodes: [
+      "scoreboard_ocr_score_change",
+      "scoreboard_temporal_consistency",
+      "scoreboard_backed_goal_sequence",
+      "shot_sequence_support",
+      "visual_scoreboard_goal_confirmed",
+    ],
+    missingEvidence: [],
+    safetyFlags: ["scorebug_truth_integration", "no_false_goal_from_ocr_only"],
+    captionIntent: "confirmed_goal_caption",
+    renderPriority: 1200,
+  };
+
+  const plans = createCandidateEditPlans({
+    moments: [],
+    metadata: { ...longMetadata, goalSelectionMode: "valid_goals_only" },
+    transcript: { captions: [] },
+    mediaSignals: { durationSeconds: longMetadata.durationSeconds },
+    visualSignals: { providerMode: "fixture-visual", fallbackUsed: false, windows: [] },
+    matchEventTruth: {
+      schemaVersion: 1,
+      providerMode: "fixture-truth",
+      fallbackUsed: false,
+      events: [truthEvent],
+      rejectedEvents: [],
+      scoreTimelineObservations: [],
+      scoreChanges: [],
+    },
+    title: "Scoreboard-only rejected",
+  });
+
+  assert.deepEqual(plans, []);
+});
+
+test("valid-goals-only preserves long live goal phases instead of tail-only confirmation", () => {
+  const longMetadata = { durationSeconds: 360, width: 1920, height: 1080, hasAudio: true };
+  const truth = matchEventTruthFixture([
+    {
+      sourceStart: 142.4,
+      sourceEnd: 198.1,
+      liveActionStart: 142.4,
+      shotStart: 171.6,
+      payoffStart: 193.8,
+      payoffEnd: 195.1,
+      decisionStart: 196.8,
+      decisionEnd: 198.1,
+    },
+    {
+      sourceStart: 219.6,
+      sourceEnd: 280.2,
+      liveActionStart: 219.6,
+      shotStart: 253.7,
+      payoffStart: 275.8,
+      payoffEnd: 277.2,
+      decisionStart: 278.9,
+      decisionEnd: 280.2,
+    },
+    {
+      sourceStart: 265.4,
+      sourceEnd: 321.3,
+      liveActionStart: 265.4,
+      shotStart: 294.8,
+      payoffStart: 316.9,
+      payoffEnd: 318.3,
+      decisionStart: 320,
+      decisionEnd: 321.3,
+    },
+  ], longMetadata.durationSeconds);
+  truth.selectedEvents.forEach((event) => {
+    event.evidenceCodes.push(
+      "scoreboard_ocr_score_change",
+      "scoreboard_temporal_consistency",
+      "scoreboard_backed_goal_sequence",
+      "live_shot_finish_sequence",
+      "shot_sequence_support",
+    );
+  });
+
+  const plans = createCandidateEditPlans({
+    moments: [],
+    metadata: { ...longMetadata, goalSelectionMode: "valid_goals_only" },
+    transcript: { captions: [] },
+    matchEventTruth: truth,
+    title: "Long live goal phases",
+    editIntensity: "balanced",
+    stylePreset: "punchy_highlight",
+  });
+  const plan = validateEditPlan(plans[0], longMetadata);
+
+  assert.equal(plan.mode, "multi_moment_compilation");
+  assert.equal(plan.segments.length, 3);
+  assert.ok(plan.segments[0].sourceStart <= 143);
+  assert.ok(plan.segments[0].sourceEnd >= 198);
+  assert.ok(plan.segments[1].sourceStart <= 220);
+  assert.ok(plan.segments[1].sourceEnd >= 280);
+  assert.ok(plan.segments[2].sourceStart <= 266);
+  assert.ok(plan.segments[2].sourceEnd >= 321);
+  assert.ok(plan.segments.every((segment) => segment.duration > 50 && segment.duration <= 64));
+  assert.equal(plan.visualPolishQA.missingVisibleGoalPayoffCount, 0);
+  assert.equal(plan.visualPolishQA.scoreboardOnlyGoalSegmentCount, 0);
+  assert.equal(plan.visualPolishQA.visibleGoalPayoffScore, 1);
 });
 
 test("valid-goals-only keeps full-source late confirmed goals before early filler", () => {
@@ -1441,13 +1569,13 @@ test("valid-goals-only keeps full-source late confirmed goals before early fille
   assert.equal(plan.segments.length, 3);
   assert.ok(plan.segments.every((segment) => segment.highlightType === "goal"));
   assert.ok(plan.segments.every((segment) => segment.goalOutcome.outcome === "confirmed_goal"));
-  assert.ok(plan.segments.every((segment) => segment.sourceStart >= 220));
+  assert.ok(plan.segments.every((segment) => segment.sourceStart >= 190));
   assert.ok(plan.segments.some((segment) => segment.sourceStart <= 238 && segment.sourceEnd >= 254.6));
   assert.ok(plan.segments.some((segment) => segment.sourceStart <= 294 && segment.sourceEnd >= 312.4));
   assert.ok(plan.segments.some((segment) => segment.sourceStart <= 328 && segment.sourceEnd >= 346.4));
-  assert.ok(plan.segments.every((segment) => segment.duration >= 18 && segment.duration <= 32));
+  assert.ok(plan.segments.every((segment) => segment.duration >= 18 && segment.duration <= 64));
   assert.equal(plan.segments.every((segment) => segment.boundarySmoothing && segment.boundarySmoothing.applied), true);
-  assert.equal(plan.segments.every((segment) => segment.boundarySmoothing.preActionPaddingSeconds >= 2), true);
+  assert.equal(plan.segments.every((segment) => segment.boundarySmoothing.preActionPaddingSeconds >= 4), true);
   assert.equal(plan.segments.every((segment) => segment.boundarySmoothing.postConfirmationPaddingSeconds >= 1.2), true);
   assert.equal(plan.visualPolishQA.boundarySmoothingAppliedCount, 3);
   assert.equal(plan.visualPolishQA.cutSmoothnessScore, 1);
@@ -1513,7 +1641,7 @@ test("valid-goals-only plan keeps every confirmed goal, excludes offside goals, 
     segments.map((segment) => segment.sourceStart),
     [...segments.map((segment) => segment.sourceStart)].sort((a, b) => a - b),
   );
-  assert.ok(segments.every((segment) => segment.duration >= 18 && segment.duration <= 32));
+  assert.ok(segments.every((segment) => segment.duration >= 18 && segment.duration <= 64));
   assert.equal(plan.transitionPlan.length, 2);
   assert.ok(plan.transitionPlan.every((transition) => transition.type === "short_fade"));
   assert.ok(plan.transitionPlan.every((transition) => transition.transitionDurationSeconds > 0));
@@ -1524,7 +1652,7 @@ test("valid-goals-only plan keeps every confirmed goal, excludes offside goals, 
   assert.equal(plan.editAssembly.segments.every((segment) => segment.buildupStart <= segment.shotStart), true);
   assert.equal(plan.editAssembly.segments.every((segment) => segment.cutQuality.abruptCutRisk === false), true);
   assert.equal(plan.editAssembly.segments.every((segment) => segment.cutQuality.smoothingApplied === true), true);
-  assert.equal(plan.editAssembly.segments.every((segment) => segment.cutQuality.preActionPaddingSeconds >= 2), true);
+  assert.equal(plan.editAssembly.segments.every((segment) => segment.cutQuality.preActionPaddingSeconds >= 4), true);
   assert.equal(plan.editAssembly.segments.every((segment) => segment.cutQuality.postConfirmationPaddingSeconds >= 1.2), true);
   assert.equal(plan.visualPolishQA.countedGoalsIncluded, 3);
   assert.equal(plan.visualPolishQA.replayOnlySegments, 0);

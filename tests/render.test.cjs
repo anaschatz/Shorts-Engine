@@ -326,7 +326,7 @@ test("multi-segment renderer cuts segments, concatenates them, then applies capt
   assert.doesNotMatch(ass, /\bGOAL\b|ΓΚΟΛ|\/Users|storageKey/i);
 });
 
-test("multi-segment renderer accepts full valid-goal compilations up to 100 seconds", async () => {
+test("multi-segment renderer accepts full valid-goal compilations up to 210 seconds", async () => {
   const dir = mkdtempSync(join(tmpdir(), "shortsengine-render-long-goals-"));
   const outputPath = join(dir, "output.mp4");
   const subtitlesPath = join(dir, "captions.ass");

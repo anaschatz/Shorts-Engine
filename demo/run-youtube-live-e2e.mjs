@@ -45,6 +45,7 @@ const NEXT_ACTIONS = Object.freeze({
   YOUTUBE_LIVE_E2E_REPORT_LEAK: "remove-sensitive-output-from-live-e2e-report",
   YOUTUBE_LIVE_E2E_TIMEOUT: "check-local-server-and-downloader-before-rerun-or-increase-timeout-only-if-expected",
   YOUTUBE_LIVE_E2E_OUTPUT_NOT_READY: "check-generated-mp4-path-and-ffprobe-before-comparison",
+  YOUTUBE_LIVE_E2E_GOAL_COVERAGE_INCOMPLETE: "inspect-counted-goal-proof-and-fix-valid-goal-selection-before-release",
   YOUTUBE_LIVE_E2E_CLEANUP_DIR_UNSAFE: "keep-live-proof-cleanup-inside-manual-downloads",
   NO_VALID_GOALS_FOUND: "inspect-valid-goal-selection-evidence-before-rerun",
   YOUTUBE_SMOKE_URL_MISSING: "set-SHORTSENGINE_YOUTUBE_LIVE_E2E_URL-or-SHORTSENGINE_YOUTUBE_SMOKE_URL",
@@ -1347,6 +1348,26 @@ async function runYouTubeLiveE2E(options = {}) {
     const strictOutputValidation = options.requireOutputValidation !== undefined
       ? Boolean(options.requireOutputValidation)
       : !options.runYouTubeSmoke;
+    const expectedCountedGoals = Number(outputProof.expectedCountedGoals);
+    const countedGoalsIncluded = Number(outputProof.countedGoalsIncluded);
+    const countedGoalCoveragePassed = !Number.isFinite(expectedCountedGoals) ||
+      countedGoalsIncluded === expectedCountedGoals;
+    addCheck(checks, "youtube_live_e2e_counted_goal_coverage_complete", countedGoalCoveragePassed, {
+      code: countedGoalCoveragePassed ? null : "YOUTUBE_LIVE_E2E_GOAL_COVERAGE_INCOMPLETE",
+      expectedCountedGoals: Number.isFinite(expectedCountedGoals) ? expectedCountedGoals : null,
+      countedGoalsIncluded: Number.isFinite(countedGoalsIncluded) ? countedGoalsIncluded : null,
+    });
+    if (strictOutputValidation && !countedGoalCoveragePassed) {
+      throw new YouTubeLiveE2EError(
+        "YOUTUBE_LIVE_E2E_GOAL_COVERAGE_INCOMPLETE",
+        "Live YouTube E2E did not include every expected counted goal.",
+        {
+          phase: PHASES.RENDER,
+          expectedCountedGoals,
+          countedGoalsIncluded,
+        },
+      );
+    }
     if (strictOutputValidation && outputProof.ffprobe?.status !== "passed") {
       throw new YouTubeLiveE2EError(
         "YOUTUBE_LIVE_E2E_OUTPUT_NOT_READY",

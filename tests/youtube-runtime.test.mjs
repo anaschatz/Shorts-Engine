@@ -1406,6 +1406,41 @@ test("youtube live local e2e reports counted goal coverage and replay-only segme
   assert.equal(findSensitiveLeak(report), null);
 });
 
+test("youtube live local e2e fails release proof when expected counted goals are missing", async () => {
+  const smoke = countedGoalSmokeReport();
+  smoke.renderPlan.segments = smoke.renderPlan.segments.slice(0, 2);
+  smoke.renderPlan.segmentCount = 2;
+  smoke.renderPlan.totalDuration = 48;
+  smoke.renderPlan.countedGoalProof.finalSegmentCount = 2;
+  smoke.renderPlan.countedGoalProof.selectedTimelineWindows =
+    smoke.renderPlan.countedGoalProof.selectedTimelineWindows.slice(0, 2);
+  smoke.renderPlan.visualPolishQA.countedGoalsIncluded = 2;
+
+  const report = await runYouTubeLiveE2E({
+    env: liveEnv({ SHORTSENGINE_YOUTUBE_LIVE_E2E_EXPECTED_COUNTED_GOALS: "3" }),
+    checkYouTubeIngest: async () => passedDoctor(),
+    getFreePort: async () => 4175,
+    startServer: () => ({ child: { exitCode: null, signalCode: null }, events: [] }),
+    stopServer: async () => {},
+    waitForServerReady: async () => ({ attempts: 1, waitedMs: 10, status: 200 }),
+    runYouTubeSmoke: async () => smoke,
+    requireOutputValidation: true,
+  });
+
+  assert.equal(report.status, "failed");
+  assert.equal(report.phase, "render");
+  assert.equal(report.failedCases[0].code, "YOUTUBE_LIVE_E2E_GOAL_COVERAGE_INCOMPLETE");
+  assert.equal(report.outputProof.countedGoalsFound, 3);
+  assert.equal(report.outputProof.countedGoalsIncluded, 2);
+  assert.equal(report.outputProof.expectedCountedGoals, 3);
+  assert.equal(report.outputProof.comparison.checklist.countedGoals, false);
+  assert.equal(
+    report.checks.some((check) => check.name === "youtube_live_e2e_counted_goal_coverage_complete" && check.passed === false),
+    true,
+  );
+  assert.equal(findSensitiveLeak(report), null);
+});
+
 test("youtube live proof derives visual polish QA from public render summary when explicit QA is missing", async () => {
   const smoke = countedGoalSmokeReport();
   smoke.renderPlan.visualPolishQA = null;

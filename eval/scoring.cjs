@@ -1064,7 +1064,9 @@ function framingIsSafe(plan, metadata = {}) {
 
 function animationCuesAreValid(plan) {
   if (!plan || typeof plan !== "object" || !Array.isArray(plan.animationCues) || plan.animationCues.length === 0) return false;
-  const duration = toNumber(plan.sourceEnd) - toNumber(plan.sourceStart);
+  const duration = Array.isArray(plan.segments) && plan.segments.length > 1
+    ? toNumber(plan.totalDuration, toNumber(plan.sourceEnd) - toNumber(plan.sourceStart))
+    : toNumber(plan.sourceEnd) - toNumber(plan.sourceStart);
   return plan.animationCues.every((cue) => {
     const start = toNumber(cue.start, Number.NaN);
     const end = toNumber(cue.end, Number.NaN);

@@ -100,8 +100,8 @@ const MULTI_MOMENT_LIMITS = Object.freeze({
   minSegments: 2,
   maxSegments: 7,
   minSegmentDuration: 3,
-  maxSegmentDuration: 32,
-  maxTotalDuration: 100,
+  maxSegmentDuration: 64,
+  maxTotalDuration: 210,
 });
 const VISUAL_EVIDENCE_TYPES = Object.freeze([
   "ball_visible",
@@ -924,9 +924,12 @@ function normalizeSegmentGoalPhase(segment = {}, context = {}) {
   const hasShot = raw.hasShot == null
     ? reasonSet.has("visual_shot_contact") || reasonSet.has("visual_shot_like_motion") || reasonSet.has("visual_ball_toward_goal") || reasonSet.has("shot_sequence_support")
     : Boolean(raw.hasShot);
+  const hasVisibleGoalPayoff = reasonSet.has("visual_ball_in_net") ||
+    reasonSet.has("ball_in_net") ||
+    (reasonSet.has("live_shot_finish_sequence") && hasShot);
   const hasFinish = raw.hasFinish == null
-    ? reasonSet.has("visual_ball_in_net") || reasonSet.has("ball_in_net") || reasonSet.has("scoreboard_backed_goal_sequence") || confirmedGoal
-    : Boolean(raw.hasFinish);
+    ? hasVisibleGoalPayoff
+    : Boolean(raw.hasFinish) && hasVisibleGoalPayoff;
   const replayOnly = Boolean(segment.replayOnly || raw.replayOnly) || (replayUsed && !hasShot);
   const hasBuildupFromWindow = shotStart == null
     ? context.sourceEnd - context.sourceStart >= 8
@@ -940,6 +943,12 @@ function normalizeSegmentGoalPhase(segment = {}, context = {}) {
       : Boolean(raw.hasConfirmation),
     replayUsed,
     replayOnly,
+    visualGoalPayoff: {
+      hasVisibleGoalPayoff,
+      hasBallInNetEvidence: reasonSet.has("visual_ball_in_net") || reasonSet.has("ball_in_net"),
+      hasLiveFinishSequence: reasonSet.has("live_shot_finish_sequence") && hasShot,
+      scoreboardOnly: (reasonSet.has("scoreboard_backed_goal_sequence") || reasonSet.has("scoreboard_ocr_score_change")) && !hasVisibleGoalPayoff,
+    },
   };
   if (confirmedGoal && (phaseCoverage.replayOnly || !phaseCoverage.hasShot || !phaseCoverage.hasFinish)) {
     throw new AppError("VALIDATION_ERROR", "Confirmed goal segment must include live shot and finish evidence.", 400);
@@ -1061,7 +1070,17 @@ function normalizeSegments(segments, metadata = {}) {
       previous.reasonCodes.includes("replay_worthy_moment") ||
       current.reasonCodes.includes("visual_replay_indicator") ||
       current.reasonCodes.includes("replay_worthy_moment");
-    if (!intentionalReplay || overlap / Math.max(0.1, smallestDuration) > 0.35) {
+    const confirmedGoalOverlap = previous.highlightType === "goal" &&
+      current.highlightType === "goal" &&
+      previous.goalOutcome &&
+      current.goalOutcome &&
+      previous.goalOutcome.outcome === "confirmed_goal" &&
+      current.goalOutcome.outcome === "confirmed_goal" &&
+      overlap / Math.max(0.1, smallestDuration) <= 0.95;
+    if (!intentionalReplay && !confirmedGoalOverlap) {
+      throw new AppError("VALIDATION_ERROR", "Edit plan segments overlap too much.", 400);
+    }
+    if (intentionalReplay && !confirmedGoalOverlap && overlap / Math.max(0.1, smallestDuration) > 0.35) {
       throw new AppError("VALIDATION_ERROR", "Edit plan segments overlap too much.", 400);
     }
   }
@@ -1153,8 +1172,8 @@ function validateEditPlan(plan, metadata = {}) {
   if (!Number.isFinite(sourceStart) || !Number.isFinite(sourceEnd) || sourceStart < 0 || sourceEnd <= sourceStart) {
     throw new AppError("VALIDATION_ERROR", "Edit plan source range is invalid.", 400);
   }
-  if (!hasSegments && sourceEnd - sourceStart > 60) {
-    throw new AppError("VALIDATION_ERROR", "MVP render window cannot exceed 60 seconds.", 400);
+  if (!hasSegments && sourceEnd - sourceStart > MULTI_MOMENT_LIMITS.maxSegmentDuration) {
+    throw new AppError("VALIDATION_ERROR", "MVP render window cannot exceed 64 seconds.", 400);
   }
   if (!hasSegments && sourceEnd > mediaDuration + 0.25) {
     throw new AppError("VALIDATION_ERROR", "Edit plan exceeds media duration.", 400);
