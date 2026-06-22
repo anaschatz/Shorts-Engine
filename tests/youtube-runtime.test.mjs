@@ -1983,12 +1983,12 @@ test("youtube live failed output proof preserves pre-render download failure act
         step: "failure",
         status: "failed",
         code: "YOUTUBE_DOWNLOAD_FAILED",
-        nextAction: "retry-ingest-or-upload-mp4",
+        nextAction: "use-rights-cleared-local-mp4-proof-or-fix-downloader-and-rerun",
       }],
       failedCases: [{
         name: "youtube_smoke",
         code: "YOUTUBE_DOWNLOAD_FAILED",
-        nextAction: "retry-ingest-or-upload-mp4",
+        nextAction: "use-rights-cleared-local-mp4-proof-or-fix-downloader-and-rerun",
       }],
     }),
   });
@@ -1997,7 +1997,7 @@ test("youtube live failed output proof preserves pre-render download failure act
   assert.equal(report.outputProof.code, "YOUTUBE_DOWNLOAD_FAILED");
   assert.equal(report.outputProof.phase, "failure");
   assert.equal(report.outputProof.outputMp4, null);
-  assert.equal(report.outputProof.nextAction, "retry-ingest-or-upload-mp4");
+  assert.equal(report.outputProof.nextAction, "use-rights-cleared-local-mp4-proof-or-fix-downloader-and-rerun");
   assert.equal(report.outputProof.scoreboardOcrAttempted, false);
   assert.equal(report.outputProof.logsDownloaded, false);
   assert.equal(report.outputProof.artifactsDownloaded, false);

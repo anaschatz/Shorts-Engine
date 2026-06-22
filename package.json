@@ -40,6 +40,7 @@
     "ocr:doctor": "node tools/release/check-ocr-runtime.mjs",
     "ocr:qa:review": "node demo/run-ocr-qa-review.mjs",
     "ocr:smoke": "node demo/run-ocr-smoke.mjs",
+    "proof:local-video": "node demo/run-local-video-proof.mjs",
     "release:check": "node tools/release/verify-release-gate.mjs",
     "release:evidence": "node tools/release/write-release-evidence.mjs",
     "release:readiness": "node tools/release/check-release-readiness.mjs",
@@ -61,6 +62,7 @@
     "youtube:doctor": "node tools/release/check-youtube-ingest.mjs",
     "youtube:e2e:local": "node demo/run-youtube-live-e2e.mjs",
     "youtube:proof": "node demo/run-youtube-live-e2e.mjs",
+    "youtube:proof:local": "node demo/run-local-video-proof.mjs",
     "youtube:proof:operator": "node demo/run-youtube-live-e2e.mjs --operator",
     "youtube:smoke": "node demo/run-youtube-smoke.mjs"
   },

@@ -97,7 +97,7 @@ const YOUTUBE_FAILURES = Object.freeze({
     reason: "download_failed",
     metadataStatus: "local-unavailable",
     ingestRisk: "download-failed",
-    nextAction: "retry-ingest-or-upload-mp4",
+    nextAction: "use-rights-cleared-local-mp4-proof-or-fix-downloader-and-rerun",
     retryable: true,
     authorizedImportRequired: false,
   }),

@@ -16,6 +16,7 @@ const { analyzeTracking, publicTrackingProviderOutput } = require("./tracking-pr
 const { assertVideoOutputCoverage } = require("./video-output-gate.cjs");
 const { analyzeFrames, publicVisualSignals, validateVisualSignals } = require("./vision.cjs");
 const { analyzeVisualTracking, publicVisualTrackingSummary } = require("./visual-tracking.cjs");
+const { isLocalVideoProofSource } = require("./staging-smoke-metadata.cjs");
 
 function isRegularFile(filePath) {
   try {
@@ -238,6 +239,7 @@ function isYouTubeLongSource(source, metadata = {}) {
 }
 
 function goalSelectionModeForSource(source, metadata = {}) {
+  if (isLocalVideoProofSource(source)) return "valid_goals_only";
   return isYouTubeLongSource(source, metadata) ? "valid_goals_only" : "balanced";
 }
 

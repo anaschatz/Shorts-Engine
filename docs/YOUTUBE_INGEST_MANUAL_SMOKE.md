@@ -172,6 +172,46 @@ demo/results/youtube-live-e2e-latest.json
 
 The live E2E wrapper does not call the downloader directly. It runs `youtube:doctor`, starts the local app with ingest enabled only after explicit flags are present, then reuses the same leak-guarded `youtube:smoke` pipeline against that local server.
 
+## Run Rights-Cleared Local MP4 Proof
+
+Use this path when the YouTube downloader is blocked before OCR/evidence analysis, but you have a rights-cleared MP4 of the same source. The command starts an isolated local server, uploads the MP4 through `/api/uploads`, marks the upload as `local-video-proof`, runs the normal generate/render job, enforces the same valid-goals-only video output QA gate, and writes an MP4 only if the final gate passes.
+
+Default mode is safe and skipped:
+
+```bash
+npm run proof:local-video
+npm run youtube:proof:local
+```
+
+Operator proof example:
+
+```bash
+SHORTSENGINE_LOCAL_PROOF_SOURCE="/absolute/path/to/rights-cleared-source.mp4" \
+SHORTSENGINE_LOCAL_PROOF_RIGHTS_CONFIRMED=1 \
+SHORTSENGINE_LOCAL_PROOF_EXPECTED_COUNTED_GOALS=3 \
+SHORTSENGINE_LOCAL_PROOF_SOURCE_LABEL="authorized-match-highlight" \
+SHORTSENGINE_LOCAL_PROOF_SCOREBOARD_OCR=1 \
+SHORTSENGINE_LOCAL_PROOF_SCOREBOARD_OCR_QA=1 \
+npm run proof:local-video
+```
+
+Safety contract:
+
+- The source file must be a regular `.mp4` with an `ftyp` container signature.
+- The command never mutates or deletes the source file.
+- The source is copied through the upload/artifact boundary, not read directly by render orchestration.
+- OCR flags apply only to the isolated proof server.
+- Reports use safe relative refs only and never include absolute local paths, raw OCR text, storage keys, stdout, stderr, cookies, tokens, secrets, or raw provider/downloader errors.
+- If 3/3 counted goals cannot be proven, no MP4 is written as a successful proof.
+
+Reports are written to:
+
+```bash
+demo/results/local-video-proof-latest.json
+```
+
+Successful reports include `outputProof.outputMp4.relativePath` under `manual-downloads/`, an ffprobe summary, counted-goal coverage, missing-goal fields, and `logsDownloaded: false` / `artifactsDownloaded: false`.
+
 ## Run Local UI E2E Demo
 
 Use this path after `npm run youtube:doctor` is passing with ingest enabled and a live `/health` URL.
@@ -324,6 +364,7 @@ If cleanup requires deleting committed artifacts or exports, stop and add a dedi
 | `YOUTUBE_GEO_RESTRICTED` | The video is unavailable from this environment. | Use an accessible authorized video or MP4 fallback. |
 | `YOUTUBE_AGE_RESTRICTED` | The video requires age-gated access. | Use MP4 fallback until authorized import is built. |
 | `YOUTUBE_RATE_LIMITED` | YouTube rate-limited the ingest attempt. | Retry later or upload MP4 fallback. |
+| `YOUTUBE_DOWNLOAD_FAILED` | Generic downloader failure before OCR/evidence analysis. | Use `npm run proof:local-video` with a rights-cleared MP4, or fix the downloader and rerun. |
 | `FFMPEG_MISSING` | FFmpeg is unavailable. | Install FFmpeg or set `FFMPEG_BIN`. |
 | `FFPROBE_MISSING` | FFprobe is unavailable. | Install FFprobe or set `FFPROBE_BIN`. |
 | `YOUTUBE_STAGING_STORAGE_UNAVAILABLE` | Local staging storage is not ready. | Check data directory permissions and staging storage. |
@@ -353,5 +394,6 @@ Default CI and local checks must remain no-network and no-downloader:
 - `npm run youtube:doctor` is safe with defaults and should skip real ingest.
 - `npm run youtube:smoke` is skipped unless `SHORTSENGINE_YOUTUBE_SMOKE=1`.
 - `npm run youtube:e2e:local` is skipped unless `SHORTSENGINE_YOUTUBE_LIVE_E2E=1`.
+- `npm run proof:local-video` and `npm run youtube:proof:local` are skipped unless `SHORTSENGINE_LOCAL_PROOF_SOURCE` is set with explicit rights confirmation.
 - the Playwright YouTube live path is disabled unless `SHORTSENGINE_YOUTUBE_LIVE_E2E_BROWSER=1`.
 - Real cloud integration, downloader installation, and authorized YouTube smoke remain manual operator actions.
