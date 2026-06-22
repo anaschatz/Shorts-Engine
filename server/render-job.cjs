@@ -13,6 +13,7 @@ const { analyzeScoreboardOcr, publicScoreboardOcr } = require("./scoreboard-ocr.
 const { chooseTranscriptionProvider } = require("./transcription.cjs");
 const { assertStoragePath, storagePath, writeJsonAtomic } = require("./storage.cjs");
 const { analyzeTracking, publicTrackingProviderOutput } = require("./tracking-provider.cjs");
+const { assertVideoOutputCoverage } = require("./video-output-gate.cjs");
 const { analyzeFrames, publicVisualSignals, validateVisualSignals } = require("./vision.cjs");
 const { analyzeVisualTracking, publicVisualTrackingSummary } = require("./visual-tracking.cjs");
 
@@ -31,6 +32,7 @@ function createDefaultDependencies(overrides = {}) {
     artifactStore: new LocalArtifactAdapter(),
     chooseTranscriptionProvider,
     analyzeFrames,
+    assertVideoOutputCoverage,
     analyzeGoalEvidence,
     analyzeMatchEventTruth,
     analyzeScoreboardOcr,
@@ -738,6 +740,7 @@ async function runRenderJob(options) {
   let ocrQaCalibration = null;
   let goalEvidence = null;
   let matchEventTruth = null;
+  let videoOutputQA = null;
   let trackingProviderOutput = null;
   let visualTracking = null;
   let highlightResult = null;
@@ -1129,6 +1132,29 @@ async function runRenderJob(options) {
         editPlan.visualQA = candidatePlans[0].visualQA;
       }
     }
+    if (!context.approvedEditPlan && context.goalSelectionMode === "valid_goals_only") {
+      videoOutputQA = deps.assertVideoOutputCoverage({
+        editPlan,
+        matchEventTruth,
+        goalSelectionMode: context.goalSelectionMode,
+      });
+      editPlan.videoOutputQA = videoOutputQA;
+      logInfo(deps.logger, {
+        event: "video_output_qa_completed",
+        requestId,
+        projectId: project.id,
+        jobId: job.id,
+        step: "create_edit_plan",
+        status: videoOutputQA.status,
+        expectedGoalCount: videoOutputQA.expectedGoalCount,
+        actualConfirmedGoalSegmentCount: videoOutputQA.actualConfirmedGoalSegmentCount,
+        coveredGoalCount: videoOutputQA.coveredGoalCount,
+        extraGoalSegmentCount: videoOutputQA.extraGoalSegmentCount,
+        failedReasonCount: Array.isArray(videoOutputQA.failedReasons) ? videoOutputQA.failedReasons.length : 0,
+        logsDownloaded: false,
+        artifactsDownloaded: false,
+      });
+    }
     logInfo(deps.logger, {
       event: "edit_plan_selected",
       requestId,
@@ -1242,6 +1268,7 @@ async function runRenderJob(options) {
       trackingProviderOutput,
       visualTracking,
       sampledFrames: sampledFrameSummary,
+      videoOutputQA,
       step: "completed",
     });
     updateApprovalAudit({
@@ -1266,6 +1293,7 @@ async function runRenderJob(options) {
       trackingProviderOutput,
       visualTracking,
       sampledFrames: sampledFrameSummary,
+      videoOutputQA,
       highlights: highlightResult.moments,
       candidatePlans,
       editPlan,

@@ -94,6 +94,203 @@ function validPlan() {
   };
 }
 
+function validGoalOutcome(decisionTimestamp) {
+  return {
+    eventType: "ball_in_net",
+    outcome: "confirmed_goal",
+    offsideStatus: "onside",
+    confidence: 0.93,
+    decisionTimestamp,
+    decisionEvidence: ["scoreboard_goal_confirmed", "scoreboard_backed_goal_sequence"],
+  };
+}
+
+function validGoalSegment(index, sourceStart, shotStart, finishTime, confirmationTime) {
+  const sourceEnd = confirmationTime + 4;
+  return {
+    id: `goal_segment_${index}`,
+    sourceStart,
+    sourceEnd,
+    highlightType: "goal",
+    reasonCodes: [
+      "goal",
+      "visual_shot_contact",
+      "visual_ball_toward_goal",
+      "visual_ball_in_net",
+      "live_shot_finish_sequence",
+      "scoreboard_ocr_score_change",
+      "scoreboard_temporal_consistency",
+      "scoreboard_backed_goal_sequence",
+    ],
+    goalOutcome: validGoalOutcome(confirmationTime),
+    goalNumber: index,
+    buildupStart: sourceStart,
+    shotStart,
+    finishTime,
+    confirmationTime,
+    replayUsed: false,
+    replayOnly: false,
+    phaseCoverage: {
+      hasBuildup: true,
+      hasShot: true,
+      hasFinish: true,
+      hasConfirmation: true,
+      liveActionStart: sourceStart,
+      shotStart,
+      finishTime,
+      confirmationTime,
+      replayUsed: false,
+      replayOnly: false,
+      visualGoalPayoff: {
+        hasVisibleGoalPayoff: true,
+        hasBallInNetEvidence: true,
+        hasLiveFinishSequence: true,
+        scoreboardOnly: false,
+        evidenceCodes: ["visual_ball_in_net", "live_shot_finish_sequence"],
+      },
+    },
+    confidence: 0.92,
+    retentionScore: 94,
+    captionTheme: "confirmed_goal_caption",
+    whySelected: "Confirmed counted goal with full visible phase.",
+    safetyFlags: ["confirmed_goal_requires_action_and_support"],
+  };
+}
+
+function nonGoalFillerSegment() {
+  return {
+    id: "random_big_chance",
+    sourceStart: 180,
+    sourceEnd: 191,
+    highlightType: "big_chance",
+    reasonCodes: ["visual_shot_like_motion", "visual_crowd_reaction"],
+    goalOutcome: { eventType: "none", outcome: "none" },
+    confidence: 0.61,
+    retentionScore: 61,
+    captionTheme: "big_chance_caption",
+    whySelected: "A non-goal chance that must not appear in valid-goals-only output.",
+    safetyFlags: [],
+  };
+}
+
+function countedGoalTruth(count = 3) {
+  const changes = [
+    { changeTime: 48, actionAnchorTime: 39, startScore: "0-0", endScore: "1-0" },
+    { changeTime: 126, actionAnchorTime: 116, startScore: "1-0", endScore: "2-0" },
+    { changeTime: 214, actionAnchorTime: 205, startScore: "2-0", endScore: "3-0" },
+  ].slice(0, count);
+  return {
+    schemaVersion: 1,
+    providerMode: "mock-match-event-truth",
+    fallbackUsed: false,
+    events: changes.map((change, index) => ({
+      id: `score_change_truth_${index + 1}`,
+      type: "confirmed_goal",
+      outcome: "confirmed_goal",
+      confidence: 0.92,
+      sourceStart: change.actionAnchorTime - 3,
+      sourceEnd: change.changeTime + 4,
+      goalNumber: index + 1,
+      scoreBefore: change.startScore,
+      scoreAfter: change.endScore,
+      scoreChangeTime: change.changeTime,
+      shotStart: change.actionAnchorTime,
+      finishTime: change.changeTime - 1,
+      confirmationTime: change.changeTime,
+      evidenceCodes: [
+        "scoreboard_ocr_score_change",
+        "scoreboard_temporal_consistency",
+        "scoreboard_backed_goal_sequence",
+        "visual_shot_contact",
+        "visual_ball_in_net",
+        "live_shot_finish_sequence",
+      ],
+      missingEvidence: [],
+      safetyFlags: ["scorebug_truth_integration"],
+      phaseCoverage: {
+        hasBuildup: true,
+        hasShot: true,
+        hasFinish: true,
+        hasConfirmation: true,
+        liveActionStart: change.actionAnchorTime - 8,
+        shotStart: change.actionAnchorTime,
+        finishTime: change.changeTime - 1,
+        confirmationTime: change.changeTime,
+        replayUsed: false,
+        replayOnly: false,
+      },
+    })),
+    rejectedEvents: [],
+    scoreChanges: changes.map((change, index) => ({
+      id: `score_change_${index + 1}`,
+      startScore: change.startScore,
+      endScore: change.endScore,
+      changeTime: change.changeTime,
+      actionAnchorTime: change.actionAnchorTime,
+      hasPendingObservation: false,
+      strongAuthority: true,
+      teamSide: "home",
+      scoreDelta: 1,
+      confidence: 0.92,
+      persistedDuration: 35,
+      reverted: false,
+      outcome: "counted_goal",
+      reasonCodes: ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"],
+    })),
+    summary: {
+      eventCount: count,
+      confirmedGoalCount: count,
+      disallowedGoalCount: 0,
+      possibleGoalCount: 0,
+      countedGoalEventCount: count,
+      selectedCountedGoals: count,
+      noFalseGoalFromOcrOnly: 1,
+    },
+  };
+}
+
+function validGoalCompilationPlan(segments) {
+  const totalDuration = segments.reduce((sum, segment) => sum + (segment.sourceEnd - segment.sourceStart), 0);
+  return {
+    mode: "multi_moment_compilation",
+    sourceStart: segments[0].sourceStart,
+    sourceEnd: Math.max(...segments.map((segment) => segment.sourceEnd)),
+    segments,
+    aspectRatio: "9:16",
+    highlightType: "generic_highlight",
+    confidence: 0.91,
+    hook: "VALID FINISHES ONLY",
+    title: "Derby Final",
+    captions: [
+      { start: 0, end: 2, text: "FINISH 1 COUNTS", goalEvidence: true },
+      { start: Math.max(2.2, totalDuration - 3), end: Math.max(4.2, totalDuration - 1), text: "ALL COUNTED FINISHES", goalEvidence: false },
+    ],
+    effects: ["wide_safe_framing", "social_caption_pop", "caption_emphasis", "beat_sync_pulse"],
+    framingMode: "wide_safe_vertical",
+    framingReason: "wide_safe_multi_goal_output_gate_fixture",
+    cropStrategy: {
+      type: "wide_safe_contain",
+      x: 0,
+      y: 0,
+      width: 1280,
+      height: 720,
+      zoom: 1,
+      background: "blurred_fill",
+      preserveFullFrame: true,
+      maxCropPercent: 0,
+    },
+    stylePreset: "reference_football_multi_goal_v1",
+    captionEmphasis: [{ captionIndex: 0, words: ["Goal"], style: "kinetic_bold", start: 0, end: 2 }],
+    animationCues: [
+      { type: "intro_hook", start: 0, end: 1.2 },
+      { type: "caption_pop", start: 0.2, end: 1.8 },
+    ],
+    safetyNotes: ["Valid-goals-only proof fixture."],
+    reasonCodes: ["goal", "scoreboard_backed_goal_sequence", "visual_ball_in_net"],
+    export: { width: 1080, height: 1920, format: "mp4" },
+  };
+}
+
 function defaultOcrQaCalibration() {
   return {
     status: "missing",
@@ -540,13 +737,22 @@ test("OCR QA calibration env helper returns an empty option by default", () => {
 
 test("youtube long-source render requests valid-goals-only planning", async () => {
   const context = makeContext({
-    durationSeconds: 180,
+    durationSeconds: 240,
     metadata: { sourceType: "youtube", videoId: "dQw4w9WgXcQ" },
+    matchEventTruth: countedGoalTruth(2),
+    candidatePlans: [
+      validGoalCompilationPlan([
+        validGoalSegment(1, 31, 39, 47, 48),
+        validGoalSegment(2, 108, 116, 125, 126),
+      ]),
+    ],
   });
   await runContext(context);
 
   assert.equal(context.job.status, "completed");
   assert.equal(context.createPlanInput.metadata.goalSelectionMode, "valid_goals_only");
+  assert.equal(context.job.videoOutputQA.expectedGoalCount, 2);
+  assert.equal(context.job.videoOutputQA.coveredGoalCount, 2);
 });
 
 test("render orchestration passes scoreboard OCR evidence into goal evidence analysis", async () => {
@@ -633,6 +839,77 @@ test("youtube valid-goals-only render fails closed when no valid goals are found
   assert.equal(context.job.error.code, "NO_VALID_GOALS_FOUND");
   assert.equal(context.calls.includes("render_short"), false);
   assert.doesNotMatch(JSON.stringify(context.job.error), /\/Users|storageKey|secret|stderr|stdout/i);
+});
+
+test("youtube valid-goals-only output gate fails when final plan misses counted goals", async () => {
+  const context = makeContext({
+    durationSeconds: 240,
+    metadata: { sourceType: "youtube", videoId: "gxiRyFZXJV8" },
+    matchEventTruth: countedGoalTruth(3),
+    candidatePlans: [
+      validGoalCompilationPlan([
+        validGoalSegment(1, 31, 39, 47, 48),
+        validGoalSegment(2, 108, 116, 125, 126),
+      ]),
+    ],
+  });
+  await runContext(context);
+
+  assert.equal(context.job.status, "failed");
+  assert.equal(context.project.status, "failed");
+  assert.equal(context.exportsById.size, 0);
+  assert.equal(context.job.error.code, "VIDEO_OUTPUT_QA_FAILED");
+  assert.equal(context.calls.includes("render_short"), false);
+  assert.doesNotMatch(JSON.stringify(context.job.error), /\/Users|storageKey|secret|stderr|stdout|rawOcr|rawText/i);
+});
+
+test("youtube valid-goals-only output gate rejects non-goal filler segments", async () => {
+  const context = makeContext({
+    durationSeconds: 240,
+    metadata: { sourceType: "youtube", videoId: "gxiRyFZXJV8" },
+    matchEventTruth: countedGoalTruth(1),
+    candidatePlans: [
+      validGoalCompilationPlan([
+        validGoalSegment(1, 31, 39, 47, 48),
+        nonGoalFillerSegment(),
+      ]),
+    ],
+  });
+  await runContext(context);
+
+  assert.equal(context.job.status, "failed");
+  assert.equal(context.exportsById.size, 0);
+  assert.equal(context.job.error.code, "VIDEO_OUTPUT_QA_FAILED");
+  assert.equal(context.calls.includes("render_short"), false);
+});
+
+test("youtube valid-goals-only output gate passes when all counted goals are covered", async () => {
+  const context = makeContext({
+    durationSeconds: 240,
+    metadata: { sourceType: "youtube", videoId: "gxiRyFZXJV8" },
+    matchEventTruth: countedGoalTruth(3),
+    candidatePlans: [
+      validGoalCompilationPlan([
+        validGoalSegment(1, 31, 39, 47, 48),
+        validGoalSegment(2, 108, 116, 125, 126),
+        validGoalSegment(3, 197, 205, 213, 214),
+      ]),
+    ],
+  });
+  await runContext(context);
+
+  assert.equal(context.job.status, "completed");
+  assert.equal(context.exportsById.size, 1);
+  assert.equal(context.calls.includes("render_short"), true);
+  assert.equal(context.job.videoOutputQA.status, "passed");
+  assert.equal(context.job.videoOutputQA.expectedGoalCount, 3);
+  assert.equal(context.job.videoOutputQA.coveredGoalCount, 3);
+  assert.equal(context.job.videoOutputQA.actualConfirmedGoalSegmentCount, 3);
+  assert.equal(context.job.editPlan.videoOutputQA.passed, true);
+  const qaLog = context.logs.find((entry) => entry.event === "video_output_qa_completed");
+  assert.equal(qaLog.expectedGoalCount, 3);
+  assert.equal(qaLog.coveredGoalCount, 3);
+  assert.doesNotMatch(JSON.stringify(context.job.videoOutputQA), /\/Users|storageKey|secret|stderr|stdout|rawOcr|rawText/i);
 });
 
 test("approved regeneration render uses the validated draft without rerunning AI analysis", async () => {

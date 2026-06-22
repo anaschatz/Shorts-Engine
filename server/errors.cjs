@@ -47,6 +47,7 @@ const SAFE_MESSAGES = Object.freeze({
   UPLOAD_FIELD_INVALID: "The upload form contains an unsupported field.",
   UPLOAD_NOT_FOUND: "The requested upload was not found.",
   VIDEO_DURATION_INVALID: "Could not read a reliable video duration.",
+  VIDEO_OUTPUT_QA_FAILED: "The generated video plan did not cover the required valid goals.",
   VIDEO_TOO_LONG: "The video is longer than the 30 minute limit.",
   VIDEO_TOO_SHORT: "The video is too short to process.",
   VALIDATION_ERROR: "The request did not pass validation.",
