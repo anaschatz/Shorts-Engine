@@ -51,6 +51,18 @@ const GOAL_EVIDENCE_REASON_CODES = Object.freeze([
   "replay_goal_confirmation",
   "kickoff_after_goal",
   "shot_sequence_support",
+  "visual_shot_contact",
+  "visual_shot_like_motion",
+  "visual_ball_toward_goal",
+  "visual_ball_visible",
+  "visual_fast_break",
+  "visual_goal_area",
+  "visual_goal_mouth",
+  "visual_keeper_action",
+  "visual_save_like_motion",
+  "visual_crowd_reaction",
+  "visual_replay_indicator",
+  "visual_replay_angle",
   "celebration_only",
   "anthem_or_intro",
   "non_goal_chance",
@@ -156,6 +168,11 @@ function hasTerm(text, terms) {
   return terms.some((term) => safe.includes(term.toLowerCase()));
 }
 
+function hasAny(reasonCodes = [], expected = []) {
+  const reasons = new Set(Array.isArray(reasonCodes) ? reasonCodes : []);
+  return expected.some((reason) => reasons.has(reason));
+}
+
 function captionEvidence(caption = {}) {
   const text = sanitizeText(caption.text || "", 240);
   const reasons = [];
@@ -257,6 +274,88 @@ function reasonFlags(reasonCodes = []) {
   };
 }
 
+function candidateDiagnostics(reasonCodes = [], outcomeHint = "non_goal_chance") {
+  const disqualified = hasAny(reasonCodes, [
+    "visual_offside_flag",
+    "visual_offside_line",
+    "visual_no_goal_decision",
+    "visual_referee_no_goal_signal",
+    "visual_scoreboard_goal_removed",
+    "scoreboard_ocr_goal_removed",
+    "scoreboard_ocr_score_unchanged",
+    "offside_commentary",
+    "flag_commentary",
+    "disallowed_commentary",
+    "no_goal_commentary",
+  ]);
+  const celebrationOnly = hasAny(reasonCodes, ["celebration_only"]) &&
+    !hasAny(reasonCodes, ["ball_in_net", "visual_ball_in_net"]);
+  const anthemOrIntro = hasAny(reasonCodes, ["anthem_or_intro"]);
+  const hasStrongShot = hasAny(reasonCodes, [
+    "visual_shot_contact",
+    "visual_ball_toward_goal",
+    "shot_sequence_support",
+    "live_shot_finish_sequence",
+  ]);
+  const hasGoalmouth = hasAny(reasonCodes, [
+    "visual_goal_mouth",
+    "visual_goal_area",
+    "visual_ball_in_net",
+    "ball_in_net",
+  ]);
+  const hasExplicitPayoff = hasAny(reasonCodes, ["visual_ball_in_net", "ball_in_net"]);
+  const hasConfirmation = hasAny(reasonCodes, [
+    "visual_scoreboard_goal_confirmed",
+    "visual_referee_goal_signal",
+    "scoreboard_ocr_score_change",
+    "scoreboard_temporal_consistency",
+    "confirmed_by_commentary",
+    "commentator_goal_call_support",
+    "combined_goal_confirmation",
+    "kickoff_after_goal",
+    "replay_goal_confirmation",
+    "crowd_reaction_support",
+    "visual_crowd_reaction",
+    "visual_replay_indicator",
+    "visual_replay_angle",
+  ]);
+  const hasReplaySupport = hasAny(reasonCodes, [
+    "replay_goal_confirmation",
+    "visual_replay_indicator",
+    "visual_replay_angle",
+  ]);
+  const missingEvidence = [];
+  if (!hasStrongShot) missingEvidence.push("shot_or_ball_trajectory");
+  if (!hasGoalmouth) missingEvidence.push("goalmouth_or_finish_context");
+  if (!hasExplicitPayoff) missingEvidence.push("explicit_ball_in_net");
+  if (!hasConfirmation) missingEvidence.push("decision_or_reaction_confirmation");
+  let recoveryEligibility = "not_recoverable";
+  let rejectionReason = null;
+  if (outcomeHint === "valid_goal") {
+    recoveryEligibility = "already_confirmed";
+  } else if (disqualified) {
+    rejectionReason = "disqualified_no_goal_or_offside";
+  } else if (celebrationOnly) {
+    rejectionReason = "celebration_only";
+  } else if (anthemOrIntro) {
+    rejectionReason = "anthem_or_intro";
+  } else if (hasStrongShot && hasGoalmouth && hasConfirmation) {
+    recoveryEligibility = hasExplicitPayoff
+      ? "recoverable_visible_finish_candidate"
+      : "recoverable_live_goal_candidate";
+    rejectionReason = null;
+  } else if (hasReplaySupport && !hasStrongShot) {
+    rejectionReason = "replay_support_without_live_action";
+  } else {
+    rejectionReason = missingEvidence[0] || "insufficient_goal_evidence";
+  }
+  return {
+    missingEvidence: missingEvidence.slice(0, 6),
+    recoveryEligibility,
+    rejectionReason,
+  };
+}
+
 function outcomeForReasons(reasonCodes = []) {
   const reasons = new Set(reasonCodes);
   const hasBallInNet = reasons.has("ball_in_net") || reasons.has("visual_ball_in_net");
@@ -340,6 +439,7 @@ function normalizeEvent(event = {}, metadata = {}, index = 0) {
     throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
   }
   const flags = reasonFlags(reasonCodes);
+  const diagnostics = candidateDiagnostics(reasonCodes, outcomeHint);
   return {
     id: sanitizeText(event.id || `goal_evidence_${index + 1}`, 80),
     start,
@@ -349,6 +449,9 @@ function normalizeEvent(event = {}, metadata = {}, index = 0) {
     confidence: round(clamp(event.confidence, 0.05, 0.98)),
     evidenceSource: sanitizeText(event.evidenceSource || "deterministic_goal_evidence", 60),
     reasonCodes,
+    missingEvidence: diagnostics.missingEvidence,
+    recoveryEligibility: diagnostics.recoveryEligibility,
+    rejectionReason: diagnostics.rejectionReason,
     ...flags,
   };
 }
@@ -754,6 +857,8 @@ function validateGoalEvidenceOutput(output, metadata = {}) {
   const scoreChangeAnchors = ocrEvidence.filter((item) => item.scoreChanged && item.temporalConsistency);
   const scoreboardBackedEvents = events.filter((event) => event.evidenceSource === "deterministic_scoreboard_backed_goal_sequence");
   const validScoreboardBackedEvents = scoreboardBackedEvents.filter((event) => event.outcomeHint === "valid_goal");
+  const recoverableCandidateCount = events.filter((event) => /^recoverable_/.test(event.recoveryEligibility || "")).length;
+  const rejectedCandidateCount = events.filter((event) => event.rejectionReason).length;
   return {
     providerMode: sanitizeText(output.providerMode || "deterministic-goal-evidence", 60),
     fallbackUsed: Boolean(output.fallbackUsed),
@@ -782,6 +887,8 @@ function validateGoalEvidenceOutput(output, metadata = {}) {
       combinedGoalConfirmationCount: events.filter((event) => (event.reasonCodes || []).includes("combined_goal_confirmation")).length,
       replayConfirmationCount: events.filter((event) => (event.reasonCodes || []).includes("replay_goal_confirmation")).length,
       crowdReactionSupportCount: events.filter((event) => (event.reasonCodes || []).includes("crowd_reaction_support")).length,
+      recoverableCandidateCount,
+      rejectedCandidateCount,
       goalEvidenceCoverage: events.some((event) => event.outcomeHint === "valid_goal") ? 1 : 0,
       ocrQaStatus: ocrQaCalibration.status,
       ocrQaUsable: Boolean(ocrQaCalibration.usable),
@@ -1112,6 +1219,8 @@ function publicGoalEvidence(goalEvidence) {
           combinedGoalConfirmationCount: Number(safe.summary.combinedGoalConfirmationCount || 0),
           replayConfirmationCount: Number(safe.summary.replayConfirmationCount || 0),
           crowdReactionSupportCount: Number(safe.summary.crowdReactionSupportCount || 0),
+          recoverableCandidateCount: Number(safe.summary.recoverableCandidateCount || 0),
+          rejectedCandidateCount: Number(safe.summary.rejectedCandidateCount || 0),
           goalEvidenceCoverage: Number(safe.summary.goalEvidenceCoverage || 0),
           ocrQaStatus: sanitizeText(safe.summary.ocrQaStatus || "missing", 32),
           ocrQaUsable: Boolean(safe.summary.ocrQaUsable),
@@ -1145,6 +1254,9 @@ function publicGoalEvidence(goalEvidence) {
           confidence: Number(event.confidence || 0),
           evidenceSource: sanitizeText(event.evidenceSource || "deterministic_goal_evidence", 60),
           reasonCodes: Array.isArray(event.reasonCodes) ? event.reasonCodes.map((reason) => sanitizeText(reason, 80)).slice(0, MAX_REASON_CODES) : [],
+          missingEvidence: Array.isArray(event.missingEvidence) ? event.missingEvidence.map((reason) => sanitizeText(reason, 80)).slice(0, 8) : [],
+          recoveryEligibility: sanitizeText(event.recoveryEligibility || "not_recoverable", 60),
+          rejectionReason: event.rejectionReason ? sanitizeText(event.rejectionReason, 80) : null,
           ballInNetEvidence: Boolean(event.ballInNetEvidence),
           scoreboardGoalConfirmed: Boolean(event.scoreboardGoalConfirmed),
           scoreboardChanged: Boolean(event.scoreboardChanged),

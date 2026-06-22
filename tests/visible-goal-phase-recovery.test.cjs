@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 
 const {
   analyzeVisibleGoalPhaseRecovery,
+  analyzeVisibleGoalCandidateRecovery,
   publicVisibleGoalPhaseRecovery,
 } = require("../server/visible-goal-phase-recovery.cjs");
 
@@ -96,6 +97,66 @@ test("score-change recovery rejects shot without visible payoff", () => {
 
   assert.equal(recovery.selected, null);
   assert.equal(recovery.failureCode, "NO_FINISH_VISIBLE");
+});
+
+test("candidate recovery selects strong live phase without explicit ball-in-net OCR", () => {
+  const recovery = analyzeVisibleGoalCandidateRecovery({
+    metadata,
+    event: {
+      id: "live_goal_candidate",
+      start: 246,
+      end: 266,
+      outcomeHint: "non_goal_chance",
+      recoveryEligibility: "recoverable_live_goal_candidate",
+      reasonCodes: [
+        "visual_shot_contact",
+        "visual_ball_toward_goal",
+        "visual_goal_mouth",
+        "visual_crowd_reaction",
+        "replay_goal_confirmation",
+        "live_shot_finish_sequence",
+      ],
+    },
+    visualSignals: visualSignals([
+      { start: 246, end: 248, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.9 },
+      { start: 252, end: 254, types: ["goal_mouth_visible", "crowd_reaction"], confidence: 0.88 },
+      { start: 260, end: 264, types: ["replay_indicator", "replay_angle"], confidence: 0.84 },
+    ]),
+  });
+
+  assert.equal(recovery.failureCode, null);
+  assert.equal(recovery.selected.primarySource, "live_action");
+  assert.equal(recovery.selected.replayOnly, false);
+  assert.equal(recovery.selected.phaseCoverage.hasShot, true);
+  assert.equal(recovery.selected.phaseCoverage.hasFinish, true);
+  assert.equal(recovery.selected.phaseCoverage.visualGoalPayoff.hasBallInNetEvidence, false);
+  assert.equal(recovery.selected.phaseCoverage.visualGoalPayoff.hasLiveFinishSequence, true);
+});
+
+test("candidate recovery rejects offside or no-goal candidates even with strong visuals", () => {
+  const recovery = analyzeVisibleGoalCandidateRecovery({
+    metadata,
+    event: {
+      id: "offside_candidate",
+      start: 246,
+      end: 266,
+      outcomeHint: "offside_goal",
+      reasonCodes: [
+        "visual_shot_contact",
+        "visual_ball_toward_goal",
+        "visual_goal_mouth",
+        "visual_offside_flag",
+        "live_shot_finish_sequence",
+      ],
+    },
+    visualSignals: visualSignals([
+      { start: 246, end: 248, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.9 },
+      { start: 252, end: 254, types: ["goal_mouth_visible", "crowd_reaction"], confidence: 0.88 },
+    ]),
+  });
+
+  assert.equal(recovery.selected, null);
+  assert.equal(recovery.failureCode, "DISQUALIFIED_NO_GOAL");
 });
 
 test("public recovery report has safe diagnostics only", () => {

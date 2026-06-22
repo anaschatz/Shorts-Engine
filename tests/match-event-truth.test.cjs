@@ -947,6 +947,8 @@ test("recovers bounded YouTube live goal clusters with strong shot, goalmouth an
   assert.equal(recovered[0].phaseCoverage.hasFinish, true);
   assert.equal(recovered[0].phaseCoverage.visualGoalPayoff.hasVisibleGoalPayoff, true);
   assert.equal(recovered[0].phaseCoverage.visualGoalPayoff.hasLiveFinishSequence, true);
+  assert.ok(recovered[0].visibleGoalRecovery);
+  assert.equal(recovered[0].visibleGoalRecovery.failureCode, null);
   assert.ok(recovered[0].evidenceCodes.includes("live_shot_finish_sequence"));
 });
 

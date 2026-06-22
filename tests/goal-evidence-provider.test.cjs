@@ -127,6 +127,38 @@ test("goal evidence provider does not promote crowd/commentary support without b
   assert.equal(goalEvidence.events[0].commentatorGoalCall, false);
 });
 
+test("goal evidence provider preserves visual support codes and recovery diagnostics", () => {
+  const goalEvidence = validateGoalEvidenceOutput({
+    providerMode: "unit-goal-evidence",
+    fallbackUsed: false,
+    events: [{
+      id: "recoverable_live_candidate",
+      start: 30,
+      end: 48,
+      confidence: 0.84,
+      outcomeHint: "non_goal_chance",
+      evidenceSource: "unit",
+      reasonCodes: [
+        "visual_shot_contact",
+        "visual_ball_toward_goal",
+        "visual_goal_mouth",
+        "visual_crowd_reaction",
+        "replay_goal_confirmation",
+        "live_shot_finish_sequence",
+      ],
+    }],
+  }, metadata);
+  const event = goalEvidence.events[0];
+
+  assert.equal(goalEvidence.summary.recoverableCandidateCount, 1);
+  assert.equal(event.recoveryEligibility, "recoverable_live_goal_candidate");
+  assert.equal(event.rejectionReason, null);
+  assert.ok(event.reasonCodes.includes("visual_shot_contact"));
+  assert.ok(event.reasonCodes.includes("visual_goal_mouth"));
+  assert.ok(event.missingEvidence.includes("explicit_ball_in_net"));
+  assert.doesNotMatch(JSON.stringify(publicGoalEvidence(goalEvidence)), /\/Users|storageKey|localPath|token|secret|stderr|stdout/i);
+});
+
 test("goal evidence provider does not promote crowd-only ball-in-net sequence to counted goal", () => {
   const goalEvidence = deterministicGoalEvidence({
     metadata,

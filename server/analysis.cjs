@@ -2228,6 +2228,9 @@ function goalDiscoverySummary({ safeVisualSignals = {}, safeSignals = {}, goalSe
           start: Number(event.start || 0),
           end: Number(event.end || 0),
           reasonCodes: Array.isArray(event.reasonCodes) ? event.reasonCodes.map((reason) => sanitizeText(reason, 64)).slice(0, 12) : [],
+          missingEvidence: Array.isArray(event.missingEvidence) ? event.missingEvidence.map((reason) => sanitizeText(reason, 64)).slice(0, 8) : [],
+          recoveryEligibility: sanitizeText(event.recoveryEligibility || "not_recoverable", 60),
+          rejectionReason: event.rejectionReason ? sanitizeText(event.rejectionReason, 80) : null,
           combinedGoalConfirmation: Boolean(event.combinedGoalConfirmation),
           replayGoalConfirmation: Boolean(event.replayGoalConfirmation),
           crowdReactionSupport: Boolean(event.crowdReactionSupport),
@@ -2275,6 +2278,8 @@ function goalDiscoverySummary({ safeVisualSignals = {}, safeSignals = {}, goalSe
           ocrEvidenceCount: Number(goalEvidence.summary.ocrEvidenceCount || 0),
           scoreboardConfirmedGoalCount: Number(goalEvidence.summary.scoreboardConfirmedGoalCount || 0),
           ambiguousOcrCount: Number(goalEvidence.summary.ambiguousOcrCount || 0),
+          recoverableCandidateCount: Number(goalEvidence.summary.recoverableCandidateCount || 0),
+          rejectedCandidateCount: Number(goalEvidence.summary.rejectedCandidateCount || 0),
           goalEvidenceCoverage: Number(goalEvidence.summary.goalEvidenceCoverage || 0),
         }
       : null,

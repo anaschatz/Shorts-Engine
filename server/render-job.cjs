@@ -85,6 +85,11 @@ function safeGoalEvidenceCandidates(goalEvidence, max = 12) {
     reasonCodes: Array.isArray(event && event.reasonCodes)
       ? event.reasonCodes.map((reason) => sanitizeText(reason, 64)).filter(Boolean).slice(0, 12)
       : [],
+    missingEvidence: Array.isArray(event && event.missingEvidence)
+      ? event.missingEvidence.map((reason) => sanitizeText(reason, 64)).filter(Boolean).slice(0, 8)
+      : [],
+    recoveryEligibility: sanitizeText(event && event.recoveryEligibility || "not_recoverable", 60),
+    rejectionReason: event && event.rejectionReason ? sanitizeText(event.rejectionReason, 80) : null,
     combinedGoalConfirmation: Boolean(event && event.combinedGoalConfirmation),
     replayGoalConfirmation: Boolean(event && event.replayGoalConfirmation),
     crowdReactionSupport: Boolean(event && event.crowdReactionSupport),
@@ -968,6 +973,8 @@ async function runRenderJob(options) {
           ...context.metadata,
           sourceType: (context.source && context.source.sourceType) || context.metadata.sourceType,
           goalSelectionMode: context.goalSelectionMode,
+          allowCandidateClusterRecovery: context.goalSelectionMode === "valid_goals_only" &&
+            ((context.source && context.source.sourceType) || context.metadata.sourceType) === "youtube",
         },
         transcript,
         mediaSignals,
@@ -1075,6 +1082,14 @@ async function runRenderJob(options) {
             selectedValidGoalCount: goalDiscovery && Array.isArray(goalDiscovery.selectedValidGoals)
               ? goalDiscovery.selectedValidGoals.length
               : 0,
+            goalEvidenceCandidates: goalDiscovery &&
+              Array.isArray(goalDiscovery.goalEvidenceCandidates) &&
+              goalDiscovery.goalEvidenceCandidates.length > 0
+              ? goalDiscovery.goalEvidenceCandidates.slice(0, 12)
+              : safeGoalEvidenceCandidates(goalEvidence),
+            matchTruthCandidates: goalDiscovery && Array.isArray(goalDiscovery.matchTruthCandidates)
+              ? goalDiscovery.matchTruthCandidates.slice(0, 16)
+              : [],
             excludedOffsideOrNoGoalCount: goalDiscovery && Array.isArray(goalDiscovery.excludedOffsideOrNoGoal)
               ? goalDiscovery.excludedOffsideOrNoGoal.length
               : 0,
@@ -1088,6 +1103,8 @@ async function runRenderJob(options) {
             anthemOrIntroEvidenceCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.anthemOrIntroCount,
             ocrEvidenceCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.ocrEvidenceCount,
             scoreboardConfirmedGoalCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.scoreboardConfirmedGoalCount,
+            recoverableGoalEvidenceCandidateCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.recoverableCandidateCount,
+            rejectedGoalEvidenceCandidateCount: goalEvidence && goalEvidence.summary && goalEvidence.summary.rejectedCandidateCount,
             matchEventTruthConfirmedGoalCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.confirmedGoalCount,
             matchEventTruthDisallowedGoalCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.disallowedGoalCount,
             matchEventTruthPossibleGoalCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.possibleGoalCount,
@@ -1103,14 +1120,6 @@ async function runRenderJob(options) {
             matchEventTruthOcrOnlyBlockedCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.ocrOnlyBlockedCount,
             matchEventTruthMissingActionEvidenceCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.missingActionEvidenceCount,
             matchEventTruthMissedGoalReasons: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.missedGoalReasons,
-            goalEvidenceCandidates: goalDiscovery &&
-              Array.isArray(goalDiscovery.goalEvidenceCandidates) &&
-              goalDiscovery.goalEvidenceCandidates.length > 0
-              ? goalDiscovery.goalEvidenceCandidates.slice(0, 12)
-              : safeGoalEvidenceCandidates(goalEvidence),
-            matchTruthCandidates: goalDiscovery && Array.isArray(goalDiscovery.matchTruthCandidates)
-              ? goalDiscovery.matchTruthCandidates.slice(0, 16)
-              : [],
           });
         }
         throw new AppError(code, SAFE_MESSAGES[code], 422);

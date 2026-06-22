@@ -686,6 +686,9 @@ function safeGoalEvidenceEvent(event = {}, index = 0) {
     start: safeNumber(event.start),
     end: safeNumber(event.end),
     reasonCodes: safeStringList(event.reasonCodes, 10, 80),
+    missingEvidence: safeStringList(event.missingEvidence, 8, 80),
+    recoveryEligibility: sanitizeText(event.recoveryEligibility || "not_recoverable", 60),
+    rejectionReason: event.rejectionReason ? sanitizeText(event.rejectionReason, 80) : null,
     confidence: safeNumber(event.confidence),
   };
 }

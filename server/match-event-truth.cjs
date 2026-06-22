@@ -4,6 +4,7 @@ const { normalizeOcrEvidence, normalizeOcrQaCalibrationInput } = require("./goal
 const { validateVisualSignals, visualReasonCodesForWindow } = require("./vision.cjs");
 const {
   analyzeVisibleGoalPhaseRecovery,
+  analyzeVisibleGoalCandidateRecovery,
   publicVisibleGoalPhaseRecovery,
 } = require("./visible-goal-phase-recovery.cjs");
 
@@ -1323,7 +1324,7 @@ function hasRecoverableVisibleGoalCluster(event = {}) {
     (hasExplicitPayoff || (hasLiveFinishSupport && hasConfirmationSupport));
 }
 
-function recoverConfirmedGoalClusters({ visualEvents = [], metadata = {} } = {}) {
+function recoverConfirmedGoalClusters({ visualEvents = [], visualSignals = {}, metadata = {} } = {}) {
   if (!clusterRecoveryEnabled(metadata)) return [];
   const duration = seconds(metadata.durationSeconds, 0);
   const candidates = (Array.isArray(visualEvents) ? visualEvents : [])
@@ -1343,10 +1344,25 @@ function recoverConfirmedGoalClusters({ visualEvents = [], metadata = {} } = {})
   return selected
     .sort((a, b) => a.event.sourceStart - b.event.sourceStart)
     .map(({ event, score }, index) => {
-      const shotStart = seconds(event.shotWindow && event.shotWindow.start, seconds(event.sourceStart));
-      const sourceStart = round(Math.max(0, Math.min(event.sourceStart, shotStart - 8)));
-      const finishTime = seconds(event.payoffWindow && event.payoffWindow.end, seconds(event.sourceEnd));
-      const sourceEnd = round(Math.min(duration || event.sourceEnd + 10, Math.max(event.sourceEnd + 8, finishTime + 8, sourceStart + 18)));
+      const visibleRecovery = analyzeVisibleGoalCandidateRecovery({
+        event,
+        visualSignals,
+        metadata,
+        index,
+      });
+      const recovered = visibleRecovery && visibleRecovery.selected ? visibleRecovery.selected : null;
+      const shotStart = recovered
+        ? seconds(recovered.shotStart)
+        : seconds(event.shotWindow && event.shotWindow.start, seconds(event.sourceStart));
+      const sourceStart = recovered
+        ? seconds(recovered.sourceStart)
+        : round(Math.max(0, Math.min(event.sourceStart, shotStart - 8)));
+      const finishTime = recovered
+        ? seconds(recovered.finishTime)
+        : seconds(event.payoffWindow && event.payoffWindow.end, seconds(event.sourceEnd));
+      const sourceEnd = recovered
+        ? seconds(recovered.sourceEnd)
+        : round(Math.min(duration || event.sourceEnd + 10, Math.max(event.sourceEnd + 8, finishTime + 8, sourceStart + 18)));
       return normalizeDecision({
         id: `cluster_recovered_goal_${index + 1}`,
         type: "confirmed_goal",
@@ -1354,12 +1370,18 @@ function recoverConfirmedGoalClusters({ visualEvents = [], metadata = {} } = {})
         confidence: round(clamp(0.72 + score / 100, 0.72, 0.86)),
         sourceStart,
         sourceEnd,
-        buildupWindow: { start: sourceStart, end: round(Math.max(sourceStart + 0.5, shotStart)) },
-        shotWindow: event.shotWindow,
-        payoffWindow: { start: event.payoffWindow.start, end: round(Math.max(event.payoffWindow.end, finishTime)) },
+        buildupWindow: recovered
+          ? { start: recovered.buildupStart, end: round(Math.max(recovered.buildupStart + 0.5, shotStart)) }
+          : { start: sourceStart, end: round(Math.max(sourceStart + 0.5, shotStart)) },
+        shotWindow: recovered
+          ? { start: recovered.shotStart, end: round(Math.max(recovered.shotStart + 0.5, recovered.finishTime)) }
+          : event.shotWindow,
+        payoffWindow: recovered
+          ? { start: round(Math.max(recovered.shotStart, recovered.finishTime - 1)), end: recovered.finishTime }
+          : { start: event.payoffWindow.start, end: round(Math.max(event.payoffWindow.end, finishTime)) },
         reactionWindow: { start: round(finishTime), end: round(Math.min(duration || sourceEnd, finishTime + 4)) },
         decisionWindow: { start: round(finishTime), end: round(Math.min(duration || sourceEnd, Math.max(finishTime + 1, sourceEnd))) },
-        phaseCoverage: {
+        phaseCoverage: recovered && recovered.phaseCoverage ? recovered.phaseCoverage : {
           hasBuildup: true,
           hasShot: true,
           hasFinish: true,
@@ -1373,6 +1395,7 @@ function recoverConfirmedGoalClusters({ visualEvents = [], metadata = {} } = {})
         },
         evidenceCodes: uniqueCodes([
           ...event.evidenceCodes,
+          ...(recovered && Array.isArray(recovered.visualCodes) ? recovered.visualCodes : []),
           "goal_candidate_cluster_recovery",
           "combined_goal_confirmation",
           "live_shot_finish_sequence",
@@ -1383,6 +1406,7 @@ function recoverConfirmedGoalClusters({ visualEvents = [], metadata = {} } = {})
           "no_false_goal_from_ocr_only",
           "requires_operator_review_for_production",
         ],
+        visibleGoalRecovery: visibleRecovery,
         captionIntent: "confirmed_goal_caption",
         renderPriority: typePriority("confirmed_goal") + 500 - index,
       }, index, metadata);
@@ -1572,7 +1596,7 @@ function analyzeMatchEventTruth(input = {}) {
   const recoveryCandidates = [...events, ...visualEvents];
   const recoveryEvents = [...events, ...scoreChangeTruth.decisions].some((event) => event.type === "confirmed_goal")
     ? []
-    : recoverConfirmedGoalClusters({ visualEvents: recoveryCandidates, metadata });
+    : recoverConfirmedGoalClusters({ visualEvents: recoveryCandidates, visualSignals, metadata });
   const selectedEvents = [...events, ...scoreChangeTruth.decisions, ...recoveryEvents, ...visualEvents].filter((event) => event.type !== "neutral");
   const rejectedEvents = [...events, ...scoreChangeTruth.rejected, ...visualEvents].filter((event) => (
     event.type === "possible_goal_unconfirmed" ||
