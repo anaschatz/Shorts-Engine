@@ -13,6 +13,7 @@ const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const RESULTS_DIR = resolve(ROOT_DIR, "demo", "results");
 const YOUTUBE_SMOKE_FLAG = "SHORTSENGINE_YOUTUBE_SMOKE";
 const DEFAULT_TIMEOUT_MS = 120_000;
+const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
 const DEFAULT_JOB_TIMEOUT_MS = 90_000;
 const DEFAULT_POLL_INTERVAL_MS = 750;
 const DEFAULT_JSON_RESPONSE_BYTES = 256 * 1024;
@@ -1105,14 +1106,22 @@ async function runYouTubeSmoke(options = {}) {
     const jobTimeoutMs = parseInteger(rawValue(env, "SHORTSENGINE_YOUTUBE_SMOKE_JOB_TIMEOUT_MS"), DEFAULT_JOB_TIMEOUT_MS, 1000, 10 * 60 * 1000, "YOUTUBE_SMOKE_JOB_TIMEOUT_INVALID");
     const pollIntervalMs = parseInteger(rawValue(env, "SHORTSENGINE_YOUTUBE_SMOKE_POLL_INTERVAL_MS"), DEFAULT_POLL_INTERVAL_MS, 100, 10000, "YOUTUBE_SMOKE_POLL_INTERVAL_INVALID");
     const downloadMaxBytes = parseInteger(rawValue(env, "SHORTSENGINE_YOUTUBE_SMOKE_DOWNLOAD_MAX_BYTES"), DEFAULT_DOWNLOAD_MAX_BYTES, 1024, 512 * 1024 * 1024, "YOUTUBE_SMOKE_DOWNLOAD_LIMIT_INVALID");
+    const requestTimeoutMs = parseInteger(
+      rawValue(env, "SHORTSENGINE_YOUTUBE_SMOKE_REQUEST_TIMEOUT_MS"),
+      DEFAULT_REQUEST_TIMEOUT_MS,
+      1000,
+      15 * 60 * 1000,
+      "YOUTUBE_SMOKE_REQUEST_TIMEOUT_INVALID",
+    );
 
-    const healthResponse = await fetchJson(fetchImpl, endpointUrl(baseUrl, "/health"), { method: "GET" });
+    const healthResponse = await fetchJson(fetchImpl, endpointUrl(baseUrl, "/health"), { method: "GET", timeoutMs: requestTimeoutMs });
     health = validateHealthForSmoke(healthResponse.payload);
     addStep(steps, "health", "passed", { requestIdPresent: Boolean(healthResponse.requestId), status: health.status });
 
     const validateResponse = await fetchJson(fetchImpl, endpointUrl(baseUrl, "/api/youtube/validate"), {
       method: "POST",
       body: JSON.stringify({ url: source.canonicalUrl, rightsConfirmed: true }),
+      timeoutMs: requestTimeoutMs,
     });
     const validatedSource = validateSourceResponse(assertApiOk(validateResponse, "YOUTUBE_SMOKE_VALIDATE_FAILED", "YouTube validation API failed."), source);
     addStep(steps, "validate", "passed", {
@@ -1124,6 +1133,7 @@ async function runYouTubeSmoke(options = {}) {
     const ingestResponse = await fetchJson(fetchImpl, endpointUrl(baseUrl, "/api/youtube/ingest"), {
       method: "POST",
       body: JSON.stringify({ url: source.canonicalUrl, rightsConfirmed: true, title: "ShortsEngine YouTube Smoke" }),
+      timeoutMs: requestTimeoutMs,
     });
     ingested = validateIngestResponse(assertApiOk(ingestResponse, "YOUTUBE_SMOKE_INGEST_FAILED", "YouTube ingest API failed."), source);
     ids.projectId = ingested.projectId;
@@ -1145,6 +1155,7 @@ async function runYouTubeSmoke(options = {}) {
         rightsConfirmed: true,
         idempotencyKey: `youtube_smoke_${Date.now()}_${randomUUID()}`,
       }),
+      timeoutMs: requestTimeoutMs,
     });
     const generateData = assertApiOk(generateResponse, "YOUTUBE_SMOKE_GENERATE_FAILED", "YouTube smoke generate API failed.");
     ids.jobId = assertId(generateData?.job?.id, "job", "YOUTUBE_SMOKE_JOB_RESPONSE_INVALID");

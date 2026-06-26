@@ -349,6 +349,21 @@ test("youtube smoke requires allowlist or explicit manual flag before network", 
   assert.equal(findSensitiveLeak(report), null);
 });
 
+test("youtube smoke validates bounded per-request timeout before network work", async () => {
+  let calls = 0;
+  const report = await runYouTubeSmoke({
+    env: smokeEnv({ SHORTSENGINE_YOUTUBE_SMOKE_REQUEST_TIMEOUT_MS: "0" }),
+    fetchImpl: async () => {
+      calls += 1;
+      throw new Error("should not fetch");
+    },
+  });
+  assert.equal(report.status, "failed");
+  assert.equal(calls, 0);
+  assert.equal(report.failedCases[0].code, "YOUTUBE_SMOKE_REQUEST_TIMEOUT_INVALID");
+  assert.equal(findSensitiveLeak(report), null);
+});
+
 test("youtube smoke successful mocked flow validates ingest generate job and download contract", async () => {
   const { fetchImpl, calls } = createFetchMock();
   const report = await runYouTubeSmoke({ env: smokeEnv(), fetchImpl });

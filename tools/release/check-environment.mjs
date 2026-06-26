@@ -38,6 +38,7 @@ const ENV_CONTRACT = Object.freeze([
   { name: "SHORTSENGINE_YOUTUBE_SMOKE_ALLOWED_IDS", category: "Remote URL ingest", required: false, defaultValue: "", type: "string", secret: false },
   { name: "SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED", category: "Remote URL ingest", required: false, defaultValue: "false", type: "boolean", secret: false },
   { name: "SHORTSENGINE_YOUTUBE_SMOKE_TIMEOUT_MS", category: "Remote URL ingest", required: false, defaultValue: "120000", type: "integer", min: 1000, max: 15 * 60 * 1000, secret: false },
+  { name: "SHORTSENGINE_YOUTUBE_SMOKE_REQUEST_TIMEOUT_MS", category: "Remote URL ingest", required: false, defaultValue: "120000", type: "integer", min: 1000, max: 15 * 60 * 1000, secret: false },
   { name: "SHORTSENGINE_YOUTUBE_SMOKE_JOB_TIMEOUT_MS", category: "Remote URL ingest", required: false, defaultValue: "90000", type: "integer", min: 1000, max: 10 * 60 * 1000, secret: false },
   { name: "SHORTSENGINE_YOUTUBE_SMOKE_POLL_INTERVAL_MS", category: "Remote URL ingest", required: false, defaultValue: "750", type: "integer", min: 100, max: 10000, secret: false },
   { name: "SHORTSENGINE_YOUTUBE_SMOKE_DOWNLOAD_MAX_BYTES", category: "Remote URL ingest", required: false, defaultValue: String(80 * BYTE_1_MB), type: "integer", min: 1024, max: 512 * BYTE_1_MB, secret: false },
@@ -528,6 +529,7 @@ function checkEnvironment(options = {}) {
       smokeBaseConfigured: Boolean(rawValue(env, "SHORTSENGINE_YOUTUBE_SMOKE_BASE_URL")),
       smokeAllowUnlisted: Boolean(boolFromEnv(rawValue(env, "SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED"))),
       smokeTimeoutMs: numeric.SHORTSENGINE_YOUTUBE_SMOKE_TIMEOUT_MS,
+      smokeRequestTimeoutMs: numeric.SHORTSENGINE_YOUTUBE_SMOKE_REQUEST_TIMEOUT_MS,
       smokeJobTimeoutMs: numeric.SHORTSENGINE_YOUTUBE_SMOKE_JOB_TIMEOUT_MS,
       smokeDownloadMaxBytes: numeric.SHORTSENGINE_YOUTUBE_SMOKE_DOWNLOAD_MAX_BYTES,
       liveE2E: {

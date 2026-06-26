@@ -42,6 +42,7 @@ YouTube URL validation remains available through `POST /api/youtube/validate`. R
 | `SHORTSENGINE_YOUTUBE_SMOKE_ALLOWED_IDS` | No | empty | comma-separated YouTube video ids | No | Prefer allowlisting known safe smoke videos. | If unset, `SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED=1` is required. |
 | `SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED` | No | `0` | boolean | No | Use only for intentional manual smoke runs. | Smoke fails before network when URL is not allowlisted and this is disabled. |
 | `SHORTSENGINE_YOUTUBE_SMOKE_TIMEOUT_MS` | No | `120000` | integer `1000..900000` | No | Keep bounded. | Invalid timeout fails smoke. |
+| `SHORTSENGINE_YOUTUBE_SMOKE_REQUEST_TIMEOUT_MS` | No | `120000` | integer `1000..900000` | No | Raise only for authorized videos whose ingest request needs more time while the downloader stages media. | Invalid timeout fails smoke; request timeout returns `YOUTUBE_SMOKE_REQUEST_TIMEOUT`. |
 | `SHORTSENGINE_YOUTUBE_SMOKE_JOB_TIMEOUT_MS` | No | `90000` | integer `1000..600000` | No | Keep bounded for render proof. | Invalid job timeout fails smoke. |
 | `SHORTSENGINE_YOUTUBE_SMOKE_POLL_INTERVAL_MS` | No | `750` | integer `100..10000` | No | Keep default unless staging needs slower polling. | Invalid poll interval fails smoke. |
 | `SHORTSENGINE_YOUTUBE_SMOKE_DOWNLOAD_MAX_BYTES` | No | `83886080` | integer `1024..536870912` | No | Keep downloads bounded for smoke reports. | Oversized download fails smoke before report write. |
