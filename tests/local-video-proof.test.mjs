@@ -45,6 +45,11 @@ function completedJob({ qaOverrides = {}, segmentOverrides = {} } = {}) {
     confirmationTime: 111 + index * 60,
     sourceEnd: 116 + index * 60,
     goalNumber,
+    highlightType: "goal",
+    goalOutcome: {
+      eventType: "ball_in_net",
+      outcome: "confirmed_goal",
+    },
     replayOnly: false,
     phaseCoverage: {
       hasBuildup: true,
@@ -279,6 +284,103 @@ test("local video proof does not download or write an mp4 when final gate fails"
     assert.deepEqual(report.outputProof.missingGoalNumbers, [2, 3]);
     assert.equal(downloadCalled, false);
     assert.equal(writeCalled, false);
+    assert.equal(findSensitiveLeak(report), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("local video proof rejects random chance segments even when upstream QA is optimistic", async () => {
+  const { dir, file } = tempMp4();
+  let downloadCalled = false;
+  try {
+    const report = await runLocalVideoProof({
+      env: proofEnv(file),
+      fetchImpl: async () => {
+        throw new Error("network should be mocked by deps");
+      },
+      ...successDeps(completedJob({
+        segmentOverrides: {
+          highlightType: "chance",
+          goalOutcome: null,
+          reasonCodes: ["big_chance"],
+        },
+      })),
+      fetchDownload: async () => {
+        downloadCalled = true;
+        return {};
+      },
+    });
+    assert.equal(report.status, "failed");
+    assert.equal(report.failedCases[0].code, "LOCAL_VIDEO_PROOF_OUTPUT_QA_FAILED");
+    assert.equal(report.outputProof.outputMp4, null);
+    assert.equal(report.outputProof.randomChanceCandidates.length, 3);
+    assert.equal(report.outputProof.failedReasons.includes("local_proof_segment_contract_failed"), true);
+    assert.equal(downloadCalled, false);
+    assert.equal(findSensitiveLeak(report), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("local video proof rejects celebration-only goal segments before download", async () => {
+  const { dir, file } = tempMp4();
+  let downloadCalled = false;
+  try {
+    const report = await runLocalVideoProof({
+      env: proofEnv(file),
+      fetchImpl: async () => {
+        throw new Error("network should be mocked by deps");
+      },
+      ...successDeps(completedJob({
+        segmentOverrides: {
+          celebrationOnly: true,
+          reasonCodes: ["visual_celebration_after_shot"],
+        },
+      })),
+      fetchDownload: async () => {
+        downloadCalled = true;
+        return {};
+      },
+    });
+    assert.equal(report.status, "failed");
+    assert.equal(report.failedCases[0].code, "LOCAL_VIDEO_PROOF_OUTPUT_QA_FAILED");
+    assert.equal(report.outputProof.celebrationOnlyCandidates.length, 3);
+    assert.equal(report.outputProof.outputMp4, null);
+    assert.equal(downloadCalled, false);
+    assert.equal(findSensitiveLeak(report), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("local video proof discards generated output when ffprobe fails", async () => {
+  const { dir, file } = tempMp4();
+  let discarded = false;
+  try {
+    const report = await runLocalVideoProof({
+      env: proofEnv(file),
+      fetchImpl: async () => {
+        throw new Error("network should be mocked by deps");
+      },
+      ...successDeps(completedJob()),
+      probeGeneratedMp4: () => ({
+        checked: true,
+        status: "failed",
+        code: "FFPROBE_UNREADABLE",
+        relativePath: "manual-downloads/shortsengine-local-proof-test-2026-06-23T00-00-00-000Z.mp4",
+      }),
+      discardFailedOutputArtifact: (artifact) => {
+        discarded = true;
+        return { attempted: true, deleted: true, relativePath: artifact.relativePath };
+      },
+    });
+    assert.equal(report.status, "failed");
+    assert.equal(report.failedCases[0].code, "LOCAL_VIDEO_PROOF_FFPROBE_FAILED");
+    assert.equal(report.outputProof.outputMp4, null);
+    assert.equal(report.outputProof.ffprobe.status, "failed");
+    assert.equal(report.outputProof.failedOutputCleanup.deleted, true);
+    assert.equal(discarded, true);
     assert.equal(findSensitiveLeak(report), null);
   } finally {
     rmSync(dir, { recursive: true, force: true });

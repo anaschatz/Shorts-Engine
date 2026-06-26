@@ -12,6 +12,8 @@ Safety:
 - Default command skips without server startup.
 - Source file must be a regular MP4 with `ftyp` signature and is never mutated or deleted.
 - No MP4 is written unless the final output QA confirms the expected counted-goal coverage and all segments have visible phase coverage.
+- The local proof runner now independently rejects replay-only, celebration-only, non-goal, and random-chance segments even if an upstream QA report is optimistic.
+- If a generated MP4 fails ffprobe, the proof artifact is discarded and the report remains failed.
 - Reports use safe relative artifact refs and keep logs/artifacts downloaded flags false.
 
 Triage:
@@ -22,3 +24,4 @@ Triage:
 Validation:
 
 - Added focused local proof tests for skipped/default behavior, missing rights, unsafe/corrupt source files, output gate failures, source immutability, OCR proof flags, and leak guards.
+- Added focused regression tests for random-chance rejection, celebration-only rejection, and ffprobe-failed artifact discard.

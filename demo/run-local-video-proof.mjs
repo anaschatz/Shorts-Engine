@@ -56,6 +56,7 @@ const NEXT_ACTIONS = Object.freeze({
   LOCAL_VIDEO_PROOF_OUTPUT_QA_FAILED: "fix-counted-goal-selection-before-writing-a-proof-mp4",
   LOCAL_VIDEO_PROOF_DOWNLOAD_NOT_MP4: "check-render-export-download-contract",
   LOCAL_VIDEO_PROOF_MP4_SIGNATURE_INVALID: "check-render-output-and-download-contract",
+  LOCAL_VIDEO_PROOF_FFPROBE_FAILED: "inspect-rendered-mp4-before-using-it-as-proof",
   LOCAL_VIDEO_PROOF_REPORT_LEAK: "remove-sensitive-output-from-local-video-proof-report",
   LOCAL_VIDEO_PROOF_TIMEOUT: "check-local-server-and-render-pipeline-before-rerun",
 });
@@ -72,6 +73,32 @@ const PHASES = Object.freeze({
   SKIPPED: "skipped",
   COMPLETED: "completed",
 });
+
+const CELEBRATION_ONLY_REASON_CODES = new Set([
+  "celebration_only",
+  "visual_celebration_only",
+  "visual_celebration_after_shot",
+  "visual_celebration_after_whistle",
+]);
+
+const RANDOM_CHANCE_REASON_CODES = new Set([
+  "big_chance",
+  "chance",
+  "counter_attack",
+  "near_miss",
+  "save",
+  "shot_saved",
+]);
+
+const NON_GOAL_HIGHLIGHT_TYPES = new Set([
+  "chance",
+  "counter",
+  "counter_attack",
+  "foul",
+  "generic_highlight",
+  "save",
+  "shot",
+]);
 
 class LocalVideoProofError extends Error {
   constructor(code, message, details = {}) {
@@ -642,22 +669,75 @@ function safeVideoOutputQA(value) {
     passed: typeof value.passed === "boolean" ? value.passed : null,
     goalSelectionMode: safeString(value.goalSelectionMode, 60) || null,
     expectedGoalCount: safeNumber(value.expectedGoalCount),
+    actualSegmentCount: safeNumber(value.actualSegmentCount),
     actualConfirmedGoalSegmentCount: safeNumber(value.actualConfirmedGoalSegmentCount),
     coveredGoalCount: safeNumber(value.coveredGoalCount),
+    extraGoalSegmentCount: safeNumber(value.extraGoalSegmentCount),
     missingGoalNumbers: Array.isArray(value.missingGoalNumbers)
       ? value.missingGoalNumbers.map(Number).filter(Number.isFinite).slice(0, 12)
       : [],
     failedReasons: safeList(value.failedReasons, 12, 80),
+    invalidSegments: Array.isArray(value.invalidSegments)
+      ? value.invalidSegments.slice(0, 12).map((item, index) => ({
+          index: safeNumber(item && item.index) || index + 1,
+          id: safeString(item && item.id, 80) || null,
+          reasons: safeList(item && item.reasons, 8, 80),
+        }))
+      : [],
+    matches: Array.isArray(value.matches)
+      ? value.matches.slice(0, 12).map((item) => ({
+          goalNumber: safeNumber(item && item.goalNumber),
+          segmentIndex: safeNumber(item && item.segmentIndex),
+          covered: Boolean(item && item.covered),
+          reasons: safeList(item && item.reasons, 8, 80),
+        }))
+      : [],
     logsDownloaded: false,
     artifactsDownloaded: false,
   };
 }
 
+function reasonSetForSegment(segment = {}) {
+  return new Set(Array.isArray(segment.reasonCodes) ? segment.reasonCodes.map((code) => String(code || "")) : []);
+}
+
+function goalOutcomeForSegment(segment = {}) {
+  return segment.goalOutcome && typeof segment.goalOutcome === "object" && !Array.isArray(segment.goalOutcome)
+    ? segment.goalOutcome
+    : null;
+}
+
+function isConfirmedGoalSegment(segment = {}) {
+  const goalOutcome = goalOutcomeForSegment(segment);
+  return segment.highlightType === "goal" &&
+    goalOutcome &&
+    goalOutcome.eventType === "ball_in_net" &&
+    goalOutcome.outcome === "confirmed_goal";
+}
+
+function isCelebrationOnlySegment(segment = {}) {
+  const phase = segment.phaseCoverage && typeof segment.phaseCoverage === "object" ? segment.phaseCoverage : {};
+  const reasonSet = reasonSetForSegment(segment);
+  const hasCelebrationSignal = [...CELEBRATION_ONLY_REASON_CODES].some((code) => reasonSet.has(code));
+  return Boolean(segment.celebrationOnly || phase.celebrationOnly) ||
+    (hasCelebrationSignal && (!phase.hasShot || !phase.hasFinish));
+}
+
+function isRandomChanceWithoutGoalEvidence(segment = {}) {
+  if (isConfirmedGoalSegment(segment)) return false;
+  const reasonSet = reasonSetForSegment(segment);
+  return NON_GOAL_HIGHLIGHT_TYPES.has(String(segment.highlightType || "")) ||
+    [...RANDOM_CHANCE_REASON_CODES].some((code) => reasonSet.has(code));
+}
+
 function safeSegment(segment = {}, index = 0) {
   const phase = segment.phaseCoverage && typeof segment.phaseCoverage === "object" ? segment.phaseCoverage : {};
+  const goalOutcome = goalOutcomeForSegment(segment);
   return {
     index: index + 1,
     id: safeString(segment.id || `segment_${index + 1}`, 80),
+    highlightType: safeString(segment.highlightType || "unknown", 60),
+    outcome: goalOutcome ? safeString(goalOutcome.outcome || "unknown", 60) : null,
     sourceStart: safeNumber(segment.sourceStart),
     shotStart: safeNumber(segment.shotStart),
     finishTime: safeNumber(segment.finishTime),
@@ -665,6 +745,8 @@ function safeSegment(segment = {}, index = 0) {
     sourceEnd: safeNumber(segment.sourceEnd),
     goalNumber: Number.isFinite(Number(segment.goalNumber)) ? Number(segment.goalNumber) : null,
     replayOnly: Boolean(segment.replayOnly || phase.replayOnly),
+    celebrationOnly: isCelebrationOnlySegment(segment),
+    randomChanceWithoutGoalEvidence: isRandomChanceWithoutGoalEvidence(segment),
     replayUsed: typeof segment.replayUsed === "boolean" ? segment.replayUsed : null,
     phaseCoverage: {
       hasBuildup: Boolean(phase.hasBuildup),
@@ -674,6 +756,20 @@ function safeSegment(segment = {}, index = 0) {
     },
     reasonCodes: safeList(segment.reasonCodes, 8, 80),
   };
+}
+
+function segmentProofFailures(segment = {}) {
+  const failures = [];
+  const safe = safeSegment(segment);
+  if (!isConfirmedGoalSegment(segment)) failures.push("non_goal_or_random_chance_segment");
+  if (safe.randomChanceWithoutGoalEvidence) failures.push("random_chance_without_counted_goal_evidence");
+  if (safe.replayOnly) failures.push("replay_only_goal_segment");
+  if (safe.celebrationOnly) failures.push("celebration_only_goal_segment");
+  if (!safe.phaseCoverage.hasBuildup) failures.push("missing_buildup");
+  if (!safe.phaseCoverage.hasShot || safe.shotStart == null) failures.push("missing_visible_shot");
+  if (!safe.phaseCoverage.hasFinish || safe.finishTime == null) failures.push("missing_visible_finish");
+  if (!safe.phaseCoverage.hasConfirmation || safe.confirmationTime == null) failures.push("missing_goal_confirmation");
+  return [...new Set(failures)].slice(0, 12);
 }
 
 function safeRenderPlan(job) {
@@ -687,6 +783,34 @@ function safeRenderPlan(job) {
     segmentCount: segments.length,
     segments,
     videoOutputQA: safeVideoOutputQA(job.videoOutputQA || plan.videoOutputQA),
+  };
+}
+
+function proofSegmentDiagnostics(renderPlan = null) {
+  const segments = Array.isArray(renderPlan?.segments) ? renderPlan.segments : [];
+  return {
+    replayOnlyCandidates: segments.filter((segment) => segment.replayOnly).map((segment) => ({
+      index: segment.index,
+      id: segment.id,
+      goalNumber: segment.goalNumber,
+      sourceStart: segment.sourceStart,
+      sourceEnd: segment.sourceEnd,
+    })),
+    celebrationOnlyCandidates: segments.filter((segment) => segment.celebrationOnly).map((segment) => ({
+      index: segment.index,
+      id: segment.id,
+      goalNumber: segment.goalNumber,
+      sourceStart: segment.sourceStart,
+      sourceEnd: segment.sourceEnd,
+    })),
+    randomChanceCandidates: segments.filter((segment) => segment.randomChanceWithoutGoalEvidence).map((segment) => ({
+      index: segment.index,
+      id: segment.id,
+      highlightType: segment.highlightType,
+      sourceStart: segment.sourceStart,
+      sourceEnd: segment.sourceEnd,
+      reasonCodes: segment.reasonCodes,
+    })),
   };
 }
 
@@ -740,6 +864,16 @@ function assertOutputGate(job, expectedCountedGoals) {
   const actual = Number(qa?.actualConfirmedGoalSegmentCount);
   const covered = Number(qa?.coveredGoalCount);
   const expectedFromQa = Number(qa?.expectedGoalCount);
+  const rawSegments = Array.isArray(job.editPlan?.segments) ? job.editPlan.segments : [];
+  const segmentFailures = rawSegments
+    .map((segment, index) => ({
+      index: index + 1,
+      id: safeString(segment.id || `segment_${index + 1}`, 80),
+      reasons: segmentProofFailures(segment),
+    }))
+    .filter((item) => item.reasons.length)
+    .slice(0, 12);
+  const proofDiagnostics = proofSegmentDiagnostics(renderPlan);
   const passed = Boolean(
     qa &&
       qa.passed === true &&
@@ -748,27 +882,29 @@ function assertOutputGate(job, expectedCountedGoals) {
       actual === expectedCountedGoals &&
       covered === expectedCountedGoals &&
       renderPlan?.segments?.length === expectedCountedGoals &&
-      renderPlan.segments.every((segment) => (
-        segment.replayOnly === false &&
-        segment.phaseCoverage.hasBuildup &&
-        segment.phaseCoverage.hasShot &&
-        segment.phaseCoverage.hasFinish &&
-        segment.phaseCoverage.hasConfirmation
-      )),
+      segmentFailures.length === 0,
   );
   if (!passed) {
+    const failedReasons = safeList([
+      ...(qa?.failedReasons || []),
+      ...(segmentFailures.length ? ["local_proof_segment_contract_failed"] : []),
+      ...(expectedFromQa !== expectedCountedGoals ? ["local_proof_expected_count_mismatch"] : []),
+      ...(renderPlan?.segments?.length !== expectedCountedGoals ? ["local_proof_segment_count_mismatch"] : []),
+    ], 12, 80);
     throw new LocalVideoProofError("LOCAL_VIDEO_PROOF_OUTPUT_QA_FAILED", "Local video proof output QA did not prove every counted goal.", {
       videoOutputQA: qa,
       countedGoalEventCount: qa ? qa.expectedGoalCount : null,
       actualConfirmedGoalSegmentCount: qa ? qa.actualConfirmedGoalSegmentCount : null,
       coveredGoalCount: qa ? qa.coveredGoalCount : null,
       missingGoalNumbers: qa ? qa.missingGoalNumbers : [],
-      failedReasons: qa ? qa.failedReasons : ["local_proof_expected_count_not_verified"],
+      failedReasons: failedReasons.length ? failedReasons : ["local_proof_expected_count_not_verified"],
       expectedCountedGoals,
       renderPlan,
+      segmentFailures,
+      ...proofDiagnostics,
     });
   }
-  return { videoOutputQA: qa, renderPlan };
+  return { videoOutputQA: qa, renderPlan, proofDiagnostics };
 }
 
 function validateMp4Download(download) {
@@ -940,7 +1076,28 @@ function probeGeneratedMp4(artifact) {
   };
 }
 
-function outputProofFromSuccess({ config, artifact, ffprobe, renderPlan, videoOutputQA }) {
+function discardFailedOutputArtifact(artifact) {
+  if (!artifact || !artifact.relativePath) return { attempted: false, deleted: false };
+  const target = safeDownloadArtifactRef(artifact.relativePath);
+  try {
+    rmSync(target.resolvedFile, { force: true });
+    return {
+      attempted: true,
+      deleted: true,
+      relativePath: target.relativePath,
+    };
+  } catch {
+    return {
+      attempted: true,
+      deleted: false,
+      relativePath: target.relativePath,
+      code: "DELETE_FAILED",
+    };
+  }
+}
+
+function outputProofFromSuccess({ config, artifact, ffprobe, renderPlan, videoOutputQA, proofDiagnostics = null }) {
+  const diagnostics = proofDiagnostics || proofSegmentDiagnostics(renderPlan);
   return {
     schemaVersion: LOCAL_PROOF_SCHEMA_VERSION,
     generatedAt: nowIso(),
@@ -958,6 +1115,10 @@ function outputProofFromSuccess({ config, artifact, ffprobe, renderPlan, videoOu
     scoreChangeCount: null,
     stableScoreChangeCount: null,
     missingEvidenceByCandidate: [],
+    rejectedCandidates: [],
+    replayOnlyCandidates: diagnostics.replayOnlyCandidates,
+    celebrationOnlyCandidates: diagnostics.celebrationOnlyCandidates,
+    randomChanceCandidates: diagnostics.randomChanceCandidates,
     outputMp4: artifact
       ? {
           relativePath: artifact.relativePath,
@@ -980,11 +1141,31 @@ function latestServerEvent(events = [], key) {
   return [...(Array.isArray(events) ? events : [])].reverse().find((event) => event && event[key]);
 }
 
+function scoreChangeEvidenceFromEvents({ goalDiscovery = null, ocrEvent = null } = {}) {
+  return {
+    scoreboardOcrAttempted: Boolean(goalDiscovery?.scoreboardOcrAttempted || ocrEvent),
+    scoreboardOcrEnabled: Boolean(goalDiscovery?.scoreboardOcrEnabled || ocrEvent),
+    scoreboardObservationCount: safeNumber(goalDiscovery?.scoreboardObservationCount) ?? safeNumber(ocrEvent?.evidenceCount) ?? 0,
+    scoreChangeCount: safeNumber(goalDiscovery?.scoreChangeCount) ?? safeNumber(ocrEvent?.scoreChangeCount) ?? 0,
+    stableScoreChangeCount: safeNumber(goalDiscovery?.stableScoreChangeCount) ?? 0,
+    scoreRevertedCount: safeNumber(ocrEvent?.scoreRevertedCount) ?? 0,
+    ambiguousCount: safeNumber(ocrEvent?.ambiguousCount) ?? 0,
+    unreadableCount: safeNumber(ocrEvent?.unreadableCount) ?? 0,
+  };
+}
+
 function outputProofFromFailure({ config = null, error = null, job = null, serverEvents = [] }) {
   const details = error?.details && typeof error.details === "object" ? error.details : {};
   const videoOutputQA = details.videoOutputQA || safeVideoOutputQA(job?.videoOutputQA || job?.editPlan?.videoOutputQA);
   const ocrEvent = latestServerEvent(serverEvents, "scoreboardOcr")?.scoreboardOcr || null;
   const goalDiscovery = latestServerEvent(serverEvents, "goalDiscovery")?.goalDiscovery || null;
+  const renderPlan = details.renderPlan || safeRenderPlan(job);
+  const diagnostics = {
+    replayOnlyCandidates: Array.isArray(details.replayOnlyCandidates) ? details.replayOnlyCandidates : proofSegmentDiagnostics(renderPlan).replayOnlyCandidates,
+    celebrationOnlyCandidates: Array.isArray(details.celebrationOnlyCandidates) ? details.celebrationOnlyCandidates : proofSegmentDiagnostics(renderPlan).celebrationOnlyCandidates,
+    randomChanceCandidates: Array.isArray(details.randomChanceCandidates) ? details.randomChanceCandidates : proofSegmentDiagnostics(renderPlan).randomChanceCandidates,
+  };
+  const scoreChangeEvidence = scoreChangeEvidenceFromEvents({ goalDiscovery, ocrEvent });
   return {
     schemaVersion: LOCAL_PROOF_SCHEMA_VERSION,
     generatedAt: nowIso(),
@@ -1002,21 +1183,36 @@ function outputProofFromFailure({ config = null, error = null, job = null, serve
       ? details.missingGoalNumbers.map(Number).filter(Number.isFinite).slice(0, 12)
       : (videoOutputQA?.missingGoalNumbers || []),
     failedReasons: details.failedReasons ? safeList(details.failedReasons, 12, 80) : (videoOutputQA?.failedReasons || []),
-    scoreboardOcrAttempted: Boolean(goalDiscovery?.scoreboardOcrAttempted || ocrEvent),
-    scoreboardOcrEnabled: Boolean(config?.scoreboardOcrEnabled || goalDiscovery?.scoreboardOcrEnabled),
-    scoreboardObservationCount: safeNumber(goalDiscovery?.scoreboardObservationCount) ?? safeNumber(ocrEvent?.evidenceCount) ?? 0,
-    scoreChangeCount: safeNumber(goalDiscovery?.scoreChangeCount) ?? safeNumber(ocrEvent?.scoreChangeCount) ?? 0,
-    stableScoreChangeCount: safeNumber(goalDiscovery?.stableScoreChangeCount) ?? 0,
+    scoreboardOcrAttempted: scoreChangeEvidence.scoreboardOcrAttempted,
+    scoreboardOcrEnabled: Boolean(config?.scoreboardOcrEnabled || scoreChangeEvidence.scoreboardOcrEnabled),
+    scoreboardObservationCount: scoreChangeEvidence.scoreboardObservationCount,
+    scoreChangeCount: scoreChangeEvidence.scoreChangeCount,
+    stableScoreChangeCount: scoreChangeEvidence.stableScoreChangeCount,
+    scoreChangeEvidence,
+    ocrEvidence: {
+      providerMode: ocrEvent?.providerMode || null,
+      fallbackUsed: typeof ocrEvent?.fallbackUsed === "boolean" ? ocrEvent.fallbackUsed : null,
+      evidenceCount: safeNumber(ocrEvent?.evidenceCount) ?? 0,
+      scoreRevertedCount: scoreChangeEvidence.scoreRevertedCount,
+      ambiguousCount: scoreChangeEvidence.ambiguousCount,
+      unreadableCount: scoreChangeEvidence.unreadableCount,
+    },
     missingEvidenceByCandidate: Array.isArray(goalDiscovery?.missingEvidenceByCandidate)
       ? goalDiscovery.missingEvidenceByCandidate
       : [],
+    rejectedCandidates: [
+      ...(Array.isArray(videoOutputQA?.invalidSegments) ? videoOutputQA.invalidSegments : []),
+      ...(Array.isArray(details.segmentFailures) ? details.segmentFailures : []),
+    ].slice(0, 12),
+    ...diagnostics,
     outputMp4: null,
-    ffprobe: {
+    ffprobe: details.ffprobe || {
       checked: false,
       status: "skipped",
       code: "OUTPUT_MP4_NOT_CREATED",
     },
-    renderPlan: details.renderPlan || safeRenderPlan(job),
+    failedOutputCleanup: details.failedOutputCleanup || null,
+    renderPlan,
     videoOutputQA,
     nextAction: details.nextAction || nextActionForCode(error?.code),
     verdict: "failed",
@@ -1156,6 +1352,7 @@ async function runLocalVideoProof(options = {}) {
     fetchDownload: options.fetchDownload || fetchDownload,
     writeOutputArtifact: options.writeOutputArtifact || writeOutputArtifact,
     probeGeneratedMp4: options.probeGeneratedMp4 || probeGeneratedMp4,
+    discardFailedOutputArtifact: options.discardFailedOutputArtifact || discardFailedOutputArtifact,
   };
 
   try {
@@ -1261,11 +1458,14 @@ async function runLocalVideoProof(options = {}) {
     finalJob = polled.job;
     const completed = assertCompletedJob(finalJob);
     ids.exportId = completed.exportId;
-    const { videoOutputQA, renderPlan } = assertOutputGate(finalJob, config.expectedCountedGoals);
+    const { videoOutputQA, renderPlan, proofDiagnostics } = assertOutputGate(finalJob, config.expectedCountedGoals);
     addStep(steps, "video-output-qa", "passed", {
       expectedGoalCount: videoOutputQA.expectedGoalCount,
       actualConfirmedGoalSegmentCount: videoOutputQA.actualConfirmedGoalSegmentCount,
       coveredGoalCount: videoOutputQA.coveredGoalCount,
+      replayOnlyCandidateCount: proofDiagnostics.replayOnlyCandidates.length,
+      celebrationOnlyCandidateCount: proofDiagnostics.celebrationOnlyCandidates.length,
+      randomChanceCandidateCount: proofDiagnostics.randomChanceCandidates.length,
     });
 
     const downloadMaxBytes = parseInteger(
@@ -1286,13 +1486,14 @@ async function runLocalVideoProof(options = {}) {
     });
     const ffprobe = deps.probeGeneratedMp4(artifact);
     if (ffprobe.status !== "passed") {
+      const failedOutputCleanup = deps.discardFailedOutputArtifact(artifact);
       throw new LocalVideoProofError(
-        "LOCAL_VIDEO_PROOF_MP4_SIGNATURE_INVALID",
+        "LOCAL_VIDEO_PROOF_FFPROBE_FAILED",
         "Local video proof generated MP4 did not pass ffprobe.",
-        { phase: PHASES.DOWNLOAD },
+        { phase: PHASES.DOWNLOAD, ffprobe, failedOutputCleanup },
       );
     }
-    outputProof = outputProofFromSuccess({ config, artifact, ffprobe, renderPlan, videoOutputQA });
+    outputProof = outputProofFromSuccess({ config, artifact, ffprobe, renderPlan, videoOutputQA, proofDiagnostics });
     addStep(steps, "download", "passed", {
       exportId: ids.exportId,
       relativePath: artifact.relativePath,

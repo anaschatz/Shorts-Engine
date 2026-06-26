@@ -17,7 +17,10 @@ Key contracts:
 - `local-video-proof` forces `valid_goals_only` in render orchestration.
 - OCR flags are proof-scoped through `SHORTSENGINE_LOCAL_PROOF_SCOREBOARD_OCR` and `SHORTSENGINE_LOCAL_PROOF_SCOREBOARD_OCR_QA`.
 - Reports are written to `demo/results/local-video-proof-latest.json`.
-- Successful MP4 outputs are saved under `manual-downloads/` only after output QA and ffprobe pass.
+- Successful MP4 outputs are saved under `manual-downloads/` only after output QA, the independent segment proof contract, and ffprobe pass.
+- The proof runner rejects replay-only, celebration-only, non-goal, and random-chance segments even if an upstream QA report is optimistic.
+- If ffprobe fails after the MP4 is written, the generated proof artifact is discarded and the report remains failed.
+- Failure reports include bounded rejected candidate diagnostics, replay-only candidates, celebration-only candidates, random-chance candidates, score-change evidence, OCR evidence, missing goal numbers, and the next safe operator action.
 
 Safety notes:
 
@@ -28,4 +31,4 @@ Safety notes:
 
 Tests:
 
-- `tests/local-video-proof.test.mjs` covers skipped defaults, rights requirement, unsafe source rejection, corrupt MP4 rejection, safe source summary, source immutability, proof-scoped OCR flags, and no MP4 write when output QA fails.
+- `tests/local-video-proof.test.mjs` covers skipped defaults, rights requirement, unsafe source rejection, corrupt MP4 rejection, safe source summary, source immutability, proof-scoped OCR flags, no MP4 write when output QA fails, independent random-chance and celebration-only rejection, and generated artifact discard when ffprobe fails.

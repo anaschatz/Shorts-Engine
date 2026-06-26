@@ -174,7 +174,7 @@ The live E2E wrapper does not call the downloader directly. It runs `youtube:doc
 
 ## Run Rights-Cleared Local MP4 Proof
 
-Use this path when the YouTube downloader is blocked before OCR/evidence analysis, but you have a rights-cleared MP4 of the same source. The command starts an isolated local server, uploads the MP4 through `/api/uploads`, marks the upload as `local-video-proof`, runs the normal generate/render job, enforces the same valid-goals-only video output QA gate, and writes an MP4 only if the final gate passes.
+Use this path when the YouTube downloader is blocked before OCR/evidence analysis, but you have a rights-cleared MP4 of the same source. The command starts an isolated local server, uploads the MP4 through `/api/uploads`, marks the upload as `local-video-proof`, runs the normal generate/render job, enforces the same valid-goals-only video output QA gate, then independently rejects replay-only, celebration-only, and random-chance segments before it writes an MP4.
 
 Default mode is safe and skipped:
 
@@ -203,6 +203,8 @@ Safety contract:
 - OCR flags apply only to the isolated proof server.
 - Reports use safe relative refs only and never include absolute local paths, raw OCR text, storage keys, stdout, stderr, cookies, tokens, secrets, or raw provider/downloader errors.
 - If 3/3 counted goals cannot be proven, no MP4 is written as a successful proof.
+- If an MP4 is written but ffprobe cannot validate it, the generated proof artifact is discarded and the report stays failed.
+- Failure reports include bounded `rejectedCandidates`, `replayOnlyCandidates`, `celebrationOnlyCandidates`, `randomChanceCandidates`, score-change evidence, OCR evidence, missing goal numbers, and the exact `nextAction`.
 
 Reports are written to:
 
