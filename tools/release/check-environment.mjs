@@ -19,6 +19,7 @@ const STAGING_READY_STORAGE_ADAPTERS = Object.freeze(["local", "mock-cloud", "s3
 const PERSISTENCE_ADAPTERS = Object.freeze(["local", "sqlite"]);
 const TRANSCRIPTION_PROVIDERS = Object.freeze(["mock", "openai"]);
 const SCOREBOARD_OCR_PROVIDERS = Object.freeze(["deterministic", "local"]);
+const YOUTUBE_PLAYER_CLIENTS = Object.freeze(["android", "ios", "web"]);
 
 const ENV_CONTRACT = Object.freeze([
   { name: "PORT", category: "App/runtime", required: false, defaultValue: "4175", type: "integer", min: 1, max: 65535, secret: false },
@@ -28,6 +29,7 @@ const ENV_CONTRACT = Object.freeze([
   { name: "MATCHCUTS_MAX_DURATION_SECONDS", category: "Upload/media limits", required: false, defaultValue: String(30 * 60), type: "integer", min: 1, max: 24 * 60 * 60, secret: false },
   { name: "SHORTSENGINE_YOUTUBE_INGEST_ENABLED", category: "Remote URL ingest", required: false, defaultValue: "false", type: "boolean", secret: false },
   { name: "SHORTSENGINE_YOUTUBE_DOWNLOADER_BIN", category: "Remote URL ingest", required: false, defaultValue: "yt-dlp", type: "command", secret: false },
+  { name: "SHORTSENGINE_YOUTUBE_PLAYER_CLIENT", category: "Remote URL ingest", required: false, defaultValue: "", type: "enum", allowedValues: YOUTUBE_PLAYER_CLIENTS, allowEmpty: true, secret: false },
   { name: "SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS", category: "Remote URL ingest", required: false, defaultValue: String(2 * 60 * 1000), type: "integer", min: 1000, max: 10 * 60 * 1000, secret: false },
   { name: "SHORTSENGINE_YOUTUBE_DOWNLOADER_OUTPUT_BYTES", category: "Remote URL ingest", required: false, defaultValue: String(64 * 1024), type: "integer", min: 1024, max: BYTE_1_MB, secret: false },
   { name: "SHORTSENGINE_YOUTUBE_DOCTOR_URL", category: "Remote URL ingest", required: false, defaultValue: "", type: "url", secret: false },
@@ -151,6 +153,9 @@ function parseInteger(value, spec) {
 
 function normalizeEnum(value, spec) {
   const normalized = String(value || spec.defaultValue || "").trim().toLowerCase();
+  if (normalized === "" && spec.allowEmpty) {
+    return "";
+  }
   if (!spec.allowedValues.includes(normalized)) {
     throw new EnvironmentCheckError("ENV_ENUM_INVALID", "Environment value is not supported.", { category: spec.category });
   }
@@ -520,6 +525,7 @@ function checkEnvironment(options = {}) {
     youtubeIngest: {
       enabled: Boolean(boolFromEnv(rawValue(env, "SHORTSENGINE_YOUTUBE_INGEST_ENABLED"))),
       downloaderConfigured: Boolean(valueOrDefault(env, ENV_CONTRACT.find((spec) => spec.name === "SHORTSENGINE_YOUTUBE_DOWNLOADER_BIN"))),
+      playerClient: String(valueOrDefault(env, ENV_CONTRACT.find((spec) => spec.name === "SHORTSENGINE_YOUTUBE_PLAYER_CLIENT")) || "") || null,
       timeoutMs: numeric.SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS,
       outputBytes: numeric.SHORTSENGINE_YOUTUBE_DOWNLOADER_OUTPUT_BYTES,
       defaultDisabled: !boolFromEnv(rawValue(env, "SHORTSENGINE_YOUTUBE_INGEST_ENABLED")),

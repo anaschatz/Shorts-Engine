@@ -45,12 +45,23 @@ function validateDownloaderOutputPath(outputPath) {
   return safePath;
 }
 
-function buildDownloaderArgs(source, outputPath) {
+function normalizePlayerClient(value) {
+  const text = String(value || "").trim().toLowerCase();
+  return ["android", "ios", "web"].includes(text) ? text : "";
+}
+
+function youtubeExtractorArgs(config = {}) {
+  const playerClient = normalizePlayerClient(config.playerClient);
+  return playerClient ? ["--extractor-args", `youtube:player_client=${playerClient}`] : [];
+}
+
+function buildDownloaderArgs(source, outputPath, config = {}) {
   const safeSource = assertValidatedYouTubeSource(source);
   const safeOutputPath = validateDownloaderOutputPath(outputPath);
   return [
     "--no-playlist",
     "--no-warnings",
+    ...youtubeExtractorArgs(config),
     "--restrict-filenames",
     "--merge-output-format",
     "mp4",
@@ -64,11 +75,12 @@ function buildDownloaderArgs(source, outputPath) {
   ];
 }
 
-function buildMetadataArgs(source) {
+function buildMetadataArgs(source, config = {}) {
   const safeSource = assertValidatedYouTubeSource(source);
   return [
     "--no-playlist",
     "--no-warnings",
+    ...youtubeExtractorArgs(config),
     "--skip-download",
     "--print",
     "title:%(title)s",
@@ -136,6 +148,7 @@ function createLocalYouTubeIngestAdapter(options = {}) {
       downloaderConfigured: configured,
       ingestAvailable: Boolean(config.enabled && configured),
       authorizedImportAvailable: false,
+      playerClient: config.playerClient || null,
     };
   }
 
@@ -158,7 +171,7 @@ function createLocalYouTubeIngestAdapter(options = {}) {
         };
       }
       try {
-        const result = await execFileSafe(execFileImpl, downloaderBin, buildMetadataArgs(source), {
+        const result = await execFileSafe(execFileImpl, downloaderBin, buildMetadataArgs(source, config), {
           timeout: Math.min(config.timeoutMs, METADATA_TIMEOUT_MS),
           maxBuffer: config.maxOutputBytes,
           windowsHide: true,
@@ -191,7 +204,7 @@ function createLocalYouTubeIngestAdapter(options = {}) {
           reason: "downloader_unavailable",
         });
       }
-      const args = buildDownloaderArgs(source, outputPath);
+      const args = buildDownloaderArgs(source, outputPath, config);
       const startedAt = Date.now();
       try {
         await execFileSafe(execFileImpl, downloaderBin, args, {
@@ -228,4 +241,5 @@ module.exports = {
   downloaderAvailable,
   parseMetadataOutput,
   validateDownloaderOutputPath,
+  youtubeExtractorArgs,
 };

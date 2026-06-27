@@ -230,6 +230,11 @@ function validateExecutableReference(value, options = {}) {
 }
 
 function validateYouTubeIngestConfig(input = {}) {
+  const playerClient = String(input.playerClient || "").trim().toLowerCase();
+  const allowedPlayerClients = ["", "android", "ios", "web"];
+  if (!allowedPlayerClients.includes(playerClient)) {
+    throw new Error("Invalid SHORTSENGINE_YOUTUBE_PLAYER_CLIENT value.");
+  }
   return {
     enabled: Boolean(input.enabled),
     authorizedImportEnabled: Boolean(input.authorizedImportEnabled),
@@ -249,6 +254,7 @@ function validateYouTubeIngestConfig(input = {}) {
       min: 1024,
       max: 1024 * 1024,
     }),
+    playerClient,
   };
 }
 
@@ -306,6 +312,7 @@ const YOUTUBE_INGEST_CONFIG = validateYouTubeIngestConfig({
   downloaderBin: process.env.SHORTSENGINE_YOUTUBE_DOWNLOADER_BIN || DEFAULT_YOUTUBE_DOWNLOADER_BIN,
   timeoutMs: process.env.SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS,
   maxOutputBytes: process.env.SHORTSENGINE_YOUTUBE_DOWNLOADER_OUTPUT_BYTES,
+  playerClient: process.env.SHORTSENGINE_YOUTUBE_PLAYER_CLIENT,
 });
 const SCOREBOARD_OCR_CONFIG = validateScoreboardOcrConfig({
   enabled: boolFromEnv(process.env.SHORTSENGINE_SCOREBOARD_OCR_ENABLED),

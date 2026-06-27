@@ -355,6 +355,38 @@ test("local youtube downloader adapter builds explicit safe args without shell s
   assert.doesNotMatch(captured.args.join(" "), /[;&|`$<>]/);
 });
 
+test("local youtube downloader adapter supports safe player client override", async () => {
+  const uploadId = "upl_12345678-1234-1234-1234-123456789abc";
+  const { stageDir, outputPath } = createYouTubeStagePaths(uploadId);
+  mkdirSync(stageDir, { recursive: true });
+  let captured = null;
+  const adapter = createLocalYouTubeIngestAdapter({
+    config: {
+      enabled: true,
+      downloaderBin: "yt-dlp",
+      playerClient: "android",
+      timeoutMs: 1000,
+      maxOutputBytes: 4096,
+    },
+    spawnSync: () => ({ status: 0 }),
+    execFile: (command, args, options, callback) => {
+      captured = { command, args, options };
+      writeFileSync(outputPath, Buffer.concat([mp4Header, Buffer.alloc(128)]));
+      callback(null, "", "");
+    },
+  });
+  try {
+    await adapter.ingest(normalizeYouTubeUrl("https://youtu.be/dQw4w9WgXcQ"), { outputPath });
+  } finally {
+    cleanupYouTubeStage(stageDir);
+  }
+  const extractorIndex = captured.args.indexOf("--extractor-args");
+  assert.notEqual(extractorIndex, -1);
+  assert.equal(captured.args[extractorIndex + 1], "youtube:player_client=android");
+  assert.equal(adapter.health().playerClient, "android");
+  assert.doesNotMatch(captured.args.join(" "), /[;&|`$<>]/);
+});
+
 test("local youtube downloader adapter reads bounded metadata without downloading media", async () => {
   let captured = null;
   const adapter = createLocalYouTubeIngestAdapter({

@@ -216,6 +216,13 @@ test("environment check rejects unsafe YouTube downloader command config", () =>
   );
 });
 
+test("environment check rejects arbitrary YouTube player client values", () => {
+  assert.throws(
+    () => checkEnvironment(safeOptions({ SHORTSENGINE_YOUTUBE_PLAYER_CLIENT: "android;cat" })),
+    /Environment value is not supported/,
+  );
+});
+
 test("environment check validates live YouTube E2E flags before live work", () => {
   assert.throws(
     () => checkEnvironment(safeOptions({ SHORTSENGINE_YOUTUBE_LIVE_E2E: "1" })),
