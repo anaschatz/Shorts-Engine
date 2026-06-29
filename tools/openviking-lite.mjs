@@ -798,7 +798,12 @@ function writeIfMissing(path, content, refresh = false) {
   const nextContent = `${content.trim()}\n`;
   if (existsSync(path)) {
     if (!refresh) return;
-    if (readMaybe(path) === nextContent) return;
+    // Refresh should be deterministic and must not block on macOS dataless placeholders.
+    try {
+      unlinkSync(path);
+    } catch {
+      // Fall through and let the write report the filesystem failure if removal is blocked.
+    }
   }
   writeFileSync(path, nextContent, "utf8");
 }

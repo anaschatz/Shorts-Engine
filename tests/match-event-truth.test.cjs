@@ -647,6 +647,57 @@ test("selects three source-wide counted goals including late scorebug changes", 
   assert.doesNotMatch(JSON.stringify(publicMatchEventTruth(result)), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);
 });
 
+test("selects five YouTube counted goals across the full source when each has visible action", () => {
+  const goalWindows = [
+    { shot: 94, finish: 99, confirm: 111, scoreBefore: "0-0", scoreAfter: "1-0" },
+    { shot: 218, finish: 224, confirm: 238, scoreBefore: "1-0", scoreAfter: "2-0" },
+    { shot: 312, finish: 318, confirm: 334, scoreBefore: "2-0", scoreAfter: "3-0" },
+    { shot: 449, finish: 455, confirm: 470, scoreBefore: "3-0", scoreAfter: "4-0" },
+    { shot: 566, finish: 572, confirm: 590, scoreBefore: "4-0", scoreAfter: "5-0" },
+  ];
+  const result = analyzeMatchEventTruth({
+    metadata: { ...metadata, durationSeconds: 644, sourceType: "youtube", goalSelectionMode: "valid_goals_only" },
+    visualSignals: visualSignals(goalWindows.flatMap((goal) => [
+      { start: goal.shot - 6, end: goal.shot - 4, types: ["fast_break_motion", "ball_visible"], confidence: 0.86 },
+      { start: goal.shot, end: goal.shot + 2, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.92 },
+      { start: goal.finish, end: goal.finish + 2, types: ["goal_mouth_visible", "ball_in_net"], confidence: 0.94 },
+      { start: goal.confirm, end: goal.confirm + 2, types: ["scoreboard_goal_confirmed", "referee_goal_signal"], confidence: 0.89 },
+    ])),
+    scoreboardOcr: goalWindows.map((goal, index) => ({
+      id: `youtube_counted_goal_${index + 1}`,
+      timestamp: goal.confirm,
+      scoreBefore: goal.scoreBefore,
+      scoreAfter: goal.scoreAfter,
+      status: "score_changed",
+      confidence: 0.9 + index * 0.01,
+      temporalConsistency: true,
+      scoreChanged: true,
+      source: "local_scorebug_digit_reader_gray_line",
+      imageDecoderStatus: "decoded",
+      imageSegmentationStatus: "readable",
+    })),
+    ocrQaCalibration: strongOcrQaCalibration(),
+    goalEvidence: goalEvidence([]),
+  });
+
+  const confirmed = result.events.filter((event) => event.type === "confirmed_goal");
+  assert.equal(result.summary.confirmedGoalCount, 5);
+  assert.equal(result.summary.countedGoalEventCount, 5);
+  assert.equal(result.summary.scoreChangeAnchorsFound, 5);
+  assert.equal(result.summary.anchorsWithLiveActionEvidence, 5);
+  assert.equal(result.summary.selectedCountedGoals, 5);
+  assert.equal(result.summary.anchorsRejected, 0);
+  assert.deepEqual(confirmed.map((event) => event.goalNumber), [1, 2, 3, 4, 5]);
+  assert.deepEqual(confirmed.map((event) => event.scoreAfter), ["1-0", "2-0", "3-0", "4-0", "5-0"]);
+  assert.ok(confirmed.every((event) => event.phaseCoverage.replayOnly === false));
+  assert.ok(confirmed.every((event) => event.phaseCoverage.hasBuildup));
+  assert.ok(confirmed.every((event) => event.phaseCoverage.hasShot));
+  assert.ok(confirmed.every((event) => event.phaseCoverage.hasFinish));
+  assert.ok(confirmed.every((event) => event.phaseCoverage.hasConfirmation));
+  assert.equal(result.summary.noFalseGoalFromOcrOnly, 1);
+  assert.doesNotMatch(JSON.stringify(publicMatchEventTruth(result)), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);
+});
+
 test("rejects scorebug counted candidate when only replay context is visible", () => {
   const result = analyzeMatchEventTruth({
     metadata,

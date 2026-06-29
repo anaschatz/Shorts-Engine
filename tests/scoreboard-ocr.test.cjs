@@ -808,10 +808,49 @@ test("scoreboard OCR sampling covers full source and late-game windows", () => {
     },
   });
 
-  assert.equal(windows.length <= 24, true);
+  assert.equal(windows.length <= 48, true);
   assert.equal(windows.some((window) => window.source === "full_source_periodic_scoreboard_sample"), true);
   assert.equal(windows.some((window) => window.timestamp > 320), true);
   assert.equal(windows.some((window) => window.source === "visual_decision_scoreboard_sample"), true);
+});
+
+test("scoreboard OCR sampling keeps enough checkpoints for five-goal YouTube highlights", () => {
+  const windows = selectOcrSamplingWindows({
+    metadata: { ...metadata, durationSeconds: 644 },
+    mediaSignals: {
+      audioPeaks: [
+        { time: 98, energyScore: 0.9 },
+        { time: 224, energyScore: 0.91 },
+        { time: 318, energyScore: 0.92 },
+        { time: 455, energyScore: 0.9 },
+        { time: 572, energyScore: 0.93 },
+      ],
+      sceneChanges: [
+        { time: 104, confidence: 0.8 },
+        { time: 232, confidence: 0.78 },
+        { time: 326, confidence: 0.82 },
+        { time: 462, confidence: 0.8 },
+        { time: 580, confidence: 0.84 },
+      ],
+    },
+    visualSignals: {
+      windows: [
+        { start: 94, end: 101, types: ["shot_contact", "ball_in_net"], confidence: 0.9 },
+        { start: 220, end: 227, types: ["shot_contact", "ball_in_net"], confidence: 0.91 },
+        { start: 314, end: 321, types: ["shot_contact", "ball_in_net"], confidence: 0.92 },
+        { start: 451, end: 458, types: ["shot_contact", "ball_in_net"], confidence: 0.9 },
+        { start: 568, end: 575, types: ["shot_contact", "ball_in_net"], confidence: 0.93 },
+      ],
+    },
+  });
+
+  assert.equal(windows.length <= 48, true);
+  assert.equal(windows.length > 24, true);
+  assert.equal(windows.some((window) => /^full_source_/.test(window.source)), true);
+  for (const expected of [98, 224, 318, 455, 572]) {
+    assert.equal(windows.some((window) => Math.abs(window.timestamp - expected) <= 12), true);
+  }
+  assert.equal(windows.some((window) => window.timestamp > 600), true);
 });
 
 test("local scoreboard OCR can extract OCR-specific frames from source video safely", async () => {
@@ -833,7 +872,7 @@ test("local scoreboard OCR can extract OCR-specific frames from source video saf
     });
 
     assert.equal(frames.length > 8, true);
-    assert.equal(frames.length <= 24, true);
+    assert.equal(frames.length <= 48, true);
     assert.equal(frames.some((frame) => frame.timestamp > 150), true);
     assert.equal(frames[0].width, 1280);
     assert.doesNotMatch(JSON.stringify(frames.map(({ localPath, ...frame }) => frame)), /\/Users|storageKey|token|secret/i);

@@ -30,9 +30,9 @@ const {
 const { visualReasonCodesForWindow } = require("./vision.cjs");
 
 const DEFAULT_SCOREBOARD_OCR_TIMEOUT_MS = 10000;
-const MAX_SCOREBOARD_OCR_FRAMES = 24;
+const MAX_SCOREBOARD_OCR_FRAMES = 48;
 const MAX_SCOREBOARD_REGIONS = 6;
-const MAX_SCOREBOARD_OCR_CROPS = 72;
+const MAX_SCOREBOARD_OCR_CROPS = 144;
 const DEFAULT_OCR_FRAME_MAX_DIMENSION = 1280;
 const ROOT_DIR = resolve(__dirname, "..");
 const SCOREBOARD_OCR_QA_RELATIVE_DIR = "demo/results/scoreboard-ocr-artifacts";
@@ -373,13 +373,25 @@ function selectOcrSamplingWindows({ frames = [], visualSignals = {}, candidateWi
   const duration = seconds(metadata.durationSeconds, 0);
   const windows = [];
   if (duration > 0) {
-    const periodicCount = duration >= 120 ? 18 : Math.min(8, MAX_SCOREBOARD_OCR_FRAMES);
+    const periodicCount = duration >= 480
+      ? 36
+      : duration >= 120
+        ? 28
+        : Math.min(8, MAX_SCOREBOARD_OCR_FRAMES);
     for (let index = 0; index < periodicCount; index += 1) {
       const ratio = (index + 0.5) / periodicCount;
       pushSamplingTime(windows, duration * ratio, metadata, {
         confidence: 0.52,
         source: "full_source_periodic_scoreboard_sample",
       });
+    }
+    if (duration >= 180) {
+      for (const ratio of [0.08, 0.16, 0.33, 0.5, 0.66, 0.82, 0.92, 0.98]) {
+        pushSamplingTime(windows, duration * ratio, metadata, {
+          confidence: 0.58,
+          source: "full_source_anchor_scoreboard_sample",
+        });
+      }
     }
   }
   for (const frame of Array.isArray(frames) ? frames : []) {
@@ -396,7 +408,7 @@ function selectOcrSamplingWindows({ frames = [], visualSignals = {}, candidateWi
   const visualWindows = Array.isArray(visualSignals.windows) ? visualSignals.windows : [];
   for (const window of visualWindows.filter(importantVisualWindow)) {
     const center = visualWindowCenter(window);
-    for (const offset of [-3, 0, 5, 12]) {
+    for (const offset of [-8, -3, 0, 5, 12, 22]) {
       pushSamplingTime(windows, center + offset, metadata, {
         start: seconds(window.start, center) + offset,
         end: seconds(window.end, center) + offset,
@@ -409,7 +421,7 @@ function selectOcrSamplingWindows({ frames = [], visualSignals = {}, candidateWi
   for (const candidate of Array.isArray(candidateWindows) ? candidateWindows : []) {
     const time = seconds(candidate.timestamp ?? candidate.center ?? candidate.time, Number.NaN);
     if (!Number.isFinite(time) || Number(candidate.confidence || 0) < 0.55) continue;
-    for (const offset of [0, 8]) {
+    for (const offset of [-6, 0, 8, 18]) {
       pushSamplingTime(windows, time + offset, metadata, {
         confidence: Number(candidate.confidence),
         source: "candidate_scoreboard_sample",
@@ -418,7 +430,7 @@ function selectOcrSamplingWindows({ frames = [], visualSignals = {}, candidateWi
     }
   }
   for (const signal of mediaSignalTimes(mediaSignals)) {
-    for (const offset of [0, 8]) {
+    for (const offset of [-10, 0, 8, 18]) {
       pushSamplingTime(windows, signal.time + offset, metadata, {
         confidence: signal.confidence,
         source: `${signal.source}_scoreboard_sample`,

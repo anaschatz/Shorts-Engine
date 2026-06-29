@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:net";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, relative, resolve } from "node:path";
@@ -11,7 +11,6 @@ import {
   safeDownloadArtifactRef,
   validateSmokeSource,
 } from "./run-youtube-smoke.mjs";
-import { probeVideo } from "./run-side-by-side-review.mjs";
 import { checkEnvironment } from "../tools/release/check-environment.mjs";
 import { checkYouTubeIngest } from "../tools/release/check-youtube-ingest.mjs";
 
@@ -808,7 +807,7 @@ function probeGeneratedMp4(artifact) {
       relativePath: target.relativePath,
     };
   }
-  const probed = probeVideo({ ok: true, resolvedFile: target.resolvedFile, relativePath: target.relativePath });
+  const probed = probeVideoFile(target.resolvedFile);
   return {
     checked: true,
     status: probed.readable ? "passed" : "failed",
@@ -821,6 +820,53 @@ function probeGeneratedMp4(artifact) {
     videoCodec: probed.videoCodec,
     audioPresent: probed.audioPresent,
   };
+}
+
+function probeVideoFile(filePath) {
+  const stats = statSync(filePath);
+  const ffprobeBin = process.env.FFPROBE_PATH || "ffprobe";
+  const result = spawnSync(ffprobeBin, [
+    "-v",
+    "error",
+    "-print_format",
+    "json",
+    "-show_streams",
+    "-show_format",
+    filePath,
+  ], {
+    encoding: "utf8",
+    timeout: 15_000,
+    maxBuffer: 512 * 1024,
+  });
+  if (result.error || result.status !== 0) {
+    return {
+      readable: false,
+      errorCode: result.error && result.error.code === "ENOENT" ? "FFPROBE_MISSING" : "FFPROBE_FAILED",
+      sizeBytes: stats.size,
+    };
+  }
+  try {
+    const parsed = JSON.parse(result.stdout || "{}");
+    const streams = Array.isArray(parsed.streams) ? parsed.streams : [];
+    const video = streams.find((stream) => stream.codec_type === "video") || {};
+    const audio = streams.find((stream) => stream.codec_type === "audio") || null;
+    return {
+      readable: Boolean(video.codec_name),
+      errorCode: video.codec_name ? null : "VIDEO_STREAM_MISSING",
+      sizeBytes: stats.size,
+      durationSeconds: safeNumber(parsed.format && parsed.format.duration),
+      width: safeNumber(video.width),
+      height: safeNumber(video.height),
+      videoCodec: safeString(video.codec_name || "", 40) || null,
+      audioPresent: Boolean(audio),
+    };
+  } catch {
+    return {
+      readable: false,
+      errorCode: "FFPROBE_JSON_INVALID",
+      sizeBytes: stats.size,
+    };
+  }
 }
 
 function buildComparisonReadiness({ source, outputMp4, ffprobe, coverage, reference, referenceStyleQA = null }) {
@@ -1237,19 +1283,35 @@ function validateLiveConfig(env) {
   }
   if (!boolFromEnv(rawValue(env, "SHORTSENGINE_YOUTUBE_INGEST_ENABLED"))) {
     throw new YouTubeLiveE2EError(
-      "YOUTUBE_LIVE_E2E_INGEST_DISABLED",
+      "ENV_YOUTUBE_LIVE_E2E_INGEST_DISABLED",
       "Live YouTube E2E requires explicit ingest enablement.",
     );
   }
   if (!boolFromEnv(rawValue(env, LIVE_RIGHTS_FLAG))) {
     throw new YouTubeLiveE2EError(
-      "YOUTUBE_LIVE_E2E_RIGHTS_REQUIRED",
+      "ENV_YOUTUBE_LIVE_E2E_RIGHTS_REQUIRED",
       "Live YouTube E2E requires explicit rights confirmation.",
+    );
+  }
+  let source;
+  try {
+    source = validateSmokeSource(liveSourceEnv(env));
+  } catch (error) {
+    const mappedCode = {
+      YOUTUBE_SMOKE_URL_MISSING: "ENV_YOUTUBE_LIVE_E2E_URL_MISSING",
+      YOUTUBE_URL_INVALID: "ENV_YOUTUBE_LIVE_E2E_URL_INVALID",
+      YOUTUBE_PLAYLIST_UNSUPPORTED: "ENV_YOUTUBE_LIVE_E2E_URL_INVALID",
+      YOUTUBE_LIVE_UNSUPPORTED: "ENV_YOUTUBE_LIVE_E2E_URL_INVALID",
+      YOUTUBE_SMOKE_URL_NOT_ALLOWED: "ENV_YOUTUBE_LIVE_E2E_URL_NOT_ALLOWED",
+    }[error?.code] || "ENV_YOUTUBE_LIVE_E2E_URL_INVALID";
+    throw new YouTubeLiveE2EError(
+      mappedCode,
+      "Live YouTube E2E source configuration is not ready.",
     );
   }
   return {
     skipped: false,
-    source: validateSmokeSource(liveSourceEnv(env)),
+    source,
   };
 }
 
@@ -1588,11 +1650,6 @@ async function runYouTubeLiveE2E(options = {}) {
   };
 
   try {
-    envSummary = deps.checkEnvironment({ env });
-    addStep(steps, "env", "passed", {
-      liveE2E: Boolean(envSummary.youtubeIngest?.liveE2E?.enabled),
-      sourceConfigured: Boolean(envSummary.youtubeIngest?.liveE2E?.sourceConfigured),
-    });
     const config = validateLiveConfig(env);
     if (config.skipped) {
       addCheck(checks, "youtube_live_e2e_explicit_flag", true, {
@@ -1614,6 +1671,12 @@ async function runYouTubeLiveE2E(options = {}) {
         steps,
       });
     }
+
+    envSummary = deps.checkEnvironment({ env });
+    addStep(steps, "env", "passed", {
+      liveE2E: Boolean(envSummary.youtubeIngest?.liveE2E?.enabled),
+      sourceConfigured: Boolean(envSummary.youtubeIngest?.liveE2E?.sourceConfigured),
+    });
     source = config.source;
     addCheck(checks, "youtube_live_e2e_explicit_flag", true);
     addCheck(checks, "youtube_live_e2e_rights_confirmed", true);
