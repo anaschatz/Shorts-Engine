@@ -994,6 +994,7 @@ async function runRenderJob(options) {
         regionIdsUsed: scoreboardOcr.summary && scoreboardOcr.summary.regionIdsUsed,
         preprocessingVariantCount: scoreboardOcr.summary && scoreboardOcr.summary.preprocessingVariantCount,
         qaReport: scoreboardOcr.summary && scoreboardOcr.summary.qaReport,
+        scorebugDebug: scoreboardOcr.summary && scoreboardOcr.summary.scorebugDebug,
         scoreTimeline: scoreboardOcr.summary && scoreboardOcr.summary.scoreTimeline,
       });
       const ocrQaCalibrationOptions = ocrQaCalibrationOptionsFromEnv();

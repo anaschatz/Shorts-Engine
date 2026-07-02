@@ -631,7 +631,11 @@ function normalizeRoiCalibrationSummary(value = {}) {
     selected: Boolean(candidate.selected),
     score: round(clamp(candidate.score, -100, 1000)),
     observationCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_CROPS, Math.round(Number(candidate.observationCount || 0)))),
+    textPresentCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_CROPS, Math.round(Number(candidate.textPresentCount || 0)))),
     readableCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_CROPS, Math.round(Number(candidate.readableCount || 0)))),
+    readableObservationCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_CROPS, Math.round(Number(candidate.readableObservationCount || 0)))),
+    rejectedObservationCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_CROPS, Math.round(Number(candidate.rejectedObservationCount || 0)))),
+    clockOnlyObservationCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_CROPS, Math.round(Number(candidate.clockOnlyObservationCount || 0)))),
     scoreChangeCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES, Math.round(Number(candidate.scoreChangeCount || 0)))),
     revertedCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES, Math.round(Number(candidate.revertedCount || 0)))),
     unchangedCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES, Math.round(Number(candidate.unchangedCount || 0)))),
@@ -639,6 +643,11 @@ function normalizeRoiCalibrationSummary(value = {}) {
     firstTimestamp: candidate.firstTimestamp == null ? null : round(candidate.firstTimestamp),
     lastTimestamp: candidate.lastTimestamp == null ? null : round(candidate.lastTimestamp),
     averageConfidence: round(clamp(candidate.averageConfidence, 0, 1)),
+    diagnosis: candidate.diagnosis ? sanitizeText(candidate.diagnosis, 80) : null,
+    reasonCodes: Array.isArray(candidate.reasonCodes)
+      ? candidate.reasonCodes.map((reason) => sanitizeText(reason, 80)).filter(Boolean).slice(0, 8)
+      : [],
+    nextAction: candidate.nextAction ? sanitizeText(candidate.nextAction, 160) : null,
   });
   return {
     selectedRoi: value.selectedRoi ? safeCandidate({ ...value.selectedRoi, selected: true }) : null,
@@ -649,6 +658,34 @@ function normalizeRoiCalibrationSummary(value = {}) {
     globalFallback: Boolean(value.globalFallback),
     reasonCodes: Array.isArray(value.reasonCodes)
       ? value.reasonCodes.map((reason) => sanitizeText(reason, 80)).filter(Boolean).slice(0, 8)
+      : [],
+  };
+}
+
+function normalizeScorebugDebugSummary(value = {}) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || hasUnsafeValue(value)) return null;
+  const safeCalibration = normalizeRoiCalibrationSummary({
+    selectedRoi: value.selectedRoi,
+    rejectedRois: value.rejectedRois,
+    candidateCount: value.attemptedRoiCount,
+    globalFallback: value.globalFallback,
+    reasonCodes: value.reasonCodes,
+  });
+  return {
+    attemptedRoiCount: Math.max(0, Math.min(MAX_SCOREBOARD_REGIONS * 4, Math.round(Number(value.attemptedRoiCount || 0)))),
+    attemptedObservationCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_CROPS, Math.round(Number(value.attemptedObservationCount || 0)))),
+    textPresentObservationCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_CROPS, Math.round(Number(value.textPresentObservationCount || 0)))),
+    readableObservationCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_CROPS, Math.round(Number(value.readableObservationCount || 0)))),
+    selectedRoi: safeCalibration && safeCalibration.selectedRoi,
+    rejectedRois: safeCalibration ? safeCalibration.rejectedRois : [],
+    globalFallbackCandidate: value.globalFallbackCandidate
+      ? normalizeRoiCalibrationSummary({ selectedRoi: value.globalFallbackCandidate })?.selectedRoi || null
+      : null,
+    state: sanitizeText(value.state || "unknown", 80),
+    nextAction: sanitizeText(value.nextAction || "inspect-scorebug-debug-summary", 180),
+    qaRecommended: Boolean(value.qaRecommended),
+    reasonCodes: Array.isArray(value.reasonCodes)
+      ? value.reasonCodes.map((reason) => sanitizeText(reason, 80)).filter(Boolean).slice(0, 10)
       : [],
   };
 }
@@ -684,6 +721,7 @@ function validateScoreboardOcrOutput(output = {}, metadata = {}) {
     .slice(0, MAX_SCOREBOARD_OCR_FRAMES);
   const qaReport = normalizeQaReportSummary(output.qaReport);
   const roiCalibration = normalizeRoiCalibrationSummary(output.roiCalibration || output.scorebugRoiCalibration);
+  const scorebugDebug = normalizeScorebugDebugSummary(output.scorebugDebug || output.scorebugDebugSummary);
   return {
     providerMode: sanitizeText(output.providerMode || "deterministic-scoreboard-ocr", 60),
     fallbackUsed: Boolean(output.fallbackUsed || evidence.length === 0),
@@ -703,6 +741,7 @@ function validateScoreboardOcrOutput(output = {}, metadata = {}) {
       regionIdsUsed,
       preprocessingVariantCount: Math.max(0, Math.min(8, Math.round(Number(output.preprocessingVariantCount || 0)))),
       roiCalibration,
+      scorebugDebug,
       scoreTimeline,
       qaReport,
       fallbackUsed: Boolean(output.fallbackUsed || evidence.length === 0),
@@ -1270,6 +1309,7 @@ function writeScoreboardOcrQaReport({ qa, scoreboardOcr, status = "completed" } 
             ? scoreboardOcr.summary.scoreTimeline.filter((item) => item.status === "score_changed").slice(0, MAX_SCOREBOARD_OCR_FRAMES)
             : [],
           roiCalibration: normalizeRoiCalibrationSummary(scoreboardOcr.summary.roiCalibration),
+          scorebugDebug: normalizeScorebugDebugSummary(scoreboardOcr.summary.scorebugDebug),
           revertedScoreEvents: Array.isArray(scoreboardOcr.summary.scoreTimeline)
             ? scoreboardOcr.summary.scoreTimeline.filter((item) => item.status === "goal_removed").slice(0, MAX_SCOREBOARD_OCR_FRAMES)
             : [],
@@ -1978,6 +2018,7 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
         fallbackUsed: evidence.length === 0,
         evidence,
         roiCalibration: timeline.roiCalibration,
+        scorebugDebug: timeline.scorebugDebug,
         sampledFrameCount: frames.length,
         regionCount: cropCount,
         regionIdsUsed: [...regionIdsUsed],
@@ -1990,6 +2031,7 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
             fallbackUsed: result.fallbackUsed,
             evidence: result.evidence,
             roiCalibration: result.summary.roiCalibration,
+            scorebugDebug: result.summary.scorebugDebug,
             sampledFrameCount: result.summary.sampledFrameCount,
             regionCount: result.summary.regionCount,
             regionIdsUsed: result.summary.regionIdsUsed,
@@ -2049,6 +2091,7 @@ function publicScoreboardOcr(scoreboardOcr) {
             : [],
           preprocessingVariantCount: Number(safe.summary.preprocessingVariantCount || 0),
           roiCalibration: normalizeRoiCalibrationSummary(safe.summary.roiCalibration),
+          scorebugDebug: normalizeScorebugDebugSummary(safe.summary.scorebugDebug),
           qaReport: normalizeQaReportSummary(safe.summary.qaReport),
           scoreTimeline: Array.isArray(safe.summary.scoreTimeline)
             ? safe.summary.scoreTimeline.map((item) => ({

@@ -1826,6 +1826,38 @@ test("youtube live local e2e failure report keeps safe valid-goal discovery coun
             cropCount: 2,
             attemptCount: 4,
           },
+          scorebugDebug: {
+            attemptedRoiCount: 2,
+            attemptedObservationCount: 4,
+            textPresentObservationCount: 4,
+            readableObservationCount: 0,
+            state: "scorebug_unreadable",
+            nextAction: "enable-scoreboard-ocr-qa-artifacts-and-inspect-crops-for-wrong-roi-or-small-scorebug",
+            qaRecommended: true,
+            reasonCodes: ["score_not_readable", "no_stable_score_change", "roi_timeline_selected"],
+            selectedRoi: {
+              regionId: "scorebug_left_compact",
+              layoutId: "broadcast-compact-score-only-v1",
+              observationCount: 4,
+              readableCount: 0,
+              readableObservationCount: 0,
+              scoreChangeCount: 0,
+              revertedCount: 0,
+              unchangedCount: 0,
+              ambiguousCount: 0,
+              diagnosis: "scorebug_unreadable",
+              reasonCodes: ["score_not_readable", "no_stable_score_change"],
+            },
+            rejectedRois: [{
+              regionId: "broadcast_top_band",
+              layoutId: null,
+              observationCount: 2,
+              readableObservationCount: 0,
+              scoreChangeCount: 0,
+              diagnosis: "scorebug_unreadable",
+              reasonCodes: ["lower_roi_score_than_selected", "score_not_readable"],
+            }],
+          },
           scoreTimeline: [{
             timestamp: 24.5,
             status: "score_unchanged",
@@ -1890,6 +1922,38 @@ test("youtube live local e2e failure report keeps safe valid-goal discovery coun
   assert.equal(report.status, "failed");
   const ocrEvent = report.serverEvents.find((item) => item.event === "scoreboard_ocr_completed");
   assert.ok(ocrEvent);
+  const expectedScorebugDebug = {
+    attemptedRoiCount: 2,
+    attemptedObservationCount: 4,
+    textPresentObservationCount: 4,
+    readableObservationCount: 0,
+    state: "scorebug_unreadable",
+    nextAction: "enable-scoreboard-ocr-qa-artifacts-and-inspect-crops-for-wrong-roi-or-small-scorebug",
+    qaRecommended: true,
+    reasonCodes: ["score_not_readable", "no_stable_score_change", "roi_timeline_selected"],
+    selectedRoi: {
+      regionId: "scorebug_left_compact",
+      layoutId: "broadcast-compact-score-only-v1",
+      observationCount: 4,
+      readableCount: 0,
+      readableObservationCount: 0,
+      scoreChangeCount: 0,
+      revertedCount: 0,
+      unchangedCount: 0,
+      ambiguousCount: 0,
+      diagnosis: "scorebug_unreadable",
+      reasonCodes: ["score_not_readable", "no_stable_score_change"],
+    },
+    rejectedRois: [{
+      regionId: "broadcast_top_band",
+      layoutId: null,
+      observationCount: 2,
+      readableObservationCount: 0,
+      scoreChangeCount: 0,
+      diagnosis: "scorebug_unreadable",
+      reasonCodes: ["lower_roi_score_than_selected", "score_not_readable"],
+    }],
+  };
   assert.deepEqual(ocrEvent.scoreboardOcr, {
     providerMode: "mock-scoreboard-ocr",
     fallbackUsed: true,
@@ -1912,6 +1976,7 @@ test("youtube live local e2e failure report keeps safe valid-goal discovery coun
       cropCount: 2,
       attemptCount: 4,
     },
+    scorebugDebug: expectedScorebugDebug,
     scoreTimeline: [{
       timestamp: 24.5,
       status: "score_unchanged",
@@ -1961,6 +2026,7 @@ test("youtube live local e2e failure report keeps safe valid-goal discovery coun
   assert.equal(report.outputProof.scoreChangeCount, 0);
   assert.equal(report.outputProof.stableScoreChangeCount, 0);
   assert.equal(report.outputProof.countedGoalEventCount, 0);
+  assert.deepEqual(report.outputProof.scorebugDebug, expectedScorebugDebug);
   assert.deepEqual(report.outputProof.missingEvidenceByCandidate, [{
     index: 1,
     id: "non_goal_chance_1",

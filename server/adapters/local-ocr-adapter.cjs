@@ -294,6 +294,20 @@ function timelineStats(timeline = []) {
   };
 }
 
+function observationStats(observations = []) {
+  const safe = Array.isArray(observations) ? observations : [];
+  return {
+    observationCount: safe.length,
+    textPresentCount: safe.filter((item) => item.textPresent).length,
+    readableCount: safe.filter((item) => item.score).length,
+    rejectedCount: safe.filter((item) => item.rejected).length,
+    clockOnlyCount: safe.filter((item) => item.clock && !item.score).length,
+    averageConfidence: safe.length
+      ? round(safe.reduce((sum, item) => sum + Number(item.confidence || 0), 0) / safe.length)
+      : 0,
+  };
+}
+
 function regionPreference(regionId = "") {
   const safe = sanitizeText(regionId || "", 80);
   if (/^scorebug_broadcast_compact$/.test(safe)) return 18;
@@ -301,6 +315,40 @@ function regionPreference(regionId = "") {
   if (/^scoreboard_top_/.test(safe)) return 4;
   if (/broadcast_top_band/.test(safe)) return -6;
   return 0;
+}
+
+function scorebugDiagnosisForCandidate(candidate = {}) {
+  const stats = candidate.stats || timelineStats(candidate.timeline);
+  const observations = candidate.observationStats || observationStats(candidate.observations);
+  if (!observations.observationCount && !stats.observationCount) return "scorebug_missing";
+  if (observations.readableCount === 0 && stats.readableCount === 0) {
+    if (observations.textPresentCount > 0 || observations.clockOnlyCount > 0) return "scorebug_unreadable";
+    return "scorebug_missing";
+  }
+  if (stats.scoreChangeCount > 0) return "score_changes_detected";
+  if (stats.revertedCount > 0) return "score_revert_detected";
+  if (stats.ambiguousCount > 0 && stats.unchangedCount === 0) return "scorebug_ambiguous";
+  if (stats.unchangedCount > 0 || stats.readableCount > 0) return "scorebug_static";
+  return "scorebug_unreadable";
+}
+
+function reasonCodesForCandidate(candidate = {}, selected = null) {
+  const stats = candidate.stats || timelineStats(candidate.timeline);
+  const observations = candidate.observationStats || observationStats(candidate.observations);
+  const reasons = [];
+  if (selected && candidate.key !== selected.key && Number(candidate.score || 0) < Number(selected.score || 0)) {
+    reasons.push("lower_roi_score_than_selected");
+  }
+  if (!observations.observationCount && !stats.observationCount) reasons.push("no_roi_observations");
+  if (!observations.textPresentCount && !stats.readableCount) reasons.push("no_text_detected");
+  if (!observations.readableCount && !stats.readableCount && observations.textPresentCount) reasons.push("score_not_readable");
+  if (stats.scoreChangeCount === 0) reasons.push("no_stable_score_change");
+  if (stats.unchangedCount > 0 && stats.scoreChangeCount === 0) reasons.push("static_score_timeline");
+  if (stats.ambiguousCount > 0) reasons.push("ambiguous_score_timeline");
+  if (stats.revertedCount > 0) reasons.push("score_revert_detected");
+  if (/broadcast_top_band/.test(candidate.regionId || "")) reasons.push("broad_top_band_demoted");
+  if (/^scorebug_/.test(candidate.regionId || "") && stats.readableCount > 0) reasons.push("scorebug_region_readable");
+  return [...new Set(reasons)].slice(0, 8);
 }
 
 function scoreRoiTimeline(candidate = {}) {
@@ -322,20 +370,79 @@ function scoreRoiTimeline(candidate = {}) {
 
 function candidateSummary(candidate = {}, selected = false) {
   const stats = candidate.stats || timelineStats(candidate.timeline);
+  const observations = candidate.observationStats || observationStats(candidate.observations);
   return {
     regionId: sanitizeText(candidate.regionId || "scoreboard_region", 80),
     layoutId: candidate.layoutId ? sanitizeText(candidate.layoutId, 80) : null,
     selected: Boolean(selected),
     score: round(candidate.score),
-    observationCount: stats.observationCount,
+    observationCount: observations.observationCount || stats.observationCount,
+    textPresentCount: observations.textPresentCount,
     readableCount: stats.readableCount,
+    readableObservationCount: observations.readableCount,
+    rejectedObservationCount: observations.rejectedCount,
+    clockOnlyObservationCount: observations.clockOnlyCount,
     scoreChangeCount: stats.scoreChangeCount,
     revertedCount: stats.revertedCount,
     unchangedCount: stats.unchangedCount,
     ambiguousCount: stats.ambiguousCount,
     firstTimestamp: stats.firstTimestamp,
     lastTimestamp: stats.lastTimestamp,
-    averageConfidence: stats.averageConfidence,
+    averageConfidence: Math.max(stats.averageConfidence, observations.averageConfidence),
+    diagnosis: scorebugDiagnosisForCandidate(candidate),
+    reasonCodes: reasonCodesForCandidate(candidate),
+    nextAction: nextActionForDiagnosis(scorebugDiagnosisForCandidate(candidate)),
+  };
+}
+
+function nextActionForDiagnosis(diagnosis = "") {
+  switch (diagnosis) {
+    case "score_changes_detected":
+      return "connect-stable-score-changes-to-valid-goal-windows";
+    case "score_revert_detected":
+      return "map-score-reverts-to-disallowed-goal-candidates";
+    case "scorebug_static":
+      return "inspect-sampling-windows-around-goal-times-or-expand-scorebug-temporal-coverage";
+    case "scorebug_ambiguous":
+      return "inspect-scorebug-qa-contact-sheet-and-tune-roi-or-preprocessing";
+    case "scorebug_unreadable":
+      return "enable-scoreboard-ocr-qa-artifacts-and-inspect-crops-for-wrong-roi-or-small-scorebug";
+    case "scorebug_missing":
+      return "expand-scorebug-roi-candidates-or-confirm-scorebug-location";
+    default:
+      return "inspect-scorebug-debug-summary";
+  }
+}
+
+function buildScorebugDebugSummary({ selected, candidates = [], globalCandidate = null, observations = [] } = {}) {
+  const selectedDiagnosis = scorebugDiagnosisForCandidate(selected || {});
+  const selectedSummary = selected ? {
+    ...candidateSummary(selected, true),
+    reasonCodes: reasonCodesForCandidate(selected, selected),
+  } : null;
+  const rejectedRois = candidates
+    .filter((candidate) => !selected || candidate.key !== selected.key)
+    .slice(0, MAX_ROI_CANDIDATES)
+    .map((candidate) => ({
+      ...candidateSummary(candidate, false),
+      reasonCodes: reasonCodesForCandidate(candidate, selected),
+    }));
+  const observationSummary = observationStats(observations);
+  return {
+    attemptedRoiCount: candidates.length,
+    attemptedObservationCount: observationSummary.observationCount,
+    textPresentObservationCount: observationSummary.textPresentCount,
+    readableObservationCount: observationSummary.readableCount,
+    selectedRoi: selectedSummary,
+    rejectedRois,
+    globalFallbackCandidate: globalCandidate ? candidateSummary(globalCandidate, false) : null,
+    state: selectedDiagnosis,
+    nextAction: nextActionForDiagnosis(selectedDiagnosis),
+    qaRecommended: ["scorebug_missing", "scorebug_unreadable", "scorebug_ambiguous", "scorebug_static"].includes(selectedDiagnosis),
+    reasonCodes: [
+      ...(selectedSummary && Array.isArray(selectedSummary.reasonCodes) ? selectedSummary.reasonCodes : []),
+      ...(selected && selected.key === "global::mixed" ? ["mixed_timestamp_timeline_selected"] : ["roi_timeline_selected"]),
+    ].slice(0, 10),
   };
 }
 
@@ -372,6 +479,7 @@ function buildScoreboardTimelineFromObservations(observations = []) {
         ...group,
         timeline,
         stats: timelineStats(timeline),
+        observationStats: observationStats(group.observations),
       };
       return {
         ...candidate,
@@ -387,6 +495,8 @@ function buildScoreboardTimelineFromObservations(observations = []) {
     layoutId: null,
     timeline: globalTimeline,
     stats: globalStats,
+    observations: safeObservations,
+    observationStats: observationStats(safeObservations),
     score: scoreRoiTimeline({
       regionId: "mixed_best_by_timestamp",
       timeline: globalTimeline,
@@ -398,18 +508,31 @@ function buildScoreboardTimelineFromObservations(observations = []) {
     : globalCandidate;
   return {
     evidence: timelineToEvidence(selected.timeline),
+    scorebugDebug: buildScorebugDebugSummary({
+      selected,
+      candidates,
+      globalCandidate,
+      observations: safeObservations,
+    }),
     roiCalibration: {
-      selectedRoi: candidateSummary(selected, true),
+      selectedRoi: {
+        ...candidateSummary(selected, true),
+        reasonCodes: reasonCodesForCandidate(selected, selected),
+      },
       candidateCount: candidates.length,
       rejectedRois: candidates
         .filter((candidate) => candidate.key !== selected.key)
         .slice(0, MAX_ROI_CANDIDATES)
-        .map((candidate) => candidateSummary(candidate, false)),
+        .map((candidate) => ({
+          ...candidateSummary(candidate, false),
+          reasonCodes: reasonCodesForCandidate(candidate, selected),
+        })),
       globalFallback: selected.key === "global::mixed",
       reasonCodes: [
         selected.key === "global::mixed" ? "mixed_timestamp_timeline_selected" : "scorebug_roi_timeline_selected",
         ...(selected.stats.scoreChangeCount ? ["stable_score_change_detected"] : []),
         ...(selected.stats.revertedCount ? ["score_revert_detected"] : []),
+        ...reasonCodesForCandidate(selected, selected),
       ],
     },
   };

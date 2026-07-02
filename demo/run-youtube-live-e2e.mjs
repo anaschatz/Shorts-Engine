@@ -211,6 +211,44 @@ function safeScoreboardOcrEvent(value = {}) {
     regionIdsUsed: safeStringList(value.regionIdsUsed, 8, 80),
     preprocessingVariantCount: safeNumber(value.preprocessingVariantCount),
     qaReport: safeQaReport,
+    scorebugDebug: value.scorebugDebug && typeof value.scorebugDebug === "object" && !Array.isArray(value.scorebugDebug)
+      ? {
+          attemptedRoiCount: safeNumber(value.scorebugDebug.attemptedRoiCount),
+          attemptedObservationCount: safeNumber(value.scorebugDebug.attemptedObservationCount),
+          textPresentObservationCount: safeNumber(value.scorebugDebug.textPresentObservationCount),
+          readableObservationCount: safeNumber(value.scorebugDebug.readableObservationCount),
+          state: safeString(value.scorebugDebug.state, 80),
+          nextAction: safeString(value.scorebugDebug.nextAction, 180),
+          qaRecommended: safeBoolean(value.scorebugDebug.qaRecommended),
+          reasonCodes: safeStringList(value.scorebugDebug.reasonCodes, 10, 80),
+          selectedRoi: value.scorebugDebug.selectedRoi && typeof value.scorebugDebug.selectedRoi === "object"
+            ? {
+                regionId: safeString(value.scorebugDebug.selectedRoi.regionId, 80),
+                layoutId: value.scorebugDebug.selectedRoi.layoutId ? safeString(value.scorebugDebug.selectedRoi.layoutId, 80) : null,
+                observationCount: safeNumber(value.scorebugDebug.selectedRoi.observationCount),
+                readableCount: safeNumber(value.scorebugDebug.selectedRoi.readableCount),
+                readableObservationCount: safeNumber(value.scorebugDebug.selectedRoi.readableObservationCount),
+                scoreChangeCount: safeNumber(value.scorebugDebug.selectedRoi.scoreChangeCount),
+                revertedCount: safeNumber(value.scorebugDebug.selectedRoi.revertedCount),
+                unchangedCount: safeNumber(value.scorebugDebug.selectedRoi.unchangedCount),
+                ambiguousCount: safeNumber(value.scorebugDebug.selectedRoi.ambiguousCount),
+                diagnosis: safeString(value.scorebugDebug.selectedRoi.diagnosis, 80),
+                reasonCodes: safeStringList(value.scorebugDebug.selectedRoi.reasonCodes, 8, 80),
+              }
+            : null,
+          rejectedRois: Array.isArray(value.scorebugDebug.rejectedRois)
+            ? value.scorebugDebug.rejectedRois.slice(0, 8).map((roi) => ({
+                regionId: safeString(roi && roi.regionId, 80),
+                layoutId: roi && roi.layoutId ? safeString(roi.layoutId, 80) : null,
+                observationCount: safeNumber(roi && roi.observationCount),
+                readableObservationCount: safeNumber(roi && roi.readableObservationCount),
+                scoreChangeCount: safeNumber(roi && roi.scoreChangeCount),
+                diagnosis: safeString(roi && roi.diagnosis, 80),
+                reasonCodes: safeStringList(roi && roi.reasonCodes, 8, 80),
+              }))
+            : [],
+        }
+      : null,
     scoreTimeline: Array.isArray(value.scoreTimeline)
       ? value.scoreTimeline.map((item) => ({
           timestamp: safeNumber(item && item.timestamp),
@@ -1106,6 +1144,7 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
     scoreboardOcrAttempted,
     scoreboardOcrEnabled,
     scoreboardOcrProviderMode: discovery?.scoreboardOcrProviderMode || scoreboardOcr?.providerMode || null,
+    scorebugDebug: scoreboardOcr?.scorebugDebug || null,
     scoreboardObservationCount,
     scoreboardSampledFrameCount: safeNumber(discovery && discovery.scoreboardSampledFrameCount) ??
       safeNumber(scoreboardOcr && scoreboardOcr.sampledFrameCount) ??
@@ -1557,6 +1596,9 @@ function startServer(port, env) {
             unreadableCount: safeNumber(parsed.unreadableCount),
             regionIdsUsed: safeStringList(parsed.regionIdsUsed, 8, 80),
             preprocessingVariantCount: safeNumber(parsed.preprocessingVariantCount),
+            scorebugDebug: parsed.scorebugDebug && typeof parsed.scorebugDebug === "object"
+              ? safeScoreboardOcrEvent({ scorebugDebug: parsed.scorebugDebug }).scorebugDebug
+              : null,
             qaReport: parsed.qaReport && typeof parsed.qaReport === "object"
               ? {
                   enabled: safeBoolean(parsed.qaReport.enabled),

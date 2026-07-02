@@ -299,10 +299,58 @@ test("scoreboard OCR calibrates the best ROI timeline instead of mixing noisy re
 
   assert.equal(timeline.roiCalibration.selectedRoi.regionId, "scorebug_broadcast_compact");
   assert.equal(timeline.roiCalibration.selectedRoi.scoreChangeCount, 2);
+  assert.equal(timeline.roiCalibration.selectedRoi.diagnosis, "score_changes_detected");
+  assert.equal(timeline.roiCalibration.selectedRoi.reasonCodes.includes("scorebug_region_readable"), true);
   assert.equal(timeline.evidence.filter((item) => item.status === "score_changed").length, 2);
   assert.equal(timeline.evidence.some((item) => item.scoreAfter === "2-0" && item.timestamp >= 532), true);
   assert.equal(timeline.roiCalibration.rejectedRois.some((roi) => roi.regionId === "broadcast_top_band"), true);
+  assert.equal(timeline.roiCalibration.rejectedRois.some((roi) =>
+    roi.regionId === "broadcast_top_band" &&
+    roi.reasonCodes.includes("broad_top_band_demoted")), true);
+  assert.equal(timeline.scorebugDebug.state, "score_changes_detected");
+  assert.equal(timeline.scorebugDebug.qaRecommended, false);
+  assert.equal(timeline.scorebugDebug.attemptedRoiCount, 2);
+  assert.equal(timeline.scorebugDebug.selectedRoi.regionId, "scorebug_broadcast_compact");
+  assert.equal(timeline.scorebugDebug.rejectedRois.some((roi) => roi.regionId === "broadcast_top_band"), true);
   assert.doesNotMatch(JSON.stringify(timeline.roiCalibration), /\/Users|\/private|token|secret|rawOcr|rawText|stderr|stdout/i);
+  assert.doesNotMatch(JSON.stringify(timeline.scorebugDebug), /\/Users|\/private|token|secret|rawOcr|rawText|stderr|stdout/i);
+});
+
+test("scorebug debug distinguishes static and unreadable OCR timelines safely", () => {
+  const staticTimeline = buildScoreboardTimelineFromObservations([
+    { timestamp: 10, regionId: "scorebug_broadcast_compact", text: "HOME 0-0 AWAY", confidence: 0.8 },
+    { timestamp: 24, regionId: "scorebug_broadcast_compact", text: "HOME 0-0 AWAY", confidence: 0.8 },
+    { timestamp: 38, regionId: "scorebug_broadcast_compact", text: "HOME 0-0 AWAY", confidence: 0.8 },
+  ]);
+
+  assert.equal(staticTimeline.scorebugDebug.state, "scorebug_static");
+  assert.equal(staticTimeline.scorebugDebug.qaRecommended, true);
+  assert.equal(staticTimeline.scorebugDebug.selectedRoi.diagnosis, "scorebug_static");
+  assert.equal(staticTimeline.scorebugDebug.reasonCodes.includes("static_score_timeline"), true);
+  assert.equal(
+    staticTimeline.scorebugDebug.nextAction,
+    "inspect-sampling-windows-around-goal-times-or-expand-scorebug-temporal-coverage",
+  );
+
+  const unreadableTimeline = buildScoreboardTimelineFromObservations([
+    { timestamp: 10, regionId: "scorebug_broadcast_compact", text: "45:00 ARG ALG", confidence: 0.8 },
+    { timestamp: 24, regionId: "scorebug_broadcast_compact", text: "46:00 ARG ALG", confidence: 0.8 },
+  ]);
+
+  assert.equal(unreadableTimeline.scorebugDebug.state, "scorebug_unreadable");
+  assert.equal(unreadableTimeline.scorebugDebug.qaRecommended, true);
+  assert.equal(unreadableTimeline.scorebugDebug.readableObservationCount, 0);
+  assert.equal(unreadableTimeline.scorebugDebug.textPresentObservationCount, 2);
+  assert.equal(unreadableTimeline.scorebugDebug.reasonCodes.includes("score_not_readable"), true);
+  assert.equal(
+    unreadableTimeline.scorebugDebug.nextAction,
+    "enable-scoreboard-ocr-qa-artifacts-and-inspect-crops-for-wrong-roi-or-small-scorebug",
+  );
+
+  assert.doesNotMatch(
+    JSON.stringify({ staticTimeline, unreadableTimeline }),
+    /\/Users|\/private|token|secret|rawOcr|rawText|stderr|stdout/i,
+  );
 });
 
 test("scoreboard reader contract normalizes candidates and requires stable score changes", () => {
@@ -401,6 +449,9 @@ test("local scoreboard OCR reads cropped frame text into score-change evidence",
     assert.equal(result.summary.preprocessingVariantCount, 4);
     assert.equal(result.summary.regionIdsUsed.length >= 1, true);
     assert.equal(result.summary.scoreTimeline.some((item) => item.status === "score_changed"), true);
+    assert.equal(result.summary.scorebugDebug.state, "score_changes_detected");
+    assert.equal(result.summary.scorebugDebug.selectedRoi.scoreChangeCount, 1);
+    assert.equal(publicScoreboardOcr(result).summary.scorebugDebug.state, "score_changes_detected");
     assert.doesNotMatch(JSON.stringify(publicScoreboardOcr(result)), /\/Users|storageKey|localPath|token|secret|stdout|stderr|raw/i);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -815,6 +866,9 @@ test("local scoreboard OCR writes opt-in crop QA report with safe relative refs"
     assert.equal(report.relativeRefsOnly, true);
     assert.equal(report.review.relativePath, result.qaReport.reviewPath);
     assert.equal(report.cropArtifacts.cropCount, result.qaReport.cropCount);
+    assert.equal(report.evidenceSummary.scorebugDebug.state, "score_changes_detected");
+    assert.equal(report.evidenceSummary.scorebugDebug.selectedRoi.scoreChangeCount, 1);
+    assert.equal(report.evidenceSummary.scorebugDebug.qaRecommended, false);
     assert.equal(report.ocrAttempts.some((attempt) => attempt.ocrText), true);
     assert.doesNotMatch(JSON.stringify(report), /\/Users|\/private|storageKey|localPath|token|secret|stdout|stderr/i);
     assert.doesNotMatch(readFileSync(reviewPath, "utf8"), /\/Users|\/private|storageKey|localPath|token|secret|stdout|stderr/i);
