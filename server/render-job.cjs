@@ -18,6 +18,9 @@ const { analyzeFrames, publicVisualSignals, validateVisualSignals } = require(".
 const { analyzeVisualTracking, publicVisualTrackingSummary } = require("./visual-tracking.cjs");
 const { isLocalVideoProofSource } = require("./staging-smoke-metadata.cjs");
 
+const SCOREBUG_FIRST_OCR_BUDGET_MS = 45_000;
+const VISUAL_WINDOW_OCR_BUDGET_MS = 30_000;
+
 function isRegularFile(filePath) {
   try {
     return statSync(filePath).isFile();
@@ -74,6 +77,15 @@ function nowIso() {
 function safeNumber(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function ocrStepBudgetMs(deps, key, fallback) {
+  const budgets = deps && deps.scoreboardOcrTimeouts && typeof deps.scoreboardOcrTimeouts === "object"
+    ? deps.scoreboardOcrTimeouts
+    : {};
+  const value = Number(budgets[key]);
+  if (!Number.isFinite(value) || value <= 0) return fallback;
+  return Math.max(250, Math.min(fallback, value));
 }
 
 function safeReasonList(values = [], max = 8) {
@@ -473,6 +485,39 @@ function visualCandidateWindowsFromSignals(mediaSignals = {}) {
   return selectCandidateWindowCoverage(windows, duration);
 }
 
+function scoreChangeCandidateWindowsFromOcr(scoreboardOcr = {}, metadata = {}) {
+  const evidence = Array.isArray(scoreboardOcr && scoreboardOcr.evidence) ? scoreboardOcr.evidence : [];
+  const timeline = scoreboardOcr && scoreboardOcr.summary && Array.isArray(scoreboardOcr.summary.scoreTimeline)
+    ? scoreboardOcr.summary.scoreTimeline
+    : [];
+  const windows = [];
+  const push = (item = {}, index = 0) => {
+    const timestamp = Number(item.timestamp ?? item.time ?? item.confirmedAt);
+    if (!Number.isFinite(timestamp) || timestamp < 0) return;
+    const scoreChanged = Boolean(item.scoreChanged || item.status === "score_changed");
+    const temporalConsistency = item.temporalConsistency !== false;
+    const scoreReverted = Boolean(item.scoreReverted || item.reverted || item.status === "goal_removed");
+    if (!scoreChanged || !temporalConsistency || scoreReverted) return;
+    windows.push({
+      time: timestamp,
+      confidence: Math.max(0.82, Math.min(0.98, Number(item.confidence || 0.86))),
+      source: "scorebug_first_score_change",
+      visualHints: ["scoreboard_goal_confirmed", "shot_like_motion", "goal_mouth_visible"],
+      scoreBefore: item.scoreBefore || null,
+      scoreAfter: item.scoreAfter || null,
+      index: index + 1,
+    });
+  };
+  evidence.forEach(push);
+  if (!windows.length) timeline.forEach(push);
+  return selectCandidateWindowCoverage(windows, Number(metadata.durationSeconds || 0), 12);
+}
+
+function mergeCandidateWindows(primary = [], secondary = [], metadata = {}, maxWindows = 24) {
+  const merged = [...(Array.isArray(primary) ? primary : []), ...(Array.isArray(secondary) ? secondary : [])];
+  return selectCandidateWindowCoverage(merged, Number(metadata.durationSeconds || 0), maxWindows);
+}
+
 function validateHighlightResult(result, metadata = {}) {
   if (!result || typeof result !== "object" || !Array.isArray(result.moments) || result.moments.length === 0) {
     throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
@@ -510,16 +555,84 @@ function publicMediaSignals(mediaSignals) {
   };
 }
 
-function updateJobStep({ jobs, job, projectId, requestId, logger, progress, step }) {
-  jobs.update(job, { status: "processing", progress, step });
+function phaseForPipelineStep(step = "") {
+  const safe = sanitizeText(step, 80);
+  if (["extract_audio", "analyze_media", "extract_sampled_frames", "extract_scorebug_frames", "run_scorebug_ocr", "analyze_visuals", "analyze_visual_tracking", "transcribe", "analyze_goal_evidence", "detect_highlights"].includes(safe)) return "analysis";
+  if (["plan_story", "create_edit_plan", "video_output_qa_failed", "approved_edit_plan"].includes(safe)) return "planning";
+  if (["render_kinetic_captions", "render_beat_effects", "render_short", "commit_render"].includes(safe)) return "render";
+  if (safe === "completed") return "completed";
+  return "orchestration";
+}
+
+function updateJobStep({
+  jobs,
+  job,
+  projectId,
+  requestId,
+  logger,
+  progress,
+  step,
+  substep = null,
+  longSource = false,
+  scorebugFirst = false,
+  budgetMs = null,
+}) {
+  const startedAt = nowIso();
+  const progressMeta = {
+    phase: phaseForPipelineStep(step),
+    step: sanitizeText(step, 80),
+    substep: substep ? sanitizeText(substep, 80) : null,
+    startedAt,
+    longSource: Boolean(longSource),
+    scorebugFirst: Boolean(scorebugFirst),
+    budgetMs: Number.isFinite(Number(budgetMs)) ? Number(budgetMs) : null,
+  };
+  jobs.update(job, { status: "processing", progress, step, progressMeta });
   logInfo(logger, {
     event: "job_step",
     requestId,
     projectId,
     jobId: job.id,
     step,
+    substep: progressMeta.substep,
     progress: job.progress,
+    progressMeta,
   });
+}
+
+async function runStepWithTimeout(work, {
+  signal,
+  timeoutMs,
+  code,
+  message = SAFE_MESSAGES.ANALYSIS_FAILED,
+  details = {},
+} = {}) {
+  const budget = Number(timeoutMs);
+  if (!Number.isFinite(budget) || budget <= 0) return await work(signal);
+  if (signal && signal.aborted) {
+    throw new AppError("JOB_CANCELLED", SAFE_MESSAGES.JOB_CANCELLED, 499);
+  }
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  if (signal) signal.addEventListener("abort", onAbort, { once: true });
+  let timeout = null;
+  try {
+    return await Promise.race([
+      work(controller.signal),
+      new Promise((_, reject) => {
+        timeout = setTimeout(() => {
+          controller.abort();
+          reject(new AppError(code, message, 504, {
+            ...details,
+            timeoutMs: budget,
+          }));
+        }, budget);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+    if (signal) signal.removeEventListener("abort", onAbort);
+  }
 }
 
 function completeCancelledJob({ jobs, job, logger, projectId, requestId }) {
@@ -818,6 +931,9 @@ async function runRenderJob(options) {
   let editPlan = null;
   try {
     context = assertPipelineContext({ job, project, upload, payload, deps });
+    const longSourceRuntime = isYouTubeLongSource(context.source, context.metadata);
+    const scorebugFirstOcrBudgetMs = ocrStepBudgetMs(deps, "scorebugFirstMs", SCOREBUG_FIRST_OCR_BUDGET_MS);
+    const visualWindowOcrBudgetMs = ocrStepBudgetMs(deps, "visualWindowMs", VISUAL_WINDOW_OCR_BUDGET_MS);
     indexPipelineStages(deps, context);
 
     if (context.approvedEditPlan) {
@@ -864,12 +980,12 @@ async function runRenderJob(options) {
         aspectRatio: editPlan.aspectRatio,
       });
     } else {
-      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 8, step: "extract_audio" });
+      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 8, step: "extract_audio", substep: "audio_track_stage", longSource: longSourceRuntime });
       if (context.metadata.hasAudio) {
         await deps.extractAudio(context.inputPath, context.audioPath, { signal });
       }
 
-      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 22, step: "analyze_media" });
+      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 22, step: "analyze_media", substep: "media_signal_extraction", longSource: longSourceRuntime });
       mediaSignals = validateMediaSignals(
         await deps.extractMediaSignals({
           inputPath: context.inputPath,
@@ -879,8 +995,95 @@ async function runRenderJob(options) {
         context.metadata,
       );
 
-      const visualCandidateWindows = visualCandidateWindowsFromSignals(mediaSignals);
-      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 30, step: "extract_sampled_frames" });
+      let visualCandidateWindows = visualCandidateWindowsFromSignals(mediaSignals);
+      if (longSourceRuntime) {
+        updateJobStep({
+          jobs,
+          job,
+          projectId: project.id,
+          requestId,
+          logger: deps.logger,
+          progress: 26,
+          step: "extract_scorebug_frames",
+          substep: "full_source_scorebug_sampling",
+          longSource: true,
+          scorebugFirst: true,
+          budgetMs: 60000,
+        });
+        updateJobStep({
+          jobs,
+          job,
+          projectId: project.id,
+          requestId,
+          logger: deps.logger,
+          progress: 28,
+          step: "run_scorebug_ocr",
+          substep: "scorebug_first_stable_change_detection",
+          longSource: true,
+          scorebugFirst: true,
+          budgetMs: scorebugFirstOcrBudgetMs,
+        });
+        scoreboardOcr = await runStepWithTimeout(
+          (stepSignal) => deps.analyzeScoreboardOcr({
+            inputPath: context.inputPath,
+            metadata: context.metadata,
+            candidateWindows: visualCandidateWindows,
+            mediaSignals,
+            visualSignals: { windows: [] },
+            frames: [],
+            frameSummary: null,
+            signal: stepSignal,
+            timeoutMs: Math.min(scorebugFirstOcrBudgetMs, 15_000),
+          }),
+          {
+            signal,
+            timeoutMs: scorebugFirstOcrBudgetMs,
+            code: "SCOREBOARD_OCR_TIMEOUT",
+            details: {
+              phase: "analysis",
+              step: "run_scorebug_ocr",
+              substep: "scorebug_first_stable_change_detection",
+            },
+          },
+        );
+        logInfo(deps.logger, {
+          event: "scoreboard_ocr_completed",
+          requestId,
+          projectId: project.id,
+          jobId: job.id,
+          step: "run_scorebug_ocr",
+          substep: "scorebug_first_stable_change_detection",
+          providerMode: scoreboardOcr.providerMode,
+          fallbackUsed: scoreboardOcr.fallbackUsed,
+          sampledFrameCount: scoreboardOcr.summary && scoreboardOcr.summary.sampledFrameCount,
+          evidenceCount: scoreboardOcr.summary && scoreboardOcr.summary.evidenceCount,
+          scoreChangeCount: scoreboardOcr.summary && scoreboardOcr.summary.scoreChangeCount,
+          scoreRevertedCount: scoreboardOcr.summary && scoreboardOcr.summary.scoreRevertedCount,
+          ambiguousCount: scoreboardOcr.summary && scoreboardOcr.summary.ambiguousCount,
+          unreadableCount: scoreboardOcr.summary && scoreboardOcr.summary.unreadableCount,
+          regionIdsUsed: scoreboardOcr.summary && scoreboardOcr.summary.regionIdsUsed,
+          preprocessingVariantCount: scoreboardOcr.summary && scoreboardOcr.summary.preprocessingVariantCount,
+          qaReport: scoreboardOcr.summary && scoreboardOcr.summary.qaReport,
+          scorebugDebug: scoreboardOcr.summary && scoreboardOcr.summary.scorebugDebug,
+          scoreTimeline: scoreboardOcr.summary && scoreboardOcr.summary.scoreTimeline,
+          scorebugFirst: true,
+        });
+        const scorebugCandidateWindows = scoreChangeCandidateWindowsFromOcr(scoreboardOcr, context.metadata);
+        visualCandidateWindows = mergeCandidateWindows(scorebugCandidateWindows, visualCandidateWindows, context.metadata);
+      }
+
+      updateJobStep({
+        jobs,
+        job,
+        projectId: project.id,
+        requestId,
+        logger: deps.logger,
+        progress: 30,
+        step: "extract_sampled_frames",
+        substep: longSourceRuntime ? "scorebug_anchor_visual_windows" : "visual_candidate_windows",
+        longSource: longSourceRuntime,
+        scorebugFirst: longSourceRuntime,
+      });
       sampledFrames = await deps.extractSampledFrames({
         inputPath: context.inputPath,
         metadata: context.metadata,
@@ -901,7 +1104,7 @@ async function runRenderJob(options) {
         skippedWindows: sampledFrameSummary.summary.skippedWindows,
       });
 
-      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 38, step: "analyze_visuals" });
+      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 38, step: "analyze_visuals", substep: longSourceRuntime ? "scorebug_narrowed_visual_analysis" : "frame_visual_analysis", longSource: longSourceRuntime, scorebugFirst: longSourceRuntime });
       visualSignals = validateVisualSignals(
         await deps.analyzeFrames({
           inputPath: context.inputPath,
@@ -966,37 +1169,66 @@ async function runRenderJob(options) {
         errorCode: trackingProviderOutput.failure && trackingProviderOutput.failure.code,
       });
 
-      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 46, step: "analyze_scoreboard_ocr" });
-      scoreboardOcr = await deps.analyzeScoreboardOcr({
-        inputPath: context.inputPath,
-        metadata: context.metadata,
-        candidateWindows: visualCandidateWindows,
-        mediaSignals,
-        visualSignals,
-        frames: sampledFrames.frames,
-        frameSummary: sampledFrameSummary,
-        signal,
-      });
-      logInfo(deps.logger, {
-        event: "scoreboard_ocr_completed",
-        requestId,
-        projectId: project.id,
-        jobId: job.id,
-        step: "analyze_scoreboard_ocr",
-        providerMode: scoreboardOcr.providerMode,
-        fallbackUsed: scoreboardOcr.fallbackUsed,
-        sampledFrameCount: scoreboardOcr.summary && scoreboardOcr.summary.sampledFrameCount,
-        evidenceCount: scoreboardOcr.summary && scoreboardOcr.summary.evidenceCount,
-        scoreChangeCount: scoreboardOcr.summary && scoreboardOcr.summary.scoreChangeCount,
-        scoreRevertedCount: scoreboardOcr.summary && scoreboardOcr.summary.scoreRevertedCount,
-        ambiguousCount: scoreboardOcr.summary && scoreboardOcr.summary.ambiguousCount,
-        unreadableCount: scoreboardOcr.summary && scoreboardOcr.summary.unreadableCount,
-        regionIdsUsed: scoreboardOcr.summary && scoreboardOcr.summary.regionIdsUsed,
-        preprocessingVariantCount: scoreboardOcr.summary && scoreboardOcr.summary.preprocessingVariantCount,
-        qaReport: scoreboardOcr.summary && scoreboardOcr.summary.qaReport,
-        scorebugDebug: scoreboardOcr.summary && scoreboardOcr.summary.scorebugDebug,
-        scoreTimeline: scoreboardOcr.summary && scoreboardOcr.summary.scoreTimeline,
-      });
+      if (!scoreboardOcr) {
+        updateJobStep({
+          jobs,
+          job,
+          projectId: project.id,
+          requestId,
+          logger: deps.logger,
+          progress: 46,
+          step: "analyze_scoreboard_ocr",
+          substep: "visual_window_scoreboard_ocr",
+          longSource: longSourceRuntime,
+          scorebugFirst: false,
+          budgetMs: visualWindowOcrBudgetMs,
+        });
+        scoreboardOcr = await runStepWithTimeout(
+          (stepSignal) => deps.analyzeScoreboardOcr({
+            inputPath: context.inputPath,
+            metadata: context.metadata,
+            candidateWindows: visualCandidateWindows,
+            mediaSignals,
+            visualSignals,
+          frames: sampledFrames.frames,
+          frameSummary: sampledFrameSummary,
+          signal: stepSignal,
+          timeoutMs: visualWindowOcrBudgetMs,
+        }),
+        {
+          signal,
+          timeoutMs: visualWindowOcrBudgetMs,
+          code: "SCOREBOARD_OCR_TIMEOUT",
+            details: {
+              phase: "analysis",
+              step: "analyze_scoreboard_ocr",
+              substep: "visual_window_scoreboard_ocr",
+            },
+          },
+        );
+        logInfo(deps.logger, {
+          event: "scoreboard_ocr_completed",
+          requestId,
+          projectId: project.id,
+          jobId: job.id,
+          step: "analyze_scoreboard_ocr",
+          substep: "visual_window_scoreboard_ocr",
+          providerMode: scoreboardOcr.providerMode,
+          fallbackUsed: scoreboardOcr.fallbackUsed,
+          sampledFrameCount: scoreboardOcr.summary && scoreboardOcr.summary.sampledFrameCount,
+          evidenceCount: scoreboardOcr.summary && scoreboardOcr.summary.evidenceCount,
+          scoreChangeCount: scoreboardOcr.summary && scoreboardOcr.summary.scoreChangeCount,
+          scoreRevertedCount: scoreboardOcr.summary && scoreboardOcr.summary.scoreRevertedCount,
+          ambiguousCount: scoreboardOcr.summary && scoreboardOcr.summary.ambiguousCount,
+          unreadableCount: scoreboardOcr.summary && scoreboardOcr.summary.unreadableCount,
+          regionIdsUsed: scoreboardOcr.summary && scoreboardOcr.summary.regionIdsUsed,
+          preprocessingVariantCount: scoreboardOcr.summary && scoreboardOcr.summary.preprocessingVariantCount,
+          qaReport: scoreboardOcr.summary && scoreboardOcr.summary.qaReport,
+          scorebugDebug: scoreboardOcr.summary && scoreboardOcr.summary.scorebugDebug,
+          scoreTimeline: scoreboardOcr.summary && scoreboardOcr.summary.scoreTimeline,
+          scorebugFirst: false,
+        });
+      }
       const ocrQaCalibrationOptions = ocrQaCalibrationOptionsFromEnv();
       ocrQaCalibration = publicOcrQaCalibration(deps.loadOcrQaCalibration(ocrQaCalibrationOptions));
       logInfo(deps.logger, {
@@ -1015,7 +1247,7 @@ async function runRenderJob(options) {
         reportRefConfigured: Boolean(ocrQaCalibrationOptions.reportRef),
       });
 
-      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 50, step: "transcribe" });
+      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 50, step: "transcribe", substep: "transcription_provider", longSource: longSourceRuntime, scorebugFirst: longSourceRuntime });
       const provider = deps.chooseTranscriptionProvider({ forceMock: !context.metadata.hasAudio });
       transcript = validateTranscript(
         await provider.transcribe({
@@ -1028,7 +1260,7 @@ async function runRenderJob(options) {
         context.metadata,
       );
 
-      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 56, step: "analyze_goal_evidence" });
+      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 56, step: "analyze_goal_evidence", substep: "build_goal_anchors", longSource: longSourceRuntime, scorebugFirst: longSourceRuntime });
       goalEvidence = await deps.analyzeGoalEvidence({
         inputPath: context.inputPath,
         metadata: context.metadata,
@@ -1108,7 +1340,7 @@ async function runRenderJob(options) {
         ocrQaSupportLevel: goalEvidence.summary && goalEvidence.summary.ocrQaSupportLevel,
       });
 
-      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 58, step: "detect_highlights" });
+      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 58, step: "detect_highlights", substep: "recover_goal_phases", longSource: longSourceRuntime, scorebugFirst: longSourceRuntime });
       highlightResult = validateHighlightResult(
         deps.detectHighlights({
           transcript,
@@ -1122,9 +1354,9 @@ async function runRenderJob(options) {
         context.metadata,
       );
 
-      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 66, step: "plan_story" });
+      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 66, step: "plan_story", substep: "football_story_planning", longSource: longSourceRuntime, scorebugFirst: longSourceRuntime });
 
-      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 72, step: "create_edit_plan" });
+      updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 72, step: "create_edit_plan", substep: "build_edit_plan", longSource: longSourceRuntime, scorebugFirst: longSourceRuntime });
       candidatePlans = deps.createCandidateEditPlans({
         moments: highlightResult.moments,
         metadata: {
@@ -1320,9 +1552,9 @@ async function runRenderJob(options) {
       visualTrackingConfidence: visualTracking && visualTracking.trackingConfidence,
     });
 
-    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 78, step: "render_kinetic_captions" });
-    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 82, step: "render_beat_effects" });
-    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 86, step: "render_short" });
+    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 78, step: "render_kinetic_captions", substep: "caption_animation_plan" });
+    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 82, step: "render_beat_effects", substep: "effect_timeline_plan" });
+    updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 86, step: "render_short", substep: "ffmpeg_render" });
     await deps.renderShort({
       inputPath: context.inputPath,
       outputPath: context.outputPath,
@@ -1398,6 +1630,15 @@ async function runRenderJob(options) {
       sampledFrames: sampledFrameSummary,
       videoOutputQA,
       step: "completed",
+      progressMeta: {
+        phase: "completed",
+        step: "completed",
+        substep: null,
+        startedAt: nowIso(),
+        longSource: Boolean(longSourceRuntime),
+        scorebugFirst: Boolean(longSourceRuntime),
+        budgetMs: null,
+      },
     });
     updateApprovalAudit({
       deps,

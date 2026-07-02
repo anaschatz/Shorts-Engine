@@ -364,6 +364,142 @@ test("youtube smoke validates bounded per-request timeout before network work", 
   assert.equal(findSensitiveLeak(report), null);
 });
 
+test("youtube smoke request timeout reports exact ingest phase and step", async () => {
+  const { fetchImpl } = createFetchMock({
+    "POST /api/youtube/ingest": ({ options }) => new Promise((resolve, reject) => {
+      options.signal.addEventListener("abort", () => {
+        const error = new Error("aborted");
+        error.name = "AbortError";
+        reject(error);
+      });
+    }),
+  });
+  const report = await runYouTubeSmoke({
+    env: smokeEnv({ SHORTSENGINE_YOUTUBE_SMOKE_REQUEST_TIMEOUT_MS: "1000" }),
+    fetchImpl,
+  });
+  assert.equal(report.status, "failed");
+  assert.equal(report.failedCases[0].code, "YOUTUBE_SMOKE_INGEST_TIMEOUT");
+  assert.equal(report.failedCases[0].phase, "ingest");
+  assert.equal(report.failedCases[0].step, "download_source");
+  assert.equal(report.failedCases[0].substep, "youtube_downloader");
+  assert.equal(report.failedCases[0].timeoutMs, 1000);
+  assert.equal(report.failedCases[0].elapsedMs >= 900, true);
+  assert.match(report.failedCases[0].nextAction, /ingest-request-timeout/);
+  assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube smoke ingest API failures report downloader phase details", async () => {
+  const { fetchImpl } = createFetchMock({
+    "POST /api/youtube/ingest": () => jsonResponse({
+      ok: false,
+      error: {
+        code: "YOUTUBE_DOWNLOAD_FAILED",
+        message: "Download failed.",
+        nextAction: "use-rights-cleared-local-mp4-proof-or-fix-downloader-and-rerun",
+      },
+    }, 502, "req_ingest_failed"),
+  });
+  const report = await runYouTubeSmoke({ env: smokeEnv(), fetchImpl });
+
+  assert.equal(report.status, "failed");
+  assert.equal(report.failedCases[0].code, "YOUTUBE_DOWNLOAD_FAILED");
+  assert.equal(report.failedCases[0].phase, "ingest");
+  assert.equal(report.failedCases[0].step, "download_source");
+  assert.equal(report.failedCases[0].substep, "youtube_downloader");
+  assert.equal(report.steps.at(-1).phase, "ingest");
+  assert.equal(report.steps.at(-1).activeStep, "download_source");
+  assert.equal(report.steps.at(-1).substep, "youtube_downloader");
+  assert.equal(report.failedCases[0].nextAction, "use-rights-cleared-local-mp4-proof-or-fix-downloader-and-rerun");
+  assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube smoke stalled job report preserves active progress substep safely", async () => {
+  const { fetchImpl } = createFetchMock({
+    "GET /api/jobs/job_12345678": () => jsonResponse({
+      ok: true,
+      data: {
+        job: {
+          id: "job_12345678",
+          projectId: "prj_12345678",
+          uploadId: "upl_12345678",
+          status: "processing",
+          progress: 22,
+          step: "analyze_media",
+          exportId: null,
+          progressMeta: {
+            phase: "analysis",
+            step: "analyze_media",
+            substep: "media_signal_extraction",
+            startedAt: "2026-07-02T15:00:00.000Z",
+            longSource: true,
+            scorebugFirst: false,
+            budgetMs: 45000,
+          },
+        },
+      },
+    }, 200, "req_job"),
+  });
+  const report = await runYouTubeSmoke({
+    env: smokeEnv({
+      SHORTSENGINE_YOUTUBE_SMOKE_JOB_TIMEOUT_MS: "5000",
+      SHORTSENGINE_YOUTUBE_SMOKE_STALL_TIMEOUT_MS: "1000",
+      SHORTSENGINE_YOUTUBE_SMOKE_POLL_INTERVAL_MS: "100",
+    }),
+    fetchImpl,
+  });
+  assert.equal(report.status, "failed");
+  assert.equal(report.failedCases[0].code, "JOB_PROGRESS_STALLED");
+  assert.equal(report.failedCases[0].phase, "render");
+  assert.equal(report.failedCases[0].step, "analyze_media");
+  assert.equal(report.failedCases[0].substep, "media_signal_extraction");
+  assert.equal(report.failedCases[0].stalled, true);
+  assert.equal(report.failedCases[0].currentJob.progressMeta.longSource, true);
+  assert.equal(report.jobLifecycle.at(-1).progressMeta.substep, "media_signal_extraction");
+  assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube smoke failed job report preserves terminal progress substep safely", async () => {
+  const { fetchImpl } = createFetchMock({
+    "GET /api/jobs/job_12345678": () => jsonResponse({
+      ok: true,
+      data: {
+        job: {
+          id: "job_12345678",
+          projectId: "prj_12345678",
+          uploadId: "upl_12345678",
+          status: "failed",
+          progress: 28,
+          step: "run_scorebug_ocr",
+          exportId: null,
+          progressMeta: {
+            phase: "analysis",
+            step: "run_scorebug_ocr",
+            substep: "scorebug_first_stable_change_detection",
+            startedAt: "2026-07-02T15:00:00.000Z",
+            longSource: true,
+            scorebugFirst: true,
+            budgetMs: 250,
+          },
+          error: { code: "SCOREBOARD_OCR_TIMEOUT", message: "The video analysis failed." },
+        },
+      },
+    }, 200, "req_job_failed"),
+  });
+  const report = await runYouTubeSmoke({ env: smokeEnv(), fetchImpl });
+
+  assert.equal(report.status, "failed");
+  assert.equal(report.failedCases[0].code, "SCOREBOARD_OCR_TIMEOUT");
+  assert.equal(report.failedCases[0].phase, "analysis");
+  assert.equal(report.failedCases[0].step, "run_scorebug_ocr");
+  assert.equal(report.failedCases[0].substep, "scorebug_first_stable_change_detection");
+  assert.equal(report.failedCases[0].timeoutMs, 250);
+  assert.equal(report.failedCases[0].nextAction, "reduce-scorebug-ocr-sampling-or-disable-live-scoreboard-ocr-and-rerun-proof");
+  assert.equal(report.steps.at(-1).activeStep, "run_scorebug_ocr");
+  assert.equal(report.jobLifecycle.at(-1).progressMeta.budgetMs, 250);
+  assert.equal(findSensitiveLeak(report), null);
+});
+
 test("youtube smoke successful mocked flow validates ingest generate job and download contract", async () => {
   const { fetchImpl, calls } = createFetchMock();
   const report = await runYouTubeSmoke({ env: smokeEnv(), fetchImpl });
@@ -2154,18 +2290,28 @@ test("youtube live failed output proof preserves pre-render download failure act
         status: "failed",
         code: "YOUTUBE_DOWNLOAD_FAILED",
         nextAction: "use-rights-cleared-local-mp4-proof-or-fix-downloader-and-rerun",
+        phase: "ingest",
+        activeStep: "download_source",
+        substep: "youtube_downloader",
       }],
       failedCases: [{
         name: "youtube_smoke",
         code: "YOUTUBE_DOWNLOAD_FAILED",
         nextAction: "use-rights-cleared-local-mp4-proof-or-fix-downloader-and-rerun",
+        phase: "ingest",
+        step: "download_source",
+        substep: "youtube_downloader",
       }],
     }),
   });
 
   assert.equal(report.status, "failed");
   assert.equal(report.outputProof.code, "YOUTUBE_DOWNLOAD_FAILED");
-  assert.equal(report.outputProof.phase, "failure");
+  assert.equal(report.outputProof.phase, "ingest");
+  assert.equal(report.outputProof.step, "download_source");
+  assert.equal(report.outputProof.substep, "youtube_downloader");
+  assert.equal(report.failedCases[0].step, "download_source");
+  assert.equal(report.failedCases[0].substep, "youtube_downloader");
   assert.equal(report.outputProof.outputMp4, null);
   assert.equal(report.outputProof.nextAction, "use-rights-cleared-local-mp4-proof-or-fix-downloader-and-rerun");
   assert.equal(report.outputProof.scoreboardOcrAttempted, false);

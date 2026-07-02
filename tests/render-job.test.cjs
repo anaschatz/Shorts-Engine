@@ -605,6 +605,7 @@ test("render orchestration completes success path with mocked adapters", async (
   assert.equal(context.calls.includes("analyze_match_event_truth"), true);
   assert.equal(context.calls.includes("extract_sampled_frames"), true);
   assert.equal(context.visualCandidateWindows.length > 0, true);
+  assert.equal(context.job.progressMeta.phase, "completed");
   assert.equal(context.visualFrameCount, 1);
   assert.equal(context.cleanedFrameCount, 1);
   assert.equal(context.job.sampledFrames.summary.frameCount, 1);
@@ -667,6 +668,83 @@ test("render orchestration completes success path with mocked adapters", async (
   assert.equal(ocrQaLog.goalDecisionAllowed, false);
   assert.equal(context.goalEvidenceOcrEvidenceCount, 0);
   assert.doesNotMatch(JSON.stringify(goalEvidenceLog), /\/Users|storageKey|localPath|secret/i);
+});
+
+test("youtube long-source render uses scorebug-first OCR before visual frame extraction", async () => {
+  const context = makeContext({
+    durationSeconds: 644,
+    metadata: { sourceType: "youtube", videoId: "KxGedHh0Ruc" },
+    matchEventTruth: countedGoalTruth(2),
+    candidatePlans: [
+      validGoalCompilationPlan([
+        validGoalSegment(1, 31, 39, 47, 48),
+        validGoalSegment(2, 108, 116, 125, 126),
+      ]),
+    ],
+    scoreboardOcr: {
+      providerMode: "mock-scoreboard-ocr",
+      fallbackUsed: false,
+      confidence: 0.9,
+      evidence: [{
+        id: "ocr_goal_1",
+        timestamp: 512,
+        scoreChanged: true,
+        temporalConsistency: true,
+        scoreBefore: "1-1",
+        scoreAfter: "2-1",
+        confidence: 0.92,
+      }],
+      summary: {
+        evidenceCount: 1,
+        scoreChangeCount: 1,
+        scoreUnchangedCount: 0,
+        ambiguousCount: 0,
+        sampledFrameCount: 36,
+        regionCount: 1,
+        fallbackUsed: false,
+        scoreTimeline: [{
+          timestamp: 512,
+          status: "score_changed",
+          scoreBefore: "1-1",
+          scoreAfter: "2-1",
+          temporalConsistency: true,
+        }],
+      },
+    },
+  });
+  await runContext(context);
+
+  assert.equal(context.job.status, "completed");
+  assert.equal(context.calls.filter((call) => call === "analyze_scoreboard_ocr").length, 1);
+  assert.ok(context.calls.indexOf("analyze_scoreboard_ocr") < context.calls.indexOf("extract_sampled_frames"));
+  assert.equal(context.scoreboardOcrVisualWindowCount, 0);
+  assert.equal(context.frameCandidateWindows.some((window) => window.source === "scorebug_first_score_change"), true);
+  const stepEvents = context.logs.filter((entry) => entry.event === "job_step");
+  assert.equal(stepEvents.some((entry) => entry.step === "run_scorebug_ocr" && entry.progressMeta.scorebugFirst === true), true);
+  assert.equal(stepEvents.some((entry) => entry.substep === "scorebug_anchor_visual_windows"), true);
+  assert.equal(context.job.progressMeta.longSource, true);
+});
+
+test("youtube long-source render fails fast when scorebug-first OCR exceeds its budget", async () => {
+  const context = makeContext({
+    durationSeconds: 644,
+    metadata: { sourceType: "youtube", videoId: "KxGedHh0Ruc" },
+    dependencies: {
+      scoreboardOcrTimeouts: { scorebugFirstMs: 250 },
+      analyzeScoreboardOcr: async () => new Promise(() => {}),
+    },
+  });
+  await runContext(context);
+
+  assert.equal(context.job.status, "failed");
+  assert.equal(context.project.status, "failed");
+  assert.equal(context.job.error.code, "SCOREBOARD_OCR_TIMEOUT");
+  assert.equal(context.job.progressMeta.step, "run_scorebug_ocr");
+  assert.equal(context.job.progressMeta.substep, "scorebug_first_stable_change_detection");
+  assert.equal(context.job.progressMeta.budgetMs, 250);
+  assert.equal(context.calls.includes("extract_sampled_frames"), false);
+  assert.equal(context.calls.includes("render_short"), false);
+  assert.doesNotMatch(JSON.stringify(context.job.error), /\/Users|storageKey|localPath|secret|stderr|stdout|rawOcr|rawText/i);
 });
 
 test("render orchestration passes OCR QA calibration into goal evidence analysis", async () => {

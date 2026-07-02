@@ -48,6 +48,7 @@ const NEXT_ACTIONS = Object.freeze({
   YOUTUBE_LIVE_E2E_HUMAN_VISIBLE_GOAL_INCOMPLETE: "inspect-human-visible-goal-gate-contact-sheets-and-fix-goal-sequence-selection",
   YOUTUBE_LIVE_E2E_CLEANUP_DIR_UNSAFE: "keep-live-proof-cleanup-inside-manual-downloads",
   YOUTUBE_DOWNLOAD_FAILED: "use-rights-cleared-local-mp4-proof-or-fix-downloader-and-rerun",
+  SCOREBOARD_OCR_TIMEOUT: "reduce-scorebug-ocr-sampling-or-disable-live-scoreboard-ocr-and-rerun-proof",
   VIDEO_OUTPUT_QA_FAILED: "inspect-video-output-qa-missing-goals-and-fix-final-edit-plan-before-release",
   NO_VALID_GOALS_FOUND: "inspect-valid-goal-selection-evidence-before-rerun",
   YOUTUBE_SMOKE_URL_MISSING: "set-SHORTSENGINE_YOUTUBE_LIVE_E2E_URL-or-SHORTSENGINE_YOUTUBE_SMOKE_URL",
@@ -334,6 +335,7 @@ function phaseForCode(code) {
     text.includes("EXPORT_MISSING") ||
     text.includes("GOAL_COVERAGE") ||
     text.includes("HUMAN_VISIBLE_GOAL") ||
+    text === "SCOREBOARD_OCR_TIMEOUT" ||
     text === "NO_VALID_GOALS_FOUND"
   ) return PHASES.RENDER;
   if (text.includes("DOWNLOAD") || text.includes("MP4") || text.includes("OUTPUT")) return PHASES.DOWNLOAD;
@@ -351,8 +353,13 @@ function safeFailure(error) {
     message: safe.message,
     nextAction: details.nextAction || nextActionForCode(code),
     phase: details.phase || phaseForCode(code),
+    step: details.step ? safeString(details.step, 80) : null,
+    substep: details.substep ? safeString(details.substep, 80) : null,
     port: Number.isFinite(Number(details.port)) ? Number(details.port) : null,
     timeoutMs: Number.isFinite(Number(details.timeoutMs)) ? Number(details.timeoutMs) : null,
+    elapsedMs: Number.isFinite(Number(details.elapsedMs)) ? Number(details.elapsedMs) : null,
+    stalled: typeof details.stalled === "boolean" ? details.stalled : null,
+    lastProgressAt: details.lastProgressAt ? safeString(details.lastProgressAt, 40) : null,
     attempts: Number.isFinite(Number(details.attempts)) ? Number(details.attempts) : null,
     waitedMs: Number.isFinite(Number(details.waitedMs)) ? Number(details.waitedMs) : null,
     httpStatus: Number.isFinite(Number(details.httpStatus)) ? Number(details.httpStatus) : null,
@@ -1168,6 +1175,8 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
     schemaVersion: LIVE_PROOF_SCHEMA_VERSION,
     generatedAt: nowIso(),
     phase: smokeFailure?.phase || smokeFailureStep?.step || (discovery ? "render" : "pre-render"),
+    step: smokeFailure?.step || smokeFailureStep?.activeStep || smokeFailureStep?.step || null,
+    substep: smokeFailure?.substep || smokeFailureStep?.substep || null,
     code: smokeFailure?.code || null,
     source: source ? { sourceType: "youtube", kind: source.kind, videoId: source.videoId } : null,
     outputMp4: null,
@@ -1849,6 +1858,13 @@ async function runYouTubeLiveE2E(options = {}) {
         "Live YouTube E2E smoke did not pass.",
         {
           nextAction: failureNextAction,
+          phase: failure.phase || phaseForCode(failure.code),
+          step: failure.step || null,
+          substep: failure.substep || null,
+          elapsedMs: failure.elapsedMs,
+          timeoutMs: failure.timeoutMs,
+          stalled: failure.stalled,
+          lastProgressAt: failure.lastProgressAt,
           countedGoalEventCount: Number.isFinite(Number(outputQA?.expectedGoalCount)) ? Number(outputQA.expectedGoalCount) : null,
           actualConfirmedGoalSegmentCount: Number.isFinite(Number(outputQA?.actualConfirmedGoalSegmentCount))
             ? Number(outputQA.actualConfirmedGoalSegmentCount)

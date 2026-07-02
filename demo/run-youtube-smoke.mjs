@@ -33,8 +33,15 @@ const SMOKE_NEXT_ACTIONS = {
   YOUTUBE_DOWNLOAD_FAILED: "use-rights-cleared-local-mp4-proof-or-fix-downloader-and-rerun",
   YOUTUBE_SMOKE_FETCH_FAILED: "start-server-or-check-SHORTSENGINE_YOUTUBE_SMOKE_BASE_URL",
   YOUTUBE_SMOKE_REQUEST_TIMEOUT: "check-server-readiness-or-increase-smoke-timeout",
+  YOUTUBE_SMOKE_HEALTH_TIMEOUT: "check-server-readiness-before-running-youtube-smoke",
+  YOUTUBE_SMOKE_VALIDATE_TIMEOUT: "check-youtube-validation-route-and-request-timeout",
+  YOUTUBE_SMOKE_INGEST_TIMEOUT: "increase-ingest-request-timeout-only-for-authorized-long-source-or-fix-downloader",
+  YOUTUBE_SMOKE_GENERATE_TIMEOUT: "check-generate-route-readiness-and-server-load",
+  YOUTUBE_SMOKE_JOB_STATUS_TIMEOUT: "check-job-status-route-readiness-and-server-load",
   YOUTUBE_SMOKE_TIMEOUT: "check-server-and-smoke-timeout-before-rerun",
   YOUTUBE_SMOKE_JOB_TIMEOUT: "inspect-job-progress-and-increase-job-timeout-only-if-expected",
+  JOB_PROGRESS_STALLED: "inspect-active-job-substep-before-rerun-or-split-long-source-analysis",
+  SCOREBOARD_OCR_TIMEOUT: "reduce-scorebug-ocr-sampling-or-disable-live-scoreboard-ocr-and-rerun-proof",
   YOUTUBE_SMOKE_RENDER_PLAN_MISSING: "check-job-public-edit-plan-before-trusting-the-live-proof",
   YOUTUBE_SMOKE_RENDER_PLAN_NOT_MULTI_MOMENT: "fix-multi-moment-selection-before-comparing-reference-style-shorts",
   VIDEO_OUTPUT_QA_FAILED: "inspect-video-output-qa-missing-goals-and-fix-final-edit-plan-before-release",
@@ -192,8 +199,17 @@ async function readBoundedResponseBuffer(response, maxBytes, code) {
   return Buffer.concat(chunks, totalBytes);
 }
 
-async function fetchWithTimeout(fetchImpl, url, options, timeoutMs, timeoutCode) {
+function phaseDetails(details = {}) {
+  return {
+    phase: sanitizeText(details.phase || "proof", 40),
+    step: sanitizeText(details.step || "request", 80),
+    substep: details.substep ? sanitizeText(details.substep, 80) : null,
+  };
+}
+
+async function fetchWithTimeout(fetchImpl, url, options, timeoutMs, timeoutCode, timeoutDetails = {}) {
   const controller = new AbortController();
+  const started = Date.now();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetchImpl(url, {
@@ -202,7 +218,12 @@ async function fetchWithTimeout(fetchImpl, url, options, timeoutMs, timeoutCode)
     });
   } catch (error) {
     if (error && (error.name === "AbortError" || error.code === "ABORT_ERR")) {
-      throw new YouTubeSmokeError(timeoutCode, "YouTube smoke request timed out.");
+      throw new YouTubeSmokeError(timeoutCode, "YouTube smoke request timed out.", {
+        ...phaseDetails(timeoutDetails),
+        elapsedMs: Date.now() - started,
+        timeoutMs,
+        nextAction: nextActionForCode(timeoutCode),
+      });
     }
     throw new YouTubeSmokeError("YOUTUBE_SMOKE_FETCH_FAILED", "YouTube smoke request failed.");
   } finally {
@@ -224,6 +245,7 @@ async function fetchJson(fetchImpl, url, options = {}) {
     },
     options.timeoutMs || DEFAULT_TIMEOUT_MS,
     options.timeoutCode || "YOUTUBE_SMOKE_REQUEST_TIMEOUT",
+    options.timeoutDetails || { phase: "proof", step: "request" },
   );
   if (!response || typeof response.status !== "number") {
     throw new YouTubeSmokeError("YOUTUBE_SMOKE_FETCH_INVALID", "YouTube smoke request returned an invalid response.");
@@ -257,6 +279,7 @@ async function fetchDownload(fetchImpl, url, options = {}) {
     { method: "GET", headers: { accept: "video/mp4" } },
     options.timeoutMs || DEFAULT_TIMEOUT_MS,
     "YOUTUBE_SMOKE_DOWNLOAD_TIMEOUT",
+    options.timeoutDetails || { phase: "download", step: "download_export" },
   );
   if (!response || typeof response.status !== "number") {
     throw new YouTubeSmokeError("YOUTUBE_SMOKE_DOWNLOAD_INVALID", "YouTube smoke download returned an invalid response.");
@@ -275,13 +298,13 @@ async function fetchDownload(fetchImpl, url, options = {}) {
   };
 }
 
-function assertApiOk(response, code, message) {
+function assertApiOk(response, code, message, details = {}) {
   if (response && response.ok === true && response.payload && response.payload.ok === true && response.payload.data) {
     return response.payload.data;
   }
   const apiCode = response?.payload?.error?.code;
   const nextAction = response?.payload?.error?.nextAction;
-  throw new YouTubeSmokeError(apiCode || code, message, { httpStatus: response?.status || null, nextAction });
+  throw new YouTubeSmokeError(apiCode || code, message, { ...details, httpStatus: response?.status || null, nextAction });
 }
 
 function assertId(value, prefix, code) {
@@ -966,6 +989,17 @@ function maybeWriteDownloadArtifact({ buffer, downloadSummary, env, ids, ingeste
 function safeJobSnapshot(job) {
   if (!job || typeof job !== "object") return null;
   const videoOutputQA = safeVideoOutputQA(job.videoOutputQA || job.editPlan?.videoOutputQA);
+  const progressMeta = job.progressMeta && typeof job.progressMeta === "object" && !Array.isArray(job.progressMeta)
+    ? {
+        phase: sanitizeText(job.progressMeta.phase || "", 40) || null,
+        step: sanitizeText(job.progressMeta.step || job.step || "", 80) || null,
+        substep: sanitizeText(job.progressMeta.substep || "", 80) || null,
+        startedAt: sanitizeText(job.progressMeta.startedAt || "", 40) || null,
+        longSource: typeof job.progressMeta.longSource === "boolean" ? job.progressMeta.longSource : null,
+        scorebugFirst: typeof job.progressMeta.scorebugFirst === "boolean" ? job.progressMeta.scorebugFirst : null,
+        budgetMs: Number.isFinite(Number(job.progressMeta.budgetMs)) ? Number(job.progressMeta.budgetMs) : null,
+      }
+    : null;
   return {
     id: job.id || null,
     projectId: job.projectId || null,
@@ -973,36 +1007,91 @@ function safeJobSnapshot(job) {
     status: job.status || null,
     progress: Number.isFinite(Number(job.progress)) ? Number(job.progress) : 0,
     step: job.step || null,
+    progressMeta,
     exportId: job.exportId || null,
     error: safeReportError(job.error),
     videoOutputQA,
   };
 }
 
-async function pollJob({ baseUrl, fetchImpl, jobId, jobTimeoutMs, pollIntervalMs }) {
+function snapshotProgressKey(snapshot) {
+  if (!snapshot) return "missing";
+  const meta = snapshot.progressMeta || {};
+  return [
+    snapshot.status || "",
+    snapshot.progress || 0,
+    snapshot.step || "",
+    meta.substep || "",
+  ].join("|");
+}
+
+async function pollJob({ baseUrl, fetchImpl, jobId, jobTimeoutMs, pollIntervalMs, stallTimeoutMs }) {
   const started = Date.now();
   const lifecycle = [];
   let current = null;
+  let currentSnapshot = null;
+  let currentKey = null;
+  let lastProgressAt = started;
   while (Date.now() - started < jobTimeoutMs) {
     const response = await fetchJson(fetchImpl, endpointUrl(baseUrl, `/api/jobs/${jobId}`), {
       method: "GET",
       timeoutMs: Math.min(15000, jobTimeoutMs),
+      timeoutCode: "YOUTUBE_SMOKE_JOB_STATUS_TIMEOUT",
+      timeoutDetails: { phase: "render", step: "poll_job_status" },
     });
     current = response.payload?.data?.job || null;
     const snapshot = safeJobSnapshot(current);
-    if (snapshot) lifecycle.push(snapshot);
+    if (snapshot) {
+      lifecycle.push(snapshot);
+      const nextKey = snapshotProgressKey(snapshot);
+      if (nextKey !== currentKey) {
+        currentKey = nextKey;
+        lastProgressAt = Date.now();
+      }
+      currentSnapshot = snapshot;
+    }
     if (current && ["completed", "failed", "cancelled"].includes(current.status)) {
       return { job: current, lifecycle, timeout: false };
     }
+    if (currentSnapshot && Date.now() - lastProgressAt >= stallTimeoutMs) {
+      return {
+        job: current,
+        lifecycle,
+        timeout: true,
+        stalled: true,
+        code: "JOB_PROGRESS_STALLED",
+        elapsedMs: Date.now() - started,
+        timeoutMs: stallTimeoutMs,
+        lastProgressAt: new Date(lastProgressAt).toISOString(),
+        currentJob: currentSnapshot,
+      };
+    }
     await delay(pollIntervalMs);
   }
-  return { job: current, lifecycle, timeout: true };
+  return {
+    job: current,
+    lifecycle,
+    timeout: true,
+    stalled: false,
+    code: "YOUTUBE_SMOKE_JOB_TIMEOUT",
+    elapsedMs: Date.now() - started,
+    timeoutMs: jobTimeoutMs,
+    lastProgressAt: new Date(lastProgressAt).toISOString(),
+    currentJob: currentSnapshot,
+  };
 }
 
 function validateCompletedJob(job) {
   if (!job || job.status !== "completed") {
     const videoOutputQA = safeVideoOutputQA(job?.videoOutputQA || job?.editPlan?.videoOutputQA);
+    const progressMeta = job && job.progressMeta && typeof job.progressMeta === "object" && !Array.isArray(job.progressMeta)
+      ? job.progressMeta
+      : {};
     throw new YouTubeSmokeError(job?.error?.code || "YOUTUBE_SMOKE_JOB_FAILED", "YouTube smoke render job did not complete.", {
+      phase: progressMeta.phase || "render",
+      step: progressMeta.step || job?.step || "render_job",
+      substep: progressMeta.substep || null,
+      timeoutMs: Number.isFinite(Number(progressMeta.budgetMs)) ? Number(progressMeta.budgetMs) : null,
       videoOutputQA,
       countedGoalEventCount: videoOutputQA ? videoOutputQA.expectedGoalCount : null,
       actualConfirmedGoalSegmentCount: videoOutputQA ? videoOutputQA.actualConfirmedGoalSegmentCount : null,
@@ -1049,6 +1138,14 @@ function safeFailure(error) {
     code,
     message: base.message,
     nextAction,
+    phase: details.phase ? sanitizeText(details.phase, 40) : null,
+    step: details.step ? sanitizeText(details.step, 80) : null,
+    substep: details.substep ? sanitizeText(details.substep, 80) : null,
+    elapsedMs: Number.isFinite(Number(details.elapsedMs)) ? Number(details.elapsedMs) : null,
+    timeoutMs: Number.isFinite(Number(details.timeoutMs)) ? Number(details.timeoutMs) : null,
+    stalled: typeof details.stalled === "boolean" ? details.stalled : null,
+    lastProgressAt: details.lastProgressAt ? sanitizeText(details.lastProgressAt, 40) : null,
+    currentJob: safeJobSnapshot(details.currentJob),
     countedGoalEventCount: safeNumber(details.countedGoalEventCount),
     actualConfirmedGoalSegmentCount: safeNumber(details.actualConfirmedGoalSegmentCount),
     coveredGoalCount: safeNumber(details.coveredGoalCount),
@@ -1140,6 +1237,13 @@ async function runYouTubeSmoke(options = {}) {
     target = safeTargetSummary(baseUrl);
     const jobTimeoutMs = parseInteger(rawValue(env, "SHORTSENGINE_YOUTUBE_SMOKE_JOB_TIMEOUT_MS"), DEFAULT_JOB_TIMEOUT_MS, 1000, 10 * 60 * 1000, "YOUTUBE_SMOKE_JOB_TIMEOUT_INVALID");
     const pollIntervalMs = parseInteger(rawValue(env, "SHORTSENGINE_YOUTUBE_SMOKE_POLL_INTERVAL_MS"), DEFAULT_POLL_INTERVAL_MS, 100, 10000, "YOUTUBE_SMOKE_POLL_INTERVAL_INVALID");
+    const stallTimeoutMs = parseInteger(
+      rawValue(env, "SHORTSENGINE_YOUTUBE_SMOKE_STALL_TIMEOUT_MS"),
+      Math.min(jobTimeoutMs, 120_000),
+      1000,
+      10 * 60 * 1000,
+      "YOUTUBE_SMOKE_STALL_TIMEOUT_INVALID",
+    );
     const downloadMaxBytes = parseInteger(rawValue(env, "SHORTSENGINE_YOUTUBE_SMOKE_DOWNLOAD_MAX_BYTES"), DEFAULT_DOWNLOAD_MAX_BYTES, 1024, 512 * 1024 * 1024, "YOUTUBE_SMOKE_DOWNLOAD_LIMIT_INVALID");
     const requestTimeoutMs = parseInteger(
       rawValue(env, "SHORTSENGINE_YOUTUBE_SMOKE_REQUEST_TIMEOUT_MS"),
@@ -1149,7 +1253,12 @@ async function runYouTubeSmoke(options = {}) {
       "YOUTUBE_SMOKE_REQUEST_TIMEOUT_INVALID",
     );
 
-    const healthResponse = await fetchJson(fetchImpl, endpointUrl(baseUrl, "/health"), { method: "GET", timeoutMs: requestTimeoutMs });
+    const healthResponse = await fetchJson(fetchImpl, endpointUrl(baseUrl, "/health"), {
+      method: "GET",
+      timeoutMs: requestTimeoutMs,
+      timeoutCode: "YOUTUBE_SMOKE_HEALTH_TIMEOUT",
+      timeoutDetails: { phase: "health", step: "health" },
+    });
     health = validateHealthForSmoke(healthResponse.payload);
     addStep(steps, "health", "passed", { requestIdPresent: Boolean(healthResponse.requestId), status: health.status });
 
@@ -1157,8 +1266,15 @@ async function runYouTubeSmoke(options = {}) {
       method: "POST",
       body: JSON.stringify({ url: source.canonicalUrl, rightsConfirmed: true }),
       timeoutMs: requestTimeoutMs,
+      timeoutCode: "YOUTUBE_SMOKE_VALIDATE_TIMEOUT",
+      timeoutDetails: { phase: "validation", step: "validate_youtube_source" },
     });
-    const validatedSource = validateSourceResponse(assertApiOk(validateResponse, "YOUTUBE_SMOKE_VALIDATE_FAILED", "YouTube validation API failed."), source);
+    const validatedSource = validateSourceResponse(assertApiOk(
+      validateResponse,
+      "YOUTUBE_SMOKE_VALIDATE_FAILED",
+      "YouTube validation API failed.",
+      { phase: "validation", step: "validate_youtube_source" },
+    ), source);
     addStep(steps, "validate", "passed", {
       requestIdPresent: Boolean(validateResponse.requestId),
       sourceType: validatedSource.sourceType,
@@ -1169,8 +1285,15 @@ async function runYouTubeSmoke(options = {}) {
       method: "POST",
       body: JSON.stringify({ url: source.canonicalUrl, rightsConfirmed: true, title: "ShortsEngine YouTube Smoke" }),
       timeoutMs: requestTimeoutMs,
+      timeoutCode: "YOUTUBE_SMOKE_INGEST_TIMEOUT",
+      timeoutDetails: { phase: "ingest", step: "download_source", substep: "youtube_downloader" },
     });
-    ingested = validateIngestResponse(assertApiOk(ingestResponse, "YOUTUBE_SMOKE_INGEST_FAILED", "YouTube ingest API failed."), source);
+    ingested = validateIngestResponse(assertApiOk(
+      ingestResponse,
+      "YOUTUBE_SMOKE_INGEST_FAILED",
+      "YouTube ingest API failed.",
+      { phase: "ingest", step: "download_source", substep: "youtube_downloader" },
+    ), source);
     ids.projectId = ingested.projectId;
     ids.uploadId = ingested.uploadId;
     ids.artifactId = ingested.artifactId;
@@ -1191,15 +1314,34 @@ async function runYouTubeSmoke(options = {}) {
         idempotencyKey: `youtube_smoke_${Date.now()}_${randomUUID()}`,
       }),
       timeoutMs: requestTimeoutMs,
+      timeoutCode: "YOUTUBE_SMOKE_GENERATE_TIMEOUT",
+      timeoutDetails: { phase: "render", step: "generate_render_job" },
     });
-    const generateData = assertApiOk(generateResponse, "YOUTUBE_SMOKE_GENERATE_FAILED", "YouTube smoke generate API failed.");
+    const generateData = assertApiOk(
+      generateResponse,
+      "YOUTUBE_SMOKE_GENERATE_FAILED",
+      "YouTube smoke generate API failed.",
+      { phase: "render", step: "generate_render_job" },
+    );
     ids.jobId = assertId(generateData?.job?.id, "job", "YOUTUBE_SMOKE_JOB_RESPONSE_INVALID");
     addStep(steps, "generate", "passed", { requestIdPresent: Boolean(generateResponse.requestId), jobId: ids.jobId });
 
-    const polled = await pollJob({ baseUrl, fetchImpl, jobId: ids.jobId, jobTimeoutMs, pollIntervalMs });
+    const polled = await pollJob({ baseUrl, fetchImpl, jobId: ids.jobId, jobTimeoutMs, pollIntervalMs, stallTimeoutMs });
     lifecycle = polled.lifecycle;
     if (polled.timeout) {
-      throw new YouTubeSmokeError("YOUTUBE_SMOKE_JOB_TIMEOUT", "YouTube smoke render job timed out.");
+      const active = polled.currentJob || safeJobSnapshot(polled.job);
+      const meta = active && active.progressMeta ? active.progressMeta : {};
+      throw new YouTubeSmokeError(polled.code || "YOUTUBE_SMOKE_JOB_TIMEOUT", "YouTube smoke render job timed out.", {
+        phase: "render",
+        step: active && active.step ? active.step : "poll_job_status",
+        substep: meta.substep || null,
+        elapsedMs: polled.elapsedMs,
+        timeoutMs: polled.timeoutMs,
+        stalled: Boolean(polled.stalled),
+        lastProgressAt: polled.lastProgressAt,
+        currentJob: active,
+        nextAction: nextActionForCode(polled.code || "YOUTUBE_SMOKE_JOB_TIMEOUT"),
+      });
     }
     const completed = validateCompletedJob(polled.job);
     ids.exportId = completed.exportId;
@@ -1214,6 +1356,8 @@ async function runYouTubeSmoke(options = {}) {
 
     const download = await fetchDownload(fetchImpl, endpointUrl(baseUrl, `/api/exports/${ids.exportId}/download`), {
       maxBytes: downloadMaxBytes,
+      timeoutMs: requestTimeoutMs,
+      timeoutDetails: { phase: "download", step: "download_export" },
     });
     downloadSummary = validateMp4Download(download);
     generatedArtifact = maybeWriteDownloadArtifact({
@@ -1244,7 +1388,13 @@ async function runYouTubeSmoke(options = {}) {
   } catch (error) {
     const failure = safeFailure(error);
     failedCases.push({ name: "youtube_smoke", ...failure });
-    addStep(steps, "failure", "failed", { code: failure.code, nextAction: failure.nextAction || null });
+    addStep(steps, "failure", "failed", {
+      code: failure.code,
+      nextAction: failure.nextAction || null,
+      phase: failure.phase,
+      activeStep: failure.step,
+      substep: failure.substep,
+    });
   }
 
   const status = failedCases.length ? "failed" : "passed";
