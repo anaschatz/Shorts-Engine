@@ -9,7 +9,7 @@ const { runFfmpeg } = require("./render.cjs");
 const { assertStoragePath, safeResolve, storagePath } = require("./storage.cjs");
 const {
   LocalOcrCommandAdapter,
-  buildScoreboardEvidenceFromObservations,
+  buildScoreboardTimelineFromObservations,
   parseScoreOnlyScore,
   parseClock,
   parseScoreboardScore,
@@ -623,6 +623,36 @@ function summarizeDigitReaderRows(rows = []) {
   };
 }
 
+function normalizeRoiCalibrationSummary(value = {}) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || hasUnsafeValue(value)) return null;
+  const safeCandidate = (candidate = {}) => ({
+    regionId: sanitizeText(candidate.regionId || "scoreboard_region", 80),
+    layoutId: candidate.layoutId ? sanitizeText(candidate.layoutId, 80) : null,
+    selected: Boolean(candidate.selected),
+    score: round(clamp(candidate.score, -100, 1000)),
+    observationCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_CROPS, Math.round(Number(candidate.observationCount || 0)))),
+    readableCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_CROPS, Math.round(Number(candidate.readableCount || 0)))),
+    scoreChangeCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES, Math.round(Number(candidate.scoreChangeCount || 0)))),
+    revertedCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES, Math.round(Number(candidate.revertedCount || 0)))),
+    unchangedCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES, Math.round(Number(candidate.unchangedCount || 0)))),
+    ambiguousCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES, Math.round(Number(candidate.ambiguousCount || 0)))),
+    firstTimestamp: candidate.firstTimestamp == null ? null : round(candidate.firstTimestamp),
+    lastTimestamp: candidate.lastTimestamp == null ? null : round(candidate.lastTimestamp),
+    averageConfidence: round(clamp(candidate.averageConfidence, 0, 1)),
+  });
+  return {
+    selectedRoi: value.selectedRoi ? safeCandidate({ ...value.selectedRoi, selected: true }) : null,
+    candidateCount: Math.max(0, Math.min(MAX_SCOREBOARD_REGIONS * 4, Math.round(Number(value.candidateCount || 0)))),
+    rejectedRois: Array.isArray(value.rejectedRois)
+      ? value.rejectedRois.map((candidate) => safeCandidate(candidate)).slice(0, MAX_SCOREBOARD_REGIONS * 2)
+      : [],
+    globalFallback: Boolean(value.globalFallback),
+    reasonCodes: Array.isArray(value.reasonCodes)
+      ? value.reasonCodes.map((reason) => sanitizeText(reason, 80)).filter(Boolean).slice(0, 8)
+      : [],
+  };
+}
+
 function validateScoreboardOcrOutput(output = {}, metadata = {}) {
   if (!output || typeof output !== "object" || Array.isArray(output) || hasUnsafeValue(output)) {
     throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
@@ -653,6 +683,7 @@ function validateScoreboardOcrOutput(output = {}, metadata = {}) {
     }))
     .slice(0, MAX_SCOREBOARD_OCR_FRAMES);
   const qaReport = normalizeQaReportSummary(output.qaReport);
+  const roiCalibration = normalizeRoiCalibrationSummary(output.roiCalibration || output.scorebugRoiCalibration);
   return {
     providerMode: sanitizeText(output.providerMode || "deterministic-scoreboard-ocr", 60),
     fallbackUsed: Boolean(output.fallbackUsed || evidence.length === 0),
@@ -671,6 +702,7 @@ function validateScoreboardOcrOutput(output = {}, metadata = {}) {
       regionCount,
       regionIdsUsed,
       preprocessingVariantCount: Math.max(0, Math.min(8, Math.round(Number(output.preprocessingVariantCount || 0)))),
+      roiCalibration,
       scoreTimeline,
       qaReport,
       fallbackUsed: Boolean(output.fallbackUsed || evidence.length === 0),
@@ -1237,6 +1269,7 @@ function writeScoreboardOcrQaReport({ qa, scoreboardOcr, status = "completed" } 
           scoreChangeEvents: Array.isArray(scoreboardOcr.summary.scoreTimeline)
             ? scoreboardOcr.summary.scoreTimeline.filter((item) => item.status === "score_changed").slice(0, MAX_SCOREBOARD_OCR_FRAMES)
             : [],
+          roiCalibration: normalizeRoiCalibrationSummary(scoreboardOcr.summary.roiCalibration),
           revertedScoreEvents: Array.isArray(scoreboardOcr.summary.scoreTimeline)
             ? scoreboardOcr.summary.scoreTimeline.filter((item) => item.status === "goal_removed").slice(0, MAX_SCOREBOARD_OCR_FRAMES)
             : [],
@@ -1938,11 +1971,13 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
         }
         if (cropCount >= MAX_SCOREBOARD_OCR_CROPS) break;
       }
-      const evidence = buildScoreboardEvidenceFromObservations(observations);
+      const timeline = buildScoreboardTimelineFromObservations(observations);
+      const evidence = timeline.evidence;
       const result = validateScoreboardOcrOutput({
         providerMode: "local-scoreboard-ocr-command",
         fallbackUsed: evidence.length === 0,
         evidence,
+        roiCalibration: timeline.roiCalibration,
         sampledFrameCount: frames.length,
         regionCount: cropCount,
         regionIdsUsed: [...regionIdsUsed],
@@ -1954,6 +1989,7 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
             providerMode: result.providerMode,
             fallbackUsed: result.fallbackUsed,
             evidence: result.evidence,
+            roiCalibration: result.summary.roiCalibration,
             sampledFrameCount: result.summary.sampledFrameCount,
             regionCount: result.summary.regionCount,
             regionIdsUsed: result.summary.regionIdsUsed,
@@ -2012,6 +2048,7 @@ function publicScoreboardOcr(scoreboardOcr) {
             ? safe.summary.regionIdsUsed.map((id) => sanitizeText(id, 64)).filter(Boolean).slice(0, MAX_SCOREBOARD_REGIONS)
             : [],
           preprocessingVariantCount: Number(safe.summary.preprocessingVariantCount || 0),
+          roiCalibration: normalizeRoiCalibrationSummary(safe.summary.roiCalibration),
           qaReport: normalizeQaReportSummary(safe.summary.qaReport),
           scoreTimeline: Array.isArray(safe.summary.scoreTimeline)
             ? safe.summary.scoreTimeline.map((item) => ({

@@ -8,6 +8,7 @@ const DEFAULT_LOCAL_OCR_TIMEOUT_MS = 10000;
 const MAX_OCR_STDOUT_BYTES = 4096;
 const MAX_REASONABLE_TEAM_SCORE = 9;
 const MAX_REASONABLE_TOTAL_SCORE = 12;
+const MAX_ROI_CANDIDATES = 8;
 
 function round(value, digits = 2) {
   const factor = 10 ** digits;
@@ -174,100 +175,248 @@ function confidenceForObservation({ text, score, clock, rejected } = {}) {
   return 0.05;
 }
 
-function buildScoreboardEvidenceFromObservations(observations = []) {
+function normalizeObservation(observation = {}, index = 0) {
+  const text = normalizeOcrText(observation.text || "");
+  const rejected = Boolean(observation.rejected) || hasUnsafeOcrText(text);
+  const structuredScore = observation.score &&
+    Number.isInteger(observation.score.home) &&
+    Number.isInteger(observation.score.away) &&
+    plausibleScore(observation.score.home, observation.score.away)
+    ? { home: observation.score.home, away: observation.score.away, text: `${observation.score.home}-${observation.score.away}` }
+    : null;
+  const parsedScore = rejected || structuredScore ? null : parseScoreboardScore(text);
+  const score = rejected ? null : scoreAllowedForRegion({
+    regionId: observation.regionId || "scoreboard_region",
+    text,
+    score: structuredScore || parsedScore,
+  });
+  const clock = rejected ? null : parseClock(text);
+  const confidence = Number(observation.confidence || confidenceForObservation({ text, score, clock, rejected }));
+  const reading = readScoreboardCandidate({
+    id: observation.id || `local_ocr_observation_${index + 1}`,
+    timestamp: Number(observation.timestamp || 0),
+    start: Number(observation.start ?? Number(observation.timestamp || 0) - 0.8),
+    end: Number(observation.end ?? Number(observation.timestamp || 0) + 0.8),
+    regionId: observation.regionId || "scoreboard_region",
+    preprocessingVariant: observation.preprocessingVariant || observation.variantId || observation.source,
+    source: observation.source || "local_ocr_command",
+    text,
+    score,
+    clock,
+    rejected,
+    confidence,
+    layoutId: observation.layoutId,
+    scoreOnlyCropRef: observation.scoreOnlyCropRef,
+  });
+  return {
+    id: sanitizeText(observation.id || `local_ocr_observation_${index + 1}`, 80),
+    timestamp: Number(observation.timestamp || 0),
+    start: Number(observation.start ?? Number(observation.timestamp || 0) - 0.8),
+    end: Number(observation.end ?? Number(observation.timestamp || 0) + 0.8),
+    regionId: sanitizeText(observation.regionId || "scoreboard_region", 80),
+    source: sanitizeText(observation.source || "local_ocr_command", 60),
+    score,
+    clock,
+    textPresent: Boolean(text),
+    rejected,
+    confidence,
+    reading,
+    imageSegmentationStatus: sanitizeText(observation.imageSegmentationStatus || "", 40) || null,
+    imageDecoderStatus: sanitizeText(observation.imageDecoderStatus || "", 40) || null,
+    imageDecoderMode: sanitizeText(observation.imageDecoderMode || "", 40) || null,
+    layoutId: sanitizeText(observation.layoutId || "", 80) || null,
+    scoreOnlyCropRef: sanitizeText(observation.scoreOnlyCropRef || "", 180) || null,
+  };
+}
+
+function observationRank(observation = {}) {
+  return (observation.score ? 2 : 0) + (observation.clock ? 1 : 0) + observation.confidence;
+}
+
+function bestObservationsByTimestamp(observations = []) {
+  const bestByTimestamp = [];
+  for (const observation of observations) {
+    const existing = bestByTimestamp.find((item) => Math.abs(item.timestamp - observation.timestamp) < 0.2);
+    if (!existing) {
+      bestByTimestamp.push({ ...observation });
+      continue;
+    }
+    if (observationRank(observation) > observationRank(existing)) Object.assign(existing, observation);
+  }
+  return bestByTimestamp.sort((a, b) => a.timestamp - b.timestamp);
+}
+
+function timelineToEvidence(timeline = []) {
+  return timeline.map((item, index) => ({
+    id: `local_scoreboard_ocr_${index + 1}`,
+    timestamp: round(item.timestamp),
+    start: round(item.start),
+    end: round(item.end),
+    status: item.status,
+    scoreBefore: item.scoreBefore,
+    scoreAfter: item.scoreAfter,
+    detectedScoreText: item.detectedScoreText,
+    clock: item.clock,
+    temporalConsistency: item.temporalConsistency,
+    confidence: round(item.confidence),
+    source: item.source,
+    regionId: item.regionId,
+    preprocessingVariant: item.preprocessingVariant,
+    imageSegmentationStatus: item.imageSegmentationStatus,
+    imageDecoderStatus: item.imageDecoderStatus,
+    imageDecoderMode: item.imageDecoderMode,
+    layoutId: item.layoutId,
+    scoreOnlyCropRef: item.scoreOnlyCropRef,
+    transitionDecision: item.transitionDecision,
+    transitionReasonCodes: item.transitionReasonCodes,
+    ambiguityReasons: item.ambiguityReasons,
+  }));
+}
+
+function timelineStats(timeline = []) {
+  const scoreChangeCount = timeline.filter((item) => item.status === "score_changed").length;
+  const revertedCount = timeline.filter((item) => item.status === "goal_removed").length;
+  const unchangedCount = timeline.filter((item) => item.status === "score_unchanged").length;
+  const ambiguousCount = timeline.filter((item) => item.status === "ambiguous").length;
+  const readableCount = timeline.filter((item) => item.scoreAfter).length;
+  const timestamps = timeline.map((item) => Number(item.timestamp)).filter(Number.isFinite);
+  const confidenceSum = timeline.reduce((sum, item) => sum + Number(item.confidence || 0), 0);
+  return {
+    scoreChangeCount,
+    revertedCount,
+    unchangedCount,
+    ambiguousCount,
+    readableCount,
+    observationCount: timeline.length,
+    firstTimestamp: timestamps.length ? round(Math.min(...timestamps)) : null,
+    lastTimestamp: timestamps.length ? round(Math.max(...timestamps)) : null,
+    averageConfidence: timeline.length ? round(confidenceSum / timeline.length) : 0,
+  };
+}
+
+function regionPreference(regionId = "") {
+  const safe = sanitizeText(regionId || "", 80);
+  if (/^scorebug_broadcast_compact$/.test(safe)) return 18;
+  if (/^scorebug_/.test(safe)) return 14;
+  if (/^scoreboard_top_/.test(safe)) return 4;
+  if (/broadcast_top_band/.test(safe)) return -6;
+  return 0;
+}
+
+function scoreRoiTimeline(candidate = {}) {
+  const stats = candidate.stats || timelineStats(candidate.timeline);
+  const span = stats.firstTimestamp == null || stats.lastTimestamp == null
+    ? 0
+    : Math.max(0, stats.lastTimestamp - stats.firstTimestamp);
+  return round(
+    stats.scoreChangeCount * 110 +
+    stats.revertedCount * 90 +
+    stats.unchangedCount * 8 +
+    stats.readableCount * 4 +
+    stats.averageConfidence * 12 +
+    Math.min(12, span / 60) +
+    regionPreference(candidate.regionId) -
+    stats.ambiguousCount * 1.5,
+  );
+}
+
+function candidateSummary(candidate = {}, selected = false) {
+  const stats = candidate.stats || timelineStats(candidate.timeline);
+  return {
+    regionId: sanitizeText(candidate.regionId || "scoreboard_region", 80),
+    layoutId: candidate.layoutId ? sanitizeText(candidate.layoutId, 80) : null,
+    selected: Boolean(selected),
+    score: round(candidate.score),
+    observationCount: stats.observationCount,
+    readableCount: stats.readableCount,
+    scoreChangeCount: stats.scoreChangeCount,
+    revertedCount: stats.revertedCount,
+    unchangedCount: stats.unchangedCount,
+    ambiguousCount: stats.ambiguousCount,
+    firstTimestamp: stats.firstTimestamp,
+    lastTimestamp: stats.lastTimestamp,
+    averageConfidence: stats.averageConfidence,
+  };
+}
+
+function buildScoreboardTimelineFromObservations(observations = []) {
   const safeObservations = (Array.isArray(observations) ? observations : [])
-    .map((observation, index) => {
-      const text = normalizeOcrText(observation.text || "");
-      const rejected = Boolean(observation.rejected) || hasUnsafeOcrText(text);
-      const structuredScore = observation.score &&
-        Number.isInteger(observation.score.home) &&
-        Number.isInteger(observation.score.away) &&
-        plausibleScore(observation.score.home, observation.score.away)
-        ? { home: observation.score.home, away: observation.score.away, text: `${observation.score.home}-${observation.score.away}` }
-        : null;
-      const parsedScore = rejected || structuredScore ? null : parseScoreboardScore(text);
-      const score = rejected ? null : scoreAllowedForRegion({
-        regionId: observation.regionId || "scoreboard_region",
-        text,
-        score: structuredScore || parsedScore,
-      });
-      const clock = rejected ? null : parseClock(text);
-      const reading = readScoreboardCandidate({
-        id: observation.id || `local_ocr_observation_${index + 1}`,
-        timestamp: Number(observation.timestamp || 0),
-        start: Number(observation.start ?? Number(observation.timestamp || 0) - 0.8),
-        end: Number(observation.end ?? Number(observation.timestamp || 0) + 0.8),
-        regionId: observation.regionId || "scoreboard_region",
-        preprocessingVariant: observation.preprocessingVariant || observation.variantId || observation.source,
-        source: observation.source || "local_ocr_command",
-        text,
-        score,
-        clock,
-        rejected,
-        confidence: Number(observation.confidence || confidenceForObservation({ text, score, clock, rejected })),
-        layoutId: observation.layoutId,
-        scoreOnlyCropRef: observation.scoreOnlyCropRef,
-      });
-      return {
-        id: sanitizeText(observation.id || `local_ocr_observation_${index + 1}`, 80),
-        timestamp: Number(observation.timestamp || 0),
-        start: Number(observation.start ?? Number(observation.timestamp || 0) - 0.8),
-        end: Number(observation.end ?? Number(observation.timestamp || 0) + 0.8),
-        regionId: sanitizeText(observation.regionId || "scoreboard_region", 80),
-        source: sanitizeText(observation.source || "local_ocr_command", 60),
-        score,
-        clock,
-        textPresent: Boolean(text),
-        rejected,
-        confidence: Number(observation.confidence || confidenceForObservation({ text, score, clock, rejected })),
-        reading,
-        imageSegmentationStatus: sanitizeText(observation.imageSegmentationStatus || "", 40) || null,
-        imageDecoderStatus: sanitizeText(observation.imageDecoderStatus || "", 40) || null,
-        imageDecoderMode: sanitizeText(observation.imageDecoderMode || "", 40) || null,
-        layoutId: sanitizeText(observation.layoutId || "", 80) || null,
-        scoreOnlyCropRef: sanitizeText(observation.scoreOnlyCropRef || "", 180) || null,
-      };
-    })
+    .map(normalizeObservation)
     .filter((observation) => Number.isFinite(observation.timestamp))
     .sort((a, b) => a.timestamp - b.timestamp);
 
-  const bestByTimestamp = [];
+  const globalTimeline = buildStableScoreTimeline(
+    bestObservationsByTimestamp(safeObservations).map((observation) => observation.reading),
+    { minStableReads: 2 },
+  );
+  const groups = new Map();
   for (const observation of safeObservations) {
-    const existing = bestByTimestamp.find((item) => Math.abs(item.timestamp - observation.timestamp) < 0.2);
-    if (!existing) {
-      bestByTimestamp.push(observation);
-      continue;
+    const key = `${observation.regionId}::${observation.layoutId || "none"}`;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        regionId: observation.regionId,
+        layoutId: observation.layoutId,
+        observations: [],
+      });
     }
-    const existingScore = (existing.score ? 2 : 0) + (existing.clock ? 1 : 0) + existing.confidence;
-    const nextScore = (observation.score ? 2 : 0) + (observation.clock ? 1 : 0) + observation.confidence;
-    if (nextScore > existingScore) Object.assign(existing, observation);
+    groups.get(key).observations.push(observation);
   }
+  const candidates = [...groups.values()]
+    .map((group) => {
+      const timeline = buildStableScoreTimeline(
+        bestObservationsByTimestamp(group.observations).map((observation) => observation.reading),
+        { minStableReads: 2 },
+      );
+      const candidate = {
+        ...group,
+        timeline,
+        stats: timelineStats(timeline),
+      };
+      return {
+        ...candidate,
+        score: scoreRoiTimeline(candidate),
+      };
+    })
+    .filter((candidate) => candidate.timeline.length)
+    .sort((a, b) => b.score - a.score || regionPreference(b.regionId) - regionPreference(a.regionId));
+  const globalStats = timelineStats(globalTimeline);
+  const globalCandidate = {
+    key: "global::mixed",
+    regionId: "mixed_best_by_timestamp",
+    layoutId: null,
+    timeline: globalTimeline,
+    stats: globalStats,
+    score: scoreRoiTimeline({
+      regionId: "mixed_best_by_timestamp",
+      timeline: globalTimeline,
+      stats: globalStats,
+    }),
+  };
+  const selected = candidates[0] && candidates[0].score >= globalCandidate.score - 8
+    ? candidates[0]
+    : globalCandidate;
+  return {
+    evidence: timelineToEvidence(selected.timeline),
+    roiCalibration: {
+      selectedRoi: candidateSummary(selected, true),
+      candidateCount: candidates.length,
+      rejectedRois: candidates
+        .filter((candidate) => candidate.key !== selected.key)
+        .slice(0, MAX_ROI_CANDIDATES)
+        .map((candidate) => candidateSummary(candidate, false)),
+      globalFallback: selected.key === "global::mixed",
+      reasonCodes: [
+        selected.key === "global::mixed" ? "mixed_timestamp_timeline_selected" : "scorebug_roi_timeline_selected",
+        ...(selected.stats.scoreChangeCount ? ["stable_score_change_detected"] : []),
+        ...(selected.stats.revertedCount ? ["score_revert_detected"] : []),
+      ],
+    },
+  };
+}
 
-  return buildStableScoreTimeline(bestByTimestamp.map((observation) => observation.reading), { minStableReads: 2 })
-    .map((item, index) => ({
-      id: `local_scoreboard_ocr_${index + 1}`,
-      timestamp: round(item.timestamp),
-      start: round(item.start),
-      end: round(item.end),
-      status: item.status,
-      scoreBefore: item.scoreBefore,
-      scoreAfter: item.scoreAfter,
-      detectedScoreText: item.detectedScoreText,
-      clock: item.clock,
-      temporalConsistency: item.temporalConsistency,
-      confidence: round(item.confidence),
-      source: item.source,
-      regionId: item.regionId,
-      preprocessingVariant: item.preprocessingVariant,
-      imageSegmentationStatus: item.imageSegmentationStatus,
-      imageDecoderStatus: item.imageDecoderStatus,
-      imageDecoderMode: item.imageDecoderMode,
-      layoutId: item.layoutId,
-      scoreOnlyCropRef: item.scoreOnlyCropRef,
-      transitionDecision: item.transitionDecision,
-      transitionReasonCodes: item.transitionReasonCodes,
-      ambiguityReasons: item.ambiguityReasons,
-    }));
+function buildScoreboardEvidenceFromObservations(observations = []) {
+  return buildScoreboardTimelineFromObservations(observations).evidence;
 }
 
 function execFileRunner(command, args, options = {}) {
@@ -361,6 +510,7 @@ module.exports = {
   DEFAULT_LOCAL_OCR_TIMEOUT_MS,
   LocalOcrCommandAdapter,
   buildScoreboardEvidenceFromObservations,
+  buildScoreboardTimelineFromObservations,
   hasUnsafeOcrText,
   normalizeOcrText,
   ocrCommandAvailable,

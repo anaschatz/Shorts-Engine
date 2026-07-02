@@ -25,6 +25,7 @@ const {
 } = require("../server/scoreboard-ocr.cjs");
 const {
   buildScoreboardEvidenceFromObservations,
+  buildScoreboardTimelineFromObservations,
   parseClock,
   parseScoreboardScore,
   parseScoreOnlyScore,
@@ -280,6 +281,30 @@ test("local OCR parsing extracts scores clocks and transitions safely", () => {
   assert.equal(revertedGoal[3].status, "score_unchanged");
 });
 
+test("scoreboard OCR calibrates the best ROI timeline instead of mixing noisy regions", () => {
+  const noisyBroadBand = [
+    { timestamp: 8, regionId: "broadcast_top_band", text: "HOME 0-0 AWAY", confidence: 0.8 },
+    { timestamp: 22, regionId: "broadcast_top_band", text: "HOME 3-0 AWAY", confidence: 0.86 },
+    { timestamp: 36, regionId: "broadcast_top_band", text: "HOME 3-0 AWAY", confidence: 0.86 },
+  ];
+  const lateScorebug = [
+    { timestamp: 100, regionId: "scorebug_broadcast_compact", layoutId: "broadcast-compact-score-only-v1", score: { home: 0, away: 0 }, confidence: 0.91 },
+    { timestamp: 214, regionId: "scorebug_broadcast_compact", layoutId: "broadcast-compact-score-only-v1", score: { home: 1, away: 0 }, confidence: 0.92 },
+    { timestamp: 226, regionId: "scorebug_broadcast_compact", layoutId: "broadcast-compact-score-only-v1", score: { home: 1, away: 0 }, confidence: 0.93 },
+    { timestamp: 520, regionId: "scorebug_broadcast_compact", layoutId: "broadcast-compact-score-only-v1", score: { home: 2, away: 0 }, confidence: 0.94 },
+    { timestamp: 532, regionId: "scorebug_broadcast_compact", layoutId: "broadcast-compact-score-only-v1", score: { home: 2, away: 0 }, confidence: 0.95 },
+  ];
+
+  const timeline = buildScoreboardTimelineFromObservations([...noisyBroadBand, ...lateScorebug]);
+
+  assert.equal(timeline.roiCalibration.selectedRoi.regionId, "scorebug_broadcast_compact");
+  assert.equal(timeline.roiCalibration.selectedRoi.scoreChangeCount, 2);
+  assert.equal(timeline.evidence.filter((item) => item.status === "score_changed").length, 2);
+  assert.equal(timeline.evidence.some((item) => item.scoreAfter === "2-0" && item.timestamp >= 532), true);
+  assert.equal(timeline.roiCalibration.rejectedRois.some((roi) => roi.regionId === "broadcast_top_band"), true);
+  assert.doesNotMatch(JSON.stringify(timeline.roiCalibration), /\/Users|\/private|token|secret|rawOcr|rawText|stderr|stdout/i);
+});
+
 test("scoreboard reader contract normalizes candidates and requires stable score changes", () => {
   const readable = readScoreboardCandidate({
     timestamp: 12,
@@ -474,12 +499,15 @@ test("local scoreboard OCR can use calibrated scorebug digit readings instead of
 
     assert.equal(result.providerMode, "local-scoreboard-ocr-command");
     assert.equal(result.summary.scoreChangeCount, 1);
+    assert.equal(result.summary.roiCalibration.selectedRoi.regionId, "scorebug_broadcast_compact");
+    assert.equal(publicScoreboardOcr(result).summary.roiCalibration.selectedRoi.scoreChangeCount, 1);
     assert.equal(result.summary.scoreTimeline.some((item) => item.status === "score_changed" && item.scoreAfter === "1-0"), true);
     assert.equal(result.summary.regionIdsUsed.includes("scorebug_broadcast_compact"), true);
     assert.equal(result.qaReport.enabled, true);
     const report = JSON.parse(readFileSync(join(process.cwd(), result.qaReport.reportPath), "utf8"));
     assert.equal(report.digitReader.readableCount >= 3, true);
     assert.equal(report.calibrationUsed.layoutId, "fixture-scorebug");
+    assert.equal(report.evidenceSummary.roiCalibration.selectedRoi.regionId, "scorebug_broadcast_compact");
     assert.equal(report.evidenceSummary.scoreChangeEvents.length, 1);
     assert.equal(report.ocrAttempts.some((attempt) => attempt.digitReaderStatus === "readable" && attempt.score === "1-0"), true);
     assert.doesNotMatch(JSON.stringify(report), /\/Users|\/private|storageKey|localPath|token|secret|stdout|stderr/i);
