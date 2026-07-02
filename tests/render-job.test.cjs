@@ -743,7 +743,7 @@ test("youtube long-source render uses scorebug-first OCR before visual frame ext
   assert.equal(context.job.progressMeta.longSource, true);
 });
 
-test("youtube long-source render fails fast when scorebug-first OCR exceeds its budget", async () => {
+test("youtube long-source render fails closed with chunk context when scorebug OCR exceeds its budget", async () => {
   const context = makeContext({
     durationSeconds: 644,
     metadata: { sourceType: "youtube", videoId: "KxGedHh0Ruc" },
@@ -764,9 +764,110 @@ test("youtube long-source render fails fast when scorebug-first OCR exceeds its 
   assert.equal(context.job.progressMeta.chunkStart, 0);
   assert.equal(context.job.progressMeta.chunkEnd, 90);
   assert.equal(context.job.progressMeta.budgetMs, 250);
+  assert.equal(context.job.scoreboardOcr.providerMode, "chunked-scoreboard-ocr");
+  assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunkCount, 8);
+  assert.equal(context.job.scoreboardOcr.summary.chunkSummary.scannedChunks, 0);
+  assert.equal(context.job.scoreboardOcr.summary.chunkSummary.skippedChunks >= 1, true);
+  assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].status, "timed_out");
   assert.equal(context.calls.includes("extract_sampled_frames"), false);
   assert.equal(context.calls.includes("render_short"), false);
   assert.doesNotMatch(JSON.stringify(context.job.error), /\/Users|storageKey|localPath|secret|stderr|stdout|rawOcr|rawText/i);
+  assert.doesNotMatch(JSON.stringify(context.job.scoreboardOcr), /\/Users|storageKey|localPath|secret|stderr|stdout|rawOcr|rawText/i);
+});
+
+test("youtube long-source first OCR chunk timeout does not block later score changes", async () => {
+  const truth = countedGoalTruth(1);
+  truth.scoreChanges[0] = {
+    ...truth.scoreChanges[0],
+    changeTime: 612,
+    actionAnchorTime: 603,
+    startScore: "4-0",
+    endScore: "5-0",
+  };
+  let callIndex = 0;
+  const context = makeContext({
+    durationSeconds: 644,
+    metadata: { sourceType: "youtube", videoId: "KxGedHh0Ruc" },
+    matchEventTruth: truth,
+    candidatePlans: [
+      {
+        ...validPlan(),
+        sourceStart: 594,
+        sourceEnd: 616,
+        highlightType: "goal",
+        goalOutcome: validGoalOutcome(612),
+        goalNumber: 1,
+        shotStart: 603,
+        finishTime: 611,
+        confirmationTime: 612,
+        replayUsed: false,
+        replayOnly: false,
+        phaseCoverage: {
+          hasBuildup: true,
+          hasShot: true,
+          hasFinish: true,
+          hasConfirmation: true,
+          replayUsed: false,
+          replayOnly: false,
+        },
+        reasonCodes: ["goal", "scoreboard_ocr_score_change", "visual_ball_in_net", "live_shot_finish_sequence"],
+      },
+    ],
+    dependencies: {
+      scoreboardOcrChunking: { chunkTimeoutMs: 250, totalBudgetMs: 4000 },
+      analyzeScoreboardOcr: async ({ ocrSamplingWindows }) => {
+        context.calls.push("analyze_scoreboard_ocr");
+        context.scoreboardOcrCalls = context.scoreboardOcrCalls || [];
+        context.scoreboardOcrCalls.push({ ocrSamplingWindows });
+        callIndex += 1;
+        if (callIndex === 1) return new Promise(() => {});
+        const foundLateChunk = Array.isArray(ocrSamplingWindows) &&
+          ocrSamplingWindows.some((window) => Number(window.timestamp) >= 600);
+        return {
+          providerMode: "mock-scoreboard-ocr",
+          fallbackUsed: !foundLateChunk,
+          confidence: foundLateChunk ? 0.94 : 0,
+          evidence: foundLateChunk
+            ? [{
+                id: "late_ocr_goal_after_timeout",
+                timestamp: 612,
+                start: 610.8,
+                end: 613.2,
+                status: "score_changed",
+                scoreChanged: true,
+                temporalConsistency: true,
+                scoreBefore: "4-0",
+                scoreAfter: "5-0",
+                confidence: 0.94,
+                source: "late_chunk_scorebug",
+              }]
+            : [],
+          summary: {
+            evidenceCount: foundLateChunk ? 1 : 0,
+            scoreChangeCount: foundLateChunk ? 1 : 0,
+            scoreUnchangedCount: 0,
+            ambiguousCount: 0,
+            sampledFrameCount: Array.isArray(ocrSamplingWindows) ? ocrSamplingWindows.length : 0,
+            regionCount: foundLateChunk ? 1 : 0,
+            fallbackUsed: !foundLateChunk,
+          },
+        };
+      },
+    },
+  });
+  await runContext(context);
+
+  assert.equal(context.job.status, "completed", JSON.stringify(context.job.error));
+  const chunkSummary = context.job.scoreboardOcr.summary.chunkSummary;
+  assert.equal(chunkSummary.chunkCount, 8);
+  assert.equal(chunkSummary.chunks[0].status, "timed_out");
+  assert.equal(chunkSummary.timedOutChunks >= 1, true);
+  assert.equal(chunkSummary.scannedChunks >= 6, true);
+  assert.equal(chunkSummary.discoveredScoreChanges >= 1, true);
+  assert.equal(chunkSummary.chunks.at(-1).status, "completed");
+  assert.equal(context.frameCandidateWindows.some((window) => window.source === "scorebug_first_score_change" && Number(window.time) === 612), true);
+  assert.equal(context.job.videoOutputQA.coveredGoalCount, 1);
+  assert.doesNotMatch(JSON.stringify(context.job.scoreboardOcr), /\/Users|storageKey|localPath|secret|stderr|stdout|rawOcr|rawText/i);
 });
 
 test("youtube long-source chunked OCR can discover late score changes", async () => {

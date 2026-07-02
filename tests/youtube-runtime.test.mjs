@@ -1841,6 +1841,48 @@ test("youtube live local e2e failed OCR smoke preserves terminal job chunk summa
       chunkTimeoutMs: 15000,
     },
     error: { code: "SCOREBOARD_OCR_TIMEOUT", message: "The video analysis failed." },
+    scoreboardOcr: {
+      providerMode: "chunked-scoreboard-ocr",
+      fallbackUsed: true,
+      confidence: 0,
+      summary: {
+        evidenceCount: 0,
+        scoreChangeCount: 0,
+        scoreRevertedCount: 0,
+        ambiguousCount: 0,
+        unreadableCount: 0,
+        sampledFrameCount: 0,
+        regionCount: 0,
+        regionIdsUsed: [],
+        preprocessingVariantCount: 0,
+        chunkSummary: {
+          mode: "chunked_scorebug_first_ocr",
+          chunkCount: 8,
+          scannedChunks: 0,
+          skippedChunks: 8,
+          timedOutChunks: 1,
+          failedChunks: 0,
+          scannedDurationSeconds: 0,
+          discoveredScoreChanges: 0,
+          totalBudgetMs: 120000,
+          chunkTimeoutMs: 15000,
+          chunks: [
+            { index: 1, start: 0, end: 90, status: "timed_out", sampledFrameCount: 4, evidenceCount: 0, scoreChangeCount: 0, skippedReason: "SCOREBOARD_OCR_TIMEOUT", elapsedMs: 15000, timeoutMs: 15000 },
+            { index: 2, start: 90, end: 180, status: "skipped", sampledFrameCount: 4, evidenceCount: 0, scoreChangeCount: 0, skippedReason: "SCOREBOARD_OCR_NOT_SCANNED", elapsedMs: 15000, timeoutMs: 0 },
+          ],
+        },
+        scorebugDebug: {
+          attemptedRoiCount: 0,
+          attemptedObservationCount: 0,
+          textPresentObservationCount: 0,
+          readableObservationCount: 0,
+          state: "scorebug_all_chunks_timed_out",
+          nextAction: "inspect-scorebug-chunk-report-and-calibrate-roi-or-budgets",
+          qaRecommended: true,
+          reasonCodes: ["chunked_scorebug_first_ocr", "scorebug_chunk_timeout_recorded"],
+        },
+      },
+    },
   };
   const report = await runYouTubeLiveE2E({
     env: liveEnv({ SHORTSENGINE_YOUTUBE_LIVE_E2E_EXPECTED_COUNTED_GOALS: "5" }),
@@ -1885,6 +1927,8 @@ test("youtube live local e2e failed OCR smoke preserves terminal job chunk summa
   assert.equal(report.outputProof.ocrChunkSummary.chunkCount, 8);
   assert.equal(report.outputProof.ocrChunkSummary.totalBudgetMs, 120000);
   assert.equal(report.outputProof.ocrChunkSummary.chunks[0].status, "timed_out");
+  assert.equal(report.outputProof.ocrChunkSummary.chunks[1].status, "skipped");
+  assert.equal(report.outputProof.scorebugDebug.state, "scorebug_all_chunks_timed_out");
   assert.equal(report.outputProof.logsDownloaded, false);
   assert.equal(report.outputProof.artifactsDownloaded, false);
   assert.equal(findSensitiveLeak(report), null);

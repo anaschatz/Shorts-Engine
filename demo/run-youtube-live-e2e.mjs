@@ -282,6 +282,13 @@ function safeMissingEvidenceCandidate(value = {}, index = 0) {
 
 function safeScoreboardOcrEvent(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const summary = value.summary && typeof value.summary === "object" && !Array.isArray(value.summary)
+    ? value.summary
+    : {};
+  const scorebugDebug = value.scorebugDebug || summary.scorebugDebug;
+  const selectedRoi = scorebugDebug && typeof scorebugDebug === "object" && !Array.isArray(scorebugDebug)
+    ? scorebugDebug.selectedRoi
+    : null;
   const safeQaReport = value.qaReport && typeof value.qaReport === "object" && !Array.isArray(value.qaReport)
     ? {
         enabled: safeBoolean(value.qaReport.enabled),
@@ -306,35 +313,35 @@ function safeScoreboardOcrEvent(value) {
     unreadableCount: safeNumber(value.unreadableCount),
     regionIdsUsed: safeStringList(value.regionIdsUsed, 8, 80),
     preprocessingVariantCount: safeNumber(value.preprocessingVariantCount),
-    chunkSummary: safeOcrChunkSummary(value.chunkSummary),
+    chunkSummary: safeOcrChunkSummary(value.chunkSummary || summary.chunkSummary),
     qaReport: safeQaReport,
-    scorebugDebug: value.scorebugDebug && typeof value.scorebugDebug === "object" && !Array.isArray(value.scorebugDebug)
+    scorebugDebug: scorebugDebug && typeof scorebugDebug === "object" && !Array.isArray(scorebugDebug)
       ? {
-          attemptedRoiCount: safeNumber(value.scorebugDebug.attemptedRoiCount),
-          attemptedObservationCount: safeNumber(value.scorebugDebug.attemptedObservationCount),
-          textPresentObservationCount: safeNumber(value.scorebugDebug.textPresentObservationCount),
-          readableObservationCount: safeNumber(value.scorebugDebug.readableObservationCount),
-          state: safeString(value.scorebugDebug.state, 80),
-          nextAction: safeString(value.scorebugDebug.nextAction, 180),
-          qaRecommended: safeBoolean(value.scorebugDebug.qaRecommended),
-          reasonCodes: safeStringList(value.scorebugDebug.reasonCodes, 10, 80),
-          selectedRoi: value.scorebugDebug.selectedRoi && typeof value.scorebugDebug.selectedRoi === "object"
+          attemptedRoiCount: safeNumber(scorebugDebug.attemptedRoiCount),
+          attemptedObservationCount: safeNumber(scorebugDebug.attemptedObservationCount),
+          textPresentObservationCount: safeNumber(scorebugDebug.textPresentObservationCount),
+          readableObservationCount: safeNumber(scorebugDebug.readableObservationCount),
+          state: safeString(scorebugDebug.state, 80),
+          nextAction: safeString(scorebugDebug.nextAction, 180),
+          qaRecommended: safeBoolean(scorebugDebug.qaRecommended),
+          reasonCodes: safeStringList(scorebugDebug.reasonCodes, 10, 80),
+          selectedRoi: selectedRoi && typeof selectedRoi === "object"
             ? {
-                regionId: safeString(value.scorebugDebug.selectedRoi.regionId, 80),
-                layoutId: value.scorebugDebug.selectedRoi.layoutId ? safeString(value.scorebugDebug.selectedRoi.layoutId, 80) : null,
-                observationCount: safeNumber(value.scorebugDebug.selectedRoi.observationCount),
-                readableCount: safeNumber(value.scorebugDebug.selectedRoi.readableCount),
-                readableObservationCount: safeNumber(value.scorebugDebug.selectedRoi.readableObservationCount),
-                scoreChangeCount: safeNumber(value.scorebugDebug.selectedRoi.scoreChangeCount),
-                revertedCount: safeNumber(value.scorebugDebug.selectedRoi.revertedCount),
-                unchangedCount: safeNumber(value.scorebugDebug.selectedRoi.unchangedCount),
-                ambiguousCount: safeNumber(value.scorebugDebug.selectedRoi.ambiguousCount),
-                diagnosis: safeString(value.scorebugDebug.selectedRoi.diagnosis, 80),
-                reasonCodes: safeStringList(value.scorebugDebug.selectedRoi.reasonCodes, 8, 80),
+                regionId: safeString(selectedRoi.regionId, 80),
+                layoutId: selectedRoi.layoutId ? safeString(selectedRoi.layoutId, 80) : null,
+                observationCount: safeNumber(selectedRoi.observationCount),
+                readableCount: safeNumber(selectedRoi.readableCount),
+                readableObservationCount: safeNumber(selectedRoi.readableObservationCount),
+                scoreChangeCount: safeNumber(selectedRoi.scoreChangeCount),
+                revertedCount: safeNumber(selectedRoi.revertedCount),
+                unchangedCount: safeNumber(selectedRoi.unchangedCount),
+                ambiguousCount: safeNumber(selectedRoi.ambiguousCount),
+                diagnosis: safeString(selectedRoi.diagnosis, 80),
+                reasonCodes: safeStringList(selectedRoi.reasonCodes, 8, 80),
               }
             : null,
-          rejectedRois: Array.isArray(value.scorebugDebug.rejectedRois)
-            ? value.scorebugDebug.rejectedRois.slice(0, 8).map((roi) => ({
+          rejectedRois: Array.isArray(scorebugDebug.rejectedRois)
+            ? scorebugDebug.rejectedRois.slice(0, 8).map((roi) => ({
                 regionId: safeString(roi && roi.regionId, 80),
                 layoutId: roi && roi.layoutId ? safeString(roi.layoutId, 80) : null,
                 observationCount: safeNumber(roi && roi.observationCount),
@@ -370,6 +377,7 @@ function safeCurrentJobSnapshot(job) {
     progressMeta: safeProgressMeta(job.progressMeta),
     exportId: job.exportId ? safeString(job.exportId, 80) : null,
     error: job.error ? safeReportError(job.error) : null,
+    scoreboardOcr: safeScoreboardOcrEvent(job.scoreboardOcr),
   };
 }
 
@@ -1202,8 +1210,12 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
   const event = latestGoalDiscoveryEvent(serverEvents);
   const discovery = event?.goalDiscovery || null;
   const ocrEvent = latestScoreboardOcrEvent(serverEvents);
-  const scoreboardOcr = ocrEvent?.scoreboardOcr || null;
   const smokeFailure = smoke?.failedCases?.[0] || null;
+  const latestSmokeJob = latestJobSnapshotFromSmoke(smoke);
+  const scoreboardOcr = ocrEvent?.scoreboardOcr ||
+    safeScoreboardOcrEvent(smokeFailure?.currentJob?.scoreboardOcr) ||
+    safeScoreboardOcrEvent(latestSmokeJob?.scoreboardOcr) ||
+    null;
   const serverProgressMeta = latestProgressMetaEvent(serverEvents)?.progressMeta || null;
   const smokeFailureStep = Array.isArray(smoke?.steps)
     ? [...smoke.steps].reverse().find((step) => step && step.status === "failed")
@@ -1247,7 +1259,6 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
     0;
   const stableScoreChangeCount = safeNumber(discovery && discovery.stableScoreChangeCount) ??
     stableScoreChangeCountFromOcr(scoreboardOcr);
-  const latestSmokeJob = latestJobSnapshotFromSmoke(smoke);
   const progressMeta = smokeFailure && smokeFailure.currentJob && smokeFailure.currentJob.progressMeta
     ? smokeFailure.currentJob.progressMeta
     : latestSmokeJob && latestSmokeJob.progressMeta

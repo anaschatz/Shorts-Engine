@@ -610,17 +610,24 @@ function normalizeScoreboardOcrChunkSummary(value) {
     evidenceCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES, Math.round(Number(chunk.evidenceCount || 0)))),
     scoreChangeCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES, Math.round(Number(chunk.scoreChangeCount || 0)))),
     skippedReason: chunk.skippedReason ? sanitizeText(chunk.skippedReason, 80) : null,
+    elapsedMs: Math.max(0, Math.min(60 * 60 * 1000, Math.round(Number(chunk.elapsedMs || 0)))),
+    timeoutMs: chunk.timeoutMs == null
+      ? null
+      : Math.max(0, Math.min(60 * 60 * 1000, Math.round(Number(chunk.timeoutMs || 0)))),
   });
+  const safeChunks = chunks.map(safeChunk).slice(0, 40);
   return {
     mode: sanitizeText(value.mode || "chunked_scorebug_ocr", 60),
     chunkCount: Math.max(0, Math.min(100, Math.round(Number(value.chunkCount || chunks.length || 0)))),
     scannedChunks: Math.max(0, Math.min(100, Math.round(Number(value.scannedChunks || 0)))),
     skippedChunks: Math.max(0, Math.min(100, Math.round(Number(value.skippedChunks || 0)))),
+    timedOutChunks: safeChunks.filter((chunk) => chunk.status === "timed_out").length,
+    failedChunks: safeChunks.filter((chunk) => chunk.status === "failed").length,
     scannedDurationSeconds: round(clamp(value.scannedDurationSeconds, 0, 24 * 60 * 60)),
     discoveredScoreChanges: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES, Math.round(Number(value.discoveredScoreChanges || 0)))),
     totalBudgetMs: Math.max(0, Math.min(60 * 60 * 1000, Math.round(Number(value.totalBudgetMs || 0)))),
     chunkTimeoutMs: Math.max(0, Math.min(60 * 60 * 1000, Math.round(Number(value.chunkTimeoutMs || 0)))),
-    chunks: chunks.map(safeChunk).slice(0, 40),
+    chunks: safeChunks,
   };
 }
 
@@ -695,6 +702,7 @@ function normalizeRoiCalibrationSummary(value = {}) {
       ? value.rejectedRois.map((candidate) => safeCandidate(candidate)).slice(0, MAX_SCOREBOARD_REGIONS * 2)
       : [],
     globalFallback: Boolean(value.globalFallback),
+    confidence: round(clamp(value.confidence, 0, 1)),
     reasonCodes: Array.isArray(value.reasonCodes)
       ? value.reasonCodes.map((reason) => sanitizeText(reason, 80)).filter(Boolean).slice(0, 8)
       : [],

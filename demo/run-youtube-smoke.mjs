@@ -422,6 +422,89 @@ function safeStringList(values, maxItems = 8, maxLength = 80) {
     .slice(0, maxItems);
 }
 
+function safeOcrChunkSummary(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const chunks = Array.isArray(value.chunks)
+    ? value.chunks.slice(0, 40).map((chunk, index) => ({
+        index: safeNumber(chunk && chunk.index) || index + 1,
+        start: safeNumber(chunk && chunk.start),
+        end: safeNumber(chunk && chunk.end),
+        status: sanitizeText(chunk && chunk.status || "unknown", 40),
+        sampledFrameCount: safeNumber(chunk && chunk.sampledFrameCount),
+        evidenceCount: safeNumber(chunk && chunk.evidenceCount),
+        scoreChangeCount: safeNumber(chunk && chunk.scoreChangeCount),
+        skippedReason: chunk && chunk.skippedReason ? sanitizeText(chunk.skippedReason, 80) : null,
+        elapsedMs: safeNumber(chunk && chunk.elapsedMs),
+        timeoutMs: safeNumber(chunk && chunk.timeoutMs),
+      }))
+    : [];
+  return {
+    mode: sanitizeText(value.mode || "chunked_scorebug_first_ocr", 60),
+    chunkCount: safeNumber(value.chunkCount),
+    scannedChunks: safeNumber(value.scannedChunks),
+    skippedChunks: safeNumber(value.skippedChunks),
+    timedOutChunks: safeNumber(value.timedOutChunks) ?? chunks.filter((chunk) => chunk.status === "timed_out").length,
+    failedChunks: safeNumber(value.failedChunks) ?? chunks.filter((chunk) => chunk.status === "failed").length,
+    scannedDurationSeconds: safeNumber(value.scannedDurationSeconds),
+    discoveredScoreChanges: safeNumber(value.discoveredScoreChanges),
+    totalBudgetMs: safeNumber(value.totalBudgetMs),
+    chunkTimeoutMs: safeNumber(value.chunkTimeoutMs),
+    chunks,
+  };
+}
+
+function safeScorebugDebug(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const safeRoi = (roi) => roi && typeof roi === "object" && !Array.isArray(roi)
+    ? {
+        regionId: sanitizeText(roi.regionId || "scoreboard_region", 80),
+        layoutId: roi.layoutId ? sanitizeText(roi.layoutId, 80) : null,
+        observationCount: safeNumber(roi.observationCount),
+        readableObservationCount: safeNumber(roi.readableObservationCount),
+        scoreChangeCount: safeNumber(roi.scoreChangeCount),
+        diagnosis: roi.diagnosis ? sanitizeText(roi.diagnosis, 80) : null,
+        reasonCodes: safeStringList(roi.reasonCodes, 8, 80),
+      }
+    : null;
+  return {
+    attemptedRoiCount: safeNumber(value.attemptedRoiCount),
+    attemptedObservationCount: safeNumber(value.attemptedObservationCount),
+    textPresentObservationCount: safeNumber(value.textPresentObservationCount),
+    readableObservationCount: safeNumber(value.readableObservationCount),
+    state: sanitizeText(value.state || "unknown", 80),
+    nextAction: sanitizeText(value.nextAction || "", 180) || null,
+    qaRecommended: Boolean(value.qaRecommended),
+    reasonCodes: safeStringList(value.reasonCodes, 10, 80),
+    selectedRoi: safeRoi(value.selectedRoi),
+    rejectedRois: Array.isArray(value.rejectedRois)
+      ? value.rejectedRois.map(safeRoi).filter(Boolean).slice(0, 8)
+      : [],
+  };
+}
+
+function safeScoreboardOcrSnapshot(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const summary = value.summary && typeof value.summary === "object" && !Array.isArray(value.summary)
+    ? value.summary
+    : {};
+  return {
+    providerMode: sanitizeText(value.providerMode || "scoreboard-ocr", 80),
+    fallbackUsed: Boolean(value.fallbackUsed),
+    confidence: safeNumber(value.confidence),
+    evidenceCount: safeNumber(summary.evidenceCount),
+    scoreChangeCount: safeNumber(summary.scoreChangeCount),
+    scoreRevertedCount: safeNumber(summary.scoreRevertedCount),
+    ambiguousCount: safeNumber(summary.ambiguousCount),
+    unreadableCount: safeNumber(summary.unreadableCount),
+    sampledFrameCount: safeNumber(summary.sampledFrameCount),
+    regionCount: safeNumber(summary.regionCount),
+    regionIdsUsed: safeStringList(summary.regionIdsUsed, 8, 80),
+    preprocessingVariantCount: safeNumber(summary.preprocessingVariantCount),
+    chunkSummary: safeOcrChunkSummary(value.chunkSummary || summary.chunkSummary),
+    scorebugDebug: safeScorebugDebug(summary.scorebugDebug),
+  };
+}
+
 function safeGoalOutcome(goalOutcome) {
   if (!goalOutcome || typeof goalOutcome !== "object") return null;
   return {
@@ -1019,6 +1102,7 @@ function safeJobSnapshot(job) {
     progressMeta,
     exportId: job.exportId || null,
     error: safeReportError(job.error),
+    scoreboardOcr: safeScoreboardOcrSnapshot(job.scoreboardOcr),
     videoOutputQA,
   };
 }
