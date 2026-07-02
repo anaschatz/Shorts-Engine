@@ -199,6 +199,64 @@ function safeScoreChangeAnchor(value = {}, index = 0) {
   };
 }
 
+function safeOcrChunkSummary(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const chunks = Array.isArray(value.chunks) ? value.chunks : [];
+  return {
+    mode: safeString(value.mode || "chunked_scorebug_ocr", 60),
+    chunkCount: safeNumber(value.chunkCount),
+    scannedChunks: safeNumber(value.scannedChunks),
+    skippedChunks: safeNumber(value.skippedChunks),
+    scannedDurationSeconds: safeNumber(value.scannedDurationSeconds),
+    discoveredScoreChanges: safeNumber(value.discoveredScoreChanges),
+    totalBudgetMs: safeNumber(value.totalBudgetMs),
+    chunkTimeoutMs: safeNumber(value.chunkTimeoutMs),
+    chunks: chunks.map((chunk, index) => ({
+      index: safeNumber(chunk && chunk.index) || index + 1,
+      start: safeNumber(chunk && chunk.start),
+      end: safeNumber(chunk && chunk.end),
+      status: safeString(chunk && chunk.status, 40),
+      sampledFrameCount: safeNumber(chunk && chunk.sampledFrameCount),
+      evidenceCount: safeNumber(chunk && chunk.evidenceCount),
+      scoreChangeCount: safeNumber(chunk && chunk.scoreChangeCount),
+      skippedReason: chunk && chunk.skippedReason ? safeString(chunk.skippedReason, 80) : null,
+    })).slice(0, 40),
+  };
+}
+
+function safeProgressMeta(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    phase: safeString(value.phase || "", 40) || null,
+    step: safeString(value.step || "", 80) || null,
+    substep: safeString(value.substep || "", 80) || null,
+    longSource: safeBoolean(value.longSource),
+    scorebugFirst: safeBoolean(value.scorebugFirst),
+    budgetMs: safeNumber(value.budgetMs),
+    chunkIndex: safeNumber(value.chunkIndex),
+    chunkCount: safeNumber(value.chunkCount),
+    chunkStart: safeNumber(value.chunkStart),
+    chunkEnd: safeNumber(value.chunkEnd),
+    scannedChunks: safeNumber(value.scannedChunks),
+    discoveredScoreChanges: safeNumber(value.discoveredScoreChanges),
+    elapsedMs: safeNumber(value.elapsedMs),
+    totalBudgetMs: safeNumber(value.totalBudgetMs),
+    chunkTimeoutMs: safeNumber(value.chunkTimeoutMs),
+  };
+}
+
+function hasProgressMetaFields(value) {
+  if (!value || typeof value !== "object") return false;
+  return Boolean(
+    value.step ||
+      value.substep ||
+      value.chunkIndex !== null ||
+      value.chunkCount !== null ||
+      value.scannedChunks !== null ||
+      value.discoveredScoreChanges !== null,
+  );
+}
+
 function safeMissingEvidenceCandidate(value = {}, index = 0) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return {
@@ -212,7 +270,7 @@ function safeMissingEvidenceCandidate(value = {}, index = 0) {
   };
 }
 
-function safeScoreboardOcrEvent(value = {}) {
+function safeScoreboardOcrEvent(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const safeQaReport = value.qaReport && typeof value.qaReport === "object" && !Array.isArray(value.qaReport)
     ? {
@@ -238,6 +296,7 @@ function safeScoreboardOcrEvent(value = {}) {
     unreadableCount: safeNumber(value.unreadableCount),
     regionIdsUsed: safeStringList(value.regionIdsUsed, 8, 80),
     preprocessingVariantCount: safeNumber(value.preprocessingVariantCount),
+    chunkSummary: safeOcrChunkSummary(value.chunkSummary),
     qaReport: safeQaReport,
     scorebugDebug: value.scorebugDebug && typeof value.scorebugDebug === "object" && !Array.isArray(value.scorebugDebug)
       ? {
@@ -383,6 +442,7 @@ function sanitizeServerEvents(events = []) {
     service: event.service || null,
     goalDiscovery: event.goalDiscovery || null,
     scoreboardOcr: safeScoreboardOcrEvent(event.scoreboardOcr),
+    progressMeta: safeProgressMeta(event.progressMeta),
   }));
 }
 
@@ -1065,6 +1125,11 @@ function latestScoreboardOcrEvent(serverEvents = []) {
   return [...serverEvents].reverse().find((event) => event && event.scoreboardOcr) || null;
 }
 
+function latestProgressMetaEvent(serverEvents = []) {
+  if (!Array.isArray(serverEvents)) return null;
+  return [...serverEvents].reverse().find((event) => event && event.progressMeta) || null;
+}
+
 function stableScoreChangeCountFromOcr(scoreboardOcr = null) {
   if (!scoreboardOcr || typeof scoreboardOcr !== "object") return 0;
   return (Array.isArray(scoreboardOcr.scoreTimeline) ? scoreboardOcr.scoreTimeline : [])
@@ -1113,6 +1178,7 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
   const ocrEvent = latestScoreboardOcrEvent(serverEvents);
   const scoreboardOcr = ocrEvent?.scoreboardOcr || null;
   const smokeFailure = smoke?.failedCases?.[0] || null;
+  const serverProgressMeta = latestProgressMetaEvent(serverEvents)?.progressMeta || null;
   const smokeFailureStep = Array.isArray(smoke?.steps)
     ? [...smoke.steps].reverse().find((step) => step && step.status === "failed")
     : null;
@@ -1155,6 +1221,35 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
     0;
   const stableScoreChangeCount = safeNumber(discovery && discovery.stableScoreChangeCount) ??
     stableScoreChangeCountFromOcr(scoreboardOcr);
+  const progressMeta = smokeFailure && smokeFailure.currentJob && smokeFailure.currentJob.progressMeta
+    ? smokeFailure.currentJob.progressMeta
+    : serverProgressMeta
+      ? serverProgressMeta
+    : null;
+  const ocrChunkSummary = scoreboardOcr && scoreboardOcr.chunkSummary
+    ? scoreboardOcr.chunkSummary
+    : progressMeta && progressMeta.chunkCount
+      ? {
+          mode: "chunked_scorebug_first_ocr",
+          chunkCount: safeNumber(progressMeta.chunkCount),
+          scannedChunks: safeNumber(progressMeta.scannedChunks),
+          skippedChunks: null,
+          scannedDurationSeconds: null,
+          discoveredScoreChanges: safeNumber(progressMeta.discoveredScoreChanges),
+          totalBudgetMs: safeNumber(progressMeta.totalBudgetMs),
+          chunkTimeoutMs: safeNumber(progressMeta.chunkTimeoutMs),
+          chunks: [{
+            index: safeNumber(progressMeta.chunkIndex),
+            start: safeNumber(progressMeta.chunkStart),
+            end: safeNumber(progressMeta.chunkEnd),
+            status: smokeFailure?.code === "SCOREBOARD_OCR_TIMEOUT" ? "timed_out" : "active",
+            sampledFrameCount: null,
+            evidenceCount: null,
+            scoreChangeCount: null,
+            skippedReason: smokeFailure?.code || null,
+          }],
+        }
+      : null;
   const countedGoalEventCount = safeNumber(discovery && discovery.countedGoalEventCount) ??
     safeNumber(discovery && discovery.matchEventTruthCountedGoalEventCount) ??
     0;
@@ -1194,6 +1289,7 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
     scoreboardOcrAttempted,
     scoreboardOcrEnabled,
     scoreboardOcrProviderMode: discovery?.scoreboardOcrProviderMode || scoreboardOcr?.providerMode || null,
+    ocrChunkSummary,
     scorebugDebug: scoreboardOcr?.scorebugDebug || null,
     scoreboardObservationCount,
     scoreboardSampledFrameCount: safeNumber(discovery && discovery.scoreboardSampledFrameCount) ??
@@ -1587,6 +1683,10 @@ function startServer(port, env) {
           code: parsed.code || null,
           service: parsed.service || null,
         };
+        const parsedProgressMeta = safeProgressMeta(parsed.progressMeta || parsed);
+        if (hasProgressMetaFields(parsedProgressMeta)) {
+          event.progressMeta = parsedProgressMeta;
+        }
         if (parsed.event === "valid_goal_selection_empty") {
           event.goalDiscovery = {
             scoreboardOcrAttempted: safeBoolean(parsed.scoreboardOcrAttempted),
@@ -1658,6 +1758,7 @@ function startServer(port, env) {
             unreadableCount: safeNumber(parsed.unreadableCount),
             regionIdsUsed: safeStringList(parsed.regionIdsUsed, 8, 80),
             preprocessingVariantCount: safeNumber(parsed.preprocessingVariantCount),
+            chunkSummary: safeOcrChunkSummary(parsed.chunkSummary),
             scorebugDebug: parsed.scorebugDebug && typeof parsed.scorebugDebug === "object"
               ? safeScoreboardOcrEvent({ scorebugDebug: parsed.scorebugDebug }).scorebugDebug
               : null,

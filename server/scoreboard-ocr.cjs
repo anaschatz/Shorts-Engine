@@ -29,7 +29,7 @@ const {
 } = require("./scorebug-calibration.cjs");
 const { visualReasonCodesForWindow } = require("./vision.cjs");
 
-const DEFAULT_SCOREBOARD_OCR_TIMEOUT_MS = 10000;
+const DEFAULT_SCOREBOARD_OCR_TIMEOUT_MS = 15000;
 const MAX_SCOREBOARD_OCR_FRAMES = 48;
 const MAX_SCOREBOARD_REGIONS = 6;
 const MAX_SCOREBOARD_OCR_CROPS = 144;
@@ -369,7 +369,20 @@ function mediaSignalTimes(mediaSignals = {}) {
   return times;
 }
 
-function selectOcrSamplingWindows({ frames = [], visualSignals = {}, candidateWindows = [], mediaSignals = {}, metadata = {} } = {}) {
+function explicitOcrSamplingWindows({ ocrSamplingWindows = [], metadata = {} } = {}) {
+  const rawWindows = Array.isArray(ocrSamplingWindows) ? ocrSamplingWindows : [];
+  if (!rawWindows.length) return null;
+  return rawWindows
+    .map((window) => normalizeOcrSamplingWindow(window, metadata))
+    .filter(Boolean)
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .slice(0, MAX_SCOREBOARD_OCR_FRAMES);
+}
+
+function selectOcrSamplingWindows({ frames = [], visualSignals = {}, candidateWindows = [], mediaSignals = {}, metadata = {}, ocrSamplingWindows = [] } = {}) {
+  const explicitWindows = explicitOcrSamplingWindows({ ocrSamplingWindows, metadata });
+  if (explicitWindows) return explicitWindows;
+
   const duration = seconds(metadata.durationSeconds, 0);
   const windows = [];
   if (duration > 0) {
@@ -585,6 +598,32 @@ function normalizeQaReportSummary(value = {}) {
   };
 }
 
+function normalizeScoreboardOcrChunkSummary(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || hasUnsafeValue(value)) return null;
+  const chunks = Array.isArray(value.chunks) ? value.chunks : [];
+  const safeChunk = (chunk = {}, index = 0) => ({
+    index: Math.max(1, Math.min(100, Math.round(Number(chunk.index || index + 1)))),
+    start: round(clamp(chunk.start, 0, 24 * 60 * 60)),
+    end: round(clamp(chunk.end, 0, 24 * 60 * 60)),
+    status: sanitizeText(chunk.status || "unknown", 40),
+    sampledFrameCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES, Math.round(Number(chunk.sampledFrameCount || 0)))),
+    evidenceCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES, Math.round(Number(chunk.evidenceCount || 0)))),
+    scoreChangeCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES, Math.round(Number(chunk.scoreChangeCount || 0)))),
+    skippedReason: chunk.skippedReason ? sanitizeText(chunk.skippedReason, 80) : null,
+  });
+  return {
+    mode: sanitizeText(value.mode || "chunked_scorebug_ocr", 60),
+    chunkCount: Math.max(0, Math.min(100, Math.round(Number(value.chunkCount || chunks.length || 0)))),
+    scannedChunks: Math.max(0, Math.min(100, Math.round(Number(value.scannedChunks || 0)))),
+    skippedChunks: Math.max(0, Math.min(100, Math.round(Number(value.skippedChunks || 0)))),
+    scannedDurationSeconds: round(clamp(value.scannedDurationSeconds, 0, 24 * 60 * 60)),
+    discoveredScoreChanges: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES, Math.round(Number(value.discoveredScoreChanges || 0)))),
+    totalBudgetMs: Math.max(0, Math.min(60 * 60 * 1000, Math.round(Number(value.totalBudgetMs || 0)))),
+    chunkTimeoutMs: Math.max(0, Math.min(60 * 60 * 1000, Math.round(Number(value.chunkTimeoutMs || 0)))),
+    chunks: chunks.map(safeChunk).slice(0, 40),
+  };
+}
+
 function summarizeDigitReaderRows(rows = []) {
   const safeRows = Array.isArray(rows) ? rows : [];
   const statuses = safeRows.reduce((acc, row) => {
@@ -722,6 +761,7 @@ function validateScoreboardOcrOutput(output = {}, metadata = {}) {
   const qaReport = normalizeQaReportSummary(output.qaReport);
   const roiCalibration = normalizeRoiCalibrationSummary(output.roiCalibration || output.scorebugRoiCalibration);
   const scorebugDebug = normalizeScorebugDebugSummary(output.scorebugDebug || output.scorebugDebugSummary);
+  const chunkSummary = normalizeScoreboardOcrChunkSummary(output.chunkSummary || output.scoreboardOcrChunkSummary);
   return {
     providerMode: sanitizeText(output.providerMode || "deterministic-scoreboard-ocr", 60),
     fallbackUsed: Boolean(output.fallbackUsed || evidence.length === 0),
@@ -744,8 +784,10 @@ function validateScoreboardOcrOutput(output = {}, metadata = {}) {
       scorebugDebug,
       scoreTimeline,
       qaReport,
+      chunkSummary,
       fallbackUsed: Boolean(output.fallbackUsed || evidence.length === 0),
     },
+    chunkSummary,
   };
 }
 
@@ -1384,6 +1426,7 @@ async function extractOcrFramesFromSource({
   visualSignals = {},
   candidateWindows = [],
   mediaSignals = {},
+  ocrSamplingWindows = [],
   ffmpegRunner = runFfmpeg,
   signal = null,
 } = {}) {
@@ -1391,7 +1434,7 @@ async function extractOcrFramesFromSource({
   if (ffmpegRunner === runFfmpeg && !commandAvailable(CONFIG.ffmpegBin)) return [];
   const safeInputPath = assertProcessingInputPath(inputPath);
   const safeOutputDir = assertStoragePath(outputDir, "staging");
-  const windows = selectOcrSamplingWindows({ frames, visualSignals, candidateWindows, mediaSignals, metadata });
+  const windows = selectOcrSamplingWindows({ frames, visualSignals, candidateWindows, mediaSignals, metadata, ocrSamplingWindows });
   if (!windows.length) return [];
   mkdirSync(safeOutputDir, { recursive: true });
   const dimensions = scaledOcrFrameDimensions(metadata);
@@ -2071,6 +2114,7 @@ async function analyzeScoreboardOcr(input = {}) {
 
 function publicScoreboardOcr(scoreboardOcr) {
   const safe = scoreboardOcr && typeof scoreboardOcr === "object" ? scoreboardOcr : {};
+  const chunkSummary = normalizeScoreboardOcrChunkSummary(safe.chunkSummary || (safe.summary && safe.summary.chunkSummary));
   return {
     providerMode: sanitizeText(safe.providerMode || "deterministic-scoreboard-ocr", 60),
     fallbackUsed: Boolean(safe.fallbackUsed),
@@ -2093,6 +2137,7 @@ function publicScoreboardOcr(scoreboardOcr) {
           roiCalibration: normalizeRoiCalibrationSummary(safe.summary.roiCalibration),
           scorebugDebug: normalizeScorebugDebugSummary(safe.summary.scorebugDebug),
           qaReport: normalizeQaReportSummary(safe.summary.qaReport),
+          chunkSummary,
           scoreTimeline: Array.isArray(safe.summary.scoreTimeline)
             ? safe.summary.scoreTimeline.map((item) => ({
                 timestamp: Number(item.timestamp || 0),
@@ -2115,6 +2160,7 @@ function publicScoreboardOcr(scoreboardOcr) {
         }
       : null,
     qaReport: normalizeQaReportSummary(safe.qaReport),
+    chunkSummary,
     evidence: Array.isArray(safe.evidence)
       ? safe.evidence.map((item) => ({
           id: sanitizeText(item.id, 80),
@@ -2169,6 +2215,7 @@ module.exports = {
   deterministicScoreboardOcr,
   extractOcrFramesFromSource,
   normalizeRegion,
+  normalizeScoreboardOcrChunkSummary,
   publicScoreboardOcr,
   scoreboardOcrHealth,
   scoreboardOcrPreprocessVariants,

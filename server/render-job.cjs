@@ -9,7 +9,7 @@ const { analyzeMatchEventTruth, publicMatchEventTruth } = require("./match-event
 const { sanitizeText } = require("./media.cjs");
 const { extractAudio, renderShort } = require("./render.cjs");
 const { loadOcrQaCalibration, publicOcrQaCalibration } = require("./ocr-qa-calibration.cjs");
-const { analyzeScoreboardOcr, publicScoreboardOcr } = require("./scoreboard-ocr.cjs");
+const { analyzeScoreboardOcr, publicScoreboardOcr, validateScoreboardOcrOutput } = require("./scoreboard-ocr.cjs");
 const { chooseTranscriptionProvider } = require("./transcription.cjs");
 const { assertStoragePath, storagePath, writeJsonAtomic } = require("./storage.cjs");
 const { analyzeTracking, publicTrackingProviderOutput } = require("./tracking-provider.cjs");
@@ -20,6 +20,10 @@ const { isLocalVideoProofSource } = require("./staging-smoke-metadata.cjs");
 
 const SCOREBUG_FIRST_OCR_BUDGET_MS = 45_000;
 const VISUAL_WINDOW_OCR_BUDGET_MS = 30_000;
+const SCOREBUG_FIRST_CHUNK_SECONDS = 90;
+const SCOREBUG_FIRST_CHUNK_FRAME_COUNT = 4;
+const SCOREBUG_FIRST_CHUNK_TIMEOUT_MS = 15_000;
+const SCOREBUG_FIRST_MAX_TOTAL_OCR_BUDGET_MS = 180_000;
 
 function isRegularFile(filePath) {
   try {
@@ -518,6 +522,335 @@ function mergeCandidateWindows(primary = [], secondary = [], metadata = {}, maxW
   return selectCandidateWindowCoverage(merged, Number(metadata.durationSeconds || 0), maxWindows);
 }
 
+function roundNumber(value, digits = 2) {
+  const factor = 10 ** digits;
+  return Math.round((Number(value) || 0) * factor) / factor;
+}
+
+function clampNumber(value, min, max, fallback = min) {
+  const parsed = Number(value);
+  const safe = Number.isFinite(parsed) ? parsed : fallback;
+  return Math.min(max, Math.max(min, safe));
+}
+
+function candidateWindowOverlapsChunk(window = {}, chunk = {}) {
+  const time = candidateWindowTime(window);
+  if (Number.isFinite(time)) return time >= chunk.start && time <= chunk.end;
+  const start = Number(window.start);
+  const end = Number(window.end);
+  return Number.isFinite(start) && Number.isFinite(end) && end >= chunk.start && start <= chunk.end;
+}
+
+function buildChunkSamplingWindows({ chunk, metadata = {}, candidateWindows = [], frameCount = SCOREBUG_FIRST_CHUNK_FRAME_COUNT } = {}) {
+  const duration = Number(metadata.durationSeconds || 0);
+  const start = clampNumber(chunk.start, 0, duration || chunk.end, 0);
+  const end = clampNumber(chunk.end, start + 1, duration || chunk.end, start + 1);
+  const chunkDuration = Math.max(1, end - start);
+  const windows = [];
+  const pushWindow = (time, input = {}) => {
+    const timestamp = clampNumber(time, start, end, start);
+    windows.push({
+      timestamp: roundNumber(timestamp),
+      start: roundNumber(clampNumber(input.start ?? timestamp - 1.2, start, end, start)),
+      end: roundNumber(clampNumber(input.end ?? timestamp + 1.2, start, end, end)),
+      confidence: roundNumber(clampNumber(input.confidence ?? 0.58, 0.05, 0.98, 0.58)),
+      source: sanitizeText(input.source || "scorebug_chunk_periodic_sample", 48),
+      visualHints: Array.isArray(input.visualHints)
+        ? input.visualHints.map((hint) => sanitizeText(hint, 48)).filter(Boolean).slice(0, 4)
+        : [],
+    });
+  };
+  const baseFrameCount = Math.max(2, Math.min(8, Math.round(Number(frameCount) || SCOREBUG_FIRST_CHUNK_FRAME_COUNT)));
+  for (let index = 0; index < baseFrameCount; index += 1) {
+    pushWindow(start + ((index + 0.5) / baseFrameCount) * chunkDuration, {
+      confidence: 0.54,
+      source: "scorebug_chunk_periodic_sample",
+    });
+  }
+  const inChunkCandidates = (Array.isArray(candidateWindows) ? candidateWindows : [])
+    .filter((window) => candidateWindowOverlapsChunk(window, { start, end }))
+    .sort((a, b) => candidateWindowScore(b) - candidateWindowScore(a))
+    .slice(0, 3);
+  for (const candidate of inChunkCandidates) {
+    const time = candidateWindowTime(candidate);
+    if (!Number.isFinite(time)) continue;
+    for (const offset of [-4, 0, 8]) {
+      pushWindow(time + offset, {
+        start: Number(candidate.start),
+        end: Number(candidate.end),
+        confidence: Math.max(0.6, Number(candidate.confidence || 0.6)),
+        source: "scorebug_chunk_candidate_sample",
+        visualHints: candidate.visualHints,
+      });
+    }
+  }
+  const deduped = [];
+  for (const window of windows.sort((a, b) => a.timestamp - b.timestamp)) {
+    if (deduped.some((existing) => Math.abs(existing.timestamp - window.timestamp) < 1.25)) continue;
+    deduped.push(window);
+  }
+  return deduped.slice(0, 12);
+}
+
+function buildScorebugOcrChunks({ metadata = {}, candidateWindows = [], config = {} } = {}) {
+  const duration = Math.max(0, Number(metadata.durationSeconds || 0));
+  if (!duration) return [];
+  const chunkSeconds = clampNumber(config.chunkSeconds, 30, 180, SCOREBUG_FIRST_CHUNK_SECONDS);
+  const frameCount = clampNumber(config.framesPerChunk, 2, 8, SCOREBUG_FIRST_CHUNK_FRAME_COUNT);
+  const maxChunks = Math.max(1, Math.min(40, Math.ceil(duration / chunkSeconds)));
+  const chunks = [];
+  for (let index = 0; index < maxChunks; index += 1) {
+    const start = roundNumber(index * chunkSeconds);
+    const end = roundNumber(Math.min(duration, (index + 1) * chunkSeconds));
+    if (end <= start) continue;
+    const chunk = { index: index + 1, start, end };
+    chunks.push({
+      ...chunk,
+      samplingWindows: buildChunkSamplingWindows({ chunk, metadata, candidateWindows, frameCount }),
+    });
+  }
+  return chunks;
+}
+
+function chunkTimeoutMsFor({ totalBudgetMs, configuredTimeoutMs }) {
+  const configured = Number(configuredTimeoutMs);
+  if (Number.isFinite(configured) && configured > 0) {
+    return Math.max(250, Math.min(15_000, Math.min(totalBudgetMs, configured)));
+  }
+  const budget = Number(totalBudgetMs || SCOREBUG_FIRST_OCR_BUDGET_MS);
+  if (Number.isFinite(budget) && budget > 0 && budget < SCOREBUG_FIRST_OCR_BUDGET_MS) {
+    return Math.max(250, Math.min(15_000, Math.floor(budget)));
+  }
+  return SCOREBUG_FIRST_CHUNK_TIMEOUT_MS;
+}
+
+function totalChunkedOcrBudgetMs({ totalBudgetMs, chunkCount, chunkTimeoutMs, configuredTotalBudgetMs }) {
+  const configured = Number(configuredTotalBudgetMs);
+  if (Number.isFinite(configured) && configured > 0) {
+    return Math.max(250, Math.min(SCOREBUG_FIRST_MAX_TOTAL_OCR_BUDGET_MS, Math.floor(configured)));
+  }
+  const budget = Number(totalBudgetMs || SCOREBUG_FIRST_OCR_BUDGET_MS);
+  if (Number.isFinite(budget) && budget > 0 && budget < SCOREBUG_FIRST_OCR_BUDGET_MS) {
+    return Math.max(250, Math.floor(budget));
+  }
+  const scaledBudget = Math.max(
+    Number.isFinite(budget) ? budget : SCOREBUG_FIRST_OCR_BUDGET_MS,
+    Math.max(1, Number(chunkCount) || 1) * Math.max(250, Number(chunkTimeoutMs) || SCOREBUG_FIRST_CHUNK_TIMEOUT_MS),
+  );
+  return Math.min(SCOREBUG_FIRST_MAX_TOTAL_OCR_BUDGET_MS, Math.floor(scaledBudget));
+}
+
+function evidenceKey(item = {}) {
+  return [
+    Number(item.timestamp || 0).toFixed(2),
+    item.status || "",
+    item.scoreBefore || "",
+    item.scoreAfter || "",
+    item.source || "",
+  ].join("|");
+}
+
+function aggregateChunkedScoreboardOcr(outputs = [], { metadata = {}, chunkSummary = null } = {}) {
+  const safeOutputs = (Array.isArray(outputs) ? outputs : []).filter((output) => output && typeof output === "object");
+  const evidence = [];
+  const seenEvidence = new Set();
+  for (const output of safeOutputs) {
+    for (const item of Array.isArray(output.evidence) ? output.evidence : []) {
+      const key = evidenceKey(item);
+      if (seenEvidence.has(key)) continue;
+      seenEvidence.add(key);
+      evidence.push(item);
+    }
+  }
+  evidence.sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
+  const regionIdsUsed = [...new Set(safeOutputs
+    .flatMap((output) => output.summary && Array.isArray(output.summary.regionIdsUsed) ? output.summary.regionIdsUsed : [])
+    .map((id) => sanitizeText(id, 64))
+    .filter(Boolean))]
+    .slice(0, 12);
+  const result = validateScoreboardOcrOutput({
+    providerMode: "chunked-scoreboard-ocr",
+    fallbackUsed: !evidence.length || safeOutputs.every((output) => output.fallbackUsed),
+    confidence: safeOutputs.reduce((max, output) => Math.max(max, Number(output.confidence || 0)), 0),
+    evidence,
+    sampledFrameCount: safeOutputs.reduce((sum, output) => sum + Number(output.summary && output.summary.sampledFrameCount || 0), 0),
+    regionCount: safeOutputs.reduce((sum, output) => sum + Number(output.summary && output.summary.regionCount || 0), 0),
+    regionIdsUsed,
+    preprocessingVariantCount: safeOutputs.reduce((max, output) => Math.max(max, Number(output.summary && output.summary.preprocessingVariantCount || 0)), 0),
+    chunkSummary,
+  }, metadata);
+  return {
+    ...result,
+    chunkSummary: result.chunkSummary || chunkSummary,
+    summary: {
+      ...result.summary,
+      chunkSummary: result.summary && result.summary.chunkSummary || chunkSummary,
+    },
+  };
+}
+
+async function runChunkedScorebugFirstOcr({
+  deps,
+  context,
+  mediaSignals,
+  visualCandidateWindows,
+  signal,
+  jobs,
+  job,
+  project,
+  requestId,
+  totalBudgetMs,
+} = {}) {
+  const startedMs = Date.now();
+  const chunkConfig = deps.scoreboardOcrChunking && typeof deps.scoreboardOcrChunking === "object"
+    ? deps.scoreboardOcrChunking
+    : {};
+  const chunks = buildScorebugOcrChunks({
+    metadata: context.metadata,
+    candidateWindows: visualCandidateWindows,
+    config: chunkConfig,
+  });
+  const chunkTimeoutMs = chunkTimeoutMsFor({
+    totalBudgetMs,
+    configuredTimeoutMs: chunkConfig.chunkTimeoutMs,
+  });
+  const effectiveTotalBudgetMs = totalChunkedOcrBudgetMs({
+    totalBudgetMs,
+    chunkCount: chunks.length,
+    chunkTimeoutMs,
+    configuredTotalBudgetMs: chunkConfig.totalBudgetMs,
+  });
+  const outputs = [];
+  const chunkReports = [];
+  let discoveredScoreChanges = 0;
+
+  for (const chunk of chunks) {
+    const elapsedMs = Date.now() - startedMs;
+    if (elapsedMs >= effectiveTotalBudgetMs) {
+      throw new AppError("SCOREBOARD_OCR_TIMEOUT", SAFE_MESSAGES.AI_OUTPUT_INVALID, 504, {
+        phase: "analysis",
+        step: "run_scorebug_ocr",
+        substep: "scorebug_first_total_budget",
+        chunkIndex: chunk.index,
+        chunkCount: chunks.length,
+        scannedChunks: outputs.length,
+        discoveredScoreChanges,
+        elapsedMs,
+        timeoutMs: effectiveTotalBudgetMs,
+      });
+    }
+    updateJobStep({
+      jobs,
+      job,
+      projectId: project.id,
+      requestId,
+      logger: deps.logger,
+      progress: Math.min(29, 28 + Math.floor((chunk.index - 1) / Math.max(1, chunks.length) * 2)),
+      step: "run_scorebug_ocr",
+      substep: "scorebug_first_chunk",
+      longSource: true,
+      scorebugFirst: true,
+      budgetMs: chunkTimeoutMs,
+      progressDetails: {
+        chunkIndex: chunk.index,
+        chunkCount: chunks.length,
+        chunkStart: chunk.start,
+        chunkEnd: chunk.end,
+        scannedChunks: outputs.length,
+        discoveredScoreChanges,
+        elapsedMs,
+        totalBudgetMs: effectiveTotalBudgetMs,
+        chunkTimeoutMs,
+      },
+    });
+    const remainingBudgetMs = Math.max(250, effectiveTotalBudgetMs - elapsedMs);
+    const effectiveChunkTimeoutMs = Math.min(chunkTimeoutMs, remainingBudgetMs);
+    const result = await runStepWithTimeout(
+      (stepSignal) => deps.analyzeScoreboardOcr({
+        inputPath: context.inputPath,
+        metadata: context.metadata,
+        candidateWindows: chunk.samplingWindows,
+        mediaSignals,
+        visualSignals: { windows: [] },
+        frames: [],
+        frameSummary: null,
+        ocrSamplingWindows: chunk.samplingWindows,
+        signal: stepSignal,
+        timeoutMs: Math.min(effectiveChunkTimeoutMs, SCOREBUG_FIRST_CHUNK_TIMEOUT_MS),
+      }),
+      {
+        signal,
+        timeoutMs: effectiveChunkTimeoutMs,
+        code: "SCOREBOARD_OCR_TIMEOUT",
+        details: {
+          phase: "analysis",
+          step: "run_scorebug_ocr",
+          substep: "scorebug_first_chunk",
+          chunkIndex: chunk.index,
+          chunkCount: chunks.length,
+          chunkStart: chunk.start,
+          chunkEnd: chunk.end,
+          scannedChunks: outputs.length,
+          discoveredScoreChanges,
+          elapsedMs: Date.now() - startedMs,
+          timeoutMs: effectiveChunkTimeoutMs,
+          totalBudgetMs: effectiveTotalBudgetMs,
+          chunkTimeoutMs,
+        },
+      },
+    );
+    outputs.push(result);
+    discoveredScoreChanges += stableScoreChangeCount(result);
+    chunkReports.push({
+      index: chunk.index,
+      start: chunk.start,
+      end: chunk.end,
+      status: "completed",
+      sampledFrameCount: Number(result.summary && result.summary.sampledFrameCount || 0),
+      evidenceCount: Number(result.summary && result.summary.evidenceCount || 0),
+      scoreChangeCount: Number(result.summary && result.summary.scoreChangeCount || 0),
+      skippedReason: null,
+    });
+    logInfo(deps.logger, {
+      event: "scoreboard_ocr_chunk_completed",
+      requestId,
+      projectId: project.id,
+      jobId: job.id,
+      step: "run_scorebug_ocr",
+      substep: "scorebug_first_chunk",
+      chunkIndex: chunk.index,
+      chunkCount: chunks.length,
+      chunkStart: chunk.start,
+      chunkEnd: chunk.end,
+      sampledFrameCount: result.summary && result.summary.sampledFrameCount,
+      evidenceCount: result.summary && result.summary.evidenceCount,
+      scoreChangeCount: result.summary && result.summary.scoreChangeCount,
+      discoveredScoreChanges,
+      elapsedMs: Date.now() - startedMs,
+      budgetMs: chunkTimeoutMs,
+      totalBudgetMs: effectiveTotalBudgetMs,
+      logsDownloaded: false,
+      artifactsDownloaded: false,
+    });
+  }
+
+  const chunkSummary = {
+    mode: "chunked_scorebug_first_ocr",
+    chunkCount: chunks.length,
+    scannedChunks: outputs.length,
+    skippedChunks: Math.max(0, chunks.length - outputs.length),
+    scannedDurationSeconds: roundNumber(chunkReports.reduce((sum, chunk) => sum + Math.max(0, Number(chunk.end) - Number(chunk.start)), 0)),
+    discoveredScoreChanges,
+    totalBudgetMs: effectiveTotalBudgetMs,
+    chunkTimeoutMs,
+    chunks: chunkReports,
+  };
+  return aggregateChunkedScoreboardOcr(outputs, {
+    metadata: context.metadata,
+    chunkSummary,
+  });
+}
+
 function validateHighlightResult(result, metadata = {}) {
   if (!result || typeof result !== "object" || !Array.isArray(result.moments) || result.moments.length === 0) {
     throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
@@ -576,6 +909,7 @@ function updateJobStep({
   longSource = false,
   scorebugFirst = false,
   budgetMs = null,
+  progressDetails = null,
 }) {
   const startedAt = nowIso();
   const progressMeta = {
@@ -587,6 +921,24 @@ function updateJobStep({
     scorebugFirst: Boolean(scorebugFirst),
     budgetMs: Number.isFinite(Number(budgetMs)) ? Number(budgetMs) : null,
   };
+  if (progressDetails && typeof progressDetails === "object" && !Array.isArray(progressDetails)) {
+    const numericKeys = [
+      "chunkIndex",
+      "chunkCount",
+      "chunkStart",
+      "chunkEnd",
+      "scannedChunks",
+      "discoveredScoreChanges",
+      "elapsedMs",
+      "totalBudgetMs",
+      "chunkTimeoutMs",
+    ];
+    for (const key of numericKeys) {
+      if (Number.isFinite(Number(progressDetails[key]))) {
+        progressMeta[key] = Number(progressDetails[key]);
+      }
+    }
+  }
   jobs.update(job, { status: "processing", progress, step, progressMeta });
   logInfo(logger, {
     event: "job_step",
@@ -1005,47 +1357,23 @@ async function runRenderJob(options) {
           logger: deps.logger,
           progress: 26,
           step: "extract_scorebug_frames",
-          substep: "full_source_scorebug_sampling",
-          longSource: true,
-          scorebugFirst: true,
-          budgetMs: 60000,
-        });
-        updateJobStep({
-          jobs,
-          job,
-          projectId: project.id,
-          requestId,
-          logger: deps.logger,
-          progress: 28,
-          step: "run_scorebug_ocr",
-          substep: "scorebug_first_stable_change_detection",
+          substep: "chunked_scorebug_sampling_plan",
           longSource: true,
           scorebugFirst: true,
           budgetMs: scorebugFirstOcrBudgetMs,
         });
-        scoreboardOcr = await runStepWithTimeout(
-          (stepSignal) => deps.analyzeScoreboardOcr({
-            inputPath: context.inputPath,
-            metadata: context.metadata,
-            candidateWindows: visualCandidateWindows,
-            mediaSignals,
-            visualSignals: { windows: [] },
-            frames: [],
-            frameSummary: null,
-            signal: stepSignal,
-            timeoutMs: Math.min(scorebugFirstOcrBudgetMs, 15_000),
-          }),
-          {
-            signal,
-            timeoutMs: scorebugFirstOcrBudgetMs,
-            code: "SCOREBOARD_OCR_TIMEOUT",
-            details: {
-              phase: "analysis",
-              step: "run_scorebug_ocr",
-              substep: "scorebug_first_stable_change_detection",
-            },
-          },
-        );
+        scoreboardOcr = await runChunkedScorebugFirstOcr({
+          deps,
+          context,
+          mediaSignals,
+          visualCandidateWindows,
+          signal,
+          jobs,
+          job,
+          project,
+          requestId,
+          totalBudgetMs: scorebugFirstOcrBudgetMs,
+        });
         logInfo(deps.logger, {
           event: "scoreboard_ocr_completed",
           requestId,
@@ -1065,6 +1393,7 @@ async function runRenderJob(options) {
           preprocessingVariantCount: scoreboardOcr.summary && scoreboardOcr.summary.preprocessingVariantCount,
           qaReport: scoreboardOcr.summary && scoreboardOcr.summary.qaReport,
           scorebugDebug: scoreboardOcr.summary && scoreboardOcr.summary.scorebugDebug,
+          chunkSummary: scoreboardOcr.summary && scoreboardOcr.summary.chunkSummary,
           scoreTimeline: scoreboardOcr.summary && scoreboardOcr.summary.scoreTimeline,
           scorebugFirst: true,
         });

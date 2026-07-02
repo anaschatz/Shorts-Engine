@@ -896,6 +896,25 @@ test("scoreboard OCR sampling covers full source and late-game windows", () => {
   assert.equal(windows.some((window) => window.source === "visual_decision_scoreboard_sample"), true);
 });
 
+test("scoreboard OCR explicit sampling windows bypass full-source periodic sampling", () => {
+  const windows = selectOcrSamplingWindows({
+    metadata: { ...metadata, durationSeconds: 644 },
+    ocrSamplingWindows: [
+      { timestamp: 548, start: 546, end: 550, confidence: 0.7, source: "scorebug_chunk_periodic_sample" },
+      { timestamp: 586, start: 584, end: 588, confidence: 0.7, source: "scorebug_chunk_periodic_sample" },
+      { timestamp: 628, start: 626, end: 630, confidence: 0.7, source: "scorebug_chunk_periodic_sample" },
+    ],
+    mediaSignals: {
+      audioPeaks: [{ time: 98, energyScore: 0.99 }, { time: 572, energyScore: 0.99 }],
+    },
+  });
+
+  assert.equal(windows.length, 3);
+  assert.deepEqual(windows.map((window) => window.timestamp), [548, 586, 628]);
+  assert.equal(windows.every((window) => window.source === "scorebug_chunk_periodic_sample"), true);
+  assert.equal(windows.some((window) => window.source === "full_source_periodic_scoreboard_sample"), false);
+});
+
 test("scoreboard OCR sampling keeps enough checkpoints for five-goal YouTube highlights", () => {
   const windows = selectOcrSamplingWindows({
     metadata: { ...metadata, durationSeconds: 644 },

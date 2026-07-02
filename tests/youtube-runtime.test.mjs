@@ -475,11 +475,19 @@ test("youtube smoke failed job report preserves terminal progress substep safely
           progressMeta: {
             phase: "analysis",
             step: "run_scorebug_ocr",
-            substep: "scorebug_first_stable_change_detection",
+            substep: "scorebug_first_chunk",
             startedAt: "2026-07-02T15:00:00.000Z",
             longSource: true,
             scorebugFirst: true,
             budgetMs: 250,
+            chunkIndex: 3,
+            chunkCount: 8,
+            chunkStart: 180,
+            chunkEnd: 270,
+            scannedChunks: 2,
+            discoveredScoreChanges: 1,
+            totalBudgetMs: 45000,
+            chunkTimeoutMs: 250,
           },
           error: { code: "SCOREBOARD_OCR_TIMEOUT", message: "The video analysis failed." },
         },
@@ -492,11 +500,18 @@ test("youtube smoke failed job report preserves terminal progress substep safely
   assert.equal(report.failedCases[0].code, "SCOREBOARD_OCR_TIMEOUT");
   assert.equal(report.failedCases[0].phase, "analysis");
   assert.equal(report.failedCases[0].step, "run_scorebug_ocr");
-  assert.equal(report.failedCases[0].substep, "scorebug_first_stable_change_detection");
+  assert.equal(report.failedCases[0].substep, "scorebug_first_chunk");
   assert.equal(report.failedCases[0].timeoutMs, 250);
+  assert.equal(report.failedCases[0].chunkIndex, 3);
+  assert.equal(report.failedCases[0].chunkCount, 8);
+  assert.equal(report.failedCases[0].chunkStart, 180);
+  assert.equal(report.failedCases[0].chunkEnd, 270);
+  assert.equal(report.failedCases[0].scannedChunks, 2);
+  assert.equal(report.failedCases[0].discoveredScoreChanges, 1);
   assert.equal(report.failedCases[0].nextAction, "reduce-scorebug-ocr-sampling-or-disable-live-scoreboard-ocr-and-rerun-proof");
   assert.equal(report.steps.at(-1).activeStep, "run_scorebug_ocr");
   assert.equal(report.jobLifecycle.at(-1).progressMeta.budgetMs, 250);
+  assert.equal(report.jobLifecycle.at(-1).progressMeta.chunkIndex, 3);
   assert.equal(findSensitiveLeak(report), null);
 });
 
@@ -2185,6 +2200,7 @@ test("youtube live local e2e failure report keeps safe valid-goal discovery coun
     unreadableCount: 1,
     regionIdsUsed: ["scorebug_left_compact", "broadcast_top_band"],
     preprocessingVariantCount: 3,
+    chunkSummary: null,
     qaReport: {
       enabled: true,
       runId: "ocr-scoreboard-test",

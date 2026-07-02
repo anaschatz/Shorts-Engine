@@ -416,8 +416,18 @@ function makeContext(options = {}) {
         windows: [{ start: 2.7, end: 5.1, type: "unknown_visual_action", confidence: 0.72 }],
       };
     },
-    analyzeScoreboardOcr: async ({ frames, visualSignals }) => {
+    analyzeScoreboardOcr: async ({ frames, visualSignals, candidateWindows, ocrSamplingWindows, timeoutMs }) => {
       calls.push("analyze_scoreboard_ocr");
+      context.scoreboardOcrCalls = context.scoreboardOcrCalls || [];
+      context.scoreboardOcrCalls.push({
+        frameCount: Array.isArray(frames) ? frames.length : 0,
+        visualWindowCount: visualSignals && Array.isArray(visualSignals.windows)
+          ? visualSignals.windows.length
+          : 0,
+        candidateWindowCount: Array.isArray(candidateWindows) ? candidateWindows.length : 0,
+        ocrSamplingWindows: Array.isArray(ocrSamplingWindows) ? ocrSamplingWindows : [],
+        timeoutMs,
+      });
       context.scoreboardOcrFrameCount = Array.isArray(frames) ? frames.length : 0;
       context.scoreboardOcrVisualWindowCount = visualSignals && Array.isArray(visualSignals.windows)
         ? visualSignals.windows.length
@@ -715,12 +725,20 @@ test("youtube long-source render uses scorebug-first OCR before visual frame ext
   await runContext(context);
 
   assert.equal(context.job.status, "completed");
-  assert.equal(context.calls.filter((call) => call === "analyze_scoreboard_ocr").length, 1);
+  assert.equal(context.calls.filter((call) => call === "analyze_scoreboard_ocr").length, 8);
   assert.ok(context.calls.indexOf("analyze_scoreboard_ocr") < context.calls.indexOf("extract_sampled_frames"));
   assert.equal(context.scoreboardOcrVisualWindowCount, 0);
+  assert.equal(context.scoreboardOcrCalls.length, 8);
+  assert.equal(context.scoreboardOcrCalls.every((call) => call.ocrSamplingWindows.length > 0), true);
+  assert.equal(context.scoreboardOcrCalls.at(-1).ocrSamplingWindows.some((window) => Number(window.timestamp) >= 585), true);
   assert.equal(context.frameCandidateWindows.some((window) => window.source === "scorebug_first_score_change"), true);
+  assert.equal(context.job.scoreboardOcr.providerMode, "chunked-scoreboard-ocr");
+  assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunkCount, 8);
+  assert.equal(context.job.scoreboardOcr.summary.chunkSummary.scannedChunks, 8);
+  assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks.at(-1).end, 644);
   const stepEvents = context.logs.filter((entry) => entry.event === "job_step");
   assert.equal(stepEvents.some((entry) => entry.step === "run_scorebug_ocr" && entry.progressMeta.scorebugFirst === true), true);
+  assert.equal(stepEvents.some((entry) => entry.progressMeta.chunkIndex === 8), true);
   assert.equal(stepEvents.some((entry) => entry.substep === "scorebug_anchor_visual_windows"), true);
   assert.equal(context.job.progressMeta.longSource, true);
 });
@@ -740,11 +758,100 @@ test("youtube long-source render fails fast when scorebug-first OCR exceeds its 
   assert.equal(context.project.status, "failed");
   assert.equal(context.job.error.code, "SCOREBOARD_OCR_TIMEOUT");
   assert.equal(context.job.progressMeta.step, "run_scorebug_ocr");
-  assert.equal(context.job.progressMeta.substep, "scorebug_first_stable_change_detection");
+  assert.equal(context.job.progressMeta.substep, "scorebug_first_chunk");
+  assert.equal(context.job.progressMeta.chunkIndex, 1);
+  assert.equal(context.job.progressMeta.chunkCount, 8);
+  assert.equal(context.job.progressMeta.chunkStart, 0);
+  assert.equal(context.job.progressMeta.chunkEnd, 90);
   assert.equal(context.job.progressMeta.budgetMs, 250);
   assert.equal(context.calls.includes("extract_sampled_frames"), false);
   assert.equal(context.calls.includes("render_short"), false);
   assert.doesNotMatch(JSON.stringify(context.job.error), /\/Users|storageKey|localPath|secret|stderr|stdout|rawOcr|rawText/i);
+});
+
+test("youtube long-source chunked OCR can discover late score changes", async () => {
+  const truth = countedGoalTruth(1);
+  truth.scoreChanges[0] = {
+    ...truth.scoreChanges[0],
+    changeTime: 612,
+    actionAnchorTime: 603,
+    startScore: "4-0",
+    endScore: "5-0",
+  };
+  const context = makeContext({
+    durationSeconds: 644,
+    metadata: { sourceType: "youtube", videoId: "KxGedHh0Ruc" },
+    matchEventTruth: truth,
+    candidatePlans: [
+      {
+        ...validPlan(),
+        sourceStart: 594,
+        sourceEnd: 616,
+        highlightType: "goal",
+        goalOutcome: validGoalOutcome(612),
+        goalNumber: 1,
+        shotStart: 603,
+        finishTime: 611,
+        confirmationTime: 612,
+        replayUsed: false,
+        replayOnly: false,
+        phaseCoverage: {
+          hasBuildup: true,
+          hasShot: true,
+          hasFinish: true,
+          hasConfirmation: true,
+          replayUsed: false,
+          replayOnly: false,
+        },
+        reasonCodes: ["goal", "scoreboard_ocr_score_change", "visual_ball_in_net", "live_shot_finish_sequence"],
+      },
+    ],
+    dependencies: {
+      analyzeScoreboardOcr: async ({ ocrSamplingWindows }) => {
+        context.calls.push("analyze_scoreboard_ocr");
+        context.scoreboardOcrCalls = context.scoreboardOcrCalls || [];
+        context.scoreboardOcrCalls.push({ ocrSamplingWindows });
+        const foundLateChunk = Array.isArray(ocrSamplingWindows) &&
+          ocrSamplingWindows.some((window) => Number(window.timestamp) >= 600);
+        return {
+          providerMode: "mock-scoreboard-ocr",
+          fallbackUsed: !foundLateChunk,
+          confidence: foundLateChunk ? 0.94 : 0,
+          evidence: foundLateChunk
+            ? [{
+                id: "late_ocr_goal_5",
+                timestamp: 612,
+                start: 610.8,
+                end: 613.2,
+                status: "score_changed",
+                scoreChanged: true,
+                temporalConsistency: true,
+                scoreBefore: "4-0",
+                scoreAfter: "5-0",
+                confidence: 0.94,
+                source: "late_chunk_scorebug",
+              }]
+            : [],
+          summary: {
+            evidenceCount: foundLateChunk ? 1 : 0,
+            scoreChangeCount: foundLateChunk ? 1 : 0,
+            scoreUnchangedCount: 0,
+            ambiguousCount: 0,
+            sampledFrameCount: Array.isArray(ocrSamplingWindows) ? ocrSamplingWindows.length : 0,
+            regionCount: foundLateChunk ? 1 : 0,
+            fallbackUsed: !foundLateChunk,
+          },
+        };
+      },
+    },
+  });
+  await runContext(context);
+
+  assert.equal(context.job.status, "completed", JSON.stringify(context.job.error));
+  assert.equal(context.job.scoreboardOcr.summary.scoreChangeCount, 1);
+  assert.equal(context.job.scoreboardOcr.summary.chunkSummary.scannedChunks, 8);
+  assert.equal(context.frameCandidateWindows.some((window) => window.source === "scorebug_first_score_change" && Number(window.time) === 612), true);
+  assert.equal(context.job.videoOutputQA.coveredGoalCount, 1);
 });
 
 test("render orchestration passes OCR QA calibration into goal evidence analysis", async () => {
