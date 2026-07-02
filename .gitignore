@@ -8,6 +8,9 @@ node_modules/
 OpenViking/
 pm-skills/
 promptfoo/
+ruflo/
+graphify/
+graphify-out/
 demo/results/
 manual-downloads/
 eval/results/*.json

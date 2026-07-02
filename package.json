@@ -4,6 +4,7 @@
   "private": true,
   "description": "Hardened local prototype for the ShortsEngine AI football highlights short-form studio.",
   "scripts": {
+    "agent:tools:doctor": "node tools/release/check-agent-tooling.mjs",
     "build": "node tests/build-smoke.mjs",
     "branch:doctor": "node tools/release/check-branch-protection.mjs",
     "branch:proof": "node tools/release/write-branch-protection-proof.mjs",
