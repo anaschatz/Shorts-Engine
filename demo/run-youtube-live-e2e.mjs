@@ -100,6 +100,16 @@ function parseInteger(value, fallback, min, max, code) {
   return parsed;
 }
 
+function parseLiveProofTimeoutMs(env, fallback = DEFAULT_TIMEOUT_MS) {
+  return parseInteger(
+    rawValue(env, "SHORTSENGINE_YOUTUBE_LIVE_E2E_TIMEOUT_MS"),
+    fallback,
+    1000,
+    15 * 60 * 1000,
+    "YOUTUBE_LIVE_E2E_TIMEOUT_INVALID",
+  );
+}
+
 function delay(ms) {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 }
@@ -348,6 +358,21 @@ function safeScoreboardOcrEvent(value) {
   };
 }
 
+function safeCurrentJobSnapshot(job) {
+  if (!job || typeof job !== "object" || Array.isArray(job)) return null;
+  return {
+    id: job.id ? safeString(job.id, 80) : null,
+    projectId: job.projectId ? safeString(job.projectId, 80) : null,
+    uploadId: job.uploadId ? safeString(job.uploadId, 80) : null,
+    status: job.status ? safeString(job.status, 40) : null,
+    progress: safeNumber(job.progress),
+    step: job.step ? safeString(job.step, 80) : null,
+    progressMeta: safeProgressMeta(job.progressMeta),
+    exportId: job.exportId ? safeString(job.exportId, 80) : null,
+    error: job.error ? safeReportError(job.error) : null,
+  };
+}
+
 function addCheck(checks, name, passed, details = {}) {
   checks.push({ name, passed: Boolean(passed), ...details });
 }
@@ -430,6 +455,7 @@ function safeFailure(error) {
       ? details.missingGoalNumbers.map((goal) => Number(goal)).filter(Number.isFinite).slice(0, 12)
       : [],
     failedReasons: safeStringList(details.failedReasons, 12, 80),
+    currentJob: safeCurrentJobSnapshot(details.currentJob),
   };
 }
 
@@ -1221,9 +1247,12 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
     0;
   const stableScoreChangeCount = safeNumber(discovery && discovery.stableScoreChangeCount) ??
     stableScoreChangeCountFromOcr(scoreboardOcr);
+  const latestSmokeJob = latestJobSnapshotFromSmoke(smoke);
   const progressMeta = smokeFailure && smokeFailure.currentJob && smokeFailure.currentJob.progressMeta
     ? smokeFailure.currentJob.progressMeta
-    : serverProgressMeta
+    : latestSmokeJob && latestSmokeJob.progressMeta
+      ? latestSmokeJob.progressMeta
+    : serverProgressMeta && serverProgressMeta.chunkCount
       ? serverProgressMeta
     : null;
   const ocrChunkSummary = scoreboardOcr && scoreboardOcr.chunkSummary
@@ -1397,6 +1426,10 @@ function safeReport(report) {
     doctor: null,
     smoke: null,
     generatedArtifact: null,
+    outputProof: null,
+    currentJob: null,
+    logsDownloaded: false,
+    artifactsDownloaded: false,
     serverEvents: [],
     failedCases: [{
       name: "youtube_live_e2e_report_no_sensitive_leaks",
@@ -1407,6 +1440,30 @@ function safeReport(report) {
       nextAction: nextActionForCode("YOUTUBE_LIVE_E2E_REPORT_LEAK"),
     }],
   };
+}
+
+function latestJobSnapshotFromSmoke(smoke) {
+  if (!smoke || typeof smoke !== "object") return null;
+  const failedJob = smoke.failedCases?.[0]?.currentJob;
+  if (failedJob) return safeCurrentJobSnapshot(failedJob);
+  const lifecycle = Array.isArray(smoke.jobLifecycle) ? smoke.jobLifecycle : [];
+  const snapshot = [...lifecycle].reverse().find((item) => item && typeof item === "object");
+  return safeCurrentJobSnapshot(snapshot);
+}
+
+function currentJobFromProgressEvent(serverEvents = []) {
+  const progressMeta = latestProgressMetaEvent(serverEvents)?.progressMeta || null;
+  if (!progressMeta) return null;
+  return safeCurrentJobSnapshot({
+    status: "processing",
+    progress: null,
+    step: progressMeta.step || "live_proof",
+    progressMeta,
+  });
+}
+
+function currentJobFromContext({ smoke, serverEvents }) {
+  return latestJobSnapshotFromSmoke(smoke) || currentJobFromProgressEvent(serverEvents);
 }
 
 function buildReport({
@@ -1431,6 +1488,7 @@ function buildReport({
   const normalizedOutputProof = outputProof || (status === "failed"
     ? buildFailedOutputProof({ env: env || {}, source, smoke, serverEvents, staleArtifactCleanup })
     : null);
+  const safeServerEvents = sanitizeServerEvents(serverEvents);
   return safeReport({
     schemaVersion: LIVE_PROOF_SCHEMA_VERSION,
     timestamp: nowIso(),
@@ -1451,10 +1509,52 @@ function buildReport({
     smoke: safeSmokeSummary(smoke),
     generatedArtifact: smoke?.generatedArtifact || null,
     outputProof: normalizedOutputProof,
+    currentJob: status === "failed" ? currentJobFromContext({ smoke, serverEvents: safeServerEvents }) : null,
     staleArtifactCleanup: staleArtifactCleanup || null,
-    serverEvents: sanitizeServerEvents(serverEvents),
+    logsDownloaded: false,
+    artifactsDownloaded: false,
+    serverEvents: safeServerEvents,
     failedCases,
   });
+}
+
+function liveProofTimeoutError({ started, timeoutMs, phase = PHASES.RENDER, step = "live_proof", substep = null }) {
+  return new YouTubeLiveE2EError(
+    "YOUTUBE_LIVE_E2E_TIMEOUT",
+    "Live YouTube E2E exceeded the configured proof timeout.",
+    {
+      phase,
+      step,
+      substep,
+      elapsedMs: Date.now() - started,
+      timeoutMs,
+      nextAction: nextActionForCode("YOUTUBE_LIVE_E2E_TIMEOUT"),
+    },
+  );
+}
+
+async function withLiveProofDeadline(work, { deadlineAt, started, timeoutMs, phase, step, substep = null }) {
+  const remainingMs = Math.max(0, deadlineAt - Date.now());
+  if (remainingMs <= 0) {
+    throw liveProofTimeoutError({ started, timeoutMs, phase, step, substep });
+  }
+  let timeoutId = null;
+  const workPromise = Promise.resolve().then(work);
+  workPromise.catch(() => {
+    // The race may already have failed on timeout. Keep late worker rejection out of process-level noise.
+  });
+  try {
+    return await Promise.race([
+      workPromise,
+      new Promise((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(liveProofTimeoutError({ started, timeoutMs, phase, step, substep }));
+        }, remainingMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
 }
 
 function liveSourceEnv(env) {
@@ -1832,6 +1932,8 @@ async function runYouTubeLiveE2E(options = {}) {
   let outputProof = null;
   let staleArtifactCleanup = null;
   const commandName = options.commandName || DEFAULT_COMMAND_NAME;
+  let proofTimeoutMs = DEFAULT_TIMEOUT_MS;
+  let proofDeadlineAt = started + DEFAULT_TIMEOUT_MS;
 
   const deps = {
     checkYouTubeIngest: options.checkYouTubeIngest || checkYouTubeIngest,
@@ -1877,6 +1979,17 @@ async function runYouTubeLiveE2E(options = {}) {
       });
     }
 
+    proofTimeoutMs = options.timeoutMs === undefined || options.timeoutMs === null
+      ? parseLiveProofTimeoutMs(env)
+      : parseInteger(options.timeoutMs, DEFAULT_TIMEOUT_MS, 1000, 15 * 60 * 1000, "YOUTUBE_LIVE_E2E_TIMEOUT_INVALID");
+    proofDeadlineAt = Date.now() + proofTimeoutMs;
+    const withDeadline = (work, details) => withLiveProofDeadline(work, {
+      deadlineAt: proofDeadlineAt,
+      started,
+      timeoutMs: proofTimeoutMs,
+      ...details,
+    });
+
     envSummary = deps.checkEnvironment({ env });
     addStep(steps, "env", "passed", {
       liveE2E: Boolean(envSummary.youtubeIngest?.liveE2E?.enabled),
@@ -1892,7 +2005,10 @@ async function runYouTubeLiveE2E(options = {}) {
       deletedCount: safeNumber(staleArtifactCleanup?.deletedCount),
     });
 
-    doctor = await deps.checkYouTubeIngest({ env });
+    doctor = await withDeadline(
+      () => deps.checkYouTubeIngest({ env }),
+      { phase: PHASES.DOCTOR, step: "youtube_ingest_doctor" },
+    );
     addStep(steps, "doctor", doctor?.ok === true && doctor.status === "passed" ? "passed" : "failed", {
       code: doctor?.code || null,
     });
@@ -1928,25 +2044,31 @@ async function runYouTubeLiveE2E(options = {}) {
       120_000,
       "YOUTUBE_LIVE_E2E_SERVER_READY_TIMEOUT_INVALID",
     );
-    const ready = await deps.waitForServerReady({
-      baseUrl,
-      child: server.child,
-      events: server.events,
-      fetchImpl: options.fetchImpl || globalThis.fetch,
-      port,
-      timeoutMs: serverReadyTimeoutMs,
-      pollIntervalMs: DEFAULT_SERVER_READY_POLL_INTERVAL_MS,
-    });
+    const ready = await withDeadline(
+      () => deps.waitForServerReady({
+        baseUrl,
+        child: server.child,
+        events: server.events,
+        fetchImpl: options.fetchImpl || globalThis.fetch,
+        port,
+        timeoutMs: serverReadyTimeoutMs,
+        pollIntervalMs: DEFAULT_SERVER_READY_POLL_INTERVAL_MS,
+      }),
+      { phase: PHASES.SERVER_READY, step: "wait_for_server_ready" },
+    );
     addStep(steps, "server-ready", "passed", {
       attempts: ready.attempts,
       waitedMs: ready.waitedMs,
       httpStatus: ready.status,
     });
 
-    smoke = await deps.runYouTubeSmoke({
-      env: smokeEnvForLive(env, baseUrl),
-      fetchImpl: options.fetchImpl || globalThis.fetch,
-    });
+    smoke = await withDeadline(
+      () => deps.runYouTubeSmoke({
+        env: smokeEnvForLive(env, baseUrl),
+        fetchImpl: options.fetchImpl || globalThis.fetch,
+      }),
+      { phase: PHASES.RENDER, step: "run_youtube_smoke", substep: "job_lifecycle" },
+    );
     if (smoke?.status !== "passed") {
       const failure = smoke?.failedCases?.[0] || {};
       const outputQA = latestVideoOutputQAFromSmoke(smoke);
@@ -1966,6 +2088,7 @@ async function runYouTubeLiveE2E(options = {}) {
           timeoutMs: failure.timeoutMs,
           stalled: failure.stalled,
           lastProgressAt: failure.lastProgressAt,
+          currentJob: failure.currentJob || null,
           countedGoalEventCount: Number.isFinite(Number(outputQA?.expectedGoalCount)) ? Number(outputQA.expectedGoalCount) : null,
           actualConfirmedGoalSegmentCount: Number.isFinite(Number(outputQA?.actualConfirmedGoalSegmentCount))
             ? Number(outputQA.actualConfirmedGoalSegmentCount)
@@ -2068,9 +2191,14 @@ async function runYouTubeLiveE2E(options = {}) {
       serverEvents.push(...(server.events || []));
       await deps.stopServer(server.child, server.dataDir);
     }
-    if (outputProof && outputProof.outputMp4 === null && serverEvents.length) {
+    if ((!outputProof || outputProof.outputMp4 === null) && serverEvents.length) {
       const refreshedOutputProof = buildFailedOutputProof({ env, source, smoke, serverEvents, staleArtifactCleanup });
-      if (refreshedOutputProof.goalDiscovery || refreshedOutputProof.videoOutputQA) {
+      if (
+        !outputProof ||
+        refreshedOutputProof.goalDiscovery ||
+        refreshedOutputProof.videoOutputQA ||
+        refreshedOutputProof.ocrChunkSummary
+      ) {
         outputProof = refreshedOutputProof;
       }
     }
@@ -2119,13 +2247,7 @@ if (isMainModule()) {
   const commandName = process.argv.includes("--operator") ? "youtube:proof:operator" : DEFAULT_COMMAND_NAME;
   let timeout = DEFAULT_TIMEOUT_MS;
   try {
-    timeout = parseInteger(
-      process.env.SHORTSENGINE_YOUTUBE_LIVE_E2E_TIMEOUT_MS,
-      DEFAULT_TIMEOUT_MS,
-      1000,
-      15 * 60 * 1000,
-      "YOUTUBE_LIVE_E2E_TIMEOUT_INVALID",
-    );
+    timeout = parseLiveProofTimeoutMs(process.env);
   } catch (error) {
     const failure = safeFailure(error);
     const report = buildReport({
@@ -2145,45 +2267,8 @@ if (isMainModule()) {
     console.log(JSON.stringify({ status: report.status, failedCases: report.failedCases, ...written }, null, 2));
     process.exitCode = 1;
   }
-  let timeoutId;
   if (!process.exitCode) {
-    const timeoutPromise = new Promise((resolveTimeout) => {
-      timeoutId = setTimeout(() => {
-        resolveTimeout({
-          timestamp: nowIso(),
-          command: commandName,
-          status: "failed",
-          passed: false,
-          skipped: false,
-          mode: "youtube-live-local-e2e",
-          phase: PHASES.RENDER,
-          nextAction: "check-local-server-and-downloader-before-rerun",
-          durationMs: timeout,
-          source: null,
-          checks: [{ name: "youtube_live_e2e_timeout", passed: false, code: "YOUTUBE_LIVE_E2E_TIMEOUT" }],
-          steps: [],
-          triage: {
-            status: "failed",
-            failedPhase: PHASES.RENDER,
-            nextAction: "check-local-server-and-downloader-before-rerun",
-            preflight: safePreflightSummary(null),
-            doctor: safeDoctorTriage(null),
-          },
-          doctor: null,
-          smoke: null,
-          serverEvents: [],
-          failedCases: [{
-            name: "youtube_live_e2e_timeout",
-            code: "YOUTUBE_LIVE_E2E_TIMEOUT",
-            phase: PHASES.RENDER,
-            nextAction: "check-local-server-and-downloader-before-rerun",
-          }],
-        });
-      }, timeout);
-      if (timeoutId && typeof timeoutId.unref === "function") timeoutId.unref();
-    });
-    const report = await Promise.race([runYouTubeLiveE2E({ commandName }), timeoutPromise]);
-    if (timeoutId) clearTimeout(timeoutId);
+    const report = await runYouTubeLiveE2E({ commandName, timeoutMs: timeout });
     const written = writeYouTubeLiveE2EReport(report);
     console.log(JSON.stringify({ status: report.status, failedCases: report.failedCases, ...written }, null, 2));
     if (report.status === "failed") process.exitCode = 1;

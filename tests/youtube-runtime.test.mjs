@@ -508,10 +508,75 @@ test("youtube smoke failed job report preserves terminal progress substep safely
   assert.equal(report.failedCases[0].chunkEnd, 270);
   assert.equal(report.failedCases[0].scannedChunks, 2);
   assert.equal(report.failedCases[0].discoveredScoreChanges, 1);
+  assert.equal(report.failedCases[0].currentJob.status, "failed");
+  assert.equal(report.failedCases[0].currentJob.progressMeta.chunkIndex, 3);
+  assert.equal(report.failedCases[0].currentJob.error.code, "SCOREBOARD_OCR_TIMEOUT");
   assert.equal(report.failedCases[0].nextAction, "reduce-scorebug-ocr-sampling-or-disable-live-scoreboard-ocr-and-rerun-proof");
   assert.equal(report.steps.at(-1).activeStep, "run_scorebug_ocr");
   assert.equal(report.jobLifecycle.at(-1).progressMeta.budgetMs, 250);
   assert.equal(report.jobLifecycle.at(-1).progressMeta.chunkIndex, 3);
+  assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube smoke polling failure preserves last active chunk context", async () => {
+  let jobPollCount = 0;
+  const { fetchImpl } = createFetchMock({
+    "GET /api/jobs/job_12345678": () => {
+      jobPollCount += 1;
+      if (jobPollCount > 1) {
+        throw Object.assign(new Error("socket closed while polling"), { code: "ECONNRESET" });
+      }
+      return jsonResponse({
+        ok: true,
+        data: {
+          job: {
+            id: "job_12345678",
+            projectId: "prj_12345678",
+            uploadId: "upl_12345678",
+            status: "processing",
+            progress: 31,
+            step: "run_scorebug_ocr",
+            exportId: null,
+            progressMeta: {
+              phase: "analysis",
+              step: "run_scorebug_ocr",
+              substep: "scorebug_first_chunk",
+              longSource: true,
+              scorebugFirst: true,
+              budgetMs: 10000,
+              chunkIndex: 2,
+              chunkCount: 6,
+              chunkStart: 90,
+              chunkEnd: 180,
+              scannedChunks: 1,
+              discoveredScoreChanges: 1,
+              totalBudgetMs: 60000,
+              chunkTimeoutMs: 10000,
+            },
+          },
+        },
+      }, 200, "req_job_processing");
+    },
+  });
+
+  const report = await runYouTubeSmoke({
+    env: smokeEnv({
+      SHORTSENGINE_YOUTUBE_SMOKE_JOB_TIMEOUT_MS: "5000",
+      SHORTSENGINE_YOUTUBE_SMOKE_POLL_INTERVAL_MS: "100",
+    }),
+    fetchImpl,
+  });
+
+  assert.equal(report.status, "failed");
+  assert.equal(report.failedCases[0].code, "YOUTUBE_SMOKE_FETCH_FAILED");
+  assert.equal(report.failedCases[0].causeCode, "YOUTUBE_SMOKE_FETCH_FAILED");
+  assert.equal(report.failedCases[0].phase, "render");
+  assert.equal(report.failedCases[0].step, "run_scorebug_ocr");
+  assert.equal(report.failedCases[0].substep, "scorebug_first_chunk");
+  assert.equal(report.failedCases[0].currentJob.progressMeta.chunkIndex, 2);
+  assert.equal(report.failedCases[0].currentJob.progressMeta.chunkCount, 6);
+  assert.equal(report.failedCases[0].currentJob.progressMeta.scannedChunks, 1);
+  assert.equal(report.jobLifecycle.at(-1).progressMeta.discoveredScoreChanges, 1);
   assert.equal(findSensitiveLeak(report), null);
 });
 
@@ -1687,6 +1752,141 @@ test("youtube live local e2e fails safely when server readiness times out", asyn
   assert.equal(report.failedCases[0].code, "YOUTUBE_LIVE_E2E_SERVER_READY_TIMEOUT");
   assert.equal(report.failedCases[0].phase, "server-ready");
   assert.equal(smokeCalled, false);
+  assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube live local e2e timeout preserves server progress context", async () => {
+  let stopped = false;
+  const progressEvent = {
+    stream: "stdout",
+    level: "info",
+    event: "job_progress",
+    progressMeta: {
+      phase: "analysis",
+      step: "run_scorebug_ocr",
+      substep: "scorebug_first_chunk",
+      longSource: true,
+      scorebugFirst: true,
+      budgetMs: 10000,
+      chunkIndex: 4,
+      chunkCount: 9,
+      chunkStart: 270,
+      chunkEnd: 360,
+      scannedChunks: 3,
+      discoveredScoreChanges: 2,
+      elapsedMs: 8100,
+      totalBudgetMs: 90000,
+      chunkTimeoutMs: 10000,
+    },
+  };
+  const report = await runYouTubeLiveE2E({
+    env: liveEnv(),
+    timeoutMs: 1000,
+    checkYouTubeIngest: async () => passedDoctor(),
+    getFreePort: async () => 4175,
+    startServer: () => ({ child: { exitCode: null, signalCode: null }, events: [progressEvent] }),
+    stopServer: async () => {
+      stopped = true;
+    },
+    waitForServerReady: async () => ({ attempts: 1, waitedMs: 5, status: 200 }),
+    runYouTubeSmoke: async () => new Promise(() => {}),
+  });
+
+  assert.equal(report.status, "failed");
+  assert.equal(report.phase, "render");
+  assert.equal(report.failedCases[0].code, "YOUTUBE_LIVE_E2E_TIMEOUT");
+  assert.equal(report.failedCases[0].step, "run_youtube_smoke");
+  assert.equal(report.failedCases[0].substep, "job_lifecycle");
+  assert.equal(report.logsDownloaded, false);
+  assert.equal(report.artifactsDownloaded, false);
+  assert.equal(stopped, true);
+  assert.equal(report.serverEvents[0].progressMeta.step, "run_scorebug_ocr");
+  assert.equal(report.currentJob.status, "processing");
+  assert.equal(report.currentJob.progressMeta.chunkIndex, 4);
+  assert.equal(report.currentJob.progressMeta.discoveredScoreChanges, 2);
+  assert.equal(report.outputProof.outputMp4, null);
+  assert.equal(report.outputProof.ocrChunkSummary.mode, "chunked_scorebug_first_ocr");
+  assert.equal(report.outputProof.ocrChunkSummary.chunkCount, 9);
+  assert.equal(report.outputProof.ocrChunkSummary.chunks[0].index, 4);
+  assert.equal(report.outputProof.ocrChunkSummary.chunks[0].status, "active");
+  assert.equal(report.outputProof.logsDownloaded, false);
+  assert.equal(report.outputProof.artifactsDownloaded, false);
+  assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube live local e2e failed OCR smoke preserves terminal job chunk summary", async () => {
+  const currentJob = {
+    id: "job_12345678",
+    projectId: "prj_12345678",
+    uploadId: "upl_12345678",
+    status: "failed",
+    progress: 28,
+    step: "failed",
+    exportId: null,
+    progressMeta: {
+      phase: "analysis",
+      step: "run_scorebug_ocr",
+      substep: "scorebug_first_chunk",
+      longSource: true,
+      scorebugFirst: true,
+      budgetMs: 15000,
+      chunkIndex: 1,
+      chunkCount: 8,
+      chunkStart: 0,
+      chunkEnd: 90,
+      scannedChunks: 0,
+      discoveredScoreChanges: 0,
+      elapsedMs: 1,
+      totalBudgetMs: 120000,
+      chunkTimeoutMs: 15000,
+    },
+    error: { code: "SCOREBOARD_OCR_TIMEOUT", message: "The video analysis failed." },
+  };
+  const report = await runYouTubeLiveE2E({
+    env: liveEnv({ SHORTSENGINE_YOUTUBE_LIVE_E2E_EXPECTED_COUNTED_GOALS: "5" }),
+    checkYouTubeIngest: async () => passedDoctor(),
+    getFreePort: async () => 4175,
+    startServer: () => ({ child: { exitCode: null, signalCode: null }, events: [] }),
+    stopServer: async () => {},
+    waitForServerReady: async () => ({ attempts: 1, waitedMs: 5, status: 200 }),
+    runYouTubeSmoke: async () => ({
+      status: "failed",
+      source: { sourceType: "youtube", kind: "watch", videoId: VIDEO_ID },
+      steps: [{
+        step: "failure",
+        status: "failed",
+        code: "SCOREBOARD_OCR_TIMEOUT",
+        phase: "analysis",
+        activeStep: "run_scorebug_ocr",
+        substep: "scorebug_first_chunk",
+      }],
+      failedCases: [{
+        name: "youtube_smoke",
+        code: "SCOREBOARD_OCR_TIMEOUT",
+        phase: "analysis",
+        step: "run_scorebug_ocr",
+        substep: "scorebug_first_chunk",
+        timeoutMs: 15000,
+        currentJob,
+      }],
+      jobLifecycle: [currentJob],
+      renderPlan: null,
+      export: null,
+      generatedArtifact: null,
+    }),
+  });
+
+  assert.equal(report.status, "failed");
+  assert.equal(report.failedCases[0].code, "SCOREBOARD_OCR_TIMEOUT");
+  assert.equal(report.failedCases[0].currentJob.progressMeta.chunkIndex, 1);
+  assert.equal(report.currentJob.progressMeta.chunkCount, 8);
+  assert.equal(report.outputProof.code, "SCOREBOARD_OCR_TIMEOUT");
+  assert.equal(report.outputProof.ocrChunkSummary.mode, "chunked_scorebug_first_ocr");
+  assert.equal(report.outputProof.ocrChunkSummary.chunkCount, 8);
+  assert.equal(report.outputProof.ocrChunkSummary.totalBudgetMs, 120000);
+  assert.equal(report.outputProof.ocrChunkSummary.chunks[0].status, "timed_out");
+  assert.equal(report.outputProof.logsDownloaded, false);
+  assert.equal(report.outputProof.artifactsDownloaded, false);
   assert.equal(findSensitiveLeak(report), null);
 });
 

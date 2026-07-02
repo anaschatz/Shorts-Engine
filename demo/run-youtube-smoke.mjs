@@ -1045,12 +1045,31 @@ async function pollJob({ baseUrl, fetchImpl, jobId, jobTimeoutMs, pollIntervalMs
   let currentKey = null;
   let lastProgressAt = started;
   while (Date.now() - started < jobTimeoutMs) {
-    const response = await fetchJson(fetchImpl, endpointUrl(baseUrl, `/api/jobs/${jobId}`), {
-      method: "GET",
-      timeoutMs: Math.min(15000, jobTimeoutMs),
-      timeoutCode: "YOUTUBE_SMOKE_JOB_STATUS_TIMEOUT",
-      timeoutDetails: { phase: "render", step: "poll_job_status" },
-    });
+    let response;
+    try {
+      response = await fetchJson(fetchImpl, endpointUrl(baseUrl, `/api/jobs/${jobId}`), {
+        method: "GET",
+        timeoutMs: Math.min(15000, jobTimeoutMs),
+        timeoutCode: "YOUTUBE_SMOKE_JOB_STATUS_TIMEOUT",
+        timeoutDetails: { phase: "render", step: "poll_job_status" },
+      });
+    } catch (error) {
+      if (currentSnapshot) {
+        return {
+          job: current,
+          lifecycle,
+          timeout: true,
+          stalled: false,
+          code: currentSnapshot.error?.code || error?.code || "YOUTUBE_SMOKE_FETCH_FAILED",
+          fetchFailureCode: error?.code || "YOUTUBE_SMOKE_FETCH_FAILED",
+          elapsedMs: Date.now() - started,
+          timeoutMs: null,
+          lastProgressAt: new Date(lastProgressAt).toISOString(),
+          currentJob: currentSnapshot,
+        };
+      }
+      throw error;
+    }
     current = response.payload?.data?.job || null;
     const snapshot = safeJobSnapshot(current);
     if (snapshot) {
@@ -1118,6 +1137,7 @@ function validateCompletedJob(job) {
       coveredGoalCount: videoOutputQA ? videoOutputQA.coveredGoalCount : null,
       missingGoalNumbers: videoOutputQA ? videoOutputQA.missingGoalNumbers : [],
       failedReasons: videoOutputQA ? videoOutputQA.failedReasons : [],
+      currentJob: safeJobSnapshot(job),
       nextAction: videoOutputQA ? nextActionForCode("VIDEO_OUTPUT_QA_FAILED") : nextActionForCode(job?.error?.code || "YOUTUBE_SMOKE_JOB_FAILED"),
     });
   }
@@ -1173,6 +1193,7 @@ function safeFailure(error) {
     chunkTimeoutMs: Number.isFinite(Number(details.chunkTimeoutMs)) ? Number(details.chunkTimeoutMs) : null,
     stalled: typeof details.stalled === "boolean" ? details.stalled : null,
     lastProgressAt: details.lastProgressAt ? sanitizeText(details.lastProgressAt, 40) : null,
+    causeCode: details.causeCode ? sanitizeText(details.causeCode, 60) : null,
     currentJob: safeJobSnapshot(details.currentJob),
     countedGoalEventCount: safeNumber(details.countedGoalEventCount),
     actualConfirmedGoalSegmentCount: safeNumber(details.actualConfirmedGoalSegmentCount),
@@ -1365,6 +1386,7 @@ async function runYouTubeSmoke(options = {}) {
         substep: meta.substep || null,
         elapsedMs: polled.elapsedMs,
         timeoutMs: polled.timeoutMs,
+        causeCode: polled.fetchFailureCode || null,
         stalled: Boolean(polled.stalled),
         lastProgressAt: polled.lastProgressAt,
         currentJob: active,
