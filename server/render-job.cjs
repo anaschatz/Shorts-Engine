@@ -1073,6 +1073,13 @@ async function runRenderJob(options) {
         countedGoalEventCount: matchEventTruth.summary && matchEventTruth.summary.countedGoalEventCount,
         disallowedGoalEventCount: matchEventTruth.summary && matchEventTruth.summary.disallowedGoalEventCount,
         selectedGoalCount: matchEventTruth.summary && matchEventTruth.summary.selectedGoalCount,
+        stableScoreChangeAnchorCount: matchEventTruth.summary && matchEventTruth.summary.stableScoreChangeAnchorCount,
+        revertedScoreChangeAnchorCount: matchEventTruth.summary && matchEventTruth.summary.revertedScoreChangeAnchorCount,
+        anchorsLinkedToGoalPhaseCount: matchEventTruth.summary && matchEventTruth.summary.anchorsLinkedToGoalPhaseCount,
+        anchorsMissingVisualSupportCount: matchEventTruth.summary && matchEventTruth.summary.anchorsMissingVisualSupportCount,
+        scoreChangeAnchors: Array.isArray(matchEventTruth.scoreChangeAnchors)
+          ? matchEventTruth.scoreChangeAnchors.slice(0, 12)
+          : [],
         missedGoalReasons: matchEventTruth.summary && matchEventTruth.summary.missedGoalReasons,
         decoderStatusSummary: matchEventTruth.summary && matchEventTruth.summary.decoderStatusSummary,
         noFalseGoalFromOcrOnly: matchEventTruth.summary && matchEventTruth.summary.noFalseGoalFromOcrOnly,
@@ -1203,12 +1210,19 @@ async function runRenderJob(options) {
             matchEventTruthDisallowedGoalEventCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.disallowedGoalEventCount,
             matchEventTruthSelectedGoalCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.selectedGoalCount,
             matchEventTruthScoreChangeAnchorsFound: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.scoreChangeAnchorsFound,
+            matchEventTruthStableScoreChangeAnchorCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.stableScoreChangeAnchorCount,
+            matchEventTruthRevertedScoreChangeAnchorCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.revertedScoreChangeAnchorCount,
+            matchEventTruthAnchorsLinkedToGoalPhaseCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.anchorsLinkedToGoalPhaseCount,
+            matchEventTruthAnchorsMissingVisualSupportCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.anchorsMissingVisualSupportCount,
             matchEventTruthAnchorsWithLiveActionEvidence: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.anchorsWithLiveActionEvidence,
             matchEventTruthAnchorsRejected: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.anchorsRejected,
             matchEventTruthSelectedCountedGoals: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.selectedCountedGoals,
             matchEventTruthOcrOnlyBlockedCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.ocrOnlyBlockedCount,
             matchEventTruthMissingActionEvidenceCount: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.missingActionEvidenceCount,
             matchEventTruthMissedGoalReasons: matchEventTruth && matchEventTruth.summary && matchEventTruth.summary.missedGoalReasons,
+            matchEventTruthScoreChangeAnchors: matchEventTruth && Array.isArray(matchEventTruth.scoreChangeAnchors)
+              ? matchEventTruth.scoreChangeAnchors.slice(0, 12)
+              : [],
           });
         }
         throw new AppError(code, SAFE_MESSAGES[code], 422);

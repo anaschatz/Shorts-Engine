@@ -929,7 +929,13 @@ function normalizeScoreChanges(ocrEvidence = [], calibration = null, metadata = 
         id: sanitizeText(item.id || `score_change_${changes.length + 1}`, 80),
         startScore: before.text,
         endScore: after.text,
+        firstSeenAt: round(seconds(item.timestamp)),
+        confirmedAt: null,
+        stableUntil: null,
         changeTime: round(seconds(item.timestamp)),
+        source: "scoreboard_ocr",
+        roiId: sanitizeText(item.regionId || item.roiId || "", 80) || null,
+        layoutId: sanitizeText(item.layoutId || "", 80) || null,
         teamSide: scoreTeamSide(before, after),
         scoreDelta: scoreDelta(before, after),
         confidence: round(clamp(item.confidence, 0, 1)),
@@ -937,6 +943,7 @@ function normalizeScoreChanges(ocrEvidence = [], calibration = null, metadata = 
         reverted: false,
         revertedAt: null,
         outcome: "uncertain_review",
+        evidenceCodes: uniqueCodes(scoreObservationReasonCodes(item, calibration), 12),
         reasonCodes: uniqueCodes(["scoreboard_ocr_ambiguous"], 8),
       });
       continue;
@@ -946,7 +953,13 @@ function normalizeScoreChanges(ocrEvidence = [], calibration = null, metadata = 
         id: sanitizeText(item.id || `score_revert_${changes.length + 1}`, 80),
         startScore: before.text,
         endScore: after.text,
+        firstSeenAt: round(seconds(item.timestamp)),
+        confirmedAt: round(seconds(item.timestamp)),
+        stableUntil: round(seconds(item.timestamp)),
         changeTime: round(seconds(item.timestamp)),
+        source: "scoreboard_ocr",
+        roiId: sanitizeText(item.regionId || item.roiId || "", 80) || null,
+        layoutId: sanitizeText(item.layoutId || "", 80) || null,
         teamSide: scoreTeamSide(before, after),
         scoreDelta: scoreDelta(before, after),
         confidence: round(clamp(item.confidence, 0, 1)),
@@ -954,6 +967,11 @@ function normalizeScoreChanges(ocrEvidence = [], calibration = null, metadata = 
         reverted: true,
         revertedAt: round(seconds(item.timestamp)),
         outcome: "disallowed_goal",
+        evidenceCodes: uniqueCodes([
+          ...scoreObservationReasonCodes(item, calibration),
+          "scoreboard_ocr_goal_removed",
+          "scoreboard_temporal_consistency",
+        ], 12),
         reasonCodes: uniqueCodes(["scoreboard_ocr_goal_removed", "scoreboard_temporal_consistency"], 8),
       });
       continue;
@@ -965,10 +983,18 @@ function normalizeScoreChanges(ocrEvidence = [], calibration = null, metadata = 
       id: sanitizeText(item.id || `score_change_${changes.length + 1}`, 80),
       startScore: before.text,
       endScore: after.text,
+      firstSeenAt: pendingObservation ? round(seconds(pendingObservation.timestamp)) : round(seconds(item.timestamp)),
+      confirmedAt: round(seconds(item.timestamp)),
       changeTime: round(seconds(item.timestamp)),
       actionAnchorTime: pendingObservation ? round(seconds(pendingObservation.timestamp)) : round(seconds(item.timestamp)),
       hasPendingObservation: Boolean(pendingObservation),
       strongAuthority: scoreChangeStrongAuthority(item, calibration),
+      stableUntil: revert
+        ? round(seconds(revert.timestamp))
+        : round(seconds(item.timestamp) + scoreChangePersistedDuration(item, revert, duration)),
+      source: "scoreboard_ocr",
+      roiId: sanitizeText(item.regionId || item.roiId || "", 80) || null,
+      layoutId: sanitizeText(item.layoutId || "", 80) || null,
       teamSide: scoreTeamSide(before, after),
       scoreDelta: scoreDelta(before, after),
       confidence: round(clamp(item.confidence, 0, 1)),
@@ -976,6 +1002,13 @@ function normalizeScoreChanges(ocrEvidence = [], calibration = null, metadata = 
       reverted: Boolean(revert),
       revertedAt: revert ? round(seconds(revert.timestamp)) : null,
       outcome: revert ? "disallowed_goal" : "counted_goal",
+      evidenceCodes: uniqueCodes([
+        ...scoreObservationReasonCodes(item, calibration),
+        "scoreboard_ocr_score_change",
+        "scoreboard_temporal_consistency",
+        ...(pendingObservation ? ["score_change_pending_observation"] : []),
+        ...(revert ? ["scoreboard_ocr_goal_removed"] : []),
+      ], 12),
       reasonCodes: uniqueCodes([
         "scoreboard_ocr_score_change",
         "scoreboard_temporal_consistency",
@@ -1413,6 +1446,70 @@ function recoverConfirmedGoalClusters({ visualEvents = [], visualSignals = {}, m
     });
 }
 
+function matchingEventForScoreChange(change = {}, events = []) {
+  const changeTime = seconds(change.changeTime);
+  const startScore = normalizeScoreField(change.startScore);
+  const endScore = normalizeScoreField(change.endScore);
+  return (Array.isArray(events) ? events : []).find((event) => {
+    if (!event || event.scoreChangeTime == null) return false;
+    if (Math.abs(seconds(event.scoreChangeTime) - changeTime) > 2) return false;
+    if (startScore && event.scoreBefore && normalizeScoreField(event.scoreBefore) !== startScore) return false;
+    if (endScore && event.scoreAfter && normalizeScoreField(event.scoreAfter) !== endScore) return false;
+    return true;
+  }) || null;
+}
+
+function scoreChangeAnchorContract(change = {}, events = [], index = 0) {
+  const event = matchingEventForScoreChange(change, events);
+  const phase = event && event.phaseCoverage ? event.phaseCoverage : null;
+  const hasLiveAction = Boolean(phase && phase.hasShot && phase.replayOnly !== true);
+  const hasVisibleFinish = Boolean(phase && phase.hasFinish);
+  const selectedForRender = Boolean(event && event.type === "confirmed_goal");
+  const missingEvidence = uniqueCodes([
+    ...(Array.isArray(event && event.missingEvidence) ? event.missingEvidence : []),
+    ...(change.outcome === "counted_goal" && !selectedForRender ? ["visible_goal_phase"] : []),
+    ...(change.outcome === "uncertain_review" ? ["stable_score_change"] : []),
+  ], MAX_MISSING);
+  const firstSeenAt = change.firstSeenAt == null
+    ? (change.actionAnchorTime == null ? change.changeTime : change.actionAnchorTime)
+    : change.firstSeenAt;
+  const confirmedAt = change.confirmedAt == null && change.outcome === "counted_goal"
+    ? change.changeTime
+    : change.confirmedAt;
+  const stableUntil = change.stableUntil == null && confirmedAt != null && change.persistedDuration
+    ? round(seconds(confirmedAt) + seconds(change.persistedDuration))
+    : change.stableUntil;
+  return {
+    id: sanitizeText(`anchor_${change.id || index + 1}`, 96),
+    scoreBefore: normalizeScoreField(change.startScore),
+    scoreAfter: normalizeScoreField(change.endScore),
+    firstSeenAt: firstSeenAt == null ? null : round(seconds(firstSeenAt)),
+    confirmedAt: confirmedAt == null ? null : round(seconds(confirmedAt)),
+    stableUntil: stableUntil == null ? null : round(seconds(stableUntil)),
+    reverted: Boolean(change.reverted),
+    revertedAt: change.revertedAt == null ? null : round(seconds(change.revertedAt)),
+    confidence: round(clamp(change.confidence, 0, 1)),
+    source: "scoreboard_ocr",
+    roiId: change.roiId ? sanitizeText(change.roiId, 80) : null,
+    layoutId: change.layoutId ? sanitizeText(change.layoutId, 80) : null,
+    outcome: ["counted_goal", "disallowed_goal", "uncertain_review"].includes(change.outcome)
+      ? change.outcome
+      : "uncertain_review",
+    selectedForRender,
+    linkedEventId: event ? sanitizeText(event.id, 80) : null,
+    linkedEventType: event ? sanitizeText(event.type, 48) : null,
+    hasLiveAction,
+    hasVisibleFinish,
+    replayOnly: Boolean(phase && phase.replayOnly),
+    missingEvidence,
+    evidenceCodes: uniqueCodes([
+      ...(Array.isArray(change.evidenceCodes) ? change.evidenceCodes : []),
+      ...(Array.isArray(change.reasonCodes) ? change.reasonCodes : []),
+      ...(Array.isArray(event && event.evidenceCodes) ? event.evidenceCodes : []),
+    ], 16),
+  };
+}
+
 function validateMatchEventTruthOutput(output, metadata = {}) {
   if (!output || typeof output !== "object" || Array.isArray(output) || hasUnsafeValue(output)) {
     throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
@@ -1425,10 +1522,16 @@ function validateMatchEventTruthOutput(output, metadata = {}) {
       id: sanitizeText(change.id || `score_change_${index + 1}`, 80),
       startScore: normalizeScoreField(change.startScore),
       endScore: normalizeScoreField(change.endScore),
+      firstSeenAt: change.firstSeenAt == null ? null : round(seconds(change.firstSeenAt)),
+      confirmedAt: change.confirmedAt == null ? null : round(seconds(change.confirmedAt)),
+      stableUntil: change.stableUntil == null ? null : round(seconds(change.stableUntil)),
       changeTime: round(seconds(change.changeTime)),
       actionAnchorTime: change.actionAnchorTime == null ? null : round(seconds(change.actionAnchorTime)),
       hasPendingObservation: Boolean(change.hasPendingObservation),
       strongAuthority: Boolean(change.strongAuthority),
+      source: sanitizeText(change.source || "scoreboard_ocr", 60) === "scoreboard_ocr" ? "scoreboard_ocr" : "scoreboard_ocr",
+      roiId: change.roiId ? sanitizeText(change.roiId, 80) : null,
+      layoutId: change.layoutId ? sanitizeText(change.layoutId, 80) : null,
       teamSide: sanitizeText(change.teamSide || "unknown", 16),
       scoreDelta: Math.max(0, Math.min(3, Math.round(Number(change.scoreDelta || 0)))),
       confidence: round(clamp(change.confidence, 0, 1)),
@@ -1438,6 +1541,7 @@ function validateMatchEventTruthOutput(output, metadata = {}) {
       outcome: ["counted_goal", "disallowed_goal", "uncertain_review"].includes(change.outcome)
         ? change.outcome
         : "uncertain_review",
+      evidenceCodes: uniqueCodes(change.evidenceCodes || change.reasonCodes, 12),
       reasonCodes: uniqueCodes(change.reasonCodes, 12),
     }))
     .filter((change) => change.startScore && change.endScore && change.scoreDelta === 1)
@@ -1453,6 +1557,7 @@ function validateMatchEventTruthOutput(output, metadata = {}) {
   const disallowedGoalCount = events.filter((event) => event.type === "disallowed_offside" || event.type === "disallowed_no_goal").length;
   const possibleGoalCount = events.filter((event) => event.type === "possible_goal_unconfirmed").length;
   const allEvents = [...events, ...rejectedEvents];
+  const scoreChangeAnchors = scoreChanges.map((change, index) => scoreChangeAnchorContract(change, allEvents, index));
   const scoreChangeDecisionEvents = allEvents.filter((event) => /^score_change_truth_/.test(event.id));
   const scoreChangeEvidenceEvents = allEvents.filter((event) => (
     event.evidenceCodes.includes("scoreboard_ocr_score_change") &&
@@ -1489,6 +1594,10 @@ function validateMatchEventTruthOutput(output, metadata = {}) {
   const lateCutoff = Math.max(0, seconds(metadata.durationSeconds, 0) * 0.66);
   const countedGoalEventCount = scoreChanges.filter((change) => change.outcome === "counted_goal").length;
   const disallowedGoalEventCount = scoreChanges.filter((change) => change.outcome === "disallowed_goal").length;
+  const stableScoreChangeAnchorCount = scoreChangeAnchors.filter((anchor) => anchor.outcome === "counted_goal" && !anchor.reverted).length;
+  const revertedScoreChangeAnchorCount = scoreChangeAnchors.filter((anchor) => anchor.reverted || anchor.outcome === "disallowed_goal").length;
+  const anchorsLinkedToGoalPhaseCount = scoreChangeAnchors.filter((anchor) => anchor.hasLiveAction && anchor.hasVisibleFinish && !anchor.replayOnly).length;
+  const anchorsMissingVisualSupportCount = scoreChangeAnchors.filter((anchor) => anchor.outcome === "counted_goal" && !anchor.selectedForRender).length;
   const uncertainReviewItems = [
     ...scoreChanges.filter((change) => change.outcome === "uncertain_review").map((change) => `score_change_${change.id}`),
     ...rejectedEvents.filter((event) => event.type === "possible_goal_unconfirmed").map((event) => event.id),
@@ -1521,6 +1630,7 @@ function validateMatchEventTruthOutput(output, metadata = {}) {
     rejectedEvents,
     scoreTimelineObservations,
     scoreChanges,
+    scoreChangeAnchors,
     summary: {
       eventCount: events.length,
       confirmedGoalCount,
@@ -1535,6 +1645,10 @@ function validateMatchEventTruthOutput(output, metadata = {}) {
       disallowedGoalEventCount,
       selectedGoalCount: confirmedGoalCount,
       scoreChangeAnchorsFound: scoreChanges.length,
+      stableScoreChangeAnchorCount,
+      revertedScoreChangeAnchorCount,
+      anchorsLinkedToGoalPhaseCount,
+      anchorsMissingVisualSupportCount,
       anchorsWithLiveActionEvidence: scoreChangeAnchorsWithLiveAction.length,
       anchorsRejected: Math.max(0, countedGoalEventCount - scoreboardSelectedGoals.length),
       selectedCountedGoals: scoreboardSelectedGoals.length,
@@ -1635,6 +1749,7 @@ function publicMatchEventTruth(matchEventTruth) {
     rejectedEvents: normalized.rejectedEvents.map(publicDecision),
     scoreTimelineObservations: normalized.scoreTimelineObservations.map(publicScoreObservation),
     scoreChanges: normalized.scoreChanges.map(publicScoreChange),
+    scoreChangeAnchors: normalized.scoreChangeAnchors.map(publicScoreChangeAnchor),
   };
 }
 
@@ -1660,6 +1775,10 @@ function publicSummary(normalizedSummary = {}, originalSummary = {}) {
     disallowedGoalEventCount: numeric("disallowedGoalEventCount"),
     selectedGoalCount: numeric("selectedGoalCount"),
     scoreChangeAnchorsFound: numeric("scoreChangeAnchorsFound"),
+    stableScoreChangeAnchorCount: numeric("stableScoreChangeAnchorCount"),
+    revertedScoreChangeAnchorCount: numeric("revertedScoreChangeAnchorCount"),
+    anchorsLinkedToGoalPhaseCount: numeric("anchorsLinkedToGoalPhaseCount"),
+    anchorsMissingVisualSupportCount: numeric("anchorsMissingVisualSupportCount"),
     anchorsWithLiveActionEvidence: numeric("anchorsWithLiveActionEvidence"),
     anchorsRejected: numeric("anchorsRejected"),
     selectedCountedGoals: numeric("selectedCountedGoals"),
@@ -1704,10 +1823,16 @@ function publicScoreChange(change = {}) {
     id: sanitizeText(change.id, 80),
     startScore: normalizeScoreField(change.startScore),
     endScore: normalizeScoreField(change.endScore),
+    firstSeenAt: change.firstSeenAt == null ? null : Number(change.firstSeenAt),
+    confirmedAt: change.confirmedAt == null ? null : Number(change.confirmedAt),
+    stableUntil: change.stableUntil == null ? null : Number(change.stableUntil),
     changeTime: Number(change.changeTime || 0),
     actionAnchorTime: change.actionAnchorTime == null ? null : Number(change.actionAnchorTime),
     hasPendingObservation: Boolean(change.hasPendingObservation),
     strongAuthority: Boolean(change.strongAuthority),
+    source: "scoreboard_ocr",
+    roiId: change.roiId ? sanitizeText(change.roiId, 80) : null,
+    layoutId: change.layoutId ? sanitizeText(change.layoutId, 80) : null,
     teamSide: sanitizeText(change.teamSide || "unknown", 16),
     scoreDelta: Number(change.scoreDelta || 0),
     confidence: round(clamp(change.confidence, 0, 1)),
@@ -1715,7 +1840,34 @@ function publicScoreChange(change = {}) {
     reverted: Boolean(change.reverted),
     revertedAt: change.revertedAt == null ? null : Number(change.revertedAt),
     outcome: sanitizeText(change.outcome || "uncertain_review", 32),
+    evidenceCodes: uniqueCodes(change.evidenceCodes, 12),
     reasonCodes: uniqueCodes(change.reasonCodes, 12),
+  };
+}
+
+function publicScoreChangeAnchor(anchor = {}) {
+  return {
+    id: sanitizeText(anchor.id, 96),
+    scoreBefore: normalizeScoreField(anchor.scoreBefore),
+    scoreAfter: normalizeScoreField(anchor.scoreAfter),
+    firstSeenAt: anchor.firstSeenAt == null ? null : Number(anchor.firstSeenAt),
+    confirmedAt: anchor.confirmedAt == null ? null : Number(anchor.confirmedAt),
+    stableUntil: anchor.stableUntil == null ? null : Number(anchor.stableUntil),
+    reverted: Boolean(anchor.reverted),
+    revertedAt: anchor.revertedAt == null ? null : Number(anchor.revertedAt),
+    confidence: round(clamp(anchor.confidence, 0, 1)),
+    source: "scoreboard_ocr",
+    roiId: anchor.roiId ? sanitizeText(anchor.roiId, 80) : null,
+    layoutId: anchor.layoutId ? sanitizeText(anchor.layoutId, 80) : null,
+    outcome: sanitizeText(anchor.outcome || "uncertain_review", 32),
+    selectedForRender: Boolean(anchor.selectedForRender),
+    linkedEventId: anchor.linkedEventId ? sanitizeText(anchor.linkedEventId, 80) : null,
+    linkedEventType: anchor.linkedEventType ? sanitizeText(anchor.linkedEventType, 48) : null,
+    hasLiveAction: Boolean(anchor.hasLiveAction),
+    hasVisibleFinish: Boolean(anchor.hasVisibleFinish),
+    replayOnly: Boolean(anchor.replayOnly),
+    missingEvidence: uniqueCodes(anchor.missingEvidence, MAX_MISSING),
+    evidenceCodes: uniqueCodes(anchor.evidenceCodes, 16),
   };
 }
 

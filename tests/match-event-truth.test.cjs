@@ -163,9 +163,19 @@ test("turns stable scorebug score increase into counted goal truth when live act
   assert.equal(result.summary.confirmedGoalCount, 1);
   assert.equal(result.summary.scoreTimelineObservationCount, 1);
   assert.equal(result.summary.countedGoalEventCount, 1);
+  assert.equal(result.summary.stableScoreChangeAnchorCount, 1);
+  assert.equal(result.summary.anchorsLinkedToGoalPhaseCount, 1);
+  assert.equal(result.summary.anchorsMissingVisualSupportCount, 0);
   assert.equal(result.summary.selectedGoalCount, 1);
   assert.equal(result.summary.decoderStatusSummary.decoded, 1);
   assert.equal(result.scoreChanges[0].outcome, "counted_goal");
+  assert.equal(result.scoreChangeAnchors[0].scoreBefore, "0-0");
+  assert.equal(result.scoreChangeAnchors[0].scoreAfter, "1-0");
+  assert.equal(result.scoreChangeAnchors[0].source, "scoreboard_ocr");
+  assert.equal(result.scoreChangeAnchors[0].selectedForRender, true);
+  assert.equal(result.scoreChangeAnchors[0].hasLiveAction, true);
+  assert.equal(result.scoreChangeAnchors[0].hasVisibleFinish, true);
+  assert.equal(result.scoreChangeAnchors[0].replayOnly, false);
   assert.equal(result.events[0].type, "confirmed_goal");
   assert.equal(result.events[0].scoreBefore, "0-0");
   assert.equal(result.events[0].scoreAfter, "1-0");
@@ -203,6 +213,9 @@ test("links delayed scorebug changes back to earlier live goal action", () => {
   assert.equal(result.summary.scoreChangeAnchorsFound, 1);
   assert.equal(result.summary.anchorsWithLiveActionEvidence, 1);
   assert.equal(result.summary.selectedCountedGoals, 1);
+  assert.equal(result.summary.stableScoreChangeAnchorCount, 1);
+  assert.equal(result.summary.anchorsLinkedToGoalPhaseCount, 1);
+  assert.equal(result.summary.anchorsMissingVisualSupportCount, 0);
   assert.equal(result.summary.anchorsRejected, 0);
   assert.equal(result.summary.ocrOnlyBlockedCount, 0);
   assert.equal(result.events[0].scoreChangeTime, 126);
@@ -213,6 +226,11 @@ test("links delayed scorebug changes back to earlier live goal action", () => {
   assert.ok(result.events[0].anchorDiagnostics.searchWindow.start <= 82);
   assert.ok(result.events[0].anchorDiagnostics.searchWindow.end >= 126);
   assert.equal(publicTruth.summary.selectedCountedGoals, 1);
+  assert.equal(publicTruth.summary.stableScoreChangeAnchorCount, 1);
+  assert.equal(publicTruth.scoreChangeAnchors[0].selectedForRender, true);
+  assert.equal(publicTruth.scoreChangeAnchors[0].firstSeenAt, 126);
+  assert.equal(publicTruth.scoreChangeAnchors[0].confirmedAt, 126);
+  assert.equal(publicTruth.scoreChangeAnchors[0].stableUntil, 134);
   assert.doesNotMatch(JSON.stringify(publicTruth), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);
 });
 
@@ -238,8 +256,13 @@ test("score-change recovery rejects scoreboard-only finish even with stable OCR"
 
   assert.equal(result.summary.confirmedGoalCount, 0);
   assert.equal(result.summary.countedGoalEventCount, 1);
+  assert.equal(result.summary.stableScoreChangeAnchorCount, 1);
   assert.equal(result.summary.selectedCountedGoals, 0);
   assert.equal(result.summary.anchorsRejected, 1);
+  assert.equal(result.summary.anchorsMissingVisualSupportCount, 1);
+  assert.equal(result.scoreChangeAnchors[0].selectedForRender, false);
+  assert.equal(result.scoreChangeAnchors[0].hasVisibleFinish, false);
+  assert.ok(result.scoreChangeAnchors[0].missingEvidence.includes("visible_goal_phase"));
   assert.ok(result.rejectedEvents.some((event) => event.anchorDiagnostics.visibleGoalRecovery.failureCode === "SCOREBOARD_ONLY"));
   assert.doesNotMatch(JSON.stringify(publicMatchEventTruth(result)), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);
 });
@@ -577,6 +600,11 @@ test("marks score increase followed by scorebug revert as disallowed truth", () 
   assert.equal(result.summary.disallowedGoalEventCount, 1);
   assert.equal(result.scoreChanges[0].outcome, "disallowed_goal");
   assert.equal(result.scoreChanges[0].reverted, true);
+  assert.equal(result.summary.revertedScoreChangeAnchorCount, 1);
+  assert.equal(result.scoreChangeAnchors[0].outcome, "disallowed_goal");
+  assert.equal(result.scoreChangeAnchors[0].reverted, true);
+  assert.equal(result.scoreChangeAnchors[0].selectedForRender, false);
+  assert.equal(result.scoreChangeAnchors[0].stableUntil, 66);
   assert.ok(result.events.some((event) => event.type === "disallowed_no_goal"));
   assert.ok(result.events.some((event) => event.evidenceCodes.includes("scoreboard_ocr_goal_removed")));
 });

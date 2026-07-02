@@ -460,8 +460,57 @@ test("youtube smoke render summary includes safe counted-goal proof details", as
               disallowedGoalCount: 1,
               possibleGoalCount: 1,
               lateConfirmedGoalCount: 2,
+              scoreChangeAnchorsFound: 2,
+              stableScoreChangeAnchorCount: 2,
+              revertedScoreChangeAnchorCount: 0,
+              anchorsLinkedToGoalPhaseCount: 2,
+              anchorsMissingVisualSupportCount: 0,
               noFalseGoalFromOcrOnly: 1,
             },
+            scoreChangeAnchors: [
+              {
+                id: "anchor_goal_1",
+                scoreBefore: "0-0",
+                scoreAfter: "1-0",
+                firstSeenAt: 282,
+                confirmedAt: 286,
+                stableUntil: 294,
+                reverted: false,
+                confidence: 0.94,
+                source: "scoreboard_ocr",
+                roiId: "scorebug_broadcast_compact",
+                layoutId: "broadcast-compact-score-only-v1",
+                outcome: "counted_goal",
+                selectedForRender: true,
+                linkedEventType: "confirmed_goal",
+                hasLiveAction: true,
+                hasVisibleFinish: true,
+                replayOnly: false,
+                missingEvidence: [],
+                evidenceCodes: ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"],
+              },
+              {
+                id: "anchor_goal_2",
+                scoreBefore: "1-0",
+                scoreAfter: "2-0",
+                firstSeenAt: 366,
+                confirmedAt: 372,
+                stableUntil: 380,
+                reverted: false,
+                confidence: 0.93,
+                source: "scoreboard_ocr",
+                roiId: "scorebug_broadcast_compact",
+                layoutId: "broadcast-compact-score-only-v1",
+                outcome: "counted_goal",
+                selectedForRender: true,
+                linkedEventType: "confirmed_goal",
+                hasLiveAction: true,
+                hasVisibleFinish: true,
+                replayOnly: false,
+                missingEvidence: [],
+                evidenceCodes: ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"],
+              },
+            ],
             selectedEvents: [
               {
                 id: "truth_goal_1",
@@ -532,6 +581,11 @@ test("youtube smoke render summary includes safe counted-goal proof details", as
   assert.equal(proof.excludedOffsideOrNoGoal.length, 1);
   assert.equal(proof.excludedUnknowns.length, 1);
   assert.equal(proof.detectedGoalCandidates.length, 4);
+  assert.equal(proof.scoreChangeAnchors.length, 2);
+  assert.equal(proof.scoreChangeAnchors[0].scoreBefore, "0-0");
+  assert.equal(proof.scoreChangeAnchors[0].selectedForRender, true);
+  assert.equal(proof.summary.stableScoreChangeAnchorCount, 2);
+  assert.equal(proof.summary.anchorsMissingVisualSupportCount, 0);
   assert.equal(proof.summary.confirmedGoalCount, 2);
   assert.equal(proof.logsDownloaded, false);
   assert.equal(proof.artifactsDownloaded, false);
@@ -1054,6 +1108,27 @@ function countedGoalSmokeReport() {
         sourceStart: segment.sourceStart,
         sourceEnd: segment.sourceEnd,
       })),
+      scoreChangeAnchors: segments.map((segment, index) => ({
+        id: `anchor_goal_${segment.goalNumber}`,
+        scoreBefore: `${index}-0`,
+        scoreAfter: `${index + 1}-0`,
+        firstSeenAt: segment.confirmationTime - 2,
+        confirmedAt: segment.confirmationTime,
+        stableUntil: segment.confirmationTime + 8,
+        reverted: false,
+        confidence: 0.93,
+        source: "scoreboard_ocr",
+        roiId: "scorebug_broadcast_compact",
+        layoutId: "broadcast-compact-score-only-v1",
+        outcome: "counted_goal",
+        selectedForRender: true,
+        linkedEventType: "confirmed_goal",
+        hasLiveAction: true,
+        hasVisibleFinish: true,
+        replayOnly: false,
+        missingEvidence: [],
+        evidenceCodes: ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"],
+      })),
       excludedOffsideOrNoGoal: [],
       excludedUnknowns: [],
       summary: {
@@ -1061,6 +1136,11 @@ function countedGoalSmokeReport() {
         disallowedGoalCount: 0,
         possibleGoalCount: 0,
         lateConfirmedGoalCount: 1,
+        scoreChangeAnchorsFound: 3,
+        stableScoreChangeAnchorCount: 3,
+        revertedScoreChangeAnchorCount: 0,
+        anchorsLinkedToGoalPhaseCount: 3,
+        anchorsMissingVisualSupportCount: 0,
       },
       logsDownloaded: false,
       artifactsDownloaded: false,
@@ -1548,6 +1628,10 @@ test("youtube live local e2e reports counted goal coverage and replay-only segme
   assert.equal(report.status, "passed");
   assert.equal(report.outputProof.countedGoalsFound, 3);
   assert.equal(report.outputProof.countedGoalsIncluded, 3);
+  assert.equal(report.outputProof.scoreChangeAnchors.length, 3);
+  assert.equal(report.outputProof.scoreChangeAnchors[0].selectedForRender, true);
+  assert.equal(report.outputProof.stableScoreChangeAnchorCount, 3);
+  assert.equal(report.outputProof.anchorsMissingVisualSupportCount, 0);
   assert.equal(report.outputProof.humanVisibleGoalsIncluded, 3);
   assert.equal(report.outputProof.humanVisibleGoalRecall, 1);
   assert.equal(report.outputProof.passedVisualGate, true);
@@ -2026,6 +2110,11 @@ test("youtube live local e2e failure report keeps safe valid-goal discovery coun
   assert.equal(report.outputProof.scoreChangeCount, 0);
   assert.equal(report.outputProof.stableScoreChangeCount, 0);
   assert.equal(report.outputProof.countedGoalEventCount, 0);
+  assert.deepEqual(report.outputProof.scoreChangeAnchors, []);
+  assert.equal(report.outputProof.stableScoreChangeAnchorCount, null);
+  assert.equal(report.outputProof.revertedScoreChangeAnchorCount, null);
+  assert.equal(report.outputProof.anchorsLinkedToGoalPhaseCount, null);
+  assert.equal(report.outputProof.anchorsMissingVisualSupportCount, null);
   assert.deepEqual(report.outputProof.scorebugDebug, expectedScorebugDebug);
   assert.deepEqual(report.outputProof.missingEvidenceByCandidate, [{
     index: 1,

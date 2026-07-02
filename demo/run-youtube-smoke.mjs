@@ -717,6 +717,32 @@ function safeTruthEvent(event = {}, index = 0) {
   };
 }
 
+function safeScoreChangeAnchor(anchor = {}, index = 0) {
+  return {
+    index: index + 1,
+    id: sanitizeText(anchor.id || `score_change_anchor_${index + 1}`, 96),
+    scoreBefore: anchor.scoreBefore ? sanitizeText(anchor.scoreBefore, 16) : null,
+    scoreAfter: anchor.scoreAfter ? sanitizeText(anchor.scoreAfter, 16) : null,
+    firstSeenAt: safeNumber(anchor.firstSeenAt),
+    confirmedAt: safeNumber(anchor.confirmedAt),
+    stableUntil: safeNumber(anchor.stableUntil),
+    reverted: Boolean(anchor.reverted),
+    revertedAt: safeNumber(anchor.revertedAt),
+    confidence: safeNumber(anchor.confidence),
+    source: "scoreboard_ocr",
+    roiId: anchor.roiId ? sanitizeText(anchor.roiId, 80) : null,
+    layoutId: anchor.layoutId ? sanitizeText(anchor.layoutId, 80) : null,
+    outcome: sanitizeText(anchor.outcome || "uncertain_review", 48),
+    selectedForRender: Boolean(anchor.selectedForRender),
+    linkedEventType: anchor.linkedEventType ? sanitizeText(anchor.linkedEventType, 48) : null,
+    hasLiveAction: Boolean(anchor.hasLiveAction),
+    hasVisibleFinish: Boolean(anchor.hasVisibleFinish),
+    replayOnly: Boolean(anchor.replayOnly),
+    missingEvidence: safeStringList(anchor.missingEvidence, 8, 80),
+    evidenceCodes: safeStringList(anchor.evidenceCodes, 16, 80),
+  };
+}
+
 function safeGoalEvidenceEvent(event = {}, index = 0) {
   return {
     index: index + 1,
@@ -737,6 +763,9 @@ function safeCountedGoalProofSummary(job = {}, segments = []) {
   const selectedEvents = Array.isArray(truth.selectedEvents) ? truth.selectedEvents : [];
   const rejectedEvents = Array.isArray(truth.rejectedEvents) ? truth.rejectedEvents : [];
   const truthEvents = [...selectedEvents, ...rejectedEvents];
+  const scoreChangeAnchors = Array.isArray(truth.scoreChangeAnchors)
+    ? truth.scoreChangeAnchors.map(safeScoreChangeAnchor).slice(0, 12)
+    : [];
   const selectedValidGoals = selectedEvents
     .filter((event) => event.truthStatus === "valid_goal" || event.eventType === "valid_goal" || event.type === "confirmed_goal")
     .map(safeTruthEvent);
@@ -783,12 +812,18 @@ function safeCountedGoalProofSummary(job = {}, segments = []) {
     selectedValidGoals,
     excludedOffsideOrNoGoal,
     excludedUnknowns,
+    scoreChangeAnchors,
     summary: truth.summary
       ? {
           confirmedGoalCount: safeNumber(truth.summary.confirmedGoalCount),
           disallowedGoalCount: safeNumber(truth.summary.disallowedGoalCount),
           possibleGoalCount: safeNumber(truth.summary.possibleGoalCount),
           lateConfirmedGoalCount: safeNumber(truth.summary.lateConfirmedGoalCount),
+          scoreChangeAnchorsFound: safeNumber(truth.summary.scoreChangeAnchorsFound),
+          stableScoreChangeAnchorCount: safeNumber(truth.summary.stableScoreChangeAnchorCount),
+          revertedScoreChangeAnchorCount: safeNumber(truth.summary.revertedScoreChangeAnchorCount),
+          anchorsLinkedToGoalPhaseCount: safeNumber(truth.summary.anchorsLinkedToGoalPhaseCount),
+          anchorsMissingVisualSupportCount: safeNumber(truth.summary.anchorsMissingVisualSupportCount),
           noFalseGoalFromOcrOnly: safeNumber(truth.summary.noFalseGoalFromOcrOnly),
         }
       : null,

@@ -37,3 +37,4 @@ Guardrails:
 - Goal-sequence planning should keep the source window action-first and long enough to show shot-to-payoff, typically 12-22 seconds for medium/strong goal evidence.
 - Ball-in-net moments should become outcome-aware: keep 10-15 seconds of post-context for flag/offside/VAR/no-goal decisions, include disallowed goals, and avoid confirmed-goal copy unless the outcome is `confirmed_goal`.
 - Referee/VAR/offside decision cues should flow through `server/goal-outcome.cjs`; weak VAR/offside review cues become `possible_offside`, no-goal/flag/scoreboard-removal cues become `disallowed_offside`, and confirmed goals require explicit confirmation evidence.
+- Stable scorebug OCR changes should be treated as explicit score change anchors, not automatic goals. Anchors need visible live action and finish support before render selection; reverted score changes become disallowed/no-goal context.

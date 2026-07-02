@@ -171,6 +171,33 @@ function safeTruthCandidate(value = {}, index = 0) {
   };
 }
 
+function safeScoreChangeAnchor(value = {}, index = 0) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    index: safeNumber(value.index) || index + 1,
+    id: safeString(value.id || `score_change_anchor_${index + 1}`, 96),
+    scoreBefore: value.scoreBefore ? safeString(value.scoreBefore, 16) : null,
+    scoreAfter: value.scoreAfter ? safeString(value.scoreAfter, 16) : null,
+    firstSeenAt: safeNumber(value.firstSeenAt),
+    confirmedAt: safeNumber(value.confirmedAt),
+    stableUntil: safeNumber(value.stableUntil),
+    reverted: safeBoolean(value.reverted),
+    revertedAt: safeNumber(value.revertedAt),
+    confidence: safeNumber(value.confidence),
+    source: "scoreboard_ocr",
+    roiId: value.roiId ? safeString(value.roiId, 80) : null,
+    layoutId: value.layoutId ? safeString(value.layoutId, 80) : null,
+    outcome: safeString(value.outcome || "uncertain_review", 48),
+    selectedForRender: safeBoolean(value.selectedForRender),
+    linkedEventType: value.linkedEventType ? safeString(value.linkedEventType, 48) : null,
+    hasLiveAction: safeBoolean(value.hasLiveAction),
+    hasVisibleFinish: safeBoolean(value.hasVisibleFinish),
+    replayOnly: safeBoolean(value.replayOnly),
+    missingEvidence: safeStringList(value.missingEvidence, 8, 80),
+    evidenceCodes: safeStringList(value.evidenceCodes, 16, 80),
+  };
+}
+
 function safeMissingEvidenceCandidate(value = {}, index = 0) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return {
@@ -948,6 +975,10 @@ function buildOutputProof({ env, smoke, source, staleArtifactCleanup }) {
     : null;
   const referenceStyleQA = referenceStyleQaFromSmoke(smoke, outputMp4);
   const renderPolishQA = renderPolishQaFromSmoke(smoke);
+  const countedGoalProof = smoke && smoke.renderPlan && smoke.renderPlan.countedGoalProof
+    ? smoke.renderPlan.countedGoalProof
+    : null;
+  const countedGoalProofSummary = countedGoalProof && countedGoalProof.summary ? countedGoalProof.summary : null;
   referenceStyleQA.countedGoalsExpected = coverage.expectedCountedGoals;
   referenceStyleQA.countedGoalsIncluded = coverage.countedGoalsIncluded;
   referenceStyleQA.humanVisibleGoalsIncluded = coverage.humanVisibleGoalsIncluded;
@@ -968,6 +999,13 @@ function buildOutputProof({ env, smoke, source, staleArtifactCleanup }) {
     humanVisibleGoalsIncluded: coverage.humanVisibleGoalsIncluded,
     humanVisibleGoalRecall: coverage.humanVisibleGoalRecall,
     passedVisualGate: coverage.passedVisualGate,
+    scoreChangeAnchors: Array.isArray(countedGoalProof && countedGoalProof.scoreChangeAnchors)
+      ? countedGoalProof.scoreChangeAnchors.map(safeScoreChangeAnchor).filter(Boolean).slice(0, 12)
+      : [],
+    stableScoreChangeAnchorCount: safeNumber(countedGoalProofSummary && countedGoalProofSummary.stableScoreChangeAnchorCount),
+    revertedScoreChangeAnchorCount: safeNumber(countedGoalProofSummary && countedGoalProofSummary.revertedScoreChangeAnchorCount),
+    anchorsLinkedToGoalPhaseCount: safeNumber(countedGoalProofSummary && countedGoalProofSummary.anchorsLinkedToGoalPhaseCount),
+    anchorsMissingVisualSupportCount: safeNumber(countedGoalProofSummary && countedGoalProofSummary.anchorsMissingVisualSupportCount),
     failedVisibleGoalSegments: coverage.failedVisibleGoalSegments,
     visualGateFailures: coverage.visualGateFailures,
     expectedCountedGoals: coverage.expectedCountedGoals,
@@ -1113,6 +1151,9 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
   const countedGoalEventCount = safeNumber(discovery && discovery.countedGoalEventCount) ??
     safeNumber(discovery && discovery.matchEventTruthCountedGoalEventCount) ??
     0;
+  const scoreChangeAnchors = Array.isArray(discovery && discovery.matchEventTruthScoreChangeAnchors)
+    ? discovery.matchEventTruthScoreChangeAnchors.map(safeScoreChangeAnchor).filter(Boolean).slice(0, 12)
+    : [];
   const missingEvidenceByCandidate = Array.isArray(discovery && discovery.missingEvidenceByCandidate) &&
     discovery.missingEvidenceByCandidate.length > 0
     ? discovery.missingEvidenceByCandidate
@@ -1152,6 +1193,11 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
     scoreChangeCount,
     stableScoreChangeCount,
     countedGoalEventCount,
+    scoreChangeAnchors,
+    stableScoreChangeAnchorCount: safeNumber(discovery && discovery.matchEventTruthStableScoreChangeAnchorCount),
+    revertedScoreChangeAnchorCount: safeNumber(discovery && discovery.matchEventTruthRevertedScoreChangeAnchorCount),
+    anchorsLinkedToGoalPhaseCount: safeNumber(discovery && discovery.matchEventTruthAnchorsLinkedToGoalPhaseCount),
+    anchorsMissingVisualSupportCount: safeNumber(discovery && discovery.matchEventTruthAnchorsMissingVisualSupportCount),
     missingEvidenceByCandidate,
     nextAction,
     expectedCountedGoals,
@@ -1566,6 +1612,10 @@ function startServer(port, env) {
             matchEventTruthDisallowedGoalEventCount: safeNumber(parsed.matchEventTruthDisallowedGoalEventCount),
             matchEventTruthSelectedGoalCount: safeNumber(parsed.matchEventTruthSelectedGoalCount),
             matchEventTruthScoreChangeAnchorsFound: safeNumber(parsed.matchEventTruthScoreChangeAnchorsFound),
+            matchEventTruthStableScoreChangeAnchorCount: safeNumber(parsed.matchEventTruthStableScoreChangeAnchorCount),
+            matchEventTruthRevertedScoreChangeAnchorCount: safeNumber(parsed.matchEventTruthRevertedScoreChangeAnchorCount),
+            matchEventTruthAnchorsLinkedToGoalPhaseCount: safeNumber(parsed.matchEventTruthAnchorsLinkedToGoalPhaseCount),
+            matchEventTruthAnchorsMissingVisualSupportCount: safeNumber(parsed.matchEventTruthAnchorsMissingVisualSupportCount),
             matchEventTruthAnchorsWithLiveActionEvidence: safeNumber(parsed.matchEventTruthAnchorsWithLiveActionEvidence),
             matchEventTruthAnchorsRejected: safeNumber(parsed.matchEventTruthAnchorsRejected),
             matchEventTruthSelectedCountedGoals: safeNumber(parsed.matchEventTruthSelectedCountedGoals),
@@ -1581,6 +1631,9 @@ function startServer(port, env) {
               : [],
             matchTruthCandidates: Array.isArray(parsed.matchTruthCandidates)
               ? parsed.matchTruthCandidates.map(safeTruthCandidate).filter(Boolean).slice(0, 16)
+              : [],
+            matchEventTruthScoreChangeAnchors: Array.isArray(parsed.matchEventTruthScoreChangeAnchors)
+              ? parsed.matchEventTruthScoreChangeAnchors.map(safeScoreChangeAnchor).filter(Boolean).slice(0, 12)
               : [],
           };
         }
