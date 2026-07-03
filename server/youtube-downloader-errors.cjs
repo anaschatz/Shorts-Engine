@@ -91,6 +91,16 @@ const YOUTUBE_FAILURES = Object.freeze({
     retryable: true,
     authorizedImportRequired: false,
   }),
+  YOUTUBE_NO_PROGRESS_TIMEOUT: Object.freeze({
+    code: "YOUTUBE_NO_PROGRESS_TIMEOUT",
+    status: 504,
+    reason: "no_progress_timeout",
+    metadataStatus: "timeout",
+    ingestRisk: "retry-later",
+    nextAction: "retry-with-longer-no-progress-timeout-or-use-authorized-source-cache",
+    retryable: true,
+    authorizedImportRequired: false,
+  }),
   YOUTUBE_DOWNLOAD_FAILED: Object.freeze({
     code: "YOUTUBE_DOWNLOAD_FAILED",
     status: 502,
@@ -156,6 +166,9 @@ function classifyYouTubeDownloaderFailure(error) {
       retryable: false,
       authorizedImportRequired: false,
     });
+  }
+  if (error && error.code === "YOUTUBE_NO_PROGRESS_TIMEOUT") {
+    return safeFailure(YOUTUBE_FAILURES.YOUTUBE_NO_PROGRESS_TIMEOUT);
   }
   if (error && (error.killed || error.signal || error.code === "ETIMEDOUT")) {
     return safeFailure(YOUTUBE_FAILURES.YOUTUBE_DOWNLOAD_TIMEOUT);

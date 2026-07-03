@@ -29,6 +29,10 @@ const {
   validateYouTubeSource,
   youtubeIngestHealth,
 } = require("../server/youtube-ingest.cjs");
+const {
+  createSourceAcquisitionService,
+  validateSourceAcquisitionRequest,
+} = require("../server/source-acquisition/source-acquisition-service.cjs");
 
 const mp4Header = Buffer.from([
   0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d,
@@ -263,6 +267,91 @@ test("youtube source validation requires rights and enforces duration limits", a
     }),
     (error) => error.code === "YOUTUBE_DURATION_TOO_LONG",
   );
+});
+
+test("source acquisition boundary validates rights source and adapter contract", async () => {
+  const uploadId = "upl_source01-1234-1234-1234-123456789abc";
+  const { stageDir, outputPath } = createYouTubeStagePaths(uploadId);
+  mkdirSync(stageDir, { recursive: true });
+  try {
+    assert.throws(
+      () => validateSourceAcquisitionRequest({
+        url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        rightsConfirmed: false,
+        outputPath,
+      }),
+      (error) => error.code === "YOUTUBE_RIGHTS_REQUIRED",
+    );
+    assert.throws(
+      () => validateSourceAcquisitionRequest({
+        url: "https://vimeo.com/123",
+        rightsConfirmed: true,
+        outputPath,
+      }),
+      (error) => error.code === "YOUTUBE_URL_INVALID",
+    );
+    assert.throws(
+      () => createSourceAcquisitionService({ adapter: {} }),
+      (error) => error.code === "ADAPTER_CONTRACT_INVALID",
+    );
+  } finally {
+    cleanupYouTubeStage(stageDir);
+  }
+});
+
+test("source acquisition boundary wraps successful local adapter output safely", async () => {
+  const uploadId = "upl_source02-1234-1234-1234-123456789abc";
+  const { stageDir, outputPath } = createYouTubeStagePaths(uploadId);
+  mkdirSync(stageDir, { recursive: true });
+  const adapter = {
+    mode: "local",
+    health() {
+      return {
+        ready: true,
+        mode: "local",
+        enabled: true,
+        networkCalls: true,
+        downloaderConfigured: true,
+        ingestAvailable: true,
+        authorizedImportAvailable: false,
+        formatStrategy: {
+          formatSelector: "best[ext=mp4]/best",
+          fallbackFormatSelector: "best[ext=mp4]/best",
+          attemptsConfigured: 1,
+          timeoutMs: 1000,
+        },
+      };
+    },
+    async ingest(_source, ingestOptions = {}) {
+      writeFileSync(ingestOptions.outputPath, Buffer.concat([mp4Header, Buffer.alloc(128)]));
+      return {
+        outputPath: ingestOptions.outputPath,
+        size: 144,
+        attempts: 1,
+        attemptsConfigured: 1,
+        timeoutMs: 1000,
+        formatSelector: "best[ext=mp4]/best",
+        fallbackFormatSelector: "best[ext=mp4]/best",
+        fallbackUsed: false,
+      };
+    },
+  };
+  try {
+    const service = createSourceAcquisitionService({ adapter });
+    const result = await service.acquireSource({
+      url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      rightsConfirmed: true,
+      outputPath,
+    });
+    assert.equal(result.outputPath, outputPath);
+    assert.equal(result.sourceAcquisition.status, "acquired");
+    assert.equal(result.sourceAcquisition.strategy.attempts, 1);
+    assert.equal(result.sourceAcquisition.strategy.formatSelector, "best[ext=mp4]/best");
+    assert.equal(result.sourceAcquisition.outputBytes, 144);
+    assert.doesNotMatch(JSON.stringify(result.sourceAcquisition), /\/Users|stderr|stdout|token|cookie/i);
+  } finally {
+    cleanupYouTubeStage(stageDir);
+  }
 });
 
 test("youtube adapter failures fail closed without leaking raw provider errors", async () => {
@@ -642,6 +731,51 @@ test("local youtube downloader adapter maps timeout and missing tools to safe er
   }
 });
 
+test("local youtube downloader adapter classifies no-progress stalls safely", async () => {
+  const uploadId = "upl_stall12-1234-1234-1234-123456789abc";
+  const { stageDir, outputPath } = createYouTubeStagePaths(uploadId);
+  mkdirSync(stageDir, { recursive: true });
+  let killed = false;
+  const adapter = createLocalYouTubeIngestAdapter({
+    config: {
+      enabled: true,
+      downloaderBin: "yt-dlp",
+      timeoutMs: 5000,
+      maxOutputBytes: 1024,
+      downloadAttempts: 1,
+      progressHeartbeatMs: 250,
+      noProgressTimeoutMs: 30,
+    },
+    spawnSync: () => ({ status: 0 }),
+    execFile: () => ({
+      kill(signal) {
+        killed = signal === "SIGTERM";
+      },
+    }),
+  });
+  try {
+    await assert.rejects(
+      () => adapter.ingest(normalizeYouTubeUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ"), { outputPath }),
+      (error) => {
+        assert.equal(error.code, "YOUTUBE_NO_PROGRESS_TIMEOUT");
+        assert.equal(error.details.phase, "ingest");
+        assert.equal(error.details.step, "download_source");
+        assert.equal(error.details.substep, "youtube_downloader");
+        assert.equal(error.details.stallClassification, "no_progress_timeout");
+        assert.equal(error.details.noProgressTimeoutMs, 30);
+        assert.equal(error.details.progressHeartbeatCount >= 1, true);
+        assert.equal(error.details.progressBytesObserved, 0);
+        assert.equal(error.details.retryable, true);
+        assert.equal(killed, true);
+        assert.doesNotMatch(JSON.stringify(error.details), /\/Users|stderr|stdout|cookie|token/i);
+        return true;
+      },
+    );
+  } finally {
+    cleanupYouTubeStage(stageDir);
+  }
+});
+
 test("youtube ingest service blocks invalid input before downloader calls", async () => {
   const adapter = createWritingAdapter(Buffer.concat([mp4Header, Buffer.alloc(128)]));
   const created = [];
@@ -800,6 +934,7 @@ test("youtube ingest service reports downloader timeout diagnostics and creates 
       assert.equal(error.details.metadataPreflightDurationSeconds, 540);
       assert.equal(error.details.cleanupSucceeded, true);
       assert.equal(error.details.fallbackUsed, true);
+      assert.equal(error.details.sourceAcquisitionStatus, "failed");
       assert.doesNotMatch(JSON.stringify(error.details), /\/Users|stderr|stdout|secret/i);
       return true;
     },

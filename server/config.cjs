@@ -291,6 +291,18 @@ function validateYouTubeIngestConfig(input = {}) {
       min: 0,
       max: 10 * 1000,
     }),
+    progressHeartbeatMs: validatePositiveIntegerConfig(input.progressHeartbeatMs, {
+      name: "YouTube download progress heartbeat",
+      fallback: 5 * 1000,
+      min: 250,
+      max: 30 * 1000,
+    }),
+    noProgressTimeoutMs: validatePositiveIntegerConfig(input.noProgressTimeoutMs, {
+      name: "YouTube download no-progress timeout",
+      fallback: 45 * 1000,
+      min: 1000,
+      max: 10 * 60 * 1000,
+    }),
   };
 }
 
@@ -353,6 +365,8 @@ const YOUTUBE_INGEST_CONFIG = validateYouTubeIngestConfig({
   fallbackFormatSelector: process.env.SHORTSENGINE_YOUTUBE_FALLBACK_FORMAT_SELECTOR,
   downloadAttempts: process.env.SHORTSENGINE_YOUTUBE_DOWNLOAD_ATTEMPTS,
   retryBackoffMs: process.env.SHORTSENGINE_YOUTUBE_RETRY_BACKOFF_MS,
+  progressHeartbeatMs: process.env.SHORTSENGINE_YOUTUBE_PROGRESS_HEARTBEAT_MS,
+  noProgressTimeoutMs: process.env.SHORTSENGINE_YOUTUBE_NO_PROGRESS_TIMEOUT_MS,
 });
 const SCOREBOARD_OCR_CONFIG = validateScoreboardOcrConfig({
   enabled: boolFromEnv(process.env.SHORTSENGINE_SCOREBOARD_OCR_ENABLED),

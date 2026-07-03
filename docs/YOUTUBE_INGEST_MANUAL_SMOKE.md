@@ -372,6 +372,7 @@ If cleanup requires deleting committed artifacts or exports, stop and add a dedi
 | `YOUTUBE_RATE_LIMITED` | YouTube rate-limited the ingest attempt. | Retry later or upload MP4 fallback. |
 | `YOUTUBE_FORMAT_UNAVAILABLE` | The requested downloader format was unavailable. | Adjust `SHORTSENGINE_YOUTUBE_FORMAT_SELECTOR` or rely on the fallback selector, then rerun. |
 | `YOUTUBE_OUTPUT_INVALID` | The downloader exited without a valid staged MP4. | Retry once, check format strategy, or use a rights-cleared local MP4 proof. |
+| `YOUTUBE_NO_PROGRESS_TIMEOUT` | The managed staging file stopped growing before the downloader completed. | Retry with a reviewed `SHORTSENGINE_YOUTUBE_NO_PROGRESS_TIMEOUT_MS` increase or use an authorized source cache. |
 | `YOUTUBE_DOWNLOAD_FAILED` | Generic downloader failure before OCR/evidence analysis. | Use `npm run proof:local-video` with a rights-cleared MP4, or fix the downloader and rerun. |
 | `FFMPEG_MISSING` | FFmpeg is unavailable. | Install FFmpeg or set `FFMPEG_BIN`. |
 | `FFPROBE_MISSING` | FFprobe is unavailable. | Install FFprobe or set `FFPROBE_BIN`. |

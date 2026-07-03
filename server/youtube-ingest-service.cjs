@@ -12,6 +12,7 @@ const { isAbsolute, relative } = require("node:path");
 const { CONFIG } = require("./config.cjs");
 const { AppError, SAFE_MESSAGES, redactForLogs } = require("./errors.cjs");
 const { probeMedia, sanitizeText, sha256, validateUploadCandidate } = require("./media.cjs");
+const { createSourceAcquisitionService } = require("./source-acquisition/source-acquisition-service.cjs");
 const { assertStoragePath, safeResolve } = require("./storage.cjs");
 const { validateYouTubeSource, youtubeIngestHealth } = require("./youtube-ingest.cjs");
 
@@ -121,6 +122,21 @@ function safeDownloaderFailureDetails(error) {
       ? Number(details.partialCleanupRemovedCount)
       : null,
     cleanupSucceeded: typeof details.cleanupSucceeded === "boolean" ? details.cleanupSucceeded : null,
+    sourceAcquisitionStatus: typeof details.sourceAcquisitionStatus === "string"
+      ? sanitizeText(details.sourceAcquisitionStatus, 80)
+      : null,
+    heartbeatIntervalMs: Number.isFinite(Number(details.heartbeatIntervalMs)) ? Number(details.heartbeatIntervalMs) : null,
+    noProgressTimeoutMs: Number.isFinite(Number(details.noProgressTimeoutMs)) ? Number(details.noProgressTimeoutMs) : null,
+    progressHeartbeatCount: Number.isFinite(Number(details.progressHeartbeatCount))
+      ? Number(details.progressHeartbeatCount)
+      : null,
+    progressEventCount: Number.isFinite(Number(details.progressEventCount)) ? Number(details.progressEventCount) : null,
+    progressBytesObserved: Number.isFinite(Number(details.progressBytesObserved))
+      ? Number(details.progressBytesObserved)
+      : null,
+    stallClassification: typeof details.stallClassification === "string"
+      ? sanitizeText(details.stallClassification, 80)
+      : null,
     nextAction: typeof details.nextAction === "string" ? details.nextAction : null,
   };
 }
@@ -148,6 +164,7 @@ function attachIngestFailureDetails(error, details = {}) {
       ? Number(existing.partialCleanupRemovedCount)
       : details.partialCleanupRemovedCount,
     cleanupSucceeded: details.cleanupSucceeded,
+    sourceAcquisitionStatus: existing.sourceAcquisitionStatus || details.sourceAcquisitionStatus,
   };
   return error;
 }
@@ -173,6 +190,7 @@ function createYouTubeIngestService(options = {}) {
   if (!deps.artifactStore || !deps.persistenceAdapter) {
     throw new AppError("ADAPTER_CONTRACT_INVALID", SAFE_MESSAGES.ADAPTER_CONTRACT_INVALID, 500);
   }
+  const sourceAcquisition = createSourceAcquisitionService({ adapter, logger: deps.logger });
 
   async function ingest(input = {}) {
     const requestId = sanitizeText(input.requestId || "", 120);
@@ -198,6 +216,7 @@ function createYouTubeIngestService(options = {}) {
     let activeStep = "metadata_preflight";
     let activeSubstep = "source_metadata";
     let stageCleaned = false;
+    let acquisitionCompleted = false;
     logInfo(deps.logger, {
       event: "youtube_ingest_step",
       requestId,
@@ -227,7 +246,17 @@ function createYouTubeIngestService(options = {}) {
     });
 
     try {
-      const downloadResult = await adapter.ingest(source, { outputPath, signal: input.signal });
+      const downloadResult = await sourceAcquisition.acquireSource({
+        source,
+        url: source.canonicalUrl,
+        rightsConfirmed: true,
+        outputPath,
+        signal: input.signal,
+        requestId,
+        uploadId,
+        projectId,
+      });
+      acquisitionCompleted = true;
       activeStep = "download_validate_signature";
       activeSubstep = "file_signature";
       const downloaded = assertDownloadedFile(outputPath, deps);
@@ -249,6 +278,7 @@ function createYouTubeIngestService(options = {}) {
           ? downloadResult.fallbackFormatSelector
           : null,
         fallbackUsed: downloadResult?.fallbackUsed === true,
+        sourceAcquisitionStatus: downloadResult?.sourceAcquisition?.status || null,
       });
       const validated = deps.validateUploadCandidate({
         fileName: `${source.videoId}.mp4`,
@@ -331,6 +361,7 @@ function createYouTubeIngestService(options = {}) {
         metadataPreflightStatus: source.metadataStatus || null,
         metadataPreflightDurationSeconds: source.durationSeconds || null,
         cleanupSucceeded: cleanup.cleaned === true,
+        sourceAcquisitionStatus: acquisitionCompleted ? "acquired" : "failed",
       });
       logError(deps.logger, {
         event: "youtube_ingest_failed",

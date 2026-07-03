@@ -444,6 +444,13 @@ test("youtube smoke ingest API failures report downloader phase details", async 
         formatSelector: "best[ext=mp4]/best",
         fallbackFormatSelector: "best[ext=mp4]/best",
         fallbackUsed: true,
+        sourceAcquisitionStatus: "failed",
+        stallClassification: "no_progress_timeout",
+        heartbeatIntervalMs: 5000,
+        noProgressTimeoutMs: 45000,
+        progressHeartbeatCount: 12,
+        progressEventCount: 1,
+        progressBytesObserved: 4096,
         metadataPreflightStatus: "local",
         metadataPreflightDurationSeconds: 540,
         partialCleanupSucceeded: true,
@@ -465,6 +472,13 @@ test("youtube smoke ingest API failures report downloader phase details", async 
   assert.equal(report.failedCases[0].elapsedMs, 245000);
   assert.equal(report.failedCases[0].retryable, true);
   assert.equal(report.failedCases[0].fallbackUsed, true);
+  assert.equal(report.failedCases[0].sourceAcquisitionStatus, "failed");
+  assert.equal(report.failedCases[0].stallClassification, "no_progress_timeout");
+  assert.equal(report.failedCases[0].heartbeatIntervalMs, 5000);
+  assert.equal(report.failedCases[0].noProgressTimeoutMs, 45000);
+  assert.equal(report.failedCases[0].progressHeartbeatCount, 12);
+  assert.equal(report.failedCases[0].progressEventCount, 1);
+  assert.equal(report.failedCases[0].progressBytesObserved, 4096);
   assert.equal(report.failedCases[0].formatSelector, "best[ext=mp4]/best");
   assert.equal(report.failedCases[0].metadataPreflightStatus, "local");
   assert.equal(report.failedCases[0].metadataPreflightDurationSeconds, 540);
@@ -2658,6 +2672,13 @@ test("youtube live failed output proof preserves pre-render download failure act
         attemptsConfigured: 2,
         timeoutMs: 120000,
         fallbackUsed: true,
+        sourceAcquisitionStatus: "failed",
+        stallClassification: "no_progress_timeout",
+        heartbeatIntervalMs: 5000,
+        noProgressTimeoutMs: 45000,
+        progressHeartbeatCount: 18,
+        progressEventCount: 2,
+        progressBytesObserved: 8192,
         metadataPreflightStatus: "local",
         metadataPreflightDurationSeconds: 540,
         cleanupSucceeded: true,
@@ -2676,6 +2697,13 @@ test("youtube live failed output proof preserves pre-render download failure act
   assert.equal(report.outputProof.ingest.attempts, 2);
   assert.equal(report.outputProof.ingest.attemptsConfigured, 2);
   assert.equal(report.outputProof.ingest.fallbackUsed, true);
+  assert.equal(report.outputProof.ingest.sourceAcquisitionStatus, "failed");
+  assert.equal(report.outputProof.ingest.stallClassification, "no_progress_timeout");
+  assert.equal(report.outputProof.ingest.heartbeatIntervalMs, 5000);
+  assert.equal(report.outputProof.ingest.noProgressTimeoutMs, 45000);
+  assert.equal(report.outputProof.ingest.progressHeartbeatCount, 18);
+  assert.equal(report.outputProof.ingest.progressEventCount, 2);
+  assert.equal(report.outputProof.ingest.progressBytesObserved, 8192);
   assert.equal(report.outputProof.ingest.metadataPreflightStatus, "local");
   assert.equal(report.outputProof.ingest.metadataPreflightDurationSeconds, 540);
   assert.equal(report.outputProof.ingest.cleanupSucceeded, true);

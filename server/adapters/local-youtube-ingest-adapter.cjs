@@ -87,6 +87,8 @@ function formatStrategySummary(config = {}) {
     fallbackFormatSelector,
     attemptsConfigured: Math.max(1, Math.min(Number(config.downloadAttempts) || 1, 4)),
     timeoutMs: Number.isFinite(Number(config.timeoutMs)) ? Number(config.timeoutMs) : null,
+    progressHeartbeatMs: Number.isFinite(Number(config.progressHeartbeatMs)) ? Number(config.progressHeartbeatMs) : null,
+    noProgressTimeoutMs: Number.isFinite(Number(config.noProgressTimeoutMs)) ? Number(config.noProgressTimeoutMs) : null,
     playerClient: normalizePlayerClient(config.playerClient) || null,
   };
 }
@@ -127,18 +129,165 @@ function buildMetadataArgs(source, config = {}) {
   ];
 }
 
+function outputProgressSnapshot(outputPath) {
+  if (!outputPath) return { bytesObserved: 0 };
+  const safePath = validateDownloaderOutputPath(outputPath);
+  const stageDir = dirname(safePath);
+  const safeBaseName = basename(safePath);
+  let bytesObserved = 0;
+  const addCandidate = (candidatePath) => {
+    try {
+      assertStoragePath(candidatePath, "staging");
+      if (!existsSync(candidatePath)) return;
+      const stats = statSync(candidatePath);
+      if (stats.isFile() && stats.size > 0) bytesObserved += stats.size;
+    } catch {
+      // Best effort only. The validation boundary still rejects invalid output.
+    }
+  };
+  addCandidate(safePath);
+  try {
+    for (const entry of readdirSync(stageDir)) {
+      if (
+        entry === safeBaseName ||
+        entry.startsWith("source.") ||
+        entry.endsWith(".part") ||
+        entry.endsWith(".tmp") ||
+        entry.endsWith(".ytdl")
+      ) {
+        addCandidate(join(stageDir, entry));
+      }
+    }
+  } catch {
+    // Best effort only. The validation boundary still rejects invalid output.
+  }
+  return { bytesObserved };
+}
+
+function createProgressMonitor(outputPath, options = {}) {
+  const heartbeatIntervalMs = Math.max(250, Math.min(Number(options.heartbeatIntervalMs) || 5000, 30_000));
+  const noProgressTimeoutMs = Math.max(25, Math.min(Number(options.noProgressTimeoutMs) || 45_000, 10 * 60_000));
+  const startedAt = Date.now();
+  let heartbeatCount = 0;
+  let progressEventCount = 0;
+  let lastBytes = outputProgressSnapshot(outputPath).bytesObserved;
+  let lastProgressAt = startedAt;
+  let timer = null;
+
+  const summary = (overrides = {}) => ({
+    heartbeatIntervalMs,
+    noProgressTimeoutMs,
+    progressHeartbeatCount: heartbeatCount,
+    progressEventCount,
+    progressBytesObserved: lastBytes,
+    stallClassification: overrides.stallClassification || null,
+  });
+
+  return {
+    start(onStall) {
+      timer = setInterval(() => {
+        heartbeatCount += 1;
+        const snapshot = outputProgressSnapshot(outputPath);
+        if (snapshot.bytesObserved > lastBytes) {
+          lastBytes = snapshot.bytesObserved;
+          lastProgressAt = Date.now();
+          progressEventCount += 1;
+          return;
+        }
+        if (Date.now() - lastProgressAt >= noProgressTimeoutMs) {
+          const details = summary({ stallClassification: "no_progress_timeout" });
+          if (timer) clearInterval(timer);
+          timer = null;
+          onStall(details);
+        }
+      }, heartbeatIntervalMs);
+    },
+    stop() {
+      if (timer) clearInterval(timer);
+      timer = null;
+      return summary();
+    },
+  };
+}
+
 function execFileSafe(execFileImpl, command, args, options) {
   return new Promise((resolve, reject) => {
-    execFileImpl(command, args, options, (error, stdout, stderr) => {
-      if (error) {
-        if (stdout !== undefined) error.stdout = stdout;
-        if (stderr !== undefined) error.stderr = stderr;
-        reject(error);
-        return;
+    const progressOptions = options && options.progressPath
+      ? {
+        progressPath: options.progressPath,
+        heartbeatIntervalMs: options.progressHeartbeatMs,
+        noProgressTimeoutMs: options.noProgressTimeoutMs,
       }
-      resolve({ stdout, stderr });
-    });
+      : null;
+    const execOptions = { ...options };
+    delete execOptions.progressPath;
+    delete execOptions.progressHeartbeatMs;
+    delete execOptions.noProgressTimeoutMs;
+    let settled = false;
+    let child = null;
+    let monitor = null;
+    const settle = (handler, value) => {
+      if (settled) return;
+      settled = true;
+      const progressSummary = monitor ? monitor.stop() : null;
+      if (value && typeof value === "object" && progressSummary && !value.progressSummary) {
+        value.progressSummary = progressSummary;
+      }
+      handler(value);
+    };
+    if (progressOptions) {
+      monitor = createProgressMonitor(progressOptions.progressPath, progressOptions);
+      monitor.start((progressSummary) => {
+        const error = new Error("YouTube downloader stopped making progress.");
+        error.code = "YOUTUBE_NO_PROGRESS_TIMEOUT";
+        error.killed = false;
+        error.progressSummary = progressSummary;
+        try {
+          if (child && typeof child.kill === "function") child.kill("SIGTERM");
+        } catch {
+          // Best effort only; execFile timeout is still active.
+        }
+        settle(reject, error);
+      });
+    }
+    try {
+      child = execFileImpl(command, args, execOptions, (error, stdout, stderr) => {
+        if (error) {
+          if (stdout !== undefined) error.stdout = stdout;
+          if (stderr !== undefined) error.stderr = stderr;
+          settle(reject, error);
+          return;
+        }
+        settle(resolve, { stdout, stderr });
+      });
+    } catch (error) {
+      settle(reject, error);
+    }
   });
+}
+
+function safeProgressDetails(progressSummary) {
+  if (!progressSummary || typeof progressSummary !== "object") return {};
+  return {
+    heartbeatIntervalMs: Number.isFinite(Number(progressSummary.heartbeatIntervalMs))
+      ? Number(progressSummary.heartbeatIntervalMs)
+      : null,
+    noProgressTimeoutMs: Number.isFinite(Number(progressSummary.noProgressTimeoutMs))
+      ? Number(progressSummary.noProgressTimeoutMs)
+      : null,
+    progressHeartbeatCount: Number.isFinite(Number(progressSummary.progressHeartbeatCount))
+      ? Number(progressSummary.progressHeartbeatCount)
+      : null,
+    progressEventCount: Number.isFinite(Number(progressSummary.progressEventCount))
+      ? Number(progressSummary.progressEventCount)
+      : null,
+    progressBytesObserved: Number.isFinite(Number(progressSummary.progressBytesObserved))
+      ? Number(progressSummary.progressBytesObserved)
+      : null,
+    stallClassification: typeof progressSummary.stallClassification === "string"
+      ? progressSummary.stallClassification
+      : null,
+  };
 }
 
 function toDownloaderError(error) {
@@ -216,6 +365,12 @@ function attachDownloaderDetails(error, details = {}) {
     playerClient: details.playerClient || "",
     partialCleanupSucceeded: details.partialCleanupSucceeded !== false,
     partialCleanupRemovedCount: details.partialCleanupRemovedCount,
+    heartbeatIntervalMs: details.heartbeatIntervalMs,
+    noProgressTimeoutMs: details.noProgressTimeoutMs,
+    progressHeartbeatCount: details.progressHeartbeatCount,
+    progressEventCount: details.progressEventCount,
+    progressBytesObserved: details.progressBytesObserved,
+    stallClassification: details.stallClassification || null,
   };
   return error;
 }
@@ -341,11 +496,15 @@ function createLocalYouTubeIngestAdapter(options = {}) {
             maxBuffer: config.maxOutputBytes,
             windowsHide: true,
             signal: options.signal,
+            progressPath: outputPath,
+            progressHeartbeatMs: config.progressHeartbeatMs,
+            noProgressTimeoutMs: config.noProgressTimeoutMs,
           });
           lastError = null;
           break;
         } catch (error) {
           const cleanup = removePartialOutputs(outputPath);
+          const progressDetails = safeProgressDetails(error && error.progressSummary);
           const safeError = attachDownloaderDetails(toDownloaderError(error), {
             phase: "ingest",
             step: "download_source",
@@ -360,6 +519,12 @@ function createLocalYouTubeIngestAdapter(options = {}) {
             playerClient: strategy.playerClient || "",
             partialCleanupSucceeded: cleanup.cleaned === true,
             partialCleanupRemovedCount: cleanup.removedCount,
+            heartbeatIntervalMs: progressDetails.heartbeatIntervalMs,
+            noProgressTimeoutMs: progressDetails.noProgressTimeoutMs,
+            progressHeartbeatCount: progressDetails.progressHeartbeatCount,
+            progressEventCount: progressDetails.progressEventCount,
+            progressBytesObserved: progressDetails.progressBytesObserved,
+            stallClassification: progressDetails.stallClassification,
           });
           lastError = safeError;
           if (!shouldRetryDownload(safeError, attempt.attempt < attempts.length)) break;
@@ -401,6 +566,8 @@ function createLocalYouTubeIngestAdapter(options = {}) {
         attemptsConfigured: strategy.attemptsConfigured,
         fallbackFormatSelector: strategy.fallbackFormatSelector,
         playerClient: strategy.playerClient || "",
+        heartbeatIntervalMs: strategy.progressHeartbeatMs,
+        noProgressTimeoutMs: strategy.noProgressTimeoutMs,
       };
     },
     buildDownloaderArgs,
