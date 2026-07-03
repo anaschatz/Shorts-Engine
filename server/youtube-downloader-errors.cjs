@@ -101,6 +101,26 @@ const YOUTUBE_FAILURES = Object.freeze({
     retryable: true,
     authorizedImportRequired: false,
   }),
+  YOUTUBE_FORMAT_UNAVAILABLE: Object.freeze({
+    code: "YOUTUBE_FORMAT_UNAVAILABLE",
+    status: 502,
+    reason: "format_unavailable",
+    metadataStatus: "format-unavailable",
+    ingestRisk: "download-failed",
+    nextAction: "adjust-youtube-format-selector-or-use-fallback-format",
+    retryable: true,
+    authorizedImportRequired: false,
+  }),
+  YOUTUBE_OUTPUT_INVALID: Object.freeze({
+    code: "YOUTUBE_OUTPUT_INVALID",
+    status: 502,
+    reason: "output_invalid",
+    metadataStatus: "output-invalid",
+    ingestRisk: "download-failed",
+    nextAction: "retry-ingest-or-check-downloader-output-format",
+    retryable: true,
+    authorizedImportRequired: false,
+  }),
 });
 
 function downloaderOutputText(error) {
@@ -155,6 +175,9 @@ function classifyYouTubeDownloaderFailure(error) {
   }
   if (match(/\b(too many requests|rate limit|rate-limited|http error 429|429)\b/)) {
     return safeFailure(YOUTUBE_FAILURES.YOUTUBE_RATE_LIMITED);
+  }
+  if (match(/\b(requested format is not available|format .{0,80}not available|no video formats found|unable to extract video data)\b/)) {
+    return safeFailure(YOUTUBE_FAILURES.YOUTUBE_FORMAT_UNAVAILABLE);
   }
   if (match(/\b(not a bot|bot check|unusual traffic|automated queries|captcha)\b/)) {
     return safeFailure(YOUTUBE_FAILURES.YOUTUBE_BOT_CHECK_REQUIRED);

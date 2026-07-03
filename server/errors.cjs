@@ -59,9 +59,11 @@ const SAFE_MESSAGES = Object.freeze({
   YOUTUBE_DOWNLOAD_FAILED: "The YouTube ingest download failed safely.",
   YOUTUBE_DOWNLOAD_TIMEOUT: "The YouTube ingest download timed out.",
   YOUTUBE_DOWNLOADER_MISSING: "The YouTube downloader is not available.",
+  YOUTUBE_FORMAT_UNAVAILABLE: "The requested YouTube media format is not available.",
   YOUTUBE_GEO_RESTRICTED: "This YouTube video is not available from this environment.",
   YOUTUBE_INGEST_NOT_ENABLED: "YouTube ingest is not enabled for rendering yet.",
   YOUTUBE_LIVE_UNSUPPORTED: "YouTube live streams are not supported.",
+  YOUTUBE_OUTPUT_INVALID: "The YouTube downloader did not produce a valid media output.",
   YOUTUBE_PLAYLIST_UNSUPPORTED: "YouTube playlists are not supported.",
   YOUTUBE_RATE_LIMITED: "YouTube rate-limited this ingest request. Retry later.",
   YOUTUBE_RIGHTS_REQUIRED: "Confirm that you have rights to use this YouTube video.",
@@ -124,10 +126,28 @@ function ok(data) {
 
 const PUBLIC_ERROR_DETAIL_KEYS = new Set([
   "authorizedImportRequired",
+  "attempts",
+  "attemptsConfigured",
+  "downloaderConfigured",
+  "fallbackFormatSelector",
+  "fallbackUsed",
+  "fileValidation",
+  "formatSelector",
   "ingestRisk",
   "metadataStatus",
   "nextAction",
+  "playerClient",
   "retryable",
+  "timeoutMs",
+]);
+const PUBLIC_ERROR_NUMERIC_DETAIL_KEYS = new Set([
+  "attempts",
+  "attemptsConfigured",
+  "timeoutMs",
+]);
+const PUBLIC_ERROR_FORMAT_DETAIL_KEYS = new Set([
+  "fallbackFormatSelector",
+  "formatSelector",
 ]);
 
 function publicErrorDetails(details) {
@@ -136,7 +156,15 @@ function publicErrorDetails(details) {
   for (const key of PUBLIC_ERROR_DETAIL_KEYS) {
     if (!Object.prototype.hasOwnProperty.call(details, key)) continue;
     const value = details[key];
-    if (typeof value === "boolean") {
+    if (PUBLIC_ERROR_NUMERIC_DETAIL_KEYS.has(key) && Number.isFinite(Number(value))) {
+      safeDetails[key] = Number(value);
+    } else if (
+      PUBLIC_ERROR_FORMAT_DETAIL_KEYS.has(key) &&
+      typeof value === "string" &&
+      /^[A-Za-z0-9*+/\[\]=._:,-]{1,180}$/.test(value)
+    ) {
+      safeDetails[key] = value;
+    } else if (typeof value === "boolean") {
       safeDetails[key] = value;
     } else if (typeof value === "string" && /^[a-z0-9_-]{1,80}$/.test(value)) {
       safeDetails[key] = value;

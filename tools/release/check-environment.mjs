@@ -32,6 +32,10 @@ const ENV_CONTRACT = Object.freeze([
   { name: "SHORTSENGINE_YOUTUBE_PLAYER_CLIENT", category: "Remote URL ingest", required: false, defaultValue: "", type: "enum", allowedValues: YOUTUBE_PLAYER_CLIENTS, allowEmpty: true, secret: false },
   { name: "SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS", category: "Remote URL ingest", required: false, defaultValue: String(2 * 60 * 1000), type: "integer", min: 1000, max: 10 * 60 * 1000, secret: false },
   { name: "SHORTSENGINE_YOUTUBE_DOWNLOADER_OUTPUT_BYTES", category: "Remote URL ingest", required: false, defaultValue: String(64 * 1024), type: "integer", min: 1024, max: BYTE_1_MB, secret: false },
+  { name: "SHORTSENGINE_YOUTUBE_FORMAT_SELECTOR", category: "Remote URL ingest", required: false, defaultValue: "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best", type: "youtube-format", secret: false },
+  { name: "SHORTSENGINE_YOUTUBE_FALLBACK_FORMAT_SELECTOR", category: "Remote URL ingest", required: false, defaultValue: "best[ext=mp4]/best", type: "youtube-format", secret: false },
+  { name: "SHORTSENGINE_YOUTUBE_DOWNLOAD_ATTEMPTS", category: "Remote URL ingest", required: false, defaultValue: "2", type: "integer", min: 1, max: 4, secret: false },
+  { name: "SHORTSENGINE_YOUTUBE_RETRY_BACKOFF_MS", category: "Remote URL ingest", required: false, defaultValue: "500", type: "integer", min: 0, max: 10000, secret: false },
   { name: "SHORTSENGINE_YOUTUBE_DOCTOR_URL", category: "Remote URL ingest", required: false, defaultValue: "", type: "url", secret: false },
   { name: "SHORTSENGINE_YOUTUBE_DOCTOR_TIMEOUT_MS", category: "Remote URL ingest", required: false, defaultValue: "5000", type: "integer", min: 1000, max: 120000, secret: false },
   { name: "SHORTSENGINE_YOUTUBE_SMOKE", category: "Remote URL ingest", required: false, defaultValue: "false", type: "boolean", secret: false },
@@ -197,6 +201,21 @@ function validateCommandValue(value, spec) {
   return true;
 }
 
+function validateYouTubeFormatSelector(value, spec) {
+  const selector = String(value || "").trim();
+  if (
+    !selector ||
+    selector.length > 180 ||
+    /[\u0000-\u001f\u007f\s`$;&|{}()"'\\]/.test(selector) ||
+    !/^[A-Za-z0-9*+/\[\]=._:,-]+$/.test(selector)
+  ) {
+    throw new EnvironmentCheckError("ENV_YOUTUBE_FORMAT_INVALID", "YouTube format selector is invalid.", {
+      category: spec.category,
+    });
+  }
+  return true;
+}
+
 function validateEndpoint(value) {
   if (!value) return "";
   try {
@@ -269,6 +288,7 @@ function validateContractValues(env) {
     if (spec.type === "enum") normalizeEnum(value, spec);
     if (spec.type === "boolean") booleans[spec.name] = validateBooleanValue(value, spec);
     if (spec.type === "command") validateCommandValue(value, spec);
+    if (spec.type === "youtube-format") validateYouTubeFormatSelector(value, spec);
     if (spec.type === "url") validateEndpoint(value);
     if (spec.type === "sqlite-file") validateSqliteFileName(value);
     if (spec.type === "secret") validateSecretValue(value, spec.category);
@@ -528,6 +548,10 @@ function checkEnvironment(options = {}) {
       playerClient: String(valueOrDefault(env, ENV_CONTRACT.find((spec) => spec.name === "SHORTSENGINE_YOUTUBE_PLAYER_CLIENT")) || "") || null,
       timeoutMs: numeric.SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS,
       outputBytes: numeric.SHORTSENGINE_YOUTUBE_DOWNLOADER_OUTPUT_BYTES,
+      formatSelector: String(valueOrDefault(env, ENV_CONTRACT.find((spec) => spec.name === "SHORTSENGINE_YOUTUBE_FORMAT_SELECTOR"))),
+      fallbackFormatSelector: String(valueOrDefault(env, ENV_CONTRACT.find((spec) => spec.name === "SHORTSENGINE_YOUTUBE_FALLBACK_FORMAT_SELECTOR"))),
+      downloadAttempts: numeric.SHORTSENGINE_YOUTUBE_DOWNLOAD_ATTEMPTS,
+      retryBackoffMs: numeric.SHORTSENGINE_YOUTUBE_RETRY_BACKOFF_MS,
       defaultDisabled: !boolFromEnv(rawValue(env, "SHORTSENGINE_YOUTUBE_INGEST_ENABLED")),
       doctorLiveHealthConfigured: Boolean(rawValue(env, "SHORTSENGINE_YOUTUBE_DOCTOR_URL")),
       smokeEnabled: Boolean(boolFromEnv(rawValue(env, "SHORTSENGINE_YOUTUBE_SMOKE"))),

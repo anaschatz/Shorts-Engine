@@ -98,12 +98,16 @@ Useful bounded settings:
 
 ```bash
 SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS=120000
+SHORTSENGINE_YOUTUBE_FORMAT_SELECTOR='bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best'
+SHORTSENGINE_YOUTUBE_FALLBACK_FORMAT_SELECTOR='best[ext=mp4]/best'
+SHORTSENGINE_YOUTUBE_DOWNLOAD_ATTEMPTS=2
+SHORTSENGINE_YOUTUBE_RETRY_BACKOFF_MS=500
 SHORTSENGINE_YOUTUBE_SMOKE_TIMEOUT_MS=120000
 SHORTSENGINE_YOUTUBE_SMOKE_JOB_TIMEOUT_MS=90000
 SHORTSENGINE_YOUTUBE_SMOKE_DOWNLOAD_MAX_BYTES=83886080
 ```
 
-Raise timeouts only for an intentional manual proof with a known short source.
+Raise timeouts only for an intentional manual proof with a known short source. Keep attempts low; retry/fallback is for transient downloader or format-selection failures, not for bypassing bot/auth/cookie gates.
 
 ## Run Local Live E2E Proof
 
@@ -366,6 +370,8 @@ If cleanup requires deleting committed artifacts or exports, stop and add a dedi
 | `YOUTUBE_GEO_RESTRICTED` | The video is unavailable from this environment. | Use an accessible authorized video or MP4 fallback. |
 | `YOUTUBE_AGE_RESTRICTED` | The video requires age-gated access. | Use MP4 fallback until authorized import is built. |
 | `YOUTUBE_RATE_LIMITED` | YouTube rate-limited the ingest attempt. | Retry later or upload MP4 fallback. |
+| `YOUTUBE_FORMAT_UNAVAILABLE` | The requested downloader format was unavailable. | Adjust `SHORTSENGINE_YOUTUBE_FORMAT_SELECTOR` or rely on the fallback selector, then rerun. |
+| `YOUTUBE_OUTPUT_INVALID` | The downloader exited without a valid staged MP4. | Retry once, check format strategy, or use a rights-cleared local MP4 proof. |
 | `YOUTUBE_DOWNLOAD_FAILED` | Generic downloader failure before OCR/evidence analysis. | Use `npm run proof:local-video` with a rights-cleared MP4, or fix the downloader and rerun. |
 | `FFMPEG_MISSING` | FFmpeg is unavailable. | Install FFmpeg or set `FFMPEG_BIN`. |
 | `FFPROBE_MISSING` | FFprobe is unavailable. | Install FFprobe or set `FFPROBE_BIN`. |

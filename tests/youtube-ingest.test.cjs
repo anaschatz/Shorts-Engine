@@ -6,8 +6,11 @@ const { dirname, join } = require("node:path");
 const { CONFIG } = require("../server/config.cjs");
 const { AppError, SAFE_MESSAGES } = require("../server/errors.cjs");
 const {
+  buildDownloaderArgs,
   buildMetadataArgs,
   createLocalYouTubeIngestAdapter,
+  downloaderVersion,
+  formatStrategySummary,
   parseMetadataOutput,
 } = require("../server/adapters/local-youtube-ingest-adapter.cjs");
 const {
@@ -385,6 +388,119 @@ test("local youtube downloader adapter supports safe player client override", as
   assert.equal(captured.args[extractorIndex + 1], "youtube:player_client=android");
   assert.equal(adapter.health().playerClient, "android");
   assert.doesNotMatch(captured.args.join(" "), /[;&|`$<>]/);
+});
+
+test("local youtube downloader adapter retries with fallback format and cleans partial output", async () => {
+  const uploadId = "upl_retry12-1234-1234-1234-123456789abc";
+  const { stageDir, outputPath } = createYouTubeStagePaths(uploadId);
+  mkdirSync(stageDir, { recursive: true });
+  const calls = [];
+  const adapter = createLocalYouTubeIngestAdapter({
+    config: {
+      enabled: true,
+      downloaderBin: "yt-dlp",
+      timeoutMs: 1000,
+      maxOutputBytes: 4096,
+      formatSelector: "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best",
+      fallbackFormatSelector: "best[ext=mp4]/best",
+      downloadAttempts: 2,
+      retryBackoffMs: 0,
+    },
+    spawnSync: () => ({ status: 0, stdout: "2026.01.01\n" }),
+    execFile: (_command, args, _options, callback) => {
+      calls.push(args);
+      if (calls.length === 1) {
+        writeFileSync(outputPath, Buffer.from("partial"));
+        callback(Object.assign(new Error("Requested format is not available"), {
+          stderr: "format not available",
+        }));
+        return;
+      }
+      assert.equal(existsSync(outputPath), false);
+      writeFileSync(outputPath, Buffer.concat([mp4Header, Buffer.alloc(128)]));
+      callback(null, "", "");
+    },
+  });
+  try {
+    const result = await adapter.ingest(normalizeYouTubeUrl("https://youtu.be/dQw4w9WgXcQ"), { outputPath });
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0][calls[0].indexOf("--format") + 1], "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best");
+    assert.equal(calls[1][calls[1].indexOf("--format") + 1], "best[ext=mp4]/best");
+    assert.equal(result.attempts, 2);
+    assert.equal(result.fallbackUsed, true);
+    assert.equal(result.formatSelector, "best[ext=mp4]/best");
+  } finally {
+    cleanupYouTubeStage(stageDir);
+  }
+});
+
+test("local youtube downloader adapter reports exhausted retries safely", async () => {
+  const uploadId = "upl_retry34-1234-1234-1234-123456789abc";
+  const { stageDir, outputPath } = createYouTubeStagePaths(uploadId);
+  mkdirSync(stageDir, { recursive: true });
+  let calls = 0;
+  const adapter = createLocalYouTubeIngestAdapter({
+    config: {
+      enabled: true,
+      downloaderBin: "yt-dlp",
+      timeoutMs: 1000,
+      maxOutputBytes: 4096,
+      formatSelector: "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best",
+      fallbackFormatSelector: "best[ext=mp4]/best",
+      downloadAttempts: 2,
+      retryBackoffMs: 0,
+    },
+    spawnSync: () => ({ status: 0, stdout: "2026.01.01\n" }),
+    execFile: (_command, _args, _options, callback) => {
+      calls += 1;
+      writeFileSync(outputPath, Buffer.from("partial"));
+      callback(Object.assign(new Error("HTTP Error 429: too many requests /Users/raw"), {
+        stderr: "secret stderr",
+      }));
+    },
+  });
+  try {
+    await assert.rejects(
+      () => adapter.ingest(normalizeYouTubeUrl("https://youtu.be/dQw4w9WgXcQ"), { outputPath }),
+      (error) => {
+        assert.equal(error.code, "YOUTUBE_RATE_LIMITED");
+        assert.equal(error.details.attempts, 2);
+        assert.equal(error.details.attemptsConfigured, 2);
+        assert.equal(error.details.fallbackUsed, true);
+        assert.equal(existsSync(outputPath), false);
+        assert.doesNotMatch(JSON.stringify(error.details), /\/Users|secret|stderr/i);
+        return true;
+      },
+    );
+    assert.equal(calls, 2);
+  } finally {
+    cleanupYouTubeStage(stageDir);
+  }
+});
+
+test("local youtube downloader adapter exposes safe format strategy and version metadata", () => {
+  const strategy = formatStrategySummary({
+    formatSelector: "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best",
+    fallbackFormatSelector: "best[ext=mp4]/best",
+    downloadAttempts: 3,
+    timeoutMs: 120000,
+    playerClient: "android",
+  });
+  assert.equal(strategy.attemptsConfigured, 3);
+  assert.equal(strategy.playerClient, "android");
+  assert.equal(strategy.fallbackFormatSelector, "best[ext=mp4]/best");
+  assert.deepEqual(downloaderVersion("yt-dlp", () => ({ status: 0, stdout: "2026.01.01\n" })), {
+    available: true,
+    version: "2026.01.01",
+  });
+  const args = buildDownloaderArgs(
+    normalizeYouTubeUrl("https://youtu.be/dQw4w9WgXcQ"),
+    createYouTubeStagePaths("upl_strategy-1234-1234-1234-123456789abc").outputPath,
+    strategy,
+    { formatSelector: "best[ext=mp4]/best" },
+  );
+  assert.equal(args[args.indexOf("--format") + 1], "best[ext=mp4]/best");
+  assert.doesNotMatch(args.join(" "), /[;&|`$<>]/);
 });
 
 test("local youtube downloader adapter reads bounded metadata without downloading media", async () => {

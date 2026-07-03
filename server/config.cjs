@@ -42,6 +42,8 @@ const STORAGE_ADAPTER_MODES = Object.freeze(["local", "mock-cloud", "s3", "r2", 
 const PERSISTENCE_ADAPTER_MODES = Object.freeze(["local", "sqlite"]);
 const SCOREBOARD_OCR_PROVIDER_MODES = Object.freeze(["deterministic", "local"]);
 const DEFAULT_YOUTUBE_DOWNLOADER_BIN = "yt-dlp";
+const DEFAULT_YOUTUBE_FORMAT_SELECTOR = "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best";
+const DEFAULT_YOUTUBE_FALLBACK_FORMAT_SELECTOR = "best[ext=mp4]/best";
 const DEFAULT_SCOREBOARD_OCR_BIN = "tesseract";
 
 function boolFromEnv(value) {
@@ -235,6 +237,18 @@ function validateYouTubeIngestConfig(input = {}) {
   if (!allowedPlayerClients.includes(playerClient)) {
     throw new Error("Invalid SHORTSENGINE_YOUTUBE_PLAYER_CLIENT value.");
   }
+  const validateFormatSelector = (value, fallback, name) => {
+    const selector = String(value === undefined || value === null || value === "" ? fallback : value).trim();
+    if (
+      !selector ||
+      selector.length > 180 ||
+      /[\u0000-\u001f\u007f\s`$;&|{}()"'\\]/.test(selector) ||
+      !/^[A-Za-z0-9*+/\[\]=._:,-]+$/.test(selector)
+    ) {
+      throw new Error(`Invalid ${name} value.`);
+    }
+    return selector;
+  };
   return {
     enabled: Boolean(input.enabled),
     authorizedImportEnabled: Boolean(input.authorizedImportEnabled),
@@ -255,6 +269,28 @@ function validateYouTubeIngestConfig(input = {}) {
       max: 1024 * 1024,
     }),
     playerClient,
+    formatSelector: validateFormatSelector(
+      input.formatSelector,
+      DEFAULT_YOUTUBE_FORMAT_SELECTOR,
+      "SHORTSENGINE_YOUTUBE_FORMAT_SELECTOR",
+    ),
+    fallbackFormatSelector: validateFormatSelector(
+      input.fallbackFormatSelector,
+      DEFAULT_YOUTUBE_FALLBACK_FORMAT_SELECTOR,
+      "SHORTSENGINE_YOUTUBE_FALLBACK_FORMAT_SELECTOR",
+    ),
+    downloadAttempts: validatePositiveIntegerConfig(input.downloadAttempts, {
+      name: "YouTube download attempts",
+      fallback: 2,
+      min: 1,
+      max: 4,
+    }),
+    retryBackoffMs: validatePositiveIntegerConfig(input.retryBackoffMs, {
+      name: "YouTube download retry backoff",
+      fallback: 500,
+      min: 0,
+      max: 10 * 1000,
+    }),
   };
 }
 
@@ -313,6 +349,10 @@ const YOUTUBE_INGEST_CONFIG = validateYouTubeIngestConfig({
   timeoutMs: process.env.SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS,
   maxOutputBytes: process.env.SHORTSENGINE_YOUTUBE_DOWNLOADER_OUTPUT_BYTES,
   playerClient: process.env.SHORTSENGINE_YOUTUBE_PLAYER_CLIENT,
+  formatSelector: process.env.SHORTSENGINE_YOUTUBE_FORMAT_SELECTOR,
+  fallbackFormatSelector: process.env.SHORTSENGINE_YOUTUBE_FALLBACK_FORMAT_SELECTOR,
+  downloadAttempts: process.env.SHORTSENGINE_YOUTUBE_DOWNLOAD_ATTEMPTS,
+  retryBackoffMs: process.env.SHORTSENGINE_YOUTUBE_RETRY_BACKOFF_MS,
 });
 const SCOREBOARD_OCR_CONFIG = validateScoreboardOcrConfig({
   enabled: boolFromEnv(process.env.SHORTSENGINE_SCOREBOARD_OCR_ENABLED),

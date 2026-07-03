@@ -8,7 +8,11 @@ const require = createRequire(import.meta.url);
 const { CONFIG } = require("../../server/config.cjs");
 const { commandAvailable } = require("../../server/media.cjs");
 const { storageHealth } = require("../../server/storage.cjs");
-const { downloaderAvailable } = require("../../server/adapters/local-youtube-ingest-adapter.cjs");
+const {
+  downloaderAvailable,
+  downloaderVersion,
+  formatStrategySummary,
+} = require("../../server/adapters/local-youtube-ingest-adapter.cjs");
 
 const DEFAULT_HEALTH_TIMEOUT_MS = 5000;
 const MAX_HEALTH_RESPONSE_BYTES = 64 * 1024;
@@ -204,6 +208,18 @@ function safeDownloaderAvailable(command, checker = downloaderAvailable) {
   }
 }
 
+function safeDownloaderVersion(command, checker = downloaderVersion) {
+  try {
+    const result = checker(command);
+    return {
+      available: Boolean(result && result.available),
+      version: typeof result?.version === "string" ? result.version : null,
+    };
+  } catch {
+    return { available: false, version: null };
+  }
+}
+
 function summarizeStorage(storage) {
   const staging = storage.staging || {};
   const tmp = storage.tmp || {};
@@ -258,8 +274,12 @@ async function checkYouTubeIngest(options = {}) {
   });
 
   let downloaderConfigured = false;
+  let versionSummary = { available: false, version: null };
   if (enabled) {
     downloaderConfigured = safeDownloaderAvailable(downloaderBin, options.downloaderAvailable);
+    versionSummary = downloaderConfigured
+      ? safeDownloaderVersion(downloaderBin, options.downloaderVersion)
+      : { available: false, version: null };
     addCheck(checks, "downloader_available", downloaderConfigured ? "passed" : "failed", {
       code: downloaderConfigured ? null : "YOUTUBE_DOWNLOADER_MISSING",
     });
@@ -300,6 +320,16 @@ async function checkYouTubeIngest(options = {}) {
 
   const failed = checks.filter((check) => check.status === "failed");
   const disabled = !enabled;
+  const formatStrategy = formatStrategySummary({
+    ...CONFIG.youtubeIngest,
+    formatSelector: rawValue(env, "SHORTSENGINE_YOUTUBE_FORMAT_SELECTOR") || CONFIG.youtubeIngest.formatSelector,
+    fallbackFormatSelector: rawValue(env, "SHORTSENGINE_YOUTUBE_FALLBACK_FORMAT_SELECTOR") ||
+      CONFIG.youtubeIngest.fallbackFormatSelector,
+    downloadAttempts: rawValue(env, "SHORTSENGINE_YOUTUBE_DOWNLOAD_ATTEMPTS") ||
+      CONFIG.youtubeIngest.downloadAttempts,
+    timeoutMs: rawValue(env, "SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS") || CONFIG.youtubeIngest.timeoutMs,
+    playerClient: rawValue(env, "SHORTSENGINE_YOUTUBE_PLAYER_CLIENT") || CONFIG.youtubeIngest.playerClient,
+  });
   const summary = {
     ok: disabled ? true : failed.length === 0,
     status: disabled ? "skipped" : failed.length === 0 ? "passed" : "failed",
@@ -310,8 +340,10 @@ async function checkYouTubeIngest(options = {}) {
       enabled,
       mode: enabled ? "local" : "mock",
       downloaderConfigured,
+      downloaderVersion: versionSummary.version,
       ingestAvailable: Boolean(enabled && downloaderConfigured && ffmpegReady && ffprobeReady && storage.stagingReady),
       defaultDisabled: !enabled,
+      formatStrategy,
     },
     ffmpeg: {
       ffmpeg: ffmpegReady,

@@ -270,6 +270,29 @@ test("youtube doctor enabled reports missing downloader safely", async () => {
   assert.equal(findSensitiveLeak(result), null);
 });
 
+test("youtube doctor reports safe downloader runtime strategy when enabled", async () => {
+  const result = await checkYouTubeIngest({
+    env: {
+      SHORTSENGINE_YOUTUBE_INGEST_ENABLED: "1",
+      SHORTSENGINE_YOUTUBE_FORMAT_SELECTOR: "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best",
+      SHORTSENGINE_YOUTUBE_FALLBACK_FORMAT_SELECTOR: "best[ext=mp4]/best",
+      SHORTSENGINE_YOUTUBE_DOWNLOAD_ATTEMPTS: "3",
+      SHORTSENGINE_YOUTUBE_PLAYER_CLIENT: "android",
+    },
+    commandAvailable: () => true,
+    downloaderAvailable: () => true,
+    downloaderVersion: () => ({ available: true, version: "2026.01.01" }),
+    storageHealth: readyStorage,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.youtubeIngest.downloaderConfigured, true);
+  assert.equal(result.youtubeIngest.downloaderVersion, "2026.01.01");
+  assert.equal(result.youtubeIngest.formatStrategy.attemptsConfigured, 3);
+  assert.equal(result.youtubeIngest.formatStrategy.playerClient, "android");
+  assert.equal(result.youtubeIngest.formatStrategy.fallbackFormatSelector, "best[ext=mp4]/best");
+  assert.equal(findSensitiveLeak(result), null);
+});
+
 test("youtube doctor live health shape failures include safe next actions", async () => {
   const result = await checkYouTubeIngest({
     env: {
@@ -397,6 +420,13 @@ test("youtube smoke ingest API failures report downloader phase details", async 
         code: "YOUTUBE_DOWNLOAD_FAILED",
         message: "Download failed.",
         nextAction: "use-rights-cleared-local-mp4-proof-or-fix-downloader-and-rerun",
+        retryable: true,
+        attempts: 2,
+        attemptsConfigured: 2,
+        timeoutMs: 120000,
+        formatSelector: "best[ext=mp4]/best",
+        fallbackFormatSelector: "best[ext=mp4]/best",
+        fallbackUsed: true,
       },
     }, 502, "req_ingest_failed"),
   });
@@ -407,6 +437,11 @@ test("youtube smoke ingest API failures report downloader phase details", async 
   assert.equal(report.failedCases[0].phase, "ingest");
   assert.equal(report.failedCases[0].step, "download_source");
   assert.equal(report.failedCases[0].substep, "youtube_downloader");
+  assert.equal(report.failedCases[0].attempts, 2);
+  assert.equal(report.failedCases[0].attemptsConfigured, 2);
+  assert.equal(report.failedCases[0].retryable, true);
+  assert.equal(report.failedCases[0].fallbackUsed, true);
+  assert.equal(report.failedCases[0].formatSelector, "best[ext=mp4]/best");
   assert.equal(report.steps.at(-1).phase, "ingest");
   assert.equal(report.steps.at(-1).activeStep, "download_source");
   assert.equal(report.steps.at(-1).substep, "youtube_downloader");

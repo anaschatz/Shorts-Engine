@@ -1,5 +1,5 @@
 const { execFile, spawnSync } = require("node:child_process");
-const { statSync } = require("node:fs");
+const { rmSync, statSync } = require("node:fs");
 const { basename } = require("node:path");
 const { CONFIG } = require("../config.cjs");
 const { AppError, SAFE_MESSAGES } = require("../errors.cjs");
@@ -11,6 +11,8 @@ const {
 
 const YOUTUBE_OUTPUT_FILE = "source.mp4";
 const METADATA_TIMEOUT_MS = 15 * 1000;
+const DEFAULT_FORMAT_SELECTOR = "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best";
+const DEFAULT_FALLBACK_FORMAT_SELECTOR = "best[ext=mp4]/best";
 
 function downloaderAvailable(downloaderBin, spawnSyncImpl = spawnSync) {
   try {
@@ -22,6 +24,23 @@ function downloaderAvailable(downloaderBin, spawnSyncImpl = spawnSync) {
     return result.status === 0;
   } catch {
     return false;
+  }
+}
+
+function downloaderVersion(downloaderBin, spawnSyncImpl = spawnSync) {
+  try {
+    const result = spawnSyncImpl(downloaderBin, ["--version"], {
+      encoding: "utf8",
+      timeout: 2000,
+      windowsHide: true,
+    });
+    const raw = result && result.status === 0 ? String(result.stdout || "").trim() : "";
+    return {
+      available: Boolean(result && result.status === 0),
+      version: raw.replace(/[^A-Za-z0-9._-]/g, "").slice(0, 80) || null,
+    };
+  } catch {
+    return { available: false, version: null };
   }
 }
 
@@ -50,14 +69,32 @@ function normalizePlayerClient(value) {
   return ["android", "ios", "web"].includes(text) ? text : "";
 }
 
+function normalizeFormatSelector(value, fallback = DEFAULT_FORMAT_SELECTOR) {
+  const selector = String(value || fallback).trim();
+  return /^[A-Za-z0-9*+/\[\]=._:,-]{1,180}$/.test(selector) ? selector : fallback;
+}
+
 function youtubeExtractorArgs(config = {}) {
   const playerClient = normalizePlayerClient(config.playerClient);
   return playerClient ? ["--extractor-args", `youtube:player_client=${playerClient}`] : [];
 }
 
-function buildDownloaderArgs(source, outputPath, config = {}) {
+function formatStrategySummary(config = {}) {
+  const formatSelector = normalizeFormatSelector(config.formatSelector, DEFAULT_FORMAT_SELECTOR);
+  const fallbackFormatSelector = normalizeFormatSelector(config.fallbackFormatSelector, DEFAULT_FALLBACK_FORMAT_SELECTOR);
+  return {
+    formatSelector,
+    fallbackFormatSelector,
+    attemptsConfigured: Math.max(1, Math.min(Number(config.downloadAttempts) || 1, 4)),
+    timeoutMs: Number.isFinite(Number(config.timeoutMs)) ? Number(config.timeoutMs) : null,
+    playerClient: normalizePlayerClient(config.playerClient) || null,
+  };
+}
+
+function buildDownloaderArgs(source, outputPath, config = {}, attempt = {}) {
   const safeSource = assertValidatedYouTubeSource(source);
   const safeOutputPath = validateDownloaderOutputPath(outputPath);
+  const formatSelector = normalizeFormatSelector(attempt.formatSelector || config.formatSelector, DEFAULT_FORMAT_SELECTOR);
   return [
     "--no-playlist",
     "--no-warnings",
@@ -68,7 +105,7 @@ function buildDownloaderArgs(source, outputPath, config = {}) {
     "--recode-video",
     "mp4",
     "--format",
-    "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best",
+    formatSelector,
     "--output",
     safeOutputPath,
     safeSource.canonicalUrl,
@@ -108,6 +145,54 @@ function toDownloaderError(error) {
   return toSafeYouTubeDownloaderError(error);
 }
 
+function delay(ms) {
+  const safeMs = Math.max(0, Math.min(Number(ms) || 0, 10_000));
+  if (safeMs <= 0) return Promise.resolve();
+  return new Promise((resolveDelay) => setTimeout(resolveDelay, safeMs));
+}
+
+function removePartialOutput(outputPath) {
+  try {
+    rmSync(validateDownloaderOutputPath(outputPath), { force: true });
+  } catch {
+    // Best effort only. The validation boundary still rejects stale or invalid output.
+  }
+}
+
+function buildDownloadAttempts(config = {}) {
+  const strategy = formatStrategySummary(config);
+  const attempts = [];
+  for (let index = 0; index < strategy.attemptsConfigured; index += 1) {
+    const fallbackUsed = index > 0 && strategy.fallbackFormatSelector !== strategy.formatSelector;
+    attempts.push({
+      attempt: index + 1,
+      formatSelector: fallbackUsed ? strategy.fallbackFormatSelector : strategy.formatSelector,
+      fallbackUsed,
+    });
+  }
+  return attempts;
+}
+
+function attachDownloaderDetails(error, details = {}) {
+  if (!error || typeof error !== "object") return error;
+  error.details = {
+    ...(error.details || {}),
+    attempts: details.attempts,
+    attemptsConfigured: details.attemptsConfigured,
+    timeoutMs: details.timeoutMs,
+    formatSelector: details.formatSelector,
+    fallbackFormatSelector: details.fallbackFormatSelector,
+    fallbackUsed: details.fallbackUsed === true,
+    playerClient: details.playerClient || "",
+  };
+  return error;
+}
+
+function shouldRetryDownload(error, hasNextAttempt) {
+  if (!hasNextAttempt || !error || typeof error !== "object") return false;
+  return error.code === "YOUTUBE_FORMAT_UNAVAILABLE" || Boolean(error.details && error.details.retryable);
+}
+
 function safeMetadataTitle(value) {
   const title = String(value || "")
     .replace(/[\u0000-\u001f\u007f]/g, " ")
@@ -140,15 +225,19 @@ function createLocalYouTubeIngestAdapter(options = {}) {
 
   function health() {
     const configured = downloaderAvailable(downloaderBin, spawnSyncImpl);
+    const version = configured ? downloaderVersion(downloaderBin, spawnSyncImpl).version : null;
+    const formatStrategy = formatStrategySummary(config);
     return {
       ready: Boolean(config.enabled && configured),
       mode: "local",
       enabled: Boolean(config.enabled),
       networkCalls: Boolean(config.enabled),
       downloaderConfigured: configured,
+      downloaderVersion: version,
       ingestAvailable: Boolean(config.enabled && configured),
       authorizedImportAvailable: false,
-      playerClient: config.playerClient || null,
+      playerClient: formatStrategy.playerClient,
+      formatStrategy,
     };
   }
 
@@ -204,31 +293,71 @@ function createLocalYouTubeIngestAdapter(options = {}) {
           reason: "downloader_unavailable",
         });
       }
-      const args = buildDownloaderArgs(source, outputPath, config);
       const startedAt = Date.now();
-      try {
-        await execFileSafe(execFileImpl, downloaderBin, args, {
-          timeout: config.timeoutMs,
-          maxBuffer: config.maxOutputBytes,
-          windowsHide: true,
-          signal: options.signal,
-        });
-      } catch (error) {
-        throw toDownloaderError(error);
+      const attempts = buildDownloadAttempts(config);
+      const strategy = formatStrategySummary(config);
+      let finalAttempt = attempts[0];
+      let lastError = null;
+      for (const attempt of attempts) {
+        finalAttempt = attempt;
+        removePartialOutput(outputPath);
+        const args = buildDownloaderArgs(source, outputPath, config, attempt);
+        try {
+          await execFileSafe(execFileImpl, downloaderBin, args, {
+            timeout: config.timeoutMs,
+            maxBuffer: config.maxOutputBytes,
+            windowsHide: true,
+            signal: options.signal,
+          });
+          lastError = null;
+          break;
+        } catch (error) {
+          const safeError = attachDownloaderDetails(toDownloaderError(error), {
+            attempts: attempt.attempt,
+            attemptsConfigured: strategy.attemptsConfigured,
+            timeoutMs: strategy.timeoutMs,
+            formatSelector: attempt.formatSelector,
+            fallbackFormatSelector: strategy.fallbackFormatSelector,
+            fallbackUsed: attempt.fallbackUsed,
+            playerClient: strategy.playerClient || "",
+          });
+          removePartialOutput(outputPath);
+          lastError = safeError;
+          if (!shouldRetryDownload(safeError, attempt.attempt < attempts.length)) break;
+          await delay(config.retryBackoffMs);
+        }
+      }
+      if (lastError) {
+        throw lastError;
       }
       let size = 0;
       try {
         size = statSync(outputPath).size;
       } catch {
-        throw new AppError("FILE_TOO_SMALL", SAFE_MESSAGES.FILE_TOO_SMALL, 400);
+        throw new AppError("YOUTUBE_OUTPUT_INVALID", SAFE_MESSAGES.YOUTUBE_OUTPUT_INVALID, 502, {
+          retryable: true,
+          nextAction: "retry-ingest-or-check-downloader-output-format",
+          attempts: finalAttempt.attempt,
+          attemptsConfigured: strategy.attemptsConfigured,
+          timeoutMs: strategy.timeoutMs,
+          formatSelector: finalAttempt.formatSelector,
+          fallbackFormatSelector: strategy.fallbackFormatSelector,
+          fallbackUsed: finalAttempt.fallbackUsed,
+          playerClient: strategy.playerClient || "",
+        });
       }
       return {
         outputPath,
         size,
         durationMs: Date.now() - startedAt,
+        attempts: finalAttempt.attempt,
+        formatSelector: finalAttempt.formatSelector,
+        fallbackUsed: finalAttempt.fallbackUsed,
+        timeoutMs: strategy.timeoutMs,
       };
     },
     buildDownloaderArgs,
+    formatStrategySummary,
     health,
   };
 }
@@ -239,6 +368,8 @@ module.exports = {
   buildMetadataArgs,
   createLocalYouTubeIngestAdapter,
   downloaderAvailable,
+  downloaderVersion,
+  formatStrategySummary,
   parseMetadataOutput,
   validateDownloaderOutputPath,
   youtubeExtractorArgs,

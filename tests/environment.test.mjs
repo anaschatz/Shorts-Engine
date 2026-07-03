@@ -223,6 +223,13 @@ test("environment check rejects arbitrary YouTube player client values", () => {
   );
 });
 
+test("environment check rejects unsafe YouTube format selectors", () => {
+  assert.throws(
+    () => checkEnvironment(safeOptions({ SHORTSENGINE_YOUTUBE_FORMAT_SELECTOR: "best;cat" })),
+    /YouTube format selector is invalid/,
+  );
+});
+
 test("environment check validates live YouTube E2E flags before live work", () => {
   assert.throws(
     () => checkEnvironment(safeOptions({ SHORTSENGINE_YOUTUBE_LIVE_E2E: "1" })),

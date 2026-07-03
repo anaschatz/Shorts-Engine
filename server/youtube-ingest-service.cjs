@@ -100,6 +100,22 @@ function publicSourceSummary(source, metadata) {
   };
 }
 
+function safeDownloaderFailureDetails(error) {
+  const details = error && error.details && typeof error.details === "object" ? error.details : {};
+  return {
+    retryable: details.retryable === true,
+    authorizedImportRequired: details.authorizedImportRequired === true,
+    attempts: Number.isFinite(Number(details.attempts)) ? Number(details.attempts) : null,
+    attemptsConfigured: Number.isFinite(Number(details.attemptsConfigured)) ? Number(details.attemptsConfigured) : null,
+    timeoutMs: Number.isFinite(Number(details.timeoutMs)) ? Number(details.timeoutMs) : null,
+    formatSelector: typeof details.formatSelector === "string" ? details.formatSelector : null,
+    fallbackFormatSelector: typeof details.fallbackFormatSelector === "string" ? details.fallbackFormatSelector : null,
+    fallbackUsed: details.fallbackUsed === true,
+    playerClient: typeof details.playerClient === "string" ? details.playerClient || null : null,
+    nextAction: typeof details.nextAction === "string" ? details.nextAction : null,
+  };
+}
+
 function createDefaultDependencies(overrides = {}) {
   return {
     artifactStore: overrides.artifactStore,
@@ -153,8 +169,20 @@ function createYouTubeIngestService(options = {}) {
     });
 
     try {
-      await adapter.ingest(source, { outputPath, signal: input.signal });
+      const downloadResult = await adapter.ingest(source, { outputPath, signal: input.signal });
       const downloaded = assertDownloadedFile(outputPath, deps);
+      logInfo(deps.logger, {
+        event: "youtube_ingest_step",
+        requestId,
+        sourceType: "youtube",
+        videoId: source.videoId,
+        uploadId,
+        projectId,
+        step: "download_validated",
+        attempts: Number.isFinite(Number(downloadResult?.attempts)) ? Number(downloadResult.attempts) : null,
+        timeoutMs: Number.isFinite(Number(downloadResult?.timeoutMs)) ? Number(downloadResult.timeoutMs) : null,
+        fallbackUsed: downloadResult?.fallbackUsed === true,
+      });
       const validated = deps.validateUploadCandidate({
         fileName: `${source.videoId}.mp4`,
         mimeType: "video/mp4",
@@ -231,8 +259,7 @@ function createYouTubeIngestService(options = {}) {
         projectId,
         step: "download_staging",
         code: error && error.code ? error.code : "UNEXPECTED",
-        retryable: error && error.details ? error.details.retryable === true : false,
-        authorizedImportRequired: error && error.details ? error.details.authorizedImportRequired === true : false,
+        ...safeDownloaderFailureDetails(error),
       });
       throw error;
     } finally {

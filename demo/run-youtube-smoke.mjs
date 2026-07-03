@@ -302,9 +302,36 @@ function assertApiOk(response, code, message, details = {}) {
   if (response && response.ok === true && response.payload && response.payload.ok === true && response.payload.data) {
     return response.payload.data;
   }
-  const apiCode = response?.payload?.error?.code;
-  const nextAction = response?.payload?.error?.nextAction;
-  throw new YouTubeSmokeError(apiCode || code, message, { ...details, httpStatus: response?.status || null, nextAction });
+  const apiError = response?.payload?.error || {};
+  const apiCode = apiError.code;
+  const safeApiDetails = {};
+  for (const key of [
+    "attempts",
+    "attemptsConfigured",
+    "timeoutMs",
+  ]) {
+    if (Number.isFinite(Number(apiError[key]))) safeApiDetails[key] = Number(apiError[key]);
+  }
+  for (const key of [
+    "fallbackUsed",
+    "retryable",
+    "authorizedImportRequired",
+    "downloaderConfigured",
+  ]) {
+    if (typeof apiError[key] === "boolean") safeApiDetails[key] = apiError[key];
+  }
+  for (const key of [
+    "fallbackFormatSelector",
+    "fileValidation",
+    "formatSelector",
+    "ingestRisk",
+    "metadataStatus",
+    "nextAction",
+    "playerClient",
+  ]) {
+    if (typeof apiError[key] === "string") safeApiDetails[key] = sanitizeText(apiError[key], 180);
+  }
+  throw new YouTubeSmokeError(apiCode || code, message, { ...details, ...safeApiDetails, httpStatus: response?.status || null });
 }
 
 function assertId(value, prefix, code) {
@@ -1267,6 +1294,17 @@ function safeFailure(error) {
     substep: details.substep ? sanitizeText(details.substep, 80) : null,
     elapsedMs: Number.isFinite(Number(details.elapsedMs)) ? Number(details.elapsedMs) : null,
     timeoutMs: Number.isFinite(Number(details.timeoutMs)) ? Number(details.timeoutMs) : null,
+    attempts: Number.isFinite(Number(details.attempts)) ? Number(details.attempts) : null,
+    attemptsConfigured: Number.isFinite(Number(details.attemptsConfigured)) ? Number(details.attemptsConfigured) : null,
+    retryable: typeof details.retryable === "boolean" ? details.retryable : null,
+    authorizedImportRequired: typeof details.authorizedImportRequired === "boolean" ? details.authorizedImportRequired : null,
+    fallbackUsed: typeof details.fallbackUsed === "boolean" ? details.fallbackUsed : null,
+    formatSelector: details.formatSelector ? sanitizeText(details.formatSelector, 180) : null,
+    fallbackFormatSelector: details.fallbackFormatSelector ? sanitizeText(details.fallbackFormatSelector, 180) : null,
+    playerClient: details.playerClient ? sanitizeText(details.playerClient, 40) : null,
+    ingestRisk: details.ingestRisk ? sanitizeText(details.ingestRisk, 80) : null,
+    metadataStatus: details.metadataStatus ? sanitizeText(details.metadataStatus, 80) : null,
+    fileValidation: details.fileValidation ? sanitizeText(details.fileValidation, 80) : null,
     chunkIndex: Number.isFinite(Number(details.chunkIndex)) ? Number(details.chunkIndex) : null,
     chunkCount: Number.isFinite(Number(details.chunkCount)) ? Number(details.chunkCount) : null,
     chunkStart: Number.isFinite(Number(details.chunkStart)) ? Number(details.chunkStart) : null,
