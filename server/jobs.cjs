@@ -206,13 +206,157 @@ function restoreSafeEditPlanMetadata(publicJob, sourceJob) {
   return publicJob;
 }
 
+const SAFE_ERROR_DETAIL_STRING_KEYS = Object.freeze([
+  "phase",
+  "step",
+  "substep",
+  "sourceType",
+  "scoreboardOcrProviderMode",
+  "nextAction",
+]);
+const SAFE_ERROR_DETAIL_BOOLEAN_KEYS = Object.freeze([
+  "sourceValidated",
+  "downloadedSourceReady",
+  "scoreboardOcrAttempted",
+  "scoreboardOcrEnabled",
+  "lateBucketInspected",
+]);
+const SAFE_ERROR_DETAIL_NUMBER_KEYS = Object.freeze([
+  "sourceDuration",
+  "scoreboardObservationCount",
+  "scoreboardSampledFrameCount",
+  "scoreChangeCount",
+  "stableScoreChangeCount",
+  "chunksScanned",
+  "chunkCount",
+  "skippedChunks",
+  "timedOutChunks",
+  "scoreChangesFound",
+  "countedGoalEventCount",
+  "discoveredCountedGoals",
+  "expectedCountedGoals",
+  "visualWindowCount",
+  "bucketCount",
+  "selectedValidGoalCount",
+  "candidateCount",
+  "rejectedCandidateCount",
+  "goalEvidenceEventCount",
+  "validGoalEvidenceCount",
+  "offsideOrNoGoalEvidenceCount",
+  "celebrationOnlyEvidenceCount",
+  "anthemOrIntroEvidenceCount",
+  "ocrEvidenceCount",
+  "scoreboardConfirmedGoalCount",
+  "recoverableGoalEvidenceCandidateCount",
+  "matchEventTruthConfirmedGoalCount",
+  "matchEventTruthDisallowedGoalCount",
+  "matchEventTruthPossibleGoalCount",
+  "matchEventTruthScoreTimelineObservationCount",
+  "matchEventTruthScoreChangeCount",
+  "matchEventTruthCountedGoalEventCount",
+  "matchEventTruthDisallowedGoalEventCount",
+  "matchEventTruthSelectedGoalCount",
+  "matchEventTruthScoreChangeAnchorsFound",
+  "matchEventTruthStableScoreChangeAnchorCount",
+  "matchEventTruthRevertedScoreChangeAnchorCount",
+  "matchEventTruthAnchorsLinkedToGoalPhaseCount",
+  "matchEventTruthAnchorsMissingVisualSupportCount",
+  "matchEventTruthAnchorsWithLiveActionEvidence",
+  "matchEventTruthAnchorsRejected",
+  "matchEventTruthSelectedCountedGoals",
+  "matchEventTruthOcrOnlyBlockedCount",
+  "matchEventTruthMissingActionEvidenceCount",
+]);
+
+function normalizeReasonList(values, max = 8) {
+  return (Array.isArray(values) ? values : [])
+    .map((value) => sanitizeText(value, 80))
+    .filter(Boolean)
+    .slice(0, max);
+}
+
+function normalizeErrorCandidate(candidate = {}, index = 0) {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
+  return {
+    index: Number.isFinite(Number(candidate.index)) ? Number(candidate.index) : index + 1,
+    id: sanitizeText(candidate.id || `goal_evidence_${index + 1}`, 80),
+    outcomeHint: sanitizeText(candidate.outcomeHint || "unknown", 48),
+    start: Number.isFinite(Number(candidate.start)) ? Number(candidate.start) : null,
+    end: Number.isFinite(Number(candidate.end)) ? Number(candidate.end) : null,
+    reasonCodes: normalizeReasonList(candidate.reasonCodes, 12),
+    missingEvidence: normalizeReasonList(candidate.missingEvidence, 8),
+    recoveryEligibility: sanitizeText(candidate.recoveryEligibility || "not_recoverable", 60),
+    rejectionReason: candidate.rejectionReason ? sanitizeText(candidate.rejectionReason, 80) : null,
+    confidence: Number.isFinite(Number(candidate.confidence)) ? Number(candidate.confidence) : null,
+  };
+}
+
+function normalizeTopRejectionReasons(values = []) {
+  return (Array.isArray(values) ? values : [])
+    .map((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+      return {
+        reason: sanitizeText(item.reason || "", 80),
+        count: Number.isFinite(Number(item.count)) ? Number(item.count) : 0,
+      };
+    })
+    .filter((item) => item && item.reason)
+    .slice(0, 8);
+}
+
+function normalizeErrorChunkSummary(value = null) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    mode: sanitizeText(value.mode || "chunked_scorebug_first_ocr", 60),
+    chunkCount: Number.isFinite(Number(value.chunkCount)) ? Number(value.chunkCount) : null,
+    scannedChunks: Number.isFinite(Number(value.scannedChunks)) ? Number(value.scannedChunks) : null,
+    skippedChunks: Number.isFinite(Number(value.skippedChunks)) ? Number(value.skippedChunks) : null,
+    timedOutChunks: Number.isFinite(Number(value.timedOutChunks)) ? Number(value.timedOutChunks) : null,
+    discoveredScoreChanges: Number.isFinite(Number(value.discoveredScoreChanges)) ? Number(value.discoveredScoreChanges) : null,
+  };
+}
+
+function normalizeErrorDetails(details) {
+  if (!details || typeof details !== "object" || Array.isArray(details)) return null;
+  const safe = {};
+  for (const key of SAFE_ERROR_DETAIL_STRING_KEYS) {
+    if (details[key] != null) safe[key] = sanitizeText(details[key], key === "nextAction" ? 180 : 80);
+  }
+  for (const key of SAFE_ERROR_DETAIL_BOOLEAN_KEYS) {
+    if (typeof details[key] === "boolean") safe[key] = details[key];
+  }
+  for (const key of SAFE_ERROR_DETAIL_NUMBER_KEYS) {
+    if (Number.isFinite(Number(details[key]))) safe[key] = Number(details[key]);
+  }
+  const topRejectionReasons = normalizeTopRejectionReasons(details.topRejectionReasons);
+  if (topRejectionReasons.length) safe.topRejectionReasons = topRejectionReasons;
+  const missingEvidenceByCandidate = (Array.isArray(details.missingEvidenceByCandidate) ? details.missingEvidenceByCandidate : [])
+    .map(normalizeErrorCandidate)
+    .filter(Boolean)
+    .slice(0, 12);
+  if (missingEvidenceByCandidate.length) safe.missingEvidenceByCandidate = missingEvidenceByCandidate;
+  const goalEvidenceCandidates = (Array.isArray(details.goalEvidenceCandidates) ? details.goalEvidenceCandidates : [])
+    .map(normalizeErrorCandidate)
+    .filter(Boolean)
+    .slice(0, 12);
+  if (goalEvidenceCandidates.length) safe.goalEvidenceCandidates = goalEvidenceCandidates;
+  const missedGoalReasons = normalizeReasonList(details.matchEventTruthMissedGoalReasons, 8);
+  if (missedGoalReasons.length) safe.matchEventTruthMissedGoalReasons = missedGoalReasons;
+  const ocrChunkSummary = normalizeErrorChunkSummary(details.ocrChunkSummary);
+  if (ocrChunkSummary) safe.ocrChunkSummary = ocrChunkSummary;
+  return Object.keys(safe).length ? safe : null;
+}
+
 function normalizeError(error) {
   if (!error) return null;
   const code = sanitizeText(error.code || "UNEXPECTED", 80);
-  return {
+  const normalized = {
     code,
     message: sanitizeText(error.message || SAFE_MESSAGES[code] || SAFE_MESSAGES.UNEXPECTED, 240),
   };
+  const details = normalizeErrorDetails(error.details);
+  if (details) normalized.details = details;
+  return normalized;
 }
 
 function normalizeStyleTarget(value) {
@@ -861,6 +1005,7 @@ class JobStore {
       error: {
         code,
         message: error.userMessage || SAFE_MESSAGES[code] || SAFE_MESSAGES.RENDER_FAILED,
+        details: error.details || null,
       },
       step: "failed",
       workerId: null,

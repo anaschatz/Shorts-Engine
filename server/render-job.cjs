@@ -99,6 +99,10 @@ function safeReasonList(values = [], max = 8) {
     .slice(0, max);
 }
 
+function safeBoolean(value) {
+  return typeof value === "boolean" ? value : Boolean(value);
+}
+
 function safeGoalEvidenceCandidates(goalEvidence, max = 12) {
   const events = Array.isArray(goalEvidence && goalEvidence.events) ? goalEvidence.events : [];
   return events.slice(0, max).map((event, index) => ({
@@ -137,6 +141,25 @@ function missingEvidenceByCandidate(candidates = [], max = 12) {
       rejectionReason: candidate && candidate.rejectionReason ? sanitizeText(candidate.rejectionReason, 80) : null,
     }))
     .filter((candidate) => candidate.missingEvidence.length > 0 || candidate.rejectionReason);
+}
+
+function topRejectionReasons(candidates = [], max = 8) {
+  const counts = new Map();
+  for (const candidate of Array.isArray(candidates) ? candidates : []) {
+    const reasons = [
+      candidate && candidate.rejectionReason,
+      ...safeReasonList(candidate && candidate.missingEvidence, 4),
+    ].filter(Boolean);
+    for (const reason of reasons) {
+      const safe = sanitizeText(reason, 80);
+      if (!safe) continue;
+      counts.set(safe, (counts.get(safe) || 0) + 1);
+    }
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, max)
+    .map(([reason, count]) => ({ reason, count }));
 }
 
 function scoreboardOcrEnabledForTrace(scoreboardOcr) {
@@ -183,6 +206,143 @@ function goalEvidenceTraceNextAction({ scoreboardOcr, stableChanges, countedGoal
     return "connect-stable-score-changes-to-live-action-windows-before-render";
   }
   return "inspect-valid-goal-selection-evidence-trace";
+}
+
+function safeOcrChunkSummary(scoreboardOcr = null) {
+  const summary = scoreboardOcr && scoreboardOcr.summary ? scoreboardOcr.summary : {};
+  const chunkSummary = summary && summary.chunkSummary && typeof summary.chunkSummary === "object" && !Array.isArray(summary.chunkSummary)
+    ? summary.chunkSummary
+    : null;
+  if (!chunkSummary) return null;
+  return {
+    mode: sanitizeText(chunkSummary.mode || "chunked_scorebug_first_ocr", 60),
+    chunkCount: safeNumber(chunkSummary.chunkCount),
+    scannedChunks: safeNumber(chunkSummary.scannedChunks),
+    skippedChunks: safeNumber(chunkSummary.skippedChunks),
+    timedOutChunks: safeNumber(chunkSummary.timedOutChunks),
+    failedChunks: safeNumber(chunkSummary.failedChunks),
+    scannedDurationSeconds: safeNumber(chunkSummary.scannedDurationSeconds),
+    discoveredScoreChanges: safeNumber(chunkSummary.discoveredScoreChanges),
+    totalBudgetMs: safeNumber(chunkSummary.totalBudgetMs),
+    chunkTimeoutMs: safeNumber(chunkSummary.chunkTimeoutMs),
+    chunks: Array.isArray(chunkSummary.chunks)
+      ? chunkSummary.chunks.slice(0, 12).map((chunk, index) => ({
+          index: safeNumber(chunk && chunk.index) || index + 1,
+          start: safeNumber(chunk && chunk.start),
+          end: safeNumber(chunk && chunk.end),
+          status: sanitizeText(chunk && chunk.status || "unknown", 40),
+          sampledFrameCount: safeNumber(chunk && chunk.sampledFrameCount),
+          evidenceCount: safeNumber(chunk && chunk.evidenceCount),
+          scoreChangeCount: safeNumber(chunk && chunk.scoreChangeCount),
+          skippedReason: chunk && chunk.skippedReason ? sanitizeText(chunk.skippedReason, 80) : null,
+        }))
+      : [],
+  };
+}
+
+function localSourceReady(context = {}, deps = {}) {
+  const inputPath = context.inputPath;
+  if (!inputPath) return false;
+  try {
+    const exists = typeof deps.fileExists === "function" ? deps.fileExists(inputPath) : existsSync(inputPath);
+    const regular = typeof deps.isRegularFile === "function" ? deps.isRegularFile(inputPath) : isRegularFile(inputPath);
+    return Boolean(exists && regular);
+  } catch {
+    return false;
+  }
+}
+
+function buildValidGoalSelectionFailureDetails({
+  context = {},
+  deps = {},
+  scoreboardOcr = null,
+  goalEvidence = null,
+  matchEventTruth = null,
+  goalDiscovery = null,
+  goalEvidenceCandidates = [],
+  stableChanges = 0,
+  countedGoalEvents = 0,
+} = {}) {
+  const scoreboardSummary = scoreboardOcr && scoreboardOcr.summary ? scoreboardOcr.summary : {};
+  const goalEvidenceSummary = goalEvidence && goalEvidence.summary ? goalEvidence.summary : {};
+  const truthSummary = matchEventTruth && matchEventTruth.summary ? matchEventTruth.summary : {};
+  const candidates = Array.isArray(goalEvidenceCandidates) && goalEvidenceCandidates.length
+    ? goalEvidenceCandidates
+    : safeGoalEvidenceCandidates(goalEvidence);
+  const missingByCandidate = missingEvidenceByCandidate(candidates);
+  const chunkSummary = safeOcrChunkSummary(scoreboardOcr);
+  const scoreChangesFound = safeNumber(scoreboardSummary.scoreChangeCount) ?? stableChanges ?? 0;
+  const discoveredCountedGoals = safeNumber(truthSummary.countedGoalEventCount) ?? countedGoalEvents ?? 0;
+  const candidateCount = candidates.length || safeNumber(goalEvidenceSummary.eventCount) || 0;
+  const rejectedCandidateCount = safeNumber(goalEvidenceSummary.rejectedCandidateCount) ??
+    candidates.filter((candidate) => candidate && (candidate.rejectionReason || safeReasonList(candidate.missingEvidence).length)).length;
+  return {
+    phase: "planning",
+    step: "create_edit_plan",
+    substep: "build_edit_plan",
+    sourceType: sanitizeText((context.source && context.source.sourceType) || context.metadata?.sourceType || "upload", 40),
+    sourceDuration: safeNumber(context.metadata && context.metadata.durationSeconds),
+    sourceValidated: Boolean(context.metadata && context.metadata.durationSeconds),
+    downloadedSourceReady: localSourceReady(context, deps),
+    scoreboardOcrAttempted: Boolean(scoreboardOcr),
+    scoreboardOcrEnabled: scoreboardOcrEnabledForTrace(scoreboardOcr),
+    scoreboardOcrProviderMode: scoreboardOcr && scoreboardOcr.providerMode ? sanitizeText(scoreboardOcr.providerMode, 80) : null,
+    scoreboardObservationCount: safeNumber(scoreboardSummary.evidenceCount) ?? 0,
+    scoreboardSampledFrameCount: safeNumber(scoreboardSummary.sampledFrameCount) ?? 0,
+    scoreChangeCount: safeNumber(scoreboardSummary.scoreChangeCount) ?? 0,
+    stableScoreChangeCount: safeNumber(stableChanges) ?? 0,
+    chunksScanned: safeNumber(chunkSummary && chunkSummary.scannedChunks) ?? 0,
+    chunkCount: safeNumber(chunkSummary && chunkSummary.chunkCount) ?? 0,
+    skippedChunks: safeNumber(chunkSummary && chunkSummary.skippedChunks) ?? 0,
+    timedOutChunks: safeNumber(chunkSummary && chunkSummary.timedOutChunks) ?? 0,
+    scoreChangesFound,
+    countedGoalEventCount: discoveredCountedGoals,
+    discoveredCountedGoals,
+    expectedCountedGoals: safeNumber(context.metadata && context.metadata.expectedCountedGoals),
+    visualWindowCount: safeNumber(goalDiscovery && goalDiscovery.visualWindowCount) ?? 0,
+    bucketCount: safeNumber(goalDiscovery && goalDiscovery.bucketCount) ?? 0,
+    lateBucketInspected: safeBoolean(goalDiscovery && goalDiscovery.lateBucketInspected),
+    selectedValidGoalCount: Array.isArray(goalDiscovery && goalDiscovery.selectedValidGoals)
+      ? goalDiscovery.selectedValidGoals.length
+      : 0,
+    candidateCount,
+    rejectedCandidateCount,
+    topRejectionReasons: topRejectionReasons(candidates),
+    missingEvidenceByCandidate: missingByCandidate,
+    goalEvidenceCandidates: candidates.slice(0, 12),
+    goalEvidenceEventCount: safeNumber(goalEvidenceSummary.eventCount) ?? 0,
+    validGoalEvidenceCount: safeNumber(goalEvidenceSummary.validGoalCount) ?? 0,
+    offsideOrNoGoalEvidenceCount: safeNumber(goalEvidenceSummary.offsideOrNoGoalCount) ?? 0,
+    celebrationOnlyEvidenceCount: safeNumber(goalEvidenceSummary.celebrationOnlyCount) ?? 0,
+    anthemOrIntroEvidenceCount: safeNumber(goalEvidenceSummary.anthemOrIntroCount) ?? 0,
+    ocrEvidenceCount: safeNumber(goalEvidenceSummary.ocrEvidenceCount),
+    scoreboardConfirmedGoalCount: safeNumber(goalEvidenceSummary.scoreboardConfirmedGoalCount),
+    recoverableGoalEvidenceCandidateCount: safeNumber(goalEvidenceSummary.recoverableCandidateCount),
+    matchEventTruthConfirmedGoalCount: safeNumber(truthSummary.confirmedGoalCount),
+    matchEventTruthDisallowedGoalCount: safeNumber(truthSummary.disallowedGoalCount),
+    matchEventTruthPossibleGoalCount: safeNumber(truthSummary.possibleGoalCount),
+    matchEventTruthScoreTimelineObservationCount: safeNumber(truthSummary.scoreTimelineObservationCount),
+    matchEventTruthScoreChangeCount: safeNumber(truthSummary.scoreChangeCount),
+    matchEventTruthCountedGoalEventCount: safeNumber(truthSummary.countedGoalEventCount),
+    matchEventTruthDisallowedGoalEventCount: safeNumber(truthSummary.disallowedGoalEventCount),
+    matchEventTruthSelectedGoalCount: safeNumber(truthSummary.selectedGoalCount),
+    matchEventTruthScoreChangeAnchorsFound: safeNumber(truthSummary.scoreChangeAnchorsFound),
+    matchEventTruthStableScoreChangeAnchorCount: safeNumber(truthSummary.stableScoreChangeAnchorCount),
+    matchEventTruthRevertedScoreChangeAnchorCount: safeNumber(truthSummary.revertedScoreChangeAnchorCount),
+    matchEventTruthAnchorsLinkedToGoalPhaseCount: safeNumber(truthSummary.anchorsLinkedToGoalPhaseCount),
+    matchEventTruthAnchorsMissingVisualSupportCount: safeNumber(truthSummary.anchorsMissingVisualSupportCount),
+    matchEventTruthAnchorsWithLiveActionEvidence: safeNumber(truthSummary.anchorsWithLiveActionEvidence),
+    matchEventTruthAnchorsRejected: safeNumber(truthSummary.anchorsRejected),
+    matchEventTruthSelectedCountedGoals: safeNumber(truthSummary.selectedCountedGoals),
+    matchEventTruthOcrOnlyBlockedCount: safeNumber(truthSummary.ocrOnlyBlockedCount),
+    matchEventTruthMissingActionEvidenceCount: safeNumber(truthSummary.missingActionEvidenceCount),
+    matchEventTruthMissedGoalReasons: safeReasonList(truthSummary.missedGoalReasons, 8),
+    matchEventTruthScoreChangeAnchors: Array.isArray(matchEventTruth && matchEventTruth.scoreChangeAnchors)
+      ? matchEventTruth.scoreChangeAnchors.slice(0, 12)
+      : [],
+    ocrChunkSummary: chunkSummary,
+    nextAction: goalEvidenceTraceNextAction({ scoreboardOcr, stableChanges, countedGoalEvents: discoveredCountedGoals }),
+  };
 }
 
 function resolveLocalArtifactPath(artifactStore, artifact) {
@@ -1991,6 +2151,17 @@ async function runRenderJob(options) {
           const countedGoalEvents = matchEventTruth && matchEventTruth.summary
             ? safeNumber(matchEventTruth.summary.countedGoalEventCount) || 0
             : 0;
+          const failureDetails = buildValidGoalSelectionFailureDetails({
+            context,
+            deps,
+            scoreboardOcr,
+            goalEvidence,
+            matchEventTruth,
+            goalDiscovery,
+            goalEvidenceCandidates,
+            stableChanges,
+            countedGoalEvents,
+          });
           logInfo(deps.logger, {
             event: "valid_goal_selection_empty",
             requestId,
@@ -1998,6 +2169,7 @@ async function runRenderJob(options) {
             jobId: job.id,
             step: "create_edit_plan",
             code,
+            ...failureDetails,
             scoreboardOcrAttempted: Boolean(scoreboardOcr),
             scoreboardOcrEnabled: scoreboardOcrEnabledForTrace(scoreboardOcr),
             scoreboardOcrProviderMode: scoreboardOcr && scoreboardOcr.providerMode,
@@ -2056,6 +2228,7 @@ async function runRenderJob(options) {
               ? matchEventTruth.scoreChangeAnchors.slice(0, 12)
               : [],
           });
+          throw new AppError(code, SAFE_MESSAGES[code], 422, failureDetails);
         }
         throw new AppError(code, SAFE_MESSAGES[code], 422);
       }

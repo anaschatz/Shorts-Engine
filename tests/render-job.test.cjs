@@ -1115,6 +1115,37 @@ test("youtube valid-goals-only render fails closed when no valid goals are found
   const context = makeContext({
     durationSeconds: 180,
     metadata: { sourceType: "youtube", videoId: "dQw4w9WgXcQ" },
+    goalEvidence: {
+      providerMode: "mock-goal-evidence",
+      fallbackUsed: false,
+      confidence: 0.58,
+      events: [{
+        id: "non_goal_chance_1",
+        start: 42,
+        end: 56,
+        outcomeHint: "non_goal_chance",
+        confidence: 0.58,
+        reasonCodes: ["non_goal_chance", "shot_sequence_support"],
+        missingEvidence: ["explicit_ball_in_net", "decision_or_reaction_confirmation"],
+        recoveryEligibility: "not_recoverable",
+        rejectionReason: "explicit_ball_in_net",
+      }],
+      supplementalVisualWindows: [],
+      summary: {
+        eventCount: 1,
+        validGoalCount: 0,
+        offsideOrNoGoalCount: 0,
+        unconfirmedGoalCount: 0,
+        nonGoalChanceCount: 1,
+        celebrationOnlyCount: 0,
+        anthemOrIntroCount: 0,
+        ocrEvidenceCount: 0,
+        scoreboardConfirmedGoalCount: 0,
+        ambiguousOcrCount: 0,
+        rejectedCandidateCount: 1,
+        goalEvidenceCoverage: 0,
+      },
+    },
     candidatePlans: [],
   });
   await runContext(context);
@@ -1123,6 +1154,18 @@ test("youtube valid-goals-only render fails closed when no valid goals are found
   assert.equal(context.project.status, "failed");
   assert.equal(context.exportsById.size, 0);
   assert.equal(context.job.error.code, "NO_VALID_GOALS_FOUND");
+  assert.equal(context.job.error.details.phase, "planning");
+  assert.equal(context.job.error.details.step, "create_edit_plan");
+  assert.equal(context.job.error.details.substep, "build_edit_plan");
+  assert.equal(context.job.error.details.sourceValidated, true);
+  assert.equal(context.job.error.details.downloadedSourceReady, true);
+  assert.equal(context.job.error.details.candidateCount, 1);
+  assert.equal(context.job.error.details.rejectedCandidateCount, 1);
+  assert.deepEqual(context.job.error.details.topRejectionReasons, [
+    { reason: "explicit_ball_in_net", count: 2 },
+    { reason: "decision_or_reaction_confirmation", count: 1 },
+  ]);
+  assert.equal(context.job.error.details.goalEvidenceCandidates[0].outcomeHint, "non_goal_chance");
   assert.equal(context.calls.includes("render_short"), false);
   assert.doesNotMatch(JSON.stringify(context.job.error), /\/Users|storageKey|secret|stderr|stdout/i);
 });

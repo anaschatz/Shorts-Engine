@@ -1840,6 +1840,9 @@ test("youtube live local e2e timeout preserves server progress context", async (
   assert.equal(report.currentJob.progressMeta.chunkIndex, 4);
   assert.equal(report.currentJob.progressMeta.discoveredScoreChanges, 2);
   assert.equal(report.outputProof.outputMp4, null);
+  assert.equal(report.outputProof.scoreboardOcrAttempted, true);
+  assert.equal(report.outputProof.scoreboardOcrEnabled, true);
+  assert.equal(report.outputProof.scoreboardOcrProviderMode, "chunked-scoreboard-ocr");
   assert.equal(report.outputProof.ocrChunkSummary.mode, "chunked_scorebug_first_ocr");
   assert.equal(report.outputProof.ocrChunkSummary.chunkCount, 9);
   assert.equal(report.outputProof.ocrChunkSummary.chunks[0].index, 4);
@@ -2386,6 +2389,9 @@ test("youtube live local e2e failure report keeps safe valid-goal discovery coun
         event: "valid_goal_selection_empty",
         code: "NO_VALID_GOALS_FOUND",
         goalDiscovery: {
+          sourceValidated: true,
+          downloadedSourceReady: true,
+          sourceDuration: 180,
           scoreboardOcrAttempted: true,
           scoreboardOcrEnabled: true,
           scoreboardOcrProviderMode: "mock-scoreboard-ocr",
@@ -2393,11 +2399,18 @@ test("youtube live local e2e failure report keeps safe valid-goal discovery coun
           scoreboardSampledFrameCount: 4,
           scoreChangeCount: 0,
           stableScoreChangeCount: 0,
+          scoreChangesFound: 0,
+          chunksScanned: 0,
           countedGoalEventCount: 0,
+          discoveredCountedGoals: 0,
+          expectedCountedGoals: 3,
           visualWindowCount: 24,
           bucketCount: 7,
           lateBucketInspected: true,
           selectedValidGoalCount: 0,
+          candidateCount: 3,
+          rejectedCandidateCount: 3,
+          topRejectionReasons: [{ reason: "goalmouth_or_finish_context", count: 1 }],
           excludedOffsideOrNoGoalCount: 2,
           excludedUnconfirmedBallInNetCount: 1,
           goalEvidenceEventCount: 3,
@@ -2503,6 +2516,9 @@ test("youtube live local e2e failure report keeps safe valid-goal discovery coun
   const event = report.serverEvents.find((item) => item.event === "valid_goal_selection_empty");
   assert.ok(event);
   assert.deepEqual(event.goalDiscovery, {
+    sourceValidated: true,
+    downloadedSourceReady: true,
+    sourceDuration: 180,
     scoreboardOcrAttempted: true,
     scoreboardOcrEnabled: true,
     scoreboardOcrProviderMode: "mock-scoreboard-ocr",
@@ -2510,11 +2526,18 @@ test("youtube live local e2e failure report keeps safe valid-goal discovery coun
     scoreboardSampledFrameCount: 4,
     scoreChangeCount: 0,
     stableScoreChangeCount: 0,
+    scoreChangesFound: 0,
+    chunksScanned: 0,
     countedGoalEventCount: 0,
+    discoveredCountedGoals: 0,
+    expectedCountedGoals: 3,
     visualWindowCount: 24,
     bucketCount: 7,
     lateBucketInspected: true,
     selectedValidGoalCount: 0,
+    candidateCount: 3,
+    rejectedCandidateCount: 3,
+    topRejectionReasons: [{ reason: "goalmouth_or_finish_context", count: 1 }],
     excludedOffsideOrNoGoalCount: 2,
     excludedUnconfirmedBallInNetCount: 1,
     goalEvidenceEventCount: 3,
@@ -2558,6 +2581,10 @@ test("youtube live local e2e failure report keeps safe valid-goal discovery coun
   }]);
   assert.equal(report.outputProof.nextAction, "inspect-score-timeline-for-unreadable-or-ambiguous-scorebug");
   assert.equal(report.outputProof.goalDiscovery.selectedValidGoalCount, 0);
+  assert.equal(report.outputProof.goalDiscovery.sourceValidated, true);
+  assert.equal(report.outputProof.goalDiscovery.downloadedSourceReady, true);
+  assert.equal(report.outputProof.goalDiscovery.candidateCount, 3);
+  assert.equal(report.outputProof.goalDiscovery.rejectedCandidateCount, 3);
   assert.equal(report.outputProof.goalDiscovery.goalEvidenceEventCount, 3);
   assert.equal(report.outputProof.goalDiscovery.offsideOrNoGoalEvidenceCount, 2);
   assert.equal(report.outputProof.ffprobe.code, "OUTPUT_MP4_NOT_CREATED");

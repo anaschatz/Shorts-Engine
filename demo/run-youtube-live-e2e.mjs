@@ -1154,6 +1154,52 @@ function latestGoalDiscoveryEvent(serverEvents = []) {
   return [...serverEvents].reverse().find((event) => event && event.goalDiscovery) || null;
 }
 
+function goalDiscoveryFromSmokeFailure(failure = null) {
+  if (!failure || typeof failure !== "object" || Array.isArray(failure)) return null;
+  const hasPlanningEvidence =
+    failure.code === "NO_VALID_GOALS_FOUND" ||
+    failure.candidateCount !== null ||
+    failure.scoreChangesFound !== null ||
+    (Array.isArray(failure.goalEvidenceCandidates) && failure.goalEvidenceCandidates.length > 0);
+  if (!hasPlanningEvidence) return null;
+  return {
+    sourceValidated: safeBoolean(failure.sourceValidated),
+    downloadedSourceReady: safeBoolean(failure.downloadedSourceReady),
+    sourceDuration: safeNumber(failure.sourceDuration),
+    scoreboardOcrAttempted: safeBoolean(failure.scoreboardOcrAttempted),
+    scoreboardOcrEnabled: safeBoolean(failure.scoreboardOcrEnabled),
+    scoreboardOcrProviderMode: safeString(failure.scoreboardOcrProviderMode, 80),
+    scoreboardObservationCount: safeNumber(failure.scoreboardObservationCount),
+    scoreboardSampledFrameCount: safeNumber(failure.scoreboardSampledFrameCount),
+    scoreChangeCount: safeNumber(failure.scoreChangeCount),
+    stableScoreChangeCount: safeNumber(failure.stableScoreChangeCount),
+    scoreChangesFound: safeNumber(failure.scoreChangesFound),
+    chunksScanned: safeNumber(failure.chunksScanned),
+    countedGoalEventCount: safeNumber(failure.countedGoalEventCount),
+    discoveredCountedGoals: safeNumber(failure.discoveredCountedGoals),
+    expectedCountedGoals: safeNumber(failure.expectedCountedGoals),
+    visualWindowCount: safeNumber(failure.visualWindowCount),
+    bucketCount: safeNumber(failure.bucketCount),
+    lateBucketInspected: safeBoolean(failure.lateBucketInspected),
+    selectedValidGoalCount: safeNumber(failure.selectedValidGoalCount),
+    candidateCount: safeNumber(failure.candidateCount),
+    rejectedCandidateCount: safeNumber(failure.rejectedCandidateCount),
+    topRejectionReasons: Array.isArray(failure.topRejectionReasons)
+      ? failure.topRejectionReasons.map((item) => ({
+          reason: safeString(item && item.reason, 80),
+          count: safeNumber(item && item.count),
+        })).filter((item) => item.reason).slice(0, 8)
+      : [],
+    missingEvidenceByCandidate: Array.isArray(failure.missingEvidenceByCandidate)
+      ? failure.missingEvidenceByCandidate.map(safeMissingEvidenceCandidate).filter(Boolean).slice(0, 12)
+      : [],
+    goalEvidenceCandidates: Array.isArray(failure.goalEvidenceCandidates)
+      ? failure.goalEvidenceCandidates.map(safeGoalEvidenceCandidate).filter(Boolean).slice(0, 12)
+      : [],
+    nextAction: failure.nextAction ? safeString(failure.nextAction, 180) : null,
+  };
+}
+
 function latestScoreboardOcrEvent(serverEvents = []) {
   if (!Array.isArray(serverEvents)) return null;
   return [...serverEvents].reverse().find((event) => event && event.scoreboardOcr) || null;
@@ -1208,9 +1254,9 @@ function latestVideoOutputQAFromSmoke(smoke) {
 
 function buildFailedOutputProof({ env, source, smoke = null, serverEvents, staleArtifactCleanup }) {
   const event = latestGoalDiscoveryEvent(serverEvents);
-  const discovery = event?.goalDiscovery || null;
-  const ocrEvent = latestScoreboardOcrEvent(serverEvents);
   const smokeFailure = smoke?.failedCases?.[0] || null;
+  const discovery = event?.goalDiscovery || goalDiscoveryFromSmokeFailure(smokeFailure);
+  const ocrEvent = latestScoreboardOcrEvent(serverEvents);
   const latestSmokeJob = latestJobSnapshotFromSmoke(smoke);
   const scoreboardOcr = ocrEvent?.scoreboardOcr ||
     safeScoreboardOcrEvent(smokeFailure?.currentJob?.scoreboardOcr) ||
@@ -1220,6 +1266,21 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
   const smokeFailureStep = Array.isArray(smoke?.steps)
     ? [...smoke.steps].reverse().find((step) => step && step.status === "failed")
     : null;
+  const progressMeta = smokeFailure && smokeFailure.currentJob && smokeFailure.currentJob.progressMeta
+    ? smokeFailure.currentJob.progressMeta
+    : latestSmokeJob && latestSmokeJob.progressMeta
+      ? latestSmokeJob.progressMeta
+    : serverProgressMeta && serverProgressMeta.chunkCount
+      ? serverProgressMeta
+      : null;
+  const progressLooksLikeScoreboardOcr = progressMeta &&
+    (progressMeta.step === "run_scorebug_ocr" ||
+      progressMeta.scorebugFirst === true ||
+      Number.isFinite(Number(progressMeta.chunkCount)));
+  const failureLooksLikeScoreboardOcr = smokeFailure &&
+    (smokeFailure.step === "run_scorebug_ocr" ||
+      smokeFailure.step === "run_scoreboard_ocr" ||
+      (typeof smokeFailure.substep === "string" && smokeFailure.substep.startsWith("scorebug_")));
   const outputQA = latestVideoOutputQAFromSmoke(smoke);
   const outputExpectedGoalCount = Number.isFinite(Number(outputQA?.expectedGoalCount))
     ? Number(outputQA.expectedGoalCount)
@@ -1245,12 +1306,12 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
     discovery.scoreboardOcrAttempted !== undefined &&
     discovery.scoreboardOcrAttempted !== null
     ? Boolean(discovery.scoreboardOcrAttempted)
-    : Boolean(scoreboardOcr);
+    : Boolean(scoreboardOcr || progressLooksLikeScoreboardOcr || failureLooksLikeScoreboardOcr);
   const scoreboardOcrEnabled = discovery &&
     discovery.scoreboardOcrEnabled !== undefined &&
     discovery.scoreboardOcrEnabled !== null
     ? Boolean(discovery.scoreboardOcrEnabled)
-    : scoreboardOcrEnabledForProof(scoreboardOcr);
+    : Boolean(scoreboardOcrEnabledForProof(scoreboardOcr) || progressLooksLikeScoreboardOcr || failureLooksLikeScoreboardOcr);
   const scoreboardObservationCount = safeNumber(discovery && discovery.scoreboardObservationCount) ??
     safeNumber(scoreboardOcr && scoreboardOcr.evidenceCount) ??
     0;
@@ -1259,13 +1320,9 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
     0;
   const stableScoreChangeCount = safeNumber(discovery && discovery.stableScoreChangeCount) ??
     stableScoreChangeCountFromOcr(scoreboardOcr);
-  const progressMeta = smokeFailure && smokeFailure.currentJob && smokeFailure.currentJob.progressMeta
-    ? smokeFailure.currentJob.progressMeta
-    : latestSmokeJob && latestSmokeJob.progressMeta
-      ? latestSmokeJob.progressMeta
-    : serverProgressMeta && serverProgressMeta.chunkCount
-      ? serverProgressMeta
-    : null;
+  const scoreboardOcrProviderMode = discovery?.scoreboardOcrProviderMode ||
+    scoreboardOcr?.providerMode ||
+    (progressLooksLikeScoreboardOcr || failureLooksLikeScoreboardOcr ? "chunked-scoreboard-ocr" : null);
   const ocrChunkSummary = scoreboardOcr && scoreboardOcr.chunkSummary
     ? scoreboardOcr.chunkSummary
     : progressMeta && progressMeta.chunkCount
@@ -1328,7 +1385,7 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
     failedReasons: Array.isArray(outputQA?.failedReasons) ? outputQA.failedReasons : [],
     scoreboardOcrAttempted,
     scoreboardOcrEnabled,
-    scoreboardOcrProviderMode: discovery?.scoreboardOcrProviderMode || scoreboardOcr?.providerMode || null,
+    scoreboardOcrProviderMode,
     ocrChunkSummary,
     scorebugDebug: scoreboardOcr?.scorebugDebug || null,
     scoreboardObservationCount,
@@ -1800,6 +1857,9 @@ function startServer(port, env) {
         }
         if (parsed.event === "valid_goal_selection_empty") {
           event.goalDiscovery = {
+            sourceValidated: safeBoolean(parsed.sourceValidated),
+            downloadedSourceReady: safeBoolean(parsed.downloadedSourceReady),
+            sourceDuration: safeNumber(parsed.sourceDuration),
             scoreboardOcrAttempted: safeBoolean(parsed.scoreboardOcrAttempted),
             scoreboardOcrEnabled: safeBoolean(parsed.scoreboardOcrEnabled),
             scoreboardOcrProviderMode: safeString(parsed.scoreboardOcrProviderMode, 80),
@@ -1807,11 +1867,23 @@ function startServer(port, env) {
             scoreboardSampledFrameCount: safeNumber(parsed.scoreboardSampledFrameCount),
             scoreChangeCount: safeNumber(parsed.scoreChangeCount),
             stableScoreChangeCount: safeNumber(parsed.stableScoreChangeCount),
+            scoreChangesFound: safeNumber(parsed.scoreChangesFound),
+            chunksScanned: safeNumber(parsed.chunksScanned),
             countedGoalEventCount: safeNumber(parsed.countedGoalEventCount),
+            discoveredCountedGoals: safeNumber(parsed.discoveredCountedGoals),
+            expectedCountedGoals: safeNumber(parsed.expectedCountedGoals),
             visualWindowCount: safeNumber(parsed.visualWindowCount),
             bucketCount: safeNumber(parsed.bucketCount),
             lateBucketInspected: safeBoolean(parsed.lateBucketInspected),
             selectedValidGoalCount: safeNumber(parsed.selectedValidGoalCount),
+            candidateCount: safeNumber(parsed.candidateCount),
+            rejectedCandidateCount: safeNumber(parsed.rejectedCandidateCount),
+            topRejectionReasons: Array.isArray(parsed.topRejectionReasons)
+              ? parsed.topRejectionReasons.map((item) => ({
+                  reason: safeString(item && item.reason, 80),
+                  count: safeNumber(item && item.count),
+                })).filter((item) => item.reason).slice(0, 8)
+              : [],
             excludedOffsideOrNoGoalCount: safeNumber(parsed.excludedOffsideOrNoGoalCount),
             excludedUnconfirmedBallInNetCount: safeNumber(parsed.excludedUnconfirmedBallInNetCount),
             goalEvidenceEventCount: safeNumber(parsed.goalEvidenceEventCount),

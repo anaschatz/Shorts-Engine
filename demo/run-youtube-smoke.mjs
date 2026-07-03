@@ -449,6 +449,36 @@ function safeStringList(values, maxItems = 8, maxLength = 80) {
     .slice(0, maxItems);
 }
 
+function safeGoalEvidenceCandidate(value = {}, index = 0) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    index: safeNumber(value.index) || index + 1,
+    id: sanitizeText(value.id || `goal_evidence_${index + 1}`, 80),
+    outcomeHint: sanitizeText(value.outcomeHint || "unknown", 48),
+    start: safeNumber(value.start),
+    end: safeNumber(value.end),
+    reasonCodes: safeStringList(value.reasonCodes, 12, 80),
+    missingEvidence: safeStringList(value.missingEvidence, 8, 80),
+    recoveryEligibility: sanitizeText(value.recoveryEligibility || "not_recoverable", 60),
+    rejectionReason: value.rejectionReason ? sanitizeText(value.rejectionReason, 80) : null,
+    confidence: safeNumber(value.confidence),
+  };
+}
+
+function safeTopRejectionReasons(values = []) {
+  if (!Array.isArray(values)) return [];
+  return values
+    .map((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+      return {
+        reason: sanitizeText(item.reason || "", 80),
+        count: safeNumber(item.count) || 0,
+      };
+    })
+    .filter((item) => item && item.reason)
+    .slice(0, 8);
+}
+
 function safeOcrChunkSummary(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const chunks = Array.isArray(value.chunks)
@@ -1226,30 +1256,70 @@ async function pollJob({ baseUrl, fetchImpl, jobId, jobTimeoutMs, pollIntervalMs
 function validateCompletedJob(job) {
   if (!job || job.status !== "completed") {
     const videoOutputQA = safeVideoOutputQA(job?.videoOutputQA || job?.editPlan?.videoOutputQA);
+    const errorDetails = job?.error?.details && typeof job.error.details === "object" && !Array.isArray(job.error.details)
+      ? job.error.details
+      : {};
     const progressMeta = job && job.progressMeta && typeof job.progressMeta === "object" && !Array.isArray(job.progressMeta)
       ? job.progressMeta
       : {};
     throw new YouTubeSmokeError(job?.error?.code || "YOUTUBE_SMOKE_JOB_FAILED", "YouTube smoke render job did not complete.", {
-      phase: progressMeta.phase || "render",
-      step: progressMeta.step || job?.step || "render_job",
-      substep: progressMeta.substep || null,
-      timeoutMs: Number.isFinite(Number(progressMeta.budgetMs)) ? Number(progressMeta.budgetMs) : null,
-      chunkIndex: Number.isFinite(Number(progressMeta.chunkIndex)) ? Number(progressMeta.chunkIndex) : null,
-      chunkCount: Number.isFinite(Number(progressMeta.chunkCount)) ? Number(progressMeta.chunkCount) : null,
-      chunkStart: Number.isFinite(Number(progressMeta.chunkStart)) ? Number(progressMeta.chunkStart) : null,
-      chunkEnd: Number.isFinite(Number(progressMeta.chunkEnd)) ? Number(progressMeta.chunkEnd) : null,
-      scannedChunks: Number.isFinite(Number(progressMeta.scannedChunks)) ? Number(progressMeta.scannedChunks) : null,
-      discoveredScoreChanges: Number.isFinite(Number(progressMeta.discoveredScoreChanges)) ? Number(progressMeta.discoveredScoreChanges) : null,
-      totalBudgetMs: Number.isFinite(Number(progressMeta.totalBudgetMs)) ? Number(progressMeta.totalBudgetMs) : null,
-      chunkTimeoutMs: Number.isFinite(Number(progressMeta.chunkTimeoutMs)) ? Number(progressMeta.chunkTimeoutMs) : null,
+      ...errorDetails,
+      phase: errorDetails.phase || progressMeta.phase || "render",
+      step: errorDetails.step || progressMeta.step || job?.step || "render_job",
+      substep: errorDetails.substep || progressMeta.substep || null,
+      timeoutMs: Number.isFinite(Number(errorDetails.timeoutMs))
+        ? Number(errorDetails.timeoutMs)
+        : Number.isFinite(Number(progressMeta.budgetMs))
+          ? Number(progressMeta.budgetMs)
+          : null,
+      chunkIndex: Number.isFinite(Number(errorDetails.chunkIndex))
+        ? Number(errorDetails.chunkIndex)
+        : Number.isFinite(Number(progressMeta.chunkIndex))
+          ? Number(progressMeta.chunkIndex)
+          : null,
+      chunkCount: Number.isFinite(Number(errorDetails.chunkCount))
+        ? Number(errorDetails.chunkCount)
+        : Number.isFinite(Number(progressMeta.chunkCount))
+          ? Number(progressMeta.chunkCount)
+          : null,
+      chunkStart: Number.isFinite(Number(errorDetails.chunkStart))
+        ? Number(errorDetails.chunkStart)
+        : Number.isFinite(Number(progressMeta.chunkStart))
+          ? Number(progressMeta.chunkStart)
+          : null,
+      chunkEnd: Number.isFinite(Number(errorDetails.chunkEnd))
+        ? Number(errorDetails.chunkEnd)
+        : Number.isFinite(Number(progressMeta.chunkEnd))
+          ? Number(progressMeta.chunkEnd)
+          : null,
+      scannedChunks: Number.isFinite(Number(errorDetails.scannedChunks))
+        ? Number(errorDetails.scannedChunks)
+        : Number.isFinite(Number(progressMeta.scannedChunks))
+          ? Number(progressMeta.scannedChunks)
+          : null,
+      discoveredScoreChanges: Number.isFinite(Number(errorDetails.discoveredScoreChanges))
+        ? Number(errorDetails.discoveredScoreChanges)
+        : Number.isFinite(Number(progressMeta.discoveredScoreChanges))
+          ? Number(progressMeta.discoveredScoreChanges)
+          : null,
+      totalBudgetMs: Number.isFinite(Number(errorDetails.totalBudgetMs))
+        ? Number(errorDetails.totalBudgetMs)
+        : Number.isFinite(Number(progressMeta.totalBudgetMs))
+          ? Number(progressMeta.totalBudgetMs)
+          : null,
+      chunkTimeoutMs: Number.isFinite(Number(errorDetails.chunkTimeoutMs))
+        ? Number(errorDetails.chunkTimeoutMs)
+        : Number.isFinite(Number(progressMeta.chunkTimeoutMs))
+          ? Number(progressMeta.chunkTimeoutMs)
+          : null,
       videoOutputQA,
-      countedGoalEventCount: videoOutputQA ? videoOutputQA.expectedGoalCount : null,
-      actualConfirmedGoalSegmentCount: videoOutputQA ? videoOutputQA.actualConfirmedGoalSegmentCount : null,
-      coveredGoalCount: videoOutputQA ? videoOutputQA.coveredGoalCount : null,
-      missingGoalNumbers: videoOutputQA ? videoOutputQA.missingGoalNumbers : [],
-      failedReasons: videoOutputQA ? videoOutputQA.failedReasons : [],
+      countedGoalEventCount: videoOutputQA ? videoOutputQA.expectedGoalCount : errorDetails.countedGoalEventCount ?? null,
+      actualConfirmedGoalSegmentCount: videoOutputQA ? videoOutputQA.actualConfirmedGoalSegmentCount : errorDetails.actualConfirmedGoalSegmentCount ?? null,
+      coveredGoalCount: videoOutputQA ? videoOutputQA.coveredGoalCount : errorDetails.coveredGoalCount ?? null,
+      missingGoalNumbers: videoOutputQA ? videoOutputQA.missingGoalNumbers : errorDetails.missingGoalNumbers || [],
+      failedReasons: videoOutputQA ? videoOutputQA.failedReasons : errorDetails.failedReasons || [],
       currentJob: safeJobSnapshot(job),
-      nextAction: videoOutputQA ? nextActionForCode("VIDEO_OUTPUT_QA_FAILED") : nextActionForCode(job?.error?.code || "YOUTUBE_SMOKE_JOB_FAILED"),
+      nextAction: errorDetails.nextAction || (videoOutputQA ? nextActionForCode("VIDEO_OUTPUT_QA_FAILED") : nextActionForCode(job?.error?.code || "YOUTUBE_SMOKE_JOB_FAILED")),
     });
   }
   const exportId = assertId(job.exportId, "exp", "YOUTUBE_SMOKE_EXPORT_MISSING");
@@ -1318,8 +1388,35 @@ function safeFailure(error) {
     causeCode: details.causeCode ? sanitizeText(details.causeCode, 60) : null,
     currentJob: safeJobSnapshot(details.currentJob),
     countedGoalEventCount: safeNumber(details.countedGoalEventCount),
+    discoveredCountedGoals: safeNumber(details.discoveredCountedGoals),
+    expectedCountedGoals: safeNumber(details.expectedCountedGoals),
     actualConfirmedGoalSegmentCount: safeNumber(details.actualConfirmedGoalSegmentCount),
     coveredGoalCount: safeNumber(details.coveredGoalCount),
+    sourceValidated: typeof details.sourceValidated === "boolean" ? details.sourceValidated : null,
+    downloadedSourceReady: typeof details.downloadedSourceReady === "boolean" ? details.downloadedSourceReady : null,
+    scoreboardOcrAttempted: typeof details.scoreboardOcrAttempted === "boolean" ? details.scoreboardOcrAttempted : null,
+    scoreboardOcrEnabled: typeof details.scoreboardOcrEnabled === "boolean" ? details.scoreboardOcrEnabled : null,
+    scoreboardOcrProviderMode: details.scoreboardOcrProviderMode ? sanitizeText(details.scoreboardOcrProviderMode, 80) : null,
+    sourceDuration: safeNumber(details.sourceDuration),
+    scoreboardObservationCount: safeNumber(details.scoreboardObservationCount),
+    scoreboardSampledFrameCount: safeNumber(details.scoreboardSampledFrameCount),
+    scoreChangeCount: safeNumber(details.scoreChangeCount),
+    stableScoreChangeCount: safeNumber(details.stableScoreChangeCount),
+    chunksScanned: safeNumber(details.chunksScanned),
+    scoreChangesFound: safeNumber(details.scoreChangesFound),
+    visualWindowCount: safeNumber(details.visualWindowCount),
+    bucketCount: safeNumber(details.bucketCount),
+    lateBucketInspected: typeof details.lateBucketInspected === "boolean" ? details.lateBucketInspected : null,
+    selectedValidGoalCount: safeNumber(details.selectedValidGoalCount),
+    candidateCount: safeNumber(details.candidateCount),
+    rejectedCandidateCount: safeNumber(details.rejectedCandidateCount),
+    topRejectionReasons: safeTopRejectionReasons(details.topRejectionReasons),
+    missingEvidenceByCandidate: Array.isArray(details.missingEvidenceByCandidate)
+      ? details.missingEvidenceByCandidate.map(safeGoalEvidenceCandidate).filter(Boolean).slice(0, 12)
+      : [],
+    goalEvidenceCandidates: Array.isArray(details.goalEvidenceCandidates)
+      ? details.goalEvidenceCandidates.map(safeGoalEvidenceCandidate).filter(Boolean).slice(0, 12)
+      : [],
     missingGoalNumbers: Array.isArray(details.missingGoalNumbers)
       ? details.missingGoalNumbers.map((goal) => Number(goal)).filter(Number.isFinite).slice(0, 12)
       : [],
