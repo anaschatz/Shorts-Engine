@@ -67,6 +67,13 @@ const OCR_PREPROCESS_VARIANTS = Object.freeze([
     filter: "scale=iw*2:ih*2,format=gray,eq=contrast=1.45:brightness=0.04,unsharp=5:5:0.8",
   },
 ]);
+const SCOREBUG_FIRST_REGION_IDS = Object.freeze([
+  "scorebug_broadcast_compact",
+  "scorebug_left_compact",
+  "scoreboard_top_left",
+  "scoreboard_top_center",
+  "scoreboard_top_right",
+]);
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, Number(value) || min));
@@ -601,15 +608,36 @@ function normalizeQaReportSummary(value = {}) {
 function normalizeScoreboardOcrChunkSummary(value) {
   if (!value || typeof value !== "object" || Array.isArray(value) || hasUnsafeValue(value)) return null;
   const chunks = Array.isArray(value.chunks) ? value.chunks : [];
+  const safeNumberList = (values = [], max = 16) => (Array.isArray(values) ? values : [])
+    .map((item) => round(clamp(item, 0, 24 * 60 * 60)))
+    .filter((item) => Number.isFinite(item))
+    .slice(0, max);
+  const safeTextList = (values = [], max = 12, length = 80) => (Array.isArray(values) ? values : [])
+    .map((item) => sanitizeText(item, length))
+    .filter(Boolean)
+    .slice(0, max);
   const safeChunk = (chunk = {}, index = 0) => ({
     index: Math.max(1, Math.min(100, Math.round(Number(chunk.index || index + 1)))),
     start: round(clamp(chunk.start, 0, 24 * 60 * 60)),
     end: round(clamp(chunk.end, 0, 24 * 60 * 60)),
     status: sanitizeText(chunk.status || "unknown", 40),
     sampledFrameCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES, Math.round(Number(chunk.sampledFrameCount || 0)))),
+    sampledFrameTimestamps: safeNumberList(chunk.sampledFrameTimestamps, MAX_SCOREBOARD_OCR_FRAMES),
+    roiCandidateIds: safeTextList(chunk.roiCandidateIds, MAX_SCOREBOARD_REGIONS, 80),
+    roiDetected: Boolean(chunk.roiDetected),
+    selectedRoiId: chunk.selectedRoiId ? sanitizeText(chunk.selectedRoiId, 80) : null,
+    ocrTextCandidateCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_CROPS, Math.round(Number(chunk.ocrTextCandidateCount || 0)))),
     evidenceCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES, Math.round(Number(chunk.evidenceCount || 0)))),
     scoreChangeCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES, Math.round(Number(chunk.scoreChangeCount || 0)))),
+    textPresentObservationCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_CROPS, Math.round(Number(chunk.textPresentObservationCount || 0)))),
+    readableObservationCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_CROPS, Math.round(Number(chunk.readableObservationCount || 0)))),
+    clockOnlyObservationCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_CROPS, Math.round(Number(chunk.clockOnlyObservationCount || 0)))),
+    rejectedObservationCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_CROPS, Math.round(Number(chunk.rejectedObservationCount || 0)))),
+    stableScoreDecision: sanitizeText(chunk.stableScoreDecision || "unknown", 80),
+    normalizedScoreCandidates: safeTextList(chunk.normalizedScoreCandidates, 12, 16),
+    rejectedScoreCandidateReasons: safeTextList(chunk.rejectedScoreCandidateReasons, 12, 80),
     skippedReason: chunk.skippedReason ? sanitizeText(chunk.skippedReason, 80) : null,
+    nextAction: chunk.nextAction ? sanitizeText(chunk.nextAction, 180) : null,
     elapsedMs: Math.max(0, Math.min(60 * 60 * 1000, Math.round(Number(chunk.elapsedMs || 0)))),
     timeoutMs: chunk.timeoutMs == null
       ? null
@@ -1511,6 +1539,19 @@ function scoreboardOcrPreprocessVariants() {
   }));
 }
 
+function scorebugFirstPreprocessVariants() {
+  const preferred = new Set(["gray_line", "contrast_block"]);
+  return scoreboardOcrPreprocessVariants().filter((variant) => preferred.has(variant.id));
+}
+
+function scorebugFirstRegions(regions = []) {
+  const byId = new Map((Array.isArray(regions) ? regions : []).map((region) => [region.id, region]));
+  return SCOREBUG_FIRST_REGION_IDS
+    .map((id) => byId.get(id))
+    .filter(Boolean)
+    .slice(0, MAX_SCOREBOARD_REGIONS);
+}
+
 async function cropScoreboardRegion({
   frame,
   region,
@@ -1793,6 +1834,7 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
     if (!this.cropperInjected && this.ffmpegRunner === runFfmpeg && !commandAvailable(CONFIG.ffmpegBin)) return deterministicFallback(input);
 
     const metadata = input.metadata || {};
+    const scorebugFirstOnly = Boolean(input.scorebugFirstOnly);
     const outputDir = ocrCropOutputDir(input);
     const qa = createScoreboardOcrQaContext(input);
     const digitCalibration = validateScorebugCalibration(input.digitCalibration || input.scorebugDigitCalibration || this.digitCalibration);
@@ -1821,10 +1863,17 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
     let previousDiagnosticScore = null;
     const regionIdsUsed = new Set();
     const variants = scoreboardOcrPreprocessVariants();
+    const activeVariants = scorebugFirstOnly ? scorebugFirstPreprocessVariants() : variants;
+    const ocrTimeoutMs = scorebugFirstOnly
+      ? Math.max(250, Math.min(this.timeoutMs, 3500, Number(input.timeoutMs || this.timeoutMs)))
+      : this.timeoutMs;
     try {
-      const regionsByFrame = frames.map((frame) => regionHintsForFrame(frame, metadata).slice(0, MAX_SCOREBOARD_REGIONS));
+      const regionsByFrame = frames.map((frame) => {
+        const regions = regionHintsForFrame(frame, metadata).slice(0, MAX_SCOREBOARD_REGIONS);
+        return scorebugFirstOnly ? scorebugFirstRegions(regions) : regions;
+      });
       const frameScoreFound = new Set();
-      for (const variant of variants) {
+      for (const variant of activeVariants) {
         for (let regionIndex = 0; regionIndex < MAX_SCOREBOARD_REGIONS; regionIndex += 1) {
           for (const [frameIndex, frame] of frames.entries()) {
             if (frameScoreFound.has(frameIndex)) continue;
@@ -1870,21 +1919,29 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
                   psm: "7",
                   whitelist: "0123456789OI:-",
                   signal: input.signal,
-                  timeoutMs: Math.min(this.timeoutMs, 6000),
-                }), { signal: input.signal, timeoutMs: Math.min(this.timeoutMs, 6000) });
+                  timeoutMs: Math.min(ocrTimeoutMs, 3500),
+                }), { signal: input.signal, timeoutMs: Math.min(ocrTimeoutMs, 3500) });
                 scoreOnlyScore = scoreOnlyOcr.rejected ? null : parseScoreOnlyScore(scoreOnlyOcr.text);
               } catch {
                 scoreOnlyOcr = { text: "", confidence: 0.05, rejected: true };
                 scoreOnlyScore = null;
               }
             }
-            const ocr = await raceWithTimeout(this.ocrAdapter.readTextFromImage({
-              imagePath: safeCropPath,
-              psm: variant.psm,
-              whitelist: variant.whitelist,
-              signal: input.signal,
-              timeoutMs: this.timeoutMs,
-            }), { signal: input.signal, timeoutMs: this.timeoutMs });
+            const ocr = scorebugFirstOnly && scoreOnlyScore
+              ? {
+                  text: scoreOnlyScore.text,
+                  confidence: scoreOnlyOcr && scoreOnlyOcr.confidence || 0.74,
+                  rejected: false,
+                  skipped: true,
+                  reason: "scorebug_first_structured_score_available",
+                }
+              : await raceWithTimeout(this.ocrAdapter.readTextFromImage({
+                  imagePath: safeCropPath,
+                  psm: variant.psm,
+                  whitelist: variant.whitelist,
+                  signal: input.signal,
+                  timeoutMs: ocrTimeoutMs,
+                }), { signal: input.signal, timeoutMs: ocrTimeoutMs });
             const digitCropPath = scoreOnlyCrop && scoreOnlyCrop.cropPath ? scoreOnlyCrop.cropPath : safeCropPath;
             const digitCalibrationForCrop = scoreOnlyCrop && scoreOnlyCrop.digitCalibration
               ? scoreOnlyCrop.digitCalibration
@@ -1899,7 +1956,7 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
                 layoutId: layoutProfile && layoutProfile.layoutId,
                 decoderOutputDir: outputDir,
                 ffmpegRunner: this.ffmpegRunner,
-                decoderTimeoutMs: Math.min(this.timeoutMs, 8000),
+                decoderTimeoutMs: Math.min(ocrTimeoutMs, 3500),
               },
               regionId: region.id,
               timestamp: frame.timestamp,
@@ -1917,7 +1974,7 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
                   layoutId: layoutProfile && layoutProfile.layoutId,
                   decoderOutputDir: outputDir,
                   ffmpegRunner: this.ffmpegRunner,
-                  decoderTimeoutMs: Math.min(this.timeoutMs, 8000),
+                  decoderTimeoutMs: Math.min(ocrTimeoutMs, 3500),
                 },
                 regionId: region.id,
                 timestamp: frame.timestamp,
@@ -1945,7 +2002,7 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
                 profile: layoutProfile,
                 ocrAdapter: this.ocrAdapter,
                 ffmpegRunner: this.ffmpegRunner,
-                timeoutMs: this.timeoutMs,
+                timeoutMs: ocrTimeoutMs,
                 signal: input.signal,
               });
               if (profileDigitOcr && profileDigitOcr.status === "readable") {
@@ -2073,7 +2130,7 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
         sampledFrameCount: frames.length,
         regionCount: cropCount,
         regionIdsUsed: [...regionIdsUsed],
-        preprocessingVariantCount: variants.length,
+        preprocessingVariantCount: activeVariants.length,
       }, metadata);
       const qaReport = writeScoreboardOcrQaReport({ qa, scoreboardOcr: result, status: "completed" });
       return qaReport
@@ -2226,6 +2283,7 @@ module.exports = {
   normalizeScoreboardOcrChunkSummary,
   publicScoreboardOcr,
   scoreboardOcrHealth,
+  scorebugFirstPreprocessVariants,
   scoreboardOcrPreprocessVariants,
   selectScorebugLayoutProfile,
   selectOcrFrames,

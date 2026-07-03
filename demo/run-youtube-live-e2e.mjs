@@ -227,9 +227,24 @@ function safeOcrChunkSummary(value) {
       end: safeNumber(chunk && chunk.end),
       status: safeString(chunk && chunk.status, 40),
       sampledFrameCount: safeNumber(chunk && chunk.sampledFrameCount),
+      sampledFrameTimestamps: Array.isArray(chunk && chunk.sampledFrameTimestamps)
+        ? chunk.sampledFrameTimestamps.map((timestamp) => safeNumber(timestamp)).filter((timestamp) => timestamp !== null).slice(0, 16)
+        : [],
+      roiCandidateIds: safeStringList(chunk && chunk.roiCandidateIds, 8, 80),
+      roiDetected: safeBoolean(chunk && chunk.roiDetected),
+      selectedRoiId: chunk && chunk.selectedRoiId ? safeString(chunk.selectedRoiId, 80) : null,
+      ocrTextCandidateCount: safeNumber(chunk && chunk.ocrTextCandidateCount),
       evidenceCount: safeNumber(chunk && chunk.evidenceCount),
       scoreChangeCount: safeNumber(chunk && chunk.scoreChangeCount),
+      textPresentObservationCount: safeNumber(chunk && chunk.textPresentObservationCount),
+      readableObservationCount: safeNumber(chunk && chunk.readableObservationCount),
+      clockOnlyObservationCount: safeNumber(chunk && chunk.clockOnlyObservationCount),
+      rejectedObservationCount: safeNumber(chunk && chunk.rejectedObservationCount),
+      stableScoreDecision: safeString(chunk && chunk.stableScoreDecision || "unknown", 80),
+      normalizedScoreCandidates: safeStringList(chunk && chunk.normalizedScoreCandidates, 12, 16),
+      rejectedScoreCandidateReasons: safeStringList(chunk && chunk.rejectedScoreCandidateReasons, 12, 80),
       skippedReason: chunk && chunk.skippedReason ? safeString(chunk.skippedReason, 80) : null,
+      nextAction: chunk && chunk.nextAction ? safeString(chunk.nextAction, 180) : null,
     })).slice(0, 40),
   };
 }
@@ -252,6 +267,13 @@ function safeProgressMeta(value) {
     elapsedMs: safeNumber(value.elapsedMs),
     totalBudgetMs: safeNumber(value.totalBudgetMs),
     chunkTimeoutMs: safeNumber(value.chunkTimeoutMs),
+    sampledFrameTimestamps: Array.isArray(value.sampledFrameTimestamps)
+      ? value.sampledFrameTimestamps
+        .map((timestamp) => safeNumber(timestamp))
+        .filter((timestamp) => timestamp !== null)
+        .slice(0, 16)
+      : [],
+    roiCandidateIds: safeStringList(value.roiCandidateIds, 8, 80),
   };
 }
 
@@ -1341,9 +1363,24 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
             end: safeNumber(progressMeta.chunkEnd),
             status: smokeFailure?.code === "SCOREBOARD_OCR_TIMEOUT" ? "timed_out" : "active",
             sampledFrameCount: null,
+            sampledFrameTimestamps: progressMeta.sampledFrameTimestamps || [],
+            roiCandidateIds: progressMeta.roiCandidateIds || [],
+            roiDetected: false,
+            selectedRoiId: null,
+            ocrTextCandidateCount: null,
+            textPresentObservationCount: null,
+            readableObservationCount: null,
+            clockOnlyObservationCount: null,
+            rejectedObservationCount: null,
+            stableScoreDecision: smokeFailure?.code === "SCOREBOARD_OCR_TIMEOUT" ? "timed_out" : "active_scan",
+            normalizedScoreCandidates: [],
+            rejectedScoreCandidateReasons: smokeFailure?.code ? [safeString(smokeFailure.code, 80)] : [],
             evidenceCount: null,
             scoreChangeCount: null,
             skippedReason: smokeFailure?.code || null,
+            nextAction: smokeFailure?.code === "SCOREBOARD_OCR_TIMEOUT"
+              ? "reduce-scorebug-ocr-workload-or-enable-scoreboard-ocr-qa-artifacts"
+              : "wait-for-terminal-scorebug-chunk-report-or-increase-smoke-job-timeout",
           }],
         }
       : null;

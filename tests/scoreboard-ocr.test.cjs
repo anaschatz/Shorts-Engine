@@ -14,6 +14,7 @@ const {
   LocalScoreboardOcrProviderAdapter,
   normalizeRegion,
   publicScoreboardOcr,
+  scorebugFirstPreprocessVariants,
   scoreboardOcrHealth,
   scoreboardOcrPreprocessVariants,
   selectScorebugLayoutProfile,
@@ -160,6 +161,75 @@ test("scoreboard OCR normalizes safe scoreboard regions and bounds crop size", (
     () => normalizeRegion({ x: 1900, y: 20, width: 200, height: 80 }, metadata),
     (error) => error.code === "AI_OUTPUT_INVALID",
   );
+});
+
+test("local scoreboard OCR scorebug-first mode bounds ROI search and preprocessing variants", async () => {
+  const { dir, frames } = createFrameFixtures();
+  const cropAttempts = [];
+  const ocrCalls = [];
+  const adapter = new LocalScoreboardOcrProviderAdapter({
+    enabled: true,
+    ocrAdapter: {
+      health: () => ({
+        status: "ready",
+        providerMode: "mock-local-ocr",
+        runtimeAvailable: true,
+        commandConfigured: true,
+      }),
+      runtimeAvailable: () => true,
+      readTextFromImage: async ({ imagePath, psm }) => {
+        ocrCalls.push({ imagePath, psm });
+        return psm === "10"
+          ? { text: "", confidence: 0.05, rejected: true }
+          : { text: "23:11", confidence: 0.66, rejected: false };
+      },
+    },
+    cropper: async ({ outputDir, frameIndex, region, variant }) => {
+      cropAttempts.push({ regionId: region.id, variantId: variant.id, frameIndex });
+      mkdirSync(outputDir, { recursive: true });
+      const cropPath = safeResolve(outputDir, `mock_${frameIndex}_${region.id}_${variant.id}.png`);
+      writeFileSync(cropPath, "fake-crop", "utf8");
+      return cropPath;
+    },
+    ffmpegRunner: async (args) => {
+      const outputPath = args[args.length - 1];
+      writeFileSync(outputPath, "fake-derived-crop", "utf8");
+    },
+    digitReader: async () => ({
+      status: "unreadable",
+      confidence: 0,
+      reasons: ["mock_digit_reader_unreadable"],
+    }),
+  });
+
+  try {
+    const result = await adapter.analyzeScoreboardOcr({
+      metadata,
+      frames,
+      scorebugFirstOnly: true,
+      timeoutMs: 900,
+    });
+    const regionIds = new Set(cropAttempts.map((attempt) => attempt.regionId));
+    const variantIds = new Set(cropAttempts.map((attempt) => attempt.variantId));
+
+    assert.equal(variantIds.size > 0, true);
+    assert.equal(variantIds.size <= scorebugFirstPreprocessVariants().length, true);
+    assert.equal(cropAttempts.length > 0, true);
+    assert.equal(regionIds.has("scorebug_broadcast_compact"), true);
+    assert.equal([...regionIds].every((regionId) => [
+      "scorebug_broadcast_compact",
+      "scorebug_left_compact",
+      "scoreboard_top_left",
+      "scoreboard_top_center",
+      "scoreboard_top_right",
+    ].includes(regionId)), true);
+    assert.equal(regionIds.has("broadcast_top_band"), false);
+    assert.equal(cropAttempts.length <= frames.length * 5 * scorebugFirstPreprocessVariants().length, true);
+    assert.equal(ocrCalls.length > 0, true);
+    assert.doesNotMatch(JSON.stringify(publicScoreboardOcr(result)), /\/Users|storageKey|localPath|token|secret|rawOcr|rawText|stderr|stdout/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("scoreboard OCR rejects unsafe path-like region and provider output values", () => {

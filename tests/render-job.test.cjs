@@ -416,7 +416,7 @@ function makeContext(options = {}) {
         windows: [{ start: 2.7, end: 5.1, type: "unknown_visual_action", confidence: 0.72 }],
       };
     },
-    analyzeScoreboardOcr: async ({ frames, visualSignals, candidateWindows, ocrSamplingWindows, timeoutMs }) => {
+    analyzeScoreboardOcr: async ({ frames, visualSignals, candidateWindows, ocrSamplingWindows, scorebugFirstOnly, timeoutMs }) => {
       calls.push("analyze_scoreboard_ocr");
       context.scoreboardOcrCalls = context.scoreboardOcrCalls || [];
       context.scoreboardOcrCalls.push({
@@ -426,6 +426,7 @@ function makeContext(options = {}) {
           : 0,
         candidateWindowCount: Array.isArray(candidateWindows) ? candidateWindows.length : 0,
         ocrSamplingWindows: Array.isArray(ocrSamplingWindows) ? ocrSamplingWindows : [],
+        scorebugFirstOnly: Boolean(scorebugFirstOnly),
         timeoutMs,
       });
       context.scoreboardOcrFrameCount = Array.isArray(frames) ? frames.length : 0;
@@ -730,12 +731,17 @@ test("youtube long-source render uses scorebug-first OCR before visual frame ext
   assert.equal(context.scoreboardOcrVisualWindowCount, 0);
   assert.equal(context.scoreboardOcrCalls.length, 8);
   assert.equal(context.scoreboardOcrCalls.every((call) => call.ocrSamplingWindows.length > 0), true);
+  assert.equal(context.scoreboardOcrCalls.every((call) => call.scorebugFirstOnly === true), true);
   assert.equal(context.scoreboardOcrCalls.at(-1).ocrSamplingWindows.some((window) => Number(window.timestamp) >= 585), true);
   assert.equal(context.frameCandidateWindows.some((window) => window.source === "scorebug_first_score_change"), true);
   assert.equal(context.job.scoreboardOcr.providerMode, "chunked-scoreboard-ocr");
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunkCount, 8);
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.scannedChunks, 8);
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks.at(-1).end, 644);
+  assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].roiCandidateIds.includes("scorebug_broadcast_compact"), true);
+  assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].sampledFrameTimestamps.length > 0, true);
+  assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].stableScoreDecision, "score_changes_detected");
+  assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].normalizedScoreCandidates.includes("2-1"), true);
   const stepEvents = context.logs.filter((entry) => entry.event === "job_step");
   assert.equal(stepEvents.some((entry) => entry.step === "run_scorebug_ocr" && entry.progressMeta.scorebugFirst === true), true);
   assert.equal(stepEvents.some((entry) => entry.progressMeta.chunkIndex === 8), true);
@@ -769,6 +775,10 @@ test("youtube long-source render fails closed with chunk context when scorebug O
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.scannedChunks, 0);
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.skippedChunks >= 1, true);
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].status, "timed_out");
+  assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].sampledFrameTimestamps.length > 0, true);
+  assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].roiCandidateIds.includes("scoreboard_top_center"), true);
+  assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].stableScoreDecision, "timed_out");
+  assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].nextAction, "reduce-scorebug-ocr-workload-or-enable-scoreboard-ocr-qa-artifacts");
   assert.equal(context.calls.includes("extract_sampled_frames"), false);
   assert.equal(context.calls.includes("render_short"), false);
   assert.doesNotMatch(JSON.stringify(context.job.error), /\/Users|storageKey|localPath|secret|stderr|stdout|rawOcr|rawText/i);
@@ -865,6 +875,8 @@ test("youtube long-source first OCR chunk timeout does not block later score cha
   assert.equal(chunkSummary.scannedChunks >= 6, true);
   assert.equal(chunkSummary.discoveredScoreChanges >= 1, true);
   assert.equal(chunkSummary.chunks.at(-1).status, "completed");
+  assert.equal(chunkSummary.chunks.at(-1).stableScoreDecision, "score_changes_detected");
+  assert.equal(chunkSummary.chunks.at(-1).normalizedScoreCandidates.includes("5-0"), true);
   assert.equal(context.frameCandidateWindows.some((window) => window.source === "scorebug_first_score_change" && Number(window.time) === 612), true);
   assert.equal(context.job.videoOutputQA.coveredGoalCount, 1);
   assert.doesNotMatch(JSON.stringify(context.job.scoreboardOcr), /\/Users|storageKey|localPath|secret|stderr|stdout|rawOcr|rawText/i);

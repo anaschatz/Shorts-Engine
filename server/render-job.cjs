@@ -9,7 +9,12 @@ const { analyzeMatchEventTruth, publicMatchEventTruth } = require("./match-event
 const { sanitizeText } = require("./media.cjs");
 const { extractAudio, renderShort } = require("./render.cjs");
 const { loadOcrQaCalibration, publicOcrQaCalibration } = require("./ocr-qa-calibration.cjs");
-const { analyzeScoreboardOcr, publicScoreboardOcr, validateScoreboardOcrOutput } = require("./scoreboard-ocr.cjs");
+const {
+  analyzeScoreboardOcr,
+  defaultScoreboardRegions,
+  publicScoreboardOcr,
+  validateScoreboardOcrOutput,
+} = require("./scoreboard-ocr.cjs");
 const { chooseTranscriptionProvider } = require("./transcription.cjs");
 const { assertStoragePath, storagePath, writeJsonAtomic } = require("./storage.cjs");
 const { analyzeTracking, publicTrackingProviderOutput } = require("./tracking-provider.cjs");
@@ -24,6 +29,13 @@ const SCOREBUG_FIRST_CHUNK_SECONDS = 90;
 const SCOREBUG_FIRST_CHUNK_FRAME_COUNT = 4;
 const SCOREBUG_FIRST_CHUNK_TIMEOUT_MS = 15_000;
 const SCOREBUG_FIRST_MAX_TOTAL_OCR_BUDGET_MS = 180_000;
+const SCOREBUG_FIRST_ROI_CANDIDATE_IDS = Object.freeze([
+  "scorebug_broadcast_compact",
+  "scorebug_left_compact",
+  "scoreboard_top_left",
+  "scoreboard_top_center",
+  "scoreboard_top_right",
+]);
 
 function isRegularFile(filePath) {
   try {
@@ -1006,16 +1018,143 @@ function safeChunkFailureCode(error) {
   return sanitizeText(error && error.code || "SCOREBOARD_OCR_CHUNK_FAILED", 80);
 }
 
-function chunkReportFromFailure(chunk = {}, error = {}, status = "failed", elapsedMs = 0, timeoutMs = null) {
+function scorebugChunkRoiCandidateIds(metadata = {}) {
+  try {
+    const ids = defaultScoreboardRegions(metadata)
+      .map((region) => sanitizeText(region && region.id, 80))
+      .filter((id) => SCOREBUG_FIRST_ROI_CANDIDATE_IDS.includes(id));
+    return ids.length ? ids : [...SCOREBUG_FIRST_ROI_CANDIDATE_IDS];
+  } catch {
+    return [...SCOREBUG_FIRST_ROI_CANDIDATE_IDS];
+  }
+}
+
+function chunkSampledFrameTimestamps(chunk = {}) {
+  return (Array.isArray(chunk.samplingWindows) ? chunk.samplingWindows : [])
+    .map((window) => roundNumber(window && window.timestamp))
+    .filter((timestamp) => Number.isFinite(timestamp))
+    .slice(0, 16);
+}
+
+function chunkDiagnosticsBase(chunk = {}, metadata = {}) {
+  return {
+    sampledFrameTimestamps: chunkSampledFrameTimestamps(chunk),
+    roiCandidateIds: scorebugChunkRoiCandidateIds(metadata),
+  };
+}
+
+function selectedScorebugRoi(summary = {}) {
+  return (summary.roiCalibration && summary.roiCalibration.selectedRoi) ||
+    (summary.scorebugDebug && summary.scorebugDebug.selectedRoi) ||
+    null;
+}
+
+function scorebugChunkRows(result = {}) {
+  const summary = result && result.summary ? result.summary : {};
+  return [
+    ...(Array.isArray(summary.scoreTimeline) ? summary.scoreTimeline : []),
+    ...(Array.isArray(result.evidence) ? result.evidence : []),
+  ];
+}
+
+function scoreTextCandidatesFromRows(rows = []) {
+  const candidates = new Set();
+  for (const row of rows) {
+    for (const value of [row && row.scoreBefore, row && row.scoreAfter, row && row.detectedScoreText]) {
+      const safe = sanitizeText(value || "", 16);
+      if (/^\d{1,2}-\d{1,2}$/.test(safe)) candidates.add(safe);
+    }
+  }
+  return [...candidates].slice(0, 12);
+}
+
+function rejectedScoreCandidateReasonsFromRows(rows = [], summary = {}) {
+  const reasons = [];
+  for (const row of rows) {
+    if (row && row.status === "clock_only") reasons.push("clock_only_ignored");
+    if (row && row.status === "ambiguous") reasons.push("ambiguous_score_timeline");
+    if (row && row.status === "unreadable") reasons.push("unreadable_scorebug");
+    if (Array.isArray(row && row.transitionReasonCodes)) reasons.push(...row.transitionReasonCodes);
+    if (Array.isArray(row && row.ambiguityReasons)) reasons.push(...row.ambiguityReasons);
+  }
+  const debug = summary.scorebugDebug || {};
+  const selected = selectedScorebugRoi(summary) || {};
+  if (Array.isArray(debug.reasonCodes)) reasons.push(...debug.reasonCodes);
+  if (Array.isArray(selected.reasonCodes)) reasons.push(...selected.reasonCodes);
+  return [...new Set(safeReasonList(reasons, 16))].slice(0, 12);
+}
+
+function stableScoreDecisionForOutput(result = {}) {
+  const summary = result && result.summary ? result.summary : {};
+  const debug = summary.scorebugDebug || {};
+  if (Number(summary.scoreChangeCount || 0) > 0) return "score_changes_detected";
+  if (Number(summary.scoreRevertedCount || 0) > 0) return "score_revert_detected";
+  if (debug.state) return sanitizeText(debug.state, 80);
+  if (Number(summary.clockOnlyCount || 0) > 0 && Number(summary.evidenceCount || 0) === 0) return "clock_only_ignored";
+  if (Number(summary.evidenceCount || 0) > 0) return "scorebug_evidence_without_stable_change";
+  return "no_readable_scorebug";
+}
+
+function chunkReportFromOutput(chunk = {}, result = {}, elapsedMs = 0, timeoutMs = null, metadata = {}) {
+  const summary = result && result.summary ? result.summary : {};
+  const debug = summary.scorebugDebug || {};
+  const selectedRoi = selectedScorebugRoi(summary);
+  const rows = scorebugChunkRows(result);
+  return {
+    index: chunk.index,
+    start: chunk.start,
+    end: chunk.end,
+    status: "completed",
+    ...chunkDiagnosticsBase(chunk, metadata),
+    sampledFrameCount: Number(summary.sampledFrameCount || 0),
+    roiDetected: Boolean(selectedRoi),
+    selectedRoiId: selectedRoi && selectedRoi.regionId ? sanitizeText(selectedRoi.regionId, 80) : null,
+    ocrTextCandidateCount: Number(debug.textPresentObservationCount || 0),
+    evidenceCount: Number(summary.evidenceCount || 0),
+    scoreChangeCount: Number(summary.scoreChangeCount || 0),
+    textPresentObservationCount: Number(debug.textPresentObservationCount || 0),
+    readableObservationCount: Number(debug.readableObservationCount || 0),
+    clockOnlyObservationCount: selectedRoi ? Number(selectedRoi.clockOnlyObservationCount || 0) : Number(summary.clockOnlyCount || 0),
+    rejectedObservationCount: selectedRoi ? Number(selectedRoi.rejectedObservationCount || 0) : 0,
+    stableScoreDecision: stableScoreDecisionForOutput(result),
+    normalizedScoreCandidates: scoreTextCandidatesFromRows(rows),
+    rejectedScoreCandidateReasons: rejectedScoreCandidateReasonsFromRows(rows, summary),
+    skippedReason: null,
+    nextAction: sanitizeText(debug.nextAction || (selectedRoi && selectedRoi.nextAction) || "inspect-scorebug-chunk-report", 180),
+    elapsedMs: Math.max(0, Math.round(Number(elapsedMs || 0))),
+    timeoutMs: Number.isFinite(Number(timeoutMs)) ? Math.max(0, Math.round(Number(timeoutMs))) : null,
+  };
+}
+
+function chunkReportFromFailure(chunk = {}, error = {}, status = "failed", elapsedMs = 0, timeoutMs = null, metadata = {}) {
+  const code = safeChunkFailureCode(error);
   return {
     index: chunk.index,
     start: chunk.start,
     end: chunk.end,
     status,
+    ...chunkDiagnosticsBase(chunk, metadata),
     sampledFrameCount: Array.isArray(chunk.samplingWindows) ? chunk.samplingWindows.length : 0,
+    roiDetected: false,
+    selectedRoiId: null,
+    ocrTextCandidateCount: 0,
     evidenceCount: 0,
     scoreChangeCount: 0,
-    skippedReason: safeChunkFailureCode(error),
+    textPresentObservationCount: 0,
+    readableObservationCount: 0,
+    clockOnlyObservationCount: 0,
+    rejectedObservationCount: 0,
+    stableScoreDecision: status === "timed_out"
+      ? "timed_out"
+      : status === "skipped"
+        ? "not_scanned"
+        : "chunk_failed",
+    normalizedScoreCandidates: [],
+    rejectedScoreCandidateReasons: [code],
+    skippedReason: code,
+    nextAction: status === "timed_out"
+      ? "reduce-scorebug-ocr-workload-or-enable-scoreboard-ocr-qa-artifacts"
+      : "inspect-scorebug-chunk-failure-and-retry-with-safe-budgets",
     elapsedMs: Math.max(0, Math.round(Number(elapsedMs || 0))),
     timeoutMs: Number.isFinite(Number(timeoutMs)) ? Math.max(0, Math.round(Number(timeoutMs))) : null,
   };
@@ -1110,6 +1249,7 @@ async function runChunkedScorebugFirstOcr({
         "skipped",
         elapsedMs,
         0,
+        context.metadata,
       ));
       break;
     }
@@ -1130,6 +1270,7 @@ async function runChunkedScorebugFirstOcr({
         chunkCount: chunks.length,
         chunkStart: chunk.start,
         chunkEnd: chunk.end,
+        ...chunkDiagnosticsBase(chunk, context.metadata),
         scannedChunks: outputs.length,
         discoveredScoreChanges,
         elapsedMs,
@@ -1151,6 +1292,7 @@ async function runChunkedScorebugFirstOcr({
           frames: [],
           frameSummary: null,
           ocrSamplingWindows: chunk.samplingWindows,
+          scorebugFirstOnly: true,
           signal: stepSignal,
           timeoutMs: Math.min(effectiveChunkTimeoutMs, SCOREBUG_FIRST_CHUNK_TIMEOUT_MS),
         }),
@@ -1178,7 +1320,7 @@ async function runChunkedScorebugFirstOcr({
     } catch (error) {
       if ((signal && signal.aborted) || error.code === "JOB_CANCELLED") throw error;
       const status = error.code === "SCOREBOARD_OCR_TIMEOUT" ? "timed_out" : "failed";
-      const failedReport = chunkReportFromFailure(chunk, error, status, Date.now() - startedMs, effectiveChunkTimeoutMs);
+      const failedReport = chunkReportFromFailure(chunk, error, status, Date.now() - startedMs, effectiveChunkTimeoutMs, context.metadata);
       chunkReports.push(failedReport);
       logInfo(deps.logger, {
         event: "scoreboard_ocr_chunk_skipped",
@@ -1205,18 +1347,7 @@ async function runChunkedScorebugFirstOcr({
     }
     outputs.push(result);
     discoveredScoreChanges += stableScoreChangeCount(result);
-    chunkReports.push({
-      index: chunk.index,
-      start: chunk.start,
-      end: chunk.end,
-      status: "completed",
-      sampledFrameCount: Number(result.summary && result.summary.sampledFrameCount || 0),
-      evidenceCount: Number(result.summary && result.summary.evidenceCount || 0),
-      scoreChangeCount: Number(result.summary && result.summary.scoreChangeCount || 0),
-      skippedReason: null,
-      elapsedMs: Date.now() - startedMs,
-      timeoutMs: effectiveChunkTimeoutMs,
-    });
+    chunkReports.push(chunkReportFromOutput(chunk, result, Date.now() - startedMs, effectiveChunkTimeoutMs, context.metadata));
     logInfo(deps.logger, {
       event: "scoreboard_ocr_chunk_completed",
       requestId,
@@ -1247,6 +1378,7 @@ async function runChunkedScorebugFirstOcr({
       "skipped",
       Date.now() - startedMs,
       0,
+      context.metadata,
     ));
   }
   const chunkSummary = buildChunkSummary({

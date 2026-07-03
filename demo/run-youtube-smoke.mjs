@@ -488,9 +488,24 @@ function safeOcrChunkSummary(value) {
         end: safeNumber(chunk && chunk.end),
         status: sanitizeText(chunk && chunk.status || "unknown", 40),
         sampledFrameCount: safeNumber(chunk && chunk.sampledFrameCount),
+        sampledFrameTimestamps: Array.isArray(chunk && chunk.sampledFrameTimestamps)
+          ? chunk.sampledFrameTimestamps.map((timestamp) => safeNumber(timestamp)).filter((timestamp) => timestamp !== null).slice(0, 16)
+          : [],
+        roiCandidateIds: safeStringList(chunk && chunk.roiCandidateIds, 8, 80),
+        roiDetected: Boolean(chunk && chunk.roiDetected),
+        selectedRoiId: chunk && chunk.selectedRoiId ? sanitizeText(chunk.selectedRoiId, 80) : null,
+        ocrTextCandidateCount: safeNumber(chunk && chunk.ocrTextCandidateCount),
         evidenceCount: safeNumber(chunk && chunk.evidenceCount),
         scoreChangeCount: safeNumber(chunk && chunk.scoreChangeCount),
+        textPresentObservationCount: safeNumber(chunk && chunk.textPresentObservationCount),
+        readableObservationCount: safeNumber(chunk && chunk.readableObservationCount),
+        clockOnlyObservationCount: safeNumber(chunk && chunk.clockOnlyObservationCount),
+        rejectedObservationCount: safeNumber(chunk && chunk.rejectedObservationCount),
+        stableScoreDecision: sanitizeText(chunk && chunk.stableScoreDecision || "unknown", 80),
+        normalizedScoreCandidates: safeStringList(chunk && chunk.normalizedScoreCandidates, 12, 16),
+        rejectedScoreCandidateReasons: safeStringList(chunk && chunk.rejectedScoreCandidateReasons, 12, 80),
         skippedReason: chunk && chunk.skippedReason ? sanitizeText(chunk.skippedReason, 80) : null,
+        nextAction: chunk && chunk.nextAction ? sanitizeText(chunk.nextAction, 180) : null,
         elapsedMs: safeNumber(chunk && chunk.elapsedMs),
         timeoutMs: safeNumber(chunk && chunk.timeoutMs),
       }))
@@ -1147,6 +1162,13 @@ function safeJobSnapshot(job) {
         elapsedMs: Number.isFinite(Number(job.progressMeta.elapsedMs)) ? Number(job.progressMeta.elapsedMs) : null,
         totalBudgetMs: Number.isFinite(Number(job.progressMeta.totalBudgetMs)) ? Number(job.progressMeta.totalBudgetMs) : null,
         chunkTimeoutMs: Number.isFinite(Number(job.progressMeta.chunkTimeoutMs)) ? Number(job.progressMeta.chunkTimeoutMs) : null,
+        sampledFrameTimestamps: Array.isArray(job.progressMeta.sampledFrameTimestamps)
+          ? job.progressMeta.sampledFrameTimestamps
+            .map((timestamp) => safeNumber(timestamp))
+            .filter((timestamp) => timestamp !== null)
+            .slice(0, 16)
+          : [],
+        roiCandidateIds: safeStringList(job.progressMeta.roiCandidateIds, 8, 80),
       }
     : null;
   return {
