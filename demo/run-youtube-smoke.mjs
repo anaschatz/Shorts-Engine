@@ -20,6 +20,8 @@ const DEFAULT_JSON_RESPONSE_BYTES = 256 * 1024;
 const DEFAULT_DOWNLOAD_MAX_BYTES = 80 * 1024 * 1024;
 const DEFAULT_DOWNLOAD_ARTIFACT_DIR = "manual-downloads";
 const SAVE_DOWNLOAD_FLAG = "SHORTSENGINE_YOUTUBE_SMOKE_SAVE_DOWNLOAD";
+const DEFAULT_YOUTUBE_INGEST_TIMEOUT_MS = 120_000;
+const DEFAULT_YOUTUBE_DOWNLOAD_ATTEMPTS = 2;
 const SMOKE_NEXT_ACTIONS = {
   YOUTUBE_SMOKE_DISABLED: "set-SHORTSENGINE_YOUTUBE_SMOKE-1-for-manual-real-ingest-smoke",
   YOUTUBE_SMOKE_INGEST_DISABLED: "set-SHORTSENGINE_YOUTUBE_INGEST_ENABLED-1",
@@ -78,6 +80,26 @@ function parseInteger(value, fallback, min, max, code) {
     throw new YouTubeSmokeError(code, "YouTube smoke numeric configuration is out of bounds.");
   }
   return parsed;
+}
+
+function computedIngestRequestTimeoutMs(env, fallback = DEFAULT_REQUEST_TIMEOUT_MS) {
+  const configured = rawValue(env, "SHORTSENGINE_YOUTUBE_SMOKE_REQUEST_TIMEOUT_MS");
+  if (configured !== undefined && configured !== null && configured !== "") return configured;
+  const perAttemptMs = parseInteger(
+    rawValue(env, "SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS"),
+    DEFAULT_YOUTUBE_INGEST_TIMEOUT_MS,
+    1000,
+    10 * 60 * 1000,
+    "YOUTUBE_SMOKE_REQUEST_TIMEOUT_INVALID",
+  );
+  const attempts = parseInteger(
+    rawValue(env, "SHORTSENGINE_YOUTUBE_DOWNLOAD_ATTEMPTS"),
+    DEFAULT_YOUTUBE_DOWNLOAD_ATTEMPTS,
+    1,
+    4,
+    "YOUTUBE_SMOKE_REQUEST_TIMEOUT_INVALID",
+  );
+  return Math.max(fallback, Math.min((perAttemptMs * attempts) + 30_000, 15 * 60 * 1000));
 }
 
 function delay(ms) {
@@ -308,12 +330,18 @@ function assertApiOk(response, code, message, details = {}) {
   for (const key of [
     "attempts",
     "attemptsConfigured",
+    "elapsedMs",
+    "metadataPreflightDurationSeconds",
+    "partialCleanupRemovedCount",
     "timeoutMs",
   ]) {
     if (Number.isFinite(Number(apiError[key]))) safeApiDetails[key] = Number(apiError[key]);
   }
   for (const key of [
+    "cleanupSucceeded",
+    "downloadedOutputReady",
     "fallbackUsed",
+    "partialCleanupSucceeded",
     "retryable",
     "authorizedImportRequired",
     "downloaderConfigured",
@@ -325,9 +353,13 @@ function assertApiOk(response, code, message, details = {}) {
     "fileValidation",
     "formatSelector",
     "ingestRisk",
+    "metadataPreflightStatus",
     "metadataStatus",
     "nextAction",
+    "phase",
     "playerClient",
+    "step",
+    "substep",
   ]) {
     if (typeof apiError[key] === "string") safeApiDetails[key] = sanitizeText(apiError[key], 180);
   }
@@ -1396,7 +1428,13 @@ function safeFailure(error) {
     playerClient: details.playerClient ? sanitizeText(details.playerClient, 40) : null,
     ingestRisk: details.ingestRisk ? sanitizeText(details.ingestRisk, 80) : null,
     metadataStatus: details.metadataStatus ? sanitizeText(details.metadataStatus, 80) : null,
+    metadataPreflightStatus: details.metadataPreflightStatus ? sanitizeText(details.metadataPreflightStatus, 80) : null,
+    metadataPreflightDurationSeconds: safeNumber(details.metadataPreflightDurationSeconds),
     fileValidation: details.fileValidation ? sanitizeText(details.fileValidation, 80) : null,
+    cleanupSucceeded: typeof details.cleanupSucceeded === "boolean" ? details.cleanupSucceeded : null,
+    partialCleanupSucceeded: typeof details.partialCleanupSucceeded === "boolean" ? details.partialCleanupSucceeded : null,
+    partialCleanupRemovedCount: safeNumber(details.partialCleanupRemovedCount),
+    downloadedOutputReady: typeof details.downloadedOutputReady === "boolean" ? details.downloadedOutputReady : null,
     chunkIndex: Number.isFinite(Number(details.chunkIndex)) ? Number(details.chunkIndex) : null,
     chunkCount: Number.isFinite(Number(details.chunkCount)) ? Number(details.chunkCount) : null,
     chunkStart: Number.isFinite(Number(details.chunkStart)) ? Number(details.chunkStart) : null,
@@ -1536,7 +1574,7 @@ async function runYouTubeSmoke(options = {}) {
     );
     const downloadMaxBytes = parseInteger(rawValue(env, "SHORTSENGINE_YOUTUBE_SMOKE_DOWNLOAD_MAX_BYTES"), DEFAULT_DOWNLOAD_MAX_BYTES, 1024, 512 * 1024 * 1024, "YOUTUBE_SMOKE_DOWNLOAD_LIMIT_INVALID");
     const requestTimeoutMs = parseInteger(
-      rawValue(env, "SHORTSENGINE_YOUTUBE_SMOKE_REQUEST_TIMEOUT_MS"),
+      computedIngestRequestTimeoutMs(env),
       DEFAULT_REQUEST_TIMEOUT_MS,
       1000,
       15 * 60 * 1000,
@@ -1760,6 +1798,7 @@ export {
   DEFAULT_JSON_RESPONSE_BYTES,
   RESULTS_DIR,
   YouTubeSmokeError,
+  computedIngestRequestTimeoutMs,
   runYouTubeSmoke,
   safeDownloadArtifactRef,
   validateHealthForSmoke,

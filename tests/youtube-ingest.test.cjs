@@ -411,12 +411,14 @@ test("local youtube downloader adapter retries with fallback format and cleans p
       calls.push(args);
       if (calls.length === 1) {
         writeFileSync(outputPath, Buffer.from("partial"));
+        writeFileSync(`${outputPath}.part`, Buffer.from("partial-fragment"));
         callback(Object.assign(new Error("Requested format is not available"), {
           stderr: "format not available",
         }));
         return;
       }
       assert.equal(existsSync(outputPath), false);
+      assert.equal(existsSync(`${outputPath}.part`), false);
       writeFileSync(outputPath, Buffer.concat([mp4Header, Buffer.alloc(128)]));
       callback(null, "", "");
     },
@@ -467,6 +469,11 @@ test("local youtube downloader adapter reports exhausted retries safely", async 
         assert.equal(error.details.attempts, 2);
         assert.equal(error.details.attemptsConfigured, 2);
         assert.equal(error.details.fallbackUsed, true);
+        assert.equal(error.details.phase, "ingest");
+        assert.equal(error.details.step, "download_source");
+        assert.equal(error.details.substep, "youtube_downloader");
+        assert.equal(error.details.partialCleanupSucceeded, true);
+        assert.equal(error.details.partialCleanupRemovedCount > 0, true);
         assert.equal(existsSync(outputPath), false);
         assert.doesNotMatch(JSON.stringify(error.details), /\/Users|secret|stderr/i);
         return true;
@@ -615,6 +622,9 @@ test("local youtube downloader adapter maps timeout and missing tools to safe er
       () => timeoutAdapter.ingest(source, { outputPath }),
       (error) => {
         assert.equal(error.code, "YOUTUBE_DOWNLOAD_TIMEOUT");
+        assert.equal(error.details.phase, "ingest");
+        assert.equal(error.details.step, "download_source");
+        assert.equal(error.details.partialCleanupSucceeded, true);
         assert.doesNotMatch(error.userMessage, /\/Users|raw/);
         return true;
       },
@@ -711,6 +721,8 @@ test("youtube ingest service keeps authorized import failures safe and creates n
     (error) => {
       assert.equal(error.code, "YOUTUBE_BOT_CHECK_REQUIRED");
       assert.equal(error.details.authorizedImportRequired, true);
+      assert.equal(error.details.metadataPreflightStatus, "bot-check-required");
+      assert.equal(error.details.cleanupSucceeded, true);
       return true;
     },
   );
@@ -718,7 +730,82 @@ test("youtube ingest service keeps authorized import failures safe and creates n
   const combinedLogs = logs.join("\n");
   assert.match(combinedLogs, /YOUTUBE_BOT_CHECK_REQUIRED/);
   assert.match(combinedLogs, /authorizedImportRequired/);
+  assert.match(combinedLogs, /metadata_preflight/);
+  assert.match(combinedLogs, /cleanupSucceeded/);
   assert.doesNotMatch(combinedLogs, /\/Users|cookies-from-browser|token|stderr|stdout/i);
+});
+
+test("youtube ingest service reports downloader timeout diagnostics and creates no records", async () => {
+  const created = [];
+  const before = youtubeStageChildren();
+  const service = createYouTubeIngestService({
+    adapter: {
+      async getMetadata() {
+        return {
+          title: "Long Authorized Match",
+          durationSeconds: 540,
+          metadataStatus: "local",
+          ingestAvailable: true,
+        };
+      },
+      async ingest(_source, ingestOptions = {}) {
+        mkdirSync(dirname(ingestOptions.outputPath), { recursive: true });
+        writeFileSync(ingestOptions.outputPath, Buffer.from("partial"));
+        writeFileSync(`${ingestOptions.outputPath}.part`, Buffer.from("partial"));
+        throw new AppError("YOUTUBE_DOWNLOAD_TIMEOUT", SAFE_MESSAGES.YOUTUBE_DOWNLOAD_TIMEOUT, 504, {
+          phase: "ingest",
+          step: "download_source",
+          substep: "youtube_downloader",
+          retryable: true,
+          attempts: 2,
+          attemptsConfigured: 2,
+          timeoutMs: 120000,
+          formatSelector: "best[ext=mp4]/best",
+          fallbackFormatSelector: "best[ext=mp4]/best",
+          fallbackUsed: true,
+          partialCleanupSucceeded: true,
+          partialCleanupRemovedCount: 2,
+          nextAction: "retry-ingest-or-upload-mp4",
+        });
+      },
+      health() {
+        return {
+          ready: true,
+          mode: "local",
+          enabled: true,
+          networkCalls: true,
+          downloaderConfigured: true,
+          ingestAvailable: true,
+          authorizedImportAvailable: false,
+        };
+      },
+    },
+    dependencies: {
+      artifactStore: createFakeArtifactStore(),
+      persistenceAdapter: createFakePersistenceAdapter(created),
+      logger: null,
+      probeMedia: async () => ({ durationSeconds: 18, width: 1280, height: 720, hasAudio: true }),
+    },
+  });
+  await assert.rejects(
+    () => service.ingest({
+      url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      rightsConfirmed: true,
+    }),
+    (error) => {
+      assert.equal(error.code, "YOUTUBE_DOWNLOAD_TIMEOUT");
+      assert.equal(error.details.step, "download_source");
+      assert.equal(error.details.substep, "youtube_downloader");
+      assert.equal(error.details.metadataPreflightStatus, "local");
+      assert.equal(error.details.metadataPreflightDurationSeconds, 540);
+      assert.equal(error.details.cleanupSucceeded, true);
+      assert.equal(error.details.fallbackUsed, true);
+      assert.doesNotMatch(JSON.stringify(error.details), /\/Users|stderr|stdout|secret/i);
+      return true;
+    },
+  );
+  assert.equal(created.length, 0);
+  assert.deepEqual(youtubeStageChildren(), before);
 });
 
 test("youtube ingest service creates upload and project only after validation", async () => {

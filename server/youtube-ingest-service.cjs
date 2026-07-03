@@ -103,6 +103,10 @@ function publicSourceSummary(source, metadata) {
 function safeDownloaderFailureDetails(error) {
   const details = error && error.details && typeof error.details === "object" ? error.details : {};
   return {
+    phase: typeof details.phase === "string" ? sanitizeText(details.phase, 40) : null,
+    step: typeof details.step === "string" ? sanitizeText(details.step, 80) : null,
+    substep: typeof details.substep === "string" ? sanitizeText(details.substep, 80) : null,
+    elapsedMs: Number.isFinite(Number(details.elapsedMs)) ? Number(details.elapsedMs) : null,
     retryable: details.retryable === true,
     authorizedImportRequired: details.authorizedImportRequired === true,
     attempts: Number.isFinite(Number(details.attempts)) ? Number(details.attempts) : null,
@@ -112,8 +116,40 @@ function safeDownloaderFailureDetails(error) {
     fallbackFormatSelector: typeof details.fallbackFormatSelector === "string" ? details.fallbackFormatSelector : null,
     fallbackUsed: details.fallbackUsed === true,
     playerClient: typeof details.playerClient === "string" ? details.playerClient || null : null,
+    partialCleanupSucceeded: typeof details.partialCleanupSucceeded === "boolean" ? details.partialCleanupSucceeded : null,
+    partialCleanupRemovedCount: Number.isFinite(Number(details.partialCleanupRemovedCount))
+      ? Number(details.partialCleanupRemovedCount)
+      : null,
+    cleanupSucceeded: typeof details.cleanupSucceeded === "boolean" ? details.cleanupSucceeded : null,
     nextAction: typeof details.nextAction === "string" ? details.nextAction : null,
   };
+}
+
+function attachIngestFailureDetails(error, details = {}) {
+  if (!error || typeof error !== "object") return error;
+  const existing = error.details && typeof error.details === "object" && !Array.isArray(error.details)
+    ? error.details
+    : {};
+  error.details = {
+    ...existing,
+    phase: existing.phase || details.phase || "ingest",
+    step: existing.step || details.step || "download_source",
+    substep: existing.substep || details.substep || "youtube_downloader",
+    elapsedMs: Number.isFinite(Number(existing.elapsedMs)) ? Number(existing.elapsedMs) : details.elapsedMs,
+    metadataPreflightStatus: details.metadataPreflightStatus || existing.metadataPreflightStatus,
+    metadataPreflightDurationSeconds: Number.isFinite(Number(details.metadataPreflightDurationSeconds))
+      ? Number(details.metadataPreflightDurationSeconds)
+      : existing.metadataPreflightDurationSeconds,
+    downloadedOutputReady: details.downloadedOutputReady === true || existing.downloadedOutputReady === true,
+    partialCleanupSucceeded: typeof existing.partialCleanupSucceeded === "boolean"
+      ? existing.partialCleanupSucceeded
+      : details.partialCleanupSucceeded,
+    partialCleanupRemovedCount: Number.isFinite(Number(existing.partialCleanupRemovedCount))
+      ? Number(existing.partialCleanupRemovedCount)
+      : details.partialCleanupRemovedCount,
+    cleanupSucceeded: details.cleanupSucceeded,
+  };
+  return error;
 }
 
 function createDefaultDependencies(overrides = {}) {
@@ -158,6 +194,28 @@ function createYouTubeIngestService(options = {}) {
     const projectId = `prj_${randomUUID()}`;
     const { stageDir, outputPath } = createYouTubeStagePaths(uploadId);
     mkdirSync(stageDir, { recursive: true });
+    const ingestStartedAt = Date.now();
+    let activeStep = "metadata_preflight";
+    let activeSubstep = "source_metadata";
+    let stageCleaned = false;
+    logInfo(deps.logger, {
+      event: "youtube_ingest_step",
+      requestId,
+      sourceType: "youtube",
+      videoId: source.videoId,
+      uploadId,
+      projectId,
+      step: "metadata_preflight",
+      metadataStatus: source.metadataStatus || null,
+      durationSeconds: source.durationSeconds === null || source.durationSeconds === undefined
+        ? null
+        : Number.isFinite(Number(source.durationSeconds))
+          ? Number(source.durationSeconds)
+          : null,
+      ingestRisk: source.ingestRisk || null,
+    });
+    activeStep = "download_staging";
+    activeSubstep = "youtube_downloader";
     logInfo(deps.logger, {
       event: "youtube_ingest_step",
       requestId,
@@ -170,6 +228,8 @@ function createYouTubeIngestService(options = {}) {
 
     try {
       const downloadResult = await adapter.ingest(source, { outputPath, signal: input.signal });
+      activeStep = "download_validate_signature";
+      activeSubstep = "file_signature";
       const downloaded = assertDownloadedFile(outputPath, deps);
       logInfo(deps.logger, {
         event: "youtube_ingest_step",
@@ -180,7 +240,14 @@ function createYouTubeIngestService(options = {}) {
         projectId,
         step: "download_validated",
         attempts: Number.isFinite(Number(downloadResult?.attempts)) ? Number(downloadResult.attempts) : null,
+        attemptsConfigured: Number.isFinite(Number(downloadResult?.attemptsConfigured))
+          ? Number(downloadResult.attemptsConfigured)
+          : null,
         timeoutMs: Number.isFinite(Number(downloadResult?.timeoutMs)) ? Number(downloadResult.timeoutMs) : null,
+        formatSelector: typeof downloadResult?.formatSelector === "string" ? downloadResult.formatSelector : null,
+        fallbackFormatSelector: typeof downloadResult?.fallbackFormatSelector === "string"
+          ? downloadResult.fallbackFormatSelector
+          : null,
         fallbackUsed: downloadResult?.fallbackUsed === true,
       });
       const validated = deps.validateUploadCandidate({
@@ -189,8 +256,12 @@ function createYouTubeIngestService(options = {}) {
         size: downloaded.size,
         buffer: downloaded.header,
       });
+      activeStep = "ffprobe_validate";
+      activeSubstep = "media_probe";
       const metadata = await deps.probeMedia(downloaded.safePath);
       const checksumSha256 = deps.sha256(downloaded.safePath);
+      activeStep = "artifact_commit";
+      activeSubstep = "stream_upload_artifact";
       const uploadArtifact = await deps.artifactStore.streamLocalPathToArtifact(downloaded.safePath, {
         id: uploadId,
         type: "upload",
@@ -250,6 +321,17 @@ function createYouTubeIngestService(options = {}) {
         source: publicSourceSummary(source, metadata),
       };
     } catch (error) {
+      const cleanup = cleanupYouTubeStage(stageDir);
+      stageCleaned = true;
+      attachIngestFailureDetails(error, {
+        phase: "ingest",
+        step: activeStep,
+        substep: activeSubstep,
+        elapsedMs: Date.now() - ingestStartedAt,
+        metadataPreflightStatus: source.metadataStatus || null,
+        metadataPreflightDurationSeconds: source.durationSeconds || null,
+        cleanupSucceeded: cleanup.cleaned === true,
+      });
       logError(deps.logger, {
         event: "youtube_ingest_failed",
         requestId,
@@ -257,13 +339,14 @@ function createYouTubeIngestService(options = {}) {
         videoId: source.videoId,
         uploadId,
         projectId,
-        step: "download_staging",
+        step: activeStep,
+        substep: activeSubstep,
         code: error && error.code ? error.code : "UNEXPECTED",
         ...safeDownloaderFailureDetails(error),
       });
       throw error;
     } finally {
-      cleanupYouTubeStage(stageDir);
+      if (!stageCleaned) cleanupYouTubeStage(stageDir);
     }
   }
 

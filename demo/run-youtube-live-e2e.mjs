@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { findSensitiveLeak, safeError as safeReportError } from "./report-safety.mjs";
 import {
   RESULTS_DIR,
+  computedIngestRequestTimeoutMs,
   runYouTubeSmoke,
   safeDownloadArtifactRef,
   validateSmokeSource,
@@ -1267,6 +1268,34 @@ function evidenceRecoveryNextAction(discovery = null, scoreboardOcr = null, smok
   return "connect-stable-score-changes-to-live-action-windows-before-render";
 }
 
+function ingestDiagnosticsFromFailure(failure = null) {
+  if (!failure || failure.phase !== "ingest") return null;
+  return {
+    phase: "ingest",
+    step: failure.step ? safeString(failure.step, 80) : null,
+    substep: failure.substep ? safeString(failure.substep, 80) : null,
+    code: failure.code ? safeString(failure.code, 80) : null,
+    elapsedMs: safeNumber(failure.elapsedMs),
+    timeoutMs: safeNumber(failure.timeoutMs),
+    attempts: safeNumber(failure.attempts),
+    attemptsConfigured: safeNumber(failure.attemptsConfigured),
+    retryable: safeBoolean(failure.retryable),
+    authorizedImportRequired: safeBoolean(failure.authorizedImportRequired),
+    fallbackUsed: safeBoolean(failure.fallbackUsed),
+    formatSelector: failure.formatSelector ? safeString(failure.formatSelector, 180) : null,
+    fallbackFormatSelector: failure.fallbackFormatSelector ? safeString(failure.fallbackFormatSelector, 180) : null,
+    playerClient: failure.playerClient ? safeString(failure.playerClient, 40) : null,
+    metadataPreflightStatus: failure.metadataPreflightStatus ? safeString(failure.metadataPreflightStatus, 80) : null,
+    metadataPreflightDurationSeconds: safeNumber(failure.metadataPreflightDurationSeconds),
+    cleanupSucceeded: safeBoolean(failure.cleanupSucceeded),
+    partialCleanupSucceeded: safeBoolean(failure.partialCleanupSucceeded),
+    partialCleanupRemovedCount: safeNumber(failure.partialCleanupRemovedCount),
+    downloadedOutputReady: safeBoolean(failure.downloadedOutputReady),
+    outputMp4Created: false,
+    nextAction: failure.nextAction ? safeString(failure.nextAction, 180) : null,
+  };
+}
+
 function latestVideoOutputQAFromSmoke(smoke) {
   if (!smoke || typeof smoke !== "object") return null;
   const lifecycle = Array.isArray(smoke.jobLifecycle) ? smoke.jobLifecycle : [];
@@ -1400,6 +1429,7 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
         .slice(0, 12)
       : [];
   const nextAction = evidenceRecoveryNextAction(discovery, scoreboardOcr, smokeFailure);
+  const ingestDiagnostics = ingestDiagnosticsFromFailure(smokeFailure);
   return {
     schemaVersion: LIVE_PROOF_SCHEMA_VERSION,
     generatedAt: nowIso(),
@@ -1420,6 +1450,7 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
     coveredGoalCount,
     missingGoalNumbers: Array.isArray(outputQA?.missingGoalNumbers) ? outputQA.missingGoalNumbers : [],
     failedReasons: Array.isArray(outputQA?.failedReasons) ? outputQA.failedReasons : [],
+    ingest: ingestDiagnostics,
     scoreboardOcrAttempted,
     scoreboardOcrEnabled,
     scoreboardOcrProviderMode,
@@ -1862,6 +1893,7 @@ function liveServerEnvironment({ port, dataDir, env = {} } = {}) {
     MATCHCUTS_DATA_DIR: dataDir,
     PORT: String(port),
     SHORTSENGINE_YOUTUBE_INGEST_ENABLED: "1",
+    SHORTSENGINE_YOUTUBE_SMOKE_REQUEST_TIMEOUT_MS: String(computedIngestRequestTimeoutMs(env)),
     MATCHCUTS_TRANSCRIPTION_PROVIDER: "mock",
   };
 }

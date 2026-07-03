@@ -12,7 +12,12 @@ import {
   runYouTubeLiveE2E,
   writeYouTubeLiveE2EReport,
 } from "../demo/run-youtube-live-e2e.mjs";
-import { runYouTubeSmoke, safeDownloadArtifactRef, writeYouTubeSmokeReport } from "../demo/run-youtube-smoke.mjs";
+import {
+  computedIngestRequestTimeoutMs,
+  runYouTubeSmoke,
+  safeDownloadArtifactRef,
+  writeYouTubeSmokeReport,
+} from "../demo/run-youtube-smoke.mjs";
 import {
   YouTubeDoctorError,
   checkYouTubeIngest,
@@ -387,6 +392,17 @@ test("youtube smoke validates bounded per-request timeout before network work", 
   assert.equal(findSensitiveLeak(report), null);
 });
 
+test("youtube smoke defaults ingest request timeout to cover bounded downloader retries", () => {
+  assert.equal(computedIngestRequestTimeoutMs({}), 270000);
+  assert.equal(computedIngestRequestTimeoutMs({
+    SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS: "60000",
+    SHORTSENGINE_YOUTUBE_DOWNLOAD_ATTEMPTS: "3",
+  }), 210000);
+  assert.equal(computedIngestRequestTimeoutMs({
+    SHORTSENGINE_YOUTUBE_SMOKE_REQUEST_TIMEOUT_MS: "1000",
+  }), "1000");
+});
+
 test("youtube smoke request timeout reports exact ingest phase and step", async () => {
   const { fetchImpl } = createFetchMock({
     "POST /api/youtube/ingest": ({ options }) => new Promise((resolve, reject) => {
@@ -423,10 +439,17 @@ test("youtube smoke ingest API failures report downloader phase details", async 
         retryable: true,
         attempts: 2,
         attemptsConfigured: 2,
+        elapsedMs: 245000,
         timeoutMs: 120000,
         formatSelector: "best[ext=mp4]/best",
         fallbackFormatSelector: "best[ext=mp4]/best",
         fallbackUsed: true,
+        metadataPreflightStatus: "local",
+        metadataPreflightDurationSeconds: 540,
+        partialCleanupSucceeded: true,
+        partialCleanupRemovedCount: 2,
+        cleanupSucceeded: true,
+        downloadedOutputReady: false,
       },
     }, 502, "req_ingest_failed"),
   });
@@ -439,9 +462,16 @@ test("youtube smoke ingest API failures report downloader phase details", async 
   assert.equal(report.failedCases[0].substep, "youtube_downloader");
   assert.equal(report.failedCases[0].attempts, 2);
   assert.equal(report.failedCases[0].attemptsConfigured, 2);
+  assert.equal(report.failedCases[0].elapsedMs, 245000);
   assert.equal(report.failedCases[0].retryable, true);
   assert.equal(report.failedCases[0].fallbackUsed, true);
   assert.equal(report.failedCases[0].formatSelector, "best[ext=mp4]/best");
+  assert.equal(report.failedCases[0].metadataPreflightStatus, "local");
+  assert.equal(report.failedCases[0].metadataPreflightDurationSeconds, 540);
+  assert.equal(report.failedCases[0].partialCleanupSucceeded, true);
+  assert.equal(report.failedCases[0].partialCleanupRemovedCount, 2);
+  assert.equal(report.failedCases[0].cleanupSucceeded, true);
+  assert.equal(report.failedCases[0].downloadedOutputReady, false);
   assert.equal(report.steps.at(-1).phase, "ingest");
   assert.equal(report.steps.at(-1).activeStep, "download_source");
   assert.equal(report.steps.at(-1).substep, "youtube_downloader");
@@ -1090,6 +1120,7 @@ test("youtube live server env enables local scoreboard OCR only with explicit op
   assert.equal(defaultEnv.SHORTSENGINE_SCOREBOARD_OCR_QA_ARTIFACTS, undefined);
   assert.equal(defaultEnv.MATCHCUTS_TRANSCRIPTION_PROVIDER, "mock");
   assert.equal(defaultEnv.SHORTSENGINE_YOUTUBE_INGEST_ENABLED, "1");
+  assert.equal(defaultEnv.SHORTSENGINE_YOUTUBE_SMOKE_REQUEST_TIMEOUT_MS, "270000");
 
   const ocrEnv = liveServerEnvironment({
     port: 4176,
@@ -2623,6 +2654,16 @@ test("youtube live failed output proof preserves pre-render download failure act
         phase: "ingest",
         step: "download_source",
         substep: "youtube_downloader",
+        attempts: 2,
+        attemptsConfigured: 2,
+        timeoutMs: 120000,
+        fallbackUsed: true,
+        metadataPreflightStatus: "local",
+        metadataPreflightDurationSeconds: 540,
+        cleanupSucceeded: true,
+        partialCleanupSucceeded: true,
+        partialCleanupRemovedCount: 2,
+        downloadedOutputReady: false,
       }],
     }),
   });
@@ -2632,6 +2673,16 @@ test("youtube live failed output proof preserves pre-render download failure act
   assert.equal(report.outputProof.phase, "ingest");
   assert.equal(report.outputProof.step, "download_source");
   assert.equal(report.outputProof.substep, "youtube_downloader");
+  assert.equal(report.outputProof.ingest.attempts, 2);
+  assert.equal(report.outputProof.ingest.attemptsConfigured, 2);
+  assert.equal(report.outputProof.ingest.fallbackUsed, true);
+  assert.equal(report.outputProof.ingest.metadataPreflightStatus, "local");
+  assert.equal(report.outputProof.ingest.metadataPreflightDurationSeconds, 540);
+  assert.equal(report.outputProof.ingest.cleanupSucceeded, true);
+  assert.equal(report.outputProof.ingest.partialCleanupSucceeded, true);
+  assert.equal(report.outputProof.ingest.partialCleanupRemovedCount, 2);
+  assert.equal(report.outputProof.ingest.downloadedOutputReady, false);
+  assert.equal(report.outputProof.ingest.outputMp4Created, false);
   assert.equal(report.failedCases[0].step, "download_source");
   assert.equal(report.failedCases[0].substep, "youtube_downloader");
   assert.equal(report.outputProof.outputMp4, null);

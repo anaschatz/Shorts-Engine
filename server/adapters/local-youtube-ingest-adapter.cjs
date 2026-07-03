@@ -1,6 +1,6 @@
 const { execFile, spawnSync } = require("node:child_process");
-const { rmSync, statSync } = require("node:fs");
-const { basename } = require("node:path");
+const { existsSync, readdirSync, rmSync, statSync } = require("node:fs");
+const { basename, dirname, join } = require("node:path");
 const { CONFIG } = require("../config.cjs");
 const { AppError, SAFE_MESSAGES } = require("../errors.cjs");
 const { assertStoragePath } = require("../storage.cjs");
@@ -151,12 +151,38 @@ function delay(ms) {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, safeMs));
 }
 
-function removePartialOutput(outputPath) {
+function removePartialOutputs(outputPath) {
+  const safePath = validateDownloaderOutputPath(outputPath);
+  const stageDir = dirname(safePath);
+  const safeBaseName = basename(safePath);
+  let removedCount = 0;
+  const removeCandidate = (candidatePath) => {
+    try {
+      assertStoragePath(candidatePath, "staging");
+      if (!existsSync(candidatePath)) return;
+      rmSync(candidatePath, { force: true });
+      removedCount += 1;
+    } catch {
+      // Best effort only. The validation boundary still rejects stale or invalid output.
+    }
+  };
+  removeCandidate(safePath);
   try {
-    rmSync(validateDownloaderOutputPath(outputPath), { force: true });
+    for (const entry of readdirSync(stageDir)) {
+      if (
+        entry === safeBaseName ||
+        entry.startsWith("source.") ||
+        entry.endsWith(".part") ||
+        entry.endsWith(".tmp") ||
+        entry.endsWith(".ytdl")
+      ) {
+        removeCandidate(join(stageDir, entry));
+      }
+    }
   } catch {
     // Best effort only. The validation boundary still rejects stale or invalid output.
   }
+  return { cleaned: true, removedCount };
 }
 
 function buildDownloadAttempts(config = {}) {
@@ -177,6 +203,10 @@ function attachDownloaderDetails(error, details = {}) {
   if (!error || typeof error !== "object") return error;
   error.details = {
     ...(error.details || {}),
+    phase: details.phase || "ingest",
+    step: details.step || "download_source",
+    substep: details.substep || "youtube_downloader",
+    elapsedMs: details.elapsedMs,
     attempts: details.attempts,
     attemptsConfigured: details.attemptsConfigured,
     timeoutMs: details.timeoutMs,
@@ -184,6 +214,8 @@ function attachDownloaderDetails(error, details = {}) {
     fallbackFormatSelector: details.fallbackFormatSelector,
     fallbackUsed: details.fallbackUsed === true,
     playerClient: details.playerClient || "",
+    partialCleanupSucceeded: details.partialCleanupSucceeded !== false,
+    partialCleanupRemovedCount: details.partialCleanupRemovedCount,
   };
   return error;
 }
@@ -300,7 +332,8 @@ function createLocalYouTubeIngestAdapter(options = {}) {
       let lastError = null;
       for (const attempt of attempts) {
         finalAttempt = attempt;
-        removePartialOutput(outputPath);
+        removePartialOutputs(outputPath);
+        const attemptStartedAt = Date.now();
         const args = buildDownloaderArgs(source, outputPath, config, attempt);
         try {
           await execFileSafe(execFileImpl, downloaderBin, args, {
@@ -312,7 +345,12 @@ function createLocalYouTubeIngestAdapter(options = {}) {
           lastError = null;
           break;
         } catch (error) {
+          const cleanup = removePartialOutputs(outputPath);
           const safeError = attachDownloaderDetails(toDownloaderError(error), {
+            phase: "ingest",
+            step: "download_source",
+            substep: "youtube_downloader",
+            elapsedMs: Date.now() - attemptStartedAt,
             attempts: attempt.attempt,
             attemptsConfigured: strategy.attemptsConfigured,
             timeoutMs: strategy.timeoutMs,
@@ -320,8 +358,9 @@ function createLocalYouTubeIngestAdapter(options = {}) {
             fallbackFormatSelector: strategy.fallbackFormatSelector,
             fallbackUsed: attempt.fallbackUsed,
             playerClient: strategy.playerClient || "",
+            partialCleanupSucceeded: cleanup.cleaned === true,
+            partialCleanupRemovedCount: cleanup.removedCount,
           });
-          removePartialOutput(outputPath);
           lastError = safeError;
           if (!shouldRetryDownload(safeError, attempt.attempt < attempts.length)) break;
           await delay(config.retryBackoffMs);
@@ -335,6 +374,10 @@ function createLocalYouTubeIngestAdapter(options = {}) {
         size = statSync(outputPath).size;
       } catch {
         throw new AppError("YOUTUBE_OUTPUT_INVALID", SAFE_MESSAGES.YOUTUBE_OUTPUT_INVALID, 502, {
+          phase: "ingest",
+          step: "download_validate_signature",
+          substep: "downloaded_file_stat",
+          elapsedMs: Date.now() - startedAt,
           retryable: true,
           nextAction: "retry-ingest-or-check-downloader-output-format",
           attempts: finalAttempt.attempt,
@@ -344,6 +387,7 @@ function createLocalYouTubeIngestAdapter(options = {}) {
           fallbackFormatSelector: strategy.fallbackFormatSelector,
           fallbackUsed: finalAttempt.fallbackUsed,
           playerClient: strategy.playerClient || "",
+          partialCleanupSucceeded: true,
         });
       }
       return {
@@ -354,6 +398,9 @@ function createLocalYouTubeIngestAdapter(options = {}) {
         formatSelector: finalAttempt.formatSelector,
         fallbackUsed: finalAttempt.fallbackUsed,
         timeoutMs: strategy.timeoutMs,
+        attemptsConfigured: strategy.attemptsConfigured,
+        fallbackFormatSelector: strategy.fallbackFormatSelector,
+        playerClient: strategy.playerClient || "",
       };
     },
     buildDownloaderArgs,
