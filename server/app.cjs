@@ -25,6 +25,7 @@ const { visionHealth } = require("./vision.cjs");
 const { validateUploadCandidate, probeMedia, toolHealth, sha256, sanitizeText } = require("./media.cjs");
 const { HOOKS, RENDER_STYLE_PRESETS, normalizeStylePreset } = require("./edit-plan.cjs");
 const { transcriptionHealth } = require("./transcription.cjs");
+const { trackingProviderHealth } = require("./tracking-provider.cjs");
 const { JobStore, idempotencyKey } = require("./jobs.cjs");
 const { normalizeSmokeSource } = require("./staging-smoke-metadata.cjs");
 const { createReleaseReadiness } = require("./release-readiness.cjs");
@@ -509,6 +510,7 @@ async function handleHealth(req, res, rid) {
   const analysis = analysisHealth();
   const frameExtraction = frameExtractionHealth();
   const vision = visionHealth();
+  const trackingProvider = trackingProviderHealth();
   const scoreboardOcr = scoreboardOcrHealth();
   const goalEvidence = createGoalEvidenceProvider().health();
   const youtubeIngest = publicYouTubeIngestHealth(youtubeIngestAdapter);
@@ -531,6 +533,7 @@ async function handleHealth(req, res, rid) {
     analysis.ready &&
     frameExtraction.ready &&
     vision.ready &&
+    trackingProvider.ready &&
     scoreboardOcr.ready &&
     goalEvidence.ready &&
     youtubeIngest.ready;
@@ -563,6 +566,7 @@ async function handleHealth(req, res, rid) {
     analysis,
     frameExtraction,
     vision,
+    trackingProvider,
     scoreboardOcr,
     goalEvidence,
     youtubeIngest,

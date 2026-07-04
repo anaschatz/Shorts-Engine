@@ -913,6 +913,80 @@ function safeVisualPolishQA(value = {}) {
   };
 }
 
+function safeBox(value = {}) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const x = safeNumber(value.x);
+  const y = safeNumber(value.y);
+  const width = safeNumber(value.width);
+  const height = safeNumber(value.height);
+  if (x === null || y === null || width === null || height === null || width <= 0 || height <= 0) return null;
+  return { x, y, width, height };
+}
+
+function safeTextZone(value = {}) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const x = safeNumber(value.x);
+  const y = safeNumber(value.y);
+  const width = safeNumber(value.width);
+  const height = safeNumber(value.height);
+  if (x === null || y === null || width === null || height === null) return null;
+  return {
+    name: safeString(value.name || "text_zone", 60) || "text_zone",
+    x,
+    y,
+    width,
+    height,
+  };
+}
+
+function safeCropPlan(value = {}) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    mode: safeString(value.mode || value.cropMode, 50) || null,
+    cropMode: safeString(value.cropMode || value.mode, 50) || null,
+    targetAspectRatio: safeString(value.targetAspectRatio || "9:16", 20) || "9:16",
+    safeArea: safeBox(value.safeArea),
+    cropBox: safeBox(value.cropBox),
+    confidence: safeNumber(value.confidence),
+    trackingConfidence: safeNumber(value.trackingConfidence || value.confidence),
+    actionCenterX: safeNumber(value.actionCenterX),
+    actionCenterY: safeNumber(value.actionCenterY),
+    maxPanSpeed: safeNumber(value.maxPanSpeed),
+    safeMargins: value.safeMargins && typeof value.safeMargins === "object"
+      ? {
+          left: safeNumber(value.safeMargins.left),
+          top: safeNumber(value.safeMargins.top),
+          right: safeNumber(value.safeMargins.right),
+          bottom: safeNumber(value.safeMargins.bottom),
+        }
+      : null,
+    reasonCodes: safeList(value.reasonCodes, 8, 80),
+    textSafeZones: Array.isArray(value.textSafeZones) ? value.textSafeZones.map(safeTextZone).filter(Boolean).slice(0, 4) : [],
+    actionSafeZones: Array.isArray(value.actionSafeZones) ? value.actionSafeZones.map(safeBox).filter(Boolean).slice(0, 4) : [],
+    fallbackUsed: Boolean(value.fallbackUsed),
+    textObstructionRisk: Boolean(value.textObstructionRisk),
+  };
+}
+
+function safeVisualTrackingSummary(value = {}) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    frameCount: safeNumber(value.frameCount),
+    trackingProviderMode: safeString(value.trackingProviderMode || value.providerMode, 80) || null,
+    trackingProviderFailureCode: safeString(value.trackingProviderFailureCode, 80) || null,
+    ballCandidateConfidence: safeNumber(value.ballCandidateConfidence),
+    playerClusterConfidence: safeNumber(value.playerClusterConfidence),
+    cameraMotionLevel: safeNumber(value.cameraMotionLevel),
+    trackingConfidence: safeNumber(value.trackingConfidence),
+    recommendedFramingMode: safeString(value.recommendedFramingMode, 50) || null,
+    cropSafetyReason: safeString(value.cropSafetyReason, 100) || null,
+    fallbackUsed: Boolean(value.fallbackUsed),
+    ballTrackCount: safeNumber(value.ballTrackCount),
+    playerClusterCount: safeNumber(value.playerClusterCount),
+    goalClaimAllowed: false,
+  };
+}
+
 function safeRenderPlan(job) {
   const plan = job?.editPlan && typeof job.editPlan === "object" ? job.editPlan : null;
   if (!plan) return null;
@@ -929,6 +1003,8 @@ function safeRenderPlan(job) {
     videoOutputQA: safeVideoOutputQA(job.videoOutputQA || plan.videoOutputQA),
     visualPolishQA: safeVisualPolishQA(plan.visualPolishQA),
     renderPolishQA: safeRenderPolishQA(plan.renderPolishQA),
+    visualTrackingSummary: safeVisualTrackingSummary(plan.visualTrackingSummary),
+    cropPlan: safeCropPlan(plan.cropPlan),
   };
 }
 

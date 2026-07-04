@@ -134,6 +134,42 @@ function renderPlan(overrides = {}) {
       referencePacingScore: 1,
       visualPolishScore: 98,
     },
+    visualTrackingSummary: {
+      frameCount: 3,
+      sampledTimestamps: [14.2, 18.6, 21.4],
+      detectedMotionRegions: [],
+      estimatedActionCenter: { x: 960, y: 520 },
+      estimatedActionBounds: { x: 700, y: 250, width: 420, height: 420 },
+      ballCandidateConfidence: 0.89,
+      playerClusterConfidence: 0.86,
+      cameraMotionLevel: 0.08,
+      trackingConfidence: 0.91,
+      recommendedFramingMode: "soft_follow",
+      cropSafetyReason: "soft_follow_provider_ball_player_action",
+      fallbackUsed: false,
+      trackingProviderMode: "opencv-object-tracking",
+      ballTrackCount: 2,
+      playerClusterCount: 2,
+      goalClaimAllowed: false,
+    },
+    cropPlan: {
+      mode: "soft_follow",
+      cropMode: "soft_follow",
+      targetAspectRatio: "9:16",
+      safeArea: { x: 650, y: 65, width: 530, height: 950 },
+      cropBox: { x: 612, y: 0, width: 608, height: 1080 },
+      confidence: 0.91,
+      trackingConfidence: 0.91,
+      actionCenterX: 960,
+      actionCenterY: 520,
+      maxPanSpeed: 0.18,
+      safeMargins: { left: 40, top: 65, right: 38, bottom: 65 },
+      reasonCodes: ["soft_follow_stable_action_bounds"],
+      textSafeZones: [{ name: "bottom_caption", x: 0.08, y: 0.74, width: 0.84, height: 0.18 }],
+      actionSafeZones: [{ x: 700, y: 250, width: 420, height: 420 }],
+      fallbackUsed: false,
+      textObstructionRisk: false,
+    },
     videoOutputQA: videoOutputQA(),
     ...overrides,
   };
@@ -167,6 +203,9 @@ test("rendered social polish proof passes for fresh MP4 with hook and dynamic ca
   assert.equal(report.renderedHook.passed, true);
   assert.equal(report.dynamicCaptions.dynamicWordCaptionCount, 2);
   assert.equal(report.dynamicCaptions.activeWordHighlightRendered, true);
+  assert.equal(report.renderedActionFraming.passed, true);
+  assert.equal(report.renderedActionFraming.trackingProviderMode, "opencv-object-tracking");
+  assert.equal(report.renderedActionFraming.goalClaimAllowed, false);
   assert.equal(report.rightsSafeStyle.passed, true);
   assert.equal(report.logsDownloaded, false);
   assert.equal(report.artifactsDownloaded, false);
@@ -238,6 +277,81 @@ test("rendered social polish proof rejects non-goal filler in final segments", (
   });
   assert.equal(report.passed, false);
   assert.match(report.failedReasons.join(","), /non_goal_segments_present/);
+});
+
+test("rendered social polish proof fails unsafe soft-follow framing", () => {
+  const report = baseProof({
+    renderPlan: {
+      visualTrackingSummary: {
+        trackingProviderMode: "opencv-object-tracking",
+        ballCandidateConfidence: 0.4,
+        playerClusterConfidence: 0.4,
+        trackingConfidence: 0.93,
+        fallbackUsed: false,
+        ballTrackCount: 0,
+        playerClusterCount: 0,
+        goalClaimAllowed: false,
+      },
+      cropPlan: {
+        mode: "soft_follow",
+        cropMode: "soft_follow",
+        targetAspectRatio: "9:16",
+        safeArea: { x: 100, y: 100, width: 400, height: 700 },
+        cropBox: { x: 100, y: 100, width: 400, height: 700 },
+        confidence: 0.93,
+        trackingConfidence: 0.93,
+        actionCenterX: 1200,
+        actionCenterY: 500,
+        maxPanSpeed: 0.32,
+        actionSafeZones: [{ x: 1200, y: 220, width: 360, height: 320 }],
+        textSafeZones: [{ name: "bottom_caption", x: 0.08, y: 0.74, width: 0.84, height: 0.18 }],
+        fallbackUsed: false,
+        textObstructionRisk: false,
+      },
+    },
+  });
+
+  assert.equal(report.passed, false);
+  assert.equal(report.renderedActionFraming.passed, false);
+  assert.match(report.failedReasons.join(","), /soft_follow_without_reliable_action_tracking|action_safe_zone_not_contained|abrupt_crop_pan_risk/);
+});
+
+test("rendered social polish proof passes wide-safe fallback when tracking is uncertain", () => {
+  const report = baseProof({
+    renderPlan: {
+      visualTrackingSummary: {
+        trackingProviderMode: "opencv-object-tracking",
+        trackingProviderFailureCode: "OPENCV_TRACKING_LOW_CONFIDENCE",
+        ballCandidateConfidence: 0.2,
+        playerClusterConfidence: 0.42,
+        trackingConfidence: 0.36,
+        fallbackUsed: true,
+        ballTrackCount: 0,
+        playerClusterCount: 0,
+        goalClaimAllowed: false,
+      },
+      cropPlan: {
+        mode: "wide_safe",
+        cropMode: "wide_safe",
+        targetAspectRatio: "9:16",
+        safeArea: { x: 0, y: 0, width: 1920, height: 1080 },
+        cropBox: { x: 0, y: 0, width: 1920, height: 1080 },
+        confidence: 0.36,
+        trackingConfidence: 0.36,
+        actionCenterX: 960,
+        actionCenterY: 540,
+        maxPanSpeed: 0,
+        actionSafeZones: [],
+        textSafeZones: [{ name: "bottom_caption", x: 0.08, y: 0.74, width: 0.84, height: 0.18 }],
+        fallbackUsed: true,
+        textObstructionRisk: false,
+      },
+    },
+  });
+
+  assert.equal(report.passed, true);
+  assert.equal(report.renderedActionFraming.cropMode, "wide_safe");
+  assert.equal(report.renderedActionFraming.fallbackUsed, true);
 });
 
 test("rendered social polish report does not expose sensitive strings", () => {

@@ -1,0 +1,70 @@
+{
+  "id": "opencv_low_confidence_wide_safe_tracking",
+  "title": "Low-confidence OpenCV tracking falls back to wide safe framing",
+  "language": "English",
+  "durationSeconds": 22,
+  "transcript": {
+    "provider": "fixture",
+    "language": "en",
+    "captions": [
+      { "start": 4.0, "end": 5.2, "text": "The camera pans through the crowd noise" },
+      { "start": 10.0, "end": 11.4, "text": "Players reset while the replay fades out" },
+      { "start": 16.0, "end": 17.2, "text": "No clear shot is shown from this angle" }
+    ]
+  },
+  "mediaSignals": {
+    "durationSeconds": 22,
+    "width": 1920,
+    "height": 1080,
+    "hasAudio": true,
+    "audioPeaks": [{ "time": 5.0, "score": 0.72, "source": "fixture" }],
+    "sceneChanges": [{ "time": 10.4, "confidence": 0.65, "source": "fixture" }],
+    "highMotionCandidates": []
+  },
+  "visualSignals": {
+    "providerMode": "fixture-visual",
+    "fallbackUsed": false,
+    "confidence": 0.58,
+    "windows": [
+      {
+        "start": 4.2,
+        "end": 8.8,
+        "types": ["crowd_reaction", "replay_indicator", "camera_pan"],
+        "confidence": 0.58,
+        "source": "fixture"
+      }
+    ]
+  },
+  "trackingProviderOutput": {
+    "providerMode": "opencv-object-tracking",
+    "fallbackUsed": true,
+    "frameCount": 4,
+    "ballTracks": [],
+    "playerClusters": [],
+    "actionBounds": null,
+    "actionCenter": null,
+    "cameraMotionLevel": 0.72,
+    "confidence": 0,
+    "reasonCodes": ["tracking_action_uncertain"],
+    "failure": {
+      "code": "OPENCV_TRACKING_LOW_CONFIDENCE",
+      "phase": "opencv_tracking",
+      "retryable": false
+    },
+    "goalClaimAllowed": false
+  },
+  "expected": {
+    "highlights": [{ "start": 10.0, "end": 22.0 }],
+    "reasonCodes": ["shot_on_target", "replay_worthy_moment"],
+    "highlightType": "shot_on_target",
+    "cropMode": "wide_safe",
+    "stylePreset": "social_sports_v1"
+  },
+  "thresholds": {
+    "minAggregateScore": 68,
+    "minTop1Overlap": 0.4,
+    "minTop3Recall": 1,
+    "minReasonPrecision": 0.4,
+    "minRetentionScore": 30
+  }
+}

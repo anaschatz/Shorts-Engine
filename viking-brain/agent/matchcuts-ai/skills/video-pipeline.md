@@ -35,6 +35,7 @@ AI curation:
 Action-aware framing:
 
 - Tracking/crop decisions belong behind `server/tracking-provider.cjs` and `server/visual-tracking.cjs`.
+- Optional OpenCV/object-tracking runtime must stay opt-in and health-visible; default local/demo behavior uses deterministic safe tracking.
 - Allow `soft_follow` only with reliable ball/player/action evidence, contained action bounds and no caption obstruction risk.
 - Low-confidence, camera-motion-heavy or obstructed action should fall back to wide-safe framing.
 - Crop plans should expose action center, crop mode, tracking confidence, safe margins and max pan speed for QA.

@@ -307,6 +307,121 @@ function rightsSafeStyleSummary(renderPlan = {}, videoOutputQA = null) {
   };
 }
 
+function actionZonesContained(cropPlan = {}) {
+  const safeArea = valueObject(cropPlan.safeArea);
+  const cropBox = valueObject(cropPlan.cropBox);
+  const zones = Array.isArray(cropPlan.actionSafeZones) ? cropPlan.actionSafeZones : [];
+  if (!zones.length) return true;
+  return zones.every((zone) => {
+    const safeZone = valueObject(zone);
+    return (
+      numberOrNull(safeZone.x) != null &&
+      numberOrNull(safeZone.y) != null &&
+      numberOrNull(safeZone.width) != null &&
+      numberOrNull(safeZone.height) != null &&
+      safeZone.x >= safeArea.x - 1 &&
+      safeZone.y >= safeArea.y - 1 &&
+      safeZone.x + safeZone.width <= safeArea.x + safeArea.width + 1 &&
+      safeZone.y + safeZone.height <= safeArea.y + safeArea.height + 1 &&
+      safeZone.x >= cropBox.x - 1 &&
+      safeZone.y >= cropBox.y - 1 &&
+      safeZone.x + safeZone.width <= cropBox.x + cropBox.width + 1 &&
+      safeZone.y + safeZone.height <= cropBox.y + cropBox.height + 1
+    );
+  });
+}
+
+function renderedActionFramingSummary(renderPlan = {}, outputMp4 = null) {
+  const cropPlan = valueObject(renderPlan.cropPlan);
+  const visualTracking = valueObject(renderPlan.visualTrackingSummary);
+  const visual = nestedReferenceStyleQA(renderPlan);
+  const cropMode = safeString(cropPlan.cropMode || cropPlan.mode, 50);
+  const trackingProviderMode = safeString(
+    visualTracking.trackingProviderMode || cropPlan.trackingProviderMode || "unknown",
+    80,
+  );
+  const trackingConfidence = numberOrNull(cropPlan.trackingConfidence) ?? numberOrNull(cropPlan.confidence) ?? numberOrNull(visualTracking.trackingConfidence);
+  const ballConfidence = numberOrNull(visualTracking.ballCandidateConfidence);
+  const playerConfidence = numberOrNull(visualTracking.playerClusterConfidence);
+  const ballTrackCount = numberOrNull(visualTracking.ballTrackCount) ?? 0;
+  const playerClusterCount = numberOrNull(visualTracking.playerClusterCount) ?? 0;
+  const actionSafeZoneCount = Array.isArray(cropPlan.actionSafeZones) ? cropPlan.actionSafeZones.length : 0;
+  const safeZoneCoverage = actionZonesContained(cropPlan) ? 1 : 0;
+  const fallbackUsed = Boolean(cropPlan.fallbackUsed || visualTracking.fallbackUsed);
+  const maxPanSpeed = numberOrNull(cropPlan.maxPanSpeed) ?? 0;
+  const textObstructionRisk = Boolean(cropPlan.textObstructionRisk);
+  const abruptCropPanRisk = Boolean(maxPanSpeed > 0.22 || numberOrNull(visual.abruptCutRiskCount) > 0);
+  const softFollow = cropMode === "soft_follow";
+  const safeFallbackMode = ["wide_safe", "locked_wide", "center_safe"].includes(cropMode);
+  const reliableSoftFollow = Boolean(
+    softFollow &&
+    fallbackUsed === false &&
+    trackingConfidence != null &&
+    trackingConfidence >= 0.86 &&
+    (ballConfidence == null || ballConfidence >= 0.65) &&
+    (playerConfidence == null || playerConfidence >= 0.55) &&
+    ballTrackCount > 0 &&
+    playerClusterCount > 0 &&
+    actionSafeZoneCount > 0 &&
+    safeZoneCoverage === 1 &&
+    !textObstructionRisk &&
+    !abruptCropPanRisk
+  );
+  const safeFallback = Boolean(
+    !softFollow &&
+    safeFallbackMode &&
+    fallbackUsed === true &&
+    (trackingConfidence == null || trackingConfidence <= 0.95) &&
+    safeZoneCoverage === 1 &&
+    !textObstructionRisk &&
+    !abruptCropPanRisk
+  );
+  const reasons = uniqueReasons([
+    ...(!cropMode ? ["crop_plan_missing"] : []),
+    ...(cropMode && !softFollow && !safeFallbackMode ? ["crop_mode_unsafe"] : []),
+    ...(softFollow && !reliableSoftFollow ? ["soft_follow_without_reliable_action_tracking"] : []),
+    ...(!softFollow && safeFallbackMode && !safeFallback ? ["safe_fallback_contract_failed"] : []),
+    ...(safeZoneCoverage !== 1 ? ["action_safe_zone_not_contained"] : []),
+    ...(textObstructionRisk ? ["caption_text_obstruction_risk"] : []),
+    ...(abruptCropPanRisk ? ["abrupt_crop_pan_risk"] : []),
+  ]);
+  const segments = Array.isArray(renderPlan.segments) ? renderPlan.segments : [];
+  return {
+    passed: reasons.length === 0,
+    outputRelativePath: safeRelativeMp4(outputMp4 && outputMp4.relativePath),
+    cropMode,
+    trackingProviderMode,
+    trackingConfidence: trackingConfidence == null ? null : round(trackingConfidence, 2),
+    fallbackUsed,
+    ballPlayerVisibilityScore: ballConfidence == null && playerConfidence == null
+      ? null
+      : round(((ballConfidence || 0) + (playerConfidence || 0)) / 2, 2),
+    ballCandidateConfidence: ballConfidence == null ? null : round(ballConfidence, 2),
+    playerClusterConfidence: playerConfidence == null ? null : round(playerConfidence, 2),
+    ballTrackCount,
+    playerClusterCount,
+    actionSafeZoneCoverage: safeZoneCoverage,
+    actionSafeZoneCount,
+    textObstructionRisk,
+    abruptCropPanRisk,
+    maxPanSpeed: round(maxPanSpeed, 2),
+    actionCenterPerSegment: segments.slice(0, MAX_ITEMS).map((segment, index) => {
+      const segmentCrop = valueObject(segment && segment.cropPlan);
+      return {
+        index: index + 1,
+        goalNumber: numberOrNull(segment && segment.goalNumber),
+        sourceStart: round(segment && segment.sourceStart),
+        sourceEnd: round(segment && segment.sourceEnd),
+        cropMode: safeString(segmentCrop.mode || cropMode, 50),
+        actionCenterX: numberOrNull(segmentCrop.actionCenterX) ?? numberOrNull(cropPlan.actionCenterX),
+        actionCenterY: numberOrNull(segmentCrop.actionCenterY) ?? numberOrNull(cropPlan.actionCenterY),
+      };
+    }),
+    goalClaimAllowed: false,
+    reasons,
+  };
+}
+
 function referenceStyleSummary(renderPlan = {}) {
   const visual = nestedReferenceStyleQA(renderPlan);
   return {
@@ -334,6 +449,7 @@ function collectFailedReasons(report) {
     ...report.dynamicCaptions.reasons,
     ...report.smoothEditing.reasons,
     ...report.phaseVisibility.reasons,
+    ...report.renderedActionFraming.reasons,
     ...report.rightsSafeStyle.reasons,
   ]);
 }
@@ -368,6 +484,7 @@ function renderedSocialPolishProof({
     dynamicCaptions: dynamicCaptionSummary(safeRenderPlan, safeVideoQA),
     smoothEditing: transitionSummary(safeRenderPlan),
     phaseVisibility: phaseVisibilitySummary(safeRenderPlan, safeVideoQA),
+    renderedActionFraming: renderedActionFramingSummary(safeRenderPlan, outputMp4),
     rightsSafeStyle: rightsSafeStyleSummary(safeRenderPlan, safeVideoQA),
     referenceStyleComparison: referenceStyleSummary(safeRenderPlan),
     failedReasons: [],
@@ -380,6 +497,7 @@ function renderedSocialPolishProof({
     report.dynamicCaptions,
     report.smoothEditing,
     report.phaseVisibility,
+    report.renderedActionFraming,
     report.rightsSafeStyle,
   ]);
   report.failedReasons = collectFailedReasons(report);

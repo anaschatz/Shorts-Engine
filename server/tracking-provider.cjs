@@ -435,9 +435,17 @@ class ExternalTrackingProviderAdapter extends SafeTrackingProvider {
 }
 
 function createTrackingProvider({ mode, client } = {}) {
-  const safeMode = sanitizeText(mode || "", 60).toLowerCase();
+  const defaultMode = process.env.SHORTSENGINE_TRACKING_PROVIDER || "";
+  const safeMode = sanitizeText(mode || defaultMode || "", 60).toLowerCase();
   if (safeMode === "mock" || safeMode === "mock-tracking-provider") return new MockTrackingProvider();
   if (safeMode === "external" || safeMode === "external-tracking-adapter") return new ExternalTrackingProviderAdapter({ client });
+  if (safeMode === "opencv" || safeMode === "opencv-object-tracking") {
+    const { OpenCvTrackingAdapter } = require("./adapters/opencv-tracking-adapter.cjs");
+    return new OpenCvTrackingAdapter({
+      enabled: true,
+      client,
+    });
+  }
   return new SafeTrackingProvider();
 }
 
@@ -468,6 +476,21 @@ function publicTrackingProviderOutput(output, metadata = {}) {
   };
 }
 
+function trackingProviderHealth(options = {}) {
+  const provider = createTrackingProvider(options);
+  if (!provider || typeof provider.health !== "function") {
+    return {
+      ready: true,
+      mode: "safe-tracking-provider",
+      objectTracking: false,
+      fallbackMode: "safe-tracking-fallback",
+      goalClaimAllowed: false,
+      networkRequired: false,
+    };
+  }
+  return provider.health();
+}
+
 module.exports = {
   ExternalTrackingProviderAdapter,
   MockTrackingProvider,
@@ -477,5 +500,6 @@ module.exports = {
   createTrackingProvider,
   publicTrackingProviderOutput,
   trackingFallback,
+  trackingProviderHealth,
   validateTrackingProviderOutput,
 };

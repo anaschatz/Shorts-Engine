@@ -1,0 +1,70 @@
+{
+  "id": "opencv_right_edge_soft_follow_tracking",
+  "title": "OpenCV-backed action near right edge with reliable tracking",
+  "language": "English",
+  "durationSeconds": 28,
+  "transcript": {
+    "provider": "fixture",
+    "language": "en",
+    "captions": [
+      { "start": 6.0, "end": 7.2, "text": "The winger breaks into space on the far side" },
+      { "start": 13.0, "end": 14.2, "text": "The pass opens the angle for a big chance" },
+      { "start": 19.0, "end": 20.2, "text": "The shot forces a save" }
+    ]
+  },
+  "mediaSignals": {
+    "durationSeconds": 28,
+    "width": 1920,
+    "height": 1080,
+    "hasAudio": true,
+    "audioPeaks": [{ "time": 14.2, "score": 0.74, "source": "fixture" }],
+    "sceneChanges": [],
+    "highMotionCandidates": [{ "time": 13.6, "score": 0.82, "source": "fixture" }]
+  },
+  "visualSignals": {
+    "providerMode": "fixture-visual",
+    "fallbackUsed": false,
+    "confidence": 0.92,
+    "windows": [
+      {
+        "start": 11.0,
+        "end": 16.8,
+        "types": ["fast_break_motion", "ball_visible", "shot_contact", "player_cluster"],
+        "confidence": 0.92,
+        "actionBounds": { "x": 1480, "y": 270, "width": 330, "height": 390 },
+        "source": "fixture"
+      }
+    ]
+  },
+  "trackingProviderOutput": {
+    "providerMode": "opencv-object-tracking",
+    "fallbackUsed": false,
+    "frameCount": 5,
+    "ballTracks": [
+      { "timestamp": 13.4, "label": "ball", "confidence": 0.9, "bounds": { "x": 1640, "y": 440, "width": 36, "height": 36 } }
+    ],
+    "playerClusters": [
+      { "timestamp": 13.4, "label": "player_cluster", "confidence": 0.86, "bounds": { "x": 1480, "y": 300, "width": 330, "height": 350 } }
+    ],
+    "actionBounds": { "x": 1470, "y": 265, "width": 350, "height": 410 },
+    "actionCenter": { "x": 1645, "y": 470 },
+    "cameraMotionLevel": 0.12,
+    "confidence": 0.91,
+    "reasonCodes": ["tracking_ball_visible", "tracking_player_cluster", "tracking_action_bounds"],
+    "goalClaimAllowed": false
+  },
+  "expected": {
+    "highlights": [{ "start": 10.6, "end": 17.2 }],
+    "reasonCodes": ["big_chance", "visual_fast_break", "visual_ball_visible", "visual_shot_contact"],
+    "highlightType": "counter_attack",
+    "stylePreset": "social_sports_v1",
+    "expectedCropMode": "soft_follow"
+  },
+  "thresholds": {
+    "minAggregateScore": 72,
+    "minTop1Overlap": 0.5,
+    "minTop3Recall": 1,
+    "minReasonPrecision": 0.5,
+    "minRetentionScore": 50
+  }
+}

@@ -135,6 +135,19 @@ When `SHORTSENGINE_OCR_QA_ARTIFACTS=1`, OCR smoke writes bounded scoreboard crop
 
 `/health` reports `scoreboardOcr.providerMode`, `localOcrEnabled`, `runtimeAvailable`, `fallbackAvailable` and `networkRequired` without binary paths, local crop paths, raw OCR text, stdout, stderr or secrets.
 
+## Optional Action Tracking
+
+Action-aware framing is deterministic and safe by default. Optional OpenCV tracking can be enabled on an operator machine to provide stronger ball/player/action-center hints, but it is not required for tests, eval, demo or CI. Tracking never confirms goals and cannot override the goal evidence gate.
+
+| Variable | Required | Default | Allowed values | Secret | Staging recommendation | Fail-closed behavior |
+| --- | --- | --- | --- | --- | --- | --- |
+| `SHORTSENGINE_TRACKING_PROVIDER` | No | `safe` | `safe`, `mock`, `external`, `opencv` | No | Keep `safe` unless an operator has installed and verified OpenCV locally. | Unknown values fall back to the safe deterministic provider. |
+| `SHORTSENGINE_OPENCV_TRACKING_ENABLED` | No | `0` | boolean | No | Enable only for manual local proof on a machine with Python/OpenCV installed. | Disabled mode returns deterministic tracking fallback and does not spawn Python. |
+| `SHORTSENGINE_OPENCV_PYTHON_BIN` | No | `python3` | command name or absolute binary path without spaces/shell metacharacters | No | Install/manage Python/OpenCV outside the app; verify manually. | Missing runtime reports safe degraded tracking health and falls back. |
+| `SHORTSENGINE_OPENCV_TRACKING_TIMEOUT_MS` | No | `3500` | integer `250..12000` | No | Keep short; tracking is a hint provider, not a blocking render dependency. | Timeout returns `OPENCV_TRACKING_TIMEOUT` and falls back without raw stdout/stderr. |
+
+`/health` reports `trackingProvider.mode`, `enabled`, `pythonAvailable`, `opencvAvailable`, `objectTracking`, `fallbackMode` and safe failure codes only. It does not expose binary paths, sampled frame paths, stdout/stderr, tokens, cookies, storage keys or raw provider errors. If tracking confidence is low, crop planning must use `wide_safe` or `locked_wide`; `soft_follow` is allowed only with reliable ball/player/action evidence and contained action bounds.
+
 ## Worker/job settings
 
 | Variable | Required | Default | Allowed values | Secret | Staging recommendation | Fail-closed behavior |
