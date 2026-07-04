@@ -20,6 +20,7 @@ import { basename, dirname, extname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { findSensitiveLeak, safeError as safeReportError } from "./report-safety.mjs";
+import { analyzeRenderedVisualFrameQA } from "./rendered-visual-frame-qa.mjs";
 import { probeVideo } from "./run-side-by-side-review.mjs";
 
 const require = createRequire(import.meta.url);
@@ -62,6 +63,7 @@ const NEXT_ACTIONS = Object.freeze({
   LOCAL_VIDEO_PROOF_MP4_SIGNATURE_INVALID: "check-render-output-and-download-contract",
   LOCAL_VIDEO_PROOF_FFPROBE_FAILED: "inspect-rendered-mp4-before-using-it-as-proof",
   LOCAL_VIDEO_PROOF_SOCIAL_POLISH_FAILED: "inspect-rendered-social-polish-qa-and-fix-hook-captions-transitions-before-release",
+  LOCAL_VIDEO_PROOF_VISUAL_QA_FAILED: "inspect-rendered-visual-frame-qa-and-fix-crop-tracking-or-caption-obstruction",
   LOCAL_VIDEO_PROOF_REPORT_LEAK: "remove-sensitive-output-from-local-video-proof-report",
   LOCAL_VIDEO_PROOF_TIMEOUT: "check-local-server-and-render-pipeline-before-rerun",
 });
@@ -1318,7 +1320,20 @@ function discardFailedOutputArtifact(artifact) {
   }
 }
 
-function outputProofFromSuccess({ config, artifact, ffprobe, renderPlan, videoOutputQA, proofDiagnostics = null }) {
+function attachVisualFrameQA(outputProof, visualFrameQA = null) {
+  const qa = visualFrameQA && typeof visualFrameQA === "object" && !Array.isArray(visualFrameQA)
+    ? visualFrameQA
+    : null;
+  return {
+    ...outputProof,
+    visualFrameQA: qa,
+    actionFramingVerdict: outputProof.renderedSocialPolishQA?.renderedActionFraming || null,
+    referenceStyleComparisonSummary: outputProof.renderedSocialPolishQA?.referenceStyleComparison || null,
+    verdict: outputProof.verdict === "passed" && qa?.passed === true ? "passed" : "failed",
+  };
+}
+
+function outputProofFromSuccess({ config, artifact, ffprobe, renderPlan, videoOutputQA, proofDiagnostics = null, visualFrameQA = null }) {
   const diagnostics = proofDiagnostics || proofSegmentDiagnostics(renderPlan);
   const renderedSocialPolishQA = renderedSocialPolishProof({
     outputMp4: artifact
@@ -1335,7 +1350,7 @@ function outputProofFromSuccess({ config, artifact, ffprobe, renderPlan, videoOu
     videoOutputQA,
     generatedAt: nowIso(),
   });
-  return {
+  return attachVisualFrameQA({
     schemaVersion: LOCAL_PROOF_SCHEMA_VERSION,
     generatedAt: nowIso(),
     source: sourcePublicSummary(config.source),
@@ -1381,7 +1396,7 @@ function outputProofFromSuccess({ config, artifact, ffprobe, renderPlan, videoOu
     verdict: videoOutputQA.passed === true && ffprobe?.status === "passed" && renderedSocialPolishQA.passed === true ? "passed" : "failed",
     logsDownloaded: false,
     artifactsDownloaded: false,
-  };
+  }, visualFrameQA);
 }
 
 function latestServerEvent(events = [], key) {
@@ -1453,6 +1468,9 @@ function outputProofFromFailure({ config = null, error = null, job = null, serve
     ].slice(0, 12),
     ...diagnostics,
     outputMp4: null,
+    visualFrameQA: details.visualFrameQA || null,
+    actionFramingVerdict: details.renderedSocialPolishQA?.renderedActionFraming || null,
+    referenceStyleComparisonSummary: details.renderedSocialPolishQA?.referenceStyleComparison || null,
     ffprobe: details.ffprobe || {
       checked: false,
       status: "skipped",
@@ -1606,6 +1624,7 @@ async function runLocalVideoProof(options = {}) {
     fetchDownload: options.fetchDownload || fetchDownload,
     writeOutputArtifact: options.writeOutputArtifact || writeOutputArtifact,
     probeGeneratedMp4: options.probeGeneratedMp4 || probeGeneratedMp4,
+    analyzeVisualFrameQa: options.analyzeVisualFrameQa || analyzeRenderedVisualFrameQA,
     discardFailedOutputArtifact: options.discardFailedOutputArtifact || discardFailedOutputArtifact,
   };
 
@@ -1765,10 +1784,43 @@ async function runLocalVideoProof(options = {}) {
         },
       );
     }
+    const visualFrameQA = deps.analyzeVisualFrameQa({
+      rootDir: ROOT_DIR,
+      outputMp4: outputProof.outputMp4,
+      ffprobe,
+      renderPlan,
+      renderedSocialPolishQA: outputProof.renderedSocialPolishQA,
+    });
+    outputProof = attachVisualFrameQA(outputProof, visualFrameQA);
+    if (visualFrameQA?.passed !== true) {
+      const failedOutputCleanup = deps.discardFailedOutputArtifact(artifact);
+      outputProof = {
+        ...outputProof,
+        outputMp4: null,
+        verdict: "failed",
+      };
+      throw new LocalVideoProofError(
+        "LOCAL_VIDEO_PROOF_VISUAL_QA_FAILED",
+        "Local video proof generated MP4 did not pass visual frame QA.",
+        {
+          phase: PHASES.RENDER,
+          visualFrameQA,
+          renderedSocialPolishQA: outputProof.renderedSocialPolishQA,
+          failedReasons: visualFrameQA?.failedFrameReasons || ["visual_frame_qa_failed"],
+          failedOutputCleanup,
+        },
+      );
+    }
     addStep(steps, "download", "passed", {
       exportId: ids.exportId,
       relativePath: artifact.relativePath,
       sizeBytes: artifact.sizeBytes,
+    });
+    addStep(steps, "visual-frame-qa", "passed", {
+      sampledFrameCount: outputProof.visualFrameQA?.sampledFrameCount,
+      decodedFrameCount: outputProof.visualFrameQA?.decodedFrameCount,
+      cropSafetyVerdict: outputProof.visualFrameQA?.cropSafetyVerdict,
+      obstructionRisk: outputProof.visualFrameQA?.obstructionRisk,
     });
 
     for (const [name, passed] of [
@@ -1777,6 +1829,7 @@ async function runLocalVideoProof(options = {}) {
       ["local_video_proof_render_created_export", Boolean(ids.exportId)],
       ["local_video_proof_video_output_qa_passed", videoOutputQA.passed === true],
       ["local_video_proof_rendered_social_polish_passed", outputProof.renderedSocialPolishQA?.passed === true],
+      ["local_video_proof_visual_frame_qa_passed", outputProof.visualFrameQA?.passed === true],
       ["local_video_proof_output_written_after_gate", Boolean(outputProof.outputMp4?.relativePath)],
       ["local_video_proof_ffprobe_passed", outputProof.ffprobe?.status === "passed"],
     ]) {

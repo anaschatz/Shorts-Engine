@@ -70,6 +70,7 @@ npm run youtube:proof
 ```
 
 The proof runs `env:check` before doctor/server work and writes `demo/results/youtube-live-e2e-latest.json` with safe `phase`, `nextAction`, `triage.preflight`, and `triage.doctor` fields for report-driven debugging.
+Successful proof reports also include `renderedSocialPolishQA`, `visualFrameQA`, `actionFramingVerdict`, and `referenceStyleComparisonSummary` so the operator can verify the final MP4, decoded sample-frame status, crop safety, caption obstruction risk, and reference-style gaps without raw frames or local paths.
 
 For the current 3-counted-goal proof case, use the allowlisted operator command:
 

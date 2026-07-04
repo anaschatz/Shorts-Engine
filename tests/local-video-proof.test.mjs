@@ -285,6 +285,33 @@ function successDeps(job = completedJob(), captures = {}) {
       videoCodec: "h264",
       audioPresent: true,
     }),
+    analyzeVisualFrameQa: () => ({
+      schemaVersion: 1,
+      status: "passed",
+      passed: true,
+      outputRelativePath: "manual-downloads/shortsengine-local-proof-test-2026-06-23T00-00-00-000Z.mp4",
+      sampledFrameCount: 5,
+      decodedFrameCount: 5,
+      frameTimestamps: [0.5, 1.75, 32.76, 53.04, 77.5],
+      frames: [
+        { index: 1, timestamp: 0.5, status: "passed", decoded: true, code: null },
+        { index: 2, timestamp: 1.75, status: "passed", decoded: true, code: null },
+      ],
+      cropSafetyVerdict: "passed",
+      cropMode: "wide_safe",
+      trackingProviderMode: "safe-tracking-provider",
+      trackingConfidence: 0,
+      fallbackUsed: true,
+      visibleActionCenter: { x: 960, y: 540 },
+      captionBoxPosition: { name: "bottom_caption", x: 0.08, y: 0.74, width: 0.84, height: 0.18 },
+      ballPlayerVisibilityEstimate: null,
+      actionSafeZoneCoverage: 1,
+      obstructionRisk: false,
+      abruptCropPanRisk: false,
+      failedFrameReasons: [],
+      logsDownloaded: false,
+      artifactsDownloaded: false,
+    }),
   };
 }
 
@@ -376,6 +403,10 @@ test("local video proof passes only after output gate and uses the local proof s
     assert.equal(report.outputProof.expectedCountedGoals, 3);
     assert.equal(report.outputProof.coveredGoalCount, 3);
     assert.equal(report.outputProof.renderedSocialPolishQA.passed, true);
+    assert.equal(report.outputProof.visualFrameQA.passed, true);
+    assert.equal(report.outputProof.visualFrameQA.sampledFrameCount, 5);
+    assert.equal(report.outputProof.actionFramingVerdict.cropMode, "wide_safe");
+    assert.equal(report.outputProof.referenceStyleComparisonSummary.socialPolishScore, 98);
     assert.equal(report.outputProof.dynamicWordCaptionCount, 3);
     assert.equal(report.outputProof.openingHookCaptionRendered, true);
     assert.equal(report.outputProof.hookFirstTwoSecondsPassed, true);
@@ -387,6 +418,58 @@ test("local video proof passes only after output gate and uses the local proof s
     assert.equal(captures.uploadSource.fileName, "source.mp4");
     assert.equal(after.size, before.size);
     assert.deepEqual(readFileSync(file), mp4Buffer());
+    assert.equal(findSensitiveLeak(report), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("local video proof discards generated output when visual frame QA fails", async () => {
+  const { dir, file } = tempMp4();
+  let discarded = false;
+  try {
+    const report = await runLocalVideoProof({
+      env: proofEnv(file),
+      fetchImpl: async () => {
+        throw new Error("network should be mocked by deps");
+      },
+      ...successDeps(completedJob()),
+      analyzeVisualFrameQa: () => ({
+        schemaVersion: 1,
+        status: "failed",
+        passed: false,
+        outputRelativePath: "manual-downloads/shortsengine-local-proof-test-2026-06-23T00-00-00-000Z.mp4",
+        sampledFrameCount: 5,
+        decodedFrameCount: 5,
+        frameTimestamps: [0.5, 1.75, 32.76, 53.04, 77.5],
+        frames: [],
+        cropSafetyVerdict: "failed",
+        cropMode: "soft_follow",
+        trackingProviderMode: "opencv-object-tracking",
+        trackingConfidence: 0.91,
+        fallbackUsed: false,
+        visibleActionCenter: { x: 1200, y: 540 },
+        captionBoxPosition: { name: "bottom_caption", x: 0.08, y: 0.74, width: 0.84, height: 0.18 },
+        ballPlayerVisibilityEstimate: 0.4,
+        actionSafeZoneCoverage: 0,
+        obstructionRisk: true,
+        abruptCropPanRisk: true,
+        failedFrameReasons: ["caption_text_obstruction_risk", "action_safe_zone_not_contained"],
+        logsDownloaded: false,
+        artifactsDownloaded: false,
+      }),
+      discardFailedOutputArtifact: (artifact) => {
+        discarded = true;
+        return { attempted: true, deleted: true, relativePath: artifact.relativePath };
+      },
+    });
+    assert.equal(report.status, "failed");
+    assert.equal(report.failedCases[0].code, "LOCAL_VIDEO_PROOF_VISUAL_QA_FAILED");
+    assert.equal(report.outputProof.outputMp4, null);
+    assert.equal(report.outputProof.visualFrameQA.passed, false);
+    assert.equal(report.outputProof.visualFrameQA.obstructionRisk, true);
+    assert.equal(report.outputProof.failedOutputCleanup.deleted, true);
+    assert.equal(discarded, true);
     assert.equal(findSensitiveLeak(report), null);
   } finally {
     rmSync(dir, { recursive: true, force: true });

@@ -39,6 +39,7 @@ Action-aware framing:
 - Allow `soft_follow` only with reliable ball/player/action evidence, contained action bounds and no caption obstruction risk.
 - Low-confidence, camera-motion-heavy or obstructed action should fall back to wide-safe framing.
 - Crop plans should expose action center, crop mode, tracking confidence, safe margins and max pan speed for QA.
+- Fresh MP4 proof should decode bounded sample frames and keep only safe frame-status metadata before calling action framing visually verified.
 
 Social-ready output:
 

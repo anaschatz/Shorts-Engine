@@ -6,6 +6,7 @@ import { dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { findSensitiveLeak, safeError as safeReportError } from "./report-safety.mjs";
+import { analyzeRenderedVisualFrameQA } from "./rendered-visual-frame-qa.mjs";
 import {
   RESULTS_DIR,
   computedIngestRequestTimeoutMs,
@@ -1148,6 +1149,13 @@ function buildOutputProof({ env, smoke, source, staleArtifactCleanup }) {
     videoOutputQA: smoke?.renderPlan?.videoOutputQA || null,
     generatedAt: nowIso(),
   });
+  const visualFrameQA = analyzeRenderedVisualFrameQA({
+    rootDir: ROOT_DIR,
+    outputMp4,
+    ffprobe,
+    renderPlan: smoke?.renderPlan || null,
+    renderedSocialPolishQA,
+  });
   const countedGoalProof = smoke && smoke.renderPlan && smoke.renderPlan.countedGoalProof
     ? smoke.renderPlan.countedGoalProof
     : null;
@@ -1223,6 +1231,9 @@ function buildOutputProof({ env, smoke, source, staleArtifactCleanup }) {
     referenceStyleQA,
     renderPolishQA,
     renderedSocialPolishQA,
+    visualFrameQA,
+    actionFramingVerdict: renderedSocialPolishQA.renderedActionFraming || null,
+    referenceStyleComparisonSummary: renderedSocialPolishQA.referenceStyleComparison || null,
     segmentWindows: coverage.segmentWindows,
     staleArtifactCleanup,
     comparison: buildComparisonReadiness({ source, outputMp4, ffprobe, coverage, reference, referenceStyleQA }),
