@@ -32,6 +32,7 @@ const SMOKE_NEXT_ACTIONS = {
   YOUTUBE_SMOKE_HEALTH_SHAPE_INVALID: "fix-health-response-shape-before-running-smoke",
   YOUTUBE_SMOKE_FFMPEG_UNAVAILABLE: "install-ffmpeg-and-ffprobe-before-running-smoke",
   YOUTUBE_DOWNLOADER_MISSING: "install-configure-downloader-or-set-SHORTSENGINE_YOUTUBE_DOWNLOADER_BIN",
+  YOUTUBE_DOWNLOAD_TIMEOUT: "increase-SHORTSENGINE_YOUTUBE_DOWNLOAD_TIMEOUT_MS-for-authorized-long-source-or-use-source-cache",
   YOUTUBE_DOWNLOAD_FAILED: "use-rights-cleared-local-mp4-proof-or-fix-downloader-and-rerun",
   YOUTUBE_NO_PROGRESS_TIMEOUT: "retry-with-longer-no-progress-timeout-or-use-authorized-source-cache",
   SOURCE_CACHE_MISS: "place-rights-cleared-source-in-cache-or-enable-downloader-fallback",
@@ -90,10 +91,11 @@ function computedIngestRequestTimeoutMs(env, fallback = DEFAULT_REQUEST_TIMEOUT_
   const configured = rawValue(env, "SHORTSENGINE_YOUTUBE_SMOKE_REQUEST_TIMEOUT_MS");
   if (configured !== undefined && configured !== null && configured !== "") return configured;
   const perAttemptMs = parseInteger(
-    rawValue(env, "SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS"),
+    rawValue(env, "SHORTSENGINE_YOUTUBE_DOWNLOAD_TIMEOUT_MS") ||
+      rawValue(env, "SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS"),
     DEFAULT_YOUTUBE_INGEST_TIMEOUT_MS,
     1000,
-    10 * 60 * 1000,
+    15 * 60 * 1000,
     "YOUTUBE_SMOKE_REQUEST_TIMEOUT_INVALID",
   );
   const attempts = parseInteger(
@@ -103,7 +105,7 @@ function computedIngestRequestTimeoutMs(env, fallback = DEFAULT_REQUEST_TIMEOUT_
     4,
     "YOUTUBE_SMOKE_REQUEST_TIMEOUT_INVALID",
   );
-  return Math.max(fallback, Math.min((perAttemptMs * attempts) + 30_000, 15 * 60 * 1000));
+  return Math.max(fallback, Math.min((perAttemptMs * attempts) + 30_000, 30 * 60 * 1000));
 }
 
 function delay(ms) {
@@ -342,6 +344,7 @@ function assertApiOk(response, code, message, details = {}) {
     "progressBytesObserved",
     "progressEventCount",
     "progressHeartbeatCount",
+    "lastProgressAgeMs",
     "timeoutMs",
   ]) {
     if (Number.isFinite(Number(apiError[key]))) safeApiDetails[key] = Number(apiError[key]);
@@ -358,6 +361,11 @@ function assertApiOk(response, code, message, details = {}) {
     "cacheHit",
     "cacheValidated",
     "downloaderFallbackUsed",
+    "bytesStillMovingAtTimeout",
+    "continueEnabled",
+    "continueAttempted",
+    "resumableStateEnabled",
+    "resumeStateRetained",
   ]) {
     if (typeof apiError[key] === "boolean") safeApiDetails[key] = apiError[key];
   }
@@ -375,6 +383,7 @@ function assertApiOk(response, code, message, details = {}) {
     "sourceAcquisitionStatus",
     "sourceAcquisitionStrategy",
     "stallClassification",
+    "timeoutClassification",
     "step",
     "substep",
   ]) {
@@ -1560,6 +1569,15 @@ function safeFailure(error) {
     progressHeartbeatCount: safeNumber(details.progressHeartbeatCount),
     progressEventCount: safeNumber(details.progressEventCount),
     progressBytesObserved: safeNumber(details.progressBytesObserved),
+    lastProgressAgeMs: safeNumber(details.lastProgressAgeMs),
+    timeoutClassification: details.timeoutClassification ? sanitizeText(details.timeoutClassification, 80) : null,
+    bytesStillMovingAtTimeout: typeof details.bytesStillMovingAtTimeout === "boolean"
+      ? details.bytesStillMovingAtTimeout
+      : null,
+    continueEnabled: typeof details.continueEnabled === "boolean" ? details.continueEnabled : null,
+    continueAttempted: typeof details.continueAttempted === "boolean" ? details.continueAttempted : null,
+    resumableStateEnabled: typeof details.resumableStateEnabled === "boolean" ? details.resumableStateEnabled : null,
+    resumeStateRetained: typeof details.resumeStateRetained === "boolean" ? details.resumeStateRetained : null,
     ingestRisk: details.ingestRisk ? sanitizeText(details.ingestRisk, 80) : null,
     metadataStatus: details.metadataStatus ? sanitizeText(details.metadataStatus, 80) : null,
     metadataPreflightStatus: details.metadataPreflightStatus ? sanitizeText(details.metadataPreflightStatus, 80) : null,

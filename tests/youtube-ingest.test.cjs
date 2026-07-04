@@ -887,6 +887,8 @@ test("local youtube downloader adapter exposes safe format strategy and version 
   assert.equal(strategy.attemptsConfigured, 3);
   assert.equal(strategy.playerClient, "android");
   assert.equal(strategy.fallbackFormatSelector, "best[ext=mp4]/best");
+  assert.equal(strategy.continueEnabled, true);
+  assert.equal(strategy.resumableStateEnabled, false);
   assert.deepEqual(downloaderVersion("yt-dlp", () => ({ status: 0, stdout: "2026.01.01\n" })), {
     available: true,
     version: "2026.01.01",
@@ -898,6 +900,7 @@ test("local youtube downloader adapter exposes safe format strategy and version 
     { formatSelector: "best[ext=mp4]/best" },
   );
   assert.equal(args[args.indexOf("--format") + 1], "best[ext=mp4]/best");
+  assert.equal(args.includes("--continue"), true);
   assert.doesNotMatch(args.join(" "), /[;&|`$<>]/);
 });
 
@@ -1015,6 +1018,11 @@ test("local youtube downloader adapter maps timeout and missing tools to safe er
         assert.equal(error.code, "YOUTUBE_DOWNLOAD_TIMEOUT");
         assert.equal(error.details.phase, "ingest");
         assert.equal(error.details.step, "download_source");
+        assert.equal(error.details.timeoutClassification, "DOWNLOAD_STALLED_NO_PROGRESS");
+        assert.equal(error.details.continueEnabled, true);
+        assert.equal(error.details.continueAttempted, true);
+        assert.equal(error.details.resumableStateEnabled, false);
+        assert.equal(error.details.resumeStateRetained, false);
         assert.equal(error.details.partialCleanupSucceeded, true);
         assert.doesNotMatch(error.userMessage, /\/Users|raw/);
         return true;
@@ -1027,6 +1035,47 @@ test("local youtube downloader adapter maps timeout and missing tools to safe er
     await assert.rejects(
       () => missingAdapter.ingest(source, { outputPath }),
       (error) => error.code === "YOUTUBE_DOWNLOADER_MISSING",
+    );
+  } finally {
+    cleanupYouTubeStage(stageDir);
+  }
+});
+
+test("local youtube downloader adapter distinguishes timeout with observed progress", async () => {
+  const uploadId = "upl_prog123-1234-1234-1234-123456789abc";
+  const { stageDir, outputPath } = createYouTubeStagePaths(uploadId);
+  mkdirSync(stageDir, { recursive: true });
+  const adapter = createLocalYouTubeIngestAdapter({
+    config: {
+      enabled: true,
+      downloaderBin: "yt-dlp",
+      timeoutMs: 1000,
+      maxOutputBytes: 1024,
+      downloadAttempts: 1,
+      progressHeartbeatMs: 250,
+      noProgressTimeoutMs: 1000,
+    },
+    spawnSync: () => ({ status: 0 }),
+    execFile: (_command, _args, _options, callback) => {
+      writeFileSync(outputPath, Buffer.alloc(4096));
+      callback(Object.assign(new Error("still downloading"), { killed: true }));
+    },
+  });
+  try {
+    await assert.rejects(
+      () => adapter.ingest(normalizeYouTubeUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ"), { outputPath }),
+      (error) => {
+        assert.equal(error.code, "YOUTUBE_DOWNLOAD_TIMEOUT");
+        assert.equal(error.details.timeoutClassification, "DOWNLOAD_TIMED_OUT_WITH_PROGRESS");
+        assert.equal(error.details.bytesStillMovingAtTimeout, true);
+        assert.equal(error.details.progressBytesObserved >= 4096, true);
+        assert.equal(error.details.progressEventCount >= 1, true);
+        assert.equal(error.details.lastProgressAgeMs >= 0, true);
+        assert.equal(error.details.partialCleanupSucceeded, true);
+        assert.equal(existsSync(outputPath), false);
+        assert.doesNotMatch(JSON.stringify(error.details), /\/Users|stderr|stdout|cookie|token/i);
+        return true;
+      },
     );
   } finally {
     cleanupYouTubeStage(stageDir);
@@ -1064,6 +1113,7 @@ test("local youtube downloader adapter classifies no-progress stalls safely", as
         assert.equal(error.details.step, "download_source");
         assert.equal(error.details.substep, "youtube_downloader");
         assert.equal(error.details.stallClassification, "no_progress_timeout");
+        assert.equal(error.details.timeoutClassification, "DOWNLOAD_STALLED_NO_PROGRESS");
         assert.equal(error.details.noProgressTimeoutMs, 30);
         assert.equal(error.details.progressHeartbeatCount >= 1, true);
         assert.equal(error.details.progressBytesObserved, 0);
@@ -1201,6 +1251,13 @@ test("youtube ingest service reports downloader timeout diagnostics and creates 
           fallbackUsed: true,
           partialCleanupSucceeded: true,
           partialCleanupRemovedCount: 2,
+          timeoutClassification: "DOWNLOAD_TIMED_OUT_WITH_PROGRESS",
+          progressBytesObserved: 147904182,
+          progressEventCount: 22,
+          continueEnabled: true,
+          continueAttempted: true,
+          resumableStateEnabled: false,
+          resumeStateRetained: false,
           nextAction: "retry-ingest-or-upload-mp4",
         });
       },
@@ -1236,6 +1293,10 @@ test("youtube ingest service reports downloader timeout diagnostics and creates 
       assert.equal(error.details.metadataPreflightDurationSeconds, 540);
       assert.equal(error.details.cleanupSucceeded, true);
       assert.equal(error.details.fallbackUsed, true);
+      assert.equal(error.details.timeoutClassification, "DOWNLOAD_TIMED_OUT_WITH_PROGRESS");
+      assert.equal(error.details.progressBytesObserved, 147904182);
+      assert.equal(error.details.continueAttempted, true);
+      assert.equal(error.details.resumableStateEnabled, false);
       assert.equal(error.details.sourceAcquisitionStatus, "failed");
       assert.doesNotMatch(JSON.stringify(error.details), /\/Users|stderr|stdout|secret/i);
       return true;

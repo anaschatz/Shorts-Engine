@@ -88,6 +88,9 @@ function safeProgressSummary(value = {}) {
     progressHeartbeatCount: safeNumber(value.progressHeartbeatCount),
     progressEventCount: safeNumber(value.progressEventCount),
     progressBytesObserved: safeNumber(value.progressBytesObserved),
+    lastProgressAgeMs: safeNumber(value.lastProgressAgeMs),
+    timeoutClassification: safeString(value.timeoutClassification, 80),
+    bytesStillMovingAtTimeout: value.bytesStillMovingAtTimeout === true,
     stallClassification: safeString(value.stallClassification, 80),
   };
 }
@@ -102,6 +105,10 @@ function safeFormatStrategy(health = {}, result = {}) {
     attemptsConfigured: safeNumber(result.attemptsConfigured || strategy.attemptsConfigured),
     timeoutMs: safeNumber(result.timeoutMs || strategy.timeoutMs),
     playerClient: safeString(result.playerClient || strategy.playerClient, 40),
+    continueEnabled: result.continueEnabled === true || strategy.continueEnabled === true,
+    continueAttempted: result.continueAttempted === true,
+    resumableStateEnabled: result.resumableStateEnabled === true || strategy.resumableStateEnabled === true,
+    resumeStateRetained: result.resumeStateRetained === true,
   };
 }
 

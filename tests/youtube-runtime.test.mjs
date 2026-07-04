@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { findSensitiveLeak } from "../demo/report-safety.mjs";
 import {
   cleanupGeneratedProofArtifacts,
+  DEFAULT_TIMEOUT_MS,
   isManagedLiveProofMp4,
   liveServerEnvironment,
   runYouTubeLiveE2E,
@@ -472,8 +473,26 @@ test("youtube smoke defaults ingest request timeout to cover bounded downloader 
     SHORTSENGINE_YOUTUBE_DOWNLOAD_ATTEMPTS: "3",
   }), 210000);
   assert.equal(computedIngestRequestTimeoutMs({
+    SHORTSENGINE_YOUTUBE_DOWNLOAD_TIMEOUT_MS: "900000",
+    SHORTSENGINE_YOUTUBE_DOWNLOAD_ATTEMPTS: "2",
+  }), 1800000);
+  assert.equal(computedIngestRequestTimeoutMs({
     SHORTSENGINE_YOUTUBE_SMOKE_REQUEST_TIMEOUT_MS: "1000",
   }), "1000");
+});
+
+test("youtube live server environment maps operator download timeout to backend downloader timeout", () => {
+  const env = liveServerEnvironment({
+    port: 4175,
+    dataDir: "/tmp/shortsengine-test-data",
+    env: {
+      SHORTSENGINE_YOUTUBE_LIVE_E2E_DOWNLOAD_TIMEOUT_MS: "600000",
+      SHORTSENGINE_YOUTUBE_DOWNLOAD_ATTEMPTS: "2",
+    },
+  });
+  assert.equal(env.SHORTSENGINE_YOUTUBE_DOWNLOAD_TIMEOUT_MS, "600000");
+  assert.equal(env.SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS, "600000");
+  assert.equal(env.SHORTSENGINE_YOUTUBE_SMOKE_REQUEST_TIMEOUT_MS, "1230000");
 });
 
 test("youtube smoke request timeout reports exact ingest phase and step", async () => {
@@ -524,6 +543,13 @@ test("youtube smoke ingest API failures report downloader phase details", async 
         progressHeartbeatCount: 12,
         progressEventCount: 1,
         progressBytesObserved: 4096,
+        lastProgressAgeMs: 250,
+        timeoutClassification: "DOWNLOAD_TIMED_OUT_WITH_PROGRESS",
+        bytesStillMovingAtTimeout: true,
+        continueEnabled: true,
+        continueAttempted: true,
+        resumableStateEnabled: false,
+        resumeStateRetained: false,
         metadataPreflightStatus: "local",
         metadataPreflightDurationSeconds: 540,
         partialCleanupSucceeded: true,
@@ -552,6 +578,13 @@ test("youtube smoke ingest API failures report downloader phase details", async 
   assert.equal(report.failedCases[0].progressHeartbeatCount, 12);
   assert.equal(report.failedCases[0].progressEventCount, 1);
   assert.equal(report.failedCases[0].progressBytesObserved, 4096);
+  assert.equal(report.failedCases[0].lastProgressAgeMs, 250);
+  assert.equal(report.failedCases[0].timeoutClassification, "DOWNLOAD_TIMED_OUT_WITH_PROGRESS");
+  assert.equal(report.failedCases[0].bytesStillMovingAtTimeout, true);
+  assert.equal(report.failedCases[0].continueEnabled, true);
+  assert.equal(report.failedCases[0].continueAttempted, true);
+  assert.equal(report.failedCases[0].resumableStateEnabled, false);
+  assert.equal(report.failedCases[0].resumeStateRetained, false);
   assert.equal(report.failedCases[0].formatSelector, "best[ext=mp4]/best");
   assert.equal(report.failedCases[0].metadataPreflightStatus, "local");
   assert.equal(report.failedCases[0].metadataPreflightDurationSeconds, 540);
@@ -1220,7 +1253,18 @@ test("youtube live server env enables local scoreboard OCR only with explicit op
   assert.equal(ocrEnv.SHORTSENGINE_SCOREBOARD_OCR_ENABLED, "1");
   assert.equal(ocrEnv.SHORTSENGINE_SCOREBOARD_OCR_PROVIDER, "local");
   assert.equal(ocrEnv.SHORTSENGINE_SCOREBOARD_OCR_QA_ARTIFACTS, "1");
+  assert.equal(ocrEnv.SHORTSENGINE_YOUTUBE_SMOKE_JOB_TIMEOUT_MS, "300000");
   assert.equal(ocrEnv.PORT, "4176");
+
+  const explicitJobTimeoutEnv = liveServerEnvironment({
+    port: 4177,
+    dataDir: "tmp/live-proof-data-ocr-explicit",
+    env: liveEnv({
+      SHORTSENGINE_YOUTUBE_LIVE_E2E_SCOREBOARD_OCR: "1",
+      SHORTSENGINE_YOUTUBE_SMOKE_JOB_TIMEOUT_MS: "120000",
+    }),
+  });
+  assert.equal(explicitJobTimeoutEnv.SHORTSENGINE_YOUTUBE_SMOKE_JOB_TIMEOUT_MS, "120000");
 });
 
 function passedDoctor() {
@@ -1685,6 +1729,46 @@ test("youtube live local e2e runs env check before doctor or server work", async
   assert.equal(report.triage.doctor.downloaderConfigured, true);
 });
 
+test("youtube live local e2e accepts default operator proof timeout", async () => {
+  let doctorCalled = false;
+  let smokeEnvReceived = null;
+  const report = await runYouTubeLiveE2E({
+    env: liveEnv({ SHORTSENGINE_YOUTUBE_LIVE_E2E_SCOREBOARD_OCR: "1" }),
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    checkEnvironment: () => ({
+      ok: true,
+      youtubeIngest: {
+        enabled: true,
+        liveE2E: {
+          enabled: true,
+          rightsConfirmed: true,
+          sourceConfigured: true,
+          allowlistedSourceConfigured: false,
+          allowUnlisted: true,
+          portConfigured: false,
+          timeoutMs: DEFAULT_TIMEOUT_MS,
+        },
+      },
+    }),
+    checkYouTubeIngest: async () => {
+      doctorCalled = true;
+      return passedDoctor();
+    },
+    getFreePort: async () => 4175,
+    startServer: () => ({ child: { exitCode: null, signalCode: null }, events: [] }),
+    stopServer: async () => {},
+    waitForServerReady: async () => ({ attempts: 1, waitedMs: 10, status: 200 }),
+    runYouTubeSmoke: async ({ env }) => {
+      smokeEnvReceived = env;
+      return passedSmokeReport();
+    },
+  });
+  assert.equal(report.status, "passed");
+  assert.equal(doctorCalled, true);
+  assert.equal(smokeEnvReceived.SHORTSENGINE_YOUTUBE_SMOKE_JOB_TIMEOUT_MS, "300000");
+  assert.equal(findSensitiveLeak(report), null);
+});
+
 test("youtube live local e2e env failures stop before doctor or server", async () => {
   let doctorCalled = false;
   let serverStarted = false;
@@ -1710,6 +1794,29 @@ test("youtube live local e2e env failures stop before doctor or server", async (
   assert.equal(report.failedCases[0].code, "ENV_YOUTUBE_LIVE_E2E_URL_MISSING");
   assert.equal(report.failedCases[0].phase, "env");
   assert.match(report.failedCases[0].nextAction, /SHORTSENGINE_YOUTUBE_LIVE_E2E_URL/);
+  assert.equal(doctorCalled, false);
+  assert.equal(serverStarted, false);
+  assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube live local e2e rejects invalid operator download timeout before server", async () => {
+  let doctorCalled = false;
+  let serverStarted = false;
+  const report = await runYouTubeLiveE2E({
+    env: liveEnv({ SHORTSENGINE_YOUTUBE_LIVE_E2E_DOWNLOAD_TIMEOUT_MS: "999999999" }),
+    checkYouTubeIngest: async () => {
+      doctorCalled = true;
+      return passedDoctor();
+    },
+    startServer: () => {
+      serverStarted = true;
+      throw new Error("should not start");
+    },
+  });
+  assert.equal(report.status, "failed");
+  assert.equal(report.failedCases[0].code, "ENV_YOUTUBE_LIVE_E2E_DOWNLOAD_TIMEOUT_INVALID");
+  assert.equal(report.failedCases[0].phase, "env");
+  assert.match(report.failedCases[0].nextAction, /SHORTSENGINE_YOUTUBE_LIVE_E2E_DOWNLOAD_TIMEOUT_MS/);
   assert.equal(doctorCalled, false);
   assert.equal(serverStarted, false);
   assert.equal(findSensitiveLeak(report), null);
@@ -2768,6 +2875,13 @@ test("youtube live failed output proof preserves pre-render download failure act
         progressHeartbeatCount: 18,
         progressEventCount: 2,
         progressBytesObserved: 8192,
+        lastProgressAgeMs: 400,
+        timeoutClassification: "DOWNLOAD_TIMED_OUT_WITH_PROGRESS",
+        bytesStillMovingAtTimeout: true,
+        continueEnabled: true,
+        continueAttempted: true,
+        resumableStateEnabled: false,
+        resumeStateRetained: false,
         metadataPreflightStatus: "local",
         metadataPreflightDurationSeconds: 540,
         cleanupSucceeded: true,
@@ -2793,6 +2907,13 @@ test("youtube live failed output proof preserves pre-render download failure act
   assert.equal(report.outputProof.ingest.progressHeartbeatCount, 18);
   assert.equal(report.outputProof.ingest.progressEventCount, 2);
   assert.equal(report.outputProof.ingest.progressBytesObserved, 8192);
+  assert.equal(report.outputProof.ingest.lastProgressAgeMs, 400);
+  assert.equal(report.outputProof.ingest.timeoutClassification, "DOWNLOAD_TIMED_OUT_WITH_PROGRESS");
+  assert.equal(report.outputProof.ingest.bytesStillMovingAtTimeout, true);
+  assert.equal(report.outputProof.ingest.continueEnabled, true);
+  assert.equal(report.outputProof.ingest.continueAttempted, true);
+  assert.equal(report.outputProof.ingest.resumableStateEnabled, false);
+  assert.equal(report.outputProof.ingest.resumeStateRetained, false);
   assert.equal(report.outputProof.ingest.metadataPreflightStatus, "local");
   assert.equal(report.outputProof.ingest.metadataPreflightDurationSeconds, 540);
   assert.equal(report.outputProof.ingest.cleanupSucceeded, true);

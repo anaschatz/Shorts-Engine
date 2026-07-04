@@ -345,7 +345,9 @@ async function checkYouTubeIngest(options = {}) {
       CONFIG.youtubeIngest.fallbackFormatSelector,
     downloadAttempts: rawValue(env, "SHORTSENGINE_YOUTUBE_DOWNLOAD_ATTEMPTS") ||
       CONFIG.youtubeIngest.downloadAttempts,
-    timeoutMs: rawValue(env, "SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS") || CONFIG.youtubeIngest.timeoutMs,
+    timeoutMs: rawValue(env, "SHORTSENGINE_YOUTUBE_DOWNLOAD_TIMEOUT_MS") ||
+      rawValue(env, "SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS") ||
+      CONFIG.youtubeIngest.timeoutMs,
     playerClient: rawValue(env, "SHORTSENGINE_YOUTUBE_PLAYER_CLIENT") || CONFIG.youtubeIngest.playerClient,
   });
   const summary = {

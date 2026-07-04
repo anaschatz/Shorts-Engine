@@ -90,6 +90,8 @@ function formatStrategySummary(config = {}) {
     progressHeartbeatMs: Number.isFinite(Number(config.progressHeartbeatMs)) ? Number(config.progressHeartbeatMs) : null,
     noProgressTimeoutMs: Number.isFinite(Number(config.noProgressTimeoutMs)) ? Number(config.noProgressTimeoutMs) : null,
     playerClient: normalizePlayerClient(config.playerClient) || null,
+    continueEnabled: true,
+    resumableStateEnabled: false,
   };
 }
 
@@ -101,6 +103,7 @@ function buildDownloaderArgs(source, outputPath, config = {}, attempt = {}) {
     "--no-playlist",
     "--no-warnings",
     ...youtubeExtractorArgs(config),
+    "--continue",
     "--restrict-filenames",
     "--merge-output-format",
     "mp4",
@@ -174,12 +177,24 @@ function createProgressMonitor(outputPath, options = {}) {
   let lastProgressAt = startedAt;
   let timer = null;
 
+  const refreshSnapshot = () => {
+    const snapshot = outputProgressSnapshot(outputPath);
+    if (snapshot.bytesObserved > lastBytes) {
+      lastBytes = snapshot.bytesObserved;
+      lastProgressAt = Date.now();
+      progressEventCount += 1;
+      return true;
+    }
+    return false;
+  };
+
   const summary = (overrides = {}) => ({
     heartbeatIntervalMs,
     noProgressTimeoutMs,
     progressHeartbeatCount: heartbeatCount,
     progressEventCount,
     progressBytesObserved: lastBytes,
+    lastProgressAgeMs: Math.max(0, Date.now() - lastProgressAt),
     stallClassification: overrides.stallClassification || null,
   });
 
@@ -187,13 +202,7 @@ function createProgressMonitor(outputPath, options = {}) {
     start(onStall) {
       timer = setInterval(() => {
         heartbeatCount += 1;
-        const snapshot = outputProgressSnapshot(outputPath);
-        if (snapshot.bytesObserved > lastBytes) {
-          lastBytes = snapshot.bytesObserved;
-          lastProgressAt = Date.now();
-          progressEventCount += 1;
-          return;
-        }
+        if (refreshSnapshot()) return;
         if (Date.now() - lastProgressAt >= noProgressTimeoutMs) {
           const details = summary({ stallClassification: "no_progress_timeout" });
           if (timer) clearInterval(timer);
@@ -205,6 +214,7 @@ function createProgressMonitor(outputPath, options = {}) {
     stop() {
       if (timer) clearInterval(timer);
       timer = null;
+      refreshSnapshot();
       return summary();
     },
   };
@@ -284,10 +294,33 @@ function safeProgressDetails(progressSummary) {
     progressBytesObserved: Number.isFinite(Number(progressSummary.progressBytesObserved))
       ? Number(progressSummary.progressBytesObserved)
       : null,
+    lastProgressAgeMs: Number.isFinite(Number(progressSummary.lastProgressAgeMs))
+      ? Number(progressSummary.lastProgressAgeMs)
+      : null,
     stallClassification: typeof progressSummary.stallClassification === "string"
       ? progressSummary.stallClassification
       : null,
   };
+}
+
+function progressWasObserved(progressDetails = {}) {
+  return Number(progressDetails.progressBytesObserved) > 0 || Number(progressDetails.progressEventCount) > 0;
+}
+
+function timeoutClassificationFor(error, progressDetails = {}) {
+  const code = error && typeof error === "object" ? error.code : null;
+  if (code !== "YOUTUBE_DOWNLOAD_TIMEOUT" && code !== "YOUTUBE_NO_PROGRESS_TIMEOUT") return null;
+  return progressWasObserved(progressDetails) ? "DOWNLOAD_TIMED_OUT_WITH_PROGRESS" : "DOWNLOAD_STALLED_NO_PROGRESS";
+}
+
+function bytesStillMovingAtTimeout(error, progressDetails = {}) {
+  const code = error && typeof error === "object" ? error.code : null;
+  if (code !== "YOUTUBE_DOWNLOAD_TIMEOUT" && code !== "YOUTUBE_NO_PROGRESS_TIMEOUT") return false;
+  if (!progressWasObserved(progressDetails)) return false;
+  const lastProgressAgeMs = Number(progressDetails.lastProgressAgeMs);
+  const heartbeatMs = Number(progressDetails.heartbeatIntervalMs);
+  if (!Number.isFinite(lastProgressAgeMs) || !Number.isFinite(heartbeatMs)) return false;
+  return lastProgressAgeMs <= Math.max(heartbeatMs * 2, 1000);
 }
 
 function toDownloaderError(error) {
@@ -365,12 +398,19 @@ function attachDownloaderDetails(error, details = {}) {
     playerClient: details.playerClient || "",
     partialCleanupSucceeded: details.partialCleanupSucceeded !== false,
     partialCleanupRemovedCount: details.partialCleanupRemovedCount,
+    timeoutClassification: details.timeoutClassification || null,
+    lastProgressAgeMs: details.lastProgressAgeMs,
+    bytesStillMovingAtTimeout: details.bytesStillMovingAtTimeout === true,
     heartbeatIntervalMs: details.heartbeatIntervalMs,
     noProgressTimeoutMs: details.noProgressTimeoutMs,
     progressHeartbeatCount: details.progressHeartbeatCount,
     progressEventCount: details.progressEventCount,
     progressBytesObserved: details.progressBytesObserved,
     stallClassification: details.stallClassification || null,
+    continueEnabled: details.continueEnabled === true,
+    continueAttempted: details.continueAttempted === true,
+    resumableStateEnabled: details.resumableStateEnabled === true,
+    resumeStateRetained: details.resumeStateRetained === true,
   };
   return error;
 }
@@ -505,7 +545,9 @@ function createLocalYouTubeIngestAdapter(options = {}) {
         } catch (error) {
           const cleanup = removePartialOutputs(outputPath);
           const progressDetails = safeProgressDetails(error && error.progressSummary);
-          const safeError = attachDownloaderDetails(toDownloaderError(error), {
+          const safeError = toDownloaderError(error);
+          const timeoutClassification = timeoutClassificationFor(safeError, progressDetails);
+          attachDownloaderDetails(safeError, {
             phase: "ingest",
             step: "download_source",
             substep: "youtube_downloader",
@@ -519,12 +561,19 @@ function createLocalYouTubeIngestAdapter(options = {}) {
             playerClient: strategy.playerClient || "",
             partialCleanupSucceeded: cleanup.cleaned === true,
             partialCleanupRemovedCount: cleanup.removedCount,
+            timeoutClassification,
+            lastProgressAgeMs: progressDetails.lastProgressAgeMs,
+            bytesStillMovingAtTimeout: bytesStillMovingAtTimeout(safeError, progressDetails),
             heartbeatIntervalMs: progressDetails.heartbeatIntervalMs,
             noProgressTimeoutMs: progressDetails.noProgressTimeoutMs,
             progressHeartbeatCount: progressDetails.progressHeartbeatCount,
             progressEventCount: progressDetails.progressEventCount,
             progressBytesObserved: progressDetails.progressBytesObserved,
             stallClassification: progressDetails.stallClassification,
+            continueEnabled: strategy.continueEnabled,
+            continueAttempted: true,
+            resumableStateEnabled: strategy.resumableStateEnabled,
+            resumeStateRetained: false,
           });
           lastError = safeError;
           if (!shouldRetryDownload(safeError, attempt.attempt < attempts.length)) break;
@@ -568,6 +617,10 @@ function createLocalYouTubeIngestAdapter(options = {}) {
         playerClient: strategy.playerClient || "",
         heartbeatIntervalMs: strategy.progressHeartbeatMs,
         noProgressTimeoutMs: strategy.noProgressTimeoutMs,
+        continueEnabled: strategy.continueEnabled,
+        continueAttempted: true,
+        resumableStateEnabled: strategy.resumableStateEnabled,
+        resumeStateRetained: false,
       };
     },
     buildDownloaderArgs,

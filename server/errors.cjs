@@ -138,6 +138,9 @@ const PUBLIC_ERROR_DETAIL_KEYS = new Set([
   "cacheHit",
   "cacheValidated",
   "checksumSha256",
+  "bytesStillMovingAtTimeout",
+  "continueAttempted",
+  "continueEnabled",
   "downloaderConfigured",
   "downloaderFallbackUsed",
   "downloadedOutputReady",
@@ -148,6 +151,7 @@ const PUBLIC_ERROR_DETAIL_KEYS = new Set([
   "formatSelector",
   "heartbeatIntervalMs",
   "ingestRisk",
+  "lastProgressAgeMs",
   "metadataPreflightDurationSeconds",
   "metadataPreflightStatus",
   "metadataStatus",
@@ -160,12 +164,15 @@ const PUBLIC_ERROR_DETAIL_KEYS = new Set([
   "progressBytesObserved",
   "progressEventCount",
   "progressHeartbeatCount",
+  "resumableStateEnabled",
+  "resumeStateRetained",
   "retryable",
   "sourceAcquisitionStatus",
   "sourceAcquisitionStrategy",
   "stallClassification",
   "step",
   "substep",
+  "timeoutClassification",
   "timeoutMs",
 ]);
 const PUBLIC_ERROR_NUMERIC_DETAIL_KEYS = new Set([
@@ -173,6 +180,7 @@ const PUBLIC_ERROR_NUMERIC_DETAIL_KEYS = new Set([
   "attemptsConfigured",
   "elapsedMs",
   "heartbeatIntervalMs",
+  "lastProgressAgeMs",
   "metadataPreflightDurationSeconds",
   "noProgressTimeoutMs",
   "partialCleanupRemovedCount",
@@ -187,6 +195,10 @@ const PUBLIC_ERROR_FORMAT_DETAIL_KEYS = new Set([
 ]);
 const PUBLIC_ERROR_HASH_DETAIL_KEYS = new Set([
   "checksumSha256",
+]);
+const PUBLIC_ERROR_CODE_DETAIL_KEYS = new Set([
+  "cacheFailureCode",
+  "timeoutClassification",
 ]);
 
 function publicErrorDetails(details) {
@@ -207,6 +219,12 @@ function publicErrorDetails(details) {
       PUBLIC_ERROR_HASH_DETAIL_KEYS.has(key) &&
       typeof value === "string" &&
       /^[a-f0-9]{64}$/.test(value)
+    ) {
+      safeDetails[key] = value;
+    } else if (
+      PUBLIC_ERROR_CODE_DETAIL_KEYS.has(key) &&
+      typeof value === "string" &&
+      /^[A-Z0-9_]{1,80}$/.test(value)
     ) {
       safeDetails[key] = value;
     } else if (typeof value === "boolean") {

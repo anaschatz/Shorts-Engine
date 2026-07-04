@@ -146,9 +146,20 @@ function safeDownloaderFailureDetails(error) {
     progressBytesObserved: Number.isFinite(Number(details.progressBytesObserved))
       ? Number(details.progressBytesObserved)
       : null,
+    lastProgressAgeMs: Number.isFinite(Number(details.lastProgressAgeMs)) ? Number(details.lastProgressAgeMs) : null,
+    timeoutClassification: typeof details.timeoutClassification === "string"
+      ? sanitizeText(details.timeoutClassification, 80)
+      : null,
+    bytesStillMovingAtTimeout: typeof details.bytesStillMovingAtTimeout === "boolean"
+      ? details.bytesStillMovingAtTimeout
+      : null,
     stallClassification: typeof details.stallClassification === "string"
       ? sanitizeText(details.stallClassification, 80)
       : null,
+    continueEnabled: typeof details.continueEnabled === "boolean" ? details.continueEnabled : null,
+    continueAttempted: typeof details.continueAttempted === "boolean" ? details.continueAttempted : null,
+    resumableStateEnabled: typeof details.resumableStateEnabled === "boolean" ? details.resumableStateEnabled : null,
+    resumeStateRetained: typeof details.resumeStateRetained === "boolean" ? details.resumeStateRetained : null,
     nextAction: typeof details.nextAction === "string" ? details.nextAction : null,
   };
 }

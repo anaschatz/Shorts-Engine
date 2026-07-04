@@ -262,7 +262,7 @@ function validateYouTubeIngestConfig(input = {}) {
       name: "YouTube ingest timeout",
       fallback: 2 * 60 * 1000,
       min: 1000,
-      max: 10 * 60 * 1000,
+      max: 15 * 60 * 1000,
     }),
     maxOutputBytes: validateByteConfig(input.maxOutputBytes, {
       name: "YouTube downloader output bytes",
@@ -384,7 +384,7 @@ const YOUTUBE_INGEST_CONFIG = validateYouTubeIngestConfig({
   enabled: boolFromEnv(process.env.SHORTSENGINE_YOUTUBE_INGEST_ENABLED),
   authorizedImportEnabled: boolFromEnv(process.env.SHORTSENGINE_YOUTUBE_AUTHORIZED_IMPORT_ENABLED),
   downloaderBin: process.env.SHORTSENGINE_YOUTUBE_DOWNLOADER_BIN || DEFAULT_YOUTUBE_DOWNLOADER_BIN,
-  timeoutMs: process.env.SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS,
+  timeoutMs: process.env.SHORTSENGINE_YOUTUBE_DOWNLOAD_TIMEOUT_MS || process.env.SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS,
   maxOutputBytes: process.env.SHORTSENGINE_YOUTUBE_DOWNLOADER_OUTPUT_BYTES,
   playerClient: process.env.SHORTSENGINE_YOUTUBE_PLAYER_CLIENT,
   formatSelector: process.env.SHORTSENGINE_YOUTUBE_FORMAT_SELECTOR,

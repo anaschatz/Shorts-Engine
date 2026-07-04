@@ -13,7 +13,8 @@ const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const ENV_DOC_RELATIVE_PATH = "docs/ENVIRONMENT.md";
 const ENV_EXAMPLE_RELATIVE_PATH = ".env.example";
 const BYTE_1_MB = 1024 * 1024;
-const YOUTUBE_LIVE_E2E_TIMEOUT_MS = 15 * 60 * 1000;
+const YOUTUBE_LIVE_E2E_TIMEOUT_MS = 30 * 60 * 1000;
+const YOUTUBE_LIVE_E2E_DOWNLOAD_TIMEOUT_MS = 15 * 60 * 1000;
 
 const STORAGE_ADAPTERS = Object.freeze(["local", "mock-cloud", "s3", "r2", "gcs"]);
 const STAGING_READY_STORAGE_ADAPTERS = Object.freeze(["local", "mock-cloud", "s3", "r2"]);
@@ -31,12 +32,15 @@ const ENV_CONTRACT = Object.freeze([
   { name: "SHORTSENGINE_YOUTUBE_INGEST_ENABLED", category: "Remote URL ingest", required: false, defaultValue: "false", type: "boolean", secret: false },
   { name: "SHORTSENGINE_YOUTUBE_DOWNLOADER_BIN", category: "Remote URL ingest", required: false, defaultValue: "yt-dlp", type: "command", secret: false },
   { name: "SHORTSENGINE_YOUTUBE_PLAYER_CLIENT", category: "Remote URL ingest", required: false, defaultValue: "", type: "enum", allowedValues: YOUTUBE_PLAYER_CLIENTS, allowEmpty: true, secret: false },
-  { name: "SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS", category: "Remote URL ingest", required: false, defaultValue: String(2 * 60 * 1000), type: "integer", min: 1000, max: 10 * 60 * 1000, secret: false },
+  { name: "SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS", category: "Remote URL ingest", required: false, defaultValue: String(2 * 60 * 1000), type: "integer", min: 1000, max: 15 * 60 * 1000, secret: false },
+  { name: "SHORTSENGINE_YOUTUBE_DOWNLOAD_TIMEOUT_MS", category: "Remote URL ingest", required: false, defaultValue: "", type: "integer", min: 1000, max: 15 * 60 * 1000, secret: false },
   { name: "SHORTSENGINE_YOUTUBE_DOWNLOADER_OUTPUT_BYTES", category: "Remote URL ingest", required: false, defaultValue: String(64 * 1024), type: "integer", min: 1024, max: BYTE_1_MB, secret: false },
   { name: "SHORTSENGINE_YOUTUBE_FORMAT_SELECTOR", category: "Remote URL ingest", required: false, defaultValue: "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best", type: "youtube-format", secret: false },
   { name: "SHORTSENGINE_YOUTUBE_FALLBACK_FORMAT_SELECTOR", category: "Remote URL ingest", required: false, defaultValue: "best[ext=mp4]/best", type: "youtube-format", secret: false },
   { name: "SHORTSENGINE_YOUTUBE_DOWNLOAD_ATTEMPTS", category: "Remote URL ingest", required: false, defaultValue: "2", type: "integer", min: 1, max: 4, secret: false },
   { name: "SHORTSENGINE_YOUTUBE_RETRY_BACKOFF_MS", category: "Remote URL ingest", required: false, defaultValue: "500", type: "integer", min: 0, max: 10000, secret: false },
+  { name: "SHORTSENGINE_YOUTUBE_PROGRESS_HEARTBEAT_MS", category: "Remote URL ingest", required: false, defaultValue: "5000", type: "integer", min: 250, max: 30000, secret: false },
+  { name: "SHORTSENGINE_YOUTUBE_NO_PROGRESS_TIMEOUT_MS", category: "Remote URL ingest", required: false, defaultValue: "45000", type: "integer", min: 1000, max: 10 * 60 * 1000, secret: false },
   { name: "SHORTSENGINE_SOURCE_CACHE_ENABLED", category: "Remote URL ingest", required: false, defaultValue: "false", type: "boolean", secret: false },
   { name: "SHORTSENGINE_SOURCE_CACHE_DIR", category: "Remote URL ingest", required: false, defaultValue: "", type: "source-cache-dir", secret: false },
   { name: "SHORTSENGINE_SOURCE_CACHE_REQUIRE_CHECKSUM", category: "Remote URL ingest", required: false, defaultValue: "false", type: "boolean", secret: false },
@@ -49,7 +53,7 @@ const ENV_CONTRACT = Object.freeze([
   { name: "SHORTSENGINE_YOUTUBE_SMOKE_ALLOWED_IDS", category: "Remote URL ingest", required: false, defaultValue: "", type: "string", secret: false },
   { name: "SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED", category: "Remote URL ingest", required: false, defaultValue: "false", type: "boolean", secret: false },
   { name: "SHORTSENGINE_YOUTUBE_SMOKE_TIMEOUT_MS", category: "Remote URL ingest", required: false, defaultValue: "120000", type: "integer", min: 1000, max: 15 * 60 * 1000, secret: false },
-  { name: "SHORTSENGINE_YOUTUBE_SMOKE_REQUEST_TIMEOUT_MS", category: "Remote URL ingest", required: false, defaultValue: "120000", type: "integer", min: 1000, max: 15 * 60 * 1000, secret: false },
+  { name: "SHORTSENGINE_YOUTUBE_SMOKE_REQUEST_TIMEOUT_MS", category: "Remote URL ingest", required: false, defaultValue: "120000", type: "integer", min: 1000, max: 30 * 60 * 1000, secret: false },
   { name: "SHORTSENGINE_YOUTUBE_SMOKE_JOB_TIMEOUT_MS", category: "Remote URL ingest", required: false, defaultValue: "90000", type: "integer", min: 1000, max: 10 * 60 * 1000, secret: false },
   { name: "SHORTSENGINE_YOUTUBE_SMOKE_POLL_INTERVAL_MS", category: "Remote URL ingest", required: false, defaultValue: "750", type: "integer", min: 100, max: 10000, secret: false },
   { name: "SHORTSENGINE_YOUTUBE_SMOKE_DOWNLOAD_MAX_BYTES", category: "Remote URL ingest", required: false, defaultValue: String(80 * BYTE_1_MB), type: "integer", min: 1024, max: 512 * BYTE_1_MB, secret: false },
@@ -58,6 +62,7 @@ const ENV_CONTRACT = Object.freeze([
   { name: "SHORTSENGINE_YOUTUBE_LIVE_E2E_URL", category: "Remote URL ingest", required: false, defaultValue: "", type: "string", secret: false },
   { name: "SHORTSENGINE_YOUTUBE_LIVE_E2E_PORT", category: "Remote URL ingest", required: false, defaultValue: "", type: "integer", min: 1, max: 65535, secret: false },
   { name: "SHORTSENGINE_YOUTUBE_LIVE_E2E_TIMEOUT_MS", category: "Remote URL ingest", required: false, defaultValue: String(YOUTUBE_LIVE_E2E_TIMEOUT_MS), type: "integer", min: 1000, max: YOUTUBE_LIVE_E2E_TIMEOUT_MS, secret: false },
+  { name: "SHORTSENGINE_YOUTUBE_LIVE_E2E_DOWNLOAD_TIMEOUT_MS", category: "Remote URL ingest", required: false, defaultValue: "", type: "integer", min: 1000, max: YOUTUBE_LIVE_E2E_DOWNLOAD_TIMEOUT_MS, secret: false },
   { name: "SHORTSENGINE_YOUTUBE_LIVE_E2E_BROWSER", category: "Remote URL ingest", required: false, defaultValue: "false", type: "boolean", secret: false },
   { name: "MATCHCUTS_RENDER_TIMEOUT_MS", category: "FFmpeg/render limits", required: false, defaultValue: String(5 * 60 * 1000), type: "integer", min: 1000, max: 60 * 60 * 1000, secret: false },
   { name: "MATCHCUTS_ANALYSIS_TIMEOUT_MS", category: "FFmpeg/render limits", required: false, defaultValue: String(45 * 1000), type: "integer", min: 1000, max: 10 * 60 * 1000, secret: false },
@@ -575,12 +580,16 @@ function checkEnvironment(options = {}) {
       enabled: Boolean(boolFromEnv(rawValue(env, "SHORTSENGINE_YOUTUBE_INGEST_ENABLED"))),
       downloaderConfigured: Boolean(valueOrDefault(env, ENV_CONTRACT.find((spec) => spec.name === "SHORTSENGINE_YOUTUBE_DOWNLOADER_BIN"))),
       playerClient: String(valueOrDefault(env, ENV_CONTRACT.find((spec) => spec.name === "SHORTSENGINE_YOUTUBE_PLAYER_CLIENT")) || "") || null,
-      timeoutMs: numeric.SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS,
+      timeoutMs: numeric.SHORTSENGINE_YOUTUBE_DOWNLOAD_TIMEOUT_MS || numeric.SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS,
+      ingestTimeoutMs: numeric.SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS,
+      downloadTimeoutMs: numeric.SHORTSENGINE_YOUTUBE_DOWNLOAD_TIMEOUT_MS,
       outputBytes: numeric.SHORTSENGINE_YOUTUBE_DOWNLOADER_OUTPUT_BYTES,
       formatSelector: String(valueOrDefault(env, ENV_CONTRACT.find((spec) => spec.name === "SHORTSENGINE_YOUTUBE_FORMAT_SELECTOR"))),
       fallbackFormatSelector: String(valueOrDefault(env, ENV_CONTRACT.find((spec) => spec.name === "SHORTSENGINE_YOUTUBE_FALLBACK_FORMAT_SELECTOR"))),
       downloadAttempts: numeric.SHORTSENGINE_YOUTUBE_DOWNLOAD_ATTEMPTS,
       retryBackoffMs: numeric.SHORTSENGINE_YOUTUBE_RETRY_BACKOFF_MS,
+      progressHeartbeatMs: numeric.SHORTSENGINE_YOUTUBE_PROGRESS_HEARTBEAT_MS,
+      noProgressTimeoutMs: numeric.SHORTSENGINE_YOUTUBE_NO_PROGRESS_TIMEOUT_MS,
       sourceCache: {
         enabled: Boolean(boolFromEnv(rawValue(env, "SHORTSENGINE_SOURCE_CACHE_ENABLED"))),
         configured: Boolean(boolFromEnv(rawValue(env, "SHORTSENGINE_SOURCE_CACHE_ENABLED"))),
@@ -603,6 +612,7 @@ function checkEnvironment(options = {}) {
         ...youtubeLiveE2E,
         portConfigured: Boolean(rawValue(env, "SHORTSENGINE_YOUTUBE_LIVE_E2E_PORT")),
         timeoutMs: numeric.SHORTSENGINE_YOUTUBE_LIVE_E2E_TIMEOUT_MS,
+        downloadTimeoutMs: numeric.SHORTSENGINE_YOUTUBE_LIVE_E2E_DOWNLOAD_TIMEOUT_MS,
       },
     },
     worker: {

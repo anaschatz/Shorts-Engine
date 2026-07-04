@@ -24,8 +24,12 @@ const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const LIVE_FLAG = "SHORTSENGINE_YOUTUBE_LIVE_E2E";
 const LIVE_RIGHTS_FLAG = "SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED";
 const LIVE_URL_FLAG = "SHORTSENGINE_YOUTUBE_LIVE_E2E_URL";
+const LIVE_DOWNLOAD_TIMEOUT_FLAG = "SHORTSENGINE_YOUTUBE_LIVE_E2E_DOWNLOAD_TIMEOUT_MS";
 const DEFAULT_COMMAND_NAME = "youtube:proof";
-const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
+const MAX_TIMEOUT_MS = 30 * 60 * 1000;
+const DEFAULT_TIMEOUT_MS = MAX_TIMEOUT_MS;
+const MAX_LIVE_DOWNLOAD_TIMEOUT_MS = 15 * 60 * 1000;
+const DEFAULT_LIVE_SCOREBOARD_OCR_JOB_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_SERVER_READY_TIMEOUT_MS = 15_000;
 const DEFAULT_SERVER_READY_POLL_INTERVAL_MS = 250;
 const MANUAL_DOWNLOADS_DIR = "manual-downloads";
@@ -45,6 +49,7 @@ const NEXT_ACTIONS = Object.freeze({
   YOUTUBE_LIVE_E2E_SERVER_BIND_FAILED: "run-outside-restricted-sandbox-or-use-an-available-local-port",
   YOUTUBE_LIVE_E2E_SERVER_READY_TIMEOUT: "check-local-server-startup-health-and-rerun-youtube-proof",
   YOUTUBE_LIVE_E2E_SERVER_READY_TIMEOUT_INVALID: "set-SHORTSENGINE_YOUTUBE_LIVE_E2E_SERVER_READY_TIMEOUT_MS-within-safe-bounds",
+  ENV_YOUTUBE_LIVE_E2E_DOWNLOAD_TIMEOUT_INVALID: "set-SHORTSENGINE_YOUTUBE_LIVE_E2E_DOWNLOAD_TIMEOUT_MS-between-1000-and-900000",
   YOUTUBE_LIVE_E2E_DOCTOR_FAILED: "run-npm-run-youtube-doctor-and-fix-failed-checks",
   YOUTUBE_LIVE_E2E_SMOKE_FAILED: "inspect-demo-results-youtube-live-e2e-latest-json",
   YOUTUBE_LIVE_E2E_REPORT_LEAK: "remove-sensitive-output-from-live-e2e-report",
@@ -54,6 +59,7 @@ const NEXT_ACTIONS = Object.freeze({
   YOUTUBE_LIVE_E2E_HUMAN_VISIBLE_GOAL_INCOMPLETE: "inspect-human-visible-goal-gate-contact-sheets-and-fix-goal-sequence-selection",
   YOUTUBE_LIVE_E2E_SOCIAL_POLISH_FAILED: "inspect-rendered-social-polish-qa-and-fix-hook-captions-transitions-before-release",
   YOUTUBE_LIVE_E2E_CLEANUP_DIR_UNSAFE: "keep-live-proof-cleanup-inside-manual-downloads",
+  YOUTUBE_DOWNLOAD_TIMEOUT: "set-SHORTSENGINE_YOUTUBE_LIVE_E2E_DOWNLOAD_TIMEOUT_MS-for-authorized-long-source-or-use-source-cache",
   YOUTUBE_DOWNLOAD_FAILED: "use-rights-cleared-local-mp4-proof-or-fix-downloader-and-rerun",
   YOUTUBE_NO_PROGRESS_TIMEOUT: "retry-with-longer-no-progress-timeout-or-use-authorized-source-cache",
   SOURCE_CACHE_MISS: "place-rights-cleared-source-in-cache-or-enable-downloader-fallback",
@@ -116,9 +122,40 @@ function parseLiveProofTimeoutMs(env, fallback = DEFAULT_TIMEOUT_MS) {
     rawValue(env, "SHORTSENGINE_YOUTUBE_LIVE_E2E_TIMEOUT_MS"),
     fallback,
     1000,
-    15 * 60 * 1000,
+    MAX_TIMEOUT_MS,
     "YOUTUBE_LIVE_E2E_TIMEOUT_INVALID",
   );
+}
+
+function parseLiveDownloadTimeoutMs(env) {
+  const raw = rawValue(env, LIVE_DOWNLOAD_TIMEOUT_FLAG);
+  if (raw === undefined || raw === null || raw === "") return null;
+  return parseInteger(
+    raw,
+    null,
+    1000,
+    MAX_LIVE_DOWNLOAD_TIMEOUT_MS,
+    "ENV_YOUTUBE_LIVE_E2E_DOWNLOAD_TIMEOUT_INVALID",
+  );
+}
+
+function liveScoreboardOcrEnabled(env) {
+  return boolFromEnv(rawValue(env, "SHORTSENGINE_YOUTUBE_LIVE_E2E_SCOREBOARD_OCR"));
+}
+
+function liveScoreboardOcrQaEnabled(env) {
+  return boolFromEnv(rawValue(env, "SHORTSENGINE_YOUTUBE_LIVE_E2E_SCOREBOARD_OCR_QA"));
+}
+
+function liveScoreboardOcrJobTimeoutEnv(env) {
+  const explicitJobTimeout = rawValue(env, "SHORTSENGINE_YOUTUBE_SMOKE_JOB_TIMEOUT_MS");
+  if (
+    !liveScoreboardOcrEnabled(env) ||
+    (explicitJobTimeout !== undefined && explicitJobTimeout !== null && explicitJobTimeout !== "")
+  ) {
+    return {};
+  }
+  return { SHORTSENGINE_YOUTUBE_SMOKE_JOB_TIMEOUT_MS: String(DEFAULT_LIVE_SCOREBOARD_OCR_JOB_TIMEOUT_MS) };
 }
 
 function delay(ms) {
@@ -518,6 +555,13 @@ function safeFailure(error) {
     progressHeartbeatCount: safeNumber(details.progressHeartbeatCount),
     progressEventCount: safeNumber(details.progressEventCount),
     progressBytesObserved: safeNumber(details.progressBytesObserved),
+    lastProgressAgeMs: safeNumber(details.lastProgressAgeMs),
+    timeoutClassification: details.timeoutClassification ? safeString(details.timeoutClassification, 80) : null,
+    bytesStillMovingAtTimeout: safeBoolean(details.bytesStillMovingAtTimeout),
+    continueEnabled: safeBoolean(details.continueEnabled),
+    continueAttempted: safeBoolean(details.continueAttempted),
+    resumableStateEnabled: safeBoolean(details.resumableStateEnabled),
+    resumeStateRetained: safeBoolean(details.resumeStateRetained),
     metadataPreflightStatus: details.metadataPreflightStatus ? safeString(details.metadataPreflightStatus, 80) : null,
     metadataPreflightDurationSeconds: safeNumber(details.metadataPreflightDurationSeconds),
     cleanupSucceeded: safeBoolean(details.cleanupSucceeded),
@@ -1431,6 +1475,13 @@ function ingestDiagnosticsFromFailure(failure = null) {
     progressHeartbeatCount: safeNumber(failure.progressHeartbeatCount),
     progressEventCount: safeNumber(failure.progressEventCount),
     progressBytesObserved: safeNumber(failure.progressBytesObserved),
+    lastProgressAgeMs: safeNumber(failure.lastProgressAgeMs),
+    timeoutClassification: failure.timeoutClassification ? safeString(failure.timeoutClassification, 80) : null,
+    bytesStillMovingAtTimeout: safeBoolean(failure.bytesStillMovingAtTimeout),
+    continueEnabled: safeBoolean(failure.continueEnabled),
+    continueAttempted: safeBoolean(failure.continueAttempted),
+    resumableStateEnabled: safeBoolean(failure.resumableStateEnabled),
+    resumeStateRetained: safeBoolean(failure.resumeStateRetained),
     metadataPreflightStatus: failure.metadataPreflightStatus ? safeString(failure.metadataPreflightStatus, 80) : null,
     metadataPreflightDurationSeconds: safeNumber(failure.metadataPreflightDurationSeconds),
     cleanupSucceeded: safeBoolean(failure.cleanupSucceeded),
@@ -1645,6 +1696,7 @@ function safePreflightSummary(summary) {
     manualUnlistedGate: Boolean(live.allowUnlisted),
     portConfigured: Boolean(live.portConfigured),
     timeoutMs: Number.isFinite(Number(live.timeoutMs)) ? Number(live.timeoutMs) : null,
+    downloadTimeoutMs: Number.isFinite(Number(live.downloadTimeoutMs)) ? Number(live.downloadTimeoutMs) : null,
   };
 }
 
@@ -1886,15 +1938,18 @@ function validateLiveConfig(env) {
       "Live YouTube E2E source configuration is not ready.",
     );
   }
+  const downloadTimeoutMs = parseLiveDownloadTimeoutMs(env);
   return {
     skipped: false,
     source,
+    downloadTimeoutMs,
   };
 }
 
 function smokeEnvForLive(env, baseUrl) {
   return {
     ...env,
+    ...liveScoreboardOcrJobTimeoutEnv(env),
     SHORTSENGINE_YOUTUBE_SMOKE: "1",
     SHORTSENGINE_YOUTUBE_INGEST_ENABLED: "1",
     SHORTSENGINE_YOUTUBE_SMOKE_URL: String(
@@ -2023,12 +2078,22 @@ async function getFreePort() {
 }
 
 function liveServerEnvironment({ port, dataDir, env = {} } = {}) {
-  const liveScoreboardOcrEnabled = boolFromEnv(rawValue(env, "SHORTSENGINE_YOUTUBE_LIVE_E2E_SCOREBOARD_OCR"));
-  const liveScoreboardOcrQaEnabled = boolFromEnv(rawValue(env, "SHORTSENGINE_YOUTUBE_LIVE_E2E_SCOREBOARD_OCR_QA"));
+  const scoreboardOcrEnabled = liveScoreboardOcrEnabled(env);
+  const scoreboardOcrQaEnabled = liveScoreboardOcrQaEnabled(env);
+  const liveDownloadTimeoutMs = parseLiveDownloadTimeoutMs(env);
+  const timeoutEnv = liveDownloadTimeoutMs
+    ? { ...env, SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS: String(liveDownloadTimeoutMs) }
+    : env;
   return {
     ...process.env,
     ...env,
-    ...(liveScoreboardOcrEnabled
+    ...(liveDownloadTimeoutMs
+      ? {
+          SHORTSENGINE_YOUTUBE_DOWNLOAD_TIMEOUT_MS: String(liveDownloadTimeoutMs),
+          SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS: String(liveDownloadTimeoutMs),
+        }
+      : {}),
+    ...(scoreboardOcrEnabled
       ? {
           SHORTSENGINE_SCOREBOARD_OCR_ENABLED: "1",
           SHORTSENGINE_SCOREBOARD_OCR_PROVIDER: String(
@@ -2036,15 +2101,16 @@ function liveServerEnvironment({ port, dataDir, env = {} } = {}) {
           ),
         }
       : {}),
-    ...(liveScoreboardOcrQaEnabled
+    ...(scoreboardOcrQaEnabled
       ? {
           SHORTSENGINE_SCOREBOARD_OCR_QA_ARTIFACTS: "1",
         }
       : {}),
+    ...liveScoreboardOcrJobTimeoutEnv(env),
     MATCHCUTS_DATA_DIR: dataDir,
     PORT: String(port),
     SHORTSENGINE_YOUTUBE_INGEST_ENABLED: "1",
-    SHORTSENGINE_YOUTUBE_SMOKE_REQUEST_TIMEOUT_MS: String(computedIngestRequestTimeoutMs(env)),
+    SHORTSENGINE_YOUTUBE_SMOKE_REQUEST_TIMEOUT_MS: String(computedIngestRequestTimeoutMs(timeoutEnv)),
     MATCHCUTS_TRANSCRIPTION_PROVIDER: "mock",
   };
 }
@@ -2284,7 +2350,7 @@ async function runYouTubeLiveE2E(options = {}) {
 
     proofTimeoutMs = options.timeoutMs === undefined || options.timeoutMs === null
       ? parseLiveProofTimeoutMs(env)
-      : parseInteger(options.timeoutMs, DEFAULT_TIMEOUT_MS, 1000, 15 * 60 * 1000, "YOUTUBE_LIVE_E2E_TIMEOUT_INVALID");
+      : parseInteger(options.timeoutMs, DEFAULT_TIMEOUT_MS, 1000, MAX_TIMEOUT_MS, "YOUTUBE_LIVE_E2E_TIMEOUT_INVALID");
     proofDeadlineAt = Date.now() + proofTimeoutMs;
     const withDeadline = (work, details) => withLiveProofDeadline(work, {
       deadlineAt: proofDeadlineAt,
