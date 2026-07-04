@@ -225,6 +225,58 @@ test("audio-only spike is not promoted to goal without semantic evidence", () =>
   assert.equal(hasGoalLanguage(result.moments[0].hook), false);
 });
 
+test("transcript energy boosts football event curation without API keys", () => {
+  const result = detectHighlights({
+    transcript: {
+      provider: "fixture",
+      language: "en",
+      captions: [
+        { start: 2, end: 3.2, text: "The teams settle into possession" },
+        { start: 11, end: 12.7, text: "WHAT A SAVE!!! The keeper somehow denies it" },
+        { start: 18, end: 19.5, text: "The replay shows the pressure again" },
+      ],
+    },
+    signals: {
+      durationSeconds: 26,
+      hasAudio: true,
+      audioPeaks: [],
+      sceneChanges: [],
+    },
+    preset: "hype",
+  });
+
+  assert.equal(result.explainability.transcriptEnergy.providerMode, "deterministic-transcript-energy");
+  assert.equal(result.moments[0].highlightType, "save");
+  assert.equal(result.moments[0].evidence.transcriptEnergy.possibleEventType, "save");
+  assert.ok(result.moments[0].rankingExplanation.transcriptEnergy.commentatorIntensityScore >= 0.66);
+  assert.equal(result.moments[0].reasonCodes.includes("goal"), false);
+});
+
+test("transcript hype alone remains crowd support and does not invent a goal", () => {
+  const result = detectHighlights({
+    transcript: {
+      provider: "fixture",
+      language: "en",
+      captions: [
+        { start: 8, end: 10, text: "LISTEN TO THAT CROWD!!! The stadium erupts" },
+      ],
+    },
+    signals: {
+      durationSeconds: 18,
+      hasAudio: true,
+      audioPeaks: [],
+      sceneChanges: [],
+    },
+    preset: "hype",
+  });
+
+  assert.equal(result.moments[0].highlightType, "crowd_reaction");
+  assert.equal(result.moments[0].evidence.transcriptEnergy.possibleEventType, "crowd_reaction");
+  assert.equal(result.moments[0].rankingExplanation.transcriptEnergy.goalClaimAllowed, false);
+  assert.equal(result.moments[0].reasonCodes.includes("goal"), false);
+  assert.equal(hasGoalLanguage(result.moments[0].hook), false);
+});
+
 test("visual shot-like evidence ranks a big chance without inventing a goal", () => {
   const result = detectHighlights({
     transcript: {

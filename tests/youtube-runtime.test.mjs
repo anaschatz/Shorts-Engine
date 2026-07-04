@@ -71,8 +71,9 @@ function renderPolishQA(overrides = {}) {
     hardCutFallbackCount: 0,
     transitions: [],
     animatedCaptionCount: 2,
+    dynamicWordCaptionCount: 2,
     staticCaptionFallbackCount: 0,
-    captionMotion: "ass_fade_scale",
+    captionMotion: "ass_word_by_word_highlight",
     overlayRenderedCount: 2,
     overlayFallbackCount: 0,
     overlayMode: "ass_goal_badge_and_labels",
@@ -93,13 +94,62 @@ function completedJobEditPlan(overrides = {}) {
     confidence: 0.86,
     hook: "THE CHANCE OPENS",
     captions: [
-      { start: 0.2, end: 2.2, text: "THE CHANCE OPENS", role: "opening_hook", captionRiskFlags: [] },
-      { start: 8.8, end: 11.6, text: "WATCH THE REPLAY", role: "closing_punch", captionRiskFlags: [] },
+      {
+        start: 0.2,
+        end: 2.2,
+        text: "THE CHANCE OPENS",
+        role: "opening_hook",
+        words: ["THE", "CHANCE", "OPENS"],
+        activeWordTiming: [
+          { word: "THE", start: 0.2, end: 0.7 },
+          { word: "CHANCE", start: 0.7, end: 1.4 },
+          { word: "OPENS", start: 1.4, end: 2.1 },
+        ],
+        stylePreset: "hormozi_sports",
+        contrastMode: "outlined_shadow",
+        safeArea: { name: "lower_third" },
+        captionRiskFlags: [],
+      },
+      {
+        start: 8.8,
+        end: 11.6,
+        text: "WATCH THE REPLAY",
+        role: "closing_punch",
+        words: ["WATCH", "THE", "REPLAY"],
+        activeWordTiming: [
+          { word: "WATCH", start: 8.8, end: 9.5 },
+          { word: "THE", start: 9.5, end: 10.1 },
+          { word: "REPLAY", start: 10.1, end: 11.2 },
+        ],
+        stylePreset: "hormozi_sports",
+        contrastMode: "outlined_shadow",
+        safeArea: { name: "lower_third" },
+        captionRiskFlags: [],
+      },
     ],
     animationCues: [
-      { type: "intro_hook", start: 0, end: 1.2 },
+      { type: "intro_hook", start: 0, end: 1.2, safeForMotion: true },
+      { type: "caption_word_pop", start: 0.2, end: 2.2, safeForMotion: true },
       { type: "beat_cut", start: 7.8, end: 8.1 },
     ],
+    audioPolicy: {
+      audioMode: "source_only",
+      licenseStatus: "source_rights_confirmed",
+      source: "original_source_audio",
+      externalAudioBundled: false,
+      copyrightedTrackBundled: false,
+      operatorActionRequired: false,
+      copyrightEvasion: false,
+      bypassDetection: false,
+      avoidCopyrightDetection: false,
+    },
+    creativeStyleTransforms: {
+      colorGrade: "sports_clean",
+      mildZoom: 1.02,
+      mirror: false,
+      copyrightEvasion: false,
+      watermarkObscuring: false,
+    },
     framingMode: "wide_safe_vertical",
     stylePreset: "punchy_highlight",
     styleTarget: "vertical_9_16",
@@ -1499,6 +1549,7 @@ function countedGoalSmokeReport() {
         { fromSegmentId: "goal_2", toSegmentId: "goal_3", timelineStart: 48, type: "short_fade", transitionDurationSeconds: 0.4, renderedBy: "segment_fade_concat" },
       ],
       animatedCaptionCount: 5,
+      dynamicWordCaptionCount: 5,
       overlayRenderedCount: 5,
       visualPolishScore: 100,
     }),
@@ -2100,7 +2151,8 @@ test("youtube live local e2e mocked success wraps smoke proof without raw URL le
   assert.equal(report.outputProof.transitionRenderedCount, 0);
   assert.equal(report.outputProof.animatedCaptionCount, 2);
   assert.equal(report.outputProof.overlayRenderedCount, 2);
-  assert.equal(report.outputProof.renderPolishQA.captionMotion, "ass_fade_scale");
+  assert.equal(report.outputProof.renderPolishQA.captionMotion, "ass_word_by_word_highlight");
+  assert.equal(report.outputProof.dynamicWordCaptionCount, 2);
   assert.equal(report.outputProof.abruptCutRiskCount, 0);
   assert.equal(report.outputProof.referenceStyleQA.captionsMisalignedCount, 0);
   assert.equal(report.outputProof.generatedVideoPath, "manual-downloads/shortsengine-youtube-dQw4w9WgXcQ-test.mp4");
@@ -2146,6 +2198,7 @@ test("youtube live local e2e reports counted goal coverage and replay-only segme
   assert.equal(report.outputProof.transitionRenderedCount, 2);
   assert.equal(report.outputProof.hardCutFallbackCount, 0);
   assert.equal(report.outputProof.animatedCaptionCount, 5);
+  assert.equal(report.outputProof.dynamicWordCaptionCount, 5);
   assert.equal(report.outputProof.overlayRenderedCount, 5);
   assert.equal(report.outputProof.renderPolishQA.transitions.length, 2);
   assert.equal(report.outputProof.abruptCutRiskCount, 0);

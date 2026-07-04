@@ -54,7 +54,13 @@ test("stable ball and player action tracking can create a soft-follow crop plan"
 
   assert.equal(tracking.goalClaimAllowed, false);
   assert.equal(cropPlan.mode, "soft_follow");
+  assert.equal(cropPlan.cropMode, "soft_follow");
   assert.equal(cropPlan.fallbackUsed, false);
+  assert.ok(cropPlan.actionCenterX > 0);
+  assert.ok(cropPlan.actionCenterY > 0);
+  assert.equal(cropPlan.trackingConfidence, cropPlan.confidence);
+  assert.equal(cropPlan.maxPanSpeed > 0, true);
+  assert.equal(typeof cropPlan.safeMargins.left, "number");
   assert.equal(cropPlan.cropBox.x >= 0, true);
   assert.equal(cropPlan.cropBox.x + cropPlan.cropBox.width <= metadata.width, true);
   assert.equal(cropPlan.actionSafeZones.length, 1);
@@ -74,7 +80,9 @@ test("low confidence tracking falls back to wide-safe framing", () => {
   const cropPlan = calibrateCropPlan({ metadata, trackingSummary: tracking, targetAspectRatio: "9:16" });
 
   assert.equal(cropPlan.mode, "wide_safe");
+  assert.equal(cropPlan.cropMode, "wide_safe");
   assert.equal(cropPlan.fallbackUsed, true);
+  assert.equal(cropPlan.maxPanSpeed, 0);
   assert.equal(cropPlan.cropBox.width, metadata.width);
   assert.equal(cropPlan.cropBox.height, metadata.height);
 });

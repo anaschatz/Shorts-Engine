@@ -541,12 +541,27 @@ function validateCropPlan(plan, metadata = {}) {
       return outputZone && textSafeZones.some((textZone) => normalizedTextZoneOverlapsAction(textZone, outputZone));
     }),
   );
+  const actionCenter = actionSafeZones.length
+    ? boxCenter(unionBoxes(actionSafeZones, metadata) || cropBox)
+    : boxCenter(cropBox);
+  const safeMargins = {
+    left: round(Math.max(0, safeArea.x - cropBox.x), 2),
+    top: round(Math.max(0, safeArea.y - cropBox.y), 2),
+    right: round(Math.max(0, cropBox.x + cropBox.width - (safeArea.x + safeArea.width)), 2),
+    bottom: round(Math.max(0, cropBox.y + cropBox.height - (safeArea.y + safeArea.height)), 2),
+  };
   return {
     mode,
+    cropMode: mode,
     targetAspectRatio,
     safeArea,
     cropBox,
     confidence,
+    trackingConfidence: confidence,
+    actionCenterX: actionCenter.x,
+    actionCenterY: actionCenter.y,
+    maxPanSpeed: mode === "soft_follow" ? 0.18 : 0,
+    safeMargins,
     reasonCodes: Array.isArray(plan.reasonCodes)
       ? plan.reasonCodes.map((reason) => sanitizeText(reason, 80)).filter(Boolean).slice(0, 8)
       : [],

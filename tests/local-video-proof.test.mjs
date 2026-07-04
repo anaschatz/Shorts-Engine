@@ -76,6 +76,51 @@ function completedJob({ qaOverrides = {}, segmentOverrides = {} } = {}) {
       coveredGoalCount: 3,
       missingGoalNumbers: [],
       failedReasons: [],
+      hook: {
+        passed: true,
+        hookType: "goal_payoff",
+        hookStart: 0,
+        hookEnd: 1.8,
+        hookText: "THE GOALS COUNT",
+        relatedGoalNumber: 1,
+        evidenceCodes: ["confirmed_goal", "score_change"],
+        noFalseGoalClaim: true,
+        reasons: [],
+      },
+      captions: {
+        passed: true,
+        captionCount: 3,
+        dynamicCaptionCount: 3,
+        readableCaptionCount: 3,
+        openingHookCaptionInFirstTwoSeconds: true,
+        stylePresets: ["hormozi_sports"],
+        safeAreas: ["lower_third"],
+        reasons: [],
+      },
+      animations: {
+        passed: true,
+        cueCount: 4,
+        hookCueCount: 2,
+        cueTypes: ["intro_hook", "caption_word_pop", "segment_flash", "smooth_transition"],
+        reasons: [],
+      },
+      audioPolicy: {
+        passed: true,
+        audioMode: "source_only",
+        licenseStatus: "source_rights_confirmed",
+        externalAudioBundled: false,
+        copyrightedTrackBundled: false,
+        reasons: [],
+      },
+      creativeStyle: {
+        passed: true,
+        colorGrade: "sports_clean",
+        mildZoom: 1.02,
+        mirror: false,
+        copyrightEvasion: false,
+        watermarkObscuring: false,
+        reasons: [],
+      },
       ...qaOverrides,
     },
     editPlan: {
@@ -83,6 +128,75 @@ function completedJob({ qaOverrides = {}, segmentOverrides = {} } = {}) {
       goalSelectionMode: "valid_goals_only",
       totalDuration: 78,
       segments,
+      captions: [
+        {
+          start: 0.1,
+          end: 1.8,
+          text: "THE GOALS COUNT",
+          role: "opening_hook",
+          words: ["THE", "GOALS", "COUNT"],
+          activeWordTiming: [
+            { word: "THE", start: 0.1, end: 0.45 },
+            { word: "GOALS", start: 0.45, end: 1.1 },
+            { word: "COUNT", start: 1.1, end: 1.8 },
+          ],
+          stylePreset: "hormozi_sports",
+          contrastMode: "outlined_shadow",
+          safeArea: { name: "lower_third" },
+        },
+        {
+          start: 24,
+          end: 26,
+          text: "GOAL CONFIRMED",
+          role: "confirmation",
+          words: ["GOAL", "CONFIRMED"],
+          activeWordTiming: [
+            { word: "GOAL", start: 24, end: 24.6 },
+            { word: "CONFIRMED", start: 24.6, end: 25.5 },
+          ],
+          stylePreset: "hormozi_sports",
+          contrastMode: "outlined_shadow",
+          safeArea: { name: "lower_third" },
+        },
+        {
+          start: 50,
+          end: 52,
+          text: "THIRD FINISH",
+          role: "goal_payoff",
+          words: ["THIRD", "FINISH"],
+          activeWordTiming: [
+            { word: "THIRD", start: 50, end: 50.8 },
+            { word: "FINISH", start: 50.8, end: 51.8 },
+          ],
+          stylePreset: "hormozi_sports",
+          contrastMode: "outlined_shadow",
+          safeArea: { name: "lower_third" },
+        },
+      ],
+      renderPolishQA: {
+        transitionRenderedCount: 2,
+        hardCutFallbackCount: 0,
+        transitions: [
+          { timelineStart: 26, type: "short_fade", transitionDurationSeconds: 0.35, renderedBy: "segment_fade_concat" },
+          { timelineStart: 52, type: "short_fade", transitionDurationSeconds: 0.35, renderedBy: "segment_fade_concat" },
+        ],
+        animatedCaptionCount: 3,
+        dynamicWordCaptionCount: 3,
+        staticCaptionFallbackCount: 0,
+        captionMotion: "ass_word_by_word_highlight",
+        overlayRenderedCount: 3,
+        overlayFallbackCount: 0,
+        visualPolishScore: 98,
+        renderPolishWarnings: [],
+      },
+      visualPolishQA: {
+        abruptCutRiskCount: 0,
+        cutSmoothnessScore: 1,
+        phaseCoverageScore: 1,
+        referencePacingScore: 1,
+        visualPolishScore: 98,
+        referenceSimilarityNotes: ["local_proof_social_polish_ready"],
+      },
     },
   };
 }
@@ -235,6 +349,10 @@ test("local video proof passes only after output gate and uses the local proof s
     assert.equal(report.status, "passed");
     assert.equal(report.outputProof.expectedCountedGoals, 3);
     assert.equal(report.outputProof.coveredGoalCount, 3);
+    assert.equal(report.outputProof.renderedSocialPolishQA.passed, true);
+    assert.equal(report.outputProof.dynamicWordCaptionCount, 3);
+    assert.equal(report.outputProof.openingHookCaptionRendered, true);
+    assert.equal(report.outputProof.hookFirstTwoSecondsPassed, true);
     assert.equal(report.outputProof.outputMp4.relativePath.startsWith("manual-downloads/"), true);
     assert.equal(captures.writeOutputArtifact, true);
     assert.equal(captures.startServer.config.scoreboardOcrEnabled, true);

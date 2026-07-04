@@ -560,6 +560,7 @@ function assertVideoOutputCoverage({
 
 module.exports = {
   assertVideoOutputCoverage,
+  animationSummary,
   audioPolicySummary,
   captionStyleSummary,
   creativeStyleSummary,

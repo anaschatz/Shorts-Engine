@@ -1,0 +1,52 @@
+{
+  "id": "transcript_energy_save_no_goal",
+  "title": "Transcript energy save without goal claim",
+  "language": "English",
+  "durationSeconds": 28,
+  "transcript": {
+    "provider": "fixture",
+    "language": "en",
+    "captions": [
+      { "start": 3.0, "end": 4.4, "text": "The attack builds slowly through midfield" },
+      { "start": 12.0, "end": 13.6, "text": "WHAT A SAVE!!! The keeper somehow denies it" },
+      { "start": 19.0, "end": 20.4, "text": "Replay the pressure from that chance" }
+    ]
+  },
+  "mediaSignals": {
+    "durationSeconds": 28,
+    "width": 1920,
+    "height": 1080,
+    "hasAudio": true,
+    "audioPeaks": [],
+    "sceneChanges": [],
+    "highMotionCandidates": []
+  },
+  "visualSignals": {
+    "providerMode": "fixture-visual",
+    "fallbackUsed": false,
+    "confidence": 0.72,
+    "windows": [
+      {
+        "start": 11.4,
+        "end": 14.4,
+        "types": ["save_like_motion", "ball_visible", "player_cluster"],
+        "confidence": 0.72,
+        "source": "fixture"
+      }
+    ]
+  },
+  "expected": {
+    "highlights": [{ "start": 10.8, "end": 15.2 }],
+    "reasonCodes": ["save", "commentator_peak", "visual_save_like_motion", "visual_ball_visible"],
+    "highlightType": "save",
+    "stylePreset": "social_sports_v1",
+    "expectedCropMode": "wide_safe"
+  },
+  "thresholds": {
+    "minAggregateScore": 72,
+    "minTop1Overlap": 0.5,
+    "minTop3Recall": 1,
+    "minReasonPrecision": 0.5,
+    "minRetentionScore": 50
+  }
+}

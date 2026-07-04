@@ -1,0 +1,70 @@
+{
+  "id": "action_edge_soft_follow_tracking",
+  "title": "Action near frame edge with reliable tracking",
+  "language": "English",
+  "durationSeconds": 24,
+  "transcript": {
+    "provider": "fixture",
+    "language": "en",
+    "captions": [
+      { "start": 4.0, "end": 5.2, "text": "The break starts wide on the left" },
+      { "start": 11.0, "end": 12.3, "text": "The counter attack opens the whole pitch" },
+      { "start": 16.0, "end": 17.2, "text": "Replay the run and the pass" }
+    ]
+  },
+  "mediaSignals": {
+    "durationSeconds": 24,
+    "width": 1920,
+    "height": 1080,
+    "hasAudio": true,
+    "audioPeaks": [],
+    "sceneChanges": [],
+    "highMotionCandidates": []
+  },
+  "visualSignals": {
+    "providerMode": "fixture-visual",
+    "fallbackUsed": false,
+    "confidence": 0.91,
+    "windows": [
+      {
+        "start": 10.2,
+        "end": 14.6,
+        "types": ["fast_break_motion", "ball_visible", "player_cluster"],
+        "confidence": 0.91,
+        "actionBounds": { "x": 70, "y": 270, "width": 300, "height": 360 },
+        "source": "fixture"
+      }
+    ]
+  },
+  "trackingProviderOutput": {
+    "providerMode": "fixture-tracking-provider",
+    "fallbackUsed": false,
+    "frameCount": 4,
+    "ballTracks": [
+      { "timestamp": 11.0, "label": "ball", "confidence": 0.92, "bounds": { "x": 110, "y": 410, "width": 38, "height": 38 } }
+    ],
+    "playerClusters": [
+      { "timestamp": 11.2, "label": "player_cluster", "confidence": 0.86, "bounds": { "x": 80, "y": 310, "width": 290, "height": 330 } }
+    ],
+    "actionBounds": { "x": 70, "y": 270, "width": 330, "height": 390 },
+    "actionCenter": { "x": 235, "y": 465 },
+    "cameraMotionLevel": 0.08,
+    "confidence": 0.91,
+    "reasonCodes": ["tracking_ball_visible", "tracking_player_cluster", "tracking_action_bounds"],
+    "goalClaimAllowed": false
+  },
+  "expected": {
+    "highlights": [{ "start": 9.8, "end": 15.2 }],
+    "reasonCodes": ["counter_attack", "visual_fast_break", "visual_ball_visible"],
+    "highlightType": "counter_attack",
+    "stylePreset": "social_sports_v1",
+    "expectedCropMode": "soft_follow"
+  },
+  "thresholds": {
+    "minAggregateScore": 72,
+    "minTop1Overlap": 0.5,
+    "minTop3Recall": 1,
+    "minReasonPrecision": 0.5,
+    "minRetentionScore": 50
+  }
+}

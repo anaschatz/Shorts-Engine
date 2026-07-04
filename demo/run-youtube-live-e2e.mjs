@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, relative, resolve } from "node:path";
@@ -14,6 +15,9 @@ import {
 } from "./run-youtube-smoke.mjs";
 import { checkEnvironment } from "../tools/release/check-environment.mjs";
 import { checkYouTubeIngest } from "../tools/release/check-youtube-ingest.mjs";
+
+const require = createRequire(import.meta.url);
+const { renderedSocialPolishProof } = require("../server/rendered-social-proof.cjs");
 
 const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const LIVE_FLAG = "SHORTSENGINE_YOUTUBE_LIVE_E2E";
@@ -47,6 +51,7 @@ const NEXT_ACTIONS = Object.freeze({
   YOUTUBE_LIVE_E2E_OUTPUT_NOT_READY: "check-generated-mp4-path-and-ffprobe-before-comparison",
   YOUTUBE_LIVE_E2E_GOAL_COVERAGE_INCOMPLETE: "inspect-counted-goal-proof-and-fix-valid-goal-selection-before-release",
   YOUTUBE_LIVE_E2E_HUMAN_VISIBLE_GOAL_INCOMPLETE: "inspect-human-visible-goal-gate-contact-sheets-and-fix-goal-sequence-selection",
+  YOUTUBE_LIVE_E2E_SOCIAL_POLISH_FAILED: "inspect-rendered-social-polish-qa-and-fix-hook-captions-transitions-before-release",
   YOUTUBE_LIVE_E2E_CLEANUP_DIR_UNSAFE: "keep-live-proof-cleanup-inside-manual-downloads",
   YOUTUBE_DOWNLOAD_FAILED: "use-rights-cleared-local-mp4-proof-or-fix-downloader-and-rerun",
   YOUTUBE_NO_PROGRESS_TIMEOUT: "retry-with-longer-no-progress-timeout-or-use-authorized-source-cache",
@@ -454,6 +459,7 @@ function phaseForCode(code) {
     text.includes("EXPORT_MISSING") ||
     text.includes("GOAL_COVERAGE") ||
     text.includes("HUMAN_VISIBLE_GOAL") ||
+    text.includes("SOCIAL_POLISH") ||
     text === "SCOREBOARD_OCR_TIMEOUT" ||
     text === "NO_VALID_GOALS_FOUND"
   ) return PHASES.RENDER;
@@ -962,6 +968,9 @@ function renderPolishQaFromSmoke(smoke) {
   const animatedCaptionCount = Number.isFinite(Number(qa.animatedCaptionCount))
     ? Number(qa.animatedCaptionCount)
     : null;
+  const dynamicWordCaptionCount = Number.isFinite(Number(qa.dynamicWordCaptionCount))
+    ? Number(qa.dynamicWordCaptionCount)
+    : null;
   const overlayRenderedCount = Number.isFinite(Number(qa.overlayRenderedCount))
     ? Number(qa.overlayRenderedCount)
     : null;
@@ -985,6 +994,7 @@ function renderPolishQaFromSmoke(smoke) {
         }))
       : [],
     animatedCaptionCount,
+    dynamicWordCaptionCount,
     staticCaptionFallbackCount: Number.isFinite(Number(qa.staticCaptionFallbackCount))
       ? Number(qa.staticCaptionFallbackCount)
       : null,
@@ -1131,6 +1141,13 @@ function buildOutputProof({ env, smoke, source, staleArtifactCleanup }) {
     : null;
   const referenceStyleQA = referenceStyleQaFromSmoke(smoke, outputMp4);
   const renderPolishQA = renderPolishQaFromSmoke(smoke);
+  const renderedSocialPolishQA = renderedSocialPolishProof({
+    outputMp4,
+    ffprobe,
+    renderPlan: smoke?.renderPlan || null,
+    videoOutputQA: smoke?.renderPlan?.videoOutputQA || null,
+    generatedAt: nowIso(),
+  });
   const countedGoalProof = smoke && smoke.renderPlan && smoke.renderPlan.countedGoalProof
     ? smoke.renderPlan.countedGoalProof
     : null;
@@ -1191,11 +1208,21 @@ function buildOutputProof({ env, smoke, source, staleArtifactCleanup }) {
     overlayRenderedCount: renderPolishQA.overlayRenderedCount,
     overlayFallbackCount: renderPolishQA.overlayFallbackCount,
     renderStylePreset: renderPolishQA.renderStylePreset,
+    dynamicWordCaptionCount: renderedSocialPolishQA.dynamicCaptions?.dynamicWordCaptionCount ?? null,
+    openingHookCaptionRendered: renderedSocialPolishQA.dynamicCaptions?.openingHookCaptionRendered ?? null,
+    avgWordsPerBeat: renderedSocialPolishQA.dynamicCaptions?.avgWordsPerBeat ?? null,
+    maxCaptionBeatDuration: renderedSocialPolishQA.dynamicCaptions?.maxCaptionBeatDuration ?? null,
+    captionSafeArea: renderedSocialPolishQA.dynamicCaptions?.captionSafeArea || [],
+    textObstructionRisk: renderedSocialPolishQA.dynamicCaptions?.textObstructionRisk ?? null,
+    hookFirstTwoSecondsPassed: renderedSocialPolishQA.renderedHook?.passed ?? false,
+    socialPolishScore: renderedSocialPolishQA.socialPolishScore,
+    rightsSafeStyleScore: renderedSocialPolishQA.rightsSafeStyle?.rightsSafeStyleScore ?? null,
     renderPolishWarnings: renderPolishQA.renderPolishWarnings,
     referenceSimilarityNotes: referenceStyleQA.referenceSimilarityNotes,
     generatedVideoPath: referenceStyleQA.generatedVideoPath,
     referenceStyleQA,
     renderPolishQA,
+    renderedSocialPolishQA,
     segmentWindows: coverage.segmentWindows,
     staleArtifactCleanup,
     comparison: buildComparisonReadiness({ source, outputMp4, ffprobe, coverage, reference, referenceStyleQA }),
@@ -2358,6 +2385,29 @@ async function runYouTubeLiveE2E(options = {}) {
         },
       );
     }
+    const renderedSocialPolishPassed = outputProof.renderedSocialPolishQA?.passed === true;
+    if (strictOutputValidation || outputProof.ffprobe?.status === "passed") {
+      addCheck(checks, "youtube_live_e2e_rendered_social_polish_passed", renderedSocialPolishPassed, {
+        code: renderedSocialPolishPassed ? null : "YOUTUBE_LIVE_E2E_SOCIAL_POLISH_FAILED",
+        failedReasons: Array.isArray(outputProof.renderedSocialPolishQA?.failedReasons)
+          ? outputProof.renderedSocialPolishQA.failedReasons
+          : [],
+        socialPolishScore: outputProof.renderedSocialPolishQA?.socialPolishScore ?? null,
+      });
+    }
+    if (strictOutputValidation && !renderedSocialPolishPassed) {
+      throw new YouTubeLiveE2EError(
+        "YOUTUBE_LIVE_E2E_SOCIAL_POLISH_FAILED",
+        "Live YouTube E2E rendered MP4 did not pass social polish proof.",
+        {
+          phase: PHASES.RENDER,
+          failedReasons: Array.isArray(outputProof.renderedSocialPolishQA?.failedReasons)
+            ? outputProof.renderedSocialPolishQA.failedReasons
+            : [],
+          socialPolishScore: outputProof.renderedSocialPolishQA?.socialPolishScore ?? null,
+        },
+      );
+    }
     addStep(steps, "smoke", "passed");
     addStep(steps, "ffprobe", outputProof.ffprobe?.status === "passed" ? "passed" : "skipped", {
       code: outputProof.ffprobe?.code || null,
@@ -2377,6 +2427,8 @@ async function runYouTubeLiveE2E(options = {}) {
       ["youtube_live_e2e_visual_polish_reported", hasFiniteNumber(outputProof.visualPolishScore)],
       ["youtube_live_e2e_abrupt_cut_risk_reported", hasFiniteNumber(outputProof.abruptCutRiskCount)],
       ["youtube_live_e2e_render_polish_reported", Boolean(outputProof.renderPolishQA)],
+      ["youtube_live_e2e_social_polish_reported", Boolean(outputProof.renderedSocialPolishQA)],
+      ["youtube_live_e2e_dynamic_word_captions_reported", hasFiniteNumber(outputProof.dynamicWordCaptionCount)],
       ["youtube_live_e2e_transition_rendered_reported", hasFiniteNumber(outputProof.transitionRenderedCount)],
       ["youtube_live_e2e_overlay_rendered_reported", hasFiniteNumber(outputProof.overlayRenderedCount)],
     ]) {

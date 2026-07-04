@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import { createHash, randomUUID } from "node:crypto";
 import { createServer } from "node:net";
 import {
@@ -20,6 +21,9 @@ import { fileURLToPath } from "node:url";
 
 import { findSensitiveLeak, safeError as safeReportError } from "./report-safety.mjs";
 import { probeVideo } from "./run-side-by-side-review.mjs";
+
+const require = createRequire(import.meta.url);
+const { renderedSocialPolishProof } = require("../server/rendered-social-proof.cjs");
 
 const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const RESULTS_DIR = resolve(ROOT_DIR, "demo", "results");
@@ -57,6 +61,7 @@ const NEXT_ACTIONS = Object.freeze({
   LOCAL_VIDEO_PROOF_DOWNLOAD_NOT_MP4: "check-render-export-download-contract",
   LOCAL_VIDEO_PROOF_MP4_SIGNATURE_INVALID: "check-render-output-and-download-contract",
   LOCAL_VIDEO_PROOF_FFPROBE_FAILED: "inspect-rendered-mp4-before-using-it-as-proof",
+  LOCAL_VIDEO_PROOF_SOCIAL_POLISH_FAILED: "inspect-rendered-social-polish-qa-and-fix-hook-captions-transitions-before-release",
   LOCAL_VIDEO_PROOF_REPORT_LEAK: "remove-sensitive-output-from-local-video-proof-report",
   LOCAL_VIDEO_PROOF_TIMEOUT: "check-local-server-and-render-pipeline-before-rerun",
 });
@@ -173,7 +178,7 @@ function phaseForCode(code) {
   if (text.includes("UPLOAD") || text.includes("SOURCE")) return PHASES.UPLOAD;
   if (text.includes("DOWNLOAD") || text.includes("MP4")) return PHASES.DOWNLOAD;
   if (text.includes("REPORT")) return PHASES.REPORT;
-  if (text.includes("JOB") || text.includes("OUTPUT_QA") || text.includes("GENERATE")) return PHASES.RENDER;
+  if (text.includes("JOB") || text.includes("OUTPUT_QA") || text.includes("SOCIAL_POLISH") || text.includes("GENERATE")) return PHASES.RENDER;
   if (text.includes("SKIPPED")) return PHASES.SKIPPED;
   return PHASES.CONFIG;
 }
@@ -664,6 +669,63 @@ async function startGenerate({ baseUrl, projectId, config, fetchImpl, signal = n
 
 function safeVideoOutputQA(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const hook = value.hook && typeof value.hook === "object" && !Array.isArray(value.hook)
+    ? {
+        passed: typeof value.hook.passed === "boolean" ? value.hook.passed : null,
+        hookType: safeString(value.hook.hookType, 60) || null,
+        hookStart: safeNumber(value.hook.hookStart),
+        hookEnd: safeNumber(value.hook.hookEnd),
+        hookText: safeString(value.hook.hookText || value.hook.text, 120) || null,
+        relatedGoalNumber: safeNumber(value.hook.relatedGoalNumber),
+        relatedMomentId: safeString(value.hook.relatedMomentId, 80) || null,
+        evidenceCodes: safeList(value.hook.evidenceCodes, 10, 80),
+        noFalseGoalClaim: value.hook.noFalseGoalClaim !== false,
+        reasons: safeList(value.hook.reasons, 8, 80),
+      }
+    : null;
+  const captions = value.captions && typeof value.captions === "object" && !Array.isArray(value.captions)
+    ? {
+        passed: typeof value.captions.passed === "boolean" ? value.captions.passed : null,
+        captionCount: safeNumber(value.captions.captionCount),
+        dynamicCaptionCount: safeNumber(value.captions.dynamicCaptionCount),
+        readableCaptionCount: safeNumber(value.captions.readableCaptionCount),
+        openingHookCaptionInFirstTwoSeconds: Boolean(value.captions.openingHookCaptionInFirstTwoSeconds),
+        safeAreas: safeList(value.captions.safeAreas, 8, 60),
+        stylePresets: safeList(value.captions.stylePresets, 8, 60),
+        textObstructionRisk: Boolean(value.captions.textObstructionRisk),
+        reasons: safeList(value.captions.reasons, 8, 80),
+      }
+    : null;
+  const animations = value.animations && typeof value.animations === "object" && !Array.isArray(value.animations)
+    ? {
+        passed: typeof value.animations.passed === "boolean" ? value.animations.passed : null,
+        cueCount: safeNumber(value.animations.cueCount),
+        hookCueCount: safeNumber(value.animations.hookCueCount),
+        cueTypes: safeList(value.animations.cueTypes, 12, 60),
+        reasons: safeList(value.animations.reasons, 8, 80),
+      }
+    : null;
+  const audioPolicy = value.audioPolicy && typeof value.audioPolicy === "object" && !Array.isArray(value.audioPolicy)
+    ? {
+        passed: typeof value.audioPolicy.passed === "boolean" ? value.audioPolicy.passed : null,
+        audioMode: safeString(value.audioPolicy.audioMode, 60) || null,
+        licenseStatus: safeString(value.audioPolicy.licenseStatus, 60) || null,
+        externalAudioBundled: Boolean(value.audioPolicy.externalAudioBundled),
+        copyrightedTrackBundled: Boolean(value.audioPolicy.copyrightedTrackBundled),
+        reasons: safeList(value.audioPolicy.reasons, 8, 80),
+      }
+    : null;
+  const creativeStyle = value.creativeStyle && typeof value.creativeStyle === "object" && !Array.isArray(value.creativeStyle)
+    ? {
+        passed: typeof value.creativeStyle.passed === "boolean" ? value.creativeStyle.passed : null,
+        colorGrade: safeString(value.creativeStyle.colorGrade, 60) || null,
+        mildZoom: safeNumber(value.creativeStyle.mildZoom),
+        mirror: Boolean(value.creativeStyle.mirror),
+        copyrightEvasion: Boolean(value.creativeStyle.copyrightEvasion),
+        watermarkObscuring: Boolean(value.creativeStyle.watermarkObscuring),
+        reasons: safeList(value.creativeStyle.reasons, 8, 80),
+      }
+    : null;
   return {
     status: safeString(value.status, 40) || null,
     passed: typeof value.passed === "boolean" ? value.passed : null,
@@ -692,6 +754,11 @@ function safeVideoOutputQA(value) {
           reasons: safeList(item && item.reasons, 8, 80),
         }))
       : [],
+    hook,
+    captions,
+    animations,
+    audioPolicy,
+    creativeStyle,
     logsDownloaded: false,
     artifactsDownloaded: false,
   };
@@ -738,6 +805,12 @@ function safeSegment(segment = {}, index = 0) {
     id: safeString(segment.id || `segment_${index + 1}`, 80),
     highlightType: safeString(segment.highlightType || "unknown", 60),
     outcome: goalOutcome ? safeString(goalOutcome.outcome || "unknown", 60) : null,
+    goalOutcome: goalOutcome
+      ? {
+          eventType: safeString(goalOutcome.eventType, 60) || null,
+          outcome: safeString(goalOutcome.outcome || "unknown", 60),
+        }
+      : null,
     sourceStart: safeNumber(segment.sourceStart),
     shotStart: safeNumber(segment.shotStart),
     finishTime: safeNumber(segment.finishTime),
@@ -772,17 +845,90 @@ function segmentProofFailures(segment = {}) {
   return [...new Set(failures)].slice(0, 12);
 }
 
+function safeRenderCaption(caption = {}, index = 0) {
+  return {
+    index: index + 1,
+    start: safeNumber(caption.start),
+    end: safeNumber(caption.end),
+    text: safeString(caption.text, 120) || "",
+    role: safeString(caption.role || "caption", 60) || "caption",
+    words: Array.isArray(caption.words)
+      ? caption.words.map((word) => safeString(word, 24)).filter(Boolean).slice(0, 16)
+      : [],
+    activeWordTiming: Array.isArray(caption.activeWordTiming)
+      ? caption.activeWordTiming.slice(0, 16).map((timing) => ({
+          word: safeString(timing && timing.word, 24) || null,
+          start: safeNumber(timing && timing.start),
+          end: safeNumber(timing && timing.end),
+        })).filter((timing) => timing.word && timing.start !== null && timing.end !== null)
+      : [],
+    stylePreset: safeString(caption.stylePreset, 60) || null,
+    contrastMode: safeString(caption.contrastMode, 60) || null,
+    safeArea: caption.safeArea && typeof caption.safeArea === "object"
+      ? { name: safeString(caption.safeArea.name, 60) || null }
+      : null,
+  };
+}
+
+function safeRenderPolishQA(value = {}) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    contractVersion: safeNumber(value.contractVersion) || 1,
+    renderStylePreset: safeString(value.renderStylePreset, 80) || null,
+    outputWidth: safeNumber(value.outputWidth),
+    outputHeight: safeNumber(value.outputHeight),
+    transitionMode: safeString(value.transitionMode, 80) || null,
+    transitionRenderedCount: safeNumber(value.transitionRenderedCount),
+    hardCutFallbackCount: safeNumber(value.hardCutFallbackCount),
+    transitions: Array.isArray(value.transitions)
+      ? value.transitions.slice(0, 8).map((transition, index) => ({
+          index: index + 1,
+          timelineStart: safeNumber(transition && transition.timelineStart),
+          type: safeString(transition && transition.type, 60) || null,
+          transitionDurationSeconds: safeNumber(transition && transition.transitionDurationSeconds),
+          renderedBy: safeString(transition && transition.renderedBy, 80) || null,
+        }))
+      : [],
+    animatedCaptionCount: safeNumber(value.animatedCaptionCount),
+    dynamicWordCaptionCount: safeNumber(value.dynamicWordCaptionCount),
+    staticCaptionFallbackCount: safeNumber(value.staticCaptionFallbackCount),
+    captionMotion: safeString(value.captionMotion, 80) || null,
+    overlayRenderedCount: safeNumber(value.overlayRenderedCount),
+    overlayFallbackCount: safeNumber(value.overlayFallbackCount),
+    overlayMode: safeString(value.overlayMode, 80) || null,
+    visualPolishScore: safeNumber(value.visualPolishScore),
+    renderPolishWarnings: safeList(value.renderPolishWarnings, 8, 80),
+  };
+}
+
+function safeVisualPolishQA(value = {}) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    abruptCutRiskCount: safeNumber(value.abruptCutRiskCount),
+    cutSmoothnessScore: safeNumber(value.cutSmoothnessScore),
+    phaseCoverageScore: safeNumber(value.phaseCoverageScore),
+    referencePacingScore: safeNumber(value.referencePacingScore),
+    visualPolishScore: safeNumber(value.visualPolishScore),
+    referenceSimilarityNotes: safeList(value.referenceSimilarityNotes, 8, 100),
+  };
+}
+
 function safeRenderPlan(job) {
   const plan = job?.editPlan && typeof job.editPlan === "object" ? job.editPlan : null;
   if (!plan) return null;
   const segments = Array.isArray(plan.segments) ? plan.segments.map(safeSegment).slice(0, 12) : [];
+  const captions = Array.isArray(plan.captions) ? plan.captions.map(safeRenderCaption).slice(0, 12) : [];
   return {
     mode: safeString(plan.mode || "", 60) || null,
     goalSelectionMode: safeString(plan.goalSelectionMode || "", 60) || null,
     totalDuration: safeNumber(plan.totalDuration || Number(plan.sourceEnd) - Number(plan.sourceStart)),
     segmentCount: segments.length,
     segments,
+    captions,
+    captionCount: captions.length,
     videoOutputQA: safeVideoOutputQA(job.videoOutputQA || plan.videoOutputQA),
+    visualPolishQA: safeVisualPolishQA(plan.visualPolishQA),
+    renderPolishQA: safeRenderPolishQA(plan.renderPolishQA),
   };
 }
 
@@ -1098,6 +1244,21 @@ function discardFailedOutputArtifact(artifact) {
 
 function outputProofFromSuccess({ config, artifact, ffprobe, renderPlan, videoOutputQA, proofDiagnostics = null }) {
   const diagnostics = proofDiagnostics || proofSegmentDiagnostics(renderPlan);
+  const renderedSocialPolishQA = renderedSocialPolishProof({
+    outputMp4: artifact
+      ? {
+          relativePath: artifact.relativePath,
+          sizeBytes: artifact.sizeBytes,
+          contentType: artifact.contentType,
+          sha256Prefix: artifact.sha256Prefix,
+          downloadVerified: Boolean(artifact.downloadVerified),
+        }
+      : null,
+    ffprobe,
+    renderPlan,
+    videoOutputQA,
+    generatedAt: nowIso(),
+  });
   return {
     schemaVersion: LOCAL_PROOF_SCHEMA_VERSION,
     generatedAt: nowIso(),
@@ -1131,7 +1292,17 @@ function outputProofFromSuccess({ config, artifact, ffprobe, renderPlan, videoOu
     ffprobe,
     renderPlan,
     videoOutputQA,
-    verdict: videoOutputQA.passed === true && ffprobe?.status === "passed" ? "passed" : "failed",
+    renderedSocialPolishQA,
+    dynamicWordCaptionCount: renderedSocialPolishQA.dynamicCaptions?.dynamicWordCaptionCount ?? null,
+    openingHookCaptionRendered: renderedSocialPolishQA.dynamicCaptions?.openingHookCaptionRendered ?? null,
+    avgWordsPerBeat: renderedSocialPolishQA.dynamicCaptions?.avgWordsPerBeat ?? null,
+    maxCaptionBeatDuration: renderedSocialPolishQA.dynamicCaptions?.maxCaptionBeatDuration ?? null,
+    captionSafeArea: renderedSocialPolishQA.dynamicCaptions?.captionSafeArea || [],
+    textObstructionRisk: renderedSocialPolishQA.dynamicCaptions?.textObstructionRisk ?? null,
+    hookFirstTwoSecondsPassed: renderedSocialPolishQA.renderedHook?.passed ?? false,
+    socialPolishScore: renderedSocialPolishQA.socialPolishScore ?? null,
+    rightsSafeStyleScore: renderedSocialPolishQA.rightsSafeStyle?.rightsSafeStyleScore ?? null,
+    verdict: videoOutputQA.passed === true && ffprobe?.status === "passed" && renderedSocialPolishQA.passed === true ? "passed" : "failed",
     logsDownloaded: false,
     artifactsDownloaded: false,
   };
@@ -1237,7 +1408,14 @@ function safeFailure(error) {
     missingGoalNumbers: Array.isArray(details.missingGoalNumbers)
       ? details.missingGoalNumbers.map(Number).filter(Number.isFinite).slice(0, 12)
       : [],
-    failedReasons: safeList(details.failedReasons, 12, 80),
+    failedReasons: safeList(
+      details.failedReasons ||
+        (Array.isArray(details.renderedSocialPolishQA?.failedReasons)
+          ? details.renderedSocialPolishQA.failedReasons
+          : []),
+      12,
+      80,
+    ),
   };
 }
 
@@ -1494,6 +1672,23 @@ async function runLocalVideoProof(options = {}) {
       );
     }
     outputProof = outputProofFromSuccess({ config, artifact, ffprobe, renderPlan, videoOutputQA, proofDiagnostics });
+    if (outputProof.renderedSocialPolishQA?.passed !== true) {
+      const failedOutputCleanup = deps.discardFailedOutputArtifact(artifact);
+      outputProof = {
+        ...outputProof,
+        outputMp4: null,
+        verdict: "failed",
+      };
+      throw new LocalVideoProofError(
+        "LOCAL_VIDEO_PROOF_SOCIAL_POLISH_FAILED",
+        "Local video proof generated MP4 did not pass rendered social polish QA.",
+        {
+          phase: PHASES.RENDER,
+          renderedSocialPolishQA: outputProof.renderedSocialPolishQA,
+          failedOutputCleanup,
+        },
+      );
+    }
     addStep(steps, "download", "passed", {
       exportId: ids.exportId,
       relativePath: artifact.relativePath,
@@ -1505,6 +1700,7 @@ async function runLocalVideoProof(options = {}) {
       ["local_video_proof_upload_created_upload", Boolean(ids.uploadId)],
       ["local_video_proof_render_created_export", Boolean(ids.exportId)],
       ["local_video_proof_video_output_qa_passed", videoOutputQA.passed === true],
+      ["local_video_proof_rendered_social_polish_passed", outputProof.renderedSocialPolishQA?.passed === true],
       ["local_video_proof_output_written_after_gate", Boolean(outputProof.outputMp4?.relativePath)],
       ["local_video_proof_ffprobe_passed", outputProof.ffprobe?.status === "passed"],
     ]) {

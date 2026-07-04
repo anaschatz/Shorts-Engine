@@ -20,6 +20,11 @@ const {
 } = require("./visual-tracking.cjs");
 const { commandAvailable, sanitizeText } = require("./media.cjs");
 const { runFfmpeg } = require("./render.cjs");
+const {
+  analyzeTranscriptEnergy,
+  publicTranscriptEnergySummary,
+  transcriptEnergyForWindow,
+} = require("./transcript-energy.cjs");
 const { analyzeMatchEventTruth, publicMatchEventTruth } = require("./match-event-truth.cjs");
 const {
   summarizeVisualSignals,
@@ -572,6 +577,44 @@ function reasonCodesForCaption(caption, signals, visualSignals) {
   return [...new Set(reasons)];
 }
 
+function reasonCodesWithTranscriptEnergy(reasons = [], transcriptEnergy = null) {
+  const safeReasons = Array.isArray(reasons) ? reasons : [];
+  if (!transcriptEnergy || Number(transcriptEnergy.confidence || 0) < 0.48) return [...new Set(safeReasons)];
+  const energyReasons = Array.isArray(transcriptEnergy.reasonCodes) ? transcriptEnergy.reasonCodes : [];
+  const eventType = transcriptEnergy.possibleEventType;
+  const mappedReason = {
+    goal: transcriptEnergy.goalClaimAllowed ? "goal" : null,
+    big_chance: "big_chance",
+    save: "save",
+    foul: "foul",
+    card_moment: "card_moment",
+    var_offside: "replay_worthy_moment",
+    counter_attack: "counter_attack",
+    crowd_reaction: "crowd_reaction",
+    commentator_peak: "commentator_peak",
+  }[eventType] || null;
+  const actionSupport = Number(transcriptEnergy.commentatorIntensityScore || 0) >= 0.66 ? "commentator_peak" : null;
+  return [...new Set([
+    ...safeReasons,
+    ...energyReasons,
+    mappedReason,
+    actionSupport,
+  ].filter(Boolean))];
+}
+
+function transcriptEnergyScoreBoost(transcriptEnergy = null, reasons = []) {
+  if (!transcriptEnergy) return 0;
+  const intensity = Number(transcriptEnergy.commentatorIntensityScore || 0);
+  if (intensity < 0.55) return 0;
+  const reasonSet = new Set(reasons);
+  const hasAction = [...reasonSet].some((reason) => PRIMARY_ACTION_REASONS.includes(reason));
+  const eventType = transcriptEnergy.possibleEventType;
+  const reactionOnly = eventType === "crowd_reaction" && !hasAction;
+  const base = clamp((intensity - 0.52) * 0.14, 0, 0.08);
+  if (reactionOnly) return Math.min(base, 0.025);
+  return base;
+}
+
 function scoreReasons(reasons) {
   const weights = {
     goal: 0.32,
@@ -938,6 +981,7 @@ function rankingExplanationForMoment({
   goalEvidence = null,
   goalOutcome = null,
   contextPenalty = null,
+  transcriptEnergy = null,
 } = {}) {
   const reasonSet = new Set(reasons);
   const actionCues = safeCueList(reasons, PRIMARY_ACTION_REASONS);
@@ -976,6 +1020,21 @@ function rankingExplanationForMoment({
       : null,
     goalEvidence: goalEvidence || null,
     goalOutcome: goalOutcome || null,
+    transcriptEnergy: transcriptEnergy
+      ? {
+          possibleEventType: sanitizeText(transcriptEnergy.possibleEventType || "neutral", 40),
+          confidence: Number(clamp(transcriptEnergy.confidence, 0, 1).toFixed(2)),
+          commentatorIntensityScore: Number(clamp(transcriptEnergy.commentatorIntensityScore, 0, 1).toFixed(2)),
+          exclamationDensity: Number(clamp(transcriptEnergy.exclamationDensity, 0, 1).toFixed(3)),
+          reasonCodes: Array.isArray(transcriptEnergy.reasonCodes)
+            ? transcriptEnergy.reasonCodes.map((reason) => sanitizeText(reason, 60)).filter(Boolean).slice(0, 8)
+            : [],
+          safeReasons: Array.isArray(transcriptEnergy.safeReasons)
+            ? transcriptEnergy.safeReasons.map((reason) => sanitizeText(reason, 80)).filter(Boolean).slice(0, 8)
+            : [],
+          goalClaimAllowed: Boolean(transcriptEnergy.goalClaimAllowed),
+        }
+      : null,
     boostCues: actionCues,
     supportingCues,
     reactionContextCues: reactionCues,
@@ -1515,7 +1574,14 @@ function expandWindowForGoalEvidence(moment, duration, goalEvidence = {}) {
   };
 }
 
-function normalizeMomentWithEvidence(moment, { signals = {}, visualSignals = null, captions = [], preset = "hype", goalEvidenceOverride = null } = {}) {
+function normalizeMomentWithEvidence(moment, {
+  signals = {},
+  visualSignals = null,
+  captions = [],
+  preset = "hype",
+  goalEvidenceOverride = null,
+  transcriptEnergy = null,
+} = {}) {
   const { _caption: sourceCaption, _sequenceSupportReasons: sequenceSupportReasons, ...publicMoment } = moment || {};
   const duration = seconds(signals.durationSeconds || 18);
   const initialReasons = Array.isArray(publicMoment.reasonCodes) ? publicMoment.reasonCodes : [];
@@ -1622,6 +1688,7 @@ function normalizeMomentWithEvidence(moment, { signals = {}, visualSignals = nul
         (suppliedEvidence.goalPhase && suppliedEvidence.goalPhase.phaseCoverage) ||
         null,
       goalOutcome,
+      transcriptEnergy: transcriptEnergy || suppliedEvidence.transcriptEnergy || null,
     },
     captionIntent: captionIntentForHighlightType(highlightType),
     rankingExplanation: rankingExplanationForMoment({
@@ -1632,6 +1699,7 @@ function normalizeMomentWithEvidence(moment, { signals = {}, visualSignals = nul
       goalEvidence,
       goalOutcome,
       contextPenalty,
+      transcriptEnergy: transcriptEnergy || suppliedEvidence.transcriptEnergy || null,
     }),
   };
 }
@@ -2305,13 +2373,22 @@ function detectHighlights({ transcript, signals, visualSignals, goalEvidence = n
     safeSignals,
   );
   const captions = normalizedCaptions(transcript);
+  const transcriptEnergy = analyzeTranscriptEnergy({
+    transcriptSegments: captions,
+    language: transcript && transcript.language ? transcript.language : "auto",
+    matchContext: { durationSeconds: duration },
+  });
   const captionMoments = captions.map((caption, index) => {
     const center = clamp((caption.start + caption.end) / 2, 0, duration);
     const start = Number(clamp(center - 4, 0, Math.max(0, duration - 6)).toFixed(2));
     const end = Number(clamp(Math.max(center + 5, start + 6), start + 3, duration).toFixed(2));
-    const reasonCodes = reasonCodesForCaption(caption, safeSignals, safeVisualSignals);
+    const transcriptEnergyWindow = transcriptEnergyForWindow(transcriptEnergy, { start: caption.start, end: caption.end, center });
+    const reasonCodes = reasonCodesWithTranscriptEnergy(
+      reasonCodesForCaption(caption, safeSignals, safeVisualSignals),
+      transcriptEnergyWindow,
+    );
     const highlightType = highlightTypeForReasons(reasonCodes);
-    const score = scoreReasons(reasonCodes);
+    const score = clamp(scoreReasons(reasonCodes) + transcriptEnergyScoreBoost(transcriptEnergyWindow, reasonCodes), 0.12, 0.99);
     const moment = normalizeMomentWithEvidence({
       id: `mom_${index + 1}`,
       rank: index + 1,
@@ -2325,12 +2402,21 @@ function detectHighlights({ transcript, signals, visualSignals, goalEvidence = n
       confidence: Number(score.toFixed(2)),
       retentionScore: Math.round(score * 100),
       suggestedPreset: reasonCodes.includes("counter_attack") || reasonCodes.includes("skill_move") ? "tactical" : preset,
-      evidence: evidenceForReasons(reasonCodes, caption, safeSignals, center, safeVisualSignals, { start, end }),
+      evidence: {
+        ...evidenceForReasons(reasonCodes, caption, safeSignals, center, safeVisualSignals, { start, end }),
+        transcriptEnergy: transcriptEnergyWindow,
+      },
       captionIntent: captionIntentForHighlightType(highlightType),
-      rankingExplanation: rankingExplanationForMoment({ reasons: reasonCodes, score, source: "analysis", visualSignals: safeVisualSignals }),
+      rankingExplanation: rankingExplanationForMoment({
+        reasons: reasonCodes,
+        score,
+        source: "analysis",
+        visualSignals: safeVisualSignals,
+        transcriptEnergy: transcriptEnergyWindow,
+      }),
       source: "analysis",
       _caption: caption,
-    }, { signals: safeSignals, visualSignals: safeVisualSignals, captions, preset });
+    }, { signals: safeSignals, visualSignals: safeVisualSignals, captions, preset, transcriptEnergy: transcriptEnergyWindow });
     return moment;
   });
 
@@ -2342,14 +2428,16 @@ function detectHighlights({ transcript, signals, visualSignals, goalEvidence = n
     const center = clamp(peak.time, 0, duration);
     const start = Number(clamp(center - 4, 0, Math.max(0, duration - 6)).toFixed(2));
     const end = Number(clamp(start + 8, start + 3, duration).toFixed(2));
+    const transcriptEnergyWindow = transcriptEnergyForWindow(transcriptEnergy, { start, end, center });
     const reasonCodes = [
       "audio_energy_spike",
       Number(peak.energyScore || 0) >= 0.88 ? "crowd_spike" : "",
       nearby(safeSignals.sceneChanges, center, 3).length ? "scene_change_cluster" : "",
       ...visualReasonCodesNear(safeVisualSignals, center, 3),
     ].filter(Boolean);
-    const highlightType = highlightTypeForReasons(reasonCodes);
-    const score = scoreReasons(reasonCodes) - 0.04;
+    const finalReasonCodes = reasonCodesWithTranscriptEnergy(reasonCodes, transcriptEnergyWindow);
+    const highlightType = highlightTypeForReasons(finalReasonCodes);
+    const score = clamp(scoreReasons(finalReasonCodes) - 0.04 + transcriptEnergyScoreBoost(transcriptEnergyWindow, finalReasonCodes), 0.12, 0.99);
     return normalizeMomentWithEvidence({
       id: `mom_signal_${index + 1}`,
       rank: index + 1,
@@ -2358,17 +2446,26 @@ function detectHighlights({ transcript, signals, visualSignals, goalEvidence = n
       center: Number(center.toFixed(2)),
       title: titleForHighlightType(highlightType),
       summary: "Detected from media signals.",
-      reasonCodes,
+      reasonCodes: finalReasonCodes,
       highlightType,
       confidence: Number(score.toFixed(2)),
       retentionScore: Math.round(score * 100),
       suggestedPreset: preset,
       hook: hookForHighlightType(highlightType, preset),
-      evidence: evidenceForReasons(reasonCodes, null, safeSignals, center, safeVisualSignals, { start, end }),
+      evidence: {
+        ...evidenceForReasons(finalReasonCodes, null, safeSignals, center, safeVisualSignals, { start, end }),
+        transcriptEnergy: transcriptEnergyWindow,
+      },
       captionIntent: captionIntentForHighlightType(highlightType),
-      rankingExplanation: rankingExplanationForMoment({ reasons: reasonCodes, score, source: "signals", visualSignals: safeVisualSignals }),
+      rankingExplanation: rankingExplanationForMoment({
+        reasons: finalReasonCodes,
+        score,
+        source: "signals",
+        visualSignals: safeVisualSignals,
+        transcriptEnergy: transcriptEnergyWindow,
+      }),
       source: "analysis",
-    }, { signals: safeSignals, visualSignals: safeVisualSignals, captions, preset });
+    }, { signals: safeSignals, visualSignals: safeVisualSignals, captions, preset, transcriptEnergy: transcriptEnergyWindow });
   });
 
   const visualOnlyMoments = selectTemporalCoverage(safeVisualSignals.windows, {
@@ -2462,6 +2559,7 @@ function detectHighlights({ transcript, signals, visualSignals, goalEvidence = n
         Array.isArray(moment.rankingExplanation.rejectedClaims) &&
         moment.rankingExplanation.rejectedClaims.includes("goal_claim_rejected_without_explicit_goal_evidence")
       )),
+      transcriptEnergy: publicTranscriptEnergySummary(transcriptEnergy),
       goalDiscovery: discoverySummary,
       matchEventTruth: publicMatchEventTruth(safeMatchEventTruth),
     },
@@ -2639,6 +2737,10 @@ function visualQaForPlan(plan = {}) {
   const fallbackReason = cropPlan && Array.isArray(cropPlan.reasonCodes) ? cropPlan.reasonCodes[0] || null : null;
   return {
     selectedCropMode: cropPlan ? cropPlan.mode : "wide_safe",
+    actionCenterX: cropPlan ? cropPlan.actionCenterX : null,
+    actionCenterY: cropPlan ? cropPlan.actionCenterY : null,
+    maxPanSpeed: cropPlan ? cropPlan.maxPanSpeed : 0,
+    safeMargins: cropPlan ? cropPlan.safeMargins || null : null,
     trackingProviderMode: sanitizeText(tracking.trackingProviderMode || "visual-tracking-heuristic", 60),
     trackingConfidence: Number(tracking.trackingConfidence || 0),
     ballVisibilityConfidence: Number(tracking.ballCandidateConfidence || 0),
@@ -2669,10 +2771,16 @@ function reviewMetadataForPlan(plan, moment, mediaSignals = {}) {
     cropPlan: plan.cropPlan
       ? {
           mode: plan.cropPlan.mode,
+          cropMode: plan.cropPlan.cropMode || plan.cropPlan.mode,
           confidence: plan.cropPlan.confidence,
+          trackingConfidence: plan.cropPlan.trackingConfidence,
+          actionCenterX: plan.cropPlan.actionCenterX,
+          actionCenterY: plan.cropPlan.actionCenterY,
+          maxPanSpeed: plan.cropPlan.maxPanSpeed,
           fallbackUsed: plan.cropPlan.fallbackUsed,
           reasonCodes: plan.cropPlan.reasonCodes,
           textObstructionRisk: Boolean(plan.cropPlan.textObstructionRisk),
+          safeMargins: plan.cropPlan.safeMargins || null,
       }
       : null,
     visualTrackingSummary: plan.visualTrackingSummary || null,

@@ -791,6 +791,64 @@ function safeVisualPolishQA(value) {
 
 function safeVideoOutputQA(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const hook = value.hook && typeof value.hook === "object" && !Array.isArray(value.hook)
+    ? {
+        passed: typeof value.hook.passed === "boolean" ? value.hook.passed : null,
+        hookType: sanitizeText(value.hook.hookType || "", 60) || null,
+        hookStart: safeNumber(value.hook.hookStart),
+        hookEnd: safeNumber(value.hook.hookEnd),
+        hookText: sanitizeText(value.hook.hookText || value.hook.text || "", 120) || null,
+        relatedGoalNumber: safeNumber(value.hook.relatedGoalNumber),
+        relatedMomentId: sanitizeText(value.hook.relatedMomentId || "", 80) || null,
+        evidenceCodes: safeStringList(value.hook.evidenceCodes, 10, 80),
+        noFalseGoalClaim: value.hook.noFalseGoalClaim !== false,
+        reasons: safeStringList(value.hook.reasons, 8, 80),
+      }
+    : null;
+  const captions = value.captions && typeof value.captions === "object" && !Array.isArray(value.captions)
+    ? {
+        passed: typeof value.captions.passed === "boolean" ? value.captions.passed : null,
+        captionCount: safeNumber(value.captions.captionCount),
+        dynamicCaptionCount: safeNumber(value.captions.dynamicCaptionCount),
+        readableCaptionCount: safeNumber(value.captions.readableCaptionCount),
+        openingHookCaptionInFirstTwoSeconds: Boolean(value.captions.openingHookCaptionInFirstTwoSeconds),
+        stylePresets: safeStringList(value.captions.stylePresets, 8, 60),
+        safeAreas: safeStringList(value.captions.safeAreas, 8, 60),
+        textObstructionRisk: Boolean(value.captions.textObstructionRisk),
+        reasons: safeStringList(value.captions.reasons, 8, 80),
+      }
+    : null;
+  const animations = value.animations && typeof value.animations === "object" && !Array.isArray(value.animations)
+    ? {
+        passed: typeof value.animations.passed === "boolean" ? value.animations.passed : null,
+        cueCount: safeNumber(value.animations.cueCount),
+        hookCueCount: safeNumber(value.animations.hookCueCount),
+        cueTypes: safeStringList(value.animations.cueTypes, 12, 60),
+        reasons: safeStringList(value.animations.reasons, 8, 80),
+      }
+    : null;
+  const audioPolicy = value.audioPolicy && typeof value.audioPolicy === "object" && !Array.isArray(value.audioPolicy)
+    ? {
+        passed: typeof value.audioPolicy.passed === "boolean" ? value.audioPolicy.passed : null,
+        audioMode: sanitizeText(value.audioPolicy.audioMode || "", 60) || null,
+        licenseStatus: sanitizeText(value.audioPolicy.licenseStatus || "", 60) || null,
+        externalAudioBundled: Boolean(value.audioPolicy.externalAudioBundled),
+        copyrightedTrackBundled: Boolean(value.audioPolicy.copyrightedTrackBundled),
+        operatorActionRequired: Boolean(value.audioPolicy.operatorActionRequired),
+        reasons: safeStringList(value.audioPolicy.reasons, 8, 80),
+      }
+    : null;
+  const creativeStyle = value.creativeStyle && typeof value.creativeStyle === "object" && !Array.isArray(value.creativeStyle)
+    ? {
+        passed: typeof value.creativeStyle.passed === "boolean" ? value.creativeStyle.passed : null,
+        colorGrade: sanitizeText(value.creativeStyle.colorGrade || "", 60) || null,
+        mildZoom: safeNumber(value.creativeStyle.mildZoom),
+        mirror: Boolean(value.creativeStyle.mirror),
+        copyrightEvasion: Boolean(value.creativeStyle.copyrightEvasion),
+        watermarkObscuring: Boolean(value.creativeStyle.watermarkObscuring),
+        reasons: safeStringList(value.creativeStyle.reasons, 8, 80),
+      }
+    : null;
   return {
     schemaVersion: Number.isFinite(Number(value.schemaVersion)) ? Number(value.schemaVersion) : null,
     status: value.status ? String(value.status).slice(0, 40) : null,
@@ -820,6 +878,11 @@ function safeVideoOutputQA(value) {
           reasons: safeStringList(match.reasons, 8, 80),
         }))
       : [],
+    hook,
+    captions,
+    animations,
+    audioPolicy,
+    creativeStyle,
     logsDownloaded: false,
     artifactsDownloaded: false,
   };
@@ -852,6 +915,7 @@ function safeRenderPolishQA(value) {
       ? value.transitions.map(safeRenderTransition).filter(Boolean).slice(0, 8)
       : [],
     animatedCaptionCount: Number.isFinite(Number(value.animatedCaptionCount)) ? Number(value.animatedCaptionCount) : null,
+    dynamicWordCaptionCount: Number.isFinite(Number(value.dynamicWordCaptionCount)) ? Number(value.dynamicWordCaptionCount) : null,
     staticCaptionFallbackCount: Number.isFinite(Number(value.staticCaptionFallbackCount)) ? Number(value.staticCaptionFallbackCount) : null,
     captionMotion: sanitizeText(value.captionMotion || "", 80) || null,
     overlayRenderedCount: Number.isFinite(Number(value.overlayRenderedCount)) ? Number(value.overlayRenderedCount) : null,
@@ -931,6 +995,27 @@ function safeRenderCaption(caption = {}, index = 0) {
     end: safeNumber(caption.end),
     text: sanitizeText(caption.text || "", 120),
     role: sanitizeText(caption.role || "caption", 60),
+    words: Array.isArray(caption.words)
+      ? caption.words.map((word) => sanitizeText(word, 24)).filter(Boolean).slice(0, 16)
+      : [],
+    activeWordTiming: Array.isArray(caption.activeWordTiming)
+      ? caption.activeWordTiming.slice(0, 16).map((timing) => ({
+          word: sanitizeText(timing && timing.word, 24) || null,
+          start: safeNumber(timing && timing.start),
+          end: safeNumber(timing && timing.end),
+        })).filter((timing) => timing.word && timing.start !== null && timing.end !== null)
+      : [],
+    stylePreset: sanitizeText(caption.stylePreset || "", 60) || null,
+    contrastMode: sanitizeText(caption.contrastMode || "", 60) || null,
+    safeArea: caption.safeArea && typeof caption.safeArea === "object"
+      ? { name: sanitizeText(caption.safeArea.name || "", 60) || null }
+      : null,
+    style: caption.style && typeof caption.style === "object"
+      ? {
+          fontScale: safeNumber(caption.style.fontScale),
+          maxLines: safeNumber(caption.style.maxLines),
+        }
+      : null,
     riskFlags: safeStringList(caption.captionRiskFlags, 6, 80),
   };
 }
@@ -1107,6 +1192,7 @@ function safeRenderPlanSummary(job) {
     candidateCount: Array.isArray(job.candidatePlans) ? job.candidatePlans.length : 0,
     goalSelectionMode: sanitizeText(plan.goalSelectionMode || "", 60) || null,
     countedGoalProof: safeCountedGoalProofSummary(job, segments),
+    videoOutputQA: safeVideoOutputQA(job.videoOutputQA || plan.videoOutputQA),
     visualPolishQA: safeVisualPolishQA(plan.visualPolishQA),
     renderPolishQA: safeRenderPolishQA(plan.renderPolishQA),
     editAssembly: safeEditAssembly(plan.editAssembly),

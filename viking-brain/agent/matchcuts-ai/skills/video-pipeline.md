@@ -25,6 +25,20 @@ Source acquisition:
 - Cache miss may fall back to downloader; corrupt, oversized or checksum-mismatched cache files fail closed.
 - Public reports may include safe cache diagnostics, but never absolute paths, storage keys, raw downloader logs, cookies or tokens.
 
+AI curation:
+
+- Transcript energy belongs behind `server/transcript-energy.cjs`, not inside routes.
+- High-energy cues such as exclamations, save/chance/foul/card/VAR/offside language and commentator spikes can boost ranking, but hype-only or crowd-only text is support context.
+- Goal claims require explicit goal evidence. Non-event wording like "behind the goal" and decision wording like offside/no-goal must not produce confirmed-goal evidence.
+- Reports should expose safe transcript-energy summaries so operators can see why a moment was selected.
+
+Action-aware framing:
+
+- Tracking/crop decisions belong behind `server/tracking-provider.cjs` and `server/visual-tracking.cjs`.
+- Allow `soft_follow` only with reliable ball/player/action evidence, contained action bounds and no caption obstruction risk.
+- Low-confidence, camera-motion-heavy or obstructed action should fall back to wide-safe framing.
+- Crop plans should expose action center, crop mode, tracking confidence, safe margins and max pan speed for QA.
+
 Social-ready output:
 
 - Treat hook-first editing, dynamic word captions, bounded animation cues, audio policy and creative style transforms as validated edit-plan contracts.
