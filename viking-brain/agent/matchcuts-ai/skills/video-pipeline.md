@@ -24,3 +24,9 @@ Source acquisition:
 - Cache hits must copy into managed staging, then pass normal signature, FFprobe, artifact-store and repository validation.
 - Cache miss may fall back to downloader; corrupt, oversized or checksum-mismatched cache files fail closed.
 - Public reports may include safe cache diagnostics, but never absolute paths, storage keys, raw downloader logs, cookies or tokens.
+
+Social-ready output:
+
+- Treat hook-first editing, dynamic word captions, bounded animation cues, audio policy and creative style transforms as validated edit-plan contracts.
+- Final output proof should fail closed when the first-two-second hook, readable word-timed captions, safe audio policy or no-evasion styling contract is missing.
+- Creative polish may use mild zoom, color grading and caption-safe overlays for clarity; never use mirroring, watermark hiding, scorebug hiding or copyright-evasion behavior.

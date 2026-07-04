@@ -269,7 +269,7 @@ function emphasizedAssText(caption, plan, dimensions) {
   for (const word of words) {
     const safeWord = escapeAss(word).trim();
     if (!safeWord) continue;
-    const pattern = new RegExp(`\\b(${escapeRegExp(safeWord)})\\b`, "gi");
+    const pattern = new RegExp(`(${escapeRegExp(safeWord)})`, "gi");
     const highlightColor = assColorForToken(caption.style && caption.style.highlightColor);
     text = text.replace(pattern, `{\\c${highlightColor}\\b1}$1{\\r${styleName}}`);
   }
@@ -278,6 +278,47 @@ function emphasizedAssText(caption, plan, dimensions) {
   const startScale = caption.emphasis === "shout" ? 86 : caption.emphasis === "detail" ? 96 : 92;
   const peakScale = caption.emphasis === "shout" ? 104 : caption.emphasis === "strong" ? 102 : 100;
   return `{\\fad(${entranceMs},${exitMs})\\fscx${startScale}\\fscy${startScale}\\t(0,${entranceMs},\\fscx${peakScale}\\fscy${peakScale})}${text}`;
+}
+
+function captionHasWordTiming(caption) {
+  return Array.isArray(caption && caption.activeWordTiming) &&
+    caption.activeWordTiming.length > 0 &&
+    Array.isArray(caption.words) &&
+    caption.words.length > 0;
+}
+
+function wordBeatText(caption, activeIndex) {
+  const words = Array.isArray(caption.words) && caption.words.length
+    ? caption.words
+    : String(caption.text || "").split(/\s+/).filter(Boolean);
+  if (!words.length) return String(caption.text || "");
+  const maxWords = Math.max(2, Math.min(4, Number(caption.maxWordsPerBeat || 4) || 4));
+  const boundedIndex = Math.max(0, Math.min(words.length - 1, activeIndex));
+  let start = Math.max(0, boundedIndex - 1);
+  let end = Math.min(words.length, start + maxWords);
+  if (end - start < maxWords) start = Math.max(0, end - maxWords);
+  return words.slice(start, end).join(" ");
+}
+
+function dynamicWordAssText(caption, plan, dimensions, activeWord, activeIndex) {
+  const styleName = captionStyleName(caption);
+  const beatCaption = {
+    ...caption,
+    text: wordBeatText(caption, activeIndex),
+    emphasisWords: [activeWord],
+  };
+  const displayText = beatCaption.style && beatCaption.style.uppercase
+    ? String(beatCaption.text || "").toUpperCase()
+    : String(beatCaption.text || "");
+  let text = wrapCaptionLines(displayText, beatCaption, dimensions).join("\\N");
+  const safeWord = escapeAss(activeWord).trim();
+  if (safeWord) {
+    const pattern = new RegExp(`(${escapeRegExp(safeWord)})`, "gi");
+    const highlightColor = assColorForToken(beatCaption.style && beatCaption.style.highlightColor);
+    text = text.replace(pattern, `{\\c${highlightColor}\\b1}$1{\\r${styleName}}`);
+  }
+  const entranceMs = Math.max(40, Math.min(180, Number(beatCaption.timing && beatCaption.timing.entranceMs) || 90));
+  return `{\\fad(${entranceMs},80)\\fscx94\\fscy94\\t(0,${entranceMs},\\fscx104\\fscy104)}${text}`;
 }
 
 function captionStyleLine(caption, dimensions, config) {
@@ -329,9 +370,20 @@ function writeAssSubtitles(plan, outputPath) {
     );
   }
   for (const caption of captions) {
-    lines.push(
-      `Dialogue: 0,${assTime(caption.start)},${assTime(caption.end)},${captionStyleName(caption)},,0,0,0,,${emphasizedAssText(caption, plan, dimensions)}`,
-    );
+    if (captionHasWordTiming(caption)) {
+      caption.activeWordTiming.slice(0, 18).forEach((wordTiming, index) => {
+        const start = Math.max(Number(caption.start), Number(wordTiming.start));
+        const end = Math.min(Number(caption.end), Number(wordTiming.end));
+        if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return;
+        lines.push(
+          `Dialogue: 0,${assTime(start)},${assTime(end)},${captionStyleName(caption)},,0,0,0,,${dynamicWordAssText(caption, plan, dimensions, wordTiming.word, index)}`,
+        );
+      });
+    } else {
+      lines.push(
+        `Dialogue: 0,${assTime(caption.start)},${assTime(caption.end)},${captionStyleName(caption)},,0,0,0,,${emphasizedAssText(caption, plan, dimensions)}`,
+      );
+    }
   }
   if (config.showTopLabel && duration >= 2.2) {
     lines.push(
@@ -516,6 +568,12 @@ function captionMotionCount(plan = {}) {
     : 0;
 }
 
+function dynamicCaptionCount(plan = {}) {
+  return Array.isArray(plan.captions)
+    ? plan.captions.filter(captionHasWordTiming).length
+    : 0;
+}
+
 function createRenderPolishSummary(plan = {}, options = {}) {
   const dimensions = renderDimensions(plan);
   const config = renderStyleConfig(plan);
@@ -537,6 +595,7 @@ function createRenderPolishSummary(plan = {}, options = {}) {
     (config.showTopLabel ? 1 : 0) +
     (config.showTopLabel && duration >= 2.2 ? 1 : 0);
   const animatedCaptionCount = captionMotionCount(plan);
+  const dynamicWordCaptionCount = dynamicCaptionCount(plan);
   const renderPolishWarnings = [];
   if (hardCutFallbackCount > 0) renderPolishWarnings.push("hard_cut_fallback_used");
   if (segments.length > 1 && transitionRenderedCount === 0) renderPolishWarnings.push("missing_transition_render");
@@ -551,8 +610,9 @@ function createRenderPolishSummary(plan = {}, options = {}) {
     hardCutFallbackCount,
     transitions,
     animatedCaptionCount,
+    dynamicWordCaptionCount,
     staticCaptionFallbackCount: 0,
-    captionMotion: animatedCaptionCount > 0 ? "ass_fade_scale" : "none",
+    captionMotion: dynamicWordCaptionCount > 0 ? "ass_word_by_word_highlight" : animatedCaptionCount > 0 ? "ass_fade_scale" : "none",
     overlayRenderedCount,
     overlayFallbackCount: 0,
     overlayMode: overlayRenderedCount > 0 ? "ass_goal_badge_and_labels" : "none",

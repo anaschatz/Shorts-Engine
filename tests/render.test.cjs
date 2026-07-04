@@ -82,8 +82,10 @@ test("ASS renderer writes role-specific kinetic caption styles safely", () => {
   assert.match(ass, /Style: Caption_opening_hook_0/);
   assert.match(ass, /Style: Caption_context_1/);
   assert.match(ass, /PUNCHY HIGHLIGHT/);
-  assert.match(ass, /\\fad\(180,120\)/);
+  assert.match(ass, /\\fad\(180,80\)/);
   assert.match(ass, /\\t\(0,180,\\fscx104\\fscy104\)/);
+  assert.ok((ass.match(/Dialogue: 0/g) || []).length >= 10);
+  assert.match(ass, /\\c&H[0-9A-F]+\\b1/);
   assert.match(ass, /\\N|Ματς: Αργεντινή - Αλγερία/);
   assert.doesNotMatch(ass, /\bGOAL\b|ΓΚΟΛ/);
   assert.doesNotMatch(ass, /\/Users|OPENAI_API_KEY|storageKey/i);
@@ -318,11 +320,13 @@ test("multi-segment renderer cuts segments, concatenates them, then applies capt
   assert.equal(plan.renderPolishQA.transitionRenderedCount, 2);
   assert.equal(plan.renderPolishQA.hardCutFallbackCount, 0);
   assert.equal(plan.renderPolishQA.animatedCaptionCount, 3);
+  assert.equal(plan.renderPolishQA.dynamicWordCaptionCount, 3);
+  assert.equal(plan.renderPolishQA.captionMotion, "ass_word_by_word_highlight");
   assert.equal(plan.renderPolishQA.staticCaptionFallbackCount, 0);
   assert.ok(plan.renderPolishQA.overlayRenderedCount >= 2);
   assert.ok(plan.renderPolishQA.visualPolishScore >= 95);
   const ass = readFileSync(subtitlesPath, "utf8");
-  assert.match(ass, /BEST PHASES ONLY/);
+  assert.match(ass, /BEST[\s\S]*PHASES[\s\S]*ONLY/);
   assert.doesNotMatch(ass, /\bGOAL\b|ΓΚΟΛ|\/Users|storageKey/i);
 });
 
@@ -432,6 +436,8 @@ test("render polish summary reports transition fallback when no multi-segment re
   assert.equal(summary.transitionRenderedCount, 0);
   assert.equal(summary.hardCutFallbackCount, 1);
   assert.equal(summary.animatedCaptionCount, 1);
+  assert.equal(summary.dynamicWordCaptionCount, 0);
+  assert.equal(summary.captionMotion, "ass_fade_scale");
   assert.ok(summary.renderPolishWarnings.includes("hard_cut_fallback_used"));
   assert.doesNotMatch(JSON.stringify(summary), /\/Users|OPENAI_API_KEY|storageKey/i);
 });

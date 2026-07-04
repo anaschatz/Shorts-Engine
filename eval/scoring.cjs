@@ -3,10 +3,15 @@ const { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileS
 const { basename, join } = require("node:path");
 const { createCandidateEditPlans, detectHighlights } = require("../server/analysis.cjs");
 const {
+  AUDIO_LICENSE_STATUSES,
+  AUDIO_MODES,
   CAPTION_EMPHASIS,
+  CAPTION_CONTRAST_MODES,
   CAPTION_LAYOUTS,
   CAPTION_RISK_FLAGS,
   CAPTION_ROLES,
+  CAPTION_SAFE_AREAS,
+  CAPTION_STYLE_PRESETS,
   RENDER_STYLE_PRESETS,
   hasGoalLanguage,
 } = require("../server/edit-plan.cjs");
@@ -248,6 +253,133 @@ function captionsHaveValidRoles(plan) {
     Number.isFinite(Number(caption.style.shadow)) &&
     Number.isFinite(Number(caption.style.maxLines))
   ));
+}
+
+function hookFirstTwoSecondsScore(plan) {
+  const hook = plan && plan.hookPlan && typeof plan.hookPlan === "object" && !Array.isArray(plan.hookPlan)
+    ? plan.hookPlan
+    : null;
+  if (!hook) return 0;
+  const hookStart = toNumber(hook.hookStart, Number.NaN);
+  const hookEnd = toNumber(hook.hookEnd, Number.NaN);
+  return hook.coldOpen === true &&
+    hook.timelinePlacement === "first_two_seconds" &&
+    hook.noFalseGoalClaim === true &&
+    Number.isFinite(hookStart) &&
+    Number.isFinite(hookEnd) &&
+    hookStart <= 0.25 &&
+    hookEnd > hookStart &&
+    hookEnd <= 2.05 &&
+    Array.isArray(hook.evidenceCodes) &&
+    hook.evidenceCodes.length > 0
+    ? 1
+    : 0;
+}
+
+function captionHasDynamicWordTiming(caption = {}) {
+  const words = Array.isArray(caption.words) ? caption.words.filter(Boolean) : [];
+  const timings = Array.isArray(caption.activeWordTiming) ? caption.activeWordTiming : [];
+  const start = toNumber(caption.start, Number.NaN);
+  const end = toNumber(caption.end, Number.NaN);
+  if (!words.length || words.length !== timings.length || !Number.isFinite(start) || !Number.isFinite(end) || end <= start) return false;
+  return timings.every((timing, index) => {
+    const timingStart = toNumber(timing && timing.start, Number.NaN);
+    const timingEnd = toNumber(timing && timing.end, Number.NaN);
+    return timing &&
+      timing.word === words[index] &&
+      Number.isFinite(timingStart) &&
+      Number.isFinite(timingEnd) &&
+      timingStart >= start - 0.05 &&
+      timingEnd <= end + 0.05 &&
+      timingEnd > timingStart;
+  });
+}
+
+function dynamicCaptionCoverageScore(plan) {
+  const captions = Array.isArray(plan && plan.captions) ? plan.captions : [];
+  if (!captions.length) return 0;
+  const dynamicCount = captions.filter(captionHasDynamicWordTiming).length;
+  return round(dynamicCount / captions.length, 4);
+}
+
+function shortFormCaptionReadabilityScore(plan) {
+  const captions = Array.isArray(plan && plan.captions) ? plan.captions : [];
+  if (!captions.length) return 0;
+  const readable = captions.filter((caption) => {
+    const text = sanitizeReportText(caption && caption.text, 140);
+    const start = toNumber(caption && caption.start, Number.NaN);
+    const end = toNumber(caption && caption.end, Number.NaN);
+    const dynamicTiming = captionHasDynamicWordTiming(caption);
+    const beatTimingReadable = dynamicTiming
+      ? caption.activeWordTiming.every((timing) => {
+          const timingStart = toNumber(timing && timing.start, Number.NaN);
+          const timingEnd = toNumber(timing && timing.end, Number.NaN);
+          return Number.isFinite(timingStart) &&
+            Number.isFinite(timingEnd) &&
+            timingEnd > timingStart &&
+            timingEnd - timingStart <= 1.4;
+        })
+      : Number.isFinite(start) &&
+        Number.isFinite(end) &&
+        end > start &&
+        end - start >= 0.35 &&
+        end - start <= 4.5;
+    const fontScale = toNumber(caption && caption.style && caption.style.fontScale, Number.NaN);
+    const maxLines = toNumber(caption && caption.style && caption.style.maxLines, Number.NaN);
+    const safeArea = caption && caption.safeArea && typeof caption.safeArea === "object" && !Array.isArray(caption.safeArea)
+      ? caption.safeArea
+      : null;
+    return text &&
+      text.length <= 96 &&
+      beatTimingReadable &&
+      Number.isFinite(fontScale) &&
+      fontScale >= 0.72 &&
+      Number.isFinite(maxLines) &&
+      maxLines <= 3 &&
+      safeArea &&
+      CAPTION_SAFE_AREAS.includes(safeArea.name) &&
+      CAPTION_STYLE_PRESETS.includes(caption.stylePreset) &&
+      CAPTION_CONTRAST_MODES.includes(caption.contrastMode);
+  }).length;
+  const opening = captions.find((caption) => caption && caption.role === "opening_hook");
+  const openingHookReadable = opening &&
+    toNumber(opening.start, Number.NaN) <= 0.35 &&
+    toNumber(opening.end, Number.NaN) <= 2.3;
+  return round((readable / captions.length) * 0.75 + (openingHookReadable ? 0.25 : 0), 4);
+}
+
+function rightsSafeAudioScore(plan) {
+  const policy = plan && plan.audioPolicy && typeof plan.audioPolicy === "object" && !Array.isArray(plan.audioPolicy)
+    ? plan.audioPolicy
+    : null;
+  if (!policy) return 0;
+  const source = sanitizeReportText(policy.source, 120).toLowerCase();
+  const unsafeSource = /trending|copyrighted|spotify|apple_music|youtube_music|commercial_track/.test(source);
+  return AUDIO_MODES.includes(policy.audioMode) &&
+    AUDIO_LICENSE_STATUSES.includes(policy.licenseStatus) &&
+    policy.copyrightedTrackBundled === false &&
+    !unsafeSource &&
+    !policy.copyrightEvasion &&
+    !policy.bypassDetection &&
+    !policy.avoidCopyrightDetection
+    ? 1
+    : 0;
+}
+
+function noCopyrightEvasionBehaviorScore(plan) {
+  const style = plan && plan.creativeStyleTransforms && typeof plan.creativeStyleTransforms === "object" && !Array.isArray(plan.creativeStyleTransforms)
+    ? plan.creativeStyleTransforms
+    : null;
+  if (!style) return 0;
+  const mildZoom = toNumber(style.mildZoom, Number.NaN);
+  return style.mirror === false &&
+    style.copyrightEvasion === false &&
+    style.watermarkObscuring === false &&
+    Number.isFinite(mildZoom) &&
+    mildZoom >= 1 &&
+    mildZoom <= 1.05
+    ? 1
+    : 0;
 }
 
 function captionEvidenceMetadataIsComplete(plan) {
@@ -1294,6 +1426,15 @@ function scoreFixture(fixture) {
   const captionTimingValidity = candidatePlans.every(captionsHaveValidTiming) ? 1 : 0;
   const captionRoleValidity = candidatePlans.every(captionsHaveValidRoles) ? 1 : 0;
   const captionEvidenceMetadataCompleteness = candidatePlans.every(captionEvidenceMetadataIsComplete) ? 1 : 0;
+  const hookFirstTwoSeconds = candidatePlans.every((plan) => hookFirstTwoSecondsScore(plan) === 1) ? 1 : 0;
+  const dynamicCaptionCoverage = candidatePlans.length
+    ? round(candidatePlans.reduce((sum, plan) => sum + dynamicCaptionCoverageScore(plan), 0) / candidatePlans.length, 4)
+    : 0;
+  const shortFormCaptionReadability = candidatePlans.length
+    ? round(candidatePlans.reduce((sum, plan) => sum + shortFormCaptionReadabilityScore(plan), 0) / candidatePlans.length, 4)
+    : 0;
+  const rightsSafeAudio = candidatePlans.every((plan) => rightsSafeAudioScore(plan) === 1) ? 1 : 0;
+  const noCopyrightEvasionBehavior = candidatePlans.every((plan) => noCopyrightEvasionBehaviorScore(plan) === 1) ? 1 : 0;
   const captionActionAlignment = topPlan ? captionActionAlignmentScore(topPlan) : 0;
   const genericCaptionPenaltyRate = topPlan ? genericCaptionPenalty(topPlan) : 0;
   const captionSpecificityScoreValue = topPlan ? captionSpecificityScore(topPlan) : 0;
@@ -1417,6 +1558,11 @@ function scoreFixture(fixture) {
     captionTimingValidity === 1 &&
     captionRoleValidity === 1 &&
     captionEvidenceMetadataCompleteness === 1 &&
+    hookFirstTwoSeconds === 1 &&
+    dynamicCaptionCoverage >= 1 &&
+    shortFormCaptionReadability >= 0.75 &&
+    rightsSafeAudio === 1 &&
+    noCopyrightEvasionBehavior === 1 &&
     captionActionAlignment === 1 &&
     genericCaptionPenaltyRate === 0 &&
     captionSpecificityScoreValue >= 0.75 &&
@@ -1500,6 +1646,11 @@ function scoreFixture(fixture) {
       captionTimingValidity,
       captionRoleValidity,
       captionEvidenceMetadataCompleteness,
+      hookFirstTwoSeconds,
+      dynamicCaptionCoverage,
+      shortFormCaptionReadability,
+      rightsSafeAudio,
+      noCopyrightEvasionBehavior,
       captionActionAlignment,
       genericCaptionPenaltyRate,
       captionSpecificityScore: captionSpecificityScoreValue,
@@ -1763,6 +1914,27 @@ function scoreFixture(fixture) {
         captionIntents: plan.captions.map((caption) => caption.captionIntent),
         captionSources: plan.captions.map((caption) => caption.captionSource),
         captionRiskFlags: plan.captions.flatMap((caption) => caption.captionRiskFlags || []),
+        hookPlan: plan.hookPlan
+          ? {
+              hookStart: plan.hookPlan.hookStart,
+              hookEnd: plan.hookPlan.hookEnd,
+              hookType: sanitizeReportText(plan.hookPlan.hookType, 40),
+              noFalseGoalClaim: Boolean(plan.hookPlan.noFalseGoalClaim),
+              evidenceCodes: Array.isArray(plan.hookPlan.evidenceCodes)
+                ? plan.hookPlan.evidenceCodes.map((item) => sanitizeReportText(item, 60)).slice(0, 8)
+                : [],
+            }
+          : null,
+        dynamicCaptionCoverage: dynamicCaptionCoverageScore(plan),
+        audioPolicy: plan.audioPolicy
+          ? {
+              audioMode: sanitizeReportText(plan.audioPolicy.audioMode, 40),
+              licenseStatus: sanitizeReportText(plan.audioPolicy.licenseStatus, 48),
+              externalAudioBundled: Boolean(plan.audioPolicy.externalAudioBundled),
+              copyrightedTrackBundled: Boolean(plan.audioPolicy.copyrightedTrackBundled),
+              operatorActionRequired: Boolean(plan.audioPolicy.operatorActionRequired),
+            }
+          : null,
         captionGeneration: plan.footballStoryPlan && plan.footballStoryPlan.captionGeneration,
         effects: plan.effects,
       })),
@@ -1777,6 +1949,11 @@ function scoreFixture(fixture) {
       captionTimingValidity,
       captionRoleValidity,
       captionEvidenceMetadataCompleteness,
+      hookFirstTwoSeconds,
+      dynamicCaptionCoverage,
+      shortFormCaptionReadability,
+      rightsSafeAudio,
+      noCopyrightEvasionBehavior,
       captionActionAlignment,
       genericCaptionPenaltyRate,
       captionSpecificityScore: captionSpecificityScoreValue,
@@ -1841,6 +2018,11 @@ function debuggingNotes(metrics) {
   if (!metrics.captionTimingValidity) notes.push("Caption timings are outside the selected source window.");
   if (!metrics.captionRoleValidity) notes.push("Kinetic caption role/style contract is missing or invalid.");
   if (!metrics.captionEvidenceMetadataCompleteness) notes.push("Caption evidence metadata is missing or incomplete.");
+  if (!metrics.hookFirstTwoSeconds) notes.push("Final plan is missing an evidence-backed hook in the first two seconds.");
+  if (metrics.dynamicCaptionCoverage < 1) notes.push("Captions are not fully word-timed for short-form playback.");
+  if (metrics.shortFormCaptionReadability < 0.75) notes.push("Caption readability or safe-area contract is below threshold.");
+  if (!metrics.rightsSafeAudio) notes.push("Audio policy is missing or not rights-safe by default.");
+  if (!metrics.noCopyrightEvasionBehavior) notes.push("Creative styling appears unsafe or copyright-evasion oriented.");
   if (!metrics.captionActionAlignment) notes.push("Caption copy does not align with the selected football action type.");
   if (metrics.genericCaptionPenaltyRate) notes.push("Action-led moment received generic crowd or pressure hype captions.");
   if (metrics.captionSpecificityScore < 0.75) notes.push("Caption is too generic for the selected football action.");
@@ -1935,6 +2117,11 @@ function aggregateResults(results) {
     animationCueRelevance: avg((result) => result.metrics.animationCueRelevance),
     captionRoleValidity: avg((result) => result.metrics.captionRoleValidity),
     captionEvidenceMetadataCompleteness: avg((result) => result.metrics.captionEvidenceMetadataCompleteness),
+    hookFirstTwoSeconds: avg((result) => result.metrics.hookFirstTwoSeconds),
+    dynamicCaptionCoverage: avg((result) => result.metrics.dynamicCaptionCoverage),
+    shortFormCaptionReadability: avg((result) => result.metrics.shortFormCaptionReadability),
+    rightsSafeAudio: avg((result) => result.metrics.rightsSafeAudio),
+    noCopyrightEvasionBehavior: avg((result) => result.metrics.noCopyrightEvasionBehavior),
     captionActionAlignment: avg((result) => result.metrics.captionActionAlignment),
     genericCaptionPenaltyRate: avg((result) => result.metrics.genericCaptionPenaltyRate),
     captionSpecificityScore: avg((result) => result.metrics.captionSpecificityScore),
@@ -2099,8 +2286,13 @@ module.exports = {
   buildReport,
   captionsHaveValidRoles,
   captionsHaveValidTiming,
+  dynamicCaptionCoverageScore,
   captionProviderFallbackRate,
   captionSpecificityScore,
+  hookFirstTwoSecondsScore,
+  noCopyrightEvasionBehaviorScore,
+  rightsSafeAudioScore,
+  shortFormCaptionReadabilityScore,
   reactionAsSupportScore,
   weakEvidenceNeutralityScore,
   framingIsSafe,

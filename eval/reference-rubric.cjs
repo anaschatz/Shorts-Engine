@@ -14,12 +14,17 @@ const {
   bestOverlap,
   captionProviderFallbackRate,
   captionSpecificityScore,
+  dynamicCaptionCoverageScore,
   framingIsSafe,
+  hookFirstTwoSecondsScore,
+  noCopyrightEvasionBehaviorScore,
   planHasGoalLanguage,
   reasonCodePrecision,
   reasonCodeRecall,
   reactionAsSupportScore,
+  rightsSafeAudioScore,
   sanitizeReportText,
+  shortFormCaptionReadabilityScore,
   weakEvidenceNeutralityScore,
 } = require("./scoring.cjs");
 
@@ -470,20 +475,43 @@ function scoreReferencePlan(fixture, { topMoment, topPlan } = {}) {
     weakEvidenceNeutralityScore: scoreWeakEvidenceNeutrality(topPlan),
   };
   const weightedMetrics = Object.fromEntries(Object.entries(scores).map(([key, value]) => [key, value.score]));
+  const contractMetrics = {
+    hookFirstTwoSeconds: hookFirstTwoSecondsScore(topPlan),
+    dynamicCaptionCoverage: dynamicCaptionCoverageScore(topPlan),
+    shortFormCaptionReadability: shortFormCaptionReadabilityScore(topPlan),
+    rightsSafeAudio: rightsSafeAudioScore(topPlan),
+    noCopyrightEvasionBehavior: noCopyrightEvasionBehaviorScore(topPlan),
+  };
   const metrics = {
     ...weightedMetrics,
+    ...contractMetrics,
     providerFallbackRate: captionProviderFallbackRate(topPlan),
   };
   const score = Math.round(Object.entries(weightedMetrics).reduce((sum, [key, value]) => sum + scoreToPercent(value) * RUBRIC_WEIGHTS[key], 0));
   const minScore = toNumber(expected.minQualityScore, DEFAULT_REFERENCE_THRESHOLD);
-  const notes = [...new Set(Object.values(scores).flatMap((item) => item.notes))].slice(0, 12);
+  const contractNotes = [
+    ...(contractMetrics.hookFirstTwoSeconds === 1 ? [] : ["Reference output is missing an evidence-backed first-two-second hook."]),
+    ...(contractMetrics.dynamicCaptionCoverage >= 1 ? [] : ["Reference output is missing full word-timed captions."]),
+    ...(contractMetrics.shortFormCaptionReadability >= 0.75 ? [] : ["Reference output caption readability or safe area is below threshold."]),
+    ...(contractMetrics.rightsSafeAudio === 1 ? [] : ["Reference output audio policy is not rights-safe by default."]),
+    ...(contractMetrics.noCopyrightEvasionBehavior === 1 ? [] : ["Reference output styling appears unsafe or copyright-evasion oriented."]),
+  ];
+  const notes = [...new Set([
+    ...Object.values(scores).flatMap((item) => item.notes),
+    ...contractNotes,
+  ])].slice(0, 12);
   const passed = score >= minScore &&
     metrics.noFalseGoalClaim === 1 &&
     metrics.aspectRatioCorrectness === 1 &&
     metrics.framingSafety >= 0.9 &&
     metrics.captionSpecificityScore >= 0.75 &&
     metrics.reactionAsSupportScore >= 0.75 &&
-    metrics.weakEvidenceNeutralityScore >= 0.75;
+    metrics.weakEvidenceNeutralityScore >= 0.75 &&
+    metrics.hookFirstTwoSeconds === 1 &&
+    metrics.dynamicCaptionCoverage >= 1 &&
+    metrics.shortFormCaptionReadability >= 0.75 &&
+    metrics.rightsSafeAudio === 1 &&
+    metrics.noCopyrightEvasionBehavior === 1;
   return {
     id: fixture.id,
     title: sanitizeReportText(fixture.title, 160),
@@ -514,6 +542,23 @@ function scoreReferencePlan(fixture, { topMoment, topPlan } = {}) {
         framingMode: topPlan.framingMode,
         captionRoles: topPlan.captions.map((caption) => caption.role),
         captionTexts: topPlan.captions.map((caption) => sanitizeReportText(caption.text, 120)),
+        dynamicCaptionCoverage: dynamicCaptionCoverageScore(topPlan),
+        hookPlan: topPlan.hookPlan
+          ? {
+              hookStart: topPlan.hookPlan.hookStart,
+              hookEnd: topPlan.hookPlan.hookEnd,
+              hookType: sanitizeReportText(topPlan.hookPlan.hookType, 40),
+              noFalseGoalClaim: Boolean(topPlan.hookPlan.noFalseGoalClaim),
+            }
+          : null,
+        audioPolicy: topPlan.audioPolicy
+          ? {
+              audioMode: sanitizeReportText(topPlan.audioPolicy.audioMode, 40),
+              licenseStatus: sanitizeReportText(topPlan.audioPolicy.licenseStatus, 48),
+              copyrightedTrackBundled: Boolean(topPlan.audioPolicy.copyrightedTrackBundled),
+              operatorActionRequired: Boolean(topPlan.audioPolicy.operatorActionRequired),
+            }
+          : null,
         animationCueTypes: [...new Set(topPlan.animationCues.map((cue) => cue.type))],
         captionGeneration: topPlan.footballStoryPlan && topPlan.footballStoryPlan.captionGeneration || null,
       },
@@ -598,6 +643,11 @@ function aggregateReferenceResults(results) {
   for (const key of metricKeys) {
     metrics[key] = avg((result) => toNumber(result.metrics[key], 0));
   }
+  metrics.hookFirstTwoSeconds = avg((result) => toNumber(result.metrics.hookFirstTwoSeconds, 0));
+  metrics.dynamicCaptionCoverage = avg((result) => toNumber(result.metrics.dynamicCaptionCoverage, 0));
+  metrics.shortFormCaptionReadability = avg((result) => toNumber(result.metrics.shortFormCaptionReadability, 0));
+  metrics.rightsSafeAudio = avg((result) => toNumber(result.metrics.rightsSafeAudio, 0));
+  metrics.noCopyrightEvasionBehavior = avg((result) => toNumber(result.metrics.noCopyrightEvasionBehavior, 0));
   metrics.providerFallbackRate = avg((result) => toNumber(result.metrics.providerFallbackRate, 0));
   return {
     fixtureCount: results.length,
