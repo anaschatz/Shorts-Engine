@@ -31,7 +31,7 @@ Failure-only browser artifacts live under `demo/results/playwright-artifacts/`. 
 For manual user-path QA, follow `demo/MANUAL_TESTING.md` after the automated smoke checks pass.
 
 For live YouTube product review, run `npm run youtube:proof:operator` only after
-rights confirmation and downloader readiness, then run `npm run
+rights confirmation and downloader or operator-approved source cache readiness, then run `npm run
 demo:human-review -- --reference=<safe-relative-reference-mp4>`. Without a human
 review JSON the result remains `pending_human_review`, which keeps machine
 metadata separate from creative judgement.

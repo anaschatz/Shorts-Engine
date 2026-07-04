@@ -126,6 +126,8 @@ SHORTSENGINE_YOUTUBE_LIVE_E2E_EXPECTED_COUNTED_GOALS=5
 
 The proof writes safe JSON reports under `demo/results/`. It should only produce an MP4 when the final output gate passes. If evidence is missing, the report should explain the failed phase, failure code, missing goal numbers or windows, and next action.
 
+If the downloader cannot complete a long authorized source inside the bounded timeout, use the operator-approved source cache: place a rights-cleared `<VIDEO_ID>.mp4` under `data/source-cache`, enable `SHORTSENGINE_SOURCE_CACHE_ENABLED=1`, and rerun the same proof. See [docs/YOUTUBE_INGEST_MANUAL_SMOKE.md](docs/YOUTUBE_INGEST_MANUAL_SMOKE.md) for the full cache contract and checksum option.
+
 ## OCR And Goal Evidence
 
 Scoreboard/OCR evidence is support-only. It can help identify counted goals, disallowed goals and score changes, but it must not confirm a goal without matching football action evidence.

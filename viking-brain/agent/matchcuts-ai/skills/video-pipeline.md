@@ -15,3 +15,12 @@ Steps:
 9. Export final formats.
 
 Every step needs schema validation, timeout, retry, idempotency, and traceable artifacts.
+
+Source acquisition:
+
+- Keep YouTube ingest opt-in and rights-confirmed before any source lookup.
+- Use the source acquisition service for downloader and operator-approved source cache paths.
+- Source cache keys must be YouTube video IDs, never raw URLs.
+- Cache hits must copy into managed staging, then pass normal signature, FFprobe, artifact-store and repository validation.
+- Cache miss may fall back to downloader; corrupt, oversized or checksum-mismatched cache files fail closed.
+- Public reports may include safe cache diagnostics, but never absolute paths, storage keys, raw downloader logs, cookies or tokens.

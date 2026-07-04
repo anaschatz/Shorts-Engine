@@ -275,6 +275,29 @@ test("youtube doctor enabled reports missing downloader safely", async () => {
   assert.equal(findSensitiveLeak(result), null);
 });
 
+test("youtube doctor accepts operator source cache when downloader is missing", async () => {
+  const result = await checkYouTubeIngest({
+    env: {
+      SHORTSENGINE_YOUTUBE_INGEST_ENABLED: "1",
+      SHORTSENGINE_SOURCE_CACHE_ENABLED: "1",
+      SHORTSENGINE_SOURCE_CACHE_REQUIRE_CHECKSUM: "1",
+    },
+    commandAvailable: () => true,
+    downloaderAvailable: () => false,
+    storageHealth: readyStorage,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.status, "passed");
+  assert.equal(result.youtubeIngest.ingestAvailable, true);
+  assert.equal(result.youtubeIngest.downloaderConfigured, false);
+  assert.equal(result.youtubeIngest.sourceCache.enabled, true);
+  assert.equal(result.youtubeIngest.sourceCache.requireChecksum, true);
+  const downloaderCheck = result.checks.find((check) => check.name === "downloader_available");
+  assert.equal(downloaderCheck.status, "skipped");
+  assert.equal(downloaderCheck.code, "SOURCE_CACHE_MISS");
+  assert.equal(findSensitiveLeak(result), null);
+});
+
 test("youtube doctor reports safe downloader runtime strategy when enabled", async () => {
   const result = await checkYouTubeIngest({
     env: {

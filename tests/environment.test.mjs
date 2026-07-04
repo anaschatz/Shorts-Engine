@@ -160,6 +160,9 @@ test("environment check passes with default safe config", () => {
   assert.equal(summary.transcription.activeProvider, "mock");
   assert.equal(summary.youtubeIngest.enabled, false);
   assert.equal(summary.youtubeIngest.defaultDisabled, true);
+  assert.equal(summary.youtubeIngest.sourceCache.enabled, false);
+  assert.equal(summary.youtubeIngest.sourceCache.defaultDisabled, true);
+  assert.equal(summary.youtubeIngest.sourceCache.networkCalls, false);
   assert.equal(summary.youtubeIngest.liveE2E.enabled, false);
   assert.equal(summary.youtubeIngest.liveE2E.browserEnabled, false);
   assert.equal(summary.youtubeIngest.liveE2E.defaultDisabled, true);
@@ -227,6 +230,25 @@ test("environment check rejects unsafe YouTube format selectors", () => {
   assert.throws(
     () => checkEnvironment(safeOptions({ SHORTSENGINE_YOUTUBE_FORMAT_SELECTOR: "best;cat" })),
     /YouTube format selector is invalid/,
+  );
+});
+
+test("environment check validates source cache opt-in safely", () => {
+  const summary = checkEnvironment(safeOptions({
+    SHORTSENGINE_SOURCE_CACHE_ENABLED: "1",
+    SHORTSENGINE_SOURCE_CACHE_REQUIRE_CHECKSUM: "1",
+    SHORTSENGINE_SOURCE_CACHE_DIR: "data/source-cache",
+    SHORTSENGINE_SOURCE_CACHE_MAX_BYTES: "1048576",
+  }));
+  assert.equal(summary.youtubeIngest.sourceCache.enabled, true);
+  assert.equal(summary.youtubeIngest.sourceCache.configured, true);
+  assert.equal(summary.youtubeIngest.sourceCache.requireChecksum, true);
+  assert.equal(summary.youtubeIngest.sourceCache.maxBytes, 1048576);
+  assert.equal(summary.youtubeIngest.sourceCache.networkCalls, false);
+  assert.equal(findSensitiveLeak(summary), null);
+  assert.throws(
+    () => checkEnvironment(safeOptions({ SHORTSENGINE_SOURCE_CACHE_DIR: "/etc" })),
+    /Source cache directory must stay under data or tmp/,
   );
 });
 

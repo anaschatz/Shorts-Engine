@@ -84,6 +84,21 @@ const youtubeIngestService = createYouTubeIngestService({
     logger: console,
   },
 });
+
+function publicYouTubeIngestHealth(adapter) {
+  const health = youtubeIngestHealth(adapter);
+  const sourceCacheEnabled = Boolean(CONFIG.sourceCache && CONFIG.sourceCache.enabled);
+  const sourceCacheAvailable = Boolean(CONFIG.youtubeIngest.enabled && sourceCacheEnabled);
+  return {
+    ...health,
+    sourceCacheEnabled,
+    sourceCacheAvailable,
+    sourceCacheRequiresChecksum: Boolean(CONFIG.sourceCache && CONFIG.sourceCache.requireChecksum),
+    ingestAvailable: Boolean(health.ingestAvailable || sourceCacheAvailable),
+    ready: Boolean(health.ready || sourceCacheAvailable),
+  };
+}
+
 const STATIC_ASSETS = new Set(["index.html", "styles.css", "hardening.js", "app.js"]);
 const BLOCKED_STATIC_PREFIXES = ["/server/", "/data/", "/tests/", "/OpenViking/", "/promptfoo/", "/pm-skills/", "/viking-brain/"];
 const MAX_MULTIPART_FIELDS = 12;
@@ -496,7 +511,7 @@ async function handleHealth(req, res, rid) {
   const vision = visionHealth();
   const scoreboardOcr = scoreboardOcrHealth();
   const goalEvidence = createGoalEvidenceProvider().health();
-  const youtubeIngest = youtubeIngestHealth(youtubeIngestAdapter);
+  const youtubeIngest = publicYouTubeIngestHealth(youtubeIngestAdapter);
   const cleanup = artifactCleanupWorker.health();
   const outbox = outboxWorker.health();
   const worker = jobWorker.health();

@@ -105,19 +105,64 @@ function safeFormatStrategy(health = {}, result = {}) {
   };
 }
 
+function safeCacheDiagnostics(value = {}) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {
+    cacheChecked: false,
+    cacheHit: false,
+    cacheValidated: false,
+    cacheFailureCode: null,
+    downloaderFallbackUsed: false,
+    checksumSha256: null,
+  };
+  return {
+    cacheChecked: value.cacheChecked === true,
+    cacheHit: value.cacheHit === true,
+    cacheValidated: value.cacheValidated === true,
+    cacheFailureCode: safeString(value.cacheFailureCode, 80),
+    downloaderFallbackUsed: value.downloaderFallbackUsed === true,
+    checksumSha256: typeof value.checksumSha256 === "string" && /^[a-f0-9]{64}$/.test(value.checksumSha256)
+      ? value.checksumSha256
+      : null,
+  };
+}
+
 function sourceAcquisitionSummary({ result = {}, health = {}, elapsedMs, outputPath }) {
   const progress = safeProgressSummary(result.progressSummary || result.sourceAcquisition?.progress);
+  const cache = safeCacheDiagnostics(result);
   return {
     phase: "source_acquisition",
     status: "acquired",
     step: "download_staging",
     providerMode: safeString(health.mode || result.providerMode || "local", 40),
     elapsedMs: safeNumber(elapsedMs),
-    outputValidated: false,
+    outputValidated: result.cacheValidated === true,
     outputBytes: safeNumber(result.size || fileSizeIfPresent(outputPath)),
+    sourceAcquisitionStrategy: safeString(result.sourceAcquisitionStrategy || "downloader", 80),
+    ...cache,
     strategy: safeFormatStrategy(health, result),
     progress,
   };
+}
+
+function applyCacheDiagnosticsToError(error, diagnostics = {}) {
+  if (!error || typeof error !== "object") return error;
+  const existing = error.details && typeof error.details === "object" && !Array.isArray(error.details)
+    ? error.details
+    : {};
+  const cache = safeCacheDiagnostics(diagnostics);
+  error.details = {
+    ...existing,
+    sourceAcquisitionStrategy: existing.sourceAcquisitionStrategy || diagnostics.sourceAcquisitionStrategy || "failed",
+    cacheChecked: typeof existing.cacheChecked === "boolean" ? existing.cacheChecked : cache.cacheChecked,
+    cacheHit: typeof existing.cacheHit === "boolean" ? existing.cacheHit : cache.cacheHit,
+    cacheValidated: typeof existing.cacheValidated === "boolean" ? existing.cacheValidated : cache.cacheValidated,
+    cacheFailureCode: existing.cacheFailureCode || cache.cacheFailureCode,
+    downloaderFallbackUsed: typeof existing.downloaderFallbackUsed === "boolean"
+      ? existing.downloaderFallbackUsed
+      : cache.downloaderFallbackUsed,
+    checksumSha256: existing.checksumSha256 || cache.checksumSha256,
+  };
+  return error;
 }
 
 function attachSourceAcquisitionFailureDetails(error, details = {}) {
@@ -138,8 +183,49 @@ function attachSourceAcquisitionFailureDetails(error, details = {}) {
 
 function createSourceAcquisitionService(options = {}) {
   const adapter = assertSourceAcquisitionAdapter(options.adapter);
+  const cacheAdapter = options.cacheAdapter || null;
   const acquire = adapterAcquireFunction(adapter);
   const logger = options.logger || null;
+
+  async function tryCache(request) {
+    if (!cacheAdapter || typeof cacheAdapter.acquireSource !== "function") {
+      return {
+        hit: false,
+        diagnostics: {
+          sourceAcquisitionStrategy: "downloader",
+          cacheChecked: false,
+          cacheHit: false,
+          cacheValidated: false,
+          cacheFailureCode: null,
+          downloaderFallbackUsed: false,
+        },
+      };
+    }
+    try {
+      const result = await cacheAdapter.acquireSource(request.source, {
+        outputPath: request.outputPath,
+        signal: request.signal,
+      });
+      return { hit: true, result };
+    } catch (error) {
+      const details = error && error.details && typeof error.details === "object" ? error.details : {};
+      const diagnostics = {
+        sourceAcquisitionStrategy: "cache_miss_downloader",
+        cacheChecked: true,
+        cacheHit: details.cacheHit === true,
+        cacheValidated: false,
+        cacheFailureCode: error && error.code ? error.code : details.cacheFailureCode || "SOURCE_CACHE_FILE_INVALID",
+        downloaderFallbackUsed: error && error.code === "SOURCE_CACHE_MISS",
+      };
+      if (error && error.code === "SOURCE_CACHE_MISS") return { hit: false, diagnostics };
+      applyCacheDiagnosticsToError(error, {
+        ...diagnostics,
+        sourceAcquisitionStrategy: "failed",
+        downloaderFallbackUsed: false,
+      });
+      throw error;
+    }
+  }
 
   async function acquireSource(input = {}) {
     const request = validateSourceAcquisitionRequest(input);
@@ -157,14 +243,54 @@ function createSourceAcquisitionService(options = {}) {
       status: "started",
       providerMode: health.mode,
     });
+    let cacheDiagnosticsForFailure = null;
     try {
+      const cacheAttempt = await tryCache(request);
+      cacheDiagnosticsForFailure = cacheAttempt.diagnostics || null;
+      if (cacheAttempt.hit) {
+        const elapsedMs = Date.now() - startedAt;
+        const summary = sourceAcquisitionSummary({
+          result: cacheAttempt.result || {},
+          health: { mode: "source-cache" },
+          elapsedMs,
+          outputPath: request.outputPath,
+        });
+        logInfo(logger, {
+          event: "source_acquisition_step",
+          requestId: request.requestId,
+          uploadId: request.uploadId,
+          projectId: request.projectId,
+          sourceType: "youtube",
+          videoId: request.source.videoId,
+          phase: "source_acquisition",
+          step: "cache_acquire",
+          status: "acquired",
+          elapsedMs,
+          cacheHit: true,
+          cacheValidated: true,
+        });
+        return {
+          ...(cacheAttempt.result || {}),
+          outputPath: request.outputPath,
+          sourceAcquisition: summary,
+        };
+      }
       const result = await acquire.call(adapter, request.source, {
         outputPath: request.outputPath,
         signal: request.signal,
       });
       const elapsedMs = Date.now() - startedAt;
+      const cacheDiagnostics = cacheAttempt.diagnostics || {};
       const summary = sourceAcquisitionSummary({
-        result: result || {},
+        result: {
+          ...(result || {}),
+          sourceAcquisitionStrategy: cacheDiagnostics.cacheChecked ? "cache_miss_downloader" : "downloader",
+          cacheChecked: cacheDiagnostics.cacheChecked,
+          cacheHit: cacheDiagnostics.cacheHit,
+          cacheValidated: cacheDiagnostics.cacheValidated,
+          cacheFailureCode: cacheDiagnostics.cacheFailureCode,
+          downloaderFallbackUsed: cacheDiagnostics.cacheChecked,
+        },
         health,
         elapsedMs,
         outputPath: request.outputPath,
@@ -183,14 +309,26 @@ function createSourceAcquisitionService(options = {}) {
         attempts: summary.strategy.attempts,
         attemptsConfigured: summary.strategy.attemptsConfigured,
         fallbackUsed: summary.strategy.fallbackUsed,
+        cacheChecked: summary.cacheChecked,
+        cacheHit: summary.cacheHit,
+        downloaderFallbackUsed: summary.downloaderFallbackUsed,
       });
       return {
         ...(result || {}),
+        sourceAcquisitionStrategy: summary.sourceAcquisitionStrategy,
+        cacheChecked: summary.cacheChecked,
+        cacheHit: summary.cacheHit,
+        cacheValidated: summary.cacheValidated,
+        cacheFailureCode: summary.cacheFailureCode,
+        downloaderFallbackUsed: summary.downloaderFallbackUsed,
         outputPath: request.outputPath,
         sourceAcquisition: summary,
       };
     } catch (error) {
       const elapsedMs = Date.now() - startedAt;
+      if (cacheDiagnosticsForFailure) {
+        applyCacheDiagnosticsToError(error, cacheDiagnosticsForFailure);
+      }
       attachSourceAcquisitionFailureDetails(error, { elapsedMs });
       logError(logger, {
         event: "source_acquisition_failed",

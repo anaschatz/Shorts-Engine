@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -36,6 +37,10 @@ const ENV_CONTRACT = Object.freeze([
   { name: "SHORTSENGINE_YOUTUBE_FALLBACK_FORMAT_SELECTOR", category: "Remote URL ingest", required: false, defaultValue: "best[ext=mp4]/best", type: "youtube-format", secret: false },
   { name: "SHORTSENGINE_YOUTUBE_DOWNLOAD_ATTEMPTS", category: "Remote URL ingest", required: false, defaultValue: "2", type: "integer", min: 1, max: 4, secret: false },
   { name: "SHORTSENGINE_YOUTUBE_RETRY_BACKOFF_MS", category: "Remote URL ingest", required: false, defaultValue: "500", type: "integer", min: 0, max: 10000, secret: false },
+  { name: "SHORTSENGINE_SOURCE_CACHE_ENABLED", category: "Remote URL ingest", required: false, defaultValue: "false", type: "boolean", secret: false },
+  { name: "SHORTSENGINE_SOURCE_CACHE_DIR", category: "Remote URL ingest", required: false, defaultValue: "", type: "source-cache-dir", secret: false },
+  { name: "SHORTSENGINE_SOURCE_CACHE_REQUIRE_CHECKSUM", category: "Remote URL ingest", required: false, defaultValue: "false", type: "boolean", secret: false },
+  { name: "SHORTSENGINE_SOURCE_CACHE_MAX_BYTES", category: "Remote URL ingest", required: false, defaultValue: String(250 * BYTE_1_MB), type: "integer", min: 1024, max: 20 * 1024 * BYTE_1_MB, secret: false },
   { name: "SHORTSENGINE_YOUTUBE_DOCTOR_URL", category: "Remote URL ingest", required: false, defaultValue: "", type: "url", secret: false },
   { name: "SHORTSENGINE_YOUTUBE_DOCTOR_TIMEOUT_MS", category: "Remote URL ingest", required: false, defaultValue: "5000", type: "integer", min: 1000, max: 120000, secret: false },
   { name: "SHORTSENGINE_YOUTUBE_SMOKE", category: "Remote URL ingest", required: false, defaultValue: "false", type: "boolean", secret: false },
@@ -229,6 +234,29 @@ function validateEndpoint(value) {
   }
 }
 
+function validateSourceCacheDirValue(value, rootDir = ROOT_DIR) {
+  const text = String(value || "").trim();
+  if (!text) return true;
+  if (text.includes("\u0000") || text.length > 500) {
+    throw new EnvironmentCheckError("ENV_SOURCE_CACHE_DIR_INVALID", "Source cache directory value is invalid.", {
+      category: "Remote URL ingest",
+    });
+  }
+  const target = resolve(rootDir, text);
+  const dataRoot = resolve(rootDir, "data");
+  const tmpRoot = resolve(tmpdir());
+  const fromData = relative(dataRoot, target);
+  const fromTmp = relative(tmpRoot, target);
+  const insideData = fromData === "" || (!fromData.startsWith("..") && !isAbsolute(fromData));
+  const insideTmp = fromTmp === "" || (!fromTmp.startsWith("..") && !isAbsolute(fromTmp));
+  if (!insideData && !insideTmp) {
+    throw new EnvironmentCheckError("ENV_SOURCE_CACHE_DIR_INVALID", "Source cache directory must stay under data or tmp.", {
+      category: "Remote URL ingest",
+    });
+  }
+  return true;
+}
+
 function validateSqliteFileName(value) {
   const fileName = String(value || "shortsengine.sqlite").trim();
   if (
@@ -279,7 +307,7 @@ function assertDocsMentionKnownVars(text) {
   }
 }
 
-function validateContractValues(env) {
+function validateContractValues(env, rootDir = ROOT_DIR) {
   const numeric = {};
   const booleans = {};
   for (const spec of ENV_CONTRACT) {
@@ -291,6 +319,7 @@ function validateContractValues(env) {
     if (spec.type === "youtube-format") validateYouTubeFormatSelector(value, spec);
     if (spec.type === "url") validateEndpoint(value);
     if (spec.type === "sqlite-file") validateSqliteFileName(value);
+    if (spec.type === "source-cache-dir") validateSourceCacheDirValue(value, rootDir);
     if (spec.type === "secret") validateSecretValue(value, spec.category);
   }
   if (numeric.MATCHCUTS_WORKER_RETRY_INITIAL_DELAY_MS > numeric.MATCHCUTS_WORKER_RETRY_MAX_DELAY_MS) {
@@ -506,7 +535,7 @@ function checkEnvironment(options = {}) {
   const docsText = readOptionalText(rootDir, ENV_DOC_RELATIVE_PATH, options.docsText);
   validateExampleSecrets(exampleText);
   assertDocsMentionKnownVars(docsText);
-  const { numeric } = validateContractValues(env);
+  const { numeric } = validateContractValues(env, rootDir);
   const storage = validateStorageReadiness(env);
   const transcription = validateTranscriptionReadiness(env);
   const scoreboardOcr = validateScoreboardOcrReadiness(env, numeric);
@@ -552,6 +581,14 @@ function checkEnvironment(options = {}) {
       fallbackFormatSelector: String(valueOrDefault(env, ENV_CONTRACT.find((spec) => spec.name === "SHORTSENGINE_YOUTUBE_FALLBACK_FORMAT_SELECTOR"))),
       downloadAttempts: numeric.SHORTSENGINE_YOUTUBE_DOWNLOAD_ATTEMPTS,
       retryBackoffMs: numeric.SHORTSENGINE_YOUTUBE_RETRY_BACKOFF_MS,
+      sourceCache: {
+        enabled: Boolean(boolFromEnv(rawValue(env, "SHORTSENGINE_SOURCE_CACHE_ENABLED"))),
+        configured: Boolean(boolFromEnv(rawValue(env, "SHORTSENGINE_SOURCE_CACHE_ENABLED"))),
+        requireChecksum: Boolean(boolFromEnv(rawValue(env, "SHORTSENGINE_SOURCE_CACHE_REQUIRE_CHECKSUM"))),
+        maxBytes: numeric.SHORTSENGINE_SOURCE_CACHE_MAX_BYTES,
+        defaultDisabled: !boolFromEnv(rawValue(env, "SHORTSENGINE_SOURCE_CACHE_ENABLED")),
+        networkCalls: false,
+      },
       defaultDisabled: !boolFromEnv(rawValue(env, "SHORTSENGINE_YOUTUBE_INGEST_ENABLED")),
       doctorLiveHealthConfigured: Boolean(rawValue(env, "SHORTSENGINE_YOUTUBE_DOCTOR_URL")),
       smokeEnabled: Boolean(boolFromEnv(rawValue(env, "SHORTSENGINE_YOUTUBE_SMOKE"))),
@@ -600,6 +637,7 @@ function checkEnvironment(options = {}) {
       localStorageDefault: true,
       localPersistenceDefault: true,
       youtubeIngestOptIn: true,
+      sourceCacheOptIn: true,
       scoreboardOcrFallbackDefault: true,
       realCloudOptIn: true,
     },

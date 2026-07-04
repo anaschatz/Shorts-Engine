@@ -12,6 +12,7 @@ const { isAbsolute, relative } = require("node:path");
 const { CONFIG } = require("./config.cjs");
 const { AppError, SAFE_MESSAGES, redactForLogs } = require("./errors.cjs");
 const { probeMedia, sanitizeText, sha256, validateUploadCandidate } = require("./media.cjs");
+const { createLocalSourceCacheAdapter } = require("./source-acquisition/local-source-cache-adapter.cjs");
 const { createSourceAcquisitionService } = require("./source-acquisition/source-acquisition-service.cjs");
 const { assertStoragePath, safeResolve } = require("./storage.cjs");
 const { validateYouTubeSource, youtubeIngestHealth } = require("./youtube-ingest.cjs");
@@ -125,6 +126,17 @@ function safeDownloaderFailureDetails(error) {
     sourceAcquisitionStatus: typeof details.sourceAcquisitionStatus === "string"
       ? sanitizeText(details.sourceAcquisitionStatus, 80)
       : null,
+    sourceAcquisitionStrategy: typeof details.sourceAcquisitionStrategy === "string"
+      ? sanitizeText(details.sourceAcquisitionStrategy, 80)
+      : null,
+    cacheChecked: typeof details.cacheChecked === "boolean" ? details.cacheChecked : null,
+    cacheHit: typeof details.cacheHit === "boolean" ? details.cacheHit : null,
+    cacheValidated: typeof details.cacheValidated === "boolean" ? details.cacheValidated : null,
+    cacheFailureCode: typeof details.cacheFailureCode === "string" ? sanitizeText(details.cacheFailureCode, 80) : null,
+    downloaderFallbackUsed: typeof details.downloaderFallbackUsed === "boolean" ? details.downloaderFallbackUsed : null,
+    checksumSha256: typeof details.checksumSha256 === "string" && /^[a-f0-9]{64}$/.test(details.checksumSha256)
+      ? details.checksumSha256
+      : null,
     heartbeatIntervalMs: Number.isFinite(Number(details.heartbeatIntervalMs)) ? Number(details.heartbeatIntervalMs) : null,
     noProgressTimeoutMs: Number.isFinite(Number(details.noProgressTimeoutMs)) ? Number(details.noProgressTimeoutMs) : null,
     progressHeartbeatCount: Number.isFinite(Number(details.progressHeartbeatCount))
@@ -165,6 +177,15 @@ function attachIngestFailureDetails(error, details = {}) {
       : details.partialCleanupRemovedCount,
     cleanupSucceeded: details.cleanupSucceeded,
     sourceAcquisitionStatus: existing.sourceAcquisitionStatus || details.sourceAcquisitionStatus,
+    sourceAcquisitionStrategy: existing.sourceAcquisitionStrategy || details.sourceAcquisitionStrategy,
+    cacheChecked: typeof existing.cacheChecked === "boolean" ? existing.cacheChecked : details.cacheChecked,
+    cacheHit: typeof existing.cacheHit === "boolean" ? existing.cacheHit : details.cacheHit,
+    cacheValidated: typeof existing.cacheValidated === "boolean" ? existing.cacheValidated : details.cacheValidated,
+    cacheFailureCode: existing.cacheFailureCode || details.cacheFailureCode,
+    downloaderFallbackUsed: typeof existing.downloaderFallbackUsed === "boolean"
+      ? existing.downloaderFallbackUsed
+      : details.downloaderFallbackUsed,
+    checksumSha256: existing.checksumSha256 || details.checksumSha256,
   };
   return error;
 }
@@ -190,7 +211,14 @@ function createYouTubeIngestService(options = {}) {
   if (!deps.artifactStore || !deps.persistenceAdapter) {
     throw new AppError("ADAPTER_CONTRACT_INVALID", SAFE_MESSAGES.ADAPTER_CONTRACT_INVALID, 500);
   }
-  const sourceAcquisition = createSourceAcquisitionService({ adapter, logger: deps.logger });
+  const cacheAdapter = options.cacheAdapter || createLocalSourceCacheAdapter({
+    config: CONFIG.sourceCache,
+    dependencies: {
+      sha256: deps.sha256,
+      validateUploadCandidate: deps.validateUploadCandidate,
+    },
+  });
+  const sourceAcquisition = createSourceAcquisitionService({ adapter, cacheAdapter, logger: deps.logger });
 
   async function ingest(input = {}) {
     const requestId = sanitizeText(input.requestId || "", 120);
@@ -204,7 +232,8 @@ function createYouTubeIngestService(options = {}) {
     if (!health.enabled) {
       throw new AppError("YOUTUBE_INGEST_NOT_ENABLED", SAFE_MESSAGES.YOUTUBE_INGEST_NOT_ENABLED, 503);
     }
-    if (!health.downloaderConfigured) {
+    const sourceCacheEnabled = CONFIG.sourceCache.enabled === true;
+    if (!health.downloaderConfigured && !sourceCacheEnabled) {
       throw new AppError("YOUTUBE_DOWNLOADER_MISSING", SAFE_MESSAGES.YOUTUBE_DOWNLOADER_MISSING, 503);
     }
 
@@ -217,6 +246,7 @@ function createYouTubeIngestService(options = {}) {
     let activeSubstep = "source_metadata";
     let stageCleaned = false;
     let acquisitionCompleted = false;
+    let acquisitionSummary = null;
     logInfo(deps.logger, {
       event: "youtube_ingest_step",
       requestId,
@@ -256,6 +286,7 @@ function createYouTubeIngestService(options = {}) {
         uploadId,
         projectId,
       });
+      acquisitionSummary = downloadResult?.sourceAcquisition || null;
       acquisitionCompleted = true;
       activeStep = "download_validate_signature";
       activeSubstep = "file_signature";
@@ -279,6 +310,11 @@ function createYouTubeIngestService(options = {}) {
           : null,
         fallbackUsed: downloadResult?.fallbackUsed === true,
         sourceAcquisitionStatus: downloadResult?.sourceAcquisition?.status || null,
+        sourceAcquisitionStrategy: downloadResult?.sourceAcquisition?.sourceAcquisitionStrategy || null,
+        cacheChecked: downloadResult?.sourceAcquisition?.cacheChecked === true,
+        cacheHit: downloadResult?.sourceAcquisition?.cacheHit === true,
+        cacheValidated: downloadResult?.sourceAcquisition?.cacheValidated === true,
+        downloaderFallbackUsed: downloadResult?.sourceAcquisition?.downloaderFallbackUsed === true,
       });
       const validated = deps.validateUploadCandidate({
         fileName: `${source.videoId}.mp4`,
@@ -362,6 +398,15 @@ function createYouTubeIngestService(options = {}) {
         metadataPreflightDurationSeconds: source.durationSeconds || null,
         cleanupSucceeded: cleanup.cleaned === true,
         sourceAcquisitionStatus: acquisitionCompleted ? "acquired" : "failed",
+        sourceAcquisitionStrategy: acquisitionSummary?.sourceAcquisitionStrategy || null,
+        cacheChecked: typeof acquisitionSummary?.cacheChecked === "boolean" ? acquisitionSummary.cacheChecked : undefined,
+        cacheHit: typeof acquisitionSummary?.cacheHit === "boolean" ? acquisitionSummary.cacheHit : undefined,
+        cacheValidated: typeof acquisitionSummary?.cacheValidated === "boolean" ? acquisitionSummary.cacheValidated : undefined,
+        cacheFailureCode: acquisitionSummary?.cacheFailureCode || undefined,
+        downloaderFallbackUsed: typeof acquisitionSummary?.downloaderFallbackUsed === "boolean"
+          ? acquisitionSummary.downloaderFallbackUsed
+          : undefined,
+        checksumSha256: acquisitionSummary?.checksumSha256 || undefined,
       });
       logError(deps.logger, {
         event: "youtube_ingest_failed",

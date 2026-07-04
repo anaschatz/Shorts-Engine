@@ -19,6 +19,9 @@ const MAX_HEALTH_RESPONSE_BYTES = 64 * 1024;
 const DOCTOR_NEXT_ACTIONS = {
   YOUTUBE_INGEST_DISABLED: "set-SHORTSENGINE_YOUTUBE_INGEST_ENABLED-1-and-configure-downloader-for-real-ingest",
   YOUTUBE_DOWNLOADER_MISSING: "install-configure-downloader-or-set-SHORTSENGINE_YOUTUBE_DOWNLOADER_BIN",
+  SOURCE_CACHE_MISS: "place-rights-cleared-source-in-cache-or-configure-downloader-fallback",
+  SOURCE_CACHE_FILE_INVALID: "replace-invalid-source-cache-file",
+  SOURCE_CACHE_CHECKSUM_MISMATCH: "fix-cache-metadata-or-checksum",
   FFMPEG_MISSING: "install-ffmpeg-or-set-FFMPEG_BIN",
   FFPROBE_MISSING: "install-ffprobe-or-set-FFPROBE_BIN",
   YOUTUBE_STAGING_STORAGE_UNAVAILABLE: "check-data-directory-permissions-and-staging-storage",
@@ -140,6 +143,8 @@ function validateHealthYoutubeShape(payload) {
       enabled: youtubeIngest.enabled,
       mode: youtubeIngest.mode || "unknown",
       downloaderConfigured: youtubeIngest.downloaderConfigured,
+      sourceCacheAvailable: youtubeIngest.sourceCacheAvailable === true || youtubeIngest.sourceCacheEnabled === true,
+      sourceCacheRequiresChecksum: youtubeIngest.sourceCacheRequiresChecksum === true,
       ingestAvailable: youtubeIngest.ingestAvailable,
       ready: youtubeIngest.ready,
     },
@@ -249,6 +254,10 @@ async function checkYouTubeIngest(options = {}) {
   const nowMs = Number.isFinite(Number(options.nowMs)) ? Number(options.nowMs) : Date.now();
   const checks = [];
   const enabled = boolFromEnv(rawValue(env, "SHORTSENGINE_YOUTUBE_INGEST_ENABLED"));
+  const sourceCacheEnabled = boolFromEnv(rawValue(env, "SHORTSENGINE_SOURCE_CACHE_ENABLED")) ||
+    (CONFIG.sourceCache && CONFIG.sourceCache.enabled === true);
+  const sourceCacheRequireChecksum = boolFromEnv(rawValue(env, "SHORTSENGINE_SOURCE_CACHE_REQUIRE_CHECKSUM")) ||
+    (CONFIG.sourceCache && CONFIG.sourceCache.requireChecksum === true);
   const downloaderBin = String(rawValue(env, "SHORTSENGINE_YOUTUBE_DOWNLOADER_BIN") || CONFIG.youtubeIngest.downloaderBin || "yt-dlp").trim();
   const healthUrl = String(rawValue(env, "SHORTSENGINE_YOUTUBE_DOCTOR_URL") || "").trim();
   const healthTimeoutMs = parseInteger(
@@ -261,6 +270,10 @@ async function checkYouTubeIngest(options = {}) {
 
   addCheck(checks, "youtube_ingest_flag", enabled ? "passed" : "skipped", {
     code: enabled ? null : "YOUTUBE_INGEST_DISABLED",
+  });
+  addCheck(checks, "source_cache_configured", sourceCacheEnabled ? "passed" : "skipped", {
+    code: sourceCacheEnabled ? null : "SOURCE_CACHE_MISS",
+    nextAction: sourceCacheEnabled ? null : "enable-source-cache-only-for-operator-approved-local-source-proof",
   });
 
   const ffmpegReady = safeCommandAvailable(CONFIG.ffmpegBin, options.commandAvailable);
@@ -280,8 +293,13 @@ async function checkYouTubeIngest(options = {}) {
     versionSummary = downloaderConfigured
       ? safeDownloaderVersion(downloaderBin, options.downloaderVersion)
       : { available: false, version: null };
-    addCheck(checks, "downloader_available", downloaderConfigured ? "passed" : "failed", {
-      code: downloaderConfigured ? null : "YOUTUBE_DOWNLOADER_MISSING",
+    addCheck(checks, "downloader_available", downloaderConfigured ? "passed" : sourceCacheEnabled ? "skipped" : "failed", {
+      code: downloaderConfigured ? null : sourceCacheEnabled ? "SOURCE_CACHE_MISS" : "YOUTUBE_DOWNLOADER_MISSING",
+      nextAction: downloaderConfigured
+        ? null
+        : sourceCacheEnabled
+          ? "place-rights-cleared-source-in-cache-or-configure-downloader-fallback"
+          : undefined,
     });
   } else {
     addCheck(checks, "downloader_available", "skipped", {
@@ -341,9 +359,15 @@ async function checkYouTubeIngest(options = {}) {
       mode: enabled ? "local" : "mock",
       downloaderConfigured,
       downloaderVersion: versionSummary.version,
-      ingestAvailable: Boolean(enabled && downloaderConfigured && ffmpegReady && ffprobeReady && storage.stagingReady),
+      ingestAvailable: Boolean(enabled && (downloaderConfigured || sourceCacheEnabled) && ffmpegReady && ffprobeReady && storage.stagingReady),
       defaultDisabled: !enabled,
       formatStrategy,
+      sourceCache: {
+        enabled: sourceCacheEnabled,
+        configured: sourceCacheEnabled,
+        networkCalls: false,
+        requireChecksum: sourceCacheRequireChecksum,
+      },
     },
     ffmpeg: {
       ffmpeg: ffmpegReady,

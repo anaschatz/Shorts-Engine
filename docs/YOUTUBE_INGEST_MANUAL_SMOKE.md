@@ -42,6 +42,34 @@ export SHORTSENGINE_YOUTUBE_DOWNLOADER_BIN="/path/to/managed/yt-dlp"
 Do not use shell aliases, command strings with spaces, cookies, or downloader configs that require private credentials.
 `SHORTSENGINE_YOUTUBE_AUTHORIZED_IMPORT_ENABLED=0` is the safe default. It is a foundation flag only; this milestone does not accept cookies, tokens, browser sessions or private video credentials.
 
+## Use Operator-Approved Source Cache
+
+Use this path when the downloader cannot finish a long public source inside the bounded timeout, but the operator has already prepared a rights-cleared MP4 for the same YouTube video id. ShortsEngine never downloads into this cache automatically and never deletes approved cache files.
+
+Cache contract:
+
+- Enable cache only for manual/operator proof with `SHORTSENGINE_SOURCE_CACHE_ENABLED=1`.
+- Put the MP4 in the configured cache directory as `<youtube-video-id>.mp4`, for example `KxGedHh0Ruc.mp4`.
+- Keep the directory under `data/source-cache` or a system temp path.
+- Optionally write `<youtube-video-id>.sha256` and set `SHORTSENGINE_SOURCE_CACHE_REQUIRE_CHECKSUM=1`.
+- The URL must still pass normal YouTube URL validation and `rightsConfirmed` must be true.
+- ShortsEngine copies the cache file into managed staging, validates signature/container/size/duration/FFprobe, and commits an upload artifact only after validation.
+- Cache miss falls back to the existing downloader when configured. Corrupt, oversized or checksum-mismatched cache files fail closed and do not create upload/project/job/export records.
+- Reports expose only `sourceAcquisitionStrategy`, `cacheChecked`, `cacheHit`, `cacheValidated`, `cacheFailureCode`, `downloaderFallbackUsed` and a safe checksum hash, never absolute paths or storage keys.
+
+Example:
+
+```bash
+mkdir -p data/source-cache
+# Place your rights-cleared MP4 manually as data/source-cache/<video-id>.mp4
+shasum -a 256 data/source-cache/<video-id>.mp4 | awk '{print $1}' > data/source-cache/<video-id>.sha256
+
+SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1 \
+SHORTSENGINE_SOURCE_CACHE_ENABLED=1 \
+SHORTSENGINE_SOURCE_CACHE_REQUIRE_CHECKSUM=1 \
+npm run youtube:doctor
+```
+
 ## Enable Manual Ingest
 
 In one terminal, start the app with explicit ingest enabled:
@@ -62,7 +90,7 @@ SHORTSENGINE_YOUTUBE_DOCTOR_URL="http://127.0.0.1:4175" \
 npm run youtube:doctor
 ```
 
-The doctor checks the explicit flag, FFmpeg, FFprobe, staging storage, downloader readiness, and optional live `/health` shape. It reports safe `nextAction` strings for operator recovery.
+The doctor checks the explicit flag, FFmpeg, FFprobe, staging storage, downloader or operator-approved source cache readiness, and optional live `/health` shape. It reports safe `nextAction` strings for operator recovery.
 
 Default disabled mode is expected to skip safely:
 
@@ -373,6 +401,9 @@ If cleanup requires deleting committed artifacts or exports, stop and add a dedi
 | `YOUTUBE_FORMAT_UNAVAILABLE` | The requested downloader format was unavailable. | Adjust `SHORTSENGINE_YOUTUBE_FORMAT_SELECTOR` or rely on the fallback selector, then rerun. |
 | `YOUTUBE_OUTPUT_INVALID` | The downloader exited without a valid staged MP4. | Retry once, check format strategy, or use a rights-cleared local MP4 proof. |
 | `YOUTUBE_NO_PROGRESS_TIMEOUT` | The managed staging file stopped growing before the downloader completed. | Retry with a reviewed `SHORTSENGINE_YOUTUBE_NO_PROGRESS_TIMEOUT_MS` increase or use an authorized source cache. |
+| `SOURCE_CACHE_MISS` | No approved cached MP4 exists for the YouTube video id. | Place a rights-cleared `<video-id>.mp4` in the configured source cache or configure downloader fallback. |
+| `SOURCE_CACHE_FILE_INVALID` | Cached MP4 failed signature/container/size validation. | Replace the cached file; ShortsEngine will not mutate or delete the approved cache file. |
+| `SOURCE_CACHE_CHECKSUM_MISMATCH` | Checksum is missing or does not match while checksum enforcement is enabled. | Regenerate `<video-id>.sha256` from the approved MP4 or disable checksum enforcement for the manual proof. |
 | `YOUTUBE_DOWNLOAD_FAILED` | Generic downloader failure before OCR/evidence analysis. | Use `npm run proof:local-video` with a rights-cleared MP4, or fix the downloader and rerun. |
 | `FFMPEG_MISSING` | FFmpeg is unavailable. | Install FFmpeg or set `FFMPEG_BIN`. |
 | `FFPROBE_MISSING` | FFprobe is unavailable. | Install FFprobe or set `FFPROBE_BIN`. |

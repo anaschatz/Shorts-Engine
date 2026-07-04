@@ -175,7 +175,7 @@ Open `http://127.0.0.1:4175` unless you set a different `PORT`.
 - Trace/video: enable only for debugging with `SHORTSENGINE_BROWSER_E2E_TRACE=1` or `SHORTSENGINE_BROWSER_E2E_VIDEO=1`.
 - Port already used: start with a different port, e.g. `PORT=4182 npm run dev`.
 - No API key: expected for local demo; mock transcription is the safe default.
-- Real YouTube ingest is opt-in and manual. It requires `SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1`, downloader readiness, explicit rights confirmation and a smoke allowlist or `SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED=1`.
+- Real YouTube ingest is opt-in and manual. It requires `SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1`, downloader or operator-approved source cache readiness, explicit rights confirmation and a smoke allowlist or `SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED=1`.
 - Manual YouTube smoke details: see `docs/YOUTUBE_INGEST_MANUAL_SMOKE.md`.
 
 ## Known Limitations

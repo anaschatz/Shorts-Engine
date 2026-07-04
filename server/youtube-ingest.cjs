@@ -119,6 +119,13 @@ async function readAdapterMetadata(adapter, source) {
   try {
     return safeMetadata(await adapter.getMetadata(source));
   } catch {
+    if (CONFIG.youtubeIngest && CONFIG.youtubeIngest.enabled && CONFIG.sourceCache && CONFIG.sourceCache.enabled) {
+      return safeMetadata({
+        metadataStatus: "source-cache-metadata-unavailable",
+        ingestAvailable: true,
+        nextAction: "source-cache-metadata-deferred",
+      });
+    }
     fail("YOUTUBE_INGEST_NOT_ENABLED", 503);
   }
 }
@@ -130,12 +137,13 @@ async function validateYouTubeSource(input = {}) {
   const maxDurationSeconds = Number(input.maxDurationSeconds || CONFIG.maxDurationSeconds);
   const metadata = await readAdapterMetadata(adapter, source);
   const health = youtubeIngestHealth(adapter);
+  const sourceCacheAvailable = Boolean(CONFIG.youtubeIngest && CONFIG.youtubeIngest.enabled && CONFIG.sourceCache && CONFIG.sourceCache.enabled);
   if (metadata.durationSeconds && metadata.durationSeconds > maxDurationSeconds) {
     fail("YOUTUBE_DURATION_TOO_LONG");
   }
-  const ingestAvailable = Boolean(health.ingestAvailable || metadata.ingestAvailable);
+  const ingestAvailable = Boolean(health.ingestAvailable || metadata.ingestAvailable || sourceCacheAvailable);
   const nextAction = metadata.nextAction ||
-    (ingestAvailable ? "youtube-ingest-ready" : "youtube-ingest-disabled-until-mp4-artifact-exists");
+    (sourceCacheAvailable ? "source-cache-ready" : ingestAvailable ? "youtube-ingest-ready" : "youtube-ingest-disabled-until-mp4-artifact-exists");
   return {
     ...source,
     title: metadata.title,
@@ -147,6 +155,7 @@ async function validateYouTubeSource(input = {}) {
     authorizedImportRequired: metadata.authorizedImportRequired,
     ingestAvailable,
     downloaderConfigured: Boolean(health.downloaderConfigured),
+    sourceCacheAvailable,
     authorizedImportAvailable: Boolean(health.authorizedImportAvailable),
     nextAction,
   };

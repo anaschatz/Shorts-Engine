@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } = require("node:fs");
+const { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } = require("node:fs");
 const { dirname, join } = require("node:path");
 
 const { CONFIG } = require("../server/config.cjs");
@@ -33,6 +33,12 @@ const {
   createSourceAcquisitionService,
   validateSourceAcquisitionRequest,
 } = require("../server/source-acquisition/source-acquisition-service.cjs");
+const {
+  cacheFileNameForVideoId,
+  checksumFileNameForVideoId,
+  createLocalSourceCacheAdapter,
+  sourceCacheKeyForVideoId,
+} = require("../server/source-acquisition/local-source-cache-adapter.cjs");
 
 const mp4Header = Buffer.from([
   0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d,
@@ -120,6 +126,20 @@ function createWritingAdapter(fileBuffer, options = {}) {
       };
     },
   };
+}
+
+function validMp4Buffer(extraBytes = 128) {
+  return Buffer.concat([mp4Header, Buffer.alloc(extraBytes)]);
+}
+
+function makeSourceCacheDir(name) {
+  const dir = join(CONFIG.sourceCacheDir, `test-${name}-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function removeSourceCacheDir(dir) {
+  rmSync(dir, { recursive: true, force: true });
 }
 
 test("youtube url normalization accepts supported video formats", () => {
@@ -351,6 +371,288 @@ test("source acquisition boundary wraps successful local adapter output safely",
     assert.doesNotMatch(JSON.stringify(result.sourceAcquisition), /\/Users|stderr|stdout|token|cookie/i);
   } finally {
     cleanupYouTubeStage(stageDir);
+  }
+});
+
+test("source cache is disabled by default and keys are video-id based", async () => {
+  const uploadId = "upl_cache01-1234-1234-1234-123456789abc";
+  const { stageDir, outputPath } = createYouTubeStagePaths(uploadId);
+  mkdirSync(stageDir, { recursive: true });
+  const cacheDir = makeSourceCacheDir("disabled");
+  const adapter = createLocalSourceCacheAdapter({
+    config: {
+      enabled: false,
+      dir: cacheDir,
+      requireChecksum: false,
+      maxBytes: CONFIG.maxUploadBytes,
+    },
+  });
+  try {
+    assert.equal(sourceCacheKeyForVideoId("dQw4w9WgXcQ"), "dQw4w9WgXcQ");
+    assert.equal(cacheFileNameForVideoId("dQw4w9WgXcQ"), "dQw4w9WgXcQ.mp4");
+    assert.throws(() => sourceCacheKeyForVideoId("../bad-video"), (error) => error.code === "YOUTUBE_URL_INVALID");
+    await assert.rejects(
+      () => adapter.acquireSource(normalizeYouTubeUrl("https://youtu.be/dQw4w9WgXcQ"), { outputPath }),
+      (error) => {
+        assert.equal(error.code, "SOURCE_CACHE_MISS");
+        assert.equal(error.details.cacheChecked, true);
+        assert.equal(error.details.cacheHit, false);
+        assert.equal(error.details.cacheValidated, false);
+        return true;
+      },
+    );
+  } finally {
+    cleanupYouTubeStage(stageDir);
+    removeSourceCacheDir(cacheDir);
+  }
+});
+
+test("source cache rejects unsafe cache directory configuration", async () => {
+  const uploadId = "upl_cache99-1234-1234-1234-123456789abc";
+  const { stageDir, outputPath } = createYouTubeStagePaths(uploadId);
+  mkdirSync(stageDir, { recursive: true });
+  const adapter = createLocalSourceCacheAdapter({
+    config: {
+      enabled: true,
+      dir: "/etc",
+      requireChecksum: false,
+      maxBytes: CONFIG.maxUploadBytes,
+    },
+  });
+  try {
+    await assert.rejects(
+      () => adapter.acquireSource(normalizeYouTubeUrl("https://youtu.be/dQw4w9WgXcQ"), { outputPath }),
+      (error) => {
+        assert.equal(error.code, "STORAGE_PATH_UNSAFE");
+        assert.equal(error.details.cacheChecked, true);
+        assert.equal(error.details.cacheValidated, false);
+        return true;
+      },
+    );
+  } finally {
+    cleanupYouTubeStage(stageDir);
+  }
+});
+
+test("source acquisition uses valid source cache before downloader fallback", async () => {
+  const uploadId = "upl_cache02-1234-1234-1234-123456789abc";
+  const { stageDir, outputPath } = createYouTubeStagePaths(uploadId);
+  mkdirSync(stageDir, { recursive: true });
+  const cacheDir = makeSourceCacheDir("hit");
+  const cachePath = join(cacheDir, cacheFileNameForVideoId("dQw4w9WgXcQ"));
+  const cachedBytes = validMp4Buffer(256);
+  writeFileSync(cachePath, cachedBytes);
+  const cacheAdapter = createLocalSourceCacheAdapter({
+    config: {
+      enabled: true,
+      dir: cacheDir,
+      requireChecksum: false,
+      maxBytes: CONFIG.maxUploadBytes,
+    },
+  });
+  const downloader = createWritingAdapter(validMp4Buffer(64));
+  try {
+    const service = createSourceAcquisitionService({ adapter: downloader, cacheAdapter });
+    const result = await service.acquireSource({
+      url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      rightsConfirmed: true,
+      outputPath,
+    });
+    assert.equal(result.sourceAcquisition.sourceAcquisitionStrategy, "cache");
+    assert.equal(result.sourceAcquisition.cacheChecked, true);
+    assert.equal(result.sourceAcquisition.cacheHit, true);
+    assert.equal(result.sourceAcquisition.cacheValidated, true);
+    assert.equal(result.sourceAcquisition.downloaderFallbackUsed, false);
+    assert.match(result.sourceAcquisition.checksumSha256, /^[a-f0-9]{64}$/);
+    assert.equal(statSync(outputPath).size, cachedBytes.length);
+    assert.equal(existsSync(cachePath), true);
+    assert.equal(downloader.calls.length, 0);
+    assert.doesNotMatch(JSON.stringify(result.sourceAcquisition), /\/Users|\/private|storageKey|outputPath|stderr|stdout|cookie|token/i);
+  } finally {
+    cleanupYouTubeStage(stageDir);
+    removeSourceCacheDir(cacheDir);
+  }
+});
+
+test("source acquisition falls back to downloader on source cache miss", async () => {
+  const uploadId = "upl_cache03-1234-1234-1234-123456789abc";
+  const { stageDir, outputPath } = createYouTubeStagePaths(uploadId);
+  mkdirSync(stageDir, { recursive: true });
+  const cacheDir = makeSourceCacheDir("miss");
+  const cacheAdapter = createLocalSourceCacheAdapter({
+    config: {
+      enabled: true,
+      dir: cacheDir,
+      requireChecksum: false,
+      maxBytes: CONFIG.maxUploadBytes,
+    },
+  });
+  const downloader = createWritingAdapter(validMp4Buffer(128));
+  try {
+    const service = createSourceAcquisitionService({ adapter: downloader, cacheAdapter });
+    const result = await service.acquireSource({
+      url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      rightsConfirmed: true,
+      outputPath,
+    });
+    assert.equal(result.sourceAcquisition.sourceAcquisitionStrategy, "cache_miss_downloader");
+    assert.equal(result.sourceAcquisition.cacheChecked, true);
+    assert.equal(result.sourceAcquisition.cacheHit, false);
+    assert.equal(result.sourceAcquisition.cacheValidated, false);
+    assert.equal(result.sourceAcquisition.cacheFailureCode, "SOURCE_CACHE_MISS");
+    assert.equal(result.sourceAcquisition.downloaderFallbackUsed, true);
+    assert.equal(downloader.calls.length, 1);
+    assert.doesNotMatch(JSON.stringify(result.sourceAcquisition), /\/Users|\/private|storageKey|outputPath|stderr|stdout|cookie|token/i);
+  } finally {
+    cleanupYouTubeStage(stageDir);
+    removeSourceCacheDir(cacheDir);
+  }
+});
+
+test("youtube ingest service commits valid cached source after staging validation", async () => {
+  const created = [];
+  const before = youtubeStageChildren();
+  const cacheDir = makeSourceCacheDir("service-hit");
+  const cachePath = join(cacheDir, cacheFileNameForVideoId("dQw4w9WgXcQ"));
+  const cachedBytes = validMp4Buffer(512);
+  writeFileSync(cachePath, cachedBytes);
+  const cacheAdapter = createLocalSourceCacheAdapter({
+    config: {
+      enabled: true,
+      dir: cacheDir,
+      requireChecksum: false,
+      maxBytes: CONFIG.maxUploadBytes,
+    },
+  });
+  const downloader = createWritingAdapter(validMp4Buffer(64), { title: "Cached Derby Clip" });
+  const service = createYouTubeIngestService({
+    adapter: downloader,
+    cacheAdapter,
+    dependencies: {
+      artifactStore: createFakeArtifactStore(),
+      persistenceAdapter: createFakePersistenceAdapter(created),
+      logger: null,
+      probeMedia: async () => ({ durationSeconds: 22, width: 1280, height: 720, hasAudio: true }),
+    },
+  });
+  try {
+    const result = await service.ingest({
+      url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      rightsConfirmed: true,
+      title: "Cached Source Project",
+    });
+    assert.equal(created.length, 1);
+    assert.equal(downloader.calls.length, 0);
+    assert.equal(result.source.videoId, "dQw4w9WgXcQ");
+    assert.equal(result.upload.byteSize, cachedBytes.length);
+    assert.equal(result.upload.artifact.status, "available");
+    assert.equal(created[0].upload.metadata.sourceType, "youtube");
+    assert.equal(existsSync(cachePath), true);
+    assert.deepEqual(youtubeStageChildren(), before);
+    assert.doesNotMatch(JSON.stringify(result), /\/Users|\/private|storageKey|outputPath|filePath|secret|token/i);
+  } finally {
+    removeSourceCacheDir(cacheDir);
+  }
+});
+
+test("source cache checksum mismatch fails closed without downloader or records", async () => {
+  const created = [];
+  const cacheDir = makeSourceCacheDir("checksum");
+  const cachePath = join(cacheDir, cacheFileNameForVideoId("dQw4w9WgXcQ"));
+  writeFileSync(cachePath, validMp4Buffer(256));
+  writeFileSync(join(cacheDir, checksumFileNameForVideoId("dQw4w9WgXcQ")), `${"0".repeat(64)}\n`);
+  const cacheAdapter = createLocalSourceCacheAdapter({
+    config: {
+      enabled: true,
+      dir: cacheDir,
+      requireChecksum: true,
+      maxBytes: CONFIG.maxUploadBytes,
+    },
+  });
+  const downloader = createWritingAdapter(validMp4Buffer(64));
+  const service = createYouTubeIngestService({
+    adapter: downloader,
+    cacheAdapter,
+    dependencies: {
+      artifactStore: createFakeArtifactStore(),
+      persistenceAdapter: createFakePersistenceAdapter(created),
+      logger: null,
+      probeMedia: async () => ({ durationSeconds: 18, width: 1280, height: 720, hasAudio: true }),
+    },
+  });
+  try {
+    await assert.rejects(
+      () => service.ingest({
+        url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        rightsConfirmed: true,
+      }),
+      (error) => {
+        assert.equal(error.code, "SOURCE_CACHE_CHECKSUM_MISMATCH");
+        assert.equal(error.details.cacheChecked, true);
+        assert.equal(error.details.cacheHit, true);
+        assert.equal(error.details.cacheValidated, false);
+        assert.equal(error.details.downloaderFallbackUsed, false);
+        assert.equal(error.details.cleanupSucceeded, true);
+        assert.doesNotMatch(JSON.stringify(error.details), /\/Users|\/private|storageKey|outputPath|stderr|stdout|cookie|token/i);
+        return true;
+      },
+    );
+    assert.equal(created.length, 0);
+    assert.equal(downloader.calls.length, 0);
+    assert.equal(existsSync(cachePath), true);
+  } finally {
+    removeSourceCacheDir(cacheDir);
+  }
+});
+
+test("corrupt source cache is rejected and creates no records", async () => {
+  const created = [];
+  const before = youtubeStageChildren();
+  const cacheDir = makeSourceCacheDir("corrupt");
+  const cachePath = join(cacheDir, cacheFileNameForVideoId("dQw4w9WgXcQ"));
+  writeFileSync(cachePath, Buffer.from("not an mp4"));
+  const cacheAdapter = createLocalSourceCacheAdapter({
+    config: {
+      enabled: true,
+      dir: cacheDir,
+      requireChecksum: false,
+      maxBytes: CONFIG.maxUploadBytes,
+    },
+  });
+  const downloader = createWritingAdapter(validMp4Buffer(64));
+  const service = createYouTubeIngestService({
+    adapter: downloader,
+    cacheAdapter,
+    dependencies: {
+      artifactStore: createFakeArtifactStore(),
+      persistenceAdapter: createFakePersistenceAdapter(created),
+      logger: null,
+      probeMedia: async () => ({ durationSeconds: 18, width: 1280, height: 720, hasAudio: true }),
+    },
+  });
+  try {
+    await assert.rejects(
+      () => service.ingest({
+        url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        rightsConfirmed: true,
+      }),
+      (error) => {
+        assert.equal(error.code, "FILE_SIGNATURE_UNSUPPORTED");
+        assert.equal(error.details.cacheChecked, true);
+        assert.equal(error.details.cacheHit, true);
+        assert.equal(error.details.cacheValidated, false);
+        assert.equal(error.details.downloaderFallbackUsed, false);
+        assert.equal(error.details.cleanupSucceeded, true);
+        assert.doesNotMatch(JSON.stringify(error.details), /\/Users|\/private|storageKey|outputPath|stderr|stdout|cookie|token/i);
+        return true;
+      },
+    );
+    assert.equal(created.length, 0);
+    assert.equal(downloader.calls.length, 0);
+    assert.equal(existsSync(cachePath), true);
+    assert.deepEqual(youtubeStageChildren(), before);
+  } finally {
+    removeSourceCacheDir(cacheDir);
   }
 });
 

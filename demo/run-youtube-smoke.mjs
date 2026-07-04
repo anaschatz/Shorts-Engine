@@ -34,6 +34,9 @@ const SMOKE_NEXT_ACTIONS = {
   YOUTUBE_DOWNLOADER_MISSING: "install-configure-downloader-or-set-SHORTSENGINE_YOUTUBE_DOWNLOADER_BIN",
   YOUTUBE_DOWNLOAD_FAILED: "use-rights-cleared-local-mp4-proof-or-fix-downloader-and-rerun",
   YOUTUBE_NO_PROGRESS_TIMEOUT: "retry-with-longer-no-progress-timeout-or-use-authorized-source-cache",
+  SOURCE_CACHE_MISS: "place-rights-cleared-source-in-cache-or-enable-downloader-fallback",
+  SOURCE_CACHE_FILE_INVALID: "replace-invalid-source-cache-file",
+  SOURCE_CACHE_CHECKSUM_MISMATCH: "fix-cache-metadata-or-checksum",
   YOUTUBE_SMOKE_FETCH_FAILED: "start-server-or-check-SHORTSENGINE_YOUTUBE_SMOKE_BASE_URL",
   YOUTUBE_SMOKE_REQUEST_TIMEOUT: "check-server-readiness-or-increase-smoke-timeout",
   YOUTUBE_SMOKE_HEALTH_TIMEOUT: "check-server-readiness-before-running-youtube-smoke",
@@ -351,10 +354,15 @@ function assertApiOk(response, code, message, details = {}) {
     "retryable",
     "authorizedImportRequired",
     "downloaderConfigured",
+    "cacheChecked",
+    "cacheHit",
+    "cacheValidated",
+    "downloaderFallbackUsed",
   ]) {
     if (typeof apiError[key] === "boolean") safeApiDetails[key] = apiError[key];
   }
   for (const key of [
+    "cacheFailureCode",
     "fallbackFormatSelector",
     "fileValidation",
     "formatSelector",
@@ -365,11 +373,15 @@ function assertApiOk(response, code, message, details = {}) {
     "phase",
     "playerClient",
     "sourceAcquisitionStatus",
+    "sourceAcquisitionStrategy",
     "stallClassification",
     "step",
     "substep",
   ]) {
     if (typeof apiError[key] === "string") safeApiDetails[key] = sanitizeText(apiError[key], 180);
+  }
+  if (typeof apiError.checksumSha256 === "string" && /^[a-f0-9]{64}$/.test(apiError.checksumSha256)) {
+    safeApiDetails.checksumSha256 = apiError.checksumSha256;
   }
   throw new YouTubeSmokeError(apiCode || code, message, { ...details, ...safeApiDetails, httpStatus: response?.status || null });
 }
@@ -398,8 +410,9 @@ function validateHealthForSmoke(payload) {
   if (!youtubeIngest.enabled) {
     throw new YouTubeSmokeError("YOUTUBE_SMOKE_INGEST_DISABLED", "YouTube ingest must be enabled before running smoke.");
   }
-  if (!youtubeIngest.downloaderConfigured || !youtubeIngest.ingestAvailable) {
-    throw new YouTubeSmokeError("YOUTUBE_DOWNLOADER_MISSING", "YouTube smoke requires an available downloader.");
+  const sourceCacheAvailable = youtubeIngest.sourceCacheAvailable === true || youtubeIngest.sourceCacheEnabled === true;
+  if ((!youtubeIngest.downloaderConfigured && !sourceCacheAvailable) || !youtubeIngest.ingestAvailable) {
+    throw new YouTubeSmokeError("YOUTUBE_DOWNLOADER_MISSING", "YouTube smoke requires an available downloader or source cache.");
   }
   if (data.status !== "ready" || youtubeIngest.ready !== true) {
     throw new YouTubeSmokeError("YOUTUBE_SMOKE_HEALTH_NOT_READY", "YouTube smoke requires ready health before ingest.");
@@ -410,7 +423,9 @@ function validateHealthForSmoke(payload) {
     ffprobe: true,
     youtubeIngest: {
       enabled: true,
-      downloaderConfigured: true,
+      downloaderConfigured: youtubeIngest.downloaderConfigured === true,
+      sourceCacheAvailable,
+      sourceCacheRequiresChecksum: youtubeIngest.sourceCacheRequiresChecksum === true,
       ingestAvailable: true,
       mode: youtubeIngest.mode || "local",
     },
@@ -423,7 +438,8 @@ function validateSourceResponse(data, expected) {
   if (!source || source.sourceType !== "youtube" || source.videoId !== expected.videoId) {
     throw new YouTubeSmokeError("YOUTUBE_SMOKE_VALIDATE_RESPONSE_INVALID", "YouTube validation response is invalid.");
   }
-  if (source.ingestAvailable !== true || source.downloaderConfigured !== true) {
+  const sourceCacheAvailable = source.sourceCacheAvailable === true;
+  if (source.ingestAvailable !== true || (source.downloaderConfigured !== true && !sourceCacheAvailable)) {
     throw new YouTubeSmokeError("YOUTUBE_SMOKE_VALIDATE_NOT_READY", "YouTube source validation is not ingest-ready.");
   }
   return {
@@ -431,6 +447,8 @@ function validateSourceResponse(data, expected) {
     kind: source.kind || expected.kind,
     videoId: source.videoId,
     ingestAvailable: true,
+    downloaderConfigured: source.downloaderConfigured === true,
+    sourceCacheAvailable,
   };
 }
 
@@ -1435,6 +1453,15 @@ function safeFailure(error) {
     fallbackFormatSelector: details.fallbackFormatSelector ? sanitizeText(details.fallbackFormatSelector, 180) : null,
     playerClient: details.playerClient ? sanitizeText(details.playerClient, 40) : null,
     sourceAcquisitionStatus: details.sourceAcquisitionStatus ? sanitizeText(details.sourceAcquisitionStatus, 80) : null,
+    sourceAcquisitionStrategy: details.sourceAcquisitionStrategy ? sanitizeText(details.sourceAcquisitionStrategy, 80) : null,
+    cacheChecked: typeof details.cacheChecked === "boolean" ? details.cacheChecked : null,
+    cacheHit: typeof details.cacheHit === "boolean" ? details.cacheHit : null,
+    cacheValidated: typeof details.cacheValidated === "boolean" ? details.cacheValidated : null,
+    cacheFailureCode: details.cacheFailureCode ? sanitizeText(details.cacheFailureCode, 80) : null,
+    downloaderFallbackUsed: typeof details.downloaderFallbackUsed === "boolean" ? details.downloaderFallbackUsed : null,
+    checksumSha256: typeof details.checksumSha256 === "string" && /^[a-f0-9]{64}$/.test(details.checksumSha256)
+      ? details.checksumSha256
+      : null,
     stallClassification: details.stallClassification ? sanitizeText(details.stallClassification, 80) : null,
     heartbeatIntervalMs: safeNumber(details.heartbeatIntervalMs),
     noProgressTimeoutMs: safeNumber(details.noProgressTimeoutMs),

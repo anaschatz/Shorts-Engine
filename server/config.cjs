@@ -36,6 +36,7 @@ const REVIEW_APPROVAL_OUTBOX_DIR = join(DATA_DIR, "review-approval-outbox");
 const DB_DIR = join(DATA_DIR, "db");
 const TMP_DIR = join(DATA_DIR, "tmp");
 const STAGING_DIR = join(TMP_DIR, "staging");
+const SOURCE_CACHE_DIR = join(DATA_DIR, "source-cache");
 const FFMPEG_FULL_BIN = "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg";
 const FFPROBE_FULL_BIN = "/opt/homebrew/opt/ffmpeg-full/bin/ffprobe";
 const STORAGE_ADAPTER_MODES = Object.freeze(["local", "mock-cloud", "s3", "r2", "gcs"]);
@@ -45,6 +46,7 @@ const DEFAULT_YOUTUBE_DOWNLOADER_BIN = "yt-dlp";
 const DEFAULT_YOUTUBE_FORMAT_SELECTOR = "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best";
 const DEFAULT_YOUTUBE_FALLBACK_FORMAT_SELECTOR = "best[ext=mp4]/best";
 const DEFAULT_SCOREBOARD_OCR_BIN = "tesseract";
+const DEFAULT_MAX_UPLOAD_BYTES = 250 * 1024 * 1024;
 
 function boolFromEnv(value) {
   return ["1", "true", "yes", "on"].includes(String(value || "").toLowerCase());
@@ -306,6 +308,30 @@ function validateYouTubeIngestConfig(input = {}) {
   };
 }
 
+function validateSourceCacheConfig(input = {}) {
+  const enabled = Boolean(input.enabled);
+  const rawDir = input.dir === undefined || input.dir === null || input.dir === "" ? SOURCE_CACHE_DIR : String(input.dir).trim();
+  if (!rawDir || rawDir.includes("\u0000") || rawDir.length > 500) {
+    throw new Error("Invalid source cache directory configuration.");
+  }
+  const dir = resolve(rawDir);
+  const tempRoot = resolve(tmpdir());
+  if (!isInside(DATA_DIR, dir) && !isInside(tempRoot, dir)) {
+    throw new Error("Invalid source cache directory configuration.");
+  }
+  return {
+    enabled,
+    dir,
+    requireChecksum: Boolean(input.requireChecksum),
+    maxBytes: validateByteConfig(input.maxBytes, {
+      name: "source cache max bytes",
+      fallback: DEFAULT_MAX_UPLOAD_BYTES,
+      min: 1024,
+      max: 20 * 1024 * 1024 * 1024,
+    }),
+  };
+}
+
 function validateScoreboardOcrConfig(input = {}) {
   const provider = String(input.provider || "deterministic").trim().toLowerCase();
   if (!SCOREBOARD_OCR_PROVIDER_MODES.includes(provider)) {
@@ -368,6 +394,12 @@ const YOUTUBE_INGEST_CONFIG = validateYouTubeIngestConfig({
   progressHeartbeatMs: process.env.SHORTSENGINE_YOUTUBE_PROGRESS_HEARTBEAT_MS,
   noProgressTimeoutMs: process.env.SHORTSENGINE_YOUTUBE_NO_PROGRESS_TIMEOUT_MS,
 });
+const SOURCE_CACHE_CONFIG = validateSourceCacheConfig({
+  enabled: boolFromEnv(process.env.SHORTSENGINE_SOURCE_CACHE_ENABLED),
+  dir: process.env.SHORTSENGINE_SOURCE_CACHE_DIR,
+  requireChecksum: boolFromEnv(process.env.SHORTSENGINE_SOURCE_CACHE_REQUIRE_CHECKSUM),
+  maxBytes: process.env.SHORTSENGINE_SOURCE_CACHE_MAX_BYTES,
+});
 const SCOREBOARD_OCR_CONFIG = validateScoreboardOcrConfig({
   enabled: boolFromEnv(process.env.SHORTSENGINE_SCOREBOARD_OCR_ENABLED),
   provider: process.env.SHORTSENGINE_SCOREBOARD_OCR_PROVIDER || "deterministic",
@@ -387,7 +419,7 @@ const PORT = validatePositiveIntegerConfig(process.env.PORT, {
 });
 const MAX_UPLOAD_BYTES = validateByteConfig(process.env.MATCHCUTS_MAX_UPLOAD_BYTES, {
   name: "max upload bytes",
-  fallback: 250 * 1024 * 1024,
+  fallback: DEFAULT_MAX_UPLOAD_BYTES,
   min: 1024,
   max: 20 * 1024 * 1024 * 1024,
 });
@@ -470,11 +502,13 @@ const CONFIG = Object.freeze({
   dbDir: DB_DIR,
   tmpDir: TMP_DIR,
   stagingDir: STAGING_DIR,
+  sourceCacheDir: SOURCE_CACHE_DIR,
   storage: Object.freeze(STORAGE_CONFIG),
   storageAdapter: STORAGE_CONFIG.adapter,
   persistence: Object.freeze(DATABASE_CONFIG),
   persistenceAdapter: DATABASE_CONFIG.adapter,
   youtubeIngest: Object.freeze(YOUTUBE_INGEST_CONFIG),
+  sourceCache: Object.freeze(SOURCE_CACHE_CONFIG),
   scoreboardOcr: Object.freeze(SCOREBOARD_OCR_CONFIG),
   artifactCleanupIntervalMs: validatePositiveIntegerConfig(process.env.MATCHCUTS_ARTIFACT_CLEANUP_INTERVAL_MS, {
     name: "artifact cleanup interval",
@@ -503,7 +537,7 @@ const CONFIG = Object.freeze({
 });
 
 function ensureDataDirs() {
-  for (const dir of [DATA_DIR, UPLOAD_DIR, AUDIO_DIR, RENDER_DIR, PROJECT_DIR, JOB_DIR, ARTIFACT_DIR, REVIEW_DRAFT_DIR, REVIEW_APPROVAL_DIR, REVIEW_APPROVAL_OUTBOX_DIR, DB_DIR, TMP_DIR, STAGING_DIR]) {
+  for (const dir of [DATA_DIR, UPLOAD_DIR, AUDIO_DIR, RENDER_DIR, PROJECT_DIR, JOB_DIR, ARTIFACT_DIR, REVIEW_DRAFT_DIR, REVIEW_APPROVAL_DIR, REVIEW_APPROVAL_OUTBOX_DIR, DB_DIR, TMP_DIR, STAGING_DIR, SOURCE_CACHE_DIR]) {
     mkdirSync(dir, { recursive: true });
   }
 }
@@ -517,6 +551,7 @@ module.exports = {
   validateByteConfig,
   validateDatabaseConfig,
   validateDataDir,
+  validateSourceCacheConfig,
   validatePersistenceAdapterMode,
   validatePositiveIntegerConfig,
   validateExecutableReference,

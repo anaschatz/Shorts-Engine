@@ -42,6 +42,9 @@ const SAFE_MESSAGES = Object.freeze({
   RENDER_FAILED: "The video render failed.",
   ROUTE_NOT_FOUND: "Route not found.",
   STORAGE_PATH_UNSAFE: "The requested file path is outside the configured storage area.",
+  SOURCE_CACHE_CHECKSUM_MISMATCH: "The approved source cache file checksum did not match.",
+  SOURCE_CACHE_FILE_INVALID: "The approved source cache file did not pass validation.",
+  SOURCE_CACHE_MISS: "No approved source cache file was found for this YouTube video.",
   TRANSCRIPTION_FAILED: "The transcription provider failed.",
   TRANSCRIPTION_TIMEOUT: "The transcription provider timed out.",
   UPLOAD_FIELD_INVALID: "The upload form contains an unsupported field.",
@@ -130,7 +133,13 @@ const PUBLIC_ERROR_DETAIL_KEYS = new Set([
   "attempts",
   "attemptsConfigured",
   "cleanupSucceeded",
+  "cacheChecked",
+  "cacheFailureCode",
+  "cacheHit",
+  "cacheValidated",
+  "checksumSha256",
   "downloaderConfigured",
+  "downloaderFallbackUsed",
   "downloadedOutputReady",
   "elapsedMs",
   "fallbackFormatSelector",
@@ -153,6 +162,7 @@ const PUBLIC_ERROR_DETAIL_KEYS = new Set([
   "progressHeartbeatCount",
   "retryable",
   "sourceAcquisitionStatus",
+  "sourceAcquisitionStrategy",
   "stallClassification",
   "step",
   "substep",
@@ -175,6 +185,9 @@ const PUBLIC_ERROR_FORMAT_DETAIL_KEYS = new Set([
   "fallbackFormatSelector",
   "formatSelector",
 ]);
+const PUBLIC_ERROR_HASH_DETAIL_KEYS = new Set([
+  "checksumSha256",
+]);
 
 function publicErrorDetails(details) {
   if (!details || typeof details !== "object" || Array.isArray(details)) return null;
@@ -188,6 +201,12 @@ function publicErrorDetails(details) {
       PUBLIC_ERROR_FORMAT_DETAIL_KEYS.has(key) &&
       typeof value === "string" &&
       /^[A-Za-z0-9*+/\[\]=._:,-]{1,180}$/.test(value)
+    ) {
+      safeDetails[key] = value;
+    } else if (
+      PUBLIC_ERROR_HASH_DETAIL_KEYS.has(key) &&
+      typeof value === "string" &&
+      /^[a-f0-9]{64}$/.test(value)
     ) {
       safeDetails[key] = value;
     } else if (typeof value === "boolean") {
