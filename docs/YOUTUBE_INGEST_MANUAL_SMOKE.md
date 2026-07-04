@@ -211,9 +211,12 @@ Use this path when the YouTube downloader is blocked before OCR/evidence analysi
 Default mode is safe and skipped:
 
 ```bash
+npm run proof:readiness
 npm run proof:local-video
 npm run youtube:proof:local
 ```
+
+Use `npm run proof:readiness` first. It performs no network, downloader or server work. It confirms whether a rights-cleared local MP4 proof or a rights-confirmed live YouTube proof is actually configured, validates the expected counted-goal count, checks safe source metadata and writes `demo/results/proof-source-readiness-latest.json`. If it reports `skipped` or `failed`, do not expect a fresh MP4; follow the report `nextAction` before running the proof command.
 
 Operator proof example:
 

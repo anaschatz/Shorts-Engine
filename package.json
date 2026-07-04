@@ -42,6 +42,7 @@
     "ocr:qa:review": "node demo/run-ocr-qa-review.mjs",
     "ocr:smoke": "node demo/run-ocr-smoke.mjs",
     "proof:local-video": "node demo/run-local-video-proof.mjs",
+    "proof:readiness": "node demo/check-proof-source-readiness.mjs",
     "release:check": "node tools/release/verify-release-gate.mjs",
     "release:evidence": "node tools/release/write-release-evidence.mjs",
     "release:readiness": "node tools/release/check-release-readiness.mjs",

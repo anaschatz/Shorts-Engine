@@ -43,6 +43,7 @@ Action-aware framing:
 
 Social-ready output:
 
+- Run `npm run proof:readiness` before any fresh MP4 proof so missing rights-cleared sources stay as safe skipped/failed readiness, not misleading output.
 - Treat hook-first editing, dynamic word captions, bounded animation cues, audio policy and creative style transforms as validated edit-plan contracts.
 - Final output proof should fail closed when the first-two-second hook, readable word-timed captions, safe audio policy or no-evasion styling contract is missing.
 - Creative polish may use mild zoom, color grading and caption-safe overlays for clarity; never use mirroring, watermark hiding, scorebug hiding or copyright-evasion behavior.
