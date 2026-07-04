@@ -238,6 +238,7 @@ function safeOcrChunkSummary(scoreboardOcr = null) {
     discoveredScoreChanges: safeNumber(chunkSummary.discoveredScoreChanges),
     totalBudgetMs: safeNumber(chunkSummary.totalBudgetMs),
     chunkTimeoutMs: safeNumber(chunkSummary.chunkTimeoutMs),
+    scoreCandidateDiagnostics: chunkSummary.scoreCandidateDiagnostics || null,
     chunks: Array.isArray(chunkSummary.chunks)
       ? chunkSummary.chunks.slice(0, 12).map((chunk, index) => ({
           index: safeNumber(chunk && chunk.index) || index + 1,
@@ -826,6 +827,14 @@ function evidenceKey(item = {}) {
   ].join("|");
 }
 
+function evidenceTransitionKey(item = {}) {
+  if (!item || !item.scoreBefore || !item.scoreAfter) return null;
+  return [
+    sanitizeText(item.scoreBefore, 16),
+    sanitizeText(item.scoreAfter, 16),
+  ].join("->");
+}
+
 function scoreObjectFromText(value) {
   const safe = sanitizeText(value || "", 16);
   const match = safe.match(/^(\d{1,2})-(\d{1,2})$/);
@@ -835,6 +844,177 @@ function scoreObjectFromText(value) {
   if (!Number.isInteger(home) || !Number.isInteger(away)) return null;
   if (home < 0 || away < 0 || home > 12 || away > 12 || home + away > 14) return null;
   return { home, away, text: `${home}-${away}` };
+}
+
+function scoreTotal(score) {
+  return score ? Number(score.home || 0) + Number(score.away || 0) : 0;
+}
+
+function nonDecreasingScore(previous, next) {
+  return Boolean(previous && next && next.home >= previous.home && next.away >= previous.away);
+}
+
+function scoreCandidateTimestamp(chunk = {}, index = 0, total = 1) {
+  const timestamps = Array.isArray(chunk.sampledFrameTimestamps)
+    ? chunk.sampledFrameTimestamps.map(Number).filter(Number.isFinite)
+    : [];
+  if (timestamps.length) {
+    const position = Math.min(
+      timestamps.length - 1,
+      Math.max(0, Math.floor((index + 1) / Math.max(1, total + 1) * timestamps.length)),
+    );
+    return timestamps[position];
+  }
+  const start = Number(chunk.start || 0);
+  const end = Number(chunk.end || start + 1);
+  return start + ((index + 1) / Math.max(2, total + 1)) * Math.max(1, end - start);
+}
+
+function uniqueChunkScoreCandidates(chunk = {}) {
+  const seen = new Set();
+  return (Array.isArray(chunk.normalizedScoreCandidates) ? chunk.normalizedScoreCandidates : [])
+    .map(scoreObjectFromText)
+    .filter(Boolean)
+    .filter((score) => {
+      if (seen.has(score.text)) return false;
+      seen.add(score.text);
+      return true;
+    })
+    .sort((a, b) => scoreTotal(a) - scoreTotal(b) || a.home - b.home || a.away - b.away)
+    .slice(0, 8);
+}
+
+function candidateRejection(chunk = {}, score = null, current = null, reason = "score_candidate_rejected") {
+  return {
+    chunkIndex: Math.max(1, Math.round(Number(chunk.index || 0))),
+    chunkStart: roundNumber(chunk.start),
+    chunkEnd: roundNumber(chunk.end),
+    score: score && score.text ? score.text : null,
+    currentScore: current && current.text ? current.text : null,
+    reason: sanitizeText(reason, 80),
+  };
+}
+
+function buildScoreCandidateProgressionFromChunks(chunkSummary = null) {
+  const chunks = Array.isArray(chunkSummary && chunkSummary.chunks) ? chunkSummary.chunks : [];
+  const evidence = [];
+  const acceptedCandidates = [];
+  const rejectedCandidates = [];
+  let current = null;
+  let firstReadableChunk = null;
+
+  for (const chunk of chunks) {
+    if (!chunk || chunk.status !== "completed") continue;
+    const candidates = uniqueChunkScoreCandidates(chunk);
+    if (!candidates.length) {
+      if (Number(chunk.readableObservationCount || 0) === 0) {
+        rejectedCandidates.push(candidateRejection(chunk, null, current, "chunk_has_no_readable_score_candidates"));
+      }
+      continue;
+    }
+    firstReadableChunk = firstReadableChunk || chunk.index;
+    if (!current) {
+      const initial = candidates.find((candidate) => candidate.text === "0-0") || candidates[0];
+      current = initial;
+      acceptedCandidates.push({
+        chunkIndex: chunk.index,
+        timestamp: roundNumber(scoreCandidateTimestamp(chunk, 0, 1)),
+        score: current.text,
+        role: "initial_score_state",
+        reasonCodes: ["initial_score_observed"],
+      });
+      for (const candidate of candidates.filter((item) => item.text !== current.text)) {
+        rejectedCandidates.push(candidateRejection(chunk, candidate, current, "initial_chunk_extra_score_candidate"));
+      }
+      continue;
+    }
+
+    const localCandidates = candidates.filter((candidate) => {
+      if (candidate.text === current.text) return false;
+      if (!nonDecreasingScore(current, candidate)) {
+        rejectedCandidates.push(candidateRejection(chunk, candidate, current, "score_candidate_decreases_or_reverts"));
+        return false;
+      }
+      const delta = scoreTotal(candidate) - scoreTotal(current);
+      if (delta <= 0) {
+        rejectedCandidates.push(candidateRejection(chunk, candidate, current, "score_candidate_no_new_goal"));
+        return false;
+      }
+      if (delta > 3) {
+        rejectedCandidates.push(candidateRejection(chunk, candidate, current, "score_candidate_jump_too_large"));
+        return false;
+      }
+      return true;
+    });
+
+    let acceptedInChunk = 0;
+    let progressed = true;
+    while (progressed) {
+      progressed = false;
+      const next = localCandidates.find((candidate) => (
+        scoreTotal(candidate) === scoreTotal(current) + 1 &&
+        nonDecreasingScore(current, candidate)
+      ));
+      if (!next) break;
+      const timestamp = scoreCandidateTimestamp(chunk, acceptedInChunk, localCandidates.length);
+      const before = current;
+      current = next;
+      acceptedInChunk += 1;
+      progressed = true;
+      const item = {
+        id: `chunked_scorebug_candidate_progression_${evidence.length + 1}`,
+        timestamp: roundNumber(timestamp),
+        start: roundNumber(Math.max(0, timestamp - 1.2)),
+        end: roundNumber(timestamp + 1.2),
+        status: "score_changed",
+        scoreChanged: true,
+        scoreBefore: before.text,
+        scoreAfter: next.text,
+        temporalConsistency: true,
+        confidence: 0.78,
+        source: "chunked_scorebug_candidate_progression",
+        regionId: sanitizeText(chunk.selectedRoiId || "scorebug_candidate_progression", 80),
+        transitionDecision: "score_change_candidate_progression",
+        transitionReasonCodes: [
+          "score_candidate_progression",
+          "cross_chunk_score_state_bridge",
+        ],
+      };
+      evidence.push(item);
+      acceptedCandidates.push({
+        chunkIndex: chunk.index,
+        timestamp: item.timestamp,
+        scoreBefore: item.scoreBefore,
+        scoreAfter: item.scoreAfter,
+        role: "score_change_bridge",
+        reasonCodes: item.transitionReasonCodes,
+      });
+    }
+
+    for (const candidate of localCandidates) {
+      if (candidate.text === current.text) continue;
+      if (scoreTotal(candidate) <= scoreTotal(current)) continue;
+      rejectedCandidates.push(candidateRejection(chunk, candidate, current, "score_candidate_requires_missing_intermediate_state"));
+    }
+  }
+
+  return {
+    evidence,
+    diagnostics: {
+      mode: "chunked_score_candidate_progression",
+      firstReadableChunk: firstReadableChunk == null ? null : Math.max(1, Math.round(Number(firstReadableChunk))),
+      acceptedCount: acceptedCandidates.length,
+      acceptedScoreChangeCount: evidence.length,
+      rejectedCount: rejectedCandidates.length,
+      finalScore: current && current.text ? current.text : null,
+      acceptedCandidates: acceptedCandidates.slice(0, 16),
+      rejectedCandidates: rejectedCandidates.slice(0, 24),
+      reasonCodes: [
+        "chunked_score_candidate_progression",
+        ...(evidence.length ? ["score_candidate_progression_evidence_added"] : ["no_score_candidate_progression"]),
+      ],
+    },
+  };
 }
 
 function globalScoreObservationsFromChunkedOutputs(outputs = []) {
@@ -877,6 +1057,17 @@ function globalScoreObservationsFromChunkedOutputs(outputs = []) {
 
 function aggregateChunkedScoreboardOcr(outputs = [], { metadata = {}, chunkSummary = null } = {}) {
   const safeOutputs = (Array.isArray(outputs) ? outputs : []).filter((output) => output && typeof output === "object");
+  const candidateProgression = buildScoreCandidateProgressionFromChunks(chunkSummary);
+  const enrichedChunkSummary = chunkSummary && typeof chunkSummary === "object"
+    ? {
+        ...chunkSummary,
+        discoveredScoreChanges: Math.max(
+          Number(chunkSummary.discoveredScoreChanges || 0),
+          candidateProgression.evidence.length,
+        ),
+        scoreCandidateDiagnostics: candidateProgression.diagnostics,
+      }
+    : chunkSummary;
   const evidence = [];
   const seenEvidence = new Set();
   for (const output of safeOutputs) {
@@ -894,6 +1085,19 @@ function aggregateChunkedScoreboardOcr(outputs = [], { metadata = {}, chunkSumma
     seenEvidence.add(key);
     evidence.push(item);
   }
+  const seenTransitions = new Set(evidence
+    .filter((item) => item && (item.scoreChanged || item.status === "score_changed"))
+    .map(evidenceTransitionKey)
+    .filter(Boolean));
+  for (const item of candidateProgression.evidence) {
+    const key = evidenceKey(item);
+    const transitionKey = evidenceTransitionKey(item);
+    if (transitionKey && seenTransitions.has(transitionKey)) continue;
+    if (seenEvidence.has(key)) continue;
+    seenEvidence.add(key);
+    if (transitionKey) seenTransitions.add(transitionKey);
+    evidence.push(item);
+  }
   evidence.sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
   const regionIdsUsed = [...new Set(safeOutputs
     .flatMap((output) => output.summary && Array.isArray(output.summary.regionIdsUsed) ? output.summary.regionIdsUsed : [])
@@ -901,7 +1105,7 @@ function aggregateChunkedScoreboardOcr(outputs = [], { metadata = {}, chunkSumma
     .filter(Boolean))]
     .slice(0, 12);
   const roiCalibration = aggregateScorebugRoiCalibration(safeOutputs);
-  const scorebugDebug = aggregateScorebugDebugSummary(safeOutputs, roiCalibration, chunkSummary, globalTimeline);
+  const scorebugDebug = aggregateScorebugDebugSummary(safeOutputs, roiCalibration, enrichedChunkSummary, globalTimeline);
   const result = validateScoreboardOcrOutput({
     providerMode: "chunked-scoreboard-ocr",
     fallbackUsed: !evidence.length || safeOutputs.every((output) => output.fallbackUsed),
@@ -913,14 +1117,14 @@ function aggregateChunkedScoreboardOcr(outputs = [], { metadata = {}, chunkSumma
     regionCount: safeOutputs.reduce((sum, output) => sum + Number(output.summary && output.summary.regionCount || 0), 0),
     regionIdsUsed,
     preprocessingVariantCount: safeOutputs.reduce((max, output) => Math.max(max, Number(output.summary && output.summary.preprocessingVariantCount || 0)), 0),
-    chunkSummary,
+    chunkSummary: enrichedChunkSummary,
   }, metadata);
   return {
     ...result,
-    chunkSummary: result.chunkSummary || chunkSummary,
+    chunkSummary: result.chunkSummary || enrichedChunkSummary,
     summary: {
       ...result.summary,
-      chunkSummary: result.summary && result.summary.chunkSummary || chunkSummary,
+      chunkSummary: result.summary && result.summary.chunkSummary || enrichedChunkSummary,
     },
   };
 }

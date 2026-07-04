@@ -268,6 +268,46 @@ function safeScoreChangeAnchor(value = {}, index = 0) {
 function safeOcrChunkSummary(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const chunks = Array.isArray(value.chunks) ? value.chunks : [];
+  const safeScoreCandidate = (candidate = {}) => ({
+    chunkIndex: safeNumber(candidate && candidate.chunkIndex),
+    timestamp: candidate && candidate.timestamp !== undefined && candidate.timestamp !== null
+      ? safeNumber(candidate.timestamp)
+      : null,
+    chunkStart: candidate && candidate.chunkStart !== undefined && candidate.chunkStart !== null
+      ? safeNumber(candidate.chunkStart)
+      : null,
+    chunkEnd: candidate && candidate.chunkEnd !== undefined && candidate.chunkEnd !== null
+      ? safeNumber(candidate.chunkEnd)
+      : null,
+    score: candidate && candidate.score ? safeString(candidate.score, 16) : null,
+    scoreBefore: candidate && candidate.scoreBefore ? safeString(candidate.scoreBefore, 16) : null,
+    scoreAfter: candidate && candidate.scoreAfter ? safeString(candidate.scoreAfter, 16) : null,
+    currentScore: candidate && candidate.currentScore ? safeString(candidate.currentScore, 16) : null,
+    role: candidate && candidate.role ? safeString(candidate.role, 60) : null,
+    reason: candidate && candidate.reason ? safeString(candidate.reason, 80) : null,
+    reasonCodes: safeStringList(candidate && candidate.reasonCodes, 8, 80),
+  });
+  const scoreCandidateDiagnostics = value.scoreCandidateDiagnostics &&
+    typeof value.scoreCandidateDiagnostics === "object" &&
+    !Array.isArray(value.scoreCandidateDiagnostics)
+    ? {
+        mode: safeString(value.scoreCandidateDiagnostics.mode || "chunked_score_candidate_progression", 60),
+        firstReadableChunk: safeNumber(value.scoreCandidateDiagnostics.firstReadableChunk),
+        acceptedCount: safeNumber(value.scoreCandidateDiagnostics.acceptedCount),
+        acceptedScoreChangeCount: safeNumber(value.scoreCandidateDiagnostics.acceptedScoreChangeCount),
+        rejectedCount: safeNumber(value.scoreCandidateDiagnostics.rejectedCount),
+        finalScore: value.scoreCandidateDiagnostics.finalScore
+          ? safeString(value.scoreCandidateDiagnostics.finalScore, 16)
+          : null,
+        acceptedCandidates: Array.isArray(value.scoreCandidateDiagnostics.acceptedCandidates)
+          ? value.scoreCandidateDiagnostics.acceptedCandidates.map(safeScoreCandidate).slice(0, 16)
+          : [],
+        rejectedCandidates: Array.isArray(value.scoreCandidateDiagnostics.rejectedCandidates)
+          ? value.scoreCandidateDiagnostics.rejectedCandidates.map(safeScoreCandidate).slice(0, 24)
+          : [],
+        reasonCodes: safeStringList(value.scoreCandidateDiagnostics.reasonCodes, 8, 80),
+      }
+    : null;
   return {
     mode: safeString(value.mode || "chunked_scorebug_ocr", 60),
     chunkCount: safeNumber(value.chunkCount),
@@ -280,6 +320,7 @@ function safeOcrChunkSummary(value) {
     attemptedObservationCount: safeNumber(value.attemptedObservationCount),
     totalBudgetMs: safeNumber(value.totalBudgetMs),
     chunkTimeoutMs: safeNumber(value.chunkTimeoutMs),
+    scoreCandidateDiagnostics,
     chunks: chunks.map((chunk, index) => ({
       index: safeNumber(chunk && chunk.index) || index + 1,
       start: safeNumber(chunk && chunk.start),

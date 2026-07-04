@@ -616,6 +616,39 @@ function normalizeScoreboardOcrChunkSummary(value) {
     .map((item) => sanitizeText(item, length))
     .filter(Boolean)
     .slice(0, max);
+  const safeScoreCandidate = (candidate = {}) => ({
+    chunkIndex: Math.max(0, Math.min(100, Math.round(Number(candidate.chunkIndex || 0)))),
+    timestamp: candidate.timestamp == null ? null : round(clamp(candidate.timestamp, 0, 24 * 60 * 60)),
+    chunkStart: candidate.chunkStart == null ? null : round(clamp(candidate.chunkStart, 0, 24 * 60 * 60)),
+    chunkEnd: candidate.chunkEnd == null ? null : round(clamp(candidate.chunkEnd, 0, 24 * 60 * 60)),
+    score: candidate.score ? sanitizeText(candidate.score, 16) : null,
+    scoreBefore: candidate.scoreBefore ? sanitizeText(candidate.scoreBefore, 16) : null,
+    scoreAfter: candidate.scoreAfter ? sanitizeText(candidate.scoreAfter, 16) : null,
+    currentScore: candidate.currentScore ? sanitizeText(candidate.currentScore, 16) : null,
+    role: candidate.role ? sanitizeText(candidate.role, 60) : null,
+    reason: candidate.reason ? sanitizeText(candidate.reason, 80) : null,
+    reasonCodes: safeTextList(candidate.reasonCodes, 8, 80),
+  });
+  const safeScoreCandidateDiagnostics = (diagnostics = null) => {
+    if (!diagnostics || typeof diagnostics !== "object" || Array.isArray(diagnostics) || hasUnsafeValue(diagnostics)) return null;
+    return {
+      mode: sanitizeText(diagnostics.mode || "chunked_score_candidate_progression", 60),
+      firstReadableChunk: diagnostics.firstReadableChunk == null
+        ? null
+        : Math.max(1, Math.min(100, Math.round(Number(diagnostics.firstReadableChunk || 1)))),
+      acceptedCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES, Math.round(Number(diagnostics.acceptedCount || 0)))),
+      acceptedScoreChangeCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES, Math.round(Number(diagnostics.acceptedScoreChangeCount || 0)))),
+      rejectedCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_CROPS, Math.round(Number(diagnostics.rejectedCount || 0)))),
+      finalScore: diagnostics.finalScore ? sanitizeText(diagnostics.finalScore, 16) : null,
+      acceptedCandidates: Array.isArray(diagnostics.acceptedCandidates)
+        ? diagnostics.acceptedCandidates.map((candidate) => safeScoreCandidate(candidate)).slice(0, 16)
+        : [],
+      rejectedCandidates: Array.isArray(diagnostics.rejectedCandidates)
+        ? diagnostics.rejectedCandidates.map((candidate) => safeScoreCandidate(candidate)).slice(0, 24)
+        : [],
+      reasonCodes: safeTextList(diagnostics.reasonCodes, 8, 80),
+    };
+  };
   const safeChunk = (chunk = {}, index = 0) => {
     const sampledFrameTimestamps = safeNumberList(chunk.sampledFrameTimestamps, MAX_SCOREBOARD_OCR_FRAMES);
     const plannedFrameCount = Math.max(0, Math.min(
@@ -668,6 +701,7 @@ function normalizeScoreboardOcrChunkSummary(value) {
     attemptedObservationCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_CROPS * 100, Math.round(Number(value.attemptedObservationCount || 0)))),
     totalBudgetMs: Math.max(0, Math.min(60 * 60 * 1000, Math.round(Number(value.totalBudgetMs || 0)))),
     chunkTimeoutMs: Math.max(0, Math.min(60 * 60 * 1000, Math.round(Number(value.chunkTimeoutMs || 0)))),
+    scoreCandidateDiagnostics: safeScoreCandidateDiagnostics(value.scoreCandidateDiagnostics),
     chunks: safeChunks,
   };
 }

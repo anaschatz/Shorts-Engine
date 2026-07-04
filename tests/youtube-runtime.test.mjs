@@ -2860,6 +2860,121 @@ test("youtube live failed output proof preserves discovered and expected goal co
       events: [{
         stream: "stdout",
         level: "info",
+        event: "scoreboard_ocr_completed",
+        scoreboardOcr: {
+          providerMode: "chunked-scoreboard-ocr",
+          fallbackUsed: false,
+          sampledFrameCount: 44,
+          evidenceCount: 5,
+          scoreChangeCount: 5,
+          scoreRevertedCount: 0,
+          ambiguousCount: 12,
+          unreadableCount: 0,
+          regionIdsUsed: ["scorebug_broadcast_compact"],
+          preprocessingVariantCount: 2,
+          chunkSummary: {
+            mode: "chunked_scorebug_first_ocr",
+            chunkCount: 9,
+            scannedChunks: 9,
+            skippedChunks: 0,
+            scannedDurationSeconds: 764.52,
+            discoveredScoreChanges: 5,
+            plannedFrameCount: 44,
+            attemptedRoiCount: 5,
+            attemptedObservationCount: 220,
+            totalBudgetMs: 120000,
+            chunkTimeoutMs: 14000,
+            scoreCandidateDiagnostics: {
+              mode: "chunked_score_candidate_progression",
+              firstReadableChunk: 1,
+              acceptedCount: 6,
+              acceptedScoreChangeCount: 5,
+              rejectedCount: 7,
+              finalScore: "3-2",
+              acceptedCandidates: [{
+                chunkIndex: 1,
+                timestamp: 42,
+                score: "0-0",
+                role: "initial_score_state",
+                reasonCodes: ["initial_score_observed"],
+              }, {
+                chunkIndex: 2,
+                timestamp: 123,
+                scoreBefore: "0-0",
+                scoreAfter: "1-0",
+                role: "score_change_bridge",
+                reasonCodes: ["score_candidate_progression", "cross_chunk_score_state_bridge"],
+              }],
+              rejectedCandidates: [{
+                chunkIndex: 6,
+                chunkStart: 450,
+                chunkEnd: 540,
+                score: "6-6",
+                currentScore: "1-1",
+                reason: "score_candidate_jump_too_large",
+              }],
+              reasonCodes: ["chunked_score_candidate_progression", "score_candidate_progression_evidence_added"],
+            },
+            chunks: [{
+              index: 6,
+              start: 450,
+              end: 540,
+              status: "completed",
+              plannedFrameCount: 5,
+              sampledFrameCount: 5,
+              sampledFrameTimestamps: [462, 483, 506],
+              roiCandidateIds: ["scorebug_broadcast_compact"],
+              attemptedRoiCount: 1,
+              attemptedObservationCount: 5,
+              roiDetected: true,
+              selectedRoiId: "scorebug_broadcast_compact",
+              ocrTextCandidateCount: 5,
+              evidenceCount: 0,
+              scoreChangeCount: 0,
+              textPresentObservationCount: 5,
+              readableObservationCount: 5,
+              clockOnlyObservationCount: 0,
+              rejectedObservationCount: 0,
+              stableScoreDecision: "candidate_progression_bridge",
+              normalizedScoreCandidates: ["1-1", "4-1", "0-0", "6-6", "2-1"],
+              rejectedScoreCandidateReasons: ["score_candidate_jump_too_large"],
+            }],
+          },
+          scoreTimeline: [{
+            timestamp: 123,
+            status: "score_changed",
+            scoreBefore: "0-0",
+            scoreAfter: "1-0",
+            temporalConsistency: true,
+          }, {
+            timestamp: 483,
+            status: "score_changed",
+            scoreBefore: "1-0",
+            scoreAfter: "1-1",
+            temporalConsistency: true,
+          }, {
+            timestamp: 506,
+            status: "score_changed",
+            scoreBefore: "1-1",
+            scoreAfter: "2-1",
+            temporalConsistency: true,
+          }, {
+            timestamp: 550,
+            status: "score_changed",
+            scoreBefore: "2-1",
+            scoreAfter: "2-2",
+            temporalConsistency: true,
+          }, {
+            timestamp: 558,
+            status: "score_changed",
+            scoreBefore: "2-2",
+            scoreAfter: "3-2",
+            temporalConsistency: true,
+          }],
+        },
+      }, {
+        stream: "stdout",
+        level: "info",
         event: "valid_goal_selection_empty",
         code: "NO_VALID_GOALS_FOUND",
         goalDiscovery: {
@@ -2871,12 +2986,12 @@ test("youtube live failed output proof preserves discovered and expected goal co
           scoreboardOcrProviderMode: "chunked-scoreboard-ocr",
           scoreboardObservationCount: 17,
           scoreboardSampledFrameCount: 44,
-          scoreChangeCount: 1,
-          stableScoreChangeCount: 1,
-          scoreChangesFound: 1,
+          scoreChangeCount: 5,
+          stableScoreChangeCount: 5,
+          scoreChangesFound: 5,
           chunksScanned: 9,
-          countedGoalEventCount: 1,
-          discoveredCountedGoals: 1,
+          countedGoalEventCount: 5,
+          discoveredCountedGoals: 5,
           expectedCountedGoals: 0,
           visualWindowCount: 12,
           bucketCount: 8,
@@ -2905,11 +3020,20 @@ test("youtube live failed output proof preserves discovered and expected goal co
 
   assert.equal(report.status, "failed");
   assert.equal(report.outputProof.expectedCountedGoals, 5);
-  assert.equal(report.outputProof.countedGoalsFound, 1);
-  assert.equal(report.outputProof.countedGoalEventCount, 1);
-  assert.equal(report.outputProof.goalDiscovery.discoveredCountedGoals, 1);
-  assert.equal(report.outputProof.goalDiscovery.countedGoalEventCount, 1);
+  assert.equal(report.outputProof.countedGoalsFound, 5);
+  assert.equal(report.outputProof.scoreChangeCount, 5);
+  assert.equal(report.outputProof.stableScoreChangeCount, 5);
+  assert.equal(report.outputProof.countedGoalEventCount, 5);
+  assert.equal(report.outputProof.goalDiscovery.discoveredCountedGoals, 5);
+  assert.equal(report.outputProof.goalDiscovery.countedGoalEventCount, 5);
   assert.equal(report.outputProof.goalDiscovery.expectedCountedGoals, 5);
+  assert.equal(report.outputProof.ocrChunkSummary.scoreCandidateDiagnostics.acceptedScoreChangeCount, 5);
+  assert.equal(report.outputProof.ocrChunkSummary.scoreCandidateDiagnostics.finalScore, "3-2");
+  assert.equal(
+    report.outputProof.ocrChunkSummary.scoreCandidateDiagnostics.rejectedCandidates[0].reason,
+    "score_candidate_jump_too_large",
+  );
+  assert.equal(report.outputProof.nextAction, "connect-stable-score-changes-to-live-action-windows-before-render");
   assert.equal(report.outputProof.ffprobe.code, "OUTPUT_MP4_NOT_CREATED");
   assert.equal(findSensitiveLeak(report), null);
 });
