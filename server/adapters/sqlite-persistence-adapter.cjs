@@ -1,5 +1,6 @@
 const { mkdirSync } = require("node:fs");
 const { dirname, resolve } = require("node:path");
+const { normalizeOwnerId } = require("../auth.cjs");
 const { CONFIG } = require("../config.cjs");
 const { AppError, SAFE_MESSAGES } = require("../errors.cjs");
 const { ApprovalOutboxRepository, normalizeOutboxEvent } = require("../repositories/approval-outbox-repository.cjs");
@@ -24,7 +25,7 @@ try {
 
 const SQLITE_AVAILABLE = Boolean(DatabaseSync);
 
-const LATEST_SCHEMA_VERSION = 4;
+const LATEST_SCHEMA_VERSION = 5;
 const MIGRATIONS = Object.freeze([
   {
     version: 1,
@@ -215,7 +216,32 @@ const MIGRATIONS = Object.freeze([
         ON approval_outbox (status, lockedAt, lockOwner);
     `,
   },
+  {
+    version: 5,
+    name: "auth_owner_boundary",
+    sql: `
+      ALTER TABLE projects ADD COLUMN ownerId TEXT;
+      ALTER TABLE uploads ADD COLUMN ownerId TEXT;
+      ALTER TABLE exports ADD COLUMN ownerId TEXT;
+      ALTER TABLE jobs ADD COLUMN ownerId TEXT;
+      CREATE INDEX IF NOT EXISTS idx_projects_owner ON projects (ownerId);
+      CREATE INDEX IF NOT EXISTS idx_jobs_owner ON jobs (ownerId);
+      CREATE INDEX IF NOT EXISTS idx_exports_owner ON exports (ownerId);
+    `,
+  },
 ]);
+
+const HEALTH_TABLES = Object.freeze(new Set([
+  "projects",
+  "uploads",
+  "artifacts",
+  "exports",
+  "jobs",
+  "idempotency_keys",
+  "regeneration_drafts",
+  "regeneration_approvals",
+  "approval_outbox",
+]));
 
 function safeJsonParse(value, fallback = null) {
   try {
@@ -278,6 +304,9 @@ function retryDue(record, nowMs) {
 }
 
 function rowCount(db, tableName) {
+  if (!HEALTH_TABLES.has(tableName)) {
+    throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400);
+  }
   return Number(db.prepare(`SELECT COUNT(*) AS total FROM ${tableName}`).get().total || 0);
 }
 
@@ -556,11 +585,12 @@ class SQLitePersistenceAdapter {
 
   upsertProject(project) {
     this.prepare(
-      `INSERT INTO projects (id, uploadId, title, status, source, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO projects (id, uploadId, title, status, ownerId, source, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET uploadId = excluded.uploadId, title = excluded.title,
-       status = excluded.status, source = excluded.source, createdAt = excluded.createdAt, updatedAt = excluded.updatedAt`,
-    ).run(project.id, project.uploadId, project.title, project.status, project.source, project.createdAt, project.updatedAt);
+       status = excluded.status, ownerId = excluded.ownerId, source = excluded.source,
+       createdAt = excluded.createdAt, updatedAt = excluded.updatedAt`,
+    ).run(project.id, project.uploadId, project.title, project.status, project.ownerId || null, project.source, project.createdAt, project.updatedAt);
     this.projectRows.set(project.id, project);
     return project;
   }
@@ -601,10 +631,10 @@ class SQLitePersistenceAdapter {
     const upload = normalizeUpload(record, { artifactStore: this.artifactAdapter });
     this.prepare(
       `INSERT INTO uploads (
-        id, projectId, artifactJson, storageKey, path, originalFilename, mimeType,
+        id, projectId, ownerId, artifactJson, storageKey, path, originalFilename, mimeType,
         extension, container, byteSize, checksumSha256, metadataJson, source, createdAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET projectId = excluded.projectId, artifactJson = excluded.artifactJson,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET projectId = excluded.projectId, ownerId = excluded.ownerId, artifactJson = excluded.artifactJson,
       storageKey = excluded.storageKey, path = excluded.path, originalFilename = excluded.originalFilename,
       mimeType = excluded.mimeType, extension = excluded.extension, container = excluded.container,
       byteSize = excluded.byteSize, checksumSha256 = excluded.checksumSha256,
@@ -612,6 +642,7 @@ class SQLitePersistenceAdapter {
     ).run(
       upload.id,
       upload.projectId,
+      upload.ownerId || null,
       stringifyRecord(upload.artifact),
       upload.storageKey,
       upload.path,
@@ -635,6 +666,7 @@ class SQLitePersistenceAdapter {
     const upload = normalizeUpload({
       id: row.id,
       projectId: row.projectId,
+      ownerId: row.ownerId || null,
       artifact: safeJsonParse(row.artifactJson),
       path: row.path,
       originalFilename: row.originalFilename,
@@ -672,6 +704,7 @@ class SQLitePersistenceAdapter {
     return {
       id: upload.id,
       projectId: upload.projectId,
+      ownerId: upload.ownerId || null,
       originalFilename: upload.originalFilename,
       byteSize: upload.byteSize,
       mimeType: upload.mimeType,
@@ -784,15 +817,17 @@ class SQLitePersistenceAdapter {
   createExport(record) {
     const exportRecord = this.exportView.create(record);
     this.prepare(
-      `INSERT INTO exports (id, projectId, jobId, artifactJson, storageKey, outputPath, fileName, status, source, createdAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO exports (id, projectId, jobId, ownerId, artifactJson, storageKey, outputPath, fileName, status, source, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET projectId = excluded.projectId, jobId = excluded.jobId,
+       ownerId = excluded.ownerId,
        artifactJson = excluded.artifactJson, storageKey = excluded.storageKey, outputPath = excluded.outputPath,
        fileName = excluded.fileName, status = excluded.status, source = excluded.source, createdAt = excluded.createdAt`,
     ).run(
       exportRecord.id,
       exportRecord.projectId,
       exportRecord.jobId,
+      exportRecord.ownerId || null,
       stringifyRecord(exportRecord.artifact),
       exportRecord.storageKey,
       exportRecord.outputPath,
@@ -812,6 +847,7 @@ class SQLitePersistenceAdapter {
       id: row.id,
       projectId: row.projectId,
       jobId: row.jobId,
+      ownerId: row.ownerId || null,
       artifact: safeJsonParse(row.artifactJson),
       outputPath: row.outputPath,
       fileName: row.fileName,
@@ -1273,16 +1309,17 @@ class SQLitePersistenceAdapter {
     const jobId = validateResourceId(record.id, "job");
     const projectId = validateResourceId(record.projectId, "prj");
     const uploadId = record.uploadId ? validateResourceId(record.uploadId, "upl") : null;
+    const ownerId = record.ownerId ? normalizeOwnerId(record.ownerId) : null;
     const progress = Math.max(0, Math.min(100, Math.round(Number(record.progress || 0))));
     const createdAt = sanitizeText(record.createdAt || nowIso(), 40);
     const updatedAt = sanitizeText(record.updatedAt || createdAt, 40);
     this.prepare(
       `INSERT INTO jobs (
-        id, projectId, uploadId, action, idempotencyKey, status, progress, step,
+        id, projectId, uploadId, ownerId, action, idempotencyKey, status, progress, step,
         errorJson, outputPath, exportId, payloadJson, createdAt, updatedAt, recordJson
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET projectId = excluded.projectId, uploadId = excluded.uploadId,
-      action = excluded.action, idempotencyKey = excluded.idempotencyKey, status = excluded.status,
+      ownerId = excluded.ownerId, action = excluded.action, idempotencyKey = excluded.idempotencyKey, status = excluded.status,
       progress = excluded.progress, step = excluded.step, errorJson = excluded.errorJson,
       outputPath = excluded.outputPath, exportId = excluded.exportId, payloadJson = excluded.payloadJson,
       createdAt = excluded.createdAt, updatedAt = excluded.updatedAt, recordJson = excluded.recordJson`,
@@ -1290,6 +1327,7 @@ class SQLitePersistenceAdapter {
       jobId,
       projectId,
       uploadId,
+      ownerId,
       sanitizeText(record.action || "generate", 60),
       record.idempotencyKey || null,
       sanitizeText(record.status || "queued", 40),
@@ -1301,7 +1339,7 @@ class SQLitePersistenceAdapter {
       stringifyRecord(record.payload || null),
       createdAt,
       updatedAt,
-      stringifyRecord({ ...record, id: jobId, projectId, uploadId, progress, createdAt, updatedAt }),
+      stringifyRecord({ ...record, id: jobId, projectId, uploadId, ownerId, progress, createdAt, updatedAt }),
     );
     if (record.idempotencyKey) this.persistIdempotencyKey(record.idempotencyKey, jobId, record.action || "generate");
     return this.getPersistedJob(jobId);

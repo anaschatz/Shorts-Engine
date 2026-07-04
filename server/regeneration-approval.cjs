@@ -1,4 +1,5 @@
 const { createHash } = require("node:crypto");
+const { normalizeOwnerId } = require("./auth.cjs");
 const { AppError, SAFE_MESSAGES, redactForLogs } = require("./errors.cjs");
 const { validateEditPlan } = require("./edit-plan.cjs");
 const { idempotencyKey } = require("./jobs.cjs");
@@ -79,6 +80,7 @@ function validateApprovalRequest(input = {}) {
     sourceJobId,
     exportId,
     regenerationPlanId,
+    ownerId: input.ownerId ? normalizeOwnerId(input.ownerId) : null,
     idempotencyKey: validateIdempotencyKey(input.idempotencyKey),
     approve: validateApprove(input.approve),
     rightsConfirmed: input.rightsConfirmed === true || input.rightsConfirmed === "true" || input.rightsConfirmed === "1",
@@ -336,6 +338,7 @@ function approveRegenerationDraft(options = {}) {
       const createdJob = queue.create({
         projectId: request.projectId,
         uploadId: projectForRender.uploadId,
+        ownerId: request.ownerId || null,
         action: "regeneration_render",
         idempotencyKey: key,
         payload: {

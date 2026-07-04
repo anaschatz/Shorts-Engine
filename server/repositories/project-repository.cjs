@@ -1,4 +1,5 @@
 const { AppError, SAFE_MESSAGES } = require("../errors.cjs");
+const { normalizeOwnerId } = require("../auth.cjs");
 const { normalizeSmokeSource } = require("../staging-smoke-metadata.cjs");
 const { jsonClone, nowIso, sanitizeText, validateResourceId } = require("./ids.cjs");
 
@@ -17,6 +18,7 @@ function normalizeProject(record = {}) {
     uploadId,
     title: sanitizeText(record.title || "ShortsEngine Short", 120),
     status,
+    ownerId: record.ownerId ? normalizeOwnerId(record.ownerId) : null,
     source: normalizeSmokeSource(record.source),
     createdAt,
     updatedAt: record.updatedAt || createdAt,

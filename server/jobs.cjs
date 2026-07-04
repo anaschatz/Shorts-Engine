@@ -2,6 +2,7 @@ const { randomUUID, createHash } = require("node:crypto");
 const { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } = require("node:fs");
 const { basename, dirname, isAbsolute, join, relative, resolve } = require("node:path");
 const { CONFIG } = require("./config.cjs");
+const { normalizeOwnerId } = require("./auth.cjs");
 const { AppError, SAFE_MESSAGES, redactForLogs } = require("./errors.cjs");
 const { normalizeSmokeSource } = require("./staging-smoke-metadata.cjs");
 
@@ -511,7 +512,7 @@ class JobStore {
     return target;
   }
 
-  create({ projectId, uploadId = null, action, idempotencyKey: key, payload = null }) {
+  create({ projectId, uploadId = null, action, idempotencyKey: key, payload = null, ownerId = null }) {
     const existingJob = this.findIdempotentJob(key);
     if (existingJob) return existingJob;
     const createdAt = nowIso();
@@ -519,6 +520,7 @@ class JobStore {
       id: `job_${randomUUID()}`,
       projectId,
       uploadId,
+      ownerId: ownerId ? normalizeOwnerId(ownerId) : null,
       action,
       idempotencyKey: key || null,
       payload: normalizePayload(payload),
@@ -597,6 +599,7 @@ class JobStore {
       id: safe.id,
       projectId: safe.projectId,
       uploadId: safe.uploadId || null,
+      ownerId: safe.ownerId || null,
       action: safe.action,
       idempotencyKey: safe.idempotencyKey || null,
       payload: normalizePayload(safe.payload),
@@ -639,6 +642,7 @@ class JobStore {
     const id = validateJobId(record.id);
     const projectId = validateRouteLikeId(record.projectId, "prj");
     const uploadId = record.uploadId ? validateRouteLikeId(record.uploadId, "upl") : null;
+    const ownerId = record.ownerId ? normalizeOwnerId(record.ownerId) : null;
     const status = sanitizeText(record.status, 40);
     if (!JOB_STATUSES.includes(status)) {
       throw new AppError("JOB_STATE_INVALID", SAFE_MESSAGES.JOB_STATE_INVALID, 409);
@@ -655,6 +659,7 @@ class JobStore {
       id,
       projectId,
       uploadId,
+      ownerId,
       action: sanitizeText(record.action || "generate", 60),
       idempotencyKey: record.idempotencyKey ? sanitizeText(record.idempotencyKey, 160) : null,
       payload: normalizePayload(record.payload),

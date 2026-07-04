@@ -10,6 +10,7 @@ const TEST_TMP_ROOT = resolve(__dirname, "..", "tmp");
 mkdirSync(TEST_TMP_ROOT, { recursive: true });
 const TEST_DATA_DIR = mkdtempSync(resolve(TEST_TMP_ROOT, "object-storage-data-"));
 process.env.MATCHCUTS_DATA_DIR = TEST_DATA_DIR;
+process.env.SHORTSENGINE_AUTH_MODE = "local";
 
 const {
   artifactCleanupWorker,
@@ -62,6 +63,46 @@ function cleanupPersistedJob(job) {
   if (job.idempotencyKey && jobs.idempotency && typeof jobs.idempotency.delete === "function") {
     jobs.idempotency.delete(job.idempotencyKey);
   }
+}
+
+function seedProjectUpload(projectId, uploadId) {
+  const createdAt = new Date().toISOString();
+  persistenceAdapter.projectRepository.records.set(projectId, {
+    id: projectId,
+    uploadId,
+    title: "Object storage export",
+    status: "ready",
+    ownerId: null,
+    source: null,
+    createdAt,
+    updatedAt: createdAt,
+  });
+  persistenceAdapter.uploadRepository.records.set(uploadId, {
+    id: uploadId,
+    projectId,
+    ownerId: null,
+    artifact: {
+      id: uploadId,
+      type: "upload",
+      ownerProjectId: projectId,
+      status: "available",
+      size: 1,
+      contentType: "video/mp4",
+      storageKey: `${uploadId}.mp4`,
+      createdAt,
+    },
+    storageKey: `${uploadId}.mp4`,
+    path: null,
+    originalFilename: "source.mp4",
+    mimeType: "video/mp4",
+    extension: "mp4",
+    container: "mp4",
+    byteSize: 1,
+    checksumSha256: "",
+    metadata: { durationSeconds: 10, width: 1920, height: 1080 },
+    source: null,
+    createdAt,
+  });
 }
 
 function cleanupObjectStorageTestJobs() {
@@ -138,6 +179,7 @@ async function readStream(stream) {
 function createCompletedExport(body = Buffer.from("rendered-video")) {
   const projectId = validId("prj");
   const uploadId = validId("upl");
+  seedProjectUpload(projectId, uploadId);
   const job = jobs.create({
     projectId,
     uploadId,
@@ -333,6 +375,7 @@ test("direct export download enforces completed job, safe filename and existing 
 test("export download is rejected when job has not completed", async () => {
   const projectId = validId("prj");
   const uploadId = validId("upl");
+  seedProjectUpload(projectId, uploadId);
   const job = jobs.create({
     projectId,
     uploadId,
@@ -364,6 +407,7 @@ test("export download is rejected when job has not completed", async () => {
 test("export download rejects owner mismatch even when the artifact exists", async () => {
   const projectId = validId("prj");
   const uploadId = validId("upl");
+  seedProjectUpload(projectId, uploadId);
   const job = jobs.create({
     projectId,
     uploadId,

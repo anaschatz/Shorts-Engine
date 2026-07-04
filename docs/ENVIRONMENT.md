@@ -16,6 +16,19 @@ The command prints a safe JSON readiness summary. It fails closed for invalid nu
 | --- | --- | --- | --- | --- | --- | --- |
 | `PORT` | No | `4175` | integer `1..65535` | No | Set from platform port when deploying. | Invalid or out-of-range port fails startup/readiness. |
 
+## Auth / ownership boundary
+
+Protected API routes require an authenticated operator principal unless a demo/test runner explicitly starts the server with local anonymous mode. New projects, uploads, jobs and exports are tagged with `ownerId`; protected reads/writes/downloads fail closed when the principal does not own the resource. `/health` remains public but exposes only safe auth readiness, never tokens.
+
+| Variable | Required | Default | Allowed values | Secret | Staging recommendation | Fail-closed behavior |
+| --- | --- | --- | --- | --- | --- | --- |
+| `SHORTSENGINE_ENVIRONMENT` | No | `NODE_ENV` or `development` | `development`, `test`, `local`, `staging`, `production` | No | Set `staging` or `production` in deployed environments. | Invalid values fall back to development validation; staging/production still reject local anonymous auth. |
+| `SHORTSENGINE_AUTH_MODE` | No | `operator` | `operator`, `local` | No | Use `operator`. Use `local` only in explicit local demo/test scripts. | Unknown modes fail startup; `local` fails startup in staging/production. |
+| `SHORTSENGINE_OPERATOR_ID` | No | `operator` | safe owner id, `3..80` chars | No | Set a stable deployment/operator owner id. | Invalid ids fail startup/readiness. |
+| `SHORTSENGINE_OPERATOR_AUTH_TOKEN` | Required for operator mode in staging/production | empty | strong bearer token, at least 24 bytes, no whitespace/control chars | Yes | Store only in the platform secret manager. | Missing token makes protected routes return `AUTH_CONFIG_MISSING`; missing in staging/production fails startup. Weak/example tokens fail startup. |
+
+Operator requests may send `Authorization: Bearer <token>` or `x-shortsengine-auth: <token>`. Public responses, logs and reports must never include the raw token or authorization header.
+
 ## Upload/media limits
 
 | Variable | Required | Default | Allowed values | Secret | Staging recommendation | Fail-closed behavior |

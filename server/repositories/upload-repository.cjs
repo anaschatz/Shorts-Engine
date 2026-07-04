@@ -1,4 +1,5 @@
 const { AppError, SAFE_MESSAGES } = require("../errors.cjs");
+const { normalizeOwnerId } = require("../auth.cjs");
 const { normalizeSmokeSource } = require("../staging-smoke-metadata.cjs");
 const { LocalArtifactStore } = require("../storage/artifact-store.cjs");
 const { jsonClone, nowIso, sanitizeText, validateResourceId } = require("./ids.cjs");
@@ -59,6 +60,7 @@ function normalizeUpload(record = {}, options = {}) {
   return {
     id,
     projectId,
+    ownerId: record.ownerId ? normalizeOwnerId(record.ownerId) : null,
     artifact,
     storageKey: artifact.storageKey,
     path,
@@ -112,6 +114,7 @@ class InMemoryUploadRepository {
     return {
       id: upload.id,
       projectId: upload.projectId,
+      ownerId: upload.ownerId || null,
       originalFilename: upload.originalFilename,
       byteSize: upload.byteSize,
       mimeType: upload.mimeType,

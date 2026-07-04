@@ -1,6 +1,7 @@
 const { tmpdir } = require("node:os");
 const { isAbsolute, join, relative, resolve } = require("node:path");
 const { existsSync, mkdirSync } = require("node:fs");
+const { validateAuthConfig } = require("./auth.cjs");
 
 const ROOT_DIR = resolve(__dirname, "..");
 const DEFAULT_DATA_DIR = join(ROOT_DIR, "data");
@@ -380,6 +381,12 @@ const DATABASE_CONFIG = validateDatabaseConfig({
   adapter: process.env.MATCHCUTS_PERSISTENCE_ADAPTER || "local",
   fileName: process.env.MATCHCUTS_SQLITE_FILE || "shortsengine.sqlite",
 });
+const AUTH_CONFIG = validateAuthConfig({
+  mode: process.env.SHORTSENGINE_AUTH_MODE || "operator",
+  environment: process.env.SHORTSENGINE_ENVIRONMENT || process.env.NODE_ENV || "development",
+  operatorId: process.env.SHORTSENGINE_OPERATOR_ID || "operator",
+  operatorToken: process.env.SHORTSENGINE_OPERATOR_AUTH_TOKEN || "",
+});
 const YOUTUBE_INGEST_CONFIG = validateYouTubeIngestConfig({
   enabled: boolFromEnv(process.env.SHORTSENGINE_YOUTUBE_INGEST_ENABLED),
   authorizedImportEnabled: boolFromEnv(process.env.SHORTSENGINE_YOUTUBE_AUTHORIZED_IMPORT_ENABLED),
@@ -507,6 +514,7 @@ const CONFIG = Object.freeze({
   storageAdapter: STORAGE_CONFIG.adapter,
   persistence: Object.freeze(DATABASE_CONFIG),
   persistenceAdapter: DATABASE_CONFIG.adapter,
+  auth: Object.freeze(AUTH_CONFIG),
   youtubeIngest: Object.freeze(YOUTUBE_INGEST_CONFIG),
   sourceCache: Object.freeze(SOURCE_CACHE_CONFIG),
   scoreboardOcr: Object.freeze(SCOREBOARD_OCR_CONFIG),
@@ -549,6 +557,7 @@ module.exports = {
   SCOREBOARD_OCR_PROVIDER_MODES,
   ensureDataDirs,
   validateByteConfig,
+  validateAuthConfig,
   validateDatabaseConfig,
   validateDataDir,
   validateSourceCacheConfig,

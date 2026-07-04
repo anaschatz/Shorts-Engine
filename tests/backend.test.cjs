@@ -8,6 +8,7 @@ const TEST_TMP_ROOT = resolve(__dirname, "..", "tmp");
 mkdirSync(TEST_TMP_ROOT, { recursive: true });
 const TEST_DATA_DIR = mkdtempSync(resolve(TEST_TMP_ROOT, "backend-data-"));
 process.env.MATCHCUTS_DATA_DIR = TEST_DATA_DIR;
+process.env.SHORTSENGINE_AUTH_MODE = "local";
 
 test.after(() => {
   rmSync(TEST_DATA_DIR, { recursive: true, force: true });
@@ -24,6 +25,7 @@ const {
   route,
   uploads,
   projects,
+  exportsById,
   createAppServer,
   attachServerErrorHandler,
   serverListenFailurePayload,
@@ -226,6 +228,9 @@ function writeBackendReviewRecords(overrides = {}) {
   };
   writeJsonAtomic(storagePath("projects", `${ids.projectId}.json`), projectRecord);
   writeJsonAtomic(storagePath("projects", `${ids.projectId}.render.json`), renderRecord);
+  projects.set(ids.projectId, { ...projectRecord.project });
+  uploads.set(ids.uploadId, { ...projectRecord.upload });
+  exportsById.set(ids.exportId, { ...renderRecord.exportRecord, status: "completed" });
   return ids;
 }
 
@@ -843,7 +848,7 @@ test("API rejects oversized generate JSON before job creation", async () => {
   const projectId = "prj_cccccccc-cccc-4ccc-8ccc-cccccccccccc";
   const uploadId = "upl_dddddddd-dddd-4ddd-8ddd-dddddddddddd";
   projects.set(projectId, { id: projectId, uploadId, title: "Derby Final" });
-  uploads.set(uploadId, { id: uploadId, metadata: { durationSeconds: 10 } });
+  uploads.set(uploadId, { id: uploadId, projectId, metadata: { durationSeconds: 10 } });
   try {
     const body = Buffer.from(`{"title":"${"x".repeat(MAX_JSON_BODY_BYTES)}","rightsConfirmed":true}`);
     const req = mockRequest({
@@ -893,7 +898,7 @@ test("API rejects malformed resource ids and unsafe idempotency keys", async () 
   const projectId = "prj_aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
   const uploadId = "upl_bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb";
   projects.set(projectId, { id: projectId, uploadId, title: "Derby Final" });
-  uploads.set(uploadId, { id: uploadId, metadata: { durationSeconds: 10 } });
+  uploads.set(uploadId, { id: uploadId, projectId, metadata: { durationSeconds: 10 } });
   try {
     const req = mockRequest({
       method: "POST",

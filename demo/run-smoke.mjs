@@ -220,6 +220,7 @@ function startServer(port) {
       MATCHCUTS_DATA_DIR: dataDir,
       PORT: String(port),
       MATCHCUTS_TRANSCRIPTION_PROVIDER: "mock",
+      SHORTSENGINE_AUTH_MODE: "local",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });

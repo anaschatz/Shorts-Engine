@@ -86,6 +86,7 @@ const SAFE_SENSITIVE_STATUS_KEYS = new Set([
   "githubenvironmentsecrets",
   "logsdownloaded",
   "networkcalls",
+  "operatortokenconfigured",
   "providercredentialconfigured",
   "rawartifactsrequired",
   "rawlogsrequired",
@@ -95,6 +96,7 @@ const SAFE_SENSITIVE_STATUS_KEYS = new Set([
   "secretsincluded",
   "serviceidconfigured",
   "sessioncredentialconfigured",
+  "defaultmoderequirestoken",
   "tokensrequested",
 ]);
 const UNSAFE_KEY_FAMILY_RE =

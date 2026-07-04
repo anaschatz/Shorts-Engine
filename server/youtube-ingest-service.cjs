@@ -9,6 +9,7 @@ const {
 } = require("node:fs");
 const { randomUUID } = require("node:crypto");
 const { isAbsolute, relative } = require("node:path");
+const { normalizeOwnerId } = require("./auth.cjs");
 const { CONFIG } = require("./config.cjs");
 const { AppError, SAFE_MESSAGES, redactForLogs } = require("./errors.cjs");
 const { probeMedia, sanitizeText, sha256, validateUploadCandidate } = require("./media.cjs");
@@ -250,6 +251,7 @@ function createYouTubeIngestService(options = {}) {
 
     const uploadId = `upl_${randomUUID()}`;
     const projectId = `prj_${randomUUID()}`;
+    const ownerId = input.ownerId ? normalizeOwnerId(input.ownerId) : null;
     const { stageDir, outputPath } = createYouTubeStagePaths(uploadId);
     mkdirSync(stageDir, { recursive: true });
     const ingestStartedAt = Date.now();
@@ -355,6 +357,7 @@ function createYouTubeIngestService(options = {}) {
         upload: {
           id: uploadId,
           projectId,
+          ownerId,
           artifact: uploadArtifact,
           storageKey: uploadArtifact.storageKey,
           originalFilename: validated.safeName,
@@ -377,6 +380,7 @@ function createYouTubeIngestService(options = {}) {
           uploadId,
           title,
           status: "draft",
+          ownerId,
           source: null,
           createdAt,
           updatedAt: createdAt,

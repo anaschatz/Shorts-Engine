@@ -2112,6 +2112,7 @@ function liveServerEnvironment({ port, dataDir, env = {} } = {}) {
     SHORTSENGINE_YOUTUBE_INGEST_ENABLED: "1",
     SHORTSENGINE_YOUTUBE_SMOKE_REQUEST_TIMEOUT_MS: String(computedIngestRequestTimeoutMs(timeoutEnv)),
     MATCHCUTS_TRANSCRIPTION_PROVIDER: "mock",
+    SHORTSENGINE_AUTH_MODE: "local",
   };
 }
 

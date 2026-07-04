@@ -5,6 +5,12 @@ const { extname, isAbsolute, join, relative, resolve } = require("node:path");
 const { URL } = require("node:url");
 const { CONFIG, ensureDataDirs } = require("./config.cjs");
 const {
+  assertPrincipalCanAccessOwner,
+  authenticateRequest,
+  publicAuthHealth,
+  safePrincipal,
+} = require("./auth.cjs");
+const {
   AppError,
   SAFE_MESSAGES,
   SAFE_RESPONSE_HEADERS,
@@ -285,6 +291,48 @@ function validateRouteId(value, prefix) {
   return safe;
 }
 
+function requirePrincipal(req) {
+  return authenticateRequest(req, CONFIG.auth);
+}
+
+function publicPrincipal(principal) {
+  return safePrincipal(principal);
+}
+
+function assertOwnerAccess(principal, ownerId, resource) {
+  return assertPrincipalCanAccessOwner(principal, ownerId, { resource });
+}
+
+function assertProjectAccess(project, principal) {
+  if (!project) throw new AppError("PROJECT_NOT_FOUND", SAFE_MESSAGES.PROJECT_NOT_FOUND, 404);
+  assertOwnerAccess(principal, project.ownerId, "project");
+  return project;
+}
+
+function assertUploadAccess(upload, principal) {
+  if (!upload) throw new AppError("UPLOAD_NOT_FOUND", SAFE_MESSAGES.UPLOAD_NOT_FOUND, 404);
+  if (upload.ownerId) return assertOwnerAccess(principal, upload.ownerId, "upload");
+  const project = persistenceAdapter.getProject(upload.projectId);
+  assertProjectAccess(project, principal);
+  return true;
+}
+
+function assertJobAccess(job, principal) {
+  if (!job) throw new AppError("JOB_NOT_FOUND", SAFE_MESSAGES.JOB_NOT_FOUND, 404);
+  if (job.ownerId) return assertOwnerAccess(principal, job.ownerId, "job");
+  const project = persistenceAdapter.getProject(job.projectId);
+  assertProjectAccess(project, principal);
+  return true;
+}
+
+function assertExportAccess(exportRecord, principal) {
+  if (!exportRecord) throw new AppError("EXPORT_NOT_FOUND", SAFE_MESSAGES.EXPORT_NOT_FOUND, 404);
+  if (exportRecord.ownerId) return assertOwnerAccess(principal, exportRecord.ownerId, "export");
+  const project = persistenceAdapter.getProject(exportRecord.projectId);
+  assertProjectAccess(project, principal);
+  return true;
+}
+
 function enforceContentLength(req, maxBytes) {
   const declaredLength = req.headers["content-length"];
   if (declaredLength === undefined) return;
@@ -514,6 +562,7 @@ async function handleHealth(req, res, rid) {
   const scoreboardOcr = scoreboardOcrHealth();
   const goalEvidence = createGoalEvidenceProvider().health();
   const youtubeIngest = publicYouTubeIngestHealth(youtubeIngestAdapter);
+  const auth = publicAuthHealth(CONFIG.auth);
   const cleanup = artifactCleanupWorker.health();
   const outbox = outboxWorker.health();
   const worker = jobWorker.health();
@@ -536,6 +585,7 @@ async function handleHealth(req, res, rid) {
     trackingProvider.ready &&
     scoreboardOcr.ready &&
     goalEvidence.ready &&
+    auth.ready &&
     youtubeIngest.ready;
   sendOk(res, {
     service: "shortsengine-mvp",
@@ -562,6 +612,7 @@ async function handleHealth(req, res, rid) {
     cleanupLastResult: cleanup.lastResult,
     realCloudIntegrationEnabled: CONFIG.realCloudIntegrationEnabled,
     releaseReadiness,
+    auth,
     transcription: provider,
     analysis,
     frameExtraction,
@@ -574,7 +625,7 @@ async function handleHealth(req, res, rid) {
   });
 }
 
-async function handleYouTubeValidate(req, res, rid) {
+async function handleYouTubeValidate(req, res, rid, principal) {
   if (!youtubeValidateLimiter.check(clientKey(req))) {
     throw new AppError("RATE_LIMITED", SAFE_MESSAGES.RATE_LIMITED, 429);
   }
@@ -597,11 +648,12 @@ async function handleYouTubeValidate(req, res, rid) {
     ingestRisk: source.ingestRisk,
     warningCode: source.warningCode,
     ingestAvailable: source.ingestAvailable,
+    principal: publicPrincipal(principal),
   }));
   sendOk(res, { source });
 }
 
-async function handleYouTubeIngest(req, res, rid) {
+async function handleYouTubeIngest(req, res, rid, principal) {
   if (!youtubeIngestLimiter.check(clientKey(req))) {
     throw new AppError("RATE_LIMITED", SAFE_MESSAGES.RATE_LIMITED, 429);
   }
@@ -613,6 +665,7 @@ async function handleYouTubeIngest(req, res, rid) {
     rightsConfirmed: payload.rightsConfirmed,
     title: payload.title,
     requestId: rid,
+    ownerId: principal.id,
   });
   console.info(JSON.stringify({
     level: "info",
@@ -622,11 +675,12 @@ async function handleYouTubeIngest(req, res, rid) {
     videoId: result.source.videoId,
     projectId: result.project.id,
     uploadId: result.upload.id,
+    principal: publicPrincipal(principal),
   }));
   sendOk(res, result, 201);
 }
 
-async function handleUpload(req, res, rid) {
+async function handleUpload(req, res, rid, principal) {
   if (!uploadLimiter.check(clientKey(req))) {
     throw new AppError("RATE_LIMITED", SAFE_MESSAGES.RATE_LIMITED, 429);
   }
@@ -684,6 +738,7 @@ async function handleUpload(req, res, rid) {
     upload: {
       id: uploadId,
       projectId,
+      ownerId: principal.id,
       artifact: uploadArtifact,
       storageKey: uploadArtifact.storageKey,
       originalFilename: validated.safeName,
@@ -702,27 +757,30 @@ async function handleUpload(req, res, rid) {
       uploadId,
       title: sanitizeText(multipart.fields.title || "ShortsEngine Short", 120),
       status: "draft",
+      ownerId: principal.id,
       source,
       createdAt,
       updatedAt: createdAt,
     },
   });
-  console.info(JSON.stringify({ level: "info", event: "upload_accepted", requestId: rid, projectId, uploadId }));
+  console.info(JSON.stringify({ level: "info", event: "upload_accepted", requestId: rid, projectId, uploadId, principal: publicPrincipal(principal) }));
   sendOk(res, {
     upload: persistenceAdapter.publicUpload(upload),
     project: persistenceAdapter.publicProject(project),
   }, 201);
 }
 
-async function handleGenerate(req, res, rid, projectId) {
+async function handleGenerate(req, res, rid, projectId, principal) {
   const safeProjectId = validateRouteId(projectId, "prj");
   if (!generateLimiter.check(clientKey(req))) {
     throw new AppError("RATE_LIMITED", SAFE_MESSAGES.RATE_LIMITED, 429);
   }
   const project = persistenceAdapter.getProject(safeProjectId);
   if (!project) throw new AppError("PROJECT_NOT_FOUND", SAFE_MESSAGES.PROJECT_NOT_FOUND, 404);
+  assertProjectAccess(project, principal);
   const upload = persistenceAdapter.getUpload(project.uploadId);
   if (!upload) throw new AppError("UPLOAD_NOT_FOUND", SAFE_MESSAGES.UPLOAD_NOT_FOUND, 404);
+  assertUploadAccess(upload, principal);
   validateJsonContentType(req);
   enforceContentLength(req, MAX_JSON_BODY_BYTES);
   const payload = await readJsonBody(req, MAX_JSON_BODY_BYTES);
@@ -742,6 +800,7 @@ async function handleGenerate(req, res, rid, projectId) {
   const job = jobQueue.create({
     projectId: safeProjectId,
     uploadId: upload.id,
+    ownerId: principal.id,
     action: "generate",
     idempotencyKey: key,
     payload: validatedPayload,
@@ -752,24 +811,29 @@ async function handleGenerate(req, res, rid, projectId) {
   sendOk(res, { job: jobQueue.publicJob(job) }, 202);
 }
 
-async function handleGetJob(req, res, jobId) {
+async function handleGetJob(req, res, jobId, principal) {
   const safeJobId = validateRouteId(jobId, "job");
   const job = jobQueue.get(safeJobId);
   if (!job) throw new AppError("JOB_NOT_FOUND", SAFE_MESSAGES.JOB_NOT_FOUND, 404);
+  assertJobAccess(job, principal);
   sendOk(res, { job: jobQueue.publicJob(job) });
 }
 
-async function handleCancelJob(req, res, jobId) {
+async function handleCancelJob(req, res, jobId, principal) {
   const safeJobId = validateRouteId(jobId, "job");
+  const existing = jobQueue.get(safeJobId);
+  assertJobAccess(existing, principal);
   const job = jobQueue.cancel(safeJobId);
   sendOk(res, { job: jobQueue.publicJob(job) });
 }
 
-function completedExportDescriptor(exportId) {
+function completedExportDescriptor(exportId, principal) {
   const safeExportId = validateRouteId(exportId, "exp");
   const record = persistenceAdapter.getExport(safeExportId);
   if (!record) throw new AppError("EXPORT_NOT_FOUND", SAFE_MESSAGES.EXPORT_NOT_FOUND, 404);
+  assertExportAccess(record, principal);
   const job = jobQueue.get(record.jobId);
+  assertJobAccess(job, principal);
   return persistenceAdapter.getExportDownloadDescriptor(record, { job });
 }
 
@@ -788,12 +852,12 @@ function streamExportDescriptor(res, descriptor) {
   stream.pipe(res);
 }
 
-async function handleDownload(req, res, exportId) {
-  streamExportDescriptor(res, completedExportDescriptor(exportId));
+async function handleDownload(req, res, exportId, principal) {
+  streamExportDescriptor(res, completedExportDescriptor(exportId, principal));
 }
 
-async function handleDownloadUrl(req, res, exportId) {
-  const descriptor = completedExportDescriptor(exportId);
+async function handleDownloadUrl(req, res, exportId, principal) {
+  const descriptor = completedExportDescriptor(exportId, principal);
   const signed = persistenceAdapter.createSignedExportDownload(
     { id: descriptor.id, projectId: descriptor.projectId, jobId: descriptor.jobId, artifact: descriptor.artifact, fileName: descriptor.fileName },
     { job: jobQueue.get(descriptor.jobId), basePath: "/api/artifacts/download" },
@@ -962,7 +1026,7 @@ function publicRegenerationPlanResult(result, draftRecord = null) {
   };
 }
 
-async function handleReviewRegister(req, res, rid) {
+async function handleReviewRegister(req, res, rid, principal) {
   if (!reviewLimiter.check(clientKey(req))) {
     throw new AppError("RATE_LIMITED", SAFE_MESSAGES.RATE_LIMITED, 429);
   }
@@ -974,6 +1038,11 @@ async function handleReviewRegister(req, res, rid) {
   const exportId = payload.exportId === undefined || payload.exportId === null || payload.exportId === ""
     ? null
     : validateRouteId(payload.exportId, "exp");
+  const project = persistenceAdapter.getProject(projectId);
+  assertProjectAccess(project, principal);
+  const job = jobQueue.get(jobId);
+  if (job) assertJobAccess(job, principal);
+  if (exportId) assertExportAccess(persistenceAdapter.getExport(exportId), principal);
   const result = registerReviewDraft({
     projectId,
     jobId,
@@ -1003,11 +1072,12 @@ async function handleReviewRegister(req, res, rid) {
     suggestionTypes: Array.isArray(result.comparisonPreview && result.comparisonPreview.suggestions)
       ? result.comparisonPreview.suggestions.map((item) => item.type).slice(0, 12)
       : [],
+    principal: publicPrincipal(principal),
   })));
   sendOk(res, publicReviewRegistrationResult(result), 201);
 }
 
-async function handleReviewRegenerationPlan(req, res, rid) {
+async function handleReviewRegenerationPlan(req, res, rid, principal) {
   if (!reviewLimiter.check(clientKey(req))) {
     throw new AppError("RATE_LIMITED", SAFE_MESSAGES.RATE_LIMITED, 429);
   }
@@ -1019,6 +1089,11 @@ async function handleReviewRegenerationPlan(req, res, rid) {
   const exportId = payload.exportId === undefined || payload.exportId === null || payload.exportId === ""
     ? null
     : validateRouteId(payload.exportId, "exp");
+  const project = persistenceAdapter.getProject(projectId);
+  assertProjectAccess(project, principal);
+  const job = jobQueue.get(jobId);
+  if (job) assertJobAccess(job, principal);
+  if (exportId) assertExportAccess(persistenceAdapter.getExport(exportId), principal);
   const result = createRegenerationPlanFromReviewRegistration({
     projectId,
     jobId,
@@ -1054,11 +1129,12 @@ async function handleReviewRegenerationPlan(req, res, rid) {
     appliedSuggestionCount: Array.isArray(plan.appliedSuggestionIds) ? plan.appliedSuggestionIds.length : 0,
     blockedSuggestionCount: Array.isArray(plan.blockingReasons) ? plan.blockingReasons.length : 0,
     canRender: false,
+    principal: publicPrincipal(principal),
   })));
   sendOk(res, publicRegenerationPlanResult(result, draftRecord), 201);
 }
 
-async function handleReviewRegenerationApproval(req, res, rid) {
+async function handleReviewRegenerationApproval(req, res, rid, principal) {
   if (!reviewLimiter.check(clientKey(req))) {
     throw new AppError("RATE_LIMITED", SAFE_MESSAGES.RATE_LIMITED, 429);
   }
@@ -1069,6 +1145,11 @@ async function handleReviewRegenerationApproval(req, res, rid) {
   const sourceJobId = validateRouteId(payload.sourceJobId || payload.jobId, "job");
   const exportId = validateRouteId(payload.exportId, "exp");
   const regenerationPlanId = validateRouteId(payload.regenerationPlanId, "regen");
+  const project = persistenceAdapter.getProject(projectId);
+  assertProjectAccess(project, principal);
+  const sourceJob = jobQueue.get(sourceJobId);
+  if (sourceJob) assertJobAccess(sourceJob, principal);
+  assertExportAccess(persistenceAdapter.getExport(exportId), principal);
   const recordRefs = reviewRecordRefs(projectId);
   const result = approveRegenerationDraft({
     request: {
@@ -1076,6 +1157,7 @@ async function handleReviewRegenerationApproval(req, res, rid) {
       sourceJobId,
       exportId,
       regenerationPlanId,
+      ownerId: principal.id,
       idempotencyKey: payload.idempotencyKey,
       approve: payload.approve,
       rightsConfirmed: payload.rightsConfirmed,
@@ -1112,16 +1194,17 @@ async function handleReviewRegenerationApproval(req, res, rid) {
     status: result.status,
     renderQueued: result.renderQueued,
     blockingSuggestionCount: result.blockingSuggestionCount,
+    principal: publicPrincipal(principal),
   })));
   sendOk(res, publicApprovalResult(result), 202);
 }
 
-async function handleSignedArtifactDownload(req, res, url) {
+async function handleSignedArtifactDownload(req, res, url, principal) {
   const artifact = artifactAdapter.validateSignedDownloadToken(url.searchParams.get("token"));
   if (!artifact || !artifact.id || !String(artifact.id).startsWith("exp_")) {
     throw new AppError("ARTIFACT_TOKEN_INVALID", SAFE_MESSAGES.ARTIFACT_TOKEN_INVALID, 404);
   }
-  const descriptor = completedExportDescriptor(artifact.id);
+  const descriptor = completedExportDescriptor(artifact.id, principal);
   if (descriptor.artifact.id !== artifact.id) {
     throw new AppError("ARTIFACT_TOKEN_INVALID", SAFE_MESSAGES.ARTIFACT_TOKEN_INVALID, 404);
   }
@@ -1706,38 +1789,39 @@ async function route(req, res) {
   res.setHeader("x-request-id", rid);
   const url = new URL(req.url, "http://localhost");
   const pathname = url.pathname;
+  const principal = () => requirePrincipal(req);
   try {
     if (req.method === "GET" && pathname === "/health") return await handleHealth(req, res, rid);
-    if (req.method === "POST" && pathname === "/api/youtube/validate") return await handleYouTubeValidate(req, res, rid);
-    if (req.method === "POST" && pathname === "/api/youtube/ingest") return await handleYouTubeIngest(req, res, rid);
-    if (req.method === "POST" && pathname === "/api/uploads") return await handleUpload(req, res, rid);
-    if (req.method === "POST" && pathname === "/api/review/register") return await handleReviewRegister(req, res, rid);
-    if (req.method === "GET" && pathname === "/api/review/latest") return await handleHumanReviewLatest(req, res);
-    if (req.method === "POST" && pathname === "/api/review/human") return await handleHumanReviewSubmit(req, res, rid);
-    if (req.method === "GET" && pathname === "/api/review/media") return await handleHumanReviewMedia(req, res, url);
-    if (req.method === "GET" && pathname === "/api/ocr-qa/latest") return await handleOcrQaLatest(req, res);
-    if (req.method === "POST" && pathname === "/api/ocr-qa/review") return await handleOcrQaReviewSubmit(req, res, rid);
-    if (req.method === "GET" && pathname === "/api/ocr-qa/crop") return await handleOcrQaCrop(req, res, url);
-    if (req.method === "POST" && pathname === "/api/review/regeneration-plan") return await handleReviewRegenerationPlan(req, res, rid);
-    if (req.method === "POST" && pathname === "/api/review/regeneration-approval") return await handleReviewRegenerationApproval(req, res, rid);
+    if (req.method === "POST" && pathname === "/api/youtube/validate") return await handleYouTubeValidate(req, res, rid, principal());
+    if (req.method === "POST" && pathname === "/api/youtube/ingest") return await handleYouTubeIngest(req, res, rid, principal());
+    if (req.method === "POST" && pathname === "/api/uploads") return await handleUpload(req, res, rid, principal());
+    if (req.method === "POST" && pathname === "/api/review/register") return await handleReviewRegister(req, res, rid, principal());
+    if (req.method === "GET" && pathname === "/api/review/latest") return await handleHumanReviewLatest(req, res, principal());
+    if (req.method === "POST" && pathname === "/api/review/human") return await handleHumanReviewSubmit(req, res, rid, principal());
+    if (req.method === "GET" && pathname === "/api/review/media") return await handleHumanReviewMedia(req, res, url, principal());
+    if (req.method === "GET" && pathname === "/api/ocr-qa/latest") return await handleOcrQaLatest(req, res, principal());
+    if (req.method === "POST" && pathname === "/api/ocr-qa/review") return await handleOcrQaReviewSubmit(req, res, rid, principal());
+    if (req.method === "GET" && pathname === "/api/ocr-qa/crop") return await handleOcrQaCrop(req, res, url, principal());
+    if (req.method === "POST" && pathname === "/api/review/regeneration-plan") return await handleReviewRegenerationPlan(req, res, rid, principal());
+    if (req.method === "POST" && pathname === "/api/review/regeneration-approval") return await handleReviewRegenerationApproval(req, res, rid, principal());
 
     const generateMatch = pathname.match(/^\/api\/projects\/([^/]+)\/generate$/);
-    if (req.method === "POST" && generateMatch) return await handleGenerate(req, res, rid, generateMatch[1]);
+    if (req.method === "POST" && generateMatch) return await handleGenerate(req, res, rid, generateMatch[1], principal());
 
     const jobMatch = pathname.match(/^\/api\/jobs\/([^/]+)$/);
-    if (req.method === "GET" && jobMatch) return await handleGetJob(req, res, jobMatch[1]);
+    if (req.method === "GET" && jobMatch) return await handleGetJob(req, res, jobMatch[1], principal());
 
     const cancelMatch = pathname.match(/^\/api\/jobs\/([^/]+)\/cancel$/);
-    if (req.method === "POST" && cancelMatch) return await handleCancelJob(req, res, cancelMatch[1]);
+    if (req.method === "POST" && cancelMatch) return await handleCancelJob(req, res, cancelMatch[1], principal());
 
     const downloadMatch = pathname.match(/^\/api\/exports\/([^/]+)\/download$/);
-    if (req.method === "GET" && downloadMatch) return await handleDownload(req, res, downloadMatch[1]);
+    if (req.method === "GET" && downloadMatch) return await handleDownload(req, res, downloadMatch[1], principal());
 
     const downloadUrlMatch = pathname.match(/^\/api\/exports\/([^/]+)\/download-url$/);
-    if (req.method === "GET" && downloadUrlMatch) return await handleDownloadUrl(req, res, downloadUrlMatch[1]);
+    if (req.method === "GET" && downloadUrlMatch) return await handleDownloadUrl(req, res, downloadUrlMatch[1], principal());
 
     if (req.method === "GET" && pathname === "/api/artifacts/download") {
-      return await handleSignedArtifactDownload(req, res, url);
+      return await handleSignedArtifactDownload(req, res, url, principal());
     }
 
     if (req.method === "GET" && serveStatic(req, res, pathname)) return undefined;

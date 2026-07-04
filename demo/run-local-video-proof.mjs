@@ -478,6 +478,7 @@ function localProofServerEnvironment({ port, dataDir, env = {}, config = {} } = 
     MATCHCUTS_DATA_DIR: dataDir,
     PORT: String(port),
     MATCHCUTS_TRANSCRIPTION_PROVIDER: "mock",
+    SHORTSENGINE_AUTH_MODE: "local",
   };
 }
 

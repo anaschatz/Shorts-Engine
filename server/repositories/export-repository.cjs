@@ -1,4 +1,5 @@
 const { AppError, SAFE_MESSAGES } = require("../errors.cjs");
+const { normalizeOwnerId } = require("../auth.cjs");
 const { normalizeSmokeSource } = require("../staging-smoke-metadata.cjs");
 const { DOWNLOAD_ARTIFACT_TYPES, LocalArtifactStore } = require("../storage/artifact-store.cjs");
 const { jsonClone, nowIso, sanitizeText, validateResourceId } = require("./ids.cjs");
@@ -82,6 +83,7 @@ function normalizeExport(record = {}, options = {}) {
     id,
     projectId,
     jobId,
+    ownerId: record.ownerId ? normalizeOwnerId(record.ownerId) : null,
     artifact,
     storageKey: artifact.storageKey,
     outputPath,

@@ -108,6 +108,19 @@ sqliteTest("sqlite persistence adapter runs migrations and satisfies the adapter
   }
 });
 
+sqliteTest("sqlite repository health rejects non-allowlisted table names", () => {
+  const { adapter, databasePath: dbPath } = makeAdapter();
+  try {
+    assert.throws(
+      () => adapter.repositoryHealth("projects; DROP TABLE projects"),
+      /request did not pass validation|VALIDATION_ERROR/i,
+    );
+  } finally {
+    closeAdapter(adapter);
+    cleanupDatabase(dbPath);
+  }
+});
+
 sqliteTest("createDefaultAdapters can opt into sqlite without changing the local default", () => {
   const local = createDefaultAdapters();
   assert.equal(local.persistenceAdapter.health().mode, "local");

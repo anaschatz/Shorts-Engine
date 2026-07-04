@@ -8,6 +8,7 @@ import { findSensitiveLeak } from "../../demo/report-safety.mjs";
 
 const require = createRequire(import.meta.url);
 const { normalizeYouTubeUrl } = require("../../server/youtube-ingest.cjs");
+const { AUTH_MODES, validateAuthConfig } = require("../../server/auth.cjs");
 
 const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const ENV_DOC_RELATIVE_PATH = "docs/ENVIRONMENT.md";
@@ -16,6 +17,7 @@ const BYTE_1_MB = 1024 * 1024;
 const YOUTUBE_LIVE_E2E_TIMEOUT_MS = 30 * 60 * 1000;
 const YOUTUBE_LIVE_E2E_DOWNLOAD_TIMEOUT_MS = 15 * 60 * 1000;
 
+const DEPLOYMENT_ENVIRONMENTS = Object.freeze(["development", "test", "local", "staging", "production"]);
 const STORAGE_ADAPTERS = Object.freeze(["local", "mock-cloud", "s3", "r2", "gcs"]);
 const STAGING_READY_STORAGE_ADAPTERS = Object.freeze(["local", "mock-cloud", "s3", "r2"]);
 const PERSISTENCE_ADAPTERS = Object.freeze(["local", "sqlite"]);
@@ -25,6 +27,10 @@ const YOUTUBE_PLAYER_CLIENTS = Object.freeze(["android", "ios", "web"]);
 
 const ENV_CONTRACT = Object.freeze([
   { name: "PORT", category: "App/runtime", required: false, defaultValue: "4175", type: "integer", min: 1, max: 65535, secret: false },
+  { name: "SHORTSENGINE_ENVIRONMENT", category: "Auth / ownership boundary", required: false, defaultValue: "development", type: "enum", allowedValues: DEPLOYMENT_ENVIRONMENTS, secret: false },
+  { name: "SHORTSENGINE_AUTH_MODE", category: "Auth / ownership boundary", required: false, defaultValue: "operator", type: "enum", allowedValues: AUTH_MODES, secret: false },
+  { name: "SHORTSENGINE_OPERATOR_ID", category: "Auth / ownership boundary", required: false, defaultValue: "operator", type: "owner-id", secret: false },
+  { name: "SHORTSENGINE_OPERATOR_AUTH_TOKEN", category: "Auth / ownership boundary", required: false, defaultValue: "", type: "secret", secret: true },
   { name: "FFMPEG_BIN", category: "FFmpeg/render limits", required: false, defaultValue: "ffmpeg", type: "command", secret: false },
   { name: "FFPROBE_BIN", category: "FFmpeg/render limits", required: false, defaultValue: "ffprobe", type: "command", secret: false },
   { name: "MATCHCUTS_MAX_UPLOAD_BYTES", category: "Upload/media limits", required: false, defaultValue: String(250 * BYTE_1_MB), type: "integer", min: 1024, max: 20 * 1024 * BYTE_1_MB, secret: false },
@@ -279,6 +285,16 @@ function validateSqliteFileName(value) {
   return fileName;
 }
 
+function validateOwnerIdValue(value, spec) {
+  const ownerId = String(value || spec.defaultValue || "operator").trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{2,79}$/.test(ownerId)) {
+    throw new EnvironmentCheckError("ENV_OWNER_ID_INVALID", "Operator owner id is invalid.", {
+      category: spec.category,
+    });
+  }
+  return ownerId;
+}
+
 function validateSecretValue(value, category) {
   if (!value) return false;
   const text = String(value);
@@ -325,6 +341,7 @@ function validateContractValues(env, rootDir = ROOT_DIR) {
     if (spec.type === "url") validateEndpoint(value);
     if (spec.type === "sqlite-file") validateSqliteFileName(value);
     if (spec.type === "source-cache-dir") validateSourceCacheDirValue(value, rootDir);
+    if (spec.type === "owner-id") validateOwnerIdValue(value, spec);
     if (spec.type === "secret") validateSecretValue(value, spec.category);
   }
   if (numeric.MATCHCUTS_WORKER_RETRY_INITIAL_DELAY_MS > numeric.MATCHCUTS_WORKER_RETRY_MAX_DELAY_MS) {
@@ -338,6 +355,53 @@ function validateContractValues(env, rootDir = ROOT_DIR) {
     });
   }
   return { numeric, booleans };
+}
+
+function validateAuthReadiness(env) {
+  const mode = normalizeEnum(valueOrDefault(env, ENV_CONTRACT.find((spec) => spec.name === "SHORTSENGINE_AUTH_MODE")), {
+    allowedValues: AUTH_MODES,
+    defaultValue: "operator",
+    category: "Auth / ownership boundary",
+  });
+  const environment = normalizeEnum(valueOrDefault(env, ENV_CONTRACT.find((spec) => spec.name === "SHORTSENGINE_ENVIRONMENT")), {
+    allowedValues: DEPLOYMENT_ENVIRONMENTS,
+    defaultValue: "development",
+    category: "Auth / ownership boundary",
+  });
+  const operatorId = validateOwnerIdValue(valueOrDefault(env, ENV_CONTRACT.find((spec) => spec.name === "SHORTSENGINE_OPERATOR_ID")), {
+    defaultValue: "operator",
+    category: "Auth / ownership boundary",
+  });
+  const operatorToken = String(rawValue(env, "SHORTSENGINE_OPERATOR_AUTH_TOKEN") || "").trim();
+  try {
+    validateAuthConfig({
+      mode,
+      environment,
+      operatorId,
+      operatorToken,
+    });
+  } catch {
+    let code = "ENV_AUTH_INVALID";
+    if (mode === "local" && ["staging", "production"].includes(environment)) {
+      code = "ENV_AUTH_LOCAL_UNSAFE";
+    } else if (mode === "operator" && ["staging", "production"].includes(environment) && !operatorToken) {
+      code = "ENV_AUTH_TOKEN_REQUIRED";
+    } else if (operatorToken) {
+      code = "ENV_AUTH_TOKEN_INVALID";
+    }
+    throw new EnvironmentCheckError(code, "Auth environment configuration is invalid.", {
+      category: "Auth / ownership boundary",
+    });
+  }
+  return {
+    mode,
+    environment,
+    operatorIdConfigured: Boolean(String(rawValue(env, "SHORTSENGINE_OPERATOR_ID") || "").trim()),
+    operatorTokenConfigured: Boolean(operatorToken),
+    localAnonymous: mode === "local",
+    ready: mode === "local" || Boolean(operatorToken),
+    defaultModeRequiresToken: mode === "operator",
+  };
 }
 
 function validateStorageReadiness(env) {
@@ -541,6 +605,7 @@ function checkEnvironment(options = {}) {
   validateExampleSecrets(exampleText);
   assertDocsMentionKnownVars(docsText);
   const { numeric } = validateContractValues(env, rootDir);
+  const auth = validateAuthReadiness(env);
   const storage = validateStorageReadiness(env);
   const transcription = validateTranscriptionReadiness(env);
   const scoreboardOcr = validateScoreboardOcrReadiness(env, numeric);
@@ -568,6 +633,7 @@ function checkEnvironment(options = {}) {
       ffmpegCommandConfigured: Boolean(rawValue(env, "FFMPEG_BIN")),
       ffprobeCommandConfigured: Boolean(rawValue(env, "FFPROBE_BIN")),
     },
+    auth,
     limits: {
       maxUploadBytes: numeric.MATCHCUTS_MAX_UPLOAD_BYTES,
       maxDurationSeconds: numeric.MATCHCUTS_MAX_DURATION_SECONDS,
@@ -648,6 +714,8 @@ function checkEnvironment(options = {}) {
       localPersistenceDefault: true,
       youtubeIngestOptIn: true,
       sourceCacheOptIn: true,
+      operatorAuthDefault: true,
+      localAuthOptIn: true,
       scoreboardOcrFallbackDefault: true,
       realCloudOptIn: true,
     },

@@ -166,8 +166,49 @@ test("environment check passes with default safe config", () => {
   assert.equal(summary.youtubeIngest.liveE2E.enabled, false);
   assert.equal(summary.youtubeIngest.liveE2E.browserEnabled, false);
   assert.equal(summary.youtubeIngest.liveE2E.defaultDisabled, true);
+  assert.equal(summary.auth.mode, "operator");
+  assert.equal(summary.auth.environment, "development");
+  assert.equal(summary.auth.operatorTokenConfigured, false);
+  assert.equal(summary.auth.ready, false);
   assert.equal(summary.cloudIntegration.enabled, false);
   assert.equal(findSensitiveLeak(summary), null);
+});
+
+test("environment check validates auth boundary without leaking secrets", () => {
+  const summary = checkEnvironment(safeOptions({
+    SHORTSENGINE_OPERATOR_ID: "operatorA",
+    SHORTSENGINE_OPERATOR_AUTH_TOKEN: "operator_token_1234567890abcdef",
+  }));
+  assert.equal(summary.auth.mode, "operator");
+  assert.equal(summary.auth.operatorIdConfigured, true);
+  assert.equal(summary.auth.operatorTokenConfigured, true);
+  assert.equal(summary.auth.ready, true);
+  assert.equal(findSensitiveLeak(summary), null);
+  assert.doesNotMatch(JSON.stringify(summary), /operator_token_1234567890abcdef/);
+
+  assert.throws(
+    () => checkEnvironment(safeOptions({
+      SHORTSENGINE_ENVIRONMENT: "production",
+      SHORTSENGINE_AUTH_MODE: "local",
+    })),
+    (error) => error.code === "ENV_AUTH_LOCAL_UNSAFE",
+  );
+
+  assert.throws(
+    () => checkEnvironment(safeOptions({
+      SHORTSENGINE_ENVIRONMENT: "production",
+      SHORTSENGINE_AUTH_MODE: "operator",
+    })),
+    (error) => error.code === "ENV_AUTH_TOKEN_REQUIRED",
+  );
+
+  const weakTokenError = assert.throws(
+    () => checkEnvironment(safeOptions({ SHORTSENGINE_OPERATOR_AUTH_TOKEN: "weakpass" })),
+    (error) => error.code === "ENV_AUTH_TOKEN_INVALID",
+  );
+  const payload = safeError(weakTokenError);
+  assert.equal(findSensitiveLeak(payload), null);
+  assert.doesNotMatch(JSON.stringify(payload), /weakpass/);
 });
 
 test("environment check rejects invalid numeric config", () => {

@@ -2588,6 +2588,7 @@ async function runRenderJob(options) {
         id: exportId,
         projectId: project.id,
         jobId: job.id,
+        ownerId: job.ownerId || project.ownerId || null,
         outputPath: context.outputStage.permanentLocal ? context.outputPath : null,
         artifact: deps.artifactStore.createRecord({
           id: exportId,
