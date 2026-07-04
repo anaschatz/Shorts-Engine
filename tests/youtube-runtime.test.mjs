@@ -1931,6 +1931,14 @@ test("youtube live local e2e timeout preserves server progress context", async (
       elapsedMs: 8100,
       totalBudgetMs: 90000,
       chunkTimeoutMs: 10000,
+      sampledFrameTimestamps: [276, 292, 318, 344],
+      roiCandidateIds: [
+        "scorebug_broadcast_compact",
+        "scorebug_left_compact",
+        "scoreboard_top_left",
+        "scoreboard_top_center",
+        "scoreboard_top_right",
+      ],
     },
   };
   const report = await runYouTubeLiveE2E({
@@ -1966,6 +1974,11 @@ test("youtube live local e2e timeout preserves server progress context", async (
   assert.equal(report.outputProof.ocrChunkSummary.chunkCount, 9);
   assert.equal(report.outputProof.ocrChunkSummary.chunks[0].index, 4);
   assert.equal(report.outputProof.ocrChunkSummary.chunks[0].status, "active");
+  assert.equal(report.outputProof.ocrChunkSummary.chunks[0].plannedFrameCount, 4);
+  assert.equal(report.outputProof.ocrChunkSummary.chunks[0].attemptedRoiCount, 5);
+  assert.equal(report.outputProof.ocrChunkSummary.chunks[0].attemptedObservationCount, 20);
+  assert.equal(report.outputProof.scorebugDebug.attemptedRoiCount, 5);
+  assert.equal(report.outputProof.scorebugDebug.reasonCodes.includes("scorebug_roi_candidates_attempted"), true);
   assert.equal(report.outputProof.logsDownloaded, false);
   assert.equal(report.outputProof.artifactsDownloaded, false);
   assert.equal(findSensitiveLeak(report), null);

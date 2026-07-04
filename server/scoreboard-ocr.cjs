@@ -616,33 +616,43 @@ function normalizeScoreboardOcrChunkSummary(value) {
     .map((item) => sanitizeText(item, length))
     .filter(Boolean)
     .slice(0, max);
-  const safeChunk = (chunk = {}, index = 0) => ({
-    index: Math.max(1, Math.min(100, Math.round(Number(chunk.index || index + 1)))),
-    start: round(clamp(chunk.start, 0, 24 * 60 * 60)),
-    end: round(clamp(chunk.end, 0, 24 * 60 * 60)),
-    status: sanitizeText(chunk.status || "unknown", 40),
-    sampledFrameCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES, Math.round(Number(chunk.sampledFrameCount || 0)))),
-    sampledFrameTimestamps: safeNumberList(chunk.sampledFrameTimestamps, MAX_SCOREBOARD_OCR_FRAMES),
-    roiCandidateIds: safeTextList(chunk.roiCandidateIds, MAX_SCOREBOARD_REGIONS, 80),
-    roiDetected: Boolean(chunk.roiDetected),
-    selectedRoiId: chunk.selectedRoiId ? sanitizeText(chunk.selectedRoiId, 80) : null,
-    ocrTextCandidateCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_CROPS, Math.round(Number(chunk.ocrTextCandidateCount || 0)))),
-    evidenceCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES, Math.round(Number(chunk.evidenceCount || 0)))),
-    scoreChangeCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES, Math.round(Number(chunk.scoreChangeCount || 0)))),
-    textPresentObservationCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_CROPS, Math.round(Number(chunk.textPresentObservationCount || 0)))),
-    readableObservationCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_CROPS, Math.round(Number(chunk.readableObservationCount || 0)))),
-    clockOnlyObservationCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_CROPS, Math.round(Number(chunk.clockOnlyObservationCount || 0)))),
-    rejectedObservationCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_CROPS, Math.round(Number(chunk.rejectedObservationCount || 0)))),
-    stableScoreDecision: sanitizeText(chunk.stableScoreDecision || "unknown", 80),
-    normalizedScoreCandidates: safeTextList(chunk.normalizedScoreCandidates, 12, 16),
-    rejectedScoreCandidateReasons: safeTextList(chunk.rejectedScoreCandidateReasons, 12, 80),
-    skippedReason: chunk.skippedReason ? sanitizeText(chunk.skippedReason, 80) : null,
-    nextAction: chunk.nextAction ? sanitizeText(chunk.nextAction, 180) : null,
-    elapsedMs: Math.max(0, Math.min(60 * 60 * 1000, Math.round(Number(chunk.elapsedMs || 0)))),
-    timeoutMs: chunk.timeoutMs == null
-      ? null
-      : Math.max(0, Math.min(60 * 60 * 1000, Math.round(Number(chunk.timeoutMs || 0)))),
-  });
+  const safeChunk = (chunk = {}, index = 0) => {
+    const sampledFrameTimestamps = safeNumberList(chunk.sampledFrameTimestamps, MAX_SCOREBOARD_OCR_FRAMES);
+    const plannedFrameCount = Math.max(0, Math.min(
+      MAX_SCOREBOARD_OCR_FRAMES,
+      Math.round(Number(chunk.plannedFrameCount ?? sampledFrameTimestamps.length)),
+    ));
+    return {
+      index: Math.max(1, Math.min(100, Math.round(Number(chunk.index || index + 1)))),
+      start: round(clamp(chunk.start, 0, 24 * 60 * 60)),
+      end: round(clamp(chunk.end, 0, 24 * 60 * 60)),
+      status: sanitizeText(chunk.status || "unknown", 40),
+      plannedFrameCount,
+      sampledFrameCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES, Math.round(Number(chunk.sampledFrameCount || 0)))),
+      sampledFrameTimestamps,
+      roiCandidateIds: safeTextList(chunk.roiCandidateIds, MAX_SCOREBOARD_REGIONS, 80),
+      attemptedRoiCount: Math.max(0, Math.min(MAX_SCOREBOARD_REGIONS * 4, Math.round(Number(chunk.attemptedRoiCount || 0)))),
+      attemptedObservationCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_CROPS, Math.round(Number(chunk.attemptedObservationCount || 0)))),
+      roiDetected: Boolean(chunk.roiDetected),
+      selectedRoiId: chunk.selectedRoiId ? sanitizeText(chunk.selectedRoiId, 80) : null,
+      ocrTextCandidateCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_CROPS, Math.round(Number(chunk.ocrTextCandidateCount || 0)))),
+      evidenceCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES, Math.round(Number(chunk.evidenceCount || 0)))),
+      scoreChangeCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES, Math.round(Number(chunk.scoreChangeCount || 0)))),
+      textPresentObservationCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_CROPS, Math.round(Number(chunk.textPresentObservationCount || 0)))),
+      readableObservationCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_CROPS, Math.round(Number(chunk.readableObservationCount || 0)))),
+      clockOnlyObservationCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_CROPS, Math.round(Number(chunk.clockOnlyObservationCount || 0)))),
+      rejectedObservationCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_CROPS, Math.round(Number(chunk.rejectedObservationCount || 0)))),
+      stableScoreDecision: sanitizeText(chunk.stableScoreDecision || "unknown", 80),
+      normalizedScoreCandidates: safeTextList(chunk.normalizedScoreCandidates, 12, 16),
+      rejectedScoreCandidateReasons: safeTextList(chunk.rejectedScoreCandidateReasons, 12, 80),
+      skippedReason: chunk.skippedReason ? sanitizeText(chunk.skippedReason, 80) : null,
+      nextAction: chunk.nextAction ? sanitizeText(chunk.nextAction, 180) : null,
+      elapsedMs: Math.max(0, Math.min(60 * 60 * 1000, Math.round(Number(chunk.elapsedMs || 0)))),
+      timeoutMs: chunk.timeoutMs == null
+        ? null
+        : Math.max(0, Math.min(60 * 60 * 1000, Math.round(Number(chunk.timeoutMs || 0)))),
+    };
+  };
   const safeChunks = chunks.map(safeChunk).slice(0, 40);
   return {
     mode: sanitizeText(value.mode || "chunked_scorebug_ocr", 60),
@@ -653,6 +663,9 @@ function normalizeScoreboardOcrChunkSummary(value) {
     failedChunks: safeChunks.filter((chunk) => chunk.status === "failed").length,
     scannedDurationSeconds: round(clamp(value.scannedDurationSeconds, 0, 24 * 60 * 60)),
     discoveredScoreChanges: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES, Math.round(Number(value.discoveredScoreChanges || 0)))),
+    plannedFrameCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES * 100, Math.round(Number(value.plannedFrameCount || 0)))),
+    attemptedRoiCount: Math.max(0, Math.min(MAX_SCOREBOARD_REGIONS * 4, Math.round(Number(value.attemptedRoiCount || 0)))),
+    attemptedObservationCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_CROPS * 100, Math.round(Number(value.attemptedObservationCount || 0)))),
     totalBudgetMs: Math.max(0, Math.min(60 * 60 * 1000, Math.round(Number(value.totalBudgetMs || 0)))),
     chunkTimeoutMs: Math.max(0, Math.min(60 * 60 * 1000, Math.round(Number(value.chunkTimeoutMs || 0)))),
     chunks: safeChunks,

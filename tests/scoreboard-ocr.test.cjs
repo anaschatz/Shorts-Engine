@@ -285,6 +285,66 @@ test("deterministic scoreboard OCR can return an empty safe fallback", () => {
   assert.equal(result.summary.sampledFrameCount, 1);
 });
 
+test("scoreboard OCR chunk summary preserves ROI attempt diagnostics without score evidence", () => {
+  const result = validateScoreboardOcrOutput({
+    providerMode: "chunked-scoreboard-ocr",
+    fallbackUsed: true,
+    evidence: [],
+    sampledFrameCount: 0,
+    chunkSummary: {
+      mode: "chunked_scorebug_first_ocr",
+      chunkCount: 1,
+      scannedChunks: 1,
+      skippedChunks: 0,
+      scannedDurationSeconds: 90,
+      discoveredScoreChanges: 0,
+      plannedFrameCount: 4,
+      attemptedRoiCount: 5,
+      attemptedObservationCount: 20,
+      chunks: [{
+        index: 1,
+        start: 0,
+        end: 90,
+        status: "completed",
+        plannedFrameCount: 4,
+        sampledFrameCount: 0,
+        sampledFrameTimestamps: [12, 30, 54, 78],
+        roiCandidateIds: [
+          "scorebug_broadcast_compact",
+          "scorebug_left_compact",
+          "scoreboard_top_left",
+          "scoreboard_top_center",
+          "scoreboard_top_right",
+        ],
+        attemptedRoiCount: 5,
+        attemptedObservationCount: 20,
+        readableObservationCount: 0,
+        rejectedObservationCount: 20,
+        stableScoreDecision: "no_readable_scorebug",
+        rejectedScoreCandidateReasons: ["scorebug_no_readable_roi", "scorebug_frame_or_crop_unavailable"],
+      }],
+    },
+    scorebugDebug: {
+      attemptedRoiCount: 5,
+      attemptedObservationCount: 20,
+      textPresentObservationCount: 0,
+      readableObservationCount: 0,
+      state: "scorebug_unreadable",
+      nextAction: "enable-scoreboard-ocr-qa-artifacts-and-inspect-crops-for-wrong-roi-or-small-scorebug",
+      qaRecommended: true,
+      reasonCodes: ["chunked_scorebug_first_ocr", "scorebug_roi_candidates_attempted", "scorebug_no_readable_roi"],
+    },
+  }, metadata);
+
+  assert.equal(result.summary.chunkSummary.chunks[0].plannedFrameCount, 4);
+  assert.equal(result.summary.chunkSummary.chunks[0].attemptedRoiCount, 5);
+  assert.equal(result.summary.chunkSummary.chunks[0].attemptedObservationCount, 20);
+  assert.equal(result.summary.scorebugDebug.attemptedRoiCount, 5);
+  assert.equal(result.summary.scorebugDebug.readableObservationCount, 0);
+  assert.equal(result.summary.scoreChangeCount, 0);
+  assert.doesNotMatch(JSON.stringify(publicScoreboardOcr(result)), /\/Users|storageKey|localPath|token|secret|rawOcr|rawText|stderr|stdout/i);
+});
+
 test("local OCR parsing extracts scores clocks and transitions safely", () => {
   assert.deepEqual(parseScoreboardScore("ARS 0-0 CHE 23:11"), { home: 0, away: 0, text: "0-0" });
   assert.deepEqual(parseScoreboardScore("HOME O - I AWAY"), { home: 0, away: 1, text: "0-1" });

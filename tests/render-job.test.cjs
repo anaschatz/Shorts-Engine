@@ -743,6 +743,12 @@ test("youtube long-source render uses scorebug-first OCR before visual frame ext
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks.at(-1).end, 644);
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].roiCandidateIds.includes("scorebug_broadcast_compact"), true);
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].sampledFrameTimestamps.length > 0, true);
+  assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].plannedFrameCount > 0, true);
+  assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].attemptedRoiCount, 5);
+  assert.equal(
+    context.job.scoreboardOcr.summary.chunkSummary.chunks[0].attemptedObservationCount,
+    context.job.scoreboardOcr.summary.chunkSummary.chunks[0].plannedFrameCount * 5,
+  );
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].stableScoreDecision, "score_changes_detected");
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].normalizedScoreCandidates.includes("2-1"), true);
   const stepEvents = context.logs.filter((entry) => entry.event === "job_step");
@@ -780,8 +786,17 @@ test("youtube long-source render fails closed with chunk context when scorebug O
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].status, "timed_out");
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].sampledFrameTimestamps.length > 0, true);
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].roiCandidateIds.includes("scoreboard_top_center"), true);
+  assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].plannedFrameCount > 0, true);
+  assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].attemptedRoiCount, 5);
+  assert.equal(
+    context.job.scoreboardOcr.summary.chunkSummary.chunks[0].attemptedObservationCount,
+    context.job.scoreboardOcr.summary.chunkSummary.chunks[0].plannedFrameCount * 5,
+  );
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].stableScoreDecision, "timed_out");
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].nextAction, "reduce-scorebug-ocr-workload-or-enable-scoreboard-ocr-qa-artifacts");
+  assert.equal(context.job.scoreboardOcr.summary.scorebugDebug.attemptedRoiCount, 5);
+  assert.equal(context.job.scoreboardOcr.summary.scorebugDebug.attemptedObservationCount > 0, true);
+  assert.equal(context.job.scoreboardOcr.summary.scorebugDebug.reasonCodes.includes("scorebug_roi_candidates_attempted"), true);
   assert.equal(context.calls.includes("extract_sampled_frames"), false);
   assert.equal(context.calls.includes("render_short"), false);
   assert.doesNotMatch(JSON.stringify(context.job.error), /\/Users|storageKey|localPath|secret|stderr|stdout|rawOcr|rawText/i);

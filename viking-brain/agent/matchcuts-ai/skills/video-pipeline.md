@@ -47,3 +47,8 @@ Social-ready output:
 - Treat hook-first editing, dynamic word captions, bounded animation cues, audio policy and creative style transforms as validated edit-plan contracts.
 - Final output proof should fail closed when the first-two-second hook, readable word-timed captions, safe audio policy or no-evasion styling contract is missing.
 - Creative polish may use mild zoom, color grading and caption-safe overlays for clarity; never use mirroring, watermark hiding, scorebug hiding or copyright-evasion behavior.
+
+Scorebug OCR:
+
+- For long-source scorebug OCR, keep actual sampled frame counts separate from planned ROI attempt diagnostics.
+- `plannedFrameCount`, `attemptedRoiCount`, and `attemptedObservationCount` are debugging-only fields and must never become valid-goal evidence without stable score changes plus football action evidence.

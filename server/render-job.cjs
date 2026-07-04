@@ -243,7 +243,10 @@ function safeOcrChunkSummary(scoreboardOcr = null) {
           start: safeNumber(chunk && chunk.start),
           end: safeNumber(chunk && chunk.end),
           status: sanitizeText(chunk && chunk.status || "unknown", 40),
+          plannedFrameCount: safeNumber(chunk && chunk.plannedFrameCount),
           sampledFrameCount: safeNumber(chunk && chunk.sampledFrameCount),
+          attemptedRoiCount: safeNumber(chunk && chunk.attemptedRoiCount),
+          attemptedObservationCount: safeNumber(chunk && chunk.attemptedObservationCount),
           evidenceCount: safeNumber(chunk && chunk.evidenceCount),
           scoreChangeCount: safeNumber(chunk && chunk.scoreChangeCount),
           skippedReason: chunk && chunk.skippedReason ? sanitizeText(chunk.skippedReason, 80) : null,
@@ -977,21 +980,49 @@ function aggregateScorebugDebugSummary(outputs = [], roiCalibration = {}, chunkS
   const chunkReports = Array.isArray(chunkSummary && chunkSummary.chunks) ? chunkSummary.chunks : [];
   const timedOutChunks = chunkReports.filter((chunk) => chunk.status === "timed_out").length;
   const failedChunks = chunkReports.filter((chunk) => chunk.status === "failed").length;
+  const attemptedRoiIds = new Set(chunkReports.flatMap((chunk) => Array.isArray(chunk.roiCandidateIds) ? chunk.roiCandidateIds : []));
+  const chunkAttemptedObservationCount = chunkReports.reduce((sum, chunk) => sum + Number(chunk.attemptedObservationCount || 0), 0);
   const scoreChangeCount = outputs.reduce((sum, output) => sum + Number(output.summary && output.summary.scoreChangeCount || 0), 0);
+  const outputAttemptedObservationCount = outputs.reduce((sum, output) => {
+    const debug = output.summary && output.summary.scorebugDebug;
+    return sum + Math.max(
+      Number(debug && debug.attemptedObservationCount || 0),
+      Number(output.summary && output.summary.regionCount || 0),
+    );
+  }, 0);
   const readableObservationCount = outputs.reduce((sum, output) => {
     const debug = output.summary && output.summary.scorebugDebug;
     return sum + Number(debug && debug.readableObservationCount || 0);
   }, 0);
+  const textPresentObservationCount = outputs.reduce((sum, output) => {
+    const debug = output.summary && output.summary.scorebugDebug;
+    return sum + Number(debug && debug.textPresentObservationCount || 0);
+  }, 0);
+  const chunkRejectedRois = selectedRoi || (roiCalibration && Array.isArray(roiCalibration.rejectedRois) && roiCalibration.rejectedRois.length)
+    ? []
+    : [...attemptedRoiIds].slice(0, 12).map((regionId) => ({
+        regionId,
+        layoutId: null,
+        observationCount: chunkReports
+          .filter((chunk) => Array.isArray(chunk.roiCandidateIds) && chunk.roiCandidateIds.includes(regionId))
+          .reduce((sum, chunk) => sum + Number(chunk.plannedFrameCount || 0), 0),
+        readableObservationCount: 0,
+        scoreChangeCount: 0,
+        diagnosis: "scorebug_unreadable",
+        reasonCodes: ["scorebug_no_readable_roi"],
+        nextAction: "enable-scoreboard-ocr-qa-artifacts-and-inspect-crops-for-wrong-roi-or-small-scorebug",
+      }));
+  const attemptedRoiCount = Math.max(0, Number(roiCalibration && roiCalibration.candidateCount || 0), attemptedRoiIds.size);
+  const attemptedObservationCount = Math.max(outputAttemptedObservationCount, chunkAttemptedObservationCount);
   return {
-    attemptedRoiCount: Math.max(0, Number(roiCalibration && roiCalibration.candidateCount || 0)),
-    attemptedObservationCount: outputs.reduce((sum, output) => sum + Number(output.summary && output.summary.regionCount || 0), 0),
-    textPresentObservationCount: outputs.reduce((sum, output) => {
-      const debug = output.summary && output.summary.scorebugDebug;
-      return sum + Number(debug && debug.textPresentObservationCount || 0);
-    }, 0),
+    attemptedRoiCount,
+    attemptedObservationCount,
+    textPresentObservationCount,
     readableObservationCount,
     selectedRoi,
-    rejectedRois: Array.isArray(roiCalibration && roiCalibration.rejectedRois) ? roiCalibration.rejectedRois : [],
+    rejectedRois: Array.isArray(roiCalibration && roiCalibration.rejectedRois) && roiCalibration.rejectedRois.length
+      ? roiCalibration.rejectedRois
+      : chunkRejectedRois,
     state: scoreChangeCount > 0
       ? "score_changes_detected"
       : timedOutChunks > 0 && outputs.length === 0
@@ -1009,6 +1040,7 @@ function aggregateScorebugDebugSummary(outputs = [], roiCalibration = {}, chunkS
       "chunked_scorebug_first_ocr",
       ...(timedOutChunks > 0 ? ["scorebug_chunk_timeout_recorded"] : []),
       ...(failedChunks > 0 ? ["scorebug_chunk_failure_recorded"] : []),
+      ...(attemptedRoiCount > 0 ? ["scorebug_roi_candidates_attempted"] : []),
       ...(selectedRoi ? ["scorebug_roi_selected_from_chunks"] : ["scorebug_no_readable_roi"]),
     ],
   };
@@ -1040,6 +1072,45 @@ function chunkDiagnosticsBase(chunk = {}, metadata = {}) {
   return {
     sampledFrameTimestamps: chunkSampledFrameTimestamps(chunk),
     roiCandidateIds: scorebugChunkRoiCandidateIds(metadata),
+  };
+}
+
+function plannedChunkFrameCount(chunk = {}, diagnostics = null) {
+  const timestamps = diagnostics && Array.isArray(diagnostics.sampledFrameTimestamps)
+    ? diagnostics.sampledFrameTimestamps
+    : chunkSampledFrameTimestamps(chunk);
+  const windows = Array.isArray(chunk.samplingWindows) ? chunk.samplingWindows : [];
+  return Math.max(0, Math.min(16, timestamps.length || windows.length));
+}
+
+function plannedChunkRoiCount(diagnostics = {}) {
+  const ids = Array.isArray(diagnostics.roiCandidateIds) ? diagnostics.roiCandidateIds : [];
+  return Math.max(0, Math.min(SCOREBUG_FIRST_ROI_CANDIDATE_IDS.length, ids.length));
+}
+
+function plannedChunkObservationCount(chunk = {}, diagnostics = null) {
+  const safeDiagnostics = diagnostics || chunkDiagnosticsBase(chunk);
+  return Math.max(0, Math.min(144, plannedChunkFrameCount(chunk, safeDiagnostics) * plannedChunkRoiCount(safeDiagnostics)));
+}
+
+function chunkAttemptDiagnostics(chunk = {}, metadata = {}, summary = {}, debug = {}) {
+  const diagnostics = chunkDiagnosticsBase(chunk, metadata);
+  const plannedFrameCount = plannedChunkFrameCount(chunk, diagnostics);
+  const plannedRoiCount = plannedChunkRoiCount(diagnostics);
+  const plannedObservationCount = plannedChunkObservationCount(chunk, diagnostics);
+  return {
+    ...diagnostics,
+    plannedFrameCount,
+    attemptedRoiCount: Math.max(
+      plannedRoiCount,
+      Number(debug && debug.attemptedRoiCount || 0),
+      Number(summary && summary.roiCalibration && summary.roiCalibration.candidateCount || 0),
+    ),
+    attemptedObservationCount: Math.max(
+      plannedObservationCount,
+      Number(debug && debug.attemptedObservationCount || 0),
+      Number(summary && summary.regionCount || 0),
+    ),
   };
 }
 
@@ -1100,25 +1171,36 @@ function chunkReportFromOutput(chunk = {}, result = {}, elapsedMs = 0, timeoutMs
   const debug = summary.scorebugDebug || {};
   const selectedRoi = selectedScorebugRoi(summary);
   const rows = scorebugChunkRows(result);
+  const attempts = chunkAttemptDiagnostics(chunk, metadata, summary, debug);
+  const textPresentObservationCount = Number(debug.textPresentObservationCount || 0);
+  const readableObservationCount = Number(debug.readableObservationCount || 0);
+  const rejectedObservationCount = selectedRoi
+    ? Number(selectedRoi.rejectedObservationCount || 0)
+    : Number(debug.rejectedObservationCount || (attempts.attemptedObservationCount && !readableObservationCount ? attempts.attemptedObservationCount : 0));
+  const rejectedReasons = rejectedScoreCandidateReasonsFromRows(rows, summary);
+  if (!readableObservationCount && attempts.attemptedObservationCount > 0) {
+    rejectedReasons.push("scorebug_no_readable_roi");
+    if (!Number(summary.sampledFrameCount || 0)) rejectedReasons.push("scorebug_frame_or_crop_unavailable");
+  }
   return {
     index: chunk.index,
     start: chunk.start,
     end: chunk.end,
     status: "completed",
-    ...chunkDiagnosticsBase(chunk, metadata),
+    ...attempts,
     sampledFrameCount: Number(summary.sampledFrameCount || 0),
     roiDetected: Boolean(selectedRoi),
     selectedRoiId: selectedRoi && selectedRoi.regionId ? sanitizeText(selectedRoi.regionId, 80) : null,
-    ocrTextCandidateCount: Number(debug.textPresentObservationCount || 0),
+    ocrTextCandidateCount: textPresentObservationCount,
     evidenceCount: Number(summary.evidenceCount || 0),
     scoreChangeCount: Number(summary.scoreChangeCount || 0),
-    textPresentObservationCount: Number(debug.textPresentObservationCount || 0),
-    readableObservationCount: Number(debug.readableObservationCount || 0),
+    textPresentObservationCount,
+    readableObservationCount,
     clockOnlyObservationCount: selectedRoi ? Number(selectedRoi.clockOnlyObservationCount || 0) : Number(summary.clockOnlyCount || 0),
-    rejectedObservationCount: selectedRoi ? Number(selectedRoi.rejectedObservationCount || 0) : 0,
+    rejectedObservationCount,
     stableScoreDecision: stableScoreDecisionForOutput(result),
     normalizedScoreCandidates: scoreTextCandidatesFromRows(rows),
-    rejectedScoreCandidateReasons: rejectedScoreCandidateReasonsFromRows(rows, summary),
+    rejectedScoreCandidateReasons: [...new Set(safeReasonList(rejectedReasons, 12))],
     skippedReason: null,
     nextAction: sanitizeText(debug.nextAction || (selectedRoi && selectedRoi.nextAction) || "inspect-scorebug-chunk-report", 180),
     elapsedMs: Math.max(0, Math.round(Number(elapsedMs || 0))),
@@ -1128,12 +1210,13 @@ function chunkReportFromOutput(chunk = {}, result = {}, elapsedMs = 0, timeoutMs
 
 function chunkReportFromFailure(chunk = {}, error = {}, status = "failed", elapsedMs = 0, timeoutMs = null, metadata = {}) {
   const code = safeChunkFailureCode(error);
+  const attempts = chunkAttemptDiagnostics(chunk, metadata);
   return {
     index: chunk.index,
     start: chunk.start,
     end: chunk.end,
     status,
-    ...chunkDiagnosticsBase(chunk, metadata),
+    ...attempts,
     sampledFrameCount: Array.isArray(chunk.samplingWindows) ? chunk.samplingWindows.length : 0,
     roiDetected: false,
     selectedRoiId: null,
@@ -1164,6 +1247,7 @@ function buildChunkSummary({ chunks = [], outputs = [], chunkReports = [], disco
   const reports = Array.isArray(chunkReports) ? chunkReports : [];
   const completed = reports.filter((chunk) => chunk.status === "completed");
   const skipped = reports.filter((chunk) => chunk.status !== "completed");
+  const attemptedRoiIds = new Set(reports.flatMap((chunk) => Array.isArray(chunk.roiCandidateIds) ? chunk.roiCandidateIds : []));
   return {
     mode: "chunked_scorebug_first_ocr",
     chunkCount: chunks.length,
@@ -1171,6 +1255,9 @@ function buildChunkSummary({ chunks = [], outputs = [], chunkReports = [], disco
     skippedChunks: skipped.length,
     scannedDurationSeconds: roundNumber(completed.reduce((sum, chunk) => sum + Math.max(0, Number(chunk.end) - Number(chunk.start)), 0)),
     discoveredScoreChanges,
+    plannedFrameCount: reports.reduce((sum, chunk) => sum + Number(chunk.plannedFrameCount || 0), 0),
+    attemptedRoiCount: attemptedRoiIds.size,
+    attemptedObservationCount: reports.reduce((sum, chunk) => sum + Number(chunk.attemptedObservationCount || 0), 0),
     totalBudgetMs,
     chunkTimeoutMs,
     chunks: reports,

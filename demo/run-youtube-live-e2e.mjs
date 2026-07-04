@@ -230,6 +230,9 @@ function safeOcrChunkSummary(value) {
     skippedChunks: safeNumber(value.skippedChunks),
     scannedDurationSeconds: safeNumber(value.scannedDurationSeconds),
     discoveredScoreChanges: safeNumber(value.discoveredScoreChanges),
+    plannedFrameCount: safeNumber(value.plannedFrameCount),
+    attemptedRoiCount: safeNumber(value.attemptedRoiCount),
+    attemptedObservationCount: safeNumber(value.attemptedObservationCount),
     totalBudgetMs: safeNumber(value.totalBudgetMs),
     chunkTimeoutMs: safeNumber(value.chunkTimeoutMs),
     chunks: chunks.map((chunk, index) => ({
@@ -237,11 +240,14 @@ function safeOcrChunkSummary(value) {
       start: safeNumber(chunk && chunk.start),
       end: safeNumber(chunk && chunk.end),
       status: safeString(chunk && chunk.status, 40),
+      plannedFrameCount: safeNumber(chunk && chunk.plannedFrameCount),
       sampledFrameCount: safeNumber(chunk && chunk.sampledFrameCount),
       sampledFrameTimestamps: Array.isArray(chunk && chunk.sampledFrameTimestamps)
         ? chunk.sampledFrameTimestamps.map((timestamp) => safeNumber(timestamp)).filter((timestamp) => timestamp !== null).slice(0, 16)
         : [],
       roiCandidateIds: safeStringList(chunk && chunk.roiCandidateIds, 8, 80),
+      attemptedRoiCount: safeNumber(chunk && chunk.attemptedRoiCount),
+      attemptedObservationCount: safeNumber(chunk && chunk.attemptedObservationCount),
       roiDetected: safeBoolean(chunk && chunk.roiDetected),
       selectedRoiId: chunk && chunk.selectedRoiId ? safeString(chunk.selectedRoiId, 80) : null,
       ocrTextCandidateCount: safeNumber(chunk && chunk.ocrTextCandidateCount),
@@ -1310,6 +1316,60 @@ function stableScoreChangeCountFromOcr(scoreboardOcr = null) {
     .length;
 }
 
+function scorebugDebugFromChunkSummary(chunkSummary = null) {
+  const summary = safeOcrChunkSummary(chunkSummary);
+  if (!summary || !Array.isArray(summary.chunks) || !summary.chunks.length) return null;
+  const attemptedRoiIds = [...new Set(summary.chunks.flatMap((chunk) => Array.isArray(chunk.roiCandidateIds) ? chunk.roiCandidateIds : []))]
+    .filter(Boolean)
+    .slice(0, 8);
+  const attemptedObservationCount = summary.chunks.reduce((sum, chunk) => sum + Number(chunk.attemptedObservationCount || 0), 0);
+  if (!attemptedRoiIds.length && !attemptedObservationCount) return null;
+  const timedOutChunks = summary.chunks.filter((chunk) => chunk.status === "timed_out").length;
+  const failedChunks = summary.chunks.filter((chunk) => chunk.status === "failed").length;
+  const readableObservationCount = summary.chunks.reduce((sum, chunk) => sum + Number(chunk.readableObservationCount || 0), 0);
+  const textPresentObservationCount = summary.chunks.reduce((sum, chunk) => sum + Number(chunk.textPresentObservationCount || 0), 0);
+  const scoreChangeCount = summary.chunks.reduce((sum, chunk) => sum + Number(chunk.scoreChangeCount || 0), 0);
+  const state = scoreChangeCount > 0
+    ? "score_changes_detected"
+    : timedOutChunks > 0 && summary.scannedChunks === 0
+      ? "scorebug_all_chunks_timed_out"
+      : timedOutChunks > 0 || failedChunks > 0
+        ? "scorebug_partial_chunk_failures"
+        : readableObservationCount > 0
+          ? "scorebug_static_or_ambiguous"
+          : "scorebug_unreadable";
+  return {
+    attemptedRoiCount: attemptedRoiIds.length,
+    attemptedObservationCount,
+    textPresentObservationCount,
+    readableObservationCount,
+    state,
+    nextAction: scoreChangeCount > 0
+      ? "feed-scorebug-score-changes-into-match-event-truth"
+      : "enable-scoreboard-ocr-qa-artifacts-and-inspect-crops-for-wrong-roi-or-small-scorebug",
+    qaRecommended: scoreChangeCount === 0,
+    reasonCodes: [
+      "chunked_scorebug_first_ocr",
+      "scorebug_roi_candidates_attempted",
+      ...(timedOutChunks > 0 ? ["scorebug_chunk_timeout_recorded"] : []),
+      ...(failedChunks > 0 ? ["scorebug_chunk_failure_recorded"] : []),
+      ...(scoreChangeCount > 0 ? ["score_changes_detected"] : ["scorebug_no_readable_roi"]),
+    ],
+    selectedRoi: null,
+    rejectedRois: attemptedRoiIds.map((regionId) => ({
+      regionId: safeString(regionId, 80),
+      layoutId: null,
+      observationCount: summary.chunks
+        .filter((chunk) => Array.isArray(chunk.roiCandidateIds) && chunk.roiCandidateIds.includes(regionId))
+        .reduce((sum, chunk) => sum + Number(chunk.plannedFrameCount || 0), 0),
+      readableObservationCount: 0,
+      scoreChangeCount: 0,
+      diagnosis: scoreChangeCount > 0 ? "score_changes_detected_elsewhere" : "scorebug_unreadable",
+      reasonCodes: scoreChangeCount > 0 ? ["lower_roi_score_than_selected"] : ["scorebug_no_readable_roi"],
+    })),
+  };
+}
+
 function scoreboardOcrEnabledForProof(scoreboardOcr = null) {
   const mode = safeString(scoreboardOcr && scoreboardOcr.providerMode, 80);
   return Boolean(mode) && ![
@@ -1477,9 +1537,14 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
             start: safeNumber(progressMeta.chunkStart),
             end: safeNumber(progressMeta.chunkEnd),
             status: smokeFailure?.code === "SCOREBOARD_OCR_TIMEOUT" ? "timed_out" : "active",
+            plannedFrameCount: Array.isArray(progressMeta.sampledFrameTimestamps) ? progressMeta.sampledFrameTimestamps.length : null,
             sampledFrameCount: null,
             sampledFrameTimestamps: progressMeta.sampledFrameTimestamps || [],
             roiCandidateIds: progressMeta.roiCandidateIds || [],
+            attemptedRoiCount: Array.isArray(progressMeta.roiCandidateIds) ? progressMeta.roiCandidateIds.length : null,
+            attemptedObservationCount: Array.isArray(progressMeta.sampledFrameTimestamps) && Array.isArray(progressMeta.roiCandidateIds)
+              ? progressMeta.sampledFrameTimestamps.length * progressMeta.roiCandidateIds.length
+              : null,
             roiDetected: false,
             selectedRoiId: null,
             ocrTextCandidateCount: null,
@@ -1541,7 +1606,7 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
     scoreboardOcrEnabled,
     scoreboardOcrProviderMode,
     ocrChunkSummary,
-    scorebugDebug: scoreboardOcr?.scorebugDebug || null,
+    scorebugDebug: scoreboardOcr?.scorebugDebug || scorebugDebugFromChunkSummary(ocrChunkSummary),
     scoreboardObservationCount,
     scoreboardSampledFrameCount: safeNumber(discovery && discovery.scoreboardSampledFrameCount) ??
       safeNumber(scoreboardOcr && scoreboardOcr.sampledFrameCount) ??
