@@ -29,6 +29,7 @@ const DEFAULT_COMMAND_NAME = "youtube:proof";
 const MAX_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_TIMEOUT_MS = MAX_TIMEOUT_MS;
 const MAX_LIVE_DOWNLOAD_TIMEOUT_MS = 15 * 60 * 1000;
+const DEFAULT_LIVE_DOWNLOAD_TIMEOUT_MS = MAX_LIVE_DOWNLOAD_TIMEOUT_MS;
 const DEFAULT_LIVE_SCOREBOARD_OCR_JOB_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_SERVER_READY_TIMEOUT_MS = 15_000;
 const DEFAULT_SERVER_READY_POLL_INTERVAL_MS = 250;
@@ -129,14 +130,21 @@ function parseLiveProofTimeoutMs(env, fallback = DEFAULT_TIMEOUT_MS) {
 
 function parseLiveDownloadTimeoutMs(env) {
   const raw = rawValue(env, LIVE_DOWNLOAD_TIMEOUT_FLAG);
-  if (raw === undefined || raw === null || raw === "") return null;
   return parseInteger(
     raw,
-    null,
+    DEFAULT_LIVE_DOWNLOAD_TIMEOUT_MS,
     1000,
     MAX_LIVE_DOWNLOAD_TIMEOUT_MS,
     "ENV_YOUTUBE_LIVE_E2E_DOWNLOAD_TIMEOUT_INVALID",
   );
+}
+
+function liveDownloadTimeoutEnv(env) {
+  const liveDownloadTimeoutMs = parseLiveDownloadTimeoutMs(env);
+  return {
+    SHORTSENGINE_YOUTUBE_DOWNLOAD_TIMEOUT_MS: String(liveDownloadTimeoutMs),
+    SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS: String(liveDownloadTimeoutMs),
+  };
 }
 
 function liveScoreboardOcrEnabled(env) {
@@ -1536,7 +1544,12 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
   const discoverySelectedGoalCount = Number.isFinite(Number(discovery?.selectedValidGoalCount))
     ? Number(discovery.selectedValidGoalCount)
     : null;
-  const countedGoalsFound = outputExpectedGoalCount ?? discoverySelectedGoalCount ?? 0;
+  const discoveredCountedGoalCount = safeNumber(discovery?.discoveredCountedGoals) ??
+    safeNumber(discovery?.countedGoalEventCount) ??
+    safeNumber(discovery?.matchEventTruthCountedGoalEventCount) ??
+    0;
+  const countedGoalsFound = outputExpectedGoalCount ??
+    Math.max(discoverySelectedGoalCount ?? 0, discoveredCountedGoalCount);
   const actualConfirmedGoalSegmentCount = Number.isFinite(Number(outputQA?.actualConfirmedGoalSegmentCount))
     ? Number(outputQA.actualConfirmedGoalSegmentCount)
     : 0;
@@ -1544,6 +1557,14 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
     ? Number(outputQA.coveredGoalCount)
     : 0;
   const expectedCountedGoals = expectedCountedGoalsForSource(source, env);
+  const safeGoalDiscovery = discovery
+    ? {
+        ...discovery,
+        discoveredCountedGoals: safeNumber(discovery.discoveredCountedGoals) ?? discoveredCountedGoalCount,
+        countedGoalEventCount: safeNumber(discovery.countedGoalEventCount) ?? discoveredCountedGoalCount,
+        expectedCountedGoals: expectedCountedGoals ?? safeNumber(discovery.expectedCountedGoals),
+      }
+    : null;
   const coverage = {
     countedGoalsFound,
     countedGoalsIncluded: actualConfirmedGoalSegmentCount,
@@ -1676,7 +1697,7 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
     replayOnlySegments: 0,
     videoOutputQA: outputQA,
     segmentWindows: [],
-    goalDiscovery: discovery,
+    goalDiscovery: safeGoalDiscovery,
     staleArtifactCleanup,
     comparison: buildComparisonReadiness({ source, outputMp4: null, ffprobe: null, coverage, reference: null }),
     logsDownloaded: false,
@@ -1947,8 +1968,11 @@ function validateLiveConfig(env) {
 }
 
 function smokeEnvForLive(env, baseUrl) {
+  const downloadEnv = liveDownloadTimeoutEnv(env);
+  const timeoutEnv = { ...env, ...downloadEnv };
   return {
     ...env,
+    ...downloadEnv,
     ...liveScoreboardOcrJobTimeoutEnv(env),
     SHORTSENGINE_YOUTUBE_SMOKE: "1",
     SHORTSENGINE_YOUTUBE_INGEST_ENABLED: "1",
@@ -1956,6 +1980,7 @@ function smokeEnvForLive(env, baseUrl) {
       rawValue(env, LIVE_URL_FLAG) || rawValue(env, "SHORTSENGINE_YOUTUBE_SMOKE_URL") || "",
     ).trim(),
     SHORTSENGINE_YOUTUBE_SMOKE_BASE_URL: baseUrl,
+    SHORTSENGINE_YOUTUBE_SMOKE_REQUEST_TIMEOUT_MS: String(computedIngestRequestTimeoutMs(timeoutEnv)),
     SHORTSENGINE_YOUTUBE_SMOKE_SAVE_DOWNLOAD: "1",
   };
 }
@@ -2080,19 +2105,12 @@ async function getFreePort() {
 function liveServerEnvironment({ port, dataDir, env = {} } = {}) {
   const scoreboardOcrEnabled = liveScoreboardOcrEnabled(env);
   const scoreboardOcrQaEnabled = liveScoreboardOcrQaEnabled(env);
-  const liveDownloadTimeoutMs = parseLiveDownloadTimeoutMs(env);
-  const timeoutEnv = liveDownloadTimeoutMs
-    ? { ...env, SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS: String(liveDownloadTimeoutMs) }
-    : env;
+  const downloadEnv = liveDownloadTimeoutEnv(env);
+  const timeoutEnv = { ...env, ...downloadEnv };
   return {
     ...process.env,
     ...env,
-    ...(liveDownloadTimeoutMs
-      ? {
-          SHORTSENGINE_YOUTUBE_DOWNLOAD_TIMEOUT_MS: String(liveDownloadTimeoutMs),
-          SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS: String(liveDownloadTimeoutMs),
-        }
-      : {}),
+    ...downloadEnv,
     ...(scoreboardOcrEnabled
       ? {
           SHORTSENGINE_SCOREBOARD_OCR_ENABLED: "1",
@@ -2682,5 +2700,6 @@ export {
   cleanupGeneratedProofArtifacts,
   isManagedLiveProofMp4,
   liveServerEnvironment,
+  smokeEnvForLive,
   writeYouTubeLiveE2EReport,
 };

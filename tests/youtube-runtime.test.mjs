@@ -11,6 +11,7 @@ import {
   isManagedLiveProofMp4,
   liveServerEnvironment,
   runYouTubeLiveE2E,
+  smokeEnvForLive,
   writeYouTubeLiveE2EReport,
 } from "../demo/run-youtube-live-e2e.mjs";
 import {
@@ -493,6 +494,19 @@ test("youtube live server environment maps operator download timeout to backend 
   assert.equal(env.SHORTSENGINE_YOUTUBE_DOWNLOAD_TIMEOUT_MS, "600000");
   assert.equal(env.SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS, "600000");
   assert.equal(env.SHORTSENGINE_YOUTUBE_SMOKE_REQUEST_TIMEOUT_MS, "1230000");
+});
+
+test("youtube live smoke environment maps operator download timeout to ingest request timeout", () => {
+  const env = smokeEnvForLive({
+    SHORTSENGINE_YOUTUBE_LIVE_E2E_URL: SAFE_URL,
+    SHORTSENGINE_YOUTUBE_SMOKE_ALLOW_UNLISTED: "1",
+    SHORTSENGINE_YOUTUBE_LIVE_E2E_DOWNLOAD_TIMEOUT_MS: "600000",
+    SHORTSENGINE_YOUTUBE_DOWNLOAD_ATTEMPTS: "2",
+  }, "http://127.0.0.1:4175");
+  assert.equal(env.SHORTSENGINE_YOUTUBE_DOWNLOAD_TIMEOUT_MS, "600000");
+  assert.equal(env.SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS, "600000");
+  assert.equal(env.SHORTSENGINE_YOUTUBE_SMOKE_REQUEST_TIMEOUT_MS, "1230000");
+  assert.equal(env.SHORTSENGINE_YOUTUBE_SMOKE_BASE_URL, "http://127.0.0.1:4175");
 });
 
 test("youtube smoke request timeout reports exact ingest phase and step", async () => {
@@ -1240,7 +1254,9 @@ test("youtube live server env enables local scoreboard OCR only with explicit op
   assert.equal(defaultEnv.SHORTSENGINE_SCOREBOARD_OCR_QA_ARTIFACTS, undefined);
   assert.equal(defaultEnv.MATCHCUTS_TRANSCRIPTION_PROVIDER, "mock");
   assert.equal(defaultEnv.SHORTSENGINE_YOUTUBE_INGEST_ENABLED, "1");
-  assert.equal(defaultEnv.SHORTSENGINE_YOUTUBE_SMOKE_REQUEST_TIMEOUT_MS, "270000");
+  assert.equal(defaultEnv.SHORTSENGINE_YOUTUBE_DOWNLOAD_TIMEOUT_MS, "900000");
+  assert.equal(defaultEnv.SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS, "900000");
+  assert.equal(defaultEnv.SHORTSENGINE_YOUTUBE_SMOKE_REQUEST_TIMEOUT_MS, "1800000");
 
   const ocrEnv = liveServerEnvironment({
     port: 4176,
@@ -2831,6 +2847,70 @@ test("youtube live local e2e failure report keeps safe valid-goal discovery coun
   assert.equal(report.outputProof.ffprobe.code, "OUTPUT_MP4_NOT_CREATED");
   assert.equal(report.outputProof.logsDownloaded, false);
   assert.equal(report.outputProof.artifactsDownloaded, false);
+  assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube live failed output proof preserves discovered and expected goal counts before render", async () => {
+  const report = await runYouTubeLiveE2E({
+    env: liveEnv({ SHORTSENGINE_YOUTUBE_LIVE_E2E_EXPECTED_COUNTED_GOALS: "5" }),
+    checkYouTubeIngest: async () => passedDoctor(),
+    getFreePort: async () => 4175,
+    startServer: () => ({
+      child: { exitCode: null, signalCode: null },
+      events: [{
+        stream: "stdout",
+        level: "info",
+        event: "valid_goal_selection_empty",
+        code: "NO_VALID_GOALS_FOUND",
+        goalDiscovery: {
+          sourceValidated: true,
+          downloadedSourceReady: true,
+          sourceDuration: 764.52,
+          scoreboardOcrAttempted: true,
+          scoreboardOcrEnabled: true,
+          scoreboardOcrProviderMode: "chunked-scoreboard-ocr",
+          scoreboardObservationCount: 17,
+          scoreboardSampledFrameCount: 44,
+          scoreChangeCount: 1,
+          stableScoreChangeCount: 1,
+          scoreChangesFound: 1,
+          chunksScanned: 9,
+          countedGoalEventCount: 1,
+          discoveredCountedGoals: 1,
+          expectedCountedGoals: 0,
+          visualWindowCount: 12,
+          bucketCount: 8,
+          selectedValidGoalCount: 0,
+          candidateCount: 0,
+          rejectedCandidateCount: 0,
+          nextAction: "connect-stable-score-changes-to-live-action-windows-before-render",
+        },
+      }],
+    }),
+    stopServer: async () => {},
+    waitForServerReady: async () => ({ attempts: 1, waitedMs: 5, status: 200 }),
+    runYouTubeSmoke: async () => ({
+      status: "failed",
+      source: { sourceType: "youtube", kind: "watch", videoId: VIDEO_ID },
+      failedCases: [{
+        name: "youtube_smoke",
+        code: "NO_VALID_GOALS_FOUND",
+        phase: "planning",
+        step: "create_edit_plan",
+        substep: "build_edit_plan",
+        nextAction: "connect-stable-score-changes-to-live-action-windows-before-render",
+      }],
+    }),
+  });
+
+  assert.equal(report.status, "failed");
+  assert.equal(report.outputProof.expectedCountedGoals, 5);
+  assert.equal(report.outputProof.countedGoalsFound, 1);
+  assert.equal(report.outputProof.countedGoalEventCount, 1);
+  assert.equal(report.outputProof.goalDiscovery.discoveredCountedGoals, 1);
+  assert.equal(report.outputProof.goalDiscovery.countedGoalEventCount, 1);
+  assert.equal(report.outputProof.goalDiscovery.expectedCountedGoals, 5);
+  assert.equal(report.outputProof.ffprobe.code, "OUTPUT_MP4_NOT_CREATED");
   assert.equal(findSensitiveLeak(report), null);
 });
 

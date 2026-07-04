@@ -232,6 +232,54 @@ test("local scoreboard OCR scorebug-first mode bounds ROI search and preprocessi
   }
 });
 
+test("local scoreboard OCR scorebug-first mode honors preferred scorebug ROI", async () => {
+  const { dir, frames } = createFrameFixtures();
+  const cropAttempts = [];
+  const adapter = new LocalScoreboardOcrProviderAdapter({
+    enabled: true,
+    ocrAdapter: {
+      health: () => ({
+        status: "ready",
+        providerMode: "mock-local-ocr",
+        runtimeAvailable: true,
+        commandConfigured: true,
+      }),
+      runtimeAvailable: () => true,
+      readTextFromImage: async () => ({ text: "HOME 0-0 AWAY", confidence: 0.78, rejected: false }),
+    },
+    cropper: async ({ outputDir, frameIndex, region, variant }) => {
+      cropAttempts.push({ regionId: region.id, variantId: variant.id, frameIndex });
+      mkdirSync(outputDir, { recursive: true });
+      const cropPath = safeResolve(outputDir, `preferred_${frameIndex}_${region.id}_${variant.id}.png`);
+      writeFileSync(cropPath, "fake-crop", "utf8");
+      return cropPath;
+    },
+    ffmpegRunner: async (args) => {
+      writeFileSync(args[args.length - 1], "fake-derived-crop", "utf8");
+    },
+    digitReader: async () => ({
+      status: "unreadable",
+      confidence: 0,
+      reasons: ["mock_digit_reader_unreadable"],
+    }),
+  });
+
+  try {
+    await adapter.analyzeScoreboardOcr({
+      metadata,
+      frames,
+      scorebugFirstOnly: true,
+      scorebugFirstRegionIds: ["scorebug_broadcast_compact"],
+      timeoutMs: 900,
+    });
+
+    assert.equal(cropAttempts.length > 0, true);
+    assert.equal(cropAttempts.every((attempt) => attempt.regionId === "scorebug_broadcast_compact"), true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("scoreboard OCR rejects unsafe path-like region and provider output values", () => {
   assert.throws(
     () => normalizeRegion({ x: 0, y: 0, width: 200, height: 80, localPath: "/Users/example/frame.jpg" }, metadata),

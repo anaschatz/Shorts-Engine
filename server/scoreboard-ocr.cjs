@@ -1557,9 +1557,18 @@ function scorebugFirstPreprocessVariants() {
   return scoreboardOcrPreprocessVariants().filter((variant) => preferred.has(variant.id));
 }
 
-function scorebugFirstRegions(regions = []) {
+function safeScorebugFirstRegionIds(regionIds = []) {
+  const requested = Array.isArray(regionIds) ? regionIds : [];
+  const safeIds = requested
+    .map((id) => sanitizeText(id, 80))
+    .filter((id) => SCOREBUG_FIRST_REGION_IDS.includes(id));
+  return [...new Set(safeIds)].slice(0, MAX_SCOREBOARD_REGIONS);
+}
+
+function scorebugFirstRegions(regions = [], preferredRegionIds = []) {
   const byId = new Map((Array.isArray(regions) ? regions : []).map((region) => [region.id, region]));
-  return SCOREBUG_FIRST_REGION_IDS
+  const ids = safeScorebugFirstRegionIds(preferredRegionIds);
+  return (ids.length ? ids : SCOREBUG_FIRST_REGION_IDS)
     .map((id) => byId.get(id))
     .filter(Boolean)
     .slice(0, MAX_SCOREBOARD_REGIONS);
@@ -1848,6 +1857,7 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
 
     const metadata = input.metadata || {};
     const scorebugFirstOnly = Boolean(input.scorebugFirstOnly);
+    const scorebugFirstRegionIds = scorebugFirstOnly ? safeScorebugFirstRegionIds(input.scorebugFirstRegionIds) : [];
     const outputDir = ocrCropOutputDir(input);
     const qa = createScoreboardOcrQaContext(input);
     const digitCalibration = validateScorebugCalibration(input.digitCalibration || input.scorebugDigitCalibration || this.digitCalibration);
@@ -1883,7 +1893,7 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
     try {
       const regionsByFrame = frames.map((frame) => {
         const regions = regionHintsForFrame(frame, metadata).slice(0, MAX_SCOREBOARD_REGIONS);
-        return scorebugFirstOnly ? scorebugFirstRegions(regions) : regions;
+        return scorebugFirstOnly ? scorebugFirstRegions(regions, scorebugFirstRegionIds) : regions;
       });
       const frameScoreFound = new Set();
       for (const variant of activeVariants) {

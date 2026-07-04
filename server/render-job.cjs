@@ -15,6 +15,7 @@ const {
   publicScoreboardOcr,
   validateScoreboardOcrOutput,
 } = require("./scoreboard-ocr.cjs");
+const { buildScoreboardTimelineFromObservations } = require("./adapters/local-ocr-adapter.cjs");
 const { chooseTranscriptionProvider } = require("./transcription.cjs");
 const { assertStoragePath, storagePath, writeJsonAtomic } = require("./storage.cjs");
 const { analyzeTracking, publicTrackingProviderOutput } = require("./tracking-provider.cjs");
@@ -825,6 +826,55 @@ function evidenceKey(item = {}) {
   ].join("|");
 }
 
+function scoreObjectFromText(value) {
+  const safe = sanitizeText(value || "", 16);
+  const match = safe.match(/^(\d{1,2})-(\d{1,2})$/);
+  if (!match) return null;
+  const home = Number(match[1]);
+  const away = Number(match[2]);
+  if (!Number.isInteger(home) || !Number.isInteger(away)) return null;
+  if (home < 0 || away < 0 || home > 12 || away > 12 || home + away > 14) return null;
+  return { home, away, text: `${home}-${away}` };
+}
+
+function globalScoreObservationsFromChunkedOutputs(outputs = []) {
+  const observations = [];
+  const seen = new Set();
+  for (const output of Array.isArray(outputs) ? outputs : []) {
+    for (const row of scorebugChunkRows(output)) {
+      const status = sanitizeText(row && row.status || "", 40);
+      if (["clock_only", "unreadable"].includes(status)) continue;
+      const score = scoreObjectFromText((row && row.scoreAfter) || (row && row.detectedScoreText));
+      if (!score) continue;
+      const timestamp = Number(row.timestamp);
+      if (!Number.isFinite(timestamp)) continue;
+      const regionId = sanitizeText(row.regionId || "scoreboard_region", 80);
+      const layoutId = row.layoutId ? sanitizeText(row.layoutId, 80) : null;
+      const key = [
+        timestamp.toFixed(2),
+        regionId,
+        layoutId || "none",
+        score.text,
+      ].join("|");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      observations.push({
+        id: `chunked_scorebug_global_${observations.length + 1}`,
+        timestamp,
+        start: Number.isFinite(Number(row.start)) ? Number(row.start) : timestamp - 0.8,
+        end: Number.isFinite(Number(row.end)) ? Number(row.end) : timestamp + 0.8,
+        regionId,
+        layoutId,
+        score,
+        confidence: Number(row.confidence || 0.78),
+        source: "chunked_scorebug_global_timeline",
+        scoreOnlyCropRef: row.scoreOnlyCropRef,
+      });
+    }
+  }
+  return observations.sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
+}
+
 function aggregateChunkedScoreboardOcr(outputs = [], { metadata = {}, chunkSummary = null } = {}) {
   const safeOutputs = (Array.isArray(outputs) ? outputs : []).filter((output) => output && typeof output === "object");
   const evidence = [];
@@ -837,6 +887,13 @@ function aggregateChunkedScoreboardOcr(outputs = [], { metadata = {}, chunkSumma
       evidence.push(item);
     }
   }
+  const globalTimeline = buildScoreboardTimelineFromObservations(globalScoreObservationsFromChunkedOutputs(safeOutputs));
+  for (const item of Array.isArray(globalTimeline.evidence) ? globalTimeline.evidence : []) {
+    const key = evidenceKey(item);
+    if (seenEvidence.has(key)) continue;
+    seenEvidence.add(key);
+    evidence.push(item);
+  }
   evidence.sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
   const regionIdsUsed = [...new Set(safeOutputs
     .flatMap((output) => output.summary && Array.isArray(output.summary.regionIdsUsed) ? output.summary.regionIdsUsed : [])
@@ -844,7 +901,7 @@ function aggregateChunkedScoreboardOcr(outputs = [], { metadata = {}, chunkSumma
     .filter(Boolean))]
     .slice(0, 12);
   const roiCalibration = aggregateScorebugRoiCalibration(safeOutputs);
-  const scorebugDebug = aggregateScorebugDebugSummary(safeOutputs, roiCalibration, chunkSummary);
+  const scorebugDebug = aggregateScorebugDebugSummary(safeOutputs, roiCalibration, chunkSummary, globalTimeline);
   const result = validateScoreboardOcrOutput({
     providerMode: "chunked-scoreboard-ocr",
     fallbackUsed: !evidence.length || safeOutputs.every((output) => output.fallbackUsed),
@@ -975,14 +1032,20 @@ function aggregateScorebugRoiCalibration(outputs = []) {
   };
 }
 
-function aggregateScorebugDebugSummary(outputs = [], roiCalibration = {}, chunkSummary = null) {
+function aggregateScorebugDebugSummary(outputs = [], roiCalibration = {}, chunkSummary = null, globalTimeline = null) {
   const selectedRoi = roiCalibration && roiCalibration.selectedRoi ? roiCalibration.selectedRoi : null;
   const chunkReports = Array.isArray(chunkSummary && chunkSummary.chunks) ? chunkSummary.chunks : [];
   const timedOutChunks = chunkReports.filter((chunk) => chunk.status === "timed_out").length;
   const failedChunks = chunkReports.filter((chunk) => chunk.status === "failed").length;
   const attemptedRoiIds = new Set(chunkReports.flatMap((chunk) => Array.isArray(chunk.roiCandidateIds) ? chunk.roiCandidateIds : []));
   const chunkAttemptedObservationCount = chunkReports.reduce((sum, chunk) => sum + Number(chunk.attemptedObservationCount || 0), 0);
-  const scoreChangeCount = outputs.reduce((sum, output) => sum + Number(output.summary && output.summary.scoreChangeCount || 0), 0);
+  const globalScoreChangeCount = Array.isArray(globalTimeline && globalTimeline.evidence)
+    ? globalTimeline.evidence.filter((item) => item && (item.scoreChanged || item.status === "score_changed")).length
+    : 0;
+  const scoreChangeCount = Math.max(
+    globalScoreChangeCount,
+    outputs.reduce((sum, output) => sum + Number(output.summary && output.summary.scoreChangeCount || 0), 0),
+  );
   const outputAttemptedObservationCount = outputs.reduce((sum, output) => {
     const debug = output.summary && output.summary.scorebugDebug;
     return sum + Math.max(
@@ -1042,6 +1105,7 @@ function aggregateScorebugDebugSummary(outputs = [], roiCalibration = {}, chunkS
       ...(failedChunks > 0 ? ["scorebug_chunk_failure_recorded"] : []),
       ...(attemptedRoiCount > 0 ? ["scorebug_roi_candidates_attempted"] : []),
       ...(selectedRoi ? ["scorebug_roi_selected_from_chunks"] : ["scorebug_no_readable_roi"]),
+      ...(globalScoreChangeCount > 0 ? ["chunked_scorebug_global_timeline"] : []),
     ],
   };
 }
@@ -1050,7 +1114,17 @@ function safeChunkFailureCode(error) {
   return sanitizeText(error && error.code || "SCOREBOARD_OCR_CHUNK_FAILED", 80);
 }
 
-function scorebugChunkRoiCandidateIds(metadata = {}) {
+function safeScorebugFirstRegionIds(regionIds = []) {
+  const requested = Array.isArray(regionIds) ? regionIds : [];
+  const safeIds = requested
+    .map((id) => sanitizeText(id, 80))
+    .filter((id) => SCOREBUG_FIRST_ROI_CANDIDATE_IDS.includes(id));
+  return [...new Set(safeIds)].slice(0, SCOREBUG_FIRST_ROI_CANDIDATE_IDS.length);
+}
+
+function scorebugChunkRoiCandidateIds(metadata = {}, preferredRegionIds = []) {
+  const preferred = safeScorebugFirstRegionIds(preferredRegionIds);
+  if (preferred.length) return preferred;
   try {
     const ids = defaultScoreboardRegions(metadata)
       .map((region) => sanitizeText(region && region.id, 80))
@@ -1071,7 +1145,7 @@ function chunkSampledFrameTimestamps(chunk = {}) {
 function chunkDiagnosticsBase(chunk = {}, metadata = {}) {
   return {
     sampledFrameTimestamps: chunkSampledFrameTimestamps(chunk),
-    roiCandidateIds: scorebugChunkRoiCandidateIds(metadata),
+    roiCandidateIds: scorebugChunkRoiCandidateIds(metadata, chunk.preferredScorebugRegionIds),
   };
 }
 
@@ -1326,12 +1400,17 @@ async function runChunkedScorebugFirstOcr({
   const outputs = [];
   const chunkReports = [];
   let discoveredScoreChanges = 0;
+  let preferredScorebugRegionIds = [];
 
   for (const chunk of chunks) {
+    const activeChunk = {
+      ...chunk,
+      preferredScorebugRegionIds,
+    };
     const elapsedMs = Date.now() - startedMs;
     if (elapsedMs >= effectiveTotalBudgetMs) {
       chunkReports.push(chunkReportFromFailure(
-        chunk,
+        activeChunk,
         { code: "SCOREBOARD_OCR_TOTAL_BUDGET_EXHAUSTED" },
         "skipped",
         elapsedMs,
@@ -1357,7 +1436,7 @@ async function runChunkedScorebugFirstOcr({
         chunkCount: chunks.length,
         chunkStart: chunk.start,
         chunkEnd: chunk.end,
-        ...chunkDiagnosticsBase(chunk, context.metadata),
+        ...chunkDiagnosticsBase(activeChunk, context.metadata),
         scannedChunks: outputs.length,
         discoveredScoreChanges,
         elapsedMs,
@@ -1380,6 +1459,7 @@ async function runChunkedScorebugFirstOcr({
           frameSummary: null,
           ocrSamplingWindows: chunk.samplingWindows,
           scorebugFirstOnly: true,
+          scorebugFirstRegionIds: preferredScorebugRegionIds,
           signal: stepSignal,
           timeoutMs: Math.min(effectiveChunkTimeoutMs, SCOREBUG_FIRST_CHUNK_TIMEOUT_MS),
         }),
@@ -1407,7 +1487,7 @@ async function runChunkedScorebugFirstOcr({
     } catch (error) {
       if ((signal && signal.aborted) || error.code === "JOB_CANCELLED") throw error;
       const status = error.code === "SCOREBOARD_OCR_TIMEOUT" ? "timed_out" : "failed";
-      const failedReport = chunkReportFromFailure(chunk, error, status, Date.now() - startedMs, effectiveChunkTimeoutMs, context.metadata);
+      const failedReport = chunkReportFromFailure(activeChunk, error, status, Date.now() - startedMs, effectiveChunkTimeoutMs, context.metadata);
       chunkReports.push(failedReport);
       logInfo(deps.logger, {
         event: "scoreboard_ocr_chunk_skipped",
@@ -1434,7 +1514,12 @@ async function runChunkedScorebugFirstOcr({
     }
     outputs.push(result);
     discoveredScoreChanges += stableScoreChangeCount(result);
-    chunkReports.push(chunkReportFromOutput(chunk, result, Date.now() - startedMs, effectiveChunkTimeoutMs, context.metadata));
+    const selectedRoi = selectedScorebugRoi(result.summary);
+    if (selectedRoi && selectedRoi.regionId) {
+      const nextPreferred = safeScorebugFirstRegionIds([selectedRoi.regionId]);
+      if (nextPreferred.length) preferredScorebugRegionIds = nextPreferred;
+    }
+    chunkReports.push(chunkReportFromOutput(activeChunk, result, Date.now() - startedMs, effectiveChunkTimeoutMs, context.metadata));
     logInfo(deps.logger, {
       event: "scoreboard_ocr_chunk_completed",
       requestId,

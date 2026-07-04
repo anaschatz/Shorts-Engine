@@ -14,6 +14,7 @@ const RESULTS_DIR = resolve(ROOT_DIR, "demo", "results");
 const YOUTUBE_SMOKE_FLAG = "SHORTSENGINE_YOUTUBE_SMOKE";
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
+const MAX_REQUEST_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_JOB_TIMEOUT_MS = 90_000;
 const DEFAULT_POLL_INTERVAL_MS = 750;
 const DEFAULT_JSON_RESPONSE_BYTES = 256 * 1024;
@@ -105,7 +106,7 @@ function computedIngestRequestTimeoutMs(env, fallback = DEFAULT_REQUEST_TIMEOUT_
     4,
     "YOUTUBE_SMOKE_REQUEST_TIMEOUT_INVALID",
   );
-  return Math.max(fallback, Math.min((perAttemptMs * attempts) + 30_000, 30 * 60 * 1000));
+  return Math.max(fallback, Math.min((perAttemptMs * attempts) + 30_000, MAX_REQUEST_TIMEOUT_MS));
 }
 
 function delay(ms) {
@@ -1729,7 +1730,7 @@ async function runYouTubeSmoke(options = {}) {
       computedIngestRequestTimeoutMs(env),
       DEFAULT_REQUEST_TIMEOUT_MS,
       1000,
-      15 * 60 * 1000,
+      MAX_REQUEST_TIMEOUT_MS,
       "YOUTUBE_SMOKE_REQUEST_TIMEOUT_INVALID",
     );
 

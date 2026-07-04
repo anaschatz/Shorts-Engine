@@ -419,7 +419,7 @@ function makeContext(options = {}) {
         windows: [{ start: 2.7, end: 5.1, type: "unknown_visual_action", confidence: 0.72 }],
       };
     },
-    analyzeScoreboardOcr: async ({ frames, visualSignals, candidateWindows, ocrSamplingWindows, scorebugFirstOnly, timeoutMs }) => {
+    analyzeScoreboardOcr: async ({ frames, visualSignals, candidateWindows, ocrSamplingWindows, scorebugFirstOnly, scorebugFirstRegionIds, timeoutMs }) => {
       calls.push("analyze_scoreboard_ocr");
       context.scoreboardOcrCalls = context.scoreboardOcrCalls || [];
       context.scoreboardOcrCalls.push({
@@ -430,6 +430,7 @@ function makeContext(options = {}) {
         candidateWindowCount: Array.isArray(candidateWindows) ? candidateWindows.length : 0,
         ocrSamplingWindows: Array.isArray(ocrSamplingWindows) ? ocrSamplingWindows : [],
         scorebugFirstOnly: Boolean(scorebugFirstOnly),
+        scorebugFirstRegionIds: Array.isArray(scorebugFirstRegionIds) ? scorebugFirstRegionIds : [],
         timeoutMs,
       });
       context.scoreboardOcrFrameCount = Array.isArray(frames) ? frames.length : 0;
@@ -878,6 +879,221 @@ test("youtube long-source first OCR chunk timeout does not block later score cha
   assert.equal(chunkSummary.chunks.at(-1).normalizedScoreCandidates.includes("5-0"), true);
   assert.equal(context.frameCandidateWindows.some((window) => window.source === "scorebug_first_score_change" && Number(window.time) === 612), true);
   assert.equal(context.job.videoOutputQA.coveredGoalCount, 1);
+  assert.doesNotMatch(JSON.stringify(context.job.scoreboardOcr), /\/Users|storageKey|localPath|secret|stderr|stdout|rawOcr|rawText/i);
+});
+
+test("youtube long-source chunked OCR reuses selected scorebug ROI after calibration", async () => {
+  const truth = countedGoalTruth(1);
+  truth.scoreChanges[0] = {
+    ...truth.scoreChanges[0],
+    changeTime: 612,
+    actionAnchorTime: 603,
+    startScore: "4-0",
+    endScore: "5-0",
+  };
+  let callIndex = 0;
+  const context = makeContext({
+    durationSeconds: 644,
+    metadata: { sourceType: "youtube", videoId: "KxGedHh0Ruc" },
+    matchEventTruth: truth,
+    candidatePlans: [
+      validGoalCompilationPlan([
+        validGoalSegment(1, 594, 603, 611, 612),
+      ]),
+    ],
+    dependencies: {
+      analyzeScoreboardOcr: async ({ ocrSamplingWindows, scorebugFirstRegionIds }) => {
+        context.calls.push("analyze_scoreboard_ocr");
+        context.scoreboardOcrCalls = context.scoreboardOcrCalls || [];
+        context.scoreboardOcrCalls.push({
+          ocrSamplingWindows,
+          scorebugFirstRegionIds: Array.isArray(scorebugFirstRegionIds) ? scorebugFirstRegionIds : [],
+        });
+        callIndex += 1;
+        const foundLateChunk = Array.isArray(ocrSamplingWindows) &&
+          ocrSamplingWindows.some((window) => Number(window.timestamp) >= 600);
+        return {
+          providerMode: "mock-scoreboard-ocr",
+          fallbackUsed: false,
+          confidence: foundLateChunk ? 0.94 : 0.72,
+          evidence: foundLateChunk
+            ? [{
+                id: "late_ocr_goal_after_roi_calibration",
+                timestamp: 612,
+                start: 610.8,
+                end: 613.2,
+                status: "score_changed",
+                scoreChanged: true,
+                temporalConsistency: true,
+                scoreBefore: "4-0",
+                scoreAfter: "5-0",
+                confidence: 0.94,
+                source: "late_chunk_scorebug",
+              }]
+            : [],
+          summary: {
+            evidenceCount: foundLateChunk ? 1 : 0,
+            scoreChangeCount: foundLateChunk ? 1 : 0,
+            scoreUnchangedCount: foundLateChunk ? 0 : 1,
+            ambiguousCount: 0,
+            sampledFrameCount: Array.isArray(ocrSamplingWindows) ? ocrSamplingWindows.length : 0,
+            regionCount: Array.isArray(ocrSamplingWindows) ? ocrSamplingWindows.length : 0,
+            fallbackUsed: false,
+            roiCalibration: {
+              selectedRoi: {
+                regionId: "scorebug_broadcast_compact",
+                layoutId: "broadcast-compact-score-only-v1",
+                readableObservationCount: 1,
+                scoreChangeCount: foundLateChunk ? 1 : 0,
+                averageConfidence: foundLateChunk ? 0.94 : 0.72,
+                reasonCodes: ["scorebug_region_readable"],
+              },
+              candidateCount: 1,
+            },
+            scorebugDebug: {
+              selectedRoi: {
+                regionId: "scorebug_broadcast_compact",
+                layoutId: "broadcast-compact-score-only-v1",
+                readableObservationCount: 1,
+                scoreChangeCount: foundLateChunk ? 1 : 0,
+                averageConfidence: foundLateChunk ? 0.94 : 0.72,
+                reasonCodes: ["scorebug_region_readable"],
+              },
+              readableObservationCount: 1,
+              attemptedObservationCount: Array.isArray(ocrSamplingWindows) ? ocrSamplingWindows.length : 0,
+              reasonCodes: ["scorebug_region_readable"],
+            },
+          },
+        };
+      },
+    },
+  });
+  await runContext(context);
+
+  assert.equal(context.job.status, "completed", JSON.stringify(context.job.error));
+  assert.equal(callIndex, 8);
+  assert.deepEqual(context.scoreboardOcrCalls[0].scorebugFirstRegionIds, []);
+  assert.equal(
+    context.scoreboardOcrCalls.slice(1).every((call) =>
+      call.scorebugFirstRegionIds.length === 1 &&
+      call.scorebugFirstRegionIds[0] === "scorebug_broadcast_compact"),
+    true,
+  );
+  assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[1].roiCandidateIds.length, 1);
+  assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[1].attemptedRoiCount, 1);
+  assert.equal(context.job.scoreboardOcr.summary.scoreChangeCount, 1);
+  assert.equal(context.job.videoOutputQA.coveredGoalCount, 1);
+});
+
+test("youtube long-source chunked OCR builds global score changes across chunks", async () => {
+  const truth = countedGoalTruth(1);
+  truth.scoreChanges[0] = {
+    ...truth.scoreChanges[0],
+    changeTime: 126,
+    actionAnchorTime: 116,
+    startScore: "0-0",
+    endScore: "1-0",
+  };
+  const context = makeContext({
+    durationSeconds: 220,
+    metadata: { sourceType: "youtube", videoId: "WuuGus5Obkg" },
+    matchEventTruth: truth,
+    candidatePlans: [
+      validGoalCompilationPlan([
+        validGoalSegment(1, 108, 116, 125, 126),
+      ]),
+    ],
+    dependencies: {
+      analyzeScoreboardOcr: async ({ ocrSamplingWindows, scorebugFirstRegionIds }) => {
+        context.calls.push("analyze_scoreboard_ocr");
+        context.scoreboardOcrCalls = context.scoreboardOcrCalls || [];
+        context.scoreboardOcrCalls.push({
+          ocrSamplingWindows,
+          scorebugFirstRegionIds: Array.isArray(scorebugFirstRegionIds) ? scorebugFirstRegionIds : [],
+        });
+        const lateChunk = Array.isArray(ocrSamplingWindows) &&
+          ocrSamplingWindows.some((window) => Number(window.timestamp) >= 90);
+        const scoreAfter = lateChunk ? "1-0" : "0-0";
+        const baseTimestamp = lateChunk ? 122 : 42;
+        const evidence = [0, 8].map((offset, index) => ({
+          id: `chunk_static_score_${lateChunk ? "after" : "before"}_${index + 1}`,
+          timestamp: baseTimestamp + offset,
+          start: baseTimestamp + offset - 0.8,
+          end: baseTimestamp + offset + 0.8,
+          status: index === 0 ? "ambiguous" : "score_unchanged",
+          scoreChanged: false,
+          scoreUnchanged: index > 0,
+          temporalConsistency: index > 0,
+          scoreBefore: scoreAfter,
+          scoreAfter,
+          confidence: 0.88,
+          source: "chunk_static_scorebug",
+          regionId: "scorebug_broadcast_compact",
+          layoutId: "broadcast-compact-score-only-v1",
+        }));
+        return {
+          providerMode: "mock-scoreboard-ocr",
+          fallbackUsed: false,
+          confidence: 0.88,
+          evidence,
+          summary: {
+            evidenceCount: evidence.length,
+            scoreChangeCount: 0,
+            scoreUnchangedCount: 1,
+            ambiguousCount: 1,
+            sampledFrameCount: Array.isArray(ocrSamplingWindows) ? ocrSamplingWindows.length : 0,
+            regionCount: Array.isArray(ocrSamplingWindows) ? ocrSamplingWindows.length : 0,
+            fallbackUsed: false,
+            roiCalibration: {
+              selectedRoi: {
+                regionId: "scorebug_broadcast_compact",
+                layoutId: "broadcast-compact-score-only-v1",
+                readableObservationCount: evidence.length,
+                scoreChangeCount: 0,
+                averageConfidence: 0.88,
+                reasonCodes: ["scorebug_region_readable", "static_score_timeline"],
+              },
+              candidateCount: 1,
+            },
+            scorebugDebug: {
+              selectedRoi: {
+                regionId: "scorebug_broadcast_compact",
+                layoutId: "broadcast-compact-score-only-v1",
+                readableObservationCount: evidence.length,
+                scoreChangeCount: 0,
+                averageConfidence: 0.88,
+                reasonCodes: ["scorebug_region_readable", "static_score_timeline"],
+              },
+              readableObservationCount: evidence.length,
+              attemptedObservationCount: evidence.length,
+              reasonCodes: ["scorebug_region_readable", "static_score_timeline"],
+            },
+          },
+        };
+      },
+    },
+  });
+  await runContext(context);
+
+  assert.equal(context.job.status, "completed", JSON.stringify(context.job.error));
+  assert.equal(context.job.scoreboardOcr.summary.scoreChangeCount, 1);
+  assert.equal(
+    context.job.scoreboardOcr.summary.scoreTimeline.some((item) =>
+      item.status === "score_changed" &&
+      item.scoreBefore === "0-0" &&
+      item.scoreAfter === "1-0"),
+    true,
+  );
+  assert.equal(
+    context.job.scoreboardOcr.evidence.some((item) =>
+      item.status === "score_changed" &&
+      item.scoreBefore === "0-0" &&
+      item.scoreAfter === "1-0" &&
+      item.source === "chunked_scorebug_global_timeline"),
+    true,
+  );
+  assert.equal(context.job.scoreboardOcr.summary.scorebugDebug.state, "score_changes_detected");
+  assert.equal(context.frameCandidateWindows.some((window) => window.source === "scorebug_first_score_change"), true);
   assert.doesNotMatch(JSON.stringify(context.job.scoreboardOcr), /\/Users|storageKey|localPath|secret|stderr|stdout|rawOcr|rawText/i);
 });
 
