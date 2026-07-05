@@ -19,7 +19,7 @@ function createReportDirs() {
   const evalResultsDir = join(root, "eval-results");
   mkdirSync(demoResultsDir, { recursive: true });
   mkdirSync(evalResultsDir, { recursive: true });
-  return { demoResultsDir, evalResultsDir };
+  return { root, demoResultsDir, evalResultsDir };
 }
 
 function writeValidReports({ demoResultsDir, evalResultsDir, timestamp }) {
@@ -105,6 +105,33 @@ function writeValidReports({ demoResultsDir, evalResultsDir, timestamp }) {
   });
 }
 
+function writePassingYouTubeLiveProof({ root, demoResultsDir, timestamp, relativePath = "manual-downloads/proof.mp4", writeMp4 = true }) {
+  if (writeMp4) {
+    const filePath = join(root, relativePath);
+    mkdirSync(join(root, "manual-downloads"), { recursive: true });
+    writeFileSync(filePath, Buffer.from("mp4-proof"));
+  }
+  writeJson(join(demoResultsDir, "youtube-live-e2e-latest.json"), {
+    timestamp,
+    generatedAt: timestamp,
+    status: "passed",
+    passed: true,
+    failedCases: [],
+    generatedArtifact: { relativePath },
+    outputProof: {
+      outputMp4: { relativePath },
+      ffprobe: {
+        status: "passed",
+        relativePath,
+        durationSeconds: 142.5,
+        width: 1080,
+        height: 1920,
+      },
+    },
+    checks: [{ name: "youtube_live_e2e_output_artifact_exists", passed: true }],
+  });
+}
+
 test("CI report validator accepts fresh safe reports", () => {
   const dirs = createReportDirs();
   const nowMs = Date.parse("2026-06-15T18:00:00.000Z");
@@ -122,6 +149,49 @@ test("CI report validator accepts fresh safe reports", () => {
     "reference-review",
   ]);
   assert.equal(result.artifacts.exists, false);
+});
+
+test("CI report validator checks optional passing YouTube live proof MP4 exists", () => {
+  const dirs = createReportDirs();
+  const nowMs = Date.parse("2026-06-15T18:00:00.000Z");
+  const timestamp = new Date(nowMs).toISOString();
+  writeValidReports({ ...dirs, timestamp });
+  writePassingYouTubeLiveProof({ ...dirs, timestamp });
+
+  const result = validateCiReports({ ...dirs, artifactRootDir: dirs.root, nowMs, maxAgeMs: 60_000 });
+  assert.equal(result.ok, true);
+  assert.equal(result.reports.some((report) => report.label === "youtube-live-proof" && report.status === "passed"), true);
+});
+
+test("CI report validator rejects optional passing YouTube live proof when MP4 is missing", () => {
+  const dirs = createReportDirs();
+  const nowMs = Date.parse("2026-06-15T18:00:00.000Z");
+  const timestamp = new Date(nowMs).toISOString();
+  writeValidReports({ ...dirs, timestamp });
+  writePassingYouTubeLiveProof({ ...dirs, timestamp, writeMp4: false });
+
+  assert.throws(
+    () => validateCiReports({ ...dirs, artifactRootDir: dirs.root, nowMs, maxAgeMs: 60_000 }),
+    /Passing YouTube live proof MP4 is missing/,
+  );
+});
+
+test("CI report validator rejects unsafe optional YouTube live proof MP4 refs", () => {
+  const dirs = createReportDirs();
+  const nowMs = Date.parse("2026-06-15T18:00:00.000Z");
+  const timestamp = new Date(nowMs).toISOString();
+  writeValidReports({ ...dirs, timestamp });
+  writePassingYouTubeLiveProof({
+    ...dirs,
+    timestamp,
+    relativePath: "../manual-downloads/proof.mp4",
+    writeMp4: false,
+  });
+
+  assert.throws(
+    () => validateCiReports({ ...dirs, artifactRootDir: dirs.root, nowMs, maxAgeMs: 60_000 }),
+    /unsafe relative reference|sensitive data/i,
+  );
 });
 
 test("CI report validator rejects stale reports", () => {

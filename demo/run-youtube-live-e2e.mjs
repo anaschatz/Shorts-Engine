@@ -1850,6 +1850,78 @@ function safeReport(report) {
   };
 }
 
+function outputArtifactFromReport(report) {
+  const proofArtifact = report?.outputProof?.outputMp4;
+  if (proofArtifact && typeof proofArtifact === "object" && proofArtifact.relativePath) return proofArtifact;
+  const generatedArtifact = report?.generatedArtifact;
+  if (generatedArtifact && typeof generatedArtifact === "object" && generatedArtifact.relativePath) return generatedArtifact;
+  return null;
+}
+
+function enforcePassedReportOutputIntegrity(report) {
+  const safe = safeReport(report);
+  if (!safe || safe.status !== "passed") return safe;
+  const artifact = outputArtifactFromReport(safe);
+  const ffprobe = probeGeneratedMp4(artifact);
+  if (ffprobe.status === "passed") {
+    return {
+      ...safe,
+      outputProof: safe.outputProof
+        ? {
+            ...safe.outputProof,
+            ffprobe,
+            outputIntegrity: {
+              passed: true,
+              code: null,
+              relativePath: ffprobe.relativePath || artifact.relativePath,
+            },
+          }
+        : safe.outputProof,
+    };
+  }
+  const failure = {
+    name: "youtube_live_e2e_output_artifact_exists",
+    code: "YOUTUBE_LIVE_E2E_OUTPUT_NOT_READY",
+    message: "Live YouTube E2E passed checks but the generated MP4 is not available for verification.",
+    phase: PHASES.DOWNLOAD,
+    causeCode: ffprobe.code || ffprobe.status || "OUTPUT_MP4_NOT_READY",
+    nextAction: nextActionForCode("YOUTUBE_LIVE_E2E_OUTPUT_NOT_READY"),
+  };
+  return safeReport({
+    ...safe,
+    status: "failed",
+    passed: false,
+    phase: PHASES.DOWNLOAD,
+    nextAction: failure.nextAction,
+    checks: [
+      ...(Array.isArray(safe.checks) ? safe.checks : []),
+      {
+        name: failure.name,
+        passed: false,
+        code: failure.code,
+        causeCode: failure.causeCode,
+        relativePath: ffprobe.relativePath || artifact?.relativePath || null,
+      },
+    ],
+    failedCases: [
+      failure,
+      ...(Array.isArray(safe.failedCases) ? safe.failedCases : []),
+    ],
+    outputProof: safe.outputProof
+      ? {
+          ...safe.outputProof,
+          ffprobe,
+          outputIntegrity: {
+            passed: false,
+            code: failure.causeCode,
+            relativePath: ffprobe.relativePath || artifact?.relativePath || null,
+          },
+        }
+      : null,
+    currentJob: null,
+  });
+}
+
 function latestJobSnapshotFromSmoke(smoke) {
   if (!smoke || typeof smoke !== "object") return null;
   const failedJob = smoke.failedCases?.[0]?.currentJob;
@@ -2724,7 +2796,7 @@ async function runYouTubeLiveE2E(options = {}) {
 }
 
 function writeYouTubeLiveE2EReport(report, outputDir = RESULTS_DIR) {
-  const safe = safeReport(report);
+  const safe = enforcePassedReportOutputIntegrity(report);
   mkdirSync(outputDir, { recursive: true });
   const stamp = safe.timestamp.replace(/[:.]/g, "-");
   const reportFile = resolve(outputDir, `youtube-live-e2e-${stamp}.json`);
@@ -2734,6 +2806,9 @@ function writeYouTubeLiveE2EReport(report, outputDir = RESULTS_DIR) {
   return {
     reportPath: relativeFromRoot(reportFile),
     latestPath: relativeFromRoot(latestFile),
+    status: safe.status,
+    passed: safe.passed,
+    failedCases: Array.isArray(safe.failedCases) ? safe.failedCases : [],
   };
 }
 

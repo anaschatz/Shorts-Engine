@@ -2580,7 +2580,7 @@ test("youtube live local e2e strict mode fails when generated MP4 is missing", a
   assert.equal(findSensitiveLeak(report), null);
 });
 
-test("youtube live local e2e report writer creates stable safe latest report", async () => {
+test("youtube live local e2e report writer fails closed when passed proof MP4 is missing", async () => {
   const report = await runYouTubeLiveE2E({
     env: liveEnv(),
     checkYouTubeIngest: async () => passedDoctor(),
@@ -2595,8 +2595,13 @@ test("youtube live local e2e report writer creates stable safe latest report", a
   const latestFile = join(outputDir, "youtube-live-e2e-latest.json");
   assert.equal(existsSync(latestFile), true);
   assert.equal(written.latestPath.endsWith("youtube-live-e2e-latest.json"), true);
+  assert.equal(written.status, "failed");
   const persisted = JSON.parse(readFileSync(latestFile, "utf8"));
-  assert.equal(persisted.status, "passed");
+  assert.equal(persisted.status, "failed");
+  assert.equal(persisted.phase, "download");
+  assert.equal(persisted.failedCases[0].code, "YOUTUBE_LIVE_E2E_OUTPUT_NOT_READY");
+  assert.equal(persisted.outputProof.ffprobe.status, "missing");
+  assert.equal(persisted.outputProof.outputIntegrity.passed, false);
   assert.equal(findSensitiveLeak(persisted), null);
 });
 

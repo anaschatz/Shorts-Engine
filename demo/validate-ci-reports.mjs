@@ -9,7 +9,16 @@ const EVAL_RESULTS_DIR = resolve(ROOT_DIR, "eval", "results");
 const DEFAULT_REPORT_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 const MAX_REPORT_BYTES = 5 * 1024 * 1024;
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
-const SAFE_RELATIVE_KEYS = new Set(["directory", "latestPath", "relativePath", "reportPath"]);
+const SAFE_RELATIVE_KEYS = new Set([
+  "contactSheetPath",
+  "directory",
+  "generatedVideoPath",
+  "latestPath",
+  "outputRelativePath",
+  "relativePath",
+  "reportPath",
+  "reviewPath",
+]);
 const SAFE_PLAYWRIGHT_ARTIFACT_RE = /^playwright-[A-Za-z0-9._-]+\.(png|zip|webm)$/;
 const REPORT_RECOVERY_COMMANDS = Object.freeze({
   "api-demo": "npm run demo:smoke",
@@ -17,6 +26,7 @@ const REPORT_RECOVERY_COMMANDS = Object.freeze({
   "ocr-qa-review": "npm run ocr:qa:review",
   "browser-contract": "npm run demo:browser",
   "playwright-browser": "npm run demo:browser:ci",
+  "youtube-live-proof": "npm run youtube:proof:operator",
   evaluation: "npm run eval",
   "reference-review": "npm run eval:reference",
 });
@@ -164,6 +174,55 @@ function assertManagedArtifactDirectory(artifactsDir) {
   return { exists: true, files: names.length };
 }
 
+function resolveSafeProjectRef(relativePath, artifactRootDir = ROOT_DIR) {
+  assertSafeRelativeReference(relativePath, "$.youtubeLiveProof.outputMp4.relativePath");
+  const root = resolve(artifactRootDir);
+  const resolved = resolve(root, relativePath);
+  const fromRoot = relative(root, resolved);
+  if (!fromRoot || fromRoot.startsWith("..") || isAbsolute(fromRoot) || fromRoot.includes("\\")) {
+    throw new CiReportError("CI_REPORT_ARTIFACT_REF_INVALID", "CI report artifact reference is outside the project root.");
+  }
+  return resolved;
+}
+
+function outputMp4RefFromYouTubeLiveProof(report) {
+  const outputProofRef = report?.outputProof?.outputMp4?.relativePath;
+  if (typeof outputProofRef === "string" && outputProofRef) return outputProofRef;
+  const generatedArtifactRef = report?.generatedArtifact?.relativePath;
+  if (typeof generatedArtifactRef === "string" && generatedArtifactRef) return generatedArtifactRef;
+  return null;
+}
+
+function assertYouTubeLiveProofArtifact(report, artifactRootDir = ROOT_DIR) {
+  if (report.status !== "passed") return;
+  const relativePath = outputMp4RefFromYouTubeLiveProof(report);
+  if (!relativePath) {
+    throw new CiReportError("CI_REPORT_ARTIFACT_MISSING", "Passing YouTube live proof report does not include an MP4 reference.", {
+      label: "youtube-live-proof",
+    });
+  }
+  if (report.outputProof?.ffprobe?.status !== "passed") {
+    throw new CiReportError("CI_REPORT_ARTIFACT_UNVERIFIED", "Passing YouTube live proof report did not pass ffprobe.", {
+      label: "youtube-live-proof",
+      status: report.outputProof?.ffprobe?.status || null,
+    });
+  }
+  const resolved = resolveSafeProjectRef(relativePath, artifactRootDir);
+  if (!existsSync(resolved)) {
+    throw new CiReportError("CI_REPORT_ARTIFACT_MISSING", "Passing YouTube live proof MP4 is missing.", {
+      label: "youtube-live-proof",
+      report: relativePath,
+    });
+  }
+  const stats = statSync(resolved);
+  if (!stats.isFile() || stats.size <= 0) {
+    throw new CiReportError("CI_REPORT_ARTIFACT_INVALID", "Passing YouTube live proof MP4 is empty or invalid.", {
+      label: "youtube-live-proof",
+      report: relativePath,
+    });
+  }
+}
+
 function validateReport({ filePath, label, maxAgeMs, nowMs }) {
   const report = readJsonReport(filePath);
   const leak = findSensitiveLeak(report);
@@ -179,6 +238,7 @@ function validateReport({ filePath, label, maxAgeMs, nowMs }) {
 function validateCiReports(options = {}) {
   const demoResultsDir = resolve(options.demoResultsDir || RESULTS_DIR);
   const evalResultsDir = resolve(options.evalResultsDir || EVAL_RESULTS_DIR);
+  const artifactRootDir = resolve(options.artifactRootDir || ROOT_DIR);
   const nowMs = Number.isFinite(Number(options.nowMs)) ? Number(options.nowMs) : Date.now();
   const maxAgeMs = options.maxAgeMs || parseMaxAgeMs();
   const reports = [
@@ -205,6 +265,21 @@ function validateCiReports(options = {}) {
   const artifacts = assertManagedArtifactDirectory(resolve(demoResultsDir, "playwright-artifacts"));
   if (playwrightStatus === "passed" && artifacts.files > 0) {
     throw new CiReportError("CI_REPORT_ARTIFACTS_INVALID", "Passing Playwright runs must not leave failure artifact files.");
+  }
+  const youtubeLiveProofPath = resolve(demoResultsDir, "youtube-live-e2e-latest.json");
+  if (existsSync(youtubeLiveProofPath)) {
+    const report = validateReport({
+      filePath: youtubeLiveProofPath,
+      label: "youtube-live-proof",
+      maxAgeMs,
+      nowMs,
+    });
+    assertYouTubeLiveProofArtifact(report, artifactRootDir);
+    validated.push({
+      label: "youtube-live-proof",
+      path: safeReportRef(youtubeLiveProofPath),
+      status: report.status || (report.passed ? "passed" : "failed"),
+    });
   }
   return {
     ok: true,
@@ -247,6 +322,7 @@ export {
   CiReportError,
   assertPlaywrightArtifacts,
   assertSafeRelativeReferences,
+  assertYouTubeLiveProofArtifact,
   parseMaxAgeMs,
   REPORT_RECOVERY_COMMANDS,
   safeReportRef,
