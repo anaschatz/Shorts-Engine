@@ -959,8 +959,16 @@ function referenceStyleQaFromSmoke(smoke, outputMp4 = null) {
   const qa = renderPlan.visualPolishQA ||
     (renderPlan.reviewMetadata && renderPlan.reviewMetadata.multiMoment && renderPlan.reviewMetadata.multiMoment.visualPolishQA) ||
     {};
+  const renderPolish = renderPlan.renderPolishQA && typeof renderPlan.renderPolishQA === "object" && !Array.isArray(renderPlan.renderPolishQA)
+    ? renderPlan.renderPolishQA
+    : {};
   const segments = Array.isArray(renderPlan.segments) ? renderPlan.segments : [];
   const captions = Array.isArray(renderPlan.captions) ? renderPlan.captions : [];
+  const explicitNumber = (value) => {
+    if (value === null || value === undefined || value === "") return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
   const durations = segments
     .map((segment) => safeNumber(Number(segment.sourceEnd) - Number(segment.sourceStart)))
     .filter((duration) => Number.isFinite(duration) && duration > 0);
@@ -1021,12 +1029,40 @@ function referenceStyleQaFromSmoke(smoke, outputMp4 = null) {
           duration < 18 ||
           duration > 32;
       }).length;
-  const captionsMisalignedCount = Number.isFinite(Number(qa.captionsMisalignedCount))
-    ? Number(qa.captionsMisalignedCount)
-    : captions.filter((caption) => Array.isArray(caption.riskFlags) && caption.riskFlags.length > 0).length;
-  const captionsAlignedCount = Number.isFinite(Number(qa.captionsAlignedCount))
-    ? Number(qa.captionsAlignedCount)
-    : Math.max(0, captions.length - captionsMisalignedCount);
+  const dynamicWordCaptionCount = explicitNumber(renderPolish.dynamicWordCaptionCount);
+  const renderedDynamicGoalPhaseCaptions =
+    !captions.length &&
+    dynamicWordCaptionCount !== null &&
+    dynamicWordCaptionCount > 0 &&
+    renderPolish.captionMotion === "ass_word_by_word_highlight" &&
+    replayOnlySegments === 0 &&
+    abruptCutRiskCount === 0 &&
+    passedVisualGate !== false;
+  const explicitMisalignedCount = explicitNumber(qa.captionsMisalignedCount);
+  const explicitAlignedCount = explicitNumber(qa.captionsAlignedCount);
+  const captionsMisalignedCount = explicitMisalignedCount !== null
+    ? explicitMisalignedCount
+    : captions.length
+      ? captions.filter((caption) => Array.isArray(caption.riskFlags) && caption.riskFlags.length > 0).length
+      : renderedDynamicGoalPhaseCaptions
+        ? 0
+        : 0;
+  const captionsAlignedCount = explicitAlignedCount !== null
+    ? explicitAlignedCount
+    : captions.length
+      ? Math.max(0, captions.length - captionsMisalignedCount)
+      : renderedDynamicGoalPhaseCaptions
+        ? dynamicWordCaptionCount
+        : 0;
+  const explicitCaptionActionAlignmentScore = explicitNumber(qa.captionActionAlignmentScore);
+  const captionTotal = captionsAlignedCount + captionsMisalignedCount;
+  const captionActionAlignmentScore = explicitCaptionActionAlignmentScore !== null
+    ? Number(Math.max(0, Math.min(1, explicitCaptionActionAlignmentScore)).toFixed(4))
+    : captionTotal > 0
+      ? Number((captionsAlignedCount / captionTotal).toFixed(4))
+      : renderedDynamicGoalPhaseCaptions
+        ? 1
+        : null;
   const boundarySmoothingAppliedCount = Number.isFinite(Number(qa.boundarySmoothingAppliedCount))
     ? Number(qa.boundarySmoothingAppliedCount)
     : segments.filter((segment) => segment && segment.boundarySmoothing && segment.boundarySmoothing.applied === true).length;
@@ -1074,8 +1110,10 @@ function referenceStyleQaFromSmoke(smoke, outputMp4 = null) {
     cutSmoothnessScore,
     actionBoundaryScore,
     referencePacingScore,
+    captionActionAlignmentScore,
     captionsAlignedCount,
     captionsMisalignedCount,
+    captionAlignmentSource: renderedDynamicGoalPhaseCaptions ? "rendered_dynamic_goal_phase_captions" : "render_plan_captions",
     visualPolishScore,
     referenceSimilarityNotes: Array.isArray(qa.referenceSimilarityNotes)
       ? qa.referenceSimilarityNotes.map((note) => safeString(note, 80)).filter(Boolean).slice(0, 8)

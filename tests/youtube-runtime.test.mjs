@@ -2434,6 +2434,7 @@ test("youtube live local e2e reports counted goal coverage and replay-only segme
   assert.equal(report.outputProof.renderPolishQA.transitions.length, 2);
   assert.equal(report.outputProof.abruptCutRiskCount, 0);
   assert.equal(report.outputProof.referenceStyleQA.countedGoalsExpected, 3);
+  assert.equal(report.outputProof.referenceStyleQA.captionActionAlignmentScore, 1);
   assert.equal(report.outputProof.segmentWindows.length, 3);
   assert.equal(report.outputProof.segmentWindows[0].shotStart, 100);
   assert.equal(report.outputProof.segmentWindows[0].phaseCoverage.hasBuildup, true);
@@ -2604,6 +2605,8 @@ test("youtube live proof derives visual polish QA from public render summary whe
   const smoke = countedGoalSmokeReport();
   smoke.renderPlan.visualPolishQA = null;
   smoke.renderPlan.editAssembly = null;
+  smoke.renderPlan.captions = [];
+  smoke.renderPlan.captionCount = 0;
   const report = await runYouTubeLiveE2E({
     env: liveEnv({ SHORTSENGINE_YOUTUBE_LIVE_E2E_EXPECTED_COUNTED_GOALS: "3" }),
     checkYouTubeIngest: async () => passedDoctor(),
@@ -2619,6 +2622,9 @@ test("youtube live proof derives visual polish QA from public render summary whe
   assert.equal(report.outputProof.replayOnlySegments, 0);
   assert.equal(report.outputProof.abruptCutRiskCount, 0);
   assert.equal(report.outputProof.captionsMisalignedCount, 0);
+  assert.equal(report.outputProof.captionsAlignedCount, 5);
+  assert.equal(report.outputProof.referenceStyleQA.captionActionAlignmentScore, 1);
+  assert.equal(report.outputProof.referenceStyleQA.captionAlignmentSource, "rendered_dynamic_goal_phase_captions");
   assert.equal(report.outputProof.visualPolishScore, 100);
   assert.equal(report.outputProof.referenceStyleQA.visualPolishScore, 100);
   assert.equal(findSensitiveLeak(report), null);
