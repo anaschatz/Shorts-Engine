@@ -64,6 +64,7 @@ const SAFE_MESSAGES = Object.freeze({
   YOUTUBE_BOT_CHECK_REQUIRED: "YouTube blocked this download with an anti-bot check.",
   YOUTUBE_COOKIES_REQUIRED: "This YouTube video requires an authorized browser/cookie import flow.",
   YOUTUBE_DOWNLOAD_FAILED: "The YouTube ingest download failed safely.",
+  YOUTUBE_DOWNLOAD_INCOMPLETE: "The YouTube downloader produced partial progress but did not finish a valid MP4.",
   YOUTUBE_NO_PROGRESS_TIMEOUT: "The YouTube ingest download stopped making progress.",
   YOUTUBE_DOWNLOAD_TIMEOUT: "The YouTube ingest download timed out.",
   YOUTUBE_DOWNLOADER_MISSING: "The YouTube downloader is not available.",
@@ -152,6 +153,7 @@ const PUBLIC_ERROR_DETAIL_KEYS = new Set([
   "fallbackFormatSelector",
   "fallbackUsed",
   "fileValidation",
+  "failureReason",
   "formatSelector",
   "heartbeatIntervalMs",
   "ingestRisk",
@@ -171,6 +173,7 @@ const PUBLIC_ERROR_DETAIL_KEYS = new Set([
   "resumableStateEnabled",
   "resumeStateRetained",
   "retryable",
+  "safeMessage",
   "sourceAcquisitionStatus",
   "sourceAcquisitionStrategy",
   "stallClassification",
@@ -204,6 +207,9 @@ const PUBLIC_ERROR_CODE_DETAIL_KEYS = new Set([
   "cacheFailureCode",
   "timeoutClassification",
 ]);
+const PUBLIC_ERROR_TEXT_DETAIL_KEYS = new Set([
+  "safeMessage",
+]);
 
 function publicErrorDetails(details) {
   if (!details || typeof details !== "object" || Array.isArray(details)) return null;
@@ -231,6 +237,18 @@ function publicErrorDetails(details) {
       /^[A-Z0-9_]{1,80}$/.test(value)
     ) {
       safeDetails[key] = value;
+    } else if (
+      PUBLIC_ERROR_TEXT_DETAIL_KEYS.has(key) &&
+      typeof value === "string"
+    ) {
+      const safeText = value
+        .replace(/[\u0000-\u001f\u007f]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 240);
+      safeDetails[key] = /\/Users\/|\/private\/|Bearer\s+|cookie|secret|stderr|stdout|token/i.test(safeText)
+        ? SAFE_MESSAGES.UNEXPECTED
+        : safeText;
     } else if (typeof value === "boolean") {
       safeDetails[key] = value;
     } else if (typeof value === "string" && /^[a-z0-9_-]{1,80}$/.test(value)) {

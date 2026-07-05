@@ -354,6 +354,27 @@ test("rendered social polish proof passes wide-safe fallback when tracking is un
   assert.equal(report.renderedActionFraming.fallbackUsed, true);
 });
 
+test("rendered social polish proof accepts wide-safe summary fallback without explicit crop plan", () => {
+  const report = baseProof({
+    renderPlan: {
+      cropPlan: null,
+      cropPlanMode: "wide_safe",
+      visualTrackingSummary: {
+        trackingProviderMode: "deterministic-wide-safe",
+        trackingConfidence: 0.4,
+        fallbackUsed: true,
+        goalClaimAllowed: false,
+      },
+    },
+  });
+
+  assert.equal(report.passed, true);
+  assert.equal(report.renderedActionFraming.passed, true);
+  assert.equal(report.renderedActionFraming.cropMode, "wide_safe");
+  assert.equal(report.renderedActionFraming.fallbackUsed, true);
+  assert.equal(report.renderedActionFraming.maxPanSpeed, 0);
+});
+
 test("rendered social polish report does not expose sensitive strings", () => {
   const report = baseProof();
   const serialized = JSON.stringify(report);

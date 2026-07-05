@@ -331,8 +331,30 @@ function actionZonesContained(cropPlan = {}) {
   });
 }
 
+function summaryCropMode(renderPlan = {}) {
+  const raw = safeString(renderPlan.cropPlanMode || renderPlan.cropMode || renderPlan.framingMode, 50);
+  if (raw === "wide_safe_vertical") return "wide_safe";
+  return raw;
+}
+
+function cropPlanFromRenderPlan(renderPlan = {}) {
+  const explicit = valueObject(renderPlan.cropPlan);
+  if (Object.keys(explicit).length > 0) return explicit;
+  const mode = summaryCropMode(renderPlan);
+  if (!["wide_safe", "locked_wide", "center_safe"].includes(mode)) return explicit;
+  return {
+    mode,
+    cropMode: mode,
+    fallbackUsed: true,
+    maxPanSpeed: 0,
+    actionSafeZones: [],
+    textObstructionRisk: false,
+    reasonCodes: ["wide_safe_summary_fallback"],
+  };
+}
+
 function renderedActionFramingSummary(renderPlan = {}, outputMp4 = null) {
-  const cropPlan = valueObject(renderPlan.cropPlan);
+  const cropPlan = cropPlanFromRenderPlan(renderPlan);
   const visualTracking = valueObject(renderPlan.visualTrackingSummary);
   const visual = nestedReferenceStyleQA(renderPlan);
   const cropMode = safeString(cropPlan.cropMode || cropPlan.mode, 50);

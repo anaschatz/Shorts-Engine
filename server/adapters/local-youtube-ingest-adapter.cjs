@@ -327,6 +327,27 @@ function toDownloaderError(error) {
   return toSafeYouTubeDownloaderError(error);
 }
 
+function refineDownloaderErrorAfterAttempt(error, { cleanup = {}, progressDetails = {} } = {}) {
+  if (!error || error.code !== "YOUTUBE_DOWNLOAD_FAILED") return error;
+  const partialBytes = Number(progressDetails.progressBytesObserved || 0);
+  const partialFilesRemoved = Number(cleanup.removedCount || 0);
+  if (partialBytes <= 0 && partialFilesRemoved <= 0) return error;
+  return new AppError(
+    "YOUTUBE_DOWNLOAD_INCOMPLETE",
+    SAFE_MESSAGES.YOUTUBE_DOWNLOAD_INCOMPLETE,
+    502,
+    {
+      ...(error.details || {}),
+      reason: "download_incomplete_after_progress",
+      failureReason: "download_incomplete_after_progress",
+      safeMessage: SAFE_MESSAGES.YOUTUBE_DOWNLOAD_INCOMPLETE,
+      nextAction: "retry-with-lower-proof-format-or-use-authorized-source-cache",
+      retryable: true,
+      authorizedImportRequired: false,
+    },
+  );
+}
+
 function delay(ms) {
   const safeMs = Math.max(0, Math.min(Number(ms) || 0, 10_000));
   if (safeMs <= 0) return Promise.resolve();
@@ -545,7 +566,7 @@ function createLocalYouTubeIngestAdapter(options = {}) {
         } catch (error) {
           const cleanup = removePartialOutputs(outputPath);
           const progressDetails = safeProgressDetails(error && error.progressSummary);
-          const safeError = toDownloaderError(error);
+          const safeError = refineDownloaderErrorAfterAttempt(toDownloaderError(error), { cleanup, progressDetails });
           const timeoutClassification = timeoutClassificationFor(safeError, progressDetails);
           attachDownloaderDetails(safeError, {
             phase: "ingest",

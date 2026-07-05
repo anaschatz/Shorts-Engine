@@ -112,6 +112,8 @@ function safeDownloaderFailureDetails(error) {
     elapsedMs: Number.isFinite(Number(details.elapsedMs)) ? Number(details.elapsedMs) : null,
     retryable: details.retryable === true,
     authorizedImportRequired: details.authorizedImportRequired === true,
+    failureReason: typeof details.failureReason === "string" ? sanitizeText(details.failureReason, 80) : null,
+    safeMessage: typeof details.safeMessage === "string" ? sanitizeText(details.safeMessage, 240) : null,
     attempts: Number.isFinite(Number(details.attempts)) ? Number(details.attempts) : null,
     attemptsConfigured: Number.isFinite(Number(details.attemptsConfigured)) ? Number(details.attemptsConfigured) : null,
     timeoutMs: Number.isFinite(Number(details.timeoutMs)) ? Number(details.timeoutMs) : null,

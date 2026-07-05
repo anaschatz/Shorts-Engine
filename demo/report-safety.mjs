@@ -187,7 +187,7 @@ function safeError(error) {
   if (!error) return null;
   const redacted = redactForLogs(error);
   const code = String(redacted.code || redacted.error?.code || "UNEXPECTED").slice(0, 80);
-  const rawMessage = String(redacted.message || redacted.error?.message || "Unexpected demo smoke failure.").slice(0, 240);
+  const rawMessage = String(error.message || redacted.message || redacted.error?.message || "Unexpected demo smoke failure.").slice(0, 240);
   const message = hasSensitiveLeak(rawMessage) ? "Unexpected demo smoke failure." : rawMessage;
   return { code, message };
 }

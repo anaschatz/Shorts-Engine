@@ -876,6 +876,53 @@ test("local youtube downloader adapter reports exhausted retries safely", async 
   }
 });
 
+test("local youtube downloader adapter classifies generic failure after partial progress", async () => {
+  const uploadId = "upl_incomp1-1234-1234-1234-123456789abc";
+  const { stageDir, outputPath } = createYouTubeStagePaths(uploadId);
+  mkdirSync(stageDir, { recursive: true });
+  const adapter = createLocalYouTubeIngestAdapter({
+    config: {
+      enabled: true,
+      downloaderBin: "yt-dlp",
+      timeoutMs: 1000,
+      maxOutputBytes: 1024,
+      downloadAttempts: 1,
+      progressHeartbeatMs: 250,
+      noProgressTimeoutMs: 1000,
+    },
+    spawnSync: () => ({ status: 0 }),
+    execFile: (_command, _args, _options, callback) => {
+      writeFileSync(outputPath, Buffer.alloc(4096));
+      writeFileSync(`${outputPath}.part`, Buffer.alloc(2048));
+      callback(Object.assign(new Error("downloader exited 1 /Users/raw"), {
+        stderr: "raw stderr token",
+        stdout: "raw stdout",
+      }));
+    },
+  });
+  try {
+    await assert.rejects(
+      () => adapter.ingest(normalizeYouTubeUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ"), { outputPath }),
+      (error) => {
+        assert.equal(error.code, "YOUTUBE_DOWNLOAD_INCOMPLETE");
+        assert.equal(error.details.failureReason, "download_incomplete_after_progress");
+        assert.equal(error.details.safeMessage, SAFE_MESSAGES.YOUTUBE_DOWNLOAD_INCOMPLETE);
+        assert.equal(error.details.nextAction, "retry-with-lower-proof-format-or-use-authorized-source-cache");
+        assert.equal(error.details.retryable, true);
+        assert.equal(error.details.progressBytesObserved >= 4096, true);
+        assert.equal(error.details.partialCleanupSucceeded, true);
+        assert.equal(error.details.partialCleanupRemovedCount >= 2, true);
+        assert.equal(existsSync(outputPath), false);
+        assert.equal(existsSync(`${outputPath}.part`), false);
+        assert.doesNotMatch(JSON.stringify(error.details), /\/Users|stderr|stdout|token|raw/i);
+        return true;
+      },
+    );
+  } finally {
+    cleanupYouTubeStage(stageDir);
+  }
+});
+
 test("local youtube downloader adapter exposes safe format strategy and version metadata", () => {
   const strategy = formatStrategySummary({
     formatSelector: "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best",

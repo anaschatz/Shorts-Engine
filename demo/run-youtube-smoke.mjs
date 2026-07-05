@@ -34,6 +34,7 @@ const SMOKE_NEXT_ACTIONS = {
   YOUTUBE_SMOKE_FFMPEG_UNAVAILABLE: "install-ffmpeg-and-ffprobe-before-running-smoke",
   YOUTUBE_DOWNLOADER_MISSING: "install-configure-downloader-or-set-SHORTSENGINE_YOUTUBE_DOWNLOADER_BIN",
   YOUTUBE_DOWNLOAD_TIMEOUT: "increase-SHORTSENGINE_YOUTUBE_DOWNLOAD_TIMEOUT_MS-for-authorized-long-source-or-use-source-cache",
+  YOUTUBE_DOWNLOAD_INCOMPLETE: "retry-with-lower-proof-format-or-use-authorized-source-cache",
   YOUTUBE_DOWNLOAD_FAILED: "use-rights-cleared-local-mp4-proof-or-fix-downloader-and-rerun",
   YOUTUBE_NO_PROGRESS_TIMEOUT: "retry-with-longer-no-progress-timeout-or-use-authorized-source-cache",
   SOURCE_CACHE_MISS: "place-rights-cleared-source-in-cache-or-enable-downloader-fallback",
@@ -256,6 +257,26 @@ function classifyFetchFailure(error) {
   return { code: "YOUTUBE_SMOKE_FETCH_FAILED", causeCode };
 }
 
+function fetchFailureReason(code, details = {}) {
+  const phase = phaseDetails(details);
+  if (code === "YOUTUBE_SMOKE_CONNECTION_CLOSED" && phase.phase === "ingest" && phase.step === "download_source") {
+    return "ingest_connection_closed_before_downloader_result";
+  }
+  if (code === "YOUTUBE_SMOKE_CONNECTION_CLOSED") return "connection_closed";
+  if (code === "YOUTUBE_SMOKE_SERVER_UNAVAILABLE") return "server_unavailable";
+  return "fetch_failed";
+}
+
+function fetchFailureSafeMessage(code, details = {}) {
+  const phase = phaseDetails(details);
+  if (code === "YOUTUBE_SMOKE_CONNECTION_CLOSED" && phase.phase === "ingest" && phase.step === "download_source") {
+    return "The YouTube ingest connection closed before the downloader returned a structured result.";
+  }
+  if (code === "YOUTUBE_SMOKE_CONNECTION_CLOSED") return "The YouTube smoke connection closed before the request completed.";
+  if (code === "YOUTUBE_SMOKE_SERVER_UNAVAILABLE") return "The ShortsEngine server was not reachable for the YouTube smoke check.";
+  return "The YouTube smoke request failed safely.";
+}
+
 async function fetchWithTimeout(fetchImpl, url, options, timeoutMs, timeoutCode, timeoutDetails = {}) {
   const controller = new AbortController();
   const started = Date.now();
@@ -275,10 +296,15 @@ async function fetchWithTimeout(fetchImpl, url, options, timeoutMs, timeoutCode,
       });
     }
     const classified = classifyFetchFailure(error);
-    throw new YouTubeSmokeError(classified.code, "YouTube smoke request failed.", {
+    const safeMessage = fetchFailureSafeMessage(classified.code, timeoutDetails);
+    throw new YouTubeSmokeError(classified.code, safeMessage, {
       ...phaseDetails(timeoutDetails),
       elapsedMs: Date.now() - started,
+      timeoutMs,
       causeCode: classified.causeCode,
+      failureReason: fetchFailureReason(classified.code, timeoutDetails),
+      safeMessage,
+      retryable: classified.code !== "YOUTUBE_SMOKE_SERVER_UNAVAILABLE",
       nextAction: nextActionForCode(classified.code),
     });
   } finally {
@@ -399,6 +425,7 @@ function assertApiOk(response, code, message, details = {}) {
   for (const key of [
     "cacheFailureCode",
     "fallbackFormatSelector",
+    "failureReason",
     "fileValidation",
     "formatSelector",
     "ingestRisk",
@@ -410,6 +437,7 @@ function assertApiOk(response, code, message, details = {}) {
     "sourceAcquisitionStatus",
     "sourceAcquisitionStrategy",
     "stallClassification",
+    "safeMessage",
     "timeoutClassification",
     "step",
     "substep",
@@ -419,7 +447,7 @@ function assertApiOk(response, code, message, details = {}) {
   if (typeof apiError.checksumSha256 === "string" && /^[a-f0-9]{64}$/.test(apiError.checksumSha256)) {
     safeApiDetails.checksumSha256 = apiError.checksumSha256;
   }
-  throw new YouTubeSmokeError(apiCode || code, message, { ...details, ...safeApiDetails, httpStatus: response?.status || null });
+  throw new YouTubeSmokeError(apiCode || code, safeApiDetails.safeMessage || apiError.message || message, { ...details, ...safeApiDetails, httpStatus: response?.status || null });
 }
 
 function assertId(value, prefix, code) {
@@ -1630,6 +1658,8 @@ function safeFailure(error) {
     attemptsConfigured: Number.isFinite(Number(details.attemptsConfigured)) ? Number(details.attemptsConfigured) : null,
     retryable: typeof details.retryable === "boolean" ? details.retryable : null,
     authorizedImportRequired: typeof details.authorizedImportRequired === "boolean" ? details.authorizedImportRequired : null,
+    failureReason: details.failureReason ? sanitizeText(details.failureReason, 80) : null,
+    safeMessage: details.safeMessage ? sanitizeText(details.safeMessage, 240) : null,
     fallbackUsed: typeof details.fallbackUsed === "boolean" ? details.fallbackUsed : null,
     formatSelector: details.formatSelector ? sanitizeText(details.formatSelector, 180) : null,
     fallbackFormatSelector: details.fallbackFormatSelector ? sanitizeText(details.fallbackFormatSelector, 180) : null,

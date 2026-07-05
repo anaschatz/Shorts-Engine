@@ -111,6 +111,16 @@ const YOUTUBE_FAILURES = Object.freeze({
     retryable: true,
     authorizedImportRequired: false,
   }),
+  YOUTUBE_DOWNLOAD_INCOMPLETE: Object.freeze({
+    code: "YOUTUBE_DOWNLOAD_INCOMPLETE",
+    status: 502,
+    reason: "download_incomplete_after_progress",
+    metadataStatus: "output-incomplete",
+    ingestRisk: "download-failed",
+    nextAction: "retry-with-lower-proof-format-or-use-authorized-source-cache",
+    retryable: true,
+    authorizedImportRequired: false,
+  }),
   YOUTUBE_FORMAT_UNAVAILABLE: Object.freeze({
     code: "YOUTUBE_FORMAT_UNAVAILABLE",
     status: 502,
@@ -150,6 +160,7 @@ function downloaderOutputText(error) {
 function safeFailure(details) {
   return {
     ...details,
+    failureReason: details.reason,
     userMessage: SAFE_MESSAGES[details.code] || SAFE_MESSAGES.YOUTUBE_DOWNLOAD_FAILED,
   };
 }
@@ -212,6 +223,8 @@ function toSafeYouTubeDownloaderError(error) {
   const failure = classifyYouTubeDownloaderFailure(error);
   return new AppError(failure.code, failure.userMessage, failure.status, {
     reason: failure.reason,
+    failureReason: failure.failureReason,
+    safeMessage: failure.userMessage,
     nextAction: failure.nextAction,
     retryable: failure.retryable,
     authorizedImportRequired: failure.authorizedImportRequired,

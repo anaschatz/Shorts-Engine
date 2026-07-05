@@ -543,6 +543,8 @@ test("youtube smoke ingest API failures report downloader phase details", async 
       error: {
         code: "YOUTUBE_DOWNLOAD_FAILED",
         message: "Download failed.",
+        safeMessage: "The YouTube ingest download failed safely.",
+        failureReason: "download_failed",
         nextAction: "use-rights-cleared-local-mp4-proof-or-fix-downloader-and-rerun",
         retryable: true,
         attempts: 2,
@@ -579,6 +581,9 @@ test("youtube smoke ingest API failures report downloader phase details", async 
 
   assert.equal(report.status, "failed");
   assert.equal(report.failedCases[0].code, "YOUTUBE_DOWNLOAD_FAILED");
+  assert.equal(report.failedCases[0].message, "The YouTube ingest download failed safely.");
+  assert.equal(report.failedCases[0].safeMessage, "The YouTube ingest download failed safely.");
+  assert.equal(report.failedCases[0].failureReason, "download_failed");
   assert.equal(report.failedCases[0].phase, "ingest");
   assert.equal(report.failedCases[0].step, "download_source");
   assert.equal(report.failedCases[0].substep, "youtube_downloader");
@@ -612,6 +617,32 @@ test("youtube smoke ingest API failures report downloader phase details", async 
   assert.equal(report.steps.at(-1).activeStep, "download_source");
   assert.equal(report.steps.at(-1).substep, "youtube_downloader");
   assert.equal(report.failedCases[0].nextAction, "use-rights-cleared-local-mp4-proof-or-fix-downloader-and-rerun");
+  assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube smoke ingest connection close reports safe downloader context", async () => {
+  const { fetchImpl } = createFetchMock({
+    "POST /api/youtube/ingest": () => {
+      throw Object.assign(new Error("socket closed with raw stderr token /Users/raw"), { code: "ECONNRESET" });
+    },
+  });
+  const report = await runYouTubeSmoke({
+    env: smokeEnv({ SHORTSENGINE_YOUTUBE_SMOKE_REQUEST_TIMEOUT_MS: "600000" }),
+    fetchImpl,
+  });
+
+  assert.equal(report.status, "failed");
+  assert.equal(report.failedCases[0].code, "YOUTUBE_SMOKE_CONNECTION_CLOSED");
+  assert.equal(report.failedCases[0].message, "The YouTube ingest connection closed before the downloader returned a structured result.");
+  assert.equal(report.failedCases[0].safeMessage, "The YouTube ingest connection closed before the downloader returned a structured result.");
+  assert.equal(report.failedCases[0].failureReason, "ingest_connection_closed_before_downloader_result");
+  assert.equal(report.failedCases[0].phase, "ingest");
+  assert.equal(report.failedCases[0].step, "download_source");
+  assert.equal(report.failedCases[0].substep, "youtube_downloader");
+  assert.equal(report.failedCases[0].timeoutMs, 600000);
+  assert.equal(report.failedCases[0].retryable, true);
+  assert.equal(report.failedCases[0].causeCode, "ECONNRESET");
+  assert.equal(report.failedCases[0].nextAction, "inspect-server-ingest-runtime-and-retry-with-authorized-source-cache-or-longer-download-budget");
   assert.equal(findSensitiveLeak(report), null);
 });
 
@@ -3066,10 +3097,14 @@ test("youtube live failed output proof preserves pre-render download failure act
       failedCases: [{
         name: "youtube_smoke",
         code: "YOUTUBE_DOWNLOAD_FAILED",
+        message: "The YouTube ingest download failed safely.",
         nextAction: "use-rights-cleared-local-mp4-proof-or-fix-downloader-and-rerun",
         phase: "ingest",
         step: "download_source",
         substep: "youtube_downloader",
+        safeMessage: "The YouTube ingest download failed safely.",
+        failureReason: "download_failed",
+        retryable: true,
         attempts: 2,
         attemptsConfigured: 2,
         timeoutMs: 120000,
@@ -3100,6 +3135,15 @@ test("youtube live failed output proof preserves pre-render download failure act
 
   assert.equal(report.status, "failed");
   assert.equal(report.outputProof.code, "YOUTUBE_DOWNLOAD_FAILED");
+  assert.equal(report.outputProof.safeMessage, "The YouTube ingest download failed safely.");
+  assert.equal(report.outputProof.ingest.safeMessage, "The YouTube ingest download failed safely.");
+  assert.equal(report.outputProof.ingest.failureReason, "download_failed");
+  assert.equal(report.failedCases[0].message, "The YouTube ingest download failed safely.");
+  assert.equal(report.failedCases[0].safeMessage, "The YouTube ingest download failed safely.");
+  assert.equal(report.failedCases[0].failureReason, "download_failed");
+  assert.equal(report.failedCases[0].retryable, true);
+  assert.equal(report.failedCases[0].attempts, 2);
+  assert.equal(report.failedCases[0].progressBytesObserved, 8192);
   assert.equal(report.outputProof.phase, "ingest");
   assert.equal(report.outputProof.step, "download_source");
   assert.equal(report.outputProof.substep, "youtube_downloader");
