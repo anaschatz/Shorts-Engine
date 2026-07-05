@@ -72,6 +72,7 @@ const CAPTION_RISK_FLAGS = Object.freeze([
   "caption_action_mismatch",
   "crowd_context_only",
 ]);
+const MAX_ACTIVE_WORD_DURATION_SECONDS = 1.35;
 const ANIMATION_CUE_LIMITS = Object.freeze({
   intro_hook: 1.8,
   caption_pop: 2.4,
@@ -624,7 +625,11 @@ function normalizeActiveWordTiming(value, words, start, end) {
     const normalized = raw.slice(0, words.length).map((item, index) => {
       const rawWord = sanitizeText(item && item.word || words[index], 24);
       const itemStart = clamp(item && item.start, start, end);
-      const itemEnd = clamp(item && item.end, itemStart + 0.08, end);
+      const itemEnd = clamp(
+        item && item.end,
+        itemStart + 0.08,
+        Math.min(end, itemStart + MAX_ACTIVE_WORD_DURATION_SECONDS),
+      );
       if (!rawWord || itemEnd <= itemStart) return null;
       return {
         word: rawWord,
@@ -638,7 +643,11 @@ function normalizeActiveWordTiming(value, words, start, end) {
   const wordDuration = duration / Math.max(1, words.length);
   return words.map((word, index) => {
     const itemStart = Number((start + index * wordDuration).toFixed(2));
-    const itemEnd = Number(Math.min(end, itemStart + Math.max(0.12, wordDuration * 0.9)).toFixed(2));
+    const itemEnd = Number(Math.min(
+      end,
+      itemStart + MAX_ACTIVE_WORD_DURATION_SECONDS,
+      itemStart + Math.max(0.12, wordDuration * 0.9),
+    ).toFixed(2));
     return {
       word,
       start: itemStart,
@@ -1201,6 +1210,7 @@ function normalizeSegmentItem(segment, index, metadata = {}) {
     confirmationTime: goalPhase.confirmationTime,
     replayUsed: goalPhase.replayUsed,
     replayOnly: goalPhase.replayOnly,
+    referenceGoalPacing: Boolean(segment.referenceGoalPacing),
     phaseCoverage: goalPhase.phaseCoverage,
     boundarySmoothing: segment.boundarySmoothing && typeof segment.boundarySmoothing === "object" && !Array.isArray(segment.boundarySmoothing)
       ? {

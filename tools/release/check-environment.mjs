@@ -223,7 +223,7 @@ function validateYouTubeFormatSelector(value, spec) {
     !selector ||
     selector.length > 180 ||
     /[\u0000-\u001f\u007f\s`$;&|{}()"'\\]/.test(selector) ||
-    !/^[A-Za-z0-9*+/\[\]=._:,-]+$/.test(selector)
+    !/^[A-Za-z0-9*+/\[\]=._:,\-<>]+$/.test(selector)
   ) {
     throw new EnvironmentCheckError("ENV_YOUTUBE_FORMAT_INVALID", "YouTube format selector is invalid.", {
       category: spec.category,

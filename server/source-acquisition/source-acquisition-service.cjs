@@ -95,6 +95,33 @@ function safeProgressSummary(value = {}) {
   };
 }
 
+function safeAttemptDiagnostics(value) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 4).map((attempt) => {
+    const item = attempt && typeof attempt === "object" ? attempt : {};
+    return {
+      attempt: safeNumber(item.attempt),
+      status: safeString(item.status, 40),
+      formatSelector: safeString(item.formatSelector, 180),
+      fallbackUsed: item.fallbackUsed === true,
+      recoveryKind: safeString(item.recoveryKind, 80),
+      elapsedMs: safeNumber(item.elapsedMs),
+      code: safeString(item.code, 80),
+      failureClassification: safeString(item.failureClassification, 80),
+      retryable: typeof item.retryable === "boolean" ? item.retryable : null,
+      progressBytesObserved: safeNumber(item.progressBytesObserved),
+      progressEventCount: safeNumber(item.progressEventCount),
+      timeoutClassification: safeString(item.timeoutClassification, 80),
+      stallClassification: safeString(item.stallClassification, 80),
+      partialCleanupSucceeded: typeof item.partialCleanupSucceeded === "boolean"
+        ? item.partialCleanupSucceeded
+        : null,
+      partialCleanupRemovedCount: safeNumber(item.partialCleanupRemovedCount),
+      downloadedOutputReady: typeof item.downloadedOutputReady === "boolean" ? item.downloadedOutputReady : null,
+    };
+  });
+}
+
 function safeFormatStrategy(health = {}, result = {}) {
   const strategy = health && typeof health.formatStrategy === "object" ? health.formatStrategy : {};
   return {
@@ -105,12 +132,13 @@ function safeFormatStrategy(health = {}, result = {}) {
     attemptsConfigured: safeNumber(result.attemptsConfigured || strategy.attemptsConfigured),
     timeoutMs: safeNumber(result.timeoutMs || strategy.timeoutMs),
     playerClient: safeString(result.playerClient || strategy.playerClient, 40),
-    continueEnabled: result.continueEnabled === true || strategy.continueEnabled === true,
-    continueAttempted: result.continueAttempted === true,
-    resumableStateEnabled: result.resumableStateEnabled === true || strategy.resumableStateEnabled === true,
-    resumeStateRetained: result.resumeStateRetained === true,
-  };
-}
+	    continueEnabled: result.continueEnabled === true || strategy.continueEnabled === true,
+	    continueAttempted: result.continueAttempted === true,
+	    resumableStateEnabled: result.resumableStateEnabled === true || strategy.resumableStateEnabled === true,
+	    resumeStateRetained: result.resumeStateRetained === true,
+    attemptDiagnostics: safeAttemptDiagnostics(result.attemptDiagnostics),
+	  };
+	}
 
 function safeCacheDiagnostics(value = {}) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {

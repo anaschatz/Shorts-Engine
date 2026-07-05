@@ -376,7 +376,40 @@ async function fetchDownload(fetchImpl, url, options = {}) {
     requestId: response.headers?.get?.("x-request-id") || null,
     contentType: response.headers?.get?.("content-type") || "",
     buffer,
-  };
+	  };
+	}
+	
+function safeAttemptDiagnostics(value) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 4).map((attempt) => {
+    const item = attempt && typeof attempt === "object" ? attempt : {};
+    return {
+      attempt: Number.isFinite(Number(item.attempt)) ? Number(item.attempt) : null,
+      status: item.status ? sanitizeText(item.status, 40) : null,
+      formatSelector: item.formatSelector ? sanitizeText(item.formatSelector, 180) : null,
+      fallbackUsed: typeof item.fallbackUsed === "boolean" ? item.fallbackUsed : null,
+      recoveryKind: item.recoveryKind ? sanitizeText(item.recoveryKind, 80) : null,
+      elapsedMs: Number.isFinite(Number(item.elapsedMs)) ? Number(item.elapsedMs) : null,
+      code: item.code ? sanitizeText(item.code, 80) : null,
+      failureClassification: item.failureClassification ? sanitizeText(item.failureClassification, 80) : null,
+      retryable: typeof item.retryable === "boolean" ? item.retryable : null,
+      progressBytesObserved: Number.isFinite(Number(item.progressBytesObserved))
+        ? Number(item.progressBytesObserved)
+        : null,
+      progressEventCount: Number.isFinite(Number(item.progressEventCount))
+        ? Number(item.progressEventCount)
+        : null,
+      timeoutClassification: item.timeoutClassification ? sanitizeText(item.timeoutClassification, 80) : null,
+      stallClassification: item.stallClassification ? sanitizeText(item.stallClassification, 80) : null,
+      partialCleanupSucceeded: typeof item.partialCleanupSucceeded === "boolean"
+        ? item.partialCleanupSucceeded
+        : null,
+      partialCleanupRemovedCount: Number.isFinite(Number(item.partialCleanupRemovedCount))
+        ? Number(item.partialCleanupRemovedCount)
+        : null,
+      downloadedOutputReady: typeof item.downloadedOutputReady === "boolean" ? item.downloadedOutputReady : null,
+    };
+  });
 }
 
 function assertApiOk(response, code, message, details = {}) {
@@ -424,9 +457,10 @@ function assertApiOk(response, code, message, details = {}) {
   }
   for (const key of [
     "cacheFailureCode",
-    "fallbackFormatSelector",
-    "failureReason",
-    "fileValidation",
+	    "fallbackFormatSelector",
+	    "failureReason",
+    "failureClassification",
+	    "fileValidation",
     "formatSelector",
     "ingestRisk",
     "metadataPreflightStatus",
@@ -444,11 +478,12 @@ function assertApiOk(response, code, message, details = {}) {
   ]) {
     if (typeof apiError[key] === "string") safeApiDetails[key] = sanitizeText(apiError[key], 180);
   }
-  if (typeof apiError.checksumSha256 === "string" && /^[a-f0-9]{64}$/.test(apiError.checksumSha256)) {
-    safeApiDetails.checksumSha256 = apiError.checksumSha256;
-  }
-  throw new YouTubeSmokeError(apiCode || code, safeApiDetails.safeMessage || apiError.message || message, { ...details, ...safeApiDetails, httpStatus: response?.status || null });
-}
+	  if (typeof apiError.checksumSha256 === "string" && /^[a-f0-9]{64}$/.test(apiError.checksumSha256)) {
+	    safeApiDetails.checksumSha256 = apiError.checksumSha256;
+	  }
+  safeApiDetails.attemptDiagnostics = safeAttemptDiagnostics(apiError.attemptDiagnostics);
+	  throw new YouTubeSmokeError(apiCode || code, safeApiDetails.safeMessage || apiError.message || message, { ...details, ...safeApiDetails, httpStatus: response?.status || null });
+	}
 
 function assertId(value, prefix, code) {
   const text = String(value || "");
@@ -859,6 +894,53 @@ function safeVisualPolishQA(value) {
   };
 }
 
+function safeExpectedGoal(value = {}, index = 0) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    goalNumber: Number.isFinite(Number(value.goalNumber)) ? Number(value.goalNumber) : index + 1,
+    source: sanitizeText(value.source || "", 60) || null,
+    anchorTime: safeNumber(value.anchorTime),
+    confirmationTime: safeNumber(value.confirmationTime),
+    scoreBefore: sanitizeText(value.scoreBefore || "", 16) || null,
+    scoreAfter: sanitizeText(value.scoreAfter || "", 16) || null,
+  };
+}
+
+function safeOutputSegment(value = {}, index = 0) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const phaseCoverage = value.phaseCoverage && typeof value.phaseCoverage === "object" && !Array.isArray(value.phaseCoverage)
+    ? value.phaseCoverage
+    : {};
+  return {
+    index: Number.isFinite(Number(value.index)) ? Number(value.index) : index + 1,
+    id: sanitizeText(value.id || "", 80) || null,
+    sourceStart: safeNumber(value.sourceStart),
+    sourceEnd: safeNumber(value.sourceEnd),
+    highlightType: sanitizeText(value.highlightType || "", 48) || null,
+    goalNumber: Number.isFinite(Number(value.goalNumber)) ? Number(value.goalNumber) : null,
+    outcome: sanitizeText(value.outcome || "", 48) || null,
+    shotStart: safeNumber(value.shotStart),
+    finishTime: safeNumber(value.finishTime),
+    confirmationTime: safeNumber(value.confirmationTime),
+    scoreBefore: sanitizeText(value.scoreBefore || "", 16) || null,
+    scoreAfter: sanitizeText(value.scoreAfter || "", 16) || null,
+    scoreChangeTime: safeNumber(value.scoreChangeTime),
+    replayOnly: Boolean(value.replayOnly),
+    celebrationOnly: Boolean(value.celebrationOnly),
+    replayUsed: Boolean(value.replayUsed),
+    phaseCoverage: {
+      hasBuildup: Boolean(phaseCoverage.hasBuildup),
+      hasShot: Boolean(phaseCoverage.hasShot),
+      hasFinish: Boolean(phaseCoverage.hasFinish),
+      hasConfirmation: Boolean(phaseCoverage.hasConfirmation),
+      replayOnly: Boolean(phaseCoverage.replayOnly),
+      celebrationOnly: Boolean(phaseCoverage.celebrationOnly),
+    },
+    reasonCodes: safeStringList(value.reasonCodes, 10, 80),
+    safetyFlags: safeStringList(value.safetyFlags, 8, 80),
+  };
+}
+
 function safeVideoOutputQA(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const hook = value.hook && typeof value.hook === "object" && !Array.isArray(value.hook)
@@ -933,6 +1015,9 @@ function safeVideoOutputQA(value) {
       : [],
     extraGoalSegmentCount: safeNumber(value.extraGoalSegmentCount),
     failedReasons: safeStringList(value.failedReasons, 12, 80),
+    expectedGoals: Array.isArray(value.expectedGoals)
+      ? value.expectedGoals.map(safeExpectedGoal).filter(Boolean).slice(0, 12)
+      : [],
     invalidSegments: Array.isArray(value.invalidSegments)
       ? value.invalidSegments.slice(0, 8).map((segment, index) => ({
           index: Number.isFinite(Number(segment.index)) ? Number(segment.index) : index + 1,
@@ -947,6 +1032,9 @@ function safeVideoOutputQA(value) {
           covered: Boolean(match.covered),
           reasons: safeStringList(match.reasons, 8, 80),
         }))
+      : [],
+    segments: Array.isArray(value.segments)
+      ? value.segments.map(safeOutputSegment).filter(Boolean).slice(0, 12)
       : [],
     hook,
     captions,
@@ -1685,11 +1773,13 @@ function safeFailure(error) {
     bytesStillMovingAtTimeout: typeof details.bytesStillMovingAtTimeout === "boolean"
       ? details.bytesStillMovingAtTimeout
       : null,
-    continueEnabled: typeof details.continueEnabled === "boolean" ? details.continueEnabled : null,
-    continueAttempted: typeof details.continueAttempted === "boolean" ? details.continueAttempted : null,
-    resumableStateEnabled: typeof details.resumableStateEnabled === "boolean" ? details.resumableStateEnabled : null,
-    resumeStateRetained: typeof details.resumeStateRetained === "boolean" ? details.resumeStateRetained : null,
-    ingestRisk: details.ingestRisk ? sanitizeText(details.ingestRisk, 80) : null,
+	    continueEnabled: typeof details.continueEnabled === "boolean" ? details.continueEnabled : null,
+	    continueAttempted: typeof details.continueAttempted === "boolean" ? details.continueAttempted : null,
+	    resumableStateEnabled: typeof details.resumableStateEnabled === "boolean" ? details.resumableStateEnabled : null,
+	    resumeStateRetained: typeof details.resumeStateRetained === "boolean" ? details.resumeStateRetained : null,
+    failureClassification: details.failureClassification ? sanitizeText(details.failureClassification, 80) : null,
+    attemptDiagnostics: safeAttemptDiagnostics(details.attemptDiagnostics),
+	    ingestRisk: details.ingestRisk ? sanitizeText(details.ingestRisk, 80) : null,
     metadataStatus: details.metadataStatus ? sanitizeText(details.metadataStatus, 80) : null,
     metadataPreflightStatus: details.metadataPreflightStatus ? sanitizeText(details.metadataPreflightStatus, 80) : null,
     metadataPreflightDurationSeconds: safeNumber(details.metadataPreflightDurationSeconds),

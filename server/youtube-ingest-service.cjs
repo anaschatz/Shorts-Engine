@@ -103,6 +103,45 @@ function publicSourceSummary(source, metadata) {
   };
 }
 
+function safeDownloadAttemptDiagnostics(value) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 4).map((attempt) => {
+    const item = attempt && typeof attempt === "object" ? attempt : {};
+    return {
+      attempt: Number.isFinite(Number(item.attempt)) ? Number(item.attempt) : null,
+      status: typeof item.status === "string" ? sanitizeText(item.status, 40) : null,
+      formatSelector: typeof item.formatSelector === "string" ? sanitizeText(item.formatSelector, 180) : null,
+      fallbackUsed: typeof item.fallbackUsed === "boolean" ? item.fallbackUsed : null,
+      recoveryKind: typeof item.recoveryKind === "string" ? sanitizeText(item.recoveryKind, 80) : null,
+      elapsedMs: Number.isFinite(Number(item.elapsedMs)) ? Number(item.elapsedMs) : null,
+      code: typeof item.code === "string" ? sanitizeText(item.code, 80) : null,
+      failureClassification: typeof item.failureClassification === "string"
+        ? sanitizeText(item.failureClassification, 80)
+        : null,
+      retryable: typeof item.retryable === "boolean" ? item.retryable : null,
+      progressBytesObserved: Number.isFinite(Number(item.progressBytesObserved))
+        ? Number(item.progressBytesObserved)
+        : null,
+      progressEventCount: Number.isFinite(Number(item.progressEventCount))
+        ? Number(item.progressEventCount)
+        : null,
+      timeoutClassification: typeof item.timeoutClassification === "string"
+        ? sanitizeText(item.timeoutClassification, 80)
+        : null,
+      stallClassification: typeof item.stallClassification === "string"
+        ? sanitizeText(item.stallClassification, 80)
+        : null,
+      partialCleanupSucceeded: typeof item.partialCleanupSucceeded === "boolean"
+        ? item.partialCleanupSucceeded
+        : null,
+      partialCleanupRemovedCount: Number.isFinite(Number(item.partialCleanupRemovedCount))
+        ? Number(item.partialCleanupRemovedCount)
+        : null,
+      downloadedOutputReady: typeof item.downloadedOutputReady === "boolean" ? item.downloadedOutputReady : null,
+    };
+  });
+}
+
 function safeDownloaderFailureDetails(error) {
   const details = error && error.details && typeof error.details === "object" ? error.details : {};
   return {
@@ -145,10 +184,10 @@ function safeDownloaderFailureDetails(error) {
     progressHeartbeatCount: Number.isFinite(Number(details.progressHeartbeatCount))
       ? Number(details.progressHeartbeatCount)
       : null,
-    progressEventCount: Number.isFinite(Number(details.progressEventCount)) ? Number(details.progressEventCount) : null,
-    progressBytesObserved: Number.isFinite(Number(details.progressBytesObserved))
-      ? Number(details.progressBytesObserved)
-      : null,
+	    progressEventCount: Number.isFinite(Number(details.progressEventCount)) ? Number(details.progressEventCount) : null,
+	    progressBytesObserved: Number.isFinite(Number(details.progressBytesObserved))
+	      ? Number(details.progressBytesObserved)
+	      : null,
     lastProgressAgeMs: Number.isFinite(Number(details.lastProgressAgeMs)) ? Number(details.lastProgressAgeMs) : null,
     timeoutClassification: typeof details.timeoutClassification === "string"
       ? sanitizeText(details.timeoutClassification, 80)
@@ -161,11 +200,16 @@ function safeDownloaderFailureDetails(error) {
       : null,
     continueEnabled: typeof details.continueEnabled === "boolean" ? details.continueEnabled : null,
     continueAttempted: typeof details.continueAttempted === "boolean" ? details.continueAttempted : null,
-    resumableStateEnabled: typeof details.resumableStateEnabled === "boolean" ? details.resumableStateEnabled : null,
-    resumeStateRetained: typeof details.resumeStateRetained === "boolean" ? details.resumeStateRetained : null,
-    nextAction: typeof details.nextAction === "string" ? details.nextAction : null,
-  };
-}
+	    resumableStateEnabled: typeof details.resumableStateEnabled === "boolean" ? details.resumableStateEnabled : null,
+	    resumeStateRetained: typeof details.resumeStateRetained === "boolean" ? details.resumeStateRetained : null,
+    failureClassification: typeof details.failureClassification === "string"
+      ? sanitizeText(details.failureClassification, 80)
+      : null,
+    downloadedOutputReady: typeof details.downloadedOutputReady === "boolean" ? details.downloadedOutputReady : null,
+    attemptDiagnostics: safeDownloadAttemptDiagnostics(details.attemptDiagnostics),
+	    nextAction: typeof details.nextAction === "string" ? details.nextAction : null,
+	  };
+	}
 
 function attachIngestFailureDetails(error, details = {}) {
   if (!error || typeof error !== "object") return error;

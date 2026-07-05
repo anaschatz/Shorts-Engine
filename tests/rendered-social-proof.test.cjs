@@ -279,6 +279,70 @@ test("rendered social polish proof rejects non-goal filler in final segments", (
   assert.match(report.failedReasons.join(","), /non_goal_segments_present/);
 });
 
+test("rendered social polish proof rejects five-goal MP4 that is too long for reference-style output", () => {
+  const qa = videoOutputQA({
+    expectedGoalCount: 5,
+    actualConfirmedGoalSegmentCount: 5,
+    coveredGoalCount: 5,
+  });
+  const report = baseProof({
+    videoOutputQA: qa,
+    renderPlan: {
+      videoOutputQA: qa,
+    },
+    proof: {
+      ffprobe: {
+        status: "passed",
+        sizeBytes: 123456,
+        durationSeconds: 142.5,
+        width: 1080,
+        height: 1920,
+      },
+    },
+  });
+
+  assert.equal(report.passed, false);
+  assert.equal(report.referenceDuration.passed, false);
+  assert.equal(report.referenceDuration.durationSeconds, 142.5);
+  assert.match(report.failedReasons.join(","), /rendered_reference_duration_out_of_bounds/);
+});
+
+test("rendered social polish proof surfaces duplicate goal identity failures from video output QA", () => {
+  const qa = videoOutputQA({
+    expectedGoalCount: 5,
+    actualConfirmedGoalSegmentCount: 5,
+    coveredGoalCount: 5,
+    passed: false,
+    status: "failed",
+    distinctGoalIdentity: {
+      passed: false,
+      uniqueConfirmedGoalCount: 4,
+      duplicateSegmentIndexes: [3],
+      duplicatePairs: [
+        {
+          leftSegmentIndex: 2,
+          rightSegmentIndex: 3,
+          leftGoalNumber: 2,
+          rightGoalNumber: 3,
+          overlapRatio: 0.66,
+          reasons: ["duplicate_goal_window_overlap"],
+        },
+      ],
+    },
+  });
+  const report = baseProof({
+    videoOutputQA: qa,
+    renderPlan: {
+      videoOutputQA: qa,
+    },
+  });
+
+  assert.equal(report.passed, false);
+  assert.equal(report.phaseVisibility.uniqueConfirmedGoalCount, 4);
+  assert.deepEqual(report.phaseVisibility.duplicateSegmentIndexes, [3]);
+  assert.match(report.failedReasons.join(","), /distinct_goal_identity_failed|video_output_qa_failed/);
+});
+
 test("rendered social polish proof fails unsafe soft-follow framing", () => {
   const report = baseProof({
     renderPlan: {

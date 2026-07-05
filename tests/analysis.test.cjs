@@ -10,6 +10,7 @@ const {
   reasonCodesForCaption,
 } = require("../server/analysis.cjs");
 const { hasGoalLanguage, validateEditPlan } = require("../server/edit-plan.cjs");
+const { assertVideoOutputCoverage, captionStyleSummary } = require("../server/video-output-gate.cjs");
 const {
   MockTranscriptionProvider,
   OpenAITranscriptionProvider,
@@ -80,6 +81,26 @@ function matchEventTruthFixture(goals, durationSeconds) {
     captionIntent: "confirmed_goal_caption",
     renderPriority: 1000 + index,
   }));
+  const scoreChanges = goals
+    .filter((goal) => goal.scoreBefore && goal.scoreAfter && Number.isFinite(Number(goal.scoreChangeTime)))
+    .map((goal, index) => ({
+      id: `truth_score_change_${index + 1}`,
+      startScore: goal.scoreBefore,
+      endScore: goal.scoreAfter,
+      firstSeenAt: Number(goal.scoreChangeTime),
+      confirmedAt: Number(goal.scoreChangeTime),
+      stableUntil: Number(goal.scoreChangeTime) + 8,
+      changeTime: Number(goal.scoreChangeTime),
+      actionAnchorTime: Number(goal.shotStart || goal.scoreChangeTime),
+      teamSide: "unknown",
+      scoreDelta: 1,
+      confidence: 0.92,
+      persistedDuration: 8,
+      reverted: false,
+      outcome: "counted_goal",
+      evidenceCodes: ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"],
+      reasonCodes: ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"],
+    }));
   return {
     schemaVersion: 1,
     providerMode: "fixture-match-event-truth",
@@ -98,6 +119,7 @@ function matchEventTruthFixture(goals, durationSeconds) {
     },
     selectedEvents,
     rejectedEvents: [],
+    scoreChanges,
   };
 }
 
@@ -1801,13 +1823,153 @@ test("valid-goals-only keeps distinct close confirmed goals even when source win
     stylePreset: "punchy_highlight",
   });
   const plan = validateEditPlan(plans[0], longMetadata);
+  const captionText = plan.captions.map((caption) => caption.text).join(" ");
+  const overlapRatio = (left, right) => {
+    const overlap = Math.max(0, Math.min(left.sourceEnd, right.sourceEnd) - Math.max(left.sourceStart, right.sourceStart));
+    const shortest = Math.min(left.duration, right.duration);
+    return shortest > 0 ? overlap / shortest : 0;
+  };
+
+  assert.equal(plan.mode, "multi_moment_compilation");
+  assert.equal(plan.segments.length, 5);
+  assert.equal(plan.goalSelectionMode, "valid_goals_only");
+  assert.deepEqual(plan.segments.map((segment) => segment.goalNumber), [1, 2, 3, 4, 5]);
+  assert.ok(plan.totalDuration >= 55 && plan.totalDuration <= 75);
+  assert.ok(plan.segments.every((segment) => segment.goalOutcome && segment.goalOutcome.outcome === "confirmed_goal"));
+  assert.ok(plan.segments.every((segment) => segment.referenceGoalPacing === true));
+  assert.ok(plan.segments.every((segment) => segment.duration >= 9.5 && segment.duration <= 15));
+  assert.ok(plan.segments.every((segment) => segment.shotStart - segment.sourceStart >= 6));
+  assert.ok(plan.segments.every((segment) => segment.confirmationTime - segment.sourceStart >= 8));
+  assert.ok(plan.segments.every((segment) => segment.sourceEnd >= segment.confirmationTime + 1.2));
+  assert.ok(plan.segments.every((segment) => segment.phaseCoverage && segment.phaseCoverage.replayOnly === false));
+  assert.equal(plan.segments.filter((segment) => segment.highlightType === "goal").length, 5);
+  assert.equal(captionStyleSummary(plan).passed, true);
+  assert.equal(plan.visualPolishQA.referencePacingScore, 1);
+  assert.equal(plan.visualPolishQA.captionsMisalignedCount, 0);
+  assert.doesNotMatch(captionText, /FINISH\s*\+\s*BUILD[- ]?UP|BUILD[- ]?UP\s*\+\s*FINISH|GOAL\s*\d+\s*CONFIRMED/i);
+  assert.match(captionText, /5 FINISHES\. NO FILLER\./i);
+  for (let index = 1; index < plan.segments.length; index += 1) {
+    assert.ok(overlapRatio(plan.segments[index - 1], plan.segments[index]) <= 0.2);
+  }
+  const outputGate = assertVideoOutputCoverage({
+    editPlan: plan,
+    matchEventTruth: truth,
+    goalSelectionMode: "valid_goals_only",
+  });
+  assert.equal(outputGate.passed, true);
+  assert.equal(outputGate.expectedGoalCount, 5);
+  assert.equal(outputGate.coveredGoalCount, 5);
+  assert.deepEqual(outputGate.missingGoalNumbers, []);
+});
+
+test("valid-goals-only deduplicates repeated confirmed goal identities before building reference proof", () => {
+  const longMetadata = { durationSeconds: 764, width: 1920, height: 1080, hasAudio: true };
+  const truth = matchEventTruthFixture([
+    {
+      goalNumber: 1,
+      scoreBefore: "0-0",
+      scoreAfter: "1-0",
+      scoreChangeTime: 137.6,
+      sourceStart: 126,
+      sourceEnd: 148,
+      shotStart: 132,
+      payoffStart: 136,
+      payoffEnd: 138,
+      decisionStart: 145,
+      decisionEnd: 148,
+    },
+    {
+      goalNumber: 2,
+      scoreBefore: "1-0",
+      scoreAfter: "1-1",
+      scoreChangeTime: 474,
+      sourceStart: 462,
+      sourceEnd: 488,
+      shotStart: 468,
+      payoffStart: 472,
+      payoffEnd: 474,
+      decisionStart: 482,
+      decisionEnd: 488,
+    },
+    {
+      goalNumber: 3,
+      scoreBefore: "1-1",
+      scoreAfter: "2-1",
+      scoreChangeTime: 483.75,
+      sourceStart: 462,
+      sourceEnd: 488,
+      shotStart: 472,
+      payoffStart: 478,
+      payoffEnd: 480,
+      decisionStart: 486,
+      decisionEnd: 488,
+    },
+    {
+      goalNumber: 3,
+      scoreBefore: "1-1",
+      scoreAfter: "2-1",
+      scoreChangeTime: 483.75,
+      sourceStart: 470,
+      sourceEnd: 490,
+      shotStart: 476,
+      payoffStart: 480,
+      payoffEnd: 482,
+      decisionStart: 488,
+      decisionEnd: 490,
+    },
+    {
+      goalNumber: 4,
+      scoreBefore: "2-1",
+      scoreAfter: "2-2",
+      scoreChangeTime: 558.45,
+      sourceStart: 546,
+      sourceEnd: 570,
+      shotStart: 552,
+      payoffStart: 557,
+      payoffEnd: 559,
+      decisionStart: 566,
+      decisionEnd: 570,
+    },
+    {
+      goalNumber: 5,
+      scoreBefore: "2-2",
+      scoreAfter: "3-2",
+      scoreChangeTime: 596.25,
+      sourceStart: 584,
+      sourceEnd: 608,
+      shotStart: 590,
+      payoffStart: 595,
+      payoffEnd: 597,
+      decisionStart: 604,
+      decisionEnd: 608,
+    },
+  ], longMetadata.durationSeconds);
+  truth.selectedEvents.forEach((event) => {
+    event.evidenceCodes.push(
+      "scoreboard_ocr_score_change",
+      "scoreboard_temporal_consistency",
+      "scoreboard_backed_goal_sequence",
+      "shot_sequence_support",
+      "live_shot_finish_sequence",
+    );
+  });
+
+  const plans = createCandidateEditPlans({
+    moments: [],
+    metadata: { ...longMetadata, goalSelectionMode: "valid_goals_only" },
+    transcript: { captions: [] },
+    matchEventTruth: truth,
+    title: "Duplicate goal truth fixture",
+    editIntensity: "balanced",
+    stylePreset: "punchy_highlight",
+  });
+  const plan = validateEditPlan(plans[0], longMetadata);
 
   assert.equal(plan.mode, "multi_moment_compilation");
   assert.equal(plan.segments.length, 5);
   assert.deepEqual(plan.segments.map((segment) => segment.goalNumber), [1, 2, 3, 4, 5]);
-  assert.ok(plan.segments.every((segment) => segment.goalOutcome && segment.goalOutcome.outcome === "confirmed_goal"));
-  assert.ok(plan.segments.every((segment) => segment.phaseCoverage && segment.phaseCoverage.replayOnly === false));
-  assert.equal(plan.segments.filter((segment) => segment.highlightType === "goal").length, 5);
+  assert.equal(new Set(plan.segments.map((segment) => segment.goalNumber)).size, 5);
+  assert.ok(plan.totalDuration >= 55 && plan.totalDuration <= 75);
 });
 
 test("valid-goals-only plan keeps every confirmed goal, excludes offside goals, and adds smooth transitions", () => {

@@ -256,6 +256,7 @@ function validGoalCompilationPlan(segments) {
     mode: "multi_moment_compilation",
     sourceStart: segments[0].sourceStart,
     sourceEnd: Math.max(...segments.map((segment) => segment.sourceEnd)),
+    totalDuration: segments.length >= 5 ? 64 : totalDuration,
     segments,
     aspectRatio: "9:16",
     highlightType: "generic_highlight",
@@ -1131,11 +1132,11 @@ test("youtube long-source chunked OCR builds global score changes across chunks"
 test("youtube long-source chunked OCR bridges sparse score candidates into five safe score changes", async () => {
   const truth = countedGoalTruth(3);
   truth.scoreChanges = [
-    { changeTime: 123, actionAnchorTime: 104, startScore: "0-0", endScore: "1-0", outcome: "counted_goal", teamSide: "home", scoreDelta: 1, confidence: 0.9, reasonCodes: ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"] },
-    { changeTime: 483, actionAnchorTime: 464, startScore: "1-0", endScore: "1-1", outcome: "counted_goal", teamSide: "away", scoreDelta: 1, confidence: 0.9, reasonCodes: ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"] },
-    { changeTime: 506, actionAnchorTime: 476, startScore: "1-1", endScore: "2-1", outcome: "counted_goal", teamSide: "home", scoreDelta: 1, confidence: 0.9, reasonCodes: ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"] },
-    { changeTime: 550, actionAnchorTime: 548, startScore: "2-1", endScore: "2-2", outcome: "counted_goal", teamSide: "away", scoreDelta: 1, confidence: 0.9, reasonCodes: ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"] },
-    { changeTime: 558, actionAnchorTime: 556, startScore: "2-2", endScore: "3-2", outcome: "counted_goal", teamSide: "home", scoreDelta: 1, confidence: 0.9, reasonCodes: ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"] },
+    { changeTime: 123, actionAnchorTime: 115, startScore: "0-0", endScore: "1-0", outcome: "counted_goal", teamSide: "home", scoreDelta: 1, confidence: 0.9, reasonCodes: ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"] },
+    { changeTime: 483, actionAnchorTime: 475, startScore: "1-0", endScore: "1-1", outcome: "counted_goal", teamSide: "away", scoreDelta: 1, confidence: 0.9, reasonCodes: ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"] },
+    { changeTime: 520, actionAnchorTime: 512, startScore: "1-1", endScore: "2-1", outcome: "counted_goal", teamSide: "home", scoreDelta: 1, confidence: 0.9, reasonCodes: ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"] },
+    { changeTime: 550, actionAnchorTime: 542, startScore: "2-1", endScore: "2-2", outcome: "counted_goal", teamSide: "away", scoreDelta: 1, confidence: 0.9, reasonCodes: ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"] },
+    { changeTime: 620, actionAnchorTime: 612, startScore: "2-2", endScore: "3-2", outcome: "counted_goal", teamSide: "home", scoreDelta: 1, confidence: 0.9, reasonCodes: ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"] },
   ];
   truth.summary = {
     ...truth.summary,
@@ -1144,11 +1145,11 @@ test("youtube long-source chunked OCR bridges sparse score candidates into five 
     selectedCountedGoals: 5,
   };
   const segments = [
-    validGoalSegment(1, 94, 104, 112, 123),
-    validGoalSegment(2, 454, 464, 472, 483),
-    validGoalSegment(3, 466, 476, 484, 506),
-    validGoalSegment(4, 538, 548, 556, 560),
-    validGoalSegment(5, 546, 556, 564, 568),
+    validGoalSegment(1, 113, 119, 121, 123),
+    validGoalSegment(2, 473, 479, 481, 483),
+    validGoalSegment(3, 510, 516, 518, 520),
+    validGoalSegment(4, 540, 546, 548, 550),
+    validGoalSegment(5, 610, 616, 618, 620),
   ];
   const context = makeContext({
     durationSeconds: 764,
@@ -1243,12 +1244,24 @@ test("youtube long-source chunked OCR bridges sparse score candidates into five 
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.discoveredScoreChanges, 5);
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.scoreCandidateDiagnostics.acceptedScoreChangeCount, 5);
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.scoreCandidateDiagnostics.finalScore, "3-2");
-  assert.equal(
-    context.job.scoreboardOcr.evidence.filter((item) => item.source === "chunked_scorebug_candidate_progression").length,
-    4,
-  );
-  assert.equal(
-    context.job.scoreboardOcr.evidence.some((item) =>
+	  assert.equal(
+	    context.job.scoreboardOcr.evidence.filter((item) => item.source === "chunked_scorebug_candidate_progression").length,
+	    4,
+	  );
+  const acceptedScoreChangeTimestamps = context.job.scoreboardOcr.summary.chunkSummary.scoreCandidateDiagnostics.acceptedCandidates
+    .filter((candidate) => candidate.scoreBefore && candidate.scoreAfter)
+    .map((candidate) => Number(candidate.timestamp))
+    .filter(Number.isFinite);
+  assert.equal(acceptedScoreChangeTimestamps.length >= 4, true);
+  for (let index = 1; index < acceptedScoreChangeTimestamps.length; index += 1) {
+    assert.equal(
+      acceptedScoreChangeTimestamps[index] - acceptedScoreChangeTimestamps[index - 1] >= 10,
+      true,
+      JSON.stringify(acceptedScoreChangeTimestamps),
+    );
+  }
+	  assert.equal(
+	    context.job.scoreboardOcr.evidence.some((item) =>
       item.status === "score_changed" &&
       item.scoreBefore === "0-0" &&
       item.scoreAfter === "1-0"),

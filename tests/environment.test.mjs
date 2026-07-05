@@ -274,6 +274,16 @@ test("environment check rejects unsafe YouTube format selectors", () => {
   );
 });
 
+test("environment check accepts bounded YouTube height format selectors", () => {
+  const summary = checkEnvironment(safeOptions({
+    SHORTSENGINE_YOUTUBE_FORMAT_SELECTOR: "b[height<=720][ext=mp4]/best[height<=720]/best",
+  }));
+  assert.equal(
+    summary.youtubeIngest.formatSelector,
+    "b[height<=720][ext=mp4]/best[height<=720]/best",
+  );
+});
+
 test("environment check validates source cache opt-in safely", () => {
   const summary = checkEnvironment(safeOptions({
     SHORTSENGINE_SOURCE_CACHE_ENABLED: "1",

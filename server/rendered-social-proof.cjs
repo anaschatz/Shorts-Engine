@@ -5,6 +5,9 @@ const RENDERED_SOCIAL_PROOF_SCHEMA_VERSION = 1;
 const MAX_REASONS = 14;
 const MAX_ITEMS = 12;
 const REQUIRED_CAPTION_MOTION = "ass_word_by_word_highlight";
+const REFERENCE_STYLE_GOAL_COUNT = 5;
+const REFERENCE_STYLE_MIN_DURATION_SECONDS = 55;
+const REFERENCE_STYLE_MAX_DURATION_SECONDS = 75;
 const SENSITIVE_RE = /\/Users\/|\/private\/|storageKey|localPath|fullPath|absolutePath|Bearer\s+|api[_-]?key|token|secret|stderr|stdout|raw(?:Log|Error|Output)?|cookie/i;
 
 function round(value, digits = 2) {
@@ -266,6 +269,7 @@ function phaseVisibilitySummary(renderPlan = {}, videoOutputQA = null) {
     }));
   const reasons = uniqueReasons([
     ...(qa.passed === false ? ["video_output_qa_failed"] : []),
+    ...(qa.distinctGoalIdentity && qa.distinctGoalIdentity.passed === false ? ["distinct_goal_identity_failed"] : []),
     ...(goalSegments.length === 0 ? ["no_confirmed_goal_segments"] : []),
     ...(invalid.length ? ["goal_phase_coverage_failed"] : []),
     ...(randomChanceSegments.length ? ["non_goal_segments_present"] : []),
@@ -275,8 +279,45 @@ function phaseVisibilitySummary(renderPlan = {}, videoOutputQA = null) {
     expectedGoalCount: numberOrNull(qa.expectedGoalCount),
     actualConfirmedGoalSegmentCount: numberOrNull(qa.actualConfirmedGoalSegmentCount) ?? goalSegments.length,
     coveredGoalCount: numberOrNull(qa.coveredGoalCount),
+    uniqueConfirmedGoalCount: numberOrNull(qa.distinctGoalIdentity && qa.distinctGoalIdentity.uniqueConfirmedGoalCount),
+    duplicateSegmentIndexes: Array.isArray(qa.distinctGoalIdentity && qa.distinctGoalIdentity.duplicateSegmentIndexes)
+      ? qa.distinctGoalIdentity.duplicateSegmentIndexes.slice(0, MAX_ITEMS).map(numberOrNull).filter((value) => value != null)
+      : [],
+    duplicatePairs: Array.isArray(qa.distinctGoalIdentity && qa.distinctGoalIdentity.duplicatePairs)
+      ? qa.distinctGoalIdentity.duplicatePairs.slice(0, MAX_ITEMS).map((pair) => ({
+          leftSegmentIndex: numberOrNull(pair && pair.leftSegmentIndex),
+          rightSegmentIndex: numberOrNull(pair && pair.rightSegmentIndex),
+          leftGoalNumber: numberOrNull(pair && pair.leftGoalNumber),
+          rightGoalNumber: numberOrNull(pair && pair.rightGoalNumber),
+          overlapRatio: round(pair && pair.overlapRatio, 3),
+          reasons: safeList(pair && pair.reasons, 6, 80),
+        }))
+      : [],
     invalidGoalSegments: invalid.slice(0, MAX_ITEMS),
     randomChanceSegments,
+    reasons,
+  };
+}
+
+function referenceDurationProof(ffprobe = null, videoOutputQA = null) {
+  const qa = valueObject(videoOutputQA);
+  const expectedGoalCount = numberOrNull(qa.expectedGoalCount);
+  const durationSeconds = numberOrNull(ffprobe && ffprobe.durationSeconds);
+  const targetApplies = expectedGoalCount != null && expectedGoalCount >= REFERENCE_STYLE_GOAL_COUNT;
+  const reasons = uniqueReasons([
+    ...(targetApplies && durationSeconds == null ? ["rendered_duration_missing"] : []),
+    ...(targetApplies && durationSeconds != null && (
+      durationSeconds < REFERENCE_STYLE_MIN_DURATION_SECONDS ||
+      durationSeconds > REFERENCE_STYLE_MAX_DURATION_SECONDS
+    ) ? ["rendered_reference_duration_out_of_bounds"] : []),
+  ]);
+  return {
+    passed: reasons.length === 0,
+    targetApplies,
+    expectedGoalCount,
+    durationSeconds: durationSeconds == null ? null : round(durationSeconds),
+    targetMinSeconds: targetApplies ? REFERENCE_STYLE_MIN_DURATION_SECONDS : null,
+    targetMaxSeconds: targetApplies ? REFERENCE_STYLE_MAX_DURATION_SECONDS : null,
     reasons,
   };
 }
@@ -467,6 +508,7 @@ function scoreFromSections(sections) {
 function collectFailedReasons(report) {
   return uniqueReasons([
     ...report.outputFreshness.reasons,
+    ...report.referenceDuration.reasons,
     ...report.renderedHook.reasons,
     ...report.dynamicCaptions.reasons,
     ...report.smoothEditing.reasons,
@@ -502,6 +544,7 @@ function renderedSocialPolishProof({
     passed: false,
     generatedAt: safeString(generatedAt, 40),
     outputFreshness: outputFreshnessSummary(outputMp4, ffprobe),
+    referenceDuration: referenceDurationProof(ffprobe, safeVideoQA),
     renderedHook: hookSummary(safeRenderPlan, safeVideoQA),
     dynamicCaptions: dynamicCaptionSummary(safeRenderPlan, safeVideoQA),
     smoothEditing: transitionSummary(safeRenderPlan),
@@ -515,6 +558,7 @@ function renderedSocialPolishProof({
   };
   report.socialPolishScore = scoreFromSections([
     report.outputFreshness,
+    report.referenceDuration,
     report.renderedHook,
     report.dynamicCaptions,
     report.smoothEditing,

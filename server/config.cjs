@@ -246,7 +246,7 @@ function validateYouTubeIngestConfig(input = {}) {
       !selector ||
       selector.length > 180 ||
       /[\u0000-\u001f\u007f\s`$;&|{}()"'\\]/.test(selector) ||
-      !/^[A-Za-z0-9*+/\[\]=._:,-]+$/.test(selector)
+      !/^[A-Za-z0-9*+/\[\]=._:,\-<>]+$/.test(selector)
     ) {
       throw new Error(`Invalid ${name} value.`);
     }

@@ -15,6 +15,13 @@ const MATCH_TOLERANCE_SECONDS = 2;
 const MAX_PUBLIC_ITEMS = 12;
 const MIN_SCORE_CHANGE_BACKTRACK_SECONDS = 8;
 const MIN_PRE_SHOT_CONTEXT_SECONDS = 6;
+const MAX_GOAL_SEGMENT_OVERLAP_RATIO = 0.2;
+const DUPLICATE_FINISH_TOLERANCE_SECONDS = 4;
+const DUPLICATE_SCORE_CHANGE_TOLERANCE_SECONDS = 2;
+const REFERENCE_STYLE_GOAL_COUNT = 5;
+const REFERENCE_STYLE_MIN_DURATION_SECONDS = 55;
+const REFERENCE_STYLE_MAX_DURATION_SECONDS = 75;
+const DEBUG_CAPTION_RE = /\b(FINISH\s*\+\s*BUILD[- ]?UP|BUILD[- ]?UP\s*\+\s*FINISH|GOAL\s*\d+\s*CONFIRMED)\b/i;
 
 const SENSITIVE_RE = /\/Users\/|\/private\/|storageKey|localPath|fullPath|absolutePath|Bearer\s+|api[_-]?key|token|secret|stderr|stdout|rawOcr|rawText/i;
 
@@ -34,6 +41,11 @@ function safeCodes(values = [], max = 12) {
     .filter(Boolean)
     .filter((value) => !SENSITIVE_RE.test(value)))]
     .slice(0, max);
+}
+
+function hasAny(values = [], expected = []) {
+  const set = new Set(Array.isArray(values) ? values : []);
+  return expected.some((value) => set.has(value));
 }
 
 function hasUnsafeValue(value) {
@@ -83,7 +95,11 @@ function publicSegment(segment = {}, index = 0) {
     shotStart: numberOrNull(segment.shotStart),
     finishTime: numberOrNull(segment.finishTime),
     confirmationTime: numberOrNull(segment.confirmationTime),
+    scoreBefore: sanitizeText(segment.scoreBefore || (goalOutcome && goalOutcome.scoreBefore) || "", 16) || null,
+    scoreAfter: sanitizeText(segment.scoreAfter || (goalOutcome && goalOutcome.scoreAfter) || "", 16) || null,
+    scoreChangeTime: numberOrNull(segment.scoreChangeTime ?? (goalOutcome && goalOutcome.scoreChangeTime)),
     replayOnly: Boolean(segment.replayOnly || phaseCoverage.replayOnly),
+    celebrationOnly: Boolean(segment.celebrationOnly || phaseCoverage.celebrationOnly),
     replayUsed: Boolean(segment.replayUsed || phaseCoverage.replayUsed),
     phaseCoverage: {
       hasBuildup: Boolean(phaseCoverage.hasBuildup),
@@ -91,6 +107,7 @@ function publicSegment(segment = {}, index = 0) {
       hasFinish: Boolean(phaseCoverage.hasFinish),
       hasConfirmation: Boolean(phaseCoverage.hasConfirmation),
       replayOnly: Boolean(phaseCoverage.replayOnly),
+      celebrationOnly: Boolean(phaseCoverage.celebrationOnly),
     },
     reasonCodes: safeCodes(segment.reasonCodes, 10),
     safetyFlags: safeCodes(segment.safetyFlags, 8),
@@ -165,6 +182,7 @@ function captionStyleSummary(editPlan = {}) {
   const captions = Array.isArray(editPlan.captions) ? editPlan.captions : [];
   const opening = captions.find((caption) => caption && caption.role === "opening_hook") || null;
   const dynamicCaptionCount = captions.filter(captionHasSafeWordTiming).length;
+  const debugCaptionCount = captions.filter((caption) => DEBUG_CAPTION_RE.test(sanitizeText(caption && caption.text, 120))).length;
   const readableCaptionCount = captions.filter((caption) => {
     const text = sanitizeText(caption && caption.text, 120);
     const start = numberOrNull(caption && caption.start);
@@ -201,18 +219,21 @@ function captionStyleSummary(editPlan = {}) {
   const passed = captions.length > 0 &&
     openingInHookWindow &&
     dynamicCaptionCount === captions.length &&
-    readableCaptionCount === captions.length;
+    readableCaptionCount === captions.length &&
+    debugCaptionCount === 0;
   const reasons = safeCodes([
     ...(!captions.length ? ["missing_dynamic_captions"] : []),
     ...(captions.length && !openingInHookWindow ? ["missing_readable_opening_hook_caption"] : []),
     ...(captions.length && dynamicCaptionCount !== captions.length ? ["caption_word_timing_invalid"] : []),
     ...(captions.length && readableCaptionCount !== captions.length ? ["caption_readability_failed"] : []),
+    ...(debugCaptionCount > 0 ? ["debug_caption_label_rendered"] : []),
   ], 8);
   return {
     passed,
     captionCount: captions.length,
     dynamicCaptionCount,
     readableCaptionCount,
+    debugCaptionCount,
     openingHookCaptionInFirstTwoSeconds: openingInHookWindow,
     stylePresets: safeCodes(captions.map((caption) => caption && caption.stylePreset), 6),
     safeAreas: safeCodes(captions.map((caption) => caption && caption.safeArea && caption.safeArea.name), 6),
@@ -358,6 +379,186 @@ function overlapSeconds(segment = {}, expected = {}) {
   return Math.max(0, right - left);
 }
 
+function segmentDuration(segment = {}) {
+  const start = numberOrNull(segment.sourceStart);
+  const end = numberOrNull(segment.sourceEnd);
+  if (start == null || end == null || end <= start) return null;
+  return end - start;
+}
+
+function pairOverlap(leftSegment = {}, rightSegment = {}) {
+  const leftStart = numberOrNull(leftSegment.sourceStart);
+  const leftEnd = numberOrNull(leftSegment.sourceEnd);
+  const rightStart = numberOrNull(rightSegment.sourceStart);
+  const rightEnd = numberOrNull(rightSegment.sourceEnd);
+  if (leftStart == null || leftEnd == null || rightStart == null || rightEnd == null) {
+    return { seconds: 0, ratio: 0 };
+  }
+  const overlap = Math.max(0, Math.min(leftEnd, rightEnd) - Math.max(leftStart, rightStart));
+  const shortest = Math.min(segmentDuration(leftSegment) || 0, segmentDuration(rightSegment) || 0);
+  return {
+    seconds: overlap,
+    ratio: shortest > 0 ? overlap / shortest : 0,
+  };
+}
+
+function scoreChangeIdentity(segment = {}) {
+  const goalOutcome = segment.goalOutcome && typeof segment.goalOutcome === "object" && !Array.isArray(segment.goalOutcome)
+    ? segment.goalOutcome
+    : {};
+  const scoreBefore = sanitizeText(segment.scoreBefore || goalOutcome.scoreBefore || "", 16);
+  const scoreAfter = sanitizeText(segment.scoreAfter || goalOutcome.scoreAfter || "", 16);
+  const scoreChangeTime = numberOrNull(segment.scoreChangeTime ?? goalOutcome.scoreChangeTime);
+  if (!scoreBefore || !scoreAfter || scoreChangeTime == null) return null;
+  return {
+    scoreBefore,
+    scoreAfter,
+    scoreChangeTime,
+    key: `${scoreBefore}->${scoreAfter}@${Math.round(scoreChangeTime / DUPLICATE_SCORE_CHANGE_TOLERANCE_SECONDS)}`,
+  };
+}
+
+function publicGoalIdentity(segment = {}, index = 0) {
+  const identity = scoreChangeIdentity(segment);
+  return {
+    segmentIndex: index + 1,
+    id: sanitizeText(segment.id || `segment_${index + 1}`, 80),
+    goalNumber: numberOrNull(segment.goalNumber),
+    sourceStart: round(segment.sourceStart),
+    sourceEnd: round(segment.sourceEnd),
+    finishTime: numberOrNull(segment.finishTime),
+    confirmationTime: numberOrNull(segment.confirmationTime),
+    scoreBefore: identity ? identity.scoreBefore : null,
+    scoreAfter: identity ? identity.scoreAfter : null,
+    scoreChangeTime: identity ? round(identity.scoreChangeTime) : null,
+  };
+}
+
+function distinctGoalIdentitySummary(segments = []) {
+  const confirmed = segments
+    .map((segment, index) => ({ segment, index }))
+    .filter(({ segment }) => isConfirmedGoalSegment(segment));
+  const duplicatePairs = [];
+  const duplicateGoalNumbers = [];
+  const outOfOrder = [];
+  const seenGoalNumbers = new Map();
+
+  confirmed.forEach(({ segment, index }, orderIndex) => {
+    const goalNumber = numberOrNull(segment.goalNumber);
+    if (goalNumber != null) {
+      if (seenGoalNumbers.has(goalNumber)) {
+        duplicateGoalNumbers.push({
+          goalNumber,
+          firstSegmentIndex: seenGoalNumbers.get(goalNumber) + 1,
+          duplicateSegmentIndex: index + 1,
+          reason: "duplicate_goal_number",
+        });
+      } else {
+        seenGoalNumbers.set(goalNumber, index);
+      }
+    }
+    if (orderIndex > 0) {
+      const previous = confirmed[orderIndex - 1].segment;
+      const previousStart = numberOrNull(previous.sourceStart);
+      const currentStart = numberOrNull(segment.sourceStart);
+      const previousConfirmation = numberOrNull(previous.confirmationTime);
+      const currentConfirmation = numberOrNull(segment.confirmationTime);
+      if (
+        (previousStart != null && currentStart != null && currentStart < previousStart) ||
+        (previousConfirmation != null && currentConfirmation != null && currentConfirmation < previousConfirmation)
+      ) {
+        outOfOrder.push({
+          segmentIndex: index + 1,
+          previousSegmentIndex: confirmed[orderIndex - 1].index + 1,
+          reason: "goal_segments_not_chronological",
+        });
+      }
+    }
+  });
+
+  for (let leftIndex = 0; leftIndex < confirmed.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < confirmed.length; rightIndex += 1) {
+      const left = confirmed[leftIndex];
+      const right = confirmed[rightIndex];
+      const overlap = pairOverlap(left.segment, right.segment);
+      const leftFinish = numberOrNull(left.segment.finishTime);
+      const rightFinish = numberOrNull(right.segment.finishTime);
+      const leftScore = scoreChangeIdentity(left.segment);
+      const rightScore = scoreChangeIdentity(right.segment);
+      const reasons = [];
+      if (overlap.ratio > MAX_GOAL_SEGMENT_OVERLAP_RATIO) reasons.push("duplicate_goal_window_overlap");
+      if (leftFinish != null && rightFinish != null && Math.abs(leftFinish - rightFinish) <= DUPLICATE_FINISH_TOLERANCE_SECONDS) {
+        reasons.push("duplicate_finish_time");
+      }
+      if (
+        leftScore &&
+        rightScore &&
+        leftScore.scoreBefore === rightScore.scoreBefore &&
+        leftScore.scoreAfter === rightScore.scoreAfter &&
+        Math.abs(leftScore.scoreChangeTime - rightScore.scoreChangeTime) <= DUPLICATE_SCORE_CHANGE_TOLERANCE_SECONDS
+      ) {
+        reasons.push("duplicate_score_change_identity");
+      }
+      if (reasons.length) {
+        duplicatePairs.push({
+          leftSegmentIndex: left.index + 1,
+          rightSegmentIndex: right.index + 1,
+          leftGoalNumber: numberOrNull(left.segment.goalNumber),
+          rightGoalNumber: numberOrNull(right.segment.goalNumber),
+          overlapSeconds: round(overlap.seconds),
+          overlapRatio: round(overlap.ratio, 3),
+          finishDeltaSeconds: leftFinish == null || rightFinish == null ? null : round(Math.abs(leftFinish - rightFinish)),
+          reasons: safeCodes(reasons, 4),
+        });
+      }
+    }
+  }
+
+  const duplicateSegmentIndexes = [...new Set([
+    ...duplicatePairs.map((pair) => pair.rightSegmentIndex),
+    ...duplicateGoalNumbers.map((item) => item.duplicateSegmentIndex),
+  ])].sort((a, b) => a - b);
+  const uniqueConfirmedGoalCount = Math.max(0, confirmed.length - duplicateSegmentIndexes.length);
+  const failedReasons = safeCodes([
+    ...(duplicatePairs.length ? ["duplicate_goal_segments_detected"] : []),
+    ...(duplicateGoalNumbers.length ? ["duplicate_goal_numbers_detected"] : []),
+    ...(outOfOrder.length ? ["goal_segments_not_chronological"] : []),
+  ], 8);
+
+  return {
+    passed: failedReasons.length === 0,
+    confirmedGoalSegmentCount: confirmed.length,
+    uniqueConfirmedGoalCount,
+    maxAllowedOverlapRatio: MAX_GOAL_SEGMENT_OVERLAP_RATIO,
+    duplicateSegmentIndexes: duplicateSegmentIndexes.slice(0, MAX_PUBLIC_ITEMS),
+    goalIdentities: confirmed.map(({ segment, index }) => publicGoalIdentity(segment, index)).slice(0, MAX_PUBLIC_ITEMS),
+    duplicatePairs: duplicatePairs.slice(0, MAX_PUBLIC_ITEMS),
+    duplicateGoalNumbers: duplicateGoalNumbers.slice(0, MAX_PUBLIC_ITEMS),
+    outOfOrder: outOfOrder.slice(0, MAX_PUBLIC_ITEMS),
+    failedReasons,
+  };
+}
+
+function referenceStyleDurationSummary(editPlan = {}, expectedGoals = []) {
+  const totalDuration = numberOrNull(editPlan.totalDuration ?? editPlan.durationSeconds ?? editPlan.timelineDuration);
+  const targetApplies = expectedGoals.length >= REFERENCE_STYLE_GOAL_COUNT;
+  const reasons = safeCodes([
+    ...(targetApplies && totalDuration == null ? ["reference_style_duration_missing"] : []),
+    ...(targetApplies && totalDuration != null && (
+      totalDuration < REFERENCE_STYLE_MIN_DURATION_SECONDS ||
+      totalDuration > REFERENCE_STYLE_MAX_DURATION_SECONDS
+    ) ? ["reference_style_duration_out_of_bounds"] : []),
+  ], 6);
+  return {
+    passed: reasons.length === 0,
+    targetApplies,
+    totalDuration: totalDuration == null ? null : round(totalDuration),
+    targetMinSeconds: targetApplies ? REFERENCE_STYLE_MIN_DURATION_SECONDS : null,
+    targetMaxSeconds: targetApplies ? REFERENCE_STYLE_MAX_DURATION_SECONDS : null,
+    reasons,
+  };
+}
+
 function expectedGoalsFromTruth(matchEventTruth = {}) {
   const truth = publicMatchEventTruth(matchEventTruth);
   const scoreChanges = (Array.isArray(truth.scoreChanges) ? truth.scoreChanges : [])
@@ -405,9 +606,7 @@ function expectedGoalsFromTruth(matchEventTruth = {}) {
 function scoreChangeAnchorTime(change = {}) {
   const changeTime = numberOrNull(change.changeTime);
   const actionAnchorTime = numberOrNull(change.actionAnchorTime);
-  if (changeTime == null) return actionAnchorTime;
-  if (actionAnchorTime == null) return changeTime;
-  return Math.abs(changeTime - actionAnchorTime) <= 30 ? actionAnchorTime : changeTime;
+  return changeTime == null ? actionAnchorTime : changeTime;
 }
 
 function segmentFailureReasons(segment = {}, goalSelectionMode = "balanced") {
@@ -421,6 +620,7 @@ function segmentFailureReasons(segment = {}, goalSelectionMode = "balanced") {
 
   if (goalSelectionMode === "valid_goals_only" && !confirmedGoal) reasons.push("non_goal_segment_in_valid_goals_only_output");
   if (confirmedGoal && (segment.replayOnly || phase.replayOnly)) reasons.push("replay_only_goal_segment");
+  if (confirmedGoal && (segment.celebrationOnly || phase.celebrationOnly)) reasons.push("celebration_only_goal_segment");
   if (confirmedGoal && (!phase.hasBuildup || shotStart == null)) reasons.push("missing_buildup_or_shot_start");
   if (confirmedGoal && (!phase.hasShot || shotStart == null)) reasons.push("missing_visible_shot");
   if (confirmedGoal && (!phase.hasFinish || finishTime == null)) reasons.push("missing_visible_finish");
@@ -439,6 +639,18 @@ function segmentFailureReasons(segment = {}, goalSelectionMode = "balanced") {
     (!phase.hasShot || !phase.hasFinish)
   ) {
     reasons.push("celebration_only_goal_segment");
+  }
+  if (
+    confirmedGoal &&
+    goalSelectionMode === "valid_goals_only" &&
+    !hasAny([...reasonCodes], [
+      "scoreboard_ocr_score_change",
+      "scoreboard_backed_goal_sequence",
+      "scoreboard_temporal_consistency",
+      "visual_scoreboard_goal_confirmed",
+    ])
+  ) {
+    reasons.push("missing_score_change_evidence");
   }
   return safeCodes(reasons, 8);
 }
@@ -556,11 +768,14 @@ function assertVideoOutputCoverage({
   const animations = animationSummary(editPlan);
   const audioPolicy = audioPolicySummary(editPlan);
   const creativeStyle = creativeStyleSummary(editPlan);
+  const distinctGoalIdentity = distinctGoalIdentitySummary(segments);
+  const referenceStyleDuration = referenceStyleDurationSummary(editPlan, expectedGoals);
   const creativeContractPassed = hook.passed &&
     captions.passed &&
     animations.passed &&
     audioPolicy.passed &&
-    creativeStyle.passed;
+    creativeStyle.passed &&
+    referenceStyleDuration.passed;
   const extraGoalSegmentCount = expectedGoals.length > 0
     ? Math.max(0, confirmedGoalSegments.length - expectedGoals.length)
     : confirmedGoalSegments.length;
@@ -569,18 +784,21 @@ function assertVideoOutputCoverage({
     ...(mode === "valid_goals_only" && segments.some((segment) => !isConfirmedGoalSegment(segment)) ? ["non_goal_segments_present"] : []),
     ...(matches.some((match) => !match.covered) ? ["missing_or_invalid_counted_goal_segment"] : []),
     ...(extraGoalSegmentCount > 0 ? ["unexpected_extra_goal_segment"] : []),
+    ...distinctGoalIdentity.failedReasons,
     ...(invalidSegments.length ? ["invalid_segment_coverage"] : []),
     ...hook.reasons,
     ...captions.reasons,
     ...animations.reasons,
     ...audioPolicy.reasons,
     ...creativeStyle.reasons,
+    ...referenceStyleDuration.reasons,
   ], 10);
   const passed = mode !== "valid_goals_only"
-    ? invalidSegments.length === 0 && creativeContractPassed
+    ? invalidSegments.length === 0 && distinctGoalIdentity.passed && creativeContractPassed
     : expectedGoals.length > 0 &&
       coveredGoalCount === expectedGoals.length &&
       confirmedGoalSegments.length === expectedGoals.length &&
+      distinctGoalIdentity.passed &&
       invalidSegments.length === 0 &&
       segments.every(isConfirmedGoalSegment) &&
       creativeContractPassed;
@@ -599,6 +817,8 @@ function assertVideoOutputCoverage({
       .map((match) => match.expected.goalNumber)
       .slice(0, MAX_PUBLIC_ITEMS),
     extraGoalSegmentCount,
+    distinctGoalIdentity,
+    referenceStyleDuration,
     expectedGoals: expectedGoals.map(publicExpectedGoal).slice(0, MAX_PUBLIC_ITEMS),
     matches: matches.map((match) => ({
       goalNumber: match.expected.goalNumber,

@@ -74,6 +74,10 @@ const SCOREBUG_FIRST_REGION_IDS = Object.freeze([
   "scoreboard_top_center",
   "scoreboard_top_right",
 ]);
+const SCOREBUG_FIRST_FAST_REGION_IDS = Object.freeze([
+  "scorebug_broadcast_compact",
+  "scorebug_left_compact",
+]);
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, Number(value) || min));
@@ -1587,7 +1591,7 @@ function scoreboardOcrPreprocessVariants() {
 }
 
 function scorebugFirstPreprocessVariants() {
-  const preferred = new Set(["gray_line", "contrast_block"]);
+  const preferred = new Set(["contrast_block"]);
   return scoreboardOcrPreprocessVariants().filter((variant) => preferred.has(variant.id));
 }
 
@@ -1602,7 +1606,7 @@ function safeScorebugFirstRegionIds(regionIds = []) {
 function scorebugFirstRegions(regions = [], preferredRegionIds = []) {
   const byId = new Map((Array.isArray(regions) ? regions : []).map((region) => [region.id, region]));
   const ids = safeScorebugFirstRegionIds(preferredRegionIds);
-  return (ids.length ? ids : SCOREBUG_FIRST_REGION_IDS)
+  return (ids.length ? ids : SCOREBUG_FIRST_FAST_REGION_IDS)
     .map((id) => byId.get(id))
     .filter(Boolean)
     .slice(0, MAX_SCOREBOARD_REGIONS);
@@ -1984,13 +1988,15 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
                 scoreOnlyScore = null;
               }
             }
-            const ocr = scorebugFirstOnly && scoreOnlyScore
+            const ocr = scorebugFirstOnly
               ? {
-                  text: scoreOnlyScore.text,
-                  confidence: scoreOnlyOcr && scoreOnlyOcr.confidence || 0.74,
-                  rejected: false,
+                  text: scoreOnlyScore ? scoreOnlyScore.text : "",
+                  confidence: scoreOnlyScore ? scoreOnlyOcr && scoreOnlyOcr.confidence || 0.74 : 0.05,
+                  rejected: !scoreOnlyScore,
                   skipped: true,
-                  reason: "scorebug_first_structured_score_available",
+                  reason: scoreOnlyScore
+                    ? "scorebug_first_structured_score_available"
+                    : "scorebug_first_full_crop_ocr_skipped",
                 }
               : await raceWithTimeout(this.ocrAdapter.readTextFromImage({
                   imagePath: safeCropPath,
@@ -2021,7 +2027,7 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
               calibration: digitCalibrationForCrop,
               signal: input.signal,
             }));
-            if (scoreOnlyCrop && digitReading.status !== "readable") {
+            if (!scorebugFirstOnly && scoreOnlyCrop && digitReading.status !== "readable") {
               const fullCropDigitReading = await Promise.resolve(this.digitReader({
                 frame,
                 crop: {
@@ -2049,7 +2055,7 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
               }
             }
             let profileDigitOcr = null;
-            if (layoutProfile && digitReading.status !== "readable") {
+            if (!scorebugFirstOnly && layoutProfile && digitReading.status !== "readable") {
               profileDigitOcr = await readProfileDigitOcr({
                 cropPath: safeCropPath,
                 outputDir,

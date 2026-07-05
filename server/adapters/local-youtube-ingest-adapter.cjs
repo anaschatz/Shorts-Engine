@@ -13,6 +13,8 @@ const YOUTUBE_OUTPUT_FILE = "source.mp4";
 const METADATA_TIMEOUT_MS = 15 * 1000;
 const DEFAULT_FORMAT_SELECTOR = "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best";
 const DEFAULT_FALLBACK_FORMAT_SELECTOR = "best[ext=mp4]/best";
+const RECOVERY_PROGRESSIVE_FORMAT_SELECTOR = "18/best[ext=mp4]/best";
+const RECOVERY_LOW_HEIGHT_FORMAT_SELECTOR = "b[height<=480][ext=mp4]/best[height<=480]/best";
 
 function downloaderAvailable(downloaderBin, spawnSyncImpl = spawnSync) {
   try {
@@ -71,7 +73,7 @@ function normalizePlayerClient(value) {
 
 function normalizeFormatSelector(value, fallback = DEFAULT_FORMAT_SELECTOR) {
   const selector = String(value || fallback).trim();
-  return /^[A-Za-z0-9*+/\[\]=._:,-]{1,180}$/.test(selector) ? selector : fallback;
+  return /^[A-Za-z0-9*+/\[\]=._:,\-<>]{1,180}$/.test(selector) ? selector : fallback;
 }
 
 function youtubeExtractorArgs(config = {}) {
@@ -307,6 +309,29 @@ function progressWasObserved(progressDetails = {}) {
   return Number(progressDetails.progressBytesObserved) > 0 || Number(progressDetails.progressEventCount) > 0;
 }
 
+function safeDiagnosticString(value, maxLength = 180) {
+  return String(value || "")
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength) || null;
+}
+
+function hasBoundedHeightSelector(formatSelector) {
+  return /\bheight\s*<=\s*\d+/i.test(String(formatSelector || ""));
+}
+
+function appendUniqueAttempt(attempts, formatSelector, recoveryKind) {
+  const selector = normalizeFormatSelector(formatSelector, DEFAULT_FALLBACK_FORMAT_SELECTOR);
+  if (!selector || attempts.some((attempt) => attempt.formatSelector === selector)) return;
+  attempts.push({
+    attempt: attempts.length + 1,
+    formatSelector: selector,
+    fallbackUsed: attempts.length > 0,
+    recoveryKind,
+  });
+}
+
 function timeoutClassificationFor(error, progressDetails = {}) {
   const code = error && typeof error === "object" ? error.code : null;
   if (code !== "YOUTUBE_DOWNLOAD_TIMEOUT" && code !== "YOUTUBE_NO_PROGRESS_TIMEOUT") return null;
@@ -328,20 +353,31 @@ function toDownloaderError(error) {
 }
 
 function refineDownloaderErrorAfterAttempt(error, { cleanup = {}, progressDetails = {} } = {}) {
-  if (!error || error.code !== "YOUTUBE_DOWNLOAD_FAILED") return error;
+  if (
+    !error ||
+    (error.code !== "YOUTUBE_DOWNLOAD_FAILED" && error.code !== "YOUTUBE_VIDEO_UNAVAILABLE")
+  ) {
+    return error;
+  }
   const partialBytes = Number(progressDetails.progressBytesObserved || 0);
   const partialFilesRemoved = Number(cleanup.removedCount || 0);
   if (partialBytes <= 0 && partialFilesRemoved <= 0) return error;
+  const wasAvailabilityFailure = error.code === "YOUTUBE_VIDEO_UNAVAILABLE";
+  const failureReason = wasAvailabilityFailure
+    ? "partial_fragment_unavailable_after_progress"
+    : "download_incomplete_after_progress";
   return new AppError(
     "YOUTUBE_DOWNLOAD_INCOMPLETE",
     SAFE_MESSAGES.YOUTUBE_DOWNLOAD_INCOMPLETE,
     502,
     {
       ...(error.details || {}),
-      reason: "download_incomplete_after_progress",
-      failureReason: "download_incomplete_after_progress",
+      reason: failureReason,
+      failureReason,
       safeMessage: SAFE_MESSAGES.YOUTUBE_DOWNLOAD_INCOMPLETE,
-      nextAction: "retry-with-lower-proof-format-or-use-authorized-source-cache",
+      nextAction: wasAvailabilityFailure
+        ? "retry-with-progressive-or-lower-bounded-format-or-use-authorized-source-cache"
+        : "retry-with-lower-proof-format-or-use-authorized-source-cache",
       retryable: true,
       authorizedImportRequired: false,
     },
@@ -391,15 +427,71 @@ function removePartialOutputs(outputPath) {
 function buildDownloadAttempts(config = {}) {
   const strategy = formatStrategySummary(config);
   const attempts = [];
-  for (let index = 0; index < strategy.attemptsConfigured; index += 1) {
-    const fallbackUsed = index > 0 && strategy.fallbackFormatSelector !== strategy.formatSelector;
-    attempts.push({
-      attempt: index + 1,
-      formatSelector: fallbackUsed ? strategy.fallbackFormatSelector : strategy.formatSelector,
-      fallbackUsed,
-    });
+  appendUniqueAttempt(attempts, strategy.formatSelector, "primary");
+  if (hasBoundedHeightSelector(strategy.formatSelector)) {
+    appendUniqueAttempt(attempts, RECOVERY_PROGRESSIVE_FORMAT_SELECTOR, "progressive_mp4");
+    appendUniqueAttempt(attempts, strategy.fallbackFormatSelector, "configured_fallback");
+    appendUniqueAttempt(attempts, RECOVERY_LOW_HEIGHT_FORMAT_SELECTOR, "lower_bounded_height");
+  } else {
+    appendUniqueAttempt(attempts, strategy.fallbackFormatSelector, "configured_fallback");
   }
-  return attempts;
+  const minimumAttemptCount = hasBoundedHeightSelector(strategy.formatSelector)
+    ? Math.max(strategy.attemptsConfigured, Math.min(attempts.length, 3))
+    : strategy.attemptsConfigured;
+  const plannedAttemptCount = Math.min(4, Math.max(1, minimumAttemptCount));
+  return attempts.slice(0, plannedAttemptCount).map((attempt, index) => ({
+    ...attempt,
+    attempt: index + 1,
+    fallbackUsed: index > 0,
+  }));
+}
+
+function failureClassificationFor(error, progressDetails = {}) {
+  if (!error || typeof error !== "object") return "unknown_downloader_failure";
+  if (error.details && typeof error.details.failureReason === "string") return error.details.failureReason;
+  if (error.code === "YOUTUBE_FORMAT_UNAVAILABLE") return "selected_format_unavailable";
+  if (error.code === "YOUTUBE_VIDEO_UNAVAILABLE" && progressWasObserved(progressDetails)) {
+    return "partial_fragment_unavailable_after_progress";
+  }
+  if (error.code === "YOUTUBE_VIDEO_UNAVAILABLE") return "video_unavailable";
+  if (error.code === "YOUTUBE_DOWNLOAD_TIMEOUT") return "download_timeout";
+  if (error.code === "YOUTUBE_NO_PROGRESS_TIMEOUT") return "download_no_progress_timeout";
+  if (error.code === "YOUTUBE_OUTPUT_INVALID") return "unsupported_mux_or_container_result";
+  return "downloader_failure";
+}
+
+function safeAttemptDiagnostic({
+  attempt = {},
+  status,
+  error = null,
+  cleanup = {},
+  progressDetails = {},
+  elapsedMs = null,
+  downloadedOutputReady = false,
+} = {}) {
+  const timeoutClassification = timeoutClassificationFor(error, progressDetails);
+  return {
+    attempt: Number.isFinite(Number(attempt.attempt)) ? Number(attempt.attempt) : null,
+    status: status === "passed" ? "passed" : "failed",
+    formatSelector: safeDiagnosticString(attempt.formatSelector, 180),
+    fallbackUsed: attempt.fallbackUsed === true,
+    recoveryKind: safeDiagnosticString(attempt.recoveryKind || "primary", 80),
+    elapsedMs: Number.isFinite(Number(elapsedMs)) ? Number(elapsedMs) : null,
+    code: error && typeof error.code === "string" ? safeDiagnosticString(error.code, 80) : null,
+    failureClassification: error ? failureClassificationFor(error, progressDetails) : null,
+    retryable: error && error.details ? error.details.retryable === true : null,
+    progressBytesObserved: Number.isFinite(Number(progressDetails.progressBytesObserved))
+      ? Number(progressDetails.progressBytesObserved)
+      : null,
+    progressEventCount: Number.isFinite(Number(progressDetails.progressEventCount))
+      ? Number(progressDetails.progressEventCount)
+      : null,
+    timeoutClassification,
+    stallClassification: safeDiagnosticString(progressDetails.stallClassification, 80),
+    partialCleanupSucceeded: typeof cleanup.cleaned === "boolean" ? cleanup.cleaned : null,
+    partialCleanupRemovedCount: Number.isFinite(Number(cleanup.removedCount)) ? Number(cleanup.removedCount) : null,
+    downloadedOutputReady: downloadedOutputReady === true,
+  };
 }
 
 function attachDownloaderDetails(error, details = {}) {
@@ -432,6 +524,11 @@ function attachDownloaderDetails(error, details = {}) {
     continueAttempted: details.continueAttempted === true,
     resumableStateEnabled: details.resumableStateEnabled === true,
     resumeStateRetained: details.resumeStateRetained === true,
+    failureClassification: details.failureClassification || null,
+    downloadedOutputReady: details.downloadedOutputReady === true,
+    attemptDiagnostics: Array.isArray(details.attemptDiagnostics)
+      ? details.attemptDiagnostics.slice(0, 4)
+      : [],
   };
   return error;
 }
@@ -546,6 +643,7 @@ function createLocalYouTubeIngestAdapter(options = {}) {
       const strategy = formatStrategySummary(config);
       let finalAttempt = attempts[0];
       let lastError = null;
+      const attemptDiagnostics = [];
       for (const attempt of attempts) {
         finalAttempt = attempt;
         removePartialOutputs(outputPath);
@@ -556,11 +654,17 @@ function createLocalYouTubeIngestAdapter(options = {}) {
             timeout: config.timeoutMs,
             maxBuffer: config.maxOutputBytes,
             windowsHide: true,
-            signal: options.signal,
-            progressPath: outputPath,
-            progressHeartbeatMs: config.progressHeartbeatMs,
+	            signal: options.signal,
+	            progressPath: outputPath,
+	            progressHeartbeatMs: config.progressHeartbeatMs,
             noProgressTimeoutMs: config.noProgressTimeoutMs,
           });
+          attemptDiagnostics.push(safeAttemptDiagnostic({
+            attempt,
+            status: "passed",
+            elapsedMs: Date.now() - attemptStartedAt,
+            downloadedOutputReady: true,
+          }));
           lastError = null;
           break;
         } catch (error) {
@@ -568,13 +672,23 @@ function createLocalYouTubeIngestAdapter(options = {}) {
           const progressDetails = safeProgressDetails(error && error.progressSummary);
           const safeError = refineDownloaderErrorAfterAttempt(toDownloaderError(error), { cleanup, progressDetails });
           const timeoutClassification = timeoutClassificationFor(safeError, progressDetails);
+          const failureClassification = failureClassificationFor(safeError, progressDetails);
+          attemptDiagnostics.push(safeAttemptDiagnostic({
+            attempt,
+            status: "failed",
+            error: safeError,
+            cleanup,
+            progressDetails,
+            elapsedMs: Date.now() - attemptStartedAt,
+            downloadedOutputReady: false,
+          }));
           attachDownloaderDetails(safeError, {
             phase: "ingest",
             step: "download_source",
             substep: "youtube_downloader",
             elapsedMs: Date.now() - attemptStartedAt,
             attempts: attempt.attempt,
-            attemptsConfigured: strategy.attemptsConfigured,
+            attemptsConfigured: attempts.length,
             timeoutMs: strategy.timeoutMs,
             formatSelector: attempt.formatSelector,
             fallbackFormatSelector: strategy.fallbackFormatSelector,
@@ -595,6 +709,9 @@ function createLocalYouTubeIngestAdapter(options = {}) {
             continueAttempted: true,
             resumableStateEnabled: strategy.resumableStateEnabled,
             resumeStateRetained: false,
+            failureClassification,
+            downloadedOutputReady: false,
+            attemptDiagnostics,
           });
           lastError = safeError;
           if (!shouldRetryDownload(safeError, attempt.attempt < attempts.length)) break;
@@ -612,17 +729,20 @@ function createLocalYouTubeIngestAdapter(options = {}) {
           phase: "ingest",
           step: "download_validate_signature",
           substep: "downloaded_file_stat",
-          elapsedMs: Date.now() - startedAt,
-          retryable: true,
-          nextAction: "retry-ingest-or-check-downloader-output-format",
+	          elapsedMs: Date.now() - startedAt,
+	          retryable: true,
+	          nextAction: "retry-ingest-or-check-downloader-output-format",
           attempts: finalAttempt.attempt,
-          attemptsConfigured: strategy.attemptsConfigured,
+          attemptsConfigured: attempts.length,
           timeoutMs: strategy.timeoutMs,
           formatSelector: finalAttempt.formatSelector,
           fallbackFormatSelector: strategy.fallbackFormatSelector,
           fallbackUsed: finalAttempt.fallbackUsed,
           playerClient: strategy.playerClient || "",
           partialCleanupSucceeded: true,
+          failureClassification: "unsupported_mux_or_container_result",
+          downloadedOutputReady: false,
+          attemptDiagnostics,
         });
       }
       return {
@@ -633,7 +753,7 @@ function createLocalYouTubeIngestAdapter(options = {}) {
         formatSelector: finalAttempt.formatSelector,
         fallbackUsed: finalAttempt.fallbackUsed,
         timeoutMs: strategy.timeoutMs,
-        attemptsConfigured: strategy.attemptsConfigured,
+        attemptsConfigured: attempts.length,
         fallbackFormatSelector: strategy.fallbackFormatSelector,
         playerClient: strategy.playerClient || "",
         heartbeatIntervalMs: strategy.progressHeartbeatMs,
@@ -642,6 +762,8 @@ function createLocalYouTubeIngestAdapter(options = {}) {
         continueAttempted: true,
         resumableStateEnabled: strategy.resumableStateEnabled,
         resumeStateRetained: false,
+        downloadedOutputReady: true,
+        attemptDiagnostics,
       };
     },
     buildDownloaderArgs,

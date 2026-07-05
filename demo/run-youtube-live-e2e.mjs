@@ -563,6 +563,31 @@ function phaseForCode(code) {
   return "proof";
 }
 
+function safeAttemptDiagnostics(value) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 4).map((attempt) => {
+    const item = attempt && typeof attempt === "object" ? attempt : {};
+    return {
+      attempt: safeNumber(item.attempt),
+      status: item.status ? safeString(item.status, 40) : null,
+      formatSelector: item.formatSelector ? safeString(item.formatSelector, 180) : null,
+      fallbackUsed: safeBoolean(item.fallbackUsed),
+      recoveryKind: item.recoveryKind ? safeString(item.recoveryKind, 80) : null,
+      elapsedMs: safeNumber(item.elapsedMs),
+      code: item.code ? safeString(item.code, 80) : null,
+      failureClassification: item.failureClassification ? safeString(item.failureClassification, 80) : null,
+      retryable: safeBoolean(item.retryable),
+      progressBytesObserved: safeNumber(item.progressBytesObserved),
+      progressEventCount: safeNumber(item.progressEventCount),
+      timeoutClassification: item.timeoutClassification ? safeString(item.timeoutClassification, 80) : null,
+      stallClassification: item.stallClassification ? safeString(item.stallClassification, 80) : null,
+      partialCleanupSucceeded: safeBoolean(item.partialCleanupSucceeded),
+      partialCleanupRemovedCount: safeNumber(item.partialCleanupRemovedCount),
+      downloadedOutputReady: safeBoolean(item.downloadedOutputReady),
+    };
+  });
+}
+
 function safeFailure(error) {
   const safe = safeReportError(error) || { code: "YOUTUBE_LIVE_E2E_FAILED", message: "YouTube live E2E failed." };
   const code = error && error.code ? error.code : safe.code;
@@ -610,11 +635,13 @@ function safeFailure(error) {
     lastProgressAgeMs: safeNumber(details.lastProgressAgeMs),
     timeoutClassification: details.timeoutClassification ? safeString(details.timeoutClassification, 80) : null,
     bytesStillMovingAtTimeout: safeBoolean(details.bytesStillMovingAtTimeout),
-    continueEnabled: safeBoolean(details.continueEnabled),
-    continueAttempted: safeBoolean(details.continueAttempted),
-    resumableStateEnabled: safeBoolean(details.resumableStateEnabled),
-    resumeStateRetained: safeBoolean(details.resumeStateRetained),
-    metadataPreflightStatus: details.metadataPreflightStatus ? safeString(details.metadataPreflightStatus, 80) : null,
+	    continueEnabled: safeBoolean(details.continueEnabled),
+	    continueAttempted: safeBoolean(details.continueAttempted),
+	    resumableStateEnabled: safeBoolean(details.resumableStateEnabled),
+	    resumeStateRetained: safeBoolean(details.resumeStateRetained),
+    failureClassification: details.failureClassification ? safeString(details.failureClassification, 80) : null,
+    attemptDiagnostics: safeAttemptDiagnostics(details.attemptDiagnostics),
+	    metadataPreflightStatus: details.metadataPreflightStatus ? safeString(details.metadataPreflightStatus, 80) : null,
     metadataPreflightDurationSeconds: safeNumber(details.metadataPreflightDurationSeconds),
     cleanupSucceeded: safeBoolean(details.cleanupSucceeded),
     partialCleanupSucceeded: safeBoolean(details.partialCleanupSucceeded),
@@ -1532,11 +1559,13 @@ function ingestDiagnosticsFromFailure(failure = null) {
     lastProgressAgeMs: safeNumber(failure.lastProgressAgeMs),
     timeoutClassification: failure.timeoutClassification ? safeString(failure.timeoutClassification, 80) : null,
     bytesStillMovingAtTimeout: safeBoolean(failure.bytesStillMovingAtTimeout),
-    continueEnabled: safeBoolean(failure.continueEnabled),
-    continueAttempted: safeBoolean(failure.continueAttempted),
-    resumableStateEnabled: safeBoolean(failure.resumableStateEnabled),
-    resumeStateRetained: safeBoolean(failure.resumeStateRetained),
-    metadataPreflightStatus: failure.metadataPreflightStatus ? safeString(failure.metadataPreflightStatus, 80) : null,
+	    continueEnabled: safeBoolean(failure.continueEnabled),
+	    continueAttempted: safeBoolean(failure.continueAttempted),
+	    resumableStateEnabled: safeBoolean(failure.resumableStateEnabled),
+	    resumeStateRetained: safeBoolean(failure.resumeStateRetained),
+    failureClassification: failure.failureClassification ? safeString(failure.failureClassification, 80) : null,
+    attemptDiagnostics: safeAttemptDiagnostics(failure.attemptDiagnostics),
+	    metadataPreflightStatus: failure.metadataPreflightStatus ? safeString(failure.metadataPreflightStatus, 80) : null,
     metadataPreflightDurationSeconds: safeNumber(failure.metadataPreflightDurationSeconds),
     cleanupSucceeded: safeBoolean(failure.cleanupSucceeded),
     partialCleanupSucceeded: safeBoolean(failure.partialCleanupSucceeded),

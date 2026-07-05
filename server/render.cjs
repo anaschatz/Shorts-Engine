@@ -466,13 +466,35 @@ function runFfmpeg(args, { signal, timeoutMs = CONFIG.renderTimeoutMs, onProgres
     }
     const child = spawn(ffmpegBin, args, { stdio: ["ignore", "ignore", "pipe"] });
     let stderr = "";
+    let settled = false;
+    let killTimer = null;
+    const cleanup = () => {
+      clearTimeout(timeout);
+      if (killTimer) clearTimeout(killTimer);
+      if (signal) signal.removeEventListener("abort", abort);
+    };
+    const settle = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      fn(value);
+    };
+    const killChild = (signalName) => {
+      if (child.killed) return;
+      try {
+        child.kill(signalName);
+      } catch {
+        // The process may have exited between the state check and kill call.
+      }
+    };
     const timeout = setTimeout(() => {
-      child.kill("SIGKILL");
-      reject(new AppError("RENDER_FAILED", "Render timed out.", 500));
+      killChild("SIGKILL");
+      settle(reject, new AppError("RENDER_FAILED", "Render timed out.", 500));
     }, timeoutMs);
     const abort = () => {
-      child.kill("SIGTERM");
-      reject(new AppError("JOB_CANCELLED", SAFE_MESSAGES.JOB_CANCELLED, 409));
+      killChild("SIGTERM");
+      killTimer = setTimeout(() => killChild("SIGKILL"), 2000);
+      settle(reject, new AppError("JOB_CANCELLED", SAFE_MESSAGES.JOB_CANCELLED, 409));
     };
     if (signal) {
       if (signal.aborted) {
@@ -486,14 +508,15 @@ function runFfmpeg(args, { signal, timeoutMs = CONFIG.renderTimeoutMs, onProgres
       if (onProgress) onProgress(stderr);
     });
     child.on("error", () => {
-      clearTimeout(timeout);
-      reject(new AppError("FFMPEG_MISSING", SAFE_MESSAGES.FFMPEG_MISSING, 503));
+      settle(reject, new AppError("FFMPEG_MISSING", SAFE_MESSAGES.FFMPEG_MISSING, 503));
     });
     child.on("close", (code) => {
-      clearTimeout(timeout);
-      if (signal) signal.removeEventListener("abort", abort);
-      if (code === 0) resolve({ stderr });
-      else reject(new AppError("RENDER_FAILED", SAFE_MESSAGES.RENDER_FAILED, 500, { stderr: stderr.slice(-1200) }));
+      if (settled) {
+        cleanup();
+        return;
+      }
+      if (code === 0) settle(resolve, { stderr });
+      else settle(reject, new AppError("RENDER_FAILED", SAFE_MESSAGES.RENDER_FAILED, 500, { stderr: stderr.slice(-1200) }));
     });
   });
 }

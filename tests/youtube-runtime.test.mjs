@@ -572,10 +572,26 @@ test("youtube smoke ingest API failures report downloader phase details", async 
         metadataPreflightDurationSeconds: 540,
         partialCleanupSucceeded: true,
         partialCleanupRemovedCount: 2,
-        cleanupSucceeded: true,
-        downloadedOutputReady: false,
-      },
-    }, 502, "req_ingest_failed"),
+	        cleanupSucceeded: true,
+	        downloadedOutputReady: false,
+        failureClassification: "download_timeout",
+        attemptDiagnostics: [
+          {
+            attempt: 1,
+            status: "failed",
+            formatSelector: "b[height<=720][ext=mp4]/best[height<=720]/best",
+            fallbackUsed: false,
+            recoveryKind: "primary",
+            code: "YOUTUBE_DOWNLOAD_TIMEOUT",
+            failureClassification: "download_timeout",
+            progressBytesObserved: 4096,
+            partialCleanupSucceeded: true,
+            partialCleanupRemovedCount: 2,
+            downloadedOutputReady: false,
+          },
+        ],
+	      },
+	    }, 502, "req_ingest_failed"),
   });
   const report = await runYouTubeSmoke({ env: smokeEnv(), fetchImpl });
 
@@ -611,9 +627,13 @@ test("youtube smoke ingest API failures report downloader phase details", async 
   assert.equal(report.failedCases[0].metadataPreflightDurationSeconds, 540);
   assert.equal(report.failedCases[0].partialCleanupSucceeded, true);
   assert.equal(report.failedCases[0].partialCleanupRemovedCount, 2);
-  assert.equal(report.failedCases[0].cleanupSucceeded, true);
-  assert.equal(report.failedCases[0].downloadedOutputReady, false);
-  assert.equal(report.steps.at(-1).phase, "ingest");
+	  assert.equal(report.failedCases[0].cleanupSucceeded, true);
+	  assert.equal(report.failedCases[0].downloadedOutputReady, false);
+  assert.equal(report.failedCases[0].failureClassification, "download_timeout");
+  assert.equal(report.failedCases[0].attemptDiagnostics.length, 1);
+  assert.equal(report.failedCases[0].attemptDiagnostics[0].formatSelector, "b[height<=720][ext=mp4]/best[height<=720]/best");
+  assert.equal(report.failedCases[0].attemptDiagnostics[0].partialCleanupSucceeded, true);
+	  assert.equal(report.steps.at(-1).phase, "ingest");
   assert.equal(report.steps.at(-1).activeStep, "download_source");
   assert.equal(report.steps.at(-1).substep, "youtube_downloader");
   assert.equal(report.failedCases[0].nextAction, "use-rights-cleared-local-mp4-proof-or-fix-downloader-and-rerun");
@@ -1104,6 +1124,10 @@ test("youtube smoke surfaces safe video output QA when the render job fails the 
   assert.deepEqual(report.failedCases[0].missingGoalNumbers, [3]);
   assert.deepEqual(report.failedCases[0].failedReasons, ["missing_or_invalid_counted_goal_segment"]);
   assert.equal(report.jobLifecycle.at(-1).videoOutputQA.status, "failed");
+  assert.equal(report.jobLifecycle.at(-1).videoOutputQA.expectedGoals.length, 3);
+  assert.equal(report.jobLifecycle.at(-1).videoOutputQA.expectedGoals[2].confirmationTime, 260);
+  assert.equal(report.jobLifecycle.at(-1).videoOutputQA.segments.length, 2);
+  assert.equal(report.jobLifecycle.at(-1).videoOutputQA.segments[1].goalNumber, 2);
   assert.equal(report.jobLifecycle.at(-1).videoOutputQA.logsDownloaded, false);
   assert.equal(report.jobLifecycle.at(-1).videoOutputQA.artifactsDownloaded, false);
   assert.equal(report.renderPlan, null);
@@ -1443,6 +1467,42 @@ function passedSmokeReport() {
 }
 
 function failedVideoOutputQA(overrides = {}) {
+  const expectedGoals = [1, 2, 3].map((goalNumber, index) => ({
+    goalNumber,
+    source: "score_change",
+    anchorTime: 100 + index * 80,
+    confirmationTime: 100 + index * 80,
+    scoreBefore: `${index}-0`,
+    scoreAfter: `${index + 1}-0`,
+  }));
+  const segments = [1, 2].map((goalNumber, index) => ({
+    index: goalNumber,
+    id: `segment_goal_${goalNumber}`,
+    sourceStart: 84 + index * 80,
+    sourceEnd: 108 + index * 80,
+    highlightType: "goal",
+    goalNumber,
+    outcome: "confirmed_goal",
+    shotStart: 94 + index * 80,
+    finishTime: 98 + index * 80,
+    confirmationTime: 100 + index * 80,
+    scoreBefore: `${index}-0`,
+    scoreAfter: `${index + 1}-0`,
+    scoreChangeTime: 100 + index * 80,
+    replayOnly: false,
+    celebrationOnly: false,
+    replayUsed: false,
+    phaseCoverage: {
+      hasBuildup: true,
+      hasShot: true,
+      hasFinish: true,
+      hasConfirmation: true,
+      replayOnly: false,
+      celebrationOnly: false,
+    },
+    reasonCodes: ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"],
+    safetyFlags: [],
+  }));
   return {
     schemaVersion: 1,
     status: "failed",
@@ -1455,12 +1515,14 @@ function failedVideoOutputQA(overrides = {}) {
     missingGoalNumbers: [3],
     extraGoalSegmentCount: 0,
     failedReasons: ["missing_or_invalid_counted_goal_segment"],
+    expectedGoals,
     invalidSegments: [],
     matches: [
       { goalNumber: 1, segmentIndex: 1, covered: true, reasons: [] },
       { goalNumber: 2, segmentIndex: 2, covered: true, reasons: [] },
       { goalNumber: 3, segmentIndex: null, covered: false, reasons: ["missing_segment_for_counted_goal"] },
     ],
+    segments,
     logsDownloaded: false,
     artifactsDownloaded: false,
     ...overrides,
@@ -2473,6 +2535,9 @@ test("youtube live local e2e reports final output gate details when smoke fails 
   assert.equal(report.outputProof.coveredGoalCount, 2);
   assert.deepEqual(report.outputProof.missingGoalNumbers, [3]);
   assert.equal(report.outputProof.videoOutputQA.status, "failed");
+  assert.equal(report.outputProof.videoOutputQA.expectedGoals.length, 3);
+  assert.equal(report.outputProof.videoOutputQA.segments.length, 2);
+  assert.equal(report.outputProof.videoOutputQA.segments[0].confirmationTime, 100);
   assert.equal(report.outputProof.ffprobe.code, "OUTPUT_MP4_NOT_CREATED");
   assert.equal(report.outputProof.logsDownloaded, false);
   assert.equal(report.outputProof.artifactsDownloaded, false);

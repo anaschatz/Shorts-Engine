@@ -827,6 +827,73 @@ test("local youtube downloader adapter retries with fallback format and cleans p
   }
 });
 
+test("local youtube downloader adapter recovers from unavailable after progress with bounded fallback ladder", async () => {
+  const uploadId = "upl_recover1-1234-1234-1234-123456789abc";
+  const { stageDir, outputPath } = createYouTubeStagePaths(uploadId);
+  mkdirSync(stageDir, { recursive: true });
+  const calls = [];
+  const adapter = createLocalYouTubeIngestAdapter({
+    config: {
+      enabled: true,
+      downloaderBin: "yt-dlp",
+      timeoutMs: 1000,
+      maxOutputBytes: 4096,
+      formatSelector: "b[height<=720][ext=mp4]/best[height<=720]/best",
+      fallbackFormatSelector: "b[height<=480][ext=mp4]/best[height<=480]/best",
+      downloadAttempts: 3,
+      retryBackoffMs: 0,
+    },
+    spawnSync: () => ({ status: 0, stdout: "2026.01.01\n" }),
+    execFile: (_command, args, _options, callback) => {
+      calls.push(args);
+      if (calls.length === 1) {
+        writeFileSync(outputPath, Buffer.alloc(4096));
+        writeFileSync(`${outputPath}.part`, Buffer.alloc(2048));
+        callback(Object.assign(new Error("Video unavailable after fragment /Users/raw"), {
+          stderr: "raw stderr token",
+        }));
+        return;
+      }
+      if (calls.length === 2) {
+        assert.equal(existsSync(outputPath), false);
+        assert.equal(existsSync(`${outputPath}.part`), false);
+        writeFileSync(outputPath, Buffer.from("partial-progressive"));
+        callback(Object.assign(new Error("Requested format is not available"), {
+          stderr: "format raw stderr",
+        }));
+        return;
+      }
+      assert.equal(existsSync(outputPath), false);
+      writeFileSync(outputPath, Buffer.concat([mp4Header, Buffer.alloc(128)]));
+      callback(null, "", "");
+    },
+  });
+  try {
+    const result = await adapter.ingest(normalizeYouTubeUrl("https://youtu.be/dQw4w9WgXcQ"), { outputPath });
+    const formats = calls.map((args) => args[args.indexOf("--format") + 1]);
+    assert.deepEqual(formats, [
+      "b[height<=720][ext=mp4]/best[height<=720]/best",
+      "18/best[ext=mp4]/best",
+      "b[height<=480][ext=mp4]/best[height<=480]/best",
+    ]);
+    assert.equal(result.attempts, 3);
+    assert.equal(result.attemptsConfigured, 3);
+    assert.equal(result.fallbackUsed, true);
+    assert.equal(result.downloadedOutputReady, true);
+    assert.equal(result.attemptDiagnostics.length, 3);
+    assert.equal(result.attemptDiagnostics[0].code, "YOUTUBE_DOWNLOAD_INCOMPLETE");
+    assert.equal(result.attemptDiagnostics[0].failureClassification, "partial_fragment_unavailable_after_progress");
+    assert.equal(result.attemptDiagnostics[0].partialCleanupSucceeded, true);
+    assert.equal(result.attemptDiagnostics[1].code, "YOUTUBE_FORMAT_UNAVAILABLE");
+    assert.equal(result.attemptDiagnostics[1].recoveryKind, "progressive_mp4");
+    assert.equal(result.attemptDiagnostics[2].status, "passed");
+    assert.equal(result.attemptDiagnostics[2].recoveryKind, "configured_fallback");
+    assert.doesNotMatch(JSON.stringify(result.attemptDiagnostics), /\/Users|stderr|stdout|token|raw/i);
+  } finally {
+    cleanupYouTubeStage(stageDir);
+  }
+});
+
 test("local youtube downloader adapter reports exhausted retries safely", async () => {
   const uploadId = "upl_retry34-1234-1234-1234-123456789abc";
   const { stageDir, outputPath } = createYouTubeStagePaths(uploadId);
@@ -925,7 +992,7 @@ test("local youtube downloader adapter classifies generic failure after partial 
 
 test("local youtube downloader adapter exposes safe format strategy and version metadata", () => {
   const strategy = formatStrategySummary({
-    formatSelector: "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best",
+    formatSelector: "bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4]/best",
     fallbackFormatSelector: "best[ext=mp4]/best",
     downloadAttempts: 3,
     timeoutMs: 120000,
@@ -933,6 +1000,7 @@ test("local youtube downloader adapter exposes safe format strategy and version 
   });
   assert.equal(strategy.attemptsConfigured, 3);
   assert.equal(strategy.playerClient, "android");
+  assert.equal(strategy.formatSelector, "bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4]/best");
   assert.equal(strategy.fallbackFormatSelector, "best[ext=mp4]/best");
   assert.equal(strategy.continueEnabled, true);
   assert.equal(strategy.resumableStateEnabled, false);
@@ -944,11 +1012,11 @@ test("local youtube downloader adapter exposes safe format strategy and version 
     normalizeYouTubeUrl("https://youtu.be/dQw4w9WgXcQ"),
     createYouTubeStagePaths("upl_strategy-1234-1234-1234-123456789abc").outputPath,
     strategy,
-    { formatSelector: "best[ext=mp4]/best" },
+    { formatSelector: "b[height<=720][ext=mp4]/best[height<=720]/best" },
   );
-  assert.equal(args[args.indexOf("--format") + 1], "best[ext=mp4]/best");
+  assert.equal(args[args.indexOf("--format") + 1], "b[height<=720][ext=mp4]/best[height<=720]/best");
   assert.equal(args.includes("--continue"), true);
-  assert.doesNotMatch(args.join(" "), /[;&|`$<>]/);
+  assert.doesNotMatch(args.join(" "), /[;&|`$]/);
 });
 
 test("local youtube downloader adapter reads bounded metadata without downloading media", async () => {
@@ -1298,15 +1366,32 @@ test("youtube ingest service reports downloader timeout diagnostics and creates 
           fallbackUsed: true,
           partialCleanupSucceeded: true,
           partialCleanupRemovedCount: 2,
-          timeoutClassification: "DOWNLOAD_TIMED_OUT_WITH_PROGRESS",
-          progressBytesObserved: 147904182,
-          progressEventCount: 22,
-          continueEnabled: true,
-          continueAttempted: true,
-          resumableStateEnabled: false,
-          resumeStateRetained: false,
-          nextAction: "retry-ingest-or-upload-mp4",
-        });
+	          timeoutClassification: "DOWNLOAD_TIMED_OUT_WITH_PROGRESS",
+	          progressBytesObserved: 147904182,
+	          progressEventCount: 22,
+          failureClassification: "download_timeout",
+	          continueEnabled: true,
+	          continueAttempted: true,
+	          resumableStateEnabled: false,
+	          resumeStateRetained: false,
+          downloadedOutputReady: false,
+          attemptDiagnostics: [
+            {
+              attempt: 1,
+              status: "failed",
+              formatSelector: "b[height<=720][ext=mp4]/best[height<=720]/best",
+              fallbackUsed: false,
+              recoveryKind: "primary",
+              code: "YOUTUBE_DOWNLOAD_TIMEOUT",
+              failureClassification: "download_timeout",
+              progressBytesObserved: 147904182,
+              partialCleanupSucceeded: true,
+              partialCleanupRemovedCount: 2,
+              downloadedOutputReady: false,
+            },
+          ],
+	          nextAction: "retry-ingest-or-upload-mp4",
+	        });
       },
       health() {
         return {
@@ -1341,8 +1426,13 @@ test("youtube ingest service reports downloader timeout diagnostics and creates 
       assert.equal(error.details.cleanupSucceeded, true);
       assert.equal(error.details.fallbackUsed, true);
       assert.equal(error.details.timeoutClassification, "DOWNLOAD_TIMED_OUT_WITH_PROGRESS");
-      assert.equal(error.details.progressBytesObserved, 147904182);
-      assert.equal(error.details.continueAttempted, true);
+	      assert.equal(error.details.progressBytesObserved, 147904182);
+      assert.equal(error.details.failureClassification, "download_timeout");
+      assert.equal(error.details.downloadedOutputReady, false);
+      assert.equal(error.details.attemptDiagnostics.length, 1);
+      assert.equal(error.details.attemptDiagnostics[0].formatSelector, "b[height<=720][ext=mp4]/best[height<=720]/best");
+      assert.equal(error.details.attemptDiagnostics[0].partialCleanupSucceeded, true);
+	      assert.equal(error.details.continueAttempted, true);
       assert.equal(error.details.resumableStateEnabled, false);
       assert.equal(error.details.sourceAcquisitionStatus, "failed");
       assert.doesNotMatch(JSON.stringify(error.details), /\/Users|stderr|stdout|secret/i);

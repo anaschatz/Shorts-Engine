@@ -20,7 +20,24 @@ function countedScoreChanges(count) {
   }));
 }
 
-function visibleGoalSegment(goalNumber, sourceStart) {
+function customScoreChanges(times = []) {
+  return times.map((time, index) => ({
+    id: `counted_goal_${index + 1}`,
+    startScore: `${index}-0`,
+    endScore: `${index + 1}-0`,
+    changeTime: time,
+    actionAnchorTime: time - 10,
+    teamSide: "home",
+    scoreDelta: 1,
+    confidence: 0.92,
+    persistedDuration: 12,
+    reverted: false,
+    outcome: "counted_goal",
+    reasonCodes: ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"],
+  }));
+}
+
+function visibleGoalSegment(goalNumber, sourceStart, overrides = {}) {
   const shotStart = sourceStart + 10;
   const finishTime = shotStart + 4;
   const confirmationTime = finishTime + 6;
@@ -57,6 +74,7 @@ function visibleGoalSegment(goalNumber, sourceStart) {
       hasConfirmation: true,
       replayOnly: false,
     },
+    ...overrides,
   };
 }
 
@@ -183,6 +201,7 @@ test("video output gate passes only when all five counted goals have visible pha
     },
     editPlan: {
       ...creativeOutputContract(),
+      totalDuration: 64,
       segments: Array.from({ length: 5 }, (_, index) => visibleGoalSegment(index + 1, 84 + index * 80)),
     },
   });
@@ -198,6 +217,138 @@ test("video output gate passes only when all five counted goals have visible pha
   assert.equal(report.creativeStyle.passed, true);
   assert.deepEqual(report.missingGoalNumbers, []);
   assert.doesNotMatch(JSON.stringify(report), /\/Users|\/private|token|secret|rawOcr|rawText|stderr|stdout/i);
+});
+
+test("video output gate rejects overlapping duplicate goal windows even when five goals are nominally covered", () => {
+  assert.throws(() => assertVideoOutputCoverage({
+    goalSelectionMode: "valid_goals_only",
+    matchEventTruth: {
+      providerMode: "fixture-match-event-truth",
+      events: [],
+      rejectedEvents: [],
+      scoreTimelineObservations: [],
+      scoreChanges: customScoreChanges([100, 180, 190, 280, 360]),
+      summary: { countedGoalEventCount: 5 },
+    },
+    editPlan: {
+      ...creativeOutputContract(),
+      totalDuration: 64,
+      segments: [
+        visibleGoalSegment(1, 84),
+        visibleGoalSegment(2, 160),
+        visibleGoalSegment(3, 170),
+        visibleGoalSegment(4, 260),
+        visibleGoalSegment(5, 340),
+      ],
+    },
+  }), (error) => {
+    assert.equal(error.code, "VIDEO_OUTPUT_QA_FAILED");
+    assert.equal(error.details.expectedGoalCount, 5);
+    assert.equal(error.details.actualConfirmedGoalSegmentCount, 5);
+    assert.equal(error.details.coveredGoalCount, 5);
+    assert.equal(error.details.distinctGoalIdentity.passed, false);
+    assert.equal(error.details.distinctGoalIdentity.uniqueConfirmedGoalCount, 4);
+    assert.ok(error.details.failedReasons.includes("duplicate_goal_segments_detected"));
+    assert.match(JSON.stringify(error.details.distinctGoalIdentity.duplicatePairs), /duplicate_goal_window_overlap/);
+    assert.doesNotMatch(JSON.stringify(error.details), /\/Users|\/private|token|secret|rawOcr|rawText|stderr|stdout/i);
+    return true;
+  });
+});
+
+test("video output gate rejects duplicate finish times and reused score-change identity", () => {
+  assert.throws(() => assertVideoOutputCoverage({
+    goalSelectionMode: "valid_goals_only",
+    matchEventTruth: {
+      providerMode: "fixture-match-event-truth",
+      events: [],
+      rejectedEvents: [],
+      scoreTimelineObservations: [],
+      scoreChanges: customScoreChanges([100, 102]),
+      summary: { countedGoalEventCount: 2 },
+    },
+    editPlan: {
+      ...creativeOutputContract(),
+      segments: [
+        visibleGoalSegment(1, 84, {
+          scoreBefore: "0-0",
+          scoreAfter: "1-0",
+          scoreChangeTime: 100,
+        }),
+        visibleGoalSegment(2, 86, {
+          scoreBefore: "0-0",
+          scoreAfter: "1-0",
+          scoreChangeTime: 101,
+        }),
+      ],
+    },
+  }), (error) => {
+    assert.equal(error.code, "VIDEO_OUTPUT_QA_FAILED");
+    assert.equal(error.details.distinctGoalIdentity.passed, false);
+    assert.match(JSON.stringify(error.details.distinctGoalIdentity.duplicatePairs), /duplicate_finish_time/);
+    assert.match(JSON.stringify(error.details.distinctGoalIdentity.duplicatePairs), /duplicate_score_change_identity/);
+    assert.doesNotMatch(JSON.stringify(error.details), /\/Users|\/private|token|secret|rawOcr|rawText|stderr|stdout/i);
+    return true;
+  });
+});
+
+test("video output gate rejects five-goal proof that is too long for reference-style output", () => {
+  assert.throws(() => assertVideoOutputCoverage({
+    goalSelectionMode: "valid_goals_only",
+    matchEventTruth: {
+      providerMode: "fixture-match-event-truth",
+      events: [],
+      rejectedEvents: [],
+      scoreTimelineObservations: [],
+      scoreChanges: countedScoreChanges(5),
+      summary: { countedGoalEventCount: 5 },
+    },
+    editPlan: {
+      ...creativeOutputContract(),
+      totalDuration: 142.5,
+      segments: Array.from({ length: 5 }, (_, index) => visibleGoalSegment(index + 1, 84 + index * 80)),
+    },
+  }), (error) => {
+    assert.equal(error.code, "VIDEO_OUTPUT_QA_FAILED");
+    assert.equal(error.details.referenceStyleDuration.passed, false);
+    assert.equal(error.details.referenceStyleDuration.totalDuration, 142.5);
+    assert.ok(error.details.failedReasons.includes("reference_style_duration_out_of_bounds"));
+    return true;
+  });
+});
+
+test("video output gate rejects internal debug captions in user-facing proof", () => {
+  const contract = creativeOutputContract();
+  contract.captions[0] = {
+    ...contract.captions[0],
+    text: "FINISH + BUILD-UP",
+    words: ["FINISH", "BUILD-UP"],
+    activeWordTiming: [
+      { word: "FINISH", start: 0, end: 0.72, active: true },
+      { word: "BUILD-UP", start: 0.74, end: 1.58, active: true },
+    ],
+  };
+
+  assert.throws(() => assertVideoOutputCoverage({
+    goalSelectionMode: "valid_goals_only",
+    matchEventTruth: {
+      providerMode: "fixture-match-event-truth",
+      events: [],
+      rejectedEvents: [],
+      scoreTimelineObservations: [],
+      scoreChanges: countedScoreChanges(1),
+      summary: { countedGoalEventCount: 1 },
+    },
+    editPlan: {
+      ...contract,
+      segments: [visibleGoalSegment(1, 84)],
+    },
+  }), (error) => {
+    assert.equal(error.code, "VIDEO_OUTPUT_QA_FAILED");
+    assert.equal(error.details.captions.passed, false);
+    assert.equal(error.details.captions.debugCaptionCount, 1);
+    assert.ok(error.details.failedReasons.includes("debug_caption_label_rendered"));
+    return true;
+  });
 });
 
 test("video output gate reports missing first and last counted goals explicitly", () => {
