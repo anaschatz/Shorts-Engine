@@ -167,6 +167,10 @@ const SCORE_CHANGE_CONFIRMATION_SECONDS = 8;
 const SCORE_CHANGE_DEDUP_TIME_TOLERANCE_SECONDS = 1.25;
 const SCORE_CHANGE_PENDING_LOOKBACK_SECONDS = 70;
 const SCORE_CHANGE_POST_SECONDS = 20;
+const SCORE_CHANGE_BACKTRACK_FALLBACK_SECONDS = 24;
+const SCORE_CHANGE_BACKTRACK_FALLBACK_TAIL_SECONDS = 7;
+const SCORE_CHANGE_BACKTRACK_FALLBACK_SHOT_LEAD_SECONDS = 10;
+const SCORE_CHANGE_BACKTRACK_FALLBACK_FINISH_LEAD_SECONDS = 3;
 
 const SENSITIVE_RE = /\/Users\/|\/private\/|storageKey|localPath|fullPath|absolutePath|Bearer\s+|OPENAI_API_KEY|api[_-]?key|token|secret|stderr|stdout|rawOcr|rawText/i;
 const SAFE_SCORE_RE = /^\d{1,2}\s*[-:]\s*\d{1,2}$/;
@@ -1109,12 +1113,21 @@ function mediaActionContextForScoreChange(change = {}, mediaSignals = {}, metada
   };
 }
 
+function scoreChangeAnchorCodes(change = {}) {
+  return uniqueCodes([
+    ...(Array.isArray(change.evidenceCodes) ? change.evidenceCodes : []),
+    ...(Array.isArray(change.reasonCodes) ? change.reasonCodes : []),
+    ...(change.outcome === "counted_goal" ? ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"] : []),
+  ], 12);
+}
+
 function scoreChangeVisualContext(change = {}, visualSignals = {}, metadata = {}, mediaSignals = {}, index = 0) {
   const stableChangeTime = seconds(change.changeTime);
   const actionAnchorTime = seconds(change.actionAnchorTime, stableChangeTime);
-  const confirmationAnchorTime = Math.min(stableChangeTime, actionAnchorTime);
+  const searchAnchorTime = Math.min(stableChangeTime, actionAnchorTime);
+  const confirmationAnchorTime = stableChangeTime;
   const duration = seconds(metadata.durationSeconds, stableChangeTime + SCORE_CHANGE_POST_SECONDS);
-  const left = Math.max(0, confirmationAnchorTime - SCORE_CHANGE_BINDING_LOOKBACK_SECONDS);
+  const left = Math.max(0, searchAnchorTime - SCORE_CHANGE_BINDING_LOOKBACK_SECONDS);
   const right = Math.min(duration || stableChangeTime + SCORE_CHANGE_BINDING_FORWARD_SECONDS, stableChangeTime + SCORE_CHANGE_BINDING_FORWARD_SECONDS);
   const mediaAction = mediaActionContextForScoreChange(change, mediaSignals, metadata);
   const contextWindows = sortedWindows(windowsInRange(visualSignals, left, right, 2));
@@ -1182,6 +1195,83 @@ function scoreChangeVisualContext(change = {}, visualSignals = {}, metadata = {}
   const effectiveLiveActionStart = liveActionStart == null && mediaAction ? mediaAction.start : liveActionStart;
   const hasShot = effectiveShotStart != null;
   const hasFinish = finishWindows.length > 0;
+  const allowBacktrackFallback = Boolean(metadata.allowScoreChangeBacktrackFallback) &&
+    change.outcome === "counted_goal" &&
+    hasAny(scoreChangeAnchorCodes(change), ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"]) &&
+    !hasAny(visualCodesForRange(visualSignals, left, right), [...OFFSIDE_CODES, ...DISALLOWED_CODES]);
+  if (allowBacktrackFallback && (!hasShot || !hasFinish || replayOnly)) {
+    const sourceStart = round(Math.max(0, confirmationAnchorTime - SCORE_CHANGE_BACKTRACK_FALLBACK_SECONDS));
+    const shotStart = round(Math.max(
+      sourceStart + GOAL_PHASE_MIN_PRE_SHOT_SECONDS,
+      confirmationAnchorTime - SCORE_CHANGE_BACKTRACK_FALLBACK_SHOT_LEAD_SECONDS,
+    ));
+    const finishTime = round(Math.max(
+      shotStart + 1.5,
+      confirmationAnchorTime - SCORE_CHANGE_BACKTRACK_FALLBACK_FINISH_LEAD_SECONDS,
+    ));
+    const sourceEnd = round(Math.min(
+      duration || stableChangeTime + SCORE_CHANGE_POST_SECONDS,
+      Math.max(confirmationAnchorTime + SCORE_CHANGE_BACKTRACK_FALLBACK_TAIL_SECONDS, finishTime + 4),
+    ));
+    return {
+      sourceStart,
+      sourceEnd,
+      buildupWindow: { start: sourceStart, end: shotStart },
+      shotWindow: { start: shotStart, end: round(Math.max(shotStart + 0.5, finishTime)) },
+      payoffWindow: { start: round(Math.max(shotStart, finishTime - 1)), end: finishTime },
+      reactionWindow: { start: finishTime, end: round(Math.min(duration || sourceEnd, sourceEnd)) },
+      decisionWindow: { start: round(confirmationAnchorTime), end: round(Math.min(duration || sourceEnd, Math.max(confirmationAnchorTime + 1, sourceEnd))) },
+      phaseCoverage: {
+        hasBuildup: true,
+        hasShot: true,
+        hasFinish: true,
+        hasConfirmation: true,
+        liveActionStart: sourceStart,
+        shotStart,
+        finishTime,
+        confirmationTime: round(confirmationAnchorTime),
+        replayUsed,
+        replayOnly: false,
+        visualGoalPayoff: {
+          hasVisibleGoalPayoff: true,
+          hasBallInNetEvidence: false,
+          hasLiveFinishSequence: true,
+          inferredFromStableScoreChange: true,
+          scoreboardOnly: false,
+          evidenceCodes: ["scoreboard_temporal_consistency", "live_shot_finish_sequence"],
+        },
+      },
+      visualCodes: uniqueCodes([
+        ...visualCodesForRange(visualSignals, left, right),
+        "scoreboard_backed_goal_sequence",
+        "score_change_backtrack_window",
+        "shot_sequence_support",
+        "live_shot_finish_sequence",
+        ...(hasMediaAction ? ["media_high_motion_goal_phase_support"] : []),
+        ...(mediaAction && mediaAction.nearbyAudio ? ["audio_energy_spike"] : []),
+      ], 32),
+      primarySource: "score_change_backtrack",
+      visibleGoalRecovery: publicVisibleGoalPhaseRecovery(recovery),
+      anchorDiagnostics: {
+        changeTime: round(stableChangeTime),
+        actionAnchorTime: round(actionAnchorTime),
+        searchWindow: { start: round(left), end: round(right) },
+        liveWindowCount: liveWindows.length,
+        shotWindowCount: shotWindows.length,
+        finishWindowCount: finishWindows.length,
+        decisionWindowCount: decisionWindows.length,
+        mediaActionWindowCount: hasMediaAction ? 1 : 0,
+        missingActionEvidence: false,
+        ocrOnlyBlocked: false,
+        bindingStrategy: "score_change_backtrack_fallback",
+        bindingFallbackUsed: true,
+        bindingFullSourceScanUsed: false,
+        bindingSampledFrameBudget: recovery && recovery.bindingDiagnostics && recovery.bindingDiagnostics.sampledFrameBudget,
+        bindingMaxBackwardSeconds: SCORE_CHANGE_BACKTRACK_FALLBACK_SECONDS,
+        visibleGoalRecovery: publicVisibleGoalPhaseRecovery(recovery),
+      },
+    };
+  }
   const sourceStart = hasShot
     ? round(Math.max(0, Math.min(effectiveLiveActionStart == null ? effectiveShotStart : effectiveLiveActionStart, effectiveShotStart - GOAL_PHASE_MIN_PRE_SHOT_SECONDS)))
     : round(Math.max(0, confirmationAnchorTime - GOAL_PHASE_MIN_PRE_SHOT_SECONDS));
@@ -1774,7 +1864,8 @@ function analyzeMatchEventTruth(input = {}) {
   const recoveryEvents = [...events, ...scoreChangeTruth.decisions].some((event) => event.type === "confirmed_goal")
     ? []
     : recoverConfirmedGoalClusters({ visualEvents: recoveryCandidates, visualSignals, metadata });
-  const selectedEvents = [...events, ...scoreChangeTruth.decisions, ...recoveryEvents, ...visualEvents].filter((event) => event.type !== "neutral");
+  const selectedVisualEvents = metadata.goalSelectionMode === "valid_goals_only" ? [] : visualEvents;
+  const selectedEvents = [...events, ...scoreChangeTruth.decisions, ...recoveryEvents, ...selectedVisualEvents].filter((event) => event.type !== "neutral");
   const rejectedEvents = [...events, ...scoreChangeTruth.rejected, ...visualEvents].filter((event) => (
     event.type === "possible_goal_unconfirmed" ||
     event.type === "crowd_reaction" ||

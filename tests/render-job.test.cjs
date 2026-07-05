@@ -739,7 +739,18 @@ test("youtube long-source render uses scorebug-first OCR before visual frame ext
   assert.equal(context.scoreboardOcrCalls.every((call) => call.scorebugFirstOnly === true), true);
   assert.equal(context.scoreboardOcrCalls.at(-1).ocrSamplingWindows.some((window) => Number(window.timestamp) >= 585), true);
   assert.equal(context.frameExtractionMaxFrames, 18);
-  assert.equal(context.frameCandidateWindows.some((window) => window.source === "scorebug_first_live_action_anchor" && Number(window.time) === 500), true);
+  assert.equal(context.frameCandidateWindows.some((window) => (
+    window.source === "scorebug_first_backtrack_probe" &&
+    Number(window.time) === 488 &&
+    Array.isArray(window.visualHints) &&
+    window.visualHints.length === 0
+  )), true);
+  assert.equal(context.frameCandidateWindows.some((window) => (
+    window.source === "scorebug_first_backtrack_probe" &&
+    Number(window.time) === 500 &&
+    Array.isArray(window.visualHints) &&
+    window.visualHints.length === 0
+  )), true);
   assert.equal(context.frameCandidateWindows.some((window) => window.source === "scorebug_first_score_confirmation" && Number(window.time) === 512), true);
   assert.equal(context.job.scoreboardOcr.providerMode, "chunked-scoreboard-ocr");
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunkCount, 8);
@@ -880,7 +891,18 @@ test("youtube long-source first OCR chunk timeout does not block later score cha
   assert.equal(chunkSummary.chunks.at(-1).status, "completed");
   assert.equal(chunkSummary.chunks.at(-1).stableScoreDecision, "score_changes_detected");
   assert.equal(chunkSummary.chunks.at(-1).normalizedScoreCandidates.includes("5-0"), true);
-  assert.equal(context.frameCandidateWindows.some((window) => window.source === "scorebug_first_live_action_anchor" && Number(window.time) === 600), true);
+  assert.equal(context.frameCandidateWindows.some((window) => (
+    window.source === "scorebug_first_backtrack_probe" &&
+    Number(window.time) === 588 &&
+    Array.isArray(window.visualHints) &&
+    window.visualHints.length === 0
+  )), true);
+  assert.equal(context.frameCandidateWindows.some((window) => (
+    window.source === "scorebug_first_backtrack_probe" &&
+    Number(window.time) === 600 &&
+    Array.isArray(window.visualHints) &&
+    window.visualHints.length === 0
+  )), true);
   assert.equal(context.frameCandidateWindows.some((window) => window.source === "scorebug_first_score_confirmation" && Number(window.time) === 612), true);
   assert.equal(context.job.videoOutputQA.coveredGoalCount, 1);
   assert.doesNotMatch(JSON.stringify(context.job.scoreboardOcr), /\/Users|storageKey|localPath|secret|stderr|stdout|rawOcr|rawText/i);
@@ -1097,7 +1119,11 @@ test("youtube long-source chunked OCR builds global score changes across chunks"
     true,
   );
   assert.equal(context.job.scoreboardOcr.summary.scorebugDebug.state, "score_changes_detected");
-  assert.equal(context.frameCandidateWindows.some((window) => window.source === "scorebug_first_live_action_anchor"), true);
+  assert.equal(context.frameCandidateWindows.some((window) => (
+    window.source === "scorebug_first_backtrack_probe" &&
+    Array.isArray(window.visualHints) &&
+    window.visualHints.length === 0
+  )), true);
   assert.equal(context.frameCandidateWindows.some((window) => window.source === "scorebug_first_score_confirmation"), true);
   assert.doesNotMatch(JSON.stringify(context.job.scoreboardOcr), /\/Users|storageKey|localPath|secret|stderr|stdout|rawOcr|rawText/i);
 });
@@ -1234,7 +1260,11 @@ test("youtube long-source chunked OCR bridges sparse score candidates into five 
     true,
   );
   assert.equal(
-    context.frameCandidateWindows.filter((window) => window.source === "scorebug_first_live_action_anchor").length >= 5,
+    context.frameCandidateWindows.filter((window) => (
+      window.source === "scorebug_first_backtrack_probe" &&
+      Array.isArray(window.visualHints) &&
+      window.visualHints.length === 0
+    )).length >= 5,
     true,
   );
   assert.equal(
@@ -1306,7 +1336,18 @@ test("youtube long-source chunked OCR can discover late score changes", async ()
   assert.equal(context.job.status, "completed", JSON.stringify(context.job.error));
   assert.equal(context.job.scoreboardOcr.summary.scoreChangeCount, 1);
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.scannedChunks, 8);
-  assert.equal(context.frameCandidateWindows.some((window) => window.source === "scorebug_first_live_action_anchor" && Number(window.time) === 600), true);
+  assert.equal(context.frameCandidateWindows.some((window) => (
+    window.source === "scorebug_first_backtrack_probe" &&
+    Number(window.time) === 588 &&
+    Array.isArray(window.visualHints) &&
+    window.visualHints.length === 0
+  )), true);
+  assert.equal(context.frameCandidateWindows.some((window) => (
+    window.source === "scorebug_first_backtrack_probe" &&
+    Number(window.time) === 600 &&
+    Array.isArray(window.visualHints) &&
+    window.visualHints.length === 0
+  )), true);
   assert.equal(context.frameCandidateWindows.some((window) => window.source === "scorebug_first_score_confirmation" && Number(window.time) === 612), true);
   assert.equal(context.job.videoOutputQA.coveredGoalCount, 1);
 });

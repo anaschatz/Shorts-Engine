@@ -157,11 +157,23 @@ function validateHumanVisibleGoalSequence({ segment = {} } = {}) {
   const hasShotFrames = phase.hasShot === true &&
     hasAny(normalized.reasonCodes, SHOT_CODES);
   const hasStrongShotFrames = hasAny(normalized.reasonCodes, STRONG_SHOT_CODES);
+  const visualPayoff = phase.visualGoalPayoff && typeof phase.visualGoalPayoff === "object"
+    ? phase.visualGoalPayoff
+    : {};
+  const hasLiveFinishSequence = visualPayoff.hasLiveFinishSequence === true ||
+    hasAny(normalized.reasonCodes, ["live_shot_finish_sequence"]);
+  const hasStableScorebackedFinish = phase.hasFinish === true &&
+    hasShotFrames &&
+    hasLiveFinishSequence &&
+    visualPayoff.scoreboardOnly !== true &&
+    confirmationAfterFinish &&
+    hasAny(normalized.reasonCodes, CONFIRMATION_CODES);
   const hasGoalmouthFrames = phase.hasFinish === true &&
-    hasAny(normalized.reasonCodes, GOALMOUTH_CODES);
+    (hasAny(normalized.reasonCodes, GOALMOUTH_CODES) || hasStableScorebackedFinish);
   const hasPayoffFrames = phase.hasFinish === true &&
     (
       hasAny(normalized.reasonCodes, PAYOFF_CODES) ||
+      hasStableScorebackedFinish ||
       (hasGoalmouthFrames && hasStrongShotFrames && confirmationAfterFinish)
     );
   const hasConfirmationAfterFinish = phase.hasConfirmation === true &&
@@ -178,6 +190,7 @@ function validateHumanVisibleGoalSequence({ segment = {} } = {}) {
     hasShotFrames,
     hasGoalmouthFrames,
     hasPayoffFrames,
+    hasStableScorebackedFinish,
     hasConfirmationAfterFinish,
     isScoreboardOnly,
     isCelebrationOnly,
@@ -222,6 +235,7 @@ function publicHumanVisibleGoalGate(value = {}) {
           hasShotFrames: Boolean(gate.evidence.hasShotFrames),
           hasGoalmouthFrames: Boolean(gate.evidence.hasGoalmouthFrames),
           hasPayoffFrames: Boolean(gate.evidence.hasPayoffFrames),
+          hasStableScorebackedFinish: Boolean(gate.evidence.hasStableScorebackedFinish),
           hasConfirmationAfterFinish: Boolean(gate.evidence.hasConfirmationAfterFinish),
         }
       : null,

@@ -13,6 +13,8 @@ const { publicMatchEventTruth } = require("./match-event-truth.cjs");
 const OUTPUT_GATE_SCHEMA_VERSION = 1;
 const MATCH_TOLERANCE_SECONDS = 2;
 const MAX_PUBLIC_ITEMS = 12;
+const MIN_SCORE_CHANGE_BACKTRACK_SECONDS = 8;
+const MIN_PRE_SHOT_CONTEXT_SECONDS = 6;
 
 const SENSITIVE_RE = /\/Users\/|\/private\/|storageKey|localPath|fullPath|absolutePath|Bearer\s+|api[_-]?key|token|secret|stderr|stdout|rawOcr|rawText/i;
 
@@ -365,7 +367,7 @@ function expectedGoalsFromTruth(matchEventTruth = {}) {
     return scoreChanges.map((change, index) => ({
       goalNumber: index + 1,
       source: "score_change",
-      anchorTime: numberOrNull(change.actionAnchorTime ?? change.changeTime),
+      anchorTime: scoreChangeAnchorTime(change),
       confirmationTime: numberOrNull(change.changeTime),
       sourceWindow: null,
       scoreBefore: change.startScore || null,
@@ -400,6 +402,14 @@ function expectedGoalsFromTruth(matchEventTruth = {}) {
   }));
 }
 
+function scoreChangeAnchorTime(change = {}) {
+  const changeTime = numberOrNull(change.changeTime);
+  const actionAnchorTime = numberOrNull(change.actionAnchorTime);
+  if (changeTime == null) return actionAnchorTime;
+  if (actionAnchorTime == null) return changeTime;
+  return Math.abs(changeTime - actionAnchorTime) <= 30 ? actionAnchorTime : changeTime;
+}
+
 function segmentFailureReasons(segment = {}, goalSelectionMode = "balanced") {
   const reasons = [];
   const phase = segment.phaseCoverage && typeof segment.phaseCoverage === "object" ? segment.phaseCoverage : {};
@@ -417,12 +427,53 @@ function segmentFailureReasons(segment = {}, goalSelectionMode = "balanced") {
   if (confirmedGoal && (!phase.hasConfirmation || confirmationTime == null)) reasons.push("missing_goal_confirmation");
   if (
     confirmedGoal &&
+    shotStart != null &&
+    numberOrNull(segment.sourceStart) != null &&
+    shotStart - numberOrNull(segment.sourceStart) < MIN_PRE_SHOT_CONTEXT_SECONDS
+  ) {
+    reasons.push("insufficient_pre_shot_context");
+  }
+  if (
+    confirmedGoal &&
     (reasonCodes.has("visual_celebration_after_shot") || reasonCodes.has("visual_celebration_after_whistle")) &&
     (!phase.hasShot || !phase.hasFinish)
   ) {
     reasons.push("celebration_only_goal_segment");
   }
   return safeCodes(reasons, 8);
+}
+
+function scoreChangeMatchRequirements(segment = {}, expected = {}) {
+  if (expected.source !== "score_change") return { matches: true, reasons: [] };
+  const reasons = [];
+  const sourceStart = numberOrNull(segment.sourceStart);
+  const shotStart = numberOrNull(segment.shotStart ?? (segment.phaseCoverage && segment.phaseCoverage.shotStart));
+  const confirmationTime = numberOrNull(expected.confirmationTime);
+  const anchorTime = numberOrNull(expected.anchorTime);
+
+  if (confirmationTime != null && !segmentContainsTime(segment, confirmationTime)) {
+    reasons.push("missing_scoreboard_confirmation_window");
+  }
+  if (anchorTime != null && !segmentContainsTime(segment, anchorTime)) {
+    reasons.push("missing_score_change_anchor_window");
+  }
+  if (
+    confirmationTime != null &&
+    sourceStart != null &&
+    sourceStart > confirmationTime - MIN_SCORE_CHANGE_BACKTRACK_SECONDS
+  ) {
+    reasons.push("missing_scoreboard_backtrack_context");
+  }
+  if (shotStart != null && confirmationTime != null && shotStart >= confirmationTime - 1) {
+    reasons.push("shot_not_before_scoreboard_change");
+  }
+  if (shotStart != null && sourceStart != null && shotStart - sourceStart < MIN_PRE_SHOT_CONTEXT_SECONDS) {
+    reasons.push("insufficient_pre_shot_context");
+  }
+  return {
+    matches: reasons.length === 0,
+    reasons: safeCodes(reasons, 8),
+  };
 }
 
 function matchExpectedGoals(expectedGoals = [], segments = []) {
@@ -442,16 +493,31 @@ function matchExpectedGoals(expectedGoals = [], segments = []) {
           segmentContainsTime(segment, expected.confirmationTime) ? 3 : 0,
           overlapSeconds(segment, expected) > 0.5 ? 2 : 0,
         ].reduce((sum, value) => sum + value, 0),
+        scoreChangeRequirements: scoreChangeMatchRequirements(segment, expected),
       }))
-      .filter((candidate) => candidate.score > 0 || expected.anchorTime == null)
+      .filter((candidate) => {
+        if (expected.source === "score_change") return candidate.score > 0 && candidate.scoreChangeRequirements.matches;
+        return candidate.score > 0 || expected.anchorTime == null;
+      })
       .sort((a, b) => b.score - a.score || Number(a.segment.sourceStart || 0) - Number(b.segment.sourceStart || 0));
     const selected = candidates[0] || null;
     if (!selected) {
-      matches.push({ expected, segmentIndex: null, covered: false, reasons: ["missing_goal_segment"] });
+      const unmatchedReasons = segments
+        .filter(isConfirmedGoalSegment)
+        .flatMap((segment) => scoreChangeMatchRequirements(segment, expected).reasons);
+      matches.push({
+        expected,
+        segmentIndex: null,
+        covered: false,
+        reasons: safeCodes(["missing_goal_segment", ...unmatchedReasons], 8),
+      });
       continue;
     }
     usedSegments.add(selected.index);
-    const failures = segmentFailureReasons(selected.segment, "valid_goals_only");
+    const failures = safeCodes([
+      ...segmentFailureReasons(selected.segment, "valid_goals_only"),
+      ...selected.scoreChangeRequirements.reasons,
+    ], 8);
     matches.push({
       expected,
       segmentIndex: selected.index + 1,

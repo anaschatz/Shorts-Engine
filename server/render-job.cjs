@@ -682,19 +682,22 @@ function scoreChangeCandidateWindowsFromOcr(scoreboardOcr = {}, metadata = {}) {
     const scoreReverted = Boolean(item.scoreReverted || item.reverted || item.status === "goal_removed");
     if (!scoreChanged || !temporalConsistency || scoreReverted) return;
     const confidence = Math.max(0.82, Math.min(0.98, Number(item.confidence || 0.86)));
-    const liveActionTime = bounded(timestamp - 12);
-    windows.push({
-      time: Number(liveActionTime.toFixed(2)),
-      start: Number(bounded(liveActionTime - 2.5).toFixed(2)),
-      end: Number(bounded(liveActionTime + 2.5, liveActionTime + 0.4).toFixed(2)),
-      confidence: Math.max(0.9, confidence),
-      source: "scorebug_first_live_action_anchor",
-      visualHints: ["shot_contact", "ball_toward_goal", "goal_mouth_visible", "ball_visible"],
-      scoreBefore: item.scoreBefore || null,
-      scoreAfter: item.scoreAfter || null,
-      scoreChangeTime: Number(timestamp.toFixed(2)),
-      index: index + 1,
-    });
+    for (const offset of [24, 18, 12]) {
+      const probeTime = bounded(timestamp - offset);
+      windows.push({
+        time: Number(probeTime.toFixed(2)),
+        start: Number(bounded(probeTime - 2.5).toFixed(2)),
+        end: Number(bounded(probeTime + 2.5, probeTime + 0.4).toFixed(2)),
+        confidence: Math.max(0.78, Math.min(0.9, confidence)),
+        source: "scorebug_first_backtrack_probe",
+        visualHints: [],
+        scoreBefore: item.scoreBefore || null,
+        scoreAfter: item.scoreAfter || null,
+        scoreChangeTime: Number(timestamp.toFixed(2)),
+        backtrackOffsetSeconds: offset,
+        index: index + 1,
+      });
+    }
     windows.push({
       time: Number(timestamp.toFixed(2)),
       start: Number(bounded(timestamp - 1.5).toFixed(2)),
@@ -709,7 +712,7 @@ function scoreChangeCandidateWindowsFromOcr(scoreboardOcr = {}, metadata = {}) {
   };
   evidence.forEach(push);
   if (!windows.length) timeline.forEach(push);
-  return selectCandidateWindowCoverage(windows, duration, 18);
+  return selectCandidateWindowCoverage(windows, duration, 24);
 }
 
 function mergeCandidateWindows(primary = [], secondary = [], metadata = {}, maxWindows = 24) {
@@ -2568,6 +2571,7 @@ async function runRenderJob(options) {
           goalSelectionMode: context.goalSelectionMode,
           allowCandidateClusterRecovery: context.goalSelectionMode === "valid_goals_only" &&
             ((context.source && context.source.sourceType) || context.metadata.sourceType) === "youtube",
+          allowScoreChangeBacktrackFallback: Boolean(longSourceRuntime),
         },
         transcript,
         mediaSignals,

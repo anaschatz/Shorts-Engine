@@ -200,6 +200,131 @@ test("video output gate passes only when all five counted goals have visible pha
   assert.doesNotMatch(JSON.stringify(report), /\/Users|\/private|token|secret|rawOcr|rawText|stderr|stdout/i);
 });
 
+test("video output gate reports missing first and last counted goals explicitly", () => {
+  assert.throws(() => assertVideoOutputCoverage({
+    goalSelectionMode: "valid_goals_only",
+    matchEventTruth: {
+      providerMode: "fixture-match-event-truth",
+      events: [],
+      rejectedEvents: [],
+      scoreTimelineObservations: [],
+      scoreChanges: countedScoreChanges(5),
+      summary: { countedGoalEventCount: 5 },
+    },
+    editPlan: {
+      ...creativeOutputContract(),
+      segments: [
+        visibleGoalSegment(2, 164),
+        visibleGoalSegment(3, 244),
+        visibleGoalSegment(4, 324),
+      ],
+    },
+  }), (error) => {
+    assert.equal(error.code, "VIDEO_OUTPUT_QA_FAILED");
+    assert.equal(error.details.expectedGoalCount, 5);
+    assert.equal(error.details.coveredGoalCount, 3);
+    assert.deepEqual(error.details.missingGoalNumbers, [1, 5]);
+    assert.ok(error.details.failedReasons.includes("missing_or_invalid_counted_goal_segment"));
+    assert.doesNotMatch(JSON.stringify(error.details), /\/Users|\/private|token|secret|rawOcr|rawText|stderr|stdout/i);
+    return true;
+  });
+});
+
+test("video output gate rejects a goal segment that starts too close to the scoreboard change", () => {
+  const weakBacktrackSegment = {
+    ...visibleGoalSegment(1, 92),
+    sourceStart: 94,
+    sourceEnd: 106,
+    shotStart: 95,
+    finishTime: 98,
+    confirmationTime: 102,
+    phaseCoverage: {
+      hasBuildup: true,
+      hasShot: true,
+      hasFinish: true,
+      hasConfirmation: true,
+      replayOnly: false,
+    },
+  };
+
+  assert.throws(() => assertVideoOutputCoverage({
+    goalSelectionMode: "valid_goals_only",
+    matchEventTruth: {
+      providerMode: "fixture-match-event-truth",
+      events: [],
+      rejectedEvents: [],
+      scoreTimelineObservations: [],
+      scoreChanges: countedScoreChanges(1),
+      summary: { countedGoalEventCount: 1 },
+    },
+    editPlan: {
+      ...creativeOutputContract(),
+      segments: [weakBacktrackSegment],
+    },
+  }), (error) => {
+    assert.equal(error.code, "VIDEO_OUTPUT_QA_FAILED");
+    assert.deepEqual(error.details.missingGoalNumbers, [1]);
+    assert.ok(error.details.matches[0].reasons.includes("missing_scoreboard_backtrack_context"));
+    assert.ok(error.details.matches[0].reasons.includes("insufficient_pre_shot_context"));
+    assert.doesNotMatch(JSON.stringify(error.details), /\/Users|\/private|token|secret|rawOcr|rawText|stderr|stdout/i);
+    return true;
+  });
+});
+
+test("video output gate uses stable score change when pending action anchor is too far away", () => {
+  const scoreChange = {
+    id: "counted_goal_with_far_pending_anchor",
+    startScore: "0-0",
+    endScore: "1-0",
+    changeTime: 140,
+    actionAnchorTime: 40,
+    teamSide: "home",
+    scoreDelta: 1,
+    confidence: 0.92,
+    persistedDuration: 12,
+    reverted: false,
+    outcome: "counted_goal",
+    reasonCodes: ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"],
+  };
+  const segment = {
+    ...visibleGoalSegment(1, 116),
+    sourceEnd: 144,
+    shotStart: 128,
+    finishTime: 136,
+    confirmationTime: 140,
+    goalOutcome: {
+      eventType: "ball_in_net",
+      outcome: "confirmed_goal",
+      offsideStatus: "onside",
+      confidence: 0.93,
+      decisionTimestamp: 140,
+      decisionEvidence: ["scoreboard_backed_goal_sequence"],
+    },
+  };
+
+  const report = assertVideoOutputCoverage({
+    goalSelectionMode: "valid_goals_only",
+    matchEventTruth: {
+      providerMode: "fixture-match-event-truth",
+      events: [],
+      rejectedEvents: [],
+      scoreTimelineObservations: [],
+      scoreChanges: [scoreChange],
+      summary: { countedGoalEventCount: 1 },
+    },
+    editPlan: {
+      ...creativeOutputContract(),
+      segments: [segment],
+    },
+  });
+
+  assert.equal(report.passed, true);
+  assert.equal(report.coveredGoalCount, 1);
+  assert.equal(report.expectedGoals[0].anchorTime, 140);
+  assert.deepEqual(report.missingGoalNumbers, []);
+  assert.doesNotMatch(JSON.stringify(report), /\/Users|\/private|token|secret|rawOcr|rawText|stderr|stdout/i);
+});
+
 test("video output gate fails when final proof lacks dynamic word captions", () => {
   const contract = creativeOutputContract();
   contract.captions = contract.captions.map((caption) => ({ ...caption, activeWordTiming: [] }));

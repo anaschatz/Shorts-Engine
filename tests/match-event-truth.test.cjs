@@ -474,10 +474,11 @@ test("uses first observed pending score increase as action anchor for delayed st
   assert.equal(result.scoreChanges[0].changeTime, 359);
   assert.equal(result.scoreChanges[0].actionAnchorTime, 318);
   assert.equal(result.rejectedEvents[0].scoreChangeTime, 359);
-  assert.equal(result.rejectedEvents[0].phaseCoverage.confirmationTime, 318);
+  assert.equal(result.rejectedEvents[0].phaseCoverage.confirmationTime, 359);
   assert.ok(result.rejectedEvents[0].sourceStart <= 305);
-  assert.ok(result.rejectedEvents[0].sourceEnd < 340);
+  assert.ok(result.rejectedEvents[0].sourceEnd >= 360);
   assert.equal(result.rejectedEvents[0].anchorDiagnostics.actionAnchorTime, 318);
+  assert.equal(result.rejectedEvents[0].anchorDiagnostics.changeTime, 359);
   assert.equal(result.rejectedEvents[0].anchorDiagnostics.visibleGoalRecovery.failureCode, "SCOREBOARD_ONLY");
   assert.equal(result.summary.noFalseGoalFromOcrOnly, 1);
   assert.doesNotMatch(JSON.stringify(publicMatchEventTruth(result)), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);
@@ -651,6 +652,27 @@ test("keeps noisy scorebug OCR as review item without false goal", () => {
   assert.equal(result.summary.noFalseGoalFromOcrOnly, 1);
 });
 
+test("valid-goals-only mode rejects random high-energy chance without stable score change", () => {
+  const result = analyzeMatchEventTruth({
+    metadata: { ...metadata, sourceType: "youtube", goalSelectionMode: "valid_goals_only" },
+    visualSignals: visualSignals([
+      { start: 76, end: 78, types: ["shot_contact", "ball_toward_goal", "goal_mouth_visible"], confidence: 0.9 },
+      { start: 80, end: 82, type: "crowd_reaction", confidence: 0.88 },
+    ]),
+    scoreboardOcr: [],
+    ocrQaCalibration: strongOcrQaCalibration(),
+    goalEvidence: goalEvidence([]),
+  });
+
+  assert.equal(result.summary.confirmedGoalCount, 0);
+  assert.equal(result.summary.countedGoalEventCount, 0);
+  assert.equal(result.summary.selectedGoalCount, 0);
+  assert.equal(result.events.some((event) => event.type === "big_chance"), false);
+  assert.ok(result.rejectedEvents.some((event) => event.type === "big_chance"));
+  assert.equal(result.summary.noFalseGoalFromOcrOnly, 1);
+  assert.doesNotMatch(JSON.stringify(publicMatchEventTruth(result)), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);
+});
+
 test("selects three source-wide counted goals including late scorebug changes", () => {
   const result = analyzeMatchEventTruth({
     metadata: { ...metadata, durationSeconds: 420, sourceType: "youtube", goalSelectionMode: "valid_goals_only" },
@@ -790,6 +812,61 @@ test("binds five counted score changes to efficient live phases using inferred g
   assert.ok(confirmed.every((event) => event.phaseCoverage.visualGoalPayoff.inferredFromStableScoreChange === true));
   assert.ok(confirmed.every((event) => event.anchorDiagnostics.bindingFullSourceScanUsed === false));
   assert.ok(confirmed.every((event) => event.anchorDiagnostics.bindingSampledFrameBudget <= 24));
+  assert.doesNotMatch(JSON.stringify(publicMatchEventTruth(result)), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath|stderr|stdout/i);
+});
+
+test("operator YouTube proof can backtrack stable score changes when sampled vision lacks finish labels", () => {
+  const scoreChanges = [
+    { confirm: 137.61, scoreBefore: "0-0", scoreAfter: "1-0" },
+    { confirm: 474, scoreBefore: "1-0", scoreAfter: "1-1" },
+    { confirm: 483.75, scoreBefore: "1-1", scoreAfter: "2-1" },
+    { confirm: 558.45, scoreBefore: "2-1", scoreAfter: "2-2" },
+    { confirm: 596.25, scoreBefore: "2-2", scoreAfter: "3-2" },
+  ];
+  const result = analyzeMatchEventTruth({
+    metadata: {
+      ...metadata,
+      durationSeconds: 764.52,
+      sourceType: "youtube",
+      goalSelectionMode: "valid_goals_only",
+      allowScoreChangeBacktrackFallback: true,
+    },
+    visualSignals: visualSignals(scoreChanges.flatMap((goal) => [
+      { start: goal.confirm - 22, end: goal.confirm - 18, types: ["fast_break_motion", "ball_visible"], confidence: 0.7 },
+      { start: goal.confirm, end: goal.confirm + 1, type: "scoreboard_goal_confirmed", confidence: 0.86 },
+    ])),
+    scoreboardOcr: scoreChanges.map((goal, index) => ({
+      id: `live_score_change_${index + 1}`,
+      timestamp: goal.confirm,
+      scoreBefore: goal.scoreBefore,
+      scoreAfter: goal.scoreAfter,
+      status: "score_changed",
+      confidence: 0.9,
+      temporalConsistency: true,
+      scoreChanged: true,
+      source: "local_scorebug_digit_reader_gray_line",
+      imageDecoderStatus: "decoded",
+      imageSegmentationStatus: "readable",
+    })),
+    ocrQaCalibration: strongOcrQaCalibration(),
+    goalEvidence: goalEvidence([]),
+  });
+
+  const confirmed = result.events.filter((event) => event.type === "confirmed_goal");
+  assert.equal(result.summary.confirmedGoalCount, 5);
+  assert.equal(result.summary.countedGoalEventCount, 5);
+  assert.equal(result.summary.selectedCountedGoals, 5);
+  assert.equal(result.summary.anchorsRejected, 0);
+  assert.deepEqual(confirmed.map((event) => event.goalNumber), [1, 2, 3, 4, 5]);
+  assert.deepEqual(confirmed.map((event) => event.scoreAfter), ["1-0", "1-1", "2-1", "2-2", "3-2"]);
+  assert.ok(confirmed.every((event) => event.primarySource === "score_change_backtrack"));
+  assert.ok(confirmed.every((event) => event.phaseCoverage.replayOnly === false));
+  assert.ok(confirmed.every((event) => event.phaseCoverage.hasBuildup));
+  assert.ok(confirmed.every((event) => event.phaseCoverage.hasShot));
+  assert.ok(confirmed.every((event) => event.phaseCoverage.hasFinish));
+  assert.ok(confirmed.every((event) => event.anchorDiagnostics.bindingStrategy === "score_change_backtrack_fallback"));
+  assert.ok(confirmed.every((event) => event.sourceStart <= event.scoreChangeTime - 8));
+  assert.ok(confirmed.every((event) => event.phaseCoverage.shotStart <= event.scoreChangeTime - 1));
   assert.doesNotMatch(JSON.stringify(publicMatchEventTruth(result)), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath|stderr|stdout/i);
 });
 
@@ -1198,6 +1275,60 @@ test("does not recover YouTube action clusters by default without scoreboard aut
 
   assert.equal(result.summary.confirmedGoalCount, 0);
   assert.ok(result.events.every((event) => event.type !== "confirmed_goal"));
+});
+
+test("anchors pending score observations to the stable scoreboard change confirmation", () => {
+  const result = analyzeMatchEventTruth({
+    metadata: {
+      durationSeconds: 240,
+      width: 1920,
+      height: 1080,
+      sourceType: "youtube",
+      goalSelectionMode: "valid_goals_only",
+      allowScoreChangeBacktrackFallback: true,
+    },
+    mediaSignals: { durationSeconds: 240, audioPeaks: [], sceneChanges: [] },
+    visualSignals: visualSignals([]),
+    scoreboardOcr: [
+      {
+        id: "pending_1_0",
+        timestamp: 124,
+        scoreBefore: "0-0",
+        scoreAfter: "1-0",
+        confidence: 0.62,
+        ambiguous: true,
+        transitionDecision: "score_change_pending_confirmation",
+        transitionReasonCodes: ["unit_score_increase_candidate"],
+      },
+      {
+        id: "stable_1_0",
+        timestamp: 137.61,
+        status: "score_changed",
+        scoreBefore: "0-0",
+        scoreAfter: "1-0",
+        confidence: 0.94,
+        temporalConsistency: true,
+        scoreChanged: true,
+        decoderStatus: "decoded",
+        imageSegmentationStatus: "readable",
+        source: "scorebug_digit_reader",
+      },
+    ],
+    goalEvidence: goalEvidence([]),
+  });
+
+  const event = result.events[0];
+  assert.equal(result.summary.countedGoalEventCount, 1);
+  assert.equal(event.type, "confirmed_goal");
+  assert.equal(event.scoreChangeTime, 137.61);
+  assert.equal(event.confirmationTime, 137.61);
+  assert.ok(event.sourceStart <= 124);
+  assert.ok(event.sourceEnd >= 137.61 + 1.2);
+  assert.equal(event.phaseCoverage.replayOnly, false);
+  assert.ok(event.evidenceCodes.includes("score_change_backtrack_window"));
+  assert.equal(event.anchorDiagnostics.actionAnchorTime, 124);
+  assert.equal(event.anchorDiagnostics.changeTime, 137.61);
+  assert.doesNotMatch(JSON.stringify(result), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);
 });
 
 test("public truth reports keep safe late-goal summary and reject leaks", () => {

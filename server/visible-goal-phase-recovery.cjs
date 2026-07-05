@@ -459,13 +459,14 @@ function analyzeVisibleGoalPhaseRecovery({
 } = {}) {
   const stableChangeTime = seconds(change.changeTime);
   const actionAnchorTime = seconds(change.actionAnchorTime, stableChangeTime);
-  const confirmationAnchorTime = Math.min(stableChangeTime, actionAnchorTime);
+  const searchAnchorTime = Math.min(stableChangeTime, actionAnchorTime);
+  const confirmationAnchorTime = stableChangeTime;
   const duration = seconds(metadata.durationSeconds, stableChangeTime + FORWARD_SEARCH_SECONDS);
   const searchEnd = Math.min(duration || stableChangeTime + CONFIRMATION_FORWARD_SECONDS, stableChangeTime + CONFIRMATION_FORWARD_SECONDS);
   const anchorCodes = scoreChangeAnchorCodes(change);
   const allowInferredPayoff = change.outcome === "counted_goal" && hasAny(anchorCodes, ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"]);
-  const primaryStart = Math.max(0, confirmationAnchorTime - PRIMARY_BACKWARD_SEARCH_SECONDS);
-  const fallbackStart = Math.max(0, confirmationAnchorTime - FALLBACK_BACKWARD_SEARCH_SECONDS);
+  const primaryStart = Math.max(0, searchAnchorTime - PRIMARY_BACKWARD_SEARCH_SECONDS);
+  const fallbackStart = Math.max(0, searchAnchorTime - FALLBACK_BACKWARD_SEARCH_SECONDS);
   const primaryPass = candidateSearchPass({
     visualSignals,
     start: primaryStart,

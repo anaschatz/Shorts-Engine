@@ -97,7 +97,6 @@ test("human-visible goal gate rejects shot-like motion without visible finish", 
         "scoreboard_ocr_score_change",
         "scoreboard_temporal_consistency",
         "shot_sequence_support",
-        "live_shot_finish_sequence",
       ],
     }),
   });
@@ -106,4 +105,96 @@ test("human-visible goal gate rejects shot-like motion without visible finish", 
   assert.equal(gate.failureCode, "NO_FINISH_VISIBLE");
   assert.equal(gate.evidence.hasShotFrames, true);
   assert.equal(gate.evidence.hasGoalmouthFrames, false);
+});
+
+test("human-visible goal gate accepts stable-scorebacked live finish sequence without ball-in-net label", () => {
+  const gate = validateHumanVisibleGoalSequence({
+    segment: baseSegment({
+      reasonCodes: [
+        "visual_shot_like_motion",
+        "scoreboard_ocr_score_change",
+        "scoreboard_temporal_consistency",
+        "scoreboard_backed_goal_sequence",
+        "shot_sequence_support",
+        "live_shot_finish_sequence",
+      ],
+      phaseCoverage: {
+        hasBuildup: true,
+        hasShot: true,
+        hasFinish: true,
+        hasConfirmation: true,
+        replayOnly: false,
+        visualGoalPayoff: {
+          hasVisibleGoalPayoff: true,
+          hasBallInNetEvidence: false,
+          hasLiveFinishSequence: true,
+          inferredFromStableScoreChange: true,
+          scoreboardOnly: false,
+        },
+      },
+    }),
+  });
+
+  assert.equal(gate.passed, true);
+  assert.equal(gate.failureCode, null);
+  assert.equal(gate.evidence.hasStableScorebackedFinish, true);
+  assert.equal(gate.evidence.hasPayoffFrames, true);
+  assert.equal(gate.evidence.hasGoalmouthFrames, true);
+});
+
+test("human-visible goal gate accepts durable live finish sequence metadata after edit-plan normalization", () => {
+  const gate = validateHumanVisibleGoalSequence({
+    segment: baseSegment({
+      reasonCodes: [
+        "visual_shot_like_motion",
+        "scoreboard_ocr_score_change",
+        "scoreboard_temporal_consistency",
+        "scoreboard_backed_goal_sequence",
+        "shot_sequence_support",
+        "live_shot_finish_sequence",
+      ],
+      phaseCoverage: {
+        hasBuildup: true,
+        hasShot: true,
+        hasFinish: true,
+        hasConfirmation: true,
+        replayOnly: false,
+        visualGoalPayoff: {
+          hasVisibleGoalPayoff: true,
+          hasBallInNetEvidence: false,
+          hasLiveFinishSequence: true,
+          scoreboardOnly: false,
+        },
+      },
+    }),
+  });
+
+  assert.equal(gate.passed, true);
+  assert.equal(gate.evidence.hasStableScorebackedFinish, true);
+});
+
+test("human-visible goal gate accepts public render-plan live finish reason codes when payoff metadata is absent", () => {
+  const gate = validateHumanVisibleGoalSequence({
+    segment: baseSegment({
+      reasonCodes: [
+        "visual_shot_like_motion",
+        "scoreboard_ocr_score_change",
+        "scoreboard_temporal_consistency",
+        "scoreboard_backed_goal_sequence",
+        "shot_sequence_support",
+        "live_shot_finish_sequence",
+      ],
+      phaseCoverage: {
+        hasBuildup: true,
+        hasShot: true,
+        hasFinish: true,
+        hasConfirmation: true,
+        replayOnly: false,
+        visualGoalPayoff: null,
+      },
+    }),
+  });
+
+  assert.equal(gate.passed, true);
+  assert.equal(gate.evidence.hasStableScorebackedFinish, true);
 });
