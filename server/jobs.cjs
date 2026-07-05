@@ -207,6 +207,110 @@ function restoreSafeEditPlanMetadata(publicJob, sourceJob) {
   return publicJob;
 }
 
+function safeNumber(value) {
+  return Number.isFinite(Number(value)) ? Number(Number(value).toFixed(2)) : null;
+}
+
+function safeStringList(values, limit = 10, maxLength = 80) {
+  if (!Array.isArray(values)) return [];
+  return values
+    .map((value) => sanitizeText(value, maxLength))
+    .filter(Boolean)
+    .slice(0, limit);
+}
+
+function publicGoalOutcomeSummary(value) {
+  if (!value) return null;
+  const outcome = typeof value === "object" && !Array.isArray(value)
+    ? value.outcome || value.status || value.type
+    : value;
+  const safeOutcome = sanitizeText(outcome || "", 60);
+  return safeOutcome ? { outcome: safeOutcome } : null;
+}
+
+function publicPhaseCoverageSummary(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    hasBuildup: Boolean(value.hasBuildup),
+    hasShot: Boolean(value.hasShot),
+    hasFinish: Boolean(value.hasFinish),
+    hasConfirmation: Boolean(value.hasConfirmation),
+    replayOnly: Boolean(value.replayOnly),
+    celebrationOnly: Boolean(value.celebrationOnly),
+  };
+}
+
+function publicBoundarySmoothingSummary(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    applied: Boolean(value.applied),
+    smoothingLevel: sanitizeText(value.smoothingLevel || "", 40) || null,
+    preActionPaddingSeconds: safeNumber(value.preActionPaddingSeconds),
+    postConfirmationPaddingSeconds: safeNumber(value.postConfirmationPaddingSeconds),
+  };
+}
+
+function publicVisualGoalGateSummary(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    passed: Boolean(value.passed),
+    confidence: safeNumber(value.confidence),
+    failureCode: sanitizeText(value.failureCode || "", 80) || null,
+  };
+}
+
+function publicRenderPlanSummary(plan = null) {
+  if (!plan || typeof plan !== "object" || Array.isArray(plan)) return null;
+  const segments = Array.isArray(plan.segments)
+    ? plan.segments.slice(0, 12).map((segment, index) => ({
+        index: index + 1,
+        id: sanitizeText(segment.id || `segment_${index + 1}`, 80),
+        goalNumber: Number.isFinite(Number(segment.goalNumber)) ? Math.round(Number(segment.goalNumber)) : null,
+        highlightType: sanitizeText(segment.highlightType || "", 80) || null,
+        sourceStart: safeNumber(segment.sourceStart),
+        buildupStart: safeNumber(segment.buildupStart),
+        shotStart: safeNumber(segment.shotStart),
+        finishTime: safeNumber(segment.finishTime),
+        confirmationTime: safeNumber(segment.confirmationTime),
+        sourceEnd: safeNumber(segment.sourceEnd),
+        duration: safeNumber(segment.duration),
+        timelineStart: safeNumber(segment.timelineStart),
+        timelineEnd: safeNumber(segment.timelineEnd),
+        goalOutcome: publicGoalOutcomeSummary(segment.goalOutcome || segment.outcome),
+        replayUsed: typeof segment.replayUsed === "boolean" ? segment.replayUsed : null,
+        replayOnly: Boolean(segment.replayOnly || (segment.phaseCoverage && segment.phaseCoverage.replayOnly)),
+        boundarySmoothing: publicBoundarySmoothingSummary(segment.boundarySmoothing),
+        phaseCoverage: publicPhaseCoverageSummary(segment.phaseCoverage),
+        visualGoalGate: publicVisualGoalGateSummary(segment.visualGoalGate),
+        reasonCodes: safeStringList(segment.reasonCodes, 10, 80),
+        whySelected: sanitizeText(segment.whySelected || "", 180) || null,
+        safetyFlags: safeStringList(segment.safetyFlags, 8, 80),
+      }))
+    : [];
+  const videoOutputQA = plan.videoOutputQA && typeof plan.videoOutputQA === "object" && !Array.isArray(plan.videoOutputQA)
+    ? publicJsonClone(plan.videoOutputQA)
+    : null;
+  return {
+    mode: sanitizeText(plan.mode || "", 80) || null,
+    highlightType: sanitizeText(plan.highlightType || "", 80) || null,
+    totalDuration: safeNumber(plan.totalDuration),
+    segmentCount: Array.isArray(plan.segments) ? plan.segments.length : 0,
+    captionCount: Array.isArray(plan.captions) ? plan.captions.length : 0,
+    animationCueCount: Array.isArray(plan.animationCues) ? plan.animationCues.length : 0,
+    stylePreset: sanitizeText(plan.stylePreset || "", 80) || null,
+    framingMode: sanitizeText(plan.framingMode || "", 80) || null,
+    styleTarget: sanitizeText(plan.styleTarget || "", 40) || null,
+    editIntensity: sanitizeText(plan.editIntensity || "", 40) || null,
+    cropPlanMode: sanitizeText(plan.cropPlan && plan.cropPlan.mode ? plan.cropPlan.mode : "", 80) || null,
+    goalSelectionMode: sanitizeText(plan.goalSelectionMode || "", 80) || null,
+    segments,
+    videoOutputQA,
+    visualPolishQA: plan.visualPolishQA && typeof plan.visualPolishQA === "object" ? publicJsonClone(plan.visualPolishQA) : null,
+    renderPolishQA: plan.renderPolishQA && typeof plan.renderPolishQA === "object" ? publicJsonClone(plan.renderPolishQA) : null,
+    editAssembly: plan.editAssembly && typeof plan.editAssembly === "object" ? publicJsonClone(plan.editAssembly) : null,
+  };
+}
+
 const SAFE_ERROR_DETAIL_STRING_KEYS = Object.freeze([
   "phase",
   "step",
@@ -591,6 +695,28 @@ class JobStore {
     delete publicSafe.leaseExpiresAt;
     if (publicSafe.payload) publicSafe.payload = publicPayload(publicSafe.payload);
     return restoreSafeEditPlanMetadata(publicJsonClone(publicSafe), safe);
+  }
+
+  publicJobSummary(job) {
+    if (!job) return null;
+    return publicJsonClone({
+      id: job.id || null,
+      projectId: job.projectId || null,
+      uploadId: job.uploadId || null,
+      action: job.action || null,
+      status: job.status || null,
+      progress: Number.isFinite(Number(job.progress)) ? Number(job.progress) : 0,
+      step: job.step || null,
+      progressMeta: job.progressMeta && typeof job.progressMeta === "object" && !Array.isArray(job.progressMeta)
+        ? job.progressMeta
+        : null,
+      exportId: job.exportId || null,
+      error: normalizeError(job.error),
+      videoOutputQA: job.videoOutputQA || (job.editPlan && job.editPlan.videoOutputQA) || null,
+      renderPlanSummary: publicRenderPlanSummary(job.editPlan),
+      createdAt: job.createdAt || null,
+      updatedAt: job.updatedAt || null,
+    });
   }
 
   serializeJob(job) {

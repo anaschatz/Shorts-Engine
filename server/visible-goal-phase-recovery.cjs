@@ -1,8 +1,11 @@
 const { sanitizeText } = require("./media.cjs");
 const { visualReasonCodesForWindow } = require("./vision.cjs");
 
-const BACKWARD_SEARCH_SECONDS = 45;
+const PRIMARY_BACKWARD_SEARCH_SECONDS = 25;
+const FALLBACK_BACKWARD_SEARCH_SECONDS = 35;
+const BACKWARD_SEARCH_SECONDS = FALLBACK_BACKWARD_SEARCH_SECONDS;
 const FORWARD_SEARCH_SECONDS = 15;
+const CONFIRMATION_FORWARD_SECONDS = 8;
 const MIN_PRE_SHOT_SECONDS = 8;
 const MAX_PRE_SHOT_SECONDS = 15;
 
@@ -59,6 +62,8 @@ const DECISION_CODES = Object.freeze([
 
 const CANDIDATE_CONFIRMATION_CODES = Object.freeze([
   ...DECISION_CODES,
+  "scoreboard_ocr_score_change",
+  "scoreboard_temporal_consistency",
   "confirmed_by_commentary",
   "commentator_goal_call_support",
   "combined_goal_confirmation",
@@ -244,6 +249,7 @@ function findDecisionAfter(windows = [], finishTime = 0, fallback = null) {
 
 function findShotBefore(windows = [], finishWindow = {}) {
   const finishStart = windowStart(finishWindow);
+  if (isShotWindow(finishWindow)) return finishWindow;
   return sortedWindows(windows)
     .filter((window) => windowEnd(window) <= finishStart + 0.25)
     .filter((window) => finishStart - windowEnd(window) <= 24)
@@ -262,7 +268,15 @@ function liveOriginForShot(windows = [], shotWindow = {}, finishWindow = {}) {
   return nearbyLive[0] || shotWindow;
 }
 
-function candidateFromFinish({ windows, finishWindow, duration, confirmationAnchorTime, allowInferredPayoff = false }) {
+function candidateFromFinish({
+  windows,
+  finishWindow,
+  duration,
+  confirmationAnchorTime,
+  allowInferredPayoff = false,
+  anchorCodes = [],
+  bindingStrategy = "explicit_payoff",
+}) {
   const shotWindow = findShotBefore(windows, finishWindow);
   if (!shotWindow) return null;
   const originWindow = liveOriginForShot(windows, shotWindow, finishWindow);
@@ -282,6 +296,7 @@ function candidateFromFinish({ windows, finishWindow, duration, confirmationAnch
     .filter((window) => windowEnd(window) >= sourceStart - 0.25 && windowStart(window) <= sourceEnd + 0.25);
   const codes = uniqueCodes([
     ...selectedWindows.flatMap(windowCodes),
+    ...anchorCodes,
     "shot_sequence_support",
     "live_shot_finish_sequence",
   ], 32);
@@ -293,6 +308,8 @@ function candidateFromFinish({ windows, finishWindow, duration, confirmationAnch
   if (!hasStrongShot || !hasGoalMouth || (!hasPayoff && !hasInferredPayoff)) return null;
   return {
     primarySource: "live_action",
+    bindingStrategy: hasPayoff ? bindingStrategy : "score_change_inferred_payoff",
+    fallbackUsed: bindingStrategy === "fallback_window",
     sourceStart,
     sourceEnd,
     buildupStart: sourceStart,
@@ -307,6 +324,7 @@ function candidateFromFinish({ windows, finishWindow, duration, confirmationAnch
       hasBuildup: sourceStart <= shotStart - 2,
       hasShot: true,
       hasFinish: true,
+      hasPayoff: true,
       hasConfirmation: true,
       liveActionStart: sourceStart,
       shotStart,
@@ -318,9 +336,11 @@ function candidateFromFinish({ windows, finishWindow, duration, confirmationAnch
         hasVisibleGoalPayoff: true,
         hasBallInNetEvidence: hasPayoff,
         hasLiveFinishSequence: true,
+        inferredFromStableScoreChange: !hasPayoff && hasInferredPayoff,
         scoreboardOnly: false,
         evidenceCodes: uniqueCodes([
           ...(hasPayoff ? ["visual_ball_in_net"] : ["visual_goal_mouth"]),
+          ...(!hasPayoff && hasInferredPayoff ? ["scoreboard_temporal_consistency"] : []),
           "live_shot_finish_sequence",
         ], 8),
       },
@@ -363,6 +383,74 @@ function buildFailureCode({ shotWindows, replayWindows, celebrationWindows, scor
   return FAILURE_CODES.NO_SHOT_VISIBLE;
 }
 
+function scoreChangeAnchorCodes(change = {}) {
+  return uniqueCodes([
+    ...(Array.isArray(change.evidenceCodes) ? change.evidenceCodes : []),
+    ...(Array.isArray(change.reasonCodes) ? change.reasonCodes : []),
+    ...(change.outcome === "counted_goal" ? ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"] : []),
+  ], 12);
+}
+
+function uniqueFinishWindows(windows = []) {
+  const seen = new Set();
+  const finishWindows = [];
+  for (const window of windows) {
+    const key = `${windowStart(window)}:${windowEnd(window)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    finishWindows.push(window);
+  }
+  return finishWindows;
+}
+
+function candidateSearchPass({
+  visualSignals,
+  start,
+  end,
+  duration,
+  confirmationAnchorTime,
+  allowInferredPayoff,
+  anchorCodes,
+  bindingStrategy,
+} = {}) {
+  const contextWindows = windowsInRange(visualSignals, start, end, 1.5);
+  const replayWindows = contextWindows.filter(isReplayWindow);
+  const celebrationWindows = contextWindows.filter(isCelebrationWindow);
+  const scoreboardOnlyWindows = contextWindows.filter(isScoreboardOnlyWindow);
+  const liveWindows = contextWindows.filter(isLiveWindow);
+  const shotWindows = contextWindows.filter(isShotWindow);
+  const payoffWindows = contextWindows.filter(isPayoffWindow);
+  const inferredFinishWindows = allowInferredPayoff ? contextWindows.filter(isInferredFinishWindow) : [];
+  const finishWindows = allowInferredPayoff
+    ? uniqueFinishWindows([...payoffWindows, ...inferredFinishWindows])
+    : payoffWindows;
+  const candidates = finishWindows
+    .map((finishWindow) => candidateFromFinish({
+      windows: contextWindows,
+      finishWindow,
+      duration,
+      confirmationAnchorTime,
+      allowInferredPayoff,
+      anchorCodes,
+      bindingStrategy,
+    }))
+    .filter(Boolean)
+    .sort((a, b) => scoreCandidate(b) - scoreCandidate(a) || a.sourceStart - b.sourceStart);
+  return {
+    searchWindow: { start: round(start), end: round(end) },
+    contextWindows,
+    replayWindows,
+    celebrationWindows,
+    scoreboardOnlyWindows,
+    liveWindows,
+    shotWindows,
+    payoffWindows,
+    inferredFinishWindows,
+    finishWindows,
+    candidates,
+  };
+}
+
 function analyzeVisibleGoalPhaseRecovery({
   change = {},
   visualSignals = {},
@@ -373,24 +461,45 @@ function analyzeVisibleGoalPhaseRecovery({
   const actionAnchorTime = seconds(change.actionAnchorTime, stableChangeTime);
   const confirmationAnchorTime = Math.min(stableChangeTime, actionAnchorTime);
   const duration = seconds(metadata.durationSeconds, stableChangeTime + FORWARD_SEARCH_SECONDS);
-  const searchStart = Math.max(0, confirmationAnchorTime - BACKWARD_SEARCH_SECONDS);
-  const searchEnd = Math.min(duration || stableChangeTime + FORWARD_SEARCH_SECONDS, stableChangeTime + FORWARD_SEARCH_SECONDS);
-  const contextWindows = windowsInRange(visualSignals, searchStart, searchEnd, 1.5);
-  const replayWindows = contextWindows.filter(isReplayWindow);
-  const celebrationWindows = contextWindows.filter(isCelebrationWindow);
-  const scoreboardOnlyWindows = contextWindows.filter(isScoreboardOnlyWindow);
-  const liveWindows = contextWindows.filter(isLiveWindow);
-  const shotWindows = contextWindows.filter(isShotWindow);
-  const payoffWindows = contextWindows.filter(isPayoffWindow);
-  const candidates = payoffWindows
-    .map((finishWindow) => candidateFromFinish({
-      windows: contextWindows,
-      finishWindow,
-      duration,
-      confirmationAnchorTime,
-    }))
-    .filter(Boolean)
-    .sort((a, b) => scoreCandidate(b) - scoreCandidate(a) || a.sourceStart - b.sourceStart);
+  const searchEnd = Math.min(duration || stableChangeTime + CONFIRMATION_FORWARD_SECONDS, stableChangeTime + CONFIRMATION_FORWARD_SECONDS);
+  const anchorCodes = scoreChangeAnchorCodes(change);
+  const allowInferredPayoff = change.outcome === "counted_goal" && hasAny(anchorCodes, ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"]);
+  const primaryStart = Math.max(0, confirmationAnchorTime - PRIMARY_BACKWARD_SEARCH_SECONDS);
+  const fallbackStart = Math.max(0, confirmationAnchorTime - FALLBACK_BACKWARD_SEARCH_SECONDS);
+  const primaryPass = candidateSearchPass({
+    visualSignals,
+    start: primaryStart,
+    end: searchEnd,
+    duration,
+    confirmationAnchorTime,
+    allowInferredPayoff,
+    anchorCodes,
+    bindingStrategy: "primary_window",
+  });
+  const fallbackPass = primaryPass.candidates.length
+    ? null
+    : candidateSearchPass({
+        visualSignals,
+        start: fallbackStart,
+        end: searchEnd,
+        duration,
+        confirmationAnchorTime,
+        allowInferredPayoff,
+        anchorCodes,
+        bindingStrategy: "fallback_window",
+      });
+  const activePass = fallbackPass || primaryPass;
+  const {
+    contextWindows,
+    replayWindows,
+    celebrationWindows,
+    scoreboardOnlyWindows,
+    liveWindows,
+    shotWindows,
+    payoffWindows,
+    inferredFinishWindows,
+  } = activePass;
+  const candidates = activePass.candidates;
   const selected = candidates[0] || null;
   const failureCode = selected ? null : buildFailureCode({
     shotWindows,
@@ -408,7 +517,20 @@ function analyzeVisibleGoalPhaseRecovery({
       scoreBefore: sanitizeText(change.startScore || "", 16) || null,
       scoreAfter: sanitizeText(change.endScore || "", 16) || null,
     },
-    searchWindow: { start: round(searchStart), end: round(searchEnd) },
+    searchWindow: activePass.searchWindow,
+    bindingDiagnostics: {
+      mode: "score_change_anchor_binding",
+      primarySearchWindow: primaryPass.searchWindow,
+      fallbackSearchWindow: { start: round(fallbackStart), end: round(searchEnd) },
+      fallbackUsed: Boolean(fallbackPass),
+      allowInferredPayoff,
+      maxBackwardSeconds: fallbackPass ? FALLBACK_BACKWARD_SEARCH_SECONDS : PRIMARY_BACKWARD_SEARCH_SECONDS,
+      confirmationForwardSeconds: CONFIRMATION_FORWARD_SECONDS,
+      sampledFrameBudget: Math.max(0, Math.min(24, activePass.contextWindows.length + activePass.finishWindows.length)),
+      reusedFrameCount: 0,
+      fullSourceScanUsed: false,
+      timeoutMs: 0,
+    },
     selected,
     selectedLiveActionWindows: selected ? [selected].map((candidate) => ({
       sourceStart: candidate.sourceStart,
@@ -417,6 +539,8 @@ function analyzeVisibleGoalPhaseRecovery({
       finishTime: candidate.finishTime,
       confirmationTime: candidate.confirmationTime,
       primarySource: candidate.primarySource,
+      bindingStrategy: candidate.bindingStrategy,
+      fallbackUsed: Boolean(candidate.fallbackUsed),
       sampledTimestamps: candidate.sampledTimestamps,
     })) : [],
     rejectedReplayWindows: publicWindows(replayWindows),
@@ -426,6 +550,7 @@ function analyzeVisibleGoalPhaseRecovery({
       liveAction: liveWindows.length,
       shot: shotWindows.length,
       payoff: payoffWindows.length,
+      inferredFinish: inferredFinishWindows.length,
       replay: replayWindows.length,
       celebration: celebrationWindows.length,
       scoreboardOnly: scoreboardOnlyWindows.length,
@@ -434,11 +559,11 @@ function analyzeVisibleGoalPhaseRecovery({
     sampledTimestamps: selected
       ? selected.sampledTimestamps
       : sampledTimestampRefs({
-          sourceStart: searchStart,
+          sourceStart: activePass.searchWindow.start,
           shotStart: shotWindows[0] ? windowStart(shotWindows[0]) : confirmationAnchorTime,
           finishTime: payoffWindows[0] ? windowEnd(payoffWindows[0]) : confirmationAnchorTime,
           confirmationTime: confirmationAnchorTime,
-          sourceEnd: searchEnd,
+          sourceEnd: activePass.searchWindow.end,
         }),
     logsDownloaded: false,
     artifactsDownloaded: false,
@@ -547,6 +672,21 @@ function publicVisibleGoalPhaseRecovery(recovery = {}) {
     schemaVersion: 1,
     anchor: recovery.anchor || null,
     searchWindow: recovery.searchWindow || null,
+    bindingDiagnostics: recovery.bindingDiagnostics && typeof recovery.bindingDiagnostics === "object"
+      ? {
+          mode: sanitizeText(recovery.bindingDiagnostics.mode || "unknown", 60),
+          primarySearchWindow: recovery.bindingDiagnostics.primarySearchWindow || null,
+          fallbackSearchWindow: recovery.bindingDiagnostics.fallbackSearchWindow || null,
+          fallbackUsed: Boolean(recovery.bindingDiagnostics.fallbackUsed),
+          allowInferredPayoff: Boolean(recovery.bindingDiagnostics.allowInferredPayoff),
+          maxBackwardSeconds: Math.max(0, Math.round(Number(recovery.bindingDiagnostics.maxBackwardSeconds || 0))),
+          confirmationForwardSeconds: Math.max(0, Math.round(Number(recovery.bindingDiagnostics.confirmationForwardSeconds || 0))),
+          sampledFrameBudget: Math.max(0, Math.round(Number(recovery.bindingDiagnostics.sampledFrameBudget || 0))),
+          reusedFrameCount: Math.max(0, Math.round(Number(recovery.bindingDiagnostics.reusedFrameCount || 0))),
+          fullSourceScanUsed: Boolean(recovery.bindingDiagnostics.fullSourceScanUsed),
+          timeoutMs: Math.max(0, Math.round(Number(recovery.bindingDiagnostics.timeoutMs || 0))),
+        }
+      : null,
     selectedLiveActionWindows: Array.isArray(recovery.selectedLiveActionWindows) ? recovery.selectedLiveActionWindows : [],
     rejectedReplayWindows: Array.isArray(recovery.rejectedReplayWindows) ? recovery.rejectedReplayWindows : [],
     rejectedCelebrationWindows: Array.isArray(recovery.rejectedCelebrationWindows) ? recovery.rejectedCelebrationWindows : [],

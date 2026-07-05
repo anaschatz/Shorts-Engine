@@ -194,15 +194,29 @@ test("links delayed scorebug changes back to earlier live goal action", () => {
       { start: 86, end: 88, types: ["goal_mouth_visible", "ball_in_net"], confidence: 0.93 },
       { start: 126, end: 127, types: ["scoreboard_goal_confirmed"], confidence: 0.88 },
     ]),
-    scoreboardOcr: [{
-      id: "delayed_counted_goal",
-      timestamp: 126,
-      scoreBefore: "0-0",
-      scoreAfter: "1-0",
-      status: "score_changed",
-      confidence: 0.93,
-      temporalConsistency: true,
-    }],
+    scoreboardOcr: [
+      {
+        id: "delayed_pending_counted_goal",
+        timestamp: 90,
+        scoreBefore: "0-0",
+        scoreAfter: "1-0",
+        status: "ambiguous",
+        confidence: 0.86,
+        temporalConsistency: false,
+        ambiguous: true,
+        transitionDecision: "score_change_pending_confirmation",
+        transitionReasonCodes: ["unit_score_increase_candidate"],
+      },
+      {
+        id: "delayed_counted_goal",
+        timestamp: 126,
+        scoreBefore: "0-0",
+        scoreAfter: "1-0",
+        status: "score_changed",
+        confidence: 0.93,
+        temporalConsistency: true,
+      },
+    ],
     ocrQaCalibration: strongOcrQaCalibration(),
     goalEvidence: goalEvidence([]),
   });
@@ -228,7 +242,7 @@ test("links delayed scorebug changes back to earlier live goal action", () => {
   assert.equal(publicTruth.summary.selectedCountedGoals, 1);
   assert.equal(publicTruth.summary.stableScoreChangeAnchorCount, 1);
   assert.equal(publicTruth.scoreChangeAnchors[0].selectedForRender, true);
-  assert.equal(publicTruth.scoreChangeAnchors[0].firstSeenAt, 126);
+  assert.equal(publicTruth.scoreChangeAnchors[0].firstSeenAt, 90);
   assert.equal(publicTruth.scoreChangeAnchors[0].confirmedAt, 126);
   assert.equal(publicTruth.scoreChangeAnchors[0].stableUntil, 134);
   assert.doesNotMatch(JSON.stringify(publicTruth), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);
@@ -276,7 +290,7 @@ test("score-change recovery selects visible finish over later replay and celebra
       { start: 106, end: 108, types: ["goal_mouth_visible", "ball_in_net"], confidence: 0.94 },
       { start: 118, end: 120, types: ["scoreboard_goal_confirmed", "referee_goal_signal"], confidence: 0.9 },
       { start: 124, end: 128, types: ["replay_indicator", "replay_angle", "ball_in_net"], confidence: 0.88 },
-      { start: 130, end: 132, type: "celebration_after_shot", confidence: 0.86 },
+      { start: 127, end: 128, type: "celebration_after_shot", confidence: 0.86 },
     ]),
     scoreboardOcr: [{
       id: "visible_score_change",
@@ -724,6 +738,101 @@ test("selects five YouTube counted goals across the full source when each has vi
   assert.ok(confirmed.every((event) => event.phaseCoverage.hasConfirmation));
   assert.equal(result.summary.noFalseGoalFromOcrOnly, 1);
   assert.doesNotMatch(JSON.stringify(publicMatchEventTruth(result)), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);
+});
+
+test("binds five counted score changes to efficient live phases using inferred goalmouth payoff", () => {
+  const goalWindows = [
+    { shot: 94, finish: 100, confirm: 112, scoreBefore: "0-0", scoreAfter: "1-0" },
+    { shot: 218, finish: 224, confirm: 239, scoreBefore: "1-0", scoreAfter: "2-0" },
+    { shot: 312, finish: 318, confirm: 335, scoreBefore: "2-0", scoreAfter: "3-0" },
+    { shot: 449, finish: 455, confirm: 471, scoreBefore: "3-0", scoreAfter: "4-0" },
+    { shot: 566, finish: 572, confirm: 591, scoreBefore: "4-0", scoreAfter: "5-0" },
+  ];
+  const result = analyzeMatchEventTruth({
+    metadata: { ...metadata, durationSeconds: 644, sourceType: "youtube", goalSelectionMode: "valid_goals_only" },
+    visualSignals: visualSignals(goalWindows.flatMap((goal) => [
+      { start: goal.shot - 7, end: goal.shot - 5, types: ["fast_break_motion", "ball_visible"], confidence: 0.86 },
+      { start: goal.shot, end: goal.shot + 2, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.92 },
+      { start: goal.finish, end: goal.finish + 2, types: ["goal_mouth_visible"], confidence: 0.9 },
+      { start: goal.confirm, end: goal.confirm + 2, types: ["scoreboard_goal_confirmed"], confidence: 0.89 },
+    ])),
+    scoreboardOcr: goalWindows.map((goal, index) => ({
+      id: `efficient_counted_goal_${index + 1}`,
+      timestamp: goal.confirm,
+      scoreBefore: goal.scoreBefore,
+      scoreAfter: goal.scoreAfter,
+      status: "score_changed",
+      confidence: 0.9 + index * 0.01,
+      temporalConsistency: true,
+      scoreChanged: true,
+      source: "local_scorebug_digit_reader_gray_line",
+      imageDecoderStatus: "decoded",
+      imageSegmentationStatus: "readable",
+    })),
+    ocrQaCalibration: strongOcrQaCalibration(),
+    goalEvidence: goalEvidence([]),
+  });
+
+  const confirmed = result.events.filter((event) => event.type === "confirmed_goal");
+  assert.equal(result.summary.confirmedGoalCount, 5);
+  assert.equal(result.summary.countedGoalEventCount, 5);
+  assert.equal(result.summary.anchorsLinkedToGoalPhaseCount, 5);
+  assert.equal(result.summary.anchorsMissingVisualSupportCount, 0);
+  assert.equal(result.summary.selectedCountedGoals, 5);
+  assert.equal(result.summary.ocrOnlyBlockedCount, 0);
+  assert.deepEqual(confirmed.map((event) => event.goalNumber), [1, 2, 3, 4, 5]);
+  assert.ok(confirmed.every((event) => event.primarySource === "live_action"));
+  assert.ok(confirmed.every((event) => event.phaseCoverage.hasBuildup));
+  assert.ok(confirmed.every((event) => event.phaseCoverage.hasShot));
+  assert.ok(confirmed.every((event) => event.phaseCoverage.hasFinish));
+  assert.ok(confirmed.every((event) => event.phaseCoverage.hasConfirmation));
+  assert.ok(confirmed.every((event) => event.phaseCoverage.visualGoalPayoff.hasBallInNetEvidence === false));
+  assert.ok(confirmed.every((event) => event.phaseCoverage.visualGoalPayoff.inferredFromStableScoreChange === true));
+  assert.ok(confirmed.every((event) => event.anchorDiagnostics.bindingFullSourceScanUsed === false));
+  assert.ok(confirmed.every((event) => event.anchorDiagnostics.bindingSampledFrameBudget <= 24));
+  assert.doesNotMatch(JSON.stringify(publicMatchEventTruth(result)), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath|stderr|stdout/i);
+});
+
+test("keeps distinct close score transitions from being swallowed by overlapping goal windows", () => {
+  const closeGoalWindows = [
+    { shot: 550, finish: 554, confirm: 558.4, scoreBefore: "2-1", scoreAfter: "2-2" },
+    { shot: 558.8, finish: 562, confirm: 565.2, scoreBefore: "2-2", scoreAfter: "3-2" },
+  ];
+  const result = analyzeMatchEventTruth({
+    metadata: { ...metadata, durationSeconds: 660, sourceType: "youtube", goalSelectionMode: "valid_goals_only" },
+    visualSignals: visualSignals(closeGoalWindows.flatMap((goal) => [
+      { start: goal.shot - 7, end: goal.shot - 5, types: ["fast_break_motion", "ball_visible"], confidence: 0.86 },
+      { start: goal.shot, end: goal.shot + 1.5, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.92 },
+      { start: goal.finish, end: goal.finish + 1.5, types: ["goal_mouth_visible"], confidence: 0.9 },
+      { start: goal.confirm, end: goal.confirm + 1, types: ["scoreboard_goal_confirmed"], confidence: 0.89 },
+    ])),
+    scoreboardOcr: closeGoalWindows.map((goal, index) => ({
+      id: `close_counted_goal_${index + 1}`,
+      timestamp: goal.confirm,
+      scoreBefore: goal.scoreBefore,
+      scoreAfter: goal.scoreAfter,
+      status: "score_changed",
+      confidence: 0.93,
+      temporalConsistency: true,
+      scoreChanged: true,
+      source: "local_scorebug_digit_reader_gray_line",
+      imageDecoderStatus: "decoded",
+      imageSegmentationStatus: "readable",
+    })),
+    ocrQaCalibration: strongOcrQaCalibration(),
+    goalEvidence: goalEvidence([]),
+  });
+
+  const confirmed = result.events.filter((event) => event.type === "confirmed_goal");
+  assert.equal(result.summary.scoreChangeAnchorsFound, 2);
+  assert.equal(result.summary.countedGoalEventCount, 2);
+  assert.equal(result.summary.confirmedGoalCount, 2);
+  assert.equal(result.summary.selectedCountedGoals, 2);
+  assert.deepEqual(confirmed.map((event) => event.scoreBefore), ["2-1", "2-2"]);
+  assert.deepEqual(confirmed.map((event) => event.scoreAfter), ["2-2", "3-2"]);
+  assert.deepEqual(confirmed.map((event) => event.goalNumber), [1, 2]);
+  assert.ok(confirmed.every((event) => event.anchorDiagnostics.bindingFullSourceScanUsed === false));
+  assert.ok(confirmed.every((event) => event.phaseCoverage.replayOnly === false));
 });
 
 test("rejects scorebug counted candidate when only replay context is visible", () => {

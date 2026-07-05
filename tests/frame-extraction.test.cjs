@@ -96,6 +96,63 @@ test("extractSampledFrames samples across long candidate timelines", async () =>
   cleanupSampledFrames(result);
 });
 
+test("extractSampledFrames allows bounded expanded long-source frame budgets", async () => {
+  const inputPath = uniquePath("uploads", "source-long-expanded.mp4");
+  const outputDir = uniquePath("staging", "frames-long-expanded");
+  const longMetadata = { durationSeconds: 300, width: 1920, height: 1080 };
+  writeFileSync(inputPath, Buffer.from("synthetic-video"));
+
+  const result = await extractSampledFrames({
+    inputPath,
+    outputDir,
+    metadata: longMetadata,
+    ffmpegRunner: fakeFfmpegRunner,
+    maxFrames: 99,
+    candidateWindows: Array.from({ length: 30 }, (_, index) => ({
+      time: 8 + index * 9,
+      confidence: 0.9,
+      source: "scorebug_first_live_action_anchor",
+      visualHints: ["shot_contact", "goal_mouth_visible"],
+    })),
+  });
+
+  assert.equal(result.frames.length, 18);
+  assert.equal(frameExtractionHealth().maxFrames, 10);
+  assert.equal(frameExtractionHealth().maxAllowedFrames, 18);
+
+  cleanupSampledFrames(result);
+});
+
+test("extractSampledFrames keeps close scorebug live-action anchors within bounded budget", async () => {
+  const inputPath = uniquePath("uploads", "source-close-goals.mp4");
+  const outputDir = uniquePath("staging", "frames-close-goals");
+  const longMetadata = { durationSeconds: 180, width: 1920, height: 1080 };
+  writeFileSync(inputPath, Buffer.from("synthetic-video"));
+
+  const result = await extractSampledFrames({
+    inputPath,
+    outputDir,
+    metadata: longMetadata,
+    ffmpegRunner: fakeFfmpegRunner,
+    maxFrames: 5,
+    candidateWindows: [
+      { time: 20, confidence: 0.94, source: "scorebug_first_live_action_anchor", visualHints: ["shot_contact"] },
+      { time: 29, confidence: 0.94, source: "scorebug_first_live_action_anchor", visualHints: ["shot_contact"] },
+      { time: 42, confidence: 0.9, source: "scorebug_first_score_confirmation", visualHints: ["scoreboard_goal_confirmed"] },
+      { time: 76, confidence: 0.88, source: "high_motion_candidate" },
+      { time: 105, confidence: 0.86, source: "audio_peak_context" },
+      { time: 144, confidence: 0.84, source: "scene_change_context" },
+      { time: 168, confidence: 0.82, source: "high_motion_candidate" },
+    ],
+  });
+
+  assert.equal(result.frames.length, 5);
+  assert.equal(result.frames.some((frame) => frame.timestamp === 20), true);
+  assert.equal(result.frames.some((frame) => frame.timestamp === 29), true);
+
+  cleanupSampledFrames(result);
+});
+
 test("extractSampledFrames falls back safely when input is unavailable", async () => {
   const result = await extractSampledFrames({
     inputPath: uniquePath("uploads", "missing.mp4"),

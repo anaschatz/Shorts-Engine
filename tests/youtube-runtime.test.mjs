@@ -180,10 +180,12 @@ function createFetchMock(overrides = {}) {
   const fetchImpl = async (url, options = {}) => {
     const parsed = new URL(String(url));
     const method = String(options.method || "GET").toUpperCase();
-    const key = `${method} ${parsed.pathname}`;
+    const key = `${method} ${parsed.pathname}${parsed.search}`;
+    const pathKey = `${method} ${parsed.pathname}`;
     calls.push({ key, body: options.body || null });
     if (overrides[key]) return overrides[key]({ url: String(url), options });
-    if (key === "GET /health") {
+    if (overrides[pathKey]) return overrides[pathKey]({ url: String(url), options });
+    if (pathKey === "GET /health") {
       return jsonResponse({
         ok: true,
         data: {
@@ -201,7 +203,7 @@ function createFetchMock(overrides = {}) {
         },
       }, 200, "req_health");
     }
-    if (key === "POST /api/youtube/validate") {
+    if (pathKey === "POST /api/youtube/validate") {
       const body = JSON.parse(options.body);
       assert.equal(body.url, SAFE_URL);
       assert.equal(body.rightsConfirmed, true);
@@ -218,7 +220,7 @@ function createFetchMock(overrides = {}) {
         },
       }, 200, "req_validate");
     }
-    if (key === "POST /api/youtube/ingest") {
+    if (pathKey === "POST /api/youtube/ingest") {
       const body = JSON.parse(options.body);
       assert.equal(body.url, SAFE_URL);
       assert.equal(body.rightsConfirmed, true);
@@ -241,7 +243,7 @@ function createFetchMock(overrides = {}) {
         },
       }, 201, "req_ingest");
     }
-    if (key === "POST /api/projects/prj_12345678/generate") {
+    if (pathKey === "POST /api/projects/prj_12345678/generate") {
       const body = JSON.parse(options.body);
       assert.equal(body.rightsConfirmed, true);
       assert.match(body.idempotencyKey, /^youtube_smoke_/);
@@ -252,7 +254,7 @@ function createFetchMock(overrides = {}) {
         },
       }, 202, "req_generate");
     }
-    if (key === "GET /api/jobs/job_12345678") {
+    if (pathKey === "GET /api/jobs/job_12345678") {
       return jsonResponse({
         ok: true,
         data: {
@@ -270,7 +272,7 @@ function createFetchMock(overrides = {}) {
         },
       }, 200, "req_job");
     }
-    if (key === "GET /api/exports/exp_12345678/download") return mp4Response();
+    if (pathKey === "GET /api/exports/exp_12345678/download") return mp4Response();
     return jsonResponse({ ok: false, error: { code: "TEST_ROUTE_NOT_FOUND", message: "Missing mocked route." } }, 404);
   };
   return { fetchImpl, calls };
@@ -641,7 +643,7 @@ test("youtube smoke stalled job report preserves active progress substep safely"
   });
   const report = await runYouTubeSmoke({
     env: smokeEnv({
-      SHORTSENGINE_YOUTUBE_SMOKE_JOB_TIMEOUT_MS: "5000",
+      SHORTSENGINE_YOUTUBE_SMOKE_JOB_TIMEOUT_MS: "15000",
       SHORTSENGINE_YOUTUBE_SMOKE_STALL_TIMEOUT_MS: "1000",
       SHORTSENGINE_YOUTUBE_SMOKE_POLL_INTERVAL_MS: "100",
     }),
@@ -767,8 +769,8 @@ test("youtube smoke polling failure preserves last active chunk context", async 
   });
 
   assert.equal(report.status, "failed");
-  assert.equal(report.failedCases[0].code, "YOUTUBE_SMOKE_FETCH_FAILED");
-  assert.equal(report.failedCases[0].causeCode, "YOUTUBE_SMOKE_FETCH_FAILED");
+  assert.equal(report.failedCases[0].code, "YOUTUBE_SMOKE_CONNECTION_CLOSED");
+  assert.equal(report.failedCases[0].causeCode, "ECONNRESET");
   assert.equal(report.failedCases[0].phase, "render");
   assert.equal(report.failedCases[0].step, "run_scorebug_ocr");
   assert.equal(report.failedCases[0].substep, "scorebug_first_chunk");
@@ -802,7 +804,7 @@ test("youtube smoke successful mocked flow validates ingest generate job and dow
     "POST /api/youtube/validate",
     "POST /api/youtube/ingest",
     "POST /api/projects/prj_12345678/generate",
-    "GET /api/jobs/job_12345678",
+    "GET /api/jobs/job_12345678?view=summary",
     "GET /api/exports/exp_12345678/download",
   ]);
   assert.doesNotMatch(JSON.stringify(report), new RegExp(SAFE_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));

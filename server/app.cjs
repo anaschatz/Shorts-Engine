@@ -816,7 +816,10 @@ async function handleGetJob(req, res, jobId, principal) {
   const job = jobQueue.get(safeJobId);
   if (!job) throw new AppError("JOB_NOT_FOUND", SAFE_MESSAGES.JOB_NOT_FOUND, 404);
   assertJobAccess(job, principal);
-  sendOk(res, { job: jobQueue.publicJob(job) });
+  const url = new URL(req.url, "http://localhost");
+  const view = sanitizeText(url.searchParams.get("view") || "", 40);
+  const publicJob = view === "summary" ? jobQueue.publicJobSummary(job) : jobQueue.publicJob(job);
+  sendOk(res, { job: publicJob });
 }
 
 async function handleCancelJob(req, res, jobId, principal) {

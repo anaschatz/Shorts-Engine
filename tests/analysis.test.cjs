@@ -41,6 +41,10 @@ function matchEventTruthFixture(goals, durationSeconds) {
     type: "confirmed_goal",
     outcome: "confirmed_goal",
     confidence: 0.92,
+    goalNumber: goal.goalNumber || index + 1,
+    scoreBefore: goal.scoreBefore || null,
+    scoreAfter: goal.scoreAfter || null,
+    scoreChangeTime: goal.scoreChangeTime || null,
     sourceStart: goal.sourceStart,
     sourceEnd: goal.sourceEnd,
     buildupWindow: { start: Math.max(0, goal.sourceStart - 1.2), end: goal.shotStart || goal.sourceStart },
@@ -1638,6 +1642,172 @@ test("valid-goals-only keeps full-source late confirmed goals before early fille
   assert.equal(plan.hook, "VALID FINISHES ONLY");
   assert.match(captionText, /FINISH COUNTS|ONLY VALID FINISHES/i);
   assert.doesNotMatch(captionText, /BIG CHANCE|SHOT OPENS UP|CHANCE OPENS|EVERY BIG MOMENT/i);
+});
+
+test("valid-goals-only preserves original confirmed goal numbers in compilation diagnostics", () => {
+  const longMetadata = { durationSeconds: 240, width: 1920, height: 1080, hasAudio: true };
+  const truth = matchEventTruthFixture([
+    {
+      goalNumber: 1,
+      sourceStart: 28,
+      sourceEnd: 50,
+      shotStart: 34,
+      payoffStart: 39.2,
+      payoffEnd: 41,
+      decisionStart: 48,
+      decisionEnd: 50,
+    },
+    {
+      goalNumber: 3,
+      sourceStart: 96,
+      sourceEnd: 120,
+      shotStart: 104,
+      payoffStart: 111.2,
+      payoffEnd: 113,
+      decisionStart: 118,
+      decisionEnd: 120,
+    },
+    {
+      goalNumber: 5,
+      sourceStart: 168,
+      sourceEnd: 194,
+      shotStart: 176,
+      payoffStart: 186.2,
+      payoffEnd: 188,
+      decisionStart: 192,
+      decisionEnd: 194,
+    },
+  ], longMetadata.durationSeconds);
+  truth.selectedEvents.forEach((event) => {
+    event.evidenceCodes.push(
+      "scoreboard_ocr_score_change",
+      "scoreboard_temporal_consistency",
+      "scoreboard_backed_goal_sequence",
+      "shot_sequence_support",
+      "live_shot_finish_sequence",
+    );
+  });
+
+  const plans = createCandidateEditPlans({
+    moments: [],
+    metadata: { ...longMetadata, goalSelectionMode: "valid_goals_only" },
+    transcript: { captions: [] },
+    matchEventTruth: truth,
+    title: "Non-contiguous goal numbers",
+    editIntensity: "balanced",
+    stylePreset: "punchy_highlight",
+  });
+  const plan = validateEditPlan(plans[0], longMetadata);
+
+  assert.equal(plan.mode, "multi_moment_compilation");
+  assert.deepEqual(plan.segments.map((segment) => segment.goalNumber), [1, 3, 5]);
+  assert.deepEqual(
+    plan.editAssembly.segments.map((segment) => segment.goalNumber),
+    [1, 3, 5],
+  );
+  assert.deepEqual(
+    plan.reviewMetadata.multiMoment.segmentTimestamps.map((segment) => segment.phaseCoverage && segment.phaseCoverage.replayOnly),
+    [false, false, false],
+  );
+  assert.equal(plan.hookPlan.relatedGoalNumber, 1);
+});
+
+test("valid-goals-only keeps distinct close confirmed goals even when source windows overlap", () => {
+  const longMetadata = { durationSeconds: 764, width: 1920, height: 1080, hasAudio: true };
+  const truth = matchEventTruthFixture([
+    {
+      goalNumber: 1,
+      scoreBefore: "0-0",
+      scoreAfter: "1-0",
+      scoreChangeTime: 137.6,
+      sourceStart: 126,
+      sourceEnd: 148,
+      shotStart: 132,
+      payoffStart: 136,
+      payoffEnd: 138,
+      decisionStart: 145,
+      decisionEnd: 148,
+    },
+    {
+      goalNumber: 2,
+      scoreBefore: "1-0",
+      scoreAfter: "1-1",
+      scoreChangeTime: 474,
+      sourceStart: 462,
+      sourceEnd: 488,
+      shotStart: 468,
+      payoffStart: 472,
+      payoffEnd: 474,
+      decisionStart: 482,
+      decisionEnd: 488,
+    },
+    {
+      goalNumber: 3,
+      scoreBefore: "1-1",
+      scoreAfter: "2-1",
+      scoreChangeTime: 483.75,
+      sourceStart: 462,
+      sourceEnd: 488,
+      shotStart: 472,
+      payoffStart: 478,
+      payoffEnd: 480,
+      decisionStart: 486,
+      decisionEnd: 488,
+    },
+    {
+      goalNumber: 4,
+      scoreBefore: "2-1",
+      scoreAfter: "2-2",
+      scoreChangeTime: 558.45,
+      sourceStart: 546,
+      sourceEnd: 570,
+      shotStart: 552,
+      payoffStart: 557,
+      payoffEnd: 559,
+      decisionStart: 566,
+      decisionEnd: 570,
+    },
+    {
+      goalNumber: 5,
+      scoreBefore: "2-2",
+      scoreAfter: "3-2",
+      scoreChangeTime: 596.25,
+      sourceStart: 584,
+      sourceEnd: 608,
+      shotStart: 590,
+      payoffStart: 595,
+      payoffEnd: 597,
+      decisionStart: 604,
+      decisionEnd: 608,
+    },
+  ], longMetadata.durationSeconds);
+  truth.selectedEvents.forEach((event) => {
+    event.evidenceCodes.push(
+      "scoreboard_ocr_score_change",
+      "scoreboard_temporal_consistency",
+      "scoreboard_backed_goal_sequence",
+      "shot_sequence_support",
+      "live_shot_finish_sequence",
+    );
+  });
+
+  const plans = createCandidateEditPlans({
+    moments: [],
+    metadata: { ...longMetadata, goalSelectionMode: "valid_goals_only" },
+    transcript: { captions: [] },
+    matchEventTruth: truth,
+    title: "Close valid goals fixture",
+    editIntensity: "balanced",
+    stylePreset: "punchy_highlight",
+  });
+  const plan = validateEditPlan(plans[0], longMetadata);
+
+  assert.equal(plan.mode, "multi_moment_compilation");
+  assert.equal(plan.segments.length, 5);
+  assert.deepEqual(plan.segments.map((segment) => segment.goalNumber), [1, 2, 3, 4, 5]);
+  assert.ok(plan.segments.every((segment) => segment.goalOutcome && segment.goalOutcome.outcome === "confirmed_goal"));
+  assert.ok(plan.segments.every((segment) => segment.phaseCoverage && segment.phaseCoverage.replayOnly === false));
+  assert.equal(plan.segments.filter((segment) => segment.highlightType === "goal").length, 5);
 });
 
 test("valid-goals-only plan keeps every confirmed goal, excludes offside goals, and adds smooth transitions", () => {

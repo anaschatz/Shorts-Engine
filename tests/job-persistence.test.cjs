@@ -189,6 +189,53 @@ test("public job keeps safe render QA metadata from large edit plans", () => {
   assert.doesNotMatch(JSON.stringify(publicJob), /\/Users|OPENAI_API_KEY|storageKey|outputPath|localPath/i);
 });
 
+test("public job summary stays bounded for polling while preserving render proof metadata", () => {
+  const jobDir = tempJobDir();
+  const store = createPersistentStore(jobDir);
+  const job = createJob(store, "public-summary");
+  store.update(job, { status: "processing", progress: 86, step: "render_short" });
+  store.complete(job, {
+    exportId: "exp_dddddddd-dddd-4ddd-dddd-dddddddddddd",
+    editPlan: {
+      mode: "multi_moment_compilation",
+      highlightType: "goal",
+      totalDuration: 142,
+      stylePreset: "reference_football_multi_goal_v1",
+      goalSelectionMode: "valid_goals_only",
+      captions: Array.from({ length: 80 }, (_, index) => ({ text: `caption ${index}` })),
+      animationCues: Array.from({ length: 80 }, (_, index) => ({ type: `cue_${index}` })),
+      segments: Array.from({ length: 5 }, (_, index) => ({
+        goalNumber: index + 1,
+        highlightType: "goal",
+        sourceStart: 100 + index * 20,
+        sourceEnd: 116 + index * 20,
+        duration: 16,
+        phaseCoverage: { replayOnly: false },
+      })),
+      videoOutputQA: {
+        status: "passed",
+        passed: true,
+        expectedGoalCount: 5,
+        actualConfirmedGoalSegmentCount: 5,
+        coveredGoalCount: 5,
+        missingGoalNumbers: [],
+      },
+    },
+    candidatePlans: Array.from({ length: 30 }, (_, index) => ({ id: `candidate_${index}`, body: "x".repeat(2000) })),
+  });
+
+  const summary = store.publicJobSummary(job);
+  assert.equal(summary.status, "completed");
+  assert.equal(summary.exportId, "exp_dddddddd-dddd-4ddd-dddd-dddddddddddd");
+  assert.equal(summary.renderPlanSummary.segmentCount, 5);
+  assert.equal(summary.renderPlanSummary.videoOutputQA.coveredGoalCount, 5);
+  assert.deepEqual(summary.renderPlanSummary.segments.map((segment) => segment.goalNumber), [1, 2, 3, 4, 5]);
+  assert.equal(Object.hasOwn(summary, "editPlan"), false);
+  assert.equal(Object.hasOwn(summary, "candidatePlans"), false);
+  assert.ok(Buffer.byteLength(JSON.stringify(summary), "utf8") < 12000);
+  assert.doesNotMatch(JSON.stringify(summary), /\/Users|OPENAI_API_KEY|storageKey|outputPath|localPath/i);
+});
+
 test("idempotency survives durable store reload", () => {
   const jobDir = tempJobDir();
   const firstStore = createPersistentStore(jobDir);

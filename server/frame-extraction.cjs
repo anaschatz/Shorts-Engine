@@ -8,6 +8,7 @@ const { runFfmpeg } = require("./render.cjs");
 const { assertStoragePath, safeResolve, storagePath } = require("./storage.cjs");
 
 const DEFAULT_MAX_FRAMES = 10;
+const MAX_ALLOWED_FRAMES = 18;
 const DEFAULT_MAX_DIMENSION = 640;
 const DEFAULT_FRAME_FORMAT = "jpg";
 
@@ -86,12 +87,19 @@ function selectTemporalCoverage(windows = [], { maxItems = DEFAULT_MAX_FRAMES, d
     .filter((window) => Number.isFinite(Number(window.timestamp)))
     .sort((a, b) => a.timestamp - b.timestamp);
   if (safeWindows.length <= maxItems) return safeWindows;
+  const isRequiredAnchor = (window = {}) => window.source === "scorebug_first_live_action_anchor";
   const mediaDuration = Math.max(0, Number(duration) || safeWindows[safeWindows.length - 1].timestamp || 0);
   const minGap = mediaDuration > 0 ? Math.max(3, mediaDuration / maxItems * 0.45) : 3;
   const selected = [];
+  const requiredAnchors = safeWindows.filter(isRequiredAnchor);
+  for (const window of requiredAnchors) {
+    if (selected.length >= maxItems) break;
+    selected.push(window);
+  }
   const ranked = [...safeWindows].sort((a, b) => Number(b.confidence || 0) - Number(a.confidence || 0) || a.timestamp - b.timestamp);
   for (const window of ranked) {
     if (selected.length >= maxItems) break;
+    if (selected.includes(window)) continue;
     if (selected.some((existing) => Math.abs(existing.timestamp - window.timestamp) < minGap)) continue;
     selected.push(window);
   }
@@ -105,7 +113,8 @@ function selectTemporalCoverage(windows = [], { maxItems = DEFAULT_MAX_FRAMES, d
 
 function normalizeFrameExtractionInput(input = {}) {
   const metadata = input.metadata || {};
-  const maxFrames = Math.max(1, Math.min(DEFAULT_MAX_FRAMES, Math.floor(Number(input.maxFrames || DEFAULT_MAX_FRAMES))));
+  const requestedMaxFrames = Math.floor(Number(input.maxFrames || DEFAULT_MAX_FRAMES));
+  const maxFrames = Math.max(1, Math.min(MAX_ALLOWED_FRAMES, requestedMaxFrames));
   const maxDimension = Math.max(160, Math.min(DEFAULT_MAX_DIMENSION, Math.floor(Number(input.maxDimension || DEFAULT_MAX_DIMENSION))));
   const outputDir = input.outputDir
     ? assertStoragePath(input.outputDir, "staging")
@@ -356,6 +365,7 @@ function frameExtractionHealth() {
     fallbackMode: "mock",
     objectTracking: false,
     maxFrames: DEFAULT_MAX_FRAMES,
+    maxAllowedFrames: MAX_ALLOWED_FRAMES,
     maxDimension: DEFAULT_MAX_DIMENSION,
   };
 }
@@ -363,6 +373,7 @@ function frameExtractionHealth() {
 module.exports = {
   DEFAULT_MAX_DIMENSION,
   DEFAULT_MAX_FRAMES,
+  MAX_ALLOWED_FRAMES,
   cleanupSampledFrames,
   extractSampledFrames,
   frameExtractionHealth,

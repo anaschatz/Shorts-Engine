@@ -52,6 +52,62 @@ test("local job queue validates the worker contract and completes with an active
   assert.equal(queue.publicJob(job).leaseId, undefined);
 });
 
+test("local job queue exposes bounded public job summaries for route polling", () => {
+  const { queue } = createQueue();
+  validateQueueContract(queue);
+  const job = createJob(queue, "queue-public-summary");
+  job.status = "processing";
+  job.progress = 44;
+  job.step = "run_scorebug_ocr";
+  job.progressMeta = {
+    phase: "analysis",
+    step: "run_scorebug_ocr",
+    substep: "scorebug_first_chunk",
+    chunkIndex: 2,
+    chunkCount: 6,
+    scannedChunks: 1,
+    discoveredScoreChanges: 1,
+  };
+  job.editPlan = {
+    mode: "multi_moment_compilation",
+    totalDuration: 82,
+    sourceStart: 10,
+    sourceEnd: 240,
+    segments: Array.from({ length: 5 }, (_, index) => ({
+      sourceStart: index * 20,
+      sourceEnd: index * 20 + 12,
+      goalNumber: index + 1,
+      outcome: "confirmed_goal",
+      replayOnly: false,
+      phaseCoverage: { hasBuildup: true, hasShot: true, hasFinish: true, hasConfirmation: true },
+    })),
+    captions: Array.from({ length: 200 }, (_, index) => ({
+      start: index,
+      end: index + 0.4,
+      text: `caption ${index}`,
+    })),
+    videoOutputQA: {
+      passed: true,
+      expectedGoalCount: 5,
+      coveredGoalCount: 5,
+      actualConfirmedGoalSegmentCount: 5,
+      replayOnlySegments: 0,
+      missingGoalNumbers: [],
+    },
+  };
+
+  const summary = queue.publicJobSummary(job);
+
+  assert.equal(summary.id, job.id);
+  assert.equal(summary.status, "processing");
+  assert.equal(summary.progressMeta.substep, "scorebug_first_chunk");
+  assert.equal(summary.videoOutputQA.coveredGoalCount, 5);
+  assert.equal(summary.renderPlanSummary.segmentCount, 5);
+  assert.equal(summary.editPlan, undefined);
+  assert.equal(summary.candidatePlans, undefined);
+  assert.ok(JSON.stringify(summary).length < 8000);
+});
+
 test("local job queue prevents duplicate active claims and reclaims expired leases", () => {
   const base = Date.parse("2030-01-01T00:00:00.000Z");
   const { queue } = createQueue();

@@ -3165,6 +3165,11 @@ function goalPhaseMetadataForEvent(event = {}, window = {}) {
   const phaseCoverage = goalPhaseCoverageForEvent(event, window);
   return {
     goalNumber: Number(event.goalNumber || 0) || null,
+    scoreBefore: safeScoreText(event.scoreBefore),
+    scoreAfter: safeScoreText(event.scoreAfter),
+    scoreChangeTime: Number.isFinite(Number(event.scoreChangeTime))
+      ? Number(Number(event.scoreChangeTime).toFixed(2))
+      : null,
     shotStart: Number(phaseCoverage.shotStart.toFixed(2)),
     finishTime: Number(phaseCoverage.finishTime.toFixed(2)),
     confirmationTime: phaseCoverage.confirmationTime == null ? null : Number(phaseCoverage.confirmationTime.toFixed(2)),
@@ -3184,6 +3189,12 @@ function goalPhaseMetadataForEvent(event = {}, window = {}) {
       confirmationTime: phaseCoverage.confirmationTime == null ? null : Number(phaseCoverage.confirmationTime.toFixed(2)),
     },
   };
+}
+
+function safeScoreText(value) {
+  if (value == null || value === "") return null;
+  const text = sanitizeText(value, 16).replace(/\s+/g, "");
+  return /^\d{1,2}-\d{1,2}$/.test(text) ? text : null;
 }
 
 function truthGoalOutcomeForEvent(event = {}) {
@@ -3214,13 +3225,17 @@ function truthGoalOutcomeForEvent(event = {}) {
 function createTruthDrivenValidGoalMoments({ matchEventTruth, metadata, signals, visualSignals, captions, preset = "hype" } = {}) {
   const events = truthEventsForValidGoalsOnly(matchEventTruth);
   return events.map((event, index) => {
+    const goalNumber = Number.isFinite(Number(event.goalNumber)) && Number(event.goalNumber) > 0
+      ? Math.round(Number(event.goalNumber))
+      : index + 1;
     const { sourceStart, sourceEnd } = truthGoalWindowForPlan(event, metadata || signals || {});
-    const goalPhase = goalPhaseMetadataForEvent({ ...event, goalNumber: index + 1 }, { sourceStart, sourceEnd });
+    const goalPhase = goalPhaseMetadataForEvent({ ...event, goalNumber }, { sourceStart, sourceEnd });
     const reasonCodes = truthGoalReasonCodes(event);
     const confidence = Number(clamp(Number(event.confidence || 0.9) + 0.04, 0.12, 0.98).toFixed(2));
     return normalizeMomentWithEvidence({
       id: `mom_valid_goal_truth_${index + 1}_${event.id}`,
       rank: index + 1,
+      goalNumber,
       start: sourceStart,
       end: sourceEnd,
       center: Number(((sourceStart + sourceEnd) / 2).toFixed(2)),
@@ -3441,6 +3456,36 @@ function confirmedGoalPhaseIsRenderable(candidate = {}) {
     (!phaseCoverage.visualGoalPayoff || phaseCoverage.visualGoalPayoff.hasVisibleGoalPayoff !== false);
 }
 
+function confirmedGoalNumberForCandidate(candidate = {}) {
+  const moment = candidate.analysisMoment || candidate || {};
+  const phase = goalPhaseForCandidate(candidate);
+  const evidence = moment.evidence && typeof moment.evidence === "object" ? moment.evidence : {};
+  const value = candidate.goalNumber || moment.goalNumber || (phase && phase.goalNumber) ||
+    (evidence.goalPhase && evidence.goalPhase.goalNumber);
+  return Number.isFinite(Number(value)) && Number(value) > 0 ? Math.round(Number(value)) : null;
+}
+
+function confirmedScoreTransitionForCandidate(candidate = {}) {
+  const moment = candidate.analysisMoment || candidate || {};
+  const phase = goalPhaseForCandidate(candidate) || {};
+  const evidence = moment.evidence && typeof moment.evidence === "object" ? moment.evidence : {};
+  const evidencePhase = evidence.goalPhase && typeof evidence.goalPhase === "object" ? evidence.goalPhase : {};
+  const before = safeScoreText(candidate.scoreBefore || phase.scoreBefore || evidencePhase.scoreBefore);
+  const after = safeScoreText(candidate.scoreAfter || phase.scoreAfter || evidencePhase.scoreAfter);
+  if (!before || !after) return null;
+  return `${before}->${after}`;
+}
+
+function sameConfirmedGoalCandidate(a = {}, b = {}) {
+  const aGoalNumber = confirmedGoalNumberForCandidate(a);
+  const bGoalNumber = confirmedGoalNumberForCandidate(b);
+  if (aGoalNumber && bGoalNumber) return aGoalNumber === bGoalNumber;
+  const aTransition = confirmedScoreTransitionForCandidate(a);
+  const bTransition = confirmedScoreTransitionForCandidate(b);
+  if (aTransition && bTransition) return aTransition === bTransition;
+  return null;
+}
+
 function bothConfirmedGoalCandidates(a = {}, b = {}) {
   return isConfirmedGoalCandidate(a) && isConfirmedGoalCandidate(b);
 }
@@ -3484,6 +3529,7 @@ function hasUnsafeCompilationOverlap(existing = {}, candidate = {}) {
   const overlap = sourceOverlapSeconds(existing, candidate);
   if (overlap <= 0.5) return false;
   if (bothConfirmedGoalCandidates(existing, candidate)) {
+    if (sameConfirmedGoalCandidate(existing, candidate) === false) return false;
     return sourceOverlapRatio(existing, candidate) > 0.95;
   }
   if (isReplayCandidate(existing) || isReplayCandidate(candidate)) {
@@ -4421,6 +4467,13 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
     const moment = candidate.analysisMoment || {};
     const candidatePhase = goalPhaseForCandidate(candidate);
     const phaseCoverage = goalPhaseCoverageForCandidate(candidate);
+    const candidateGoalNumber = Number.isFinite(Number(candidate.goalNumber))
+      ? Math.max(1, Math.round(Number(candidate.goalNumber)))
+      : candidatePhase && Number.isFinite(Number(candidatePhase.goalNumber))
+        ? Math.max(1, Math.round(Number(candidatePhase.goalNumber)))
+        : moment && moment.evidence && moment.evidence.goalPhase && Number.isFinite(Number(moment.evidence.goalPhase.goalNumber))
+          ? Math.max(1, Math.round(Number(moment.evidence.goalPhase.goalNumber)))
+          : index + 1;
     const originalSourceStart = finiteNumber(candidate.originalSourceStart, null);
     const phaseShotStart = candidatePhase && Number.isFinite(Number(candidatePhase.shotStart))
       ? Number(Number(candidatePhase.shotStart).toFixed(2))
@@ -4471,7 +4524,7 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
       highlightType: candidate.highlightType,
       reasonCodes: Array.isArray(candidate.reasonCodes) ? candidate.reasonCodes : [],
       goalOutcome: candidate.goalOutcome || goalOutcomeForMoment(moment),
-      goalNumber: isConfirmedGoalCandidate(candidate) ? index + 1 : null,
+      goalNumber: isConfirmedGoalCandidate(candidate) ? candidateGoalNumber : null,
       buildupStart,
       shotStart,
       finishTime,

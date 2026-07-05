@@ -117,6 +117,10 @@ class LocalJobQueue {
     return this.store.publicJob(job);
   }
 
+  publicJobSummary(job) {
+    return this.store.publicJobSummary(job);
+  }
+
   claim(jobOrId, options = {}) {
     const lease = validateClaimOptions(options, {
       workerId: this.workerId,

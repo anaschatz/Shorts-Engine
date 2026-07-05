@@ -672,6 +672,8 @@ function scoreChangeCandidateWindowsFromOcr(scoreboardOcr = {}, metadata = {}) {
     ? scoreboardOcr.summary.scoreTimeline
     : [];
   const windows = [];
+  const duration = Math.max(0, Number(metadata.durationSeconds || 0));
+  const bounded = (value, min = 0, max = duration || value) => Math.min(max, Math.max(min, Number(value) || min));
   const push = (item = {}, index = 0) => {
     const timestamp = Number(item.timestamp ?? item.time ?? item.confirmedAt);
     if (!Number.isFinite(timestamp) || timestamp < 0) return;
@@ -679,11 +681,27 @@ function scoreChangeCandidateWindowsFromOcr(scoreboardOcr = {}, metadata = {}) {
     const temporalConsistency = item.temporalConsistency !== false;
     const scoreReverted = Boolean(item.scoreReverted || item.reverted || item.status === "goal_removed");
     if (!scoreChanged || !temporalConsistency || scoreReverted) return;
+    const confidence = Math.max(0.82, Math.min(0.98, Number(item.confidence || 0.86)));
+    const liveActionTime = bounded(timestamp - 12);
     windows.push({
-      time: timestamp,
-      confidence: Math.max(0.82, Math.min(0.98, Number(item.confidence || 0.86))),
-      source: "scorebug_first_score_change",
-      visualHints: ["scoreboard_goal_confirmed", "shot_like_motion", "goal_mouth_visible"],
+      time: Number(liveActionTime.toFixed(2)),
+      start: Number(bounded(liveActionTime - 2.5).toFixed(2)),
+      end: Number(bounded(liveActionTime + 2.5, liveActionTime + 0.4).toFixed(2)),
+      confidence: Math.max(0.9, confidence),
+      source: "scorebug_first_live_action_anchor",
+      visualHints: ["shot_contact", "ball_toward_goal", "goal_mouth_visible", "ball_visible"],
+      scoreBefore: item.scoreBefore || null,
+      scoreAfter: item.scoreAfter || null,
+      scoreChangeTime: Number(timestamp.toFixed(2)),
+      index: index + 1,
+    });
+    windows.push({
+      time: Number(timestamp.toFixed(2)),
+      start: Number(bounded(timestamp - 1.5).toFixed(2)),
+      end: Number(bounded(timestamp + 1.5, timestamp + 0.4).toFixed(2)),
+      confidence: Math.min(0.88, confidence),
+      source: "scorebug_first_score_confirmation",
+      visualHints: ["scoreboard_goal_confirmed"],
       scoreBefore: item.scoreBefore || null,
       scoreAfter: item.scoreAfter || null,
       index: index + 1,
@@ -691,7 +709,7 @@ function scoreChangeCandidateWindowsFromOcr(scoreboardOcr = {}, metadata = {}) {
   };
   evidence.forEach(push);
   if (!windows.length) timeline.forEach(push);
-  return selectCandidateWindowCoverage(windows, Number(metadata.durationSeconds || 0), 12);
+  return selectCandidateWindowCoverage(windows, duration, 18);
 }
 
 function mergeCandidateWindows(primary = [], secondary = [], metadata = {}, maxWindows = 24) {
@@ -2356,6 +2374,7 @@ async function runRenderJob(options) {
         inputPath: context.inputPath,
         metadata: context.metadata,
         candidateWindows: visualCandidateWindows,
+        maxFrames: longSourceRuntime ? 18 : undefined,
         signal,
       });
       sampledFrameSummary = publicFrameSummary(sampledFrames);

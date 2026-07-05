@@ -17,6 +17,7 @@ const JOB_QUEUE_METHODS = Object.freeze([
   "cancel",
   "releaseExpiredLeases",
   "publicJob",
+  "publicJobSummary",
   "health",
 ]);
 

@@ -40,6 +40,8 @@ const SMOKE_NEXT_ACTIONS = {
   SOURCE_CACHE_FILE_INVALID: "replace-invalid-source-cache-file",
   SOURCE_CACHE_CHECKSUM_MISMATCH: "fix-cache-metadata-or-checksum",
   YOUTUBE_SMOKE_FETCH_FAILED: "start-server-or-check-SHORTSENGINE_YOUTUBE_SMOKE_BASE_URL",
+  YOUTUBE_SMOKE_CONNECTION_CLOSED: "inspect-server-ingest-runtime-and-retry-with-authorized-source-cache-or-longer-download-budget",
+  YOUTUBE_SMOKE_SERVER_UNAVAILABLE: "start-server-or-check-SHORTSENGINE_YOUTUBE_SMOKE_BASE_URL",
   YOUTUBE_SMOKE_REQUEST_TIMEOUT: "check-server-readiness-or-increase-smoke-timeout",
   YOUTUBE_SMOKE_HEALTH_TIMEOUT: "check-server-readiness-before-running-youtube-smoke",
   YOUTUBE_SMOKE_VALIDATE_TIMEOUT: "check-youtube-validation-route-and-request-timeout",
@@ -145,9 +147,10 @@ function validateBaseUrl(value) {
 
 function endpointUrl(baseUrl, apiEndpoint) {
   const parsed = new URL(baseUrl);
+  const endpoint = new URL(apiEndpoint, "http://shortsengine.local");
   const mount = parsed.pathname.replace(/\/+$/, "");
-  parsed.pathname = `${mount}${apiEndpoint}`;
-  parsed.search = "";
+  parsed.pathname = `${mount}${endpoint.pathname}`;
+  parsed.search = endpoint.search;
   parsed.hash = "";
   return parsed.toString();
 }
@@ -236,6 +239,23 @@ function phaseDetails(details = {}) {
   };
 }
 
+function safeFetchCauseCode(error) {
+  const raw = error?.cause?.code || error?.code || error?.name || "";
+  const text = String(raw).trim().toUpperCase();
+  return /^[A-Z0-9_-]{2,60}$/.test(text) ? text : null;
+}
+
+function classifyFetchFailure(error) {
+  const causeCode = safeFetchCauseCode(error);
+  if (causeCode === "ECONNREFUSED") {
+    return { code: "YOUTUBE_SMOKE_SERVER_UNAVAILABLE", causeCode };
+  }
+  if (["ECONNRESET", "EPIPE", "UND_ERR_SOCKET", "UND_ERR_BODY_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT"].includes(causeCode)) {
+    return { code: "YOUTUBE_SMOKE_CONNECTION_CLOSED", causeCode };
+  }
+  return { code: "YOUTUBE_SMOKE_FETCH_FAILED", causeCode };
+}
+
 async function fetchWithTimeout(fetchImpl, url, options, timeoutMs, timeoutCode, timeoutDetails = {}) {
   const controller = new AbortController();
   const started = Date.now();
@@ -254,7 +274,13 @@ async function fetchWithTimeout(fetchImpl, url, options, timeoutMs, timeoutCode,
         nextAction: nextActionForCode(timeoutCode),
       });
     }
-    throw new YouTubeSmokeError("YOUTUBE_SMOKE_FETCH_FAILED", "YouTube smoke request failed.");
+    const classified = classifyFetchFailure(error);
+    throw new YouTubeSmokeError(classified.code, "YouTube smoke request failed.", {
+      ...phaseDetails(timeoutDetails),
+      elapsedMs: Date.now() - started,
+      causeCode: classified.causeCode,
+      nextAction: nextActionForCode(classified.code),
+    });
   } finally {
     clearTimeout(timer);
   }
@@ -1106,6 +1132,27 @@ function safeCountedGoalProofSummary(job = {}, segments = []) {
   const selectedValidGoals = selectedEvents
     .filter((event) => event.truthStatus === "valid_goal" || event.eventType === "valid_goal" || event.type === "confirmed_goal")
     .map(safeTruthEvent);
+  const segmentSelectedValidGoals = selectedValidGoals.length
+    ? selectedValidGoals
+    : segments
+        .filter((segment) => (
+          segment.replayOnly !== true &&
+          segment.goalOutcome &&
+          segment.goalOutcome.outcome === "confirmed_goal"
+        ))
+        .map((segment, index) => safeTruthEvent({
+          id: segment.id || `segment_goal_${index + 1}`,
+          eventType: "valid_goal",
+          truthStatus: "valid_goal",
+          type: "confirmed_goal",
+          outcome: "confirmed_goal",
+          sourceStart: segment.sourceStart,
+          sourceEnd: segment.sourceEnd,
+          decisionWindowStart: segment.confirmationTime,
+          decisionWindowEnd: segment.sourceEnd,
+          evidenceCodes: segment.reasonCodes,
+          confidence: null,
+        }, index));
   const excludedOffsideOrNoGoal = truthEvents
     .filter((event) => (
       event.truthStatus === "disallowed_goal" ||
@@ -1146,7 +1193,7 @@ function safeCountedGoalProofSummary(job = {}, segments = []) {
       visualGoalGate: segment.visualGoalGate,
     })),
     detectedGoalCandidates,
-    selectedValidGoals,
+    selectedValidGoals: segmentSelectedValidGoals,
     excludedOffsideOrNoGoal,
     excludedUnknowns,
     scoreChangeAnchors,
@@ -1171,6 +1218,38 @@ function safeCountedGoalProofSummary(job = {}, segments = []) {
 
 function safeRenderPlanSummary(job) {
   const plan = job && job.editPlan && typeof job.editPlan === "object" ? job.editPlan : null;
+  if (!plan && job && job.renderPlanSummary && typeof job.renderPlanSummary === "object" && !Array.isArray(job.renderPlanSummary)) {
+    const summary = job.renderPlanSummary;
+    const segments = Array.isArray(summary.segments) ? summary.segments.map(safeRenderSegment).slice(0, 12) : [];
+    return {
+      mode: sanitizeText(summary.mode || (segments.length ? "multi_moment_compilation" : "single_moment"), 60),
+      highlightType: sanitizeText(summary.highlightType || "generic_highlight", 60),
+      sourceStart: null,
+      sourceEnd: null,
+      totalDuration: safeNumber(summary.totalDuration),
+      segmentCount: Number.isFinite(Number(summary.segmentCount)) ? Number(summary.segmentCount) : segments.length,
+      segments,
+      captionCount: Number.isFinite(Number(summary.captionCount)) ? Number(summary.captionCount) : 0,
+      captions: [],
+      animationCueCount: Number.isFinite(Number(summary.animationCueCount)) ? Number(summary.animationCueCount) : 0,
+      animationCueTypes: [],
+      framingMode: null,
+      stylePreset: sanitizeText(summary.stylePreset || "", 60) || null,
+      styleTarget: null,
+      editIntensity: null,
+      cropPlanMode: sanitizeText(summary.cropPlanMode || "", 60) || null,
+      candidateCount: 0,
+      goalSelectionMode: sanitizeText(summary.goalSelectionMode || "", 60) || null,
+      countedGoalProof: safeCountedGoalProofSummary(job, segments),
+      videoOutputQA: safeVideoOutputQA(job.videoOutputQA || summary.videoOutputQA),
+      visualPolishQA: safeVisualPolishQA(summary.visualPolishQA),
+      renderPolishQA: safeRenderPolishQA(summary.renderPolishQA),
+      editAssembly: summary.editAssembly && typeof summary.editAssembly === "object"
+        ? safeEditAssembly(summary.editAssembly)
+        : null,
+      topCandidates: [],
+    };
+  }
   if (!plan) return null;
   const segments = Array.isArray(plan.segments) ? plan.segments.map(safeRenderSegment).slice(0, 8) : [];
   const captions = Array.isArray(plan.captions) ? plan.captions.map(safeRenderCaption).slice(0, 12) : [];
@@ -1370,7 +1449,7 @@ async function pollJob({ baseUrl, fetchImpl, jobId, jobTimeoutMs, pollIntervalMs
   while (Date.now() - started < jobTimeoutMs) {
     let response;
     try {
-      response = await fetchJson(fetchImpl, endpointUrl(baseUrl, `/api/jobs/${jobId}`), {
+      response = await fetchJson(fetchImpl, endpointUrl(baseUrl, `/api/jobs/${jobId}?view=summary`), {
         method: "GET",
         timeoutMs: Math.min(15000, jobTimeoutMs),
         timeoutCode: "YOUTUBE_SMOKE_JOB_STATUS_TIMEOUT",
@@ -1378,13 +1457,14 @@ async function pollJob({ baseUrl, fetchImpl, jobId, jobTimeoutMs, pollIntervalMs
       });
     } catch (error) {
       if (currentSnapshot) {
+        const fetchFailureCode = error?.details?.causeCode || error?.code || "YOUTUBE_SMOKE_FETCH_FAILED";
         return {
           job: current,
           lifecycle,
           timeout: true,
           stalled: false,
           code: currentSnapshot.error?.code || error?.code || "YOUTUBE_SMOKE_FETCH_FAILED",
-          fetchFailureCode: error?.code || "YOUTUBE_SMOKE_FETCH_FAILED",
+          fetchFailureCode,
           elapsedMs: Date.now() - started,
           timeoutMs: null,
           lastProgressAt: new Date(lastProgressAt).toISOString(),

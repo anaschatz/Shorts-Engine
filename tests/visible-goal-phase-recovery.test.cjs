@@ -99,6 +99,62 @@ test("score-change recovery rejects shot without visible payoff", () => {
   assert.equal(recovery.failureCode, "NO_FINISH_VISIBLE");
 });
 
+test("score-change recovery binds stable score change to inferred live finish without full-source scan", () => {
+  const recovery = analyzeVisibleGoalPhaseRecovery({
+    metadata,
+    visualSignals: visualSignals([
+      { start: 248, end: 249, types: ["fast_break_motion", "ball_visible"], confidence: 0.86 },
+      { start: 252, end: 254, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.92 },
+      { start: 257, end: 259, types: ["goal_mouth_visible"], confidence: 0.9 },
+      { start: 271, end: 272, type: "scoreboard_goal_confirmed", confidence: 0.88 },
+    ]),
+    change: {
+      changeTime: 272,
+      actionAnchorTime: 272,
+      startScore: "1-0",
+      endScore: "2-0",
+      outcome: "counted_goal",
+      reasonCodes: ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"],
+    },
+  });
+
+  assert.equal(recovery.failureCode, null);
+  assert.equal(recovery.selected.primarySource, "live_action");
+  assert.equal(recovery.selected.replayOnly, false);
+  assert.equal(recovery.selected.phaseCoverage.hasShot, true);
+  assert.equal(recovery.selected.phaseCoverage.hasFinish, true);
+  assert.equal(recovery.selected.phaseCoverage.visualGoalPayoff.hasBallInNetEvidence, false);
+  assert.equal(recovery.selected.phaseCoverage.visualGoalPayoff.inferredFromStableScoreChange, true);
+  assert.equal(recovery.bindingDiagnostics.fullSourceScanUsed, false);
+  assert.equal(recovery.bindingDiagnostics.maxBackwardSeconds, 25);
+  assert.ok(recovery.bindingDiagnostics.sampledFrameBudget <= 24);
+});
+
+test("score-change recovery uses bounded fallback window for earlier live phase", () => {
+  const recovery = analyzeVisibleGoalPhaseRecovery({
+    metadata,
+    visualSignals: visualSignals([
+      { start: 239, end: 241, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.92 },
+      { start: 244, end: 246, types: ["goal_mouth_visible"], confidence: 0.89 },
+      { start: 271, end: 272, type: "scoreboard_goal_confirmed", confidence: 0.88 },
+    ]),
+    change: {
+      changeTime: 272,
+      actionAnchorTime: 272,
+      startScore: "1-0",
+      endScore: "2-0",
+      outcome: "counted_goal",
+      reasonCodes: ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"],
+    },
+  });
+
+  assert.equal(recovery.failureCode, null);
+  assert.equal(recovery.bindingDiagnostics.fallbackUsed, true);
+  assert.equal(recovery.bindingDiagnostics.maxBackwardSeconds, 35);
+  assert.equal(recovery.bindingDiagnostics.fullSourceScanUsed, false);
+  assert.ok(recovery.selected.sourceStart <= 239);
+});
+
 test("candidate recovery selects strong live phase without explicit ball-in-net OCR", () => {
   const recovery = analyzeVisibleGoalCandidateRecovery({
     metadata,
@@ -177,6 +233,7 @@ test("public recovery report has safe diagnostics only", () => {
 
   assert.equal(report.logsDownloaded, false);
   assert.equal(report.artifactsDownloaded, false);
+  assert.equal(report.bindingDiagnostics.fullSourceScanUsed, false);
   assert.ok(report.sampledTimestamps.length >= 4);
   assert.doesNotMatch(JSON.stringify(report), /\/Users|\/private|OPENAI_API_KEY|token|secret|stderr|stdout|raw/i);
 });

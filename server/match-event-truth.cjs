@@ -156,12 +156,15 @@ const CELEBRATION_SUPPORT_CODES = Object.freeze([
   "crowd_reaction_support",
 ]);
 const GOAL_PHASE_LOOKBACK_SECONDS = 45;
+const SCORE_CHANGE_BINDING_LOOKBACK_SECONDS = 35;
+const SCORE_CHANGE_BINDING_FORWARD_SECONDS = 8;
 const GOAL_PHASE_MIN_PRE_SHOT_SECONDS = 10;
 const GOAL_PHASE_MAX_PRE_SHOT_SECONDS = 15;
 const SCORE_CHANGE_MIN_CONFIDENCE = 0.72;
 const SCORE_CHANGE_STRONG_CONFIDENCE = 0.86;
 const SCORE_CHANGE_REVERT_LOOKAHEAD_SECONDS = 28;
 const SCORE_CHANGE_CONFIRMATION_SECONDS = 8;
+const SCORE_CHANGE_DEDUP_TIME_TOLERANCE_SECONDS = 1.25;
 const SCORE_CHANGE_PENDING_LOOKBACK_SECONDS = 70;
 const SCORE_CHANGE_POST_SECONDS = 20;
 
@@ -261,6 +264,30 @@ function ocrCodesInRange(ocrEvidence = [], start = 0, end = 0, calibration = nul
   if (usable && items.some((item) => item.scoreUnchanged)) codes.push("scoreboard_ocr_score_unchanged");
   if (items.some((item) => item.ambiguous)) codes.push("scoreboard_ocr_ambiguous");
   return uniqueCodes(codes);
+}
+
+function scoreTransitionInRange(ocrEvidence = [], start = 0, end = 0, calibration = null) {
+  const left = seconds(start) - 1;
+  const right = seconds(end) + 1;
+  const transitions = (Array.isArray(ocrEvidence) ? ocrEvidence : [])
+    .filter((item) => seconds(item.timestamp) >= left && seconds(item.timestamp) <= right)
+    .filter((item) => !item.ambiguous && (item.scoreChanged || item.scoreReverted))
+    .filter((item) => scoreChangeAuthority(item, calibration) || item.scoreReverted)
+    .map((item) => {
+      const before = parseScoreValue(item.scoreBefore);
+      const after = parseScoreValue(item.scoreAfter);
+      const direction = scoreDirection(before, after);
+      if (!before || !after || direction === "same" || direction === "unknown" || direction === "ambiguous") return null;
+      return {
+        scoreBefore: before.text,
+        scoreAfter: after.text,
+        scoreChangeTime: round(seconds(item.timestamp)),
+        confidence: round(clamp(item.confidence, 0, 1)),
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => Math.abs(seconds(end) - a.scoreChangeTime) - Math.abs(seconds(end) - b.scoreChangeTime));
+  return transitions[0] || null;
 }
 
 function eventBaseCodes(event = {}) {
@@ -483,6 +510,7 @@ function normalizePhaseCoverage(value = {}, context = {}) {
         hasVisibleGoalPayoff: Boolean(raw.visualGoalPayoff.hasVisibleGoalPayoff) && visualGoalPayoffForCodes(evidenceCodes).hasVisibleGoalPayoff,
         hasBallInNetEvidence: Boolean(raw.visualGoalPayoff.hasBallInNetEvidence) && hasAny(evidenceCodes, ["ball_in_net", "visual_ball_in_net"]),
         hasLiveFinishSequence: Boolean(raw.visualGoalPayoff.hasLiveFinishSequence) && hasAny(evidenceCodes, ["live_shot_finish_sequence"]),
+        inferredFromStableScoreChange: Boolean(raw.visualGoalPayoff.inferredFromStableScoreChange),
         scoreboardOnly: Boolean(raw.visualGoalPayoff.scoreboardOnly) || visualGoalPayoffForCodes(evidenceCodes).scoreboardOnly,
         evidenceCodes: uniqueCodes(raw.visualGoalPayoff.evidenceCodes || visualGoalPayoffForCodes(evidenceCodes).evidenceCodes, 8),
       }
@@ -769,6 +797,11 @@ function normalizeAnchorDiagnostics(value) {
     changeTime: round(seconds(value.changeTime)),
     actionAnchorTime: value.actionAnchorTime == null ? null : round(seconds(value.actionAnchorTime)),
     searchWindow,
+    bindingStrategy: value.bindingStrategy ? sanitizeText(value.bindingStrategy, 60) : null,
+    bindingFallbackUsed: Boolean(value.bindingFallbackUsed),
+    bindingFullSourceScanUsed: Boolean(value.bindingFullSourceScanUsed),
+    bindingSampledFrameBudget: Math.max(0, Math.round(Number(value.bindingSampledFrameBudget || 0))),
+    bindingMaxBackwardSeconds: Math.max(0, Math.round(Number(value.bindingMaxBackwardSeconds || 0))),
     liveWindowCount: Math.max(0, Math.round(Number(value.liveWindowCount || 0))),
     shotWindowCount: Math.max(0, Math.round(Number(value.shotWindowCount || 0))),
     finishWindowCount: Math.max(0, Math.round(Number(value.finishWindowCount || 0))),
@@ -1021,11 +1054,26 @@ function normalizeScoreChanges(ocrEvidence = [], calibration = null, metadata = 
 
 function scoreChangeCoveredByDecision(change = {}, decisions = []) {
   const changeTime = seconds(change.changeTime);
-  return (Array.isArray(decisions) ? decisions : []).some((decision) => (
-    changeTime >= seconds(decision.sourceStart) - 2 &&
-    changeTime <= seconds(decision.sourceEnd) + 2 &&
-    ["confirmed_goal", "disallowed_offside", "disallowed_no_goal"].includes(decision.type)
-  ));
+  const startScore = normalizeScoreField(change.startScore);
+  const endScore = normalizeScoreField(change.endScore);
+  const hasScoreTransition = Boolean(startScore && endScore);
+  return (Array.isArray(decisions) ? decisions : []).some((decision) => {
+    if (!decision || !["confirmed_goal", "disallowed_offside", "disallowed_no_goal"].includes(decision.type)) return false;
+    const decisionChangeTime = decision.scoreChangeTime == null ? null : seconds(decision.scoreChangeTime);
+    if (hasScoreTransition) {
+      const decisionStartScore = normalizeScoreField(decision.scoreBefore);
+      const decisionEndScore = normalizeScoreField(decision.scoreAfter);
+      if (decisionStartScore || decisionEndScore) {
+        if (decisionStartScore !== startScore || decisionEndScore !== endScore) return false;
+        return decisionChangeTime == null ||
+          Math.abs(decisionChangeTime - changeTime) <= SCORE_CHANGE_CONFIRMATION_SECONDS;
+      }
+      return decisionChangeTime != null &&
+        Math.abs(decisionChangeTime - changeTime) <= SCORE_CHANGE_DEDUP_TIME_TOLERANCE_SECONDS;
+    }
+    return changeTime >= seconds(decision.sourceStart) - 2 &&
+      changeTime <= seconds(decision.sourceEnd) + 2;
+  });
 }
 
 function mediaActionContextForScoreChange(change = {}, mediaSignals = {}, metadata = {}) {
@@ -1033,8 +1081,8 @@ function mediaActionContextForScoreChange(change = {}, mediaSignals = {}, metada
   const actionAnchorTime = seconds(change.actionAnchorTime, stableChangeTime);
   const searchAnchorTime = Math.min(stableChangeTime, actionAnchorTime);
   const duration = seconds(metadata.durationSeconds, stableChangeTime + SCORE_CHANGE_POST_SECONDS);
-  const left = Math.max(0, searchAnchorTime - GOAL_PHASE_LOOKBACK_SECONDS);
-  const right = Math.min(duration || stableChangeTime + SCORE_CHANGE_POST_SECONDS, stableChangeTime + SCORE_CHANGE_POST_SECONDS);
+  const left = Math.max(0, searchAnchorTime - SCORE_CHANGE_BINDING_LOOKBACK_SECONDS);
+  const right = Math.min(duration || stableChangeTime + SCORE_CHANGE_BINDING_FORWARD_SECONDS, stableChangeTime + SCORE_CHANGE_BINDING_FORWARD_SECONDS);
   const highMotionCandidates = Array.isArray(mediaSignals && mediaSignals.highMotionCandidates)
     ? mediaSignals.highMotionCandidates
     : [];
@@ -1066,8 +1114,8 @@ function scoreChangeVisualContext(change = {}, visualSignals = {}, metadata = {}
   const actionAnchorTime = seconds(change.actionAnchorTime, stableChangeTime);
   const confirmationAnchorTime = Math.min(stableChangeTime, actionAnchorTime);
   const duration = seconds(metadata.durationSeconds, stableChangeTime + SCORE_CHANGE_POST_SECONDS);
-  const left = Math.max(0, confirmationAnchorTime - GOAL_PHASE_LOOKBACK_SECONDS);
-  const right = Math.min(duration || stableChangeTime + SCORE_CHANGE_POST_SECONDS, stableChangeTime + SCORE_CHANGE_POST_SECONDS);
+  const left = Math.max(0, confirmationAnchorTime - SCORE_CHANGE_BINDING_LOOKBACK_SECONDS);
+  const right = Math.min(duration || stableChangeTime + SCORE_CHANGE_BINDING_FORWARD_SECONDS, stableChangeTime + SCORE_CHANGE_BINDING_FORWARD_SECONDS);
   const mediaAction = mediaActionContextForScoreChange(change, mediaSignals, metadata);
   const contextWindows = sortedWindows(windowsInRange(visualSignals, left, right, 2));
   const recovery = analyzeVisibleGoalPhaseRecovery({
@@ -1100,11 +1148,16 @@ function scoreChangeVisualContext(change = {}, visualSignals = {}, metadata = {}
         searchWindow: { start: round(left), end: round(right) },
         liveWindowCount: recovery.candidateCounts.liveAction,
         shotWindowCount: recovery.candidateCounts.shot,
-        finishWindowCount: recovery.candidateCounts.payoff,
+        finishWindowCount: Number(recovery.candidateCounts.payoff || 0) + Number(recovery.candidateCounts.inferredFinish || 0),
         decisionWindowCount: contextWindows.filter((window) => hasAny(visualReasonCodesForWindow(window), DECISION_CODES)).length,
         mediaActionWindowCount: mediaAction ? 1 : 0,
         missingActionEvidence: false,
         ocrOnlyBlocked: false,
+        bindingStrategy: selected.bindingStrategy,
+        bindingFallbackUsed: Boolean(selected.fallbackUsed),
+        bindingFullSourceScanUsed: false,
+        bindingSampledFrameBudget: recovery.bindingDiagnostics && recovery.bindingDiagnostics.sampledFrameBudget,
+        bindingMaxBackwardSeconds: recovery.bindingDiagnostics && recovery.bindingDiagnostics.maxBackwardSeconds,
         visibleGoalRecovery: publicVisibleGoalPhaseRecovery(recovery),
       },
     };
@@ -1174,6 +1227,11 @@ function scoreChangeVisualContext(change = {}, visualSignals = {}, metadata = {}
       mediaActionWindowCount: hasMediaAction ? 1 : 0,
       missingActionEvidence: !hasShot || !hasFinish || replayOnly,
       ocrOnlyBlocked: !hasShot || !hasFinish || replayOnly,
+      bindingStrategy: null,
+      bindingFallbackUsed: Boolean(recovery && recovery.bindingDiagnostics && recovery.bindingDiagnostics.fallbackUsed),
+      bindingFullSourceScanUsed: false,
+      bindingSampledFrameBudget: recovery && recovery.bindingDiagnostics && recovery.bindingDiagnostics.sampledFrameBudget,
+      bindingMaxBackwardSeconds: recovery && recovery.bindingDiagnostics && recovery.bindingDiagnostics.maxBackwardSeconds,
       visibleGoalRecovery: publicVisibleGoalPhaseRecovery(recovery),
     },
   };
@@ -1261,6 +1319,7 @@ function buildGoalDecision({ event, metadata, mediaSignals, visualSignals, ocrEv
     ...visualCodesForRange(visualSignals, start, end),
     ...ocrCodesInRange(ocrEvidence, start, end, ocrQaCalibration),
   ], 32);
+  const linkedScoreTransition = scoreTransitionInRange(ocrEvidence, start, end, ocrQaCalibration);
   const type = goalTypeForEvidence(evidenceCodes, event, ocrQaCalibration) ||
     (event.outcomeHint === "celebration_only" ? "crowd_reaction" : "neutral");
   const windows = windowSetForDecision({ event, visualSignals, duration });
@@ -1280,6 +1339,9 @@ function buildGoalDecision({ event, metadata, mediaSignals, visualSignals, ocrEv
     evidenceCodes,
     missingEvidence,
     safetyFlags,
+    scoreBefore: linkedScoreTransition && linkedScoreTransition.scoreBefore,
+    scoreAfter: linkedScoreTransition && linkedScoreTransition.scoreAfter,
+    scoreChangeTime: linkedScoreTransition && linkedScoreTransition.scoreChangeTime,
     captionIntent: captionIntentForType(finalType),
     renderPriority: typePriority(finalType) + Math.min(99, seconds(event.start)),
   }, index, metadata);
@@ -1570,10 +1632,9 @@ function validateMatchEventTruthOutput(output, metadata = {}) {
     (event.evidenceCodes.includes("scoreboard_backed_goal_sequence") ||
       event.evidenceCodes.includes("live_shot_finish_sequence"))
   ));
-  const scoreChangeAnchorsWithLiveAction = scoreChangeAnchorEvents.filter((event) => (
-    event.phaseCoverage &&
-    event.phaseCoverage.hasShot &&
-    event.phaseCoverage.replayOnly !== true
+  const scoreChangeAnchorsWithLiveAction = scoreChangeAnchors.filter((anchor) => (
+    anchor.hasLiveAction &&
+    anchor.replayOnly !== true
   ));
   const replayOnlyCount = allEvents.filter((event) => (
     event.replayOnly === true ||
@@ -1589,7 +1650,9 @@ function validateMatchEventTruthOutput(output, metadata = {}) {
   )).length;
   const ocrOnlyBlockedCount = scoreChangeAnchorEvents.filter((event) => (
     event.cannotConfirmGoalAlone &&
-    event.type !== "confirmed_goal"
+    event.type !== "confirmed_goal" &&
+    event.type !== "disallowed_offside" &&
+    event.type !== "disallowed_no_goal"
   )).length;
   const lateCutoff = Math.max(0, seconds(metadata.durationSeconds, 0) * 0.66);
   const countedGoalEventCount = scoreChanges.filter((change) => change.outcome === "counted_goal").length;
