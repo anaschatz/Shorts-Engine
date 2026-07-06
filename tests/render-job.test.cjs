@@ -1887,7 +1887,7 @@ test("duration-safe compaction preserves 5/5 rendered visible goals under refere
   const metadata = { durationSeconds: 764.52, width: 1280, height: 720 };
   const sourceSegments = [
     { goal: 1, start: 223.6, shot: 229.75, finish: 234.25, confirm: 236.25, end: 238.6 },
-    { goal: 2, start: 461.35, shot: 467.5, finish: 472, confirm: 472.15, end: 472.25 },
+    { goal: 2, start: 461.35, shot: 467.5, finish: 471.75, confirm: 472.15, end: 472.25 },
     { goal: 3, start: 471.1, shot: 477.25, finish: 483.25, confirm: 483.75, end: 486.1 },
     { goal: 4, start: 532.25, shot: 536.35, finish: 538.45, confirm: 558.45, end: 559.65 },
     { goal: 5, start: 583.6, shot: 589.75, finish: 594.25, confirm: 596.25, end: 598.6 },

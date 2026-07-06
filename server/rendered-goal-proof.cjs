@@ -97,6 +97,9 @@ function hasStrongSourceGoalEvidence(segment = {}) {
 function frameWindowsForGoal(segment = {}, timeline = {}) {
   const goalNumber = numberOrNull(segment.goalNumber);
   const duration = Math.max(0.1, Number(timeline.timelineEnd) - Number(timeline.timelineStart));
+  const shotTime = numberOrNull(timeline.shot);
+  const finishTime = numberOrNull(timeline.finish);
+  const confirmationTime = numberOrNull(timeline.confirmation);
   const candidateGroups = [
     ["pre_shot", [
       Number(timeline.timelineStart) + 0.4,
@@ -133,11 +136,27 @@ function frameWindowsForGoal(segment = {}, timeline = {}) {
   ];
   const minTime = Math.max(0, Number(timeline.timelineStart) + 0.08);
   const maxTime = Math.max(minTime + 0.1, Number(timeline.timelineEnd) - 0.08);
+  const roleTimeAllowed = (role, time) => {
+    const parsed = Number(time);
+    if (!Number.isFinite(parsed)) return false;
+    if (role === "finish") {
+      if (shotTime != null && parsed < shotTime - 0.25) return false;
+      if (finishTime != null && parsed < finishTime - 2.5) return false;
+      if (confirmationTime != null && parsed > confirmationTime + 0.25) return false;
+    }
+    if (role === "payoff") {
+      if (finishTime != null && parsed < finishTime - 0.1) return false;
+      if (confirmationTime != null && parsed > confirmationTime + 0.25) return false;
+    }
+    if (role === "confirmation" && finishTime != null && parsed < finishTime - 0.25) return false;
+    return true;
+  };
   const seen = new Set();
   return candidateGroups
     .flatMap(([role, times]) => times
       .filter((time) => Number.isFinite(Number(time)))
       .map((time) => Math.min(maxTime, Math.max(minTime, Number(time))))
+      .filter((time) => roleTimeAllowed(role, time))
       .map((time) => {
         const rounded = round(time);
         const key = `${role}:${rounded}`;
@@ -249,7 +268,24 @@ function missingFrameRef(role) {
   };
 }
 
-function selectBestFrameRefs(candidates = []) {
+function timelineTimeOrNull(timeline = {}, key = "") {
+  return numberOrNull(timeline && timeline[key]);
+}
+
+function canPayoffSatisfyFinish(payoffRef = {}, timeline = {}) {
+  if (!payoffRef || payoffRef.clear !== true) return false;
+  const payoffTime = numberOrNull(payoffRef.time);
+  const shotTime = timelineTimeOrNull(timeline, "shot");
+  const finishTime = timelineTimeOrNull(timeline, "finish");
+  const confirmationTime = timelineTimeOrNull(timeline, "confirmation");
+  if (payoffTime == null || finishTime == null) return false;
+  if (shotTime != null && payoffTime < shotTime - 0.25) return false;
+  if (payoffTime < finishTime - 2.5) return false;
+  if (confirmationTime != null && payoffTime > confirmationTime + 0.25) return false;
+  return true;
+}
+
+function selectBestFrameRefs(candidates = [], timeline = {}) {
   const selected = FRAME_ROLES.map((role) => {
     const roleCandidates = (Array.isArray(candidates) ? candidates : [])
       .filter((frame) => frame.role === role);
@@ -271,6 +307,21 @@ function selectBestFrameRefs(candidates = []) {
       ...finishRef,
       role: "payoff",
       satisfiedByRole: "finish",
+      reason: null,
+    };
+  }
+  const finishIndex = selected.findIndex((frame) => frame.role === "finish");
+  const selectedPayoffRef = payoffIndex >= 0 ? selected[payoffIndex] : null;
+  const selectedFinishRef = finishIndex >= 0 ? selected[finishIndex] : null;
+  if (
+    selectedFinishRef &&
+    selectedFinishRef.clear !== true &&
+    canPayoffSatisfyFinish(selectedPayoffRef, timeline)
+  ) {
+    selected[finishIndex] = {
+      ...selectedPayoffRef,
+      role: "finish",
+      satisfiedByRole: "payoff",
       reason: null,
     };
   }
@@ -381,7 +432,11 @@ async function analyzeRenderedGoalProof({
       semanticGoalEvidence: frameEvidence[frameIndex] || frame.semanticGoalEvidence || null,
     }));
     const candidateRefs = candidateFrameRefs({ frames: semanticFrames, windows });
-    const frameRefs = selectBestFrameRefs(candidateRefs);
+    const frameRefs = selectBestFrameRefs(candidateRefs, timeline);
+    const selectedFinishRef = frameRefs.find((frame) => frame.role === "finish" && frame.clear === true);
+    const selectedFinishSourceTime = selectedFinishRef && numberOrNull(selectedFinishRef.time) != null
+      ? round(Number(timeline.sourceStart) + Number(selectedFinishRef.time) - Number(timeline.timelineStart))
+      : null;
     const frameCount = frameRefs.filter((frame) => frame.clear).length;
     const unverifiedFrameCount = frameRefs.filter((frame) => frame.status === "unverified").length;
     const failedFrameReasons = safeCodes(frameRefs
@@ -391,7 +446,7 @@ async function analyzeRenderedGoalProof({
     const clear = strongSourceEvidence && frameCount >= 4;
     const borderline = !clear && strongSourceEvidence && frameCount >= 2;
     const evidence = {
-      frameTime: numberOrNull(segment.finishTime) ?? timeline.finish,
+      frameTime: selectedFinishSourceTime ?? numberOrNull(segment.finishTime) ?? timeline.finish,
       confidence: clear ? 0.88 : borderline ? 0.62 : 0.2,
       visibilityVerdict: clear ? "clear" : borderline ? "borderline" : "failed",
       hasVisibleFinish: clear,

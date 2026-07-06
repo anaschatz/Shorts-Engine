@@ -306,23 +306,25 @@ function candidateFromFinish({
   const hasCandidateConfirmation = hasAny(codes, CANDIDATE_CONFIRMATION_CODES);
   const hasInferredPayoff = allowInferredPayoff && hasGoalMouth && hasCandidateConfirmation;
   if (!hasStrongShot || !hasGoalMouth || (!hasPayoff && !hasInferredPayoff)) return null;
+  const inferredFromStableScoreChange = !hasPayoff && hasInferredPayoff;
   const finishFrameEvidence = {
     frameTime: finishTime,
-    confidence: round(clamp(finishWindow.confidence || (hasPayoff ? 0.86 : 0.78), 0.72, 0.96)),
-    hasVisibleFinish: true,
-    hasBallInNetOrPayoff: true,
+    confidence: round(clamp(finishWindow.confidence || (hasPayoff ? 0.86 : 0.58), hasPayoff ? 0.72 : 0.2, 0.96)),
+    visibilityVerdict: hasPayoff ? "clear" : "failed",
+    hasVisibleFinish: hasPayoff,
+    hasBallInNetOrPayoff: hasPayoff,
     hasGoalMouth: true,
     isBlurred: false,
     isOverZoomed: false,
-    isLabelOnly: false,
+    isLabelOnly: inferredFromStableScoreChange,
     isReplayOnly: false,
     isCelebrationOnly: false,
-    isScoreboardOnly: false,
-    evidenceCodes: uniqueCodes([
-      "finish_frame_visible",
-      ...(hasPayoff ? ["ball_in_net_or_payoff_visible"] : ["clear_goal_payoff_visible"]),
-      ...(!hasPayoff && hasInferredPayoff ? ["scoreboard_temporal_consistency"] : []),
-    ], 8),
+    isScoreboardOnly: inferredFromStableScoreChange,
+    evidenceCodes: uniqueCodes(hasPayoff
+      ? ["finish_frame_visible", "ball_in_net_or_payoff_visible"]
+      : ["score_change_anchor_pending_rendered_finish"],
+    8),
+    proofMethod: hasPayoff ? "source_visual_payoff" : "score_change_anchor_requires_rendered_finish",
   };
   return {
     primarySource: "live_action",
@@ -343,7 +345,7 @@ function candidateFromFinish({
       hasBuildup: sourceStart <= shotStart - 2,
       hasShot: true,
       hasFinish: true,
-      hasPayoff: true,
+      hasPayoff,
       hasConfirmation: true,
       liveActionStart: sourceStart,
       shotStart,
@@ -353,15 +355,15 @@ function candidateFromFinish({
       replayOnly: false,
       finishFrameEvidence,
       visualGoalPayoff: {
-        hasVisibleGoalPayoff: true,
+        hasVisibleGoalPayoff: hasPayoff,
         hasBallInNetEvidence: hasPayoff,
         hasLiveFinishSequence: true,
-        inferredFromStableScoreChange: !hasPayoff && hasInferredPayoff,
-        scoreboardOnly: false,
+        inferredFromStableScoreChange,
+        scoreboardOnly: inferredFromStableScoreChange,
         finishFrameEvidence,
         evidenceCodes: uniqueCodes([
           ...(hasPayoff ? ["visual_ball_in_net"] : ["visual_goal_mouth"]),
-          ...(!hasPayoff && hasInferredPayoff ? ["scoreboard_temporal_consistency"] : []),
+          ...(inferredFromStableScoreChange ? ["score_change_anchor_pending_rendered_finish"] : []),
           "live_shot_finish_sequence",
         ], 8),
       },

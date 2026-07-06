@@ -160,6 +160,57 @@ test("rendered goal proof lets a clear finish frame satisfy payoff when later pa
   assert.equal(payoffRef.satisfiedByRole, "finish");
 });
 
+test("rendered goal proof lets a clear payoff frame satisfy finish when finish samples are unclear", async () => {
+  let sampledWindows = [];
+  const clear = {
+    visibilityVerdict: "clear",
+    visibleGoal: true,
+    hasVisibleFinish: true,
+    hasBallInNetOrPayoff: true,
+    confidence: 0.91,
+  };
+  const failed = {
+    visibilityVerdict: "failed",
+    visibleGoal: false,
+    confidence: 0.2,
+    reasons: ["semantic_frame_not_clear"],
+  };
+  const result = await analyzeRenderedGoalProof({
+    outputPath: "rendered-output.mp4",
+    editPlan: editPlan(goalSegment()),
+    extractFrames: async ({ candidateWindows }) => ({
+      frames: (sampledWindows = candidateWindows).map((window, index) => {
+        const role = window.role;
+        const shouldClear =
+          (role === "pre_shot" && index === candidateWindows.findIndex((item) => item.role === "pre_shot")) ||
+          (role === "payoff" && index === candidateWindows.findIndex((item) => item.role === "payoff")) ||
+          (role === "confirmation" && index === candidateWindows.findIndex((item) => item.role === "confirmation"));
+        return {
+          id: `frame_${index + 1}`,
+          localPath: `frame_${index + 1}.jpg`,
+          timestamp: window.time,
+          visualHints: window.visualHints,
+          semanticGoalEvidence: {
+            ...(shouldClear ? clear : failed),
+            roles: [role],
+          },
+        };
+      }),
+    }),
+    writeJson: () => {},
+  });
+
+  assert.equal(result.summary.clearGoalCount, 1);
+  assert.equal(result.summary.borderlineGoalCount, 0);
+  assert.equal(result.summary.goals[0].verdict, "clear");
+  assert.equal(sampledWindows.filter((window) => window.role === "finish").length, 5);
+  const finishRef = result.summary.goals[0].frameRefs.find((frame) => frame.role === "finish");
+  assert.equal(finishRef.clear, true);
+  assert.equal(finishRef.satisfiedByRole, "payoff");
+  assert.equal(result.editPlan.segments[0].finishFrameEvidence.visibilityVerdict, "clear");
+  assert.equal(result.editPlan.segments[0].finishFrameEvidence.hasFinishActionFrame, true);
+});
+
 test("rendered goal proof rebinds to nearby semantic clear frames per role", async () => {
   let sampledWindows = [];
   const clear = {
@@ -203,9 +254,9 @@ test("rendered goal proof rebinds to nearby semantic clear frames per role", asy
 
   assert.equal(result.summary.clearGoalCount, 1);
   assert.equal(result.summary.goals[0].verdict, "clear");
-  assert.equal(result.summary.goals[0].candidateFrameCount, 24);
-  assert.equal(sampledWindows.filter((window) => window.role === "finish").length, 8);
-  assert.equal(sampledWindows.filter((window) => window.role === "payoff").length, 6);
+  assert.equal(result.summary.goals[0].candidateFrameCount, 20);
+  assert.equal(sampledWindows.filter((window) => window.role === "finish").length, 5);
+  assert.equal(sampledWindows.filter((window) => window.role === "payoff").length, 5);
   assert.equal(result.summary.goals[0].frameRefs.length, 4);
 });
 

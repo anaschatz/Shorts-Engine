@@ -126,8 +126,15 @@ test("score-change recovery binds stable score change to inferred live finish wi
   assert.equal(recovery.selected.replayOnly, false);
   assert.equal(recovery.selected.phaseCoverage.hasShot, true);
   assert.equal(recovery.selected.phaseCoverage.hasFinish, true);
+  assert.equal(recovery.selected.phaseCoverage.hasPayoff, false);
   assert.equal(recovery.selected.phaseCoverage.visualGoalPayoff.hasBallInNetEvidence, false);
+  assert.equal(recovery.selected.phaseCoverage.visualGoalPayoff.hasVisibleGoalPayoff, false);
   assert.equal(recovery.selected.phaseCoverage.visualGoalPayoff.inferredFromStableScoreChange, true);
+  assert.equal(recovery.selected.phaseCoverage.finishFrameEvidence.hasVisibleFinish, false);
+  assert.equal(recovery.selected.phaseCoverage.finishFrameEvidence.hasBallInNetOrPayoff, false);
+  assert.equal(recovery.selected.phaseCoverage.finishFrameEvidence.visibilityVerdict, "failed");
+  assert.ok(recovery.selected.phaseCoverage.finishFrameEvidence.evidenceCodes.includes("score_change_anchor_pending_rendered_finish"));
+  assert.equal(recovery.selected.phaseCoverage.finishFrameEvidence.proofMethod, "score_change_anchor_requires_rendered_finish");
   assert.equal(recovery.bindingDiagnostics.fullSourceScanUsed, false);
   assert.equal(recovery.bindingDiagnostics.maxBackwardSeconds, 25);
   assert.ok(recovery.bindingDiagnostics.sampledFrameBudget <= 24);
@@ -215,8 +222,10 @@ test("candidate recovery selects strong live phase without explicit ball-in-net 
   assert.equal(recovery.selected.phaseCoverage.hasFinish, true);
   assert.equal(recovery.selected.phaseCoverage.visualGoalPayoff.hasBallInNetEvidence, false);
   assert.equal(recovery.selected.phaseCoverage.visualGoalPayoff.hasLiveFinishSequence, true);
-  assert.equal(recovery.selected.phaseCoverage.finishFrameEvidence.hasVisibleFinish, true);
-  assert.ok(recovery.selected.phaseCoverage.finishFrameEvidence.evidenceCodes.includes("clear_goal_payoff_visible"));
+  assert.equal(recovery.selected.phaseCoverage.finishFrameEvidence.hasVisibleFinish, false);
+  assert.equal(recovery.selected.phaseCoverage.finishFrameEvidence.hasBallInNetOrPayoff, false);
+  assert.equal(recovery.selected.phaseCoverage.finishFrameEvidence.visibilityVerdict, "failed");
+  assert.ok(recovery.selected.phaseCoverage.finishFrameEvidence.evidenceCodes.includes("score_change_anchor_pending_rendered_finish"));
 });
 
 test("candidate recovery rejects offside or no-goal candidates even with strong visuals", () => {

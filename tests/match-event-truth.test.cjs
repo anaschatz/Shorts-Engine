@@ -762,7 +762,7 @@ test("selects five YouTube counted goals across the full source when each has vi
   assert.doesNotMatch(JSON.stringify(publicMatchEventTruth(result)), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);
 });
 
-test("binds five counted score changes to efficient live phases using inferred goalmouth payoff", () => {
+test("keeps inferred score-change goalmouth payoff pending rendered proof", () => {
   const goalWindows = [
     { shot: 94, finish: 100, confirm: 112, scoreBefore: "0-0", scoreAfter: "1-0" },
     { shot: 218, finish: 224, confirm: 239, scoreBefore: "1-0", scoreAfter: "2-0" },
@@ -798,18 +798,23 @@ test("binds five counted score changes to efficient live phases using inferred g
   const confirmed = result.events.filter((event) => event.type === "confirmed_goal");
   assert.equal(result.summary.confirmedGoalCount, 5);
   assert.equal(result.summary.countedGoalEventCount, 5);
-  assert.equal(result.summary.anchorsLinkedToGoalPhaseCount, 5);
-  assert.equal(result.summary.anchorsMissingVisualSupportCount, 0);
+  assert.equal(result.summary.anchorsLinkedToGoalPhaseCount, 0);
+  assert.equal(result.summary.anchorsMissingVisualSupportCount, 5);
   assert.equal(result.summary.selectedCountedGoals, 5);
   assert.equal(result.summary.ocrOnlyBlockedCount, 0);
   assert.deepEqual(confirmed.map((event) => event.goalNumber), [1, 2, 3, 4, 5]);
   assert.ok(confirmed.every((event) => event.primarySource === "live_action"));
   assert.ok(confirmed.every((event) => event.phaseCoverage.hasBuildup));
   assert.ok(confirmed.every((event) => event.phaseCoverage.hasShot));
-  assert.ok(confirmed.every((event) => event.phaseCoverage.hasFinish));
+  assert.ok(confirmed.every((event) => event.phaseCoverage.hasFinish === false));
   assert.ok(confirmed.every((event) => event.phaseCoverage.hasConfirmation));
+  assert.ok(confirmed.every((event) => event.phaseCoverage.visualGoalPayoff.hasVisibleGoalPayoff === false));
   assert.ok(confirmed.every((event) => event.phaseCoverage.visualGoalPayoff.hasBallInNetEvidence === false));
   assert.ok(confirmed.every((event) => event.phaseCoverage.visualGoalPayoff.inferredFromStableScoreChange === true));
+  assert.ok(confirmed.every((event) => event.phaseCoverage.finishFrameEvidence.visibilityVerdict === "failed"));
+  assert.ok(confirmed.every((event) => (
+    event.phaseCoverage.finishFrameEvidence.evidenceCodes || []
+  ).includes("score_change_anchor_pending_rendered_finish")));
   assert.ok(confirmed.every((event) => event.anchorDiagnostics.bindingFullSourceScanUsed === false));
   assert.ok(confirmed.every((event) => event.anchorDiagnostics.bindingSampledFrameBudget <= 24));
   assert.doesNotMatch(JSON.stringify(publicMatchEventTruth(result)), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath|stderr|stdout/i);
@@ -1164,7 +1169,7 @@ test("does not recover bounded YouTube action clusters without strong visible fi
   assert.equal(result.summary.noFalseGoalFromOcrOnly, 1);
 });
 
-test("recovers bounded YouTube live goal clusters with strong shot, goalmouth and confirmation support", () => {
+test("recovers bounded YouTube live goal clusters with explicit payoff support", () => {
   const result = analyzeMatchEventTruth({
     metadata: {
       durationSeconds: 360,
@@ -1181,11 +1186,12 @@ test("recovers bounded YouTube live goal clusters with strong shot, goalmouth an
     },
     visualSignals: visualSignals([
       { start: 136, end: 138, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.9 },
-      { start: 140, end: 142, types: ["goal_mouth_visible", "crowd_reaction"], confidence: 0.86 },
+      { start: 140, end: 142, types: ["goal_mouth_visible", "ball_in_net", "crowd_reaction"], confidence: 0.86 },
       { start: 146, end: 149, types: ["replay_indicator", "replay_angle"], confidence: 0.84 },
     ]),
     goalEvidence: goalEvidence([{
       id: "support_only_live_goal_cluster",
+      type: "possible_goal_unconfirmed",
       start: 136,
       end: 149,
       confidence: 0.82,
@@ -1193,10 +1199,12 @@ test("recovers bounded YouTube live goal clusters with strong shot, goalmouth an
       reasonCodes: [
         "visual_shot_contact",
         "visual_ball_toward_goal",
+        "visual_ball_in_net",
         "visual_goal_mouth",
         "visual_crowd_reaction",
         "visual_replay_indicator",
         "replay_goal_confirmation",
+        "live_shot_finish_sequence",
       ],
       liveShotFinishSequence: true,
       crowdReactionSupport: true,
@@ -1204,17 +1212,16 @@ test("recovers bounded YouTube live goal clusters with strong shot, goalmouth an
     }]),
   });
 
-  const recovered = result.events.filter((event) => event.id.startsWith("cluster_recovered_goal_"));
+  const confirmed = result.events.filter((event) => event.type === "confirmed_goal");
   assert.equal(result.summary.confirmedGoalCount, 1);
-  assert.equal(recovered.length, 1);
-  assert.equal(recovered[0].phaseCoverage.replayOnly, false);
-  assert.equal(recovered[0].phaseCoverage.hasShot, true);
-  assert.equal(recovered[0].phaseCoverage.hasFinish, true);
-  assert.equal(recovered[0].phaseCoverage.visualGoalPayoff.hasVisibleGoalPayoff, true);
-  assert.equal(recovered[0].phaseCoverage.visualGoalPayoff.hasLiveFinishSequence, true);
-  assert.ok(recovered[0].visibleGoalRecovery);
-  assert.equal(recovered[0].visibleGoalRecovery.failureCode, null);
-  assert.ok(recovered[0].evidenceCodes.includes("live_shot_finish_sequence"));
+  assert.equal(confirmed.length, 1);
+  assert.equal(confirmed[0].phaseCoverage.replayOnly, false);
+  assert.equal(confirmed[0].phaseCoverage.hasShot, true);
+  assert.equal(confirmed[0].phaseCoverage.hasFinish, true);
+  assert.equal(confirmed[0].phaseCoverage.visualGoalPayoff.hasVisibleGoalPayoff, true);
+  assert.equal(confirmed[0].phaseCoverage.visualGoalPayoff.hasLiveFinishSequence, true);
+  assert.ok(confirmed[0].evidenceCodes.includes("visual_ball_in_net"));
+  assert.ok(confirmed[0].evidenceCodes.includes("live_shot_finish_sequence"));
 });
 
 test("does not recover crowd-only or non-youtube action clusters as confirmed goals", () => {

@@ -1779,7 +1779,7 @@ test("valid-goals-only keeps distinct close confirmed goals even when source win
       sourceEnd: 148,
       shotStart: 132,
       payoffStart: 136,
-      payoffEnd: 138,
+      payoffEnd: 137.2,
       decisionStart: 145,
       decisionEnd: 148,
     },
@@ -1792,7 +1792,7 @@ test("valid-goals-only keeps distinct close confirmed goals even when source win
       sourceEnd: 488,
       shotStart: 468,
       payoffStart: 472,
-      payoffEnd: 474,
+      payoffEnd: 473.5,
       decisionStart: 482,
       decisionEnd: 488,
     },
@@ -1818,7 +1818,7 @@ test("valid-goals-only keeps distinct close confirmed goals even when source win
       sourceEnd: 570,
       shotStart: 552,
       payoffStart: 557,
-      payoffEnd: 559,
+      payoffEnd: 558,
       decisionStart: 566,
       decisionEnd: 570,
     },
@@ -1831,7 +1831,7 @@ test("valid-goals-only keeps distinct close confirmed goals even when source win
       sourceEnd: 608,
       shotStart: 590,
       payoffStart: 595,
-      payoffEnd: 597,
+      payoffEnd: 595.8,
       decisionStart: 604,
       decisionEnd: 608,
     },
@@ -1901,6 +1901,107 @@ test("valid-goals-only keeps distinct close confirmed goals even when source win
   assert.deepEqual(outputGate.missingGoalNumbers, []);
 });
 
+test("valid-goals-only keeps score-change anchor candidates pending rendered finish proof", () => {
+  const longMetadata = { durationSeconds: 120, width: 1920, height: 1080, hasAudio: true };
+  const pendingFinishFrameEvidence = {
+    frameTime: 55,
+    confidence: 0.58,
+    visibilityVerdict: "failed",
+    hasVisibleFinish: false,
+    hasBallInNetOrPayoff: false,
+    hasGoalMouth: true,
+    hasPreShotActionFrame: true,
+    hasFinishActionFrame: false,
+    hasPayoffFrame: false,
+    hasConfirmationFrame: true,
+    continuousActionFrameCount: 2,
+    isBlurred: false,
+    isOverZoomed: false,
+    isLabelOnly: true,
+    isReplayOnly: false,
+    isCelebrationOnly: false,
+    isScoreboardOnly: true,
+    evidenceCodes: ["score_change_anchor_pending_rendered_finish"],
+  };
+  const truth = matchEventTruthFixture([
+    {
+      goalNumber: 1,
+      scoreBefore: "0-0",
+      scoreAfter: "1-0",
+      scoreChangeTime: 58,
+      sourceStart: 43,
+      sourceEnd: 63,
+      shotStart: 51,
+      payoffStart: 54,
+      payoffEnd: 55,
+      decisionStart: 58,
+      decisionEnd: 61,
+      finishFrameEvidence: pendingFinishFrameEvidence,
+    },
+  ], longMetadata.durationSeconds);
+  truth.selectedEvents[0].evidenceCodes = [
+    "scoreboard_ocr_score_change",
+    "scoreboard_temporal_consistency",
+    "scoreboard_backed_goal_sequence",
+    "visual_shot_contact",
+    "visual_ball_toward_goal",
+    "shot_sequence_support",
+    "live_shot_finish_sequence",
+  ];
+  truth.selectedEvents[0].phaseCoverage.visualGoalPayoff = {
+    hasVisibleGoalPayoff: false,
+    hasBallInNetEvidence: false,
+    hasLiveFinishSequence: true,
+    inferredFromStableScoreChange: true,
+    scoreboardOnly: true,
+    finishFrameEvidence: pendingFinishFrameEvidence,
+    evidenceCodes: ["score_change_anchor_pending_rendered_finish", "live_shot_finish_sequence"],
+  };
+
+  const plans = createCandidateEditPlans({
+    moments: [],
+    metadata: { ...longMetadata, goalSelectionMode: "valid_goals_only" },
+    transcript: { captions: [] },
+    matchEventTruth: truth,
+    title: "Pending rendered goal proof fixture",
+  });
+  assert.equal(plans.length, 1);
+  const plan = validateEditPlan(plans[0], longMetadata);
+  const segment = plan.segments[0] || plan;
+  assert.equal(segment.scoreChangeTime, 58);
+  assert.equal(segment.finishTime < segment.scoreChangeTime, true);
+  assert.equal(segment.finishFrameEvidence.visibilityVerdict, "failed");
+  assert.equal(
+    segment.finishFrameEvidence.evidenceCodes.includes("score_change_anchor_pending_rendered_finish"),
+    true,
+  );
+
+  let preRenderGate = null;
+  try {
+    preRenderGate = assertVideoOutputCoverage({
+      editPlan: plan,
+      matchEventTruth: truth,
+      goalSelectionMode: "valid_goals_only",
+      requireRenderedGoalVisibility: false,
+    });
+  } catch (error) {
+    preRenderGate = error.details;
+  }
+  assert.equal(preRenderGate.coveredGoalCount, 1);
+  assert.equal(preRenderGate.matches[0].covered, true);
+  assert.equal(preRenderGate.failedReasons.includes("missing_visible_finish"), false);
+  assert.equal(
+    preRenderGate.invalidSegments.some((invalidSegment) =>
+      invalidSegment.reasons.includes("missing_visible_finish")),
+    false,
+  );
+  assert.throws(() => assertVideoOutputCoverage({
+    editPlan: plan,
+    matchEventTruth: truth,
+    goalSelectionMode: "valid_goals_only",
+  }), /generated video plan did not cover|Video output QA failed/);
+});
+
 test("valid-goals-only preserves delayed score-confirmation goal phases under reference duration", () => {
   const longMetadata = { durationSeconds: 764.52, width: 1920, height: 1080, hasAudio: true };
   const truth = matchEventTruthFixture([
@@ -1926,7 +2027,7 @@ test("valid-goals-only preserves delayed score-confirmation goal phases under re
       sourceEnd: 472.25,
       shotStart: 467.5,
       payoffStart: 470.5,
-      payoffEnd: 472,
+      payoffEnd: 471.75,
       decisionStart: 472.15,
       decisionEnd: 472.25,
     },
@@ -2028,7 +2129,7 @@ test("valid-goals-only deduplicates repeated confirmed goal identities before bu
       sourceEnd: 148,
       shotStart: 132,
       payoffStart: 136,
-      payoffEnd: 138,
+      payoffEnd: 137.2,
       decisionStart: 145,
       decisionEnd: 148,
     },
@@ -2041,7 +2142,7 @@ test("valid-goals-only deduplicates repeated confirmed goal identities before bu
       sourceEnd: 488,
       shotStart: 468,
       payoffStart: 472,
-      payoffEnd: 474,
+      payoffEnd: 473.5,
       decisionStart: 482,
       decisionEnd: 488,
     },
@@ -2080,7 +2181,7 @@ test("valid-goals-only deduplicates repeated confirmed goal identities before bu
       sourceEnd: 570,
       shotStart: 552,
       payoffStart: 557,
-      payoffEnd: 559,
+      payoffEnd: 558,
       decisionStart: 566,
       decisionEnd: 570,
     },
@@ -2093,7 +2194,7 @@ test("valid-goals-only deduplicates repeated confirmed goal identities before bu
       sourceEnd: 608,
       shotStart: 590,
       payoffStart: 595,
-      payoffEnd: 597,
+      payoffEnd: 595.8,
       decisionStart: 604,
       decisionEnd: 608,
     },

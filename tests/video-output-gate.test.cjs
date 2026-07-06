@@ -278,6 +278,38 @@ test("video output gate rejects confirmed goals without rendered finish-frame pr
   });
 });
 
+test("video output gate rejects score-change goals whose finish is not before the scoreboard update", () => {
+  assert.throws(() => assertVideoOutputCoverage({
+    goalSelectionMode: "valid_goals_only",
+    matchEventTruth: {
+      providerMode: "fixture-match-event-truth",
+      events: [],
+      rejectedEvents: [],
+      scoreTimelineObservations: [],
+      scoreChanges: countedScoreChanges(1),
+      summary: { countedGoalEventCount: 1 },
+    },
+    editPlan: {
+      ...creativeOutputContract(),
+      segments: [
+        visibleGoalSegment(1, 84, {
+          finishTime: 100,
+          finishFrameEvidence: {
+            ...visibleGoalSegment(1, 84).finishFrameEvidence,
+            frameTime: 100,
+          },
+        }),
+      ],
+    },
+  }), (error) => {
+    assert.equal(error.code, "VIDEO_OUTPUT_QA_FAILED");
+    assert.ok(error.details.matches[0].reasons.includes("finish_not_before_scoreboard_change"));
+    assert.ok(error.details.failedReasons.includes("missing_or_invalid_counted_goal_segment"));
+    assert.doesNotMatch(JSON.stringify(error.details), /\/Users|\/private|token|secret|rawOcr|rawText|stderr|stdout/i);
+    return true;
+  });
+});
+
 test("video output gate rejects blurred or over-zoomed finish-frame proof", () => {
   assert.throws(() => assertVideoOutputCoverage({
     goalSelectionMode: "valid_goals_only",

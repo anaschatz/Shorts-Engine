@@ -188,6 +188,24 @@ test("human-visible goal gate rejects shot-like motion without visible finish", 
   assert.equal(gate.evidence.hasGoalmouthFrames, false);
 });
 
+test("human-visible goal gate rejects finish frames that are not before the scoreboard change", () => {
+  const gate = validateHumanVisibleGoalSequence({
+    segment: baseSegment({
+      scoreChangeTime: 22.1,
+      finishTime: 22,
+      confirmationTime: 22.1,
+      finishFrameEvidence: {
+        ...baseSegment().finishFrameEvidence,
+        frameTime: 22,
+      },
+    }),
+  });
+
+  assert.equal(gate.passed, false);
+  assert.equal(gate.failureCode, "FINISH_AFTER_SCOREBOARD_CHANGE");
+  assert.equal(gate.evidence.finishBeforeScoreChange, false);
+});
+
 test("human-visible goal gate accepts stable-scorebacked live finish sequence without ball-in-net label", () => {
   const gate = validateHumanVisibleGoalSequence({
     segment: baseSegment({

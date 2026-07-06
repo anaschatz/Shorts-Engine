@@ -15,6 +15,7 @@ const FAILURE_CODES = Object.freeze({
   PLAYER_CLOSEUP_ONLY: "PLAYER_CLOSEUP_ONLY",
   FRAME_TOO_WIDE_UNCLEAR: "FRAME_TOO_WIDE_UNCLEAR",
   INSUFFICIENT_ACTION_FRAMES: "INSUFFICIENT_ACTION_FRAMES",
+  FINISH_AFTER_SCOREBOARD_CHANGE: "FINISH_AFTER_SCOREBOARD_CHANGE",
 });
 
 const SHOT_CODES = Object.freeze([
@@ -285,6 +286,14 @@ function normalizedSegment(segment = {}) {
     shotStart: numberOrNull(segment.shotStart ?? phase.shotStart),
     finishTime: numberOrNull(segment.finishTime ?? phase.finishTime),
     confirmationTime: numberOrNull(segment.confirmationTime ?? phase.confirmationTime),
+    scoreChangeTime: numberOrNull(
+      segment.scoreChangeTime ??
+      phase.scoreChangeTime ??
+      (segment.goalOutcome && segment.goalOutcome.scoreChangeTime) ??
+      (segment.goalOutcome && segment.goalOutcome.decisionTimestamp) ??
+      segment.confirmationTime ??
+      phase.confirmationTime,
+    ),
     replayOnly: segment.replayOnly === true || phase.replayOnly === true,
     replayUsed: segment.replayUsed === true || phase.replayUsed === true,
     phase,
@@ -302,6 +311,7 @@ function failureCodeForEvidence(evidence, segment) {
   if (evidence.isScoreboardOnly) return FAILURE_CODES.SCOREBOARD_ONLY;
   if (evidence.isCelebrationOnly) return FAILURE_CODES.CELEBRATION_ONLY;
   if (!evidence.hasShotFrames) return FAILURE_CODES.NO_SHOT_VISIBLE;
+  if (!evidence.finishBeforeScoreChange) return FAILURE_CODES.FINISH_AFTER_SCOREBOARD_CHANGE;
   if (!evidence.hasRenderedFinishFrame) {
     if (evidence.finishFrame && evidence.finishFrame.isBlurred) return FAILURE_CODES.FINISH_FRAME_BLURRED;
     if (evidence.finishFrame && evidence.finishFrame.isOverZoomed) return FAILURE_CODES.FINISH_FRAME_OVERZOOMED;
@@ -325,12 +335,16 @@ function validateHumanVisibleGoalSequence({ segment = {} } = {}) {
   const shotStart = normalized.shotStart;
   const finishTime = normalized.finishTime;
   const confirmationTime = normalized.confirmationTime;
+  const scoreChangeTime = normalized.scoreChangeTime;
   const hasTimingShape = sourceStart !== null &&
     shotStart !== null &&
     finishTime !== null &&
     shotStart >= sourceStart &&
     finishTime >= shotStart;
   const confirmationAfterFinish = confirmationTime !== null && finishTime !== null && confirmationTime >= finishTime - 0.25;
+  const finishBeforeScoreChange = scoreChangeTime === null ||
+    finishTime === null ||
+    finishTime < scoreChangeTime - 0.25;
   const hasBuildupFrames = phase.hasBuildup === true &&
     hasTimingShape &&
     shotStart - sourceStart >= 2;
@@ -348,13 +362,18 @@ function validateHumanVisibleGoalSequence({ segment = {} } = {}) {
     visualPayoff.scoreboardOnly !== true &&
     confirmationAfterFinish &&
     hasAny(normalized.reasonCodes, CONFIRMATION_CODES);
+  const finishFrame = validateFinishFrameEvidence(segment, normalized);
+  const hasRenderedFinishPayoff = hasShotFrames &&
+    (hasStrongShotFrames || hasLiveFinishSequence) &&
+    finishFrame.passed &&
+    finishFrame.hasBallInNetOrPayoff === true &&
+    finishFrame.hasGoalMouth === true;
   const hasGoalmouthFrames = phase.hasFinish === true &&
-    (hasAny(normalized.reasonCodes, GOALMOUTH_CODES) || hasStableScorebackedFinish);
+    (hasAny(normalized.reasonCodes, GOALMOUTH_CODES) || hasRenderedFinishPayoff);
   const hasPayoffFrames = phase.hasFinish === true &&
     (
       hasAny(normalized.reasonCodes, PAYOFF_CODES) ||
-      hasStableScorebackedFinish ||
-      (hasGoalmouthFrames && hasStrongShotFrames && confirmationAfterFinish)
+      hasRenderedFinishPayoff
     );
   const hasConfirmationAfterFinish = phase.hasConfirmation === true &&
     confirmationAfterFinish &&
@@ -365,7 +384,6 @@ function validateHumanVisibleGoalSequence({ segment = {} } = {}) {
   const isCelebrationOnly = hasCelebrationSignals && !hasShotFrames && !hasPayoffFrames;
   const hasScoreboardSignals = hasAny(normalized.reasonCodes, CONFIRMATION_CODES);
   const isScoreboardOnly = hasScoreboardSignals && !hasShotFrames && !hasPayoffFrames;
-  const finishFrame = validateFinishFrameEvidence(segment, normalized);
   const evidence = {
     hasBuildupFrames,
     hasShotFrames,
@@ -373,6 +391,7 @@ function validateHumanVisibleGoalSequence({ segment = {} } = {}) {
     hasPayoffFrames,
     hasStableScorebackedFinish,
     hasConfirmationAfterFinish,
+    finishBeforeScoreChange,
     hasRenderedFinishFrame: finishFrame.passed,
     finishFrame,
     isScoreboardOnly,
@@ -384,6 +403,7 @@ function validateHumanVisibleGoalSequence({ segment = {} } = {}) {
     hasShotFrames &&
     hasGoalmouthFrames &&
     hasPayoffFrames &&
+    finishBeforeScoreChange &&
     finishFrame.passed &&
     hasConfirmationAfterFinish;
   const confidenceParts = [
@@ -420,6 +440,7 @@ function publicHumanVisibleGoalGate(value = {}) {
           hasGoalmouthFrames: Boolean(gate.evidence.hasGoalmouthFrames),
           hasPayoffFrames: Boolean(gate.evidence.hasPayoffFrames),
           hasStableScorebackedFinish: Boolean(gate.evidence.hasStableScorebackedFinish),
+          finishBeforeScoreChange: Boolean(gate.evidence.finishBeforeScoreChange),
           hasRenderedFinishFrame: Boolean(gate.evidence.hasRenderedFinishFrame),
           hasConfirmationAfterFinish: Boolean(gate.evidence.hasConfirmationAfterFinish),
         }

@@ -1855,7 +1855,10 @@ function validateMatchEventTruthOutput(output, metadata = {}) {
   const stableScoreChangeAnchorCount = scoreChangeAnchors.filter((anchor) => anchor.outcome === "counted_goal" && !anchor.reverted).length;
   const revertedScoreChangeAnchorCount = scoreChangeAnchors.filter((anchor) => anchor.reverted || anchor.outcome === "disallowed_goal").length;
   const anchorsLinkedToGoalPhaseCount = scoreChangeAnchors.filter((anchor) => anchor.hasLiveAction && anchor.hasVisibleFinish && !anchor.replayOnly).length;
-  const anchorsMissingVisualSupportCount = scoreChangeAnchors.filter((anchor) => anchor.outcome === "counted_goal" && !anchor.selectedForRender).length;
+  const anchorsMissingVisualSupportCount = scoreChangeAnchors.filter((anchor) => (
+    anchor.outcome === "counted_goal" &&
+    (!anchor.selectedForRender || !anchor.hasVisibleFinish || anchor.replayOnly === true)
+  )).length;
   const uncertainReviewItems = [
     ...scoreChanges.filter((change) => change.outcome === "uncertain_review").map((change) => `score_change_${change.id}`),
     ...rejectedEvents.filter((event) => event.type === "possible_goal_unconfirmed").map((event) => event.id),

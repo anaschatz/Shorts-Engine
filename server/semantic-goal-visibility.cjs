@@ -170,22 +170,28 @@ function classifyFeatures(features = {}, role = "") {
   const skin = numberOrNull(features.skinRatio) ?? 0;
   const saturated = numberOrNull(features.saturatedColorRatio) ?? 0;
   const blackBars = numberOrNull(features.blackBarRatio) ?? 0;
-  const playerCloseupOnly = (green < 0.09 && skin > 0.035) || (green < 0.06 && saturated > 0.18);
+  const goalRole = ["finish", "payoff"].includes(role);
+  const playerCloseupOnly = (green < 0.09 && skin > 0.035) ||
+    (green < 0.06 && saturated > 0.18) ||
+    (goalRole && green < 0.18 && skin > 0.018) ||
+    (goalRole && green < 0.16 && saturated > 0.16);
   const scoreboardOnly = green < 0.04 && white > 0.08 && dark > 0.28;
   const tooBlurred = saturated < 0.035 && white < 0.012 && green < 0.16;
-  const tooZoomed = green < 0.07 && white < 0.018;
-  const tooWideUnclear = green > 0.58 && white < 0.012 && saturated < 0.12;
+  const tooZoomed = (green < 0.07 && white < 0.018) || (goalRole && green < 0.13);
+  const tooWideUnclear = green > 0.58 && white < (goalRole ? 0.018 : 0.012) && saturated < 0.12;
   const hasGoalMouth = white >= 0.018 || (white >= 0.012 && green >= 0.14);
   const hasActionSurface = green >= 0.10 && blackBars < 0.25;
   const hasVisibleAction = hasActionSurface && !playerCloseupOnly && !scoreboardOnly && !tooBlurred;
+  const hasGoalRoleScale = !goalRole || (green >= 0.14 && white >= 0.018);
   const roleClear = role === "pre_shot"
     ? hasVisibleAction && green >= 0.14
     : role === "confirmation"
       ? hasVisibleAction && (green >= 0.12 || hasGoalMouth)
-      : hasVisibleAction && hasGoalMouth && !tooWideUnclear && !tooZoomed;
+      : hasVisibleAction && hasGoalMouth && hasGoalRoleScale && !tooWideUnclear && !tooZoomed;
   const reasons = [
     ...(!hasVisibleAction ? ["semantic_action_surface_not_visible"] : []),
     ...(role !== "pre_shot" && !hasGoalMouth ? ["semantic_goalmouth_or_payoff_not_visible"] : []),
+    ...(role !== "pre_shot" && !hasGoalRoleScale ? ["semantic_goal_finish_scale_not_visible"] : []),
     ...(playerCloseupOnly ? ["semantic_player_closeup_only"] : []),
     ...(scoreboardOnly ? ["semantic_scoreboard_only"] : []),
     ...(tooBlurred ? ["semantic_frame_too_blurred"] : []),
