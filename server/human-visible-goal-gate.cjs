@@ -7,6 +7,10 @@ const FAILURE_CODES = Object.freeze({
   REPLAY_ONLY: "REPLAY_ONLY",
   NO_SHOT_VISIBLE: "NO_SHOT_VISIBLE",
   NO_FINISH_VISIBLE: "NO_FINISH_VISIBLE",
+  FINISH_FRAME_NOT_PROVEN: "FINISH_FRAME_NOT_PROVEN",
+  FINISH_FRAME_BLURRED: "FINISH_FRAME_BLURRED",
+  FINISH_FRAME_OVERZOOMED: "FINISH_FRAME_OVERZOOMED",
+  FINISH_FRAME_LABEL_ONLY: "FINISH_FRAME_LABEL_ONLY",
 });
 
 const SHOT_CODES = Object.freeze([
@@ -32,6 +36,16 @@ const PAYOFF_CODES = Object.freeze([
   "visual_ball_in_net",
   "ball_in_net",
 ]);
+
+const FINISH_FRAME_CODES = Object.freeze([
+  "finish_frame_visible",
+  "rendered_finish_frame_visible",
+  "ball_in_net_or_payoff_visible",
+  "clear_goal_payoff_visible",
+]);
+
+const MIN_FINISH_FRAME_CONFIDENCE = 0.72;
+const FINISH_FRAME_TOLERANCE_SECONDS = 2.5;
 
 const CONFIRMATION_CODES = Object.freeze([
   "visual_scoreboard_goal_confirmed",
@@ -76,6 +90,88 @@ function safeCodes(values = []) {
 function hasAny(codes, expected) {
   const set = new Set(codes);
   return expected.some((code) => set.has(code));
+}
+
+function valueObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function finishFrameEvidenceForSegment(segment = {}, normalized = {}) {
+  const phase = valueObject(segment.phaseCoverage);
+  const visualPayoff = valueObject(phase.visualGoalPayoff);
+  return valueObject(
+    segment.finishFrameEvidence ||
+    phase.finishFrameEvidence ||
+    visualPayoff.finishFrameEvidence ||
+    (segment.visualGoalGate && segment.visualGoalGate.finishFrameEvidence)
+  );
+}
+
+function validateFinishFrameEvidence(segment = {}, normalized = {}) {
+  const evidence = finishFrameEvidenceForSegment(segment, normalized);
+  const hasEvidence = Object.keys(evidence).length > 0;
+  const sourceStart = normalized.sourceStart;
+  const sourceEnd = normalized.sourceEnd;
+  const finishTime = normalized.finishTime;
+  const frameTime = numberOrNull(evidence.frameTime ?? evidence.time ?? evidence.timestamp);
+  const confidence = numberOrNull(evidence.confidence);
+  const evidenceCodes = safeCodes(evidence.evidenceCodes || evidence.reasonCodes);
+  const hasVisibleFinish = evidence.hasVisibleFinish === true || evidence.visibleFinish === true;
+  const hasBallInNetOrPayoff = evidence.hasBallInNetOrPayoff === true ||
+    evidence.hasBallInNet === true ||
+    evidence.hasClearPayoff === true ||
+    evidence.ballInNetOrPayoffVisible === true;
+  const hasGoalMouth = evidence.hasGoalMouth === true || evidence.goalMouthVisible === true;
+  const frameWithinSegment = frameTime !== null &&
+    sourceStart !== null &&
+    sourceEnd !== null &&
+    frameTime >= sourceStart - 0.05 &&
+    frameTime <= sourceEnd + 0.05;
+  const nearFinish = frameTime !== null &&
+    finishTime !== null &&
+    Math.abs(frameTime - finishTime) <= FINISH_FRAME_TOLERANCE_SECONDS;
+  const isBlurred = evidence.isBlurred === true || evidence.blurred === true || evidence.blurRisk === true;
+  const isOverZoomed = evidence.isOverZoomed === true || evidence.overZoomed === true || evidence.overZoomRisk === true;
+  const isLabelOnly = evidence.isLabelOnly === true || evidence.labelOnly === true || evidence.captionOnly === true;
+  const isReplayOnly = evidence.isReplayOnly === true || evidence.replayOnly === true;
+  const isCelebrationOnly = evidence.isCelebrationOnly === true || evidence.celebrationOnly === true;
+  const isScoreboardOnly = evidence.isScoreboardOnly === true || evidence.scoreboardOnly === true;
+  const confidenceOk = confidence === null || confidence >= MIN_FINISH_FRAME_CONFIDENCE;
+  const evidenceBacked = hasAny(evidenceCodes, FINISH_FRAME_CODES);
+  const reasons = [
+    ...(!hasEvidence ? ["finish_frame_evidence_missing"] : []),
+    ...(hasEvidence && !frameWithinSegment ? ["finish_frame_outside_segment"] : []),
+    ...(hasEvidence && !nearFinish ? ["finish_frame_not_near_finish"] : []),
+    ...(hasEvidence && !hasVisibleFinish ? ["finish_frame_missing_visible_finish"] : []),
+    ...(hasEvidence && !hasBallInNetOrPayoff ? ["finish_frame_missing_ball_in_net_or_payoff"] : []),
+    ...(hasEvidence && !hasGoalMouth ? ["finish_frame_missing_goalmouth"] : []),
+    ...(hasEvidence && !evidenceBacked ? ["finish_frame_not_evidence_backed"] : []),
+    ...(hasEvidence && !confidenceOk ? ["finish_frame_low_confidence"] : []),
+    ...(isBlurred ? ["finish_frame_blurred"] : []),
+    ...(isOverZoomed ? ["finish_frame_overzoomed"] : []),
+    ...(isLabelOnly ? ["finish_frame_label_only"] : []),
+    ...(isReplayOnly ? ["finish_frame_replay_only"] : []),
+    ...(isCelebrationOnly ? ["finish_frame_celebration_only"] : []),
+    ...(isScoreboardOnly ? ["finish_frame_scoreboard_only"] : []),
+  ];
+  return {
+    passed: reasons.length === 0,
+    frameTime: roundTime(frameTime),
+    confidence,
+    hasVisibleFinish,
+    hasBallInNetOrPayoff,
+    hasGoalMouth,
+    frameWithinSegment,
+    nearFinish,
+    isBlurred,
+    isOverZoomed,
+    isLabelOnly,
+    isReplayOnly,
+    isCelebrationOnly,
+    isScoreboardOnly,
+    evidenceCodes,
+    reasons: safeCodes(reasons).slice(0, 10),
+  };
 }
 
 function sampleGoalFrameRefs(segment = {}) {
@@ -134,6 +230,12 @@ function failureCodeForEvidence(evidence, segment) {
   if (evidence.isScoreboardOnly) return FAILURE_CODES.SCOREBOARD_ONLY;
   if (evidence.isCelebrationOnly) return FAILURE_CODES.CELEBRATION_ONLY;
   if (!evidence.hasShotFrames) return FAILURE_CODES.NO_SHOT_VISIBLE;
+  if (!evidence.hasRenderedFinishFrame) {
+    if (evidence.finishFrame && evidence.finishFrame.isBlurred) return FAILURE_CODES.FINISH_FRAME_BLURRED;
+    if (evidence.finishFrame && evidence.finishFrame.isOverZoomed) return FAILURE_CODES.FINISH_FRAME_OVERZOOMED;
+    if (evidence.finishFrame && evidence.finishFrame.isLabelOnly) return FAILURE_CODES.FINISH_FRAME_LABEL_ONLY;
+    return FAILURE_CODES.FINISH_FRAME_NOT_PROVEN;
+  }
   if (!evidence.hasPayoffFrames || !evidence.hasGoalmouthFrames) return FAILURE_CODES.NO_FINISH_VISIBLE;
   return FAILURE_CODES.GOAL_NOT_VISIBLE;
 }
@@ -185,6 +287,7 @@ function validateHumanVisibleGoalSequence({ segment = {} } = {}) {
   const isCelebrationOnly = hasCelebrationSignals && !hasShotFrames && !hasPayoffFrames;
   const hasScoreboardSignals = hasAny(normalized.reasonCodes, CONFIRMATION_CODES);
   const isScoreboardOnly = hasScoreboardSignals && !hasShotFrames && !hasPayoffFrames;
+  const finishFrame = validateFinishFrameEvidence(segment, normalized);
   const evidence = {
     hasBuildupFrames,
     hasShotFrames,
@@ -192,6 +295,8 @@ function validateHumanVisibleGoalSequence({ segment = {} } = {}) {
     hasPayoffFrames,
     hasStableScorebackedFinish,
     hasConfirmationAfterFinish,
+    hasRenderedFinishFrame: finishFrame.passed,
+    finishFrame,
     isScoreboardOnly,
     isCelebrationOnly,
     hasReplayOnlySignals,
@@ -201,6 +306,7 @@ function validateHumanVisibleGoalSequence({ segment = {} } = {}) {
     hasShotFrames &&
     hasGoalmouthFrames &&
     hasPayoffFrames &&
+    finishFrame.passed &&
     hasConfirmationAfterFinish;
   const confidenceParts = [
     hasBuildupFrames,
@@ -236,7 +342,25 @@ function publicHumanVisibleGoalGate(value = {}) {
           hasGoalmouthFrames: Boolean(gate.evidence.hasGoalmouthFrames),
           hasPayoffFrames: Boolean(gate.evidence.hasPayoffFrames),
           hasStableScorebackedFinish: Boolean(gate.evidence.hasStableScorebackedFinish),
+          hasRenderedFinishFrame: Boolean(gate.evidence.hasRenderedFinishFrame),
           hasConfirmationAfterFinish: Boolean(gate.evidence.hasConfirmationAfterFinish),
+        }
+      : null,
+    finishFrameEvidence: gate.evidence && gate.evidence.finishFrame
+      ? {
+          passed: Boolean(gate.evidence.finishFrame.passed),
+          frameTime: roundTime(gate.evidence.finishFrame.frameTime),
+          confidence: numberOrNull(gate.evidence.finishFrame.confidence),
+          hasVisibleFinish: Boolean(gate.evidence.finishFrame.hasVisibleFinish),
+          hasBallInNetOrPayoff: Boolean(gate.evidence.finishFrame.hasBallInNetOrPayoff),
+          hasGoalMouth: Boolean(gate.evidence.finishFrame.hasGoalMouth),
+          isBlurred: Boolean(gate.evidence.finishFrame.isBlurred),
+          isOverZoomed: Boolean(gate.evidence.finishFrame.isOverZoomed),
+          isLabelOnly: Boolean(gate.evidence.finishFrame.isLabelOnly),
+          isReplayOnly: Boolean(gate.evidence.finishFrame.isReplayOnly),
+          isCelebrationOnly: Boolean(gate.evidence.finishFrame.isCelebrationOnly),
+          isScoreboardOnly: Boolean(gate.evidence.finishFrame.isScoreboardOnly),
+          reasons: safeCodes(gate.evidence.finishFrame.reasons).slice(0, 8),
         }
       : null,
     sampledFrames: Array.isArray(gate.sampledFrames)
@@ -250,6 +374,7 @@ function publicHumanVisibleGoalGate(value = {}) {
 
 module.exports = {
   FAILURE_CODES,
+  validateFinishFrameEvidence,
   publicHumanVisibleGoalGate,
   sampleGoalFrameRefs,
   validateHumanVisibleGoalSequence,

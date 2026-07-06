@@ -210,6 +210,35 @@ function hasAny(codes = [], expected = []) {
   return expected.some((code) => set.has(code));
 }
 
+function normalizeFinishFrameEvidence(value = null, context = {}) {
+  const raw = value && typeof value === "object" && !Array.isArray(value) ? value : null;
+  if (!raw || hasUnsafeValue(raw)) return null;
+  const sourceStart = seconds(context.sourceStart);
+  const sourceEnd = Math.max(sourceStart + 0.5, seconds(context.sourceEnd, sourceStart + 1));
+  const fallbackFrameTime = normalizePhaseTimestamp(context.finishTime, sourceStart, sourceEnd, sourceEnd);
+  const frameTime = normalizePhaseTimestamp(raw.frameTime ?? raw.time ?? raw.timestamp, sourceStart, sourceEnd, fallbackFrameTime);
+  const confidence = Number.isFinite(Number(raw.confidence))
+    ? round(Math.min(1, Math.max(0, Number(raw.confidence))))
+    : null;
+  return {
+    frameTime,
+    confidence,
+    hasVisibleFinish: raw.hasVisibleFinish === true || raw.visibleFinish === true,
+    hasBallInNetOrPayoff: raw.hasBallInNetOrPayoff === true ||
+      raw.hasBallInNet === true ||
+      raw.hasClearPayoff === true ||
+      raw.ballInNetOrPayoffVisible === true,
+    hasGoalMouth: raw.hasGoalMouth === true || raw.goalMouthVisible === true,
+    isBlurred: raw.isBlurred === true || raw.blurred === true || raw.blurRisk === true,
+    isOverZoomed: raw.isOverZoomed === true || raw.overZoomed === true || raw.overZoomRisk === true,
+    isLabelOnly: raw.isLabelOnly === true || raw.labelOnly === true || raw.captionOnly === true,
+    isReplayOnly: raw.isReplayOnly === true || raw.replayOnly === true,
+    isCelebrationOnly: raw.isCelebrationOnly === true || raw.celebrationOnly === true,
+    isScoreboardOnly: raw.isScoreboardOnly === true || raw.scoreboardOnly === true,
+    evidenceCodes: uniqueCodes(raw.evidenceCodes || raw.reasonCodes, 12),
+  };
+}
+
 function windowStart(window = {}) {
   return seconds(window.start);
 }
@@ -237,6 +266,28 @@ function lastWindowTime(windows = [], codes = [], fallback = null) {
     .filter((window) => hasAny(visualReasonCodesForWindow(window), codes))
     .sort((a, b) => windowEnd(b) - windowEnd(a))[0];
   return match ? round(windowEnd(match)) : fallback;
+}
+
+function finishFrameEvidenceFromWindows(windows = [], fallbackTime = null) {
+  const finishWindows = [...windows].filter((window) => hasAny(visualReasonCodesForWindow(window), GOAL_FINISH_CODES));
+  if (!finishWindows.length) return null;
+  const best = finishWindows
+    .sort((a, b) => Number(b.confidence || 0) - Number(a.confidence || 0) || windowEnd(b) - windowEnd(a))[0];
+  const frameTime = round(windowEnd(best, fallbackTime == null ? 0 : fallbackTime));
+  return {
+    frameTime,
+    confidence: round(clamp(best.confidence, 0.05, 0.98)),
+    hasVisibleFinish: true,
+    hasBallInNetOrPayoff: true,
+    hasGoalMouth: true,
+    isBlurred: false,
+    isOverZoomed: false,
+    isLabelOnly: false,
+    isReplayOnly: false,
+    isCelebrationOnly: false,
+    isScoreboardOnly: false,
+    evidenceCodes: ["finish_frame_visible", "ball_in_net_or_payoff_visible"],
+  };
 }
 
 function visualCodesForRange(visualSignals, start = 0, end = 0) {
@@ -519,12 +570,20 @@ function normalizePhaseCoverage(value = {}, context = {}) {
         evidenceCodes: uniqueCodes(raw.visualGoalPayoff.evidenceCodes || visualGoalPayoffForCodes(evidenceCodes).evidenceCodes, 8),
       }
     : visualGoalPayoffForCodes(evidenceCodes);
+  const finishFrameEvidence = normalizeFinishFrameEvidence(
+    raw.finishFrameEvidence ||
+      (raw.visualGoalPayoff && raw.visualGoalPayoff.finishFrameEvidence),
+    { sourceStart, sourceEnd, finishTime },
+  );
+  const visualGoalPayoffWithFinishFrame = finishFrameEvidence
+    ? { ...visualGoalPayoff, finishFrameEvidence }
+    : visualGoalPayoff;
   return {
     hasBuildup: raw.hasBuildup == null ? sourceStart <= shotStart - 6 : Boolean(raw.hasBuildup),
     hasShot: raw.hasShot == null ? hasAny(evidenceCodes, SHOT_CODES) : Boolean(raw.hasShot),
     hasFinish: raw.hasFinish == null
-      ? visualGoalPayoff.hasVisibleGoalPayoff
-      : Boolean(raw.hasFinish) && visualGoalPayoff.hasVisibleGoalPayoff,
+      ? visualGoalPayoffWithFinishFrame.hasVisibleGoalPayoff
+      : Boolean(raw.hasFinish) && visualGoalPayoffWithFinishFrame.hasVisibleGoalPayoff,
     hasConfirmation: raw.hasConfirmation == null
       ? context.type === "confirmed_goal" || hasAny(evidenceCodes, CONFIRMED_SUPPORT_CODES)
       : Boolean(raw.hasConfirmation),
@@ -534,7 +593,8 @@ function normalizePhaseCoverage(value = {}, context = {}) {
     confirmationTime,
     replayUsed,
     replayOnly,
-    visualGoalPayoff,
+    visualGoalPayoff: visualGoalPayoffWithFinishFrame,
+    finishFrameEvidence,
   };
 }
 
@@ -624,6 +684,7 @@ function windowSetForDecision({ event, visualSignals, duration }) {
     Math.max(end, payoffEnd + 4, decisionStart == null ? 0 : decisionStart + 3),
   ));
   const boundedSourceEnd = Math.max(sourceStart + 3, sourceEnd);
+  const finishFrameEvidence = finishFrameEvidenceFromWindows(contextWindows, payoffEnd);
   const phaseCoverage = {
     hasBuildup: !replayOnly && sourceStart <= shotStart - 6,
     hasShot: !replayOnly && (hasAny(eventCodes, SHOT_CODES) || livePhaseWindows.some((window) => hasAny(visualReasonCodesForWindow(window), SHOT_CODES))),
@@ -635,6 +696,7 @@ function windowSetForDecision({ event, visualSignals, duration }) {
     confirmationTime: decisionStart == null ? null : round(decisionStart),
     replayUsed,
     replayOnly,
+    finishFrameEvidence,
   };
   return {
     sourceStart,
@@ -1281,6 +1343,7 @@ function scoreChangeVisualContext(change = {}, visualSignals = {}, metadata = {}
       ? Math.max(mediaAction.end, confirmationAnchorTime - 1)
       : finishTime;
   const sourceEnd = round(Math.min(duration || stableChangeTime + SCORE_CHANGE_POST_SECONDS, Math.max(confirmationAnchorTime + 2, effectiveFinishTime + 3, sourceStart + 8)));
+  const finishFrameEvidence = finishFrameEvidenceFromWindows(finishWindows, effectiveFinishTime);
   return {
     sourceStart,
     sourceEnd,
@@ -1300,6 +1363,7 @@ function scoreChangeVisualContext(change = {}, visualSignals = {}, metadata = {}
       confirmationTime: round(confirmationAnchorTime),
       replayUsed,
       replayOnly,
+      finishFrameEvidence,
     },
     visualCodes: uniqueCodes([
       ...visualCodesForRange(visualSignals, left, right),
@@ -1888,7 +1952,11 @@ function publicMatchEventTruth(matchEventTruth) {
     providerMode: safe.providerMode || "deterministic-match-event-truth",
     fallbackUsed: Boolean(safe.fallbackUsed),
     ocrQaCalibration: safe.ocrQaCalibration,
-    events: Array.isArray(safe.events) ? safe.events : [],
+    events: Array.isArray(safe.events)
+      ? safe.events
+      : Array.isArray(safe.selectedEvents)
+        ? safe.selectedEvents
+        : [],
     rejectedEvents: Array.isArray(safe.rejectedEvents) ? safe.rejectedEvents : [],
     scoreTimelineObservations: Array.isArray(safe.scoreTimelineObservations) ? safe.scoreTimelineObservations : [],
     scoreChanges: Array.isArray(safe.scoreChanges) ? safe.scoreChanges : [],

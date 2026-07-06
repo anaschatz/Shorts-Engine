@@ -1096,8 +1096,35 @@ function normalizeSegmentGoalPhase(segment = {}, context = {}) {
     context.sourceStart,
   );
   const shotStart = finiteTimestamp(segment.shotStart ?? raw.shotStart, context.sourceStart, context.sourceEnd, null);
-  const finishTime = finiteTimestamp(segment.finishTime ?? raw.finishTime, context.sourceStart, context.sourceEnd, null);
-  const confirmationTime = finiteTimestamp(segment.confirmationTime ?? raw.confirmationTime, context.sourceStart, context.sourceEnd, null);
+  const normalizedFinishFrame = normalizeFinishFrameEvidence(
+    segment.finishFrameEvidence ||
+      raw.finishFrameEvidence ||
+      (raw.visualGoalPayoff && raw.visualGoalPayoff.finishFrameEvidence),
+    context,
+  );
+  const rawFinishTime = finiteTimestamp(segment.finishTime ?? raw.finishTime, context.sourceStart, context.sourceEnd, null);
+  const finishFrameCanBind = normalizedFinishFrame &&
+    normalizedFinishFrame.frameTime != null &&
+    normalizedFinishFrame.hasVisibleFinish &&
+    normalizedFinishFrame.hasBallInNetOrPayoff &&
+    normalizedFinishFrame.hasGoalMouth &&
+    normalizedFinishFrame.isBlurred !== true &&
+    normalizedFinishFrame.isOverZoomed !== true &&
+    normalizedFinishFrame.isLabelOnly !== true &&
+    normalizedFinishFrame.isReplayOnly !== true &&
+    normalizedFinishFrame.isCelebrationOnly !== true &&
+    normalizedFinishFrame.isScoreboardOnly !== true;
+  const finishTime = finishFrameCanBind ? normalizedFinishFrame.frameTime : rawFinishTime;
+  const rawConfirmationTime = finiteTimestamp(segment.confirmationTime ?? raw.confirmationTime, context.sourceStart, context.sourceEnd, null);
+  const confirmationTime = confirmedGoal &&
+    finishFrameCanBind &&
+    finishTime != null &&
+    (
+      rawConfirmationTime == null ||
+      rawConfirmationTime < finishTime - 0.25
+    )
+    ? finiteTimestamp(finishTime + 0.2, context.sourceStart, context.sourceEnd, rawConfirmationTime)
+    : rawConfirmationTime;
   const replayUsed = Boolean(
     segment.replayUsed ||
     raw.replayUsed ||
@@ -1132,7 +1159,9 @@ function normalizeSegmentGoalPhase(segment = {}, context = {}) {
       hasBallInNetEvidence: reasonSet.has("visual_ball_in_net") || reasonSet.has("ball_in_net"),
       hasLiveFinishSequence: reasonSet.has("live_shot_finish_sequence") && hasShot,
       scoreboardOnly: (reasonSet.has("scoreboard_backed_goal_sequence") || reasonSet.has("scoreboard_ocr_score_change")) && !hasVisibleGoalPayoff,
+      finishFrameEvidence: normalizedFinishFrame,
     },
+    finishFrameEvidence: normalizedFinishFrame,
   };
   if (confirmedGoal && (phaseCoverage.replayOnly || !phaseCoverage.hasShot || !phaseCoverage.hasFinish)) {
     throw new AppError("VALIDATION_ERROR", "Confirmed goal segment must include live shot and finish evidence.", 400);
@@ -1147,6 +1176,41 @@ function normalizeSegmentGoalPhase(segment = {}, context = {}) {
     replayOnly,
     phaseCoverage,
   };
+}
+
+function normalizeFinishFrameEvidence(value = {}, context = {}) {
+  const raw = value && typeof value === "object" && !Array.isArray(value) ? value : null;
+  if (!raw) return null;
+  const frameTime = finiteTimestamp(raw.frameTime ?? raw.time ?? raw.timestamp, context.sourceStart, context.sourceEnd, null);
+  const confidence = Number.isFinite(Number(raw.confidence))
+    ? Number(clamp(Number(raw.confidence), 0, 1).toFixed(2))
+    : null;
+  const evidenceCodes = Array.isArray(raw.evidenceCodes || raw.reasonCodes)
+    ? (raw.evidenceCodes || raw.reasonCodes).map((code) => sanitizeText(code, 80)).filter(Boolean).slice(0, 8)
+    : [];
+  return {
+    frameTime,
+    confidence,
+    hasVisibleFinish: raw.hasVisibleFinish === true || raw.visibleFinish === true,
+    hasBallInNetOrPayoff: raw.hasBallInNetOrPayoff === true ||
+      raw.hasBallInNet === true ||
+      raw.hasClearPayoff === true ||
+      raw.ballInNetOrPayoffVisible === true,
+    hasGoalMouth: raw.hasGoalMouth === true || raw.goalMouthVisible === true,
+    isBlurred: raw.isBlurred === true || raw.blurred === true || raw.blurRisk === true,
+    isOverZoomed: raw.isOverZoomed === true || raw.overZoomed === true || raw.overZoomRisk === true,
+    isLabelOnly: raw.isLabelOnly === true || raw.labelOnly === true || raw.captionOnly === true,
+    isReplayOnly: raw.isReplayOnly === true || raw.replayOnly === true,
+    isCelebrationOnly: raw.isCelebrationOnly === true || raw.celebrationOnly === true,
+    isScoreboardOnly: raw.isScoreboardOnly === true || raw.scoreboardOnly === true,
+    evidenceCodes,
+  };
+}
+
+function normalizeScoreText(value) {
+  const text = sanitizeText(value || "", 16).replace(/\s+/g, "");
+  if (!/^\d{1,2}[-:]\d{1,2}$/.test(text)) return null;
+  return text.replace(":", "-");
 }
 
 function normalizedEditPlanMode(value, hasSegments) {
@@ -1204,6 +1268,11 @@ function normalizeSegmentItem(segment, index, metadata = {}) {
     reasonCodes,
     goalOutcome,
     goalNumber: goalPhase.goalNumber,
+    scoreBefore: normalizeScoreText(segment.scoreBefore || goalPhase.scoreBefore || (goalOutcome && goalOutcome.scoreBefore)),
+    scoreAfter: normalizeScoreText(segment.scoreAfter || goalPhase.scoreAfter || (goalOutcome && goalOutcome.scoreAfter)),
+    scoreChangeTime: Number.isFinite(Number(segment.scoreChangeTime ?? goalPhase.scoreChangeTime ?? (goalOutcome && goalOutcome.scoreChangeTime)))
+      ? Number(Number(segment.scoreChangeTime ?? goalPhase.scoreChangeTime ?? (goalOutcome && goalOutcome.scoreChangeTime)).toFixed(2))
+      : null,
     buildupStart: goalPhase.buildupStart,
     shotStart: goalPhase.shotStart,
     finishTime: goalPhase.finishTime,
@@ -1212,6 +1281,13 @@ function normalizeSegmentItem(segment, index, metadata = {}) {
     replayOnly: goalPhase.replayOnly,
     referenceGoalPacing: Boolean(segment.referenceGoalPacing),
     phaseCoverage: goalPhase.phaseCoverage,
+    finishFrameEvidence: goalPhase.phaseCoverage.finishFrameEvidence ||
+      normalizeFinishFrameEvidence(
+        segment.finishFrameEvidence ||
+          (segment.phaseCoverage && segment.phaseCoverage.finishFrameEvidence) ||
+          (segment.phaseCoverage && segment.phaseCoverage.visualGoalPayoff && segment.phaseCoverage.visualGoalPayoff.finishFrameEvidence),
+        { sourceStart, sourceEnd },
+      ),
     boundarySmoothing: segment.boundarySmoothing && typeof segment.boundarySmoothing === "object" && !Array.isArray(segment.boundarySmoothing)
       ? {
           applied: Boolean(segment.boundarySmoothing.applied),

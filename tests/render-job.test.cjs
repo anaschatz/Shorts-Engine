@@ -9,6 +9,7 @@ const {
   enqueueRenderJob,
   ocrQaCalibrationOptionsFromEnv,
   runRenderJob,
+  scoreChangeCandidateWindowsFromOcr,
   validateHighlightResult,
   validateTranscript,
   visualCandidateWindowsFromSignals,
@@ -149,6 +150,20 @@ function validGoalSegment(index, sourceStart, shotStart, finishTime, confirmatio
         scoreboardOnly: false,
         evidenceCodes: ["visual_ball_in_net", "live_shot_finish_sequence"],
       },
+    },
+    finishFrameEvidence: {
+      frameTime: finishTime,
+      confidence: 0.9,
+      hasVisibleFinish: true,
+      hasBallInNetOrPayoff: true,
+      hasGoalMouth: true,
+      isBlurred: false,
+      isOverZoomed: false,
+      isLabelOnly: false,
+      isReplayOnly: false,
+      isCelebrationOnly: false,
+      isScoreboardOnly: false,
+      evidenceCodes: ["finish_frame_visible", "ball_in_net_or_payoff_visible"],
     },
     confidence: 0.92,
     retentionScore: 94,
@@ -741,16 +756,17 @@ test("youtube long-source render uses scorebug-first OCR before visual frame ext
   assert.equal(context.scoreboardOcrCalls.at(-1).ocrSamplingWindows.some((window) => Number(window.timestamp) >= 585), true);
   assert.equal(context.frameExtractionMaxFrames, 18);
   assert.equal(context.frameCandidateWindows.some((window) => (
-    window.source === "scorebug_first_backtrack_probe" &&
-    Number(window.time) === 488 &&
+    window.source === "scorebug_first_live_action_anchor" &&
+    Number(window.time) === 506 &&
     Array.isArray(window.visualHints) &&
-    window.visualHints.length === 0
+    window.visualHints.includes("shot_contact") &&
+    window.visualHints.includes("goal_mouth_visible")
   )), true);
   assert.equal(context.frameCandidateWindows.some((window) => (
-    window.source === "scorebug_first_backtrack_probe" &&
-    Number(window.time) === 500 &&
+    window.source === "scorebug_first_live_action_anchor" &&
+    Number(window.time) === 509 &&
     Array.isArray(window.visualHints) &&
-    window.visualHints.length === 0
+    window.visualHints.includes("goal_mouth_visible")
   )), true);
   assert.equal(context.frameCandidateWindows.some((window) => window.source === "scorebug_first_score_confirmation" && Number(window.time) === 512), true);
   assert.equal(context.job.scoreboardOcr.providerMode, "chunked-scoreboard-ocr");
@@ -893,16 +909,17 @@ test("youtube long-source first OCR chunk timeout does not block later score cha
   assert.equal(chunkSummary.chunks.at(-1).stableScoreDecision, "score_changes_detected");
   assert.equal(chunkSummary.chunks.at(-1).normalizedScoreCandidates.includes("5-0"), true);
   assert.equal(context.frameCandidateWindows.some((window) => (
-    window.source === "scorebug_first_backtrack_probe" &&
-    Number(window.time) === 588 &&
+    window.source === "scorebug_first_live_action_anchor" &&
+    Number(window.time) === 606 &&
     Array.isArray(window.visualHints) &&
-    window.visualHints.length === 0
+    window.visualHints.includes("shot_contact") &&
+    window.visualHints.includes("goal_mouth_visible")
   )), true);
   assert.equal(context.frameCandidateWindows.some((window) => (
-    window.source === "scorebug_first_backtrack_probe" &&
-    Number(window.time) === 600 &&
+    window.source === "scorebug_first_live_action_anchor" &&
+    Number(window.time) === 609 &&
     Array.isArray(window.visualHints) &&
-    window.visualHints.length === 0
+    window.visualHints.includes("goal_mouth_visible")
   )), true);
   assert.equal(context.frameCandidateWindows.some((window) => window.source === "scorebug_first_score_confirmation" && Number(window.time) === 612), true);
   assert.equal(context.job.videoOutputQA.coveredGoalCount, 1);
@@ -1121,9 +1138,10 @@ test("youtube long-source chunked OCR builds global score changes across chunks"
   );
   assert.equal(context.job.scoreboardOcr.summary.scorebugDebug.state, "score_changes_detected");
   assert.equal(context.frameCandidateWindows.some((window) => (
-    window.source === "scorebug_first_backtrack_probe" &&
+    window.source === "scorebug_first_live_action_anchor" &&
     Array.isArray(window.visualHints) &&
-    window.visualHints.length === 0
+    window.visualHints.includes("shot_contact") &&
+    window.visualHints.includes("goal_mouth_visible")
   )), true);
   assert.equal(context.frameCandidateWindows.some((window) => window.source === "scorebug_first_score_confirmation"), true);
   assert.doesNotMatch(JSON.stringify(context.job.scoreboardOcr), /\/Users|storageKey|localPath|secret|stderr|stdout|rawOcr|rawText/i);
@@ -1273,10 +1291,11 @@ test("youtube long-source chunked OCR bridges sparse score candidates into five 
     true,
   );
   assert.equal(
-    context.frameCandidateWindows.filter((window) => (
-      window.source === "scorebug_first_backtrack_probe" &&
+      context.frameCandidateWindows.filter((window) => (
+      window.source === "scorebug_first_live_action_anchor" &&
       Array.isArray(window.visualHints) &&
-      window.visualHints.length === 0
+      window.visualHints.includes("shot_contact") &&
+      window.visualHints.includes("goal_mouth_visible")
     )).length >= 5,
     true,
   );
@@ -1350,16 +1369,17 @@ test("youtube long-source chunked OCR can discover late score changes", async ()
   assert.equal(context.job.scoreboardOcr.summary.scoreChangeCount, 1);
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.scannedChunks, 8);
   assert.equal(context.frameCandidateWindows.some((window) => (
-    window.source === "scorebug_first_backtrack_probe" &&
-    Number(window.time) === 588 &&
+    window.source === "scorebug_first_live_action_anchor" &&
+    Number(window.time) === 606 &&
     Array.isArray(window.visualHints) &&
-    window.visualHints.length === 0
+    window.visualHints.includes("shot_contact") &&
+    window.visualHints.includes("goal_mouth_visible")
   )), true);
   assert.equal(context.frameCandidateWindows.some((window) => (
-    window.source === "scorebug_first_backtrack_probe" &&
-    Number(window.time) === 600 &&
+    window.source === "scorebug_first_live_action_anchor" &&
+    Number(window.time) === 609 &&
     Array.isArray(window.visualHints) &&
-    window.visualHints.length === 0
+    window.visualHints.includes("goal_mouth_visible")
   )), true);
   assert.equal(context.frameCandidateWindows.some((window) => window.source === "scorebug_first_score_confirmation" && Number(window.time) === 612), true);
   assert.equal(context.job.videoOutputQA.coveredGoalCount, 1);
@@ -1519,6 +1539,40 @@ test("visual candidate windows keep late long-source regions before frame extrac
   assert.ok(windows.some((window) => Number(window.time) >= 240));
   assert.ok(windows.some((window) => Number(window.time) >= 320));
   assert.ok(windows.some((window) => Array.isArray(window.visualHints) && window.visualHints.includes("shot_like_motion")));
+});
+
+test("score-change OCR windows add bounded live finish probes for long-source proof", () => {
+  const windows = scoreChangeCandidateWindowsFromOcr({
+    evidence: [
+      {
+        timestamp: 236.25,
+        status: "score_changed",
+        scoreChanged: true,
+        temporalConsistency: true,
+        confidence: 0.94,
+        scoreBefore: "0-0",
+        scoreAfter: "1-0",
+      },
+      {
+        timestamp: 596.25,
+        status: "score_changed",
+        scoreChanged: true,
+        temporalConsistency: true,
+        confidence: 0.92,
+        scoreBefore: "2-2",
+        scoreAfter: "3-2",
+      },
+    ],
+  }, { durationSeconds: 764.52 });
+
+  const liveAnchors = windows.filter((window) => window.source === "scorebug_first_live_action_anchor");
+  const confirmations = windows.filter((window) => window.source === "scorebug_first_score_confirmation");
+
+  assert.equal(confirmations.length, 2);
+  assert.ok(liveAnchors.some((window) => Number(window.scoreChangeTime) === 236.25 && window.visualHints.includes("shot_contact")));
+  assert.ok(liveAnchors.some((window) => Number(window.scoreChangeTime) === 596.25 && window.visualHints.includes("goal_mouth_visible")));
+  assert.ok(windows.every((window) => Number(window.time) >= 0 && Number(window.time) <= 764.52));
+  assert.doesNotMatch(JSON.stringify(windows), /\/Users|storageKey|secret|stderr|stdout/i);
 });
 
 test("youtube valid-goals-only render fails closed when no valid goals are found", async () => {

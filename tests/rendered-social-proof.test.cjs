@@ -22,6 +22,20 @@ function goalSegment(overrides = {}) {
       hasConfirmation: true,
       replayOnly: false,
     },
+    finishFrameEvidence: {
+      frameTime: 22,
+      confidence: 0.9,
+      hasVisibleFinish: true,
+      hasBallInNetOrPayoff: true,
+      hasGoalMouth: true,
+      isBlurred: false,
+      isOverZoomed: false,
+      isLabelOnly: false,
+      isReplayOnly: false,
+      isCelebrationOnly: false,
+      isScoreboardOnly: false,
+      evidenceCodes: ["finish_frame_visible", "ball_in_net_or_payoff_visible"],
+    },
     ...overrides,
   };
 }
@@ -75,6 +89,29 @@ function videoOutputQA(overrides = {}) {
       mirror: false,
       copyrightEvasion: false,
       watermarkObscuring: false,
+      reasons: [],
+    },
+    renderedGoalVisibility: {
+      passed: true,
+      goalCount: 1,
+      visibleGoalCount: 1,
+      failedGoalCount: 0,
+      finishFrameContactSheetRequired: true,
+      goals: [{
+        index: 1,
+        goalNumber: 1,
+        finishTime: 22,
+        passed: true,
+        confidence: 0.9,
+        failureCode: null,
+        finishFrameEvidence: {
+          passed: true,
+          frameTime: 22,
+          confidence: 0.9,
+          reasons: [],
+        },
+      }],
+      failedGoals: [],
       reasons: [],
     },
     ...overrides,
@@ -341,6 +378,44 @@ test("rendered social polish proof surfaces duplicate goal identity failures fro
   assert.equal(report.phaseVisibility.uniqueConfirmedGoalCount, 4);
   assert.deepEqual(report.phaseVisibility.duplicateSegmentIndexes, [3]);
   assert.match(report.failedReasons.join(","), /distinct_goal_identity_failed|video_output_qa_failed/);
+});
+
+test("rendered social polish proof fails when finish-frame visibility gate failed", () => {
+  const qa = videoOutputQA({
+    passed: false,
+    status: "failed",
+    renderedGoalVisibility: {
+      passed: false,
+      goalCount: 1,
+      visibleGoalCount: 0,
+      failedGoalCount: 1,
+      finishFrameContactSheetRequired: true,
+      failedGoals: [{
+        index: 1,
+        goalNumber: 1,
+        failureCode: "FINISH_FRAME_NOT_PROVEN",
+        finishFrameEvidence: {
+          passed: false,
+          frameTime: null,
+          confidence: null,
+          reasons: ["finish_frame_evidence_missing"],
+        },
+      }],
+      reasons: ["rendered_goal_visibility_failed", "finish_frame_not_proven"],
+    },
+  });
+  const report = baseProof({
+    videoOutputQA: qa,
+    renderPlan: {
+      videoOutputQA: qa,
+      segments: [goalSegment({ finishFrameEvidence: null })],
+    },
+  });
+
+  assert.equal(report.passed, false);
+  assert.equal(report.phaseVisibility.renderedGoalVisibility.passed, false);
+  assert.equal(report.phaseVisibility.renderedGoalVisibility.failedGoals[0].failureCode, "FINISH_FRAME_NOT_PROVEN");
+  assert.match(report.failedReasons.join(","), /rendered_goal_visibility_failed|video_output_qa_failed/);
 });
 
 test("rendered social polish proof fails unsafe soft-follow framing", () => {

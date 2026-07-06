@@ -682,15 +682,42 @@ function scoreChangeCandidateWindowsFromOcr(scoreboardOcr = {}, metadata = {}) {
     const scoreReverted = Boolean(item.scoreReverted || item.reverted || item.status === "goal_removed");
     if (!scoreChanged || !temporalConsistency || scoreReverted) return;
     const confidence = Math.max(0.82, Math.min(0.98, Number(item.confidence || 0.86)));
-    for (const offset of [24, 18, 12]) {
+    const probeWindows = [
+      {
+        offset: 16,
+        lead: 2.5,
+        tail: 2.5,
+        source: "scorebug_first_live_action_anchor",
+        visualHints: ["fast_break_motion", "ball_visible"],
+        confidence: 0.84,
+      },
+      {
+        offset: 6,
+        lead: 2,
+        tail: 4,
+        source: "scorebug_first_live_action_anchor",
+        visualHints: ["shot_contact", "ball_toward_goal", "goal_mouth_visible"],
+        confidence: 0.92,
+      },
+      {
+        offset: 3,
+        lead: 1.5,
+        tail: 2.5,
+        source: "scorebug_first_live_action_anchor",
+        visualHints: ["goal_mouth_visible"],
+        confidence: 0.9,
+      },
+    ];
+    for (const probe of probeWindows) {
+      const offset = probe.offset;
       const probeTime = bounded(timestamp - offset);
       windows.push({
         time: Number(probeTime.toFixed(2)),
-        start: Number(bounded(probeTime - 2.5).toFixed(2)),
-        end: Number(bounded(probeTime + 2.5, probeTime + 0.4).toFixed(2)),
-        confidence: Math.max(0.78, Math.min(0.9, confidence)),
-        source: "scorebug_first_backtrack_probe",
-        visualHints: [],
+        start: Number(bounded(probeTime - probe.lead).toFixed(2)),
+        end: Number(bounded(probeTime + probe.tail, probeTime + 0.4).toFixed(2)),
+        confidence: Math.max(probe.confidence, Math.min(0.94, confidence)),
+        source: probe.source,
+        visualHints: probe.visualHints,
         scoreBefore: item.scoreBefore || null,
         scoreAfter: item.scoreAfter || null,
         scoreChangeTime: Number(timestamp.toFixed(2)),
@@ -3152,6 +3179,7 @@ module.exports = {
   validateHighlightResult,
   validateMediaSignals,
   validateTranscript,
+  scoreChangeCandidateWindowsFromOcr,
   visualCandidateWindowsFromSignals,
   resolveLocalArtifactPath,
   ocrQaCalibrationOptionsFromEnv,

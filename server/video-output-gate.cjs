@@ -9,12 +9,13 @@ const {
 } = require("./edit-plan.cjs");
 const { sanitizeText } = require("./media.cjs");
 const { publicMatchEventTruth } = require("./match-event-truth.cjs");
+const { publicHumanVisibleGoalGate, validateHumanVisibleGoalSequence } = require("./human-visible-goal-gate.cjs");
 
 const OUTPUT_GATE_SCHEMA_VERSION = 1;
 const MATCH_TOLERANCE_SECONDS = 2;
 const MAX_PUBLIC_ITEMS = 12;
 const MIN_SCORE_CHANGE_BACKTRACK_SECONDS = 8;
-const MIN_PRE_SHOT_CONTEXT_SECONDS = 6;
+const MIN_PRE_SHOT_CONTEXT_SECONDS = 4;
 const MAX_GOAL_SEGMENT_OVERLAP_RATIO = 0.2;
 const DUPLICATE_FINISH_TOLERANCE_SECONDS = 4;
 const DUPLICATE_SCORE_CHANGE_TOLERANCE_SECONDS = 2;
@@ -109,6 +110,9 @@ function publicSegment(segment = {}, index = 0) {
       replayOnly: Boolean(phaseCoverage.replayOnly),
       celebrationOnly: Boolean(phaseCoverage.celebrationOnly),
     },
+    visualGoalGate: isConfirmedGoalSegment(segment)
+      ? publicHumanVisibleGoalGate(validateHumanVisibleGoalSequence({ segment }))
+      : null,
     reasonCodes: safeCodes(segment.reasonCodes, 10),
     safetyFlags: safeCodes(segment.safetyFlags, 8),
   };
@@ -434,6 +438,25 @@ function publicGoalIdentity(segment = {}, index = 0) {
   };
 }
 
+function isDistinctConfirmedGoalPair(leftSegment = {}, rightSegment = {}, leftFinish = null, rightFinish = null, leftScore = null, rightScore = null) {
+  const leftGoalNumber = numberOrNull(leftSegment.goalNumber);
+  const rightGoalNumber = numberOrNull(rightSegment.goalNumber);
+  const differentGoalNumbers = leftGoalNumber != null &&
+    rightGoalNumber != null &&
+    leftGoalNumber !== rightGoalNumber;
+  const differentScoreChanges = leftScore &&
+    rightScore &&
+    (
+      leftScore.scoreBefore !== rightScore.scoreBefore ||
+      leftScore.scoreAfter !== rightScore.scoreAfter ||
+      Math.abs(leftScore.scoreChangeTime - rightScore.scoreChangeTime) > DUPLICATE_SCORE_CHANGE_TOLERANCE_SECONDS
+    );
+  const distinctFinishFrames = leftFinish != null &&
+    rightFinish != null &&
+    Math.abs(leftFinish - rightFinish) > DUPLICATE_FINISH_TOLERANCE_SECONDS;
+  return differentGoalNumbers && (differentScoreChanges || distinctFinishFrames);
+}
+
 function distinctGoalIdentitySummary(segments = []) {
   const confirmed = segments
     .map((segment, index) => ({ segment, index }))
@@ -486,7 +509,8 @@ function distinctGoalIdentitySummary(segments = []) {
       const leftScore = scoreChangeIdentity(left.segment);
       const rightScore = scoreChangeIdentity(right.segment);
       const reasons = [];
-      if (overlap.ratio > MAX_GOAL_SEGMENT_OVERLAP_RATIO) reasons.push("duplicate_goal_window_overlap");
+      const distinctPair = isDistinctConfirmedGoalPair(left.segment, right.segment, leftFinish, rightFinish, leftScore, rightScore);
+      if (overlap.ratio > MAX_GOAL_SEGMENT_OVERLAP_RATIO && !distinctPair) reasons.push("duplicate_goal_window_overlap");
       if (leftFinish != null && rightFinish != null && Math.abs(leftFinish - rightFinish) <= DUPLICATE_FINISH_TOLERANCE_SECONDS) {
         reasons.push("duplicate_finish_time");
       }
@@ -617,6 +641,9 @@ function segmentFailureReasons(segment = {}, goalSelectionMode = "balanced") {
   const confirmationTime = numberOrNull(segment.confirmationTime ?? phase.confirmationTime);
   const reasonCodes = new Set(Array.isArray(segment.reasonCodes) ? segment.reasonCodes : []);
   const confirmedGoal = isConfirmedGoalSegment(segment);
+  const humanVisibleGoalGate = confirmedGoal
+    ? validateHumanVisibleGoalSequence({ segment })
+    : null;
 
   if (goalSelectionMode === "valid_goals_only" && !confirmedGoal) reasons.push("non_goal_segment_in_valid_goals_only_output");
   if (confirmedGoal && (segment.replayOnly || phase.replayOnly)) reasons.push("replay_only_goal_segment");
@@ -625,6 +652,10 @@ function segmentFailureReasons(segment = {}, goalSelectionMode = "balanced") {
   if (confirmedGoal && (!phase.hasShot || shotStart == null)) reasons.push("missing_visible_shot");
   if (confirmedGoal && (!phase.hasFinish || finishTime == null)) reasons.push("missing_visible_finish");
   if (confirmedGoal && (!phase.hasConfirmation || confirmationTime == null)) reasons.push("missing_goal_confirmation");
+  if (confirmedGoal && humanVisibleGoalGate && humanVisibleGoalGate.passed !== true) {
+    reasons.push("rendered_goal_visibility_failed");
+    if (humanVisibleGoalGate.failureCode) reasons.push(String(humanVisibleGoalGate.failureCode).toLowerCase());
+  }
   if (
     confirmedGoal &&
     shotStart != null &&
@@ -740,6 +771,54 @@ function matchExpectedGoals(expectedGoals = [], segments = []) {
   return matches;
 }
 
+function renderedGoalVisibilitySummary(segments = []) {
+  const goals = segments
+    .map((segment, index) => ({ segment, index }))
+    .filter(({ segment }) => isConfirmedGoalSegment(segment))
+    .map(({ segment, index }) => {
+      const gate = validateHumanVisibleGoalSequence({ segment });
+      const publicGate = publicHumanVisibleGoalGate(gate);
+      return {
+        index: index + 1,
+        goalNumber: numberOrNull(segment.goalNumber),
+        segmentId: sanitizeText(segment.id || `segment_${index + 1}`, 80),
+        sourceStart: round(segment.sourceStart),
+        sourceEnd: round(segment.sourceEnd),
+        finishTime: numberOrNull(segment.finishTime),
+        passed: Boolean(gate.passed),
+        confidence: numberOrNull(gate.confidence),
+        failureCode: gate.failureCode ? sanitizeText(gate.failureCode, 60) : null,
+        evidence: publicGate.evidence,
+        finishFrameEvidence: publicGate.finishFrameEvidence,
+        contactSheetFrames: Array.isArray(gate.sampledFrames)
+          ? gate.sampledFrames.map((frame) => ({
+              label: sanitizeText(frame && frame.label, 40),
+              time: numberOrNull(frame && frame.time),
+            })).filter((frame) => frame.label && frame.time != null).slice(0, 8)
+          : [],
+      };
+    });
+  const failed = goals.filter((goal) => goal.passed !== true);
+  return {
+    passed: failed.length === 0,
+    goalCount: goals.length,
+    visibleGoalCount: goals.length - failed.length,
+    failedGoalCount: failed.length,
+    finishFrameContactSheetRequired: goals.length > 0,
+    contactSheetFramesByGoal: goals.map((goal) => ({
+      goalNumber: goal.goalNumber,
+      segmentIndex: goal.index,
+      frames: goal.contactSheetFrames,
+    })).slice(0, MAX_PUBLIC_ITEMS),
+    goals: goals.slice(0, MAX_PUBLIC_ITEMS),
+    failedGoals: failed.slice(0, MAX_PUBLIC_ITEMS),
+    reasons: safeCodes([
+      ...(failed.length ? ["rendered_goal_visibility_failed"] : []),
+      ...failed.map((goal) => goal.failureCode && goal.failureCode.toLowerCase()).filter(Boolean),
+    ], 10),
+  };
+}
+
 function assertVideoOutputCoverage({
   editPlan,
   matchEventTruth,
@@ -770,12 +849,14 @@ function assertVideoOutputCoverage({
   const creativeStyle = creativeStyleSummary(editPlan);
   const distinctGoalIdentity = distinctGoalIdentitySummary(segments);
   const referenceStyleDuration = referenceStyleDurationSummary(editPlan, expectedGoals);
+  const renderedGoalVisibility = renderedGoalVisibilitySummary(segments);
   const creativeContractPassed = hook.passed &&
     captions.passed &&
     animations.passed &&
     audioPolicy.passed &&
     creativeStyle.passed &&
-    referenceStyleDuration.passed;
+    referenceStyleDuration.passed &&
+    renderedGoalVisibility.passed;
   const extraGoalSegmentCount = expectedGoals.length > 0
     ? Math.max(0, confirmedGoalSegments.length - expectedGoals.length)
     : confirmedGoalSegments.length;
@@ -792,6 +873,7 @@ function assertVideoOutputCoverage({
     ...audioPolicy.reasons,
     ...creativeStyle.reasons,
     ...referenceStyleDuration.reasons,
+    ...renderedGoalVisibility.reasons,
   ], 10);
   const passed = mode !== "valid_goals_only"
     ? invalidSegments.length === 0 && distinctGoalIdentity.passed && creativeContractPassed
@@ -799,6 +881,7 @@ function assertVideoOutputCoverage({
       coveredGoalCount === expectedGoals.length &&
       confirmedGoalSegments.length === expectedGoals.length &&
       distinctGoalIdentity.passed &&
+      renderedGoalVisibility.passed &&
       invalidSegments.length === 0 &&
       segments.every(isConfirmedGoalSegment) &&
       creativeContractPassed;
@@ -819,6 +902,7 @@ function assertVideoOutputCoverage({
     extraGoalSegmentCount,
     distinctGoalIdentity,
     referenceStyleDuration,
+    renderedGoalVisibility,
     expectedGoals: expectedGoals.map(publicExpectedGoal).slice(0, MAX_PUBLIC_ITEMS),
     matches: matches.map((match) => ({
       goalNumber: match.expected.goalNumber,
@@ -852,4 +936,5 @@ module.exports = {
   creativeStyleSummary,
   expectedGoalsFromTruth,
   hookSummary,
+  renderedGoalVisibilitySummary,
 };

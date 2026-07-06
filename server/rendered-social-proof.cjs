@@ -270,6 +270,7 @@ function phaseVisibilitySummary(renderPlan = {}, videoOutputQA = null) {
   const reasons = uniqueReasons([
     ...(qa.passed === false ? ["video_output_qa_failed"] : []),
     ...(qa.distinctGoalIdentity && qa.distinctGoalIdentity.passed === false ? ["distinct_goal_identity_failed"] : []),
+    ...(qa.renderedGoalVisibility && qa.renderedGoalVisibility.passed === false ? ["rendered_goal_visibility_failed"] : []),
     ...(goalSegments.length === 0 ? ["no_confirmed_goal_segments"] : []),
     ...(invalid.length ? ["goal_phase_coverage_failed"] : []),
     ...(randomChanceSegments.length ? ["non_goal_segments_present"] : []),
@@ -293,6 +294,29 @@ function phaseVisibilitySummary(renderPlan = {}, videoOutputQA = null) {
           reasons: safeList(pair && pair.reasons, 6, 80),
         }))
       : [],
+    renderedGoalVisibility: qa.renderedGoalVisibility && typeof qa.renderedGoalVisibility === "object" && !Array.isArray(qa.renderedGoalVisibility)
+      ? {
+          passed: qa.renderedGoalVisibility.passed === true,
+          visibleGoalCount: numberOrNull(qa.renderedGoalVisibility.visibleGoalCount),
+          failedGoalCount: numberOrNull(qa.renderedGoalVisibility.failedGoalCount),
+          finishFrameContactSheetRequired: qa.renderedGoalVisibility.finishFrameContactSheetRequired === true,
+          failedGoals: Array.isArray(qa.renderedGoalVisibility.failedGoals)
+            ? qa.renderedGoalVisibility.failedGoals.slice(0, MAX_ITEMS).map((goal) => ({
+                goalNumber: numberOrNull(goal && goal.goalNumber),
+                segmentIndex: numberOrNull(goal && goal.index),
+                failureCode: safeString(goal && goal.failureCode, 60),
+                finishFrameEvidence: goal && goal.finishFrameEvidence && typeof goal.finishFrameEvidence === "object"
+                  ? {
+                      passed: goal.finishFrameEvidence.passed === true,
+                      frameTime: round(goal.finishFrameEvidence.frameTime),
+                      confidence: numberOrNull(goal.finishFrameEvidence.confidence),
+                      reasons: safeList(goal.finishFrameEvidence.reasons, 8, 80),
+                    }
+                  : null,
+              }))
+            : [],
+        }
+      : null,
     invalidGoalSegments: invalid.slice(0, MAX_ITEMS),
     randomChanceSegments,
     reasons,

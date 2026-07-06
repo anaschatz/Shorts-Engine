@@ -950,6 +950,70 @@ test("local scoreboard OCR can recover score changes from profile digit OCR crop
   }
 });
 
+test("scorebug-first OCR uses profile digit fallback when center logo pollutes score-only OCR", async () => {
+  const { dir, frames } = createFrameFixtures();
+  const runId = `scorebug-first-profile-digit-ocr-test-${Date.now()}`;
+  try {
+    const result = await analyzeScoreboardOcr({
+      metadata,
+      mode: "local",
+      enabled: true,
+      qaArtifactsEnabled: true,
+      qaRunId: runId,
+      commandChecker: () => true,
+      frames,
+      scorebugFirstOnly: true,
+      cropper: async ({ outputDir, frameIndex, region }) => {
+        const cropPath = safeResolve(outputDir, `crop_${frameIndex}_${region.id}.png`);
+        mkdirSync(outputDir, { recursive: true });
+        writeFileSync(cropPath, "full broadcast crop with center logo score noise", "utf8");
+        return cropPath;
+      },
+      ffmpegRunner: async (args) => {
+        const outputPath = args[args.length - 1];
+        writeFakeScorebugPng(outputPath);
+      },
+      digitReader: () => ({
+        status: "ambiguous",
+        score: null,
+        confidence: 0.1,
+        reasons: ["center_logo_polluted_score_only_crop"],
+        imageSegmentation: {
+          status: "ambiguous",
+          foregroundGroupCount: 3,
+          reasons: ["home_or_away_digit_unreadable"],
+        },
+      }),
+      ocrRunner: async (_command, args) => {
+        const imagePath = args[0];
+        if (/score_only_/.test(imagePath)) return { stdout: "33321" };
+        if (/profile_digit_home_01_/.test(imagePath)) return { stdout: "0" };
+        if (/profile_digit_away_01_/.test(imagePath)) return { stdout: "0" };
+        if (/profile_digit_home_/.test(imagePath)) return { stdout: "1" };
+        if (/profile_digit_away_/.test(imagePath)) return { stdout: "0" };
+        return { stdout: "" };
+      },
+    });
+
+    assert.equal(result.providerMode, "local-scoreboard-ocr-command");
+    assert.equal(result.summary.scoreChangeCount, 1);
+    assert.equal(result.summary.scoreTimeline.some((item) =>
+      item.status === "score_changed" &&
+      item.scoreAfter === "1-0" &&
+      item.transitionDecision === "score_changed"), true);
+    const report = JSON.parse(readFileSync(join(process.cwd(), result.qaReport.reportPath), "utf8"));
+    assert.equal(report.digitReader.profileDigitOcrReadableCount >= 3, true);
+    assert.equal(report.ocrAttempts.some((attempt) =>
+      attempt.profileDigitOcrStatus === "readable" &&
+      attempt.scoreSource === "local_scorebug_profile_digit_ocr_contrast_block" &&
+      attempt.finalScoreCandidate === "1-0"), true);
+    assert.doesNotMatch(JSON.stringify(report), /\/Users|\/private|storageKey|localPath|token|secret|stdout|stderr/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(join(process.cwd(), SCOREBOARD_OCR_QA_RELATIVE_DIR, `ocr-scoreboard-${runId}`), { recursive: true, force: true });
+  }
+});
+
 test("local scoreboard OCR can process PNG crops before focused image segmentation", async () => {
   const { dir, frames } = createFrameFixtures();
   const runId = `scorebug-png-decoder-test-${Date.now()}`;

@@ -306,6 +306,24 @@ function candidateFromFinish({
   const hasCandidateConfirmation = hasAny(codes, CANDIDATE_CONFIRMATION_CODES);
   const hasInferredPayoff = allowInferredPayoff && hasGoalMouth && hasCandidateConfirmation;
   if (!hasStrongShot || !hasGoalMouth || (!hasPayoff && !hasInferredPayoff)) return null;
+  const finishFrameEvidence = {
+    frameTime: finishTime,
+    confidence: round(clamp(finishWindow.confidence || (hasPayoff ? 0.86 : 0.78), 0.72, 0.96)),
+    hasVisibleFinish: true,
+    hasBallInNetOrPayoff: true,
+    hasGoalMouth: true,
+    isBlurred: false,
+    isOverZoomed: false,
+    isLabelOnly: false,
+    isReplayOnly: false,
+    isCelebrationOnly: false,
+    isScoreboardOnly: false,
+    evidenceCodes: uniqueCodes([
+      "finish_frame_visible",
+      ...(hasPayoff ? ["ball_in_net_or_payoff_visible"] : ["clear_goal_payoff_visible"]),
+      ...(!hasPayoff && hasInferredPayoff ? ["scoreboard_temporal_consistency"] : []),
+    ], 8),
+  };
   return {
     primarySource: "live_action",
     bindingStrategy: hasPayoff ? bindingStrategy : "score_change_inferred_payoff",
@@ -320,6 +338,7 @@ function candidateFromFinish({
     replayUsed: windows.some(isReplayWindow),
     score: round(0.72 + Math.min(0.24, selectedWindows.length * 0.025)),
     visualCodes: codes,
+    finishFrameEvidence,
     phaseCoverage: {
       hasBuildup: sourceStart <= shotStart - 2,
       hasShot: true,
@@ -332,12 +351,14 @@ function candidateFromFinish({
       confirmationTime,
       replayUsed: windows.some(isReplayWindow),
       replayOnly: false,
+      finishFrameEvidence,
       visualGoalPayoff: {
         hasVisibleGoalPayoff: true,
         hasBallInNetEvidence: hasPayoff,
         hasLiveFinishSequence: true,
         inferredFromStableScoreChange: !hasPayoff && hasInferredPayoff,
         scoreboardOnly: false,
+        finishFrameEvidence,
         evidenceCodes: uniqueCodes([
           ...(hasPayoff ? ["visual_ball_in_net"] : ["visual_goal_mouth"]),
           ...(!hasPayoff && hasInferredPayoff ? ["scoreboard_temporal_consistency"] : []),
@@ -421,9 +442,10 @@ function candidateSearchPass({
   const shotWindows = contextWindows.filter(isShotWindow);
   const payoffWindows = contextWindows.filter(isPayoffWindow);
   const inferredFinishWindows = allowInferredPayoff ? contextWindows.filter(isInferredFinishWindow) : [];
+  const beforeOrAtConfirmation = (window) => windowStart(window) <= seconds(confirmationAnchorTime) + 0.75;
   const finishWindows = allowInferredPayoff
-    ? uniqueFinishWindows([...payoffWindows, ...inferredFinishWindows])
-    : payoffWindows;
+    ? uniqueFinishWindows([...payoffWindows, ...inferredFinishWindows].filter(beforeOrAtConfirmation))
+    : payoffWindows.filter(beforeOrAtConfirmation);
   const candidates = finishWindows
     .map((finishWindow) => candidateFromFinish({
       windows: contextWindows,

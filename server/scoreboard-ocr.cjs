@@ -1820,6 +1820,24 @@ async function readProfileDigitOcr({
   }
 }
 
+function shouldRunProfileDigitOcrFallback({
+  scorebugFirstOnly = false,
+  layoutProfile = null,
+  digitReading = null,
+  scoreOnlyOcr = null,
+} = {}) {
+  if (!layoutProfile || !digitReading || digitReading.status === "readable") return false;
+  if (!scorebugFirstOnly) return true;
+  const scoreOnlyText = sanitizeText(scoreOnlyOcr && scoreOnlyOcr.text || "", 80);
+  const digitLikeCount = (scoreOnlyText.match(/[0-9OI]/g) || []).length;
+  const foregroundGroupCount = Number(
+    digitReading &&
+      digitReading.imageSegmentation &&
+      digitReading.imageSegmentation.foregroundGroupCount || 0,
+  );
+  return digitLikeCount > 0 || foregroundGroupCount >= 2;
+}
+
 function cleanupOcrCrops(outputDir) {
   if (!outputDir) return { cleaned: false };
   const safeOutputDir = assertStoragePath(outputDir, "staging");
@@ -2055,7 +2073,12 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
               }
             }
             let profileDigitOcr = null;
-            if (!scorebugFirstOnly && layoutProfile && digitReading.status !== "readable") {
+            if (shouldRunProfileDigitOcrFallback({
+              scorebugFirstOnly,
+              layoutProfile,
+              digitReading,
+              scoreOnlyOcr,
+            })) {
               profileDigitOcr = await readProfileDigitOcr({
                 cropPath: safeCropPath,
                 outputDir,
@@ -2106,6 +2129,7 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
               : scoreOnlyScore
                 ? Math.max(Number(scoreOnlyOcr && scoreOnlyOcr.confidence || 0), 0.74)
                 : ocr.confidence;
+            const scoreRejected = !parsedScore && Boolean(ocr.rejected);
             const calibrationDiagnostic = buildScorebugAttemptDiagnostic({
               layoutId: layoutProfile && layoutProfile.layoutId,
               regionId: region.id,
@@ -2133,7 +2157,7 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
               text: ocr.text,
               score: parsedScore,
               clock: parsedClock,
-              rejected: ocr.rejected,
+              rejected: scoreRejected,
               confidence: scoreConfidence,
               layoutId: layoutProfile && layoutProfile.layoutId,
             });
@@ -2165,7 +2189,7 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
               text: ocr.text,
               score: structuredScore,
               confidence: scoreConfidence,
-              rejected: ocr.rejected,
+              rejected: scoreRejected,
               source: scoreSource || `local_scoreboard_ocr_${variant.id}`,
               imageSegmentationStatus: digitSummary.imageSegmentationStatus,
               imageDecoderStatus: digitSummary.imageDecoderStatus,
