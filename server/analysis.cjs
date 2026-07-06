@@ -3541,6 +3541,7 @@ function confirmedGoalCandidateQuality(candidate = {}) {
   const phaseCoverage = goalPhaseCoverageForCandidate(candidate) || {};
   const visualPayoff = phaseCoverage.visualGoalPayoff || goalVisualPayoffSummaryForReasons(candidate.reasonCodes || []);
   const duration = Number(candidate.sourceEnd || 0) - Number(candidate.sourceStart || 0);
+  const maxReferenceDuration = referenceMaxSegmentDurationForCandidate(candidate);
   return [
     phaseCoverage.replayOnly === true ? -80 : 0,
     phaseCoverage.hasBuildup === true ? 18 : 0,
@@ -3552,7 +3553,7 @@ function confirmedGoalCandidateQuality(candidate = {}) {
     Number(candidate.confidence || 0) * 10,
     Number(candidate.retentionScore || 0) * 0.05,
     duration >= REFERENCE_GOAL_COMPILATION.minSegmentDuration &&
-      duration <= REFERENCE_GOAL_COMPILATION.maxSegmentDuration ? 6 : 0,
+      duration <= maxReferenceDuration ? 6 : 0,
   ].reduce((sum, value) => sum + value, 0);
 }
 
@@ -3725,6 +3726,39 @@ function finishFrameTimeForCandidate(candidate = {}) {
     null;
   if (!evidence || typeof evidence !== "object") return null;
   return finiteNumber(evidence.frameTime, finiteNumber(evidence.timestamp, finiteNumber(evidence.time, null)));
+}
+
+function scoreConfirmationGapForCandidate(candidate = {}) {
+  const scoreChangeTime = scoreChangeTimeForCandidate(candidate);
+  const timing = goalTimingForCandidate(candidate);
+  const finishTime = Math.max(
+    finiteNumber(timing.finishTime, 0),
+    finiteNumber(finishFrameTimeForCandidate(candidate), 0),
+  );
+  if (scoreChangeTime === null || !Number.isFinite(finishTime) || finishTime <= 0) return 0;
+  return Math.max(0, Number((scoreChangeTime - finishTime).toFixed(2)));
+}
+
+function referenceMaxSegmentDurationForCandidate(candidate = {}) {
+  if (!isConfirmedGoalCandidate(candidate)) return REFERENCE_GOAL_COMPILATION.maxSegmentDuration;
+  const confirmationGap = scoreConfirmationGapForCandidate(candidate);
+  if (confirmationGap < 14) return REFERENCE_GOAL_COMPILATION.maxSegmentDuration;
+  return Number(Math.min(
+    VALID_GOAL_ONLY_TIMING.referenceMaxSegmentDuration,
+    Math.max(
+      REFERENCE_GOAL_COMPILATION.maxSegmentDuration,
+      confirmationGap +
+        REFERENCE_GOAL_COMPILATION.minPreShotSeconds +
+        REFERENCE_GOAL_COMPILATION.minPostScoreChangeSeconds +
+        3,
+    ),
+  ).toFixed(2));
+}
+
+function referencePostScoreChangeSecondsForCandidate(candidate = {}) {
+  return scoreConfirmationGapForCandidate(candidate) >= 14
+    ? VALID_GOAL_ONLY_TIMING.minPostConfirmationSeconds
+    : REFERENCE_GOAL_COMPILATION.minPostScoreChangeSeconds;
 }
 
 function boundarySmoothingForWindow(candidate = {}) {
@@ -4011,8 +4045,11 @@ function referenceGoalPhaseForWindow(candidate = {}, { sourceStart, sourceEnd } 
     ? end - 1.2
     : Math.min(end - 1.2, confirmation - 0.8);
   const existingShot = finiteNumber(existingPhase.shotStart, finiteNumber(existingCoverage.shotStart, null));
+  const existingShotUsable = existingShot !== null &&
+    existingShot >= start + 0.4 &&
+    existingShot <= shotCeiling;
   const shotStart = Number(clamp(
-    existingShot !== null && existingShot >= shotFloor && existingShot <= shotCeiling
+    existingShotUsable
       ? existingShot
       : shotFloor,
     shotFloor,
@@ -4108,6 +4145,7 @@ function clampReferenceGoalCandidateDuration(candidate = {}, metadata = {}) {
   const mediaDuration = Math.max(0, Number(metadata.durationSeconds || 0));
   const timing = goalTimingForCandidate(candidate);
   const scoreChangeTime = scoreChangeTimeForCandidate(candidate);
+  const maxSegmentDuration = referenceMaxSegmentDurationForCandidate(candidate);
   const confirmationTime = finiteNumber(timing.confirmationTime, finiteNumber(scoreChangeTime, candidate.sourceEnd));
   const finishTime = Math.max(
     finiteNumber(timing.finishTime, 0),
@@ -4118,12 +4156,12 @@ function clampReferenceGoalCandidateDuration(candidate = {}, metadata = {}) {
   const requiredEnd = Math.max(
     sourceStart + REFERENCE_GOAL_COMPILATION.minSegmentDuration,
     finishTime + VALID_GOAL_ONLY_TIMING.minPostConfirmationSeconds,
-    confirmationTime + REFERENCE_GOAL_COMPILATION.minPostScoreChangeSeconds,
+    confirmationTime + referencePostScoreChangeSecondsForCandidate(candidate),
   );
   sourceEnd = Math.max(sourceEnd, requiredEnd);
   if (mediaDuration > 0) sourceEnd = Math.min(mediaDuration, sourceEnd);
-  if (sourceEnd - sourceStart > REFERENCE_GOAL_COMPILATION.maxSegmentDuration) {
-    sourceStart = Math.max(0, sourceEnd - REFERENCE_GOAL_COMPILATION.maxSegmentDuration);
+  if (sourceEnd - sourceStart > maxSegmentDuration) {
+    sourceStart = Math.max(0, sourceEnd - maxSegmentDuration);
   }
   if (sourceEnd - sourceStart < REFERENCE_GOAL_COMPILATION.minSegmentDuration) {
     sourceEnd = Math.min(
@@ -4179,7 +4217,7 @@ function compactConfirmedGoalCandidateForReference(candidate = {}, metadata = {}
     ),
   );
   const preferredEnd = Math.max(
-    anchor + REFERENCE_GOAL_COMPILATION.minPostScoreChangeSeconds,
+    anchor + referencePostScoreChangeSecondsForCandidate(candidate),
     sourceStart + REFERENCE_GOAL_COMPILATION.targetSegmentDuration,
   );
   const sourceEnd = Math.min(mediaDuration || preferredEnd, preferredEnd);
@@ -4214,10 +4252,47 @@ function trimReferenceGoalCompilationDuration(candidates = [], metadata = {}) {
       previous.sourceStart + REFERENCE_GOAL_COMPILATION.minSegmentDuration,
       previousFinishTime + VALID_GOAL_ONLY_TIMING.minPostConfirmationSeconds,
       finiteNumber(previous.confirmationTime, finiteNumber(previous.scoreChangeTime, previous.sourceEnd)) +
-        REFERENCE_GOAL_COMPILATION.minPostScoreChangeSeconds,
+        referencePostScoreChangeSecondsForCandidate(previous),
     ).toFixed(2));
-    if (targetPreviousEnd >= minimumPreviousEnd) {
+    const minimumVisibleFinishEnd = Number(Math.max(
+      previous.sourceStart + REFERENCE_GOAL_COMPILATION.minSegmentDuration,
+      previousFinishTime + VALID_GOAL_ONLY_TIMING.minPostConfirmationSeconds,
+    ).toFixed(2));
+    if (targetPreviousEnd >= minimumPreviousEnd || targetPreviousEnd >= minimumVisibleFinishEnd) {
       previous.sourceEnd = targetPreviousEnd;
+    }
+  }
+
+  for (let index = 1; index < sorted.length; index += 1) {
+    const previous = sorted[index - 1];
+    const current = sorted[index];
+    const overlap = sourceOverlapSeconds(previous, current);
+    if (overlap <= 0) continue;
+    const previousDuration = Math.max(0, previous.sourceEnd - previous.sourceStart);
+    const currentDuration = Math.max(0, current.sourceEnd - current.sourceStart);
+    const shortest = Math.min(previousDuration, currentDuration);
+    if (shortest <= 0 || overlap / shortest <= 0.2) continue;
+    const previousFinishTime = Math.max(
+      finiteNumber(previous.finishTime, 0),
+      finiteNumber(finishFrameTimeForCandidate(previous), 0),
+    );
+    const preferredPreviousEnd = Number((previousFinishTime + 0.25).toFixed(2));
+    const minimumPreviousEnd = Number((previous.sourceStart + REFERENCE_GOAL_COMPILATION.minSegmentDuration).toFixed(2));
+    const maximumPreviousEnd = Number(Math.min(previous.sourceEnd, current.sourceEnd - REFERENCE_GOAL_COMPILATION.minSegmentDuration).toFixed(2));
+    if (maximumPreviousEnd >= minimumPreviousEnd) {
+      previous.sourceEnd = Number(clamp(preferredPreviousEnd, minimumPreviousEnd, maximumPreviousEnd).toFixed(2));
+    }
+    const remainingOverlap = sourceOverlapSeconds(previous, current);
+    const remainingShortest = Math.min(
+      Math.max(0, previous.sourceEnd - previous.sourceStart),
+      Math.max(0, current.sourceEnd - current.sourceStart),
+    );
+    if (remainingShortest > 0 && remainingOverlap / remainingShortest > 0.2) {
+      const maximumCurrentStart = Number((current.sourceEnd - REFERENCE_GOAL_COMPILATION.minSegmentDuration).toFixed(2));
+      current.sourceStart = Number(Math.min(
+        maximumCurrentStart,
+        Math.max(current.sourceStart, previous.sourceEnd),
+      ).toFixed(2));
     }
   }
 
@@ -4227,7 +4302,7 @@ function trimReferenceGoalCompilationDuration(candidates = [], metadata = {}) {
     const currentDuration = candidate.sourceEnd - candidate.sourceStart;
     const remainingNeed = REFERENCE_GOAL_COMPILATION.minTotalDuration - totalDuration;
     const room = Math.min(
-      REFERENCE_GOAL_COMPILATION.maxSegmentDuration - currentDuration,
+      referenceMaxSegmentDurationForCandidate(candidate) - currentDuration,
       (mediaDuration || candidate.sourceEnd + remainingNeed) - candidate.sourceEnd,
     );
     const extension = Math.max(0, Math.min(room, remainingNeed));
@@ -4246,12 +4321,29 @@ function trimReferenceGoalCompilationDuration(candidates = [], metadata = {}) {
     const minEnd = Math.max(
       candidate.sourceStart + REFERENCE_GOAL_COMPILATION.minSegmentDuration,
       finishTime + VALID_GOAL_ONLY_TIMING.minPostConfirmationSeconds,
-      confirmationTime + REFERENCE_GOAL_COMPILATION.minPostScoreChangeSeconds,
+      confirmationTime + referencePostScoreChangeSecondsForCandidate(candidate),
     );
     const cut = Math.min(candidate.sourceEnd - minEnd, totalDuration - REFERENCE_GOAL_COMPILATION.maxTotalDuration);
     if (cut <= 0) continue;
     candidate.sourceEnd = Number((candidate.sourceEnd - cut).toFixed(2));
     totalDuration -= cut;
+  }
+
+  for (let index = sorted.length - 1; index >= 0 && totalDuration > REFERENCE_GOAL_COMPILATION.maxTotalDuration; index -= 1) {
+    const candidate = sorted[index];
+    const shotStart = finiteNumber(candidate.shotStart, null);
+    const confirmationTime = finiteNumber(candidate.confirmationTime, finiteNumber(candidate.scoreChangeTime, null));
+    if (shotStart === null || confirmationTime === null) continue;
+    const latestSafeStart = Math.min(
+      candidate.sourceEnd - REFERENCE_GOAL_COMPILATION.minSegmentDuration,
+      shotStart - VALID_GOAL_ONLY_TIMING.minPreActionSeconds,
+      confirmationTime - REFERENCE_GOAL_COMPILATION.minPreScoreChangeSeconds,
+    );
+    if (!Number.isFinite(latestSafeStart) || latestSafeStart <= candidate.sourceStart) continue;
+    const shift = Math.min(latestSafeStart - candidate.sourceStart, totalDuration - REFERENCE_GOAL_COMPILATION.maxTotalDuration);
+    if (shift <= 0) continue;
+    candidate.sourceStart = Number((candidate.sourceStart + shift).toFixed(2));
+    totalDuration -= shift;
   }
 
   return sorted
@@ -4499,9 +4591,8 @@ function phaseCompleteForReference(segment = {}) {
 }
 
 function visualGateForSegment(segment = {}) {
-  if (segment.visualGoalGate && typeof segment.visualGoalGate === "object" && !Array.isArray(segment.visualGoalGate)) {
-    return publicHumanVisibleGoalGate(segment.visualGoalGate);
-  }
+  // Recompute from the current segment so stale pre-normalization gates cannot
+  // mask missing rendered finish-frame proof or stale failures.
   return publicHumanVisibleGoalGate(validateHumanVisibleGoalSequence({ segment }));
 }
 
@@ -4513,10 +4604,10 @@ function abruptCutRisksForSegment(segment = {}) {
     ? REFERENCE_GOAL_COMPILATION.minSegmentDuration
     : VALID_GOAL_ONLY_TIMING.minSegmentDuration;
   const maxSegmentDuration = referenceGoalPacing
-    ? REFERENCE_GOAL_COMPILATION.maxSegmentDuration
+    ? referenceMaxSegmentDurationForCandidate(segment)
     : VALID_GOAL_ONLY_TIMING.maxSegmentDuration;
   const referenceMaxSegmentDuration = referenceGoalPacing
-    ? REFERENCE_GOAL_COMPILATION.maxSegmentDuration
+    ? referenceMaxSegmentDurationForCandidate(segment)
     : VALID_GOAL_ONLY_TIMING.referenceMaxSegmentDuration;
   if (duration < minSegmentDuration) risks.push("too_short_goal_segment");
   if (duration > maxSegmentDuration) risks.push("too_long_goal_segment");
@@ -4695,8 +4786,9 @@ function referenceStyleQaForCompilation({ segments = [], captions = [], transiti
   const segmentMatchesReferenceDuration = (segment = {}) => {
     const duration = Number(segment.duration || 0);
     if (segment.referenceGoalPacing) {
+      const maxReferenceDuration = referenceMaxSegmentDurationForCandidate(segment);
       return duration >= REFERENCE_GOAL_COMPILATION.minSegmentDuration &&
-        duration <= REFERENCE_GOAL_COMPILATION.maxSegmentDuration;
+        duration <= maxReferenceDuration;
     }
     return duration >= VALID_GOAL_ONLY_TIMING.minSegmentDuration &&
       duration <= VALID_GOAL_ONLY_TIMING.referenceMaxSegmentDuration;
@@ -4718,6 +4810,11 @@ function referenceStyleQaForCompilation({ segments = [], captions = [], transiti
   const cutSmoothnessScore = Number((abruptCutScore * 0.65 + boundarySmoothingScore * 0.35).toFixed(4));
   const actionBoundaryScore = Number((cutSmoothnessScore * 0.55 + referencePacingScore * 0.35 + (1 - excessiveTailRate) * 0.10).toFixed(4));
   const captionAlignment = captionAlignmentForReference(captions);
+  const referenceMaxGoalSegmentDuration = safeSegments.some((segment) => segment.referenceGoalPacing)
+    ? Number(Math.max(...safeSegments
+      .filter((segment) => segment.referenceGoalPacing)
+      .map((segment) => referenceMaxSegmentDurationForCandidate(segment))).toFixed(2))
+    : VALID_GOAL_ONLY_TIMING.referenceMaxSegmentDuration;
   const score = Number((
     transitionCoverage * 0.14 +
     phaseCoverageScore * 0.21 +
@@ -4752,9 +4849,7 @@ function referenceStyleQaForCompilation({ segments = [], captions = [], transiti
     targetGoalSegmentDuration: safeSegments.some((segment) => segment.referenceGoalPacing)
       ? REFERENCE_GOAL_COMPILATION.targetSegmentDuration
       : VALID_GOAL_ONLY_TIMING.targetSegmentDuration,
-    referenceMaxGoalSegmentDuration: safeSegments.some((segment) => segment.referenceGoalPacing)
-      ? REFERENCE_GOAL_COMPILATION.maxSegmentDuration
-      : VALID_GOAL_ONLY_TIMING.referenceMaxSegmentDuration,
+    referenceMaxGoalSegmentDuration,
     excessiveTailCount,
     excessiveTailRate,
     nonGoalFillerCount,
@@ -4954,6 +5049,28 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
         finishTime,
       });
     }
+    if (shotStart !== null && finishTime !== null && shotStart >= finishTime) {
+      shotStart = Number(Math.max(
+        Number(candidate.sourceStart) + 0.4,
+        finishTime - 1.25,
+      ).toFixed(2));
+    }
+    const finishFrameEvidence = candidate.finishFrameEvidence ||
+      (candidatePhase && candidatePhase.finishFrameEvidence) ||
+      (candidatePhase && candidatePhase.phaseCoverage && candidatePhase.phaseCoverage.finishFrameEvidence) ||
+      (phaseCoverage && phaseCoverage.finishFrameEvidence) ||
+      (phaseCoverage && phaseCoverage.visualGoalPayoff && phaseCoverage.visualGoalPayoff.finishFrameEvidence) ||
+      null;
+    const finishFrameTime = finishFrameEvidence && Number.isFinite(Number(finishFrameEvidence.frameTime))
+      ? Number(Number(finishFrameEvidence.frameTime).toFixed(2))
+      : null;
+    const effectiveFinishTime = finishFrameTime !== null ? finishFrameTime : finishTime;
+    if (shotStart !== null && effectiveFinishTime !== null && shotStart >= effectiveFinishTime) {
+      shotStart = Number(Math.max(
+        Number(candidate.sourceStart) + 0.4,
+        effectiveFinishTime - 1.25,
+      ).toFixed(2));
+    }
     const boundarySmoothing = isConfirmedGoalCandidate(candidate)
       ? boundarySmoothingForTimes({
           sourceStart: Number(candidate.sourceStart),
@@ -4962,12 +5079,6 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
           confirmationTime,
         })
       : candidate.boundarySmoothing || boundarySmoothingForWindow(candidate);
-    const finishFrameEvidence = candidate.finishFrameEvidence ||
-      (candidatePhase && candidatePhase.finishFrameEvidence) ||
-      (candidatePhase && candidatePhase.phaseCoverage && candidatePhase.phaseCoverage.finishFrameEvidence) ||
-      (phaseCoverage && phaseCoverage.finishFrameEvidence) ||
-      (phaseCoverage && phaseCoverage.visualGoalPayoff && phaseCoverage.visualGoalPayoff.finishFrameEvidence) ||
-      null;
     const buildupStart = candidatePhase && Number.isFinite(Number(candidatePhase.buildupStart))
       ? Number(Number(candidatePhase.buildupStart).toFixed(2))
       : candidatePhase &&
@@ -5041,9 +5152,21 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
     ? "reference_football_multi_goal_v1"
     : renderStylePreset;
   const baseCropPlan = primary.cropPlan || calibrateCropPlan({ metadata, targetAspectRatio: primary.aspectRatio || "9:16" });
+  const fullFrameCropBox = {
+    x: 0,
+    y: 0,
+    width: Math.max(1, Number(metadata.width) || 1920),
+    height: Math.max(1, Number(metadata.height) || 1080),
+  };
   const cropPlan = {
     ...baseCropPlan,
-    mode: baseCropPlan.mode === "soft_follow" ? "wide_safe" : baseCropPlan.mode,
+    mode: "wide_safe",
+    cropMode: "wide_safe",
+    safeArea: fullFrameCropBox,
+    cropBox: fullFrameCropBox,
+    confidence: Math.min(Number(baseCropPlan.confidence || 0.74), 0.74),
+    trackingConfidence: Math.min(Number(baseCropPlan.trackingConfidence || baseCropPlan.confidence || 0.74), 0.74),
+    maxPanSpeed: 0,
     fallbackUsed: true,
     reasonCodes: [...new Set([...(baseCropPlan.reasonCodes || []), "multi_moment_wide_safe_default"])].slice(0, 8),
   };

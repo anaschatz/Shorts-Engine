@@ -116,9 +116,9 @@ test("extractSampledFrames allows bounded expanded long-source frame budgets", a
     })),
   });
 
-  assert.equal(result.frames.length, 18);
+  assert.equal(result.frames.length, 24);
   assert.equal(frameExtractionHealth().maxFrames, 10);
-  assert.equal(frameExtractionHealth().maxAllowedFrames, 18);
+  assert.equal(frameExtractionHealth().maxAllowedFrames, 24);
 
   cleanupSampledFrames(result);
 });

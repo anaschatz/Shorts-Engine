@@ -6,8 +6,8 @@ const FALLBACK_BACKWARD_SEARCH_SECONDS = 35;
 const BACKWARD_SEARCH_SECONDS = FALLBACK_BACKWARD_SEARCH_SECONDS;
 const FORWARD_SEARCH_SECONDS = 15;
 const CONFIRMATION_FORWARD_SECONDS = 8;
-const MIN_PRE_SHOT_SECONDS = 8;
-const MAX_PRE_SHOT_SECONDS = 15;
+const MIN_PRE_SHOT_SECONDS = 12;
+const MAX_PRE_SHOT_SECONDS = 18;
 
 const FAILURE_CODES = Object.freeze({
   NO_FINISH_VISIBLE: "NO_FINISH_VISIBLE",
@@ -391,9 +391,17 @@ function candidateRecoveryEligible(event = {}) {
 function scoreCandidate(candidate = {}) {
   if (!candidate || candidate.primarySource !== "live_action") return 0;
   const duration = Math.max(0, seconds(candidate.sourceEnd) - seconds(candidate.sourceStart));
-  const hasGoodLead = seconds(candidate.shotStart) - seconds(candidate.sourceStart) >= 2;
+  const leadSeconds = seconds(candidate.shotStart) - seconds(candidate.sourceStart);
+  const hasGoodLead = leadSeconds >= 2;
+  const hasFullLead = leadSeconds >= MIN_PRE_SHOT_SECONDS;
   const hasTail = seconds(candidate.sourceEnd) >= seconds(candidate.confirmationTime) + 1;
-  return round(candidate.score + (hasGoodLead ? 0.04 : 0) + (hasTail ? 0.03 : 0) - (duration > 34 ? 0.04 : 0));
+  return round(
+    candidate.score +
+      (hasGoodLead ? 0.04 : 0) +
+      (hasFullLead ? 0.08 : 0) +
+      (hasTail ? 0.03 : 0) -
+      (duration > 34 ? 0.04 : 0),
+  );
 }
 
 function buildFailureCode({ shotWindows, replayWindows, celebrationWindows, scoreboardOnlyWindows } = {}) {

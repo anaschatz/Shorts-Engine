@@ -11,6 +11,10 @@ const FAILURE_CODES = Object.freeze({
   FINISH_FRAME_BLURRED: "FINISH_FRAME_BLURRED",
   FINISH_FRAME_OVERZOOMED: "FINISH_FRAME_OVERZOOMED",
   FINISH_FRAME_LABEL_ONLY: "FINISH_FRAME_LABEL_ONLY",
+  GOAL_VISIBILITY_BORDERLINE: "GOAL_VISIBILITY_BORDERLINE",
+  PLAYER_CLOSEUP_ONLY: "PLAYER_CLOSEUP_ONLY",
+  FRAME_TOO_WIDE_UNCLEAR: "FRAME_TOO_WIDE_UNCLEAR",
+  INSUFFICIENT_ACTION_FRAMES: "INSUFFICIENT_ACTION_FRAMES",
 });
 
 const SHOT_CODES = Object.freeze([
@@ -46,6 +50,7 @@ const FINISH_FRAME_CODES = Object.freeze([
 
 const MIN_FINISH_FRAME_CONFIDENCE = 0.72;
 const FINISH_FRAME_TOLERANCE_SECONDS = 2.5;
+const MIN_CLEAR_ACTION_FRAMES = 3;
 
 const CONFIRMATION_CODES = Object.freeze([
   "visual_scoreboard_goal_confirmed",
@@ -107,6 +112,51 @@ function finishFrameEvidenceForSegment(segment = {}, normalized = {}) {
   );
 }
 
+function visibilityVerdictForEvidence(evidence = {}) {
+  const value = sanitizeText(
+    evidence.visibilityVerdict ||
+    evidence.verdict ||
+    evidence.humanVisibilityVerdict ||
+    evidence.humanVisibleVerdict ||
+    "",
+    32,
+  ).toLowerCase();
+  if (["clear", "borderline", "failed"].includes(value)) return value;
+  return "unknown";
+}
+
+function supportFrameSummaryForEvidence(evidence = {}) {
+  const frames = Array.isArray(evidence.supportFrames) ? evidence.supportFrames : [];
+  const hasFrameRole = (roles) => frames.some((frame) => {
+    if (!frame || typeof frame !== "object") return false;
+    const role = sanitizeText(frame.role || frame.label || frame.type || "", 40);
+    const status = sanitizeText(frame.status || frame.verdict || "", 40).toLowerCase();
+    return roles.includes(role) && (status === "clear" || frame.clear === true || frame.visible === true);
+  });
+  const continuousActionFrameCount = numberOrNull(
+    evidence.continuousActionFrameCount ??
+    evidence.actionFrameCount ??
+    evidence.clearActionFrameCount,
+  );
+  return {
+    hasPreShotActionFrame: evidence.hasPreShotActionFrame === true ||
+      evidence.preShotActionFrameVisible === true ||
+      hasFrameRole(["pre_shot", "pre-shot", "buildup", "shot_setup"]),
+    hasFinishActionFrame: evidence.hasFinishActionFrame === true ||
+      evidence.finishActionFrameVisible === true ||
+      evidence.hasVisibleFinish === true ||
+      hasFrameRole(["finish", "shot_finish", "shot"]),
+    hasPayoffFrame: evidence.hasPayoffFrame === true ||
+      evidence.payoffFrameVisible === true ||
+      evidence.hasBallInNetOrPayoff === true ||
+      hasFrameRole(["payoff", "ball_in_net", "ball-in-net"]),
+    hasConfirmationFrame: evidence.hasConfirmationFrame === true ||
+      evidence.confirmationFrameVisible === true ||
+      hasFrameRole(["confirmation", "score_confirmation", "post_finish"]),
+    continuousActionFrameCount,
+  };
+}
+
 function validateFinishFrameEvidence(segment = {}, normalized = {}) {
   const evidence = finishFrameEvidenceForSegment(segment, normalized);
   const hasEvidence = Object.keys(evidence).length > 0;
@@ -136,8 +186,16 @@ function validateFinishFrameEvidence(segment = {}, normalized = {}) {
   const isReplayOnly = evidence.isReplayOnly === true || evidence.replayOnly === true;
   const isCelebrationOnly = evidence.isCelebrationOnly === true || evidence.celebrationOnly === true;
   const isScoreboardOnly = evidence.isScoreboardOnly === true || evidence.scoreboardOnly === true;
+  const isPlayerCloseupOnly = evidence.isPlayerCloseupOnly === true || evidence.playerCloseupOnly === true;
+  const isFrameTooWideUnclear = evidence.isFrameTooWideUnclear === true ||
+    evidence.frameTooWideUnclear === true ||
+    evidence.tooWideUnclear === true;
   const confidenceOk = confidence === null || confidence >= MIN_FINISH_FRAME_CONFIDENCE;
   const evidenceBacked = hasAny(evidenceCodes, FINISH_FRAME_CODES);
+  const visibilityVerdict = hasEvidence ? visibilityVerdictForEvidence(evidence) : "failed";
+  const supportFrames = supportFrameSummaryForEvidence(evidence);
+  const continuousActionFramesOk = supportFrames.continuousActionFrameCount !== null &&
+    supportFrames.continuousActionFrameCount >= MIN_CLEAR_ACTION_FRAMES;
   const reasons = [
     ...(!hasEvidence ? ["finish_frame_evidence_missing"] : []),
     ...(hasEvidence && !frameWithinSegment ? ["finish_frame_outside_segment"] : []),
@@ -147,20 +205,32 @@ function validateFinishFrameEvidence(segment = {}, normalized = {}) {
     ...(hasEvidence && !hasGoalMouth ? ["finish_frame_missing_goalmouth"] : []),
     ...(hasEvidence && !evidenceBacked ? ["finish_frame_not_evidence_backed"] : []),
     ...(hasEvidence && !confidenceOk ? ["finish_frame_low_confidence"] : []),
+    ...(hasEvidence && visibilityVerdict === "unknown" ? ["finish_frame_visibility_verdict_missing"] : []),
+    ...(hasEvidence && visibilityVerdict === "borderline" ? ["finish_frame_visibility_borderline"] : []),
+    ...(hasEvidence && visibilityVerdict === "failed" ? ["finish_frame_visibility_failed"] : []),
+    ...(hasEvidence && !supportFrames.hasPreShotActionFrame ? ["pre_finish_action_frame_missing"] : []),
+    ...(hasEvidence && !supportFrames.hasFinishActionFrame ? ["finish_action_frame_missing"] : []),
+    ...(hasEvidence && !supportFrames.hasPayoffFrame ? ["payoff_frame_missing"] : []),
+    ...(hasEvidence && !supportFrames.hasConfirmationFrame ? ["confirmation_frame_missing"] : []),
+    ...(hasEvidence && !continuousActionFramesOk ? ["insufficient_continuous_action_frames"] : []),
     ...(isBlurred ? ["finish_frame_blurred"] : []),
     ...(isOverZoomed ? ["finish_frame_overzoomed"] : []),
     ...(isLabelOnly ? ["finish_frame_label_only"] : []),
     ...(isReplayOnly ? ["finish_frame_replay_only"] : []),
     ...(isCelebrationOnly ? ["finish_frame_celebration_only"] : []),
     ...(isScoreboardOnly ? ["finish_frame_scoreboard_only"] : []),
+    ...(isPlayerCloseupOnly ? ["finish_frame_player_closeup_only"] : []),
+    ...(isFrameTooWideUnclear ? ["finish_frame_too_wide_unclear"] : []),
   ];
   return {
     passed: reasons.length === 0,
+    visibilityVerdict,
     frameTime: roundTime(frameTime),
     confidence,
     hasVisibleFinish,
     hasBallInNetOrPayoff,
     hasGoalMouth,
+    supportFrames,
     frameWithinSegment,
     nearFinish,
     isBlurred,
@@ -169,6 +239,8 @@ function validateFinishFrameEvidence(segment = {}, normalized = {}) {
     isReplayOnly,
     isCelebrationOnly,
     isScoreboardOnly,
+    isPlayerCloseupOnly,
+    isFrameTooWideUnclear,
     evidenceCodes,
     reasons: safeCodes(reasons).slice(0, 10),
   };
@@ -234,6 +306,12 @@ function failureCodeForEvidence(evidence, segment) {
     if (evidence.finishFrame && evidence.finishFrame.isBlurred) return FAILURE_CODES.FINISH_FRAME_BLURRED;
     if (evidence.finishFrame && evidence.finishFrame.isOverZoomed) return FAILURE_CODES.FINISH_FRAME_OVERZOOMED;
     if (evidence.finishFrame && evidence.finishFrame.isLabelOnly) return FAILURE_CODES.FINISH_FRAME_LABEL_ONLY;
+    if (evidence.finishFrame && evidence.finishFrame.isPlayerCloseupOnly) return FAILURE_CODES.PLAYER_CLOSEUP_ONLY;
+    if (evidence.finishFrame && evidence.finishFrame.isFrameTooWideUnclear) return FAILURE_CODES.FRAME_TOO_WIDE_UNCLEAR;
+    if (evidence.finishFrame && evidence.finishFrame.visibilityVerdict === "borderline") return FAILURE_CODES.GOAL_VISIBILITY_BORDERLINE;
+    if (evidence.finishFrame && evidence.finishFrame.reasons.includes("insufficient_continuous_action_frames")) {
+      return FAILURE_CODES.INSUFFICIENT_ACTION_FRAMES;
+    }
     return FAILURE_CODES.FINISH_FRAME_NOT_PROVEN;
   }
   if (!evidence.hasPayoffFrames || !evidence.hasGoalmouthFrames) return FAILURE_CODES.NO_FINISH_VISIBLE;
@@ -349,17 +427,29 @@ function publicHumanVisibleGoalGate(value = {}) {
     finishFrameEvidence: gate.evidence && gate.evidence.finishFrame
       ? {
           passed: Boolean(gate.evidence.finishFrame.passed),
+          visibilityVerdict: sanitizeText(gate.evidence.finishFrame.visibilityVerdict || "unknown", 32),
           frameTime: roundTime(gate.evidence.finishFrame.frameTime),
           confidence: numberOrNull(gate.evidence.finishFrame.confidence),
           hasVisibleFinish: Boolean(gate.evidence.finishFrame.hasVisibleFinish),
           hasBallInNetOrPayoff: Boolean(gate.evidence.finishFrame.hasBallInNetOrPayoff),
           hasGoalMouth: Boolean(gate.evidence.finishFrame.hasGoalMouth),
+          supportFrames: gate.evidence.finishFrame.supportFrames && typeof gate.evidence.finishFrame.supportFrames === "object"
+            ? {
+                hasPreShotActionFrame: Boolean(gate.evidence.finishFrame.supportFrames.hasPreShotActionFrame),
+                hasFinishActionFrame: Boolean(gate.evidence.finishFrame.supportFrames.hasFinishActionFrame),
+                hasPayoffFrame: Boolean(gate.evidence.finishFrame.supportFrames.hasPayoffFrame),
+                hasConfirmationFrame: Boolean(gate.evidence.finishFrame.supportFrames.hasConfirmationFrame),
+                continuousActionFrameCount: numberOrNull(gate.evidence.finishFrame.supportFrames.continuousActionFrameCount),
+              }
+            : null,
           isBlurred: Boolean(gate.evidence.finishFrame.isBlurred),
           isOverZoomed: Boolean(gate.evidence.finishFrame.isOverZoomed),
           isLabelOnly: Boolean(gate.evidence.finishFrame.isLabelOnly),
           isReplayOnly: Boolean(gate.evidence.finishFrame.isReplayOnly),
           isCelebrationOnly: Boolean(gate.evidence.finishFrame.isCelebrationOnly),
           isScoreboardOnly: Boolean(gate.evidence.finishFrame.isScoreboardOnly),
+          isPlayerCloseupOnly: Boolean(gate.evidence.finishFrame.isPlayerCloseupOnly),
+          isFrameTooWideUnclear: Boolean(gate.evidence.finishFrame.isFrameTooWideUnclear),
           reasons: safeCodes(gate.evidence.finishFrame.reasons).slice(0, 8),
         }
       : null,

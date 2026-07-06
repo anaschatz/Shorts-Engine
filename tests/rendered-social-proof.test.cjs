@@ -25,9 +25,15 @@ function goalSegment(overrides = {}) {
     finishFrameEvidence: {
       frameTime: 22,
       confidence: 0.9,
+      visibilityVerdict: "clear",
       hasVisibleFinish: true,
       hasBallInNetOrPayoff: true,
       hasGoalMouth: true,
+      hasPreShotActionFrame: true,
+      hasFinishActionFrame: true,
+      hasPayoffFrame: true,
+      hasConfirmationFrame: true,
+      continuousActionFrameCount: 4,
       isBlurred: false,
       isOverZoomed: false,
       isLabelOnly: false,
@@ -95,7 +101,12 @@ function videoOutputQA(overrides = {}) {
       passed: true,
       goalCount: 1,
       visibleGoalCount: 1,
+      clearGoalCount: 1,
+      borderlineGoalCount: 0,
       failedGoalCount: 0,
+      humanVisibleGoalsClear: 1,
+      humanVisibleGoalsBorderline: 0,
+      humanVisibleGoalsFailed: 0,
       finishFrameContactSheetRequired: true,
       goals: [{
         index: 1,
@@ -106,6 +117,7 @@ function videoOutputQA(overrides = {}) {
         failureCode: null,
         finishFrameEvidence: {
           passed: true,
+          visibilityVerdict: "clear",
           frameTime: 22,
           confidence: 0.9,
           reasons: [],
@@ -388,7 +400,12 @@ test("rendered social polish proof fails when finish-frame visibility gate faile
       passed: false,
       goalCount: 1,
       visibleGoalCount: 0,
+      clearGoalCount: 0,
+      borderlineGoalCount: 0,
       failedGoalCount: 1,
+      humanVisibleGoalsClear: 0,
+      humanVisibleGoalsBorderline: 0,
+      humanVisibleGoalsFailed: 1,
       finishFrameContactSheetRequired: true,
       failedGoals: [{
         index: 1,
@@ -396,6 +413,7 @@ test("rendered social polish proof fails when finish-frame visibility gate faile
         failureCode: "FINISH_FRAME_NOT_PROVEN",
         finishFrameEvidence: {
           passed: false,
+          visibilityVerdict: "failed",
           frameTime: null,
           confidence: null,
           reasons: ["finish_frame_evidence_missing"],
@@ -512,6 +530,46 @@ test("rendered social polish proof accepts wide-safe summary fallback without ex
   assert.equal(report.renderedActionFraming.cropMode, "wide_safe");
   assert.equal(report.renderedActionFraming.fallbackUsed, true);
   assert.equal(report.renderedActionFraming.maxPanSpeed, 0);
+});
+
+test("rendered social polish proof does not classify static fallback cuts as crop pan risk", () => {
+  const report = baseProof({
+    renderPlan: {
+      visualPolishQA: {
+        abruptCutRiskCount: 1,
+        cutSmoothnessScore: 0.8,
+        phaseCoverageScore: 1,
+        referencePacingScore: 1,
+        visualPolishScore: 92,
+      },
+      visualTrackingSummary: {
+        trackingProviderMode: "deterministic-wide-safe",
+        trackingConfidence: 0.4,
+        fallbackUsed: true,
+        goalClaimAllowed: false,
+      },
+      cropPlan: {
+        mode: "wide_safe",
+        cropMode: "wide_safe",
+        targetAspectRatio: "9:16",
+        safeArea: { x: 0, y: 0, width: 1920, height: 1080 },
+        cropBox: { x: 0, y: 0, width: 1920, height: 1080 },
+        confidence: 0.4,
+        trackingConfidence: 0.4,
+        maxPanSpeed: 0,
+        actionSafeZones: [],
+        textSafeZones: [{ name: "bottom_caption", x: 0.08, y: 0.74, width: 0.84, height: 0.18 }],
+        fallbackUsed: true,
+        textObstructionRisk: false,
+      },
+    },
+  });
+
+  assert.equal(report.passed, false);
+  assert.equal(report.renderedActionFraming.passed, true);
+  assert.equal(report.renderedActionFraming.abruptCropPanRisk, false);
+  assert.match(report.failedReasons.join(","), /abrupt_cut_risk_detected/);
+  assert.doesNotMatch(report.failedReasons.join(","), /abrupt_crop_pan_risk/);
 });
 
 test("rendered social polish report does not expose sensitive strings", () => {

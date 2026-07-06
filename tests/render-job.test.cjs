@@ -5,7 +5,9 @@ const { writeFileSync } = require("node:fs");
 const { AppError, SAFE_MESSAGES } = require("../server/errors.cjs");
 const { validateEditPlan } = require("../server/edit-plan.cjs");
 const { JobStore } = require("../server/jobs.cjs");
+const { assertVideoOutputCoverage } = require("../server/video-output-gate.cjs");
 const {
+  __testing,
   enqueueRenderJob,
   ocrQaCalibrationOptionsFromEnv,
   runRenderJob,
@@ -154,9 +156,15 @@ function validGoalSegment(index, sourceStart, shotStart, finishTime, confirmatio
     finishFrameEvidence: {
       frameTime: finishTime,
       confidence: 0.9,
+      visibilityVerdict: "clear",
       hasVisibleFinish: true,
       hasBallInNetOrPayoff: true,
       hasGoalMouth: true,
+      hasPreShotActionFrame: true,
+      hasFinishActionFrame: true,
+      hasPayoffFrame: true,
+      hasConfirmationFrame: true,
+      continuousActionFrameCount: 4,
       isBlurred: false,
       isOverZoomed: false,
       isLabelOnly: false,
@@ -260,6 +268,77 @@ function countedGoalTruth(count = 3) {
       possibleGoalCount: 0,
       countedGoalEventCount: count,
       selectedCountedGoals: count,
+      noFalseGoalFromOcrOnly: 1,
+    },
+  };
+}
+
+function countedGoalTruthFromSegments(segments) {
+  return {
+    schemaVersion: 1,
+    providerMode: "mock-match-event-truth",
+    fallbackUsed: false,
+    events: segments.map((segment, index) => ({
+      id: `score_change_truth_${index + 1}`,
+      type: "confirmed_goal",
+      outcome: "confirmed_goal",
+      confidence: 0.92,
+      sourceStart: segment.sourceStart,
+      sourceEnd: segment.sourceEnd,
+      goalNumber: segment.goalNumber,
+      scoreBefore: `${index}-0`,
+      scoreAfter: `${index + 1}-0`,
+      scoreChangeTime: segment.confirmationTime,
+      shotStart: segment.shotStart,
+      finishTime: segment.finishTime,
+      confirmationTime: segment.confirmationTime,
+      evidenceCodes: [
+        "scoreboard_ocr_score_change",
+        "scoreboard_temporal_consistency",
+        "scoreboard_backed_goal_sequence",
+        "visual_shot_contact",
+        "visual_ball_in_net",
+        "live_shot_finish_sequence",
+      ],
+      missingEvidence: [],
+      safetyFlags: ["scorebug_truth_integration"],
+      phaseCoverage: {
+        hasBuildup: true,
+        hasShot: true,
+        hasFinish: true,
+        hasConfirmation: true,
+        liveActionStart: segment.sourceStart,
+        shotStart: segment.shotStart,
+        finishTime: segment.finishTime,
+        confirmationTime: segment.confirmationTime,
+        replayUsed: false,
+        replayOnly: false,
+      },
+    })),
+    rejectedEvents: [],
+    scoreChanges: segments.map((segment, index) => ({
+      id: `score_change_${index + 1}`,
+      startScore: `${index}-0`,
+      endScore: `${index + 1}-0`,
+      changeTime: segment.confirmationTime,
+      actionAnchorTime: segment.shotStart,
+      hasPendingObservation: false,
+      strongAuthority: true,
+      teamSide: "home",
+      scoreDelta: 1,
+      confidence: 0.92,
+      persistedDuration: 35,
+      reverted: false,
+      outcome: "counted_goal",
+      reasonCodes: ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"],
+    })),
+    summary: {
+      eventCount: segments.length,
+      confirmedGoalCount: segments.length,
+      disallowedGoalCount: 0,
+      possibleGoalCount: 0,
+      countedGoalEventCount: segments.length,
+      selectedCountedGoals: segments.length,
       noFalseGoalFromOcrOnly: 1,
     },
   };
@@ -569,6 +648,93 @@ function makeContext(options = {}) {
       calls.push("render_short");
       if (options.renderError) throw options.renderError;
       writeFileSync(outputPath, Buffer.from("rendered-short"));
+    },
+    analyzeRenderedGoalProof: async ({ editPlan }) => {
+      calls.push("analyze_rendered_goal_proof");
+      const segments = Array.isArray(editPlan && editPlan.segments) ? editPlan.segments : [];
+      let timelineCursor = 0;
+      const updatedSegments = segments.map((segment, index) => {
+        const duration = Number(segment.duration || Number(segment.sourceEnd) - Number(segment.sourceStart)) || 0;
+        const isConfirmedGoal = segment.highlightType === "goal" &&
+          segment.goalOutcome &&
+          segment.goalOutcome.outcome === "confirmed_goal";
+        if (!isConfirmedGoal) {
+          timelineCursor += Math.max(0, duration);
+          return segment;
+        }
+        const frameTime = Number(segment.finishTime) || Number(segment.sourceStart) || 0;
+        const supportFrames = [
+          { role: "pre_shot", time: Math.max(timelineCursor, frameTime - Number(segment.sourceStart || 0) - 1), status: "clear", clear: true },
+          { role: "finish", time: Math.max(timelineCursor, frameTime - Number(segment.sourceStart || 0)), status: "clear", clear: true },
+          { role: "payoff", time: Math.max(timelineCursor, frameTime - Number(segment.sourceStart || 0) + 0.8), status: "clear", clear: true },
+          { role: "confirmation", time: Math.max(timelineCursor, Number(segment.confirmationTime || frameTime) - Number(segment.sourceStart || 0)), status: "clear", clear: true },
+        ];
+        timelineCursor += Math.max(0, duration);
+        const finishFrameEvidence = {
+          ...(segment.finishFrameEvidence || {}),
+          frameTime,
+          confidence: 0.91,
+          visibilityVerdict: "clear",
+          hasVisibleFinish: true,
+          hasBallInNetOrPayoff: true,
+          hasGoalMouth: true,
+          hasPreShotActionFrame: true,
+          hasFinishActionFrame: true,
+          hasPayoffFrame: true,
+          hasConfirmationFrame: true,
+          continuousActionFrameCount: 4,
+          supportFrames,
+          isBlurred: false,
+          isOverZoomed: false,
+          isLabelOnly: false,
+          isReplayOnly: false,
+          isCelebrationOnly: false,
+          isScoreboardOnly: false,
+          isPlayerCloseupOnly: false,
+          isFrameTooWideUnclear: false,
+          evidenceCodes: ["rendered_finish_frame_visible", "ball_in_net_or_payoff_visible", "clear_goal_payoff_visible"],
+          proofMethod: "mock_rendered_goal_proof",
+        };
+        return {
+          ...segment,
+          finishFrameEvidence,
+          phaseCoverage: {
+            ...(segment.phaseCoverage || {}),
+            finishFrameEvidence,
+            visualGoalPayoff: {
+              ...((segment.phaseCoverage && segment.phaseCoverage.visualGoalPayoff) || {}),
+              finishFrameEvidence,
+            },
+          },
+        };
+      });
+      const goalCount = updatedSegments.filter((segment) =>
+        segment.highlightType === "goal" &&
+        segment.goalOutcome &&
+        segment.goalOutcome.outcome === "confirmed_goal").length;
+      const summary = {
+        schemaVersion: 1,
+        providerMode: "mock-rendered-goal-proof",
+        goalCount,
+        clearGoalCount: goalCount,
+        borderlineGoalCount: 0,
+        failedGoalCount: 0,
+        contactSheetRef: "data/staging/rendered-goal-proof/unit/contact-sheet.json",
+        goals: updatedSegments
+          .filter((segment) => segment.highlightType === "goal")
+          .map((segment, index) => ({
+            goalNumber: segment.goalNumber || index + 1,
+            segmentIndex: index + 1,
+            verdict: "clear",
+            frameCount: 4,
+          })),
+        logsDownloaded: false,
+        artifactsDownloaded: false,
+      };
+      return {
+        editPlan: { ...editPlan, segments: updatedSegments, renderedGoalProof: summary },
+        summary,
+      };
     },
     fileExists: () => true,
     isRegularFile: () => true,
@@ -1715,6 +1881,318 @@ test("youtube valid-goals-only output gate passes when all counted goals are cov
   assert.equal(qaLog.expectedGoalCount, 3);
   assert.equal(qaLog.coveredGoalCount, 3);
   assert.doesNotMatch(JSON.stringify(context.job.videoOutputQA), /\/Users|storageKey|secret|stderr|stdout|rawOcr|rawText/i);
+});
+
+test("duration-safe compaction preserves 5/5 rendered visible goals under reference limit", () => {
+  const metadata = { durationSeconds: 764.52, width: 1280, height: 720 };
+  const sourceSegments = [
+    { goal: 1, start: 223.6, shot: 229.75, finish: 234.25, confirm: 236.25, end: 238.6 },
+    { goal: 2, start: 461.35, shot: 467.5, finish: 472, confirm: 472.15, end: 472.25 },
+    { goal: 3, start: 471.1, shot: 477.25, finish: 483.25, confirm: 483.75, end: 486.1 },
+    { goal: 4, start: 532.25, shot: 536.35, finish: 538.45, confirm: 558.45, end: 559.65 },
+    { goal: 5, start: 583.6, shot: 589.75, finish: 594.25, confirm: 596.25, end: 598.6 },
+  ].map((item) => ({
+    ...validGoalSegment(item.goal, item.start, item.shot, item.finish, item.confirm),
+    sourceEnd: item.end,
+    duration: Number((item.end - item.start).toFixed(2)),
+  }));
+  const proofRoleSourceTimes = new Map([
+    [1, { pre_shot: 226.8, finish: 228.25, payoff: 235.4, confirmation: 236.25 }],
+    [2, { pre_shot: 461.75, finish: 471.35, payoff: 471.7, confirmation: 472 }],
+    [3, { pre_shot: 471.5, finish: 477.25, payoff: 485.5, confirmation: 483.75 }],
+    [4, { pre_shot: 532.65, finish: 533.95, payoff: 539, confirmation: 558.45 }],
+    [5, { pre_shot: 586.8, finish: 589.75, payoff: 594.8, confirmation: 596.25 }],
+  ]);
+  const editPlan = validateEditPlan({
+    ...validGoalCompilationPlan(sourceSegments),
+    totalDuration: 83.3,
+  }, metadata);
+  const matchEventTruth = countedGoalTruthFromSegments(editPlan.segments);
+  assert.throws(() => assertVideoOutputCoverage({
+    goalSelectionMode: "valid_goals_only",
+    matchEventTruth,
+    editPlan,
+  }), (error) => {
+    assert.equal(error.code, "VIDEO_OUTPUT_QA_FAILED");
+    assert.equal(error.details.coveredGoalCount, 5);
+    assert.deepEqual(error.details.missingGoalNumbers, []);
+    assert.equal(error.details.renderedGoalVisibility.passed, true);
+    assert.ok(error.details.failedReasons.includes("reference_style_duration_out_of_bounds"));
+    return true;
+  });
+
+  let timelineCursor = 0;
+  const proofGoals = editPlan.segments.map((segment, index) => {
+    const sourceTimes = proofRoleSourceTimes.get(Number(segment.goalNumber));
+    const frameRefs = ["pre_shot", "finish", "payoff", "confirmation"].map((role) => ({
+      role,
+      time: Number((timelineCursor + sourceTimes[role] - segment.sourceStart).toFixed(2)),
+      status: "clear",
+      clear: true,
+      confidence: 0.91,
+      reason: null,
+    }));
+    timelineCursor += segment.sourceEnd - segment.sourceStart;
+    return {
+      goalNumber: segment.goalNumber,
+      segmentIndex: index + 1,
+      verdict: "clear",
+      frameCount: 4,
+      frameRefs,
+      candidateFrameCount: 24,
+      failedFrameReasons: [],
+    };
+  });
+  const compaction = __testing.compactVisibleGoalSegmentsForReferenceDuration({
+    editPlan,
+    renderedGoalProof: {
+      summary: {
+        schemaVersion: 1,
+        providerMode: "mock-rendered-goal-proof",
+        goalCount: 5,
+        clearGoalCount: 5,
+        borderlineGoalCount: 0,
+        failedGoalCount: 0,
+        goals: proofGoals,
+      },
+    },
+  });
+
+  assert.equal(compaction.applied, true);
+  assert.equal(compaction.summary.passedDurationTarget, true);
+  assert.equal(compaction.summary.compactedTotalDuration <= 75, true);
+  assert.equal(compaction.summary.compactedGoalCount >= 2, true);
+  assert.equal(
+    compaction.summary.diagnostics.some((item) => Number(item.goalNumber) === 4),
+    false,
+  );
+  assert.equal(compaction.editPlan.cropPlan.mode, "wide_safe");
+  assert.equal(compaction.editPlan.framingMode, "wide_safe_vertical");
+  assert.equal(compaction.editPlan.visualPolishQA.abruptCutRiskCount, 0);
+  assert.equal(compaction.editPlan.visualPolishQA.cutSmoothnessScore, 1);
+  assert.equal(compaction.editPlan.transitionPlan[0].timelineStart, compaction.editPlan.segments[1].timelineStart);
+  assert.doesNotMatch(JSON.stringify(compaction.summary), /\/Users|storageKey|secret|stderr|stdout|rawOcr|rawText/i);
+
+  const compactedPlan = validateEditPlan(compaction.editPlan, metadata);
+  const report = assertVideoOutputCoverage({
+    goalSelectionMode: "valid_goals_only",
+    matchEventTruth,
+    editPlan: compactedPlan,
+  });
+  assert.equal(report.status, "passed");
+  assert.equal(report.coveredGoalCount, 5);
+  assert.deepEqual(report.missingGoalNumbers, []);
+  assert.equal(report.renderedGoalVisibility.passed, true);
+  assert.equal(report.referenceStyleDuration.passed, true);
+  assert.equal(report.referenceStyleDuration.totalDuration <= 75, true);
+  for (const segment of compactedPlan.segments) {
+    assert.equal(segment.shotStart - segment.sourceStart >= 4, true);
+    assert.equal(segment.sourceEnd >= segment.confirmationTime, true);
+  }
+  const goal4 = compactedPlan.segments.find((segment) => Number(segment.goalNumber) === 4);
+  assert.ok(goal4);
+  assert.equal(goal4.sourceEnd >= goal4.confirmationTime, true);
+  assert.equal(goal4.phaseCoverage.hasFinish, true);
+  assert.equal(goal4.phaseCoverage.hasConfirmation, true);
+});
+
+test("render orchestration rebinds and rerenders failed visible goal proof once", async () => {
+  let proofAttempt = 0;
+  const truth = countedGoalTruth(1);
+  truth.events[0] = {
+    ...truth.events[0],
+    sourceStart: 540,
+    sourceEnd: 554,
+    scoreChangeTime: 550,
+    shotStart: 546,
+    finishTime: 548,
+    confirmationTime: 550,
+    phaseCoverage: {
+      ...truth.events[0].phaseCoverage,
+      liveActionStart: 540,
+      shotStart: 546,
+      finishTime: 548,
+      confirmationTime: 550,
+    },
+  };
+  truth.scoreChanges[0] = {
+    ...truth.scoreChanges[0],
+    changeTime: 550,
+    actionAnchorTime: 546,
+  };
+  const context = makeContext({
+    durationSeconds: 620,
+    metadata: { sourceType: "youtube", videoId: "WuuGus5Obkg", expectedCountedGoals: 1 },
+    matchEventTruth: truth,
+    candidatePlans: [
+      validGoalCompilationPlan([
+        validGoalSegment(1, 540, 546, 548, 550),
+      ]),
+    ],
+    dependencies: {
+      analyzeRenderedGoalProof: async ({ editPlan }) => {
+        proofAttempt += 1;
+        context.calls.push("analyze_rendered_goal_proof");
+        const [segment] = editPlan.segments;
+        const failedFrameRefs = [
+          { role: "pre_shot", time: 2, status: "failed", clear: false, reason: "semantic_frame_forbidden_content", confidence: 0.29 },
+          { role: "finish", time: 7, status: "failed", clear: false, reason: "semantic_frame_not_clear", confidence: 0.47 },
+          { role: "payoff", time: 8, status: "failed", clear: false, reason: "semantic_frame_not_clear", confidence: 0.46 },
+          { role: "confirmation", time: 10, status: "clear", clear: true, reason: null, confidence: 0.91 },
+        ];
+        if (proofAttempt === 1 || segment.finishTime > 535) {
+          const finishFrameEvidence = {
+            frameTime: segment.finishTime,
+            confidence: 0.2,
+            visibilityVerdict: "failed",
+            hasVisibleFinish: false,
+            hasBallInNetOrPayoff: false,
+            hasGoalMouth: false,
+            hasPreShotActionFrame: false,
+            hasFinishActionFrame: false,
+            hasPayoffFrame: false,
+            hasConfirmationFrame: true,
+            continuousActionFrameCount: 1,
+            supportFrames: failedFrameRefs,
+            isBlurred: false,
+            isOverZoomed: false,
+            isLabelOnly: false,
+            isReplayOnly: false,
+            isCelebrationOnly: false,
+            isScoreboardOnly: false,
+            isPlayerCloseupOnly: false,
+            isFrameTooWideUnclear: false,
+            evidenceCodes: ["rendered_frame_samples_semantically_unverified"],
+            reasons: ["semantic_frame_not_clear"],
+          };
+          return {
+            editPlan: {
+              ...editPlan,
+              segments: [{
+                ...segment,
+                finishFrameEvidence,
+                phaseCoverage: {
+                  ...(segment.phaseCoverage || {}),
+                  finishFrameEvidence,
+                  visualGoalPayoff: {
+                    ...((segment.phaseCoverage && segment.phaseCoverage.visualGoalPayoff) || {}),
+                    finishFrameEvidence,
+                  },
+                },
+              }],
+            },
+            summary: {
+              schemaVersion: 1,
+              providerMode: "mock-rendered-goal-proof",
+              goalCount: 1,
+              clearGoalCount: 0,
+              borderlineGoalCount: 0,
+              failedGoalCount: 1,
+              contactSheetRef: "data/staging/rendered-goal-proof/unit/contact-sheet.json",
+              goals: [{
+                goalNumber: 1,
+                segmentIndex: 1,
+                verdict: "failed",
+                frameCount: 1,
+                frameRefs: failedFrameRefs,
+              }],
+              logsDownloaded: false,
+              artifactsDownloaded: false,
+            },
+          };
+        }
+        assert.ok(segment.sourceStart < 540);
+        assert.ok(segment.duration <= 36);
+        assert.ok(segment.finishTime <= 535);
+        assert.equal(editPlan.renderedGoalRebinding.attemptCount, 1);
+        const clearFrameRefs = [
+          { role: "pre_shot", time: 4, status: "clear", clear: true, reason: null, confidence: 0.9 },
+          { role: "finish", time: 18, status: "clear", clear: true, reason: null, confidence: 0.92 },
+          { role: "payoff", time: 20, status: "clear", clear: true, reason: null, confidence: 0.91 },
+          { role: "confirmation", time: 30, status: "clear", clear: true, reason: null, confidence: 0.94 },
+        ];
+        const finishFrameEvidence = {
+          frameTime: segment.finishTime,
+          confidence: 0.91,
+          visibilityVerdict: "clear",
+          hasVisibleFinish: true,
+          hasBallInNetOrPayoff: true,
+          hasGoalMouth: true,
+          hasPreShotActionFrame: true,
+          hasFinishActionFrame: true,
+          hasPayoffFrame: true,
+          hasConfirmationFrame: true,
+          continuousActionFrameCount: 4,
+          supportFrames: clearFrameRefs,
+          isBlurred: false,
+          isOverZoomed: false,
+          isLabelOnly: false,
+          isReplayOnly: false,
+          isCelebrationOnly: false,
+          isScoreboardOnly: false,
+          isPlayerCloseupOnly: false,
+          isFrameTooWideUnclear: false,
+          evidenceCodes: ["rendered_finish_frame_visible", "ball_in_net_or_payoff_visible", "clear_goal_payoff_visible"],
+          proofMethod: "mock_rebound_rendered_goal_proof",
+        };
+        return {
+          editPlan: {
+            ...editPlan,
+            segments: [{
+              ...segment,
+              finishFrameEvidence,
+              phaseCoverage: {
+                ...(segment.phaseCoverage || {}),
+                finishFrameEvidence,
+                visualGoalPayoff: {
+                  ...((segment.phaseCoverage && segment.phaseCoverage.visualGoalPayoff) || {}),
+                  finishFrameEvidence,
+                },
+              },
+            }],
+          },
+          summary: {
+            schemaVersion: 1,
+            providerMode: "mock-rendered-goal-proof",
+            goalCount: 1,
+            clearGoalCount: 1,
+            borderlineGoalCount: 0,
+            failedGoalCount: 0,
+            contactSheetRef: "data/staging/rendered-goal-proof/unit/contact-sheet.json",
+            goals: [{
+              goalNumber: 1,
+              segmentIndex: 1,
+              verdict: "clear",
+              frameCount: 4,
+              frameRefs: clearFrameRefs,
+            }],
+            logsDownloaded: false,
+            artifactsDownloaded: false,
+          },
+        };
+      },
+    },
+  });
+  await runContext(context);
+
+  assert.equal(context.job.status, "completed", JSON.stringify({
+    error: context.job.error,
+    videoOutputQA: context.job.videoOutputQA,
+    renderedGoalRebinding: context.job.renderedGoalRebinding,
+    calls: context.calls,
+    proofAttempt,
+  }, null, 2));
+  assert.equal(proofAttempt, 2);
+  assert.equal(context.calls.filter((call) => call === "render_short").length, 2);
+  assert.equal(context.job.videoOutputQA.status, "passed");
+  assert.equal(context.job.renderedGoalRebinding.applied, true);
+  assert.equal(context.job.renderedGoalRebinding.reboundGoalCount, 1);
+  assert.equal(context.job.editPlan.segments[0].sourceStart < 540, true);
+  assert.equal(context.job.editPlan.segments[0].duration <= 36, true);
+  assert.equal(context.job.editPlan.segments[0].finishTime <= 535, true);
+  assert.equal(context.logs.some((entry) => entry.event === "rendered_goal_rebinding_attempted"), true);
+  assert.equal(context.logs.some((entry) => entry.event === "rendered_goal_rebinding_recovered"), true);
+  assert.doesNotMatch(JSON.stringify(context.job.renderedGoalRebinding), /\/Users|storageKey|secret|stderr|stdout|rawOcr|rawText/i);
 });
 
 test("approved regeneration render uses the validated draft without rerunning AI analysis", async () => {

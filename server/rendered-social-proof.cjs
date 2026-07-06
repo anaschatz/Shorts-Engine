@@ -298,8 +298,26 @@ function phaseVisibilitySummary(renderPlan = {}, videoOutputQA = null) {
       ? {
           passed: qa.renderedGoalVisibility.passed === true,
           visibleGoalCount: numberOrNull(qa.renderedGoalVisibility.visibleGoalCount),
+          clearGoalCount: numberOrNull(qa.renderedGoalVisibility.clearGoalCount),
+          borderlineGoalCount: numberOrNull(qa.renderedGoalVisibility.borderlineGoalCount),
           failedGoalCount: numberOrNull(qa.renderedGoalVisibility.failedGoalCount),
+          humanVisibleGoalsClear: numberOrNull(qa.renderedGoalVisibility.humanVisibleGoalsClear),
+          humanVisibleGoalsBorderline: numberOrNull(qa.renderedGoalVisibility.humanVisibleGoalsBorderline),
+          humanVisibleGoalsFailed: numberOrNull(qa.renderedGoalVisibility.humanVisibleGoalsFailed),
           finishFrameContactSheetRequired: qa.renderedGoalVisibility.finishFrameContactSheetRequired === true,
+          clearGoals: Array.isArray(qa.renderedGoalVisibility.clearGoals)
+            ? qa.renderedGoalVisibility.clearGoals.slice(0, MAX_ITEMS).map((goal) => ({
+                goalNumber: numberOrNull(goal && goal.goalNumber),
+                segmentIndex: numberOrNull(goal && goal.index),
+              }))
+            : [],
+          borderlineGoals: Array.isArray(qa.renderedGoalVisibility.borderlineGoals)
+            ? qa.renderedGoalVisibility.borderlineGoals.slice(0, MAX_ITEMS).map((goal) => ({
+                goalNumber: numberOrNull(goal && goal.goalNumber),
+                segmentIndex: numberOrNull(goal && goal.index),
+                failureCode: safeString(goal && goal.failureCode, 60),
+              }))
+            : [],
           failedGoals: Array.isArray(qa.renderedGoalVisibility.failedGoals)
             ? qa.renderedGoalVisibility.failedGoals.slice(0, MAX_ITEMS).map((goal) => ({
                 goalNumber: numberOrNull(goal && goal.goalNumber),
@@ -308,8 +326,18 @@ function phaseVisibilitySummary(renderPlan = {}, videoOutputQA = null) {
                 finishFrameEvidence: goal && goal.finishFrameEvidence && typeof goal.finishFrameEvidence === "object"
                   ? {
                       passed: goal.finishFrameEvidence.passed === true,
+                      visibilityVerdict: safeString(goal.finishFrameEvidence.visibilityVerdict, 32),
                       frameTime: round(goal.finishFrameEvidence.frameTime),
                       confidence: numberOrNull(goal.finishFrameEvidence.confidence),
+                      supportFrames: goal.finishFrameEvidence.supportFrames && typeof goal.finishFrameEvidence.supportFrames === "object"
+                        ? {
+                            hasPreShotActionFrame: goal.finishFrameEvidence.supportFrames.hasPreShotActionFrame === true,
+                            hasFinishActionFrame: goal.finishFrameEvidence.supportFrames.hasFinishActionFrame === true,
+                            hasPayoffFrame: goal.finishFrameEvidence.supportFrames.hasPayoffFrame === true,
+                            hasConfirmationFrame: goal.finishFrameEvidence.supportFrames.hasConfirmationFrame === true,
+                            continuousActionFrameCount: numberOrNull(goal.finishFrameEvidence.supportFrames.continuousActionFrameCount),
+                          }
+                        : null,
                       reasons: safeList(goal.finishFrameEvidence.reasons, 8, 80),
                     }
                   : null,
@@ -437,7 +465,7 @@ function renderedActionFramingSummary(renderPlan = {}, outputMp4 = null) {
   const fallbackUsed = Boolean(cropPlan.fallbackUsed || visualTracking.fallbackUsed);
   const maxPanSpeed = numberOrNull(cropPlan.maxPanSpeed) ?? 0;
   const textObstructionRisk = Boolean(cropPlan.textObstructionRisk);
-  const abruptCropPanRisk = Boolean(maxPanSpeed > 0.22 || numberOrNull(visual.abruptCutRiskCount) > 0);
+  const abruptCropPanRisk = Boolean(maxPanSpeed > 0.22);
   const softFollow = cropMode === "soft_follow";
   const safeFallbackMode = ["wide_safe", "locked_wide", "center_safe"].includes(cropMode);
   const reliableSoftFollow = Boolean(

@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -16,6 +17,7 @@ import {
 } from "../demo/run-youtube-live-e2e.mjs";
 import {
   computedIngestRequestTimeoutMs,
+  requestJsonWithTimeout,
   runYouTubeSmoke,
   safeDownloadArtifactRef,
   writeYouTubeSmokeReport,
@@ -422,6 +424,45 @@ test("youtube smoke skips safely without explicit flag", async () => {
   assert.equal(calls, 0);
   assert.equal(report.checks[0].code, "YOUTUBE_SMOKE_DISABLED");
   assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube smoke long JSON request handles delayed ingest headers", async () => {
+  let capturedBody = "";
+  const requestImpl = (url, options) => {
+    assert.equal(url.pathname, "/api/youtube/ingest");
+    assert.equal(options.method, "POST");
+    const request = new EventEmitter();
+    request.setTimeout = () => request;
+    request.write = (chunk) => {
+      capturedBody += chunk.toString("utf8");
+    };
+    request.end = () => {
+      setTimeout(() => {
+        const response = new EventEmitter();
+        response.statusCode = 201;
+        response.headers = { "x-request-id": "req_long_ingest" };
+        request.emit("response", response);
+        response.emit("data", Buffer.from(JSON.stringify({ ok: true, data: { requestId: "req_long_ingest", accepted: true } })));
+        response.emit("end");
+      }, 40);
+    };
+    request.destroy = () => {};
+    return request;
+  };
+  const response = await requestJsonWithTimeout("http://127.0.0.1:4175/api/youtube/ingest", {
+    method: "POST",
+    body: JSON.stringify({ url: SAFE_URL, rightsConfirmed: true }),
+    headers: { accept: "application/json", "content-type": "application/json" },
+    timeoutMs: 1000,
+    timeoutCode: "YOUTUBE_SMOKE_INGEST_TIMEOUT",
+    timeoutDetails: { phase: "ingest", step: "download_source", substep: "youtube_downloader" },
+    requestImpl,
+  });
+  assert.match(capturedBody, /rightsConfirmed/);
+  assert.equal(response.ok, true);
+  assert.equal(response.status, 201);
+  assert.equal(response.requestId, "req_long_ingest");
+  assert.equal(findSensitiveLeak(response), null);
 });
 
 test("youtube smoke rejects unsafe URLs before network", async () => {
@@ -835,7 +876,7 @@ test("youtube smoke polling failure preserves last active chunk context", async 
 test("youtube smoke successful mocked flow validates ingest generate job and download contract", async () => {
   const { fetchImpl, calls } = createFetchMock();
   const report = await runYouTubeSmoke({ env: smokeEnv(), fetchImpl });
-  assert.equal(report.status, "passed");
+  assert.equal(report.status, "passed", JSON.stringify(report.failedCases));
   assert.equal(report.ids.projectId, "prj_12345678");
   assert.equal(report.ids.uploadId, "upl_12345678");
   assert.equal(report.ids.jobId, "job_12345678");
@@ -1042,7 +1083,7 @@ test("youtube smoke render summary includes safe counted-goal proof details", as
   const report = await runYouTubeSmoke({ env: smokeEnv(), fetchImpl });
   const proof = report.renderPlan.countedGoalProof;
 
-  assert.equal(report.status, "passed");
+  assert.equal(report.status, "passed", JSON.stringify(report.failedCases));
   assert.equal(report.renderPlan.goalSelectionMode, "valid_goals_only");
   assert.equal(proof.finalSegmentCount, 2);
   assert.equal(proof.selectedValidGoals.length, 2);
@@ -2591,6 +2632,9 @@ test("youtube live local e2e fails release proof when counted goals are not huma
   assert.equal(report.phase, "render");
   assert.equal(report.failedCases[0].code, "YOUTUBE_LIVE_E2E_HUMAN_VISIBLE_GOAL_INCOMPLETE");
   assert.equal(report.outputProof.countedGoalsIncluded, 3);
+  assert.equal(report.outputProof.baselineCoveredGoalCount, 0);
+  assert.equal(report.outputProof.newCoveredGoalCount, 2);
+  assert.equal(report.outputProof.improvementDelta, 2);
   assert.equal(report.outputProof.humanVisibleGoalsIncluded, 2);
   assert.equal(report.outputProof.humanVisibleGoalRecall, 0.6667);
   assert.equal(report.outputProof.passedVisualGate, false);
@@ -2598,6 +2642,118 @@ test("youtube live local e2e fails release proof when counted goals are not huma
   assert.equal(report.outputProof.segmentWindows[2].visualGoalGate.failureCode, "NO_FINISH_VISIBLE");
   assert.equal(report.outputProof.comparison.checklist.countedGoals, true);
   assert.equal(report.outputProof.comparison.checklist.humanVisibleGoals, false);
+  assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube live proof trusts strict rendered visibility over stale legacy visual QA", async () => {
+  const smoke = countedGoalSmokeReport();
+  for (const segment of smoke.renderPlan.segments) {
+    segment.visualGoalGate = null;
+  }
+  smoke.renderPlan.visualPolishQA.humanVisibleGoalsIncluded = 0;
+  smoke.renderPlan.visualPolishQA.humanVisibleGoalRecall = 0;
+  smoke.renderPlan.visualPolishQA.passedVisualGate = false;
+  smoke.renderPlan.visualPolishQA.failedVisibleGoalSegments = smoke.renderPlan.segments.map((segment) => ({
+    index: segment.index,
+    segmentId: segment.id,
+    failureCode: "INSUFFICIENT_ACTION_FRAMES",
+    confidence: 1,
+    evidence: {
+      hasBuildupFrames: true,
+      hasShotFrames: true,
+      hasGoalmouthFrames: true,
+      hasPayoffFrames: true,
+      hasConfirmationAfterFinish: true,
+    },
+    sampledFrames: [],
+  }));
+  smoke.renderPlan.videoOutputQA = {
+    schemaVersion: 1,
+    status: "passed",
+    passed: true,
+    goalSelectionMode: "valid_goals_only",
+    expectedGoalCount: 3,
+    actualSegmentCount: 3,
+    actualConfirmedGoalSegmentCount: 3,
+    coveredGoalCount: 3,
+    humanVisibleGoalsClear: 3,
+    humanVisibleGoalsBorderline: 0,
+    humanVisibleGoalsFailed: 0,
+    requireRenderedGoalVisibility: true,
+    missingGoalNumbers: [],
+    failedReasons: [],
+    renderedGoalVisibility: {
+      passed: true,
+      required: true,
+      status: "passed",
+      goalCount: 3,
+      visibleGoalCount: 3,
+      clearGoalCount: 3,
+      borderlineGoalCount: 0,
+      failedGoalCount: 0,
+      humanVisibleGoalsClear: 3,
+      humanVisibleGoalsBorderline: 0,
+      humanVisibleGoalsFailed: 0,
+      reasons: [],
+      goals: smoke.renderPlan.segments.map((segment) => ({
+        index: segment.index,
+        goalNumber: segment.goalNumber,
+        segmentId: segment.id,
+        sourceStart: segment.sourceStart,
+        sourceEnd: segment.sourceEnd,
+        finishTime: segment.finishTime,
+        passed: true,
+        confidence: 0.9,
+        failureCode: null,
+        finishFrameEvidence: {
+          visibilityVerdict: "clear",
+          confidence: 0.9,
+          reasons: [],
+        },
+        contactSheetFrames: [
+          { label: "pre_shot", time: segment.timelineStart + 8 },
+          { label: "finish", time: segment.timelineStart + 14 },
+          { label: "payoff", time: segment.timelineStart + 15 },
+          { label: "confirmation", time: segment.timelineStart + 22 },
+        ],
+      })),
+      failedGoals: [],
+    },
+  };
+  smoke.renderPlan.renderedGoalProof = {
+    schemaVersion: 1,
+    providerMode: "rendered-goal-proof",
+    goalCount: 3,
+    clearGoalCount: 3,
+    borderlineGoalCount: 0,
+    failedGoalCount: 0,
+    contactSheetRef: "data/staging/rendered-goal-proof/unit/contact-sheet.json",
+    logsDownloaded: false,
+    artifactsDownloaded: false,
+  };
+
+  const report = await runYouTubeLiveE2E({
+    env: liveEnv({ SHORTSENGINE_YOUTUBE_LIVE_E2E_EXPECTED_COUNTED_GOALS: "3" }),
+    checkYouTubeIngest: async () => passedDoctor(),
+    getFreePort: async () => 4175,
+    startServer: () => ({ child: { exitCode: null, signalCode: null }, events: [] }),
+    stopServer: async () => {},
+    waitForServerReady: async () => ({ attempts: 1, waitedMs: 10, status: 200 }),
+    runYouTubeSmoke: async () => smoke,
+    requireOutputValidation: false,
+  });
+
+  assert.equal(report.status, "passed", JSON.stringify(report.failedCases));
+  assert.equal(report.outputProof.countedGoalsIncluded, 3);
+  assert.equal(report.outputProof.baselineCoveredGoalCount, 0);
+  assert.equal(report.outputProof.newCoveredGoalCount, 3);
+  assert.equal(report.outputProof.improvementDelta, 3);
+  assert.equal(report.outputProof.humanVisibleGoalsIncluded, 3);
+  assert.equal(report.outputProof.humanVisibleGoalRecall, 1);
+  assert.equal(report.outputProof.passedVisualGate, true);
+  assert.equal(report.outputProof.failedVisibleGoalSegments.length, 0);
+  assert.equal(report.outputProof.segmentWindows.every((segment) => segment.visualGoalGate.passed === true), true);
+  assert.equal(report.outputProof.renderedGoalProof.goalCount, 3);
   assert.equal(findSensitiveLeak(report), null);
 });
 

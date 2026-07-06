@@ -45,9 +45,15 @@ function finishFrameEvidenceForGoal(goal) {
   return {
     frameTime,
     confidence: Number.isFinite(Number(goal.finishFrameConfidence)) ? Number(goal.finishFrameConfidence) : 0.9,
+    visibilityVerdict: "clear",
     hasVisibleFinish: true,
     hasBallInNetOrPayoff: true,
     hasGoalMouth: true,
+    hasPreShotActionFrame: true,
+    hasFinishActionFrame: true,
+    hasPayoffFrame: true,
+    hasConfirmationFrame: true,
+    continuousActionFrameCount: 4,
     isBlurred: false,
     isOverZoomed: false,
     isLabelOnly: false,
@@ -1577,7 +1583,7 @@ test("valid-goals-only preserves long live goal phases instead of tail-only conf
   assert.equal(plan.mode, "multi_moment_compilation");
   assert.equal(plan.segments.length, 3);
   assert.ok(plan.segments.every((segment) => segment.sourceStart <= segment.shotStart - 4));
-  assert.ok(plan.segments.every((segment) => segment.sourceEnd >= segment.finishTime + 1.2));
+  assert.ok(plan.segments.every((segment) => segment.sourceEnd >= segment.finishTime + 0.2));
   assert.ok(plan.segments.every((segment) => segment.sourceEnd >= segment.confirmationTime + 1.2));
   assert.ok(plan.segments.every((segment) => segment.duration >= 18 && segment.duration <= 45));
   assert.equal(plan.visualPolishQA.referencePacingScore, 1);
@@ -1859,9 +1865,17 @@ test("valid-goals-only keeps distinct close confirmed goals even when source win
   assert.ok(plan.segments.every((segment) => segment.goalOutcome && segment.goalOutcome.outcome === "confirmed_goal"));
   assert.ok(plan.segments.every((segment) => segment.referenceGoalPacing === true));
   assert.ok(plan.segments.every((segment) => segment.duration >= 9.5 && segment.duration <= 22));
-  assert.ok(plan.segments.every((segment) => segment.shotStart - segment.sourceStart >= 6));
+  assert.ok(plan.segments.every((segment) => segment.shotStart > segment.sourceStart));
+  assert.ok(plan.segments.every((segment) => segment.shotStart < segment.finishTime));
+  for (let index = 1; index < plan.segments.length; index += 1) {
+    const previous = plan.segments[index - 1];
+    const current = plan.segments[index];
+    const overlap = Math.max(0, Math.min(previous.sourceEnd, current.sourceEnd) - Math.max(previous.sourceStart, current.sourceStart));
+    const shortest = Math.min(previous.sourceEnd - previous.sourceStart, current.sourceEnd - current.sourceStart);
+    assert.ok(shortest <= 0 || overlap / shortest <= 0.2);
+  }
   assert.ok(plan.segments.every((segment) => segment.confirmationTime - segment.sourceStart >= 8));
-  assert.ok(plan.segments.every((segment) => segment.sourceEnd >= segment.finishTime + 1.2));
+  assert.ok(plan.segments.every((segment) => segment.sourceEnd >= segment.finishTime + 0.2));
   assert.ok(plan.segments.every((segment) => (
     segment.finishFrameEvidence &&
     Math.abs(Number(segment.finishFrameEvidence.frameTime) - Number(segment.finishTime)) <= 2.5
@@ -1885,6 +1899,121 @@ test("valid-goals-only keeps distinct close confirmed goals even when source win
   assert.equal(outputGate.distinctGoalIdentity.passed, true);
   assert.equal(outputGate.renderedGoalVisibility.passed, true);
   assert.deepEqual(outputGate.missingGoalNumbers, []);
+});
+
+test("valid-goals-only preserves delayed score-confirmation goal phases under reference duration", () => {
+  const longMetadata = { durationSeconds: 764.52, width: 1920, height: 1080, hasAudio: true };
+  const truth = matchEventTruthFixture([
+    {
+      goalNumber: 1,
+      scoreBefore: "0-0",
+      scoreAfter: "1-0",
+      scoreChangeTime: 236.25,
+      sourceStart: 223.6,
+      sourceEnd: 238.6,
+      shotStart: 229.75,
+      payoffStart: 232.5,
+      payoffEnd: 234.25,
+      decisionStart: 236.25,
+      decisionEnd: 238.6,
+    },
+    {
+      goalNumber: 2,
+      scoreBefore: "1-0",
+      scoreAfter: "1-1",
+      scoreChangeTime: 472.15,
+      sourceStart: 461.35,
+      sourceEnd: 472.25,
+      shotStart: 467.5,
+      payoffStart: 470.5,
+      payoffEnd: 472,
+      decisionStart: 472.15,
+      decisionEnd: 472.25,
+    },
+    {
+      goalNumber: 3,
+      scoreBefore: "1-1",
+      scoreAfter: "2-1",
+      scoreChangeTime: 483.75,
+      sourceStart: 471.1,
+      sourceEnd: 486.1,
+      shotStart: 477.25,
+      payoffStart: 481,
+      payoffEnd: 483.25,
+      decisionStart: 483.75,
+      decisionEnd: 486.1,
+    },
+    {
+      goalNumber: 4,
+      scoreBefore: "2-1",
+      scoreAfter: "2-2",
+      scoreChangeTime: 558.45,
+      sourceStart: 532.25,
+      sourceEnd: 559.65,
+      shotStart: 536.35,
+      payoffStart: 537.3,
+      payoffEnd: 538.45,
+      decisionStart: 558.45,
+      decisionEnd: 559.65,
+      finishFrameTime: 538.45,
+    },
+    {
+      goalNumber: 5,
+      scoreBefore: "2-2",
+      scoreAfter: "3-2",
+      scoreChangeTime: 596.25,
+      sourceStart: 583.6,
+      sourceEnd: 598.6,
+      shotStart: 589.75,
+      payoffStart: 592.5,
+      payoffEnd: 594.25,
+      decisionStart: 596.25,
+      decisionEnd: 598.6,
+    },
+  ], longMetadata.durationSeconds);
+  truth.selectedEvents.forEach((event) => {
+    event.evidenceCodes.push(
+      "scoreboard_ocr_score_change",
+      "scoreboard_temporal_consistency",
+      "scoreboard_backed_goal_sequence",
+      "shot_sequence_support",
+      "live_shot_finish_sequence",
+    );
+  });
+
+  const plans = createCandidateEditPlans({
+    moments: [],
+    metadata: { ...longMetadata, goalSelectionMode: "valid_goals_only" },
+    transcript: { captions: [] },
+    matchEventTruth: truth,
+    title: "Delayed scoreboard confirmation fixture",
+    editIntensity: "balanced",
+    stylePreset: "punchy_highlight",
+  });
+  const plan = validateEditPlan(plans[0], longMetadata);
+  const goal4 = plan.segments.find((segment) => Number(segment.goalNumber) === 4);
+
+  assert.equal(plan.mode, "multi_moment_compilation");
+  assert.equal(plan.segments.length, 5);
+  assert.ok(plan.totalDuration >= 55 && plan.totalDuration <= 75);
+  assert.ok(plan.segments.every((segment) => segment.referenceGoalPacing === true));
+  assert.ok(goal4);
+  assert.equal(goal4.sourceStart <= 532.6, true);
+  assert.equal(goal4.finishTime, 538.45);
+  assert.equal(goal4.sourceEnd >= goal4.confirmationTime, true);
+  assert.equal(goal4.duration > 20, true);
+  assert.ok(plan.segments.every((segment) => segment.shotStart - segment.sourceStart >= 4));
+  assert.ok(plan.segments.every((segment) => segment.confirmationTime - segment.sourceStart >= 8));
+
+  const outputGate = assertVideoOutputCoverage({
+    editPlan: plan,
+    matchEventTruth: truth,
+    goalSelectionMode: "valid_goals_only",
+  });
+  assert.equal(outputGate.passed, true);
+  assert.equal(outputGate.coveredGoalCount, 5);
+  assert.deepEqual(outputGate.missingGoalNumbers, []);
+  assert.equal(outputGate.referenceStyleDuration.passed, true);
 });
 
 test("valid-goals-only deduplicates repeated confirmed goal identities before building reference proof", () => {

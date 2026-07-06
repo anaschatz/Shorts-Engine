@@ -35,6 +35,7 @@ const DEFAULT_SERVER_READY_TIMEOUT_MS = 15_000;
 const DEFAULT_SERVER_READY_POLL_INTERVAL_MS = 250;
 const MANUAL_DOWNLOADS_DIR = "manual-downloads";
 const LIVE_PROOF_SCHEMA_VERSION = 2;
+const STRICT_VISIBLE_GOAL_BASELINE_COUNT = 0;
 const KNOWN_EXPECTED_COUNTED_GOALS = Object.freeze({
   gxiRyFZXJV8: 3,
 });
@@ -779,6 +780,7 @@ function safeDoctorSummary(result) {
 
 function safeSmokeSummary(report) {
   if (!report || typeof report !== "object") return null;
+  const jobLifecycle = Array.isArray(report.jobLifecycle) ? report.jobLifecycle : [];
   return {
     status: report.status || null,
     source: report.source || null,
@@ -787,11 +789,139 @@ function safeSmokeSummary(report) {
     steps: Array.isArray(report.steps) ? report.steps : [],
     ids: report.ids || {},
     health: report.health || null,
-    jobLifecycle: Array.isArray(report.jobLifecycle) ? report.jobLifecycle : [],
-    renderPlan: report.renderPlan || null,
+    jobLifecycle: safeSmokeJobLifecycle(jobLifecycle),
+    jobLifecycleSummary: safeSmokeJobLifecycleSummary(jobLifecycle),
+    renderPlan: safeSmokeRenderPlanSummary(report.renderPlan),
     export: report.export || null,
     generatedArtifact: report.generatedArtifact || null,
     failedCases: Array.isArray(report.failedCases) ? report.failedCases : [],
+  };
+}
+
+function safeSmokeJobLifecycle(lifecycle = []) {
+  return lifecycle
+    .slice(-24)
+    .map((entry) => ({
+      id: safeString(entry && entry.id, 80),
+      status: safeString(entry && entry.status, 40) || null,
+      progress: safeNumber(entry && entry.progress),
+      step: safeString(entry && entry.step, 80) || null,
+      progressMeta: safeProgressMeta(entry && entry.progressMeta),
+      error: entry && entry.error
+        ? {
+            code: safeString(entry.error.code, 80) || null,
+            message: safeString(entry.error.message, 160) || null,
+          }
+        : null,
+      videoOutputQA: safeVideoOutputQASummary(entry && entry.videoOutputQA),
+    }));
+}
+
+function safeSmokeJobLifecycleSummary(lifecycle = []) {
+  const entries = Array.isArray(lifecycle) ? lifecycle : [];
+  const finalEntry = entries.length ? entries[entries.length - 1] : null;
+  const qaEntries = entries.filter((entry) => entry && entry.videoOutputQA);
+  return {
+    eventCount: entries.length,
+    retainedEventCount: Math.min(entries.length, 24),
+    finalStatus: safeString(finalEntry && finalEntry.status, 40) || null,
+    finalStep: safeString(finalEntry && finalEntry.step, 80) || null,
+    finalProgress: safeNumber(finalEntry && finalEntry.progress),
+    videoOutputQACount: qaEntries.length,
+    passedVideoOutputQACount: qaEntries.filter((entry) => entry.videoOutputQA && entry.videoOutputQA.status === "passed").length,
+    failedVideoOutputQACount: qaEntries.filter((entry) => entry.videoOutputQA && entry.videoOutputQA.status === "failed").length,
+  };
+}
+
+function safeVideoOutputQASummary(videoOutputQA) {
+  if (!videoOutputQA || typeof videoOutputQA !== "object" || Array.isArray(videoOutputQA)) return null;
+  const rendered = videoOutputQA.renderedGoalVisibility &&
+    typeof videoOutputQA.renderedGoalVisibility === "object"
+    ? videoOutputQA.renderedGoalVisibility
+    : null;
+  return {
+    status: safeString(videoOutputQA.status, 40) || null,
+    expectedGoalCount: safeNumber(videoOutputQA.expectedGoalCount),
+    actualConfirmedGoalSegmentCount: safeNumber(videoOutputQA.actualConfirmedGoalSegmentCount),
+    coveredGoalCount: safeNumber(videoOutputQA.coveredGoalCount),
+    humanVisibleGoalsClear: safeNumber(videoOutputQA.humanVisibleGoalsClear),
+    humanVisibleGoalsFailed: safeNumber(videoOutputQA.humanVisibleGoalsFailed),
+    missingGoalNumbers: Array.isArray(videoOutputQA.missingGoalNumbers)
+      ? videoOutputQA.missingGoalNumbers.map((value) => safeNumber(value)).filter((value) => value !== null).slice(0, 12)
+      : [],
+    failedReasons: safeStringList(videoOutputQA.failedReasons, 12, 100),
+    renderedGoalVisibility: rendered
+      ? {
+          passed: Boolean(rendered.passed),
+          clearGoalCount: safeNumber(rendered.clearGoalCount),
+          borderlineGoalCount: safeNumber(rendered.borderlineGoalCount),
+          failedGoalCount: safeNumber(rendered.failedGoalCount),
+        }
+      : null,
+  };
+}
+
+function safeSmokeRenderPlanSummary(plan) {
+  if (!plan || typeof plan !== "object" || Array.isArray(plan)) return null;
+  const segments = Array.isArray(plan.segments)
+    ? plan.segments.slice(0, 12).map((segment, index) => ({
+        index: index + 1,
+        id: safeString(segment && segment.id, 80),
+        goalNumber: safeNumber(segment && segment.goalNumber),
+        sourceStart: safeNumber(segment && segment.sourceStart),
+        shotStart: safeNumber(segment && segment.shotStart),
+        finishTime: safeNumber(segment && segment.finishTime),
+        confirmationTime: safeNumber(segment && segment.confirmationTime),
+        sourceEnd: safeNumber(segment && segment.sourceEnd),
+        duration: safeNumber(segment && segment.duration),
+        replayOnly: Boolean(segment && segment.replayOnly),
+        replayUsed: Boolean(segment && segment.replayUsed),
+        phaseCoverage: safePhaseCoverage(segment && segment.phaseCoverage),
+      }))
+    : [];
+  return {
+    mode: safeString(plan.mode || "", 60) || null,
+    highlightType: safeString(plan.highlightType || "", 60) || null,
+    goalSelectionMode: safeString(plan.goalSelectionMode || "", 60) || null,
+    totalDuration: safeNumber(plan.totalDuration),
+    segmentCount: segments.length,
+    segments,
+    captionCount: Array.isArray(plan.captions) ? plan.captions.length : 0,
+    transitionCount: Array.isArray(plan.transitionPlan) ? plan.transitionPlan.length : 0,
+    framingMode: safeString(plan.framingMode || "", 60) || null,
+    cropPlanMode: safeString(plan.cropPlan && plan.cropPlan.mode || "", 60) || null,
+    renderedGoalProof: safeRenderedGoalProof(plan.renderedGoalProof),
+    renderedGoalRebinding: safeRenderedGoalRebinding(plan.renderedGoalRebinding),
+    renderedGoalCompaction: safeRenderedGoalCompaction(plan.renderedGoalCompaction),
+    videoOutputQA: plan.videoOutputQA && typeof plan.videoOutputQA === "object"
+      ? {
+          status: safeString(plan.videoOutputQA.status || "", 40) || null,
+          expectedGoalCount: safeNumber(plan.videoOutputQA.expectedGoalCount),
+          actualConfirmedGoalSegmentCount: safeNumber(plan.videoOutputQA.actualConfirmedGoalSegmentCount),
+          coveredGoalCount: safeNumber(plan.videoOutputQA.coveredGoalCount),
+          missingGoalNumbers: Array.isArray(plan.videoOutputQA.missingGoalNumbers)
+            ? plan.videoOutputQA.missingGoalNumbers.map((value) => safeNumber(value)).filter((value) => value !== null).slice(0, 12)
+            : [],
+          failedReasons: safeStringList(plan.videoOutputQA.failedReasons, 12, 100),
+        }
+      : null,
+    visualPolishQA: plan.visualPolishQA && typeof plan.visualPolishQA === "object"
+      ? {
+          abruptCutRiskCount: safeNumber(plan.visualPolishQA.abruptCutRiskCount),
+          cutSmoothnessScore: safeNumber(plan.visualPolishQA.cutSmoothnessScore),
+          referencePacingScore: safeNumber(plan.visualPolishQA.referencePacingScore),
+          visualPolishScore: safeNumber(plan.visualPolishQA.visualPolishScore),
+        }
+      : null,
+    renderPolishQA: plan.renderPolishQA && typeof plan.renderPolishQA === "object"
+      ? {
+          renderStylePreset: safeString(plan.renderPolishQA.renderStylePreset || "", 80) || null,
+          transitionRenderedCount: safeNumber(plan.renderPolishQA.transitionRenderedCount),
+          hardCutFallbackCount: safeNumber(plan.renderPolishQA.hardCutFallbackCount),
+          dynamicWordCaptionCount: safeNumber(plan.renderPolishQA.dynamicWordCaptionCount),
+          visualPolishScore: safeNumber(plan.renderPolishQA.visualPolishScore),
+        }
+      : null,
   };
 }
 
@@ -826,6 +956,149 @@ function safeHumanVisibleGoalGate(value) {
           time: safeNumber(frame && frame.time),
         })).filter((frame) => frame.label && frame.time !== null)
       : [],
+  };
+}
+
+function safeRenderedGoalProof(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    schemaVersion: safeNumber(value.schemaVersion),
+    providerMode: value.providerMode ? safeString(value.providerMode, 80) : null,
+    goalCount: safeNumber(value.goalCount),
+    clearGoalCount: safeNumber(value.clearGoalCount),
+    borderlineGoalCount: safeNumber(value.borderlineGoalCount),
+    failedGoalCount: safeNumber(value.failedGoalCount),
+    contactSheetRef: value.contactSheetRef ? safeString(value.contactSheetRef, 180) : null,
+    goals: Array.isArray(value.goals)
+      ? value.goals.slice(0, 12).map((goal, index) => ({
+          goalNumber: safeNumber(goal && goal.goalNumber) ?? index + 1,
+          segmentIndex: safeNumber(goal && goal.segmentIndex),
+          verdict: goal && goal.verdict ? safeString(goal.verdict, 40) : null,
+          frameCount: safeNumber(goal && goal.frameCount),
+          candidateFrameCount: safeNumber(goal && goal.candidateFrameCount),
+          unverifiedFrameCount: safeNumber(goal && goal.unverifiedFrameCount),
+          failedFrameReasons: safeStringList(goal && goal.failedFrameReasons, 8, 80),
+          semanticSummary: goal && goal.semanticSummary && typeof goal.semanticSummary === "object"
+            ? {
+                providerMode: safeString(goal.semanticSummary.providerMode, 80),
+                clearFrameCount: safeNumber(goal.semanticSummary.clearFrameCount),
+                failedFrameCount: safeNumber(goal.semanticSummary.failedFrameCount),
+              }
+            : null,
+          timeline: goal && goal.timeline && typeof goal.timeline === "object"
+            ? {
+                timelineStart: safeNumber(goal.timeline.timelineStart),
+                preShot: safeNumber(goal.timeline.preShot),
+                finish: safeNumber(goal.timeline.finish),
+                payoff: safeNumber(goal.timeline.payoff),
+                confirmation: safeNumber(goal.timeline.confirmation),
+                timelineEnd: safeNumber(goal.timeline.timelineEnd),
+              }
+            : null,
+          frameRefs: Array.isArray(goal && goal.frameRefs)
+            ? goal.frameRefs.slice(0, 8).map((frame) => ({
+                role: frame && frame.role ? safeString(frame.role, 40) : null,
+                time: safeNumber(frame && frame.time),
+                status: frame && frame.status ? safeString(frame.status, 40) : null,
+                clear: Boolean(frame && frame.clear),
+                confidence: safeNumber(frame && frame.confidence),
+                reason: frame && frame.reason ? safeString(frame.reason, 80) : null,
+              })).filter((frame) => frame.role)
+            : [],
+        }))
+      : [],
+  };
+}
+
+function safeRenderedGoalRebinding(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    schemaVersion: safeNumber(value.schemaVersion),
+    providerMode: value.providerMode ? safeString(value.providerMode, 80) : null,
+    applied: Boolean(value.applied),
+    attemptCount: safeNumber(value.attemptCount),
+    maxAttemptCount: safeNumber(value.maxAttemptCount),
+    failedGoalCount: safeNumber(value.failedGoalCount),
+    reboundGoalCount: safeNumber(value.reboundGoalCount),
+    diagnostics: Array.isArray(value.diagnostics)
+      ? value.diagnostics.slice(0, 8).map((item, index) => ({
+          goalNumber: safeNumber(item && item.goalNumber),
+          segmentIndex: safeNumber(item && item.segmentIndex) ?? index + 1,
+          attemptNumber: safeNumber(item && item.attemptNumber),
+          original: item && item.original && typeof item.original === "object"
+            ? {
+                sourceStart: safeNumber(item.original.sourceStart),
+                shotStart: safeNumber(item.original.shotStart),
+                finishTime: safeNumber(item.original.finishTime),
+                confirmationTime: safeNumber(item.original.confirmationTime),
+                sourceEnd: safeNumber(item.original.sourceEnd),
+              }
+            : null,
+          rebindingSearchWindow: item && item.rebindingSearchWindow && typeof item.rebindingSearchWindow === "object"
+            ? {
+                start: safeNumber(item.rebindingSearchWindow.start),
+                end: safeNumber(item.rebindingSearchWindow.end),
+              }
+            : null,
+          selectedWindow: item && item.selectedWindow && typeof item.selectedWindow === "object"
+            ? {
+                sourceStart: safeNumber(item.selectedWindow.sourceStart),
+                shotStart: safeNumber(item.selectedWindow.shotStart),
+                finishTime: safeNumber(item.selectedWindow.finishTime),
+                confirmationTime: safeNumber(item.selectedWindow.confirmationTime),
+                sourceEnd: safeNumber(item.selectedWindow.sourceEnd),
+              }
+            : null,
+          failedRoles: Array.isArray(item && item.failedRoles)
+            ? item.failedRoles.slice(0, 8).map((role) => ({
+                role: role && role.role ? safeString(role.role, 40) : null,
+                status: role && role.status ? safeString(role.status, 40) : null,
+                reason: role && role.reason ? safeString(role.reason, 80) : null,
+                confidence: safeNumber(role && role.confidence),
+              })).filter((role) => role.role)
+            : [],
+          rejectedCandidateReasons: safeStringList(item && item.rejectedCandidateReasons, 8, 80),
+          rebindingChangedSegment: Boolean(item && item.rebindingChangedSegment),
+        }))
+      : [],
+    logsDownloaded: false,
+    artifactsDownloaded: false,
+  };
+}
+
+function safeRenderedGoalCompaction(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    schemaVersion: safeNumber(value.schemaVersion),
+    providerMode: value.providerMode ? safeString(value.providerMode, 80) : null,
+    applied: Boolean(value.applied),
+    originalTotalDuration: safeNumber(value.originalTotalDuration),
+    compactedTotalDuration: safeNumber(value.compactedTotalDuration),
+    targetMaxDuration: safeNumber(value.targetMaxDuration),
+    compactedGoalCount: safeNumber(value.compactedGoalCount),
+    diagnostics: Array.isArray(value.diagnostics)
+      ? value.diagnostics.slice(0, 8).map((item, index) => ({
+          goalNumber: safeNumber(item && item.goalNumber),
+          segmentIndex: safeNumber(item && item.segmentIndex) ?? index + 1,
+          original: item && item.original && typeof item.original === "object"
+            ? {
+                sourceStart: safeNumber(item.original.sourceStart),
+                sourceEnd: safeNumber(item.original.sourceEnd),
+                duration: safeNumber(item.original.duration),
+              }
+            : null,
+          selectedWindow: item && item.selectedWindow && typeof item.selectedWindow === "object"
+            ? {
+                sourceStart: safeNumber(item.selectedWindow.sourceStart),
+                sourceEnd: safeNumber(item.selectedWindow.sourceEnd),
+                duration: safeNumber(item.selectedWindow.duration),
+              }
+            : null,
+          preservedClearRoles: safeStringList(item && item.preservedClearRoles, 8, 40),
+        }))
+      : [],
+    logsDownloaded: false,
+    artifactsDownloaded: false,
   };
 }
 
@@ -880,11 +1153,49 @@ function countedGoalCoverageFromSmoke(smoke, source, env) {
   const qa = renderPlan.visualPolishQA && typeof renderPlan.visualPolishQA === "object"
     ? renderPlan.visualPolishQA
     : {};
+  const videoOutputQA = renderPlan.videoOutputQA && typeof renderPlan.videoOutputQA === "object"
+    ? renderPlan.videoOutputQA
+    : {};
+  const renderedVisibility = videoOutputQA.renderedGoalVisibility && typeof videoOutputQA.renderedGoalVisibility === "object"
+    ? videoOutputQA.renderedGoalVisibility
+    : {};
+  const renderedVisibilityAvailable = Number.isFinite(Number(renderedVisibility.humanVisibleGoalsClear)) ||
+    Number.isFinite(Number(renderedVisibility.clearGoalCount)) ||
+    typeof renderedVisibility.passed === "boolean";
   const segmentVisibleCount = segments.filter((segment) => segment.visualGoalGate && segment.visualGoalGate.passed === true).length;
-  const humanVisibleGoalsIncluded = Number.isFinite(Number(qa.humanVisibleGoalsIncluded))
-    ? Number(qa.humanVisibleGoalsIncluded)
-    : segmentVisibleCount;
-  const failedVisibleGoalSegments = Array.isArray(qa.failedVisibleGoalSegments)
+  const humanVisibleGoalsIncluded = Number.isFinite(Number(renderedVisibility.humanVisibleGoalsClear))
+    ? Number(renderedVisibility.humanVisibleGoalsClear)
+    : Number.isFinite(Number(renderedVisibility.clearGoalCount))
+      ? Number(renderedVisibility.clearGoalCount)
+      : Number.isFinite(Number(qa.humanVisibleGoalsIncluded))
+        ? Number(qa.humanVisibleGoalsIncluded)
+        : segmentVisibleCount;
+  const renderedFailedGoals = Array.isArray(renderedVisibility.failedGoals)
+    ? renderedVisibility.failedGoals
+    : [];
+  const failedVisibleGoalSegments = renderedVisibilityAvailable
+    ? renderedFailedGoals.map((goal, index) => ({
+        index: Number.isFinite(Number(goal.index)) ? Number(goal.index) : index + 1,
+        segmentId: safeString(goal.segmentId || "", 64) || null,
+        failureCode: goal.failureCode ? safeString(goal.failureCode, 60) : null,
+        confidence: safeNumber(goal.confidence),
+        evidence: goal.finishFrameEvidence && typeof goal.finishFrameEvidence === "object"
+          ? {
+              visibilityVerdict: safeString(goal.finishFrameEvidence.visibilityVerdict || "", 40) || null,
+              confidence: safeNumber(goal.finishFrameEvidence.confidence),
+              reasons: Array.isArray(goal.finishFrameEvidence.reasons)
+                ? goal.finishFrameEvidence.reasons.map((reason) => safeString(reason, 80)).filter(Boolean).slice(0, 8)
+                : [],
+            }
+          : null,
+        sampledFrames: Array.isArray(goal.contactSheetFrames)
+          ? goal.contactSheetFrames.slice(0, 8).map((frame) => ({
+              label: safeString(frame && frame.label, 40),
+              time: safeNumber(frame && frame.time),
+            })).filter((frame) => frame.label && frame.time !== null)
+          : [],
+      }))
+    : Array.isArray(qa.failedVisibleGoalSegments)
     ? qa.failedVisibleGoalSegments.map((segment, index) => ({
         index: Number.isFinite(Number(segment.index)) ? Number(segment.index) : index + 1,
         segmentId: safeString(segment.segmentId || "", 64) || null,
@@ -916,6 +1227,26 @@ function countedGoalCoverageFromSmoke(smoke, source, env) {
           evidence: segment.visualGoalGate ? segment.visualGoalGate.evidence : null,
           sampledFrames: segment.visualGoalGate ? segment.visualGoalGate.sampledFrames : [],
         }));
+  const renderedGoalGateByIndex = new Map((Array.isArray(renderedVisibility.goals) ? renderedVisibility.goals : []).map((goal) => [
+    Number(goal.index),
+    {
+      passed: Boolean(goal.passed),
+      confidence: safeNumber(goal.confidence),
+      failureCode: goal.failureCode ? safeString(goal.failureCode, 60) : null,
+      evidence: goal.finishFrameEvidence && typeof goal.finishFrameEvidence === "object"
+        ? {
+            visibilityVerdict: safeString(goal.finishFrameEvidence.visibilityVerdict || "", 40) || null,
+            confidence: safeNumber(goal.finishFrameEvidence.confidence),
+          }
+        : null,
+      sampledFrames: Array.isArray(goal.contactSheetFrames)
+        ? goal.contactSheetFrames.slice(0, 8).map((frame) => ({
+            label: safeString(frame && frame.label, 40),
+            time: safeNumber(frame && frame.time),
+          })).filter((frame) => frame.label && frame.time !== null)
+        : [],
+    },
+  ]));
   const failedGateByIndex = new Map(failedVisibleGoalSegments.map((segment) => [
     Number(segment.index),
     {
@@ -927,14 +1258,21 @@ function countedGoalCoverageFromSmoke(smoke, source, env) {
     },
   ]));
   const segmentWindows = segments.map((segment) => (
-    segment.visualGoalGate
+    renderedGoalGateByIndex.has(Number(segment.index))
+      ? {
+          ...segment,
+          visualGoalGate: renderedGoalGateByIndex.get(Number(segment.index)),
+        }
+      : segment.visualGoalGate
       ? segment
       : {
           ...segment,
           visualGoalGate: failedGateByIndex.get(Number(segment.index)) || null,
         }
   ));
-  const humanVisibleGoalRecall = Number.isFinite(Number(qa.humanVisibleGoalRecall))
+  const humanVisibleGoalRecall = renderedVisibilityAvailable && countedGoalsIncluded > 0
+    ? Number((humanVisibleGoalsIncluded / countedGoalsIncluded).toFixed(4))
+    : Number.isFinite(Number(qa.humanVisibleGoalRecall))
     ? Number(qa.humanVisibleGoalRecall)
     : countedGoalsIncluded > 0
       ? Number((humanVisibleGoalsIncluded / countedGoalsIncluded).toFixed(4))
@@ -956,6 +1294,15 @@ function countedGoalCoverageFromSmoke(smoke, source, env) {
 
 function referenceStyleQaFromSmoke(smoke, outputMp4 = null) {
   const renderPlan = smoke?.renderPlan && typeof smoke.renderPlan === "object" ? smoke.renderPlan : {};
+  const videoOutputQA = renderPlan.videoOutputQA && typeof renderPlan.videoOutputQA === "object"
+    ? renderPlan.videoOutputQA
+    : {};
+  const renderedVisibility = videoOutputQA.renderedGoalVisibility && typeof videoOutputQA.renderedGoalVisibility === "object"
+    ? videoOutputQA.renderedGoalVisibility
+    : {};
+  const renderedVisibilityAvailable = Number.isFinite(Number(renderedVisibility.humanVisibleGoalsClear)) ||
+    Number.isFinite(Number(renderedVisibility.clearGoalCount)) ||
+    typeof renderedVisibility.passed === "boolean";
   const qa = renderPlan.visualPolishQA ||
     (renderPlan.reviewMetadata && renderPlan.reviewMetadata.multiMoment && renderPlan.reviewMetadata.multiMoment.visualPolishQA) ||
     {};
@@ -981,13 +1328,43 @@ function referenceStyleQaFromSmoke(smoke, outputMp4 = null) {
     ? Number(qa.replayOnlySegments)
     : segments.filter((segment) => segment && segment.replayOnly === true).length;
   const countedGoalRecall = Number.isFinite(Number(qa.countedGoalRecall)) ? Number(qa.countedGoalRecall) : null;
-  const humanVisibleGoalsIncluded = Number.isFinite(Number(qa.humanVisibleGoalsIncluded))
-    ? Number(qa.humanVisibleGoalsIncluded)
-    : segments.filter((segment) => segment && segment.visualGoalGate && segment.visualGoalGate.passed === true).length;
-  const humanVisibleGoalRecall = Number.isFinite(Number(qa.humanVisibleGoalRecall)) ? Number(qa.humanVisibleGoalRecall) : null;
-  const passedVisualGate = typeof qa.passedVisualGate === "boolean" ? qa.passedVisualGate : null;
-  const failedVisibleGoalSegments = Array.isArray(qa.failedVisibleGoalSegments)
-    ? qa.failedVisibleGoalSegments.slice(0, 8).map((segment, index) => ({
+  const humanVisibleGoalsIncluded = Number.isFinite(Number(renderedVisibility.humanVisibleGoalsClear))
+    ? Number(renderedVisibility.humanVisibleGoalsClear)
+    : Number.isFinite(Number(renderedVisibility.clearGoalCount))
+      ? Number(renderedVisibility.clearGoalCount)
+      : Number.isFinite(Number(qa.humanVisibleGoalsIncluded))
+        ? Number(qa.humanVisibleGoalsIncluded)
+        : segments.filter((segment) => segment && segment.visualGoalGate && segment.visualGoalGate.passed === true).length;
+  const humanVisibleGoalRecall = renderedVisibilityAvailable && countedGoalRecall
+    ? Number((humanVisibleGoalsIncluded / Math.max(1, segments.length)).toFixed(4))
+    : Number.isFinite(Number(qa.humanVisibleGoalRecall)) ? Number(qa.humanVisibleGoalRecall) : null;
+  const passedVisualGate = renderedVisibilityAvailable
+    ? renderedVisibility.passed === true
+    : typeof qa.passedVisualGate === "boolean" ? qa.passedVisualGate : null;
+  const failedVisibleGoalSegments = renderedVisibilityAvailable && Array.isArray(renderedVisibility.failedGoals)
+    ? renderedVisibility.failedGoals.slice(0, 8).map((goal, index) => ({
+        index: Number.isFinite(Number(goal.index)) ? Number(goal.index) : index + 1,
+        segmentId: safeString(goal.segmentId || "", 64) || null,
+        failureCode: goal.failureCode ? safeString(goal.failureCode, 60) : null,
+        confidence: safeNumber(goal.confidence),
+        evidence: goal.finishFrameEvidence && typeof goal.finishFrameEvidence === "object"
+          ? {
+              visibilityVerdict: safeString(goal.finishFrameEvidence.visibilityVerdict || "", 40) || null,
+              confidence: safeNumber(goal.finishFrameEvidence.confidence),
+              reasons: Array.isArray(goal.finishFrameEvidence.reasons)
+                ? goal.finishFrameEvidence.reasons.map((reason) => safeString(reason, 80)).filter(Boolean).slice(0, 8)
+                : [],
+            }
+          : null,
+        sampledFrames: Array.isArray(goal.contactSheetFrames)
+          ? goal.contactSheetFrames.slice(0, 8).map((frame) => ({
+              label: safeString(frame && frame.label, 40),
+              time: safeNumber(frame && frame.time),
+            })).filter((frame) => frame.label && frame.time !== null)
+          : [],
+      }))
+    : Array.isArray(qa.failedVisibleGoalSegments)
+      ? qa.failedVisibleGoalSegments.slice(0, 8).map((segment, index) => ({
         index: Number.isFinite(Number(segment.index)) ? Number(segment.index) : index + 1,
         segmentId: safeString(segment.segmentId || "", 64) || null,
         failureCode: segment.failureCode ? safeString(segment.failureCode, 60) : null,
@@ -1008,7 +1385,7 @@ function referenceStyleQaFromSmoke(smoke, outputMp4 = null) {
             })).filter((frame) => frame.label && frame.time !== null)
           : [],
       }))
-    : [];
+      : [];
   const replayOnlyGoalRate = Number.isFinite(Number(qa.replayOnlyGoalRate)) ? Number(qa.replayOnlyGoalRate) : null;
   const excessiveTailCount = Number.isFinite(Number(qa.excessiveTailCount)) ? Number(qa.excessiveTailCount) : null;
   const excessiveTailRate = Number.isFinite(Number(qa.excessiveTailRate)) ? Number(qa.excessiveTailRate) : null;
@@ -1294,6 +1671,16 @@ function buildComparisonReadiness({ source, outputMp4, ffprobe, coverage, refere
   };
 }
 
+function measuredVisibilityImprovement(coveredGoalCount) {
+  const next = Number.isFinite(Number(coveredGoalCount)) ? Number(coveredGoalCount) : 0;
+  return {
+    baselineCoveredGoalCount: STRICT_VISIBLE_GOAL_BASELINE_COUNT,
+    newCoveredGoalCount: next,
+    improvementDelta: next - STRICT_VISIBLE_GOAL_BASELINE_COUNT,
+    baselineFailureStep: "verify_rendered_goal_visibility",
+  };
+}
+
 function buildOutputProof({ env, smoke, source, staleArtifactCleanup }) {
   const generatedArtifact = smoke?.generatedArtifact || null;
   const ffprobe = probeGeneratedMp4(generatedArtifact);
@@ -1327,6 +1714,9 @@ function buildOutputProof({ env, smoke, source, staleArtifactCleanup }) {
     ? smoke.renderPlan.countedGoalProof
     : null;
   const countedGoalProofSummary = countedGoalProof && countedGoalProof.summary ? countedGoalProof.summary : null;
+  const renderedGoalProof = safeRenderedGoalProof(smoke && smoke.renderPlan && smoke.renderPlan.renderedGoalProof);
+  const renderedGoalRebinding = safeRenderedGoalRebinding(smoke && smoke.renderPlan && smoke.renderPlan.renderedGoalRebinding);
+  const renderedGoalCompaction = safeRenderedGoalCompaction(smoke && smoke.renderPlan && smoke.renderPlan.renderedGoalCompaction);
   referenceStyleQA.countedGoalsExpected = coverage.expectedCountedGoals;
   referenceStyleQA.countedGoalsIncluded = coverage.countedGoalsIncluded;
   referenceStyleQA.humanVisibleGoalsIncluded = coverage.humanVisibleGoalsIncluded;
@@ -1344,6 +1734,7 @@ function buildOutputProof({ env, smoke, source, staleArtifactCleanup }) {
     ffprobe,
     countedGoalsFound: coverage.countedGoalsFound,
     countedGoalsIncluded: coverage.countedGoalsIncluded,
+    ...measuredVisibilityImprovement(coverage.humanVisibleGoalsIncluded),
     humanVisibleGoalsIncluded: coverage.humanVisibleGoalsIncluded,
     humanVisibleGoalRecall: coverage.humanVisibleGoalRecall,
     passedVisualGate: coverage.passedVisualGate,
@@ -1398,6 +1789,9 @@ function buildOutputProof({ env, smoke, source, staleArtifactCleanup }) {
     referenceStyleQA,
     renderPolishQA,
     renderedSocialPolishQA,
+    renderedGoalProof,
+    renderedGoalRebinding,
+    renderedGoalCompaction,
     visualFrameQA,
     actionFramingVerdict: renderedSocialPolishQA.renderedActionFraming || null,
     referenceStyleComparisonSummary: renderedSocialPolishQA.referenceStyleComparison || null,
@@ -1651,6 +2045,26 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
       smokeFailure.step === "run_scoreboard_ocr" ||
       (typeof smokeFailure.substep === "string" && smokeFailure.substep.startsWith("scorebug_")));
   const outputQA = latestVideoOutputQAFromSmoke(smoke);
+  const renderedGoalProof = safeRenderedGoalProof(
+    latestSmokeJob && latestSmokeJob.renderedGoalProof ||
+      latestSmokeJob && latestSmokeJob.renderPlanSummary && latestSmokeJob.renderPlanSummary.renderedGoalProof ||
+      smokeFailure && smokeFailure.currentJob && smokeFailure.currentJob.renderedGoalProof ||
+      smokeFailure && smokeFailure.currentJob && smokeFailure.currentJob.renderPlanSummary && smokeFailure.currentJob.renderPlanSummary.renderedGoalProof,
+  );
+  const renderedGoalRebinding = safeRenderedGoalRebinding(
+    latestSmokeJob && latestSmokeJob.renderedGoalRebinding ||
+      latestSmokeJob && latestSmokeJob.renderPlanSummary && latestSmokeJob.renderPlanSummary.renderedGoalRebinding ||
+      smokeFailure && smokeFailure.currentJob && smokeFailure.currentJob.renderedGoalRebinding ||
+      smokeFailure && smokeFailure.currentJob && smokeFailure.currentJob.renderPlanSummary && smokeFailure.currentJob.renderPlanSummary.renderedGoalRebinding ||
+      outputQA && outputQA.renderedGoalRebinding,
+  );
+  const renderedGoalCompaction = safeRenderedGoalCompaction(
+    latestSmokeJob && latestSmokeJob.renderedGoalCompaction ||
+      latestSmokeJob && latestSmokeJob.renderPlanSummary && latestSmokeJob.renderPlanSummary.renderedGoalCompaction ||
+      smokeFailure && smokeFailure.currentJob && smokeFailure.currentJob.renderedGoalCompaction ||
+      smokeFailure && smokeFailure.currentJob && smokeFailure.currentJob.renderPlanSummary && smokeFailure.currentJob.renderPlanSummary.renderedGoalCompaction ||
+      outputQA && outputQA.renderedGoalCompaction,
+  );
   const outputExpectedGoalCount = Number.isFinite(Number(outputQA?.expectedGoalCount))
     ? Number(outputQA.expectedGoalCount)
     : null;
@@ -1785,6 +2199,7 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
     countedGoalsFound,
     countedGoalsIncluded: actualConfirmedGoalSegmentCount,
     actualConfirmedGoalSegmentCount,
+    ...measuredVisibilityImprovement(coveredGoalCount),
     coveredGoalCount,
     missingGoalNumbers: Array.isArray(outputQA?.missingGoalNumbers) ? outputQA.missingGoalNumbers : [],
     failedReasons: Array.isArray(outputQA?.failedReasons) ? outputQA.failedReasons : [],
@@ -1811,6 +2226,9 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
     expectedCountedGoals,
     replayOnlySegments: 0,
     videoOutputQA: outputQA,
+    renderedGoalProof,
+    renderedGoalRebinding,
+    renderedGoalCompaction,
     segmentWindows: [],
     goalDiscovery: safeGoalDiscovery,
     staleArtifactCleanup,
@@ -2035,6 +2453,15 @@ function buildReport({
   const normalizedOutputProof = outputProof || (status === "failed"
     ? buildFailedOutputProof({ env: env || {}, source, smoke, serverEvents, staleArtifactCleanup })
     : null);
+  const normalizedGeneratedArtifact = normalizedOutputProof?.outputMp4
+    ? {
+        ...(smoke?.generatedArtifact || {}),
+        ...normalizedOutputProof.outputMp4,
+        durationSeconds: normalizedOutputProof.ffprobe?.durationSeconds ?? smoke?.generatedArtifact?.durationSeconds ?? null,
+        width: normalizedOutputProof.ffprobe?.width ?? smoke?.generatedArtifact?.width ?? null,
+        height: normalizedOutputProof.ffprobe?.height ?? smoke?.generatedArtifact?.height ?? null,
+      }
+    : smoke?.generatedArtifact || null;
   const safeServerEvents = sanitizeServerEvents(serverEvents);
   return safeReport({
     schemaVersion: LIVE_PROOF_SCHEMA_VERSION,
@@ -2054,7 +2481,7 @@ function buildReport({
     triage: buildTriage({ checks, doctor, envSummary, failedCases, status }),
     doctor: safeDoctorSummary(doctor),
     smoke: safeSmokeSummary(smoke),
-    generatedArtifact: smoke?.generatedArtifact || null,
+    generatedArtifact: normalizedGeneratedArtifact,
     outputProof: normalizedOutputProof,
     currentJob: status === "failed" ? currentJobFromContext({ smoke, serverEvents: safeServerEvents }) : null,
     staleArtifactCleanup: staleArtifactCleanup || null,
@@ -2911,7 +3338,7 @@ if (isMainModule()) {
     const report = await runYouTubeLiveE2E({ commandName, timeoutMs: timeout });
     const written = writeYouTubeLiveE2EReport(report);
     console.log(JSON.stringify({ status: report.status, failedCases: report.failedCases, ...written }, null, 2));
-    if (report.status === "failed") process.exitCode = 1;
+    if (written.status === "failed") process.exitCode = 1;
   }
 }
 

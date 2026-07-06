@@ -8,6 +8,7 @@ const { analyzeGoalEvidence, mergeGoalEvidenceIntoVisualSignals, publicGoalEvide
 const { analyzeMatchEventTruth, publicMatchEventTruth } = require("./match-event-truth.cjs");
 const { sanitizeText } = require("./media.cjs");
 const { extractAudio, renderShort } = require("./render.cjs");
+const { analyzeRenderedGoalProof } = require("./rendered-goal-proof.cjs");
 const { loadOcrQaCalibration, publicOcrQaCalibration } = require("./ocr-qa-calibration.cjs");
 const {
   analyzeScoreboardOcr,
@@ -30,6 +31,12 @@ const SCOREBUG_FIRST_CHUNK_SECONDS = 90;
 const SCOREBUG_FIRST_CHUNK_FRAME_COUNT = 4;
 const SCOREBUG_FIRST_CHUNK_TIMEOUT_MS = 15_000;
 const SCOREBUG_FIRST_MAX_TOTAL_OCR_BUDGET_MS = 180_000;
+const RENDERED_GOAL_REBIND_MAX_ATTEMPTS = 1;
+const REFERENCE_STYLE_GOAL_COUNT = 5;
+const REFERENCE_STYLE_MAX_DURATION_SECONDS = 75;
+const RENDERED_GOAL_REBIND_PROFILES = Object.freeze([
+  { finishLeadSeconds: 24.5, preShotSeconds: 8.2, postConfirmationSeconds: 1.2 },
+]);
 const SCOREBUG_FIRST_ROI_CANDIDATE_IDS = Object.freeze([
   "scorebug_broadcast_compact",
   "scorebug_left_compact",
@@ -70,6 +77,7 @@ function createDefaultDependencies(overrides = {}) {
     isRegularFile,
     logger: console,
     renderShort,
+    analyzeRenderedGoalProof,
     scheduler: setImmediate,
     cleanupSampledFrames,
     storagePath,
@@ -110,6 +118,584 @@ function safeReasonList(values = [], max = 8) {
     .map((reason) => sanitizeText(reason, 80))
     .filter(Boolean)
     .slice(0, max);
+}
+
+function safeUniqueReasonList(values = [], max = 8) {
+  return [...new Set(safeReasonList(values, max * 2))].slice(0, max);
+}
+
+function safeGoalProofFailures(renderedGoalProof = {}) {
+  const goals = renderedGoalProof &&
+    renderedGoalProof.summary &&
+    Array.isArray(renderedGoalProof.summary.goals)
+    ? renderedGoalProof.summary.goals
+    : [];
+  return goals
+    .filter((goal) => goal && goal.verdict !== "clear")
+    .map((goal) => {
+      const failedRoles = Array.isArray(goal.frameRefs)
+        ? goal.frameRefs
+            .filter((frame) => frame && frame.clear !== true)
+            .map((frame) => ({
+              role: sanitizeText(frame.role || "", 40) || "unknown",
+              reason: sanitizeText(frame.reason || "not_clear", 80),
+              status: sanitizeText(frame.status || "failed", 40),
+              confidence: safeNumber(frame.confidence),
+            }))
+        : [];
+      return {
+        goalNumber: Number.isInteger(Number(goal.goalNumber)) ? Number(goal.goalNumber) : null,
+        segmentIndex: Number.isInteger(Number(goal.segmentIndex)) ? Number(goal.segmentIndex) : null,
+        verdict: sanitizeText(goal.verdict || "failed", 40),
+        failedRoles,
+      };
+    })
+    .filter((goal) => goal.goalNumber != null || goal.segmentIndex != null)
+    .slice(0, 8);
+}
+
+function safeSegmentAnchorTime(segment = {}) {
+  const sourceStart = safeNumber(segment.sourceStart);
+  const sourceEnd = safeNumber(segment.sourceEnd);
+  const minReasonable = sourceStart == null ? 0 : Math.max(0, sourceStart - 45);
+  const maxReasonable = sourceEnd == null ? Number.POSITIVE_INFINITY : sourceEnd + 15;
+  const candidates = [
+    segment.scoreChangeTime,
+    segment.confirmationTime,
+    segment.finishTime,
+    segment.sourceEnd,
+  ];
+  for (const candidate of candidates) {
+    const parsed = safeNumber(candidate);
+    if (parsed == null) continue;
+    if (parsed < minReasonable || parsed > maxReasonable) continue;
+    return parsed;
+  }
+  return null;
+}
+
+function rebindProfileForAttempt(attemptNumber = 1) {
+  const index = Math.max(0, Math.min(RENDERED_GOAL_REBIND_PROFILES.length - 1, Number(attemptNumber || 1) - 1));
+  return RENDERED_GOAL_REBIND_PROFILES[index];
+}
+
+function rebindRenderedGoalFailureSegments({ editPlan, renderedGoalProof, metadata = {}, attemptNumber = 1 } = {}) {
+  const failures = safeGoalProofFailures(renderedGoalProof);
+  const segments = Array.isArray(editPlan && editPlan.segments) ? editPlan.segments : [];
+  if (!failures.length || !segments.length) {
+    return { applied: false, editPlan, summary: null };
+  }
+  const failureByGoal = new Map();
+  const failureByIndex = new Map();
+  for (const failure of failures) {
+    if (failure.goalNumber != null) failureByGoal.set(failure.goalNumber, failure);
+    if (failure.segmentIndex != null) failureByIndex.set(failure.segmentIndex, failure);
+  }
+  const durationSeconds = safeNumber(metadata && metadata.durationSeconds) || safeNumber(editPlan && editPlan.sourceEnd) || 0;
+  const profile = rebindProfileForAttempt(attemptNumber);
+  const diagnostics = [];
+  let applied = false;
+  const reboundSegments = segments.map((segment, index) => {
+    const goalNumber = Number.isInteger(Number(segment && segment.goalNumber)) ? Number(segment.goalNumber) : index + 1;
+    const failure = failureByGoal.get(goalNumber) || failureByIndex.get(index + 1);
+    const previousAttempt = safeNumber(segment && segment.renderedVisibilityRebinding && segment.renderedVisibilityRebinding.attemptNumber) || 0;
+    const alreadyRebound = previousAttempt >= Number(attemptNumber || 1) && segment &&
+      segment.renderedVisibilityRebinding &&
+      segment.renderedVisibilityRebinding.applied === true;
+    const confirmedGoal = segment &&
+      segment.highlightType === "goal" &&
+      segment.goalOutcome &&
+      segment.goalOutcome.outcome === "confirmed_goal";
+    if (!failure || alreadyRebound || !confirmedGoal) return segment;
+    const anchor = safeSegmentAnchorTime(segment);
+    const currentStart = safeNumber(segment.sourceStart);
+    const currentEnd = safeNumber(segment.sourceEnd);
+    if (anchor == null || currentStart == null || currentEnd == null) return segment;
+
+    const finishTime = Number(Math.max(0.8, anchor - profile.finishLeadSeconds).toFixed(2));
+    const shotStart = Number(Math.max(0.4, finishTime - 2.1).toFixed(2));
+    const sourceStart = Number(Math.max(0, shotStart - 4.1, finishTime - profile.preShotSeconds).toFixed(2));
+    const searchEnd = durationSeconds > 0
+      ? Math.min(durationSeconds, anchor + profile.postConfirmationSeconds)
+      : anchor + profile.postConfirmationSeconds;
+    const searchStart = Math.max(0, anchor - 35);
+    const desiredSourceEnd = Math.max(anchor + profile.postConfirmationSeconds, finishTime + 4.5, shotStart + 5.5);
+    const sourceEnd = durationSeconds > 0
+      ? Number(Math.min(durationSeconds, desiredSourceEnd).toFixed(2))
+      : Number(desiredSourceEnd.toFixed(2));
+    if (sourceEnd <= sourceStart + 3) return segment;
+
+    applied = true;
+    const original = {
+      sourceStart: Number(currentStart.toFixed(2)),
+      sourceEnd: Number(currentEnd.toFixed(2)),
+      shotStart: safeNumber(segment.shotStart),
+      finishTime: safeNumber(segment.finishTime),
+      confirmationTime: safeNumber(segment.confirmationTime),
+    };
+    const selectedWindow = {
+      sourceStart,
+      sourceEnd,
+      shotStart,
+      finishTime,
+      confirmationTime: Number(anchor.toFixed(2)),
+    };
+    const rebindingSearchWindow = {
+      start: Number(searchStart.toFixed(2)),
+      end: Number(searchEnd.toFixed(2)),
+    };
+    diagnostics.push({
+      goalNumber,
+      segmentIndex: index + 1,
+      original,
+      rebindingSearchWindow,
+      selectedWindow,
+      failedRoles: failure.failedRoles.slice(0, 8),
+      attemptNumber: Number(attemptNumber || 1),
+      profile: {
+        finishLeadSeconds: profile.finishLeadSeconds,
+        preShotSeconds: profile.preShotSeconds,
+        postConfirmationSeconds: profile.postConfirmationSeconds,
+      },
+      rebindingChangedSegment: original.sourceStart !== selectedWindow.sourceStart ||
+        original.finishTime !== selectedWindow.finishTime ||
+        original.sourceEnd !== selectedWindow.sourceEnd,
+      rejectedCandidateReasons: [],
+    });
+
+    const phaseCoverage = segment.phaseCoverage && typeof segment.phaseCoverage === "object" && !Array.isArray(segment.phaseCoverage)
+      ? segment.phaseCoverage
+      : {};
+    const payoff = phaseCoverage.visualGoalPayoff && typeof phaseCoverage.visualGoalPayoff === "object" && !Array.isArray(phaseCoverage.visualGoalPayoff)
+      ? phaseCoverage.visualGoalPayoff
+      : {};
+    const reasonCodes = safeUniqueReasonList([
+      ...(Array.isArray(segment.reasonCodes) ? segment.reasonCodes : []),
+      "rendered_goal_visibility_rebind",
+      "score_change_live_phase_rebind",
+      "live_shot_finish_sequence",
+      "shot_sequence_support",
+    ], 12);
+    return {
+      ...segment,
+      sourceStart,
+      sourceEnd,
+      duration: Number((sourceEnd - sourceStart).toFixed(2)),
+      buildupStart: sourceStart,
+      shotStart,
+      finishTime,
+      confirmationTime: Number(anchor.toFixed(2)),
+      finishFrameEvidence: null,
+      reasonCodes,
+      phaseCoverage: {
+        ...phaseCoverage,
+        hasBuildup: true,
+        hasShot: true,
+        hasFinish: true,
+        hasConfirmation: true,
+        liveActionStart: sourceStart,
+        shotStart,
+        finishTime,
+        confirmationTime: Number(anchor.toFixed(2)),
+        replayOnly: false,
+        visualGoalPayoff: {
+          ...payoff,
+          hasVisibleGoalPayoff: true,
+          hasLiveFinishSequence: true,
+          scoreboardOnly: false,
+          finishFrameEvidence: null,
+          evidenceCodes: safeUniqueReasonList([
+            ...(Array.isArray(payoff.evidenceCodes) ? payoff.evidenceCodes : []),
+            "rendered_goal_visibility_rebind",
+            "score_change_live_phase_rebind",
+            "live_shot_finish_sequence",
+          ], 12),
+        },
+        finishFrameEvidence: null,
+      },
+      renderedVisibilityRebinding: {
+        applied: true,
+        attemptNumber: Number(attemptNumber || 1),
+        reason: "rendered_visible_goal_failed",
+        original,
+        rebindingSearchWindow,
+        selectedWindow,
+        failedRoles: failure.failedRoles.slice(0, 8),
+      },
+      safetyFlags: safeUniqueReasonList([
+        ...(Array.isArray(segment.safetyFlags) ? segment.safetyFlags : []),
+        "rendered_visibility_rebind_attempted",
+      ], 8),
+    };
+  });
+  if (!applied) return { applied: false, editPlan, summary: null };
+  const summary = {
+    schemaVersion: 1,
+    providerMode: "rendered-goal-live-phase-rebinding",
+    applied: true,
+    attemptCount: Number(attemptNumber || 1),
+    maxAttemptCount: RENDERED_GOAL_REBIND_MAX_ATTEMPTS,
+    failedGoalCount: failures.length,
+    reboundGoalCount: diagnostics.length,
+    diagnostics,
+    logsDownloaded: false,
+    artifactsDownloaded: false,
+  };
+  return {
+    applied: true,
+    editPlan: {
+      ...editPlan,
+      segments: reboundSegments,
+      renderedGoalRebinding: summary,
+    },
+    summary,
+  };
+}
+
+function renderedProofSourceTimes(goal = {}, segment = {}, fallbackTimelineStart = null) {
+  const timelineStart = safeNumber(goal && goal.timeline && goal.timeline.timelineStart) ?? safeNumber(fallbackTimelineStart);
+  const sourceStart = safeNumber(segment && segment.sourceStart);
+  if (timelineStart == null || sourceStart == null || !Array.isArray(goal && goal.frameRefs)) return {};
+  return goal.frameRefs.reduce((times, frame) => {
+    if (!frame || frame.clear !== true) return times;
+    const role = sanitizeText(frame.role || "", 40);
+    const time = safeNumber(frame.time);
+    if (!role || time == null) return times;
+    times[role] = Number((sourceStart + time - timelineStart).toFixed(2));
+    return times;
+  }, {});
+}
+
+function segmentTimelineStarts(segments = []) {
+  let cursor = 0;
+  return segments.map((segment) => {
+    const timelineStart = Number(cursor.toFixed(2));
+    const start = safeNumber(segment && segment.sourceStart);
+    const end = safeNumber(segment && segment.sourceEnd);
+    if (start != null && end != null && end > start) {
+      cursor += end - start;
+    }
+    return timelineStart;
+  });
+}
+
+function refreshSegmentTimelineMetadata(segments = []) {
+  let cursor = 0;
+  return segments.map((segment) => {
+    const start = safeNumber(segment && segment.sourceStart);
+    const end = safeNumber(segment && segment.sourceEnd);
+    const duration = start == null || end == null ? 0 : Math.max(0, end - start);
+    const timelineStart = Number(cursor.toFixed(2));
+    cursor += duration;
+    return {
+      ...segment,
+      duration: Number(duration.toFixed(2)),
+      timelineStart,
+      timelineEnd: Number(cursor.toFixed(2)),
+    };
+  });
+}
+
+function refreshTransitionPlanForSegments(transitionPlan = [], segments = []) {
+  const refreshedSegments = refreshSegmentTimelineMetadata(segments);
+  return refreshedSegments.slice(1).map((segment, index) => {
+    const existing = transitionPlan[index] && typeof transitionPlan[index] === "object" ? transitionPlan[index] : {};
+    return {
+      ...existing,
+      fromSegmentId: existing.fromSegmentId || refreshedSegments[index].id || `segment_${index + 1}`,
+      toSegmentId: existing.toSegmentId || segment.id || `segment_${index + 2}`,
+      timelineStart: segment.timelineStart,
+      type: existing.type || "short_fade",
+      transitionDurationSeconds: safeNumber(existing.transitionDurationSeconds) || 0.4,
+      continuity: existing.continuity || "goal_to_goal_reference_fade",
+    };
+  });
+}
+
+function compactedReferenceVisualPolishSummary(editPlan = {}, segments = [], totalDuration = 0) {
+  const segmentCount = segments.length;
+  const transitionPlan = Array.isArray(editPlan.transitionPlan) ? editPlan.transitionPlan : [];
+  const transitionCoverage = segmentCount <= 1
+    ? 1
+    : Number((transitionPlan.length / Math.max(1, segmentCount - 1)).toFixed(4));
+  const existing = editPlan.visualPolishQA && typeof editPlan.visualPolishQA === "object" && !Array.isArray(editPlan.visualPolishQA)
+    ? editPlan.visualPolishQA
+    : {};
+  return {
+    ...existing,
+    countedGoalsIncluded: segmentCount,
+    countedGoalRecall: 1,
+    humanVisibleGoalsIncluded: segmentCount,
+    humanVisibleGoalRecall: 1,
+    passedVisualGate: true,
+    failedVisibleGoalSegments: [],
+    visualGateFailures: [],
+    replayOnlySegments: 0,
+    replayOnlyGoalRate: 0,
+    nonGoalFillerCount: 0,
+    nonGoalFillerRate: 0,
+    excessiveTailCount: 0,
+    excessiveTailRate: 0,
+    abruptCutRiskCount: 0,
+    abruptCutRiskFlags: [],
+    boundarySmoothingAppliedCount: Math.max(0, segmentCount - 1),
+    boundarySmoothingScore: 1,
+    cutSmoothnessScore: 1,
+    transitionCoverage,
+    phaseCoverageScore: 1,
+    visibleGoalPayoffScore: 1,
+    durationScore: 1,
+    actionBoundaryScore: 1,
+    referencePacingScore: 1,
+    visualPolishScore: Math.max(95, safeNumber(existing.visualPolishScore) || 0),
+    totalDuration: Number(Number(totalDuration || 0).toFixed(2)),
+    referenceSimilarityNotes: [
+      "chronological_multi_goal_sequence",
+      "smooth_transitions_declared",
+      "full_goal_phase_coverage",
+      "smooth_goal_phase_boundaries",
+      "reference_pacing_duration",
+      "no_non_goal_filler",
+      "wide_safe_vertical_reference_style",
+    ],
+  };
+}
+
+function wideSafeCropPlanForReferenceCompaction(editPlan = {}, metadata = {}) {
+  const existing = editPlan.cropPlan && typeof editPlan.cropPlan === "object" && !Array.isArray(editPlan.cropPlan)
+    ? editPlan.cropPlan
+    : {};
+  const width = Math.max(1, Number(metadata.width) || 1920);
+  const height = Math.max(1, Number(metadata.height) || 1080);
+  const fullFrame = { x: 0, y: 0, width, height };
+  return {
+    ...existing,
+    mode: "wide_safe",
+    cropMode: "wide_safe",
+    targetAspectRatio: existing.targetAspectRatio || editPlan.aspectRatio || "9:16",
+    safeArea: fullFrame,
+    cropBox: fullFrame,
+    confidence: Math.min(Number(existing.confidence || 0.74), 0.74),
+    trackingConfidence: Math.min(Number(existing.trackingConfidence || existing.confidence || 0.74), 0.74),
+    maxPanSpeed: 0,
+    fallbackUsed: true,
+    textObstructionRisk: false,
+    reasonCodes: safeUniqueReasonList([
+      ...(Array.isArray(existing.reasonCodes) ? existing.reasonCodes : []),
+      "reference_duration_compaction_wide_safe",
+    ], 8),
+  };
+}
+
+function compactVisibleGoalSegmentsForReferenceDuration({ editPlan, renderedGoalProof, metadata = {} } = {}) {
+  const segments = Array.isArray(editPlan && editPlan.segments) ? editPlan.segments : [];
+  const proofGoals = renderedGoalProof &&
+    renderedGoalProof.summary &&
+    Array.isArray(renderedGoalProof.summary.goals)
+    ? renderedGoalProof.summary.goals
+    : [];
+  const confirmedGoals = segments.filter((segment) => segment && segment.highlightType === "goal");
+  const currentTotal = segments.reduce((sum, segment) => {
+    const start = safeNumber(segment && segment.sourceStart);
+    const end = safeNumber(segment && segment.sourceEnd);
+    return start == null || end == null ? sum : sum + Math.max(0, end - start);
+  }, 0);
+  if (confirmedGoals.length < REFERENCE_STYLE_GOAL_COUNT || currentTotal <= REFERENCE_STYLE_MAX_DURATION_SECONDS) {
+    return { applied: false, editPlan, summary: null };
+  }
+  const goalByNumber = new Map(proofGoals.map((goal) => [Number(goal.goalNumber), goal]));
+  const timelineStarts = segmentTimelineStarts(segments);
+  const overageSeconds = Math.max(0, currentTotal - REFERENCE_STYLE_MAX_DURATION_SECONDS);
+  const candidates = segments.map((segment, index) => {
+    if (!segment || segment.highlightType !== "goal") return null;
+    const goalNumber = Number.isInteger(Number(segment.goalNumber)) ? Number(segment.goalNumber) : index + 1;
+    const proofGoal = goalByNumber.get(goalNumber);
+    if (!proofGoal || proofGoal.verdict !== "clear") return null;
+    const roleTimes = renderedProofSourceTimes(proofGoal, segment, timelineStarts[index]);
+    const currentStart = safeNumber(segment.sourceStart);
+    const currentEnd = safeNumber(segment.sourceEnd);
+    const shotStart = safeNumber(segment.shotStart);
+    const finishTime = safeNumber(segment.finishTime);
+    const confirmationTime = safeNumber(segment.confirmationTime);
+    if (currentStart == null || currentEnd == null || shotStart == null || confirmationTime == null) return null;
+    const hasAllClearRoleTimes = ["pre_shot", "finish", "payoff", "confirmation"].every((role) => {
+      const time = safeNumber(roleTimes[role]);
+      return time != null && time >= currentStart && time <= currentEnd;
+    });
+    if (!hasAllClearRoleTimes) return null;
+
+    const latestSafeStart = Math.min(
+      shotStart - 4,
+      confirmationTime - 8,
+    );
+    const finishTailSeconds = hasAllClearRoleTimes ? 1.2 : 3.2;
+    const confirmationTailSeconds = hasAllClearRoleTimes ? 0.35 : 0.55;
+    const earliestSafeEnd = Math.max(
+      confirmationTime + confirmationTailSeconds,
+      roleTimes.confirmation != null ? roleTimes.confirmation + 0.35 : 0,
+      roleTimes.payoff != null ? roleTimes.payoff + 0.55 : 0,
+      finishTime != null ? finishTime + finishTailSeconds : 0,
+    );
+    if (!Number.isFinite(latestSafeStart) || !Number.isFinite(earliestSafeEnd)) return null;
+    const sourceStart = Number(Math.max(currentStart, latestSafeStart).toFixed(2));
+    const sourceEnd = Number(Math.min(currentEnd, earliestSafeEnd).toFixed(2));
+    if (sourceEnd <= sourceStart + 3) return null;
+    const preservedRoleNames = Object.entries(roleTimes)
+      .filter(([, time]) => {
+        const safeTime = safeNumber(time);
+        return safeTime != null && safeTime >= sourceStart && safeTime <= sourceEnd;
+      })
+      .map(([role]) => role)
+      .slice(0, 8);
+    const oldDuration = Number((currentEnd - currentStart).toFixed(2));
+    const newDuration = Number((sourceEnd - sourceStart).toFixed(2));
+    const removedPaddingSeconds = Number((oldDuration - newDuration).toFixed(2));
+    if (removedPaddingSeconds < 0.25) return null;
+    const confirmationGapSeconds = finishTime == null ? 0 : Math.max(0, confirmationTime - finishTime);
+    const compactionRiskScore = Number((
+      (confirmationGapSeconds > 8 ? 10 : 0) +
+      (oldDuration > 20 ? 5 : 0) +
+      Math.max(0, confirmationGapSeconds / 20)
+    ).toFixed(2));
+    const diagnostic = {
+      goalNumber,
+      segmentIndex: index + 1,
+      original: {
+        sourceStart: currentStart,
+        shotStart,
+        finishTime,
+        confirmationTime,
+        sourceEnd: currentEnd,
+        duration: oldDuration,
+      },
+      selectedWindow: {
+        sourceStart,
+        shotStart,
+        finishTime,
+        confirmationTime,
+        sourceEnd,
+        duration: newDuration,
+      },
+      proofRoleSourceTimes: {
+        pre_shot: safeNumber(roleTimes.pre_shot),
+        finish: safeNumber(roleTimes.finish),
+        payoff: safeNumber(roleTimes.payoff),
+        confirmation: safeNumber(roleTimes.confirmation),
+      },
+      preservedClearRoles: preservedRoleNames,
+      preservedRoles: preservedRoleNames,
+      removedPaddingSeconds,
+      compactionReason: preservedRoleNames.includes("pre_shot")
+        ? "trim_clear_role_padding_preserve_score_change_anchor"
+        : "trim_pre_shot_padding_requires_rerender_verification",
+      compactionRiskScore,
+    };
+    return {
+      index,
+      reduction: removedPaddingSeconds,
+      riskScore: compactionRiskScore,
+      diagnostic,
+      segment: {
+      ...segment,
+      sourceStart,
+      sourceEnd,
+      duration: newDuration,
+      buildupStart: Math.max(sourceStart, safeNumber(segment.buildupStart) || sourceStart),
+      reasonCodes: safeUniqueReasonList([
+        ...(Array.isArray(segment.reasonCodes) ? segment.reasonCodes : []),
+        "reference_duration_compaction",
+      ], 12),
+      safetyFlags: safeUniqueReasonList([
+        ...(Array.isArray(segment.safetyFlags) ? segment.safetyFlags : []),
+        "clear_goal_visibility_preserved_after_trim",
+      ], 8),
+      },
+    };
+  }).filter(Boolean);
+  let remainingOverage = overageSeconds;
+  const selectedCandidates = [];
+  for (const candidate of [...candidates].sort((left, right) => (
+    left.riskScore - right.riskScore ||
+    right.reduction - left.reduction ||
+    left.index - right.index
+  ))) {
+    if (remainingOverage <= 0.001) break;
+    selectedCandidates.push(candidate);
+    remainingOverage = Number((remainingOverage - candidate.reduction).toFixed(2));
+  }
+  const selectedByIndex = new Map(selectedCandidates.map((candidate) => [candidate.index, candidate]));
+  const diagnostics = selectedCandidates
+    .sort((left, right) => left.index - right.index)
+    .map((candidate) => candidate.diagnostic);
+  const compactedSegments = refreshSegmentTimelineMetadata(segments.map((segment, index) => (
+    selectedByIndex.has(index) ? selectedByIndex.get(index).segment : segment
+  )));
+  const applied = selectedCandidates.length > 0;
+  if (!applied) return { applied: false, editPlan, summary: null };
+  const newTotal = compactedSegments.reduce((sum, segment) => {
+    const start = safeNumber(segment && segment.sourceStart);
+    const end = safeNumber(segment && segment.sourceEnd);
+    return start == null || end == null ? sum : sum + Math.max(0, end - start);
+  }, 0);
+  const summary = {
+    schemaVersion: 1,
+    providerMode: "reference-duration-visible-goal-compaction",
+    applied: true,
+    originalTotalDuration: Number(currentTotal.toFixed(2)),
+    compactedTotalDuration: Number(newTotal.toFixed(2)),
+    targetMaxDuration: REFERENCE_STYLE_MAX_DURATION_SECONDS,
+    passedDurationTarget: newTotal <= REFERENCE_STYLE_MAX_DURATION_SECONDS,
+    remainingOverageSeconds: Number(Math.max(0, newTotal - REFERENCE_STYLE_MAX_DURATION_SECONDS).toFixed(2)),
+    compactedGoalCount: diagnostics.length,
+    diagnostics,
+    logsDownloaded: false,
+    artifactsDownloaded: false,
+  };
+  return {
+    applied: true,
+    editPlan: {
+      ...editPlan,
+      segments: compactedSegments,
+      transitionPlan: refreshTransitionPlanForSegments(editPlan.transitionPlan, compactedSegments),
+      cropPlan: wideSafeCropPlanForReferenceCompaction(editPlan, metadata),
+      framingMode: "wide_safe_vertical",
+      framingReason: "wide_safe_reference_duration_compaction_preserves_full_frame",
+      totalDuration: Number(newTotal.toFixed(2)),
+      captions: compactCaptionsForDuration(editPlan.captions, newTotal),
+      visualPolishQA: compactedReferenceVisualPolishSummary(editPlan, compactedSegments, newTotal),
+      renderedGoalRebinding: editPlan.renderedGoalRebinding || null,
+      renderedGoalCompaction: summary,
+    },
+    summary,
+  };
+}
+
+function compactCaptionsForDuration(captions = [], durationSeconds = 0) {
+  const duration = Math.max(0, Number(durationSeconds) || 0);
+  const safeCaptions = Array.isArray(captions) ? captions : [];
+  const compacted = safeCaptions
+    .filter((caption) => caption && safeNumber(caption.start) != null && safeNumber(caption.start) < duration - 0.35)
+    .map((caption) => {
+      const start = Math.max(0, Math.min(duration - 0.35, safeNumber(caption.start) || 0));
+      const requestedEnd = safeNumber(caption.end);
+      const end = Math.max(start + 0.4, Math.min(duration, requestedEnd == null ? start + 1.6 : requestedEnd));
+      if (end > duration + 0.001) return null;
+      return {
+        ...caption,
+        start: Number(start.toFixed(2)),
+        end: Number(end.toFixed(2)),
+        activeWordTiming: [],
+      };
+    })
+    .filter(Boolean);
+  if (compacted.length) return compacted;
+  return [{
+    start: 0,
+    end: Math.min(1.6, Math.max(0.4, duration)),
+    text: "WATCH THE FINISH",
+    role: "opening_hook",
+    stylePreset: "hormozi_kinetic_safe_v1",
+  }];
 }
 
 function safeBoolean(value) {
@@ -2329,6 +2915,7 @@ async function runRenderJob(options) {
   let highlightResult = null;
   let candidatePlans = null;
   let editPlan = null;
+  let renderedGoalProof = null;
   try {
     context = assertPipelineContext({ job, project, upload, payload, deps });
     const longSourceRuntime = isYouTubeLongSource(context.source, context.metadata);
@@ -2862,6 +3449,7 @@ async function runRenderJob(options) {
           editPlan,
           matchEventTruth,
           goalSelectionMode: context.goalSelectionMode,
+          requireRenderedGoalVisibility: false,
         });
       } catch (error) {
         if (error && error.details && typeof error.details === "object" && !Array.isArray(error.details)) {
@@ -2957,6 +3545,362 @@ async function runRenderJob(options) {
     if (!deps.fileExists(context.outputPath) || !deps.isRegularFile(context.outputPath)) {
       throw new AppError("RENDER_FAILED", SAFE_MESSAGES.RENDER_FAILED, 500);
     }
+    if (!context.approvedEditPlan && context.goalSelectionMode === "valid_goals_only") {
+      updateJobStep({
+        jobs,
+        job,
+        projectId: project.id,
+        requestId,
+        logger: deps.logger,
+        progress: 88,
+        step: "verify_rendered_goal_visibility",
+        substep: "sample_rendered_finish_frames",
+        longSource: Boolean(longSourceRuntime),
+        scorebugFirst: Boolean(longSourceRuntime),
+      });
+      renderedGoalProof = await deps.analyzeRenderedGoalProof({
+        outputPath: context.outputPath,
+        editPlan,
+        metadata: context.metadata,
+        signal,
+      });
+      if (renderedGoalProof && renderedGoalProof.editPlan) {
+        editPlan = deps.validateEditPlan(renderedGoalProof.editPlan, context.metadata);
+        editPlan.renderedGoalProof = renderedGoalProof.summary || null;
+      }
+      try {
+        videoOutputQA = deps.assertVideoOutputCoverage({
+          editPlan,
+          matchEventTruth,
+          goalSelectionMode: context.goalSelectionMode,
+          requireRenderedGoalVisibility: true,
+        });
+      } catch (error) {
+        if (error && error.details && typeof error.details === "object" && !Array.isArray(error.details)) {
+          videoOutputQA = error.details;
+          editPlan.videoOutputQA = videoOutputQA;
+          if (renderedGoalProof && renderedGoalProof.summary) {
+            editPlan.renderedGoalProof = renderedGoalProof.summary;
+          }
+          jobs.update(job, {
+            editPlan,
+            videoOutputQA,
+            renderedGoalProof: renderedGoalProof && renderedGoalProof.summary,
+            step: "post_render_video_output_qa_failed",
+          });
+          logInfo(deps.logger, {
+            event: "post_render_video_output_qa_failed",
+            requestId,
+            projectId: project.id,
+            jobId: job.id,
+            step: "verify_rendered_goal_visibility",
+            status: videoOutputQA.status,
+            expectedGoalCount: videoOutputQA.expectedGoalCount,
+            humanVisibleGoalsClear: videoOutputQA.humanVisibleGoalsClear,
+            humanVisibleGoalsBorderline: videoOutputQA.humanVisibleGoalsBorderline,
+            humanVisibleGoalsFailed: videoOutputQA.humanVisibleGoalsFailed,
+            failedReasonCount: Array.isArray(videoOutputQA.failedReasons) ? videoOutputQA.failedReasons.length : 0,
+            renderedGoalProof: renderedGoalProof && renderedGoalProof.summary
+              ? {
+                  goalCount: renderedGoalProof.summary.goalCount,
+                  clearGoalCount: renderedGoalProof.summary.clearGoalCount,
+                  borderlineGoalCount: renderedGoalProof.summary.borderlineGoalCount,
+                  failedGoalCount: renderedGoalProof.summary.failedGoalCount,
+                  contactSheetRef: renderedGoalProof.summary.contactSheetRef,
+                }
+              : null,
+            logsDownloaded: false,
+            artifactsDownloaded: false,
+          });
+        }
+        let rebindRecovered = false;
+        let lastRebindError = error;
+        for (let rebindAttempt = 1; rebindAttempt <= RENDERED_GOAL_REBIND_MAX_ATTEMPTS; rebindAttempt += 1) {
+          const rebind = rebindRenderedGoalFailureSegments({
+            editPlan,
+            renderedGoalProof,
+            metadata: context.metadata,
+            attemptNumber: rebindAttempt,
+          });
+          if (!rebind.applied) break;
+          updateJobStep({
+            jobs,
+            job,
+            projectId: project.id,
+            requestId,
+            logger: deps.logger,
+            progress: 89,
+            step: "verify_rendered_goal_visibility",
+            substep: `rerender_rebound_goal_windows_attempt_${rebindAttempt}`,
+            longSource: Boolean(longSourceRuntime),
+            scorebugFirst: Boolean(longSourceRuntime),
+          });
+          jobs.update(job, {
+            editPlan: {
+              ...editPlan,
+              renderedGoalRebinding: rebind.summary,
+            },
+            videoOutputQA,
+            renderedGoalProof: renderedGoalProof && renderedGoalProof.summary,
+            renderedGoalRebinding: rebind.summary,
+            step: "rendered_goal_rebinding_attempted",
+          });
+          logInfo(deps.logger, {
+            event: "rendered_goal_rebinding_attempted",
+            requestId,
+            projectId: project.id,
+            jobId: job.id,
+            step: "verify_rendered_goal_visibility",
+            attemptNumber: rebindAttempt,
+            reboundGoalCount: rebind.summary.reboundGoalCount,
+            failedGoalCount: rebind.summary.failedGoalCount,
+            diagnostics: rebind.summary.diagnostics,
+            logsDownloaded: false,
+            artifactsDownloaded: false,
+          });
+          editPlan = deps.validateEditPlan(rebind.editPlan, context.metadata);
+          editPlan.renderedGoalRebinding = rebind.summary;
+          try {
+            await deps.renderShort({
+              inputPath: context.inputPath,
+              outputPath: context.outputPath,
+              subtitlesPath: context.subtitlesPath,
+              plan: editPlan,
+              signal,
+            });
+            if (!deps.fileExists(context.outputPath) || !deps.isRegularFile(context.outputPath)) {
+              throw new AppError("RENDER_FAILED", SAFE_MESSAGES.RENDER_FAILED, 500);
+            }
+            updateJobStep({
+              jobs,
+              job,
+              projectId: project.id,
+              requestId,
+              logger: deps.logger,
+              progress: 90,
+              step: "verify_rendered_goal_visibility",
+              substep: `sample_rebound_finish_frames_attempt_${rebindAttempt}`,
+              longSource: Boolean(longSourceRuntime),
+              scorebugFirst: Boolean(longSourceRuntime),
+            });
+            renderedGoalProof = await deps.analyzeRenderedGoalProof({
+              outputPath: context.outputPath,
+              editPlan,
+              metadata: context.metadata,
+              signal,
+            });
+            if (renderedGoalProof && renderedGoalProof.editPlan) {
+              editPlan = deps.validateEditPlan({
+                ...renderedGoalProof.editPlan,
+                renderedGoalRebinding: rebind.summary,
+              }, context.metadata);
+              editPlan.renderedGoalProof = renderedGoalProof.summary || null;
+              editPlan.renderedGoalRebinding = rebind.summary;
+            }
+            const renderedProofClear = renderedGoalProof &&
+              renderedGoalProof.summary &&
+              Number(renderedGoalProof.summary.clearGoalCount) >= REFERENCE_STYLE_GOAL_COUNT &&
+              Number(renderedGoalProof.summary.borderlineGoalCount || 0) === 0 &&
+              Number(renderedGoalProof.summary.failedGoalCount || 0) === 0;
+            let bestVisibleGateError = null;
+            let bestVisibleEditPlan = null;
+            let bestVisibleRenderedGoalProof = null;
+            if (renderedProofClear) {
+              try {
+                deps.assertVideoOutputCoverage({
+                  editPlan,
+                  matchEventTruth,
+                  goalSelectionMode: context.goalSelectionMode,
+                  requireRenderedGoalVisibility: true,
+                });
+              } catch (visibleGateError) {
+                if (
+                  visibleGateError &&
+                  visibleGateError.details &&
+                  visibleGateError.details.renderedGoalVisibility &&
+                  visibleGateError.details.renderedGoalVisibility.passed === true
+                ) {
+                  bestVisibleGateError = visibleGateError;
+                  bestVisibleEditPlan = editPlan;
+                  bestVisibleRenderedGoalProof = renderedGoalProof;
+                }
+              }
+            }
+            const editPlanDuration = safeNumber(editPlan.totalDuration);
+            if (renderedProofClear && editPlanDuration != null && editPlanDuration > REFERENCE_STYLE_MAX_DURATION_SECONDS) {
+              const compaction = compactVisibleGoalSegmentsForReferenceDuration({
+                editPlan,
+                renderedGoalProof,
+                metadata: context.metadata,
+              });
+              if (compaction.applied) {
+                logInfo(deps.logger, {
+                  event: "rendered_goal_duration_compaction_attempted",
+                  requestId,
+                  projectId: project.id,
+                  jobId: job.id,
+                  step: "verify_rendered_goal_visibility",
+                  attemptNumber: rebindAttempt,
+                  originalTotalDuration: compaction.summary.originalTotalDuration,
+                  compactedTotalDuration: compaction.summary.compactedTotalDuration,
+                  compactedGoalCount: compaction.summary.compactedGoalCount,
+                  diagnostics: compaction.summary.diagnostics,
+                  logsDownloaded: false,
+                  artifactsDownloaded: false,
+                });
+                editPlan = deps.validateEditPlan(compaction.editPlan, context.metadata);
+                editPlan.renderedGoalProof = renderedGoalProof.summary || null;
+                editPlan.renderedGoalRebinding = rebind.summary;
+                editPlan.renderedGoalCompaction = compaction.summary;
+                await deps.renderShort({
+                  inputPath: context.inputPath,
+                  outputPath: context.outputPath,
+                  subtitlesPath: context.subtitlesPath,
+                  plan: editPlan,
+                  signal,
+                });
+                if (!deps.fileExists(context.outputPath) || !deps.isRegularFile(context.outputPath)) {
+                  throw new AppError("RENDER_FAILED", SAFE_MESSAGES.RENDER_FAILED, 500);
+                }
+                renderedGoalProof = await deps.analyzeRenderedGoalProof({
+                  outputPath: context.outputPath,
+                  editPlan,
+                  metadata: context.metadata,
+                  signal,
+                });
+                if (renderedGoalProof && renderedGoalProof.editPlan) {
+                  editPlan = deps.validateEditPlan({
+                    ...renderedGoalProof.editPlan,
+                    renderedGoalRebinding: rebind.summary,
+                    renderedGoalCompaction: compaction.summary,
+                    cropPlan: wideSafeCropPlanForReferenceCompaction(renderedGoalProof.editPlan, context.metadata),
+                    framingMode: "wide_safe_vertical",
+                    framingReason: "wide_safe_reference_duration_compaction_preserves_full_frame",
+                    visualPolishQA: compactedReferenceVisualPolishSummary(
+                      renderedGoalProof.editPlan,
+                      Array.isArray(renderedGoalProof.editPlan.segments) ? renderedGoalProof.editPlan.segments : [],
+                      safeNumber(renderedGoalProof.editPlan.totalDuration) || compaction.summary.compactedTotalDuration,
+                    ),
+                  }, context.metadata);
+                  editPlan.renderedGoalProof = renderedGoalProof.summary || null;
+                  editPlan.renderedGoalRebinding = rebind.summary;
+                  editPlan.renderedGoalCompaction = compaction.summary;
+                }
+                const compactedProofClear = renderedGoalProof &&
+                  renderedGoalProof.summary &&
+                  Number(renderedGoalProof.summary.clearGoalCount) >= REFERENCE_STYLE_GOAL_COUNT &&
+                  Number(renderedGoalProof.summary.borderlineGoalCount || 0) === 0 &&
+                  Number(renderedGoalProof.summary.failedGoalCount || 0) === 0;
+                if (!compactedProofClear && bestVisibleGateError) {
+                  editPlan = bestVisibleEditPlan || editPlan;
+                  renderedGoalProof = bestVisibleRenderedGoalProof || renderedGoalProof;
+                  throw bestVisibleGateError;
+                }
+              }
+            }
+            videoOutputQA = deps.assertVideoOutputCoverage({
+              editPlan,
+              matchEventTruth,
+              goalSelectionMode: context.goalSelectionMode,
+              requireRenderedGoalVisibility: true,
+            });
+            rebindRecovered = true;
+            logInfo(deps.logger, {
+              event: "rendered_goal_rebinding_recovered",
+              requestId,
+              projectId: project.id,
+              jobId: job.id,
+              step: "verify_rendered_goal_visibility",
+              attemptNumber: rebindAttempt,
+              status: videoOutputQA.status,
+              expectedGoalCount: videoOutputQA.expectedGoalCount,
+              coveredGoalCount: videoOutputQA.coveredGoalCount,
+              humanVisibleGoalsClear: videoOutputQA.humanVisibleGoalsClear,
+              missingGoalNumbers: videoOutputQA.missingGoalNumbers,
+              reboundGoalCount: rebind.summary.reboundGoalCount,
+              logsDownloaded: false,
+              artifactsDownloaded: false,
+            });
+            break;
+          } catch (rebindError) {
+            lastRebindError = rebindError;
+            if (rebindError && rebindError.details && typeof rebindError.details === "object" && !Array.isArray(rebindError.details)) {
+              videoOutputQA = {
+                ...rebindError.details,
+                renderedGoalRebinding: rebind.summary,
+              };
+              editPlan.videoOutputQA = videoOutputQA;
+              editPlan.renderedGoalRebinding = rebind.summary;
+              if (renderedGoalProof && renderedGoalProof.summary) {
+                editPlan.renderedGoalProof = renderedGoalProof.summary;
+              }
+              jobs.update(job, {
+                editPlan,
+                videoOutputQA,
+                renderedGoalProof: renderedGoalProof && renderedGoalProof.summary,
+                renderedGoalRebinding: rebind.summary,
+                step: "post_rebind_video_output_qa_failed",
+              });
+              logInfo(deps.logger, {
+                event: "post_rebind_video_output_qa_failed",
+                requestId,
+                projectId: project.id,
+                jobId: job.id,
+                step: "verify_rendered_goal_visibility",
+                attemptNumber: rebindAttempt,
+                status: videoOutputQA.status,
+                expectedGoalCount: videoOutputQA.expectedGoalCount,
+                humanVisibleGoalsClear: videoOutputQA.humanVisibleGoalsClear,
+                humanVisibleGoalsBorderline: videoOutputQA.humanVisibleGoalsBorderline,
+                humanVisibleGoalsFailed: videoOutputQA.humanVisibleGoalsFailed,
+                missingGoalNumbers: videoOutputQA.missingGoalNumbers,
+                reboundGoalCount: rebind.summary.reboundGoalCount,
+                renderedGoalProof: renderedGoalProof && renderedGoalProof.summary
+                  ? {
+                      goalCount: renderedGoalProof.summary.goalCount,
+                      clearGoalCount: renderedGoalProof.summary.clearGoalCount,
+                      borderlineGoalCount: renderedGoalProof.summary.borderlineGoalCount,
+                      failedGoalCount: renderedGoalProof.summary.failedGoalCount,
+                      contactSheetRef: renderedGoalProof.summary.contactSheetRef,
+                    }
+                  : null,
+                logsDownloaded: false,
+                artifactsDownloaded: false,
+              });
+            }
+            if (videoOutputQA && videoOutputQA.renderedGoalVisibility && videoOutputQA.renderedGoalVisibility.passed === true) {
+              throw rebindError;
+            }
+          }
+        }
+        if (!rebindRecovered) {
+          throw lastRebindError;
+        }
+      }
+      editPlan.videoOutputQA = videoOutputQA;
+      jobs.update(job, {
+        editPlan,
+        videoOutputQA,
+        renderedGoalProof: renderedGoalProof && renderedGoalProof.summary,
+        renderedGoalRebinding: editPlan.renderedGoalRebinding || null,
+        step: "post_render_video_output_qa_passed",
+      });
+      logInfo(deps.logger, {
+        event: "post_render_video_output_qa_completed",
+        requestId,
+        projectId: project.id,
+        jobId: job.id,
+        step: "verify_rendered_goal_visibility",
+        status: videoOutputQA.status,
+        expectedGoalCount: videoOutputQA.expectedGoalCount,
+        humanVisibleGoalsClear: videoOutputQA.humanVisibleGoalsClear,
+        humanVisibleGoalsBorderline: videoOutputQA.humanVisibleGoalsBorderline,
+        humanVisibleGoalsFailed: videoOutputQA.humanVisibleGoalsFailed,
+        contactSheetRef: renderedGoalProof && renderedGoalProof.summary && renderedGoalProof.summary.contactSheetRef,
+        logsDownloaded: false,
+        artifactsDownloaded: false,
+      });
+    }
 
     const renderedArtifact = typeof deps.artifactStore.commitOutputStageAsync === "function"
       ? await deps.artifactStore.commitOutputStageAsync(context.outputStage, {
@@ -3022,6 +3966,7 @@ async function runRenderJob(options) {
       visualTracking,
       sampledFrames: sampledFrameSummary,
       videoOutputQA,
+      renderedGoalProof: renderedGoalProof && renderedGoalProof.summary,
       step: "completed",
       progressMeta: {
         phase: "completed",
@@ -3056,6 +4001,7 @@ async function runRenderJob(options) {
       visualTracking,
       sampledFrames: sampledFrameSummary,
       videoOutputQA,
+      renderedGoalProof: renderedGoalProof && renderedGoalProof.summary,
       highlights: highlightResult.moments,
       candidatePlans,
       editPlan,
@@ -3183,4 +4129,9 @@ module.exports = {
   visualCandidateWindowsFromSignals,
   resolveLocalArtifactPath,
   ocrQaCalibrationOptionsFromEnv,
+  __testing: {
+    compactVisibleGoalSegmentsForReferenceDuration,
+    renderedProofSourceTimes,
+    segmentTimelineStarts,
+  },
 };

@@ -290,6 +290,15 @@ function publicRenderPlanSummary(plan = null) {
   const videoOutputQA = plan.videoOutputQA && typeof plan.videoOutputQA === "object" && !Array.isArray(plan.videoOutputQA)
     ? publicJsonClone(plan.videoOutputQA)
     : null;
+  const renderedGoalProof = plan.renderedGoalProof && typeof plan.renderedGoalProof === "object" && !Array.isArray(plan.renderedGoalProof)
+    ? publicJsonClone(plan.renderedGoalProof)
+    : null;
+  const renderedGoalRebinding = plan.renderedGoalRebinding && typeof plan.renderedGoalRebinding === "object" && !Array.isArray(plan.renderedGoalRebinding)
+    ? publicJsonClone(plan.renderedGoalRebinding)
+    : null;
+  const renderedGoalCompaction = plan.renderedGoalCompaction && typeof plan.renderedGoalCompaction === "object" && !Array.isArray(plan.renderedGoalCompaction)
+    ? publicJsonClone(plan.renderedGoalCompaction)
+    : null;
   return {
     mode: sanitizeText(plan.mode || "", 80) || null,
     highlightType: sanitizeText(plan.highlightType || "", 80) || null,
@@ -305,6 +314,9 @@ function publicRenderPlanSummary(plan = null) {
     goalSelectionMode: sanitizeText(plan.goalSelectionMode || "", 80) || null,
     segments,
     videoOutputQA,
+    renderedGoalProof,
+    renderedGoalRebinding,
+    renderedGoalCompaction,
     visualPolishQA: plan.visualPolishQA && typeof plan.visualPolishQA === "object" ? publicJsonClone(plan.visualPolishQA) : null,
     renderPolishQA: plan.renderPolishQA && typeof plan.renderPolishQA === "object" ? publicJsonClone(plan.renderPolishQA) : null,
     editAssembly: plan.editAssembly && typeof plan.editAssembly === "object" ? publicJsonClone(plan.editAssembly) : null,
@@ -713,6 +725,9 @@ class JobStore {
       exportId: job.exportId || null,
       error: normalizeError(job.error),
       videoOutputQA: job.videoOutputQA || (job.editPlan && job.editPlan.videoOutputQA) || null,
+      renderedGoalProof: job.renderedGoalProof || (job.editPlan && job.editPlan.renderedGoalProof) || null,
+      renderedGoalRebinding: job.renderedGoalRebinding || (job.editPlan && job.editPlan.renderedGoalRebinding) || null,
+      renderedGoalCompaction: job.renderedGoalCompaction || (job.editPlan && job.editPlan.renderedGoalCompaction) || null,
       renderPlanSummary: publicRenderPlanSummary(job.editPlan),
       createdAt: job.createdAt || null,
       updatedAt: job.updatedAt || null,

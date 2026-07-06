@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
+import http from "node:http";
+import https from "node:https";
 import { dirname, extname, join, relative, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -313,6 +315,21 @@ async function fetchWithTimeout(fetchImpl, url, options, timeoutMs, timeoutCode,
 }
 
 async function fetchJson(fetchImpl, url, options = {}) {
+  if (options.longRequest === true && fetchImpl === globalThis.fetch) {
+    return await requestJsonWithTimeout(url, {
+      ...options,
+      headers: {
+        accept: "application/json",
+        ...(options.body ? { "content-type": "application/json" } : {}),
+        ...(options.headers || {}),
+      },
+      timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
+      timeoutCode: options.timeoutCode || "YOUTUBE_SMOKE_REQUEST_TIMEOUT",
+      timeoutDetails: options.timeoutDetails || { phase: "proof", step: "request" },
+      maxBytes: options.maxBytes || DEFAULT_JSON_RESPONSE_BYTES,
+    });
+  }
+
   const response = await fetchWithTimeout(
     fetchImpl,
     url,
@@ -351,6 +368,100 @@ async function fetchJson(fetchImpl, url, options = {}) {
     requestId: response.headers?.get?.("x-request-id") || payload?.data?.requestId || null,
     payload,
   };
+}
+
+function requestJsonWithTimeout(url, options = {}) {
+  const timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
+  const timeoutCode = options.timeoutCode || "YOUTUBE_SMOKE_REQUEST_TIMEOUT";
+  const timeoutDetails = options.timeoutDetails || { phase: "proof", step: "request" };
+  const maxBytes = options.maxBytes || DEFAULT_JSON_RESPONSE_BYTES;
+  const started = Date.now();
+
+  return new Promise((resolveRequest, rejectRequest) => {
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(url);
+    } catch {
+      rejectRequest(new YouTubeSmokeError("YOUTUBE_SMOKE_BASE_URL_INVALID", "YouTube smoke target URL is invalid."));
+      return;
+    }
+    const transport = parsedUrl.protocol === "https:" ? https : http;
+    const body = options.body ? Buffer.from(String(options.body), "utf8") : null;
+    const headers = {
+      ...(options.headers || {}),
+      ...(body ? { "content-length": String(body.length) } : {}),
+    };
+    const requestImpl = options.requestImpl || transport.request;
+    const request = requestImpl.call(transport, parsedUrl, {
+      method: options.method || "GET",
+      headers,
+    });
+    let settled = false;
+    const settle = (handler, value) => {
+      if (settled) return;
+      settled = true;
+      request.destroy();
+      handler(value);
+    };
+
+    request.setTimeout(timeoutMs, () => {
+      settle(rejectRequest, new YouTubeSmokeError(timeoutCode, "YouTube smoke request timed out.", {
+        ...phaseDetails(timeoutDetails),
+        elapsedMs: Date.now() - started,
+        timeoutMs,
+        nextAction: nextActionForCode(timeoutCode),
+      }));
+    });
+    request.on("response", (response) => {
+      const chunks = [];
+      let totalBytes = 0;
+      response.on("data", (chunk) => {
+        totalBytes += chunk.length;
+        if (totalBytes > maxBytes) {
+          settle(rejectRequest, new YouTubeSmokeError("YOUTUBE_SMOKE_JSON_RESPONSE_TOO_LARGE", "YouTube smoke JSON response is too large."));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      response.on("end", () => {
+        if (settled) return;
+        let payload;
+        try {
+          payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+        } catch {
+          settle(rejectRequest, new YouTubeSmokeError("YOUTUBE_SMOKE_JSON_INVALID", "YouTube smoke response is not valid JSON."));
+          return;
+        }
+        if (findSensitiveLeak(payload)) {
+          settle(rejectRequest, new YouTubeSmokeError("YOUTUBE_SMOKE_RESPONSE_LEAK", "YouTube smoke API response contains sensitive data."));
+          return;
+        }
+        settle(resolveRequest, {
+          ok: response.statusCode >= 200 && response.statusCode < 300 && payload && payload.ok === true,
+          status: response.statusCode,
+          requestId: response.headers["x-request-id"] || payload?.data?.requestId || null,
+          payload,
+        });
+      });
+    });
+    request.on("error", (error) => {
+      if (settled) return;
+      const classified = classifyFetchFailure(error);
+      const safeMessage = fetchFailureSafeMessage(classified.code, timeoutDetails);
+      settle(rejectRequest, new YouTubeSmokeError(classified.code, safeMessage, {
+        ...phaseDetails(timeoutDetails),
+        elapsedMs: Date.now() - started,
+        timeoutMs,
+        causeCode: classified.causeCode,
+        failureReason: fetchFailureReason(classified.code, timeoutDetails),
+        safeMessage,
+        retryable: classified.code !== "YOUTUBE_SMOKE_SERVER_UNAVAILABLE",
+        nextAction: nextActionForCode(classified.code),
+      }));
+    });
+    if (body) request.write(body);
+    request.end();
+  });
 }
 
 async function fetchDownload(fetchImpl, url, options = {}) {
@@ -943,6 +1054,71 @@ function safeOutputSegment(value = {}, index = 0) {
 
 function safeVideoOutputQA(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const renderedGoalVisibility = value.renderedGoalVisibility &&
+    typeof value.renderedGoalVisibility === "object" &&
+    !Array.isArray(value.renderedGoalVisibility)
+    ? {
+        passed: typeof value.renderedGoalVisibility.passed === "boolean" ? value.renderedGoalVisibility.passed : null,
+        required: typeof value.renderedGoalVisibility.required === "boolean" ? value.renderedGoalVisibility.required : null,
+        status: sanitizeText(value.renderedGoalVisibility.status || "", 40) || null,
+        goalCount: safeNumber(value.renderedGoalVisibility.goalCount),
+        visibleGoalCount: safeNumber(value.renderedGoalVisibility.visibleGoalCount),
+        clearGoalCount: safeNumber(value.renderedGoalVisibility.clearGoalCount),
+        borderlineGoalCount: safeNumber(value.renderedGoalVisibility.borderlineGoalCount),
+        failedGoalCount: safeNumber(value.renderedGoalVisibility.failedGoalCount),
+        humanVisibleGoalsClear: safeNumber(value.renderedGoalVisibility.humanVisibleGoalsClear),
+        humanVisibleGoalsBorderline: safeNumber(value.renderedGoalVisibility.humanVisibleGoalsBorderline),
+        humanVisibleGoalsFailed: safeNumber(value.renderedGoalVisibility.humanVisibleGoalsFailed),
+        finishFrameContactSheetRequired: Boolean(value.renderedGoalVisibility.finishFrameContactSheetRequired),
+        reasons: safeStringList(value.renderedGoalVisibility.reasons, 10, 80),
+        goals: Array.isArray(value.renderedGoalVisibility.goals)
+          ? value.renderedGoalVisibility.goals.slice(0, 12).map((goal, index) => ({
+              index: Number.isFinite(Number(goal.index)) ? Number(goal.index) : index + 1,
+              goalNumber: Number.isFinite(Number(goal.goalNumber)) ? Number(goal.goalNumber) : null,
+              segmentId: sanitizeText(goal.segmentId || "", 80) || null,
+              sourceStart: safeNumber(goal.sourceStart),
+              sourceEnd: safeNumber(goal.sourceEnd),
+              finishTime: safeNumber(goal.finishTime),
+              passed: Boolean(goal.passed),
+              confidence: safeNumber(goal.confidence),
+              failureCode: sanitizeText(goal.failureCode || "", 80) || null,
+              finishFrameEvidence: goal.finishFrameEvidence &&
+                typeof goal.finishFrameEvidence === "object" &&
+                !Array.isArray(goal.finishFrameEvidence)
+                ? {
+                    visibilityVerdict: sanitizeText(goal.finishFrameEvidence.visibilityVerdict || "", 40) || null,
+                    confidence: safeNumber(goal.finishFrameEvidence.confidence),
+                    reasons: safeStringList(goal.finishFrameEvidence.reasons, 10, 80),
+                  }
+                : null,
+              contactSheetFrames: Array.isArray(goal.contactSheetFrames)
+                ? goal.contactSheetFrames.slice(0, 8).map((frame) => ({
+                    label: sanitizeText(frame && frame.label || "", 40) || null,
+                    time: safeNumber(frame && frame.time),
+                  })).filter((frame) => frame.label && frame.time !== null)
+                : [],
+            }))
+          : [],
+        failedGoals: Array.isArray(value.renderedGoalVisibility.failedGoals)
+          ? value.renderedGoalVisibility.failedGoals.slice(0, 12).map((goal, index) => ({
+              index: Number.isFinite(Number(goal.index)) ? Number(goal.index) : index + 1,
+              goalNumber: Number.isFinite(Number(goal.goalNumber)) ? Number(goal.goalNumber) : null,
+              segmentId: sanitizeText(goal.segmentId || "", 80) || null,
+              failureCode: sanitizeText(goal.failureCode || "", 80) || null,
+              confidence: safeNumber(goal.confidence),
+              finishFrameEvidence: goal.finishFrameEvidence &&
+                typeof goal.finishFrameEvidence === "object" &&
+                !Array.isArray(goal.finishFrameEvidence)
+                ? {
+                    visibilityVerdict: sanitizeText(goal.finishFrameEvidence.visibilityVerdict || "", 40) || null,
+                    confidence: safeNumber(goal.finishFrameEvidence.confidence),
+                    reasons: safeStringList(goal.finishFrameEvidence.reasons, 10, 80),
+                  }
+                : null,
+            }))
+          : [],
+      }
+    : null;
   const hook = value.hook && typeof value.hook === "object" && !Array.isArray(value.hook)
     ? {
         passed: typeof value.hook.passed === "boolean" ? value.hook.passed : null,
@@ -1010,6 +1186,10 @@ function safeVideoOutputQA(value) {
     actualSegmentCount: safeNumber(value.actualSegmentCount),
     actualConfirmedGoalSegmentCount: safeNumber(value.actualConfirmedGoalSegmentCount),
     coveredGoalCount: safeNumber(value.coveredGoalCount),
+    humanVisibleGoalsClear: safeNumber(value.humanVisibleGoalsClear),
+    humanVisibleGoalsBorderline: safeNumber(value.humanVisibleGoalsBorderline),
+    humanVisibleGoalsFailed: safeNumber(value.humanVisibleGoalsFailed),
+    requireRenderedGoalVisibility: typeof value.requireRenderedGoalVisibility === "boolean" ? value.requireRenderedGoalVisibility : null,
     missingGoalNumbers: Array.isArray(value.missingGoalNumbers)
       ? value.missingGoalNumbers.map((goal) => Number(goal)).filter(Number.isFinite).slice(0, 12)
       : [],
@@ -1041,6 +1221,7 @@ function safeVideoOutputQA(value) {
     animations,
     audioPolicy,
     creativeStyle,
+    renderedGoalVisibility,
     logsDownloaded: false,
     artifactsDownloaded: false,
   };
@@ -1358,6 +1539,9 @@ function safeRenderPlanSummary(job) {
       goalSelectionMode: sanitizeText(summary.goalSelectionMode || "", 60) || null,
       countedGoalProof: safeCountedGoalProofSummary(job, segments),
       videoOutputQA: safeVideoOutputQA(job.videoOutputQA || summary.videoOutputQA),
+      renderedGoalProof: summary.renderedGoalProof && typeof summary.renderedGoalProof === "object"
+        ? summary.renderedGoalProof
+        : job.renderedGoalProof || null,
       visualPolishQA: safeVisualPolishQA(summary.visualPolishQA),
       renderPolishQA: safeRenderPolishQA(summary.renderPolishQA),
       editAssembly: summary.editAssembly && typeof summary.editAssembly === "object"
@@ -1404,6 +1588,9 @@ function safeRenderPlanSummary(job) {
     goalSelectionMode: sanitizeText(plan.goalSelectionMode || "", 60) || null,
     countedGoalProof: safeCountedGoalProofSummary(job, segments),
     videoOutputQA: safeVideoOutputQA(job.videoOutputQA || plan.videoOutputQA),
+    renderedGoalProof: plan.renderedGoalProof && typeof plan.renderedGoalProof === "object"
+      ? plan.renderedGoalProof
+      : job.renderedGoalProof || null,
     visualPolishQA: safeVisualPolishQA(plan.visualPolishQA),
     renderPolishQA: safeRenderPolishQA(plan.renderPolishQA),
     editAssembly: safeEditAssembly(plan.editAssembly),
@@ -1499,6 +1686,9 @@ function maybeWriteDownloadArtifact({ buffer, downloadSummary, env, ids, ingeste
 function safeJobSnapshot(job) {
   if (!job || typeof job !== "object") return null;
   const videoOutputQA = safeVideoOutputQA(job.videoOutputQA || job.editPlan?.videoOutputQA);
+  const renderedGoalProof = job.renderedGoalProof ||
+    (job.editPlan && job.editPlan.renderedGoalProof) ||
+    null;
   const progressMeta = job.progressMeta && typeof job.progressMeta === "object" && !Array.isArray(job.progressMeta)
     ? {
         phase: sanitizeText(job.progressMeta.phase || "", 40) || null,
@@ -1538,6 +1728,45 @@ function safeJobSnapshot(job) {
     error: safeReportError(job.error),
     scoreboardOcr: safeScoreboardOcrSnapshot(job.scoreboardOcr),
     videoOutputQA,
+    renderedGoalProof: renderedGoalProof && typeof renderedGoalProof === "object" && !Array.isArray(renderedGoalProof)
+      ? {
+          schemaVersion: safeNumber(renderedGoalProof.schemaVersion),
+          providerMode: sanitizeText(renderedGoalProof.providerMode || "", 80) || null,
+          goalCount: safeNumber(renderedGoalProof.goalCount),
+          clearGoalCount: safeNumber(renderedGoalProof.clearGoalCount),
+          borderlineGoalCount: safeNumber(renderedGoalProof.borderlineGoalCount),
+          failedGoalCount: safeNumber(renderedGoalProof.failedGoalCount),
+          contactSheetRef: sanitizeText(renderedGoalProof.contactSheetRef || "", 180) || null,
+          goals: Array.isArray(renderedGoalProof.goals)
+            ? renderedGoalProof.goals.slice(0, 12).map((goal, index) => ({
+                goalNumber: safeNumber(goal && goal.goalNumber) ?? index + 1,
+                segmentIndex: safeNumber(goal && goal.segmentIndex),
+                verdict: sanitizeText(goal && goal.verdict || "", 40) || null,
+                frameCount: safeNumber(goal && goal.frameCount),
+                candidateFrameCount: safeNumber(goal && goal.candidateFrameCount),
+                unverifiedFrameCount: safeNumber(goal && goal.unverifiedFrameCount),
+                failedFrameReasons: safeStringList(goal && goal.failedFrameReasons, 8, 80),
+                semanticSummary: goal && goal.semanticSummary && typeof goal.semanticSummary === "object"
+                  ? {
+                      providerMode: sanitizeText(goal.semanticSummary.providerMode || "", 80) || null,
+                      clearFrameCount: safeNumber(goal.semanticSummary.clearFrameCount),
+                      failedFrameCount: safeNumber(goal.semanticSummary.failedFrameCount),
+                    }
+                  : null,
+                frameRefs: Array.isArray(goal && goal.frameRefs)
+                  ? goal.frameRefs.slice(0, 8).map((frame) => ({
+                      role: sanitizeText(frame && frame.role || "", 40) || null,
+                      time: safeNumber(frame && frame.time),
+                      status: sanitizeText(frame && frame.status || "", 40) || null,
+                      clear: Boolean(frame && frame.clear),
+                      confidence: safeNumber(frame && frame.confidence),
+                      reason: sanitizeText(frame && frame.reason || "", 80) || null,
+                    })).filter((frame) => frame.role)
+                  : [],
+              }))
+            : [],
+        }
+      : null,
   };
 }
 
@@ -1968,6 +2197,7 @@ async function runYouTubeSmoke(options = {}) {
       timeoutMs: requestTimeoutMs,
       timeoutCode: "YOUTUBE_SMOKE_INGEST_TIMEOUT",
       timeoutDetails: { phase: "ingest", step: "download_source", substep: "youtube_downloader" },
+      longRequest: true,
     });
     ingested = validateIngestResponse(assertApiOk(
       ingestResponse,
@@ -2152,6 +2382,7 @@ export {
   RESULTS_DIR,
   YouTubeSmokeError,
   computedIngestRequestTimeoutMs,
+  requestJsonWithTimeout,
   runYouTubeSmoke,
   safeDownloadArtifactRef,
   validateHealthForSmoke,

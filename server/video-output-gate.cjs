@@ -510,7 +510,9 @@ function distinctGoalIdentitySummary(segments = []) {
       const rightScore = scoreChangeIdentity(right.segment);
       const reasons = [];
       const distinctPair = isDistinctConfirmedGoalPair(left.segment, right.segment, leftFinish, rightFinish, leftScore, rightScore);
-      if (overlap.ratio > MAX_GOAL_SEGMENT_OVERLAP_RATIO && !distinctPair) reasons.push("duplicate_goal_window_overlap");
+      if (overlap.ratio > MAX_GOAL_SEGMENT_OVERLAP_RATIO) {
+        reasons.push(distinctPair ? "overlapping_goal_windows_need_separate_live_phases" : "duplicate_goal_window_overlap");
+      }
       if (leftFinish != null && rightFinish != null && Math.abs(leftFinish - rightFinish) <= DUPLICATE_FINISH_TOLERANCE_SECONDS) {
         reasons.push("duplicate_finish_time");
       }
@@ -633,7 +635,8 @@ function scoreChangeAnchorTime(change = {}) {
   return changeTime == null ? actionAnchorTime : changeTime;
 }
 
-function segmentFailureReasons(segment = {}, goalSelectionMode = "balanced") {
+function segmentFailureReasons(segment = {}, goalSelectionMode = "balanced", options = {}) {
+  const requireRenderedGoalVisibility = options.requireRenderedGoalVisibility !== false;
   const reasons = [];
   const phase = segment.phaseCoverage && typeof segment.phaseCoverage === "object" ? segment.phaseCoverage : {};
   const shotStart = numberOrNull(segment.shotStart ?? phase.shotStart);
@@ -641,7 +644,7 @@ function segmentFailureReasons(segment = {}, goalSelectionMode = "balanced") {
   const confirmationTime = numberOrNull(segment.confirmationTime ?? phase.confirmationTime);
   const reasonCodes = new Set(Array.isArray(segment.reasonCodes) ? segment.reasonCodes : []);
   const confirmedGoal = isConfirmedGoalSegment(segment);
-  const humanVisibleGoalGate = confirmedGoal
+  const humanVisibleGoalGate = confirmedGoal && requireRenderedGoalVisibility
     ? validateHumanVisibleGoalSequence({ segment })
     : null;
 
@@ -719,7 +722,7 @@ function scoreChangeMatchRequirements(segment = {}, expected = {}) {
   };
 }
 
-function matchExpectedGoals(expectedGoals = [], segments = []) {
+function matchExpectedGoals(expectedGoals = [], segments = [], options = {}) {
   const matches = [];
   const usedSegments = new Set();
   for (const expected of expectedGoals) {
@@ -758,7 +761,7 @@ function matchExpectedGoals(expectedGoals = [], segments = []) {
     }
     usedSegments.add(selected.index);
     const failures = safeCodes([
-      ...segmentFailureReasons(selected.segment, "valid_goals_only"),
+      ...segmentFailureReasons(selected.segment, "valid_goals_only", options),
       ...selected.scoreChangeRequirements.reasons,
     ], 8);
     matches.push({
@@ -771,7 +774,8 @@ function matchExpectedGoals(expectedGoals = [], segments = []) {
   return matches;
 }
 
-function renderedGoalVisibilitySummary(segments = []) {
+function renderedGoalVisibilitySummary(segments = [], options = {}) {
+  const requireRenderedGoalVisibility = options.requireRenderedGoalVisibility !== false;
   const goals = segments
     .map((segment, index) => ({ segment, index }))
     .filter(({ segment }) => isConfirmedGoalSegment(segment))
@@ -798,12 +802,22 @@ function renderedGoalVisibilitySummary(segments = []) {
           : [],
       };
     });
-  const failed = goals.filter((goal) => goal.passed !== true);
+  const clear = goals.filter((goal) => goal.passed === true && goal.finishFrameEvidence?.visibilityVerdict === "clear");
+  const borderline = goals.filter((goal) => goal.finishFrameEvidence?.visibilityVerdict === "borderline");
+  const failed = goals.filter((goal) => goal.passed !== true && goal.finishFrameEvidence?.visibilityVerdict !== "borderline");
+  const strictPassed = failed.length === 0 && borderline.length === 0 && clear.length === goals.length;
   return {
-    passed: failed.length === 0,
+    passed: requireRenderedGoalVisibility ? strictPassed : true,
+    required: requireRenderedGoalVisibility,
+    status: requireRenderedGoalVisibility ? (strictPassed ? "passed" : "failed") : "pre_render_skipped",
     goalCount: goals.length,
-    visibleGoalCount: goals.length - failed.length,
+    visibleGoalCount: clear.length,
+    clearGoalCount: clear.length,
+    borderlineGoalCount: borderline.length,
     failedGoalCount: failed.length,
+    humanVisibleGoalsClear: clear.length,
+    humanVisibleGoalsBorderline: borderline.length,
+    humanVisibleGoalsFailed: failed.length,
     finishFrameContactSheetRequired: goals.length > 0,
     contactSheetFramesByGoal: goals.map((goal) => ({
       goalNumber: goal.goalNumber,
@@ -811,11 +825,17 @@ function renderedGoalVisibilitySummary(segments = []) {
       frames: goal.contactSheetFrames,
     })).slice(0, MAX_PUBLIC_ITEMS),
     goals: goals.slice(0, MAX_PUBLIC_ITEMS),
+    clearGoals: clear.slice(0, MAX_PUBLIC_ITEMS),
+    borderlineGoals: borderline.slice(0, MAX_PUBLIC_ITEMS),
     failedGoals: failed.slice(0, MAX_PUBLIC_ITEMS),
-    reasons: safeCodes([
-      ...(failed.length ? ["rendered_goal_visibility_failed"] : []),
-      ...failed.map((goal) => goal.failureCode && goal.failureCode.toLowerCase()).filter(Boolean),
-    ], 10),
+    reasons: requireRenderedGoalVisibility
+      ? safeCodes([
+          ...(failed.length ? ["rendered_goal_visibility_failed"] : []),
+          ...(borderline.length ? ["borderline_goal_visibility"] : []),
+          ...(clear.length !== goals.length ? ["human_visible_clear_goal_count_mismatch"] : []),
+          ...failed.map((goal) => goal.failureCode && goal.failureCode.toLowerCase()).filter(Boolean),
+        ], 10)
+      : [],
   };
 }
 
@@ -823,11 +843,13 @@ function assertVideoOutputCoverage({
   editPlan,
   matchEventTruth,
   goalSelectionMode = "balanced",
+  requireRenderedGoalVisibility = true,
 } = {}) {
   if (!editPlan || typeof editPlan !== "object" || hasUnsafeValue(editPlan)) {
     throw new AppError("VIDEO_OUTPUT_QA_FAILED", SAFE_MESSAGES.VIDEO_OUTPUT_QA_FAILED, 422);
   }
   const mode = sanitizeText(goalSelectionMode || "balanced", 40);
+  const gateOptions = { requireRenderedGoalVisibility: requireRenderedGoalVisibility !== false };
   const segments = segmentList(editPlan);
   const expectedGoals = expectedGoalsFromTruth(matchEventTruth);
   const publicSegments = segments.map(publicSegment);
@@ -835,12 +857,12 @@ function assertVideoOutputCoverage({
     .map((segment, index) => ({
       index: index + 1,
       id: sanitizeText(segment.id || `segment_${index + 1}`, 80),
-      reasons: segmentFailureReasons(segment, mode),
+      reasons: segmentFailureReasons(segment, mode, gateOptions),
     }))
     .filter((item) => item.reasons.length)
     .slice(0, MAX_PUBLIC_ITEMS);
   const confirmedGoalSegments = segments.filter(isConfirmedGoalSegment);
-  const matches = matchExpectedGoals(expectedGoals, segments);
+  const matches = matchExpectedGoals(expectedGoals, segments, gateOptions);
   const coveredGoalCount = matches.filter((match) => match.covered).length;
   const hook = hookSummary(editPlan);
   const captions = captionStyleSummary(editPlan);
@@ -849,7 +871,7 @@ function assertVideoOutputCoverage({
   const creativeStyle = creativeStyleSummary(editPlan);
   const distinctGoalIdentity = distinctGoalIdentitySummary(segments);
   const referenceStyleDuration = referenceStyleDurationSummary(editPlan, expectedGoals);
-  const renderedGoalVisibility = renderedGoalVisibilitySummary(segments);
+  const renderedGoalVisibility = renderedGoalVisibilitySummary(segments, gateOptions);
   const creativeContractPassed = hook.passed &&
     captions.passed &&
     animations.passed &&
@@ -891,10 +913,14 @@ function assertVideoOutputCoverage({
     status: passed ? "passed" : "failed",
     passed,
     goalSelectionMode: mode,
+    requireRenderedGoalVisibility: gateOptions.requireRenderedGoalVisibility,
     expectedGoalCount: expectedGoals.length,
     actualSegmentCount: segments.length,
     actualConfirmedGoalSegmentCount: confirmedGoalSegments.length,
     coveredGoalCount,
+    humanVisibleGoalsClear: renderedGoalVisibility.humanVisibleGoalsClear,
+    humanVisibleGoalsBorderline: renderedGoalVisibility.humanVisibleGoalsBorderline,
+    humanVisibleGoalsFailed: renderedGoalVisibility.humanVisibleGoalsFailed,
     missingGoalNumbers: matches
       .filter((match) => !match.covered)
       .map((match) => match.expected.goalNumber)

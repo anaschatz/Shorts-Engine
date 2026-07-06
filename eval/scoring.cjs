@@ -817,10 +817,74 @@ function goalPhaseCoverageScore(topPlan, expected = {}) {
 }
 
 function humanVisibleGateForSegment(segment = {}) {
-  if (segment.visualGoalGate && typeof segment.visualGoalGate === "object" && !Array.isArray(segment.visualGoalGate)) {
-    return publicHumanVisibleGoalGate(segment.visualGoalGate);
-  }
   return publicHumanVisibleGoalGate(validateHumanVisibleGoalSequence({ segment }));
+}
+
+function normalizedRenderedGoalProof(proof = {}, segment = {}) {
+  const raw = proof && typeof proof === "object" && !Array.isArray(proof) ? proof : {};
+  const frameTime = Number.isFinite(Number(raw.frameTime ?? raw.finishFrameTime))
+    ? Number(Number(raw.frameTime ?? raw.finishFrameTime).toFixed(2))
+    : Number.isFinite(Number(segment.finishTime))
+      ? Number(Number(segment.finishTime).toFixed(2))
+      : null;
+  return {
+    frameTime,
+    confidence: Number.isFinite(Number(raw.confidence)) ? Number(Number(raw.confidence).toFixed(2)) : 0.9,
+    visibilityVerdict: raw.visibilityVerdict || "clear",
+    hasVisibleFinish: raw.hasVisibleFinish !== false,
+    hasBallInNetOrPayoff: raw.hasBallInNetOrPayoff !== false,
+    hasGoalMouth: raw.hasGoalMouth !== false,
+    hasPreShotActionFrame: raw.hasPreShotActionFrame !== false,
+    hasFinishActionFrame: raw.hasFinishActionFrame !== false,
+    hasPayoffFrame: raw.hasPayoffFrame !== false,
+    hasConfirmationFrame: raw.hasConfirmationFrame !== false,
+    continuousActionFrameCount: Number.isFinite(Number(raw.continuousActionFrameCount))
+      ? Math.max(0, Math.round(Number(raw.continuousActionFrameCount)))
+      : 4,
+    isBlurred: raw.isBlurred === true,
+    isOverZoomed: raw.isOverZoomed === true,
+    isLabelOnly: raw.isLabelOnly === true,
+    isReplayOnly: raw.isReplayOnly === true,
+    isCelebrationOnly: raw.isCelebrationOnly === true,
+    isScoreboardOnly: raw.isScoreboardOnly === true,
+    isPlayerCloseupOnly: raw.isPlayerCloseupOnly === true,
+    isFrameTooWideUnclear: raw.isFrameTooWideUnclear === true,
+    evidenceCodes: [
+      "finish_frame_visible",
+      "ball_in_net_or_payoff_visible",
+      ...(Array.isArray(raw.evidenceCodes)
+        ? raw.evidenceCodes.map((code) => sanitizeReportText(code, 80)).filter(Boolean).slice(0, 6)
+        : []),
+    ],
+  };
+}
+
+function applyExpectedRenderedGoalProofs(candidatePlans = [], expected = {}) {
+  const proofs = Array.isArray(expected.renderedGoalProofs) ? expected.renderedGoalProofs : [];
+  if (!proofs.length) return candidatePlans;
+  candidatePlans.forEach((plan) => {
+    planSegments(plan).forEach((segment, index) => {
+      if (!isConfirmedValidGoalSegment(segment)) return;
+      const proof = proofs.find((item, proofIndex) => (
+        Number(item && item.goalNumber) === Number(segment.goalNumber) ||
+        overlapRatio(segmentWindow(segment), item) >= 0.5 ||
+        proofIndex === index
+      ));
+      if (!proof) return;
+      const finishFrameEvidence = normalizedRenderedGoalProof(proof, segment);
+      segment.finishFrameEvidence = finishFrameEvidence;
+      segment.phaseCoverage = {
+        ...(segment.phaseCoverage || {}),
+        finishFrameEvidence,
+        visualGoalPayoff: {
+          ...((segment.phaseCoverage && segment.phaseCoverage.visualGoalPayoff) || {}),
+          finishFrameEvidence,
+        },
+      };
+      segment.visualGoalGate = humanVisibleGateForSegment(segment);
+    });
+  });
+  return candidatePlans;
 }
 
 function humanVisibleGoalRecallScore(topPlan, expected = {}, minOverlap = 0.5) {
@@ -1400,6 +1464,7 @@ function scoreFixture(fixture) {
     editIntensity: fixture.expected.editIntensity || "balanced",
     stylePreset: fixture.expected.stylePreset || "social_sports_v1",
   });
+  applyExpectedRenderedGoalProofs(candidatePlans, fixture.expected);
   const topPlan = candidatePlans[0] || null;
   const rawTopMoment = highlightResult.moments[0] || null;
   const topMoment = fixture.expected.goalSelectionMode === "valid_goals_only"

@@ -28,9 +28,15 @@ function baseSegment(overrides = {}) {
     finishFrameEvidence: {
       frameTime: 22,
       confidence: 0.9,
+      visibilityVerdict: "clear",
       hasVisibleFinish: true,
       hasBallInNetOrPayoff: true,
       hasGoalMouth: true,
+      hasPreShotActionFrame: true,
+      hasFinishActionFrame: true,
+      hasPayoffFrame: true,
+      hasConfirmationFrame: true,
+      continuousActionFrameCount: 4,
       isBlurred: false,
       isOverZoomed: false,
       isLabelOnly: false,
@@ -77,9 +83,15 @@ test("human-visible goal gate rejects blurred or label-only finish frames", () =
       finishFrameEvidence: {
         frameTime: 22,
         confidence: 0.9,
+        visibilityVerdict: "clear",
         hasVisibleFinish: true,
         hasBallInNetOrPayoff: true,
         hasGoalMouth: true,
+        hasPreShotActionFrame: true,
+        hasFinishActionFrame: true,
+        hasPayoffFrame: true,
+        hasConfirmationFrame: true,
+        continuousActionFrameCount: 4,
         isBlurred: true,
         evidenceCodes: ["finish_frame_visible", "ball_in_net_or_payoff_visible"],
       },
@@ -90,9 +102,15 @@ test("human-visible goal gate rejects blurred or label-only finish frames", () =
       finishFrameEvidence: {
         frameTime: 22,
         confidence: 0.9,
+        visibilityVerdict: "clear",
         hasVisibleFinish: true,
         hasBallInNetOrPayoff: true,
         hasGoalMouth: true,
+        hasPreShotActionFrame: true,
+        hasFinishActionFrame: true,
+        hasPayoffFrame: true,
+        hasConfirmationFrame: true,
+        continuousActionFrameCount: 4,
         isLabelOnly: true,
         evidenceCodes: ["finish_frame_visible", "ball_in_net_or_payoff_visible"],
       },
@@ -198,9 +216,15 @@ test("human-visible goal gate accepts stable-scorebacked live finish sequence wi
       finishFrameEvidence: {
         frameTime: 22,
         confidence: 0.84,
+        visibilityVerdict: "clear",
         hasVisibleFinish: true,
         hasBallInNetOrPayoff: true,
         hasGoalMouth: true,
+        hasPreShotActionFrame: true,
+        hasFinishActionFrame: true,
+        hasPayoffFrame: true,
+        hasConfirmationFrame: true,
+        continuousActionFrameCount: 4,
         evidenceCodes: ["finish_frame_visible", "clear_goal_payoff_visible"],
       },
     }),
@@ -240,9 +264,15 @@ test("human-visible goal gate accepts durable live finish sequence metadata afte
       finishFrameEvidence: {
         frameTime: 22,
         confidence: 0.84,
+        visibilityVerdict: "clear",
         hasVisibleFinish: true,
         hasBallInNetOrPayoff: true,
         hasGoalMouth: true,
+        hasPreShotActionFrame: true,
+        hasFinishActionFrame: true,
+        hasPayoffFrame: true,
+        hasConfirmationFrame: true,
+        continuousActionFrameCount: 4,
         evidenceCodes: ["finish_frame_visible", "clear_goal_payoff_visible"],
       },
     }),
@@ -278,4 +308,73 @@ test("human-visible goal gate still requires finish-frame proof when payoff meta
   assert.equal(gate.passed, false);
   assert.equal(gate.evidence.hasStableScorebackedFinish, true);
   assert.equal(gate.failureCode, "FINISH_FRAME_NOT_PROVEN");
+});
+
+test("human-visible goal gate rejects borderline visibility even with score and payoff metadata", () => {
+  const gate = validateHumanVisibleGoalSequence({
+    segment: baseSegment({
+      finishFrameEvidence: {
+        frameTime: 22,
+        confidence: 0.86,
+        visibilityVerdict: "borderline",
+        hasVisibleFinish: true,
+        hasBallInNetOrPayoff: true,
+        hasGoalMouth: true,
+        hasPreShotActionFrame: true,
+        hasFinishActionFrame: true,
+        hasPayoffFrame: true,
+        hasConfirmationFrame: true,
+        continuousActionFrameCount: 4,
+        evidenceCodes: ["finish_frame_visible", "clear_goal_payoff_visible"],
+      },
+    }),
+  });
+
+  assert.equal(gate.passed, false);
+  assert.equal(gate.failureCode, "GOAL_VISIBILITY_BORDERLINE");
+  assert.equal(gate.evidence.finishFrame.visibilityVerdict, "borderline");
+});
+
+test("human-visible goal gate rejects inferred finish frames without clear rendered support", () => {
+  const gate = validateHumanVisibleGoalSequence({
+    segment: baseSegment({
+      finishFrameEvidence: {
+        frameTime: 22,
+        confidence: 0.86,
+        hasVisibleFinish: true,
+        hasBallInNetOrPayoff: true,
+        hasGoalMouth: true,
+        evidenceCodes: ["finish_frame_visible", "clear_goal_payoff_visible"],
+      },
+    }),
+  });
+
+  assert.equal(gate.passed, false);
+  assert.equal(gate.failureCode, "INSUFFICIENT_ACTION_FRAMES");
+  assert.ok(gate.evidence.finishFrame.reasons.includes("finish_frame_visibility_verdict_missing"));
+  assert.ok(gate.evidence.finishFrame.reasons.includes("pre_finish_action_frame_missing"));
+});
+
+test("human-visible goal gate rejects player-closeup and too-wide unclear finish proof", () => {
+  const closeup = validateHumanVisibleGoalSequence({
+    segment: baseSegment({
+      finishFrameEvidence: {
+        ...baseSegment().finishFrameEvidence,
+        isPlayerCloseupOnly: true,
+      },
+    }),
+  });
+  const tooWide = validateHumanVisibleGoalSequence({
+    segment: baseSegment({
+      finishFrameEvidence: {
+        ...baseSegment().finishFrameEvidence,
+        isFrameTooWideUnclear: true,
+      },
+    }),
+  });
+
+  assert.equal(closeup.passed, false);
+  assert.equal(closeup.failureCode, "PLAYER_CLOSEUP_ONLY");
+  assert.equal(tooWide.passed, false);
+  assert.equal(tooWide.failureCode, "FRAME_TOO_WIDE_UNCLEAR");
 });

@@ -112,6 +112,11 @@
       { "start": 244.0, "end": 276.0 },
       { "start": 369.5, "end": 404.5 }
     ],
+    "renderedGoalProofs": [
+      { "goalNumber": 1, "start": 125.5, "end": 160.5, "frameTime": 137.0, "visibilityVerdict": "clear", "continuousActionFrameCount": 4 },
+      { "goalNumber": 2, "start": 244.0, "end": 276.0, "frameTime": 261.0, "visibilityVerdict": "clear", "continuousActionFrameCount": 4 },
+      { "goalNumber": 3, "start": 369.5, "end": 404.5, "frameTime": 381.0, "visibilityVerdict": "clear", "continuousActionFrameCount": 4 }
+    ],
     "goalSelectionMode": "valid_goals_only",
     "humanVisibleGoalGateRequired": true,
     "goalPhaseCoverageRequired": true,

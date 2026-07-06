@@ -220,21 +220,62 @@ function normalizeFinishFrameEvidence(value = null, context = {}) {
   const confidence = Number.isFinite(Number(raw.confidence))
     ? round(Math.min(1, Math.max(0, Number(raw.confidence))))
     : null;
+  const visibilityVerdict = sanitizeText(
+    raw.visibilityVerdict ||
+      raw.verdict ||
+      raw.humanVisibilityVerdict ||
+      raw.humanVisibleVerdict ||
+      "",
+    32,
+  ).toLowerCase();
+  const continuousActionFrameCount = Number.isFinite(Number(
+    raw.continuousActionFrameCount ??
+      raw.actionFrameCount ??
+      raw.clearActionFrameCount,
+  ))
+    ? Math.max(0, Math.round(Number(
+        raw.continuousActionFrameCount ??
+          raw.actionFrameCount ??
+          raw.clearActionFrameCount,
+      )))
+    : null;
+  const supportFrames = Array.isArray(raw.supportFrames)
+    ? raw.supportFrames.slice(0, 8).map((frame) => {
+        const item = frame && typeof frame === "object" && !Array.isArray(frame) ? frame : {};
+        return {
+          role: sanitizeText(item.role || item.label || item.type || "", 40),
+          status: sanitizeText(item.status || item.verdict || "", 40).toLowerCase(),
+          time: normalizePhaseTimestamp(item.time ?? item.frameTime ?? item.timestamp, sourceStart, sourceEnd, null),
+          clear: item.clear === true || item.visible === true,
+        };
+      }).filter((frame) => frame.role || frame.status || frame.time !== null)
+    : [];
   return {
     frameTime,
     confidence,
+    visibilityVerdict: ["clear", "borderline", "failed"].includes(visibilityVerdict) ? visibilityVerdict : undefined,
     hasVisibleFinish: raw.hasVisibleFinish === true || raw.visibleFinish === true,
     hasBallInNetOrPayoff: raw.hasBallInNetOrPayoff === true ||
       raw.hasBallInNet === true ||
       raw.hasClearPayoff === true ||
       raw.ballInNetOrPayoffVisible === true,
     hasGoalMouth: raw.hasGoalMouth === true || raw.goalMouthVisible === true,
+    hasPreShotActionFrame: raw.hasPreShotActionFrame === true || raw.preShotActionFrameVisible === true,
+    hasFinishActionFrame: raw.hasFinishActionFrame === true || raw.finishActionFrameVisible === true,
+    hasPayoffFrame: raw.hasPayoffFrame === true || raw.payoffFrameVisible === true,
+    hasConfirmationFrame: raw.hasConfirmationFrame === true || raw.confirmationFrameVisible === true,
+    continuousActionFrameCount,
+    supportFrames,
     isBlurred: raw.isBlurred === true || raw.blurred === true || raw.blurRisk === true,
     isOverZoomed: raw.isOverZoomed === true || raw.overZoomed === true || raw.overZoomRisk === true,
     isLabelOnly: raw.isLabelOnly === true || raw.labelOnly === true || raw.captionOnly === true,
     isReplayOnly: raw.isReplayOnly === true || raw.replayOnly === true,
     isCelebrationOnly: raw.isCelebrationOnly === true || raw.celebrationOnly === true,
     isScoreboardOnly: raw.isScoreboardOnly === true || raw.scoreboardOnly === true,
+    isPlayerCloseupOnly: raw.isPlayerCloseupOnly === true || raw.playerCloseupOnly === true,
+    isFrameTooWideUnclear: raw.isFrameTooWideUnclear === true ||
+      raw.frameTooWideUnclear === true ||
+      raw.tooWideUnclear === true,
     evidenceCodes: uniqueCodes(raw.evidenceCodes || raw.reasonCodes, 12),
   };
 }

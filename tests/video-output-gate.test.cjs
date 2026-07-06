@@ -45,9 +45,15 @@ function visibleGoalSegment(goalNumber, sourceStart, overrides = {}) {
   const defaultFinishFrameEvidence = {
     frameTime: finalFinishTime,
     confidence: 0.9,
+    visibilityVerdict: "clear",
     hasVisibleFinish: true,
     hasBallInNetOrPayoff: true,
     hasGoalMouth: true,
+    hasPreShotActionFrame: true,
+    hasFinishActionFrame: true,
+    hasPayoffFrame: true,
+    hasConfirmationFrame: true,
+    continuousActionFrameCount: 4,
     isBlurred: false,
     isOverZoomed: false,
     isLabelOnly: false,
@@ -238,6 +244,10 @@ test("video output gate passes only when all five counted goals have visible pha
   assert.equal(report.creativeStyle.passed, true);
   assert.equal(report.renderedGoalVisibility.passed, true);
   assert.equal(report.renderedGoalVisibility.visibleGoalCount, 5);
+  assert.equal(report.renderedGoalVisibility.humanVisibleGoalsClear, 5);
+  assert.equal(report.renderedGoalVisibility.humanVisibleGoalsBorderline, 0);
+  assert.equal(report.renderedGoalVisibility.humanVisibleGoalsFailed, 0);
+  assert.equal(report.humanVisibleGoalsClear, 5);
   assert.deepEqual(report.missingGoalNumbers, []);
   assert.doesNotMatch(JSON.stringify(report), /\/Users|\/private|token|secret|rawOcr|rawText|stderr|stdout/i);
 });
@@ -286,9 +296,15 @@ test("video output gate rejects blurred or over-zoomed finish-frame proof", () =
           finishFrameEvidence: {
             frameTime: 98,
             confidence: 0.9,
+            visibilityVerdict: "clear",
             hasVisibleFinish: true,
             hasBallInNetOrPayoff: true,
             hasGoalMouth: true,
+            hasPreShotActionFrame: true,
+            hasFinishActionFrame: true,
+            hasPayoffFrame: true,
+            hasConfirmationFrame: true,
+            continuousActionFrameCount: 4,
             isBlurred: true,
             isOverZoomed: true,
             evidenceCodes: ["finish_frame_visible", "ball_in_net_or_payoff_visible"],
@@ -301,6 +317,93 @@ test("video output gate rejects blurred or over-zoomed finish-frame proof", () =
     assert.equal(error.details.renderedGoalVisibility.failedGoals[0].failureCode, "FINISH_FRAME_BLURRED");
     assert.ok(error.details.renderedGoalVisibility.failedGoals[0].finishFrameEvidence.reasons.includes("finish_frame_blurred"));
     assert.doesNotMatch(JSON.stringify(error.details), /\/Users|\/private|token|secret|rawOcr|rawText|stderr|stdout/i);
+    return true;
+  });
+});
+
+test("video output gate rejects old false-positive proof with only one clear human-visible goal", () => {
+  const clearGoal = visibleGoalSegment(1, 84);
+  const borderlineGoal = (goalNumber, sourceStart) => visibleGoalSegment(goalNumber, sourceStart, {
+    finishFrameEvidence: {
+      ...visibleGoalSegment(goalNumber, sourceStart).finishFrameEvidence,
+      visibilityVerdict: "borderline",
+    },
+  });
+  const failedGoal = (goalNumber, sourceStart, failure) => visibleGoalSegment(goalNumber, sourceStart, {
+    finishFrameEvidence: {
+      ...visibleGoalSegment(goalNumber, sourceStart).finishFrameEvidence,
+      visibilityVerdict: "failed",
+      [failure]: true,
+    },
+  });
+
+  assert.throws(() => assertVideoOutputCoverage({
+    goalSelectionMode: "valid_goals_only",
+    matchEventTruth: {
+      providerMode: "fixture-match-event-truth",
+      events: [],
+      rejectedEvents: [],
+      scoreTimelineObservations: [],
+      scoreChanges: countedScoreChanges(5),
+      summary: { countedGoalEventCount: 5 },
+    },
+    editPlan: {
+      ...creativeOutputContract(),
+      totalDuration: 75,
+      segments: [
+        clearGoal,
+        borderlineGoal(2, 164),
+        failedGoal(3, 244, "isPlayerCloseupOnly"),
+        borderlineGoal(4, 324),
+        failedGoal(5, 404, "isFrameTooWideUnclear"),
+      ],
+    },
+  }), (error) => {
+    assert.equal(error.code, "VIDEO_OUTPUT_QA_FAILED");
+    assert.equal(error.details.renderedGoalVisibility.humanVisibleGoalsClear, 1);
+    assert.equal(error.details.renderedGoalVisibility.humanVisibleGoalsBorderline, 2);
+    assert.equal(error.details.renderedGoalVisibility.humanVisibleGoalsFailed, 2);
+    assert.equal(error.details.humanVisibleGoalsClear, 1);
+    assert.equal(error.details.humanVisibleGoalsBorderline, 2);
+    assert.equal(error.details.humanVisibleGoalsFailed, 2);
+    assert.ok(error.details.failedReasons.includes("borderline_goal_visibility"));
+    assert.ok(error.details.failedReasons.includes("human_visible_clear_goal_count_mismatch"));
+    assert.deepEqual(error.details.missingGoalNumbers, [2, 3, 4, 5]);
+    assert.doesNotMatch(JSON.stringify(error.details), /\/Users|\/private|token|secret|rawOcr|rawText|stderr|stdout/i);
+    return true;
+  });
+});
+
+test("video output gate rejects finish-frame proof without clear verdict and support frames", () => {
+  assert.throws(() => assertVideoOutputCoverage({
+    goalSelectionMode: "valid_goals_only",
+    matchEventTruth: {
+      providerMode: "fixture-match-event-truth",
+      events: [],
+      rejectedEvents: [],
+      scoreTimelineObservations: [],
+      scoreChanges: countedScoreChanges(1),
+      summary: { countedGoalEventCount: 1 },
+    },
+    editPlan: {
+      ...creativeOutputContract(),
+      segments: [visibleGoalSegment(1, 84, {
+        finishFrameEvidence: {
+          frameTime: 98,
+          confidence: 0.9,
+          hasVisibleFinish: true,
+          hasBallInNetOrPayoff: true,
+          hasGoalMouth: true,
+          evidenceCodes: ["finish_frame_visible", "clear_goal_payoff_visible"],
+        },
+      })],
+    },
+  }), (error) => {
+    assert.equal(error.code, "VIDEO_OUTPUT_QA_FAILED");
+    assert.equal(error.details.renderedGoalVisibility.humanVisibleGoalsClear, 0);
+    assert.equal(error.details.renderedGoalVisibility.failedGoals[0].failureCode, "INSUFFICIENT_ACTION_FRAMES");
+    assert.ok(error.details.renderedGoalVisibility.failedGoals[0].finishFrameEvidence.reasons.includes("finish_frame_visibility_verdict_missing"));
+    assert.ok(error.details.renderedGoalVisibility.failedGoals[0].finishFrameEvidence.reasons.includes("insufficient_continuous_action_frames"));
     return true;
   });
 });
@@ -340,6 +443,39 @@ test("video output gate rejects overlapping duplicate goal windows even when fiv
     assert.equal(error.details.distinctGoalIdentity.uniqueConfirmedGoalCount, 4);
     assert.ok(error.details.failedReasons.includes("duplicate_goal_segments_detected"));
     assert.match(JSON.stringify(error.details.distinctGoalIdentity.duplicatePairs), /duplicate_goal_window_overlap/);
+    assert.doesNotMatch(JSON.stringify(error.details), /\/Users|\/private|token|secret|rawOcr|rawText|stderr|stdout/i);
+    return true;
+  });
+});
+
+test("video output gate rejects overlapping distinct goal labels without separate live phases", () => {
+  assert.throws(() => assertVideoOutputCoverage({
+    goalSelectionMode: "valid_goals_only",
+    matchEventTruth: {
+      providerMode: "fixture-match-event-truth",
+      events: [],
+      rejectedEvents: [],
+      scoreTimelineObservations: [],
+      scoreChanges: customScoreChanges([234.25, 472, 483.25, 556.45, 594.25]),
+      summary: { countedGoalEventCount: 5 },
+    },
+    editPlan: {
+      ...creativeOutputContract(),
+      totalDuration: 75,
+      segments: [
+        visibleGoalSegment(1, 223.6, { sourceEnd: 238.6, shotStart: 229.75, finishTime: 234.25, confirmationTime: 236.25 }),
+        visibleGoalSegment(2, 461.35, { sourceEnd: 476.35, shotStart: 467.5, finishTime: 472, confirmationTime: 474 }),
+        visibleGoalSegment(3, 471.1, { sourceEnd: 486.1, shotStart: 477.25, finishTime: 483.25, confirmationTime: 483.75 }),
+        visibleGoalSegment(4, 545.8, { sourceEnd: 560.8, shotStart: 551.95, finishTime: 556.45, confirmationTime: 558.45 }),
+        visibleGoalSegment(5, 583.6, { sourceEnd: 598.6, shotStart: 589.75, finishTime: 594.25, confirmationTime: 596.25 }),
+      ],
+    },
+  }), (error) => {
+    assert.equal(error.code, "VIDEO_OUTPUT_QA_FAILED");
+    assert.equal(error.details.distinctGoalIdentity.passed, false);
+    assert.equal(error.details.distinctGoalIdentity.uniqueConfirmedGoalCount, 4);
+    assert.match(JSON.stringify(error.details.distinctGoalIdentity.duplicatePairs), /overlapping_goal_windows_need_separate_live_phases/);
+    assert.ok(error.details.failedReasons.includes("duplicate_goal_segments_detected"));
     assert.doesNotMatch(JSON.stringify(error.details), /\/Users|\/private|token|secret|rawOcr|rawText|stderr|stdout/i);
     return true;
   });

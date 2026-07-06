@@ -8,7 +8,7 @@ const { runFfmpeg } = require("./render.cjs");
 const { assertStoragePath, safeResolve, storagePath } = require("./storage.cjs");
 
 const DEFAULT_MAX_FRAMES = 10;
-const MAX_ALLOWED_FRAMES = 18;
+const MAX_ALLOWED_FRAMES = 24;
 const DEFAULT_MAX_DIMENSION = 640;
 const DEFAULT_FRAME_FORMAT = "jpg";
 
