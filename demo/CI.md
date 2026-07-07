@@ -137,10 +137,16 @@ GitHub Actions uploads artifacts only when the release gate fails. The upload al
 - `demo/results/browser-latest.json`
 - `demo/results/playwright-latest.json`
 - `demo/results/playwright-artifacts/`
+- `demo/results/youtube-live-e2e-latest.json`
+- `demo/results/visual-goal-qa-latest.json`
+- `demo/results/visual-goal-contact-sheet-latest.json`
+- `demo/results/reference-style-qa-latest.json`
 - `eval/results/latest.json`
 - `eval/results/reference-latest.json`
 
 The workflow must not upload `node_modules`, storage directories, uploads, renders, database files, secrets, raw local state, OCR crop artifact directories, or broad result globs.
+
+Optional operator proof reports are diagnostic in default CI. A failed, skipped, stale, or local-artifact-only `youtube-live-e2e`, `visual-goal-qa`, or `reference-style-qa` report does not block the deterministic release gate unless `SHORTSENGINE_CI_REQUIRE_OPTIONAL_PROOF_REPORTS=1` is set. If the referenced operator artifacts are available locally, `npm run ci:reports` includes the optional report as passed; with the explicit strict flag it validates the referenced MP4/report/contact-sheet artifacts and fails closed when they are missing.
 
 For local OCR crop QA, run:
 

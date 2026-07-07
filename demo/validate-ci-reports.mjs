@@ -32,6 +32,23 @@ const REPORT_RECOVERY_COMMANDS = Object.freeze({
   "visual-goal-qa": "npm run visual:goal:qa",
   "reference-style-qa": "npm run reference:style:qa",
 });
+const OPTIONAL_PROOF_REPORTS = Object.freeze([
+  {
+    label: "youtube-live-proof",
+    fileName: "youtube-live-e2e-latest.json",
+    assertArtifacts: assertYouTubeLiveProofArtifact,
+  },
+  {
+    label: "visual-goal-qa",
+    fileName: "visual-goal-qa-latest.json",
+    assertArtifacts: assertVisualGoalQAArtifacts,
+  },
+  {
+    label: "reference-style-qa",
+    fileName: "reference-style-qa-latest.json",
+    assertArtifacts: assertReferenceStyleQAArtifacts,
+  },
+]);
 
 class CiReportError extends Error {
   constructor(code, message, details = {}) {
@@ -49,6 +66,12 @@ function parseMaxAgeMs(value = process.env.SHORTSENGINE_CI_REPORT_MAX_AGE_MS) {
     throw new CiReportError("CI_REPORT_CONFIG_INVALID", "CI report max age is invalid.");
   }
   return Math.floor(parsed);
+}
+
+function parseBooleanFlag(value) {
+  if (value === true || value === "1" || value === "true") return true;
+  if (value === false || value === undefined || value === null || value === "" || value === "0" || value === "false") return false;
+  throw new CiReportError("CI_REPORT_CONFIG_INVALID", "CI report boolean config is invalid.");
 }
 
 function relativeFromRoot(filePath) {
@@ -141,6 +164,19 @@ function assertPassedReport(report, label) {
   if (Array.isArray(report.checks) && report.checks.some((check) => check && check.passed === false)) {
     throw new CiReportError("CI_REPORT_FAILED", "CI report contains failed checks.", { label });
   }
+}
+
+function reportStatus(report) {
+  return report?.status || (report?.passed ? "passed" : "failed");
+}
+
+function isPassingReport(report) {
+  if (!report || typeof report !== "object") return false;
+  if (Object.prototype.hasOwnProperty.call(report, "status") && report.status !== "passed") return false;
+  if (Object.prototype.hasOwnProperty.call(report, "passed") && report.passed !== true) return false;
+  if (Array.isArray(report.failedCases) && report.failedCases.length > 0) return false;
+  if (Array.isArray(report.checks) && report.checks.some((check) => check && check.passed === false)) return false;
+  return report.status === "passed" || report.passed === true;
 }
 
 function assertPlaywrightArtifacts(report) {
@@ -310,12 +346,85 @@ function validateReport({ filePath, label, maxAgeMs, nowMs }) {
   return report;
 }
 
+function readOptionalProofReport({ filePath, label }) {
+  const report = readJsonReport(filePath);
+  const leak = findSensitiveLeak(report);
+  if (leak) {
+    throw new CiReportError("CI_REPORT_LEAK", "CI report contains sensitive data.", { label, leakCode: leak.code, leakPath: leak.path });
+  }
+  assertSafeRelativeReferences(report);
+  return report;
+}
+
+function validateOptionalProofReport({
+  entry,
+  demoResultsDir,
+  artifactRootDir,
+  maxAgeMs,
+  nowMs,
+  requireOptionalProofReports,
+}) {
+  const filePath = resolve(demoResultsDir, entry.fileName);
+  if (!existsSync(filePath)) return null;
+
+  let report;
+  try {
+    report = readOptionalProofReport({ filePath, label: entry.label });
+  } catch (error) {
+    if (error?.code === "CI_REPORT_LEAK" || error?.code === "CI_REPORT_PATH_INVALID") throw error;
+    if (requireOptionalProofReports) throw error;
+    return {
+      label: entry.label,
+      path: safeReportRef(filePath),
+      status: "ignored_invalid",
+      required: false,
+      reason: error?.code || "CI_OPTIONAL_REPORT_INVALID",
+    };
+  }
+
+  if (!requireOptionalProofReports && !isPassingReport(report)) {
+    return {
+      label: entry.label,
+      path: safeReportRef(filePath),
+      status: "ignored",
+      reportStatus: reportStatus(report),
+      required: false,
+      reason: "optional_operator_proof_not_required_in_default_ci",
+    };
+  }
+
+  try {
+    assertFreshTimestamp(report, { label: entry.label, maxAgeMs, nowMs });
+    assertPassedReport(report, entry.label);
+    entry.assertArtifacts(report, artifactRootDir);
+  } catch (error) {
+    if (requireOptionalProofReports || error?.code === "CI_REPORT_LEAK" || error?.code === "CI_REPORT_PATH_INVALID") throw error;
+    return {
+      label: entry.label,
+      path: safeReportRef(filePath),
+      status: "ignored",
+      reportStatus: reportStatus(report),
+      required: false,
+      reason: error?.code || "CI_OPTIONAL_REPORT_ARTIFACT_UNAVAILABLE",
+    };
+  }
+  return {
+    label: entry.label,
+    path: safeReportRef(filePath),
+    status: reportStatus(report),
+    required: requireOptionalProofReports,
+  };
+}
+
 function validateCiReports(options = {}) {
   const demoResultsDir = resolve(options.demoResultsDir || RESULTS_DIR);
   const evalResultsDir = resolve(options.evalResultsDir || EVAL_RESULTS_DIR);
   const artifactRootDir = resolve(options.artifactRootDir || ROOT_DIR);
   const nowMs = Number.isFinite(Number(options.nowMs)) ? Number(options.nowMs) : Date.now();
   const maxAgeMs = options.maxAgeMs || parseMaxAgeMs();
+  const requireOptionalProofReports = Object.prototype.hasOwnProperty.call(options, "requireOptionalProofReports")
+    ? parseBooleanFlag(options.requireOptionalProofReports)
+    : parseBooleanFlag(process.env.SHORTSENGINE_CI_REQUIRE_OPTIONAL_PROOF_REPORTS);
   const reports = [
     { label: "api-demo", filePath: resolve(demoResultsDir, "latest.json") },
     { label: "ocr-smoke", filePath: resolve(demoResultsDir, "ocr-latest.json") },
@@ -329,7 +438,7 @@ function validateCiReports(options = {}) {
   const validated = reports.map((entry) => {
     const report = validateReport({ ...entry, maxAgeMs, nowMs });
     if (entry.label === "playwright-browser") assertPlaywrightArtifacts(report);
-    const status = report.status || (report.passed ? "passed" : "failed");
+    const status = reportStatus(report);
     if (entry.label === "playwright-browser") playwrightStatus = status;
     return {
       label: entry.label,
@@ -341,55 +450,26 @@ function validateCiReports(options = {}) {
   if (playwrightStatus === "passed" && artifacts.files > 0) {
     throw new CiReportError("CI_REPORT_ARTIFACTS_INVALID", "Passing Playwright runs must not leave failure artifact files.");
   }
-  const youtubeLiveProofPath = resolve(demoResultsDir, "youtube-live-e2e-latest.json");
-  if (existsSync(youtubeLiveProofPath)) {
-    const report = validateReport({
-      filePath: youtubeLiveProofPath,
-      label: "youtube-live-proof",
+  const optionalReports = [];
+  for (const entry of OPTIONAL_PROOF_REPORTS) {
+    const result = validateOptionalProofReport({
+      entry,
+      demoResultsDir,
+      artifactRootDir,
       maxAgeMs,
       nowMs,
+      requireOptionalProofReports,
     });
-    assertYouTubeLiveProofArtifact(report, artifactRootDir);
-    validated.push({
-      label: "youtube-live-proof",
-      path: safeReportRef(youtubeLiveProofPath),
-      status: report.status || (report.passed ? "passed" : "failed"),
-    });
-  }
-  const visualGoalQAPath = resolve(demoResultsDir, "visual-goal-qa-latest.json");
-  if (existsSync(visualGoalQAPath)) {
-    const report = validateReport({
-      filePath: visualGoalQAPath,
-      label: "visual-goal-qa",
-      maxAgeMs,
-      nowMs,
-    });
-    assertVisualGoalQAArtifacts(report, artifactRootDir);
-    validated.push({
-      label: "visual-goal-qa",
-      path: safeReportRef(visualGoalQAPath),
-      status: report.status || (report.passed ? "passed" : "failed"),
-    });
-  }
-  const referenceStyleQAPath = resolve(demoResultsDir, "reference-style-qa-latest.json");
-  if (existsSync(referenceStyleQAPath)) {
-    const report = validateReport({
-      filePath: referenceStyleQAPath,
-      label: "reference-style-qa",
-      maxAgeMs,
-      nowMs,
-    });
-    assertReferenceStyleQAArtifacts(report, artifactRootDir);
-    validated.push({
-      label: "reference-style-qa",
-      path: safeReportRef(referenceStyleQAPath),
-      status: report.status || (report.passed ? "passed" : "failed"),
-    });
+    if (!result) continue;
+    if (result.status === "passed") validated.push(result);
+    else optionalReports.push(result);
   }
   return {
     ok: true,
     checkedAt: new Date(nowMs).toISOString(),
     reports: validated,
+    optionalReports,
+    requireOptionalProofReports,
     artifacts,
   };
 }
@@ -430,6 +510,7 @@ export {
   assertSafeRelativeReferences,
   assertYouTubeLiveProofArtifact,
   assertVisualGoalQAArtifacts,
+  OPTIONAL_PROOF_REPORTS,
   parseMaxAgeMs,
   REPORT_RECOVERY_COMMANDS,
   safeReportRef,

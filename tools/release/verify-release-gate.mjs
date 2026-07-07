@@ -69,6 +69,10 @@ const FAILURE_ARTIFACT_ALLOWLIST = Object.freeze([
   "demo/results/browser-latest.json",
   "demo/results/playwright-latest.json",
   "demo/results/playwright-artifacts/",
+  "demo/results/youtube-live-e2e-latest.json",
+  "demo/results/visual-goal-qa-latest.json",
+  "demo/results/visual-goal-contact-sheet-latest.json",
+  "demo/results/reference-style-qa-latest.json",
   "eval/results/latest.json",
   "eval/results/reference-latest.json",
 ]);

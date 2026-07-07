@@ -216,6 +216,20 @@ function writePassingReferenceStyleQA({
   });
 }
 
+function writeFailedOptionalReport({ demoResultsDir, timestamp, fileName, status = "failed" }) {
+  writeJson(join(demoResultsDir, fileName), {
+    timestamp,
+    generatedAt: timestamp,
+    status,
+    passed: false,
+    phase: "operator-proof",
+    failedCases: [{ id: "manual-proof-not-run", reason: "operator proof was not required in default CI" }],
+    checks: [{ name: "operator_proof_passed", passed: false }],
+    logsDownloaded: false,
+    artifactsDownloaded: false,
+  });
+}
+
 test("CI report validator accepts fresh safe reports", () => {
   const dirs = createReportDirs();
   const nowMs = Date.parse("2026-06-15T18:00:00.000Z");
@@ -233,6 +247,41 @@ test("CI report validator accepts fresh safe reports", () => {
     "reference-review",
   ]);
   assert.equal(result.artifacts.exists, false);
+});
+
+test("CI report validator ignores failed optional operator proofs in the default release gate", () => {
+  const dirs = createReportDirs();
+  const nowMs = Date.parse("2026-06-15T18:00:00.000Z");
+  const timestamp = new Date(nowMs).toISOString();
+  writeValidReports({ ...dirs, timestamp });
+  writeFailedOptionalReport({ ...dirs, timestamp, fileName: "youtube-live-e2e-latest.json" });
+  writeFailedOptionalReport({ ...dirs, timestamp, fileName: "visual-goal-qa-latest.json" });
+  writeFailedOptionalReport({ ...dirs, timestamp, fileName: "reference-style-qa-latest.json" });
+
+  const result = validateCiReports({ ...dirs, nowMs, maxAgeMs: 60_000 });
+  assert.equal(result.ok, true);
+  assert.equal(result.reports.some((report) => report.label === "youtube-live-proof"), false);
+  assert.deepEqual(
+    result.optionalReports.map((report) => [report.label, report.status, report.reason]),
+    [
+      ["youtube-live-proof", "ignored", "optional_operator_proof_not_required_in_default_ci"],
+      ["visual-goal-qa", "ignored", "optional_operator_proof_not_required_in_default_ci"],
+      ["reference-style-qa", "ignored", "optional_operator_proof_not_required_in_default_ci"],
+    ],
+  );
+});
+
+test("CI report validator can require optional operator proofs for manual release validation", () => {
+  const dirs = createReportDirs();
+  const nowMs = Date.parse("2026-06-15T18:00:00.000Z");
+  const timestamp = new Date(nowMs).toISOString();
+  writeValidReports({ ...dirs, timestamp });
+  writeFailedOptionalReport({ ...dirs, timestamp, fileName: "youtube-live-e2e-latest.json" });
+
+  assert.throws(
+    () => validateCiReports({ ...dirs, nowMs, maxAgeMs: 60_000, requireOptionalProofReports: true }),
+    /CI report did not pass/,
+  );
 });
 
 test("CI report validator checks optional passing YouTube live proof MP4 exists", () => {
@@ -271,7 +320,43 @@ test("CI report validator checks optional reference style QA MP4, visual report 
   assert.equal(result.reports.some((report) => report.label === "reference-style-qa" && report.status === "passed"), true);
 });
 
-test("CI report validator rejects optional reference style QA when visual report is missing", () => {
+test("CI report validator ignores unavailable passing optional artifacts in the default release gate", () => {
+  const dirs = createReportDirs();
+  const nowMs = Date.parse("2026-06-15T18:00:00.000Z");
+  const timestamp = new Date(nowMs).toISOString();
+  writeValidReports({ ...dirs, timestamp });
+  writePassingYouTubeLiveProof({ ...dirs, timestamp, relativePath: "manual-downloads/youtube-proof.mp4", writeMp4: false });
+  writePassingVisualGoalQA({
+    ...dirs,
+    timestamp,
+    relativePath: "manual-downloads/visual-proof.mp4",
+    contactSheetPath: "demo/results/visual-goal-contact-sheet-missing.json",
+    writeContactSheet: false,
+  });
+  writePassingReferenceStyleQA({
+    ...dirs,
+    timestamp,
+    relativePath: "manual-downloads/reference-proof.mp4",
+    visualReportPath: "demo/results/visual-goal-qa-missing.json",
+    contactSheetPath: "demo/results/reference-goal-contact-sheet-missing.json",
+    writeVisualReport: false,
+    writeContactSheet: false,
+  });
+
+  const result = validateCiReports({ ...dirs, artifactRootDir: dirs.root, nowMs, maxAgeMs: 60_000 });
+  assert.equal(result.ok, true);
+  assert.equal(result.reports.some((report) => report.label === "youtube-live-proof"), false);
+  assert.deepEqual(
+    result.optionalReports.map((report) => [report.label, report.status, report.reason]),
+    [
+      ["youtube-live-proof", "ignored", "CI_REPORT_ARTIFACT_MISSING"],
+      ["visual-goal-qa", "ignored", "CI_REPORT_ARTIFACT_MISSING"],
+      ["reference-style-qa", "ignored", "CI_REPORT_ARTIFACT_MISSING"],
+    ],
+  );
+});
+
+test("CI report validator rejects optional reference style QA when visual report is missing in strict mode", () => {
   const dirs = createReportDirs();
   const nowMs = Date.parse("2026-06-15T18:00:00.000Z");
   const timestamp = new Date(nowMs).toISOString();
@@ -279,12 +364,12 @@ test("CI report validator rejects optional reference style QA when visual report
   writePassingReferenceStyleQA({ ...dirs, timestamp, writeVisualReport: false });
 
   assert.throws(
-    () => validateCiReports({ ...dirs, artifactRootDir: dirs.root, nowMs, maxAgeMs: 60_000 }),
+    () => validateCiReports({ ...dirs, artifactRootDir: dirs.root, nowMs, maxAgeMs: 60_000, requireOptionalProofReports: true }),
     /Passing reference style QA visual report is missing/,
   );
 });
 
-test("CI report validator rejects optional visual goal QA when contact sheet is missing", () => {
+test("CI report validator rejects optional visual goal QA when contact sheet is missing in strict mode", () => {
   const dirs = createReportDirs();
   const nowMs = Date.parse("2026-06-15T18:00:00.000Z");
   const timestamp = new Date(nowMs).toISOString();
@@ -292,12 +377,12 @@ test("CI report validator rejects optional visual goal QA when contact sheet is 
   writePassingVisualGoalQA({ ...dirs, timestamp, writeContactSheet: false });
 
   assert.throws(
-    () => validateCiReports({ ...dirs, artifactRootDir: dirs.root, nowMs, maxAgeMs: 60_000 }),
+    () => validateCiReports({ ...dirs, artifactRootDir: dirs.root, nowMs, maxAgeMs: 60_000, requireOptionalProofReports: true }),
     /Passing visual goal QA contact sheet is missing/,
   );
 });
 
-test("CI report validator rejects optional passing YouTube live proof when MP4 is missing", () => {
+test("CI report validator rejects optional passing YouTube live proof when MP4 is missing in strict mode", () => {
   const dirs = createReportDirs();
   const nowMs = Date.parse("2026-06-15T18:00:00.000Z");
   const timestamp = new Date(nowMs).toISOString();
@@ -305,7 +390,7 @@ test("CI report validator rejects optional passing YouTube live proof when MP4 i
   writePassingYouTubeLiveProof({ ...dirs, timestamp, writeMp4: false });
 
   assert.throws(
-    () => validateCiReports({ ...dirs, artifactRootDir: dirs.root, nowMs, maxAgeMs: 60_000 }),
+    () => validateCiReports({ ...dirs, artifactRootDir: dirs.root, nowMs, maxAgeMs: 60_000, requireOptionalProofReports: true }),
     /Passing YouTube live proof MP4 is missing/,
   );
 });

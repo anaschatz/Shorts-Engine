@@ -840,6 +840,10 @@ assert.doesNotMatch(githubWorkflow, /demo\/results\/ocr-artifacts\//, "CI workfl
 assert.match(githubWorkflow, /demo\/results\/browser-latest\.json/, "CI workflow should upload browser smoke latest report on failure");
 assert.match(githubWorkflow, /demo\/results\/playwright-latest\.json/, "CI workflow should upload Playwright latest report on failure");
 assert.match(githubWorkflow, /demo\/results\/playwright-artifacts\//, "CI workflow should upload failure-only Playwright artifacts");
+assert.match(githubWorkflow, /demo\/results\/youtube-live-e2e-latest\.json/, "CI workflow should upload optional YouTube proof summary on failure");
+assert.match(githubWorkflow, /demo\/results\/visual-goal-qa-latest\.json/, "CI workflow should upload optional visual goal QA summary on failure");
+assert.match(githubWorkflow, /demo\/results\/visual-goal-contact-sheet-latest\.json/, "CI workflow should upload optional visual goal contact sheet summary on failure");
+assert.match(githubWorkflow, /demo\/results\/reference-style-qa-latest\.json/, "CI workflow should upload optional reference style QA summary on failure");
 assert.match(githubWorkflow, /eval\/results\/latest\.json/, "CI workflow should upload eval latest report on failure");
 assert.match(githubWorkflow, /eval\/results\/reference-latest\.json/, "CI workflow should upload reference review latest report on failure");
 assert.doesNotMatch(githubWorkflow, /SHORTSENGINE_BROWSER_E2E_ALLOW_SKIP/, "release gate must not skip missing Playwright runtime");
