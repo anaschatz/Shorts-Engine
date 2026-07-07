@@ -1541,12 +1541,6 @@ function scoreCandidateTimestamp(chunk = {}, index = 0, total = 1) {
   return start + ((index + 1) / Math.max(2, total + 1)) * Math.max(1, end - start);
 }
 
-function sparseBridgeTimestamps({ chunk = {}, pathLength = 1 } = {}) {
-  const safePathLength = Math.max(1, Math.min(Number(pathLength) || 1, 3));
-  return Array.from({ length: safePathLength }, (_item, index) =>
-    scoreCandidateTimestamp(chunk, index, safePathLength));
-}
-
 function uniqueChunkScoreCandidates(chunk = {}) {
   const seen = new Set();
   return (Array.isArray(chunk.normalizedScoreCandidates) ? chunk.normalizedScoreCandidates : [])
@@ -1572,33 +1566,97 @@ function candidateRejection(chunk = {}, score = null, current = null, reason = "
   };
 }
 
-function scoreUnitPath(before = null, after = null) {
-  if (!before || !after || !nonDecreasingScore(before, after)) return [];
-  const delta = scoreTotal(after) - scoreTotal(before);
-  if (delta <= 0 || delta > 3) return [];
-  let home = Number(before.home || 0);
-  let away = Number(before.away || 0);
-  let homeRemaining = Math.max(0, Number(after.home || 0) - home);
-  let awayRemaining = Math.max(0, Number(after.away || 0) - away);
-  const path = [];
-  while (homeRemaining > 0 || awayRemaining > 0) {
-    if (awayRemaining > homeRemaining) {
-      away += 1;
-      awayRemaining -= 1;
-    } else if (homeRemaining > 0) {
-      home += 1;
-      homeRemaining -= 1;
-    } else {
-      away += 1;
-      awayRemaining -= 1;
-    }
-    path.push({
-      home,
-      away,
-      text: `${home}-${away}`,
+function isUnitScoreIncrease(previous = null, next = null) {
+  if (!previous || !next || !nonDecreasingScore(previous, next)) return false;
+  const homeDelta = Number(next.home || 0) - Number(previous.home || 0);
+  const awayDelta = Number(next.away || 0) - Number(previous.away || 0);
+  return (homeDelta === 1 && awayDelta === 0) || (homeDelta === 0 && awayDelta === 1);
+}
+
+function scoreCandidateWithText(home, away, extras = {}) {
+  const safeHome = Number(home);
+  const safeAway = Number(away);
+  if (!Number.isInteger(safeHome) || !Number.isInteger(safeAway)) return null;
+  return {
+    home: safeHome,
+    away: safeAway,
+    text: `${safeHome}-${safeAway}`,
+    ...extras,
+  };
+}
+
+function ocrCorrectedUnitCandidates(previous = null, observed = null) {
+  if (!previous || !observed || !nonDecreasingScore(previous, observed)) return [];
+  const homeDelta = Number(observed.home || 0) - Number(previous.home || 0);
+  const awayDelta = Number(observed.away || 0) - Number(previous.away || 0);
+  if (homeDelta <= 0 && awayDelta <= 0) return [];
+  if (homeDelta === 1 && awayDelta === 1) return [];
+  const corrections = [];
+  if (awayDelta === 1 && homeDelta > 1) {
+    const corrected = scoreCandidateWithText(previous.home, observed.away, {
+      observedScoreText: observed.text,
+      ocrCorrected: true,
+      correctionType: "carry_forward_home_score",
+      correctionReasonCodes: [
+        "observed_away_unit_increment",
+        "home_score_ocr_noise_carried_forward",
+        "not_synthetic_score_progression",
+      ],
     });
+    if (corrected && isUnitScoreIncrease(previous, corrected)) corrections.push(corrected);
   }
-  return path;
+  if (homeDelta === 1 && awayDelta > 1) {
+    const corrected = scoreCandidateWithText(observed.home, previous.away, {
+      observedScoreText: observed.text,
+      ocrCorrected: true,
+      correctionType: "carry_forward_away_score",
+      correctionReasonCodes: [
+        "observed_home_unit_increment",
+        "away_score_ocr_noise_carried_forward",
+        "not_synthetic_score_progression",
+      ],
+    });
+    if (corrected && isUnitScoreIncrease(previous, corrected)) corrections.push(corrected);
+  }
+  return corrections;
+}
+
+function progressionCandidatesForCurrent(chunk = {}, rawCandidates = [], current = null, rejectedCandidates = []) {
+  const byText = new Map();
+  const addCandidate = (candidate) => {
+    if (!candidate || !candidate.text || candidate.text === (current && current.text)) return;
+    const existing = byText.get(candidate.text);
+    if (!existing || (candidate.ocrCorrected && !existing.ocrCorrected)) {
+      byText.set(candidate.text, candidate);
+    }
+  };
+  for (const candidate of rawCandidates) {
+    if (!candidate || candidate.text === (current && current.text)) continue;
+    if (!nonDecreasingScore(current, candidate)) {
+      rejectedCandidates.push(candidateRejection(chunk, candidate, current, "score_candidate_decreases_or_reverts"));
+      continue;
+    }
+    const delta = scoreTotal(candidate) - scoreTotal(current);
+    if (delta <= 0) {
+      rejectedCandidates.push(candidateRejection(chunk, candidate, current, "score_candidate_no_new_goal"));
+      continue;
+    }
+    for (const corrected of ocrCorrectedUnitCandidates(current, candidate)) {
+      addCandidate(corrected);
+    }
+    if (delta > 3) {
+      rejectedCandidates.push(candidateRejection(chunk, candidate, current, "score_candidate_jump_too_large"));
+      continue;
+    }
+    addCandidate(candidate);
+  }
+  return [...byText.values()]
+    .sort((a, b) => (
+      scoreTotal(a) - scoreTotal(b) ||
+      (a.ocrCorrected === b.ocrCorrected ? 0 : a.ocrCorrected ? -1 : 1) ||
+      a.home - b.home ||
+      a.away - b.away
+    ));
 }
 
 function buildScoreCandidateProgressionFromChunks(chunkSummary = null) {
@@ -1619,8 +1677,8 @@ function buildScoreCandidateProgressionFromChunks(chunkSummary = null) {
 
   for (const chunk of chunks) {
     if (!chunk || chunk.status !== "completed") continue;
-    const candidates = uniqueChunkScoreCandidates(chunk);
-    if (!candidates.length) {
+    const rawCandidates = uniqueChunkScoreCandidates(chunk);
+    if (!rawCandidates.length) {
       if (Number(chunk.readableObservationCount || 0) === 0) {
         rejectedCandidates.push(candidateRejection(chunk, null, current, "chunk_has_no_readable_score_candidates"));
       }
@@ -1628,87 +1686,78 @@ function buildScoreCandidateProgressionFromChunks(chunkSummary = null) {
     }
     firstReadableChunk = firstReadableChunk || chunk.index;
 
-    const localCandidates = candidates.filter((candidate) => {
-      if (candidate.text === current.text) return false;
-      if (!nonDecreasingScore(current, candidate)) {
-        rejectedCandidates.push(candidateRejection(chunk, candidate, current, "score_candidate_decreases_or_reverts"));
-        return false;
-      }
-      const delta = scoreTotal(candidate) - scoreTotal(current);
-      if (delta <= 0) {
-        rejectedCandidates.push(candidateRejection(chunk, candidate, current, "score_candidate_no_new_goal"));
-        return false;
-      }
-      if (delta > 3) {
-        rejectedCandidates.push(candidateRejection(chunk, candidate, current, "score_candidate_jump_too_large"));
-        return false;
-      }
-      return true;
-    });
-
     let acceptedInChunk = 0;
     let progressed = true;
     while (progressed) {
       progressed = false;
+      const localCandidates = progressionCandidatesForCurrent(chunk, rawCandidates, current, rejectedCandidates);
       const next = localCandidates.find((candidate) => (
         scoreTotal(candidate) === scoreTotal(current) + 1 &&
-        nonDecreasingScore(current, candidate)
+        isUnitScoreIncrease(current, candidate)
       ));
-      const jump = next
-        ? null
-        : localCandidates
-            .filter((candidate) => scoreTotal(candidate) > scoreTotal(current) + 1)
-            .sort((a, b) => scoreTotal(a) - scoreTotal(b) || a.home - b.home || a.away - b.away)[0] || null;
-      const path = next ? [next] : scoreUnitPath(current, jump);
-      if (!path.length) break;
-      const stepCount = Math.max(localCandidates.length, path.length);
-      const sparseBridge = !next || path.length > 1;
-      const bridgeTimestamps = sparseBridge
-        ? sparseBridgeTimestamps({ chunk, previousTimestamp: lastAcceptedTimestamp, pathLength: path.length })
-        : null;
-      for (const stepScore of path) {
-        const timestamp = sparseBridge
-          ? bridgeTimestamps[acceptedInChunk] || scoreCandidateTimestamp(chunk, acceptedInChunk, stepCount)
-          : scoreCandidateTimestamp(chunk, acceptedInChunk, stepCount);
-        const before = current;
-        current = stepScore;
-        acceptedInChunk += 1;
-        progressed = true;
-        const item = {
-          id: `chunked_scorebug_candidate_progression_${evidence.length + 1}`,
-          timestamp: roundNumber(timestamp),
-          start: roundNumber(Math.max(0, timestamp - 1.2)),
-          end: roundNumber(timestamp + 1.2),
-          status: "score_changed",
-          scoreChanged: true,
-          scoreBefore: before.text,
-          scoreAfter: stepScore.text,
-          temporalConsistency: true,
-          confidence: sparseBridge ? 0.72 : 0.78,
-          source: "chunked_scorebug_candidate_progression",
-          regionId: sanitizeText(chunk.selectedRoiId || "scorebug_candidate_progression", 80),
-          transitionDecision: sparseBridge ? "score_change_sparse_candidate_bridge" : "score_change_candidate_progression",
-          transitionReasonCodes: [
-            "score_candidate_progression",
-            "cross_chunk_score_state_bridge",
-            ...(sparseBridge ? ["sparse_score_jump_decomposed"] : []),
-          ],
-        };
-        evidence.push(item);
-        lastAcceptedTimestamp = item.timestamp;
-        acceptedCandidates.push({
-          chunkIndex: chunk.index,
-          timestamp: item.timestamp,
-          scoreBefore: item.scoreBefore,
-          scoreAfter: item.scoreAfter,
-          role: sparseBridge ? "sparse_score_change_bridge" : "score_change_bridge",
-          reasonCodes: item.transitionReasonCodes,
-        });
+      if (!next) {
+        const jump = localCandidates
+          .filter((candidate) => scoreTotal(candidate) > scoreTotal(current) + 1)
+          .sort((a, b) => scoreTotal(a) - scoreTotal(b) || a.home - b.home || a.away - b.away)[0] || null;
+        if (jump) {
+          rejectedCandidates.push(candidateRejection(chunk, jump, current, "missing_observed_intermediate_score_state"));
+        }
+        break;
       }
-      if (sparseBridge) break;
+      const timestamp = scoreCandidateTimestamp(chunk, acceptedInChunk, Math.max(localCandidates.length, 1));
+      const before = current;
+      current = next;
+      acceptedInChunk += 1;
+      progressed = true;
+      const item = {
+        id: `chunked_scorebug_candidate_progression_${evidence.length + 1}`,
+        timestamp: roundNumber(timestamp),
+        start: roundNumber(Math.max(0, timestamp - 1.2)),
+        end: roundNumber(timestamp + 1.2),
+        status: "score_changed",
+        scoreChanged: true,
+        scoreBefore: before.text,
+        scoreAfter: next.text,
+        observedScoreText: next.observedScoreText || next.text,
+        observedScoreAfterTimestamp: roundNumber(timestamp),
+        observedSupportCount: Math.max(1, Math.round(Number(chunk.readableObservationCount || 1))),
+        ocrCorrected: Boolean(next.ocrCorrected),
+        correctionType: next.correctionType || null,
+        temporalConsistency: true,
+        synthetic: false,
+        bridgeGenerated: false,
+        confidence: 0.78,
+        source: "chunked_scorebug_candidate_progression",
+        regionId: sanitizeText(chunk.selectedRoiId || "scorebug_candidate_progression", 80),
+        transitionDecision: "score_change_observed_unit_candidate",
+        transitionReasonCodes: [
+          "observed_score_candidate",
+          "unit_score_increase_candidate",
+          "score_after_observed",
+          ...(Array.isArray(next.correctionReasonCodes) ? next.correctionReasonCodes : []),
+        ],
+      };
+      evidence.push(item);
+      lastAcceptedTimestamp = item.timestamp;
+      acceptedCandidates.push({
+        chunkIndex: chunk.index,
+        timestamp: item.timestamp,
+        scoreBefore: item.scoreBefore,
+        scoreAfter: item.scoreAfter,
+        score: item.scoreAfter,
+        role: "observed_score_change",
+        synthetic: false,
+        bridgeGenerated: false,
+        observedScoreText: item.observedScoreText,
+        ocrCorrected: item.ocrCorrected,
+        correctionType: item.correctionType,
+        observedSupportCount: item.observedSupportCount,
+        reasonCodes: item.transitionReasonCodes,
+      });
     }
 
-    for (const candidate of localCandidates) {
+    const remainingCandidates = progressionCandidatesForCurrent(chunk, rawCandidates, current, []);
+    for (const candidate of remainingCandidates) {
       if (candidate.text === current.text) continue;
       if (scoreTotal(candidate) <= scoreTotal(current)) continue;
       rejectedCandidates.push(candidateRejection(chunk, candidate, current, "score_candidate_requires_missing_intermediate_state"));

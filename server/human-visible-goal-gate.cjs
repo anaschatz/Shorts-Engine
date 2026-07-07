@@ -130,6 +130,19 @@ function visibilityVerdictForEvidence(evidence = {}) {
 
 function supportFrameSummaryForEvidence(evidence = {}) {
   const frames = Array.isArray(evidence.supportFrames) ? evidence.supportFrames : [];
+  const roleTime = (roles) => {
+    const times = frames
+      .filter((frame) => {
+        if (!frame || typeof frame !== "object") return false;
+        const role = sanitizeText(frame.role || frame.label || frame.type || "", 40);
+        const status = sanitizeText(frame.status || frame.verdict || "", 40).toLowerCase();
+        return roles.includes(role) && (status === "clear" || frame.clear === true || frame.visible === true);
+      })
+      .map((frame) => numberOrNull(frame.time ?? frame.frameTime ?? frame.timestamp))
+      .filter((value) => value !== null)
+      .sort((a, b) => a - b);
+    return times.length ? times[0] : null;
+  };
   const hasFrameRole = (roles) => frames.some((frame) => {
     if (!frame || typeof frame !== "object") return false;
     const role = sanitizeText(frame.role || frame.label || frame.type || "", 40);
@@ -140,6 +153,17 @@ function supportFrameSummaryForEvidence(evidence = {}) {
     evidence.continuousActionFrameCount ??
     evidence.actionFrameCount ??
     evidence.clearActionFrameCount,
+  );
+  const preShotTime = roleTime(["pre_shot", "pre-shot", "buildup", "shot_setup"]);
+  const finishTime = roleTime(["finish", "shot_finish", "shot"]);
+  const payoffTime = roleTime(["payoff", "ball_in_net", "ball-in-net"]);
+  const confirmationTime = roleTime(["confirmation", "score_confirmation", "post_finish"]);
+  const hasExplicitRoleTimes = [preShotTime, finishTime, payoffTime, confirmationTime]
+    .some((value) => value !== null);
+  const temporalOrderValid = !hasExplicitRoleTimes || (
+    (preShotTime === null || finishTime === null || preShotTime <= finishTime + 0.1) &&
+    (payoffTime === null || finishTime === null || payoffTime >= finishTime - 0.1) &&
+    (confirmationTime === null || finishTime === null || confirmationTime >= finishTime - 0.1)
   );
   return {
     hasPreShotActionFrame: evidence.hasPreShotActionFrame === true ||
@@ -157,6 +181,13 @@ function supportFrameSummaryForEvidence(evidence = {}) {
       evidence.confirmationFrameVisible === true ||
       hasFrameRole(["confirmation", "score_confirmation", "post_finish"]),
     continuousActionFrameCount,
+    temporalOrderValid,
+    roleTimes: {
+      preShot: preShotTime,
+      finish: finishTime,
+      payoff: payoffTime,
+      confirmation: confirmationTime,
+    },
   };
 }
 
@@ -219,6 +250,7 @@ function validateFinishFrameEvidence(segment = {}, normalized = {}) {
     ...(hasEvidence && !supportFrames.hasFinishActionFrame ? ["finish_action_frame_missing"] : []),
     ...(hasEvidence && !supportFrames.hasPayoffFrame ? ["payoff_frame_missing"] : []),
     ...(hasEvidence && !supportFrames.hasConfirmationFrame ? ["confirmation_frame_missing"] : []),
+    ...(hasEvidence && !supportFrames.temporalOrderValid ? ["support_frame_temporal_order_invalid"] : []),
     ...(hasEvidence && !continuousActionFramesOk ? ["insufficient_continuous_action_frames"] : []),
     ...(isBlurred ? ["finish_frame_blurred"] : []),
     ...(isOverZoomed ? ["finish_frame_overzoomed"] : []),

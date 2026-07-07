@@ -2554,6 +2554,12 @@ function buildReport({
         height: normalizedOutputProof.ffprobe?.height ?? smoke?.generatedArtifact?.height ?? null,
       }
     : smoke?.generatedArtifact || null;
+  const normalizedSmoke = smoke && normalizedGeneratedArtifact
+    ? {
+        ...smoke,
+        generatedArtifact: normalizedGeneratedArtifact,
+      }
+    : smoke;
   const safeServerEvents = sanitizeServerEvents(serverEvents);
   return safeReport({
     schemaVersion: LIVE_PROOF_SCHEMA_VERSION,
@@ -2572,7 +2578,7 @@ function buildReport({
     steps,
     triage: buildTriage({ checks, doctor, envSummary, failedCases, status }),
     doctor: safeDoctorSummary(doctor),
-    smoke: safeSmokeSummary(smoke),
+    smoke: safeSmokeSummary(normalizedSmoke),
     generatedArtifact: normalizedGeneratedArtifact,
     outputProof: normalizedOutputProof,
     currentJob: status === "failed" ? currentJobFromContext({ smoke, serverEvents: safeServerEvents }) : null,

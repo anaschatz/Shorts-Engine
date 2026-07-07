@@ -1313,7 +1313,7 @@ test("youtube long-source chunked OCR builds global score changes across chunks"
   assert.doesNotMatch(JSON.stringify(context.job.scoreboardOcr), /\/Users|storageKey|localPath|secret|stderr|stdout|rawOcr|rawText/i);
 });
 
-test("youtube long-source chunked OCR bridges sparse score candidates into five safe score changes", async () => {
+test("youtube long-source chunked OCR promotes five observed score changes without synthetic bridges", async () => {
   const truth = countedGoalTruth(3);
   truth.scoreChanges = [
     { changeTime: 123, actionAnchorTime: 115, startScore: "0-0", endScore: "1-0", outcome: "counted_goal", teamSide: "home", scoreDelta: 1, confidence: 0.9, reasonCodes: ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"] },
@@ -1428,10 +1428,16 @@ test("youtube long-source chunked OCR bridges sparse score candidates into five 
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.discoveredScoreChanges, 5);
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.scoreCandidateDiagnostics.acceptedScoreChangeCount, 5);
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.scoreCandidateDiagnostics.finalScore, "3-2");
-	  assert.equal(
-	    context.job.scoreboardOcr.evidence.filter((item) => item.source === "chunked_scorebug_candidate_progression").length,
-	    4,
-	  );
+  assert.equal(
+    context.job.scoreboardOcr.evidence.filter((item) => item.source === "chunked_scorebug_candidate_progression").length >= 4,
+    true,
+  );
+  assert.equal(
+    context.job.scoreboardOcr.evidence
+      .filter((item) => item.source === "chunked_scorebug_candidate_progression")
+      .every((item) => item.synthetic !== true && item.bridgeGenerated !== true),
+    true,
+  );
   const acceptedScoreChangeTimestamps = context.job.scoreboardOcr.summary.chunkSummary.scoreCandidateDiagnostics.acceptedCandidates
     .filter((candidate) => candidate.scoreBefore && candidate.scoreAfter)
     .map((candidate) => Number(candidate.timestamp))
@@ -1444,11 +1450,18 @@ test("youtube long-source chunked OCR bridges sparse score candidates into five 
       JSON.stringify(acceptedScoreChangeTimestamps),
     );
   }
-	  assert.equal(
-	    context.job.scoreboardOcr.evidence.some((item) =>
+  assert.equal(
+    context.job.scoreboardOcr.evidence.some((item) =>
       item.status === "score_changed" &&
       item.scoreBefore === "0-0" &&
       item.scoreAfter === "1-0"),
+    true,
+  );
+  assert.equal(
+    context.job.scoreboardOcr.evidence.some((item) =>
+      item.status === "score_changed" &&
+      item.scoreBefore === "1-0" &&
+      item.scoreAfter === "1-1"),
     true,
   );
   assert.equal(
@@ -2376,7 +2389,7 @@ test("invalid visual analysis output fails safely before transcription and rende
   assert.doesNotMatch(JSON.stringify(context.job.error), /\/Users|secret|storageKey/i);
 });
 
-test("chunked score progression starts at 0-0 and rejects impossible early OCR baseline", () => {
+test("chunked score progression starts at 0-0 and only accepts observed unit score changes", () => {
   const progression = __testing.buildScoreCandidateProgressionFromChunks({
     chunks: [
       {
@@ -2404,9 +2417,9 @@ test("chunked score progression starts at 0-0 and rejects impossible early OCR b
         start: 450,
         end: 540,
         status: "completed",
-        sampledFrameTimestamps: [461.25, 470.04, 483.75, 506.25],
+        sampledFrameTimestamps: [461.25, 470.04, 483.75, 506.25, 528.75],
         selectedRoiId: "scorebug_broadcast_compact",
-        normalizedScoreCandidates: ["2-1", "4-1"],
+        normalizedScoreCandidates: ["1-1", "4-1", "2-1"],
         readableObservationCount: 3,
       },
       {
@@ -2434,8 +2447,10 @@ test("chunked score progression starts at 0-0 and rejects impossible early OCR b
 
   assert.deepEqual(
     progression.evidence.map((item) => `${item.scoreBefore}->${item.scoreAfter}`),
-    ["0-0->1-0", "1-0->2-0", "2-0->2-1", "2-1->2-2", "2-2->3-2"],
+    ["0-0->1-0", "1-0->1-1", "1-1->2-1", "2-1->2-2", "2-2->3-2"],
   );
+  assert.equal(progression.evidence.some((item) => item.scoreAfter === "2-0"), false);
+  assert.equal(progression.evidence.every((item) => item.synthetic === false && item.bridgeGenerated === false), true);
   assert.equal(progression.diagnostics.acceptedCandidates[0].score, "0-0");
   assert.equal(progression.diagnostics.acceptedCandidates[0].role, "assumed_initial_score_state");
   assert.equal(
@@ -2459,6 +2474,90 @@ test("chunked score progression starts at 0-0 and rejects impossible early OCR b
     [true, true, true, true, true],
   );
   assert.equal(progression.diagnostics.finalScore, "3-2");
+  assert.doesNotMatch(JSON.stringify(progression), /\/Users|\/private|token|secret|stdout|stderr/i);
+});
+
+test("chunked score progression does not synthesize missing intermediate states from sparse jumps", () => {
+  const progression = __testing.buildScoreCandidateProgressionFromChunks({
+    chunks: [
+      {
+        index: 1,
+        start: 90,
+        end: 180,
+        status: "completed",
+        sampledFrameTimestamps: [123.75],
+        selectedRoiId: "scorebug_broadcast_compact",
+        normalizedScoreCandidates: ["1-0"],
+        readableObservationCount: 2,
+      },
+      {
+        index: 6,
+        start: 450,
+        end: 540,
+        status: "completed",
+        sampledFrameTimestamps: [461.25, 528.75],
+        selectedRoiId: "scorebug_broadcast_compact",
+        normalizedScoreCandidates: ["2-1"],
+        readableObservationCount: 1,
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    progression.evidence.map((item) => `${item.scoreBefore}->${item.scoreAfter}`),
+    ["0-0->1-0"],
+  );
+  assert.equal(progression.evidence.some((item) => item.scoreAfter === "2-0"), false);
+  assert.equal(
+    progression.diagnostics.rejectedCandidates.some((candidate) =>
+      candidate.score === "2-1" &&
+      candidate.currentScore === "1-0" &&
+      candidate.reason === "missing_observed_intermediate_score_state"),
+    true,
+  );
+  assert.doesNotMatch(JSON.stringify(progression), /\/Users|\/private|token|secret|stdout|stderr/i);
+});
+
+test("chunked score progression corrects OCR-noisy observed unit changes without hardcoded home-first bridges", () => {
+  const progression = __testing.buildScoreCandidateProgressionFromChunks({
+    chunks: [
+      {
+        index: 1,
+        start: 90,
+        end: 180,
+        status: "completed",
+        sampledFrameTimestamps: [123.75],
+        selectedRoiId: "scorebug_broadcast_compact",
+        normalizedScoreCandidates: ["1-0"],
+        readableObservationCount: 2,
+      },
+      {
+        index: 6,
+        start: 450,
+        end: 540,
+        status: "completed",
+        sampledFrameTimestamps: [461.25, 506.25, 528.75],
+        selectedRoiId: "scorebug_broadcast_compact",
+        normalizedScoreCandidates: ["4-1", "2-1"],
+        readableObservationCount: 3,
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    progression.evidence.map((item) => `${item.scoreBefore}->${item.scoreAfter}`),
+    ["0-0->1-0", "1-0->1-1", "1-1->2-1"],
+  );
+  assert.equal(progression.evidence.some((item) => item.scoreAfter === "2-0"), false);
+  const corrected = progression.evidence.find((item) => item.scoreAfter === "1-1");
+  assert.equal(corrected.ocrCorrected, true);
+  assert.equal(corrected.observedScoreText, "4-1");
+  assert.equal(corrected.synthetic, false);
+  assert.equal(corrected.bridgeGenerated, false);
+  assert.equal(
+    corrected.transitionReasonCodes.includes("home_score_ocr_noise_carried_forward"),
+    true,
+  );
   assert.doesNotMatch(JSON.stringify(progression), /\/Users|\/private|token|secret|stdout|stderr/i);
 });
 

@@ -176,7 +176,7 @@ function frameWindowsForGoal(segment = {}, timeline = {}) {
       if (confirmationTime != null && parsed > confirmationTime + 0.25) return false;
     }
     if (role === "payoff") {
-      if (finishTime != null && confirmationTime == null && parsed < finishTime - 0.1) return false;
+      if (finishTime != null && parsed < finishTime - 0.1) return false;
       if (confirmationTime != null && parsed < confirmationTime - 28.25) return false;
       if (confirmationTime != null && parsed > confirmationTime + 0.25) return false;
     }

@@ -97,6 +97,25 @@ test("human-visible goal gate rejects finish frames too close to segment start",
   assert.equal(gate.evidence.finishFrame.reasons.includes("finish_frame_lacks_pre_context"), true);
 });
 
+test("human-visible goal gate rejects support frames with payoff before finish", () => {
+  const gate = validateHumanVisibleGoalSequence({
+    segment: baseSegment({
+      finishFrameEvidence: {
+        ...baseSegment().finishFrameEvidence,
+        supportFrames: [
+          { role: "pre_shot", time: 18, status: "clear", clear: true },
+          { role: "finish", time: 22, status: "clear", clear: true },
+          { role: "payoff", time: 19, status: "clear", clear: true },
+          { role: "confirmation", time: 24, status: "clear", clear: true },
+        ],
+      },
+    }),
+  });
+
+  assert.equal(gate.passed, false);
+  assert.equal(gate.evidence.finishFrame.reasons.includes("support_frame_temporal_order_invalid"), true);
+});
+
 test("human-visible goal gate rejects blurred or label-only finish frames", () => {
   const blurred = validateHumanVisibleGoalSequence({
     segment: baseSegment({

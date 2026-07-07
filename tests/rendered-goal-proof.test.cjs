@@ -422,10 +422,13 @@ test("rendered goal proof rebinds to nearby semantic clear frames per role", asy
   assert.equal(result.summary.goals[0].candidateFrameCount >= 16, true);
   assert.equal(result.summary.goals[0].candidateFrameCount <= 24, true);
   assert.equal(sampledWindows.filter((window) => window.role === "finish").length >= 5, true);
-  assert.equal(sampledWindows.filter((window) => window.role === "payoff").length >= 4, true);
+  assert.equal(sampledWindows.filter((window) => window.role === "payoff").length >= 3, true);
   assert.equal(sampledWindows.some((window) => window.role === "finish" && Number(window.time) < 12), true);
   assert.equal(sampledWindows.some((window) => window.role === "finish" && Math.abs(Number(window.time) - 12) < 0.05), true);
   assert.equal(sampledWindows.some((window) => window.role === "payoff" && Math.abs(Number(window.time) - 12.55) < 0.05), true);
+  assert.equal(sampledWindows
+    .filter((window) => window.role === "payoff")
+    .every((window) => Number(window.time) >= 12 - 0.1), true);
   assert.equal(result.summary.goals[0].frameRefs.length, 4);
 });
 
@@ -464,7 +467,9 @@ test("rendered goal proof samples early finish frames for delayed scoreboard con
   assert.equal(result.summary.goals[0].candidateFrameCount <= 24, true);
   assert.equal(sampledWindows.some((window) => window.role === "finish" && Math.abs(Number(window.time) - 7.5) < 0.05), true);
   assert.equal(sampledWindows.some((window) => window.role === "finish" && Math.abs(Number(window.time) - 10.5) < 0.05), true);
-  assert.equal(sampledWindows.some((window) => window.role === "payoff" && Math.abs(Number(window.time) - 7.5) < 0.05), true);
+  assert.equal(sampledWindows
+    .filter((window) => window.role === "payoff")
+    .every((window) => Number(window.time) >= 24 - 0.1), true);
 });
 
 test("rendered goal proof prefers declared finish over early score-change lead frames", async () => {

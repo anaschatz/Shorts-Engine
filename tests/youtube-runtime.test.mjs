@@ -2449,6 +2449,10 @@ test("youtube live local e2e mocked success wraps smoke proof without raw URL le
   assert.equal(report.smoke.renderPlan.mode, "single_moment");
   assert.equal(report.generatedArtifact.relativePath, "manual-downloads/shortsengine-youtube-dQw4w9WgXcQ-test.mp4");
   assert.equal(report.generatedArtifact.downloadVerified, true);
+  assert.equal(report.smoke.generatedArtifact.relativePath, report.generatedArtifact.relativePath);
+  assert.equal(report.smoke.generatedArtifact.durationSeconds, report.generatedArtifact.durationSeconds);
+  assert.equal(report.smoke.generatedArtifact.width, report.generatedArtifact.width);
+  assert.equal(report.smoke.generatedArtifact.height, report.generatedArtifact.height);
   assert.equal(report.outputProof.source.videoId, VIDEO_ID);
   assert.equal(report.outputProof.outputMp4.relativePath, "manual-downloads/shortsengine-youtube-dQw4w9WgXcQ-test.mp4");
   assert.equal(report.outputProof.ffprobe.status, "missing");
