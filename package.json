@@ -66,7 +66,8 @@
     "youtube:proof": "node demo/run-youtube-live-e2e.mjs",
     "youtube:proof:local": "node demo/run-local-video-proof.mjs",
     "youtube:proof:operator": "node demo/run-youtube-live-e2e.mjs --operator",
-    "youtube:smoke": "node demo/run-youtube-smoke.mjs"
+    "youtube:smoke": "node demo/run-youtube-smoke.mjs",
+    "visual:goal:qa": "node demo/run-visual-goal-qa.mjs"
   },
   "engines": {
     "node": ">=18"

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 
 import {
@@ -10,6 +10,7 @@ import {
 } from "../demo/validate-ci-reports.mjs";
 
 function writeJson(filePath, payload) {
+  mkdirSync(dirname(filePath), { recursive: true });
   writeFileSync(filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
 }
 
@@ -132,6 +133,42 @@ function writePassingYouTubeLiveProof({ root, demoResultsDir, timestamp, relativ
   });
 }
 
+function writePassingVisualGoalQA({
+  root,
+  demoResultsDir,
+  timestamp,
+  relativePath = "manual-downloads/proof.mp4",
+  contactSheetPath = "demo/results/visual-goal-contact-sheet-proof.json",
+  writeMp4 = true,
+  writeContactSheet = true,
+}) {
+  if (writeMp4) {
+    const filePath = join(root, relativePath);
+    mkdirSync(join(root, "manual-downloads"), { recursive: true });
+    writeFileSync(filePath, Buffer.from("mp4-proof"));
+  }
+  if (writeContactSheet) {
+    writeJson(join(root, contactSheetPath), {
+      generatedAt: timestamp,
+      status: "passed",
+      goals: [],
+    });
+  }
+  writeJson(join(demoResultsDir, "visual-goal-qa-latest.json"), {
+    timestamp,
+    generatedAt: timestamp,
+    status: "passed",
+    passed: true,
+    failedCases: [],
+    outputMp4: { relativePath },
+    contactSheetPath,
+    checks: [
+      { name: "output_mp4_exists", passed: true },
+      { name: "all_goals_have_clear_frame_refs", passed: true },
+    ],
+  });
+}
+
 test("CI report validator accepts fresh safe reports", () => {
   const dirs = createReportDirs();
   const nowMs = Date.parse("2026-06-15T18:00:00.000Z");
@@ -161,6 +198,31 @@ test("CI report validator checks optional passing YouTube live proof MP4 exists"
   const result = validateCiReports({ ...dirs, artifactRootDir: dirs.root, nowMs, maxAgeMs: 60_000 });
   assert.equal(result.ok, true);
   assert.equal(result.reports.some((report) => report.label === "youtube-live-proof" && report.status === "passed"), true);
+});
+
+test("CI report validator checks optional visual goal QA MP4 and contact sheet exist", () => {
+  const dirs = createReportDirs();
+  const nowMs = Date.parse("2026-06-15T18:00:00.000Z");
+  const timestamp = new Date(nowMs).toISOString();
+  writeValidReports({ ...dirs, timestamp });
+  writePassingVisualGoalQA({ ...dirs, timestamp });
+
+  const result = validateCiReports({ ...dirs, artifactRootDir: dirs.root, nowMs, maxAgeMs: 60_000 });
+  assert.equal(result.ok, true);
+  assert.equal(result.reports.some((report) => report.label === "visual-goal-qa" && report.status === "passed"), true);
+});
+
+test("CI report validator rejects optional visual goal QA when contact sheet is missing", () => {
+  const dirs = createReportDirs();
+  const nowMs = Date.parse("2026-06-15T18:00:00.000Z");
+  const timestamp = new Date(nowMs).toISOString();
+  writeValidReports({ ...dirs, timestamp });
+  writePassingVisualGoalQA({ ...dirs, timestamp, writeContactSheet: false });
+
+  assert.throws(
+    () => validateCiReports({ ...dirs, artifactRootDir: dirs.root, nowMs, maxAgeMs: 60_000 }),
+    /Passing visual goal QA contact sheet is missing/,
+  );
 });
 
 test("CI report validator rejects optional passing YouTube live proof when MP4 is missing", () => {

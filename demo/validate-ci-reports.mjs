@@ -29,6 +29,7 @@ const REPORT_RECOVERY_COMMANDS = Object.freeze({
   "youtube-live-proof": "npm run youtube:proof:operator",
   evaluation: "npm run eval",
   "reference-review": "npm run eval:reference",
+  "visual-goal-qa": "npm run visual:goal:qa",
 });
 
 class CiReportError extends Error {
@@ -223,6 +224,36 @@ function assertYouTubeLiveProofArtifact(report, artifactRootDir = ROOT_DIR) {
   }
 }
 
+function assertVisualGoalQAArtifacts(report, artifactRootDir = ROOT_DIR) {
+  if (report.status !== "passed") return;
+  const relativePath = report?.outputMp4?.relativePath;
+  if (!relativePath) {
+    throw new CiReportError("CI_REPORT_ARTIFACT_MISSING", "Passing visual goal QA report does not include an MP4 reference.", {
+      label: "visual-goal-qa",
+    });
+  }
+  const resolvedMp4 = resolveSafeProjectRef(relativePath, artifactRootDir);
+  if (!existsSync(resolvedMp4)) {
+    throw new CiReportError("CI_REPORT_ARTIFACT_MISSING", "Passing visual goal QA MP4 is missing.", {
+      label: "visual-goal-qa",
+      report: relativePath,
+    });
+  }
+  const contactSheetPath = report.contactSheetPath;
+  if (!contactSheetPath) {
+    throw new CiReportError("CI_REPORT_ARTIFACT_MISSING", "Passing visual goal QA report does not include a contact sheet.", {
+      label: "visual-goal-qa",
+    });
+  }
+  const resolvedContactSheet = resolveSafeProjectRef(contactSheetPath, artifactRootDir);
+  if (!existsSync(resolvedContactSheet)) {
+    throw new CiReportError("CI_REPORT_ARTIFACT_MISSING", "Passing visual goal QA contact sheet is missing.", {
+      label: "visual-goal-qa",
+      report: contactSheetPath,
+    });
+  }
+}
+
 function validateReport({ filePath, label, maxAgeMs, nowMs }) {
   const report = readJsonReport(filePath);
   const leak = findSensitiveLeak(report);
@@ -281,6 +312,21 @@ function validateCiReports(options = {}) {
       status: report.status || (report.passed ? "passed" : "failed"),
     });
   }
+  const visualGoalQAPath = resolve(demoResultsDir, "visual-goal-qa-latest.json");
+  if (existsSync(visualGoalQAPath)) {
+    const report = validateReport({
+      filePath: visualGoalQAPath,
+      label: "visual-goal-qa",
+      maxAgeMs,
+      nowMs,
+    });
+    assertVisualGoalQAArtifacts(report, artifactRootDir);
+    validated.push({
+      label: "visual-goal-qa",
+      path: safeReportRef(visualGoalQAPath),
+      status: report.status || (report.passed ? "passed" : "failed"),
+    });
+  }
   return {
     ok: true,
     checkedAt: new Date(nowMs).toISOString(),
@@ -323,6 +369,7 @@ export {
   assertPlaywrightArtifacts,
   assertSafeRelativeReferences,
   assertYouTubeLiveProofArtifact,
+  assertVisualGoalQAArtifacts,
   parseMaxAgeMs,
   REPORT_RECOVERY_COMMANDS,
   safeReportRef,
