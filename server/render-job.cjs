@@ -2,7 +2,7 @@ const { randomUUID } = require("node:crypto");
 const { existsSync, statSync } = require("node:fs");
 const { AppError, SAFE_MESSAGES, redactForLogs } = require("./errors.cjs");
 const { createCandidateEditPlans, detectHighlights, extractMediaSignals } = require("./analysis.cjs");
-const { validateEditPlan } = require("./edit-plan.cjs");
+const { createCropStrategy, validateEditPlan } = require("./edit-plan.cjs");
 const { cleanupSampledFrames, extractSampledFrames, publicFrameSummary } = require("./frame-extraction.cjs");
 const { analyzeGoalEvidence, mergeGoalEvidenceIntoVisualSignals, publicGoalEvidence } = require("./goal-evidence-provider.cjs");
 const { analyzeMatchEventTruth, publicMatchEventTruth } = require("./match-event-truth.cjs");
@@ -31,11 +31,17 @@ const SCOREBUG_FIRST_CHUNK_SECONDS = 90;
 const SCOREBUG_FIRST_CHUNK_FRAME_COUNT = 4;
 const SCOREBUG_FIRST_CHUNK_TIMEOUT_MS = 15_000;
 const SCOREBUG_FIRST_MAX_TOTAL_OCR_BUDGET_MS = 180_000;
-const RENDERED_GOAL_REBIND_MAX_ATTEMPTS = 1;
+const RENDERED_GOAL_REBIND_MAX_ATTEMPTS = 2;
 const REFERENCE_STYLE_GOAL_COUNT = 5;
-const REFERENCE_STYLE_MAX_DURATION_SECONDS = 75;
+const REFERENCE_STYLE_MAX_DURATION_SECONDS = 125;
+const SCORE_CHANGE_REBIND_MAX_BACKTRACK_SECONDS = 35;
+const SCORE_CHANGE_REBIND_MAX_FINISH_LEAD_SECONDS = 12;
+const SCORE_CHANGE_REBIND_MIN_FINISH_LEAD_SECONDS = 2;
 const RENDERED_GOAL_REBIND_PROFILES = Object.freeze([
-  { finishLeadSeconds: 24.5, preShotSeconds: 8.2, postConfirmationSeconds: 1.2 },
+  { finishLeadSeconds: 3.5, preShotSeconds: 20, postConfirmationSeconds: 2.35 },
+  { finishLeadSeconds: 5.5, preShotSeconds: 24, postConfirmationSeconds: 2.35 },
+  { finishLeadSeconds: 7.5, preShotSeconds: 28, postConfirmationSeconds: 2.35 },
+  { finishLeadSeconds: 9.5, preShotSeconds: 32, postConfirmationSeconds: 2.35 },
 ]);
 const SCOREBUG_FIRST_ROI_CANDIDATE_IDS = Object.freeze([
   "scorebug_broadcast_compact",
@@ -212,13 +218,22 @@ function rebindRenderedGoalFailureSegments({ editPlan, renderedGoalProof, metada
     const currentEnd = safeNumber(segment.sourceEnd);
     if (anchor == null || currentStart == null || currentEnd == null) return segment;
 
-    const finishTime = Number(Math.max(0.8, anchor - profile.finishLeadSeconds).toFixed(2));
+    const finishLeadSeconds = Math.min(
+      SCORE_CHANGE_REBIND_MAX_FINISH_LEAD_SECONDS,
+      Math.max(SCORE_CHANGE_REBIND_MIN_FINISH_LEAD_SECONDS, Number(profile.finishLeadSeconds || 0)),
+    );
+    const finishTime = Number(Math.max(0.8, anchor - finishLeadSeconds).toFixed(2));
     const shotStart = Number(Math.max(0.4, finishTime - 2.1).toFixed(2));
-    const sourceStart = Number(Math.max(0, shotStart - 4.1, finishTime - profile.preShotSeconds).toFixed(2));
+    const earliestScoreBoundStart = Math.max(0, anchor - SCORE_CHANGE_REBIND_MAX_BACKTRACK_SECONDS);
+    const desiredSourceStart = Math.min(shotStart - 4.1, finishTime - profile.preShotSeconds);
+    const sourceStart = Number(Math.max(
+      earliestScoreBoundStart,
+      desiredSourceStart,
+    ).toFixed(2));
     const searchEnd = durationSeconds > 0
       ? Math.min(durationSeconds, anchor + profile.postConfirmationSeconds)
       : anchor + profile.postConfirmationSeconds;
-    const searchStart = Math.max(0, anchor - 35);
+    const searchStart = earliestScoreBoundStart;
     const desiredSourceEnd = Math.max(anchor + profile.postConfirmationSeconds, finishTime + 4.5, shotStart + 5.5);
     const sourceEnd = durationSeconds > 0
       ? Number(Math.min(durationSeconds, desiredSourceEnd).toFixed(2))
@@ -253,9 +268,11 @@ function rebindRenderedGoalFailureSegments({ editPlan, renderedGoalProof, metada
       failedRoles: failure.failedRoles.slice(0, 8),
       attemptNumber: Number(attemptNumber || 1),
       profile: {
-        finishLeadSeconds: profile.finishLeadSeconds,
+        finishLeadSeconds,
         preShotSeconds: profile.preShotSeconds,
         postConfirmationSeconds: profile.postConfirmationSeconds,
+        maxBacktrackSeconds: SCORE_CHANGE_REBIND_MAX_BACKTRACK_SECONDS,
+        maxFinishLeadSeconds: SCORE_CHANGE_REBIND_MAX_FINISH_LEAD_SECONDS,
       },
       rebindingChangedSegment: original.sourceStart !== selectedWindow.sourceStart ||
         original.finishTime !== selectedWindow.finishTime ||
@@ -483,6 +500,22 @@ function wideSafeCropPlanForReferenceCompaction(editPlan = {}, metadata = {}) {
     reasonCodes: safeUniqueReasonList([
       ...(Array.isArray(existing.reasonCodes) ? existing.reasonCodes : []),
       "reference_duration_compaction_wide_safe",
+    ], 8),
+  };
+}
+
+function wideSafeGoalProofPlan(editPlan = {}, metadata = {}) {
+  const existingEffects = Array.isArray(editPlan.effects) ? editPlan.effects : [];
+  return {
+    ...editPlan,
+    effects: safeUniqueReasonList([...existingEffects, "wide_safe_framing"], 12),
+    cropPlan: wideSafeCropPlanForReferenceCompaction(editPlan, metadata),
+    cropStrategy: createCropStrategy(metadata, "wide_safe_vertical"),
+    framingMode: "wide_safe_vertical",
+    framingReason: "score_change_goal_proof_wide_safe_preserves_full_action",
+    safetyNotes: safeUniqueReasonList([
+      ...(Array.isArray(editPlan.safetyNotes) ? editPlan.safetyNotes : []),
+      "Score-change goal proof uses wide-safe full-frame rendering so the ball, goalmouth and players are not cropped out.",
     ], 8),
   };
 }
@@ -1400,7 +1433,7 @@ function buildChunkSamplingWindows({ chunk, metadata = {}, candidateWindows = []
     if (deduped.some((existing) => Math.abs(existing.timestamp - window.timestamp) < 1.25)) continue;
     deduped.push(window);
   }
-  return deduped.slice(0, 12);
+  return deduped.slice(0, 10);
 }
 
 function buildScorebugOcrChunks({ metadata = {}, candidateWindows = [], config = {} } = {}) {
@@ -1480,6 +1513,10 @@ function scoreObjectFromText(value) {
   return { home, away, text: `${home}-${away}` };
 }
 
+function initialFootballScore() {
+  return { home: 0, away: 0, text: "0-0" };
+}
+
 function scoreTotal(score) {
   return score ? Number(score.home || 0) + Number(score.away || 0) : 0;
 }
@@ -1504,17 +1541,10 @@ function scoreCandidateTimestamp(chunk = {}, index = 0, total = 1) {
   return start + ((index + 1) / Math.max(2, total + 1)) * Math.max(1, end - start);
 }
 
-function sparseBridgeTimestamps({ chunk = {}, previousTimestamp = null, pathLength = 1 } = {}) {
+function sparseBridgeTimestamps({ chunk = {}, pathLength = 1 } = {}) {
   const safePathLength = Math.max(1, Math.min(Number(pathLength) || 1, 3));
-  const endTimestamp = scoreCandidateTimestamp(chunk, safePathLength - 1, safePathLength);
-  const startTimestamp = Number(previousTimestamp);
-  if (!Number.isFinite(startTimestamp) || endTimestamp <= startTimestamp + safePathLength * 12) {
-    return Array.from({ length: safePathLength }, (_item, index) =>
-      scoreCandidateTimestamp(chunk, index, safePathLength));
-  }
-  const gap = endTimestamp - startTimestamp;
   return Array.from({ length: safePathLength }, (_item, index) =>
-    startTimestamp + ((index + 1) / (safePathLength + 1)) * gap);
+    scoreCandidateTimestamp(chunk, index, safePathLength));
 }
 
 function uniqueChunkScoreCandidates(chunk = {}) {
@@ -1576,9 +1606,16 @@ function buildScoreCandidateProgressionFromChunks(chunkSummary = null) {
   const evidence = [];
   const acceptedCandidates = [];
   const rejectedCandidates = [];
-  let current = null;
+  let current = initialFootballScore();
   let firstReadableChunk = null;
   let lastAcceptedTimestamp = null;
+  acceptedCandidates.push({
+    chunkIndex: 0,
+    timestamp: 0,
+    score: current.text,
+    role: "assumed_initial_score_state",
+    reasonCodes: ["assumed_match_start_score", "score_progression_anchor_zero_zero"],
+  });
 
   for (const chunk of chunks) {
     if (!chunk || chunk.status !== "completed") continue;
@@ -1590,22 +1627,6 @@ function buildScoreCandidateProgressionFromChunks(chunkSummary = null) {
       continue;
     }
     firstReadableChunk = firstReadableChunk || chunk.index;
-    if (!current) {
-      const initial = candidates.find((candidate) => candidate.text === "0-0") || candidates[0];
-      current = initial;
-      acceptedCandidates.push({
-        chunkIndex: chunk.index,
-        timestamp: roundNumber(scoreCandidateTimestamp(chunk, 0, 1)),
-        score: current.text,
-        role: "initial_score_state",
-        reasonCodes: ["initial_score_observed"],
-      });
-      lastAcceptedTimestamp = scoreCandidateTimestamp(chunk, 0, 1);
-      for (const candidate of candidates.filter((item) => item.text !== current.text)) {
-        rejectedCandidates.push(candidateRejection(chunk, candidate, current, "initial_chunk_extra_score_candidate"));
-      }
-      continue;
-    }
 
     const localCandidates = candidates.filter((candidate) => {
       if (candidate.text === current.text) return false;
@@ -1684,6 +1705,7 @@ function buildScoreCandidateProgressionFromChunks(chunkSummary = null) {
           reasonCodes: item.transitionReasonCodes,
         });
       }
+      if (sparseBridge) break;
     }
 
     for (const candidate of localCandidates) {
@@ -3439,6 +3461,9 @@ async function runRenderJob(options) {
         throw new AppError(code, SAFE_MESSAGES[code], 422);
       }
       editPlan = deps.validateEditPlan(candidatePlans[0], context.metadata);
+      if (!context.approvedEditPlan && context.goalSelectionMode === "valid_goals_only") {
+        editPlan = deps.validateEditPlan(wideSafeGoalProofPlan(editPlan, context.metadata), context.metadata);
+      }
       if (candidatePlans[0] && candidatePlans[0].visualQA) {
         editPlan.visualQA = candidatePlans[0].visualQA;
       }
@@ -4130,6 +4155,7 @@ module.exports = {
   resolveLocalArtifactPath,
   ocrQaCalibrationOptionsFromEnv,
   __testing: {
+    buildScoreCandidateProgressionFromChunks,
     compactVisibleGoalSegmentsForReferenceDuration,
     renderedProofSourceTimes,
     segmentTimelineStarts,

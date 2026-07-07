@@ -1749,6 +1749,9 @@ function scoreChangeAnchorContract(change = {}, events = [], index = 0) {
     source: "scoreboard_ocr",
     roiId: change.roiId ? sanitizeText(change.roiId, 80) : null,
     layoutId: change.layoutId ? sanitizeText(change.layoutId, 80) : null,
+    teamSide: sanitizeText(change.teamSide || "unknown", 16),
+    scoringSide: sanitizeText(change.teamSide || "unknown", 16),
+    scoreDelta: Number(change.scoreDelta || 0),
     outcome: ["counted_goal", "disallowed_goal", "uncertain_review"].includes(change.outcome)
       ? change.outcome
       : "uncertain_review",
@@ -2125,6 +2128,9 @@ function publicScoreChangeAnchor(anchor = {}) {
     source: "scoreboard_ocr",
     roiId: anchor.roiId ? sanitizeText(anchor.roiId, 80) : null,
     layoutId: anchor.layoutId ? sanitizeText(anchor.layoutId, 80) : null,
+    teamSide: sanitizeText(anchor.teamSide || anchor.scoringSide || "unknown", 16),
+    scoringSide: sanitizeText(anchor.scoringSide || anchor.teamSide || "unknown", 16),
+    scoreDelta: Number(anchor.scoreDelta || 0),
     outcome: sanitizeText(anchor.outcome || "uncertain_review", 32),
     selectedForRender: Boolean(anchor.selectedForRender),
     linkedEventId: anchor.linkedEventId ? sanitizeText(anchor.linkedEventId, 80) : null,

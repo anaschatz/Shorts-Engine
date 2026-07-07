@@ -662,6 +662,24 @@ function validateSourceResponse(data, expected) {
   };
 }
 
+function safeSourceAcquisitionSummary(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    status: value.status ? sanitizeText(value.status, 40) : null,
+    elapsedMs: safeNumber(value.elapsedMs),
+    sourceAcquisitionStrategy: value.sourceAcquisitionStrategy ? sanitizeText(value.sourceAcquisitionStrategy, 80) : null,
+    cacheChecked: typeof value.cacheChecked === "boolean" ? value.cacheChecked : null,
+    cacheHit: typeof value.cacheHit === "boolean" ? value.cacheHit : null,
+    cacheValidated: typeof value.cacheValidated === "boolean" ? value.cacheValidated : null,
+    cacheFailureCode: value.cacheFailureCode ? sanitizeText(value.cacheFailureCode, 80) : null,
+    downloaderFallbackUsed: typeof value.downloaderFallbackUsed === "boolean" ? value.downloaderFallbackUsed : null,
+    cacheStoreAttempted: typeof value.cacheStoreAttempted === "boolean" ? value.cacheStoreAttempted : null,
+    cacheStored: typeof value.cacheStored === "boolean" ? value.cacheStored : null,
+    cacheStoreFailureCode: value.cacheStoreFailureCode ? sanitizeText(value.cacheStoreFailureCode, 80) : null,
+    cacheStoreSkippedReason: value.cacheStoreSkippedReason ? sanitizeText(value.cacheStoreSkippedReason, 80) : null,
+  };
+}
+
 function validateIngestResponse(data, expected) {
   if (findSensitiveLeak(data)) {
     throw new YouTubeSmokeError("YOUTUBE_SMOKE_INGEST_RESPONSE_LEAK", "YouTube ingest response contains sensitive data.");
@@ -689,6 +707,7 @@ function validateIngestResponse(data, expected) {
     durationSeconds,
     width: Number.isFinite(width) && width > 0 ? width : null,
     height: Number.isFinite(height) && height > 0 ? height : null,
+    sourceAcquisition: safeSourceAcquisitionSummary(data?.source?.sourceAcquisition),
   };
 }
 
@@ -912,6 +931,9 @@ function safeRenderSegment(segment = {}, index = 0) {
     finishTime: safeNumber(segment.finishTime),
     confirmationTime: safeNumber(segment.confirmationTime),
     sourceEnd: safeNumber(segment.sourceEnd),
+    scoreBefore: sanitizeText(segment.scoreBefore || "", 16) || null,
+    scoreAfter: sanitizeText(segment.scoreAfter || "", 16) || null,
+    scoreChangeTime: safeNumber(segment.scoreChangeTime),
     duration: safeNumber(segment.duration || Number(segment.sourceEnd) - Number(segment.sourceStart)),
     timelineStart: safeNumber(segment.timelineStart),
     timelineEnd: safeNumber(segment.timelineEnd),
@@ -1481,6 +1503,9 @@ function safeCountedGoalProofSummary(job = {}, segments = []) {
       finishTime: segment.finishTime,
       confirmationTime: segment.confirmationTime,
       sourceEnd: segment.sourceEnd,
+      scoreBefore: segment.scoreBefore,
+      scoreAfter: segment.scoreAfter,
+      scoreChangeTime: segment.scoreChangeTime,
       goalNumber: segment.goalNumber,
       highlightType: segment.highlightType,
       goalOutcome: segment.goalOutcome,
@@ -1732,11 +1757,39 @@ function safeJobSnapshot(job) {
       ? {
           schemaVersion: safeNumber(renderedGoalProof.schemaVersion),
           providerMode: sanitizeText(renderedGoalProof.providerMode || "", 80) || null,
+          passed: typeof renderedGoalProof.passed === "boolean" ? renderedGoalProof.passed : null,
+          status: sanitizeText(renderedGoalProof.status || "", 40) || null,
           goalCount: safeNumber(renderedGoalProof.goalCount),
           clearGoalCount: safeNumber(renderedGoalProof.clearGoalCount),
           borderlineGoalCount: safeNumber(renderedGoalProof.borderlineGoalCount),
           failedGoalCount: safeNumber(renderedGoalProof.failedGoalCount),
+          nonClearGoalCount: safeNumber(renderedGoalProof.nonClearGoalCount),
+          missingClearGoalNumbers: Array.isArray(renderedGoalProof.missingClearGoalNumbers)
+            ? renderedGoalProof.missingClearGoalNumbers.map((value) => safeNumber(value)).filter((value) => value !== null).slice(0, 12)
+            : [],
           contactSheetRef: sanitizeText(renderedGoalProof.contactSheetRef || "", 180) || null,
+          timing: renderedGoalProof.timing && typeof renderedGoalProof.timing === "object" && !Array.isArray(renderedGoalProof.timing)
+            ? {
+                renderMs: safeNumber(renderedGoalProof.timing.renderMs),
+                renderedGoalProofMs: safeNumber(renderedGoalProof.timing.renderedGoalProofMs),
+                frameExtractionMs: safeNumber(renderedGoalProof.timing.frameExtractionMs),
+                semanticVisibilityMs: safeNumber(renderedGoalProof.timing.semanticVisibilityMs),
+                rebindAttemptCount: safeNumber(renderedGoalProof.timing.rebindAttemptCount),
+                framesExtracted: safeNumber(renderedGoalProof.timing.framesExtracted),
+                framesReused: safeNumber(renderedGoalProof.timing.framesReused),
+                skippedDuplicateFrameCount: safeNumber(renderedGoalProof.timing.skippedDuplicateFrameCount),
+                candidateFrameWindowCount: safeNumber(renderedGoalProof.timing.candidateFrameWindowCount),
+                uniqueFrameWindowCount: safeNumber(renderedGoalProof.timing.uniqueFrameWindowCount),
+                batchExtractionCallCount: safeNumber(renderedGoalProof.timing.batchExtractionCallCount),
+                bottleneckStep: sanitizeText(renderedGoalProof.timing.bottleneckStep || "", 80) || null,
+                perGoalProofMs: Array.isArray(renderedGoalProof.timing.perGoalProofMs)
+                  ? renderedGoalProof.timing.perGoalProofMs.slice(0, 12).map((item, index) => ({
+                      goalNumber: safeNumber(item && item.goalNumber) ?? index + 1,
+                      ms: safeNumber(item && item.ms),
+                    }))
+                  : [],
+              }
+            : null,
           goals: Array.isArray(renderedGoalProof.goals)
             ? renderedGoalProof.goals.slice(0, 12).map((goal, index) => ({
                 goalNumber: safeNumber(goal && goal.goalNumber) ?? index + 1,
@@ -1830,7 +1883,7 @@ async function pollJob({ baseUrl, fetchImpl, jobId, jobTimeoutMs, pollIntervalMs
       currentSnapshot = snapshot;
     }
     if (current && ["completed", "failed", "cancelled"].includes(current.status)) {
-      return { job: current, lifecycle, timeout: false };
+      return { job: current, lifecycle, timeout: false, elapsedMs: Date.now() - started };
     }
     if (currentSnapshot && Date.now() - lastProgressAt >= stallTimeoutMs) {
       return {
@@ -1860,7 +1913,7 @@ async function pollJob({ baseUrl, fetchImpl, jobId, jobTimeoutMs, pollIntervalMs
   };
 }
 
-function validateCompletedJob(job) {
+function validateCompletedJob(job, context = {}) {
   if (!job || job.status !== "completed") {
     const videoOutputQA = safeVideoOutputQA(job?.videoOutputQA || job?.editPlan?.videoOutputQA);
     const errorDetails = job?.error?.details && typeof job.error.details === "object" && !Array.isArray(job.error.details)
@@ -1871,6 +1924,11 @@ function validateCompletedJob(job) {
       : {};
     throw new YouTubeSmokeError(job?.error?.code || "YOUTUBE_SMOKE_JOB_FAILED", "YouTube smoke render job did not complete.", {
       ...errorDetails,
+      elapsedMs: Number.isFinite(Number(errorDetails.elapsedMs))
+        ? Number(errorDetails.elapsedMs)
+        : Number.isFinite(Number(context.elapsedMs))
+          ? Number(context.elapsedMs)
+          : null,
       phase: errorDetails.phase || progressMeta.phase || "render",
       step: errorDetails.step || progressMeta.step || job?.step || "render_job",
       substep: errorDetails.substep || progressMeta.substep || null,
@@ -2163,6 +2221,7 @@ async function runYouTubeSmoke(options = {}) {
       "YOUTUBE_SMOKE_REQUEST_TIMEOUT_INVALID",
     );
 
+    let stepStarted = Date.now();
     const healthResponse = await fetchJson(fetchImpl, endpointUrl(baseUrl, "/health"), {
       method: "GET",
       timeoutMs: requestTimeoutMs,
@@ -2170,8 +2229,13 @@ async function runYouTubeSmoke(options = {}) {
       timeoutDetails: { phase: "health", step: "health" },
     });
     health = validateHealthForSmoke(healthResponse.payload);
-    addStep(steps, "health", "passed", { requestIdPresent: Boolean(healthResponse.requestId), status: health.status });
+    addStep(steps, "health", "passed", {
+      requestIdPresent: Boolean(healthResponse.requestId),
+      status: health.status,
+      elapsedMs: Date.now() - stepStarted,
+    });
 
+    stepStarted = Date.now();
     const validateResponse = await fetchJson(fetchImpl, endpointUrl(baseUrl, "/api/youtube/validate"), {
       method: "POST",
       body: JSON.stringify({ url: source.canonicalUrl, rightsConfirmed: true }),
@@ -2189,8 +2253,10 @@ async function runYouTubeSmoke(options = {}) {
       requestIdPresent: Boolean(validateResponse.requestId),
       sourceType: validatedSource.sourceType,
       videoId: validatedSource.videoId,
+      elapsedMs: Date.now() - stepStarted,
     });
 
+    stepStarted = Date.now();
     const ingestResponse = await fetchJson(fetchImpl, endpointUrl(baseUrl, "/api/youtube/ingest"), {
       method: "POST",
       body: JSON.stringify({ url: source.canonicalUrl, rightsConfirmed: true, title: "ShortsEngine YouTube Smoke" }),
@@ -2213,8 +2279,11 @@ async function runYouTubeSmoke(options = {}) {
       projectId: ingested.projectId,
       uploadId: ingested.uploadId,
       durationSeconds: ingested.durationSeconds,
+      elapsedMs: Date.now() - stepStarted,
+      sourceAcquisition: ingested.sourceAcquisition,
     });
 
+    stepStarted = Date.now();
     const generateResponse = await fetchJson(fetchImpl, endpointUrl(baseUrl, `/api/projects/${ingested.projectId}/generate`), {
       method: "POST",
       body: JSON.stringify({
@@ -2235,7 +2304,11 @@ async function runYouTubeSmoke(options = {}) {
       { phase: "render", step: "generate_render_job" },
     );
     ids.jobId = assertId(generateData?.job?.id, "job", "YOUTUBE_SMOKE_JOB_RESPONSE_INVALID");
-    addStep(steps, "generate", "passed", { requestIdPresent: Boolean(generateResponse.requestId), jobId: ids.jobId });
+    addStep(steps, "generate", "passed", {
+      requestIdPresent: Boolean(generateResponse.requestId),
+      jobId: ids.jobId,
+      elapsedMs: Date.now() - stepStarted,
+    });
 
     const polled = await pollJob({ baseUrl, fetchImpl, jobId: ids.jobId, jobTimeoutMs, pollIntervalMs, stallTimeoutMs });
     lifecycle = polled.lifecycle;
@@ -2255,7 +2328,7 @@ async function runYouTubeSmoke(options = {}) {
         nextAction: nextActionForCode(polled.code || "YOUTUBE_SMOKE_JOB_TIMEOUT"),
       });
     }
-    const completed = validateCompletedJob(polled.job);
+    const completed = validateCompletedJob(polled.job, { elapsedMs: polled.elapsedMs });
     ids.exportId = completed.exportId;
     renderPlan = validateRenderPlanSummary(polled.job, ingested);
     addStep(steps, "job", "passed", {
@@ -2264,8 +2337,10 @@ async function runYouTubeSmoke(options = {}) {
       renderMode: renderPlan.mode,
       segmentCount: renderPlan.segmentCount,
       totalDuration: renderPlan.totalDuration,
+      elapsedMs: polled.elapsedMs,
     });
 
+    stepStarted = Date.now();
     const download = await fetchDownload(fetchImpl, endpointUrl(baseUrl, `/api/exports/${ids.exportId}/download`), {
       maxBytes: downloadMaxBytes,
       timeoutMs: requestTimeoutMs,
@@ -2286,6 +2361,7 @@ async function runYouTubeSmoke(options = {}) {
       exportId: ids.exportId,
       sizeBytes: downloadSummary.sizeBytes,
       artifactSaved: Boolean(generatedArtifact),
+      elapsedMs: Date.now() - stepStarted,
     });
 
     for (const [name, passed] of [

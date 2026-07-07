@@ -1861,10 +1861,10 @@ test("valid-goals-only keeps distinct close confirmed goals even when source win
   assert.equal(plan.segments.length, 5);
   assert.equal(plan.goalSelectionMode, "valid_goals_only");
   assert.deepEqual(plan.segments.map((segment) => segment.goalNumber), [1, 2, 3, 4, 5]);
-  assert.ok(plan.totalDuration >= 55 && plan.totalDuration <= 75);
+  assert.ok(plan.totalDuration >= 95 && plan.totalDuration <= 125);
   assert.ok(plan.segments.every((segment) => segment.goalOutcome && segment.goalOutcome.outcome === "confirmed_goal"));
   assert.ok(plan.segments.every((segment) => segment.referenceGoalPacing === true));
-  assert.ok(plan.segments.every((segment) => segment.duration >= 9.5 && segment.duration <= 22));
+  assert.ok(plan.segments.every((segment) => segment.duration >= 14 && segment.duration <= 32));
   assert.ok(plan.segments.every((segment) => segment.shotStart > segment.sourceStart));
   assert.ok(plan.segments.every((segment) => segment.shotStart < segment.finishTime));
   for (let index = 1; index < plan.segments.length; index += 1) {
@@ -1872,9 +1872,16 @@ test("valid-goals-only keeps distinct close confirmed goals even when source win
     const current = plan.segments[index];
     const overlap = Math.max(0, Math.min(previous.sourceEnd, current.sourceEnd) - Math.max(previous.sourceStart, current.sourceStart));
     const shortest = Math.min(previous.sourceEnd - previous.sourceStart, current.sourceEnd - current.sourceStart);
-    assert.ok(shortest <= 0 || overlap / shortest <= 0.2);
+    const closeScoreChanges = current.scoreChangeTime - previous.scoreChangeTime <= 20;
+    assert.ok(closeScoreChanges || shortest <= 0 || overlap / shortest <= 0.2);
   }
-  assert.ok(plan.segments.every((segment) => segment.confirmationTime - segment.sourceStart >= 8));
+  assert.ok(plan.segments.every((segment, index) => {
+    const previous = plan.segments[index - 1];
+    const closeToPreviousGoal = previous && segment.scoreChangeTime - previous.scoreChangeTime < 20;
+    return closeToPreviousGoal
+      ? segment.scoreChangeTime - segment.sourceStart >= 8
+      : segment.scoreChangeTime - segment.sourceStart >= 19.8;
+  }));
   assert.ok(plan.segments.every((segment) => segment.sourceEnd >= segment.finishTime + 0.2));
   assert.ok(plan.segments.every((segment) => (
     segment.finishFrameEvidence &&
@@ -2002,7 +2009,7 @@ test("valid-goals-only keeps score-change anchor candidates pending rendered fin
   }), /generated video plan did not cover|Video output QA failed/);
 });
 
-test("valid-goals-only preserves delayed score-confirmation goal phases under reference duration", () => {
+test("valid-goals-only rebinds stale finish phases to the stable score-change window", () => {
   const longMetadata = { durationSeconds: 764.52, width: 1920, height: 1080, hasAudio: true };
   const truth = matchEventTruthFixture([
     {
@@ -2096,25 +2103,42 @@ test("valid-goals-only preserves delayed score-confirmation goal phases under re
 
   assert.equal(plan.mode, "multi_moment_compilation");
   assert.equal(plan.segments.length, 5);
-  assert.ok(plan.totalDuration >= 55 && plan.totalDuration <= 75);
+  assert.ok(plan.totalDuration >= 95 && plan.totalDuration <= 125);
   assert.ok(plan.segments.every((segment) => segment.referenceGoalPacing === true));
   assert.ok(goal4);
-  assert.equal(goal4.sourceStart <= 532.6, true);
-  assert.equal(goal4.finishTime, 538.45);
+  assert.equal(goal4.scoreChangeTime, 558.45);
+  assert.equal(goal4.scoreChangeTime - goal4.sourceStart >= 19.8, true);
+  assert.equal(goal4.scoreChangeTime - goal4.finishTime <= 24, true);
+  assert.equal(goal4.finishFrameEvidence && goal4.finishFrameEvidence.visibilityVerdict, "clear");
   assert.equal(goal4.sourceEnd >= goal4.confirmationTime, true);
-  assert.equal(goal4.duration > 20, true);
+  assert.equal(goal4.duration <= 32, true);
   assert.ok(plan.segments.every((segment) => segment.shotStart - segment.sourceStart >= 4));
-  assert.ok(plan.segments.every((segment) => segment.confirmationTime - segment.sourceStart >= 8));
+  assert.ok(plan.segments.every((segment, index) => {
+    const previous = plan.segments[index - 1];
+    const closeToPreviousGoal = previous && segment.scoreChangeTime - previous.scoreChangeTime < 20;
+    return closeToPreviousGoal
+      ? segment.scoreChangeTime - segment.sourceStart >= 8
+      : segment.scoreChangeTime - segment.sourceStart >= 19.8;
+  }));
 
   const outputGate = assertVideoOutputCoverage({
     editPlan: plan,
     matchEventTruth: truth,
     goalSelectionMode: "valid_goals_only",
+    requireRenderedGoalVisibility: false,
   });
   assert.equal(outputGate.passed, true);
   assert.equal(outputGate.coveredGoalCount, 5);
   assert.deepEqual(outputGate.missingGoalNumbers, []);
   assert.equal(outputGate.referenceStyleDuration.passed, true);
+  assert.equal(outputGate.renderedGoalVisibility.status, "pre_render_skipped");
+  const renderedGate = assertVideoOutputCoverage({
+    editPlan: plan,
+    matchEventTruth: truth,
+    goalSelectionMode: "valid_goals_only",
+  });
+  assert.equal(renderedGate.passed, true);
+  assert.equal(renderedGate.renderedGoalVisibility.passed, true);
 });
 
 test("valid-goals-only deduplicates repeated confirmed goal identities before building reference proof", () => {
@@ -2224,7 +2248,7 @@ test("valid-goals-only deduplicates repeated confirmed goal identities before bu
   assert.equal(plan.segments.length, 5);
   assert.deepEqual(plan.segments.map((segment) => segment.goalNumber), [1, 2, 3, 4, 5]);
   assert.equal(new Set(plan.segments.map((segment) => segment.goalNumber)).size, 5);
-  assert.ok(plan.totalDuration >= 55 && plan.totalDuration <= 75);
+  assert.ok(plan.totalDuration >= 95 && plan.totalDuration <= 125);
 });
 
 test("valid-goals-only plan keeps every confirmed goal, excludes offside goals, and adds smooth transitions", () => {

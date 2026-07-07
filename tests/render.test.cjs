@@ -4,7 +4,13 @@ const { mkdtempSync, readFileSync } = require("node:fs");
 const { join } = require("node:path");
 const { tmpdir } = require("node:os");
 
-const { renderShort, writeAssSubtitles, createRenderPolishSummary } = require("../server/render.cjs");
+const {
+  renderShort,
+  writeAssSubtitles,
+  createRenderPolishSummary,
+  renderDimensions,
+  normalizeRenderProfileName,
+} = require("../server/render.cjs");
 const { validateEditPlan } = require("../server/edit-plan.cjs");
 
 const metadata = { durationSeconds: 16, width: 1920, height: 1080 };
@@ -72,6 +78,40 @@ function validKineticPlan() {
     export: { width: 1080, height: 1920, format: "mp4" },
   }, metadata);
 }
+
+test("edit plan validation keeps late captions inside a valid word-timing window", () => {
+  const plan = validateEditPlan({
+    sourceStart: 0,
+    sourceEnd: 12,
+    aspectRatio: "9:16",
+    highlightType: "goal",
+    confidence: 0.9,
+    hook: "VALID FINISHES ONLY",
+    title: "Late caption",
+    captions: [
+      {
+        start: 11.95,
+        end: 13,
+        text: "FINAL WHISTLE",
+        role: "closing_punch",
+        emphasis: "strong",
+        layout: "bottom",
+      },
+    ],
+    export: { width: 1080, height: 1920, format: "mp4" },
+  }, metadata);
+
+  const [caption] = plan.captions;
+  assert.equal(caption.start, 11.6);
+  assert.equal(caption.end, 12);
+  assert.equal(caption.activeWordTiming.length, caption.words.length);
+  assert.equal(caption.activeWordTiming.every((timing, index) => (
+    timing.word === caption.words[index] &&
+    timing.start >= caption.start &&
+    timing.end <= caption.end &&
+    timing.end - timing.start >= 0.08
+  )), true);
+});
 
 test("ASS renderer writes role-specific kinetic caption styles safely", () => {
   const dir = mkdtempSync(join(tmpdir(), "shortsengine-ass-"));
@@ -330,6 +370,46 @@ test("multi-segment renderer cuts segments, concatenates them, then applies capt
   assert.doesNotMatch(ass, /\bGOAL\b|ΓΚΟΛ|\/Users|storageKey/i);
 });
 
+test("proof-fast render profile keeps visible framing while using faster encoding", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "shortsengine-render-proof-fast-"));
+  const outputPath = join(dir, "output.mp4");
+  const subtitlesPath = join(dir, "captions.ass");
+  const calls = [];
+  const plan = validKineticPlan();
+  plan.renderProfile = "proof_fast";
+
+  assert.equal(normalizeRenderProfileName("PROOF_FAST"), "proof_fast");
+  assert.deepEqual(renderDimensions(plan), { width: 1080, height: 1920 });
+
+  await renderShort({
+    inputPath: join(dir, "input.mp4"),
+    outputPath,
+    subtitlesPath,
+    plan,
+    ffmpegRunner: async (args) => {
+      calls.push(args);
+      return { stderr: "" };
+    },
+  });
+
+  assert.equal(calls.length, 1);
+  const args = calls[0];
+  const filter = args[args.indexOf("-filter_complex") + 1];
+  assert.equal(args[args.indexOf("-preset") + 1], "ultrafast");
+  assert.equal(args[args.indexOf("-crf") + 1], "28");
+  assert.equal(args[args.indexOf("-r") + 1], "30");
+  assert.equal(args[args.indexOf("-b:a") + 1], "96k");
+  assert.match(filter, /boxblur=18:1/);
+  assert.match(filter, /scale=1080:1920:force_original_aspect_ratio=decrease/);
+  assert.equal(plan.renderPolishQA.renderProfile, "proof_fast");
+  assert.equal(plan.renderPolishQA.outputWidth, 1080);
+  assert.equal(plan.renderPolishQA.outputHeight, 1920);
+  assert.equal(plan.renderPolishQA.encoderPreset, "ultrafast");
+  assert.equal(plan.renderPolishQA.encoderCrf, 28);
+  assert.ok(plan.renderPolishQA.renderPolishWarnings.includes("proof_fast_render_profile"));
+  assert.equal(plan.renderPolishQA.renderPolishWarnings.includes("fast_safe_letterbox_background"), false);
+});
+
 test("multi-segment renderer accepts full valid-goal compilations up to 210 seconds", async () => {
   const dir = mkdtempSync(join(tmpdir(), "shortsengine-render-long-goals-"));
   const outputPath = join(dir, "output.mp4");
@@ -417,6 +497,87 @@ test("multi-segment renderer accepts full valid-goal compilations up to 210 seco
   assert.equal(calls[4][calls[4].indexOf("-t") + 1], "96");
   assert.equal(plan.renderPolishQA.transitionRenderedCount, 2);
   assert.equal(plan.renderPolishQA.hardCutFallbackCount, 0);
+});
+
+test("proof-fast multi-segment renderer uses fast bounded encoding for every pass", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "shortsengine-render-proof-fast-multi-"));
+  const outputPath = join(dir, "output.mp4");
+  const subtitlesPath = join(dir, "captions.ass");
+  const calls = [];
+  const plan = validateEditPlan({
+    mode: "multi_moment_compilation",
+    sourceStart: 0,
+    sourceEnd: 40,
+    segments: [
+      {
+        id: "goal_1",
+        sourceStart: 4,
+        sourceEnd: 18,
+        highlightType: "goal",
+        reasonCodes: ["goal", "visual_shot_contact", "visual_ball_in_net", "scoreboard_backed_goal_sequence"],
+        goalOutcome: { eventType: "ball_in_net", outcome: "confirmed_goal", offsideStatus: "onside" },
+        shotStart: 9,
+        finishTime: 13,
+        confirmationTime: 16,
+        phaseCoverage: { hasBuildup: true, hasShot: true, hasFinish: true, hasConfirmation: true },
+        confidence: 0.92,
+        retentionScore: 92,
+      },
+      {
+        id: "goal_2",
+        sourceStart: 24,
+        sourceEnd: 38,
+        highlightType: "goal",
+        reasonCodes: ["goal", "visual_shot_contact", "visual_ball_in_net", "scoreboard_backed_goal_sequence"],
+        goalOutcome: { eventType: "ball_in_net", outcome: "confirmed_goal", offsideStatus: "onside" },
+        shotStart: 29,
+        finishTime: 33,
+        confirmationTime: 36,
+        phaseCoverage: { hasBuildup: true, hasShot: true, hasFinish: true, hasConfirmation: true },
+        confidence: 0.92,
+        retentionScore: 92,
+      },
+    ],
+    totalDuration: 28,
+    aspectRatio: "9:16",
+    highlightType: "generic_highlight",
+    confidence: 0.92,
+    hook: "VALID FINISHES ONLY",
+    title: "Two valid goals",
+    captions: [
+      { start: 0, end: 2, text: "VALID FINISHES ONLY", role: "opening_hook" },
+      { start: 25, end: 28, text: "ONLY VALID FINISHES", role: "closing_punch" },
+    ],
+    effects: ["wide_safe_framing", "caption_emphasis"],
+    framingMode: "wide_safe_vertical",
+    stylePreset: "reference_football_multi_goal_v1",
+    reasonCodes: ["goal", "scoreboard_backed_goal_sequence"],
+    export: { width: 1080, height: 1920, format: "mp4" },
+  }, { durationSeconds: 60, width: 1920, height: 1080 });
+  plan.renderProfile = "proof_fast";
+
+  await renderShort({
+    inputPath: join(dir, "input.mp4"),
+    outputPath,
+    subtitlesPath,
+    plan,
+    ffmpegRunner: async (args) => {
+      calls.push(args);
+      return { stderr: "" };
+    },
+  });
+
+  assert.equal(calls.length, 4);
+  assert.equal(calls[0][calls[0].indexOf("-preset") + 1], "ultrafast");
+  assert.equal(calls[1][calls[1].indexOf("-preset") + 1], "ultrafast");
+  assert.equal(calls[3][calls[3].indexOf("-preset") + 1], "ultrafast");
+  assert.equal(calls[3][calls[3].indexOf("-crf") + 1], "28");
+  assert.equal(calls[3][calls[3].indexOf("-r") + 1], "30");
+  assert.match(calls[3][calls[3].indexOf("-filter_complex") + 1], /boxblur=18:1/);
+  assert.equal(plan.renderPolishQA.renderProfile, "proof_fast");
+  assert.equal(plan.renderPolishQA.segmentRenderMode, "fast_fade_transcode");
+  assert.equal(plan.renderPolishQA.outputWidth, 1080);
+  assert.equal(plan.renderPolishQA.outputHeight, 1920);
 });
 
 test("render polish summary reports transition fallback when no multi-segment render happened", () => {

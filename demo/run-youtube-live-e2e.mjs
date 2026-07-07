@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
+import { tmpdir } from "node:os";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -106,6 +107,11 @@ function nowIso() {
 
 function rawValue(env, name) {
   return Object.prototype.hasOwnProperty.call(env, name) ? env[name] : undefined;
+}
+
+function envValueOrDefault(env, name, fallback) {
+  const value = rawValue(env, name);
+  return value === undefined || value === null || value === "" ? String(fallback) : String(value);
 }
 
 function boolFromEnv(value) {
@@ -265,6 +271,45 @@ function safeScoreChangeAnchor(value = {}, index = 0) {
     missingEvidence: safeStringList(value.missingEvidence, 8, 80),
     evidenceCodes: safeStringList(value.evidenceCodes, 16, 80),
   };
+}
+
+function scoreChangeAnchorsFromExpectedGoals(expectedGoals = []) {
+  if (!Array.isArray(expectedGoals)) return [];
+  return expectedGoals
+    .map((goal, index) => {
+      if (!goal || typeof goal !== "object" || Array.isArray(goal)) return null;
+      const anchorTime = safeNumber(goal.anchorTime ?? goal.confirmationTime);
+      return safeScoreChangeAnchor({
+        index: index + 1,
+        id: `score_change_anchor_${index + 1}`,
+        scoreBefore: goal.scoreBefore,
+        scoreAfter: goal.scoreAfter,
+        firstSeenAt: anchorTime,
+        confirmedAt: safeNumber(goal.confirmationTime) ?? anchorTime,
+        stableUntil: null,
+        reverted: false,
+        confidence: 0.82,
+        outcome: "counted_goal",
+        selectedForRender: true,
+        linkedEventType: "ball_in_net",
+        hasLiveAction: true,
+        hasVisibleFinish: false,
+        replayOnly: false,
+        missingEvidence: [],
+        evidenceCodes: ["score_change_expected_goal_fallback"],
+      }, index);
+    })
+    .filter(Boolean)
+    .slice(0, 12);
+}
+
+function segmentWindowsFromVideoOutputQA(videoOutputQA = null) {
+  if (!videoOutputQA || typeof videoOutputQA !== "object" || Array.isArray(videoOutputQA)) return [];
+  if (!Array.isArray(videoOutputQA.segments)) return [];
+  return videoOutputQA.segments
+    .map((segment, index) => safeSegmentWindow(segment, index))
+    .filter((segment) => segment && segment.sourceStart !== null && segment.sourceEnd !== null)
+    .slice(0, 12);
 }
 
 function safeOcrChunkSummary(value) {
@@ -851,11 +896,15 @@ function safeVideoOutputQASummary(videoOutputQA) {
       : [],
     failedReasons: safeStringList(videoOutputQA.failedReasons, 12, 100),
     renderedGoalVisibility: rendered
-      ? {
+        ? {
           passed: Boolean(rendered.passed),
           clearGoalCount: safeNumber(rendered.clearGoalCount),
           borderlineGoalCount: safeNumber(rendered.borderlineGoalCount),
           failedGoalCount: safeNumber(rendered.failedGoalCount),
+          nonClearGoalCount: safeNumber(rendered.nonClearGoalCount),
+          missingClearGoalNumbers: Array.isArray(rendered.missingClearGoalNumbers)
+            ? rendered.missingClearGoalNumbers.map((value) => safeNumber(value)).filter((value) => value !== null).slice(0, 12)
+            : [],
         }
       : null,
   };
@@ -915,6 +964,10 @@ function safeSmokeRenderPlanSummary(plan) {
       : null,
     renderPolishQA: plan.renderPolishQA && typeof plan.renderPolishQA === "object"
       ? {
+          renderProfile: safeString(plan.renderPolishQA.renderProfile || "", 40) || null,
+          encoderPreset: safeString(plan.renderPolishQA.encoderPreset || "", 40) || null,
+          encoderCrf: safeNumber(plan.renderPolishQA.encoderCrf),
+          segmentRenderMode: safeString(plan.renderPolishQA.segmentRenderMode || "", 80) || null,
           renderStylePreset: safeString(plan.renderPolishQA.renderStylePreset || "", 80) || null,
           transitionRenderedCount: safeNumber(plan.renderPolishQA.transitionRenderedCount),
           hardCutFallbackCount: safeNumber(plan.renderPolishQA.hardCutFallbackCount),
@@ -961,14 +1014,45 @@ function safeHumanVisibleGoalGate(value) {
 
 function safeRenderedGoalProof(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const timing = value.timing && typeof value.timing === "object" && !Array.isArray(value.timing)
+    ? value.timing
+    : null;
   return {
     schemaVersion: safeNumber(value.schemaVersion),
     providerMode: value.providerMode ? safeString(value.providerMode, 80) : null,
+    passed: typeof value.passed === "boolean" ? value.passed : null,
+    status: value.status ? safeString(value.status, 40) : null,
     goalCount: safeNumber(value.goalCount),
     clearGoalCount: safeNumber(value.clearGoalCount),
     borderlineGoalCount: safeNumber(value.borderlineGoalCount),
     failedGoalCount: safeNumber(value.failedGoalCount),
+    nonClearGoalCount: safeNumber(value.nonClearGoalCount),
+    missingClearGoalNumbers: Array.isArray(value.missingClearGoalNumbers)
+      ? value.missingClearGoalNumbers.map((goalNumber) => safeNumber(goalNumber)).filter((goalNumber) => goalNumber !== null).slice(0, 12)
+      : [],
     contactSheetRef: value.contactSheetRef ? safeString(value.contactSheetRef, 180) : null,
+    timing: timing
+      ? {
+          renderMs: safeNumber(timing.renderMs),
+          renderedGoalProofMs: safeNumber(timing.renderedGoalProofMs),
+          frameExtractionMs: safeNumber(timing.frameExtractionMs),
+          semanticVisibilityMs: safeNumber(timing.semanticVisibilityMs),
+          rebindAttemptCount: safeNumber(timing.rebindAttemptCount),
+          framesExtracted: safeNumber(timing.framesExtracted),
+          framesReused: safeNumber(timing.framesReused),
+          skippedDuplicateFrameCount: safeNumber(timing.skippedDuplicateFrameCount),
+          candidateFrameWindowCount: safeNumber(timing.candidateFrameWindowCount),
+          uniqueFrameWindowCount: safeNumber(timing.uniqueFrameWindowCount),
+          batchExtractionCallCount: safeNumber(timing.batchExtractionCallCount),
+          bottleneckStep: timing.bottleneckStep ? safeString(timing.bottleneckStep, 80) : null,
+          perGoalProofMs: Array.isArray(timing.perGoalProofMs)
+            ? timing.perGoalProofMs.slice(0, 12).map((item, index) => ({
+                goalNumber: safeNumber(item && item.goalNumber) ?? index + 1,
+                ms: safeNumber(item && item.ms),
+              }))
+            : [],
+        }
+      : null,
     goals: Array.isArray(value.goals)
       ? value.goals.slice(0, 12).map((goal, index) => ({
           goalNumber: safeNumber(goal && goal.goalNumber) ?? index + 1,
@@ -1110,6 +1194,9 @@ function safeSegmentWindow(segment = {}, index = 0) {
     finishTime: safeNumber(segment.finishTime),
     confirmationTime: safeNumber(segment.confirmationTime),
     sourceEnd: safeNumber(segment.sourceEnd),
+    scoreBefore: segment.scoreBefore ? safeString(segment.scoreBefore, 16) : null,
+    scoreAfter: segment.scoreAfter ? safeString(segment.scoreAfter, 16) : null,
+    scoreChangeTime: safeNumber(segment.scoreChangeTime),
     goalNumber: Number.isFinite(Number(segment.goalNumber)) ? Number(segment.goalNumber) : null,
     replayOnly: Boolean(segment.replayOnly),
     replayUsed: typeof segment.replayUsed === "boolean" ? segment.replayUsed : null,
@@ -1521,6 +1608,10 @@ function renderPolishQaFromSmoke(smoke) {
     : null;
   return {
     contractVersion: Number.isFinite(Number(qa.contractVersion)) ? Number(qa.contractVersion) : 1,
+    renderProfile: safeString(qa.renderProfile || "", 40) || null,
+    encoderPreset: safeString(qa.encoderPreset || "", 40) || null,
+    encoderCrf: safeNumber(qa.encoderCrf),
+    segmentRenderMode: safeString(qa.segmentRenderMode || "", 80) || null,
     renderStylePreset: safeString(qa.renderStylePreset || renderPlan.stylePreset || "", 80) || null,
     outputWidth: safeNumber(qa.outputWidth),
     outputHeight: safeNumber(qa.outputHeight),
@@ -2168,7 +2259,8 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
     0;
   const scoreChangeAnchors = Array.isArray(discovery && discovery.matchEventTruthScoreChangeAnchors)
     ? discovery.matchEventTruthScoreChangeAnchors.map(safeScoreChangeAnchor).filter(Boolean).slice(0, 12)
-    : [];
+    : scoreChangeAnchorsFromExpectedGoals(outputQA && outputQA.expectedGoals);
+  const segmentWindows = segmentWindowsFromVideoOutputQA(outputQA);
   const missingEvidenceByCandidate = Array.isArray(discovery && discovery.missingEvidenceByCandidate) &&
     discovery.missingEvidenceByCandidate.length > 0
     ? discovery.missingEvidenceByCandidate
@@ -2229,7 +2321,7 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
     renderedGoalProof,
     renderedGoalRebinding,
     renderedGoalCompaction,
-    segmentWindows: [],
+    segmentWindows,
     goalDiscovery: safeGoalDiscovery,
     staleArtifactCleanup,
     comparison: buildComparisonReadiness({ source, outputMp4: null, ffprobe: null, coverage, reference: null }),
@@ -2721,6 +2813,7 @@ function liveServerEnvironment({ port, dataDir, env = {} } = {}) {
   const scoreboardOcrQaEnabled = liveScoreboardOcrQaEnabled(env);
   const downloadEnv = liveDownloadTimeoutEnv(env);
   const timeoutEnv = { ...env, ...downloadEnv };
+  const defaultSourceCacheDir = resolve(tmpdir(), "shortsengine-youtube-live-source-cache");
   return {
     ...process.env,
     ...env,
@@ -2743,6 +2836,11 @@ function liveServerEnvironment({ port, dataDir, env = {} } = {}) {
     PORT: String(port),
     SHORTSENGINE_YOUTUBE_INGEST_ENABLED: "1",
     SHORTSENGINE_YOUTUBE_SMOKE_REQUEST_TIMEOUT_MS: String(computedIngestRequestTimeoutMs(timeoutEnv)),
+    SHORTSENGINE_RENDER_PROFILE: String(rawValue(env, "SHORTSENGINE_RENDER_PROFILE") || "proof_fast"),
+    SHORTSENGINE_SOURCE_CACHE_ENABLED: envValueOrDefault(env, "SHORTSENGINE_SOURCE_CACHE_ENABLED", "1"),
+    SHORTSENGINE_SOURCE_CACHE_DIR: envValueOrDefault(env, "SHORTSENGINE_SOURCE_CACHE_DIR", defaultSourceCacheDir),
+    SHORTSENGINE_SOURCE_CACHE_REQUIRE_CHECKSUM: envValueOrDefault(env, "SHORTSENGINE_SOURCE_CACHE_REQUIRE_CHECKSUM", "0"),
+    SHORTSENGINE_SOURCE_CACHE_MAX_BYTES: envValueOrDefault(env, "SHORTSENGINE_SOURCE_CACHE_MAX_BYTES", String(512 * 1024 * 1024)),
     MATCHCUTS_TRANSCRIPTION_PROVIDER: "mock",
     SHORTSENGINE_AUTH_MODE: "local",
   };
@@ -3007,12 +3105,14 @@ async function runYouTubeLiveE2E(options = {}) {
       deletedCount: safeNumber(staleArtifactCleanup?.deletedCount),
     });
 
+    let stepStarted = Date.now();
     doctor = await withDeadline(
       () => deps.checkYouTubeIngest({ env }),
       { phase: PHASES.DOCTOR, step: "youtube_ingest_doctor" },
     );
     addStep(steps, "doctor", doctor?.ok === true && doctor.status === "passed" ? "passed" : "failed", {
       code: doctor?.code || null,
+      elapsedMs: Date.now() - stepStarted,
     });
     if (!doctor || doctor.ok !== true || doctor.status !== "passed") {
       throw new YouTubeLiveE2EError(
@@ -3064,6 +3164,7 @@ async function runYouTubeLiveE2E(options = {}) {
       httpStatus: ready.status,
     });
 
+    stepStarted = Date.now();
     smoke = await withDeadline(
       () => deps.runYouTubeSmoke({
         env: smokeEnvForLive(env, baseUrl),
@@ -3162,6 +3263,44 @@ async function runYouTubeLiveE2E(options = {}) {
         },
       );
     }
+    const scoreChangeAnchors = Array.isArray(outputProof.scoreChangeAnchors)
+      ? outputProof.scoreChangeAnchors
+      : [];
+    const scoreBoundSegments = Array.isArray(outputProof.segmentWindows)
+      ? outputProof.segmentWindows.filter((segment) =>
+          segment &&
+          segment.scoreBefore &&
+          segment.scoreAfter &&
+          Number.isFinite(Number(segment.scoreChangeTime)))
+      : [];
+    const scoreChangeAnchorCoveragePassed = !Number.isFinite(expectedCountedGoals) ||
+      (
+        scoreChangeAnchors.filter((anchor) =>
+          anchor &&
+          anchor.outcome === "counted_goal" &&
+          anchor.selectedForRender === true &&
+          anchor.scoreBefore &&
+          anchor.scoreAfter).length === expectedCountedGoals &&
+        scoreBoundSegments.length === expectedCountedGoals
+      );
+    addCheck(checks, "youtube_live_e2e_score_change_anchor_coverage_complete", scoreChangeAnchorCoveragePassed, {
+      code: scoreChangeAnchorCoveragePassed ? null : "YOUTUBE_LIVE_E2E_SCORE_CHANGE_ANCHORS_INCOMPLETE",
+      expectedCountedGoals: Number.isFinite(expectedCountedGoals) ? expectedCountedGoals : null,
+      scoreChangeAnchorCount: scoreChangeAnchors.length,
+      scoreBoundSegmentCount: scoreBoundSegments.length,
+    });
+    if (strictOutputValidation && !scoreChangeAnchorCoveragePassed) {
+      throw new YouTubeLiveE2EError(
+        "YOUTUBE_LIVE_E2E_SCORE_CHANGE_ANCHORS_INCOMPLETE",
+        "Live YouTube E2E did not prove every expected goal with a distinct score-change anchor.",
+        {
+          phase: PHASES.RENDER,
+          expectedCountedGoals,
+          scoreChangeAnchorCount: scoreChangeAnchors.length,
+          scoreBoundSegmentCount: scoreBoundSegments.length,
+        },
+      );
+    }
     const humanVisibleGoalsIncluded = Number(outputProof.humanVisibleGoalsIncluded);
     const humanVisibleGoalCoveragePassed = !Number.isFinite(expectedCountedGoals) ||
       humanVisibleGoalsIncluded === expectedCountedGoals;
@@ -3220,7 +3359,7 @@ async function runYouTubeLiveE2E(options = {}) {
         },
       );
     }
-    addStep(steps, "smoke", "passed");
+    addStep(steps, "smoke", "passed", { elapsedMs: Date.now() - stepStarted });
     addStep(steps, "ffprobe", outputProof.ffprobe?.status === "passed" ? "passed" : "skipped", {
       code: outputProof.ffprobe?.code || null,
       relativePath: outputProof.ffprobe?.relativePath || null,

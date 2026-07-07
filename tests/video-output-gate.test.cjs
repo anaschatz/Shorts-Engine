@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
+const { validateEditPlan } = require("../server/edit-plan.cjs");
 const { assertVideoOutputCoverage } = require("../server/video-output-gate.cjs");
 
 function countedScoreChanges(count) {

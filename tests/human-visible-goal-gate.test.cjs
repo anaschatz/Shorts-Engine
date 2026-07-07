@@ -77,6 +77,26 @@ test("human-visible goal gate rejects metadata-only finish without rendered fini
   assert.deepEqual(gate.evidence.finishFrame.reasons, ["finish_frame_evidence_missing"]);
 });
 
+test("human-visible goal gate rejects finish frames too close to segment start", () => {
+  const gate = validateHumanVisibleGoalSequence({
+    segment: baseSegment({
+      sourceStart: 458.54,
+      shotStart: 459.69,
+      finishTime: 460.04,
+      confirmationTime: 482.04,
+      sourceEnd: 484.39,
+      finishFrameEvidence: {
+        ...baseSegment().finishFrameEvidence,
+        frameTime: 460.04,
+      },
+    }),
+  });
+
+  assert.equal(gate.passed, false);
+  assert.equal(gate.failureCode, "FINISH_FRAME_LACKS_PRE_CONTEXT");
+  assert.equal(gate.evidence.finishFrame.reasons.includes("finish_frame_lacks_pre_context"), true);
+});
+
 test("human-visible goal gate rejects blurred or label-only finish frames", () => {
   const blurred = validateHumanVisibleGoalSequence({
     segment: baseSegment({

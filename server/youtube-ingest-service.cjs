@@ -91,7 +91,29 @@ function assertDownloadedFile(outputPath, deps) {
   return { safePath, size: fileStat.size, header };
 }
 
-function publicSourceSummary(source, metadata) {
+function safePublicSourceAcquisition(summary) {
+  if (!summary || typeof summary !== "object" || Array.isArray(summary)) return null;
+  return {
+    status: typeof summary.status === "string" ? sanitizeText(summary.status, 40) : null,
+    elapsedMs: Number.isFinite(Number(summary.elapsedMs)) ? Number(summary.elapsedMs) : null,
+    sourceAcquisitionStrategy: typeof summary.sourceAcquisitionStrategy === "string"
+      ? sanitizeText(summary.sourceAcquisitionStrategy, 80)
+      : null,
+    cacheChecked: typeof summary.cacheChecked === "boolean" ? summary.cacheChecked : null,
+    cacheHit: typeof summary.cacheHit === "boolean" ? summary.cacheHit : null,
+    cacheValidated: typeof summary.cacheValidated === "boolean" ? summary.cacheValidated : null,
+    cacheFailureCode: typeof summary.cacheFailureCode === "string" ? sanitizeText(summary.cacheFailureCode, 80) : null,
+    downloaderFallbackUsed: typeof summary.downloaderFallbackUsed === "boolean" ? summary.downloaderFallbackUsed : null,
+    cacheStoreAttempted: typeof summary.cacheStoreAttempted === "boolean" ? summary.cacheStoreAttempted : null,
+    cacheStored: typeof summary.cacheStored === "boolean" ? summary.cacheStored : null,
+    cacheStoreFailureCode: typeof summary.cacheStoreFailureCode === "string" ? sanitizeText(summary.cacheStoreFailureCode, 80) : null,
+    cacheStoreSkippedReason: typeof summary.cacheStoreSkippedReason === "string"
+      ? sanitizeText(summary.cacheStoreSkippedReason, 80)
+      : null,
+  };
+}
+
+function publicSourceSummary(source, metadata, acquisitionSummary = null) {
   return {
     sourceType: "youtube",
     kind: source.kind,
@@ -100,6 +122,7 @@ function publicSourceSummary(source, metadata) {
     title: source.title || null,
     durationSeconds: metadata.durationSeconds,
     ingestAvailable: true,
+    sourceAcquisition: safePublicSourceAcquisition(acquisitionSummary),
   };
 }
 
@@ -278,6 +301,47 @@ function createYouTubeIngestService(options = {}) {
   });
   const sourceAcquisition = createSourceAcquisitionService({ adapter, cacheAdapter, logger: deps.logger });
 
+  async function storeValidatedSourceInCache({ source, downloaded, checksumSha256, requestId, uploadId, projectId }) {
+    if (!cacheAdapter || typeof cacheAdapter.storeSource !== "function") return null;
+    try {
+      const result = await cacheAdapter.storeSource(source, {
+        inputPath: downloaded.safePath,
+        checksumSha256,
+      });
+      logInfo(deps.logger, {
+        event: "youtube_ingest_step",
+        requestId,
+        sourceType: "youtube",
+        videoId: source.videoId,
+        uploadId,
+        projectId,
+        step: "source_cache_store",
+        cacheStoreAttempted: result.cacheStoreAttempted === true,
+        cacheStored: result.cacheStored === true,
+        cacheStoreSkippedReason: result.cacheStoreSkippedReason || null,
+      });
+      return result;
+    } catch (error) {
+      logError(deps.logger, {
+        event: "youtube_ingest_step",
+        requestId,
+        sourceType: "youtube",
+        videoId: source.videoId,
+        uploadId,
+        projectId,
+        step: "source_cache_store",
+        cacheStoreAttempted: true,
+        cacheStored: false,
+        code: error && error.code ? error.code : "SOURCE_CACHE_STORE_FAILED",
+      });
+      return {
+        cacheStoreAttempted: true,
+        cacheStored: false,
+        cacheStoreFailureCode: error && error.code ? sanitizeText(error.code, 80) : "SOURCE_CACHE_STORE_FAILED",
+      };
+    }
+  }
+
   async function ingest(input = {}) {
     const requestId = sanitizeText(input.requestId || "", 120);
     const source = await validateYouTubeSource({
@@ -385,6 +449,26 @@ function createYouTubeIngestService(options = {}) {
       activeSubstep = "media_probe";
       const metadata = await deps.probeMedia(downloaded.safePath);
       const checksumSha256 = deps.sha256(downloaded.safePath);
+      const cacheStore = acquisitionSummary && acquisitionSummary.cacheHit === true
+        ? null
+        : await storeValidatedSourceInCache({
+            source,
+            downloaded,
+            checksumSha256,
+            requestId,
+            uploadId,
+            projectId,
+          });
+      if (cacheStore) {
+        const safeCacheStore = safePublicSourceAcquisition(cacheStore);
+        const cacheStoreDetails = Object.fromEntries(
+          Object.entries(safeCacheStore || {}).filter(([, value]) => value !== null && value !== undefined),
+        );
+        acquisitionSummary = {
+          ...acquisitionSummary,
+          ...cacheStoreDetails,
+        };
+      }
       activeStep = "artifact_commit";
       activeSubstep = "stream_upload_artifact";
       const uploadArtifact = await deps.artifactStore.streamLocalPathToArtifact(downloaded.safePath, {
@@ -417,10 +501,10 @@ function createYouTubeIngestService(options = {}) {
             sourceType: "youtube",
             videoId: source.videoId,
             title: source.title || null,
-          },
-          source: null,
-          createdAt,
         },
+        source: null,
+        createdAt,
+      },
         project: {
           id: projectId,
           uploadId,
@@ -445,7 +529,7 @@ function createYouTubeIngestService(options = {}) {
       return {
         upload: deps.persistenceAdapter.publicUpload(upload),
         project: deps.persistenceAdapter.publicProject(project),
-        source: publicSourceSummary(source, metadata),
+        source: publicSourceSummary(source, metadata, acquisitionSummary),
       };
     } catch (error) {
       const cleanup = cleanupYouTubeStage(stageDir);

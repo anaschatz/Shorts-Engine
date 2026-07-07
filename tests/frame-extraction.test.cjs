@@ -153,6 +153,42 @@ test("extractSampledFrames keeps close scorebug live-action anchors within bound
   cleanupSampledFrames(result);
 });
 
+test("extractSampledFrames extracts frames with bounded parallelism and stable ordering", async () => {
+  const inputPath = uniquePath("uploads", "source-parallel.mp4");
+  const outputDir = uniquePath("staging", "frames-parallel");
+  writeFileSync(inputPath, Buffer.from("synthetic-video"));
+  let active = 0;
+  let maxActive = 0;
+
+  async function delayedFfmpegRunner(args) {
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+    await new Promise((resolve) => setTimeout(resolve, 8));
+    await fakeFfmpegRunner(args);
+    active -= 1;
+  }
+
+  const result = await extractSampledFrames({
+    inputPath,
+    outputDir,
+    metadata,
+    ffmpegRunner: delayedFfmpegRunner,
+    maxFrames: 6,
+    maxConcurrency: 3,
+    candidateWindows: [4, 8, 12, 16, 20, 24].map((time) => ({
+      time,
+      confidence: 0.8,
+      source: "motion",
+    })),
+  });
+
+  assert.equal(result.frames.length, 6);
+  assert.equal(maxActive, 3);
+  assert.deepEqual(result.frames.map((frame) => frame.timestamp), [4, 8, 12, 16, 20, 24]);
+
+  cleanupSampledFrames(result);
+});
+
 test("extractSampledFrames falls back safely when input is unavailable", async () => {
   const result = await extractSampledFrames({
     inputPath: uniquePath("uploads", "missing.mp4"),

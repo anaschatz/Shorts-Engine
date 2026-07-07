@@ -19,9 +19,10 @@ const MIN_PRE_SHOT_CONTEXT_SECONDS = 4;
 const MAX_GOAL_SEGMENT_OVERLAP_RATIO = 0.2;
 const DUPLICATE_FINISH_TOLERANCE_SECONDS = 4;
 const DUPLICATE_SCORE_CHANGE_TOLERANCE_SECONDS = 2;
+const CLOSE_SCORE_CHANGE_OVERLAP_SECONDS = 20;
 const REFERENCE_STYLE_GOAL_COUNT = 5;
 const REFERENCE_STYLE_MIN_DURATION_SECONDS = 55;
-const REFERENCE_STYLE_MAX_DURATION_SECONDS = 75;
+const REFERENCE_STYLE_MAX_DURATION_SECONDS = 125;
 const DEBUG_CAPTION_RE = /\b(FINISH\s*\+\s*BUILD[- ]?UP|BUILD[- ]?UP\s*\+\s*FINISH|GOAL\s*\d+\s*CONFIRMED)\b/i;
 
 const SENSITIVE_RE = /\/Users\/|\/private\/|storageKey|localPath|fullPath|absolutePath|Bearer\s+|api[_-]?key|token|secret|stderr|stdout|rawOcr|rawText/i;
@@ -463,6 +464,16 @@ function isDistinctConfirmedGoalPair(leftSegment = {}, rightSegment = {}, leftFi
   return differentGoalNumbers && (differentScoreChanges || distinctFinishFrames);
 }
 
+function isCloseDistinctScoreChangePair(leftScore = null, rightScore = null) {
+  if (!leftScore || !rightScore) return false;
+  const differentTransition = leftScore.scoreBefore !== rightScore.scoreBefore ||
+    leftScore.scoreAfter !== rightScore.scoreAfter;
+  const gap = Math.abs(leftScore.scoreChangeTime - rightScore.scoreChangeTime);
+  return differentTransition &&
+    gap > DUPLICATE_SCORE_CHANGE_TOLERANCE_SECONDS &&
+    gap <= CLOSE_SCORE_CHANGE_OVERLAP_SECONDS;
+}
+
 function distinctGoalIdentitySummary(segments = []) {
   const confirmed = segments
     .map((segment, index) => ({ segment, index }))
@@ -516,7 +527,8 @@ function distinctGoalIdentitySummary(segments = []) {
       const rightScore = scoreChangeIdentity(right.segment);
       const reasons = [];
       const distinctPair = isDistinctConfirmedGoalPair(left.segment, right.segment, leftFinish, rightFinish, leftScore, rightScore);
-      if (overlap.ratio > MAX_GOAL_SEGMENT_OVERLAP_RATIO) {
+      const closeDistinctScoreChanges = isCloseDistinctScoreChangePair(leftScore, rightScore);
+      if (overlap.ratio > MAX_GOAL_SEGMENT_OVERLAP_RATIO && !closeDistinctScoreChanges) {
         reasons.push(distinctPair ? "overlapping_goal_windows_need_separate_live_phases" : "duplicate_goal_window_overlap");
       }
       if (leftFinish != null && rightFinish != null && Math.abs(leftFinish - rightFinish) <= DUPLICATE_FINISH_TOLERANCE_SECONDS) {

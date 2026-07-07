@@ -7,6 +7,7 @@ const {
   closeSync,
   readFileSync,
   statSync,
+  writeFileSync,
 } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { basename, dirname, isAbsolute, relative, resolve } = require("node:path");
@@ -199,11 +200,62 @@ function createLocalSourceCacheAdapter(options = {}) {
     };
   }
 
+  async function storeSource(source, input = {}) {
+    const videoId = sourceCacheKeyForVideoId(source && source.videoId);
+    const inputPath = assertStoragePath(input.inputPath, "staging");
+    if (!config.enabled) {
+      return {
+        cacheStoreAttempted: false,
+        cacheStored: false,
+        cacheStoreSkippedReason: "source_cache_disabled",
+      };
+    }
+    const cachePath = safeCachePath(config.dir, cacheFileNameForVideoId(videoId));
+    const checksumPath = safeCachePath(config.dir, checksumFileNameForVideoId(videoId));
+    const stats = statSync(inputPath);
+    if (!stats.isFile() || stats.size <= 0) {
+      return {
+        cacheStoreAttempted: true,
+        cacheStored: false,
+        cacheStoreFailureCode: "SOURCE_CACHE_SOURCE_INVALID",
+      };
+    }
+    if (stats.size > Math.min(config.maxBytes, CONFIG.maxUploadBytes)) {
+      return {
+        cacheStoreAttempted: true,
+        cacheStored: false,
+        cacheStoreFailureCode: "FILE_TOO_LARGE",
+      };
+    }
+    deps.validateUploadCandidate({
+      fileName: cacheFileNameForVideoId(videoId),
+      mimeType: "video/mp4",
+      size: stats.size,
+      buffer: readFileHeader(inputPath),
+    });
+    const checksumSha256 = typeof input.checksumSha256 === "string" && /^[a-f0-9]{64}$/.test(input.checksumSha256)
+      ? input.checksumSha256
+      : deps.sha256(inputPath);
+    mkdirSync(config.dir, { recursive: true });
+    copyFileSync(inputPath, cachePath);
+    if (config.requireChecksum) {
+      writeFileSync(checksumPath, `${checksumSha256}\n`, "utf8");
+    }
+    return {
+      cacheStoreAttempted: true,
+      cacheStored: true,
+      cacheValidated: true,
+      checksumSha256,
+      checksumWritten: Boolean(config.requireChecksum),
+    };
+  }
+
   return {
     mode: "source-cache",
     enabled: Boolean(config.enabled),
     networkCalls: false,
     acquireSource,
+    storeSource,
     health,
   };
 }

@@ -11,6 +11,7 @@ const DEFAULT_MAX_FRAMES = 10;
 const MAX_ALLOWED_FRAMES = 24;
 const DEFAULT_MAX_DIMENSION = 640;
 const DEFAULT_FRAME_FORMAT = "jpg";
+const DEFAULT_MAX_PARALLEL_FRAME_EXTRACTION = 4;
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, Number(value) || min));
@@ -120,6 +121,8 @@ function normalizeFrameExtractionInput(input = {}) {
     ? assertStoragePath(input.outputDir, "staging")
     : storagePath("staging", join("frames", `frames_${randomUUID()}`));
   const rawWindows = Array.isArray(input.candidateWindows) ? input.candidateWindows : [];
+  const requestedMaxConcurrency = Math.floor(Number(input.maxConcurrency || DEFAULT_MAX_PARALLEL_FRAME_EXTRACTION));
+  const maxConcurrency = Math.max(1, Math.min(8, requestedMaxConcurrency));
   const windows = rawWindows
     .map((candidate) => normalizeCandidateWindow(candidate, metadata))
     .filter(Boolean)
@@ -139,6 +142,7 @@ function normalizeFrameExtractionInput(input = {}) {
     windows: sampledWindows,
     maxFrames,
     maxDimension,
+    maxConcurrency,
     ffmpegRunner: input.ffmpegRunner || runFfmpeg,
     signal: input.signal || null,
   };
@@ -270,47 +274,52 @@ async function extractSampledFrames(input = {}) {
   }
   mkdirSync(normalized.outputDir, { recursive: true });
   const dimensions = scaledDimensions(normalized.metadata, normalized.maxDimension);
-  const frames = [];
+  const frameSlots = new Array(normalized.windows.length);
   try {
-    for (const [index, window] of normalized.windows.entries()) {
-      if (normalized.signal && normalized.signal.aborted) {
-        throw new AppError("JOB_CANCELLED", SAFE_MESSAGES.JOB_CANCELLED, 409);
-      }
-      const localPath = frameOutputPath(normalized.outputDir, index);
-      await normalized.ffmpegRunner(
-        [
-          "-y",
-          "-ss",
-          String(window.timestamp),
-          "-i",
-          normalized.inputPath,
-          "-frames:v",
-          "1",
-          "-vf",
-          `scale=${dimensions.width}:${dimensions.height}`,
-          "-q:v",
-          "4",
+    for (let start = 0; start < normalized.windows.length; start += normalized.maxConcurrency) {
+      const chunk = normalized.windows.slice(start, start + normalized.maxConcurrency);
+      // eslint-disable-next-line no-await-in-loop
+      await Promise.all(chunk.map(async (window, offset) => {
+        const index = start + offset;
+        if (normalized.signal && normalized.signal.aborted) {
+          throw new AppError("JOB_CANCELLED", SAFE_MESSAGES.JOB_CANCELLED, 409);
+        }
+        const localPath = frameOutputPath(normalized.outputDir, index);
+        await normalized.ffmpegRunner(
+          [
+            "-y",
+            "-ss",
+            String(window.timestamp),
+            "-i",
+            normalized.inputPath,
+            "-frames:v",
+            "1",
+            "-vf",
+            `scale=${dimensions.width}:${dimensions.height}`,
+            "-q:v",
+            "4",
+            localPath,
+          ],
+          { signal: normalized.signal, timeoutMs: Math.min(CONFIG.analysisTimeoutMs, 30000) },
+        );
+        if (!existsSync(localPath) || !statSync(localPath).isFile()) return;
+        frameSlots[index] = {
+          id: `frame_${index + 1}`,
+          windowStart: window.start,
+          windowEnd: window.end,
+          timestamp: window.timestamp,
+          width: dimensions.width,
+          height: dimensions.height,
           localPath,
-        ],
-        { signal: normalized.signal, timeoutMs: Math.min(CONFIG.analysisTimeoutMs, 30000) },
-      );
-      if (!existsSync(localPath) || !statSync(localPath).isFile()) continue;
-      frames.push({
-        id: `frame_${index + 1}`,
-        windowStart: window.start,
-        windowEnd: window.end,
-        timestamp: window.timestamp,
-        width: dimensions.width,
-        height: dimensions.height,
-        localPath,
-        purpose: "vision_context",
-        source: window.source,
-        visualHints: window.visualHints,
-      });
+          purpose: "vision_context",
+          source: window.source,
+          visualHints: window.visualHints,
+        };
+      }));
     }
   } catch (error) {
     if (error && error.code === "JOB_CANCELLED") throw error;
-    cleanupSampledFrames({ outputDir: normalized.outputDir, frames });
+    cleanupSampledFrames({ outputDir: normalized.outputDir, frames: frameSlots.filter(Boolean) });
     return mockFrameExtraction({
       outputDir: normalized.outputDir,
       startedAt,
@@ -318,6 +327,7 @@ async function extractSampledFrames(input = {}) {
       reason: "frame_extraction_failed",
     });
   }
+  const frames = frameSlots.filter(Boolean);
   return validateExtractedFrames({
     providerMode: "ffmpeg-frame-sampling",
     fallbackUsed: frames.length === 0,
@@ -327,6 +337,7 @@ async function extractSampledFrames(input = {}) {
       sampledWindows: frames.length,
       skippedWindows: Math.max(0, normalized.windows.length - frames.length),
       extractionMs: Date.now() - startedAt,
+      maxConcurrency: normalized.maxConcurrency,
     },
   }, normalized.outputDir);
 }
@@ -367,12 +378,14 @@ function frameExtractionHealth() {
     maxFrames: DEFAULT_MAX_FRAMES,
     maxAllowedFrames: MAX_ALLOWED_FRAMES,
     maxDimension: DEFAULT_MAX_DIMENSION,
+    maxConcurrency: DEFAULT_MAX_PARALLEL_FRAME_EXTRACTION,
   };
 }
 
 module.exports = {
   DEFAULT_MAX_DIMENSION,
   DEFAULT_MAX_FRAMES,
+  DEFAULT_MAX_PARALLEL_FRAME_EXTRACTION,
   MAX_ALLOWED_FRAMES,
   cleanupSampledFrames,
   extractSampledFrames,

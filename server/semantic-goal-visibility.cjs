@@ -7,6 +7,7 @@ const { assertStoragePath } = require("./storage.cjs");
 const SAMPLE_WIDTH = 72;
 const SAMPLE_HEIGHT = 128;
 const MAX_REASON_CODES = 8;
+const DEFAULT_MAX_PARALLEL_FRAME_ANALYSIS = 4;
 
 function numberOrNull(value) {
   const parsed = Number(value);
@@ -171,10 +172,24 @@ function classifyFeatures(features = {}, role = "") {
   const saturated = numberOrNull(features.saturatedColorRatio) ?? 0;
   const blackBars = numberOrNull(features.blackBarRatio) ?? 0;
   const goalRole = ["finish", "payoff"].includes(role);
+  const goalRoleCloseupSignature = goalRole && (
+    (skin > 0.03 && white > 0.07 && green < 0.42) ||
+    (skin > 0.06 && saturated > 0.22) ||
+    (skin > 0.025 && saturated < 0.07 && white > 0.12) ||
+    (green >= 0.32 && green <= 0.5 && white > 0.045 && dark < 0.09 && saturated < 0.08 && skin > 0.01) ||
+    (green > 0.62 && skin > 0.02 && saturated < 0.07) ||
+    (green > 0.6 && white > 0.08 && skin > 0.01 && saturated < 0.08) ||
+    (green > 0.6 && saturated > 0.45 && white > 0.025 && skin > 0.01) ||
+    (skin > 0.035 && saturated > 0.2 && white > 0.045) ||
+    (skin > 0.035 && white > 0.065 && saturated > 0.18) ||
+    (green > 0.62 && skin > 0.015 && saturated < 0.03 && dark > 0.1) ||
+    (green >= 0.32 && green <= 0.5 && dark > 0.22 && skin > 0.02 && white < 0.04 && saturated < 0.08)
+  );
   const playerCloseupOnly = (green < 0.09 && skin > 0.035) ||
     (green < 0.06 && saturated > 0.18) ||
     (goalRole && green < 0.18 && skin > 0.018) ||
-    (goalRole && green < 0.16 && saturated > 0.16);
+    (goalRole && green < 0.16 && saturated > 0.16) ||
+    goalRoleCloseupSignature;
   const scoreboardOnly = green < 0.04 && white > 0.08 && dark > 0.28;
   const tooBlurred = saturated < 0.035 && white < 0.012 && green < 0.16;
   const tooZoomed = (green < 0.07 && white < 0.018) || (goalRole && green < 0.13);
@@ -182,7 +197,8 @@ function classifyFeatures(features = {}, role = "") {
   const hasGoalMouth = white >= 0.018 || (white >= 0.012 && green >= 0.14);
   const hasActionSurface = green >= 0.10 && blackBars < 0.25;
   const hasVisibleAction = hasActionSurface && !playerCloseupOnly && !scoreboardOnly && !tooBlurred;
-  const hasGoalRoleScale = !goalRole || (green >= 0.14 && white >= 0.018);
+  const hasGoalRoleScale = !goalRole ||
+    (green >= 0.14 && (white >= 0.018 || (white >= 0.014 && saturated >= 0.14 && skin < 0.012)));
   const roleClear = role === "pre_shot"
     ? hasVisibleAction && green >= 0.14
     : role === "confirmation"
@@ -223,7 +239,9 @@ function classifyFeatures(features = {}, role = "") {
 }
 
 async function analyzeFrame(frame = {}, role = "", options = {}) {
-  const existing = existingEvidence(frame);
+  const ignoreExistingEvidence = options.ignoreExistingEvidence === true &&
+    sanitizeText(frame && frame.source || "", 40) === "ffmpeg";
+  const existing = ignoreExistingEvidence ? null : existingEvidence(frame);
   if (existing) return normalizeExistingEvidence(existing, role);
   if (!frame || !frame.localPath) return failedEvidence(role, "semantic_frame_missing");
   let framePath;
@@ -250,18 +268,27 @@ async function analyzeSemanticGoalFrames({
   signal = null,
   frameAnalyzer = analyzeFrame,
   runner = execFile,
+  maxConcurrency = DEFAULT_MAX_PARALLEL_FRAME_ANALYSIS,
+  ignoreExistingEvidence = false,
 } = {}) {
   const safeFrames = Array.isArray(frames) ? frames : [];
   const safeWindows = Array.isArray(roleWindows) ? roleWindows : [];
-  const frameEvidence = [];
-  for (let index = 0; index < safeWindows.length; index += 1) {
-    if (signal && signal.aborted) {
-      frameEvidence.push(failedEvidence(sanitizeText(safeWindows[index]?.role || "", 40), "semantic_frame_analysis_cancelled"));
-      continue;
-    }
-    const role = sanitizeText(safeWindows[index]?.role || "", 40) || `frame_${index + 1}`;
+  const limit = Math.max(1, Math.min(Number.isFinite(Number(maxConcurrency)) ? Math.floor(Number(maxConcurrency)) : DEFAULT_MAX_PARALLEL_FRAME_ANALYSIS, 8));
+  const frameEvidence = new Array(safeWindows.length);
+  for (let start = 0; start < safeWindows.length; start += limit) {
+    const chunk = safeWindows.slice(start, start + limit);
     // eslint-disable-next-line no-await-in-loop
-    frameEvidence.push(await frameAnalyzer(safeFrames[index], role, { runner }));
+    const chunkEvidence = await Promise.all(chunk.map(async (window, offset) => {
+      const index = start + offset;
+      const role = sanitizeText(window?.role || "", 40) || `frame_${index + 1}`;
+      if (signal && signal.aborted) {
+        return failedEvidence(role, "semantic_frame_analysis_cancelled");
+      }
+      return frameAnalyzer(safeFrames[index], role, { runner, ignoreExistingEvidence });
+    }));
+    chunkEvidence.forEach((evidence, offset) => {
+      frameEvidence[start + offset] = evidence;
+    });
   }
   const clearFrameCount = frameEvidence.filter((item) => item.visibilityVerdict === "clear").length;
   return {

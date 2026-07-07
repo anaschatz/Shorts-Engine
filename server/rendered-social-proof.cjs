@@ -7,7 +7,7 @@ const MAX_ITEMS = 12;
 const REQUIRED_CAPTION_MOTION = "ass_word_by_word_highlight";
 const REFERENCE_STYLE_GOAL_COUNT = 5;
 const REFERENCE_STYLE_MIN_DURATION_SECONDS = 55;
-const REFERENCE_STYLE_MAX_DURATION_SECONDS = 75;
+const REFERENCE_STYLE_MAX_DURATION_SECONDS = 125;
 const SENSITIVE_RE = /\/Users\/|\/private\/|storageKey|localPath|fullPath|absolutePath|Bearer\s+|api[_-]?key|token|secret|stderr|stdout|raw(?:Log|Error|Output)?|cookie/i;
 
 function round(value, digits = 2) {

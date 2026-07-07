@@ -7,9 +7,12 @@ const { analyzeSemanticGoalFrames } = require("./semantic-goal-visibility.cjs");
 const { safeResolve, storagePath, writeJsonAtomic } = require("./storage.cjs");
 
 const MAX_GOALS = 8;
+const MAX_BATCH_WINDOWS_PER_EXTRACTION = 24;
 const FRAME_ROLES = Object.freeze(["pre_shot", "finish", "payoff", "confirmation"]);
 const ROLE_HINT_PREFIX = "goal_role:";
 const FINISH_FRAME_CODES = Object.freeze(["rendered_finish_frame_visible", "finish_frame_visible", "ball_in_net_or_payoff_visible"]);
+const MIN_RENDERED_FINISH_PRE_CONTEXT_SECONDS = 4;
+const FINISH_FRAME_LACKS_PRE_CONTEXT_REASON = "finish_frame_lacks_pre_context";
 
 function numberOrNull(value) {
   const parsed = Number(value);
@@ -21,6 +24,10 @@ function round(value, digits = 2) {
   if (!Number.isFinite(parsed)) return null;
   const factor = 10 ** digits;
   return Math.round(parsed * factor) / factor;
+}
+
+function nowMs() {
+  return Date.now();
 }
 
 function safeCodes(values = [], max = 12) {
@@ -100,33 +107,56 @@ function frameWindowsForGoal(segment = {}, timeline = {}) {
   const shotTime = numberOrNull(timeline.shot);
   const finishTime = numberOrNull(timeline.finish);
   const confirmationTime = numberOrNull(timeline.confirmation);
+  const scoreChangeLeadTimes = confirmationTime == null
+    ? []
+    : [28, 25, 22, 19, 16, 13, 10, 7, 4]
+        .map((lead) => Number(confirmationTime) - lead);
+  const scoreChangePayoffTimes = confirmationTime == null
+    ? []
+    : [25, 22, 19, 16, 13, 10, 7, 4]
+        .map((lead) => Number(confirmationTime) - lead);
+  const finishProbeTimes = confirmationTime == null
+    ? [
+        Number(timeline.finish) - 6,
+        Number(timeline.finish) - 4.5,
+        Number(timeline.finish) - 3,
+        Number(timeline.finish) - 2,
+        Number(timeline.finish) - 1.35,
+        Number(timeline.finish) - 0.65,
+        Number(timeline.finish),
+        Number(timeline.finish) + 0.55,
+      ]
+    : [
+        Number(timeline.finish) - 2.5,
+        Number(timeline.finish) - 1.2,
+        Number(timeline.finish) - 0.35,
+        Number(timeline.finish),
+        Number(timeline.finish) + 0.55,
+        ...scoreChangeLeadTimes.slice(0, 5),
+      ];
+  const payoffProbeTimes = confirmationTime == null
+    ? [
+        Number(timeline.payoff),
+        Number(timeline.finish) + 1.15,
+        Number(timeline.finish) + 2.25,
+        Number(timeline.finish) + 3.5,
+        Number(timeline.finish) + 4.7,
+        Number(timeline.confirmation) - 0.45,
+      ]
+    : [
+        Number(timeline.finish) + 0.55,
+        Number(timeline.finish) + 1.15,
+        Number(timeline.finish) + 2.25,
+        ...scoreChangePayoffTimes.slice(0, 4),
+      ];
   const candidateGroups = [
     ["pre_shot", [
       Number(timeline.timelineStart) + 0.4,
-      Number(timeline.preShot) - 2.2,
       Number(timeline.preShot) - 0.9,
-      Number(timeline.preShot),
-      Number(timeline.shot) - 1,
       Number(timeline.shot) - 0.35,
     ]],
-    ["finish", [
-      Number(timeline.finish) - 6,
-      Number(timeline.finish) - 4.5,
-      Number(timeline.finish) - 3,
-      Number(timeline.finish) - 2,
-      Number(timeline.finish) - 1.35,
-      Number(timeline.finish) - 0.65,
-      Number(timeline.finish),
-      Number(timeline.finish) + 0.55,
-    ]],
-    ["payoff", [
-      Number(timeline.payoff),
-      Number(timeline.finish) + 1.15,
-      Number(timeline.finish) + 2.25,
-      Number(timeline.finish) + 3.5,
-      Number(timeline.finish) + 4.7,
-      Number(timeline.confirmation) - 0.45,
-    ]],
+    ["finish", finishProbeTimes],
+    ["payoff", payoffProbeTimes],
     ["confirmation", [
       Number(timeline.confirmation),
       Number(timeline.confirmation) + 0.65,
@@ -140,12 +170,14 @@ function frameWindowsForGoal(segment = {}, timeline = {}) {
     const parsed = Number(time);
     if (!Number.isFinite(parsed)) return false;
     if (role === "finish") {
-      if (shotTime != null && parsed < shotTime - 0.25) return false;
-      if (finishTime != null && parsed < finishTime - 2.5) return false;
+      if (confirmationTime == null && shotTime != null && parsed < shotTime - 8) return false;
+      if (finishTime != null && confirmationTime == null && parsed < finishTime - 2.5) return false;
+      if (confirmationTime != null && parsed < confirmationTime - 30.25) return false;
       if (confirmationTime != null && parsed > confirmationTime + 0.25) return false;
     }
     if (role === "payoff") {
-      if (finishTime != null && parsed < finishTime - 0.1) return false;
+      if (finishTime != null && confirmationTime == null && parsed < finishTime - 0.1) return false;
+      if (confirmationTime != null && parsed < confirmationTime - 28.25) return false;
       if (confirmationTime != null && parsed > confirmationTime + 0.25) return false;
     }
     if (role === "confirmation" && finishTime != null && parsed < finishTime - 0.25) return false;
@@ -246,6 +278,13 @@ function roleFromFrameHints(frame = {}, fallbackRole = "") {
   return sanitizeText(roleHint.slice(ROLE_HINT_PREFIX.length), 40) || sanitizeText(fallbackRole, 40);
 }
 
+function frameWindowKey(window = {}) {
+  const time = numberOrNull(window.time ?? window.timestamp);
+  if (time == null) return null;
+  const role = sanitizeText(window.role || roleFromFrameHints(window, ""), 40) || "any";
+  return `t:${round(time, 2)}:r:${role}`;
+}
+
 function candidateFrameRefs({ frames = [], windows = [] } = {}) {
   return (Array.isArray(frames) ? frames : []).map((frame, index) => {
     const window = Array.isArray(windows) ? windows[index] : null;
@@ -285,6 +324,23 @@ function canPayoffSatisfyFinish(payoffRef = {}, timeline = {}) {
   return true;
 }
 
+function targetTimeForRole(role = "", timeline = {}) {
+  if (role === "finish") return timelineTimeOrNull(timeline, "finish");
+  if (role === "payoff") {
+    return timelineTimeOrNull(timeline, "payoff") ?? timelineTimeOrNull(timeline, "finish");
+  }
+  if (role === "confirmation") return timelineTimeOrNull(timeline, "confirmation");
+  if (role === "pre_shot") return timelineTimeOrNull(timeline, "shot") ?? timelineTimeOrNull(timeline, "preShot");
+  return null;
+}
+
+function distanceFromRoleTarget(frame = {}, role = "", timeline = {}) {
+  const time = numberOrNull(frame.time);
+  const target = targetTimeForRole(role, timeline);
+  if (time == null || target == null) return null;
+  return Math.abs(time - target);
+}
+
 function selectBestFrameRefs(candidates = [], timeline = {}) {
   const selected = FRAME_ROLES.map((role) => {
     const roleCandidates = (Array.isArray(candidates) ? candidates : [])
@@ -293,6 +349,9 @@ function selectBestFrameRefs(candidates = [], timeline = {}) {
     return roleCandidates
       .sort((a, b) => {
         if (Boolean(a.clear) !== Boolean(b.clear)) return a.clear ? -1 : 1;
+        const targetDelta = (distanceFromRoleTarget(a, role, timeline) ?? Number.POSITIVE_INFINITY) -
+          (distanceFromRoleTarget(b, role, timeline) ?? Number.POSITIVE_INFINITY);
+        if (Math.abs(targetDelta) > 0.05) return targetDelta;
         const confidenceDelta = (numberOrNull(b.confidence) ?? 0) - (numberOrNull(a.confidence) ?? 0);
         if (Math.abs(confidenceDelta) > 0.0001) return confidenceDelta;
         if (a.status !== b.status) return a.status === "failed" ? 1 : -1;
@@ -335,6 +394,19 @@ function contactSheetRef(contactSheetPath = null) {
   return ref;
 }
 
+function renderedOutputDimensions(editPlan = {}) {
+  const exportWidth = numberOrNull(editPlan && editPlan.export && editPlan.export.width);
+  const exportHeight = numberOrNull(editPlan && editPlan.export && editPlan.export.height);
+  if (exportWidth && exportHeight) {
+    return { width: exportWidth, height: exportHeight };
+  }
+  const aspect = sanitizeText(editPlan && (editPlan.aspectRatio || editPlan.targetAspectRatio) || "", 16);
+  if (aspect === "9:16") return { width: 1080, height: 1920 };
+  if (aspect === "16:9") return { width: 1920, height: 1080 };
+  if (aspect === "1:1") return { width: 1080, height: 1080 };
+  return { width: 1080, height: 1920 };
+}
+
 async function extractRenderedGoalFrames({
   outputPath,
   metadata,
@@ -357,23 +429,141 @@ async function extractRenderedGoalFrames({
   });
 }
 
+async function extractRenderedGoalFrameBatch({
+  outputPath,
+  metadata,
+  goalItems = [],
+  extractFrames,
+  signal,
+  outputDir,
+} = {}) {
+  const startedAt = nowMs();
+  const records = [];
+  const uniqueByKey = new Map();
+  const frameByKey = new Map();
+  const extractionSummaries = [];
+  for (const [goalListIndex, item] of goalItems.entries()) {
+    const windows = Array.isArray(item && item.windows) ? item.windows : [];
+    for (const [windowIndex, window] of windows.entries()) {
+      const key = frameWindowKey(window);
+      if (!key) continue;
+      const record = { goalListIndex, windowIndex, window, key };
+      records.push(record);
+      if (!uniqueByKey.has(key)) {
+        uniqueByKey.set(key, { key, window, records: [] });
+      }
+      uniqueByKey.get(key).records.push(record);
+    }
+  }
+  const uniqueWindows = [...uniqueByKey.values()];
+  let extractionElapsedMs = 0;
+  for (let start = 0; start < uniqueWindows.length; start += MAX_BATCH_WINDOWS_PER_EXTRACTION) {
+    const chunk = uniqueWindows.slice(start, start + MAX_BATCH_WINDOWS_PER_EXTRACTION);
+    const chunkOutputDir = safeResolve(outputDir, `batch_${String(Math.floor(start / MAX_BATCH_WINDOWS_PER_EXTRACTION) + 1).padStart(2, "0")}`);
+    const chunkStartedAt = nowMs();
+    // eslint-disable-next-line no-await-in-loop
+    const extracted = await extractRenderedGoalFrames({
+      outputPath,
+      metadata,
+      windows: chunk.map((item) => item.window),
+      extractFrames,
+      signal,
+      outputDir: chunkOutputDir,
+    });
+    extractionElapsedMs += Math.max(0, nowMs() - chunkStartedAt);
+    extractionSummaries.push(publicFrameSummary(extracted));
+    const frames = Array.isArray(extracted && extracted.frames) ? extracted.frames : [];
+    for (const [frameIndex, frame] of frames.entries()) {
+      const timestampKey = frameWindowKey(frame);
+      const fallbackKey = chunk[frameIndex] && chunk[frameIndex].key;
+      const key = timestampKey && uniqueByKey.has(timestampKey) ? timestampKey : fallbackKey;
+      if (key && !frameByKey.has(key)) frameByKey.set(key, frame);
+    }
+  }
+  const framesByGoal = goalItems.map(() => []);
+  let recordFrameCount = 0;
+  for (const record of records) {
+    const frame = frameByKey.get(record.key);
+    if (!frame) continue;
+    recordFrameCount += 1;
+    framesByGoal[record.goalListIndex][record.windowIndex] = {
+      ...frame,
+      visualHints: Array.isArray(record.window.visualHints) ? record.window.visualHints : frame.visualHints,
+      timestamp: numberOrNull(frame.timestamp) ?? numberOrNull(record.window.time),
+    };
+  }
+  const uniqueExtractedFrameCount = frameByKey.size;
+  return {
+    framesByGoal,
+    extractionSummaries,
+    metrics: {
+      candidateFrameWindowCount: records.length,
+      uniqueFrameWindowCount: uniqueWindows.length,
+      newlyExtractedFrameCount: uniqueExtractedFrameCount,
+      reusedFrameCount: Math.max(0, recordFrameCount - uniqueExtractedFrameCount),
+      skippedDuplicateFrameCount: Math.max(0, records.length - uniqueWindows.length),
+      frameExtractionMs: extractionElapsedMs || Math.max(0, nowMs() - startedAt),
+      batchExtractionCallCount: extractionSummaries.length,
+    },
+  };
+}
+
 function attachEvidenceToSegment(segment = {}, evidence = {}) {
+  const frameTime = numberOrNull(evidence && evidence.frameTime);
+  const sourceStart = numberOrNull(segment.sourceStart) ?? 0;
+  const sourceEnd = numberOrNull(segment.sourceEnd) ?? sourceStart;
+  const existingShotStart = numberOrNull(segment.shotStart);
+  const finishFramePreContextSeconds = frameTime == null ? null : round(frameTime - sourceStart);
+  const finishFrameHasPreContext = finishFramePreContextSeconds == null ||
+    finishFramePreContextSeconds >= MIN_RENDERED_FINISH_PRE_CONTEXT_SECONDS;
+  const finishFrameTimingReasons = finishFrameHasPreContext ? [] : [FINISH_FRAME_LACKS_PRE_CONTEXT_REASON];
+  const segmentEvidence = finishFrameHasPreContext
+    ? evidence
+    : {
+        ...evidence,
+        visibilityVerdict: "failed",
+        timingRejectReason: FINISH_FRAME_LACKS_PRE_CONTEXT_REASON,
+        finishFramePreContextSeconds,
+        minFinishFramePreContextSeconds: MIN_RENDERED_FINISH_PRE_CONTEXT_SECONDS,
+        reasons: safeCodes([...(Array.isArray(evidence.reasons) ? evidence.reasons : []), ...finishFrameTimingReasons], 12),
+      };
+  const canBindFinishFrame = frameTime != null &&
+    finishFrameHasPreContext &&
+    evidence.visibilityVerdict === "clear" &&
+    evidence.hasVisibleFinish === true &&
+    evidence.hasBallInNetOrPayoff === true;
+  const reboundFinishTime = canBindFinishFrame
+    ? round(Math.min(Math.max(frameTime, sourceStart + 0.35), Math.max(sourceStart + 0.4, sourceEnd - 0.35)))
+    : null;
+  const reboundShotStart = reboundFinishTime == null
+    ? null
+    : round(Math.max(
+        sourceStart + 0.25,
+        Math.min(
+          existingShotStart == null ? reboundFinishTime - 2.1 : existingShotStart,
+          reboundFinishTime - 0.35,
+        ),
+      ));
   const phase = segment.phaseCoverage && typeof segment.phaseCoverage === "object" && !Array.isArray(segment.phaseCoverage)
     ? segment.phaseCoverage
     : {};
   const visualGoalPayoff = phase.visualGoalPayoff && typeof phase.visualGoalPayoff === "object" && !Array.isArray(phase.visualGoalPayoff)
     ? phase.visualGoalPayoff
     : {};
-  const mergedPayoff = { ...visualGoalPayoff, finishFrameEvidence: evidence };
+  const mergedPayoff = { ...visualGoalPayoff, finishFrameEvidence: segmentEvidence };
   const mergedPhase = {
     ...phase,
+    ...(reboundShotStart != null ? { shotStart: reboundShotStart } : {}),
+    ...(reboundFinishTime != null ? { finishTime: reboundFinishTime } : {}),
     visualGoalPayoff: mergedPayoff,
-    finishFrameEvidence: evidence,
+    finishFrameEvidence: segmentEvidence,
   };
   return {
     ...segment,
+    ...(reboundShotStart != null ? { shotStart: reboundShotStart } : {}),
+    ...(reboundFinishTime != null ? { finishTime: reboundFinishTime } : {}),
     phaseCoverage: mergedPhase,
-    finishFrameEvidence: evidence,
+    finishFrameEvidence: segmentEvidence,
   };
 }
 
@@ -385,65 +575,106 @@ async function analyzeRenderedGoalProof({
   semanticAnalyzer = analyzeSemanticGoalFrames,
   writeJson = writeJsonAtomic,
 } = {}) {
+  const proofStartedAt = nowMs();
   const segments = Array.isArray(editPlan && editPlan.segments) ? editPlan.segments : [];
   let cursor = 0;
   const runId = `rendered-goal-proof-${randomUUID()}`;
   const proofDir = storagePath("staging", join("rendered-goal-proof", runId));
   mkdirSync(proofDir, { recursive: true });
   const proofGoals = [];
-  const updatedSegments = [];
+  const updatedSegments = [...segments];
+  const goalItems = [];
   for (const [index, segment] of segments.entries()) {
     const duration = Math.max(0, Number(segment.duration || Number(segment.sourceEnd) - Number(segment.sourceStart)) || 0);
-    if (!isConfirmedGoalSegment(segment)) {
-      updatedSegments.push(segment);
-      cursor += duration;
-      continue;
+    if (isConfirmedGoalSegment(segment)) {
+      const timeline = segmentTimeline(segment, cursor);
+      goalItems.push({
+        segment,
+        segmentIndex: index,
+        timeline,
+        windows: frameWindowsForGoal(segment, timeline),
+      });
     }
-    const timeline = segmentTimeline(segment, cursor);
-    const windows = frameWindowsForGoal(segment, timeline);
-    const goalOutputDir = safeResolve(proofDir, `goal_${String(index + 1).padStart(2, "0")}`);
-    const extracted = await extractRenderedGoalFrames({
-      outputPath,
-      metadata: {
-        durationSeconds: Number(editPlan.totalDuration || timeline.timelineEnd || 0),
-        width: editPlan.export && editPlan.export.width,
-        height: editPlan.export && editPlan.export.height,
-      },
-      windows,
-      extractFrames,
-      signal,
-      outputDir: goalOutputDir,
-    });
-    const frames = Array.isArray(extracted && extracted.frames) ? extracted.frames : [];
-    const roleWindows = frames.map((frame, frameIndex) => ({
-      ...(windows[frameIndex] || {}),
-      role: roleFromFrameHints(frame, windows[frameIndex] && windows[frameIndex].role),
-    }));
-    const semantic = await semanticAnalyzer({
-      frames,
-      roleWindows,
-      segment,
-      timeline,
-      signal,
-    });
-    const frameEvidence = Array.isArray(semantic && semantic.frameEvidence) ? semantic.frameEvidence : [];
-    const semanticFrames = frames.map((frame, frameIndex) => ({
-      ...frame,
-      semanticGoalEvidence: frameEvidence[frameIndex] || frame.semanticGoalEvidence || null,
-    }));
-    const candidateRefs = candidateFrameRefs({ frames: semanticFrames, windows });
+    cursor += duration;
+  }
+
+  const renderedDimensions = renderedOutputDimensions(editPlan);
+  const renderedMetadata = {
+    durationSeconds: Number(editPlan && editPlan.totalDuration || 0),
+    width: renderedDimensions.width,
+    height: renderedDimensions.height,
+  };
+  const batch = await extractRenderedGoalFrameBatch({
+    outputPath,
+    metadata: renderedMetadata,
+    goalItems,
+    extractFrames,
+    signal,
+    outputDir: proofDir,
+  });
+  const semanticRecords = [];
+  for (const [goalListIndex, item] of goalItems.entries()) {
+    const framesByWindow = batch.framesByGoal[goalListIndex] || [];
+    for (const [windowIndex, frame] of framesByWindow.entries()) {
+      if (!frame) continue;
+      const window = item.windows[windowIndex];
+      if (!window) continue;
+      semanticRecords.push({
+        goalListIndex,
+        windowIndex,
+        frame,
+        window,
+        roleWindow: {
+          ...window,
+          role: roleFromFrameHints(frame, window.role),
+        },
+      });
+    }
+  }
+  const semanticStartedAt = nowMs();
+  const semantic = await semanticAnalyzer({
+    frames: semanticRecords.map((record) => record.frame),
+    roleWindows: semanticRecords.map((record) => record.roleWindow),
+    signal,
+    ignoreExistingEvidence: true,
+  });
+  const semanticAnalysisMs = Math.max(0, nowMs() - semanticStartedAt);
+  const frameEvidence = Array.isArray(semantic && semantic.frameEvidence) ? semantic.frameEvidence : [];
+  const semanticFramesByGoal = goalItems.map(() => []);
+  semanticRecords.forEach((record, recordIndex) => {
+    semanticFramesByGoal[record.goalListIndex][record.windowIndex] = {
+      ...record.frame,
+      semanticGoalEvidence: frameEvidence[recordIndex] || record.frame.semanticGoalEvidence || null,
+    };
+  });
+
+  for (const [goalListIndex, item] of goalItems.entries()) {
+    const goalStartedAt = nowMs();
+    const { segment, segmentIndex: index, timeline, windows } = item;
+    const pairedFrames = (semanticFramesByGoal[goalListIndex] || [])
+      .map((frame, windowIndex) => (frame && windows[windowIndex] ? { frame, window: windows[windowIndex] } : null))
+      .filter(Boolean);
+    const semanticFrames = pairedFrames.map((item) => item.frame);
+    const semanticWindows = pairedFrames.map((item) => item.window);
+    const candidateRefs = candidateFrameRefs({ frames: semanticFrames, windows: semanticWindows });
     const frameRefs = selectBestFrameRefs(candidateRefs, timeline);
     const selectedFinishRef = frameRefs.find((frame) => frame.role === "finish" && frame.clear === true);
     const selectedFinishSourceTime = selectedFinishRef && numberOrNull(selectedFinishRef.time) != null
       ? round(Number(timeline.sourceStart) + Number(selectedFinishRef.time) - Number(timeline.timelineStart))
       : null;
+    const selectedFinishPreContextSeconds = selectedFinishSourceTime == null
+      ? null
+      : round(Number(selectedFinishSourceTime) - Number(timeline.sourceStart));
+    const selectedFinishHasPreContext = selectedFinishPreContextSeconds == null ||
+      selectedFinishPreContextSeconds >= MIN_RENDERED_FINISH_PRE_CONTEXT_SECONDS;
     const frameCount = frameRefs.filter((frame) => frame.clear).length;
     const unverifiedFrameCount = frameRefs.filter((frame) => frame.status === "unverified").length;
     const failedFrameReasons = safeCodes(frameRefs
       .filter((frame) => frame.clear !== true)
-      .map((frame) => frame.reason || `${frame.role}_not_clear`), 12);
+      .map((frame) => frame.reason || `${frame.role}_not_clear`)
+      .concat(selectedFinishHasPreContext ? [] : [FINISH_FRAME_LACKS_PRE_CONTEXT_REASON]), 12);
     const strongSourceEvidence = hasStrongSourceGoalEvidence(segment);
-    const clear = strongSourceEvidence && frameCount >= 4;
+    const clear = strongSourceEvidence && frameCount >= 4 && selectedFinishHasPreContext;
     const borderline = !clear && strongSourceEvidence && frameCount >= 2;
     const evidence = {
       frameTime: selectedFinishSourceTime ?? numberOrNull(segment.finishTime) ?? timeline.finish,
@@ -470,12 +701,20 @@ async function analyzeRenderedGoalProof({
       proofMethod: "rendered_timeline_frame_sampling",
       semanticFrameValidationRequired: true,
       semanticFrameValidationPassed: clear,
+      finishFramePreContextSeconds: selectedFinishPreContextSeconds,
+      minFinishFramePreContextSeconds: MIN_RENDERED_FINISH_PRE_CONTEXT_SECONDS,
+      timingRejectReason: selectedFinishHasPreContext ? null : FINISH_FRAME_LACKS_PRE_CONTEXT_REASON,
       unverifiedFrameCount,
       reasons: failedFrameReasons,
       candidateFrameCount: candidateRefs.length,
     };
-    const updatedSegment = attachEvidenceToSegment(segment, evidence);
-    updatedSegments.push(updatedSegment);
+    updatedSegments[index] = attachEvidenceToSegment(segment, evidence);
+    const goalProofMs = Math.max(0, nowMs() - goalStartedAt);
+    const goalSemanticEvidence = semanticRecords
+      .map((record, recordIndex) => ({ record, evidence: frameEvidence[recordIndex] }))
+      .filter((entry) => entry.record.goalListIndex === goalListIndex)
+      .map((entry) => entry.evidence)
+      .filter(Boolean);
     proofGoals.push({
       goalNumber: numberOrNull(segment.goalNumber) || index + 1,
       segmentIndex: index + 1,
@@ -488,28 +727,68 @@ async function analyzeRenderedGoalProof({
       sourceEvidenceStrong: strongSourceEvidence,
       unverifiedFrameCount,
       failedFrameReasons,
-      semanticSummary: semantic
-        ? {
-            providerMode: sanitizeText(semantic.providerMode || "semantic-goal-visibility", 80),
-            clearFrameCount: numberOrNull(semantic.clearFrameCount),
-            failedFrameCount: numberOrNull(semantic.failedFrameCount),
-          }
-        : null,
+      semanticSummary: {
+        providerMode: sanitizeText(semantic && semantic.providerMode || "semantic-goal-visibility", 80),
+        clearFrameCount: goalSemanticEvidence.filter((entry) => entry.visibilityVerdict === "clear").length,
+        failedFrameCount: goalSemanticEvidence.filter((entry) => entry.visibilityVerdict !== "clear").length,
+      },
       existingClearProofUsed: false,
-      extraction: publicFrameSummary(extracted),
+      extraction: {
+        providerMode: "rendered-goal-proof-batch",
+        fallbackUsed: semanticFrames.length === 0,
+        summary: {
+          frameCount: semanticFrames.length,
+          sampledWindows: semanticFrames.length,
+          skippedWindows: Math.max(0, windows.length - semanticFrames.length),
+          extractionMs: batch.metrics.frameExtractionMs,
+        },
+      },
+      proofMs: goalProofMs,
     });
-    cursor += duration;
   }
+  const renderedGoalProofMs = Math.max(0, nowMs() - proofStartedAt);
+  const timing = {
+    renderMs: null,
+    renderedGoalProofMs,
+    frameExtractionMs: batch.metrics.frameExtractionMs,
+    semanticVisibilityMs: semanticAnalysisMs,
+    rebindAttemptCount: numberOrNull(editPlan && editPlan.renderedGoalRebinding && editPlan.renderedGoalRebinding.attemptCount) || 0,
+    framesExtracted: batch.metrics.newlyExtractedFrameCount,
+    framesReused: batch.metrics.reusedFrameCount,
+    skippedDuplicateFrameCount: batch.metrics.skippedDuplicateFrameCount,
+    candidateFrameWindowCount: batch.metrics.candidateFrameWindowCount,
+    uniqueFrameWindowCount: batch.metrics.uniqueFrameWindowCount,
+    newlyExtractedFrameCount: batch.metrics.newlyExtractedFrameCount,
+    batchExtractionCallCount: batch.metrics.batchExtractionCallCount,
+    perGoalProofMs: proofGoals.map((goal) => ({
+      goalNumber: goal.goalNumber,
+      ms: goal.proofMs,
+    })),
+    bottleneckStep: semanticAnalysisMs >= batch.metrics.frameExtractionMs ? "semantic_visibility" : "frame_extraction",
+  };
   const contactSheetPath = safeResolve(proofDir, "contact-sheet.json");
+  const clearGoalCount = proofGoals.filter((goal) => goal.verdict === "clear").length;
+  const borderlineGoalCount = proofGoals.filter((goal) => goal.verdict === "borderline").length;
+  const failedGoalCount = proofGoals.filter((goal) => goal.verdict === "failed").length;
+  const nonClearGoalCount = Math.max(0, proofGoals.length - clearGoalCount);
+  const missingClearGoalNumbers = proofGoals
+    .filter((goal) => goal.verdict !== "clear")
+    .map((goal) => goal.goalNumber)
+    .filter((goalNumber) => goalNumber != null);
   const summary = {
     schemaVersion: 1,
     providerMode: "rendered-goal-proof",
     outputRef: outputPath ? "rendered_output" : null,
+    passed: proofGoals.length > 0 && nonClearGoalCount === 0,
+    status: proofGoals.length > 0 && nonClearGoalCount === 0 ? "passed" : "failed",
     goalCount: proofGoals.length,
-    clearGoalCount: proofGoals.filter((goal) => goal.verdict === "clear").length,
-    borderlineGoalCount: proofGoals.filter((goal) => goal.verdict === "borderline").length,
-    failedGoalCount: proofGoals.filter((goal) => goal.verdict === "failed").length,
+    clearGoalCount,
+    borderlineGoalCount,
+    failedGoalCount,
+    nonClearGoalCount,
+    missingClearGoalNumbers,
     contactSheetRef: contactSheetRef(contactSheetPath),
+    timing,
     goals: proofGoals.map((goal) => ({
       goalNumber: goal.goalNumber,
       segmentIndex: goal.segmentIndex,
@@ -523,6 +802,7 @@ async function analyzeRenderedGoalProof({
       failedFrameReasons: goal.failedFrameReasons,
       semanticSummary: goal.semanticSummary,
       existingClearProofUsed: goal.existingClearProofUsed,
+      proofMs: goal.proofMs,
     })),
     logsDownloaded: false,
     artifactsDownloaded: false,

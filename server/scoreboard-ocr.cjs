@@ -1620,6 +1620,7 @@ async function cropScoreboardRegion({
   variant = null,
   ffmpegRunner = runFfmpeg,
   signal = null,
+  timeoutMs = CONFIG.analysisTimeoutMs,
 } = {}) {
   const safeFrame = assertOcrFrame(frame);
   if (!safeFrame || !safeFrame.localPath) {
@@ -1637,7 +1638,7 @@ async function cropScoreboardRegion({
     "-frames:v",
     "1",
     cropPath,
-  ], { signal, timeoutMs: Math.min(CONFIG.analysisTimeoutMs, 20000) });
+  ], { signal, timeoutMs: Math.min(CONFIG.analysisTimeoutMs, 20000, Math.max(250, Number(timeoutMs) || CONFIG.analysisTimeoutMs)) });
   if (!existsSync(cropPath)) {
     throw new AppError("ANALYSIS_FAILED", SAFE_MESSAGES.ANALYSIS_FAILED, 502);
   }
@@ -1653,6 +1654,7 @@ async function cropScoreOnlyRegion({
   profile = null,
   ffmpegRunner = runFfmpeg,
   signal = null,
+  timeoutMs = CONFIG.analysisTimeoutMs,
 } = {}) {
   const safeProfile = safeScorebugLayoutProfile(profile);
   if (!safeProfile || !cropPath) return null;
@@ -1671,7 +1673,7 @@ async function cropScoreOnlyRegion({
     "-frames:v",
     "1",
     scoreOnlyPath,
-  ], { signal, timeoutMs: Math.min(CONFIG.analysisTimeoutMs, 12000) });
+  ], { signal, timeoutMs: Math.min(CONFIG.analysisTimeoutMs, 12000, Math.max(250, Number(timeoutMs) || CONFIG.analysisTimeoutMs)) });
   if (!existsSync(scoreOnlyPath)) return null;
   return {
     cropPath: assertStoragePath(scoreOnlyPath, "staging"),
@@ -1691,6 +1693,7 @@ async function cropProfileDigitRegion({
   role = "home",
   ffmpegRunner = runFfmpeg,
   signal = null,
+  timeoutMs = CONFIG.analysisTimeoutMs,
 } = {}) {
   const safeProfile = safeScorebugLayoutProfile(profile);
   const roi = role === "away" ? safeProfile && safeProfile.fullAwayDigitRoi : safeProfile && safeProfile.fullHomeDigitRoi;
@@ -1710,7 +1713,7 @@ async function cropProfileDigitRegion({
     "-frames:v",
     "1",
     outputPath,
-  ], { signal, timeoutMs: Math.min(CONFIG.analysisTimeoutMs, 12000) });
+  ], { signal, timeoutMs: Math.min(CONFIG.analysisTimeoutMs, 12000, Math.max(250, Number(timeoutMs) || CONFIG.analysisTimeoutMs)) });
   return existsSync(outputPath)
     ? {
         cropPath: assertStoragePath(outputPath, "staging"),
@@ -1757,6 +1760,7 @@ async function readProfileDigitOcr({
       role: "home",
       ffmpegRunner,
       signal,
+      timeoutMs,
     });
     const awayCrop = await cropProfileDigitRegion({
       cropPath,
@@ -1768,6 +1772,7 @@ async function readProfileDigitOcr({
       role: "away",
       ffmpegRunner,
       signal,
+      timeoutMs,
     });
     if (!homeCrop || !awayCrop) {
       return emptyResult({
@@ -1969,6 +1974,7 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
               variant,
               ffmpegRunner: this.ffmpegRunner,
               signal: input.signal,
+              timeoutMs: Math.min(ocrTimeoutMs, scorebugFirstOnly ? 1800 : CONFIG.analysisTimeoutMs),
             });
             const safeCropPath = assertStoragePath(cropPath, "staging");
             const layoutProfile = selectScorebugLayoutProfile(region);
@@ -1986,6 +1992,7 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
                   profile: layoutProfile,
                   ffmpegRunner: this.ffmpegRunner,
                   signal: input.signal,
+                  timeoutMs: Math.min(ocrTimeoutMs, scorebugFirstOnly ? 1800 : CONFIG.analysisTimeoutMs),
                 });
               } catch {
                 scoreOnlyCrop = null;

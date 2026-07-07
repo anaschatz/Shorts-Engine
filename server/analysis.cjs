@@ -2824,15 +2824,18 @@ const VALID_GOAL_ONLY_TIMING = Object.freeze({
 const REFERENCE_GOAL_COMPILATION = Object.freeze({
   goalCountThreshold: 5,
   minTotalDuration: 55,
-  maxTotalDuration: 75,
-  targetPreScoreChangeSeconds: 9.2,
-  minPreScoreChangeSeconds: 8,
+  maxTotalDuration: 125,
+  targetPreScoreChangeSeconds: 20,
+  minPreScoreChangeSeconds: 20,
   targetPostScoreChangeSeconds: 2.35,
   minPostScoreChangeSeconds: 1.4,
-  targetSegmentDuration: 11.55,
-  minSegmentDuration: 9.5,
-  maxSegmentDuration: 15,
+  targetSegmentDuration: 24,
+  minSegmentDuration: 14,
+  maxSegmentDuration: 32,
   minPreShotSeconds: 6,
+  maxFinishLeadBeforeScoreChangeSeconds: 24,
+  maxFinishFrameRebindSeconds: 4.5,
+  minFinishBeforeScoreChangeSeconds: 0.4,
 });
 
 const GOAL_SELECTION_MODES = Object.freeze({
@@ -2849,6 +2852,28 @@ function normalizeGoalSelectionMode(value) {
 function finiteNumber(value, fallback = null) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function isFinishAlignedWithScoreChange(finishTime = null, scoreChangeTime = null) {
+  const finish = finiteNumber(finishTime, null);
+  const scoreChange = finiteNumber(scoreChangeTime, null);
+  if (finish === null || scoreChange === null) return true;
+  const leadSeconds = scoreChange - finish;
+  return leadSeconds >= -0.25 &&
+    leadSeconds <= REFERENCE_GOAL_COMPILATION.maxFinishLeadBeforeScoreChangeSeconds;
+}
+
+function finishFrameEvidenceUsableForWindow(evidence = null, { sourceStart = 0, sourceEnd = 0, finishTime = null, scoreChangeTime = null } = {}) {
+  if (!evidence || typeof evidence !== "object" || Array.isArray(evidence)) return false;
+  const frameTime = finiteNumber(evidence.frameTime, finiteNumber(evidence.timestamp, finiteNumber(evidence.time, null)));
+  if (frameTime === null) return false;
+  const start = finiteNumber(sourceStart, 0);
+  const end = finiteNumber(sourceEnd, start);
+  const finish = finiteNumber(finishTime, null);
+  return frameTime >= start - 0.05 &&
+    frameTime <= end + 0.05 &&
+    (finish === null || Math.abs(frameTime - finish) <= REFERENCE_GOAL_COMPILATION.maxFinishFrameRebindSeconds) &&
+    isFinishAlignedWithScoreChange(frameTime, scoreChangeTime);
 }
 
 function inferredShotStartForGoalPhase({ sourceStart = 0, sourceEnd = null, finishTime = null } = {}) {
@@ -3604,6 +3629,15 @@ function bothConfirmedGoalCandidates(a = {}, b = {}) {
   return isConfirmedGoalCandidate(a) && isConfirmedGoalCandidate(b);
 }
 
+function closeConfirmedScoreChangePair(a = {}, b = {}, thresholdSeconds = 20) {
+  if (!bothConfirmedGoalCandidates(a, b)) return false;
+  const aTime = scoreChangeTimeForCandidate(a);
+  const bTime = scoreChangeTimeForCandidate(b);
+  if (aTime === null || bTime === null) return false;
+  const gap = Math.abs(bTime - aTime);
+  return gap > 0 && gap <= thresholdSeconds;
+}
+
 function isConfirmedGoalCandidate(candidate = {}) {
   const moment = candidate.analysisMoment || candidate || {};
   const reasonCodes = Array.isArray(candidate.reasonCodes)
@@ -4070,7 +4104,10 @@ function referenceGoalPhaseForWindow(candidate = {}, { sourceStart, sourceEnd } 
     ? end - 1.2
     : Math.min(end - 1.2, confirmation - 0.8);
   const existingShot = finiteNumber(existingPhase.shotStart, finiteNumber(existingCoverage.shotStart, null));
+  const existingFinish = finiteNumber(existingPhase.finishTime, finiteNumber(existingCoverage.finishTime, null));
+  const existingFinishScoreAligned = isFinishAlignedWithScoreChange(existingFinish, scoreChangeTime);
   const existingShotUsable = existingShot !== null &&
+    existingFinishScoreAligned &&
     existingShot >= start + 0.4 &&
     existingShot <= shotCeiling;
   const shotStart = Number(clamp(
@@ -4083,10 +4120,13 @@ function referenceGoalPhaseForWindow(candidate = {}, { sourceStart, sourceEnd } 
   const finishFloor = Math.min(end - 0.75, shotStart + 0.45);
   const finishCeiling = confirmation === null
     ? end - 0.45
-    : Math.min(end - 0.45, confirmation - 0.25);
-  const existingFinish = finiteNumber(existingPhase.finishTime, finiteNumber(existingCoverage.finishTime, null));
+    : Math.min(end - 0.45, confirmation - REFERENCE_GOAL_COMPILATION.minFinishBeforeScoreChangeSeconds);
+  const existingFinishUsable = existingFinish !== null &&
+    existingFinishScoreAligned &&
+    existingFinish >= finishFloor &&
+    existingFinish <= finishCeiling;
   const finishTime = Number(clamp(
-    existingFinish !== null && existingFinish >= finishFloor && existingFinish <= finishCeiling
+    existingFinishUsable
       ? existingFinish
       : Math.max(finishFloor, finishCeiling),
     finishFloor,
@@ -4095,8 +4135,27 @@ function referenceGoalPhaseForWindow(candidate = {}, { sourceStart, sourceEnd } 
   const confirmationTime = confirmation === null
     ? Number(Math.min(end - 0.25, finishTime + 0.9).toFixed(2))
     : Number(clamp(confirmation, finishTime + 0.2, end - 0.1).toFixed(2));
-  const visualGoalPayoff = existingCoverage.visualGoalPayoff ||
+  const rawVisualGoalPayoff = existingCoverage.visualGoalPayoff ||
     goalVisualPayoffSummaryForReasons(candidate.reasonCodes || []);
+  const rawFinishFrameEvidence = candidate.finishFrameEvidence ||
+    existingPhase.finishFrameEvidence ||
+    existingCoverage.finishFrameEvidence ||
+    (rawVisualGoalPayoff && rawVisualGoalPayoff.finishFrameEvidence) ||
+    null;
+  const finishFrameEvidence = finishFrameEvidenceUsableForWindow(rawFinishFrameEvidence, {
+    sourceStart: start,
+    sourceEnd: end,
+    finishTime,
+    scoreChangeTime,
+  })
+    ? rawFinishFrameEvidence
+    : null;
+  const visualGoalPayoff = {
+    ...rawVisualGoalPayoff,
+    hasVisibleGoalPayoff: true,
+    scoreboardOnly: false,
+    finishFrameEvidence,
+  };
   return {
     ...existingPhase,
     goalNumber: confirmedGoalNumberForCandidate(candidate),
@@ -4106,6 +4165,7 @@ function referenceGoalPhaseForWindow(candidate = {}, { sourceStart, sourceEnd } 
     shotStart,
     finishTime,
     confirmationTime,
+    finishFrameEvidence,
     replayUsed: Boolean(existingPhase.replayUsed || existingCoverage.replayUsed),
     replayOnly: false,
     phaseCoverage: {
@@ -4116,11 +4176,8 @@ function referenceGoalPhaseForWindow(candidate = {}, { sourceStart, sourceEnd } 
       hasConfirmation: true,
       replayUsed: Boolean(existingCoverage.replayUsed || existingPhase.replayUsed),
       replayOnly: false,
-      visualGoalPayoff: {
-        ...visualGoalPayoff,
-        hasVisibleGoalPayoff: true,
-        scoreboardOnly: false,
-      },
+      visualGoalPayoff,
+      finishFrameEvidence,
       liveActionStart: Number(start.toFixed(2)),
       shotStart,
       finishTime,
@@ -4156,6 +4213,7 @@ function withReferenceGoalWindow(candidate = {}, window = {}, metadata = {}) {
     shotStart: goalPhase.shotStart,
     finishTime: goalPhase.finishTime,
     confirmationTime: goalPhase.confirmationTime,
+    finishFrameEvidence: goalPhase.finishFrameEvidence || null,
     goalPhase,
     goalOutcome,
     referenceGoalPacing: true,
@@ -4209,8 +4267,10 @@ function compactConfirmedGoalCandidateForReference(candidate = {}, metadata = {}
       finishTime === null ? 0 : finishTime,
       finishFrameTime === null ? 0 : finishFrameTime,
     );
+    const visibleFinishScoreAligned = visibleFinishTime <= 0 ||
+      isFinishAlignedWithScoreChange(visibleFinishTime, scoreChangeTime);
     let sourceStart = Math.max(0, scoreChangeTime - REFERENCE_GOAL_COMPILATION.targetPreScoreChangeSeconds);
-    if (shotStart !== null) {
+    if (shotStart !== null && visibleFinishScoreAligned) {
       sourceStart = Math.min(
         sourceStart,
         Math.max(0, shotStart - REFERENCE_GOAL_COMPILATION.minPreShotSeconds),
@@ -4220,7 +4280,7 @@ function compactConfirmedGoalCandidateForReference(candidate = {}, metadata = {}
       mediaDuration || scoreChangeTime + REFERENCE_GOAL_COMPILATION.targetPostScoreChangeSeconds,
       scoreChangeTime + REFERENCE_GOAL_COMPILATION.targetPostScoreChangeSeconds,
     );
-    if (visibleFinishTime > 0) {
+    if (visibleFinishTime > 0 && visibleFinishScoreAligned) {
       sourceEnd = Math.max(sourceEnd, visibleFinishTime + VALID_GOAL_ONLY_TIMING.minPostConfirmationSeconds);
     }
     if (mediaDuration > 0) sourceEnd = Math.min(mediaDuration, sourceEnd);
@@ -4261,6 +4321,7 @@ function trimReferenceGoalCompilationDuration(candidates = [], metadata = {}) {
   for (let index = 1; index < sorted.length; index += 1) {
     const previous = sorted[index - 1];
     const current = sorted[index];
+    if (closeConfirmedScoreChangePair(previous, current)) continue;
     const overlap = sourceOverlapSeconds(previous, current);
     if (overlap <= 0) continue;
     const maxAllowedOverlap = Math.min(
@@ -4291,6 +4352,7 @@ function trimReferenceGoalCompilationDuration(candidates = [], metadata = {}) {
   for (let index = 1; index < sorted.length; index += 1) {
     const previous = sorted[index - 1];
     const current = sorted[index];
+    if (closeConfirmedScoreChangePair(previous, current)) continue;
     const overlap = sourceOverlapSeconds(previous, current);
     if (overlap <= 0) continue;
     const previousDuration = Math.max(0, previous.sourceEnd - previous.sourceStart);

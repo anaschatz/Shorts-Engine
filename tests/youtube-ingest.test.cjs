@@ -555,6 +555,52 @@ test("youtube ingest service commits valid cached source after staging validatio
   }
 });
 
+test("youtube ingest service stores validated downloader source for future cache hits", async () => {
+  const created = [];
+  const cacheDir = makeSourceCacheDir("write-through");
+  const cachePath = join(cacheDir, cacheFileNameForVideoId("dQw4w9WgXcQ"));
+  const downloadedBytes = validMp4Buffer(512);
+  const cacheAdapter = createLocalSourceCacheAdapter({
+    config: {
+      enabled: true,
+      dir: cacheDir,
+      requireChecksum: true,
+      maxBytes: CONFIG.maxUploadBytes,
+    },
+  });
+  const downloader = createWritingAdapter(downloadedBytes, { title: "Cached After Download" });
+  const service = createYouTubeIngestService({
+    adapter: downloader,
+    cacheAdapter,
+    dependencies: {
+      artifactStore: createFakeArtifactStore(),
+      persistenceAdapter: createFakePersistenceAdapter(created),
+      logger: null,
+      probeMedia: async () => ({ durationSeconds: 24, width: 1280, height: 720, hasAudio: true }),
+    },
+  });
+  try {
+    const result = await service.ingest({
+      url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      rightsConfirmed: true,
+      title: "Downloader Cache Store",
+    });
+    assert.equal(created.length, 1);
+    assert.equal(downloader.calls.length, 1);
+    assert.equal(existsSync(cachePath), true);
+    assert.equal(existsSync(join(cacheDir, checksumFileNameForVideoId("dQw4w9WgXcQ"))), true);
+    assert.equal(result.source.sourceAcquisition.cacheChecked, true);
+    assert.equal(result.source.sourceAcquisition.cacheHit, false);
+    assert.equal(result.source.sourceAcquisition.downloaderFallbackUsed, true);
+    assert.equal(result.source.sourceAcquisition.cacheStoreAttempted, true);
+    assert.equal(result.source.sourceAcquisition.cacheStored, true);
+    assert.equal(result.source.sourceAcquisition.cacheStoreFailureCode, null);
+    assert.doesNotMatch(JSON.stringify(result.source.sourceAcquisition), /\/Users|\/private|storageKey|outputPath|stderr|stdout|cookie|token/i);
+  } finally {
+    removeSourceCacheDir(cacheDir);
+  }
+});
+
 test("source cache checksum mismatch fails closed without downloader or records", async () => {
   const created = [];
   const cacheDir = makeSourceCacheDir("checksum");

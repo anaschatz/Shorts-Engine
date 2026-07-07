@@ -16,6 +16,7 @@ const FAILURE_CODES = Object.freeze({
   FRAME_TOO_WIDE_UNCLEAR: "FRAME_TOO_WIDE_UNCLEAR",
   INSUFFICIENT_ACTION_FRAMES: "INSUFFICIENT_ACTION_FRAMES",
   FINISH_AFTER_SCOREBOARD_CHANGE: "FINISH_AFTER_SCOREBOARD_CHANGE",
+  FINISH_FRAME_LACKS_PRE_CONTEXT: "FINISH_FRAME_LACKS_PRE_CONTEXT",
 });
 
 const SHOT_CODES = Object.freeze([
@@ -52,6 +53,7 @@ const FINISH_FRAME_CODES = Object.freeze([
 const MIN_FINISH_FRAME_CONFIDENCE = 0.72;
 const FINISH_FRAME_TOLERANCE_SECONDS = 2.5;
 const MIN_CLEAR_ACTION_FRAMES = 3;
+const MIN_FINISH_FRAME_PRE_CONTEXT_SECONDS = 4;
 
 const CONFIRMATION_CODES = Object.freeze([
   "visual_scoreboard_goal_confirmed",
@@ -178,6 +180,9 @@ function validateFinishFrameEvidence(segment = {}, normalized = {}) {
     sourceEnd !== null &&
     frameTime >= sourceStart - 0.05 &&
     frameTime <= sourceEnd + 0.05;
+  const frameHasPreContext = frameTime !== null &&
+    sourceStart !== null &&
+    frameTime - sourceStart >= MIN_FINISH_FRAME_PRE_CONTEXT_SECONDS;
   const nearFinish = frameTime !== null &&
     finishTime !== null &&
     Math.abs(frameTime - finishTime) <= FINISH_FRAME_TOLERANCE_SECONDS;
@@ -200,6 +205,7 @@ function validateFinishFrameEvidence(segment = {}, normalized = {}) {
   const reasons = [
     ...(!hasEvidence ? ["finish_frame_evidence_missing"] : []),
     ...(hasEvidence && !frameWithinSegment ? ["finish_frame_outside_segment"] : []),
+    ...(hasEvidence && !frameHasPreContext ? ["finish_frame_lacks_pre_context"] : []),
     ...(hasEvidence && !nearFinish ? ["finish_frame_not_near_finish"] : []),
     ...(hasEvidence && !hasVisibleFinish ? ["finish_frame_missing_visible_finish"] : []),
     ...(hasEvidence && !hasBallInNetOrPayoff ? ["finish_frame_missing_ball_in_net_or_payoff"] : []),
@@ -233,6 +239,7 @@ function validateFinishFrameEvidence(segment = {}, normalized = {}) {
     hasGoalMouth,
     supportFrames,
     frameWithinSegment,
+    frameHasPreContext,
     nearFinish,
     isBlurred,
     isOverZoomed,
@@ -321,6 +328,9 @@ function failureCodeForEvidence(evidence, segment) {
     if (evidence.finishFrame && evidence.finishFrame.visibilityVerdict === "borderline") return FAILURE_CODES.GOAL_VISIBILITY_BORDERLINE;
     if (evidence.finishFrame && evidence.finishFrame.reasons.includes("insufficient_continuous_action_frames")) {
       return FAILURE_CODES.INSUFFICIENT_ACTION_FRAMES;
+    }
+    if (evidence.finishFrame && evidence.finishFrame.reasons.includes("finish_frame_lacks_pre_context")) {
+      return FAILURE_CODES.FINISH_FRAME_LACKS_PRE_CONTEXT;
     }
     return FAILURE_CODES.FINISH_FRAME_NOT_PROVEN;
   }

@@ -61,6 +61,30 @@ const ASS_COLORS = Object.freeze({
   green: "&H0071BF2F",
 });
 
+const RENDER_PROFILES = Object.freeze({
+  quality: {
+    name: "quality",
+    preset: "veryfast",
+    crf: "23",
+    audioBitrate: "128k",
+    maxVerticalHeight: 1920,
+    maxSquareSize: 1080,
+    blurredBackground: true,
+    segmentMode: "fade_transcode",
+  },
+  proof_fast: {
+    name: "proof_fast",
+    preset: "ultrafast",
+    crf: "28",
+    audioBitrate: "96k",
+    maxVerticalHeight: 1920,
+    maxSquareSize: 720,
+    blurredBackground: true,
+    segmentMode: "fast_fade_transcode",
+    outputFrameRate: "30",
+  },
+});
+
 function assTime(seconds) {
   const safe = Math.max(0, Number(seconds) || 0);
   const hours = Math.floor(safe / 3600);
@@ -87,6 +111,16 @@ function renderStyleConfig(plan = {}) {
     name: stylePreset,
     ...RENDER_STYLE_CONFIG[stylePreset],
   };
+}
+
+function normalizeRenderProfileName(value) {
+  const safe = String(value || "").trim().toLowerCase();
+  return Object.prototype.hasOwnProperty.call(RENDER_PROFILES, safe) ? safe : "quality";
+}
+
+function renderProfileConfig(plan = {}) {
+  const configured = plan && plan.renderProfile ? plan.renderProfile : process.env.SHORTSENGINE_RENDER_PROFILE;
+  return RENDER_PROFILES[normalizeRenderProfileName(configured)];
 }
 
 function labelForHighlightType(highlightType) {
@@ -171,11 +205,17 @@ function goalOutcomeBadges(plan = {}, duration = 0) {
 }
 
 function renderDimensions(plan = {}) {
+  const profile = renderProfileConfig(plan);
   const output = plan.export && typeof plan.export === "object" ? plan.export : {};
   const width = Number(output.width);
   const height = Number(output.height);
-  if (width === 1080 && height === 1080) return { width, height };
-  return { width: 1080, height: 1920 };
+  if (width === 1080 && height === 1080) {
+    const square = Math.min(width, profile.maxSquareSize);
+    return { width: square, height: square };
+  }
+  const verticalHeight = Math.min(1920, profile.maxVerticalHeight);
+  const verticalWidth = Math.round(verticalHeight * 9 / 16);
+  return { width: verticalWidth, height: verticalHeight };
 }
 
 function endBeatText(plan = {}) {
@@ -600,6 +640,7 @@ function dynamicCaptionCount(plan = {}) {
 function createRenderPolishSummary(plan = {}, options = {}) {
   const dimensions = renderDimensions(plan);
   const config = renderStyleConfig(plan);
+  const profile = renderProfileConfig(plan);
   const segments = normalizedRenderSegments(plan);
   const duration = Number(plan.totalDuration) || segments.reduce((sum, segment) => sum + segment.duration, 0) || Number(plan.sourceEnd) - Number(plan.sourceStart) || 0;
   const transitions = safeRenderTransitions(plan, segments);
@@ -623,8 +664,14 @@ function createRenderPolishSummary(plan = {}, options = {}) {
   if (hardCutFallbackCount > 0) renderPolishWarnings.push("hard_cut_fallback_used");
   if (segments.length > 1 && transitionRenderedCount === 0) renderPolishWarnings.push("missing_transition_render");
   if (overlayRenderedCount === 0) renderPolishWarnings.push("overlay_not_rendered");
+  if (profile.name === "proof_fast") renderPolishWarnings.push("proof_fast_render_profile");
+  if (!profile.blurredBackground) renderPolishWarnings.push("fast_safe_letterbox_background");
   return {
     contractVersion: 1,
+    renderProfile: profile.name,
+    encoderPreset: profile.preset,
+    encoderCrf: Number(profile.crf),
+    segmentRenderMode: profile.segmentMode,
     renderStylePreset: config.name,
     outputWidth: dimensions.width,
     outputHeight: dimensions.height,
@@ -660,6 +707,7 @@ async function renderSingleWindowShort({ inputPath, outputPath, subtitlesPath, p
   const duration = Number((Number(plan.totalDuration) || plan.sourceEnd - plan.sourceStart).toFixed(2));
   const dimensions = renderDimensions(plan);
   const config = renderStyleConfig(plan);
+  const profile = renderProfileConfig(plan);
   const subtitlesFilter = `subtitles=filename='${escapeFilterPath(subtitlesPath)}'`;
   const toneFilter = `eq=contrast=${config.contrast}:saturation=${config.saturation}`;
   const effects = visualEffectFilters(plan, dimensions, config);
@@ -676,16 +724,31 @@ async function renderSingleWindowShort({ inputPath, outputPath, subtitlesPath, p
         `${finishingFilters.join(",")}[v]`,
       ].join(",")
     : ["wide_safe", "wide_safe_vertical"].includes(plan.framingMode)
+    ? profile.blurredBackground
     ? [
         `[0:v]scale=${backgroundWidth}:${backgroundHeight}:force_original_aspect_ratio=increase,crop=${dimensions.width}:${dimensions.height},boxblur=18:1[bg]`,
         `[0:v]scale=${dimensions.width}:${dimensions.height}:force_original_aspect_ratio=decrease[fg]`,
         `[bg][fg]overlay=(W-w)/2:(H-h)/2,${finishingFilters.join(",")}[v]`,
       ].join(";")
     : [
+        `[0:v]scale=${dimensions.width}:${dimensions.height}:force_original_aspect_ratio=decrease`,
+        `pad=${dimensions.width}:${dimensions.height}:(ow-iw)/2:(oh-ih)/2:color=black`,
+        `${finishingFilters.join(",")}[v]`,
+      ].join(",")
+    : [
         `[0:v]scale=${Math.round(dimensions.width * 1.04)}:${Math.round(dimensions.height * 1.04)}:force_original_aspect_ratio=increase`,
         `crop=${dimensions.width}:${dimensions.height}`,
         `${finishingFilters.join(",")}[v]`,
       ].join(",");
+  const videoEncodeArgs = [
+    "-c:v",
+    "libx264",
+    "-preset",
+    profile.preset,
+    "-crf",
+    profile.crf,
+    ...(profile.outputFrameRate ? ["-r", profile.outputFrameRate] : []),
+  ];
   const args = [
     "-y",
     "-ss",
@@ -700,18 +763,13 @@ async function renderSingleWindowShort({ inputPath, outputPath, subtitlesPath, p
     "[v]",
     "-map",
     "0:a?",
-    "-c:v",
-    "libx264",
-    "-preset",
-    "veryfast",
-    "-crf",
-    "23",
+    ...videoEncodeArgs,
     "-pix_fmt",
     "yuv420p",
     "-c:a",
     "aac",
     "-b:a",
-    "128k",
+    profile.audioBitrate,
     "-movflags",
     "+faststart",
     "-shortest",
@@ -724,6 +782,7 @@ async function renderSingleWindowShort({ inputPath, outputPath, subtitlesPath, p
 
 async function renderMultiSegmentShort({ inputPath, outputPath, subtitlesPath, plan, signal, ffmpegRunner = runFfmpeg }) {
   const segments = normalizedRenderSegments(plan);
+  const profile = renderProfileConfig(plan);
   if (segments.length < 2) {
     throw new AppError("RENDER_FAILED", "Multi-moment render needs at least two valid segments.", 500);
   }
@@ -754,15 +813,16 @@ async function renderMultiSegmentShort({ inputPath, outputPath, subtitlesPath, p
         "-c:v",
         "libx264",
         "-preset",
-        "veryfast",
+        profile.preset,
         "-crf",
-        "23",
+        profile.crf,
+        ...(profile.outputFrameRate ? ["-r", profile.outputFrameRate] : []),
         "-pix_fmt",
         "yuv420p",
         "-c:a",
         "aac",
         "-b:a",
-        "128k",
+        profile.audioBitrate,
         "-movflags",
         "+faststart",
         "-shortest",
@@ -802,6 +862,9 @@ async function renderMultiSegmentShort({ inputPath, outputPath, subtitlesPath, p
 }
 
 async function renderShort({ inputPath, outputPath, subtitlesPath, plan, signal, ffmpegRunner = runFfmpeg }) {
+  if (plan && typeof plan === "object") {
+    plan.renderProfile = normalizeRenderProfileName(plan.renderProfile || process.env.SHORTSENGINE_RENDER_PROFILE);
+  }
   if (Array.isArray(plan && plan.segments) && plan.segments.length > 1) {
     return renderMultiSegmentShort({ inputPath, outputPath, subtitlesPath, plan, signal, ffmpegRunner });
   }
@@ -815,4 +878,6 @@ module.exports = {
   extractAudio,
   renderShort,
   createRenderPolishSummary,
+  renderDimensions,
+  normalizeRenderProfileName,
 };

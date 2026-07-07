@@ -739,9 +739,11 @@ function normalizeCaptionContext(context = {}) {
 
 function normalizeCaptionItem(caption, index, total, sourceStart, sourceEnd, context = {}) {
   const duration = sourceEnd - sourceStart;
-  const start = clamp(caption.start, 0, duration);
+  if (duration < 0.4) return null;
+  const start = clamp(caption.start, 0, Math.max(0, duration - 0.4));
   const end = clamp(caption.end, start + 0.4, duration);
   const text = sanitizeText(caption.text, 96);
+  if (end <= start) return null;
   if (!text) return null;
   const role = captionRoleForIndex(caption.role, index, total);
   const emphasis = captionEmphasisForRole(caption.emphasis, role);

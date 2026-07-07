@@ -573,6 +573,28 @@ test("scoreboard reader contract normalizes candidates and requires stable score
   assert.equal(timeline[5].transitionDecision, "rejected_impossible_transition");
 });
 
+test("scoreboard reader treats either side scoring as valid stable score changes", () => {
+  const timeline = buildStableScoreTimeline([
+    { timestamp: 5, text: "HOME 0-0 AWAY", score: { home: 0, away: 0 }, confidence: 0.86 },
+    { timestamp: 20, text: "HOME 0-1 AWAY", score: { home: 0, away: 1 }, confidence: 0.87 },
+    { timestamp: 26, text: "HOME 0-1 AWAY", score: { home: 0, away: 1 }, confidence: 0.88 },
+    { timestamp: 45, text: "HOME 0-2 AWAY", score: { home: 0, away: 2 }, confidence: 0.88 },
+    { timestamp: 51, text: "HOME 0-2 AWAY", score: { home: 0, away: 2 }, confidence: 0.89 },
+    { timestamp: 70, text: "HOME 1-2 AWAY", score: { home: 1, away: 2 }, confidence: 0.9 },
+    { timestamp: 76, text: "HOME 1-2 AWAY", score: { home: 1, away: 2 }, confidence: 0.91 },
+    { timestamp: 90, text: "HOME 2-3 AWAY", score: { home: 2, away: 3 }, confidence: 0.9 },
+  ]);
+  const stableChanges = timeline.filter((item) => item.status === "score_changed");
+
+  assert.deepEqual(
+    stableChanges.map((item) => `${item.scoreBefore}->${item.scoreAfter}`),
+    ["0-0->0-1", "0-1->0-2", "0-2->1-2"],
+  );
+  assert.equal(timeline.at(-1).status, "ambiguous");
+  assert.equal(timeline.at(-1).transitionDecision, "rejected_impossible_transition");
+  assert.equal(timeline.at(-1).ambiguityReasons.includes("impossible_or_non_unit_score_transition"), true);
+});
+
 test("local scoreboard OCR falls back when disabled or binary is unavailable", async () => {
   const disabled = await analyzeScoreboardOcr({
     metadata,

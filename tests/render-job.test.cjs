@@ -1883,13 +1883,13 @@ test("youtube valid-goals-only output gate passes when all counted goals are cov
   assert.doesNotMatch(JSON.stringify(context.job.videoOutputQA), /\/Users|storageKey|secret|stderr|stdout|rawOcr|rawText/i);
 });
 
-test("duration-safe compaction preserves 5/5 rendered visible goals under reference limit", () => {
+test("reference duration gate accepts 5/5 rendered visible goals under the expanded reference limit", () => {
   const metadata = { durationSeconds: 764.52, width: 1280, height: 720 };
   const sourceSegments = [
     { goal: 1, start: 223.6, shot: 229.75, finish: 234.25, confirm: 236.25, end: 238.6 },
     { goal: 2, start: 461.35, shot: 467.5, finish: 471.75, confirm: 472.15, end: 472.25 },
     { goal: 3, start: 471.1, shot: 477.25, finish: 483.25, confirm: 483.75, end: 486.1 },
-    { goal: 4, start: 532.25, shot: 536.35, finish: 538.45, confirm: 558.45, end: 559.65 },
+    { goal: 4, start: 532.25, shot: 536.35, finish: 538.45, confirm: 558.45, end: 569.65 },
     { goal: 5, start: 583.6, shot: 589.75, finish: 594.25, confirm: 596.25, end: 598.6 },
   ].map((item) => ({
     ...validGoalSegment(item.goal, item.start, item.shot, item.finish, item.confirm),
@@ -1905,21 +1905,19 @@ test("duration-safe compaction preserves 5/5 rendered visible goals under refere
   ]);
   const editPlan = validateEditPlan({
     ...validGoalCompilationPlan(sourceSegments),
-    totalDuration: 83.3,
+    totalDuration: 91.3,
   }, metadata);
   const matchEventTruth = countedGoalTruthFromSegments(editPlan.segments);
-  assert.throws(() => assertVideoOutputCoverage({
+  const initialReport = assertVideoOutputCoverage({
     goalSelectionMode: "valid_goals_only",
     matchEventTruth,
     editPlan,
-  }), (error) => {
-    assert.equal(error.code, "VIDEO_OUTPUT_QA_FAILED");
-    assert.equal(error.details.coveredGoalCount, 5);
-    assert.deepEqual(error.details.missingGoalNumbers, []);
-    assert.equal(error.details.renderedGoalVisibility.passed, true);
-    assert.ok(error.details.failedReasons.includes("reference_style_duration_out_of_bounds"));
-    return true;
   });
+  assert.equal(initialReport.status, "passed");
+  assert.equal(initialReport.coveredGoalCount, 5);
+  assert.deepEqual(initialReport.missingGoalNumbers, []);
+  assert.equal(initialReport.renderedGoalVisibility.passed, true);
+  assert.equal(initialReport.referenceStyleDuration.totalDuration <= 125, true);
 
   let timelineCursor = 0;
   const proofGoals = editPlan.segments.map((segment, index) => {
@@ -1958,38 +1956,15 @@ test("duration-safe compaction preserves 5/5 rendered visible goals under refere
     },
   });
 
-  assert.equal(compaction.applied, true);
-  assert.equal(compaction.summary.passedDurationTarget, true);
-  assert.equal(compaction.summary.compactedTotalDuration <= 75, true);
-  assert.equal(compaction.summary.compactedGoalCount >= 2, true);
-  assert.equal(
-    compaction.summary.diagnostics.some((item) => Number(item.goalNumber) === 4),
-    false,
-  );
-  assert.equal(compaction.editPlan.cropPlan.mode, "wide_safe");
-  assert.equal(compaction.editPlan.framingMode, "wide_safe_vertical");
-  assert.equal(compaction.editPlan.visualPolishQA.abruptCutRiskCount, 0);
-  assert.equal(compaction.editPlan.visualPolishQA.cutSmoothnessScore, 1);
-  assert.equal(compaction.editPlan.transitionPlan[0].timelineStart, compaction.editPlan.segments[1].timelineStart);
-  assert.doesNotMatch(JSON.stringify(compaction.summary), /\/Users|storageKey|secret|stderr|stdout|rawOcr|rawText/i);
+  assert.equal(compaction.applied, false);
+  assert.equal(compaction.summary, null);
+  assert.doesNotMatch(JSON.stringify(compaction), /\/Users|storageKey|secret|stderr|stdout|rawOcr|rawText/i);
 
-  const compactedPlan = validateEditPlan(compaction.editPlan, metadata);
-  const report = assertVideoOutputCoverage({
-    goalSelectionMode: "valid_goals_only",
-    matchEventTruth,
-    editPlan: compactedPlan,
-  });
-  assert.equal(report.status, "passed");
-  assert.equal(report.coveredGoalCount, 5);
-  assert.deepEqual(report.missingGoalNumbers, []);
-  assert.equal(report.renderedGoalVisibility.passed, true);
-  assert.equal(report.referenceStyleDuration.passed, true);
-  assert.equal(report.referenceStyleDuration.totalDuration <= 75, true);
-  for (const segment of compactedPlan.segments) {
+  for (const segment of editPlan.segments) {
     assert.equal(segment.shotStart - segment.sourceStart >= 4, true);
     assert.equal(segment.sourceEnd >= segment.confirmationTime, true);
   }
-  const goal4 = compactedPlan.segments.find((segment) => Number(segment.goalNumber) === 4);
+  const goal4 = editPlan.segments.find((segment) => Number(segment.goalNumber) === 4);
   assert.ok(goal4);
   assert.equal(goal4.sourceEnd >= goal4.confirmationTime, true);
   assert.equal(goal4.phaseCoverage.hasFinish, true);
@@ -2040,7 +2015,12 @@ test("render orchestration rebinds and rerenders failed visible goal proof once"
           { role: "payoff", time: 8, status: "failed", clear: false, reason: "semantic_frame_not_clear", confidence: 0.46 },
           { role: "confirmation", time: 10, status: "clear", clear: true, reason: null, confidence: 0.91 },
         ];
-        if (proofAttempt === 1 || segment.finishTime > 535) {
+        if (
+          proofAttempt === 1 ||
+          segment.finishTime >= segment.confirmationTime - 0.4 ||
+          segment.finishTime < segment.confirmationTime - 12 ||
+          segment.sourceStart > segment.confirmationTime - 20
+        ) {
           const finishFrameEvidence = {
             frameTime: segment.finishTime,
             confidence: 0.2,
@@ -2101,15 +2081,16 @@ test("render orchestration rebinds and rerenders failed visible goal proof once"
             },
           };
         }
-        assert.ok(segment.sourceStart < 540);
+        assert.ok(segment.confirmationTime - segment.sourceStart >= 20);
         assert.ok(segment.duration <= 36);
-        assert.ok(segment.finishTime <= 535);
+        assert.ok(segment.finishTime >= segment.confirmationTime - 12);
+        assert.ok(segment.finishTime <= segment.confirmationTime - 2);
         assert.equal(editPlan.renderedGoalRebinding.attemptCount, 1);
         const clearFrameRefs = [
           { role: "pre_shot", time: 4, status: "clear", clear: true, reason: null, confidence: 0.9 },
           { role: "finish", time: 18, status: "clear", clear: true, reason: null, confidence: 0.92 },
           { role: "payoff", time: 20, status: "clear", clear: true, reason: null, confidence: 0.91 },
-          { role: "confirmation", time: 30, status: "clear", clear: true, reason: null, confidence: 0.94 },
+          { role: "confirmation", time: 28, status: "clear", clear: true, reason: null, confidence: 0.94 },
         ];
         const finishFrameEvidence = {
           frameTime: segment.finishTime,
@@ -2187,9 +2168,10 @@ test("render orchestration rebinds and rerenders failed visible goal proof once"
   assert.equal(context.job.videoOutputQA.status, "passed");
   assert.equal(context.job.renderedGoalRebinding.applied, true);
   assert.equal(context.job.renderedGoalRebinding.reboundGoalCount, 1);
-  assert.equal(context.job.editPlan.segments[0].sourceStart < 540, true);
+  assert.equal(context.job.editPlan.segments[0].confirmationTime - context.job.editPlan.segments[0].sourceStart >= 20, true);
   assert.equal(context.job.editPlan.segments[0].duration <= 36, true);
-  assert.equal(context.job.editPlan.segments[0].finishTime <= 535, true);
+  assert.equal(context.job.editPlan.segments[0].finishTime >= context.job.editPlan.segments[0].confirmationTime - 12, true);
+  assert.equal(context.job.editPlan.segments[0].finishTime <= context.job.editPlan.segments[0].confirmationTime - 2, true);
   assert.equal(context.logs.some((entry) => entry.event === "rendered_goal_rebinding_attempted"), true);
   assert.equal(context.logs.some((entry) => entry.event === "rendered_goal_rebinding_recovered"), true);
   assert.doesNotMatch(JSON.stringify(context.job.renderedGoalRebinding), /\/Users|storageKey|secret|stderr|stdout|rawOcr|rawText/i);
@@ -2392,6 +2374,140 @@ test("invalid visual analysis output fails safely before transcription and rende
   assert.equal(context.job.error.code, "AI_OUTPUT_INVALID");
   assert.equal(context.calls.includes("render_short"), false);
   assert.doesNotMatch(JSON.stringify(context.job.error), /\/Users|secret|storageKey/i);
+});
+
+test("chunked score progression starts at 0-0 and rejects impossible early OCR baseline", () => {
+  const progression = __testing.buildScoreCandidateProgressionFromChunks({
+    chunks: [
+      {
+        index: 1,
+        start: 0,
+        end: 90,
+        status: "completed",
+        sampledFrameTimestamps: [37.8],
+        selectedRoiId: "scorebug_broadcast_compact",
+        normalizedScoreCandidates: ["7-0"],
+        readableObservationCount: 1,
+      },
+      {
+        index: 2,
+        start: 90,
+        end: 180,
+        status: "completed",
+        sampledFrameTimestamps: [123.75],
+        selectedRoiId: "scorebug_broadcast_compact",
+        normalizedScoreCandidates: ["1-0"],
+        readableObservationCount: 2,
+      },
+      {
+        index: 6,
+        start: 450,
+        end: 540,
+        status: "completed",
+        sampledFrameTimestamps: [461.25, 470.04, 483.75, 506.25],
+        selectedRoiId: "scorebug_broadcast_compact",
+        normalizedScoreCandidates: ["2-1", "4-1"],
+        readableObservationCount: 3,
+      },
+      {
+        index: 7,
+        start: 540,
+        end: 630,
+        status: "completed",
+        sampledFrameTimestamps: [596.25],
+        selectedRoiId: "scorebug_broadcast_compact",
+        normalizedScoreCandidates: ["2-2"],
+        readableObservationCount: 2,
+      },
+      {
+        index: 8,
+        start: 630,
+        end: 720,
+        status: "completed",
+        sampledFrameTimestamps: [686.25],
+        selectedRoiId: "scorebug_broadcast_compact",
+        normalizedScoreCandidates: ["3-2"],
+        readableObservationCount: 1,
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    progression.evidence.map((item) => `${item.scoreBefore}->${item.scoreAfter}`),
+    ["0-0->1-0", "1-0->2-0", "2-0->2-1", "2-1->2-2", "2-2->3-2"],
+  );
+  assert.equal(progression.diagnostics.acceptedCandidates[0].score, "0-0");
+  assert.equal(progression.diagnostics.acceptedCandidates[0].role, "assumed_initial_score_state");
+  assert.equal(
+    progression.diagnostics.rejectedCandidates.some((candidate) =>
+      candidate.score === "7-0" &&
+      candidate.currentScore === "0-0" &&
+      candidate.reason === "score_candidate_jump_too_large"),
+    true,
+  );
+  assert.equal(
+    progression.diagnostics.rejectedCandidates.some((candidate) =>
+      candidate.score === "4-1" &&
+      candidate.currentScore === "1-0" &&
+      candidate.reason === "score_candidate_jump_too_large"),
+    true,
+  );
+  assert.deepEqual(
+    progression.evidence
+      .filter((item) => item.regionId === "scorebug_broadcast_compact" && item.source === "chunked_scorebug_candidate_progression")
+      .map((item) => item.timestamp >= 450 || item.timestamp < 180),
+    [true, true, true, true, true],
+  );
+  assert.equal(progression.diagnostics.finalScore, "3-2");
+  assert.doesNotMatch(JSON.stringify(progression), /\/Users|\/private|token|secret|stdout|stderr/i);
+});
+
+test("chunked score progression accepts chronological away-side goals without home-team assumptions", () => {
+  const progression = __testing.buildScoreCandidateProgressionFromChunks({
+    chunks: [
+      {
+        index: 1,
+        start: 0,
+        end: 120,
+        status: "completed",
+        sampledFrameTimestamps: [36, 84],
+        selectedRoiId: "scorebug_broadcast_compact",
+        normalizedScoreCandidates: ["0-0", "0-1"],
+        readableObservationCount: 2,
+      },
+      {
+        index: 2,
+        start: 120,
+        end: 240,
+        status: "completed",
+        sampledFrameTimestamps: [156, 214],
+        selectedRoiId: "scorebug_broadcast_compact",
+        normalizedScoreCandidates: ["0-2", "1-2"],
+        readableObservationCount: 2,
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    progression.evidence.map((item) => `${item.scoreBefore}->${item.scoreAfter}`),
+    ["0-0->0-1", "0-1->0-2", "0-2->1-2"],
+  );
+  assert.deepEqual(
+    progression.evidence.map((item) => item.scoreAfter),
+    ["0-1", "0-2", "1-2"],
+  );
+  assert.equal(progression.diagnostics.acceptedCandidates[0].score, "0-0");
+  assert.equal(
+    progression.evidence.every((item) => {
+      const [beforeHome, beforeAway] = item.scoreBefore.split("-").map(Number);
+      const [afterHome, afterAway] = item.scoreAfter.split("-").map(Number);
+      const homeDelta = afterHome - beforeHome;
+      const awayDelta = afterAway - beforeAway;
+      return (homeDelta === 1 && awayDelta === 0) || (homeDelta === 0 && awayDelta === 1);
+    }),
+    true,
+  );
+  assert.doesNotMatch(JSON.stringify(progression), /\/Users|\/private|token|secret|stdout|stderr/i);
 });
 
 test("render orchestration fails safely when project context is missing", async () => {

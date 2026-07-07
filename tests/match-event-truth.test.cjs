@@ -106,6 +106,45 @@ test("confirms a late goal only when action evidence and decision support agree"
   assert.ok(result.events[0].evidenceCodes.includes("visual_ball_in_net"));
 });
 
+test("scoreboard truth accepts home or away scoring in chronological source order", () => {
+  const goals = [
+    { shot: 28, finish: 31, confirm: 42, scoreBefore: "0-0", scoreAfter: "0-1", scoringSide: "away" },
+    { shot: 76, finish: 79, confirm: 91, scoreBefore: "0-1", scoreAfter: "0-2", scoringSide: "away" },
+    { shot: 132, finish: 135, confirm: 148, scoreBefore: "0-2", scoreAfter: "1-2", scoringSide: "home" },
+  ];
+  const result = analyzeMatchEventTruth({
+    metadata: { ...metadata, durationSeconds: 180, goalSelectionMode: "valid_goals_only" },
+    visualSignals: visualSignals(goals.flatMap((goal) => [
+      { start: goal.shot - 8, end: goal.shot - 6, types: ["fast_break_motion", "ball_visible"], confidence: 0.86 },
+      { start: goal.shot, end: goal.shot + 1.5, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.92 },
+      { start: goal.finish, end: goal.finish + 1.5, types: ["goal_mouth_visible", "ball_in_net"], confidence: 0.94 },
+      { start: goal.confirm, end: goal.confirm + 1, types: ["scoreboard_goal_confirmed"], confidence: 0.9 },
+    ])),
+    scoreboardOcr: goals.map((goal, index) => ({
+      id: `side_agnostic_score_change_${index + 1}`,
+      timestamp: goal.confirm,
+      scoreBefore: goal.scoreBefore,
+      scoreAfter: goal.scoreAfter,
+      status: "score_changed",
+      confidence: 0.92,
+      temporalConsistency: true,
+      scoreChanged: true,
+      source: "local_scorebug_digit_reader_gray_line",
+    })),
+    ocrQaCalibration: strongOcrQaCalibration(),
+    goalEvidence: goalEvidence([]),
+  });
+
+  const confirmed = result.events.filter((event) => event.type === "confirmed_goal");
+  assert.equal(result.summary.countedGoalEventCount, 3);
+  assert.equal(result.summary.selectedCountedGoals, 3);
+  assert.deepEqual(confirmed.map((event) => event.scoreAfter), ["0-1", "0-2", "1-2"]);
+  assert.deepEqual(confirmed.map((event) => event.scoringSide), ["away", "away", "home"]);
+  assert.deepEqual(confirmed.map((event) => event.scoreChangeTime), [42, 91, 148]);
+  assert.ok(confirmed.every((event) => event.sourceStart <= event.scoreChangeTime - 20));
+  assert.doesNotMatch(JSON.stringify(publicMatchEventTruth(result)), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);
+});
+
 test("keeps OCR-only score changes out of confirmed-goal decisions", () => {
   const result = analyzeMatchEventTruth({
     metadata,

@@ -889,6 +889,10 @@ test("youtube smoke successful mocked flow validates ingest generate job and dow
   assert.equal(report.renderPlan.animationCueTypes.includes("beat_cut"), true);
   assert.equal(report.renderPlan.countedGoalProof.finalSegmentCount, 0);
   assert.deepEqual(report.renderPlan.countedGoalProof.selectedValidGoals, []);
+  for (const step of report.steps.filter((item) => item.status === "passed")) {
+    assert.equal(Number.isFinite(step.elapsedMs), true, `${step.step} should include elapsedMs`);
+    assert.equal(step.elapsedMs >= 0, true, `${step.step} elapsedMs should be non-negative`);
+  }
   assert.equal(report.steps.every((step) => !Object.hasOwn(step, "requestId")), true);
   assert.equal(report.steps.every((step) => step.status !== "passed" || step.requestIdPresent === true || step.step === "job"), true);
   assert.deepEqual(calls.map((call) => call.key), [
@@ -1355,6 +1359,11 @@ test("youtube live server env enables local scoreboard OCR only with explicit op
   assert.equal(defaultEnv.SHORTSENGINE_YOUTUBE_DOWNLOAD_TIMEOUT_MS, "900000");
   assert.equal(defaultEnv.SHORTSENGINE_YOUTUBE_INGEST_TIMEOUT_MS, "900000");
   assert.equal(defaultEnv.SHORTSENGINE_YOUTUBE_SMOKE_REQUEST_TIMEOUT_MS, "1800000");
+  assert.equal(defaultEnv.SHORTSENGINE_RENDER_PROFILE, "proof_fast");
+  assert.equal(defaultEnv.SHORTSENGINE_SOURCE_CACHE_ENABLED, "1");
+  assert.match(defaultEnv.SHORTSENGINE_SOURCE_CACHE_DIR, /shortsengine-youtube-live-source-cache$/);
+  assert.equal(defaultEnv.SHORTSENGINE_SOURCE_CACHE_REQUIRE_CHECKSUM, "0");
+  assert.equal(defaultEnv.SHORTSENGINE_SOURCE_CACHE_MAX_BYTES, String(512 * 1024 * 1024));
 
   const ocrEnv = liveServerEnvironment({
     port: 4176,
@@ -1379,6 +1388,30 @@ test("youtube live server env enables local scoreboard OCR only with explicit op
     }),
   });
   assert.equal(explicitJobTimeoutEnv.SHORTSENGINE_YOUTUBE_SMOKE_JOB_TIMEOUT_MS, "120000");
+
+  const qualityRenderEnv = liveServerEnvironment({
+    port: 4178,
+    dataDir: "tmp/live-proof-data-quality-render",
+    env: liveEnv({
+      SHORTSENGINE_RENDER_PROFILE: "quality",
+    }),
+  });
+  assert.equal(qualityRenderEnv.SHORTSENGINE_RENDER_PROFILE, "quality");
+
+  const cacheOverrideEnv = liveServerEnvironment({
+    port: 4179,
+    dataDir: "tmp/live-proof-data-cache-override",
+    env: liveEnv({
+      SHORTSENGINE_SOURCE_CACHE_ENABLED: "0",
+      SHORTSENGINE_SOURCE_CACHE_DIR: "/tmp/operator-cache",
+      SHORTSENGINE_SOURCE_CACHE_REQUIRE_CHECKSUM: "1",
+      SHORTSENGINE_SOURCE_CACHE_MAX_BYTES: "1048576",
+    }),
+  });
+  assert.equal(cacheOverrideEnv.SHORTSENGINE_SOURCE_CACHE_ENABLED, "0");
+  assert.equal(cacheOverrideEnv.SHORTSENGINE_SOURCE_CACHE_DIR, "/tmp/operator-cache");
+  assert.equal(cacheOverrideEnv.SHORTSENGINE_SOURCE_CACHE_REQUIRE_CHECKSUM, "1");
+  assert.equal(cacheOverrideEnv.SHORTSENGINE_SOURCE_CACHE_MAX_BYTES, "1048576");
 });
 
 function passedDoctor() {
@@ -1582,6 +1615,9 @@ function countedGoalSmokeReport() {
       finishTime: sourceStart + 14,
       confirmationTime: sourceStart + 22,
       sourceEnd: sourceStart + 24,
+      scoreBefore: `${index}-0`,
+      scoreAfter: `${index + 1}-0`,
+      scoreChangeTime: sourceStart + 22,
       duration: 24,
       timelineStart: index * 24,
       timelineEnd: (index + 1) * 24,
@@ -2477,12 +2513,38 @@ test("youtube live local e2e reports counted goal coverage and replay-only segme
   assert.equal(report.outputProof.referenceStyleQA.countedGoalsExpected, 3);
   assert.equal(report.outputProof.referenceStyleQA.captionActionAlignmentScore, 1);
   assert.equal(report.outputProof.segmentWindows.length, 3);
+  assert.equal(report.outputProof.segmentWindows[0].scoreBefore, "0-0");
+  assert.equal(report.outputProof.segmentWindows[0].scoreAfter, "1-0");
+  assert.equal(report.outputProof.segmentWindows[0].scoreChangeTime, 112);
   assert.equal(report.outputProof.segmentWindows[0].shotStart, 100);
   assert.equal(report.outputProof.segmentWindows[0].phaseCoverage.hasBuildup, true);
   assert.equal(report.outputProof.segmentWindows[0].visualGoalGate.passed, true);
   assert.equal(report.outputProof.comparison.checklist.countedGoals, true);
   assert.equal(report.outputProof.comparison.checklist.humanVisibleGoals, true);
   assert.equal(report.outputProof.comparison.checklist.livePhaseVsReplayOnly, true);
+  assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube live local e2e fails when counted-goal proof has segments but no score-change anchors", async () => {
+  const smoke = countedGoalSmokeReport();
+  smoke.renderPlan.countedGoalProof.scoreChangeAnchors = [];
+  smoke.renderPlan.countedGoalProof.summary.scoreChangeAnchorsFound = 0;
+  smoke.renderPlan.countedGoalProof.summary.stableScoreChangeAnchorCount = 0;
+
+  const report = await runYouTubeLiveE2E({
+    env: liveEnv({ SHORTSENGINE_YOUTUBE_LIVE_E2E_EXPECTED_COUNTED_GOALS: "3" }),
+    checkYouTubeIngest: async () => passedDoctor(),
+    getFreePort: async () => 4175,
+    startServer: () => ({ child: { exitCode: null, signalCode: null }, events: [] }),
+    stopServer: async () => {},
+    waitForServerReady: async () => ({ attempts: 1, waitedMs: 10, status: 200 }),
+    runYouTubeSmoke: async () => smoke,
+  });
+
+  assert.equal(report.status, "failed");
+  assert.equal(report.failedCases[0].code, "YOUTUBE_LIVE_E2E_SCORE_CHANGE_ANCHORS_INCOMPLETE");
+  assert.equal(report.outputProof.scoreChangeAnchors.length, 0);
+  assert.equal(report.outputProof.segmentWindows.length, 3);
   assert.equal(findSensitiveLeak(report), null);
 });
 
@@ -2580,6 +2642,34 @@ test("youtube live local e2e reports final output gate details when smoke fails 
   assert.equal(report.outputProof.videoOutputQA.expectedGoals.length, 3);
   assert.equal(report.outputProof.videoOutputQA.segments.length, 2);
   assert.equal(report.outputProof.videoOutputQA.segments[0].confirmationTime, 100);
+  assert.deepEqual(
+    report.outputProof.scoreChangeAnchors.map((anchor) => ({
+      scoreBefore: anchor.scoreBefore,
+      scoreAfter: anchor.scoreAfter,
+      confirmedAt: anchor.confirmedAt,
+      selectedForRender: anchor.selectedForRender,
+      outcome: anchor.outcome,
+    })),
+    [
+      { scoreBefore: "0-0", scoreAfter: "1-0", confirmedAt: 100, selectedForRender: true, outcome: "counted_goal" },
+      { scoreBefore: "1-0", scoreAfter: "2-0", confirmedAt: 180, selectedForRender: true, outcome: "counted_goal" },
+      { scoreBefore: "2-0", scoreAfter: "3-0", confirmedAt: 260, selectedForRender: true, outcome: "counted_goal" },
+    ],
+  );
+  assert.deepEqual(
+    report.outputProof.segmentWindows.map((segment) => ({
+      goalNumber: segment.goalNumber,
+      sourceStart: segment.sourceStart,
+      finishTime: segment.finishTime,
+      scoreBefore: segment.scoreBefore,
+      scoreAfter: segment.scoreAfter,
+      scoreChangeTime: segment.scoreChangeTime,
+    })),
+    [
+      { goalNumber: 1, sourceStart: 84, finishTime: 98, scoreBefore: "0-0", scoreAfter: "1-0", scoreChangeTime: 100 },
+      { goalNumber: 2, sourceStart: 164, finishTime: 178, scoreBefore: "1-0", scoreAfter: "2-0", scoreChangeTime: 180 },
+    ],
+  );
   assert.equal(report.outputProof.ffprobe.code, "OUTPUT_MP4_NOT_CREATED");
   assert.equal(report.outputProof.logsDownloaded, false);
   assert.equal(report.outputProof.artifactsDownloaded, false);
