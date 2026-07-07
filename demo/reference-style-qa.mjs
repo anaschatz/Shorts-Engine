@@ -573,17 +573,18 @@ function analyzeReferenceStyleQA(options = {}) {
 
 function writeReferenceStyleQA({
   rootDir = ROOT_DIR,
-  resultsDir = RESULTS_DIR,
+  resultsDir = null,
   now = nowIso(),
   ...options
 } = {}) {
-  const report = analyzeReferenceStyleQA({ ...options, rootDir, now });
+  const safeRootDir = resolve(rootDir);
+  const report = analyzeReferenceStyleQA({ ...options, rootDir: safeRootDir, now });
   const stamp = stampFromIso(now);
-  const safeResultsDir = resolve(resultsDir);
+  const safeResultsDir = resolve(safeRootDir, resultsDir || "demo/results");
   const reportFile = resolve(safeResultsDir, `reference-style-qa-${stamp}.json`);
   const latestFile = resolve(safeResultsDir, "reference-style-qa-latest.json");
-  const reportPath = relative(rootDir, reportFile).replace(/\\/g, "/");
-  const latestPath = relative(rootDir, latestFile).replace(/\\/g, "/");
+  const reportPath = relative(safeRootDir, reportFile).replace(/\\/g, "/");
+  const latestPath = relative(safeRootDir, latestFile).replace(/\\/g, "/");
   report.reportPath = reportPath;
   report.latestPath = latestPath;
   assertSafeReport(report);

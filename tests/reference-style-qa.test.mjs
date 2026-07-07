@@ -164,6 +164,8 @@ test("reference style QA writes safe passing report with pacing and style catego
 
   assert.equal(result.report.status, "passed");
   assert.equal(result.report.goalCount, 5);
+  assert.match(result.reportPath, /^demo\/results\/reference-style-qa-/);
+  assert.equal(result.latestPath, "demo/results/reference-style-qa-latest.json");
   assert.equal(result.report.categoryScores.hookStrength, 100);
   assert.equal(result.report.referenceStyleChecklist.every((check) => check.passed === true), true);
   assert.equal(existsSync(join(fx.root, result.reportPath)), true);

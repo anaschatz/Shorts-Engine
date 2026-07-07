@@ -495,11 +495,12 @@ function analyzeVisualGoalQA({
 function writeVisualGoalQA({
   rootDir = ROOT_DIR,
   proofReport = DEFAULT_PROOF_REPORT,
-  resultsDir = RESULTS_DIR,
+  resultsDir = null,
   now = nowIso(),
   maxAgeMs = parseMaxAgeMs(),
 } = {}) {
-  const proofRef = safeRelativeRef(rootDir, proofReport, { requiredPrefix: "demo/results/", extension: ".json" });
+  const safeRootDir = resolve(rootDir);
+  const proofRef = safeRelativeRef(safeRootDir, proofReport, { requiredPrefix: "demo/results/", extension: ".json" });
   if (!proofRef.ok || !existsSync(proofRef.resolvedFile)) {
     throw new VisualGoalQAError("VISUAL_GOAL_QA_PROOF_MISSING", "Visual goal QA needs an existing safe live proof report.", {
       report: proofRef.relativePath || proofReport,
@@ -508,21 +509,21 @@ function writeVisualGoalQA({
   const proof = readJsonFile(proofRef.resolvedFile);
   assertSafeReport(proof);
   const outputRelativePath = proof.outputProof?.outputMp4?.relativePath || proof.generatedArtifact?.relativePath;
-  const outputRef = safeRelativeRef(rootDir, outputRelativePath, { requiredPrefix: "manual-downloads/", extension: ".mp4" });
+  const outputRef = safeRelativeRef(safeRootDir, outputRelativePath, { requiredPrefix: "manual-downloads/", extension: ".mp4" });
   const mp4Stats = outputRef.ok && existsSync(outputRef.resolvedFile) ? statSync(outputRef.resolvedFile) : null;
   const proofTime = Date.parse(proof.timestamp || proof.generatedAt || "");
   const nowMs = Date.parse(now);
   const proofFresh = Number.isFinite(proofTime) && Number.isFinite(nowMs) && nowMs - proofTime <= maxAgeMs && proofTime <= nowMs + 5 * 60 * 1000;
   const stamp = stampFromIso(now);
-  const safeResultsDir = resolve(resultsDir);
+  const safeResultsDir = resolve(safeRootDir, resultsDir || "demo/results");
   const contactSheetFile = resolve(safeResultsDir, `visual-goal-contact-sheet-${stamp}.json`);
   const contactSheetLatestFile = resolve(safeResultsDir, "visual-goal-contact-sheet-latest.json");
   const reportFile = resolve(safeResultsDir, `visual-goal-qa-${stamp}.json`);
   const latestFile = resolve(safeResultsDir, "visual-goal-qa-latest.json");
-  const contactSheetPath = relative(rootDir, contactSheetFile).replace(/\\/g, "/");
-  const contactSheetLatestPath = relative(rootDir, contactSheetLatestFile).replace(/\\/g, "/");
-  const reportPath = relative(rootDir, reportFile).replace(/\\/g, "/");
-  const latestPath = relative(rootDir, latestFile).replace(/\\/g, "/");
+  const contactSheetPath = relative(safeRootDir, contactSheetFile).replace(/\\/g, "/");
+  const contactSheetLatestPath = relative(safeRootDir, contactSheetLatestFile).replace(/\\/g, "/");
+  const reportPath = relative(safeRootDir, reportFile).replace(/\\/g, "/");
+  const latestPath = relative(safeRootDir, latestFile).replace(/\\/g, "/");
   const contactSheet = buildContactSheet({ proof, generatedAt: now });
   contactSheet.reportPath = contactSheetPath;
   assertSafeReport(contactSheet);

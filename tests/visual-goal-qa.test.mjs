@@ -197,6 +197,23 @@ test("visual goal QA writes a passing report and contact sheet for a fresh MP4 p
   assert.equal(findSensitiveLeak(result.report), null);
 });
 
+test("visual goal QA default results directory follows the provided root", () => {
+  const workspace = createWorkspace();
+  writeWorkspaceProof(workspace);
+
+  const result = writeVisualGoalQA({
+    rootDir: workspace.rootDir,
+    proofReport: workspace.proofReport,
+    now: NOW,
+    maxAgeMs: 60_000,
+  });
+
+  assert.match(result.reportPath, /^demo\/results\/visual-goal-qa-/);
+  assert.equal(result.latestPath, "demo/results/visual-goal-qa-latest.json");
+  assert.equal(result.contactSheetLatestPath, "demo/results/visual-goal-contact-sheet-latest.json");
+  assert.equal(existsSync(join(workspace.rootDir, result.reportPath)), true);
+});
+
 test("visual goal QA fails closed when the referenced MP4 is missing", () => {
   const workspace = createWorkspace();
   writeWorkspaceProof(workspace, proofReport({ outputRelativePath: workspace.outputRelativePath }), { writeMp4: false });
