@@ -30,6 +30,7 @@ const REPORT_RECOVERY_COMMANDS = Object.freeze({
   evaluation: "npm run eval",
   "reference-review": "npm run eval:reference",
   "visual-goal-qa": "npm run visual:goal:qa",
+  "reference-style-qa": "npm run reference:style:qa",
 });
 
 class CiReportError extends Error {
@@ -254,6 +255,49 @@ function assertVisualGoalQAArtifacts(report, artifactRootDir = ROOT_DIR) {
   }
 }
 
+function assertReferenceStyleQAArtifacts(report, artifactRootDir = ROOT_DIR) {
+  if (report.status !== "passed") return;
+  const relativePath = report?.outputMp4?.relativePath;
+  if (!relativePath) {
+    throw new CiReportError("CI_REPORT_ARTIFACT_MISSING", "Passing reference style QA report does not include an MP4 reference.", {
+      label: "reference-style-qa",
+    });
+  }
+  const resolvedMp4 = resolveSafeProjectRef(relativePath, artifactRootDir);
+  if (!existsSync(resolvedMp4)) {
+    throw new CiReportError("CI_REPORT_ARTIFACT_MISSING", "Passing reference style QA MP4 is missing.", {
+      label: "reference-style-qa",
+      report: relativePath,
+    });
+  }
+  const visualReportPath = report.visualGoalQAReport;
+  if (!visualReportPath) {
+    throw new CiReportError("CI_REPORT_ARTIFACT_MISSING", "Passing reference style QA report does not include a visual QA report reference.", {
+      label: "reference-style-qa",
+    });
+  }
+  const resolvedVisualReport = resolveSafeProjectRef(visualReportPath, artifactRootDir);
+  if (!existsSync(resolvedVisualReport)) {
+    throw new CiReportError("CI_REPORT_ARTIFACT_MISSING", "Passing reference style QA visual report is missing.", {
+      label: "reference-style-qa",
+      report: visualReportPath,
+    });
+  }
+  const contactSheetPath = report.contactSheetPath;
+  if (!contactSheetPath) {
+    throw new CiReportError("CI_REPORT_ARTIFACT_MISSING", "Passing reference style QA report does not include a contact sheet.", {
+      label: "reference-style-qa",
+    });
+  }
+  const resolvedContactSheet = resolveSafeProjectRef(contactSheetPath, artifactRootDir);
+  if (!existsSync(resolvedContactSheet)) {
+    throw new CiReportError("CI_REPORT_ARTIFACT_MISSING", "Passing reference style QA contact sheet is missing.", {
+      label: "reference-style-qa",
+      report: contactSheetPath,
+    });
+  }
+}
+
 function validateReport({ filePath, label, maxAgeMs, nowMs }) {
   const report = readJsonReport(filePath);
   const leak = findSensitiveLeak(report);
@@ -327,6 +371,21 @@ function validateCiReports(options = {}) {
       status: report.status || (report.passed ? "passed" : "failed"),
     });
   }
+  const referenceStyleQAPath = resolve(demoResultsDir, "reference-style-qa-latest.json");
+  if (existsSync(referenceStyleQAPath)) {
+    const report = validateReport({
+      filePath: referenceStyleQAPath,
+      label: "reference-style-qa",
+      maxAgeMs,
+      nowMs,
+    });
+    assertReferenceStyleQAArtifacts(report, artifactRootDir);
+    validated.push({
+      label: "reference-style-qa",
+      path: safeReportRef(referenceStyleQAPath),
+      status: report.status || (report.passed ? "passed" : "failed"),
+    });
+  }
   return {
     ok: true,
     checkedAt: new Date(nowMs).toISOString(),
@@ -367,6 +426,7 @@ export {
   DEFAULT_REPORT_MAX_AGE_MS,
   CiReportError,
   assertPlaywrightArtifacts,
+  assertReferenceStyleQAArtifacts,
   assertSafeRelativeReferences,
   assertYouTubeLiveProofArtifact,
   assertVisualGoalQAArtifacts,

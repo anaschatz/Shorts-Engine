@@ -169,6 +169,53 @@ function writePassingVisualGoalQA({
   });
 }
 
+function writePassingReferenceStyleQA({
+  root,
+  demoResultsDir,
+  timestamp,
+  relativePath = "manual-downloads/proof.mp4",
+  visualReportPath = "demo/results/visual-goal-qa-latest.json",
+  contactSheetPath = "demo/results/visual-goal-contact-sheet-proof.json",
+  writeMp4 = true,
+  writeVisualReport = true,
+  writeContactSheet = true,
+}) {
+  if (writeMp4) {
+    const filePath = join(root, relativePath);
+    mkdirSync(join(root, "manual-downloads"), { recursive: true });
+    writeFileSync(filePath, Buffer.from("mp4-proof"));
+  }
+  if (writeVisualReport) {
+    writeJson(join(root, visualReportPath), {
+      timestamp,
+      generatedAt: timestamp,
+      status: "passed",
+      passed: true,
+      outputMp4: { relativePath },
+      contactSheetPath,
+      failedCases: [],
+    });
+  }
+  if (writeContactSheet) {
+    writeJson(join(root, contactSheetPath), {
+      generatedAt: timestamp,
+      status: "passed",
+      goals: [],
+    });
+  }
+  writeJson(join(demoResultsDir, "reference-style-qa-latest.json"), {
+    timestamp,
+    generatedAt: timestamp,
+    status: "passed",
+    passed: true,
+    outputMp4: { relativePath },
+    visualGoalQAReport: visualReportPath,
+    contactSheetPath,
+    checks: [{ name: "fresh_mp4", passed: true }],
+    failedCases: [],
+  });
+}
+
 test("CI report validator accepts fresh safe reports", () => {
   const dirs = createReportDirs();
   const nowMs = Date.parse("2026-06-15T18:00:00.000Z");
@@ -210,6 +257,31 @@ test("CI report validator checks optional visual goal QA MP4 and contact sheet e
   const result = validateCiReports({ ...dirs, artifactRootDir: dirs.root, nowMs, maxAgeMs: 60_000 });
   assert.equal(result.ok, true);
   assert.equal(result.reports.some((report) => report.label === "visual-goal-qa" && report.status === "passed"), true);
+});
+
+test("CI report validator checks optional reference style QA MP4, visual report and contact sheet exist", () => {
+  const dirs = createReportDirs();
+  const nowMs = Date.parse("2026-06-15T18:00:00.000Z");
+  const timestamp = new Date(nowMs).toISOString();
+  writeValidReports({ ...dirs, timestamp });
+  writePassingReferenceStyleQA({ ...dirs, timestamp });
+
+  const result = validateCiReports({ ...dirs, artifactRootDir: dirs.root, nowMs, maxAgeMs: 60_000 });
+  assert.equal(result.ok, true);
+  assert.equal(result.reports.some((report) => report.label === "reference-style-qa" && report.status === "passed"), true);
+});
+
+test("CI report validator rejects optional reference style QA when visual report is missing", () => {
+  const dirs = createReportDirs();
+  const nowMs = Date.parse("2026-06-15T18:00:00.000Z");
+  const timestamp = new Date(nowMs).toISOString();
+  writeValidReports({ ...dirs, timestamp });
+  writePassingReferenceStyleQA({ ...dirs, timestamp, writeVisualReport: false });
+
+  assert.throws(
+    () => validateCiReports({ ...dirs, artifactRootDir: dirs.root, nowMs, maxAgeMs: 60_000 }),
+    /Passing reference style QA visual report is missing/,
+  );
 });
 
 test("CI report validator rejects optional visual goal QA when contact sheet is missing", () => {
