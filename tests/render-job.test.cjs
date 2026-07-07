@@ -1745,9 +1745,13 @@ test("score-change OCR windows add bounded live finish probes for long-source pr
   }, { durationSeconds: 764.52 });
 
   const liveAnchors = windows.filter((window) => window.source === "scorebug_first_live_action_anchor");
+  const phaseBacktracks = windows.filter((window) => window.source === "scorebug_first_live_phase_backtrack");
   const confirmations = windows.filter((window) => window.source === "scorebug_first_score_confirmation");
 
   assert.equal(confirmations.length, 2);
+  assert.equal(phaseBacktracks.length, 2);
+  assert.ok(phaseBacktracks.every((window) => Number(window.backtrackOffsetSeconds) === 24));
+  assert.ok(phaseBacktracks.some((window) => Number(window.scoreChangeTime) === 596.25 && Number(window.time) === 572.25));
   assert.ok(liveAnchors.some((window) => Number(window.scoreChangeTime) === 236.25 && window.visualHints.includes("shot_contact")));
   assert.ok(liveAnchors.some((window) => Number(window.scoreChangeTime) === 596.25 && window.visualHints.includes("goal_mouth_visible")));
   assert.ok(windows.every((window) => Number(window.time) >= 0 && Number(window.time) <= 764.52));
@@ -2449,6 +2453,10 @@ test("chunked score progression starts at 0-0 and only accepts observed unit sco
     progression.evidence.map((item) => `${item.scoreBefore}->${item.scoreAfter}`),
     ["0-0->1-0", "1-0->1-1", "1-1->2-1", "2-1->2-2", "2-2->3-2"],
   );
+  assert.deepEqual(
+    progression.evidence.map((item) => item.changedSide),
+    ["home", "away", "home", "away", "home"],
+  );
   assert.equal(progression.evidence.some((item) => item.scoreAfter === "2-0"), false);
   assert.equal(progression.evidence.every((item) => item.synthetic === false && item.bridgeGenerated === false), true);
   assert.equal(progression.diagnostics.acceptedCandidates[0].score, "0-0");
@@ -2550,6 +2558,7 @@ test("chunked score progression corrects OCR-noisy observed unit changes without
   );
   assert.equal(progression.evidence.some((item) => item.scoreAfter === "2-0"), false);
   const corrected = progression.evidence.find((item) => item.scoreAfter === "1-1");
+  assert.equal(corrected.changedSide, "away");
   assert.equal(corrected.ocrCorrected, true);
   assert.equal(corrected.observedScoreText, "4-1");
   assert.equal(corrected.synthetic, false);
@@ -2594,6 +2603,10 @@ test("chunked score progression accepts chronological away-side goals without ho
   assert.deepEqual(
     progression.evidence.map((item) => item.scoreAfter),
     ["0-1", "0-2", "1-2"],
+  );
+  assert.deepEqual(
+    progression.evidence.map((item) => item.changedSide),
+    ["away", "away", "home"],
   );
   assert.equal(progression.diagnostics.acceptedCandidates[0].score, "0-0");
   assert.equal(

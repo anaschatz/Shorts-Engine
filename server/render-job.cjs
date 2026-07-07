@@ -1303,6 +1303,14 @@ function scoreChangeCandidateWindowsFromOcr(scoreboardOcr = {}, metadata = {}) {
     const confidence = Math.max(0.82, Math.min(0.98, Number(item.confidence || 0.86)));
     const probeWindows = [
       {
+        offset: 24,
+        lead: 2,
+        tail: 4,
+        source: "scorebug_first_live_phase_backtrack",
+        visualHints: ["fast_break_motion", "ball_visible"],
+        confidence: 0.86,
+      },
+      {
         offset: 16,
         lead: 2.5,
         tail: 2.5,
@@ -1339,6 +1347,7 @@ function scoreChangeCandidateWindowsFromOcr(scoreboardOcr = {}, metadata = {}) {
         visualHints: probe.visualHints,
         scoreBefore: item.scoreBefore || null,
         scoreAfter: item.scoreAfter || null,
+        changedSide: item.changedSide || null,
         scoreChangeTime: Number(timestamp.toFixed(2)),
         backtrackOffsetSeconds: offset,
         index: index + 1,
@@ -1573,6 +1582,11 @@ function isUnitScoreIncrease(previous = null, next = null) {
   return (homeDelta === 1 && awayDelta === 0) || (homeDelta === 0 && awayDelta === 1);
 }
 
+function scoreChangedSide(previous = null, next = null) {
+  if (!isUnitScoreIncrease(previous, next)) return "unknown";
+  return Number(next.home || 0) - Number(previous.home || 0) === 1 ? "home" : "away";
+}
+
 function scoreCandidateWithText(home, away, extras = {}) {
   const safeHome = Number(home);
   const safeAway = Number(away);
@@ -1718,6 +1732,7 @@ function buildScoreCandidateProgressionFromChunks(chunkSummary = null) {
         scoreChanged: true,
         scoreBefore: before.text,
         scoreAfter: next.text,
+        changedSide: scoreChangedSide(before, next),
         observedScoreText: next.observedScoreText || next.text,
         observedScoreAfterTimestamp: roundNumber(timestamp),
         observedSupportCount: Math.max(1, Math.round(Number(chunk.readableObservationCount || 1))),
@@ -1745,6 +1760,7 @@ function buildScoreCandidateProgressionFromChunks(chunkSummary = null) {
         scoreBefore: item.scoreBefore,
         scoreAfter: item.scoreAfter,
         score: item.scoreAfter,
+        changedSide: item.changedSide,
         role: "observed_score_change",
         synthetic: false,
         bridgeGenerated: false,
