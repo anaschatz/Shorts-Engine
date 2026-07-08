@@ -287,6 +287,49 @@ test("video output gate rejects confirmed goals without rendered finish-frame pr
   });
 });
 
+test("validated edit plan preserves rendered support-frame timing for visible goal proof", () => {
+  const segment = visibleGoalSegment(1, 84, {
+    finishFrameEvidence: {
+      ...visibleGoalSegment(1, 84).finishFrameEvidence,
+      supportFrames: [
+        { role: "pre_shot", status: "clear", clear: true, time: 4.5 },
+        { role: "finish", status: "clear", clear: true, time: 10 },
+        { role: "payoff", status: "clear", clear: true, time: 10.4 },
+        { role: "confirmation", status: "clear", clear: true, time: 12 },
+      ],
+    },
+  });
+  const editPlan = validateEditPlan({
+    ...creativeOutputContract(),
+    mode: "multi_moment_compilation",
+    highlightType: "goal",
+    reasonCodes: ["goal"],
+    aspectRatio: "9:16",
+    export: { format: "mp4", width: 1080, height: 1920 },
+    segments: [segment],
+  }, { durationSeconds: 200 });
+
+  assert.deepEqual(
+    editPlan.segments[0].finishFrameEvidence.supportFrames.map((frame) => frame.time),
+    [4.5, 10, 10.4, 12],
+  );
+  const report = assertVideoOutputCoverage({
+    goalSelectionMode: "valid_goals_only",
+    matchEventTruth: {
+      providerMode: "fixture-match-event-truth",
+      events: [],
+      rejectedEvents: [],
+      scoreTimelineObservations: [],
+      scoreChanges: countedScoreChanges(1),
+      summary: { countedGoalEventCount: 1 },
+    },
+    editPlan,
+  });
+
+  assert.equal(report.passed, true);
+  assert.equal(report.renderedGoalVisibility.clearGoalCount, 1);
+});
+
 test("video output gate rejects score-change goals whose finish is not before the scoreboard update", () => {
   assert.throws(() => assertVideoOutputCoverage({
     goalSelectionMode: "valid_goals_only",

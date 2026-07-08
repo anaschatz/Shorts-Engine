@@ -971,6 +971,76 @@ test("youtube long-source render uses scorebug-first OCR before visual frame ext
   assert.equal(context.job.progressMeta.longSource, true);
 });
 
+test("youtube long-source invalid narrowed visual output falls back before final gates", async () => {
+  const context = makeContext({
+    durationSeconds: 644,
+    metadata: { sourceType: "youtube", videoId: "WuuGus5Obkg" },
+    matchEventTruth: countedGoalTruth(1),
+    candidatePlans: [
+      validGoalCompilationPlan([
+        validGoalSegment(1, 31, 39, 47, 48),
+      ]),
+    ],
+    dependencies: {
+      analyzeFrames: async () => {
+        context.calls.push("analyze_frames");
+        return {
+          providerMode: "bad-vision",
+          fallbackUsed: false,
+          windows: [{ start: 12, end: 8, type: "shot_like_motion" }],
+        };
+      },
+    },
+  });
+  await runContext(context);
+
+  assert.equal(context.job.status, "completed");
+  assert.equal(context.calls.includes("analyze_goal_evidence"), true);
+  assert.equal(context.job.visualSignals.providerMode, "scorebug-narrowed-visual-fallback");
+  assert.equal(context.job.visualSignals.fallbackUsed, true);
+  assert.equal(context.job.visualSignals.failure.code, "AI_OUTPUT_INVALID");
+  assert.equal(context.logs.some((entry) => entry.event === "visual_analysis_fallback_used"), true);
+  assert.doesNotMatch(JSON.stringify(context.job.visualSignals), /\/Users|storageKey|secret|stdout|stderr|raw/i);
+});
+
+test("youtube long-source invalid tracking output falls back before final gates", async () => {
+  const context = makeContext({
+    durationSeconds: 644,
+    metadata: { sourceType: "youtube", videoId: "WuuGus5Obkg" },
+    matchEventTruth: countedGoalTruth(1),
+    candidatePlans: [
+      validGoalCompilationPlan([
+        validGoalSegment(1, 31, 39, 47, 48),
+      ]),
+    ],
+    dependencies: {
+      analyzeTracking: async () => {
+        context.calls.push("analyze_tracking");
+        return {
+          providerMode: "bad-tracking",
+          fallbackUsed: false,
+          ballTracks: [{ timestamp: 40, label: "goal", bounds: { x: 0, y: 0, width: 100, height: 100 } }],
+          playerClusters: [],
+          actionBounds: null,
+          actionCenter: null,
+          cameraMotionLevel: 0,
+          confidence: 0.9,
+          reasonCodes: ["tracking_ball_visible"],
+        };
+      },
+    },
+  });
+  await runContext(context);
+
+  assert.equal(context.job.status, "completed");
+  assert.equal(context.calls.includes("analyze_goal_evidence"), true);
+  assert.equal(context.job.trackingProviderOutput.providerMode, "safe-tracking-fallback");
+  assert.equal(context.job.trackingProviderOutput.fallbackUsed, true);
+  assert.equal(context.job.trackingProviderOutput.failure.code, "AI_OUTPUT_INVALID");
+  assert.equal(context.logs.some((entry) => entry.event === "tracking_analysis_fallback_used"), true);
+  assert.doesNotMatch(JSON.stringify(context.job.trackingProviderOutput), /\/Users|storageKey|secret|stdout|stderr|raw/i);
+});
+
 test("youtube long-source render fails closed with chunk context when scorebug OCR exceeds its budget", async () => {
   const context = makeContext({
     durationSeconds: 644,
@@ -2133,8 +2203,8 @@ test("render orchestration rebinds and rerenders failed visible goal proof once"
         if (
           proofAttempt === 1 ||
           segment.finishTime >= segment.confirmationTime - 0.4 ||
-          segment.finishTime < segment.confirmationTime - 12 ||
-          segment.sourceStart > segment.confirmationTime - 20
+          segment.finishTime < segment.confirmationTime - 48 ||
+          segment.sourceStart > segment.confirmationTime - 8
         ) {
           const finishFrameEvidence = {
             frameTime: segment.finishTime,
@@ -2196,11 +2266,11 @@ test("render orchestration rebinds and rerenders failed visible goal proof once"
             },
           };
         }
-        assert.ok(segment.confirmationTime - segment.sourceStart >= 20);
-        assert.ok(segment.duration <= 36);
-        assert.ok(segment.finishTime >= segment.confirmationTime - 12);
-        assert.ok(segment.finishTime <= segment.confirmationTime - 2);
-        assert.equal(editPlan.renderedGoalRebinding.attemptCount, 1);
+        assert.ok(segment.confirmationTime - segment.sourceStart >= 12);
+        assert.ok(segment.duration <= 64);
+        assert.ok(segment.finishTime >= segment.confirmationTime - 48);
+        assert.ok(segment.finishTime <= segment.confirmationTime - 0.5);
+        assert.equal(editPlan.renderedGoalRebinding.attemptCount, proofAttempt - 1);
         const clearFrameRefs = [
           { role: "pre_shot", time: 4, status: "clear", clear: true, reason: null, confidence: 0.9 },
           { role: "finish", time: 18, status: "clear", clear: true, reason: null, confidence: 0.92 },
@@ -2283,13 +2353,65 @@ test("render orchestration rebinds and rerenders failed visible goal proof once"
   assert.equal(context.job.videoOutputQA.status, "passed");
   assert.equal(context.job.renderedGoalRebinding.applied, true);
   assert.equal(context.job.renderedGoalRebinding.reboundGoalCount, 1);
-  assert.equal(context.job.editPlan.segments[0].confirmationTime - context.job.editPlan.segments[0].sourceStart >= 20, true);
-  assert.equal(context.job.editPlan.segments[0].duration <= 36, true);
-  assert.equal(context.job.editPlan.segments[0].finishTime >= context.job.editPlan.segments[0].confirmationTime - 12, true);
-  assert.equal(context.job.editPlan.segments[0].finishTime <= context.job.editPlan.segments[0].confirmationTime - 2, true);
+  assert.equal(context.job.editPlan.segments[0].confirmationTime - context.job.editPlan.segments[0].sourceStart >= 12, true);
+  assert.equal(context.job.editPlan.segments[0].duration <= 64, true);
+  assert.equal(context.job.editPlan.segments[0].finishTime >= context.job.editPlan.segments[0].confirmationTime - 48, true);
+  assert.equal(context.job.editPlan.segments[0].finishTime <= context.job.editPlan.segments[0].confirmationTime - 0.5, true);
   assert.equal(context.logs.some((entry) => entry.event === "rendered_goal_rebinding_attempted"), true);
   assert.equal(context.logs.some((entry) => entry.event === "rendered_goal_rebinding_recovered"), true);
   assert.doesNotMatch(JSON.stringify(context.job.renderedGoalRebinding), /\/Users|storageKey|secret|stderr|stdout|rawOcr|rawText/i);
+});
+
+test("rendered goal rebinding cannot reuse the previous counted goal window", () => {
+  const segments = [
+    validGoalSegment(1, 103.75, 115.75, 121.75, 123.75),
+    validGoalSegment(2, 444.04, 459.69, 460.04, 482.04),
+    validGoalSegment(3, 494.04, 506.04, 509.54, 514.04),
+    validGoalSegment(4, 497.72, 525.62, 527.72, 555.72),
+    validGoalSegment(5, 666.25, 678.25, 684.25, 686.25),
+  ];
+  segments[0].sourceEnd = 126.1;
+  segments[1].sourceEnd = 484.39;
+  segments[2].sourceEnd = 516.39;
+  segments[3].sourceEnd = 558.07;
+  segments[4].sourceEnd = 688.6;
+
+  const rebind = __testing.rebindRenderedGoalFailureSegments({
+    editPlan: {
+      mode: "multi_moment_compilation",
+      sourceStart: 103.75,
+      sourceEnd: 688.6,
+      totalDuration: segments.reduce((sum, segment) => sum + segment.sourceEnd - segment.sourceStart, 0),
+      segments,
+    },
+    renderedGoalProof: {
+      summary: {
+        goals: [
+          {
+            goalNumber: 4,
+            segmentIndex: 4,
+            verdict: "failed",
+            frameRefs: [{ role: "finish", clear: false, reason: "semantic_frame_not_clear" }],
+          },
+        ],
+      },
+    },
+    metadata: { durationSeconds: 720 },
+    attemptNumber: 3,
+  });
+
+  assert.equal(rebind.applied, true);
+  const reboundGoal3 = rebind.editPlan.segments[2];
+  const reboundGoal4 = rebind.editPlan.segments[3];
+  assert.equal(reboundGoal4.goalNumber, 4);
+  assert.equal(reboundGoal4.sourceStart >= reboundGoal3.confirmationTime + 1.49, true);
+  assert.equal(reboundGoal4.sourceStart < reboundGoal3.sourceEnd + 0.49, true);
+  assert.equal(reboundGoal4.finishTime > reboundGoal4.sourceStart, true);
+  assert.equal(reboundGoal4.finishTime < reboundGoal4.confirmationTime, true);
+  assert.equal(reboundGoal4.confirmationTime - reboundGoal4.finishTime >= 20, true);
+  assert.equal(reboundGoal4.renderedVisibilityRebinding.rebindingSearchWindow.start >= reboundGoal3.confirmationTime + 1.49, true);
+  assert.equal(rebind.summary.diagnostics[0].chronologicalBounds.lowerBoundReason, "previous_confirmed_goal_anchor");
+  assert.equal(rebind.summary.diagnostics[0].profile.finishLeadSeconds, 45);
 });
 
 test("approved regeneration render uses the validated draft without rerunning AI analysis", async () => {

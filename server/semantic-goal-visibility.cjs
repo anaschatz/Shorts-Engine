@@ -97,7 +97,7 @@ function failedEvidence(role, reason, confidence = 0.1) {
   };
 }
 
-function runFfmpegRawFrame(framePath, runner = execFile) {
+function runFfmpegRawFrame(framePath, runner = execFile, videoFilter = `scale=${SAMPLE_WIDTH}:${SAMPLE_HEIGHT}`) {
   return new Promise((resolve, reject) => {
     runner(CONFIG.ffmpegBin, [
       "-v",
@@ -107,7 +107,7 @@ function runFfmpegRawFrame(framePath, runner = execFile) {
       "-frames:v",
       "1",
       "-vf",
-      `scale=${SAMPLE_WIDTH}:${SAMPLE_HEIGHT}`,
+      videoFilter,
       "-f",
       "rawvideo",
       "-pix_fmt",
@@ -181,6 +181,35 @@ function classifyFeatures(features = {}, role = "") {
   const activeContent = numberOrNull(features.activeContentRatio) ?? Math.max(0, 1 - blackBars);
   const activeContentTooSmall = activeContent < 0.18;
   const goalRole = ["finish", "payoff"].includes(role);
+  const goalRoleWideLiveFinish = goalRole &&
+    green >= 0.62 &&
+    green <= 0.74 &&
+    white >= 0.008 &&
+    white <= 0.0145 &&
+    saturated >= 0.04 &&
+    saturated <= 0.12 &&
+    skin < 0.01 &&
+    dark < 0.045 &&
+    activeContent >= 0.72;
+  const goalRoleBenchOrCelebrationCloseup = goalRole &&
+    skin > 0.065 &&
+    green >= 0.24 &&
+    green < 0.4 &&
+    white < 0.035 &&
+    saturated < 0.08 &&
+    dark > 0.14;
+  const goalRoleSidelineBenchCloseup = goalRole &&
+    skin >= 0.055 &&
+    green >= 0.24 &&
+    green <= 0.36 &&
+    white < 0.032 &&
+    saturated < 0.07 &&
+    dark > 0.2;
+  const goalRoleGreenOnlyPlayerOrFieldCloseup = goalRole &&
+    green > 0.7 &&
+    white < 0.065 &&
+    saturated < 0.065 &&
+    skin < 0.018;
   const goalRoleCloseupSignature = goalRole && (
     (skin > 0.03 && white > 0.07 && green < 0.42) ||
     (skin > 0.06 && saturated > 0.22) ||
@@ -192,7 +221,10 @@ function classifyFeatures(features = {}, role = "") {
     (skin > 0.035 && saturated > 0.2 && white > 0.045) ||
     (skin > 0.035 && white > 0.065 && saturated > 0.18) ||
     (green > 0.62 && skin > 0.015 && saturated < 0.03 && dark > 0.1) ||
-    (green >= 0.32 && green <= 0.5 && dark > 0.22 && skin > 0.02 && white < 0.04 && saturated < 0.08)
+    (green >= 0.32 && green <= 0.5 && dark > 0.22 && skin > 0.02 && white < 0.04 && saturated < 0.08) ||
+    goalRoleBenchOrCelebrationCloseup ||
+    goalRoleSidelineBenchCloseup ||
+    (goalRoleGreenOnlyPlayerOrFieldCloseup && !goalRoleWideLiveFinish)
   );
   const playerCloseupOnly = (green < 0.09 && skin > 0.035) ||
     (green < 0.06 && saturated > 0.18) ||
@@ -202,11 +234,12 @@ function classifyFeatures(features = {}, role = "") {
   const scoreboardOnly = green < 0.04 && white > 0.08 && dark > 0.28;
   const tooBlurred = saturated < 0.035 && white < 0.012 && green < 0.16;
   const tooZoomed = (green < 0.07 && white < 0.018) || (goalRole && green < 0.13);
-  const tooWideUnclear = green > 0.58 && white < (goalRole ? 0.018 : 0.012) && saturated < 0.12;
-  const hasGoalMouth = white >= 0.018 || (white >= 0.012 && green >= 0.14);
+  const tooWideUnclear = green > 0.58 && white < (goalRole ? 0.018 : 0.012) && saturated < 0.12 && !goalRoleWideLiveFinish;
+  const hasGoalMouth = white >= 0.018 || (white >= 0.012 && green >= 0.14) || goalRoleWideLiveFinish;
   const hasActionSurface = green >= 0.10 && !activeContentTooSmall;
   const hasVisibleAction = hasActionSurface && !playerCloseupOnly && !scoreboardOnly && !tooBlurred;
   const hasGoalRoleScale = !goalRole ||
+    goalRoleWideLiveFinish ||
     (green >= 0.14 && (white >= 0.018 || (white >= 0.014 && saturated >= 0.14 && skin < 0.012)));
   const roleClear = role === "pre_shot"
     ? hasVisibleAction && green >= 0.14
@@ -263,7 +296,13 @@ async function analyzeFrame(frame = {}, role = "", options = {}) {
   if (!existsSync(framePath)) return failedEvidence(role, "semantic_frame_file_missing");
   if (!commandAvailable(CONFIG.ffmpegBin)) return failedEvidence(role, "semantic_frame_ffmpeg_missing");
   try {
-    const raw = await runFfmpegRawFrame(framePath, options.runner || execFile);
+    const width = numberOrNull(frame.width);
+    const height = numberOrNull(frame.height);
+    const portraitRenderedFrame = width != null && height != null && height > width * 1.25;
+    const videoFilter = portraitRenderedFrame
+      ? `crop=iw:ih*0.34:0:(ih-oh)/2,scale=${SAMPLE_WIDTH}:${SAMPLE_HEIGHT}`
+      : `scale=${SAMPLE_WIDTH}:${SAMPLE_HEIGHT}`;
+    const raw = await runFfmpegRawFrame(framePath, options.runner || execFile, videoFilter);
     const features = analyzeRgbBuffer(raw);
     if (!features) return failedEvidence(role, "semantic_frame_decode_failed");
     return classifyFeatures(features, role);

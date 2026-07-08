@@ -19,9 +19,9 @@ const {
 const { buildScoreboardTimelineFromObservations } = require("./adapters/local-ocr-adapter.cjs");
 const { chooseTranscriptionProvider } = require("./transcription.cjs");
 const { assertStoragePath, storagePath, writeJsonAtomic } = require("./storage.cjs");
-const { analyzeTracking, publicTrackingProviderOutput } = require("./tracking-provider.cjs");
+const { analyzeTracking, publicTrackingProviderOutput, trackingFallback } = require("./tracking-provider.cjs");
 const { assertVideoOutputCoverage } = require("./video-output-gate.cjs");
-const { analyzeFrames, publicVisualSignals, validateVisualSignals } = require("./vision.cjs");
+const { analyzeFrames, publicVisualSignals, validateVisualSignals, VISUAL_SIGNAL_TYPES } = require("./vision.cjs");
 const { analyzeVisualTracking, publicVisualTrackingSummary } = require("./visual-tracking.cjs");
 const { isLocalVideoProofSource } = require("./staging-smoke-metadata.cjs");
 
@@ -31,17 +31,17 @@ const SCOREBUG_FIRST_CHUNK_SECONDS = 90;
 const SCOREBUG_FIRST_CHUNK_FRAME_COUNT = 4;
 const SCOREBUG_FIRST_CHUNK_TIMEOUT_MS = 15_000;
 const SCOREBUG_FIRST_MAX_TOTAL_OCR_BUDGET_MS = 180_000;
-const RENDERED_GOAL_REBIND_MAX_ATTEMPTS = 2;
+const RENDERED_GOAL_REBIND_MAX_ATTEMPTS = 3;
 const REFERENCE_STYLE_GOAL_COUNT = 5;
 const REFERENCE_STYLE_MAX_DURATION_SECONDS = 125;
-const SCORE_CHANGE_REBIND_MAX_BACKTRACK_SECONDS = 35;
-const SCORE_CHANGE_REBIND_MAX_FINISH_LEAD_SECONDS = 12;
-const SCORE_CHANGE_REBIND_MIN_FINISH_LEAD_SECONDS = 2;
+const SCORE_CHANGE_REBIND_MAX_BACKTRACK_SECONDS = 65;
+const SCORE_CHANGE_REBIND_MAX_FINISH_LEAD_SECONDS = 45;
+const SCORE_CHANGE_REBIND_MIN_FINISH_LEAD_SECONDS = 0.5;
+const RENDERED_GOAL_REBIND_MAX_SEGMENT_SECONDS = 64;
 const RENDERED_GOAL_REBIND_PROFILES = Object.freeze([
-  { finishLeadSeconds: 3.5, preShotSeconds: 20, postConfirmationSeconds: 2.35 },
-  { finishLeadSeconds: 5.5, preShotSeconds: 24, postConfirmationSeconds: 2.35 },
-  { finishLeadSeconds: 7.5, preShotSeconds: 28, postConfirmationSeconds: 2.35 },
-  { finishLeadSeconds: 9.5, preShotSeconds: 32, postConfirmationSeconds: 2.35 },
+  { finishLeadSeconds: 25, preShotSeconds: 18, postConfirmationSeconds: 2.35 },
+  { finishLeadSeconds: 36, preShotSeconds: 16, postConfirmationSeconds: 2.35 },
+  { finishLeadSeconds: 45, preShotSeconds: 20, postConfirmationSeconds: 2.35 },
 ]);
 const SCOREBUG_FIRST_ROI_CANDIDATE_IDS = Object.freeze([
   "scorebug_broadcast_compact",
@@ -130,6 +130,43 @@ function safeUniqueReasonList(values = [], max = 8) {
   return [...new Set(safeReasonList(values, max * 2))].slice(0, max);
 }
 
+function fallbackVisualWindowsFromCandidateWindows(candidateWindows = [], metadata = {}) {
+  const allowedTypes = new Set(VISUAL_SIGNAL_TYPES);
+  const duration = safeNumber(metadata && metadata.durationSeconds) || 0;
+  const clamp = (value, min, max) => Math.min(max, Math.max(min, Number(value) || min));
+  return (Array.isArray(candidateWindows) ? candidateWindows : [])
+    .map((candidate) => {
+      if (!candidate || typeof candidate !== "object") return null;
+      const rawTime = safeNumber(candidate.time ?? candidate.timestamp ?? candidate.center);
+      const rawStart = safeNumber(candidate.start);
+      const rawEnd = safeNumber(candidate.end);
+      const center = rawTime ?? (
+        rawStart != null && rawEnd != null ? (rawStart + rawEnd) / 2 : null
+      );
+      if (center == null) return null;
+      const maxBound = duration > 0 ? duration : Math.max(center + 2, rawEnd || center + 2);
+      const start = Number(clamp(rawStart ?? center - 1.5, 0, Math.max(0, maxBound - 0.4)).toFixed(2));
+      const end = Number(clamp(rawEnd ?? center + 1.5, start + 0.4, maxBound).toFixed(2));
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+      const hints = Array.isArray(candidate.visualHints) ? candidate.visualHints : [];
+      const types = hints
+        .map((hint) => sanitizeText(hint, 48).toLowerCase())
+        .filter((hint) => allowedTypes.has(hint))
+        .slice(0, 4);
+      return {
+        start,
+        end,
+        time: Number(((start + end) / 2).toFixed(2)),
+        confidence: Math.max(0.35, Math.min(0.72, Number(candidate.confidence || 0.45))),
+        types: types.length ? [...new Set(types)] : ["unknown_visual_action"],
+        source: "scorebug_candidate_fallback",
+        label: "scorebug candidate fallback",
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 24);
+}
+
 function safeGoalProofFailures(renderedGoalProof = {}) {
   const goals = renderedGoalProof &&
     renderedGoalProof.summary &&
@@ -185,6 +222,59 @@ function rebindProfileForAttempt(attemptNumber = 1) {
   return RENDERED_GOAL_REBIND_PROFILES[index];
 }
 
+function confirmedGoalSegment(segment) {
+  return Boolean(
+    segment &&
+    segment.highlightType === "goal" &&
+    segment.goalOutcome &&
+    segment.goalOutcome.outcome === "confirmed_goal"
+  );
+}
+
+function chronologicalRebindBounds(segments = [], index = 0, durationSeconds = 0) {
+  let lowerBound = 0;
+  let lowerBoundReason = "source_start";
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    const previous = segments[cursor];
+    if (!confirmedGoalSegment(previous)) continue;
+    const previousEnd = safeNumber(previous.sourceEnd);
+    const previousAnchor = safeSegmentAnchorTime(previous);
+    const previousBound = previousAnchor == null
+      ? (previousEnd == null ? 0 : previousEnd + 0.5)
+      : previousAnchor + 1.5;
+    lowerBound = Math.max(0, previousBound);
+    lowerBoundReason = previousAnchor == null
+      ? "previous_confirmed_goal_end"
+      : "previous_confirmed_goal_anchor";
+    break;
+  }
+
+  let upperBound = durationSeconds > 0 ? durationSeconds : Number.POSITIVE_INFINITY;
+  let upperBoundReason = "source_end";
+  for (let cursor = index + 1; cursor < segments.length; cursor += 1) {
+    const next = segments[cursor];
+    if (!confirmedGoalSegment(next)) continue;
+    const nextStart = safeNumber(next.sourceStart);
+    const nextAnchor = safeSegmentAnchorTime(next);
+    const nextBound = Math.min(
+      nextStart == null ? Number.POSITIVE_INFINITY : nextStart - 0.5,
+      nextAnchor == null ? Number.POSITIVE_INFINITY : nextAnchor - 3,
+    );
+    if (Number.isFinite(nextBound)) {
+      upperBound = Math.max(lowerBound + 3, nextBound);
+      upperBoundReason = "next_confirmed_goal";
+    }
+    break;
+  }
+
+  return {
+    lowerBound: Number(lowerBound.toFixed(2)),
+    lowerBoundReason,
+    upperBound: Number.isFinite(upperBound) ? Number(upperBound.toFixed(2)) : null,
+    upperBoundReason,
+  };
+}
+
 function rebindRenderedGoalFailureSegments({ editPlan, renderedGoalProof, metadata = {}, attemptNumber = 1 } = {}) {
   const failures = safeGoalProofFailures(renderedGoalProof);
   const segments = Array.isArray(editPlan && editPlan.segments) ? editPlan.segments : [];
@@ -208,10 +298,7 @@ function rebindRenderedGoalFailureSegments({ editPlan, renderedGoalProof, metada
     const alreadyRebound = previousAttempt >= Number(attemptNumber || 1) && segment &&
       segment.renderedVisibilityRebinding &&
       segment.renderedVisibilityRebinding.applied === true;
-    const confirmedGoal = segment &&
-      segment.highlightType === "goal" &&
-      segment.goalOutcome &&
-      segment.goalOutcome.outcome === "confirmed_goal";
+    const confirmedGoal = confirmedGoalSegment(segment);
     if (!failure || alreadyRebound || !confirmedGoal) return segment;
     const anchor = safeSegmentAnchorTime(segment);
     const currentStart = safeNumber(segment.sourceStart);
@@ -222,22 +309,39 @@ function rebindRenderedGoalFailureSegments({ editPlan, renderedGoalProof, metada
       SCORE_CHANGE_REBIND_MAX_FINISH_LEAD_SECONDS,
       Math.max(SCORE_CHANGE_REBIND_MIN_FINISH_LEAD_SECONDS, Number(profile.finishLeadSeconds || 0)),
     );
-    const finishTime = Number(Math.max(0.8, anchor - finishLeadSeconds).toFixed(2));
-    const shotStart = Number(Math.max(0.4, finishTime - 2.1).toFixed(2));
     const earliestScoreBoundStart = Math.max(0, anchor - SCORE_CHANGE_REBIND_MAX_BACKTRACK_SECONDS);
-    const desiredSourceStart = Math.min(shotStart - 4.1, finishTime - profile.preShotSeconds);
-    const sourceStart = Number(Math.max(
+    const chronologicalBounds = chronologicalRebindBounds(segments, index, durationSeconds);
+    const rawFinishTime = Math.max(0.8, anchor - finishLeadSeconds);
+    const desiredSourceStart = Math.min(rawFinishTime - 4.1, rawFinishTime - profile.preShotSeconds);
+    const rawSourceStart = Math.max(
       earliestScoreBoundStart,
       desiredSourceStart,
+      chronologicalBounds.lowerBound,
+    );
+    const latestFinishTime = Math.max(0.8, anchor - SCORE_CHANGE_REBIND_MIN_FINISH_LEAD_SECONDS);
+    const finishTime = Number(Math.min(
+      latestFinishTime,
+      Math.max(rawFinishTime, rawSourceStart + 8),
+    ).toFixed(2));
+    let sourceStart = Number(Math.max(
+      chronologicalBounds.lowerBound,
+      Math.min(rawSourceStart, finishTime - 3.5),
     ).toFixed(2));
     const searchEnd = durationSeconds > 0
       ? Math.min(durationSeconds, anchor + profile.postConfirmationSeconds)
       : anchor + profile.postConfirmationSeconds;
-    const searchStart = earliestScoreBoundStart;
-    const desiredSourceEnd = Math.max(anchor + profile.postConfirmationSeconds, finishTime + 4.5, shotStart + 5.5);
+    const searchStart = Math.max(earliestScoreBoundStart, chronologicalBounds.lowerBound);
+    const desiredSourceEnd = Math.max(anchor + profile.postConfirmationSeconds, finishTime + 4.5);
     const sourceEnd = durationSeconds > 0
-      ? Number(Math.min(durationSeconds, desiredSourceEnd).toFixed(2))
+      ? Number(Math.min(durationSeconds, chronologicalBounds.upperBound || durationSeconds, desiredSourceEnd).toFixed(2))
       : Number(desiredSourceEnd.toFixed(2));
+    if (sourceEnd - sourceStart > RENDERED_GOAL_REBIND_MAX_SEGMENT_SECONDS) {
+      sourceStart = Number(Math.max(
+        chronologicalBounds.lowerBound,
+        sourceEnd - RENDERED_GOAL_REBIND_MAX_SEGMENT_SECONDS,
+      ).toFixed(2));
+    }
+    const shotStart = Number(Math.max(sourceStart + 2, finishTime - 2.1).toFixed(2));
     if (sourceEnd <= sourceStart + 3) return segment;
 
     applied = true;
@@ -265,6 +369,7 @@ function rebindRenderedGoalFailureSegments({ editPlan, renderedGoalProof, metada
       original,
       rebindingSearchWindow,
       selectedWindow,
+      chronologicalBounds,
       failedRoles: failure.failedRoles.slice(0, 8),
       attemptNumber: Number(attemptNumber || 1),
       profile: {
@@ -1411,6 +1516,30 @@ function scoreChangeCandidateWindowsFromOcr(scoreboardOcr = {}, metadata = {}) {
     if (!scoreChanged || !temporalConsistency || scoreReverted) return;
     const confidence = Math.max(0.82, Math.min(0.98, Number(item.confidence || 0.86)));
     const probeWindows = [
+      {
+        offset: 44,
+        lead: 2,
+        tail: 4,
+        source: "scorebug_first_delayed_live_phase_backtrack",
+        visualHints: ["fast_break_motion", "ball_visible"],
+        confidence: 0.84,
+      },
+      {
+        offset: 36,
+        lead: 2.5,
+        tail: 4,
+        source: "scorebug_first_delayed_finish_anchor",
+        visualHints: ["shot_contact", "ball_toward_goal", "goal_mouth_visible"],
+        confidence: 0.9,
+      },
+      {
+        offset: 30,
+        lead: 2,
+        tail: 4,
+        source: "scorebug_first_delayed_goalmouth_anchor",
+        visualHints: ["goal_mouth_visible", "ball_toward_goal"],
+        confidence: 0.88,
+      },
       {
         offset: 24,
         lead: 2,
@@ -3266,38 +3395,135 @@ async function runRenderJob(options) {
       });
 
       updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 38, step: "analyze_visuals", substep: longSourceRuntime ? "scorebug_narrowed_visual_analysis" : "frame_visual_analysis", longSource: longSourceRuntime, scorebugFirst: longSourceRuntime });
-      visualSignals = validateVisualSignals(
-        await deps.analyzeFrames({
+      logInfo(deps.logger, {
+        event: "visual_analysis_started",
+        requestId,
+        projectId: project.id,
+        jobId: job.id,
+        step: "analyze_visuals",
+        substep: longSourceRuntime ? "scorebug_narrowed_visual_analysis" : "frame_visual_analysis",
+        candidateWindowCount: Array.isArray(visualCandidateWindows) ? visualCandidateWindows.length : 0,
+        frameCount: sampledFrameSummary.summary.frameCount,
+      });
+      try {
+        visualSignals = validateVisualSignals(
+          await deps.analyzeFrames({
+            inputPath: context.inputPath,
+            metadata: context.metadata,
+            candidateWindows: visualCandidateWindows,
+            mediaSignals,
+            frames: sampledFrames.frames,
+            frameSummary: sampledFrameSummary,
+            signal,
+          }),
+          context.metadata,
+        );
+      } catch (visualError) {
+        if (!longSourceRuntime || (visualError && visualError.code === "JOB_CANCELLED")) throw visualError;
+        const visualFailureCode = sanitizeText(
+          visualError && visualError.code ? visualError.code : "NARROWED_VISUAL_ANALYSIS_FAILED",
+          80,
+        );
+        logInfo(deps.logger, {
+          event: "visual_analysis_fallback_used",
+          requestId,
+          projectId: project.id,
+          jobId: job.id,
+          step: "analyze_visuals",
+          substep: "scorebug_narrowed_visual_analysis",
+          code: visualFailureCode,
+          candidateWindowCount: Array.isArray(visualCandidateWindows) ? visualCandidateWindows.length : 0,
+          frameCount: sampledFrameSummary.summary.frameCount,
+        });
+        const fallbackWindows = fallbackVisualWindowsFromCandidateWindows(visualCandidateWindows, context.metadata);
+        const fallbackPayload = {
+          providerMode: "scorebug-narrowed-visual-fallback",
+          fallbackUsed: true,
+          confidence: 0.45,
+          providerMetadata: {
+            model: "candidate-window-fallback",
+            latencyMs: 0,
+          },
+          failure: {
+            code: visualFailureCode,
+            phase: "vision_provider",
+            retryable: false,
+          },
+          windows: fallbackWindows,
+        };
+        try {
+          visualSignals = validateVisualSignals(fallbackPayload, context.metadata);
+        } catch {
+          visualSignals = validateVisualSignals({ ...fallbackPayload, windows: [] }, context.metadata);
+        }
+      }
+      try {
+        trackingProviderOutput = publicTrackingProviderOutput(await deps.analyzeTracking({
           inputPath: context.inputPath,
           metadata: context.metadata,
           candidateWindows: visualCandidateWindows,
           mediaSignals,
+          visualSignals,
           frames: sampledFrames.frames,
           frameSummary: sampledFrameSummary,
           signal,
-        }),
-        context.metadata,
-      );
-      trackingProviderOutput = publicTrackingProviderOutput(await deps.analyzeTracking({
-        inputPath: context.inputPath,
-        metadata: context.metadata,
-        candidateWindows: visualCandidateWindows,
-        mediaSignals,
-        visualSignals,
-        frames: sampledFrames.frames,
-        frameSummary: sampledFrameSummary,
-        signal,
-      }), context.metadata);
-      visualTracking = publicVisualTrackingSummary(deps.analyzeVisualTracking({
-        inputPath: context.inputPath,
-        metadata: context.metadata,
-        candidateWindows: visualCandidateWindows,
-        mediaSignals,
-        visualSignals,
-        trackingProviderOutput,
-        frames: sampledFrames.frames,
-        frameSummary: sampledFrameSummary,
-      }), context.metadata);
+        }), context.metadata);
+      } catch (trackingError) {
+        if (!longSourceRuntime || (trackingError && trackingError.code === "JOB_CANCELLED")) throw trackingError;
+        const trackingFailureCode = sanitizeText(
+          trackingError && trackingError.code ? trackingError.code : "TRACKING_PROVIDER_FAILED",
+          80,
+        );
+        logInfo(deps.logger, {
+          event: "tracking_analysis_fallback_used",
+          requestId,
+          projectId: project.id,
+          jobId: job.id,
+          step: "analyze_visual_tracking",
+          substep: "scorebug_narrowed_tracking_analysis",
+          code: trackingFailureCode,
+          frameCount: sampledFrameSummary.summary.frameCount,
+        });
+        trackingProviderOutput = publicTrackingProviderOutput(trackingFallback({
+          metadata: context.metadata,
+          frames: sampledFrames.frames,
+          reason: "tracking_provider_output_invalid",
+          failure: {
+            code: trackingFailureCode,
+            phase: "tracking_provider",
+            retryable: false,
+          },
+        }), context.metadata);
+      }
+      try {
+        visualTracking = publicVisualTrackingSummary(deps.analyzeVisualTracking({
+          inputPath: context.inputPath,
+          metadata: context.metadata,
+          candidateWindows: visualCandidateWindows,
+          mediaSignals,
+          visualSignals,
+          trackingProviderOutput,
+          frames: sampledFrames.frames,
+          frameSummary: sampledFrameSummary,
+        }), context.metadata);
+      } catch (trackingSummaryError) {
+        if (!longSourceRuntime || (trackingSummaryError && trackingSummaryError.code === "JOB_CANCELLED")) throw trackingSummaryError;
+        const trackingSummaryFailureCode = sanitizeText(
+          trackingSummaryError && trackingSummaryError.code ? trackingSummaryError.code : "VISUAL_TRACKING_SUMMARY_FAILED",
+          80,
+        );
+        logInfo(deps.logger, {
+          event: "visual_tracking_summary_fallback_used",
+          requestId,
+          projectId: project.id,
+          jobId: job.id,
+          step: "analyze_visual_tracking",
+          substep: "scorebug_narrowed_tracking_summary",
+          code: trackingSummaryFailureCode,
+          frameCount: sampledFrameSummary.summary.frameCount,
+        });
+        visualTracking = publicVisualTrackingSummary(null, context.metadata);
+      }
       logInfo(deps.logger, {
         event: "visual_analysis_completed",
         requestId,
@@ -4345,6 +4571,7 @@ module.exports = {
     buildScoreCandidateProgressionFromChunks,
     compactVisibleGoalSegmentsForReferenceDuration,
     renderedProofSourceTimes,
+    rebindRenderedGoalFailureSegments,
     segmentTimelineStarts,
   },
 };

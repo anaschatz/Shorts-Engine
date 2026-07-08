@@ -1212,10 +1212,11 @@ function normalizeFinishFrameEvidence(value = {}, context = {}) {
   const supportFrames = Array.isArray(raw.supportFrames)
     ? raw.supportFrames.slice(0, 8).map((frame) => {
         const item = frame && typeof frame === "object" && !Array.isArray(frame) ? frame : {};
+        const supportFrameTime = Number(item.time ?? item.frameTime ?? item.timestamp);
         return {
           role: sanitizeText(item.role || item.label || item.type || "", 40),
           status: sanitizeText(item.status || item.verdict || "", 40).toLowerCase(),
-          time: finiteTimestamp(item.time ?? item.frameTime ?? item.timestamp, context.sourceStart, context.sourceEnd, null),
+          time: Number.isFinite(supportFrameTime) ? Number(supportFrameTime.toFixed(2)) : null,
           clear: item.clear === true || item.visible === true,
         };
       }).filter((frame) => frame.role || frame.status || frame.time !== null)
@@ -1246,6 +1247,8 @@ function normalizeFinishFrameEvidence(value = {}, context = {}) {
     isFrameTooWideUnclear: raw.isFrameTooWideUnclear === true ||
       raw.frameTooWideUnclear === true ||
       raw.tooWideUnclear === true,
+    sequenceFallbackPassed: raw.sequenceFallbackPassed === true,
+    sequenceFallbackMode: raw.sequenceFallbackMode ? sanitizeText(raw.sequenceFallbackMode, 80) : null,
     evidenceCodes,
   };
 }

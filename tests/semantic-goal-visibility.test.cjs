@@ -1,11 +1,14 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { mkdirSync, writeFileSync } = require("node:fs");
+const { dirname } = require("node:path");
 
 const {
   analyzeRgbBuffer,
   analyzeSemanticGoalFrames,
   classifyFeatures,
 } = require("../server/semantic-goal-visibility.cjs");
+const { storagePath } = require("../server/storage.cjs");
 
 function rgbFrame({ width = 72, height = 128, fill = [0, 0, 0], paint = () => null } = {}) {
   const buffer = Buffer.alloc(width * height * 3);
@@ -51,6 +54,33 @@ test("semantic goal visibility accepts low-white goalmouth finish with clear fie
   assert.equal(evidence.hasVisibleFinish, true);
   assert.equal(evidence.hasBallInNetOrPayoff, true);
   assert.equal(evidence.hasGoalMouth, true);
+});
+
+test("semantic goal visibility accepts score-change-backed wide live finish frames", () => {
+  const finishEvidence = classifyFeatures({
+    greenRatio: 0.6769,
+    whiteRatio: 0.0117,
+    darkRatio: 0.011,
+    skinRatio: 0.0043,
+    saturatedColorRatio: 0.062,
+    blackBarRatio: 0.0008,
+    activeContentRatio: 0.9992,
+  }, "finish");
+  const payoffEvidence = classifyFeatures({
+    greenRatio: 0.7053,
+    whiteRatio: 0.0103,
+    darkRatio: 0.0116,
+    skinRatio: 0.0052,
+    saturatedColorRatio: 0.0691,
+    blackBarRatio: 0.0008,
+    activeContentRatio: 0.9992,
+  }, "payoff");
+
+  assert.equal(finishEvidence.visibilityVerdict, "clear");
+  assert.equal(finishEvidence.hasVisibleFinish, true);
+  assert.equal(finishEvidence.hasBallInNetOrPayoff, true);
+  assert.equal(payoffEvidence.visibilityVerdict, "clear");
+  assert.equal(payoffEvidence.hasBallInNetOrPayoff, true);
 });
 
 test("semantic goal visibility ignores letterbox bars when measuring rendered action frames", () => {
@@ -220,6 +250,62 @@ test("semantic goal visibility rejects rendered goal 4 low-saturation closeup fr
   assert.ok(evidence.reasons.includes("semantic_player_closeup_only"));
 });
 
+test("semantic goal visibility rejects actual rendered bench celebration false positives", () => {
+  const evidence = classifyFeatures({
+    greenRatio: 0.3008,
+    whiteRatio: 0.0211,
+    darkRatio: 0.2244,
+    skinRatio: 0.1061,
+    saturatedColorRatio: 0.0454,
+    blackBarRatio: 0.6819,
+  }, "finish");
+
+  assert.equal(evidence.visibilityVerdict, "failed");
+  assert.equal(evidence.playerCloseupOnly, true);
+  assert.ok(evidence.reasons.includes("semantic_player_closeup_only"));
+});
+
+test("semantic goal visibility rejects sideline bench frames with goalmouth-like green", () => {
+  const finishEvidence = classifyFeatures({
+    greenRatio: 0.3107,
+    whiteRatio: 0.0204,
+    darkRatio: 0.2568,
+    skinRatio: 0.0616,
+    saturatedColorRatio: 0.0559,
+    blackBarRatio: 0.0974,
+  }, "finish");
+  const payoffEvidence = classifyFeatures({
+    greenRatio: 0.2928,
+    whiteRatio: 0.0215,
+    darkRatio: 0.2881,
+    skinRatio: 0.0601,
+    saturatedColorRatio: 0.051,
+    blackBarRatio: 0.0806,
+  }, "payoff");
+
+  assert.equal(finishEvidence.visibilityVerdict, "failed");
+  assert.equal(finishEvidence.playerCloseupOnly, true);
+  assert.ok(finishEvidence.reasons.includes("semantic_player_closeup_only"));
+  assert.equal(payoffEvidence.visibilityVerdict, "failed");
+  assert.equal(payoffEvidence.playerCloseupOnly, true);
+  assert.ok(payoffEvidence.reasons.includes("semantic_player_closeup_only"));
+});
+
+test("semantic goal visibility rejects actual rendered green-only player closeup false positives", () => {
+  const evidence = classifyFeatures({
+    greenRatio: 0.7874,
+    whiteRatio: 0.0549,
+    darkRatio: 0.0602,
+    skinRatio: 0.009,
+    saturatedColorRatio: 0.0203,
+    blackBarRatio: 0.6739,
+  }, "payoff");
+
+  assert.equal(evidence.visibilityVerdict, "failed");
+  assert.equal(evidence.playerCloseupOnly, true);
+  assert.ok(evidence.reasons.includes("semantic_player_closeup_only"));
+});
+
 test("semantic goal visibility rejects dark sideline celebration closeup selected as goal 4 finish", () => {
   const evidence = classifyFeatures({
     greenRatio: 0.4175,
@@ -307,6 +393,45 @@ test("semantic goal visibility can force fresh analysis for ffmpeg rendered fram
   assert.equal(result.clearFrameCount, 0);
   assert.equal(result.frameEvidence[0].visibilityVerdict, "failed");
   assert.equal(result.frameEvidence[0].reasons.includes("semantic_frame_path_unsafe"), true);
+});
+
+test("semantic goal visibility crops rendered portrait proof frames to the central action strip", async () => {
+  const framePath = storagePath("staging", `semantic-goal-visibility-${process.pid}.jpg`);
+  mkdirSync(dirname(framePath), { recursive: true });
+  writeFileSync(framePath, Buffer.from([1, 2, 3]));
+
+  let receivedFilter = "";
+  const clearActionBuffer = rgbFrame({
+    paint: (x, y) => {
+      if (x >= 28 && x <= 44 && y >= 50 && y <= 72) return [238, 238, 230];
+      if ((x + y) % 19 === 0) return [196, 196, 184];
+      return [42, 128, 44];
+    },
+  });
+  const runner = (_bin, args, _options, callback) => {
+    receivedFilter = args[args.indexOf("-vf") + 1];
+    callback(null, clearActionBuffer);
+  };
+
+  const result = await analyzeSemanticGoalFrames({
+    roleWindows: [{ role: "finish" }],
+    frames: [{
+      localPath: framePath,
+      source: "ffmpeg",
+      width: 360,
+      height: 640,
+      semanticGoalEvidence: {
+        visibilityVerdict: "failed",
+        visibleGoal: false,
+      },
+    }],
+    runner,
+    ignoreExistingEvidence: true,
+  });
+
+  assert.equal(receivedFilter.startsWith("crop=iw:ih*0.34"), true);
+  assert.equal(result.clearFrameCount, 1);
+  assert.equal(result.frameEvidence[0].visibilityVerdict, "clear");
 });
 
 test("semantic goal visibility rejects existing replay evidence", async () => {
