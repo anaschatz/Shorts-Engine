@@ -274,8 +274,10 @@ test("links delayed scorebug changes back to earlier live goal action", () => {
   assert.equal(result.events[0].scoreChangeTime, 126);
   assert.equal(result.events[0].cannotConfirmGoalAlone, true);
   assert.ok(result.events[0].sourceStart <= 82);
-  assert.ok(result.events[0].sourceEnd >= 126);
+  assert.ok(result.events[0].sourceEnd >= 91);
+  assert.ok(result.events[0].sourceEnd < 126);
   assert.equal(result.events[0].phaseCoverage.replayOnly, false);
+  assert.ok(result.events[0].evidenceCodes.includes("scoreboard_confirmation_decoupled_from_clip_tail"));
   assert.ok(result.events[0].anchorDiagnostics.searchWindow.start <= 82);
   assert.ok(result.events[0].anchorDiagnostics.searchWindow.end >= 126);
   assert.equal(publicTruth.summary.selectedCountedGoals, 1);

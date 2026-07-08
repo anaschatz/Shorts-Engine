@@ -778,12 +778,20 @@ function scoreChangeMatchRequirements(segment = {}, expected = {}) {
   const finishTime = numberOrNull(segment.finishTime ?? (segment.phaseCoverage && segment.phaseCoverage.finishTime));
   const confirmationTime = numberOrNull(expected.confirmationTime);
   const anchorTime = numberOrNull(expected.anchorTime);
+  const segmentScore = scoreChangeIdentity(segment);
 
-  if (confirmationTime != null && !segmentContainsTime(segment, confirmationTime)) {
-    reasons.push("missing_scoreboard_confirmation_window");
+  if (segmentScore && expected.scoreBefore && segmentScore.scoreBefore !== expected.scoreBefore) {
+    reasons.push("score_before_mismatch");
   }
-  if (anchorTime != null && !segmentContainsTime(segment, anchorTime)) {
-    reasons.push("missing_score_change_anchor_window");
+  if (segmentScore && expected.scoreAfter && segmentScore.scoreAfter !== expected.scoreAfter) {
+    reasons.push("score_after_mismatch");
+  }
+  if (
+    confirmationTime != null &&
+    segmentScore &&
+    Math.abs(segmentScore.scoreChangeTime - confirmationTime) > DUPLICATE_SCORE_CHANGE_TOLERANCE_SECONDS
+  ) {
+    reasons.push("score_change_time_mismatch");
   }
   if (
     confirmationTime != null &&
@@ -818,12 +826,25 @@ function matchExpectedGoals(expectedGoals = [], segments = [], options = {}) {
       .map(({ segment, index }) => ({
         segment,
         index,
-        score: [
-          numberOrNull(segment.goalNumber) === expected.goalNumber ? 4 : 0,
-          segmentContainsTime(segment, expected.anchorTime) ? 3 : 0,
-          segmentContainsTime(segment, expected.confirmationTime) ? 3 : 0,
-          overlapSeconds(segment, expected) > 0.5 ? 2 : 0,
-        ].reduce((sum, value) => sum + value, 0),
+        score: (() => {
+          const segmentScore = scoreChangeIdentity(segment);
+          const sameScoreTransition = segmentScore &&
+            expected.scoreBefore &&
+            expected.scoreAfter &&
+            segmentScore.scoreBefore === expected.scoreBefore &&
+            segmentScore.scoreAfter === expected.scoreAfter;
+          const sameScoreChangeTime = sameScoreTransition &&
+            expected.confirmationTime != null &&
+            Math.abs(segmentScore.scoreChangeTime - expected.confirmationTime) <= DUPLICATE_SCORE_CHANGE_TOLERANCE_SECONDS;
+          return [
+            numberOrNull(segment.goalNumber) === expected.goalNumber ? 4 : 0,
+            sameScoreTransition ? 5 : 0,
+            sameScoreChangeTime ? 3 : 0,
+            segmentContainsTime(segment, expected.anchorTime) ? 3 : 0,
+            segmentContainsTime(segment, expected.confirmationTime) ? 2 : 0,
+            overlapSeconds(segment, expected) > 0.5 ? 2 : 0,
+          ].reduce((sum, value) => sum + value, 0);
+        })(),
         scoreChangeRequirements: scoreChangeMatchRequirements(segment, expected),
       }))
       .filter((candidate) => {

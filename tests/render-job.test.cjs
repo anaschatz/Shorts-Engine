@@ -2408,10 +2408,14 @@ test("rendered goal rebinding cannot reuse the previous counted goal window", ()
   assert.equal(reboundGoal4.sourceStart < reboundGoal3.sourceEnd + 0.49, true);
   assert.equal(reboundGoal4.finishTime > reboundGoal4.sourceStart, true);
   assert.equal(reboundGoal4.finishTime < reboundGoal4.confirmationTime, true);
-  assert.equal(reboundGoal4.confirmationTime - reboundGoal4.finishTime >= 20, true);
+  assert.equal(reboundGoal4.confirmationTime - reboundGoal4.finishTime <= 3, true);
+  assert.equal(reboundGoal4.phaseCoverage.scoreChangeTime, 555.72);
+  assert.equal(reboundGoal4.phaseCoverage.scoreChangeConfirmedOutsideClip, true);
   assert.equal(reboundGoal4.renderedVisibilityRebinding.rebindingSearchWindow.start >= reboundGoal3.confirmationTime + 1.49, true);
+  assert.equal(reboundGoal4.renderedVisibilityRebinding.scoreChangeConfirmedOutsideClip, true);
   assert.equal(rebind.summary.diagnostics[0].chronologicalBounds.lowerBoundReason, "previous_confirmed_goal_anchor");
   assert.equal(rebind.summary.diagnostics[0].profile.finishLeadSeconds, 45);
+  assert.equal(rebind.summary.diagnostics[0].profile.compactedDelayedScoreConfirmation, true);
 });
 
 test("approved regeneration render uses the validated draft without rerunning AI analysis", async () => {

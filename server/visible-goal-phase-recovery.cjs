@@ -278,9 +278,12 @@ function candidateFromFinish({
   anchorCodes = [],
   bindingStrategy = "explicit_payoff",
   minScoreChangeLeadSeconds = PRIMARY_BACKWARD_SEARCH_SECONDS,
+  minActionTime = 0,
 }) {
+  if (windowEnd(finishWindow) < seconds(minActionTime)) return null;
   const shotWindow = findShotBefore(windows, finishWindow);
   if (!shotWindow) return null;
+  if (windowEnd(shotWindow) < seconds(minActionTime)) return null;
   const originWindow = liveOriginForShot(windows, shotWindow, finishWindow);
   const shotStart = round(windowStart(shotWindow));
   const finishTime = round(windowEnd(finishWindow, shotStart + 1));
@@ -334,6 +337,7 @@ function candidateFromFinish({
   };
   const sourceStart = round(Math.max(
     0,
+    seconds(minActionTime),
     Math.min(
       windowStart(originWindow),
       Math.max(0, shotStart - MIN_PRE_SHOT_SECONDS),
@@ -483,6 +487,7 @@ function candidateSearchPass({
   anchorCodes,
   bindingStrategy,
   minScoreChangeLeadSeconds,
+  minActionTime = 0,
 } = {}) {
   const contextWindows = windowsInRange(visualSignals, start, end, 1.5);
   const replayWindows = contextWindows.filter(isReplayWindow);
@@ -493,9 +498,10 @@ function candidateSearchPass({
   const payoffWindows = contextWindows.filter(isPayoffWindow);
   const inferredFinishWindows = allowInferredPayoff ? contextWindows.filter(isInferredFinishWindow) : [];
   const beforeOrAtConfirmation = (window) => windowStart(window) <= seconds(confirmationAnchorTime) + 0.75;
+  const afterPreviousScoreChange = (window) => windowEnd(window) >= seconds(minActionTime);
   const finishWindows = allowInferredPayoff
-    ? uniqueFinishWindows([...payoffWindows, ...inferredFinishWindows].filter(beforeOrAtConfirmation))
-    : payoffWindows.filter(beforeOrAtConfirmation);
+    ? uniqueFinishWindows([...payoffWindows, ...inferredFinishWindows].filter(beforeOrAtConfirmation).filter(afterPreviousScoreChange))
+    : payoffWindows.filter(beforeOrAtConfirmation).filter(afterPreviousScoreChange);
   const candidates = finishWindows
     .map((finishWindow) => candidateFromFinish({
       windows: contextWindows,
@@ -506,6 +512,7 @@ function candidateSearchPass({
       anchorCodes,
       bindingStrategy,
       minScoreChangeLeadSeconds,
+      minActionTime,
     }))
     .filter(Boolean)
     .sort((a, b) => scoreCandidate(b) - scoreCandidate(a) || a.sourceStart - b.sourceStart);
@@ -529,6 +536,7 @@ function analyzeVisibleGoalPhaseRecovery({
   visualSignals = {},
   metadata = {},
   index = 0,
+  minActionTime = 0,
 } = {}) {
   const stableChangeTime = seconds(change.changeTime);
   const actionAnchorTime = seconds(change.actionAnchorTime, stableChangeTime);
@@ -540,9 +548,10 @@ function analyzeVisibleGoalPhaseRecovery({
   const allowInferredPayoff = change.outcome === "counted_goal" && hasAny(anchorCodes, ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"]);
   const primaryStart = Math.max(0, searchAnchorTime - PRIMARY_BACKWARD_SEARCH_SECONDS);
   const fallbackStart = Math.max(0, searchAnchorTime - FALLBACK_BACKWARD_SEARCH_SECONDS);
+  const boundedMinActionTime = round(Math.max(0, seconds(minActionTime)));
   const primaryPass = candidateSearchPass({
     visualSignals,
-    start: primaryStart,
+    start: Math.max(primaryStart, boundedMinActionTime),
     end: searchEnd,
     duration,
     confirmationAnchorTime,
@@ -550,12 +559,13 @@ function analyzeVisibleGoalPhaseRecovery({
     anchorCodes,
     bindingStrategy: "primary_window",
     minScoreChangeLeadSeconds: PRIMARY_BACKWARD_SEARCH_SECONDS,
+    minActionTime: boundedMinActionTime,
   });
   const fallbackPass = primaryPass.candidates.length
     ? null
     : candidateSearchPass({
         visualSignals,
-        start: fallbackStart,
+        start: Math.max(fallbackStart, boundedMinActionTime),
         end: searchEnd,
         duration,
         confirmationAnchorTime,
@@ -563,13 +573,14 @@ function analyzeVisibleGoalPhaseRecovery({
         anchorCodes,
         bindingStrategy: "fallback_window",
         minScoreChangeLeadSeconds: FALLBACK_BACKWARD_SEARCH_SECONDS,
+        minActionTime: boundedMinActionTime,
       });
   const emergencyStart = Math.max(0, searchAnchorTime - EMERGENCY_BACKWARD_SEARCH_SECONDS);
   const emergencyPass = primaryPass.candidates.length || (fallbackPass && fallbackPass.candidates.length)
     ? null
     : candidateSearchPass({
         visualSignals,
-        start: emergencyStart,
+        start: Math.max(emergencyStart, boundedMinActionTime),
         end: searchEnd,
         duration,
         confirmationAnchorTime,
@@ -577,6 +588,7 @@ function analyzeVisibleGoalPhaseRecovery({
         anchorCodes,
         bindingStrategy: "emergency_window",
         minScoreChangeLeadSeconds: EMERGENCY_BACKWARD_SEARCH_SECONDS,
+        minActionTime: boundedMinActionTime,
       });
   const activePass = emergencyPass || fallbackPass || primaryPass;
   const {
@@ -620,6 +632,7 @@ function analyzeVisibleGoalPhaseRecovery({
         : fallbackPass
           ? FALLBACK_BACKWARD_SEARCH_SECONDS
           : PRIMARY_BACKWARD_SEARCH_SECONDS,
+      minActionTime: boundedMinActionTime,
       confirmationForwardSeconds: CONFIRMATION_FORWARD_SECONDS,
       sampledFrameBudget: Math.max(0, Math.min(24, activePass.contextWindows.length + activePass.finishWindows.length)),
       reusedFrameCount: 0,
@@ -779,6 +792,7 @@ function publicVisibleGoalPhaseRecovery(recovery = {}) {
           fallbackUsed: Boolean(recovery.bindingDiagnostics.fallbackUsed),
           allowInferredPayoff: Boolean(recovery.bindingDiagnostics.allowInferredPayoff),
           maxBackwardSeconds: Math.max(0, Math.round(Number(recovery.bindingDiagnostics.maxBackwardSeconds || 0))),
+          minActionTime: Math.max(0, Number(recovery.bindingDiagnostics.minActionTime || 0)),
           confirmationForwardSeconds: Math.max(0, Math.round(Number(recovery.bindingDiagnostics.confirmationForwardSeconds || 0))),
           sampledFrameBudget: Math.max(0, Math.round(Number(recovery.bindingDiagnostics.sampledFrameBudget || 0))),
           reusedFrameCount: Math.max(0, Math.round(Number(recovery.bindingDiagnostics.reusedFrameCount || 0))),

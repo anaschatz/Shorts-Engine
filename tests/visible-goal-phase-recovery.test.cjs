@@ -247,6 +247,33 @@ test("score-change recovery does not borrow the next close goal finish window", 
   assert.notEqual(recovery.selected.finishTime, 483);
 });
 
+test("score-change recovery does not borrow the previous close goal finish window", () => {
+  const recovery = analyzeVisibleGoalPhaseRecovery({
+    metadata: { durationSeconds: 540, width: 1920, height: 1080 },
+    minActionTime: 474.25,
+    visualSignals: visualSignals([
+      { start: 466, end: 472, types: ["shot_contact", "ball_toward_goal", "goal_mouth_visible"], confidence: 0.91 },
+      { start: 474, end: 475, type: "scoreboard_goal_confirmed", confidence: 0.9 },
+      { start: 479, end: 483, types: ["shot_contact", "ball_toward_goal", "goal_mouth_visible"], confidence: 0.94 },
+      { start: 483.75, end: 484.75, type: "scoreboard_goal_confirmed", confidence: 0.9 },
+    ]),
+    change: {
+      changeTime: 483.75,
+      actionAnchorTime: 483.75,
+      outcome: "counted_goal",
+      startScore: "1-1",
+      endScore: "2-1",
+      reasonCodes: ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"],
+    },
+  });
+
+  assert.equal(recovery.failureCode, null);
+  assert.ok(recovery.selected.sourceStart >= 474.25);
+  assert.ok(recovery.selected.finishTime >= 483);
+  assert.notEqual(recovery.selected.finishTime, 472);
+  assert.equal(recovery.bindingDiagnostics.minActionTime, 474.25);
+});
+
 test("score-change recovery uses bounded fallback window for earlier live phase", () => {
   const recovery = analyzeVisibleGoalPhaseRecovery({
     metadata,

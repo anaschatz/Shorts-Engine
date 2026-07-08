@@ -732,6 +732,64 @@ test("video output gate rejects a goal segment that starts too close to the scor
   });
 });
 
+test("video output gate accepts compact live phase tied to a later stable score change", () => {
+  const scoreChange = {
+    id: "counted_goal_late_stable_scoreboard",
+    startScore: "1-0",
+    endScore: "1-1",
+    changeTime: 482.04,
+    actionAnchorTime: 457.04,
+    teamSide: "away",
+    scoreDelta: 1,
+    confidence: 0.92,
+    persistedDuration: 8,
+    reverted: false,
+    outcome: "counted_goal",
+    reasonCodes: ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"],
+  };
+  const segment = visibleGoalSegment(2, 449.04, {
+    sourceEnd: 462.54,
+    shotStart: 454.94,
+    finishTime: 457.04,
+    confirmationTime: 459.29,
+    scoreBefore: "1-0",
+    scoreAfter: "1-1",
+    scoreChangeTime: 482.04,
+    goalOutcome: {
+      eventType: "ball_in_net",
+      outcome: "confirmed_goal",
+      offsideStatus: "onside",
+      confidence: 0.93,
+      decisionTimestamp: 482.04,
+      decisionEvidence: ["scoreboard_backed_goal_sequence"],
+      scoreBefore: "1-0",
+      scoreAfter: "1-1",
+      scoreChangeTime: 482.04,
+    },
+  });
+
+  const report = assertVideoOutputCoverage({
+    goalSelectionMode: "valid_goals_only",
+    matchEventTruth: {
+      providerMode: "fixture-match-event-truth",
+      events: [],
+      rejectedEvents: [],
+      scoreTimelineObservations: [],
+      scoreChanges: [scoreChange],
+      summary: { countedGoalEventCount: 1 },
+    },
+    editPlan: {
+      ...creativeOutputContract(),
+      segments: [segment],
+    },
+  });
+
+  assert.equal(report.status, "passed");
+  assert.equal(report.coveredGoalCount, 1);
+  assert.deepEqual(report.missingGoalNumbers, []);
+  assert.doesNotMatch(JSON.stringify(report), /\/Users|\/private|token|secret|rawOcr|rawText|stderr|stdout/i);
+});
+
 test("video output gate uses stable score change when pending action anchor is too far away", () => {
   const scoreChange = {
     id: "counted_goal_with_far_pending_anchor",

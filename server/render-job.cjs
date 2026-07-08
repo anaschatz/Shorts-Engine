@@ -38,6 +38,9 @@ const SCORE_CHANGE_REBIND_MAX_BACKTRACK_SECONDS = 65;
 const SCORE_CHANGE_REBIND_MAX_FINISH_LEAD_SECONDS = 45;
 const SCORE_CHANGE_REBIND_MIN_FINISH_LEAD_SECONDS = 0.5;
 const RENDERED_GOAL_REBIND_MAX_SEGMENT_SECONDS = 64;
+const SCORE_CHANGE_REBIND_COMPACT_CONFIRMATION_GAP_SECONDS = 12;
+const SCORE_CHANGE_REBIND_COMPACT_FINISH_TAIL_SECONDS = 5.5;
+const SCORE_CHANGE_REBIND_COMPACT_LOCAL_CONFIRMATION_SECONDS = 2.25;
 const RENDERED_GOAL_REBIND_PROFILES = Object.freeze([
   { finishLeadSeconds: 25, preShotSeconds: 18, postConfirmationSeconds: 2.35 },
   { finishLeadSeconds: 36, preShotSeconds: 16, postConfirmationSeconds: 2.35 },
@@ -331,7 +334,10 @@ function rebindRenderedGoalFailureSegments({ editPlan, renderedGoalProof, metada
       ? Math.min(durationSeconds, anchor + profile.postConfirmationSeconds)
       : anchor + profile.postConfirmationSeconds;
     const searchStart = Math.max(earliestScoreBoundStart, chronologicalBounds.lowerBound);
-    const desiredSourceEnd = Math.max(anchor + profile.postConfirmationSeconds, finishTime + 4.5);
+    const delayedScoreConfirmation = anchor - finishTime >= SCORE_CHANGE_REBIND_COMPACT_CONFIRMATION_GAP_SECONDS;
+    const desiredSourceEnd = delayedScoreConfirmation
+      ? Math.max(sourceStart + 8, finishTime + SCORE_CHANGE_REBIND_COMPACT_FINISH_TAIL_SECONDS)
+      : Math.max(anchor + profile.postConfirmationSeconds, finishTime + 4.5);
     const sourceEnd = durationSeconds > 0
       ? Number(Math.min(durationSeconds, chronologicalBounds.upperBound || durationSeconds, desiredSourceEnd).toFixed(2))
       : Number(desiredSourceEnd.toFixed(2));
@@ -352,12 +358,16 @@ function rebindRenderedGoalFailureSegments({ editPlan, renderedGoalProof, metada
       finishTime: safeNumber(segment.finishTime),
       confirmationTime: safeNumber(segment.confirmationTime),
     };
+    const confirmationTime = delayedScoreConfirmation
+      ? Number(Math.min(sourceEnd - 0.25, finishTime + SCORE_CHANGE_REBIND_COMPACT_LOCAL_CONFIRMATION_SECONDS).toFixed(2))
+      : Number(anchor.toFixed(2));
     const selectedWindow = {
       sourceStart,
       sourceEnd,
       shotStart,
       finishTime,
-      confirmationTime: Number(anchor.toFixed(2)),
+      confirmationTime,
+      scoreChangeTime: Number(anchor.toFixed(2)),
     };
     const rebindingSearchWindow = {
       start: Number(searchStart.toFixed(2)),
@@ -378,6 +388,7 @@ function rebindRenderedGoalFailureSegments({ editPlan, renderedGoalProof, metada
         postConfirmationSeconds: profile.postConfirmationSeconds,
         maxBacktrackSeconds: SCORE_CHANGE_REBIND_MAX_BACKTRACK_SECONDS,
         maxFinishLeadSeconds: SCORE_CHANGE_REBIND_MAX_FINISH_LEAD_SECONDS,
+        compactedDelayedScoreConfirmation: delayedScoreConfirmation,
       },
       rebindingChangedSegment: original.sourceStart !== selectedWindow.sourceStart ||
         original.finishTime !== selectedWindow.finishTime ||
@@ -406,7 +417,7 @@ function rebindRenderedGoalFailureSegments({ editPlan, renderedGoalProof, metada
       buildupStart: sourceStart,
       shotStart,
       finishTime,
-      confirmationTime: Number(anchor.toFixed(2)),
+      confirmationTime,
       finishFrameEvidence: null,
       reasonCodes,
       phaseCoverage: {
@@ -418,7 +429,9 @@ function rebindRenderedGoalFailureSegments({ editPlan, renderedGoalProof, metada
         liveActionStart: sourceStart,
         shotStart,
         finishTime,
-        confirmationTime: Number(anchor.toFixed(2)),
+        confirmationTime,
+        scoreChangeTime: Number(anchor.toFixed(2)),
+        scoreChangeConfirmedOutsideClip: delayedScoreConfirmation,
         replayOnly: false,
         visualGoalPayoff: {
           ...payoff,
@@ -431,6 +444,7 @@ function rebindRenderedGoalFailureSegments({ editPlan, renderedGoalProof, metada
             "rendered_goal_visibility_rebind",
             "score_change_live_phase_rebind",
             "live_shot_finish_sequence",
+            ...(delayedScoreConfirmation ? ["scoreboard_confirmation_decoupled_from_clip_tail"] : []),
           ], 12),
         },
         finishFrameEvidence: null,
@@ -443,6 +457,7 @@ function rebindRenderedGoalFailureSegments({ editPlan, renderedGoalProof, metada
         rebindingSearchWindow,
         selectedWindow,
         failedRoles: failure.failedRoles.slice(0, 8),
+        scoreChangeConfirmedOutsideClip: delayedScoreConfirmation,
       },
       safetyFlags: safeUniqueReasonList([
         ...(Array.isArray(segment.safetyFlags) ? segment.safetyFlags : []),
