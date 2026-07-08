@@ -2,9 +2,24 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
+  analyzeRgbBuffer,
   analyzeSemanticGoalFrames,
   classifyFeatures,
 } = require("../server/semantic-goal-visibility.cjs");
+
+function rgbFrame({ width = 72, height = 128, fill = [0, 0, 0], paint = () => null } = {}) {
+  const buffer = Buffer.alloc(width * height * 3);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const offset = (y * width + x) * 3;
+      const color = paint(x, y) || fill;
+      buffer[offset] = color[0];
+      buffer[offset + 1] = color[1];
+      buffer[offset + 2] = color[2];
+    }
+  }
+  return buffer;
+}
 
 test("semantic goal visibility classifies goalmouth finish features as clear", () => {
   const evidence = classifyFeatures({
@@ -36,6 +51,24 @@ test("semantic goal visibility accepts low-white goalmouth finish with clear fie
   assert.equal(evidence.hasVisibleFinish, true);
   assert.equal(evidence.hasBallInNetOrPayoff, true);
   assert.equal(evidence.hasGoalMouth, true);
+});
+
+test("semantic goal visibility ignores letterbox bars when measuring rendered action frames", () => {
+  const buffer = rgbFrame({
+    paint: (x, y) => {
+      if (y < 45 || y > 82) return [0, 0, 0];
+      if (x >= 26 && x <= 44 && y >= 58 && y <= 64) return [238, 238, 230];
+      if ((x + y) % 17 === 0) return [195, 195, 185];
+      return [38, 124, 42];
+    },
+  });
+  const features = analyzeRgbBuffer(buffer);
+  const evidence = classifyFeatures(features, "finish");
+
+  assert.equal(features.blackBarRatio > 0.6, true);
+  assert.equal(features.activeContentRatio < 0.4, true);
+  assert.equal(evidence.visibilityVerdict, "clear");
+  assert.equal(evidence.hasVisibleFinish, true);
 });
 
 test("semantic goal visibility rejects player closeup frames", () => {

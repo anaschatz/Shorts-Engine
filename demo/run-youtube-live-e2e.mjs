@@ -1062,6 +1062,29 @@ function safeRenderedGoalProof(value) {
           candidateFrameCount: safeNumber(goal && goal.candidateFrameCount),
           unverifiedFrameCount: safeNumber(goal && goal.unverifiedFrameCount),
           failedFrameReasons: safeStringList(goal && goal.failedFrameReasons, 8, 80),
+          payoffSearch: goal && goal.payoffSearch && typeof goal.payoffSearch === "object" && !Array.isArray(goal.payoffSearch)
+            ? {
+                role: safeString(goal.payoffSearch.role, 40),
+                required: Boolean(goal.payoffSearch.required),
+                searchStart: safeNumber(goal.payoffSearch.searchStart),
+                searchEnd: safeNumber(goal.payoffSearch.searchEnd),
+                candidateCount: safeNumber(goal.payoffSearch.candidateCount),
+                clearCandidateCount: safeNumber(goal.payoffSearch.clearCandidateCount),
+                selectedTime: safeNumber(goal.payoffSearch.selectedTime),
+                selectedClear: Boolean(goal.payoffSearch.selectedClear),
+                selectedReason: goal.payoffSearch.selectedReason ? safeString(goal.payoffSearch.selectedReason, 80) : null,
+                rejectedReasons: safeStringList(goal.payoffSearch.rejectedReasons, 8, 80),
+                sampledCandidates: Array.isArray(goal.payoffSearch.sampledCandidates)
+                  ? goal.payoffSearch.sampledCandidates.slice(0, 24).map((candidate) => ({
+                      time: safeNumber(candidate && candidate.time),
+                      clear: Boolean(candidate && candidate.clear),
+                      status: candidate && candidate.status ? safeString(candidate.status, 40) : null,
+                      reason: candidate && candidate.reason ? safeString(candidate.reason, 80) : null,
+                      confidence: safeNumber(candidate && candidate.confidence),
+                    }))
+                  : [],
+              }
+            : null,
           semanticSummary: goal && goal.semanticSummary && typeof goal.semanticSummary === "object"
             ? {
                 providerMode: safeString(goal.semanticSummary.providerMode, 80),

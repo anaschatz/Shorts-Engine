@@ -79,7 +79,7 @@ const RENDER_PROFILES = Object.freeze({
     audioBitrate: "96k",
     maxVerticalHeight: 1920,
     maxSquareSize: 720,
-    blurredBackground: true,
+    blurredBackground: false,
     segmentMode: "fast_fade_transcode",
     outputFrameRate: "30",
   },
@@ -121,6 +121,19 @@ function normalizeRenderProfileName(value) {
 function renderProfileConfig(plan = {}) {
   const configured = plan && plan.renderProfile ? plan.renderProfile : process.env.SHORTSENGINE_RENDER_PROFILE;
   return RENDER_PROFILES[normalizeRenderProfileName(configured)];
+}
+
+function isValidGoalsProofPlan(plan = {}) {
+  return plan && (
+    plan.mode === "valid_goals_only" ||
+    plan.goalSelectionMode === "valid_goals_only" ||
+    plan.validGoalsOnly === true
+  );
+}
+
+function shouldUseBlurredBackground(plan = {}, profile = renderProfileConfig(plan)) {
+  if (isValidGoalsProofPlan(plan)) return false;
+  return profile.blurredBackground === true;
 }
 
 function labelForHighlightType(highlightType) {
@@ -642,6 +655,17 @@ function createRenderPolishSummary(plan = {}, options = {}) {
   const config = renderStyleConfig(plan);
   const profile = renderProfileConfig(plan);
   const segments = normalizedRenderSegments(plan);
+  const cleanActionLayoutRequired = isValidGoalsProofPlan(plan);
+  const blurredBackgroundUsed = shouldUseBlurredBackground(plan, profile);
+  const softFollowCrop = activeSoftFollowCrop(plan);
+  const splitLayoutCaptionCount = Array.isArray(plan.captions)
+    ? plan.captions.filter((caption) => caption && caption.layout === "split").length
+    : 0;
+  const actionLayoutMode = blurredBackgroundUsed
+    ? "blurred_duplicate_background"
+    : softFollowCrop
+      ? "clean_action_crop"
+      : "clean_action_letterbox";
   const duration = Number(plan.totalDuration) || segments.reduce((sum, segment) => sum + segment.duration, 0) || Number(plan.sourceEnd) - Number(plan.sourceStart) || 0;
   const transitions = safeRenderTransitions(plan, segments);
   const transitionTargetCount = Math.max(0, segments.length - 1);
@@ -665,7 +689,9 @@ function createRenderPolishSummary(plan = {}, options = {}) {
   if (segments.length > 1 && transitionRenderedCount === 0) renderPolishWarnings.push("missing_transition_render");
   if (overlayRenderedCount === 0) renderPolishWarnings.push("overlay_not_rendered");
   if (profile.name === "proof_fast") renderPolishWarnings.push("proof_fast_render_profile");
-  if (!profile.blurredBackground) renderPolishWarnings.push("fast_safe_letterbox_background");
+  if (!blurredBackgroundUsed) renderPolishWarnings.push("clean_action_letterbox_background");
+  if (cleanActionLayoutRequired && blurredBackgroundUsed) renderPolishWarnings.push("valid_goal_proof_blurred_background_used");
+  if (cleanActionLayoutRequired && splitLayoutCaptionCount > 0) renderPolishWarnings.push("valid_goal_proof_split_caption_layout_used");
   return {
     contractVersion: 1,
     renderProfile: profile.name,
@@ -683,6 +709,12 @@ function createRenderPolishSummary(plan = {}, options = {}) {
     dynamicWordCaptionCount,
     staticCaptionFallbackCount: 0,
     captionMotion: dynamicWordCaptionCount > 0 ? "ass_word_by_word_highlight" : animatedCaptionCount > 0 ? "ass_fade_scale" : "none",
+    cleanActionLayoutRequired,
+    actionLayoutMode,
+    blurredBackgroundUsed,
+    duplicateBackgroundUsed: blurredBackgroundUsed,
+    splitLayoutCaptionCount,
+    cleanActionLayoutPassed: !cleanActionLayoutRequired || (!blurredBackgroundUsed && splitLayoutCaptionCount === 0),
     overlayRenderedCount,
     overlayFallbackCount: 0,
     overlayMode: overlayRenderedCount > 0 ? "ass_goal_badge_and_labels" : "none",
@@ -724,7 +756,7 @@ async function renderSingleWindowShort({ inputPath, outputPath, subtitlesPath, p
         `${finishingFilters.join(",")}[v]`,
       ].join(",")
     : ["wide_safe", "wide_safe_vertical"].includes(plan.framingMode)
-    ? profile.blurredBackground
+    ? shouldUseBlurredBackground(plan, profile)
     ? [
         `[0:v]scale=${backgroundWidth}:${backgroundHeight}:force_original_aspect_ratio=increase,crop=${dimensions.width}:${dimensions.height},boxblur=18:1[bg]`,
         `[0:v]scale=${dimensions.width}:${dimensions.height}:force_original_aspect_ratio=decrease[fg]`,

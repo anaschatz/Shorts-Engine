@@ -399,15 +399,19 @@ test("proof-fast render profile keeps visible framing while using faster encodin
   assert.equal(args[args.indexOf("-crf") + 1], "28");
   assert.equal(args[args.indexOf("-r") + 1], "30");
   assert.equal(args[args.indexOf("-b:a") + 1], "96k");
-  assert.match(filter, /boxblur=18:1/);
+  assert.doesNotMatch(filter, /boxblur=18:1/);
+  assert.match(filter, /pad=1080:1920/);
   assert.match(filter, /scale=1080:1920:force_original_aspect_ratio=decrease/);
   assert.equal(plan.renderPolishQA.renderProfile, "proof_fast");
   assert.equal(plan.renderPolishQA.outputWidth, 1080);
   assert.equal(plan.renderPolishQA.outputHeight, 1920);
   assert.equal(plan.renderPolishQA.encoderPreset, "ultrafast");
   assert.equal(plan.renderPolishQA.encoderCrf, 28);
+  assert.equal(plan.renderPolishQA.actionLayoutMode, "clean_action_letterbox");
+  assert.equal(plan.renderPolishQA.blurredBackgroundUsed, false);
+  assert.equal(plan.renderPolishQA.duplicateBackgroundUsed, false);
   assert.ok(plan.renderPolishQA.renderPolishWarnings.includes("proof_fast_render_profile"));
-  assert.equal(plan.renderPolishQA.renderPolishWarnings.includes("fast_safe_letterbox_background"), false);
+  assert.equal(plan.renderPolishQA.renderPolishWarnings.includes("clean_action_letterbox_background"), true);
 });
 
 test("multi-segment renderer accepts full valid-goal compilations up to 210 seconds", async () => {
@@ -573,11 +577,15 @@ test("proof-fast multi-segment renderer uses fast bounded encoding for every pas
   assert.equal(calls[3][calls[3].indexOf("-preset") + 1], "ultrafast");
   assert.equal(calls[3][calls[3].indexOf("-crf") + 1], "28");
   assert.equal(calls[3][calls[3].indexOf("-r") + 1], "30");
-  assert.match(calls[3][calls[3].indexOf("-filter_complex") + 1], /boxblur=18:1/);
+  assert.doesNotMatch(calls[3][calls[3].indexOf("-filter_complex") + 1], /boxblur=18:1/);
+  assert.match(calls[3][calls[3].indexOf("-filter_complex") + 1], /pad=1080:1920/);
   assert.equal(plan.renderPolishQA.renderProfile, "proof_fast");
   assert.equal(plan.renderPolishQA.segmentRenderMode, "fast_fade_transcode");
   assert.equal(plan.renderPolishQA.outputWidth, 1080);
   assert.equal(plan.renderPolishQA.outputHeight, 1920);
+  assert.equal(plan.renderPolishQA.actionLayoutMode, "clean_action_letterbox");
+  assert.equal(plan.renderPolishQA.blurredBackgroundUsed, false);
+  assert.equal(plan.renderPolishQA.duplicateBackgroundUsed, false);
 });
 
 test("render polish summary reports transition fallback when no multi-segment render happened", () => {

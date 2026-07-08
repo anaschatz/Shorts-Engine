@@ -389,6 +389,18 @@ function validGoalCompilationPlan(segments) {
   };
 }
 
+function cleanRenderPolishQA(plan = {}) {
+  return {
+    ...(plan.renderPolishQA || {}),
+    cleanActionLayoutRequired: true,
+    cleanActionLayoutPassed: true,
+    actionLayoutMode: "clean_action_letterbox",
+    blurredBackgroundUsed: false,
+    duplicateBackgroundUsed: false,
+    splitLayoutCaptionCount: 0,
+  };
+}
+
 function defaultOcrQaCalibration() {
   return {
     status: "missing",
@@ -640,13 +652,16 @@ function makeContext(options = {}) {
       return [validPlan()];
     },
     validateEditPlan,
-    renderShort: async ({ outputPath }) => {
+    renderShort: async ({ outputPath, plan }) => {
       context.renderObserved = {
         exportCount: exportsById.size,
         projectStatus: project.status,
       };
       calls.push("render_short");
       if (options.renderError) throw options.renderError;
+      if (plan && typeof plan === "object" && !plan.renderPolishQA) {
+        plan.renderPolishQA = cleanRenderPolishQA(plan);
+      }
       writeFileSync(outputPath, Buffer.from("rendered-short"));
     },
     analyzeRenderedGoalProof: async ({ editPlan }) => {
@@ -1923,6 +1938,7 @@ test("reference duration gate accepts 5/5 rendered visible goals under the expan
   const editPlan = validateEditPlan({
     ...validGoalCompilationPlan(sourceSegments),
     totalDuration: 91.3,
+    renderPolishQA: cleanRenderPolishQA(),
   }, metadata);
   const matchEventTruth = countedGoalTruthFromSegments(editPlan.segments);
   const initialReport = assertVideoOutputCoverage({
@@ -1986,6 +2002,88 @@ test("reference duration gate accepts 5/5 rendered visible goals under the expan
   assert.equal(goal4.sourceEnd >= goal4.confirmationTime, true);
   assert.equal(goal4.phaseCoverage.hasFinish, true);
   assert.equal(goal4.phaseCoverage.hasConfirmation, true);
+});
+
+test("reference duration compaction trims verified padding while preserving five visible goals", () => {
+  const metadata = { durationSeconds: 764.52, width: 1280, height: 720 };
+  const sourceSegments = [
+    { goal: 1, start: 103.75, shot: 115.75, finish: 121.75, confirm: 123.75, end: 126.1 },
+    { goal: 2, start: 452.54, shot: 474.44, finish: 475.34, confirm: 482.04, end: 484.39 },
+    { goal: 3, start: 484.54, shot: 506.44, finish: 508.54, confirm: 514.04, end: 516.39 },
+    { goal: 4, start: 526.22, shot: 547.37, finish: 547.72, confirm: 555.72, end: 558.07 },
+    { goal: 5, start: 662.75, shot: 680.65, finish: 682.75, confirm: 686.25, end: 688.6 },
+  ].map((item) => ({
+    ...validGoalSegment(item.goal, item.start, item.shot, item.finish, item.confirm),
+    sourceEnd: item.end,
+    duration: Number((item.end - item.start).toFixed(2)),
+  }));
+  const editPlan = validateEditPlan({
+    ...validGoalCompilationPlan(sourceSegments),
+    renderPolishQA: cleanRenderPolishQA(),
+  }, metadata);
+  assert.equal(editPlan.totalDuration > 125, true);
+
+  const sourceRoleTimes = new Map([
+    [1, { pre_shot: 115.4, finish: 121.75, payoff: 122.3, confirmation: 123.75 }],
+    [2, { pre_shot: 474.09, finish: 475.34, payoff: 476.74, confirmation: 482.04 }],
+    [3, { pre_shot: 506.09, finish: 508.54, payoff: 509.14, confirmation: 514.04 }],
+    [4, { pre_shot: 547.77, finish: 547.72, payoff: 548.77, confirmation: 555.72 }],
+    [5, { pre_shot: 680.3, finish: 682.75, payoff: 683.3, confirmation: 686.25 }],
+  ]);
+  let timelineCursor = 0;
+  const proofGoals = editPlan.segments.map((segment, index) => {
+    const sourceTimes = sourceRoleTimes.get(Number(segment.goalNumber));
+    const frameRefs = ["pre_shot", "finish", "payoff", "confirmation"].map((role) => ({
+      role,
+      time: Number((timelineCursor + sourceTimes[role] - segment.sourceStart).toFixed(2)),
+      status: "clear",
+      clear: true,
+      confidence: 0.91,
+      reason: null,
+    }));
+    timelineCursor += segment.sourceEnd - segment.sourceStart;
+    return {
+      goalNumber: segment.goalNumber,
+      segmentIndex: index + 1,
+      verdict: "clear",
+      frameCount: 4,
+      frameRefs,
+      candidateFrameCount: 40,
+      failedFrameReasons: [],
+    };
+  });
+
+  const compaction = __testing.compactVisibleGoalSegmentsForReferenceDuration({
+    editPlan,
+    metadata,
+    renderedGoalProof: {
+      summary: {
+        schemaVersion: 1,
+        providerMode: "mock-rendered-goal-proof",
+        goalCount: 5,
+        clearGoalCount: 5,
+        borderlineGoalCount: 0,
+        failedGoalCount: 0,
+        goals: proofGoals,
+      },
+    },
+  });
+
+  assert.equal(compaction.applied, true);
+  assert.equal(compaction.summary.passedDurationTarget, true);
+  assert.equal(compaction.editPlan.totalDuration <= 125, true);
+  assert.equal(compaction.summary.compactedGoalCount >= 1, true);
+  const report = assertVideoOutputCoverage({
+    goalSelectionMode: "valid_goals_only",
+    matchEventTruth: countedGoalTruthFromSegments(compaction.editPlan.segments),
+    editPlan: compaction.editPlan,
+  });
+  assert.equal(report.status, "passed");
+  assert.equal(report.coveredGoalCount, 5);
+  assert.deepEqual(report.missingGoalNumbers, []);
+  assert.equal(report.referenceStyleDuration.passed, true);
+  assert.equal(report.renderedGoalVisibility.passed, true);
+  assert.doesNotMatch(JSON.stringify(compaction), /\/Users|storageKey|secret|stderr|stdout|rawOcr|rawText/i);
 });
 
 test("render orchestration rebinds and rerenders failed visible goal proof once", async () => {

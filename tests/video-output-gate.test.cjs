@@ -175,6 +175,14 @@ function creativeOutputContract() {
       copyrightEvasion: false,
       watermarkObscuring: false,
     },
+    renderPolishQA: {
+      cleanActionLayoutRequired: true,
+      cleanActionLayoutPassed: true,
+      actionLayoutMode: "clean_action_letterbox",
+      blurredBackgroundUsed: false,
+      duplicateBackgroundUsed: false,
+      splitLayoutCaptionCount: 0,
+    },
   };
 }
 
@@ -794,6 +802,72 @@ test("video output gate rejects copyrighted audio or evasion styling in public p
     assert.equal(error.details.creativeStyle.passed, false);
     assert.ok(error.details.failedReasons.includes("copyrighted_audio_bundled"));
     assert.ok(error.details.failedReasons.includes("copyright_evasion_style"));
+    return true;
+  });
+});
+
+test("video output gate rejects valid-goal proof rendered with blurred duplicate layout", () => {
+  const contract = creativeOutputContract();
+  contract.renderPolishQA = {
+    cleanActionLayoutRequired: true,
+    cleanActionLayoutPassed: false,
+    actionLayoutMode: "blurred_duplicate_background",
+    blurredBackgroundUsed: true,
+    duplicateBackgroundUsed: true,
+    splitLayoutCaptionCount: 0,
+  };
+
+  assert.throws(() => assertVideoOutputCoverage({
+    goalSelectionMode: "valid_goals_only",
+    matchEventTruth: {
+      providerMode: "fixture-match-event-truth",
+      events: [],
+      rejectedEvents: [],
+      scoreTimelineObservations: [],
+      scoreChanges: countedScoreChanges(1),
+      summary: { countedGoalEventCount: 1 },
+    },
+    editPlan: {
+      ...contract,
+      segments: [visibleGoalSegment(1, 84)],
+    },
+  }), (error) => {
+    assert.equal(error.code, "VIDEO_OUTPUT_QA_FAILED");
+    assert.equal(error.details.renderLayout.passed, false);
+    assert.ok(error.details.renderLayout.reasons.includes("blurred_duplicate_background_used"));
+    assert.ok(error.details.failedReasons.includes("blurred_duplicate_background_used"));
+    assert.doesNotMatch(JSON.stringify(error.details), /\/Users|\/private|token|secret|rawOcr|rawText|stderr|stdout/i);
+    return true;
+  });
+});
+
+test("video output gate rejects split caption layout in valid-goal proof", () => {
+  const contract = creativeOutputContract();
+  contract.renderPolishQA = {
+    ...contract.renderPolishQA,
+    cleanActionLayoutPassed: false,
+    splitLayoutCaptionCount: 1,
+  };
+
+  assert.throws(() => assertVideoOutputCoverage({
+    goalSelectionMode: "valid_goals_only",
+    matchEventTruth: {
+      providerMode: "fixture-match-event-truth",
+      events: [],
+      rejectedEvents: [],
+      scoreTimelineObservations: [],
+      scoreChanges: countedScoreChanges(1),
+      summary: { countedGoalEventCount: 1 },
+    },
+    editPlan: {
+      ...contract,
+      segments: [visibleGoalSegment(1, 84)],
+    },
+  }), (error) => {
+    assert.equal(error.code, "VIDEO_OUTPUT_QA_FAILED");
+    assert.equal(error.details.renderLayout.passed, false);
+    assert.ok(error.details.renderLayout.reasons.includes("split_caption_layout_used"));
+    assert.ok(error.details.failedReasons.includes("split_caption_layout_used"));
     return true;
   });
 });

@@ -146,21 +146,28 @@ function analyzeRgbBuffer(buffer) {
     const b = buffer[offset + 2];
     const max = Math.max(r, g, b);
     const min = Math.min(r, g, b);
+    const blackBarPixel = r < 12 && g < 12 && b < 12;
+    if (blackBarPixel) {
+      blackBars += 1;
+      continue;
+    }
     if (g > 48 && g > r * 1.06 && g > b * 1.05) green += 1;
     if (r > 155 && g > 155 && b > 155 && max - min < 60) white += 1;
     if (r + g + b < 95) dark += 1;
     if (r > 95 && g > 50 && b > 30 && r > g * 1.05 && g > b * 1.02 && r - b > 30) skin += 1;
     if (max > 145 && max - min > 70) saturated += 1;
-    if (r < 12 && g < 12 && b < 12) blackBars += 1;
   }
-  const ratio = (value) => round(value / total, 4);
+  const activePixels = Math.max(0, total - blackBars);
+  const contentTotal = activePixels > 0 ? activePixels : total;
+  const ratio = (value) => round(value / contentTotal, 4);
   return {
     greenRatio: ratio(green),
     whiteRatio: ratio(white),
     darkRatio: ratio(dark),
     skinRatio: ratio(skin),
     saturatedColorRatio: ratio(saturated),
-    blackBarRatio: ratio(blackBars),
+    blackBarRatio: round(blackBars / total, 4),
+    activeContentRatio: round(activePixels / total, 4),
   };
 }
 
@@ -171,6 +178,8 @@ function classifyFeatures(features = {}, role = "") {
   const skin = numberOrNull(features.skinRatio) ?? 0;
   const saturated = numberOrNull(features.saturatedColorRatio) ?? 0;
   const blackBars = numberOrNull(features.blackBarRatio) ?? 0;
+  const activeContent = numberOrNull(features.activeContentRatio) ?? Math.max(0, 1 - blackBars);
+  const activeContentTooSmall = activeContent < 0.18;
   const goalRole = ["finish", "payoff"].includes(role);
   const goalRoleCloseupSignature = goalRole && (
     (skin > 0.03 && white > 0.07 && green < 0.42) ||
@@ -195,7 +204,7 @@ function classifyFeatures(features = {}, role = "") {
   const tooZoomed = (green < 0.07 && white < 0.018) || (goalRole && green < 0.13);
   const tooWideUnclear = green > 0.58 && white < (goalRole ? 0.018 : 0.012) && saturated < 0.12;
   const hasGoalMouth = white >= 0.018 || (white >= 0.012 && green >= 0.14);
-  const hasActionSurface = green >= 0.10 && blackBars < 0.25;
+  const hasActionSurface = green >= 0.10 && !activeContentTooSmall;
   const hasVisibleAction = hasActionSurface && !playerCloseupOnly && !scoreboardOnly && !tooBlurred;
   const hasGoalRoleScale = !goalRole ||
     (green >= 0.14 && (white >= 0.018 || (white >= 0.014 && saturated >= 0.14 && skin < 0.012)));
@@ -213,6 +222,7 @@ function classifyFeatures(features = {}, role = "") {
     ...(tooBlurred ? ["semantic_frame_too_blurred"] : []),
     ...(tooZoomed ? ["semantic_frame_too_zoomed"] : []),
     ...(tooWideUnclear ? ["semantic_frame_too_wide_unclear"] : []),
+    ...(activeContentTooSmall ? ["semantic_active_content_too_small"] : []),
   ];
   const confidence = roleClear
     ? Math.min(0.91, 0.52 + green * 0.55 + white * 2.2 + saturated * 0.18)

@@ -341,6 +341,46 @@ function creativeStyleSummary(editPlan = {}) {
   };
 }
 
+function renderLayoutSummary(editPlan = {}, goalSelectionMode = "balanced", options = {}) {
+  const qa = editPlan.renderPolishQA && typeof editPlan.renderPolishQA === "object" && !Array.isArray(editPlan.renderPolishQA)
+    ? editPlan.renderPolishQA
+    : null;
+  const required = sanitizeText(goalSelectionMode || "balanced", 40) === "valid_goals_only" &&
+    options.requireRenderedGoalVisibility !== false;
+  const actionLayoutMode = qa ? sanitizeText(qa.actionLayoutMode || "unknown", 60) : null;
+  const splitLayoutCaptionCount = qa ? numberOrNull(qa.splitLayoutCaptionCount) : null;
+  const allowedCleanModes = ["clean_action_letterbox", "clean_action_crop", "clean_action_full_frame"];
+  const passed = !required || Boolean(
+    qa &&
+    qa.cleanActionLayoutRequired === true &&
+    qa.cleanActionLayoutPassed === true &&
+    allowedCleanModes.includes(actionLayoutMode) &&
+    qa.blurredBackgroundUsed !== true &&
+    qa.duplicateBackgroundUsed !== true &&
+    (splitLayoutCaptionCount == null || splitLayoutCaptionCount === 0)
+  );
+  const reasons = safeCodes([
+    ...(required && !qa ? ["render_layout_summary_missing"] : []),
+    ...(required && qa && qa.cleanActionLayoutRequired !== true ? ["clean_action_layout_not_required_by_renderer"] : []),
+    ...(required && qa && qa.cleanActionLayoutPassed !== true ? ["clean_action_layout_failed"] : []),
+    ...(required && qa && !allowedCleanModes.includes(actionLayoutMode) ? ["non_clean_action_layout"] : []),
+    ...(required && qa && qa.blurredBackgroundUsed === true ? ["blurred_duplicate_background_used"] : []),
+    ...(required && qa && qa.duplicateBackgroundUsed === true ? ["duplicate_background_used"] : []),
+    ...(required && qa && splitLayoutCaptionCount != null && splitLayoutCaptionCount > 0 ? ["split_caption_layout_used"] : []),
+  ], 8);
+  return {
+    passed,
+    required,
+    actionLayoutMode,
+    cleanActionLayoutRequired: qa ? Boolean(qa.cleanActionLayoutRequired) : null,
+    cleanActionLayoutPassed: qa ? Boolean(qa.cleanActionLayoutPassed) : null,
+    blurredBackgroundUsed: qa ? Boolean(qa.blurredBackgroundUsed) : null,
+    duplicateBackgroundUsed: qa ? Boolean(qa.duplicateBackgroundUsed) : null,
+    splitLayoutCaptionCount,
+    reasons,
+  };
+}
+
 function segmentList(editPlan = {}) {
   if (Array.isArray(editPlan.segments) && editPlan.segments.length) return editPlan.segments;
   if (!editPlan || typeof editPlan !== "object") return [];
@@ -914,6 +954,7 @@ function assertVideoOutputCoverage({
   const animations = animationSummary(editPlan);
   const audioPolicy = audioPolicySummary(editPlan);
   const creativeStyle = creativeStyleSummary(editPlan);
+  const renderLayout = renderLayoutSummary(editPlan, mode, gateOptions);
   const distinctGoalIdentity = distinctGoalIdentitySummary(segments);
   const referenceStyleDuration = referenceStyleDurationSummary(editPlan, expectedGoals);
   const renderedGoalVisibility = renderedGoalVisibilitySummary(segments, gateOptions);
@@ -922,6 +963,7 @@ function assertVideoOutputCoverage({
     animations.passed &&
     audioPolicy.passed &&
     creativeStyle.passed &&
+    renderLayout.passed &&
     referenceStyleDuration.passed &&
     renderedGoalVisibility.passed;
   const extraGoalSegmentCount = expectedGoals.length > 0
@@ -939,6 +981,7 @@ function assertVideoOutputCoverage({
     ...animations.reasons,
     ...audioPolicy.reasons,
     ...creativeStyle.reasons,
+    ...renderLayout.reasons,
     ...referenceStyleDuration.reasons,
     ...renderedGoalVisibility.reasons,
   ], 10);
@@ -988,6 +1031,7 @@ function assertVideoOutputCoverage({
     animations,
     audioPolicy,
     creativeStyle,
+    renderLayout,
     failedReasons,
     logsDownloaded: false,
     artifactsDownloaded: false,
@@ -1007,5 +1051,6 @@ module.exports = {
   creativeStyleSummary,
   expectedGoalsFromTruth,
   hookSummary,
+  renderLayoutSummary,
   renderedGoalVisibilitySummary,
 };

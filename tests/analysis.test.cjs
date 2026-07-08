@@ -64,6 +64,21 @@ function finishFrameEvidenceForGoal(goal) {
   };
 }
 
+function attachCleanRenderPolishQA(plan) {
+  return {
+    ...plan,
+    renderPolishQA: {
+      ...(plan.renderPolishQA || {}),
+      cleanActionLayoutRequired: true,
+      cleanActionLayoutPassed: true,
+      actionLayoutMode: "clean_action_letterbox",
+      blurredBackgroundUsed: false,
+      duplicateBackgroundUsed: false,
+      splitLayoutCaptionCount: 0,
+    },
+  };
+}
+
 function matchEventTruthFixture(goals, durationSeconds) {
   const selectedEvents = goals.map((goal, index) => {
     const finishFrameEvidence = finishFrameEvidenceForGoal(goal);
@@ -1896,7 +1911,7 @@ test("valid-goals-only keeps distinct close confirmed goals even when source win
   assert.doesNotMatch(captionText, /FINISH\s*\+\s*BUILD[- ]?UP|BUILD[- ]?UP\s*\+\s*FINISH|GOAL\s*\d+\s*CONFIRMED/i);
   assert.match(captionText, /5 FINISHES\. NO FILLER\./i);
   const outputGate = assertVideoOutputCoverage({
-    editPlan: plan,
+    editPlan: attachCleanRenderPolishQA(plan),
     matchEventTruth: truth,
     goalSelectionMode: "valid_goals_only",
   });
@@ -2133,7 +2148,7 @@ test("valid-goals-only rebinds stale finish phases to the stable score-change wi
   assert.equal(outputGate.referenceStyleDuration.passed, true);
   assert.equal(outputGate.renderedGoalVisibility.status, "pre_render_skipped");
   const renderedGate = assertVideoOutputCoverage({
-    editPlan: plan,
+    editPlan: attachCleanRenderPolishQA(plan),
     matchEventTruth: truth,
     goalSelectionMode: "valid_goals_only",
   });
