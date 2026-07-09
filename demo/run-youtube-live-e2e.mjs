@@ -273,36 +273,6 @@ function safeScoreChangeAnchor(value = {}, index = 0) {
   };
 }
 
-function scoreChangeAnchorsFromExpectedGoals(expectedGoals = []) {
-  if (!Array.isArray(expectedGoals)) return [];
-  return expectedGoals
-    .map((goal, index) => {
-      if (!goal || typeof goal !== "object" || Array.isArray(goal)) return null;
-      const anchorTime = safeNumber(goal.anchorTime ?? goal.confirmationTime);
-      return safeScoreChangeAnchor({
-        index: index + 1,
-        id: `score_change_anchor_${index + 1}`,
-        scoreBefore: goal.scoreBefore,
-        scoreAfter: goal.scoreAfter,
-        firstSeenAt: anchorTime,
-        confirmedAt: safeNumber(goal.confirmationTime) ?? anchorTime,
-        stableUntil: null,
-        reverted: false,
-        confidence: 0.82,
-        outcome: "counted_goal",
-        selectedForRender: true,
-        linkedEventType: "ball_in_net",
-        hasLiveAction: true,
-        hasVisibleFinish: false,
-        replayOnly: false,
-        missingEvidence: [],
-        evidenceCodes: ["score_change_expected_goal_fallback"],
-      }, index);
-    })
-    .filter(Boolean)
-    .slice(0, 12);
-}
-
 function segmentWindowsFromVideoOutputQA(videoOutputQA = null) {
   if (!videoOutputQA || typeof videoOutputQA !== "object" || Array.isArray(videoOutputQA)) return [];
   if (!Array.isArray(videoOutputQA.segments)) return [];
@@ -461,31 +431,49 @@ function safeScoreboardOcrEvent(value) {
   const selectedRoi = scorebugDebug && typeof scorebugDebug === "object" && !Array.isArray(scorebugDebug)
     ? scorebugDebug.selectedRoi
     : null;
-  const safeQaReport = value.qaReport && typeof value.qaReport === "object" && !Array.isArray(value.qaReport)
+  const qaReport = value.qaReport && typeof value.qaReport === "object" && !Array.isArray(value.qaReport)
+    ? value.qaReport
+    : summary.qaReport && typeof summary.qaReport === "object" && !Array.isArray(summary.qaReport)
+      ? summary.qaReport
+      : null;
+  const safeQaReport = qaReport
     ? {
-        enabled: safeBoolean(value.qaReport.enabled),
-        runId: safeString(value.qaReport.runId, 120),
-        status: safeString(value.qaReport.status, 40),
-        reportPath: value.qaReport.reportPath ? safeString(value.qaReport.reportPath, 180) : null,
-        latestPath: value.qaReport.latestPath ? safeString(value.qaReport.latestPath, 180) : null,
-        contactSheetPath: value.qaReport.contactSheetPath ? safeString(value.qaReport.contactSheetPath, 180) : null,
-        reviewPath: value.qaReport.reviewPath ? safeString(value.qaReport.reviewPath, 180) : null,
-        cropCount: safeNumber(value.qaReport.cropCount),
-        attemptCount: safeNumber(value.qaReport.attemptCount),
+        enabled: safeBoolean(qaReport.enabled),
+        runId: safeString(qaReport.runId, 120),
+        status: safeString(qaReport.status, 40),
+        reportPath: qaReport.reportPath ? safeString(qaReport.reportPath, 180) : null,
+        latestPath: qaReport.latestPath ? safeString(qaReport.latestPath, 180) : null,
+        contactSheetPath: qaReport.contactSheetPath ? safeString(qaReport.contactSheetPath, 180) : null,
+        reviewPath: qaReport.reviewPath ? safeString(qaReport.reviewPath, 180) : null,
+        cropCount: safeNumber(qaReport.cropCount),
+        attemptCount: safeNumber(qaReport.attemptCount),
       }
     : null;
+  const scoreTimeline = Array.isArray(value.scoreTimeline)
+    ? value.scoreTimeline
+    : Array.isArray(summary.scoreTimeline)
+      ? summary.scoreTimeline
+      : [];
+  const chunkSummary = safeOcrChunkSummary(value.chunkSummary || summary.chunkSummary);
+  const chunkDerivedAnchors = scoreChangeAnchorsFromOcrChunkSummary(chunkSummary);
+  const topSampledFrameCount = safeNumber(value.sampledFrameCount);
+  const summarySampledFrameCount = safeNumber(summary.sampledFrameCount);
+  const topEvidenceCount = safeNumber(value.evidenceCount);
+  const summaryEvidenceCount = safeNumber(summary.evidenceCount);
+  const topScoreChangeCount = safeNumber(value.scoreChangeCount);
+  const summaryScoreChangeCount = safeNumber(summary.scoreChangeCount);
   return {
     providerMode: safeString(value.providerMode, 80),
     fallbackUsed: safeBoolean(value.fallbackUsed),
-    sampledFrameCount: safeNumber(value.sampledFrameCount),
-    evidenceCount: safeNumber(value.evidenceCount),
-    scoreChangeCount: safeNumber(value.scoreChangeCount),
-    scoreRevertedCount: safeNumber(value.scoreRevertedCount),
-    ambiguousCount: safeNumber(value.ambiguousCount),
-    unreadableCount: safeNumber(value.unreadableCount),
-    regionIdsUsed: safeStringList(value.regionIdsUsed, 8, 80),
-    preprocessingVariantCount: safeNumber(value.preprocessingVariantCount),
-    chunkSummary: safeOcrChunkSummary(value.chunkSummary || summary.chunkSummary),
+    sampledFrameCount: Math.max(topSampledFrameCount ?? 0, summarySampledFrameCount ?? 0),
+    evidenceCount: Math.max(topEvidenceCount ?? 0, summaryEvidenceCount ?? 0, chunkDerivedAnchors.length),
+    scoreChangeCount: Math.max(topScoreChangeCount ?? 0, summaryScoreChangeCount ?? 0, chunkDerivedAnchors.length),
+    scoreRevertedCount: safeNumber(value.scoreRevertedCount) ?? safeNumber(summary.scoreRevertedCount),
+    ambiguousCount: safeNumber(value.ambiguousCount) ?? safeNumber(summary.ambiguousCount),
+    unreadableCount: safeNumber(value.unreadableCount) ?? safeNumber(summary.unreadableCount),
+    regionIdsUsed: safeStringList(value.regionIdsUsed || summary.regionIdsUsed, 8, 80),
+    preprocessingVariantCount: safeNumber(value.preprocessingVariantCount) ?? safeNumber(summary.preprocessingVariantCount),
+    chunkSummary,
     qaReport: safeQaReport,
     scorebugDebug: scorebugDebug && typeof scorebugDebug === "object" && !Array.isArray(scorebugDebug)
       ? {
@@ -525,16 +513,120 @@ function safeScoreboardOcrEvent(value) {
             : [],
         }
       : null,
-    scoreTimeline: Array.isArray(value.scoreTimeline)
-      ? value.scoreTimeline.map((item) => ({
+    scoreTimeline: scoreTimeline
+      .map((item) => ({
           timestamp: safeNumber(item && item.timestamp),
           status: safeString(item && item.status, 40),
           scoreBefore: item && item.scoreBefore ? safeString(item.scoreBefore, 16) : null,
           scoreAfter: item && item.scoreAfter ? safeString(item.scoreAfter, 16) : null,
           temporalConsistency: safeBoolean(item && item.temporalConsistency),
-        })).slice(0, 24)
-      : [],
+        })).slice(0, 24),
   };
+}
+
+function scoreObjectFromText(text) {
+  const match = String(text || "").match(/\b(\d{1,2})\s*[-:]\s*(\d{1,2})\b/);
+  if (!match) return null;
+  const home = Number(match[1]);
+  const away = Number(match[2]);
+  if (!Number.isFinite(home) || !Number.isFinite(away)) return null;
+  return { home, away, text: `${home}-${away}` };
+}
+
+function scoreTotal(score) {
+  return score ? Number(score.home || 0) + Number(score.away || 0) : 0;
+}
+
+function scoreChangedSide(before, after) {
+  if (!before || !after) return null;
+  if (after.home === before.home + 1 && after.away === before.away) return "home";
+  if (after.away === before.away + 1 && after.home === before.home) return "away";
+  return null;
+}
+
+function ocrCorrectedScoreCandidate(current, candidate) {
+  if (!current || !candidate) return null;
+  if (candidate.home !== current.home && candidate.away !== current.away + 1) return null;
+  if (candidate.away < current.away) return null;
+  return {
+    ...candidate,
+    home: current.home,
+    text: `${current.home}-${candidate.away}`,
+    observedScoreText: candidate.text,
+    ocrCorrected: true,
+    correctionType: "carry_forward_home_score",
+  };
+}
+
+function scoreChangeAnchorsFromOcrChunkSummary(chunkSummary = null) {
+  if (!chunkSummary || typeof chunkSummary !== "object" || Array.isArray(chunkSummary)) return [];
+  const chunks = Array.isArray(chunkSummary.chunks) ? chunkSummary.chunks : [];
+  const anchors = [];
+  let current = { home: 0, away: 0, text: "0-0" };
+  for (const chunk of chunks) {
+    if (!chunk || chunk.status !== "completed") continue;
+    const candidates = safeStringList(chunk.normalizedScoreCandidates, 12, 16)
+      .map(scoreObjectFromText)
+      .filter(Boolean)
+      .sort((a, b) => scoreTotal(a) - scoreTotal(b) || a.home - b.home || a.away - b.away);
+    if (!candidates.length) continue;
+    let advanced = true;
+    let acceptedInChunk = 0;
+    while (advanced) {
+      advanced = false;
+      const unitCandidates = [];
+      for (const candidate of candidates) {
+        if (candidate.text === current.text || scoreTotal(candidate) <= scoreTotal(current)) continue;
+        const corrected = ocrCorrectedScoreCandidate(current, candidate);
+        if (corrected && scoreTotal(corrected) === scoreTotal(current) + 1 && scoreChangedSide(current, corrected)) {
+          unitCandidates.push(corrected);
+        }
+        if (scoreTotal(candidate) === scoreTotal(current) + 1 && scoreChangedSide(current, candidate)) {
+          unitCandidates.push(candidate);
+        }
+      }
+      const next = unitCandidates
+        .sort((a, b) => (a.ocrCorrected === b.ocrCorrected ? 0 : a.ocrCorrected ? -1 : 1) || a.home - b.home || a.away - b.away)[0];
+      if (!next) break;
+      const timestamps = Array.isArray(chunk.sampledFrameTimestamps) ? chunk.sampledFrameTimestamps : [];
+      const timestamp = safeNumber(timestamps[Math.min(timestamps.length - 1, acceptedInChunk + Math.max(0, timestamps.length - unitCandidates.length))]) ??
+        safeNumber(timestamps[Math.min(timestamps.length - 1, acceptedInChunk)]) ??
+        safeNumber(chunk.end) ??
+        safeNumber(chunk.start) ??
+        0;
+      const before = current;
+      current = { home: next.home, away: next.away, text: next.text };
+      acceptedInChunk += 1;
+      advanced = true;
+      anchors.push({
+        index: anchors.length + 1,
+        id: `score_change_anchor_${anchors.length + 1}`,
+        scoreBefore: before.text,
+        scoreAfter: next.text,
+        firstSeenAt: timestamp,
+        confirmedAt: timestamp,
+        stableUntil: safeNumber(chunk.end),
+        reverted: false,
+        confidence: 0.78,
+        source: "scoreboard_ocr",
+        roiId: chunk.selectedRoiId ? safeString(chunk.selectedRoiId, 80) : null,
+        layoutId: null,
+        outcome: "confirmed_goal",
+        selectedForRender: true,
+        linkedEventType: "confirmed_goal",
+        hasLiveAction: false,
+        hasVisibleFinish: false,
+        replayOnly: false,
+        missingEvidence: [],
+        evidenceCodes: [
+          "observed_score_candidate",
+          "unit_score_increase_candidate",
+          ...(next.ocrCorrected ? ["home_score_ocr_noise_carried_forward"] : []),
+        ],
+      });
+    }
+  }
+  return anchors.slice(0, 12);
 }
 
 function safeCurrentJobSnapshot(job) {
@@ -2189,8 +2281,7 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
     safeNumber(discovery?.countedGoalEventCount) ??
     safeNumber(discovery?.matchEventTruthCountedGoalEventCount) ??
     0;
-  const countedGoalsFound = outputExpectedGoalCount ??
-    Math.max(discoverySelectedGoalCount ?? 0, discoveredCountedGoalCount);
+  const countedGoalsFound = Math.max(discoverySelectedGoalCount ?? 0, discoveredCountedGoalCount);
   const actualConfirmedGoalSegmentCount = Number.isFinite(Number(outputQA?.actualConfirmedGoalSegmentCount))
     ? Number(outputQA.actualConfirmedGoalSegmentCount)
     : 0;
@@ -2222,14 +2313,18 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
     discovery.scoreboardOcrEnabled !== null
     ? Boolean(discovery.scoreboardOcrEnabled)
     : Boolean(scoreboardOcrEnabledForProof(scoreboardOcr) || progressLooksLikeScoreboardOcr || failureLooksLikeScoreboardOcr);
-  const scoreboardObservationCount = safeNumber(discovery && discovery.scoreboardObservationCount) ??
-    safeNumber(scoreboardOcr && scoreboardOcr.evidenceCount) ??
-    0;
-  const scoreChangeCount = safeNumber(discovery && discovery.scoreChangeCount) ??
-    safeNumber(scoreboardOcr && scoreboardOcr.scoreChangeCount) ??
-    0;
-  const stableScoreChangeCount = safeNumber(discovery && discovery.stableScoreChangeCount) ??
-    stableScoreChangeCountFromOcr(scoreboardOcr);
+  const scoreboardObservationCount = Math.max(
+    safeNumber(discovery && discovery.scoreboardObservationCount) ?? 0,
+    safeNumber(scoreboardOcr && scoreboardOcr.evidenceCount) ?? 0,
+  );
+  const scoreChangeCount = Math.max(
+    safeNumber(discovery && discovery.scoreChangeCount) ?? 0,
+    safeNumber(scoreboardOcr && scoreboardOcr.scoreChangeCount) ?? 0,
+  );
+  const stableScoreChangeCount = Math.max(
+    safeNumber(discovery && discovery.stableScoreChangeCount) ?? 0,
+    stableScoreChangeCountFromOcr(scoreboardOcr),
+  );
   const scoreboardOcrProviderMode = discovery?.scoreboardOcrProviderMode ||
     scoreboardOcr?.providerMode ||
     (progressLooksLikeScoreboardOcr || failureLooksLikeScoreboardOcr ? "chunked-scoreboard-ocr" : null);
@@ -2277,12 +2372,22 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
           }],
         }
       : null;
+  const ocrDerivedScoreChangeAnchors = scoreChangeAnchorsFromOcrChunkSummary(ocrChunkSummary);
   const countedGoalEventCount = safeNumber(discovery && discovery.countedGoalEventCount) ??
     safeNumber(discovery && discovery.matchEventTruthCountedGoalEventCount) ??
     0;
   const scoreChangeAnchors = Array.isArray(discovery && discovery.matchEventTruthScoreChangeAnchors)
     ? discovery.matchEventTruthScoreChangeAnchors.map(safeScoreChangeAnchor).filter(Boolean).slice(0, 12)
-    : scoreChangeAnchorsFromExpectedGoals(outputQA && outputQA.expectedGoals);
+    : ocrDerivedScoreChangeAnchors;
+  const effectiveScoreChangeCount = Math.max(scoreChangeCount, ocrDerivedScoreChangeAnchors.length);
+  const effectiveStableScoreChangeCount = Math.max(stableScoreChangeCount, ocrDerivedScoreChangeAnchors.length);
+  const effectiveScoreboardObservationCount = Math.max(scoreboardObservationCount, ocrDerivedScoreChangeAnchors.length);
+  const effectiveCountedGoalsFound = Math.max(
+    countedGoalsFound,
+    countedGoalEventCount,
+    ocrDerivedScoreChangeAnchors.length,
+  );
+  coverage.countedGoalsFound = effectiveCountedGoalsFound;
   const segmentWindows = segmentWindowsFromVideoOutputQA(outputQA);
   const missingEvidenceByCandidate = Array.isArray(discovery && discovery.missingEvidenceByCandidate) &&
     discovery.missingEvidenceByCandidate.length > 0
@@ -2311,7 +2416,7 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
       status: "skipped",
       code: "OUTPUT_MP4_NOT_CREATED",
     },
-    countedGoalsFound,
+    countedGoalsFound: effectiveCountedGoalsFound,
     countedGoalsIncluded: actualConfirmedGoalSegmentCount,
     actualConfirmedGoalSegmentCount,
     ...measuredVisibilityImprovement(coveredGoalCount),
@@ -2324,12 +2429,13 @@ function buildFailedOutputProof({ env, source, smoke = null, serverEvents, stale
     scoreboardOcrProviderMode,
     ocrChunkSummary,
     scorebugDebug: scoreboardOcr?.scorebugDebug || scorebugDebugFromChunkSummary(ocrChunkSummary),
-    scoreboardObservationCount,
-    scoreboardSampledFrameCount: safeNumber(discovery && discovery.scoreboardSampledFrameCount) ??
-      safeNumber(scoreboardOcr && scoreboardOcr.sampledFrameCount) ??
-      0,
-    scoreChangeCount,
-    stableScoreChangeCount,
+    scoreboardObservationCount: effectiveScoreboardObservationCount,
+    scoreboardSampledFrameCount: Math.max(
+      safeNumber(discovery && discovery.scoreboardSampledFrameCount) ?? 0,
+      safeNumber(scoreboardOcr && scoreboardOcr.sampledFrameCount) ?? 0,
+    ),
+    scoreChangeCount: effectiveScoreChangeCount,
+    stableScoreChangeCount: effectiveStableScoreChangeCount,
     countedGoalEventCount,
     scoreChangeAnchors,
     stableScoreChangeAnchorCount: safeNumber(discovery && discovery.matchEventTruthStableScoreChangeAnchorCount),

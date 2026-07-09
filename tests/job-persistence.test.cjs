@@ -236,6 +236,57 @@ test("public job summary stays bounded for polling while preserving render proof
   assert.doesNotMatch(JSON.stringify(summary), /\/Users|OPENAI_API_KEY|storageKey|outputPath|localPath/i);
 });
 
+test("job summaries and durable records preserve safe scoreboard OCR diagnostics", () => {
+  const jobDir = tempJobDir();
+  const store = createPersistentStore(jobDir);
+  const job = createJob(store, "scoreboard-ocr-summary");
+  const scoreboardOcr = {
+    providerMode: "chunked-scoreboard-ocr",
+    fallbackUsed: false,
+    summary: {
+      evidenceCount: 5,
+      scoreChangeCount: 5,
+      sampledFrameCount: 40,
+      chunkSummary: {
+        mode: "chunked_scorebug_first_ocr",
+        chunkCount: 8,
+        scannedChunks: 8,
+        discoveredScoreChanges: 5,
+      },
+      scoreTimeline: [
+        { timestamp: 236.25, status: "score_changed", scoreBefore: "0-0", scoreAfter: "1-0", temporalConsistency: true },
+        { timestamp: 260.5, status: "score_changed", scoreBefore: "1-0", scoreAfter: "1-1", temporalConsistency: true },
+      ],
+    },
+  };
+
+  store.update(job, {
+    status: "processing",
+    progress: 30,
+    step: "scoreboard_ocr_completed",
+    scoreboardOcr,
+  });
+  store.fail(job, {
+    code: "VIDEO_OUTPUT_QA_FAILED",
+    userMessage: "The generated video plan did not cover the required valid goals.",
+  });
+
+  const summary = store.publicJobSummary(job);
+  assert.equal(summary.scoreboardOcr.providerMode, "chunked-scoreboard-ocr");
+  assert.equal(summary.scoreboardOcr.summary.scoreChangeCount, 5);
+  assert.equal(summary.scoreboardOcr.summary.chunkSummary.discoveredScoreChanges, 5);
+
+  const persisted = persistedJob(jobDir, job.id);
+  assert.equal(persisted.scoreboardOcr.summary.evidenceCount, 5);
+  assert.equal(persisted.scoreboardOcr.summary.scoreTimeline[1].scoreAfter, "1-1");
+
+  const recoveredStore = createPersistentStore(jobDir);
+  recoveredStore.recover();
+  const recovered = recoveredStore.get(job.id);
+  assert.equal(recovered.scoreboardOcr.summary.sampledFrameCount, 40);
+  assert.doesNotMatch(JSON.stringify(summary), /\/Users|OPENAI_API_KEY|storageKey|outputPath|localPath|rawText|stdout|stderr/i);
+});
+
 test("idempotency survives durable store reload", () => {
   const jobDir = tempJobDir();
   const firstStore = createPersistentStore(jobDir);

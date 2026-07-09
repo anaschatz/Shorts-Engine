@@ -1923,9 +1923,9 @@ test("valid-goals-only keeps distinct close confirmed goals even when source win
   assert.deepEqual(outputGate.missingGoalNumbers, []);
 });
 
-test("valid-goals-only keeps score-change anchor candidates pending rendered finish proof", () => {
+test("valid-goals-only rejects score-change anchor candidates without visible finish proof", () => {
   const longMetadata = { durationSeconds: 120, width: 1920, height: 1080, hasAudio: true };
-  const pendingFinishFrameEvidence = {
+  const failedFinishFrameEvidence = {
     frameTime: 55,
     confidence: 0.58,
     visibilityVerdict: "failed",
@@ -1943,7 +1943,7 @@ test("valid-goals-only keeps score-change anchor candidates pending rendered fin
     isReplayOnly: false,
     isCelebrationOnly: false,
     isScoreboardOnly: true,
-    evidenceCodes: ["score_change_anchor_pending_rendered_finish"],
+    evidenceCodes: ["goal_finish_not_visible"],
   };
   const truth = matchEventTruthFixture([
     {
@@ -1958,7 +1958,7 @@ test("valid-goals-only keeps score-change anchor candidates pending rendered fin
       payoffEnd: 55,
       decisionStart: 58,
       decisionEnd: 61,
-      finishFrameEvidence: pendingFinishFrameEvidence,
+      finishFrameEvidence: failedFinishFrameEvidence,
     },
   ], longMetadata.durationSeconds);
   truth.selectedEvents[0].evidenceCodes = [
@@ -1974,10 +1974,9 @@ test("valid-goals-only keeps score-change anchor candidates pending rendered fin
     hasVisibleGoalPayoff: false,
     hasBallInNetEvidence: false,
     hasLiveFinishSequence: true,
-    inferredFromStableScoreChange: true,
     scoreboardOnly: true,
-    finishFrameEvidence: pendingFinishFrameEvidence,
-    evidenceCodes: ["score_change_anchor_pending_rendered_finish", "live_shot_finish_sequence"],
+    finishFrameEvidence: failedFinishFrameEvidence,
+    evidenceCodes: ["goal_finish_not_visible", "live_shot_finish_sequence"],
   };
 
   const plans = createCandidateEditPlans({
@@ -1985,43 +1984,9 @@ test("valid-goals-only keeps score-change anchor candidates pending rendered fin
     metadata: { ...longMetadata, goalSelectionMode: "valid_goals_only" },
     transcript: { captions: [] },
     matchEventTruth: truth,
-    title: "Pending rendered goal proof fixture",
+    title: "Rejected missing finish proof fixture",
   });
-  assert.equal(plans.length, 1);
-  const plan = validateEditPlan(plans[0], longMetadata);
-  const segment = plan.segments[0] || plan;
-  assert.equal(segment.scoreChangeTime, 58);
-  assert.equal(segment.finishTime < segment.scoreChangeTime, true);
-  assert.equal(segment.finishFrameEvidence.visibilityVerdict, "failed");
-  assert.equal(
-    segment.finishFrameEvidence.evidenceCodes.includes("score_change_anchor_pending_rendered_finish"),
-    true,
-  );
-
-  let preRenderGate = null;
-  try {
-    preRenderGate = assertVideoOutputCoverage({
-      editPlan: plan,
-      matchEventTruth: truth,
-      goalSelectionMode: "valid_goals_only",
-      requireRenderedGoalVisibility: false,
-    });
-  } catch (error) {
-    preRenderGate = error.details;
-  }
-  assert.equal(preRenderGate.coveredGoalCount, 1);
-  assert.equal(preRenderGate.matches[0].covered, true);
-  assert.equal(preRenderGate.failedReasons.includes("missing_visible_finish"), false);
-  assert.equal(
-    preRenderGate.invalidSegments.some((invalidSegment) =>
-      invalidSegment.reasons.includes("missing_visible_finish")),
-    false,
-  );
-  assert.throws(() => assertVideoOutputCoverage({
-    editPlan: plan,
-    matchEventTruth: truth,
-    goalSelectionMode: "valid_goals_only",
-  }), /generated video plan did not cover|Video output QA failed/);
+  assert.equal(plans.length, 0);
 });
 
 test("valid-goals-only rebinds stale finish phases to the stable score-change window", () => {

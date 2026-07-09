@@ -22,6 +22,7 @@ const MAX_SINGLE_FRAME_FINISH_PAYOFF_DISTANCE_SECONDS = 3.0;
 const MIN_GOAL_ROLE_CLEAR_CANDIDATE_COUNT = 2;
 const MIN_PAYOFF_CLEAR_RATIO = 0.12;
 const MIN_WIDE_LIVE_ACTION_SEQUENCE_FRAMES = 4;
+const SCORE_CHANGE_FINISH_LEAD_SECONDS = Object.freeze([16, 15, 14.5, 14, 13.5, 13, 12.5, 12, 11, 10, 9, 8, 7, 6, 5]);
 
 function numberOrNull(value) {
   const parsed = Number(value);
@@ -141,6 +142,10 @@ function frameWindowsForGoal(segment = {}, timeline = {}) {
     ? []
     : [44, 41, 38, 36, 35, 32, 28, 25, 22, 19, 16, 13, 10, 7, 4]
         .map((lead) => Number(confirmationTime) - lead);
+  const scoreboardFirstFinishTimes = confirmationTime == null
+    ? []
+    : (delayedScoreChange ? SCORE_CHANGE_FINISH_LEAD_SECONDS : [])
+        .map((lead) => Number(confirmationTime) - lead);
   const scoreChangeFinishTimes = confirmationTime == null
     ? []
     : (delayedScoreChange ? [44, 41, 38, 36, 35, 32, 28, 25, 22, 19, 16, 13, 10, 7, 5, 3, 1.5, 0.65, 0] : [])
@@ -164,16 +169,25 @@ function frameWindowsForGoal(segment = {}, timeline = {}) {
         Number(timeline.finish) + 0.55,
       ]
     : [
+        ...(delayedScoreChange ? denseTimeRange(Number(timeline.finish) - 1.6, Number(timeline.finish) + 1.6, 0.4, 10) : []),
         Number(timeline.finish) - 2.5,
         Number(timeline.finish) - 1.2,
         Number(timeline.finish) - 0.35,
         Number(timeline.finish),
         Number(timeline.finish) + 0.55,
+        ...scoreboardFirstFinishTimes,
         ...scoreChangeLeadTimes.slice(0, 5),
         ...scoreChangeFinishTimes,
       ];
-  const finishAdjacentPayoffTimes = finishProbeTimes
-    .flatMap((time) => [Number(time) - 0.55, Number(time) + 0.55, Number(time) + 1.05])
+  const finishAdjacentPayoffAnchorTimes = [
+    Number(timeline.finish) - 0.35,
+    Number(timeline.finish),
+    Number(timeline.finish) + 0.55,
+    ...finishProbeTimes.filter((time) => Math.abs(Number(time) - Number(timeline.finish)) <= 2),
+    ...(delayedScoreChange ? scoreboardFirstFinishTimes.slice(0, 8) : []),
+  ];
+  const finishAdjacentPayoffTimes = finishAdjacentPayoffAnchorTimes
+    .flatMap((time) => [Number(time) + 0.55, Number(time) + 1.05])
     .filter((time) => Number.isFinite(time));
   const densePayoffProbeTimes = finishTime == null
     ? []
@@ -197,12 +211,16 @@ function frameWindowsForGoal(segment = {}, timeline = {}) {
         ...densePayoffProbeTimes,
       ]
     : [
+        ...(delayedScoreChange ? denseTimeRange(Number(timeline.finish) - 0.3, Number(timeline.finish) + 2.8, 0.4, 12) : []),
         Number(timeline.finish) + 0.55,
         Number(timeline.finish) + 1.15,
         Number(timeline.finish) + 2.25,
         ...finishAdjacentPayoffTimes,
         ...densePayoffProbeTimes,
-        ...scoreChangePayoffTimes,
+        ...(delayedScoreChange ? scoreboardFirstFinishTimes.slice(0, 8).flatMap((time) => [Number(time) + 0.8]) : []),
+        ...(delayedScoreChange
+          ? [Number(timeline.confirmation), Number(timeline.confirmation) + 0.4, Number(timeline.confirmation) + 0.8]
+          : scoreChangePayoffTimes),
       ];
   const candidateGroups = [
     ["pre_shot", [
@@ -439,10 +457,13 @@ function selectBestFrameRefs(candidates = [], timeline = {}) {
 function coalesceVisibleFinishPayoffFrameRefs(frameRefs = [], candidates = [], timeline = {}) {
   const finishFrame = frameRefs.find((frame) => frame.role === "finish");
   const payoffFrame = frameRefs.find((frame) => frame.role === "payoff");
-  if (finishFrame && finishFrame.clear === true) {
+  const finishTarget = timelineTimeOrNull(timeline, "finish") ?? timelineTimeOrNull(timeline, "payoff");
+  const selectedFinishTime = numberOrNull(finishFrame && finishFrame.time);
+  const selectedFinishNearTarget = finishTarget == null ||
+    (selectedFinishTime != null && Math.abs(selectedFinishTime - finishTarget) <= MAX_SINGLE_FRAME_FINISH_PAYOFF_DISTANCE_SECONDS);
+  if (finishFrame && finishFrame.clear === true && selectedFinishNearTarget) {
     return { frameRefs, applied: false };
   }
-  const finishTarget = timelineTimeOrNull(timeline, "finish") ?? timelineTimeOrNull(timeline, "payoff");
   const clearGoalFrames = (Array.isArray(candidates) ? candidates : [])
     .filter((frame) => ["finish", "payoff"].includes(frame.role) && frame.clear === true)
     .filter((frame) => {
@@ -538,7 +559,7 @@ function roleHasEnoughClearSupport(diagnostics = {}, role = "") {
   const clearRatio = candidateCount > 0 ? clearCount / candidateCount : 0;
   if (role === "finish") return clearCount >= 1;
   return clearCount >= MIN_GOAL_ROLE_CLEAR_CANDIDATE_COUNT &&
-    (clearRatio >= MIN_PAYOFF_CLEAR_RATIO || clearCount >= 4);
+    (clearRatio >= MIN_PAYOFF_CLEAR_RATIO || clearCount >= 3);
 }
 
 function wideLiveActionSequenceSupport({ candidates = [], timeline = {}, preShotFrame = null, confirmationFrame = null } = {}) {
@@ -976,7 +997,7 @@ async function analyzeRenderedGoalProof({
       rawFinishPayoffGap >= 0 &&
       rawFinishPayoffGap <= MAX_MICRO_FINISH_PAYOFF_GAP_SECONDS &&
       finishSearch.clearCandidateCount >= 1 &&
-      payoffSearch.clearCandidateCount >= MIN_GOAL_ROLE_CLEAR_CANDIDATE_COUNT
+      payoffSearch.clearCandidateCount >= 1
     );
     const finishPayoffSingleFrame = Boolean(
       finishFrame &&

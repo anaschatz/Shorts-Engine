@@ -803,7 +803,56 @@ test("selects five YouTube counted goals across the full source when each has vi
   assert.doesNotMatch(JSON.stringify(publicMatchEventTruth(result)), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);
 });
 
-test("keeps inferred score-change goalmouth payoff pending rendered proof", () => {
+test("scoreboard truth binds delayed score changes to the live phase 13-15 seconds earlier", () => {
+  const scoreChanges = [
+    { shot: 222, finish: 224, confirm: 236, scoreBefore: "0-0", scoreAfter: "1-0" },
+    { shot: 250, finish: 252, confirm: 267, scoreBefore: "1-0", scoreAfter: "1-1" },
+  ];
+  const result = analyzeMatchEventTruth({
+    metadata: {
+      ...metadata,
+      durationSeconds: 320,
+      sourceType: "youtube",
+      goalSelectionMode: "valid_goals_only",
+    },
+    visualSignals: visualSignals(scoreChanges.flatMap((goal) => [
+      { start: goal.shot - 6, end: goal.shot - 4, types: ["fast_break_motion", "ball_visible"], confidence: 0.86 },
+      { start: goal.shot, end: goal.shot + 1, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.92 },
+      { start: goal.finish, end: goal.finish + 1, types: ["goal_mouth_visible", "ball_in_net"], confidence: 0.9 },
+      { start: goal.confirm, end: goal.confirm + 1, types: ["scoreboard_goal_confirmed"], confidence: 0.9 },
+    ])),
+    scoreboardOcr: scoreChanges.map((goal, index) => ({
+      id: `delayed_score_change_${index + 1}`,
+      timestamp: goal.confirm,
+      scoreBefore: goal.scoreBefore,
+      scoreAfter: goal.scoreAfter,
+      status: "score_changed",
+      confidence: 0.92,
+      temporalConsistency: true,
+      scoreChanged: true,
+      source: "local_scorebug_digit_reader_gray_line",
+      imageDecoderStatus: "decoded",
+      imageSegmentationStatus: "readable",
+    })),
+    ocrQaCalibration: strongOcrQaCalibration(),
+    goalEvidence: goalEvidence([]),
+  });
+
+  const confirmed = result.events.filter((event) => event.type === "confirmed_goal");
+  assert.equal(result.summary.confirmedGoalCount, 2);
+  assert.deepEqual(confirmed.map((event) => event.scoreAfter), ["1-0", "1-1"]);
+  assert.deepEqual(confirmed.map((event) => event.goalNumber), [1, 2]);
+  assert.ok(confirmed[1].sourceStart <= 246);
+  assert.ok(confirmed[1].finishTime >= 252);
+  assert.equal(confirmed[1].scoreChangeTime, 267);
+  assert.equal(confirmed[1].confirmationTime, confirmed[1].scoreChangeTime);
+  assert.ok(confirmed[1].sourceEnd >= confirmed[1].scoreChangeTime);
+  assert.ok(confirmed[1].scoreChangeTime - confirmed[1].finishTime >= 13);
+  assert.ok(confirmed[1].scoreChangeTime - confirmed[1].finishTime <= 16);
+  assert.doesNotMatch(JSON.stringify(publicMatchEventTruth(result)), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);
+});
+
+test("rejects score-change goalmouth-only payoff without visible finish proof", () => {
   const goalWindows = [
     { shot: 94, finish: 100, confirm: 112, scoreBefore: "0-0", scoreAfter: "1-0" },
     { shot: 218, finish: 224, confirm: 239, scoreBefore: "1-0", scoreAfter: "2-0" },
@@ -837,31 +886,20 @@ test("keeps inferred score-change goalmouth payoff pending rendered proof", () =
   });
 
   const confirmed = result.events.filter((event) => event.type === "confirmed_goal");
-  assert.equal(result.summary.confirmedGoalCount, 5);
+  assert.equal(result.summary.confirmedGoalCount, 0);
   assert.equal(result.summary.countedGoalEventCount, 5);
   assert.equal(result.summary.anchorsLinkedToGoalPhaseCount, 0);
   assert.equal(result.summary.anchorsMissingVisualSupportCount, 5);
-  assert.equal(result.summary.selectedCountedGoals, 5);
-  assert.equal(result.summary.ocrOnlyBlockedCount, 0);
-  assert.deepEqual(confirmed.map((event) => event.goalNumber), [1, 2, 3, 4, 5]);
-  assert.ok(confirmed.every((event) => event.primarySource === "live_action"));
-  assert.ok(confirmed.every((event) => event.phaseCoverage.hasBuildup));
-  assert.ok(confirmed.every((event) => event.phaseCoverage.hasShot));
-  assert.ok(confirmed.every((event) => event.phaseCoverage.hasFinish === false));
-  assert.ok(confirmed.every((event) => event.phaseCoverage.hasConfirmation));
-  assert.ok(confirmed.every((event) => event.phaseCoverage.visualGoalPayoff.hasVisibleGoalPayoff === false));
-  assert.ok(confirmed.every((event) => event.phaseCoverage.visualGoalPayoff.hasBallInNetEvidence === false));
-  assert.ok(confirmed.every((event) => event.phaseCoverage.visualGoalPayoff.inferredFromStableScoreChange === true));
-  assert.ok(confirmed.every((event) => event.phaseCoverage.finishFrameEvidence.visibilityVerdict === "failed"));
-  assert.ok(confirmed.every((event) => (
-    event.phaseCoverage.finishFrameEvidence.evidenceCodes || []
-  ).includes("score_change_anchor_pending_rendered_finish")));
-  assert.ok(confirmed.every((event) => event.anchorDiagnostics.bindingFullSourceScanUsed === false));
-  assert.ok(confirmed.every((event) => event.anchorDiagnostics.bindingSampledFrameBudget <= 24));
+  assert.equal(result.summary.selectedCountedGoals, 0);
+  assert.equal(result.summary.ocrOnlyBlockedCount, 5);
+  assert.equal(confirmed.length, 0);
+  const rejectedScoreChanges = result.rejectedEvents.filter((event) => String(event.id || "").startsWith("score_change_truth_"));
+  assert.equal(rejectedScoreChanges.length, 5);
+  assert.ok(rejectedScoreChanges.every((event) => event.missingEvidence.includes("finish_or_stable_score_confirmation")));
   assert.doesNotMatch(JSON.stringify(publicMatchEventTruth(result)), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath|stderr|stdout/i);
 });
 
-test("operator YouTube proof can backtrack stable score changes when sampled vision lacks finish labels", () => {
+test("operator YouTube proof rejects stable score changes when sampled vision lacks finish labels", () => {
   const scoreChanges = [
     { confirm: 137.61, scoreBefore: "0-0", scoreAfter: "1-0" },
     { confirm: 474, scoreBefore: "1-0", scoreAfter: "1-1" },
@@ -899,20 +937,12 @@ test("operator YouTube proof can backtrack stable score changes when sampled vis
   });
 
   const confirmed = result.events.filter((event) => event.type === "confirmed_goal");
-  assert.equal(result.summary.confirmedGoalCount, 5);
+  assert.equal(result.summary.confirmedGoalCount, 0);
   assert.equal(result.summary.countedGoalEventCount, 5);
-  assert.equal(result.summary.selectedCountedGoals, 5);
-  assert.equal(result.summary.anchorsRejected, 0);
-  assert.deepEqual(confirmed.map((event) => event.goalNumber), [1, 2, 3, 4, 5]);
-  assert.deepEqual(confirmed.map((event) => event.scoreAfter), ["1-0", "1-1", "2-1", "2-2", "3-2"]);
-  assert.ok(confirmed.every((event) => event.primarySource === "score_change_backtrack"));
-  assert.ok(confirmed.every((event) => event.phaseCoverage.replayOnly === false));
-  assert.ok(confirmed.every((event) => event.phaseCoverage.hasBuildup));
-  assert.ok(confirmed.every((event) => event.phaseCoverage.hasShot));
-  assert.ok(confirmed.every((event) => event.phaseCoverage.hasFinish));
-  assert.ok(confirmed.every((event) => event.anchorDiagnostics.bindingStrategy === "score_change_backtrack_fallback"));
-  assert.ok(confirmed.every((event) => event.sourceStart <= event.scoreChangeTime - 8));
-  assert.ok(confirmed.every((event) => event.phaseCoverage.shotStart <= event.scoreChangeTime - 1));
+  assert.equal(result.summary.selectedCountedGoals, 0);
+  assert.equal(result.summary.anchorsRejected, 5);
+  assert.equal(confirmed.length, 0);
+  assert.ok(result.rejectedEvents.every((event) => event.missingEvidence.includes("finish_or_stable_score_confirmation")));
   assert.doesNotMatch(JSON.stringify(publicMatchEventTruth(result)), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath|stderr|stdout/i);
 });
 
@@ -926,7 +956,7 @@ test("keeps distinct close score transitions from being swallowed by overlapping
     visualSignals: visualSignals(closeGoalWindows.flatMap((goal) => [
       { start: goal.shot - 7, end: goal.shot - 5, types: ["fast_break_motion", "ball_visible"], confidence: 0.86 },
       { start: goal.shot, end: goal.shot + 1.5, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.92 },
-      { start: goal.finish, end: goal.finish + 1.5, types: ["goal_mouth_visible"], confidence: 0.9 },
+      { start: goal.finish, end: goal.finish + 1.5, types: ["goal_mouth_visible", "ball_in_net"], confidence: 0.9 },
       { start: goal.confirm, end: goal.confirm + 1, types: ["scoreboard_goal_confirmed"], confidence: 0.89 },
     ])),
     scoreboardOcr: closeGoalWindows.map((goal, index) => ({
@@ -1325,7 +1355,7 @@ test("does not recover YouTube action clusters by default without scoreboard aut
   assert.ok(result.events.every((event) => event.type !== "confirmed_goal"));
 });
 
-test("anchors pending score observations to the stable scoreboard change confirmation", () => {
+test("keeps pending score observations as anchor context without visible finish proof", () => {
   const result = analyzeMatchEventTruth({
     metadata: {
       durationSeconds: 240,
@@ -1365,15 +1395,18 @@ test("anchors pending score observations to the stable scoreboard change confirm
     goalEvidence: goalEvidence([]),
   });
 
-  const event = result.events[0];
+  const event = result.rejectedEvents[0];
   assert.equal(result.summary.countedGoalEventCount, 1);
-  assert.equal(event.type, "confirmed_goal");
+  assert.equal(result.summary.confirmedGoalCount, 0);
+  assert.equal(result.summary.selectedCountedGoals, 0);
+  assert.equal(event.type, "possible_goal_unconfirmed");
   assert.equal(event.scoreChangeTime, 137.61);
   assert.equal(event.confirmationTime, 137.61);
-  assert.ok(event.sourceStart <= 124);
+  assert.ok(event.sourceStart <= 137.61);
   assert.ok(event.sourceEnd >= 137.61 + 1.2);
   assert.equal(event.phaseCoverage.replayOnly, false);
-  assert.ok(event.evidenceCodes.includes("score_change_backtrack_window"));
+  assert.ok(event.missingEvidence.includes("live_goal_phase"));
+  assert.ok(event.missingEvidence.includes("finish_or_stable_score_confirmation"));
   assert.equal(event.anchorDiagnostics.actionAnchorTime, 124);
   assert.equal(event.anchorDiagnostics.changeTime, 137.61);
   assert.doesNotMatch(JSON.stringify(result), /\/Users|OPENAI_API_KEY|rawOcr|rawText|storageKey|localPath/i);

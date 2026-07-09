@@ -634,6 +634,15 @@ function normalizeScoreboardOcrChunkSummary(value) {
     reason: candidate.reason ? sanitizeText(candidate.reason, 80) : null,
     reasonCodes: safeTextList(candidate.reasonCodes, 8, 80),
   });
+  const safeScoreCandidateFirstSeen = (candidate = {}) => {
+    const score = sanitizeText(candidate.score || "", 16);
+    const timestamp = Number(candidate.timestamp);
+    if (!/^\d{1,2}-\d{1,2}$/.test(score) || !Number.isFinite(timestamp)) return null;
+    return {
+      score,
+      timestamp: round(clamp(timestamp, 0, 24 * 60 * 60)),
+    };
+  };
   const safeScoreCandidateDiagnostics = (diagnostics = null) => {
     if (!diagnostics || typeof diagnostics !== "object" || Array.isArray(diagnostics) || hasUnsafeValue(diagnostics)) return null;
     return {
@@ -682,6 +691,9 @@ function normalizeScoreboardOcrChunkSummary(value) {
       rejectedObservationCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_CROPS, Math.round(Number(chunk.rejectedObservationCount || 0)))),
       stableScoreDecision: sanitizeText(chunk.stableScoreDecision || "unknown", 80),
       normalizedScoreCandidates: safeTextList(chunk.normalizedScoreCandidates, 12, 16),
+      scoreCandidateFirstSeenAt: Array.isArray(chunk.scoreCandidateFirstSeenAt)
+        ? chunk.scoreCandidateFirstSeenAt.map(safeScoreCandidateFirstSeen).filter(Boolean).slice(0, 12)
+        : [],
       rejectedScoreCandidateReasons: safeTextList(chunk.rejectedScoreCandidateReasons, 12, 80),
       skippedReason: chunk.skippedReason ? sanitizeText(chunk.skippedReason, 80) : null,
       nextAction: chunk.nextAction ? sanitizeText(chunk.nextAction, 180) : null,

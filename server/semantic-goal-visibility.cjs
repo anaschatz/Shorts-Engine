@@ -222,6 +222,7 @@ function classifyFeatures(features = {}, role = "") {
     (skin > 0.035 && white > 0.065 && saturated > 0.18) ||
     (green > 0.62 && skin > 0.015 && saturated < 0.03 && dark > 0.1) ||
     (green >= 0.32 && green <= 0.5 && dark > 0.22 && skin > 0.02 && white < 0.04 && saturated < 0.08) ||
+    (green > 0.6 && white > 0.055 && skin > 0.02 && saturated > 0.35) ||
     goalRoleBenchOrCelebrationCloseup ||
     goalRoleSidelineBenchCloseup ||
     (goalRoleGreenOnlyPlayerOrFieldCloseup && !goalRoleWideLiveFinish)

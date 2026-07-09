@@ -9,6 +9,12 @@ const FORWARD_SEARCH_SECONDS = 15;
 const CONFIRMATION_FORWARD_SECONDS = 8;
 const MIN_PRE_SHOT_SECONDS = 12;
 const MAX_PRE_SHOT_SECONDS = 18;
+const SCORE_CHANGE_CONFIRMATION_TAIL_SECONDS = 10;
+const SCORE_CHANGE_IDEAL_FINISH_LAG_MIN_SECONDS = 12;
+const SCORE_CHANGE_IDEAL_FINISH_LAG_MAX_SECONDS = 17;
+const SCORE_CHANGE_ACCEPTABLE_FINISH_LAG_MIN_SECONDS = 8;
+const SCORE_CHANGE_ACCEPTABLE_FINISH_LAG_MAX_SECONDS = 24;
+const SCORE_CHANGE_MIN_FINISH_LAG_SECONDS = 0.5;
 
 const FAILURE_CODES = Object.freeze({
   NO_FINISH_VISIBLE: "NO_FINISH_VISIBLE",
@@ -49,11 +55,6 @@ const GOALMOUTH_CODES = Object.freeze([
   "visual_goal_area",
   "visual_goal_mouth",
   "visual_ball_in_net",
-]);
-
-const INFERRED_FINISH_SUPPORT_CODES = Object.freeze([
-  "visual_goal_area",
-  "visual_goal_mouth",
 ]);
 
 const DECISION_CODES = Object.freeze([
@@ -205,11 +206,6 @@ function isPayoffWindow(window = {}) {
   return hasAny(codes, PAYOFF_CODES) && !isReplayWindow(window) && !isCelebrationWindow(window);
 }
 
-function isInferredFinishWindow(window = {}) {
-  const codes = windowCodes(window);
-  return hasAny(codes, INFERRED_FINISH_SUPPORT_CODES) && !isReplayWindow(window);
-}
-
 function isDecisionWindow(window = {}) {
   return hasAny(windowCodes(window), DECISION_CODES);
 }
@@ -274,7 +270,6 @@ function candidateFromFinish({
   finishWindow,
   duration,
   confirmationAnchorTime,
-  allowInferredPayoff = false,
   anchorCodes = [],
   bindingStrategy = "explicit_payoff",
   minScoreChangeLeadSeconds = PRIMARY_BACKWARD_SEARCH_SECONDS,
@@ -308,32 +303,25 @@ function candidateFromFinish({
   const hasStrongShot = hasAny(preliminaryCodes, STRONG_SHOT_CODES);
   const hasGoalMouth = hasAny(preliminaryCodes, GOALMOUTH_CODES);
   const hasPayoff = hasAny(preliminaryCodes, PAYOFF_CODES);
-  const hasCandidateConfirmation = hasAny(preliminaryCodes, CANDIDATE_CONFIRMATION_CODES);
-  const hasInferredPayoff = allowInferredPayoff && hasGoalMouth && hasCandidateConfirmation;
-  if (!hasStrongShot || !hasGoalMouth || (!hasPayoff && !hasInferredPayoff)) return null;
-  const inferredFromStableScoreChange = !hasPayoff && hasInferredPayoff;
-  const requiredScoreChangeLead = inferredFromStableScoreChange
-    ? Math.max(minScoreChangeLeadSeconds, FALLBACK_BACKWARD_SEARCH_SECONDS)
-    : minScoreChangeLeadSeconds;
+  if (!hasStrongShot || !hasGoalMouth || !hasPayoff) return null;
+  const scoreChangeBacked = hasAny(anchorCodes, ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"]);
+  const requiredScoreChangeLead = minScoreChangeLeadSeconds;
   const scoreChangeAnchoredStart = Math.max(0, seconds(confirmationAnchorTime) - requiredScoreChangeLead);
   const finishFrameEvidence = {
     frameTime: finishTime,
-    confidence: round(clamp(finishWindow.confidence || (hasPayoff ? 0.86 : 0.58), hasPayoff ? 0.72 : 0.2, 0.96)),
-    visibilityVerdict: hasPayoff ? "clear" : "failed",
-    hasVisibleFinish: hasPayoff,
-    hasBallInNetOrPayoff: hasPayoff,
+    confidence: round(clamp(finishWindow.confidence || 0.86, 0.72, 0.96)),
+    visibilityVerdict: "clear",
+    hasVisibleFinish: true,
+    hasBallInNetOrPayoff: true,
     hasGoalMouth: true,
     isBlurred: false,
     isOverZoomed: false,
-    isLabelOnly: inferredFromStableScoreChange,
+    isLabelOnly: false,
     isReplayOnly: false,
     isCelebrationOnly: false,
-    isScoreboardOnly: inferredFromStableScoreChange,
-    evidenceCodes: uniqueCodes(hasPayoff
-      ? ["finish_frame_visible", "ball_in_net_or_payoff_visible"]
-      : ["score_change_anchor_pending_rendered_finish"],
-    8),
-    proofMethod: hasPayoff ? "source_visual_payoff" : "score_change_anchor_requires_rendered_finish",
+    isScoreboardOnly: false,
+    evidenceCodes: uniqueCodes(["finish_frame_visible", "ball_in_net_or_payoff_visible"], 8),
+    proofMethod: "source_visual_payoff",
   };
   const sourceStart = round(Math.max(
     0,
@@ -346,7 +334,11 @@ function candidateFromFinish({
   ));
   const sourceEnd = round(Math.min(
     duration || confirmationTime + 3,
-    Math.max(confirmationTime + 2, finishTime + 3, sourceStart + 8),
+    Math.max(
+      confirmationTime + (scoreChangeBacked ? SCORE_CHANGE_CONFIRMATION_TAIL_SECONDS : 2),
+      finishTime + 3,
+      sourceStart + 8,
+    ),
   ));
   const selectedWindows = sortedWindows(windows)
     .filter((window) => windowEnd(window) >= sourceStart - 0.25 && windowStart(window) <= sourceEnd + 0.25);
@@ -359,7 +351,7 @@ function candidateFromFinish({
   return {
     primarySource: "live_action",
     bindingMethod: "scoreboard_change_reverse_search",
-    bindingStrategy: hasPayoff ? bindingStrategy : "score_change_inferred_payoff",
+    bindingStrategy,
     fallbackUsed: bindingStrategy === "fallback_window" || bindingStrategy === "emergency_window",
     scoreChangeTime: round(confirmationAnchorTime),
     secondsBeforeScoreChange: round(seconds(confirmationAnchorTime) - sourceStart),
@@ -378,7 +370,7 @@ function candidateFromFinish({
       hasBuildup: sourceStart <= shotStart - 2,
       hasShot: true,
       hasFinish: true,
-      hasPayoff,
+      hasPayoff: true,
       hasConfirmation: true,
       liveActionStart: sourceStart,
       shotStart,
@@ -388,17 +380,13 @@ function candidateFromFinish({
       replayOnly: false,
       finishFrameEvidence,
       visualGoalPayoff: {
-        hasVisibleGoalPayoff: hasPayoff,
-        hasBallInNetEvidence: hasPayoff,
+        hasVisibleGoalPayoff: true,
+        hasBallInNetEvidence: true,
         hasLiveFinishSequence: true,
-        inferredFromStableScoreChange,
-        scoreboardOnly: inferredFromStableScoreChange,
+        inferredFromStableScoreChange: false,
+        scoreboardOnly: false,
         finishFrameEvidence,
-        evidenceCodes: uniqueCodes([
-          ...(hasPayoff ? ["visual_ball_in_net"] : ["visual_goal_mouth"]),
-          ...(inferredFromStableScoreChange ? ["score_change_anchor_pending_rendered_finish"] : []),
-          "live_shot_finish_sequence",
-        ], 8),
+        evidenceCodes: uniqueCodes(["visual_ball_in_net", "live_shot_finish_sequence"], 8),
       },
     },
     sampledTimestamps: sampledTimestampRefs({ sourceStart, shotStart, finishTime, confirmationTime, sourceEnd }),
@@ -428,17 +416,16 @@ function scoreCandidate(candidate = {}) {
   const duration = Math.max(0, seconds(candidate.sourceEnd) - seconds(candidate.sourceStart));
   const leadSeconds = seconds(candidate.shotStart) - seconds(candidate.sourceStart);
   const scoreChangeLeadSeconds = seconds(candidate.scoreChangeTime) - seconds(candidate.finishTime);
-  const inferredScoreChangeFinish = candidate.bindingStrategy === "score_change_inferred_payoff";
   const hasGoodLead = leadSeconds >= 2;
   const hasFullLead = leadSeconds >= MIN_PRE_SHOT_SECONDS;
   const hasTail = seconds(candidate.sourceEnd) >= seconds(candidate.confirmationTime) + 1;
-  const scoreChangeProximity = inferredScoreChangeFinish
-    ? scoreChangeLeadSeconds >= 1.5 && scoreChangeLeadSeconds <= 14
-      ? 0.22
-      : scoreChangeLeadSeconds > 14 && scoreChangeLeadSeconds <= 20
-        ? 0.08
-        : -Math.min(0.26, Math.max(0, scoreChangeLeadSeconds - 20) * 0.018)
-    : 0;
+  const scoreChangeProximity = scoreChangeLeadSeconds >= SCORE_CHANGE_IDEAL_FINISH_LAG_MIN_SECONDS &&
+    scoreChangeLeadSeconds <= SCORE_CHANGE_IDEAL_FINISH_LAG_MAX_SECONDS
+    ? 0.16
+    : scoreChangeLeadSeconds >= SCORE_CHANGE_ACCEPTABLE_FINISH_LAG_MIN_SECONDS &&
+      scoreChangeLeadSeconds <= SCORE_CHANGE_ACCEPTABLE_FINISH_LAG_MAX_SECONDS
+      ? 0.08
+      : 0;
   return round(
     candidate.score +
       scoreChangeProximity +
@@ -477,13 +464,36 @@ function uniqueFinishWindows(windows = []) {
   return finishWindows;
 }
 
+function finishLagSeconds(window = {}, confirmationAnchorTime = 0) {
+  return seconds(confirmationAnchorTime) - windowEnd(window, windowStart(window));
+}
+
+function prioritizedFinishWindows(finishWindows = [], confirmationAnchorTime = 0) {
+  const valid = uniqueFinishWindows(finishWindows)
+    .filter((window) => finishLagSeconds(window, confirmationAnchorTime) >= SCORE_CHANGE_MIN_FINISH_LAG_SECONDS);
+  const ideal = valid.filter((window) => {
+    const lag = finishLagSeconds(window, confirmationAnchorTime);
+    return lag >= SCORE_CHANGE_IDEAL_FINISH_LAG_MIN_SECONDS && lag <= SCORE_CHANGE_IDEAL_FINISH_LAG_MAX_SECONDS;
+  });
+  if (ideal.length) return ideal;
+  const close = valid.filter((window) => {
+    const lag = finishLagSeconds(window, confirmationAnchorTime);
+    return lag >= 0.5 && lag < SCORE_CHANGE_ACCEPTABLE_FINISH_LAG_MIN_SECONDS;
+  });
+  if (close.length) return close;
+  const acceptable = valid.filter((window) => {
+    const lag = finishLagSeconds(window, confirmationAnchorTime);
+    return lag >= SCORE_CHANGE_ACCEPTABLE_FINISH_LAG_MIN_SECONDS && lag <= SCORE_CHANGE_ACCEPTABLE_FINISH_LAG_MAX_SECONDS;
+  });
+  return acceptable.length ? acceptable : valid;
+}
+
 function candidateSearchPass({
   visualSignals,
   start,
   end,
   duration,
   confirmationAnchorTime,
-  allowInferredPayoff,
   anchorCodes,
   bindingStrategy,
   minScoreChangeLeadSeconds,
@@ -496,19 +506,16 @@ function candidateSearchPass({
   const liveWindows = contextWindows.filter(isLiveWindow);
   const shotWindows = contextWindows.filter(isShotWindow);
   const payoffWindows = contextWindows.filter(isPayoffWindow);
-  const inferredFinishWindows = allowInferredPayoff ? contextWindows.filter(isInferredFinishWindow) : [];
   const beforeOrAtConfirmation = (window) => windowStart(window) <= seconds(confirmationAnchorTime) + 0.75;
   const afterPreviousScoreChange = (window) => windowEnd(window) >= seconds(minActionTime);
-  const finishWindows = allowInferredPayoff
-    ? uniqueFinishWindows([...payoffWindows, ...inferredFinishWindows].filter(beforeOrAtConfirmation).filter(afterPreviousScoreChange))
-    : payoffWindows.filter(beforeOrAtConfirmation).filter(afterPreviousScoreChange);
-  const candidates = finishWindows
+  const finishWindows = uniqueFinishWindows(payoffWindows.filter(beforeOrAtConfirmation).filter(afterPreviousScoreChange));
+  const prioritizedFinishes = prioritizedFinishWindows(finishWindows, confirmationAnchorTime);
+  const candidates = prioritizedFinishes
     .map((finishWindow) => candidateFromFinish({
       windows: contextWindows,
       finishWindow,
       duration,
       confirmationAnchorTime,
-      allowInferredPayoff,
       anchorCodes,
       bindingStrategy,
       minScoreChangeLeadSeconds,
@@ -525,7 +532,7 @@ function candidateSearchPass({
     liveWindows,
     shotWindows,
     payoffWindows,
-    inferredFinishWindows,
+    inferredFinishWindows: [],
     finishWindows,
     candidates,
   };
@@ -545,7 +552,6 @@ function analyzeVisibleGoalPhaseRecovery({
   const duration = seconds(metadata.durationSeconds, stableChangeTime + FORWARD_SEARCH_SECONDS);
   const searchEnd = Math.min(duration || stableChangeTime + CONFIRMATION_FORWARD_SECONDS, stableChangeTime + CONFIRMATION_FORWARD_SECONDS);
   const anchorCodes = scoreChangeAnchorCodes(change);
-  const allowInferredPayoff = change.outcome === "counted_goal" && hasAny(anchorCodes, ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"]);
   const primaryStart = Math.max(0, searchAnchorTime - PRIMARY_BACKWARD_SEARCH_SECONDS);
   const fallbackStart = Math.max(0, searchAnchorTime - FALLBACK_BACKWARD_SEARCH_SECONDS);
   const boundedMinActionTime = round(Math.max(0, seconds(minActionTime)));
@@ -555,7 +561,6 @@ function analyzeVisibleGoalPhaseRecovery({
     end: searchEnd,
     duration,
     confirmationAnchorTime,
-    allowInferredPayoff,
     anchorCodes,
     bindingStrategy: "primary_window",
     minScoreChangeLeadSeconds: PRIMARY_BACKWARD_SEARCH_SECONDS,
@@ -569,7 +574,6 @@ function analyzeVisibleGoalPhaseRecovery({
         end: searchEnd,
         duration,
         confirmationAnchorTime,
-        allowInferredPayoff,
         anchorCodes,
         bindingStrategy: "fallback_window",
         minScoreChangeLeadSeconds: FALLBACK_BACKWARD_SEARCH_SECONDS,
@@ -584,7 +588,6 @@ function analyzeVisibleGoalPhaseRecovery({
         end: searchEnd,
         duration,
         confirmationAnchorTime,
-        allowInferredPayoff,
         anchorCodes,
         bindingStrategy: "emergency_window",
         minScoreChangeLeadSeconds: EMERGENCY_BACKWARD_SEARCH_SECONDS,
@@ -626,7 +629,7 @@ function analyzeVisibleGoalPhaseRecovery({
       fallbackSearchWindow: { start: round(fallbackStart), end: round(searchEnd) },
       emergencySearchWindow: { start: round(emergencyStart), end: round(searchEnd) },
       fallbackUsed: Boolean(fallbackPass || emergencyPass),
-      allowInferredPayoff,
+      allowInferredPayoff: false,
       maxBackwardSeconds: emergencyPass
         ? EMERGENCY_BACKWARD_SEARCH_SECONDS
         : fallbackPass
@@ -701,15 +704,7 @@ function analyzeVisibleGoalCandidateRecovery({
   const liveWindows = contextWindows.filter(isLiveWindow);
   const shotWindows = contextWindows.filter(isShotWindow);
   const payoffWindows = contextWindows.filter(isPayoffWindow);
-  const inferredFinishWindows = contextWindows.filter(isInferredFinishWindow);
-  const finishWindows = [];
-  const seenFinish = new Set();
-  for (const window of [...payoffWindows, ...inferredFinishWindows]) {
-    const key = `${windowStart(window)}:${windowEnd(window)}`;
-    if (seenFinish.has(key)) continue;
-    seenFinish.add(key);
-    finishWindows.push(window);
-  }
+  const finishWindows = uniqueFinishWindows(payoffWindows);
   const eligible = candidateRecoveryEligible({ ...event, evidenceCodes: codes });
   const candidates = !eligible || disqualified
     ? []
@@ -719,7 +714,6 @@ function analyzeVisibleGoalCandidateRecovery({
           finishWindow,
           duration,
           confirmationAnchorTime: eventEnd,
-          allowInferredPayoff: true,
         }))
         .filter(Boolean)
         .sort((a, b) => scoreCandidate(b) - scoreCandidate(a) || a.sourceStart - b.sourceStart);
@@ -757,7 +751,7 @@ function analyzeVisibleGoalCandidateRecovery({
       liveAction: liveWindows.length,
       shot: shotWindows.length,
       payoff: payoffWindows.length,
-      inferredFinish: inferredFinishWindows.length,
+      inferredFinish: 0,
       replay: replayWindows.length,
       celebration: celebrationWindows.length,
       scoreboardOnly: scoreboardOnlyWindows.length,

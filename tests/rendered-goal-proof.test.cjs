@@ -722,6 +722,66 @@ test("rendered goal proof rejects payoff frames that happen before finish", asyn
   assert.equal(result.editPlan.segments[0].finishFrameEvidence.visibilityVerdict, "failed");
 });
 
+test("rendered goal proof coalesces near-finish payoff when selected finish is a late clear frame", async () => {
+  const clear = {
+    visibilityVerdict: "clear",
+    visibleGoal: true,
+    hasVisibleFinish: true,
+    hasBallInNetOrPayoff: true,
+    confidence: 0.91,
+  };
+  const failed = {
+    visibilityVerdict: "failed",
+    visibleGoal: false,
+    confidence: 0.2,
+    reasons: ["semantic_frame_not_clear"],
+  };
+  const result = await analyzeRenderedGoalProof({
+    outputPath: "rendered-output.mp4",
+    editPlan: editPlan(goalSegment({
+      sourceStart: 530.25,
+      sourceEnd: 552.8,
+      shotStart: 533.35,
+      finishTime: 535.45,
+      confirmationTime: 550.45,
+      duration: 22.55,
+    })),
+    extractFrames: async ({ candidateWindows }) => ({
+      frames: candidateWindows.map((window, index) => {
+        const role = window.role;
+        const time = Number(window.time);
+        const shouldClear =
+          (role === "pre_shot" && index === candidateWindows.findIndex((item) => item.role === "pre_shot")) ||
+          (role === "finish" && time >= 19 && time <= 20.5) ||
+          (role === "payoff" && Math.abs(time - 5.75) < 0.1) ||
+          (role === "confirmation" && index === candidateWindows.findIndex((item) => item.role === "confirmation"));
+        return {
+          id: `frame_${index + 1}`,
+          localPath: `frame_${index + 1}.jpg`,
+          timestamp: window.time,
+          visualHints: window.visualHints,
+          semanticGoalEvidence: {
+            ...(shouldClear ? clear : failed),
+            roles: [role],
+          },
+        };
+      }),
+    }),
+    writeJson: () => {},
+  });
+
+  const goal = result.summary.goals[0];
+  const finishRef = goal.frameRefs.find((frame) => frame.role === "finish");
+  const payoffRef = goal.frameRefs.find((frame) => frame.role === "payoff");
+  assert.equal(result.summary.clearGoalCount, 1);
+  assert.equal(finishRef.clear, true);
+  assert.equal(payoffRef.clear, true);
+  assert.equal(finishRef.coalescedFromRole, "payoff");
+  assert.equal(payoffRef.role, "payoff");
+  assert.equal(Math.abs(finishRef.time - 5.75) < 0.15, true);
+  assert.equal(goal.failedFrameReasons.includes("finish_payoff_frame_not_ordered"), false);
+});
+
 test("rendered goal proof can bind one visible ball-in-net frame as finish and payoff", async () => {
   const clearPayoff = {
     visibilityVerdict: "clear",

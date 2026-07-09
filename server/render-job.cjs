@@ -31,20 +31,20 @@ const SCOREBUG_FIRST_CHUNK_SECONDS = 90;
 const SCOREBUG_FIRST_CHUNK_FRAME_COUNT = 4;
 const SCOREBUG_FIRST_CHUNK_TIMEOUT_MS = 15_000;
 const SCOREBUG_FIRST_MAX_TOTAL_OCR_BUDGET_MS = 180_000;
-const RENDERED_GOAL_REBIND_MAX_ATTEMPTS = 3;
+const RENDERED_GOAL_REBIND_MAX_ATTEMPTS = 1;
 const REFERENCE_STYLE_GOAL_COUNT = 5;
 const REFERENCE_STYLE_MAX_DURATION_SECONDS = 125;
 const SCORE_CHANGE_REBIND_MAX_BACKTRACK_SECONDS = 65;
 const SCORE_CHANGE_REBIND_MAX_FINISH_LEAD_SECONDS = 45;
 const SCORE_CHANGE_REBIND_MIN_FINISH_LEAD_SECONDS = 0.5;
 const RENDERED_GOAL_REBIND_MAX_SEGMENT_SECONDS = 64;
-const SCORE_CHANGE_REBIND_COMPACT_CONFIRMATION_GAP_SECONDS = 12;
+const SCORE_CHANGE_REBIND_COMPACT_CONFIRMATION_GAP_SECONDS = 17;
 const SCORE_CHANGE_REBIND_COMPACT_FINISH_TAIL_SECONDS = 5.5;
 const SCORE_CHANGE_REBIND_COMPACT_LOCAL_CONFIRMATION_SECONDS = 2.25;
 const RENDERED_GOAL_REBIND_PROFILES = Object.freeze([
-  { finishLeadSeconds: 25, preShotSeconds: 18, postConfirmationSeconds: 2.35 },
-  { finishLeadSeconds: 36, preShotSeconds: 16, postConfirmationSeconds: 2.35 },
-  { finishLeadSeconds: 45, preShotSeconds: 20, postConfirmationSeconds: 2.35 },
+  { finishLeadSeconds: 15, preShotSeconds: 14, postConfirmationSeconds: 2.35 },
+  { finishLeadSeconds: 22, preShotSeconds: 16, postConfirmationSeconds: 2.35 },
+  { finishLeadSeconds: 30, preShotSeconds: 18, postConfirmationSeconds: 2.35 },
 ]);
 const SCOREBUG_FIRST_ROI_CANDIDATE_IDS = Object.freeze([
   "scorebug_broadcast_compact",
@@ -322,9 +322,11 @@ function rebindRenderedGoalFailureSegments({ editPlan, renderedGoalProof, metada
       chronologicalBounds.lowerBound,
     );
     const latestFinishTime = Math.max(0.8, anchor - SCORE_CHANGE_REBIND_MIN_FINISH_LEAD_SECONDS);
+    const lowerBoundClippedBuildup = chronologicalBounds.lowerBound > desiredSourceStart + 0.25;
+    const minimumFinishOffsetFromStart = lowerBoundClippedBuildup ? 3.5 : 8;
     const finishTime = Number(Math.min(
       latestFinishTime,
-      Math.max(rawFinishTime, rawSourceStart + 8),
+      Math.max(rawFinishTime, rawSourceStart + minimumFinishOffsetFromStart),
     ).toFixed(2));
     let sourceStart = Number(Math.max(
       chronologicalBounds.lowerBound,
@@ -389,6 +391,8 @@ function rebindRenderedGoalFailureSegments({ editPlan, renderedGoalProof, metada
         maxBacktrackSeconds: SCORE_CHANGE_REBIND_MAX_BACKTRACK_SECONDS,
         maxFinishLeadSeconds: SCORE_CHANGE_REBIND_MAX_FINISH_LEAD_SECONDS,
         compactedDelayedScoreConfirmation: delayedScoreConfirmation,
+        lowerBoundClippedBuildup,
+        minimumFinishOffsetFromStart,
       },
       rebindingChangedSegment: original.sourceStart !== selectedWindow.sourceStart ||
         original.finishTime !== selectedWindow.finishTime ||
@@ -1099,6 +1103,12 @@ function safeOcrChunkSummary(scoreboardOcr = null) {
           attemptedObservationCount: safeNumber(chunk && chunk.attemptedObservationCount),
           evidenceCount: safeNumber(chunk && chunk.evidenceCount),
           scoreChangeCount: safeNumber(chunk && chunk.scoreChangeCount),
+          scoreCandidateFirstSeenAt: Array.isArray(chunk && chunk.scoreCandidateFirstSeenAt)
+            ? chunk.scoreCandidateFirstSeenAt.slice(0, 12).map((candidate) => ({
+                score: sanitizeText(candidate && candidate.score || "", 16),
+                timestamp: safeNumber(candidate && candidate.timestamp),
+              })).filter((candidate) => candidate.score && candidate.timestamp != null)
+            : [],
           skippedReason: chunk && chunk.skippedReason ? sanitizeText(chunk.skippedReason, 80) : null,
         }))
       : [],
@@ -1564,6 +1574,14 @@ function scoreChangeCandidateWindowsFromOcr(scoreboardOcr = {}, metadata = {}) {
         confidence: 0.86,
       },
       {
+        offset: 22,
+        lead: 2.5,
+        tail: 4.5,
+        source: "scorebug_first_delayed_finish_anchor",
+        visualHints: ["shot_contact", "ball_toward_goal", "goal_mouth_visible"],
+        confidence: 0.91,
+      },
+      {
         offset: 16,
         lead: 2.5,
         tail: 2.5,
@@ -1620,7 +1638,7 @@ function scoreChangeCandidateWindowsFromOcr(scoreboardOcr = {}, metadata = {}) {
   };
   evidence.forEach(push);
   if (!windows.length) timeline.forEach(push);
-  return selectCandidateWindowCoverage(windows, duration, 24);
+  return selectCandidateWindowCoverage(windows, duration, 48);
 }
 
 function mergeCandidateWindows(primary = [], secondary = [], metadata = {}, maxWindows = 24) {
@@ -1680,7 +1698,7 @@ function buildChunkSamplingWindows({ chunk, metadata = {}, candidateWindows = []
   for (const candidate of inChunkCandidates) {
     const time = candidateWindowTime(candidate);
     if (!Number.isFinite(time)) continue;
-    for (const offset of [-4, 0, 8]) {
+    for (const offset of [-4, 0, 8, 14, 16]) {
       pushWindow(time + offset, {
         start: Number(candidate.start),
         end: Number(candidate.end),
@@ -1695,7 +1713,7 @@ function buildChunkSamplingWindows({ chunk, metadata = {}, candidateWindows = []
     if (deduped.some((existing) => Math.abs(existing.timestamp - window.timestamp) < 1.25)) continue;
     deduped.push(window);
   }
-  return deduped.slice(0, 10);
+  return deduped.slice(0, 14);
 }
 
 function buildScorebugOcrChunks({ metadata = {}, candidateWindows = [], config = {} } = {}) {
@@ -1787,7 +1805,9 @@ function nonDecreasingScore(previous, next) {
   return Boolean(previous && next && next.home >= previous.home && next.away >= previous.away);
 }
 
-function scoreCandidateTimestamp(chunk = {}, index = 0, total = 1) {
+function scoreCandidateTimestamp(chunk = {}, index = 0, total = 1, candidate = null) {
+  const firstSeenAt = candidate && candidate.firstSeenAt != null ? Number(candidate.firstSeenAt) : null;
+  if (Number.isFinite(firstSeenAt)) return firstSeenAt;
   const timestamps = Array.isArray(chunk.sampledFrameTimestamps)
     ? chunk.sampledFrameTimestamps.map(Number).filter(Number.isFinite)
     : [];
@@ -1805,9 +1825,19 @@ function scoreCandidateTimestamp(chunk = {}, index = 0, total = 1) {
 
 function uniqueChunkScoreCandidates(chunk = {}) {
   const seen = new Set();
+  const firstSeenByScore = new Map((Array.isArray(chunk.scoreCandidateFirstSeenAt) ? chunk.scoreCandidateFirstSeenAt : [])
+    .map((candidate) => [
+      sanitizeText(candidate && candidate.score || "", 16),
+      Number(candidate && candidate.timestamp),
+    ])
+    .filter(([score, timestamp]) => score && Number.isFinite(timestamp)));
   return (Array.isArray(chunk.normalizedScoreCandidates) ? chunk.normalizedScoreCandidates : [])
     .map(scoreObjectFromText)
     .filter(Boolean)
+    .map((score) => ({
+      ...score,
+      firstSeenAt: firstSeenByScore.has(score.text) ? firstSeenByScore.get(score.text) : null,
+    }))
     .filter((score) => {
       if (seen.has(score.text)) return false;
       seen.add(score.text);
@@ -1971,7 +2001,7 @@ function buildScoreCandidateProgressionFromChunks(chunkSummary = null) {
         }
         break;
       }
-      const timestamp = scoreCandidateTimestamp(chunk, acceptedInChunk, Math.max(localCandidates.length, 1));
+      const timestamp = scoreCandidateTimestamp(chunk, acceptedInChunk, Math.max(localCandidates.length, 1), next);
       const before = current;
       current = next;
       acceptedInChunk += 1;
@@ -1988,6 +2018,7 @@ function buildScoreCandidateProgressionFromChunks(chunkSummary = null) {
         changedSide: scoreChangedSide(before, next),
         observedScoreText: next.observedScoreText || next.text,
         observedScoreAfterTimestamp: roundNumber(timestamp),
+        scoreCandidateFirstSeenAt: Number.isFinite(Number(next.firstSeenAt)) ? roundNumber(next.firstSeenAt) : null,
         observedSupportCount: Math.max(1, Math.round(Number(chunk.readableObservationCount || 1))),
         ocrCorrected: Boolean(next.ocrCorrected),
         correctionType: next.correctionType || null,
@@ -2018,6 +2049,7 @@ function buildScoreCandidateProgressionFromChunks(chunkSummary = null) {
         synthetic: false,
         bridgeGenerated: false,
         observedScoreText: item.observedScoreText,
+        scoreCandidateFirstSeenAt: item.scoreCandidateFirstSeenAt,
         ocrCorrected: item.ocrCorrected,
         correctionType: item.correctionType,
         observedSupportCount: item.observedSupportCount,
@@ -2154,12 +2186,120 @@ function aggregateChunkedScoreboardOcr(outputs = [], { metadata = {}, chunkSumma
     preprocessingVariantCount: safeOutputs.reduce((max, output) => Math.max(max, Number(output.summary && output.summary.preprocessingVariantCount || 0)), 0),
     chunkSummary: enrichedChunkSummary,
   }, metadata);
+  const normalizedEvidence = Array.isArray(result.evidence) ? result.evidence : [];
+  const candidateEvidence = Array.isArray(candidateProgression.evidence) ? candidateProgression.evidence : [];
+  const hasScoreChanges = normalizedEvidence.some((item) => item && item.scoreChanged);
+  if (!hasScoreChanges && candidateEvidence.length) {
+    const mergedEvidence = [...normalizedEvidence];
+    const mergedKeys = new Set(mergedEvidence.map(evidenceKey));
+    for (const item of candidateEvidence) {
+      const key = evidenceKey(item);
+      if (mergedKeys.has(key)) continue;
+      mergedKeys.add(key);
+      mergedEvidence.push(item);
+    }
+    mergedEvidence.sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
+    const scoreTimeline = mergedEvidence
+      .filter((item) => item.scoreBefore || item.scoreAfter || item.status === "clock_only")
+      .map((item) => ({
+        timestamp: roundNumber(item.timestamp),
+        status: sanitizeText(item.status || "unknown", 40),
+        scoreBefore: item.scoreBefore ? sanitizeText(item.scoreBefore, 16) : null,
+        scoreAfter: item.scoreAfter ? sanitizeText(item.scoreAfter, 16) : null,
+        temporalConsistency: Boolean(item.temporalConsistency),
+        transitionDecision: item.transitionDecision ? sanitizeText(item.transitionDecision, 60) : null,
+        transitionReasonCodes: Array.isArray(item.transitionReasonCodes)
+          ? item.transitionReasonCodes.map((reason) => sanitizeText(reason, 80)).filter(Boolean).slice(0, 8)
+          : [],
+      }))
+      .slice(0, 120);
+    return {
+      ...result,
+      fallbackUsed: false,
+      evidence: mergedEvidence,
+      chunkSummary: enrichedChunkSummary,
+      summary: {
+        ...result.summary,
+        evidenceCount: mergedEvidence.length,
+        scoreChangeCount: mergedEvidence.filter((item) => item.scoreChanged).length,
+        scoreUnchangedCount: mergedEvidence.filter((item) => item.scoreUnchanged).length,
+        scoreRevertedCount: mergedEvidence.filter((item) => item.scoreReverted).length,
+        ambiguousCount: mergedEvidence.filter((item) => item.ambiguous).length,
+        scoreTimeline,
+        chunkSummary: enrichedChunkSummary,
+        fallbackUsed: false,
+      },
+    };
+  }
   return {
     ...result,
     chunkSummary: result.chunkSummary || enrichedChunkSummary,
     summary: {
       ...result.summary,
       chunkSummary: result.summary && result.summary.chunkSummary || enrichedChunkSummary,
+    },
+  };
+}
+
+function ensureScoreCandidateProgressionEvidence(scoreboardOcr = null) {
+  if (!scoreboardOcr || typeof scoreboardOcr !== "object" || Array.isArray(scoreboardOcr)) return scoreboardOcr;
+  const summary = scoreboardOcr.summary && typeof scoreboardOcr.summary === "object" && !Array.isArray(scoreboardOcr.summary)
+    ? scoreboardOcr.summary
+    : {};
+  const existingEvidence = Array.isArray(scoreboardOcr.evidence) ? scoreboardOcr.evidence : [];
+  if (Number(summary.scoreChangeCount || 0) > 0) return scoreboardOcr;
+  const chunkSummary = summary.chunkSummary || scoreboardOcr.chunkSummary || null;
+  const progression = buildScoreCandidateProgressionFromChunks(chunkSummary);
+  const candidateEvidence = Array.isArray(progression.evidence) ? progression.evidence : [];
+  if (!candidateEvidence.length) return scoreboardOcr;
+  const mergedEvidence = [...existingEvidence];
+  const seen = new Set(mergedEvidence.map(evidenceKey));
+  for (const item of candidateEvidence) {
+    const key = evidenceKey(item);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    mergedEvidence.push(item);
+  }
+  mergedEvidence.sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
+  const scoreTimeline = mergedEvidence
+    .filter((item) => item.scoreBefore || item.scoreAfter || item.status === "clock_only")
+    .map((item) => ({
+      timestamp: roundNumber(item.timestamp),
+      status: sanitizeText(item.status || "unknown", 40),
+      scoreBefore: item.scoreBefore ? sanitizeText(item.scoreBefore, 16) : null,
+      scoreAfter: item.scoreAfter ? sanitizeText(item.scoreAfter, 16) : null,
+      temporalConsistency: Boolean(item.temporalConsistency),
+      transitionDecision: item.transitionDecision ? sanitizeText(item.transitionDecision, 60) : null,
+      transitionReasonCodes: Array.isArray(item.transitionReasonCodes)
+        ? item.transitionReasonCodes.map((reason) => sanitizeText(reason, 80)).filter(Boolean).slice(0, 8)
+        : [],
+    }))
+    .slice(0, 120);
+  const nextChunkSummary = chunkSummary && typeof chunkSummary === "object" && !Array.isArray(chunkSummary)
+    ? {
+        ...chunkSummary,
+        discoveredScoreChanges: Math.max(
+          Number(chunkSummary.discoveredScoreChanges || 0),
+          candidateEvidence.length,
+        ),
+        scoreCandidateDiagnostics: chunkSummary.scoreCandidateDiagnostics || progression.diagnostics,
+      }
+    : chunkSummary;
+  return {
+    ...scoreboardOcr,
+    fallbackUsed: false,
+    evidence: mergedEvidence,
+    chunkSummary: nextChunkSummary,
+    summary: {
+      ...summary,
+      evidenceCount: mergedEvidence.length,
+      scoreChangeCount: mergedEvidence.filter((item) => item.scoreChanged).length,
+      scoreUnchangedCount: mergedEvidence.filter((item) => item.scoreUnchanged).length,
+      scoreRevertedCount: mergedEvidence.filter((item) => item.scoreReverted).length,
+      ambiguousCount: mergedEvidence.filter((item) => item.ambiguous).length,
+      scoreTimeline,
+      chunkSummary: nextChunkSummary,
+      fallbackUsed: false,
     },
   };
 }
@@ -2452,6 +2592,24 @@ function scoreTextCandidatesFromRows(rows = []) {
   return [...candidates].slice(0, 12);
 }
 
+function scoreCandidateFirstSeenFromRows(rows = []) {
+  const firstSeen = new Map();
+  for (const row of rows) {
+    const timestamp = Number(row && (row.timestamp ?? row.start));
+    if (!Number.isFinite(timestamp)) continue;
+    for (const value of [row && row.scoreBefore, row && row.scoreAfter, row && row.detectedScoreText]) {
+      const score = sanitizeText(value || "", 16);
+      if (!/^\d{1,2}-\d{1,2}$/.test(score)) continue;
+      const existing = firstSeen.get(score);
+      if (existing == null || timestamp < existing) firstSeen.set(score, timestamp);
+    }
+  }
+  return [...firstSeen.entries()]
+    .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]))
+    .map(([score, timestamp]) => ({ score, timestamp: roundNumber(timestamp) }))
+    .slice(0, 12);
+}
+
 function rejectedScoreCandidateReasonsFromRows(rows = [], summary = {}) {
   const reasons = [];
   for (const row of rows) {
@@ -2513,6 +2671,7 @@ function chunkReportFromOutput(chunk = {}, result = {}, elapsedMs = 0, timeoutMs
     rejectedObservationCount,
     stableScoreDecision: stableScoreDecisionForOutput(result),
     normalizedScoreCandidates: scoreTextCandidatesFromRows(rows),
+    scoreCandidateFirstSeenAt: scoreCandidateFirstSeenFromRows(rows),
     rejectedScoreCandidateReasons: [...new Set(safeReasonList(rejectedReasons, 12))],
     skippedReason: null,
     nextAction: sanitizeText(debug.nextAction || (selectedRoi && selectedRoi.nextAction) || "inspect-scorebug-chunk-report", 180),
@@ -2819,10 +2978,10 @@ async function runChunkedScorebugFirstOcr({
       substep: "scorebug_first_all_chunks_failed",
     });
   }
-  return aggregateChunkedScoreboardOcr(outputs, {
+  return ensureScoreCandidateProgressionEvidence(aggregateChunkedScoreboardOcr(outputs, {
     metadata: context.metadata,
     chunkSummary,
-  });
+  }));
 }
 
 function validateHighlightResult(result, metadata = {}) {
@@ -3348,6 +3507,10 @@ async function runRenderJob(options) {
           project,
           requestId,
           totalBudgetMs: scorebugFirstOcrBudgetMs,
+        });
+        jobs.update(job, {
+          scoreboardOcr: publicScoreboardOcr(scoreboardOcr),
+          step: "scoreboard_ocr_completed",
         });
         logInfo(deps.logger, {
           event: "scoreboard_ocr_completed",

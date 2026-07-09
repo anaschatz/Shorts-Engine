@@ -102,7 +102,7 @@ test("score-change recovery rejects shot without visible payoff", () => {
   assert.equal(recovery.failureCode, "NO_FINISH_VISIBLE");
 });
 
-test("score-change recovery binds stable score change to inferred live finish without full-source scan", () => {
+test("score-change recovery rejects goalmouth-only stable score change without visible payoff", () => {
   const recovery = analyzeVisibleGoalPhaseRecovery({
     metadata,
     visualSignals: visualSignals([
@@ -121,22 +121,10 @@ test("score-change recovery binds stable score change to inferred live finish wi
     },
   });
 
-  assert.equal(recovery.failureCode, null);
-  assert.equal(recovery.selected.primarySource, "live_action");
-  assert.equal(recovery.selected.replayOnly, false);
-  assert.equal(recovery.selected.phaseCoverage.hasShot, true);
-  assert.equal(recovery.selected.phaseCoverage.hasFinish, true);
-  assert.equal(recovery.selected.phaseCoverage.hasPayoff, false);
-  assert.equal(recovery.selected.phaseCoverage.visualGoalPayoff.hasBallInNetEvidence, false);
-  assert.equal(recovery.selected.phaseCoverage.visualGoalPayoff.hasVisibleGoalPayoff, false);
-  assert.equal(recovery.selected.phaseCoverage.visualGoalPayoff.inferredFromStableScoreChange, true);
-  assert.equal(recovery.selected.phaseCoverage.finishFrameEvidence.hasVisibleFinish, false);
-  assert.equal(recovery.selected.phaseCoverage.finishFrameEvidence.hasBallInNetOrPayoff, false);
-  assert.equal(recovery.selected.phaseCoverage.finishFrameEvidence.visibilityVerdict, "failed");
-  assert.ok(recovery.selected.phaseCoverage.finishFrameEvidence.evidenceCodes.includes("score_change_anchor_pending_rendered_finish"));
-  assert.equal(recovery.selected.phaseCoverage.finishFrameEvidence.proofMethod, "score_change_anchor_requires_rendered_finish");
+  assert.equal(recovery.selected, null);
+  assert.equal(recovery.failureCode, "NO_FINISH_VISIBLE");
   assert.equal(recovery.bindingDiagnostics.fullSourceScanUsed, false);
-  assert.equal(recovery.bindingDiagnostics.maxBackwardSeconds, 30);
+  assert.equal(recovery.bindingDiagnostics.maxBackwardSeconds, 50);
   assert.ok(recovery.bindingDiagnostics.sampledFrameBudget <= 24);
 });
 
@@ -167,7 +155,7 @@ test("score-change recovery anchors source start before the scoreboard change in
   assert.equal(recovery.selected.finishTime < recovery.selected.scoreChangeTime, true);
 });
 
-test("score-change recovery expands uncertain payoff windows farther before score change", () => {
+test("score-change recovery rejects uncertain goalmouth-only payoff windows", () => {
   const recovery = analyzeVisibleGoalPhaseRecovery({
     metadata,
     visualSignals: visualSignals([
@@ -185,23 +173,21 @@ test("score-change recovery expands uncertain payoff windows farther before scor
     },
   });
 
-  assert.equal(recovery.failureCode, null);
-  assert.equal(recovery.selected.phaseCoverage.visualGoalPayoff.inferredFromStableScoreChange, true);
-  assert.equal(recovery.selected.secondsBeforeScoreChange >= 35, true);
-  assert.equal(recovery.selected.sourceStart <= 65, true);
-  assert.equal(recovery.selected.phaseCoverage.finishFrameEvidence.proofMethod, "score_change_anchor_requires_rendered_finish");
+  assert.equal(recovery.selected, null);
+  assert.equal(recovery.failureCode, "NO_FINISH_VISIBLE");
+  assert.equal(recovery.bindingDiagnostics.fullSourceScanUsed, false);
 });
 
-test("score-change recovery prefers inferred finish closest to stable scoreboard change", () => {
+test("score-change recovery prefers visible finish closest to stable scoreboard change", () => {
   const recovery = analyzeVisibleGoalPhaseRecovery({
     metadata: { durationSeconds: 600, width: 1920, height: 1080 },
     visualSignals: visualSignals([
       { start: 524, end: 526, types: ["fast_break_motion", "ball_visible"], confidence: 0.8 },
       { start: 529, end: 530, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.9 },
-      { start: 531, end: 532, types: ["goal_mouth_visible"], confidence: 0.9 },
+      { start: 531, end: 532, types: ["goal_mouth_visible", "ball_in_net"], confidence: 0.9 },
       { start: 544, end: 546, types: ["fast_break_motion", "ball_visible"], confidence: 0.78 },
       { start: 549, end: 550, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.88 },
-      { start: 552, end: 553, types: ["goal_mouth_visible"], confidence: 0.88 },
+      { start: 552, end: 553, types: ["goal_mouth_visible", "ball_in_net"], confidence: 0.88 },
       { start: 555, end: 556, type: "scoreboard_goal_confirmed", confidence: 0.9 },
     ]),
     change: {
@@ -215,20 +201,50 @@ test("score-change recovery prefers inferred finish closest to stable scoreboard
   });
 
   assert.equal(recovery.failureCode, null);
-  assert.equal(recovery.selected.bindingStrategy, "score_change_inferred_payoff");
+  assert.notEqual(recovery.selected.bindingStrategy, "score_change_inferred_payoff");
   assert.ok(recovery.selected.finishTime >= 552);
   assert.ok(recovery.selected.finishTime < recovery.selected.scoreChangeTime);
   assert.ok(recovery.selected.scoreChangeTime - recovery.selected.finishTime <= 6);
   assert.notEqual(recovery.selected.finishTime, 532);
 });
 
+test("score-change recovery prefers the live finish 13-15 seconds before delayed scoreboard change", () => {
+  const recovery = analyzeVisibleGoalPhaseRecovery({
+    metadata: { durationSeconds: 320, width: 1920, height: 1080 },
+    visualSignals: visualSignals([
+      { start: 236, end: 238, types: ["fast_break_motion", "ball_visible"], confidence: 0.82 },
+      { start: 241, end: 242, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.86 },
+      { start: 243, end: 244, types: ["goal_mouth_visible", "ball_in_net"], confidence: 0.88 },
+      { start: 246, end: 248, types: ["fast_break_motion", "ball_visible"], confidence: 0.86 },
+      { start: 250, end: 251, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.9 },
+      { start: 252, end: 253, types: ["goal_mouth_visible", "ball_in_net"], confidence: 0.91 },
+      { start: 267, end: 268, type: "scoreboard_goal_confirmed", confidence: 0.9 },
+    ]),
+    change: {
+      changeTime: 267,
+      actionAnchorTime: 267,
+      startScore: "1-0",
+      endScore: "1-1",
+      outcome: "counted_goal",
+      reasonCodes: ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"],
+    },
+  });
+
+  assert.equal(recovery.failureCode, null);
+  assert.notEqual(recovery.selected.bindingStrategy, "score_change_inferred_payoff");
+  assert.ok(recovery.selected.finishTime >= 252);
+  assert.ok(recovery.selected.scoreChangeTime - recovery.selected.finishTime >= 13);
+  assert.ok(recovery.selected.scoreChangeTime - recovery.selected.finishTime <= 16);
+  assert.notEqual(recovery.selected.finishTime, 244);
+});
+
 test("score-change recovery does not borrow the next close goal finish window", () => {
   const recovery = analyzeVisibleGoalPhaseRecovery({
     metadata: { durationSeconds: 540, width: 1920, height: 1080 },
     visualSignals: visualSignals([
-      { start: 466, end: 472, types: ["shot_contact", "ball_toward_goal", "goal_mouth_visible"], confidence: 0.91 },
+      { start: 466, end: 472, types: ["shot_contact", "ball_toward_goal", "goal_mouth_visible", "ball_in_net"], confidence: 0.91 },
       { start: 474, end: 475, type: "scoreboard_goal_confirmed", confidence: 0.9 },
-      { start: 479, end: 483, types: ["shot_contact", "ball_toward_goal", "goal_mouth_visible"], confidence: 0.94 },
+      { start: 479, end: 483, types: ["shot_contact", "ball_toward_goal", "goal_mouth_visible", "ball_in_net"], confidence: 0.94 },
       { start: 483.75, end: 484.75, type: "scoreboard_goal_confirmed", confidence: 0.9 },
     ]),
     change: {
@@ -252,9 +268,9 @@ test("score-change recovery does not borrow the previous close goal finish windo
     metadata: { durationSeconds: 540, width: 1920, height: 1080 },
     minActionTime: 474.25,
     visualSignals: visualSignals([
-      { start: 466, end: 472, types: ["shot_contact", "ball_toward_goal", "goal_mouth_visible"], confidence: 0.91 },
+      { start: 466, end: 472, types: ["shot_contact", "ball_toward_goal", "goal_mouth_visible", "ball_in_net"], confidence: 0.91 },
       { start: 474, end: 475, type: "scoreboard_goal_confirmed", confidence: 0.9 },
-      { start: 479, end: 483, types: ["shot_contact", "ball_toward_goal", "goal_mouth_visible"], confidence: 0.94 },
+      { start: 479, end: 483, types: ["shot_contact", "ball_toward_goal", "goal_mouth_visible", "ball_in_net"], confidence: 0.94 },
       { start: 483.75, end: 484.75, type: "scoreboard_goal_confirmed", confidence: 0.9 },
     ]),
     change: {
@@ -279,7 +295,7 @@ test("score-change recovery uses bounded fallback window for earlier live phase"
     metadata,
     visualSignals: visualSignals([
       { start: 234.5, end: 236, types: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.92 },
-      { start: 238, end: 240, types: ["goal_mouth_visible"], confidence: 0.89 },
+      { start: 238, end: 240, types: ["goal_mouth_visible", "ball_in_net"], confidence: 0.89 },
       { start: 271, end: 272, type: "scoreboard_goal_confirmed", confidence: 0.88 },
     ]),
     change: {
@@ -299,7 +315,7 @@ test("score-change recovery uses bounded fallback window for earlier live phase"
   assert.ok(recovery.selected.sourceStart <= 237);
 });
 
-test("candidate recovery selects strong live phase without explicit ball-in-net OCR", () => {
+test("candidate recovery rejects strong live phase without explicit visible payoff", () => {
   const recovery = analyzeVisibleGoalCandidateRecovery({
     metadata,
     event: {
@@ -324,17 +340,8 @@ test("candidate recovery selects strong live phase without explicit ball-in-net 
     ]),
   });
 
-  assert.equal(recovery.failureCode, null);
-  assert.equal(recovery.selected.primarySource, "live_action");
-  assert.equal(recovery.selected.replayOnly, false);
-  assert.equal(recovery.selected.phaseCoverage.hasShot, true);
-  assert.equal(recovery.selected.phaseCoverage.hasFinish, true);
-  assert.equal(recovery.selected.phaseCoverage.visualGoalPayoff.hasBallInNetEvidence, false);
-  assert.equal(recovery.selected.phaseCoverage.visualGoalPayoff.hasLiveFinishSequence, true);
-  assert.equal(recovery.selected.phaseCoverage.finishFrameEvidence.hasVisibleFinish, false);
-  assert.equal(recovery.selected.phaseCoverage.finishFrameEvidence.hasBallInNetOrPayoff, false);
-  assert.equal(recovery.selected.phaseCoverage.finishFrameEvidence.visibilityVerdict, "failed");
-  assert.ok(recovery.selected.phaseCoverage.finishFrameEvidence.evidenceCodes.includes("score_change_anchor_pending_rendered_finish"));
+  assert.equal(recovery.selected, null);
+  assert.equal(recovery.failureCode, "NO_FINISH_VISIBLE");
 });
 
 test("candidate recovery rejects offside or no-goal candidates even with strong visuals", () => {

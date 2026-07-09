@@ -3015,31 +3015,11 @@ function goalPhaseCoverageForEvent(event = {}, window = null) {
   };
 }
 
-function hasPendingRenderedFinishProof(phaseCoverage = {}) {
-  const visualPayoff = phaseCoverage &&
-    phaseCoverage.visualGoalPayoff &&
-    typeof phaseCoverage.visualGoalPayoff === "object"
-    ? phaseCoverage.visualGoalPayoff
-    : {};
-  const finishEvidence = phaseCoverage &&
-    (
-      phaseCoverage.finishFrameEvidence ||
-      visualPayoff.finishFrameEvidence
-    );
-  return Boolean(
-    finishEvidence &&
-      typeof finishEvidence === "object" &&
-      Array.isArray(finishEvidence.evidenceCodes) &&
-      finishEvidence.evidenceCodes.includes("score_change_anchor_pending_rendered_finish"),
-  );
-}
-
 function goalPhaseIsRenderable(event = {}) {
   const phaseCoverage = goalPhaseCoverageForEvent(event);
-  const pendingRenderedFinishProof = hasPendingRenderedFinishProof(phaseCoverage);
   return !phaseCoverage.replayOnly &&
     phaseCoverage.hasShot &&
-    (phaseCoverage.hasFinish || pendingRenderedFinishProof) &&
+    phaseCoverage.hasFinish &&
     phaseCoverage.hasConfirmation;
 }
 
@@ -3520,14 +3500,12 @@ function goalPhaseCoverageForCandidate(candidate = {}) {
 function confirmedGoalPhaseIsRenderable(candidate = {}) {
   const phaseCoverage = goalPhaseCoverageForCandidate(candidate);
   if (!phaseCoverage) return true;
-  const pendingRenderedFinishProof = hasPendingRenderedFinishProof(phaseCoverage);
   return phaseCoverage.replayOnly !== true &&
     phaseCoverage.hasShot !== false &&
-    (phaseCoverage.hasFinish !== false || pendingRenderedFinishProof) &&
+    phaseCoverage.hasFinish !== false &&
     (
       !phaseCoverage.visualGoalPayoff ||
-      phaseCoverage.visualGoalPayoff.hasVisibleGoalPayoff !== false ||
-      pendingRenderedFinishProof
+      phaseCoverage.visualGoalPayoff.hasVisibleGoalPayoff !== false
     );
 }
 

@@ -693,22 +693,6 @@ function scoreChangeAnchorTime(change = {}) {
   return changeTime == null ? actionAnchorTime : changeTime;
 }
 
-function hasPendingRenderedFinishProof(segment = {}, phase = {}) {
-  const visualPayoff = phase && phase.visualGoalPayoff && typeof phase.visualGoalPayoff === "object"
-    ? phase.visualGoalPayoff
-    : {};
-  const finishEvidence = segment.finishFrameEvidence ||
-    phase.finishFrameEvidence ||
-    visualPayoff.finishFrameEvidence ||
-    null;
-  return Boolean(
-    finishEvidence &&
-      typeof finishEvidence === "object" &&
-      Array.isArray(finishEvidence.evidenceCodes) &&
-      finishEvidence.evidenceCodes.includes("score_change_anchor_pending_rendered_finish"),
-  );
-}
-
 function segmentFailureReasons(segment = {}, goalSelectionMode = "balanced", options = {}) {
   const requireRenderedGoalVisibility = options.requireRenderedGoalVisibility !== false;
   const reasons = [];
@@ -718,7 +702,6 @@ function segmentFailureReasons(segment = {}, goalSelectionMode = "balanced", opt
   const confirmationTime = numberOrNull(segment.confirmationTime ?? phase.confirmationTime);
   const reasonCodes = new Set(Array.isArray(segment.reasonCodes) ? segment.reasonCodes : []);
   const confirmedGoal = isConfirmedGoalSegment(segment);
-  const pendingRenderedFinishProof = hasPendingRenderedFinishProof(segment, phase);
   const humanVisibleGoalGate = confirmedGoal && requireRenderedGoalVisibility
     ? validateHumanVisibleGoalSequence({ segment })
     : null;
@@ -728,11 +711,7 @@ function segmentFailureReasons(segment = {}, goalSelectionMode = "balanced", opt
   if (confirmedGoal && (segment.celebrationOnly || phase.celebrationOnly)) reasons.push("celebration_only_goal_segment");
   if (confirmedGoal && (!phase.hasBuildup || shotStart == null)) reasons.push("missing_buildup_or_shot_start");
   if (confirmedGoal && (!phase.hasShot || shotStart == null)) reasons.push("missing_visible_shot");
-  if (
-    confirmedGoal &&
-    (!phase.hasFinish || finishTime == null) &&
-    !(pendingRenderedFinishProof && requireRenderedGoalVisibility === false && finishTime != null)
-  ) {
+  if (confirmedGoal && (!phase.hasFinish || finishTime == null)) {
     reasons.push("missing_visible_finish");
   }
   if (confirmedGoal && (!phase.hasConfirmation || confirmationTime == null)) reasons.push("missing_goal_confirmation");

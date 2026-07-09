@@ -1437,20 +1437,25 @@ test("youtube long-source chunked OCR promotes five observed score changes witho
           : start < 180
             ? ["1-0"]
             : start < 270
-              ? ["1-0"]
+              ? [
+                  { score: "1-0", timestamp: 236.25 },
+                  { score: "1-1", timestamp: 260.25 },
+                ]
               : start < 360
                 ? ["3-3", "0-0"]
                 : start < 450
                   ? []
                   : start < 540
-                    ? ["1-1", "4-1", "0-0", "6-6", "2-1"]
+                    ? ["4-1", "0-0", "6-6", "2-1"]
                     : start < 630
                       ? ["2-2", "3-2"]
                       : start < 720
                         ? ["3-2"]
                         : [];
-        const scoreTimeline = candidates.map((score, index) => ({
-          timestamp: timestamps[index] || start + index + 1,
+        const scoreTimeline = candidates.map((candidate, index) => {
+          const score = typeof candidate === "string" ? candidate : candidate.score;
+          return {
+          timestamp: Number(candidate && candidate.timestamp) || timestamps[index] || start + index + 1,
           status: "ambiguous",
           detectedScoreText: score,
           scoreAfter: score,
@@ -1461,7 +1466,8 @@ test("youtube long-source chunked OCR promotes five observed score changes witho
           layoutId: "broadcast-compact-score-only-v1",
           transitionDecision: "score_candidate_pending_progression",
           transitionReasonCodes: ["unit_score_increase_candidate"],
-        }));
+        };
+        });
         return {
           providerMode: "mock-scoreboard-ocr",
           fallbackUsed: false,
@@ -1564,7 +1570,12 @@ test("youtube long-source chunked OCR promotes five observed score changes witho
     true,
   );
   assert.equal(
-    context.frameCandidateWindows.filter((window) => window.source === "scorebug_first_score_confirmation").length >= 5,
+    context.frameCandidateWindows.filter((window) => (
+      window.source === "scorebug_first_delayed_finish_anchor" &&
+      Array.isArray(window.visualHints) &&
+      window.visualHints.includes("shot_contact") &&
+      window.visualHints.includes("goal_mouth_visible")
+    )).length >= 5,
     true,
   );
   assert.doesNotMatch(JSON.stringify(context.job.scoreboardOcr), /\/Users|storageKey|localPath|secret|stderr|stdout|rawOcr|rawText/i);
@@ -2414,8 +2425,55 @@ test("rendered goal rebinding cannot reuse the previous counted goal window", ()
   assert.equal(reboundGoal4.renderedVisibilityRebinding.rebindingSearchWindow.start >= reboundGoal3.confirmationTime + 1.49, true);
   assert.equal(reboundGoal4.renderedVisibilityRebinding.scoreChangeConfirmedOutsideClip, true);
   assert.equal(rebind.summary.diagnostics[0].chronologicalBounds.lowerBoundReason, "previous_confirmed_goal_anchor");
-  assert.equal(rebind.summary.diagnostics[0].profile.finishLeadSeconds, 45);
+  assert.equal(rebind.summary.diagnostics[0].profile.finishLeadSeconds, 30);
   assert.equal(rebind.summary.diagnostics[0].profile.compactedDelayedScoreConfirmation, true);
+});
+
+test("rendered goal rebinding keeps close score-change finish anchored 13-15 seconds before the scoreboard update", () => {
+  const segments = [
+    validGoalSegment(3, 504.75, 510.9, 514.75, 528.75),
+    validGoalSegment(4, 545.8, 551.95, 556.45, 550.45),
+    validGoalSegment(5, 595.75, 601.9, 604.75, 618.75),
+  ];
+  segments[0].sourceEnd = 529.95;
+  segments[1].sourceEnd = 560.8;
+  segments[2].sourceEnd = 619.95;
+  segments[1].scoreChangeTime = 550.45;
+  segments[1].goalOutcome.scoreChangeTime = 550.45;
+
+  const rebind = __testing.rebindRenderedGoalFailureSegments({
+    editPlan: {
+      mode: "multi_moment_compilation",
+      sourceStart: 504.75,
+      sourceEnd: 619.95,
+      totalDuration: segments.reduce((sum, segment) => sum + segment.sourceEnd - segment.sourceStart, 0),
+      segments,
+    },
+    renderedGoalProof: {
+      summary: {
+        goals: [
+          {
+            goalNumber: 4,
+            segmentIndex: 2,
+            verdict: "failed",
+            frameRefs: [{ role: "finish", clear: false, reason: "semantic_frame_forbidden_content" }],
+          },
+        ],
+      },
+    },
+    metadata: { durationSeconds: 764.52 },
+    attemptNumber: 1,
+  });
+
+  assert.equal(rebind.applied, true);
+  const reboundGoal4 = rebind.editPlan.segments[1];
+  assert.equal(reboundGoal4.sourceStart, 530.25);
+  assert.equal(reboundGoal4.finishTime, 535.45);
+  assert.equal(reboundGoal4.scoreChangeTime, 550.45);
+  assert.equal(Number((reboundGoal4.scoreChangeTime - reboundGoal4.finishTime).toFixed(2)), 15);
+  assert.equal(reboundGoal4.renderedVisibilityRebinding.scoreChangeConfirmedOutsideClip, false);
+  assert.equal(rebind.summary.diagnostics[0].profile.finishLeadSeconds, 15);
+  assert.equal(rebind.summary.diagnostics[0].profile.lowerBoundClippedBuildup, true);
 });
 
 test("approved regeneration render uses the validated draft without rerunning AI analysis", async () => {
@@ -2641,13 +2699,31 @@ test("chunked score progression starts at 0-0 and only accepts observed unit sco
         readableObservationCount: 2,
       },
       {
+        index: 3,
+        start: 180,
+        end: 270,
+        status: "completed",
+        sampledFrameTimestamps: [191.25, 213.75, 236.25, 258.75, 264.25],
+        selectedRoiId: "scorebug_broadcast_compact",
+        normalizedScoreCandidates: ["1-0", "1-1"],
+        scoreCandidateFirstSeenAt: [
+          { score: "1-0", timestamp: 236.25 },
+          { score: "1-1", timestamp: 260.25 },
+        ],
+        readableObservationCount: 3,
+      },
+      {
         index: 6,
         start: 450,
         end: 540,
         status: "completed",
         sampledFrameTimestamps: [461.25, 470.04, 483.75, 506.25, 528.75],
         selectedRoiId: "scorebug_broadcast_compact",
-        normalizedScoreCandidates: ["1-1", "4-1", "2-1"],
+        normalizedScoreCandidates: ["4-1", "2-1"],
+        scoreCandidateFirstSeenAt: [
+          { score: "4-1", timestamp: 470.04 },
+          { score: "2-1", timestamp: 483.75 },
+        ],
         readableObservationCount: 3,
       },
       {
@@ -2695,15 +2771,15 @@ test("chunked score progression starts at 0-0 and only accepts observed unit sco
   assert.equal(
     progression.diagnostics.rejectedCandidates.some((candidate) =>
       candidate.score === "4-1" &&
-      candidate.currentScore === "1-0" &&
-      candidate.reason === "score_candidate_jump_too_large"),
+      candidate.currentScore === "2-1" &&
+      candidate.reason === "missing_observed_intermediate_score_state"),
     true,
   );
   assert.deepEqual(
     progression.evidence
       .filter((item) => item.regionId === "scorebug_broadcast_compact" && item.source === "chunked_scorebug_candidate_progression")
-      .map((item) => item.timestamp >= 450 || item.timestamp < 180),
-    [true, true, true, true, true],
+      .map((item) => item.timestamp),
+    [123.75, 260.25, 483.75, 596.25, 686.25],
   );
   assert.equal(progression.diagnostics.finalScore, "3-2");
   assert.doesNotMatch(JSON.stringify(progression), /\/Users|\/private|token|secret|stdout|stderr/i);

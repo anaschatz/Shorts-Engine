@@ -2399,6 +2399,109 @@ test("youtube live local e2e failed OCR smoke preserves terminal job chunk summa
   assert.equal(findSensitiveLeak(report), null);
 });
 
+test("youtube live local e2e video gate failure preserves completed OCR summary", async () => {
+  const currentJob = {
+    id: "job_12345678",
+    projectId: "prj_12345678",
+    uploadId: "upl_12345678",
+    status: "failed",
+    progress: 90,
+    step: "failed",
+    exportId: null,
+    progressMeta: {
+      phase: "orchestration",
+      step: "verify_rendered_goal_visibility",
+      substep: "sample_rebound_finish_frames_attempt_1",
+    },
+    error: { code: "VIDEO_OUTPUT_QA_FAILED", message: "The generated video plan did not cover the required valid goals." },
+    scoreboardOcr: {
+      providerMode: "chunked-scoreboard-ocr",
+      fallbackUsed: false,
+      confidence: 0.9,
+      summary: {
+        evidenceCount: 5,
+        scoreChangeCount: 5,
+        scoreRevertedCount: 0,
+        ambiguousCount: 0,
+        unreadableCount: 0,
+        sampledFrameCount: 40,
+        regionCount: 1,
+        regionIdsUsed: ["scorebug_broadcast_compact"],
+        preprocessingVariantCount: 3,
+        chunkSummary: {
+          mode: "chunked_scorebug_first_ocr",
+          chunkCount: 8,
+          scannedChunks: 8,
+          skippedChunks: 0,
+          discoveredScoreChanges: 5,
+          scoreCandidateDiagnostics: {
+            acceptedScoreChangeCount: 5,
+            finalScore: "3-2",
+          },
+        },
+        scoreTimeline: [
+          { timestamp: 236.25, status: "score_changed", scoreBefore: "0-0", scoreAfter: "1-0", temporalConsistency: true },
+          { timestamp: 260.5, status: "score_changed", scoreBefore: "1-0", scoreAfter: "1-1", temporalConsistency: true },
+          { timestamp: 482, status: "score_changed", scoreBefore: "1-1", scoreAfter: "2-1", temporalConsistency: true },
+          { timestamp: 558.45, status: "score_changed", scoreBefore: "2-1", scoreAfter: "2-2", temporalConsistency: true },
+          { timestamp: 604, status: "score_changed", scoreBefore: "2-2", scoreAfter: "3-2", temporalConsistency: true },
+        ],
+      },
+    },
+    videoOutputQA: {
+      status: "failed",
+      expectedGoalCount: 5,
+      actualConfirmedGoalSegmentCount: 5,
+      coveredGoalCount: 3,
+      missingGoalNumbers: [2, 5],
+      failedReasons: ["rendered_goal_visibility_failed"],
+    },
+  };
+  const report = await runYouTubeLiveE2E({
+    env: liveEnv({ SHORTSENGINE_YOUTUBE_LIVE_E2E_EXPECTED_COUNTED_GOALS: "5" }),
+    checkYouTubeIngest: async () => passedDoctor(),
+    getFreePort: async () => 4175,
+    startServer: () => ({ child: { exitCode: null, signalCode: null }, events: [] }),
+    stopServer: async () => {},
+    waitForServerReady: async () => ({ attempts: 1, waitedMs: 5, status: 200 }),
+    runYouTubeSmoke: async () => ({
+      status: "failed",
+      source: { sourceType: "youtube", kind: "watch", videoId: VIDEO_ID },
+      steps: [{ step: "failure", status: "failed", code: "VIDEO_OUTPUT_QA_FAILED" }],
+      failedCases: [{
+        name: "youtube_smoke",
+        code: "VIDEO_OUTPUT_QA_FAILED",
+        phase: "orchestration",
+        step: "verify_rendered_goal_visibility",
+        substep: "sample_rebound_finish_frames_attempt_1",
+        currentJob,
+        countedGoalEventCount: 5,
+        actualConfirmedGoalSegmentCount: 5,
+        coveredGoalCount: 3,
+        missingGoalNumbers: [2, 5],
+        failedReasons: ["rendered_goal_visibility_failed"],
+      }],
+      jobLifecycle: [currentJob],
+      renderPlan: { videoOutputQA: currentJob.videoOutputQA },
+      export: null,
+      generatedArtifact: null,
+    }),
+  });
+
+  assert.equal(report.status, "failed");
+  assert.equal(report.outputProof.scoreboardOcrEnabled, true);
+  assert.equal(report.outputProof.scoreboardOcrProviderMode, "chunked-scoreboard-ocr");
+  assert.equal(report.outputProof.scoreboardObservationCount, 5);
+  assert.equal(report.outputProof.scoreboardSampledFrameCount, 40);
+  assert.equal(report.outputProof.scoreChangeCount, 5);
+  assert.equal(report.outputProof.stableScoreChangeCount, 5);
+  assert.equal(report.outputProof.ocrChunkSummary.discoveredScoreChanges, 5);
+  assert.equal(report.outputProof.missingGoalNumbers.length, 2);
+  assert.equal(report.outputProof.missingGoalNumbers[0], 2);
+  assert.equal(report.outputProof.missingGoalNumbers[1], 5);
+  assert.equal(findSensitiveLeak(report), null);
+});
+
 test("youtube live local e2e rejects invalid configured port safely", async () => {
   let serverStarted = false;
   const report = await runYouTubeLiveE2E({
@@ -2646,20 +2749,8 @@ test("youtube live local e2e reports final output gate details when smoke fails 
   assert.equal(report.outputProof.videoOutputQA.expectedGoals.length, 3);
   assert.equal(report.outputProof.videoOutputQA.segments.length, 2);
   assert.equal(report.outputProof.videoOutputQA.segments[0].confirmationTime, 100);
-  assert.deepEqual(
-    report.outputProof.scoreChangeAnchors.map((anchor) => ({
-      scoreBefore: anchor.scoreBefore,
-      scoreAfter: anchor.scoreAfter,
-      confirmedAt: anchor.confirmedAt,
-      selectedForRender: anchor.selectedForRender,
-      outcome: anchor.outcome,
-    })),
-    [
-      { scoreBefore: "0-0", scoreAfter: "1-0", confirmedAt: 100, selectedForRender: true, outcome: "counted_goal" },
-      { scoreBefore: "1-0", scoreAfter: "2-0", confirmedAt: 180, selectedForRender: true, outcome: "counted_goal" },
-      { scoreBefore: "2-0", scoreAfter: "3-0", confirmedAt: 260, selectedForRender: true, outcome: "counted_goal" },
-    ],
-  );
+  assert.deepEqual(report.outputProof.scoreChangeAnchors, []);
+  assert.doesNotMatch(JSON.stringify(report.outputProof), /score_change_expected_goal_fallback/);
   assert.deepEqual(
     report.outputProof.segmentWindows.map((segment) => ({
       goalNumber: segment.goalNumber,

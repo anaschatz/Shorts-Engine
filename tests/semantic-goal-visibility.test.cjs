@@ -321,6 +321,34 @@ test("semantic goal visibility rejects dark sideline celebration closeup selecte
   assert.ok(evidence.reasons.includes("semantic_player_closeup_only"));
 });
 
+test("semantic goal visibility rejects the latest rendered goal 4 saturated closeup false positive", () => {
+  const finishEvidence = classifyFeatures({
+    greenRatio: 0.6597,
+    whiteRatio: 0.0709,
+    darkRatio: 0.0543,
+    skinRatio: 0.0287,
+    saturatedColorRatio: 0.4448,
+    blackBarRatio: 0.0648,
+    activeContentRatio: 0.9352,
+  }, "finish");
+  const payoffEvidence = classifyFeatures({
+    greenRatio: 0.6381,
+    whiteRatio: 0.0669,
+    darkRatio: 0.0589,
+    skinRatio: 0.0344,
+    saturatedColorRatio: 0.4299,
+    blackBarRatio: 0.0645,
+    activeContentRatio: 0.9355,
+  }, "payoff");
+
+  assert.equal(finishEvidence.visibilityVerdict, "failed");
+  assert.equal(finishEvidence.playerCloseupOnly, true);
+  assert.ok(finishEvidence.reasons.includes("semantic_player_closeup_only"));
+  assert.equal(payoffEvidence.visibilityVerdict, "failed");
+  assert.equal(payoffEvidence.playerCloseupOnly, true);
+  assert.ok(payoffEvidence.reasons.includes("semantic_player_closeup_only"));
+});
+
 test("semantic goal visibility rejects scoreboard-only frames", () => {
   const evidence = classifyFeatures({
     greenRatio: 0.01,
