@@ -170,12 +170,14 @@ async function detectCelebrationHeads({
   signal,
   swiftBin = "/usr/bin/swift",
   runner = defaultRunner,
+  platform = process.platform,
 } = {}) {
   const safe = safeFrames(frames);
   if (!safe.length) {
     return { providerMode: PROVIDER_MODE, detections: [], fallbackUsed: true, failure: null };
   }
-  if (process.platform !== "darwin" || !existsSync(SCRIPT_PATH) || !commandAvailable(swiftBin)) {
+  const injectedRunner = runner !== defaultRunner;
+  if (!injectedRunner && (platform !== "darwin" || !existsSync(SCRIPT_PATH) || !commandAvailable(swiftBin))) {
     return {
       providerMode: PROVIDER_MODE,
       detections: [],

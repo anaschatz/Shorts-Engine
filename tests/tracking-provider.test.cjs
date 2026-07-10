@@ -100,6 +100,7 @@ test("Apple Vision adapter chooses a prominent face and validates mocked output"
         visualHints: ["football_action", "goal_1", "celebration_head"],
       }],
       metadata: { width: 1920, height: 1080 },
+      platform: "linux",
       runner: async () => JSON.stringify({
         ok: true,
         frames: [{
