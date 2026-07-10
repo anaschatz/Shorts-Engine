@@ -470,6 +470,7 @@ test("confirmed-goal renderer fills 9:16 and preserves the live scorebug at top 
 
   const filter = calls[0][calls[0].indexOf("-filter_complex") + 1];
   assert.match(filter, /split=2\[base_source\]\[score_source\]/);
+  assert.match(filter, /\[base_source\]delogo=/);
   assert.match(filter, /scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920/);
   assert.match(filter, /crop=iw\*0\.33:ih\*0\.065:iw\*0\.04:ih\*0\.045/);
   assert.match(filter, /overlay=\(W-w\)\/2:106/);
@@ -478,9 +479,93 @@ test("confirmed-goal renderer fills 9:16 and preserves the live scorebug at top 
   assert.equal(plan.renderPolishQA.fullHeightActionCrop, true);
   assert.equal(plan.renderPolishQA.scoreboardOverlayRendered, true);
   assert.equal(plan.renderPolishQA.scoreboardOverlayRegionId, "scorebug_broadcast_compact");
+  assert.equal(plan.renderPolishQA.sourceScoreboardDuplicateSuppressed, true);
   assert.equal(plan.renderPolishQA.renderPolishWarnings.includes("clean_action_letterbox_background"), false);
   const ass = readFileSync(subtitlesPath, "utf8");
   assert.doesNotMatch(ass, /PUNCHY HIGHLIGHT/);
+});
+
+test("ball-follow renderer moves the action crop while the live scorebug stays fixed", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "shortsengine-render-ball-follow-"));
+  const calls = [];
+  const plan = validateEditPlan({
+    ...validKineticPlan(),
+    validGoalsOnly: true,
+    framingMode: "safe_center",
+    framingReason: "ball_follow_multi_moment_tracks_validated_action_timeline",
+    visualTrackingSummary: {
+      trackingProviderMode: "ffmpeg-football-tracking",
+      trackingConfidence: 0.82,
+      ballCandidateConfidence: 0.84,
+      playerClusterConfidence: 0.78,
+      ballTrackCount: 3,
+      playerClusterCount: 3,
+      fallbackUsed: false,
+    },
+    cropPlan: {
+      mode: "ball_follow",
+      targetAspectRatio: "9:16",
+      safeArea: { x: 0, y: 0, width: 1920, height: 1080 },
+      cropBox: { x: 120, y: 0, width: 608, height: 1080 },
+      confidence: 0.82,
+      maxPanSpeed: 0.18,
+      maxZoomSpeed: 0,
+      hysteresis: 0.055,
+      keyframes: [
+        { sourceTime: 1, centerX: 420, centerY: 540, zoom: 1, confidence: 0.82, source: "ball_detection", reset: true },
+        { sourceTime: 5, centerX: 960, centerY: 540, zoom: 1, confidence: 0.78, source: "player_cluster_fallback" },
+        { sourceTime: 10, centerX: 1480, centerY: 540, zoom: 1, confidence: 0.86, source: "ball_detection" },
+      ],
+      fallbackUsed: false,
+      textObstructionRisk: false,
+      actionSafeZones: [],
+      textSafeZones: [],
+      reasonCodes: ["ball_follow_validated_tracking_timeline"],
+    },
+    cropStrategy: {
+      type: "ball_follow_crop",
+      x: 120,
+      y: 0,
+      width: 608,
+      height: 1080,
+      zoom: 1,
+      background: "none",
+      preserveFullFrame: false,
+      maxCropPercent: 0.35,
+    },
+    scoreboardOverlay: {
+      enabled: true,
+      mode: "source_roi",
+      regionId: "scorebug_broadcast_compact",
+      sourceRect: { x: 0.04, y: 0.045, width: 0.33, height: 0.065 },
+      outputWidthRatio: 0.46,
+      topMarginRatio: 0.035,
+    },
+  }, metadata);
+
+  await renderShort({
+    inputPath: join(dir, "input.mp4"),
+    outputPath: join(dir, "output.mp4"),
+    subtitlesPath: join(dir, "captions.ass"),
+    plan,
+    ffmpegRunner: async (args) => {
+      calls.push(args);
+      return { stderr: "" };
+    },
+  });
+
+  const filter = calls[0][calls[0].indexOf("-filter_complex") + 1];
+  assert.match(filter, /crop=w=608:h=1080:x='if\(lt\(t,/);
+  assert.match(filter, /\[base_source\]delogo=/);
+  assert.match(filter, /\[score_source\]crop=iw\*0\.33/);
+  assert.match(filter, /scale=496:-2\[scorebug\]/);
+  assert.match(filter, /overlay=\(W-w\)\/2:67/);
+  assert.doesNotMatch(filter, /boxblur|pad=1080:1920/);
+  assert.equal(plan.renderPolishQA.actionLayoutMode, "ball_follow_with_synchronized_scorebug");
+  assert.equal(plan.renderPolishQA.dynamicCropRendered, true);
+  assert.ok(plan.renderPolishQA.cropKeyframeCount >= 3);
+  assert.equal(plan.renderPolishQA.trackingProviderMode, "ffmpeg-football-tracking");
+  assert.equal(plan.renderPolishQA.sourceScoreboardDuplicateSuppressed, true);
 });
 
 test("edit plan rejects unsafe scoreboard overlay placement", () => {

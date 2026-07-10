@@ -512,12 +512,142 @@ function activeSoftFollowCrop(plan = {}) {
   };
 }
 
+function sourceWidthForCropPlan(cropPlan = {}) {
+  const safeArea = cropPlan.safeArea && typeof cropPlan.safeArea === "object" ? cropPlan.safeArea : null;
+  const cropBox = cropPlan.cropBox && typeof cropPlan.cropBox === "object" ? cropPlan.cropBox : null;
+  return Math.max(
+    2,
+    Number(safeArea && safeArea.x || 0) + Number(safeArea && safeArea.width || 0),
+    Number(cropBox && cropBox.x || 0) + Number(cropBox && cropBox.width || 0),
+  );
+}
+
+function sourceKeyframesForSegment(keyframes, segment) {
+  return keyframes.filter((keyframe) => (
+    keyframe.sourceTime >= segment.sourceStart - 0.05 &&
+    keyframe.sourceTime <= segment.sourceEnd + 0.05
+  ));
+}
+
+function mappedBallFollowKeyframes(plan = {}, cropPlan = {}) {
+  const sourceKeyframes = (Array.isArray(cropPlan.keyframes) ? cropPlan.keyframes : [])
+    .filter((keyframe) => keyframe && Number.isFinite(Number(keyframe.sourceTime)) && Number.isFinite(Number(keyframe.centerX)))
+    .map((keyframe) => ({ ...keyframe, sourceTime: Number(keyframe.sourceTime), centerX: Number(keyframe.centerX) }))
+    .sort((left, right) => left.sourceTime - right.sourceTime)
+    .slice(0, 24);
+  if (sourceKeyframes.length < 3) return [];
+  const segments = normalizedRenderSegments(plan);
+  const effectiveSegments = segments.length
+    ? segments
+    : [{
+        sourceStart: Number(plan.sourceStart || 0),
+        sourceEnd: Number(plan.sourceEnd || plan.totalDuration || 0),
+        duration: Number(plan.totalDuration || 0) || Number(plan.sourceEnd || 0) - Number(plan.sourceStart || 0),
+      }];
+  const cropWidth = Math.max(2, Number(cropPlan.cropBox && cropPlan.cropBox.width || 0));
+  const sourceWidth = sourceWidthForCropPlan(cropPlan);
+  const mapped = [];
+  let timelineCursor = 0;
+  let previousX = null;
+  for (const [segmentIndex, segment] of effectiveSegments.entries()) {
+    const segmentKeyframes = sourceKeyframesForSegment(sourceKeyframes, segment);
+    if (!segmentKeyframes.length) {
+      const centerX = Math.max(0, (sourceWidth - cropWidth) / 2);
+      if (segmentIndex > 0 && previousX !== null) {
+        mapped.push({ time: Math.max(0, timelineCursor - 0.04), x: previousX, reset: false });
+      }
+      mapped.push({ time: Number(timelineCursor.toFixed(3)), x: centerX, reset: true });
+      mapped.push({ time: Number((timelineCursor + segment.duration).toFixed(3)), x: centerX, reset: false });
+      previousX = centerX;
+      timelineCursor += segment.duration;
+      continue;
+    }
+    const first = segmentKeyframes[0];
+    const firstX = Math.max(0, Math.min(sourceWidth - cropWidth, first.centerX - cropWidth / 2));
+    if (segmentIndex > 0 && previousX !== null) {
+      mapped.push({ time: Math.max(0, timelineCursor - 0.04), x: previousX, reset: false });
+    }
+    mapped.push({ time: Number(timelineCursor.toFixed(3)), x: firstX, reset: segmentIndex > 0 || Boolean(first.reset) });
+    for (const keyframe of segmentKeyframes) {
+      const localTime = Math.max(0, Math.min(segment.duration, keyframe.sourceTime - segment.sourceStart));
+      const x = Math.max(0, Math.min(sourceWidth - cropWidth, keyframe.centerX - cropWidth / 2));
+      mapped.push({
+        time: Number((timelineCursor + localTime).toFixed(3)),
+        x: Number(x.toFixed(2)),
+        reset: Boolean(keyframe.reset && localTime <= 0.1),
+      });
+      previousX = x;
+    }
+    mapped.push({
+      time: Number((timelineCursor + segment.duration).toFixed(3)),
+      x: Number((previousX === null ? firstX : previousX).toFixed(2)),
+      reset: false,
+    });
+    timelineCursor += segment.duration;
+  }
+  const deduped = [];
+  for (const keyframe of mapped.sort((left, right) => left.time - right.time)) {
+    const previous = deduped[deduped.length - 1];
+    if (previous && Math.abs(previous.time - keyframe.time) < 0.005) {
+      deduped[deduped.length - 1] = keyframe;
+    } else {
+      deduped.push(keyframe);
+    }
+  }
+  return deduped.slice(0, 48);
+}
+
+function cropXExpression(keyframes = []) {
+  if (!keyframes.length) return "0";
+  let expression = Number(keyframes[keyframes.length - 1].x).toFixed(2);
+  for (let index = keyframes.length - 2; index >= 0; index -= 1) {
+    const current = keyframes[index];
+    const next = keyframes[index + 1];
+    const duration = Math.max(0.001, next.time - current.time);
+    const delta = next.x - current.x;
+    const linear = next.reset
+      ? Number(current.x).toFixed(2)
+      : `${Number(current.x).toFixed(2)}+(${Number(delta).toFixed(2)})*(t-${Number(current.time).toFixed(3)})/${duration.toFixed(3)}`;
+    expression = `if(lt(t,${Number(next.time).toFixed(3)}),${linear},${expression})`;
+  }
+  return expression;
+}
+
+function activeBallFollowCrop(plan = {}) {
+  const cropPlan = plan.cropPlan && typeof plan.cropPlan === "object" ? plan.cropPlan : null;
+  if (
+    !cropPlan ||
+    cropPlan.mode !== "ball_follow" ||
+    cropPlan.fallbackUsed ||
+    Number(cropPlan.confidence || 0) < 0.52
+  ) return null;
+  const box = cropPlan.cropBox;
+  if (!box || [box.width, box.height].some((value) => !Number.isFinite(Number(value)) || Number(value) <= 1)) return null;
+  const keyframes = mappedBallFollowKeyframes(plan, cropPlan);
+  if (keyframes.length < 3) return null;
+  return {
+    width: Math.max(2, Math.round(Number(box.width))),
+    height: Math.max(2, Math.round(Number(box.height))),
+    keyframes,
+    xExpression: cropXExpression(keyframes),
+    maxPanSpeed: Number(cropPlan.maxPanSpeed || 0),
+  };
+}
+
+function actionCropFilter(crop) {
+  if (!crop) return null;
+  if (crop.xExpression) {
+    return `crop=w=${crop.width}:h=${crop.height}:x='${crop.xExpression}':y=0`;
+  }
+  return `crop=${crop.width}:${crop.height}:${crop.x}:${crop.y}`;
+}
+
 function activeScoreboardOverlay(plan = {}, dimensions = renderDimensions(plan)) {
   const overlay = plan.scoreboardOverlay && typeof plan.scoreboardOverlay === "object"
     ? plan.scoreboardOverlay
     : null;
   if (!overlay || overlay.enabled !== true || overlay.mode !== "source_roi") return null;
-  if (!activeSoftFollowCrop(plan) && !["safe_center", "action_bias"].includes(plan.framingMode)) return null;
+  if (!activeSoftFollowCrop(plan) && !activeBallFollowCrop(plan) && !["safe_center", "action_bias"].includes(plan.framingMode)) return null;
   const rect = overlay.sourceRect && typeof overlay.sourceRect === "object" ? overlay.sourceRect : {};
   const x = Number(rect.x);
   const y = Number(rect.y);
@@ -530,6 +660,13 @@ function activeScoreboardOverlay(plan = {}, dimensions = renderDimensions(plan))
   ) return null;
   const targetWidth = Math.max(2, Math.round((dimensions.width * Number(overlay.outputWidthRatio || 0.7)) / 2) * 2);
   const topMargin = Math.max(0, Math.round(dimensions.height * Number(overlay.topMarginRatio || 0.055)));
+  const cropPlan = plan.cropPlan && typeof plan.cropPlan === "object" ? plan.cropPlan : {};
+  const sourceWidth = sourceWidthForCropPlan(cropPlan);
+  const sourceHeight = Math.max(
+    2,
+    Number(cropPlan.safeArea && cropPlan.safeArea.y || 0) + Number(cropPlan.safeArea && cropPlan.safeArea.height || 0),
+    Number(cropPlan.cropBox && cropPlan.cropBox.y || 0) + Number(cropPlan.cropBox && cropPlan.cropBox.height || 0),
+  );
   return {
     regionId: String(overlay.regionId || "scoreboard_region"),
     x,
@@ -538,6 +675,10 @@ function activeScoreboardOverlay(plan = {}, dimensions = renderDimensions(plan))
     height,
     targetWidth,
     topMargin,
+    maskX: Math.max(0, Math.round(sourceWidth * x)),
+    maskY: Math.max(0, Math.round(sourceHeight * y)),
+    maskWidth: Math.max(8, Math.round(sourceWidth * width)),
+    maskHeight: Math.max(8, Math.round(sourceHeight * height)),
   };
 }
 
@@ -688,6 +829,10 @@ function createRenderPolishSummary(plan = {}, options = {}) {
   const cleanActionLayoutRequired = isValidGoalsProofPlan(plan);
   const blurredBackgroundUsed = shouldUseBlurredBackground(plan, profile);
   const softFollowCrop = activeSoftFollowCrop(plan);
+  const ballFollowCrop = activeBallFollowCrop(plan);
+  const visualTracking = plan.visualTrackingSummary && typeof plan.visualTrackingSummary === "object"
+    ? plan.visualTrackingSummary
+    : {};
   const scoreboardOverlay = activeScoreboardOverlay(plan, dimensions);
   const splitLayoutCaptionCount = Array.isArray(plan.captions)
     ? plan.captions.filter((caption) => caption && caption.layout === "split").length
@@ -695,7 +840,11 @@ function createRenderPolishSummary(plan = {}, options = {}) {
   const actionLayoutMode = blurredBackgroundUsed
     ? "blurred_duplicate_background"
     : scoreboardOverlay
-      ? "scorebug_preserved_vertical_fill"
+      ? ballFollowCrop
+        ? "ball_follow_with_synchronized_scorebug"
+        : "scorebug_preserved_vertical_fill"
+      : ballFollowCrop
+        ? "ball_follow_action_crop"
       : softFollowCrop
         ? "clean_action_crop"
         : "clean_action_letterbox";
@@ -746,9 +895,25 @@ function createRenderPolishSummary(plan = {}, options = {}) {
     captionMotion: dynamicWordCaptionCount > 0 ? "ass_word_by_word_highlight" : animatedCaptionCount > 0 ? "ass_fade_scale" : "none",
     cleanActionLayoutRequired,
     actionLayoutMode,
-    fullHeightActionCrop: Boolean(scoreboardOverlay || softFollowCrop),
+    fullHeightActionCrop: Boolean(scoreboardOverlay || softFollowCrop || ballFollowCrop),
+    dynamicCropRendered: Boolean(ballFollowCrop),
+    cropKeyframeCount: ballFollowCrop ? ballFollowCrop.keyframes.length : 0,
+    maxPanSpeed: ballFollowCrop ? ballFollowCrop.maxPanSpeed : softFollowCrop ? 0.18 : 0,
+    trackingProviderMode: String(visualTracking.trackingProviderMode || "unknown").slice(0, 80),
+    trackingConfidence: Number.isFinite(Number(visualTracking.trackingConfidence))
+      ? Number(Number(visualTracking.trackingConfidence).toFixed(2))
+      : null,
+    ballCandidateConfidence: Number.isFinite(Number(visualTracking.ballCandidateConfidence))
+      ? Number(Number(visualTracking.ballCandidateConfidence).toFixed(2))
+      : null,
+    playerClusterConfidence: Number.isFinite(Number(visualTracking.playerClusterConfidence))
+      ? Number(Number(visualTracking.playerClusterConfidence).toFixed(2))
+      : null,
+    ballTrackCount: Math.max(0, Math.min(24, Math.round(Number(visualTracking.ballTrackCount || 0)))),
+    playerClusterCount: Math.max(0, Math.min(24, Math.round(Number(visualTracking.playerClusterCount || 0)))),
     scoreboardOverlayRendered: Boolean(scoreboardOverlay),
     scoreboardOverlayRegionId: scoreboardOverlay ? scoreboardOverlay.regionId : null,
+    sourceScoreboardDuplicateSuppressed: Boolean(scoreboardOverlay),
     blurredBackgroundUsed,
     duplicateBackgroundUsed: blurredBackgroundUsed,
     splitLayoutCaptionCount,
@@ -786,20 +951,23 @@ async function renderSingleWindowShort({ inputPath, outputPath, subtitlesPath, p
   const backgroundWidth = Math.round(dimensions.width * backgroundPush);
   const backgroundHeight = Math.round(dimensions.height * backgroundPush);
   const softFollowCrop = activeSoftFollowCrop(plan);
+  const ballFollowCrop = activeBallFollowCrop(plan);
+  const actionCrop = ballFollowCrop || softFollowCrop;
   const scoreboardOverlay = activeScoreboardOverlay(plan, dimensions);
   const filter = scoreboardOverlay
     ? [
         "[0:v]split=2[base_source][score_source]",
-        softFollowCrop
-          ? `[base_source]crop=${softFollowCrop.width}:${softFollowCrop.height}:${softFollowCrop.x}:${softFollowCrop.y},scale=${dimensions.width}:${dimensions.height}:force_original_aspect_ratio=increase,crop=${dimensions.width}:${dimensions.height}[base]`
-          : `[base_source]scale=${dimensions.width}:${dimensions.height}:force_original_aspect_ratio=increase,crop=${dimensions.width}:${dimensions.height}[base]`,
+        `[base_source]delogo=x=${scoreboardOverlay.maskX}:y=${scoreboardOverlay.maskY}:w=${scoreboardOverlay.maskWidth}:h=${scoreboardOverlay.maskHeight}:show=0[base_clean]`,
+        actionCrop
+          ? `[base_clean]${actionCropFilter(actionCrop)},scale=${dimensions.width}:${dimensions.height}:force_original_aspect_ratio=increase,crop=${dimensions.width}:${dimensions.height}[base]`
+          : `[base_clean]scale=${dimensions.width}:${dimensions.height}:force_original_aspect_ratio=increase,crop=${dimensions.width}:${dimensions.height}[base]`,
         `[score_source]crop=iw*${scoreboardOverlay.width}:ih*${scoreboardOverlay.height}:iw*${scoreboardOverlay.x}:ih*${scoreboardOverlay.y},scale=${scoreboardOverlay.targetWidth}:-2[scorebug]`,
         `[base][scorebug]overlay=(W-w)/2:${scoreboardOverlay.topMargin}[framed]`,
         `[framed]${finishingFilters.join(",")}[v]`,
       ].join(";")
-    : softFollowCrop
+    : actionCrop
     ? [
-        `[0:v]crop=${softFollowCrop.width}:${softFollowCrop.height}:${softFollowCrop.x}:${softFollowCrop.y}`,
+        `[0:v]${actionCropFilter(actionCrop)}`,
         `scale=${dimensions.width}:${dimensions.height}:force_original_aspect_ratio=increase`,
         `crop=${dimensions.width}:${dimensions.height}`,
         `${finishingFilters.join(",")}[v]`,

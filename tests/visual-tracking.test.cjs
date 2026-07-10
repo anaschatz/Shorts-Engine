@@ -67,6 +67,39 @@ test("stable ball and player action tracking can create a soft-follow crop plan"
   assert.equal(cropPlan.textObstructionRisk, false);
 });
 
+test("validated ball timeline creates bounded dynamic crop keyframes", () => {
+  const tracking = analyzeVisualTracking({
+    metadata,
+    visualTracking: {
+      frameCount: 4,
+      sampledTimestamps: [3, 6, 9, 11],
+      trackingSamples: [
+        { time: 3, ballBox: { x: 280, y: 450, width: 24, height: 24 }, ballConfidence: 0.82, playerClusterBox: { x: 220, y: 330, width: 320, height: 380 }, playerClusterConfidence: 0.74, actionCenter: { x: 330, y: 520 }, source: "ball_detection" },
+        { time: 6, ballBox: { x: 720, y: 430, width: 24, height: 24 }, ballConfidence: 0.86, playerClusterBox: { x: 620, y: 310, width: 360, height: 390 }, playerClusterConfidence: 0.78, actionCenter: { x: 760, y: 510 }, source: "ball_detection" },
+        { time: 9, ballBox: null, ballConfidence: 0, playerClusterBox: { x: 980, y: 300, width: 380, height: 400 }, playerClusterConfidence: 0.68, actionCenter: { x: 1150, y: 500 }, source: "player_cluster_fallback" },
+        { time: 11, ballBox: { x: 1460, y: 410, width: 24, height: 24 }, ballConfidence: 0.84, playerClusterBox: { x: 1320, y: 290, width: 400, height: 420 }, playerClusterConfidence: 0.8, actionCenter: { x: 1510, y: 500 }, source: "ball_detection" },
+      ],
+      estimatedActionBounds: { x: 200, y: 280, width: 1540, height: 440 },
+      ballCandidateConfidence: 0.86,
+      playerClusterConfidence: 0.8,
+      trackingConfidence: 0.82,
+      recommendedFramingMode: "ball_follow",
+      cropSafetyReason: "ball_follow_validated_tracking_timeline",
+      fallbackUsed: false,
+    },
+  });
+  const cropPlan = calibrateCropPlan({ metadata, trackingSummary: tracking, targetAspectRatio: "9:16" });
+
+  assert.equal(cropPlan.mode, "ball_follow");
+  assert.equal(cropPlan.fallbackUsed, false);
+  assert.equal(cropPlan.keyframes.length, 4);
+  assert.equal(cropPlan.keyframes.filter((item) => item.source === "ball_detection").length, 3);
+  assert.ok(cropPlan.keyframes[0].centerX < cropPlan.keyframes.at(-1).centerX);
+  assert.ok(cropPlan.maxPanSpeed > 0 && cropPlan.maxPanSpeed <= 0.22);
+  assert.equal(cropPlan.hysteresis > 0, true);
+  assert.equal(cropPlan.actionSafeZones.length, 0);
+});
+
 test("low confidence tracking falls back to wide-safe framing", () => {
   const tracking = analyzeVisualTracking({
     metadata,

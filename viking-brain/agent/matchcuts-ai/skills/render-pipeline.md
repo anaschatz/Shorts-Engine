@@ -43,3 +43,9 @@ Safety notes:
 - Punchy effects should use bounded overlays/background push and must not imply ball/player tracking or crop away the full foreground frame.
 - Candidate edit plans expose `reviewMetadata` for reference-style quality review: render style, caption roles, cue types, aspect ratio, highlight type, forbidden claim checks, framing and evidence summaries.
 - Use `npm run eval:reference` before release when changing ASS captions, cue timing, style presets, framing or football story output.
+- Use `ball_follow` only with validated bounded tracking samples; otherwise fall back to wide-safe framing.
+- Refine tracking around each final goal segment instead of trusting sparse full-source samples for the finish.
+- Keep source-time crop keyframes mapped to the concatenated render timeline and cap pan speed to avoid abrupt reframing.
+- Suppress the original scorebug region before rendering one synchronized source scorebug overlay; never duplicate or synthesize score state.
+- Treat tracking as a crop signal only. Goal truth continues to come from stable scoreboard changes plus visible live-action proof.
+- For rendered framing changes, run the research gate but record its limits when fixtures do not measure pixels; require a fresh MP4, strict output gate, contact sheets, and human inspection before claiming improvement.

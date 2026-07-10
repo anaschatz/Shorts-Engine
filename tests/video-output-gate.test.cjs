@@ -1181,6 +1181,7 @@ test("video output gate accepts validated vertical fill with a rendered scorebug
     fullHeightActionCrop: true,
     scoreboardOverlayRendered: true,
     scoreboardOverlayRegionId: "scorebug_broadcast_compact",
+    sourceScoreboardDuplicateSuppressed: true,
     blurredBackgroundUsed: false,
     duplicateBackgroundUsed: false,
     splitLayoutCaptionCount: 0,
@@ -1204,6 +1205,41 @@ test("video output gate accepts validated vertical fill with a rendered scorebug
 
   assert.equal(result.renderLayout.passed, true);
   assert.equal(result.renderLayout.actionLayoutMode, "scorebug_preserved_vertical_fill");
+});
+
+test("video output gate accepts bounded ball-follow with synchronized scorebug", () => {
+  const contract = creativeOutputContract();
+  contract.renderPolishQA = {
+    cleanActionLayoutRequired: true,
+    cleanActionLayoutPassed: true,
+    actionLayoutMode: "ball_follow_with_synchronized_scorebug",
+    fullHeightActionCrop: true,
+    dynamicCropRendered: true,
+    cropKeyframeCount: 8,
+    maxPanSpeed: 0.18,
+    scoreboardOverlayRendered: true,
+    scoreboardOverlayRegionId: "scorebug_broadcast_compact",
+    sourceScoreboardDuplicateSuppressed: true,
+    blurredBackgroundUsed: false,
+    duplicateBackgroundUsed: false,
+    splitLayoutCaptionCount: 0,
+  };
+
+  const result = assertVideoOutputCoverage({
+    goalSelectionMode: "valid_goals_only",
+    matchEventTruth: {
+      providerMode: "fixture-match-event-truth",
+      events: [],
+      rejectedEvents: [],
+      scoreTimelineObservations: [],
+      scoreChanges: countedScoreChanges(1),
+      summary: { countedGoalEventCount: 1 },
+    },
+    editPlan: { ...contract, segments: [visibleGoalSegment(1, 84)] },
+  });
+
+  assert.equal(result.renderLayout.passed, true);
+  assert.equal(result.renderLayout.actionLayoutMode, "ball_follow_with_synchronized_scorebug");
 });
 
 test("video output gate rejects vertical fill without a rendered scorebug", () => {

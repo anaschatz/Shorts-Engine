@@ -160,12 +160,35 @@ test("public job keeps safe render QA metadata from large edit plans", () => {
       stylePreset: "reference_football_multi_goal_v1",
       renderPolishQA: {
         contractVersion: 1,
+        renderProfile: "proof_fast",
+        encoderPreset: "ultrafast",
+        encoderCrf: 28,
         renderStylePreset: "reference_football_multi_goal_v1",
         transitionRenderedCount: 2,
         hardCutFallbackCount: 0,
         animatedCaptionCount: 5,
         overlayRenderedCount: 5,
+        cleanActionLayoutRequired: true,
+        cleanActionLayoutPassed: true,
+        actionLayoutMode: "ball_follow_with_synchronized_scorebug",
+        fullHeightActionCrop: true,
+        dynamicCropRendered: true,
+        cropKeyframeCount: 22,
+        maxPanSpeed: 0.18,
+        trackingProviderMode: "ffmpeg-football-tracking",
+        trackingConfidence: 0.92,
+        ballCandidateConfidence: 0.88,
+        playerClusterConfidence: 0.84,
+        ballTrackCount: 12,
+        playerClusterCount: 12,
+        scoreboardOverlayRendered: true,
+        scoreboardOverlayRegionId: "scorebug_broadcast_compact",
+        sourceScoreboardDuplicateSuppressed: true,
+        blurredBackgroundUsed: false,
+        duplicateBackgroundUsed: false,
+        splitLayoutCaptionCount: 0,
         renderPolishWarnings: [],
+        outputPath: "/Users/operator/private/render.mp4",
       },
       visualPolishQA: {
         contractVersion: 1,
@@ -184,6 +207,9 @@ test("public job keeps safe render QA metadata from large edit plans", () => {
   const publicJob = store.publicJob(job);
   assert.equal(publicJob.editPlan.renderPolishQA.renderStylePreset, "reference_football_multi_goal_v1");
   assert.equal(publicJob.editPlan.renderPolishQA.transitionRenderedCount, 2);
+  assert.equal(publicJob.editPlan.renderPolishQA.cleanActionLayoutPassed, true);
+  assert.equal(publicJob.editPlan.renderPolishQA.sourceScoreboardDuplicateSuppressed, true);
+  assert.equal(publicJob.editPlan.renderPolishQA.cropKeyframeCount, 22);
   assert.equal(publicJob.editPlan.visualPolishQA.countedGoalsIncluded, 3);
   assert.equal(publicJob.editPlan.editAssembly.segmentCount, 3);
   assert.doesNotMatch(JSON.stringify(publicJob), /\/Users|OPENAI_API_KEY|storageKey|outputPath|localPath/i);
@@ -220,6 +246,22 @@ test("public job summary stays bounded for polling while preserving render proof
         coveredGoalCount: 5,
         missingGoalNumbers: [],
       },
+      renderPolishQA: {
+        contractVersion: 1,
+        renderProfile: "proof_fast",
+        renderStylePreset: "reference_football_multi_goal_v1",
+        cleanActionLayoutRequired: true,
+        cleanActionLayoutPassed: true,
+        actionLayoutMode: "ball_follow_with_synchronized_scorebug",
+        fullHeightActionCrop: true,
+        dynamicCropRendered: true,
+        cropKeyframeCount: 22,
+        maxPanSpeed: 0.18,
+        trackingProviderMode: "ffmpeg-football-tracking",
+        scoreboardOverlayRendered: true,
+        scoreboardOverlayRegionId: "scorebug_broadcast_compact",
+        sourceScoreboardDuplicateSuppressed: true,
+      },
     },
     candidatePlans: Array.from({ length: 30 }, (_, index) => ({ id: `candidate_${index}`, body: "x".repeat(2000) })),
   });
@@ -229,6 +271,9 @@ test("public job summary stays bounded for polling while preserving render proof
   assert.equal(summary.exportId, "exp_dddddddd-dddd-4ddd-dddd-dddddddddddd");
   assert.equal(summary.renderPlanSummary.segmentCount, 5);
   assert.equal(summary.renderPlanSummary.videoOutputQA.coveredGoalCount, 5);
+  assert.equal(summary.renderPlanSummary.renderPolishQA.cleanActionLayoutPassed, true);
+  assert.equal(summary.renderPlanSummary.renderPolishQA.sourceScoreboardDuplicateSuppressed, true);
+  assert.equal(summary.renderPlanSummary.renderPolishQA.cropKeyframeCount, 22);
   assert.deepEqual(summary.renderPlanSummary.segments.map((segment) => segment.goalNumber), [1, 2, 3, 4, 5]);
   assert.equal(Object.hasOwn(summary, "editPlan"), false);
   assert.equal(Object.hasOwn(summary, "candidatePlans"), false);

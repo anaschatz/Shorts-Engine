@@ -200,7 +200,9 @@ function restoreSafeEditPlanMetadata(publicJob, sourceJob) {
   const publicPlan = publicJob.editPlan && typeof publicJob.editPlan === "object" ? publicJob.editPlan : {};
   for (const key of ["visualPolishQA", "renderPolishQA", "editAssembly"]) {
     if (sourceJob.editPlan[key] && typeof sourceJob.editPlan[key] === "object") {
-      publicPlan[key] = publicJsonClone(sourceJob.editPlan[key]);
+      publicPlan[key] = key === "renderPolishQA"
+        ? publicRenderPolishQaSummary(sourceJob.editPlan[key])
+        : publicJsonClone(sourceJob.editPlan[key]);
     }
   }
   publicJob.editPlan = publicPlan;
@@ -217,6 +219,62 @@ function safeStringList(values, limit = 10, maxLength = 80) {
     .map((value) => sanitizeText(value, maxLength))
     .filter(Boolean)
     .slice(0, limit);
+}
+
+function publicRenderPolishQaSummary(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const transitions = Array.isArray(value.transitions)
+    ? value.transitions.slice(0, 8).map((transition) => ({
+        fromSegmentId: sanitizeText(transition && transition.fromSegmentId || "", 80) || null,
+        toSegmentId: sanitizeText(transition && transition.toSegmentId || "", 80) || null,
+        timelineStart: safeNumber(transition && transition.timelineStart),
+        type: sanitizeText(transition && transition.type || "", 40) || null,
+        transitionDurationSeconds: safeNumber(transition && transition.transitionDurationSeconds),
+        renderedBy: sanitizeText(transition && transition.renderedBy || "", 60) || null,
+      }))
+    : [];
+  return {
+    contractVersion: safeNumber(value.contractVersion),
+    renderProfile: sanitizeText(value.renderProfile || "", 40) || null,
+    encoderPreset: sanitizeText(value.encoderPreset || "", 40) || null,
+    encoderCrf: safeNumber(value.encoderCrf),
+    segmentRenderMode: sanitizeText(value.segmentRenderMode || "", 80) || null,
+    renderStylePreset: sanitizeText(value.renderStylePreset || "", 80) || null,
+    outputWidth: safeNumber(value.outputWidth),
+    outputHeight: safeNumber(value.outputHeight),
+    cleanActionLayoutRequired: value.cleanActionLayoutRequired === true,
+    cleanActionLayoutPassed: value.cleanActionLayoutPassed === true,
+    actionLayoutMode: sanitizeText(value.actionLayoutMode || "", 80) || null,
+    fullHeightActionCrop: value.fullHeightActionCrop === true,
+    dynamicCropRendered: value.dynamicCropRendered === true,
+    cropKeyframeCount: safeNumber(value.cropKeyframeCount),
+    maxPanSpeed: safeNumber(value.maxPanSpeed),
+    trackingProviderMode: sanitizeText(value.trackingProviderMode || "", 80) || null,
+    trackingConfidence: safeNumber(value.trackingConfidence),
+    ballCandidateConfidence: safeNumber(value.ballCandidateConfidence),
+    playerClusterConfidence: safeNumber(value.playerClusterConfidence),
+    ballTrackCount: safeNumber(value.ballTrackCount),
+    playerClusterCount: safeNumber(value.playerClusterCount),
+    scoreboardOverlayRendered: value.scoreboardOverlayRendered === true,
+    scoreboardOverlayRegionId: sanitizeText(value.scoreboardOverlayRegionId || "", 80) || null,
+    sourceScoreboardDuplicateSuppressed: value.sourceScoreboardDuplicateSuppressed === true,
+    blurredBackgroundUsed: value.blurredBackgroundUsed === true,
+    duplicateBackgroundUsed: value.duplicateBackgroundUsed === true,
+    splitLayoutCaptionCount: safeNumber(value.splitLayoutCaptionCount),
+    transitionMode: sanitizeText(value.transitionMode || "", 80) || null,
+    transitionRenderedCount: safeNumber(value.transitionRenderedCount),
+    hardCutFallbackCount: safeNumber(value.hardCutFallbackCount),
+    transitions,
+    animatedCaptionCount: safeNumber(value.animatedCaptionCount),
+    dynamicWordCaptionCount: safeNumber(value.dynamicWordCaptionCount),
+    staticCaptionFallbackCount: safeNumber(value.staticCaptionFallbackCount),
+    captionMotion: sanitizeText(value.captionMotion || "", 80) || null,
+    overlayRenderedCount: safeNumber(value.overlayRenderedCount),
+    overlayFallbackCount: safeNumber(value.overlayFallbackCount),
+    overlayMode: sanitizeText(value.overlayMode || "", 80) || null,
+    visualPolishScore: safeNumber(value.visualPolishScore),
+    renderPolishWarnings: safeStringList(value.renderPolishWarnings, 12, 80),
+  };
 }
 
 function publicGoalOutcomeSummary(value) {
@@ -415,7 +473,7 @@ function publicRenderPlanSummary(plan = null) {
     renderedGoalRebinding,
     renderedGoalCompaction,
     visualPolishQA: plan.visualPolishQA && typeof plan.visualPolishQA === "object" ? publicJsonClone(plan.visualPolishQA) : null,
-    renderPolishQA: plan.renderPolishQA && typeof plan.renderPolishQA === "object" ? publicJsonClone(plan.renderPolishQA) : null,
+    renderPolishQA: publicRenderPolishQaSummary(plan.renderPolishQA),
     editAssembly: plan.editAssembly && typeof plan.editAssembly === "object" ? publicJsonClone(plan.editAssembly) : null,
   };
 }
@@ -820,7 +878,7 @@ class JobStore {
 
   publicJobSummary(job) {
     if (!job) return null;
-    return publicJsonClone({
+    const summary = {
       id: job.id || null,
       projectId: job.projectId || null,
       uploadId: job.uploadId || null,
@@ -842,7 +900,17 @@ class JobStore {
       renderPlanSummary: publicRenderPlanSummary(job.editPlan),
       createdAt: job.createdAt || null,
       updatedAt: job.updatedAt || null,
-    });
+    };
+    const publicSummary = publicJsonClone(summary);
+    if (
+      publicSummary &&
+      publicSummary.renderPlanSummary &&
+      job.editPlan &&
+      typeof job.editPlan === "object"
+    ) {
+      publicSummary.renderPlanSummary.renderPolishQA = publicRenderPolishQaSummary(job.editPlan.renderPolishQA);
+    }
+    return publicSummary;
   }
 
   serializeJob(job) {

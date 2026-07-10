@@ -935,7 +935,7 @@ test("youtube long-source render uses scorebug-first OCR before visual frame ext
   assert.equal(context.scoreboardOcrCalls.every((call) => call.ocrSamplingWindows.length > 0), true);
   assert.equal(context.scoreboardOcrCalls.every((call) => call.scorebugFirstOnly === true), true);
   assert.equal(context.scoreboardOcrCalls.at(-1).ocrSamplingWindows.some((window) => Number(window.timestamp) >= 585), true);
-  assert.equal(context.frameExtractionMaxFrames, 18);
+  assert.equal(context.frameExtractionMaxFrames, 24);
   assert.equal(context.frameCandidateWindows.some((window) => (
     window.source === "scorebug_first_live_action_anchor" &&
     Number(window.time) === 506 &&
@@ -1568,8 +1568,8 @@ test("youtube long-source chunked OCR promotes five observed score changes witho
     mode: "source_roi",
     regionId: "scorebug_broadcast_compact",
     sourceRect: { x: 0.04, y: 0.045, width: 0.33, height: 0.065 },
-    outputWidthRatio: 0.7,
-    topMarginRatio: 0.055,
+    outputWidthRatio: 0.46,
+    topMarginRatio: 0.035,
   });
   assert.equal(
       context.frameCandidateWindows.filter((window) => (
@@ -2375,6 +2375,8 @@ test("render orchestration rebinds and rerenders failed visible goal proof once"
   assert.equal(context.job.videoOutputQA.status, "passed");
   assert.equal(context.job.renderedGoalRebinding.applied, true);
   assert.equal(context.job.renderedGoalRebinding.reboundGoalCount, 1);
+  assert.equal(context.job.editPlan.renderPolishQA.cleanActionLayoutPassed, true);
+  assert.equal(context.job.editPlan.renderPolishQA.actionLayoutMode, "clean_action_letterbox");
   assert.equal(context.job.editPlan.segments[0].confirmationTime - context.job.editPlan.segments[0].sourceStart >= 12, true);
   assert.equal(context.job.editPlan.segments[0].duration <= 64, true);
   assert.equal(context.job.editPlan.segments[0].finishTime >= context.job.editPlan.segments[0].confirmationTime - 48, true);
@@ -2437,8 +2439,8 @@ test("rendered goal rebinding cannot reuse the previous counted goal window", ()
   assert.equal(reboundGoal4.renderedVisibilityRebinding.rebindingSearchWindow.start >= reboundGoal3.confirmationTime + 1.49, true);
   assert.equal(reboundGoal4.renderedVisibilityRebinding.scoreChangeConfirmedOutsideClip, false);
   assert.equal(rebind.summary.diagnostics[0].chronologicalBounds.lowerBoundReason, "previous_confirmed_goal_anchor");
-  assert.equal(rebind.summary.diagnostics[0].profile.backtrackSeconds, 15);
-  assert.equal(rebind.summary.diagnostics[0].profile.finishLeadSeconds, 8);
+  assert.equal(rebind.summary.diagnostics[0].profile.backtrackSeconds, 18);
+  assert.equal(rebind.summary.diagnostics[0].profile.finishLeadSeconds, 15);
   assert.equal(rebind.summary.diagnostics[0].profile.compactedDelayedScoreConfirmation, false);
 });
 
@@ -2480,13 +2482,13 @@ test("rendered goal rebinding preserves pre-finish context before the scoreboard
 
   assert.equal(rebind.applied, true);
   const reboundGoal4 = rebind.editPlan.segments[1];
-  assert.equal(reboundGoal4.sourceStart, 533.45);
-  assert.equal(reboundGoal4.finishTime, 537.45);
+  assert.equal(reboundGoal4.sourceStart, 535.45);
+  assert.equal(reboundGoal4.finishTime, 542.45);
   assert.equal(reboundGoal4.scoreChangeTime, 550.45);
-  assert.equal(Number((reboundGoal4.scoreChangeTime - reboundGoal4.sourceStart).toFixed(2)), 17);
+  assert.equal(Number((reboundGoal4.scoreChangeTime - reboundGoal4.sourceStart).toFixed(2)), 15);
   assert.equal(reboundGoal4.renderedVisibilityRebinding.scoreChangeConfirmedOutsideClip, false);
   assert.equal(rebind.summary.diagnostics[0].profile.backtrackSeconds, 15);
-  assert.equal(rebind.summary.diagnostics[0].profile.finishLeadSeconds, 13);
+  assert.equal(rebind.summary.diagnostics[0].profile.finishLeadSeconds, 8);
   assert.equal(rebind.summary.diagnostics[0].profile.lowerBoundClippedBuildup, false);
 });
 
@@ -2833,6 +2835,25 @@ test("default scorebug sampling covers short-lived early and late score updates"
   assert.equal(late.some((window) => Math.abs(window.timestamp - 650) < 0.35), true);
   assert.equal(early.length, 16);
   assert.equal(late.length, 16);
+});
+
+test("selected-goal tracking refinement samples every finish and score-change-minus-eight anchor", () => {
+  const segments = [
+    validGoalSegment(1, 80, 90, 94, 103),
+    validGoalSegment(2, 230, 242, 249, 258),
+    validGoalSegment(3, 450, 463, 470, 478),
+    validGoalSegment(4, 517, 525, 524, 537),
+    validGoalSegment(5, 590, 603, 610, 617),
+  ];
+  const windows = __testing.goalTrackingCandidateWindows({ segments }, { durationSeconds: 764.59 });
+
+  assert.equal(windows.length <= 24, true);
+  assert.equal(windows.every((window) => window.source === "selected_goal_tracking_refinement"), true);
+  for (const segment of segments) {
+    assert.equal(windows.some((window) => Math.abs(window.time - segment.finishTime) < 0.05), true);
+    assert.equal(windows.some((window) => Math.abs(window.time - (segment.confirmationTime - 8)) < 0.05), true);
+    assert.equal(windows.some((window) => window.visualHints.includes(`goal_${segment.goalNumber}`)), true);
+  }
 });
 
 test("score transition refinement searches backward for first score display without unbounded scanning", () => {

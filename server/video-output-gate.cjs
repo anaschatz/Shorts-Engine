@@ -355,9 +355,21 @@ function renderLayoutSummary(editPlan = {}, goalSelectionMode = "balanced", opti
     actionLayoutMode === "scorebug_preserved_vertical_fill" &&
     qa.fullHeightActionCrop === true &&
     qa.scoreboardOverlayRendered === true &&
+    qa.sourceScoreboardDuplicateSuppressed === true &&
     sanitizeText(qa.scoreboardOverlayRegionId || "", 80)
   );
-  const cleanModeValid = allowedCleanModes.includes(actionLayoutMode) || referenceVerticalFillValid;
+  const dynamicBallFollowValid = Boolean(
+    qa &&
+    actionLayoutMode === "ball_follow_with_synchronized_scorebug" &&
+    qa.fullHeightActionCrop === true &&
+    qa.dynamicCropRendered === true &&
+    Number(qa.cropKeyframeCount || 0) >= 3 &&
+    Number(qa.maxPanSpeed || 0) <= 0.22 &&
+    qa.scoreboardOverlayRendered === true &&
+    qa.sourceScoreboardDuplicateSuppressed === true &&
+    sanitizeText(qa.scoreboardOverlayRegionId || "", 80)
+  );
+  const cleanModeValid = allowedCleanModes.includes(actionLayoutMode) || referenceVerticalFillValid || dynamicBallFollowValid;
   const passed = !required || Boolean(
     qa &&
     qa.cleanActionLayoutRequired === true &&

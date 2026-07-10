@@ -2,9 +2,10 @@ const { AppError, SAFE_MESSAGES } = require("./errors.cjs");
 const { sanitizeText } = require("./media.cjs");
 
 const DEFAULT_TRACKING_TIMEOUT_MS = 12000;
-const MAX_TRACKING_FRAMES = 16;
-const MAX_BALL_TRACKS = 12;
-const MAX_PLAYER_CLUSTERS = 8;
+const MAX_TRACKING_FRAMES = 24;
+const MAX_BALL_TRACKS = 24;
+const MAX_PLAYER_CLUSTERS = 24;
+const MAX_TRACKING_SAMPLES = 24;
 const MAX_REASON_CODES = 10;
 
 const TRACKING_REASON_CODES = Object.freeze([
@@ -18,9 +19,21 @@ const TRACKING_REASON_CODES = Object.freeze([
   "tracking_provider_failed",
   "tracking_provider_timeout",
   "tracking_provider_output_invalid",
+  "tracking_ball_interpolated",
+  "tracking_ball_occluded",
+  "tracking_player_cluster_fallback",
+  "tracking_scoreboard_excluded",
+  "tracking_camera_cut",
+  "tracking_implausible_jump_rejected",
 ]);
 
 const TRACKING_LABELS = Object.freeze(["ball", "player_cluster", "action"]);
+const TRACKING_SAMPLE_SOURCES = Object.freeze([
+  "ball_detection",
+  "ball_interpolation",
+  "player_cluster_fallback",
+  "action_fallback",
+]);
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, Number(value) || min));
@@ -150,6 +163,66 @@ function validateCluster(cluster, metadata = {}) {
   return validateTrack(cluster, metadata, "player_cluster");
 }
 
+function validateTrackingSample(sample, metadata = {}) {
+  if (!sample || typeof sample !== "object" || Array.isArray(sample)) return null;
+  const time = validateTimestamp(sample.time ?? sample.timestamp, metadata);
+  if (time === null) return null;
+  const hasBallBox = sample.ballBox !== null && sample.ballBox !== undefined;
+  const hasPlayerClusterBox = sample.playerClusterBox !== null && sample.playerClusterBox !== undefined;
+  const ballBox = hasBallBox ? validateBox(sample.ballBox, metadata) : null;
+  const playerClusterBox = hasPlayerClusterBox ? validateBox(sample.playerClusterBox, metadata) : null;
+  if ((hasBallBox && !ballBox) || (hasPlayerClusterBox && !playerClusterBox)) return null;
+  const actionCenter = sample.actionCenter && typeof sample.actionCenter === "object"
+    ? {
+        x: round(clamp(sample.actionCenter.x, 0, dimensions(metadata).width), 2),
+        y: round(clamp(sample.actionCenter.y, 0, dimensions(metadata).height), 2),
+      }
+    : ballBox
+      ? boxCenter(ballBox)
+      : playerClusterBox
+        ? boxCenter(playerClusterBox)
+        : null;
+  if (!actionCenter || (!ballBox && !playerClusterBox)) return null;
+  const source = sanitizeText(sample.source || (ballBox ? "ball_detection" : "player_cluster_fallback"), 48).toLowerCase();
+  if (!TRACKING_SAMPLE_SOURCES.includes(source)) return null;
+  return {
+    time,
+    ballBox,
+    ballConfidence: ballBox ? round(clamp(sample.ballConfidence, 0, 1), 2) : 0,
+    playerClusterBox,
+    playerClusterConfidence: playerClusterBox ? round(clamp(sample.playerClusterConfidence, 0, 1), 2) : 0,
+    actionCenter,
+    cameraMotion: round(clamp(sample.cameraMotion, 0, 1), 2),
+    source,
+    reasonCodes: validateReasons(sample.reasonCodes || []),
+  };
+}
+
+function validateTrackingSamples(rawSamples, metadata = {}) {
+  const raw = Array.isArray(rawSamples) ? rawSamples : [];
+  if (raw.length > MAX_TRACKING_SAMPLES) {
+    throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
+  }
+  const samples = raw.map((sample) => validateTrackingSample(sample, metadata)).filter(Boolean);
+  if (samples.length !== raw.length) {
+    throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
+  }
+  const mediaWidth = dimensions(metadata).width;
+  for (let index = 1; index < samples.length; index += 1) {
+    const previous = samples[index - 1];
+    const current = samples[index];
+    const elapsed = current.time - previous.time;
+    if (elapsed <= 0) {
+      throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
+    }
+    const actionJump = Math.abs(current.actionCenter.x - previous.actionCenter.x) / mediaWidth;
+    if (elapsed < 0.75 && actionJump > 0.7 && !current.reasonCodes.includes("tracking_camera_cut")) {
+      throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
+    }
+  }
+  return samples;
+}
+
 function trackingFallback({ metadata = {}, reason = "tracking_fallback_no_ball_player_evidence", frames = [], failure = null } = {}) {
   const safeFrames = Array.isArray(frames) ? frames : [];
   return validateTrackingProviderOutput({
@@ -174,6 +247,7 @@ function validateTrackingProviderOutput(output, metadata = {}) {
   }
   const rawBallTracks = Array.isArray(output.ballTracks) ? output.ballTracks : [];
   const rawPlayerClusters = Array.isArray(output.playerClusters) ? output.playerClusters : [];
+  const samples = validateTrackingSamples(output.samples || [], metadata);
   const ballTracks = rawBallTracks.map((track) => validateTrack(track, metadata, "ball")).filter(Boolean).slice(0, MAX_BALL_TRACKS);
   const playerClusters = rawPlayerClusters.map((cluster) => validateCluster(cluster, metadata)).filter(Boolean).slice(0, MAX_PLAYER_CLUSTERS);
   if (rawBallTracks.length !== ballTracks.length || rawPlayerClusters.length !== playerClusters.length) {
@@ -212,6 +286,7 @@ function validateTrackingProviderOutput(output, metadata = {}) {
     frameCount: Math.max(0, Math.min(MAX_TRACKING_FRAMES, Math.round(Number(output.frameCount || 0)))),
     ballTracks,
     playerClusters,
+    samples,
     actionBounds,
     actionCenter,
     cameraMotionLevel: round(clamp(output.cameraMotionLevel, 0, 1), 2),
@@ -446,13 +521,30 @@ function createTrackingProvider({ mode, client } = {}) {
       client,
     });
   }
+  if (safeMode === "ffmpeg" || safeMode === "ffmpeg-football" || safeMode === "ffmpeg-football-tracking") {
+    const { FfmpegFootballTrackingAdapter } = require("./adapters/ffmpeg-football-tracking-adapter.cjs");
+    return new FfmpegFootballTrackingAdapter({ enabled: true });
+  }
   return new SafeTrackingProvider();
 }
 
 function analyzeTracking(input = {}) {
-  const provider = input.provider && typeof input.provider.analyzeTracking === "function"
+  const explicitMode = input.providerMode || input.mode || process.env.SHORTSENGINE_TRACKING_PROVIDER;
+  const hasLocalFrames = Boolean(
+    input.inputPath &&
+    Array.isArray(input.frames) &&
+    input.frames.some((frame) => frame && typeof frame.localPath === "string"),
+  );
+  let provider = input.provider && typeof input.provider.analyzeTracking === "function"
     ? input.provider
-    : createTrackingProvider({ mode: input.providerMode || input.mode, client: input.providerClient || input.client });
+    : null;
+  if (!provider && !explicitMode && !input.providerClient && !input.client && hasLocalFrames) {
+    const { FfmpegFootballTrackingAdapter } = require("./adapters/ffmpeg-football-tracking-adapter.cjs");
+    provider = new FfmpegFootballTrackingAdapter({ enabled: true });
+  }
+  if (!provider) {
+    provider = createTrackingProvider({ mode: explicitMode, client: input.providerClient || input.client });
+  }
   return provider.analyzeTracking(input);
 }
 
@@ -464,6 +556,7 @@ function publicTrackingProviderOutput(output, metadata = {}) {
     frameCount: safe.frameCount,
     ballTracks: safe.ballTracks,
     playerClusters: safe.playerClusters,
+    samples: safe.samples,
     ballTrackCount: safe.ballTracks.length,
     playerClusterCount: safe.playerClusters.length,
     actionBounds: safe.actionBounds,
@@ -496,6 +589,7 @@ module.exports = {
   MockTrackingProvider,
   SafeTrackingProvider,
   TRACKING_REASON_CODES,
+  TRACKING_SAMPLE_SOURCES,
   analyzeTracking,
   createTrackingProvider,
   publicTrackingProviderOutput,

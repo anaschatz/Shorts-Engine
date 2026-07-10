@@ -2734,6 +2734,13 @@ function visualQaForPlan(plan = {}) {
     ? (actionZones.every((zone) => containsBox(cropPlan.safeArea, zone)) ? 1 : 0)
     : 1;
   const softFollowAllowed = Boolean(cropPlan && cropPlan.mode === "soft_follow" && !cropPlan.fallbackUsed && !cropPlan.textObstructionRisk);
+  const ballFollowAllowed = Boolean(
+    cropPlan &&
+    cropPlan.mode === "ball_follow" &&
+    !cropPlan.fallbackUsed &&
+    Array.isArray(cropPlan.keyframes) &&
+    cropPlan.keyframes.length >= 3,
+  );
   const fallbackReason = cropPlan && Array.isArray(cropPlan.reasonCodes) ? cropPlan.reasonCodes[0] || null : null;
   return {
     selectedCropMode: cropPlan ? cropPlan.mode : "wide_safe",
@@ -2751,6 +2758,7 @@ function visualQaForPlan(plan = {}) {
     captionObstructionRisk: Boolean(cropPlan && cropPlan.textObstructionRisk),
     fallbackReason,
     softFollowAllowed,
+    ballFollowAllowed,
     softFollowBlockedReason: softFollowAllowed ? null : fallbackReason || "wide_safe_default",
     goalClaimAllowed: false,
   };
@@ -5249,18 +5257,27 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
     width: Math.max(1, Number(metadata.width) || 1920),
     height: Math.max(1, Number(metadata.height) || 1080),
   };
-  const cropPlan = {
-    ...baseCropPlan,
-    mode: "wide_safe",
-    cropMode: "wide_safe",
-    safeArea: fullFrameCropBox,
-    cropBox: fullFrameCropBox,
-    confidence: Math.min(Number(baseCropPlan.confidence || 0.74), 0.74),
-    trackingConfidence: Math.min(Number(baseCropPlan.trackingConfidence || baseCropPlan.confidence || 0.74), 0.74),
-    maxPanSpeed: 0,
-    fallbackUsed: true,
-    reasonCodes: [...new Set([...(baseCropPlan.reasonCodes || []), "multi_moment_wide_safe_default"])].slice(0, 8),
-  };
+  const dynamicBallFollow = baseCropPlan.mode === "ball_follow" &&
+    baseCropPlan.fallbackUsed !== true &&
+    Array.isArray(baseCropPlan.keyframes) &&
+    baseCropPlan.keyframes.length >= 3;
+  const cropPlan = dynamicBallFollow
+    ? {
+        ...baseCropPlan,
+        reasonCodes: [...new Set([...(baseCropPlan.reasonCodes || []), "multi_moment_ball_follow_timeline"])].slice(0, 8),
+      }
+    : {
+        ...baseCropPlan,
+        mode: "wide_safe",
+        cropMode: "wide_safe",
+        safeArea: fullFrameCropBox,
+        cropBox: fullFrameCropBox,
+        confidence: Math.min(Number(baseCropPlan.confidence || 0.74), 0.74),
+        trackingConfidence: Math.min(Number(baseCropPlan.trackingConfidence || baseCropPlan.confidence || 0.74), 0.74),
+        maxPanSpeed: 0,
+        fallbackUsed: true,
+        reasonCodes: [...new Set([...(baseCropPlan.reasonCodes || []), "multi_moment_wide_safe_default"])].slice(0, 8),
+      };
   const plan = {
     mode: "multi_moment_compilation",
     sourceStart: segments[0].sourceStart,
@@ -5276,8 +5293,10 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
     title: sanitizeText(title, 120),
     captions,
     effects: [...new Set(selectedCandidates.flatMap((candidate) => candidate.effects || []))].slice(0, 8),
-    framingMode: "wide_safe_vertical",
-    framingReason: "wide_safe_multi_moment_preserves_ball_players",
+    framingMode: dynamicBallFollow ? "safe_center" : "wide_safe_vertical",
+    framingReason: dynamicBallFollow
+      ? "ball_follow_multi_moment_tracks_validated_action_timeline"
+      : "wide_safe_multi_moment_preserves_ball_players",
     actionFocusConfidence: Math.max(...selectedCandidates.map((candidate) => Number(candidate.actionFocusConfidence || 0))),
     visualEvidenceSummary: primary.visualEvidenceSummary,
     visualTrackingSummary: primary.visualTrackingSummary,
@@ -5287,7 +5306,9 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
       reactionOnly: false,
     },
     cropPlan,
-    cropStrategy: createCropStrategy(metadata, "wide_safe_vertical"),
+    cropStrategy: dynamicBallFollow
+      ? cropStrategyFromPlan(cropPlan, metadata)
+      : createCropStrategy(metadata, "wide_safe_vertical"),
     visualQA: null,
     stylePreset: compilationStylePreset,
     styleTarget,

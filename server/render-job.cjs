@@ -24,7 +24,7 @@ const { assertStoragePath, storagePath, writeJsonAtomic } = require("./storage.c
 const { analyzeTracking, publicTrackingProviderOutput, trackingFallback } = require("./tracking-provider.cjs");
 const { assertVideoOutputCoverage } = require("./video-output-gate.cjs");
 const { analyzeFrames, publicVisualSignals, validateVisualSignals, VISUAL_SIGNAL_TYPES } = require("./vision.cjs");
-const { analyzeVisualTracking, publicVisualTrackingSummary } = require("./visual-tracking.cjs");
+const { analyzeVisualTracking, calibrateCropPlan, publicVisualTrackingSummary } = require("./visual-tracking.cjs");
 const { isLocalVideoProofSource } = require("./staging-smoke-metadata.cjs");
 
 const SCOREBUG_FIRST_OCR_BUDGET_MS = 45_000;
@@ -42,9 +42,9 @@ const SCORE_CHANGE_REBIND_MIN_FINISH_LEAD_SECONDS = 0.5;
 const SCORE_CHANGE_REBIND_PRESERVED_BACKTRACK_SECONDS = 20;
 const RENDERED_GOAL_REBIND_MAX_SEGMENT_SECONDS = 64;
 const RENDERED_GOAL_REBIND_PROFILES = Object.freeze([
-  { backtrackSeconds: 15, finishLeadSeconds: 13, postConfirmationSeconds: 2.35 },
-  { backtrackSeconds: 15, finishLeadSeconds: 11, postConfirmationSeconds: 2.35 },
   { backtrackSeconds: 15, finishLeadSeconds: 8, postConfirmationSeconds: 2.35 },
+  { backtrackSeconds: 15, finishLeadSeconds: 11, postConfirmationSeconds: 2.35 },
+  { backtrackSeconds: 18, finishLeadSeconds: 15, postConfirmationSeconds: 2.35 },
 ]);
 const SCOREBUG_FIRST_ROI_CANDIDATE_IDS = Object.freeze([
   "scorebug_broadcast_compact",
@@ -90,6 +90,7 @@ function createDefaultDependencies(overrides = {}) {
     fileExists: existsSync,
     analyzeTracking,
     analyzeVisualTracking,
+    calibrateCropPlan,
     isRegularFile,
     logger: console,
     renderShort,
@@ -230,6 +231,45 @@ function safeSegmentAnchorTime(segment = {}) {
 function rebindProfileForAttempt(attemptNumber = 1) {
   const index = Math.max(0, Math.min(RENDERED_GOAL_REBIND_PROFILES.length - 1, Number(attemptNumber || 1) - 1));
   return RENDERED_GOAL_REBIND_PROFILES[index];
+}
+
+function goalTrackingCandidateWindows(editPlan = {}, metadata = {}) {
+  const duration = safeNumber(metadata && metadata.durationSeconds) || Number.POSITIVE_INFINITY;
+  const segments = Array.isArray(editPlan && editPlan.segments) ? editPlan.segments : [];
+  const windows = [];
+  const seen = new Set();
+  for (const [segmentIndex, segment] of segments.entries()) {
+    if (!confirmedGoalSegment(segment)) continue;
+    const sourceStart = safeNumber(segment.sourceStart);
+    const sourceEnd = safeNumber(segment.sourceEnd);
+    const scoreChangeTime = safeNumber(segment.scoreChangeTime ?? segment.confirmationTime);
+    if (sourceStart == null || sourceEnd == null || sourceEnd <= sourceStart) continue;
+    const candidates = [
+      ["buildup", sourceStart + 2],
+      ["shot", safeNumber(segment.shotStart)],
+      ["declared_finish", safeNumber(segment.finishTime)],
+      ["score_change_minus_8", scoreChangeTime == null ? null : scoreChangeTime - 8],
+    ];
+    for (const [role, value] of candidates) {
+      const parsed = safeNumber(value);
+      if (parsed == null) continue;
+      const time = Number(Math.min(duration, Math.max(sourceStart + 0.08, Math.min(sourceEnd - 0.08, parsed))).toFixed(2));
+      const key = time.toFixed(2);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      windows.push({
+        time,
+        start: Number(Math.max(0, time - 0.08).toFixed(2)),
+        end: Number(Math.min(duration, time + 0.08).toFixed(2)),
+        confidence: 0.9,
+        source: "selected_goal_tracking_refinement",
+        visualHints: ["football_action", `goal_${segment.goalNumber || segmentIndex + 1}`, role],
+      });
+    }
+  }
+  return windows
+    .sort((left, right) => left.time - right.time)
+    .slice(0, 24);
 }
 
 function confirmedGoalSegment(segment) {
@@ -665,6 +705,20 @@ function centerFillCropPlanForReference(editPlan = {}, metadata = {}) {
   const existing = editPlan.cropPlan && typeof editPlan.cropPlan === "object" && !Array.isArray(editPlan.cropPlan)
     ? editPlan.cropPlan
     : {};
+  if (
+    existing.mode === "ball_follow" &&
+    existing.fallbackUsed !== true &&
+    Array.isArray(existing.keyframes) &&
+    existing.keyframes.length >= 3
+  ) {
+    return {
+      ...existing,
+      reasonCodes: safeUniqueReasonList([
+        ...(Array.isArray(existing.reasonCodes) ? existing.reasonCodes : []),
+        "reference_ball_follow_preserved",
+      ], 8),
+    };
+  }
   const width = Math.max(1, Number(metadata.width) || 1920);
   const height = Math.max(1, Number(metadata.height) || 1080);
   const fullFrame = { x: 0, y: 0, width, height };
@@ -712,8 +766,8 @@ function scoreboardOverlayFromOcr(scoreboardOcr = {}) {
     mode: "source_roi",
     regionId,
     sourceRect,
-    outputWidthRatio: 0.7,
-    topMarginRatio: 0.055,
+    outputWidthRatio: 0.46,
+    topMarginRatio: 0.035,
   };
 }
 
@@ -742,7 +796,9 @@ function referenceVerticalGoalProofPlan(editPlan = {}, metadata = {}, scoreboard
     scoreboardOverlay,
     safetyNotes: safeUniqueReasonList([
       ...(Array.isArray(editPlan.safetyNotes) ? editPlan.safetyNotes : []),
-      "Confirmed-goal proof uses full-height vertical framing with the detected live scorebug preserved at top center.",
+      cropPlan.mode === "ball_follow"
+        ? "Confirmed-goal proof follows validated football action while preserving the live scorebug as a small synchronized overlay."
+        : "Confirmed-goal proof uses full-height vertical fallback framing with the detected live scorebug preserved at top center.",
     ], 8),
   };
 }
@@ -3916,6 +3972,7 @@ async function runRenderJob(options) {
   const signal = job && job._controller ? job._controller.signal : null;
   let context = null;
   let sampledFrames = null;
+  let goalTrackingFrames = null;
   let sampledFrameSummary = null;
   let transcript = null;
   let mediaSignals = null;
@@ -4071,7 +4128,7 @@ async function runRenderJob(options) {
         inputPath: context.inputPath,
         metadata: context.metadata,
         candidateWindows: visualCandidateWindows,
-        maxFrames: longSourceRuntime ? 18 : undefined,
+        maxFrames: longSourceRuntime ? 24 : undefined,
         signal,
       });
       sampledFrameSummary = publicFrameSummary(sampledFrames);
@@ -4557,6 +4614,92 @@ async function runRenderJob(options) {
       editPlan = deps.validateEditPlan(candidatePlans[0], context.metadata);
       if (!context.approvedEditPlan && context.goalSelectionMode === "valid_goals_only") {
         editPlan = deps.validateEditPlan(referenceVerticalGoalProofPlan(editPlan, context.metadata, scoreboardOcr), context.metadata);
+        if (
+          longSourceRuntime &&
+          editPlan.cropPlan &&
+          editPlan.cropPlan.mode === "ball_follow" &&
+          editPlan.cropPlan.fallbackUsed !== true
+        ) {
+          const refinementWindows = goalTrackingCandidateWindows(editPlan, context.metadata);
+          if (refinementWindows.length >= 3) {
+            try {
+              goalTrackingFrames = await deps.extractSampledFrames({
+                inputPath: context.inputPath,
+                metadata: context.metadata,
+                candidateWindows: refinementWindows,
+                maxFrames: 24,
+                signal,
+              });
+              const refinedTrackingOutput = publicTrackingProviderOutput(await deps.analyzeTracking({
+                inputPath: context.inputPath,
+                metadata: context.metadata,
+                candidateWindows: refinementWindows,
+                mediaSignals,
+                visualSignals,
+                frames: goalTrackingFrames.frames,
+                frameSummary: publicFrameSummary(goalTrackingFrames),
+                signal,
+              }), context.metadata);
+              const refinedTrackingSummary = publicVisualTrackingSummary(deps.analyzeVisualTracking({
+                inputPath: context.inputPath,
+                metadata: context.metadata,
+                candidateWindows: refinementWindows,
+                mediaSignals,
+                visualSignals,
+                trackingProviderOutput: refinedTrackingOutput,
+                frames: goalTrackingFrames.frames,
+                frameSummary: publicFrameSummary(goalTrackingFrames),
+              }), context.metadata);
+              const refinedCropPlan = deps.calibrateCropPlan({
+                metadata: context.metadata,
+                targetAspectRatio: editPlan.aspectRatio || "9:16",
+                trackingSummary: refinedTrackingSummary,
+              });
+              if (
+                refinedCropPlan.mode === "ball_follow" &&
+                refinedCropPlan.fallbackUsed !== true &&
+                Array.isArray(refinedCropPlan.keyframes) &&
+                refinedCropPlan.keyframes.length >= 3
+              ) {
+                editPlan = deps.validateEditPlan(referenceVerticalGoalProofPlan({
+                  ...editPlan,
+                  cropPlan: refinedCropPlan,
+                  visualTrackingSummary: refinedTrackingSummary,
+                  framingMode: "safe_center",
+                  framingReason: "selected_goal_ball_tracking_refinement",
+                }, context.metadata, scoreboardOcr), context.metadata);
+                trackingProviderOutput = refinedTrackingOutput;
+                visualTracking = refinedTrackingSummary;
+                logInfo(deps.logger, {
+                  event: "selected_goal_tracking_refinement_completed",
+                  requestId,
+                  projectId: project.id,
+                  jobId: job.id,
+                  step: "create_edit_plan",
+                  providerMode: refinedTrackingOutput.providerMode,
+                  candidateWindowCount: refinementWindows.length,
+                  keyframeCount: refinedCropPlan.keyframes.length,
+                  ballTrackCount: refinedTrackingOutput.ballTrackCount,
+                  playerClusterCount: refinedTrackingOutput.playerClusterCount,
+                  fallbackUsed: false,
+                });
+              }
+            } catch (refinementError) {
+              if (refinementError && refinementError.code === "JOB_CANCELLED") throw refinementError;
+              logInfo(deps.logger, {
+                event: "selected_goal_tracking_refinement_fallback_used",
+                requestId,
+                projectId: project.id,
+                jobId: job.id,
+                step: "create_edit_plan",
+                code: refinementError && refinementError.code
+                  ? sanitizeText(refinementError.code, 80)
+                  : "GOAL_TRACKING_REFINEMENT_FAILED",
+                fallbackUsed: true,
+              });
+            }
+          }
+        }
       }
       if (candidatePlans[0] && candidatePlans[0].visualQA) {
         editPlan.visualQA = candidatePlans[0].visualQA;
@@ -4697,7 +4840,11 @@ async function runRenderJob(options) {
         }),
       });
       if (renderedGoalProof && renderedGoalProof.editPlan) {
+        const renderPolishQA = renderedGoalProof.editPlan.renderPolishQA;
         editPlan = deps.validateEditPlan(renderedGoalProof.editPlan, context.metadata);
+        if (renderPolishQA && typeof renderPolishQA === "object" && !Array.isArray(renderPolishQA)) {
+          editPlan.renderPolishQA = renderPolishQA;
+        }
         editPlan.renderedGoalProof = renderedGoalProof.summary || null;
       }
       try {
@@ -4860,10 +5007,14 @@ async function runRenderJob(options) {
               }),
             });
             if (renderedGoalProof && renderedGoalProof.editPlan) {
+              const renderPolishQA = renderedGoalProof.editPlan.renderPolishQA;
               editPlan = deps.validateEditPlan({
                 ...renderedGoalProof.editPlan,
                 renderedGoalRebinding: rebind.summary,
               }, context.metadata);
+              if (renderPolishQA && typeof renderPolishQA === "object" && !Array.isArray(renderPolishQA)) {
+                editPlan.renderPolishQA = renderPolishQA;
+              }
               editPlan.renderedGoalProof = renderedGoalProof.summary || null;
               editPlan.renderedGoalRebinding = rebind.summary;
             }
@@ -4953,6 +5104,7 @@ async function runRenderJob(options) {
                   }),
                 });
                 if (renderedGoalProof && renderedGoalProof.editPlan) {
+                  const renderPolishQA = renderedGoalProof.editPlan.renderPolishQA;
                   editPlan = deps.validateEditPlan({
                     ...renderedGoalProof.editPlan,
                     renderedGoalRebinding: rebind.summary,
@@ -4963,6 +5115,9 @@ async function runRenderJob(options) {
                       safeNumber(renderedGoalProof.editPlan.totalDuration) || compaction.summary.compactedTotalDuration,
                     ),
                   }, context.metadata);
+                  if (renderPolishQA && typeof renderPolishQA === "object" && !Array.isArray(renderPolishQA)) {
+                    editPlan.renderPolishQA = renderPolishQA;
+                  }
                   editPlan.renderedGoalProof = renderedGoalProof.summary || null;
                   editPlan.renderedGoalRebinding = rebind.summary;
                   editPlan.renderedGoalCompaction = compaction.summary;
@@ -5276,6 +5431,22 @@ async function runRenderJob(options) {
         });
       }
     }
+    if (goalTrackingFrames && typeof deps.cleanupSampledFrames === "function") {
+      const cleanupResult = deps.cleanupSampledFrames({
+        outputDir: goalTrackingFrames.outputDir,
+        frames: goalTrackingFrames.frames,
+      });
+      if (cleanupResult && cleanupResult.cleanedCount > 0) {
+        logInfo(deps.logger, {
+          event: "goal_tracking_frames_cleaned",
+          requestId,
+          projectId: project && project.id,
+          jobId: job && job.id,
+          step: "cleanup_sampled_frames",
+          cleanedCount: cleanupResult.cleanedCount,
+        });
+      }
+    }
     cleanupPipelineStages({
       deps,
       context,
@@ -5334,6 +5505,7 @@ module.exports = {
     buildChunkSamplingWindows,
     buildScoreCandidateProgressionFromChunks,
     compactVisibleGoalSegmentsForReferenceDuration,
+    goalTrackingCandidateWindows,
     renderedProofSourceTimes,
     rebindRenderedGoalFailureSegments,
     segmentTimelineStarts,

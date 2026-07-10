@@ -26,6 +26,8 @@ const MIN_WIDE_LIVE_ACTION_SEQUENCE_FRAMES = 4;
 const SCORE_CHANGE_FINISH_LEAD_SECONDS = Object.freeze([16, 15, 14.5, 14, 13.5, 13, 12.5, 12, 11, 10, 9, 8, 7, 6, 5]);
 const REUSED_PROOF_TIMELINE_TOLERANCE_SECONDS = 0.05;
 const PRE_SCORE_CHANGE_FRAME_MARGIN_SECONDS = 0.25;
+const MIN_LIVE_FINISH_LEAD_BEFORE_SCORE_CHANGE_SECONDS = 4;
+const MIN_LIVE_PAYOFF_LEAD_BEFORE_SCORE_CHANGE_SECONDS = 2.5;
 
 function numberOrNull(value) {
   const parsed = Number(value);
@@ -514,12 +516,22 @@ function frameWindowsForGoal(segment = {}, timeline = {}) {
       if (confirmationTime != null && parsed < confirmationTime - (delayedScoreChange ? 45.25 : 30.25)) return false;
       if (confirmationTime != null && parsed > confirmationTime + 0.25) return false;
       if (scoreChangeTime != null && parsed > scoreChangeTime - PRE_SCORE_CHANGE_FRAME_MARGIN_SECONDS) return false;
+      if (
+        delayedScoreChange &&
+        scoreChangeTime != null &&
+        parsed > scoreChangeTime - MIN_LIVE_FINISH_LEAD_BEFORE_SCORE_CHANGE_SECONDS
+      ) return false;
     }
     if (role === "payoff") {
       if (parsed < earliestPayoffTime) return false;
       if (confirmationTime != null && parsed < confirmationTime - (delayedScoreChange ? 45.25 : 28.25)) return false;
       if (confirmationTime != null && parsed > confirmationTime + PAYOFF_SEARCH_AFTER_CONFIRMATION_SECONDS + 0.25) return false;
       if (scoreChangeTime != null && parsed > scoreChangeTime - PRE_SCORE_CHANGE_FRAME_MARGIN_SECONDS) return false;
+      if (
+        delayedScoreChange &&
+        scoreChangeTime != null &&
+        parsed > scoreChangeTime - MIN_LIVE_PAYOFF_LEAD_BEFORE_SCORE_CHANGE_SECONDS
+      ) return false;
     }
     if (role === "confirmation" && finishTime != null && parsed < finishTime - 0.25) return false;
     if (role === "confirmation" && scoreChangeTime != null && parsed < scoreChangeTime - PRE_SCORE_CHANGE_FRAME_MARGIN_SECONDS) return false;
@@ -940,9 +952,21 @@ function cleanActionLayoutContract(editPlan = {}) {
     actionLayoutMode === "scorebug_preserved_vertical_fill" &&
     qa.fullHeightActionCrop === true &&
     qa.scoreboardOverlayRendered === true &&
+    qa.sourceScoreboardDuplicateSuppressed === true &&
     sanitizeText(qa.scoreboardOverlayRegionId || "", 80)
   );
-  const cleanModeValid = allowedCleanModes.includes(actionLayoutMode) || referenceVerticalFillValid;
+  const dynamicBallFollowValid = Boolean(
+    qa &&
+    actionLayoutMode === "ball_follow_with_synchronized_scorebug" &&
+    qa.fullHeightActionCrop === true &&
+    qa.dynamicCropRendered === true &&
+    Number(qa.cropKeyframeCount || 0) >= 3 &&
+    Number(qa.maxPanSpeed || 0) <= 0.22 &&
+    qa.scoreboardOverlayRendered === true &&
+    qa.sourceScoreboardDuplicateSuppressed === true &&
+    sanitizeText(qa.scoreboardOverlayRegionId || "", 80)
+  );
+  const cleanModeValid = allowedCleanModes.includes(actionLayoutMode) || referenceVerticalFillValid || dynamicBallFollowValid;
   const passed = !required || Boolean(
     qa &&
     qa.cleanActionLayoutRequired === true &&
@@ -1185,11 +1209,12 @@ async function analyzeRenderedGoalProof({
   const layoutContract = cleanActionLayoutContract(editPlan || {});
   const renderedScoreboardConfirmationAvailable = Boolean(
     layoutContract.passed &&
-    layoutContract.actionLayoutMode === "scorebug_preserved_vertical_fill" &&
+    ["scorebug_preserved_vertical_fill", "ball_follow_with_synchronized_scorebug"].includes(layoutContract.actionLayoutMode) &&
     editPlan &&
     editPlan.renderPolishQA &&
     editPlan.renderPolishQA.fullHeightActionCrop === true &&
-    editPlan.renderPolishQA.scoreboardOverlayRendered === true
+    editPlan.renderPolishQA.scoreboardOverlayRendered === true &&
+    editPlan.renderPolishQA.sourceScoreboardDuplicateSuppressed === true
   );
   const proofGoals = [];
   const updatedSegments = [...segments];

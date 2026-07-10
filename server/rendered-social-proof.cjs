@@ -434,6 +434,21 @@ function cropPlanFromRenderPlan(renderPlan = {}) {
   const explicit = valueObject(renderPlan.cropPlan);
   if (Object.keys(explicit).length > 0) return explicit;
   const mode = summaryCropMode(renderPlan);
+  const renderPolish = valueObject(renderPlan.renderPolishQA);
+  if (mode === "ball_follow" && renderPolish.dynamicCropRendered === true) {
+    return {
+      mode,
+      cropMode: mode,
+      fallbackUsed: false,
+      maxPanSpeed: numberOrNull(renderPolish.maxPanSpeed) ?? 0,
+      keyframes: Array.from({ length: Math.max(0, Math.min(48, Number(renderPolish.cropKeyframeCount || 0))) }, () => ({})),
+      actionSafeZones: [],
+      textObstructionRisk: false,
+      confidence: numberOrNull(renderPolish.trackingConfidence),
+      trackingConfidence: numberOrNull(renderPolish.trackingConfidence),
+      trackingProviderMode: safeString(renderPolish.trackingProviderMode, 80),
+    };
+  }
   if (!["wide_safe", "locked_wide", "center_safe", "reference_fill"].includes(mode)) return explicit;
   return {
     mode,
@@ -449,17 +464,21 @@ function cropPlanFromRenderPlan(renderPlan = {}) {
 function renderedActionFramingSummary(renderPlan = {}, outputMp4 = null) {
   const cropPlan = cropPlanFromRenderPlan(renderPlan);
   const visualTracking = valueObject(renderPlan.visualTrackingSummary);
+  const renderPolish = valueObject(renderPlan.renderPolishQA);
   const visual = nestedReferenceStyleQA(renderPlan);
   const cropMode = safeString(cropPlan.cropMode || cropPlan.mode, 50);
   const trackingProviderMode = safeString(
-    visualTracking.trackingProviderMode || cropPlan.trackingProviderMode || "unknown",
+    visualTracking.trackingProviderMode || cropPlan.trackingProviderMode || renderPolish.trackingProviderMode || "unknown",
     80,
   );
-  const trackingConfidence = numberOrNull(cropPlan.trackingConfidence) ?? numberOrNull(cropPlan.confidence) ?? numberOrNull(visualTracking.trackingConfidence);
-  const ballConfidence = numberOrNull(visualTracking.ballCandidateConfidence);
-  const playerConfidence = numberOrNull(visualTracking.playerClusterConfidence);
-  const ballTrackCount = numberOrNull(visualTracking.ballTrackCount) ?? 0;
-  const playerClusterCount = numberOrNull(visualTracking.playerClusterCount) ?? 0;
+  const trackingConfidence = numberOrNull(cropPlan.trackingConfidence) ?? numberOrNull(cropPlan.confidence) ?? numberOrNull(visualTracking.trackingConfidence) ?? numberOrNull(renderPolish.trackingConfidence);
+  const ballConfidence = numberOrNull(visualTracking.ballCandidateConfidence) ?? numberOrNull(renderPolish.ballCandidateConfidence);
+  const playerConfidence = numberOrNull(visualTracking.playerClusterConfidence) ?? numberOrNull(renderPolish.playerClusterConfidence);
+  const ballTrackCount = numberOrNull(visualTracking.ballTrackCount) ?? numberOrNull(renderPolish.ballTrackCount) ?? 0;
+  const playerClusterCount = numberOrNull(visualTracking.playerClusterCount) ?? numberOrNull(renderPolish.playerClusterCount) ?? 0;
+  const cropKeyframeCount = Array.isArray(cropPlan.keyframes)
+    ? cropPlan.keyframes.length
+    : numberOrNull(renderPolish.cropKeyframeCount) ?? 0;
   const actionSafeZoneCount = Array.isArray(cropPlan.actionSafeZones) ? cropPlan.actionSafeZones.length : 0;
   const safeZoneCoverage = actionZonesContained(cropPlan) ? 1 : 0;
   const fallbackUsed = Boolean(cropPlan.fallbackUsed || visualTracking.fallbackUsed);
@@ -467,6 +486,7 @@ function renderedActionFramingSummary(renderPlan = {}, outputMp4 = null) {
   const textObstructionRisk = Boolean(cropPlan.textObstructionRisk);
   const abruptCropPanRisk = Boolean(maxPanSpeed > 0.22);
   const softFollow = cropMode === "soft_follow";
+  const ballFollow = cropMode === "ball_follow";
   const safeFallbackMode = ["wide_safe", "locked_wide", "center_safe", "reference_fill"].includes(cropMode);
   const reliableSoftFollow = Boolean(
     softFollow &&
@@ -482,8 +502,19 @@ function renderedActionFramingSummary(renderPlan = {}, outputMp4 = null) {
     !textObstructionRisk &&
     !abruptCropPanRisk
   );
+  const reliableBallFollow = Boolean(
+    ballFollow &&
+    fallbackUsed === false &&
+    trackingConfidence != null &&
+    trackingConfidence >= 0.52 &&
+    ballTrackCount >= 2 &&
+    playerClusterCount >= 2 &&
+    cropKeyframeCount >= 3 &&
+    !textObstructionRisk &&
+    !abruptCropPanRisk
+  );
   const safeFallback = Boolean(
-    !softFollow &&
+    !softFollow && !ballFollow &&
     safeFallbackMode &&
     fallbackUsed === true &&
     (trackingConfidence == null || trackingConfidence <= 0.95) &&
@@ -493,9 +524,10 @@ function renderedActionFramingSummary(renderPlan = {}, outputMp4 = null) {
   );
   const reasons = uniqueReasons([
     ...(!cropMode ? ["crop_plan_missing"] : []),
-    ...(cropMode && !softFollow && !safeFallbackMode ? ["crop_mode_unsafe"] : []),
+    ...(cropMode && !softFollow && !ballFollow && !safeFallbackMode ? ["crop_mode_unsafe"] : []),
     ...(softFollow && !reliableSoftFollow ? ["soft_follow_without_reliable_action_tracking"] : []),
-    ...(!softFollow && safeFallbackMode && !safeFallback ? ["safe_fallback_contract_failed"] : []),
+    ...(ballFollow && !reliableBallFollow ? ["ball_follow_without_reliable_tracking_timeline"] : []),
+    ...(!softFollow && !ballFollow && safeFallbackMode && !safeFallback ? ["safe_fallback_contract_failed"] : []),
     ...(safeZoneCoverage !== 1 ? ["action_safe_zone_not_contained"] : []),
     ...(textObstructionRisk ? ["caption_text_obstruction_risk"] : []),
     ...(abruptCropPanRisk ? ["abrupt_crop_pan_risk"] : []),
@@ -515,6 +547,8 @@ function renderedActionFramingSummary(renderPlan = {}, outputMp4 = null) {
     playerClusterConfidence: playerConfidence == null ? null : round(playerConfidence, 2),
     ballTrackCount,
     playerClusterCount,
+    cropKeyframeCount,
+    dynamicCropRendered: Boolean(renderPolish.dynamicCropRendered || ballFollow),
     actionSafeZoneCoverage: safeZoneCoverage,
     actionSafeZoneCount,
     textObstructionRisk,

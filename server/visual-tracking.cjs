@@ -3,7 +3,7 @@ const { sanitizeText } = require("./media.cjs");
 const { validateTrackingProviderOutput } = require("./tracking-provider.cjs");
 const { visualReasonCodesForWindow } = require("./vision.cjs");
 
-const CROP_PLAN_MODES = Object.freeze(["wide_safe", "soft_follow", "center_safe", "locked_wide", "reference_fill"]);
+const CROP_PLAN_MODES = Object.freeze(["wide_safe", "soft_follow", "ball_follow", "center_safe", "locked_wide", "reference_fill"]);
 const TARGET_ASPECT_RATIOS = Object.freeze(["9:16", "1:1"]);
 
 const ACTION_REASON_CODES = Object.freeze([
@@ -160,6 +160,37 @@ function safeFrameTimestamps(frames = []) {
     .map((value) => round(value, 2));
 }
 
+function normalizeTrackingSamples(samples = [], metadata = {}) {
+  const { width: mediaWidth, height: mediaHeight } = mediaDimensions(metadata);
+  const duration = Math.max(0, Number(metadata.durationSeconds || 0));
+  return (Array.isArray(samples) ? samples : [])
+    .slice(0, 24)
+    .map((sample) => {
+      if (!sample || typeof sample !== "object" || Array.isArray(sample)) return null;
+      const sourceTime = Number(sample.sourceTime ?? sample.time ?? sample.timestamp);
+      if (!Number.isFinite(sourceTime) || sourceTime < 0 || (duration && sourceTime > duration + 0.25)) return null;
+      const actionCenter = sample.actionCenter && typeof sample.actionCenter === "object"
+        ? {
+            x: round(clamp(sample.actionCenter.x, 0, mediaWidth), 2),
+            y: round(clamp(sample.actionCenter.y, 0, mediaHeight), 2),
+          }
+        : null;
+      if (!actionCenter) return null;
+      return {
+        sourceTime: round(sourceTime, 2),
+        ballBox: normalizeBox(sample.ballBox, metadata),
+        ballConfidence: round(clamp(sample.ballConfidence, 0, 1), 2),
+        playerClusterBox: normalizeBox(sample.playerClusterBox, metadata),
+        playerClusterConfidence: round(clamp(sample.playerClusterConfidence, 0, 1), 2),
+        actionCenter,
+        cameraMotion: round(clamp(sample.cameraMotion, 0, 1), 2),
+        source: sanitizeText(sample.source || "action_fallback", 48),
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.sourceTime - right.sourceTime);
+}
+
 function normalizeTrackingSummary(summary, metadata = {}) {
   if (!summary || typeof summary !== "object" || Array.isArray(summary)) {
     return createWideSafeTrackingSummary({ metadata, reason: "tracking_summary_missing" });
@@ -193,6 +224,7 @@ function normalizeTrackingSummary(summary, metadata = {}) {
       .filter(Number.isFinite)
       .slice(0, 12),
     detectedMotionRegions,
+    trackingSamples: normalizeTrackingSamples(summary.trackingSamples || summary.samples, metadata),
     estimatedActionCenter: actionCenter,
     estimatedActionBounds: actionBounds,
     ballCandidateConfidence: round(clamp(summary.ballCandidateConfidence, 0, 1), 2),
@@ -201,11 +233,11 @@ function normalizeTrackingSummary(summary, metadata = {}) {
     trackingConfidence: round(clamp(summary.trackingConfidence, 0, 1), 2),
     recommendedFramingMode,
     cropSafetyReason: sanitizeText(summary.cropSafetyReason || "wide_safe_default", 100),
-    fallbackUsed: Boolean(summary.fallbackUsed || recommendedFramingMode !== "soft_follow"),
+    fallbackUsed: Boolean(summary.fallbackUsed || !["soft_follow", "ball_follow"].includes(recommendedFramingMode)),
     trackingProviderMode: sanitizeText(summary.trackingProviderMode || summary.providerMode || "visual-tracking-heuristic", 60),
     trackingProviderFailureCode: summary.trackingProviderFailureCode ? sanitizeText(summary.trackingProviderFailureCode, 80) : null,
-    ballTrackCount: Math.max(0, Math.min(12, Math.round(Number(summary.ballTrackCount || 0)))),
-    playerClusterCount: Math.max(0, Math.min(8, Math.round(Number(summary.playerClusterCount || 0)))),
+    ballTrackCount: Math.max(0, Math.min(24, Math.round(Number(summary.ballTrackCount || 0)))),
+    playerClusterCount: Math.max(0, Math.min(24, Math.round(Number(summary.playerClusterCount || 0)))),
     goalClaimAllowed: false,
   };
 }
@@ -215,6 +247,7 @@ function createWideSafeTrackingSummary({ metadata = {}, reason = "wide_safe_defa
     frameCount: Array.isArray(frames) ? Math.min(64, frames.length) : 0,
     sampledTimestamps: safeFrameTimestamps(frames),
     detectedMotionRegions: [],
+    trackingSamples: [],
     estimatedActionCenter: boxCenter(fullSourceBox(metadata)),
     estimatedActionBounds: null,
     ballCandidateConfidence: 0,
@@ -241,6 +274,9 @@ function trackingSummaryFromProviderOutput(output, metadata = {}) {
   if (safe.cameraMotionLevel >= 0.75) {
     recommendedFramingMode = "locked_wide";
     cropSafetyReason = "locked_wide_camera_motion";
+  } else if (!safe.fallbackUsed && safe.samples.length >= 3 && safe.ballTracks.length >= 2 && safe.confidence >= 0.52) {
+    recommendedFramingMode = "ball_follow";
+    cropSafetyReason = "ball_follow_validated_tracking_timeline";
   } else if (!safe.fallbackUsed && safe.confidence >= 0.86 && ballConfidence >= 0.65 && playerConfidence >= 0.55 && safe.actionBounds) {
     recommendedFramingMode = "soft_follow";
     cropSafetyReason = "soft_follow_provider_ball_player_action";
@@ -261,6 +297,7 @@ function trackingSummaryFromProviderOutput(output, metadata = {}) {
     frameCount: safe.frameCount,
     sampledTimestamps: safe.ballTracks.map((track) => track.timestamp),
     detectedMotionRegions,
+    trackingSamples: safe.samples,
     estimatedActionCenter: safe.actionCenter,
     estimatedActionBounds: safe.actionBounds,
     ballCandidateConfidence: ballConfidence,
@@ -269,7 +306,7 @@ function trackingSummaryFromProviderOutput(output, metadata = {}) {
     trackingConfidence: safe.confidence,
     recommendedFramingMode,
     cropSafetyReason,
-    fallbackUsed: safe.fallbackUsed || recommendedFramingMode !== "soft_follow",
+    fallbackUsed: safe.fallbackUsed || !["soft_follow", "ball_follow"].includes(recommendedFramingMode),
     trackingProviderMode: safe.providerMode,
     trackingProviderFailureCode: safe.failure && safe.failure.code,
     ballTrackCount: safe.ballTracks.length,
@@ -375,6 +412,58 @@ function cropBoxForCenter({ metadata = {}, center, targetAspectRatio = "9:16" })
   return normalizeBox({ x, y, width: cropWidth, height: cropHeight }, metadata);
 }
 
+function dynamicCropKeyframes(samples = [], metadata = {}, targetAspectRatio = "9:16") {
+  const { width, height } = mediaDimensions(metadata);
+  const cropBox = cropBoxForCenter({ metadata, center: { x: width / 2, y: height / 2 }, targetAspectRatio });
+  if (!cropBox) return [];
+  const deadZone = width * 0.055;
+  const maxPanSpeed = 0.18;
+  let previous = null;
+  return normalizeTrackingSamples(samples, metadata)
+    .map((sample, index) => {
+      const evidenceCenterX = sample.ballBox && sample.ballConfidence >= 0.72
+        ? sample.ballBox.x + sample.ballBox.width / 2
+        : sample.actionCenter.x;
+      const broadcastCenterX = width / 2;
+      const rawCenterX = broadcastCenterX + clamp(
+        evidenceCenterX - broadcastCenterX,
+        -width * 0.22,
+        width * 0.22,
+      );
+      let centerX = clamp(rawCenterX, cropBox.width / 2, width - cropBox.width / 2);
+      let reset = index === 0;
+      if (previous) {
+        const elapsed = sample.sourceTime - previous.sourceTime;
+        reset = elapsed > 10 || sample.cameraMotion >= 0.8;
+        if (!reset) {
+          const delta = centerX - previous.centerX;
+          if (Math.abs(delta) < deadZone) {
+            centerX = previous.centerX;
+          } else {
+            const maxDelta = Math.max(deadZone, maxPanSpeed * width * Math.max(0.04, elapsed));
+            centerX = previous.centerX + clamp(delta, -maxDelta, maxDelta);
+          }
+        }
+      }
+      const confidence = sample.ballBox
+        ? sample.ballConfidence
+        : Math.min(0.68, sample.playerClusterConfidence);
+      const keyframe = {
+        sourceTime: sample.sourceTime,
+        centerX: round(centerX, 2),
+        centerY: round(height / 2, 2),
+        zoom: 1,
+        confidence: round(confidence, 2),
+        source: sample.ballBox && sample.ballConfidence >= 0.72 ? "ball_detection" : "player_cluster_fallback",
+        reset,
+      };
+      previous = keyframe;
+      return keyframe;
+    })
+    .filter((keyframe) => keyframe.confidence >= 0.45)
+    .slice(0, 24);
+}
+
 function textSafeZonesForAspectRatio(targetAspectRatio = "9:16") {
   if (targetAspectRatio === "1:1") {
     return [
@@ -421,10 +510,28 @@ function calibrateCropPlan(input = {}) {
   let confidence = trackingSummary.trackingConfidence;
   let fallbackUsed = true;
   let reasonCodes = baseReasonCodes.length ? baseReasonCodes : ["wide_safe_default"];
+  let keyframes = [];
 
   if (trackingSummary.recommendedFramingMode === "locked_wide") {
     mode = "locked_wide";
     reasonCodes = ["locked_wide_camera_motion"];
+  } else if (trackingSummary.recommendedFramingMode === "ball_follow" && confidence >= 0.52) {
+    keyframes = dynamicCropKeyframes(trackingSummary.trackingSamples, metadata, targetAspectRatio);
+    const reliableBallFrames = keyframes.filter((keyframe) => keyframe.source === "ball_detection").length;
+    if (keyframes.length >= 3 && reliableBallFrames >= 2) {
+      mode = "ball_follow";
+      cropBox = cropBoxForCenter({
+        metadata,
+        center: { x: keyframes[0].centerX, y: keyframes[0].centerY },
+        targetAspectRatio,
+      });
+      fallbackUsed = false;
+      reasonCodes = ["ball_follow_validated_tracking_timeline"];
+    } else {
+      keyframes = [];
+      confidence = Math.min(confidence, 0.74);
+      reasonCodes = ["wide_safe_insufficient_ball_tracking_timeline"];
+    }
   } else if (trackingSummary.recommendedFramingMode === "soft_follow" && actionBounds && confidence >= 0.86) {
     const candidateCrop = cropBoxForCenter({
       metadata,
@@ -454,7 +561,7 @@ function calibrateCropPlan(input = {}) {
         height: cropBox.height * 0.88,
       }, metadata)
     : fullBox;
-  const actionSafeZones = actionBounds ? [actionBounds] : [];
+  const actionSafeZones = mode === "ball_follow" ? [] : actionBounds ? [actionBounds] : [];
   const textSafeZones = textSafeZonesForAspectRatio(targetAspectRatio);
   const actionOutputZone = actionBounds ? actionZoneForCrop(actionBounds, cropBox) : null;
   let textObstructionRisk = Boolean(
@@ -481,6 +588,10 @@ function calibrateCropPlan(input = {}) {
     reasonCodes,
     textSafeZones,
     actionSafeZones,
+    keyframes,
+    maxPanSpeed: mode === "ball_follow" ? 0.18 : undefined,
+    maxZoomSpeed: mode === "ball_follow" ? 0 : undefined,
+    hysteresis: mode === "ball_follow" ? 0.055 : undefined,
     fallbackUsed,
     textObstructionRisk,
   }, metadata);
@@ -511,6 +622,38 @@ function validateCropPlan(plan, metadata = {}) {
   const safeArea = normalizeBox(plan.safeArea, metadata);
   if (!cropBox || !safeArea) throw new AppError("VALIDATION_ERROR", "Crop plan boxes are invalid.", 400);
   const confidence = round(clamp(plan.confidence, 0, 1), 2);
+  const rawKeyframes = Array.isArray(plan.keyframes) ? plan.keyframes : [];
+  const { width: mediaWidth, height: mediaHeight } = mediaDimensions(metadata);
+  const keyframes = rawKeyframes.slice(0, 24).map((keyframe) => {
+    if (!keyframe || typeof keyframe !== "object" || Array.isArray(keyframe)) return null;
+    const sourceTime = Number(keyframe.sourceTime);
+    const centerX = Number(keyframe.centerX);
+    const centerY = Number(keyframe.centerY);
+    const zoom = Number(keyframe.zoom);
+    const keyframeConfidence = Number(keyframe.confidence);
+    if (![sourceTime, centerX, centerY, zoom, keyframeConfidence].every(Number.isFinite)) return null;
+    if (sourceTime < 0 || centerX < 0 || centerX > mediaWidth || centerY < 0 || centerY > mediaHeight) return null;
+    if (zoom < 1 || zoom > 1.08 || keyframeConfidence < 0 || keyframeConfidence > 1) return null;
+    const source = sanitizeText(keyframe.source || "action_fallback", 48);
+    if (!['ball_detection', 'ball_interpolation', 'player_cluster_fallback', 'action_fallback'].includes(source)) return null;
+    return {
+      sourceTime: round(sourceTime, 2),
+      centerX: round(centerX, 2),
+      centerY: round(centerY, 2),
+      zoom: round(zoom, 3),
+      confidence: round(keyframeConfidence, 2),
+      source,
+      reset: Boolean(keyframe.reset),
+    };
+  }).filter(Boolean);
+  if (rawKeyframes.length !== keyframes.length) {
+    throw new AppError("VALIDATION_ERROR", "Crop plan keyframe is invalid.", 400);
+  }
+  for (let index = 1; index < keyframes.length; index += 1) {
+    if (keyframes[index].sourceTime <= keyframes[index - 1].sourceTime) {
+      throw new AppError("VALIDATION_ERROR", "Crop plan keyframes must be chronological.", 400);
+    }
+  }
   const actionSafeZones = (Array.isArray(plan.actionSafeZones) ? plan.actionSafeZones : [])
     .map((zone) => normalizeBox(zone, metadata))
     .filter(Boolean)
@@ -525,11 +668,14 @@ function validateCropPlan(plan, metadata = {}) {
   if ((plan.textSafeZones || []).length !== textSafeZones.length) {
     throw new AppError("VALIDATION_ERROR", "Crop plan text safe zone is invalid.", 400);
   }
-  if (actionSafeZones.some((zone) => !containsBox(safeArea, zone))) {
+  if (mode !== "ball_follow" && actionSafeZones.some((zone) => !containsBox(safeArea, zone))) {
     throw new AppError("VALIDATION_ERROR", "Crop plan leaves action outside the safe area.", 400);
   }
   if (mode === "soft_follow" && (confidence < 0.86 || actionSafeZones.some((zone) => !containsBox(cropBox, zone)))) {
     throw new AppError("VALIDATION_ERROR", "Soft-follow crop plan needs high confidence and contained action bounds.", 400);
+  }
+  if (mode === "ball_follow" && (confidence < 0.52 || keyframes.length < 3 || Boolean(plan.fallbackUsed))) {
+    throw new AppError("VALIDATION_ERROR", "Ball-follow crop plan needs a validated tracking timeline.", 400);
   }
   if (mode !== "soft_follow" && confidence > 0.95) {
     throw new AppError("VALIDATION_ERROR", "Non-follow crop plan has unsafe overconfident tracking.", 400);
@@ -560,14 +706,17 @@ function validateCropPlan(plan, metadata = {}) {
     trackingConfidence: confidence,
     actionCenterX: actionCenter.x,
     actionCenterY: actionCenter.y,
-    maxPanSpeed: mode === "soft_follow" ? 0.18 : 0,
+    maxPanSpeed: mode === "ball_follow" ? round(clamp(plan.maxPanSpeed, 0.08, 0.5), 3) : mode === "soft_follow" ? 0.18 : 0,
+    maxZoomSpeed: mode === "ball_follow" ? round(clamp(plan.maxZoomSpeed, 0, 0.08), 3) : 0,
+    hysteresis: mode === "ball_follow" ? round(clamp(plan.hysteresis, 0.02, 0.15), 3) : 0,
+    keyframes,
     safeMargins,
     reasonCodes: Array.isArray(plan.reasonCodes)
       ? plan.reasonCodes.map((reason) => sanitizeText(reason, 80)).filter(Boolean).slice(0, 8)
       : [],
     textSafeZones,
     actionSafeZones,
-    fallbackUsed: Boolean(plan.fallbackUsed || mode !== "soft_follow"),
+    fallbackUsed: Boolean(plan.fallbackUsed || !["soft_follow", "ball_follow"].includes(mode)),
     textObstructionRisk: Boolean(mode === "soft_follow" && (plan.textObstructionRisk || computedTextObstructionRisk)),
   };
 }
@@ -575,10 +724,10 @@ function validateCropPlan(plan, metadata = {}) {
 function cropStrategyFromPlan(cropPlan, metadata = {}) {
   const plan = validateCropPlan(cropPlan, metadata);
   const cropBox = plan.cropBox || fullSourceBox(metadata);
-  const croppedMode = plan.mode === "soft_follow" || plan.mode === "reference_fill";
+  const croppedMode = ["soft_follow", "ball_follow", "reference_fill"].includes(plan.mode);
   return {
-    type: plan.mode === "soft_follow"
-      ? "soft_follow_crop"
+    type: plan.mode === "soft_follow" || plan.mode === "ball_follow"
+      ? `${plan.mode}_crop`
       : plan.mode === "reference_fill"
         ? "center_crop"
         : "wide_safe_contain",
@@ -604,6 +753,7 @@ function publicVisualTrackingSummary(summary, metadata = {}) {
       reasonCodes: region.reasonCodes,
       bounds: region.bounds,
     })),
+    trackingSamples: safe.trackingSamples,
     estimatedActionCenter: safe.estimatedActionCenter,
     estimatedActionBounds: safe.estimatedActionBounds,
     ballCandidateConfidence: safe.ballCandidateConfidence,

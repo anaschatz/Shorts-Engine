@@ -1170,11 +1170,11 @@ test("rendered goal proof samples early finish frames for delayed scoreboard con
   assert.equal(result.summary.goals[0].candidateFrameCount <= 120, true);
   assert.equal(sampledWindows.some((window) => window.role === "finish" && Math.abs(Number(window.time) - 7.5) < 0.05), true);
   assert.equal(sampledWindows.some((window) => window.role === "finish" && Math.abs(Number(window.time) - 10.5) < 0.05), true);
-  assert.equal(sampledWindows.some((window) => window.role === "finish" && Math.abs(Number(window.time) - 28.85) < 0.05), true);
+  assert.equal(sampledWindows.some((window) => window.role === "finish" && Math.abs(Number(window.time) - 28.85) < 0.05), false);
   assert.equal(sampledWindows.some((window) => window.role === "payoff" && Math.abs(Number(window.time) - 29.5) < 0.05), false);
   assert.equal(sampledWindows
     .filter((window) => window.role === "payoff")
-    .every((window) => Number(window.time) >= 7.5 - 0.65 && Number(window.time) <= 29.5 - 0.25), true);
+    .every((window) => Number(window.time) >= 7.5 - 0.65 && Number(window.time) <= 29.5 - 2.5), true);
 });
 
 test("rendered goal proof samples rebound finish frames around the selected live finish", async () => {
@@ -1263,6 +1263,60 @@ test("rendered goal proof keeps rebound sampling bounded around the selected sco
   assert.equal(sampledWindows.some((window) => window.role === "finish" && Math.abs(Number(window.time) - 5.2) < 0.75), true);
   assert.equal(sampledWindows.some((window) => window.role === "payoff" && Number(window.time) >= 5.5 && Number(window.time) <= 7.5), true);
   assert.equal(sampledWindows.some((window) => window.role === "confirmation"), true);
+});
+
+test("rendered goal proof rejects post-goal closeups near a delayed score change", async () => {
+  const sampledWindows = [];
+  const result = await analyzeRenderedGoalProof({
+    outputPath: "rendered-output.mp4",
+    editPlan: editPlan(goalSegment({
+      sourceStart: 100,
+      sourceEnd: 122,
+      shotStart: 105,
+      finishTime: 107,
+      confirmationTime: 120,
+      duration: 22,
+    })),
+    extractFrames: async ({ candidateWindows }) => {
+      sampledWindows.push(...candidateWindows);
+      return {
+        frames: candidateWindows.map((window, index) => {
+          const role = window.role;
+          const time = Number(window.time);
+          const clear = role === "pre_shot" ||
+            role === "confirmation" ||
+            (role === "finish" && Math.abs(time - 12) < 0.05) ||
+            (role === "payoff" && time >= 12.5 && time <= 13.5);
+          return {
+            id: `frame_${index + 1}`,
+            localPath: `frame_${index + 1}.jpg`,
+            timestamp: window.time,
+            visualHints: window.visualHints,
+            semanticGoalEvidence: clear
+              ? clearEvidenceForRole(role)
+              : {
+                  visibilityVerdict: "failed",
+                  visibleGoal: false,
+                  confidence: time >= 17 ? 0.95 : 0.42,
+                  celebrationOnly: time >= 17,
+                  playerCloseupOnly: time >= 17,
+                  roles: [role],
+                },
+          };
+        }),
+      };
+    },
+    writeJson: () => {},
+  });
+
+  const goal = result.summary.goals[0];
+  const finish = goal.frameRefs.find((frame) => frame.role === "finish");
+  const payoff = goal.frameRefs.find((frame) => frame.role === "payoff");
+  assert.equal(result.summary.clearGoalCount, 1);
+  assert.equal(finish.time, 12);
+  assert.equal(payoff.time >= finish.time, true);
+  assert.equal(sampledWindows.some((window) => window.role === "finish" && Number(window.time) > 16), false);
+  assert.equal(sampledWindows.some((window) => window.role === "payoff" && Number(window.time) > 17.5), false);
 });
 
 test("rendered goal proof prefers declared finish over early score-change lead frames", async () => {
@@ -1431,6 +1485,7 @@ test("rendered scorebug confirms an otherwise unclear confirmation after clear a
     fullHeightActionCrop: true,
     scoreboardOverlayRendered: true,
     scoreboardOverlayRegionId: "scorebug_broadcast_compact",
+    sourceScoreboardDuplicateSuppressed: true,
     blurredBackgroundUsed: false,
     duplicateBackgroundUsed: false,
     splitLayoutCaptionCount: 0,
@@ -1530,6 +1585,39 @@ test("rendered goal proof accepts validated vertical fill with a rendered scoreb
         fullHeightActionCrop: true,
         scoreboardOverlayRendered: true,
         scoreboardOverlayRegionId: "scorebug_broadcast_compact",
+        sourceScoreboardDuplicateSuppressed: true,
+        blurredBackgroundUsed: false,
+        duplicateBackgroundUsed: false,
+        splitLayoutCaptionCount: 0,
+      },
+    },
+    extractFrames: async ({ candidateWindows }) => ({
+      frames: clearFramesFromWindows(candidateWindows),
+    }),
+    writeJson: () => {},
+  });
+
+  assert.equal(result.summary.layoutContract.passed, true);
+  assert.equal(result.summary.clearGoalCount, 1);
+  assert.equal(result.summary.passed, true);
+});
+
+test("rendered goal proof accepts bounded ball-follow with synchronized source scorebug", async () => {
+  const result = await analyzeRenderedGoalProof({
+    outputPath: "rendered-output.mp4",
+    editPlan: {
+      ...editPlan(goalSegment()),
+      renderPolishQA: {
+        cleanActionLayoutRequired: true,
+        cleanActionLayoutPassed: true,
+        actionLayoutMode: "ball_follow_with_synchronized_scorebug",
+        fullHeightActionCrop: true,
+        dynamicCropRendered: true,
+        cropKeyframeCount: 8,
+        maxPanSpeed: 0.18,
+        scoreboardOverlayRendered: true,
+        scoreboardOverlayRegionId: "scorebug_broadcast_compact",
+        sourceScoreboardDuplicateSuppressed: true,
         blurredBackgroundUsed: false,
         duplicateBackgroundUsed: false,
         splitLayoutCaptionCount: 0,

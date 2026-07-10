@@ -1718,7 +1718,7 @@ function validateEditPlan(plan, metadata = {}) {
         maxCropPercent: clamp(plan.cropStrategy.maxCropPercent || derivedCropStrategy.maxCropPercent, 0, 0.35),
       }
     : derivedCropStrategy;
-  if (["soft_follow", "reference_fill"].includes(cropPlan.mode) && cropStrategy.preserveFullFrame) {
+  if (["soft_follow", "ball_follow", "reference_fill"].includes(cropPlan.mode) && cropStrategy.preserveFullFrame) {
     throw new AppError("VALIDATION_ERROR", "Cropped framing cannot preserve the full frame.", 400);
   }
   if (["wide_safe", "center_safe", "locked_wide"].includes(cropPlan.mode) && cropStrategy.preserveFullFrame !== true) {

@@ -16,6 +16,9 @@ const {
   detectOpenCvRuntime,
 } = require("../server/adapters/opencv-tracking-adapter.cjs");
 const {
+  analyzeDecodedFrame,
+} = require("../server/adapters/ffmpeg-football-tracking-adapter.cjs");
+const {
   analyzeVisualTracking,
   calibrateCropPlan,
 } = require("../server/visual-tracking.cjs");
@@ -37,6 +40,33 @@ function visualSignals(overrides = {}) {
     ],
     ...overrides,
   };
+}
+
+function syntheticFootballFrame({ ballX = 160, scoreboardBallX = 20 } = {}) {
+  const width = 320;
+  const height = 180;
+  const data = Buffer.alloc(width * height * 3);
+  const paint = (x, y, r, g, b) => {
+    const index = (y * width + x) * 3;
+    data[index] = r;
+    data[index + 1] = g;
+    data[index + 2] = b;
+  };
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) paint(x, y, 40, 130, 48);
+  }
+  for (let y = 8; y < 14; y += 1) {
+    for (let x = scoreboardBallX; x < scoreboardBallX + 5; x += 1) paint(x, y, 245, 245, 245);
+  }
+  for (const playerX of [ballX - 18, ballX + 12, ballX + 28]) {
+    for (let y = 90; y < 103; y += 1) {
+      for (let x = playerX; x < playerX + 5; x += 1) paint(x, y, 210, 35, 35);
+    }
+  }
+  for (let y = 84; y < 87; y += 1) {
+    for (let x = ballX; x < ballX + 3; x += 1) paint(x, y, 245, 245, 245);
+  }
+  return { width, height, data };
 }
 
 test("default tracking provider returns deterministic ball and player tracks", () => {
@@ -265,4 +295,44 @@ test("provider-backed tracking feeds safe crop calibration without goal claims",
   assert.equal(tracking.playerClusterCount > 0, true);
   assert.equal(cropPlan.mode, "soft_follow");
   assert.equal(cropPlan.fallbackUsed, false);
+});
+
+test("local football pixel analysis excludes the scoreboard and follows the pitch ball", () => {
+  const analyzed = analyzeDecodedFrame(syntheticFootballFrame({ ballX: 226, scoreboardBallX: 18 }));
+
+  assert.ok(analyzed.ball);
+  assert.ok(analyzed.cluster);
+  assert.ok(analyzed.ball.y > 70);
+  assert.ok(analyzed.ball.x > 200);
+  assert.ok(Math.abs(analyzed.cluster.centerX - 226) < 45);
+});
+
+test("tracking timeline rejects non-chronological provider samples", () => {
+  const sample = (time, x) => ({
+    time,
+    ballBox: { x, y: 400, width: 20, height: 20 },
+    ballConfidence: 0.8,
+    playerClusterBox: { x: x - 80, y: 300, width: 260, height: 360 },
+    playerClusterConfidence: 0.76,
+    actionCenter: { x: x + 10, y: 520 },
+    cameraMotion: 0,
+    source: "ball_detection",
+    reasonCodes: ["tracking_ball_visible", "tracking_scoreboard_excluded"],
+  });
+  assert.throws(() => validateTrackingProviderOutput({
+    providerMode: "fixture-timeline",
+    fallbackUsed: false,
+    frameCount: 3,
+    ballTracks: [
+      { timestamp: 5, confidence: 0.8, bounds: { x: 400, y: 400, width: 20, height: 20 } },
+    ],
+    playerClusters: [
+      { timestamp: 5, confidence: 0.76, bounds: { x: 320, y: 300, width: 260, height: 360 } },
+    ],
+    samples: [sample(6, 400), sample(5, 420), sample(7, 440)],
+    actionBounds: { x: 300, y: 280, width: 400, height: 420 },
+    actionCenter: { x: 500, y: 500 },
+    confidence: 0.82,
+    reasonCodes: ["tracking_ball_visible", "tracking_player_cluster", "tracking_action_bounds"],
+  }, metadata), (error) => error.code === "AI_OUTPUT_INVALID");
 });
