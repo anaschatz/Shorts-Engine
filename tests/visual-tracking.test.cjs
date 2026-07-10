@@ -100,6 +100,39 @@ test("validated ball timeline creates bounded dynamic crop keyframes", () => {
   assert.equal(cropPlan.actionSafeZones.length, 0);
 });
 
+test("ball-follow hands off to bounded celebration head tracking after payoff", () => {
+  const tracking = analyzeVisualTracking({
+    metadata,
+    visualTracking: {
+      frameCount: 4,
+      sampledTimestamps: [3, 7, 10, 12],
+      trackingSamples: [
+        { time: 3, ballBox: { x: 300, y: 450, width: 24, height: 24 }, ballConfidence: 0.84, playerClusterBox: { x: 220, y: 330, width: 320, height: 380 }, playerClusterConfidence: 0.74, actionCenter: { x: 330, y: 520 }, source: "ball_detection" },
+        { time: 7, ballBox: { x: 900, y: 430, width: 24, height: 24 }, ballConfidence: 0.87, playerClusterBox: { x: 760, y: 310, width: 360, height: 390 }, playerClusterConfidence: 0.78, actionCenter: { x: 910, y: 510 }, source: "ball_detection" },
+        { time: 10, celebrationHeadBox: { x: 1500, y: 120, width: 120, height: 150 }, celebrationHeadConfidence: 0.84, actionCenter: { x: 1560, y: 195 }, source: "celebration_face_detection" },
+        { time: 12, celebrationHeadBox: { x: 1600, y: 130, width: 110, height: 140 }, celebrationHeadConfidence: 0.82, actionCenter: { x: 1655, y: 200 }, source: "celebration_face_detection" },
+      ],
+      estimatedActionBounds: { x: 200, y: 120, width: 1510, height: 650 },
+      ballCandidateConfidence: 0.87,
+      playerClusterConfidence: 0.78,
+      trackingConfidence: 0.82,
+      recommendedFramingMode: "ball_follow",
+      cropSafetyReason: "ball_follow_validated_tracking_timeline",
+      fallbackUsed: false,
+      celebrationHeadTrackCount: 2,
+    },
+  });
+  const cropPlan = calibrateCropPlan({ metadata, trackingSummary: tracking, targetAspectRatio: "9:16" });
+  const headKeyframes = cropPlan.keyframes.filter((item) => item.trackingTarget === "celebration_head");
+
+  assert.equal(cropPlan.mode, "ball_follow");
+  assert.equal(headKeyframes.length, 2);
+  assert.equal(headKeyframes[0].reset, true);
+  assert.ok(headKeyframes[0].centerX > cropPlan.keyframes[1].centerX);
+  assert.ok(cropPlan.reasonCodes.includes("celebration_head_follow_bounded"));
+  assert.equal(tracking.goalClaimAllowed, false);
+});
+
 test("low confidence tracking falls back to wide-safe framing", () => {
   const tracking = analyzeVisualTracking({
     metadata,

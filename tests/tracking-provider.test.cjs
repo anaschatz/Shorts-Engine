@@ -1,5 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { mkdtempSync, rmSync, writeFileSync } = require("node:fs");
+const { join } = require("node:path");
 
 const {
   ExternalTrackingProviderAdapter,
@@ -17,7 +19,13 @@ const {
 } = require("../server/adapters/opencv-tracking-adapter.cjs");
 const {
   analyzeDecodedFrame,
+  FfmpegFootballTrackingAdapter,
 } = require("../server/adapters/ffmpeg-football-tracking-adapter.cjs");
+const {
+  chooseProminentFace,
+  detectCelebrationHeads,
+} = require("../server/adapters/apple-vision-head-adapter.cjs");
+const { CONFIG } = require("../server/config.cjs");
 const {
   analyzeVisualTracking,
   calibrateCropPlan,
@@ -68,6 +76,111 @@ function syntheticFootballFrame({ ballX = 160, scoreboardBallX = 20 } = {}) {
   }
   return { width, height, data };
 }
+
+test("Apple Vision adapter chooses a prominent face and validates mocked output", async () => {
+  const prominent = chooseProminentFace([
+    { x: 0.06, y: 0.66, width: 0.025, height: 0.04, confidence: 0.8 },
+    { x: 0.38, y: 0.42, width: 0.12, height: 0.19, confidence: 0.91 },
+  ]);
+  assert.ok(prominent);
+  assert.ok(prominent.centerX > 0.4 && prominent.centerX < 0.5);
+  assert.equal(chooseProminentFace([
+    { x: 0.78, y: 0.42, width: 0.12, height: 0.19, confidence: 0.94 },
+  ], { x: 0.44, y: 0.48 }), null);
+
+  const stagingDir = mkdtempSync(join(CONFIG.stagingDir, "apple-vision-head-test-"));
+  const framePath = join(stagingDir, "frame.jpg");
+  writeFileSync(framePath, "frame");
+  try {
+    const result = await detectCelebrationHeads({
+      frames: [{
+        id: "goal_1_head",
+        timestamp: 8,
+        localPath: framePath,
+        visualHints: ["football_action", "goal_1", "celebration_head"],
+      }],
+      metadata: { width: 1920, height: 1080 },
+      runner: async () => JSON.stringify({
+        ok: true,
+        frames: [{
+          id: "goal_1_head",
+          time: 8,
+          faces: [{ x: 0.38, y: 0.42, width: 0.12, height: 0.19, confidence: 0.91 }],
+        }],
+      }),
+    });
+    assert.equal(result.providerMode, "apple-vision-face-tracking");
+    assert.equal(result.fallbackUsed, false);
+    assert.equal(result.detections.length, 1);
+    assert.equal(result.detections[0].goalNumber, 1);
+    assert.equal(result.detections[0].source, "celebration_face_detection");
+    assert.deepEqual(result.detections[0].celebrationHeadBox, {
+      x: 730,
+      y: 421,
+      width: 230,
+      height: 205,
+    });
+  } finally {
+    rmSync(stagingDir, { recursive: true, force: true });
+  }
+});
+
+test("FFmpeg tracking maps validated Vision confidence into celebration crop samples", async () => {
+  const stagingDir = mkdtempSync(join(CONFIG.stagingDir, "ffmpeg-vision-map-test-"));
+  const framePath = join(stagingDir, "frame.jpg");
+  writeFileSync(framePath, "frame");
+  try {
+    const adapter = new FfmpegFootballTrackingAdapter({
+      frameDecoder: async () => syntheticFootballFrame({ ballX: 160 }),
+      celebrationHeadDetector: async () => ({
+        detections: [{
+          time: 3,
+          celebrationHeadBox: { x: 780, y: 220, width: 180, height: 180 },
+          celebrationHeadConfidence: 0.84,
+          source: "celebration_face_detection",
+        }],
+      }),
+    });
+    const output = await adapter.analyzeTracking({
+      frames: [1, 2, 3].map((timestamp) => ({
+        id: `frame_${timestamp}`,
+        timestamp,
+        localPath: framePath,
+        visualHints: timestamp === 3 ? ["goal_1", "celebration_head"] : ["football_action"],
+      })),
+      metadata,
+    });
+    const celebration = output.samples.find((sample) => sample.time === 3);
+    assert.equal(celebration.source, "celebration_face_detection");
+    assert.equal(celebration.celebrationHeadConfidence, 0.84);
+    assert.deepEqual(celebration.celebrationHeadBox, { x: 780, y: 220, width: 180, height: 180 });
+  } finally {
+    rmSync(stagingDir, { recursive: true, force: true });
+  }
+});
+
+test("tracking contract preserves safe celebration head samples without enabling goal claims", () => {
+  const output = validateTrackingProviderOutput({
+    providerMode: "fixture-head-tracking",
+    fallbackUsed: false,
+    frameCount: 3,
+    ballTracks: [{ timestamp: 2, confidence: 0.82, bounds: { x: 900, y: 500, width: 20, height: 20 } }],
+    playerClusters: [{ timestamp: 2, confidence: 0.78, bounds: { x: 760, y: 350, width: 360, height: 420 } }],
+    samples: [
+      { time: 2, ballBox: { x: 900, y: 500, width: 20, height: 20 }, ballConfidence: 0.82, playerClusterBox: { x: 760, y: 350, width: 360, height: 420 }, playerClusterConfidence: 0.78, actionCenter: { x: 910, y: 510 }, source: "ball_detection" },
+      { time: 6, celebrationHeadBox: { x: 1420, y: 120, width: 120, height: 150 }, celebrationHeadConfidence: 0.84, actionCenter: { x: 1480, y: 195 }, source: "celebration_head_detection", reasonCodes: ["tracking_celebration_head_visible"] },
+    ],
+    actionBounds: { x: 760, y: 120, width: 780, height: 650 },
+    actionCenter: { x: 1100, y: 420 },
+    confidence: 0.8,
+    reasonCodes: ["tracking_ball_visible", "tracking_player_cluster", "tracking_celebration_head_visible"],
+    goalClaimAllowed: false,
+  }, metadata);
+
+  assert.equal(output.celebrationHeadTrackCount, 1);
+  assert.equal(output.samples[1].source, "celebration_head_detection");
+  assert.equal(output.goalClaimAllowed, false);
+});
 
 test("default tracking provider returns deterministic ball and player tracks", () => {
   const output = analyzeTracking({

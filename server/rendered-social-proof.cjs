@@ -476,6 +476,8 @@ function renderedActionFramingSummary(renderPlan = {}, outputMp4 = null) {
   const playerConfidence = numberOrNull(visualTracking.playerClusterConfidence) ?? numberOrNull(renderPolish.playerClusterConfidence);
   const ballTrackCount = numberOrNull(visualTracking.ballTrackCount) ?? numberOrNull(renderPolish.ballTrackCount) ?? 0;
   const playerClusterCount = numberOrNull(visualTracking.playerClusterCount) ?? numberOrNull(renderPolish.playerClusterCount) ?? 0;
+  const celebrationHeadTrackCount = numberOrNull(visualTracking.celebrationHeadTrackCount) ?? numberOrNull(renderPolish.celebrationHeadTrackCount) ?? 0;
+  const celebrationHeadKeyframeCount = numberOrNull(renderPolish.celebrationHeadKeyframeCount) ?? 0;
   const cropKeyframeCount = Array.isArray(cropPlan.keyframes)
     ? cropPlan.keyframes.length
     : numberOrNull(renderPolish.cropKeyframeCount) ?? 0;
@@ -522,6 +524,16 @@ function renderedActionFramingSummary(renderPlan = {}, outputMp4 = null) {
     !textObstructionRisk &&
     !abruptCropPanRisk
   );
+  const segments = Array.isArray(renderPlan.segments) ? renderPlan.segments : [];
+  const celebrationHeadTrackingRequired = renderPolish.celebrationHeadTrackingRequired === true;
+  const celebrationHeadTrackedGoalCount = numberOrNull(renderPolish.celebrationHeadTrackedGoalCount) ?? 0;
+  const celebrationHeadTrackingPassed = !celebrationHeadTrackingRequired || Boolean(
+    ballFollow &&
+    celebrationHeadTrackCount >= segments.length &&
+    celebrationHeadKeyframeCount >= segments.length &&
+    celebrationHeadTrackedGoalCount === segments.length &&
+    renderPolish.celebrationHeadFollowRendered === true
+  );
   const reasons = uniqueReasons([
     ...(!cropMode ? ["crop_plan_missing"] : []),
     ...(cropMode && !softFollow && !ballFollow && !safeFallbackMode ? ["crop_mode_unsafe"] : []),
@@ -531,8 +543,8 @@ function renderedActionFramingSummary(renderPlan = {}, outputMp4 = null) {
     ...(safeZoneCoverage !== 1 ? ["action_safe_zone_not_contained"] : []),
     ...(textObstructionRisk ? ["caption_text_obstruction_risk"] : []),
     ...(abruptCropPanRisk ? ["abrupt_crop_pan_risk"] : []),
+    ...(!celebrationHeadTrackingPassed ? ["celebration_head_tracking_incomplete"] : []),
   ]);
-  const segments = Array.isArray(renderPlan.segments) ? renderPlan.segments : [];
   return {
     passed: reasons.length === 0,
     outputRelativePath: safeRelativeMp4(outputMp4 && outputMp4.relativePath),
@@ -547,6 +559,12 @@ function renderedActionFramingSummary(renderPlan = {}, outputMp4 = null) {
     playerClusterConfidence: playerConfidence == null ? null : round(playerConfidence, 2),
     ballTrackCount,
     playerClusterCount,
+    celebrationHeadTrackCount,
+    celebrationHeadKeyframeCount,
+    celebrationHeadTrackedGoalCount,
+    celebrationHeadTrackingRequired,
+    celebrationHeadTrackingPassed,
+    celebrationHeadFollowRendered: renderPolish.celebrationHeadFollowRendered === true,
     cropKeyframeCount,
     dynamicCropRendered: Boolean(renderPolish.dynamicCropRendered || ballFollow),
     actionSafeZoneCoverage: safeZoneCoverage,

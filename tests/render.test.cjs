@@ -500,6 +500,7 @@ test("ball-follow renderer moves the action crop while the live scorebug stays f
       playerClusterConfidence: 0.78,
       ballTrackCount: 3,
       playerClusterCount: 3,
+      celebrationHeadTrackCount: 1,
       fallbackUsed: false,
     },
     cropPlan: {
@@ -514,6 +515,7 @@ test("ball-follow renderer moves the action crop while the live scorebug stays f
       keyframes: [
         { sourceTime: 1, centerX: 420, centerY: 540, zoom: 1, confidence: 0.82, source: "ball_detection", reset: true },
         { sourceTime: 5, centerX: 960, centerY: 540, zoom: 1, confidence: 0.78, source: "player_cluster_fallback" },
+        { sourceTime: 8, centerX: 1320, centerY: 540, zoom: 1, confidence: 0.84, source: "celebration_face_detection", trackingTarget: "celebration_head", reset: true },
         { sourceTime: 10, centerX: 1480, centerY: 540, zoom: 1, confidence: 0.86, source: "ball_detection" },
       ],
       fallbackUsed: false,
@@ -564,6 +566,9 @@ test("ball-follow renderer moves the action crop while the live scorebug stays f
   assert.equal(plan.renderPolishQA.actionLayoutMode, "ball_follow_with_synchronized_scorebug");
   assert.equal(plan.renderPolishQA.dynamicCropRendered, true);
   assert.ok(plan.renderPolishQA.cropKeyframeCount >= 3);
+  assert.equal(plan.renderPolishQA.celebrationHeadTrackCount, 1);
+  assert.equal(plan.renderPolishQA.celebrationHeadKeyframeCount, 1);
+  assert.equal(plan.renderPolishQA.celebrationHeadFollowRendered, true);
   assert.equal(plan.renderPolishQA.trackingProviderMode, "ffmpeg-football-tracking");
   assert.equal(plan.renderPolishQA.sourceScoreboardDuplicateSuppressed, true);
 });

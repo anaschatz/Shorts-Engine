@@ -181,6 +181,12 @@ test("public job keeps safe render QA metadata from large edit plans", () => {
         playerClusterConfidence: 0.84,
         ballTrackCount: 12,
         playerClusterCount: 12,
+        celebrationHeadTrackCount: 8,
+        celebrationHeadKeyframeCount: 8,
+        celebrationHeadTrackedGoalCount: 5,
+        celebrationHeadTrackingRequired: true,
+        celebrationHeadTrackingPassed: true,
+        celebrationHeadFollowRendered: true,
         scoreboardOverlayRendered: true,
         scoreboardOverlayRegionId: "scorebug_broadcast_compact",
         sourceScoreboardDuplicateSuppressed: true,
@@ -210,6 +216,8 @@ test("public job keeps safe render QA metadata from large edit plans", () => {
   assert.equal(publicJob.editPlan.renderPolishQA.cleanActionLayoutPassed, true);
   assert.equal(publicJob.editPlan.renderPolishQA.sourceScoreboardDuplicateSuppressed, true);
   assert.equal(publicJob.editPlan.renderPolishQA.cropKeyframeCount, 22);
+  assert.equal(publicJob.editPlan.renderPolishQA.celebrationHeadTrackedGoalCount, 5);
+  assert.equal(publicJob.editPlan.renderPolishQA.celebrationHeadTrackingPassed, true);
   assert.equal(publicJob.editPlan.visualPolishQA.countedGoalsIncluded, 3);
   assert.equal(publicJob.editPlan.editAssembly.segmentCount, 3);
   assert.doesNotMatch(JSON.stringify(publicJob), /\/Users|OPENAI_API_KEY|storageKey|outputPath|localPath/i);
@@ -258,6 +266,12 @@ test("public job summary stays bounded for polling while preserving render proof
         cropKeyframeCount: 22,
         maxPanSpeed: 0.18,
         trackingProviderMode: "ffmpeg-football-tracking",
+        celebrationHeadTrackCount: 8,
+        celebrationHeadKeyframeCount: 8,
+        celebrationHeadTrackedGoalCount: 5,
+        celebrationHeadTrackingRequired: true,
+        celebrationHeadTrackingPassed: true,
+        celebrationHeadFollowRendered: true,
         scoreboardOverlayRendered: true,
         scoreboardOverlayRegionId: "scorebug_broadcast_compact",
         sourceScoreboardDuplicateSuppressed: true,
@@ -274,6 +288,8 @@ test("public job summary stays bounded for polling while preserving render proof
   assert.equal(summary.renderPlanSummary.renderPolishQA.cleanActionLayoutPassed, true);
   assert.equal(summary.renderPlanSummary.renderPolishQA.sourceScoreboardDuplicateSuppressed, true);
   assert.equal(summary.renderPlanSummary.renderPolishQA.cropKeyframeCount, 22);
+  assert.equal(summary.renderPlanSummary.renderPolishQA.celebrationHeadTrackedGoalCount, 5);
+  assert.equal(summary.renderPlanSummary.renderPolishQA.celebrationHeadTrackingPassed, true);
   assert.deepEqual(summary.renderPlanSummary.segments.map((segment) => segment.goalNumber), [1, 2, 3, 4, 5]);
   assert.equal(Object.hasOwn(summary, "editPlan"), false);
   assert.equal(Object.hasOwn(summary, "candidatePlans"), false);

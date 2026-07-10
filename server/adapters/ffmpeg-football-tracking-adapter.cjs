@@ -4,6 +4,7 @@ const { CONFIG } = require("../config.cjs");
 const { AppError, SAFE_MESSAGES } = require("../errors.cjs");
 const { commandAvailable, sanitizeText } = require("../media.cjs");
 const { assertStoragePath } = require("../storage.cjs");
+const { detectCelebrationHeads } = require("./apple-vision-head-adapter.cjs");
 const {
   trackingFallback,
   validateTrackingProviderOutput,
@@ -63,6 +64,9 @@ function safeFrames(frames = [], metadata = {}) {
         id: sanitizeText(frame.id || `tracking_frame_${index + 1}`, 64),
         time: round(time, 2),
         localPath,
+        visualHints: Array.isArray(frame.visualHints)
+          ? frame.visualHints.map((hint) => sanitizeText(hint, 48)).filter(Boolean).slice(0, 4)
+          : [],
       };
     })
     .filter(Boolean)
@@ -286,9 +290,15 @@ function scaleBox(box, image, metadata = {}) {
   };
 }
 
-function centerForSample(ball, cluster, image, metadata = {}) {
+function centerForSample(ball, cluster, celebrationHead, image, metadata = {}) {
   const mediaWidth = Math.max(1, Number(metadata.width || 1920));
   const mediaHeight = Math.max(1, Number(metadata.height || 1080));
+  if (celebrationHead && celebrationHead.confidence >= 0.66) {
+    return {
+      x: round(clamp(celebrationHead.x / image.width * mediaWidth, 0, mediaWidth), 2),
+      y: round(clamp(celebrationHead.y / image.height * mediaHeight, 0, mediaHeight), 2),
+    };
+  }
   const ballWeight = ball ? clamp(ball.confidence, 0.5, 0.9) : 0;
   const clusterWeight = cluster ? clamp(cluster.confidence, 0.4, 0.85) : 0;
   const total = Math.max(0.01, ballWeight + clusterWeight);
@@ -351,11 +361,13 @@ class FfmpegFootballTrackingAdapter {
     ffmpegBin = CONFIG.ffmpegBin,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     frameDecoder = defaultFrameDecoder,
+    celebrationHeadDetector = detectCelebrationHeads,
   } = {}) {
     this.enabled = Boolean(enabled);
     this.ffmpegBin = sanitizeText(ffmpegBin || CONFIG.ffmpegBin, 120);
     this.timeoutMs = safeTimeout(timeoutMs);
     this.frameDecoder = frameDecoder;
+    this.celebrationHeadDetector = typeof celebrationHeadDetector === "function" ? celebrationHeadDetector : null;
   }
 
   health() {
@@ -385,6 +397,21 @@ class FfmpegFootballTrackingAdapter {
       });
     }
     const dimensions = decodedDimensions(metadata);
+    let faceDetectionByTime = new Map();
+    if (this.celebrationHeadDetector && frames.some((frame) => frame.visualHints.includes("celebration_head"))) {
+      try {
+        const headResult = await this.celebrationHeadDetector({
+          frames,
+          metadata,
+          signal: input.signal,
+          timeoutMs: Math.min(10000, this.timeoutMs),
+        });
+        faceDetectionByTime = new Map((Array.isArray(headResult && headResult.detections) ? headResult.detections : [])
+          .map((detection) => [Number(detection.time).toFixed(2), detection]));
+      } catch {
+        faceDetectionByTime = new Map();
+      }
+    }
     const startedAt = Date.now();
     const rawSamples = [];
     let previousBall = null;
@@ -398,24 +425,55 @@ class FfmpegFootballTrackingAdapter {
           timeoutMs: this.timeoutMs - (Date.now() - startedAt),
         });
         const result = analyzeDecodedFrame(decoded, previousBall);
-        if (!result.cluster && !result.ball) continue;
+        const celebrationHeadRequested = frame.visualHints.includes("celebration_head");
+        const detectedFace = celebrationHeadRequested
+          ? faceDetectionByTime.get(Number(frame.time).toFixed(2)) || null
+          : null;
+        const detectedHead = detectedFace
+          ? {
+              ...detectedFace,
+              confidence: Number(detectedFace.celebrationHeadConfidence || 0),
+            }
+          : null;
+        const celebrationHead = detectedHead;
+        if (!result.cluster && !result.ball && !celebrationHead) continue;
         if (result.ball) previousBall = { x: result.ball.x, y: result.ball.y };
         const reliableBall = result.ball && result.ball.confidence >= 0.72 ? result.ball : null;
+        const reliableCelebrationHead = celebrationHead && celebrationHead.confidence >= 0.66
+          ? celebrationHead
+          : null;
         const ballBox = scaleBox(reliableBall && reliableBall.box, decoded, metadata);
         const playerClusterBox = scaleBox(result.cluster && result.cluster.box, decoded, metadata);
+        const celebrationHeadBox = detectedFace && reliableCelebrationHead
+          ? detectedFace.celebrationHeadBox
+          : null;
+        const celebrationHeadCenter = celebrationHeadBox
+          ? {
+              x: celebrationHeadBox.x + celebrationHeadBox.width / 2,
+              y: celebrationHeadBox.y + celebrationHeadBox.height / 2,
+            }
+          : null;
         rawSamples.push({
           time: frame.time,
           ballBox,
           ballConfidence: round(reliableBall && reliableBall.confidence || 0, 2),
           playerClusterBox,
           playerClusterConfidence: round(result.cluster && result.cluster.confidence || 0, 2),
-          actionCenter: centerForSample(reliableBall, result.cluster, decoded, metadata),
+          celebrationHeadBox,
+          celebrationHeadConfidence: round(reliableCelebrationHead && reliableCelebrationHead.confidence || 0, 2),
+          actionCenter: celebrationHeadCenter || centerForSample(reliableBall, result.cluster, reliableCelebrationHead, decoded, metadata),
           cameraMotion: 0,
-          source: reliableBall ? "ball_detection" : "player_cluster_fallback",
+          source: reliableCelebrationHead
+            ? detectedFace.source
+            : reliableBall
+              ? "ball_detection"
+              : "player_cluster_fallback",
           reasonCodes: [
             "tracking_scoreboard_excluded",
             ...(reliableBall ? ["tracking_ball_visible"] : ["tracking_ball_occluded"]),
             ...(result.cluster ? ["tracking_player_cluster"] : []),
+            ...(reliableCelebrationHead ? ["tracking_celebration_head_visible"] : []),
+            ...(celebrationHeadRequested && !reliableCelebrationHead ? ["tracking_celebration_head_fallback"] : []),
           ],
         });
       } catch {

@@ -25,6 +25,9 @@ const TRACKING_REASON_CODES = Object.freeze([
   "tracking_scoreboard_excluded",
   "tracking_camera_cut",
   "tracking_implausible_jump_rejected",
+  "tracking_celebration_head_visible",
+  "tracking_celebration_head_ambiguous",
+  "tracking_celebration_head_fallback",
 ]);
 
 const TRACKING_LABELS = Object.freeze(["ball", "player_cluster", "action"]);
@@ -33,6 +36,9 @@ const TRACKING_SAMPLE_SOURCES = Object.freeze([
   "ball_interpolation",
   "player_cluster_fallback",
   "action_fallback",
+  "celebration_head_detection",
+  "celebration_face_detection",
+  "celebration_person_head_estimate",
 ]);
 
 function clamp(value, min, max) {
@@ -169,20 +175,28 @@ function validateTrackingSample(sample, metadata = {}) {
   if (time === null) return null;
   const hasBallBox = sample.ballBox !== null && sample.ballBox !== undefined;
   const hasPlayerClusterBox = sample.playerClusterBox !== null && sample.playerClusterBox !== undefined;
+  const hasCelebrationHeadBox = sample.celebrationHeadBox !== null && sample.celebrationHeadBox !== undefined;
   const ballBox = hasBallBox ? validateBox(sample.ballBox, metadata) : null;
   const playerClusterBox = hasPlayerClusterBox ? validateBox(sample.playerClusterBox, metadata) : null;
-  if ((hasBallBox && !ballBox) || (hasPlayerClusterBox && !playerClusterBox)) return null;
+  const celebrationHeadBox = hasCelebrationHeadBox ? validateBox(sample.celebrationHeadBox, metadata) : null;
+  if (
+    (hasBallBox && !ballBox) ||
+    (hasPlayerClusterBox && !playerClusterBox) ||
+    (hasCelebrationHeadBox && !celebrationHeadBox)
+  ) return null;
   const actionCenter = sample.actionCenter && typeof sample.actionCenter === "object"
     ? {
         x: round(clamp(sample.actionCenter.x, 0, dimensions(metadata).width), 2),
         y: round(clamp(sample.actionCenter.y, 0, dimensions(metadata).height), 2),
       }
-    : ballBox
+    : celebrationHeadBox
+      ? boxCenter(celebrationHeadBox)
+      : ballBox
       ? boxCenter(ballBox)
       : playerClusterBox
         ? boxCenter(playerClusterBox)
         : null;
-  if (!actionCenter || (!ballBox && !playerClusterBox)) return null;
+  if (!actionCenter || (!ballBox && !playerClusterBox && !celebrationHeadBox)) return null;
   const source = sanitizeText(sample.source || (ballBox ? "ball_detection" : "player_cluster_fallback"), 48).toLowerCase();
   if (!TRACKING_SAMPLE_SOURCES.includes(source)) return null;
   return {
@@ -191,6 +205,8 @@ function validateTrackingSample(sample, metadata = {}) {
     ballConfidence: ballBox ? round(clamp(sample.ballConfidence, 0, 1), 2) : 0,
     playerClusterBox,
     playerClusterConfidence: playerClusterBox ? round(clamp(sample.playerClusterConfidence, 0, 1), 2) : 0,
+    celebrationHeadBox,
+    celebrationHeadConfidence: celebrationHeadBox ? round(clamp(sample.celebrationHeadConfidence, 0, 1), 2) : 0,
     actionCenter,
     cameraMotion: round(clamp(sample.cameraMotion, 0, 1), 2),
     source,
@@ -287,6 +303,9 @@ function validateTrackingProviderOutput(output, metadata = {}) {
     ballTracks,
     playerClusters,
     samples,
+    celebrationHeadTrackCount: samples.filter((sample) => (
+      sample.celebrationHeadBox && sample.celebrationHeadConfidence >= 0.66
+    )).length,
     actionBounds,
     actionCenter,
     cameraMotionLevel: round(clamp(output.cameraMotionLevel, 0, 1), 2),
@@ -559,6 +578,7 @@ function publicTrackingProviderOutput(output, metadata = {}) {
     samples: safe.samples,
     ballTrackCount: safe.ballTracks.length,
     playerClusterCount: safe.playerClusters.length,
+    celebrationHeadTrackCount: safe.celebrationHeadTrackCount,
     actionBounds: safe.actionBounds,
     actionCenter: safe.actionCenter,
     cameraMotionLevel: safe.cameraMotionLevel,

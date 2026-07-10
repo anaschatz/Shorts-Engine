@@ -260,6 +260,87 @@ test("rendered social polish proof passes for fresh MP4 with hook and dynamic ca
   assert.equal(report.artifactsDownloaded, false);
 });
 
+test("rendered social polish proof requires celebration head coverage when renderer opts in", () => {
+  const base = renderPlan();
+  const ballFollow = {
+    mode: "ball_follow",
+    cropMode: "ball_follow",
+    fallbackUsed: false,
+    confidence: 0.82,
+    trackingConfidence: 0.82,
+    maxPanSpeed: 0.18,
+    textObstructionRisk: false,
+    actionSafeZones: [],
+    keyframes: [
+      { sourceTime: 12, centerX: 800, centerY: 540, zoom: 1, confidence: 0.84, source: "ball_detection" },
+      { sourceTime: 22, centerX: 980, centerY: 540, zoom: 1, confidence: 0.86, source: "ball_detection" },
+      { sourceTime: 26, centerX: 1320, centerY: 540, zoom: 1, confidence: 0.82, source: "celebration_face_detection", trackingTarget: "celebration_head" },
+    ],
+  };
+  const passing = baseProof({
+    renderPlan: {
+      goalSelectionMode: "valid_goals_only",
+      cropPlan: ballFollow,
+      visualTrackingSummary: {
+        ...base.visualTrackingSummary,
+        recommendedFramingMode: "ball_follow",
+        fallbackUsed: false,
+        celebrationHeadTrackCount: 1,
+      },
+      renderPolishQA: {
+        ...base.renderPolishQA,
+        dynamicCropRendered: true,
+        cropKeyframeCount: 3,
+        maxPanSpeed: 0.18,
+        trackingProviderMode: "ffmpeg-football-tracking",
+        trackingConfidence: 0.82,
+        ballTrackCount: 2,
+        playerClusterCount: 2,
+        celebrationHeadTrackCount: 1,
+        celebrationHeadKeyframeCount: 1,
+        celebrationHeadTrackedGoalCount: 1,
+        celebrationHeadTrackingRequired: true,
+        celebrationHeadTrackingPassed: true,
+        celebrationHeadFollowRendered: true,
+      },
+    },
+  });
+  assert.equal(passing.renderedActionFraming.celebrationHeadTrackingPassed, true);
+  assert.equal(passing.passed, true);
+
+  const failed = baseProof({
+    renderPlan: {
+      goalSelectionMode: "valid_goals_only",
+      cropPlan: ballFollow,
+      visualTrackingSummary: {
+        ...base.visualTrackingSummary,
+        recommendedFramingMode: "ball_follow",
+        fallbackUsed: false,
+        celebrationHeadTrackCount: 0,
+      },
+      renderPolishQA: {
+        ...base.renderPolishQA,
+        dynamicCropRendered: true,
+        cropKeyframeCount: 3,
+        maxPanSpeed: 0.18,
+        trackingProviderMode: "ffmpeg-football-tracking",
+        trackingConfidence: 0.82,
+        ballTrackCount: 2,
+        playerClusterCount: 2,
+        celebrationHeadTrackCount: 0,
+        celebrationHeadKeyframeCount: 0,
+        celebrationHeadTrackedGoalCount: 0,
+        celebrationHeadTrackingRequired: true,
+        celebrationHeadTrackingPassed: false,
+        celebrationHeadFollowRendered: false,
+      },
+    },
+  });
+  assert.equal(failed.renderedActionFraming.celebrationHeadTrackingPassed, false);
+  assert.ok(failed.failedReasons.includes("celebration_head_tracking_incomplete"));
+  assert.equal(failed.passed, false);
+});
+
 test("rendered social polish proof fails when hook is missing from first two seconds", () => {
   const qa = videoOutputQA({
     hook: {

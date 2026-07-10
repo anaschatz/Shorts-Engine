@@ -242,13 +242,16 @@ function goalTrackingCandidateWindows(editPlan = {}, metadata = {}) {
     if (!confirmedGoalSegment(segment)) continue;
     const sourceStart = safeNumber(segment.sourceStart);
     const sourceEnd = safeNumber(segment.sourceEnd);
+    const finishTime = safeNumber(segment.finishTime);
     const scoreChangeTime = safeNumber(segment.scoreChangeTime ?? segment.confirmationTime);
     if (sourceStart == null || sourceEnd == null || sourceEnd <= sourceStart) continue;
     const candidates = [
-      ["buildup", sourceStart + 2],
-      ["shot", safeNumber(segment.shotStart)],
-      ["declared_finish", safeNumber(segment.finishTime)],
+      ["buildup", sourceStart + 1.5],
       ["score_change_minus_8", scoreChangeTime == null ? null : scoreChangeTime - 8],
+      ["celebration_head", scoreChangeTime == null || finishTime == null
+        ? null
+        : Math.min(sourceEnd - 0.4, Math.max(finishTime + 2.5, scoreChangeTime - 5.5))],
+      ["celebration_head", scoreChangeTime == null ? null : Math.min(sourceEnd - 0.35, scoreChangeTime - 1.6)],
     ];
     for (const [role, value] of candidates) {
       const parsed = safeNumber(value);
@@ -263,7 +266,12 @@ function goalTrackingCandidateWindows(editPlan = {}, metadata = {}) {
         end: Number(Math.min(duration, time + 0.08).toFixed(2)),
         confidence: 0.9,
         source: "selected_goal_tracking_refinement",
-        visualHints: ["football_action", `goal_${segment.goalNumber || segmentIndex + 1}`, role],
+        visualHints: [
+          "football_action",
+          `goal_${segment.goalNumber || segmentIndex + 1}`,
+          role,
+          ...(role === "score_change_minus_8" ? ["celebration_head"] : []),
+        ],
       });
     }
   }

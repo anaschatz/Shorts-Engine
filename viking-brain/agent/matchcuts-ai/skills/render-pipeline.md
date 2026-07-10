@@ -49,3 +49,4 @@ Safety notes:
 - Suppress the original scorebug region before rendering one synchronized source scorebug overlay; never duplicate or synthesize score state.
 - Treat tracking as a crop signal only. Goal truth continues to come from stable scoreboard changes plus visible live-action proof.
 - For rendered framing changes, run the research gate but record its limits when fixtures do not measure pixels; require a fresh MP4, strict output gate, contact sheets, and human inspection before claiming improvement.
+- During post-goal celebrations, hand framing from the ball to a validated goal-bound foreground face/person target. Reject abrupt identity jumps after camera cuts, never use skin-color blobs as production evidence, and keep tracking incapable of making goal claims.

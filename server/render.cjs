@@ -830,6 +830,15 @@ function createRenderPolishSummary(plan = {}, options = {}) {
   const blurredBackgroundUsed = shouldUseBlurredBackground(plan, profile);
   const softFollowCrop = activeSoftFollowCrop(plan);
   const ballFollowCrop = activeBallFollowCrop(plan);
+  const celebrationHeadKeyframes = ballFollowCrop && plan.cropPlan && Array.isArray(plan.cropPlan.keyframes)
+    ? plan.cropPlan.keyframes.filter((keyframe) => keyframe && ["celebration_face_detection", "celebration_person_head_estimate"].includes(keyframe.source))
+    : [];
+  const celebrationHeadTrackedGoalCount = (Array.isArray(plan.segments) ? plan.segments : []).filter((segment) => (
+    celebrationHeadKeyframes.some((keyframe) => (
+      Number(keyframe.sourceTime) >= Number(segment.finishTime ?? segment.sourceStart) - 0.25 &&
+      Number(keyframe.sourceTime) <= Number(segment.sourceEnd) + 0.25
+    ))
+  )).length;
   const visualTracking = plan.visualTrackingSummary && typeof plan.visualTrackingSummary === "object"
     ? plan.visualTrackingSummary
     : {};
@@ -911,6 +920,15 @@ function createRenderPolishSummary(plan = {}, options = {}) {
       : null,
     ballTrackCount: Math.max(0, Math.min(24, Math.round(Number(visualTracking.ballTrackCount || 0)))),
     playerClusterCount: Math.max(0, Math.min(24, Math.round(Number(visualTracking.playerClusterCount || 0)))),
+    celebrationHeadTrackCount: Math.max(0, Math.min(24, Math.round(Number(visualTracking.celebrationHeadTrackCount || 0)))),
+    celebrationHeadKeyframeCount: celebrationHeadKeyframes.length,
+    celebrationHeadTrackedGoalCount,
+    celebrationHeadTrackingRequired: cleanActionLayoutRequired,
+    celebrationHeadTrackingPassed: !cleanActionLayoutRequired || Boolean(
+      celebrationHeadKeyframes.length >= segments.length &&
+      celebrationHeadTrackedGoalCount === segments.length
+    ),
+    celebrationHeadFollowRendered: celebrationHeadKeyframes.length > 0,
     scoreboardOverlayRendered: Boolean(scoreboardOverlay),
     scoreboardOverlayRegionId: scoreboardOverlay ? scoreboardOverlay.regionId : null,
     sourceScoreboardDuplicateSuppressed: Boolean(scoreboardOverlay),

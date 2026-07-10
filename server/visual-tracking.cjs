@@ -182,6 +182,8 @@ function normalizeTrackingSamples(samples = [], metadata = {}) {
         ballConfidence: round(clamp(sample.ballConfidence, 0, 1), 2),
         playerClusterBox: normalizeBox(sample.playerClusterBox, metadata),
         playerClusterConfidence: round(clamp(sample.playerClusterConfidence, 0, 1), 2),
+        celebrationHeadBox: normalizeBox(sample.celebrationHeadBox, metadata),
+        celebrationHeadConfidence: round(clamp(sample.celebrationHeadConfidence, 0, 1), 2),
         actionCenter,
         cameraMotion: round(clamp(sample.cameraMotion, 0, 1), 2),
         source: sanitizeText(sample.source || "action_fallback", 48),
@@ -238,6 +240,11 @@ function normalizeTrackingSummary(summary, metadata = {}) {
     trackingProviderFailureCode: summary.trackingProviderFailureCode ? sanitizeText(summary.trackingProviderFailureCode, 80) : null,
     ballTrackCount: Math.max(0, Math.min(24, Math.round(Number(summary.ballTrackCount || 0)))),
     playerClusterCount: Math.max(0, Math.min(24, Math.round(Number(summary.playerClusterCount || 0)))),
+    celebrationHeadTrackCount: Math.max(0, Math.min(24, Math.round(Number(
+      summary.celebrationHeadTrackCount ||
+      normalizeTrackingSamples(summary.trackingSamples || summary.samples, metadata)
+        .filter((sample) => sample.celebrationHeadBox && sample.celebrationHeadConfidence >= 0.66).length
+    )))),
     goalClaimAllowed: false,
   };
 }
@@ -261,6 +268,7 @@ function createWideSafeTrackingSummary({ metadata = {}, reason = "wide_safe_defa
     trackingProviderFailureCode: null,
     ballTrackCount: 0,
     playerClusterCount: 0,
+    celebrationHeadTrackCount: 0,
     goalClaimAllowed: false,
   };
 }
@@ -311,6 +319,7 @@ function trackingSummaryFromProviderOutput(output, metadata = {}) {
     trackingProviderFailureCode: safe.failure && safe.failure.code,
     ballTrackCount: safe.ballTracks.length,
     playerClusterCount: safe.playerClusters.length,
+    celebrationHeadTrackCount: safe.celebrationHeadTrackCount,
     goalClaimAllowed: false,
   }, metadata);
 }
@@ -421,20 +430,31 @@ function dynamicCropKeyframes(samples = [], metadata = {}, targetAspectRatio = "
   let previous = null;
   return normalizeTrackingSamples(samples, metadata)
     .map((sample, index) => {
-      const evidenceCenterX = sample.ballBox && sample.ballConfidence >= 0.72
-        ? sample.ballBox.x + sample.ballBox.width / 2
-        : sample.actionCenter.x;
+      const celebrationHeadVisible = Boolean(
+        sample.celebrationHeadBox &&
+        sample.celebrationHeadConfidence >= 0.66 &&
+        ["celebration_head_detection", "celebration_face_detection", "celebration_person_head_estimate"].includes(sample.source)
+      );
+      const ballVisible = Boolean(sample.ballBox && sample.ballConfidence >= 0.72);
+      const evidenceCenterX = celebrationHeadVisible
+        ? sample.celebrationHeadBox.x + sample.celebrationHeadBox.width / 2
+        : ballVisible
+          ? sample.ballBox.x + sample.ballBox.width / 2
+          : sample.actionCenter.x;
       const broadcastCenterX = width / 2;
       const rawCenterX = broadcastCenterX + clamp(
         evidenceCenterX - broadcastCenterX,
-        -width * 0.22,
-        width * 0.22,
+        -width * (celebrationHeadVisible ? 0.36 : 0.22),
+        width * (celebrationHeadVisible ? 0.36 : 0.22),
       );
       let centerX = clamp(rawCenterX, cropBox.width / 2, width - cropBox.width / 2);
       let reset = index === 0;
       if (previous) {
         const elapsed = sample.sourceTime - previous.sourceTime;
-        reset = elapsed > 10 || sample.cameraMotion >= 0.8;
+        const targetChanged = previous.trackingTarget !== (
+          celebrationHeadVisible ? "celebration_head" : ballVisible ? "ball" : "players"
+        );
+        reset = elapsed > 10 || sample.cameraMotion >= 0.8 || targetChanged;
         if (!reset) {
           const delta = centerX - previous.centerX;
           if (Math.abs(delta) < deadZone) {
@@ -445,16 +465,24 @@ function dynamicCropKeyframes(samples = [], metadata = {}, targetAspectRatio = "
           }
         }
       }
-      const confidence = sample.ballBox
-        ? sample.ballConfidence
-        : Math.min(0.68, sample.playerClusterConfidence);
+      const confidence = celebrationHeadVisible
+        ? sample.celebrationHeadConfidence
+        : sample.ballBox
+          ? sample.ballConfidence
+          : Math.min(0.68, sample.playerClusterConfidence);
+      const trackingTarget = celebrationHeadVisible ? "celebration_head" : ballVisible ? "ball" : "players";
       const keyframe = {
         sourceTime: sample.sourceTime,
         centerX: round(centerX, 2),
         centerY: round(height / 2, 2),
         zoom: 1,
         confidence: round(confidence, 2),
-        source: sample.ballBox && sample.ballConfidence >= 0.72 ? "ball_detection" : "player_cluster_fallback",
+        source: celebrationHeadVisible
+          ? sample.source
+          : ballVisible
+            ? "ball_detection"
+            : "player_cluster_fallback",
+        trackingTarget,
         reset,
       };
       previous = keyframe;
@@ -527,6 +555,9 @@ function calibrateCropPlan(input = {}) {
       });
       fallbackUsed = false;
       reasonCodes = ["ball_follow_validated_tracking_timeline"];
+      if (trackingSummary.celebrationHeadTrackCount > 0) {
+        reasonCodes.push("celebration_head_follow_bounded");
+      }
     } else {
       keyframes = [];
       confidence = Math.min(confidence, 0.74);
@@ -635,7 +666,11 @@ function validateCropPlan(plan, metadata = {}) {
     if (sourceTime < 0 || centerX < 0 || centerX > mediaWidth || centerY < 0 || centerY > mediaHeight) return null;
     if (zoom < 1 || zoom > 1.08 || keyframeConfidence < 0 || keyframeConfidence > 1) return null;
     const source = sanitizeText(keyframe.source || "action_fallback", 48);
-    if (!['ball_detection', 'ball_interpolation', 'player_cluster_fallback', 'action_fallback'].includes(source)) return null;
+    if (!['ball_detection', 'ball_interpolation', 'player_cluster_fallback', 'action_fallback', 'celebration_head_detection', 'celebration_face_detection', 'celebration_person_head_estimate'].includes(source)) return null;
+    const trackingTarget = sanitizeText(keyframe.trackingTarget || (
+      ["celebration_head_detection", "celebration_face_detection", "celebration_person_head_estimate"].includes(source) ? "celebration_head" : source === "ball_detection" ? "ball" : "players"
+    ), 32);
+    if (!["ball", "players", "celebration_head"].includes(trackingTarget)) return null;
     return {
       sourceTime: round(sourceTime, 2),
       centerX: round(centerX, 2),
@@ -643,6 +678,7 @@ function validateCropPlan(plan, metadata = {}) {
       zoom: round(zoom, 3),
       confidence: round(keyframeConfidence, 2),
       source,
+      trackingTarget,
       reset: Boolean(keyframe.reset),
     };
   }).filter(Boolean);
@@ -767,6 +803,7 @@ function publicVisualTrackingSummary(summary, metadata = {}) {
     trackingProviderFailureCode: safe.trackingProviderFailureCode,
     ballTrackCount: safe.ballTrackCount,
     playerClusterCount: safe.playerClusterCount,
+    celebrationHeadTrackCount: safe.celebrationHeadTrackCount,
     goalClaimAllowed: false,
   };
 }

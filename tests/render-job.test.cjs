@@ -2837,7 +2837,7 @@ test("default scorebug sampling covers short-lived early and late score updates"
   assert.equal(late.length, 16);
 });
 
-test("selected-goal tracking refinement samples every finish and score-change-minus-eight anchor", () => {
+test("selected-goal tracking refinement samples finish anchors and bounded celebration heads", () => {
   const segments = [
     validGoalSegment(1, 80, 90, 94, 103),
     validGoalSegment(2, 230, 242, 249, 258),
@@ -2850,8 +2850,11 @@ test("selected-goal tracking refinement samples every finish and score-change-mi
   assert.equal(windows.length <= 24, true);
   assert.equal(windows.every((window) => window.source === "selected_goal_tracking_refinement"), true);
   for (const segment of segments) {
-    assert.equal(windows.some((window) => Math.abs(window.time - segment.finishTime) < 0.05), true);
     assert.equal(windows.some((window) => Math.abs(window.time - (segment.confirmationTime - 8)) < 0.05), true);
+    assert.equal(windows.filter((window) => (
+      window.visualHints.includes(`goal_${segment.goalNumber}`) &&
+      window.visualHints.includes("celebration_head")
+    )).length, 3);
     assert.equal(windows.some((window) => window.visualHints.includes(`goal_${segment.goalNumber}`)), true);
   }
 });
