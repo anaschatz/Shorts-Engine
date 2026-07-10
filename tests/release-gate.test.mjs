@@ -189,6 +189,13 @@ test("release gate verifier rejects unbounded FFmpeg package installation", () =
   );
 });
 
+test("release gate bounds FFmpeg installation retries", () => {
+  assert.match(VALID_WORKFLOW, /for attempt in 1 2/);
+  assert.match(VALID_WORKFLOW, /Acquire::Retries=3/);
+  assert.match(VALID_WORKFLOW, /timeout 120s sudo apt-get/);
+  assert.match(VALID_WORKFLOW, /timeout 240s sudo apt-get/);
+});
+
 test("release gate verifier rejects global sqlite persistence overrides", () => {
   const workflowText = VALID_WORKFLOW.replace(
     "      MATCHCUTS_TRANSCRIPTION_PROVIDER: mock",

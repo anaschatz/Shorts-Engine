@@ -62,8 +62,18 @@ jobs:
             exit 0
           fi
           export DEBIAN_FRONTEND=noninteractive
-          timeout 300s sudo apt-get update
-          timeout 600s sudo apt-get install -y --no-install-recommends ffmpeg
+          for attempt in 1 2; do
+            if timeout 120s sudo apt-get update -o Acquire::Retries=3 && \
+              timeout 240s sudo apt-get install -o Acquire::Retries=3 -y --no-install-recommends ffmpeg; then
+              ffmpeg -version
+              ffprobe -version
+              exit 0
+            fi
+            if [[ "$attempt" -lt 2 ]]; then
+              sleep 10
+            fi
+          done
+          exit 1
 
       - name: Verify runtime tools
         shell: bash

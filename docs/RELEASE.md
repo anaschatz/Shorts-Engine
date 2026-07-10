@@ -60,7 +60,7 @@ Optional crop QA artifacts require `SHORTSENGINE_OCR_QA_ARTIFACTS=1`. They are w
 
 `npm run branch:proof` writes `release/results/branch-protection-latest.json` plus a timestamped `branch-protection-proof-*.json` report. The proof includes repository, branch, commit SHA, remote `main` SHA, GitHub CLI readiness, branch protection status, ruleset status, required checks detected, expected checks, manual verification checklist, a UI setup reference, `logsDownloaded: false`, `artifactsDownloaded: false` and `remoteMutation: false`.
 
-The CI workflow must verify FFmpeg readiness before runtime checks. It first uses existing `ffmpeg`/`ffprobe` binaries when the runner already provides them; otherwise it installs the Ubuntu `ffmpeg` package with bounded `apt-get` timeouts, then runs both `ffmpeg -version` and `ffprobe -version`. This keeps render/media validation deterministic without letting package installation hang the release gate indefinitely.
+The CI workflow must verify FFmpeg readiness before runtime checks. It first uses existing `ffmpeg`/`ffprobe` binaries when the runner already provides them; otherwise it installs the Ubuntu `ffmpeg` package with two bounded `apt-get` attempts and verifies both binaries after installation. This keeps render/media validation deterministic, tolerates a transient package-network failure and prevents installation from hanging the release gate indefinitely.
 
 The default CI job and demo smoke runners must not force `MATCHCUTS_PERSISTENCE_ADAPTER=sqlite` globally. The test suite verifies that local remains the safe default on Node 20 while sqlite behavior is covered by focused adapter tests and staging configuration.
 
