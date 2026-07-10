@@ -392,6 +392,7 @@ function writeAssSubtitles(plan, outputPath) {
   const duration = Math.max(0.1, Number(plan.totalDuration) || segmentDuration || Number(plan.sourceEnd - plan.sourceStart) || 0.1);
   const dimensions = renderDimensions(plan);
   const config = renderStyleConfig(plan);
+  const showTopLabel = config.showTopLabel && !(plan.scoreboardOverlay && plan.scoreboardOverlay.enabled === true);
   const square = dimensions.width === dimensions.height;
   const captions = Array.isArray(plan.captions) ? plan.captions : [];
   const uniqueStyleLines = captions.map((caption) => captionStyleLine(caption, dimensions, config));
@@ -412,7 +413,7 @@ function writeAssSubtitles(plan, outputPath) {
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
   ];
-  if (config.showTopLabel) {
+  if (showTopLabel) {
     lines.push(
       `Dialogue: 1,${assTime(0)},${assTime(Math.min(2.4, duration))},TopLabel,,0,0,0,,${escapeAss(topLabelForPlan(plan))} · ${escapeAss(config.name.replace(/_/g, " ").toUpperCase())}`,
     );
@@ -438,7 +439,7 @@ function writeAssSubtitles(plan, outputPath) {
       );
     }
   }
-  if (config.showTopLabel && duration >= 2.2) {
+  if (showTopLabel && duration >= 2.2) {
     lines.push(
       `Dialogue: 1,${assTime(Math.max(0, duration - 1.35))},${assTime(duration)},EndBeat,,0,0,0,,${endBeatText(plan)}`,
     );
@@ -508,6 +509,35 @@ function activeSoftFollowCrop(plan = {}) {
     y: Math.max(0, Math.round(Number(box.y))),
     width: Math.max(2, Math.round(Number(box.width))),
     height: Math.max(2, Math.round(Number(box.height))),
+  };
+}
+
+function activeScoreboardOverlay(plan = {}, dimensions = renderDimensions(plan)) {
+  const overlay = plan.scoreboardOverlay && typeof plan.scoreboardOverlay === "object"
+    ? plan.scoreboardOverlay
+    : null;
+  if (!overlay || overlay.enabled !== true || overlay.mode !== "source_roi") return null;
+  if (!activeSoftFollowCrop(plan) && !["safe_center", "action_bias"].includes(plan.framingMode)) return null;
+  const rect = overlay.sourceRect && typeof overlay.sourceRect === "object" ? overlay.sourceRect : {};
+  const x = Number(rect.x);
+  const y = Number(rect.y);
+  const width = Number(rect.width);
+  const height = Number(rect.height);
+  if (
+    ![x, y, width, height].every(Number.isFinite) ||
+    x < 0 || y < 0 || width <= 0 || height <= 0 ||
+    x + width > 1 || y + height > 1
+  ) return null;
+  const targetWidth = Math.max(2, Math.round((dimensions.width * Number(overlay.outputWidthRatio || 0.7)) / 2) * 2);
+  const topMargin = Math.max(0, Math.round(dimensions.height * Number(overlay.topMarginRatio || 0.055)));
+  return {
+    regionId: String(overlay.regionId || "scoreboard_region"),
+    x,
+    y,
+    width,
+    height,
+    targetWidth,
+    topMargin,
   };
 }
 
@@ -658,14 +688,17 @@ function createRenderPolishSummary(plan = {}, options = {}) {
   const cleanActionLayoutRequired = isValidGoalsProofPlan(plan);
   const blurredBackgroundUsed = shouldUseBlurredBackground(plan, profile);
   const softFollowCrop = activeSoftFollowCrop(plan);
+  const scoreboardOverlay = activeScoreboardOverlay(plan, dimensions);
   const splitLayoutCaptionCount = Array.isArray(plan.captions)
     ? plan.captions.filter((caption) => caption && caption.layout === "split").length
     : 0;
   const actionLayoutMode = blurredBackgroundUsed
     ? "blurred_duplicate_background"
-    : softFollowCrop
-      ? "clean_action_crop"
-      : "clean_action_letterbox";
+    : scoreboardOverlay
+      ? "scorebug_preserved_vertical_fill"
+      : softFollowCrop
+        ? "clean_action_crop"
+        : "clean_action_letterbox";
   const duration = Number(plan.totalDuration) || segments.reduce((sum, segment) => sum + segment.duration, 0) || Number(plan.sourceEnd) - Number(plan.sourceStart) || 0;
   const transitions = safeRenderTransitions(plan, segments);
   const transitionTargetCount = Math.max(0, segments.length - 1);
@@ -679,9 +712,11 @@ function createRenderPolishSummary(plan = {}, options = {}) {
       )
     : 0;
   const hardCutFallbackCount = Math.max(0, transitionTargetCount - transitionRenderedCount);
+  const showTopLabel = config.showTopLabel && !scoreboardOverlay;
   const overlayRenderedCount = goalOutcomeBadges(plan, duration).length +
-    (config.showTopLabel ? 1 : 0) +
-    (config.showTopLabel && duration >= 2.2 ? 1 : 0);
+    (showTopLabel ? 1 : 0) +
+    (showTopLabel && duration >= 2.2 ? 1 : 0) +
+    (scoreboardOverlay ? 1 : 0);
   const animatedCaptionCount = captionMotionCount(plan);
   const dynamicWordCaptionCount = dynamicCaptionCount(plan);
   const renderPolishWarnings = [];
@@ -689,7 +724,7 @@ function createRenderPolishSummary(plan = {}, options = {}) {
   if (segments.length > 1 && transitionRenderedCount === 0) renderPolishWarnings.push("missing_transition_render");
   if (overlayRenderedCount === 0) renderPolishWarnings.push("overlay_not_rendered");
   if (profile.name === "proof_fast") renderPolishWarnings.push("proof_fast_render_profile");
-  if (!blurredBackgroundUsed) renderPolishWarnings.push("clean_action_letterbox_background");
+  if (actionLayoutMode === "clean_action_letterbox") renderPolishWarnings.push("clean_action_letterbox_background");
   if (cleanActionLayoutRequired && blurredBackgroundUsed) renderPolishWarnings.push("valid_goal_proof_blurred_background_used");
   if (cleanActionLayoutRequired && splitLayoutCaptionCount > 0) renderPolishWarnings.push("valid_goal_proof_split_caption_layout_used");
   return {
@@ -711,6 +746,9 @@ function createRenderPolishSummary(plan = {}, options = {}) {
     captionMotion: dynamicWordCaptionCount > 0 ? "ass_word_by_word_highlight" : animatedCaptionCount > 0 ? "ass_fade_scale" : "none",
     cleanActionLayoutRequired,
     actionLayoutMode,
+    fullHeightActionCrop: Boolean(scoreboardOverlay || softFollowCrop),
+    scoreboardOverlayRendered: Boolean(scoreboardOverlay),
+    scoreboardOverlayRegionId: scoreboardOverlay ? scoreboardOverlay.regionId : null,
     blurredBackgroundUsed,
     duplicateBackgroundUsed: blurredBackgroundUsed,
     splitLayoutCaptionCount,
@@ -748,7 +786,18 @@ async function renderSingleWindowShort({ inputPath, outputPath, subtitlesPath, p
   const backgroundWidth = Math.round(dimensions.width * backgroundPush);
   const backgroundHeight = Math.round(dimensions.height * backgroundPush);
   const softFollowCrop = activeSoftFollowCrop(plan);
-  const filter = softFollowCrop
+  const scoreboardOverlay = activeScoreboardOverlay(plan, dimensions);
+  const filter = scoreboardOverlay
+    ? [
+        "[0:v]split=2[base_source][score_source]",
+        softFollowCrop
+          ? `[base_source]crop=${softFollowCrop.width}:${softFollowCrop.height}:${softFollowCrop.x}:${softFollowCrop.y},scale=${dimensions.width}:${dimensions.height}:force_original_aspect_ratio=increase,crop=${dimensions.width}:${dimensions.height}[base]`
+          : `[base_source]scale=${dimensions.width}:${dimensions.height}:force_original_aspect_ratio=increase,crop=${dimensions.width}:${dimensions.height}[base]`,
+        `[score_source]crop=iw*${scoreboardOverlay.width}:ih*${scoreboardOverlay.height}:iw*${scoreboardOverlay.x}:ih*${scoreboardOverlay.y},scale=${scoreboardOverlay.targetWidth}:-2[scorebug]`,
+        `[base][scorebug]overlay=(W-w)/2:${scoreboardOverlay.topMargin}[framed]`,
+        `[framed]${finishingFilters.join(",")}[v]`,
+      ].join(";")
+    : softFollowCrop
     ? [
         `[0:v]crop=${softFollowCrop.width}:${softFollowCrop.height}:${softFollowCrop.x}:${softFollowCrop.y}`,
         `scale=${dimensions.width}:${dimensions.height}:force_original_aspect_ratio=increase`,

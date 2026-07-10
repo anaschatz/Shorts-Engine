@@ -2,7 +2,7 @@ const { randomUUID } = require("node:crypto");
 const { existsSync, statSync } = require("node:fs");
 const { AppError, SAFE_MESSAGES, redactForLogs } = require("./errors.cjs");
 const { createCandidateEditPlans, detectHighlights, extractMediaSignals } = require("./analysis.cjs");
-const { createCropStrategy, validateEditPlan } = require("./edit-plan.cjs");
+const { validateEditPlan } = require("./edit-plan.cjs");
 const { cleanupSampledFrames, extractSampledFrames, publicFrameSummary } = require("./frame-extraction.cjs");
 const { analyzeGoalEvidence, mergeGoalEvidenceIntoVisualSignals, publicGoalEvidence } = require("./goal-evidence-provider.cjs");
 const { analyzeMatchEventTruth, publicMatchEventTruth } = require("./match-event-truth.cjs");
@@ -53,6 +53,13 @@ const SCOREBUG_FIRST_ROI_CANDIDATE_IDS = Object.freeze([
   "scoreboard_top_center",
   "scoreboard_top_right",
 ]);
+const SCOREBOARD_OVERLAY_LAYOUTS = Object.freeze({
+  scorebug_broadcast_compact: Object.freeze({ x: 0.04, y: 0.045, width: 0.33, height: 0.065 }),
+  scorebug_left_compact: Object.freeze({ x: 0.01, y: 0.01, width: 0.26, height: 0.11 }),
+  scoreboard_top_left: Object.freeze({ x: 0.01, y: 0.01, width: 0.44, height: 0.16 }),
+  scoreboard_top_center: Object.freeze({ x: 0.28, y: 0.01, width: 0.44, height: 0.16 }),
+  scoreboard_top_right: Object.freeze({ x: 0.55, y: 0.01, width: 0.44, height: 0.16 }),
+});
 
 function isRegularFile(filePath) {
   try {
@@ -654,44 +661,88 @@ function compactedFinishFrameEvidenceFromRoleTimes(segment = {}, roleTimes = {})
   };
 }
 
-function wideSafeCropPlanForReferenceCompaction(editPlan = {}, metadata = {}) {
+function centerFillCropPlanForReference(editPlan = {}, metadata = {}) {
   const existing = editPlan.cropPlan && typeof editPlan.cropPlan === "object" && !Array.isArray(editPlan.cropPlan)
     ? editPlan.cropPlan
     : {};
   const width = Math.max(1, Number(metadata.width) || 1920);
   const height = Math.max(1, Number(metadata.height) || 1080);
   const fullFrame = { x: 0, y: 0, width, height };
+  const cropWidth = Math.max(2, Math.min(width, Math.round(height * 9 / 16)));
+  const cropBox = {
+    x: Math.max(0, Math.round((width - cropWidth) / 2)),
+    y: 0,
+    width: cropWidth,
+    height,
+  };
   return {
     ...existing,
-    mode: "wide_safe",
-    cropMode: "wide_safe",
+    mode: "reference_fill",
+    cropMode: "reference_fill",
     targetAspectRatio: existing.targetAspectRatio || editPlan.aspectRatio || "9:16",
     safeArea: fullFrame,
-    cropBox: fullFrame,
+    cropBox,
     confidence: Math.min(Number(existing.confidence || 0.74), 0.74),
     trackingConfidence: Math.min(Number(existing.trackingConfidence || existing.confidence || 0.74), 0.74),
+    actionSafeZones: [],
     maxPanSpeed: 0,
     fallbackUsed: true,
     textObstructionRisk: false,
     reasonCodes: safeUniqueReasonList([
       ...(Array.isArray(existing.reasonCodes) ? existing.reasonCodes : []),
-      "reference_duration_compaction_wide_safe",
+      "reference_vertical_center_fill",
     ], 8),
   };
 }
 
-function wideSafeGoalProofPlan(editPlan = {}, metadata = {}) {
+function scoreboardOverlayFromOcr(scoreboardOcr = {}) {
+  const summary = scoreboardOcr && scoreboardOcr.summary && typeof scoreboardOcr.summary === "object"
+    ? scoreboardOcr.summary
+    : {};
+  const selectedRoi = (
+    summary.scorebugDebug && summary.scorebugDebug.selectedRoi
+  ) || (
+    summary.roiCalibration && summary.roiCalibration.selectedRoi
+  ) || null;
+  const regionId = sanitizeText(selectedRoi && selectedRoi.regionId, 48);
+  const sourceRect = SCOREBOARD_OVERLAY_LAYOUTS[regionId];
+  if (!sourceRect) return { enabled: false };
+  return {
+    enabled: true,
+    mode: "source_roi",
+    regionId,
+    sourceRect,
+    outputWidthRatio: 0.7,
+    topMarginRatio: 0.055,
+  };
+}
+
+function referenceVerticalGoalProofPlan(editPlan = {}, metadata = {}, scoreboardOcr = {}) {
   const existingEffects = Array.isArray(editPlan.effects) ? editPlan.effects : [];
+  const cropPlan = centerFillCropPlanForReference(editPlan, metadata);
+  const scoreboardOverlay = scoreboardOverlayFromOcr(scoreboardOcr);
   return {
     ...editPlan,
-    effects: safeUniqueReasonList([...existingEffects, "wide_safe_framing"], 12),
-    cropPlan: wideSafeCropPlanForReferenceCompaction(editPlan, metadata),
-    cropStrategy: createCropStrategy(metadata, "wide_safe_vertical"),
-    framingMode: "wide_safe_vertical",
-    framingReason: "score_change_goal_proof_wide_safe_preserves_full_action",
+    effects: safeUniqueReasonList([
+      ...existingEffects.filter((effect) => effect !== "wide_safe_framing"),
+      "safe_mild_zoom",
+      "caption_safe_overlay",
+    ], 12),
+    cropPlan,
+    cropStrategy: {
+      type: "center_crop",
+      ...cropPlan.cropBox,
+      zoom: 1,
+      background: "none",
+      preserveFullFrame: false,
+      maxCropPercent: 0.35,
+    },
+    framingMode: "safe_center",
+    framingReason: "reference_vertical_fill_with_scorebug_overlay",
+    scoreboardOverlay,
     safetyNotes: safeUniqueReasonList([
       ...(Array.isArray(editPlan.safetyNotes) ? editPlan.safetyNotes : []),
-      "Score-change goal proof uses wide-safe full-frame rendering so the ball, goalmouth and players are not cropped out.",
+      "Confirmed-goal proof uses full-height vertical framing with the detected live scorebug preserved at top center.",
     ], 8),
   };
 }
@@ -886,15 +937,24 @@ function compactVisibleGoalSegmentsForReferenceDuration({ editPlan, renderedGoal
     logsDownloaded: false,
     artifactsDownloaded: false,
   };
+  const compactedCropPlan = centerFillCropPlanForReference(editPlan, metadata);
   return {
     applied: true,
     editPlan: {
       ...editPlan,
       segments: compactedSegments,
       transitionPlan: refreshTransitionPlanForSegments(editPlan.transitionPlan, compactedSegments),
-      cropPlan: wideSafeCropPlanForReferenceCompaction(editPlan, metadata),
-      framingMode: "wide_safe_vertical",
-      framingReason: "wide_safe_reference_duration_compaction_preserves_full_frame",
+      cropPlan: compactedCropPlan,
+      cropStrategy: {
+        type: "center_crop",
+        ...compactedCropPlan.cropBox,
+        zoom: 1,
+        background: "none",
+        preserveFullFrame: false,
+        maxCropPercent: 0.35,
+      },
+      framingMode: "safe_center",
+      framingReason: "reference_vertical_fill_preserved_during_duration_compaction",
       totalDuration: Number(newTotal.toFixed(2)),
       captions: compactCaptionsForDuration(editPlan.captions, newTotal),
       visualPolishQA: compactedReferenceVisualPolishSummary(editPlan, compactedSegments, newTotal),
@@ -4496,7 +4556,7 @@ async function runRenderJob(options) {
       }
       editPlan = deps.validateEditPlan(candidatePlans[0], context.metadata);
       if (!context.approvedEditPlan && context.goalSelectionMode === "valid_goals_only") {
-        editPlan = deps.validateEditPlan(wideSafeGoalProofPlan(editPlan, context.metadata), context.metadata);
+        editPlan = deps.validateEditPlan(referenceVerticalGoalProofPlan(editPlan, context.metadata, scoreboardOcr), context.metadata);
       }
       if (candidatePlans[0] && candidatePlans[0].visualQA) {
         editPlan.visualQA = candidatePlans[0].visualQA;
@@ -4897,9 +4957,6 @@ async function runRenderJob(options) {
                     ...renderedGoalProof.editPlan,
                     renderedGoalRebinding: rebind.summary,
                     renderedGoalCompaction: compaction.summary,
-                    cropPlan: wideSafeCropPlanForReferenceCompaction(renderedGoalProof.editPlan, context.metadata),
-                    framingMode: "wide_safe_vertical",
-                    framingReason: "wide_safe_reference_duration_compaction_preserves_full_frame",
                     visualPolishQA: compactedReferenceVisualPolishSummary(
                       renderedGoalProof.editPlan,
                       Array.isArray(renderedGoalProof.editPlan.segments) ? renderedGoalProof.editPlan.segments : [],

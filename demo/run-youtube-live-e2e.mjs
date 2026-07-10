@@ -1030,7 +1030,7 @@ function safeSmokeRenderPlanSummary(plan) {
     captionCount: Array.isArray(plan.captions) ? plan.captions.length : 0,
     transitionCount: Array.isArray(plan.transitionPlan) ? plan.transitionPlan.length : 0,
     framingMode: safeString(plan.framingMode || "", 60) || null,
-    cropPlanMode: safeString(plan.cropPlan && plan.cropPlan.mode || "", 60) || null,
+    cropPlanMode: safeString(plan.cropPlan && plan.cropPlan.mode || plan.cropPlanMode || "", 60) || null,
     renderedGoalProof: safeRenderedGoalProof(plan.renderedGoalProof),
     renderedGoalRebinding: safeRenderedGoalRebinding(plan.renderedGoalRebinding),
     renderedGoalCompaction: safeRenderedGoalCompaction(plan.renderedGoalCompaction),
@@ -1064,6 +1064,15 @@ function safeSmokeRenderPlanSummary(plan) {
           transitionRenderedCount: safeNumber(plan.renderPolishQA.transitionRenderedCount),
           hardCutFallbackCount: safeNumber(plan.renderPolishQA.hardCutFallbackCount),
           dynamicWordCaptionCount: safeNumber(plan.renderPolishQA.dynamicWordCaptionCount),
+          cleanActionLayoutRequired: plan.renderPolishQA.cleanActionLayoutRequired === true,
+          cleanActionLayoutPassed: plan.renderPolishQA.cleanActionLayoutPassed === true,
+          actionLayoutMode: safeString(plan.renderPolishQA.actionLayoutMode || "", 80) || null,
+          fullHeightActionCrop: plan.renderPolishQA.fullHeightActionCrop === true,
+          scoreboardOverlayRendered: plan.renderPolishQA.scoreboardOverlayRendered === true,
+          scoreboardOverlayRegionId: safeString(plan.renderPolishQA.scoreboardOverlayRegionId || "", 80) || null,
+          blurredBackgroundUsed: plan.renderPolishQA.blurredBackgroundUsed === true,
+          duplicateBackgroundUsed: plan.renderPolishQA.duplicateBackgroundUsed === true,
+          splitLayoutCaptionCount: safeNumber(plan.renderPolishQA.splitLayoutCaptionCount),
           visualPolishScore: safeNumber(plan.renderPolishQA.visualPolishScore),
         }
       : null,
@@ -1589,9 +1598,7 @@ function referenceStyleQaFromSmoke(smoke, outputMp4 = null) {
   const nonGoalFillerRate = Number.isFinite(Number(qa.nonGoalFillerRate)) ? Number(qa.nonGoalFillerRate) : null;
   const actionBoundaryScore = Number.isFinite(Number(qa.actionBoundaryScore)) ? Number(qa.actionBoundaryScore) : null;
   const referencePacingScore = Number.isFinite(Number(qa.referencePacingScore)) ? Number(qa.referencePacingScore) : null;
-  const abruptCutRiskCount = Number.isFinite(Number(qa.abruptCutRiskCount))
-    ? Number(qa.abruptCutRiskCount)
-    : segments.filter((segment) => {
+  const derivedAbruptCutRiskCount = segments.filter((segment) => {
         const duration = Number(segment.duration || Number(segment.sourceEnd) - Number(segment.sourceStart));
         const phase = segment.phaseCoverage && typeof segment.phaseCoverage === "object" ? segment.phaseCoverage : {};
         return segment.replayOnly === true ||
@@ -1602,6 +1609,16 @@ function referenceStyleQaFromSmoke(smoke, outputMp4 = null) {
           duration < 18 ||
           duration > 32;
       }).length;
+  const transitionRenderedCount = explicitNumber(renderPolish.transitionRenderedCount);
+  const hardCutFallbackCount = explicitNumber(renderPolish.hardCutFallbackCount);
+  const renderedTransitionsCoverAllBoundaries = Boolean(
+    hardCutFallbackCount === 0 &&
+    (segments.length <= 1 || transitionRenderedCount >= segments.length - 1)
+  );
+  const explicitAbruptCutRiskCount = explicitNumber(qa.abruptCutRiskCount);
+  const abruptCutRiskCount = renderedTransitionsCoverAllBoundaries && derivedAbruptCutRiskCount === 0
+    ? 0
+    : explicitAbruptCutRiskCount ?? derivedAbruptCutRiskCount;
   const dynamicWordCaptionCount = explicitNumber(renderPolish.dynamicWordCaptionCount);
   const renderedDynamicGoalPhaseCaptions =
     !captions.length &&
@@ -1896,10 +1913,17 @@ function buildOutputProof({ env, smoke, source, staleArtifactCleanup }) {
     : null;
   const referenceStyleQA = referenceStyleQaFromSmoke(smoke, outputMp4);
   const renderPolishQA = renderPolishQaFromSmoke(smoke);
+  const proofRenderPlan = smoke?.renderPlan
+    ? {
+        ...smoke.renderPlan,
+        visualPolishQA: referenceStyleQA,
+        renderPolishQA,
+      }
+    : null;
   const renderedSocialPolishQA = renderedSocialPolishProof({
     outputMp4,
     ffprobe,
-    renderPlan: smoke?.renderPlan || null,
+    renderPlan: proofRenderPlan,
     videoOutputQA: smoke?.renderPlan?.videoOutputQA || null,
     generatedAt: nowIso(),
   });
@@ -1907,7 +1931,7 @@ function buildOutputProof({ env, smoke, source, staleArtifactCleanup }) {
     rootDir: ROOT_DIR,
     outputMp4,
     ffprobe,
-    renderPlan: smoke?.renderPlan || null,
+    renderPlan: proofRenderPlan,
     renderedSocialPolishQA,
   });
   const countedGoalProof = smoke && smoke.renderPlan && smoke.renderPlan.countedGoalProof

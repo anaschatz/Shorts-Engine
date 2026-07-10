@@ -1560,6 +1560,17 @@ test("youtube long-source chunked OCR promotes five observed score changes witho
       candidate.score === "6-6" && candidate.reason === "score_candidate_jump_too_large"),
     true,
   );
+  assert.equal(context.job.editPlan.framingMode, "safe_center");
+  assert.equal(context.job.editPlan.cropPlan.mode, "reference_fill");
+  assert.equal(context.job.editPlan.cropStrategy.preserveFullFrame, false);
+  assert.deepEqual(context.job.editPlan.scoreboardOverlay, {
+    enabled: true,
+    mode: "source_roi",
+    regionId: "scorebug_broadcast_compact",
+    sourceRect: { x: 0.04, y: 0.045, width: 0.33, height: 0.065 },
+    outputWidthRatio: 0.7,
+    topMarginRatio: 0.055,
+  });
   assert.equal(
       context.frameCandidateWindows.filter((window) => (
       window.source === "scorebug_first_live_action_anchor" &&

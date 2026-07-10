@@ -2972,6 +2972,36 @@ test("youtube live proof derives visual polish QA from public render summary whe
   assert.equal(findSensitiveLeak(report), null);
 });
 
+test("youtube live proof trusts rendered fades over stale pre-render abrupt-cut flags", async () => {
+  const smoke = countedGoalSmokeReport();
+  delete smoke.renderPlan.cropPlan;
+  smoke.renderPlan.cropPlanMode = "reference_fill";
+  smoke.renderPlan.framingMode = "safe_center";
+  smoke.renderPlan.visualPolishQA.abruptCutRiskCount = smoke.renderPlan.segments.length;
+  smoke.renderPlan.renderPolishQA.transitionRenderedCount = smoke.renderPlan.segments.length - 1;
+  smoke.renderPlan.renderPolishQA.hardCutFallbackCount = 0;
+  smoke.renderPlan.renderPolishQA.actionLayoutMode = "scorebug_preserved_vertical_fill";
+  smoke.renderPlan.renderPolishQA.fullHeightActionCrop = true;
+  smoke.renderPlan.renderPolishQA.scoreboardOverlayRendered = true;
+  smoke.renderPlan.renderPolishQA.scoreboardOverlayRegionId = "scorebug_broadcast_compact";
+
+  const report = await runYouTubeLiveE2E({
+    env: liveEnv({ SHORTSENGINE_YOUTUBE_LIVE_E2E_EXPECTED_COUNTED_GOALS: "3" }),
+    checkYouTubeIngest: async () => passedDoctor(),
+    getFreePort: async () => 4175,
+    startServer: () => ({ child: { exitCode: null, signalCode: null }, events: [] }),
+    stopServer: async () => {},
+    waitForServerReady: async () => ({ attempts: 1, waitedMs: 10, status: 200 }),
+    runYouTubeSmoke: async () => smoke,
+  });
+
+  assert.equal(report.status, "passed", JSON.stringify(report.failedCases));
+  assert.equal(report.outputProof.referenceStyleQA.abruptCutRiskCount, 0);
+  assert.equal(report.outputProof.renderedSocialPolishQA.smoothEditing.abruptCutRiskCount, 0);
+  assert.equal(report.outputProof.renderedSocialPolishQA.renderedActionFraming.cropMode, "reference_fill");
+  assert.equal(findSensitiveLeak(report), null);
+});
+
 test("youtube live local e2e strict mode fails when generated MP4 is missing", async () => {
   const report = await runYouTubeLiveE2E({
     env: liveEnv(),

@@ -30,6 +30,14 @@ const HIGHLIGHT_TYPES = Object.freeze([
 ]);
 
 const FRAMING_MODES = Object.freeze(["safe_center", "action_bias", "wide_safe", "wide_safe_vertical"]);
+const SCOREBOARD_OVERLAY_MODES = Object.freeze(["source_roi"]);
+const SCOREBOARD_OVERLAY_REGIONS = Object.freeze([
+  "scorebug_broadcast_compact",
+  "scorebug_left_compact",
+  "scoreboard_top_left",
+  "scoreboard_top_center",
+  "scoreboard_top_right",
+]);
 const RENDER_STYLE_PRESETS = Object.freeze(["clean_sports", "social_sports_v1", "punchy_highlight", "reference_football_multi_goal_v1"]);
 const STYLE_PRESET_ALIASES = Object.freeze({
   hype: "punchy_highlight",
@@ -994,6 +1002,52 @@ function createCropStrategy(metadata = {}, framingMode = "wide_safe_vertical") {
   };
 }
 
+function normalizeScoreboardOverlay(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || value.enabled !== true) {
+    return { enabled: false };
+  }
+  const mode = sanitizeText(value.mode || "source_roi", 32);
+  const regionId = sanitizeText(value.regionId, 48);
+  if (!SCOREBOARD_OVERLAY_MODES.includes(mode) || !SCOREBOARD_OVERLAY_REGIONS.includes(regionId)) {
+    throw new AppError("VALIDATION_ERROR", "Scoreboard overlay mode or region is invalid.", 400);
+  }
+  const rect = value.sourceRect && typeof value.sourceRect === "object" && !Array.isArray(value.sourceRect)
+    ? value.sourceRect
+    : {};
+  const x = Number(rect.x);
+  const y = Number(rect.y);
+  const width = Number(rect.width);
+  const height = Number(rect.height);
+  if (
+    ![x, y, width, height].every(Number.isFinite) ||
+    x < 0 || y < 0 || width <= 0 || height <= 0 ||
+    x + width > 1 || y + height > 1
+  ) {
+    throw new AppError("VALIDATION_ERROR", "Scoreboard overlay source region is invalid.", 400);
+  }
+  const outputWidthRatio = Number(value.outputWidthRatio);
+  const topMarginRatio = Number(value.topMarginRatio);
+  if (
+    !Number.isFinite(outputWidthRatio) || outputWidthRatio < 0.4 || outputWidthRatio > 0.85 ||
+    !Number.isFinite(topMarginRatio) || topMarginRatio < 0.02 || topMarginRatio > 0.18
+  ) {
+    throw new AppError("VALIDATION_ERROR", "Scoreboard overlay placement is invalid.", 400);
+  }
+  return {
+    enabled: true,
+    mode,
+    regionId,
+    sourceRect: {
+      x: Number(x.toFixed(4)),
+      y: Number(y.toFixed(4)),
+      width: Number(width.toFixed(4)),
+      height: Number(height.toFixed(4)),
+    },
+    outputWidthRatio: Number(outputWidthRatio.toFixed(4)),
+    topMarginRatio: Number(topMarginRatio.toFixed(4)),
+  };
+}
+
 function defaultCropPlan(metadata = {}, aspectRatio = "9:16") {
   return calibrateCropPlan({ metadata, targetAspectRatio: aspectRatio });
 }
@@ -1664,10 +1718,10 @@ function validateEditPlan(plan, metadata = {}) {
         maxCropPercent: clamp(plan.cropStrategy.maxCropPercent || derivedCropStrategy.maxCropPercent, 0, 0.35),
       }
     : derivedCropStrategy;
-  if (cropPlan.mode === "soft_follow" && cropStrategy.preserveFullFrame) {
-    throw new AppError("VALIDATION_ERROR", "Soft-follow crop plan cannot preserve the full frame.", 400);
+  if (["soft_follow", "reference_fill"].includes(cropPlan.mode) && cropStrategy.preserveFullFrame) {
+    throw new AppError("VALIDATION_ERROR", "Cropped framing cannot preserve the full frame.", 400);
   }
-  if (cropPlan.mode !== "soft_follow" && cropStrategy.preserveFullFrame !== true) {
+  if (["wide_safe", "center_safe", "locked_wide"].includes(cropPlan.mode) && cropStrategy.preserveFullFrame !== true) {
     if (hasExplicitCropPlan) {
       throw new AppError("VALIDATION_ERROR", "Low-confidence crop plan must preserve the full frame.", 400);
     }
@@ -1714,6 +1768,7 @@ function validateEditPlan(plan, metadata = {}) {
     confidence: clamp(plan.confidence, 0, 1),
     framingMode,
     framingReason,
+    scoreboardOverlay: normalizeScoreboardOverlay(plan.scoreboardOverlay),
     actionFocusConfidence,
     visualEvidenceSummary,
     cropPlan,

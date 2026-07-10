@@ -1422,6 +1422,74 @@ test("rendered goal proof accepts a scoreboard-backed closeup only for confirmat
   assert.equal(goal.failedFrameReasons.includes("semantic_frame_forbidden_content"), false);
 });
 
+test("rendered scorebug confirms an otherwise unclear confirmation after clear action frames", async () => {
+  const plan = editPlan(goalSegment());
+  plan.renderPolishQA = {
+    cleanActionLayoutRequired: true,
+    cleanActionLayoutPassed: true,
+    actionLayoutMode: "scorebug_preserved_vertical_fill",
+    fullHeightActionCrop: true,
+    scoreboardOverlayRendered: true,
+    scoreboardOverlayRegionId: "scorebug_broadcast_compact",
+    blurredBackgroundUsed: false,
+    duplicateBackgroundUsed: false,
+    splitLayoutCaptionCount: 0,
+  };
+  const result = await analyzeRenderedGoalProof({
+    outputPath: "rendered-output.mp4",
+    editPlan: plan,
+    extractFrames: async ({ candidateWindows }) => ({
+      frames: candidateWindows.map((window, index) => ({
+        id: `frame_${index + 1}`,
+        localPath: `frame_${index + 1}.jpg`,
+        timestamp: window.time,
+        visualHints: window.visualHints,
+        semanticGoalEvidence: window.role === "confirmation"
+          ? {
+              visibilityVerdict: "failed",
+              visibleGoal: false,
+              confidence: 0.2,
+              roles: ["confirmation"],
+            }
+          : clearEvidenceForRole(window.role),
+      })),
+    }),
+    writeJson: () => {},
+  });
+
+  assert.equal(result.summary.clearGoalCount, 1);
+  assert.equal(result.summary.goals[0].verdict, "clear");
+  assert.equal(result.editPlan.segments[0].finishFrameEvidence.scoreboardConfirmationFallback, true);
+});
+
+test("unclear confirmation stays failed when no scoreboard overlay was rendered", async () => {
+  const result = await analyzeRenderedGoalProof({
+    outputPath: "rendered-output.mp4",
+    editPlan: editPlan(goalSegment()),
+    extractFrames: async ({ candidateWindows }) => ({
+      frames: candidateWindows.map((window, index) => ({
+        id: `frame_${index + 1}`,
+        localPath: `frame_${index + 1}.jpg`,
+        timestamp: window.time,
+        visualHints: window.visualHints,
+        semanticGoalEvidence: window.role === "confirmation"
+          ? {
+              visibilityVerdict: "failed",
+              visibleGoal: false,
+              confidence: 0.2,
+              roles: ["confirmation"],
+            }
+          : clearEvidenceForRole(window.role),
+      })),
+    }),
+    writeJson: () => {},
+  });
+
+  assert.equal(result.summary.clearGoalCount, 0);
+  assert.equal(result.summary.goals[0].verdict, "borderline");
+  assert.equal(result.editPlan.segments[0].finishFrameEvidence.scoreboardConfirmationFallback, false);
+});
+
 test("rendered goal proof rejects blurred duplicate proof layout even when semantic frames are clear", async () => {
   const result = await analyzeRenderedGoalProof({
     outputPath: "rendered-output.mp4",
@@ -1448,4 +1516,32 @@ test("rendered goal proof rejects blurred duplicate proof layout even when seman
   assert.equal(result.summary.layoutContract.passed, false);
   assert.ok(result.summary.goals[0].failedFrameReasons.includes("blurred_duplicate_background_used"));
   assert.equal(result.editPlan.segments[0].finishFrameEvidence.visibilityVerdict, "failed");
+});
+
+test("rendered goal proof accepts validated vertical fill with a rendered scorebug", async () => {
+  const result = await analyzeRenderedGoalProof({
+    outputPath: "rendered-output.mp4",
+    editPlan: {
+      ...editPlan(goalSegment()),
+      renderPolishQA: {
+        cleanActionLayoutRequired: true,
+        cleanActionLayoutPassed: true,
+        actionLayoutMode: "scorebug_preserved_vertical_fill",
+        fullHeightActionCrop: true,
+        scoreboardOverlayRendered: true,
+        scoreboardOverlayRegionId: "scorebug_broadcast_compact",
+        blurredBackgroundUsed: false,
+        duplicateBackgroundUsed: false,
+        splitLayoutCaptionCount: 0,
+      },
+    },
+    extractFrames: async ({ candidateWindows }) => ({
+      frames: clearFramesFromWindows(candidateWindows),
+    }),
+    writeJson: () => {},
+  });
+
+  assert.equal(result.summary.layoutContract.passed, true);
+  assert.equal(result.summary.clearGoalCount, 1);
+  assert.equal(result.summary.passed, true);
 });

@@ -1172,6 +1172,74 @@ test("video output gate rejects valid-goal proof rendered with blurred duplicate
   });
 });
 
+test("video output gate accepts validated vertical fill with a rendered scorebug", () => {
+  const contract = creativeOutputContract();
+  contract.renderPolishQA = {
+    cleanActionLayoutRequired: true,
+    cleanActionLayoutPassed: true,
+    actionLayoutMode: "scorebug_preserved_vertical_fill",
+    fullHeightActionCrop: true,
+    scoreboardOverlayRendered: true,
+    scoreboardOverlayRegionId: "scorebug_broadcast_compact",
+    blurredBackgroundUsed: false,
+    duplicateBackgroundUsed: false,
+    splitLayoutCaptionCount: 0,
+  };
+
+  const result = assertVideoOutputCoverage({
+    goalSelectionMode: "valid_goals_only",
+    matchEventTruth: {
+      providerMode: "fixture-match-event-truth",
+      events: [],
+      rejectedEvents: [],
+      scoreTimelineObservations: [],
+      scoreChanges: countedScoreChanges(1),
+      summary: { countedGoalEventCount: 1 },
+    },
+    editPlan: {
+      ...contract,
+      segments: [visibleGoalSegment(1, 84)],
+    },
+  });
+
+  assert.equal(result.renderLayout.passed, true);
+  assert.equal(result.renderLayout.actionLayoutMode, "scorebug_preserved_vertical_fill");
+});
+
+test("video output gate rejects vertical fill without a rendered scorebug", () => {
+  const contract = creativeOutputContract();
+  contract.renderPolishQA = {
+    cleanActionLayoutRequired: true,
+    cleanActionLayoutPassed: true,
+    actionLayoutMode: "scorebug_preserved_vertical_fill",
+    fullHeightActionCrop: true,
+    scoreboardOverlayRendered: false,
+    scoreboardOverlayRegionId: null,
+    blurredBackgroundUsed: false,
+    duplicateBackgroundUsed: false,
+    splitLayoutCaptionCount: 0,
+  };
+
+  assert.throws(() => assertVideoOutputCoverage({
+    goalSelectionMode: "valid_goals_only",
+    matchEventTruth: {
+      providerMode: "fixture-match-event-truth",
+      events: [],
+      rejectedEvents: [],
+      scoreTimelineObservations: [],
+      scoreChanges: countedScoreChanges(1),
+      summary: { countedGoalEventCount: 1 },
+    },
+    editPlan: {
+      ...contract,
+      segments: [visibleGoalSegment(1, 84)],
+    },
+  }), (error) => {
+    assert.ok(error.details.renderLayout.reasons.includes("invalid_scorebug_vertical_fill_contract"));
+    return true;
+  });
+});
+
 test("video output gate rejects split caption layout in valid-goal proof", () => {
   const contract = creativeOutputContract();
   contract.renderPolishQA = {

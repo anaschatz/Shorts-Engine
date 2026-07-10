@@ -3,7 +3,7 @@ const { sanitizeText } = require("./media.cjs");
 const { validateTrackingProviderOutput } = require("./tracking-provider.cjs");
 const { visualReasonCodesForWindow } = require("./vision.cjs");
 
-const CROP_PLAN_MODES = Object.freeze(["wide_safe", "soft_follow", "center_safe", "locked_wide"]);
+const CROP_PLAN_MODES = Object.freeze(["wide_safe", "soft_follow", "center_safe", "locked_wide", "reference_fill"]);
 const TARGET_ASPECT_RATIOS = Object.freeze(["9:16", "1:1"]);
 
 const ACTION_REASON_CODES = Object.freeze([
@@ -575,16 +575,21 @@ function validateCropPlan(plan, metadata = {}) {
 function cropStrategyFromPlan(cropPlan, metadata = {}) {
   const plan = validateCropPlan(cropPlan, metadata);
   const cropBox = plan.cropBox || fullSourceBox(metadata);
+  const croppedMode = plan.mode === "soft_follow" || plan.mode === "reference_fill";
   return {
-    type: plan.mode === "soft_follow" ? "soft_follow_crop" : "wide_safe_contain",
+    type: plan.mode === "soft_follow"
+      ? "soft_follow_crop"
+      : plan.mode === "reference_fill"
+        ? "center_crop"
+        : "wide_safe_contain",
     x: cropBox.x,
     y: cropBox.y,
     width: cropBox.width,
     height: cropBox.height,
     zoom: plan.mode === "soft_follow" ? 1.02 : 1,
-    background: plan.mode === "soft_follow" ? "none" : "blurred_fill",
-    preserveFullFrame: plan.mode !== "soft_follow",
-    maxCropPercent: plan.mode === "soft_follow" ? 0.28 : 0,
+    background: croppedMode ? "none" : "blurred_fill",
+    preserveFullFrame: !croppedMode,
+    maxCropPercent: croppedMode ? 0.35 : 0,
   };
 }
 

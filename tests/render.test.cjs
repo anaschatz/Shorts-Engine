@@ -414,6 +414,92 @@ test("proof-fast render profile keeps visible framing while using faster encodin
   assert.equal(plan.renderPolishQA.renderPolishWarnings.includes("clean_action_letterbox_background"), true);
 });
 
+test("confirmed-goal renderer fills 9:16 and preserves the live scorebug at top center", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "shortsengine-render-scorebug-fill-"));
+  const outputPath = join(dir, "output.mp4");
+  const subtitlesPath = join(dir, "captions.ass");
+  const calls = [];
+  const plan = validateEditPlan({
+    ...validKineticPlan(),
+    validGoalsOnly: true,
+    framingMode: "safe_center",
+    framingReason: "reference_vertical_fill_with_scorebug_overlay",
+    cropPlan: {
+      mode: "reference_fill",
+      targetAspectRatio: "9:16",
+      safeArea: { x: 0, y: 0, width: 1920, height: 1080 },
+      cropBox: { x: 656, y: 0, width: 608, height: 1080 },
+      confidence: 0.74,
+      fallbackUsed: true,
+      textObstructionRisk: false,
+      actionSafeZones: [],
+      textSafeZones: [],
+      reasonCodes: ["reference_vertical_center_fill"],
+    },
+    cropStrategy: {
+      type: "center_crop",
+      x: 656,
+      y: 0,
+      width: 608,
+      height: 1080,
+      zoom: 1,
+      background: "none",
+      preserveFullFrame: false,
+      maxCropPercent: 0.35,
+    },
+    scoreboardOverlay: {
+      enabled: true,
+      mode: "source_roi",
+      regionId: "scorebug_broadcast_compact",
+      sourceRect: { x: 0.04, y: 0.045, width: 0.33, height: 0.065 },
+      outputWidthRatio: 0.7,
+      topMarginRatio: 0.055,
+    },
+  }, metadata);
+
+  await renderShort({
+    inputPath: join(dir, "input.mp4"),
+    outputPath,
+    subtitlesPath,
+    plan,
+    ffmpegRunner: async (args) => {
+      calls.push(args);
+      return { stderr: "" };
+    },
+  });
+
+  const filter = calls[0][calls[0].indexOf("-filter_complex") + 1];
+  assert.match(filter, /split=2\[base_source\]\[score_source\]/);
+  assert.match(filter, /scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920/);
+  assert.match(filter, /crop=iw\*0\.33:ih\*0\.065:iw\*0\.04:ih\*0\.045/);
+  assert.match(filter, /overlay=\(W-w\)\/2:106/);
+  assert.doesNotMatch(filter, /pad=1080:1920|color=black|boxblur/);
+  assert.equal(plan.renderPolishQA.actionLayoutMode, "scorebug_preserved_vertical_fill");
+  assert.equal(plan.renderPolishQA.fullHeightActionCrop, true);
+  assert.equal(plan.renderPolishQA.scoreboardOverlayRendered, true);
+  assert.equal(plan.renderPolishQA.scoreboardOverlayRegionId, "scorebug_broadcast_compact");
+  assert.equal(plan.renderPolishQA.renderPolishWarnings.includes("clean_action_letterbox_background"), false);
+  const ass = readFileSync(subtitlesPath, "utf8");
+  assert.doesNotMatch(ass, /PUNCHY HIGHLIGHT/);
+});
+
+test("edit plan rejects unsafe scoreboard overlay placement", () => {
+  assert.throws(
+    () => validateEditPlan({
+      ...validKineticPlan(),
+      scoreboardOverlay: {
+        enabled: true,
+        mode: "source_roi",
+        regionId: "scorebug_broadcast_compact",
+        sourceRect: { x: 0.8, y: 0.05, width: 0.4, height: 0.08 },
+        outputWidthRatio: 0.95,
+        topMarginRatio: 0.01,
+      },
+    }, metadata),
+    /Scoreboard overlay/,
+  );
+});
+
 test("multi-segment renderer accepts full valid-goal compilations up to 210 seconds", async () => {
   const dir = mkdtempSync(join(tmpdir(), "shortsengine-render-long-goals-"));
   const outputPath = join(dir, "output.mp4");

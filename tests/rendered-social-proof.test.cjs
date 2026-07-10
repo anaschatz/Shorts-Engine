@@ -532,6 +532,27 @@ test("rendered social polish proof accepts wide-safe summary fallback without ex
   assert.equal(report.renderedActionFraming.maxPanSpeed, 0);
 });
 
+test("rendered social polish proof accepts validated reference-fill summary fallback", () => {
+  const report = baseProof({
+    renderPlan: {
+      cropPlan: null,
+      cropPlanMode: "reference_fill",
+      renderPolishQA: {
+        ...renderPlan().renderPolishQA,
+        actionLayoutMode: "scorebug_preserved_vertical_fill",
+        fullHeightActionCrop: true,
+        scoreboardOverlayRendered: true,
+        scoreboardOverlayRegionId: "scorebug_broadcast_compact",
+      },
+    },
+  });
+
+  assert.equal(report.passed, true);
+  assert.equal(report.renderedActionFraming.passed, true);
+  assert.equal(report.renderedActionFraming.cropMode, "reference_fill");
+  assert.equal(report.renderedActionFraming.fallbackUsed, true);
+});
+
 test("rendered social polish proof does not classify static fallback cuts as crop pan risk", () => {
   const report = baseProof({
     renderPlan: {

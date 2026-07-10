@@ -434,7 +434,7 @@ function cropPlanFromRenderPlan(renderPlan = {}) {
   const explicit = valueObject(renderPlan.cropPlan);
   if (Object.keys(explicit).length > 0) return explicit;
   const mode = summaryCropMode(renderPlan);
-  if (!["wide_safe", "locked_wide", "center_safe"].includes(mode)) return explicit;
+  if (!["wide_safe", "locked_wide", "center_safe", "reference_fill"].includes(mode)) return explicit;
   return {
     mode,
     cropMode: mode,
@@ -467,7 +467,7 @@ function renderedActionFramingSummary(renderPlan = {}, outputMp4 = null) {
   const textObstructionRisk = Boolean(cropPlan.textObstructionRisk);
   const abruptCropPanRisk = Boolean(maxPanSpeed > 0.22);
   const softFollow = cropMode === "soft_follow";
-  const safeFallbackMode = ["wide_safe", "locked_wide", "center_safe"].includes(cropMode);
+  const safeFallbackMode = ["wide_safe", "locked_wide", "center_safe", "reference_fill"].includes(cropMode);
   const reliableSoftFollow = Boolean(
     softFollow &&
     fallbackUsed === false &&

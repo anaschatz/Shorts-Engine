@@ -935,11 +935,19 @@ function cleanActionLayoutContract(editPlan = {}) {
   const actionLayoutMode = qa ? sanitizeText(qa.actionLayoutMode || "unknown", 60) : null;
   const splitLayoutCaptionCount = qa ? numberOrNull(qa.splitLayoutCaptionCount) : null;
   const allowedCleanModes = ["clean_action_letterbox", "clean_action_crop", "clean_action_full_frame"];
+  const referenceVerticalFillValid = Boolean(
+    qa &&
+    actionLayoutMode === "scorebug_preserved_vertical_fill" &&
+    qa.fullHeightActionCrop === true &&
+    qa.scoreboardOverlayRendered === true &&
+    sanitizeText(qa.scoreboardOverlayRegionId || "", 80)
+  );
+  const cleanModeValid = allowedCleanModes.includes(actionLayoutMode) || referenceVerticalFillValid;
   const passed = !required || Boolean(
     qa &&
     qa.cleanActionLayoutRequired === true &&
     qa.cleanActionLayoutPassed === true &&
-    allowedCleanModes.includes(actionLayoutMode) &&
+    cleanModeValid &&
     qa.blurredBackgroundUsed !== true &&
     qa.duplicateBackgroundUsed !== true &&
     (splitLayoutCaptionCount == null || splitLayoutCaptionCount === 0)
@@ -948,7 +956,10 @@ function cleanActionLayoutContract(editPlan = {}) {
     ...(required && !qa ? ["render_layout_summary_missing"] : []),
     ...(required && qa && qa.cleanActionLayoutRequired !== true ? ["clean_action_layout_not_required_by_renderer"] : []),
     ...(required && qa && qa.cleanActionLayoutPassed !== true ? ["clean_action_layout_failed"] : []),
-    ...(required && qa && !allowedCleanModes.includes(actionLayoutMode) ? ["non_clean_action_layout"] : []),
+    ...(required && qa && !cleanModeValid ? ["non_clean_action_layout"] : []),
+    ...(required && qa && actionLayoutMode === "scorebug_preserved_vertical_fill" && !referenceVerticalFillValid
+      ? ["invalid_scorebug_vertical_fill_contract"]
+      : []),
     ...(required && qa && qa.blurredBackgroundUsed === true ? ["blurred_duplicate_background_used"] : []),
     ...(required && qa && qa.duplicateBackgroundUsed === true ? ["duplicate_background_used"] : []),
     ...(required && qa && splitLayoutCaptionCount != null && splitLayoutCaptionCount > 0 ? ["split_caption_layout_used"] : []),
@@ -1172,6 +1183,14 @@ async function analyzeRenderedGoalProof({
   const proofDir = storagePath("staging", join("rendered-goal-proof", runId));
   mkdirSync(proofDir, { recursive: true });
   const layoutContract = cleanActionLayoutContract(editPlan || {});
+  const renderedScoreboardConfirmationAvailable = Boolean(
+    layoutContract.passed &&
+    layoutContract.actionLayoutMode === "scorebug_preserved_vertical_fill" &&
+    editPlan &&
+    editPlan.renderPolishQA &&
+    editPlan.renderPolishQA.fullHeightActionCrop === true &&
+    editPlan.renderPolishQA.scoreboardOverlayRendered === true
+  );
   const proofGoals = [];
   const updatedSegments = [...segments];
   const goalItems = [];
@@ -1322,7 +1341,13 @@ async function analyzeRenderedGoalProof({
       actionRoleFramesClear &&
       confirmationFrame &&
       confirmationFrame.clear !== true &&
-      confirmationFrame.reason === "semantic_frame_forbidden_content" &&
+      (
+        confirmationFrame.reason === "semantic_frame_forbidden_content" ||
+        (
+          confirmationFrame.reason === "semantic_frame_not_clear" &&
+          renderedScoreboardConfirmationAvailable
+        )
+      ) &&
       confirmationAtOrAfterScoreChange &&
       hasScoreboardConfirmationEvidence(segment)
     );
