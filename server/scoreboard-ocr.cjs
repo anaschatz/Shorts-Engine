@@ -40,6 +40,10 @@ const SCOREBOARD_OCR_QA_LATEST_RELATIVE_PATH = "demo/results/ocr-scoreboard-qa-l
 const MAX_SCOREBOARD_OCR_QA_ATTEMPTS = 72;
 const MAX_SCOREBOARD_OCR_QA_ARTIFACT_BYTES = 2 * 1024 * 1024;
 const DEFAULT_SCOREBOARD_OCR_QA_RETENTION = 8;
+const DIGIT_TEMPLATE_MIN_SIMILARITY = 0.88;
+const DIGIT_TEMPLATE_MIN_MARGIN = 0.04;
+const DIGIT_TEMPLATE_OVERRIDE_SIMILARITY = 0.92;
+const MAX_DIGIT_TEMPLATES_PER_VALUE = 12;
 const SENSITIVE_RE = /\/Users\/|\/private\/|storageKey|localPath|fullPath|absolutePath|Bearer\s+|OPENAI_API_KEY|api[_-]?key|token|secret|stderr|stdout|rawOcr|rawText/i;
 const OCR_PREPROCESS_VARIANTS = Object.freeze([
   {
@@ -91,6 +95,175 @@ function seconds(value, fallback = 0) {
 function round(value, digits = 2) {
   const factor = 10 ** digits;
   return Math.round((Number(value) || 0) * factor) / factor;
+}
+
+function validDigitSignature(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const width = Math.round(Number(value.width || 0));
+  const height = Math.round(Number(value.height || 0));
+  const bits = String(value.bits || "");
+  if (value.version !== 1 || width !== 10 || height !== 16 || bits.length !== width * height || /[^01]/.test(bits)) {
+    return null;
+  }
+  return { version: 1, width, height, bits };
+}
+
+function digitSignatureSimilarity(left, right) {
+  const a = validDigitSignature(left);
+  const b = validDigitSignature(right);
+  if (!a || !b || a.width !== b.width || a.height !== b.height) return null;
+  let equal = 0;
+  let intersection = 0;
+  let union = 0;
+  for (let index = 0; index < a.bits.length; index += 1) {
+    const aOn = a.bits[index] === "1";
+    const bOn = b.bits[index] === "1";
+    if (aOn === bOn) equal += 1;
+    if (aOn && bOn) intersection += 1;
+    if (aOn || bOn) union += 1;
+  }
+  const hamming = equal / a.bits.length;
+  const jaccard = union ? intersection / union : 0;
+  return round(hamming * 0.35 + jaccard * 0.65, 4);
+}
+
+function templateEligibleObservation(observation = {}) {
+  return Boolean(
+    observation.score &&
+    Number(observation.confidence || 0) >= 0.72 &&
+    /profile_digit_ocr|digit_reader|digit_template_match/i.test(String(observation.source || ""))
+  );
+}
+
+function digitTemplatesFromObservations(observations = []) {
+  const templates = new Map();
+  const add = (digit, role, signature) => {
+    const parsedDigit = Number(digit);
+    const safeSignature = validDigitSignature(signature);
+    if (!Number.isInteger(parsedDigit) || parsedDigit < 0 || parsedDigit > 9 || !safeSignature) return;
+    if (!templates.has(parsedDigit)) templates.set(parsedDigit, []);
+    const values = templates.get(parsedDigit);
+    if (values.length >= MAX_DIGIT_TEMPLATES_PER_VALUE) return;
+    values.push({ role, signature: safeSignature });
+  };
+  for (const observation of Array.isArray(observations) ? observations : []) {
+    if (!templateEligibleObservation(observation)) continue;
+    const signatures = observation.digitSignatures || {};
+    add(observation.score.home, "home", signatures.home);
+    add(observation.score.away, "away", signatures.away);
+  }
+  for (const [digit, values] of [...templates.entries()]) {
+    const conflictsWithRepeatedDigit = [...templates.entries()].some(([otherDigit, otherValues]) => (
+      otherDigit !== digit &&
+      otherValues.length >= Math.max(2, values.length + 1) &&
+      values.some((value) => otherValues.some((other) => (
+        Number(digitSignatureSimilarity(value.signature, other.signature) || 0) >= DIGIT_TEMPLATE_OVERRIDE_SIMILARITY
+      )))
+    ));
+    if (conflictsWithRepeatedDigit) templates.delete(digit);
+  }
+  return templates;
+}
+
+function predictDigitFromTemplates(signature, role, templates) {
+  const safeSignature = validDigitSignature(signature);
+  if (!safeSignature || !(templates instanceof Map) || !templates.size) return null;
+  const candidates = [];
+  for (const [digit, values] of templates.entries()) {
+    const scores = values
+      .map((template) => {
+        const similarity = digitSignatureSimilarity(safeSignature, template.signature);
+        if (similarity == null) return null;
+        return similarity + (template.role === role ? 0.005 : 0);
+      })
+      .filter((value) => value != null)
+      .sort((a, b) => b - a);
+    if (scores.length) candidates.push({ digit, similarity: Math.min(1, scores[0]) });
+  }
+  candidates.sort((a, b) => b.similarity - a.similarity || a.digit - b.digit);
+  const best = candidates[0];
+  const second = candidates[1];
+  if (!best || best.similarity < DIGIT_TEMPLATE_MIN_SIMILARITY) return null;
+  if (second && best.similarity - second.similarity < DIGIT_TEMPLATE_MIN_MARGIN) return null;
+  return {
+    digit: best.digit,
+    similarity: round(best.similarity, 4),
+    margin: second ? round(best.similarity - second.similarity, 4) : null,
+  };
+}
+
+function recoverScoresFromDigitTemplates(observations = []) {
+  const source = Array.isArray(observations) ? observations : [];
+  const templates = digitTemplatesFromObservations(source);
+  let recoveredObservationCount = 0;
+  let correctedWeakObservationCount = 0;
+  const recovered = source.map((observation) => {
+    const signatures = observation && observation.digitSignatures || {};
+    const home = predictDigitFromTemplates(signatures.home, "home", templates);
+    const away = predictDigitFromTemplates(signatures.away, "away", templates);
+    if (!home || !away) return observation;
+    const candidate = { home: home.digit, away: away.digit, text: `${home.digit}-${away.digit}` };
+    if (candidate.home + candidate.away > 12) return observation;
+    const strongCurrent = templateEligibleObservation(observation);
+    const currentText = observation.score && `${observation.score.home}-${observation.score.away}`;
+    if (strongCurrent || currentText === candidate.text) return observation;
+    const correctingWeakScore = Boolean(currentText);
+    if (correctingWeakScore && Math.min(home.similarity, away.similarity) < DIGIT_TEMPLATE_OVERRIDE_SIMILARITY) {
+      return observation;
+    }
+    recoveredObservationCount += 1;
+    if (correctingWeakScore) correctedWeakObservationCount += 1;
+    return {
+      ...observation,
+      text: candidate.text,
+      score: candidate,
+      rejected: false,
+      confidence: round(Math.min(0.9, home.similarity, away.similarity), 4),
+      source: "local_scorebug_digit_template_match",
+      digitTemplateMatch: {
+        homeSimilarity: home.similarity,
+        awaySimilarity: away.similarity,
+      },
+    };
+  });
+  return {
+    observations: recovered,
+    summary: {
+      templateDigitCount: templates.size,
+      templateCount: [...templates.values()].reduce((sum, values) => sum + values.length, 0),
+      recoveredObservationCount,
+      correctedWeakObservationCount,
+      applied: recoveredObservationCount > 0,
+    },
+  };
+}
+
+function internalDigitTemplateObservations(observations = []) {
+  return (Array.isArray(observations) ? observations : [])
+    .map((observation) => {
+      const home = validDigitSignature(observation && observation.digitSignatures && observation.digitSignatures.home);
+      const away = validDigitSignature(observation && observation.digitSignatures && observation.digitSignatures.away);
+      if (!home || !away) return null;
+      const score = observation && observation.score;
+      return {
+        id: sanitizeText(observation.id || "scorebug_digit_observation", 80),
+        timestamp: round(observation.timestamp),
+        start: round(observation.start ?? observation.timestamp),
+        end: round(observation.end ?? observation.timestamp),
+        regionId: sanitizeText(observation.regionId || "scorebug_region", 80),
+        preprocessingVariant: sanitizeText(observation.preprocessingVariant || "default", 40),
+        score: score && Number.isInteger(Number(score.home)) && Number.isInteger(Number(score.away))
+          ? { home: Number(score.home), away: Number(score.away), text: `${Number(score.home)}-${Number(score.away)}` }
+          : null,
+        confidence: round(clamp(observation.confidence, 0, 1), 4),
+        rejected: Boolean(observation.rejected),
+        source: sanitizeText(observation.source || "local_scorebug_digit_observation", 80),
+        digitSignatures: { home, away },
+        layoutId: observation.layoutId ? sanitizeText(observation.layoutId, 80) : null,
+      };
+    })
+    .filter(Boolean)
+    .slice(0, MAX_SCOREBOARD_OCR_FRAMES);
 }
 
 function even(value) {
@@ -823,6 +996,15 @@ function normalizeScorebugDebugSummary(value = {}) {
     state: sanitizeText(value.state || "unknown", 80),
     nextAction: sanitizeText(value.nextAction || "inspect-scorebug-debug-summary", 180),
     qaRecommended: Boolean(value.qaRecommended),
+    digitTemplateRecovery: value.digitTemplateRecovery && typeof value.digitTemplateRecovery === "object"
+      ? {
+          templateDigitCount: Math.max(0, Math.min(10, Math.round(Number(value.digitTemplateRecovery.templateDigitCount || 0)))),
+          templateCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES * 2, Math.round(Number(value.digitTemplateRecovery.templateCount || 0)))),
+          recoveredObservationCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES, Math.round(Number(value.digitTemplateRecovery.recoveredObservationCount || 0)))),
+          correctedWeakObservationCount: Math.max(0, Math.min(MAX_SCOREBOARD_OCR_FRAMES, Math.round(Number(value.digitTemplateRecovery.correctedWeakObservationCount || 0)))),
+          applied: Boolean(value.digitTemplateRecovery.applied),
+        }
+      : null,
     reasonCodes: Array.isArray(value.reasonCodes)
       ? value.reasonCodes.map((reason) => sanitizeText(reason, 80)).filter(Boolean).slice(0, 10)
       : [],
@@ -2207,10 +2389,13 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
               regionId: region.id,
               preprocessingVariant: variant.id,
               text: ocr.text,
-              score: structuredScore,
+              score: parsedScore,
               confidence: scoreConfidence,
               rejected: scoreRejected,
               source: scoreSource || `local_scoreboard_ocr_${variant.id}`,
+              digitSignatures: digitReading && digitReading.imageSegmentation
+                ? digitReading.imageSegmentation.digitSignatures || null
+                : null,
               imageSegmentationStatus: digitSummary.imageSegmentationStatus,
               imageDecoderStatus: digitSummary.imageDecoderStatus,
               imageDecoderMode: digitSummary.imageDecoderMode,
@@ -2226,21 +2411,31 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
         }
         if (cropCount >= MAX_SCOREBOARD_OCR_CROPS) break;
       }
-      const timeline = buildScoreboardTimelineFromObservations(observations);
+      const digitTemplateRecovery = recoverScoresFromDigitTemplates(observations);
+      const timeline = buildScoreboardTimelineFromObservations(digitTemplateRecovery.observations);
       const evidence = timeline.evidence;
       const result = validateScoreboardOcrOutput({
         providerMode: "local-scoreboard-ocr-command",
         fallbackUsed: evidence.length === 0,
         evidence,
         roiCalibration: timeline.roiCalibration,
-        scorebugDebug: timeline.scorebugDebug,
+        scorebugDebug: {
+          ...timeline.scorebugDebug,
+          digitTemplateRecovery: digitTemplateRecovery.summary,
+          reasonCodes: [
+            ...(Array.isArray(timeline.scorebugDebug && timeline.scorebugDebug.reasonCodes)
+              ? timeline.scorebugDebug.reasonCodes
+              : []),
+            ...(digitTemplateRecovery.summary.applied ? ["scorebug_digit_template_recovery"] : []),
+          ],
+        },
         sampledFrameCount: frames.length,
         regionCount: cropCount,
         regionIdsUsed: [...regionIdsUsed],
         preprocessingVariantCount: activeVariants.length,
       }, metadata);
       const qaReport = writeScoreboardOcrQaReport({ qa, scoreboardOcr: result, status: "completed" });
-      return qaReport
+      const validatedResult = qaReport
         ? validateScoreboardOcrOutput({
             providerMode: result.providerMode,
             fallbackUsed: result.fallbackUsed,
@@ -2254,6 +2449,10 @@ class LocalScoreboardOcrProviderAdapter extends DeterministicScoreboardOcrProvid
             qaReport,
           }, metadata)
         : result;
+      return {
+        ...validatedResult,
+        _internalDigitObservations: internalDigitTemplateObservations(digitTemplateRecovery.observations),
+      };
     } catch (error) {
       if (error && error.code === "JOB_CANCELLED") throw error;
       return deterministicFallback(input);
@@ -2386,10 +2585,12 @@ module.exports = {
   createScoreboardOcrProvider,
   defaultScoreboardRegions,
   deterministicScoreboardOcr,
+  digitSignatureSimilarity,
   extractOcrFramesFromSource,
   normalizeRegion,
   normalizeScoreboardOcrChunkSummary,
   publicScoreboardOcr,
+  recoverScoresFromDigitTemplates,
   scoreboardOcrHealth,
   scorebugFirstPreprocessVariants,
   scoreboardOcrPreprocessVariants,

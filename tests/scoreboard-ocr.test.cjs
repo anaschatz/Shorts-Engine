@@ -10,10 +10,12 @@ const {
   cropScoreboardRegion,
   defaultScoreboardRegions,
   deterministicScoreboardOcr,
+  digitSignatureSimilarity,
   extractOcrFramesFromSource,
   LocalScoreboardOcrProviderAdapter,
   normalizeRegion,
   publicScoreboardOcr,
+  recoverScoresFromDigitTemplates,
   scorebugFirstPreprocessVariants,
   scoreboardOcrHealth,
   scoreboardOcrPreprocessVariants,
@@ -40,6 +42,10 @@ const { CONFIG } = require("../server/config.cjs");
 const { safeResolve } = require("../server/storage.cjs");
 
 const metadata = { durationSeconds: 120, width: 1920, height: 1080 };
+
+function digitSignature(bits) {
+  return { version: 1, width: 10, height: 16, bits };
+}
 
 function createFrameFixtures() {
   const dir = join(CONFIG.stagingDir, `scoreboard-ocr-test-${Date.now()}-${Math.random().toString(16).slice(2)}`);
@@ -138,6 +144,41 @@ function writeFakeScorebugPng(filePath) {
     0x00, 0x00, 0x00, 0x0d,
   ]));
 }
+
+test("digit template recovery localizes a unit score change when OCR misses repeated broadcast glyphs", () => {
+  const one = digitSignature("10".repeat(80));
+  const zero = digitSignature("01".repeat(80));
+  const noisyOne = digitSignature(`${"10".repeat(79)}11`);
+  const observations = [10, 12, 14].map((timestamp) => ({
+    timestamp,
+    score: { home: 1, away: 0, text: "1-0" },
+    confidence: 0.82,
+    source: "local_scorebug_profile_digit_ocr_contrast_block",
+    digitSignatures: { home: one, away: zero },
+  }));
+  observations.push({
+    timestamp: 15,
+    score: { home: 4, away: 0, text: "4-0" },
+    confidence: 0.74,
+    source: "local_scorebug_profile_digit_ocr_contrast_block",
+    digitSignatures: { home: noisyOne, away: zero },
+  });
+  observations.push({
+    timestamp: 20,
+    score: null,
+    confidence: 0.05,
+    source: "local_scoreboard_ocr_contrast_block",
+    rejected: true,
+    digitSignatures: { home: noisyOne, away: one },
+  });
+
+  const recovered = recoverScoresFromDigitTemplates(observations);
+  assert.deepEqual(recovered.observations.at(-1).score, { home: 1, away: 1, text: "1-1" });
+  assert.equal(recovered.observations.at(-1).source, "local_scorebug_digit_template_match");
+  assert.equal(recovered.summary.recoveredObservationCount, 1);
+  assert.equal(recovered.summary.applied, true);
+  assert.equal(digitSignatureSimilarity(one, noisyOne) > 0.98, true);
+});
 
 test("scoreboard OCR normalizes safe scoreboard regions and bounds crop size", () => {
   const region = normalizeRegion({ x: 0.02, y: 0.02, width: 0.3, height: 0.12, anchor: "top_left" }, metadata);

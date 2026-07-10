@@ -1143,6 +1143,8 @@ function normalizeSegmentGoalPhase(segment = {}, context = {}) {
   const hasFinish = raw.hasFinish == null
     ? hasVisibleGoalPayoff
     : Boolean(raw.hasFinish) && hasVisibleGoalPayoff;
+  const requiresRenderedFinishProof = Boolean(raw.requiresRenderedFinishProof) ||
+    Boolean(raw.visualGoalPayoff && raw.visualGoalPayoff.requiresRenderedFinishProof);
   const replayOnly = Boolean(segment.replayOnly || raw.replayOnly) || (replayUsed && !hasShot);
   const hasBuildupFromWindow = shotStart == null
     ? context.sourceEnd - context.sourceStart >= 8
@@ -1154,6 +1156,7 @@ function normalizeSegmentGoalPhase(segment = {}, context = {}) {
     hasConfirmation: raw.hasConfirmation == null
       ? confirmedGoal || reasonSet.has("visual_scoreboard_goal_confirmed") || reasonSet.has("visual_referee_goal_signal") || reasonSet.has("confirmed_by_commentary")
       : Boolean(raw.hasConfirmation),
+    requiresRenderedFinishProof,
     replayUsed,
     replayOnly,
     visualGoalPayoff: {
@@ -1161,11 +1164,12 @@ function normalizeSegmentGoalPhase(segment = {}, context = {}) {
       hasBallInNetEvidence: reasonSet.has("visual_ball_in_net") || reasonSet.has("ball_in_net"),
       hasLiveFinishSequence: reasonSet.has("live_shot_finish_sequence") && hasShot,
       scoreboardOnly: (reasonSet.has("scoreboard_backed_goal_sequence") || reasonSet.has("scoreboard_ocr_score_change")) && !hasVisibleGoalPayoff,
+      requiresRenderedFinishProof,
       finishFrameEvidence: normalizedFinishFrame,
     },
     finishFrameEvidence: normalizedFinishFrame,
   };
-  if (confirmedGoal && (phaseCoverage.replayOnly || !phaseCoverage.hasShot || !phaseCoverage.hasFinish)) {
+  if (confirmedGoal && (phaseCoverage.replayOnly || !phaseCoverage.hasShot || (!phaseCoverage.hasFinish && !requiresRenderedFinishProof))) {
     throw new AppError("VALIDATION_ERROR", "Confirmed goal segment must include live shot and finish evidence.", 400);
   }
   return {

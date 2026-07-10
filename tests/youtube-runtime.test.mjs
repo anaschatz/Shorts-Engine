@@ -1913,6 +1913,7 @@ test("youtube live local e2e runs env check before doctor or server work", async
   assert.equal(report.skipped, false);
   assert.deepEqual(order, ["env", "doctor", "port", "server", "ready", "smoke"]);
   assert.deepEqual(report.steps.map((step) => step.step), ["env", "fresh-output-cleanup", "doctor", "server", "server-ready", "smoke", "ffprobe"]);
+  assert.equal(report.outputProof.staleArtifactCleanup.attempted, false);
   assert.equal(report.triage.preflight.sourceConfigured, true);
   assert.equal(report.triage.doctor.downloaderConfigured, true);
 });

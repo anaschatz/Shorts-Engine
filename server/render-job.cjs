@@ -13,7 +13,9 @@ const { loadOcrQaCalibration, publicOcrQaCalibration } = require("./ocr-qa-calib
 const {
   analyzeScoreboardOcr,
   defaultScoreboardRegions,
+  digitSignatureSimilarity,
   publicScoreboardOcr,
+  recoverScoresFromDigitTemplates,
   validateScoreboardOcrOutput,
 } = require("./scoreboard-ocr.cjs");
 const { buildScoreboardTimelineFromObservations } = require("./adapters/local-ocr-adapter.cjs");
@@ -28,23 +30,21 @@ const { isLocalVideoProofSource } = require("./staging-smoke-metadata.cjs");
 const SCOREBUG_FIRST_OCR_BUDGET_MS = 45_000;
 const VISUAL_WINDOW_OCR_BUDGET_MS = 30_000;
 const SCOREBUG_FIRST_CHUNK_SECONDS = 90;
-const SCOREBUG_FIRST_CHUNK_FRAME_COUNT = 4;
-const SCOREBUG_FIRST_CHUNK_TIMEOUT_MS = 15_000;
-const SCOREBUG_FIRST_MAX_TOTAL_OCR_BUDGET_MS = 180_000;
+const SCOREBUG_FIRST_CHUNK_FRAME_COUNT = 16;
+const SCOREBUG_FIRST_CHUNK_TIMEOUT_MS = 30_000;
+const SCOREBUG_FIRST_MAX_TOTAL_OCR_BUDGET_MS = 240_000;
 const RENDERED_GOAL_REBIND_MAX_ATTEMPTS = 1;
 const REFERENCE_STYLE_GOAL_COUNT = 5;
 const REFERENCE_STYLE_MAX_DURATION_SECONDS = 125;
 const SCORE_CHANGE_REBIND_MAX_BACKTRACK_SECONDS = 65;
 const SCORE_CHANGE_REBIND_MAX_FINISH_LEAD_SECONDS = 45;
 const SCORE_CHANGE_REBIND_MIN_FINISH_LEAD_SECONDS = 0.5;
+const SCORE_CHANGE_REBIND_PRESERVED_BACKTRACK_SECONDS = 20;
 const RENDERED_GOAL_REBIND_MAX_SEGMENT_SECONDS = 64;
-const SCORE_CHANGE_REBIND_COMPACT_CONFIRMATION_GAP_SECONDS = 17;
-const SCORE_CHANGE_REBIND_COMPACT_FINISH_TAIL_SECONDS = 5.5;
-const SCORE_CHANGE_REBIND_COMPACT_LOCAL_CONFIRMATION_SECONDS = 2.25;
 const RENDERED_GOAL_REBIND_PROFILES = Object.freeze([
-  { finishLeadSeconds: 15, preShotSeconds: 14, postConfirmationSeconds: 2.35 },
-  { finishLeadSeconds: 22, preShotSeconds: 16, postConfirmationSeconds: 2.35 },
-  { finishLeadSeconds: 30, preShotSeconds: 18, postConfirmationSeconds: 2.35 },
+  { backtrackSeconds: 15, finishLeadSeconds: 13, postConfirmationSeconds: 2.35 },
+  { backtrackSeconds: 15, finishLeadSeconds: 11, postConfirmationSeconds: 2.35 },
+  { backtrackSeconds: 15, finishLeadSeconds: 8, postConfirmationSeconds: 2.35 },
 ]);
 const SCOREBUG_FIRST_ROI_CANDIDATE_IDS = Object.freeze([
   "scorebug_broadcast_compact",
@@ -315,31 +315,32 @@ function rebindRenderedGoalFailureSegments({ editPlan, renderedGoalProof, metada
     const earliestScoreBoundStart = Math.max(0, anchor - SCORE_CHANGE_REBIND_MAX_BACKTRACK_SECONDS);
     const chronologicalBounds = chronologicalRebindBounds(segments, index, durationSeconds);
     const rawFinishTime = Math.max(0.8, anchor - finishLeadSeconds);
-    const desiredSourceStart = Math.min(rawFinishTime - 4.1, rawFinishTime - profile.preShotSeconds);
+    const desiredSourceStart = Math.max(0, anchor - Number(profile.backtrackSeconds || 15));
     const rawSourceStart = Math.max(
       earliestScoreBoundStart,
-      desiredSourceStart,
+      anchor - SCORE_CHANGE_REBIND_PRESERVED_BACKTRACK_SECONDS,
+      Math.min(currentStart, desiredSourceStart),
       chronologicalBounds.lowerBound,
     );
     const latestFinishTime = Math.max(0.8, anchor - SCORE_CHANGE_REBIND_MIN_FINISH_LEAD_SECONDS);
     const lowerBoundClippedBuildup = chronologicalBounds.lowerBound > desiredSourceStart + 0.25;
-    const minimumFinishOffsetFromStart = lowerBoundClippedBuildup ? 3.5 : 8;
+    const minimumFinishOffsetFromStart = 4;
     const finishTime = Number(Math.min(
       latestFinishTime,
-      Math.max(rawFinishTime, rawSourceStart + minimumFinishOffsetFromStart),
+      Math.max(rawFinishTime, chronologicalBounds.lowerBound + minimumFinishOffsetFromStart),
     ).toFixed(2));
     let sourceStart = Number(Math.max(
       chronologicalBounds.lowerBound,
-      Math.min(rawSourceStart, finishTime - 3.5),
+      Math.min(rawSourceStart, finishTime - minimumFinishOffsetFromStart),
     ).toFixed(2));
     const searchEnd = durationSeconds > 0
       ? Math.min(durationSeconds, anchor + profile.postConfirmationSeconds)
       : anchor + profile.postConfirmationSeconds;
     const searchStart = Math.max(earliestScoreBoundStart, chronologicalBounds.lowerBound);
-    const delayedScoreConfirmation = anchor - finishTime >= SCORE_CHANGE_REBIND_COMPACT_CONFIRMATION_GAP_SECONDS;
-    const desiredSourceEnd = delayedScoreConfirmation
-      ? Math.max(sourceStart + 8, finishTime + SCORE_CHANGE_REBIND_COMPACT_FINISH_TAIL_SECONDS)
-      : Math.max(anchor + profile.postConfirmationSeconds, finishTime + 4.5);
+    const desiredSourceEnd = Math.max(
+      anchor + profile.postConfirmationSeconds,
+      finishTime + 4.5,
+    );
     const sourceEnd = durationSeconds > 0
       ? Number(Math.min(durationSeconds, chronologicalBounds.upperBound || durationSeconds, desiredSourceEnd).toFixed(2))
       : Number(desiredSourceEnd.toFixed(2));
@@ -349,7 +350,8 @@ function rebindRenderedGoalFailureSegments({ editPlan, renderedGoalProof, metada
         sourceEnd - RENDERED_GOAL_REBIND_MAX_SEGMENT_SECONDS,
       ).toFixed(2));
     }
-    const shotStart = Number(Math.max(sourceStart + 2, finishTime - 2.1).toFixed(2));
+    const scoreChangeConfirmedOutsideClip = anchor > sourceEnd;
+    const shotStart = Number(Math.max(sourceStart + 2, finishTime - 3.25).toFixed(2));
     if (sourceEnd <= sourceStart + 3) return segment;
 
     applied = true;
@@ -360,9 +362,7 @@ function rebindRenderedGoalFailureSegments({ editPlan, renderedGoalProof, metada
       finishTime: safeNumber(segment.finishTime),
       confirmationTime: safeNumber(segment.confirmationTime),
     };
-    const confirmationTime = delayedScoreConfirmation
-      ? Number(Math.min(sourceEnd - 0.25, finishTime + SCORE_CHANGE_REBIND_COMPACT_LOCAL_CONFIRMATION_SECONDS).toFixed(2))
-      : Number(anchor.toFixed(2));
+    const confirmationTime = Number(anchor.toFixed(2));
     const selectedWindow = {
       sourceStart,
       sourceEnd,
@@ -385,12 +385,12 @@ function rebindRenderedGoalFailureSegments({ editPlan, renderedGoalProof, metada
       failedRoles: failure.failedRoles.slice(0, 8),
       attemptNumber: Number(attemptNumber || 1),
       profile: {
+        backtrackSeconds: profile.backtrackSeconds,
         finishLeadSeconds,
-        preShotSeconds: profile.preShotSeconds,
         postConfirmationSeconds: profile.postConfirmationSeconds,
         maxBacktrackSeconds: SCORE_CHANGE_REBIND_MAX_BACKTRACK_SECONDS,
         maxFinishLeadSeconds: SCORE_CHANGE_REBIND_MAX_FINISH_LEAD_SECONDS,
-        compactedDelayedScoreConfirmation: delayedScoreConfirmation,
+        compactedDelayedScoreConfirmation: false,
         lowerBoundClippedBuildup,
         minimumFinishOffsetFromStart,
       },
@@ -422,6 +422,7 @@ function rebindRenderedGoalFailureSegments({ editPlan, renderedGoalProof, metada
       shotStart,
       finishTime,
       confirmationTime,
+      scoreChangeTime: Number(anchor.toFixed(2)),
       finishFrameEvidence: null,
       reasonCodes,
       phaseCoverage: {
@@ -435,7 +436,7 @@ function rebindRenderedGoalFailureSegments({ editPlan, renderedGoalProof, metada
         finishTime,
         confirmationTime,
         scoreChangeTime: Number(anchor.toFixed(2)),
-        scoreChangeConfirmedOutsideClip: delayedScoreConfirmation,
+        scoreChangeConfirmedOutsideClip,
         replayOnly: false,
         visualGoalPayoff: {
           ...payoff,
@@ -448,7 +449,7 @@ function rebindRenderedGoalFailureSegments({ editPlan, renderedGoalProof, metada
             "rendered_goal_visibility_rebind",
             "score_change_live_phase_rebind",
             "live_shot_finish_sequence",
-            ...(delayedScoreConfirmation ? ["scoreboard_confirmation_decoupled_from_clip_tail"] : []),
+            ...(scoreChangeConfirmedOutsideClip ? ["scoreboard_confirmation_decoupled_from_clip_tail"] : []),
           ], 12),
         },
         finishFrameEvidence: null,
@@ -461,7 +462,7 @@ function rebindRenderedGoalFailureSegments({ editPlan, renderedGoalProof, metada
         rebindingSearchWindow,
         selectedWindow,
         failedRoles: failure.failedRoles.slice(0, 8),
-        scoreChangeConfirmedOutsideClip: delayedScoreConfirmation,
+        scoreChangeConfirmedOutsideClip,
       },
       safetyFlags: safeUniqueReasonList([
         ...(Array.isArray(segment.safetyFlags) ? segment.safetyFlags : []),
@@ -1684,7 +1685,7 @@ function buildChunkSamplingWindows({ chunk, metadata = {}, candidateWindows = []
         : [],
     });
   };
-  const baseFrameCount = Math.max(2, Math.min(8, Math.round(Number(frameCount) || SCOREBUG_FIRST_CHUNK_FRAME_COUNT)));
+  const baseFrameCount = Math.max(2, Math.min(20, Math.round(Number(frameCount) || SCOREBUG_FIRST_CHUNK_FRAME_COUNT)));
   for (let index = 0; index < baseFrameCount; index += 1) {
     pushWindow(start + ((index + 0.5) / baseFrameCount) * chunkDuration, {
       confidence: 0.54,
@@ -1698,7 +1699,7 @@ function buildChunkSamplingWindows({ chunk, metadata = {}, candidateWindows = []
   for (const candidate of inChunkCandidates) {
     const time = candidateWindowTime(candidate);
     if (!Number.isFinite(time)) continue;
-    for (const offset of [-4, 0, 8, 14, 16]) {
+    for (const offset of [-4, 0, 4, 8, 14]) {
       pushWindow(time + offset, {
         start: Number(candidate.start),
         end: Number(candidate.end),
@@ -1713,14 +1714,21 @@ function buildChunkSamplingWindows({ chunk, metadata = {}, candidateWindows = []
     if (deduped.some((existing) => Math.abs(existing.timestamp - window.timestamp) < 1.25)) continue;
     deduped.push(window);
   }
-  return deduped.slice(0, 14);
+  const periodic = deduped.filter((window) => window.source === "scorebug_chunk_periodic_sample");
+  const candidateSamples = deduped
+    .filter((window) => window.source !== "scorebug_chunk_periodic_sample")
+    .sort((a, b) => Number(b.confidence || 0) - Number(a.confidence || 0) || a.timestamp - b.timestamp)
+    .slice(0, 4);
+  return [...periodic, ...candidateSamples]
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .slice(0, 20);
 }
 
 function buildScorebugOcrChunks({ metadata = {}, candidateWindows = [], config = {} } = {}) {
   const duration = Math.max(0, Number(metadata.durationSeconds || 0));
   if (!duration) return [];
   const chunkSeconds = clampNumber(config.chunkSeconds, 30, 180, SCOREBUG_FIRST_CHUNK_SECONDS);
-  const frameCount = clampNumber(config.framesPerChunk, 2, 8, SCOREBUG_FIRST_CHUNK_FRAME_COUNT);
+  const frameCount = clampNumber(config.framesPerChunk, 2, 20, SCOREBUG_FIRST_CHUNK_FRAME_COUNT);
   const maxChunks = Math.max(1, Math.min(40, Math.ceil(duration / chunkSeconds)));
   const chunks = [];
   for (let index = 0; index < maxChunks; index += 1) {
@@ -1739,11 +1747,11 @@ function buildScorebugOcrChunks({ metadata = {}, candidateWindows = [], config =
 function chunkTimeoutMsFor({ totalBudgetMs, configuredTimeoutMs }) {
   const configured = Number(configuredTimeoutMs);
   if (Number.isFinite(configured) && configured > 0) {
-    return Math.max(250, Math.min(15_000, Math.min(totalBudgetMs, configured)));
+    return Math.max(250, Math.min(30_000, Math.min(totalBudgetMs, configured)));
   }
   const budget = Number(totalBudgetMs || SCOREBUG_FIRST_OCR_BUDGET_MS);
   if (Number.isFinite(budget) && budget > 0 && budget < SCOREBUG_FIRST_OCR_BUDGET_MS) {
-    return Math.max(250, Math.min(15_000, Math.floor(budget)));
+    return Math.max(250, Math.min(30_000, Math.floor(budget)));
   }
   return SCOREBUG_FIRST_CHUNK_TIMEOUT_MS;
 }
@@ -1780,6 +1788,56 @@ function evidenceTransitionKey(item = {}) {
     sanitizeText(item.scoreBefore, 16),
     sanitizeText(item.scoreAfter, 16),
   ].join("->");
+}
+
+function authoritativeScoreTransitionEvidence(item = {}) {
+  return Boolean(
+    item &&
+    (item.scoreChanged || item.status === "score_changed") &&
+    item.temporalConsistency === true &&
+    item.ambiguous !== true &&
+    Number(item.confidence || 0) >= 0.72 &&
+    unitScoreTransition(item.scoreBefore, item.scoreAfter)
+  );
+}
+
+function compactAggregatedScoreEvidence(items = [], maxItems = 32) {
+  const source = (Array.isArray(items) ? items : [])
+    .filter((item) => item && typeof item === "object")
+    .sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
+  const required = source.filter((item) => (
+    item.scoreChanged ||
+    item.scoreReverted ||
+    item.status === "score_changed" ||
+    item.status === "goal_removed" ||
+    item.status === "score_reverted_or_disallowed" ||
+    sanitizeText(item.transitionDecision || "", 60) === "score_change_pending_confirmation"
+  ));
+  const unchangedByScore = new Map();
+  for (const item of source) {
+    if (!(item.scoreUnchanged || item.status === "score_unchanged")) continue;
+    const score = sanitizeText(item.scoreAfter || item.scoreBefore || "unknown", 16);
+    if (!unchangedByScore.has(score)) unchangedByScore.set(score, []);
+    unchangedByScore.get(score).push(item);
+  }
+  const context = [];
+  for (const rows of unchangedByScore.values()) {
+    if (rows[0]) context.push(rows[0]);
+    if (rows.length > 1) context.push(rows[rows.length - 1]);
+  }
+  const selected = [];
+  const seen = new Set();
+  const add = (item) => {
+    if (!item || selected.length >= maxItems) return;
+    const key = evidenceKey(item);
+    if (seen.has(key)) return;
+    seen.add(key);
+    selected.push(item);
+  };
+  for (const item of required) add(item);
+  for (const item of context) add(item);
+  for (const item of source) add(item);
+  return selected.sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
 }
 
 function scoreObjectFromText(value) {
@@ -2122,19 +2180,28 @@ function globalScoreObservationsFromChunkedOutputs(outputs = []) {
   return observations.sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
 }
 
+function globalDigitObservationsFromChunkedOutputs(outputs = []) {
+  const observations = [];
+  const seen = new Set();
+  for (const output of Array.isArray(outputs) ? outputs : []) {
+    for (const observation of Array.isArray(output && output._internalDigitObservations)
+      ? output._internalDigitObservations
+      : []) {
+      const timestamp = Number(observation && observation.timestamp);
+      const regionId = sanitizeText(observation && observation.regionId || "scorebug_region", 80);
+      if (!Number.isFinite(timestamp)) continue;
+      const key = `${timestamp.toFixed(2)}|${regionId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      observations.push(observation);
+    }
+  }
+  return observations.sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
+}
+
 function aggregateChunkedScoreboardOcr(outputs = [], { metadata = {}, chunkSummary = null } = {}) {
   const safeOutputs = (Array.isArray(outputs) ? outputs : []).filter((output) => output && typeof output === "object");
   const candidateProgression = buildScoreCandidateProgressionFromChunks(chunkSummary);
-  const enrichedChunkSummary = chunkSummary && typeof chunkSummary === "object"
-    ? {
-        ...chunkSummary,
-        discoveredScoreChanges: Math.max(
-          Number(chunkSummary.discoveredScoreChanges || 0),
-          candidateProgression.evidence.length,
-        ),
-        scoreCandidateDiagnostics: candidateProgression.diagnostics,
-      }
-    : chunkSummary;
   const evidence = [];
   const seenEvidence = new Set();
   for (const output of safeOutputs) {
@@ -2145,27 +2212,96 @@ function aggregateChunkedScoreboardOcr(outputs = [], { metadata = {}, chunkSumma
       evidence.push(item);
     }
   }
-  const globalTimeline = buildScoreboardTimelineFromObservations(globalScoreObservationsFromChunkedOutputs(safeOutputs));
+  const globalDigitObservations = globalDigitObservationsFromChunkedOutputs(safeOutputs);
+  const globalDigitRecovery = recoverScoresFromDigitTemplates(globalDigitObservations);
+  const globalObservations = globalDigitRecovery.observations.length
+    ? globalDigitRecovery.observations
+    : globalScoreObservationsFromChunkedOutputs(safeOutputs);
+  const globalTimeline = buildScoreboardTimelineFromObservations(globalObservations);
+  const directPendingTransitions = evidence.filter((item) => (
+    sanitizeText(item && item.transitionDecision || "", 60) === "score_change_pending_confirmation" &&
+    evidenceTransitionKey(item)
+  ));
+  // Digit-backed observations span chunk boundaries, so their reconstructed timeline is
+  // authoritative. Keeping each chunk's local score rows as well would duplicate the same
+  // transition at a later scoreboard reappearance and move the rendered goal to the next play.
+  if (globalDigitObservations.length > 0) {
+    for (let index = evidence.length - 1; index >= 0; index -= 1) {
+      if (evidence[index] && (evidence[index].scoreBefore || evidence[index].scoreAfter)) {
+        evidence.splice(index, 1);
+      }
+    }
+    seenEvidence.clear();
+    for (const item of evidence) seenEvidence.add(evidenceKey(item));
+  }
+  const globalScoreChangeCount = Array.isArray(globalTimeline.evidence)
+    ? globalTimeline.evidence.filter((item) => item && (item.scoreChanged || item.status === "score_changed")).length
+    : 0;
+  const directScoreChangeCount = evidence.filter((item) => (
+    item && (item.scoreChanged || item.status === "score_changed")
+  )).length;
+  const useCandidateProgressionFallback = globalDigitObservations.length === 0;
+  const observedCandidateTransitions = candidateProgression.evidence.filter((item) => (
+    item && item.synthetic !== true && item.bridgeGenerated !== true && unitScoreTransition(item.scoreBefore, item.scoreAfter)
+  ));
+  const authoritativeScoreChangeCount = Math.max(
+    observedCandidateTransitions.length,
+    globalScoreChangeCount,
+    directScoreChangeCount,
+  );
+  const enrichedChunkSummary = chunkSummary && typeof chunkSummary === "object"
+    ? {
+        ...chunkSummary,
+        discoveredScoreChanges: authoritativeScoreChangeCount,
+        scoreCandidateDiagnostics: candidateProgression.diagnostics,
+      }
+    : chunkSummary;
   for (const item of Array.isArray(globalTimeline.evidence) ? globalTimeline.evidence : []) {
     const key = evidenceKey(item);
     if (seenEvidence.has(key)) continue;
     seenEvidence.add(key);
     evidence.push(item);
   }
+  if (globalDigitObservations.length > 0) {
+    const stableByTransition = new Map(evidence
+      .filter((item) => item && (item.scoreChanged || item.status === "score_changed"))
+      .map((item) => [evidenceTransitionKey(item), item])
+      .filter(([key]) => Boolean(key)));
+    for (const pending of directPendingTransitions) {
+      const transitionKey = evidenceTransitionKey(pending);
+      const stable = stableByTransition.get(transitionKey);
+      const pendingTimestamp = Number(pending.timestamp);
+      const stableTimestamp = Number(stable && stable.timestamp);
+      if (!stable || !Number.isFinite(pendingTimestamp) || !Number.isFinite(stableTimestamp)) continue;
+      if (pendingTimestamp >= stableTimestamp || stableTimestamp - pendingTimestamp > 45) continue;
+      const key = evidenceKey(pending);
+      if (seenEvidence.has(key)) continue;
+      seenEvidence.add(key);
+      evidence.push(pending);
+    }
+  }
   const seenTransitions = new Set(evidence
-    .filter((item) => item && (item.scoreChanged || item.status === "score_changed"))
+    .filter(authoritativeScoreTransitionEvidence)
     .map(evidenceTransitionKey)
     .filter(Boolean));
-  for (const item of candidateProgression.evidence) {
+  for (const item of observedCandidateTransitions) {
     const key = evidenceKey(item);
     const transitionKey = evidenceTransitionKey(item);
     if (transitionKey && seenTransitions.has(transitionKey)) continue;
+    if (transitionKey) {
+      for (let index = evidence.length - 1; index >= 0; index -= 1) {
+        if (evidenceTransitionKey(evidence[index]) !== transitionKey) continue;
+        seenEvidence.delete(evidenceKey(evidence[index]));
+        evidence.splice(index, 1);
+      }
+    }
     if (seenEvidence.has(key)) continue;
     seenEvidence.add(key);
     if (transitionKey) seenTransitions.add(transitionKey);
     evidence.push(item);
   }
-  evidence.sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
+  const compactedEvidence = compactAggregatedScoreEvidence(evidence);
+  evidence.splice(0, evidence.length, ...compactedEvidence);
   const regionIdsUsed = [...new Set(safeOutputs
     .flatMap((output) => output.summary && Array.isArray(output.summary.regionIdsUsed) ? output.summary.regionIdsUsed : [])
     .map((id) => sanitizeText(id, 64))
@@ -2189,7 +2325,7 @@ function aggregateChunkedScoreboardOcr(outputs = [], { metadata = {}, chunkSumma
   const normalizedEvidence = Array.isArray(result.evidence) ? result.evidence : [];
   const candidateEvidence = Array.isArray(candidateProgression.evidence) ? candidateProgression.evidence : [];
   const hasScoreChanges = normalizedEvidence.some((item) => item && item.scoreChanged);
-  if (!hasScoreChanges && candidateEvidence.length) {
+  if (!hasScoreChanges && useCandidateProgressionFallback && candidateEvidence.length) {
     const mergedEvidence = [...normalizedEvidence];
     const mergedKeys = new Set(mergedEvidence.map(evidenceKey));
     for (const item of candidateEvidence) {
@@ -2237,6 +2373,212 @@ function aggregateChunkedScoreboardOcr(outputs = [], { metadata = {}, chunkSumma
     summary: {
       ...result.summary,
       chunkSummary: result.summary && result.summary.chunkSummary || enrichedChunkSummary,
+    },
+  };
+}
+
+function buildScoreTransitionRefinementPasses(scoreboardOcr = {}, { expectedGoalCount = 0 } = {}) {
+  const evidence = (Array.isArray(scoreboardOcr && scoreboardOcr.evidence) ? scoreboardOcr.evidence : [])
+    .filter((item) => item && typeof item === "object")
+    .sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
+  const transitions = evidence
+    .filter((item) => item && (item.scoreChanged || item.status === "score_changed"))
+    .map((item) => ({
+      timestamp: Number(item.timestamp),
+      scoreBefore: sanitizeText(item.scoreBefore || "", 16),
+      scoreAfter: sanitizeText(item.scoreAfter || "", 16),
+    }))
+    .filter((item) => Number.isFinite(item.timestamp) && item.scoreBefore && item.scoreAfter)
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .slice(0, 12);
+  if (!transitions.length) return [];
+  const expected = Math.max(0, Math.min(12, Math.round(Number(expectedGoalCount || 0))));
+  const missingExpectedTransitions = expected > 0 && transitions.length < expected;
+  const passes = [];
+  let previousScore = "0-0";
+  let previousTransitionTimestamp = null;
+  for (const [index, transition] of transitions.entries()) {
+    const firstPendingObservation = evidence
+      .filter((item) => (
+        Number(item.timestamp) < transition.timestamp &&
+        transition.timestamp - Number(item.timestamp) <= 120 &&
+        sanitizeText(item.scoreBefore || "", 16) === transition.scoreBefore &&
+        sanitizeText(item.scoreAfter || "", 16) === transition.scoreAfter &&
+        sanitizeText(item.transitionDecision || "", 60) === "score_change_pending_confirmation"
+      ))
+      .sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0))[0] || null;
+    const refinementAnchorTimestamp = firstPendingObservation
+      ? Number(firstPendingObservation.timestamp)
+      : transition.timestamp;
+    const progressionGap = transition.scoreBefore !== previousScore;
+    const widenForMissingState = progressionGap || (missingExpectedTransitions && index === transitions.length - 1);
+    const lookbackSeconds = widenForMissingState ? 120 : 45;
+    const lastPreviousScoreObservation = evidence
+      .filter((item) => (
+        Number(item.timestamp) < refinementAnchorTimestamp &&
+        sanitizeText(item.scoreAfter || item.scoreBefore || "", 16) === transition.scoreBefore &&
+        (item.scoreUnchanged || item.status === "score_unchanged")
+      ))
+      .sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0))[0] || null;
+    const lastPreviousScoreTimestamp = lastPreviousScoreObservation
+      ? Number(lastPreviousScoreObservation.timestamp)
+      : null;
+    const unobservedGapSeconds = Number.isFinite(lastPreviousScoreTimestamp)
+      ? roundNumber(Math.max(0, refinementAnchorTimestamp - lastPreviousScoreTimestamp))
+      : lookbackSeconds;
+    const transitionIntervalSeconds = Number.isFinite(previousTransitionTimestamp)
+      ? roundNumber(Math.max(0, refinementAnchorTimestamp - previousTransitionTimestamp))
+      : 0;
+    const refinementPrioritySeconds = Math.max(unobservedGapSeconds, transitionIntervalSeconds);
+    const windows = [];
+    for (let offset = -6; offset <= lookbackSeconds + 0.01; offset += 2) {
+      const timestamp = roundNumber(Math.max(0, refinementAnchorTimestamp - offset));
+      windows.push({
+        timestamp,
+        start: roundNumber(Math.max(0, timestamp - 0.8)),
+        end: roundNumber(timestamp + 0.8),
+        confidence: 0.92,
+        source: "scorebug_transition_refinement",
+        visualHints: [],
+      });
+    }
+    passes.push({
+      index: index + 1,
+      anchorTimestamp: roundNumber(refinementAnchorTimestamp),
+      stableConfirmationTimestamp: roundNumber(transition.timestamp),
+      pendingObservationUsed: Boolean(firstPendingObservation),
+      scoreBefore: transition.scoreBefore,
+      scoreAfter: transition.scoreAfter,
+      lookbackSeconds,
+      progressionGap,
+      lastPreviousScoreTimestamp: Number.isFinite(lastPreviousScoreTimestamp)
+        ? roundNumber(lastPreviousScoreTimestamp)
+        : null,
+      unobservedGapSeconds,
+      transitionIntervalSeconds,
+      refinementPrioritySeconds,
+      requiresFirstDisplayRefinement: Boolean(
+        progressionGap ||
+        missingExpectedTransitions ||
+        unobservedGapSeconds > 20 ||
+        transitionIntervalSeconds > 110
+      ),
+      windows: windows.sort((a, b) => a.timestamp - b.timestamp).slice(0, 64),
+    });
+    previousScore = transition.scoreAfter;
+    previousTransitionTimestamp = refinementAnchorTimestamp;
+  }
+  return passes;
+}
+
+function scheduleScoreTransitionRefinementPasses(passes = []) {
+  return (Array.isArray(passes) ? passes : [])
+    .filter((pass) => pass && pass.requiresFirstDisplayRefinement)
+    .sort((a, b) => (
+      Number(b.refinementPrioritySeconds || 0) - Number(a.refinementPrioritySeconds || 0) ||
+      Number(a.index || 0) - Number(b.index || 0)
+    ));
+}
+
+function buildScoreTransitionRefinementWindows(scoreboardOcr = {}, options = {}) {
+  const deduped = [];
+  const windows = buildScoreTransitionRefinementPasses(scoreboardOcr, options)
+    .flatMap((pass) => pass.windows);
+  for (const window of windows.sort((a, b) => a.timestamp - b.timestamp)) {
+    if (deduped.some((existing) => Math.abs(existing.timestamp - window.timestamp) < 0.5)) continue;
+    deduped.push(window);
+  }
+  return deduped.slice(0, 96);
+}
+
+function unitScoreTransition(scoreBefore, scoreAfter) {
+  const before = scoreObjectFromText(scoreBefore);
+  const after = scoreObjectFromText(scoreAfter);
+  if (!before || !after) return null;
+  const homeDelta = after.home - before.home;
+  const awayDelta = after.away - before.away;
+  if (!((homeDelta === 1 && awayDelta === 0) || (homeDelta === 0 && awayDelta === 1))) return null;
+  return {
+    before,
+    after,
+    changedRole: homeDelta === 1 ? "home" : "away",
+    unchangedRole: homeDelta === 1 ? "away" : "home",
+  };
+}
+
+function signatureSimilarity(left, right) {
+  return Number(digitSignatureSimilarity(left, right) || 0);
+}
+
+function matchingSignaturePair(left = {}, right = {}, minSimilarity = 0.86) {
+  const leftSignatures = left.digitSignatures || {};
+  const rightSignatures = right.digitSignatures || {};
+  return signatureSimilarity(leftSignatures.home, rightSignatures.home) >= minSimilarity &&
+    signatureSimilarity(leftSignatures.away, rightSignatures.away) >= minSimilarity;
+}
+
+function refineExpectedScoreTransitionOutput(output = {}, pass = {}, referenceOutputs = []) {
+  const transition = unitScoreTransition(pass.scoreBefore, pass.scoreAfter);
+  if (!transition) return output;
+  const observations = Array.isArray(output._internalDigitObservations)
+    ? output._internalDigitObservations.map((item) => ({ ...item }))
+    : [];
+  if (observations.length < 2) return output;
+  const referenceObservations = globalDigitObservationsFromChunkedOutputs([
+    ...(Array.isArray(referenceOutputs) ? referenceOutputs : []),
+    output,
+  ]);
+  const baseline = referenceObservations
+    .filter((item) => item && item.score && item.score.text === transition.before.text)
+    .sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
+  if (!baseline.length) return output;
+  const changedRole = transition.changedRole;
+  const unchangedRole = transition.unchangedRole;
+  const candidateRows = observations
+    .filter((item) => Number(item.timestamp) <= Number(pass.anchorTimestamp) + 0.1)
+    .filter((item) => {
+      const signatures = item.digitSignatures || {};
+      if (!signatures.home || !signatures.away) return false;
+      if (item.score && item.score.text === transition.after.text) return true;
+      const unchangedMatches = baseline.some((beforeRow) => (
+        signatureSimilarity(signatures[unchangedRole], beforeRow.digitSignatures && beforeRow.digitSignatures[unchangedRole]) >= 0.86
+      ));
+      const changedDiffers = baseline.every((beforeRow) => (
+        signatureSimilarity(signatures[changedRole], beforeRow.digitSignatures && beforeRow.digitSignatures[changedRole]) < 0.84
+      ));
+      return unchangedMatches && changedDiffers;
+    })
+    .sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
+  let selectedPair = null;
+  for (let index = 0; index < candidateRows.length - 1; index += 1) {
+    const first = candidateRows[index];
+    const second = candidateRows[index + 1];
+    const gap = Number(second.timestamp) - Number(first.timestamp);
+    if (gap <= 0 || gap > 4.25 || !matchingSignaturePair(first, second)) continue;
+    selectedPair = [first, second];
+    break;
+  }
+  if (!selectedPair) return output;
+  const selectedTimes = new Set(selectedPair.map((item) => Number(item.timestamp).toFixed(2)));
+  const correctedObservations = observations.map((item) => {
+    if (!selectedTimes.has(Number(item.timestamp).toFixed(2))) return item;
+    return {
+      ...item,
+      score: { ...transition.after },
+      confidence: Math.max(0.82, Number(item.confidence || 0)),
+      rejected: false,
+      source: "local_scorebug_digit_template_match_refinement",
+    };
+  });
+  return {
+    ...output,
+    _internalDigitObservations: correctedObservations,
+    refinement: {
+      applied: true,
+      scoreBefore: transition.before.text,
+      scoreAfter: transition.after.text,
+      firstSeenAt: Number(selectedPair[0].timestamp),
+      confirmedAt: Number(selectedPair[1].timestamp),
     },
   };
 }
@@ -2798,7 +3140,7 @@ async function runChunkedScorebugFirstOcr({
   const outputs = [];
   const chunkReports = [];
   let discoveredScoreChanges = 0;
-  let preferredScorebugRegionIds = [];
+  let preferredScorebugRegionIds = [SCOREBUG_FIRST_ROI_CANDIDATE_IDS[0]];
 
   for (const chunk of chunks) {
     const activeChunk = {
@@ -2978,10 +3320,124 @@ async function runChunkedScorebugFirstOcr({
       substep: "scorebug_first_all_chunks_failed",
     });
   }
-  return ensureScoreCandidateProgressionEvidence(aggregateChunkedScoreboardOcr(outputs, {
+  let aggregated = aggregateChunkedScoreboardOcr(outputs, {
     metadata: context.metadata,
     chunkSummary,
-  }));
+  });
+  const hasInternalDigitObservations = outputs.some((output) => (
+    Array.isArray(output && output._internalDigitObservations) && output._internalDigitObservations.length > 0
+  ));
+  const refinementPasses = hasInternalDigitObservations
+    ? buildScoreTransitionRefinementPasses(aggregated, {
+        expectedGoalCount: context.metadata && context.metadata.expectedCountedGoals,
+      })
+    : [];
+  const scheduledRefinementPasses = scheduleScoreTransitionRefinementPasses(refinementPasses);
+  for (const refinementPass of scheduledRefinementPasses) {
+    const refinementElapsedMs = Date.now() - startedMs;
+    const refinementRemainingMs = effectiveTotalBudgetMs - refinementElapsedMs;
+    if (refinementRemainingMs < 1000) break;
+    const refinementWindows = refinementPass.windows;
+    const refinementTimeoutMs = Math.min(
+      refinementRemainingMs,
+      Math.max(10_000, Math.min(36_000, refinementWindows.length * 900)),
+    );
+    updateJobStep({
+      jobs,
+      job,
+      projectId: project.id,
+      requestId,
+      logger: deps.logger,
+      progress: 29,
+      step: "run_scorebug_ocr",
+      substep: "scorebug_transition_refinement",
+      longSource: true,
+      scorebugFirst: true,
+      budgetMs: refinementTimeoutMs,
+      progressDetails: {
+        refinementPass: refinementPass.index,
+        refinementPassCount: scheduledRefinementPasses.length,
+        anchorTimestamp: refinementPass.anchorTimestamp,
+        scoreBefore: refinementPass.scoreBefore,
+        scoreAfter: refinementPass.scoreAfter,
+        sampledFrameCount: refinementWindows.length,
+        discoveredScoreChanges: Number(aggregated.summary && aggregated.summary.scoreChangeCount || 0),
+        elapsedMs: refinementElapsedMs,
+        totalBudgetMs: effectiveTotalBudgetMs,
+      },
+    });
+    try {
+      let refined = await runStepWithTimeout(
+        (stepSignal) => deps.analyzeScoreboardOcr({
+          inputPath: context.inputPath,
+          metadata: context.metadata,
+          candidateWindows: refinementWindows,
+          mediaSignals,
+          visualSignals: { windows: [] },
+          frames: [],
+          frameSummary: null,
+          ocrSamplingWindows: refinementWindows,
+          scorebugFirstOnly: true,
+          scorebugFirstRegionIds: preferredScorebugRegionIds,
+          signal: stepSignal,
+          timeoutMs: refinementTimeoutMs,
+        }),
+        {
+          signal,
+          timeoutMs: refinementTimeoutMs,
+          code: "SCOREBOARD_OCR_TIMEOUT",
+          details: {
+            phase: "analysis",
+            step: "run_scorebug_ocr",
+            substep: "scorebug_transition_refinement",
+            refinementPass: refinementPass.index,
+            anchorTimestamp: refinementPass.anchorTimestamp,
+            sampledFrameCount: refinementWindows.length,
+            timeoutMs: refinementTimeoutMs,
+          },
+        },
+      );
+      refined = refineExpectedScoreTransitionOutput(refined, refinementPass, outputs);
+      outputs.push(refined);
+      aggregated = aggregateChunkedScoreboardOcr(outputs, {
+        metadata: context.metadata,
+        chunkSummary,
+      });
+      logInfo(deps.logger, {
+        event: "scoreboard_ocr_transition_refinement_completed",
+        requestId,
+        projectId: project.id,
+        jobId: job.id,
+        step: "run_scorebug_ocr",
+        substep: "scorebug_transition_refinement",
+        refinementPass: refinementPass.index,
+        refinementPassCount: scheduledRefinementPasses.length,
+        anchorTimestamp: refinementPass.anchorTimestamp,
+        scoreBefore: refinementPass.scoreBefore,
+        scoreAfter: refinementPass.scoreAfter,
+        sampledFrameCount: refinementWindows.length,
+        discoveredScoreChanges: Number(aggregated.summary && aggregated.summary.scoreChangeCount || 0),
+        elapsedMs: Date.now() - startedMs,
+      });
+    } catch (error) {
+      if ((signal && signal.aborted) || error.code === "JOB_CANCELLED") throw error;
+      logInfo(deps.logger, {
+        event: "scoreboard_ocr_transition_refinement_skipped",
+        requestId,
+        projectId: project.id,
+        jobId: job.id,
+        step: "run_scorebug_ocr",
+        substep: "scorebug_transition_refinement",
+        refinementPass: refinementPass.index,
+        refinementPassCount: scheduledRefinementPasses.length,
+        anchorTimestamp: refinementPass.anchorTimestamp,
+        code: sanitizeText(error && error.code || "SCOREBOARD_OCR_REFINEMENT_FAILED", 80),
+        sampledFrameCount: refinementWindows.length,
+        elapsedMs: Date.now() - startedMs,
+      });
+    }
+  }
+  return ensureScoreCandidateProgressionEvidence(aggregated);
 }
 
 function validateHighlightResult(result, metadata = {}) {
@@ -4166,6 +4622,19 @@ async function runRenderJob(options) {
         editPlan,
         metadata: context.metadata,
         signal,
+        onProgress: (proofProgress) => updateJobStep({
+          jobs,
+          job,
+          projectId: project.id,
+          requestId,
+          logger: deps.logger,
+          progress: 88,
+          step: "verify_rendered_goal_visibility",
+          substep: "sample_rendered_finish_frames",
+          longSource: Boolean(longSourceRuntime),
+          scorebugFirst: Boolean(longSourceRuntime),
+          renderedGoalProofProgress: proofProgress,
+        }),
       });
       if (renderedGoalProof && renderedGoalProof.editPlan) {
         editPlan = deps.validateEditPlan(renderedGoalProof.editPlan, context.metadata);
@@ -4218,7 +4687,31 @@ async function runRenderJob(options) {
         }
         let rebindRecovered = false;
         let lastRebindError = error;
-        for (let rebindAttempt = 1; rebindAttempt <= RENDERED_GOAL_REBIND_MAX_ATTEMPTS; rebindAttempt += 1) {
+        const rebindFailures = safeGoalProofFailures(renderedGoalProof);
+        const rebindTargeted = rebindFailures.length > 0 && rebindFailures.length <= 2;
+        if (!rebindTargeted && rebindFailures.length > 0) {
+          logInfo(deps.logger, {
+            event: "rendered_goal_rebinding_skipped",
+            requestId,
+            projectId: project.id,
+            jobId: job.id,
+            step: "verify_rendered_goal_visibility",
+            reason: "too_many_failed_goals_for_targeted_rebind",
+            failedGoalCount: rebindFailures.length,
+            failedGoals: rebindFailures.map((failure) => ({
+              goalNumber: failure.goalNumber,
+              segmentIndex: failure.segmentIndex,
+              verdict: failure.verdict,
+            })).slice(0, 8),
+            logsDownloaded: false,
+            artifactsDownloaded: false,
+          });
+        }
+        for (
+          let rebindAttempt = 1;
+          rebindTargeted && rebindAttempt <= RENDERED_GOAL_REBIND_MAX_ATTEMPTS;
+          rebindAttempt += 1
+        ) {
           const rebind = rebindRenderedGoalFailureSegments({
             editPlan,
             renderedGoalProof,
@@ -4289,8 +4782,22 @@ async function runRenderJob(options) {
             renderedGoalProof = await deps.analyzeRenderedGoalProof({
               outputPath: context.outputPath,
               editPlan,
+              previousRenderedGoalProof: renderedGoalProof && renderedGoalProof.summary,
               metadata: context.metadata,
               signal,
+              onProgress: (proofProgress) => updateJobStep({
+                jobs,
+                job,
+                projectId: project.id,
+                requestId,
+                logger: deps.logger,
+                progress: 90,
+                step: "verify_rendered_goal_visibility",
+                substep: `sample_rebound_finish_frames_attempt_${rebindAttempt}`,
+                longSource: Boolean(longSourceRuntime),
+                scorebugFirst: Boolean(longSourceRuntime),
+                renderedGoalProofProgress: proofProgress,
+              }),
             });
             if (renderedGoalProof && renderedGoalProof.editPlan) {
               editPlan = deps.validateEditPlan({
@@ -4368,8 +4875,22 @@ async function runRenderJob(options) {
                 renderedGoalProof = await deps.analyzeRenderedGoalProof({
                   outputPath: context.outputPath,
                   editPlan,
+                  previousRenderedGoalProof: renderedGoalProof && renderedGoalProof.summary,
                   metadata: context.metadata,
                   signal,
+                  onProgress: (proofProgress) => updateJobStep({
+                    jobs,
+                    job,
+                    projectId: project.id,
+                    requestId,
+                    logger: deps.logger,
+                    progress: 91,
+                    step: "verify_rendered_goal_visibility",
+                    substep: "sample_compacted_finish_frames",
+                    longSource: Boolean(longSourceRuntime),
+                    scorebugFirst: Boolean(longSourceRuntime),
+                    renderedGoalProofProgress: proofProgress,
+                  }),
                 });
                 if (renderedGoalProof && renderedGoalProof.editPlan) {
                   editPlan = deps.validateEditPlan({
@@ -4746,6 +5267,14 @@ module.exports = {
   resolveLocalArtifactPath,
   ocrQaCalibrationOptionsFromEnv,
   __testing: {
+    aggregateChunkedScoreboardOcr,
+    buildScoreTransitionRefinementPasses,
+    buildScoreTransitionRefinementWindows,
+    scheduleScoreTransitionRefinementPasses,
+    compactAggregatedScoreEvidence,
+    refineExpectedScoreTransitionOutput,
+    runChunkedScorebugFirstOcr,
+    buildChunkSamplingWindows,
     buildScoreCandidateProgressionFromChunks,
     compactVisibleGoalSegmentsForReferenceDuration,
     renderedProofSourceTimes,

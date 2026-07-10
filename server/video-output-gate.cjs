@@ -469,6 +469,22 @@ function scoreChangeIdentity(segment = {}) {
   };
 }
 
+function hasScoreboardBacktrackContext(segment = {}, confirmationTime = null) {
+  const sourceStart = numberOrNull(segment.sourceStart);
+  const confirmedAt = numberOrNull(
+    confirmationTime ??
+    segment.scoreChangeTime ??
+    segment.confirmationTime ??
+    (segment.phaseCoverage && segment.phaseCoverage.scoreChangeTime) ??
+    (segment.phaseCoverage && segment.phaseCoverage.confirmationTime) ??
+    (segment.goalOutcome && segment.goalOutcome.scoreChangeTime) ??
+    (segment.goalOutcome && segment.goalOutcome.decisionTimestamp),
+  );
+  return sourceStart != null &&
+    confirmedAt != null &&
+    sourceStart <= confirmedAt - MIN_SCORE_CHANGE_BACKTRACK_SECONDS;
+}
+
 function publicGoalIdentity(segment = {}, index = 0) {
   const identity = scoreChangeIdentity(segment);
   return {
@@ -649,15 +665,19 @@ function expectedGoalsFromTruth(matchEventTruth = {}) {
     .filter((change) => change.outcome === "counted_goal")
     .sort((a, b) => Number(a.changeTime || 0) - Number(b.changeTime || 0));
   if (scoreChanges.length) {
-    return scoreChanges.map((change, index) => ({
-      goalNumber: index + 1,
-      source: "score_change",
-      anchorTime: scoreChangeAnchorTime(change),
-      confirmationTime: numberOrNull(change.changeTime),
-      sourceWindow: null,
-      scoreBefore: change.startScore || null,
-      scoreAfter: change.endScore || null,
-    }));
+    return scoreChanges.map((change, index) => {
+      const anchorTime = scoreChangeAnchorTime(change);
+      return {
+        goalNumber: index + 1,
+        source: "score_change",
+        anchorTime,
+        confirmationTime: anchorTime,
+        stableConfirmationTime: numberOrNull(change.changeTime),
+        sourceWindow: null,
+        scoreBefore: change.startScore || null,
+        scoreAfter: change.endScore || null,
+      };
+    });
   }
 
   const selectedGoals = (Array.isArray(truth.selectedEvents) ? truth.selectedEvents : [])
@@ -689,7 +709,18 @@ function expectedGoalsFromTruth(matchEventTruth = {}) {
 
 function scoreChangeAnchorTime(change = {}) {
   const changeTime = numberOrNull(change.changeTime);
+  const firstSeenAt = numberOrNull(change.firstSeenAt);
   const actionAnchorTime = numberOrNull(change.actionAnchorTime);
+  if (
+    change.hasPendingObservation === true &&
+    firstSeenAt != null &&
+    (changeTime == null || (
+      firstSeenAt <= changeTime &&
+      changeTime - firstSeenAt <= 70
+    ))
+  ) {
+    return firstSeenAt;
+  }
   return changeTime == null ? actionAnchorTime : changeTime;
 }
 
@@ -697,6 +728,17 @@ function segmentFailureReasons(segment = {}, goalSelectionMode = "balanced", opt
   const requireRenderedGoalVisibility = options.requireRenderedGoalVisibility !== false;
   const reasons = [];
   const phase = segment.phaseCoverage && typeof segment.phaseCoverage === "object" ? segment.phaseCoverage : {};
+  const visualGoalPayoff = phase.visualGoalPayoff &&
+    typeof phase.visualGoalPayoff === "object" &&
+    !Array.isArray(phase.visualGoalPayoff)
+    ? phase.visualGoalPayoff
+    : {};
+  const requiresRenderedFinishProof = Boolean(
+    phase.requiresRenderedFinishProof ||
+    visualGoalPayoff.requiresRenderedFinishProof ||
+    segment.requiresRenderedFinishProof
+  );
+  const allowPreRenderFinishProbe = !requireRenderedGoalVisibility && requiresRenderedFinishProof;
   const shotStart = numberOrNull(segment.shotStart ?? phase.shotStart);
   const finishTime = numberOrNull(segment.finishTime ?? phase.finishTime);
   const confirmationTime = numberOrNull(segment.confirmationTime ?? phase.confirmationTime);
@@ -711,7 +753,7 @@ function segmentFailureReasons(segment = {}, goalSelectionMode = "balanced", opt
   if (confirmedGoal && (segment.celebrationOnly || phase.celebrationOnly)) reasons.push("celebration_only_goal_segment");
   if (confirmedGoal && (!phase.hasBuildup || shotStart == null)) reasons.push("missing_buildup_or_shot_start");
   if (confirmedGoal && (!phase.hasShot || shotStart == null)) reasons.push("missing_visible_shot");
-  if (confirmedGoal && (!phase.hasFinish || finishTime == null)) {
+  if (confirmedGoal && (!phase.hasFinish || finishTime == null) && !allowPreRenderFinishProbe) {
     reasons.push("missing_visible_finish");
   }
   if (confirmedGoal && (!phase.hasConfirmation || confirmationTime == null)) reasons.push("missing_goal_confirmation");
@@ -723,7 +765,8 @@ function segmentFailureReasons(segment = {}, goalSelectionMode = "balanced", opt
     confirmedGoal &&
     shotStart != null &&
     numberOrNull(segment.sourceStart) != null &&
-    shotStart - numberOrNull(segment.sourceStart) < MIN_PRE_SHOT_CONTEXT_SECONDS
+    shotStart - numberOrNull(segment.sourceStart) < MIN_PRE_SHOT_CONTEXT_SECONDS &&
+    !hasScoreboardBacktrackContext(segment, confirmationTime)
   ) {
     reasons.push("insufficient_pre_shot_context");
   }
@@ -785,7 +828,12 @@ function scoreChangeMatchRequirements(segment = {}, expected = {}) {
   if (finishTime != null && confirmationTime != null && finishTime >= confirmationTime - 0.25) {
     reasons.push("finish_not_before_scoreboard_change");
   }
-  if (shotStart != null && sourceStart != null && shotStart - sourceStart < MIN_PRE_SHOT_CONTEXT_SECONDS) {
+  if (
+    shotStart != null &&
+    sourceStart != null &&
+    shotStart - sourceStart < MIN_PRE_SHOT_CONTEXT_SECONDS &&
+    !hasScoreboardBacktrackContext(segment, confirmationTime)
+  ) {
     reasons.push("insufficient_pre_shot_context");
   }
   return {

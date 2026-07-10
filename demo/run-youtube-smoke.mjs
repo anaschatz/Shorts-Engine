@@ -1710,9 +1710,17 @@ function maybeWriteDownloadArtifact({ buffer, downloadSummary, env, ids, ingeste
 
 function safeJobSnapshot(job) {
   if (!job || typeof job !== "object") return null;
-  const videoOutputQA = safeVideoOutputQA(job.videoOutputQA || job.editPlan?.videoOutputQA);
+  const renderPlanSummary = safeRenderPlanSummary(job);
+  const videoOutputQA = safeVideoOutputQA(
+    job.videoOutputQA ||
+    job.editPlan?.videoOutputQA ||
+    job.renderPlanSummary?.videoOutputQA ||
+    renderPlanSummary?.videoOutputQA,
+  );
   const renderedGoalProof = job.renderedGoalProof ||
     (job.editPlan && job.editPlan.renderedGoalProof) ||
+    (job.renderPlanSummary && job.renderPlanSummary.renderedGoalProof) ||
+    (renderPlanSummary && renderPlanSummary.renderedGoalProof) ||
     null;
   const progressMeta = job.progressMeta && typeof job.progressMeta === "object" && !Array.isArray(job.progressMeta)
     ? {
@@ -1753,6 +1761,7 @@ function safeJobSnapshot(job) {
     error: safeReportError(job.error),
     scoreboardOcr: safeScoreboardOcrSnapshot(job.scoreboardOcr),
     videoOutputQA,
+    renderPlanSummary,
     renderedGoalProof: renderedGoalProof && typeof renderedGoalProof === "object" && !Array.isArray(renderedGoalProof)
       ? {
           schemaVersion: safeNumber(renderedGoalProof.schemaVersion),
@@ -1811,15 +1820,9 @@ function safeJobSnapshot(job) {
                       selectedClear: Boolean(goal.payoffSearch.selectedClear),
                       selectedReason: sanitizeText(goal.payoffSearch.selectedReason || "", 80) || null,
                       rejectedReasons: safeStringList(goal.payoffSearch.rejectedReasons, 8, 80),
-                      sampledCandidates: Array.isArray(goal.payoffSearch.sampledCandidates)
-                        ? goal.payoffSearch.sampledCandidates.slice(0, 24).map((candidate) => ({
-                            time: safeNumber(candidate && candidate.time),
-                            clear: Boolean(candidate && candidate.clear),
-                            status: sanitizeText(candidate && candidate.status || "", 40) || null,
-                            reason: sanitizeText(candidate && candidate.reason || "", 80) || null,
-                            confidence: safeNumber(candidate && candidate.confidence),
-                          }))
-                        : [],
+                      sampledCandidateCount: Array.isArray(goal.payoffSearch.sampledCandidates)
+                        ? goal.payoffSearch.sampledCandidates.length
+                        : 0,
                     }
                   : null,
                 semanticSummary: goal && goal.semanticSummary && typeof goal.semanticSummary === "object"
@@ -1938,7 +1941,11 @@ async function pollJob({ baseUrl, fetchImpl, jobId, jobTimeoutMs, pollIntervalMs
 
 function validateCompletedJob(job, context = {}) {
   if (!job || job.status !== "completed") {
-    const videoOutputQA = safeVideoOutputQA(job?.videoOutputQA || job?.editPlan?.videoOutputQA);
+    const videoOutputQA = safeVideoOutputQA(
+      job?.videoOutputQA ||
+      job?.editPlan?.videoOutputQA ||
+      job?.renderPlanSummary?.videoOutputQA,
+    );
     const errorDetails = job?.error?.details && typeof job.error.details === "object" && !Array.isArray(job.error.details)
       ? job.error.details
       : {};

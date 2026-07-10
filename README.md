@@ -97,6 +97,15 @@ npm run ci:reports
 npm run release:check
 ```
 
+Run the local autoresearch quality loop:
+
+```bash
+npm run research:short:baseline
+npm run research:short -- --description="one scoped experiment"
+```
+
+The loop is documented in `shortresearch/program.md`. It compares the current tree against a saved local baseline using eval, reference review and focused domain tests, then records whether the experiment should be kept or discarded.
+
 ## YouTube Link Proof
 
 YouTube ingest is deliberately locked by default. Only run live YouTube proof for videos you have the right to process.
@@ -169,6 +178,8 @@ npm run youtube:proof       Local YouTube proof alias
 npm run youtube:proof:operator
 npm run demo:browser:ci     Browser release proof
 npm run ci:reports          Validate generated report safety
+npm run research:short      Run the local autoresearch quality gate
+npm run research:short:baseline
 npm run release:check       Local release gate
 ```
 

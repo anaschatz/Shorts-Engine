@@ -108,6 +108,28 @@ function clearFramesFromWindows(candidateWindows) {
   }));
 }
 
+function clearPreviousGoalProof(goalNumber, segmentIndex, timeline) {
+  return {
+    goalNumber,
+    segmentIndex,
+    verdict: "clear",
+    timeline,
+    frameCount: 4,
+    candidateFrameCount: 40,
+    sourceEvidenceStrong: true,
+    unverifiedFrameCount: 0,
+    failedFrameReasons: [],
+    frameRefs: [
+      { role: "pre_shot", time: timeline.shot - 0.35, clear: true, status: "clear", frameId: `g${goalNumber}_pre` },
+      { role: "finish", time: timeline.finish, clear: true, status: "clear", frameId: `g${goalNumber}_finish` },
+      { role: "payoff", time: timeline.payoff, clear: true, status: "clear", frameId: `g${goalNumber}_payoff` },
+      { role: "confirmation", time: timeline.confirmation, clear: true, status: "clear", frameId: `g${goalNumber}_confirmation` },
+    ],
+    finishSearch: { selectedClear: true, clearCandidateCount: 2 },
+    payoffSearch: { selectedClear: true, clearCandidateCount: 2 },
+  };
+}
+
 test("rendered goal proof preserves 9:16 output dimensions for sampled frames", async () => {
   let receivedMetadata = null;
   await analyzeRenderedGoalProof({
@@ -200,9 +222,13 @@ test("rendered goal proof passes only with semantic validated goal frames", asyn
   assert.equal(result.summary.goals[0].verdict, "clear");
   assert.equal(result.summary.goals[0].unverifiedFrameCount, 0);
   assert.equal(result.editPlan.segments[0].finishFrameEvidence.visibilityVerdict, "clear");
+  assert.equal(result.editPlan.segments[0].finishFrameEvidence.finishBeforeScoreChange, true);
+  assert.equal(result.editPlan.segments[0].finishFrameEvidence.payoffBeforeScoreChange, true);
+  assert.equal(result.editPlan.segments[0].finishFrameEvidence.confirmationAtOrAfterScoreChange, true);
 });
 
-test("rendered goal proof samples score-change-adjacent finish and payoff frames", async () => {
+test("rendered goal proof rejects finish or payoff evidence at and after the score change", async () => {
+  let sampledWindows = [];
   const result = await analyzeRenderedGoalProof({
     outputPath: "rendered-output.mp4",
     editPlan: editPlan(goalSegment({
@@ -210,8 +236,10 @@ test("rendered goal proof samples score-change-adjacent finish and payoff frames
       finishTime: 86,
       confirmationTime: 96,
     })),
-    extractFrames: async ({ candidateWindows }) => ({
-      frames: candidateWindows.map((window, index) => {
+    extractFrames: async ({ candidateWindows }) => {
+      sampledWindows.push(...candidateWindows);
+      return {
+        frames: candidateWindows.map((window, index) => {
         const clear = window.role === "pre_shot" ||
           window.role === "confirmation" ||
           (window.role === "finish" && window.time >= 14.5) ||
@@ -230,20 +258,20 @@ test("rendered goal proof samples score-change-adjacent finish and payoff frames
                 roles: [window.role],
               },
         };
-      }),
-    }),
+        }),
+      };
+    },
     writeJson: () => {},
   });
 
-  assert.equal(result.summary.clearGoalCount, 1);
-  assert.equal(result.summary.failedGoalCount, 0);
+  assert.equal(result.summary.clearGoalCount, 0);
+  assert.equal(result.summary.failedGoalCount, 1);
   const goal = result.summary.goals[0];
-  const finish = goal.frameRefs.find((frame) => frame.role === "finish");
   const payoff = goal.frameRefs.find((frame) => frame.role === "payoff");
-  assert.equal(finish.clear, true);
-  assert.equal(payoff.clear, true);
-  assert.equal(finish.time >= 14.5, true);
-  assert.equal(payoff.time >= 16, true);
+  assert.equal(payoff.clear, false);
+  assert.equal(sampledWindows
+    .filter((window) => window.role === "finish" || window.role === "payoff")
+    .every((window) => Number(window.time) <= 16 - 0.25), true);
 });
 
 test("rendered goal proof rejects scoreboard-backed wide action sequence without clear finish and payoff frames", async () => {
@@ -364,11 +392,11 @@ test("rendered goal proof batches windows across goals and keeps role mapping", 
 
   assert.equal(result.summary.goalCount, 2);
   assert.equal(result.summary.clearGoalCount, 2);
-  assert.equal(calls.length >= 4, true);
+  assert.equal(calls.length >= 2, true);
   assert.equal(calls.length <= 8, true);
   assert.equal(calls[0].length <= 24, true);
   assert.equal(calls.flat().some((window) => Number(window.time) >= 20), true);
-  assert.equal(result.summary.timing.candidateFrameWindowCount >= 72, true);
+  assert.equal(result.summary.timing.candidateFrameWindowCount >= 16, true);
   assert.equal(result.summary.timing.candidateFrameWindowCount <= 160, true);
   assert.equal(result.summary.timing.uniqueFrameWindowCount, result.summary.timing.candidateFrameWindowCount);
   assert.equal(result.summary.timing.framesExtracted, result.summary.timing.candidateFrameWindowCount);
@@ -395,12 +423,132 @@ test("rendered goal proof reuses duplicate rendered frame windows safely", async
   assert.equal(result.summary.clearGoalCount, 2);
   assert.equal(extractionCallCount >= 2, true);
   assert.equal(extractionCallCount <= 5, true);
-  assert.equal(result.summary.timing.candidateFrameWindowCount >= 72, true);
+  assert.equal(result.summary.timing.candidateFrameWindowCount >= 16, true);
   assert.equal(result.summary.timing.candidateFrameWindowCount <= 160, true);
   assert.equal(result.summary.timing.uniqueFrameWindowCount <= 80, true);
   assert.equal(result.summary.timing.framesExtracted, result.summary.timing.uniqueFrameWindowCount);
   assert.equal(result.summary.timing.framesReused, result.summary.timing.uniqueFrameWindowCount);
   assert.equal(result.summary.timing.skippedDuplicateFrameCount, result.summary.timing.uniqueFrameWindowCount);
+});
+
+test("rendered goal proof targets changed goals and reuses unchanged clear proof", async () => {
+  const sampledGoalNumbers = [];
+  const goalOne = goalSegment({ id: "goal_1", goalNumber: 1 });
+  const goalTwo = goalSegment({
+    id: "goal_2",
+    goalNumber: 2,
+    sourceStart: 120,
+    sourceEnd: 140,
+    shotStart: 128,
+    finishTime: 132,
+    confirmationTime: 136,
+    duration: 20,
+  });
+  const previousRenderedGoalProof = {
+    goals: [
+      clearPreviousGoalProof(1, 1, {
+        sourceStart: 80,
+        sourceEnd: 100,
+        duration: 20,
+        timelineStart: 0,
+        timelineEnd: 20,
+        shot: 8,
+        finish: 12,
+        payoff: 12.55,
+        confirmation: 16,
+      }),
+    ],
+  };
+  const result = await analyzeRenderedGoalProof({
+    outputPath: "rendered-output.mp4",
+    editPlan: editPlanWithSegments([goalOne, goalTwo]),
+    previousRenderedGoalProof,
+    extractFrames: async ({ candidateWindows }) => {
+      sampledGoalNumbers.push(...candidateWindows.map((window) => window.goalNumber));
+      return { frames: clearFramesFromWindows(candidateWindows) };
+    },
+    writeJson: () => {},
+  });
+
+  assert.equal(result.summary.goalCount, 2);
+  assert.equal(result.summary.clearGoalCount, 2);
+  assert.equal(result.summary.goals[0].existingClearProofUsed, true);
+  assert.equal(result.summary.goals[1].existingClearProofUsed, false);
+  assert.equal(result.summary.timing.reusedExistingClearGoalCount, 1);
+  assert.equal(result.summary.timing.targetedGoalProofCount, 1);
+  assert.equal(sampledGoalNumbers.includes(1), false);
+  assert.equal(sampledGoalNumbers.includes(2), true);
+});
+
+test("rendered goal proof retimes unchanged source proof after duration compaction", async () => {
+  const sampledGoalNumbers = [];
+  const compactedGoal = goalSegment({
+    id: "goal_1",
+    goalNumber: 1,
+    sourceStart: 84,
+    sourceEnd: 100,
+    shotStart: 88,
+    finishTime: 92,
+    confirmationTime: 96,
+    duration: 16,
+    timelineStart: 0,
+    timelineEnd: 16,
+    reasonCodes: [
+      "visual_shot_contact",
+      "visual_ball_toward_goal",
+      "scoreboard_ocr_score_change",
+      "scoreboard_temporal_consistency",
+      "reference_duration_compaction",
+    ],
+    finishFrameEvidence: {
+      frameTime: 92,
+      confidence: 0.9,
+      visibilityVerdict: "clear",
+      hasVisibleFinish: true,
+      hasBallInNetOrPayoff: true,
+      hasGoalMouth: true,
+      hasPreShotActionFrame: true,
+      hasFinishActionFrame: true,
+      hasPayoffFrame: true,
+      hasConfirmationFrame: true,
+      evidenceCodes: ["reference_duration_compaction_preserved_clear_roles"],
+    },
+  });
+  const previousRenderedGoalProof = {
+    goals: [
+      clearPreviousGoalProof(1, 1, {
+        sourceStart: 80,
+        sourceEnd: 100,
+        duration: 20,
+        timelineStart: 7,
+        timelineEnd: 27,
+        shot: 15,
+        finish: 19,
+        payoff: 19.55,
+        confirmation: 23,
+      }),
+    ],
+  };
+  const result = await analyzeRenderedGoalProof({
+    outputPath: "rendered-output.mp4",
+    editPlan: editPlanWithSegments([compactedGoal]),
+    previousRenderedGoalProof,
+    extractFrames: async ({ candidateWindows }) => {
+      sampledGoalNumbers.push(...candidateWindows.map((window) => window.goalNumber));
+      return { frames: clearFramesFromWindows(candidateWindows) };
+    },
+    writeJson: () => {},
+  });
+
+  assert.equal(result.summary.clearGoalCount, 1);
+  assert.equal(result.summary.goals[0].existingClearProofUsed, true);
+  assert.equal(result.summary.goals[0].retimedFromPreviousClearProof, true);
+  assert.equal(result.summary.timing.reusedExistingClearGoalCount, 1);
+  assert.equal(result.summary.timing.targetedGoalProofCount, 0);
+  assert.deepEqual(sampledGoalNumbers, []);
+  const finish = result.summary.goals[0].frameRefs.find((frame) => frame.role === "finish");
+  assert.equal(finish.clear, true);
+  assert.equal(finish.time, 8);
 });
 
 test("rendered goal proof rejects finish-only evidence when payoff samples are unclear", async () => {
@@ -544,7 +692,7 @@ test("rendered goal proof rebinds to nearby semantic clear frames per role", asy
 
   assert.equal(result.summary.clearGoalCount, 1);
   assert.equal(result.summary.goals[0].verdict, "clear");
-  assert.equal(result.summary.goals[0].candidateFrameCount >= 36, true);
+  assert.equal(result.summary.goals[0].candidateFrameCount >= 20, true);
   assert.equal(result.summary.goals[0].candidateFrameCount <= 80, true);
   assert.equal(sampledWindows.filter((window) => window.role === "finish").length >= 5, true);
   assert.equal(sampledWindows.filter((window) => window.role === "payoff").length >= 3, true);
@@ -887,6 +1035,55 @@ test("rendered goal proof accepts a tight semantic-clear finish payoff burst", a
   assert.equal(evidence.finishPayoffOrdered, true);
 });
 
+test("rendered goal proof accepts one close payoff frame when the full goal role sequence is clear", async () => {
+  const clear = {
+    visibilityVerdict: "clear",
+    visibleGoal: true,
+    hasVisibleFinish: true,
+    hasBallInNetOrPayoff: true,
+    confidence: 0.91,
+  };
+  const failed = {
+    visibilityVerdict: "failed",
+    visibleGoal: false,
+    confidence: 0.2,
+    reasons: ["semantic_frame_not_clear"],
+  };
+  const result = await analyzeRenderedGoalProof({
+    outputPath: "rendered-output.mp4",
+    editPlan: editPlan(goalSegment()),
+    extractFrames: async ({ candidateWindows }) => ({
+      frames: candidateWindows.map((window, index) => {
+        const role = window.role;
+        const time = Number(window.time);
+        const shouldClear =
+          (role === "pre_shot" && index === candidateWindows.findIndex((item) => item.role === "pre_shot")) ||
+          (role === "finish" && Math.abs(time - 12) < 0.05) ||
+          (role === "payoff" && Math.abs(time - 12.55) < 0.05) ||
+          (role === "confirmation" && index === candidateWindows.findIndex((item) => item.role === "confirmation"));
+        return {
+          id: `frame_${index + 1}`,
+          localPath: `frame_${index + 1}.jpg`,
+          timestamp: window.time,
+          visualHints: window.visualHints,
+          semanticGoalEvidence: {
+            ...(shouldClear ? clear : failed),
+            roles: [role],
+          },
+        };
+      }),
+    }),
+    writeJson: () => {},
+  });
+
+  const evidence = result.editPlan.segments[0].finishFrameEvidence;
+  assert.equal(result.summary.clearGoalCount, 1);
+  assert.equal(evidence.visibilityVerdict, "clear");
+  assert.equal(evidence.selectedRoleSequenceSupportPassed, true);
+  assert.equal(evidence.payoffClearSupportPassed, true);
+  assert.equal(result.summary.goals[0].payoffSearch.clearCandidateCount <= 2, true);
+});
+
 test("rendered goal proof rejects sparse isolated payoff false positives", async () => {
   const clear = {
     visibilityVerdict: "clear",
@@ -974,13 +1171,13 @@ test("rendered goal proof samples early finish frames for delayed scoreboard con
   assert.equal(sampledWindows.some((window) => window.role === "finish" && Math.abs(Number(window.time) - 7.5) < 0.05), true);
   assert.equal(sampledWindows.some((window) => window.role === "finish" && Math.abs(Number(window.time) - 10.5) < 0.05), true);
   assert.equal(sampledWindows.some((window) => window.role === "finish" && Math.abs(Number(window.time) - 28.85) < 0.05), true);
-  assert.equal(sampledWindows.some((window) => window.role === "payoff" && Math.abs(Number(window.time) - 29.5) < 0.05), true);
+  assert.equal(sampledWindows.some((window) => window.role === "payoff" && Math.abs(Number(window.time) - 29.5) < 0.05), false);
   assert.equal(sampledWindows
     .filter((window) => window.role === "payoff")
-    .every((window) => Number(window.time) >= 7.5 - 0.65), true);
+    .every((window) => Number(window.time) >= 7.5 - 0.65 && Number(window.time) <= 29.5 - 0.25), true);
 });
 
-test("rendered goal proof samples rebound finish frames far before delayed score change", async () => {
+test("rendered goal proof samples rebound finish frames around the selected live finish", async () => {
   let sampledWindows = [];
   const result = await analyzeRenderedGoalProof({
     outputPath: "rendered-output.mp4",
@@ -1004,8 +1201,8 @@ test("rendered goal proof samples rebound finish frames far before delayed score
           const time = Number(window.time);
           const clear = role === "pre_shot" ||
             role === "confirmation" ||
-            (role === "finish" && time >= 4 && time <= 6.5) ||
-            (role === "payoff" && time >= 4.5 && time <= 7.5);
+            (role === "finish" && time >= 7 && time <= 9.5) ||
+            (role === "payoff" && time >= 7.5 && time <= 10.5);
           return {
             id: `frame_${index + 1}`,
             localPath: `frame_${index + 1}.jpg`,
@@ -1028,8 +1225,8 @@ test("rendered goal proof samples rebound finish frames far before delayed score
 
   assert.equal(result.summary.clearGoalCount, 1);
   assert.equal(result.summary.failedGoalCount, 0);
-  assert.equal(sampledWindows.some((window) => window.role === "finish" && Math.abs(Number(window.time) - 4.18) < 0.05), true);
-  assert.equal(sampledWindows.some((window) => window.role === "payoff" && Number(window.time) >= 4.5 && Number(window.time) <= 7.5), true);
+  assert.equal(sampledWindows.some((window) => window.role === "finish" && Math.abs(Number(window.time) - 8) < 0.1), true);
+  assert.equal(sampledWindows.some((window) => window.role === "payoff" && Number(window.time) >= 7.5 && Number(window.time) <= 10.5), true);
   const goal = result.summary.goals[0];
   const finish = goal.frameRefs.find((frame) => frame.role === "finish");
   const payoff = goal.frameRefs.find((frame) => frame.role === "payoff");
@@ -1037,6 +1234,35 @@ test("rendered goal proof samples rebound finish frames far before delayed score
   assert.equal(payoff.clear, true);
   assert.equal(payoff.time >= finish.time, true);
   assert.equal(result.editPlan.segments[0].finishFrameEvidence.visibilityVerdict, "clear");
+});
+
+test("rendered goal proof keeps rebound sampling bounded around the selected score-change finish", async () => {
+  const sampledWindows = [];
+  await analyzeRenderedGoalProof({
+    outputPath: "rendered-output.mp4",
+    editPlan: editPlan(goalSegment({
+      sourceStart: 530.25,
+      sourceEnd: 552.8,
+      shotStart: 533.35,
+      finishTime: 535.45,
+      confirmationTime: 550.45,
+      duration: 22.55,
+      renderedVisibilityRebinding: {
+        applied: true,
+        attemptNumber: 1,
+      },
+    })),
+    extractFrames: async ({ candidateWindows }) => {
+      sampledWindows.push(...candidateWindows);
+      return { frames: clearFramesFromWindows(candidateWindows) };
+    },
+    writeJson: () => {},
+  });
+
+  assert.equal(sampledWindows.length <= 64, true);
+  assert.equal(sampledWindows.some((window) => window.role === "finish" && Math.abs(Number(window.time) - 5.2) < 0.75), true);
+  assert.equal(sampledWindows.some((window) => window.role === "payoff" && Number(window.time) >= 5.5 && Number(window.time) <= 7.5), true);
+  assert.equal(sampledWindows.some((window) => window.role === "confirmation"), true);
 });
 
 test("rendered goal proof prefers declared finish over early score-change lead frames", async () => {
@@ -1161,6 +1387,39 @@ test("rendered goal proof rejects celebration/player closeup semantic frames", a
   assert.equal(result.summary.clearGoalCount, 0);
   assert.equal(result.summary.failedGoalCount, 1);
   assert.ok(result.summary.goals[0].failedFrameReasons.includes("semantic_frame_forbidden_content"));
+});
+
+test("rendered goal proof accepts a scoreboard-backed closeup only for confirmation", async () => {
+  const result = await analyzeRenderedGoalProof({
+    outputPath: "rendered-output.mp4",
+    editPlan: editPlan(goalSegment()),
+    extractFrames: async ({ candidateWindows }) => ({
+      frames: candidateWindows.map((window, index) => ({
+        id: `frame_${index + 1}`,
+        localPath: `frame_${index + 1}.jpg`,
+        timestamp: window.time,
+        visualHints: window.visualHints,
+        semanticGoalEvidence: window.role === "confirmation"
+          ? {
+              visibilityVerdict: "clear",
+              visibleGoal: true,
+              celebrationOnly: true,
+              playerCloseupOnly: true,
+              confidence: 0.9,
+              roles: ["confirmation"],
+            }
+          : clearEvidenceForRole(window.role),
+      })),
+    }),
+    writeJson: () => {},
+  });
+
+  const goal = result.summary.goals[0];
+  assert.equal(result.summary.clearGoalCount, 1);
+  assert.equal(goal.verdict, "clear");
+  assert.equal(result.editPlan.segments[0].finishFrameEvidence.scoreboardConfirmationFallback, true);
+  assert.equal(result.editPlan.segments[0].finishFrameEvidence.hasConfirmationFrame, true);
+  assert.equal(goal.failedFrameReasons.includes("semantic_frame_forbidden_content"), false);
 });
 
 test("rendered goal proof rejects blurred duplicate proof layout even when semantic frames are clear", async () => {

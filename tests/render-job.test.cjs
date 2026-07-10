@@ -957,10 +957,10 @@ test("youtube long-source render uses scorebug-first OCR before visual frame ext
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].roiCandidateIds.includes("scorebug_broadcast_compact"), true);
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].sampledFrameTimestamps.length > 0, true);
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].plannedFrameCount > 0, true);
-  assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].attemptedRoiCount, 5);
+  assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].attemptedRoiCount, 1);
   assert.equal(
     context.job.scoreboardOcr.summary.chunkSummary.chunks[0].attemptedObservationCount,
-    context.job.scoreboardOcr.summary.chunkSummary.chunks[0].plannedFrameCount * 5,
+    context.job.scoreboardOcr.summary.chunkSummary.chunks[0].plannedFrameCount,
   );
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].stableScoreDecision, "score_changes_detected");
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].normalizedScoreCandidates.includes("2-1"), true);
@@ -1068,12 +1068,12 @@ test("youtube long-source render fails closed with chunk context when scorebug O
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.skippedChunks >= 1, true);
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].status, "timed_out");
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].sampledFrameTimestamps.length > 0, true);
-  assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].roiCandidateIds.includes("scoreboard_top_center"), true);
+  assert.deepEqual(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].roiCandidateIds, ["scorebug_broadcast_compact"]);
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].plannedFrameCount > 0, true);
-  assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].attemptedRoiCount, 5);
+  assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].attemptedRoiCount, 1);
   assert.equal(
     context.job.scoreboardOcr.summary.chunkSummary.chunks[0].attemptedObservationCount,
-    context.job.scoreboardOcr.summary.chunkSummary.chunks[0].plannedFrameCount * 5,
+    context.job.scoreboardOcr.summary.chunkSummary.chunks[0].plannedFrameCount,
   );
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].stableScoreDecision, "timed_out");
   assert.equal(context.job.scoreboardOcr.summary.chunkSummary.chunks[0].nextAction, "reduce-scorebug-ocr-workload-or-enable-scoreboard-ocr-qa-artifacts");
@@ -1267,7 +1267,7 @@ test("youtube long-source chunked OCR reuses selected scorebug ROI after calibra
 
   assert.equal(context.job.status, "completed", JSON.stringify(context.job.error));
   assert.equal(callIndex, 8);
-  assert.deepEqual(context.scoreboardOcrCalls[0].scorebugFirstRegionIds, []);
+  assert.deepEqual(context.scoreboardOcrCalls[0].scorebugFirstRegionIds, ["scorebug_broadcast_compact"]);
   assert.equal(
     context.scoreboardOcrCalls.slice(1).every((call) =>
       call.scorebugFirstRegionIds.length === 1 &&
@@ -1447,10 +1447,10 @@ test("youtube long-source chunked OCR promotes five observed score changes witho
                   ? []
                   : start < 540
                     ? ["4-1", "0-0", "6-6", "2-1"]
-                    : start < 630
-                      ? ["2-2", "3-2"]
+                  : start < 630
+                      ? [{ score: "2-2", timestamp: 544 }]
                       : start < 720
-                        ? ["3-2"]
+                        ? [{ score: "3-2", timestamp: 652 }]
                         : [];
         const scoreTimeline = candidates.map((candidate, index) => {
           const score = typeof candidate === "string" ? candidate : candidate.score;
@@ -2416,20 +2416,22 @@ test("rendered goal rebinding cannot reuse the previous counted goal window", ()
   const reboundGoal4 = rebind.editPlan.segments[3];
   assert.equal(reboundGoal4.goalNumber, 4);
   assert.equal(reboundGoal4.sourceStart >= reboundGoal3.confirmationTime + 1.49, true);
-  assert.equal(reboundGoal4.sourceStart < reboundGoal3.sourceEnd + 0.49, true);
+  assert.equal(reboundGoal4.sourceStart >= reboundGoal3.sourceEnd + 0.49, true);
   assert.equal(reboundGoal4.finishTime > reboundGoal4.sourceStart, true);
   assert.equal(reboundGoal4.finishTime < reboundGoal4.confirmationTime, true);
-  assert.equal(reboundGoal4.confirmationTime - reboundGoal4.finishTime <= 3, true);
+  assert.equal(reboundGoal4.scoreChangeTime - reboundGoal4.sourceStart >= 13, true);
+  assert.equal(reboundGoal4.scoreChangeTime - reboundGoal4.sourceStart <= 20.05, true);
   assert.equal(reboundGoal4.phaseCoverage.scoreChangeTime, 555.72);
-  assert.equal(reboundGoal4.phaseCoverage.scoreChangeConfirmedOutsideClip, true);
+  assert.equal(reboundGoal4.phaseCoverage.scoreChangeConfirmedOutsideClip, false);
   assert.equal(reboundGoal4.renderedVisibilityRebinding.rebindingSearchWindow.start >= reboundGoal3.confirmationTime + 1.49, true);
-  assert.equal(reboundGoal4.renderedVisibilityRebinding.scoreChangeConfirmedOutsideClip, true);
+  assert.equal(reboundGoal4.renderedVisibilityRebinding.scoreChangeConfirmedOutsideClip, false);
   assert.equal(rebind.summary.diagnostics[0].chronologicalBounds.lowerBoundReason, "previous_confirmed_goal_anchor");
-  assert.equal(rebind.summary.diagnostics[0].profile.finishLeadSeconds, 30);
-  assert.equal(rebind.summary.diagnostics[0].profile.compactedDelayedScoreConfirmation, true);
+  assert.equal(rebind.summary.diagnostics[0].profile.backtrackSeconds, 15);
+  assert.equal(rebind.summary.diagnostics[0].profile.finishLeadSeconds, 8);
+  assert.equal(rebind.summary.diagnostics[0].profile.compactedDelayedScoreConfirmation, false);
 });
 
-test("rendered goal rebinding keeps close score-change finish anchored 13-15 seconds before the scoreboard update", () => {
+test("rendered goal rebinding preserves pre-finish context before the scoreboard update", () => {
   const segments = [
     validGoalSegment(3, 504.75, 510.9, 514.75, 528.75),
     validGoalSegment(4, 545.8, 551.95, 556.45, 550.45),
@@ -2467,13 +2469,14 @@ test("rendered goal rebinding keeps close score-change finish anchored 13-15 sec
 
   assert.equal(rebind.applied, true);
   const reboundGoal4 = rebind.editPlan.segments[1];
-  assert.equal(reboundGoal4.sourceStart, 530.25);
-  assert.equal(reboundGoal4.finishTime, 535.45);
+  assert.equal(reboundGoal4.sourceStart, 533.45);
+  assert.equal(reboundGoal4.finishTime, 537.45);
   assert.equal(reboundGoal4.scoreChangeTime, 550.45);
-  assert.equal(Number((reboundGoal4.scoreChangeTime - reboundGoal4.finishTime).toFixed(2)), 15);
+  assert.equal(Number((reboundGoal4.scoreChangeTime - reboundGoal4.sourceStart).toFixed(2)), 17);
   assert.equal(reboundGoal4.renderedVisibilityRebinding.scoreChangeConfirmedOutsideClip, false);
-  assert.equal(rebind.summary.diagnostics[0].profile.finishLeadSeconds, 15);
-  assert.equal(rebind.summary.diagnostics[0].profile.lowerBoundClippedBuildup, true);
+  assert.equal(rebind.summary.diagnostics[0].profile.backtrackSeconds, 15);
+  assert.equal(rebind.summary.diagnostics[0].profile.finishLeadSeconds, 13);
+  assert.equal(rebind.summary.diagnostics[0].profile.lowerBoundClippedBuildup, false);
 });
 
 test("approved regeneration render uses the validated draft without rerunning AI analysis", async () => {
@@ -2783,6 +2786,405 @@ test("chunked score progression starts at 0-0 and only accepts observed unit sco
   );
   assert.equal(progression.diagnostics.finalScore, "3-2");
   assert.doesNotMatch(JSON.stringify(progression), /\/Users|\/private|token|secret|stdout|stderr/i);
+});
+
+test("scorebug chunk sampling probes the first post-candidate scoreboard update", () => {
+  const windows = __testing.buildChunkSamplingWindows({
+    chunk: { start: 450, end: 540 },
+    metadata: { durationSeconds: 764.58 },
+    candidateWindows: [{
+      start: 472,
+      end: 476,
+      center: 474,
+      confidence: 0.9,
+      source: "commentary_spike",
+    }],
+    frameCount: 4,
+  });
+
+  assert.equal(windows.some((window) => Math.abs(window.timestamp - 478) < 0.05), true);
+  assert.equal(windows.length <= 20, true);
+  assert.equal(windows.every((window) => window.timestamp >= 450 && window.timestamp <= 540), true);
+});
+
+test("default scorebug sampling covers short-lived early and late score updates", () => {
+  const metadata = { durationSeconds: 764.58 };
+  const early = __testing.buildChunkSamplingWindows({
+    chunk: { start: 90, end: 180 },
+    metadata,
+  });
+  const late = __testing.buildChunkSamplingWindows({
+    chunk: { start: 630, end: 720 },
+    metadata,
+  });
+
+  assert.equal(early.some((window) => Math.abs(window.timestamp - 104) < 0.25), true);
+  assert.equal(late.some((window) => Math.abs(window.timestamp - 650) < 0.35), true);
+  assert.equal(early.length, 16);
+  assert.equal(late.length, 16);
+});
+
+test("score transition refinement searches backward for first score display without unbounded scanning", () => {
+  const passes = __testing.buildScoreTransitionRefinementPasses({
+    evidence: [
+      { timestamp: 141.75, scoreBefore: "0-0", scoreAfter: "1-0", scoreChanged: true },
+      { timestamp: 290.25, scoreBefore: "1-0", scoreAfter: "1-1", scoreChanged: true },
+      { timestamp: 519.75, scoreBefore: "1-1", scoreAfter: "2-1", scoreChanged: true },
+      { timestamp: 659.25, scoreBefore: "2-2", scoreAfter: "3-2", scoreChanged: true },
+    ],
+  }, { expectedGoalCount: 5 });
+
+  assert.equal(passes.length, 4);
+  assert.equal(passes.every((pass) => pass.windows.length <= 64), true);
+  assert.equal(passes[0].windows.some((window) => Math.abs(window.timestamp - 103.75) < 0.1), true);
+  assert.equal(passes[1].windows.some((window) => Math.abs(window.timestamp - 258.25) < 0.1), true);
+  assert.equal(passes[2].windows.some((window) => Math.abs(window.timestamp - 477.75) < 0.1), true);
+  assert.equal(passes[3].windows.some((window) => Math.abs(window.timestamp - 543.25) < 0.1), true);
+  assert.equal(passes[3].windows.some((window) => Math.abs(window.timestamp - 613.25) < 0.1), true);
+  assert.equal(passes.flatMap((pass) => pass.windows)
+    .every((window) => window.source === "scorebug_transition_refinement"), true);
+});
+
+test("score transition refinement prioritizes delayed first displays and skips already bounded transitions", () => {
+  const evidence = [
+    { timestamp: 88, status: "score_unchanged", scoreBefore: "0-0", scoreAfter: "0-0", scoreUnchanged: true },
+    { timestamp: 104, status: "score_changed", scoreBefore: "0-0", scoreAfter: "1-0", scoreChanged: true },
+    { timestamp: 253, status: "score_unchanged", scoreBefore: "1-0", scoreAfter: "1-0", scoreUnchanged: true },
+    { timestamp: 385, status: "score_changed", scoreBefore: "1-0", scoreAfter: "1-1", scoreChanged: true },
+    { timestamp: 469, status: "score_unchanged", scoreBefore: "1-1", scoreAfter: "1-1", scoreUnchanged: true },
+    { timestamp: 480, status: "score_changed", scoreBefore: "1-1", scoreAfter: "2-1", scoreChanged: true },
+    { timestamp: 531, status: "score_unchanged", scoreBefore: "2-1", scoreAfter: "2-1", scoreUnchanged: true },
+    { timestamp: 537, status: "score_changed", scoreBefore: "2-1", scoreAfter: "2-2", scoreChanged: true },
+    { timestamp: 649, status: "score_unchanged", scoreBefore: "2-2", scoreAfter: "2-2", scoreUnchanged: true },
+    { timestamp: 655, status: "score_changed", scoreBefore: "2-2", scoreAfter: "3-2", scoreChanged: true },
+  ];
+  const passes = __testing.buildScoreTransitionRefinementPasses({ evidence }, { expectedGoalCount: 5 });
+  const scheduled = __testing.scheduleScoreTransitionRefinementPasses(passes);
+
+  assert.deepEqual(scheduled.map((pass) => pass.index), [2, 5]);
+  assert.deepEqual(scheduled.map((pass) => pass.unobservedGapSeconds), [132, 6]);
+  assert.deepEqual(scheduled.map((pass) => pass.transitionIntervalSeconds), [281, 118]);
+  assert.equal(passes.find((pass) => pass.index === 1).requiresFirstDisplayRefinement, false);
+  assert.equal(passes.find((pass) => pass.index === 3).requiresFirstDisplayRefinement, false);
+  assert.equal(passes.find((pass) => pass.index === 4).requiresFirstDisplayRefinement, false);
+});
+
+test("score transition refinement anchors on the first pending display instead of late stable confirmation", () => {
+  const passes = __testing.buildScoreTransitionRefinementPasses({
+    evidence: [
+      { timestamp: 604, status: "score_unchanged", scoreBefore: "2-2", scoreAfter: "2-2", scoreUnchanged: true },
+      {
+        timestamp: 655,
+        status: "ambiguous",
+        scoreBefore: "2-2",
+        scoreAfter: "3-2",
+        transitionDecision: "score_change_pending_confirmation",
+      },
+      { timestamp: 693, status: "score_changed", scoreBefore: "2-2", scoreAfter: "3-2", scoreChanged: true },
+    ],
+  });
+
+  assert.equal(passes.length, 1);
+  assert.equal(passes[0].anchorTimestamp, 655);
+  assert.equal(passes[0].stableConfirmationTimestamp, 693);
+  assert.equal(passes[0].pendingObservationUsed, true);
+  assert.equal(passes[0].windows.some((window) => Math.abs(window.timestamp - 617) < 0.1), true);
+});
+
+test("score transition refinement corrects repeated changed glyphs only inside the expected unit transition", () => {
+  const signature = (pattern) => ({
+    version: 1,
+    width: 10,
+    height: 16,
+    bits: pattern.repeat(20),
+  });
+  const zero = signature("11110000");
+  const one = signature("00001111");
+  const baselineOutput = {
+    _internalDigitObservations: [{
+      id: "baseline_zero",
+      timestamp: 97.75,
+      regionId: "scorebug_broadcast_compact",
+      score: { home: 0, away: 0, text: "0-0" },
+      digitSignatures: { home: zero, away: zero },
+    }],
+  };
+  const output = {
+    evidence: [],
+    _internalDigitObservations: [103.75, 105.75].map((timestamp) => ({
+      id: `misread_${timestamp}`,
+      timestamp,
+      regionId: "scorebug_broadcast_compact",
+      score: { home: 4, away: 0, text: "4-0" },
+      confidence: 0.74,
+      source: "local_scorebug_profile_digit_ocr_contrast_block",
+      digitSignatures: { home: one, away: zero },
+    })),
+  };
+  const refined = __testing.refineExpectedScoreTransitionOutput(output, {
+    anchorTimestamp: 141.75,
+    scoreBefore: "0-0",
+    scoreAfter: "1-0",
+  }, [baselineOutput]);
+
+  assert.equal(refined.refinement.applied, true);
+  assert.equal(refined.refinement.firstSeenAt, 103.75);
+  assert.equal(refined.refinement.confirmedAt, 105.75);
+  assert.deepEqual(refined._internalDigitObservations.map((item) => item.score.text), ["1-0", "1-0"]);
+  assert.equal(refined._internalDigitObservations.every((item) => (
+    item.source === "local_scorebug_digit_template_match_refinement"
+  )), true);
+});
+
+test("score transition refinement does not rewrite an unchanged score glyph pair", () => {
+  const zero = {
+    version: 1,
+    width: 10,
+    height: 16,
+    bits: "11110000".repeat(20),
+  };
+  const output = {
+    _internalDigitObservations: [103.75, 105.75].map((timestamp) => ({
+      timestamp,
+      regionId: "scorebug_broadcast_compact",
+      score: { home: 0, away: 0, text: "0-0" },
+      digitSignatures: { home: zero, away: zero },
+    })),
+  };
+  const refined = __testing.refineExpectedScoreTransitionOutput(output, {
+    anchorTimestamp: 141.75,
+    scoreBefore: "0-0",
+    scoreAfter: "1-0",
+  }, [output]);
+
+  assert.equal(Object.hasOwn(refined, "refinement"), false);
+  assert.deepEqual(refined._internalDigitObservations.map((item) => item.score.text), ["0-0", "0-0"]);
+});
+
+test("chunk aggregation retroactively binds a learned score glyph to its first appearance", () => {
+  const signature = (pattern) => ({
+    version: 1,
+    width: 10,
+    height: 16,
+    bits: pattern.repeat(20),
+  });
+  const zero = signature("11110000");
+  const one = signature("00001111");
+  const observation = ({ id, timestamp, score = null, home, away }) => ({
+    id,
+    timestamp,
+    start: timestamp - 0.8,
+    end: timestamp + 0.8,
+    regionId: "scorebug_broadcast_compact",
+    preprocessingVariant: "contrast_block",
+    score,
+    confidence: score ? 0.9 : 0.2,
+    rejected: false,
+    source: score ? "local_scorebug_profile_digit_ocr_contrast_block" : "local_scorebug_digit_observation",
+    digitSignatures: { home, away },
+    layoutId: "broadcast-compact-score-only-v1",
+  });
+  const output = (observations) => ({
+    providerMode: "local-scoreboard-ocr-command",
+    fallbackUsed: false,
+    confidence: 0.9,
+    evidence: [],
+    summary: {
+      regionIdsUsed: ["scorebug_broadcast_compact"],
+      sampledFrameCount: observations.length,
+      regionCount: observations.length,
+      preprocessingVariantCount: 1,
+    },
+    _internalDigitObservations: observations,
+  });
+  const staleChunk = output([
+      observation({ id: "zero_1", timestamp: 80, score: { home: 0, away: 0 }, home: zero, away: zero }),
+      observation({ id: "zero_2", timestamp: 90, score: { home: 0, away: 0 }, home: zero, away: zero }),
+    ]);
+  staleChunk.evidence = [{
+    id: "stale_local_transition",
+    timestamp: 141.75,
+    status: "score_changed",
+    scoreBefore: "0-0",
+    scoreAfter: "1-0",
+    scoreChanged: true,
+    temporalConsistency: true,
+    confidence: 0.9,
+    source: "chunk_local_timeline",
+  }];
+  const result = __testing.aggregateChunkedScoreboardOcr([
+    staleChunk,
+    output([
+      observation({ id: "first_one", timestamp: 104, home: one, away: zero }),
+      observation({ id: "stable_one", timestamp: 106, home: one, away: zero }),
+    ]),
+    output([
+      observation({ id: "learn_one_1", timestamp: 190, score: { home: 1, away: 0 }, home: one, away: zero }),
+      observation({ id: "learn_one_2", timestamp: 200, score: { home: 1, away: 0 }, home: one, away: zero }),
+    ]),
+  ], { metadata: { durationSeconds: 240 } });
+
+  const scoreChange = result.evidence.find((item) => item.scoreChanged && item.scoreAfter === "1-0");
+  const pending = result.evidence.find((item) => item.transitionDecision === "score_change_pending_confirmation");
+  assert.equal(scoreChange.timestamp, 106);
+  assert.equal(pending.timestamp, 104);
+  assert.equal(result.evidence.some((item) => Number(item.timestamp) === 141.75), false);
+  assert.equal(Object.hasOwn(result, "_internalDigitObservations"), false);
+  assert.doesNotMatch(JSON.stringify(result), /digitSignatures|localPath|storageKey|secret|token|stdout|stderr/i);
+});
+
+test("chunk aggregation preserves the first pending score display before stable confirmation", () => {
+  const signature = (pattern) => ({
+    version: 1,
+    width: 10,
+    height: 16,
+    bits: pattern.repeat(20),
+  });
+  const zero = signature("11110000");
+  const one = signature("00001111");
+  const observation = (timestamp, score, home, away) => ({
+    timestamp,
+    regionId: "scorebug_broadcast_compact",
+    score,
+    confidence: 0.9,
+    source: "local_scorebug_digit_template_match",
+    digitSignatures: { home, away },
+  });
+  const result = __testing.aggregateChunkedScoreboardOcr([{
+    providerMode: "local-scoreboard-ocr-command",
+    fallbackUsed: false,
+    confidence: 0.9,
+    evidence: [{
+      id: "first_display",
+      timestamp: 258.25,
+      status: "ambiguous",
+      scoreBefore: "1-0",
+      scoreAfter: "1-1",
+      confidence: 0.78,
+      temporalConsistency: false,
+      ambiguous: true,
+      transitionDecision: "score_change_pending_confirmation",
+      transitionReasonCodes: ["unit_score_increase_candidate"],
+      source: "local_scorebug_profile_digit_ocr_contrast_block",
+    }],
+    summary: { sampledFrameCount: 4, regionCount: 4, regionIdsUsed: ["scorebug_broadcast_compact"] },
+    _internalDigitObservations: [
+      observation(250, { home: 1, away: 0, text: "1-0" }, one, zero),
+      observation(252, { home: 1, away: 0, text: "1-0" }, one, zero),
+      observation(288.25, { home: 1, away: 1, text: "1-1" }, one, one),
+      observation(290.25, { home: 1, away: 1, text: "1-1" }, one, one),
+    ],
+  }], { metadata: { durationSeconds: 400 } });
+
+  const pending = result.evidence.find((item) => (
+    item.transitionDecision === "score_change_pending_confirmation" && item.scoreAfter === "1-1"
+  ));
+  const stable = result.evidence.find((item) => item.scoreChanged && item.scoreAfter === "1-1");
+  assert.equal(pending.timestamp, 258.25);
+  assert.equal(stable.timestamp, 290.25);
+});
+
+test("chunk aggregation replaces weak duplicate transitions with observed unit candidates", () => {
+  const signature = (pattern) => ({
+    version: 1,
+    width: 10,
+    height: 16,
+    bits: pattern.repeat(20),
+  });
+  const zero = signature("11110000");
+  const one = signature("00001111");
+  const two = signature("11001100");
+  const observation = (timestamp, text, home, away, confidence = 0.9) => {
+    const [homeScore, awayScore] = text.split("-").map(Number);
+    return {
+      timestamp,
+      regionId: "scorebug_broadcast_compact",
+      score: { home: homeScore, away: awayScore, text },
+      confidence,
+      source: confidence >= 0.72 ? "local_scorebug_digit_template_match" : "local_scorebug_digit_observation",
+      digitSignatures: { home, away },
+    };
+  };
+  const chunk = (index, score, timestamp) => ({
+    index,
+    start: (index - 1) * 90,
+    end: index * 90,
+    status: "completed",
+    sampledFrameTimestamps: [timestamp],
+    selectedRoiId: "scorebug_broadcast_compact",
+    normalizedScoreCandidates: [score],
+    readableObservationCount: 2,
+  });
+  const result = __testing.aggregateChunkedScoreboardOcr([{
+    providerMode: "local-scoreboard-ocr-command",
+    fallbackUsed: false,
+    confidence: 0.9,
+    evidence: [],
+    summary: { sampledFrameCount: 8, regionCount: 8, regionIdsUsed: ["scorebug_broadcast_compact"] },
+    _internalDigitObservations: [
+      observation(10, "0-0", zero, zero),
+      observation(20, "0-0", zero, zero),
+      observation(100, "1-0", one, zero),
+      observation(110, "1-0", one, zero),
+      observation(200, "1-1", one, one),
+      observation(210, "1-1", one, one),
+      observation(300, "2-1", two, one, 0.6),
+      observation(310, "2-1", two, one, 0.6),
+    ],
+  }], {
+    metadata: { durationSeconds: 500 },
+    chunkSummary: {
+      mode: "chunked_scorebug_first_ocr",
+      chunks: [
+        chunk(1, "0-0", 20),
+        chunk(2, "1-0", 110),
+        chunk(3, "1-1", 210),
+        chunk(4, "2-1", 310),
+      ],
+    },
+  });
+
+  const transition = result.evidence.find((item) => item.scoreBefore === "1-1" && item.scoreAfter === "2-1");
+  assert.equal(transition.source, "chunked_scorebug_candidate_progression");
+  assert.equal(transition.temporalConsistency, true);
+  assert.equal(transition.ambiguous, false);
+  assert.equal(Number(transition.confidence) >= 0.72, true);
+});
+
+test("score evidence compaction preserves every transition before unchanged context", () => {
+  const unchanged = Array.from({ length: 48 }, (_, index) => ({
+    id: `unchanged_${index}`,
+    timestamp: index * 5,
+    status: "score_unchanged",
+    scoreBefore: index < 24 ? "0-0" : "1-0",
+    scoreAfter: index < 24 ? "0-0" : "1-0",
+    scoreUnchanged: true,
+    temporalConsistency: true,
+    confidence: 0.9,
+  }));
+  const transitions = [
+    ["0-0", "1-0"],
+    ["1-0", "1-1"],
+    ["1-1", "2-1"],
+    ["2-1", "2-2"],
+    ["2-2", "3-2"],
+  ].map(([scoreBefore, scoreAfter], index) => ({
+    id: `transition_${index + 1}`,
+    timestamp: 100 + index * 100,
+    status: "score_changed",
+    scoreBefore,
+    scoreAfter,
+    scoreChanged: true,
+    temporalConsistency: true,
+    confidence: 0.82,
+  }));
+
+  const compacted = __testing.compactAggregatedScoreEvidence([...unchanged, ...transitions]);
+  assert.equal(compacted.length <= 32, true);
+  assert.deepEqual(
+    compacted.filter((item) => item.scoreChanged).map((item) => `${item.scoreBefore}->${item.scoreAfter}`),
+    ["0-0->1-0", "1-0->1-1", "1-1->2-1", "2-1->2-2", "2-2->3-2"],
+  );
 });
 
 test("chunked score progression does not synthesize missing intermediate states from sparse jumps", () => {

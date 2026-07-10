@@ -10,6 +10,8 @@ const MAX_IMAGE_HEIGHT = 256;
 const MAX_DIGIT_GROUPS = 2;
 const DEFAULT_HOME_ROI = Object.freeze({ x: 0.36, y: 0.16, width: 0.16, height: 0.68 });
 const DEFAULT_AWAY_ROI = Object.freeze({ x: 0.56, y: 0.16, width: 0.16, height: 0.68 });
+const DIGIT_SIGNATURE_WIDTH = 10;
+const DIGIT_SIGNATURE_HEIGHT = 16;
 
 const DIGIT_SEGMENTS = Object.freeze({
   0: "abcdef",
@@ -60,6 +62,7 @@ function unreadable({ timestamp, regionId, reasons, details = {} } = {}) {
       decoderMode: details.decoderMode ? sanitizeText(details.decoderMode, 32) : null,
       homeDigitCandidates: [],
       awayDigitCandidates: [],
+      digitSignatures: details.digitSignatures || null,
       reasons: (Array.isArray(reasons) ? reasons : [reasons]).map(safeReason).filter(Boolean).slice(0, 8),
     },
   };
@@ -79,6 +82,7 @@ function ambiguous({ timestamp, regionId, reasons, details = {}, home = null, aw
       decoderMode: details.decoderMode ? sanitizeText(details.decoderMode, 32) : null,
       homeDigitCandidates: home ? [{ digit: String(home.digit), confidence: round(home.confidence) }] : [],
       awayDigitCandidates: away ? [{ digit: String(away.digit), confidence: round(away.confidence) }] : [],
+      digitSignatures: details.digitSignatures || null,
       reasons: (Array.isArray(reasons) ? reasons : [reasons]).map(safeReason).filter(Boolean).slice(0, 8),
     },
   };
@@ -205,6 +209,111 @@ function roiPixels(image, bounds) {
     }
   }
   return values;
+}
+
+function foregroundComponents(image, bounds, polarity) {
+  const width = bounds.width;
+  const height = bounds.height;
+  const foreground = new Uint8Array(width * height);
+  const visited = new Uint8Array(width * height);
+  const indexFor = (x, y) => (y - bounds.y0) * width + (x - bounds.x0);
+
+  for (let y = bounds.y0; y < bounds.y1; y += 1) {
+    for (let x = bounds.x0; x < bounds.x1; x += 1) {
+      const value = pixelAt(image, x, y);
+      const active = polarity.darkForeground
+        ? value <= polarity.threshold
+        : value >= polarity.threshold;
+      if (active) foreground[indexFor(x, y)] = 1;
+    }
+  }
+
+  const components = [];
+  for (let y = bounds.y0; y < bounds.y1; y += 1) {
+    for (let x = bounds.x0; x < bounds.x1; x += 1) {
+      const startIndex = indexFor(x, y);
+      if (!foreground[startIndex] || visited[startIndex]) continue;
+      const queue = [[x, y]];
+      visited[startIndex] = 1;
+      const points = [];
+      let minX = x;
+      let maxX = x;
+      let minY = y;
+      let maxY = y;
+      let touchesBoundary = false;
+      while (queue.length) {
+        const [currentX, currentY] = queue.pop();
+        points.push([currentX, currentY]);
+        minX = Math.min(minX, currentX);
+        maxX = Math.max(maxX, currentX);
+        minY = Math.min(minY, currentY);
+        maxY = Math.max(maxY, currentY);
+        if (
+          currentX === bounds.x0 || currentX === bounds.x1 - 1 ||
+          currentY === bounds.y0 || currentY === bounds.y1 - 1
+        ) {
+          touchesBoundary = true;
+        }
+        for (const [nextX, nextY] of [
+          [currentX - 1, currentY],
+          [currentX + 1, currentY],
+          [currentX, currentY - 1],
+          [currentX, currentY + 1],
+        ]) {
+          if (nextX < bounds.x0 || nextX >= bounds.x1 || nextY < bounds.y0 || nextY >= bounds.y1) continue;
+          const nextIndex = indexFor(nextX, nextY);
+          if (!foreground[nextIndex] || visited[nextIndex]) continue;
+          visited[nextIndex] = 1;
+          queue.push([nextX, nextY]);
+        }
+      }
+      components.push({ points, minX, maxX, minY, maxY, touchesBoundary });
+    }
+  }
+  return components;
+}
+
+function digitAppearanceSignature(image, roi) {
+  const bounds = roiBounds(image, roi);
+  if (bounds.width < 8 || bounds.height < 12) return null;
+  const polarity = foregroundPolarity(roiPixels(image, bounds));
+  if (!polarity) return null;
+  const component = foregroundComponents(image, bounds, polarity)
+    .filter((item) => !item.touchesBoundary)
+    .filter((item) => item.maxY - item.minY + 1 >= bounds.height * 0.3)
+    .filter((item) => item.points.length >= bounds.width * bounds.height * 0.01)
+    .sort((a, b) => b.points.length - a.points.length)[0];
+  if (!component) return null;
+
+  const componentWidth = component.maxX - component.minX + 1;
+  const componentHeight = component.maxY - component.minY + 1;
+  const pointSet = new Set(component.points.map(([x, y]) => `${x}:${y}`));
+  let bits = "";
+  for (let gridY = 0; gridY < DIGIT_SIGNATURE_HEIGHT; gridY += 1) {
+    for (let gridX = 0; gridX < DIGIT_SIGNATURE_WIDTH; gridX += 1) {
+      const startX = Math.floor(component.minX + gridX * componentWidth / DIGIT_SIGNATURE_WIDTH);
+      const endX = Math.ceil(component.minX + (gridX + 1) * componentWidth / DIGIT_SIGNATURE_WIDTH);
+      const startY = Math.floor(component.minY + gridY * componentHeight / DIGIT_SIGNATURE_HEIGHT);
+      const endY = Math.ceil(component.minY + (gridY + 1) * componentHeight / DIGIT_SIGNATURE_HEIGHT);
+      let sampleCount = 0;
+      let foregroundCount = 0;
+      for (let y = startY; y < endY; y += 1) {
+        for (let x = startX; x < endX; x += 1) {
+          sampleCount += 1;
+          if (pointSet.has(`${x}:${y}`)) foregroundCount += 1;
+        }
+      }
+      bits += foregroundCount / Math.max(1, sampleCount) >= 0.28 ? "1" : "0";
+    }
+  }
+  return {
+    version: 1,
+    width: DIGIT_SIGNATURE_WIDTH,
+    height: DIGIT_SIGNATURE_HEIGHT,
+    bits,
+    aspectRatio: round(componentWidth / componentHeight, 4),
+    fillRatio: round(component.points.length / Math.max(1, componentWidth * componentHeight), 4),
+  };
 }
 
 function zoneRatio(image, bounds, zone, polarity) {
@@ -348,6 +457,12 @@ function segmentLoadedImage({
       },
     });
   }
+  const homeRoi = safeRoi(calibration.homeDigitRoi, DEFAULT_HOME_ROI);
+  const awayRoi = safeRoi(calibration.awayDigitRoi, DEFAULT_AWAY_ROI);
+  const digitSignatures = {
+    home: digitAppearanceSignature(image, homeRoi),
+    away: digitAppearanceSignature(image, awayRoi),
+  };
   const foregroundGroupCount = countForegroundGroups(image);
   const details = {
     foregroundGroupCount,
@@ -355,10 +470,9 @@ function segmentLoadedImage({
     imageFormat: image.imageFormat,
     decoderStatus: image.decoderStatus,
     decoderMode: image.decoderMode,
+    digitSignatures,
   };
   const fullCropHasExtraGroups = foregroundGroupCount > MAX_DIGIT_GROUPS;
-  const homeRoi = safeRoi(calibration.homeDigitRoi, DEFAULT_HOME_ROI);
-  const awayRoi = safeRoi(calibration.awayDigitRoi, DEFAULT_AWAY_ROI);
   const layoutCandidates = [
     { id: "focused_digit_roi", homeRoi, awayRoi },
     { id: "legacy_wide_digit_roi", homeRoi: safeRoi({}, DEFAULT_HOME_ROI), awayRoi: safeRoi({}, DEFAULT_AWAY_ROI) },
@@ -412,6 +526,7 @@ function segmentLoadedImage({
       decoderMode: image.decoderMode ? sanitizeText(image.decoderMode, 32) : null,
       homeDigitCandidates: [{ digit: String(home.digit), confidence: home.confidence }],
       awayDigitCandidates: [{ digit: String(away.digit), confidence: away.confidence }],
+      digitSignatures,
       reasons: [
         readable.id === "focused_digit_roi" ? "focused_digit_roi_used" : "legacy_wide_digit_roi_used",
         ...(fullCropHasExtraGroups ? ["full_crop_had_extra_groups"] : []),

@@ -19,10 +19,13 @@ const PAYOFF_SEARCH_AFTER_CONFIRMATION_SECONDS = 2;
 const MIN_FINISH_PAYOFF_GAP_SECONDS = 0.3;
 const MAX_MICRO_FINISH_PAYOFF_GAP_SECONDS = 0.25;
 const MAX_SINGLE_FRAME_FINISH_PAYOFF_DISTANCE_SECONDS = 3.0;
+const MAX_SELECTED_ROLE_SEQUENCE_PAYOFF_GAP_SECONDS = 1.25;
 const MIN_GOAL_ROLE_CLEAR_CANDIDATE_COUNT = 2;
 const MIN_PAYOFF_CLEAR_RATIO = 0.12;
 const MIN_WIDE_LIVE_ACTION_SEQUENCE_FRAMES = 4;
 const SCORE_CHANGE_FINISH_LEAD_SECONDS = Object.freeze([16, 15, 14.5, 14, 13.5, 13, 12.5, 12, 11, 10, 9, 8, 7, 6, 5]);
+const REUSED_PROOF_TIMELINE_TOLERANCE_SECONDS = 0.05;
+const PRE_SCORE_CHANGE_FRAME_MARGIN_SECONDS = 0.25;
 
 function numberOrNull(value) {
   const parsed = Number(value);
@@ -87,6 +90,14 @@ function segmentTimeline(segment = {}, fallbackStart = 0) {
   const shot = localTime(segment.shotStart, Math.min(4, duration * 0.35));
   const finish = localTime(segment.finishTime, Math.min(duration - 0.8, Math.max(shot + 1, duration * 0.65)));
   const confirmation = localTime(segment.confirmationTime, Math.min(duration - 0.2, Math.max(finish + 0.4, duration * 0.82)));
+  const scoreChangeSourceTime = numberOrNull(
+    segment.scoreChangeTime ??
+    (segment.phaseCoverage && segment.phaseCoverage.scoreChangeTime) ??
+    (segment.goalOutcome && segment.goalOutcome.scoreChangeTime),
+  );
+  const scoreChange = scoreChangeSourceTime == null
+    ? confirmation
+    : localTime(scoreChangeSourceTime, Math.min(duration - 0.2, Math.max(finish + 0.4, duration * 0.82)));
   return {
     sourceStart: round(sourceStart),
     sourceEnd: round(sourceEnd),
@@ -98,6 +109,200 @@ function segmentTimeline(segment = {}, fallbackStart = 0) {
     finish,
     payoff: round(Math.min(timelineEnd - 0.15, Math.max(finish + 0.55, finish))),
     confirmation,
+    scoreChange,
+  };
+}
+
+function proofGoalKey(goalNumber, segmentIndex) {
+  const parsedGoalNumber = numberOrNull(goalNumber);
+  const parsedSegmentIndex = numberOrNull(segmentIndex);
+  if (parsedGoalNumber == null || parsedSegmentIndex == null) return null;
+  return `g:${parsedGoalNumber}:s:${parsedSegmentIndex}`;
+}
+
+function previousClearProofMap(previousRenderedGoalProof = {}) {
+  const goals = previousRenderedGoalProof &&
+    typeof previousRenderedGoalProof === "object" &&
+    Array.isArray(previousRenderedGoalProof.goals)
+    ? previousRenderedGoalProof.goals
+    : [];
+  const byKey = new Map();
+  for (const goal of goals) {
+    if (!goal || goal.verdict !== "clear") continue;
+    const key = proofGoalKey(goal.goalNumber, goal.segmentIndex);
+    if (!key) continue;
+    byKey.set(key, goal);
+  }
+  return byKey;
+}
+
+function nearlyEqualTime(a, b, tolerance = REUSED_PROOF_TIMELINE_TOLERANCE_SECONDS) {
+  const parsedA = numberOrNull(a);
+  const parsedB = numberOrNull(b);
+  if (parsedA == null || parsedB == null) return parsedA == null && parsedB == null;
+  return Math.abs(parsedA - parsedB) <= tolerance;
+}
+
+function timelinesMatchForReuse(previousTimeline = {}, currentTimeline = {}) {
+  return [
+    "sourceStart",
+    "sourceEnd",
+    "duration",
+    "timelineStart",
+    "timelineEnd",
+    "shot",
+    "finish",
+    "confirmation",
+    "scoreChange",
+  ].every((key) => nearlyEqualTime(previousTimeline && previousTimeline[key], currentTimeline && currentTimeline[key]));
+}
+
+function frameRefsRespectScoreChange(frameRefs = [], timeline = {}) {
+  const scoreChange = numberOrNull(timeline && timeline.scoreChange);
+  if (scoreChange == null) return false;
+  const finish = numberOrNull(frameRefs.find((frame) => frame && frame.role === "finish" && frame.clear === true)?.time);
+  const payoff = numberOrNull(frameRefs.find((frame) => frame && frame.role === "payoff" && frame.clear === true)?.time);
+  const confirmation = numberOrNull(frameRefs.find((frame) => frame && frame.role === "confirmation" && frame.clear === true)?.time);
+  return finish != null &&
+    payoff != null &&
+    confirmation != null &&
+    finish <= scoreChange - PRE_SCORE_CHANGE_FRAME_MARGIN_SECONDS &&
+    payoff <= scoreChange - PRE_SCORE_CHANGE_FRAME_MARGIN_SECONDS &&
+    confirmation >= scoreChange - PRE_SCORE_CHANGE_FRAME_MARGIN_SECONDS;
+}
+
+function segmentHasClearRenderedFinishEvidence(segment = {}) {
+  const evidence = segment && segment.finishFrameEvidence &&
+    typeof segment.finishFrameEvidence === "object" &&
+    !Array.isArray(segment.finishFrameEvidence)
+    ? segment.finishFrameEvidence
+    : null;
+  if (!evidence) return false;
+  if (evidence.visibilityVerdict !== "clear") return false;
+  if (evidence.hasVisibleFinish !== true || evidence.hasBallInNetOrPayoff !== true) return false;
+  if (
+    evidence.isReplayOnly === true ||
+    evidence.isCelebrationOnly === true ||
+    evidence.isScoreboardOnly === true ||
+    evidence.isPlayerCloseupOnly === true ||
+    evidence.isLabelOnly === true
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function frameRefsAreClearForReuse(frameRefs = []) {
+  if (!Array.isArray(frameRefs) || frameRefs.length < FRAME_ROLES.length) return false;
+  return FRAME_ROLES.every((role) => frameRefs.some((frame) => frame && frame.role === role && frame.clear === true));
+}
+
+function proofRoleSourceTimes(previousProof = {}) {
+  const timeline = previousProof && previousProof.timeline && typeof previousProof.timeline === "object"
+    ? previousProof.timeline
+    : {};
+  const sourceStart = numberOrNull(timeline.sourceStart);
+  const timelineStart = numberOrNull(timeline.timelineStart);
+  if (sourceStart == null || timelineStart == null || !Array.isArray(previousProof && previousProof.frameRefs)) {
+    return {};
+  }
+  return previousProof.frameRefs.reduce((times, frame) => {
+    if (!frame || frame.clear !== true) return times;
+    const role = sanitizeText(frame.role || "", 40);
+    const time = numberOrNull(frame.time);
+    if (!role || time == null) return times;
+    times[role] = round(sourceStart + time - timelineStart);
+    return times;
+  }, {});
+}
+
+function sourceTimesFitSegment(roleSourceTimes = {}, segment = {}) {
+  const sourceStart = numberOrNull(segment && segment.sourceStart);
+  const sourceEnd = numberOrNull(segment && segment.sourceEnd);
+  if (sourceStart == null || sourceEnd == null || sourceEnd <= sourceStart) return false;
+  return FRAME_ROLES.every((role) => {
+    const time = numberOrNull(roleSourceTimes[role]);
+    return time != null && time >= sourceStart - 0.05 && time <= sourceEnd + 0.05;
+  });
+}
+
+function retimeFrameRefsForCurrentTimeline(previousProof = {}, segment = {}, timeline = {}) {
+  const roleSourceTimes = proofRoleSourceTimes(previousProof);
+  const sourceStart = numberOrNull(segment && segment.sourceStart);
+  const timelineStart = numberOrNull(timeline && timeline.timelineStart);
+  if (sourceStart == null || timelineStart == null || !sourceTimesFitSegment(roleSourceTimes, segment)) return null;
+  return FRAME_ROLES.map((role) => {
+    const previousFrame = Array.isArray(previousProof && previousProof.frameRefs)
+      ? previousProof.frameRefs.find((frame) => frame && frame.role === role && frame.clear === true)
+      : null;
+    const sourceTime = roleSourceTimes[role];
+    return {
+      ...(previousFrame || {}),
+      role,
+      time: round(timelineStart + sourceTime - sourceStart),
+      status: "clear",
+      clear: true,
+      reason: null,
+    };
+  });
+}
+
+function reusablePreviousClearProof({ previousProof, segment, timeline } = {}) {
+  if (!previousProof || previousProof.verdict !== "clear") return null;
+  if (!segmentHasClearRenderedFinishEvidence(segment)) return null;
+  if (!frameRefsAreClearForReuse(previousProof.frameRefs)) return null;
+  if (!hasStrongSourceGoalEvidence(segment)) return null;
+  if (timelinesMatchForReuse(previousProof.timeline, timeline)) {
+    return frameRefsRespectScoreChange(previousProof.frameRefs, timeline) ? previousProof : null;
+  }
+  const retimedFrameRefs = retimeFrameRefsForCurrentTimeline(previousProof, segment, timeline);
+  if (!retimedFrameRefs || !frameRefsRespectScoreChange(retimedFrameRefs, timeline)) return null;
+  return {
+    ...previousProof,
+    frameRefs: retimedFrameRefs,
+    timeline,
+    retimedFromPreviousClearProof: true,
+  };
+}
+
+function reusedGoalProofFromPrevious({ previousProof, segment, segmentIndex, timeline } = {}) {
+  return {
+    goalNumber: numberOrNull(segment && segment.goalNumber) || segmentIndex + 1,
+    segmentIndex: segmentIndex + 1,
+    segmentId: sanitizeText(segment && segment.id || `segment_${segmentIndex + 1}`, 80),
+    verdict: "clear",
+    timeline,
+    frameCount: Array.isArray(previousProof && previousProof.frameRefs)
+      ? previousProof.frameRefs.filter((frame) => frame && frame.clear === true).length
+      : 0,
+    frameRefs: Array.isArray(previousProof && previousProof.frameRefs) ? previousProof.frameRefs : [],
+    candidateFrameCount: numberOrNull(previousProof && previousProof.candidateFrameCount) || 0,
+    sourceEvidenceStrong: true,
+    unverifiedFrameCount: numberOrNull(previousProof && previousProof.unverifiedFrameCount) || 0,
+    failedFrameReasons: [],
+    finishSearch: previousProof && previousProof.finishSearch || null,
+    payoffSearch: previousProof && previousProof.payoffSearch || null,
+    semanticSummary: {
+      providerMode: "semantic-goal-visibility-reused-clear-proof",
+      clearFrameCount: Array.isArray(previousProof && previousProof.frameRefs)
+        ? previousProof.frameRefs.filter((frame) => frame && frame.clear === true).length
+        : 0,
+      failedFrameCount: 0,
+    },
+    layoutContract: previousProof && previousProof.layoutContract || null,
+    existingClearProofUsed: true,
+    retimedFromPreviousClearProof: previousProof && previousProof.retimedFromPreviousClearProof === true,
+    extraction: {
+      providerMode: "rendered-goal-proof-reused-clear",
+      fallbackUsed: false,
+      summary: {
+        frameCount: 0,
+        sampledWindows: 0,
+        skippedWindows: 0,
+        extractionMs: 0,
+      },
+    },
+    proofMs: 0,
   };
 }
 
@@ -114,7 +319,13 @@ function hasStrongSourceGoalEvidence(segment = {}) {
   ], 24));
   const hasShot = phase.hasShot === true &&
     (codes.has("visual_shot_contact") || codes.has("visual_ball_toward_goal") || codes.has("shot_sequence_support"));
-  const hasFinish = phase.hasFinish === true &&
+  const requiresRenderedFinishProof = phase.requiresRenderedFinishProof === true ||
+    payoff.requiresRenderedFinishProof === true ||
+    segment.requiresRenderedFinishProof === true;
+  const renderedFinishProofPending = requiresRenderedFinishProof &&
+    numberOrNull(segment.finishTime ?? phase.finishTime) != null &&
+    (codes.has("live_shot_finish_sequence") || codes.has("scoreboard_backed_goal_sequence"));
+  const hasFinish = (phase.hasFinish === true || renderedFinishProofPending) &&
     (
       codes.has("visual_ball_in_net") ||
       codes.has("ball_in_net") ||
@@ -130,30 +341,59 @@ function hasStrongSourceGoalEvidence(segment = {}) {
   return isConfirmedGoalSegment(segment) && !disallowedShape && phase.hasBuildup === true && hasShot && hasFinish && hasConfirmation;
 }
 
+function hasScoreboardConfirmationEvidence(segment = {}) {
+  const phase = segment.phaseCoverage && typeof segment.phaseCoverage === "object" && !Array.isArray(segment.phaseCoverage)
+    ? segment.phaseCoverage
+    : {};
+  const payoff = phase.visualGoalPayoff && typeof phase.visualGoalPayoff === "object" && !Array.isArray(phase.visualGoalPayoff)
+    ? phase.visualGoalPayoff
+    : {};
+  const codes = new Set(safeCodes([
+    ...(Array.isArray(segment.reasonCodes) ? segment.reasonCodes : []),
+    ...(Array.isArray(payoff.evidenceCodes) ? payoff.evidenceCodes : []),
+  ], 24));
+  return phase.hasConfirmation === true && [
+    "scoreboard_ocr_score_change",
+    "scoreboard_temporal_consistency",
+    "visual_scoreboard_goal_confirmed",
+  ].some((code) => codes.has(code));
+}
+
 function frameWindowsForGoal(segment = {}, timeline = {}) {
   const goalNumber = numberOrNull(segment.goalNumber);
   const duration = Math.max(0.1, Number(timeline.timelineEnd) - Number(timeline.timelineStart));
   const shotTime = numberOrNull(timeline.shot);
   const finishTime = numberOrNull(timeline.finish);
   const confirmationTime = numberOrNull(timeline.confirmation);
+  const scoreChangeTime = numberOrNull(timeline.scoreChange);
   const delayedScoreChange = finishTime != null && confirmationTime != null &&
     confirmationTime - finishTime >= 8;
+  const targetedScoreChangeRebind = Boolean(
+    segment &&
+    segment.renderedVisibilityRebinding &&
+    segment.renderedVisibilityRebinding.applied === true
+  );
+  const scoreChangeLeadValues = targetedScoreChangeRebind
+    ? [18, 16, 15, 14, 13, 12, 10]
+    : [44, 41, 38, 36, 35, 32, 28, 25, 22, 19, 16, 13, 10, 7, 4];
+  const scoreChangeFinishLeadValues = targetedScoreChangeRebind
+    ? [18, 16, 15, 14.5, 14, 13.5, 13, 12, 10, 8]
+    : [44, 41, 38, 36, 35, 32, 28, 25, 22, 19, 16, 13, 10, 7, 5, 3, 1.5, 0.65, 0];
   const scoreChangeLeadTimes = confirmationTime == null
     ? []
-    : [44, 41, 38, 36, 35, 32, 28, 25, 22, 19, 16, 13, 10, 7, 4]
-        .map((lead) => Number(confirmationTime) - lead);
+    : scoreChangeLeadValues.map((lead) => Number(confirmationTime) - lead);
   const scoreboardFirstFinishTimes = confirmationTime == null
     ? []
     : (delayedScoreChange ? SCORE_CHANGE_FINISH_LEAD_SECONDS : [])
         .map((lead) => Number(confirmationTime) - lead);
   const scoreChangeFinishTimes = confirmationTime == null
     ? []
-    : (delayedScoreChange ? [44, 41, 38, 36, 35, 32, 28, 25, 22, 19, 16, 13, 10, 7, 5, 3, 1.5, 0.65, 0] : [])
+    : (delayedScoreChange ? scoreChangeFinishLeadValues : [])
         .map((lead) => Number(confirmationTime) - lead);
   const scoreChangePayoffTimes = confirmationTime == null
     ? []
     : [
-        44, 41, 38, 36, 35, 32, 28, 25, 22, 19, 16, 13, 10, 7, 4,
+        ...scoreChangeLeadValues,
         ...(delayedScoreChange ? [2, 1, 0, -0.65] : []),
       ]
         .map((lead) => Number(confirmationTime) - lead);
@@ -169,22 +409,27 @@ function frameWindowsForGoal(segment = {}, timeline = {}) {
         Number(timeline.finish) + 0.55,
       ]
     : [
-        ...(delayedScoreChange ? denseTimeRange(Number(timeline.finish) - 1.6, Number(timeline.finish) + 1.6, 0.4, 10) : []),
+        ...(delayedScoreChange ? denseTimeRange(
+          Number(timeline.finish) - (targetedScoreChangeRebind ? 1.2 : 1.6),
+          Number(timeline.finish) + (targetedScoreChangeRebind ? 1.4 : 1.6),
+          0.4,
+          targetedScoreChangeRebind ? 7 : 10,
+        ) : []),
         Number(timeline.finish) - 2.5,
         Number(timeline.finish) - 1.2,
         Number(timeline.finish) - 0.35,
         Number(timeline.finish),
         Number(timeline.finish) + 0.55,
-        ...scoreboardFirstFinishTimes,
-        ...scoreChangeLeadTimes.slice(0, 5),
+        ...(targetedScoreChangeRebind ? [] : scoreboardFirstFinishTimes),
+        ...scoreChangeLeadTimes.slice(0, targetedScoreChangeRebind ? 2 : 5),
         ...scoreChangeFinishTimes,
       ];
   const finishAdjacentPayoffAnchorTimes = [
     Number(timeline.finish) - 0.35,
     Number(timeline.finish),
     Number(timeline.finish) + 0.55,
-    ...finishProbeTimes.filter((time) => Math.abs(Number(time) - Number(timeline.finish)) <= 2),
-    ...(delayedScoreChange ? scoreboardFirstFinishTimes.slice(0, 8) : []),
+    ...(targetedScoreChangeRebind ? [] : finishProbeTimes.filter((time) => Math.abs(Number(time) - Number(timeline.finish)) <= 2)),
+    ...(delayedScoreChange && !targetedScoreChangeRebind ? scoreboardFirstFinishTimes.slice(0, 8) : []),
   ];
   const finishAdjacentPayoffTimes = finishAdjacentPayoffAnchorTimes
     .flatMap((time) => [Number(time) + 0.55, Number(time) + 1.05])
@@ -211,13 +456,18 @@ function frameWindowsForGoal(segment = {}, timeline = {}) {
         ...densePayoffProbeTimes,
       ]
     : [
-        ...(delayedScoreChange ? denseTimeRange(Number(timeline.finish) - 0.3, Number(timeline.finish) + 2.8, 0.4, 12) : []),
+        ...(delayedScoreChange ? denseTimeRange(
+          Number(timeline.finish) - 0.3,
+          Number(timeline.finish) + (targetedScoreChangeRebind ? 1.8 : 2.8),
+          0.4,
+          targetedScoreChangeRebind ? 7 : 12,
+        ) : []),
         Number(timeline.finish) + 0.55,
         Number(timeline.finish) + 1.15,
         Number(timeline.finish) + 2.25,
         ...finishAdjacentPayoffTimes,
         ...densePayoffProbeTimes,
-        ...(delayedScoreChange ? scoreboardFirstFinishTimes.slice(0, 8).flatMap((time) => [Number(time) + 0.8]) : []),
+        ...(delayedScoreChange && !targetedScoreChangeRebind ? scoreboardFirstFinishTimes.slice(0, 8).flatMap((time) => [Number(time) + 0.8]) : []),
         ...(delayedScoreChange
           ? [Number(timeline.confirmation), Number(timeline.confirmation) + 0.4, Number(timeline.confirmation) + 0.8]
           : scoreChangePayoffTimes),
@@ -263,17 +513,20 @@ function frameWindowsForGoal(segment = {}, timeline = {}) {
       if (finishTime != null && confirmationTime == null && parsed < finishTime - 2.5) return false;
       if (confirmationTime != null && parsed < confirmationTime - (delayedScoreChange ? 45.25 : 30.25)) return false;
       if (confirmationTime != null && parsed > confirmationTime + 0.25) return false;
+      if (scoreChangeTime != null && parsed > scoreChangeTime - PRE_SCORE_CHANGE_FRAME_MARGIN_SECONDS) return false;
     }
     if (role === "payoff") {
       if (parsed < earliestPayoffTime) return false;
       if (confirmationTime != null && parsed < confirmationTime - (delayedScoreChange ? 45.25 : 28.25)) return false;
       if (confirmationTime != null && parsed > confirmationTime + PAYOFF_SEARCH_AFTER_CONFIRMATION_SECONDS + 0.25) return false;
+      if (scoreChangeTime != null && parsed > scoreChangeTime - PRE_SCORE_CHANGE_FRAME_MARGIN_SECONDS) return false;
     }
     if (role === "confirmation" && finishTime != null && parsed < finishTime - 0.25) return false;
+    if (role === "confirmation" && scoreChangeTime != null && parsed < scoreChangeTime - PRE_SCORE_CHANGE_FRAME_MARGIN_SECONDS) return false;
     return true;
   };
   const seen = new Set();
-  return candidateGroups
+  const windows = candidateGroups
     .flatMap(([role, times]) => times
       .filter((time) => Number.isFinite(Number(time)))
       .map((time) => Math.min(maxTime, Math.max(minTime, Number(time))))
@@ -295,8 +548,24 @@ function frameWindowsForGoal(segment = {}, timeline = {}) {
           goalNumber,
         };
       })
-      .filter(Boolean))
-    .sort((a, b) => Number(a.time) - Number(b.time));
+      .filter(Boolean));
+  if (!targetedScoreChangeRebind) return windows.sort((a, b) => Number(a.time) - Number(b.time));
+  const maxByRole = {
+    pre_shot: 2,
+    finish: 6,
+    payoff: 6,
+    confirmation: 2,
+  };
+  const countByRole = new Map();
+  return windows.filter((window) => {
+    const role = sanitizeText(String(window.role || ""), 40);
+    const limit = maxByRole[role] || 0;
+    if (limit <= 0) return false;
+    const next = (countByRole.get(role) || 0) + 1;
+    if (next > limit) return false;
+    countByRole.set(role, next);
+    return true;
+  }).sort((a, b) => Number(a.time) - Number(b.time));
 }
 
 function publicFrameRef(frame = {}, role = "", time = null) {
@@ -726,6 +995,7 @@ async function extractRenderedGoalFrameBatch({
   extractFrames,
   signal,
   outputDir,
+  onProgress = null,
 } = {}) {
   const startedAt = nowMs();
   const records = [];
@@ -747,8 +1017,20 @@ async function extractRenderedGoalFrameBatch({
   }
   const uniqueWindows = [...uniqueByKey.values()];
   let extractionElapsedMs = 0;
+  const batchCount = Math.ceil(uniqueWindows.length / MAX_BATCH_WINDOWS_PER_EXTRACTION);
   for (let start = 0; start < uniqueWindows.length; start += MAX_BATCH_WINDOWS_PER_EXTRACTION) {
     const chunk = uniqueWindows.slice(start, start + MAX_BATCH_WINDOWS_PER_EXTRACTION);
+    const batchIndex = Math.floor(start / MAX_BATCH_WINDOWS_PER_EXTRACTION) + 1;
+    if (typeof onProgress === "function") {
+      onProgress({
+        phase: "frame_extraction",
+        batchIndex,
+        batchCount,
+        processedFrameWindowCount: start,
+        candidateFrameWindowCount: records.length,
+        uniqueFrameWindowCount: uniqueWindows.length,
+      });
+    }
     const chunkOutputDir = safeResolve(outputDir, `batch_${String(Math.floor(start / MAX_BATCH_WINDOWS_PER_EXTRACTION) + 1).padStart(2, "0")}`);
     const chunkStartedAt = nowMs();
     // eslint-disable-next-line no-await-in-loop
@@ -768,6 +1050,16 @@ async function extractRenderedGoalFrameBatch({
       const fallbackKey = chunk[frameIndex] && chunk[frameIndex].key;
       const key = timestampKey && uniqueByKey.has(timestampKey) ? timestampKey : fallbackKey;
       if (key && !frameByKey.has(key)) frameByKey.set(key, frame);
+    }
+    if (typeof onProgress === "function") {
+      onProgress({
+        phase: "frame_extraction",
+        batchIndex,
+        batchCount,
+        processedFrameWindowCount: Math.min(uniqueWindows.length, start + chunk.length),
+        candidateFrameWindowCount: records.length,
+        uniqueFrameWindowCount: uniqueWindows.length,
+      });
     }
   }
   const framesByGoal = goalItems.map(() => []);
@@ -850,6 +1142,7 @@ function attachEvidenceToSegment(segment = {}, evidence = {}) {
     ...phase,
     ...(reboundShotStart != null ? { shotStart: reboundShotStart } : {}),
     ...(reboundFinishTime != null ? { finishTime: reboundFinishTime } : {}),
+    ...(segmentEvidence.visibilityVerdict === "clear" ? { hasFinish: true } : {}),
     visualGoalPayoff: mergedPayoff,
     finishFrameEvidence: segmentEvidence,
   };
@@ -865,10 +1158,12 @@ function attachEvidenceToSegment(segment = {}, evidence = {}) {
 async function analyzeRenderedGoalProof({
   outputPath,
   editPlan,
+  previousRenderedGoalProof = null,
   signal = null,
   extractFrames = extractSampledFrames,
   semanticAnalyzer = analyzeSemanticGoalFrames,
   writeJson = writeJsonAtomic,
+  onProgress = null,
 } = {}) {
   const proofStartedAt = nowMs();
   const segments = Array.isArray(editPlan && editPlan.segments) ? editPlan.segments : [];
@@ -880,19 +1175,25 @@ async function analyzeRenderedGoalProof({
   const proofGoals = [];
   const updatedSegments = [...segments];
   const goalItems = [];
+  const previousClearProofs = previousClearProofMap(previousRenderedGoalProof || editPlan && editPlan.renderedGoalProof);
   for (const [index, segment] of segments.entries()) {
     const duration = Math.max(0, Number(segment.duration || Number(segment.sourceEnd) - Number(segment.sourceStart)) || 0);
     if (isConfirmedGoalSegment(segment)) {
       const timeline = segmentTimeline(segment, cursor);
+      const goalNumber = numberOrNull(segment && segment.goalNumber) || index + 1;
+      const previousProof = previousClearProofs.get(proofGoalKey(goalNumber, index + 1));
+      const reusableProof = reusablePreviousClearProof({ previousProof, segment, timeline });
       goalItems.push({
         segment,
         segmentIndex: index,
         timeline,
         windows: frameWindowsForGoal(segment, timeline),
+        reusableProof,
       });
     }
     cursor += duration;
   }
+  const analysisGoalItems = goalItems.filter((item) => !item.reusableProof);
 
   const renderedDimensions = renderedOutputDimensions(editPlan);
   const renderedMetadata = {
@@ -903,13 +1204,14 @@ async function analyzeRenderedGoalProof({
   const batch = await extractRenderedGoalFrameBatch({
     outputPath,
     metadata: renderedMetadata,
-    goalItems,
+    goalItems: analysisGoalItems,
     extractFrames,
     signal,
     outputDir: proofDir,
+    onProgress,
   });
   const semanticRecords = [];
-  for (const [goalListIndex, item] of goalItems.entries()) {
+  for (const [goalListIndex, item] of analysisGoalItems.entries()) {
     const framesByWindow = batch.framesByGoal[goalListIndex] || [];
     for (const [windowIndex, frame] of framesByWindow.entries()) {
       if (!frame) continue;
@@ -928,15 +1230,25 @@ async function analyzeRenderedGoalProof({
     }
   }
   const semanticStartedAt = nowMs();
-  const semantic = await semanticAnalyzer({
-    frames: semanticRecords.map((record) => record.frame),
-    roleWindows: semanticRecords.map((record) => record.roleWindow),
-    signal,
-    ignoreExistingEvidence: true,
-  });
+  if (typeof onProgress === "function") {
+    onProgress({
+      phase: "semantic_visibility",
+      semanticFrameCount: semanticRecords.length,
+      targetedGoalProofCount: analysisGoalItems.length,
+      reusedExistingClearGoalCount: goalItems.filter((item) => item.reusableProof).length,
+    });
+  }
+  const semantic = semanticRecords.length
+    ? await semanticAnalyzer({
+        frames: semanticRecords.map((record) => record.frame),
+        roleWindows: semanticRecords.map((record) => record.roleWindow),
+        signal,
+        ignoreExistingEvidence: true,
+      })
+    : { providerMode: "semantic-goal-visibility-reused-clear-proof", frameEvidence: [] };
   const semanticAnalysisMs = Math.max(0, nowMs() - semanticStartedAt);
   const frameEvidence = Array.isArray(semantic && semantic.frameEvidence) ? semantic.frameEvidence : [];
-  const semanticFramesByGoal = goalItems.map(() => []);
+  const semanticFramesByGoal = analysisGoalItems.map(() => []);
   semanticRecords.forEach((record, recordIndex) => {
     semanticFramesByGoal[record.goalListIndex][record.windowIndex] = {
       ...record.frame,
@@ -944,9 +1256,21 @@ async function analyzeRenderedGoalProof({
     };
   });
 
-  for (const [goalListIndex, item] of goalItems.entries()) {
+  const analyzedProofByGoalItem = new Map();
+  for (const [goalListIndex, item] of analysisGoalItems.entries()) {
     const goalStartedAt = nowMs();
     const { segment, segmentIndex: index, timeline, windows } = item;
+    if (typeof onProgress === "function") {
+      onProgress({
+        phase: "goal_verdict",
+        goalNumber: numberOrNull(segment && segment.goalNumber) || index + 1,
+        proofAttempt: numberOrNull(editPlan && editPlan.renderedGoalRebinding && editPlan.renderedGoalRebinding.attemptCount) || 0,
+        goalIndex: goalListIndex + 1,
+        targetedGoalProofCount: analysisGoalItems.length,
+        sampledFrameCount: (semanticFramesByGoal[goalListIndex] || []).filter(Boolean).length,
+        semanticFrameCount: semanticRecords.filter((record) => record.goalListIndex === goalListIndex).length,
+      });
+    }
     const pairedFrames = (semanticFramesByGoal[goalListIndex] || [])
       .map((frame, windowIndex) => (frame && windows[windowIndex] ? { frame, window: windows[windowIndex] } : null))
       .filter(Boolean);
@@ -965,7 +1289,6 @@ async function analyzeRenderedGoalProof({
       : round(Number(selectedFinishSourceTime) - Number(timeline.sourceStart));
     const selectedFinishHasPreContext = selectedFinishPreContextSeconds == null ||
       selectedFinishPreContextSeconds >= MIN_RENDERED_FINISH_PRE_CONTEXT_SECONDS;
-    const frameCount = frameRefs.filter((frame) => frame.clear).length;
     const roleFrame = (role) => frameRefs.find((frame) => frame.role === role);
     const preShotFrame = roleFrame("pre_shot");
     const finishFrame = roleFrame("finish");
@@ -983,10 +1306,31 @@ async function analyzeRenderedGoalProof({
       selected: payoffFrame,
       timeline,
     });
-    const allRoleFramesClear = [preShotFrame, finishFrame, payoffFrame, confirmationFrame]
+    const actionRoleFramesClear = [preShotFrame, finishFrame, payoffFrame]
       .every((frame) => frame && frame.clear === true);
     const finishTime = numberOrNull(finishFrame && finishFrame.time);
     const payoffTime = numberOrNull(payoffFrame && payoffFrame.time);
+    const confirmationFrameTime = numberOrNull(confirmationFrame && confirmationFrame.time);
+    const scoreChangeTime = numberOrNull(timeline && timeline.scoreChange);
+    const finishBeforeScoreChange = finishTime != null && scoreChangeTime != null &&
+      finishTime <= scoreChangeTime - PRE_SCORE_CHANGE_FRAME_MARGIN_SECONDS;
+    const payoffBeforeScoreChange = payoffTime != null && scoreChangeTime != null &&
+      payoffTime <= scoreChangeTime - PRE_SCORE_CHANGE_FRAME_MARGIN_SECONDS;
+    const confirmationAtOrAfterScoreChange = confirmationFrameTime != null && scoreChangeTime != null &&
+      confirmationFrameTime >= scoreChangeTime - PRE_SCORE_CHANGE_FRAME_MARGIN_SECONDS;
+    const scoreboardConfirmationFallback = Boolean(
+      actionRoleFramesClear &&
+      confirmationFrame &&
+      confirmationFrame.clear !== true &&
+      confirmationFrame.reason === "semantic_frame_forbidden_content" &&
+      confirmationAtOrAfterScoreChange &&
+      hasScoreboardConfirmationEvidence(segment)
+    );
+    const allRoleFramesClear = actionRoleFramesClear && Boolean(
+      confirmationFrame && (confirmationFrame.clear === true || scoreboardConfirmationFallback)
+    );
+    const frameCount = frameRefs.filter((frame) => frame.clear).length + (scoreboardConfirmationFallback ? 1 : 0);
+    const scoreChangeRoleTimingPassed = finishBeforeScoreChange && payoffBeforeScoreChange && confirmationAtOrAfterScoreChange;
     const rawFinishPayoffGap = finishTime != null && payoffTime != null ? payoffTime - finishTime : null;
     const microFinishPayoffBurst = Boolean(
       finishFrame &&
@@ -1015,8 +1359,20 @@ async function analyzeRenderedGoalProof({
       Math.abs(finishTime - payoffTime) >= MIN_FINISH_PAYOFF_GAP_SECONDS);
     const finishPayoffOrdered = finishPayoffCompactVisibleBurst || (finishTime != null && payoffTime != null &&
       payoffTime >= finishTime + MIN_FINISH_PAYOFF_GAP_SECONDS);
-    const finishClearSupportPassed = finishPayoffCompactVisibleBurst || roleHasEnoughClearSupport(finishSearch, "finish");
-    const payoffClearSupportPassed = finishPayoffCompactVisibleBurst || roleHasEnoughClearSupport(payoffSearch, "payoff");
+    const selectedRoleSequenceSupportPassed = Boolean(
+      allRoleFramesClear &&
+      finishTime != null &&
+      payoffTime != null &&
+      finishPayoffDistinct &&
+      finishPayoffOrdered &&
+      payoffTime - finishTime <= MAX_SELECTED_ROLE_SEQUENCE_PAYOFF_GAP_SECONDS
+    );
+    const finishClearSupportPassed = finishPayoffCompactVisibleBurst ||
+      selectedRoleSequenceSupportPassed ||
+      roleHasEnoughClearSupport(finishSearch, "finish");
+    const payoffClearSupportPassed = finishPayoffCompactVisibleBurst ||
+      selectedRoleSequenceSupportPassed ||
+      roleHasEnoughClearSupport(payoffSearch, "payoff");
     const strongSourceEvidence = hasStrongSourceGoalEvidence(segment);
     const wideActionSequence = wideLiveActionSequenceSupport({
       candidates: candidateRefs,
@@ -1029,17 +1385,22 @@ async function analyzeRenderedGoalProof({
       segment.renderedVisibilityRebinding.applied === true;
     const sequenceFallbackPassed = strongSourceEvidence && reboundSegment && wideActionSequence.passed;
     const unverifiedFrameCount = frameRefs.filter((frame) => frame.status === "unverified").length;
-    const failedFrameReasons = safeCodes(frameRefs
-      .filter((frame) => frame.clear !== true)
+    const failedFrameReasons = safeCodes([
+      ...(finishBeforeScoreChange ? [] : ["finish_frame_not_before_score_change"]),
+      ...(payoffBeforeScoreChange ? [] : ["payoff_frame_not_before_score_change"]),
+      ...(confirmationAtOrAfterScoreChange ? [] : ["confirmation_frame_before_score_change"]),
+      ...frameRefs
+      .filter((frame) => frame.clear !== true && !(scoreboardConfirmationFallback && frame.role === "confirmation"))
       .map((frame) => frame.reason || `${frame.role}_not_clear`)
       .concat(allRoleFramesClear || sequenceFallbackPassed ? [] : ["role_specific_goal_frame_missing"])
       .concat(finishPayoffDistinct || sequenceFallbackPassed ? [] : ["finish_payoff_frame_not_distinct"])
       .concat(finishPayoffOrdered || sequenceFallbackPassed ? [] : ["finish_payoff_frame_not_ordered"])
       .concat(finishClearSupportPassed || sequenceFallbackPassed ? [] : ["finish_frame_clear_support_too_sparse"])
       .concat(payoffClearSupportPassed || sequenceFallbackPassed ? [] : ["payoff_frame_clear_support_too_sparse"])
-      .concat(sequenceFallbackPassed ? [] : ["role_specific_finish_payoff_required"])
+      .concat(selectedRoleSequenceSupportPassed || sequenceFallbackPassed ? [] : ["role_specific_finish_payoff_required"])
       .concat(selectedFinishHasPreContext ? [] : [FINISH_FRAME_LACKS_PRE_CONTEXT_REASON])
-      .concat(layoutContract.passed ? [] : layoutContract.reasons), 12);
+      .concat(layoutContract.passed ? [] : layoutContract.reasons),
+    ], 12);
     const clear = layoutContract.passed &&
       strongSourceEvidence &&
       (
@@ -1055,7 +1416,8 @@ async function analyzeRenderedGoalProof({
           payoffClearSupportPassed
         )
       ) &&
-      selectedFinishHasPreContext;
+      selectedFinishHasPreContext &&
+      scoreChangeRoleTimingPassed;
     const borderline = !clear &&
       layoutContract.passed &&
       strongSourceEvidence &&
@@ -1063,7 +1425,8 @@ async function analyzeRenderedGoalProof({
       finishPayoffDistinct &&
       finishPayoffOrdered &&
       finishClearSupportPassed &&
-      payoffClearSupportPassed;
+      payoffClearSupportPassed &&
+      scoreChangeRoleTimingPassed;
     const supportFrames = orderedSupportFramesForEvidence({ frameRefs, sequenceFallbackPassed });
     const evidence = {
       frameTime: selectedFinishSourceTime ?? numberOrNull(segment.finishTime) ?? timeline.finish,
@@ -1075,11 +1438,23 @@ async function analyzeRenderedGoalProof({
       hasPreShotActionFrame: frameRefs.some((frame) => frame.role === "pre_shot" && frame.clear),
       hasFinishActionFrame: sequenceFallbackPassed || frameRefs.some((frame) => frame.role === "finish" && frame.clear),
       hasPayoffFrame: sequenceFallbackPassed || frameRefs.some((frame) => frame.role === "payoff" && frame.clear),
-      hasConfirmationFrame: frameRefs.some((frame) => frame.role === "confirmation" && frame.clear),
+      hasConfirmationFrame: scoreboardConfirmationFallback || frameRefs.some((frame) => frame.role === "confirmation" && frame.clear),
+      finishBeforeScoreChange,
+      payoffBeforeScoreChange,
+      confirmationAtOrAfterScoreChange,
+      scoreChangeRoleTimingPassed,
+      scoreChangeTime: round(scoreChangeTime),
+      finishDeltaFromScoreChangeSeconds: finishTime == null || scoreChangeTime == null
+        ? null
+        : round(finishTime - scoreChangeTime),
+      payoffDeltaFromScoreChangeSeconds: payoffTime == null || scoreChangeTime == null
+        ? null
+        : round(payoffTime - scoreChangeTime),
       finishPayoffDistinct,
       finishPayoffOrdered,
       finishPayoffSingleFrame,
       microFinishPayoffBurst,
+      selectedRoleSequenceSupportPassed,
       finishClearSupportPassed,
       payoffClearSupportPassed,
       continuousActionFrameCount: sequenceFallbackPassed ? wideActionSequence.candidateCount : frameCount,
@@ -1092,10 +1467,13 @@ async function analyzeRenderedGoalProof({
       isScoreboardOnly: false,
       isPlayerCloseupOnly: false,
       isFrameTooWideUnclear: false,
-      evidenceCodes: clear ? FINISH_FRAME_CODES : ["rendered_frame_samples_semantically_unverified"],
+      evidenceCodes: clear
+        ? [...FINISH_FRAME_CODES, ...(scoreboardConfirmationFallback ? ["scoreboard_confirmation_frame_visible"] : [])]
+        : ["rendered_frame_samples_semantically_unverified"],
       proofMethod: "rendered_timeline_frame_sampling",
       sequenceFallbackPassed,
       sequenceFallbackMode: sequenceFallbackPassed ? "scoreboard_backed_wide_action_sequence" : null,
+      scoreboardConfirmationFallback,
       coalescedVisibleGoalFrame: coalescedGoalFrame.applied ? {
         applied: true,
         sourceRole: sanitizeText(coalescedGoalFrame.sourceRole || "", 40) || null,
@@ -1105,6 +1483,8 @@ async function analyzeRenderedGoalProof({
         ...wideActionSequence,
         reason: sequenceFallbackPassed
           ? "score_change_backed_wide_live_action_sequence"
+          : selectedRoleSequenceSupportPassed
+            ? "role_specific_finish_payoff_sequence_selected"
           : "role_specific_finish_payoff_required",
       },
       semanticFrameValidationRequired: true,
@@ -1128,7 +1508,7 @@ async function analyzeRenderedGoalProof({
       .filter((entry) => entry.record.goalListIndex === goalListIndex)
       .map((entry) => entry.evidence)
       .filter(Boolean);
-    proofGoals.push({
+    analyzedProofByGoalItem.set(item, {
       goalNumber: numberOrNull(segment.goalNumber) || index + 1,
       segmentIndex: index + 1,
       segmentId: sanitizeText(segment.id || `segment_${index + 1}`, 80),
@@ -1162,7 +1542,21 @@ async function analyzeRenderedGoalProof({
       proofMs: goalProofMs,
     });
   }
+  for (const item of goalItems) {
+    if (item.reusableProof) {
+      proofGoals.push(reusedGoalProofFromPrevious({
+        previousProof: item.reusableProof,
+        segment: item.segment,
+        segmentIndex: item.segmentIndex,
+        timeline: item.timeline,
+      }));
+      continue;
+    }
+    const analyzedProof = analyzedProofByGoalItem.get(item);
+    if (analyzedProof) proofGoals.push(analyzedProof);
+  }
   const renderedGoalProofMs = Math.max(0, nowMs() - proofStartedAt);
+  const reusedExistingClearGoalCount = proofGoals.filter((goal) => goal.existingClearProofUsed === true).length;
   const timing = {
     renderMs: null,
     renderedGoalProofMs,
@@ -1176,6 +1570,9 @@ async function analyzeRenderedGoalProof({
     uniqueFrameWindowCount: batch.metrics.uniqueFrameWindowCount,
     newlyExtractedFrameCount: batch.metrics.newlyExtractedFrameCount,
     batchExtractionCallCount: batch.metrics.batchExtractionCallCount,
+    reusedExistingClearGoalCount,
+    targetedGoalProofCount: analysisGoalItems.length,
+    skippedSemanticGoalCount: reusedExistingClearGoalCount,
     perGoalProofMs: proofGoals.map((goal) => ({
       goalNumber: goal.goalNumber,
       ms: goal.proofMs,
@@ -1221,6 +1618,7 @@ async function analyzeRenderedGoalProof({
       payoffSearch: goal.payoffSearch,
       semanticSummary: goal.semanticSummary,
       existingClearProofUsed: goal.existingClearProofUsed,
+      retimedFromPreviousClearProof: goal.retimedFromPreviousClearProof === true,
       proofMs: goal.proofMs,
     })),
     logsDownloaded: false,

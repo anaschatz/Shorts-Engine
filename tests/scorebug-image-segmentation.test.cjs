@@ -109,6 +109,8 @@ test("image segmentation reads a focused synthetic scorebug crop", () => {
     assert.equal(result.method, "image-digit-segmentation");
     assert.equal(result.imageSegmentation.status, "readable");
     assert.equal(result.imageSegmentation.imageFormat, "pgm-p2");
+    assert.equal(result.imageSegmentation.digitSignatures.home.bits.length, 160);
+    assert.equal(result.imageSegmentation.digitSignatures.away.bits.length, 160);
     assert.equal(result.digitBoxes.length, 2);
     assert.doesNotMatch(JSON.stringify(result), /\/Users|\/private|storageKey|localPath|token|secret|stdout|stderr/i);
   } finally {

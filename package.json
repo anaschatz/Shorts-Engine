@@ -43,6 +43,8 @@
     "ocr:smoke": "node demo/run-ocr-smoke.mjs",
     "proof:local-video": "node demo/run-local-video-proof.mjs",
     "proof:readiness": "node demo/check-proof-source-readiness.mjs",
+    "research:short": "node tools/autoresearch-short.mjs",
+    "research:short:baseline": "node tools/autoresearch-short.mjs --baseline",
     "release:check": "node tools/release/verify-release-gate.mjs",
     "release:evidence": "node tools/release/write-release-evidence.mjs",
     "release:readiness": "node tools/release/check-release-readiness.mjs",

@@ -16,6 +16,10 @@ manual-downloads/
 eval/results/*.json
 eval/review-results/*.json
 eval/review-drafts/*.json
+shortresearch/baseline.json
+shortresearch/latest.json
+shortresearch/results.tsv
+shortresearch/runs/
 release/results/*.json
 *.refresh-backup-*
 *.unreadable-*

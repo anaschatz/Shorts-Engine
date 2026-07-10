@@ -1166,15 +1166,9 @@ function safeRenderedGoalProof(value) {
                 selectedClear: Boolean(goal.payoffSearch.selectedClear),
                 selectedReason: goal.payoffSearch.selectedReason ? safeString(goal.payoffSearch.selectedReason, 80) : null,
                 rejectedReasons: safeStringList(goal.payoffSearch.rejectedReasons, 8, 80),
-                sampledCandidates: Array.isArray(goal.payoffSearch.sampledCandidates)
-                  ? goal.payoffSearch.sampledCandidates.slice(0, 24).map((candidate) => ({
-                      time: safeNumber(candidate && candidate.time),
-                      clear: Boolean(candidate && candidate.clear),
-                      status: candidate && candidate.status ? safeString(candidate.status, 40) : null,
-                      reason: candidate && candidate.reason ? safeString(candidate.reason, 80) : null,
-                      confidence: safeNumber(candidate && candidate.confidence),
-                    }))
-                  : [],
+                sampledCandidateCount: Array.isArray(goal.payoffSearch.sampledCandidates)
+                  ? goal.payoffSearch.sampledCandidates.length
+                  : 0,
               }
             : null,
           semanticSummary: goal && goal.semanticSummary && typeof goal.semanticSummary === "object"
@@ -3170,19 +3164,31 @@ async function runYouTubeLiveE2E(options = {}) {
   let proofTimeoutMs = DEFAULT_TIMEOUT_MS;
   let proofDeadlineAt = started + DEFAULT_TIMEOUT_MS;
 
+  const hasInjectedRuntime = [
+    options.checkYouTubeIngest,
+    options.checkEnvironment,
+    options.getFreePort,
+    options.runYouTubeSmoke,
+    options.startServer,
+    options.stopServer,
+    options.waitForServerReady,
+  ].some((dependency) => typeof dependency === "function");
+
+  const skippedArtifactCleanup = () => ({
+    directory: MANUAL_DOWNLOADS_DIR,
+    attempted: false,
+    deletedCount: 0,
+    deleted: [],
+    skippedCount: 0,
+    errors: [],
+    destructiveOutsideManualDownloads: false,
+  });
+
   const deps = {
     checkYouTubeIngest: options.checkYouTubeIngest || checkYouTubeIngest,
     checkEnvironment: options.checkEnvironment || checkEnvironment,
-    cleanupGeneratedArtifacts: options.cleanupGeneratedArtifacts || (options.runYouTubeSmoke
-      ? () => ({
-          directory: MANUAL_DOWNLOADS_DIR,
-          attempted: false,
-          deletedCount: 0,
-          deleted: [],
-          skippedCount: 0,
-          errors: [],
-          destructiveOutsideManualDownloads: false,
-        })
+    cleanupGeneratedArtifacts: options.cleanupGeneratedArtifacts || (hasInjectedRuntime
+      ? skippedArtifactCleanup
       : cleanupGeneratedProofArtifacts),
     getFreePort: options.getFreePort || getFreePort,
     runYouTubeSmoke: options.runYouTubeSmoke || runYouTubeSmoke,

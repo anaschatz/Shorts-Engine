@@ -1975,9 +1975,11 @@ test("valid-goals-only rejects score-change anchor candidates without visible fi
     hasBallInNetEvidence: false,
     hasLiveFinishSequence: true,
     scoreboardOnly: true,
+    requiresRenderedFinishProof: true,
     finishFrameEvidence: failedFinishFrameEvidence,
     evidenceCodes: ["goal_finish_not_visible", "live_shot_finish_sequence"],
   };
+  truth.selectedEvents[0].phaseCoverage.requiresRenderedFinishProof = true;
 
   const plans = createCandidateEditPlans({
     moments: [],
@@ -1986,7 +1988,76 @@ test("valid-goals-only rejects score-change anchor candidates without visible fi
     matchEventTruth: truth,
     title: "Rejected missing finish proof fixture",
   });
-  assert.equal(plans.length, 0);
+  assert.equal(plans.length, 1);
+  const candidate = plans[0];
+  assert.equal(candidate.goalPhase.phaseCoverage.requiresRenderedFinishProof, true);
+  assert.equal(candidate.goalPhase.phaseCoverage.hasFinish, false);
+  assert.equal(candidate.finishFrameEvidence.visibilityVerdict, "failed");
+  assert.equal(candidate.goalPhase.phaseCoverage.finishFrameEvidence.visibilityVerdict, "failed");
+});
+
+test("multi-goal planning preserves pending rendered-finish proof until the post-render gate", () => {
+  const metadata = { durationSeconds: 180, width: 1920, height: 1080, hasAudio: true };
+  const truth = matchEventTruthFixture([
+    {
+      goalNumber: 1,
+      scoreBefore: "0-0",
+      scoreAfter: "1-0",
+      scoreChangeTime: 60,
+      sourceStart: 45,
+      sourceEnd: 63,
+      shotStart: 52,
+      payoffStart: 55,
+      payoffEnd: 56,
+      decisionStart: 60,
+      decisionEnd: 62,
+    },
+    {
+      goalNumber: 2,
+      scoreBefore: "1-0",
+      scoreAfter: "1-1",
+      scoreChangeTime: 140,
+      sourceStart: 125,
+      sourceEnd: 143,
+      shotStart: 132,
+      payoffStart: 135,
+      payoffEnd: 136,
+      decisionStart: 140,
+      decisionEnd: 142,
+    },
+  ], metadata.durationSeconds);
+  for (const event of truth.selectedEvents) {
+    event.phaseCoverage.hasFinish = false;
+    event.phaseCoverage.requiresRenderedFinishProof = true;
+    event.phaseCoverage.visualGoalPayoff = {
+      hasVisibleGoalPayoff: false,
+      hasBallInNetEvidence: false,
+      hasLiveFinishSequence: false,
+      scoreboardOnly: true,
+      requiresRenderedFinishProof: true,
+    };
+    event.evidenceCodes = [
+      "scoreboard_ocr_score_change",
+      "scoreboard_temporal_consistency",
+      "scoreboard_backed_goal_sequence",
+      "shot_sequence_support",
+    ];
+  }
+
+  const plans = createCandidateEditPlans({
+    moments: [],
+    metadata: { ...metadata, goalSelectionMode: "valid_goals_only" },
+    transcript: { captions: [] },
+    matchEventTruth: truth,
+    title: "Scoreboard-targeted render probes",
+  });
+  const plan = validateEditPlan(plans[0], metadata);
+
+  assert.equal(plan.mode, "multi_moment_compilation");
+  assert.equal(plan.segments.length, 2);
+  assert.equal(plan.segments.every((segment) => segment.phaseCoverage.hasShot), true);
+  assert.equal(plan.segments.every((segment) => !segment.phaseCoverage.hasFinish), true);
+  assert.equal(plan.segments.every((segment) => segment.phaseCoverage.requiresRenderedFinishProof), true);
 });
 
 test("valid-goals-only rebinds stale finish phases to the stable score-change window", () => {

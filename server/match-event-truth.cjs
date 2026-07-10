@@ -14,6 +14,12 @@ const MAX_CODES = 32;
 const MAX_MISSING = 8;
 const MAX_FLAGS = 8;
 const MAX_CLUSTER_RECOVERY_GOALS = 3;
+const SCORE_CHANGE_TARGET_BACKTRACK_SECONDS = 15;
+const SCORE_CHANGE_TARGET_BACKTRACK_MIN_SECONDS = 13;
+const SCORE_CHANGE_TARGET_BACKTRACK_MAX_SECONDS = 15;
+const SCORE_CHANGE_TARGET_ESTIMATED_FINISH_LEAD_SECONDS = 8;
+const SCORE_CHANGE_TARGET_POST_CONFIRM_SECONDS = 2.35;
+const SCORE_CHANGE_TARGET_SHOT_LEAD_SECONDS = 3.25;
 
 const MATCH_EVENT_TYPES = Object.freeze([
   "confirmed_goal",
@@ -611,6 +617,7 @@ function normalizePhaseCoverage(value = {}, context = {}) {
         hasLiveFinishSequence: Boolean(raw.visualGoalPayoff.hasLiveFinishSequence) && hasAny(evidenceCodes, ["live_shot_finish_sequence"]),
         inferredFromStableScoreChange: Boolean(raw.visualGoalPayoff.inferredFromStableScoreChange),
         scoreboardOnly: Boolean(raw.visualGoalPayoff.scoreboardOnly) || visualGoalPayoffForCodes(evidenceCodes).scoreboardOnly,
+        requiresRenderedFinishProof: Boolean(raw.visualGoalPayoff.requiresRenderedFinishProof),
         evidenceCodes: uniqueCodes(raw.visualGoalPayoff.evidenceCodes || visualGoalPayoffForCodes(evidenceCodes).evidenceCodes, 8),
       }
     : visualGoalPayoffForCodes(evidenceCodes);
@@ -637,6 +644,7 @@ function normalizePhaseCoverage(value = {}, context = {}) {
     confirmationTime,
     replayUsed,
     replayOnly,
+    requiresRenderedFinishProof: Boolean(raw.requiresRenderedFinishProof),
     visualGoalPayoff: visualGoalPayoffWithFinishFrame,
     finishFrameEvidence,
   };
@@ -903,10 +911,41 @@ function normalizeAnchorDiagnostics(value) {
         end: round(seconds(value.searchWindow.end)),
       }
     : null;
+  const targetFinishWindow = value.targetFinishWindow && typeof value.targetFinishWindow === "object" && !Array.isArray(value.targetFinishWindow)
+    ? {
+        start: round(seconds(value.targetFinishWindow.start)),
+        end: round(seconds(value.targetFinishWindow.end)),
+    }
+    : null;
+  const targetClipStartWindow = value.targetClipStartWindow && typeof value.targetClipStartWindow === "object" && !Array.isArray(value.targetClipStartWindow)
+    ? {
+        start: round(seconds(value.targetClipStartWindow.start)),
+        end: round(seconds(value.targetClipStartWindow.end)),
+      }
+    : null;
+  const targetFinishSearchWindow = value.targetFinishSearchWindow && typeof value.targetFinishSearchWindow === "object" && !Array.isArray(value.targetFinishSearchWindow)
+    ? {
+        start: round(seconds(value.targetFinishSearchWindow.start)),
+        end: round(seconds(value.targetFinishSearchWindow.end)),
+      }
+    : null;
   return {
     changeTime: round(seconds(value.changeTime)),
     actionAnchorTime: value.actionAnchorTime == null ? null : round(seconds(value.actionAnchorTime)),
+    stableScoreConfirmationTime: value.stableScoreConfirmationTime == null
+      ? null
+      : round(seconds(value.stableScoreConfirmationTime)),
     searchWindow,
+    targetFinishWindow,
+    targetClipStartWindow,
+    targetFinishSearchWindow,
+    selectedTargetClipStartTime: value.selectedTargetClipStartTime == null
+      ? null
+      : round(seconds(value.selectedTargetClipStartTime)),
+    selectedTargetFinishTime: value.selectedTargetFinishTime == null ? null : round(seconds(value.selectedTargetFinishTime)),
+    sampledTimestamps: Array.isArray(value.sampledTimestamps)
+      ? value.sampledTimestamps.map((time) => round(seconds(time))).filter((time) => Number.isFinite(time)).slice(0, 8)
+      : [],
     bindingStrategy: value.bindingStrategy ? sanitizeText(value.bindingStrategy, 60) : null,
     bindingFallbackUsed: Boolean(value.bindingFallbackUsed),
     bindingFullSourceScanUsed: Boolean(value.bindingFullSourceScanUsed),
@@ -1290,6 +1329,150 @@ function compactScoreChangeLiveClip(context = {}, stableChangeTime = 0, duration
   };
 }
 
+function scoreChangeTargetedRenderProbe({
+  change = {},
+  stableChangeTime = 0,
+  actionAnchorTime = 0,
+  duration = 0,
+  minActionTime = 0,
+  left = 0,
+  right = 0,
+  contextWindows = [],
+  visualSignals = {},
+  mediaAction = null,
+  recovery = null,
+} = {}) {
+  const stableConfirmationTime = round(seconds(stableChangeTime));
+  const observedChangeTime = round(Math.min(
+    stableConfirmationTime,
+    seconds(actionAnchorTime, stableConfirmationTime),
+  ));
+  const confirmationTime = observedChangeTime;
+  const mediaDuration = seconds(duration, confirmationTime + SCORE_CHANGE_TARGET_POST_CONFIRM_SECONDS);
+  const sourceStart = round(Math.max(
+    minActionTime,
+    confirmationTime - SCORE_CHANGE_TARGET_BACKTRACK_SECONDS,
+  ));
+  const finishTime = round(Math.min(
+    confirmationTime - 0.5,
+    Math.max(sourceStart + 1, confirmationTime - SCORE_CHANGE_TARGET_ESTIMATED_FINISH_LEAD_SECONDS),
+  ));
+  const shotStart = round(Math.max(minActionTime, finishTime - SCORE_CHANGE_TARGET_SHOT_LEAD_SECONDS));
+  const sourceEnd = round(Math.min(
+    mediaDuration || confirmationTime + SCORE_CHANGE_TARGET_POST_CONFIRM_SECONDS,
+    Math.max(confirmationTime + SCORE_CHANGE_TARGET_POST_CONFIRM_SECONDS, finishTime + 4, sourceStart + 14),
+  ));
+  const sampledTimestamps = uniqueCodes([
+    sourceStart,
+    Math.max(sourceStart, shotStart - 1.5),
+    shotStart,
+    finishTime,
+    Math.min(sourceEnd, finishTime + 1.25),
+    confirmationTime,
+  ].map((time) => String(round(time))), 8).map(Number);
+  const finishFrameEvidence = {
+    frameTime: finishTime,
+    confidence: 0,
+    visibilityVerdict: "pending_rendered_proof",
+    hasVisibleFinish: false,
+    hasBallInNetOrPayoff: false,
+    hasGoalMouth: false,
+    hasPreShotActionFrame: false,
+    hasFinishActionFrame: false,
+    hasPayoffFrame: false,
+    hasConfirmationFrame: true,
+    isBlurred: false,
+    isOverZoomed: false,
+    isLabelOnly: false,
+    isReplayOnly: false,
+    isCelebrationOnly: false,
+    isScoreboardOnly: true,
+    evidenceCodes: ["score_change_targeted_render_probe", "rendered_finish_proof_required"],
+  };
+  const visualCodes = uniqueCodes([
+    ...visualCodesForRange(visualSignals, sourceStart, sourceEnd),
+    "scoreboard_backed_goal_sequence",
+    "score_change_targeted_render_probe",
+    "rendered_finish_proof_required",
+    "shot_sequence_support",
+    ...(mediaAction ? ["media_high_motion_goal_phase_support"] : []),
+    ...(mediaAction && mediaAction.nearbyAudio ? ["audio_energy_spike"] : []),
+  ], 32);
+  return {
+    sourceStart,
+    sourceEnd,
+    buildupWindow: { start: sourceStart, end: round(Math.max(sourceStart + 0.5, shotStart)) },
+    shotWindow: { start: shotStart, end: round(Math.max(shotStart + 0.5, finishTime)) },
+    payoffWindow: { start: round(Math.max(sourceStart, finishTime - 0.5)), end: round(Math.max(finishTime + 0.75, finishTime)) },
+    reactionWindow: { start: finishTime, end: round(Math.min(mediaDuration || sourceEnd, Math.max(finishTime + 1.5, confirmationTime))) },
+    decisionWindow: { start: confirmationTime, end: round(Math.min(mediaDuration || sourceEnd, Math.max(confirmationTime + 1, sourceEnd))) },
+    phaseCoverage: {
+      hasBuildup: true,
+      hasShot: true,
+      hasFinish: false,
+      hasConfirmation: true,
+      liveActionStart: sourceStart,
+      shotStart,
+      finishTime,
+      confirmationTime,
+      scoreChangeTime: confirmationTime,
+      stableScoreConfirmationTime: stableConfirmationTime,
+      scoreChangeTargetBacktrackSeconds: SCORE_CHANGE_TARGET_BACKTRACK_SECONDS,
+      scoreChangeTargetBacktrackRangeSeconds: {
+        min: SCORE_CHANGE_TARGET_BACKTRACK_MIN_SECONDS,
+        max: SCORE_CHANGE_TARGET_BACKTRACK_MAX_SECONDS,
+      },
+      replayUsed: false,
+      replayOnly: false,
+      requiresRenderedFinishProof: true,
+      visualGoalPayoff: {
+        hasVisibleGoalPayoff: false,
+        hasBallInNetEvidence: false,
+        hasLiveFinishSequence: false,
+        scoreboardOnly: true,
+        requiresRenderedFinishProof: true,
+        evidenceCodes: ["scoreboard_goal_confirmation", "rendered_finish_proof_required"],
+        finishFrameEvidence,
+      },
+      finishFrameEvidence,
+    },
+    visualCodes,
+    primarySource: "score_change_targeted_render_probe",
+    visibleGoalRecovery: publicVisibleGoalPhaseRecovery(recovery),
+    anchorDiagnostics: {
+      changeTime: confirmationTime,
+      actionAnchorTime: round(actionAnchorTime),
+      stableScoreConfirmationTime: stableConfirmationTime,
+      searchWindow: { start: round(left), end: round(right) },
+      targetClipStartWindow: {
+        start: round(confirmationTime - SCORE_CHANGE_TARGET_BACKTRACK_MAX_SECONDS),
+        end: round(confirmationTime - SCORE_CHANGE_TARGET_BACKTRACK_MIN_SECONDS),
+      },
+      targetFinishSearchWindow: {
+        start: round(sourceStart + 1),
+        end: round(confirmationTime - 0.5),
+      },
+      selectedTargetClipStartTime: sourceStart,
+      selectedTargetFinishTime: finishTime,
+      sampledTimestamps,
+      liveWindowCount: contextWindows.filter((window) => hasAny(visualReasonCodesForWindow(window), LIVE_GOAL_PHASE_CODES)).length,
+      shotWindowCount: contextWindows.filter((window) => hasAny(visualReasonCodesForWindow(window), SHOT_CODES)).length,
+      finishWindowCount: contextWindows.filter((window) => hasAny(visualReasonCodesForWindow(window), GOAL_FINISH_CODES)).length,
+      decisionWindowCount: contextWindows.filter((window) => hasAny(visualReasonCodesForWindow(window), DECISION_CODES)).length,
+      mediaActionWindowCount: mediaAction ? 1 : 0,
+      missingActionEvidence: false,
+      ocrOnlyBlocked: false,
+      bindingStrategy: "score_change_targeted_render_probe",
+      bindingFallbackUsed: false,
+      bindingFullSourceScanUsed: false,
+      bindingSampledFrameBudget: recovery && recovery.bindingDiagnostics && recovery.bindingDiagnostics.sampledFrameBudget,
+      bindingMaxBackwardSeconds: recovery && recovery.bindingDiagnostics && recovery.bindingDiagnostics.maxBackwardSeconds,
+      minActionTime,
+      visibleGoalRecovery: publicVisibleGoalPhaseRecovery(recovery),
+    },
+  };
+}
+
 function scoreChangeVisualContext(change = {}, visualSignals = {}, metadata = {}, mediaSignals = {}, index = 0, options = {}) {
   const stableChangeTime = seconds(change.changeTime);
   const actionAnchorTime = seconds(change.actionAnchorTime, stableChangeTime);
@@ -1308,10 +1491,27 @@ function scoreChangeVisualContext(change = {}, visualSignals = {}, metadata = {}
     index,
     minActionTime,
   });
-  const preferScoreChangeBacktrack = Boolean(metadata.allowScoreChangeBacktrackFallback) &&
+  const preferScoreChangeBacktrack = metadata.allowScoreChangeTargetedRenderProbe !== false &&
+    (metadata.sourceType === "youtube" || metadata.goalSelectionMode === "valid_goals_only" || Boolean(metadata.allowScoreChangeBacktrackFallback)) &&
     change.outcome === "counted_goal" &&
+    (change.strongAuthority === true || Boolean(metadata.allowScoreChangeBacktrackFallback)) &&
     hasAny(scoreChangeAnchorCodes(change), ["scoreboard_ocr_score_change", "scoreboard_temporal_consistency"]) &&
     !hasAny(visualCodesForRange(visualSignals, left, right), [...OFFSIDE_CODES, ...DISALLOWED_CODES]);
+  if (preferScoreChangeBacktrack) {
+    return scoreChangeTargetedRenderProbe({
+      change,
+      stableChangeTime,
+      actionAnchorTime,
+      duration,
+      minActionTime,
+      left,
+      right,
+      contextWindows,
+      visualSignals,
+      mediaAction,
+      recovery,
+    });
+  }
   if (recovery.selected) {
     const selected = recovery.selected;
     return compactScoreChangeLiveClip({
@@ -1432,7 +1632,8 @@ function scoreChangeVisualContext(change = {}, visualSignals = {}, metadata = {}
 function buildScoreChangeDecision({ change, visualSignals, mediaSignals, metadata, index, goalNumber = null, minActionTime = 0 }) {
   const context = scoreChangeVisualContext(change, visualSignals, metadata, mediaSignals, index, { minActionTime });
   const hasLiveAction = context.phaseCoverage.hasShot && !context.phaseCoverage.replayOnly;
-  const hasRenderableGoalPhase = hasLiveAction && context.phaseCoverage.hasFinish;
+  const requiresRenderedFinishProof = context.phaseCoverage.requiresRenderedFinishProof === true;
+  const hasRenderableGoalPhase = hasLiveAction && (context.phaseCoverage.hasFinish || requiresRenderedFinishProof);
   const isCounted = change.outcome === "counted_goal";
   const isDisallowed = change.outcome === "disallowed_goal";
   const type = isCounted && hasRenderableGoalPhase
@@ -1449,7 +1650,9 @@ function buildScoreChangeDecision({ change, visualSignals, mediaSignals, metadat
   const missingEvidence = [];
   if (!hasLiveAction) missingEvidence.push("live_goal_phase");
   if (context.phaseCoverage.replayOnly) missingEvidence.push("live_goal_phase");
-  if (isCounted && !context.phaseCoverage.hasFinish) missingEvidence.push("finish_or_stable_score_confirmation");
+  if (isCounted && !context.phaseCoverage.hasFinish) {
+    missingEvidence.push(requiresRenderedFinishProof ? "rendered_finish_proof_required" : "finish_or_stable_score_confirmation");
+  }
   if (!isCounted && !isDisallowed) missingEvidence.push("stable_counted_goal_decision");
   return normalizeDecision({
     id: `score_change_truth_${index + 1}`,
@@ -1458,7 +1661,7 @@ function buildScoreChangeDecision({ change, visualSignals, mediaSignals, metadat
     confidence: round(clamp(change.confidence, 0.05, 0.98)),
     ...context,
     goalNumber,
-    scoreChangeTime: change.changeTime,
+    scoreChangeTime: change.firstSeenAt ?? change.actionAnchorTime ?? change.changeTime,
     scoringSide: change.teamSide,
     cannotConfirmGoalAlone: true,
     primarySource: context.primarySource || null,
@@ -1468,6 +1671,7 @@ function buildScoreChangeDecision({ change, visualSignals, mediaSignals, metadat
     safetyFlags: uniqueCodes([
       "scorebug_truth_integration",
       "no_false_goal_from_ocr_only",
+      ...(requiresRenderedFinishProof ? ["requires_rendered_goal_visibility"] : []),
       ...(context.phaseCoverage.replayOnly ? ["replay_only_rejected_as_primary_goal"] : []),
     ], MAX_FLAGS),
     scoreBefore: change.startScore,
@@ -1745,7 +1949,13 @@ function matchingEventForScoreChange(change = {}, events = []) {
   const endScore = normalizeScoreField(change.endScore);
   return (Array.isArray(events) ? events : []).find((event) => {
     if (!event || event.scoreChangeTime == null) return false;
-    if (Math.abs(seconds(event.scoreChangeTime) - changeTime) > 2) return false;
+    const diagnosticChangeTime = event.anchorDiagnostics && (
+      event.anchorDiagnostics.stableScoreConfirmationTime ?? event.anchorDiagnostics.changeTime
+    );
+    const eventStableChangeTime = diagnosticChangeTime == null
+      ? seconds(event.scoreChangeTime)
+      : seconds(diagnosticChangeTime, event.scoreChangeTime);
+    if (Math.abs(eventStableChangeTime - changeTime) > 2) return false;
     if (startScore && event.scoreBefore && normalizeScoreField(event.scoreBefore) !== startScore) return false;
     if (endScore && event.scoreAfter && normalizeScoreField(event.scoreAfter) !== endScore) return false;
     return true;

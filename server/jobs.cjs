@@ -259,6 +259,100 @@ function publicVisualGoalGateSummary(value) {
   };
 }
 
+function publicRenderedGoalProofSummary(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const timing = value.timing && typeof value.timing === "object" && !Array.isArray(value.timing)
+    ? value.timing
+    : null;
+  return {
+    schemaVersion: safeNumber(value.schemaVersion),
+    providerMode: sanitizeText(value.providerMode || "", 80) || null,
+    passed: typeof value.passed === "boolean" ? value.passed : null,
+    status: sanitizeText(value.status || "", 40) || null,
+    goalCount: safeNumber(value.goalCount),
+    clearGoalCount: safeNumber(value.clearGoalCount),
+    borderlineGoalCount: safeNumber(value.borderlineGoalCount),
+    failedGoalCount: safeNumber(value.failedGoalCount),
+    nonClearGoalCount: safeNumber(value.nonClearGoalCount),
+    missingClearGoalNumbers: Array.isArray(value.missingClearGoalNumbers)
+      ? value.missingClearGoalNumbers
+          .map((goalNumber) => safeNumber(goalNumber))
+          .filter((goalNumber) => goalNumber !== null)
+          .slice(0, 12)
+      : [],
+    contactSheetRef: sanitizeText(value.contactSheetRef || "", 180) || null,
+    timing: timing
+      ? {
+          renderMs: safeNumber(timing.renderMs),
+          renderedGoalProofMs: safeNumber(timing.renderedGoalProofMs),
+          frameExtractionMs: safeNumber(timing.frameExtractionMs),
+          semanticVisibilityMs: safeNumber(timing.semanticVisibilityMs),
+          rebindAttemptCount: safeNumber(timing.rebindAttemptCount),
+          framesExtracted: safeNumber(timing.framesExtracted),
+          framesReused: safeNumber(timing.framesReused),
+          candidateFrameWindowCount: safeNumber(timing.candidateFrameWindowCount),
+          uniqueFrameWindowCount: safeNumber(timing.uniqueFrameWindowCount),
+          batchExtractionCallCount: safeNumber(timing.batchExtractionCallCount),
+          bottleneckStep: sanitizeText(timing.bottleneckStep || "", 80) || null,
+          perGoalProofMs: Array.isArray(timing.perGoalProofMs)
+            ? timing.perGoalProofMs.slice(0, 12).map((item, index) => ({
+                goalNumber: safeNumber(item && item.goalNumber) || index + 1,
+                ms: safeNumber(item && item.ms),
+              }))
+            : [],
+        }
+      : null,
+    goals: Array.isArray(value.goals)
+      ? value.goals.slice(0, 12).map((goal, index) => {
+          const payoffSearch = goal && goal.payoffSearch && typeof goal.payoffSearch === "object" && !Array.isArray(goal.payoffSearch)
+            ? goal.payoffSearch
+            : null;
+          return {
+            goalNumber: safeNumber(goal && goal.goalNumber) || index + 1,
+            segmentIndex: safeNumber(goal && goal.segmentIndex),
+            verdict: sanitizeText(goal && goal.verdict || "", 40) || null,
+            frameCount: safeNumber(goal && goal.frameCount),
+            candidateFrameCount: safeNumber(goal && goal.candidateFrameCount),
+            unverifiedFrameCount: safeNumber(goal && goal.unverifiedFrameCount),
+            failedFrameReasons: safeStringList(goal && goal.failedFrameReasons, 8, 80),
+            payoffSearch: payoffSearch
+              ? {
+                  role: sanitizeText(payoffSearch.role || "", 40) || null,
+                  required: Boolean(payoffSearch.required),
+                  searchStart: safeNumber(payoffSearch.searchStart),
+                  searchEnd: safeNumber(payoffSearch.searchEnd),
+                  candidateCount: safeNumber(payoffSearch.candidateCount),
+                  clearCandidateCount: safeNumber(payoffSearch.clearCandidateCount),
+                  selectedTime: safeNumber(payoffSearch.selectedTime),
+                  selectedClear: typeof payoffSearch.selectedClear === "boolean" ? payoffSearch.selectedClear : null,
+                  selectedReason: sanitizeText(payoffSearch.selectedReason || "", 80) || null,
+                  rejectedReasons: safeStringList(payoffSearch.rejectedReasons, 8, 80),
+                  sampledCandidateCount: Array.isArray(payoffSearch.sampledCandidates) ? payoffSearch.sampledCandidates.length : 0,
+                }
+              : null,
+            semanticSummary: goal && goal.semanticSummary && typeof goal.semanticSummary === "object" && !Array.isArray(goal.semanticSummary)
+              ? {
+                  providerMode: sanitizeText(goal.semanticSummary.providerMode || "", 80) || null,
+                  clearFrameCount: safeNumber(goal.semanticSummary.clearFrameCount),
+                  failedFrameCount: safeNumber(goal.semanticSummary.failedFrameCount),
+                }
+              : null,
+            frameRefs: Array.isArray(goal && goal.frameRefs)
+              ? goal.frameRefs.slice(0, 8).map((frame) => ({
+                  role: sanitizeText(frame && frame.role || "", 40) || null,
+                  time: safeNumber(frame && frame.time),
+                  status: sanitizeText(frame && frame.status || "", 40) || null,
+                  clear: typeof (frame && frame.clear) === "boolean" ? frame.clear : null,
+                  confidence: safeNumber(frame && frame.confidence),
+                  reason: sanitizeText(frame && frame.reason || "", 80) || null,
+                })).filter((frame) => frame.role)
+              : [],
+          };
+        })
+      : [],
+  };
+}
+
 function publicRenderPlanSummary(plan = null) {
   if (!plan || typeof plan !== "object" || Array.isArray(plan)) return null;
   const segments = Array.isArray(plan.segments)
@@ -294,7 +388,7 @@ function publicRenderPlanSummary(plan = null) {
     ? publicJsonClone(plan.videoOutputQA)
     : null;
   const renderedGoalProof = plan.renderedGoalProof && typeof plan.renderedGoalProof === "object" && !Array.isArray(plan.renderedGoalProof)
-    ? publicJsonClone(plan.renderedGoalProof)
+    ? publicRenderedGoalProofSummary(plan.renderedGoalProof)
     : null;
   const renderedGoalRebinding = plan.renderedGoalRebinding && typeof plan.renderedGoalRebinding === "object" && !Array.isArray(plan.renderedGoalRebinding)
     ? publicJsonClone(plan.renderedGoalRebinding)
@@ -709,6 +803,18 @@ class JobStore {
     delete publicSafe.claimedAt;
     delete publicSafe.leaseExpiresAt;
     if (publicSafe.payload) publicSafe.payload = publicPayload(publicSafe.payload);
+    if (publicSafe.renderedGoalProof) publicSafe.renderedGoalProof = publicRenderedGoalProofSummary(publicSafe.renderedGoalProof);
+    if (publicSafe.editPlan && typeof publicSafe.editPlan === "object" && !Array.isArray(publicSafe.editPlan)) {
+      if (publicSafe.editPlan.renderedGoalProof) {
+        publicSafe.editPlan.renderedGoalProof = publicRenderedGoalProofSummary(publicSafe.editPlan.renderedGoalProof);
+      }
+      if (publicSafe.editPlan.renderedGoalRebinding && typeof publicSafe.editPlan.renderedGoalRebinding === "object") {
+        publicSafe.editPlan.renderedGoalRebinding = publicJsonClone(publicSafe.editPlan.renderedGoalRebinding);
+      }
+      if (publicSafe.editPlan.renderedGoalCompaction && typeof publicSafe.editPlan.renderedGoalCompaction === "object") {
+        publicSafe.editPlan.renderedGoalCompaction = publicJsonClone(publicSafe.editPlan.renderedGoalCompaction);
+      }
+    }
     return restoreSafeEditPlanMetadata(publicJsonClone(publicSafe), safe);
   }
 
@@ -728,7 +834,7 @@ class JobStore {
       exportId: job.exportId || null,
       error: normalizeError(job.error),
       videoOutputQA: job.videoOutputQA || (job.editPlan && job.editPlan.videoOutputQA) || null,
-      renderedGoalProof: job.renderedGoalProof || (job.editPlan && job.editPlan.renderedGoalProof) || null,
+      renderedGoalProof: publicRenderedGoalProofSummary(job.renderedGoalProof || (job.editPlan && job.editPlan.renderedGoalProof) || null),
       renderedGoalRebinding: job.renderedGoalRebinding || (job.editPlan && job.editPlan.renderedGoalRebinding) || null,
       renderedGoalCompaction: job.renderedGoalCompaction || (job.editPlan && job.editPlan.renderedGoalCompaction) || null,
       scoreboardOcr: job.scoreboardOcr || null,

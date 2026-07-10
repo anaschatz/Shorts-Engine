@@ -3010,16 +3010,34 @@ function goalPhaseCoverageForEvent(event = {}, window = null) {
     confirmationTime,
     replayUsed,
     replayOnly,
+    requiresRenderedFinishProof: Boolean(raw.requiresRenderedFinishProof) ||
+      Boolean(visualPayoffWithFinishFrame.requiresRenderedFinishProof),
     visualGoalPayoff: visualPayoffWithFinishFrame,
     finishFrameEvidence,
   };
+}
+
+function goalPhaseRequiresRenderedFinishProof(phaseCoverage = {}) {
+  return Boolean(
+    phaseCoverage &&
+    typeof phaseCoverage === "object" &&
+    !Array.isArray(phaseCoverage) &&
+    (
+      phaseCoverage.requiresRenderedFinishProof === true ||
+      (
+        phaseCoverage.visualGoalPayoff &&
+        typeof phaseCoverage.visualGoalPayoff === "object" &&
+        phaseCoverage.visualGoalPayoff.requiresRenderedFinishProof === true
+      )
+    )
+  );
 }
 
 function goalPhaseIsRenderable(event = {}) {
   const phaseCoverage = goalPhaseCoverageForEvent(event);
   return !phaseCoverage.replayOnly &&
     phaseCoverage.hasShot &&
-    phaseCoverage.hasFinish &&
+    (phaseCoverage.hasFinish || goalPhaseRequiresRenderedFinishProof(phaseCoverage)) &&
     phaseCoverage.hasConfirmation;
 }
 
@@ -3229,6 +3247,7 @@ function goalPhaseMetadataForEvent(event = {}, window = {}) {
       hasConfirmation: phaseCoverage.hasConfirmation,
       replayUsed: phaseCoverage.replayUsed,
       replayOnly: phaseCoverage.replayOnly,
+      requiresRenderedFinishProof: phaseCoverage.requiresRenderedFinishProof === true,
       visualGoalPayoff: phaseCoverage.visualGoalPayoff,
       finishFrameEvidence: phaseCoverage.finishFrameEvidence || null,
       liveActionStart: Number(finiteNumber(phaseCoverage.liveActionStart, window.sourceStart || 0).toFixed(2)),
@@ -3500,10 +3519,12 @@ function goalPhaseCoverageForCandidate(candidate = {}) {
 function confirmedGoalPhaseIsRenderable(candidate = {}) {
   const phaseCoverage = goalPhaseCoverageForCandidate(candidate);
   if (!phaseCoverage) return true;
+  const requiresRenderedFinishProof = goalPhaseRequiresRenderedFinishProof(phaseCoverage);
   return phaseCoverage.replayOnly !== true &&
     phaseCoverage.hasShot !== false &&
-    phaseCoverage.hasFinish !== false &&
+    (phaseCoverage.hasFinish !== false || requiresRenderedFinishProof) &&
     (
+      requiresRenderedFinishProof ||
       !phaseCoverage.visualGoalPayoff ||
       phaseCoverage.visualGoalPayoff.hasVisibleGoalPayoff !== false
     );
@@ -4115,6 +4136,8 @@ function referenceGoalPhaseForWindow(candidate = {}, { sourceStart, sourceEnd } 
     : Number(clamp(confirmation, finishTime + 0.2, end - 0.1).toFixed(2));
   const rawVisualGoalPayoff = existingCoverage.visualGoalPayoff ||
     goalVisualPayoffSummaryForReasons(candidate.reasonCodes || []);
+  const requiresRenderedFinishProof = goalPhaseRequiresRenderedFinishProof(existingCoverage) ||
+    goalPhaseRequiresRenderedFinishProof(existingPhase);
   const rawFinishFrameEvidence = candidate.finishFrameEvidence ||
     existingPhase.finishFrameEvidence ||
     existingCoverage.finishFrameEvidence ||
@@ -4130,8 +4153,9 @@ function referenceGoalPhaseForWindow(candidate = {}, { sourceStart, sourceEnd } 
     : null;
   const visualGoalPayoff = {
     ...rawVisualGoalPayoff,
-    hasVisibleGoalPayoff: true,
-    scoreboardOnly: false,
+    hasVisibleGoalPayoff: requiresRenderedFinishProof ? false : true,
+    scoreboardOnly: requiresRenderedFinishProof ? true : false,
+    requiresRenderedFinishProof,
     finishFrameEvidence,
   };
   return {
@@ -4150,10 +4174,11 @@ function referenceGoalPhaseForWindow(candidate = {}, { sourceStart, sourceEnd } 
       ...existingCoverage,
       hasBuildup: true,
       hasShot: true,
-      hasFinish: true,
+      hasFinish: requiresRenderedFinishProof ? false : true,
       hasConfirmation: true,
       replayUsed: Boolean(existingCoverage.replayUsed || existingPhase.replayUsed),
       replayOnly: false,
+      requiresRenderedFinishProof,
       visualGoalPayoff,
       finishFrameEvidence,
       liveActionStart: Number(start.toFixed(2)),
@@ -5182,6 +5207,7 @@ function createMultiMomentCompilationPlan({ singleCandidates, metadata, title, r
             hasConfirmation: Boolean(phaseCoverage.hasConfirmation),
             replayUsed: Boolean(phaseCoverage.replayUsed),
             replayOnly: Boolean(phaseCoverage.replayOnly),
+            requiresRenderedFinishProof: goalPhaseRequiresRenderedFinishProof(phaseCoverage),
             visualGoalPayoff: phaseCoverage.visualGoalPayoff || goalVisualPayoffSummaryForReasons(candidate.reasonCodes || []),
             finishFrameEvidence,
           }
