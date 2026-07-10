@@ -534,7 +534,7 @@ function mappedBallFollowKeyframes(plan = {}, cropPlan = {}) {
     .filter((keyframe) => keyframe && Number.isFinite(Number(keyframe.sourceTime)) && Number.isFinite(Number(keyframe.centerX)))
     .map((keyframe) => ({ ...keyframe, sourceTime: Number(keyframe.sourceTime), centerX: Number(keyframe.centerX) }))
     .sort((left, right) => left.sourceTime - right.sourceTime)
-    .slice(0, 24);
+    .slice(0, 32);
   if (sourceKeyframes.length < 3) return [];
   const segments = normalizedRenderSegments(plan);
   const effectiveSegments = segments.length
@@ -821,6 +821,160 @@ function dynamicCaptionCount(plan = {}) {
     : 0;
 }
 
+function ratio(numerator, denominator) {
+  if (!Number.isFinite(Number(denominator)) || Number(denominator) <= 0) return 0;
+  return Number((Math.max(0, Number(numerator) || 0) / Number(denominator)).toFixed(2));
+}
+
+function twoPhaseGoalCameraSummary(plan = {}) {
+  const segments = Array.isArray(plan.segments) ? plan.segments : [];
+  const cropPlan = plan.cropPlan && typeof plan.cropPlan === "object" ? plan.cropPlan : {};
+  const keyframes = Array.isArray(cropPlan.keyframes) ? cropPlan.keyframes : [];
+  const trackingSamples = plan.visualTrackingSummary && Array.isArray(plan.visualTrackingSummary.trackingSamples)
+    ? plan.visualTrackingSummary.trackingSamples
+    : [];
+  const cropWidth = Number(cropPlan.cropBox && cropPlan.cropBox.width) || 0;
+  const cropHeight = Number(cropPlan.cropBox && cropPlan.cropBox.height) || 0;
+  const cropY = Number(cropPlan.cropBox && cropPlan.cropBox.y) || 0;
+  const goals = segments.map((segment, index) => {
+    const sourceStart = Number(segment.sourceStart);
+    const sourceEnd = Number(segment.sourceEnd);
+    const visibleFinishTime = Number(segment.visibleFinishTime ?? segment.finishTime);
+    const confirmationTime = Number(segment.scoreChangeTime ?? segment.confirmationTime ?? sourceEnd);
+    const goalNumber = Number(segment.goalNumber) || index + 1;
+    if (![sourceStart, sourceEnd, visibleFinishTime, confirmationTime].every(Number.isFinite)) {
+      return {
+        goalNumber,
+        passed: false,
+        failedReasons: ["two_phase_timeline_invalid"],
+      };
+    }
+    const ballFrames = keyframes.filter((keyframe) => (
+      keyframe &&
+      keyframe.phase === "ball_follow" &&
+      Number(keyframe.sourceTime) >= sourceStart - 0.25 &&
+      Number(keyframe.sourceTime) <= visibleFinishTime + 0.25
+    ));
+    const scorerFrames = keyframes.filter((keyframe) => (
+      keyframe &&
+      keyframe.phase === "scorer_follow" &&
+      Number(keyframe.sourceTime) >= visibleFinishTime - 0.25 &&
+      Number(keyframe.sourceTime) <= Math.min(sourceEnd, confirmationTime) + 0.25
+    ));
+    const visibleBallFrames = ballFrames.filter((keyframe) => (
+      ["ball_detection", "ball_interpolation"].includes(keyframe.source) &&
+      Number(keyframe.confidence) >= 0.45
+    ));
+    const scorerHeadFrames = scorerFrames.filter((keyframe) => (
+      ["celebration_head_detection", "celebration_face_detection", "celebration_person_head_estimate"].includes(keyframe.source) &&
+      Number(keyframe.confidence) >= 0.45
+    ));
+    const scorerGroupFrames = scorerFrames.filter((keyframe) => (
+      keyframe.source === "celebration_group_fallback" && Number(keyframe.confidence) >= 0.45
+    ));
+    const scorerWideSafeFrames = scorerFrames.filter((keyframe) => (
+      keyframe.source === "celebration_wide_safe_fallback" && Number(keyframe.confidence) >= 0.45
+    ));
+    const fallbackFrames = [...ballFrames, ...scorerFrames].filter((keyframe) => (
+      ["action_fallback", "player_cluster_fallback", "celebration_group_fallback", "celebration_wide_safe_fallback"].includes(keyframe.source)
+    ));
+    const ballConfidence = visibleBallFrames.length
+      ? ratio(visibleBallFrames.reduce((sum, keyframe) => sum + Number(keyframe.confidence || 0), 0), visibleBallFrames.length)
+      : 0;
+    const scorerEvidenceFrames = scorerHeadFrames.length ? scorerHeadFrames : scorerGroupFrames.length ? scorerGroupFrames : scorerWideSafeFrames;
+    const scorerConfidence = scorerEvidenceFrames.length
+      ? ratio(scorerEvidenceFrames.reduce((sum, keyframe) => sum + Number(keyframe.confidence || 0), 0), scorerEvidenceFrames.length)
+      : 0;
+    const ballVisibilityCoverage = ratio(visibleBallFrames.length, ballFrames.length);
+    const positionedBallFrames = visibleBallFrames.map((keyframe) => {
+      const sample = trackingSamples.find((candidate) => (
+        candidate &&
+        candidate.ballBox &&
+        Math.abs(Number(candidate.sourceTime) - Number(keyframe.sourceTime)) <= 0.05
+      ));
+      if (!sample || cropWidth <= 0 || cropHeight <= 0) return null;
+      const ballX = Number(sample.ballBox.x) + Number(sample.ballBox.width) / 2;
+      const ballY = Number(sample.ballBox.y) + Number(sample.ballBox.height) / 2;
+      const normalizedX = (ballX - (Number(keyframe.centerX) - cropWidth / 2)) / cropWidth;
+      const normalizedY = (ballY - cropY) / cropHeight;
+      return { normalizedX, normalizedY };
+    }).filter(Boolean);
+    const horizontalCenteredBallFrames = positionedBallFrames.filter((position) => (
+      position.normalizedX >= 0.35 && position.normalizedX <= 0.65
+    ));
+    const verticalSafeBallFrames = positionedBallFrames.filter((position) => (
+      position.normalizedY >= 0.25 && position.normalizedY <= 0.7
+    ));
+    const ballCenterCoverage = ratio(horizontalCenteredBallFrames.length, visibleBallFrames.length);
+    const ballVerticalSafeCoverage = ratio(verticalSafeBallFrames.length, visibleBallFrames.length);
+    const scorerHeadCoverage = ratio(scorerHeadFrames.length, scorerFrames.length);
+    const firstBallTrackedTime = visibleBallFrames.length
+      ? Math.min(...visibleBallFrames.map((keyframe) => Number(keyframe.sourceTime)))
+      : null;
+    const ballStartGapSeconds = firstBallTrackedTime == null
+      ? null
+      : Number(Math.max(0, firstBallTrackedTime - sourceStart).toFixed(2));
+    const ballFollowPassed = Boolean(
+      ballFrames.length >= 2 &&
+      visibleBallFrames.length >= 2 &&
+      ballVisibilityCoverage >= 0.66 &&
+      ballCenterCoverage >= 0.66 &&
+      ballStartGapSeconds != null &&
+      ballStartGapSeconds <= 2.5
+    );
+    const scorerFollowPassed = scorerFrames.length >= 1 && (
+      scorerHeadFrames.length >= 1 || scorerGroupFrames.length >= 1 || scorerWideSafeFrames.length >= 1
+    );
+    const failedReasons = [
+      ...(!ballFollowPassed ? ["ball_follow_incomplete"] : []),
+      ...(!scorerFollowPassed ? ["scorer_follow_incomplete"] : []),
+    ];
+    return {
+      goalNumber,
+      ballFollowStart: Number(sourceStart.toFixed(2)),
+      ballFollowEnd: Number(visibleFinishTime.toFixed(2)),
+      visibleFinishTime: Number(visibleFinishTime.toFixed(2)),
+      scorerFollowStart: Number(visibleFinishTime.toFixed(2)),
+      scorerFollowEnd: Number(Math.min(sourceEnd, confirmationTime).toFixed(2)),
+      targetSwitchTime: Number(visibleFinishTime.toFixed(2)),
+      ballVisibilityCoverage,
+      ballCenterCoverage,
+      ballVerticalSafeCoverage,
+      verticalWideSafeFallbackRequired: ballVerticalSafeCoverage < 0.66,
+      firstBallTrackedTime: firstBallTrackedTime == null ? null : Number(firstBallTrackedTime.toFixed(2)),
+      ballStartGapSeconds,
+      scorerHeadCoverage,
+      wideSafeFallbackFrames: fallbackFrames.length,
+      scorerGroupFallbackFrames: scorerGroupFrames.length,
+      scorerWideSafeFallbackFrames: scorerWideSafeFrames.length,
+      trackingConfidence: {
+        ballFollow: ballConfidence,
+        scorerFollow: scorerConfidence,
+      },
+      scorerTargetMode: scorerHeadFrames.length
+        ? "scorer_head"
+        : scorerGroupFrames.length
+          ? "celebration_group_fallback"
+          : scorerWideSafeFrames.length
+            ? "celebration_wide_safe_fallback"
+            : "none",
+      ballFollowPassed,
+      scorerFollowPassed,
+      passed: failedReasons.length === 0,
+      failedReasons,
+    };
+  });
+  const coveredGoalCount = goals.filter((goal) => goal.passed).length;
+  return {
+    passed: goals.length > 0 && coveredGoalCount === goals.length,
+    goalCount: goals.length,
+    coveredGoalCount,
+    missingGoalNumbers: goals.filter((goal) => !goal.passed).map((goal) => goal.goalNumber),
+    goalClaimAllowed: false,
+    goals,
+  };
+}
+
 function createRenderPolishSummary(plan = {}, options = {}) {
   const dimensions = renderDimensions(plan);
   const config = renderStyleConfig(plan);
@@ -831,8 +985,12 @@ function createRenderPolishSummary(plan = {}, options = {}) {
   const softFollowCrop = activeSoftFollowCrop(plan);
   const ballFollowCrop = activeBallFollowCrop(plan);
   const celebrationHeadKeyframes = ballFollowCrop && plan.cropPlan && Array.isArray(plan.cropPlan.keyframes)
-    ? plan.cropPlan.keyframes.filter((keyframe) => keyframe && ["celebration_face_detection", "celebration_person_head_estimate"].includes(keyframe.source))
+    ? plan.cropPlan.keyframes.filter((keyframe) => keyframe && ["celebration_head_detection", "celebration_face_detection", "celebration_person_head_estimate"].includes(keyframe.source))
     : [];
+  const celebrationGroupFallbackKeyframes = ballFollowCrop && plan.cropPlan && Array.isArray(plan.cropPlan.keyframes)
+    ? plan.cropPlan.keyframes.filter((keyframe) => keyframe && keyframe.source === "celebration_group_fallback")
+    : [];
+  const twoPhaseGoalCamera = twoPhaseGoalCameraSummary(plan);
   const celebrationHeadTrackedGoalCount = (Array.isArray(plan.segments) ? plan.segments : []).filter((segment) => (
     celebrationHeadKeyframes.some((keyframe) => (
       Number(keyframe.sourceTime) >= Number(segment.finishTime ?? segment.sourceStart) - 0.25 &&
@@ -908,6 +1066,7 @@ function createRenderPolishSummary(plan = {}, options = {}) {
     dynamicCropRendered: Boolean(ballFollowCrop),
     cropKeyframeCount: ballFollowCrop ? ballFollowCrop.keyframes.length : 0,
     maxPanSpeed: ballFollowCrop ? ballFollowCrop.maxPanSpeed : softFollowCrop ? 0.18 : 0,
+    maxPanAcceleration: ballFollowCrop ? Number(plan.cropPlan.maxPanAcceleration || 0) : 0,
     trackingProviderMode: String(visualTracking.trackingProviderMode || "unknown").slice(0, 80),
     trackingConfidence: Number.isFinite(Number(visualTracking.trackingConfidence))
       ? Number(Number(visualTracking.trackingConfidence).toFixed(2))
@@ -918,9 +1077,9 @@ function createRenderPolishSummary(plan = {}, options = {}) {
     playerClusterConfidence: Number.isFinite(Number(visualTracking.playerClusterConfidence))
       ? Number(Number(visualTracking.playerClusterConfidence).toFixed(2))
       : null,
-    ballTrackCount: Math.max(0, Math.min(24, Math.round(Number(visualTracking.ballTrackCount || 0)))),
-    playerClusterCount: Math.max(0, Math.min(24, Math.round(Number(visualTracking.playerClusterCount || 0)))),
-    celebrationHeadTrackCount: Math.max(0, Math.min(24, Math.round(Number(visualTracking.celebrationHeadTrackCount || 0)))),
+    ballTrackCount: Math.max(0, Math.min(32, Math.round(Number(visualTracking.ballTrackCount || 0)))),
+    playerClusterCount: Math.max(0, Math.min(32, Math.round(Number(visualTracking.playerClusterCount || 0)))),
+    celebrationHeadTrackCount: Math.max(0, Math.min(32, Math.round(Number(visualTracking.celebrationHeadTrackCount || 0)))),
     celebrationHeadKeyframeCount: celebrationHeadKeyframes.length,
     celebrationHeadTrackedGoalCount,
     celebrationHeadTrackingRequired: cleanActionLayoutRequired,
@@ -929,9 +1088,18 @@ function createRenderPolishSummary(plan = {}, options = {}) {
       celebrationHeadTrackedGoalCount === segments.length
     ),
     celebrationHeadFollowRendered: celebrationHeadKeyframes.length > 0,
+    celebrationGroupFallbackFrameCount: celebrationGroupFallbackKeyframes.length,
+    celebrationFollowPassed: twoPhaseGoalCamera.passed || Boolean(
+      celebrationHeadKeyframes.length >= segments.length &&
+      celebrationHeadTrackedGoalCount === segments.length
+    ),
+    twoPhaseGoalCameraPassed: twoPhaseGoalCamera.passed,
+    twoPhaseGoalCamera,
     scoreboardOverlayRendered: Boolean(scoreboardOverlay),
     scoreboardOverlayRegionId: scoreboardOverlay ? scoreboardOverlay.regionId : null,
     sourceScoreboardDuplicateSuppressed: Boolean(scoreboardOverlay),
+    intermediateVideoEncoding: segments.length > 1 ? "lossless_x264_qp0" : "none",
+    lossyVideoEncodeCount: 1,
     blurredBackgroundUsed,
     duplicateBackgroundUsed: blurredBackgroundUsed,
     splitLayoutCaptionCount,
@@ -1061,7 +1229,7 @@ async function renderMultiSegmentShort({ inputPath, outputPath, subtitlesPath, p
   const segmentPaths = [];
   try {
     for (const [index, segment] of segments.entries()) {
-      const segmentPath = join(tempDir, `segment-${String(index + 1).padStart(2, "0")}.mp4`);
+      const segmentPath = join(tempDir, `segment-${String(index + 1).padStart(2, "0")}.mkv`);
       segmentPaths.push(segmentPath);
       await ffmpegRunner([
         "-y",
@@ -1080,24 +1248,19 @@ async function renderMultiSegmentShort({ inputPath, outputPath, subtitlesPath, p
         "-c:v",
         "libx264",
         "-preset",
-        profile.preset,
-        "-crf",
-        profile.crf,
-        ...(profile.outputFrameRate ? ["-r", profile.outputFrameRate] : []),
+        "ultrafast",
+        "-qp",
+        "0",
         "-pix_fmt",
         "yuv420p",
         "-c:a",
-        "aac",
-        "-b:a",
-        profile.audioBitrate,
-        "-movflags",
-        "+faststart",
+        "pcm_s16le",
         "-shortest",
         segmentPath,
       ], { signal });
     }
     const concatListPath = join(tempDir, "concat.txt");
-    const concatPath = join(tempDir, "joined.mp4");
+    const concatPath = join(tempDir, "joined.mkv");
     writeFileSync(concatListPath, `${segmentPaths.map(concatFileLine).join("\n")}\n`, "utf8");
     await ffmpegRunner([
       "-y",
@@ -1145,6 +1308,7 @@ module.exports = {
   extractAudio,
   renderShort,
   createRenderPolishSummary,
+  twoPhaseGoalCameraSummary,
   renderDimensions,
   normalizeRenderProfileName,
 };

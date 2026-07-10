@@ -353,6 +353,8 @@ test("multi-segment renderer cuts segments, concatenates them, then applies capt
   assert.equal(calls.length, 5);
   assert.deepEqual(calls.slice(0, 3).map((args) => args[args.indexOf("-ss") + 1]), ["0", "30", "60"]);
   assert.ok(calls.slice(0, 3).every((args) => args.includes("-vf") && /fade=t=in/.test(args[args.indexOf("-vf") + 1]) && /fade=t=out/.test(args[args.indexOf("-vf") + 1])));
+  assert.ok(calls.slice(0, 3).every((args) => args[args.indexOf("-qp") + 1] === "0" && !args.includes("-crf")));
+  assert.ok(calls.slice(0, 3).every((args) => args[args.indexOf("-c:a") + 1] === "pcm_s16le"));
   assert.equal(calls[3].includes("concat"), true);
   assert.equal(calls[4].includes("-filter_complex"), true);
   assert.equal(calls[4][calls[4].indexOf("-t") + 1], "36");
@@ -361,6 +363,8 @@ test("multi-segment renderer cuts segments, concatenates them, then applies capt
   assert.equal(plan.renderPolishQA.hardCutFallbackCount, 0);
   assert.equal(plan.renderPolishQA.animatedCaptionCount, 3);
   assert.equal(plan.renderPolishQA.dynamicWordCaptionCount, 3);
+  assert.equal(plan.renderPolishQA.intermediateVideoEncoding, "lossless_x264_qp0");
+  assert.equal(plan.renderPolishQA.lossyVideoEncodeCount, 1);
   assert.equal(plan.renderPolishQA.captionMotion, "ass_word_by_word_highlight");
   assert.equal(plan.renderPolishQA.staticCaptionFallbackCount, 0);
   assert.ok(plan.renderPolishQA.overlayRenderedCount >= 2);
@@ -750,6 +754,8 @@ test("proof-fast multi-segment renderer uses fast bounded encoding for every pas
   assert.equal(calls.length, 4);
   assert.equal(calls[0][calls[0].indexOf("-preset") + 1], "ultrafast");
   assert.equal(calls[1][calls[1].indexOf("-preset") + 1], "ultrafast");
+  assert.equal(calls[0][calls[0].indexOf("-qp") + 1], "0");
+  assert.equal(calls[1][calls[1].indexOf("-qp") + 1], "0");
   assert.equal(calls[3][calls[3].indexOf("-preset") + 1], "ultrafast");
   assert.equal(calls[3][calls[3].indexOf("-crf") + 1], "28");
   assert.equal(calls[3][calls[3].indexOf("-r") + 1], "30");

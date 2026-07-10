@@ -17,6 +17,7 @@ const passingCommands = [
   { id: "eval", ok: true },
   { id: "evalReference", ok: true },
   { id: "focusedTests", ok: true },
+  { id: "cameraProbe", ok: true },
 ];
 
 function summary(overrides = {}) {
@@ -47,16 +48,18 @@ function summary(overrides = {}) {
   };
 }
 
-test("quality score uses reference, eval and focused test weights", () => {
+test("quality score includes the deterministic camera probe without changing eval rubrics", () => {
   const score = computeQualityScore({
     evalSummary: { aggregateScore: 80 },
     referenceSummary: { aggregateScore: 90 },
     focusedTestsOk: true,
+    cameraSummary: { aggregateScore: 100 },
   });
-  assert.equal(score.qualityScore, 87.5);
+  assert.equal(score.qualityScore, 88.8);
   assert.equal(score.evalScore, 80);
   assert.equal(score.referenceScore, 90);
   assert.equal(score.focusedScore, 100);
+  assert.equal(score.cameraScore, 100);
 });
 
 test("decision keeps only meaningful score gains without guardrail regressions", () => {
@@ -111,14 +114,17 @@ test("runner summary reads compact eval stdout summaries", () => {
     { id: "eval", ok: true, summary: { aggregateScore: 98, captionActionAlignment: 1 } },
     { id: "evalReference", ok: true, summary: { aggregateScore: 96, noFalseGoalClaim: 1 } },
     { id: "focusedTests", ok: true },
+    { id: "cameraProbe", ok: true, summary: { aggregateScore: 90, metrics: { scorerTargetHandoff: 1 } } },
   ]);
-  assert.equal(run.qualityScore, 97.1);
+  assert.equal(run.qualityScore, 96.44);
   assert.equal(run.metrics.eval.captionActionAlignment, 1);
   assert.equal(run.metrics.reference.noFalseGoalClaim, 1);
+  assert.equal(run.metrics.camera.scorerTargetHandoff, 1);
 });
 
 test("cli arguments support baseline and experiment descriptions", () => {
   assert.equal(RESULTS_HEADER.includes("quality_score"), true);
+  assert.equal(RESULTS_HEADER.includes("camera_score"), true);
   const options = parseArgs(["--baseline", "--description=test", "--min-delta=0.5"]);
   assert.equal(options.baselineMode, true);
   assert.equal(options.description, "test");

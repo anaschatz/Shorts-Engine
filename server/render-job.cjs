@@ -244,16 +244,27 @@ function goalTrackingCandidateWindows(editPlan = {}, metadata = {}) {
     const sourceEnd = safeNumber(segment.sourceEnd);
     const finishTime = safeNumber(segment.finishTime);
     const scoreChangeTime = safeNumber(segment.scoreChangeTime ?? segment.confirmationTime);
-    if (sourceStart == null || sourceEnd == null || sourceEnd <= sourceStart) continue;
+    if (
+      sourceStart == null ||
+      sourceEnd == null ||
+      sourceEnd <= sourceStart ||
+      finishTime == null ||
+      finishTime <= sourceStart ||
+      finishTime >= sourceEnd
+    ) continue;
+    const confirmationTime = scoreChangeTime == null
+      ? sourceEnd
+      : Math.min(sourceEnd, Math.max(finishTime, scoreChangeTime));
+    const scorerFollowEnd = Math.max(finishTime + 0.7, Math.min(sourceEnd - 0.15, confirmationTime));
+    const scorerFollowStart = Math.max(finishTime + 0.35, scorerFollowEnd - 4.8);
     const candidates = [
-      ["buildup", sourceStart + 1.5],
-      ["score_change_minus_8", scoreChangeTime == null ? null : scoreChangeTime - 8],
-      ["celebration_head", scoreChangeTime == null || finishTime == null
-        ? null
-        : Math.min(sourceEnd - 0.4, Math.max(finishTime + 2.5, scoreChangeTime - 5.5))],
-      ["celebration_head", scoreChangeTime == null ? null : Math.min(sourceEnd - 0.35, scoreChangeTime - 1.6)],
+      ["buildup", "ball_follow", sourceStart + 1.5],
+      ["attack_progression", "ball_follow", sourceStart + (finishTime - sourceStart) * 0.58],
+      ["visible_finish", "ball_follow", finishTime - 0.35],
+      ["celebration_head", "scorer_follow", scorerFollowStart + 0.6],
+      ["celebration_head", "scorer_follow", scorerFollowEnd - 0.6],
     ];
-    for (const [role, value] of candidates) {
+    for (const [role, phase, value] of candidates) {
       const parsed = safeNumber(value);
       if (parsed == null) continue;
       const time = Number(Math.min(duration, Math.max(sourceStart + 0.08, Math.min(sourceEnd - 0.08, parsed))).toFixed(2));
@@ -270,14 +281,52 @@ function goalTrackingCandidateWindows(editPlan = {}, metadata = {}) {
           "football_action",
           `goal_${segment.goalNumber || segmentIndex + 1}`,
           role,
-          ...(role === "score_change_minus_8" ? ["celebration_head"] : []),
+          phase,
         ],
       });
     }
   }
   return windows
     .sort((left, right) => left.time - right.time)
-    .slice(0, 24);
+    .slice(0, 32);
+}
+
+function alignGoalSegmentsToBallTracking(editPlan = {}, trackingSummary = {}) {
+  const segments = Array.isArray(editPlan && editPlan.segments) ? editPlan.segments : [];
+  const samples = Array.isArray(trackingSummary && trackingSummary.trackingSamples)
+    ? trackingSummary.trackingSamples
+    : [];
+  const alignedSegments = segments.map((segment) => {
+    if (!confirmedGoalSegment(segment)) return segment;
+    const sourceStart = safeNumber(segment.sourceStart);
+    const shotStart = safeNumber(segment.shotStart);
+    const finishTime = safeNumber(segment.visibleFinishTime ?? segment.finishTime);
+    if (sourceStart == null || finishTime == null) return segment;
+    const firstTrackedBall = samples
+      .filter((sample) => (
+        sample &&
+        sample.phase === "ball_follow" &&
+        ["ball_detection", "ball_interpolation"].includes(sample.source) &&
+        Number(sample.ballConfidence) >= 0.72 &&
+        Number(sample.sourceTime) >= sourceStart &&
+        Number(sample.sourceTime) <= finishTime
+      ))
+      .sort((left, right) => Number(left.sourceTime) - Number(right.sourceTime))[0];
+    if (!firstTrackedBall || Number(firstTrackedBall.sourceTime) - sourceStart <= 2.5) return segment;
+    const latestSafeStart = shotStart == null ? finishTime - 2 : shotStart - 2;
+    const alignedStart = Number(Math.max(sourceStart, Math.min(latestSafeStart, Number(firstTrackedBall.sourceTime) - 1.5)).toFixed(2));
+    if (alignedStart <= sourceStart + 0.05 || alignedStart >= finishTime - 1.5) return segment;
+    return {
+      ...segment,
+      sourceStart: alignedStart,
+      buildupStart: alignedStart,
+      reasonCodes: [...new Set([...(Array.isArray(segment.reasonCodes) ? segment.reasonCodes : []), "ball_follow_start_aligned_to_first_tracked_action"])],
+      phaseCoverage: segment.phaseCoverage && typeof segment.phaseCoverage === "object"
+        ? { ...segment.phaseCoverage, liveActionStart: alignedStart }
+        : segment.phaseCoverage,
+    };
+  });
+  return { ...editPlan, segments: alignedSegments };
 }
 
 function confirmedGoalSegment(segment) {
@@ -4136,7 +4185,7 @@ async function runRenderJob(options) {
         inputPath: context.inputPath,
         metadata: context.metadata,
         candidateWindows: visualCandidateWindows,
-        maxFrames: longSourceRuntime ? 24 : undefined,
+        maxFrames: longSourceRuntime ? 32 : undefined,
         signal,
       });
       sampledFrameSummary = publicFrameSummary(sampledFrames);
@@ -4635,7 +4684,7 @@ async function runRenderJob(options) {
                 inputPath: context.inputPath,
                 metadata: context.metadata,
                 candidateWindows: refinementWindows,
-                maxFrames: 24,
+                maxFrames: 32,
                 signal,
               });
               const refinedTrackingOutput = publicTrackingProviderOutput(await deps.analyzeTracking({
@@ -4669,13 +4718,13 @@ async function runRenderJob(options) {
                 Array.isArray(refinedCropPlan.keyframes) &&
                 refinedCropPlan.keyframes.length >= 3
               ) {
-                editPlan = deps.validateEditPlan(referenceVerticalGoalProofPlan({
+                editPlan = deps.validateEditPlan(referenceVerticalGoalProofPlan(alignGoalSegmentsToBallTracking({
                   ...editPlan,
                   cropPlan: refinedCropPlan,
                   visualTrackingSummary: refinedTrackingSummary,
                   framingMode: "safe_center",
                   framingReason: "selected_goal_ball_tracking_refinement",
-                }, context.metadata, scoreboardOcr), context.metadata);
+                }, refinedTrackingSummary), context.metadata, scoreboardOcr), context.metadata);
                 trackingProviderOutput = refinedTrackingOutput;
                 visualTracking = refinedTrackingSummary;
                 logInfo(deps.logger, {
@@ -5514,6 +5563,7 @@ module.exports = {
     buildScoreCandidateProgressionFromChunks,
     compactVisibleGoalSegmentsForReferenceDuration,
     goalTrackingCandidateWindows,
+    alignGoalSegmentsToBallTracking,
     renderedProofSourceTimes,
     rebindRenderedGoalFailureSegments,
     segmentTimelineStarts,

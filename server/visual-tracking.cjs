@@ -164,7 +164,7 @@ function normalizeTrackingSamples(samples = [], metadata = {}) {
   const { width: mediaWidth, height: mediaHeight } = mediaDimensions(metadata);
   const duration = Math.max(0, Number(metadata.durationSeconds || 0));
   return (Array.isArray(samples) ? samples : [])
-    .slice(0, 24)
+    .slice(0, 32)
     .map((sample) => {
       if (!sample || typeof sample !== "object" || Array.isArray(sample)) return null;
       const sourceTime = Number(sample.sourceTime ?? sample.time ?? sample.timestamp);
@@ -187,6 +187,7 @@ function normalizeTrackingSamples(samples = [], metadata = {}) {
         actionCenter,
         cameraMotion: round(clamp(sample.cameraMotion, 0, 1), 2),
         source: sanitizeText(sample.source || "action_fallback", 48),
+        phase: sample.phase === "scorer_follow" ? "scorer_follow" : "ball_follow",
       };
     })
     .filter(Boolean)
@@ -238,9 +239,9 @@ function normalizeTrackingSummary(summary, metadata = {}) {
     fallbackUsed: Boolean(summary.fallbackUsed || !["soft_follow", "ball_follow"].includes(recommendedFramingMode)),
     trackingProviderMode: sanitizeText(summary.trackingProviderMode || summary.providerMode || "visual-tracking-heuristic", 60),
     trackingProviderFailureCode: summary.trackingProviderFailureCode ? sanitizeText(summary.trackingProviderFailureCode, 80) : null,
-    ballTrackCount: Math.max(0, Math.min(24, Math.round(Number(summary.ballTrackCount || 0)))),
-    playerClusterCount: Math.max(0, Math.min(24, Math.round(Number(summary.playerClusterCount || 0)))),
-    celebrationHeadTrackCount: Math.max(0, Math.min(24, Math.round(Number(
+    ballTrackCount: Math.max(0, Math.min(32, Math.round(Number(summary.ballTrackCount || 0)))),
+    playerClusterCount: Math.max(0, Math.min(32, Math.round(Number(summary.playerClusterCount || 0)))),
+    celebrationHeadTrackCount: Math.max(0, Math.min(32, Math.round(Number(
       summary.celebrationHeadTrackCount ||
       normalizeTrackingSamples(summary.trackingSamples || summary.samples, metadata)
         .filter((sample) => sample.celebrationHeadBox && sample.celebrationHeadConfidence >= 0.66).length
@@ -425,51 +426,76 @@ function dynamicCropKeyframes(samples = [], metadata = {}, targetAspectRatio = "
   const { width, height } = mediaDimensions(metadata);
   const cropBox = cropBoxForCenter({ metadata, center: { x: width / 2, y: height / 2 }, targetAspectRatio });
   if (!cropBox) return [];
-  const deadZone = width * 0.055;
+  const deadZone = width * 0.04;
   const maxPanSpeed = 0.18;
+  const maxPanAcceleration = 0.12;
   let previous = null;
+  let previousVelocity = 0;
   return normalizeTrackingSamples(samples, metadata)
     .map((sample, index) => {
+      const scorerFollow = sample.phase === "scorer_follow";
       const celebrationHeadVisible = Boolean(
+        scorerFollow &&
         sample.celebrationHeadBox &&
         sample.celebrationHeadConfidence >= 0.66 &&
         ["celebration_head_detection", "celebration_face_detection", "celebration_person_head_estimate"].includes(sample.source)
       );
-      const ballVisible = Boolean(sample.ballBox && sample.ballConfidence >= 0.72);
+      const ballVisible = Boolean(!scorerFollow && sample.ballBox && sample.ballConfidence >= 0.72);
+      const celebrationGroupVisible = Boolean(
+        scorerFollow &&
+        !celebrationHeadVisible &&
+        sample.playerClusterBox &&
+        sample.playerClusterConfidence >= 0.55
+      );
+      const celebrationWideSafe = scorerFollow && sample.source === "celebration_wide_safe_fallback";
       const evidenceCenterX = celebrationHeadVisible
         ? sample.celebrationHeadBox.x + sample.celebrationHeadBox.width / 2
+        : celebrationGroupVisible
+          ? sample.playerClusterBox.x + sample.playerClusterBox.width / 2
         : ballVisible
           ? sample.ballBox.x + sample.ballBox.width / 2
-          : sample.actionCenter.x;
+          : width / 2;
       const broadcastCenterX = width / 2;
       const rawCenterX = broadcastCenterX + clamp(
         evidenceCenterX - broadcastCenterX,
-        -width * (celebrationHeadVisible ? 0.36 : 0.22),
-        width * (celebrationHeadVisible ? 0.36 : 0.22),
+        -width * (celebrationHeadVisible || celebrationGroupVisible || ballVisible ? 0.36 : 0),
+        width * (celebrationHeadVisible || celebrationGroupVisible || ballVisible ? 0.36 : 0),
       );
       let centerX = clamp(rawCenterX, cropBox.width / 2, width - cropBox.width / 2);
       let reset = index === 0;
       if (previous) {
         const elapsed = sample.sourceTime - previous.sourceTime;
-        const targetChanged = previous.trackingTarget !== (
-          celebrationHeadVisible ? "celebration_head" : ballVisible ? "ball" : "players"
-        );
-        reset = elapsed > 10 || sample.cameraMotion >= 0.8 || targetChanged;
+        const phaseChanged = previous.phase !== sample.phase;
+        reset = elapsed > 10 || sample.cameraMotion >= 0.8;
         if (!reset) {
           const delta = centerX - previous.centerX;
           if (Math.abs(delta) < deadZone) {
             centerX = previous.centerX;
+            previousVelocity = 0;
           } else {
             const maxDelta = Math.max(deadZone, maxPanSpeed * width * Math.max(0.04, elapsed));
-            centerX = previous.centerX + clamp(delta, -maxDelta, maxDelta);
+            const speedLimitedDelta = clamp(delta, -maxDelta, maxDelta);
+            const desiredVelocity = speedLimitedDelta / Math.max(0.04, elapsed);
+            const accelerationLimit = maxPanAcceleration * width * Math.max(0.04, elapsed);
+            const velocity = phaseChanged
+              ? clamp(desiredVelocity, -accelerationLimit, accelerationLimit)
+              : clamp(desiredVelocity, previousVelocity - accelerationLimit, previousVelocity + accelerationLimit);
+            centerX = previous.centerX + velocity * elapsed;
+            previousVelocity = velocity;
           }
+        } else {
+          previousVelocity = 0;
         }
       }
       const confidence = celebrationHeadVisible
         ? sample.celebrationHeadConfidence
-        : sample.ballBox
+        : celebrationGroupVisible
+          ? sample.playerClusterConfidence
+        : ballVisible
           ? sample.ballConfidence
-          : Math.min(0.68, sample.playerClusterConfidence);
+          : celebrationWideSafe
+            ? 0.45
+            : 0.45;
       const trackingTarget = celebrationHeadVisible ? "celebration_head" : ballVisible ? "ball" : "players";
       const keyframe = {
         sourceTime: sample.sourceTime,
@@ -479,17 +505,22 @@ function dynamicCropKeyframes(samples = [], metadata = {}, targetAspectRatio = "
         confidence: round(confidence, 2),
         source: celebrationHeadVisible
           ? sample.source
+          : celebrationGroupVisible
+            ? "celebration_group_fallback"
+          : celebrationWideSafe
+            ? "celebration_wide_safe_fallback"
           : ballVisible
             ? "ball_detection"
-            : "player_cluster_fallback",
+            : "action_fallback",
         trackingTarget,
+        phase: sample.phase,
         reset,
       };
       previous = keyframe;
       return keyframe;
     })
     .filter((keyframe) => keyframe.confidence >= 0.45)
-    .slice(0, 24);
+    .slice(0, 32);
 }
 
 function textSafeZonesForAspectRatio(targetAspectRatio = "9:16") {
@@ -621,8 +652,9 @@ function calibrateCropPlan(input = {}) {
     actionSafeZones,
     keyframes,
     maxPanSpeed: mode === "ball_follow" ? 0.18 : undefined,
+    maxPanAcceleration: mode === "ball_follow" ? 0.12 : undefined,
     maxZoomSpeed: mode === "ball_follow" ? 0 : undefined,
-    hysteresis: mode === "ball_follow" ? 0.055 : undefined,
+    hysteresis: mode === "ball_follow" ? 0.04 : undefined,
     fallbackUsed,
     textObstructionRisk,
   }, metadata);
@@ -655,7 +687,7 @@ function validateCropPlan(plan, metadata = {}) {
   const confidence = round(clamp(plan.confidence, 0, 1), 2);
   const rawKeyframes = Array.isArray(plan.keyframes) ? plan.keyframes : [];
   const { width: mediaWidth, height: mediaHeight } = mediaDimensions(metadata);
-  const keyframes = rawKeyframes.slice(0, 24).map((keyframe) => {
+  const keyframes = rawKeyframes.slice(0, 32).map((keyframe) => {
     if (!keyframe || typeof keyframe !== "object" || Array.isArray(keyframe)) return null;
     const sourceTime = Number(keyframe.sourceTime);
     const centerX = Number(keyframe.centerX);
@@ -666,11 +698,14 @@ function validateCropPlan(plan, metadata = {}) {
     if (sourceTime < 0 || centerX < 0 || centerX > mediaWidth || centerY < 0 || centerY > mediaHeight) return null;
     if (zoom < 1 || zoom > 1.08 || keyframeConfidence < 0 || keyframeConfidence > 1) return null;
     const source = sanitizeText(keyframe.source || "action_fallback", 48);
-    if (!['ball_detection', 'ball_interpolation', 'player_cluster_fallback', 'action_fallback', 'celebration_head_detection', 'celebration_face_detection', 'celebration_person_head_estimate'].includes(source)) return null;
+    if (!['ball_detection', 'ball_interpolation', 'player_cluster_fallback', 'action_fallback', 'celebration_head_detection', 'celebration_face_detection', 'celebration_person_head_estimate', 'celebration_group_fallback', 'celebration_wide_safe_fallback'].includes(source)) return null;
     const trackingTarget = sanitizeText(keyframe.trackingTarget || (
       ["celebration_head_detection", "celebration_face_detection", "celebration_person_head_estimate"].includes(source) ? "celebration_head" : source === "ball_detection" ? "ball" : "players"
     ), 32);
     if (!["ball", "players", "celebration_head"].includes(trackingTarget)) return null;
+    const phase = keyframe.phase === "scorer_follow" || source.startsWith("celebration_")
+      ? "scorer_follow"
+      : "ball_follow";
     return {
       sourceTime: round(sourceTime, 2),
       centerX: round(centerX, 2),
@@ -679,6 +714,7 @@ function validateCropPlan(plan, metadata = {}) {
       confidence: round(keyframeConfidence, 2),
       source,
       trackingTarget,
+      phase,
       reset: Boolean(keyframe.reset),
     };
   }).filter(Boolean);
@@ -743,6 +779,7 @@ function validateCropPlan(plan, metadata = {}) {
     actionCenterX: actionCenter.x,
     actionCenterY: actionCenter.y,
     maxPanSpeed: mode === "ball_follow" ? round(clamp(plan.maxPanSpeed, 0.08, 0.5), 3) : mode === "soft_follow" ? 0.18 : 0,
+    maxPanAcceleration: mode === "ball_follow" ? round(clamp(plan.maxPanAcceleration, 0.04, 0.3), 3) : 0,
     maxZoomSpeed: mode === "ball_follow" ? round(clamp(plan.maxZoomSpeed, 0, 0.08), 3) : 0,
     hysteresis: mode === "ball_follow" ? round(clamp(plan.hysteresis, 0.02, 0.15), 3) : 0,
     keyframes,

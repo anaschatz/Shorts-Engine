@@ -11,7 +11,7 @@ const {
 } = require("../tracking-provider.cjs");
 
 const PROVIDER_MODE = "ffmpeg-football-tracking";
-const MAX_TRACKING_FRAMES = 24;
+const MAX_TRACKING_FRAMES = 32;
 const DEFAULT_TIMEOUT_MS = 12000;
 const DECODE_WIDTH = 320;
 const MAX_DECODE_BYTES = 4 * 1024 * 1024;
@@ -415,17 +415,26 @@ class FfmpegFootballTrackingAdapter {
     const startedAt = Date.now();
     const rawSamples = [];
     let previousBall = null;
+    let previousFrameTime = null;
+    let previousPhase = null;
     for (const frame of frames) {
       if (input.signal && input.signal.aborted) throw cancelled();
       if (Date.now() - startedAt >= this.timeoutMs) break;
       try {
+        const scorerFollow = frame.visualHints.includes("scorer_follow") || frame.visualHints.includes("celebration_head");
+        const phase = scorerFollow ? "scorer_follow" : "ball_follow";
+        if (
+          previousFrameTime == null ||
+          frame.time - previousFrameTime > 10 ||
+          (phase === "ball_follow" && previousPhase === "scorer_follow")
+        ) previousBall = null;
         const decoded = await this.frameDecoder(frame, {
           ffmpegBin: this.ffmpegBin,
           dimensions,
           timeoutMs: this.timeoutMs - (Date.now() - startedAt),
         });
         const result = analyzeDecodedFrame(decoded, previousBall);
-        const celebrationHeadRequested = frame.visualHints.includes("celebration_head");
+        const celebrationHeadRequested = scorerFollow;
         const detectedFace = celebrationHeadRequested
           ? faceDetectionByTime.get(Number(frame.time).toFixed(2)) || null
           : null;
@@ -436,8 +445,10 @@ class FfmpegFootballTrackingAdapter {
             }
           : null;
         const celebrationHead = detectedHead;
-        if (!result.cluster && !result.ball && !celebrationHead) continue;
-        if (result.ball) previousBall = { x: result.ball.x, y: result.ball.y };
+        if (!result.cluster && !result.ball && !celebrationHead && !scorerFollow) continue;
+        if (!scorerFollow && result.ball) previousBall = { x: result.ball.x, y: result.ball.y };
+        previousFrameTime = frame.time;
+        previousPhase = phase;
         const reliableBall = result.ball && result.ball.confidence >= 0.72 ? result.ball : null;
         const reliableCelebrationHead = celebrationHead && celebrationHead.confidence >= 0.66
           ? celebrationHead
@@ -453,24 +464,35 @@ class FfmpegFootballTrackingAdapter {
               y: celebrationHeadBox.y + celebrationHeadBox.height / 2,
             }
           : null;
+        const celebrationGroupCenter = scorerFollow && playerClusterBox
+          ? {
+              x: playerClusterBox.x + playerClusterBox.width / 2,
+              y: playerClusterBox.y + playerClusterBox.height / 2,
+            }
+          : null;
         rawSamples.push({
           time: frame.time,
-          ballBox,
-          ballConfidence: round(reliableBall && reliableBall.confidence || 0, 2),
+          ballBox: scorerFollow ? null : ballBox,
+          ballConfidence: scorerFollow ? 0 : round(reliableBall && reliableBall.confidence || 0, 2),
           playerClusterBox,
           playerClusterConfidence: round(result.cluster && result.cluster.confidence || 0, 2),
           celebrationHeadBox,
           celebrationHeadConfidence: round(reliableCelebrationHead && reliableCelebrationHead.confidence || 0, 2),
-          actionCenter: celebrationHeadCenter || centerForSample(reliableBall, result.cluster, reliableCelebrationHead, decoded, metadata),
+          actionCenter: celebrationHeadCenter || celebrationGroupCenter || centerForSample(reliableBall, result.cluster, reliableCelebrationHead, decoded, metadata),
           cameraMotion: 0,
           source: reliableCelebrationHead
             ? detectedFace.source
+            : scorerFollow && playerClusterBox
+              ? "celebration_group_fallback"
+            : scorerFollow
+              ? "celebration_wide_safe_fallback"
             : reliableBall
               ? "ball_detection"
               : "player_cluster_fallback",
+          phase,
           reasonCodes: [
             "tracking_scoreboard_excluded",
-            ...(reliableBall ? ["tracking_ball_visible"] : ["tracking_ball_occluded"]),
+            ...(!scorerFollow && reliableBall ? ["tracking_ball_visible"] : ["tracking_ball_occluded"]),
             ...(result.cluster ? ["tracking_player_cluster"] : []),
             ...(reliableCelebrationHead ? ["tracking_celebration_head_visible"] : []),
             ...(celebrationHeadRequested && !reliableCelebrationHead ? ["tracking_celebration_head_fallback"] : []),

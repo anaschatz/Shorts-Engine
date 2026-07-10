@@ -209,6 +209,49 @@ function safeStringList(values = [], maxItems = 8, maxLength = 80) {
     .slice(0, maxItems);
 }
 
+function safeTwoPhaseGoalCamera(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    passed: value.passed === true,
+    goalCount: safeNumber(value.goalCount),
+    coveredGoalCount: safeNumber(value.coveredGoalCount),
+    missingGoalNumbers: Array.isArray(value.missingGoalNumbers)
+      ? value.missingGoalNumbers.map(safeNumber).filter((item) => item !== null).slice(0, 12)
+      : [],
+    goalClaimAllowed: false,
+    goals: Array.isArray(value.goals) ? value.goals.slice(0, 12).map((goal) => ({
+      goalNumber: safeNumber(goal && goal.goalNumber),
+      ballFollowStart: safeNumber(goal && goal.ballFollowStart),
+      ballFollowEnd: safeNumber(goal && goal.ballFollowEnd),
+      visibleFinishTime: safeNumber(goal && goal.visibleFinishTime),
+      scorerFollowStart: safeNumber(goal && goal.scorerFollowStart),
+      scorerFollowEnd: safeNumber(goal && goal.scorerFollowEnd),
+      targetSwitchTime: safeNumber(goal && goal.targetSwitchTime),
+      ballVisibilityCoverage: safeNumber(goal && goal.ballVisibilityCoverage),
+      ballCenterCoverage: safeNumber(goal && goal.ballCenterCoverage),
+      ballVerticalSafeCoverage: safeNumber(goal && goal.ballVerticalSafeCoverage),
+      verticalWideSafeFallbackRequired: goal && goal.verticalWideSafeFallbackRequired === true,
+      firstBallTrackedTime: safeNumber(goal && goal.firstBallTrackedTime),
+      ballStartGapSeconds: safeNumber(goal && goal.ballStartGapSeconds),
+      scorerHeadCoverage: safeNumber(goal && goal.scorerHeadCoverage),
+      wideSafeFallbackFrames: safeNumber(goal && goal.wideSafeFallbackFrames),
+      scorerGroupFallbackFrames: safeNumber(goal && goal.scorerGroupFallbackFrames),
+      scorerWideSafeFallbackFrames: safeNumber(goal && goal.scorerWideSafeFallbackFrames),
+      scorerTargetMode: safeString(goal && goal.scorerTargetMode, 50) || null,
+      trackingConfidence: goal && goal.trackingConfidence && typeof goal.trackingConfidence === "object"
+        ? {
+            ballFollow: safeNumber(goal.trackingConfidence.ballFollow),
+            scorerFollow: safeNumber(goal.trackingConfidence.scorerFollow),
+          }
+        : null,
+      ballFollowPassed: goal && goal.ballFollowPassed === true,
+      scorerFollowPassed: goal && goal.scorerFollowPassed === true,
+      passed: goal && goal.passed === true,
+      failedReasons: safeStringList(goal && goal.failedReasons, 6, 80),
+    })) : [],
+  };
+}
+
 function safeGoalEvidenceCandidate(value = {}, index = 0) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return {
@@ -1060,6 +1103,8 @@ function safeSmokeRenderPlanSummary(plan) {
           encoderPreset: safeString(plan.renderPolishQA.encoderPreset || "", 40) || null,
           encoderCrf: safeNumber(plan.renderPolishQA.encoderCrf),
           segmentRenderMode: safeString(plan.renderPolishQA.segmentRenderMode || "", 80) || null,
+          intermediateVideoEncoding: safeString(plan.renderPolishQA.intermediateVideoEncoding || "", 60) || null,
+          lossyVideoEncodeCount: safeNumber(plan.renderPolishQA.lossyVideoEncodeCount),
           renderStylePreset: safeString(plan.renderPolishQA.renderStylePreset || "", 80) || null,
           transitionRenderedCount: safeNumber(plan.renderPolishQA.transitionRenderedCount),
           hardCutFallbackCount: safeNumber(plan.renderPolishQA.hardCutFallbackCount),
@@ -1071,6 +1116,7 @@ function safeSmokeRenderPlanSummary(plan) {
           dynamicCropRendered: plan.renderPolishQA.dynamicCropRendered === true,
           cropKeyframeCount: safeNumber(plan.renderPolishQA.cropKeyframeCount),
           maxPanSpeed: safeNumber(plan.renderPolishQA.maxPanSpeed),
+          maxPanAcceleration: safeNumber(plan.renderPolishQA.maxPanAcceleration),
           trackingProviderMode: safeString(plan.renderPolishQA.trackingProviderMode || "", 80) || null,
           trackingConfidence: safeNumber(plan.renderPolishQA.trackingConfidence),
           ballCandidateConfidence: safeNumber(plan.renderPolishQA.ballCandidateConfidence),
@@ -1083,6 +1129,10 @@ function safeSmokeRenderPlanSummary(plan) {
           celebrationHeadTrackingRequired: plan.renderPolishQA.celebrationHeadTrackingRequired === true,
           celebrationHeadTrackingPassed: plan.renderPolishQA.celebrationHeadTrackingPassed === true,
           celebrationHeadFollowRendered: plan.renderPolishQA.celebrationHeadFollowRendered === true,
+          celebrationGroupFallbackFrameCount: safeNumber(plan.renderPolishQA.celebrationGroupFallbackFrameCount),
+          celebrationFollowPassed: plan.renderPolishQA.celebrationFollowPassed === true,
+          twoPhaseGoalCameraPassed: plan.renderPolishQA.twoPhaseGoalCameraPassed === true,
+          twoPhaseGoalCamera: safeTwoPhaseGoalCamera(plan.renderPolishQA.twoPhaseGoalCamera),
           scoreboardOverlayRendered: plan.renderPolishQA.scoreboardOverlayRendered === true,
           scoreboardOverlayRegionId: safeString(plan.renderPolishQA.scoreboardOverlayRegionId || "", 80) || null,
           sourceScoreboardDuplicateSuppressed: plan.renderPolishQA.sourceScoreboardDuplicateSuppressed === true,
@@ -1754,6 +1804,8 @@ function renderPolishQaFromSmoke(smoke) {
     encoderPreset: safeString(qa.encoderPreset || "", 40) || null,
     encoderCrf: safeNumber(qa.encoderCrf),
     segmentRenderMode: safeString(qa.segmentRenderMode || "", 80) || null,
+    intermediateVideoEncoding: safeString(qa.intermediateVideoEncoding || "", 60) || null,
+    lossyVideoEncodeCount: safeNumber(qa.lossyVideoEncodeCount),
     renderStylePreset: safeString(qa.renderStylePreset || renderPlan.stylePreset || "", 80) || null,
     outputWidth: safeNumber(qa.outputWidth),
     outputHeight: safeNumber(qa.outputHeight),
@@ -1766,6 +1818,7 @@ function renderPolishQaFromSmoke(smoke) {
       ? Number(qa.cropKeyframeCount)
       : null,
     maxPanSpeed: safeNumber(qa.maxPanSpeed),
+    maxPanAcceleration: safeNumber(qa.maxPanAcceleration),
     trackingProviderMode: safeString(qa.trackingProviderMode || "", 80) || null,
     trackingConfidence: safeNumber(qa.trackingConfidence),
     ballCandidateConfidence: safeNumber(qa.ballCandidateConfidence),
@@ -1778,6 +1831,10 @@ function renderPolishQaFromSmoke(smoke) {
     celebrationHeadTrackingRequired: qa.celebrationHeadTrackingRequired === true,
     celebrationHeadTrackingPassed: qa.celebrationHeadTrackingPassed === true,
     celebrationHeadFollowRendered: qa.celebrationHeadFollowRendered === true,
+    celebrationGroupFallbackFrameCount: safeNumber(qa.celebrationGroupFallbackFrameCount),
+    celebrationFollowPassed: qa.celebrationFollowPassed === true,
+    twoPhaseGoalCameraPassed: qa.twoPhaseGoalCameraPassed === true,
+    twoPhaseGoalCamera: safeTwoPhaseGoalCamera(qa.twoPhaseGoalCamera),
     scoreboardOverlayRendered: Boolean(qa.scoreboardOverlayRendered),
     scoreboardOverlayRegionId: safeString(qa.scoreboardOverlayRegionId || "", 80) || null,
     sourceScoreboardDuplicateSuppressed: Boolean(qa.sourceScoreboardDuplicateSuppressed),

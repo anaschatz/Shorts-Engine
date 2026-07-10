@@ -221,6 +221,50 @@ function safeStringList(values, limit = 10, maxLength = 80) {
     .slice(0, limit);
 }
 
+function publicTwoPhaseGoalCamera(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const goals = Array.isArray(value.goals) ? value.goals.slice(0, 12).map((goal) => ({
+    goalNumber: safeNumber(goal && goal.goalNumber),
+    ballFollowStart: safeNumber(goal && goal.ballFollowStart),
+    ballFollowEnd: safeNumber(goal && goal.ballFollowEnd),
+    visibleFinishTime: safeNumber(goal && goal.visibleFinishTime),
+    scorerFollowStart: safeNumber(goal && goal.scorerFollowStart),
+    scorerFollowEnd: safeNumber(goal && goal.scorerFollowEnd),
+    targetSwitchTime: safeNumber(goal && goal.targetSwitchTime),
+    ballVisibilityCoverage: safeNumber(goal && goal.ballVisibilityCoverage),
+    ballCenterCoverage: safeNumber(goal && goal.ballCenterCoverage),
+    ballVerticalSafeCoverage: safeNumber(goal && goal.ballVerticalSafeCoverage),
+    verticalWideSafeFallbackRequired: goal && goal.verticalWideSafeFallbackRequired === true,
+    firstBallTrackedTime: safeNumber(goal && goal.firstBallTrackedTime),
+    ballStartGapSeconds: safeNumber(goal && goal.ballStartGapSeconds),
+    scorerHeadCoverage: safeNumber(goal && goal.scorerHeadCoverage),
+    wideSafeFallbackFrames: safeNumber(goal && goal.wideSafeFallbackFrames),
+    scorerGroupFallbackFrames: safeNumber(goal && goal.scorerGroupFallbackFrames),
+    scorerWideSafeFallbackFrames: safeNumber(goal && goal.scorerWideSafeFallbackFrames),
+    scorerTargetMode: sanitizeText(goal && goal.scorerTargetMode || "", 50) || null,
+    trackingConfidence: goal && goal.trackingConfidence && typeof goal.trackingConfidence === "object"
+      ? {
+          ballFollow: safeNumber(goal.trackingConfidence.ballFollow),
+          scorerFollow: safeNumber(goal.trackingConfidence.scorerFollow),
+        }
+      : null,
+    ballFollowPassed: goal && goal.ballFollowPassed === true,
+    scorerFollowPassed: goal && goal.scorerFollowPassed === true,
+    passed: goal && goal.passed === true,
+    failedReasons: safeStringList(goal && goal.failedReasons, 6, 80),
+  })) : [];
+  return {
+    passed: value.passed === true,
+    goalCount: safeNumber(value.goalCount),
+    coveredGoalCount: safeNumber(value.coveredGoalCount),
+    missingGoalNumbers: Array.isArray(value.missingGoalNumbers)
+      ? value.missingGoalNumbers.map(safeNumber).filter((item) => item !== null).slice(0, 12)
+      : [],
+    goalClaimAllowed: false,
+    goals,
+  };
+}
+
 function publicRenderPolishQaSummary(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const transitions = Array.isArray(value.transitions)
@@ -249,6 +293,7 @@ function publicRenderPolishQaSummary(value) {
     dynamicCropRendered: value.dynamicCropRendered === true,
     cropKeyframeCount: safeNumber(value.cropKeyframeCount),
     maxPanSpeed: safeNumber(value.maxPanSpeed),
+    maxPanAcceleration: safeNumber(value.maxPanAcceleration),
     trackingProviderMode: sanitizeText(value.trackingProviderMode || "", 80) || null,
     trackingConfidence: safeNumber(value.trackingConfidence),
     ballCandidateConfidence: safeNumber(value.ballCandidateConfidence),
@@ -261,9 +306,15 @@ function publicRenderPolishQaSummary(value) {
     celebrationHeadTrackingRequired: value.celebrationHeadTrackingRequired === true,
     celebrationHeadTrackingPassed: value.celebrationHeadTrackingPassed === true,
     celebrationHeadFollowRendered: value.celebrationHeadFollowRendered === true,
+    celebrationGroupFallbackFrameCount: safeNumber(value.celebrationGroupFallbackFrameCount),
+    celebrationFollowPassed: value.celebrationFollowPassed === true,
+    twoPhaseGoalCameraPassed: value.twoPhaseGoalCameraPassed === true,
+    twoPhaseGoalCamera: publicTwoPhaseGoalCamera(value.twoPhaseGoalCamera),
     scoreboardOverlayRendered: value.scoreboardOverlayRendered === true,
     scoreboardOverlayRegionId: sanitizeText(value.scoreboardOverlayRegionId || "", 80) || null,
     sourceScoreboardDuplicateSuppressed: value.sourceScoreboardDuplicateSuppressed === true,
+    intermediateVideoEncoding: sanitizeText(value.intermediateVideoEncoding || "", 60) || null,
+    lossyVideoEncodeCount: safeNumber(value.lossyVideoEncodeCount),
     blurredBackgroundUsed: value.blurredBackgroundUsed === true,
     duplicateBackgroundUsed: value.duplicateBackgroundUsed === true,
     splitLayoutCaptionCount: safeNumber(value.splitLayoutCaptionCount),

@@ -108,7 +108,7 @@ test("extractSampledFrames allows bounded expanded long-source frame budgets", a
     metadata: longMetadata,
     ffmpegRunner: fakeFfmpegRunner,
     maxFrames: 99,
-    candidateWindows: Array.from({ length: 30 }, (_, index) => ({
+    candidateWindows: Array.from({ length: 40 }, (_, index) => ({
       time: 8 + index * 9,
       confidence: 0.9,
       source: "scorebug_first_live_action_anchor",
@@ -116,9 +116,9 @@ test("extractSampledFrames allows bounded expanded long-source frame budgets", a
     })),
   });
 
-  assert.equal(result.frames.length, 24);
+  assert.equal(result.frames.length, 32);
   assert.equal(frameExtractionHealth().maxFrames, 10);
-  assert.equal(frameExtractionHealth().maxAllowedFrames, 24);
+  assert.equal(frameExtractionHealth().maxAllowedFrames, 32);
 
   cleanupSampledFrames(result);
 });

@@ -935,7 +935,7 @@ test("youtube long-source render uses scorebug-first OCR before visual frame ext
   assert.equal(context.scoreboardOcrCalls.every((call) => call.ocrSamplingWindows.length > 0), true);
   assert.equal(context.scoreboardOcrCalls.every((call) => call.scorebugFirstOnly === true), true);
   assert.equal(context.scoreboardOcrCalls.at(-1).ocrSamplingWindows.some((window) => Number(window.timestamp) >= 585), true);
-  assert.equal(context.frameExtractionMaxFrames, 24);
+  assert.equal(context.frameExtractionMaxFrames, 32);
   assert.equal(context.frameCandidateWindows.some((window) => (
     window.source === "scorebug_first_live_action_anchor" &&
     Number(window.time) === 506 &&
@@ -2837,7 +2837,7 @@ test("default scorebug sampling covers short-lived early and late score updates"
   assert.equal(late.length, 16);
 });
 
-test("selected-goal tracking refinement samples finish anchors and bounded celebration heads", () => {
+test("selected-goal tracking refinement samples three ball frames then two scorer frames per goal", () => {
   const segments = [
     validGoalSegment(1, 80, 90, 94, 103),
     validGoalSegment(2, 230, 242, 249, 258),
@@ -2847,16 +2847,33 @@ test("selected-goal tracking refinement samples finish anchors and bounded celeb
   ];
   const windows = __testing.goalTrackingCandidateWindows({ segments }, { durationSeconds: 764.59 });
 
-  assert.equal(windows.length <= 24, true);
+  assert.equal(windows.length, 25);
   assert.equal(windows.every((window) => window.source === "selected_goal_tracking_refinement"), true);
   for (const segment of segments) {
-    assert.equal(windows.some((window) => Math.abs(window.time - (segment.confirmationTime - 8)) < 0.05), true);
-    assert.equal(windows.filter((window) => (
-      window.visualHints.includes(`goal_${segment.goalNumber}`) &&
-      window.visualHints.includes("celebration_head")
-    )).length, 3);
-    assert.equal(windows.some((window) => window.visualHints.includes(`goal_${segment.goalNumber}`)), true);
+    const goalWindows = windows.filter((window) => window.visualHints.includes(`goal_${segment.goalNumber}`));
+    assert.equal(goalWindows.filter((window) => window.visualHints.includes("ball_follow")).length, 3);
+    assert.equal(goalWindows.filter((window) => window.visualHints.includes("scorer_follow")).length, 2);
+    assert.equal(goalWindows.some((window) => Math.abs(window.time - (segment.finishTime - 0.35)) < 0.05), true);
   }
+});
+
+test("goal segment start aligns to the first tracked ball when the original lead-in is non-action filler", () => {
+  const segments = [
+    validGoalSegment(1, 80, 90, 94, 103),
+    validGoalSegment(2, 230, 242, 249, 258),
+  ];
+  const aligned = __testing.alignGoalSegmentsToBallTracking({ segments }, {
+    trackingSamples: [
+      { sourceTime: 84, phase: "ball_follow", source: "ball_detection", ballConfidence: 0.84 },
+      { sourceTime: 93.5, phase: "ball_follow", source: "ball_detection", ballConfidence: 0.82 },
+      { sourceTime: 231.5, phase: "ball_follow", source: "ball_detection", ballConfidence: 0.86 },
+    ],
+  });
+
+  assert.equal(aligned.segments[0].sourceStart, 82.5);
+  assert.equal(aligned.segments[0].phaseCoverage.liveActionStart, 82.5);
+  assert.ok(aligned.segments[0].reasonCodes.includes("ball_follow_start_aligned_to_first_tracked_action"));
+  assert.equal(aligned.segments[1].sourceStart, 230);
 });
 
 test("score transition refinement searches backward for first score display without unbounded scanning", () => {

@@ -109,8 +109,8 @@ test("ball-follow hands off to bounded celebration head tracking after payoff", 
       trackingSamples: [
         { time: 3, ballBox: { x: 300, y: 450, width: 24, height: 24 }, ballConfidence: 0.84, playerClusterBox: { x: 220, y: 330, width: 320, height: 380 }, playerClusterConfidence: 0.74, actionCenter: { x: 330, y: 520 }, source: "ball_detection" },
         { time: 7, ballBox: { x: 900, y: 430, width: 24, height: 24 }, ballConfidence: 0.87, playerClusterBox: { x: 760, y: 310, width: 360, height: 390 }, playerClusterConfidence: 0.78, actionCenter: { x: 910, y: 510 }, source: "ball_detection" },
-        { time: 10, celebrationHeadBox: { x: 1500, y: 120, width: 120, height: 150 }, celebrationHeadConfidence: 0.84, actionCenter: { x: 1560, y: 195 }, source: "celebration_face_detection" },
-        { time: 12, celebrationHeadBox: { x: 1600, y: 130, width: 110, height: 140 }, celebrationHeadConfidence: 0.82, actionCenter: { x: 1655, y: 200 }, source: "celebration_face_detection" },
+        { time: 10, celebrationHeadBox: { x: 1500, y: 120, width: 120, height: 150 }, celebrationHeadConfidence: 0.84, actionCenter: { x: 1560, y: 195 }, source: "celebration_face_detection", phase: "scorer_follow" },
+        { time: 12, celebrationHeadBox: { x: 1600, y: 130, width: 110, height: 140 }, celebrationHeadConfidence: 0.82, actionCenter: { x: 1655, y: 200 }, source: "celebration_face_detection", phase: "scorer_follow" },
       ],
       estimatedActionBounds: { x: 200, y: 120, width: 1510, height: 650 },
       ballCandidateConfidence: 0.87,
@@ -127,10 +127,41 @@ test("ball-follow hands off to bounded celebration head tracking after payoff", 
 
   assert.equal(cropPlan.mode, "ball_follow");
   assert.equal(headKeyframes.length, 2);
-  assert.equal(headKeyframes[0].reset, true);
+  assert.equal(headKeyframes[0].phase, "scorer_follow");
+  assert.equal(headKeyframes[0].reset, false);
   assert.ok(headKeyframes[0].centerX > cropPlan.keyframes[1].centerX);
   assert.ok(cropPlan.reasonCodes.includes("celebration_head_follow_bounded"));
   assert.equal(tracking.goalClaimAllowed, false);
+});
+
+test("scorer phase ignores a lingering ball and follows an honest celebration group fallback", () => {
+  const tracking = analyzeVisualTracking({
+    metadata,
+    visualTracking: {
+      frameCount: 4,
+      sampledTimestamps: [2, 8, 13, 17],
+      trackingSamples: [
+        { time: 2, ballBox: { x: 300, y: 440, width: 24, height: 24 }, ballConfidence: 0.86, playerClusterBox: { x: 220, y: 300, width: 320, height: 420 }, playerClusterConfidence: 0.76, actionCenter: { x: 312, y: 452 }, source: "ball_detection", phase: "ball_follow" },
+        { time: 8, ballBox: { x: 900, y: 430, width: 24, height: 24 }, ballConfidence: 0.88, playerClusterBox: { x: 760, y: 300, width: 360, height: 420 }, playerClusterConfidence: 0.8, actionCenter: { x: 912, y: 442 }, source: "ball_detection", phase: "ball_follow" },
+        { time: 13, ballBox: { x: 180, y: 500, width: 24, height: 24 }, ballConfidence: 0.91, playerClusterBox: { x: 1320, y: 170, width: 360, height: 650 }, playerClusterConfidence: 0.82, actionCenter: { x: 1500, y: 495 }, source: "ball_detection", phase: "scorer_follow" },
+        { time: 17, ballBox: { x: 160, y: 500, width: 24, height: 24 }, ballConfidence: 0.9, playerClusterBox: { x: 1380, y: 170, width: 360, height: 650 }, playerClusterConfidence: 0.84, actionCenter: { x: 1560, y: 495 }, source: "ball_detection", phase: "scorer_follow" },
+      ],
+      estimatedActionBounds: { x: 160, y: 170, width: 1580, height: 650 },
+      ballCandidateConfidence: 0.91,
+      playerClusterConfidence: 0.84,
+      trackingConfidence: 0.84,
+      recommendedFramingMode: "ball_follow",
+      cropSafetyReason: "ball_follow_validated_tracking_timeline",
+      fallbackUsed: false,
+    },
+  });
+  const cropPlan = calibrateCropPlan({ metadata, trackingSummary: tracking, targetAspectRatio: "9:16" });
+  const scorerKeyframes = cropPlan.keyframes.filter((item) => item.phase === "scorer_follow");
+
+  assert.equal(scorerKeyframes.length, 2);
+  assert.equal(scorerKeyframes.every((item) => item.source === "celebration_group_fallback"), true);
+  assert.equal(scorerKeyframes.every((item) => item.trackingTarget !== "ball"), true);
+  assert.ok(cropPlan.maxPanAcceleration > 0 && cropPlan.maxPanAcceleration <= 0.18);
 });
 
 test("low confidence tracking falls back to wide-safe framing", () => {

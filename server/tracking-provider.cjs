@@ -2,10 +2,10 @@ const { AppError, SAFE_MESSAGES } = require("./errors.cjs");
 const { sanitizeText } = require("./media.cjs");
 
 const DEFAULT_TRACKING_TIMEOUT_MS = 12000;
-const MAX_TRACKING_FRAMES = 24;
-const MAX_BALL_TRACKS = 24;
-const MAX_PLAYER_CLUSTERS = 24;
-const MAX_TRACKING_SAMPLES = 24;
+const MAX_TRACKING_FRAMES = 32;
+const MAX_BALL_TRACKS = 32;
+const MAX_PLAYER_CLUSTERS = 32;
+const MAX_TRACKING_SAMPLES = 32;
 const MAX_REASON_CODES = 10;
 
 const TRACKING_REASON_CODES = Object.freeze([
@@ -39,7 +39,10 @@ const TRACKING_SAMPLE_SOURCES = Object.freeze([
   "celebration_head_detection",
   "celebration_face_detection",
   "celebration_person_head_estimate",
+  "celebration_group_fallback",
+  "celebration_wide_safe_fallback",
 ]);
+const TRACKING_PHASES = Object.freeze(["ball_follow", "scorer_follow"]);
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, Number(value) || min));
@@ -196,9 +199,12 @@ function validateTrackingSample(sample, metadata = {}) {
       : playerClusterBox
         ? boxCenter(playerClusterBox)
         : null;
-  if (!actionCenter || (!ballBox && !playerClusterBox && !celebrationHeadBox)) return null;
   const source = sanitizeText(sample.source || (ballBox ? "ball_detection" : "player_cluster_fallback"), 48).toLowerCase();
   if (!TRACKING_SAMPLE_SOURCES.includes(source)) return null;
+  const phase = sanitizeText(sample.phase || "ball_follow", 32).toLowerCase();
+  if (!TRACKING_PHASES.includes(phase)) return null;
+  const wideSafeCelebration = source === "celebration_wide_safe_fallback" && phase === "scorer_follow";
+  if (!actionCenter || (!ballBox && !playerClusterBox && !celebrationHeadBox && !wideSafeCelebration)) return null;
   return {
     time,
     ballBox,
@@ -210,6 +216,7 @@ function validateTrackingSample(sample, metadata = {}) {
     actionCenter,
     cameraMotion: round(clamp(sample.cameraMotion, 0, 1), 2),
     source,
+    phase,
     reasonCodes: validateReasons(sample.reasonCodes || []),
   };
 }
@@ -609,6 +616,7 @@ module.exports = {
   MockTrackingProvider,
   SafeTrackingProvider,
   TRACKING_REASON_CODES,
+  TRACKING_PHASES,
   TRACKING_SAMPLE_SOURCES,
   analyzeTracking,
   createTrackingProvider,

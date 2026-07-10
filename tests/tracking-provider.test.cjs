@@ -164,12 +164,13 @@ test("tracking contract preserves safe celebration head samples without enabling
   const output = validateTrackingProviderOutput({
     providerMode: "fixture-head-tracking",
     fallbackUsed: false,
-    frameCount: 3,
+    frameCount: 4,
     ballTracks: [{ timestamp: 2, confidence: 0.82, bounds: { x: 900, y: 500, width: 20, height: 20 } }],
     playerClusters: [{ timestamp: 2, confidence: 0.78, bounds: { x: 760, y: 350, width: 360, height: 420 } }],
     samples: [
       { time: 2, ballBox: { x: 900, y: 500, width: 20, height: 20 }, ballConfidence: 0.82, playerClusterBox: { x: 760, y: 350, width: 360, height: 420 }, playerClusterConfidence: 0.78, actionCenter: { x: 910, y: 510 }, source: "ball_detection" },
       { time: 6, celebrationHeadBox: { x: 1420, y: 120, width: 120, height: 150 }, celebrationHeadConfidence: 0.84, actionCenter: { x: 1480, y: 195 }, source: "celebration_head_detection", reasonCodes: ["tracking_celebration_head_visible"] },
+      { time: 9, actionCenter: { x: 960, y: 540 }, source: "celebration_wide_safe_fallback", phase: "scorer_follow", reasonCodes: ["tracking_celebration_head_fallback"] },
     ],
     actionBounds: { x: 760, y: 120, width: 780, height: 650 },
     actionCenter: { x: 1100, y: 420 },
@@ -180,7 +181,31 @@ test("tracking contract preserves safe celebration head samples without enabling
 
   assert.equal(output.celebrationHeadTrackCount, 1);
   assert.equal(output.samples[1].source, "celebration_head_detection");
+  assert.equal(output.samples[2].source, "celebration_wide_safe_fallback");
+  assert.equal(output.samples[2].phase, "scorer_follow");
   assert.equal(output.goalClaimAllowed, false);
+});
+
+test("tracking contract rejects box-free fallback outside scorer phase", () => {
+  assert.throws(
+    () => validateTrackingProviderOutput({
+      providerMode: "fixture-wide-fallback",
+      fallbackUsed: false,
+      frameCount: 1,
+      ballTracks: [],
+      playerClusters: [],
+      samples: [{
+        time: 2,
+        actionCenter: { x: 960, y: 540 },
+        source: "celebration_wide_safe_fallback",
+        phase: "ball_follow",
+      }],
+      actionCenter: { x: 960, y: 540 },
+      confidence: 0.5,
+      reasonCodes: ["tracking_celebration_head_fallback"],
+    }, metadata),
+    (error) => error.code === "AI_OUTPUT_INVALID",
+  );
 });
 
 test("default tracking provider returns deterministic ball and player tracks", () => {

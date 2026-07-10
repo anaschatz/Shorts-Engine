@@ -485,8 +485,9 @@ function renderedActionFramingSummary(renderPlan = {}, outputMp4 = null) {
   const safeZoneCoverage = actionZonesContained(cropPlan) ? 1 : 0;
   const fallbackUsed = Boolean(cropPlan.fallbackUsed || visualTracking.fallbackUsed);
   const maxPanSpeed = numberOrNull(cropPlan.maxPanSpeed) ?? 0;
+  const maxPanAcceleration = numberOrNull(cropPlan.maxPanAcceleration) ?? 0;
   const textObstructionRisk = Boolean(cropPlan.textObstructionRisk);
-  const abruptCropPanRisk = Boolean(maxPanSpeed > 0.22);
+  const abruptCropPanRisk = Boolean(maxPanSpeed > 0.22 || maxPanAcceleration > 0.18);
   const softFollow = cropMode === "soft_follow";
   const ballFollow = cropMode === "ball_follow";
   const safeFallbackMode = ["wide_safe", "locked_wide", "center_safe", "reference_fill"].includes(cropMode);
@@ -534,6 +535,14 @@ function renderedActionFramingSummary(renderPlan = {}, outputMp4 = null) {
     celebrationHeadTrackedGoalCount === segments.length &&
     renderPolish.celebrationHeadFollowRendered === true
   );
+  const twoPhaseGoalCamera = valueObject(renderPolish.twoPhaseGoalCamera);
+  const twoPhaseGoalCameraPassed = Boolean(
+    renderPolish.twoPhaseGoalCameraPassed === true &&
+    twoPhaseGoalCamera.passed === true &&
+    numberOrNull(twoPhaseGoalCamera.coveredGoalCount) === segments.length &&
+    (!Array.isArray(twoPhaseGoalCamera.missingGoalNumbers) || twoPhaseGoalCamera.missingGoalNumbers.length === 0)
+  );
+  const celebrationFollowPassed = celebrationHeadTrackingPassed || twoPhaseGoalCameraPassed;
   const reasons = uniqueReasons([
     ...(!cropMode ? ["crop_plan_missing"] : []),
     ...(cropMode && !softFollow && !ballFollow && !safeFallbackMode ? ["crop_mode_unsafe"] : []),
@@ -543,7 +552,7 @@ function renderedActionFramingSummary(renderPlan = {}, outputMp4 = null) {
     ...(safeZoneCoverage !== 1 ? ["action_safe_zone_not_contained"] : []),
     ...(textObstructionRisk ? ["caption_text_obstruction_risk"] : []),
     ...(abruptCropPanRisk ? ["abrupt_crop_pan_risk"] : []),
-    ...(!celebrationHeadTrackingPassed ? ["celebration_head_tracking_incomplete"] : []),
+    ...(!celebrationFollowPassed ? ["celebration_follow_incomplete"] : []),
   ]);
   return {
     passed: reasons.length === 0,
@@ -565,6 +574,13 @@ function renderedActionFramingSummary(renderPlan = {}, outputMp4 = null) {
     celebrationHeadTrackingRequired,
     celebrationHeadTrackingPassed,
     celebrationHeadFollowRendered: renderPolish.celebrationHeadFollowRendered === true,
+    celebrationGroupFallbackFrameCount: numberOrNull(renderPolish.celebrationGroupFallbackFrameCount) ?? 0,
+    celebrationFollowPassed,
+    twoPhaseGoalCameraPassed,
+    twoPhaseCoveredGoalCount: numberOrNull(twoPhaseGoalCamera.coveredGoalCount) ?? 0,
+    twoPhaseMissingGoalNumbers: Array.isArray(twoPhaseGoalCamera.missingGoalNumbers)
+      ? twoPhaseGoalCamera.missingGoalNumbers.map(numberOrNull).filter((value) => value != null).slice(0, MAX_ITEMS)
+      : [],
     cropKeyframeCount,
     dynamicCropRendered: Boolean(renderPolish.dynamicCropRendered || ballFollow),
     actionSafeZoneCoverage: safeZoneCoverage,
@@ -572,6 +588,7 @@ function renderedActionFramingSummary(renderPlan = {}, outputMp4 = null) {
     textObstructionRisk,
     abruptCropPanRisk,
     maxPanSpeed: round(maxPanSpeed, 2),
+    maxPanAcceleration: round(maxPanAcceleration, 2),
     actionCenterPerSegment: segments.slice(0, MAX_ITEMS).map((segment, index) => {
       const segmentCrop = valueObject(segment && segment.cropPlan);
       return {

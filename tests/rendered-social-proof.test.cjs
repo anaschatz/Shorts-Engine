@@ -337,8 +337,50 @@ test("rendered social polish proof requires celebration head coverage when rende
     },
   });
   assert.equal(failed.renderedActionFraming.celebrationHeadTrackingPassed, false);
-  assert.ok(failed.failedReasons.includes("celebration_head_tracking_incomplete"));
+  assert.ok(failed.failedReasons.includes("celebration_follow_incomplete"));
   assert.equal(failed.passed, false);
+
+  const groupFallback = baseProof({
+    renderPlan: {
+      goalSelectionMode: "valid_goals_only",
+      cropPlan: ballFollow,
+      visualTrackingSummary: {
+        ...base.visualTrackingSummary,
+        recommendedFramingMode: "ball_follow",
+        fallbackUsed: false,
+        celebrationHeadTrackCount: 0,
+      },
+      renderPolishQA: {
+        ...base.renderPolishQA,
+        dynamicCropRendered: true,
+        cropKeyframeCount: 3,
+        maxPanSpeed: 0.18,
+        maxPanAcceleration: 0.12,
+        trackingProviderMode: "ffmpeg-football-tracking",
+        trackingConfidence: 0.82,
+        ballTrackCount: 2,
+        playerClusterCount: 2,
+        celebrationHeadTrackCount: 0,
+        celebrationHeadKeyframeCount: 0,
+        celebrationHeadTrackedGoalCount: 0,
+        celebrationHeadTrackingRequired: true,
+        celebrationHeadTrackingPassed: false,
+        celebrationHeadFollowRendered: false,
+        celebrationGroupFallbackFrameCount: 2,
+        twoPhaseGoalCameraPassed: true,
+        twoPhaseGoalCamera: {
+          passed: true,
+          goalCount: 1,
+          coveredGoalCount: 1,
+          missingGoalNumbers: [],
+        },
+      },
+    },
+  });
+  assert.equal(groupFallback.renderedActionFraming.celebrationHeadTrackingPassed, false);
+  assert.equal(groupFallback.renderedActionFraming.celebrationFollowPassed, true);
+  assert.equal(groupFallback.renderedActionFraming.twoPhaseGoalCameraPassed, true);
+  assert.equal(groupFallback.passed, true);
 });
 
 test("rendered social polish proof fails when hook is missing from first two seconds", () => {

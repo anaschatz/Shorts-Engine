@@ -23,6 +23,7 @@ const RESULTS_HEADER = [
   "eval_score",
   "reference_score",
   "focused_tests",
+  "camera_score",
   "status",
   "description",
   "report",
@@ -73,6 +74,13 @@ const COMMANDS = Object.freeze([
       "tests/visual-tracking.test.cjs",
     ],
     hardGate: true,
+  },
+  {
+    id: "cameraProbe",
+    command: "node",
+    args: ["tools/research-camera-probe.mjs"],
+    hardGate: true,
+    metricGroup: "camera",
   },
 ]);
 
@@ -244,15 +252,17 @@ function extractReferenceMetrics(summary) {
   return { aggregateScore: 0, metrics: {} };
 }
 
-function computeQualityScore({ evalSummary, referenceSummary, focusedTestsOk }) {
+function computeQualityScore({ evalSummary, referenceSummary, focusedTestsOk, cameraSummary }) {
   const evalScore = Number(evalSummary && evalSummary.aggregateScore) || 0;
   const referenceScore = Number(referenceSummary && referenceSummary.aggregateScore) || 0;
   const focusedScore = focusedTestsOk ? 100 : 0;
+  const cameraScore = Number(cameraSummary && cameraSummary.aggregateScore) || 0;
   return {
-    qualityScore: round((0.35 * evalScore) + (0.55 * referenceScore) + (0.10 * focusedScore), 4),
+    qualityScore: round((0.32 * evalScore) + (0.48 * referenceScore) + (0.10 * focusedScore) + (0.10 * cameraScore), 4),
     evalScore: round(evalScore, 4),
     referenceScore: round(referenceScore, 4),
     focusedScore,
+    cameraScore: round(cameraScore, 4),
   };
 }
 
@@ -260,18 +270,21 @@ function summarizeRun(commands) {
   const evalCommand = commandById(commands, "eval");
   const referenceCommand = commandById(commands, "evalReference");
   const focusedCommand = commandById(commands, "focusedTests");
+  const cameraCommand = commandById(commands, "cameraProbe");
   const evalMetrics = extractEvalMetrics(evalCommand && evalCommand.summary);
   const referenceAggregate = extractReferenceMetrics(referenceCommand && referenceCommand.summary);
   const score = computeQualityScore({
     evalSummary: evalMetrics,
     referenceSummary: referenceAggregate,
     focusedTestsOk: Boolean(focusedCommand && focusedCommand.ok),
+    cameraSummary: cameraCommand && cameraCommand.summary,
   });
   return {
     ...score,
     metrics: {
       eval: evalMetrics,
       reference: referenceAggregate.metrics || {},
+      camera: cameraCommand && cameraCommand.summary && cameraCommand.summary.metrics || {},
     },
   };
 }
@@ -383,6 +396,7 @@ function appendResultsRow(run) {
     run.summary.evalScore.toFixed(4),
     run.summary.referenceScore.toFixed(4),
     run.summary.focusedScore,
+    run.summary.cameraScore.toFixed(4),
     run.decision.status,
     sanitizeTsv(run.description),
     `${RUNS_DIR}/${run.runId}.json`,
@@ -425,9 +439,10 @@ function createRunRecord({ options, commands, baseline }) {
     description: options.description,
     objective: {
       weights: {
-        referenceAggregateScore: 0.55,
-        evalAggregateScore: 0.35,
+        referenceAggregateScore: 0.48,
+        evalAggregateScore: 0.32,
         focusedTests: 0.10,
+        cameraProbe: 0.10,
       },
       minKeepDelta: options.minKeepDelta,
     },
@@ -453,6 +468,7 @@ function printSummary(run) {
     evalScore: run.summary.evalScore,
     referenceScore: run.summary.referenceScore,
     focusedScore: run.summary.focusedScore,
+    cameraScore: run.summary.cameraScore,
     scoreDelta: run.decision.scoreDelta,
     failedHardGates: run.decision.failedHardGates,
     guardrailRegressions: run.decision.guardrailRegressions,
