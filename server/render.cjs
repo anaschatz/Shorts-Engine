@@ -5,6 +5,7 @@ const { CONFIG } = require("./config.cjs");
 const { AppError, SAFE_MESSAGES } = require("./errors.cjs");
 const { normalizeStylePreset } = require("./edit-plan.cjs");
 const { commandAvailable } = require("./media.cjs");
+const { enhanceVisualLayer, videoEnhancementConfig } = require("./video-enhancement.cjs");
 
 const RENDER_STYLE_CONFIG = Object.freeze({
   clean_sports: {
@@ -534,7 +535,7 @@ function mappedBallFollowKeyframes(plan = {}, cropPlan = {}) {
     .filter((keyframe) => keyframe && Number.isFinite(Number(keyframe.sourceTime)) && Number.isFinite(Number(keyframe.centerX)))
     .map((keyframe) => ({ ...keyframe, sourceTime: Number(keyframe.sourceTime), centerX: Number(keyframe.centerX) }))
     .sort((left, right) => left.sourceTime - right.sourceTime)
-    .slice(0, 32);
+    .slice(0, 512);
   if (sourceKeyframes.length < 3) return [];
   const segments = normalizedRenderSegments(plan);
   const effectiveSegments = segments.length
@@ -594,7 +595,7 @@ function mappedBallFollowKeyframes(plan = {}, cropPlan = {}) {
       deduped.push(keyframe);
     }
   }
-  return deduped.slice(0, 48);
+  return deduped.slice(0, 768);
 }
 
 function cropXExpression(keyframes = []) {
@@ -826,6 +827,22 @@ function ratio(numerator, denominator) {
   return Number((Math.max(0, Number(numerator) || 0) / Number(denominator)).toFixed(2));
 }
 
+function interpolatedCropCenterX(keyframes = [], sourceTime = 0) {
+  if (!keyframes.length) return null;
+  const time = Number(sourceTime);
+  if (!Number.isFinite(time)) return null;
+  if (time <= Number(keyframes[0].sourceTime)) return Number(keyframes[0].centerX);
+  for (let index = 1; index < keyframes.length; index += 1) {
+    const right = keyframes[index];
+    if (time > Number(right.sourceTime)) continue;
+    const left = keyframes[index - 1];
+    const duration = Math.max(0.001, Number(right.sourceTime) - Number(left.sourceTime));
+    const progress = Math.max(0, Math.min(1, (time - Number(left.sourceTime)) / duration));
+    return Number(left.centerX) + (Number(right.centerX) - Number(left.centerX)) * progress;
+  }
+  return Number(keyframes[keyframes.length - 1].centerX);
+}
+
 function twoPhaseGoalCameraSummary(plan = {}) {
   const segments = Array.isArray(plan.segments) ? plan.segments : [];
   const cropPlan = plan.cropPlan && typeof plan.cropPlan === "object" ? plan.cropPlan : {};
@@ -842,6 +859,10 @@ function twoPhaseGoalCameraSummary(plan = {}) {
     const visibleFinishTime = Number(segment.visibleFinishTime ?? segment.finishTime);
     const confirmationTime = Number(segment.scoreChangeTime ?? segment.confirmationTime ?? sourceEnd);
     const goalNumber = Number(segment.goalNumber) || index + 1;
+    const denseGoal = Array.isArray(cropPlan.perGoalBallContainment)
+      ? cropPlan.perGoalBallContainment.find((goal) => Number(goal && goal.goalNumber) === goalNumber)
+      : null;
+    const denseContainmentRequired = cropPlan.densePerFrameTracking === true;
     if (![sourceStart, sourceEnd, visibleFinishTime, confirmationTime].every(Number.isFinite)) {
       return {
         goalNumber,
@@ -885,17 +906,34 @@ function twoPhaseGoalCameraSummary(plan = {}) {
     const scorerConfidence = scorerEvidenceFrames.length
       ? ratio(scorerEvidenceFrames.reduce((sum, keyframe) => sum + Number(keyframe.confidence || 0), 0), scorerEvidenceFrames.length)
       : 0;
-    const ballVisibilityCoverage = ratio(visibleBallFrames.length, ballFrames.length);
-    const positionedBallFrames = visibleBallFrames.map((keyframe) => {
-      const sample = trackingSamples.find((candidate) => (
-        candidate &&
-        candidate.ballBox &&
-        Math.abs(Number(candidate.sourceTime) - Number(keyframe.sourceTime)) <= 0.05
-      ));
+    const denseBallSamples = trackingSamples.filter((sample) => (
+      sample &&
+      sample.ballBox &&
+      sample.phase === "ball_follow" &&
+      Number(sample.sourceTime) >= sourceStart - 0.02 &&
+      Number(sample.sourceTime) <= visibleFinishTime + 0.02
+    ));
+    const ballVisibilityCoverage = denseContainmentRequired && denseGoal
+      ? Number(denseGoal.containmentCoverage || 0)
+      : ratio(visibleBallFrames.length, ballFrames.length);
+    const positioningInputs = denseContainmentRequired
+      ? denseBallSamples.map((sample) => ({
+          sample,
+          centerX: interpolatedCropCenterX(ballFrames, sample.sourceTime),
+        }))
+      : visibleBallFrames.map((keyframe) => ({
+          sample: trackingSamples.find((candidate) => (
+            candidate &&
+            candidate.ballBox &&
+            Math.abs(Number(candidate.sourceTime) - Number(keyframe.sourceTime)) <= 0.05
+          )),
+          centerX: Number(keyframe.centerX),
+        }));
+    const positionedBallFrames = positioningInputs.map(({ sample, centerX }) => {
       if (!sample || cropWidth <= 0 || cropHeight <= 0) return null;
       const ballX = Number(sample.ballBox.x) + Number(sample.ballBox.width) / 2;
       const ballY = Number(sample.ballBox.y) + Number(sample.ballBox.height) / 2;
-      const normalizedX = (ballX - (Number(keyframe.centerX) - cropWidth / 2)) / cropWidth;
+      const normalizedX = (ballX - (Number(centerX) - cropWidth / 2)) / cropWidth;
       const normalizedY = (ballY - cropY) / cropHeight;
       return { normalizedX, normalizedY };
     }).filter(Boolean);
@@ -905,8 +943,8 @@ function twoPhaseGoalCameraSummary(plan = {}) {
     const verticalSafeBallFrames = positionedBallFrames.filter((position) => (
       position.normalizedY >= 0.25 && position.normalizedY <= 0.7
     ));
-    const ballCenterCoverage = ratio(horizontalCenteredBallFrames.length, visibleBallFrames.length);
-    const ballVerticalSafeCoverage = ratio(verticalSafeBallFrames.length, visibleBallFrames.length);
+    const ballCenterCoverage = ratio(horizontalCenteredBallFrames.length, positionedBallFrames.length);
+    const ballVerticalSafeCoverage = ratio(verticalSafeBallFrames.length, positionedBallFrames.length);
     const scorerHeadCoverage = ratio(scorerHeadFrames.length, scorerFrames.length);
     const firstBallTrackedTime = visibleBallFrames.length
       ? Math.min(...visibleBallFrames.map((keyframe) => Number(keyframe.sourceTime)))
@@ -914,14 +952,28 @@ function twoPhaseGoalCameraSummary(plan = {}) {
     const ballStartGapSeconds = firstBallTrackedTime == null
       ? null
       : Number(Math.max(0, firstBallTrackedTime - sourceStart).toFixed(2));
-    const ballFollowPassed = Boolean(
-      ballFrames.length >= 2 &&
-      visibleBallFrames.length >= 2 &&
-      ballVisibilityCoverage >= 0.66 &&
-      ballCenterCoverage >= 0.66 &&
-      ballStartGapSeconds != null &&
-      ballStartGapSeconds <= 2.5
+    const perFrameContainmentPassed = Boolean(
+      denseGoal &&
+      denseGoal.passed === true &&
+      Number(denseGoal.expectedFrameCount || 0) > 0 &&
+      Number(denseGoal.expectedFrameCount) === Number(denseGoal.containedFrameCount) &&
+      Number(denseGoal.maxMissingFrameRun || 0) === 0
     );
+    const ballFollowPassed = denseContainmentRequired
+      ? Boolean(
+          perFrameContainmentPassed &&
+          positionedBallFrames.length === Number(denseGoal && denseGoal.expectedFrameCount || 0) &&
+          ballVisibilityCoverage === 1 &&
+          ballCenterCoverage >= 0.99
+        )
+      : Boolean(
+          ballFrames.length >= 2 &&
+          visibleBallFrames.length >= 2 &&
+          ballVisibilityCoverage >= 0.66 &&
+          ballCenterCoverage >= 0.66 &&
+          ballStartGapSeconds != null &&
+          ballStartGapSeconds <= 2.5
+        );
     const scorerFollowPassed = scorerFrames.length >= 1 && (
       scorerHeadFrames.length >= 1 || scorerGroupFrames.length >= 1 || scorerWideSafeFrames.length >= 1
     );
@@ -943,6 +995,10 @@ function twoPhaseGoalCameraSummary(plan = {}) {
       verticalWideSafeFallbackRequired: ballVerticalSafeCoverage < 0.66,
       firstBallTrackedTime: firstBallTrackedTime == null ? null : Number(firstBallTrackedTime.toFixed(2)),
       ballStartGapSeconds,
+      expectedBallFrameCount: Number(denseGoal && denseGoal.expectedFrameCount || 0),
+      containedBallFrameCount: Number(denseGoal && denseGoal.containedFrameCount || 0),
+      maxMissingBallFrameRun: Number(denseGoal && denseGoal.maxMissingFrameRun || 0),
+      perFrameContainmentPassed: denseContainmentRequired ? perFrameContainmentPassed : null,
       scorerHeadCoverage,
       wideSafeFallbackFrames: fallbackFrames.length,
       scorerGroupFallbackFrames: scorerGroupFrames.length,
@@ -1036,6 +1092,9 @@ function createRenderPolishSummary(plan = {}, options = {}) {
   const animatedCaptionCount = captionMotionCount(plan);
   const dynamicWordCaptionCount = dynamicCaptionCount(plan);
   const renderPolishWarnings = [];
+  const videoEnhancement = options.videoEnhancement && typeof options.videoEnhancement === "object"
+    ? options.videoEnhancement
+    : { enabled: false, applied: false, provider: "none", scale: 1, model: null };
   if (hardCutFallbackCount > 0) renderPolishWarnings.push("hard_cut_fallback_used");
   if (segments.length > 1 && transitionRenderedCount === 0) renderPolishWarnings.push("missing_transition_render");
   if (overlayRenderedCount === 0) renderPolishWarnings.push("overlay_not_rendered");
@@ -1043,12 +1102,25 @@ function createRenderPolishSummary(plan = {}, options = {}) {
   if (actionLayoutMode === "clean_action_letterbox") renderPolishWarnings.push("clean_action_letterbox_background");
   if (cleanActionLayoutRequired && blurredBackgroundUsed) renderPolishWarnings.push("valid_goal_proof_blurred_background_used");
   if (cleanActionLayoutRequired && splitLayoutCaptionCount > 0) renderPolishWarnings.push("valid_goal_proof_split_caption_layout_used");
+  if (videoEnhancement.fallbackUsed === true) renderPolishWarnings.push("video_enhancement_auto_fallback");
   return {
     contractVersion: 1,
     renderProfile: profile.name,
     encoderPreset: profile.preset,
     encoderCrf: Number(profile.crf),
     segmentRenderMode: profile.segmentMode,
+    videoEnhancementEnabled: videoEnhancement.enabled === true,
+    videoEnhancementApplied: videoEnhancement.applied === true,
+    videoEnhancementProvider: String(videoEnhancement.provider || "none").slice(0, 60),
+    videoEnhancementModel: videoEnhancement.model ? String(videoEnhancement.model).slice(0, 80) : null,
+    videoEnhancementScale: Number(videoEnhancement.scale || 1),
+    videoEnhancementFps: Number(videoEnhancement.fps || 0) || null,
+    videoEnhancementTemporalMode: String(videoEnhancement.temporalMode || "none").slice(0, 60),
+    videoEnhancementOverlayProtection: String(videoEnhancement.overlayProtection || "none").slice(0, 80),
+    videoEnhancementFallbackUsed: videoEnhancement.fallbackUsed === true,
+    videoEnhancementFallbackReason: videoEnhancement.fallbackReason
+      ? String(videoEnhancement.fallbackReason).slice(0, 80)
+      : null,
     renderStylePreset: config.name,
     outputWidth: dimensions.width,
     outputHeight: dimensions.height,
@@ -1123,7 +1195,162 @@ function singleWindowPlan(plan, duration) {
   };
 }
 
-async function renderSingleWindowShort({ inputPath, outputPath, subtitlesPath, plan, signal, ffmpegRunner = runFfmpeg }) {
+function evenDimension(value) {
+  return Math.max(2, Math.floor(Number(value) / 2) * 2);
+}
+
+function cleanVisualLayerFilter(plan, dimensions) {
+  const profile = renderProfileConfig(plan);
+  const softFollowCrop = activeSoftFollowCrop(plan);
+  const ballFollowCrop = activeBallFollowCrop(plan);
+  const actionCrop = ballFollowCrop || softFollowCrop;
+  const scoreboardOverlay = activeScoreboardOverlay(plan, dimensions);
+  const input = scoreboardOverlay
+    ? `[0:v]delogo=x=${scoreboardOverlay.maskX}:y=${scoreboardOverlay.maskY}:w=${scoreboardOverlay.maskWidth}:h=${scoreboardOverlay.maskHeight}:show=0,`
+    : "[0:v]";
+  if (actionCrop) {
+    return `${input}${actionCropFilter(actionCrop)},scale=${dimensions.width}:${dimensions.height}:force_original_aspect_ratio=increase,crop=${dimensions.width}:${dimensions.height},setsar=1[base]`;
+  }
+  if (["wide_safe", "wide_safe_vertical"].includes(plan.framingMode)) {
+    if (shouldUseBlurredBackground(plan, profile)) {
+      return [
+        `${input}split=2[bg_source][fg_source]`,
+        `[bg_source]scale=${dimensions.width}:${dimensions.height}:force_original_aspect_ratio=increase,crop=${dimensions.width}:${dimensions.height},boxblur=18:1[bg]`,
+        `[fg_source]scale=${dimensions.width}:${dimensions.height}:force_original_aspect_ratio=decrease[fg]`,
+        `[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1[base]`,
+      ].join(";");
+    }
+    return `${input}scale=${dimensions.width}:${dimensions.height}:force_original_aspect_ratio=decrease,pad=${dimensions.width}:${dimensions.height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1[base]`;
+  }
+  return `${input}scale=${Math.round(dimensions.width * 1.04)}:${Math.round(dimensions.height * 1.04)}:force_original_aspect_ratio=increase,crop=${dimensions.width}:${dimensions.height},setsar=1[base]`;
+}
+
+async function renderEnhancedSingleWindowShort({
+  inputPath,
+  outputPath,
+  plan,
+  signal,
+  ffmpegRunner,
+  enhancementConfig,
+  videoEnhancer,
+  finishingFilters,
+  duration,
+}) {
+  const dimensions = renderDimensions(plan);
+  const profile = renderProfileConfig(plan);
+  const scoreboardOverlay = activeScoreboardOverlay(plan, dimensions);
+  const trackedSourceFrameRate = Number(
+    plan && plan.visualTrackingSummary && plan.visualTrackingSummary.sourceFrameRate,
+  );
+  const enhancementFps = Number.isFinite(trackedSourceFrameRate) && trackedSourceFrameRate >= 12 && trackedSourceFrameRate <= 60
+    ? Number(Math.min(trackedSourceFrameRate, enhancementConfig.fps).toFixed(3))
+    : enhancementConfig.fps;
+  const resolvedEnhancementConfig = {
+    ...enhancementConfig,
+    fps: enhancementFps,
+  };
+  const baseDimensions = {
+    width: evenDimension(dimensions.width / enhancementConfig.scale),
+    height: evenDimension(dimensions.height / enhancementConfig.scale),
+  };
+  const tempDir = mkdtempSync(join(dirname(outputPath), `.shortsengine-enhance-${basename(outputPath, ".mp4")}-`));
+  const cleanBasePath = join(tempDir, "clean-base.mkv");
+  const enhancedBasePath = join(tempDir, "enhanced-base.mkv");
+  try {
+    await ffmpegRunner([
+      "-y",
+      "-ss",
+      String(plan.sourceStart),
+      "-i",
+      inputPath,
+      "-t",
+      String(duration),
+      "-filter_complex",
+      cleanVisualLayerFilter(plan, baseDimensions),
+      "-map",
+      "[base]",
+      "-an",
+      "-r",
+      String(enhancementFps),
+      "-c:v",
+      "libx264",
+      "-preset",
+      "ultrafast",
+      "-qp",
+      "0",
+      "-pix_fmt",
+      "yuv420p",
+      cleanBasePath,
+    ], { signal, timeoutMs: enhancementConfig.timeoutMs });
+
+    const enhancement = await videoEnhancer({
+      inputPath: cleanBasePath,
+      outputPath: enhancedBasePath,
+      workDir: tempDir,
+      signal,
+      ffmpegRunner,
+      config: resolvedEnhancementConfig,
+    });
+    const enhancedInput = `[0:v]scale=${dimensions.width}:${dimensions.height}:force_original_aspect_ratio=increase,crop=${dimensions.width}:${dimensions.height},setsar=1`;
+    const filter = scoreboardOverlay
+      ? [
+          `${enhancedInput}[base]`,
+          `[1:v]crop=iw*${scoreboardOverlay.width}:ih*${scoreboardOverlay.height}:iw*${scoreboardOverlay.x}:ih*${scoreboardOverlay.y},scale=${scoreboardOverlay.targetWidth}:-2[scorebug]`,
+          `[base][scorebug]overlay=(W-w)/2:${scoreboardOverlay.topMargin}[framed]`,
+          `[framed]${finishingFilters.join(",")}[v]`,
+        ].join(";")
+      : `${enhancedInput},${finishingFilters.join(",")}[v]`;
+    await ffmpegRunner([
+      "-y",
+      "-i",
+      enhancedBasePath,
+      "-ss",
+      String(plan.sourceStart),
+      "-i",
+      inputPath,
+      "-t",
+      String(duration),
+      "-filter_complex",
+      filter,
+      "-map",
+      "[v]",
+      "-map",
+      "1:a?",
+      "-c:v",
+      "libx264",
+      "-preset",
+      profile.preset,
+      "-crf",
+      profile.crf,
+      "-r",
+      String(enhancementFps),
+      "-pix_fmt",
+      "yuv420p",
+      "-c:a",
+      "aac",
+      "-b:a",
+      profile.audioBitrate,
+      "-movflags",
+      "+faststart",
+      "-shortest",
+      outputPath,
+    ], { signal });
+    return enhancement;
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function renderSingleWindowShort({
+  inputPath,
+  outputPath,
+  subtitlesPath,
+  plan,
+  signal,
+  ffmpegRunner = runFfmpeg,
+  enhancementConfig = videoEnhancementConfig(),
+  videoEnhancer = enhanceVisualLayer,
+}) {
   writeAssSubtitles(plan, subtitlesPath);
   const duration = Number((Number(plan.totalDuration) || plan.sourceEnd - plan.sourceStart).toFixed(2));
   const dimensions = renderDimensions(plan);
@@ -1133,6 +1360,43 @@ async function renderSingleWindowShort({ inputPath, outputPath, subtitlesPath, p
   const toneFilter = `eq=contrast=${config.contrast}:saturation=${config.saturation}`;
   const effects = visualEffectFilters(plan, dimensions, config);
   const finishingFilters = ["setsar=1", toneFilter, ...effects, subtitlesFilter];
+  let enhancementFallback = null;
+  if (enhancementConfig.enabled) {
+    try {
+      const enhancement = await renderEnhancedSingleWindowShort({
+        inputPath,
+        outputPath,
+        plan,
+        signal,
+        ffmpegRunner,
+        enhancementConfig,
+        videoEnhancer,
+        finishingFilters,
+        duration,
+      });
+      plan.renderPolishQA = createRenderPolishSummary(plan, {
+        transitionRenderedCount: 0,
+        videoEnhancement: enhancement,
+      });
+      return outputPath;
+    } catch (error) {
+      if (enhancementConfig.mode !== "auto" || enhancementConfig.required === true || (signal && signal.aborted)) {
+        throw error;
+      }
+      enhancementFallback = {
+        enabled: true,
+        applied: false,
+        provider: enhancementConfig.provider,
+        model: enhancementConfig.model,
+        scale: enhancementConfig.scale,
+        fps: enhancementConfig.fps,
+        temporalMode: "frame_independent",
+        overlayProtection: "compose_after_enhancement",
+        fallbackUsed: true,
+        fallbackReason: String(error && error.code || "VIDEO_ENHANCEMENT_FAILED"),
+      };
+    }
+  }
   const backgroundPush = hasCue(plan, ["subtle_camera_push", "punch_zoom"]) ? 1.035 : 1;
   const backgroundWidth = Math.round(dimensions.width * backgroundPush);
   const backgroundHeight = Math.round(dimensions.height * backgroundPush);
@@ -1211,11 +1475,23 @@ async function renderSingleWindowShort({ inputPath, outputPath, subtitlesPath, p
     outputPath,
   ];
   await ffmpegRunner(args, { signal });
-  plan.renderPolishQA = createRenderPolishSummary(plan, { transitionRenderedCount: 0 });
+  plan.renderPolishQA = createRenderPolishSummary(plan, {
+    transitionRenderedCount: 0,
+    videoEnhancement: enhancementFallback,
+  });
   return outputPath;
 }
 
-async function renderMultiSegmentShort({ inputPath, outputPath, subtitlesPath, plan, signal, ffmpegRunner = runFfmpeg }) {
+async function renderMultiSegmentShort({
+  inputPath,
+  outputPath,
+  subtitlesPath,
+  plan,
+  signal,
+  ffmpegRunner = runFfmpeg,
+  enhancementConfig = videoEnhancementConfig(),
+  videoEnhancer = enhanceVisualLayer,
+}) {
   const segments = normalizedRenderSegments(plan);
   const profile = renderProfileConfig(plan);
   if (segments.length < 2) {
@@ -1274,16 +1550,34 @@ async function renderMultiSegmentShort({ inputPath, outputPath, subtitlesPath, p
       "copy",
       concatPath,
     ], { signal });
+    const joinedPlan = singleWindowPlan(plan, totalDuration);
     await renderSingleWindowShort({
       inputPath: concatPath,
       outputPath,
       subtitlesPath,
-      plan: singleWindowPlan(plan, totalDuration),
+      plan: joinedPlan,
       signal,
       ffmpegRunner,
+      enhancementConfig,
+      videoEnhancer,
     });
+    const joinedRenderQa = joinedPlan.renderPolishQA && typeof joinedPlan.renderPolishQA === "object"
+      ? joinedPlan.renderPolishQA
+      : null;
     plan.renderPolishQA = createRenderPolishSummary(plan, {
       transitionRenderedCount: Math.max(0, segments.length - 1),
+      videoEnhancement: joinedRenderQa && joinedRenderQa.videoEnhancementApplied
+        ? {
+            enabled: true,
+            applied: true,
+            provider: joinedRenderQa.videoEnhancementProvider,
+            model: joinedRenderQa.videoEnhancementModel,
+            scale: joinedRenderQa.videoEnhancementScale,
+            fps: joinedRenderQa.videoEnhancementFps,
+            temporalMode: joinedRenderQa.videoEnhancementTemporalMode,
+            overlayProtection: joinedRenderQa.videoEnhancementOverlayProtection,
+          }
+        : null,
     });
     return outputPath;
   } finally {
@@ -1291,14 +1585,41 @@ async function renderMultiSegmentShort({ inputPath, outputPath, subtitlesPath, p
   }
 }
 
-async function renderShort({ inputPath, outputPath, subtitlesPath, plan, signal, ffmpegRunner = runFfmpeg }) {
+async function renderShort({
+  inputPath,
+  outputPath,
+  subtitlesPath,
+  plan,
+  signal,
+  ffmpegRunner = runFfmpeg,
+  enhancementConfig = videoEnhancementConfig(),
+  videoEnhancer = enhanceVisualLayer,
+}) {
   if (plan && typeof plan === "object") {
     plan.renderProfile = normalizeRenderProfileName(plan.renderProfile || process.env.SHORTSENGINE_RENDER_PROFILE);
   }
   if (Array.isArray(plan && plan.segments) && plan.segments.length > 1) {
-    return renderMultiSegmentShort({ inputPath, outputPath, subtitlesPath, plan, signal, ffmpegRunner });
+    return renderMultiSegmentShort({
+      inputPath,
+      outputPath,
+      subtitlesPath,
+      plan,
+      signal,
+      ffmpegRunner,
+      enhancementConfig,
+      videoEnhancer,
+    });
   }
-  return renderSingleWindowShort({ inputPath, outputPath, subtitlesPath, plan, signal, ffmpegRunner });
+  return renderSingleWindowShort({
+    inputPath,
+    outputPath,
+    subtitlesPath,
+    plan,
+    signal,
+    ffmpegRunner,
+    enhancementConfig,
+    videoEnhancer,
+  });
 }
 
 module.exports = {

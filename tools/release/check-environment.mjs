@@ -23,6 +23,13 @@ const STAGING_READY_STORAGE_ADAPTERS = Object.freeze(["local", "mock-cloud", "s3
 const PERSISTENCE_ADAPTERS = Object.freeze(["local", "sqlite"]);
 const TRANSCRIPTION_PROVIDERS = Object.freeze(["mock", "openai"]);
 const SCOREBOARD_OCR_PROVIDERS = Object.freeze(["deterministic", "local"]);
+const VIDEO_ENHANCEMENT_PROVIDERS = Object.freeze(["realesrgan-python", "realesrgan-ncnn"]);
+const REALESRGAN_MODELS = Object.freeze([
+  "realesrgan-x4plus",
+  "realesrnet-x4plus",
+  "realesrgan-x4plus-anime",
+  "realesr-animevideov3",
+]);
 const YOUTUBE_PLAYER_CLIENTS = Object.freeze(["android", "ios", "web"]);
 
 const ENV_CONTRACT = Object.freeze([
@@ -72,6 +79,19 @@ const ENV_CONTRACT = Object.freeze([
   { name: "SHORTSENGINE_YOUTUBE_LIVE_E2E_BROWSER", category: "Remote URL ingest", required: false, defaultValue: "false", type: "boolean", secret: false },
   { name: "MATCHCUTS_RENDER_TIMEOUT_MS", category: "FFmpeg/render limits", required: false, defaultValue: String(5 * 60 * 1000), type: "integer", min: 1000, max: 60 * 60 * 1000, secret: false },
   { name: "MATCHCUTS_ANALYSIS_TIMEOUT_MS", category: "FFmpeg/render limits", required: false, defaultValue: String(45 * 1000), type: "integer", min: 1000, max: 10 * 60 * 1000, secret: false },
+  { name: "SHORTSENGINE_VIDEO_ENHANCEMENT_ENABLED", category: "Video enhancement", required: false, defaultValue: "auto", type: "boolean-auto", secret: false },
+  { name: "SHORTSENGINE_VIDEO_ENHANCEMENT_REQUIRED", category: "Video enhancement", required: false, defaultValue: "true", type: "boolean", secret: false },
+  { name: "SHORTSENGINE_VIDEO_ENHANCEMENT_PROVIDER", category: "Video enhancement", required: false, defaultValue: "realesrgan-python", type: "enum", allowedValues: VIDEO_ENHANCEMENT_PROVIDERS, secret: false },
+  { name: "SHORTSENGINE_REALESRGAN_BIN", category: "Video enhancement", required: false, defaultValue: "managed", type: "command", secret: false },
+  { name: "SHORTSENGINE_REALESRGAN_PYTHON_BIN", category: "Video enhancement", required: false, defaultValue: "", type: "string", secret: false },
+  { name: "SHORTSENGINE_REALESRGAN_MODEL_DIR", category: "Video enhancement", required: false, defaultValue: "", type: "string", secret: false },
+  { name: "SHORTSENGINE_REALESRGAN_MODEL_PATH", category: "Video enhancement", required: false, defaultValue: "", type: "string", secret: false },
+  { name: "SHORTSENGINE_REALESRGAN_MODEL", category: "Video enhancement", required: false, defaultValue: "realesrgan-x4plus", type: "enum", allowedValues: REALESRGAN_MODELS, secret: false },
+  { name: "SHORTSENGINE_REALESRGAN_SCALE", category: "Video enhancement", required: false, defaultValue: "4", type: "integer", min: 2, max: 6, secret: false },
+  { name: "SHORTSENGINE_REALESRGAN_TILE", category: "Video enhancement", required: false, defaultValue: "0", type: "integer", min: 0, max: 2048, secret: false },
+  { name: "SHORTSENGINE_REALESRGAN_DEVICE", category: "Video enhancement", required: false, defaultValue: "auto", type: "enum", allowedValues: Object.freeze(["auto", "mps", "cpu"]), secret: false },
+  { name: "SHORTSENGINE_VIDEO_ENHANCEMENT_FPS", category: "Video enhancement", required: false, defaultValue: "12", type: "integer", min: 12, max: 60, secret: false },
+  { name: "SHORTSENGINE_VIDEO_ENHANCEMENT_TIMEOUT_MS", category: "Video enhancement", required: false, defaultValue: String(30 * 60 * 1000), type: "integer", min: 1000, max: 60 * 60 * 1000, secret: false },
   { name: "SHORTSENGINE_SCOREBOARD_OCR_ENABLED", category: "Scoreboard OCR", required: false, defaultValue: "false", type: "boolean", secret: false },
   { name: "SHORTSENGINE_SCOREBOARD_OCR_PROVIDER", category: "Scoreboard OCR", required: false, defaultValue: "deterministic", type: "enum", allowedValues: SCOREBOARD_OCR_PROVIDERS, secret: false },
   { name: "SHORTSENGINE_SCOREBOARD_OCR_BIN", category: "Scoreboard OCR", required: false, defaultValue: "tesseract", type: "command", secret: false },
@@ -188,6 +208,14 @@ function validateBooleanValue(value, spec) {
     throw new EnvironmentCheckError("ENV_BOOLEAN_INVALID", "Boolean environment value is invalid.", { category: spec.category });
   }
   return boolFromEnv(value);
+}
+
+function validateBooleanAutoValue(value, spec) {
+  const normalized = String(value ?? "auto").trim().toLowerCase();
+  if (!["", "auto", "0", "1", "true", "false", "yes", "no", "on", "off", "enabled", "disabled"].includes(normalized)) {
+    throw new EnvironmentCheckError("ENV_BOOLEAN_INVALID", "Automatic boolean environment value is invalid.", { category: spec.category });
+  }
+  return normalized || "auto";
 }
 
 function validateCommandValue(value, spec) {
@@ -336,6 +364,7 @@ function validateContractValues(env, rootDir = ROOT_DIR) {
     if (spec.type === "integer") numeric[spec.name] = parseInteger(value, spec);
     if (spec.type === "enum") normalizeEnum(value, spec);
     if (spec.type === "boolean") booleans[spec.name] = validateBooleanValue(value, spec);
+    if (spec.type === "boolean-auto") validateBooleanAutoValue(value, spec);
     if (spec.type === "command") validateCommandValue(value, spec);
     if (spec.type === "youtube-format") validateYouTubeFormatSelector(value, spec);
     if (spec.type === "url") validateEndpoint(value);
@@ -604,7 +633,7 @@ function checkEnvironment(options = {}) {
   const docsText = readOptionalText(rootDir, ENV_DOC_RELATIVE_PATH, options.docsText);
   validateExampleSecrets(exampleText);
   assertDocsMentionKnownVars(docsText);
-  const { numeric } = validateContractValues(env, rootDir);
+  const { numeric, booleans } = validateContractValues(env, rootDir);
   const auth = validateAuthReadiness(env);
   const storage = validateStorageReadiness(env);
   const transcription = validateTranscriptionReadiness(env);
@@ -632,6 +661,21 @@ function checkEnvironment(options = {}) {
       port: numeric.PORT,
       ffmpegCommandConfigured: Boolean(rawValue(env, "FFMPEG_BIN")),
       ffprobeCommandConfigured: Boolean(rawValue(env, "FFPROBE_BIN")),
+    },
+    videoEnhancement: {
+      mode: validateBooleanAutoValue(
+        valueOrDefault(env, ENV_CONTRACT.find((spec) => spec.name === "SHORTSENGINE_VIDEO_ENHANCEMENT_ENABLED")),
+        { category: "Video enhancement" },
+      ),
+      automatic: [undefined, null, "", "auto"].includes(rawValue(env, "SHORTSENGINE_VIDEO_ENHANCEMENT_ENABLED")),
+      required: booleans.SHORTSENGINE_VIDEO_ENHANCEMENT_REQUIRED,
+      provider: String(valueOrDefault(env, ENV_CONTRACT.find((spec) => spec.name === "SHORTSENGINE_VIDEO_ENHANCEMENT_PROVIDER"))),
+      model: String(valueOrDefault(env, ENV_CONTRACT.find((spec) => spec.name === "SHORTSENGINE_REALESRGAN_MODEL"))),
+      scale: numeric.SHORTSENGINE_REALESRGAN_SCALE,
+      fps: numeric.SHORTSENGINE_VIDEO_ENHANCEMENT_FPS,
+      timeoutMs: numeric.SHORTSENGINE_VIDEO_ENHANCEMENT_TIMEOUT_MS,
+      runtimeConfigured: Boolean(valueOrDefault(env, ENV_CONTRACT.find((spec) => spec.name === "SHORTSENGINE_REALESRGAN_BIN"))),
+      analysisInputProtected: true,
     },
     auth,
     limits: {
@@ -714,6 +758,7 @@ function checkEnvironment(options = {}) {
       localPersistenceDefault: true,
       youtubeIngestOptIn: true,
       sourceCacheOptIn: true,
+      videoEnhancementOptIn: true,
       operatorAuthDefault: true,
       localAuthOptIn: true,
       scoreboardOcrFallbackDefault: true,

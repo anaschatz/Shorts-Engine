@@ -116,6 +116,26 @@ Use `docs/YOUTUBE_INGEST_MANUAL_SMOKE.md` before the first real downloader run. 
 | `MATCHCUTS_RENDER_TIMEOUT_MS` | No | `300000` | integer `1000..3600000` | No | Keep default for staging. | Invalid timeout fails readiness. |
 | `MATCHCUTS_ANALYSIS_TIMEOUT_MS` | No | `45000` | integer `1000..600000` | No | Keep default unless fixtures become slower. | Invalid timeout fails readiness. |
 
+## Video enhancement
+
+Real-ESRGAN enhancement defaults to the managed pinned Python runtime at `var/runtimes/realesrgan-venv310` with the official x4plus weights in `var/runtimes/models`. On Apple Silicon it uses MPS automatically. The renderer enhances a clean low-resolution visual layer, verifies complete frame output, then composes captions, effects, audio and the original scorebug afterward. The older NCNN/Vulkan adapter remains explicit-only because a successful process exit does not guarantee artifact-free output on every macOS GPU. With `SHORTSENGINE_VIDEO_ENHANCEMENT_REQUIRED=1`, an available runtime that fails during enhancement blocks the render instead of silently producing an unenhanced video. The pinned install contract is `tools/realesrgan-requirements.txt`.
+
+| Variable | Required | Default | Allowed values | Secret | Staging recommendation | Fail-closed behavior |
+| --- | --- | --- | --- | --- | --- | --- |
+| `SHORTSENGINE_VIDEO_ENHANCEMENT_ENABLED` | No | `auto` | `auto`, boolean, `enabled`, `disabled` | No | Keep `auto`; use `enabled` only when enhancement is mandatory. | Auto mode skips safely when unavailable; explicit enabled mode fails the render if runtime execution fails. |
+| `SHORTSENGINE_VIDEO_ENHANCEMENT_PROVIDER` | No | `realesrgan-python` | `realesrgan-python`, `realesrgan-ncnn` | No | Use the managed Python/MPS provider; keep NCNN explicit-only. | Unknown providers fail environment validation. |
+| `SHORTSENGINE_VIDEO_ENHANCEMENT_REQUIRED` | No | `true` | boolean | No | Keep enabled for production/proof renders. | Runtime or incomplete-frame failures block the render instead of silently falling back. |
+| `SHORTSENGINE_REALESRGAN_BIN` | No | `managed` | `managed`, command name or absolute binary path | No | Keep `managed` when the portable runtime is installed under `var/runtimes/realesrgan-ncnn-vulkan`. | Missing runtime fails enhancement-enabled renders; command execution never uses a shell. |
+| `SHORTSENGINE_REALESRGAN_MODEL_DIR` | No | empty | absolute directory path | No | Point this at the portable package's `models` directory; an absolute binary path defaults to its sibling `models` directory. | Invalid paths or missing model files make the enabled render fail. |
+| `SHORTSENGINE_REALESRGAN_MODEL` | No | `realesrgan-x4plus` | supported bundled NCNN model name | No | Keep `realesrgan-x4plus` for football footage. | Unknown models fail environment validation. |
+| `SHORTSENGINE_REALESRGAN_PYTHON_BIN` | No | managed venv | absolute Python path | No | Leave empty for the managed MPS-capable runtime. | Missing runtime disables auto mode and fails enabled mode. |
+| `SHORTSENGINE_REALESRGAN_MODEL_PATH` | No | managed x4plus weights | absolute file path | No | Leave empty for the managed official weights. | Missing weights disable auto mode and fail enabled mode. |
+| `SHORTSENGINE_REALESRGAN_SCALE` | No | `4` | integer `2..6` | No | Keep `4` for the quality profile. | Invalid scales fail environment validation. |
+| `SHORTSENGINE_REALESRGAN_TILE` | No | `0` | integer `0..2048` | No | Start with auto (`0`); lower the tile if GPU memory is limited. | Invalid tile sizes fail environment validation. |
+| `SHORTSENGINE_REALESRGAN_DEVICE` | No | `auto` | `auto`, `mps`, `cpu` | No | Keep `auto`; Apple Silicon selects MPS. | Explicit unavailable MPS fails closed. |
+| `SHORTSENGINE_VIDEO_ENHANCEMENT_FPS` | No | `12` | integer `12..60` | No | Keep the bounded default unless the worker has enough GPU budget. | Invalid frame rates fail environment validation. |
+| `SHORTSENGINE_VIDEO_ENHANCEMENT_TIMEOUT_MS` | No | `1800000` | integer `1000..3600000` | No | Size this for the longest allowed selected highlights. | Timeout cancels enhancement and fails the render. |
+
 ## Scoreboard OCR
 
 Scoreboard OCR is deterministic fallback by default. Local OCR must be installed and enabled by the operator outside ShortsEngine; the app never installs OCR runtimes, never requests tokens and never requires network for OCR. When local OCR is enabled, ShortsEngine crops bounded top scoreboard regions from sampled frames in staging, runs the configured OCR command with `execFile`, normalizes only structured score/clock evidence, and cleans OCR crops after analysis. OCR evidence can support a valid goal only when paired with ball-in-net/action context; OCR-only score changes and ambiguous/unreadable text fail closed.

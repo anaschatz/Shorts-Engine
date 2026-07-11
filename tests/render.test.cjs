@@ -8,10 +8,13 @@ const {
   renderShort,
   writeAssSubtitles,
   createRenderPolishSummary,
+  twoPhaseGoalCameraSummary,
   renderDimensions,
   normalizeRenderProfileName,
 } = require("../server/render.cjs");
 const { validateEditPlan } = require("../server/edit-plan.cjs");
+
+process.env.SHORTSENGINE_VIDEO_ENHANCEMENT_ENABLED = "0";
 
 const metadata = { durationSeconds: 16, width: 1920, height: 1080 };
 
@@ -791,4 +794,151 @@ test("render polish summary reports transition fallback when no multi-segment re
   assert.equal(summary.captionMotion, "ass_fade_scale");
   assert.ok(summary.renderPolishWarnings.includes("hard_cut_fallback_used"));
   assert.doesNotMatch(JSON.stringify(summary), /\/Users|OPENAI_API_KEY|storageKey/i);
+});
+
+test("Real-ESRGAN enhances the clean visual layer before captions and audio are composed", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "shortsengine-render-enhanced-"));
+  const calls = [];
+  const plan = validKineticPlan();
+  plan.visualTrackingSummary = { sourceFrameRate: 60 };
+  const enhancementConfig = {
+    enabled: true,
+    provider: "realesrgan-ncnn",
+    binary: "realesrgan-ncnn-vulkan",
+    model: "realesrgan-x4plus",
+    scale: 2,
+    tile: 0,
+    fps: 30,
+    timeoutMs: 1800000,
+  };
+
+  await renderShort({
+    inputPath: join(dir, "input.mp4"),
+    outputPath: join(dir, "output.mp4"),
+    subtitlesPath: join(dir, "captions.ass"),
+    plan,
+    enhancementConfig,
+    ffmpegRunner: async (args) => calls.push(args),
+    videoEnhancer: async ({ inputPath, outputPath, config }) => {
+      assert.match(inputPath, /clean-base\.mkv$/);
+      assert.match(outputPath, /enhanced-base\.mkv$/);
+      assert.notEqual(config, enhancementConfig);
+      assert.equal(config.fps, 30);
+      return {
+        enabled: true,
+        applied: true,
+        provider: config.provider,
+        model: config.model,
+        scale: config.scale,
+        fps: config.fps,
+        temporalMode: "frame_independent",
+        overlayProtection: "compose_after_enhancement",
+      };
+    },
+  });
+
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0][calls[0].indexOf("-r") + 1], "30");
+  assert.equal(calls[0][calls[0].indexOf("-qp") + 1], "0");
+  assert.doesNotMatch(calls[0][calls[0].indexOf("-filter_complex") + 1], /subtitles=/);
+  assert.match(calls[1][calls[1].indexOf("-filter_complex") + 1], /subtitles=/);
+  assert.equal(calls[1][calls[1].indexOf("-r") + 1], "30");
+  assert.equal(calls[1][calls[1].indexOf("-map") + 3], "1:a?");
+  assert.equal(plan.renderPolishQA.videoEnhancementApplied, true);
+  assert.equal(plan.renderPolishQA.videoEnhancementModel, "realesrgan-x4plus");
+  assert.equal(plan.renderPolishQA.videoEnhancementOverlayProtection, "compose_after_enhancement");
+});
+
+test("automatic Real-ESRGAN failures fall back to the normal quality render", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "shortsengine-render-enhancement-fallback-"));
+  const calls = [];
+  const plan = validKineticPlan();
+  const enhancementConfig = {
+    mode: "auto",
+    required: false,
+    enabled: true,
+    provider: "realesrgan-ncnn",
+    binary: "realesrgan-ncnn-vulkan",
+    model: "realesrgan-x4plus",
+    scale: 2,
+    tile: 0,
+    fps: 30,
+    timeoutMs: 120000,
+  };
+
+  await renderShort({
+    inputPath: join(dir, "input.mp4"),
+    outputPath: join(dir, "output.mp4"),
+    subtitlesPath: join(dir, "captions.ass"),
+    plan,
+    enhancementConfig,
+    ffmpegRunner: async (args) => calls.push(args),
+    videoEnhancer: async () => {
+      throw Object.assign(new Error("bounded enhancement failure"), { code: "VIDEO_ENHANCEMENT_FAILED" });
+    },
+  });
+
+  assert.equal(calls.length, 2);
+  assert.equal(plan.renderPolishQA.videoEnhancementEnabled, true);
+  assert.equal(plan.renderPolishQA.videoEnhancementApplied, false);
+  assert.equal(plan.renderPolishQA.videoEnhancementFallbackUsed, true);
+  assert.equal(plan.renderPolishQA.videoEnhancementFallbackReason, "VIDEO_ENHANCEMENT_FAILED");
+  assert.ok(plan.renderPolishQA.renderPolishWarnings.includes("video_enhancement_auto_fallback"));
+});
+
+test("two-phase camera summary requires ball coverage before switching to scorer or group follow", () => {
+  const summary = twoPhaseGoalCameraSummary({
+    segments: [{
+      goalNumber: 1,
+      sourceStart: 2,
+      finishTime: 10,
+      confirmationTime: 16,
+      sourceEnd: 18,
+    }],
+    visualTrackingSummary: { trackingSamples: [
+      { sourceTime: 3, ballBox: { x: 290, y: 440, width: 20, height: 20 } },
+      { sourceTime: 7, ballBox: { x: 690, y: 430, width: 20, height: 20 } },
+      { sourceTime: 9.7, ballBox: { x: 890, y: 420, width: 20, height: 20 } },
+    ] },
+    cropPlan: {
+      cropBox: { x: 0, y: 0, width: 608, height: 1080 },
+      keyframes: [
+        { sourceTime: 3, centerX: 300, source: "ball_detection", phase: "ball_follow", confidence: 0.82 },
+        { sourceTime: 7, centerX: 700, source: "ball_detection", phase: "ball_follow", confidence: 0.86 },
+        { sourceTime: 9.7, centerX: 900, source: "ball_interpolation", phase: "ball_follow", confidence: 0.72 },
+        { sourceTime: 11, source: "celebration_group_fallback", phase: "scorer_follow", confidence: 0.78 },
+        { sourceTime: 15, source: "celebration_group_fallback", phase: "scorer_follow", confidence: 0.8 },
+      ],
+    },
+  });
+
+  assert.equal(summary.passed, true);
+  assert.equal(summary.coveredGoalCount, 1);
+  assert.equal(summary.goals[0].targetSwitchTime, 10);
+  assert.equal(summary.goals[0].ballVisibilityCoverage, 1);
+  assert.equal(summary.goals[0].ballCenterCoverage, 1);
+  assert.equal(summary.goals[0].ballVerticalSafeCoverage, 1);
+  assert.equal(summary.goals[0].scorerTargetMode, "celebration_group_fallback");
+  assert.equal(summary.goalClaimAllowed, false);
+});
+
+test("two-phase camera summary accepts a low-confidence wide celebration fallback without an identity claim", () => {
+  const summary = twoPhaseGoalCameraSummary({
+    segments: [{ goalNumber: 1, sourceStart: 2, finishTime: 10, confirmationTime: 16, sourceEnd: 18 }],
+    visualTrackingSummary: { trackingSamples: [
+      { sourceTime: 3, ballBox: { x: 290, y: 440, width: 20, height: 20 } },
+      { sourceTime: 9.7, ballBox: { x: 890, y: 420, width: 20, height: 20 } },
+    ] },
+    cropPlan: { cropBox: { x: 0, y: 0, width: 608, height: 1080 }, keyframes: [
+      { sourceTime: 3, centerX: 300, source: "ball_detection", phase: "ball_follow", confidence: 0.82 },
+      { sourceTime: 9.7, centerX: 900, source: "ball_detection", phase: "ball_follow", confidence: 0.8 },
+      { sourceTime: 12, source: "celebration_wide_safe_fallback", phase: "scorer_follow", confidence: 0.45 },
+    ] },
+  });
+
+  assert.equal(summary.passed, true);
+  assert.equal(summary.goals[0].scorerTargetMode, "celebration_wide_safe_fallback");
+  assert.equal(summary.goals[0].scorerHeadCoverage, 0);
+  assert.equal(summary.goals[0].verticalWideSafeFallbackRequired, false);
+  assert.equal(summary.goalClaimAllowed, false);
 });

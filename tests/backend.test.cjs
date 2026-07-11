@@ -9,6 +9,7 @@ mkdirSync(TEST_TMP_ROOT, { recursive: true });
 const TEST_DATA_DIR = mkdtempSync(resolve(TEST_TMP_ROOT, "backend-data-"));
 process.env.MATCHCUTS_DATA_DIR = TEST_DATA_DIR;
 process.env.SHORTSENGINE_AUTH_MODE = "local";
+process.env.SHORTSENGINE_VIDEO_ENHANCEMENT_ENABLED = "0";
 
 test.after(() => {
   rmSync(TEST_DATA_DIR, { recursive: true, force: true });
