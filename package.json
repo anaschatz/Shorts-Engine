@@ -38,6 +38,8 @@
     "dark-curiosity:tts:verify": "node tools/dark-curiosity-tts.mjs verify",
     "dark-curiosity:kokoro:doctor": "node tools/dark-curiosity-kokoro-doctor.mjs",
     "dark-curiosity:kokoro:bootstrap": "node tools/dark-curiosity-kokoro-bootstrap.mjs",
+    "dark-curiosity:animation:doctor": "node tools/dark-curiosity-animation.mjs doctor",
+    "dark-curiosity:animation:benchmark": "node tools/dark-curiosity-animation.mjs benchmark",
     "dev": "node server/app.cjs",
     "env:check": "node tools/release/check-environment.mjs",
     "eval": "node eval/run-eval.mjs",
