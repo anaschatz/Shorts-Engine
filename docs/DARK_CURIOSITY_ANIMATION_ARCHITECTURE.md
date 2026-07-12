@@ -1,6 +1,6 @@
 # Dark Curiosity Continuous Animation Architecture
 
-Status: proposed
+Status: Slice A benchmark validated; production migration not approved
 
 Decision target: `continuous_motion_renderer_v1`
 
@@ -314,7 +314,9 @@ The new renderer is not accepted because it “looks cooler.” It is accepted o
 
 ## 13. Immediate next implementation task
 
-Build Slice A only: a provider-neutral `AnimationIR` contract plus one 10-second HyperFrames Wow Signal benchmark using engine-owned seekable SVG motion. Do not migrate the full pilot and do not build all six templates before the benchmark proves render quality, performance, deterministic output, and operational reliability. If the benchmark fails, reuse the same `AnimationIR` in the Motion Canvas comparison rather than redesigning the content layer.
+Slice A completed on 2026-07-13. The provider-neutral contract, isolated HyperFrames provider, engine-owned custom interpolation runtime, 10-second Wow Signal benchmark, manifest, contact sheet, and sampled motion gates are implemented. Corrected 720×1280 and 1080×1920 renders passed their declared technical thresholds; a repeated 720p render produced identical `AnimationIR`, composition, sampled decoded-frame, and MP4 hashes.
+
+This result approves HyperFrames for the next benchmark slice, not as the production default. The existing SVG keyframe renderer remains unchanged. Before any pilot switch, add aligned beat/word anchor resolution, true path-topology morph primitives, pixel/OCR clipping checks, calibrated optical flow and jerk metrics, external-request instrumentation, and at least ten adversarial fixtures. The lower caption reserve also needs compositional refinement so it remains safe without looking visually empty.
 
 ## Primary references
 

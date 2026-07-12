@@ -1,8 +1,8 @@
 # Dark Curiosity Engine — Implementation and Validation Plan
 
-Status: implementation-ready plan
+Status: core pilot implemented; continuous-animation Slice A validated separately
 Owner model: one operator, one YouTube channel, YouTube-only revenue
-Last updated: 2026-07-11
+Last updated: 2026-07-13
 
 ## 1. Decision
 
@@ -75,6 +75,16 @@ The existing implementation already provides the infrastructure foundation:
 - the complete repository test suite is green.
 
 The current narrated contracts and SVG renderer are football-specific, and the render job uses estimated silent timing. These are the primary product gaps—not queues, persistence, upload infrastructure, or another orchestration framework.
+
+Continuous-animation Slice A now adds a separate, non-production benchmark path:
+
+- strict provider-neutral `AnimationIR v1` and motion budget;
+- isolated `hyperframes_benchmark` provider using `@hyperframes/producer` 0.7.55;
+- engine-owned SVG/custom interpolation with no generated renderer code, GSAP, CDN, or remote assets;
+- 300-frame 720×1280 and 1080×1920 Wow Signal proofs with manifests and motion QA;
+- unchanged production pilot and unchanged default SVG keyframe renderer.
+
+This does not raise the product-readiness estimate by itself. It proves renderer feasibility, not content-market fit, 30–40 second pacing, aligned narration choreography, or repeatable human preference.
 
 Strict readiness estimate:
 
