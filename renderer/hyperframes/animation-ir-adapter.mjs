@@ -40,7 +40,7 @@ export function compileAnimationIRToHtml(ir) {
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; media-src 'none'; font-src 'none'; object-src 'none'; frame-src 'none'">
 <meta data-composition-id="wow-signal-benchmark" data-width="${ir.width}" data-height="${ir.height}">
 <style>
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#030712}*{box-sizing:border-box}.composition{width:100vw;height:100vh;overflow:hidden;background:#030712}.composition svg{display:block;width:100%;height:100%;font-family:Arial,Helvetica,sans-serif}.stars{fill:#a5f3fc}.grid{stroke:#164e63;stroke-width:1}.micro{font-size:12px;letter-spacing:4px;font-weight:700}.label{font-size:18px;letter-spacing:2px;font-weight:700}.title{font-size:45px;letter-spacing:-1px;font-weight:800}.mono{font-family:Menlo,Consolas,monospace}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#030712}*{box-sizing:border-box}.composition{width:100vw;height:100vh;overflow:hidden;background:#030712}.composition svg{display:block;width:100%;height:100%;font-family:Arial,Helvetica,sans-serif}.stars{fill:#a5f3fc}.grid{stroke:#164e63;stroke-width:1}.micro{font-size:12px;letter-spacing:4px;font-weight:700}.label{font-size:18px;letter-spacing:2px;font-weight:700}.title{font-size:38px;font-weight:800}.mono{font-family:Menlo,Consolas,monospace}
 </style></head><body>
 <main id="wow-root" class="composition" data-composition-id="wow-signal-benchmark" data-start="0" data-duration="10" data-width="${ir.width}" data-height="${ir.height}">
 <svg viewBox="0 0 ${BASE_WIDTH} ${BASE_HEIGHT}" role="img" aria-label="Animated explanatory visualization of the Wow signal">
@@ -57,7 +57,7 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#030712}*{b
  <rect id="grid" x="42" y="190" width="636" height="650" rx="22" fill="url(#grid-pattern)" opacity=".78"/>
  <line x1="70" y1="515" x2="650" y2="515" stroke="#155e75" stroke-width="2" opacity=".72"/>
  <line x1="360" y1="235" x2="360" y2="795" stroke="#155e75" stroke-width="2" opacity=".5"/>
- <g id="header"><text x="54" y="78" fill="#67e8f9" class="micro">SIGNAL LAB / 1977</text><text x="54" y="126" fill="#e2e8f0" class="title">THE SIGNAL THAT APPEARED ONCE</text><text x="55" y="158" fill="#64748b" class="label mono">1420 MHz · 72 SEC · SINGLE OBSERVATION</text></g>
+ <g id="header"><text x="54" y="78" fill="#67e8f9" class="micro">SIGNAL LAB / 1977</text><text x="54" y="126" fill="#e2e8f0" class="title" textLength="612" lengthAdjust="spacingAndGlyphs">THE SIGNAL THAT APPEARED ONCE</text><text x="55" y="158" fill="#64748b" class="label mono">1420 MHz · 72 SEC · SINGLE OBSERVATION</text></g>
  <path id="beam-a" d="M76 720 C220 330 500 330 646 720" fill="none" stroke="#8b5cf6" stroke-width="8" opacity="0" filter="url(#glow)"/>
  <path id="beam-b" d="M76 330 C225 720 500 720 646 330" fill="none" stroke="#f59e0b" stroke-width="8" opacity="0" filter="url(#glow)"/>
  <circle id="pulse-halo" cx="360" cy="515" r="34" fill="none" stroke="#67e8f9" stroke-width="6" opacity="0"/>

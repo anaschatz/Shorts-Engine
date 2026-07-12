@@ -32,7 +32,7 @@ async function main() {
   const job = createRenderJob({ fps: ir.fps, quality: request.quality === "high" ? "high" : "standard", format: "mp4", workers: 1, entryFile: "index.html", producerConfig: config, hdrMode: "force-sdr" });
   const started = performance.now();
   try {
-    await executeRenderJob(job, stagingDir, outputPath, (progressJob, message) => emit({ type: "progress", stage: String(progressJob.currentStage || "rendering").slice(0, 32), percent: Math.max(0, Math.min(1, Number(progressJob.progress || 0))), message: String(message || "").slice(0, 96) }));
+    await executeRenderJob(job, stagingDir, outputPath, (progressJob, message) => { const raw = Number(progressJob.progress || 0); emit({ type: "progress", stage: String(progressJob.currentStage || "rendering").slice(0, 32), percent: Math.max(0, Math.min(1, raw > 1 ? raw / 100 : raw)), message: String(message || "").slice(0, 96) }); });
     const outputSha256 = createHash("sha256").update(await readFile(outputPath)).digest("hex");
     const result = { type: "complete", outputFile: relative(stagingDir, outputPath), outputSha256, animationIRHash: ir.contentHash, compositionHash: composition.compositionHash, renderDurationMs: Math.round(performance.now() - started), peakMemoryMb: job.perfSummary?.peakRssMb ?? null, provider: "hyperframes_benchmark", runtimeVersion: doctor.runtimeVersion };
     emit(result);
