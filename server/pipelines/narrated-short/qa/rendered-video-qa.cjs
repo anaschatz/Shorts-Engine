@@ -53,7 +53,7 @@ function runRenderedVideoQa({ analysis, timeline, renderProfile }) {
   const freezePassed = analysis.detector.freeze.ratio <= DETECTOR_PROFILE.frozenRatioMax && analysis.detector.freeze.longestSeconds <= DETECTOR_PROFILE.longestFreezeSecondsMax;
   const silencePassed = analysis.detector.silence.ratio <= DETECTOR_PROFILE.silentRatioMax && analysis.detector.silence.longestSeconds <= DETECTOR_PROFILE.longestSilenceSecondsMax;
   return [
-    gate("VIDEO_FILE_READABLE", "rendered_video", analysis.size > 0, { actual: analysis.size }),
+    gate("VIDEO_FILE_READABLE", "rendered_video", analysis.size > 0, { expected: true, actual: analysis.size > 0 }),
     gate("VIDEO_CONTAINER_VALID", "rendered_video", analysis.videoCount === 1 && analysis.audioCount === 1, { expected: 2, actual: analysis.videoCount + analysis.audioCount }),
     gate("VIDEO_DIMENSIONS_VALID", "rendered_video", analysis.width === expected.width && analysis.height === expected.height, { expected: `${expected.width}x${expected.height}`, actual: `${analysis.width}x${analysis.height}` }),
     gate("VIDEO_FPS_VALID", "rendered_video", Math.abs(analysis.fps - 30) <= 0.01, { expected: 30, actual: analysis.fps }),

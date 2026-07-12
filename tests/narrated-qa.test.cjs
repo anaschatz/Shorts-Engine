@@ -40,6 +40,9 @@ test("render detector parsing is bounded and distinguishes short fades from bloc
   const base = { size: 1024, durationSeconds: 30, videoCount: 1, audioCount: 1, width: 720, height: 1280, fps: 30, videoCodec: "h264", pixelFormat: "yuv420p", audioCodec: "aac", audioSampleRate: 48000, detector: metrics };
   const passed = runRenderedVideoQa({ analysis: base, timeline: { totalFrames: 900, fps: 30 }, renderProfile: "preview" });
   assert.ok(passed.every((item) => item.passed));
+  const largeOutputGates = runRenderedVideoQa({ analysis: { ...base, size: 20 * 1024 * 1024 }, timeline: { totalFrames: 900, fps: 30 }, renderProfile: "preview" });
+  assert.deepEqual(largeOutputGates.find((item) => item.code === "VIDEO_FILE_READABLE").details, { expected: true, actual: true });
+  assert.doesNotThrow(() => createQaReport({ projectId: `prj_${randomUUID()}`, projectRevision: 1, renderProfile: "preview", bindings: bindings(), gates: [...passingGates().filter((item) => item.category !== "rendered_video"), ...largeOutputGates] }));
   const blocked = runRenderedVideoQa({ analysis: { ...base, detector: { ...metrics, black: { ratio: DETECTOR_PROFILE.blackRatioMax + 0.1, longestSeconds: 10 }, silence: { ratio: 1, longestSeconds: 30 } } }, timeline: { totalFrames: 900, fps: 30 }, renderProfile: "preview" });
   assert.equal(blocked.find((item) => item.code === "VIDEO_BLACK_OUTPUT_ABSENT").passed, false);
   assert.equal(blocked.find((item) => item.code === "VIDEO_AUDIO_NOT_SILENT").passed, false);
