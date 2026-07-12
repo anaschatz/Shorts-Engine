@@ -7,6 +7,7 @@ const { RegenerationDraftRepository } = require("../repositories/regeneration-dr
 const { CONFIG, validatePersistenceAdapterMode } = require("../config.cjs");
 const {
   loadPersistedProjectState,
+  persistProjectRecord,
   persistProjectUploadRecord,
   persistRenderRecord,
 } = require("../repositories/project-state.cjs");
@@ -94,6 +95,12 @@ class LocalPersistenceAdapter {
 
   publicProject(project) {
     return this.projectRepository.publicProject(project);
+  }
+
+  persistProject({ project } = {}) {
+    const projectRecord = this.createProject(project);
+    persistProjectRecord({ project: projectRecord });
+    return projectRecord;
   }
 
   createUpload(record) {

@@ -24,6 +24,7 @@ const RESULTS_HEADER = [
   "reference_score",
   "focused_tests",
   "camera_score",
+  "beta_score",
   "status",
   "description",
   "report",
@@ -82,6 +83,13 @@ const COMMANDS = Object.freeze([
     hardGate: true,
     metricGroup: "camera",
   },
+  {
+    id: "betaBenchmark",
+    command: "npm",
+    args: ["run", "eval:beta"],
+    hardGate: false,
+    metricGroup: "beta",
+  },
 ]);
 
 const HIGHER_IS_BETTER_GUARDS = Object.freeze([
@@ -92,6 +100,10 @@ const HIGHER_IS_BETTER_GUARDS = Object.freeze([
   { group: "eval", path: ["framingSafety"] },
   { group: "eval", path: ["cropSafetyScore"] },
   { group: "eval", path: ["noFalseGoalFromOcrOnly"] },
+  { group: "beta", path: ["acceptedWithoutEditRate"] },
+  { group: "beta", path: ["humanScores", "moment_selection"] },
+  { group: "beta", path: ["humanScores", "caption_action_alignment"] },
+  { group: "beta", path: ["humanScores", "overall_short_quality"] },
 ]);
 
 const LOWER_IS_BETTER_GUARDS = Object.freeze([
@@ -100,6 +112,8 @@ const LOWER_IS_BETTER_GUARDS = Object.freeze([
   { group: "eval", path: ["falseGoalCaptionRate"] },
   { group: "eval", path: ["matchEventTruthFalseGoalRate"] },
   { group: "eval", path: ["textObstructionRisk"] },
+  { group: "beta", path: ["falseGoalRate"] },
+  { group: "beta", path: ["renderFailureRate"] },
 ]);
 
 function safeRelativeFromRoot(relativePath) {
@@ -173,6 +187,7 @@ function runCommand(step) {
     return {
       id: step.id,
       ok: true,
+      hardGate: step.hardGate !== false,
       command: [step.command, ...step.args].join(" "),
       startedAt,
       finishedAt: new Date().toISOString(),
@@ -182,6 +197,7 @@ function runCommand(step) {
     return {
       id: step.id,
       ok: false,
+      hardGate: step.hardGate !== false,
       command: [step.command, ...step.args].join(" "),
       startedAt,
       finishedAt: new Date().toISOString(),
@@ -252,17 +268,56 @@ function extractReferenceMetrics(summary) {
   return { aggregateScore: 0, metrics: {} };
 }
 
-function computeQualityScore({ evalSummary, referenceSummary, focusedTestsOk, cameraSummary }) {
+function computeBetaScore(betaSummary = {}) {
+  const metrics = betaSummary && betaSummary.metrics && typeof betaSummary.metrics === "object"
+    ? betaSummary.metrics
+    : betaSummary;
+  if (!metrics || typeof metrics !== "object") return 0;
+  const humanScores = metrics.humanScores && typeof metrics.humanScores === "object" ? metrics.humanScores : {};
+  const humanValues = [
+    humanScores.moment_selection,
+    humanScores.ball_player_framing,
+    humanScores.caption_action_alignment,
+    humanScores.pacing_energy,
+    humanScores.overall_short_quality,
+  ].map(Number).filter(Number.isFinite);
+  const humanScore = humanValues.length
+    ? (humanValues.reduce((sum, value) => sum + value, 0) / humanValues.length) * 20
+    : 0;
+  const acceptedScore = Math.max(0, Math.min(100, Number(metrics.acceptedWithoutEditRate || 0) * 100));
+  const renderScore = Math.max(0, Math.min(100, (1 - Number(metrics.renderFailureRate || 0)) * 100));
+  const falseGoalScore = Math.max(0, Math.min(100, (1 - Number(metrics.falseGoalRate || 0)) * 100));
+  const reviewCoverageScore = Math.max(0, Math.min(100, Number(metrics.acceptanceLabelCoverageRate || 0) * 100));
+  return round(
+    (0.50 * humanScore) +
+    (0.25 * acceptedScore) +
+    (0.10 * renderScore) +
+    (0.10 * falseGoalScore) +
+    (0.05 * reviewCoverageScore),
+    4,
+  );
+}
+
+function computeQualityScore({ evalSummary, referenceSummary, focusedTestsOk, cameraSummary, betaSummary }) {
   const evalScore = Number(evalSummary && evalSummary.aggregateScore) || 0;
   const referenceScore = Number(referenceSummary && referenceSummary.aggregateScore) || 0;
   const focusedScore = focusedTestsOk ? 100 : 0;
   const cameraScore = Number(cameraSummary && cameraSummary.aggregateScore) || 0;
+  const betaScore = computeBetaScore(betaSummary);
   return {
-    qualityScore: round((0.32 * evalScore) + (0.48 * referenceScore) + (0.10 * focusedScore) + (0.10 * cameraScore), 4),
+    qualityScore: round(
+      (0.26 * evalScore) +
+      (0.34 * referenceScore) +
+      (0.10 * focusedScore) +
+      (0.10 * cameraScore) +
+      (0.20 * betaScore),
+      4,
+    ),
     evalScore: round(evalScore, 4),
     referenceScore: round(referenceScore, 4),
     focusedScore,
     cameraScore: round(cameraScore, 4),
+    betaScore,
   };
 }
 
@@ -271,6 +326,7 @@ function summarizeRun(commands) {
   const referenceCommand = commandById(commands, "evalReference");
   const focusedCommand = commandById(commands, "focusedTests");
   const cameraCommand = commandById(commands, "cameraProbe");
+  const betaCommand = commandById(commands, "betaBenchmark");
   const evalMetrics = extractEvalMetrics(evalCommand && evalCommand.summary);
   const referenceAggregate = extractReferenceMetrics(referenceCommand && referenceCommand.summary);
   const score = computeQualityScore({
@@ -278,6 +334,7 @@ function summarizeRun(commands) {
     referenceSummary: referenceAggregate,
     focusedTestsOk: Boolean(focusedCommand && focusedCommand.ok),
     cameraSummary: cameraCommand && cameraCommand.summary,
+    betaSummary: betaCommand && betaCommand.summary,
   });
   return {
     ...score,
@@ -285,6 +342,7 @@ function summarizeRun(commands) {
       eval: evalMetrics,
       reference: referenceAggregate.metrics || {},
       camera: cameraCommand && cameraCommand.summary && cameraCommand.summary.metrics || {},
+      beta: betaCommand && betaCommand.summary && betaCommand.summary.metrics || {},
     },
   };
 }
@@ -397,6 +455,7 @@ function appendResultsRow(run) {
     run.summary.referenceScore.toFixed(4),
     run.summary.focusedScore,
     run.summary.cameraScore.toFixed(4),
+    run.summary.betaScore.toFixed(4),
     run.decision.status,
     sanitizeTsv(run.description),
     `${RUNS_DIR}/${run.runId}.json`,
@@ -439,10 +498,11 @@ function createRunRecord({ options, commands, baseline }) {
     description: options.description,
     objective: {
       weights: {
-        referenceAggregateScore: 0.48,
-        evalAggregateScore: 0.32,
+        referenceAggregateScore: 0.34,
+        evalAggregateScore: 0.26,
         focusedTests: 0.10,
         cameraProbe: 0.10,
+        betaBenchmark: 0.20,
       },
       minKeepDelta: options.minKeepDelta,
     },
@@ -469,6 +529,7 @@ function printSummary(run) {
     referenceScore: run.summary.referenceScore,
     focusedScore: run.summary.focusedScore,
     cameraScore: run.summary.cameraScore,
+    betaScore: run.summary.betaScore,
     scoreDelta: run.decision.scoreDelta,
     failedHardGates: run.decision.failedHardGates,
     guardrailRegressions: run.decision.guardrailRegressions,
@@ -503,6 +564,7 @@ export {
   HIGHER_IS_BETTER_GUARDS,
   LOWER_IS_BETTER_GUARDS,
   RESULTS_HEADER,
+  computeBetaScore,
   computeQualityScore,
   compareGuardrails,
   createRunId,

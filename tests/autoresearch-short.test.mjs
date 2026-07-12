@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   RESULTS_HEADER,
   compareGuardrails,
+  computeBetaScore,
   computeQualityScore,
   decideExperiment,
   extractJsonObject,
@@ -18,6 +19,7 @@ const passingCommands = [
   { id: "evalReference", ok: true },
   { id: "focusedTests", ok: true },
   { id: "cameraProbe", ok: true },
+  { id: "betaBenchmark", ok: false, hardGate: false },
 ];
 
 function summary(overrides = {}) {
@@ -48,18 +50,36 @@ function summary(overrides = {}) {
   };
 }
 
-test("quality score includes the deterministic camera probe without changing eval rubrics", () => {
+test("quality score includes camera and live beta signals without changing eval rubrics", () => {
+  const betaSummary = {
+    metrics: {
+      acceptedWithoutEditRate: 0.8,
+      falseGoalRate: 0,
+      renderFailureRate: 0,
+      acceptanceLabelCoverageRate: 1,
+      humanScores: {
+        moment_selection: 4,
+        ball_player_framing: 4,
+        caption_action_alignment: 4,
+        pacing_energy: 4,
+        overall_short_quality: 4,
+      },
+    },
+  };
   const score = computeQualityScore({
     evalSummary: { aggregateScore: 80 },
     referenceSummary: { aggregateScore: 90 },
     focusedTestsOk: true,
     cameraSummary: { aggregateScore: 100 },
+    betaSummary,
   });
-  assert.equal(score.qualityScore, 88.8);
+  assert.equal(computeBetaScore(betaSummary), 85);
+  assert.equal(score.qualityScore, 88.4);
   assert.equal(score.evalScore, 80);
   assert.equal(score.referenceScore, 90);
   assert.equal(score.focusedScore, 100);
   assert.equal(score.cameraScore, 100);
+  assert.equal(score.betaScore, 85);
 });
 
 test("decision keeps only meaningful score gains without guardrail regressions", () => {
@@ -115,16 +135,37 @@ test("runner summary reads compact eval stdout summaries", () => {
     { id: "evalReference", ok: true, summary: { aggregateScore: 96, noFalseGoalClaim: 1 } },
     { id: "focusedTests", ok: true },
     { id: "cameraProbe", ok: true, summary: { aggregateScore: 90, metrics: { scorerTargetHandoff: 1 } } },
+    {
+      id: "betaBenchmark",
+      ok: false,
+      summary: {
+        metrics: {
+          acceptedWithoutEditRate: 0.8,
+          falseGoalRate: 0,
+          renderFailureRate: 0,
+          acceptanceLabelCoverageRate: 1,
+          humanScores: {
+            moment_selection: 4,
+            ball_player_framing: 4,
+            caption_action_alignment: 4,
+            pacing_energy: 4,
+            overall_short_quality: 4,
+          },
+        },
+      },
+    },
   ]);
-  assert.equal(run.qualityScore, 96.44);
+  assert.equal(run.qualityScore, 94.12);
   assert.equal(run.metrics.eval.captionActionAlignment, 1);
   assert.equal(run.metrics.reference.noFalseGoalClaim, 1);
   assert.equal(run.metrics.camera.scorerTargetHandoff, 1);
+  assert.equal(run.metrics.beta.acceptedWithoutEditRate, 0.8);
 });
 
 test("cli arguments support baseline and experiment descriptions", () => {
   assert.equal(RESULTS_HEADER.includes("quality_score"), true);
   assert.equal(RESULTS_HEADER.includes("camera_score"), true);
+  assert.equal(RESULTS_HEADER.includes("beta_score"), true);
   const options = parseArgs(["--baseline", "--description=test", "--min-delta=0.5"]);
   assert.equal(options.baselineMode, true);
   assert.equal(options.description, "test");

@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "manifestId": "ert-world-cup-2026-ball-safe-latest-2-2026-07-12",
+  "defaultPrivacy": "private",
+  "items": [
+    {
+      "id": "ert-ball-safe-argentina-switzerland",
+      "sourceVideoId": "7lRvNspMC0s",
+      "file": "manual-downloads/ert-new-01-7lRvNspMC0s.mp4",
+      "title": "Αργεντινή - Ελβετία 3-1: Όλα τα γκολ | Μουντιάλ 2026 #Shorts",
+      "description": "Αργεντινή - Ελβετία 3-1: και τα 4 γκολ του αγώνα σε καθαρό κάθετο highlight με πλήρες αγωνιστικό πλάνο.\n\nΠηγή: https://www.youtube.com/watch?v=7lRvNspMC0s\n\n#Shorts #Football #Μουντιάλ2026 #WorldCup2026 #Αργεντινή #Ελβετία #Goals",
+      "tags": ["ποδόσφαιρο", "shorts", "Μουντιάλ 2026", "World Cup 2026", "Αργεντινή", "Ελβετία", "όλα τα γκολ"],
+      "categoryId": "17",
+      "defaultLanguage": "el",
+      "madeForKids": false,
+      "qaAcceptedWithoutEdit": true
+    },
+    {
+      "id": "ert-ball-safe-norway-england",
+      "sourceVideoId": "c9sPKvU1Qlo",
+      "file": "manual-downloads/ert-new-02-c9sPKvU1Qlo.mp4",
+      "title": "Νορβηγία - Αγγλία 1-2: Όλα τα γκολ | Μουντιάλ 2026 #Shorts",
+      "description": "Νορβηγία - Αγγλία 1-2: και τα 3 έγκυρα γκολ του αγώνα σε καθαρό κάθετο highlight με πλήρες αγωνιστικό πλάνο.\n\nΠηγή: https://www.youtube.com/watch?v=c9sPKvU1Qlo\n\n#Shorts #Football #Μουντιάλ2026 #WorldCup2026 #Νορβηγία #Αγγλία #Goals",
+      "tags": ["ποδόσφαιρο", "shorts", "Μουντιάλ 2026", "World Cup 2026", "Νορβηγία", "Αγγλία", "όλα τα γκολ"],
+      "categoryId": "17",
+      "defaultLanguage": "el",
+      "madeForKids": false,
+      "qaAcceptedWithoutEdit": true
+    }
+  ]
+}

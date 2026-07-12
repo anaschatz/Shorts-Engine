@@ -175,6 +175,57 @@ sqliteTest("sqlite project and upload records persist through repository facades
   }
 });
 
+sqliteTest("sqlite preserves narrated revision invalidation state across recovery", () => {
+  const { adapter, artifactAdapter, databasePath: dbPath } = makeAdapter();
+  const projectId = id("prj");
+  const artifactId = (character) => `art_${character.repeat(40)}`;
+  const digest = (character) => character.repeat(64);
+  try {
+    adapter.createProject({
+      id: projectId,
+      projectType: "narrated_short",
+      title: "Recovered revision",
+      language: "en",
+      status: "awaiting_approval",
+      input: {
+        type: "content_brief",
+        revision: 2,
+        briefArtifactId: artifactId("a"),
+        claimLedgerArtifactId: artifactId("b"),
+        scriptArtifactId: artifactId("c"),
+        storyboardArtifactId: artifactId("d"),
+        activeNarration: null,
+        lastInvalidation: {
+          artifactId: artifactId("e"),
+          contentHash: digest("1"),
+          requestHash: digest("2"),
+          idempotencyKeyHash: digest("3"),
+          fromRevision: 1,
+          toRevision: 2,
+          changeType: "content",
+          narrationReused: false,
+          approvalRequired: true,
+        },
+      },
+    });
+    closeAdapter(adapter);
+    const restored = new SQLitePersistenceAdapter({ artifactAdapter, databasePath: dbPath });
+    try {
+      restored.restoreState();
+      const project = restored.getProject(projectId);
+      assert.equal(project.input.revision, 2);
+      assert.equal(project.input.lastInvalidation.artifactId, artifactId("e"));
+      assert.equal(project.input.lastInvalidation.changeType, "content");
+      assert.equal(project.input.lastInvalidation.approvalRequired, true);
+      assert.doesNotMatch(JSON.stringify(restored.publicProject(project)), PUBLIC_LEAK_RE);
+    } finally {
+      closeAdapter(restored);
+    }
+  } finally {
+    cleanupDatabase(dbPath);
+  }
+});
+
 sqliteTest("sqlite transactions rollback db rows and in-memory facades together", () => {
   const { adapter, databasePath: dbPath } = makeAdapter();
   const projectId = id("prj");

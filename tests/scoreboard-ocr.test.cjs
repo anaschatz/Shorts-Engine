@@ -1013,7 +1013,7 @@ test("local scoreboard OCR can recover score changes from profile digit OCR crop
   }
 });
 
-test("scorebug-first OCR uses profile digit fallback when center logo pollutes score-only OCR", async () => {
+test("scorebug-first OCR always uses profile digit fallback when center logo pollutes score-only OCR", async () => {
   const { dir, frames } = createFrameFixtures();
   const runId = `scorebug-first-profile-digit-ocr-test-${Date.now()}`;
   try {
@@ -1043,13 +1043,13 @@ test("scorebug-first OCR uses profile digit fallback when center logo pollutes s
         reasons: ["center_logo_polluted_score_only_crop"],
         imageSegmentation: {
           status: "ambiguous",
-          foregroundGroupCount: 3,
+          foregroundGroupCount: 0,
           reasons: ["home_or_away_digit_unreadable"],
         },
       }),
       ocrRunner: async (_command, args) => {
         const imagePath = args[0];
-        if (/score_only_/.test(imagePath)) return { stdout: "33321" };
+        if (/score_only_/.test(imagePath)) return { stdout: "" };
         if (/profile_digit_home_01_/.test(imagePath)) return { stdout: "0" };
         if (/profile_digit_away_01_/.test(imagePath)) return { stdout: "0" };
         if (/profile_digit_home_/.test(imagePath)) return { stdout: "1" };

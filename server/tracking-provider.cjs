@@ -2,10 +2,10 @@ const { AppError, SAFE_MESSAGES } = require("./errors.cjs");
 const { sanitizeText } = require("./media.cjs");
 
 const DEFAULT_TRACKING_TIMEOUT_MS = 12000;
-const MAX_TRACKING_FRAMES = 32;
+const MAX_TRACKING_FRAMES = 4096;
 const MAX_BALL_TRACKS = 32;
 const MAX_PLAYER_CLUSTERS = 32;
-const MAX_TRACKING_SAMPLES = 32;
+const MAX_TRACKING_SAMPLES = 4096;
 const MAX_REASON_CODES = 10;
 
 const TRACKING_REASON_CODES = Object.freeze([
@@ -28,6 +28,7 @@ const TRACKING_REASON_CODES = Object.freeze([
   "tracking_celebration_head_visible",
   "tracking_celebration_head_ambiguous",
   "tracking_celebration_head_fallback",
+  "tracking_per_frame_ball_containment",
 ]);
 
 const TRACKING_LABELS = Object.freeze(["ball", "player_cluster", "action"]);
@@ -246,6 +247,37 @@ function validateTrackingSamples(rawSamples, metadata = {}) {
   return samples;
 }
 
+function validatePerGoalBallContainment(value = []) {
+  return (Array.isArray(value) ? value : []).slice(0, 12).map((goal, index) => {
+    if (!goal || typeof goal !== "object" || Array.isArray(goal)) return null;
+    const expectedFrameCount = Math.max(0, Math.min(10000, Math.round(Number(goal.expectedFrameCount || 0))));
+    const inspectedFrameCount = Math.max(0, Math.min(expectedFrameCount, Math.round(Number(goal.inspectedFrameCount || 0))));
+    const containedFrameCount = Math.max(0, Math.min(inspectedFrameCount, Math.round(Number(goal.containedFrameCount || 0))));
+    return {
+      goalNumber: Math.max(1, Math.min(12, Math.round(Number(goal.goalNumber || index + 1)))),
+      sourceStart: round(Math.max(0, Number(goal.sourceStart || 0)), 3),
+      finishTime: round(Math.max(0, Number(goal.finishTime || 0)), 3),
+      requestedFinishTime: round(Math.max(0, Number(goal.requestedFinishTime || goal.finishTime || 0)), 3),
+      recommendedVisibleFinishTime: round(Math.max(0, Number(goal.recommendedVisibleFinishTime || goal.finishTime || 0)), 3),
+      targetSwitchRecommended: goal.targetSwitchRecommended === true,
+      terminalBallLossFrameCount: Math.max(0, Math.min(1000, Math.round(Number(goal.terminalBallLossFrameCount || 0)))),
+      originalExpectedFrameCount: Math.max(expectedFrameCount, Math.min(10000, Math.round(Number(goal.originalExpectedFrameCount || expectedFrameCount)))),
+      expectedFrameCount,
+      inspectedFrameCount,
+      containedFrameCount,
+      containmentCoverage: expectedFrameCount ? round(containedFrameCount / expectedFrameCount, 4) : 0,
+      missingFrameCount: Math.max(0, expectedFrameCount - containedFrameCount),
+      maxMissingFrameRun: Math.max(0, Math.min(expectedFrameCount, Math.round(Number(goal.maxMissingFrameRun || 0)))),
+      detectorFrameCount: Math.max(0, Math.min(containedFrameCount, Math.round(Number(goal.detectorFrameCount || 0)))),
+      trackerFrameCount: Math.max(0, Math.min(containedFrameCount, Math.round(Number(goal.trackerFrameCount || 0)))),
+      missingFrameIndexes: (Array.isArray(goal.missingFrameIndexes) ? goal.missingFrameIndexes : [])
+        .map((value) => Math.max(0, Math.min(1000000, Math.round(Number(value)))))
+        .slice(0, 32),
+      passed: Boolean(goal.passed && expectedFrameCount > 0 && containedFrameCount === expectedFrameCount),
+    };
+  }).filter(Boolean);
+}
+
 function trackingFallback({ metadata = {}, reason = "tracking_fallback_no_ball_player_evidence", frames = [], failure = null } = {}) {
   const safeFrames = Array.isArray(frames) ? frames : [];
   return validateTrackingProviderOutput({
@@ -303,6 +335,16 @@ function validateTrackingProviderOutput(output, metadata = {}) {
   }
   const reasonCodes = validateReasons(output.reasonCodes || []);
   if (!reasonCodes.length) reasonCodes.push(fallbackUsed ? "tracking_fallback_no_ball_player_evidence" : "tracking_action_bounds");
+  const perGoalBallContainment = validatePerGoalBallContainment(output.perGoalBallContainment);
+  const inspectedFrameCount = Math.max(0, Math.min(100000, Math.round(Number(output.inspectedFrameCount || 0))));
+  const containedFrameCount = Math.max(0, Math.min(inspectedFrameCount, Math.round(Number(output.containedFrameCount || 0))));
+  const perFrameBallContainmentPassed = Boolean(
+    output.perFrameBallContainmentPassed === true &&
+    perGoalBallContainment.length > 0 &&
+    perGoalBallContainment.every((goal) => goal.passed) &&
+    inspectedFrameCount > 0 &&
+    containedFrameCount === inspectedFrameCount
+  );
   const normalized = {
     providerMode: sanitizeText(output.providerMode || "safe-tracking-fallback", 60),
     fallbackUsed,
@@ -318,6 +360,12 @@ function validateTrackingProviderOutput(output, metadata = {}) {
     cameraMotionLevel: round(clamp(output.cameraMotionLevel, 0, 1), 2),
     confidence: round(clamp(output.confidence, 0, 1), 2),
     reasonCodes,
+    densePerFrameTracking: output.densePerFrameTracking === true,
+    sourceFrameRate: round(clamp(output.sourceFrameRate, 0, 120), 3),
+    inspectedFrameCount,
+    containedFrameCount,
+    perFrameBallContainmentPassed,
+    perGoalBallContainment,
     failure: output.failure ? safeFailure(output.failure.code, output.failure.phase, output.failure.retryable) : null,
     goalClaimAllowed: false,
   };
@@ -547,6 +595,10 @@ function createTrackingProvider({ mode, client } = {}) {
       client,
     });
   }
+  if (safeMode === "ultralytics" || safeMode === "ultralytics-dense-ball-tracking") {
+    const { UltralyticsBallTrackingAdapter } = require("./adapters/ultralytics-ball-tracking-adapter.cjs");
+    return new UltralyticsBallTrackingAdapter({ enabled: true });
+  }
   if (safeMode === "ffmpeg" || safeMode === "ffmpeg-football" || safeMode === "ffmpeg-football-tracking") {
     const { FfmpegFootballTrackingAdapter } = require("./adapters/ffmpeg-football-tracking-adapter.cjs");
     return new FfmpegFootballTrackingAdapter({ enabled: true });
@@ -586,6 +638,12 @@ function publicTrackingProviderOutput(output, metadata = {}) {
     ballTrackCount: safe.ballTracks.length,
     playerClusterCount: safe.playerClusters.length,
     celebrationHeadTrackCount: safe.celebrationHeadTrackCount,
+    densePerFrameTracking: safe.densePerFrameTracking,
+    sourceFrameRate: safe.sourceFrameRate,
+    inspectedFrameCount: safe.inspectedFrameCount,
+    containedFrameCount: safe.containedFrameCount,
+    perFrameBallContainmentPassed: safe.perFrameBallContainmentPassed,
+    perGoalBallContainment: safe.perGoalBallContainment,
     actionBounds: safe.actionBounds,
     actionCenter: safe.actionCenter,
     cameraMotionLevel: safe.cameraMotionLevel,

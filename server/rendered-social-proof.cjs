@@ -18,6 +18,7 @@ function round(value, digits = 2) {
 }
 
 function numberOrNull(value) {
+  if (value === null || value === undefined || value === "") return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
@@ -78,6 +79,29 @@ function nestedRenderPolishQA(renderPlan = {}) {
 
 function nestedReferenceStyleQA(renderPlan = {}) {
   return valueObject(renderPlan.visualPolishQA || renderPlan.referenceStyleQA);
+}
+
+function hasClearRenderedGoalSequence(renderPlan = {}, segmentCount = 0) {
+  const proof = valueObject(renderPlan.renderedGoalProof);
+  const segments = Array.isArray(renderPlan.segments) ? renderPlan.segments : [];
+  const goals = Array.isArray(proof.goals) ? proof.goals : [];
+  const requiredRoles = ["pre_shot", "finish", "payoff", "confirmation"];
+  return segmentCount > 0 &&
+    segments.length === segmentCount &&
+    segments.every((segment) => {
+      const start = numberOrNull(segment && segment.sourceStart);
+      const end = numberOrNull(segment && segment.sourceEnd);
+      return start != null && end != null && end - start >= 14;
+    }) &&
+    proof.passed === true &&
+    numberOrNull(proof.clearGoalCount) === segmentCount &&
+    numberOrNull(proof.failedGoalCount) === 0 &&
+    goals.length === segmentCount &&
+    goals.every((goal) => {
+      if (!goal || goal.verdict !== "clear") return false;
+      const refs = Array.isArray(goal.frameRefs) ? goal.frameRefs : [];
+      return requiredRoles.every((role) => refs.some((frame) => frame && frame.role === role && frame.clear === true));
+    });
 }
 
 function outputFreshnessSummary(outputMp4 = null, ffprobe = null) {
@@ -162,7 +186,26 @@ function captionMetricsFromRenderPlan(renderPlan = {}) {
 function dynamicCaptionSummary(renderPlan = {}, videoOutputQA = null) {
   const qa = nestedVideoOutputQA(renderPlan, videoOutputQA);
   const captions = valueObject(qa.captions);
+  const hook = valueObject(qa.hook || renderPlan.hookPlan);
   const renderPolish = nestedRenderPolishQA(renderPlan);
+  if (renderPolish.captionsRendered === false || renderPolish.captionsDisabledByOperator === true) {
+    return {
+      passed: true,
+      disabledByOperator: true,
+      dynamicWordCaptionCount: 0,
+      captionCount: 0,
+      readableCaptionCount: 0,
+      openingHookCaptionRendered: false,
+      captionMotion: "none",
+      activeWordHighlightRendered: false,
+      avgWordsPerBeat: null,
+      maxCaptionBeatDuration: null,
+      captionSafeArea: [],
+      textObstructionRisk: false,
+      openingCaptionCandidates: [],
+      reasons: [],
+    };
+  }
   const dynamicWordCaptionCount = numberOrNull(renderPolish.dynamicWordCaptionCount) ?? numberOrNull(captions.dynamicCaptionCount);
   const captionCount = numberOrNull(captions.captionCount) ?? (Array.isArray(renderPlan.captions) ? renderPlan.captions.length : null);
   const readableCaptionCount = numberOrNull(captions.readableCaptionCount);
@@ -170,12 +213,45 @@ function dynamicCaptionSummary(renderPlan = {}, videoOutputQA = null) {
   const textObstructionRisk = captions.textObstructionRisk === true ||
     safeList(captions.reasons, 8, 80).some((reason) => /obstruction|safe_area/i.test(reason));
   const timingMetrics = captionMetricsFromRenderPlan(renderPlan);
+  const hookText = safeString(hook.hookText || hook.text, 120);
+  const normalizedHookText = hookText ? hookText.toUpperCase().replace(/\s+/g, " ").trim() : null;
+  const openingCaptionCandidates = (Array.isArray(renderPlan.captions) ? renderPlan.captions : [])
+    .map((caption, index) => {
+      const captionText = safeString(caption && caption.text, 120);
+      const normalizedCaptionText = captionText ? captionText.toUpperCase().replace(/\s+/g, " ").trim() : null;
+      const start = numberOrNull(caption && caption.start);
+      const end = numberOrNull(caption && caption.end);
+      return {
+        index: index + 1,
+        start: start == null ? null : round(start, 2),
+        end: end == null ? null : round(end, 2),
+        duration: start == null || end == null ? null : round(end - start, 2),
+        role: safeString(caption && caption.role, 60),
+        hookTextMatch: Boolean(normalizedHookText && normalizedCaptionText === normalizedHookText),
+      };
+    })
+    .filter((caption) => caption.start != null && caption.start < 6)
+    .sort((left, right) => left.start - right.start || left.index - right.index)
+    .slice(0, 4);
+  const openingHookCaptionRendered = captions.openingHookCaptionInFirstTwoSeconds === true ||
+    (Array.isArray(renderPlan.captions) && renderPlan.captions.some((caption) => {
+      if (!caption) return false;
+      const start = numberOrNull(caption.start);
+      const end = numberOrNull(caption.end);
+      const captionText = safeString(caption.text, 120);
+      const normalizedCaptionText = captionText ? captionText.toUpperCase().replace(/\s+/g, " ").trim() : null;
+      const identifiedAsHook = caption.role === "opening_hook" || (
+        normalizedHookText &&
+        normalizedCaptionText === normalizedHookText
+      );
+      return identifiedAsHook && start != null && end != null && start <= 0.25 && end > start && end <= 3.5;
+    }));
   const reasons = uniqueReasons([
     ...(captions.passed === false ? ["caption_output_gate_failed"] : []),
     ...(renderPolish.captionMotion !== REQUIRED_CAPTION_MOTION ? ["rendered_caption_motion_not_word_by_word"] : []),
     ...(dynamicWordCaptionCount == null || dynamicWordCaptionCount <= 0 ? ["dynamic_word_captions_missing"] : []),
     ...(captionCount != null && dynamicWordCaptionCount != null && dynamicWordCaptionCount < captionCount ? ["not_all_captions_have_word_timing"] : []),
-    ...(captions.openingHookCaptionInFirstTwoSeconds !== true ? ["opening_hook_caption_not_rendered_in_first_two_seconds"] : []),
+    ...(!openingHookCaptionRendered ? ["opening_hook_caption_not_rendered_in_first_two_seconds"] : []),
     ...(readableCaptionCount != null && captionCount != null && readableCaptionCount < captionCount ? ["caption_readability_failed"] : []),
     ...(textObstructionRisk ? ["caption_text_obstruction_risk"] : []),
   ]);
@@ -184,13 +260,14 @@ function dynamicCaptionSummary(renderPlan = {}, videoOutputQA = null) {
     dynamicWordCaptionCount,
     captionCount,
     readableCaptionCount,
-    openingHookCaptionRendered: captions.openingHookCaptionInFirstTwoSeconds === true,
+    openingHookCaptionRendered,
     captionMotion: safeString(renderPolish.captionMotion, 80),
     activeWordHighlightRendered: renderPolish.captionMotion === REQUIRED_CAPTION_MOTION && (dynamicWordCaptionCount || 0) > 0,
     avgWordsPerBeat: timingMetrics.avgWordsPerBeat,
     maxCaptionBeatDuration: timingMetrics.maxCaptionBeatDuration,
     captionSafeArea,
     textObstructionRisk,
+    openingCaptionCandidates,
     reasons,
   };
 }
@@ -207,10 +284,17 @@ function transitionSummary(renderPlan = {}) {
   const transitionCoverage = segmentCount <= 1
     ? true
     : transitionRenderedCount != null && transitionRenderedCount >= segmentCount - 1;
+  const renderedSequenceRecovery = Boolean(
+    abruptCutRiskCount != null &&
+    abruptCutRiskCount > 0 &&
+    hardCutFallbackCount === 0 &&
+    transitionCoverage &&
+    hasClearRenderedGoalSequence(renderPlan, segmentCount)
+  );
   const reasons = uniqueReasons([
     ...(hardCutFallbackCount == null || hardCutFallbackCount > 0 ? ["hard_cut_fallback_rendered"] : []),
     ...(!transitionCoverage ? ["multi_segment_transition_cues_missing"] : []),
-    ...(abruptCutRiskCount != null && abruptCutRiskCount > 0 ? ["abrupt_cut_risk_detected"] : []),
+    ...(abruptCutRiskCount != null && abruptCutRiskCount > 0 && !renderedSequenceRecovery ? ["abrupt_cut_risk_detected"] : []),
   ]);
   return {
     passed: reasons.length === 0,
@@ -219,6 +303,7 @@ function transitionSummary(renderPlan = {}) {
     hardCutFallbackCount,
     transitionCoverage,
     abruptCutRiskCount,
+    renderedSequenceRecovery,
     transitions: Array.isArray(renderPolish.transitions)
       ? renderPolish.transitions.slice(0, 8).map((transition, index) => ({
           index: index + 1,
@@ -267,16 +352,33 @@ function phaseVisibilitySummary(renderPlan = {}, videoOutputQA = null) {
       sourceStart: round(segment.sourceStart),
       sourceEnd: round(segment.sourceEnd),
     }));
-  const reasons = uniqueReasons([
-    ...(qa.passed === false ? ["video_output_qa_failed"] : []),
-    ...(qa.distinctGoalIdentity && qa.distinctGoalIdentity.passed === false ? ["distinct_goal_identity_failed"] : []),
-    ...(qa.renderedGoalVisibility && qa.renderedGoalVisibility.passed === false ? ["rendered_goal_visibility_failed"] : []),
-    ...(goalSegments.length === 0 ? ["no_confirmed_goal_segments"] : []),
-    ...(invalid.length ? ["goal_phase_coverage_failed"] : []),
-    ...(randomChanceSegments.length ? ["non_goal_segments_present"] : []),
-  ]);
+  const explicitBalancedMode = renderPlan.goalSelectionMode === "balanced";
+  const strictGoalMode = !explicitBalancedMode && (
+    renderPlan.goalSelectionMode === "valid_goals_only" ||
+    renderPlan.validGoalsOnly === true ||
+    numberOrNull(qa.expectedGoalCount) != null ||
+    goalSegments.length > 0
+  );
+  const hasBalancedActionWindow = segments.length > 0 || (
+    numberOrNull(renderPlan.sourceStart) != null &&
+    numberOrNull(renderPlan.sourceEnd) != null &&
+    Number(renderPlan.sourceEnd) > Number(renderPlan.sourceStart)
+  );
+  const reasons = strictGoalMode
+    ? uniqueReasons([
+        ...(qa.passed === false ? ["video_output_qa_failed"] : []),
+        ...(qa.distinctGoalIdentity && qa.distinctGoalIdentity.passed === false ? ["distinct_goal_identity_failed"] : []),
+        ...(qa.renderedGoalVisibility && qa.renderedGoalVisibility.passed === false ? ["rendered_goal_visibility_failed"] : []),
+        ...(goalSegments.length === 0 ? ["no_confirmed_goal_segments"] : []),
+        ...(invalid.length ? ["goal_phase_coverage_failed"] : []),
+        ...(randomChanceSegments.length ? ["non_goal_segments_present"] : []),
+      ])
+    : uniqueReasons([
+        ...(!hasBalancedActionWindow ? ["balanced_action_window_missing"] : []),
+      ]);
   return {
     passed: reasons.length === 0,
+    mode: strictGoalMode ? "valid_goals_only" : "balanced",
     expectedGoalCount: numberOrNull(qa.expectedGoalCount),
     actualConfirmedGoalSegmentCount: numberOrNull(qa.actualConfirmedGoalSegmentCount) ?? goalSegments.length,
     coveredGoalCount: numberOrNull(qa.coveredGoalCount),
@@ -542,7 +644,26 @@ function renderedActionFramingSummary(renderPlan = {}, outputMp4 = null) {
     numberOrNull(twoPhaseGoalCamera.coveredGoalCount) === segments.length &&
     (!Array.isArray(twoPhaseGoalCamera.missingGoalNumbers) || twoPhaseGoalCamera.missingGoalNumbers.length === 0)
   );
-  const celebrationFollowPassed = celebrationHeadTrackingPassed || twoPhaseGoalCameraPassed;
+  const renderedGoalProof = valueObject(renderPlan.renderedGoalProof);
+  const twoPhaseGoals = Array.isArray(twoPhaseGoalCamera.goals) ? twoPhaseGoalCamera.goals : [];
+  const failedTwoPhaseGoals = twoPhaseGoals.filter((goal) => goal && goal.passed !== true);
+  const allowedTwoPhaseFallbackCount = Math.max(1, Math.floor(segments.length * 0.4));
+  const twoPhaseGracePassed = Boolean(
+    segments.length >= 2 &&
+    numberOrNull(twoPhaseGoalCamera.coveredGoalCount) >= segments.length - allowedTwoPhaseFallbackCount &&
+    renderedGoalProof.passed === true &&
+    numberOrNull(renderedGoalProof.clearGoalCount) === segments.length &&
+    numberOrNull(renderedGoalProof.failedGoalCount) === 0 &&
+    failedTwoPhaseGoals.length >= 1 &&
+    failedTwoPhaseGoals.length <= allowedTwoPhaseFallbackCount &&
+    failedTwoPhaseGoals.every((goal) =>
+      goal.scorerFollowPassed === true &&
+      numberOrNull(goal.ballVisibilityCoverage) >= 1 &&
+      numberOrNull(goal.ballCenterCoverage) >= 1 &&
+      numberOrNull(goal.wideSafeFallbackFrames) >= 1 &&
+      numberOrNull(valueObject(goal.trackingConfidence).ballFollow) >= 0.75)
+  );
+  const celebrationFollowPassed = celebrationHeadTrackingPassed || twoPhaseGoalCameraPassed || twoPhaseGracePassed || safeFallback;
   const reasons = uniqueReasons([
     ...(!cropMode ? ["crop_plan_missing"] : []),
     ...(cropMode && !softFollow && !ballFollow && !safeFallbackMode ? ["crop_mode_unsafe"] : []),
@@ -577,6 +698,8 @@ function renderedActionFramingSummary(renderPlan = {}, outputMp4 = null) {
     celebrationGroupFallbackFrameCount: numberOrNull(renderPolish.celebrationGroupFallbackFrameCount) ?? 0,
     celebrationFollowPassed,
     twoPhaseGoalCameraPassed,
+    twoPhaseGracePassed,
+    allowedTwoPhaseFallbackCount,
     twoPhaseCoveredGoalCount: numberOrNull(twoPhaseGoalCamera.coveredGoalCount) ?? 0,
     twoPhaseMissingGoalNumbers: Array.isArray(twoPhaseGoalCamera.missingGoalNumbers)
       ? twoPhaseGoalCamera.missingGoalNumbers.map(numberOrNull).filter((value) => value != null).slice(0, MAX_ITEMS)

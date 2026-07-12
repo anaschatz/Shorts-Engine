@@ -23,6 +23,11 @@ const DEFAULT_JSON_RESPONSE_BYTES = 256 * 1024;
 const DEFAULT_DOWNLOAD_MAX_BYTES = 80 * 1024 * 1024;
 const DEFAULT_DOWNLOAD_ARTIFACT_DIR = "manual-downloads";
 const SAVE_DOWNLOAD_FLAG = "SHORTSENGINE_YOUTUBE_SMOKE_SAVE_DOWNLOAD";
+const GOAL_SELECTION_MODE_FLAG = "SHORTSENGINE_YOUTUBE_SMOKE_GOAL_SELECTION_MODE";
+const COMPOSITION_MODE_FLAG = "SHORTSENGINE_YOUTUBE_SMOKE_COMPOSITION_MODE";
+const EDIT_INTENSITY_FLAG = "SHORTSENGINE_YOUTUBE_SMOKE_EDIT_INTENSITY";
+const STYLE_PRESET_FLAG = "SHORTSENGINE_YOUTUBE_SMOKE_STYLE_PRESET";
+const TITLE_FLAG = "SHORTSENGINE_YOUTUBE_SMOKE_TITLE";
 const DEFAULT_YOUTUBE_INGEST_TIMEOUT_MS = 120_000;
 const DEFAULT_YOUTUBE_DOWNLOAD_ATTEMPTS = 2;
 const SMOKE_NEXT_ACTIONS = {
@@ -56,6 +61,7 @@ const SMOKE_NEXT_ACTIONS = {
   JOB_PROGRESS_STALLED: "inspect-active-job-substep-before-rerun-or-split-long-source-analysis",
   SCOREBOARD_OCR_TIMEOUT: "reduce-scorebug-ocr-sampling-or-disable-live-scoreboard-ocr-and-rerun-proof",
   YOUTUBE_SMOKE_RENDER_PLAN_MISSING: "check-job-public-edit-plan-before-trusting-the-live-proof",
+  YOUTUBE_SMOKE_RENDER_PLAN_NOT_SINGLE_MOMENT: "fix-single-moment-selection-before-comparing-reference-style-shorts",
   YOUTUBE_SMOKE_RENDER_PLAN_NOT_MULTI_MOMENT: "fix-multi-moment-selection-before-comparing-reference-style-shorts",
   VIDEO_OUTPUT_QA_FAILED: "inspect-video-output-qa-missing-goals-and-fix-final-edit-plan-before-release",
   YOUTUBE_SMOKE_DOWNLOAD_NOT_MP4: "check-render-export-download-contract",
@@ -487,9 +493,9 @@ async function fetchDownload(fetchImpl, url, options = {}) {
     requestId: response.headers?.get?.("x-request-id") || null,
     contentType: response.headers?.get?.("content-type") || "",
     buffer,
-	  };
-	}
-	
+  };
+}
+
 function safeAttemptDiagnostics(value) {
   if (!Array.isArray(value)) return [];
   return value.slice(0, 4).map((attempt) => {
@@ -724,6 +730,7 @@ function sanitizeText(value, maxLength = 120) {
 }
 
 function safeNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
   const number = Number(value);
   return Number.isFinite(number) ? Number(number.toFixed(2)) : null;
 }
@@ -1278,7 +1285,17 @@ function safeRenderPolishQA(value) {
     animatedCaptionCount: Number.isFinite(Number(value.animatedCaptionCount)) ? Number(value.animatedCaptionCount) : null,
     dynamicWordCaptionCount: Number.isFinite(Number(value.dynamicWordCaptionCount)) ? Number(value.dynamicWordCaptionCount) : null,
     staticCaptionFallbackCount: Number.isFinite(Number(value.staticCaptionFallbackCount)) ? Number(value.staticCaptionFallbackCount) : null,
+    captionsRendered: value.captionsRendered !== false,
+    captionsDisabledByOperator: value.captionsDisabledByOperator === true,
     captionMotion: sanitizeText(value.captionMotion || "", 80) || null,
+    videoEnhancementEnabled: value.videoEnhancementEnabled === true,
+    videoEnhancementApplied: value.videoEnhancementApplied === true,
+    videoEnhancementProvider: sanitizeText(value.videoEnhancementProvider || "", 60) || null,
+    videoEnhancementModel: sanitizeText(value.videoEnhancementModel || "", 80) || null,
+    videoEnhancementScale: safeNumber(value.videoEnhancementScale),
+    videoEnhancementFps: safeNumber(value.videoEnhancementFps),
+    videoEnhancementFallbackUsed: value.videoEnhancementFallbackUsed === true,
+    videoEnhancementFallbackReason: sanitizeText(value.videoEnhancementFallbackReason || "", 80) || null,
     cleanActionLayoutRequired: value.cleanActionLayoutRequired === true,
     cleanActionLayoutPassed: value.cleanActionLayoutPassed === true,
     actionLayoutMode: sanitizeText(value.actionLayoutMode || "", 80) || null,
@@ -1298,6 +1315,11 @@ function safeRenderPolishQA(value) {
     celebrationHeadTrackingRequired: value.celebrationHeadTrackingRequired === true,
     celebrationHeadTrackingPassed: value.celebrationHeadTrackingPassed === true,
     celebrationHeadFollowRendered: value.celebrationHeadFollowRendered === true,
+    celebrationFollowPassed: value.celebrationFollowPassed === true,
+    twoPhaseGoalCameraPassed: value.twoPhaseGoalCameraPassed === true,
+    twoPhaseGoalCamera: value.twoPhaseGoalCamera && typeof value.twoPhaseGoalCamera === "object"
+      ? value.twoPhaseGoalCamera
+      : null,
     scoreboardOverlayRendered: value.scoreboardOverlayRendered === true,
     scoreboardOverlayRegionId: sanitizeText(value.scoreboardOverlayRegionId || "", 80) || null,
     sourceScoreboardDuplicateSuppressed: value.sourceScoreboardDuplicateSuppressed === true,
@@ -1403,6 +1425,46 @@ function safeRenderCaption(caption = {}, index = 0) {
         }
       : null,
     riskFlags: safeStringList(caption.captionRiskFlags, 6, 80),
+  };
+}
+
+function safeHookPlan(value = null) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    hookStart: safeNumber(value.hookStart ?? value.start),
+    hookEnd: safeNumber(value.hookEnd ?? value.end),
+    hookType: sanitizeText(value.hookType || value.type || "", 60) || null,
+    hookText: sanitizeText(value.hookText || value.text || "", 120) || null,
+    relatedGoalNumber: safeNumber(value.relatedGoalNumber),
+    relatedMomentId: sanitizeText(value.relatedMomentId || "", 80) || null,
+    evidenceCodes: safeStringList(value.evidenceCodes || value.reasonCodes, 10, 80),
+    noFalseGoalClaim: value.noFalseGoalClaim !== false,
+  };
+}
+
+function safeAudioPolicy(value = null) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    audioMode: sanitizeText(value.audioMode || "", 60) || null,
+    licenseStatus: sanitizeText(value.licenseStatus || "", 60) || null,
+    source: sanitizeText(value.source || "", 80) || null,
+    safeForExport: value.safeForExport === true,
+    operatorActionRequired: value.operatorActionRequired === true,
+    externalAudioBundled: value.externalAudioBundled === true,
+    copyrightedTrackBundled: value.copyrightedTrackBundled === true,
+  };
+}
+
+function safeCreativeStyleTransforms(value = null) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    colorGrade: sanitizeText(value.colorGrade || "", 60) || null,
+    mildZoom: safeNumber(value.mildZoom),
+    sharpen: safeNumber(value.sharpen),
+    contrastBoost: safeNumber(value.contrastBoost),
+    mirror: value.mirror === true,
+    copyrightEvasion: value.copyrightEvasion === true,
+    watermarkObscuring: value.watermarkObscuring === true,
   };
 }
 
@@ -1568,16 +1630,17 @@ function safeRenderPlanSummary(job) {
   if (!plan && job && job.renderPlanSummary && typeof job.renderPlanSummary === "object" && !Array.isArray(job.renderPlanSummary)) {
     const summary = job.renderPlanSummary;
     const segments = Array.isArray(summary.segments) ? summary.segments.map(safeRenderSegment).slice(0, 12) : [];
+    const captions = Array.isArray(summary.captions) ? summary.captions.map(safeRenderCaption).slice(0, 12) : [];
     return {
       mode: sanitizeText(summary.mode || (segments.length ? "multi_moment_compilation" : "single_moment"), 60),
       highlightType: sanitizeText(summary.highlightType || "generic_highlight", 60),
-      sourceStart: null,
-      sourceEnd: null,
+      sourceStart: safeNumber(summary.sourceStart),
+      sourceEnd: safeNumber(summary.sourceEnd),
       totalDuration: safeNumber(summary.totalDuration),
       segmentCount: Number.isFinite(Number(summary.segmentCount)) ? Number(summary.segmentCount) : segments.length,
       segments,
       captionCount: Number.isFinite(Number(summary.captionCount)) ? Number(summary.captionCount) : 0,
-      captions: [],
+      captions,
       animationCueCount: Number.isFinite(Number(summary.animationCueCount)) ? Number(summary.animationCueCount) : 0,
       animationCueTypes: [],
       framingMode: null,
@@ -1587,6 +1650,9 @@ function safeRenderPlanSummary(job) {
       cropPlanMode: sanitizeText(summary.cropPlanMode || "", 60) || null,
       candidateCount: 0,
       goalSelectionMode: sanitizeText(summary.goalSelectionMode || "", 60) || null,
+      hookPlan: safeHookPlan(summary.hookPlan),
+      audioPolicy: safeAudioPolicy(summary.audioPolicy),
+      creativeStyleTransforms: safeCreativeStyleTransforms(summary.creativeStyleTransforms),
       countedGoalProof: safeCountedGoalProofSummary(job, segments),
       videoOutputQA: safeVideoOutputQA(job.videoOutputQA || summary.videoOutputQA),
       renderedGoalProof: summary.renderedGoalProof && typeof summary.renderedGoalProof === "object"
@@ -1636,6 +1702,9 @@ function safeRenderPlanSummary(job) {
     cropPlanMode: sanitizeText(plan.cropPlan && plan.cropPlan.mode ? plan.cropPlan.mode : "", 60) || null,
     candidateCount: Array.isArray(job.candidatePlans) ? job.candidatePlans.length : 0,
     goalSelectionMode: sanitizeText(plan.goalSelectionMode || "", 60) || null,
+    hookPlan: safeHookPlan(plan.hookPlan),
+    audioPolicy: safeAudioPolicy(plan.audioPolicy),
+    creativeStyleTransforms: safeCreativeStyleTransforms(plan.creativeStyleTransforms),
     countedGoalProof: safeCountedGoalProofSummary(job, segments),
     videoOutputQA: safeVideoOutputQA(job.videoOutputQA || plan.videoOutputQA),
     renderedGoalProof: plan.renderedGoalProof && typeof plan.renderedGoalProof === "object"
@@ -1648,13 +1717,31 @@ function safeRenderPlanSummary(job) {
   };
 }
 
-function validateRenderPlanSummary(job, ingested) {
+function validateRenderPlanSummary(job, ingested, env = process.env) {
   const summary = safeRenderPlanSummary(job);
   if (!summary) {
     throw new YouTubeSmokeError("YOUTUBE_SMOKE_RENDER_PLAN_MISSING", "YouTube smoke completed job is missing a public render plan summary.");
   }
+  const requestedCompositionMode = String(rawValue(env, COMPOSITION_MODE_FLAG) || "auto").trim().toLowerCase();
+  if (requestedCompositionMode === "single_moment" && summary.mode !== "single_moment") {
+    throw new YouTubeSmokeError(
+      "YOUTUBE_SMOKE_RENDER_PLAN_NOT_SINGLE_MOMENT",
+      "YouTube smoke explicitly requested a single-moment render plan.",
+      { nextAction: nextActionForCode("YOUTUBE_SMOKE_RENDER_PLAN_NOT_SINGLE_MOMENT") },
+    );
+  }
   const sourceDuration = Number(ingested?.durationSeconds || 0);
-  if (sourceDuration >= 45 && (summary.mode !== "multi_moment_compilation" || summary.segmentCount < 2)) {
+  const expectedGoalCount = Number(summary.videoOutputQA && summary.videoOutputQA.expectedGoalCount || 0);
+  const actualConfirmedGoalSegmentCount = Number(
+    summary.videoOutputQA && summary.videoOutputQA.actualConfirmedGoalSegmentCount || summary.segmentCount || 0,
+  );
+  const validSingleGoalCompilation = expectedGoalCount === 1 && actualConfirmedGoalSegmentCount === 1;
+  if (
+    requestedCompositionMode !== "single_moment" &&
+    sourceDuration >= 45 &&
+    !validSingleGoalCompilation &&
+    (summary.mode !== "multi_moment_compilation" || summary.segmentCount < 2)
+  ) {
     throw new YouTubeSmokeError(
       "YOUTUBE_SMOKE_RENDER_PLAN_NOT_MULTI_MOMENT",
       "Long YouTube smoke sources must render as a multi-moment compilation.",
@@ -1781,6 +1868,7 @@ function safeJobSnapshot(job) {
     status: job.status || null,
     progress: Number.isFinite(Number(job.progress)) ? Number(job.progress) : 0,
     step: job.step || null,
+    updatedAt: sanitizeText(job.updatedAt || "", 40) || null,
     progressMeta,
     exportId: job.exportId || null,
     error: safeReportError(job.error),
@@ -1885,6 +1973,7 @@ function snapshotProgressKey(snapshot) {
     meta.chunkIndex || "",
     meta.scannedChunks || "",
     meta.discoveredScoreChanges || "",
+    snapshot.updatedAt || "",
   ].join("|");
 }
 
@@ -2342,9 +2431,27 @@ async function runYouTubeSmoke(options = {}) {
     const generateResponse = await fetchJson(fetchImpl, endpointUrl(baseUrl, `/api/projects/${ingested.projectId}/generate`), {
       method: "POST",
       body: JSON.stringify({
-        title: "ShortsEngine YouTube Smoke",
+        title: String(rawValue(env, TITLE_FLAG) || "ShortsEngine YouTube Smoke").trim(),
         preset: "hype",
         language: "English",
+        ...(rawValue(env, EDIT_INTENSITY_FLAG)
+          ? { editIntensity: String(rawValue(env, EDIT_INTENSITY_FLAG)).trim().toLowerCase() }
+          : {}),
+        ...(rawValue(env, STYLE_PRESET_FLAG)
+          ? { stylePreset: String(rawValue(env, STYLE_PRESET_FLAG)).trim().toLowerCase() }
+          : {}),
+        ...(rawValue(env, GOAL_SELECTION_MODE_FLAG)
+          ? { goalSelectionMode: String(rawValue(env, GOAL_SELECTION_MODE_FLAG)).trim().toLowerCase() }
+          : {}),
+        ...(rawValue(env, COMPOSITION_MODE_FLAG)
+          ? { compositionMode: String(rawValue(env, COMPOSITION_MODE_FLAG)).trim().toLowerCase() }
+          : {}),
+        ...(rawValue(env, "SHORTSENGINE_YOUTUBE_LIVE_E2E_EXPECTED_COUNTED_GOALS") !== undefined
+          ? { expectedCountedGoals: Number(rawValue(env, "SHORTSENGINE_YOUTUBE_LIVE_E2E_EXPECTED_COUNTED_GOALS")) }
+          : {}),
+        ...(rawValue(env, "SHORTSENGINE_YOUTUBE_LIVE_E2E_EXPECTED_FINAL_SCORE")
+          ? { expectedFinalScore: String(rawValue(env, "SHORTSENGINE_YOUTUBE_LIVE_E2E_EXPECTED_FINAL_SCORE")).trim() }
+          : {}),
         rightsConfirmed: true,
         idempotencyKey: `youtube_smoke_${Date.now()}_${randomUUID()}`,
       }),
@@ -2385,7 +2492,7 @@ async function runYouTubeSmoke(options = {}) {
     }
     const completed = validateCompletedJob(polled.job, { elapsedMs: polled.elapsedMs });
     ids.exportId = completed.exportId;
-    renderPlan = validateRenderPlanSummary(polled.job, ingested);
+    renderPlan = validateRenderPlanSummary(polled.job, ingested, env);
     addStep(steps, "job", "passed", {
       jobId: ids.jobId,
       exportId: ids.exportId,
@@ -2518,6 +2625,7 @@ export {
   safeDownloadArtifactRef,
   validateHealthForSmoke,
   validateMp4Download,
+  validateRenderPlanSummary,
   validateSmokeSource,
   writeYouTubeSmokeReport,
 };

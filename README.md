@@ -68,6 +68,22 @@ http://localhost:4175
 
 The default port is `4175`. You can override it with `PORT`.
 
+## Optional Real-ESRGAN Enhancement
+
+Video enhancement is automatic when the official `realesrgan-ncnn-vulkan` portable runtime and its models are installed. It never changes the source used for OCR, tracking or goal verification. With the binary on `PATH` and its `models` directory beside it, the normal command is enough:
+
+```bash
+npm run dev
+```
+
+The renderer automatically enhances a caption-free `540x960` visual layer to `1080x1920`, then composes the original scorebug, captions, effects and audio. When the runtime is unavailable it uses the normal FFmpeg path. Absolute binary/model paths and mandatory mode remain available through the variables in `docs/ENVIRONMENT.md`.
+
+## Automatic Local Transcription
+
+Faster-Whisper is auto-detected through `python3`. When the Python package and the configured model are already available locally, the engine uses it automatically and preserves word timestamps for kinetic captions. It never downloads a model during a render. If the runtime or cached model is unavailable, automatic mode keeps the existing safe transcription fallback and the job continues normally. Configuration and mandatory mode are documented in `docs/ENVIRONMENT.md`.
+
+Reliable FFmpeg scene cuts are also fed into the dynamic crop planner automatically. Ball and player tracking resets at a real cut instead of carrying camera motion from the previous shot; estimated scene boundaries are ignored.
+
 ## Core Validation
 
 Run the main local checks:
@@ -172,6 +188,7 @@ npm run lint                Static lint and safety checks
 npm run build               Build smoke check
 npm test                    Full test suite
 npm run eval                Deterministic quality evaluation
+npm run eval:beta           20-50 match production-beta benchmark
 npm run eval:reference      Reference-style football quality evaluation
 npm run youtube:doctor      YouTube ingest readiness check
 npm run youtube:proof       Local YouTube proof alias

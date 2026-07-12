@@ -13,13 +13,16 @@ import {
   liveServerEnvironment,
   runYouTubeLiveE2E,
   smokeEnvForLive,
+  waitForServerReady,
   writeYouTubeLiveE2EReport,
 } from "../demo/run-youtube-live-e2e.mjs";
+
 import {
   computedIngestRequestTimeoutMs,
   requestJsonWithTimeout,
   runYouTubeSmoke,
   safeDownloadArtifactRef,
+  validateRenderPlanSummary,
   writeYouTubeSmokeReport,
 } from "../demo/run-youtube-smoke.mjs";
 import {
@@ -30,6 +33,23 @@ import {
 
 const VIDEO_ID = "dQw4w9WgXcQ";
 const SAFE_URL = `https://www.youtube.com/watch?v=${VIDEO_ID}`;
+
+test("live proof readiness accepts a bounded health response slower than one second", async () => {
+  const started = Date.now();
+  const result = await waitForServerReady({
+    baseUrl: "http://127.0.0.1:4175",
+    timeoutMs: 3_000,
+    pollIntervalMs: 50,
+    fetchImpl: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
+      return { ok: true, status: 200 };
+    },
+  });
+
+  assert.equal(result.status, 200);
+  assert.equal(result.attempts, 1);
+  assert.ok(Date.now() - started >= 1_000);
+});
 
 function readyStorage() {
   return {
@@ -752,6 +772,48 @@ test("youtube smoke stalled job report preserves active progress substep safely"
   assert.equal(findSensitiveLeak(report), null);
 });
 
+test("youtube smoke treats advancing worker timestamps as live render progress", async () => {
+  let pollCount = 0;
+  const { fetchImpl } = createFetchMock({
+    "GET /api/jobs/job_12345678": () => {
+      pollCount += 1;
+      return jsonResponse({
+        ok: true,
+        data: {
+          job: {
+            id: "job_12345678",
+            projectId: "prj_12345678",
+            uploadId: "upl_12345678",
+            status: "processing",
+            progress: 86,
+            step: "render_short",
+            updatedAt: new Date(Date.UTC(2026, 6, 2, 15, 0, pollCount)).toISOString(),
+            progressMeta: {
+              phase: "render",
+              step: "render_short",
+              substep: "ffmpeg_render",
+            },
+          },
+        },
+      }, 200, "req_job");
+    },
+  });
+  const report = await runYouTubeSmoke({
+    env: smokeEnv({
+      SHORTSENGINE_YOUTUBE_SMOKE_JOB_TIMEOUT_MS: "1400",
+      SHORTSENGINE_YOUTUBE_SMOKE_STALL_TIMEOUT_MS: "1000",
+      SHORTSENGINE_YOUTUBE_SMOKE_POLL_INTERVAL_MS: "100",
+    }),
+    fetchImpl,
+  });
+
+  assert.equal(report.status, "failed");
+  assert.equal(report.failedCases[0].code, "YOUTUBE_SMOKE_JOB_TIMEOUT");
+  assert.equal(report.failedCases[0].stalled, false);
+  assert.ok(pollCount > 10);
+  assert.equal(findSensitiveLeak(report), null);
+});
+
 test("youtube smoke failed job report preserves terminal progress substep safely", async () => {
   const { fetchImpl } = createFetchMock({
     "GET /api/jobs/job_12345678": () => jsonResponse({
@@ -905,6 +967,38 @@ test("youtube smoke successful mocked flow validates ingest generate job and dow
   ]);
   assert.doesNotMatch(JSON.stringify(report), new RegExp(SAFE_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube smoke forwards explicit balanced single-moment planning", async () => {
+  let generateBody = null;
+  const { fetchImpl } = createFetchMock({
+    "POST /api/projects/prj_12345678/generate": ({ options }) => {
+      generateBody = JSON.parse(options.body);
+      return jsonResponse({
+        ok: true,
+        data: {
+          job: { id: "job_12345678", projectId: "prj_12345678", uploadId: "upl_12345678", status: "queued" },
+        },
+      }, 202, "req_generate");
+    },
+  });
+  const report = await runYouTubeSmoke({
+    env: smokeEnv({
+      SHORTSENGINE_YOUTUBE_SMOKE_GOAL_SELECTION_MODE: "balanced",
+      SHORTSENGINE_YOUTUBE_SMOKE_COMPOSITION_MODE: "single_moment",
+      SHORTSENGINE_YOUTUBE_SMOKE_EDIT_INTENSITY: "punchy",
+      SHORTSENGINE_YOUTUBE_SMOKE_STYLE_PRESET: "punchy_highlight",
+      SHORTSENGINE_YOUTUBE_SMOKE_TITLE: "Switzerland vs Colombia",
+    }),
+    fetchImpl,
+  });
+
+  assert.equal(report.status, "passed", JSON.stringify(report.failedCases));
+  assert.equal(generateBody.goalSelectionMode, "balanced");
+  assert.equal(generateBody.compositionMode, "single_moment");
+  assert.equal(generateBody.editIntensity, "punchy");
+  assert.equal(generateBody.stylePreset, "punchy_highlight");
+  assert.equal(generateBody.title, "Switzerland vs Colombia");
 });
 
 test("youtube smoke render summary includes safe counted-goal proof details", async () => {
@@ -1130,6 +1224,127 @@ test("youtube smoke fails closed when a long source does not expose a multi-mome
   assert.equal(report.status, "failed");
   assert.equal(report.failedCases[0].code, "YOUTUBE_SMOKE_RENDER_PLAN_NOT_MULTI_MOMENT");
   assert.equal(report.renderPlan, null);
+  assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube smoke accepts one confirmed goal segment when the fixture has exactly one goal", () => {
+  const summary = validateRenderPlanSummary({
+    editPlan: {
+      mode: "valid_goals_only",
+      highlightType: "goal",
+      sourceStart: 40,
+      sourceEnd: 62,
+      totalDuration: 22,
+      segments: [{
+        id: "goal_1",
+        goalNumber: 1,
+        sourceStart: 40,
+        sourceEnd: 62,
+        highlightType: "goal",
+      }],
+    },
+    videoOutputQA: {
+      expectedGoalCount: 1,
+      actualConfirmedGoalSegmentCount: 1,
+      coveredGoalCount: 1,
+      passed: true,
+    },
+  }, { durationSeconds: 120 }, {
+    SHORTSENGINE_YOUTUBE_SMOKE_COMPOSITION_MODE: "multi_moment",
+  });
+
+  assert.equal(summary.segmentCount, 1);
+  assert.equal(summary.videoOutputQA.expectedGoalCount, 1);
+});
+
+test("youtube smoke accepts an explicitly requested single-moment plan for a long source", async () => {
+  const { fetchImpl } = createFetchMock({
+    "POST /api/youtube/ingest": () => jsonResponse({
+      ok: true,
+      data: {
+        project: { id: "prj_12345678", status: "draft" },
+        upload: {
+          id: "upl_12345678",
+          projectId: "prj_12345678",
+          metadata: { durationSeconds: 120, width: 1280, height: 720 },
+          artifact: { id: "upl_12345678", type: "upload", status: "available", size: 1024 },
+        },
+        source: {
+          sourceType: "youtube",
+          kind: "watch",
+          videoId: VIDEO_ID,
+          durationSeconds: 120,
+        },
+      },
+    }, 201, "req_ingest"),
+    "GET /api/jobs/job_12345678?view=summary": () => jsonResponse({
+      ok: true,
+      data: {
+        job: {
+          id: "job_12345678",
+          projectId: "prj_12345678",
+          uploadId: "upl_12345678",
+          status: "completed",
+          progress: 100,
+          step: "completed",
+          exportId: "exp_12345678",
+          renderPlanSummary: {
+            mode: "single_moment",
+            highlightType: "big_chance",
+            sourceStart: 38,
+            sourceEnd: 62,
+            totalDuration: 24,
+            segmentCount: 0,
+            captionCount: 1,
+            captions: [{
+              start: 0,
+              end: 1.6,
+              text: "THE BIG CHANCE OPENS",
+              role: "opening_hook",
+              activeWordTiming: [
+                { word: "THE", start: 0, end: 0.4 },
+                { word: "BIG", start: 0.4, end: 0.75 },
+                { word: "CHANCE", start: 0.75, end: 1.2 },
+                { word: "OPENS", start: 1.2, end: 1.55 },
+              ],
+            }],
+            goalSelectionMode: "balanced",
+            hookPlan: {
+              hookStart: 0,
+              hookEnd: 1.6,
+              hookType: "shot",
+              hookText: "THE BIG CHANCE OPENS",
+              evidenceCodes: ["big_chance", "visual_shot_like_motion"],
+              noFalseGoalClaim: true,
+            },
+            audioPolicy: {
+              audioMode: "source",
+              licenseStatus: "source_rights_confirmed",
+              externalAudioBundled: false,
+              copyrightedTrackBundled: false,
+            },
+            creativeStyleTransforms: {
+              mirror: false,
+              copyrightEvasion: false,
+              watermarkObscuring: false,
+            },
+            renderPolishQA: renderPolishQA({ transitionMode: "single_window" }),
+          },
+        },
+      },
+    }, 200, "req_job"),
+  });
+  const report = await runYouTubeSmoke({
+    env: smokeEnv({ SHORTSENGINE_YOUTUBE_SMOKE_COMPOSITION_MODE: "single_moment" }),
+    fetchImpl,
+  });
+  assert.equal(report.status, "passed", JSON.stringify(report.failedCases));
+  assert.equal(report.renderPlan.mode, "single_moment");
+  assert.equal(report.renderPlan.sourceStart, 38);
+  assert.equal(report.renderPlan.captions[0].role, "opening_hook");
+  assert.equal(report.renderPlan.hookPlan.hookStart, 0);
+  assert.equal(report.renderPlan.audioPolicy.copyrightedTrackBundled, false);
+  assert.equal(report.renderPlan.creativeStyleTransforms.copyrightEvasion, false);
   assert.equal(findSensitiveLeak(report), null);
 });
 
@@ -1816,6 +2031,26 @@ test("youtube live proof cleanup deletes only managed generated MP4 artifacts", 
   assert.equal(existsSync(operatorFile), true);
   assert.equal(existsSync(render), true);
   assert.equal(summary.destructiveOutsideManualDownloads, false);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("youtube live proof cleanup preserves outputs from other benchmark sources", () => {
+  const root = mkdtempSync(join(tmpdir(), "shortsengine-live-source-cleanup-"));
+  const manual = join(root, "manual-downloads");
+  mkdirSync(manual, { recursive: true });
+  const current = join(manual, "shortsengine-youtube-dQw4w9WgXcQ-2026-06-20T11-23-53-191Z.mp4");
+  const other = join(manual, "shortsengine-youtube-pZ1Fh5Dnk3U-2026-06-20T11-23-53-191Z.mp4");
+  writeFileSync(current, "mp4", "utf8");
+  writeFileSync(other, "mp4", "utf8");
+
+  const summary = cleanupGeneratedProofArtifacts({
+    rootDir: root,
+    source: { videoId: "dQw4w9WgXcQ" },
+  });
+
+  assert.equal(summary.deletedCount, 1);
+  assert.equal(existsSync(current), false);
+  assert.equal(existsSync(other), true);
   rmSync(root, { recursive: true, force: true });
 });
 
@@ -2970,6 +3205,35 @@ test("youtube live proof derives visual polish QA from public render summary whe
   assert.equal(report.outputProof.visualPolishScore, 100);
   assert.equal(report.outputProof.referenceStyleQA.visualPolishScore, 100);
   assert.equal(findSensitiveLeak(report), null);
+});
+
+test("youtube live proof accepts captions disabled by the operator", async () => {
+  const smoke = countedGoalSmokeReport();
+  smoke.renderPlan.captions = [];
+  smoke.renderPlan.captionCount = 0;
+  smoke.renderPlan.renderPolishQA = renderPolishQA({
+    captionsRendered: false,
+    captionsDisabledByOperator: true,
+    animatedCaptionCount: 0,
+    dynamicWordCaptionCount: 0,
+    staticCaptionFallbackCount: 0,
+    captionMotion: "none",
+  });
+  const report = await runYouTubeLiveE2E({
+    env: liveEnv({ SHORTSENGINE_YOUTUBE_LIVE_E2E_EXPECTED_COUNTED_GOALS: "3" }),
+    checkYouTubeIngest: async () => passedDoctor(),
+    getFreePort: async () => 4175,
+    startServer: () => ({ child: { exitCode: null, signalCode: null }, events: [] }),
+    stopServer: async () => {},
+    waitForServerReady: async () => ({ attempts: 1, waitedMs: 10, status: 200 }),
+    runYouTubeSmoke: async () => smoke,
+  });
+
+  assert.equal(report.status, "passed", JSON.stringify(report.failedCases));
+  assert.equal(report.outputProof.renderPolishQA.captionsRendered, false);
+  assert.equal(report.outputProof.renderPolishQA.captionsDisabledByOperator, true);
+  assert.equal(report.outputProof.renderedSocialPolishQA.dynamicCaptions.disabledByOperator, true);
+  assert.equal(report.outputProof.renderedSocialPolishQA.dynamicCaptions.passed, true);
 });
 
 test("youtube live proof trusts rendered fades over stale pre-render abrupt-cut flags", async () => {

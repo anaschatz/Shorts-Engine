@@ -35,10 +35,35 @@ const { trackingProviderHealth } = require("./tracking-provider.cjs");
 const { JobStore, idempotencyKey } = require("./jobs.cjs");
 const { normalizeSmokeSource } = require("./staging-smoke-metadata.cjs");
 const { createReleaseReadiness } = require("./release-readiness.cjs");
+const {
+  createProductionBetaReadiness,
+  loadBetaEvaluationSummary,
+} = require("./production-beta-readiness.cjs");
 const { createLocalJobWorker, restoreExportsFromCompletedJobs } = require("./job-worker.cjs");
 const { createWorkerSupervisor } = require("./worker-supervisor.cjs");
 const { createOutboxWorker } = require("./outbox-worker.cjs");
 const { createLocalJobQueue } = require("./queue/local-job-queue.cjs");
+const { ContentArtifactRepository } = require("./repositories/content-artifact-repository.cjs");
+const { ContentApprovalRepository } = require("./repositories/content-approval-repository.cjs");
+const { PublishApprovalRepository } = require("./repositories/publish-approval-repository.cjs");
+const { normalizeDraftBundle } = require("./pipelines/narrated-short/contracts.cjs");
+const { fasterWhisperVersion } = require("./adapters/faster-whisper-adapter.cjs");
+const { runNarratedDraftJob } = require("./pipelines/narrated-short/draft-job.cjs");
+const { runNarratedRenderJob } = require("./pipelines/narrated-short/render-job.cjs");
+const { CAPTION_RENDERER_VERSION, CAPTION_PROFILE_VERSION } = require("./pipelines/narrated-short/captions/contract.cjs");
+const { AUDIO_PROFILE_VERSION } = require("./pipelines/narrated-short/audio-normalization.cjs");
+const { NARRATED_COMPOSITOR_VERSION } = require("./pipelines/narrated-short/video-compositor.cjs");
+const { QA_PROFILE_VERSION, normalizeQaReport } = require("./pipelines/narrated-short/qa/contract.cjs");
+const { EVIDENCE_PROFILE_VERSION } = require("./pipelines/narrated-short/evidence/contract.cjs");
+const { publicInvalidationSummary, reviseNarratedProject } = require("./pipelines/narrated-short/invalidation.cjs");
+const { publicQaSummary } = require("./pipelines/narrated-short/qa/qa-orchestrator.cjs");
+const { createPublishApproval, verifyReleaseEligibility } = require("./pipelines/narrated-short/publish/service.cjs");
+const { runNarrationAlignmentJob } = require("./pipelines/narrated-short/narration/align-job.cjs");
+const {
+  ingestUploadedNarration,
+  MAX_NARRATION_BYTES,
+  NARRATION_FILE_FIELD,
+} = require("./pipelines/narrated-short/narration/upload.cjs");
 const { recoverApprovalAudits } = require("./approval-audit-recovery.cjs");
 const { createArtifactCleanupWorker } = require("./artifact-cleanup-worker.cjs");
 const { createYouTubeIngestAdapter } = require("./adapters/youtube-ingest-adapter.cjs");
@@ -70,6 +95,11 @@ const artifacts = artifactRepository.records;
 const exportsById = exportRepository.records;
 const persistenceHealth = persistenceAdapter.health();
 const jobPersistenceAdapter = persistenceHealth.database ? persistenceAdapter : null;
+const contentArtifactRepository = new ContentArtifactRepository({ artifactStore, artifactRepository });
+const contentApprovalRepository = new ContentApprovalRepository();
+contentApprovalRepository.recover();
+const publishApprovalRepository = new PublishApprovalRepository();
+publishApprovalRepository.recover();
 const jobs = new JobStore({
   persist: true,
   logger: console,
@@ -115,7 +145,10 @@ const MAX_MULTIPART_FIELD_BYTES = 4 * 1024;
 const MAX_MULTIPART_HEADER_BYTES = 8 * 1024;
 const MAX_UPLOAD_BODY_OVERHEAD_BYTES = 64 * 1024;
 const MAX_JSON_BODY_BYTES = 16 * 1024;
+const MAX_NARRATED_JSON_BODY_BYTES = 128 * 1024;
 const UPLOAD_FILE_FIELD = "video";
+const GOAL_SELECTION_MODES = Object.freeze(["balanced", "valid_goals_only"]);
+const COMPOSITION_MODES = Object.freeze(["auto", "single_moment", "multi_moment"]);
 const REVIEW_MEDIA_PREFIX = "manual-downloads/";
 const OCR_QA_MANIFEST_REF_RE = /^demo\/results\/ocr-artifacts\/ocr-[A-Za-z0-9._-]+\/ocr-qa-manifest\.json$/;
 const OCR_QA_CROP_ID_RE = /^[A-Za-z0-9._-]{1,96}$/;
@@ -181,6 +214,11 @@ const jobWorker = createLocalJobWorker({
   artifactStore,
   dependencies: {
     artifactRepository,
+    contentArtifactRepository,
+    contentApprovalRepository,
+    runNarratedDraftJob,
+    runNarrationAlignmentJob,
+    runNarratedRenderJob,
     regenerationApprovalRepository,
     approvalOutboxRepository,
     persistenceAdapter,
@@ -393,15 +431,45 @@ function validateGeneratePayload(payload, project) {
     throw new AppError("VALIDATION_ERROR", "Unsupported render style preset.", 400);
   }
   const stylePreset = normalizeStylePreset(rawStylePreset);
+  const goalSelectionMode = payload.goalSelectionMode === undefined
+    ? null
+    : sanitizeText(payload.goalSelectionMode, 40).toLowerCase();
+  if (goalSelectionMode !== null && !GOAL_SELECTION_MODES.includes(goalSelectionMode)) {
+    throw new AppError("VALIDATION_ERROR", "Unsupported goal selection mode.", 400);
+  }
+  const compositionMode = payload.compositionMode === undefined
+    ? "auto"
+    : sanitizeText(payload.compositionMode, 40).toLowerCase();
+  if (!COMPOSITION_MODES.includes(compositionMode)) {
+    throw new AppError("VALIDATION_ERROR", "Unsupported composition mode.", 400);
+  }
+  const expectedCountedGoals = payload.expectedCountedGoals === undefined
+    ? null
+    : Number(payload.expectedCountedGoals);
+  if (expectedCountedGoals !== null && (!Number.isInteger(expectedCountedGoals) || expectedCountedGoals < 0 || expectedCountedGoals > 20)) {
+    throw new AppError("VALIDATION_ERROR", "Expected counted goals must be between 0 and 20.", 400);
+  }
+  const expectedFinalScore = payload.expectedFinalScore === undefined
+    ? null
+    : sanitizeText(payload.expectedFinalScore, 16);
+  if (expectedFinalScore !== null && !/^\d{1,2}-\d{1,2}$/.test(expectedFinalScore)) {
+    throw new AppError("VALIDATION_ERROR", "Expected final score is invalid.", 400);
+  }
+  if (expectedFinalScore !== null && expectedCountedGoals !== null) {
+    const [home, away] = expectedFinalScore.split("-").map(Number);
+    if (home + away !== expectedCountedGoals) {
+      throw new AppError("VALIDATION_ERROR", "Expected final score does not match the counted goal total.", 400);
+    }
+  }
   const source = payload.source !== undefined ? normalizeSmokeSource(payload.source) : normalizeSmokeSource(project.source);
   if (payload.idempotencyKey !== undefined) {
     const providedKey = sanitizeText(payload.idempotencyKey, 120);
     if (!/^[A-Za-z0-9_-]{8,120}$/.test(providedKey)) {
       throw new AppError("VALIDATION_ERROR", "Idempotency key is invalid.", 400);
     }
-    return { title, preset, language, styleTarget, editIntensity, stylePreset, source, idempotencyKey: providedKey, rightsConfirmed: Boolean(payload.rightsConfirmed) };
+    return { title, preset, language, styleTarget, editIntensity, stylePreset, goalSelectionMode, compositionMode, expectedCountedGoals, expectedFinalScore, source, idempotencyKey: providedKey, rightsConfirmed: Boolean(payload.rightsConfirmed) };
   }
-  return { title, preset, language, styleTarget, editIntensity, stylePreset, source, idempotencyKey: "", rightsConfirmed: Boolean(payload.rightsConfirmed) };
+  return { title, preset, language, styleTarget, editIntensity, stylePreset, goalSelectionMode, compositionMode, expectedCountedGoals, expectedFinalScore, source, idempotencyKey: "", rightsConfirmed: Boolean(payload.rightsConfirmed) };
 }
 
 function parseMultipart(buffer, contentType, options = {}) {
@@ -569,6 +637,14 @@ async function handleHealth(req, res, rid) {
   const supervisor = workerSupervisor.health();
   const queue = jobQueue.health();
   const releaseReadiness = createReleaseReadiness({ rootDir: CONFIG.rootDir });
+  const productionBeta = createProductionBetaReadiness({
+    persistence: adapters.persistence,
+    artifacts,
+    queue,
+    auth,
+    evaluation: loadBetaEvaluationSummary({ rootDir: CONFIG.rootDir }),
+    humanReviewGateAvailable: true,
+  });
   const storageReady = Object.values(storage).every((entry) => entry.exists && entry.readable && entry.writable);
   const repositoriesReady = Object.values(repositories).every((entry) => entry.ready);
   const adaptersReady = Object.values(adapters).every((entry) => entry.ready);
@@ -612,6 +688,7 @@ async function handleHealth(req, res, rid) {
     cleanupLastResult: cleanup.lastResult,
     realCloudIntegrationEnabled: CONFIG.realCloudIntegrationEnabled,
     releaseReadiness,
+    productionBeta,
     auth,
     transcription: provider,
     analysis,
@@ -770,6 +847,356 @@ async function handleUpload(req, res, rid, principal) {
   }, 201);
 }
 
+function narratedArtifactSummary(project) {
+  const ids = [
+    project.input.briefArtifactId,
+    project.input.claimLedgerArtifactId,
+    project.input.scriptArtifactId,
+    project.input.storyboardArtifactId,
+    project.input.activeNarration && project.input.activeNarration.manifestArtifactId,
+    project.input.lastInvalidation && project.input.lastInvalidation.artifactId,
+  ].filter(Boolean);
+  return ids.map((artifactId) => contentArtifactRepository.publicRecord(artifactId)).filter(Boolean);
+}
+
+async function handleUploadNarration(req, res, rid, projectId, principal) {
+  const safeProjectId = validateRouteId(projectId, "prj");
+  if (!uploadLimiter.check(clientKey(req))) throw new AppError("RATE_LIMITED", SAFE_MESSAGES.RATE_LIMITED, 429);
+  const project = persistenceAdapter.getProject(safeProjectId);
+  if (!project) throw new AppError("PROJECT_NOT_FOUND", SAFE_MESSAGES.PROJECT_NOT_FOUND, 404);
+  assertProjectAccess(project, principal);
+  if (project.projectType !== "narrated_short") throw new AppError("PROJECT_TYPE_MISMATCH", "Project is not a narrated Short.", 409);
+  const contentType = req.headers["content-type"] || "";
+  if (!contentType.includes("multipart/form-data")) {
+    throw new AppError("VALIDATION_ERROR", "Narration upload must be multipart/form-data.", 400);
+  }
+  const maxBodyBytes = MAX_NARRATION_BYTES + MAX_UPLOAD_BODY_OVERHEAD_BYTES;
+  enforceContentLength(req, maxBodyBytes);
+  const body = await readRequestBody(req, maxBodyBytes);
+  const multipart = parseMultipart(body, contentType, { allowedFileFields: [NARRATION_FILE_FIELD], maxFiles: 1 });
+  if (multipart.files.length !== 1 || multipart.files[0].fieldName !== NARRATION_FILE_FIELD) {
+    throw new AppError("NARRATION_WAV_INVALID", SAFE_MESSAGES.NARRATION_WAV_INVALID, 400);
+  }
+  const result = await ingestUploadedNarration({ project, fields: multipart.fields, file: multipart.files[0] }, {
+    artifactStore,
+    artifactRepository,
+    contentArtifactRepository,
+    contentApprovalRepository,
+    projectRepository,
+    persistenceAdapter,
+  });
+  console.info(JSON.stringify(redactForLogs({
+    level: "info",
+    event: "narration_uploaded",
+    requestId: rid,
+    projectId: project.id,
+    projectRevision: project.input.revision,
+    narrationStatus: result.narration.status,
+    audioArtifactId: result.audioArtifact.id,
+  })));
+  sendOk(res, {
+    project: persistenceAdapter.publicProject(result.project),
+    narration: result.narration,
+    audioArtifact: artifactRepository.publicArtifact(result.audioArtifact),
+    manifestArtifact: contentArtifactRepository.publicRecord(result.manifestArtifact.artifact.id),
+  }, 201);
+}
+
+async function handleCreateNarratedProject(req, res, rid, principal) {
+  if (!generateLimiter.check(clientKey(req))) throw new AppError("RATE_LIMITED", SAFE_MESSAGES.RATE_LIMITED, 429);
+  validateJsonContentType(req);
+  enforceContentLength(req, MAX_NARRATED_JSON_BODY_BYTES);
+  const payload = await readJsonBody(req, MAX_NARRATED_JSON_BODY_BYTES);
+  const bundle = normalizeDraftBundle(payload.bundle || payload);
+  const projectId = `prj_${randomUUID()}`;
+  const revision = 1;
+  const createArtifact = (type, body, dependencyHashes = []) => contentArtifactRepository.createJson({
+    type,
+    projectId,
+    revision,
+    body,
+    dependencyHashes,
+  });
+  const brief = createArtifact("content_brief", bundle.brief);
+  const claimLedger = createArtifact("claim_ledger", bundle.claimLedger, [brief.envelope.contentHash]);
+  const script = createArtifact("narrative_script", bundle.script, [brief.envelope.contentHash, claimLedger.envelope.contentHash]);
+  const storyboard = createArtifact("storyboard", bundle.storyboard, [script.envelope.contentHash]);
+  const createdAt = new Date().toISOString();
+  const project = persistenceAdapter.persistProject({
+    project: {
+      id: projectId,
+      projectType: "narrated_short",
+      title: bundle.script.title,
+      language: bundle.brief.language,
+      input: {
+        type: "content_brief",
+        briefArtifactId: brief.artifact.id,
+        claimLedgerArtifactId: claimLedger.artifact.id,
+        scriptArtifactId: script.artifact.id,
+        storyboardArtifactId: storyboard.artifact.id,
+        revision,
+      },
+      status: "draft",
+      ownerId: principal.id,
+      createdAt,
+      updatedAt: createdAt,
+    },
+  });
+  console.info(JSON.stringify(redactForLogs({
+    level: "info",
+    event: "narrated_project_created",
+    requestId: rid,
+    projectId,
+    formatId: bundle.brief.formatId,
+    revision,
+  })));
+  sendOk(res, {
+    project: persistenceAdapter.publicProject(project),
+    artifacts: narratedArtifactSummary(project),
+  }, 201);
+}
+
+async function handleGetNarratedProject(req, res, projectId, principal) {
+  const safeProjectId = validateRouteId(projectId, "prj");
+  const project = persistenceAdapter.getProject(safeProjectId);
+  if (!project) throw new AppError("PROJECT_NOT_FOUND", SAFE_MESSAGES.PROJECT_NOT_FOUND, 404);
+  assertProjectAccess(project, principal);
+  if (project.projectType !== "narrated_short") throw new AppError("PROJECT_TYPE_MISMATCH", "Project is not a narrated Short.", 409);
+  const approval = contentApprovalRepository.findApproved(project.id, project.input.revision);
+  sendOk(res, {
+    project: persistenceAdapter.publicProject(project),
+    artifacts: narratedArtifactSummary(project),
+    approval: contentApprovalRepository.publicApproval(approval),
+    invalidation: publicInvalidationSummary(project),
+  });
+}
+
+async function handleReviseNarratedProject(req, res, rid, projectId, principal) {
+  const safeProjectId = validateRouteId(projectId, "prj");
+  if (!generateLimiter.check(clientKey(req))) throw new AppError("RATE_LIMITED", SAFE_MESSAGES.RATE_LIMITED, 429);
+  const project = persistenceAdapter.getProject(safeProjectId);
+  if (!project) throw new AppError("PROJECT_NOT_FOUND", SAFE_MESSAGES.PROJECT_NOT_FOUND, 404);
+  assertProjectAccess(project, principal);
+  if (project.projectType !== "narrated_short") throw new AppError("PROJECT_TYPE_MISMATCH", "Project is not a narrated Short.", 409);
+  validateJsonContentType(req);
+  enforceContentLength(req, MAX_NARRATED_JSON_BODY_BYTES);
+  const payload = await readJsonBody(req, MAX_NARRATED_JSON_BODY_BYTES);
+  const allowed = new Set(["expectedRevision", "changeType", "bundle", "idempotencyKey"]);
+  for (const key of Object.keys(payload)) if (!allowed.has(key)) throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: key });
+  const idempotencyValue = payload.idempotencyKey === undefined ? null : sanitizeText(payload.idempotencyKey, 120);
+  if (idempotencyValue !== null && !/^[A-Za-z0-9_-]{8,120}$/.test(idempotencyValue)) throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "idempotencyKey" });
+  const result = reviseNarratedProject({ project, expectedRevision: payload.expectedRevision, changeType: payload.changeType, bundle: payload.bundle, idempotencyKey: idempotencyValue }, { contentArtifacts: contentArtifactRepository, artifactRepository, projectRepository, approvalRepository: contentApprovalRepository, publishApprovalRepository, persistenceAdapter });
+  console.info(JSON.stringify(redactForLogs({ level: "info", event: "narrated_project_revised", requestId: rid, projectId: project.id, fromRevision: Number(payload.expectedRevision), toRevision: result.project.input.revision, changeType: payload.changeType, replayed: result.replayed, narrationReused: result.project.input.lastInvalidation && result.project.input.lastInvalidation.narrationReused, principal: publicPrincipal(principal) })));
+  sendOk(res, { project: persistenceAdapter.publicProject(result.project), invalidation: publicInvalidationSummary(result.project), invalidationArtifact: contentArtifactRepository.publicRecord(result.reportArtifact.artifact.id), draft: result.artifacts ? contentArtifactRepository.publicRecord(result.artifacts.approvalBundle.artifact.id) : null, replayed: result.replayed }, result.replayed ? 200 : 201);
+}
+
+async function handleDraftNarratedProject(req, res, rid, projectId, principal) {
+  const safeProjectId = validateRouteId(projectId, "prj");
+  if (!generateLimiter.check(clientKey(req))) throw new AppError("RATE_LIMITED", SAFE_MESSAGES.RATE_LIMITED, 429);
+  const project = persistenceAdapter.getProject(safeProjectId);
+  if (!project) throw new AppError("PROJECT_NOT_FOUND", SAFE_MESSAGES.PROJECT_NOT_FOUND, 404);
+  assertProjectAccess(project, principal);
+  if (project.projectType !== "narrated_short") throw new AppError("PROJECT_TYPE_MISMATCH", "Project is not a narrated Short.", 409);
+  validateJsonContentType(req);
+  enforceContentLength(req, MAX_JSON_BODY_BYTES);
+  const requestPayload = await readJsonBody(req, MAX_JSON_BODY_BYTES);
+  const payload = {
+    projectRevision: project.input.revision,
+    language: project.language,
+    providerMode: "manual",
+    briefArtifactId: project.input.briefArtifactId,
+    claimLedgerArtifactId: project.input.claimLedgerArtifactId,
+    scriptArtifactId: project.input.scriptArtifactId,
+    storyboardArtifactId: project.input.storyboardArtifactId,
+  };
+  const key = requestPayload.idempotencyKey || idempotencyKey("draft_narrated_short", {
+    projectId: project.id,
+    revision: project.input.revision,
+    artifacts: [payload.briefArtifactId, payload.claimLedgerArtifactId, payload.scriptArtifactId, payload.storyboardArtifactId],
+  });
+  const job = jobQueue.create({
+    projectId: project.id,
+    ownerId: principal.id,
+    action: "draft_narrated_short",
+    pipelineType: "narrated_short",
+    idempotencyKey: key,
+    payload,
+  });
+  if (job.status === "queued") workerSupervisor.enqueue(jobQueue.enqueue(job, { requestId: rid }), { requestId: rid });
+  sendOk(res, { job: jobQueue.publicJob(job) }, 202);
+}
+
+async function handleApproveNarratedProject(req, res, rid, projectId, principal) {
+  const safeProjectId = validateRouteId(projectId, "prj");
+  const project = persistenceAdapter.getProject(safeProjectId);
+  if (!project) throw new AppError("PROJECT_NOT_FOUND", SAFE_MESSAGES.PROJECT_NOT_FOUND, 404);
+  assertProjectAccess(project, principal);
+  if (project.projectType !== "narrated_short") throw new AppError("PROJECT_TYPE_MISMATCH", "Project is not a narrated Short.", 409);
+  validateJsonContentType(req);
+  enforceContentLength(req, MAX_JSON_BODY_BYTES);
+  const payload = await readJsonBody(req, MAX_JSON_BODY_BYTES);
+  const envelope = contentArtifactRepository.readJson(payload.draftArtifactId);
+  if (envelope.artifactType !== "approval_bundle" || envelope.projectId !== project.id || envelope.revision !== project.input.revision) {
+    throw new AppError("ARTIFACT_CONTENT_INVALID", "Draft artifact does not match the project revision.", 409);
+  }
+  const suppliedHash = sanitizeText(payload.draftHash || envelope.contentHash, 80).toLowerCase().replace(/^sha256:/, "");
+  if (suppliedHash !== envelope.contentHash) throw new AppError("ARTIFACT_CONTENT_INVALID", "Draft hash does not match the approval bundle.", 409);
+  const approval = contentApprovalRepository.approve({
+    projectId: project.id,
+    projectRevision: project.input.revision,
+    draftArtifactId: payload.draftArtifactId,
+    draftHash: envelope.contentHash,
+    voiceProfileId: payload.voiceProfileId,
+    renderProfile: payload.renderProfile,
+    operatorNote: payload.operatorNote,
+  });
+  console.info(JSON.stringify(redactForLogs({
+    level: "info",
+    event: "narrated_draft_approved",
+    requestId: rid,
+    projectId: project.id,
+    approvalId: approval.approvalId,
+    projectRevision: project.input.revision,
+  })));
+  sendOk(res, { approval: contentApprovalRepository.publicApproval(approval) }, 201);
+}
+
+async function handleAlignNarration(req, res, rid, projectId, principal) {
+  const safeProjectId = validateRouteId(projectId, "prj");
+  if (!generateLimiter.check(clientKey(req))) throw new AppError("RATE_LIMITED", SAFE_MESSAGES.RATE_LIMITED, 429);
+  const project = persistenceAdapter.getProject(safeProjectId);
+  if (!project) throw new AppError("PROJECT_NOT_FOUND", SAFE_MESSAGES.PROJECT_NOT_FOUND, 404);
+  assertProjectAccess(project, principal);
+  if (project.projectType !== "narrated_short") throw new AppError("PROJECT_TYPE_MISMATCH", "Project is not a narrated Short.", 409);
+  validateJsonContentType(req);
+  enforceContentLength(req, MAX_JSON_BODY_BYTES);
+  const requestPayload = await readJsonBody(req, MAX_JSON_BODY_BYTES);
+  for (const key of Object.keys(requestPayload)) if (key !== "idempotencyKey") throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: key });
+  const active = project.input.activeNarration;
+  if (!active) throw new AppError("NARRATION_ALIGNMENT_REQUIRED", SAFE_MESSAGES.NARRATION_ALIGNMENT_REQUIRED, 409);
+  const approval = contentApprovalRepository.findApproved(project.id, project.input.revision);
+  if (!approval || active.draftArtifactId !== approval.draftArtifactId || active.draftHash !== approval.draftHash) throw new AppError("NARRATION_ALIGNMENT_STALE", SAFE_MESSAGES.NARRATION_ALIGNMENT_STALE, 409);
+  const payload = {
+    projectRevision: project.input.revision, language: project.language,
+    approvedDraftArtifactId: approval.draftArtifactId, approvedDraftHash: approval.draftHash,
+    narrationManifestArtifactId: active.manifestArtifactId, narrationManifestHash: active.manifestHash,
+    audioArtifactId: active.audioArtifactId, audioHash: active.audioHash, scriptHash: active.scriptHash,
+    alignerVersion: fasterWhisperVersion(process.env),
+  };
+  const key = requestPayload.idempotencyKey || idempotencyKey("align_narration", { projectId: project.id, ...payload });
+  const job = jobQueue.create({ projectId: project.id, ownerId: principal.id, action: "align_narration", pipelineType: "narrated_short", idempotencyKey: key, payload });
+  if (job.status === "queued") workerSupervisor.enqueue(jobQueue.enqueue(job, { requestId: rid }), { requestId: rid });
+  sendOk(res, { job: jobQueue.publicJob(job) }, 202);
+}
+
+async function handleRenderNarratedProject(req, res, rid, projectId, principal) {
+  const safeProjectId = validateRouteId(projectId, "prj");
+  if (!generateLimiter.check(clientKey(req))) throw new AppError("RATE_LIMITED", SAFE_MESSAGES.RATE_LIMITED, 429);
+  const project = persistenceAdapter.getProject(safeProjectId);
+  if (!project) throw new AppError("PROJECT_NOT_FOUND", SAFE_MESSAGES.PROJECT_NOT_FOUND, 404);
+  assertProjectAccess(project, principal);
+  if (project.projectType !== "narrated_short") throw new AppError("PROJECT_TYPE_MISMATCH", "Project is not a narrated Short.", 409);
+  validateJsonContentType(req);
+  enforceContentLength(req, MAX_JSON_BODY_BYTES);
+  const requestPayload = await readJsonBody(req, MAX_JSON_BODY_BYTES);
+  for (const key of Object.keys(requestPayload)) if (key !== "idempotencyKey") throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: key });
+  const approval = contentApprovalRepository.findApproved(project.id, project.input.revision);
+  if (!approval) throw new AppError("CONTENT_APPROVAL_REQUIRED", "Approve the narrated draft before rendering.", 409);
+  const payload = {
+    projectRevision: project.input.revision,
+    language: project.language,
+    approvedDraftArtifactId: approval.draftArtifactId,
+    approvedDraftHash: approval.draftHash,
+    renderProfile: approval.renderProfile,
+    narrationManifestHash: project.input.activeNarration && project.input.activeNarration.manifestHash || null,
+    audioHash: project.input.activeNarration && project.input.activeNarration.audioHash || null,
+    alignmentHash: project.input.activeNarration && project.input.activeNarration.alignmentHash || null,
+    captionRendererVersion: CAPTION_RENDERER_VERSION,
+    captionProfileVersion: CAPTION_PROFILE_VERSION,
+    audioNormalizationProfileVersion: AUDIO_PROFILE_VERSION,
+    compositorVersion: NARRATED_COMPOSITOR_VERSION,
+    qaProfileVersion: QA_PROFILE_VERSION,
+    evidenceProfileVersion: EVIDENCE_PROFILE_VERSION,
+  };
+  const key = requestPayload.idempotencyKey || idempotencyKey("render_narrated_short", {
+    projectId: project.id,
+    revision: project.input.revision,
+    draftHash: approval.draftHash,
+    renderProfile: approval.renderProfile,
+    narrationManifestHash: payload.narrationManifestHash,
+    audioHash: payload.audioHash,
+    alignmentHash: payload.alignmentHash,
+    captionRendererVersion: payload.captionRendererVersion,
+    captionProfileVersion: payload.captionProfileVersion,
+    audioNormalizationProfileVersion: payload.audioNormalizationProfileVersion,
+    compositorVersion: payload.compositorVersion,
+    qaProfileVersion: payload.qaProfileVersion,
+    evidenceProfileVersion: payload.evidenceProfileVersion,
+  });
+  const job = jobQueue.create({
+    projectId: project.id,
+    ownerId: principal.id,
+    action: "render_narrated_short",
+    pipelineType: "narrated_short",
+    idempotencyKey: key,
+    payload,
+  });
+  if (job.status === "queued") workerSupervisor.enqueue(jobQueue.enqueue(job, { requestId: rid }), { requestId: rid });
+  sendOk(res, { job: jobQueue.publicJob(job) }, 202);
+}
+
+async function handleNarratedProjectQa(req, res, projectId, principal) {
+  const safeProjectId = validateRouteId(projectId, "prj");
+  const project = persistenceAdapter.getProject(safeProjectId);
+  if (!project) throw new AppError("PROJECT_NOT_FOUND", SAFE_MESSAGES.PROJECT_NOT_FOUND, 404);
+  assertProjectAccess(project, principal);
+  if (project.projectType !== "narrated_short") throw new AppError("PROJECT_TYPE_MISMATCH", "Project is not a narrated Short.", 409);
+  const approval = contentApprovalRepository.findApproved(project.id, project.input.revision);
+  const candidates = artifactRepository.listByOwner({ projectId: project.id }).filter((record) => record.type === "qa_report" && record.status === "available").map((record) => {
+    try {
+      const envelope = contentArtifactRepository.readJson(record.id);
+      const report = normalizeQaReport(envelope.body);
+      if (envelope.revision !== project.input.revision || report.projectRevision !== project.input.revision || !approval || report.bindings.draftArtifactId !== approval.draftArtifactId || report.bindings.draftHash !== approval.draftHash) return null;
+      if (project.input.activeNarration && (report.bindings.audioHash !== project.input.activeNarration.audioHash || report.bindings.alignmentHash !== project.input.activeNarration.alignmentHash)) return null;
+      return { record, envelope, report };
+    } catch { return null; }
+  }).filter(Boolean).sort((a, b) => String(b.envelope.createdAt).localeCompare(String(a.envelope.createdAt)));
+  if (!candidates.length) throw new AppError("QA_REQUIRED", SAFE_MESSAGES.QA_REQUIRED, 409);
+  const latest = candidates[0];
+  sendOk(res, { qa: publicQaSummary(latest.report, { artifact: latest.record, envelope: latest.envelope }) });
+}
+
+async function handlePublishApprove(req, res, rid, projectId, principal) {
+  const safeProjectId = validateRouteId(projectId, "prj");
+  if (!generateLimiter.check(clientKey(req))) throw new AppError("RATE_LIMITED", SAFE_MESSAGES.RATE_LIMITED, 429);
+  const project = persistenceAdapter.getProject(safeProjectId); if (!project) throw new AppError("PROJECT_NOT_FOUND", SAFE_MESSAGES.PROJECT_NOT_FOUND, 404);
+  assertProjectAccess(project, principal); if (project.projectType !== "narrated_short") throw new AppError("PROJECT_TYPE_MISMATCH", "Project is not a narrated Short.", 409);
+  validateJsonContentType(req); enforceContentLength(req, MAX_JSON_BODY_BYTES); const request = await readJsonBody(req, MAX_JSON_BODY_BYTES);
+  const result = createPublishApproval({ project, operatorId: principal.id, request }, { publishApprovalRepository, contentArtifactRepository, contentApprovalRepository, artifactRepository, exportRepository });
+  console.info(JSON.stringify(redactForLogs({ level: "info", event: "publish_approval_created", requestId: rid, projectId: project.id, projectRevision: project.input.revision, publishApprovalId: result.approval.publishApprovalId, outputHash: result.approval.outputHash, replayed: result.replayed, principal: publicPrincipal(principal) })));
+  sendOk(res, { approval: result.approval, eligible: true, releaseToken: result.releaseToken, expiresAt: result.approval.expiresAt, outputHash: result.approval.outputHash, projectRevision: result.approval.projectRevision, warningAcknowledgements: result.approval.warningAcknowledgements, replayed: result.replayed }, result.replayed ? 200 : 201);
+}
+
+async function releaseEligibilityForRequest(req, projectId, principal) {
+  const safeProjectId = validateRouteId(projectId, "prj"); const project = persistenceAdapter.getProject(safeProjectId); if (!project) throw new AppError("PROJECT_NOT_FOUND", SAFE_MESSAGES.PROJECT_NOT_FOUND, 404);
+  assertProjectAccess(project, principal); if (project.projectType !== "narrated_short") throw new AppError("PROJECT_TYPE_MISMATCH", "Project is not a narrated Short.", 409);
+  validateJsonContentType(req); enforceContentLength(req, MAX_JSON_BODY_BYTES); const request = await readJsonBody(req, MAX_JSON_BODY_BYTES);
+  const eligibility = verifyReleaseEligibility({ project, request }, { publishApprovalRepository, contentApprovalRepository, artifactRepository }); return { project, eligibility };
+}
+
+async function handleReleaseVerify(req, res, projectId, principal) {
+  const { eligibility } = await releaseEligibilityForRequest(req, projectId, principal);
+  sendOk(res, { eligible: true, projectId: eligibility.projectId, projectRevision: eligibility.projectRevision, outputHash: eligibility.outputHash, expiresAt: eligibility.expiresAt, publishApprovalId: eligibility.publishApprovalId });
+}
+
+async function handleFinalDownloadUrl(req, res, projectId, principal) {
+  const { eligibility } = await releaseEligibilityForRequest(req, projectId, principal); const exportRecord = exportRepository.all().find((value) => value.projectId === eligibility.projectId && value.artifact && value.artifact.id === eligibility.artifact.id && value.status === "completed");
+  if (!exportRecord) throw new AppError("FINAL_DOWNLOAD_BLOCKED", SAFE_MESSAGES.FINAL_DOWNLOAD_BLOCKED, 409);
+  const remainingSeconds = Math.floor((Date.parse(eligibility.expiresAt) - Date.now()) / 1000); if (remainingSeconds <= 0) throw new AppError("RELEASE_TOKEN_EXPIRED", SAFE_MESSAGES.RELEASE_TOKEN_EXPIRED, 409, { expiresAt: eligibility.expiresAt });
+  const job = jobQueue.get(exportRecord.jobId); assertJobAccess(job, principal); const signed = persistenceAdapter.createSignedExportDownload(exportRecord, { job, basePath: "/api/artifacts/download", ttlSeconds: Math.min(300, remainingSeconds) });
+  sendOk(res, { eligible: true, projectId: eligibility.projectId, projectRevision: eligibility.projectRevision, outputHash: eligibility.outputHash, publishApprovalId: eligibility.publishApprovalId, downloadUrl: signed.downloadUrl, expiresAt: signed.expiresAt, ttlSeconds: signed.ttlSeconds });
+}
+
 async function handleGenerate(req, res, rid, projectId, principal) {
   const safeProjectId = validateRouteId(projectId, "prj");
   if (!generateLimiter.check(clientKey(req))) {
@@ -795,6 +1222,10 @@ async function handleGenerate(req, res, rid, projectId, principal) {
     styleTarget: validatedPayload.styleTarget,
     editIntensity: validatedPayload.editIntensity,
     stylePreset: validatedPayload.stylePreset,
+    goalSelectionMode: validatedPayload.goalSelectionMode,
+    compositionMode: validatedPayload.compositionMode,
+    expectedCountedGoals: validatedPayload.expectedCountedGoals,
+    expectedFinalScore: validatedPayload.expectedFinalScore,
     title: validatedPayload.title,
   });
   const job = jobQueue.create({
@@ -837,6 +1268,7 @@ function completedExportDescriptor(exportId, principal) {
   assertExportAccess(record, principal);
   const job = jobQueue.get(record.jobId);
   assertJobAccess(job, principal);
+  if (job && job.pipelineType === "narrated_short" && job.narratedRender && job.narratedRender.technicalFinal === true) throw new AppError("FINAL_DOWNLOAD_BLOCKED", SAFE_MESSAGES.FINAL_DOWNLOAD_BLOCKED, 409, { nextAction: "create-and-use-current-release-token" });
   return persistenceAdapter.getExportDownloadDescriptor(record, { job });
 }
 
@@ -1798,6 +2230,7 @@ async function route(req, res) {
     if (req.method === "POST" && pathname === "/api/youtube/validate") return await handleYouTubeValidate(req, res, rid, principal());
     if (req.method === "POST" && pathname === "/api/youtube/ingest") return await handleYouTubeIngest(req, res, rid, principal());
     if (req.method === "POST" && pathname === "/api/uploads") return await handleUpload(req, res, rid, principal());
+    if (req.method === "POST" && pathname === "/api/narrated-projects") return await handleCreateNarratedProject(req, res, rid, principal());
     if (req.method === "POST" && pathname === "/api/review/register") return await handleReviewRegister(req, res, rid, principal());
     if (req.method === "GET" && pathname === "/api/review/latest") return await handleHumanReviewLatest(req, res, principal());
     if (req.method === "POST" && pathname === "/api/review/human") return await handleHumanReviewSubmit(req, res, rid, principal());
@@ -1807,6 +2240,36 @@ async function route(req, res) {
     if (req.method === "GET" && pathname === "/api/ocr-qa/crop") return await handleOcrQaCrop(req, res, url, principal());
     if (req.method === "POST" && pathname === "/api/review/regeneration-plan") return await handleReviewRegenerationPlan(req, res, rid, principal());
     if (req.method === "POST" && pathname === "/api/review/regeneration-approval") return await handleReviewRegenerationApproval(req, res, rid, principal());
+
+    const narratedDraftMatch = pathname.match(/^\/api\/narrated-projects\/([^/]+)\/draft$/);
+    if (req.method === "POST" && narratedDraftMatch) return await handleDraftNarratedProject(req, res, rid, narratedDraftMatch[1], principal());
+
+    const narratedReviseMatch = pathname.match(/^\/api\/narrated-projects\/([^/]+)\/revise$/);
+    if (req.method === "POST" && narratedReviseMatch) return await handleReviseNarratedProject(req, res, rid, narratedReviseMatch[1], principal());
+
+    const narratedApprovalMatch = pathname.match(/^\/api\/narrated-projects\/([^/]+)\/approve$/);
+    if (req.method === "POST" && narratedApprovalMatch) return await handleApproveNarratedProject(req, res, rid, narratedApprovalMatch[1], principal());
+
+    const narratedNarrationMatch = pathname.match(/^\/api\/narrated-projects\/([^/]+)\/narration$/);
+    if (req.method === "POST" && narratedNarrationMatch) return await handleUploadNarration(req, res, rid, narratedNarrationMatch[1], principal());
+
+    const narratedAlignmentMatch = pathname.match(/^\/api\/narrated-projects\/([^/]+)\/narration\/align$/);
+    if (req.method === "POST" && narratedAlignmentMatch) return await handleAlignNarration(req, res, rid, narratedAlignmentMatch[1], principal());
+
+    const narratedRenderMatch = pathname.match(/^\/api\/narrated-projects\/([^/]+)\/render$/);
+    if (req.method === "POST" && narratedRenderMatch) return await handleRenderNarratedProject(req, res, rid, narratedRenderMatch[1], principal());
+    const narratedQaMatch = pathname.match(/^\/api\/narrated-projects\/([^/]+)\/qa$/);
+    if (req.method === "GET" && narratedQaMatch) return await handleNarratedProjectQa(req, res, narratedQaMatch[1], principal());
+
+    const narratedPublishApproveMatch = pathname.match(/^\/api\/narrated-projects\/([^/]+)\/publish-approve$/);
+    if (req.method === "POST" && narratedPublishApproveMatch) return await handlePublishApprove(req, res, rid, narratedPublishApproveMatch[1], principal());
+    const narratedReleaseVerifyMatch = pathname.match(/^\/api\/narrated-projects\/([^/]+)\/release-verify$/);
+    if (req.method === "POST" && narratedReleaseVerifyMatch) return await handleReleaseVerify(req, res, narratedReleaseVerifyMatch[1], principal());
+    const narratedFinalDownloadMatch = pathname.match(/^\/api\/narrated-projects\/([^/]+)\/final-download-url$/);
+    if (req.method === "POST" && narratedFinalDownloadMatch) return await handleFinalDownloadUrl(req, res, narratedFinalDownloadMatch[1], principal());
+
+    const narratedProjectMatch = pathname.match(/^\/api\/narrated-projects\/([^/]+)$/);
+    if (req.method === "GET" && narratedProjectMatch) return await handleGetNarratedProject(req, res, narratedProjectMatch[1], principal());
 
     const generateMatch = pathname.match(/^\/api\/projects\/([^/]+)\/generate$/);
     if (req.method === "POST" && generateMatch) return await handleGenerate(req, res, rid, generateMatch[1], principal());
@@ -1954,6 +2417,8 @@ module.exports = {
   regenerationDraftRepository,
   regenerationApprovalRepository,
   approvalOutboxRepository,
+  contentArtifactRepository,
+  contentApprovalRepository,
   artifactCleanupWorker,
   outboxWorker,
   workerSupervisor,

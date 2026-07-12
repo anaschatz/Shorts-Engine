@@ -78,6 +78,19 @@ function isConfirmedGoalSegment(segment = {}) {
     segment.goalOutcome.outcome === "confirmed_goal";
 }
 
+function hasUnitScoreTransition(segment = {}) {
+  const parse = (value) => {
+    const match = String(value || "").match(/^(\d{1,2})-(\d{1,2})$/);
+    return match ? [Number(match[1]), Number(match[2])] : null;
+  };
+  const before = parse(segment.scoreBefore);
+  const after = parse(segment.scoreAfter);
+  if (!before || !after) return false;
+  return Math.abs(after[0] - before[0]) + Math.abs(after[1] - before[1]) === 1 &&
+    after[0] >= before[0] &&
+    after[1] >= before[1];
+}
+
 function segmentTimeline(segment = {}, fallbackStart = 0) {
   const sourceStart = numberOrNull(segment.sourceStart) ?? 0;
   const sourceEnd = numberOrNull(segment.sourceEnd) ?? sourceStart;
@@ -1201,7 +1214,18 @@ async function analyzeRenderedGoalProof({
   onProgress = null,
 } = {}) {
   const proofStartedAt = nowMs();
-  const segments = Array.isArray(editPlan && editPlan.segments) ? editPlan.segments : [];
+  const explicitSegments = Array.isArray(editPlan && editPlan.segments) ? editPlan.segments : [];
+  const segments = explicitSegments.length
+    ? explicitSegments
+    : isConfirmedGoalSegment(editPlan)
+      ? [{
+          ...editPlan,
+          duration: Math.max(
+            0,
+            Number(editPlan && editPlan.duration || Number(editPlan && editPlan.sourceEnd) - Number(editPlan && editPlan.sourceStart)) || 0,
+          ),
+        }]
+      : [];
   let cursor = 0;
   const runId = `rendered-goal-proof-${randomUUID()}`;
   const proofDir = storagePath("staging", join("rendered-goal-proof", runId));
@@ -1434,6 +1458,21 @@ async function analyzeRenderedGoalProof({
       segment.renderedVisibilityRebinding &&
       segment.renderedVisibilityRebinding.applied === true;
     const sequenceFallbackPassed = strongSourceEvidence && reboundSegment && wideActionSequence.passed;
+    const fixtureBackedPayoffRecovery = Boolean(
+      layoutContract.passed &&
+      strongSourceEvidence &&
+      hasUnitScoreTransition(segment) &&
+      preShotFrame && preShotFrame.clear === true &&
+      payoffFrame && payoffFrame.clear === true &&
+      confirmationFrame && (confirmationFrame.clear === true || scoreboardConfirmationFallback) &&
+      payoffSearch.clearCandidateCount >= MIN_GOAL_ROLE_CLEAR_CANDIDATE_COUNT &&
+      finishPayoffDistinct &&
+      finishPayoffOrdered &&
+      selectedFinishHasPreContext &&
+      scoreChangeRoleTimingPassed &&
+      segment.replayOnly !== true &&
+      !(segment.phaseCoverage && segment.phaseCoverage.replayOnly === true)
+    );
     const unverifiedFrameCount = frameRefs.filter((frame) => frame.status === "unverified").length;
     const failedFrameReasons = safeCodes([
       ...(finishBeforeScoreChange ? [] : ["finish_frame_not_before_score_change"]),
@@ -1442,12 +1481,12 @@ async function analyzeRenderedGoalProof({
       ...frameRefs
       .filter((frame) => frame.clear !== true && !(scoreboardConfirmationFallback && frame.role === "confirmation"))
       .map((frame) => frame.reason || `${frame.role}_not_clear`)
-      .concat(allRoleFramesClear || sequenceFallbackPassed ? [] : ["role_specific_goal_frame_missing"])
-      .concat(finishPayoffDistinct || sequenceFallbackPassed ? [] : ["finish_payoff_frame_not_distinct"])
-      .concat(finishPayoffOrdered || sequenceFallbackPassed ? [] : ["finish_payoff_frame_not_ordered"])
-      .concat(finishClearSupportPassed || sequenceFallbackPassed ? [] : ["finish_frame_clear_support_too_sparse"])
-      .concat(payoffClearSupportPassed || sequenceFallbackPassed ? [] : ["payoff_frame_clear_support_too_sparse"])
-      .concat(selectedRoleSequenceSupportPassed || sequenceFallbackPassed ? [] : ["role_specific_finish_payoff_required"])
+      .concat(allRoleFramesClear || sequenceFallbackPassed || fixtureBackedPayoffRecovery ? [] : ["role_specific_goal_frame_missing"])
+      .concat(finishPayoffDistinct || sequenceFallbackPassed || fixtureBackedPayoffRecovery ? [] : ["finish_payoff_frame_not_distinct"])
+      .concat(finishPayoffOrdered || sequenceFallbackPassed || fixtureBackedPayoffRecovery ? [] : ["finish_payoff_frame_not_ordered"])
+      .concat(finishClearSupportPassed || sequenceFallbackPassed || fixtureBackedPayoffRecovery ? [] : ["finish_frame_clear_support_too_sparse"])
+      .concat(payoffClearSupportPassed || sequenceFallbackPassed || fixtureBackedPayoffRecovery ? [] : ["payoff_frame_clear_support_too_sparse"])
+      .concat(selectedRoleSequenceSupportPassed || sequenceFallbackPassed || fixtureBackedPayoffRecovery ? [] : ["role_specific_finish_payoff_required"])
       .concat(selectedFinishHasPreContext ? [] : [FINISH_FRAME_LACKS_PRE_CONTEXT_REASON])
       .concat(layoutContract.passed ? [] : layoutContract.reasons),
     ], 12);
@@ -1455,10 +1494,12 @@ async function analyzeRenderedGoalProof({
       strongSourceEvidence &&
       (
         allRoleFramesClear ||
-        sequenceFallbackPassed
+        sequenceFallbackPassed ||
+        fixtureBackedPayoffRecovery
       ) &&
       (
         sequenceFallbackPassed ||
+        fixtureBackedPayoffRecovery ||
         (
           finishPayoffDistinct &&
           finishPayoffOrdered &&
@@ -1486,7 +1527,7 @@ async function analyzeRenderedGoalProof({
       hasBallInNetOrPayoff: clear,
       hasGoalMouth: clear || borderline,
       hasPreShotActionFrame: frameRefs.some((frame) => frame.role === "pre_shot" && frame.clear),
-      hasFinishActionFrame: sequenceFallbackPassed || frameRefs.some((frame) => frame.role === "finish" && frame.clear),
+      hasFinishActionFrame: sequenceFallbackPassed || fixtureBackedPayoffRecovery || frameRefs.some((frame) => frame.role === "finish" && frame.clear),
       hasPayoffFrame: sequenceFallbackPassed || frameRefs.some((frame) => frame.role === "payoff" && frame.clear),
       hasConfirmationFrame: scoreboardConfirmationFallback || frameRefs.some((frame) => frame.role === "confirmation" && frame.clear),
       finishBeforeScoreChange,
@@ -1518,11 +1559,16 @@ async function analyzeRenderedGoalProof({
       isPlayerCloseupOnly: false,
       isFrameTooWideUnclear: false,
       evidenceCodes: clear
-        ? [...FINISH_FRAME_CODES, ...(scoreboardConfirmationFallback ? ["scoreboard_confirmation_frame_visible"] : [])]
+        ? [
+            ...FINISH_FRAME_CODES,
+            ...(fixtureBackedPayoffRecovery ? ["fixture_scorebacked_payoff_recovery"] : []),
+            ...(scoreboardConfirmationFallback ? ["scoreboard_confirmation_frame_visible"] : []),
+          ]
         : ["rendered_frame_samples_semantically_unverified"],
       proofMethod: "rendered_timeline_frame_sampling",
       sequenceFallbackPassed,
       sequenceFallbackMode: sequenceFallbackPassed ? "scoreboard_backed_wide_action_sequence" : null,
+      fixtureBackedPayoffRecovery,
       scoreboardConfirmationFallback,
       coalescedVisibleGoalFrame: coalescedGoalFrame.applied ? {
         applied: true,

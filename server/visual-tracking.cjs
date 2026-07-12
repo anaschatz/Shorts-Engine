@@ -164,7 +164,7 @@ function normalizeTrackingSamples(samples = [], metadata = {}) {
   const { width: mediaWidth, height: mediaHeight } = mediaDimensions(metadata);
   const duration = Math.max(0, Number(metadata.durationSeconds || 0));
   return (Array.isArray(samples) ? samples : [])
-    .slice(0, 32)
+    .slice(0, 4096)
     .map((sample) => {
       if (!sample || typeof sample !== "object" || Array.isArray(sample)) return null;
       const sourceTime = Number(sample.sourceTime ?? sample.time ?? sample.timestamp);
@@ -194,6 +194,23 @@ function normalizeTrackingSamples(samples = [], metadata = {}) {
     .sort((left, right) => left.sourceTime - right.sourceTime);
 }
 
+function normalizeSceneChanges(sceneChanges = [], metadata = {}) {
+  const duration = Math.max(0, Number(metadata.durationSeconds || 0));
+  return (Array.isArray(sceneChanges) ? sceneChanges : [])
+    .map((scene) => {
+      if (!scene || typeof scene !== "object" || Array.isArray(scene)) return null;
+      const time = Number(scene.time ?? scene.timestamp);
+      const confidence = Number(scene.confidence || 0);
+      const source = sanitizeText(scene.source || "", 48);
+      if (!Number.isFinite(time) || time < 0 || (duration && time > duration + 0.25)) return null;
+      if (source !== "ffmpeg_scene" || confidence < 0.65) return null;
+      return { time: round(time, 2), confidence: round(clamp(confidence, 0, 1), 2), source };
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.time - right.time)
+    .slice(0, 24);
+}
+
 function normalizeTrackingSummary(summary, metadata = {}) {
   if (!summary || typeof summary !== "object" || Array.isArray(summary)) {
     return createWideSafeTrackingSummary({ metadata, reason: "tracking_summary_missing" });
@@ -221,13 +238,14 @@ function normalizeTrackingSummary(summary, metadata = {}) {
     ? summary.recommendedFramingMode
     : "wide_safe";
   return {
-    frameCount: Math.max(0, Math.min(64, Math.round(Number(summary.frameCount || 0)))),
+    frameCount: Math.max(0, Math.min(4096, Math.round(Number(summary.frameCount || 0)))),
     sampledTimestamps: (Array.isArray(summary.sampledTimestamps) ? summary.sampledTimestamps : [])
       .map((value) => round(value, 2))
       .filter(Number.isFinite)
       .slice(0, 12),
     detectedMotionRegions,
     trackingSamples: normalizeTrackingSamples(summary.trackingSamples || summary.samples, metadata),
+    sceneChanges: normalizeSceneChanges(summary.sceneChanges, metadata),
     estimatedActionCenter: actionCenter,
     estimatedActionBounds: actionBounds,
     ballCandidateConfidence: round(clamp(summary.ballCandidateConfidence, 0, 1), 2),
@@ -239,13 +257,21 @@ function normalizeTrackingSummary(summary, metadata = {}) {
     fallbackUsed: Boolean(summary.fallbackUsed || !["soft_follow", "ball_follow"].includes(recommendedFramingMode)),
     trackingProviderMode: sanitizeText(summary.trackingProviderMode || summary.providerMode || "visual-tracking-heuristic", 60),
     trackingProviderFailureCode: summary.trackingProviderFailureCode ? sanitizeText(summary.trackingProviderFailureCode, 80) : null,
-    ballTrackCount: Math.max(0, Math.min(32, Math.round(Number(summary.ballTrackCount || 0)))),
-    playerClusterCount: Math.max(0, Math.min(32, Math.round(Number(summary.playerClusterCount || 0)))),
-    celebrationHeadTrackCount: Math.max(0, Math.min(32, Math.round(Number(
+    ballTrackCount: Math.max(0, Math.min(4096, Math.round(Number(summary.ballTrackCount || 0)))),
+    playerClusterCount: Math.max(0, Math.min(4096, Math.round(Number(summary.playerClusterCount || 0)))),
+    celebrationHeadTrackCount: Math.max(0, Math.min(4096, Math.round(Number(
       summary.celebrationHeadTrackCount ||
       normalizeTrackingSamples(summary.trackingSamples || summary.samples, metadata)
         .filter((sample) => sample.celebrationHeadBox && sample.celebrationHeadConfidence >= 0.66).length
     )))),
+    densePerFrameTracking: summary.densePerFrameTracking === true,
+    sourceFrameRate: round(clamp(summary.sourceFrameRate, 0, 120), 3),
+    inspectedFrameCount: Math.max(0, Math.min(100000, Math.round(Number(summary.inspectedFrameCount || 0)))),
+    containedFrameCount: Math.max(0, Math.min(100000, Math.round(Number(summary.containedFrameCount || 0)))),
+    perFrameBallContainmentPassed: summary.perFrameBallContainmentPassed === true,
+    perGoalBallContainment: Array.isArray(summary.perGoalBallContainment)
+      ? summary.perGoalBallContainment.slice(0, 12)
+      : [],
     goalClaimAllowed: false,
   };
 }
@@ -256,6 +282,7 @@ function createWideSafeTrackingSummary({ metadata = {}, reason = "wide_safe_defa
     sampledTimestamps: safeFrameTimestamps(frames),
     detectedMotionRegions: [],
     trackingSamples: [],
+    sceneChanges: [],
     estimatedActionCenter: boxCenter(fullSourceBox(metadata)),
     estimatedActionBounds: null,
     ballCandidateConfidence: 0,
@@ -270,11 +297,17 @@ function createWideSafeTrackingSummary({ metadata = {}, reason = "wide_safe_defa
     ballTrackCount: 0,
     playerClusterCount: 0,
     celebrationHeadTrackCount: 0,
+    densePerFrameTracking: false,
+    sourceFrameRate: 0,
+    inspectedFrameCount: 0,
+    containedFrameCount: 0,
+    perFrameBallContainmentPassed: false,
+    perGoalBallContainment: [],
     goalClaimAllowed: false,
   };
 }
 
-function trackingSummaryFromProviderOutput(output, metadata = {}) {
+function trackingSummaryFromProviderOutput(output, metadata = {}, mediaSignals = {}) {
   const safe = validateTrackingProviderOutput(output, metadata);
   const ballConfidence = safe.ballTracks.reduce((max, track) => Math.max(max, track.confidence), 0);
   const playerConfidence = safe.playerClusters.reduce((max, cluster) => Math.max(max, cluster.confidence), 0);
@@ -283,7 +316,13 @@ function trackingSummaryFromProviderOutput(output, metadata = {}) {
   if (safe.cameraMotionLevel >= 0.75) {
     recommendedFramingMode = "locked_wide";
     cropSafetyReason = "locked_wide_camera_motion";
-  } else if (!safe.fallbackUsed && safe.samples.length >= 3 && safe.ballTracks.length >= 2 && safe.confidence >= 0.52) {
+  } else if (
+    !safe.fallbackUsed &&
+    safe.samples.length >= 3 &&
+    safe.ballTracks.length >= 2 &&
+    safe.confidence >= 0.52 &&
+    (!safe.densePerFrameTracking || safe.perFrameBallContainmentPassed)
+  ) {
     recommendedFramingMode = "ball_follow";
     cropSafetyReason = "ball_follow_validated_tracking_timeline";
   } else if (!safe.fallbackUsed && safe.confidence >= 0.86 && ballConfidence >= 0.65 && playerConfidence >= 0.55 && safe.actionBounds) {
@@ -307,6 +346,7 @@ function trackingSummaryFromProviderOutput(output, metadata = {}) {
     sampledTimestamps: safe.ballTracks.map((track) => track.timestamp),
     detectedMotionRegions,
     trackingSamples: safe.samples,
+    sceneChanges: mediaSignals.sceneChanges,
     estimatedActionCenter: safe.actionCenter,
     estimatedActionBounds: safe.actionBounds,
     ballCandidateConfidence: ballConfidence,
@@ -321,6 +361,12 @@ function trackingSummaryFromProviderOutput(output, metadata = {}) {
     ballTrackCount: safe.ballTracks.length,
     playerClusterCount: safe.playerClusters.length,
     celebrationHeadTrackCount: safe.celebrationHeadTrackCount,
+    densePerFrameTracking: safe.densePerFrameTracking,
+    sourceFrameRate: safe.sourceFrameRate,
+    inspectedFrameCount: safe.inspectedFrameCount,
+    containedFrameCount: safe.containedFrameCount,
+    perFrameBallContainmentPassed: safe.perFrameBallContainmentPassed,
+    perGoalBallContainment: safe.perGoalBallContainment,
     goalClaimAllowed: false,
   }, metadata);
 }
@@ -328,10 +374,18 @@ function trackingSummaryFromProviderOutput(output, metadata = {}) {
 function analyzeVisualTracking(input = {}) {
   const metadata = input.metadata || {};
   if (input.trackingProviderOutput || input.trackingOutput) {
-    return trackingSummaryFromProviderOutput(input.trackingProviderOutput || input.trackingOutput, metadata);
+    return trackingSummaryFromProviderOutput(
+      input.trackingProviderOutput || input.trackingOutput,
+      metadata,
+      input.mediaSignals || {},
+    );
   }
   if (input.trackingSummary || input.visualTracking) {
-    return normalizeTrackingSummary(input.trackingSummary || input.visualTracking, metadata);
+    const supplied = input.trackingSummary || input.visualTracking;
+    return normalizeTrackingSummary({
+      ...supplied,
+      sceneChanges: supplied.sceneChanges || (input.mediaSignals && input.mediaSignals.sceneChanges),
+    }, metadata);
   }
   const frames = Array.isArray(input.frames) ? input.frames : [];
   const windows = Array.isArray(input.visualSignals && input.visualSignals.windows) ? input.visualSignals.windows : [];
@@ -422,7 +476,7 @@ function cropBoxForCenter({ metadata = {}, center, targetAspectRatio = "9:16" })
   return normalizeBox({ x, y, width: cropWidth, height: cropHeight }, metadata);
 }
 
-function dynamicCropKeyframes(samples = [], metadata = {}, targetAspectRatio = "9:16") {
+function dynamicCropKeyframes(samples = [], metadata = {}, targetAspectRatio = "9:16", sceneChanges = []) {
   const { width, height } = mediaDimensions(metadata);
   const cropBox = cropBoxForCenter({ metadata, center: { x: width / 2, y: height / 2 }, targetAspectRatio });
   if (!cropBox) return [];
@@ -431,7 +485,8 @@ function dynamicCropKeyframes(samples = [], metadata = {}, targetAspectRatio = "
   const maxPanAcceleration = 0.12;
   let previous = null;
   let previousVelocity = 0;
-  return normalizeTrackingSamples(samples, metadata)
+  const reliableSceneChanges = normalizeSceneChanges(sceneChanges, metadata);
+  const keyframes = normalizeTrackingSamples(samples, metadata)
     .map((sample, index) => {
       const scorerFollow = sample.phase === "scorer_follow";
       const celebrationHeadVisible = Boolean(
@@ -440,7 +495,14 @@ function dynamicCropKeyframes(samples = [], metadata = {}, targetAspectRatio = "
         sample.celebrationHeadConfidence >= 0.66 &&
         ["celebration_head_detection", "celebration_face_detection", "celebration_person_head_estimate"].includes(sample.source)
       );
-      const ballVisible = Boolean(!scorerFollow && sample.ballBox && sample.ballConfidence >= 0.72);
+      const ballVisible = Boolean(
+        !scorerFollow &&
+        sample.ballBox &&
+        (
+          sample.ballConfidence >= 0.72 ||
+          (sample.source === "ball_interpolation" && sample.ballConfidence >= 0.45)
+        )
+      );
       const celebrationGroupVisible = Boolean(
         scorerFollow &&
         !celebrationHeadVisible &&
@@ -463,10 +525,21 @@ function dynamicCropKeyframes(samples = [], metadata = {}, targetAspectRatio = "
       );
       let centerX = clamp(rawCenterX, cropBox.width / 2, width - cropBox.width / 2);
       let reset = index === 0;
+      let resetReason = reset ? "timeline_start" : null;
       if (previous) {
         const elapsed = sample.sourceTime - previous.sourceTime;
         const phaseChanged = previous.phase !== sample.phase;
-        reset = elapsed > 10 || sample.cameraMotion >= 0.8;
+        const crossedSceneCut = reliableSceneChanges.some((scene) => (
+          scene.time > previous.sourceTime + 0.01 && scene.time <= sample.sourceTime + 0.05
+        ));
+        reset = crossedSceneCut || elapsed > 10 || sample.cameraMotion >= 0.8;
+        resetReason = crossedSceneCut
+          ? "scene_cut"
+          : elapsed > 10
+            ? "tracking_gap"
+            : sample.cameraMotion >= 0.8
+              ? "camera_motion"
+              : null;
         if (!reset) {
           const delta = centerX - previous.centerX;
           if (Math.abs(delta) < deadZone) {
@@ -515,12 +588,31 @@ function dynamicCropKeyframes(samples = [], metadata = {}, targetAspectRatio = "
         trackingTarget,
         phase: sample.phase,
         reset,
+        resetReason,
       };
       previous = keyframe;
       return keyframe;
     })
-    .filter((keyframe) => keyframe.confidence >= 0.45)
-    .slice(0, 32);
+    .filter((keyframe) => keyframe.confidence >= 0.45);
+  const compacted = [];
+  for (const keyframe of keyframes) {
+    const last = compacted[compacted.length - 1];
+    const phaseChanged = Boolean(last && last.phase !== keyframe.phase);
+    const elapsed = last ? keyframe.sourceTime - last.sourceTime : Number.POSITIVE_INFINITY;
+    const moved = last ? Math.abs(keyframe.centerX - last.centerX) : Number.POSITIVE_INFINITY;
+    if (
+      !last ||
+      keyframe.reset ||
+      phaseChanged ||
+      elapsed >= 0.2 ||
+      moved >= cropBox.width * 0.08
+    ) {
+      compacted.push(keyframe);
+    }
+  }
+  const finalKeyframe = keyframes[keyframes.length - 1];
+  if (finalKeyframe && compacted[compacted.length - 1] !== finalKeyframe) compacted.push(finalKeyframe);
+  return compacted.slice(0, 512);
 }
 
 function textSafeZonesForAspectRatio(targetAspectRatio = "9:16") {
@@ -575,7 +667,12 @@ function calibrateCropPlan(input = {}) {
     mode = "locked_wide";
     reasonCodes = ["locked_wide_camera_motion"];
   } else if (trackingSummary.recommendedFramingMode === "ball_follow" && confidence >= 0.52) {
-    keyframes = dynamicCropKeyframes(trackingSummary.trackingSamples, metadata, targetAspectRatio);
+    keyframes = dynamicCropKeyframes(
+      trackingSummary.trackingSamples,
+      metadata,
+      targetAspectRatio,
+      trackingSummary.sceneChanges,
+    );
     const reliableBallFrames = keyframes.filter((keyframe) => keyframe.source === "ball_detection").length;
     if (keyframes.length >= 3 && reliableBallFrames >= 2) {
       mode = "ball_follow";
@@ -657,6 +754,12 @@ function calibrateCropPlan(input = {}) {
     hysteresis: mode === "ball_follow" ? 0.04 : undefined,
     fallbackUsed,
     textObstructionRisk,
+    densePerFrameTracking: trackingSummary.densePerFrameTracking,
+    sourceFrameRate: trackingSummary.sourceFrameRate,
+    inspectedFrameCount: trackingSummary.inspectedFrameCount,
+    containedFrameCount: trackingSummary.containedFrameCount,
+    perFrameBallContainmentPassed: trackingSummary.perFrameBallContainmentPassed,
+    perGoalBallContainment: trackingSummary.perGoalBallContainment,
   }, metadata);
 }
 
@@ -687,7 +790,7 @@ function validateCropPlan(plan, metadata = {}) {
   const confidence = round(clamp(plan.confidence, 0, 1), 2);
   const rawKeyframes = Array.isArray(plan.keyframes) ? plan.keyframes : [];
   const { width: mediaWidth, height: mediaHeight } = mediaDimensions(metadata);
-  const keyframes = rawKeyframes.slice(0, 32).map((keyframe) => {
+  const keyframes = rawKeyframes.slice(0, 512).map((keyframe) => {
     if (!keyframe || typeof keyframe !== "object" || Array.isArray(keyframe)) return null;
     const sourceTime = Number(keyframe.sourceTime);
     const centerX = Number(keyframe.centerX);
@@ -706,6 +809,12 @@ function validateCropPlan(plan, metadata = {}) {
     const phase = keyframe.phase === "scorer_follow" || source.startsWith("celebration_")
       ? "scorer_follow"
       : "ball_follow";
+    const reset = Boolean(keyframe.reset);
+    const requestedResetReason = sanitizeText(keyframe.resetReason || "tracking_reset", 32);
+    const resetReason = ["timeline_start", "scene_cut", "tracking_gap", "camera_motion", "tracking_reset"]
+      .includes(requestedResetReason)
+      ? requestedResetReason
+      : "tracking_reset";
     return {
       sourceTime: round(sourceTime, 2),
       centerX: round(centerX, 2),
@@ -715,7 +824,8 @@ function validateCropPlan(plan, metadata = {}) {
       source,
       trackingTarget,
       phase,
-      reset: Boolean(keyframe.reset),
+      reset,
+      resetReason: reset ? resetReason : null,
     };
   }).filter(Boolean);
   if (rawKeyframes.length !== keyframes.length) {
@@ -783,6 +893,13 @@ function validateCropPlan(plan, metadata = {}) {
     maxZoomSpeed: mode === "ball_follow" ? round(clamp(plan.maxZoomSpeed, 0, 0.08), 3) : 0,
     hysteresis: mode === "ball_follow" ? round(clamp(plan.hysteresis, 0.02, 0.15), 3) : 0,
     keyframes,
+    densePerFrameTracking: plan.densePerFrameTracking === true,
+    sourceFrameRate: round(clamp(plan.sourceFrameRate, 0, 120), 3),
+    inspectedFrameCount: Math.max(0, Math.min(100000, Math.round(Number(plan.inspectedFrameCount || 0)))),
+    containedFrameCount: Math.max(0, Math.min(100000, Math.round(Number(plan.containedFrameCount || 0)))),
+    perFrameBallContainmentPassed: plan.perFrameBallContainmentPassed === true,
+    perGoalBallContainment: Array.isArray(plan.perGoalBallContainment) ? plan.perGoalBallContainment.slice(0, 12) : [],
+    sceneCutResetCount: keyframes.filter((keyframe) => keyframe.resetReason === "scene_cut").length,
     safeMargins,
     reasonCodes: Array.isArray(plan.reasonCodes)
       ? plan.reasonCodes.map((reason) => sanitizeText(reason, 80)).filter(Boolean).slice(0, 8)
@@ -827,6 +944,7 @@ function publicVisualTrackingSummary(summary, metadata = {}) {
       bounds: region.bounds,
     })),
     trackingSamples: safe.trackingSamples,
+    sceneChanges: safe.sceneChanges,
     estimatedActionCenter: safe.estimatedActionCenter,
     estimatedActionBounds: safe.estimatedActionBounds,
     ballCandidateConfidence: safe.ballCandidateConfidence,

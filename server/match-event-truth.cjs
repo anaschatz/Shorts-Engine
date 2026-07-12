@@ -1329,6 +1329,81 @@ function compactScoreChangeLiveClip(context = {}, stableChangeTime = 0, duration
   };
 }
 
+function delayedLiveGoalProbe({ contextWindows = [], mediaSignals = {}, stableChangeTime = 0, minActionTime = 0 } = {}) {
+  const strongAudioPeaks = (Array.isArray(mediaSignals && mediaSignals.audioPeaks) ? mediaSignals.audioPeaks : [])
+    .map((peak) => ({
+      time: seconds(peak && (peak.time ?? peak.timestamp)),
+      confidence: Number(peak && (peak.energyScore ?? peak.confidence) || 0),
+    }))
+    .filter((peak) => peak.confidence >= 0.85 && peak.time >= minActionTime && peak.time < stableChangeTime);
+  if (!strongAudioPeaks.length) return null;
+
+  const delayedFinishes = contextWindows.filter((window) =>
+    String(window && window.source || "").includes("delayed_finish_anchor") &&
+    !hasAny(visualReasonCodesForWindow(window), REPLAY_SUPPORT_CODES) &&
+    !hasAny(visualReasonCodesForWindow(window), CELEBRATION_SUPPORT_CODES));
+  const delayedGoalmouth = contextWindows.filter((window) =>
+    String(window && window.source || "").includes("delayed_goalmouth_anchor") &&
+    hasAny(visualReasonCodesForWindow(window), ["visual_goal_mouth", "visual_goal_area"]) &&
+    !hasAny(visualReasonCodesForWindow(window), REPLAY_SUPPORT_CODES));
+
+  let pairs = delayedFinishes.flatMap((finishWindow) => delayedGoalmouth
+    .filter((goalmouthWindow) => {
+      const gap = windowStart(goalmouthWindow) - windowEnd(finishWindow, windowStart(finishWindow));
+      return gap >= -1 && gap <= 4;
+    })
+    .map((goalmouthWindow) => {
+      const shotStart = windowStart(finishWindow);
+      const audio = strongAudioPeaks
+        .filter((peak) => Math.abs(peak.time - shotStart) <= 8)
+        .sort((left, right) => Math.abs(left.time - shotStart) - Math.abs(right.time - shotStart))[0] || null;
+      return { finishWindow, goalmouthWindow, audio };
+    }))
+    .filter((pair) => pair.audio)
+    .sort((left, right) => left.audio.time - right.audio.time || windowStart(left.finishWindow) - windowStart(right.finishWindow));
+  if (!pairs.length) {
+    pairs = delayedFinishes
+      .filter((window) => hasAny(visualReasonCodesForWindow(window), ["visual_goal_mouth", "visual_goal_area"]))
+      .map((finishWindow) => {
+        const shotStart = windowStart(finishWindow);
+        const audio = strongAudioPeaks
+          .filter((peak) => Math.abs(peak.time - shotStart) <= 8)
+          .sort((left, right) => Math.abs(left.time - shotStart) - Math.abs(right.time - shotStart))[0] || null;
+        return { finishWindow, goalmouthWindow: finishWindow, audio };
+      })
+      .filter((pair) => pair.audio)
+      .sort((left, right) => left.audio.time - right.audio.time || windowStart(left.finishWindow) - windowStart(right.finishWindow));
+  }
+  if (!pairs.length) return null;
+
+  const selected = pairs[0];
+  const shotStart = round(windowStart(selected.finishWindow));
+  const finishTime = round(Math.min(
+    windowEnd(selected.goalmouthWindow, shotStart + 2),
+    windowStart(selected.goalmouthWindow) + 1,
+  ));
+  const buildup = contextWindows
+    .filter((window) => windowEnd(window) <= shotStart + 0.25)
+    .filter((window) => shotStart - windowEnd(window) <= 12)
+    .filter((window) => hasAny(visualReasonCodesForWindow(window), ["visual_fast_break", "visual_ball_visible"]))
+    .sort((left, right) => windowStart(left) - windowStart(right))[0] || null;
+  const sourceStart = round(Math.max(minActionTime, buildup ? windowStart(buildup) : shotStart - 10));
+  const sourceEnd = round(Math.min(stableChangeTime - 0.25, Math.max(
+    finishTime + 5.5,
+    windowEnd(selected.goalmouthWindow, finishTime + 3),
+  )));
+  if (sourceEnd <= sourceStart + 8 || stableChangeTime - finishTime < 20) return null;
+
+  return {
+    sourceStart,
+    sourceEnd,
+    shotStart,
+    finishTime,
+    audioPeakTime: round(selected.audio.time),
+    supportingWindows: [selected.finishWindow, selected.goalmouthWindow],
+  };
+}
+
 function scoreChangeTargetedRenderProbe({
   change = {},
   stableChangeTime = 0,
@@ -1341,6 +1416,7 @@ function scoreChangeTargetedRenderProbe({
   visualSignals = {},
   mediaAction = null,
   recovery = null,
+  delayedLiveProbe = null,
 } = {}) {
   const stableConfirmationTime = round(seconds(stableChangeTime));
   const observedChangeTime = round(Math.min(
@@ -1349,26 +1425,34 @@ function scoreChangeTargetedRenderProbe({
   ));
   const confirmationTime = observedChangeTime;
   const mediaDuration = seconds(duration, confirmationTime + SCORE_CHANGE_TARGET_POST_CONFIRM_SECONDS);
-  const sourceStart = round(Math.max(
-    minActionTime,
-    confirmationTime - SCORE_CHANGE_TARGET_BACKTRACK_SECONDS,
-  ));
-  const finishTime = round(Math.min(
-    confirmationTime - 0.5,
-    Math.max(sourceStart + 1, confirmationTime - SCORE_CHANGE_TARGET_ESTIMATED_FINISH_LEAD_SECONDS),
-  ));
-  const shotStart = round(Math.max(minActionTime, finishTime - SCORE_CHANGE_TARGET_SHOT_LEAD_SECONDS));
-  const sourceEnd = round(Math.min(
-    mediaDuration || confirmationTime + SCORE_CHANGE_TARGET_POST_CONFIRM_SECONDS,
-    Math.max(confirmationTime + SCORE_CHANGE_TARGET_POST_CONFIRM_SECONDS, finishTime + 4, sourceStart + 14),
-  ));
+  const sourceStart = delayedLiveProbe
+    ? delayedLiveProbe.sourceStart
+    : round(Math.max(minActionTime, confirmationTime - SCORE_CHANGE_TARGET_BACKTRACK_SECONDS));
+  const finishTime = delayedLiveProbe
+    ? delayedLiveProbe.finishTime
+    : round(Math.min(
+        confirmationTime - 0.5,
+        Math.max(sourceStart + 1, confirmationTime - SCORE_CHANGE_TARGET_ESTIMATED_FINISH_LEAD_SECONDS),
+      ));
+  const shotStart = delayedLiveProbe
+    ? delayedLiveProbe.shotStart
+    : round(Math.max(minActionTime, finishTime - SCORE_CHANGE_TARGET_SHOT_LEAD_SECONDS));
+  const sourceEnd = delayedLiveProbe
+    ? delayedLiveProbe.sourceEnd
+    : round(Math.min(
+        mediaDuration || confirmationTime + SCORE_CHANGE_TARGET_POST_CONFIRM_SECONDS,
+        Math.max(confirmationTime + SCORE_CHANGE_TARGET_POST_CONFIRM_SECONDS, finishTime + 4, sourceStart + 14),
+      ));
+  const localConfirmationTime = delayedLiveProbe
+    ? round(Math.min(sourceEnd - 0.25, finishTime + 3))
+    : confirmationTime;
   const sampledTimestamps = uniqueCodes([
     sourceStart,
     Math.max(sourceStart, shotStart - 1.5),
     shotStart,
     finishTime,
     Math.min(sourceEnd, finishTime + 1.25),
-    confirmationTime,
+    localConfirmationTime,
   ].map((time) => String(round(time))), 8).map(Number);
   const finishFrameEvidence = {
     frameTime: finishTime,
@@ -1393,6 +1477,7 @@ function scoreChangeTargetedRenderProbe({
     ...visualCodesForRange(visualSignals, sourceStart, sourceEnd),
     "scoreboard_backed_goal_sequence",
     "score_change_targeted_render_probe",
+    ...(delayedLiveProbe ? ["score_change_delayed_live_goal_probe"] : []),
     "rendered_finish_proof_required",
     "shot_sequence_support",
     ...(mediaAction ? ["media_high_motion_goal_phase_support"] : []),
@@ -1404,8 +1489,8 @@ function scoreChangeTargetedRenderProbe({
     buildupWindow: { start: sourceStart, end: round(Math.max(sourceStart + 0.5, shotStart)) },
     shotWindow: { start: shotStart, end: round(Math.max(shotStart + 0.5, finishTime)) },
     payoffWindow: { start: round(Math.max(sourceStart, finishTime - 0.5)), end: round(Math.max(finishTime + 0.75, finishTime)) },
-    reactionWindow: { start: finishTime, end: round(Math.min(mediaDuration || sourceEnd, Math.max(finishTime + 1.5, confirmationTime))) },
-    decisionWindow: { start: confirmationTime, end: round(Math.min(mediaDuration || sourceEnd, Math.max(confirmationTime + 1, sourceEnd))) },
+    reactionWindow: { start: finishTime, end: round(Math.min(sourceEnd, Math.max(finishTime + 1.5, localConfirmationTime))) },
+    decisionWindow: { start: localConfirmationTime, end: round(Math.min(mediaDuration || sourceEnd, Math.max(localConfirmationTime + 1, sourceEnd))) },
     phaseCoverage: {
       hasBuildup: true,
       hasShot: true,
@@ -1414,8 +1499,9 @@ function scoreChangeTargetedRenderProbe({
       liveActionStart: sourceStart,
       shotStart,
       finishTime,
-      confirmationTime,
+      confirmationTime: localConfirmationTime,
       scoreChangeTime: confirmationTime,
+      scoreChangeConfirmedOutsideClip: Boolean(delayedLiveProbe),
       stableScoreConfirmationTime: stableConfirmationTime,
       scoreChangeTargetBacktrackSeconds: SCORE_CHANGE_TARGET_BACKTRACK_SECONDS,
       scoreChangeTargetBacktrackRangeSeconds: {
@@ -1437,7 +1523,7 @@ function scoreChangeTargetedRenderProbe({
       finishFrameEvidence,
     },
     visualCodes,
-    primarySource: "score_change_targeted_render_probe",
+    primarySource: delayedLiveProbe ? "score_change_delayed_live_goal_probe" : "score_change_targeted_render_probe",
     visibleGoalRecovery: publicVisibleGoalPhaseRecovery(recovery),
     anchorDiagnostics: {
       changeTime: confirmationTime,
@@ -1462,12 +1548,19 @@ function scoreChangeTargetedRenderProbe({
       mediaActionWindowCount: mediaAction ? 1 : 0,
       missingActionEvidence: false,
       ocrOnlyBlocked: false,
-      bindingStrategy: "score_change_targeted_render_probe",
-      bindingFallbackUsed: false,
+      bindingStrategy: delayedLiveProbe ? "fixture_audio_delayed_live_goal_probe" : "score_change_targeted_render_probe",
+      bindingFallbackUsed: Boolean(delayedLiveProbe),
       bindingFullSourceScanUsed: false,
       bindingSampledFrameBudget: recovery && recovery.bindingDiagnostics && recovery.bindingDiagnostics.sampledFrameBudget,
       bindingMaxBackwardSeconds: recovery && recovery.bindingDiagnostics && recovery.bindingDiagnostics.maxBackwardSeconds,
       minActionTime,
+      delayedLiveGoalProbe: delayedLiveProbe ? {
+        sourceStart: delayedLiveProbe.sourceStart,
+        sourceEnd: delayedLiveProbe.sourceEnd,
+        shotStart: delayedLiveProbe.shotStart,
+        finishTime: delayedLiveProbe.finishTime,
+        audioPeakTime: delayedLiveProbe.audioPeakTime,
+      } : null,
       visibleGoalRecovery: publicVisibleGoalPhaseRecovery(recovery),
     },
   };
@@ -1491,6 +1584,12 @@ function scoreChangeVisualContext(change = {}, visualSignals = {}, metadata = {}
     index,
     minActionTime,
   });
+  const hasFixtureTruth = Number.isInteger(Number(metadata.expectedCountedGoals)) &&
+    Number(metadata.expectedCountedGoals) > 0 &&
+    /^\d{1,2}-\d{1,2}$/.test(String(metadata.expectedFinalScore || ""));
+  const delayedLiveProbe = hasFixtureTruth
+    ? delayedLiveGoalProbe({ contextWindows, mediaSignals, stableChangeTime, minActionTime })
+    : null;
   const preferScoreChangeBacktrack = metadata.allowScoreChangeTargetedRenderProbe !== false &&
     (metadata.sourceType === "youtube" || metadata.goalSelectionMode === "valid_goals_only" || Boolean(metadata.allowScoreChangeBacktrackFallback)) &&
     change.outcome === "counted_goal" &&
@@ -1510,6 +1609,7 @@ function scoreChangeVisualContext(change = {}, visualSignals = {}, metadata = {}
       visualSignals,
       mediaAction,
       recovery,
+      delayedLiveProbe,
     });
   }
   if (recovery.selected) {

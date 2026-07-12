@@ -47,6 +47,52 @@ test("football story planner creates contextual no-goal chance captions", () => 
   assert.equal(plan.captionGeneration.fallbackUsed, false);
 });
 
+test("football story planner caps caption dwell time on a 24-second action window", () => {
+  const plan = createFootballStoryPlan({
+    title: "Switzerland vs Colombia",
+    language: "English",
+    metadata,
+    selectedMoment: {
+      id: "mom_full_window_chance",
+      start: 0,
+      end: 24,
+      center: 12,
+      highlightType: "big_chance",
+      confidence: 0.86,
+      reasonCodes: ["visual_shot_like_motion", "visual_ball_visible"],
+    },
+    moments: [],
+    editIntensity: "punchy",
+  });
+
+  assert.ok(plan.captionBeats[0].end - plan.captionBeats[0].start <= 2.05);
+  assert.ok(plan.captionBeats.every((caption) => caption.end - caption.start <= 2.801));
+  assert.ok(plan.captionBeats.at(-1).start >= 19);
+});
+
+test("football story planner caps unconfirmed single moments at 18 seconds", () => {
+  const plan = createFootballStoryPlan({
+    title: "Switzerland vs Colombia",
+    language: "English",
+    metadata,
+    selectedMoment: {
+      id: "mom_single_window_chance",
+      start: 0,
+      end: 24,
+      center: 12,
+      highlightType: "big_chance",
+      confidence: 0.86,
+      reasonCodes: ["visual_shot_like_motion", "visual_ball_visible"],
+    },
+    moments: [],
+    editIntensity: "punchy",
+    compositionMode: "single_moment",
+  });
+
+  assert.equal(plan.selectedMoment.end - plan.selectedMoment.start, 18);
+  assert.ok(plan.captionBeats.every((caption) => caption.end <= 18));
+});
+
 test("football story planner uses natural Greek title context copy", () => {
   const plan = createFootballStoryPlan({
     title: "Μουντιάλ 2026 | Group J | Αργεντινή - Αλγερία | Highlights",

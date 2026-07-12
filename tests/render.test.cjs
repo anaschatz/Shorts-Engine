@@ -421,7 +421,7 @@ test("proof-fast render profile keeps visible framing while using faster encodin
   assert.equal(plan.renderPolishQA.renderPolishWarnings.includes("clean_action_letterbox_background"), true);
 });
 
-test("confirmed-goal renderer fills 9:16 and preserves the live scorebug at top center", async () => {
+test("confirmed-goal renderer preserves the full frame when dense ball containment is unproven", async () => {
   const dir = mkdtempSync(join(tmpdir(), "shortsengine-render-scorebug-fill-"));
   const outputPath = join(dir, "output.mp4");
   const subtitlesPath = join(dir, "captions.ass");
@@ -476,18 +476,15 @@ test("confirmed-goal renderer fills 9:16 and preserves the live scorebug at top 
   });
 
   const filter = calls[0][calls[0].indexOf("-filter_complex") + 1];
-  assert.match(filter, /split=2\[base_source\]\[score_source\]/);
-  assert.match(filter, /\[base_source\]delogo=/);
-  assert.match(filter, /scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920/);
-  assert.match(filter, /crop=iw\*0\.33:ih\*0\.065:iw\*0\.04:ih\*0\.045/);
-  assert.match(filter, /overlay=\(W-w\)\/2:106/);
-  assert.doesNotMatch(filter, /pad=1080:1920|color=black|boxblur/);
-  assert.equal(plan.renderPolishQA.actionLayoutMode, "scorebug_preserved_vertical_fill");
-  assert.equal(plan.renderPolishQA.fullHeightActionCrop, true);
-  assert.equal(plan.renderPolishQA.scoreboardOverlayRendered, true);
-  assert.equal(plan.renderPolishQA.scoreboardOverlayRegionId, "scorebug_broadcast_compact");
-  assert.equal(plan.renderPolishQA.sourceScoreboardDuplicateSuppressed, true);
-  assert.equal(plan.renderPolishQA.renderPolishWarnings.includes("clean_action_letterbox_background"), false);
+  assert.doesNotMatch(filter, /split=2\[base_source\]\[score_source\]|\[base_source\]delogo=/);
+  assert.match(filter, /scale=1080:1920:force_original_aspect_ratio=decrease/);
+  assert.match(filter, /pad=1080:1920/);
+  assert.doesNotMatch(filter, /crop=iw\*0\.33|boxblur/);
+  assert.equal(plan.renderPolishQA.actionLayoutMode, "clean_action_letterbox");
+  assert.equal(plan.renderPolishQA.fullHeightActionCrop, false);
+  assert.equal(plan.renderPolishQA.scoreboardOverlayRendered, false);
+  assert.equal(plan.renderPolishQA.sourceScoreboardDuplicateSuppressed, false);
+  assert.equal(plan.renderPolishQA.renderPolishWarnings.includes("clean_action_letterbox_background"), true);
   const ass = readFileSync(subtitlesPath, "utf8");
   assert.doesNotMatch(ass, /PUNCHY HIGHLIGHT/);
 });
@@ -516,6 +513,15 @@ test("ball-follow renderer moves the action crop while the live scorebug stays f
       safeArea: { x: 0, y: 0, width: 1920, height: 1080 },
       cropBox: { x: 120, y: 0, width: 608, height: 1080 },
       confidence: 0.82,
+      densePerFrameTracking: true,
+      perFrameBallContainmentPassed: true,
+      perGoalBallContainment: [{
+        goalNumber: 1,
+        expectedFrameCount: 250,
+        containedFrameCount: 250,
+        maxMissingFrameRun: 0,
+        passed: true,
+      }],
       maxPanSpeed: 0.18,
       maxZoomSpeed: 0,
       hysteresis: 0.055,
@@ -884,6 +890,28 @@ test("automatic Real-ESRGAN failures fall back to the normal quality render", as
   assert.equal(plan.renderPolishQA.videoEnhancementFallbackUsed, true);
   assert.equal(plan.renderPolishQA.videoEnhancementFallbackReason, "VIDEO_ENHANCEMENT_FAILED");
   assert.ok(plan.renderPolishQA.renderPolishWarnings.includes("video_enhancement_auto_fallback"));
+});
+
+test("operator-disabled captions are not burned into the rendered video", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "shortsengine-render-no-captions-"));
+  const calls = [];
+  const plan = validKineticPlan();
+  plan.captionsEnabled = false;
+
+  await renderShort({
+    inputPath: join(dir, "input.mp4"),
+    outputPath: join(dir, "output.mp4"),
+    subtitlesPath: join(dir, "captions.ass"),
+    plan,
+    ffmpegRunner: async (args) => calls.push(args),
+  });
+
+  const filter = calls[0][calls[0].indexOf("-filter_complex") + 1];
+  assert.doesNotMatch(filter, /subtitles=/);
+  assert.equal(plan.renderPolishQA.captionsRendered, false);
+  assert.equal(plan.renderPolishQA.captionsDisabledByOperator, true);
+  assert.equal(plan.renderPolishQA.animatedCaptionCount, 0);
+  assert.equal(plan.renderPolishQA.dynamicWordCaptionCount, 0);
 });
 
 test("two-phase camera summary requires ball coverage before switching to scorer or group follow", () => {

@@ -42,6 +42,25 @@ test("deterministic caption generation keeps action evidence primary over crowd 
   assert.ok(result.captions.every((caption) => caption.captionSource.startsWith("caption_generation:deterministic:big_chance:")));
 });
 
+test("long short-form caption timelines keep the opening hook punchy", () => {
+  const result = generateEvidenceAwareCaptions({
+    copy: chanceCopy,
+    title: "Switzerland vs Colombia",
+    highlightType: "big_chance",
+    reasonCodes: ["visual_shot_like_motion", "visual_ball_visible"],
+    duration: 24,
+    language: "English",
+  });
+
+  const opening = result.captions[0];
+  const closing = result.captions.at(-1);
+  assert.equal(opening.role, "opening_hook");
+  assert.ok(opening.end - opening.start <= 2.05);
+  assert.ok(closing.end - closing.start <= 2.401);
+  assert.ok(result.captions.every((caption) => caption.end - caption.start <= 2.801));
+  assert.ok(closing.start >= 19);
+});
+
 test("provider failures fall back without leaking raw provider output", () => {
   const result = generateCaptionsWithProvider({
     copy: chanceCopy,

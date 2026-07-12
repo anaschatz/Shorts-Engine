@@ -1,0 +1,255 @@
+{
+  "schemaVersion": 1,
+  "datasetId": "fifa-rights-cleared-20-auto-research-pass-2026-07-11",
+  "reviewMethod": "Frame-based human-criteria visual review by Codex across every generated contact sheet, with dense one-frame-per-second checks for OCR-routed goals.",
+  "independentHumanReviewerComplete": false,
+  "thresholds": {
+    "minAcceptedWithoutEditRate": 0.7,
+    "maxFalseGoalRate": 0.01,
+    "maxRenderFailureRate": 0.05,
+    "minHumanCriterionScore": 4,
+    "minCostCoverageRate": 1
+  },
+  "matches": [
+    {
+      "matchId": "fifa-01-pZ1Fh5Dnk3U",
+      "rightsConfirmed": true,
+      "renderStatus": "completed",
+      "acceptedWithoutEdit": false,
+      "costUsd": 0,
+      "review": {
+        "criteria": { "moment_selection": 3.8, "ball_player_framing": 4, "caption_action_alignment": 3.2, "pacing_energy": 3.8, "overall_short_quality": 3.7, "false_goal_guard": 5 },
+        "flags": { "falseGoalClaim": false },
+        "note": "The 18-second pass removes the late drift and keeps the chance compact, though the copy remains generic."
+      }
+    },
+    {
+      "matchId": "fifa-02--LHb5yN-OzI",
+      "rightsConfirmed": true,
+      "renderStatus": "completed",
+      "acceptedWithoutEdit": false,
+      "costUsd": 0,
+      "review": {
+        "criteria": { "moment_selection": 3.5, "ball_player_framing": 4, "caption_action_alignment": 3, "pacing_energy": 3.5, "overall_short_quality": 3.5, "false_goal_guard": 5 },
+        "flags": { "falseGoalClaim": false },
+        "note": "The shorter pass removes the long reaction tail, but the action order and captions still lack a precise payoff."
+      }
+    },
+    {
+      "matchId": "fifa-03-b5HCJV5DFnw",
+      "rightsConfirmed": true,
+      "renderStatus": "completed",
+      "acceptedWithoutEdit": false,
+      "costUsd": 0,
+      "review": {
+        "criteria": { "moment_selection": 3.8, "ball_player_framing": 4, "caption_action_alignment": 3.2, "pacing_energy": 4.1, "overall_short_quality": 3.8, "false_goal_guard": 5 },
+        "flags": { "falseGoalClaim": false },
+        "note": "Good 16-second action-reaction structure; generic text keeps it below publish-ready."
+      }
+    },
+    {
+      "matchId": "fifa-04-iwE1D_JQSQ8",
+      "rightsConfirmed": true,
+      "renderStatus": "completed",
+      "acceptedWithoutEdit": true,
+      "costUsd": 0,
+      "review": {
+        "criteria": { "moment_selection": 4.2, "ball_player_framing": 4.1, "caption_action_alignment": 3.6, "pacing_energy": 4.1, "overall_short_quality": 4, "false_goal_guard": 5 },
+        "flags": { "falseGoalClaim": false },
+        "note": "Coherent free-kick chance with useful replay angle and compact pacing."
+      }
+    },
+    {
+      "matchId": "fifa-05-ydx1L0aDj_c",
+      "rightsConfirmed": true,
+      "renderStatus": "completed",
+      "acceptedWithoutEdit": false,
+      "costUsd": 0,
+      "review": {
+        "criteria": { "moment_selection": 4.1, "ball_player_framing": 4, "caption_action_alignment": 3, "pacing_energy": 4, "overall_short_quality": 3.8, "false_goal_guard": 5 },
+        "flags": { "falseGoalClaim": false },
+        "note": "The 16-second pass now follows one finish, the score update and its replay; goal wording is still under-specific."
+      }
+    },
+    {
+      "matchId": "fifa-06-42ovN5rW79U",
+      "rightsConfirmed": true,
+      "renderStatus": "completed",
+      "acceptedWithoutEdit": false,
+      "costUsd": 0,
+      "review": {
+        "criteria": { "moment_selection": 3.8, "ball_player_framing": 4, "caption_action_alignment": 3, "pacing_energy": 3.8, "overall_short_quality": 3.7, "false_goal_guard": 5 },
+        "flags": { "falseGoalClaim": false },
+        "note": "The focused pass keeps the chance, keeper response and close replay without the old midfield tail."
+      }
+    },
+    {
+      "matchId": "fifa-07-4HZCeb88uSI",
+      "rightsConfirmed": true,
+      "renderStatus": "completed",
+      "acceptedWithoutEdit": false,
+      "costUsd": 0,
+      "review": {
+        "criteria": { "moment_selection": 3, "ball_player_framing": 3.8, "caption_action_alignment": 2.8, "pacing_energy": 3.1, "overall_short_quality": 3.2, "false_goal_guard": 5 },
+        "flags": { "falseGoalClaim": false },
+        "note": "The shorter cut removes some drift, but still opens on the foul/referee context before the later attack."
+      }
+    },
+    {
+      "matchId": "fifa-08-sAYjtcpoaf0",
+      "rightsConfirmed": true,
+      "renderStatus": "completed",
+      "acceptedWithoutEdit": true,
+      "costUsd": 0,
+      "review": {
+        "criteria": { "moment_selection": 4.4, "ball_player_framing": 4.1, "caption_action_alignment": 3.3, "pacing_energy": 4.3, "overall_short_quality": 4.1, "false_goal_guard": 5 },
+        "flags": { "falseGoalClaim": false },
+        "note": "Publishable 18-second chance-save-replay sequence with strong visibility; copy is generic but not misleading."
+      }
+    },
+    {
+      "matchId": "fifa-09-I43WUQJFfCw",
+      "rightsConfirmed": true,
+      "renderStatus": "completed",
+      "acceptedWithoutEdit": false,
+      "costUsd": 0,
+      "review": {
+        "criteria": { "moment_selection": 3.4, "ball_player_framing": 4, "caption_action_alignment": 3, "pacing_energy": 3.4, "overall_short_quality": 3.4, "false_goal_guard": 5 },
+        "flags": { "falseGoalClaim": false },
+        "note": "The focused rerender removes the misleading celebration caption, but the selected 1-0 phase still lacks a single strong payoff."
+      }
+    },
+    {
+      "matchId": "fifa-10-hzvEZ2Vxb94",
+      "rightsConfirmed": true,
+      "renderStatus": "completed",
+      "acceptedWithoutEdit": false,
+      "costUsd": 0,
+      "review": {
+        "criteria": { "moment_selection": 3.7, "ball_player_framing": 3.9, "caption_action_alignment": 3.5, "pacing_energy": 4.1, "overall_short_quality": 3.8, "false_goal_guard": 5 },
+        "flags": { "falseGoalClaim": false },
+        "note": "Compact chance and reaction; captions are plausible but not event-specific enough."
+      }
+    },
+    {
+      "matchId": "fifa-11-olBx2GK7kZI",
+      "rightsConfirmed": true,
+      "renderStatus": "completed",
+      "acceptedWithoutEdit": false,
+      "costUsd": 0,
+      "review": {
+        "criteria": { "moment_selection": 2.8, "ball_player_framing": 3.8, "caption_action_alignment": 3.1, "pacing_energy": 3.7, "overall_short_quality": 3.3, "false_goal_guard": 5 },
+        "flags": { "falseGoalClaim": false },
+        "note": "Opening is player reaction instead of action; the chance arrives too late for a strong hook."
+      }
+    },
+    {
+      "matchId": "fifa-12--q-nO0sz18s",
+      "rightsConfirmed": true,
+      "renderStatus": "completed",
+      "acceptedWithoutEdit": false,
+      "costUsd": 0,
+      "review": {
+        "criteria": { "moment_selection": 3.6, "ball_player_framing": 4, "caption_action_alignment": 2.6, "pacing_energy": 3.7, "overall_short_quality": 3.5, "false_goal_guard": 5 },
+        "flags": { "falseGoalClaim": false },
+        "note": "The 18-second cut now reads as one celebration-and-replay sequence, though the actual goal remains under-described."
+      }
+    },
+    {
+      "matchId": "fifa-13-jxU1VT5YXXE",
+      "rightsConfirmed": true,
+      "renderStatus": "completed",
+      "acceptedWithoutEdit": false,
+      "costUsd": 0,
+      "review": {
+        "criteria": { "moment_selection": 3.2, "ball_player_framing": 4, "caption_action_alignment": 2.8, "pacing_energy": 3.3, "overall_short_quality": 3.4, "false_goal_guard": 5 },
+        "flags": { "falseGoalClaim": false },
+        "note": "The compact pass removes the long tail, but crowd and keeper reaction still precede the useful action hook."
+      }
+    },
+    {
+      "matchId": "fifa-14-p_j4aMfNQyI",
+      "rightsConfirmed": true,
+      "renderStatus": "completed",
+      "acceptedWithoutEdit": false,
+      "costUsd": 0,
+      "review": {
+        "criteria": { "moment_selection": 3.6, "ball_player_framing": 4, "caption_action_alignment": 3.1, "pacing_energy": 3.8, "overall_short_quality": 3.6, "false_goal_guard": 5 },
+        "flags": { "falseGoalClaim": false },
+        "note": "The action and replay are tighter, but the 18-second variant opens on referee/player discussion instead of play."
+      }
+    },
+    {
+      "matchId": "fifa-15-SGQpzA9qcwk",
+      "rightsConfirmed": true,
+      "renderStatus": "completed",
+      "acceptedWithoutEdit": true,
+      "costUsd": 0,
+      "review": {
+        "criteria": { "moment_selection": 4.5, "ball_player_framing": 4.1, "caption_action_alignment": 4.4, "pacing_energy": 4.3, "overall_short_quality": 4.4, "false_goal_guard": 5 },
+        "flags": { "falseGoalClaim": false },
+        "note": "OCR second pass selects the finish, reaction and replay and correctly promotes the copy to CONFIRMED GOAL."
+      }
+    },
+    {
+      "matchId": "fifa-16-PsPQkfngzV8",
+      "rightsConfirmed": true,
+      "renderStatus": "completed",
+      "acceptedWithoutEdit": true,
+      "costUsd": 0,
+      "review": {
+        "criteria": { "moment_selection": 4.6, "ball_player_framing": 4.2, "caption_action_alignment": 4.5, "pacing_energy": 4.4, "overall_short_quality": 4.5, "false_goal_guard": 5 },
+        "flags": { "falseGoalClaim": false },
+        "note": "OCR second pass captures the 2-2 to 3-2 winner, replay and final score with correctly aligned confirmed-goal copy."
+      }
+    },
+    {
+      "matchId": "fifa-17-t-miz8tN7Qw",
+      "rightsConfirmed": true,
+      "renderStatus": "completed",
+      "acceptedWithoutEdit": true,
+      "costUsd": 0,
+      "review": {
+        "criteria": { "moment_selection": 4.3, "ball_player_framing": 4.1, "caption_action_alignment": 3.7, "pacing_energy": 4.3, "overall_short_quality": 4.1, "false_goal_guard": 5 },
+        "flags": { "falseGoalClaim": false },
+        "note": "Clear 16-second shot chance with replay, good visibility and no misleading outcome claim."
+      }
+    },
+    {
+      "matchId": "fifa-18-A7pgChEIFTg",
+      "rightsConfirmed": true,
+      "renderStatus": "completed",
+      "acceptedWithoutEdit": true,
+      "costUsd": 0,
+      "review": {
+        "criteria": { "moment_selection": 4.3, "ball_player_framing": 4.1, "caption_action_alignment": 3.4, "pacing_energy": 4.3, "overall_short_quality": 4.1, "false_goal_guard": 5 },
+        "flags": { "falseGoalClaim": false },
+        "note": "Publishable compact chance-save-replay sequence; the generic copy remains safe and visually well timed."
+      }
+    },
+    {
+      "matchId": "fifa-19-ATzmoebQMj0",
+      "rightsConfirmed": true,
+      "renderStatus": "completed",
+      "acceptedWithoutEdit": false,
+      "costUsd": 0,
+      "review": {
+        "criteria": { "moment_selection": 4, "ball_player_framing": 3.9, "caption_action_alignment": 3.2, "pacing_energy": 4, "overall_short_quality": 3.9, "false_goal_guard": 5 },
+        "flags": { "falseGoalClaim": false },
+        "note": "The 18-second pass now keeps one attack, goalmouth payoff, reaction and replay in a clear order."
+      }
+    },
+    {
+      "matchId": "fifa-20-vdnhUnGHwco",
+      "rightsConfirmed": true,
+      "renderStatus": "completed",
+      "acceptedWithoutEdit": false,
+      "costUsd": 0,
+      "review": {
+        "criteria": { "moment_selection": 3.7, "ball_player_framing": 4, "caption_action_alignment": 2.8, "pacing_energy": 4, "overall_short_quality": 3.6, "false_goal_guard": 5 },
+        "flags": { "falseGoalClaim": false },
+        "note": "Compact goal/reaction material, but generic crowd/replay captions do not explain the payoff."
+      }
+    }
+  ]
+}

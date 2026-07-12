@@ -4,6 +4,8 @@ const { basename, dirname, isAbsolute, join, relative, resolve } = require("node
 const { CONFIG } = require("./config.cjs");
 const { normalizeOwnerId } = require("./auth.cjs");
 const { AppError, SAFE_MESSAGES, redactForLogs } = require("./errors.cjs");
+const { publicHumanReviewGate } = require("./human-review-gate.cjs");
+const { normalizeNarratedJobPayload, pipelineTypeForAction } = require("./pipelines/pipeline-registry.cjs");
 const { normalizeSmokeSource } = require("./staging-smoke-metadata.cjs");
 
 function nowIso() {
@@ -35,6 +37,8 @@ const JOB_STYLE_ALIASES = Object.freeze({
 });
 const JOB_EDIT_INTENSITIES = Object.freeze(["clean", "balanced", "punchy"]);
 const JOB_RENDER_STYLE_PRESETS = Object.freeze(["clean_sports", "social_sports_v1", "punchy_highlight", "reference_football_multi_goal_v1"]);
+const JOB_GOAL_SELECTION_MODES = Object.freeze(["balanced", "valid_goals_only"]);
+const JOB_COMPOSITION_MODES = Object.freeze(["auto", "single_moment", "multi_moment"]);
 
 const DEFAULT_RECOVERY_POLICY = Object.freeze({
   maxAttempts: 2,
@@ -210,6 +214,7 @@ function restoreSafeEditPlanMetadata(publicJob, sourceJob) {
 }
 
 function safeNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
   return Number.isFinite(Number(value)) ? Number(Number(value).toFixed(2)) : null;
 }
 
@@ -219,6 +224,139 @@ function safeStringList(values, limit = 10, maxLength = 80) {
     .map((value) => sanitizeText(value, maxLength))
     .filter(Boolean)
     .slice(0, limit);
+}
+
+function normalizeContentDraftSummary(value = null) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const artifactId = sanitizeText(value.artifactId, 100);
+  const contentHash = sanitizeText(value.contentHash, 80).toLowerCase();
+  if (!/^art_[A-Za-z0-9-]{8,80}$/.test(artifactId) || !/^[a-f0-9]{64}$/.test(contentHash)) return null;
+  return {
+    artifactId,
+    contentHash,
+    projectRevision: Math.max(1, Math.floor(Number(value.projectRevision || 1))),
+    formatId: sanitizeText(value.formatId, 80),
+    sceneCount: Math.max(0, Math.floor(Number(value.sceneCount || 0))),
+    beatCount: Math.max(0, Math.floor(Number(value.beatCount || 0))),
+    approvalRequired: value.approvalRequired === true,
+  };
+}
+
+function normalizeNarratedRenderSummary(value = null) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const artifactIds = [value.manifestArtifactId, value.timelineArtifactId].map((item) => sanitizeText(item, 100));
+  const hashes = [value.manifestHash, value.timelineHash].map((item) => sanitizeText(item, 80).toLowerCase());
+  if (artifactIds.some((item) => !/^art_[A-Za-z0-9-]{8,80}$/.test(item)) || hashes.some((item) => !/^[a-f0-9]{64}$/.test(item))) return null;
+  const optionalArtifact = (artifactValue, hashValue) => {
+    const artifactId = sanitizeText(artifactValue || "", 100);
+    const contentHash = sanitizeText(hashValue || "", 80).toLowerCase();
+    if (!artifactId && !contentHash) return { artifactId: null, contentHash: null };
+    if (!/^art_[A-Za-z0-9-]{8,80}$/.test(artifactId) || !/^[a-f0-9]{64}$/.test(contentHash)) return null;
+    return { artifactId, contentHash };
+  };
+  const captionManifest = optionalArtifact(value.captionManifestArtifactId, value.captionManifestHash);
+  const captionAss = optionalArtifact(value.captionAssArtifactId, value.captionAssHash);
+  const audioNormalization = optionalArtifact(value.audioNormalizationReportArtifactId, value.audioNormalizationReportHash);
+  const qaReport = optionalArtifact(value.qaReportArtifactId, value.qaReportHash);
+  const contactSheet = optionalArtifact(value.contactSheetArtifactId, value.contactSheetHash);
+  const rightsManifest = optionalArtifact(value.rightsManifestArtifactId, value.rightsManifestHash);
+  const provenanceReport = optionalArtifact(value.provenanceReportArtifactId, value.provenanceReportHash);
+  const exportMetadata = optionalArtifact(value.exportMetadataArtifactId, value.exportMetadataHash);
+  if (!captionManifest || !captionAss || !audioNormalization || !qaReport || !contactSheet || !rightsManifest || !provenanceReport || !exportMetadata) return null;
+  return {
+    manifestArtifactId: artifactIds[0],
+    manifestHash: hashes[0],
+    timelineArtifactId: artifactIds[1],
+    timelineHash: hashes[1],
+    renderProfile: sanitizeText(value.renderProfile || "preview", 24),
+    silentPreview: value.silentPreview === true,
+    previewOnly: value.previewOnly === true,
+    publishable: value.publishable === true,
+    narrationStatus: sanitizeText(value.narrationStatus || "not_uploaded", 40),
+    narrationUsed: value.narrationUsed === true,
+    narrationTimingUsed: value.narrationTimingUsed === true,
+    audioIncluded: value.audioIncluded === true,
+    captionsIncluded: value.captionsIncluded === true,
+    captionsBurned: value.captionsBurned === true,
+    audioNormalized: value.audioNormalized === true,
+    captionManifestArtifactId: captionManifest.artifactId,
+    captionManifestHash: captionManifest.contentHash,
+    captionAssArtifactId: captionAss.artifactId,
+    captionAssHash: captionAss.contentHash,
+    audioNormalizationReportArtifactId: audioNormalization.artifactId,
+    audioNormalizationReportHash: audioNormalization.contentHash,
+    qaStatus: sanitizeText(value.qaStatus || "not_run", 20),
+    qaPassed: value.qaPassed === true,
+    qaReportArtifactId: qaReport.artifactId,
+    qaReportHash: qaReport.contentHash,
+    packageStatus: sanitizeText(value.packageStatus || "not_required", 20),
+    contactSheetArtifactId: contactSheet.artifactId,
+    contactSheetHash: contactSheet.contentHash,
+    rightsManifestArtifactId: rightsManifest.artifactId,
+    rightsManifestHash: rightsManifest.contentHash,
+    provenanceReportArtifactId: provenanceReport.artifactId,
+    provenanceReportHash: provenanceReport.contentHash,
+    exportMetadataArtifactId: exportMetadata.artifactId,
+    exportMetadataHash: exportMetadata.contentHash,
+    publishApprovalRequired: value.publishApprovalRequired === true,
+    blockingGateCount: Math.max(0, Math.floor(Number(value.blockingGateCount || 0))),
+    blockingPassedCount: Math.max(0, Math.floor(Number(value.blockingPassedCount || 0))),
+    blockingFailedCount: Math.max(0, Math.floor(Number(value.blockingFailedCount || 0))),
+    warningCount: Math.max(0, Math.floor(Number(value.warningCount || 0))),
+    failedGateCodes: safeStringList(value.failedGateCodes, 24, 80),
+    technicalFinal: value.technicalFinal === true,
+    timingMode: sanitizeText(value.timingMode || "estimated_silent", 40),
+  };
+}
+
+function normalizeNarrationAlignmentSummary(value = null) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const artifactId = sanitizeText(value.artifactId, 100);
+  const contentHash = sanitizeText(value.contentHash, 80).toLowerCase();
+  if (!/^art_[A-Za-z0-9-]{8,80}$/.test(artifactId) || !/^[a-f0-9]{64}$/.test(contentHash)) return null;
+  return { artifactId, contentHash, durationFrames: Math.max(30, Math.floor(Number(value.durationFrames || 30))), wordCount: Math.max(1, Math.floor(Number(value.wordCount || 1))), exactSequenceMatch: value.exactSequenceMatch === true };
+}
+
+function normalizeTechnicalQaSummary(value = null) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const artifactId = sanitizeText(value.qaReportArtifactId || "", 100);
+  const reportHash = sanitizeText(value.qaReportHash || "", 80).toLowerCase();
+  if (!/^art_[A-Za-z0-9-]{8,80}$/.test(artifactId) || !/^[a-f0-9]{64}$/.test(reportHash)) return null;
+  return {
+    qaStatus: sanitizeText(value.qaStatus || "failed", 20),
+    qaPassed: value.qaPassed === true,
+    qaReportArtifactId: artifactId,
+    qaReportHash: reportHash,
+    blockingGateCount: Math.max(0, Math.floor(Number(value.blockingGateCount || 0))),
+    blockingPassedCount: Math.max(0, Math.floor(Number(value.blockingPassedCount || 0))),
+    blockingFailedCount: Math.max(0, Math.floor(Number(value.blockingFailedCount || 0))),
+    warningCount: Math.max(0, Math.floor(Number(value.warningCount || 0))),
+    failedGateCodes: safeStringList(value.failedGateCodes, 24, 80),
+    technicalFinal: value.technicalFinal === true,
+    publishable: false,
+  };
+}
+
+function normalizeEvidencePackageSummary(value = null) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const status = sanitizeText(value.packageStatus || "failed", 20).toLowerCase();
+  if (!["complete", "failed"].includes(status)) return null;
+  const failedArtifactCode = sanitizeText(value.failedArtifactCode || "", 80) || null;
+  if (status === "failed") return { packageStatus: "failed", failedArtifactCode, outputHash: sanitizeText(value.outputHash || "", 80).toLowerCase() || null, technicalFinal: true, qaPassed: value.qaPassed === true, publishable: false, publishApprovalRequired: true };
+  const pairs = [
+    ["contactSheetArtifactId", "contactSheetHash"], ["rightsManifestArtifactId", "rightsManifestHash"],
+    ["provenanceReportArtifactId", "provenanceReportHash"], ["exportMetadataArtifactId", "exportMetadataHash"],
+  ];
+  const normalized = {};
+  for (const [idKey, hashKey] of pairs) {
+    const id = sanitizeText(value[idKey] || "", 100);
+    const digest = sanitizeText(value[hashKey] || "", 80).toLowerCase();
+    if (!/^art_[A-Za-z0-9-]{8,80}$/.test(id) || !/^[a-f0-9]{64}$/.test(digest)) return null;
+    normalized[idKey] = id; normalized[hashKey] = digest;
+  }
+  const outputHash = sanitizeText(value.outputHash || "", 80).toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(outputHash)) return null;
+  return { packageStatus: "complete", ...normalized, outputHash, failedArtifactCode: null, technicalFinal: true, qaPassed: true, publishable: false, publishApprovalRequired: true };
 }
 
 function publicTwoPhaseGoalCamera(value) {
@@ -283,6 +421,16 @@ function publicRenderPolishQaSummary(value) {
     encoderPreset: sanitizeText(value.encoderPreset || "", 40) || null,
     encoderCrf: safeNumber(value.encoderCrf),
     segmentRenderMode: sanitizeText(value.segmentRenderMode || "", 80) || null,
+    videoEnhancementEnabled: value.videoEnhancementEnabled === true,
+    videoEnhancementApplied: value.videoEnhancementApplied === true,
+    videoEnhancementProvider: sanitizeText(value.videoEnhancementProvider || "", 60) || null,
+    videoEnhancementModel: sanitizeText(value.videoEnhancementModel || "", 80) || null,
+    videoEnhancementScale: safeNumber(value.videoEnhancementScale),
+    videoEnhancementFps: safeNumber(value.videoEnhancementFps),
+    videoEnhancementTemporalMode: sanitizeText(value.videoEnhancementTemporalMode || "", 60) || null,
+    videoEnhancementOverlayProtection: sanitizeText(value.videoEnhancementOverlayProtection || "", 80) || null,
+    videoEnhancementFallbackUsed: value.videoEnhancementFallbackUsed === true,
+    videoEnhancementFallbackReason: sanitizeText(value.videoEnhancementFallbackReason || "", 80) || null,
     renderStylePreset: sanitizeText(value.renderStylePreset || "", 80) || null,
     outputWidth: safeNumber(value.outputWidth),
     outputHeight: safeNumber(value.outputHeight),
@@ -325,6 +473,8 @@ function publicRenderPolishQaSummary(value) {
     animatedCaptionCount: safeNumber(value.animatedCaptionCount),
     dynamicWordCaptionCount: safeNumber(value.dynamicWordCaptionCount),
     staticCaptionFallbackCount: safeNumber(value.staticCaptionFallbackCount),
+    captionsRendered: value.captionsRendered !== false,
+    captionsDisabledByOperator: value.captionsDisabledByOperator === true,
     captionMotion: sanitizeText(value.captionMotion || "", 80) || null,
     overlayRenderedCount: safeNumber(value.overlayRenderedCount),
     overlayFallbackCount: safeNumber(value.overlayFallbackCount),
@@ -468,6 +618,82 @@ function publicRenderedGoalProofSummary(value) {
   };
 }
 
+function publicCaptionSummary(caption = {}, index = 0) {
+  const activeWordTiming = Array.isArray(caption.activeWordTiming)
+    ? caption.activeWordTiming.slice(0, 16).map((timing) => ({
+        word: sanitizeText(timing && timing.word || "", 24) || null,
+        start: safeNumber(timing && timing.start),
+        end: safeNumber(timing && timing.end),
+      })).filter((timing) => timing.word && timing.start !== null && timing.end !== null)
+    : [];
+  const words = Array.isArray(caption.words)
+    ? caption.words.map((word) => sanitizeText(word, 24)).filter(Boolean).slice(0, 16)
+    : activeWordTiming.map((timing) => timing.word);
+  return {
+    index: index + 1,
+    start: safeNumber(caption.start),
+    end: safeNumber(caption.end),
+    text: sanitizeText(caption.text || "", 120) || null,
+    role: sanitizeText(caption.role || "caption", 60),
+    words,
+    activeWordTiming,
+    stylePreset: sanitizeText(caption.stylePreset || "", 60) || null,
+    contrastMode: sanitizeText(caption.contrastMode || "", 60) || null,
+    safeArea: caption.safeArea && typeof caption.safeArea === "object" && !Array.isArray(caption.safeArea)
+      ? { name: sanitizeText(caption.safeArea.name || "", 60) || null }
+      : null,
+    riskFlags: safeStringList(caption.captionRiskFlags, 6, 80),
+  };
+}
+
+function publicHookPlanSummary(plan = {}, captions = []) {
+  const raw = plan.hookPlan && typeof plan.hookPlan === "object" && !Array.isArray(plan.hookPlan)
+    ? plan.hookPlan
+    : {};
+  const openingCaption = captions.find((caption) => caption && caption.role === "opening_hook") || null;
+  if (!Object.keys(raw).length && !openingCaption && !plan.hook) return null;
+  return {
+    hookStart: safeNumber(raw.hookStart ?? raw.start ?? (openingCaption && openingCaption.start)),
+    hookEnd: safeNumber(raw.hookEnd ?? raw.end ?? (openingCaption && openingCaption.end)),
+    hookType: sanitizeText(raw.hookType || raw.type || (openingCaption && openingCaption.role) || "opening_hook", 60),
+    hookText: sanitizeText(raw.hookText || raw.text || plan.hook || (openingCaption && openingCaption.text) || "", 120) || null,
+    relatedGoalNumber: safeNumber(raw.relatedGoalNumber),
+    relatedMomentId: sanitizeText(raw.relatedMomentId || plan.candidateId || "", 80) || null,
+    evidenceCodes: safeStringList(
+      Array.isArray(raw.evidenceCodes) && raw.evidenceCodes.length ? raw.evidenceCodes : plan.reasonCodes,
+      10,
+      80,
+    ),
+    noFalseGoalClaim: raw.noFalseGoalClaim !== false,
+  };
+}
+
+function publicAudioPolicySummary(policy = null) {
+  if (!policy || typeof policy !== "object" || Array.isArray(policy)) return null;
+  return {
+    audioMode: sanitizeText(policy.audioMode || "", 60) || null,
+    licenseStatus: sanitizeText(policy.licenseStatus || "", 60) || null,
+    source: sanitizeText(policy.source || "", 80) || null,
+    safeForExport: policy.safeForExport === true,
+    operatorActionRequired: policy.operatorActionRequired === true,
+    externalAudioBundled: policy.externalAudioBundled === true,
+    copyrightedTrackBundled: policy.copyrightedTrackBundled === true,
+  };
+}
+
+function publicCreativeStyleSummary(style = null) {
+  if (!style || typeof style !== "object" || Array.isArray(style)) return null;
+  return {
+    colorGrade: sanitizeText(style.colorGrade || "", 60) || null,
+    mildZoom: safeNumber(style.mildZoom),
+    sharpen: safeNumber(style.sharpen),
+    contrastBoost: safeNumber(style.contrastBoost),
+    mirror: style.mirror === true,
+    copyrightEvasion: style.copyrightEvasion === true,
+    watermarkObscuring: style.watermarkObscuring === true,
+  };
+}
+
 function publicRenderPlanSummary(plan = null) {
   if (!plan || typeof plan !== "object" || Array.isArray(plan)) return null;
   const segments = Array.isArray(plan.segments)
@@ -511,12 +737,18 @@ function publicRenderPlanSummary(plan = null) {
   const renderedGoalCompaction = plan.renderedGoalCompaction && typeof plan.renderedGoalCompaction === "object" && !Array.isArray(plan.renderedGoalCompaction)
     ? publicJsonClone(plan.renderedGoalCompaction)
     : null;
+  const captions = Array.isArray(plan.captions)
+    ? plan.captions.slice(0, 12).map(publicCaptionSummary)
+    : [];
   return {
     mode: sanitizeText(plan.mode || "", 80) || null,
     highlightType: sanitizeText(plan.highlightType || "", 80) || null,
+    sourceStart: safeNumber(plan.sourceStart),
+    sourceEnd: safeNumber(plan.sourceEnd),
     totalDuration: safeNumber(plan.totalDuration),
     segmentCount: Array.isArray(plan.segments) ? plan.segments.length : 0,
     captionCount: Array.isArray(plan.captions) ? plan.captions.length : 0,
+    captions,
     animationCueCount: Array.isArray(plan.animationCues) ? plan.animationCues.length : 0,
     stylePreset: sanitizeText(plan.stylePreset || "", 80) || null,
     framingMode: sanitizeText(plan.framingMode || "", 80) || null,
@@ -524,6 +756,9 @@ function publicRenderPlanSummary(plan = null) {
     editIntensity: sanitizeText(plan.editIntensity || "", 40) || null,
     cropPlanMode: sanitizeText(plan.cropPlan && plan.cropPlan.mode ? plan.cropPlan.mode : "", 80) || null,
     goalSelectionMode: sanitizeText(plan.goalSelectionMode || "", 80) || null,
+    hookPlan: publicHookPlanSummary(plan, captions),
+    audioPolicy: publicAudioPolicySummary(plan.audioPolicy),
+    creativeStyleTransforms: publicCreativeStyleSummary(plan.creativeStyleTransforms),
     segments,
     videoOutputQA,
     renderedGoalProof,
@@ -532,6 +767,7 @@ function publicRenderPlanSummary(plan = null) {
     visualPolishQA: plan.visualPolishQA && typeof plan.visualPolishQA === "object" ? publicJsonClone(plan.visualPolishQA) : null,
     renderPolishQA: publicRenderPolishQaSummary(plan.renderPolishQA),
     editAssembly: plan.editAssembly && typeof plan.editAssembly === "object" ? publicJsonClone(plan.editAssembly) : null,
+    humanReviewGate: plan.humanReviewGate ? publicHumanReviewGate(plan.humanReviewGate) : null,
   };
 }
 
@@ -704,8 +940,22 @@ function normalizeRenderStylePreset(value) {
   return JOB_RENDER_STYLE_PRESETS.includes(safe) ? safe : "social_sports_v1";
 }
 
-function normalizePayload(payload) {
+function normalizeGoalSelectionMode(value) {
+  const safe = sanitizeText(value || "", 40).toLowerCase();
+  return JOB_GOAL_SELECTION_MODES.includes(safe) ? safe : null;
+}
+
+function normalizeCompositionMode(value) {
+  const safe = sanitizeText(value || "auto", 40).toLowerCase();
+  return JOB_COMPOSITION_MODES.includes(safe) ? safe : "auto";
+}
+
+function normalizePayload(payload, options = {}) {
   if (!payload || typeof payload !== "object") return null;
+  const pipelineType = pipelineTypeForAction(options.action || "generate", options.pipelineType);
+  if (pipelineType === "narrated_short") {
+    return normalizeNarratedJobPayload(payload, options.action);
+  }
   const normalized = {
     title: sanitizeText(payload.title || "ShortsEngine Short", 120),
     preset: sanitizeText(payload.preset || "hype", 40).toLowerCase(),
@@ -713,6 +963,14 @@ function normalizePayload(payload) {
     styleTarget: normalizeStyleTarget(payload.styleTarget),
     editIntensity: normalizeEditIntensity(payload.editIntensity),
     stylePreset: normalizeRenderStylePreset(payload.stylePreset),
+    goalSelectionMode: normalizeGoalSelectionMode(payload.goalSelectionMode),
+    compositionMode: normalizeCompositionMode(payload.compositionMode),
+    expectedCountedGoals: Number.isInteger(Number(payload.expectedCountedGoals))
+      ? Math.max(0, Math.min(20, Number(payload.expectedCountedGoals)))
+      : null,
+    expectedFinalScore: /^\d{1,2}-\d{1,2}$/.test(String(payload.expectedFinalScore || ""))
+      ? String(payload.expectedFinalScore)
+      : null,
     source: normalizeSmokeSource(payload.source),
   };
   if (payload.approvedEditPlan) normalized.approvedEditPlan = safePayloadObject(payload.approvedEditPlan);
@@ -840,18 +1098,21 @@ class JobStore {
     return target;
   }
 
-  create({ projectId, uploadId = null, action, idempotencyKey: key, payload = null, ownerId = null }) {
+  create({ projectId, uploadId = null, action, pipelineType = null, idempotencyKey: key, payload = null, ownerId = null }) {
     const existingJob = this.findIdempotentJob(key);
     if (existingJob) return existingJob;
     const createdAt = nowIso();
+    const normalizedAction = sanitizeText(action || "generate", 60);
+    const normalizedPipelineType = pipelineTypeForAction(normalizedAction, pipelineType);
     const job = {
       id: `job_${randomUUID()}`,
       projectId,
       uploadId,
       ownerId: ownerId ? normalizeOwnerId(ownerId) : null,
-      action,
+      action: normalizedAction,
+      pipelineType: normalizedPipelineType,
       idempotencyKey: key || null,
-      payload: normalizePayload(payload),
+      payload: normalizePayload(payload, { action: normalizedAction, pipelineType: normalizedPipelineType }),
       status: "queued",
       progress: 0,
       step: "queued",
@@ -862,6 +1123,12 @@ class JobStore {
       candidatePlans: null,
       highlights: null,
       mediaSignals: null,
+      contentDraft: null,
+      narratedRender: null,
+      narrationAlignment: null,
+      technicalQa: null,
+      evidencePackage: null,
+      humanReviewGate: null,
       attempts: 0,
       workerId: null,
       leaseId: null,
@@ -940,6 +1207,7 @@ class JobStore {
       projectId: job.projectId || null,
       uploadId: job.uploadId || null,
       action: job.action || null,
+      pipelineType: job.pipelineType || pipelineTypeForAction(job.action || "generate"),
       status: job.status || null,
       progress: Number.isFinite(Number(job.progress)) ? Number(job.progress) : 0,
       step: job.step || null,
@@ -954,6 +1222,12 @@ class JobStore {
       renderedGoalCompaction: job.renderedGoalCompaction || (job.editPlan && job.editPlan.renderedGoalCompaction) || null,
       scoreboardOcr: job.scoreboardOcr || null,
       matchEventTruth: job.matchEventTruth || null,
+      contentDraft: normalizeContentDraftSummary(job.contentDraft),
+      narratedRender: normalizeNarratedRenderSummary(job.narratedRender),
+      narrationAlignment: normalizeNarrationAlignmentSummary(job.narrationAlignment),
+      technicalQa: normalizeTechnicalQaSummary(job.technicalQa),
+      evidencePackage: normalizeEvidencePackageSummary(job.evidencePackage),
+      humanReviewGate: job.humanReviewGate ? publicHumanReviewGate(job.humanReviewGate) : null,
       renderPlanSummary: publicRenderPlanSummary(job.editPlan),
       createdAt: job.createdAt || null,
       updatedAt: job.updatedAt || null,
@@ -978,8 +1252,9 @@ class JobStore {
       uploadId: safe.uploadId || null,
       ownerId: safe.ownerId || null,
       action: safe.action,
+      pipelineType: safe.pipelineType,
       idempotencyKey: safe.idempotencyKey || null,
-      payload: normalizePayload(safe.payload),
+      payload: normalizePayload(safe.payload, { action: safe.action, pipelineType: safe.pipelineType }),
       status: safe.status,
       progress: safe.progress,
       step: safe.step || null,
@@ -990,11 +1265,17 @@ class JobStore {
       candidatePlans: jsonClone(safe.candidatePlans || null),
       highlights: jsonClone(safe.highlights || null),
       mediaSignals: jsonClone(safe.mediaSignals || null),
+      contentDraft: normalizeContentDraftSummary(safe.contentDraft),
+      narratedRender: normalizeNarratedRenderSummary(safe.narratedRender),
+      narrationAlignment: normalizeNarrationAlignmentSummary(safe.narrationAlignment),
+      technicalQa: normalizeTechnicalQaSummary(safe.technicalQa),
+      evidencePackage: normalizeEvidencePackageSummary(safe.evidencePackage),
       visualSignals: jsonClone(safe.visualSignals || null),
       scoreboardOcr: jsonClone(safe.scoreboardOcr || null),
       ocrQaCalibration: jsonClone(safe.ocrQaCalibration || null),
       goalEvidence: jsonClone(safe.goalEvidence || null),
       matchEventTruth: jsonClone(safe.matchEventTruth || null),
+      humanReviewGate: safe.humanReviewGate ? publicHumanReviewGate(safe.humanReviewGate) : null,
       videoOutputQA: jsonClone(safe.videoOutputQA || null),
       renderedGoalProof: jsonClone(safe.renderedGoalProof || null),
       renderedGoalRebinding: jsonClone(safe.renderedGoalRebinding || null),
@@ -1038,6 +1319,8 @@ class JobStore {
     const attempts = Math.max(0, Math.floor(Number(record.attempts || 0)));
     const workerId = record.workerId ? validateWorkerId(record.workerId) : null;
     const leaseId = record.leaseId ? validateLeaseId(record.leaseId) : null;
+    const action = sanitizeText(record.action || "generate", 60);
+    const pipelineType = pipelineTypeForAction(action, record.pipelineType);
     if ((workerId && !leaseId) || (!workerId && leaseId)) {
       throw new AppError("JOB_LEASE_INVALID", SAFE_MESSAGES.JOB_LEASE_INVALID, 409);
     }
@@ -1046,9 +1329,10 @@ class JobStore {
       projectId,
       uploadId,
       ownerId,
-      action: sanitizeText(record.action || "generate", 60),
+      action,
+      pipelineType,
       idempotencyKey: record.idempotencyKey ? sanitizeText(record.idempotencyKey, 160) : null,
-      payload: normalizePayload(record.payload),
+      payload: normalizePayload(record.payload, { action, pipelineType }),
       status,
       progress: clampProgress(record.progress ?? 0),
       step: record.step ? sanitizeText(record.step, 80) : null,
@@ -1059,11 +1343,17 @@ class JobStore {
       candidatePlans: jsonClone(record.candidatePlans || null),
       highlights: jsonClone(record.highlights || null),
       mediaSignals: jsonClone(record.mediaSignals || null),
+      contentDraft: normalizeContentDraftSummary(record.contentDraft),
+      narratedRender: normalizeNarratedRenderSummary(record.narratedRender),
+      narrationAlignment: normalizeNarrationAlignmentSummary(record.narrationAlignment),
+      technicalQa: normalizeTechnicalQaSummary(record.technicalQa),
+      evidencePackage: normalizeEvidencePackageSummary(record.evidencePackage),
       visualSignals: jsonClone(record.visualSignals || null),
       scoreboardOcr: jsonClone(record.scoreboardOcr || null),
       ocrQaCalibration: jsonClone(record.ocrQaCalibration || null),
       goalEvidence: jsonClone(record.goalEvidence || null),
       matchEventTruth: jsonClone(record.matchEventTruth || null),
+      humanReviewGate: record.humanReviewGate ? publicHumanReviewGate(record.humanReviewGate) : null,
       videoOutputQA: jsonClone(record.videoOutputQA || null),
       renderedGoalProof: jsonClone(record.renderedGoalProof || null),
       renderedGoalRebinding: jsonClone(record.renderedGoalRebinding || null),
@@ -1367,7 +1657,12 @@ class JobStore {
         next.error = null;
       }
     }
-    if (next.payload) next.payload = normalizePayload(next.payload);
+    if (next.payload) next.payload = normalizePayload(next.payload, { action: job.action, pipelineType: job.pipelineType });
+    if (next.contentDraft) next.contentDraft = normalizeContentDraftSummary(next.contentDraft);
+    if (next.narratedRender) next.narratedRender = normalizeNarratedRenderSummary(next.narratedRender);
+    if (next.narrationAlignment) next.narrationAlignment = normalizeNarrationAlignmentSummary(next.narrationAlignment);
+    if (next.technicalQa) next.technicalQa = normalizeTechnicalQaSummary(next.technicalQa);
+    if (next.evidencePackage) next.evidencePackage = normalizeEvidencePackageSummary(next.evidencePackage);
     if (next.error) next.error = normalizeError(next.error);
     Object.assign(job, next, { updatedAt: nowIso() });
     try {

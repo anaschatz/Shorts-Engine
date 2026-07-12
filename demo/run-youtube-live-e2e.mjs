@@ -34,6 +34,7 @@ const DEFAULT_LIVE_DOWNLOAD_TIMEOUT_MS = MAX_LIVE_DOWNLOAD_TIMEOUT_MS;
 const DEFAULT_LIVE_SCOREBOARD_OCR_JOB_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_SERVER_READY_TIMEOUT_MS = 15_000;
 const DEFAULT_SERVER_READY_POLL_INTERVAL_MS = 250;
+const MAX_SERVER_READY_ATTEMPT_TIMEOUT_MS = 5_000;
 const MANUAL_DOWNLOADS_DIR = "manual-downloads";
 const LIVE_PROOF_SCHEMA_VERSION = 2;
 const STRICT_VISIBLE_GOAL_BASELINE_COUNT = 0;
@@ -870,6 +871,9 @@ function isManagedLiveProofMp4(fileName) {
 function cleanupGeneratedProofArtifacts(options = {}) {
   const rootDir = resolve(options.rootDir || ROOT_DIR);
   const manualDir = resolve(rootDir, options.manualDir || MANUAL_DOWNLOADS_DIR);
+  const sourceVideoId = /^[A-Za-z0-9_-]{11}$/.test(String(options.source?.videoId || ""))
+    ? String(options.source.videoId)
+    : null;
   const manualRel = relative(rootDir, manualDir).replace(/\\/g, "/");
   if (manualRel !== MANUAL_DOWNLOADS_DIR || manualRel.startsWith("../") || manualRel === "..") {
     throw new YouTubeLiveE2EError(
@@ -899,6 +903,10 @@ function cleanupGeneratedProofArtifacts(options = {}) {
       continue;
     }
     if (!stats.isFile() || !isManagedLiveProofMp4(entry)) {
+      summary.skippedCount += 1;
+      continue;
+    }
+    if (sourceVideoId && !entry.startsWith(`shortsengine-youtube-${sourceVideoId}-`)) {
       summary.skippedCount += 1;
       continue;
     }
@@ -1664,6 +1672,8 @@ function referenceStyleQaFromSmoke(smoke, outputMp4 = null) {
   const nonGoalFillerRate = Number.isFinite(Number(qa.nonGoalFillerRate)) ? Number(qa.nonGoalFillerRate) : null;
   const actionBoundaryScore = Number.isFinite(Number(qa.actionBoundaryScore)) ? Number(qa.actionBoundaryScore) : null;
   const referencePacingScore = Number.isFinite(Number(qa.referencePacingScore)) ? Number(qa.referencePacingScore) : null;
+  const referenceGoalCompilation = segments.length >= 5 &&
+    segments.every((segment) => segment && segment.highlightType === "goal");
   const derivedAbruptCutRiskCount = segments.filter((segment) => {
         const duration = Number(segment.duration || Number(segment.sourceEnd) - Number(segment.sourceStart));
         const phase = segment.phaseCoverage && typeof segment.phaseCoverage === "object" ? segment.phaseCoverage : {};
@@ -1672,7 +1682,7 @@ function referenceStyleQaFromSmoke(smoke, outputMp4 = null) {
           !phase.hasFinish ||
           !phase.hasConfirmation ||
           !Number.isFinite(duration) ||
-          duration < 18 ||
+          duration < (referenceGoalCompilation ? 14 : 18) ||
           duration > 32;
       }).length;
   const transitionRenderedCount = explicitNumber(renderPolish.transitionRenderedCount);
@@ -1862,6 +1872,8 @@ function renderPolishQaFromSmoke(smoke) {
     staticCaptionFallbackCount: Number.isFinite(Number(qa.staticCaptionFallbackCount))
       ? Number(qa.staticCaptionFallbackCount)
       : null,
+    captionsRendered: qa.captionsRendered !== false,
+    captionsDisabledByOperator: qa.captionsDisabledByOperator === true,
     captionMotion: safeString(qa.captionMotion || "", 80) || null,
     overlayRenderedCount,
     overlayFallbackCount: Number.isFinite(Number(qa.overlayFallbackCount))
@@ -3020,7 +3032,11 @@ async function waitForServerReady({
     }
     attempts += 1;
     const remainingMs = Math.max(1, timeoutMs - (Date.now() - started));
-    const attempt = await fetchHealthAttempt(fetchImpl, healthUrl, Math.min(1000, remainingMs));
+    const attempt = await fetchHealthAttempt(
+      fetchImpl,
+      healthUrl,
+      Math.min(MAX_SERVER_READY_ATTEMPT_TIMEOUT_MS, remainingMs),
+    );
     lastStatus = attempt.status;
     lastErrorCode = attempt.errorCode || null;
     if (attempt.ok) {
@@ -3096,7 +3112,7 @@ function liveServerEnvironment({ port, dataDir, env = {} } = {}) {
     SHORTSENGINE_SOURCE_CACHE_DIR: envValueOrDefault(env, "SHORTSENGINE_SOURCE_CACHE_DIR", defaultSourceCacheDir),
     SHORTSENGINE_SOURCE_CACHE_REQUIRE_CHECKSUM: envValueOrDefault(env, "SHORTSENGINE_SOURCE_CACHE_REQUIRE_CHECKSUM", "0"),
     SHORTSENGINE_SOURCE_CACHE_MAX_BYTES: envValueOrDefault(env, "SHORTSENGINE_SOURCE_CACHE_MAX_BYTES", String(512 * 1024 * 1024)),
-    MATCHCUTS_TRANSCRIPTION_PROVIDER: "mock",
+    MATCHCUTS_TRANSCRIPTION_PROVIDER: String(rawValue(env, "MATCHCUTS_TRANSCRIPTION_PROVIDER") || "mock"),
     SHORTSENGINE_AUTH_MODE: "local",
   };
 }
@@ -3253,7 +3269,7 @@ function startServer(port, env) {
   return { child, dataDir, events };
 }
 
-async function stopServer(child, dataDir = null) {
+async function stopServer(child, dataDir = null, preserveData = false) {
   if (child && child.exitCode === null && !child.signalCode) {
     child.kill("SIGTERM");
     await Promise.race([
@@ -3263,7 +3279,7 @@ async function stopServer(child, dataDir = null) {
       }),
     ]);
   }
-  if (dataDir) {
+  if (dataDir && !preserveData) {
     try {
       rmSync(dataDir, { recursive: true, force: true });
     } catch {
@@ -3510,7 +3526,9 @@ async function runYouTubeLiveE2E(options = {}) {
     const strictOutputValidation = options.requireOutputValidation !== undefined
       ? Boolean(options.requireOutputValidation)
       : !options.runYouTubeSmoke;
-    const expectedCountedGoals = Number(outputProof.expectedCountedGoals);
+    const expectedCountedGoals = outputProof.expectedCountedGoals === null || outputProof.expectedCountedGoals === undefined
+      ? Number.NaN
+      : Number(outputProof.expectedCountedGoals);
     const countedGoalsIncluded = Number(outputProof.countedGoalsIncluded);
     const countedGoalCoveragePassed = !Number.isFinite(expectedCountedGoals) ||
       countedGoalsIncluded === expectedCountedGoals;
@@ -3659,7 +3677,11 @@ async function runYouTubeLiveE2E(options = {}) {
   } finally {
     if (server) {
       serverEvents.push(...(server.events || []));
-      await deps.stopServer(server.child, server.dataDir);
+      await deps.stopServer(
+        server.child,
+        server.dataDir,
+        boolFromEnv(rawValue(env, "SHORTSENGINE_YOUTUBE_LIVE_E2E_PRESERVE_DATA")),
+      );
     }
     if ((!outputProof || outputProof.outputMp4 === null) && serverEvents.length) {
       const refreshedOutputProof = buildFailedOutputProof({ env, source, smoke, serverEvents, staleArtifactCleanup });
@@ -3761,5 +3783,6 @@ export {
   isManagedLiveProofMp4,
   liveServerEnvironment,
   smokeEnvForLive,
+  waitForServerReady,
   writeYouTubeLiveE2EReport,
 };

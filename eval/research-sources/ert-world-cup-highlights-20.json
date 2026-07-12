@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "datasetId": "ert-world-cup-2026-highlights-20",
+  "collectedAt": "2026-07-11T00:00:00.000Z",
+  "source": {
+    "channel": "ΕΡΤ Α.Ε.",
+    "channelUrl": "https://www.youtube.com/@ert",
+    "playlistId": "PLgeq7ezNgWe-uqoEOs6gl_hA0lqLOQjYl",
+    "playlistTitle": "Μουντιάλ 2026 | Highlights",
+    "playlistUrl": "https://www.youtube.com/playlist?list=PLgeq7ezNgWe-uqoEOs6gl_hA0lqLOQjYl",
+    "selection": "first_20_available_entries_on_2026_07_11"
+  },
+  "rights": {
+    "status": "confirmed_by_operator",
+    "benchmarkEligible": true,
+    "confirmedAt": "2026-07-11",
+    "confirmationBasis": "Operator explicitly confirmed download, editing, and republication rights for this ERT playlist in the Codex task."
+  },
+  "videos": [
+    { "index": 1, "videoId": "rpZvef8PqBg", "title": "Μουντιάλ 2026 | Φάση 8 | Ισπανία - Βέλγιο | Highlights", "url": "https://www.youtube.com/watch?v=rpZvef8PqBg", "finalScore": "2-1", "expectedCountedGoals": 3, "rightsConfirmed": true },
+    { "index": 2, "videoId": "62aI0U9KGz0", "title": "Μουντιάλ 2026 | Φάση 8 | Γαλλία - Μαρόκο | Highlights", "url": "https://www.youtube.com/watch?v=62aI0U9KGz0", "finalScore": "2-0", "expectedCountedGoals": 2, "rightsConfirmed": true },
+    { "index": 3, "videoId": "DPHDINkI7Vk", "title": "Μουντιάλ 2026 | Φάση 16 | Ελβετία - Κολομβία | Highlights", "url": "https://www.youtube.com/watch?v=DPHDINkI7Vk", "finalScore": "0-0", "shootoutScore": "4-3", "expectedCountedGoals": 0, "expectedSuccessfulShootoutPenalties": 7, "rightsConfirmed": true },
+    { "index": 4, "videoId": "cHfkLO_FIQA", "title": "Μουντιάλ 2026 | Φάση 16 | Αργεντινή - Αίγυπτος | Highlights", "url": "https://www.youtube.com/watch?v=cHfkLO_FIQA", "finalScore": "3-2", "expectedCountedGoals": 5, "rightsConfirmed": true },
+    { "index": 5, "videoId": "4Mfri3S5lec", "title": "Μουντιάλ 2026 | Φάση 16 | ΗΠΑ - Βέλγιο | Highlights", "url": "https://www.youtube.com/watch?v=4Mfri3S5lec", "finalScore": "1-4", "expectedCountedGoals": 5, "rightsConfirmed": true },
+    { "index": 6, "videoId": "30fBhTyPnZs", "title": "Μουντιάλ 2026 | Φάση 16 | Πορτογαλία - Ισπανία | Highlights", "url": "https://www.youtube.com/watch?v=30fBhTyPnZs", "finalScore": "0-1", "expectedCountedGoals": 1, "rightsConfirmed": true },
+    { "index": 7, "videoId": "6hWcBjLtvhU", "title": "Μουντιάλ 2026 | Φάση 16 | Μεξικό - Αγγλία | Highlights", "url": "https://www.youtube.com/watch?v=6hWcBjLtvhU", "finalScore": "2-3", "expectedCountedGoals": 5, "rightsConfirmed": true },
+    { "index": 8, "videoId": "CgHOzEXyTrM", "title": "Μουντιάλ 2026 | Φάση 16 | Βραζιλία - Νορβηγία | Highlights", "url": "https://www.youtube.com/watch?v=CgHOzEXyTrM", "finalScore": "1-2", "expectedCountedGoals": 3, "rightsConfirmed": true },
+    { "index": 9, "videoId": "7UNUhmUF7vg", "title": "Μουντιάλ 2026 | Φάση 16 | Παραγουάη - Γαλλία | Highlights", "url": "https://www.youtube.com/watch?v=7UNUhmUF7vg", "finalScore": "0-1", "expectedCountedGoals": 1, "rightsConfirmed": true },
+    { "index": 10, "videoId": "rzjm_Mjwhdg", "title": "Μουντιάλ 2026 | Φάση 16 | Καναδάς - Μαρόκο | Highlights", "url": "https://www.youtube.com/watch?v=rzjm_Mjwhdg", "finalScore": "0-3", "expectedCountedGoals": 3, "rightsConfirmed": true },
+    { "index": 11, "videoId": "cG8lLGRV1ZE", "title": "Μουντιάλ 2026 | Φάση 32 | Κολομβία - Γκάνα | Highlights", "url": "https://www.youtube.com/watch?v=cG8lLGRV1ZE", "finalScore": "1-0", "expectedCountedGoals": 1, "rightsConfirmed": true },
+    { "index": 12, "videoId": "WuuGus5Obkg", "title": "Μουντιάλ 2026 | Φάση 32 | Αργεντινή - Πράσινο Ακρωτήρι | Highlights", "url": "https://www.youtube.com/watch?v=WuuGus5Obkg", "finalScore": "3-2", "expectedCountedGoals": 5, "rightsConfirmed": true },
+    { "index": 13, "videoId": "IaiZ7QfDYVg", "title": "Μουντιάλ 2026 | Φάση 32 | Αυστραλία - Αίγυπτος | Highlights", "url": "https://www.youtube.com/watch?v=IaiZ7QfDYVg", "finalScore": "1-1", "shootoutScore": "2-4", "expectedCountedGoals": 2, "expectedSuccessfulShootoutPenalties": 6, "rightsConfirmed": true },
+    { "index": 14, "videoId": "qHaxzDpfy6U", "title": "Μουντιάλ 2026 | Φάση 32 | Πορτογαλία - Κροατία | Highlights", "url": "https://www.youtube.com/watch?v=qHaxzDpfy6U", "finalScore": "2-1", "expectedCountedGoals": 3, "rightsConfirmed": true },
+    { "index": 15, "videoId": "wPls2z-4OQQ", "title": "Μουντιάλ 2026 | Φάση 32 | Ελβετία - Αλγερία | Highlights", "url": "https://www.youtube.com/watch?v=wPls2z-4OQQ", "finalScore": "2-0", "expectedCountedGoals": 2, "rightsConfirmed": true },
+    { "index": 16, "videoId": "z3uRQu3rKDo", "title": "Μουντιάλ 2026 | Φάση 32 | Ισπανία - Αυστρία | Highlights", "url": "https://www.youtube.com/watch?v=z3uRQu3rKDo", "finalScore": "3-0", "expectedCountedGoals": 3, "rightsConfirmed": true },
+    { "index": 17, "videoId": "EaI3gEoo7Co", "title": "Μουντιάλ 2026 | Φάση 32 | ΗΠΑ - Βοσνία & Ερζεγοβίνη | Highlights", "url": "https://www.youtube.com/watch?v=EaI3gEoo7Co", "finalScore": "2-0", "expectedCountedGoals": 2, "rightsConfirmed": true },
+    { "index": 18, "videoId": "CO0gDnjv1kg", "title": "Μουντιάλ 2026 | Φάση 32 | Βέλγιο - Σενεγάλη | Highlights", "url": "https://www.youtube.com/watch?v=CO0gDnjv1kg", "finalScore": "3-2", "expectedCountedGoals": 5, "rightsConfirmed": true },
+    { "index": 19, "videoId": "VlNndw_tEbc", "title": "Μουντιάλ 2026 | Φάση 32 | Αγγλία - Λ.Δ. Κονγκό | Highlights", "url": "https://www.youtube.com/watch?v=VlNndw_tEbc", "finalScore": "2-1", "expectedCountedGoals": 3, "rightsConfirmed": true },
+    { "index": 20, "videoId": "5xiO-5wySFI", "title": "Μουντιάλ 2026 | Φάση 32 | Μεξικό - Εκουαδόρ | Highlights", "url": "https://www.youtube.com/watch?v=5xiO-5wySFI", "finalScore": "2-0", "expectedCountedGoals": 2, "rightsConfirmed": true }
+  ]
+}

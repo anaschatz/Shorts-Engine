@@ -151,6 +151,30 @@ test("rendered goal proof preserves 9:16 output dimensions for sampled frames", 
   assert.equal(receivedMetadata.height, 1920);
 });
 
+test("rendered goal proof samples a top-level single-goal plan without a segments array", async () => {
+  const segment = goalSegment();
+  let candidateWindowCount = 0;
+  const result = await analyzeRenderedGoalProof({
+    outputPath: "rendered-output.mp4",
+    editPlan: {
+      ...editPlan(segment),
+      ...segment,
+      segments: [],
+    },
+    extractFrames: async ({ candidateWindows }) => {
+      candidateWindowCount = candidateWindows.length;
+      return { frames: clearFramesFromWindows(candidateWindows) };
+    },
+    writeJson: () => {},
+  });
+
+  assert.equal(result.summary.goalCount, 1);
+  assert.equal(result.summary.clearGoalCount, 1);
+  assert.equal(candidateWindowCount > 0, true);
+  assert.equal(result.editPlan.segments.length, 1);
+  assert.equal(result.editPlan.segments[0].finishFrameEvidence.visibilityVerdict, "clear");
+});
+
 test("rendered goal proof ignores stale source proof without rendered support frames", async () => {
   const result = await analyzeRenderedGoalProof({
     outputPath: "rendered-output.mp4",

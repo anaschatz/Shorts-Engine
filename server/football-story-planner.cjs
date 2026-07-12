@@ -458,7 +458,7 @@ function shouldUseEvidenceContext({ highlightType, reasonCodes, visualEvidenceSu
   return hasVisualEvidence(visualEvidenceSummary) && ["skill_move", "card_moment"].includes(highlightType);
 }
 
-function storyDurationFor({ metadata = {}, selectedMoment = {}, editIntensity }) {
+function storyDurationFor({ metadata = {}, selectedMoment = {}, editIntensity, compositionMode = "auto" }) {
   const mediaDuration = Math.max(0, Number(metadata.durationSeconds || 0));
   const momentDuration = Math.max(0, Number(selectedMoment.end || 0) - Number(selectedMoment.start || 0));
   const intensity = normalizeEditIntensity(editIntensity);
@@ -472,18 +472,21 @@ function storyDurationFor({ metadata = {}, selectedMoment = {}, editIntensity })
       ? (intensity === "punchy" ? 16 : intensity === "clean" ? 12 : 18)
     : (intensity === "punchy" ? 14 : intensity === "clean" ? 10 : 12);
   const minDuration = goalStory ? 12 : reactionAnchored ? 12 : 8;
-  const maxDuration = goalStory ? (decisionAwareGoal ? 30 : 22) : 25;
+  const singleMomentNonGoalCap = compositionMode === "single_moment" && !goalStory ? 18 : null;
+  const maxDuration = goalStory
+    ? (decisionAwareGoal ? 30 : 22)
+    : singleMomentNonGoalCap || 25;
   const desired = Math.max(minDuration, Math.min(maxDuration, Math.max(momentDuration, target)));
   if (mediaDuration > 0) return Math.min(mediaDuration, desired);
   return desired;
 }
 
-function sourceWindowForMoment({ selectedMoment = {}, metadata = {}, editIntensity }) {
+function sourceWindowForMoment({ selectedMoment = {}, metadata = {}, editIntensity, compositionMode = "auto" }) {
   const mediaDuration = Math.max(0, Number(metadata.durationSeconds || 0));
   const center = Number.isFinite(Number(selectedMoment.center))
     ? Number(selectedMoment.center)
     : (Number(selectedMoment.start || 0) + Number(selectedMoment.end || 0)) / 2;
-  const duration = storyDurationFor({ metadata, selectedMoment, editIntensity });
+  const duration = storyDurationFor({ metadata, selectedMoment, editIntensity, compositionMode });
   if (!mediaDuration || mediaDuration <= duration) {
     return {
       sourceStart: 0,
@@ -521,7 +524,9 @@ function sourceWindowForMoment({ selectedMoment = {}, metadata = {}, editIntensi
 function captionTiming(duration, index, count) {
   const segment = Math.max(1.1, duration / count);
   const start = Number(Math.min(duration - 0.4, index * segment).toFixed(2));
-  const end = Number(Math.min(duration, start + Math.max(1.2, segment - 0.18)).toFixed(2));
+  const maxBeatDuration = index === 0 ? 2 : index === count - 1 ? 2.4 : 2.8;
+  const beatDuration = Math.min(maxBeatDuration, Math.max(1.2, segment - 0.18));
+  const end = Number(Math.min(duration, start + beatDuration).toFixed(2));
   return { start, end };
 }
 
@@ -777,6 +782,7 @@ function createFootballStoryPlan(input = {}) {
     selectedMoment,
     metadata: input.metadata || {},
     editIntensity,
+    compositionMode: input.compositionMode,
   });
   const duration = Math.max(0.4, sourceEnd - sourceStart);
   const reasonCodes = Array.isArray(selectedMoment.reasonCodes) ? selectedMoment.reasonCodes : [];

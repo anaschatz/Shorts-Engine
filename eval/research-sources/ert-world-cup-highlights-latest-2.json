@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "datasetId": "ert-world-cup-2026-highlights-latest-2-2026-07-12",
+  "collectedAt": "2026-07-12T19:25:00.000+03:00",
+  "source": {
+    "channel": "ΕΡΤ Α.Ε.",
+    "channelUrl": "https://www.youtube.com/@ert",
+    "playlistId": "PLgeq7ezNgWe-uqoEOs6gl_hA0lqLOQjYl",
+    "playlistTitle": "Μουντιάλ 2026 | Highlights",
+    "playlistUrl": "https://www.youtube.com/playlist?list=PLgeq7ezNgWe-uqoEOs6gl_hA0lqLOQjYl",
+    "selection": "two_newest_entries_not_present_in_ert_world_cup_highlights_20"
+  },
+  "rights": {
+    "status": "confirmed_by_operator",
+    "benchmarkEligible": true,
+    "confirmedAt": "2026-07-11",
+    "confirmationBasis": "Operator explicitly confirmed download, editing, and republication rights for this ERT playlist in the Codex task."
+  },
+  "videos": [
+    {
+      "index": 1,
+      "videoId": "7lRvNspMC0s",
+      "title": "Μουντιάλ 2026 | Προημιτελικός | Αργεντινή - Ελβετία | Highlights",
+      "url": "https://www.youtube.com/watch?v=7lRvNspMC0s",
+      "finalScore": "3-1",
+      "expectedCountedGoals": 4,
+      "rightsConfirmed": true,
+      "sourceDurationSeconds": 641.335,
+      "sourceResolution": "1920x1080"
+    },
+    {
+      "index": 2,
+      "videoId": "c9sPKvU1Qlo",
+      "title": "Μουντιάλ 2026 | Προημιτελικός | Νορβηγία - Αγγλία | Highlights",
+      "url": "https://www.youtube.com/watch?v=c9sPKvU1Qlo",
+      "finalScore": "1-2",
+      "expectedCountedGoals": 3,
+      "containsDisallowedGoals": true,
+      "rightsConfirmed": true,
+      "sourceDurationSeconds": 746.261,
+      "sourceResolution": "1920x1080"
+    }
+  ]
+}

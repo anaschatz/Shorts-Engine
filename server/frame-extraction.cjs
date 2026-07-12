@@ -162,6 +162,8 @@ function publicFrameSummary(result) {
       sampledWindows: Number(safe.summary && safe.summary.sampledWindows || 0),
       skippedWindows: Number(safe.summary && safe.summary.skippedWindows || 0),
       extractionMs: Number(safe.summary && safe.summary.extractionMs || 0),
+      sequentialRetryUsed: Boolean(safe.summary && safe.summary.sequentialRetryUsed),
+      reason: sanitizeText(safe.summary && safe.summary.reason || "", 60) || null,
     },
     frames: Array.isArray(safe.frames)
       ? safe.frames.map((frame) => ({
@@ -279,7 +281,7 @@ async function extractSampledFrames(input = {}) {
     for (let start = 0; start < normalized.windows.length; start += normalized.maxConcurrency) {
       const chunk = normalized.windows.slice(start, start + normalized.maxConcurrency);
       // eslint-disable-next-line no-await-in-loop
-      await Promise.all(chunk.map(async (window, offset) => {
+      const results = await Promise.allSettled(chunk.map(async (window, offset) => {
         const index = start + offset;
         if (normalized.signal && normalized.signal.aborted) {
           throw new AppError("JOB_CANCELLED", SAFE_MESSAGES.JOB_CANCELLED, 409);
@@ -316,10 +318,26 @@ async function extractSampledFrames(input = {}) {
           visualHints: window.visualHints,
         };
       }));
+      const failure = results.find((result) => result.status === "rejected");
+      if (failure) throw failure.reason;
     }
   } catch (error) {
     if (error && error.code === "JOB_CANCELLED") throw error;
     cleanupSampledFrames({ outputDir: normalized.outputDir, frames: frameSlots.filter(Boolean) });
+    if (normalized.maxConcurrency > 1) {
+      const retried = await extractSampledFrames({
+        ...input,
+        outputDir: normalized.outputDir,
+        maxConcurrency: 1,
+      });
+      return {
+        ...retried,
+        summary: {
+          ...retried.summary,
+          sequentialRetryUsed: true,
+        },
+      };
+    }
     return mockFrameExtraction({
       outputDir: normalized.outputDir,
       startedAt,
@@ -338,6 +356,7 @@ async function extractSampledFrames(input = {}) {
       skippedWindows: Math.max(0, normalized.windows.length - frames.length),
       extractionMs: Date.now() - startedAt,
       maxConcurrency: normalized.maxConcurrency,
+      sequentialRetryUsed: false,
     },
   }, normalized.outputDir);
 }

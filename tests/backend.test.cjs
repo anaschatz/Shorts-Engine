@@ -36,7 +36,9 @@ const {
   MAX_JSON_BODY_BYTES,
   MAX_MULTIPART_FIELD_BYTES,
   jobs,
+  contentArtifactRepository,
 } = require("../server/app.cjs");
+const { createQaReport, gate } = require("../server/pipelines/narrated-short/qa/contract.cjs");
 
 const mp4Header = Buffer.from([
   0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d,
@@ -246,6 +248,29 @@ async function postJson(url, payload) {
     },
     body,
   });
+  const res = mockResponse();
+  await route(req, res);
+  return { res, payload: JSON.parse(res.body.toString("utf8")) };
+}
+
+async function postMultipart(url, parts) {
+  const multipart = makeMultipartParts(parts);
+  const req = mockRequest({
+    method: "POST",
+    url,
+    headers: {
+      "content-type": multipart.contentType,
+      "content-length": String(multipart.body.length),
+    },
+    body: multipart.body,
+  });
+  const res = mockResponse();
+  await route(req, res);
+  return { res, payload: JSON.parse(res.body.toString("utf8")) };
+}
+
+async function getJson(url) {
+  const req = mockRequest({ method: "GET", url });
   const res = mockResponse();
   await route(req, res);
   return { res, payload: JSON.parse(res.body.toString("utf8")) };
@@ -1441,6 +1466,205 @@ test("public human review summary drops stale media refs when live verification 
     assert.equal(publicReport.productReady, false);
   } finally {
     rmSync(existingPath, { force: true });
+  }
+});
+
+test("narrated project API creates drafts and records exact approval revisions", async () => {
+  const fixture = JSON.parse(readFileSync(resolve(__dirname, "..", "eval", "narrated", "fixtures", "001_overload_explainer.json"), "utf8"));
+  const created = await postJson("/api/narrated-projects", fixture);
+  assert.equal(created.res.statusCode, 201);
+  assert.equal(created.payload.ok, true);
+  assert.equal(created.payload.data.project.projectType, "narrated_short");
+  assert.equal(created.payload.data.project.uploadId, null);
+  assert.equal(created.payload.data.artifacts.length, 4);
+
+  const projectId = created.payload.data.project.id;
+  const drafted = await postJson(`/api/narrated-projects/${projectId}/draft`, {});
+  assert.equal(drafted.res.statusCode, 202);
+  const jobId = drafted.payload.data.job.id;
+  let job = jobs.get(jobId);
+  for (let attempt = 0; attempt < 50 && !["completed", "failed"].includes(job.status); attempt += 1) {
+    await new Promise((resolveNow) => setImmediate(resolveNow));
+    job = jobs.get(jobId);
+  }
+  assert.equal(job.status, "completed");
+  assert.equal(job.step, "draft_ready_for_approval");
+  assert.match(job.contentDraft.artifactId, /^art_/);
+
+  const approved = await postJson(`/api/narrated-projects/${projectId}/approve`, {
+    draftArtifactId: job.contentDraft.artifactId,
+    draftHash: job.contentDraft.contentHash,
+    voiceProfileId: "voice_en_01",
+    renderProfile: "preview",
+    operatorNote: "backend fixture approved",
+  });
+  assert.equal(approved.res.statusCode, 201);
+  assert.equal(approved.payload.data.approval.projectRevision, 1);
+  assert.equal(approved.payload.data.approval.draftHash, job.contentDraft.contentHash);
+  const artifactIds = ["c", "d", "e", "f", "a", "b", "c"];
+  const qaBindings = {
+    draftArtifactId: job.contentDraft.artifactId, draftHash: job.contentDraft.contentHash, scriptHash: "1".repeat(64),
+    narrationManifestArtifactId: `art_${artifactIds[0].repeat(40)}`, narrationManifestHash: "2".repeat(64), audioArtifactId: `art_${artifactIds[1].repeat(40)}`, audioHash: "3".repeat(64),
+    alignmentArtifactId: `art_${artifactIds[2].repeat(40)}`, alignmentHash: "4".repeat(64), captionManifestArtifactId: `art_${artifactIds[3].repeat(40)}`, captionManifestHash: "5".repeat(64),
+    captionAssArtifactId: `art_${artifactIds[4].repeat(40)}`, captionAssHash: "6".repeat(64), audioNormalizationReportArtifactId: `art_${artifactIds[5].repeat(40)}`, audioNormalizationReportHash: "7".repeat(64),
+    timelineArtifactId: `art_${artifactIds[6].repeat(40)}`, timelineHash: "8".repeat(64), outputHash: "9".repeat(64),
+  };
+  const qaReport = createQaReport({ projectId, projectRevision: 1, renderProfile: "preview", bindings: qaBindings, gates: [gate("AUDIO_ALIGNMENT_EXACT", "audio", true), gate("CAPTION_ALIGNMENT_EXACT", "caption", true), gate("CONTENT_APPROVAL_EXACT", "content", true), gate("VIDEO_FILE_READABLE", "rendered_video", true), gate("RIGHTS_NARRATION_COMMERCIAL", "rights", true), gate("TIMELINE_HASH_VALID", "timeline", true)] });
+  const qaArtifact = contentArtifactRepository.createJson({ type: "qa_report", projectId, revision: 1, dependencyHashes: [job.contentDraft.contentHash, qaBindings.outputHash], body: qaReport });
+  const qaResponse = await getJson(`/api/narrated-projects/${projectId}/qa`);
+  assert.equal(qaResponse.res.statusCode, 200);
+  assert.equal(qaResponse.payload.data.qa.qaPassed, true);
+  assert.equal(qaResponse.payload.data.qa.status, "passed");
+  assert.equal(qaResponse.payload.data.qa.qaReportArtifactId, qaArtifact.artifact.id);
+  assert.doesNotMatch(JSON.stringify(qaResponse.payload.data.qa), /storageKey|outputPath|ffprobe|stderr|stdout/i);
+});
+
+test("Dark Curiosity API allows drafting but blocks final rendering while the vertical is preview-only", async () => {
+  const fixture = JSON.parse(readFileSync(
+    resolve(__dirname, "..", "eval", "narrated", "dark-curiosity", "fixtures", "001_wow_signal_mystery.json"),
+    "utf8",
+  ));
+  const created = await postJson("/api/narrated-projects", fixture);
+  assert.equal(created.res.statusCode, 201);
+  assert.equal(created.payload.data.project.projectType, "narrated_short");
+  assert.equal(created.payload.data.project.title, "The signal that appeared once");
+  const projectId = created.payload.data.project.id;
+
+  const drafted = await postJson(`/api/narrated-projects/${projectId}/draft`, {});
+  assert.equal(drafted.res.statusCode, 202);
+  let draftJob = jobs.get(drafted.payload.data.job.id);
+  for (let attempt = 0; attempt < 50 && !["completed", "failed"].includes(draftJob.status); attempt += 1) {
+    await new Promise((resolveNow) => setImmediate(resolveNow));
+    draftJob = jobs.get(draftJob.id);
+  }
+  assert.equal(draftJob.status, "completed");
+  assert.equal(draftJob.contentDraft.formatId, "documented_mystery_v1");
+
+  const approved = await postJson(`/api/narrated-projects/${projectId}/approve`, {
+    draftArtifactId: draftJob.contentDraft.artifactId,
+    draftHash: draftJob.contentDraft.contentHash,
+    voiceProfileId: "voice_en_01",
+    renderProfile: "final",
+  });
+  assert.equal(approved.res.statusCode, 201);
+
+  const unsafeRender = await postJson(`/api/narrated-projects/${projectId}/render`, { audioPath: "/tmp/injected.wav" });
+  assert.equal(unsafeRender.res.statusCode, 400);
+  assert.equal(unsafeRender.payload.error.code, "VALIDATION_ERROR");
+  const render = await postJson(`/api/narrated-projects/${projectId}/render`, {});
+  assert.equal(render.res.statusCode, 202);
+  let renderJob = jobs.get(render.payload.data.job.id);
+  for (let attempt = 0; attempt < 50 && !["completed", "failed"].includes(renderJob.status); attempt += 1) {
+    await new Promise((resolveNow) => setImmediate(resolveNow));
+    renderJob = jobs.get(renderJob.id);
+  }
+  assert.equal(renderJob.status, "failed");
+  assert.equal(renderJob.error.code, "NARRATION_ALIGNMENT_REQUIRED");
+});
+
+test("Dark Curiosity revise API is revisioned, idempotent, strict, and exposes bounded invalidation", async () => {
+  const fixture = JSON.parse(readFileSync(resolve(__dirname, "..", "eval", "narrated", "dark-curiosity", "fixtures", "001_wow_signal_mystery.json"), "utf8"));
+  const created = await postJson("/api/narrated-projects", fixture);
+  assert.equal(created.res.statusCode, 201);
+  const projectId = created.payload.data.project.id;
+  const styled = JSON.parse(JSON.stringify(fixture));
+  styled.storyboard.scenes[0].operations[0].text = "The signal appeared only once";
+  const revised = await postJson(`/api/narrated-projects/${projectId}/revise`, { expectedRevision: 1, changeType: "style_only", bundle: styled, idempotencyKey: "backend-style-revision-001" });
+  assert.equal(revised.res.statusCode, 201);
+  assert.equal(revised.payload.data.project.input.revision, 2);
+  assert.equal(revised.payload.data.invalidation.changeType, "style_only");
+  assert.equal(revised.payload.data.invalidation.approvalRequired, true);
+  assert.match(revised.payload.data.draft.artifact.id, /^art_/);
+  assert.doesNotMatch(JSON.stringify(revised.payload.data), /storageKey|outputPath|localPath|rawProvider|\/Users/i);
+  const replay = await postJson(`/api/narrated-projects/${projectId}/revise`, { expectedRevision: 1, changeType: "style_only", bundle: styled, idempotencyKey: "backend-style-revision-001" });
+  assert.equal(replay.res.statusCode, 200);
+  assert.equal(replay.payload.data.project.input.revision, 2);
+  assert.equal(replay.payload.data.replayed, true);
+  const invalid = JSON.parse(JSON.stringify(styled)); invalid.script.title = "Changed script under style-only";
+  const mismatch = await postJson(`/api/narrated-projects/${projectId}/revise`, { expectedRevision: 2, changeType: "style_only", bundle: invalid });
+  assert.equal(mismatch.res.statusCode, 409);
+  assert.equal(mismatch.payload.error.code, "REVISION_CHANGE_TYPE_MISMATCH");
+  const content = JSON.parse(JSON.stringify(styled)); content.brief.operatorNotes = "Re-check every source before approval.";
+  const contentRevision = await postJson(`/api/narrated-projects/${projectId}/revise`, { expectedRevision: 2, changeType: "content", bundle: content, idempotencyKey: "backend-content-revision-01" });
+  assert.equal(contentRevision.res.statusCode, 201);
+  assert.equal(contentRevision.payload.data.project.input.revision, 3);
+  assert.equal(contentRevision.payload.data.project.input.activeNarration, null);
+  const current = await getJson(`/api/narrated-projects/${projectId}`);
+  assert.equal(current.payload.data.invalidation.currentRevision, 3);
+  assert.equal(current.payload.data.approval, null);
+});
+
+test("Dark Curiosity publish approval API is authenticated, strict, and fails closed without a current technical final", async () => {
+  const fixture = JSON.parse(readFileSync(resolve(__dirname, "..", "eval", "narrated", "dark-curiosity", "fixtures", "001_wow_signal_mystery.json"), "utf8"));
+  const created = await postJson("/api/narrated-projects", fixture); const projectId = created.payload.data.project.id;
+  const payload = { expectedRevision: 1, finalOutputHash: "1".repeat(64), qaReportArtifactId: `art_${"2".repeat(40)}`, qaReportHash: "3".repeat(64), exportMetadataArtifactId: `art_${"4".repeat(40)}`, exportMetadataHash: "5".repeat(64), operatorDecision: "approve", warningAcknowledgements: [], operatorNote: "Reviewed exact technical evidence.", idempotencyKey: "backend-publish-0001" };
+  const blocked = await postJson(`/api/narrated-projects/${projectId}/publish-approve`, payload); assert.equal(blocked.res.statusCode, 409); assert.equal(blocked.payload.error.code, "PUBLISH_GUARD_BLOCKED"); assert.doesNotMatch(JSON.stringify(blocked.payload), /storageKey|outputPath|\/Users|tokenHash/i);
+  const invalid = await postJson(`/api/narrated-projects/${projectId}/publish-approve`, { ...payload, force: true }); assert.equal(invalid.res.statusCode, 400); assert.equal(invalid.payload.error.code, "PUBLISH_APPROVAL_INVALID");
+  const verify = await postJson(`/api/narrated-projects/${projectId}/release-verify`, { releaseToken: "x".repeat(43), outputHash: "1".repeat(64) }); assert.equal(verify.res.statusCode, 409); assert.equal(verify.payload.error.code, "RELEASE_TOKEN_REVOKED");
+});
+
+test("Dark Curiosity narration API stores a rights-bound WAV without leaking storage paths", async (t) => {
+  if (!commandAvailable(CONFIG.ffmpegBin) || !commandAvailable(CONFIG.ffprobeBin)) {
+    t.skip("FFmpeg/ffprobe not installed in this environment");
+    return;
+  }
+  const fixture = JSON.parse(readFileSync(
+    resolve(__dirname, "..", "eval", "narrated", "dark-curiosity", "fixtures", "001_wow_signal_mystery.json"),
+    "utf8",
+  ));
+  const created = await postJson("/api/narrated-projects", fixture);
+  const projectId = created.payload.data.project.id;
+  const drafted = await postJson(`/api/narrated-projects/${projectId}/draft`, {});
+  let draftJob = jobs.get(drafted.payload.data.job.id);
+  for (let attempt = 0; attempt < 50 && !["completed", "failed"].includes(draftJob.status); attempt += 1) {
+    await new Promise((resolveNow) => setImmediate(resolveNow));
+    draftJob = jobs.get(draftJob.id);
+  }
+  assert.equal(draftJob.status, "completed");
+  const approved = await postJson(`/api/narrated-projects/${projectId}/approve`, {
+    draftArtifactId: draftJob.contentDraft.artifactId,
+    draftHash: draftJob.contentDraft.contentHash,
+    voiceProfileId: "operator_voice_01",
+    renderProfile: "preview",
+  });
+  assert.equal(approved.res.statusCode, 201);
+
+  const wavPath = join(CONFIG.tmpDir, `api-narration-${projectId}.wav`);
+  try {
+    const generated = spawnSync(CONFIG.ffmpegBin, [
+      "-y", "-f", "lavfi", "-i", "sine=frequency=330:sample_rate=48000:duration=1.2",
+      "-ac", "1", "-c:a", "pcm_s16le", wavPath,
+    ], { stdio: "ignore" });
+    assert.equal(generated.status, 0);
+    const uploaded = await postMultipart(`/api/narrated-projects/${projectId}/narration`, [
+      { fieldName: "narration", fileName: "operator.wav", mimeType: "application/octet-stream", content: readFileSync(wavPath) },
+      { fieldName: "draftArtifactId", content: draftJob.contentDraft.artifactId },
+      { fieldName: "draftHash", content: draftJob.contentDraft.contentHash },
+      { fieldName: "projectRevision", content: "1" },
+      { fieldName: "voiceProfileId", content: "operator_voice_01" },
+      { fieldName: "language", content: "en" },
+      { fieldName: "commercialUseAllowed", content: "true" },
+      { fieldName: "ownershipBasis", content: "self_recorded" },
+      { fieldName: "rightsHolder", content: "Backend Fixture Operator" },
+      { fieldName: "consentReference", content: "backend_operator_consent_v1" },
+    ]);
+    assert.equal(uploaded.res.statusCode, 201);
+    assert.equal(uploaded.payload.data.narration.status, "uploaded_unaligned");
+    assert.equal(uploaded.payload.data.narration.renderReady, false);
+    assert.equal(uploaded.payload.data.narration.media.sampleRate, 48000);
+    assert.equal(uploaded.payload.data.project.input.activeNarration.audioArtifactId, uploaded.payload.data.audioArtifact.id);
+    assert.equal(uploaded.payload.data.audioArtifact.type, "narration_audio");
+    const publicJson = JSON.stringify(uploaded.payload.data);
+    assert.doesNotMatch(publicJson, /"(?:path|storageKey|localPath|stderr)"/);
+    assert.doesNotMatch(publicJson, new RegExp(CONFIG.dataDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    const firstAlignment = await postJson(`/api/narrated-projects/${projectId}/narration/align`, {});
+    const repeatedAlignment = await postJson(`/api/narrated-projects/${projectId}/narration/align`, {});
+    assert.equal(firstAlignment.res.statusCode, 202);
+    assert.equal(firstAlignment.payload.data.job.action, "align_narration");
+    assert.equal(repeatedAlignment.payload.data.job.id, firstAlignment.payload.data.job.id);
+    assert.doesNotMatch(JSON.stringify(firstAlignment.payload.data.job), /audioPath|storageKey|stdout|stderr|pythonBin|model cache/i);
+  } finally {
+    rmSync(wavPath, { force: true });
   }
 });
 

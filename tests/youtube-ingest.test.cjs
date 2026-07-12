@@ -9,6 +9,7 @@ const {
   buildDownloaderArgs,
   buildMetadataArgs,
   createLocalYouTubeIngestAdapter,
+  downloaderAvailable,
   downloaderVersion,
   formatStrategySummary,
   parseMetadataOutput,
@@ -1054,6 +1055,12 @@ test("local youtube downloader adapter exposes safe format strategy and version 
     available: true,
     version: "2026.01.01",
   });
+  let probeOptions = null;
+  assert.equal(downloaderAvailable("yt-dlp", (_command, _args, options) => {
+    probeOptions = options;
+    return { status: 0 };
+  }), true);
+  assert.equal(probeOptions.timeout, 5000);
   const args = buildDownloaderArgs(
     normalizeYouTubeUrl("https://youtu.be/dQw4w9WgXcQ"),
     createYouTubeStagePaths("upl_strategy-1234-1234-1234-123456789abc").outputPath,

@@ -1,0 +1,127 @@
+{
+  "brief": {
+    "schemaVersion": 1,
+    "formatId": "tactical_cause_effect_v1",
+    "language": "en",
+    "audience": "casual football fans",
+    "topic": "How an overload frees the weak-side runner",
+    "thesis": "The decisive movement happens away from the ball.",
+    "targetSeconds": 30,
+    "tone": "clear_direct",
+    "sourceRefs": ["src_01"],
+    "operatorNotes": "Use a generic 4-3-3 example and no real team branding."
+  },
+  "claimLedger": {
+    "schemaVersion": 1,
+    "sources": [
+      {
+        "id": "src_01",
+        "title": "Operator verified coaching reference",
+        "url": "https://example.com/coaching-reference",
+        "verifiedBy": "operator",
+        "verifiedAt": "2026-07-11T10:00:00.000Z",
+        "snapshotHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    "claims": [
+      {
+        "id": "claim_01",
+        "text": "The wide player pins the full-back while the midfielder attacks the half-space.",
+        "kind": "supported_fact",
+        "sourceIds": ["src_01"],
+        "operatorApproved": true
+      },
+      {
+        "id": "claim_02",
+        "text": "The useful movement can happen away from the ball.",
+        "kind": "analysis",
+        "sourceIds": [],
+        "operatorApproved": true
+      }
+    ]
+  },
+  "script": {
+    "schemaVersion": 1,
+    "title": "Watch the runner nobody tracks",
+    "estimatedSeconds": 30,
+    "beats": [
+      {
+        "id": "beat_01",
+        "role": "hook",
+        "spokenText": "The player who creates this chance never even needs to touch the ball.",
+        "onScreenText": "HE NEVER TOUCHES IT",
+        "claimIds": ["claim_02"]
+      },
+      {
+        "id": "beat_02",
+        "role": "setup",
+        "spokenText": "The winger stays wide and pins the full-back near the touchline.",
+        "onScreenText": "PIN THE FULL-BACK",
+        "claimIds": ["claim_01"]
+      },
+      {
+        "id": "beat_03",
+        "role": "mechanism",
+        "spokenText": "That opens the half-space, so the midfielder can run beyond the defender at exactly the right moment.",
+        "onScreenText": "ATTACK THE HALF-SPACE",
+        "claimIds": ["claim_01"]
+      },
+      {
+        "id": "beat_04",
+        "role": "payoff",
+        "spokenText": "Watch the movement away from the ball, because that is where the chance is really created.",
+        "onScreenText": "THE RUN CREATES THE CHANCE",
+        "claimIds": ["claim_02"]
+      }
+    ],
+    "provider": {
+      "mode": "manual",
+      "model": null,
+      "promptVersion": "manual_v1"
+    }
+  },
+  "storyboard": {
+    "schemaVersion": 1,
+    "scenes": [
+      {
+        "id": "scene_01",
+        "beatIds": ["beat_01"],
+        "template": "hook_text",
+        "reconstructionMode": "generic",
+        "durationFrames": 90,
+        "operations": []
+      },
+      {
+        "id": "scene_02",
+        "beatIds": ["beat_02"],
+        "template": "pitch_tactical_sequence",
+        "reconstructionMode": "illustrative",
+        "durationFrames": 210,
+        "operations": [
+          { "op": "place_player", "id": "A7", "team": "attack", "x": 0.16, "y": 0.22 },
+          { "op": "place_player", "id": "D2", "team": "defend", "x": 0.26, "y": 0.22 }
+        ]
+      },
+      {
+        "id": "scene_03",
+        "beatIds": ["beat_03"],
+        "template": "pitch_tactical_sequence",
+        "reconstructionMode": "illustrative",
+        "durationFrames": 300,
+        "operations": [
+          { "op": "place_player", "id": "A8", "team": "attack", "x": 0.43, "y": 0.50 },
+          { "op": "draw_run", "id": "A8", "from": [0.43, 0.50], "to": [0.70, 0.30], "startFrame": 42, "endFrame": 180 },
+          { "op": "highlight_zone", "shape": "half_space", "side": "left", "startFrame": 60, "endFrame": 240 }
+        ]
+      },
+      {
+        "id": "scene_04",
+        "beatIds": ["beat_04"],
+        "template": "payoff",
+        "reconstructionMode": "generic",
+        "durationFrames": 300,
+        "operations": []
+      }
+    ]
+  }
+}

@@ -6,6 +6,7 @@ const { validateEditPlan } = require("./edit-plan.cjs");
 const { cleanupSampledFrames, extractSampledFrames, publicFrameSummary } = require("./frame-extraction.cjs");
 const { analyzeGoalEvidence, mergeGoalEvidenceIntoVisualSignals, publicGoalEvidence } = require("./goal-evidence-provider.cjs");
 const { analyzeMatchEventTruth, publicMatchEventTruth } = require("./match-event-truth.cjs");
+const { createHumanReviewGate, publicHumanReviewGate } = require("./human-review-gate.cjs");
 const { sanitizeText } = require("./media.cjs");
 const { extractAudio, renderShort } = require("./render.cjs");
 const { analyzeRenderedGoalProof } = require("./rendered-goal-proof.cjs");
@@ -69,6 +70,12 @@ function isRegularFile(filePath) {
   }
 }
 
+function boundedEnvironmentNumber(name, fallback, min, max, env = process.env) {
+  const value = Number(env[name]);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(min, Math.min(max, Math.round(value)));
+}
+
 function createDefaultDependencies(overrides = {}) {
   const { LocalArtifactAdapter } = require("./adapters/local-artifact-adapter.cjs");
   const deps = {
@@ -94,6 +101,10 @@ function createDefaultDependencies(overrides = {}) {
     isRegularFile,
     logger: console,
     renderShort,
+    scoreboardOcrChunking: {
+      chunkSeconds: boundedEnvironmentNumber("SHORTSENGINE_SCOREBOARD_OCR_CHUNK_SECONDS", SCOREBUG_FIRST_CHUNK_SECONDS, 30, 180),
+      framesPerChunk: boundedEnvironmentNumber("SHORTSENGINE_SCOREBOARD_OCR_FRAMES_PER_CHUNK", SCOREBUG_FIRST_CHUNK_FRAME_COUNT, 2, 20),
+    },
     analyzeRenderedGoalProof,
     scheduler: setImmediate,
     cleanupSampledFrames,
@@ -296,12 +307,25 @@ function alignGoalSegmentsToBallTracking(editPlan = {}, trackingSummary = {}) {
   const samples = Array.isArray(trackingSummary && trackingSummary.trackingSamples)
     ? trackingSummary.trackingSamples
     : [];
-  const alignedSegments = segments.map((segment) => {
+  const containmentGoals = Array.isArray(trackingSummary && trackingSummary.perGoalBallContainment)
+    ? trackingSummary.perGoalBallContainment
+    : [];
+  const alignedSegments = segments.map((segment, index) => {
     if (!confirmedGoalSegment(segment)) return segment;
     const sourceStart = safeNumber(segment.sourceStart);
     const shotStart = safeNumber(segment.shotStart);
     const finishTime = safeNumber(segment.visibleFinishTime ?? segment.finishTime);
     if (sourceStart == null || finishTime == null) return segment;
+    const goalNumber = Number(segment.goalNumber) || index + 1;
+    const containmentGoal = containmentGoals.find((goal) => Number(goal && goal.goalNumber) === goalNumber);
+    const recommendedFinish = containmentGoal && containmentGoal.targetSwitchRecommended === true
+      ? safeNumber(containmentGoal.recommendedVisibleFinishTime)
+      : null;
+    const visibleFinishTime = recommendedFinish != null &&
+      recommendedFinish >= sourceStart + 3 &&
+      recommendedFinish < finishTime - 0.2
+      ? recommendedFinish
+      : finishTime;
     const firstTrackedBall = samples
       .filter((sample) => (
         sample &&
@@ -309,15 +333,25 @@ function alignGoalSegmentsToBallTracking(editPlan = {}, trackingSummary = {}) {
         ["ball_detection", "ball_interpolation"].includes(sample.source) &&
         Number(sample.ballConfidence) >= 0.72 &&
         Number(sample.sourceTime) >= sourceStart &&
-        Number(sample.sourceTime) <= finishTime
+        Number(sample.sourceTime) <= visibleFinishTime
       ))
       .sort((left, right) => Number(left.sourceTime) - Number(right.sourceTime))[0];
-    if (!firstTrackedBall || Number(firstTrackedBall.sourceTime) - sourceStart <= 2.5) return segment;
-    const latestSafeStart = shotStart == null ? finishTime - 2 : shotStart - 2;
+    const finishAlignedSegment = visibleFinishTime < finishTime
+      ? {
+          ...segment,
+          visibleFinishTime,
+          reasonCodes: [...new Set([
+            ...(Array.isArray(segment.reasonCodes) ? segment.reasonCodes : []),
+            "ball_follow_target_switch_aligned_to_terminal_ball_loss",
+          ])],
+        }
+      : segment;
+    if (!firstTrackedBall || Number(firstTrackedBall.sourceTime) - sourceStart <= 2.5) return finishAlignedSegment;
+    const latestSafeStart = shotStart == null ? visibleFinishTime - 2 : shotStart - 2;
     const alignedStart = Number(Math.max(sourceStart, Math.min(latestSafeStart, Number(firstTrackedBall.sourceTime) - 1.5)).toFixed(2));
-    if (alignedStart <= sourceStart + 0.05 || alignedStart >= finishTime - 1.5) return segment;
+    if (alignedStart <= sourceStart + 0.05 || alignedStart >= visibleFinishTime - 1.5) return finishAlignedSegment;
     return {
-      ...segment,
+      ...finishAlignedSegment,
       sourceStart: alignedStart,
       buildupStart: alignedStart,
       reasonCodes: [...new Set([...(Array.isArray(segment.reasonCodes) ? segment.reasonCodes : []), "ball_follow_start_aligned_to_first_tracked_action"])],
@@ -339,6 +373,7 @@ function confirmedGoalSegment(segment) {
 }
 
 function chronologicalRebindBounds(segments = [], index = 0, durationSeconds = 0) {
+  const currentAnchor = safeSegmentAnchorTime(segments[index]);
   let lowerBound = 0;
   let lowerBoundReason = "source_start";
   for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
@@ -363,8 +398,16 @@ function chronologicalRebindBounds(segments = [], index = 0, durationSeconds = 0
     if (!confirmedGoalSegment(next)) continue;
     const nextStart = safeNumber(next.sourceStart);
     const nextAnchor = safeSegmentAnchorTime(next);
+    // Adjacent goal candidates can intentionally share pre-score-change context.
+    // Such a start is not a safe cut point when it predates the current goal's
+    // score confirmation; using it would trim the current clip at its finish.
+    const nextStartBound = nextStart == null || (
+      currentAnchor != null && nextStart <= currentAnchor + 0.5
+    )
+      ? Number.POSITIVE_INFINITY
+      : nextStart - 0.5;
     const nextBound = Math.min(
-      nextStart == null ? Number.POSITIVE_INFINITY : nextStart - 0.5,
+      nextStartBound,
       nextAnchor == null ? Number.POSITIVE_INFINITY : nextAnchor - 3,
     );
     if (Number.isFinite(nextBound)) {
@@ -765,6 +808,11 @@ function centerFillCropPlanForReference(editPlan = {}, metadata = {}) {
   if (
     existing.mode === "ball_follow" &&
     existing.fallbackUsed !== true &&
+    existing.densePerFrameTracking === true &&
+    existing.perFrameBallContainmentPassed === true &&
+    Array.isArray(existing.perGoalBallContainment) &&
+    existing.perGoalBallContainment.length > 0 &&
+    existing.perGoalBallContainment.every((goal) => goal && goal.passed === true) &&
     Array.isArray(existing.keyframes) &&
     existing.keyframes.length >= 3
   ) {
@@ -779,20 +827,13 @@ function centerFillCropPlanForReference(editPlan = {}, metadata = {}) {
   const width = Math.max(1, Number(metadata.width) || 1920);
   const height = Math.max(1, Number(metadata.height) || 1080);
   const fullFrame = { x: 0, y: 0, width, height };
-  const cropWidth = Math.max(2, Math.min(width, Math.round(height * 9 / 16)));
-  const cropBox = {
-    x: Math.max(0, Math.round((width - cropWidth) / 2)),
-    y: 0,
-    width: cropWidth,
-    height,
-  };
   return {
     ...existing,
-    mode: "reference_fill",
-    cropMode: "reference_fill",
+    mode: "wide_safe",
+    cropMode: "wide_safe",
     targetAspectRatio: existing.targetAspectRatio || editPlan.aspectRatio || "9:16",
     safeArea: fullFrame,
-    cropBox,
+    cropBox: fullFrame,
     confidence: Math.min(Number(existing.confidence || 0.74), 0.74),
     trackingConfidence: Math.min(Number(existing.trackingConfidence || existing.confidence || 0.74), 0.74),
     actionSafeZones: [],
@@ -801,7 +842,7 @@ function centerFillCropPlanForReference(editPlan = {}, metadata = {}) {
     textObstructionRisk: false,
     reasonCodes: safeUniqueReasonList([
       ...(Array.isArray(existing.reasonCodes) ? existing.reasonCodes : []),
-      "reference_vertical_center_fill",
+      "reference_wide_safe_full_frame_ball_containment_unproven",
     ], 8),
   };
 }
@@ -831,31 +872,44 @@ function scoreboardOverlayFromOcr(scoreboardOcr = {}) {
 function referenceVerticalGoalProofPlan(editPlan = {}, metadata = {}, scoreboardOcr = {}) {
   const existingEffects = Array.isArray(editPlan.effects) ? editPlan.effects : [];
   const cropPlan = centerFillCropPlanForReference(editPlan, metadata);
-  const scoreboardOverlay = scoreboardOverlayFromOcr(scoreboardOcr);
+  const strictBallFollow = cropPlan.mode === "ball_follow";
+  const scoreboardOverlay = strictBallFollow ? scoreboardOverlayFromOcr(scoreboardOcr) : { enabled: false };
   return {
     ...editPlan,
     effects: safeUniqueReasonList([
       ...existingEffects.filter((effect) => effect !== "wide_safe_framing"),
+      ...(!strictBallFollow ? ["wide_safe_framing"] : []),
       "safe_mild_zoom",
       "caption_safe_overlay",
     ], 12),
     cropPlan,
-    cropStrategy: {
-      type: "center_crop",
-      ...cropPlan.cropBox,
-      zoom: 1,
-      background: "none",
-      preserveFullFrame: false,
-      maxCropPercent: 0.35,
-    },
-    framingMode: "safe_center",
-    framingReason: "reference_vertical_fill_with_scorebug_overlay",
+    cropStrategy: strictBallFollow
+      ? {
+          type: "ball_follow_crop",
+          ...cropPlan.cropBox,
+          zoom: 1,
+          background: "none",
+          preserveFullFrame: false,
+          maxCropPercent: 0.35,
+        }
+      : {
+          type: "wide_safe_contain",
+          ...cropPlan.cropBox,
+          zoom: 1,
+          background: "blurred_duplicate",
+          preserveFullFrame: true,
+          maxCropPercent: 0,
+        },
+    framingMode: strictBallFollow ? "safe_center" : "wide_safe_vertical",
+    framingReason: strictBallFollow
+      ? "reference_vertical_ball_follow_with_scorebug_overlay"
+      : "reference_wide_safe_full_frame_ball_containment_unproven",
     scoreboardOverlay,
     safetyNotes: safeUniqueReasonList([
       ...(Array.isArray(editPlan.safetyNotes) ? editPlan.safetyNotes : []),
-      cropPlan.mode === "ball_follow"
+      strictBallFollow
         ? "Confirmed-goal proof follows validated football action while preserving the live scorebug as a small synchronized overlay."
-        : "Confirmed-goal proof uses full-height vertical fallback framing with the detected live scorebug preserved at top center.",
+        : "Confirmed-goal proof preserves the complete source frame because per-frame ball containment was not proven.",
     ], 8),
   };
 }
@@ -1463,8 +1517,9 @@ function isYouTubeLongSource(source, metadata = {}) {
   );
 }
 
-function goalSelectionModeForSource(source, metadata = {}) {
+function goalSelectionModeForSource(source, metadata = {}, requestedMode = null) {
   if (isLocalVideoProofSource(source)) return "valid_goals_only";
+  if (["balanced", "valid_goals_only"].includes(requestedMode)) return requestedMode;
   return isYouTubeLongSource(source, metadata) ? "valid_goals_only" : "balanced";
 }
 
@@ -1486,15 +1541,27 @@ function assertPipelineContext({ job, project, upload, payload, deps }) {
   if (upload && project.uploadId !== upload.id) {
     throw new AppError("UPLOAD_NOT_FOUND", SAFE_MESSAGES.UPLOAD_NOT_FOUND, 404);
   }
-  const { inputArtifact, inputPath, inputStage, metadata } = assertUploadReady(upload, deps);
+  const { inputArtifact, inputPath, inputStage, metadata: uploadMetadata } = assertUploadReady(upload, deps);
+  const metadata = {
+    ...uploadMetadata,
+    ...(Number.isInteger(Number(payload.expectedCountedGoals))
+      ? { expectedCountedGoals: Math.max(0, Math.min(20, Number(payload.expectedCountedGoals))) }
+      : {}),
+    ...(/^\d{1,2}-\d{1,2}$/.test(String(payload.expectedFinalScore || ""))
+      ? { expectedFinalScore: String(payload.expectedFinalScore) }
+      : {}),
+  };
   const title = sanitizeText(payload.title || project.title || "ShortsEngine Short", 120);
   const preset = sanitizeText(payload.preset || "hype", 40).toLowerCase();
   const language = sanitizeText(payload.language || "auto", 32) || "auto";
   const styleTarget = sanitizeText(payload.styleTarget || "vertical_9_16", 40).toLowerCase() || "vertical_9_16";
   const editIntensity = sanitizeText(payload.editIntensity || "balanced", 40).toLowerCase() || "balanced";
   const stylePreset = sanitizeText(payload.stylePreset || "social_sports_v1", 40).toLowerCase() || "social_sports_v1";
+  const compositionMode = ["single_moment", "multi_moment"].includes(payload.compositionMode)
+    ? payload.compositionMode
+    : "auto";
   const source = payload.source || project.source || upload.source || null;
-  const goalSelectionMode = goalSelectionModeForSource(source, metadata);
+  const goalSelectionMode = goalSelectionModeForSource(source, metadata, payload.goalSelectionMode);
   if (!title || !preset) {
     throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400);
   }
@@ -1527,6 +1594,7 @@ function assertPipelineContext({ job, project, upload, payload, deps }) {
     stylePreset,
     styleTarget,
     editIntensity,
+    compositionMode,
     title,
     goalSelectionMode,
     approvedEditPlan,
@@ -1551,7 +1619,28 @@ function normalizedCaption(caption, mediaDuration) {
   const text = sanitizeText(caption && caption.text, 160);
   if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start || !text) return null;
   if (Number.isFinite(mediaDuration) && end > mediaDuration + 1) return null;
-  return { start: Number(start.toFixed(2)), end: Number(end.toFixed(2)), text };
+  const rawWordTimings = Array.isArray(caption && caption.activeWordTiming)
+    ? caption.activeWordTiming
+    : Array.isArray(caption && caption.words) && caption.words.every((word) => word && typeof word === "object")
+      ? caption.words
+      : [];
+  const activeWordTiming = rawWordTimings.slice(0, 80).map((word) => {
+    const wordStart = Number(word && word.start);
+    const wordEnd = Number(word && word.end);
+    const safeWord = sanitizeText(word && (word.word || word.text), 24);
+    if (!Number.isFinite(wordStart) || !Number.isFinite(wordEnd) || wordEnd <= wordStart || !safeWord) return null;
+    if (wordStart < start - 0.05 || wordEnd > end + 0.05) return null;
+    return { word: safeWord, start: Number(wordStart.toFixed(3)), end: Number(wordEnd.toFixed(3)) };
+  }).filter(Boolean);
+  return {
+    start: Number(start.toFixed(2)),
+    end: Number(end.toFixed(2)),
+    text,
+    ...(activeWordTiming.length ? {
+      words: activeWordTiming.map((word) => word.word),
+      activeWordTiming,
+    } : {}),
+  };
 }
 
 function validateTranscript(transcript, metadata = {}) {
@@ -1627,7 +1716,7 @@ function selectCandidateWindowCoverage(windows = [], duration = 0, maxWindows = 
   const safeWindows = (Array.isArray(windows) ? windows : [])
     .filter((window) => Number.isFinite(candidateWindowTime(window)))
     .sort((a, b) => candidateWindowTime(a) - candidateWindowTime(b));
-  const limit = Math.max(1, Math.min(24, Math.floor(Number(maxWindows) || 24)));
+  const limit = Math.max(1, Math.min(48, Math.floor(Number(maxWindows) || 24)));
   if (safeWindows.length <= limit) return safeWindows;
 
   const mediaDuration = Math.max(0, Number(duration) || candidateWindowTime(safeWindows[safeWindows.length - 1]) || 0);
@@ -1859,8 +1948,11 @@ function buildChunkSamplingWindows({ chunk, metadata = {}, candidateWindows = []
     });
   };
   const baseFrameCount = Math.max(2, Math.min(20, Math.round(Number(frameCount) || SCOREBUG_FIRST_CHUNK_FRAME_COUNT)));
-  for (let index = 0; index < baseFrameCount; index += 1) {
-    pushWindow(start + ((index + 0.5) / baseFrameCount) * chunkDuration, {
+  const periodicFractions = baseFrameCount === 4
+    ? [0.25, 0.5, 0.75, 0.92]
+    : Array.from({ length: baseFrameCount }, (_, index) => (index + 0.5) / baseFrameCount);
+  for (const fraction of periodicFractions) {
+    pushWindow(start + fraction * chunkDuration, {
       confidence: 0.54,
       source: "scorebug_chunk_periodic_sample",
     });
@@ -1876,8 +1968,10 @@ function buildChunkSamplingWindows({ chunk, metadata = {}, candidateWindows = []
       pushWindow(time + offset, {
         start: Number(candidate.start),
         end: Number(candidate.end),
-        confidence: Math.max(0.6, Number(candidate.confidence || 0.6)),
-        source: "scorebug_chunk_candidate_sample",
+        confidence: Math.min(0.98, Math.max(0.6, Number(candidate.confidence || 0.6)) + (offset === 14 ? 0.03 : 0)),
+        source: offset === 14
+          ? "scorebug_chunk_delayed_confirmation_sample"
+          : "scorebug_chunk_candidate_sample",
         visualHints: candidate.visualHints,
       });
     }
@@ -1891,7 +1985,7 @@ function buildChunkSamplingWindows({ chunk, metadata = {}, candidateWindows = []
   const candidateSamples = deduped
     .filter((window) => window.source !== "scorebug_chunk_periodic_sample")
     .sort((a, b) => Number(b.confidence || 0) - Number(a.confidence || 0) || a.timestamp - b.timestamp)
-    .slice(0, 4);
+    .slice(0, Math.min(4, baseFrameCount));
   return [...periodic, ...candidateSamples]
     .sort((a, b) => a.timestamp - b.timestamp)
     .slice(0, 20);
@@ -2187,8 +2281,10 @@ function progressionCandidatesForCurrent(chunk = {}, rawCandidates = [], current
     ));
 }
 
-function buildScoreCandidateProgressionFromChunks(chunkSummary = null) {
+function buildScoreCandidateProgressionFromChunks(chunkSummary = null, { expectedGoalCount = 0, expectedFinalScore = null } = {}) {
   const chunks = Array.isArray(chunkSummary && chunkSummary.chunks) ? chunkSummary.chunks : [];
+  const expected = Math.max(0, Math.min(20, Math.round(Number(expectedGoalCount || 0))));
+  const finalScore = scoreObjectFromText(expectedFinalScore);
   const evidence = [];
   const acceptedCandidates = [];
   const rejectedCandidates = [];
@@ -2204,8 +2300,26 @@ function buildScoreCandidateProgressionFromChunks(chunkSummary = null) {
   });
 
   for (const chunk of chunks) {
+    if (expected > 0 && evidence.length >= expected) break;
     if (!chunk || chunk.status !== "completed") continue;
-    const rawCandidates = uniqueChunkScoreCandidates(chunk);
+    const rawCandidates = uniqueChunkScoreCandidates(chunk).map((candidate) => {
+      if (!finalScore || nonDecreasingScore(candidate, finalScore)) return candidate;
+      const sameAway = candidate.away === finalScore.away && candidate.home > finalScore.home;
+      const sameHome = candidate.home === finalScore.home && candidate.away > finalScore.away;
+      if (!(sameAway || sameHome) || !isUnitScoreIncrease(current, finalScore)) return candidate;
+      return {
+        ...finalScore,
+        firstSeenAt: candidate.firstSeenAt,
+        observedScoreText: candidate.text,
+        ocrCorrected: true,
+        correctionType: "known_final_score_digit_correction",
+        correctionReasonCodes: [
+          "known_final_score_constraint",
+          "score_digit_ocr_noise_corrected",
+          "not_synthetic_score_progression",
+        ],
+      };
+    });
     if (!rawCandidates.length) {
       if (Number(chunk.readableObservationCount || 0) === 0) {
         rejectedCandidates.push(candidateRejection(chunk, null, current, "chunk_has_no_readable_score_candidates"));
@@ -2217,6 +2331,7 @@ function buildScoreCandidateProgressionFromChunks(chunkSummary = null) {
     let acceptedInChunk = 0;
     let progressed = true;
     while (progressed) {
+      if (expected > 0 && evidence.length >= expected) break;
       progressed = false;
       const localCandidates = progressionCandidatesForCurrent(chunk, rawCandidates, current, rejectedCandidates);
       const next = localCandidates.find((candidate) => (
@@ -2372,9 +2487,83 @@ function globalDigitObservationsFromChunkedOutputs(outputs = []) {
   return observations.sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
 }
 
+function initialObservedScoreTransition(globalTimeline = {}) {
+  const evidence = (Array.isArray(globalTimeline && globalTimeline.evidence) ? globalTimeline.evidence : [])
+    .filter((item) => item && typeof item === "object")
+    .sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
+  const first = evidence.find((item) => (
+    sanitizeText(item.transitionDecision || "", 60) === "initial_score" &&
+    unitScoreTransition("0-0", item.scoreAfter)
+  ));
+  if (!first) return null;
+  const confirmation = evidence.find((item) => (
+    Number(item.timestamp) > Number(first.timestamp) &&
+    sanitizeText(item.scoreAfter || item.scoreBefore || "", 16) === sanitizeText(first.scoreAfter || "", 16) &&
+    (item.scoreUnchanged || item.status === "score_unchanged" || item.temporalConsistency === true)
+  ));
+  if (!confirmation) return null;
+  const timestamp = Number(first.timestamp);
+  if (!Number.isFinite(timestamp)) return null;
+  return {
+    id: "chunked_scorebug_initial_observed_progression",
+    timestamp: roundNumber(timestamp),
+    start: roundNumber(Math.max(0, timestamp - 1.2)),
+    end: roundNumber(timestamp + 1.2),
+    status: "score_changed",
+    scoreChanged: true,
+    scoreBefore: "0-0",
+    scoreAfter: sanitizeText(first.scoreAfter || "", 16),
+    changedSide: scoreChangedSide(initialFootballScore(), scoreObjectFromText(first.scoreAfter)),
+    observedScoreText: sanitizeText(first.scoreAfter || "", 16),
+    observedScoreAfterTimestamp: roundNumber(timestamp),
+    scoreCandidateFirstSeenAt: roundNumber(timestamp),
+    observedSupportCount: 2,
+    temporalConsistency: true,
+    ambiguous: false,
+    synthetic: false,
+    bridgeGenerated: false,
+    confidence: Math.max(0.78, Math.min(0.94, Number(first.confidence || 0.78))),
+    source: "chunked_scorebug_initial_observed_progression",
+    regionId: sanitizeText(first.regionId || "scorebug_candidate_progression", 80),
+    transitionDecision: "score_change_observed_unit_candidate",
+    transitionReasonCodes: [
+      "assumed_match_start_score",
+      "observed_score_candidate",
+      "unit_score_increase_candidate",
+      "first_repeated_nonzero_score_display",
+    ],
+  };
+}
+
+function capScoreTransitionsToFixture(evidence = [], { expectedGoalCount = 0, expectedFinalScore = null } = {}) {
+  const expected = Math.max(0, Math.min(20, Math.round(Number(expectedGoalCount || 0))));
+  if (!expected) return Array.isArray(evidence) ? evidence : [];
+  const finalScore = scoreObjectFromText(expectedFinalScore);
+  const transitions = (Array.isArray(evidence) ? evidence : [])
+    .filter((item) => item && (item.scoreChanged || item.status === "score_changed"))
+    .sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
+  const selected = new Set();
+  let current = initialFootballScore();
+  for (const item of transitions) {
+    if (selected.size >= expected) break;
+    const before = scoreObjectFromText(item.scoreBefore);
+    const after = scoreObjectFromText(item.scoreAfter);
+    if (!before || !after || before.text !== current.text || !isUnitScoreIncrease(before, after)) continue;
+    if (finalScore && !nonDecreasingScore(after, finalScore)) continue;
+    selected.add(item);
+    current = after;
+  }
+  return (Array.isArray(evidence) ? evidence : []).filter((item) => (
+    !(item && (item.scoreChanged || item.status === "score_changed")) || selected.has(item)
+  ));
+}
+
 function aggregateChunkedScoreboardOcr(outputs = [], { metadata = {}, chunkSummary = null } = {}) {
   const safeOutputs = (Array.isArray(outputs) ? outputs : []).filter((output) => output && typeof output === "object");
-  const candidateProgression = buildScoreCandidateProgressionFromChunks(chunkSummary);
+  const candidateProgression = buildScoreCandidateProgressionFromChunks(chunkSummary, {
+    expectedGoalCount: metadata && metadata.expectedCountedGoals,
+    expectedFinalScore: metadata && metadata.expectedFinalScore,
+  });
   const evidence = [];
   const seenEvidence = new Set();
   for (const output of safeOutputs) {
@@ -2414,7 +2603,11 @@ function aggregateChunkedScoreboardOcr(outputs = [], { metadata = {}, chunkSumma
     item && (item.scoreChanged || item.status === "score_changed")
   )).length;
   const useCandidateProgressionFallback = globalDigitObservations.length === 0;
-  const observedCandidateTransitions = candidateProgression.evidence.filter((item) => (
+  const initialObservedTransition = initialObservedScoreTransition(globalTimeline);
+  const observedCandidateTransitions = [
+    ...(initialObservedTransition ? [initialObservedTransition] : []),
+    ...candidateProgression.evidence,
+  ].filter((item) => (
     item && item.synthetic !== true && item.bridgeGenerated !== true && unitScoreTransition(item.scoreBefore, item.scoreAfter)
   ));
   const authoritativeScoreChangeCount = Math.max(
@@ -2460,7 +2653,23 @@ function aggregateChunkedScoreboardOcr(outputs = [], { metadata = {}, chunkSumma
   for (const item of observedCandidateTransitions) {
     const key = evidenceKey(item);
     const transitionKey = evidenceTransitionKey(item);
-    if (transitionKey && seenTransitions.has(transitionKey)) continue;
+    if (transitionKey && seenTransitions.has(transitionKey)) {
+      const existing = evidence.find((entry) => (
+        authoritativeScoreTransitionEvidence(entry) && evidenceTransitionKey(entry) === transitionKey
+      ));
+      const replaceLaterObservedTransition = Boolean(
+        item.ocrCorrected === true &&
+        existing &&
+        Number(item.timestamp) < Number(existing.timestamp)
+      );
+      if (!replaceLaterObservedTransition) continue;
+      for (let index = evidence.length - 1; index >= 0; index -= 1) {
+        if (evidenceTransitionKey(evidence[index]) !== transitionKey) continue;
+        seenEvidence.delete(evidenceKey(evidence[index]));
+        evidence.splice(index, 1);
+      }
+      seenTransitions.delete(transitionKey);
+    }
     if (transitionKey) {
       for (let index = evidence.length - 1; index >= 0; index -= 1) {
         if (evidenceTransitionKey(evidence[index]) !== transitionKey) continue;
@@ -2473,7 +2682,11 @@ function aggregateChunkedScoreboardOcr(outputs = [], { metadata = {}, chunkSumma
     if (transitionKey) seenTransitions.add(transitionKey);
     evidence.push(item);
   }
-  const compactedEvidence = compactAggregatedScoreEvidence(evidence);
+  const fixtureCappedEvidence = capScoreTransitionsToFixture(evidence, {
+    expectedGoalCount: metadata && metadata.expectedCountedGoals,
+    expectedFinalScore: metadata && metadata.expectedFinalScore,
+  });
+  const compactedEvidence = compactAggregatedScoreEvidence(fixtureCappedEvidence);
   evidence.splice(0, evidence.length, ...compactedEvidence);
   const regionIdsUsed = [...new Set(safeOutputs
     .flatMap((output) => output.summary && Array.isArray(output.summary.regionIdsUsed) ? output.summary.regionIdsUsed : [])
@@ -2585,17 +2798,25 @@ function buildScoreTransitionRefinementPasses(scoreboardOcr = {}, { expectedGoal
       : transition.timestamp;
     const progressionGap = transition.scoreBefore !== previousScore;
     const widenForMissingState = progressionGap || (missingExpectedTransitions && index === transitions.length - 1);
-    const lookbackSeconds = widenForMissingState ? 120 : 45;
+    const baseLookbackSeconds = widenForMissingState ? 120 : 45;
     const lastPreviousScoreObservation = evidence
       .filter((item) => (
         Number(item.timestamp) < refinementAnchorTimestamp &&
         sanitizeText(item.scoreAfter || item.scoreBefore || "", 16) === transition.scoreBefore &&
-        (item.scoreUnchanged || item.status === "score_unchanged")
+        (
+          item.scoreUnchanged ||
+          item.status === "score_unchanged" ||
+          sanitizeText(item.transitionDecision || "", 60) === "initial_score"
+        )
       ))
       .sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0))[0] || null;
     const lastPreviousScoreTimestamp = lastPreviousScoreObservation
       ? Number(lastPreviousScoreObservation.timestamp)
       : null;
+    const observedTransitionGapSeconds = Number.isFinite(lastPreviousScoreTimestamp)
+      ? Math.max(0, refinementAnchorTimestamp - lastPreviousScoreTimestamp)
+      : 0;
+    const lookbackSeconds = Math.min(120, Math.max(baseLookbackSeconds, observedTransitionGapSeconds));
     const unobservedGapSeconds = Number.isFinite(lastPreviousScoreTimestamp)
       ? roundNumber(Math.max(0, refinementAnchorTimestamp - lastPreviousScoreTimestamp))
       : lookbackSeconds;
@@ -2604,7 +2825,8 @@ function buildScoreTransitionRefinementPasses(scoreboardOcr = {}, { expectedGoal
       : 0;
     const refinementPrioritySeconds = Math.max(unobservedGapSeconds, transitionIntervalSeconds);
     const windows = [];
-    for (let offset = -6; offset <= lookbackSeconds + 0.01; offset += 2) {
+    const samplingStepSeconds = lookbackSeconds > 60 ? 4 : 2;
+    for (let offset = -6; offset <= lookbackSeconds + 0.01; offset += samplingStepSeconds) {
       const timestamp = roundNumber(Math.max(0, refinementAnchorTimestamp - offset));
       windows.push({
         timestamp,
@@ -2623,6 +2845,7 @@ function buildScoreTransitionRefinementPasses(scoreboardOcr = {}, { expectedGoal
       scoreBefore: transition.scoreBefore,
       scoreAfter: transition.scoreAfter,
       lookbackSeconds,
+      samplingStepSeconds,
       progressionGap,
       lastPreviousScoreTimestamp: Number.isFinite(lastPreviousScoreTimestamp)
         ? roundNumber(lastPreviousScoreTimestamp)
@@ -4038,6 +4261,7 @@ async function runRenderJob(options) {
   let ocrQaCalibration = null;
   let goalEvidence = null;
   let matchEventTruth = null;
+  let humanReviewGate = null;
   let videoOutputQA = null;
   let trackingProviderOutput = null;
   let visualTracking = null;
@@ -4166,7 +4390,14 @@ async function runRenderJob(options) {
           scorebugFirst: true,
         });
         const scorebugCandidateWindows = scoreChangeCandidateWindowsFromOcr(scoreboardOcr, context.metadata);
-        visualCandidateWindows = mergeCandidateWindows(scorebugCandidateWindows, visualCandidateWindows, context.metadata);
+        const expectedGoalCount = Math.max(0, Number(context.metadata && context.metadata.expectedCountedGoals || 0));
+        const mergedVisualWindowLimit = Math.max(24, Math.min(48, Math.ceil(expectedGoalCount) * 10));
+        visualCandidateWindows = mergeCandidateWindows(
+          scorebugCandidateWindows,
+          visualCandidateWindows,
+          context.metadata,
+          mergedVisualWindowLimit,
+        );
       }
 
       updateJobStep({
@@ -4200,6 +4431,8 @@ async function runRenderJob(options) {
         frameCount: sampledFrameSummary.summary.frameCount,
         sampledWindows: sampledFrameSummary.summary.sampledWindows,
         skippedWindows: sampledFrameSummary.summary.skippedWindows,
+        sequentialRetryUsed: sampledFrameSummary.summary.sequentialRetryUsed,
+        fallbackReason: sampledFrameSummary.summary.reason,
       });
 
       updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 38, step: "analyze_visuals", substep: longSourceRuntime ? "scorebug_narrowed_visual_analysis" : "frame_visual_analysis", longSource: longSourceRuntime, scorebugFirst: longSourceRuntime });
@@ -4485,6 +4718,22 @@ async function runRenderJob(options) {
         scoreboardOcr: scoreboardOcr && scoreboardOcr.evidence,
         ocrQaCalibration,
       });
+      humanReviewGate = createHumanReviewGate(matchEventTruth);
+      jobs.update(job, {
+        humanReviewGate,
+        step: humanReviewGate.requiresReview ? "human_review_gate_required" : "human_review_gate_clear",
+      });
+      logInfo(deps.logger, {
+        event: "human_review_gate_evaluated",
+        requestId,
+        projectId: project.id,
+        jobId: job.id,
+        status: humanReviewGate.status,
+        requiresReview: humanReviewGate.requiresReview,
+        reviewItemCount: humanReviewGate.reviewItemCount,
+        reasonCodes: humanReviewGate.reasonCodes,
+        publishingPolicy: humanReviewGate.publishingPolicy,
+      });
       logInfo(deps.logger, {
         event: "match_event_truth_completed",
         requestId,
@@ -4571,6 +4820,7 @@ async function runRenderJob(options) {
         styleTarget: context.styleTarget,
         editIntensity: context.editIntensity,
         stylePreset: context.stylePreset,
+        compositionMode: context.compositionMode,
       });
       if (!Array.isArray(candidatePlans) || candidatePlans.length === 0) {
         const code = context.goalSelectionMode === "valid_goals_only" ? "NO_VALID_GOALS_FOUND" : "AI_OUTPUT_INVALID";
@@ -4690,6 +4940,8 @@ async function runRenderJob(options) {
               const refinedTrackingOutput = publicTrackingProviderOutput(await deps.analyzeTracking({
                 inputPath: context.inputPath,
                 metadata: context.metadata,
+                segments: editPlan.segments,
+                densePerFrameTracking: true,
                 candidateWindows: refinementWindows,
                 mediaSignals,
                 visualSignals,
@@ -5308,6 +5560,12 @@ async function runRenderJob(options) {
       });
     }
 
+    humanReviewGate = humanReviewGate || createHumanReviewGate(matchEventTruth || {}, {
+      approved: Boolean(context.regenerationApproval),
+      source: context.regenerationApproval ? "regeneration_approval" : "match_event_truth",
+    });
+    editPlan.humanReviewGate = publicHumanReviewGate(humanReviewGate);
+
     const renderedArtifact = typeof deps.artifactStore.commitOutputStageAsync === "function"
       ? await deps.artifactStore.commitOutputStageAsync(context.outputStage, {
           contentType: "video/mp4",
@@ -5368,6 +5626,7 @@ async function runRenderJob(options) {
       ocrQaCalibration: publicOcrQaCalibration(ocrQaCalibration),
       goalEvidence: publicGoalEvidence(goalEvidence),
       matchEventTruth: publicMatchEventTruth(matchEventTruth),
+      humanReviewGate: publicHumanReviewGate(humanReviewGate),
       trackingProviderOutput,
       visualTracking,
       sampledFrames: sampledFrameSummary,
@@ -5403,6 +5662,7 @@ async function runRenderJob(options) {
       ocrQaCalibration: publicOcrQaCalibration(ocrQaCalibration),
       goalEvidence: publicGoalEvidence(goalEvidence),
       matchEventTruth: publicMatchEventTruth(matchEventTruth),
+      humanReviewGate: publicHumanReviewGate(humanReviewGate),
       trackingProviderOutput,
       visualTracking,
       sampledFrames: sampledFrameSummary,
@@ -5557,6 +5817,7 @@ module.exports = {
     buildScoreTransitionRefinementWindows,
     scheduleScoreTransitionRefinementPasses,
     compactAggregatedScoreEvidence,
+    capScoreTransitionsToFixture,
     refineExpectedScoreTransitionOutput,
     runChunkedScorebugFirstOcr,
     buildChunkSamplingWindows,

@@ -336,15 +336,57 @@ function nonSilentSegmentsFromSilenceEvents(stderr, duration) {
   return segments;
 }
 
+function rmsAudioPeaksFromMetadata(stderr, duration) {
+  const samples = [];
+  const pattern = /pts_time:([0-9.]+)[^\n]*\n[^\n]*lavfi\.astats\.Overall\.RMS_level=([-+0-9.]+)/g;
+  for (const match of String(stderr || "").matchAll(pattern)) {
+    const time = Number(match[1]);
+    const rmsLevelDb = Number(match[2]);
+    if (!Number.isFinite(time) || !Number.isFinite(rmsLevelDb) || time < 0 || time > duration) continue;
+    samples.push({ time, rmsLevelDb });
+  }
+  if (samples.length < 3) return [];
+  const localMaxima = samples.filter((sample, index) => {
+    const previous = samples[index - 1];
+    const next = samples[index + 1];
+    return (!previous || sample.rmsLevelDb >= previous.rmsLevelDb) &&
+      (!next || sample.rmsLevelDb >= next.rmsLevelDb);
+  });
+  const maxItems = Math.max(16, Math.min(64, Math.ceil(duration / 8)));
+  return selectTemporalCoverage(localMaxima.map((sample) => ({
+    time: Number(sample.time.toFixed(2)),
+    energyScore: Number(clamp((sample.rmsLevelDb + 35) / 17, 0.45, 0.98).toFixed(2)),
+    rmsLevelDb: Number(sample.rmsLevelDb.toFixed(2)),
+    source: "ffmpeg_rms_peak",
+  })), {
+    maxItems,
+    duration,
+    score: (item) => item.energyScore,
+  });
+}
+
 async function detectAudioPeaks(inputPath, metadata, { signal, ffmpegRunner = runFfmpeg } = {}) {
   const duration = seconds(metadata.durationSeconds);
   if (!metadata.hasAudio) return [];
   if (!inputPath || !commandAvailable(CONFIG.ffmpegBin)) return fallbackAudioPeaks(duration, metadata.hasAudio);
   try {
     const result = await ffmpegRunner(
-      ["-hide_banner", "-nostats", "-i", inputPath, "-af", "silencedetect=noise=-28dB:d=0.35", "-f", "null", "-"],
+      [
+        "-hide_banner",
+        "-nostats",
+        "-i",
+        inputPath,
+        "-vn",
+        "-af",
+        "asetnsamples=n=24000:p=0,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level",
+        "-f",
+        "null",
+        "-",
+      ],
       { signal, timeoutMs: Math.min(CONFIG.analysisTimeoutMs, 30000) },
     );
+    const rmsPeaks = rmsAudioPeaksFromMetadata(result.stderr, duration);
+    if (rmsPeaks.length) return rmsPeaks;
     const segments = nonSilentSegmentsFromSilenceEvents(result.stderr, duration);
     const peaks = selectTemporalCoverage(segments
       .map((segment) => ({
@@ -1525,6 +1567,13 @@ function expandWindowForGoalEvidence(moment, duration, goalEvidence = {}) {
   const shotStart = Number.isFinite(Number(goalEvidence.shotStart)) ? Number(goalEvidence.shotStart) : Number(moment.center || moment.start);
   const payoffEnd = Number.isFinite(Number(goalEvidence.payoffEnd)) ? Number(goalEvidence.payoffEnd) : Number(moment.end);
   const reasonSet = new Set(Array.isArray(moment.reasonCodes) ? moment.reasonCodes : []);
+  const truthDrivenValidGoal = moment.source === "match_event_truth_valid_goals_only";
+  if (truthDrivenValidGoal && reasonSet.has("score_change_delayed_live_goal_probe")) {
+    return {
+      start: Number(Number(moment.start).toFixed(2)),
+      end: Number(Number(moment.end).toFixed(2)),
+    };
+  }
   const hasDecisionContext = reasonSetHasAny(reasonSet, [
     "visual_offside_flag",
     "visual_var_check",
@@ -1539,7 +1588,6 @@ function expandWindowForGoalEvidence(moment, duration, goalEvidence = {}) {
     "visual_referee_goal_signal",
     "visual_scoreboard_goal_confirmed",
   ]);
-  const truthDrivenValidGoal = moment.source === "match_event_truth_valid_goals_only";
   const needsDecisionContext = Boolean(goalEvidence.hasBallInNetOrLineCross || goalEvidence.explicitTextGoal);
   const confirmedGoalCandidate = Boolean(goalEvidence.goalClaimAllowed && hasConfirmedDecisionContext && !hasDecisionContext);
   const postContextSeconds = confirmedGoalCandidate ? 5.5 : needsDecisionContext ? 13 : 4.5;
@@ -2523,7 +2571,9 @@ function detectHighlights({ transcript, signals, visualSignals, goalEvidence = n
     deduped.push({ ...moment, rank: deduped.length + 1 });
     return true;
   };
-  for (const moment of merged.filter(isGoalCoverageMoment).sort((a, b) => a.start - b.start)) {
+  for (const moment of merged.filter(isGoalCoverageMoment).sort((a, b) => (
+    b.retentionScore - a.retentionScore || a.start - b.start
+  ))) {
     addMoment(moment);
   }
   for (const moment of goalSequenceMoments.filter((moment) => !isGoalCoverageMoment(moment)).sort((a, b) => a.start - b.start)) {
@@ -3228,6 +3278,14 @@ function truthGoalWindowForPlan(event = {}, metadata = {}) {
     confirmationTime,
     duration,
   });
+  const delayedLiveGoal = event.primarySource === "score_change_delayed_live_goal_probe" ||
+    (Array.isArray(event.evidenceCodes) && event.evidenceCodes.includes("score_change_delayed_live_goal_probe"));
+  if (delayedLiveGoal) {
+    return {
+      sourceStart: Number(Math.max(compacted.sourceStart, phaseShotStart - VALID_GOAL_ONLY_TIMING.idealPreActionSeconds).toFixed(2)),
+      sourceEnd: Number(Math.min(compacted.sourceEnd, Math.max(eventEnd, finishTime + 5.5)).toFixed(2)),
+    };
+  }
   return {
     sourceStart: compacted.sourceStart,
     sourceEnd: compacted.sourceEnd,
@@ -5505,6 +5563,7 @@ function createCandidateEditPlans({
   styleTarget = "vertical_9_16",
   editIntensity = "balanced",
   stylePreset = "social_sports_v1",
+  compositionMode = "auto",
   captionProvider = null,
 } = {}) {
   const renderStylePreset = normalizeStylePreset(stylePreset);
@@ -5547,6 +5606,7 @@ function createCandidateEditPlans({
       styleTarget: normalizeStyleTarget(styleTarget),
       editIntensity: normalizeEditIntensity(editIntensity),
       stylePreset: renderStylePreset,
+      compositionMode,
       captionProvider,
     });
     const selectedMoment = goalSelectionMode === GOAL_SELECTION_MODES.validGoalsOnly &&
@@ -5627,6 +5687,7 @@ function createCandidateEditPlans({
     const plan = {
       sourceStart: selectedMoment.start,
       sourceEnd: selectedMoment.end,
+      goalSelectionMode,
       aspectRatio: storyPlan.aspectRatio,
       highlightType,
       goalOutcome,
@@ -5715,15 +5776,20 @@ function createCandidateEditPlans({
     if (goalSelectionMode === GOAL_SELECTION_MODES.validGoalsOnly) return [];
     throw new AppError("AI_OUTPUT_INVALID", SAFE_MESSAGES.AI_OUTPUT_INVALID, 422);
   }
-  const multiMomentCandidate = createMultiMomentCompilationPlan({
-    singleCandidates,
-    metadata,
-    title,
-    renderStylePreset,
-    styleTarget: normalizeStyleTarget(styleTarget),
-    editIntensity: normalizeEditIntensity(editIntensity),
-    mediaSignals,
-  });
+  const normalizedCompositionMode = ["single_moment", "multi_moment"].includes(compositionMode)
+    ? compositionMode
+    : "auto";
+  const multiMomentCandidate = normalizedCompositionMode === "single_moment"
+    ? null
+    : createMultiMomentCompilationPlan({
+        singleCandidates,
+        metadata,
+        title,
+        renderStylePreset,
+        styleTarget: normalizeStyleTarget(styleTarget),
+        editIntensity: normalizeEditIntensity(editIntensity),
+        mediaSignals,
+      });
   const candidates = multiMomentCandidate
     ? [multiMomentCandidate, ...singleCandidates.map((candidate, index) => ({ ...candidate, rank: index + 2 }))]
     : singleCandidates;

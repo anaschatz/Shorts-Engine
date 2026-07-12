@@ -25,7 +25,7 @@ try {
 
 const SQLITE_AVAILABLE = Boolean(DatabaseSync);
 
-const LATEST_SCHEMA_VERSION = 5;
+const LATEST_SCHEMA_VERSION = 6;
 const MIGRATIONS = Object.freeze([
   {
     version: 1,
@@ -227,6 +227,37 @@ const MIGRATIONS = Object.freeze([
       CREATE INDEX IF NOT EXISTS idx_projects_owner ON projects (ownerId);
       CREATE INDEX IF NOT EXISTS idx_jobs_owner ON jobs (ownerId);
       CREATE INDEX IF NOT EXISTS idx_exports_owner ON exports (ownerId);
+    `,
+  },
+  {
+    version: 6,
+    name: "narrated_project_v2",
+    sql: `
+      CREATE TABLE projects_v2 (
+        id TEXT PRIMARY KEY,
+        uploadId TEXT,
+        schemaVersion INTEGER NOT NULL DEFAULT 2,
+        projectType TEXT NOT NULL DEFAULT 'clip',
+        inputJson TEXT,
+        language TEXT,
+        title TEXT NOT NULL,
+        status TEXT NOT NULL,
+        ownerId TEXT,
+        source TEXT,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+      INSERT INTO projects_v2 (
+        id, uploadId, schemaVersion, projectType, inputJson, language,
+        title, status, ownerId, source, createdAt, updatedAt
+      )
+      SELECT id, uploadId, 2, 'clip', NULL, NULL,
+        title, status, ownerId, source, createdAt, updatedAt
+      FROM projects;
+      DROP TABLE projects;
+      ALTER TABLE projects_v2 RENAME TO projects;
+      CREATE INDEX IF NOT EXISTS idx_projects_owner ON projects (ownerId);
+      CREATE INDEX IF NOT EXISTS idx_projects_type ON projects (projectType);
     `,
   },
 ]);
@@ -585,18 +616,39 @@ class SQLitePersistenceAdapter {
 
   upsertProject(project) {
     this.prepare(
-      `INSERT INTO projects (id, uploadId, title, status, ownerId, source, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET uploadId = excluded.uploadId, title = excluded.title,
+      `INSERT INTO projects (
+        id, uploadId, schemaVersion, projectType, inputJson, language,
+        title, status, ownerId, source, createdAt, updatedAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET uploadId = excluded.uploadId,
+       schemaVersion = excluded.schemaVersion, projectType = excluded.projectType,
+       inputJson = excluded.inputJson, language = excluded.language, title = excluded.title,
        status = excluded.status, ownerId = excluded.ownerId, source = excluded.source,
        createdAt = excluded.createdAt, updatedAt = excluded.updatedAt`,
-    ).run(project.id, project.uploadId, project.title, project.status, project.ownerId || null, project.source, project.createdAt, project.updatedAt);
+    ).run(
+      project.id,
+      project.uploadId,
+      project.schemaVersion,
+      project.projectType,
+      stringifyRecord(project.input),
+      project.language,
+      project.title,
+      project.status,
+      project.ownerId || null,
+      project.source,
+      project.createdAt,
+      project.updatedAt,
+    );
     this.projectRows.set(project.id, project);
     return project;
   }
 
   createProject(record) {
     return this.upsertProject(normalizeProject(record));
+  }
+
+  persistProject({ project } = {}) {
+    return this.createProject(project);
   }
 
   getProject(projectId) {

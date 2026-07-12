@@ -3,20 +3,164 @@ const { normalizeOwnerId } = require("../auth.cjs");
 const { normalizeSmokeSource } = require("../staging-smoke-metadata.cjs");
 const { jsonClone, nowIso, sanitizeText, validateResourceId } = require("./ids.cjs");
 
-const PROJECT_STATUSES = Object.freeze(["draft", "processing", "ready", "failed", "cancelled"]);
+const PROJECT_SCHEMA_VERSION = 2;
+const PROJECT_TYPES = Object.freeze(["clip", "narrated_short"]);
+const PROJECT_STATUSES = Object.freeze(["draft", "awaiting_approval", "processing", "ready", "failed", "cancelled"]);
+
+function validateArtifactId(value, field) {
+  const safe = sanitizeText(value, 100);
+  if (!/^art_[A-Za-z0-9-]{8,80}$/.test(safe)) {
+    throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field });
+  }
+  return safe;
+}
+
+function validateHash(value, field) {
+  const safe = sanitizeText(value, 80).toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(safe)) {
+    throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field });
+  }
+  return safe;
+}
+
+function normalizeActiveNarration(value = null) {
+  if (value === null || value === undefined) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "input.activeNarration" });
+  }
+  const projectRevision = Number(value.projectRevision);
+  if (!Number.isInteger(projectRevision) || projectRevision < 1 || projectRevision > 1_000_000) {
+    throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "input.activeNarration.projectRevision" });
+  }
+  const status = sanitizeText(value.status, 40).toLowerCase();
+  if (!["uploaded_unaligned", "aligned"].includes(status)) {
+    throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "input.activeNarration.status" });
+  }
+  const media = value.media && typeof value.media === "object" && !Array.isArray(value.media) ? value.media : {};
+  const rights = value.rights && typeof value.rights === "object" && !Array.isArray(value.rights) ? value.rights : {};
+  const aligned = status === "aligned";
+  return {
+    status,
+    projectRevision,
+    manifestArtifactId: validateArtifactId(value.manifestArtifactId, "input.activeNarration.manifestArtifactId"),
+    manifestHash: validateHash(value.manifestHash, "input.activeNarration.manifestHash"),
+    audioArtifactId: validateArtifactId(value.audioArtifactId, "input.activeNarration.audioArtifactId"),
+    audioHash: validateHash(value.audioHash, "input.activeNarration.audioHash"),
+    draftArtifactId: validateArtifactId(value.draftArtifactId, "input.activeNarration.draftArtifactId"),
+    draftHash: validateHash(value.draftHash, "input.activeNarration.draftHash"),
+    scriptHash: validateHash(value.scriptHash, "input.activeNarration.scriptHash"),
+    voiceProfileId: sanitizeText(value.voiceProfileId, 80),
+    language: sanitizeText(value.language, 12).toLowerCase(),
+    media: {
+      container: sanitizeText(media.container, 20),
+      codec: sanitizeText(media.codec, 40),
+      sampleRate: Number(media.sampleRate),
+      channels: Number(media.channels),
+      durationSeconds: Number(media.durationSeconds),
+      bytes: Number(media.bytes),
+    },
+    rights: {
+      commercialUseAllowed: rights.commercialUseAllowed === true,
+      ownershipBasis: sanitizeText(rights.ownershipBasis, 40),
+      consentDeclared: rights.consentDeclared === true,
+      licenseDeclared: rights.licenseDeclared === true,
+    },
+    alignmentArtifactId: aligned ? validateArtifactId(value.alignmentArtifactId, "input.activeNarration.alignmentArtifactId") : null,
+    alignmentHash: aligned ? validateHash(value.alignmentHash, "input.activeNarration.alignmentHash") : null,
+    aligned,
+    timingReady: aligned,
+    renderReady: false,
+  };
+}
+
+function normalizeLastInvalidation(value = null) {
+  if (value === null || value === undefined) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new AppError("INVALIDATION_STATE_INVALID", SAFE_MESSAGES.INVALIDATION_STATE_INVALID, 409);
+  const fromRevision = Number(value.fromRevision);
+  const toRevision = Number(value.toRevision);
+  const changeType = sanitizeText(value.changeType, 24).toLowerCase();
+  const requestHash = validateHash(value.requestHash, "input.lastInvalidation.requestHash");
+  if (!Number.isInteger(fromRevision) || !Number.isInteger(toRevision) || fromRevision < 1 || toRevision !== fromRevision + 1 || !["content", "style_only"].includes(changeType)) throw new AppError("INVALIDATION_STATE_INVALID", SAFE_MESSAGES.INVALIDATION_STATE_INVALID, 409);
+  return {
+    artifactId: validateArtifactId(value.artifactId, "input.lastInvalidation.artifactId"),
+    contentHash: validateHash(value.contentHash, "input.lastInvalidation.contentHash"),
+    requestHash,
+    idempotencyKeyHash: value.idempotencyKeyHash ? validateHash(value.idempotencyKeyHash, "input.lastInvalidation.idempotencyKeyHash") : null,
+    fromRevision,
+    toRevision,
+    changeType,
+    narrationReused: value.narrationReused === true,
+    approvalRequired: true,
+  };
+}
+
+function normalizeProjectInput(record = {}) {
+  const requestedType = sanitizeText(record.projectType || (record.input && record.input.type === "content_brief" ? "narrated_short" : "clip"), 40);
+  if (!PROJECT_TYPES.includes(requestedType)) {
+    throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "projectType" });
+  }
+  if (requestedType === "clip") {
+    const uploadId = validateResourceId(record.uploadId || (record.input && record.input.uploadId), "upl");
+    return {
+      projectType: "clip",
+      uploadId,
+      input: { type: "upload", uploadId },
+    };
+  }
+  const briefArtifactId = validateArtifactId(record.briefArtifactId || (record.input && record.input.briefArtifactId), "input.briefArtifactId");
+  const revision = Number(record.revision ?? (record.input && record.input.revision) ?? 1);
+  if (!Number.isInteger(revision) || revision < 1 || revision > 1_000_000) {
+    throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "input.revision" });
+  }
+  const lastInvalidation = normalizeLastInvalidation(record.lastInvalidation || (record.input && record.input.lastInvalidation) || null);
+  if (lastInvalidation && lastInvalidation.toRevision !== revision) {
+    throw new AppError("INVALIDATION_STATE_INVALID", SAFE_MESSAGES.INVALIDATION_STATE_INVALID, 409, { field: "input.lastInvalidation.toRevision" });
+  }
+  return {
+    projectType: "narrated_short",
+    uploadId: null,
+    input: {
+      type: "content_brief",
+      briefArtifactId,
+      revision,
+      claimLedgerArtifactId: record.claimLedgerArtifactId || (record.input && record.input.claimLedgerArtifactId)
+        ? validateArtifactId(record.claimLedgerArtifactId || record.input.claimLedgerArtifactId, "input.claimLedgerArtifactId")
+        : null,
+      scriptArtifactId: record.scriptArtifactId || (record.input && record.input.scriptArtifactId)
+        ? validateArtifactId(record.scriptArtifactId || record.input.scriptArtifactId, "input.scriptArtifactId")
+        : null,
+      storyboardArtifactId: record.storyboardArtifactId || (record.input && record.input.storyboardArtifactId)
+        ? validateArtifactId(record.storyboardArtifactId || record.input.storyboardArtifactId, "input.storyboardArtifactId")
+        : null,
+      activeNarration: normalizeActiveNarration(record.activeNarration || (record.input && record.input.activeNarration) || null),
+      lastInvalidation,
+    },
+  };
+}
 
 function normalizeProject(record = {}) {
   const id = validateResourceId(record.id, "prj");
-  const uploadId = validateResourceId(record.uploadId, "upl");
+  const inputRecord = record.inputJson && typeof record.inputJson === "string"
+    ? (() => { try { return JSON.parse(record.inputJson); } catch { return null; } })()
+    : record.input;
+  const input = normalizeProjectInput({ ...record, input: inputRecord });
   const status = sanitizeText(record.status || "draft", 40);
   if (!PROJECT_STATUSES.includes(status)) {
     throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400);
   }
   const createdAt = record.createdAt || nowIso();
+  const language = input.projectType === "narrated_short" ? sanitizeText(record.language || "en", 12).toLowerCase() : null;
+  if (language && !["el", "en"].includes(language)) {
+    throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "language" });
+  }
   return {
+    schemaVersion: PROJECT_SCHEMA_VERSION,
     id,
-    uploadId,
+    projectType: input.projectType,
+    uploadId: input.uploadId,
+    input: input.input,
     title: sanitizeText(record.title || "ShortsEngine Short", 120),
+    language,
     status,
     ownerId: record.ownerId ? normalizeOwnerId(record.ownerId) : null,
     source: normalizeSmokeSource(record.source),
@@ -82,6 +226,10 @@ class InMemoryProjectRepository {
 
 module.exports = {
   InMemoryProjectRepository,
+  PROJECT_SCHEMA_VERSION,
   PROJECT_STATUSES,
+  PROJECT_TYPES,
   normalizeProject,
+  normalizeActiveNarration,
+  normalizeLastInvalidation,
 };

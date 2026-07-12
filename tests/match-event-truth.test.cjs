@@ -1469,6 +1469,123 @@ test("public truth reports keep safe late-goal summary and reject leaks", () => 
   );
 });
 
+test("fixture-backed delayed score confirmation binds to the earlier audio-supported live goal phase", () => {
+  const result = analyzeMatchEventTruth({
+    metadata: {
+      ...metadata,
+      durationSeconds: 300,
+      sourceType: "youtube",
+      goalSelectionMode: "valid_goals_only",
+      allowScoreChangeBacktrackFallback: true,
+      expectedCountedGoals: 1,
+      expectedFinalScore: "1-0",
+    },
+    mediaSignals: {
+      audioPeaks: [{ time: 45, energyScore: 0.95 }],
+      highMotionCandidates: [],
+    },
+    visualSignals: visualSignals([
+      {
+        start: 44.3,
+        end: 50.8,
+        source: "scorebug_first_delayed_finish_anchor",
+        types: ["shot_contact", "ball_toward_goal", "goal_mouth_visible"],
+        confidence: 0.9,
+      },
+      {
+        start: 50.8,
+        end: 56.8,
+        source: "scorebug_first_delayed_goalmouth_anchor",
+        types: ["goal_mouth_visible", "ball_toward_goal"],
+        confidence: 0.88,
+      },
+      {
+        start: 74.8,
+        end: 80.8,
+        source: "scorebug_first_live_action_anchor",
+        types: ["shot_contact", "ball_toward_goal", "goal_mouth_visible"],
+        confidence: 0.92,
+      },
+      { start: 81.3, end: 84.3, type: "scoreboard_goal_confirmed", confidence: 0.9 },
+    ]),
+    scoreboardOcr: [{
+      id: "fixture_delayed_score_change",
+      timestamp: 82.8,
+      scoreBefore: "0-0",
+      scoreAfter: "1-0",
+      status: "score_changed",
+      confidence: 0.9,
+      temporalConsistency: true,
+      scoreChanged: true,
+      source: "fixture_constrained_score_progression",
+    }],
+    ocrQaCalibration: strongOcrQaCalibration(),
+    goalEvidence: goalEvidence([]),
+  });
+
+  const event = result.events.find((candidate) => candidate.type === "confirmed_goal");
+  assert.ok(event);
+  assert.equal(event.primarySource, "score_change_delayed_live_goal_probe");
+  assert.ok(event.evidenceCodes.includes("score_change_delayed_live_goal_probe"));
+  assert.equal(event.anchorDiagnostics.bindingStrategy, "fixture_audio_delayed_live_goal_probe");
+  assert.equal(event.shotStart, 44.3);
+  assert.equal(event.finishTime, 51.8);
+  assert.ok(event.sourceStart <= 44.3);
+  assert.ok(event.sourceEnd < 70);
+  assert.ok(event.confirmationTime < event.scoreChangeTime);
+  assert.equal(event.missingEvidence.includes("rendered_finish_proof_required"), true);
+});
+
+test("fixture-backed delayed score confirmation accepts one audio-backed shot and goalmouth window", () => {
+  const result = analyzeMatchEventTruth({
+    metadata: {
+      ...metadata,
+      durationSeconds: 514.74,
+      sourceType: "youtube",
+      goalSelectionMode: "valid_goals_only",
+      allowScoreChangeBacktrackFallback: true,
+      expectedCountedGoals: 1,
+      expectedFinalScore: "1-0",
+    },
+    mediaSignals: {
+      audioPeaks: [{ time: 299.2, energyScore: 0.95 }],
+      highMotionCandidates: [],
+    },
+    visualSignals: visualSignals([
+      {
+        start: 297.8,
+        end: 304.8,
+        source: "scorebug_first_delayed_finish_anchor",
+        types: ["shot_contact", "ball_toward_goal", "goal_mouth_visible"],
+        confidence: 0.91,
+      },
+      { start: 321.3, end: 324.3, type: "scoreboard_goal_confirmed", confidence: 0.9 },
+    ]),
+    scoreboardOcr: [{
+      id: "fixture_delayed_score_change_single_window",
+      timestamp: 322.3,
+      scoreBefore: "0-0",
+      scoreAfter: "1-0",
+      status: "score_changed",
+      confidence: 0.9,
+      temporalConsistency: true,
+      scoreChanged: true,
+      source: "fixture_constrained_score_progression",
+    }],
+    ocrQaCalibration: strongOcrQaCalibration(),
+    goalEvidence: goalEvidence([]),
+  });
+
+  const event = result.events.find((candidate) => candidate.type === "confirmed_goal");
+  assert.ok(event);
+  assert.equal(event.primarySource, "score_change_delayed_live_goal_probe");
+  assert.equal(event.anchorDiagnostics.bindingStrategy, "fixture_audio_delayed_live_goal_probe");
+  assert.equal(event.shotStart, 297.8);
+  assert.equal(event.finishTime, 298.8);
+  assert.ok(event.sourceEnd < 310.5);
+  assert.ok(event.confirmationTime < event.scoreChangeTime);
+});
+
 test("public truth contract marks disallowed goals with safe disqualifiers", () => {
   const truth = validateMatchEventTruthOutput({
     providerMode: "unit-truth",

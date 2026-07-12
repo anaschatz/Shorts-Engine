@@ -222,6 +222,81 @@ test("video output gate fails closed when final edit plan covers only two of fiv
   assert.doesNotMatch(JSON.stringify(error.details), /\/Users|\/private|token|secret|rawOcr|rawText|stderr|stdout/i);
 });
 
+test("video output gate derives a missing hook source window from the first confirmed goal", () => {
+  const contract = creativeOutputContract();
+  contract.hookPlan.sourceStart = null;
+  contract.hookPlan.sourceEnd = null;
+
+  const result = assertVideoOutputCoverage({
+    goalSelectionMode: "valid_goals_only",
+    matchEventTruth: {
+      providerMode: "fixture-match-event-truth",
+      events: [],
+      rejectedEvents: [],
+      scoreTimelineObservations: [],
+      scoreChanges: countedScoreChanges(1),
+      summary: { countedGoalEventCount: 1 },
+    },
+    editPlan: {
+      ...contract,
+      segments: [visibleGoalSegment(1, 84)],
+    },
+  });
+
+  assert.equal(result.hook.passed, true);
+  assert.equal(result.hook.sourceStart, 97.35);
+  assert.equal(result.hook.sourceEnd, 98.95);
+});
+
+test("video output gate replaces a zero-length hook source window", () => {
+  const contract = creativeOutputContract();
+  contract.hookPlan.sourceStart = 0;
+  contract.hookPlan.sourceEnd = 0;
+
+  const result = assertVideoOutputCoverage({
+    goalSelectionMode: "valid_goals_only",
+    matchEventTruth: {
+      providerMode: "fixture-match-event-truth",
+      events: [],
+      rejectedEvents: [],
+      scoreTimelineObservations: [],
+      scoreChanges: countedScoreChanges(1),
+      summary: { countedGoalEventCount: 1 },
+    },
+    editPlan: { ...contract, segments: [visibleGoalSegment(1, 84)] },
+  });
+
+  assert.equal(result.hook.passed, true);
+  assert.equal(result.hook.sourceStart, 97.35);
+  assert.equal(result.hook.sourceEnd, 98.95);
+});
+
+test("video output gate derives hook coverage for a single-goal plan without segments array", () => {
+  const contract = creativeOutputContract();
+  const segment = visibleGoalSegment(1, 84);
+  const result = assertVideoOutputCoverage({
+    goalSelectionMode: "valid_goals_only",
+    matchEventTruth: {
+      providerMode: "fixture-match-event-truth",
+      events: [],
+      rejectedEvents: [],
+      scoreTimelineObservations: [],
+      scoreChanges: countedScoreChanges(1),
+      summary: { countedGoalEventCount: 1 },
+    },
+    editPlan: {
+      ...contract,
+      ...segment,
+      hookPlan: { ...contract.hookPlan, sourceStart: 0, sourceEnd: 0 },
+      segments: undefined,
+    },
+  });
+
+  assert.equal(result.passed, true);
+  assert.equal(result.hook.passed, true);
+  assert.equal(result.actualConfirmedGoalSegmentCount, 1);
+});
+
 test("video output gate passes only when all five counted goals have visible phases", () => {
   const report = assertVideoOutputCoverage({
     goalSelectionMode: "valid_goals_only",

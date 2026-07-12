@@ -15,12 +15,13 @@ const DEFAULT_FORMAT_SELECTOR = "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best";
 const DEFAULT_FALLBACK_FORMAT_SELECTOR = "best[ext=mp4]/best";
 const RECOVERY_PROGRESSIVE_FORMAT_SELECTOR = "18/best[ext=mp4]/best";
 const RECOVERY_LOW_HEIGHT_FORMAT_SELECTOR = "b[height<=480][ext=mp4]/best[height<=480]/best";
+const DOWNLOADER_PROBE_TIMEOUT_MS = 5000;
 
 function downloaderAvailable(downloaderBin, spawnSyncImpl = spawnSync) {
   try {
     const result = spawnSyncImpl(downloaderBin, ["--version"], {
       stdio: "ignore",
-      timeout: 2000,
+      timeout: DOWNLOADER_PROBE_TIMEOUT_MS,
       windowsHide: true,
     });
     return result.status === 0;
@@ -33,7 +34,7 @@ function downloaderVersion(downloaderBin, spawnSyncImpl = spawnSync) {
   try {
     const result = spawnSyncImpl(downloaderBin, ["--version"], {
       encoding: "utf8",
-      timeout: 2000,
+      timeout: DOWNLOADER_PROBE_TIMEOUT_MS,
       windowsHide: true,
     });
     const raw = result && result.status === 0 ? String(result.stdout || "").trim() : "";

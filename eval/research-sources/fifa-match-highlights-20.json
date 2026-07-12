@@ -1,0 +1,205 @@
+{
+  "schemaVersion": 1,
+  "datasetId": "fifa-match-highlights-2026-research-20",
+  "collectedAt": "2026-07-10T00:00:00.000Z",
+  "source": {
+    "channel": "FIFA",
+    "channelUrl": "https://www.youtube.com/@fifa",
+    "playlistId": "PLBRLtDhTHh5o",
+    "playlistTitle": "Match Highlights | FIFA World Cup 2026",
+    "playlistUrl": "https://www.youtube.com/playlist?list=PLBRLtDhTHh5o",
+    "selection": "playlist_positions_1_to_20"
+  },
+  "rights": {
+    "status": "confirmed_by_operator",
+    "benchmarkEligible": true,
+    "confirmedAt": "2026-07-10",
+    "confirmationBasis": "Operator explicitly confirmed the necessary rights for all 20 videos in the Codex task.",
+    "note": "Authorized for this local production-beta benchmark by explicit operator confirmation."
+  },
+  "videos": [
+    {
+      "index": 1,
+      "videoId": "pZ1Fh5Dnk3U",
+      "title": "Highlights | Switzerland (4)0-0(3) Colombia",
+      "url": "https://www.youtube.com/watch?v=pZ1Fh5Dnk3U",
+      "durationSeconds": 131,
+      "expectedCountedGoals": 0,
+      "expectedSuccessfulShootoutPenalties": 7,
+      "rightsConfirmed": true
+    },
+    {
+      "index": 2,
+      "videoId": "-LHb5yN-OzI",
+      "title": "Highlights | Argentina 3-2 Egypt",
+      "url": "https://www.youtube.com/watch?v=-LHb5yN-OzI",
+      "durationSeconds": 131,
+      "expectedCountedGoals": 5,
+      "rightsConfirmed": true
+    },
+    {
+      "index": 3,
+      "videoId": "b5HCJV5DFnw",
+      "title": "Highlights | USA 1-4 Belgium",
+      "url": "https://www.youtube.com/watch?v=b5HCJV5DFnw",
+      "durationSeconds": 131,
+      "expectedCountedGoals": 5,
+      "rightsConfirmed": true
+    },
+    {
+      "index": 4,
+      "videoId": "iwE1D_JQSQ8",
+      "title": "Highlights | Portugal 0-1 Spain",
+      "url": "https://www.youtube.com/watch?v=iwE1D_JQSQ8",
+      "durationSeconds": 131,
+      "expectedCountedGoals": 1,
+      "rightsConfirmed": true
+    },
+    {
+      "index": 5,
+      "videoId": "ydx1L0aDj_c",
+      "title": "Highlights | Mexico 2-3 England",
+      "url": "https://www.youtube.com/watch?v=ydx1L0aDj_c",
+      "durationSeconds": 131,
+      "expectedCountedGoals": 5,
+      "rightsConfirmed": true
+    },
+    {
+      "index": 6,
+      "videoId": "42ovN5rW79U",
+      "title": "Highlights | Brazil 1-2 Norway",
+      "url": "https://www.youtube.com/watch?v=42ovN5rW79U",
+      "durationSeconds": 131,
+      "expectedCountedGoals": 3,
+      "rightsConfirmed": true
+    },
+    {
+      "index": 7,
+      "videoId": "4HZCeb88uSI",
+      "title": "Highlights | Paraguay 0-1 France",
+      "url": "https://www.youtube.com/watch?v=4HZCeb88uSI",
+      "durationSeconds": 130,
+      "expectedCountedGoals": 1,
+      "rightsConfirmed": true
+    },
+    {
+      "index": 8,
+      "videoId": "sAYjtcpoaf0",
+      "title": "Highlights | Canada 0-3 Morocco",
+      "url": "https://www.youtube.com/watch?v=sAYjtcpoaf0",
+      "durationSeconds": 130,
+      "expectedCountedGoals": 3,
+      "rightsConfirmed": true
+    },
+    {
+      "index": 9,
+      "videoId": "I43WUQJFfCw",
+      "title": "Highlights | Colombia 1-0 Ghana",
+      "url": "https://www.youtube.com/watch?v=I43WUQJFfCw",
+      "durationSeconds": 131,
+      "expectedCountedGoals": 1,
+      "rightsConfirmed": true
+    },
+    {
+      "index": 10,
+      "videoId": "hzvEZ2Vxb94",
+      "title": "Highlights | Argentina 3-2 Cabo Verde",
+      "url": "https://www.youtube.com/watch?v=hzvEZ2Vxb94",
+      "durationSeconds": 131,
+      "expectedCountedGoals": 5,
+      "rightsConfirmed": true
+    },
+    {
+      "index": 11,
+      "videoId": "olBx2GK7kZI",
+      "title": "Highlights | Australia (2)1-1(4) Egypt",
+      "url": "https://www.youtube.com/watch?v=olBx2GK7kZI",
+      "durationSeconds": 131,
+      "expectedCountedGoals": 2,
+      "expectedSuccessfulShootoutPenalties": 6,
+      "rightsConfirmed": true
+    },
+    {
+      "index": 12,
+      "videoId": "-q-nO0sz18s",
+      "title": "Highlights | Switzerland 2-0 Algeria",
+      "url": "https://www.youtube.com/watch?v=-q-nO0sz18s",
+      "durationSeconds": 131,
+      "expectedCountedGoals": 2,
+      "rightsConfirmed": true
+    },
+    {
+      "index": 13,
+      "videoId": "jxU1VT5YXXE",
+      "title": "Highlights | Portugal 2-1 Croatia",
+      "url": "https://www.youtube.com/watch?v=jxU1VT5YXXE",
+      "durationSeconds": 131,
+      "expectedCountedGoals": 3,
+      "rightsConfirmed": true
+    },
+    {
+      "index": 14,
+      "videoId": "p_j4aMfNQyI",
+      "title": "Highlights | Spain 3-0 Austria",
+      "url": "https://www.youtube.com/watch?v=p_j4aMfNQyI",
+      "durationSeconds": 131,
+      "expectedCountedGoals": 3,
+      "rightsConfirmed": true
+    },
+    {
+      "index": 15,
+      "videoId": "SGQpzA9qcwk",
+      "title": "Highlights | USA 2-0 Bosnia And Herzegovina",
+      "url": "https://www.youtube.com/watch?v=SGQpzA9qcwk",
+      "durationSeconds": 131,
+      "expectedCountedGoals": 2,
+      "rightsConfirmed": true
+    },
+    {
+      "index": 16,
+      "videoId": "PsPQkfngzV8",
+      "title": "Highlights | Belgium 3-2 Senegal",
+      "url": "https://www.youtube.com/watch?v=PsPQkfngzV8",
+      "durationSeconds": 131,
+      "expectedCountedGoals": 5,
+      "rightsConfirmed": true
+    },
+    {
+      "index": 17,
+      "videoId": "t-miz8tN7Qw",
+      "title": "Highlights | Mexico 2-0 Ecuador",
+      "url": "https://www.youtube.com/watch?v=t-miz8tN7Qw",
+      "durationSeconds": 131,
+      "expectedCountedGoals": 2,
+      "rightsConfirmed": true
+    },
+    {
+      "index": 18,
+      "videoId": "A7pgChEIFTg",
+      "title": "Highlights | France 3-0 Sweden",
+      "url": "https://www.youtube.com/watch?v=A7pgChEIFTg",
+      "durationSeconds": 131,
+      "expectedCountedGoals": 3,
+      "rightsConfirmed": true
+    },
+    {
+      "index": 19,
+      "videoId": "ATzmoebQMj0",
+      "title": "Highlights | Cote d'Ivoire 1-2 Norway",
+      "url": "https://www.youtube.com/watch?v=ATzmoebQMj0",
+      "durationSeconds": 131,
+      "expectedCountedGoals": 3,
+      "rightsConfirmed": true
+    },
+    {
+      "index": 20,
+      "videoId": "vdnhUnGHwco",
+      "title": "Highlights | Netherlands (2)1-1(3) Morocco",
+      "url": "https://www.youtube.com/watch?v=vdnhUnGHwco",
+      "durationSeconds": 131,
+      "expectedCountedGoals": 2,
+      "expectedSuccessfulShootoutPenalties": 5,
+      "rightsConfirmed": true
+    }
+  ]
+}

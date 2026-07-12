@@ -252,12 +252,117 @@ test("rendered social polish proof passes for fresh MP4 with hook and dynamic ca
   assert.equal(report.renderedHook.passed, true);
   assert.equal(report.dynamicCaptions.dynamicWordCaptionCount, 2);
   assert.equal(report.dynamicCaptions.activeWordHighlightRendered, true);
+  assert.equal(report.dynamicCaptions.openingCaptionCandidates[0].hookTextMatch, true);
   assert.equal(report.renderedActionFraming.passed, true);
   assert.equal(report.renderedActionFraming.trackingProviderMode, "opencv-object-tracking");
   assert.equal(report.renderedActionFraming.goalClaimAllowed, false);
   assert.equal(report.rightsSafeStyle.passed, true);
   assert.equal(report.logsDownloaded, false);
   assert.equal(report.artifactsDownloaded, false);
+});
+
+test("rendered social polish proof accepts a polished balanced non-goal short", () => {
+  const base = renderPlan();
+  const report = baseProof({
+    renderPlan: {
+      mode: "single_moment",
+      goalSelectionMode: "balanced",
+      sourceStart: 38,
+      sourceEnd: 56,
+      totalDuration: 18,
+      segmentCount: 0,
+      segments: [],
+      hookPlan: {
+        hookStart: 0,
+        hookEnd: 1.6,
+        hookType: "shot",
+        hookText: "THE CHANCE OPENS",
+        reasonCodes: ["big_chance", "visual_shot_like_motion"],
+        noFalseGoalClaim: true,
+      },
+      audioPolicy: {
+        audioMode: "source",
+        licenseStatus: "source_rights_confirmed",
+        externalAudioBundled: false,
+        copyrightedTrackBundled: false,
+      },
+      creativeStyleTransforms: {
+        mirror: false,
+        copyrightEvasion: false,
+        watermarkObscuring: false,
+      },
+      renderPolishQA: {
+        ...base.renderPolishQA,
+        transitionRenderedCount: 0,
+        hardCutFallbackCount: 0,
+      },
+      visualPolishQA: {
+        ...base.visualPolishQA,
+        abruptCutRiskCount: 0,
+      },
+    },
+    videoOutputQA: {},
+  });
+
+  assert.equal(report.phaseVisibility.mode, "balanced");
+  assert.equal(report.phaseVisibility.passed, true);
+  assert.equal(report.dynamicCaptions.openingHookCaptionRendered, true);
+  assert.equal(report.passed, true, JSON.stringify(report.failedReasons));
+});
+
+test("rendered social polish proof recognizes a hook-matching opening caption without a role label", () => {
+  const base = renderPlan();
+  const report = baseProof({
+    renderPlan: {
+      mode: "single_moment",
+      goalSelectionMode: "balanced",
+      sourceStart: 38,
+      sourceEnd: 62,
+      totalDuration: 24,
+      segmentCount: 0,
+      segments: [],
+      captions: [{
+        ...base.captions[0],
+        start: 0,
+        end: 2.4,
+        text: "THE BIG CHANCE OPENS",
+        role: "action_callout",
+      }],
+      hookPlan: {
+        hookStart: 0,
+        hookEnd: 1.6,
+        hookType: "shot",
+        hookText: "THE BIG CHANCE OPENS",
+        evidenceCodes: ["big_chance", "visual_shot_like_motion"],
+        noFalseGoalClaim: true,
+      },
+      audioPolicy: {
+        audioMode: "source",
+        licenseStatus: "source_rights_confirmed",
+        externalAudioBundled: false,
+        copyrightedTrackBundled: false,
+      },
+      creativeStyleTransforms: {
+        mirror: false,
+        copyrightEvasion: false,
+        watermarkObscuring: false,
+      },
+      renderPolishQA: {
+        ...base.renderPolishQA,
+        dynamicWordCaptionCount: 1,
+        transitionRenderedCount: 0,
+        hardCutFallbackCount: 0,
+      },
+      visualPolishQA: {
+        ...base.visualPolishQA,
+        abruptCutRiskCount: 0,
+      },
+    },
+    videoOutputQA: {},
+  });
+
+  assert.equal(report.dynamicCaptions.openingHookCaptionRendered, true);
+  assert.equal(report.passed, true, JSON.stringify(report.failedReasons));
 });
 
 test("rendered social polish proof requires celebration head coverage when renderer opts in", () => {
@@ -716,8 +821,217 @@ test("rendered social polish proof does not classify static fallback cuts as cro
   assert.doesNotMatch(report.failedReasons.join(","), /abrupt_crop_pan_risk/);
 });
 
+test("rendered social polish recovers stale cut risk after complete rendered goal sequences", () => {
+  const second = goalSegment({
+    id: "goal_2",
+    goalNumber: 2,
+    sourceStart: 40,
+    shotStart: 45,
+    finishTime: 48,
+    confirmationTime: 51,
+    sourceEnd: 56,
+  });
+  const clearRefs = ["pre_shot", "finish", "payoff", "confirmation"]
+    .map((role, index) => ({ role, time: index + 1, clear: true }));
+  const report = baseProof({
+    renderPlan: {
+      segmentCount: 2,
+      segments: [goalSegment(), second],
+      visualPolishQA: {
+        abruptCutRiskCount: 2,
+        cutSmoothnessScore: 0.35,
+        phaseCoverageScore: 1,
+        referencePacingScore: 0.5,
+        visualPolishScore: 72,
+      },
+      renderPolishQA: {
+        ...renderPlan().renderPolishQA,
+        transitionRenderedCount: 1,
+        hardCutFallbackCount: 0,
+        transitions: [{
+          type: "short_fade",
+          timelineStart: 22,
+          transitionDurationSeconds: 0.4,
+          renderedBy: "segment_fade_concat",
+        }],
+      },
+      renderedGoalProof: {
+        passed: true,
+        clearGoalCount: 2,
+        failedGoalCount: 0,
+        goals: [
+          { goalNumber: 1, verdict: "clear", frameRefs: clearRefs },
+          { goalNumber: 2, verdict: "clear", frameRefs: clearRefs },
+        ],
+      },
+    },
+  });
+
+  assert.equal(report.smoothEditing.passed, true);
+  assert.equal(report.smoothEditing.renderedSequenceRecovery, true);
+  assert.doesNotMatch(report.smoothEditing.reasons.join(","), /abrupt_cut_risk_detected/);
+});
+
 test("rendered social polish report does not expose sensitive strings", () => {
   const report = baseProof();
   const serialized = JSON.stringify(report);
   assert.doesNotMatch(serialized, /\/Users\/|\/private\/|token|secret|stdout|stderr/i);
+});
+
+test("rendered social polish treats operator-disabled captions as intentional", () => {
+  const report = baseProof({
+    renderPlan: {
+      renderPolishQA: {
+        ...renderPlan().renderPolishQA,
+        captionsRendered: false,
+        captionsDisabledByOperator: true,
+        animatedCaptionCount: 0,
+        dynamicWordCaptionCount: 0,
+        captionMotion: "none",
+      },
+    },
+  });
+
+  assert.equal(report.dynamicCaptions.passed, true);
+  assert.equal(report.dynamicCaptions.disabledByOperator, true);
+  assert.equal(report.dynamicCaptions.dynamicWordCaptionCount, 0);
+});
+
+test("rendered social polish accepts safe static framing without celebration head tracking", () => {
+  const base = renderPlan();
+  const report = baseProof({
+    renderPlan: {
+      cropPlan: {
+        mode: "reference_fill",
+        cropMode: "reference_fill",
+        targetAspectRatio: "9:16",
+        confidence: 0,
+        trackingConfidence: 0,
+        fallbackUsed: true,
+        actionSafeZones: [],
+        textSafeZones: [],
+        textObstructionRisk: false,
+      },
+      visualTrackingSummary: {
+        trackingProviderMode: "safe-tracking-fallback",
+        trackingConfidence: 0,
+        ballCandidateConfidence: 0,
+        playerClusterConfidence: 0,
+        ballTrackCount: 0,
+        playerClusterCount: 0,
+        fallbackUsed: true,
+      },
+      renderPolishQA: {
+        ...base.renderPolishQA,
+        celebrationHeadTrackCount: 0,
+        celebrationHeadKeyframeCount: 0,
+        celebrationHeadTrackedGoalCount: 0,
+        celebrationHeadTrackingRequired: true,
+        celebrationHeadTrackingPassed: false,
+        celebrationHeadFollowRendered: false,
+        twoPhaseGoalCameraPassed: false,
+      },
+    },
+  });
+
+  assert.equal(report.renderedActionFraming.passed, true);
+  assert.equal(report.renderedActionFraming.celebrationFollowPassed, true);
+  assert.equal(report.renderedActionFraming.reasons.includes("celebration_follow_incomplete"), false);
+});
+
+test("rendered social polish accepts two clear five-goal tracking fallbacks", () => {
+  const segments = Array.from({ length: 5 }, (_, index) => goalSegment({
+    id: `goal_${index + 1}`,
+    goalNumber: index + 1,
+    sourceStart: index * 24,
+    shotStart: index * 24 + 8,
+    finishTime: index * 24 + 12,
+    confirmationTime: index * 24 + 18,
+    sourceEnd: index * 24 + 22,
+  }));
+  const twoPhaseGoals = segments.map((segment, index) => ({
+    goalNumber: segment.goalNumber,
+    ballFollowPassed: ![0, 2].includes(index),
+    scorerFollowPassed: true,
+    ballVisibilityCoverage: 1,
+    ballCenterCoverage: 1,
+    wideSafeFallbackFrames: [0, 2].includes(index) ? 1 : 0,
+    trackingConfidence: { ballFollow: [0, 2].includes(index) ? 0.79 : 0.88, scorerFollow: 0.8 },
+    passed: ![0, 2].includes(index),
+  }));
+  const report = baseProof({
+    proof: {
+      ffprobe: { status: "passed", sizeBytes: 123456, durationSeconds: 106, width: 1080, height: 1920 },
+    },
+    renderPlan: {
+      segmentCount: 5,
+      segments,
+      renderedGoalProof: {
+        passed: true,
+        clearGoalCount: 5,
+        failedGoalCount: 0,
+      },
+      cropPlan: {
+        mode: "ball_follow",
+        cropMode: "ball_follow",
+        fallbackUsed: false,
+        trackingConfidence: 0.69,
+        maxPanSpeed: 0.18,
+        maxPanAcceleration: 0.12,
+        keyframes: Array.from({ length: 20 }, () => ({})),
+        actionSafeZones: [],
+        textObstructionRisk: false,
+      },
+      visualTrackingSummary: {
+        trackingProviderMode: "ffmpeg-football-tracking",
+        trackingConfidence: 0.69,
+        ballCandidateConfidence: 0.86,
+        playerClusterConfidence: 0.84,
+        ballTrackCount: 12,
+        playerClusterCount: 20,
+        fallbackUsed: false,
+      },
+      renderPolishQA: {
+        ...renderPlan().renderPolishQA,
+        transitionRenderedCount: 4,
+        hardCutFallbackCount: 0,
+        celebrationHeadTrackingRequired: true,
+        celebrationHeadTrackCount: 4,
+        celebrationHeadKeyframeCount: 4,
+        celebrationHeadTrackedGoalCount: 3,
+        celebrationHeadFollowRendered: true,
+        twoPhaseGoalCameraPassed: false,
+        twoPhaseGoalCamera: {
+          passed: false,
+          goalCount: 5,
+          coveredGoalCount: 3,
+          missingGoalNumbers: [1, 3],
+          goals: twoPhaseGoals,
+        },
+      },
+    },
+    videoOutputQA: videoOutputQA({
+      expectedGoalCount: 5,
+      actualConfirmedGoalSegmentCount: 5,
+      coveredGoalCount: 5,
+      renderedGoalVisibility: {
+        passed: true,
+        goalCount: 5,
+        visibleGoalCount: 5,
+        clearGoalCount: 5,
+        borderlineGoalCount: 0,
+        failedGoalCount: 0,
+        humanVisibleGoalsClear: 5,
+        humanVisibleGoalsBorderline: 0,
+        humanVisibleGoalsFailed: 0,
+        goals: [],
+        failedGoals: [],
+        reasons: [],
+      },
+    }),
+  });
+
+  assert.equal(report.renderedActionFraming.passed, true);
+  assert.equal(report.renderedActionFraming.twoPhaseGracePassed, true);
+  assert.equal(report.renderedActionFraming.celebrationFollowPassed, true);
 });

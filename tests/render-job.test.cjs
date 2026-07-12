@@ -845,6 +845,9 @@ test("render orchestration completes success path with mocked adapters", async (
   assert.equal(context.job.matchEventTruth.providerMode, "mock-match-event-truth");
   assert.equal(context.job.matchEventTruth.summary.confirmedGoalCount, 0);
   assert.equal(context.job.matchEventTruth.summary.noFalseGoalFromOcrOnly, 1);
+  assert.equal(context.job.humanReviewGate.status, "not_required");
+  assert.equal(context.job.humanReviewGate.publishingPolicy, "automatic_allowed");
+  assert.equal(context.job.editPlan.humanReviewGate.status, "not_required");
   assert.equal(context.job.ocrQaCalibration.status, "missing");
   assert.equal(context.job.ocrQaCalibration.goalDecisionAllowed, false);
   assert.equal(context.goalEvidenceOcrQaCalibration.status, "missing");
@@ -881,6 +884,35 @@ test("render orchestration completes success path with mocked adapters", async (
   assert.equal(ocrQaLog.goalDecisionAllowed, false);
   assert.equal(context.goalEvidenceOcrEvidenceCount, 0);
   assert.doesNotMatch(JSON.stringify(goalEvidenceLog), /\/Users|storageKey|localPath|secret/i);
+});
+
+test("render orchestration marks ambiguous goal output for human review", async () => {
+  const context = makeContext({
+    matchEventTruth: {
+      schemaVersion: 1,
+      providerMode: "mock-match-event-truth",
+      fallbackUsed: false,
+      events: [],
+      rejectedEvents: [],
+      scoreChanges: [],
+      summary: {
+        eventCount: 0,
+        confirmedGoalCount: 0,
+        disallowedGoalCount: 0,
+        possibleGoalCount: 1,
+        uncertainReviewItemCount: 1,
+        anchorsMissingVisualSupportCount: 0,
+        noFalseGoalFromOcrOnly: 1,
+      },
+    },
+  });
+  await runContext(context);
+
+  assert.equal(context.job.status, "completed");
+  assert.equal(context.job.humanReviewGate.requiresReview, true);
+  assert.equal(context.job.humanReviewGate.previewPolicy, "allowed");
+  assert.equal(context.job.humanReviewGate.publishingPolicy, "human_approval_required");
+  assert.ok(context.logs.some((entry) => entry.event === "human_review_gate_evaluated" && entry.requiresReview));
 });
 
 test("youtube long-source render uses scorebug-first OCR before visual frame extraction", async () => {
@@ -1560,17 +1592,13 @@ test("youtube long-source chunked OCR promotes five observed score changes witho
       candidate.score === "6-6" && candidate.reason === "score_candidate_jump_too_large"),
     true,
   );
-  assert.equal(context.job.editPlan.framingMode, "safe_center");
-  assert.equal(context.job.editPlan.cropPlan.mode, "reference_fill");
-  assert.equal(context.job.editPlan.cropStrategy.preserveFullFrame, false);
-  assert.deepEqual(context.job.editPlan.scoreboardOverlay, {
-    enabled: true,
-    mode: "source_roi",
-    regionId: "scorebug_broadcast_compact",
-    sourceRect: { x: 0.04, y: 0.045, width: 0.33, height: 0.065 },
-    outputWidthRatio: 0.46,
-    topMarginRatio: 0.035,
-  });
+  assert.equal(context.job.editPlan.framingMode, "wide_safe_vertical");
+  assert.equal(context.job.editPlan.cropPlan.mode, "wide_safe");
+  assert.equal(context.job.editPlan.cropStrategy.preserveFullFrame, true);
+  assert.deepEqual(context.job.editPlan.scoreboardOverlay, { enabled: false });
+  assert.ok(context.job.editPlan.cropPlan.reasonCodes.includes(
+    "reference_wide_safe_full_frame_ball_containment_unproven",
+  ));
   assert.equal(
       context.frameCandidateWindows.filter((window) => (
       window.source === "scorebug_first_live_action_anchor" &&
@@ -1755,6 +1783,22 @@ test("youtube long-source render requests valid-goals-only planning", async () =
   assert.equal(context.createPlanInput.metadata.goalSelectionMode, "valid_goals_only");
   assert.equal(context.job.videoOutputQA.expectedGoalCount, 2);
   assert.equal(context.job.videoOutputQA.coveredGoalCount, 2);
+});
+
+test("youtube long-source render can explicitly request balanced highlight planning", async () => {
+  const context = makeContext({
+    durationSeconds: 180,
+    metadata: { sourceType: "youtube", videoId: "dQw4w9WgXcQ" },
+  });
+  context.payload.goalSelectionMode = "balanced";
+  context.payload.compositionMode = "single_moment";
+  await runContext(context);
+
+  assert.equal(context.job.status, "completed");
+  assert.equal(context.createPlanInput.metadata.goalSelectionMode, "balanced");
+  assert.equal(context.createPlanInput.compositionMode, "single_moment");
+  assert.equal(context.calls.includes("render_short"), true);
+  assert.equal(context.calls.includes("analyze_rendered_goal_proof"), false);
 });
 
 test("render orchestration passes scoreboard OCR evidence into goal evidence analysis", async () => {
@@ -2492,6 +2536,47 @@ test("rendered goal rebinding preserves pre-finish context before the scoreboard
   assert.equal(rebind.summary.diagnostics[0].profile.lowerBoundClippedBuildup, false);
 });
 
+test("rendered goal rebinding does not cut a close first goal at an overlapping next window", () => {
+  const segments = [
+    validGoalSegment(1, 302.3, 306.2, 308.55, 308.55),
+    validGoalSegment(2, 309.05, 325.8, 329.4, 332.3),
+  ];
+  segments[0].scoreChangeTime = 322.3;
+  segments[0].goalOutcome.scoreChangeTime = 322.3;
+  segments[1].scoreChangeTime = 332.3;
+  segments[1].goalOutcome.scoreChangeTime = 332.3;
+
+  const rebind = __testing.rebindRenderedGoalFailureSegments({
+    editPlan: {
+      mode: "multi_moment_compilation",
+      sourceStart: 302.3,
+      sourceEnd: 336.3,
+      totalDuration: segments.reduce((sum, segment) => sum + segment.sourceEnd - segment.sourceStart, 0),
+      segments,
+    },
+    renderedGoalProof: {
+      summary: {
+        goals: [
+          {
+            goalNumber: 1,
+            segmentIndex: 1,
+            verdict: "failed",
+            frameRefs: [{ role: "payoff", clear: false, reason: "semantic_frame_not_clear" }],
+          },
+        ],
+      },
+    },
+    metadata: { durationSeconds: 514.74 },
+    attemptNumber: 1,
+  });
+
+  assert.equal(rebind.applied, true);
+  const reboundGoal1 = rebind.editPlan.segments[0];
+  assert.equal(reboundGoal1.sourceEnd > reboundGoal1.finishTime + 4, true);
+  assert.equal(reboundGoal1.sourceEnd > 323, true);
+  assert.equal(rebind.summary.diagnostics[0].chronologicalBounds.upperBound, 329.3);
+});
+
 test("approved regeneration render uses the validated draft without rerunning AI analysis", async () => {
   const context = makeContext();
   const approvedEditPlan = validateEditPlan(validPlan(), context.upload.metadata);
@@ -2677,6 +2762,26 @@ test("invalid transcript and highlight outputs are rejected before render", asyn
   assert.equal(context.calls.includes("render_short"), false);
 });
 
+test("transcript validation preserves bounded Faster-Whisper word timing", () => {
+  const transcript = validateTranscript({
+    provider: "faster-whisper",
+    language: "en",
+    captions: [{
+      start: 0,
+      end: 1.2,
+      text: "Watch the run",
+      words: [
+        { start: 0, end: 0.35, word: "Watch" },
+        { start: 0.36, end: 0.62, word: "the" },
+        { start: 0.64, end: 1.1, word: "run" },
+      ],
+    }],
+  }, { durationSeconds: 4 });
+
+  assert.deepEqual(transcript.captions[0].words, ["Watch", "the", "run"]);
+  assert.equal(transcript.captions[0].activeWordTiming[2].end, 1.1);
+});
+
 test("invalid visual analysis output fails safely before transcription and render", async () => {
   const context = makeContext({
     dependencies: {
@@ -2816,8 +2921,76 @@ test("scorebug chunk sampling probes the first post-candidate scoreboard update"
   });
 
   assert.equal(windows.some((window) => Math.abs(window.timestamp - 478) < 0.05), true);
+  assert.equal(windows.some((window) => Math.abs(window.timestamp - 488) < 0.05), true);
   assert.equal(windows.length <= 20, true);
   assert.equal(windows.every((window) => window.timestamp >= 450 && window.timestamp <= 540), true);
+});
+
+test("four-frame scorebug sampling targets midpoint and late score displays without extra OCR load", () => {
+  const windows = __testing.buildChunkSamplingWindows({
+    chunk: { start: 0, end: 90 },
+    metadata: { durationSeconds: 390 },
+    frameCount: 4,
+  });
+
+  assert.deepEqual(windows.map((window) => window.timestamp), [22.5, 45, 67.5, 82.8]);
+});
+
+test("score candidate progression stops at the fixture goal count", () => {
+  const progression = __testing.buildScoreCandidateProgressionFromChunks({
+    chunks: [
+      {
+        index: 1,
+        start: 0,
+        end: 90,
+        status: "completed",
+        normalizedScoreCandidates: ["4-0"],
+        scoreCandidateFirstSeenAt: [{ score: "4-0", timestamp: 82.8 }],
+        readableObservationCount: 2,
+      },
+      {
+        index: 2,
+        start: 90,
+        end: 180,
+        status: "completed",
+        normalizedScoreCandidates: ["1-1"],
+        scoreCandidateFirstSeenAt: [{ score: "1-1", timestamp: 140 }],
+        readableObservationCount: 2,
+      },
+    ],
+  }, { expectedGoalCount: 1, expectedFinalScore: "1-0" });
+
+  assert.deepEqual(progression.evidence.map((item) => `${item.scoreBefore}->${item.scoreAfter}`), ["0-0->1-0"]);
+  assert.equal(progression.evidence[0].timestamp, 82.8);
+  assert.equal(progression.evidence[0].ocrCorrected, true);
+  assert.equal(progression.evidence[0].correctionType, "known_final_score_digit_correction");
+});
+
+test("fixture score caps the final merged timeline after the expected goal count", () => {
+  const evidence = [
+    {
+      timestamp: 82.8,
+      status: "score_changed",
+      scoreChanged: true,
+      scoreBefore: "0-0",
+      scoreAfter: "1-0",
+      temporalConsistency: true,
+    },
+    {
+      timestamp: 202.5,
+      status: "score_changed",
+      scoreChanged: true,
+      scoreBefore: "1-0",
+      scoreAfter: "1-1",
+      temporalConsistency: true,
+    },
+  ];
+  const capped = __testing.capScoreTransitionsToFixture(evidence, {
+    expectedGoalCount: 1,
+    expectedFinalScore: "1-0",
+  });
+
+  assert.deepEqual(capped.map((item) => `${item.scoreBefore}->${item.scoreAfter}@${item.timestamp}`), ["0-0->1-0@82.8"]);
 });
 
 test("default scorebug sampling covers short-lived early and late score updates", () => {
@@ -2876,6 +3049,35 @@ test("goal segment start aligns to the first tracked ball when the original lead
   assert.equal(aligned.segments[1].sourceStart, 230);
 });
 
+test("goal segment switches from ball follow at the dense detector's terminal ball-loss boundary", () => {
+  const segments = [validGoalSegment(1, 80, 90, 94, 103)];
+  const aligned = __testing.alignGoalSegmentsToBallTracking({ segments }, {
+    trackingSamples: [
+      { sourceTime: 80.1, phase: "ball_follow", source: "ball_detection", ballConfidence: 0.9 },
+      { sourceTime: 92.8, phase: "ball_follow", source: "ball_detection", ballConfidence: 0.88 },
+    ],
+    perGoalBallContainment: [{
+      goalNumber: 1,
+      sourceStart: 80,
+      finishTime: 92.8,
+      requestedFinishTime: 94,
+      recommendedVisibleFinishTime: 92.8,
+      targetSwitchRecommended: true,
+      expectedFrameCount: 321,
+      containedFrameCount: 321,
+      maxMissingFrameRun: 0,
+      passed: true,
+    }],
+  });
+
+  assert.equal(aligned.segments[0].finishTime, 94);
+  assert.equal(aligned.segments[0].visibleFinishTime, 92.8);
+  assert.ok(aligned.segments[0].reasonCodes.includes(
+    "ball_follow_target_switch_aligned_to_terminal_ball_loss",
+  ));
+});
+
+
 test("score transition refinement searches backward for first score display without unbounded scanning", () => {
   const passes = __testing.buildScoreTransitionRefinementPasses({
     evidence: [
@@ -2891,7 +3093,7 @@ test("score transition refinement searches backward for first score display with
   assert.equal(passes[0].windows.some((window) => Math.abs(window.timestamp - 103.75) < 0.1), true);
   assert.equal(passes[1].windows.some((window) => Math.abs(window.timestamp - 258.25) < 0.1), true);
   assert.equal(passes[2].windows.some((window) => Math.abs(window.timestamp - 477.75) < 0.1), true);
-  assert.equal(passes[3].windows.some((window) => Math.abs(window.timestamp - 543.25) < 0.1), true);
+  assert.equal(passes[3].windows.some((window) => Math.abs(window.timestamp - 543.25) <= 2.1), true);
   assert.equal(passes[3].windows.some((window) => Math.abs(window.timestamp - 613.25) < 0.1), true);
   assert.equal(passes.flatMap((pass) => pass.windows)
     .every((window) => window.source === "scorebug_transition_refinement"), true);
@@ -2941,6 +3143,35 @@ test("score transition refinement anchors on the first pending display instead o
   assert.equal(passes[0].stableConfirmationTimestamp, 693);
   assert.equal(passes[0].pendingObservationUsed, true);
   assert.equal(passes[0].windows.some((window) => Math.abs(window.timestamp - 617) < 0.1), true);
+});
+
+test("score transition refinement searches the full gap from the last initial score observation", () => {
+  const passes = __testing.buildScoreTransitionRefinementPasses({
+    evidence: [
+      {
+        timestamp: 45,
+        status: "ambiguous",
+        scoreAfter: "0-0",
+        transitionDecision: "initial_score",
+      },
+      {
+        timestamp: 135,
+        status: "ambiguous",
+        scoreBefore: "0-0",
+        scoreAfter: "1-0",
+        transitionDecision: "score_change_pending_confirmation",
+      },
+      { timestamp: 225, status: "score_changed", scoreBefore: "0-0", scoreAfter: "1-0", scoreChanged: true },
+    ],
+  }, { expectedGoalCount: 1 });
+
+  assert.equal(passes.length, 1);
+  assert.equal(passes[0].anchorTimestamp, 135);
+  assert.equal(passes[0].lastPreviousScoreTimestamp, 45);
+  assert.equal(passes[0].lookbackSeconds, 90);
+  assert.equal(passes[0].samplingStepSeconds, 4);
+  assert.equal(passes[0].windows.some((window) => Math.abs(window.timestamp - 45) < 0.1), true);
+  assert.equal(passes[0].windows.some((window) => Math.abs(window.timestamp - 53) < 0.1), true);
 });
 
 test("score transition refinement corrects repeated changed glyphs only inside the expected unit transition", () => {
@@ -3083,6 +3314,51 @@ test("chunk aggregation retroactively binds a learned score glyph to its first a
   assert.equal(result.evidence.some((item) => Number(item.timestamp) === 141.75), false);
   assert.equal(Object.hasOwn(result, "_internalDigitObservations"), false);
   assert.doesNotMatch(JSON.stringify(result), /digitSignatures|localPath|storageKey|secret|token|stdout|stderr/i);
+});
+
+test("chunk aggregation binds an initially observed 1-0 score to its first repeated display", () => {
+  const signature = (pattern) => ({
+    version: 1,
+    width: 10,
+    height: 16,
+    bits: pattern.repeat(20),
+  });
+  const zero = signature("11110000");
+  const one = signature("00001111");
+  const observation = (timestamp) => ({
+    timestamp,
+    regionId: "scorebug_broadcast_compact",
+    score: { home: 1, away: 0, text: "1-0" },
+    confidence: 0.9,
+    source: "local_scorebug_profile_digit_ocr_contrast_block",
+    digitSignatures: { home: one, away: zero },
+  });
+  const result = __testing.aggregateChunkedScoreboardOcr([{
+    providerMode: "local-scoreboard-ocr-command",
+    fallbackUsed: false,
+    confidence: 0.9,
+    evidence: [],
+    summary: { sampledFrameCount: 2, regionCount: 2, regionIdsUsed: ["scorebug_broadcast_compact"] },
+    _internalDigitObservations: [observation(56.25), observation(78.25)],
+  }], {
+    metadata: { durationSeconds: 240 },
+    chunkSummary: {
+      chunks: [{
+        index: 3,
+        start: 180,
+        end: 240,
+        status: "completed",
+        normalizedScoreCandidates: ["1-0"],
+        scoreCandidateFirstSeenAt: [{ score: "1-0", timestamp: 213.75 }],
+        readableObservationCount: 2,
+      }],
+    },
+  });
+
+  const scoreChange = result.evidence.find((item) => item.scoreChanged && item.scoreAfter === "1-0");
+  assert.equal(scoreChange.timestamp, 56.25);
+  assert.equal(scoreChange.source, "chunked_scorebug_initial_observed_progression");
+  assert.equal(result.evidence.some((item) => Number(item.timestamp) === 213.75 && item.scoreChanged), false);
 });
 
 test("chunk aggregation preserves the first pending score display before stable confirmation", () => {

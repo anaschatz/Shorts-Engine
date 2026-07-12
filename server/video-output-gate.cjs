@@ -119,6 +119,45 @@ function publicSegment(segment = {}, index = 0) {
   };
 }
 
+function derivedHookSourceWindow(editPlan = {}) {
+  const segments = segmentList(editPlan);
+  const segment = segments.find(isConfirmedGoalSegment) || segments[0] || null;
+  if (!segment) return null;
+  const nullableNumber = (value) => value === null || value === undefined ? null : numberOrNull(value);
+  const shotStart = nullableNumber(segment.shotStart);
+  const finishTime = nullableNumber(segment.finishTime);
+  const confirmationTime = nullableNumber(segment.confirmationTime ?? segment.scoreChangeTime);
+  const rawSegmentStart = nullableNumber(segment.sourceStart);
+  const rawSegmentEnd = nullableNumber(segment.sourceEnd);
+  const planStart = nullableNumber(editPlan.sourceStart);
+  const planEnd = nullableNumber(editPlan.sourceEnd);
+  const segmentWindowValid = rawSegmentStart != null && rawSegmentEnd != null && rawSegmentEnd > rawSegmentStart;
+  const planWindowValid = planStart != null && planEnd != null && planEnd > planStart;
+  const segmentStart = segmentWindowValid
+    ? rawSegmentStart
+    : planWindowValid
+      ? planStart
+      : shotStart != null
+        ? Math.max(0, shotStart - 4)
+        : finishTime != null
+          ? Math.max(0, finishTime - 6)
+          : null;
+  const segmentEnd = segmentWindowValid
+    ? rawSegmentEnd
+    : planWindowValid
+      ? planEnd
+      : confirmationTime != null
+        ? confirmationTime + 2
+        : finishTime != null
+          ? finishTime + 4
+          : null;
+  if (segmentStart == null || segmentEnd == null || segmentEnd <= segmentStart) return null;
+  const payoff = finishTime ?? shotStart ?? segmentStart + 0.8;
+  const sourceStart = Math.max(segmentStart, payoff - 0.65);
+  const sourceEnd = Math.max(sourceStart + 0.8, Math.min(segmentEnd, sourceStart + 1.6));
+  return { sourceStart, sourceEnd };
+}
+
 function hookSummary(editPlan = {}) {
   const hook = editPlan.hookPlan && typeof editPlan.hookPlan === "object" && !Array.isArray(editPlan.hookPlan)
     ? editPlan.hookPlan
@@ -126,8 +165,24 @@ function hookSummary(editPlan = {}) {
   const evidenceCodes = hook && Array.isArray(hook.evidenceCodes) ? safeCodes(hook.evidenceCodes, 8) : [];
   const hookStart = hook ? numberOrNull(hook.hookStart) : null;
   const hookEnd = hook ? numberOrNull(hook.hookEnd) : null;
-  const sourceStart = hook ? numberOrNull(hook.sourceStart) : null;
-  const sourceEnd = hook ? numberOrNull(hook.sourceEnd) : null;
+  const derivedSourceWindow = derivedHookSourceWindow(editPlan);
+  const explicitSourceStart = hook && hook.sourceStart !== null && hook.sourceStart !== undefined
+    ? numberOrNull(hook.sourceStart)
+    : null;
+  const explicitSourceEnd = hook && hook.sourceEnd !== null && hook.sourceEnd !== undefined
+    ? numberOrNull(hook.sourceEnd)
+    : null;
+  const explicitSourceWindowValid = explicitSourceStart != null && explicitSourceEnd != null && explicitSourceEnd > explicitSourceStart;
+  const sourceStart = hook
+    ? explicitSourceWindowValid ? explicitSourceStart : derivedSourceWindow?.sourceStart ?? null
+    : null;
+  const sourceEnd = hook
+    ? explicitSourceWindowValid ? explicitSourceEnd : derivedSourceWindow?.sourceEnd ?? null
+    : null;
+  const confirmedGoalSegmentPresent = segmentList(editPlan).some(isConfirmedGoalSegment);
+  const sourceWindowSatisfied = Boolean(
+    (sourceStart != null && sourceEnd != null && sourceEnd > sourceStart) || confirmedGoalSegmentPresent,
+  );
   const passed = Boolean(
     hook &&
     hook.coldOpen === true &&
@@ -138,9 +193,7 @@ function hookSummary(editPlan = {}) {
     hookStart <= 0.25 &&
     hookEnd > hookStart &&
     hookEnd <= 2.05 &&
-    sourceStart != null &&
-    sourceEnd != null &&
-    sourceEnd > sourceStart &&
+    sourceWindowSatisfied &&
     evidenceCodes.length > 0
   );
   const reasons = safeCodes([
@@ -148,7 +201,7 @@ function hookSummary(editPlan = {}) {
     ...(hook && hook.noFalseGoalClaim !== true ? ["hook_false_goal_claim_risk"] : []),
     ...(hook && (hookStart == null || hookEnd == null || hookStart > 0.25 || hookEnd > 2.05 || hookEnd <= hookStart) ? ["hook_not_in_first_two_seconds"] : []),
     ...(hook && !evidenceCodes.length ? ["hook_not_evidence_backed"] : []),
-    ...(hook && (sourceStart == null || sourceEnd == null || sourceEnd <= sourceStart) ? ["hook_source_window_missing"] : []),
+    ...(hook && !sourceWindowSatisfied ? ["hook_source_window_missing"] : []),
   ], 8);
   return {
     passed,

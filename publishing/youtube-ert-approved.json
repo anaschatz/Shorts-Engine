@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "manifestId": "ert-world-cup-2026-human-approved-2026-07-11",
+  "defaultPrivacy": "private",
+  "items": [
+    {
+      "id": "ert-approved-01-spain-belgium",
+      "sourceVideoId": "rpZvef8PqBg",
+      "file": "manual-downloads/ert20-01-rpZvef8PqBg.mp4",
+      "title": "Ισπανία - Βέλγιο: Όλα τα γκολ | Μουντιάλ 2026 #Shorts",
+      "description": "Ισπανία - Βέλγιο: όλα τα γκολ του αγώνα σε κάθετο highlight, ελεγμένο καρέ-καρέ.\n\nΠηγή: https://www.youtube.com/watch?v=rpZvef8PqBg\n\n#Shorts #Football #Μουντιάλ2026 #WorldCup2026 #Ισπανία #Βέλγιο",
+      "tags": ["ποδόσφαιρο", "shorts", "Μουντιάλ 2026", "World Cup 2026", "Ισπανία", "Βέλγιο", "όλα τα γκολ"],
+      "categoryId": "17",
+      "defaultLanguage": "el",
+      "madeForKids": false,
+      "qaAcceptedWithoutEdit": true
+    },
+    {
+      "id": "ert-approved-02-france-morocco",
+      "sourceVideoId": "62aI0U9KGz0",
+      "file": "manual-downloads/ert20-02-62aI0U9KGz0.mp4",
+      "title": "Γαλλία - Μαρόκο: Όλα τα γκολ | Μουντιάλ 2026 #Shorts",
+      "description": "Γαλλία - Μαρόκο: όλα τα γκολ του αγώνα σε κάθετο highlight, ελεγμένο καρέ-καρέ.\n\nΠηγή: https://www.youtube.com/watch?v=62aI0U9KGz0\n\n#Shorts #Football #Μουντιάλ2026 #WorldCup2026 #Γαλλία #Μαρόκο",
+      "tags": ["ποδόσφαιρο", "shorts", "Μουντιάλ 2026", "World Cup 2026", "Γαλλία", "Μαρόκο", "όλα τα γκολ"],
+      "categoryId": "17",
+      "defaultLanguage": "el",
+      "madeForKids": false,
+      "qaAcceptedWithoutEdit": true
+    },
+    {
+      "id": "ert-approved-11-colombia-ghana",
+      "sourceVideoId": "cG8lLGRV1ZE",
+      "file": "manual-downloads/ert20-11-cG8lLGRV1ZE.mp4",
+      "title": "Κολομβία - Γκάνα: Το γκολ του αγώνα | Μουντιάλ 2026 #Shorts",
+      "description": "Κολομβία - Γκάνα: το γκολ του αγώνα σε κάθετο highlight, ελεγμένο καρέ-καρέ.\n\nΠηγή: https://www.youtube.com/watch?v=cG8lLGRV1ZE\n\n#Shorts #Football #Μουντιάλ2026 #WorldCup2026 #Κολομβία #Γκάνα",
+      "tags": ["ποδόσφαιρο", "shorts", "Μουντιάλ 2026", "World Cup 2026", "Κολομβία", "Γκάνα", "γκολ"],
+      "categoryId": "17",
+      "defaultLanguage": "el",
+      "madeForKids": false,
+      "qaAcceptedWithoutEdit": true
+    },
+    {
+      "id": "ert-approved-12-argentina-cabo-verde",
+      "sourceVideoId": "WuuGus5Obkg",
+      "file": "manual-downloads/ert20-12-WuuGus5Obkg.mp4",
+      "title": "Αργεντινή - Πράσινο Ακρωτήρι: Όλα τα γκολ | Μουντιάλ 2026 #Shorts",
+      "description": "Αργεντινή - Πράσινο Ακρωτήρι: όλα τα γκολ του αγώνα σε κάθετο highlight, ελεγμένο καρέ-καρέ.\n\nΠηγή: https://www.youtube.com/watch?v=WuuGus5Obkg\n\n#Shorts #Football #Μουντιάλ2026 #WorldCup2026 #Αργεντινή #ΠράσινοΑκρωτήρι",
+      "tags": ["ποδόσφαιρο", "shorts", "Μουντιάλ 2026", "World Cup 2026", "Αργεντινή", "Πράσινο Ακρωτήρι", "όλα τα γκολ"],
+      "categoryId": "17",
+      "defaultLanguage": "el",
+      "madeForKids": false,
+      "qaAcceptedWithoutEdit": true
+    }
+  ]
+}

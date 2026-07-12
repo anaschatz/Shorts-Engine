@@ -1,0 +1,255 @@
+{
+  "brief": {
+    "schemaVersion": 2,
+    "verticalId": "dark_curiosity",
+    "formatId": "documented_mystery_v1",
+    "language": "en",
+    "audience": "curious adults who value evidence over sensational claims",
+    "topic": "Why the 1977 Wow signal remains unresolved",
+    "thesis": "The Wow signal was unusual and unrepeated, but it is not proof of extraterrestrial intelligence.",
+    "targetSeconds": 32,
+    "tone": "curious_evidence_first",
+    "riskClass": "ordinary",
+    "riskTags": [],
+    "sourceRefs": ["src_bigear", "src_seti"],
+    "operatorNotes": "Avoid alien certainty and label the conclusion as unresolved."
+  },
+  "claimLedger": {
+    "sources": [
+      {
+        "id": "src_bigear",
+        "title": "The Big Ear Wow Signal record",
+        "publisher": "Big Ear Radio Observatory",
+        "author": "",
+        "url": "https://www.bigear.org/wow.htm",
+        "publishedAt": "",
+        "verifiedBy": "operator",
+        "verifiedAt": "2026-07-11T12:00:00.000Z",
+        "snapshotHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sourceClass": "primary",
+        "independenceGroup": "big_ear_observatory",
+        "evidenceNote": "Primary observatory record describing the signal and the original printout."
+      },
+      {
+        "id": "src_seti",
+        "title": "SETI Institute overview of the Wow signal",
+        "publisher": "SETI Institute",
+        "author": "",
+        "url": "https://www.seti.org/wow-signal",
+        "publishedAt": "",
+        "verifiedBy": "operator",
+        "verifiedAt": "2026-07-11T12:05:00.000Z",
+        "snapshotHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "sourceClass": "institutional",
+        "independenceGroup": "seti_institute",
+        "evidenceNote": "Institutional secondary explanation of the signal, searches, and uncertainty."
+      }
+    ],
+    "claims": [
+      {
+        "id": "claim_recorded",
+        "text": "The Big Ear telescope recorded the Wow signal in 1977 and the printout was annotated with the word Wow.",
+        "kind": "supported_fact",
+        "claimType": "verifiable_fact",
+        "verdict": "verified",
+        "riskTags": [],
+        "operatorApproved": true,
+        "sourceLinks": [
+          {
+            "sourceId": "src_bigear",
+            "support": "direct",
+            "evidenceExcerpt": "The observatory record documents the 1977 signal and annotated printout.",
+            "pageOrTimecode": "signal record"
+          }
+        ]
+      },
+      {
+        "id": "claim_frequency",
+        "text": "The signal appeared near a radio frequency considered relevant to searches for interstellar communication and lasted about seventy-two seconds.",
+        "kind": "supported_fact",
+        "claimType": "verifiable_fact",
+        "verdict": "verified",
+        "riskTags": [],
+        "operatorApproved": true,
+        "sourceLinks": [
+          {
+            "sourceId": "src_seti",
+            "support": "direct",
+            "evidenceExcerpt": "The institutional overview describes the frequency region and duration.",
+            "pageOrTimecode": "overview"
+          }
+        ]
+      },
+      {
+        "id": "claim_beam-shape",
+        "text": "The signal strength pattern was consistent with a source crossing the telescope beam, which made simple local interference a less complete explanation.",
+        "kind": "analysis",
+        "claimType": "interpretation",
+        "verdict": "qualified",
+        "riskTags": [],
+        "operatorApproved": true,
+        "sourceLinks": [
+          {
+            "sourceId": "src_bigear",
+            "support": "direct",
+            "evidenceExcerpt": "The primary record contains the measured intensity sequence.",
+            "pageOrTimecode": "printout sequence"
+          },
+          {
+            "sourceId": "src_seti",
+            "support": "context",
+            "evidenceExcerpt": "The overview explains why the signal attracted scientific interest.",
+            "pageOrTimecode": "analysis"
+          }
+        ]
+      },
+      {
+        "id": "claim_not-repeated",
+        "text": "Later searches did not verify a repeat of the same signal.",
+        "kind": "supported_fact",
+        "claimType": "verifiable_fact",
+        "verdict": "verified",
+        "riskTags": [],
+        "operatorApproved": true,
+        "sourceLinks": [
+          {
+            "sourceId": "src_seti",
+            "support": "direct",
+            "evidenceExcerpt": "The institutional overview states that follow-up searches did not confirm a repeat.",
+            "pageOrTimecode": "follow-up searches"
+          }
+        ]
+      },
+      {
+        "id": "claim_conclusion",
+        "text": "The available evidence supports describing the signal as unexplained, not as proof of extraterrestrial intelligence.",
+        "kind": "analysis",
+        "claimType": "interpretation",
+        "verdict": "qualified",
+        "riskTags": [],
+        "operatorApproved": true,
+        "sourceLinks": [
+          {
+            "sourceId": "src_bigear",
+            "support": "context",
+            "evidenceExcerpt": "The primary record establishes the observation but not its origin.",
+            "pageOrTimecode": "record"
+          },
+          {
+            "sourceId": "src_seti",
+            "support": "direct",
+            "evidenceExcerpt": "The overview presents the event as unresolved rather than confirmed alien contact.",
+            "pageOrTimecode": "conclusion"
+          }
+        ]
+      }
+    ]
+  },
+  "script": {
+    "title": "The signal that appeared once",
+    "estimatedSeconds": 32,
+    "beats": [
+      {
+        "id": "beat_hook",
+        "role": "hook",
+        "spokenText": "In 1977, one radio signal looked so unusual that an astronomer wrote one word: Wow.",
+        "onScreenText": "A signal appeared once",
+        "claimIds": ["claim_recorded"]
+      },
+      {
+        "id": "beat_context",
+        "role": "context",
+        "spokenText": "It arrived near a frequency researchers considered promising for interstellar communication and lasted seventy-two seconds.",
+        "onScreenText": "72 seconds near a notable frequency",
+        "claimIds": ["claim_frequency"]
+      },
+      {
+        "id": "beat_evidence",
+        "role": "evidence",
+        "spokenText": "Its strength rose and fell as the telescope beam crossed the source, making ordinary local interference less convincing.",
+        "onScreenText": "The signal followed the telescope beam",
+        "claimIds": ["claim_beam-shape"]
+      },
+      {
+        "id": "beat_turn",
+        "role": "turn",
+        "spokenText": "But later searches never verified the same signal again, and no confirmed transmission has explained it.",
+        "onScreenText": "It never repeated",
+        "claimIds": ["claim_not-repeated"]
+      },
+      {
+        "id": "beat_payoff",
+        "role": "payoff",
+        "spokenText": "The honest answer is not aliens. It is one strong unexplained candidate that left no repeatable proof.",
+        "onScreenText": "Unexplained is not proof",
+        "claimIds": ["claim_conclusion"]
+      }
+    ],
+    "provider": {
+      "mode": "manual",
+      "model": "",
+      "promptVersion": "dark_curiosity_manual_v1"
+    }
+  },
+  "storyboard": {
+    "fps": 30,
+    "scenes": [
+      {
+        "id": "scene_hook",
+        "beatIds": ["beat_hook"],
+        "template": "hook_scene",
+        "visualMode": "original_vector",
+        "durationFrames": 150,
+        "operations": [
+          { "op": "set_heading", "text": "A signal appeared once", "startFrame": 0, "endFrame": 140 },
+          { "op": "camera_push", "scale": 1.12, "startFrame": 20, "endFrame": 145 }
+        ]
+      },
+      {
+        "id": "scene_context",
+        "beatIds": ["beat_context"],
+        "template": "evidence_scene",
+        "visualMode": "original_vector",
+        "durationFrames": 180,
+        "operations": [
+          { "op": "show_evidence", "claimId": "claim_frequency", "text": "72 seconds", "startFrame": 0, "endFrame": 175 },
+          { "op": "show_source_badge", "sourceId": "src_seti", "text": "Institutional source", "startFrame": 30, "endFrame": 175 }
+        ]
+      },
+      {
+        "id": "scene_evidence",
+        "beatIds": ["beat_evidence"],
+        "template": "system_scale_scene",
+        "visualMode": "illustrative_reconstruction",
+        "disclosure": "Illustrative signal-strength reconstruction",
+        "durationFrames": 210,
+        "operations": [
+          { "op": "connect_nodes", "fromId": "telescope", "toId": "signal", "label": "beam crossing", "startFrame": 10, "endFrame": 205 },
+          { "op": "show_evidence", "claimId": "claim_beam-shape", "text": "Rise and fall", "startFrame": 45, "endFrame": 205 }
+        ]
+      },
+      {
+        "id": "scene_turn",
+        "beatIds": ["beat_turn"],
+        "template": "map_timeline_scene",
+        "visualMode": "original_vector",
+        "durationFrames": 180,
+        "operations": [
+          { "op": "advance_timeline", "date": "1977 → later searches", "label": "No verified repeat", "startFrame": 0, "endFrame": 175 },
+          { "op": "fade_or_blackout", "mode": "blackout", "startFrame": 135, "endFrame": 175 }
+        ]
+      },
+      {
+        "id": "scene_payoff",
+        "beatIds": ["beat_payoff"],
+        "template": "payoff_scene",
+        "visualMode": "original_vector",
+        "durationFrames": 180,
+        "operations": [
+          { "op": "set_heading", "text": "Unexplained is not proof", "startFrame": 0, "endFrame": 175 },
+          { "op": "show_uncertainty", "text": "Origin unresolved", "startFrame": 45, "endFrame": 175 }
+        ]
+      }
+    ]
+  }
+}

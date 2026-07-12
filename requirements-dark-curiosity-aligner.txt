@@ -1,0 +1,7 @@
+# Dark Curiosity local CPU aligner. Python >=3.9,<3.13.
+# Model identity is configured separately; default: base, cpu, int8.
+faster-whisper==1.2.0
+ctranslate2==4.6.0
+# Faster-Whisper 1.2.0 imports requests directly while allowing newer
+# huggingface-hub releases that no longer provide it transitively.
+requests==2.32.5

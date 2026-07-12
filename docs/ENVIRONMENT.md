@@ -238,6 +238,12 @@ The approval outbox has a worker-ready lifecycle: `pending`, `processing`, `deli
 | `MATCHCUTS_TRANSCRIPTION_RETRIES` | No | `1` | integer `0..5` | No | Keep default. | Invalid retry count fails readiness. |
 | `OPENAI_TRANSCRIPTION_MODEL` | No | `gpt-4o-mini-transcribe` | provider model name | No | Set only when testing a specific model. | Value is not used unless provider is real. |
 | `OPENAI_API_KEY` | Required only for `openai` provider | empty | deployment secret | Yes | Store only in the hosting provider secret manager. | Real provider without credential fails readiness. |
+| `SHORTSENGINE_LOCAL_WHISPER_MODE` | No | `auto` | `auto`, boolean-like | No | Keep `auto` for local runs. | Auto uses Faster-Whisper only when its Python package is present; failures fall back to the configured safe provider. |
+| `SHORTSENGINE_LOCAL_WHISPER_PYTHON_BIN` | No | `python3` | command name/path | No | Point to the environment containing `faster-whisper`. | No shell evaluation is used. |
+| `SHORTSENGINE_LOCAL_WHISPER_MODEL` | No | `base` | local model name/path | No | Use an already cached model. | The engine sets `local_files_only`; it never downloads a model during a job. |
+| `SHORTSENGINE_LOCAL_WHISPER_DEVICE` | No | `cpu` | Faster-Whisper device | No | Use `cuda` only on a configured worker. | Invalid runtime settings fall back only in `auto` mode. |
+| `SHORTSENGINE_LOCAL_WHISPER_COMPUTE_TYPE` | No | `int8` | Faster-Whisper compute type | No | Keep `int8` for CPU workers. | Invalid runtime settings fail the local attempt safely. |
+| `SHORTSENGINE_LOCAL_WHISPER_TIMEOUT_MS` | No | `180000` | integer `1000..900000` | No | Increase for long CPU transcriptions. | Timed-out subprocesses are terminated. |
 
 ## Football analysis safety
 

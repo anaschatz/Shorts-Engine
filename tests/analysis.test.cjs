@@ -12,6 +12,7 @@ const {
 const { hasGoalLanguage, validateEditPlan } = require("../server/edit-plan.cjs");
 const { assertVideoOutputCoverage, captionStyleSummary } = require("../server/video-output-gate.cjs");
 const {
+  LocalFasterWhisperProvider,
   MockTranscriptionProvider,
   OpenAITranscriptionProvider,
   chooseTranscriptionProvider,
@@ -184,6 +185,34 @@ test("media signal extraction can use mocked FFmpeg scene and audio outputs", as
   assert.equal(signals.aspectRatio, 1.778);
   assert.equal(signals.sceneChanges[0].time, 3.24);
   assert.ok(signals.audioPeaks.some((peak) => peak.time > 5 && peak.time < 10));
+});
+
+test("media signal extraction keeps local RMS audio peaks for continuous broadcasts", async () => {
+  const fakeRunner = async (args) => {
+    const text = args.join(" ");
+    if (text.includes("showinfo")) return { stderr: "n:1 pts_time:2.5 pos:1\n" };
+    return {
+      stderr: [
+        "frame:0 pts:0 pts_time:0",
+        "lavfi.astats.Overall.RMS_level=-30",
+        "frame:1 pts:24000 pts_time:0.54",
+        "lavfi.astats.Overall.RMS_level=-19",
+        "frame:2 pts:48000 pts_time:1.09",
+        "lavfi.astats.Overall.RMS_level=-28",
+        "frame:3 pts:72000 pts_time:1.63",
+        "lavfi.astats.Overall.RMS_level=-20",
+        "frame:4 pts:96000 pts_time:2.18",
+        "lavfi.astats.Overall.RMS_level=-31",
+      ].join("\n"),
+    };
+  };
+
+  const signals = await extractMediaSignals({ inputPath: "/tmp/input.mp4", metadata, ffmpegRunner: fakeRunner });
+
+  assert.equal(signals.audioPeaks.length, 2);
+  assert.deepEqual(signals.audioPeaks.map((peak) => peak.time), [0.54, 1.63]);
+  assert.equal(signals.audioPeaks.every((peak) => peak.source === "ffmpeg_rms_peak"), true);
+  assert.equal(signals.audioPeaks[0].energyScore >= 0.9, true);
 });
 
 test("media signal extraction keeps late candidates for long sources", async () => {
@@ -491,6 +520,45 @@ test("explicit goal evidence sequence outranks reaction shots and keeps shot-to-
   assert.equal(plans[0].goalOutcome.outcome, "unknown_decision");
   assert.match(plans[0].captions.map((caption) => caption.text).join(" "), /BALL IN THE NET|DECISION NOT CLEAR/i);
   assert.equal(plans[0].cropStrategy.preserveFullFrame, true);
+});
+
+test("visual goal sequence outranks an overlapping generic transcript goal candidate", () => {
+  const result = detectHighlights({
+    transcript: {
+      provider: "fixture",
+      language: "en",
+      captions: [
+        { start: 3, end: 4.2, text: "The move starts before the box" },
+        { start: 8.3, end: 9.5, text: "The shot opens toward goal" },
+        { start: 13, end: 15, text: "The finish sends the stadium up" },
+      ],
+    },
+    signals: {
+      durationSeconds: 24,
+      hasAudio: true,
+      audioPeaks: [{ time: 14, energyScore: 0.95, source: "fixture" }],
+      sceneChanges: [{ time: 8.8, confidence: 0.78, source: "fixture" }],
+      highMotionCandidates: [{ time: 9, confidence: 0.84, source: "fixture" }],
+    },
+    visualSignals: {
+      providerMode: "fixture-visual",
+      fallbackUsed: false,
+      windows: [
+        { start: 7.4, end: 9.2, labels: ["shot_contact", "ball_toward_goal", "ball_visible"], confidence: 0.91 },
+        { start: 9, end: 11.2, labels: ["goal_mouth_visible", "keeper_action"], confidence: 0.88 },
+        { start: 11.1, end: 12.8, labels: ["ball_in_net"], confidence: 0.9 },
+        { start: 12.6, end: 15.4, labels: ["celebration_after_shot", "crowd_reaction"], confidence: 0.87 },
+      ],
+    },
+    preset: "hype",
+  });
+
+  const top = result.moments[0];
+  assert.equal(top.source, "vision_goal_sequence");
+  assert.equal(top.highlightType, "goal");
+  assert.ok(top.reasonCodes.includes("visual_shot_contact"));
+  assert.ok(top.reasonCodes.includes("visual_ball_in_net"));
+  assert.ok(top.reasonCodes.includes("visual_celebration_after_shot"));
 });
 
 test("ball-in-net window keeps post context and labels disallowed offside safely", () => {
@@ -1218,6 +1286,65 @@ test("multi-moment compilation trims expanded replay overlaps into a valid timel
   }
   assert.equal(plan.segments.some((segment) => segment.highlightType === "replay_worthy_moment"), true);
   assert.ok(plan.totalDuration >= 45);
+});
+
+test("single-moment composition keeps long highlight sources focused on the top action", () => {
+  const moments = [
+    {
+      id: "top_action",
+      rank: 1,
+      start: 38,
+      end: 55,
+      center: 46.5,
+      title: "Big chance",
+      summary: "The strongest action sequence.",
+      reasonCodes: ["big_chance", "visual_shot_like_motion", "visual_ball_visible"],
+      highlightType: "big_chance",
+      confidence: 0.9,
+      retentionScore: 90,
+      source: "fixture",
+    },
+    {
+      id: "replay_context",
+      rank: 2,
+      start: 76,
+      end: 90,
+      center: 83,
+      title: "Replay",
+      summary: "Supporting replay context.",
+      reasonCodes: ["replay_worthy_moment", "visual_replay_indicator"],
+      highlightType: "replay_worthy_moment",
+      confidence: 0.72,
+      retentionScore: 72,
+      source: "fixture",
+    },
+    {
+      id: "crowd_context",
+      rank: 3,
+      start: 96,
+      end: 108,
+      center: 102,
+      title: "Crowd reaction",
+      summary: "Supporting crowd context.",
+      reasonCodes: ["crowd_reaction", "visual_crowd_reaction"],
+      highlightType: "crowd_reaction",
+      confidence: 0.68,
+      retentionScore: 68,
+      source: "fixture",
+    },
+  ];
+  const plans = createCandidateEditPlans({
+    moments,
+    metadata: { durationSeconds: 130, width: 1920, height: 1080, hasAudio: true },
+    transcript: { captions: [] },
+    title: "Single moment benchmark",
+    compositionMode: "single_moment",
+  });
+
+  assert.equal(plans[0].mode, "single_moment");
+  assert.equal(plans[0].goalSelectionMode, "balanced");
+  assert.equal(plans[0].candidateId, "top_action");
+  assert.ok(plans[0].sourceEnd - plans[0].sourceStart <= 18.01);
 });
 
 test("long source highlight detection keeps late visual candidates", () => {
@@ -2388,6 +2515,47 @@ test("valid-goals-only plan keeps every confirmed goal, excludes offside goals, 
   assert.doesNotMatch(plan.captions.map((caption) => caption.text).join(" "), /OFFSIDE|NO GOAL|BIG CHANCE/i);
 });
 
+test("delayed live-goal truth keeps its verified window without replay-tail expansion", () => {
+  const longMetadata = { durationSeconds: 300, width: 1920, height: 1080, hasAudio: true };
+  const truth = matchEventTruthFixture([{
+    goalNumber: 1,
+    scoreBefore: "0-0",
+    scoreAfter: "1-0",
+    scoreChangeTime: 82.8,
+    sourceStart: 34.3,
+    sourceEnd: 57.3,
+    shotStart: 44.3,
+    payoffStart: 50.8,
+    payoffEnd: 51.8,
+    decisionStart: 54.8,
+    decisionEnd: 57.3,
+  }], longMetadata.durationSeconds);
+  truth.selectedEvents[0].primarySource = "score_change_delayed_live_goal_probe";
+  truth.selectedEvents[0].evidenceCodes.push(
+    "scoreboard_ocr_score_change",
+    "scoreboard_temporal_consistency",
+    "scoreboard_backed_goal_sequence",
+    "score_change_delayed_live_goal_probe",
+  );
+
+  const plans = createCandidateEditPlans({
+    moments: [],
+    metadata: { ...longMetadata, goalSelectionMode: "valid_goals_only" },
+    transcript: { captions: [] },
+    matchEventTruth: truth,
+    title: "Delayed live goal fixture",
+    editIntensity: "punchy",
+    stylePreset: "reference_football_multi_goal_v1",
+  });
+  const plan = validateEditPlan(plans[0], longMetadata);
+
+  assert.equal(plan.sourceStart, 36.3);
+  assert.equal(plan.sourceEnd, 57.3);
+  assert.equal(plan.totalDuration, 21);
+  assert.equal(plan.shotStart, 44.3);
+  assert.equal(plan.finishTime, 51.8);
+});
+
 test("valid-goals-only plan can use combined goal evidence when OCR is unavailable", () => {
   const longMetadata = { durationSeconds: 360, width: 1920, height: 1080, hasAudio: true };
   const visualSignals = {
@@ -2828,6 +2996,33 @@ test("transcription provider keeps mock fallback and language normalization", as
   assert.equal(result.provider, "mock");
   assert.equal(result.language, "en");
   assert.ok(result.segments.length > 0);
+});
+
+test("local Faster-Whisper preserves word timestamps and auto-falls back safely", async () => {
+  const local = new LocalFasterWhisperProvider({
+    transcribeImpl: async () => ({
+      provider: "faster-whisper",
+      language: "en",
+      text: "Watch the run",
+      segments: [{
+        start: 0,
+        end: 1.2,
+        text: "Watch the run",
+        words: [{ start: 0, end: 0.4, word: "Watch", probability: 0.97 }],
+      }],
+      captions: [],
+    }),
+  });
+  const result = await local.transcribe({ audioPath: __filename, language: "English", metadata });
+  assert.equal(result.provider, "faster-whisper");
+  assert.equal(result.segments[0].words[0].word, "Watch");
+
+  const fallback = new LocalFasterWhisperProvider({
+    transcribeImpl: async () => { throw new Error("local model unavailable"); },
+    fallbackProvider: new MockTranscriptionProvider(),
+  });
+  const fallbackResult = await fallback.transcribe({ audioPath: __filename, language: "English", metadata });
+  assert.equal(fallbackResult.provider, "mock");
 });
 
 test("OpenAI transcription adapter returns safe structured failures", async () => {

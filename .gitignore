@@ -5,6 +5,11 @@ data/
 tmp/
 var/
 node_modules/
+__pycache__/
+AI-Youtube-Shorts-Generator/
+demo/dark-curiosity-pilot-results/*.json
+.venv-youtube/
+.venv-dark-curiosity/
 OpenViking/
 pm-skills/
 promptfoo/
@@ -14,6 +19,7 @@ graphify-out/
 demo/results/
 manual-downloads/
 eval/results/*.json
+eval/results/fifa20-visual-ab/
 eval/review-results/*.json
 eval/review-drafts/*.json
 shortresearch/baseline.json

@@ -167,6 +167,8 @@ test("public job keeps safe render QA metadata from large edit plans", () => {
         transitionRenderedCount: 2,
         hardCutFallbackCount: 0,
         animatedCaptionCount: 5,
+        captionsRendered: false,
+        captionsDisabledByOperator: true,
         overlayRenderedCount: 5,
         cleanActionLayoutRequired: true,
         cleanActionLayoutPassed: true,
@@ -213,6 +215,8 @@ test("public job keeps safe render QA metadata from large edit plans", () => {
   const publicJob = store.publicJob(job);
   assert.equal(publicJob.editPlan.renderPolishQA.renderStylePreset, "reference_football_multi_goal_v1");
   assert.equal(publicJob.editPlan.renderPolishQA.transitionRenderedCount, 2);
+  assert.equal(publicJob.editPlan.renderPolishQA.captionsRendered, false);
+  assert.equal(publicJob.editPlan.renderPolishQA.captionsDisabledByOperator, true);
   assert.equal(publicJob.editPlan.renderPolishQA.cleanActionLayoutPassed, true);
   assert.equal(publicJob.editPlan.renderPolishQA.sourceScoreboardDuplicateSuppressed, true);
   assert.equal(publicJob.editPlan.renderPolishQA.cropKeyframeCount, 22);
@@ -221,6 +225,23 @@ test("public job keeps safe render QA metadata from large edit plans", () => {
   assert.equal(publicJob.editPlan.visualPolishQA.countedGoalsIncluded, 3);
   assert.equal(publicJob.editPlan.editAssembly.segmentCount, 3);
   assert.doesNotMatch(JSON.stringify(publicJob), /\/Users|OPENAI_API_KEY|storageKey|outputPath|localPath/i);
+});
+
+test("durable jobs preserve only bounded technical evidence package references", () => {
+  const jobDir = tempJobDir();
+  const store = createPersistentStore(jobDir);
+  const job = createJob(store, "evidence-package-summary");
+  const evidencePackage = { packageStatus: "complete", contactSheetArtifactId: `art_${"a".repeat(40)}`, contactSheetHash: "1".repeat(64), rightsManifestArtifactId: `art_${"b".repeat(40)}`, rightsManifestHash: "2".repeat(64), provenanceReportArtifactId: `art_${"c".repeat(40)}`, provenanceReportHash: "3".repeat(64), exportMetadataArtifactId: `art_${"d".repeat(40)}`, exportMetadataHash: "4".repeat(64), outputHash: "5".repeat(64), technicalFinal: true, qaPassed: true, publishable: false, publishApprovalRequired: true, storageKey: "secret", outputPath: "/private/final.mp4" };
+  store.update(job, { evidencePackage });
+  const publicJob = store.publicJob(job);
+  assert.equal(publicJob.evidencePackage.packageStatus, "complete");
+  assert.equal(publicJob.evidencePackage.publishable, false);
+  assert.equal(publicJob.evidencePackage.publishApprovalRequired, true);
+  assert.doesNotMatch(JSON.stringify(publicJob.evidencePackage), /storageKey|outputPath|\/private/i);
+  const recoveredStore = createPersistentStore(jobDir);
+  recoveredStore.recover();
+  const recovered = recoveredStore.get(job.id);
+  assert.deepEqual(recovered.evidencePackage, publicJob.evidencePackage);
 });
 
 test("public job summary stays bounded for polling while preserving render proof metadata", () => {
@@ -234,10 +255,47 @@ test("public job summary stays bounded for polling while preserving render proof
       mode: "multi_moment_compilation",
       highlightType: "goal",
       totalDuration: 142,
+      sourceStart: 100,
+      sourceEnd: 196,
       stylePreset: "reference_football_multi_goal_v1",
       goalSelectionMode: "valid_goals_only",
-      captions: Array.from({ length: 80 }, (_, index) => ({ text: `caption ${index}` })),
+      hookPlan: {
+        hookStart: 0,
+        hookEnd: 1.8,
+        hookType: "goal_payoff",
+        hookText: "EVERY GOAL COUNTS",
+        evidenceCodes: ["confirmed_goal", "score_change_anchor"],
+        noFalseGoalClaim: true,
+      },
+      captions: Array.from({ length: 80 }, (_, index) => index === 0
+        ? {
+            start: 0,
+            end: 1.8,
+            text: "EVERY GOAL COUNTS",
+            role: "opening_hook",
+            activeWordTiming: [
+              { word: "EVERY", start: 0, end: 0.55 },
+              { word: "GOAL", start: 0.55, end: 1.1 },
+              { word: "COUNTS", start: 1.1, end: 1.75 },
+            ],
+          }
+        : { text: `caption ${index}` }),
       animationCues: Array.from({ length: 80 }, (_, index) => ({ type: `cue_${index}` })),
+      audioPolicy: {
+        audioMode: "source",
+        licenseStatus: "source_rights_confirmed",
+        source: "source_audio",
+        safeForExport: true,
+        externalAudioBundled: false,
+        copyrightedTrackBundled: false,
+      },
+      creativeStyleTransforms: {
+        colorGrade: "sports_pop_safe",
+        mildZoom: 1.02,
+        mirror: false,
+        copyrightEvasion: false,
+        watermarkObscuring: false,
+      },
       segments: Array.from({ length: 5 }, (_, index) => ({
         goalNumber: index + 1,
         highlightType: "goal",
@@ -272,6 +330,8 @@ test("public job summary stays bounded for polling while preserving render proof
         celebrationHeadTrackingRequired: true,
         celebrationHeadTrackingPassed: true,
         celebrationHeadFollowRendered: true,
+        captionsRendered: false,
+        captionsDisabledByOperator: true,
         scoreboardOverlayRendered: true,
         scoreboardOverlayRegionId: "scorebug_broadcast_compact",
         sourceScoreboardDuplicateSuppressed: true,
@@ -284,8 +344,19 @@ test("public job summary stays bounded for polling while preserving render proof
   assert.equal(summary.status, "completed");
   assert.equal(summary.exportId, "exp_dddddddd-dddd-4ddd-dddd-dddddddddddd");
   assert.equal(summary.renderPlanSummary.segmentCount, 5);
+  assert.equal(summary.renderPlanSummary.sourceStart, 100);
+  assert.equal(summary.renderPlanSummary.sourceEnd, 196);
+  assert.equal(summary.renderPlanSummary.captions.length, 12);
+  assert.equal(summary.renderPlanSummary.captions[0].role, "opening_hook");
+  assert.equal(summary.renderPlanSummary.captions[0].activeWordTiming.length, 3);
+  assert.equal(summary.renderPlanSummary.hookPlan.hookStart, 0);
+  assert.deepEqual(summary.renderPlanSummary.hookPlan.evidenceCodes, ["confirmed_goal", "score_change_anchor"]);
+  assert.equal(summary.renderPlanSummary.audioPolicy.copyrightedTrackBundled, false);
+  assert.equal(summary.renderPlanSummary.creativeStyleTransforms.copyrightEvasion, false);
   assert.equal(summary.renderPlanSummary.videoOutputQA.coveredGoalCount, 5);
   assert.equal(summary.renderPlanSummary.renderPolishQA.cleanActionLayoutPassed, true);
+  assert.equal(summary.renderPlanSummary.renderPolishQA.captionsRendered, false);
+  assert.equal(summary.renderPlanSummary.renderPolishQA.captionsDisabledByOperator, true);
   assert.equal(summary.renderPlanSummary.renderPolishQA.sourceScoreboardDuplicateSuppressed, true);
   assert.equal(summary.renderPlanSummary.renderPolishQA.cropKeyframeCount, 22);
   assert.equal(summary.renderPlanSummary.renderPolishQA.celebrationHeadTrackedGoalCount, 5);
@@ -362,7 +433,7 @@ test("idempotency survives durable store reload", () => {
   assert.equal(secondStore.get(first.id).id, first.id);
 });
 
-test("job payload persistence preserves style target edit intensity and render style", () => {
+test("job payload persistence preserves style and goal selection settings", () => {
   const jobDir = tempJobDir();
   const firstStore = createPersistentStore(jobDir);
   const first = firstStore.create({
@@ -377,6 +448,8 @@ test("job payload persistence preserves style target edit intensity and render s
       styleTarget: "square_1_1",
       editIntensity: "punchy",
       stylePreset: "punchy_highlight",
+      goalSelectionMode: "balanced",
+      compositionMode: "single_moment",
     },
   });
 
@@ -384,6 +457,8 @@ test("job payload persistence preserves style target edit intensity and render s
   assert.equal(raw.payload.styleTarget, "square_1_1");
   assert.equal(raw.payload.editIntensity, "punchy");
   assert.equal(raw.payload.stylePreset, "punchy_highlight");
+  assert.equal(raw.payload.goalSelectionMode, "balanced");
+  assert.equal(raw.payload.compositionMode, "single_moment");
 
   const secondStore = createPersistentStore(jobDir);
   const summary = secondStore.recover();
@@ -393,6 +468,8 @@ test("job payload persistence preserves style target edit intensity and render s
   assert.equal(recovered.payload.styleTarget, "square_1_1");
   assert.equal(recovered.payload.editIntensity, "punchy");
   assert.equal(recovered.payload.stylePreset, "punchy_highlight");
+  assert.equal(recovered.payload.goalSelectionMode, "balanced");
+  assert.equal(recovered.payload.compositionMode, "single_moment");
 });
 
 test("recovery requeues stale processing jobs and keeps terminal jobs terminal", () => {
@@ -469,6 +546,10 @@ test("worker processes queued durable jobs with mocked render", async () => {
     styleTarget: "square_1_1",
     editIntensity: "punchy",
     stylePreset: "punchy_highlight",
+    goalSelectionMode: "balanced",
+    compositionMode: "single_moment",
+    expectedCountedGoals: 1,
+    expectedFinalScore: "1-0",
   });
   const projects = new Map([[PROJECT_ID, { id: PROJECT_ID, uploadId: UPLOAD_ID, title: "Derby Final", status: "draft" }]]);
   const uploads = new Map([[UPLOAD_ID, { id: UPLOAD_ID, projectId: PROJECT_ID, metadata: { durationSeconds: 12 }, path: storagePath("uploads", "worker.mp4") }]]);
@@ -501,6 +582,10 @@ test("worker processes queued durable jobs with mocked render", async () => {
   assert.equal(observedPayload.styleTarget, "square_1_1");
   assert.equal(observedPayload.editIntensity, "punchy");
   assert.equal(observedPayload.stylePreset, "punchy_highlight");
+  assert.equal(observedPayload.goalSelectionMode, "balanced");
+  assert.equal(observedPayload.compositionMode, "single_moment");
+  assert.equal(observedPayload.expectedCountedGoals, 1);
+  assert.equal(observedPayload.expectedFinalScore, "1-0");
 });
 
 test("worker failures increment attempts and persist safe failed state", async () => {

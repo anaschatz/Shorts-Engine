@@ -3,6 +3,11 @@ const { basename } = require("node:path");
 const { CONFIG } = require("./config.cjs");
 const { AppError, SAFE_MESSAGES } = require("./errors.cjs");
 const { sanitizeText } = require("./media.cjs");
+const {
+  fasterWhisperConfig,
+  probeFasterWhisperRuntime,
+  transcribeWithFasterWhisper,
+} = require("./adapters/faster-whisper-adapter.cjs");
 
 class TranscriptionProvider {
   async transcribe() {
@@ -126,6 +131,30 @@ class OpenAITranscriptionProvider extends TranscriptionProvider {
   }
 }
 
+class LocalFasterWhisperProvider extends TranscriptionProvider {
+  constructor({ env = process.env, transcribeImpl = transcribeWithFasterWhisper, fallbackProvider = null } = {}) {
+    super();
+    this.env = env;
+    this.transcribeImpl = transcribeImpl;
+    this.fallbackProvider = fallbackProvider;
+  }
+
+  async transcribe(input) {
+    try {
+      return await this.transcribeImpl({
+        audioPath: input.audioPath,
+        language: normalizeLanguageCode(input.language),
+        env: this.env,
+      });
+    } catch (error) {
+      if (this.fallbackProvider) return this.fallbackProvider.transcribe(input);
+      throw error instanceof AppError
+        ? error
+        : new AppError("TRANSCRIPTION_FAILED", SAFE_MESSAGES.TRANSCRIPTION_FAILED, 503);
+    }
+  }
+}
+
 function normalizeLanguageCode(language) {
   const value = sanitizeText(language, 32).toLowerCase();
   if (!value || value === "auto") return "auto";
@@ -137,25 +166,45 @@ function normalizeLanguageCode(language) {
 }
 
 function chooseTranscriptionProvider(options = {}) {
-  if (!options.forceMock && process.env.MATCHCUTS_TRANSCRIPTION_PROVIDER === "openai" && process.env.OPENAI_API_KEY) {
+  const env = options.env || process.env;
+  if (!options.forceMock && env.MATCHCUTS_TRANSCRIPTION_PROVIDER === "openai" && env.OPENAI_API_KEY) {
     return new OpenAITranscriptionProvider({
-      apiKey: process.env.OPENAI_API_KEY,
-      model: process.env.OPENAI_TRANSCRIPTION_MODEL,
+      apiKey: env.OPENAI_API_KEY,
+      model: env.OPENAI_TRANSCRIPTION_MODEL,
     });
+  }
+  if (!options.forceMock) {
+    const runtime = probeFasterWhisperRuntime(env, { refresh: options.refreshProbe });
+    if (runtime.available || runtime.config.mode === "enabled") {
+      return new LocalFasterWhisperProvider({
+        env,
+        fallbackProvider: runtime.config.mode === "auto" ? new MockTranscriptionProvider() : null,
+      });
+    }
   }
   return new MockTranscriptionProvider();
 }
 
-function transcriptionHealth() {
-  const requested = sanitizeText(process.env.MATCHCUTS_TRANSCRIPTION_PROVIDER || "mock", 40).toLowerCase();
-  const openaiConfigured = Boolean(process.env.OPENAI_API_KEY);
-  const activeProvider = requested === "openai" && openaiConfigured ? "openai" : "mock";
+function transcriptionHealth(env = process.env) {
+  const requested = sanitizeText(env.MATCHCUTS_TRANSCRIPTION_PROVIDER || "mock", 40).toLowerCase();
+  const openaiConfigured = Boolean(env.OPENAI_API_KEY);
+  const localRuntime = probeFasterWhisperRuntime(env);
+  const activeProvider = requested === "openai" && openaiConfigured
+    ? "openai"
+    : localRuntime.available
+      ? "faster-whisper"
+      : "mock";
+  const localConfig = fasterWhisperConfig(env);
   return {
     requestedProvider: requested,
     activeProvider,
-    ready: activeProvider === "mock" || openaiConfigured,
+    ready: activeProvider === "mock" || activeProvider === "faster-whisper" || openaiConfigured,
     fallback: activeProvider === "mock" && requested === "openai" && !openaiConfigured,
+    localWhisperMode: localConfig.mode,
+    localWhisperAvailable: localRuntime.available,
+    localWhisperFallback: localConfig.mode === "auto" && !localRuntime.available,
     supportsSegments: true,
+    supportsWordTimestamps: activeProvider === "faster-whisper",
   };
 }
 
@@ -163,6 +212,7 @@ module.exports = {
   TranscriptionProvider,
   MockTranscriptionProvider,
   OpenAITranscriptionProvider,
+  LocalFasterWhisperProvider,
   chooseTranscriptionProvider,
   normalizeLanguageCode,
   transcriptionHealth,

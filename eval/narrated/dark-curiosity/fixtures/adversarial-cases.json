@@ -1,0 +1,54 @@
+[
+  {
+    "id": "unsupported_claim",
+    "changes": [
+      { "path": "claimLedger.claims.0.verdict", "value": "unsupported" }
+    ],
+    "expectedField": "claims[0].verdict"
+  },
+  {
+    "id": "manual_review_topic",
+    "changes": [
+      { "path": "brief.riskClass", "value": "manual_review" },
+      { "path": "brief.riskTags", "value": ["living_person", "crime"] }
+    ],
+    "expectedField": "riskClass"
+  },
+  {
+    "id": "syndicated_sources_are_not_independent",
+    "changes": [
+      { "path": "claimLedger.sources.0.sourceClass", "value": "other" },
+      { "path": "claimLedger.sources.1.sourceClass", "value": "other" },
+      { "path": "claimLedger.sources.1.independenceGroup", "value": "big_ear_observatory" },
+      {
+        "path": "claimLedger.claims.0.sourceLinks",
+        "value": [
+          { "sourceId": "src_bigear", "support": "corroborating", "evidenceExcerpt": "First syndicated account.", "pageOrTimecode": "record" },
+          { "sourceId": "src_seti", "support": "corroborating", "evidenceExcerpt": "Second copy of the same account.", "pageOrTimecode": "overview" }
+        ]
+      }
+    ],
+    "expectedField": "claims[0].sourceLinks"
+  },
+  {
+    "id": "visual_references_unknown_claim",
+    "changes": [
+      { "path": "storyboard.scenes.1.operations.0.claimId", "value": "claim_missing" }
+    ],
+    "expectedField": "scenes[1].operations[0].claimId"
+  },
+  {
+    "id": "visual_operation_rejects_arbitrary_html",
+    "changes": [
+      { "path": "storyboard.scenes.0.operations.0.html", "value": "<script>alert(1)</script>" }
+    ],
+    "expectedField": "scenes[0].operations[0].html"
+  },
+  {
+    "id": "storyboard_requires_payoff_scene",
+    "changes": [
+      { "path": "storyboard.scenes.4.template", "value": "evidence_scene" }
+    ],
+    "expectedField": "scenes[4].operations"
+  }
+]

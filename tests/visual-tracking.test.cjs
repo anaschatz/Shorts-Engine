@@ -100,6 +100,41 @@ test("validated ball timeline creates bounded dynamic crop keyframes", () => {
   assert.equal(cropPlan.actionSafeZones.length, 0);
 });
 
+test("real FFmpeg scene cuts reset dynamic crop tracking automatically", () => {
+  const tracking = analyzeVisualTracking({
+    metadata,
+    mediaSignals: {
+      sceneChanges: [
+        { time: 7.5, confidence: 0.82, source: "ffmpeg_scene" },
+        { time: 10.5, confidence: 0.9, source: "estimated" },
+      ],
+    },
+    visualTracking: {
+      frameCount: 4,
+      sampledTimestamps: [3, 6, 9, 12],
+      trackingSamples: [
+        { time: 3, ballBox: { x: 280, y: 450, width: 24, height: 24 }, ballConfidence: 0.84, actionCenter: { x: 292, y: 462 }, source: "ball_detection" },
+        { time: 6, ballBox: { x: 620, y: 440, width: 24, height: 24 }, ballConfidence: 0.86, actionCenter: { x: 632, y: 452 }, source: "ball_detection" },
+        { time: 9, ballBox: { x: 1320, y: 420, width: 24, height: 24 }, ballConfidence: 0.88, actionCenter: { x: 1332, y: 432 }, source: "ball_detection" },
+        { time: 12, ballBox: { x: 1480, y: 410, width: 24, height: 24 }, ballConfidence: 0.87, actionCenter: { x: 1492, y: 422 }, source: "ball_detection" },
+      ],
+      ballCandidateConfidence: 0.88,
+      playerClusterConfidence: 0.76,
+      trackingConfidence: 0.82,
+      recommendedFramingMode: "ball_follow",
+      cropSafetyReason: "ball_follow_validated_tracking_timeline",
+      fallbackUsed: false,
+    },
+  });
+  const cropPlan = calibrateCropPlan({ metadata, trackingSummary: tracking, targetAspectRatio: "9:16" });
+
+  assert.equal(cropPlan.mode, "ball_follow");
+  assert.equal(cropPlan.keyframes[2].reset, true);
+  assert.equal(cropPlan.keyframes[2].resetReason, "scene_cut");
+  assert.equal(cropPlan.keyframes[3].reset, false);
+  assert.equal(cropPlan.sceneCutResetCount, 1);
+});
+
 test("ball-follow hands off to bounded celebration head tracking after payoff", () => {
   const tracking = analyzeVisualTracking({
     metadata,

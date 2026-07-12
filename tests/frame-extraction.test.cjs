@@ -189,6 +189,35 @@ test("extractSampledFrames extracts frames with bounded parallelism and stable o
   cleanupSampledFrames(result);
 });
 
+test("extractSampledFrames retries sequentially after a parallel FFmpeg failure", async () => {
+  const inputPath = uniquePath("uploads", "source-retry.mp4");
+  const outputDir = uniquePath("staging", "frames-retry");
+  writeFileSync(inputPath, Buffer.from("synthetic-video"));
+  let callCount = 0;
+
+  async function flakyParallelRunner(args) {
+    callCount += 1;
+    if (callCount <= 3) throw new Error("parallel decoder pressure");
+    await fakeFfmpegRunner(args);
+  }
+
+  const result = await extractSampledFrames({
+    inputPath,
+    outputDir,
+    metadata,
+    ffmpegRunner: flakyParallelRunner,
+    maxFrames: 3,
+    maxConcurrency: 3,
+    candidateWindows: [6, 12, 18].map((time) => ({ time, confidence: 0.8, source: "motion" })),
+  });
+
+  assert.equal(result.frames.length, 3);
+  assert.equal(result.fallbackUsed, false);
+  assert.equal(result.summary.sequentialRetryUsed, true);
+  assert.equal(publicFrameSummary(result).summary.sequentialRetryUsed, true);
+  cleanupSampledFrames(result);
+});
+
 test("extractSampledFrames falls back safely when input is unavailable", async () => {
   const result = await extractSampledFrames({
     inputPath: uniquePath("uploads", "missing.mp4"),

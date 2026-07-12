@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "datasetId": "rights-cleared-beta-v1",
+  "thresholds": {
+    "minAcceptedWithoutEditRate": 0.7,
+    "maxFalseGoalRate": 0.01,
+    "maxRenderFailureRate": 0.05,
+    "minHumanCriterionScore": 4,
+    "minCostCoverageRate": 1
+  },
+  "matches": []
+}

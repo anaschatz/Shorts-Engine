@@ -137,6 +137,12 @@ function shouldUseBlurredBackground(plan = {}, profile = renderProfileConfig(pla
   return profile.blurredBackground === true;
 }
 
+function captionsEnabledForRender(plan = {}, env = process.env) {
+  if (typeof plan.captionsEnabled === "boolean") return plan.captionsEnabled;
+  const configured = String(env.SHORTSENGINE_RENDER_CAPTIONS_ENABLED ?? "1").trim().toLowerCase();
+  return !["0", "false", "off", "no"].includes(configured);
+}
+
 function labelForHighlightType(highlightType) {
   const labels = {
     goal: "GOAL",
@@ -523,6 +529,32 @@ function sourceWidthForCropPlan(cropPlan = {}) {
   );
 }
 
+function strictGoalBallContainmentPassed(plan = {}, cropPlan = {}) {
+  if (plan.validGoalsOnly !== true) return true;
+  const goals = Array.isArray(cropPlan.perGoalBallContainment)
+    ? cropPlan.perGoalBallContainment
+    : [];
+  return Boolean(
+    cropPlan.mode === "ball_follow" &&
+    cropPlan.densePerFrameTracking === true &&
+    cropPlan.perFrameBallContainmentPassed === true &&
+    goals.length > 0 &&
+    goals.every((goal) => (
+      goal &&
+      goal.passed === true &&
+      Number(goal.expectedFrameCount || 0) > 0 &&
+      Number(goal.expectedFrameCount) === Number(goal.containedFrameCount) &&
+      Number(goal.maxMissingFrameRun || 0) === 0
+    ))
+  );
+}
+
+function requiresBallSafeFullFrame(plan = {}) {
+  if (plan.validGoalsOnly !== true) return false;
+  const cropPlan = plan.cropPlan && typeof plan.cropPlan === "object" ? plan.cropPlan : {};
+  return !strictGoalBallContainmentPassed(plan, cropPlan);
+}
+
 function sourceKeyframesForSegment(keyframes, segment) {
   return keyframes.filter((keyframe) => (
     keyframe.sourceTime >= segment.sourceStart - 0.05 &&
@@ -620,6 +652,7 @@ function activeBallFollowCrop(plan = {}) {
     !cropPlan ||
     cropPlan.mode !== "ball_follow" ||
     cropPlan.fallbackUsed ||
+    !strictGoalBallContainmentPassed(plan, cropPlan) ||
     Number(cropPlan.confidence || 0) < 0.52
   ) return null;
   const box = cropPlan.cropBox;
@@ -644,6 +677,7 @@ function actionCropFilter(crop) {
 }
 
 function activeScoreboardOverlay(plan = {}, dimensions = renderDimensions(plan)) {
+  if (requiresBallSafeFullFrame(plan)) return null;
   const overlay = plan.scoreboardOverlay && typeof plan.scoreboardOverlay === "object"
     ? plan.scoreboardOverlay
     : null;
@@ -1057,7 +1091,8 @@ function createRenderPolishSummary(plan = {}, options = {}) {
     ? plan.visualTrackingSummary
     : {};
   const scoreboardOverlay = activeScoreboardOverlay(plan, dimensions);
-  const splitLayoutCaptionCount = Array.isArray(plan.captions)
+  const captionsRendered = captionsEnabledForRender(plan);
+  const splitLayoutCaptionCount = captionsRendered && Array.isArray(plan.captions)
     ? plan.captions.filter((caption) => caption && caption.layout === "split").length
     : 0;
   const actionLayoutMode = blurredBackgroundUsed
@@ -1085,12 +1120,12 @@ function createRenderPolishSummary(plan = {}, options = {}) {
     : 0;
   const hardCutFallbackCount = Math.max(0, transitionTargetCount - transitionRenderedCount);
   const showTopLabel = config.showTopLabel && !scoreboardOverlay;
-  const overlayRenderedCount = goalOutcomeBadges(plan, duration).length +
-    (showTopLabel ? 1 : 0) +
-    (showTopLabel && duration >= 2.2 ? 1 : 0) +
+  const overlayRenderedCount = (captionsRendered ? goalOutcomeBadges(plan, duration).length : 0) +
+    (captionsRendered && showTopLabel ? 1 : 0) +
+    (captionsRendered && showTopLabel && duration >= 2.2 ? 1 : 0) +
     (scoreboardOverlay ? 1 : 0);
-  const animatedCaptionCount = captionMotionCount(plan);
-  const dynamicWordCaptionCount = dynamicCaptionCount(plan);
+  const animatedCaptionCount = captionsRendered ? captionMotionCount(plan) : 0;
+  const dynamicWordCaptionCount = captionsRendered ? dynamicCaptionCount(plan) : 0;
   const renderPolishWarnings = [];
   const videoEnhancement = options.videoEnhancement && typeof options.videoEnhancement === "object"
     ? options.videoEnhancement
@@ -1128,6 +1163,8 @@ function createRenderPolishSummary(plan = {}, options = {}) {
     transitionRenderedCount,
     hardCutFallbackCount,
     transitions,
+    captionsRendered,
+    captionsDisabledByOperator: !captionsRendered,
     animatedCaptionCount,
     dynamicWordCaptionCount,
     staticCaptionFallbackCount: 0,
@@ -1211,7 +1248,7 @@ function cleanVisualLayerFilter(plan, dimensions) {
   if (actionCrop) {
     return `${input}${actionCropFilter(actionCrop)},scale=${dimensions.width}:${dimensions.height}:force_original_aspect_ratio=increase,crop=${dimensions.width}:${dimensions.height},setsar=1[base]`;
   }
-  if (["wide_safe", "wide_safe_vertical"].includes(plan.framingMode)) {
+  if (requiresBallSafeFullFrame(plan) || ["wide_safe", "wide_safe_vertical"].includes(plan.framingMode)) {
     if (shouldUseBlurredBackground(plan, profile)) {
       return [
         `${input}split=2[bg_source][fg_source]`,
@@ -1351,7 +1388,8 @@ async function renderSingleWindowShort({
   enhancementConfig = videoEnhancementConfig(),
   videoEnhancer = enhanceVisualLayer,
 }) {
-  writeAssSubtitles(plan, subtitlesPath);
+  const captionsRendered = captionsEnabledForRender(plan);
+  if (captionsRendered) writeAssSubtitles(plan, subtitlesPath);
   const duration = Number((Number(plan.totalDuration) || plan.sourceEnd - plan.sourceStart).toFixed(2));
   const dimensions = renderDimensions(plan);
   const config = renderStyleConfig(plan);
@@ -1359,7 +1397,7 @@ async function renderSingleWindowShort({
   const subtitlesFilter = `subtitles=filename='${escapeFilterPath(subtitlesPath)}'`;
   const toneFilter = `eq=contrast=${config.contrast}:saturation=${config.saturation}`;
   const effects = visualEffectFilters(plan, dimensions, config);
-  const finishingFilters = ["setsar=1", toneFilter, ...effects, subtitlesFilter];
+  const finishingFilters = ["setsar=1", toneFilter, ...effects, ...(captionsRendered ? [subtitlesFilter] : [])];
   let enhancementFallback = null;
   if (enhancementConfig.enabled) {
     try {
@@ -1422,7 +1460,7 @@ async function renderSingleWindowShort({
         `crop=${dimensions.width}:${dimensions.height}`,
         `${finishingFilters.join(",")}[v]`,
       ].join(",")
-    : ["wide_safe", "wide_safe_vertical"].includes(plan.framingMode)
+    : requiresBallSafeFullFrame(plan) || ["wide_safe", "wide_safe_vertical"].includes(plan.framingMode)
     ? shouldUseBlurredBackground(plan, profile)
     ? [
         `[0:v]scale=${backgroundWidth}:${backgroundHeight}:force_original_aspect_ratio=increase,crop=${dimensions.width}:${dimensions.height},boxblur=18:1[bg]`,
@@ -1632,4 +1670,5 @@ module.exports = {
   twoPhaseGoalCameraSummary,
   renderDimensions,
   normalizeRenderProfileName,
+  captionsEnabledForRender,
 };

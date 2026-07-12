@@ -2027,15 +2027,7 @@ function shouldRunProfileDigitOcrFallback({
   scoreOnlyOcr = null,
 } = {}) {
   if (!layoutProfile || !digitReading || digitReading.status === "readable") return false;
-  if (!scorebugFirstOnly) return true;
-  const scoreOnlyText = sanitizeText(scoreOnlyOcr && scoreOnlyOcr.text || "", 80);
-  const digitLikeCount = (scoreOnlyText.match(/[0-9OI]/g) || []).length;
-  const foregroundGroupCount = Number(
-    digitReading &&
-      digitReading.imageSegmentation &&
-      digitReading.imageSegmentation.foregroundGroupCount || 0,
-  );
-  return digitLikeCount > 0 || foregroundGroupCount >= 2;
+  return true;
 }
 
 function cleanupOcrCrops(outputDir) {

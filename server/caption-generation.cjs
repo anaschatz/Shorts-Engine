@@ -155,7 +155,9 @@ function captionTiming(duration, index, count) {
   const safeDuration = Math.max(0.4, Number(duration) || 0.4);
   const segment = Math.max(1.1, safeDuration / count);
   const start = Number(Math.min(safeDuration - 0.4, index * segment).toFixed(2));
-  const end = Number(Math.min(safeDuration, start + Math.max(1.2, segment - 0.18)).toFixed(2));
+  const maxBeatDuration = index === 0 ? 2 : index === count - 1 ? 2.4 : 2.8;
+  const beatDuration = Math.min(maxBeatDuration, Math.max(1.2, segment - 0.18));
+  const end = Number(Math.min(safeDuration, start + beatDuration).toFixed(2));
   return { start, end };
 }
 

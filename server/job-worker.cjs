@@ -5,6 +5,7 @@ const { runRenderJob } = require("./render-job.cjs");
 const { assertStoragePath } = require("./storage.cjs");
 const { LocalArtifactAdapter } = require("./adapters/local-artifact-adapter.cjs");
 const { createLocalJobQueue } = require("./queue/local-job-queue.cjs");
+const { createPipelineRegistry } = require("./pipelines/pipeline-registry.cjs");
 
 function logInfo(logger, payload) {
   if (!logger || typeof logger.info !== "function") return;
@@ -27,7 +28,15 @@ function payloadForJob(job, project) {
     styleTarget: (job.payload && job.payload.styleTarget) || "vertical_9_16",
     editIntensity: (job.payload && job.payload.editIntensity) || "balanced",
     stylePreset: (job.payload && job.payload.stylePreset) || "social_sports_v1",
+    compositionMode: (job.payload && job.payload.compositionMode) || "auto",
   };
+  if (job.payload && job.payload.goalSelectionMode) payload.goalSelectionMode = job.payload.goalSelectionMode;
+  if (job.payload && Number.isInteger(Number(job.payload.expectedCountedGoals))) {
+    payload.expectedCountedGoals = Number(job.payload.expectedCountedGoals);
+  }
+  if (job.payload && /^\d{1,2}-\d{1,2}$/.test(String(job.payload.expectedFinalScore || ""))) {
+    payload.expectedFinalScore = String(job.payload.expectedFinalScore);
+  }
   if (job.payload && job.payload.source) payload.source = job.payload.source;
   if (job.payload && job.payload.approvedEditPlan) payload.approvedEditPlan = job.payload.approvedEditPlan;
   if (job.payload && job.payload.regenerationApproval) payload.regenerationApproval = job.payload.regenerationApproval;
@@ -233,6 +242,12 @@ function createLocalJobWorker({
   const logger = Object.prototype.hasOwnProperty.call(dependencies, "logger") ? dependencies.logger : console;
   const scheduler = dependencies.scheduler || setImmediate;
   const render = dependencies.runRenderJob || runRenderJob;
+  const pipelineRegistry = dependencies.pipelineRegistry || createPipelineRegistry({
+    clipHandler: render,
+    narratedDraftHandler: dependencies.runNarratedDraftJob,
+    narrationAlignHandler: dependencies.runNarrationAlignmentJob,
+    narratedRenderHandler: dependencies.runNarratedRenderJob,
+  });
   const renderDependencies = dependencies.renderDependencies || dependencies;
   const workerId = dependencies.workerId || createWorkerId();
   const nowMs = typeof dependencies.nowMs === "function" ? dependencies.nowMs : Date.now;
@@ -291,15 +306,20 @@ function createLocalJobWorker({
     });
     try {
       const project = getRecord(projectRepository, projects, job.projectId);
-      const upload = job.uploadId
-        ? getRecord(uploadRepository, uploads, job.uploadId)
-        : project && getRecord(uploadRepository, uploads, project.uploadId);
       if (!project) {
         leasedJobs.fail(job, new AppError("PROJECT_NOT_FOUND", SAFE_MESSAGES.PROJECT_NOT_FOUND, 404));
         logInfo(logger, { event: "worker_failed", requestId, jobId: job.id, projectId: job.projectId, workerId, leaseId: claim.lease.leaseId, code: "PROJECT_NOT_FOUND" });
         return job;
       }
-      if (!upload) {
+      const pipeline = pipelineRegistry.resolve(job);
+      const upload = pipeline.requiresUpload
+        ? job.uploadId
+          ? getRecord(uploadRepository, uploads, job.uploadId)
+          : project.uploadId
+            ? getRecord(uploadRepository, uploads, project.uploadId)
+            : null
+        : null;
+      if (pipeline.requiresUpload && !upload) {
         leasedJobs.fail(job, new AppError("UPLOAD_NOT_FOUND", SAFE_MESSAGES.UPLOAD_NOT_FOUND, 404));
         logInfo(logger, { event: "worker_failed", requestId, jobId: job.id, projectId: job.projectId, workerId, leaseId: claim.lease.leaseId, code: "UPLOAD_NOT_FOUND" });
         return job;
@@ -318,14 +338,15 @@ function createLocalJobWorker({
         setHeartbeatInterval,
         workerId,
       });
-      await render({
+      await pipeline.handler({
         jobs: leasedJobs,
         exportsById,
         exportRepository,
         job,
         project,
         upload,
-        payload: payloadForJob(job, project),
+        payload: pipeline.pipelineType === "clip" ? payloadForJob(job, project) : job.payload,
+        pipeline,
         requestId,
         dependencies: { artifactStore, exportRepository, projectRepository, ...renderDependencies },
       });

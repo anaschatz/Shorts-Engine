@@ -12,6 +12,13 @@ function persistProjectUploadRecord({ project, upload }) {
   writeJsonAtomic(storagePath("projects", `${project.id}.json`), { project, upload });
 }
 
+function persistProjectRecord({ project } = {}) {
+  if (!project || !project.id || project.projectType !== "narrated_short") {
+    throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400);
+  }
+  writeJsonAtomic(storagePath("projects", `${project.id}.json`), { project });
+}
+
 function persistRenderRecord(record = {}) {
   const { project } = record;
   if (!project || !project.id) {
@@ -88,7 +95,20 @@ function loadPersistedProjectState({
     }
 
     const { project, upload } = record || {};
-    if (!project || !upload || !project.id || !upload.id) {
+    if (!project || !project.id) {
+      ignored += 1;
+      continue;
+    }
+    if (project.projectType === "narrated_short") {
+      try {
+        projectRepository.save(project);
+        records += 1;
+      } catch {
+        ignored += 1;
+      }
+      continue;
+    }
+    if (!upload || !upload.id) {
       ignored += 1;
       continue;
     }
@@ -131,6 +151,7 @@ function loadPersistedProjectState({
 
 module.exports = {
   loadPersistedProjectState,
+  persistProjectRecord,
   persistProjectUploadRecord,
   persistRenderRecord,
 };
