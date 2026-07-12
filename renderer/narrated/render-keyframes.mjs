@@ -40,9 +40,9 @@ export function resolveChromeExecutable(configured = process.env.NARRATED_CHROME
   return candidate;
 }
 
-function runChromeScreenshot({ chromeBin, htmlPath, outputPath, profileDir, width, height, timeoutMs = 30000 }) {
+export function runChromeScreenshot({ chromeBin, htmlPath, outputPath, profileDir, width, height, timeoutMs = 30000, spawnImpl = spawn }) {
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(chromeBin, [
+    const child = spawnImpl(chromeBin, [
       "--headless=new",
       "--disable-gpu",
       "--hide-scrollbars",
@@ -60,32 +60,42 @@ function runChromeScreenshot({ chromeBin, htmlPath, outputPath, profileDir, widt
     let settled = false;
     let lastSize = -1;
     let stableChecks = 0;
+    let outputReady = false;
+    let timedOut = false;
+    let killFallback = null;
     const finish = (error) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       clearInterval(outputPoll);
+      if (killFallback) clearTimeout(killFallback);
       if (error) reject(error);
       else resolvePromise();
     };
     const outputPoll = setInterval(() => {
+      if (outputReady) return;
       if (!existsSync(outputPath)) return;
       const size = statSync(outputPath).size;
       stableChecks = size > 24 && size === lastSize ? stableChecks + 1 : 0;
       lastSize = size;
       if (stableChecks >= 2) {
+        outputReady = true;
         child.kill("SIGTERM");
-        finish();
       }
     }, 100);
     const timer = setTimeout(() => {
+      timedOut = true;
       child.kill("SIGKILL");
-      finish(new Error("Headless Chromium screenshot timed out"));
+      killFallback = setTimeout(() => finish(new Error("Headless Chromium screenshot timed out")), 1000);
     }, timeoutMs);
     child.stderr.on("data", (chunk) => { stderr += chunk.toString("utf8"); });
     child.on("error", (error) => finish(error));
     child.on("close", (code) => {
-      if (code !== 0 || !existsSync(outputPath)) {
+      if (timedOut) {
+        finish(new Error("Headless Chromium screenshot timed out"));
+        return;
+      }
+      if ((!outputReady && code !== 0) || !existsSync(outputPath)) {
         finish(new Error(`Headless Chromium screenshot failed: ${stderr.slice(-400)}`));
         return;
       }

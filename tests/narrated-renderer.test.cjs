@@ -1,5 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { EventEmitter } = require("node:events");
 const { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } = require("node:fs");
 const { join, resolve } = require("node:path");
 const { tmpdir } = require("node:os");
@@ -38,6 +39,27 @@ function buildFixture(fixturePath = resolve(__dirname, "..", "eval", "narrated",
   });
   return { draft, timeline: compileTimeline({ draftBundle: draft, narrationManifest: narration, width: 720, height: 1280 }) };
 }
+
+test("Chromium screenshot waits for process close before profile cleanup can begin", async () => {
+  const { runChromeScreenshot } = await import("../renderer/narrated/render-keyframes.mjs");
+  const root = mkdtempSync(join(tmpdir(), "narrated-chrome-lifecycle-"));
+  const outputPath = join(root, "frame.png");
+  writeFileSync(outputPath, Buffer.alloc(64, 1));
+  let closeEmitted = false;
+  const child = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.kill = (signal) => {
+    assert.equal(signal, "SIGTERM");
+    setTimeout(() => { closeEmitted = true; child.emit("close", 143); }, 25);
+    return true;
+  };
+  try {
+    await runChromeScreenshot({ chromeBin: "/mock/chrome", htmlPath: join(root, "frame.html"), outputPath, profileDir: join(root, "profile"), width: 720, height: 1280, timeoutMs: 2000, spawnImpl: () => child });
+    assert.equal(closeEmitted, true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("Dark Curiosity Chromium renderer creates PNG keyframes and a probed 720x1280 H.264 preview", async (t) => {
   if (process.env.RUN_NARRATED_BROWSER_TEST !== "1") {
