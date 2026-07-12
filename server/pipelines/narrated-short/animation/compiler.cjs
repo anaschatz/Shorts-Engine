@@ -1,10 +1,16 @@
 const { validateAnimationIR } = require("./contract.cjs");
 const { validateComplexityBudget } = require("./complexity-budget.cjs");
+const { bindAnimationTiming } = require("./timing-compiler.cjs");
 
 function compileAnimationIR(input, options = {}) {
-  const compiled = validateAnimationIR({ ...structuredClone(input), contentHash: undefined }, options);
+  const bound = bindAnimationTiming({ ...structuredClone(input), contentHash: undefined }, options.timingContext || null);
+  const compiled = validateAnimationIR(bound, options);
   validateComplexityBudget(compiled);
   return compiled;
 }
 
-module.exports = { compileAnimationIR };
+function compileTimingBoundAnimationIR(input, timingContext) {
+  return compileAnimationIR(input, { timingContext });
+}
+
+module.exports = { compileAnimationIR, compileTimingBoundAnimationIR };

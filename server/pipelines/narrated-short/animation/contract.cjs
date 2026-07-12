@@ -68,19 +68,68 @@ function rejectExecutableOrRemote(value, field = "animationIR") {
 
 function validateAnchor(anchor, field, context) {
   object(anchor, field);
-  exactKeys(anchor, ["anchor", "frame", "beatId", "wordIndex", "offsetFrames"], field);
+  exactKeys(anchor, ["anchor", "frame", "beatId", "wordIndex", "offsetFrames", "resolvedFrame"], field);
   const type = token(anchor.anchor, `${field}.anchor`, ALLOWED_ANCHORS);
   const offset = anchor.offsetFrames === undefined ? 0 : number(anchor.offsetFrames, `${field}.offsetFrames`, -90, 90, true);
+  const resolvedFrame = number(anchor.resolvedFrame, `${field}.resolvedFrame`, context.sceneStart, context.sceneEnd - 1, true);
+  let expected;
   if (type === "absolute") {
     if (anchor.beatId !== undefined || anchor.wordIndex !== undefined) fail(field, "Absolute timing cannot include beat or word bindings.");
-    return number(anchor.frame, `${field}.frame`, context.sceneStart, context.sceneEnd - 1, true) + offset;
+    expected = number(anchor.frame, `${field}.frame`, context.sceneStart, context.sceneEnd - 1, true) + offset;
+  } else {
+    if (anchor.frame !== undefined) fail(field, "Semantic timing cannot include an absolute frame.");
+    if (!context.timingBinding) fail(field, "Semantic timing requires a timing binding.");
+    if (type.startsWith("beat_")) {
+      text(anchor.beatId, `${field}.beatId`, { pattern: ID_RE });
+      const beat = context.timingBinding.beats.find((candidate) => candidate.beatId === anchor.beatId);
+      if (!beat) fail(`${field}.beatId`, "Semantic timing references an unknown beat.");
+      expected = (type === "beat_start" ? beat.startFrame : beat.endFrame - 1) + offset;
+    } else {
+      number(anchor.wordIndex, `${field}.wordIndex`, 0, 10000, true);
+      const word = context.timingBinding.words.find((candidate) => candidate.index === anchor.wordIndex);
+      if (!word) fail(`${field}.wordIndex`, "Semantic timing references an unknown word.");
+      expected = (type === "word_start" ? word.startFrame : word.endFrame - 1) + offset;
+    }
   }
-  if (anchor.frame !== undefined) fail(field, "Semantic timing cannot include an absolute frame.");
-  if (type.startsWith("beat_")) text(anchor.beatId, `${field}.beatId`, { pattern: ID_RE });
-  if (type.startsWith("word_")) number(anchor.wordIndex, `${field}.wordIndex`, 0, 10000, true);
-  if (!context.anchorResolver) fail(field, "Semantic timing requires an anchor resolver.");
-  const resolved = context.anchorResolver(anchor);
-  return number(resolved + offset, field, context.sceneStart, context.sceneEnd - 1, true);
+  if (expected !== resolvedFrame) fail(`${field}.resolvedFrame`, "Resolved timing does not match its anchor.");
+  return resolvedFrame;
+}
+
+function validateTimingBinding(binding, durationFrames) {
+  if (binding === null) return null;
+  object(binding, "timingBinding");
+  exactKeys(binding, ["schemaVersion", "timingContextHash", "words", "beats"], "timingBinding");
+  if (binding.schemaVersion !== 1) fail("timingBinding.schemaVersion");
+  text(binding.timingContextHash, "timingBinding.timingContextHash", { max: 64, pattern: HASH_RE });
+  if (!Array.isArray(binding.words) || !binding.words.length || binding.words.length > 400) fail("timingBinding.words");
+  let previousEnd = 0;
+  const words = binding.words.map((word, index) => {
+    object(word, `timingBinding.words[${index}]`);
+    exactKeys(word, ["index", "startFrame", "endFrame"], `timingBinding.words[${index}]`);
+    if (word.index !== index) fail(`timingBinding.words[${index}].index`);
+    const startFrame = number(word.startFrame, `timingBinding.words[${index}].startFrame`, 0, durationFrames - 1, true);
+    const endFrame = number(word.endFrame, `timingBinding.words[${index}].endFrame`, startFrame + 1, durationFrames, true);
+    if (startFrame < previousEnd) fail(`timingBinding.words[${index}].startFrame`);
+    previousEnd = endFrame;
+    return { index, startFrame, endFrame };
+  });
+  if (!Array.isArray(binding.beats) || !binding.beats.length || binding.beats.length > 40) fail("timingBinding.beats");
+  let coveredWords = 0;
+  const ids = new Set();
+  const beats = binding.beats.map((beat, index) => {
+    object(beat, `timingBinding.beats[${index}]`);
+    exactKeys(beat, ["beatId", "wordStartIndex", "wordEndIndex", "startFrame", "endFrame"], `timingBinding.beats[${index}]`);
+    const beatId = text(beat.beatId, `timingBinding.beats[${index}].beatId`, { pattern: ID_RE });
+    if (ids.has(beatId) || beat.wordStartIndex !== coveredWords) fail(`timingBinding.beats[${index}]`);
+    const wordEndIndex = number(beat.wordEndIndex, `timingBinding.beats[${index}].wordEndIndex`, coveredWords + 1, words.length, true);
+    if (beat.startFrame !== words[coveredWords].startFrame || beat.endFrame !== words[wordEndIndex - 1].endFrame) fail(`timingBinding.beats[${index}]`);
+    ids.add(beatId);
+    const normalized = { beatId, wordStartIndex: coveredWords, wordEndIndex, startFrame: beat.startFrame, endFrame: beat.endFrame };
+    coveredWords = wordEndIndex;
+    return normalized;
+  });
+  if (coveredWords !== words.length) fail("timingBinding.beats");
+  return { schemaVersion: 1, timingContextHash: binding.timingContextHash, words, beats };
 }
 
 const PARAM_KEYS = Object.freeze({
@@ -141,7 +190,7 @@ function validateMotionBudget(budget) {
 function validateAnimationIR(input, options = {}) {
   const ir = structuredClone(object(input, "animationIR"));
   rejectExecutableOrRemote(ir);
-  exactKeys(ir, ["schemaVersion", "profile", "profileVersion", "projectId", "projectRevision", "verticalId", "width", "height", "fps", "durationFrames", "draftHash", "alignmentHash", "assetManifestHash", "renderer", "seed", "sharedEntities", "scenes", "transitions", "motionBudget", "contentHash"], "animationIR");
+  exactKeys(ir, ["schemaVersion", "profile", "profileVersion", "projectId", "projectRevision", "verticalId", "width", "height", "fps", "durationFrames", "draftHash", "alignmentHash", "assetManifestHash", "renderer", "seed", "timingBinding", "sharedEntities", "scenes", "transitions", "motionBudget", "contentHash"], "animationIR");
   if (ir.schemaVersion !== ANIMATION_IR_SCHEMA_VERSION) fail("schemaVersion", "AnimationIR schema version is unsupported.");
   token(ir.profile, "profile", [ANIMATION_PROFILE]);
   text(ir.profileVersion, "profileVersion", { pattern: VERSION_RE });
@@ -160,6 +209,7 @@ function validateAnimationIR(input, options = {}) {
   text(ir.renderer.runtimeVersion, "renderer.runtimeVersion", { pattern: VERSION_RE });
   text(ir.renderer.styleVersion, "renderer.styleVersion", { pattern: VERSION_RE });
   number(ir.seed, "seed", 0, 0xffffffff, true);
+  ir.timingBinding = validateTimingBinding(ir.timingBinding === undefined ? null : ir.timingBinding, ir.durationFrames);
   if (!Array.isArray(ir.sharedEntities) || !ir.sharedEntities.length || ir.sharedEntities.length > 64) fail("sharedEntities");
   ir.sharedEntities = ir.sharedEntities.map(validateEntity);
   const entityIds = new Set();
@@ -191,7 +241,7 @@ function validateAnimationIR(input, options = {}) {
       text(operation.targetId, `${opField}.targetId`, { pattern: ID_RE });
       if (!entityIds.has(operation.targetId) || !scene.entityIds.includes(operation.targetId)) fail(`${opField}.targetId`, "Operation references an unavailable entity.");
       token(operation.easing, `${opField}.easing`, ALLOWED_EASINGS);
-      const context = { sceneStart: scene.startFrame, sceneEnd: scene.endFrame, anchorResolver: options.anchorResolver };
+      const context = { sceneStart: scene.startFrame, sceneEnd: scene.endFrame, timingBinding: ir.timingBinding };
       const fromFrame = validateAnchor(operation.from, `${opField}.from`, context);
       const toFrame = validateAnchor(operation.to, `${opField}.to`, context);
       if (toFrame <= fromFrame) fail(`${opField}.to`, "Operation timing must have positive duration.");

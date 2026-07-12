@@ -2,9 +2,8 @@ const { AppError } = require("../../../errors.cjs");
 
 const OPERATION_COST = Object.freeze({ create: 1, fade: 1, move: 3, scale: 2, transform: 4, draw_path: 4, trace_signal: 5, morph_path: 8, pulse: 2, stagger: 3, highlight: 2, camera_push: 6, transition_match: 7 });
 
-function absoluteFrame(anchor) {
-  if (anchor.anchor !== "absolute") return null;
-  return anchor.frame + (anchor.offsetFrames || 0);
+function resolvedFrame(anchor) {
+  return Number.isInteger(anchor && anchor.resolvedFrame) ? anchor.resolvedFrame : null;
 }
 
 function validateComplexityBudget(ir) {
@@ -17,8 +16,8 @@ function validateComplexityBudget(ir) {
       const cost = OPERATION_COST[operation.op];
       sceneCost += cost;
       computedCost += cost;
-      const start = absoluteFrame(operation.from);
-      const end = absoluteFrame(operation.to);
+      const start = resolvedFrame(operation.from);
+      const end = resolvedFrame(operation.to);
       if (start !== null && end !== null) events.push({ start, end });
       if (operation.op === "camera_push") maxCameraScale = Math.max(maxCameraScale, operation.params.scale || 1);
       if (operation.op === "move" && start !== null && end !== null) {

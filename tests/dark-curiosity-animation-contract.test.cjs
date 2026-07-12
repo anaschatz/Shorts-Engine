@@ -29,7 +29,7 @@ test("AnimationIR rejects unknown fields, executable content and bad references"
 
 test("AnimationIR rejects invalid frames and excessive complexity", () => {
   const frame = fixture(); frame.scenes[0].operations[0].to.frame = 301;
-  assert.throws(() => compileAnimationIR(frame), { code: "ANIMATION_IR_INVALID" });
+  assert.throws(() => compileAnimationIR(frame), { code: "ANIMATION_TIMING_INVALID" });
   const cost = fixture(); cost.motionBudget.maxCost = 2;
   assert.throws(() => compileAnimationIR(cost), { code: "ANIMATION_MOTION_BUDGET_EXCEEDED" });
 });
