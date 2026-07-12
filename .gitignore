@@ -10,6 +10,7 @@ AI-Youtube-Shorts-Generator/
 demo/dark-curiosity-pilot-results/*.json
 .venv-youtube/
 .venv-dark-curiosity/
+.venv-kokoro/
 OpenViking/
 pm-skills/
 promptfoo/

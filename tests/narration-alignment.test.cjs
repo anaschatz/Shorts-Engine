@@ -62,7 +62,8 @@ async function setup(renderProfile = "preview") {
 test("speech token normalization is deterministic for Unicode punctuation, apostrophes and hyphens", () => {
   assert.equal(normalizeSpeechToken("  WOW—Signal! "), "wowsignal");
   assert.equal(normalizeSpeechToken("DON’T"), "dont");
-  assert.equal(normalizeSpeechToken("seventy-two"), "seventytwo");
+  assert.equal(normalizeSpeechToken("seventy-two"), "72");
+  assert.equal(normalizeSpeechToken("72"), "72");
 });
 
 test("alignment requires exact script sequence and rejects missing, extra, reordered and changed words", async () => {

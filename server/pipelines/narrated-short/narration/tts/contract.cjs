@@ -4,6 +4,7 @@ const { contentHash } = require("../../contracts.cjs");
 
 const TTS_PROVENANCE_SCHEMA = "dark_curiosity_tts_provenance_v1";
 const BUILT_IN_OPENAI_VOICES = Object.freeze(["alloy", "ash", "ballad", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer", "verse", "marin", "cedar"]);
+const KOKORO_VOICES = Object.freeze(["af_alloy", "af_aoede", "af_bella", "af_heart", "af_jessica", "af_kore", "af_nicole", "af_nova", "af_river", "af_sarah", "af_sky", "am_adam", "am_echo", "am_eric", "am_fenrir", "am_liam", "am_michael", "am_onyx", "am_puck", "bf_alice", "bf_emma", "bf_isabella", "bf_lily", "bm_daniel", "bm_fable", "bm_george", "bm_lewis"]);
 
 function fail(code, field, status = 400) {
   throw new AppError(code, SAFE_MESSAGES[code] || "AI narration validation failed.", status, field ? { field } : null);
@@ -16,16 +17,17 @@ function sha256(value) { return createHash("sha256").update(value).digest("hex")
 function normalizeSynthesisRequest(input = {}) {
   const script = text(input.script, "script", 4096);
   const provider = text(input.provider, "provider", 40).toLowerCase();
-  if (!["openai", "mock"].includes(provider)) fail("TTS_PROVIDER_UNSUPPORTED", "provider");
+  if (!["kokoro_local", "openai", "mock"].includes(provider)) fail("TTS_PROVIDER_UNSUPPORTED", "provider");
   const voiceId = text(input.voiceId, "voiceId", 100).toLowerCase();
   if (input.voiceCloned === true || input.impersonated === true) fail("TTS_VOICE_PROHIBITED", "voiceId", 409);
   if (provider === "openai" && !BUILT_IN_OPENAI_VOICES.includes(voiceId)) fail("TTS_VOICE_PROHIBITED", "voiceId", 409);
+  if (provider === "kokoro_local" && !KOKORO_VOICES.includes(voiceId)) fail("TTS_VOICE_PROHIBITED", "voiceId", 409);
   const speakingRate = Number(input.speakingRate ?? 1);
   if (!Number.isFinite(speakingRate) || speakingRate < 0.25 || speakingRate > 4) fail("TTS_PROVENANCE_INVALID", "speakingRate");
   const language = text(input.language || "en", "language", 20).toLowerCase();
   if (!/^[a-z]{2}(?:-[a-z]{2})?$/.test(language)) fail("TTS_PROVENANCE_INVALID", "language");
   return {
-    provider, model: text(input.model || (provider === "openai" ? "gpt-4o-mini-tts" : "deterministic-tone-v1"), "model", 100),
+    provider, model: text(input.model || (provider === "kokoro_local" ? "kokoro-v1.0-onnx-f32" : provider === "openai" ? "gpt-4o-mini-tts" : "deterministic-tone-v1"), "model", 100),
     voiceId, language, speakingRate: Number(speakingRate.toFixed(2)), script, scriptHash: sha256(script),
     voiceCloned: false, impersonated: false,
   };
@@ -37,7 +39,7 @@ function normalizeTtsProvenance(input = {}) {
   if (input.schemaVersion !== TTS_PROVENANCE_SCHEMA) fail("TTS_PROVENANCE_INVALID", "schemaVersion");
   exact(input.script, ["path", "sha256", "approvalReference", "approved"], "script"); exact(input.license, ["termsReference", "commercialUseAttested", "attestedBy"], "license"); exact(input.audio, ["path", "sha256", "container", "codec", "sampleRate", "channels", "durationSeconds", "bytes", "validated"], "audio");
   const provider = text(input.provider, "provider", 40).toLowerCase();
-  if (!["openai", "mock"].includes(provider)) fail("TTS_PROVIDER_UNSUPPORTED", "provider");
+  if (!["kokoro_local", "openai", "mock"].includes(provider)) fail("TTS_PROVIDER_UNSUPPORTED", "provider");
   const audio = input.audio || {};
   const normalized = {
     schemaVersion: TTS_PROVENANCE_SCHEMA,
@@ -69,4 +71,4 @@ function normalizeTtsProvenance(input = {}) {
   return { ...body, contentHash: calculated };
 }
 
-module.exports = { BUILT_IN_OPENAI_VOICES, TTS_PROVENANCE_SCHEMA, normalizeSynthesisRequest, normalizeTtsProvenance, sha256 };
+module.exports = { BUILT_IN_OPENAI_VOICES, KOKORO_VOICES, TTS_PROVENANCE_SCHEMA, normalizeSynthesisRequest, normalizeTtsProvenance, sha256 };

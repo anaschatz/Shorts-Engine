@@ -36,6 +36,8 @@
     "dark-curiosity:tts:synthesize": "node tools/dark-curiosity-tts.mjs synthesize",
     "dark-curiosity:tts:inspect": "node tools/dark-curiosity-tts.mjs inspect",
     "dark-curiosity:tts:verify": "node tools/dark-curiosity-tts.mjs verify",
+    "dark-curiosity:kokoro:doctor": "node tools/dark-curiosity-kokoro-doctor.mjs",
+    "dark-curiosity:kokoro:bootstrap": "node tools/dark-curiosity-kokoro-bootstrap.mjs",
     "dev": "node server/app.cjs",
     "env:check": "node tools/release/check-environment.mjs",
     "eval": "node eval/run-eval.mjs",

@@ -6,7 +6,8 @@ const { tmpdir } = require("node:os");
 const { spawnSync } = require("node:child_process");
 
 const { normalizeSynthesisRequest, normalizeTtsProvenance, sha256 } = require("../server/pipelines/narrated-short/narration/tts/contract.cjs");
-const { createMockTtsProvider, createOpenAiTtsProvider, deterministicMockWav } = require("../server/pipelines/narrated-short/narration/tts/providers.cjs");
+const { createKokoroTtsProvider, createMockTtsProvider, createOpenAiTtsProvider, deterministicMockWav } = require("../server/pipelines/narrated-short/narration/tts/providers.cjs");
+const { KOKORO_LICENSE_REFERENCE, KOKORO_MODEL_ID, doctor: kokoroDoctor } = require("../server/pipelines/narrated-short/narration/tts/kokoro-runtime.cjs");
 const { inspectTtsNarration, synthesizeTtsNarration, verifyTtsNarration } = require("../server/pipelines/narrated-short/narration/tts/service.cjs");
 const { evaluateTtsNarrationRelease } = require("../server/pipelines/narrated-short/publish/publish-guard.cjs");
 
@@ -21,6 +22,17 @@ test("provider-neutral request rejects cloned, impersonated, custom production v
   assert.throws(() => normalizeSynthesisRequest({ ...base, impersonated: true }), { code: "TTS_VOICE_PROHIBITED" });
   assert.throws(() => normalizeSynthesisRequest({ ...base, voiceId: "voice_custom" }), { code: "TTS_VOICE_PROHIBITED" });
   assert.throws(() => normalizeSynthesisRequest({ ...base, speakingRate: 5 }), { code: "TTS_PROVENANCE_INVALID" });
+});
+
+test("Kokoro local request uses an allowlisted voice, production model, and no API credential", async () => {
+  const request = normalizeSynthesisRequest({ script: "Approved exact script.", provider: "kokoro_local", voiceId: "af_heart", language: "en", speakingRate: 1 });
+  assert.equal(request.model, KOKORO_MODEL_ID); assert.equal(KOKORO_LICENSE_REFERENCE, "Apache-2.0:hexgrad/Kokoro-82M-v1.0");
+  assert.throws(() => normalizeSynthesisRequest({ ...request, voiceId: "celebrity_clone" }), { code: "TTS_VOICE_PROHIBITED" });
+  const unavailable = createKokoroTtsProvider({ env: { SHORTSENGINE_KOKORO_PYTHON_BIN: "/missing/kokoro/python" } }); await assert.rejects(() => unavailable.synthesize(request), { code: "TTS_PROVIDER_UNAVAILABLE" });
+});
+
+test("Kokoro doctor reports bounded missing state without paths or secrets", () => {
+  const result = kokoroDoctor({ SHORTSENGINE_KOKORO_PYTHON_BIN: "/missing/kokoro/python" }); assert.equal(result.status, "python_missing"); assert.equal(result.packageReady, false); assert.doesNotMatch(JSON.stringify(result), /\/missing|OPENAI_API_KEY|traceback/i);
 });
 
 test("mock provider is deterministic and returns a valid PCM WAV envelope", async () => {
@@ -46,6 +58,11 @@ test("mock synthesis normalizes to 48 kHz mono PCM, writes provenance, reuses id
   const verified = await verifyTtsNarration({ projectDir, fixture: FIXTURE }); assert.equal(verified.valid, true); assert.equal(verified.audio.sampleRate, 48000); assert.equal(verified.audio.channels, 1); assert.equal(verified.audio.codec, "pcm_s16le");
   const reused = await synthesizeTtsNarration(input); assert.equal(reused.status, "reused"); assert.equal(reused.reused, true);
   const inspected = inspectTtsNarration(projectDir); assert.equal(inspected.valid, true); assert.equal(inspected.publishable, false);
+});
+
+test("Kokoro service path is publishable with local license provenance and no API key", async () => {
+  const projectDir = temp(); const created = await synthesizeTtsNarration({ fixture: FIXTURE, projectDir, provider: "kokoro_local", voiceId: "af_heart", commercialUseAttested: true, attestedBy: "operator_test" }, { createProvider: () => ({ async synthesize(request) { return { provider: "kokoro_local", model: request.model, voiceId: request.voiceId, audioFormat: "wav", buffer: deterministicMockWav(request), providerRequestId: "local_test" }; } }) });
+  assert.equal(created.publishable, true); assert.deepEqual(created.blockerCodes, []); assert.equal(created.manifest.license.termsReference, KOKORO_LICENSE_REFERENCE); assert.equal(created.manifest.provider, "kokoro_local");
 });
 
 test("missing commercial attestation remains a machine-readable publish blocker", async () => {
@@ -80,6 +97,11 @@ test("release guard rejects mock, unattested, and tampered TTS while human narra
   const audioHash = "a".repeat(64); const manifest = normalizeTtsProvenance({ schemaVersion: "dark_curiosity_tts_provenance_v1", projectId: "dcp_test", runId: "tts_test", script: { path: "fixture.json", sha256: "b".repeat(64), approvalReference: "approval-test", approved: true }, provider: "mock", model: "fixture", voiceId: "fixture", language: "en", speakingRate: 1, synthesizedAt: "2026-07-12T00:00:00.000Z", license: { termsReference: "terms", commercialUseAttested: true, attestedBy: "operator" }, voiceCloned: false, impersonated: false, audio: { path: "narration.wav", sha256: audioHash, container: "wav", codec: "pcm_s16le", sampleRate: 48000, channels: 1, durationSeconds: 10, bytes: 1000, validated: true }, dryRun: false });
   assert.throws(() => evaluateTtsNarrationRelease({ rights: { ownershipBasis: "ai_generated_licensed" }, ttsProvenance: manifest }, { audioHash }), (error) => error.code === "PUBLISH_GUARD_BLOCKED" && error.details.blockerCodes[0] === "TTS_MOCK_NON_PUBLISHABLE");
   assert.throws(() => evaluateTtsNarrationRelease({ rights: { ownershipBasis: "ai_generated_licensed" }, ttsProvenance: manifest }, { audioHash: "c".repeat(64) }), (error) => error.details.blockerCodes[0] === "TTS_PROVENANCE_MISMATCH");
+  const local = normalizeTtsProvenance({ ...manifest, provider: "kokoro_local", model: KOKORO_MODEL_ID, license: { ...manifest.license, termsReference: KOKORO_LICENSE_REFERENCE }, contentHash: undefined }); assert.equal(evaluateTtsNarrationRelease({ rights: { ownershipBasis: "ai_generated_licensed" }, ttsProvenance: local }, { audioHash }).publishable, true);
+});
+
+test("Kokoro bootstrap arguments are dry-run by default and mutations require authorization", async () => {
+  const { parseArgs } = await import("../tools/dark-curiosity-kokoro-bootstrap.mjs"); assert.equal(parseArgs([]).dryRun, true); assert.throws(() => parseArgs(["--install-package"]), { code: "OPERATOR_AUTHORIZATION_REQUIRED" }); assert.deepEqual(parseArgs(["--download-model", "--yes"]), { installPackage: false, downloadModel: true, authorized: true, dryRun: false });
 });
 
 test("provenance schema rejects unknown fields, wrong versions, and unsafe artifact paths", () => {
@@ -94,4 +116,9 @@ test("CLI exposes stable dry-run JSON and a distinct missing-credential exit cod
   assert.equal(dry.status, 0); assert.equal(JSON.parse(dry.stdout).status, "dry_run");
   const missing = spawnSync(process.execPath, ["tools/dark-curiosity-tts.mjs", "synthesize", "--fixture", FIXTURE, "--project", projectDir, "--provider", "openai", "--voice", "coral"], { cwd: resolve(__dirname, ".."), encoding: "utf8", env: { ...process.env, OPENAI_API_KEY: "" } });
   assert.equal(missing.status, 3); const output = JSON.parse(missing.stderr); assert.equal(output.code, "TTS_CREDENTIALS_MISSING"); assert.deepEqual(output.missingEnvironmentVariables, ["OPENAI_API_KEY"]);
+});
+
+test("CLI defaults to free local Kokoro for synthesis dry runs", () => {
+  const projectDir = temp(); const result = spawnSync(process.execPath, ["tools/dark-curiosity-tts.mjs", "synthesize", "--fixture", FIXTURE, "--project", projectDir, "--dry-run", "--json"], { cwd: resolve(__dirname, ".."), encoding: "utf8", env: { ...process.env, SHORTSENGINE_TTS_PROVIDER: "", SHORTSENGINE_TTS_MODEL: "", SHORTSENGINE_TTS_VOICE: "" } });
+  assert.equal(result.status, 0); const output = JSON.parse(result.stdout); assert.equal(output.provider, "kokoro_local"); assert.equal(output.model, KOKORO_MODEL_ID); assert.equal(output.voiceId, "af_heart"); assert.deepEqual(output.requiredEnvironmentVariables, []);
 });

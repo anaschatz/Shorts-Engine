@@ -16,12 +16,17 @@ function exactKeys(value, allowed, field) {
 }
 
 function normalizeSpeechToken(value) {
-  return String(value || "")
-    .normalize("NFKC")
-    .toLocaleLowerCase("en-US")
+  const raw = String(value || "").normalize("NFKC").toLocaleLowerCase("en-US");
+  const cleaned = raw
     .replace(/[’‘`´'-]/g, "")
     .replace(/[^\p{L}\p{N}]+/gu, "")
     .trim();
+  if (raw.includes("-")) {
+    const tens = { twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90 }; const units = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9 };
+    const match = raw.replace(/[^a-z-]/g, "").match(/^(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)-(one|two|three|four|five|six|seven|eight|nine)$/);
+    if (match) return String(tens[match[1]] + units[match[2]]);
+  }
+  return cleaned;
 }
 
 function scriptWords(script) {

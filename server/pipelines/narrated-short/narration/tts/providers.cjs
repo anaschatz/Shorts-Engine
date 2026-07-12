@@ -33,6 +33,7 @@ function deterministicMockWav(request) {
   return Buffer.concat([wavHeader(pcm.length, sampleRate), pcm]);
 }
 function createMockTtsProvider() { return { id: "mock", publishableProvider: false, async synthesize(request) { return { provider: "mock", model: request.model, voiceId: request.voiceId, audioFormat: "wav", buffer: deterministicMockWav(request), providerRequestId: `mock_${request.scriptHash.slice(0, 16)}` }; } }; }
-function createTtsProvider(id, options = {}) { if (id === "openai") return createOpenAiTtsProvider(options); if (id === "mock") return createMockTtsProvider(options); throw error("TTS_PROVIDER_UNSUPPORTED", "The TTS provider is unsupported."); }
+function createKokoroTtsProvider(options = {}) { return { id: "kokoro_local", publishableProvider: true, async synthesize(request) { return require("./kokoro-runtime.cjs").synthesizeWithKokoro(request, options); } }; }
+function createTtsProvider(id, options = {}) { if (id === "kokoro_local") return createKokoroTtsProvider(options); if (id === "openai") return createOpenAiTtsProvider(options); if (id === "mock") return createMockTtsProvider(options); throw error("TTS_PROVIDER_UNSUPPORTED", "The TTS provider is unsupported."); }
 
-module.exports = { createMockTtsProvider, createOpenAiTtsProvider, createTtsProvider, deterministicMockWav };
+module.exports = { createKokoroTtsProvider, createMockTtsProvider, createOpenAiTtsProvider, createTtsProvider, deterministicMockWav };

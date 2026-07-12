@@ -62,7 +62,38 @@ Record the exact `spokenText` sequence of the approved fixture script. Do not pa
 
 The engine supports either an authorized human recording or provenance-bound AI narration. The operator must explicitly confirm rights in both paths. The `mock` TTS provider is test-only and is permanently blocked from release.
 
-### 3A. Generate provenance-bound AI narration
+### 3A. Generate free local AI narration with Kokoro
+
+Kokoro is the default production TTS path. It requires no API key, account, billing, or runtime network access. The pinned `kokoro-onnx==0.5.0` wrapper is MIT-licensed and the Kokoro-82M v1.0 model is Apache-2.0. Runtime, model, and voice files are isolated under `.venv-kokoro` and managed ignored storage.
+
+Bootstrap is explicit and separated into package and model operations:
+
+```bash
+npm run dark-curiosity:kokoro:bootstrap -- --dry-run
+npm run dark-curiosity:kokoro:bootstrap -- --install-package --yes
+npm run dark-curiosity:kokoro:bootstrap -- --download-model --yes
+npm run dark-curiosity:kokoro:doctor
+```
+
+The doctor must report package, helper, model, and voices `ready`. Downloads are checked against pinned byte sizes and SHA-256 hashes before becoming active.
+
+Generate the approved narration locally:
+
+```bash
+npm run dark-curiosity:tts:synthesize -- \
+  --fixture eval/narrated/dark-curiosity/fixtures/001_wow_signal_mystery.json \
+  --project demo/dark-curiosity-ai-narration \
+  --provider kokoro_local \
+  --model kokoro-v1.0-onnx-f32 \
+  --voice af_heart \
+  --commercial-use-attested \
+  --attested-by local_operator \
+  --json
+```
+
+`kokoro_local`, `kokoro-v1.0-onnx-f32`, and `af_heart` are the CLI/environment defaults, so provider/model/voice flags may be omitted. Explicit commercial-use attestation remains required even though the managed license reference is recorded automatically. No cloned or user-supplied voice is accepted.
+
+### 3B. Optional paid OpenAI narration
 
 First inspect the exact approved script without making a provider call:
 
@@ -142,6 +173,9 @@ npm run dark-curiosity:narration:check -- \
 
 Troubleshooting:
 
+- Kokoro doctor `python_missing` or `package_missing`: run the explicitly authorized package bootstrap.
+- Kokoro doctor `model_missing` or `voices_missing`: run the model bootstrap; corrupted downloads never become active.
+- `TTS_PROVIDER_UNAVAILABLE` with Kokoro: rerun doctor. Normal synthesis never downloads packages or models automatically.
 - `TTS_CREDENTIALS_MISSING`: configure `OPENAI_API_KEY`; no mock fallback occurs.
 - `TTS_PROVIDER_TIMEOUT` or `TTS_PROVIDER_FAILED`: retry after checking provider availability and `SHORTSENGINE_TTS_TIMEOUT_MS`. Partial files are removed.
 - `TTS_AUDIO_INVALID`: confirm FFmpeg/FFprobe availability and regenerate; invalid output is not retained.
@@ -149,7 +183,7 @@ Troubleshooting:
 - `TTS_OVERWRITE_BLOCKED`: verify the existing output or use `--regenerate` only after intentionally approving replacement.
 - `TTS_COMMERCIAL_ATTESTATION_REQUIRED`: inspect is allowed, but release remains blocked until the operator provides an explicit attestation.
 
-Provider billing and rate limits can change. Check the current provider pricing and account limits before a real call; the engine neither estimates nor guarantees cost. No real provider calls occur in automated tests.
+Kokoro has zero per-request provider cost after the one-time local setup. OpenAI billing and rate limits can change; check them before an optional paid call. No real provider calls occur in automated tests.
 
 Both commands are read-only. They do not create projects, approvals, artifacts, renders, or exports, and their public output contains no input path or transcript dump.
 
