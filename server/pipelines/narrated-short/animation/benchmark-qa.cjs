@@ -47,6 +47,32 @@ function writeContactSheet(outputPath, contactSheetPath) {
   if (!existsSync(contactSheetPath)) throw new AppError("ANIMATION_QA_FAILED", "Animation contact sheet was not created.", 500);
 }
 
+function frameSelectExpression(frames) {
+  if (!Array.isArray(frames) || !frames.length || frames.length > 24 || frames.some((frame) => !Number.isInteger(frame) || frame < 0 || frame > 10000)) throw new AppError("ANIMATION_QA_FAILED", "Animation checkpoint frames are invalid.", 500);
+  return frames.map((frame) => `eq(n\\,${frame})`).join("+");
+}
+
+function extractCheckpointMetrics(outputPath, frames) {
+  const width = 180, height = 320;
+  const raw = run("ffmpeg", ["-v", "error", "-i", outputPath, "-vf", `select=${frameSelectExpression(frames)},scale=${width}:${height}:flags=area,format=gray`, "-vsync", "0", "-f", "rawvideo", "-"], { binary: true, maxBuffer: 128 * 1024 * 1024 });
+  const metrics = analyzeSampleFrames(raw, width, height);
+  if (metrics.sampleCount !== frames.length) throw new AppError("ANIMATION_QA_FAILED", "Animation checkpoint extraction is incomplete.", 500);
+  return metrics;
+}
+
+function extractRangeMotion(outputPath, startFrame, endFrame) {
+  if (!Number.isInteger(startFrame) || !Number.isInteger(endFrame) || endFrame <= startFrame) throw new AppError("ANIMATION_QA_FAILED", "Animation motion range is invalid.", 500);
+  const width = 180, height = 320;
+  const raw = run("ffmpeg", ["-v", "error", "-i", outputPath, "-vf", `select=between(n\\,${startFrame}\\,${endFrame}),scale=${width}:${height}:flags=area,format=gray`, "-vsync", "0", "-f", "rawvideo", "-"], { binary: true, maxBuffer: 128 * 1024 * 1024 });
+  return analyzeSampleFrames(raw, width, height);
+}
+
+function writeCheckpointContactSheet(outputPath, contactSheetPath, frames) {
+  const columns = frames.length;
+  run("ffmpeg", ["-y", "-v", "error", "-i", outputPath, "-vf", `select=${frameSelectExpression(frames)},scale=180:320:flags=lanczos,tile=${columns}x1:padding=6:margin=6:color=0x030712`, "-frames:v", "1", contactSheetPath]);
+  if (!existsSync(contactSheetPath)) throw new AppError("ANIMATION_QA_FAILED", "Animation checkpoint sheet was not created.", 500);
+}
+
 function runBenchmarkQa(input) {
   const technical = probeVisualMaster(input.outputPath);
   const samples = extractSampleMetrics(input.outputPath, 10);
@@ -66,4 +92,4 @@ function runBenchmarkQa(input) {
   return Object.freeze({ passed: Object.values(checks).every(Boolean), checks, technical, samples, captionSafeZoneViolations: checks.captionSafeZone ? 0 : 1, clippedEntities: input.clippedEntities || 0 });
 }
 
-module.exports = { analyzeSampleFrames, extractSampleMetrics, probeVisualMaster, runBenchmarkQa, writeContactSheet };
+module.exports = { analyzeSampleFrames, extractCheckpointMetrics, extractRangeMotion, extractSampleMetrics, probeVisualMaster, runBenchmarkQa, writeCheckpointContactSheet, writeContactSheet };

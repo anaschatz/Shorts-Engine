@@ -40,6 +40,8 @@
     "dark-curiosity:kokoro:bootstrap": "node tools/dark-curiosity-kokoro-bootstrap.mjs",
     "dark-curiosity:animation:doctor": "node tools/dark-curiosity-animation.mjs doctor",
     "dark-curiosity:animation:benchmark": "node tools/dark-curiosity-animation.mjs benchmark",
+    "dark-curiosity:animation:timing:doctor": "node tools/dark-curiosity-animation-timing.mjs doctor",
+    "dark-curiosity:animation:timing:proof": "node tools/dark-curiosity-animation-timing.mjs proof",
     "dev": "node server/app.cjs",
     "env:check": "node tools/release/check-environment.mjs",
     "eval": "node eval/run-eval.mjs",

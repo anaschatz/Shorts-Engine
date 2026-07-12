@@ -48,7 +48,7 @@
         { "op": "transition_match", "targetId": "evidence_node", "from": { "anchor": "beat_start", "beatId": "beat_payoff" }, "to": { "anchor": "word_end", "wordIndex": 18 }, "easing": "ease_in_out_cubic", "params": { "toEntityId": "evidence_node" } },
         { "op": "scale", "targetId": "evidence_node", "from": { "anchor": "beat_start", "beatId": "beat_payoff" }, "to": { "anchor": "word_end", "wordIndex": 19 }, "easing": "ease_out_cubic", "params": { "from": 1, "to": 1.12 } },
         { "op": "fade", "targetId": "payoff_label", "from": { "anchor": "word_start", "wordIndex": 17 }, "to": { "anchor": "word_end", "wordIndex": 22 }, "easing": "ease_in_out_cubic", "params": { "from": 0, "to": 1 } },
-        { "op": "pulse", "targetId": "deep_background", "from": { "anchor": "beat_start", "beatId": "beat_payoff" }, "to": { "anchor": "beat_end", "beatId": "beat_payoff" }, "easing": "smoothstep", "params": { "scale": 1.04, "opacity": 0.22 } }
+        { "op": "pulse", "targetId": "deep_background", "from": { "anchor": "beat_start", "beatId": "beat_payoff" }, "to": { "anchor": "word_end", "wordIndex": 19 }, "easing": "smoothstep", "params": { "scale": 1.04, "opacity": 0.22 } }
       ],
       "readabilityHolds": [{ "startFrame": 284, "endFrame": 300 }], "complexityCost": 12
     }
