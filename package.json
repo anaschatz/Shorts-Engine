@@ -98,5 +98,8 @@
   },
   "devDependencies": {
     "playwright": "^1.61.0"
+  },
+  "dependencies": {
+    "@hyperframes/producer": "0.7.55"
   }
 }
