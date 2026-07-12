@@ -1,6 +1,6 @@
 # Dark Curiosity Engine — Implementation and Validation Plan
 
-Status: core pilot implemented; continuous-animation Slice A validated separately
+Status: core pilot implemented; continuous-animation Slice C1 validated separately
 Owner model: one operator, one YouTube channel, YouTube-only revenue
 Last updated: 2026-07-13
 
@@ -83,6 +83,17 @@ Continuous-animation Slice A now adds a separate, non-production benchmark path:
 - engine-owned SVG/custom interpolation with no generated renderer code, GSAP, CDN, or remote assets;
 - 300-frame 720×1280 and 1080×1920 Wow Signal proofs with manifests and motion QA;
 - unchanged production pilot and unchanged default SVG keyframe renderer.
+
+Continuous-animation Slice C1 extends only that benchmark path:
+
+- strict alignment-bound `TimingContext` plus absolute, beat, and word anchor resolution;
+- deterministic semantic-plan compilation with twelve fully resolved operations;
+- an IR-driven HyperFrames schedule with no hardcoded event frames in the choreography adapter;
+- a real deterministic 128-point waveform-to-evidence-node path morph;
+- a corrected 720×1280 timing proof, seven semantic checkpoints, alignment-sensitivity evidence, and backward-seek state proof;
+- unchanged production pilot, publishing gates, and default SVG keyframe renderer.
+
+The real timing proof passed its declared QA at 300 frames/30 fps, 14.701 seconds render time, 160 MiB peak memory, and 13.79% sampled stasis. The stasis result is within the current bound but too close to its limit to count as calibrated across content.
 
 This does not raise the product-readiness estimate by itself. It proves renderer feasibility, not content-market fit, 30–40 second pacing, aligned narration choreography, or repeatable human preference.
 

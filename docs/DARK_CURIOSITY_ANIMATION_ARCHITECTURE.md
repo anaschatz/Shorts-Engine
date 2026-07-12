@@ -1,6 +1,6 @@
 # Dark Curiosity Continuous Animation Architecture
 
-Status: Slice A benchmark validated; production migration not approved
+Status: Slice C1 semantic-timing benchmark validated; production migration not approved
 
 Decision target: `continuous_motion_renderer_v1`
 
@@ -280,6 +280,8 @@ Exit: the benchmark visibly contains continuous path drawing, object morphing, c
 - reject arbitrary operations and excessive complexity;
 - create deterministic golden `AnimationIR` fixtures.
 
+Slice C1 completed on 2026-07-13. A strict, hash-bound `TimingContext` now compiles exact narration words and beats into resolved render frames. The renderer consumes only the compiled schedule, while templates continue to own geometry and visual style. The Wow Signal proof also replaces the prior opacity-only approximation with a deterministic 128-point waveform-to-node path morph.
+
 ### Slice D — Remaining templates
 
 - add evidence graph, causal system, timeline/map, and scale comparison;
@@ -312,11 +314,15 @@ The new renderer is not accepted because it “looks cooler.” It is accepted o
 - blind human comparison prefers the animated version in at least 8 of 10 evaluated fixtures;
 - no provider-specific code or generated executable content enters approved story artifacts.
 
-## 13. Immediate next implementation task
+## 13. Current validation and next implementation task
 
 Slice A completed on 2026-07-13. The provider-neutral contract, isolated HyperFrames provider, engine-owned custom interpolation runtime, 10-second Wow Signal benchmark, manifest, contact sheet, and sampled motion gates are implemented. Corrected 720×1280 and 1080×1920 renders passed their declared technical thresholds; a repeated 720p render produced identical `AnimationIR`, composition, sampled decoded-frame, and MP4 hashes.
 
-This result approves HyperFrames for the next benchmark slice, not as the production default. The existing SVG keyframe renderer remains unchanged. Before any pilot switch, add aligned beat/word anchor resolution, true path-topology morph primitives, pixel/OCR clipping checks, calibrated optical flow and jerk metrics, external-request instrumentation, and at least ten adversarial fixtures. The lower caption reserve also needs compositional refinement so it remains safe without looking visually empty.
+Slice C1 completed on 2026-07-13. The compiler now resolves absolute, beat-start, beat-end, word-start, and word-end anchors against an exact alignment-bound timing context. All twelve proof operations carry validated inclusive render ranges, and changing one aligned word boundary changes only its dependent operation and the resulting `AnimationIR` hash. HyperFrames receives this resolved schedule without narration text, paths, storage keys, or provider output. The signal waveform is resampled to 128 deterministic points and interpolated into topology-compatible node geometry; seeking frame N, then M, then N recreates the same engine-owned morph state hash.
+
+The corrected 720×1280 proof contains exactly 300 H.264/yuv420p frames at 30 fps. It rendered in 14.701 seconds with 160 MiB peak renderer memory. All declared technical, diversity, safe-zone, clipping, semantic-timing, alignment-sensitivity, and morph checks passed. Active morph energy was 0.006095 versus 0.000231 during the readability hold. Sampled stasis was 13.79%, which passes the current 15% bound but is too close to treat the threshold as calibrated.
+
+This result keeps HyperFrames approved for benchmark work, not as the production default. The existing SVG keyframe renderer remains unchanged. The next bounded slice should add pixel/OCR clipping checks, jerk and continuity metrics, external-request instrumentation, and adversarial timing fixtures before expanding the remaining template families. A browser-level reverse-seek integration test should supplement the deterministic primitive-state proof, and motion thresholds must be calibrated across at least ten fixtures. The lower caption reserve also needs compositional refinement so it remains safe without looking visually empty.
 
 ## Primary references
 
