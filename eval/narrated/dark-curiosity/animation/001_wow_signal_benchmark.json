@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "profile": "dark_curiosity_continuous",
+  "profileVersion": "1.0.0",
+  "projectId": "project_wow_signal_benchmark",
+  "projectRevision": 1,
+  "verticalId": "dark_curiosity",
+  "width": 720,
+  "height": 1280,
+  "fps": 30,
+  "durationFrames": 300,
+  "draftHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "alignmentHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "assetManifestHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "renderer": { "provider": "hyperframes_benchmark", "runtimeVersion": "0.7.55", "styleVersion": "1.0.0" },
+  "seed": 1977,
+  "sharedEntities": [
+    { "id": "deep_background", "type": "background", "role": "ambient_field", "layer": 0, "styleToken": "navy_depth" },
+    { "id": "signal_grid", "type": "grid", "role": "oscilloscope_grid", "layer": 1, "styleToken": "grid_cyan" },
+    { "id": "signal_wave", "type": "waveform", "role": "primary_signal", "layer": 4, "styleToken": "signal_cyan" },
+    { "id": "signal_pulse", "type": "signal_pulse", "role": "signal_peak", "layer": 5, "styleToken": "pulse_white" },
+    { "id": "beam_alpha", "type": "beam", "role": "telescope_beam_a", "layer": 2, "styleToken": "beam_violet" },
+    { "id": "beam_beta", "type": "beam", "role": "telescope_beam_b", "layer": 3, "styleToken": "beam_amber" },
+    { "id": "evidence_node", "type": "evidence_node", "role": "resolved_observation", "layer": 6, "styleToken": "evidence_cyan" },
+    { "id": "payoff_label", "type": "label", "role": "bounded_conclusion", "layer": 7, "styleToken": "payoff_amber", "text": "UNEXPLAINED IS NOT PROOF" },
+    { "id": "camera_stage", "type": "camera_group", "role": "primary_camera", "layer": 8, "styleToken": "camera_neutral" }
+  ],
+  "scenes": [
+    {
+      "id": "scene_signal_lab", "startFrame": 0, "endFrame": 230, "template": "signal_lab_v1", "templateVersion": "1.0.0",
+      "entityIds": ["deep_background", "signal_grid", "signal_wave", "signal_pulse", "beam_alpha", "beam_beta", "evidence_node", "camera_stage"],
+      "operations": [
+        { "op": "create", "targetId": "deep_background", "from": { "anchor": "absolute", "frame": 0 }, "to": { "anchor": "absolute", "frame": 229 }, "easing": "linear", "params": { "opacity": 1 } },
+        { "op": "create", "targetId": "signal_grid", "from": { "anchor": "absolute", "frame": 0 }, "to": { "anchor": "absolute", "frame": 229 }, "easing": "linear", "params": { "opacity": 0.75 } },
+        { "op": "draw_path", "targetId": "signal_wave", "from": { "anchor": "absolute", "frame": 4 }, "to": { "anchor": "absolute", "frame": 112 }, "easing": "ease_in_out_cubic", "params": { "direction": "left_to_right" } },
+        { "op": "pulse", "targetId": "signal_pulse", "from": { "anchor": "absolute", "frame": 62 }, "to": { "anchor": "absolute", "frame": 168 }, "easing": "smoothstep", "params": { "scale": 3.8, "opacity": 0.72 } },
+        { "op": "draw_path", "targetId": "beam_alpha", "from": { "anchor": "absolute", "frame": 96 }, "to": { "anchor": "absolute", "frame": 225 }, "easing": "ease_in_out_cubic", "params": { "direction": "left_to_right" } },
+        { "op": "draw_path", "targetId": "beam_beta", "from": { "anchor": "absolute", "frame": 96 }, "to": { "anchor": "absolute", "frame": 225 }, "easing": "ease_in_out_cubic", "params": { "direction": "right_to_left" } },
+        { "op": "camera_push", "targetId": "camera_stage", "from": { "anchor": "absolute", "frame": 112 }, "to": { "anchor": "absolute", "frame": 222 }, "easing": "ease_in_out_cubic", "params": { "scale": 1.105, "x": 0, "y": 0 } },
+        { "op": "morph_path", "targetId": "signal_wave", "from": { "anchor": "absolute", "frame": 184 }, "to": { "anchor": "absolute", "frame": 229 }, "easing": "ease_in_out_cubic", "params": { "toShape": "node" } }
+      ],
+      "readabilityHolds": [], "complexityCost": 30
+    },
+    {
+      "id": "scene_payoff", "startFrame": 230, "endFrame": 300, "template": "mystery_payoff_v1", "templateVersion": "1.0.0",
+      "entityIds": ["deep_background", "evidence_node", "payoff_label"],
+      "operations": [
+        { "op": "transition_match", "targetId": "evidence_node", "from": { "anchor": "absolute", "frame": 230 }, "to": { "anchor": "absolute", "frame": 244 }, "easing": "ease_in_out_cubic", "params": { "toEntityId": "evidence_node" } },
+        { "op": "scale", "targetId": "evidence_node", "from": { "anchor": "absolute", "frame": 230 }, "to": { "anchor": "absolute", "frame": 282 }, "easing": "ease_out_cubic", "params": { "from": 1, "to": 1.12 } },
+        { "op": "fade", "targetId": "payoff_label", "from": { "anchor": "absolute", "frame": 238 }, "to": { "anchor": "absolute", "frame": 282 }, "easing": "ease_in_out_cubic", "params": { "from": 0, "to": 1 } },
+        { "op": "pulse", "targetId": "deep_background", "from": { "anchor": "absolute", "frame": 230 }, "to": { "anchor": "absolute", "frame": 299 }, "easing": "smoothstep", "params": { "scale": 1.04, "opacity": 0.22 } }
+      ],
+      "readabilityHolds": [{ "startFrame": 282, "endFrame": 300 }], "complexityCost": 12
+    }
+  ],
+  "transitions": [{ "fromSceneId": "scene_signal_lab", "toSceneId": "scene_payoff", "sharedEntityId": "evidence_node", "startFrame": 228, "endFrame": 244 }],
+  "motionBudget": { "profile": "dark_curiosity", "maxCost": 60, "maxConcurrentOperations": 8, "maxCameraScale": 1.15, "maxTravelPxPerFrame": 12, "captionSafeZone": { "topRatio": 0.74, "bottomRatio": 1 } }
+}
