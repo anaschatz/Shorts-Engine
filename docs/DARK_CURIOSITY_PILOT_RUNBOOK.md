@@ -60,7 +60,63 @@ Record the exact `spokenText` sequence of the approved fixture script. Do not pa
 - maximum size 32 MiB;
 - commercial-use rights controlled by the operator.
 
-The pilot has no TTS and no remote alignment fallback. The operator must explicitly confirm rights. Synthetic test WAVs are test-only and are not production narration assets.
+The engine supports either an authorized human recording or provenance-bound AI narration. The operator must explicitly confirm rights in both paths. The `mock` TTS provider is test-only and is permanently blocked from release.
+
+### 3A. Generate provenance-bound AI narration
+
+First inspect the exact approved script without making a provider call:
+
+```bash
+npm run dark-curiosity:tts:synthesize -- \
+  --fixture eval/narrated/dark-curiosity/fixtures/001_wow_signal_mystery.json \
+  --project demo/dark-curiosity-ai-narration \
+  --provider openai \
+  --model gpt-4o-mini-tts \
+  --voice coral \
+  --dry-run \
+  --json
+```
+
+For a real synthesis, put `OPENAI_API_KEY` in the process environment or a secret manager. Never commit it. Before adding `--commercial-use-attested`, the operator must verify the current provider terms, account plan, selected built-in voice, YouTube use, and applicable law. The code does not make that legal determination. Custom/cloned voices and impersonation are rejected.
+
+```bash
+export OPENAI_API_KEY='<secret-from-secret-manager>'
+
+npm run dark-curiosity:tts:synthesize -- \
+  --fixture eval/narrated/dark-curiosity/fixtures/001_wow_signal_mystery.json \
+  --project demo/dark-curiosity-ai-narration \
+  --provider openai \
+  --model gpt-4o-mini-tts \
+  --voice coral \
+  --commercial-use-attested \
+  --terms-reference 'operator-reviewed-provider-terms-YYYY-MM-DD' \
+  --attested-by local_operator \
+  --json
+```
+
+The provider response is normalized through FFmpeg and verified as mono 48 kHz `pcm_s16le` WAV. The directory receives `narration.wav` and `narration.provenance.json`. The manifest binds the approved script hash, provider/model/voice, operator attestation, audio metadata, and final WAV hash. Repeating the exact command reuses a verified matching artifact. Changing configuration or replacing an existing artifact requires `--regenerate`.
+
+Verify before alignment or pilot mutation:
+
+```bash
+npm run dark-curiosity:tts:verify -- \
+  --fixture eval/narrated/dark-curiosity/fixtures/001_wow_signal_mystery.json \
+  --project demo/dark-curiosity-ai-narration
+```
+
+Local non-publishable integration testing uses:
+
+```bash
+npm run dark-curiosity:tts:synthesize -- \
+  --fixture eval/narrated/dark-curiosity/fixtures/001_wow_signal_mystery.json \
+  --project /tmp/dark-curiosity-tts-mock \
+  --provider mock \
+  --voice fixture \
+  --commercial-use-attested \
+  --attested-by local_test_operator
+```
+
+This creates a deterministic tone WAV, not spoken narration. It exercises normalization, hashing, upload, and guard logic, but its provenance contains `TTS_MOCK_NON_PUBLISHABLE`. It cannot pass the publish guard.
 
 Before any pilot mutation, validate the authorized file and then rehearse exact alignment:
 
@@ -74,6 +130,26 @@ npm run dark-curiosity:narration:rehearse -- \
   --fixture eval/narrated/dark-curiosity/fixtures/001_wow_signal_mystery.json \
   --audio /absolute/path/to/authorized-narration.wav
 ```
+
+For AI narration, use the generated absolute audio path and keep `narration.provenance.json` beside the WAV. Preflight verifies the sidecar automatically, and upload embeds its verified provenance in the narration manifest:
+
+```bash
+npm run dark-curiosity:narration:check -- \
+  --fixture eval/narrated/dark-curiosity/fixtures/001_wow_signal_mystery.json \
+  --audio /absolute/path/to/project/narration.wav \
+  --rights-confirmed
+```
+
+Troubleshooting:
+
+- `TTS_CREDENTIALS_MISSING`: configure `OPENAI_API_KEY`; no mock fallback occurs.
+- `TTS_PROVIDER_TIMEOUT` or `TTS_PROVIDER_FAILED`: retry after checking provider availability and `SHORTSENGINE_TTS_TIMEOUT_MS`. Partial files are removed.
+- `TTS_AUDIO_INVALID`: confirm FFmpeg/FFprobe availability and regenerate; invalid output is not retained.
+- `TTS_AUDIO_TAMPERED`, `TTS_SCRIPT_TAMPERED`, or `TTS_PROVENANCE_MISMATCH`: do not edit the WAV, approved fixture, or manifest independently. Regenerate from the current approved script.
+- `TTS_OVERWRITE_BLOCKED`: verify the existing output or use `--regenerate` only after intentionally approving replacement.
+- `TTS_COMMERCIAL_ATTESTATION_REQUIRED`: inspect is allowed, but release remains blocked until the operator provides an explicit attestation.
+
+Provider billing and rate limits can change. Check the current provider pricing and account limits before a real call; the engine neither estimates nor guarantees cost. No real provider calls occur in automated tests.
 
 Both commands are read-only. They do not create projects, approvals, artifacts, renders, or exports, and their public output contains no input path or transcript dump.
 

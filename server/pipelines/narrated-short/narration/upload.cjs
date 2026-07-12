@@ -13,6 +13,7 @@ const NARRATION_SAMPLE_RATE = 48000;
 const ALLOWED_UPLOAD_FIELDS = Object.freeze([
   "draftArtifactId", "draftHash", "scriptHash", "projectRevision", "voiceProfileId", "language",
   "commercialUseAllowed", "ownershipBasis", "rightsHolder", "consentReference", "licenseReference",
+  "ttsProvenance",
 ]);
 
 function narrationError(code, status, field = null) {
@@ -140,6 +141,14 @@ async function ingestUploadedNarration(input = {}, dependencyInput = {}) {
   if (!voiceProfileId) narrationError("VALIDATION_ERROR", 400, "voiceProfileId");
   if (language !== project.language || language !== draft.brief.language) narrationError("NARRATION_APPROVAL_MISMATCH", 409, "language");
   const audioHash = sha256(candidate.buffer);
+  let ttsProvenance = null;
+  if (fields.ttsProvenance !== undefined && fields.ttsProvenance !== null) {
+    const { normalizeTtsProvenance, sha256: ttsSha256 } = require("./tts/contract.cjs");
+    ttsProvenance = normalizeTtsProvenance(fields.ttsProvenance);
+    const exactSpokenScript = draft.script.beats.map((beat) => beat.spokenText).join(" ");
+    if (ttsProvenance.audio.sha256 !== audioHash || ttsProvenance.script.sha256 !== ttsSha256(exactSpokenScript)) narrationError("TTS_PROVENANCE_MISMATCH", 409, "ttsProvenance");
+    if (rights.ownershipBasis !== "ai_generated_licensed") narrationError("NARRATION_RIGHTS_REQUIRED", 400, "ownershipBasis");
+  }
   const identityHash = contentHash({ projectId: project.id, revision: project.input.revision, draftHash: approval.draftHash, audioHash });
   const audioArtifactId = `art_${identityHash.slice(0, 40)}`;
   const existingAudio = dependencies.artifactRepository.get(audioArtifactId);
@@ -185,6 +194,7 @@ async function ingestUploadedNarration(input = {}, dependencyInput = {}) {
       language,
       media,
       rights,
+      ...(ttsProvenance ? { ttsProvenance } : {}),
     });
     const audioArtifact = existingAudio || dependencies.artifactStore.commitOutputStage(stage, { checksumSha256: audioHash, size: candidate.bytes });
     committed = Boolean(!existingAudio);

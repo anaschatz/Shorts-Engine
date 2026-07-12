@@ -2,7 +2,7 @@ const { AppError, SAFE_MESSAGES } = require("../../../errors.cjs");
 const { sanitizeText, validateResourceId } = require("../../../repositories/ids.cjs");
 const { contentHash } = require("../contracts.cjs");
 
-const OWNERSHIP_BASES = Object.freeze(["self_recorded", "licensed_recording"]);
+const OWNERSHIP_BASES = Object.freeze(["self_recorded", "licensed_recording", "ai_generated_licensed"]);
 const NARRATION_STATUSES = Object.freeze(["uploaded_unaligned"]);
 const PCM_CODECS = Object.freeze(["pcm_s16le", "pcm_s24le", "pcm_s32le", "pcm_f32le"]);
 
@@ -57,7 +57,7 @@ function normalizeNarrationRights(input = {}) {
   const ownershipBasis = sanitizeText(rights.ownershipBasis, 40).toLowerCase();
   if (!OWNERSHIP_BASES.includes(ownershipBasis)) fail("NARRATION_RIGHTS_REQUIRED", SAFE_MESSAGES.NARRATION_RIGHTS_REQUIRED, "rights.ownershipBasis");
   const licenseReference = sanitizeText(rights.licenseReference || "", 200) || null;
-  if (ownershipBasis === "licensed_recording" && !licenseReference) {
+  if (["licensed_recording", "ai_generated_licensed"].includes(ownershipBasis) && !licenseReference) {
     fail("NARRATION_RIGHTS_REQUIRED", SAFE_MESSAGES.NARRATION_RIGHTS_REQUIRED, "rights.licenseReference");
   }
   return {
@@ -87,7 +87,7 @@ function normalizeNarrationAsset(input = {}) {
   const asset = assertObject(input, "narration");
   assertKeys(asset, [
     "schemaVersion", "status", "projectId", "projectRevision", "verticalId", "draftArtifactId", "draftHash",
-    "scriptHash", "audioArtifactId", "audioHash", "voiceProfileId", "language", "media", "rights", "contentHash",
+    "scriptHash", "audioArtifactId", "audioHash", "voiceProfileId", "language", "media", "rights", "ttsProvenance", "contentHash",
   ], "narration");
   if (Number(asset.schemaVersion) !== 1) fail("VALIDATION_ERROR", null, "narration.schemaVersion");
   const status = sanitizeText(asset.status || "uploaded_unaligned", 40).toLowerCase();
@@ -113,6 +113,12 @@ function normalizeNarrationAsset(input = {}) {
     media: normalizeNarrationMedia(asset.media),
     rights: normalizeNarrationRights(asset.rights),
   };
+  if (asset.ttsProvenance !== undefined && asset.ttsProvenance !== null) {
+    const { normalizeTtsProvenance } = require("./tts/contract.cjs");
+    const provenance = normalizeTtsProvenance(asset.ttsProvenance);
+    if (provenance.audio.sha256 !== normalized.audioHash) fail("TTS_PROVENANCE_MISMATCH", "AI narration provenance audio hash does not match.", "narration.ttsProvenance.audio.sha256", 409);
+    normalized.ttsProvenance = provenance;
+  }
   const calculated = contentHash(normalized);
   if (asset.contentHash && hash(asset.contentHash, "narration.contentHash") !== calculated) {
     fail("ARTIFACT_CONTENT_INVALID", "Narration contract hash is invalid.", "narration.contentHash", 409);

@@ -8,7 +8,7 @@ const RIGHTS_PROFILE = "dark_curiosity_rights_v1";
 const PROVENANCE_PROFILE = "dark_curiosity_provenance_v1";
 const EXPORT_METADATA_PROFILE = "dark_curiosity_export_metadata_v1";
 const SOURCE_CLASSES = Object.freeze(["primary", "institutional", "reputable_secondary", "other"]);
-const OWNERSHIP_BASES = Object.freeze(["self_recorded", "licensed_recording"]);
+const OWNERSHIP_BASES = Object.freeze(["self_recorded", "licensed_recording", "ai_generated_licensed"]);
 const VISUAL_ASSET_CLASSES = Object.freeze(["original_engine_generated"]);
 const DEPENDENCY_ROLES = Object.freeze([
   "approved_draft", "content_brief", "claim_ledger", "narrative_script", "storyboard",
@@ -66,7 +66,7 @@ function normalizeRightsManifest(input = {}) {
   exact(input.narration, ["manifestArtifactId", "manifestHash", "audioArtifactId", "audioHash", "commercialUseAllowed", "ownershipBasis", "rightsHolder", "consentReference", "licenseReference"], "narration", code);
   const ownershipBasis = token(input.narration.ownershipBasis, "narration.ownershipBasis", OWNERSHIP_BASES, code);
   const licenseReference = sanitizeText(input.narration.licenseReference || "", 200) || null;
-  if (ownershipBasis === "licensed_recording" && !licenseReference) fail(code, "narration.licenseReference");
+  if (["licensed_recording", "ai_generated_licensed"].includes(ownershipBasis) && !licenseReference) fail(code, "narration.licenseReference");
   const narration = { manifestArtifactId: artifactId(input.narration.manifestArtifactId, "narration.manifestArtifactId", code), manifestHash: hash(input.narration.manifestHash, "narration.manifestHash", code), audioArtifactId: artifactId(input.narration.audioArtifactId, "narration.audioArtifactId", code), audioHash: hash(input.narration.audioHash, "narration.audioHash", code), commercialUseAllowed: bool(input.narration.commercialUseAllowed, "narration.commercialUseAllowed", true, code), ownershipBasis, rightsHolder: text(input.narration.rightsHolder, "narration.rightsHolder", 160, code), consentReference: text(input.narration.consentReference, "narration.consentReference", 200, code), licenseReference };
   if (!Array.isArray(input.sources) || input.sources.length < 1 || input.sources.length > 12) fail(code, "sources");
   const sources = input.sources.map((source, index) => { exact(source, ["sourceId", "publisher", "sourceClass", "snapshotHash"], `sources[${index}]`, code); return { sourceId: text(source.sourceId, `sources[${index}].sourceId`, 80, code), publisher: text(source.publisher, `sources[${index}].publisher`, 160, code), sourceClass: token(source.sourceClass, `sources[${index}].sourceClass`, SOURCE_CLASSES, code), snapshotHash: hash(source.snapshotHash, `sources[${index}].snapshotHash`, code) }; }).sort((a, b) => a.sourceId.localeCompare(b.sourceId));

@@ -1,6 +1,6 @@
 const { existsSync, mkdirSync, readFileSync, statfsSync, unlinkSync, writeFileSync } = require("node:fs");
 const { spawnSync } = require("node:child_process");
-const { basename, isAbsolute, relative, resolve } = require("node:path");
+const { basename, dirname, isAbsolute, join, relative, resolve } = require("node:path");
 const { createHash } = require("node:crypto");
 const { CONFIG } = require("../../../config.cjs");
 const { AppError, SAFE_MESSAGES } = require("../../../errors.cjs");
@@ -48,11 +48,16 @@ async function narrationPreflight(input = {}, dependencies = {}) {
   const buffer = readFileSync(input.audio); let candidate; try { candidate = validateWavCandidate({ fileName: "authorized-narration.wav", buffer }); } catch (error) { return { status: error.code === "NARRATION_DURATION_INVALID" ? "duration_invalid" : "invalid_wav", ready: false, fixtureId, fixtureHash: draft.contentHash, nextAction: "fix-wav-container" }; }
   let media; try { const probe = await (dependencies.ffprobeJson || ffprobeJson)(input.audio); media = normalizeProbedMedia(probe, buffer.length); } catch (error) { return { status: error.code === "NARRATION_DURATION_INVALID" ? "duration_invalid" : "unsupported_audio", ready: false, fixtureId, fixtureHash: draft.contentHash, nextAction: "convert-to-48khz-pcm-wav" }; }
   let volume; try { volume = await (dependencies.analyzeAudio || defaultAudioAnalysis)(input.audio); } catch { return { status: "invalid_wav", ready: false, fixtureId, fixtureHash: draft.contentHash, nextAction: "inspect-audio-signal" }; }
+  let tts = null; const ttsSidecar = join(dirname(input.audio), "narration.provenance.json");
+  if (existsSync(ttsSidecar)) {
+    try { const verified = await require("../narration/tts/service.cjs").verifyTtsNarration({ projectDir: dirname(input.audio), fixture: input.fixture }, dependencies); tts = { provider: verified.manifest.provider, publishable: verified.publishable, blockerCodes: verified.blockerCodes, provenanceHash: verified.manifest.contentHash }; }
+    catch (error) { return { status: "tts_provenance_invalid", ready: false, fixtureId, fixtureHash: draft.contentHash, blockerCodes: [String(error.code || "TTS_PROVENANCE_INVALID")], nextAction: "repair-or-regenerate-ai-narration" }; }
+  }
   const expectedWordCount = scriptWords(draft.script).length; const readingRateWpm = Number((expectedWordCount / media.durationSeconds * 60).toFixed(2));
   if (!Number.isFinite(volume.meanDb) || volume.meanDb < -50) return { status: "silence_detected", ready: false, fixtureId, fixtureHash: draft.contentHash, media, expectedWordCount, readingRateWpm, meanDb: volume.meanDb, peakDb: volume.peakDb, nextAction: "record-audible-narration" };
   if (!Number.isFinite(volume.peakDb) || volume.peakDb >= -0.1) return { status: "clipping_risk", ready: false, fixtureId, fixtureHash: draft.contentHash, media, expectedWordCount, readingRateWpm, meanDb: volume.meanDb, peakDb: volume.peakDb, nextAction: "reduce-recording-gain" };
   if (readingRateWpm < 80 || readingRateWpm > 240) return { status: "fixture_mismatch", ready: false, fixtureId, fixtureHash: draft.contentHash, media, expectedWordCount, readingRateWpm, meanDb: volume.meanDb, peakDb: volume.peakDb, nextAction: "record-at-plausible-script-pace" };
-  return { status: "ready", ready: true, fixtureId, fixtureHash: draft.contentHash, media, expectedWordCount, readingRateWpm, meanDb: volume.meanDb, peakDb: volume.peakDb, audioHash: sha(buffer), nextAction: "run-exact-script-rehearsal" };
+  return { status: "ready", ready: true, fixtureId, fixtureHash: draft.contentHash, media, expectedWordCount, readingRateWpm, meanDb: volume.meanDb, peakDb: volume.peakDb, audioHash: sha(buffer), tts, nextAction: "run-exact-script-rehearsal" };
 }
 
 async function narrationRehearsal(input = {}, dependencies = {}) {

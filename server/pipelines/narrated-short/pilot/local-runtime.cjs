@@ -1,4 +1,5 @@
-const { readFileSync } = require("node:fs");
+const { existsSync, readFileSync } = require("node:fs");
+const { dirname, join } = require("node:path");
 const { createHash } = require("node:crypto");
 const { createDefaultAdapters } = require("../../../adapters/local-persistence-adapter.cjs");
 const { fasterWhisperVersion } = require("../../../adapters/faster-whisper-adapter.cjs");
@@ -72,7 +73,14 @@ function createLocalPilotRuntime(options = {}, overrides = {}) {
         approvals.approve({ projectId: context.projectId, projectRevision: context.projectRevision, draftArtifactId: context.draftArtifactId, draftHash: context.draftHash, voiceProfileId: "voice_operator_v1", renderProfile: "final", operatorNote: "Dark Curiosity pilot approval" }); return {};
       }
       if (stage === "narration_uploaded") {
-        const project = projects.get(context.projectId); const uploaded = await ingestUploadedNarration({ project, fields: { draftArtifactId: context.draftArtifactId, draftHash: context.draftHash, scriptHash: context.fixture.script.contentHash, projectRevision: context.projectRevision, voiceProfileId: "voice_operator_v1", language: project.language, commercialUseAllowed: true, ownershipBasis: "self_recorded", rightsHolder: options.operatorId, consentReference: `pilot-${context.runId.slice(-12)}`, licenseReference: null }, file: { fileName: "authorized-narration.wav", buffer: readFileSync(options.audioPath) } }, deps);
+        const project = projects.get(context.projectId); let ttsProvenance = null;
+        const sidecar = join(dirname(options.audioPath), "narration.provenance.json");
+        if (existsSync(sidecar)) {
+          const { verifyTtsNarration } = require("../narration/tts/service.cjs");
+          ttsProvenance = (await verifyTtsNarration({ projectDir: dirname(options.audioPath), fixture: options.fixturePath })).manifest;
+        }
+        const rightsFields = ttsProvenance ? { ownershipBasis: "ai_generated_licensed", rightsHolder: options.operatorId, consentReference: ttsProvenance.license.attestedBy, licenseReference: ttsProvenance.license.termsReference, ttsProvenance } : { ownershipBasis: "self_recorded", rightsHolder: options.operatorId, consentReference: `pilot-${context.runId.slice(-12)}`, licenseReference: null };
+        const uploaded = await ingestUploadedNarration({ project, fields: { draftArtifactId: context.draftArtifactId, draftHash: context.draftHash, scriptHash: context.fixture.script.contentHash, projectRevision: context.projectRevision, voiceProfileId: ttsProvenance ? `tts_${ttsProvenance.provider}_${ttsProvenance.voiceId}` : "voice_operator_v1", language: project.language, commercialUseAllowed: true, ...rightsFields }, file: { fileName: "authorized-narration.wav", buffer: readFileSync(options.audioPath) } }, deps);
         return { evidence: { narrationManifest: ref(uploaded.manifestArtifact.artifact.id, uploaded.manifestArtifact.envelope.contentHash), narrationAudio: ref(uploaded.audioArtifact.id, uploaded.audioArtifact.checksumSha256) } };
       }
       if (stage === "narration_aligned") {

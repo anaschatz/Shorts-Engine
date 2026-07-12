@@ -9,6 +9,17 @@ const QA_WARNING_MAP = Object.freeze({ WARNING_READING_RATE: "READING_RATE_NEAR_
 function blocked(code, details = {}) { throw new AppError("PUBLISH_GUARD_BLOCKED", SAFE_MESSAGES.PUBLISH_GUARD_BLOCKED, 409, { blockerCodes: [code], ...details }); }
 function readBound(content, id, type, project, hash = null) { let envelope; try { envelope = content.readJson(id); } catch { blocked("MISSING_EVIDENCE_ARTIFACT"); } if (envelope.artifactType !== type || envelope.projectId !== project.id || envelope.revision !== project.input.revision || (hash && envelope.contentHash !== hash)) blocked("STALE_EVIDENCE_ARTIFACT"); return envelope; }
 function sameBindings(bindings, expected) { for (const [key, value] of Object.entries(expected)) if (bindings[key] !== value) blocked("EVIDENCE_HASH_MISMATCH"); }
+function evaluateTtsNarrationRelease(narration, active) {
+  if (narration.rights.ownershipBasis !== "ai_generated_licensed") return { applicable: false, publishable: true };
+  const tts = narration.ttsProvenance;
+  if (!tts) blocked("TTS_PROVENANCE_MISSING");
+  if (tts.audio.sha256 !== active.audioHash || tts.script.approved !== true) blocked("TTS_PROVENANCE_MISMATCH");
+  if (tts.voiceCloned || tts.impersonated) blocked("TTS_VOICE_PROHIBITED");
+  if (!tts.license.commercialUseAttested) blocked("TTS_COMMERCIAL_ATTESTATION_REQUIRED");
+  if (tts.provider === "mock") blocked("TTS_MOCK_NON_PUBLISHABLE");
+  if (tts.publishable !== true || tts.blockerCodes.length) blocked(tts.blockerCodes[0] || "TTS_PROVENANCE_INVALID");
+  return { applicable: true, publishable: true, provenanceHash: tts.contentHash };
+}
 
 function evaluatePublishGuard(input = {}, dependencies = {}) {
   const { project, expectedRevision, finalOutputHash, qaReportArtifactId, qaReportHash, exportMetadataArtifactId, exportMetadataHash, warningAcknowledgements = [] } = input;
@@ -23,6 +34,7 @@ function evaluatePublishGuard(input = {}, dependencies = {}) {
   const alignmentEnvelope = readBound(content, active.alignmentArtifactId, "narration_alignment", project, active.alignmentHash); const alignment = normalizeAlignment(alignmentEnvelope.body);
   const audio = artifacts.get(active.audioArtifactId); if (!audio || audio.type !== "narration_audio" || audio.status !== "available" || audio.ownerProjectId !== project.id || audio.checksumSha256 !== active.audioHash) blocked("NARRATION_RIGHTS_INVALID");
   if (!narration.rights.commercialUseAllowed || !narration.rights.consentReference || narration.projectRevision !== project.input.revision || narration.draftHash !== approval.draftHash || alignment.projectRevision !== project.input.revision || alignment.draftHash !== approval.draftHash || alignment.narrationManifestHash !== active.manifestHash || alignment.audioHash !== active.audioHash) blocked("STALE_NARRATION_BINDING");
+  evaluateTtsNarrationRelease(narration, active);
 
   const metadataEnvelope = readBound(content, exportMetadataArtifactId, "export_metadata", project, exportMetadataHash); const metadata = normalizeExportMetadata(metadataEnvelope.body);
   const expectedBindings = { projectId: project.id, projectRevision: project.input.revision, approvalId: approval.approvalId, draftArtifactId: approval.draftArtifactId, draftHash: approval.draftHash, outputHash: finalOutputHash, qaReportArtifactId, qaReportHash };
@@ -51,4 +63,4 @@ function evaluatePublishGuard(input = {}, dependencies = {}) {
   return { project, approval, active, narration, alignment, qa, metadata, rights, provenance, render, exportRecord, output, availableWarnings: [...new Set(availableWarnings)].sort(), warningAcknowledgements: acknowledged, refs: { approvedDraft: { artifactId: approval.draftArtifactId, hash: approval.draftHash }, narrationManifest: { artifactId: active.manifestArtifactId, hash: active.manifestHash }, narrationAudio: { artifactId: active.audioArtifactId, hash: active.audioHash }, narrationAlignment: { artifactId: active.alignmentArtifactId, hash: active.alignmentHash }, renderManifest: { artifactId: renderArtifactId, hash: renderEnvelope.contentHash }, finalOutput: { artifactId: output.id, hash: output.checksumSha256 }, qaReport: { artifactId: qaReportArtifactId, hash: qaReportHash }, contactSheet: { artifactId: contact.id, hash: contact.checksumSha256 }, rightsManifest: { artifactId: metadata.package.rightsManifestArtifactId, hash: rightsEnvelope.contentHash }, provenanceReport: { artifactId: metadata.package.provenanceReportArtifactId, hash: provenanceEnvelope.contentHash }, exportMetadata: { artifactId: exportMetadataArtifactId, hash: metadataEnvelope.contentHash } } };
 }
 
-module.exports = { QA_WARNING_MAP, evaluatePublishGuard };
+module.exports = { QA_WARNING_MAP, evaluatePublishGuard, evaluateTtsNarrationRelease };
