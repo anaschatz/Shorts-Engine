@@ -51,6 +51,7 @@ test("engine HTML embeds the IR schedule and no hardcoded frame choreography", (
   const result = compileAnimationIRToHtml(compile());
   assert.match(result.html, /"startFrame":190,"endFrame":229/);
   assert.match(result.html, /DATA\.schedule/);
+  assert.match(result.html, /\.18\*draw\*\(1-\.55\*morph\)/);
   assert.doesNotMatch(result.html, /between\(frame|frame,184|frame,228|frame,112/);
 });
 
