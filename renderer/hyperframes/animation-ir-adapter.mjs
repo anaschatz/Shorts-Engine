@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { createOperationSchedule } from "./operation-scheduler.mjs";
+import { createPathMorph, pointsToPath } from "./primitives/path-morph.mjs";
 
 const BASE_WIDTH = 720;
 const BASE_HEIGHT = 1280;
@@ -16,24 +18,16 @@ function seededPoints(seed, count) {
   return points;
 }
 
-function waveformPath() {
-  const points = [];
-  for (let x = 70; x <= 650; x += 4) {
-    const envelope = Math.exp(-Math.pow((x - 360) / 175, 2));
-    const y = 515 + Math.sin(x * 0.12) * 112 * envelope + Math.sin(x * 0.031) * 17;
-    points.push(`${x === 70 ? "M" : "L"}${x.toFixed(1)} ${y.toFixed(1)}`);
-  }
-  return points.join(" ");
-}
-
 function safeJson(value) {
   return JSON.stringify(value).replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/&/g, "\\u0026");
 }
 
 export function compileAnimationIRToHtml(ir) {
   const stars = seededPoints(ir.seed, 54).map((point) => `<circle cx="${point.x}" cy="${point.y}" r="${point.r}" data-phase="${point.phase}"/>`).join("");
-  const path = waveformPath();
-  const runtimeData = safeJson({ fps: ir.fps, durationFrames: ir.durationFrames, seed: ir.seed, contentHash: ir.contentHash });
+  const schedule = createOperationSchedule(ir);
+  const morph = createPathMorph();
+  const path = pointsToPath(morph.source);
+  const runtimeData = safeJson({ fps: ir.fps, durationFrames: ir.durationFrames, seed: ir.seed, contentHash: ir.contentHash, schedule, morph: { pointCount: morph.pointCount, source: morph.source, target: morph.target } });
   const html = `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
@@ -64,7 +58,7 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#030712}*{b
  <circle id="pulse-core" cx="360" cy="515" r="10" fill="#ecfeff" opacity="0" filter="url(#glow)"/>
  <path id="wave-glow" d="${path}" fill="none" stroke="#22d3ee" stroke-width="14" opacity=".18" filter="url(#glow)"/>
  <path id="wave" d="${path}" pathLength="1000" fill="none" stroke="url(#signal)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="1000" stroke-dashoffset="1000"/>
- <g id="evidence-node" opacity="0"><circle cx="360" cy="515" r="82" fill="#0c4a6e" stroke="#67e8f9" stroke-width="5"/><circle cx="360" cy="515" r="57" fill="none" stroke="#bae6fd" stroke-width="2" stroke-dasharray="8 12"/><text x="360" y="508" text-anchor="middle" fill="#ecfeff" font-size="14" font-weight="800" letter-spacing="3">EVIDENCE</text><text x="360" y="536" text-anchor="middle" fill="#67e8f9" font-size="19" font-weight="800">6EQUJ5</text></g>
+ <g id="evidence-node" opacity="0"><circle cx="360" cy="515" r="80" fill="#0c4a6e" opacity=".82"/><circle cx="360" cy="515" r="57" fill="none" stroke="#bae6fd" stroke-width="2" stroke-dasharray="8 12"/><text x="360" y="508" text-anchor="middle" fill="#ecfeff" font-size="14" font-weight="800" letter-spacing="3">EVIDENCE</text><text x="360" y="536" text-anchor="middle" fill="#67e8f9" font-size="19" font-weight="800">6EQUJ5</text></g>
  <g id="payoff-panel" opacity="0"><circle id="payoff-field" cx="360" cy="515" r="210" fill="url(#payoff)"/><text x="360" y="682" text-anchor="middle" fill="#fde68a" font-size="39" font-weight="800">UNEXPLAINED</text><text x="360" y="724" text-anchor="middle" fill="#94a3b8" font-size="22" font-weight="700" letter-spacing="3">IS NOT PROOF</text><line x1="230" y1="752" x2="490" y2="752" stroke="#fbbf24" stroke-width="3"/></g>
  <g id="status"><circle cx="60" cy="890" r="5" fill="#22d3ee"/><text x="76" y="896" fill="#94a3b8" class="label">continuous observation trace</text><text id="frame-readout" x="660" y="896" text-anchor="end" fill="#475569" class="label mono">F000</text></g>
 </g>
@@ -76,25 +70,28 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#030712}*{b
 const DATA=${runtimeData};
 const byId=(id)=>document.getElementById(id);
 const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,v));
-const smooth=(v)=>{const x=clamp(v);return x*x*(3-2*x)};
-const cubic=(v)=>{const x=clamp(v);return x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2};
-const between=(frame,start,end,ease=smooth)=>ease((frame-start)/Math.max(1,end-start));
+const ease=(value,name)=>{const x=clamp(value);if(name==="linear")return x;if(name==="smoothstep")return x*x*(3-2*x);if(name==="ease_in_cubic")return x*x*x;if(name==="ease_out_cubic")return 1-Math.pow(1-x,3);if(name==="ease_in_out_cubic")return x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2;throw new Error("unsupported_easing")};
+const progress=(frame,key)=>{const op=DATA.schedule[key];if(!op)throw new Error("missing_operation");return ease((frame-op.startFrame)/Math.max(1,op.endFrame-op.startFrame),op.easing)};
+const pulseEnvelope=(frame,key)=>{const p=progress(frame,key);return p<=.38?p/.38:Math.max(0,1-(p-.38)/.62)};
+const morphPath=(value)=>DATA.morph.source.map((point,index)=>{const target=DATA.morph.target[index];const x=point.x+(target.x-point.x)*value,y=point.y+(target.y-point.y)*value;return(index?"L":"M")+x.toFixed(3)+" "+y.toFixed(3)}).join(" ");
 function renderFrame(rawFrame){
  const frame=Math.max(0,Math.min(DATA.durationFrames-1,Math.floor(rawFrame+1e-7)));
  const ambient=frame/DATA.durationFrames;
  byId("ambient-stars").setAttribute("transform","translate("+(Math.sin(ambient*6.283)*3).toFixed(3)+" "+(Math.cos(ambient*6.283)*2).toFixed(3)+")");
  byId("ambient-stars").setAttribute("opacity",(.18+.055*Math.sin(ambient*12.566)).toFixed(4));
- byId("grid").setAttribute("opacity",(.66+.09*Math.sin(ambient*6.283)).toFixed(4));
- const draw=between(frame,4,112,cubic); byId("wave").style.strokeDashoffset=String(1000*(1-draw));
- const pulseIn=between(frame,62,92,cubic),pulseOut=1-between(frame,112,168,smooth),pulse=pulseIn*pulseOut;
+ const transition=progress(frame,"transition_match:evidence_node");
+ const gridCreate=progress(frame,"create:signal_grid");byId("grid").setAttribute("opacity",((.66+.09*Math.sin(ambient*6.283))*gridCreate*(1-.72*transition)).toFixed(4));
+ const draw=progress(frame,"draw_path:signal_wave"); byId("wave").style.strokeDashoffset=String(1000*(1-draw));
+ const pulse=pulseEnvelope(frame,"pulse:signal_pulse");
  byId("pulse-core").setAttribute("opacity",pulse.toFixed(4)); byId("pulse-core").setAttribute("r",String(8+10*pulse));
- const haloScale=1+between(frame,72,154,smooth)*3.8; byId("pulse-halo").setAttribute("opacity",(pulse*.72).toFixed(4)); byId("pulse-halo").setAttribute("transform","translate("+(360*(1-haloScale))+" "+(515*(1-haloScale))+") scale("+haloScale+")");
- const beams=between(frame,96,142,cubic)*(1-between(frame,194,225,smooth)); byId("beam-a").setAttribute("opacity",(.62*beams).toFixed(4)); byId("beam-b").setAttribute("opacity",(.54*beams).toFixed(4));
- const dash=900*(1-between(frame,100,198,cubic)); byId("beam-a").style.strokeDasharray="900";byId("beam-b").style.strokeDasharray="900";byId("beam-a").style.strokeDashoffset=String(dash);byId("beam-b").style.strokeDashoffset=String(dash);
- const push=between(frame,112,222,cubic),zoom=1+.105*push; byId("camera-stage").setAttribute("transform","translate("+(360*(1-zoom)).toFixed(3)+" "+(515*(1-zoom)).toFixed(3)+") scale("+zoom.toFixed(5)+")");
- const morph=between(frame,184,236,cubic); byId("wave").setAttribute("opacity",(1-morph).toFixed(4)); byId("wave-glow").setAttribute("opacity",(.18*(1-morph)).toFixed(4));
- byId("evidence-node").setAttribute("opacity",morph.toFixed(4)); const nodeScale=.35+.65*morph;byId("evidence-node").setAttribute("transform","translate("+(360*(1-nodeScale))+" "+(515*(1-nodeScale))+") scale("+nodeScale+") rotate("+((1-morph)*-24)+" 360 515)");
- const payoff=between(frame,228,282,cubic); byId("payoff-panel").setAttribute("opacity",payoff.toFixed(4)); byId("evidence-node").setAttribute("opacity",(morph*(1-.28*payoff)).toFixed(4)); byId("payoff-field").setAttribute("r",String(90+175*payoff));
+ const haloScale=1+(DATA.schedule["pulse:signal_pulse"].params.scale-1)*pulse; byId("pulse-halo").setAttribute("opacity",(pulse*DATA.schedule["pulse:signal_pulse"].params.opacity).toFixed(4)); byId("pulse-halo").setAttribute("transform","translate("+(360*(1-haloScale))+" "+(515*(1-haloScale))+") scale("+haloScale+")");
+ const beamA=progress(frame,"draw_path:beam_alpha"),beamB=progress(frame,"draw_path:beam_beta"),beamVisibility=1-transition; byId("beam-a").setAttribute("opacity",(.62*beamA*beamVisibility).toFixed(4)); byId("beam-b").setAttribute("opacity",(.54*beamB*beamVisibility).toFixed(4));
+ byId("beam-a").style.strokeDasharray="900";byId("beam-b").style.strokeDasharray="900";byId("beam-a").style.strokeDashoffset=String(900*(1-beamA));byId("beam-b").style.strokeDashoffset=String(900*(1-beamB));
+ const push=progress(frame,"camera_push:camera_stage"),zoom=1+(DATA.schedule["camera_push:camera_stage"].params.scale-1)*push; byId("camera-stage").setAttribute("transform","translate("+(360*(1-zoom)).toFixed(3)+" "+(515*(1-zoom)).toFixed(3)+") scale("+zoom.toFixed(5)+")");
+ const morph=progress(frame,"morph_path:signal_wave"),morphed=morphPath(morph);byId("wave").setAttribute("d",morphed);byId("wave-glow").setAttribute("d",morphed);byId("wave-glow").setAttribute("opacity",(.18-.1*morph).toFixed(4));
+ const evidenceScale=progress(frame,"scale:evidence_node"),nodeScale=1+(DATA.schedule["scale:evidence_node"].params.to-1)*evidenceScale;byId("evidence-node").setAttribute("opacity",(morph*(1-.18*transition)).toFixed(4));byId("evidence-node").setAttribute("transform","translate("+(360*(1-nodeScale))+" "+(515*(1-nodeScale))+") scale("+nodeScale+")");
+ const payoff=progress(frame,"fade:payoff_label"),fieldPulse=pulseEnvelope(frame,"pulse:deep_background"); byId("payoff-panel").setAttribute("opacity",payoff.toFixed(4)); byId("payoff-field").setAttribute("r",String(90+175*Math.max(transition,fieldPulse)));
+ byId("header").setAttribute("opacity",(1-.82*transition).toFixed(4));byId("status").setAttribute("opacity",(1-.72*transition).toFixed(4));
  byId("frame-readout").textContent="F"+String(frame).padStart(3,"0");
  document.documentElement.dataset.renderedFrame=String(frame);
 }

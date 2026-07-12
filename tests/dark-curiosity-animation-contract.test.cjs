@@ -1,14 +1,13 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { readFileSync } = require("node:fs");
+const { join } = require("node:path");
 const { compileAnimationIR } = require("../server/pipelines/narrated-short/animation/compiler.cjs");
 const { validateAnimationIR } = require("../server/pipelines/narrated-short/animation/contract.cjs");
 const { createAnimationProviderRegistry } = require("../server/pipelines/narrated-short/animation/provider-registry.cjs");
 
 function fixture() {
-  const hash = "a".repeat(64);
-  return { schemaVersion: 1, profile: "dark_curiosity_continuous", profileVersion: "1.0.0", projectId: "project_wow", projectRevision: 1, verticalId: "dark_curiosity", width: 720, height: 1280, fps: 30, durationFrames: 300, draftHash: hash, alignmentHash: hash, assetManifestHash: hash, renderer: { provider: "hyperframes_benchmark", runtimeVersion: "0.7.55", styleVersion: "1.0.0" }, seed: 1977,
-    sharedEntities: [{ id: "signal_wave", type: "waveform", role: "primary_signal", layer: 4, styleToken: "signal_cyan" }],
-    scenes: [{ id: "scene_signal", startFrame: 0, endFrame: 300, template: "signal_lab_v1", templateVersion: "1.0.0", entityIds: ["signal_wave"], operations: [{ op: "draw_path", targetId: "signal_wave", from: { anchor: "absolute", frame: 0 }, to: { anchor: "absolute", frame: 299 }, easing: "ease_in_out_cubic", params: { direction: "left_to_right" } }], readabilityHolds: [], complexityCost: 4 }], transitions: [], motionBudget: { profile: "dark_curiosity", maxCost: 20, maxConcurrentOperations: 3, maxCameraScale: 1.2, maxTravelPxPerFrame: 12, captionSafeZone: { topRatio: 0.74, bottomRatio: 1 } } };
+  return JSON.parse(readFileSync(join(__dirname, "../eval/narrated/dark-curiosity/animation/001_wow_signal_benchmark.json"), "utf8"));
 }
 
 test("AnimationIR compilation is deterministic and hash-bound", () => {
