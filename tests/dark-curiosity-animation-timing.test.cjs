@@ -39,9 +39,9 @@ test("semantic compilation is deterministic and embeds self-verifiable resolved 
   assert.equal(first.contentHash, second.contentHash);
   assert.equal(first.timingBinding.timingContextHash, context().contentHash);
   const morph = first.scenes.flatMap((scene) => scene.operations).find((operation) => operation.op === "morph_path");
-  assert.deepEqual([morph.from.resolvedFrame, morph.to.resolvedFrame], [190, 229]);
+  assert.deepEqual([morph.from.resolvedFrame, morph.to.resolvedFrame], [146, 222]);
   const payoff = first.scenes.flatMap((scene) => scene.operations).find((operation) => operation.targetId === "payoff_label");
-  assert.deepEqual([payoff.from.resolvedFrame, payoff.to.resolvedFrame], [241, 299]);
+  assert.deepEqual([payoff.from.resolvedFrame, payoff.to.resolvedFrame], [272, 283]);
 });
 
 test("alignment changes alter the IR hash and only dependent checkpoints", () => {

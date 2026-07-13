@@ -41,17 +41,20 @@ test("path morph rejects mismatches and non-finite values", () => {
 test("operation schedule consumes resolved IR timing and easing", () => {
   const ir = compile();
   const schedule = createOperationSchedule(ir);
-  assert.deepEqual([schedule["morph_path:signal_wave"].startFrame, schedule["morph_path:signal_wave"].endFrame], [190, 229]);
-  assert.equal(easedProgress(190, schedule["morph_path:signal_wave"]), 0);
-  assert.equal(easedProgress(229, schedule["morph_path:signal_wave"]), 1);
+  assert.deepEqual([schedule["morph_path:signal_wave"].startFrame, schedule["morph_path:signal_wave"].endFrame], [146, 222]);
+  assert.equal(easedProgress(146, schedule["morph_path:signal_wave"]), 0);
+  assert.equal(easedProgress(222, schedule["morph_path:signal_wave"]), 1);
   assert.ok(easedProgress(210, schedule["morph_path:signal_wave"]) > 0 && easedProgress(210, schedule["morph_path:signal_wave"]) < 1);
 });
 
 test("engine HTML embeds the IR schedule and no hardcoded frame choreography", () => {
   const result = compileAnimationIRToHtml(compile());
-  assert.match(result.html, /"startFrame":190,"endFrame":229/);
+  assert.match(result.html, /"startFrame":146,"endFrame":222/);
   assert.match(result.html, /DATA\.schedule/);
-  assert.match(result.html, /\.18\*draw\*\(1-\.55\*morph\)/);
+  assert.match(result.html, /\.16\*draw\*\(1-\.55\*transition\)/);
+  assert.match(result.html, /data-semantic-roi/);
+  assert.match(result.html, /data-font-sha256/);
+  assert.doesNotMatch(result.html, /frame-readout|textLength/);
   assert.doesNotMatch(result.html, /between\(frame|frame,184|frame,228|frame,112/);
 });
 

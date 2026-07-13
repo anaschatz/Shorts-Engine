@@ -1,6 +1,6 @@
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, join, relative, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { compileAnimationIRToHtml } from "../renderer/hyperframes/animation-ir-adapter.mjs";
@@ -13,7 +13,7 @@ const { compileTimingBoundAnimationIR } = require("../server/pipelines/narrated-
 const { buildTimingTrace } = require("../server/pipelines/narrated-short/animation/timing-proof.cjs");
 const { runAdversarialTimingValidation } = require("../server/pipelines/narrated-short/animation/adversarial-timing.cjs");
 const { validateBrowserSeekProof } = require("../server/pipelines/narrated-short/animation/browser-seek-proof.cjs");
-const { extractCheckpointMetrics, runBenchmarkQa, writeCheckpointContactSheet } = require("../server/pipelines/narrated-short/animation/benchmark-qa.cjs");
+const { extractCheckpointMetrics, extractConsecutiveMotionMetrics, extractSampleMetrics, runBenchmarkQa, writeCheckpointContactSheet } = require("../server/pipelines/narrated-short/animation/benchmark-qa.cjs");
 const { stableStringify } = require("../server/pipelines/narrated-short/animation/contract.cjs");
 const provider = require("../server/pipelines/narrated-short/animation/providers/hyperframes.cjs");
 
@@ -22,6 +22,7 @@ const CONTEXT_PATH = join(ROOT, "eval/narrated/dark-curiosity/animation/002_wow_
 const PLAN_PATH = join(ROOT, "eval/narrated/dark-curiosity/animation/002_wow_signal_semantic_plan.json");
 const OUTPUT_ROOT = join(ROOT, "data/benchmarks/dark-curiosity-animation/wow-signal-browser-seek/720x1280");
 const SEEK_SEQUENCE = Object.freeze([27, 76, 27, 209, 76, 241, 209, 291, 0, 241, 291]);
+const CONTACT_FRAMES = Object.freeze([0, 1, 6, 27, 76, 108, 144, 165, 209, 229, 241, 270, 284, 299]);
 
 const readJson = (path) => JSON.parse(readFileSync(path, "utf8"));
 
@@ -54,8 +55,62 @@ function parseArgs(args) {
   return { command, render, dryRun: !render, fixture };
 }
 
-function qaFor(videoPath, compiled) {
-  return runBenchmarkQa({ outputPath: videoPath, width: compiled.ir.width, height: compiled.ir.height, foregroundMaxY: 920, captionSafeTopRatio: compiled.ir.motionBudget.captionSafeZone.topRatio, clippedEntities: 0 });
+function motionInputs(compiled, semanticRoi) {
+  return {
+    semanticRoi,
+    readabilityHolds: compiled.ir.scenes.flatMap((scene) => scene.readabilityHolds),
+    segments: compiled.timingContext.beats.map((beat) => ({ id: beat.beatId, startFrame: beat.startFrame, endFrame: beat.endFrame })),
+  };
+}
+
+function qaFor(videoPath, compiled, geometryAudit) {
+  const timing = motionInputs(compiled, geometryAudit.semanticRoi);
+  return runBenchmarkQa({ outputPath: videoPath, width: compiled.ir.width, height: compiled.ir.height, expectedFrameCount: compiled.ir.durationFrames, expectedFps: compiled.ir.fps, geometryAudit, readabilityHolds: timing.readabilityHolds, segments: timing.segments });
+}
+
+function motionSummary(metrics) {
+  return Object.freeze({
+    firstMeaningfulMotionFrame: metrics.firstMeaningfulMotionFrame,
+    consecutiveStasisRatio: metrics.consecutiveStasisRatio,
+    maxContiguousStasisFrames: metrics.maxContiguousStasisFrames,
+    meanMotionEnergy: metrics.meanMotionEnergy,
+    motionEnergyP50: metrics.motionEnergyP50,
+    motionEnergyP90: metrics.motionEnergyP90,
+    motionEnergyP99: metrics.motionEnergyP99,
+    peakMotionEnergy: metrics.peakMotionEnergy,
+    peakMotionFrame: metrics.peakMotionFrame,
+    windowEnergyTransform: metrics.windowEnergyTransform,
+    maxWindowMotionShare: metrics.maxWindowMotionShare,
+    maxWindowStartFrame: metrics.maxWindowStartFrame,
+    maxWindowEndFrame: metrics.maxWindowEndFrame,
+    rawMaxWindowMotionShare: metrics.rawMaxWindowMotionShare,
+    rawMaxWindowStartFrame: metrics.rawMaxWindowStartFrame,
+    rawMaxWindowEndFrame: metrics.rawMaxWindowEndFrame,
+  });
+}
+
+function motionReportMetrics(metrics) {
+  return Object.freeze({
+    ...motionSummary(metrics),
+    frameCount: metrics.frameCount,
+    transitionCount: metrics.transitionCount,
+    analyzedTransitionCount: metrics.analyzedTransitionCount,
+    excludedReadabilityHoldTransitions: metrics.excludedReadabilityHoldTransitions,
+    motionThreshold: metrics.motionThreshold,
+    rollingWindowFrames: metrics.rollingWindowFrames,
+    segmentMetrics: metrics.segmentMetrics,
+    meanLuma: metrics.meanLuma,
+  });
+}
+
+function renderProgress(label) {
+  let lastPercent = -10;
+  return (event) => {
+    const percent = Math.round(event.percent * 100);
+    if (percent < 100 && percent < lastPercent + 10) return;
+    lastPercent = percent;
+    process.stderr.write(`browser seek ${label}: ${percent}% ${event.stage}\n`);
+  };
 }
 
 async function networkProbe(compiled, chromePath) {
@@ -69,6 +124,7 @@ async function networkProbe(compiled, chromePath) {
       blockedExternalRequestCount: Number(details.blockedExternalRequestCount || 0),
       resourceClasses: Array.isArray(details.resourceClasses) ? details.resourceClasses : [],
       passed: error?.code === "BROWSER_EXTERNAL_REQUEST_BLOCKED" && details.externalRequestCount >= 1 && details.externalRequestCount === details.blockedExternalRequestCount,
+      ...(error?.code === "BROWSER_SEEK_RUNTIME_FAILED" ? { runtimeStage: details.stage || "unknown" } : {}),
     };
   }
   return { errorCode: "BROWSER_EXTERNAL_PROBE_FAILED", externalRequestCount: 0, blockedExternalRequestCount: 0, resourceClasses: [], passed: false };
@@ -78,12 +134,15 @@ async function renderOnce(compiled, root, label, chromePath) {
   const stagingDir = join(root, label);
   mkdirSync(stagingDir, { recursive: true });
   const outputPath = join(stagingDir, `wow-signal-browser-seek-${label}.mp4`);
-  const render = await provider.render({ animationIR: compiled.ir, stagingDir, outputName: basename(outputPath), timeoutMs: 120000, quality: "standard" }, undefined, (event) => process.stderr.write(`browser seek ${label}: ${Math.round(event.percent * 100)}% ${event.stage}\n`));
-  const qa = qaFor(outputPath, compiled);
-  if (!qa.passed) throw new Error("BROWSER_SEEK_RENDER_QA_FAILED");
+  const render = await provider.render({ animationIR: compiled.ir, stagingDir, outputName: basename(outputPath), timeoutMs: 120000, quality: "standard" }, undefined, renderProgress(label));
   const checkpoints = extractCheckpointMetrics(outputPath, compiled.trace.checkpoints.map((checkpoint) => checkpoint.frame));
   const browser = await runBrowserSeekProof({ html: compiled.composition.html, width: compiled.ir.width, height: compiled.ir.height, fps: compiled.ir.fps, durationFrames: compiled.ir.durationFrames, chromePath, seekSequence: SEEK_SEQUENCE });
   if (!browser.passed || browser.repeatedFrames.length < 5) throw new Error("BROWSER_RANDOM_ACCESS_NONDETERMINISTIC");
+  const qa = qaFor(outputPath, compiled, browser.geometryAudit);
+  if (!qa.passed) {
+    process.stderr.write(`browser seek ${label} QA: ${JSON.stringify({ motion: motionSummary(qa.motion), segments: qa.motion.segmentMetrics, failedChecks: Object.entries(qa.checks).filter(([, passed]) => !passed).map(([key]) => key) })}\n`);
+    throw new Error(`BROWSER_SEEK_RENDER_QA_FAILED_${Object.entries(qa.checks).filter(([, passed]) => !passed).map(([key]) => key).join("_")}`);
+  }
   provider.verify({ ...render, outputPath });
   return { outputPath, render, qa, checkpoints, browser };
 }
@@ -95,13 +154,13 @@ function compareRuns(compiled, first, second) {
     animationIRHashEqual: first.render.animationIRHash === second.render.animationIRHash && first.render.animationIRHash === compiled.ir.contentHash,
     compositionHashEqual: first.render.compositionHash === second.render.compositionHash && first.render.compositionHash === compiled.composition.compositionHash,
     checkpointHashesEqual: equal(first.checkpoints.sampleHashes, second.checkpoints.sampleHashes),
-    browserSeekHashesEqual: equal(first.browser.captures, second.browser.captures),
+    browserSeekHashesEqual: equal({ captures: first.browser.captures, geometryAudit: first.browser.geometryAudit }, { captures: second.browser.captures, geometryAudit: second.browser.geometryAudit }),
     technicalMetadataEqual: equal(first.qa.technical, second.qa.technical),
     mp4Sha256Equal: first.render.outputSha256 === second.render.outputSha256,
     firstOutputSha256: first.render.outputSha256,
     secondOutputSha256: second.render.outputSha256,
   };
-  repeatRender.passed = [repeatRender.timingContextHashEqual, repeatRender.animationIRHashEqual, repeatRender.compositionHashEqual, repeatRender.checkpointHashesEqual, repeatRender.browserSeekHashesEqual, repeatRender.technicalMetadataEqual].every(Boolean);
+  repeatRender.passed = [repeatRender.timingContextHashEqual, repeatRender.animationIRHashEqual, repeatRender.compositionHashEqual, repeatRender.checkpointHashesEqual, repeatRender.browserSeekHashesEqual, repeatRender.technicalMetadataEqual, repeatRender.mp4Sha256Equal].every(Boolean);
   return repeatRender;
 }
 
@@ -111,16 +170,31 @@ async function renderProof(compiled) {
     const doctor = await hyperframesDoctor();
     if (!doctor.ready || !doctor.chromePath) throw new Error("BROWSER_SEEK_PROVIDER_NOT_READY");
     const probe = await networkProbe(compiled, doctor.chromePath);
-    if (!probe.passed) throw new Error("BROWSER_EXTERNAL_PROBE_FAILED");
+    if (!probe.passed) throw new Error(`BROWSER_EXTERNAL_PROBE_FAILED_${probe.errorCode}_${probe.runtimeStage || "unknown"}`);
     const adversarial = runAdversarialTimingValidation({ plan: readJson(PLAN_PATH), timingContext: readJson(CONTEXT_PATH), artifactDirectory: runtimeRoot });
     if (!adversarial.passed) throw new Error("BROWSER_ADVERSARIAL_TIMING_FAILED");
     const first = await renderOnce(compiled, runtimeRoot, "a", doctor.chromePath);
     const second = await renderOnce(compiled, runtimeRoot, "b", doctor.chromePath);
     const repeatRender = compareRuns(compiled, first, second);
     if (!repeatRender.passed) throw new Error("BROWSER_REPEAT_RENDER_NONDETERMINISTIC");
+    const existingProof = join(OUTPUT_ROOT, "wow-signal-browser-seek-proof-a.mp4");
+    const timing = motionInputs(compiled, first.browser.geometryAudit.semanticRoi);
+    const before = existsSync(existingProof) ? {
+      correctedConsecutive: motionReportMetrics(extractConsecutiveMotionMetrics(existingProof, timing)),
+      legacyEveryTenFrameSamples: motionReportMetrics(extractSampleMetrics(existingProof, 10)),
+    } : null;
+    const geometrySummary = {
+      semanticRoi: first.browser.geometryAudit.semanticRoi,
+      captionSafeZone: first.browser.geometryAudit.captionSafeZone,
+      checkpointCount: first.browser.geometryAudit.checkpointCount,
+      entityObservationCount: first.browser.geometryAudit.entityObservationCount,
+      clippedEntityCount: first.browser.geometryAudit.clippedEntities.length,
+      captionSafeZoneViolationCount: first.browser.geometryAudit.captionSafeZoneViolations.length,
+      passed: first.browser.geometryAudit.passed,
+    };
     const proof = validateBrowserSeekProof({
-      schemaVersion: 1,
-      profile: "dark_curiosity_browser_seek_proof_v1",
+      schemaVersion: 2,
+      profile: "dark_curiosity_browser_seek_proof_v2",
       animationIRHash: compiled.ir.contentHash,
       timingContextHash: compiled.timingContext.contentHash,
       compositionHash: compiled.composition.compositionHash,
@@ -128,6 +202,7 @@ async function renderProof(compiled) {
       runtimeVersion: first.render.runtimeVersion,
       styleSystemVersion: compiled.ir.renderer.styleVersion,
       templateVersions: Object.fromEntries(compiled.ir.scenes.map((scene) => [scene.template, scene.templateVersion])),
+      font: compiled.composition.font,
       seekSequence: first.browser.seekSequence,
       captures: first.browser.captures,
       repeatedFrames: first.browser.repeatedFrames,
@@ -139,29 +214,48 @@ async function renderProof(compiled) {
         blockedExternalRequestCount: first.browser.blockedExternalRequestCount,
         resourceClasses: first.browser.resourceClasses,
       },
+      geometryAudit: geometrySummary,
+      motionQa: {
+        first: motionSummary(first.qa.motion),
+        second: motionSummary(second.qa.motion),
+        checksEqual: stableStringify(first.qa.checks) === stableStringify(second.qa.checks),
+        passed: first.qa.passed && second.qa.passed,
+      },
       networkProbe: probe,
       adversarial,
       repeatRender,
       passed: true,
-      warnings: repeatRender.mp4Sha256Equal ? [] : ["container_hash_differs"],
+      warnings: [],
     });
     mkdirSync(OUTPUT_ROOT, { recursive: true });
     const firstOutput = join(OUTPUT_ROOT, "wow-signal-browser-seek-proof-a.mp4");
     const secondOutput = join(OUTPUT_ROOT, "wow-signal-browser-seek-proof-b.mp4");
     const sheet = join(OUTPUT_ROOT, "wow-signal-browser-seek-checkpoints.png");
     const manifest = join(OUTPUT_ROOT, "browser-seek-proof-manifest.json");
+    const geometryReport = join(OUTPUT_ROOT, "browser-seek-geometry-audit.json");
+    const motionReport = join(OUTPUT_ROOT, "motion-qa-before-after.json");
     cpSync(first.outputPath, firstOutput); cpSync(second.outputPath, secondOutput);
-    writeCheckpointContactSheet(firstOutput, sheet, compiled.trace.checkpoints.map((checkpoint) => checkpoint.frame));
+    writeCheckpointContactSheet(firstOutput, sheet, CONTACT_FRAMES);
     writeFileSync(manifest, `${JSON.stringify(proof, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    writeFileSync(geometryReport, `${JSON.stringify({ schemaVersion: 1, profile: "dark_curiosity_geometry_audit_v1", ...first.browser.geometryAudit }, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    writeFileSync(motionReport, `${JSON.stringify({ schemaVersion: 1, profile: "dark_curiosity_motion_qa_comparison_v1", before, after: { consecutive: motionReportMetrics(first.qa.motion), checks: first.qa.checks }, comparisonBasis: "same_dom_derived_semantic_roi", limitations: ["same_host_only", "silent_visual_master", "fixture_timing_not_real_narration"] }, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
     return {
-      firstOutput, secondOutput, contactSheet: sheet, manifest,
+      firstOutput: relative(ROOT, firstOutput), secondOutput: relative(ROOT, secondOutput), contactSheet: relative(ROOT, sheet), manifest: relative(ROOT, manifest), geometryReport: relative(ROOT, geometryReport), motionReport: relative(ROOT, motionReport),
       metrics: {
         firstRenderDurationMs: first.render.renderDurationMs,
         secondRenderDurationMs: second.render.renderDurationMs,
         firstPeakMemoryMb: first.render.peakMemoryMb,
         secondPeakMemoryMb: second.render.peakMemoryMb,
-        firstStasisRatio: first.qa.samples.stasisRatio,
-        secondStasisRatio: second.qa.samples.stasisRatio,
+        firstMeaningfulMotionFrame: first.qa.motion.firstMeaningfulMotionFrame,
+        firstConsecutiveStasisRatio: first.qa.motion.consecutiveStasisRatio,
+        secondConsecutiveStasisRatio: second.qa.motion.consecutiveStasisRatio,
+        maxContiguousStasisFrames: first.qa.motion.maxContiguousStasisFrames,
+        maxWindowMotionShare: first.qa.motion.maxWindowMotionShare,
+        rawMaxWindowMotionShare: first.qa.motion.rawMaxWindowMotionShare,
+        peakMotionFrame: first.qa.motion.peakMotionFrame,
+        geometryCheckpointCount: first.browser.geometryAudit.checkpointCount,
+        clippedEntityCount: first.browser.geometryAudit.clippedEntities.length,
+        captionSafeZoneViolationCount: first.browser.geometryAudit.captionSafeZoneViolations.length,
         repeatedFrameCount: proof.repeatedFrames.length,
         externalRequestCount: proof.browser.externalRequestCount,
         blockedProbeRequestCount: proof.networkProbe.blockedExternalRequestCount,

@@ -36,7 +36,9 @@ test("engine-owned composition is deterministic and blocks remote runtime", asyn
   assert.match(first.html, /connect-src 'none'/);
   assert.doesNotMatch(first.html, /https?:\/\/|Math\.random|\bgsap\b/i);
   assert.match(first.html, /data-caption-safe-zone="true"/);
-  assert.match(first.html, /textLength="612" lengthAdjust="spacingAndGlyphs"/);
+  assert.match(first.html, /@font-face\{font-family:"Outfit";src:url\(data:font\/woff2;base64,/);
+  assert.match(first.html, /data-font-sha256="8cfe15c2c6de6ef8efff3eedbd52a383ac9ef23d6c23f6cd9f9b838f5f37dc36"/);
+  assert.doesNotMatch(first.html, /textLength=|lengthAdjust=/);
 });
 
 test("provider maps child failures safely and cleans partial output", async () => {

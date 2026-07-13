@@ -1,7 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { validateCompositionIsolation } from "../renderer/hyperframes/composition-isolation.mjs";
-import { runBrowserSeekProof } from "../renderer/hyperframes/browser-seek-harness.mjs";
+import { runBrowserSeekProof, validateGeometrySnapshots } from "../renderer/hyperframes/browser-seek-harness.mjs";
+
+const geometry = (bounds = { x: 100, y: 300, width: 200, height: 120 }) => ({
+  semanticRoi: { x: 36, y: 180, width: 648, height: 740 },
+  captionSafeZone: { x: 0, y: 947, width: 720, height: 333 },
+  entities: [{ entityId: "signal_wave", captionPolicy: "avoid", visible: true, bounds }],
+});
 
 function mockBrowser() {
   const listeners = new Map();
@@ -22,7 +28,7 @@ function mockBrowser() {
       }
       if (!input) return { timelineCount: 1, animationCount: 0, compositionCount: 2 };
       renderedFrame = input.requestedFrame;
-      return renderedFrame;
+      return { renderedFrame, geometry: geometry() };
     },
     screenshot: async () => Buffer.from(`pixels:${renderedFrame}`),
     close: async () => {},
@@ -55,7 +61,17 @@ test("browser harness loads once and hashes N-M-N pixels without accumulated sta
   assert.equal(result.captures[0].sha256, result.captures[2].sha256);
   assert.equal(result.captures[3].sha256, result.captures[5].sha256);
   assert.equal(result.externalRequestCount, 0);
+  assert.equal(result.geometryAudit.passed, true);
   assert.equal(result.passed, true);
+});
+
+test("geometry audit rejects real clipping and caption-safe collisions", () => {
+  const clipped = validateGeometrySnapshots([{ frame: 0, ...geometry({ x: -4, y: 300, width: 200, height: 120 }) }], 720, 1280);
+  assert.equal(clipped.passed, false);
+  assert.equal(clipped.clippedEntities.length, 1);
+  const collision = validateGeometrySnapshots([{ frame: 0, ...geometry({ x: 100, y: 930, width: 200, height: 80 }) }], 720, 1280);
+  assert.equal(collision.passed, false);
+  assert.equal(collision.captionSafeZoneViolations.length, 1);
 });
 
 test("browser harness rejects invalid sequences before browser launch", async () => {

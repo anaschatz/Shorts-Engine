@@ -37,7 +37,7 @@ export function nodeMorphPoints(count = MORPH_POINT_COUNT) {
   const target = [];
   for (let index = 0; index < count; index += 1) {
     const angle = Math.PI + Math.PI * 2 * index / (count - 1);
-    target.push({ x: 360 + Math.cos(angle) * 82, y: 515 + Math.sin(angle) * 82 });
+    target.push({ x: 360 + Math.cos(angle) * 110, y: 515 + Math.sin(angle) * 110 });
   }
   return target;
 }

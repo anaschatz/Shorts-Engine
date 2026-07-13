@@ -4,7 +4,13 @@ const { mkdtempSync, existsSync } = require("node:fs");
 const { join } = require("node:path");
 const { tmpdir } = require("node:os");
 const { spawnSync } = require("node:child_process");
-const { analyzeSampleFrames } = require("../server/pipelines/narrated-short/animation/benchmark-qa.cjs");
+const { analyzeConsecutiveFrames, analyzeSampleFrames, evaluateMotionQuality } = require("../server/pipelines/narrated-short/animation/benchmark-qa.cjs");
+
+function frames(count, width, height, valueAt) {
+  const output = Buffer.alloc(count * width * height);
+  for (let frame = 0; frame < count; frame += 1) for (let pixel = 0; pixel < width * height; pixel += 1) output[frame * width * height + pixel] = valueAt(frame, pixel);
+  return output;
+}
 
 test("benchmark sample metrics detect diversity, stasis and black frames", () => {
   const moving = Buffer.from([10, 10, 10, 10, 20, 10, 10, 10, 20, 20, 10, 10]);
@@ -15,6 +21,35 @@ test("benchmark sample metrics detect diversity, stasis and black frames", () =>
   const staticFrames = analyzeSampleFrames(Buffer.alloc(12, 20), 2, 2);
   assert.equal(staticFrames.stasisRatio, 1);
   assert.equal(staticFrames.uniqueFrameRatio, 1 / 3);
+});
+
+test("consecutive motion QA rejects static and ambient-only changes", () => {
+  const staticMetrics = analyzeConsecutiveFrames(Buffer.alloc(300 * 4, 20), 2, 2);
+  assert.equal(evaluateMotionQuality(staticMetrics).semanticMotion, false);
+  const ambient = frames(300, 2, 2, (frame, pixel) => pixel < 2 ? 20 : (20 + frame) % 255);
+  const semanticMask = Buffer.from([1, 1, 0, 0]);
+  const ambientMetrics = analyzeConsecutiveFrames(ambient, 2, 2, { mask: semanticMask });
+  assert.equal(evaluateMotionQuality(ambientMetrics).semanticMotion, false);
+  assert.equal(ambientMetrics.consecutiveStasisRatio, 1);
+});
+
+test("consecutive motion QA recognizes balanced semantic motion deterministically", () => {
+  const moving = frames(300, 2, 2, (frame, pixel) => 40 + (frame % 100 < 50 ? frame % 50 : 50 - frame % 50) + pixel * 3);
+  const first = analyzeConsecutiveFrames(moving, 2, 2, { readabilityHolds: [{ startFrame: 284, endFrame: 300 }] });
+  const second = analyzeConsecutiveFrames(moving, 2, 2, { readabilityHolds: [{ startFrame: 284, endFrame: 300 }] });
+  assert.deepEqual(first, second);
+  assert.equal(evaluateMotionQuality(first).semanticMotion, true);
+  assert.equal(first.firstMeaningfulMotionFrame, 1);
+  assert.ok(first.maxWindowMotionShare < 0.4);
+});
+
+test("consecutive motion QA detects late hooks, long stasis and concentrated energy", () => {
+  const delayed = frames(300, 2, 2, (frame) => frame < 10 ? 20 : (20 + frame) % 220);
+  assert.equal(evaluateMotionQuality(analyzeConsecutiveFrames(delayed, 2, 2)).immediateHook, false);
+  const stalled = frames(300, 2, 2, (frame) => frame < 40 ? 20 + frame : frame < 70 ? 60 : (20 + frame) % 220);
+  assert.equal(evaluateMotionQuality(analyzeConsecutiveFrames(stalled, 2, 2)).contiguousStasis, false);
+  const overloaded = frames(300, 2, 2, (frame) => frame < 51 ? (frame % 2 ? 240 : 10) : 10);
+  assert.equal(evaluateMotionQuality(analyzeConsecutiveFrames(overloaded, 2, 2)).balancedMotion, false);
 });
 
 test("benchmark CLI defaults to no-mutation dry run", () => {
