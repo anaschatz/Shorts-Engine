@@ -3,7 +3,7 @@ const { sanitizeText, validateResourceId } = require("../../../repositories/ids.
 const { contentHash } = require("../contracts.cjs");
 
 const QA_PROFILE = "dark_curiosity_technical_v1";
-const QA_PROFILE_VERSION = "1.0.0";
+const QA_PROFILE_VERSION = "1.1.0";
 const REQUIRED_CATEGORIES = Object.freeze(["audio", "caption", "content", "rendered_video", "rights", "timeline"]);
 const GATE_CODES = Object.freeze([
   "CONTENT_APPROVAL_EXACT", "CONTENT_DRAFT_HASH_VALID", "CONTENT_SCRIPT_HASH_VALID", "CONTENT_STORYBOARD_VALID", "CONTENT_CLAIMS_BOUND", "CONTENT_RISK_ALLOWED",
@@ -12,9 +12,11 @@ const GATE_CODES = Object.freeze([
   "CAPTION_ALIGNMENT_EXACT", "CAPTION_WORD_COVERAGE_COMPLETE", "CAPTION_TIMINGS_VALID", "CAPTION_SAFE_ZONE_VALID", "CAPTION_FONT_VALID", "CAPTION_ASS_BOUND", "CAPTION_BURN_CONFIRMED",
   "TIMELINE_HASH_VALID", "TIMELINE_ALIGNED_MODE", "TIMELINE_DURATION_VALID", "TIMELINE_BEATS_VALID", "TIMELINE_SCENES_VALID", "TIMELINE_CAPTIONS_VALID", "TIMELINE_TRACKS_COMPLETE",
   "VIDEO_FILE_READABLE", "VIDEO_CONTAINER_VALID", "VIDEO_DIMENSIONS_VALID", "VIDEO_FPS_VALID", "VIDEO_CODEC_VALID", "VIDEO_PIXEL_FORMAT_VALID", "VIDEO_DURATION_MATCH", "VIDEO_BLACK_OUTPUT_ABSENT", "VIDEO_EXCESSIVE_FREEZE_ABSENT", "VIDEO_AUDIO_NOT_SILENT",
+  "ANIMATION_BINDINGS_VALID", "ANIMATION_MOTION_VALID", "ANIMATION_GEOMETRY_VALID", "ANIMATION_NETWORK_ISOLATED", "ANIMATION_VISUAL_MASTER_VERIFIED",
   "WARNING_READING_RATE", "WARNING_CAPTION_DENSITY", "WARNING_VISUAL_STASIS", "WARNING_LOUDNESS_MARGIN", "WARNING_SOURCE_DIVERSITY",
 ]);
 const BINDING_KEYS = Object.freeze(["draftArtifactId", "draftHash", "scriptHash", "narrationManifestArtifactId", "narrationManifestHash", "audioArtifactId", "audioHash", "alignmentArtifactId", "alignmentHash", "captionManifestArtifactId", "captionManifestHash", "captionAssArtifactId", "captionAssHash", "audioNormalizationReportArtifactId", "audioNormalizationReportHash", "timelineArtifactId", "timelineHash", "outputHash"]);
+const ANIMATION_BINDING_KEYS = Object.freeze(["animationTimingContextArtifactId", "animationTimingContextHash", "animationPlanArtifactId", "animationPlanHash", "animationIRArtifactId", "animationIRHash", "animationRenderManifestArtifactId", "animationRenderManifestHash", "animationQaArtifactId", "animationQaHash", "visualMasterSha256", "animationCompositionHash", "animationProvider", "animationRuntimeVersion", "animationStyleVersion"]);
 const DETAIL_KEYS = Object.freeze(["expected", "actual", "ratio", "seconds", "count", "limit", "profile", "mode"]);
 
 function fail(field = "qa") { throw new AppError("QA_REPORT_INVALID", SAFE_MESSAGES.QA_REPORT_INVALID, 409, { field }); }
@@ -45,10 +47,23 @@ function normalizeGate(input, index) {
 function normalizeQaReport(input = {}) {
   exactKeys(input, ["schemaVersion", "status", "decision", "projectId", "projectRevision", "verticalId", "renderProfile", "qaProfile", "qaProfileVersion", "bindings", "gates", "summary", "contentHash"], "qa");
   if (Number(input.schemaVersion) !== 1 || !["passed", "failed"].includes(input.status) || !["technical_qa_passed", "technical_qa_failed"].includes(input.decision) || input.verticalId !== "dark_curiosity" || !["preview", "final"].includes(input.renderProfile) || input.qaProfile !== QA_PROFILE || input.qaProfileVersion !== QA_PROFILE_VERSION) fail();
-  exactKeys(input.bindings, BINDING_KEYS, "bindings");
+  exactKeys(input.bindings, [...BINDING_KEYS, ...ANIMATION_BINDING_KEYS], "bindings");
   exactKeys(input.summary, ["blockingGateCount", "blockingPassedCount", "blockingFailedCount", "warningCount"], "summary");
   const bindings = {};
   for (const key of BINDING_KEYS) bindings[key] = key.endsWith("ArtifactId") ? artifactId(input.bindings[key], `bindings.${key}`) : hash(input.bindings[key], `bindings.${key}`);
+  const hasAnimationBindings = ANIMATION_BINDING_KEYS.some((key) => input.bindings[key] !== undefined);
+  if (hasAnimationBindings && ANIMATION_BINDING_KEYS.some((key) => input.bindings[key] === undefined)) fail("bindings.animation");
+  if (hasAnimationBindings) {
+    for (const key of ANIMATION_BINDING_KEYS) {
+      if (key.endsWith("ArtifactId")) bindings[key] = artifactId(input.bindings[key], `bindings.${key}`);
+      else if (key.endsWith("Hash") || key.endsWith("Sha256")) bindings[key] = hash(input.bindings[key], `bindings.${key}`);
+      else {
+        const value = sanitizeText(input.bindings[key], 80);
+        if (!/^[A-Za-z0-9_.-]{3,80}$/.test(value)) fail(`bindings.${key}`);
+        bindings[key] = value;
+      }
+    }
+  }
   if (!Array.isArray(input.gates) || input.gates.length < REQUIRED_CATEGORIES.length || input.gates.length > 80) fail("gates");
   const gates = input.gates.map(normalizeGate).sort((a, b) => a.category.localeCompare(b.category) || a.code.localeCompare(b.code));
   if (new Set(gates.map((gate) => gate.code)).size !== gates.length) fail("gates.duplicate");
@@ -76,4 +91,4 @@ function createQaReport({ projectId, projectRevision, renderProfile, bindings, g
 }
 function gate(code, category, passed, details = {}) { return { code, category, severity: "blocking", passed: Boolean(passed), details }; }
 
-module.exports = { BINDING_KEYS, GATE_CODES, QA_PROFILE, QA_PROFILE_VERSION, REQUIRED_CATEGORIES, createQaReport, gate, normalizeQaReport };
+module.exports = { ANIMATION_BINDING_KEYS, BINDING_KEYS, GATE_CODES, QA_PROFILE, QA_PROFILE_VERSION, REQUIRED_CATEGORIES, createQaReport, gate, normalizeQaReport };

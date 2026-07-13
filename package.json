@@ -27,6 +27,7 @@
     "demo:smoke": "node demo/run-smoke.mjs",
     "demo:youtube:live": "node demo/run-youtube-live-e2e.mjs",
     "dark-curiosity:pilot": "node demo/run-dark-curiosity-pilot.mjs",
+    "dark-curiosity:production:proof": "node tools/dark-curiosity-production-proof.mjs",
     "dark-curiosity:aligner:doctor": "node tools/dark-curiosity-aligner-doctor.mjs",
     "dark-curiosity:aligner:bootstrap": "node tools/dark-curiosity-aligner-bootstrap.mjs",
     "dark-curiosity:narration:prepare": "node tools/dark-curiosity-narration.mjs prepare",

@@ -5,12 +5,15 @@ const { CONFIG } = require("../../config.cjs");
 const { AppError } = require("../../errors.cjs");
 const { sha256 } = require("../../media.cjs");
 const { renderNarratedKeyframes } = require("../../adapters/narrated-renderer-adapter.cjs");
-const { normalizeDraftBundle } = require("./contracts.cjs");
+const { normalizeDraftBundle, contentHash } = require("./contracts.cjs");
 const { createPreviewTimingManifest } = require("./preview-timing.cjs");
 const { alignmentToNarrationManifest, normalizeAlignment } = require("./narration/alignment.cjs");
 const { normalizeNarrationAsset } = require("./narration/contract.cjs");
 const { compileTimeline } = require("./timeline-compiler.cjs");
-const { NARRATED_COMPOSITOR_VERSION, composeNarratedPreview } = require("./video-compositor.cjs");
+const { NARRATED_COMPOSITOR_VERSION, composeNarratedPreview, composeNarratedVisualMaster } = require("./video-compositor.cjs");
+const { runProductionAnimationRender } = require("./animation/render-service.cjs");
+const { buildProductionTimingContext } = require("./animation/timing-context-builder.cjs");
+const { compileProductionAnimation, PRODUCTION_PROVIDER_ID, PRODUCTION_RUNTIME_VERSION, PRODUCTION_STYLE_VERSION } = require("./animation/production-plan-compiler.cjs");
 const { verticalDescriptor } = require("./vertical-registry.cjs");
 const { createCaptionManifest, CAPTION_RENDERER_VERSION, CAPTION_PROFILE_VERSION } = require("./captions/contract.cjs");
 const { captionFontConfig, generateAss } = require("./captions/ass-generator.cjs");
@@ -55,8 +58,11 @@ async function runNarratedRenderJob(context = {}) {
 
   const renderer = dependencies.renderNarratedKeyframes || renderNarratedKeyframes;
   const compositor = dependencies.composeNarratedPreview || composeNarratedPreview;
+  const animationRenderer = dependencies.runProductionAnimationRender || runProductionAnimationRender;
+  const continuousCompositor = dependencies.composeNarratedVisualMaster || composeNarratedVisualMaster;
   const draft = normalizeDraftBundle(envelope.body);
   const vertical = verticalDescriptor(draft.verticalId, draft.brief.formatId);
+  const continuousAnimation = draft.verticalId === "dark_curiosity";
   if (!["available", "preview_available"].includes(vertical.renderCapability)) {
     throw new AppError("VERTICAL_RENDERER_UNAVAILABLE", "The approved content vertical does not have a render implementation yet.", 503, {
       verticalId: vertical.verticalId,
@@ -89,7 +95,14 @@ async function runNarratedRenderJob(context = {}) {
     if (payload.narrationManifestHash !== active.manifestHash || payload.audioHash !== active.audioHash || payload.alignmentHash !== active.alignmentHash) throw new AppError("NARRATION_ALIGNMENT_STALE", "Narration alignment references are stale.", 409);
     alignedContext = { active, alignment, uploaded, audioArtifact };
   }
-  if (payload.renderProfile === "final" && !alignedContext) throw new AppError("NARRATION_ALIGNMENT_REQUIRED", "Exact narration alignment is required before final rendering.", 409);
+  if ((payload.renderProfile === "final" || continuousAnimation) && !alignedContext) throw new AppError("NARRATION_ALIGNMENT_REQUIRED", "Exact narration alignment is required before rendering this output.", 409);
+  if (continuousAnimation) {
+    const expectedTiming = buildProductionTimingContext({ draft, alignment: alignedContext.alignment, projectId: project.id, projectRevision: project.input.revision, draftArtifactId: payload.approvedDraftArtifactId, draftHash: payload.approvedDraftHash, alignmentHash: alignedContext.active.alignmentHash });
+    const expectedAnimation = compileProductionAnimation({ draft, timingContext: expectedTiming, projectId: project.id, projectRevision: project.input.revision, renderProfile: payload.renderProfile });
+    if (payload.timingContextHash !== expectedTiming.contentHash || payload.animationPlanHash !== contentHash(expectedAnimation.plan) || payload.animationIRHash !== expectedAnimation.animationIR.contentHash || payload.animationProvider !== PRODUCTION_PROVIDER_ID || payload.animationRuntimeVersion !== PRODUCTION_RUNTIME_VERSION || payload.animationStyleVersion !== PRODUCTION_STYLE_VERSION) {
+      throw new AppError("ANIMATION_BINDING_STALE", "Production animation bindings are stale.", 409);
+    }
+  }
   const dimensions = payload.renderProfile === "final" ? { width: 1080, height: 1920 } : { width: 720, height: 1280 };
   const timeline = compileTimeline({ draftBundle: draft, narrationManifest: narration, ...timing, ...dimensions });
   const tempRoot = mkdtempSync(join(CONFIG.tmpDir, `narrated-${job.id}-`));
@@ -136,27 +149,41 @@ async function runNarratedRenderJob(context = {}) {
       audioStage = artifactStore.stageInputForProcessing(alignedContext.audioArtifact, { step: "mux_narration" });
       assStage = artifactStore.stageInputForProcessing(captionAssArtifact, { step: "burn_captions" });
     }
-    jobs.update(job, { progress: 30, step: "render_keyframes" });
-    const keyframes = await renderer({
-      timelinePath,
-      timelineArea: "tmp",
-      draftPath,
-      draftArea: "tmp",
-      outputDir: keyframesDir,
-      outputArea: "tmp",
-      signal: job._controller && job._controller.signal,
-    });
+    let animationResult = null;
+    let keyframes = null;
+    if (continuousAnimation) {
+      jobs.update(job, { progress: 30, step: "render_continuous_animation" });
+      animationResult = await animationRenderer({
+        draft,
+        alignment: alignedContext.alignment,
+        projectId: project.id,
+        projectRevision: project.input.revision,
+        jobId: job.id,
+        draftArtifactId: payload.approvedDraftArtifactId,
+        draftHash: payload.approvedDraftHash,
+        alignmentHash: alignedContext.active.alignmentHash,
+        renderProfile: payload.renderProfile,
+        stagingDir: tempRoot,
+        contentArtifactRepository: contentArtifacts,
+        signal: job._controller && job._controller.signal,
+        onProgress: (event) => jobs.update(job, { progress: Math.max(30, Math.min(64, 30 + Math.round(Number(event && event.percent || 0) * 34))), step: `animation_${String(event && event.stage || "rendering").replace(/[^a-z0-9_]+/gi, "_").toLowerCase().slice(0, 40)}` }),
+      }, dependencies.animation || {});
+    } else {
+      jobs.update(job, { progress: 30, step: "render_keyframes" });
+      keyframes = await renderer({
+        timelinePath,
+        timelineArea: "tmp",
+        draftPath,
+        draftArea: "tmp",
+        outputDir: keyframesDir,
+        outputArea: "tmp",
+        signal: job._controller && job._controller.signal,
+      });
+    }
     jobs.update(job, { progress: 65, step: "compose_preview" });
-    const renderResult = await compositor({
-      timeline,
-      keyframeManifest: keyframes,
-      outputPath: outputStage.localPath,
-      renderProfile: payload.renderProfile,
-      audioPath: audioStage && audioStage.localPath,
-      assPath: assStage && assStage.localPath,
-      font: ass && ass.font,
-      signal: job._controller && job._controller.signal,
-    });
+    const renderResult = continuousAnimation
+      ? await continuousCompositor({ timeline, visualMasterPath: animationResult.visualMasterPath, outputPath: outputStage.localPath, renderProfile: payload.renderProfile, audioPath: audioStage && audioStage.localPath, assPath: assStage && assStage.localPath, font: ass && ass.font, signal: job._controller && job._controller.signal })
+      : await compositor({ timeline, keyframeManifest: keyframes, outputPath: outputStage.localPath, renderProfile: payload.renderProfile, audioPath: audioStage && audioStage.localPath, assPath: assStage && assStage.localPath, font: ass && ass.font, signal: job._controller && job._controller.signal });
     if (alignedContext && (!renderResult.audioIncluded || !renderResult.captionsIncluded || !renderResult.captionsBurned || !renderResult.audioNormalized || !renderResult.loudness)) throw new AppError("NARRATED_COMPOSITION_FAILED", "Narrated preview composition failed.", 409);
     let audioNormalizationArtifact = null;
     let normalizationReport = null;
@@ -174,10 +201,10 @@ async function runNarratedRenderJob(context = {}) {
     if (alignedContext) {
       jobs.update(job, { progress: 85, step: "technical_qa" });
       const qaRunner = dependencies.runQaOrchestrator || runQaOrchestrator;
-      const qa = await qaRunner({ project, approval, draftEnvelope: { ...envelope, artifactId: payload.approvedDraftArtifactId }, draft, active: alignedContext.active, narration: alignedContext.uploaded, audioArtifact: alignedContext.audioArtifact, alignment: alignedContext.alignment, caption: captionManifest, captionManifestArtifact, captionAssArtifact, normalization: normalizationReport, normalizationArtifact: audioNormalizationArtifact, timeline, timelineArtifact, renderResult, outputPath: outputStage.localPath, outputHash, renderProfile: payload.renderProfile, fontAvailable: Boolean(ass && ass.font), signal: job._controller && job._controller.signal }, { analyzeRenderedVideo: dependencies.analyzeRenderedVideo, ffprobeJson: dependencies.qaFfprobeJson, ffmpegRunner: dependencies.qaFfmpegRunner });
+      const qa = await qaRunner({ project, approval, draftEnvelope: { ...envelope, artifactId: payload.approvedDraftArtifactId }, draft, active: alignedContext.active, narration: alignedContext.uploaded, audioArtifact: alignedContext.audioArtifact, alignment: alignedContext.alignment, caption: captionManifest, captionManifestArtifact, captionAssArtifact, normalization: normalizationReport, normalizationArtifact: audioNormalizationArtifact, timeline, timelineArtifact, renderResult, animation: animationResult, outputPath: outputStage.localPath, outputHash, renderProfile: payload.renderProfile, fontAvailable: Boolean(ass && ass.font), signal: job._controller && job._controller.signal }, { analyzeRenderedVideo: dependencies.analyzeRenderedVideo, ffprobeJson: dependencies.qaFfprobeJson, ffmpegRunner: dependencies.qaFfmpegRunner });
       qaReport = qa.report;
       qaAnalysis = qa.analysis;
-      qaArtifact = contentArtifacts.createJson({ type: "qa_report", projectId: project.id, jobId: job.id, revision: project.input.revision, dependencyHashes: [envelope.contentHash, alignedContext.active.manifestHash, alignedContext.active.audioHash, alignedContext.active.alignmentHash, captionManifestArtifact.envelope.contentHash, captionAssArtifact.checksumSha256, audioNormalizationArtifact.envelope.contentHash, timeline.contentHash, outputHash], body: qa.report });
+      qaArtifact = contentArtifacts.createJson({ type: "qa_report", projectId: project.id, jobId: job.id, revision: project.input.revision, dependencyHashes: [envelope.contentHash, alignedContext.active.manifestHash, alignedContext.active.audioHash, alignedContext.active.alignmentHash, captionManifestArtifact.envelope.contentHash, captionAssArtifact.checksumSha256, audioNormalizationArtifact.envelope.contentHash, timeline.contentHash, animationResult && animationResult.renderManifestArtifact.envelope.contentHash, animationResult && animationResult.qaArtifact.envelope.contentHash, outputHash].filter(Boolean), body: qa.report });
       qaSummary = { ...publicQaSummary(qa.report, qaArtifact), qaStatus: qa.report.status, qaPassed: qa.report.status === "passed", technicalFinal: payload.renderProfile === "final", publishable: false };
       jobs.update(job, { progress: 92, step: qa.report.status === "passed" ? "qa_passed" : "qa_blocked", technicalQa: qaSummary });
       if (qa.report.status !== "passed") throw new AppError("QA_BLOCKED", "Technical QA blocked this output.", 409, { failedGateCodes: qaSummary.failedGateCodes, blockingFailedCount: qaSummary.blockingFailedCount, nextAction: "fix-blocking-qa-gates" });
@@ -186,7 +213,7 @@ async function runNarratedRenderJob(context = {}) {
       jobs.update(job, { progress: 95, step: "build_evidence_package" });
       try {
         const packageRunner = dependencies.generateEvidencePackage || generateEvidencePackage;
-        evidencePackage = await packageRunner({ project, approval, draftEnvelope: { ...envelope, artifactId: payload.approvedDraftArtifactId }, draft, active: alignedContext.active, narration: alignedContext.uploaded, alignmentArtifact: { artifact: { id: alignedContext.active.alignmentArtifactId }, envelope: { contentHash: alignedContext.active.alignmentHash } }, captionManifestArtifact, captionAssArtifact, normalizationArtifact: audioNormalizationArtifact, timelineArtifact, qaArtifact, qaReport, qaAnalysis, outputHash, outputPath: outputStage.localPath, timeline, artifactStore, artifactRepository, contentArtifacts, jobId: job.id, fontId: ass && ass.font && ass.font.name || "managed_caption_font", signal: job._controller && job._controller.signal }, { generateContactSheet: dependencies.generateContactSheet, ffmpegRunner: dependencies.contactSheetFfmpegRunner, ffprobeJson: dependencies.contactSheetFfprobeJson });
+        evidencePackage = await packageRunner({ project, approval, draftEnvelope: { ...envelope, artifactId: payload.approvedDraftArtifactId }, draft, active: alignedContext.active, narration: alignedContext.uploaded, alignmentArtifact: { artifact: { id: alignedContext.active.alignmentArtifactId }, envelope: { contentHash: alignedContext.active.alignmentHash } }, captionManifestArtifact, captionAssArtifact, normalizationArtifact: audioNormalizationArtifact, timelineArtifact, animation: animationResult, qaArtifact, qaReport, qaAnalysis, outputHash, outputPath: outputStage.localPath, timeline, artifactStore, artifactRepository, contentArtifacts, jobId: job.id, fontId: ass && ass.font && ass.font.name || "managed_caption_font", signal: job._controller && job._controller.signal }, { generateContactSheet: dependencies.generateContactSheet, ffmpegRunner: dependencies.contactSheetFfmpegRunner, ffprobeJson: dependencies.contactSheetFfprobeJson });
         evidenceSummary = evidencePackage && evidencePackage.summary || publicEvidenceSummary(evidencePackage);
         jobs.update(job, { progress: 98, step: "evidence_package_validated", evidencePackage: evidenceSummary });
       } catch (error) {
@@ -205,7 +232,7 @@ async function runNarratedRenderJob(context = {}) {
       projectId: project.id,
       jobId: job.id,
       revision: project.input.revision,
-      dependencyHashes: [envelope.contentHash, timelineArtifact.envelope.contentHash, captionManifestArtifact && captionManifestArtifact.envelope.contentHash, captionAssArtifact && captionAssArtifact.checksumSha256, audioNormalizationArtifact && audioNormalizationArtifact.envelope.contentHash, qaArtifact && qaArtifact.envelope.contentHash, evidenceSummary && evidenceSummary.rightsManifestHash, evidenceSummary && evidenceSummary.provenanceReportHash, evidenceSummary && evidenceSummary.exportMetadataHash, evidenceSummary && evidenceSummary.contactSheetHash].filter(Boolean),
+      dependencyHashes: [envelope.contentHash, timelineArtifact.envelope.contentHash, animationResult && animationResult.timingArtifact.envelope.contentHash, animationResult && animationResult.planArtifact.envelope.contentHash, animationResult && animationResult.irArtifact.envelope.contentHash, animationResult && animationResult.renderManifestArtifact.envelope.contentHash, animationResult && animationResult.qaArtifact.envelope.contentHash, captionManifestArtifact && captionManifestArtifact.envelope.contentHash, captionAssArtifact && captionAssArtifact.checksumSha256, audioNormalizationArtifact && audioNormalizationArtifact.envelope.contentHash, qaArtifact && qaArtifact.envelope.contentHash, evidenceSummary && evidenceSummary.rightsManifestHash, evidenceSummary && evidenceSummary.provenanceReportHash, evidenceSummary && evidenceSummary.exportMetadataHash, evidenceSummary && evidenceSummary.contactSheetHash].filter(Boolean),
       body: {
         ...safeRenderResult,
         outputPath: undefined,
@@ -229,6 +256,21 @@ async function runNarratedRenderJob(context = {}) {
         audioNormalizationReportArtifactId: audioNormalizationArtifact && audioNormalizationArtifact.artifact.id,
         audioNormalizationReportHash: audioNormalizationArtifact && audioNormalizationArtifact.envelope.contentHash,
         timingMode: timing.timingMode,
+        animationTimingContextArtifactId: animationResult && animationResult.timingArtifact.artifact.id || null,
+        animationTimingContextHash: animationResult && animationResult.timingArtifact.envelope.contentHash || null,
+        animationPlanArtifactId: animationResult && animationResult.planArtifact.artifact.id || null,
+        animationPlanHash: animationResult && animationResult.planArtifact.envelope.contentHash || null,
+        animationIRArtifactId: animationResult && animationResult.irArtifact.artifact.id || null,
+        animationIRHash: animationResult && animationResult.irArtifact.envelope.contentHash || null,
+        animationRenderManifestArtifactId: animationResult && animationResult.renderManifestArtifact.artifact.id || null,
+        animationRenderManifestHash: animationResult && animationResult.renderManifestArtifact.envelope.contentHash || null,
+        animationQaArtifactId: animationResult && animationResult.qaArtifact.artifact.id || null,
+        animationQaHash: animationResult && animationResult.qaArtifact.envelope.contentHash || null,
+        animationProvider: animationResult && animationResult.manifest.provider || null,
+        animationRuntimeVersion: animationResult && animationResult.manifest.runtimeVersion || null,
+        animationStyleVersion: animationResult && animationResult.manifest.styleVersion || null,
+        animationCompositionHash: animationResult && animationResult.manifest.compositionHash || null,
+        visualMasterSha256: animationResult && animationResult.visualMasterSha256 || null,
         qaStatus: qaSummary && qaSummary.qaStatus || "not_run",
         qaPassed: qaSummary && qaSummary.qaPassed || false,
         qaReportArtifactId: qaSummary && qaSummary.qaReportArtifactId || null,
@@ -287,6 +329,21 @@ async function runNarratedRenderJob(context = {}) {
         audioNormalizationReportArtifactId: audioNormalizationArtifact && audioNormalizationArtifact.artifact.id,
         audioNormalizationReportHash: audioNormalizationArtifact && audioNormalizationArtifact.envelope.contentHash,
         timingMode: timing.timingMode,
+        animationTimingContextArtifactId: animationResult && animationResult.timingArtifact.artifact.id || null,
+        animationTimingContextHash: animationResult && animationResult.timingArtifact.envelope.contentHash || null,
+        animationPlanArtifactId: animationResult && animationResult.planArtifact.artifact.id || null,
+        animationPlanHash: animationResult && animationResult.planArtifact.envelope.contentHash || null,
+        animationIRArtifactId: animationResult && animationResult.irArtifact.artifact.id || null,
+        animationIRHash: animationResult && animationResult.irArtifact.envelope.contentHash || null,
+        animationRenderManifestArtifactId: animationResult && animationResult.renderManifestArtifact.artifact.id || null,
+        animationRenderManifestHash: animationResult && animationResult.renderManifestArtifact.envelope.contentHash || null,
+        animationQaArtifactId: animationResult && animationResult.qaArtifact.artifact.id || null,
+        animationQaHash: animationResult && animationResult.qaArtifact.envelope.contentHash || null,
+        animationProvider: animationResult && animationResult.manifest.provider || null,
+        animationRuntimeVersion: animationResult && animationResult.manifest.runtimeVersion || null,
+        animationStyleVersion: animationResult && animationResult.manifest.styleVersion || null,
+        animationCompositionHash: animationResult && animationResult.manifest.compositionHash || null,
+        visualMasterSha256: animationResult && animationResult.visualMasterSha256 || null,
         qaStatus: qaSummary && qaSummary.qaStatus || "not_run",
         qaPassed: qaSummary && qaSummary.qaPassed || false,
         qaReportArtifactId: qaSummary && qaSummary.qaReportArtifactId || null,
@@ -311,7 +368,7 @@ async function runNarratedRenderJob(context = {}) {
       technicalQa: qaSummary,
       evidencePackage: evidenceSummary,
     });
-    return { exportId, renderManifest, timelineArtifact, committedArtifact, captionManifestArtifact, captionAssArtifact, audioNormalizationArtifact, qaArtifact, evidencePackage };
+    return { exportId, renderManifest, timelineArtifact, committedArtifact, captionManifestArtifact, captionAssArtifact, audioNormalizationArtifact, animationResult, qaArtifact, evidencePackage };
   } catch (error) {
     try { artifactStore.deleteStagingArtifact(outputStage.artifact); } catch { /* best-effort uncommitted output cleanup */ }
     updatedProject = projectRepository.update(project.id, { status: "failed" });

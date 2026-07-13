@@ -18,21 +18,21 @@ async function doctor() {
   return { ready: report.ready, provider: report.provider, runtimeVersion: report.runtimeVersion, nodeVersion: report.nodeVersion, checks: report.checks };
 }
 
-function validate(animationIR) {
+function validateForProvider(animationIR, providerId) {
   const ir = validateAnimationIR(animationIR);
   const budget = validateComplexityBudget(ir);
-  if (ir.renderer.provider !== PROVIDER_ID) throw new AppError("ANIMATION_PROVIDER_MISMATCH", "AnimationIR renderer binding does not match the selected provider.", 409);
+  if (ir.renderer.provider !== providerId) throw new AppError("ANIMATION_PROVIDER_MISMATCH", "AnimationIR renderer binding does not match the selected provider.", 409);
   return Object.freeze({ animationIR: ir, budget });
 }
 
-function estimate(request) {
-  const { animationIR, budget } = request.animationIR ? validate(request.animationIR) : request;
+function estimateForProvider(request, providerId) {
+  const { animationIR, budget } = request.animationIR ? validateForProvider(request.animationIR, providerId) : request;
   const pixels = animationIR.width * animationIR.height * animationIR.durationFrames;
   return Object.freeze({ frames: animationIR.durationFrames, durationSeconds: animationIR.durationFrames / animationIR.fps, complexityCost: budget.computedCost, estimatedMemoryMb: Math.ceil(250 + pixels / 1.8e6), expectedDurationSeconds: Math.ceil(8 + pixels / 7e6) });
 }
 
-function renderWithSpawn(spawnImpl, workerPath, request, signal, onProgress = () => {}) {
-  const validated = request.animationIR ? validate(request.animationIR) : request.validated;
+function renderWithSpawn(spawnImpl, workerPath, providerId, request, signal, onProgress = () => {}) {
+  const validated = request.animationIR ? validateForProvider(request.animationIR, providerId) : request.validated;
   if (!validated?.animationIR) return Promise.reject(safeFailure());
   const stagingDir = resolve(request.stagingDir || "");
   if (!stagingDir || stagingDir === "/" || !existsSync(stagingDir)) return Promise.reject(safeFailure());
@@ -87,7 +87,8 @@ function verify(manifest) {
 function createHyperframesProvider(dependencies = {}) {
   const spawnImpl = dependencies.spawnImpl || spawn;
   const workerPath = dependencies.workerPath || WORKER_PATH;
-  return Object.freeze({ id: PROVIDER_ID, doctor, validate, estimate, render: (request, signal, onProgress) => renderWithSpawn(spawnImpl, workerPath, request, signal, onProgress), verify });
+  const providerId = dependencies.providerId || PROVIDER_ID;
+  return Object.freeze({ id: providerId, doctor, validate: (animationIR) => validateForProvider(animationIR, providerId), estimate: (request) => estimateForProvider(request, providerId), render: (request, signal, onProgress) => renderWithSpawn(spawnImpl, workerPath, providerId, request, signal, onProgress), verify });
 }
 
 module.exports = Object.freeze({ ...createHyperframesProvider(), createHyperframesProvider });

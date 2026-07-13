@@ -28,7 +28,7 @@ async function runPilotWorkflow(options = {}, dependencies = {}) {
   const fixtureBuffer = readFileSync(options.fixturePath); const fixture = normalizeDraftBundle(JSON.parse(fixtureBuffer.toString("utf8"))); const fixtureHash = fixture.contentHash; const fixtureId = basename(options.fixturePath);
   const audioHash = options.audioPath ? sha256(readFileSync(options.audioPath)) : null;
   const runId = pilotRunId({ fixtureHash, audioHash, renderProfile: options.renderProfile, operatorId: options.operatorId });
-  const readiness = (dependencies.pilotReadiness || pilotReadiness)({ fixtureValid: true, audioPath: options.audioPath, rightsConfirmed: options.rightsConfirmed, reportOnly: options.reportOnly }, dependencies);
+  const readiness = await (dependencies.pilotReadiness || pilotReadiness)({ fixtureValid: true, audioPath: options.audioPath, rightsConfirmed: options.rightsConfirmed, reportOnly: options.reportOnly }, dependencies);
   const machine = new PilotStateMachine(); const evidence = emptyEvidence(); const context = { fixture, fixtureHash, audioHash, runId, signal: null };
   machine.transition("fixture_validated");
   if (options.reportOnly) {

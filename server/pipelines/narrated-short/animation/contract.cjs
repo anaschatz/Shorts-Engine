@@ -169,6 +169,28 @@ function validateEntity(entity, index) {
   return normalized;
 }
 
+function validateContent(content) {
+  object(content, "content");
+  exactKeys(content, ["compositionId", "kicker", "titleLines", "metricValue", "metricLabel", "evidenceCode", "evidenceLabel", "reasoningLeft", "reasoningRight", "payoffLines", "timelineLabels"], "content");
+  const lines = (value, field, min, max, length) => {
+    if (!Array.isArray(value) || value.length < min || value.length > max) fail(field);
+    return value.map((entry, index) => text(entry, `${field}[${index}]`, { max: length }));
+  };
+  return {
+    compositionId: text(content.compositionId, "content.compositionId", { max: 80, pattern: ID_RE }),
+    kicker: text(content.kicker, "content.kicker", { max: 60 }),
+    titleLines: lines(content.titleLines, "content.titleLines", 1, 3, 50),
+    metricValue: text(content.metricValue, "content.metricValue", { max: 32 }),
+    metricLabel: text(content.metricLabel, "content.metricLabel", { max: 72 }),
+    evidenceCode: text(content.evidenceCode, "content.evidenceCode", { max: 32 }),
+    evidenceLabel: text(content.evidenceLabel, "content.evidenceLabel", { max: 72 }),
+    reasoningLeft: text(content.reasoningLeft, "content.reasoningLeft", { max: 50 }),
+    reasoningRight: text(content.reasoningRight, "content.reasoningRight", { max: 50 }),
+    payoffLines: lines(content.payoffLines, "content.payoffLines", 1, 3, 50),
+    timelineLabels: lines(content.timelineLabels, "content.timelineLabels", 3, 6, 24),
+  };
+}
+
 function validateMotionBudget(budget) {
   object(budget, "motionBudget");
   exactKeys(budget, ["profile", "maxCost", "maxConcurrentOperations", "maxCameraScale", "maxTravelPxPerFrame", "captionSafeZone"], "motionBudget");
@@ -190,7 +212,7 @@ function validateMotionBudget(budget) {
 function validateAnimationIR(input, options = {}) {
   const ir = structuredClone(object(input, "animationIR"));
   rejectExecutableOrRemote(ir);
-  exactKeys(ir, ["schemaVersion", "profile", "profileVersion", "projectId", "projectRevision", "verticalId", "width", "height", "fps", "durationFrames", "draftHash", "alignmentHash", "assetManifestHash", "renderer", "seed", "timingBinding", "sharedEntities", "scenes", "transitions", "motionBudget", "contentHash"], "animationIR");
+  exactKeys(ir, ["schemaVersion", "profile", "profileVersion", "projectId", "projectRevision", "verticalId", "width", "height", "fps", "durationFrames", "draftHash", "alignmentHash", "assetManifestHash", "renderer", "seed", "content", "timingBinding", "sharedEntities", "scenes", "transitions", "motionBudget", "contentHash"], "animationIR");
   if (ir.schemaVersion !== ANIMATION_IR_SCHEMA_VERSION) fail("schemaVersion", "AnimationIR schema version is unsupported.");
   token(ir.profile, "profile", [ANIMATION_PROFILE]);
   text(ir.profileVersion, "profileVersion", { pattern: VERSION_RE });
@@ -209,6 +231,7 @@ function validateAnimationIR(input, options = {}) {
   text(ir.renderer.runtimeVersion, "renderer.runtimeVersion", { pattern: VERSION_RE });
   text(ir.renderer.styleVersion, "renderer.styleVersion", { pattern: VERSION_RE });
   number(ir.seed, "seed", 0, 0xffffffff, true);
+  ir.content = validateContent(ir.content);
   ir.timingBinding = validateTimingBinding(ir.timingBinding === undefined ? null : ir.timingBinding, ir.durationFrames);
   if (!Array.isArray(ir.sharedEntities) || !ir.sharedEntities.length || ir.sharedEntities.length > 64) fail("sharedEntities");
   ir.sharedEntities = ir.sharedEntities.map(validateEntity);

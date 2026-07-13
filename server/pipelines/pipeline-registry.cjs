@@ -90,9 +90,19 @@ function normalizeNarratedJobPayload(payload = {}, action) {
     normalized.captionProfileVersion = sanitizeText(payload.captionProfileVersion || "1.0.0", 20).toLowerCase();
     normalized.audioNormalizationProfileVersion = sanitizeText(payload.audioNormalizationProfileVersion || "1.0.0", 20).toLowerCase();
     normalized.compositorVersion = sanitizeText(payload.compositorVersion || "narrated_compositor_v2", 60).toLowerCase();
-    normalized.qaProfileVersion = sanitizeText(payload.qaProfileVersion || "1.0.0", 20).toLowerCase();
+    normalized.qaProfileVersion = sanitizeText(payload.qaProfileVersion || "1.1.0", 20).toLowerCase();
     normalized.evidenceProfileVersion = sanitizeText(payload.evidenceProfileVersion || "1.0.0", 20).toLowerCase();
-    if (normalized.captionRendererVersion !== "ass_caption_v1" || normalized.captionProfileVersion !== "1.0.0" || normalized.audioNormalizationProfileVersion !== "1.0.0" || normalized.compositorVersion !== "narrated_compositor_v2" || normalized.qaProfileVersion !== "1.0.0" || normalized.evidenceProfileVersion !== "1.0.0") {
+    const hasAnimationBindings = ["timingContextHash", "animationPlanHash", "animationIRHash", "animationProvider", "animationRuntimeVersion", "animationStyleVersion"].some((key) => payload[key] !== undefined && payload[key] !== null);
+    if (hasAnimationBindings) {
+      normalized.timingContextHash = normalizeHash(payload.timingContextHash, "timingContextHash");
+      normalized.animationPlanHash = normalizeHash(payload.animationPlanHash, "animationPlanHash");
+      normalized.animationIRHash = normalizeHash(payload.animationIRHash, "animationIRHash");
+      normalized.animationProvider = sanitizeText(payload.animationProvider, 80).toLowerCase();
+      normalized.animationRuntimeVersion = sanitizeText(payload.animationRuntimeVersion, 24).toLowerCase();
+      normalized.animationStyleVersion = sanitizeText(payload.animationStyleVersion, 24).toLowerCase();
+      if (normalized.animationProvider !== "hyperframes_local" || normalized.animationRuntimeVersion !== "0.7.55" || normalized.animationStyleVersion !== "1.3.0") throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "animationVersion" });
+    }
+    if (normalized.captionRendererVersion !== "ass_caption_v1" || normalized.captionProfileVersion !== "1.0.0" || normalized.audioNormalizationProfileVersion !== "1.0.0" || normalized.compositorVersion !== "narrated_compositor_v2" || normalized.qaProfileVersion !== "1.1.0" || normalized.evidenceProfileVersion !== "1.0.0") {
       throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "renderVersion" });
     }
   }

@@ -14,9 +14,11 @@ const DEPENDENCY_ROLES = Object.freeze([
   "approved_draft", "content_brief", "claim_ledger", "narrative_script", "storyboard",
   "narration_manifest", "narration_audio", "narration_alignment", "caption_manifest", "caption_ass",
   "audio_normalization", "timeline_ir", "qa_report", "rights_manifest", "contact_sheet", "final_output",
+  "animation_timing_context", "animation_plan", "animation_ir", "animation_render_manifest", "animation_qa_report", "visual_master",
 ]);
-const REQUIRED_DEPENDENCY_ROLES = Object.freeze([...DEPENDENCY_ROLES]);
+const REQUIRED_DEPENDENCY_ROLES = Object.freeze(DEPENDENCY_ROLES.filter((role) => !role.startsWith("animation_") && role !== "visual_master"));
 const BINDING_KEYS = Object.freeze(["projectId", "projectRevision", "approvalId", "draftArtifactId", "draftHash", "outputHash", "qaReportArtifactId", "qaReportHash"]);
+const ANIMATION_BINDING_KEYS = Object.freeze(["animationTimingContextArtifactId", "animationTimingContextHash", "animationPlanArtifactId", "animationPlanHash", "animationIRArtifactId", "animationIRHash", "animationRenderManifestArtifactId", "animationRenderManifestHash", "animationQaArtifactId", "animationQaHash", "visualMasterSha256", "animationCompositionHash", "animationProvider", "animationRuntimeVersion", "animationStyleVersion"]);
 
 function fail(code, field) { throw new AppError(code, SAFE_MESSAGES[code], 409, field ? { field } : null); }
 function exact(value, keys, field, code) {
@@ -35,8 +37,8 @@ function token(value, field, allowed, code) { const safe = text(value, field, 80
 function withHash(normalized, declared, code) { const calculated = contentHash(normalized); if (declared && hash(declared, "contentHash", code) !== calculated) fail(code, "contentHash"); return { ...normalized, contentHash: calculated }; }
 
 function normalizeBindings(input, code) {
-  exact(input, BINDING_KEYS, "bindings", code);
-  return {
+  exact(input, [...BINDING_KEYS, ...ANIMATION_BINDING_KEYS], "bindings", code);
+  const normalized = {
     projectId: validateResourceId(input.projectId, "prj"),
     projectRevision: integer(input.projectRevision, "bindings.projectRevision", 1, 1_000_000, code),
     approvalId: approvalId(input.approvalId, "bindings.approvalId", code),
@@ -46,6 +48,14 @@ function normalizeBindings(input, code) {
     qaReportArtifactId: artifactId(input.qaReportArtifactId, "bindings.qaReportArtifactId", code),
     qaReportHash: hash(input.qaReportHash, "bindings.qaReportHash", code),
   };
+  const hasAnimation = ANIMATION_BINDING_KEYS.some((key) => input[key] !== undefined);
+  if (hasAnimation && ANIMATION_BINDING_KEYS.some((key) => input[key] === undefined)) fail(code, "bindings.animation");
+  if (hasAnimation) for (const key of ANIMATION_BINDING_KEYS) {
+    if (key.endsWith("ArtifactId")) normalized[key] = artifactId(input[key], `bindings.${key}`, code);
+    else if (key.endsWith("Hash") || key.endsWith("Sha256")) normalized[key] = hash(input[key], `bindings.${key}`, code);
+    else normalized[key] = text(input[key], `bindings.${key}`, 80, code);
+  }
+  return normalized;
 }
 
 function normalizeContactSheet(input = {}) {
@@ -84,8 +94,9 @@ function normalizeRightsManifest(input = {}) {
 function normalizeDependency(input, index, code) {
   exact(input, ["role", "artifactId", "hash"], `dependencies[${index}]`, code);
   const role = token(input.role, `dependencies[${index}].role`, DEPENDENCY_ROLES, code);
-  const artifact = role === "final_output" ? null : artifactId(input.artifactId, `dependencies[${index}].artifactId`, code);
-  if (role === "final_output" && input.artifactId !== null) fail(code, `dependencies[${index}].artifactId`);
+  const hashOnly = role === "final_output" || role === "visual_master";
+  const artifact = hashOnly ? null : artifactId(input.artifactId, `dependencies[${index}].artifactId`, code);
+  if (hashOnly && input.artifactId !== null) fail(code, `dependencies[${index}].artifactId`);
   return { role, artifactId: artifact, hash: hash(input.hash, `dependencies[${index}].hash`, code) };
 }
 
@@ -93,12 +104,17 @@ function normalizeProvenanceReport(input = {}) {
   const code = "PROVENANCE_REPORT_INVALID";
   exact(input, ["schemaVersion", "status", "profile", "profileVersion", "bindings", "dependencies", "versions", "contentHash"], "provenanceReport", code);
   const bindings = normalizeBindings(input.bindings, code);
-  if (!Array.isArray(input.dependencies) || input.dependencies.length !== REQUIRED_DEPENDENCY_ROLES.length) fail(code, "dependencies");
+  const animationRoles = ["animation_timing_context", "animation_plan", "animation_ir", "animation_render_manifest", "animation_qa_report", "visual_master"];
+  const requiredRoles = bindings.animationIRHash ? [...REQUIRED_DEPENDENCY_ROLES, ...animationRoles] : REQUIRED_DEPENDENCY_ROLES;
+  if (!Array.isArray(input.dependencies) || input.dependencies.length !== requiredRoles.length) fail(code, "dependencies");
   const dependencies = input.dependencies.map((value, index) => normalizeDependency(value, index, code)).sort((a, b) => a.role.localeCompare(b.role));
-  if (new Set(dependencies.map((value) => value.role)).size !== dependencies.length || REQUIRED_DEPENDENCY_ROLES.some((role) => !dependencies.some((value) => value.role === role))) fail(code, "dependencies");
+  if (new Set(dependencies.map((value) => value.role)).size !== dependencies.length || requiredRoles.some((role) => !dependencies.some((value) => value.role === role))) fail(code, "dependencies");
   const byRole = Object.fromEntries(dependencies.map((value) => [value.role, value]));
   if (byRole.approved_draft.artifactId !== bindings.draftArtifactId || byRole.approved_draft.hash !== bindings.draftHash || byRole.qa_report.artifactId !== bindings.qaReportArtifactId || byRole.qa_report.hash !== bindings.qaReportHash || byRole.final_output.hash !== bindings.outputHash) fail("EVIDENCE_PACKAGE_HASH_MISMATCH", "dependencies");
-  exact(input.versions, ["renderer", "compositor", "captionRenderer", "audioNormalization", "qaProfile", "template", "font"], "versions", code);
+  const baseVersionKeys = ["renderer", "compositor", "captionRenderer", "audioNormalization", "qaProfile", "template", "font"];
+  const animationVersionKeys = ["animationProvider", "animationRuntime", "animationStyle"];
+  exact(input.versions, [...baseVersionKeys, ...animationVersionKeys], "versions", code);
+  if (bindings.animationIRHash && animationVersionKeys.some((key) => !input.versions[key])) fail(code, "versions.animation");
   const versions = Object.fromEntries(Object.keys(input.versions).sort().map((key) => [key, text(input.versions[key], `versions.${key}`, 80, code)]));
   const normalized = { schemaVersion: 1, status: token(input.status, "status", ["complete"], code), profile: token(input.profile, "profile", [PROVENANCE_PROFILE], code), profileVersion: token(input.profileVersion, "profileVersion", [EVIDENCE_PROFILE_VERSION], code), bindings, dependencies, versions };
   return withHash(normalized, input.contentHash, code);
@@ -123,4 +139,4 @@ function normalizeExportMetadata(input = {}) {
   return withHash(normalized, input.contentHash, code);
 }
 
-module.exports = { CONTACT_SHEET_PROFILE, EVIDENCE_PROFILE_VERSION, EXPORT_METADATA_PROFILE, PROVENANCE_PROFILE, RIGHTS_PROFILE, REQUIRED_DEPENDENCY_ROLES, normalizeBindings, normalizeContactSheet, normalizeExportMetadata, normalizeProvenanceReport, normalizeRightsManifest };
+module.exports = { ANIMATION_BINDING_KEYS, CONTACT_SHEET_PROFILE, EVIDENCE_PROFILE_VERSION, EXPORT_METADATA_PROFILE, PROVENANCE_PROFILE, RIGHTS_PROFILE, REQUIRED_DEPENDENCY_ROLES, normalizeBindings, normalizeContactSheet, normalizeExportMetadata, normalizeProvenanceReport, normalizeRightsManifest };

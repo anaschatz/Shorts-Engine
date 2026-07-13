@@ -55,6 +55,7 @@ const { AUDIO_PROFILE_VERSION } = require("./pipelines/narrated-short/audio-norm
 const { NARRATED_COMPOSITOR_VERSION } = require("./pipelines/narrated-short/video-compositor.cjs");
 const { QA_PROFILE_VERSION, normalizeQaReport } = require("./pipelines/narrated-short/qa/contract.cjs");
 const { EVIDENCE_PROFILE_VERSION } = require("./pipelines/narrated-short/evidence/contract.cjs");
+const { buildProductionAnimationPayloadBindings } = require("./pipelines/narrated-short/animation/payload-bindings.cjs");
 const { publicInvalidationSummary, reviseNarratedProject } = require("./pipelines/narrated-short/invalidation.cjs");
 const { publicQaSummary } = require("./pipelines/narrated-short/qa/qa-orchestrator.cjs");
 const { createPublishApproval, verifyReleaseEligibility } = require("./pipelines/narrated-short/publish/service.cjs");
@@ -1118,6 +1119,7 @@ async function handleRenderNarratedProject(req, res, rid, projectId, principal) 
     qaProfileVersion: QA_PROFILE_VERSION,
     evidenceProfileVersion: EVIDENCE_PROFILE_VERSION,
   };
+  Object.assign(payload, buildProductionAnimationPayloadBindings({ project, approval, renderProfile: approval.renderProfile, contentArtifacts: contentArtifactRepository }));
   const key = requestPayload.idempotencyKey || idempotencyKey("render_narrated_short", {
     projectId: project.id,
     revision: project.input.revision,
@@ -1132,6 +1134,12 @@ async function handleRenderNarratedProject(req, res, rid, projectId, principal) 
     compositorVersion: payload.compositorVersion,
     qaProfileVersion: payload.qaProfileVersion,
     evidenceProfileVersion: payload.evidenceProfileVersion,
+    timingContextHash: payload.timingContextHash,
+    animationPlanHash: payload.animationPlanHash,
+    animationIRHash: payload.animationIRHash,
+    animationProvider: payload.animationProvider,
+    animationRuntimeVersion: payload.animationRuntimeVersion,
+    animationStyleVersion: payload.animationStyleVersion,
   });
   const job = jobQueue.create({
     projectId: project.id,

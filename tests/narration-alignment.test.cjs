@@ -26,6 +26,10 @@ const { runNarrationAlignmentJob } = require("../server/pipelines/narrated-short
 const { fasterWhisperVersion, transcribeWithFasterWhisper } = require("../server/adapters/faster-whisper-adapter.cjs");
 const { compileTimeline } = require("../server/pipelines/narrated-short/timeline-compiler.cjs");
 const { runNarratedRenderJob } = require("../server/pipelines/narrated-short/render-job.cjs");
+const { contentHash } = require("../server/pipelines/narrated-short/contracts.cjs");
+const { buildProductionAnimationPayloadBindings } = require("../server/pipelines/narrated-short/animation/payload-bindings.cjs");
+const { buildProductionTimingContext } = require("../server/pipelines/narrated-short/animation/timing-context-builder.cjs");
+const { compileProductionAnimation, PRODUCTION_PROVIDER_ID, PRODUCTION_RUNTIME_VERSION, PRODUCTION_STYLE_VERSION } = require("../server/pipelines/narrated-short/animation/production-plan-compiler.cjs");
 
 const FIXTURE = resolve(__dirname, "..", "eval", "narrated", "dark-curiosity", "fixtures", "001_wow_signal_mystery.json");
 test.after(() => rmSync(DATA_DIR, { recursive: true, force: true }));
@@ -57,6 +61,98 @@ async function setup(renderProfile = "preview") {
   contentApprovalRepository.approve({ projectId, projectRevision: 1, draftArtifactId: bundle.artifact.id, draftHash: bundle.envelope.contentHash, renderProfile });
   const uploaded = await ingestUploadedNarration({ project, file: wav(), fields: { draftArtifactId: bundle.artifact.id, draftHash: bundle.envelope.contentHash, projectRevision: "1", voiceProfileId: "operator_voice", language: "en", commercialUseAllowed: "true", ownershipBasis: "self_recorded", rightsHolder: "Operator", consentReference: "consent_v1" } }, { artifactStore, artifactRepository, contentArtifactRepository, contentApprovalRepository, projectRepository, ffprobeJson: async () => ({ streams: [{ codec_type: "audio", codec_name: "pcm_s16le", sample_rate: "48000", channels: 1 }], format: { format_name: "wav", duration: "32" } }) });
   return { artifactStore, artifactRepository, contentArtifactRepository, contentApprovalRepository, projectRepository, draft, bundle, project: uploaded.project, uploaded };
+}
+
+function productionBindings(ctx, project, renderProfile) {
+  return buildProductionAnimationPayloadBindings({
+    project,
+    approval: ctx.contentApprovalRepository.findApproved(project.id, project.input.revision),
+    renderProfile,
+    contentArtifacts: ctx.contentArtifactRepository,
+  });
+}
+
+function productionAnimationStub() {
+  return async (input) => {
+    const timingContext = buildProductionTimingContext({
+      draft: input.draft,
+      alignment: input.alignment,
+      projectId: input.projectId,
+      projectRevision: input.projectRevision,
+      draftArtifactId: input.draftArtifactId,
+      draftHash: input.draftHash,
+      alignmentHash: input.alignmentHash,
+    });
+    const compiled = compileProductionAnimation({
+      draft: input.draft,
+      timingContext,
+      projectId: input.projectId,
+      projectRevision: input.projectRevision,
+      renderProfile: input.renderProfile,
+    });
+    const create = (type, body, dependencyHashes = []) => input.contentArtifactRepository.createJson({
+      type,
+      projectId: input.projectId,
+      jobId: input.jobId,
+      revision: input.projectRevision,
+      dependencyHashes,
+      body,
+    });
+    const timingArtifact = create("animation_timing_context", timingContext, [input.draftHash, input.alignmentHash]);
+    const planArtifact = create("animation_plan", compiled.plan, [timingArtifact.envelope.contentHash]);
+    const irArtifact = create("animation_ir", compiled.animationIR, [planArtifact.envelope.contentHash]);
+    const visualMasterPath = join(input.stagingDir, "animation-visual-master.mp4");
+    writeFileSync(visualMasterPath, Buffer.from("continuous-animation"));
+    const visualMasterSha256 = require("node:crypto").createHash("sha256").update("continuous-animation").digest("hex");
+    const qa = {
+      status: "passed",
+      motion: { passed: true },
+      browser: {
+        externalRequestCount: 0,
+        blockedExternalRequestCount: 0,
+        geometryAudit: { passed: true, clippedEntityCount: 0, captionSafeZoneViolationCount: 0 },
+      },
+    };
+    const qaArtifact = create("animation_qa_report", qa, [irArtifact.envelope.contentHash, visualMasterSha256]);
+    const manifest = {
+      timingContextHash: timingArtifact.envelope.contentHash,
+      animationPlanHash: planArtifact.envelope.contentHash,
+      animationIRHash: irArtifact.envelope.contentHash,
+      animationQaHash: qaArtifact.envelope.contentHash,
+      visualMasterSha256,
+      compositionHash: contentHash({ animationIRHash: compiled.animationIR.contentHash }),
+      provider: PRODUCTION_PROVIDER_ID,
+      runtimeVersion: PRODUCTION_RUNTIME_VERSION,
+      styleVersion: PRODUCTION_STYLE_VERSION,
+    };
+    const renderManifestArtifact = create("animation_render_manifest", manifest, [qaArtifact.envelope.contentHash]);
+    return { timingContext, animationIR: compiled.animationIR, qa, manifest, timingArtifact, planArtifact, irArtifact, qaArtifact, renderManifestArtifact, visualMasterPath, visualMasterSha256 };
+  };
+}
+
+function continuousCompositorStub(writeValue) {
+  return async (input) => {
+    writeFileSync(input.outputPath, Buffer.from(writeValue));
+    return {
+      schemaVersion: 1,
+      outputPath: input.outputPath,
+      width: input.timeline.width,
+      height: input.timeline.height,
+      fps: 30,
+      totalFrames: input.timeline.totalFrames,
+      durationSeconds: input.timeline.totalFrames / 30,
+      audioIncluded: true,
+      captionsIncluded: true,
+      captionsBurned: true,
+      audioNormalized: true,
+      audioCodec: "aac",
+      audioSampleRate: 48000,
+      loudness: { input: { integratedLoudness: -22.1, truePeak: -4.2, loudnessRange: 3.1, threshold: -32.2 }, output: { integratedLoudness: -16.02, truePeak: -1.6, loudnessRange: 3 } },
+      renderProfile: input.renderProfile,
+      timelineHash: input.timeline.contentHash,
+      visualMasterSha256: require("node:crypto").createHash("sha256").update("continuous-animation").digest("hex"),
+    };
+  };
 }
 
 test("speech token normalization is deterministic for Unicode punctuation, apostrophes and hyphens", () => {
@@ -141,7 +237,7 @@ test("alignment job stages managed audio, persists immutable alignment, and driv
   assert.equal(timeline.beatTimings[0].startFrame, result.alignment.beats[0].startFrame);
   assert.equal(ctx.contentArtifactRepository.readJson(result.artifact.artifact.id).artifactType, "narration_alignment");
 
-  const renderJob = jobs.create({ projectId: ctx.project.id, action: "render_narrated_short", pipelineType: "narrated_short", payload: { projectRevision: 1, language: "en", approvedDraftArtifactId: active.draftArtifactId, approvedDraftHash: active.draftHash, renderProfile: "preview", narrationManifestHash: result.project.input.activeNarration.manifestHash, audioHash: result.project.input.activeNarration.audioHash, alignmentHash: result.project.input.activeNarration.alignmentHash } });
+  const renderJob = jobs.create({ projectId: ctx.project.id, action: "render_narrated_short", pipelineType: "narrated_short", payload: { projectRevision: 1, language: "en", approvedDraftArtifactId: active.draftArtifactId, approvedDraftHash: active.draftHash, renderProfile: "preview", narrationManifestHash: result.project.input.activeNarration.manifestHash, audioHash: result.project.input.activeNarration.audioHash, alignmentHash: result.project.input.activeNarration.alignmentHash, ...productionBindings(ctx, result.project, "preview") } });
   jobs.claimJob(renderJob.id, { workerId: `wrk_${randomUUID()}` });
   const exportRepository = new InMemoryExportRepository({ artifactStore: ctx.artifactStore });
   let renderedTimeline = null;
@@ -149,15 +245,17 @@ test("alignment job stages managed audio, persists immutable alignment, and driv
     jobs, job: renderJob, project: result.project, payload: renderJob.payload, exportRepository,
     dependencies: {
       ...ctx,
+      runProductionAnimationRender: productionAnimationStub(),
       renderNarratedKeyframes: async ({ timelinePath, outputDir }) => {
         renderedTimeline = JSON.parse(readFileSync(timelinePath, "utf8"));
         return { timelineHash: renderedTimeline.contentHash, frames: [{ globalFrame: 0, fileName: "frame.png", outputPath: join(outputDir, "frame.png") }] };
       },
-      composeNarratedPreview: async (input) => {
+      composeNarratedVisualMaster: async (input) => {
+        renderedTimeline = input.timeline;
         assert.equal(typeof input.audioPath, "string");
         assert.equal(typeof input.assPath, "string");
         writeFileSync(input.outputPath, Buffer.from("silent-aligned-preview"));
-        return { schemaVersion: 1, outputPath: input.outputPath, width: input.timeline.width, height: input.timeline.height, fps: 30, totalFrames: input.timeline.totalFrames, durationSeconds: input.timeline.totalFrames / 30, audioIncluded: true, captionsIncluded: true, captionsBurned: true, audioNormalized: true, audioCodec: "aac", audioSampleRate: 48000, loudness: { input: { integratedLoudness: -22.1, truePeak: -4.2, loudnessRange: 3.1, threshold: -32.2 }, output: { integratedLoudness: -16.02, truePeak: -1.6, loudnessRange: 3 } }, renderProfile: "preview", timelineHash: input.timeline.contentHash, keyframeCount: 1 };
+        return { schemaVersion: 1, outputPath: input.outputPath, width: input.timeline.width, height: input.timeline.height, fps: 30, totalFrames: input.timeline.totalFrames, durationSeconds: input.timeline.totalFrames / 30, audioIncluded: true, captionsIncluded: true, captionsBurned: true, audioNormalized: true, audioCodec: "aac", audioSampleRate: 48000, loudness: { input: { integratedLoudness: -22.1, truePeak: -4.2, loudnessRange: 3.1, threshold: -32.2 }, output: { integratedLoudness: -16.02, truePeak: -1.6, loudnessRange: 3 } }, renderProfile: "preview", timelineHash: input.timeline.contentHash, visualMasterSha256: require("node:crypto").createHash("sha256").update("continuous-animation").digest("hex") };
       },
       analyzeRenderedVideo: async () => ({ size: 2048, durationSeconds: 32, videoCount: 1, audioCount: 1, width: 720, height: 1280, fps: 30, videoCodec: "h264", pixelFormat: "yuv420p", audioCodec: "aac", audioSampleRate: 48000, detector: { black: { ratio: 0, longestSeconds: 0 }, freeze: { ratio: 0.1, longestSeconds: 3 }, silence: { ratio: 0, longestSeconds: 0 } } }),
     },
@@ -216,13 +314,15 @@ test("final export commits only after passing QA and evidence package; either fa
     jobs.claimJob(alignJob.id, { workerId: `wrk_${randomUUID()}` });
     const aligned = await runNarrationAlignmentJob({ jobs, job: alignJob, project: ctx.project, payload: alignJob.payload, dependencies: { ...ctx, alignNarration: async () => providerFor(ctx.draft), alignerEnv } });
     const current = aligned.project.input.activeNarration;
-    const renderJob = jobs.create({ projectId: ctx.project.id, action: "render_narrated_short", pipelineType: "narrated_short", payload: { projectRevision: 1, language: "en", approvedDraftArtifactId: active.draftArtifactId, approvedDraftHash: active.draftHash, renderProfile: "final", narrationManifestHash: current.manifestHash, audioHash: current.audioHash, alignmentHash: current.alignmentHash } });
+    const renderJob = jobs.create({ projectId: ctx.project.id, action: "render_narrated_short", pipelineType: "narrated_short", payload: { projectRevision: 1, language: "en", approvedDraftArtifactId: active.draftArtifactId, approvedDraftHash: active.draftHash, renderProfile: "final", narrationManifestHash: current.manifestHash, audioHash: current.audioHash, alignmentHash: current.alignmentHash, ...productionBindings(ctx, aligned.project, "final") } });
     jobs.claimJob(renderJob.id, { workerId: `wrk_${randomUUID()}` });
     const exportRepository = new InMemoryExportRepository({ artifactStore: ctx.artifactStore });
     const dependencies = {
       ...ctx,
+      runProductionAnimationRender: productionAnimationStub(),
       renderNarratedKeyframes: async ({ timelinePath, outputDir }) => { const timeline = JSON.parse(readFileSync(timelinePath, "utf8")); return { timelineHash: timeline.contentHash, frames: [{ globalFrame: 0, fileName: "frame.png", outputPath: join(outputDir, "frame.png") }] }; },
       composeNarratedPreview: async (input) => { writeFileSync(input.outputPath, Buffer.from("technical-final-candidate")); return { schemaVersion: 1, outputPath: input.outputPath, width: 1080, height: 1920, fps: 30, totalFrames: input.timeline.totalFrames, durationSeconds: 32, audioIncluded: true, captionsIncluded: true, captionsBurned: true, audioNormalized: true, audioCodec: "aac", audioSampleRate: 48000, loudness: { input: { integratedLoudness: -22.1, truePeak: -4.2, loudnessRange: 3.1, threshold: -32.2 }, output: { integratedLoudness: -16.02, truePeak: -1.6, loudnessRange: 3 } }, renderProfile: "final", timelineHash: input.timeline.contentHash, keyframeCount: 1 }; },
+      composeNarratedVisualMaster: continuousCompositorStub("technical-final-candidate"),
       analyzeRenderedVideo: async () => ({ size: 4096, durationSeconds: 32, videoCount: 1, audioCount: 1, width: 1080, height: 1920, fps: 30, videoCodec: "h264", pixelFormat: "yuv420p", audioCodec: "aac", audioSampleRate: 48000, detector: { black: mode === "qa_fail" ? { ratio: 1, longestSeconds: 32 } : { ratio: 0, longestSeconds: 0 }, freeze: { ratio: 0.1, longestSeconds: 3 }, silence: { ratio: 0, longestSeconds: 0 } } }),
       generateEvidencePackage: async ({ outputHash }) => {
         if (mode === "package_fail") throw new AppError("EVIDENCE_PACKAGE_HASH_MISMATCH", "The technical evidence package hashes do not match.", 409, { failedArtifactCode: "contact_sheet" });

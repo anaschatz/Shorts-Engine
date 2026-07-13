@@ -116,4 +116,59 @@ async function composeNarratedPreview(input = {}) {
   }
 }
 
-module.exports = { NARRATED_COMPOSITOR_VERSION, composeNarratedPreview, filterPath, validateComposedPreview, validateKeyframeManifest: validateManifest };
+async function composeNarratedVisualMaster(input = {}) {
+  const { timeline, visualMasterPath, outputPath, audioPath = null, assPath = null, font = null, signal } = input;
+  if (!timeline || !visualMasterPath || !outputPath) throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400);
+  if (Boolean(audioPath) !== Boolean(assPath)) throw new AppError("CAPTION_ALIGNMENT_REQUIRED", SAFE_MESSAGES.CAPTION_ALIGNMENT_REQUIRED, 409);
+  if (audioPath && (!font || !font.fontsDir)) throw new AppError("CAPTION_FONT_UNAVAILABLE", SAFE_MESSAGES.CAPTION_FONT_UNAVAILABLE, 409);
+  const runner = input.ffmpegRunner || runFfmpeg;
+  let loudness = null;
+  if (audioPath) {
+    try {
+      const measured = await runner(["-hide_banner", "-nostats", "-i", resolve(audioPath), "-af", firstPassFilter(), "-f", "null", "-"], { signal, timeoutMs: input.timeoutMs });
+      loudness = parseLoudnormMeasurement(measured && measured.stderr);
+    } catch (error) {
+      if (error && error.code === "JOB_CANCELLED") throw error;
+      throw new AppError("AUDIO_NORMALIZATION_FAILED", SAFE_MESSAGES.AUDIO_NORMALIZATION_FAILED, 409);
+    }
+  }
+  const expectedDuration = (timeline.totalFrames / timeline.fps).toFixed(6);
+  const args = ["-y", "-i", resolve(visualMasterPath)];
+  if (audioPath) args.push("-i", resolve(audioPath));
+  const videoFilter = [`fps=${timeline.fps}`, `scale=${timeline.width}:${timeline.height}:flags=lanczos`];
+  if (assPath) videoFilter.push(`ass=filename='${filterPath(assPath)}':fontsdir='${filterPath(font.fontsDir)}'`);
+  videoFilter.push("format=yuv420p");
+  args.push("-vf", videoFilter.join(","), "-map", "0:v:0", "-c:v", "libx264", "-preset", input.renderProfile === "final" ? "medium" : "veryfast", "-crf", input.renderProfile === "final" ? "18" : "22", "-r", String(timeline.fps));
+  if (audioPath) args.push("-map", "1:a:0", "-af", secondPassFilter(loudness), "-c:a", "aac", "-ar", "48000", "-b:a", "192k");
+  else args.push("-an");
+  args.push("-t", expectedDuration, "-movflags", "+faststart", resolve(outputPath));
+  try {
+    await runner(args, { signal, timeoutMs: input.timeoutMs });
+    const probe = await (input.ffprobeJson || ffprobeJson)(resolve(outputPath));
+    const technical = validateComposedPreview(probe, timeline, Boolean(audioPath));
+    return {
+      schemaVersion: 1,
+      outputPath: resolve(outputPath),
+      width: timeline.width,
+      height: timeline.height,
+      fps: timeline.fps,
+      totalFrames: timeline.totalFrames,
+      durationSeconds: technical.durationSeconds,
+      audioIncluded: Boolean(audioPath),
+      captionsIncluded: Boolean(assPath),
+      captionsBurned: Boolean(assPath),
+      audioNormalized: Boolean(audioPath),
+      audioCodec: technical.audioCodec,
+      audioSampleRate: technical.audioSampleRate,
+      renderProfile: input.renderProfile === "final" ? "final" : "preview",
+      timelineHash: timeline.contentHash,
+      visualMasterInput: true,
+      loudness,
+    };
+  } catch (error) {
+    if (["JOB_CANCELLED", "AUDIO_NORMALIZATION_FAILED", "NARRATED_COMPOSITION_FAILED"].includes(error && error.code)) throw error;
+    throw new AppError("NARRATED_COMPOSITION_FAILED", SAFE_MESSAGES.NARRATED_COMPOSITION_FAILED, 409);
+  }
+}
+
+module.exports = { NARRATED_COMPOSITOR_VERSION, composeNarratedPreview, composeNarratedVisualMaster, filterPath, validateComposedPreview, validateKeyframeManifest: validateManifest };

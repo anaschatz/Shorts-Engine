@@ -14,6 +14,19 @@
   "assetManifestHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
   "renderer": { "provider": "hyperframes_benchmark", "runtimeVersion": "0.7.55", "styleVersion": "1.2.0" },
   "seed": 1977,
+  "content": {
+    "compositionId": "wow_signal_benchmark",
+    "kicker": "SIGNAL LAB · 1977",
+    "titleLines": ["THE SIGNAL THAT", "APPEARED ONCE"],
+    "metricValue": "1420 MHz",
+    "metricLabel": "72 SEC",
+    "evidenceCode": "6EQUJ5",
+    "evidenceLabel": "EVIDENCE",
+    "reasoningLeft": "ONE OBSERVATION",
+    "reasoningRight": "PROOF",
+    "payoffLines": ["UNEXPLAINED", "IS NOT PROOF"],
+    "timelineLabels": ["OBSERVE", "SIGNAL", "EVIDENCE", "CONCLUSION"]
+  },
   "sharedEntities": [
     { "id": "deep_background", "type": "background", "role": "ambient_field", "layer": 0, "styleToken": "navy_depth" },
     { "id": "signal_grid", "type": "grid", "role": "oscilloscope_grid", "layer": 1, "styleToken": "grid_cyan" },
