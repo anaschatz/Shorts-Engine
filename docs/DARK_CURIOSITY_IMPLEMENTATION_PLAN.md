@@ -1,6 +1,6 @@
 # Dark Curiosity Engine — Implementation and Validation Plan
 
-Status: core pilot implemented; continuous-animation Slice C1 validated separately
+Status: core pilot implemented; continuous-animation Slice C2 validated separately
 Owner model: one operator, one YouTube channel, YouTube-only revenue
 Last updated: 2026-07-13
 
@@ -94,6 +94,17 @@ Continuous-animation Slice C1 extends only that benchmark path:
 - unchanged production pilot, publishing gates, and default SVG keyframe renderer.
 
 The real timing proof passed its declared QA at 300 frames/30 fps, 14.701 seconds render time, 160 MiB peak memory, and 13.79% sampled stasis. The stasis result is within the current bound but too close to its limit to count as calibrated across content.
+
+Continuous-animation Slice C2 validates browser random access and malformed-input containment without changing production:
+
+- one real Chrome page loads the compiled composition once and seeks through an 11-frame out-of-order sequence;
+- five semantic frames reproduce byte-identical PNG captures after returning from later or earlier frames;
+- two complete 720×1280 renders match at IR, composition, decoded-checkpoint, browser-seek, technical-metadata, and MP4 hashes;
+- the valid proof browser records zero external requests, while an injected remote image request is blocked one-for-one;
+- thirteen adversarial timing plans fail before render with stable bounded error codes and no partial MP4;
+- bounded browser startup/navigation timeouts and safe launch-failure reduction prevent raw runtime leakage.
+
+The final runs completed in 15.495 and 17.085 seconds with 148 and 161 MiB peak memory. Both retained 13.79% sampled stasis. This validates the renderer's random-access determinism for one fixture; it does not validate long-form pacing, broader template quality, human preference, or channel economics.
 
 This does not raise the product-readiness estimate by itself. It proves renderer feasibility, not content-market fit, 30–40 second pacing, aligned narration choreography, or repeatable human preference.
 

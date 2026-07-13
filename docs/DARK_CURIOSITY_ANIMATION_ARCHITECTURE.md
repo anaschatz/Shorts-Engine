@@ -1,6 +1,6 @@
 # Dark Curiosity Continuous Animation Architecture
 
-Status: Slice C1 semantic-timing benchmark validated; production migration not approved
+Status: Slice C2 browser-seek determinism benchmark validated; production migration not approved
 
 Decision target: `continuous_motion_renderer_v1`
 
@@ -282,6 +282,8 @@ Exit: the benchmark visibly contains continuous path drawing, object morphing, c
 
 Slice C1 completed on 2026-07-13. A strict, hash-bound `TimingContext` now compiles exact narration words and beats into resolved render frames. The renderer consumes only the compiled schedule, while templates continue to own geometry and visual style. The Wow Signal proof also replaces the prior opacity-only approximation with a deterministic 128-point waveform-to-node path morph.
 
+Slice C2 completed on 2026-07-13. A real headless-Chrome harness loads the compiled composition once, seeks out of order, captures deterministic PNG frames, and proves that returning to the same semantic frame reproduces the same pixels. The same slice blocks injected external image requests, rejects thirteen adversarial timing plans before render, and compares two complete 720×1280 renders at decoded-checkpoint, browser-seek, technical-metadata, and MP4 levels.
+
 ### Slice D — Remaining templates
 
 - add evidence graph, causal system, timeline/map, and scale comparison;
@@ -322,7 +324,9 @@ Slice C1 completed on 2026-07-13. The compiler now resolves absolute, beat-start
 
 The corrected 720×1280 proof contains exactly 300 H.264/yuv420p frames at 30 fps. It rendered in 14.701 seconds with 160 MiB peak renderer memory. All declared technical, diversity, safe-zone, clipping, semantic-timing, alignment-sensitivity, and morph checks passed. Active morph energy was 0.006095 versus 0.000231 during the readability hold. Sampled stasis was 13.79%, which passes the current 15% bound but is too close to treat the threshold as calibrated.
 
-This result keeps HyperFrames approved for benchmark work, not as the production default. The existing SVG keyframe renderer remains unchanged. The next bounded slice should add pixel/OCR clipping checks, jerk and continuity metrics, external-request instrumentation, and adversarial timing fixtures before expanding the remaining template families. A browser-level reverse-seek integration test should supplement the deterministic primitive-state proof, and motion thresholds must be calibrated across at least ten fixtures. The lower caption reserve also needs compositional refinement so it remains safe without looking visually empty.
+The Slice C2 proof repeated the complete render twice. The runs completed in 15.495 and 17.085 seconds with 148 and 161 MiB peak memory. Their `TimingContext`, `AnimationIR`, composition, decoded checkpoint, browser random-seek, technical metadata, and MP4 hashes matched. Frames 27, 76, 209, 241, and 291 were each captured twice after out-of-order seeks in a single page load and matched exactly. The valid proof browser observed zero external requests; an injected remote image request was observed and blocked one-for-one. Thirteen malformed timing cases failed before a render attempt and created no partial MP4 artifact.
+
+This result keeps HyperFrames approved for benchmark work, not as the production default. The existing SVG keyframe renderer remains unchanged. The next bounded slice should add pixel/OCR clipping checks plus jerk, continuity, and object-persistence metrics before expanding the remaining template families. Motion thresholds must still be calibrated across at least ten content fixtures. Network counters currently come from the separate proof browser loading the exact compiled composition; the internal HyperFrames capture browser is constrained by CSP and contains no remote assets, but its package API does not yet expose equivalent request telemetry. The lower caption reserve also needs compositional refinement so it remains safe without looking visually empty.
 
 ## Primary references
 
