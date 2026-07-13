@@ -14,6 +14,10 @@ function mockBrowser() {
     setContent: async () => { loads += 1; listeners.get("load")?.(); },
     setBypassCSP: async () => {},
     evaluate: async (fn, input) => {
+      if (!input && String(fn).includes("createElement")) {
+        listeners.get("request")?.({ url: () => "https://probe.invalid/image.png", resourceType: () => "image", abort: async () => {}, continue: async () => {} });
+        return undefined;
+      }
       if (!input) return { timelineCount: 1, animationCount: 0, compositionCount: 2 };
       renderedFrame = input.requestedFrame;
       return renderedFrame;
@@ -59,4 +63,17 @@ test("browser harness rejects invalid sequences before browser launch", async ()
     { code: "BROWSER_SEEK_SEQUENCE_INVALID" },
   );
   assert.equal(launched, false);
+});
+
+test("browser harness blocks and safely summarizes an injected external request", async () => {
+  const fixture = mockBrowser();
+  await assert.rejects(
+    runBrowserSeekProof({ html, width: 720, height: 1280, fps: 30, durationFrames: 300, chromePath: "/mock/chrome", seekSequence: [0, 1], remoteProbe: true }, { launch: async () => fixture.browser }),
+    (error) => {
+      assert.equal(error.code, "BROWSER_EXTERNAL_REQUEST_BLOCKED");
+      assert.deepEqual(error.details, { externalRequestCount: 1, blockedExternalRequestCount: 1, resourceClasses: [{ resourceClass: "image", count: 1 }] });
+      assert.doesNotMatch(JSON.stringify(error.details), /https|probe|url|header|cookie/i);
+      return true;
+    },
+  );
 });
