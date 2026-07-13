@@ -13,6 +13,8 @@ function mockBrowser() {
   const listeners = new Map();
   let renderedFrame = 0;
   let loads = 0;
+  let paintBarrierObserved = false;
+  let screenshotCount = 0;
   const page = {
     setViewport: async () => {},
     setDefaultTimeout: () => {},
@@ -27,12 +29,16 @@ function mockBrowser() {
         return undefined;
       }
       if (!input) return { timelineCount: 1, animationCount: 0, compositionCount: 2 };
+      paintBarrierObserved ||= String(fn).includes("requestAnimationFrame");
       renderedFrame = input.requestedFrame;
+      if (String(fn).includes("return Number(document.documentElement.dataset.renderedFrame)")) return renderedFrame;
       return { renderedFrame, geometry: geometry() };
     },
-    screenshot: async () => Buffer.from(`pixels:${renderedFrame}`),
+    screenshot: async () => { screenshotCount += 1; return Buffer.from(`pixels:${renderedFrame}`); },
     close: async () => {},
     get loads() { return loads; },
+    get paintBarrierObserved() { return paintBarrierObserved; },
+    get screenshotCount() { return screenshotCount; },
   };
   return { browser: { newPage: async () => page, close: async () => {} }, page, listeners };
 }
@@ -57,6 +63,8 @@ test("browser harness loads once and hashes N-M-N pixels without accumulated sta
   const result = await runBrowserSeekProof({ html, width: 720, height: 1280, fps: 30, durationFrames: 300, chromePath: "/mock/chrome", seekSequence: [27, 209, 27, 291, 0, 291] }, { launch: async () => fixture.browser });
   assert.equal(result.loadedOnce, true);
   assert.equal(fixture.page.loads, 1);
+  assert.equal(fixture.page.paintBarrierObserved, true);
+  assert.equal(fixture.page.screenshotCount, 8);
   assert.deepEqual(result.repeatedFrames.map((entry) => [entry.frame, entry.equal]), [[27, true], [291, true]]);
   assert.equal(result.captures[0].sha256, result.captures[2].sha256);
   assert.equal(result.captures[3].sha256, result.captures[5].sha256);

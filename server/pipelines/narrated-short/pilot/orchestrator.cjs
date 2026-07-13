@@ -10,6 +10,14 @@ const { persistPilotReport, readLatestPilotReport } = require("./report-store.cj
 function sha256(buffer) { return createHash("sha256").update(buffer).digest("hex"); }
 function emptyEvidence() { return { approvedDraft: null, narrationManifest: null, narrationAudio: null, narrationAlignment: null, preview: null, final: null, qa: null, contactSheet: null, rightsManifest: null, provenanceReport: null, exportMetadata: null }; }
 function safeFailure(error, stage) { const code = String(error && error.code || "PILOT_FAILED").replace(/[^A-Z0-9_]/g, "_").slice(0, 80) || "PILOT_FAILED"; const nextAction = String(error && error.details && error.details.nextAction || "inspect-pilot-readiness-and-safe-error-code").replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 120); return { stage, code, nextAction }; }
+function progressEmitter(callback, startedMs, now) {
+  return (event, stage = null, completedStageCount = 0, metadata = {}) => {
+    if (typeof callback !== "function") return;
+    const code = metadata.code ? String(metadata.code).replace(/[^A-Z0-9_]/gi, "_").toUpperCase().slice(0, 80) : null;
+    const field = metadata.field ? String(metadata.field).replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 120) : null;
+    try { callback(Object.freeze({ event, stage, completedStageCount, elapsedMs: Math.max(0, now().getTime() - startedMs), code, field })); } catch { /* progress reporting is non-blocking */ }
+  };
+}
 
 function reportInput({ runId, status, fixtureId, fixtureHash, readiness, machine, evidence, context, failure, startedAt, startedMs, now }) {
   const completedAt = now().toISOString();
@@ -25,10 +33,13 @@ function verifyReplay(report, input) {
 
 async function runPilotWorkflow(options = {}, dependencies = {}) {
   const now = dependencies.now || (() => new Date()); const started = now(); const startedAt = started.toISOString(); const startedMs = started.getTime();
+  const emitProgress = progressEmitter(dependencies.onProgress, startedMs, now);
   const fixtureBuffer = readFileSync(options.fixturePath); const fixture = normalizeDraftBundle(JSON.parse(fixtureBuffer.toString("utf8"))); const fixtureHash = fixture.contentHash; const fixtureId = basename(options.fixturePath);
   const audioHash = options.audioPath ? sha256(readFileSync(options.audioPath)) : null;
   const runId = pilotRunId({ fixtureHash, audioHash, renderProfile: options.renderProfile, operatorId: options.operatorId });
+  emitProgress("readiness_started");
   const readiness = await (dependencies.pilotReadiness || pilotReadiness)({ fixtureValid: true, audioPath: options.audioPath, rightsConfirmed: options.rightsConfirmed, reportOnly: options.reportOnly }, dependencies);
+  emitProgress("readiness_completed");
   const machine = new PilotStateMachine(); const evidence = emptyEvidence(); const context = { fixture, fixtureHash, audioHash, runId, signal: null };
   machine.transition("fixture_validated");
   if (options.reportOnly) {
@@ -48,19 +59,21 @@ async function runPilotWorkflow(options = {}, dependencies = {}) {
   const latest = (dependencies.readLatestPilotReport || readLatestPilotReport)(options.outputDir);
   if (latest && latest.runId === runId && latest.status === "failed") throw new AppError("PILOT_CHECKPOINT_INVALID", SAFE_MESSAGES.PILOT_CHECKPOINT_INVALID, 409, { nextAction: "inspect-failed-run-before-retry" });
   const replay = verifyReplay(latest, { runId, fixtureHash, verifyCompletedReport: dependencies.verifyCompletedReport });
-  if (replay) return { report: replay, replayed: true, exitCode: 0 };
+  if (replay) { emitProgress("workflow_replayed", "pilot_complete", replay.completedStages.length); return { report: replay, replayed: true, exitCode: 0 }; }
   if (typeof dependencies.executeStage !== "function") throw new AppError("PIPELINE_HANDLER_UNAVAILABLE", "The pilot execution runtime is unavailable.", 503);
   const controller = new AbortController(); context.signal = controller.signal;
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs); let currentStage = "project_created";
   try {
     for (const stage of PILOT_STAGES.slice(1)) {
       currentStage = stage;
+      emitProgress("stage_started", stage, machine.completed.length);
       const result = await dependencies.executeStage(stage, context);
       if (result && typeof result === "object") {
         if (result.context) Object.assign(context, result.context);
         if (result.evidence) Object.assign(evidence, result.evidence);
       }
       machine.transition(stage);
+      emitProgress("stage_completed", stage, machine.completed.length);
     }
     const report = normalizePilotReport(reportInput({ runId, status: "complete", fixtureId, fixtureHash, readiness, machine, evidence, context, failure: null, startedAt, startedMs, now }));
     return { report: (dependencies.persistPilotReport || persistPilotReport)(report, options.outputDir), replayed: false, exitCode: 0 };
@@ -68,9 +81,10 @@ async function runPilotWorkflow(options = {}, dependencies = {}) {
     try { machine.fail(); } catch { /* retain original failure */ }
     if (typeof dependencies.cleanup === "function") await dependencies.cleanup(context, error);
     const failure = controller.signal.aborted ? { stage: currentStage, code: "JOB_CANCELLED", nextAction: "increase-timeout-or-fix-blocked-stage" } : safeFailure(error, currentStage);
+    emitProgress("workflow_failed", currentStage, machine.completed.length, { code: error && error.code, field: error && error.details && error.details.field });
     const report = normalizePilotReport(reportInput({ runId, status: "failed", fixtureId, fixtureHash, readiness, machine, evidence, context, failure, startedAt, startedMs, now }));
     return { report: (dependencies.persistPilotReport || persistPilotReport)(report, options.outputDir), replayed: false, exitCode: 1 };
   } finally { clearTimeout(timeout); }
 }
 
-module.exports = { runPilotWorkflow };
+module.exports = { progressEmitter, runPilotWorkflow };

@@ -73,6 +73,7 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#02040b}*{b
  <pattern id="grid-pattern" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" class="grid-line" opacity=".48"/></pattern>
 </defs>
 <rect width="720" height="1280" fill="url(#bg)"/>
+<rect id="ambient-wash" width="720" height="1280" fill="#0e7490" opacity=".025"/>
 <g id="ambient-stars" class="stars" opacity=".18" data-qa-layer="ambient">${stars}</g>
 <rect x="36" y="180" width="648" height="740" fill="none" data-semantic-roi="true" pointer-events="none"/>
 <g id="header" data-entity-id="explanation_header" data-caption-policy="avoid"><text x="54" y="70" fill="#67e8f9" class="kicker">${escapeXml(content.kicker)}</text>${titleLines}</g>
@@ -118,9 +119,8 @@ const morphPath=(value)=>DATA.morph.source.map((point,index)=>{const target=DATA
 const scaleAround=(scale)=>"translate("+(360*(1-scale)).toFixed(3)+" "+(515*(1-scale)).toFixed(3)+") scale("+scale.toFixed(5)+")";
 function renderFrame(rawFrame){
  const frame=Math.max(0,Math.min(DATA.durationFrames-1,Math.floor(rawFrame+1e-7)));
- const ambientX=2.8*Math.sin(frame*.037),ambientY=2.1*Math.cos(frame*.029),ambientOpacity=.88+.09*Math.sin(frame*.051);byId("ambient-grid-layer").setAttribute("transform","translate("+ambientX.toFixed(3)+" "+ambientY.toFixed(3)+")");byId("ambient-grid-layer").setAttribute("opacity",ambientOpacity.toFixed(4));byId("ambient-stars").setAttribute("transform","translate("+(1.8*Math.sin(frame*.023)).toFixed(3)+" "+(1.4*Math.cos(frame*.031)).toFixed(3)+")");byId("ambient-stars").setAttribute("opacity",(.16+.055*(1+Math.sin(frame*.043))).toFixed(4));
+ byId("ambient-wash").setAttribute("opacity",(.015+.035*(1+Math.sin(frame*.11))).toFixed(4));byId("ambient-stars").setAttribute("transform","translate("+(1.8*Math.sin(frame*.023)).toFixed(3)+" "+(1.4*Math.cos(frame*.031)).toFixed(3)+")");byId("ambient-stars").setAttribute("opacity",(.16+.055*(1+Math.sin(frame*.043))).toFixed(4));
  const gridCreate=progress(frame,"create:signal_grid"),transition=progress(frame,"transition_match:evidence_node");
- byId("grid-group").setAttribute("opacity",((.20+.80*gridCreate)*(1-.72*transition)).toFixed(4));
  const sweepX=74+572*gridCreate;byId("scan-sweep").setAttribute("opacity",((1-gridCreate)*(1-.8*transition)).toFixed(4));byId("sweep-line").setAttribute("x1",sweepX.toFixed(3));byId("sweep-line").setAttribute("x2",sweepX.toFixed(3));byId("sweep-dot").setAttribute("cx",sweepX.toFixed(3));
  const draw=progress(frame,"draw_path:signal_wave");byId("wave").style.strokeDashoffset=String(1000*(1-draw));byId("wave-glow").setAttribute("opacity",(.16*draw*(1-.55*transition)).toFixed(4));
  const measure=progress(frame,"pulse:signal_pulse"),pulse=pulseEnvelope(frame,"pulse:signal_pulse");byId("frequency-label").setAttribute("opacity",measure.toFixed(4));byId("duration-bracket").setAttribute("opacity",measure.toFixed(4));byId("duration-line").style.strokeDashoffset=String(372*(1-measure));byId("duration-cursor").setAttribute("cx",String(174+372*measure));

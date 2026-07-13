@@ -5,7 +5,7 @@ const { normalizeAnimationTimingContext } = require("./timing-contract.cjs");
 
 const PRODUCTION_PROVIDER_ID = "hyperframes_local";
 const PRODUCTION_RUNTIME_VERSION = "0.7.55";
-const PRODUCTION_STYLE_VERSION = "1.3.0";
+const PRODUCTION_STYLE_VERSION = "1.3.2";
 const TEMPLATE_VERSION = "1.2.0";
 const OUTFIT_FONT_SHA256 = "8cfe15c2c6de6ef8efff3eedbd52a383ac9ef23d6c23f6cd9f9b838f5f37dc36";
 
@@ -77,7 +77,13 @@ function buildProductionAnimationPlan(input = {}) {
     timelineLabels: ["hook", "context", "evidence", "turn", "payoff"].map((role) => role.toUpperCase()),
   };
   const assetManifestHash = contentHash({ grammar: "dark_curiosity_continuous_v1", storyboardHash: draft.storyboard.contentHash, outfitFontSha256: OUTFIT_FONT_SHA256 });
-  const seed = Number.parseInt(contentHash({ draftHash: draft.contentHash, alignmentHash: timing.alignmentHash }).slice(0, 8), 16) >>> 0;
+  const seed = Number.parseInt(contentHash({
+    draftHash: draft.contentHash,
+    fps: timing.fps,
+    durationFrames: timing.durationFrames,
+    words: timing.words,
+    beats: timing.beats,
+  }).slice(0, 8), 16) >>> 0;
   const dimensions = input.renderProfile === "final" ? { width: 1080, height: 1920 } : { width: 720, height: 1280 };
 
   const plan = {

@@ -41,6 +41,12 @@ function repeatedFrameResults(captures) {
   return [...grouped.entries()].filter(([, hashes]) => hashes.length > 1).map(([frame, hashes]) => Object.freeze({ frame, occurrences: hashes.length, sha256: hashes[0], equal: hashes.every((hash) => hash === hashes[0]) }));
 }
 
+function repeatedSeekFrames(sequence) {
+  const counts = new Map();
+  for (const frame of sequence) counts.set(frame, (counts.get(frame) || 0) + 1);
+  return [...counts.entries()].filter(([, count]) => count > 1).map(([frame]) => frame).sort((a, b) => a - b);
+}
+
 function checkedRect(value, field) {
   if (!value || ![value.x, value.y, value.width, value.height].every(Number.isFinite) || value.width <= 0 || value.height <= 0) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID", { field });
   return roundedRect(value);
@@ -91,7 +97,7 @@ export async function runBrowserSeekProof(input, dependencies = {}) {
       headless: true,
       timeout: Math.min(request.timeoutMs, 15_000),
       protocolTimeout: request.timeoutMs,
-      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-background-networking", "--disable-default-apps", "--disable-sync", "--metrics-recording-only", "--no-first-run", "--host-resolver-rules=MAP * ~NOTFOUND"],
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu", "--disable-lcd-text", "--font-render-hinting=none", "--force-color-profile=srgb", "--disable-background-networking", "--disable-default-apps", "--disable-sync", "--metrics-recording-only", "--no-first-run", "--host-resolver-rules=MAP * ~NOTFOUND"],
     });
     stage = "new_page";
     page = await browser.newPage();
@@ -135,14 +141,29 @@ export async function runBrowserSeekProof(input, dependencies = {}) {
         resourceClasses: [...resourceCounts.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([resourceClass, count]) => ({ resourceClass, count })),
       });
     }
+    stage = "seek_warmup";
+    for (const frame of repeatedSeekFrames(request.seekSequence)) {
+      const renderedFrame = await page.evaluate(async ({ requestedFrame, fps }) => {
+        const timeline = Object.values(window.__timelines || {})[0];
+        if (!timeline || typeof timeline.seek !== "function") return -1;
+        timeline.seek(requestedFrame / fps);
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        document.documentElement.getBoundingClientRect();
+        return Number(document.documentElement.dataset.renderedFrame);
+      }, { requestedFrame: frame, fps: request.fps });
+      if (renderedFrame !== frame) throw new BrowserSeekError("BROWSER_SEEK_FRAME_MISMATCH");
+      await page.screenshot({ type: "png", captureBeyondViewport: false, clip: { x: 0, y: 0, width: request.width, height: request.height } });
+    }
     const captures = [], geometrySnapshots = [];
     stage = "seek_capture";
     for (let index = 0; index < request.seekSequence.length; index += 1) {
       const frame = request.seekSequence[index];
-      const result = await page.evaluate(({ requestedFrame, fps }) => {
+      const result = await page.evaluate(async ({ requestedFrame, fps }) => {
         const timeline = Object.values(window.__timelines || {})[0];
         if (!timeline || typeof timeline.seek !== "function") return { renderedFrame: -1, geometry: null };
         timeline.seek(requestedFrame / fps);
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        document.documentElement.getBoundingClientRect();
         const rect = (element) => {
           if (!element) return null;
           const value = element.getBoundingClientRect();
@@ -178,7 +199,13 @@ export async function runBrowserSeekProof(input, dependencies = {}) {
       captures.push(Object.freeze({ sequenceIndex: index, frame, sha256: hash }));
     }
     const repeatedFrames = repeatedFrameResults(captures);
-    if (!repeatedFrames.length || repeatedFrames.some((entry) => !entry.equal)) throw new BrowserSeekError("BROWSER_RANDOM_ACCESS_NONDETERMINISTIC");
+    if (!repeatedFrames.length || repeatedFrames.some((entry) => !entry.equal)) {
+      const mismatches = repeatedFrames.filter((entry) => !entry.equal).map((entry) => ({
+        frame: entry.frame,
+        hashes: captures.filter((capture) => capture.frame === entry.frame).map((capture) => capture.sha256),
+      }));
+      throw new BrowserSeekError("BROWSER_RANDOM_ACCESS_NONDETERMINISTIC", { mismatches });
+    }
     if (counters.externalRequestCount !== 0 || counters.blockedExternalRequestCount !== 0) throw new BrowserSeekError("BROWSER_EXTERNAL_REQUEST_BLOCKED");
     stage = "geometry_audit";
     const geometryAudit = validateGeometrySnapshots(geometrySnapshots, request.width, request.height);

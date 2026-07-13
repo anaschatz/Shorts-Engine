@@ -100,7 +100,7 @@ function normalizeNarratedJobPayload(payload = {}, action) {
       normalized.animationProvider = sanitizeText(payload.animationProvider, 80).toLowerCase();
       normalized.animationRuntimeVersion = sanitizeText(payload.animationRuntimeVersion, 24).toLowerCase();
       normalized.animationStyleVersion = sanitizeText(payload.animationStyleVersion, 24).toLowerCase();
-      if (normalized.animationProvider !== "hyperframes_local" || normalized.animationRuntimeVersion !== "0.7.55" || normalized.animationStyleVersion !== "1.3.0") throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "animationVersion" });
+      if (normalized.animationProvider !== "hyperframes_local" || normalized.animationRuntimeVersion !== "0.7.55" || normalized.animationStyleVersion !== "1.3.2") throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "animationVersion" });
     }
     if (normalized.captionRendererVersion !== "ass_caption_v1" || normalized.captionProfileVersion !== "1.0.0" || normalized.audioNormalizationProfileVersion !== "1.0.0" || normalized.compositorVersion !== "narrated_compositor_v2" || normalized.qaProfileVersion !== "1.1.0" || normalized.evidenceProfileVersion !== "1.0.0") {
       throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "renderVersion" });

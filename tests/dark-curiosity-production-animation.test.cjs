@@ -46,7 +46,12 @@ test("production plan and AnimationIR are deterministic and data-bound", () => {
   const input = { draft: value.draft, timingContext: value.timingContext, projectId: value.projectId, projectRevision: 1, renderProfile: "preview" };
   const first = compileProductionAnimation(input);
   const second = compileProductionAnimation(input);
+  const independent = productionFixture();
+  const independentPlan = compileProductionAnimation({ draft: independent.draft, timingContext: independent.timingContext, projectId: independent.projectId, projectRevision: 1, renderProfile: "preview" });
   assert.equal(first.animationIR.contentHash, second.animationIR.contentHash);
+  assert.notEqual(value.projectId, independent.projectId);
+  assert.notEqual(value.alignment.contentHash, independent.alignment.contentHash);
+  assert.equal(first.animationIR.seed, independentPlan.animationIR.seed);
   assert.equal(first.animationIR.timingBinding.timingContextHash, value.timingContext.contentHash);
   assert.equal(first.animationIR.durationFrames, value.alignment.durationFrames);
   assert.equal(first.animationIR.renderer.provider, "hyperframes_local");
