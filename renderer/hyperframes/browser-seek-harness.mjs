@@ -71,6 +71,7 @@ export async function runBrowserSeekProof(input, dependencies = {}) {
       } else networkRequest.continue().catch(() => {});
     });
     page.on("load", () => { pageLoadCount += 1; });
+    if (input.remoteProbe === true) await page.setBypassCSP(true);
     await page.setContent(request.html, { waitUntil: "load", timeout: 15_000 });
     const runtime = await page.evaluate(() => ({
       timelineCount: Object.keys(window.__timelines || {}).length,
@@ -79,7 +80,6 @@ export async function runBrowserSeekProof(input, dependencies = {}) {
     }));
     if (runtime.timelineCount !== 1 || runtime.animationCount !== 0 || runtime.compositionCount < 1) throw new BrowserSeekError("BROWSER_RUNTIME_ISOLATION_INVALID");
     if (input.remoteProbe === true) {
-      await page.setBypassCSP(true);
       await page.evaluate(() => {
         const probe = document.createElement("img");
         probe.alt = "";
