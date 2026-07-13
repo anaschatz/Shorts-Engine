@@ -23,4 +23,12 @@ function bindAnimationTiming(input, timingInput = null) {
   return plan;
 }
 
-module.exports = { bindAnimationTiming };
+function validateAnimationTimingBinding(animationIR, timingInput) {
+  const timing = normalizeAnimationTimingContext(timingInput);
+  if (!animationIR || animationIR.fps !== timing.fps || animationIR.durationFrames !== timing.durationFrames || animationIR.alignmentHash !== timing.alignmentHash || animationIR.draftHash !== timing.draftHash || animationIR.timingBinding?.timingContextHash !== timing.contentHash) {
+    throw new AppError("ANIMATION_TIMING_BINDING_MISMATCH", "Animation timing does not match the approved plan.", 409);
+  }
+  return Object.freeze({ valid: true, timingContextHash: timing.contentHash });
+}
+
+module.exports = { bindAnimationTiming, validateAnimationTimingBinding };
