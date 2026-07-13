@@ -9,6 +9,8 @@ function mockBrowser() {
   let loads = 0;
   const page = {
     setViewport: async () => {},
+    setDefaultTimeout: () => {},
+    setDefaultNavigationTimeout: () => {},
     setRequestInterception: async () => {},
     on: (event, handler) => { listeners.set(event, handler); },
     setContent: async () => { loads += 1; listeners.get("load")?.(); },
@@ -63,6 +65,18 @@ test("browser harness rejects invalid sequences before browser launch", async ()
     { code: "BROWSER_SEEK_SEQUENCE_INVALID" },
   );
   assert.equal(launched, false);
+  await assert.rejects(
+    runBrowserSeekProof({ html, width: 720, height: 1280, fps: 30, durationFrames: 300, chromePath: "/mock/chrome", seekSequence: [0, 1], timeoutMs: 100 }, { launch: async () => { launched = true; } }),
+    { code: "BROWSER_SEEK_TIMEOUT_INVALID" },
+  );
+  assert.equal(launched, false);
+});
+
+test("browser launch failures are reduced to a stable safe code", async () => {
+  await assert.rejects(
+    runBrowserSeekProof({ html, width: 720, height: 1280, fps: 30, durationFrames: 300, chromePath: "/mock/chrome", seekSequence: [0, 1] }, { launch: async () => { throw new Error("/Users/private raw browser output"); } }),
+    (error) => error.code === "BROWSER_SEEK_RUNTIME_FAILED" && !JSON.stringify(error).includes("/Users"),
+  );
 });
 
 test("browser harness blocks and safely summarizes an injected external request", async () => {

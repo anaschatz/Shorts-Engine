@@ -21,10 +21,12 @@ const safeClass = (value) => RESOURCE_CLASSES.has(value) ? value : "other";
 function validateRequest(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new BrowserSeekError("BROWSER_SEEK_REQUEST_INVALID");
   const { html, width, height, fps, durationFrames, seekSequence, chromePath } = input;
+  const timeoutMs = input.timeoutMs === undefined ? 30_000 : input.timeoutMs;
   if (typeof chromePath !== "string" || !chromePath || typeof html !== "string") throw new BrowserSeekError("BROWSER_SEEK_REQUEST_INVALID");
   if (![width, height, fps, durationFrames].every(Number.isInteger) || width < 360 || width > 2160 || height < 640 || height > 3840 || fps < 24 || fps > 60 || durationFrames < 30 || durationFrames > 3600) throw new BrowserSeekError("BROWSER_SEEK_REQUEST_INVALID");
   if (!Array.isArray(seekSequence) || seekSequence.length < 2 || seekSequence.length > 40 || seekSequence.some((frame) => !Number.isInteger(frame) || frame < 0 || frame >= durationFrames)) throw new BrowserSeekError("BROWSER_SEEK_SEQUENCE_INVALID");
-  return { html, width, height, fps, durationFrames, seekSequence, chromePath };
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 5_000 || timeoutMs > 120_000) throw new BrowserSeekError("BROWSER_SEEK_TIMEOUT_INVALID");
+  return { html, width, height, fps, durationFrames, seekSequence, chromePath, timeoutMs };
 }
 
 function repeatedFrameResults(captures) {
@@ -46,17 +48,21 @@ export async function runBrowserSeekProof(input, dependencies = {}) {
   const request = validateRequest(input);
   const isolation = validateCompositionIsolation(request.html);
   const launch = dependencies.launch || ((options) => puppeteer.launch(options));
-  const browser = await launch({
-    executablePath: request.chromePath,
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-background-networking", "--disable-default-apps", "--disable-sync", "--metrics-recording-only", "--no-first-run"],
-  });
-  let page;
+  let browser, page;
   const counters = { externalRequestCount: 0, blockedExternalRequestCount: 0 };
   const resourceCounts = new Map();
   let pageLoadCount = 0;
   try {
+    browser = await launch({
+      executablePath: request.chromePath,
+      headless: true,
+      timeout: Math.min(request.timeoutMs, 15_000),
+      protocolTimeout: request.timeoutMs,
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-background-networking", "--disable-default-apps", "--disable-sync", "--metrics-recording-only", "--no-first-run", "--host-resolver-rules=MAP * ~NOTFOUND"],
+    });
     page = await browser.newPage();
+    page.setDefaultTimeout(request.timeoutMs);
+    page.setDefaultNavigationTimeout(request.timeoutMs);
     await page.setViewport({ width: request.width, height: request.height, deviceScaleFactor: 1 });
     await page.setRequestInterception(true);
     page.on("request", (networkRequest) => {
@@ -72,7 +78,7 @@ export async function runBrowserSeekProof(input, dependencies = {}) {
     });
     page.on("load", () => { pageLoadCount += 1; });
     if (input.remoteProbe === true) await page.setBypassCSP(true);
-    await page.setContent(request.html, { waitUntil: "load", timeout: 15_000 });
+    await page.setContent(request.html, { waitUntil: "load", timeout: Math.min(request.timeoutMs, 15_000) });
     const runtime = await page.evaluate(() => ({
       timelineCount: Object.keys(window.__timelines || {}).length,
       animationCount: document.getAnimations().length,
@@ -129,6 +135,6 @@ export async function runBrowserSeekProof(input, dependencies = {}) {
     throw new BrowserSeekError("BROWSER_SEEK_RUNTIME_FAILED");
   } finally {
     await page?.close().catch(() => {});
-    await browser.close().catch(() => {});
+    await browser?.close().catch(() => {});
   }
 }
