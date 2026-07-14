@@ -10,6 +10,8 @@ const { createAlignment, scriptWords } = require("../server/pipelines/narrated-s
 const { buildProductionTimingContext } = require("../server/pipelines/narrated-short/animation/timing-context-builder.cjs");
 const { buildProductionAnimationPlan, compileProductionAnimation } = require("../server/pipelines/narrated-short/animation/production-plan-compiler.cjs");
 const { runProductionAnimationRender } = require("../server/pipelines/narrated-short/animation/render-service.cjs");
+const { safeSeekSequence } = require("../server/pipelines/narrated-short/animation/render-service.cjs");
+const { validateSemanticNarrative } = require("../server/pipelines/narrated-short/animation/semantic-narrative.cjs");
 const { contentHash } = require("../server/pipelines/narrated-short/contracts.cjs");
 
 const FIXTURE = resolve(__dirname, "..", "eval", "narrated", "dark-curiosity", "fixtures", "001_wow_signal_mystery.json");
@@ -52,11 +54,92 @@ test("production plan and AnimationIR are deterministic and data-bound", () => {
   assert.notEqual(value.projectId, independent.projectId);
   assert.notEqual(value.alignment.contentHash, independent.alignment.contentHash);
   assert.equal(first.animationIR.seed, independentPlan.animationIR.seed);
+  assert.deepEqual(first.animationIR.scenes.map((scene) => scene.id), ["scene_hook", "scene_context", "scene_evidence", "scene_turn", "scene_payoff"]);
+  assert.deepEqual(first.animationIR.scenes.map((scene) => scene.template), ["wow_observation_v1", "frequency_duration_v1", "telescope_beam_v1", "repeat_search_v1", "evidence_payoff_v1"]);
+  assert.deepEqual(first.animationIR.scenes.map((scene) => scene.semantic.role), ["hook", "context", "evidence", "turn", "payoff"]);
+  const operations = new Map(first.animationIR.scenes.flatMap((scene) => scene.operations).map((operation) => [`${operation.op}:${operation.targetId}`, operation]));
+  assert.deepEqual([operations.get("highlight:wow_annotation").from.wordIndex, operations.get("highlight:wow_annotation").to.wordIndex], [11, 14]);
+  assert.deepEqual([operations.get("pulse:duration_timer").from.wordIndex, operations.get("pulse:duration_timer").to.wordIndex], [27, 29]);
+  assert.deepEqual([operations.get("trace_signal:evidence_trace").from.wordIndex, operations.get("trace_signal:evidence_trace").to.wordIndex], [31, 41]);
+  assert.deepEqual([operations.get("highlight:no_repeat_label").from.wordIndex, operations.get("highlight:no_repeat_label").to.wordIndex], [51, 56]);
+  assert.deepEqual([operations.get("highlight:final_evidence_label").from.wordIndex, operations.get("highlight:final_evidence_label").to.wordIndex], [78, 80]);
+  assert.deepEqual(validateSemanticNarrative(first.animationIR), { valid: true, mode: "semantic", beatCount: 5, cueCount: 17 });
+  const seekSequence = safeSeekSequence(first.animationIR);
+  for (const scene of first.animationIR.scenes) assert.ok(seekSequence.includes(Math.floor((scene.startFrame + scene.endFrame - 1) / 2)));
+  assert.ok(seekSequence.length <= 40);
   assert.equal(first.animationIR.timingBinding.timingContextHash, value.timingContext.contentHash);
   assert.equal(first.animationIR.durationFrames, value.alignment.durationFrames);
   assert.equal(first.animationIR.renderer.provider, "hyperframes_local");
+  assert.equal(first.animationIR.content.semantic.profileId, "wow_signal_case_v1");
+  assert.equal(first.animationIR.content.semantic.eventYearLabel, "1977");
+  assert.equal(first.animationIR.content.semantic.sourceLabel, "PROMISING COMMUNICATION BAND");
   assert.equal(first.animationIR.content.metricValue, "72");
   assert.deepEqual(first.animationIR.content.payoffLines, ["UNEXPLAINED IS NOT PROOF"]);
+});
+
+test("semantic production profile fails closed on missing narration cues and metadata", () => {
+  const value = productionFixture();
+  const missingCue = structuredClone(value.timingContext);
+  delete missingCue.contentHash;
+  missingCue.words[14].text = "Different";
+  assert.throws(() => buildProductionAnimationPlan({ draft: value.draft, timingContext: missingCue, projectId: value.projectId, projectRevision: 1, renderProfile: "preview" }), { code: "ANIMATION_TEMPLATE_INVALID" });
+  const compiled = structuredClone(compileProductionAnimation({ draft: value.draft, timingContext: value.timingContext, projectId: value.projectId, projectRevision: 1, renderProfile: "preview" }).animationIR);
+  delete compiled.scenes[2].operations[0].visualStatement;
+  assert.throws(() => validateSemanticNarrative(compiled), { code: "ANIMATION_SEMANTIC_INVALID" });
+
+  const uncoveredClaim = structuredClone(compileProductionAnimation({ draft: value.draft, timingContext: value.timingContext, projectId: value.projectId, projectRevision: 1, renderProfile: "preview" }).animationIR);
+  uncoveredClaim.scenes[2].semantic.claimIds.push("claim_uncovered");
+  assert.throws(() => validateSemanticNarrative(uncoveredClaim), { code: "ANIMATION_SEMANTIC_INVALID" });
+
+  const futureCarry = structuredClone(compileProductionAnimation({ draft: value.draft, timingContext: value.timingContext, projectId: value.projectId, projectRevision: 1, renderProfile: "preview" }).animationIR);
+  futureCarry.scenes[2].operations.find((operation) => operation.targetId === "evidence_trace").carryPolicy = "clear_at_scene_end";
+  futureCarry.scenes[3].operations.find((operation) => operation.targetId === "evidence_trace").carryPolicy = "carry_to_next";
+  assert.throws(() => validateSemanticNarrative(futureCarry), { code: "ANIMATION_SEMANTIC_INVALID" });
+
+  const legacyWithSemanticVersion = structuredClone(compiled);
+  legacyWithSemanticVersion.scenes.forEach((scene) => { scene.template = "signal_lab_v1"; });
+  delete legacyWithSemanticVersion.content.semantic;
+  assert.throws(() => validateSemanticNarrative(legacyWithSemanticVersion), { code: "ANIMATION_SEMANTIC_INVALID" });
+});
+
+test("semantic renderer exposes five story stages, genuine carry morphing, and no editorial pipeline labels", async () => {
+  const value = productionFixture();
+  const ir = compileProductionAnimation({ draft: value.draft, timingContext: value.timingContext, projectId: value.projectId, projectRevision: 1, renderProfile: "preview" }).animationIR;
+  const { compileAnimationIRToHtml, semanticEvidenceMorphPath } = await import("../renderer/hyperframes/animation-ir-adapter.mjs");
+  const html = compileAnimationIRToHtml(ir).html;
+  for (const id of ["stage-hook", "stage-context", "stage-evidence", "stage-turn", "stage-payoff"]) assert.match(html, new RegExp(`id="${id}"`));
+  for (const cue of ["wow_annotation", "duration_72_seconds", "beam_signal_trace", "no_verified_repeat", "no_repeatable_proof"]) assert.match(html, new RegExp(`data-semantic-cue-id="${cue}"`));
+  assert.match(html, /id="evidence-carry-morph"/);
+  const source = semanticEvidenceMorphPath(0);
+  const midpoint = semanticEvidenceMorphPath(0.5);
+  const target = semanticEvidenceMorphPath(1);
+  assert.notEqual(midpoint, source);
+  assert.notEqual(midpoint, target);
+  assert.equal(midpoint, semanticEvidenceMorphPath(0.5));
+  assert.match(html, new RegExp(`id="signal-strength-curve" d="${source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
+  assert.match(html, new RegExp(`id="single-signal-spike" d="${target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
+  const changedYear = structuredClone(ir);
+  changedYear.content.semantic.eventYearLabel = "1984";
+  assert.match(compileAnimationIRToHtml(changedYear).html, /class="small-label">1984<\/text>/);
+  assert.doesNotMatch(html, />\s*(?:HOOK|CONTEXT|EVIDENCE|TURN|PAYOFF)\s*</);
+});
+
+test("browser seek sampling is hard-capped while retaining every scene midpoint", () => {
+  const durationFrames = 1200;
+  const scenes = Array.from({ length: 12 }, (_, sceneIndex) => {
+    const startFrame = sceneIndex * 100;
+    return {
+      startFrame,
+      endFrame: startFrame + 100,
+      operations: Array.from({ length: 40 }, (_, operationIndex) => ({
+        from: { resolvedFrame: startFrame + operationIndex },
+        to: { resolvedFrame: startFrame + operationIndex + 2 },
+      })),
+    };
+  });
+  const sequence = safeSeekSequence({ durationFrames, profileVersion: "1.0.0", content: {}, scenes });
+  assert.ok(sequence.length <= 39);
+  for (const scene of scenes) assert.ok(sequence.includes(Math.floor((scene.startFrame + scene.endFrame - 1) / 2)));
 });
 
 test("production plan rejects unsupported formats and changes with content", () => {

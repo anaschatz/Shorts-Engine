@@ -10,6 +10,22 @@ const REQUIREMENTS = Object.freeze({
     ["transition_match", "evidence_node"], ["scale", "evidence_node"],
     ["fade", "payoff_label"], ["pulse", "deep_background"],
   ]),
+  wow_observation_v1: Object.freeze([
+    ["create", "deep_background"], ["draw_path", "observation_record"], ["highlight", "wow_annotation"],
+  ]),
+  frequency_duration_v1: Object.freeze([
+    ["create", "frequency_scale"], ["pulse", "duration_timer"],
+  ]),
+  telescope_beam_v1: Object.freeze([
+    ["draw_path", "beam_graph"], ["trace_signal", "evidence_trace"], ["highlight", "interference_label"],
+  ]),
+  repeat_search_v1: Object.freeze([
+    ["morph_path", "evidence_trace"], ["stagger", "search_timeline"], ["highlight", "no_repeat_label"], ["fade", "transmission_label"],
+  ]),
+  evidence_payoff_v1: Object.freeze([
+    ["transition_match", "evidence_node"], ["fade", "reasoning_bridge"],
+    ["fade", "payoff_label"], ["highlight", "final_evidence_label"], ["pulse", "deep_background"],
+  ]),
 });
 
 function validateTemplateOperations(ir) {

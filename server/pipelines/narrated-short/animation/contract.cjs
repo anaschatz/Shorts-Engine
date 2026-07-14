@@ -9,8 +9,14 @@ const ALLOWED_OPERATIONS = Object.freeze([
 ]);
 const ALLOWED_EASINGS = Object.freeze(["linear", "ease_in_out_cubic", "ease_out_cubic", "ease_in_cubic", "smoothstep"]);
 const ALLOWED_ANCHORS = Object.freeze(["absolute", "beat_start", "beat_end", "word_start", "word_end"]);
-const ENTITY_TYPES = Object.freeze(["background", "grid", "waveform", "signal_pulse", "beam", "evidence_node", "label", "camera_group"]);
-const TEMPLATE_FAMILIES = Object.freeze(["signal_lab_v1", "mystery_payoff_v1"]);
+const ENTITY_TYPES = Object.freeze([
+  "background", "grid", "waveform", "signal_pulse", "beam", "evidence_node", "label", "camera_group",
+  "observation_record", "annotation", "frequency_scale", "duration_timer", "beam_graph", "search_timeline", "proof_bridge",
+]);
+const TEMPLATE_FAMILIES = Object.freeze([
+  "signal_lab_v1", "mystery_payoff_v1",
+  "wow_observation_v1", "frequency_duration_v1", "telescope_beam_v1", "repeat_search_v1", "evidence_payoff_v1",
+]);
 const HASH_RE = /^[a-f0-9]{64}$/;
 const ID_RE = /^[a-z][a-z0-9_-]{2,79}$/;
 const VERSION_RE = /^\d+\.\d+\.\d+$/;
@@ -171,12 +177,12 @@ function validateEntity(entity, index) {
 
 function validateContent(content) {
   object(content, "content");
-  exactKeys(content, ["compositionId", "kicker", "titleLines", "metricValue", "metricLabel", "evidenceCode", "evidenceLabel", "reasoningLeft", "reasoningRight", "payoffLines", "timelineLabels"], "content");
+  exactKeys(content, ["compositionId", "kicker", "titleLines", "metricValue", "metricLabel", "evidenceCode", "evidenceLabel", "reasoningLeft", "reasoningRight", "payoffLines", "timelineLabels", "semantic"], "content");
   const lines = (value, field, min, max, length) => {
     if (!Array.isArray(value) || value.length < min || value.length > max) fail(field);
     return value.map((entry, index) => text(entry, `${field}[${index}]`, { max: length }));
   };
-  return {
+  const normalized = {
     compositionId: text(content.compositionId, "content.compositionId", { max: 80, pattern: ID_RE }),
     kicker: text(content.kicker, "content.kicker", { max: 60 }),
     titleLines: lines(content.titleLines, "content.titleLines", 1, 3, 50),
@@ -189,6 +195,28 @@ function validateContent(content) {
     payoffLines: lines(content.payoffLines, "content.payoffLines", 1, 3, 50),
     timelineLabels: lines(content.timelineLabels, "content.timelineLabels", 3, 6, 24),
   };
+  if (content.semantic !== undefined) {
+    object(content.semantic, "content.semantic");
+    const keys = ["profileId", "eventYearLabel", "eraLabel", "recordLabel", "annotationLabel", "frequencyLabel", "durationValue", "durationUnit", "sourceLabel", "beamTitle", "beamXAxis", "beamYAxis", "interferenceLabel", "disclosureLabel", "repeatRangeLabel", "noRepeatLabel", "transmissionLabel", "observationLabel", "proofLabel", "speculationLabel", "conclusionLabel", "uncertaintyLabel", "finalEvidenceLabel"];
+    exactKeys(content.semantic, keys, "content.semantic");
+    normalized.semantic = Object.fromEntries(keys.map((key) => [key, text(content.semantic[key], `content.semantic.${key}`, { max: 80 })]));
+  }
+  return normalized;
+}
+
+function validateSceneSemantic(value, field) {
+  object(value, field);
+  exactKeys(value, ["beatId", "role", "claimIds", "visualStatement"], field);
+  text(value.beatId, `${field}.beatId`, { pattern: ID_RE });
+  token(value.role, `${field}.role`, ["hook", "context", "evidence", "turn", "payoff"]);
+  if (!Array.isArray(value.claimIds) || !value.claimIds.length || value.claimIds.length > 8) fail(`${field}.claimIds`);
+  const ids = new Set();
+  value.claimIds.forEach((claimId, index) => {
+    text(claimId, `${field}.claimIds[${index}]`, { pattern: ID_RE });
+    if (ids.has(claimId)) fail(`${field}.claimIds`);
+    ids.add(claimId);
+  });
+  text(value.visualStatement, `${field}.visualStatement`, { max: 160 });
 }
 
 function validateMotionBudget(budget) {
@@ -245,13 +273,14 @@ function validateAnimationIR(input, options = {}) {
   ir.scenes.forEach((scene, sceneIndex) => {
     const field = `scenes[${sceneIndex}]`;
     object(scene, field);
-    exactKeys(scene, ["id", "startFrame", "endFrame", "template", "templateVersion", "entityIds", "operations", "readabilityHolds", "complexityCost"], field);
+    exactKeys(scene, ["id", "startFrame", "endFrame", "template", "templateVersion", "entityIds", "operations", "readabilityHolds", "complexityCost", "semantic"], field);
     text(scene.id, `${field}.id`, { pattern: ID_RE });
     number(scene.startFrame, `${field}.startFrame`, 0, ir.durationFrames - 1, true);
     number(scene.endFrame, `${field}.endFrame`, scene.startFrame + 1, ir.durationFrames, true);
     if (scene.startFrame !== lastEnd) fail(`${field}.startFrame`, "Animation scenes must be contiguous and non-overlapping.");
     lastEnd = scene.endFrame;
     token(scene.template, `${field}.template`, TEMPLATE_FAMILIES);
+    if (scene.semantic !== undefined) validateSceneSemantic(scene.semantic, `${field}.semantic`);
     text(scene.templateVersion, `${field}.templateVersion`, { pattern: VERSION_RE });
     if (!Array.isArray(scene.entityIds) || !scene.entityIds.length) fail(`${field}.entityIds`);
     scene.entityIds.forEach((id, index) => { text(id, `${field}.entityIds[${index}]`, { pattern: ID_RE }); if (!entityIds.has(id)) fail(`${field}.entityIds[${index}]`, "Scene references an unknown entity."); });
@@ -259,7 +288,7 @@ function validateAnimationIR(input, options = {}) {
     scene.operations.forEach((operation, operationIndex) => {
       const opField = `${field}.operations[${operationIndex}]`;
       object(operation, opField);
-      exactKeys(operation, ["op", "targetId", "from", "to", "easing", "params"], opField);
+      exactKeys(operation, ["op", "targetId", "from", "to", "easing", "params", "semanticClaimId", "visualStatement", "carryPolicy"], opField);
       const op = token(operation.op, `${opField}.op`, ALLOWED_OPERATIONS);
       text(operation.targetId, `${opField}.targetId`, { pattern: ID_RE });
       if (!entityIds.has(operation.targetId) || !scene.entityIds.includes(operation.targetId)) fail(`${opField}.targetId`, "Operation references an unavailable entity.");
@@ -269,6 +298,9 @@ function validateAnimationIR(input, options = {}) {
       const toFrame = validateAnchor(operation.to, `${opField}.to`, context);
       if (toFrame <= fromFrame) fail(`${opField}.to`, "Operation timing must have positive duration.");
       validateParams(op, operation.params, `${opField}.params`);
+      if (operation.semanticClaimId !== undefined) text(operation.semanticClaimId, `${opField}.semanticClaimId`, { pattern: ID_RE });
+      if (operation.visualStatement !== undefined) text(operation.visualStatement, `${opField}.visualStatement`, { max: 160 });
+      if (operation.carryPolicy !== undefined) token(operation.carryPolicy, `${opField}.carryPolicy`, ["clear_at_scene_end", "carry_to_next", "persistent"]);
       if (op === "transition_match" && !entityIds.has(operation.params.toEntityId)) fail(`${opField}.params.toEntityId`, "Transition references an unknown entity.");
     });
     if (!Array.isArray(scene.readabilityHolds) || scene.readabilityHolds.length > 6) fail(`${field}.readabilityHolds`);

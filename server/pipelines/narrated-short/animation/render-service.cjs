@@ -18,16 +18,35 @@ function fail(code = "ANIMATION_RENDER_FAILED") {
 }
 
 function safeSeekSequence(ir) {
-  const frames = new Set([0, 1, Math.min(6, ir.durationFrames - 1), ir.durationFrames - 1]);
+  const maxUniqueFrames = 36;
+  const selected = new Set();
+  const add = (frame) => {
+    if (selected.size >= maxUniqueFrames || !Number.isInteger(frame) || frame < 0 || frame >= ir.durationFrames) return;
+    selected.add(frame);
+  };
+  [0, 1, Math.min(6, ir.durationFrames - 1), ir.durationFrames - 1].forEach(add);
+  for (const scene of ir.scenes) add(Math.floor((scene.startFrame + scene.endFrame - 1) / 2));
+
+  const semantic = ir.profileVersion === "1.1.0" && ir.content?.semantic?.profileId === "wow_signal_case_v1";
+  if (semantic) for (const scene of ir.scenes) for (const operation of scene.operations) add(Math.floor((operation.from.resolvedFrame + operation.to.resolvedFrame) / 2));
   for (const scene of ir.scenes) {
-    frames.add(scene.startFrame);
-    frames.add(Math.max(scene.startFrame, scene.endFrame - 1));
-    for (const operation of scene.operations) {
-      frames.add(operation.from.resolvedFrame);
-      frames.add(operation.to.resolvedFrame);
+    add(scene.startFrame);
+    add(Math.max(scene.startFrame, scene.endFrame - 1));
+  }
+
+  const maxOperationCount = Math.max(0, ...ir.scenes.map((scene) => scene.operations.length));
+  for (let operationIndex = 0; operationIndex < maxOperationCount && selected.size < maxUniqueFrames; operationIndex += 1) {
+    for (const scene of ir.scenes) {
+      const operation = scene.operations[operationIndex];
+      if (operation) add(Math.floor((operation.from.resolvedFrame + operation.to.resolvedFrame) / 2));
     }
   }
-  const ordered = [...frames].filter((frame) => frame >= 0 && frame < ir.durationFrames).sort((a, b) => a - b).slice(0, 18);
+
+  for (const scene of ir.scenes) for (const operation of scene.operations) {
+    add(operation.from.resolvedFrame);
+    add(operation.to.resolvedFrame);
+  }
+  const ordered = [...selected].sort((a, b) => a - b);
   const repeated = ordered[Math.floor(ordered.length / 2)] || 0;
   return [...ordered, repeated, 0, repeated];
 }

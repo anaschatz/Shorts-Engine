@@ -11,6 +11,28 @@ function operation(ir, op, targetId) {
 }
 
 function timingCheckpoints(ir) {
+  if (ir.profileVersion === "1.1.0") {
+    const record = operation(ir, "draw_path", "observation_record");
+    const wow = operation(ir, "highlight", "wow_annotation");
+    const duration = operation(ir, "pulse", "duration_timer");
+    const beam = operation(ir, "trace_signal", "evidence_trace");
+    const repeat = operation(ir, "highlight", "no_repeat_label");
+    const aliens = operation(ir, "fade", "reasoning_bridge");
+    const proof = operation(ir, "highlight", "final_evidence_label");
+    const hold = ir.scenes.find((scene) => scene.template === "evidence_payoff_v1")?.readabilityHolds?.[0];
+    if (!hold) throw new AppError("ANIMATION_TIMING_PROOF_INVALID", "Animation readability hold is missing.", 500);
+    const midpoint = (item) => Math.floor((item.from.resolvedFrame + item.to.resolvedFrame) / 2);
+    return Object.freeze([
+      { id: "observation_record", frame: midpoint(record) },
+      { id: "wow_annotation", frame: midpoint(wow) },
+      { id: "duration_72_seconds", frame: midpoint(duration) },
+      { id: "beam_crossing", frame: midpoint(beam) },
+      { id: "no_verified_repeat", frame: midpoint(repeat) },
+      { id: "not_aliens", frame: midpoint(aliens) },
+      { id: "no_repeatable_proof", frame: midpoint(proof) },
+      { id: "readability_hold", frame: Math.floor((hold.startFrame + hold.endFrame - 1) / 2) },
+    ]);
+  }
   const wave = operation(ir, "draw_path", "signal_wave");
   const pulse = operation(ir, "pulse", "signal_pulse");
   const beam = operation(ir, "draw_path", "beam_alpha");
