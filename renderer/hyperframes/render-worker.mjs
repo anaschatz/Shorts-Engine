@@ -28,7 +28,7 @@ async function main() {
   const htmlPath = resolve(stagingDir, "index.html");
   if (!inside(stagingDir, htmlPath)) throw new Error("composition_path_invalid");
   await writeFile(htmlPath, composition.html, { encoding: "utf8", mode: 0o600 });
-  const config = resolveConfig({ chromePath: doctor.chromePath, concurrency: 1, forceScreenshot: true, disableGpu: false, browserGpuMode: "hardware", enableBrowserPool: false, verifyRuntime: true, staticFrameDedup: false, debug: false });
+  const config = resolveConfig({ chromePath: doctor.chromePath, concurrency: 1, forceScreenshot: true, disableGpu: false, browserGpuMode: "software", enableBrowserPool: false, verifyRuntime: true, staticFrameDedup: false, debug: false });
   const job = createRenderJob({ fps: ir.fps, quality: request.quality === "high" ? "high" : "standard", format: "mp4", workers: 1, entryFile: "index.html", producerConfig: config, hdrMode: "force-sdr" });
   const started = performance.now();
   try {

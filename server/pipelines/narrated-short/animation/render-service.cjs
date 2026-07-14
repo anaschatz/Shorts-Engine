@@ -28,7 +28,15 @@ function safeSeekSequence(ir) {
   for (const scene of ir.scenes) add(Math.floor((scene.startFrame + scene.endFrame - 1) / 2));
 
   const semantic = ir.profileVersion === "1.1.0" && ir.content?.semantic?.profileId === "wow_signal_case_v1";
-  if (semantic) for (const scene of ir.scenes) for (const operation of scene.operations) add(Math.floor((operation.from.resolvedFrame + operation.to.resolvedFrame) / 2));
+  if (semantic) {
+    const trace = ir.scenes.flatMap((scene) => scene.operations).find((operation) => operation.op === "trace_signal" && operation.targetId === "evidence_trace");
+    if (trace) {
+      const span = trace.to.resolvedFrame - trace.from.resolvedFrame;
+      add(Math.floor(trace.from.resolvedFrame + span * 0.25));
+      add(Math.floor(trace.from.resolvedFrame + span * 0.75));
+    }
+    for (const scene of ir.scenes) for (const operation of scene.operations) add(Math.floor((operation.from.resolvedFrame + operation.to.resolvedFrame) / 2));
+  }
   for (const scene of ir.scenes) {
     add(scene.startFrame);
     add(Math.max(scene.startFrame, scene.endFrame - 1));
@@ -76,8 +84,12 @@ function publicBrowserProof(value) {
       captionSafeZone: value.geometryAudit.captionSafeZone,
       checkpointCount: value.geometryAudit.checkpointCount,
       entityObservationCount: value.geometryAudit.entityObservationCount,
+      pathFollowerObservationCount: value.geometryAudit.pathFollowerObservationCount || 0,
+      observedPathFollowerIds: value.geometryAudit.observedPathFollowerIds || [],
+      unobservedPathFollowerCount: value.geometryAudit.unobservedPathFollowerIds?.length || 0,
       clippedEntityCount: value.geometryAudit.clippedEntities.length,
       captionSafeZoneViolationCount: value.geometryAudit.captionSafeZoneViolations.length,
+      pathFollowerViolationCount: value.geometryAudit.pathFollowerViolations?.length || 0,
     },
     passed: value.passed,
   };
@@ -115,7 +127,7 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
     if (!doctor.ready || doctor.runtimeVersion !== PRODUCTION_RUNTIME_VERSION) fail("ANIMATION_READINESS_FAILED");
     const validated = provider.validate(compiled.animationIR);
     const estimate = provider.estimate(validated);
-    const rendered = await provider.render({ validated, stagingDir, outputName: "visual-master.mp4", quality: input.renderProfile === "final" ? "high" : "standard", timeoutMs: input.timeoutMs || 300000 }, input.signal, input.onProgress);
+    const rendered = await provider.render({ validated, stagingDir, outputName: "visual-master.mp4", quality: input.renderProfile === "final" ? "high" : "standard", timeoutMs: input.timeoutMs || 600000 }, input.signal, input.onProgress);
     const verified = provider.verify(rendered);
     if (rendered.animationIRHash !== compiled.animationIR.contentHash || verified.animationIRHash !== compiled.animationIR.contentHash) fail("ANIMATION_OUTPUT_TAMPERED");
     const { compileAnimationIRToHtml } = await import("../../../../renderer/hyperframes/animation-ir-adapter.mjs");
@@ -123,7 +135,7 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
     if (rendered.compositionHash !== composition.compositionHash) fail("ANIMATION_OUTPUT_TAMPERED");
     const browserRunner = dependencies.runBrowserSeekProof || (await import("../../../../renderer/hyperframes/browser-seek-harness.mjs")).runBrowserSeekProof;
     const runtimeDoctor = dependencies.chromePath ? null : await (await import("../../../../renderer/hyperframes/doctor.mjs")).hyperframesDoctor();
-    const browser = await browserRunner({ html: composition.html, width: compiled.animationIR.width, height: compiled.animationIR.height, fps: compiled.animationIR.fps, durationFrames: compiled.animationIR.durationFrames, chromePath: dependencies.chromePath || runtimeDoctor.chromePath, seekSequence: safeSeekSequence(compiled.animationIR) });
+    const browser = await browserRunner({ html: composition.html, width: compiled.animationIR.width, height: compiled.animationIR.height, fps: compiled.animationIR.fps, durationFrames: compiled.animationIR.durationFrames, chromePath: dependencies.chromePath || runtimeDoctor.chromePath, seekSequence: safeSeekSequence(compiled.animationIR), expectedPathFollowerIds: ["beam-profile-dot", "signal-response-dot", "signal-trace-dot"] });
     const browserProof = publicBrowserProof(browser);
     const motionQa = publicMotionQa((dependencies.runBenchmarkQa || runBenchmarkQa)({ outputPath: rendered.outputPath, width: compiled.animationIR.width, height: compiled.animationIR.height, expectedFrameCount: compiled.animationIR.durationFrames, expectedFps: compiled.animationIR.fps, geometryAudit: browser.geometryAudit, readabilityHolds: readabilityHolds(compiled.animationIR), segments: motionSegments(compiled.animationIR) }));
     if (!browserProof.passed || !motionQa.passed || browserProof.externalRequestCount !== 0 || browserProof.blockedExternalRequestCount !== 0) fail("ANIMATION_QA_BLOCKED");

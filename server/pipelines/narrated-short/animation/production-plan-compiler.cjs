@@ -6,7 +6,7 @@ const { normalizeAnimationTimingContext } = require("./timing-contract.cjs");
 
 const PRODUCTION_PROVIDER_ID = "hyperframes_local";
 const PRODUCTION_RUNTIME_VERSION = "0.7.55";
-const PRODUCTION_STYLE_VERSION = "1.4.0";
+const PRODUCTION_STYLE_VERSION = "1.5.0";
 const SEMANTIC_PROFILE_ID = "wow_signal_case_v1";
 const TEMPLATE_VERSION = "1.0.0";
 const OUTFIT_FONT_SHA256 = "8cfe15c2c6de6ef8efff3eedbd52a383ac9ef23d6c23f6cd9f9b838f5f37dc36";
@@ -82,6 +82,8 @@ function buildProductionAnimationPlan(input = {}) {
     contextDuration: wordIndex(timing, beats.context, "seventy-two", "timing.context.duration"),
     contextSeconds: wordIndex(timing, beats.context, "seconds", "timing.context.seconds"),
     evidenceStrength: wordIndex(timing, beats.evidence, "strength", "timing.evidence.strength"),
+    evidenceFell: wordIndex(timing, beats.evidence, "fell", "timing.evidence.fell"),
+    evidenceAs: wordIndex(timing, beats.evidence, "as", "timing.evidence.as"),
     evidenceSource: wordIndex(timing, beats.evidence, "source", "timing.evidence.source"),
     evidenceMaking: wordIndex(timing, beats.evidence, "making", "timing.evidence.making"),
     evidenceConvincing: wordIndex(timing, beats.evidence, "convincing", "timing.evidence.convincing"),
@@ -136,6 +138,8 @@ function buildProductionAnimationPlan(input = {}) {
       proofLabel: "PROOF",
       speculationLabel: /\baliens\b/i.test(scripted.payoff.spokenText) ? "ALIENS?" : "SPECULATION?",
       conclusionLabel: scripted.payoff.onScreenText.toUpperCase(),
+      candidateLeadLabel: "STRONG UNEXPLAINED",
+      candidateNounLabel: "CANDIDATE",
       uncertaintyLabel: sceneValue(sourceScenes.payoff, "show_uncertainty", "text", "ORIGIN UNRESOLVED").toUpperCase(),
       finalEvidenceLabel: "NO REPEATABLE PROOF",
     },
@@ -165,7 +169,7 @@ function buildProductionAnimationPlan(input = {}) {
       semantic: semantic("context", scripted, "A spectrum marker explains the notable frequency before a timer resolves to seventy-two seconds."),
       entityIds: ["deep_background", "frequency_scale", "duration_timer"],
       operations: [
-        operation({ op: "create", targetId: "frequency_scale", from: anchor("beat_start", { beatId: scripted.context.id }), to: anchor("word_end", { wordIndex: cue.contextCommunication }), easing: "ease_in_out_cubic", params: { opacity: 1 }, claimId: claimFor("context", 0), visualStatement: "Scan a frequency scale and settle on the notable communication band." }),
+        operation({ op: "create", targetId: "frequency_scale", from: anchor("beat_start", { beatId: scripted.context.id }), to: anchor("word_end", { wordIndex: cue.contextFrequency }), easing: "ease_in_out_cubic", params: { opacity: 1 }, claimId: claimFor("context", 0), visualStatement: "Reach and lock the notable frequency marker by the end of the narrated word frequency." }),
         operation({ op: "pulse", targetId: "duration_timer", from: anchor("word_start", { wordIndex: cue.contextLasted }), to: anchor("word_end", { wordIndex: cue.contextSeconds }), easing: "smoothstep", params: { scale: 1.08, opacity: 1 }, claimId: claimFor("context", 1), visualStatement: "Draw a timer and reveal 72 seconds only while that duration is spoken." }),
       ], readabilityHolds: [], complexityCost: 3,
     },
@@ -174,8 +178,8 @@ function buildProductionAnimationPlan(input = {}) {
       semantic: semantic("evidence", scripted, "A source crosses a labeled telescope beam while the measured signal rises and falls with it."),
       entityIds: ["deep_background", "beam_graph", "evidence_trace", "interference_label"],
       operations: [
-        operation({ op: "draw_path", targetId: "beam_graph", from: anchor("word_start", { wordIndex: cue.evidenceStrength }), to: anchor("word_end", { wordIndex: cue.evidenceSource }), easing: "ease_in_out_cubic", params: { direction: "left_to_right" }, claimId: claimFor("evidence", 0), visualStatement: "Draw the telescope beam envelope on labeled time and signal-strength axes." }),
-        operation({ op: "trace_signal", targetId: "evidence_trace", from: anchor("word_start", { wordIndex: cue.evidenceStrength }), to: anchor("word_end", { wordIndex: cue.evidenceSource }), easing: "smoothstep", params: { amplitude: 260, frequency: 1, decay: 1 }, claimId: claimFor("evidence", 1), visualStatement: "Move the source across the beam and trace the matching rise-and-fall signal.", carryPolicy: "carry_to_next" }),
+        operation({ op: "draw_path", targetId: "beam_graph", from: anchor("word_start", { wordIndex: cue.evidenceAs }), to: anchor("word_end", { wordIndex: cue.evidenceSource }), easing: "ease_in_out_cubic", params: { direction: "left_to_right" }, claimId: claimFor("evidence", 0), visualStatement: "Replay a source crossing the telescope beam and connect it to the completed response below." }),
+        operation({ op: "trace_signal", targetId: "evidence_trace", from: anchor("word_start", { wordIndex: cue.evidenceStrength }), to: anchor("word_end", { wordIndex: cue.evidenceFell }), easing: "smoothstep", params: { amplitude: 260, frequency: 1, decay: 1 }, claimId: claimFor("evidence", 1), visualStatement: "Complete the measured rise-and-fall curve inside the exact narrated phrase.", carryPolicy: "carry_to_next" }),
         operation({ op: "highlight", targetId: "interference_label", from: anchor("word_start", { wordIndex: cue.evidenceMaking }), to: anchor("word_end", { wordIndex: cue.evidenceConvincing }), easing: "ease_out_cubic", params: { strength: 1 }, claimId: claimFor("evidence", 2), visualStatement: "Reveal that ordinary local interference is less convincing only when that inference is narrated." }),
       ], readabilityHolds: [], complexityCost: 11,
     },

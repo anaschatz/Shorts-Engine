@@ -34,14 +34,44 @@ function escapeXml(value) {
   return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 }
 
-export const SEMANTIC_EVIDENCE_MORPH_SOURCE = Object.freeze([120, 690, 220, 690, 238, 350, 365, 350, 492, 350, 510, 690, 610, 690]);
+export const SEMANTIC_BEAM_PROFILE = Object.freeze([120, 455, 220, 455, 238, 300, 365, 300, 492, 300, 510, 455, 610, 455]);
+export const SEMANTIC_EVIDENCE_MORPH_SOURCE = Object.freeze([120, 720, 220, 720, 238, 560, 365, 560, 492, 560, 510, 720, 610, 720]);
 export const SEMANTIC_EVIDENCE_MORPH_TARGET = Object.freeze([110, 545, 122, 545, 132, 385, 140, 385, 148, 385, 155, 545, 174, 545]);
+
+function semanticCubicPath(values) {
+  if (!Array.isArray(values) || values.length !== 14 || values.some((value) => !Number.isFinite(value))) throw new TypeError("Semantic cubic path input is invalid.");
+  return `M${values[0]} ${values[1]} C${values[2]} ${values[3]} ${values[4]} ${values[5]} ${values[6]} ${values[7]} C${values[8]} ${values[9]} ${values[10]} ${values[11]} ${values[12]} ${values[13]}`;
+}
+
+export function semanticCubicPoint(values, progress) {
+  if (!Array.isArray(values) || values.length !== 14 || values.some((value) => !Number.isFinite(value)) || !Number.isFinite(progress)) throw new TypeError("Semantic cubic path input is invalid.");
+  const bounded = Math.max(0, Math.min(1, progress));
+  const second = bounded > 0.5;
+  const t = second ? (bounded - 0.5) * 2 : bounded * 2;
+  const offset = second ? 6 : 0;
+  const oneMinus = 1 - t;
+  const coordinate = (axis) => {
+    const start = values[offset + axis];
+    const controlA = values[offset + 2 + axis];
+    const controlB = values[offset + 4 + axis];
+    const end = values[offset + 6 + axis];
+    return (oneMinus ** 3) * start + 3 * (oneMinus ** 2) * t * controlA + 3 * oneMinus * (t ** 2) * controlB + (t ** 3) * end;
+  };
+  return Object.freeze({ x: Number(coordinate(0).toFixed(3)), y: Number(coordinate(1).toFixed(3)) });
+}
+
+export function semanticFrequencyCursorX(progress) {
+  if (!Number.isFinite(progress)) throw new TypeError("Semantic frequency progress is invalid.");
+  const arrival = Math.max(0, Math.min(1, progress / 0.62));
+  const eased = 1 - ((1 - arrival) ** 3);
+  return Number((100 + 260 * eased).toFixed(3));
+}
 
 export function semanticEvidenceMorphPath(progress) {
   if (!Number.isFinite(progress)) throw new TypeError("Semantic evidence morph progress is invalid.");
   const t = Math.max(0, Math.min(1, progress));
   const values = SEMANTIC_EVIDENCE_MORPH_SOURCE.map((value, index) => value + (SEMANTIC_EVIDENCE_MORPH_TARGET[index] - value) * t).map((value) => Number(value.toFixed(3)));
-  return `M${values[0]} ${values[1]} C${values[2]} ${values[3]} ${values[4]} ${values[5]} ${values[6]} ${values[7]} C${values[8]} ${values[9]} ${values[10]} ${values[11]} ${values[12]} ${values[13]}`;
+  return semanticCubicPath(values);
 }
 
 function compileLegacyAnimationIRToHtml(ir) {
@@ -160,11 +190,12 @@ function compileSemanticAnimationIRToHtml(ir) {
   const stars = seededPoints(ir.seed, 54).map((point) => `<circle cx="${point.x}" cy="${point.y}" r="${point.r}"/>`).join("");
   const schedule = createOperationSchedule(ir);
   const stages = Object.fromEntries(ir.scenes.map((scene) => [scene.id.replace(/^scene_/, ""), { startFrame: scene.startFrame, endFrame: scene.endFrame, beatId: scene.semantic.beatId }]));
+  const beamProfilePath = semanticCubicPath(SEMANTIC_BEAM_PROFILE);
   const evidenceSourcePath = semanticEvidenceMorphPath(0);
   const evidenceTargetPath = semanticEvidenceMorphPath(1);
   const finalHold = ir.scenes.at(-1)?.readabilityHolds?.at(-1);
   const timelineEndFrame = finalHold?.endFrame === ir.durationFrames ? finalHold.startFrame : ir.durationFrames - 1;
-  const runtimeData = safeJson({ fps: ir.fps, durationFrames: ir.durationFrames, timelineEndFrame, seed: ir.seed, contentHash: ir.contentHash, schedule, stages, transitions: ir.transitions, evidenceMorph: { source: SEMANTIC_EVIDENCE_MORPH_SOURCE, target: SEMANTIC_EVIDENCE_MORPH_TARGET } });
+  const runtimeData = safeJson({ fps: ir.fps, durationFrames: ir.durationFrames, timelineEndFrame, seed: ir.seed, contentHash: ir.contentHash, schedule, stages, transitions: ir.transitions, beamProfile: SEMANTIC_BEAM_PROFILE, evidenceMorph: { source: SEMANTIC_EVIDENCE_MORPH_SOURCE, target: SEMANTIC_EVIDENCE_MORPH_TARGET } });
   const durationSeconds = ir.durationFrames / ir.fps;
   const html = `<!doctype html>
 <html lang="en"><head>
@@ -182,7 +213,10 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#02040b}*{b
  <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e2e8f0"/><stop offset="1" stop-color="#cbd5e1"/></linearGradient>
  <radialGradient id="verdict-gradient" cx="50%" cy="50%" r="65%"><stop offset="0" stop-color="#f59e0b" stop-opacity=".22"/><stop offset="1" stop-color="#f59e0b" stop-opacity="0"/></radialGradient>
  <linearGradient id="caption-scrim-semantic" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#02040b" stop-opacity="0"/><stop offset=".48" stop-color="#02040b" stop-opacity=".34"/><stop offset="1" stop-color="#02040b" stop-opacity=".68"/></linearGradient>
+ <filter id="semantic-glow" x="-70%" y="-70%" width="240%" height="240%"><feGaussianBlur stdDeviation="5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
  <clipPath id="record-clip"><rect id="record-clip-rect" x="80" y="220" width="0" height="600"/></clipPath>
+ <clipPath id="beam-profile-clip"><rect id="beam-profile-clip-rect" x="120" y="280" width="0" height="195"/></clipPath>
+ <clipPath id="signal-trace-clip"><rect id="signal-trace-clip-rect" x="120" y="520" width="0" height="225"/></clipPath>
 </defs>
 <rect width="720" height="1280" fill="url(#semantic-bg)"/>
 <rect id="semantic-ambient-wash" width="720" height="1280" fill="#0e7490" opacity=".025"/>
@@ -212,13 +246,14 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#02040b}*{b
   <rect x="64" y="255" width="592" height="292" rx="24" fill="#071827" stroke="#155e75" stroke-width="2"/>
   <line x1="100" y1="455" x2="620" y2="455" stroke="#64748b" stroke-width="3"/>
   <g stroke="#475569" stroke-width="2"><line x1="100" y1="435" x2="100" y2="475"/><line x1="204" y1="441" x2="204" y2="469"/><line x1="308" y1="435" x2="308" y2="475"/><line x1="412" y1="435" x2="412" y2="475"/><line x1="516" y1="441" x2="516" y2="469"/><line x1="620" y1="435" x2="620" y2="475"/></g>
-  <rect id="notable-band" x="334" y="292" width="52" height="182" rx="14" fill="#22d3ee" fill-opacity=".18" stroke="#67e8f9" stroke-width="3" opacity="0"/>
-  <line id="frequency-cursor" x1="100" y1="285" x2="100" y2="490" stroke="#f59e0b" stroke-width="4"/>
-  <text x="360" y="525" text-anchor="middle" fill="#94a3b8" class="small-label">${escapeXml(semantic.sourceLabel)}</text>
+  <rect id="notable-band" x="334" y="292" width="52" height="182" rx="14" fill="#22d3ee" fill-opacity=".20" stroke="#67e8f9" stroke-width="3" opacity="0"/>
+  <line id="frequency-cursor" x1="100" y1="285" x2="100" y2="490" stroke="#fbbf24" stroke-width="5"/>
+  <circle id="frequency-cursor-dot" cx="100" cy="455" r="10" fill="#fef3c7" stroke="#f59e0b" stroke-width="4" filter="url(#semantic-glow)"/>
+  <g id="frequency-band-label" opacity="0"><path d="M320 500 Q320 516 336 516 H384 Q400 516 400 500" fill="none" stroke="#67e8f9" stroke-width="3"/><text x="360" y="540" text-anchor="middle" fill="#cffafe" font-size="16" letter-spacing="1">${escapeXml(semantic.sourceLabel)}</text></g>
  </g>
  <g id="duration-display" opacity="0" data-entity-id="duration_timer" data-caption-policy="avoid" data-semantic-cue-id="duration_72_seconds" data-semantic-beat-id="${escapeXml(stages.context.beatId)}" data-semantic-kind="evidence_text">
   <circle cx="360" cy="700" r="112" fill="#082f49" fill-opacity=".36" stroke="#164e63" stroke-width="12"/>
-  <circle id="duration-ring" cx="360" cy="700" r="112" fill="none" stroke="#22d3ee" stroke-width="12" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100" transform="rotate(-90 360 700)"/>
+  <circle id="duration-ring" cx="360" cy="700" r="112" fill="none" stroke="#22d3ee" stroke-width="12" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100" transform="rotate(-90 360 700)" filter="url(#semantic-glow)"/>
   <text x="360" y="698" text-anchor="middle" fill="#ecfeff" font-size="82">${escapeXml(semantic.durationValue)}</text>
   <text x="360" y="744" text-anchor="middle" fill="#fbbf24" class="small-label">${escapeXml(semantic.durationUnit)}</text>
  </g>
@@ -227,23 +262,36 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#02040b}*{b
 <g id="stage-evidence" opacity="0" data-semantic-beat-id="${escapeXml(stages.evidence.beatId)}">
  <g id="beam-panel" data-entity-id="beam_graph" data-caption-policy="avoid" data-semantic-cue-id="beam_graph" data-semantic-beat-id="${escapeXml(stages.evidence.beatId)}" data-semantic-kind="primary_visual">
   <text x="360" y="225" text-anchor="middle" fill="#e2e8f0" class="stage-title">${escapeXml(semantic.beamTitle)}</text>
-  <rect x="74" y="255" width="572" height="530" rx="24" fill="#071827" stroke="#155e75" stroke-width="2"/>
-  <line x1="120" y1="700" x2="610" y2="700" stroke="#64748b" stroke-width="3"/><line x1="120" y1="330" x2="120" y2="700" stroke="#64748b" stroke-width="3"/>
-  <text x="365" y="755" text-anchor="middle" fill="#94a3b8" class="small-label">${escapeXml(semantic.beamXAxis)}</text>
-  <text x="96" y="520" text-anchor="middle" fill="#94a3b8" class="small-label" transform="rotate(-90 96 520)">${escapeXml(semantic.beamYAxis)}</text>
-  <path id="beam-reference" d="${evidenceSourcePath}" fill="none" stroke="#8b5cf6" stroke-width="13" opacity=".34" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100"/>
+  <g id="beam-cause-panel">
+   <rect x="74" y="245" width="572" height="235" rx="24" fill="#0b1324" stroke="#4c1d95" stroke-width="2"/>
+   <text x="102" y="282" fill="#c4b5fd" font-size="16" letter-spacing="2">TELESCOPE BEAM PROFILE</text>
+   <line id="beam-source-track" x1="120" y1="455" x2="610" y2="455" stroke="#475569" stroke-width="3"/>
+   <path id="beam-reference" d="${beamProfilePath}" fill="none" stroke="#a78bfa" stroke-width="8" stroke-linecap="round" clip-path="url(#beam-profile-clip)"/>
+   <line id="beam-sample-line" x1="120" y1="455" x2="120" y2="455" stroke="#fbbf24" stroke-width="3"/>
+   <circle id="beam-source-marker" cx="120" cy="455" r="10" fill="#fbbf24" stroke="#fef3c7" stroke-width="3"/>
+   <circle id="beam-profile-dot" data-follow-path-id="beam-reference" cx="120" cy="455" r="9" fill="#ddd6fe" stroke="#8b5cf6" stroke-width="4"/>
+  </g>
  </g>
  <g id="evidence-signal" data-entity-id="evidence_trace" data-caption-policy="avoid" data-semantic-cue-id="beam_signal_trace" data-semantic-beat-id="${escapeXml(stages.evidence.beatId)}" data-semantic-kind="primary_visual">
-  <path id="signal-strength-curve" d="${evidenceSourcePath}" fill="none" stroke="#22d3ee" stroke-width="7" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100"/>
-  <line id="beam-guide" x1="120" y1="690" x2="120" y2="690" stroke="#67e8f9" stroke-width="3" stroke-dasharray="8 8"/>
-  <circle id="beam-source-dot" cx="120" cy="690" r="11" fill="#ecfeff" stroke="#22d3ee" stroke-width="5"/>
-  <text x="205" y="660" fill="#67e8f9" class="small-label">RISE</text><text x="530" y="660" fill="#fbbf24" class="small-label">FALL</text>
+  <g id="signal-response-panel">
+   <rect x="74" y="500" width="572" height="270" rx="24" fill="#071827" stroke="#155e75" stroke-width="2"/>
+   <text x="102" y="538" fill="#67e8f9" font-size="16" letter-spacing="2">MEASURED SIGNAL STRENGTH</text>
+   <line x1="120" y1="720" x2="610" y2="720" stroke="#475569" stroke-width="3"/>
+   <path id="signal-strength-ghost" d="${evidenceSourcePath}" fill="none" stroke="#155e75" stroke-width="7" opacity=".52"/>
+   <g clip-path="url(#signal-trace-clip)"><path id="signal-strength-curve" d="${evidenceSourcePath}" fill="none" stroke="#22d3ee" stroke-width="8" stroke-linecap="round" filter="url(#semantic-glow)"/></g>
+   <text x="206" y="698" fill="#67e8f9" font-size="15" letter-spacing="2">RISE</text><text x="524" y="698" fill="#67e8f9" font-size="15" letter-spacing="2">FALL</text>
+  </g>
+  <line id="beam-guide" x1="120" y1="455" x2="120" y2="720" stroke="#c4b5fd" stroke-width="3" stroke-dasharray="9 8" opacity="0"/>
+  <circle id="signal-trace-dot" data-follow-path-id="signal-strength-curve" cx="120" cy="720" r="11" fill="#ecfeff" stroke="#22d3ee" stroke-width="5"/>
+  <circle id="signal-response-dot" data-follow-path-id="signal-strength-curve" cx="120" cy="720" r="11" fill="#ecfeff" stroke="#22d3ee" stroke-width="5" opacity="0"/>
  </g>
  <g id="interference-note" opacity="0" data-entity-id="interference_label" data-caption-policy="avoid" data-semantic-cue-id="interference_inference" data-semantic-beat-id="${escapeXml(stages.evidence.beatId)}" data-semantic-kind="evidence_text">
-  <rect x="128" y="803" width="464" height="54" rx="27" fill="#083344" stroke="#22d3ee" stroke-width="2"/>
-  <text x="360" y="837" text-anchor="middle" fill="#cffafe" font-size="16" letter-spacing="1">${escapeXml(semantic.interferenceLabel)}</text>
+  <rect x="88" y="798" width="544" height="74" rx="28" fill="#082f49" stroke="#22d3ee" stroke-width="3"/>
+  <circle cx="120" cy="835" r="10" fill="#22d3ee"/><text x="140" y="829" fill="#cffafe" font-size="15" letter-spacing="1">BEAM-SHAPED MATCH</text><text x="140" y="852" fill="#67e8f9" font-size="13" letter-spacing="1">OBSERVED</text>
+  <line x1="360" y1="814" x2="360" y2="856" stroke="#155e75" stroke-width="2"/>
+  <text x="385" y="829" fill="#cbd5e1" font-size="14" letter-spacing="1">LOCAL INTERFERENCE</text><text x="385" y="852" fill="#fbbf24" font-size="13" letter-spacing="1">LESS CONVINCING</text>
  </g>
- <text x="360" y="778" text-anchor="middle" fill="#64748b" font-size="10" letter-spacing=".8">${escapeXml(semantic.disclosureLabel)}</text>
+ <text x="360" y="790" text-anchor="middle" fill="#64748b" font-size="10" letter-spacing=".8">${escapeXml(semantic.disclosureLabel)}</text>
 </g>
 
 <g id="stage-turn" opacity="0" data-semantic-beat-id="${escapeXml(stages.turn.beatId)}">
@@ -254,32 +302,39 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#02040b}*{b
   <line id="search-active-line" x1="104" y1="545" x2="104" y2="545" stroke="#22d3ee" stroke-width="5"/>
   <path id="single-signal-spike" d="${evidenceTargetPath}" fill="none" stroke="#67e8f9" stroke-width="8" stroke-linejoin="round"/>
   <text x="140" y="590" text-anchor="middle" fill="#67e8f9" class="small-label">${escapeXml(semantic.eventYearLabel)}</text>
-  <g id="search-pass-1" opacity="0"><circle cx="280" cy="545" r="38" fill="none" stroke="#475569" stroke-width="3"/><path d="M250 545 H310" stroke="#94a3b8" stroke-width="5"/></g>
-  <g id="search-pass-2" opacity="0"><circle cx="390" cy="545" r="38" fill="none" stroke="#475569" stroke-width="3"/><path d="M360 545 H420" stroke="#94a3b8" stroke-width="5"/></g>
-  <g id="search-pass-3" opacity="0"><circle cx="500" cy="545" r="38" fill="none" stroke="#475569" stroke-width="3"/><path d="M470 545 H530" stroke="#94a3b8" stroke-width="5"/></g>
-  <g id="search-pass-4" opacity="0"><circle cx="600" cy="545" r="30" fill="none" stroke="#475569" stroke-width="3"/><path d="M577 545 H623" stroke="#94a3b8" stroke-width="5"/></g>
-  <text x="445" y="645" text-anchor="middle" fill="#94a3b8" class="small-label">LATER SEARCH PASSES: FLAT</text>
+  <g id="search-pass-1" opacity="0"><circle id="search-ring-1" cx="280" cy="545" r="38" fill="none" stroke="#475569" stroke-width="3"/><path id="search-flat-1" d="M250 545 H310" stroke="#94a3b8" stroke-width="5"/></g>
+  <g id="search-pass-2" opacity="0"><circle id="search-ring-2" cx="390" cy="545" r="38" fill="none" stroke="#475569" stroke-width="3"/><path id="search-flat-2" d="M360 545 H420" stroke="#94a3b8" stroke-width="5"/></g>
+  <g id="search-pass-3" opacity="0"><circle id="search-ring-3" cx="500" cy="545" r="38" fill="none" stroke="#475569" stroke-width="3"/><path id="search-flat-3" d="M470 545 H530" stroke="#94a3b8" stroke-width="5"/></g>
+  <g id="search-pass-4" opacity="0"><circle id="search-ring-4" cx="600" cy="545" r="30" fill="none" stroke="#475569" stroke-width="3"/><path id="search-flat-4" d="M577 545 H623" stroke="#94a3b8" stroke-width="5"/></g>
+  <text x="445" y="645" text-anchor="middle" fill="#94a3b8" font-size="16" letter-spacing="1">FOUR LATER SEARCHES • ZERO REPEATS</text>
  </g>
- <g id="no-repeat-note" opacity="0" data-entity-id="no_repeat_label" data-caption-policy="avoid" data-semantic-cue-id="no_verified_repeat" data-semantic-beat-id="${escapeXml(stages.turn.beatId)}" data-semantic-kind="evidence_text"><text x="360" y="770" text-anchor="middle" fill="#fbbf24" font-size="34">${escapeXml(semantic.noRepeatLabel)}</text></g>
- <g id="transmission-note" opacity="0" data-entity-id="transmission_label" data-caption-policy="avoid" data-semantic-cue-id="no_confirmed_transmission" data-semantic-beat-id="${escapeXml(stages.turn.beatId)}" data-semantic-kind="evidence_text"><text x="360" y="825" text-anchor="middle" fill="#cbd5e1" font-size="19" letter-spacing="1">${escapeXml(semantic.transmissionLabel)}</text></g>
+ <g id="no-repeat-note" opacity="0" data-entity-id="no_repeat_label" data-caption-policy="avoid" data-semantic-cue-id="no_verified_repeat" data-semantic-beat-id="${escapeXml(stages.turn.beatId)}" data-semantic-kind="evidence_text"><text x="360" y="778" text-anchor="middle" fill="#fbbf24" font-size="39" filter="url(#semantic-glow)">${escapeXml(semantic.noRepeatLabel)}</text></g>
+ <g id="transmission-note" opacity="0" data-entity-id="transmission_label" data-caption-policy="avoid" data-semantic-cue-id="no_confirmed_transmission" data-semantic-beat-id="${escapeXml(stages.turn.beatId)}" data-semantic-kind="evidence_text">
+  <rect x="96" y="748" width="528" height="112" rx="30" fill="#0b1324" stroke="#67e8f9" stroke-width="3"/>
+  <g transform="translate(132 770)" stroke="#67e8f9" fill="none" stroke-width="4"><line x1="25" y1="18" x2="25" y2="62"/><path d="M10 28 Q-2 40 10 52 M40 28 Q52 40 40 52"/><line x1="5" y1="66" x2="45" y2="66"/></g>
+  <path id="transmission-break" d="M198 804 H242 M258 804 H302" stroke="#fb7185" stroke-width="5"/><path d="M242 790 L258 818" stroke="#fb7185" stroke-width="6"/>
+  <text x="462" y="798" text-anchor="middle" fill="#e2e8f0" font-size="22" letter-spacing="1">NO CONFIRMED</text><text x="462" y="832" text-anchor="middle" fill="#67e8f9" font-size="27" letter-spacing="1">TRANSMISSION</text>
+ </g>
 </g>
 
 <path id="evidence-carry-morph" d="${evidenceSourcePath}" fill="none" stroke="#22d3ee" stroke-width="7" opacity="0" data-entity-id="evidence_trace" data-caption-policy="avoid" data-semantic-cue-id="evidence_to_search_morph" data-semantic-beat-id="${escapeXml(stages.turn.beatId)}" data-semantic-kind="primary_visual"/>
 
 <g id="stage-payoff" opacity="0" data-semantic-beat-id="${escapeXml(stages.payoff.beatId)}">
- <circle id="verdict-field" cx="360" cy="570" r="110" fill="url(#verdict-gradient)"/>
+ <circle id="verdict-field" cx="360" cy="610" r="110" fill="url(#verdict-gradient)"/>
  <g id="observation-chip" data-entity-id="evidence_node" data-caption-policy="avoid" data-semantic-cue-id="single_observation" data-semantic-beat-id="${escapeXml(stages.payoff.beatId)}" data-semantic-kind="primary_visual">
-  <rect x="84" y="330" width="240" height="82" rx="24" fill="#083344" stroke="#22d3ee" stroke-width="3"/><circle cx="120" cy="371" r="11" fill="#67e8f9"/><text x="204" y="378" text-anchor="middle" fill="#cffafe" font-size="18">${escapeXml(semantic.observationLabel)}</text>
+  <rect x="166" y="280" width="388" height="112" rx="28" fill="#083344" stroke="#22d3ee" stroke-width="4"/><circle cx="214" cy="326" r="13" fill="#67e8f9"/><text x="378" y="333" text-anchor="middle" fill="#cffafe" font-size="27">${escapeXml(semantic.observationLabel)}</text><text x="360" y="370" text-anchor="middle" fill="#67e8f9" font-size="14" letter-spacing="2">THE HONEST ANSWER STARTS HERE</text>
+  <path id="honest-answer-arrow" d="M360 395 V445" stroke="#67e8f9" stroke-width="5"/><path d="M348 433 L360 447 L372 433" fill="none" stroke="#67e8f9" stroke-width="5"/>
  </g>
  <g id="reasoning-verdict" opacity="0" data-entity-id="reasoning_bridge" data-caption-policy="avoid" data-semantic-cue-id="not_aliens" data-semantic-beat-id="${escapeXml(stages.payoff.beatId)}" data-semantic-kind="primary_visual">
-  <rect x="430" y="330" width="206" height="82" rx="24" fill="#3f1d2e" stroke="#fb7185" stroke-width="3"/><text x="533" y="378" text-anchor="middle" fill="#fecdd3" font-size="22">${escapeXml(semantic.speculationLabel)}</text>
-  <line id="aliens-strike-a" x1="452" y1="347" x2="614" y2="395" stroke="#fb7185" stroke-width="8" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100"/><line id="aliens-strike-b" x1="614" y1="347" x2="452" y2="395" stroke="#fb7185" stroke-width="8" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100"/>
-  <text x="360" y="735" text-anchor="middle" fill="#cbd5e1" font-size="23">${escapeXml(semantic.observationLabel)} <tspan fill="#fbbf24" font-size="38">≠</tspan> ${escapeXml(semantic.proofLabel)}</text>
+  <rect x="196" y="455" width="328" height="116" rx="30" fill="#3f1d2e" stroke="#fb7185" stroke-width="4"/><text x="360" y="526" text-anchor="middle" fill="#fecdd3" font-size="36">${escapeXml(semantic.speculationLabel)}</text>
+  <line id="aliens-strike-a" x1="222" y1="476" x2="498" y2="550" stroke="#fb7185" stroke-width="10" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100"/><line id="aliens-strike-b" x1="498" y1="476" x2="222" y2="550" stroke="#fb7185" stroke-width="10" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100"/>
  </g>
  <g id="bounded-conclusion" opacity="0" data-entity-id="payoff_label" data-caption-policy="avoid" data-semantic-cue-id="unexplained_conclusion" data-semantic-beat-id="${escapeXml(stages.payoff.beatId)}" data-semantic-kind="audience_text">
-  <circle cx="360" cy="570" r="112" fill="#082f49" stroke="#22d3ee" stroke-width="4"/><text x="360" y="555" text-anchor="middle" fill="#fde68a" font-size="30">${escapeXml(semantic.conclusionLabel)}</text><text x="360" y="600" text-anchor="middle" fill="#94a3b8" class="small-label">${escapeXml(semantic.uncertaintyLabel)}</text>
+  <circle cx="360" cy="610" r="154" fill="#082f49" stroke="#22d3ee" stroke-width="4"/><text x="360" y="582" text-anchor="middle" fill="#fde68a" font-size="27">${escapeXml(semantic.candidateLeadLabel)}</text><text x="360" y="628" text-anchor="middle" fill="#ecfeff" font-size="38">${escapeXml(semantic.candidateNounLabel)}</text><text x="360" y="676" text-anchor="middle" fill="#94a3b8" font-size="16" letter-spacing="2">${escapeXml(semantic.uncertaintyLabel)}</text>
  </g>
- <g id="final-proof-note" opacity="0" data-entity-id="final_evidence_label" data-caption-policy="avoid" data-semantic-cue-id="no_repeatable_proof" data-semantic-beat-id="${escapeXml(stages.payoff.beatId)}" data-semantic-kind="evidence_text"><text x="360" y="795" text-anchor="middle" fill="#fbbf24" font-size="27" letter-spacing="1">${escapeXml(semantic.finalEvidenceLabel)}</text><line id="final-proof-line" x1="190" y1="818" x2="530" y2="818" stroke="#f59e0b" stroke-width="4" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100"/></g>
+ <g id="final-proof-note" opacity="0" data-entity-id="final_evidence_label" data-caption-policy="avoid" data-semantic-cue-id="no_repeatable_proof" data-semantic-beat-id="${escapeXml(stages.payoff.beatId)}" data-semantic-kind="evidence_text">
+  <rect x="76" y="540" width="568" height="218" rx="34" fill="#0b1324" stroke="#f59e0b" stroke-width="4"/><text x="360" y="591" text-anchor="middle" fill="#94a3b8" font-size="18" letter-spacing="2">UNEXPLAINED <tspan fill="#fbbf24" font-size="29">≠</tspan> PROOF</text><text x="360" y="651" text-anchor="middle" fill="#fde68a" font-size="38">NO REPEATABLE</text><text x="360" y="708" text-anchor="middle" fill="#fbbf24" font-size="54" filter="url(#semantic-glow)">PROOF</text><line id="final-proof-line" x1="170" y1="730" x2="550" y2="730" stroke="#f59e0b" stroke-width="5" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100"/>
+ </g>
 </g>
 
 <rect x="0" y="947" width="720" height="333" fill="url(#caption-scrim-semantic)" data-caption-safe-zone="true" pointer-events="none"/>
@@ -292,23 +347,27 @@ const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,v));
 const ease=(value,name)=>{const x=clamp(value);if(name==="linear")return x;if(name==="smoothstep")return x*x*(3-2*x);if(name==="ease_in_cubic")return x*x*x;if(name==="ease_out_cubic")return 1-Math.pow(1-x,3);if(name==="ease_in_out_cubic")return x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2;throw new Error("unsupported_easing")};
 const progress=(frame,key)=>{const op=DATA.schedule[key];if(!op)throw new Error("missing_operation");return ease((frame-op.startFrame)/Math.max(1,op.endFrame-op.startFrame),op.easing)};
 const cueReveal=(frame,key,preRoll=8,settleFrames=2)=>{const op=DATA.schedule[key];if(!op)throw new Error("missing_operation");return clamp((frame-(op.startFrame-preRoll))/Math.max(1,preRoll+settleFrames))};
+const cubicPoint=(values,value)=>{const bounded=clamp(value),second=bounded>.5,t=second?(bounded-.5)*2:bounded*2,offset=second?6:0,one=1-t,coordinate=(axis)=>one*one*one*values[offset+axis]+3*one*one*t*values[offset+2+axis]+3*one*t*t*values[offset+4+axis]+t*t*t*values[offset+6+axis];return{x:coordinate(0),y:coordinate(1)}};
+const frequencyCursorX=(value)=>{const arrival=clamp(value/.62),eased=1-Math.pow(1-arrival,3);return 100+260*eased};
+const scaleAt=(cx,cy,scale)=>"translate("+(cx*(1-scale)).toFixed(3)+" "+(cy*(1-scale)).toFixed(3)+") scale("+scale.toFixed(5)+")";
 const morphPath=(value)=>{const t=clamp(value),p=DATA.evidenceMorph.source.map((entry,index)=>entry+(DATA.evidenceMorph.target[index]-entry)*t);return "M"+p[0]+" "+p[1]+" C"+p[2]+" "+p[3]+" "+p[4]+" "+p[5]+" "+p[6]+" "+p[7]+" C"+p[8]+" "+p[9]+" "+p[10]+" "+p[11]+" "+p[12]+" "+p[13]};
-const stageOpacity=(frame,key)=>{const stage=DATA.stages[key];if(!stage||frame<stage.startFrame||frame>=stage.endFrame)return 0;const enter=stage.startFrame===0?1:.35+.65*clamp((frame-stage.startFrame)/7),exit=stage.endFrame===DATA.durationFrames?1:clamp((stage.endFrame-frame)/7);return Math.min(enter,exit)};
+const stageOpacity=(frame,key)=>{const stage=DATA.stages[key];if(!stage||frame<stage.startFrame||frame>=stage.endFrame)return 0;const enter=stage.startFrame===0?1:.72+.28*clamp((frame-stage.startFrame)/4),exit=stage.endFrame===DATA.durationFrames?1:clamp((stage.endFrame-frame)/5);return Math.min(enter,exit)};
 function renderFrame(rawFrame){
  const frame=Math.max(0,Math.min(DATA.durationFrames-1,Math.floor(rawFrame+1e-7)));
  const stageKeys=["hook","context","evidence","turn","payoff"],stageValues=stageKeys.map((key)=>stageOpacity(frame,key));stageKeys.forEach((key,index)=>byId("stage-"+key).setAttribute("opacity",stageValues[index].toFixed(4)));
  byId("semantic-header").setAttribute("opacity",(.38+.62*stageValues[0]).toFixed(4));
  byId("semantic-ambient-wash").setAttribute("opacity",(.015+.035*(1+Math.sin(frame*.11))).toFixed(4));byId("semantic-ambient-stars").setAttribute("transform","translate("+(1.8*Math.sin(frame*.023)).toFixed(3)+" "+(1.4*Math.cos(frame*.031)).toFixed(3)+")");byId("semantic-ambient-stars").setAttribute("opacity",(.16+.055*(1+Math.sin(frame*.043))).toFixed(4));
 
- const record=progress(frame,"draw_path:observation_record"),wow=progress(frame,"highlight:wow_annotation");byId("record-clip-rect").setAttribute("width",String(560*record));byId("record-trace").style.strokeDashoffset=String(100*(1-record));byId("record-anomaly-column").setAttribute("opacity",(.22+.78*record).toFixed(4));const scanY=535+185*Math.sin(frame*.055);byId("record-scan-line").setAttribute("y1",scanY.toFixed(3));byId("record-scan-line").setAttribute("y2",scanY.toFixed(3));byId("wow-mark").setAttribute("opacity",wow.toFixed(4));byId("wow-ring").style.strokeDashoffset=String(100*(1-wow));
+ const record=progress(frame,"draw_path:observation_record"),wow=progress(frame,"highlight:wow_annotation"),wowVisibility=Math.max(wow,cueReveal(frame,"highlight:wow_annotation",5,1));byId("record-clip-rect").setAttribute("width",String(560*record));byId("record-trace").style.strokeDashoffset=String(100*(1-record));byId("record-anomaly-column").setAttribute("opacity",(.22+.78*record).toFixed(4));const scanY=535+185*Math.sin(frame*.055);byId("record-scan-line").setAttribute("y1",scanY.toFixed(3));byId("record-scan-line").setAttribute("y2",scanY.toFixed(3));byId("hook-record").setAttribute("opacity",(1-.58*wowVisibility).toFixed(4));byId("wow-mark").setAttribute("opacity",wowVisibility.toFixed(4));byId("wow-mark").setAttribute("transform",scaleAt(474,480,.92+.08*wowVisibility));byId("wow-mark").setAttribute("filter",wowVisibility>.1?"url(#semantic-glow)":"none");byId("wow-ring").style.strokeDashoffset=String(100*(1-wow));
 
- const frequency=progress(frame,"create:frequency_scale"),timer=progress(frame,"pulse:duration_timer"),timerVisibility=Math.max(timer,cueReveal(frame,"pulse:duration_timer"));const cursorX=100+520*frequency;byId("frequency-cursor").setAttribute("x1",cursorX.toFixed(3));byId("frequency-cursor").setAttribute("x2",cursorX.toFixed(3));byId("notable-band").setAttribute("opacity",clamp((frequency-.42)/.22).toFixed(4));byId("duration-display").setAttribute("opacity",timerVisibility.toFixed(4));byId("duration-ring").style.strokeDashoffset=String(100*(1-timer));
+ const frequency=progress(frame,"create:frequency_scale"),timer=progress(frame,"pulse:duration_timer"),timerVisibility=Math.max(timer,cueReveal(frame,"pulse:duration_timer",5,1)),bandVisibility=clamp((frequency-.22)/.28),cursorX=frequencyCursorX(frequency);byId("frequency-cursor").setAttribute("x1",cursorX.toFixed(3));byId("frequency-cursor").setAttribute("x2",cursorX.toFixed(3));byId("frequency-cursor-dot").setAttribute("cx",cursorX.toFixed(3));byId("notable-band").setAttribute("opacity",bandVisibility.toFixed(4));byId("notable-band").setAttribute("filter",bandVisibility>.2?"url(#semantic-glow)":"none");byId("frequency-band-label").setAttribute("opacity",bandVisibility.toFixed(4));byId("frequency-panel").setAttribute("opacity",(1-.72*timerVisibility).toFixed(4));byId("duration-display").setAttribute("opacity",timerVisibility.toFixed(4));byId("duration-display").setAttribute("transform",scaleAt(360,700,.92+.08*timerVisibility));byId("duration-ring").style.strokeDashoffset=String(100*(1-timer));
 
- const beam=progress(frame,"draw_path:beam_graph"),trace=progress(frame,"trace_signal:evidence_trace"),interference=progress(frame,"highlight:interference_label");byId("beam-reference").style.strokeDashoffset=String(100*(1-beam));byId("signal-strength-curve").style.strokeDashoffset=String(100*(1-trace));const sourceX=120+490*trace,sourceY=690-340*Math.exp(-Math.pow((trace-.5)/.235,2));byId("beam-source-dot").setAttribute("cx",sourceX.toFixed(3));byId("beam-source-dot").setAttribute("cy",sourceY.toFixed(3));byId("beam-guide").setAttribute("x1",sourceX.toFixed(3));byId("beam-guide").setAttribute("x2",sourceX.toFixed(3));byId("beam-guide").setAttribute("y1",sourceY.toFixed(3));byId("beam-guide").setAttribute("y2","700");byId("interference-note").setAttribute("opacity",interference.toFixed(4));
+ const beam=progress(frame,"draw_path:beam_graph"),trace=progress(frame,"trace_signal:evidence_trace"),interference=progress(frame,"highlight:interference_label"),traceVisibility=Math.max(trace,cueReveal(frame,"trace_signal:evidence_trace",4,1)),beamVisibility=Math.max(beam,cueReveal(frame,"draw_path:beam_graph",4,1)),interferenceVisibility=Math.max(interference,cueReveal(frame,"highlight:interference_label",5,1)),tracePoint=cubicPoint(DATA.evidenceMorph.source,trace),beamPoint=cubicPoint(DATA.beamProfile,beam),responsePoint=cubicPoint(DATA.evidenceMorph.source,beam);byId("signal-trace-clip-rect").setAttribute("width",Math.max(0,tracePoint.x-120).toFixed(3));byId("signal-trace-dot").setAttribute("cx",tracePoint.x.toFixed(3));byId("signal-trace-dot").setAttribute("cy",tracePoint.y.toFixed(3));byId("signal-trace-dot").setAttribute("opacity",(traceVisibility*(1-beamVisibility)*(1-interferenceVisibility)).toFixed(4));byId("beam-profile-clip-rect").setAttribute("width",Math.max(0,beamPoint.x-120).toFixed(3));byId("beam-profile-dot").setAttribute("cx",beamPoint.x.toFixed(3));byId("beam-profile-dot").setAttribute("cy",beamPoint.y.toFixed(3));byId("beam-profile-dot").setAttribute("opacity",(beamVisibility*(1-interferenceVisibility)).toFixed(4));byId("beam-source-marker").setAttribute("cx",beamPoint.x.toFixed(3));byId("beam-source-marker").setAttribute("opacity",(beamVisibility*(1-interferenceVisibility)).toFixed(4));byId("beam-sample-line").setAttribute("x1",beamPoint.x.toFixed(3));byId("beam-sample-line").setAttribute("x2",beamPoint.x.toFixed(3));byId("beam-sample-line").setAttribute("y1",beamPoint.y.toFixed(3));byId("beam-sample-line").setAttribute("y2","455");byId("beam-sample-line").setAttribute("opacity",(beamVisibility*(1-interferenceVisibility)).toFixed(4));byId("signal-response-dot").setAttribute("cx",responsePoint.x.toFixed(3));byId("signal-response-dot").setAttribute("cy",responsePoint.y.toFixed(3));byId("signal-response-dot").setAttribute("opacity",(beamVisibility*(1-interferenceVisibility)).toFixed(4));byId("beam-guide").setAttribute("x1",beamPoint.x.toFixed(3));byId("beam-guide").setAttribute("x2",responsePoint.x.toFixed(3));byId("beam-guide").setAttribute("y1",beamPoint.y.toFixed(3));byId("beam-guide").setAttribute("y2",responsePoint.y.toFixed(3));byId("beam-guide").setAttribute("opacity",(beamVisibility*(1-interferenceVisibility)).toFixed(4));byId("beam-panel").setAttribute("opacity",(.24+.76*beamVisibility)*(1-.74*interferenceVisibility));byId("signal-response-panel").setAttribute("opacity",(1-.74*interferenceVisibility).toFixed(4));byId("interference-note").setAttribute("opacity",interferenceVisibility.toFixed(4));byId("interference-note").setAttribute("transform",scaleAt(360,835,.94+.06*interferenceVisibility));
 
- const morph=progress(frame,"morph_path:evidence_trace"),searches=progress(frame,"stagger:search_timeline"),noRepeat=progress(frame,"highlight:no_repeat_label"),transmission=progress(frame,"fade:transmission_label"),morphOp=DATA.schedule["morph_path:evidence_trace"],carryTransition=DATA.transitions.find((entry)=>entry.sharedEntityId==="evidence_trace"),morphSettle=clamp((frame-morphOp.endFrame)/5),carryVisible=carryTransition&&frame>=carryTransition.startFrame&&frame<=morphOp.endFrame+5?1-morphSettle:0;byId("evidence-carry-morph").setAttribute("d",morphPath(morph));byId("evidence-carry-morph").setAttribute("opacity",carryVisible.toFixed(4));byId("search-active-line").setAttribute("x2",String(104+512*searches));byId("single-signal-spike").setAttribute("opacity",morphSettle.toFixed(4));[1,2,3,4].forEach((index)=>byId("search-pass-"+index).setAttribute("opacity",clamp((searches-(index-1)*.19)/.22).toFixed(4)));byId("no-repeat-note").setAttribute("opacity",noRepeat.toFixed(4));byId("transmission-note").setAttribute("opacity",transmission.toFixed(4));
+ const morph=progress(frame,"morph_path:evidence_trace"),searches=progress(frame,"stagger:search_timeline"),noRepeat=progress(frame,"highlight:no_repeat_label"),transmission=progress(frame,"fade:transmission_label"),searchVisibility=Math.max(searches,cueReveal(frame,"stagger:search_timeline",4,1)),noRepeatVisibility=Math.max(noRepeat,cueReveal(frame,"highlight:no_repeat_label",4,1)),transmissionVisibility=Math.max(transmission,cueReveal(frame,"fade:transmission_label",4,1)),morphOp=DATA.schedule["morph_path:evidence_trace"],carryTransition=DATA.transitions.find((entry)=>entry.sharedEntityId==="evidence_trace"),morphSettle=clamp((frame-morphOp.endFrame)/5),carryVisible=carryTransition&&frame>=carryTransition.startFrame&&frame<=morphOp.endFrame+5?1-morphSettle:0;byId("evidence-carry-morph").setAttribute("d",morphPath(morph));byId("evidence-carry-morph").setAttribute("opacity",carryVisible.toFixed(4));byId("search-active-line").setAttribute("x2",String(104+512*searches));byId("single-signal-spike").setAttribute("opacity",morphSettle.toFixed(4));[1,2,3,4].forEach((index)=>{const local=clamp((searchVisibility-(index-1)*.19)/.22),flash=Math.sin(Math.PI*clamp(local/.82)),center=[0,280,390,500,600][index],scale=1+.12*flash;byId("search-pass-"+index).setAttribute("opacity",local.toFixed(4));byId("search-pass-"+index).setAttribute("transform",scaleAt(center,545,scale));byId("search-ring-"+index).setAttribute("stroke",flash>.08?"#67e8f9":"#475569");byId("search-ring-"+index).setAttribute("stroke-width",(3+3*flash).toFixed(3));byId("search-flat-"+index).setAttribute("stroke",flash>.08?"#ecfeff":"#94a3b8")});byId("search-history").setAttribute("opacity",(1-.72*Math.max(noRepeatVisibility,transmissionVisibility)).toFixed(4));byId("no-repeat-note").setAttribute("opacity",(noRepeatVisibility*(1-.82*transmissionVisibility)).toFixed(4));byId("no-repeat-note").setAttribute("transform",scaleAt(360,778,.94+.06*noRepeatVisibility));byId("transmission-note").setAttribute("opacity",transmissionVisibility.toFixed(4));byId("transmission-note").setAttribute("transform",scaleAt(360,804,.94+.06*transmissionVisibility));
 
- const transition=progress(frame,"transition_match:evidence_node"),reasoning=progress(frame,"fade:reasoning_bridge"),payoff=progress(frame,"fade:payoff_label"),payoffVisibility=Math.max(payoff,cueReveal(frame,"fade:payoff_label")),finalProof=progress(frame,"highlight:final_evidence_label"),finalProofVisibility=Math.max(finalProof,cueReveal(frame,"highlight:final_evidence_label")),fieldPulse=progress(frame,"pulse:deep_background");byId("observation-chip").setAttribute("opacity",(.45+.55*transition).toFixed(4));byId("reasoning-verdict").setAttribute("opacity",reasoning.toFixed(4));byId("aliens-strike-a").style.strokeDashoffset=String(100*(1-reasoning));byId("aliens-strike-b").style.strokeDashoffset=String(100*(1-reasoning));byId("bounded-conclusion").setAttribute("opacity",payoffVisibility.toFixed(4));byId("final-proof-note").setAttribute("opacity",finalProofVisibility.toFixed(4));byId("final-proof-line").style.strokeDashoffset=String(100*(1-finalProof));byId("verdict-field").setAttribute("r",String(110+120*Math.sin(Math.PI*fieldPulse)));
+ const transition=progress(frame,"transition_match:evidence_node"),reasoning=progress(frame,"fade:reasoning_bridge"),payoff=progress(frame,"fade:payoff_label"),finalProof=progress(frame,"highlight:final_evidence_label"),reasoningFocus=Math.max(reasoning,cueReveal(frame,"fade:reasoning_bridge",4,1)),payoffFocus=Math.max(payoff,cueReveal(frame,"fade:payoff_label",3,1)),finalProofFocus=Math.max(finalProof,cueReveal(frame,"highlight:final_evidence_label",3,1)),fieldPulse=progress(frame,"pulse:deep_background"),observationVisibility=Math.max(.14,1-.72*payoffFocus-.14*finalProofFocus),reasoningVisibility=reasoningFocus*(1-.9*payoffFocus),candidateVisibility=payoffFocus*(1-.84*finalProofFocus);byId("observation-chip").setAttribute("opacity",observationVisibility.toFixed(4));byId("observation-chip").setAttribute("transform",scaleAt(360,350,.96+.04*transition));byId("reasoning-verdict").setAttribute("opacity",reasoningVisibility.toFixed(4));byId("reasoning-verdict").setAttribute("transform",scaleAt(360,515,.92+.08*reasoningFocus));byId("aliens-strike-a").style.strokeDashoffset=String(100*(1-reasoning));byId("aliens-strike-b").style.strokeDashoffset=String(100*(1-reasoning));byId("bounded-conclusion").setAttribute("opacity",candidateVisibility.toFixed(4));byId("bounded-conclusion").setAttribute("transform",scaleAt(360,610,.91+.09*payoffFocus));byId("final-proof-note").setAttribute("opacity",finalProofFocus.toFixed(4));byId("final-proof-note").setAttribute("transform",scaleAt(360,650,.91+.09*finalProofFocus));byId("final-proof-line").style.strokeDashoffset=String(100*(1-finalProof));byId("verdict-field").setAttribute("r",String(110+120*Math.sin(Math.PI*fieldPulse)));byId("verdict-field").setAttribute("opacity",(1-.7*finalProofFocus).toFixed(4));
+ document.documentElement.dataset.semanticTraceProgress=trace.toFixed(6);document.documentElement.dataset.semanticTraceX=tracePoint.x.toFixed(3);document.documentElement.dataset.semanticTraceY=tracePoint.y.toFixed(3);
  document.documentElement.dataset.renderedFrame=String(frame);
 }
 let currentTime=0,rate=1;

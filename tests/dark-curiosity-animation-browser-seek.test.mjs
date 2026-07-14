@@ -80,6 +80,18 @@ test("geometry audit rejects real clipping and caption-safe collisions", () => {
   const collision = validateGeometrySnapshots([{ frame: 0, ...geometry({ x: 100, y: 930, width: 200, height: 80 }) }], 720, 1280);
   assert.equal(collision.passed, false);
   assert.equal(collision.captionSafeZoneViolations.length, 1);
+  const offPath = validateGeometrySnapshots([{ frame: 0, ...geometry(), pathFollowers: [{ followerId: "signal-dot", pathId: "signal-curve", visible: true, distance: 2.25 }] }], 720, 1280);
+  assert.equal(offPath.passed, false);
+  assert.deepEqual(offPath.pathFollowerViolations, [{ frame: 0, followerId: "signal-dot", pathId: "signal-curve", distance: 2.25 }]);
+  const onPath = validateGeometrySnapshots([{ frame: 0, ...geometry(), pathFollowers: [{ followerId: "signal-dot", pathId: "signal-curve", visible: true, distance: 0.8 }] }], 720, 1280);
+  assert.equal(onPath.passed, true);
+  assert.equal(onPath.pathFollowerObservationCount, 1);
+  const hiddenFollower = validateGeometrySnapshots([{ frame: 0, ...geometry(), pathFollowers: [{ followerId: "signal-dot", pathId: "signal-curve", visible: false, distance: null }] }], 720, 1280, ["signal-dot"]);
+  assert.equal(hiddenFollower.passed, false);
+  assert.deepEqual(hiddenFollower.unobservedPathFollowerIds, ["signal-dot"]);
+  const missingFollower = validateGeometrySnapshots([{ frame: 0, ...geometry(), pathFollowers: [] }], 720, 1280, ["signal-dot"]);
+  assert.equal(missingFollower.passed, false);
+  assert.deepEqual(missingFollower.unobservedPathFollowerIds, ["signal-dot"]);
 });
 
 test("browser harness rejects invalid sequences before browser launch", async () => {

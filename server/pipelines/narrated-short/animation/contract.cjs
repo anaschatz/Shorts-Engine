@@ -197,7 +197,7 @@ function validateContent(content) {
   };
   if (content.semantic !== undefined) {
     object(content.semantic, "content.semantic");
-    const keys = ["profileId", "eventYearLabel", "eraLabel", "recordLabel", "annotationLabel", "frequencyLabel", "durationValue", "durationUnit", "sourceLabel", "beamTitle", "beamXAxis", "beamYAxis", "interferenceLabel", "disclosureLabel", "repeatRangeLabel", "noRepeatLabel", "transmissionLabel", "observationLabel", "proofLabel", "speculationLabel", "conclusionLabel", "uncertaintyLabel", "finalEvidenceLabel"];
+    const keys = ["profileId", "eventYearLabel", "eraLabel", "recordLabel", "annotationLabel", "frequencyLabel", "durationValue", "durationUnit", "sourceLabel", "beamTitle", "beamXAxis", "beamYAxis", "interferenceLabel", "disclosureLabel", "repeatRangeLabel", "noRepeatLabel", "transmissionLabel", "observationLabel", "proofLabel", "speculationLabel", "conclusionLabel", "candidateLeadLabel", "candidateNounLabel", "uncertaintyLabel", "finalEvidenceLabel"];
     exactKeys(content.semantic, keys, "content.semantic");
     normalized.semantic = Object.fromEntries(keys.map((key) => [key, text(content.semantic[key], `content.semantic.${key}`, { max: 80 })]));
   }

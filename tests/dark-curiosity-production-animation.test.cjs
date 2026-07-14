@@ -59,8 +59,10 @@ test("production plan and AnimationIR are deterministic and data-bound", () => {
   assert.deepEqual(first.animationIR.scenes.map((scene) => scene.semantic.role), ["hook", "context", "evidence", "turn", "payoff"]);
   const operations = new Map(first.animationIR.scenes.flatMap((scene) => scene.operations).map((operation) => [`${operation.op}:${operation.targetId}`, operation]));
   assert.deepEqual([operations.get("highlight:wow_annotation").from.wordIndex, operations.get("highlight:wow_annotation").to.wordIndex], [11, 14]);
+  assert.equal(operations.get("create:frequency_scale").to.wordIndex, 19);
   assert.deepEqual([operations.get("pulse:duration_timer").from.wordIndex, operations.get("pulse:duration_timer").to.wordIndex], [27, 29]);
-  assert.deepEqual([operations.get("trace_signal:evidence_trace").from.wordIndex, operations.get("trace_signal:evidence_trace").to.wordIndex], [31, 41]);
+  assert.deepEqual([operations.get("trace_signal:evidence_trace").from.wordIndex, operations.get("trace_signal:evidence_trace").to.wordIndex], [31, 34]);
+  assert.deepEqual([operations.get("draw_path:beam_graph").from.wordIndex, operations.get("draw_path:beam_graph").to.wordIndex], [35, 41]);
   assert.deepEqual([operations.get("highlight:no_repeat_label").from.wordIndex, operations.get("highlight:no_repeat_label").to.wordIndex], [51, 56]);
   assert.deepEqual([operations.get("highlight:final_evidence_label").from.wordIndex, operations.get("highlight:final_evidence_label").to.wordIndex], [78, 80]);
   assert.deepEqual(validateSemanticNarrative(first.animationIR), { valid: true, mode: "semantic", beatCount: 5, cueCount: 17 });
@@ -118,10 +120,47 @@ test("semantic renderer exposes five story stages, genuine carry morphing, and n
   assert.equal(midpoint, semanticEvidenceMorphPath(0.5));
   assert.match(html, new RegExp(`id="signal-strength-curve" d="${source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
   assert.match(html, new RegExp(`id="single-signal-spike" d="${target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
+  assert.match(html, /id="beam-cause-panel"/);
+  assert.match(html, /id="signal-response-panel"/);
+  assert.match(html, /id="signal-trace-clip-rect"/);
+  assert.match(html, /id="beam-profile-clip-rect"/);
+  assert.match(html, /id="beam-reference"[^>]+clip-path="url\(#beam-profile-clip\)"/);
+  assert.doesNotMatch(html, /id="beam-reference"[^>]+stroke-dashoffset/);
+  assert.match(html, /id="frequency-cursor-dot"/);
+  assert.match(html, /id="beam-profile-dot"/);
+  assert.match(html, /id="signal-response-dot"/);
+  assert.doesNotMatch(html, /Math\.exp/);
   const changedYear = structuredClone(ir);
   changedYear.content.semantic.eventYearLabel = "1984";
   assert.match(compileAnimationIRToHtml(changedYear).html, /class="small-label">1984<\/text>/);
   assert.doesNotMatch(html, />\s*(?:HOOK|CONTEXT|EVIDENCE|TURN|PAYOFF)\s*</);
+});
+
+test("semantic explanatory geometry locks the frequency cue and every chart marker to one cubic source", async () => {
+  const {
+    SEMANTIC_BEAM_PROFILE,
+    SEMANTIC_EVIDENCE_MORPH_SOURCE,
+    semanticCubicPoint,
+    semanticFrequencyCursorX,
+  } = await import("../renderer/hyperframes/animation-ir-adapter.mjs");
+  assert.equal(semanticFrequencyCursorX(0), 100);
+  assert.equal(semanticFrequencyCursorX(0.62), 360);
+  assert.equal(semanticFrequencyCursorX(1), 360);
+  assert.ok(Array.from({ length: 101 }, (_, index) => semanticFrequencyCursorX(index / 100)).every((x) => x >= 100 && x <= 360));
+  assert.throws(() => semanticFrequencyCursorX(Number.NaN), TypeError);
+
+  for (const progress of [0, 0.125, 0.25, 0.5, 0.75, 0.875, 1]) {
+    const beam = semanticCubicPoint(SEMANTIC_BEAM_PROFILE, progress);
+    const response = semanticCubicPoint(SEMANTIC_EVIDENCE_MORPH_SOURCE, progress);
+    assert.equal(beam.x, response.x);
+    assert.ok(Math.abs(((455 - beam.y) / 155) - ((720 - response.y) / 160)) < 0.00001);
+    assert.ok(response.x >= 120 && response.x <= 610);
+    assert.ok(response.y >= 560 && response.y <= 720);
+  }
+  assert.deepEqual(semanticCubicPoint(SEMANTIC_EVIDENCE_MORPH_SOURCE, 0), { x: 120, y: 720 });
+  assert.deepEqual(semanticCubicPoint(SEMANTIC_EVIDENCE_MORPH_SOURCE, 0.5), { x: 365, y: 560 });
+  assert.deepEqual(semanticCubicPoint(SEMANTIC_EVIDENCE_MORPH_SOURCE, 1), { x: 610, y: 720 });
+  assert.throws(() => semanticCubicPoint([0, 1], 0.5), TypeError);
 });
 
 test("browser seek sampling is hard-capped while retaining every scene midpoint", () => {
@@ -162,7 +201,9 @@ test("production render service persists hash-bound artifacts and blocks no QA g
     doctor: async () => ({ ready: true, runtimeVersion: "0.7.55" }),
     validate: (animationIR) => ({ animationIR, budget: { computedCost: 42 } }),
     estimate: ({ animationIR }) => ({ frames: animationIR.durationFrames, durationSeconds: animationIR.durationFrames / 30, complexityCost: 42, estimatedMemoryMb: 300, expectedDurationSeconds: 20 }),
-    render: async ({ validated, stagingDir: rendererDir }) => {
+    render: async (request) => {
+      renderRequest = request;
+      const { validated, stagingDir: rendererDir } = request;
       const outputPath = resolve(rendererDir, "visual-master.mp4");
       writeFileSync(outputPath, "continuous-video");
       const { compileAnimationIRToHtml } = await import("../renderer/hyperframes/animation-ir-adapter.mjs");
@@ -170,11 +211,13 @@ test("production render service persists hash-bound artifacts and blocks no QA g
     },
     verify: (manifest) => ({ valid: true, outputSha256: manifest.outputSha256, animationIRHash: manifest.animationIRHash }),
   };
+  let renderRequest;
+  let browserRequest;
   try {
     const result = await runProductionAnimationRender({ draft: value.draft, alignment: value.alignment, projectId: value.projectId, projectRevision: 1, jobId: `job_${randomUUID()}`, draftArtifactId: art("a"), draftHash: value.draft.contentHash, alignmentHash: value.alignment.contentHash, renderProfile: "preview", stagingDir, contentArtifactRepository }, {
       providerRegistry: { get: () => provider },
       chromePath: "/mock/chrome",
-      runBrowserSeekProof: async (request) => ({ seekSequence: request.seekSequence, captures: request.seekSequence.map((frame, sequenceIndex) => ({ sequenceIndex, frame, sha256: hash("b") })), repeatedFrames: [{ frame: 0, occurrences: 2, sha256: hash("b"), equal: true }], loadedOnce: true, pageLoadCount: 1, stateIsolation: { valid: true }, externalRequestCount: 0, blockedExternalRequestCount: 0, resourceClasses: [], geometryAudit: { passed: true, semanticRoi: { x: 0, y: 0, width: 720, height: 900 }, captionSafeZone: { x: 0, y: 947, width: 720, height: 333 }, checkpointCount: request.seekSequence.length, entityObservationCount: 10, clippedEntities: [], captionSafeZoneViolations: [] }, passed: true }),
+      runBrowserSeekProof: async (request) => { browserRequest = request; return { seekSequence: request.seekSequence, captures: request.seekSequence.map((frame, sequenceIndex) => ({ sequenceIndex, frame, sha256: hash("b") })), repeatedFrames: [{ frame: 0, occurrences: 2, sha256: hash("b"), equal: true }], loadedOnce: true, pageLoadCount: 1, stateIsolation: { valid: true }, externalRequestCount: 0, blockedExternalRequestCount: 0, resourceClasses: [], geometryAudit: { passed: true, semanticRoi: { x: 0, y: 0, width: 720, height: 900 }, captionSafeZone: { x: 0, y: 947, width: 720, height: 333 }, checkpointCount: request.seekSequence.length, entityObservationCount: 10, pathFollowerObservationCount: 3, observedPathFollowerIds: request.expectedPathFollowerIds, unobservedPathFollowerIds: [], clippedEntities: [], captionSafeZoneViolations: [], pathFollowerViolations: [] }, passed: true }; },
       runBenchmarkQa: () => ({ passed: true, checks: { immediateHook: true, consecutiveStasis: true, contiguousStasis: true, balancedMotion: true }, technical: { codec: "h264", pixelFormat: "yuv420p", width: 720, height: 1280, fps: 30, frameCount: 1031, durationSeconds: 1031 / 30 }, motion: { firstMeaningfulMotionFrame: 1, consecutiveStasisRatio: 0.1, maxContiguousStasisFrames: 10, maxWindowMotionShare: 0.3, rawMaxWindowMotionShare: 0.35, sampleHashes: [hash("c")] }, clippedEntities: 0, captionSafeZoneViolations: 0 }),
     });
     assert.deepEqual(created.map((entry) => entry.type), ["animation_timing_context", "animation_plan", "animation_ir", "animation_qa_report", "animation_render_manifest"]);
@@ -182,6 +225,8 @@ test("production render service persists hash-bound artifacts and blocks no QA g
     assert.equal(result.manifest.animationIRHash, result.irArtifact.envelope.contentHash);
     assert.equal(result.manifest.visualMasterSha256, result.visualMasterSha256);
     assert.equal(result.manifest.animationQaHash, result.qaArtifact.envelope.contentHash);
+    assert.equal(renderRequest.timeoutMs, 600000);
+    assert.deepEqual(browserRequest.expectedPathFollowerIds, ["beam-profile-dot", "signal-response-dot", "signal-trace-dot"]);
   } finally {
     rmSync(stagingDir, { recursive: true, force: true });
   }

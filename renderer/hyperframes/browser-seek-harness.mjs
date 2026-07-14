@@ -24,11 +24,13 @@ function validateRequest(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new BrowserSeekError("BROWSER_SEEK_REQUEST_INVALID");
   const { html, width, height, fps, durationFrames, seekSequence, chromePath } = input;
   const timeoutMs = input.timeoutMs === undefined ? 30_000 : input.timeoutMs;
+  const expectedPathFollowerIds = input.expectedPathFollowerIds === undefined ? [] : input.expectedPathFollowerIds;
   if (typeof chromePath !== "string" || !chromePath || typeof html !== "string") throw new BrowserSeekError("BROWSER_SEEK_REQUEST_INVALID");
   if (![width, height, fps, durationFrames].every(Number.isInteger) || width < 360 || width > 2160 || height < 640 || height > 3840 || fps < 24 || fps > 60 || durationFrames < 30 || durationFrames > 3600) throw new BrowserSeekError("BROWSER_SEEK_REQUEST_INVALID");
   if (!Array.isArray(seekSequence) || seekSequence.length < 2 || seekSequence.length > 40 || seekSequence.some((frame) => !Number.isInteger(frame) || frame < 0 || frame >= durationFrames)) throw new BrowserSeekError("BROWSER_SEEK_SEQUENCE_INVALID");
   if (!Number.isInteger(timeoutMs) || timeoutMs < 5_000 || timeoutMs > 120_000) throw new BrowserSeekError("BROWSER_SEEK_TIMEOUT_INVALID");
-  return { html, width, height, fps, durationFrames, seekSequence, chromePath, timeoutMs };
+  if (!Array.isArray(expectedPathFollowerIds) || expectedPathFollowerIds.length > 20 || expectedPathFollowerIds.some((id) => !ENTITY_RE.test(id)) || new Set(expectedPathFollowerIds).size !== expectedPathFollowerIds.length) throw new BrowserSeekError("BROWSER_SEEK_REQUEST_INVALID");
+  return { html, width, height, fps, durationFrames, seekSequence, chromePath, timeoutMs, expectedPathFollowerIds };
 }
 
 function repeatedFrameResults(captures) {
@@ -56,13 +58,15 @@ function intersects(a, b) {
   return Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x) > 0.5 && Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y) > 0.5;
 }
 
-export function validateGeometrySnapshots(snapshots, width, height) {
+export function validateGeometrySnapshots(snapshots, width, height, expectedPathFollowerIds = []) {
   if (!Array.isArray(snapshots) || !snapshots.length || !Number.isInteger(width) || !Number.isInteger(height)) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
+  if (!Array.isArray(expectedPathFollowerIds) || expectedPathFollowerIds.some((id) => !ENTITY_RE.test(id)) || new Set(expectedPathFollowerIds).size !== expectedPathFollowerIds.length) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
   const semanticRoi = checkedRect(snapshots[0]?.semanticRoi, "semanticRoi");
   const captionSafeZone = checkedRect(snapshots[0]?.captionSafeZone, "captionSafeZone");
   if (semanticRoi.x < 0 || semanticRoi.y < 0 || semanticRoi.x + semanticRoi.width > width || semanticRoi.y + semanticRoi.height > height || captionSafeZone.x < 0 || captionSafeZone.y < 0 || captionSafeZone.x + captionSafeZone.width > width || captionSafeZone.y + captionSafeZone.height > height) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
-  const clippedEntities = [], captionSafeZoneViolations = [], checkpoints = [];
-  let entityObservationCount = 0;
+  const clippedEntities = [], captionSafeZoneViolations = [], pathFollowerViolations = [], checkpoints = [];
+  let entityObservationCount = 0, pathFollowerObservationCount = 0;
+  const observedPathFollowerIds = new Set();
   for (const snapshot of snapshots) {
     if (!snapshot || !Number.isInteger(snapshot.frame) || !Array.isArray(snapshot.entities)) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
     const snapshotRoi = checkedRect(snapshot.semanticRoi, "semanticRoi"), snapshotSafe = checkedRect(snapshot.captionSafeZone, "captionSafeZone");
@@ -77,9 +81,20 @@ export function validateGeometrySnapshots(snapshots, width, height) {
       if (bounds.x < -0.5 || bounds.y < -0.5 || bounds.x + bounds.width > width + 0.5 || bounds.y + bounds.height > height + 0.5) clippedEntities.push(Object.freeze({ frame: snapshot.frame, entityId: entity.entityId, bounds }));
       if (entity.captionPolicy === "avoid" && intersects(bounds, captionSafeZone)) captionSafeZoneViolations.push(Object.freeze({ frame: snapshot.frame, entityId: entity.entityId, bounds }));
     }
+    const pathFollowers = snapshot.pathFollowers === undefined ? [] : snapshot.pathFollowers;
+    if (!Array.isArray(pathFollowers)) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
+    for (const follower of pathFollowers) {
+      if (!follower || !ENTITY_RE.test(follower.followerId || "") || !ENTITY_RE.test(follower.pathId || "") || typeof follower.visible !== "boolean") throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
+      if (!follower.visible) continue;
+      if (!Number.isFinite(follower.distance) || follower.distance < 0) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
+      pathFollowerObservationCount += 1;
+      observedPathFollowerIds.add(follower.followerId);
+      if (follower.distance > 1.5) pathFollowerViolations.push(Object.freeze({ frame: snapshot.frame, followerId: follower.followerId, pathId: follower.pathId, distance: Number(follower.distance.toFixed(3)) }));
+    }
     checkpoints.push(Object.freeze({ frame: snapshot.frame, visibleEntities: visible }));
   }
-  return Object.freeze({ passed: clippedEntities.length === 0 && captionSafeZoneViolations.length === 0, semanticRoi, captionSafeZone, checkpointCount: snapshots.length, entityObservationCount, clippedEntities, captionSafeZoneViolations, checkpoints });
+  const unobservedPathFollowerIds = expectedPathFollowerIds.filter((id) => !observedPathFollowerIds.has(id));
+  return Object.freeze({ passed: clippedEntities.length === 0 && captionSafeZoneViolations.length === 0 && pathFollowerViolations.length === 0 && unobservedPathFollowerIds.length === 0, semanticRoi, captionSafeZone, checkpointCount: snapshots.length, entityObservationCount, pathFollowerObservationCount, observedPathFollowerIds: [...observedPathFollowerIds].sort(), unobservedPathFollowerIds, clippedEntities, captionSafeZoneViolations, pathFollowerViolations, checkpoints });
 }
 
 export async function runBrowserSeekProof(input, dependencies = {}) {
@@ -188,6 +203,21 @@ export async function runBrowserSeekProof(input, dependencies = {}) {
             visible: effectiveOpacity(entity) > 0.01,
             bounds: rect(entity),
           })),
+          pathFollowers: [...document.querySelectorAll("[data-follow-path-id]")].map((follower) => {
+            const pathId = follower.dataset.followPathId || "", path = document.getElementById(pathId), visible = effectiveOpacity(follower) > 0.01;
+            const x = Number(follower.getAttribute("cx")), y = Number(follower.getAttribute("cy"));
+            let distance = null;
+            if (visible && path && typeof path.getTotalLength === "function" && Number.isFinite(x) && Number.isFinite(y)) {
+              const length = path.getTotalLength(), steps = 1024;
+              let nearest = Number.POSITIVE_INFINITY;
+              for (let sample = 0; sample <= steps; sample += 1) {
+                const point = path.getPointAtLength(length * sample / steps), delta = Math.hypot(point.x - x, point.y - y);
+                if (delta < nearest) nearest = delta;
+              }
+              distance = nearest;
+            }
+            return { followerId: follower.id, pathId, visible, distance };
+          }),
         };
         return { renderedFrame: Number(document.documentElement.dataset.renderedFrame), geometry };
       }, { requestedFrame: frame, fps: request.fps });
@@ -208,7 +238,7 @@ export async function runBrowserSeekProof(input, dependencies = {}) {
     }
     if (counters.externalRequestCount !== 0 || counters.blockedExternalRequestCount !== 0) throw new BrowserSeekError("BROWSER_EXTERNAL_REQUEST_BLOCKED");
     stage = "geometry_audit";
-    const geometryAudit = validateGeometrySnapshots(geometrySnapshots, request.width, request.height);
+    const geometryAudit = validateGeometrySnapshots(geometrySnapshots, request.width, request.height, request.expectedPathFollowerIds);
     return Object.freeze({
       seekSequence: [...request.seekSequence], captures, repeatedFrames,
       loadedOnce: pageLoadCount === 1, pageLoadCount, stateIsolation: isolation,

@@ -41,6 +41,12 @@ test("engine-owned composition is deterministic and blocks remote runtime", asyn
   assert.doesNotMatch(first.html, /textLength=|lengthAdjust=/);
 });
 
+test("render worker uses software browser rasterization for bitwise-stable frames", () => {
+  const worker = readFileSync(join(__dirname, "../renderer/hyperframes/render-worker.mjs"), "utf8");
+  assert.match(worker, /browserGpuMode:\s*"software"/);
+  assert.doesNotMatch(worker, /browserGpuMode:\s*"hardware"/);
+});
+
 test("provider maps child failures safely and cleans partial output", async () => {
   const stagingDir = mkdtempSync(join(tmpdir(), "hf-failure-"));
   const provider = hyperframes.createHyperframesProvider({ spawnImpl() {

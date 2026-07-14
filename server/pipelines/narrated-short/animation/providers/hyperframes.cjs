@@ -42,7 +42,7 @@ function renderWithSpawn(spawnImpl, workerPath, providerId, request, signal, onP
   if (![irPath, requestPath, outputPath].every((path) => inside(stagingDir, path))) return Promise.reject(safeFailure());
   writeFileSync(irPath, `${JSON.stringify(validated.animationIR, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
   writeFileSync(requestPath, `${JSON.stringify({ stagingDir, irPath, outputPath, quality: request.quality || "standard" })}\n`, { encoding: "utf8", mode: 0o600 });
-  const timeoutMs = Math.max(1000, Math.min(Number(request.timeoutMs || 120000), 300000));
+  const timeoutMs = Math.max(1000, Math.min(Number(request.timeoutMs || 120000), 600000));
   return new Promise((resolvePromise, reject) => {
     const child = spawnImpl(process.execPath, [workerPath, "--request", requestPath], { cwd: resolve(__dirname, "../../../../../"), stdio: ["ignore", "pipe", "pipe"], env: { PATH: process.env.PATH || "", HOME: process.env.HOME || "", TMPDIR: process.env.TMPDIR || "/tmp", LANG: "C.UTF-8", HYPERFRAMES_EXTRACT_CACHE_DIR: "off" } });
     let stdout = "", stderrBytes = 0, complete = null, settled = false, progressCount = 0, pendingError = null;
