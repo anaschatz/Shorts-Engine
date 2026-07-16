@@ -19,6 +19,8 @@ const { ContentApprovalRepository } = require("../server/repositories/content-ap
 const { InMemoryProjectRepository } = require("../server/repositories/project-repository.cjs");
 const { normalizeDraftBundle } = require("../server/pipelines/narrated-short/contracts.cjs");
 const { normalizeNarrationAsset, normalizeNarrationRights } = require("../server/pipelines/narrated-short/narration/contract.cjs");
+const { TTS_PROVENANCE_SCHEMA_V3, normalizeTtsProvenance, sha256: ttsSha256 } = require("../server/pipelines/narrated-short/narration/tts/contract.cjs");
+const { buildPacingPlan, pacingSummary } = require("../server/pipelines/narrated-short/narration/tts/pacing-plan.cjs");
 const { ingestUploadedNarration, validateWavCandidate } = require("../server/pipelines/narrated-short/narration/upload.cjs");
 
 const FIXTURE_PATH = resolve(__dirname, "..", "eval", "narrated", "dark-curiosity", "fixtures", "001_wow_signal_mystery.json");
@@ -106,6 +108,29 @@ function setup(options = {}) {
       draftHash: approvalBundle.envelope.contentHash,
     }),
   };
+}
+
+function pacedProvenance(context, audioBuffer, pacing = pacingSummary(buildPacingPlan(context.draft.script))) {
+  const spokenText = context.draft.script.beats.map((beat) => beat.spokenText).join(" ");
+  return normalizeTtsProvenance({
+    schemaVersion: TTS_PROVENANCE_SCHEMA_V3,
+    projectId: context.project.id,
+    runId: "tts_upload_fixture",
+    script: { path: "eval/wow.json", sha256: ttsSha256(spokenText), approvalReference: "fixture:approved", approved: true },
+    provider: "kokoro_local",
+    model: "kokoro-v1.0-onnx-f32",
+    voiceId: "af_heart",
+    language: "en",
+    speakingRate: 1,
+    pacing,
+    synthesizedAt: "2026-07-15T00:00:00.000Z",
+    providerRequestId: "local_upload_fixture",
+    license: { termsReference: "Apache-2.0:hexgrad/Kokoro-82M-v1.0", commercialUseAttested: true, attestedBy: "fixture_operator" },
+    voiceCloned: false,
+    impersonated: false,
+    audio: { path: "narration.wav", sha256: sha256(audioBuffer), container: "wav", codec: "pcm_s16le", sampleRate: 48000, channels: 1, durationSeconds: 31.25, bytes: audioBuffer.length, validated: true },
+    dryRun: false,
+  });
 }
 
 test("narration contract is deterministic, strict, and requires commercial rights", () => {
@@ -212,6 +237,31 @@ test("upload binds to exact approval, revision, project, and script hash", async
   await assert.rejects(
     () => ingestUploadedNarration({ project: context.project, fields: context.fields, file: wavCandidate() }, context.dependencies),
     (error) => error.code === "NARRATION_APPROVAL_MISMATCH",
+  );
+});
+
+test("AI narration upload rebuilds semantic pacing and rejects tampered boundary provenance", async () => {
+  const valid = setup();
+  const validAudio = wavCandidate(9);
+  const validTts = pacedProvenance(valid, validAudio.buffer);
+  const aiFields = (context, ttsProvenance) => ({
+    ...context.fields,
+    ownershipBasis: "ai_generated_licensed",
+    consentReference: "fixture_operator",
+    licenseReference: "Apache-2.0:hexgrad/Kokoro-82M-v1.0",
+    ttsProvenance,
+  });
+  const uploaded = await ingestUploadedNarration({ project: valid.project, fields: aiFields(valid, validTts), file: validAudio }, valid.dependencies);
+  assert.deepEqual(uploaded.manifest.ttsProvenance.pacing.semanticBoundaryWordIndices, validTts.pacing.semanticBoundaryWordIndices);
+
+  const tampered = setup();
+  const tamperedAudio = wavCandidate(10);
+  const alteredPacing = structuredClone(pacingSummary(buildPacingPlan(tampered.draft.script)));
+  alteredPacing.semanticBoundaryWordIndices[0] += 1;
+  const tamperedTts = pacedProvenance(tampered, tamperedAudio.buffer, alteredPacing);
+  await assert.rejects(
+    () => ingestUploadedNarration({ project: tampered.project, fields: aiFields(tampered, tamperedTts), file: tamperedAudio }, tampered.dependencies),
+    (error) => error.code === "TTS_PROVENANCE_MISMATCH" && error.details.field === "ttsProvenance.pacing",
   );
 });
 

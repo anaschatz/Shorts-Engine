@@ -3,6 +3,7 @@ const { randomUUID } = require("node:crypto");
 const SAFE_MESSAGES = Object.freeze({
   AI_OUTPUT_INVALID: "The AI output did not pass validation.",
   ANALYSIS_FAILED: "The video analysis failed.",
+  ANIMATION_PACING_INVALID: "Animation timing does not leave enough time to understand each visual claim.",
   ADAPTER_CONTRACT_INVALID: "A storage or persistence adapter is not configured correctly.",
   ARTIFACT_DELETE_FORBIDDEN: "This artifact cannot be deleted by this operation.",
   ARTIFACT_KEY_INVALID: "The artifact storage key is invalid.",
@@ -129,6 +130,7 @@ const SAFE_MESSAGES = Object.freeze({
   TTS_DRY_RUN_NON_PUBLISHABLE: "A TTS dry run cannot be published.",
   TTS_MOCK_NON_PUBLISHABLE: "Mock AI narration cannot be published.",
   TTS_OVERWRITE_BLOCKED: "Existing AI narration requires explicit regeneration.",
+  TTS_PACING_INVALID: "The narration pacing plan is invalid.",
   TTS_PROVIDER_FAILED: "The TTS provider request failed.",
   TTS_PROVIDER_TIMEOUT: "The TTS provider request timed out.",
   TTS_PROVIDER_UNAVAILABLE: "The TTS provider is unavailable.",

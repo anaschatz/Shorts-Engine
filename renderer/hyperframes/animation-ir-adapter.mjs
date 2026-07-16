@@ -189,7 +189,16 @@ function compileSemanticAnimationIRToHtml(ir) {
   const titleLines = content.titleLines.map((line, index) => `<text x="54" y="${108 + index * 39}" fill="#e2e8f0" font-size="${index === 0 ? 34 : 31}" font-weight="600">${escapeXml(line)}</text>`).join("");
   const stars = seededPoints(ir.seed, 54).map((point) => `<circle cx="${point.x}" cy="${point.y}" r="${point.r}"/>`).join("");
   const schedule = createOperationSchedule(ir);
-  const stages = Object.fromEntries(ir.scenes.map((scene) => [scene.id.replace(/^scene_/, ""), { startFrame: scene.startFrame, endFrame: scene.endFrame, beatId: scene.semantic.beatId }]));
+  const stages = Object.fromEntries(ir.scenes.map((scene) => {
+    const hold = scene.readabilityHolds.at(-1);
+    return [scene.id.replace(/^scene_/, ""), {
+      startFrame: scene.startFrame,
+      endFrame: scene.endFrame,
+      beatId: scene.semantic.beatId,
+      holdStartFrame: hold?.startFrame ?? null,
+      holdEndFrame: hold?.endFrame ?? null,
+    }];
+  }));
   const beamProfilePath = semanticCubicPath(SEMANTIC_BEAM_PROFILE);
   const evidenceSourcePath = semanticEvidenceMorphPath(0);
   const evidenceTargetPath = semanticEvidenceMorphPath(1);
@@ -346,12 +355,12 @@ const byId=(id)=>document.getElementById(id);
 const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,v));
 const ease=(value,name)=>{const x=clamp(value);if(name==="linear")return x;if(name==="smoothstep")return x*x*(3-2*x);if(name==="ease_in_cubic")return x*x*x;if(name==="ease_out_cubic")return 1-Math.pow(1-x,3);if(name==="ease_in_out_cubic")return x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2;throw new Error("unsupported_easing")};
 const progress=(frame,key)=>{const op=DATA.schedule[key];if(!op)throw new Error("missing_operation");return ease((frame-op.startFrame)/Math.max(1,op.endFrame-op.startFrame),op.easing)};
-const cueReveal=(frame,key,preRoll=8,settleFrames=2)=>{const op=DATA.schedule[key];if(!op)throw new Error("missing_operation");return clamp((frame-(op.startFrame-preRoll))/Math.max(1,preRoll+settleFrames))};
+const cueReveal=(frame,key)=>{const op=DATA.schedule[key];if(!op)throw new Error("missing_operation");const operationFrames=Math.max(1,op.endFrame-op.startFrame),revealFrames=Math.min(operationFrames,14);return clamp((frame-op.startFrame)/revealFrames)};
 const cubicPoint=(values,value)=>{const bounded=clamp(value),second=bounded>.5,t=second?(bounded-.5)*2:bounded*2,offset=second?6:0,one=1-t,coordinate=(axis)=>one*one*one*values[offset+axis]+3*one*one*t*values[offset+2+axis]+3*one*t*t*values[offset+4+axis]+t*t*t*values[offset+6+axis];return{x:coordinate(0),y:coordinate(1)}};
 const frequencyCursorX=(value)=>{const arrival=clamp(value/.62),eased=1-Math.pow(1-arrival,3);return 100+260*eased};
 const scaleAt=(cx,cy,scale)=>"translate("+(cx*(1-scale)).toFixed(3)+" "+(cy*(1-scale)).toFixed(3)+") scale("+scale.toFixed(5)+")";
 const morphPath=(value)=>{const t=clamp(value),p=DATA.evidenceMorph.source.map((entry,index)=>entry+(DATA.evidenceMorph.target[index]-entry)*t);return "M"+p[0]+" "+p[1]+" C"+p[2]+" "+p[3]+" "+p[4]+" "+p[5]+" "+p[6]+" "+p[7]+" C"+p[8]+" "+p[9]+" "+p[10]+" "+p[11]+" "+p[12]+" "+p[13]};
-const stageOpacity=(frame,key)=>{const stage=DATA.stages[key];if(!stage||frame<stage.startFrame||frame>=stage.endFrame)return 0;const enter=stage.startFrame===0?1:.72+.28*clamp((frame-stage.startFrame)/4),exit=stage.endFrame===DATA.durationFrames?1:clamp((stage.endFrame-frame)/5);return Math.min(enter,exit)};
+const stageOpacity=(frame,key)=>{const stage=DATA.stages[key],isFinal=stage?.endFrame===DATA.durationFrames,exitEnd=stage?.endFrame+(isFinal?0:8);if(!stage||frame<stage.startFrame||frame>=exitEnd)return 0;const enter=stage.startFrame===0?1:ease((frame-stage.startFrame)/10,"ease_out_cubic");if(stage.holdStartFrame!==null&&frame>=stage.holdStartFrame&&frame<stage.holdEndFrame)return 1;if(frame<stage.endFrame||isFinal)return enter;return Math.min(enter,ease((stage.endFrame+8-frame)/8,"smoothstep"))};
 function renderFrame(rawFrame){
  const frame=Math.max(0,Math.min(DATA.durationFrames-1,Math.floor(rawFrame+1e-7)));
  const stageKeys=["hook","context","evidence","turn","payoff"],stageValues=stageKeys.map((key)=>stageOpacity(frame,key));stageKeys.forEach((key,index)=>byId("stage-"+key).setAttribute("opacity",stageValues[index].toFixed(4)));

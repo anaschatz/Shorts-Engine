@@ -36,7 +36,14 @@ test.after(() => rmSync(DATA_DIR, { recursive: true, force: true }));
 
 function wav(seed = 0) { const b = Buffer.alloc(128, seed); b.write("RIFF"); b.writeUInt32LE(120, 4); b.write("WAVE", 8); return { fieldName: "narration", fileName: "voice.wav", buffer: b }; }
 function providerFor(draft, mutate = (words) => words) {
-  const words = scriptWords(draft.script).map((word, index) => ({ word: word.text, start: 0.2 + index * 0.32, end: 0.45 + index * 0.32, probability: 0.98 }));
+  const semanticPausesBefore = new Map([[15, 0.45], [30, 0.45], [48, 0.45], [57, 0.45], [64, 0.45]]);
+  let cursor = 0.2;
+  const words = scriptWords(draft.script).map((word, index) => {
+    cursor += semanticPausesBefore.get(index) || 0;
+    const value = { word: word.text, start: cursor, end: cursor + 0.25, probability: 0.98 };
+    cursor += 0.32;
+    return value;
+  });
   return { language: "en", segments: [{ start: 0, end: 31, text: "bounded", words: mutate(words) }] };
 }
 

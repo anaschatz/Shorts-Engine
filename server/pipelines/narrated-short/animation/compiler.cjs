@@ -3,6 +3,7 @@ const { validateComplexityBudget } = require("./complexity-budget.cjs");
 const { bindAnimationTiming } = require("./timing-compiler.cjs");
 const { validateTemplateOperations } = require("./template-validator.cjs");
 const { validateSemanticNarrative } = require("./semantic-narrative.cjs");
+const { validateAnimationComprehensionPacing } = require("./comprehension-pacing.cjs");
 
 function compileAnimationIR(input, options = {}) {
   const bound = bindAnimationTiming({ ...structuredClone(input), contentHash: undefined }, options.timingContext || null);
@@ -10,6 +11,7 @@ function compileAnimationIR(input, options = {}) {
   validateComplexityBudget(compiled);
   validateTemplateOperations(compiled);
   validateSemanticNarrative(compiled);
+  validateAnimationComprehensionPacing(compiled);
   return compiled;
 }
 

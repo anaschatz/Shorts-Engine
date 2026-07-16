@@ -6,7 +6,7 @@ const { normalizeAnimationTimingContext } = require("./timing-contract.cjs");
 
 const PRODUCTION_PROVIDER_ID = "hyperframes_local";
 const PRODUCTION_RUNTIME_VERSION = "0.7.55";
-const PRODUCTION_STYLE_VERSION = "1.5.0";
+const PRODUCTION_STYLE_VERSION = "1.7.0";
 const SEMANTIC_PROFILE_ID = "wow_signal_case_v1";
 const TEMPLATE_VERSION = "1.0.0";
 const OUTFIT_FONT_SHA256 = "8cfe15c2c6de6ef8efff3eedbd52a383ac9ef23d6c23f6cd9f9b838f5f37dc36";
@@ -49,6 +49,10 @@ function operation({ op, targetId, from, to, easing, params, claimId, visualStat
 
 function semantic(role, scripted, visualStatement) {
   return { beatId: scripted[role].id, role, claimIds: [...scripted[role].claimIds], visualStatement };
+}
+
+function settledHold(startFrame, endFrame) {
+  return endFrame > startFrame ? [{ startFrame, endFrame }] : [];
 }
 
 function buildProductionAnimationPlan(input = {}) {
@@ -162,7 +166,7 @@ function buildProductionAnimationPlan(input = {}) {
         operation({ op: "create", targetId: "deep_background", from: anchor("beat_start", { beatId: scripted.hook.id }), to: anchor("word_end", { wordIndex: cue.hookSignal }), easing: "linear", params: { opacity: 1 }, claimId: claimFor("hook", 0), visualStatement: "Keep one continuous documented-mystery field behind every claim.", carryPolicy: "persistent" }),
         operation({ op: "draw_path", targetId: "observation_record", from: anchor("beat_start", { beatId: scripted.hook.id }), to: anchor("word_end", { wordIndex: cue.hookSignal }), easing: "ease_out_cubic", params: { direction: "left_to_right" }, claimId: claimFor("hook", 1), visualStatement: "Reveal a dated radio observation record and isolate its unusual signal column." }),
         operation({ op: "highlight", targetId: "wow_annotation", from: anchor("word_start", { wordIndex: cue.hookWrote }), to: anchor("word_end", { wordIndex: cue.hookWow }), easing: "ease_out_cubic", params: { strength: 1 }, claimId: claimFor("hook", 2), visualStatement: "Write and circle WOW exactly when the narration names the astronomer's reaction." }),
-      ], readabilityHolds: [], complexityCost: 7,
+      ], readabilityHolds: settledHold(beats.hook.endFrame, sceneEnd.hook), complexityCost: 7,
     },
     {
       id: "scene_context", startFrame: sceneStart.context, endFrame: sceneEnd.context, template: "frequency_duration_v1", templateVersion: TEMPLATE_VERSION,
@@ -171,7 +175,7 @@ function buildProductionAnimationPlan(input = {}) {
       operations: [
         operation({ op: "create", targetId: "frequency_scale", from: anchor("beat_start", { beatId: scripted.context.id }), to: anchor("word_end", { wordIndex: cue.contextFrequency }), easing: "ease_in_out_cubic", params: { opacity: 1 }, claimId: claimFor("context", 0), visualStatement: "Reach and lock the notable frequency marker by the end of the narrated word frequency." }),
         operation({ op: "pulse", targetId: "duration_timer", from: anchor("word_start", { wordIndex: cue.contextLasted }), to: anchor("word_end", { wordIndex: cue.contextSeconds }), easing: "smoothstep", params: { scale: 1.08, opacity: 1 }, claimId: claimFor("context", 1), visualStatement: "Draw a timer and reveal 72 seconds only while that duration is spoken." }),
-      ], readabilityHolds: [], complexityCost: 3,
+      ], readabilityHolds: settledHold(beats.context.endFrame, sceneEnd.context), complexityCost: 3,
     },
     {
       id: "scene_evidence", startFrame: sceneStart.evidence, endFrame: sceneEnd.evidence, template: "telescope_beam_v1", templateVersion: TEMPLATE_VERSION,
@@ -181,18 +185,18 @@ function buildProductionAnimationPlan(input = {}) {
         operation({ op: "draw_path", targetId: "beam_graph", from: anchor("word_start", { wordIndex: cue.evidenceAs }), to: anchor("word_end", { wordIndex: cue.evidenceSource }), easing: "ease_in_out_cubic", params: { direction: "left_to_right" }, claimId: claimFor("evidence", 0), visualStatement: "Replay a source crossing the telescope beam and connect it to the completed response below." }),
         operation({ op: "trace_signal", targetId: "evidence_trace", from: anchor("word_start", { wordIndex: cue.evidenceStrength }), to: anchor("word_end", { wordIndex: cue.evidenceFell }), easing: "smoothstep", params: { amplitude: 260, frequency: 1, decay: 1 }, claimId: claimFor("evidence", 1), visualStatement: "Complete the measured rise-and-fall curve inside the exact narrated phrase.", carryPolicy: "carry_to_next" }),
         operation({ op: "highlight", targetId: "interference_label", from: anchor("word_start", { wordIndex: cue.evidenceMaking }), to: anchor("word_end", { wordIndex: cue.evidenceConvincing }), easing: "ease_out_cubic", params: { strength: 1 }, claimId: claimFor("evidence", 2), visualStatement: "Reveal that ordinary local interference is less convincing only when that inference is narrated." }),
-      ], readabilityHolds: [], complexityCost: 11,
+      ], readabilityHolds: settledHold(beats.evidence.endFrame, sceneEnd.evidence), complexityCost: 11,
     },
     {
       id: "scene_turn", startFrame: sceneStart.turn, endFrame: sceneEnd.turn, template: "repeat_search_v1", templateVersion: TEMPLATE_VERSION,
       semantic: semantic("turn", scripted, "The original signal becomes one event on a timeline while every later search stays flat."),
       entityIds: ["deep_background", "evidence_trace", "search_timeline", "no_repeat_label", "transmission_label"],
       operations: [
-        operation({ op: "morph_path", targetId: "evidence_trace", from: anchor("word_start", { wordIndex: cue.turnLater }), to: anchor("word_end", { wordIndex: cue.turnSearches }), easing: "smoothstep", params: { toShape: "node" }, claimId: claimFor("turn", 0), visualStatement: "Condense the observed curve into one isolated timeline event." }),
-        operation({ op: "stagger", targetId: "search_timeline", from: anchor("word_start", { wordIndex: cue.turnLater }), to: anchor("word_end", { wordIndex: cue.turnAgain }), easing: "ease_in_out_cubic", params: { delayFrames: 5 }, claimId: claimFor("turn", 1), visualStatement: "Reveal multiple later search passes as separate flat, empty observations." }),
-        operation({ op: "highlight", targetId: "no_repeat_label", from: anchor("word_start", { wordIndex: cue.turnNever }), to: anchor("word_end", { wordIndex: cue.turnAgain }), easing: "ease_out_cubic", params: { strength: 1 }, claimId: claimFor("turn", 2), visualStatement: "State NO VERIFIED REPEAT while the narration says the signal was never seen again." }),
-        operation({ op: "fade", targetId: "transmission_label", from: anchor("word_start", { wordIndex: cue.turnNo }), to: anchor("word_end", { wordIndex: cue.turnTransmission }), easing: "ease_out_cubic", params: { from: 0, to: 1 }, claimId: claimFor("turn", 3), visualStatement: "State that no confirmed transmission explains the observation when that limit is narrated." }),
-      ], readabilityHolds: [], complexityCost: 14,
+        operation({ op: "morph_path", targetId: "evidence_trace", from: anchor("beat_start", { beatId: scripted.turn.id }), to: anchor("word_end", { wordIndex: cue.turnSearches }), easing: "smoothstep", params: { toShape: "node" }, claimId: claimFor("turn", 0), visualStatement: "Condense the observed curve into one isolated timeline event before later search passes begin." }),
+        operation({ op: "stagger", targetId: "search_timeline", from: anchor("word_start", { wordIndex: cue.turnNever }), to: anchor("word_end", { wordIndex: cue.turnAgain }), easing: "ease_in_out_cubic", params: { delayFrames: 5 }, claimId: claimFor("turn", 1), visualStatement: "Reveal multiple later search passes in sequence before stating their result." }),
+        operation({ op: "highlight", targetId: "no_repeat_label", from: anchor("word_end", { wordIndex: cue.turnAgain }), to: anchor("word_start", { wordIndex: cue.turnNo }), easing: "ease_in_out_cubic", params: { strength: 1 }, claimId: claimFor("turn", 2), visualStatement: "State NO VERIFIED REPEAT only after the later search passes have finished." }),
+        operation({ op: "fade", targetId: "transmission_label", from: anchor("word_start", { wordIndex: cue.turnNo }), to: anchor("word_end", { wordIndex: cue.turnTransmission, offsetFrames: 6 }), easing: "ease_in_out_cubic", params: { from: 0, to: 1 }, claimId: claimFor("turn", 3), visualStatement: "State that no confirmed transmission explains the observation when that limit is narrated." }),
+      ], readabilityHolds: settledHold(beats.turn.endFrame, sceneEnd.turn), complexityCost: 14,
     },
     {
       id: "scene_payoff", startFrame: sceneStart.payoff, endFrame: sceneEnd.payoff, template: "evidence_payoff_v1", templateVersion: TEMPLATE_VERSION,
@@ -200,11 +204,11 @@ function buildProductionAnimationPlan(input = {}) {
       entityIds: ["deep_background", "evidence_node", "reasoning_bridge", "payoff_label", "final_evidence_label"],
       operations: [
         operation({ op: "transition_match", targetId: "evidence_node", from: anchor("beat_start", { beatId: scripted.payoff.id }), to: anchor("word_end", { wordIndex: cue.payoffAliens }), easing: "ease_in_out_cubic", params: { toEntityId: "evidence_node" }, claimId: claimFor("payoff", 0), visualStatement: "Carry the single observation into the verdict instead of inventing new evidence." }),
-        operation({ op: "fade", targetId: "reasoning_bridge", from: anchor("word_start", { wordIndex: cue.payoffNot }), to: anchor("word_end", { wordIndex: cue.payoffAliens }), easing: "ease_out_cubic", params: { from: 0, to: 1 }, claimId: claimFor("payoff", 1), visualStatement: "Strike the aliens speculation and show that one observation is not proof." }),
-        operation({ op: "fade", targetId: "payoff_label", from: anchor("word_start", { wordIndex: cue.payoffUnexplained }), to: anchor("word_end", { wordIndex: cue.payoffCandidate }), easing: "ease_in_out_cubic", params: { from: 0, to: 1 }, claimId: claimFor("payoff", 2), visualStatement: "Move the surviving observation into the UNEXPLAINED conclusion." }),
-        operation({ op: "highlight", targetId: "final_evidence_label", from: anchor("word_start", { wordIndex: cue.payoffNo }), to: anchor("word_end", { wordIndex: cue.payoffProof }), easing: "ease_out_cubic", params: { strength: 1 }, claimId: claimFor("payoff", 3), visualStatement: "Land NO REPEATABLE PROOF on the final spoken phrase." }),
+        operation({ op: "fade", targetId: "reasoning_bridge", from: anchor("word_start", { wordIndex: cue.payoffNot }), to: anchor("word_end", { wordIndex: cue.payoffAliens, offsetFrames: 8 }), easing: "ease_in_out_cubic", params: { from: 0, to: 1 }, claimId: claimFor("payoff", 1), visualStatement: "Strike the aliens speculation deliberately, then leave the rejection settled on screen." }),
+        operation({ op: "fade", targetId: "payoff_label", from: anchor("word_start", { wordIndex: cue.payoffUnexplained }), to: anchor("word_end", { wordIndex: cue.payoffCandidate, offsetFrames: 8 }), easing: "ease_in_out_cubic", params: { from: 0, to: 1 }, claimId: claimFor("payoff", 2), visualStatement: "Move the surviving observation into the UNEXPLAINED conclusion and let it settle." }),
+        operation({ op: "highlight", targetId: "final_evidence_label", from: anchor("word_start", { wordIndex: cue.payoffNo }), to: anchor("word_end", { wordIndex: cue.payoffProof }), easing: "ease_in_out_cubic", params: { strength: 1 }, claimId: claimFor("payoff", 3), visualStatement: "Land NO REPEATABLE PROOF on the final spoken phrase." }),
         operation({ op: "pulse", targetId: "deep_background", from: anchor("beat_start", { beatId: scripted.payoff.id }), to: anchor("word_end", { wordIndex: cue.payoffProof }), easing: "smoothstep", params: { scale: 1.04, opacity: 0.22 }, claimId: claimFor("payoff", 4), visualStatement: "Sustain restrained motion behind the final evidence verdict.", carryPolicy: "persistent" }),
-      ], readabilityHolds: [{ startFrame: Math.max(sceneStart.payoff, timing.durationFrames - 30), endFrame: timing.durationFrames }], complexityCost: 13,
+      ], readabilityHolds: settledHold(timing.words[cue.payoffProof].endFrame, timing.durationFrames), complexityCost: 13,
     },
   ];
 

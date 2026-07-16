@@ -12,6 +12,7 @@ const { buildProductionAnimationPlan, compileProductionAnimation } = require("..
 const { runProductionAnimationRender } = require("../server/pipelines/narrated-short/animation/render-service.cjs");
 const { safeSeekSequence } = require("../server/pipelines/narrated-short/animation/render-service.cjs");
 const { validateSemanticNarrative } = require("../server/pipelines/narrated-short/animation/semantic-narrative.cjs");
+const { MINIMUM_FINAL_HOLD_FRAMES, MINIMUM_OPERATION_FRAMES, MINIMUM_SCENE_HOLD_FRAMES, validateAnimationComprehensionPacing } = require("../server/pipelines/narrated-short/animation/comprehension-pacing.cjs");
 const { contentHash } = require("../server/pipelines/narrated-short/contracts.cjs");
 
 const FIXTURE = resolve(__dirname, "..", "eval", "narrated", "dark-curiosity", "fixtures", "001_wow_signal_mystery.json");
@@ -22,11 +23,19 @@ function productionFixture() {
   const draft = normalizeDraftBundle(JSON.parse(readFileSync(FIXTURE, "utf8")));
   const projectId = `prj_${randomUUID()}`;
   const expected = scriptWords(draft.script);
-  const durationSeconds = 34.3467;
+  const semanticPausesBefore = new Map([
+    [15, 0.85], [30, 0.95], [35, 0.6], [41, 0.65], [48, 0.7],
+    [51, 0.35], [57, 0.65], [64, 0.75], [70, 0.65], [76, 0.5],
+  ]);
+  let cursor = 0.08;
   const words = expected.map((word, index) => {
-    const start = 0.08 + index * 0.415;
-    return { word: word.text, start, end: Math.min(durationSeconds, start + 0.31), probability: 0.99 };
+    cursor += semanticPausesBefore.get(index) || 0;
+    const start = cursor;
+    const end = start + 0.31;
+    cursor += 0.415;
+    return { word: word.text, start, end, probability: 0.99 };
   });
+  const durationSeconds = Number((cursor + 1.2).toFixed(3));
   const narration = { media: { durationSeconds }, language: "en", voiceProfileId: "voice", rights: { commercialUseAllowed: true, consentReference: "consent" }, draftArtifactId: art("a"), draftHash: draft.contentHash, scriptHash: draft.script.contentHash, audioArtifactId: art("d"), audioHash: hash("d") };
   const summary = { manifestArtifactId: art("c"), manifestHash: hash("c") };
   const alignment = createAlignment({ project: { id: projectId, input: { revision: 1 } }, draft, narration, narrationSummary: summary, providerResult: { segments: [{ words }] }, provider: { model: "fixture", device: "cpu", computeType: "int8" } });
@@ -37,7 +46,7 @@ function productionFixture() {
 test("production timing context is derived from exact approved alignment", () => {
   const value = productionFixture();
   assert.equal(value.timingContext.words.length, 81);
-  assert.equal(value.timingContext.durationFrames, Math.ceil(34.3467 * 30));
+  assert.equal(value.timingContext.durationFrames, value.alignment.durationFrames);
   assert.deepEqual(value.timingContext.beats.map((beat) => beat.beatId), value.draft.script.beats.map((beat) => beat.id));
   assert.equal(buildProductionTimingContext({ draft: value.draft, alignment: value.alignment, draftArtifactId: art("a"), draftHash: value.draft.contentHash, alignmentHash: value.alignment.contentHash }).contentHash, value.timingContext.contentHash);
   assert.throws(() => buildProductionTimingContext({ draft: value.draft, alignment: value.alignment, draftArtifactId: art("a"), draftHash: hash("f"), alignmentHash: value.alignment.contentHash }), { code: "ANIMATION_TIMING_BINDING_MISMATCH" });
@@ -63,7 +72,7 @@ test("production plan and AnimationIR are deterministic and data-bound", () => {
   assert.deepEqual([operations.get("pulse:duration_timer").from.wordIndex, operations.get("pulse:duration_timer").to.wordIndex], [27, 29]);
   assert.deepEqual([operations.get("trace_signal:evidence_trace").from.wordIndex, operations.get("trace_signal:evidence_trace").to.wordIndex], [31, 34]);
   assert.deepEqual([operations.get("draw_path:beam_graph").from.wordIndex, operations.get("draw_path:beam_graph").to.wordIndex], [35, 41]);
-  assert.deepEqual([operations.get("highlight:no_repeat_label").from.wordIndex, operations.get("highlight:no_repeat_label").to.wordIndex], [51, 56]);
+  assert.deepEqual([operations.get("highlight:no_repeat_label").from.wordIndex, operations.get("highlight:no_repeat_label").to.wordIndex], [56, 58]);
   assert.deepEqual([operations.get("highlight:final_evidence_label").from.wordIndex, operations.get("highlight:final_evidence_label").to.wordIndex], [78, 80]);
   assert.deepEqual(validateSemanticNarrative(first.animationIR), { valid: true, mode: "semantic", beatCount: 5, cueCount: 17 });
   const seekSequence = safeSeekSequence(first.animationIR);
@@ -72,11 +81,47 @@ test("production plan and AnimationIR are deterministic and data-bound", () => {
   assert.equal(first.animationIR.timingBinding.timingContextHash, value.timingContext.contentHash);
   assert.equal(first.animationIR.durationFrames, value.alignment.durationFrames);
   assert.equal(first.animationIR.renderer.provider, "hyperframes_local");
+  assert.equal(first.animationIR.renderer.styleVersion, "1.7.0");
   assert.equal(first.animationIR.content.semantic.profileId, "wow_signal_case_v1");
   assert.equal(first.animationIR.content.semantic.eventYearLabel, "1977");
   assert.equal(first.animationIR.content.semantic.sourceLabel, "PROMISING COMMUNICATION BAND");
   assert.equal(first.animationIR.content.metricValue, "72");
   assert.deepEqual(first.animationIR.content.payoffLines, ["UNEXPLAINED IS NOT PROOF"]);
+
+  const stagger = operations.get("stagger:search_timeline");
+  const noRepeat = operations.get("highlight:no_repeat_label");
+  assert.ok(noRepeat.from.resolvedFrame >= stagger.to.resolvedFrame);
+  for (const [key, minimumFrames] of Object.entries(MINIMUM_OPERATION_FRAMES)) {
+    const operation = operations.get(key);
+    assert.ok(operation.to.resolvedFrame - operation.from.resolvedFrame >= minimumFrames, key);
+  }
+  assert.ok(first.animationIR.scenes.every((scene) => scene.readabilityHolds.length === 1));
+  for (const scene of first.animationIR.scenes.slice(0, -1)) {
+    const hold = scene.readabilityHolds[0];
+    assert.equal(hold.endFrame, scene.endFrame);
+    assert.ok(hold.endFrame - hold.startFrame >= MINIMUM_SCENE_HOLD_FRAMES, scene.id);
+  }
+  const finalHold = first.animationIR.scenes.at(-1).readabilityHolds.at(-1);
+  assert.ok(finalHold.startFrame > operations.get("highlight:final_evidence_label").to.resolvedFrame);
+  assert.ok(finalHold.endFrame - finalHold.startFrame >= MINIMUM_FINAL_HOLD_FRAMES);
+  assert.equal(validateAnimationComprehensionPacing(first.animationIR).valid, true);
+});
+
+test("comprehension pacing rejects compressed claim motion and fake overlapping holds", () => {
+  const value = productionFixture();
+  const animationIR = structuredClone(compileProductionAnimation({ draft: value.draft, timingContext: value.timingContext, projectId: value.projectId, projectRevision: 1, renderProfile: "preview" }).animationIR);
+  const compressed = structuredClone(animationIR);
+  const verdict = compressed.scenes.at(-1).operations.find((operation) => operation.targetId === "final_evidence_label");
+  verdict.to.resolvedFrame = verdict.from.resolvedFrame + MINIMUM_OPERATION_FRAMES["highlight:final_evidence_label"] - 1;
+  assert.throws(() => validateAnimationComprehensionPacing(compressed), { code: "ANIMATION_PACING_INVALID" });
+
+  const overlapping = structuredClone(animationIR);
+  overlapping.scenes.at(-1).readabilityHolds[0].startFrame = overlapping.scenes.at(-1).operations.find((operation) => operation.targetId === "final_evidence_label").to.resolvedFrame;
+  assert.throws(() => validateAnimationComprehensionPacing(overlapping), { code: "ANIMATION_PACING_INVALID" });
+
+  const rushedHold = structuredClone(animationIR);
+  rushedHold.scenes[0].readabilityHolds[0].startFrame = rushedHold.scenes[0].endFrame - MINIMUM_SCENE_HOLD_FRAMES + 1;
+  assert.throws(() => validateAnimationComprehensionPacing(rushedHold), { code: "ANIMATION_PACING_INVALID" });
 });
 
 test("semantic production profile fails closed on missing narration cues and metadata", () => {
@@ -130,6 +175,12 @@ test("semantic renderer exposes five story stages, genuine carry morphing, and n
   assert.match(html, /id="beam-profile-dot"/);
   assert.match(html, /id="signal-response-dot"/);
   assert.doesNotMatch(html, /Math\.exp/);
+  assert.match(html, /const cueReveal=\(frame,key\)/);
+  assert.match(html, /frame-op\.startFrame/);
+  assert.doesNotMatch(html, /op\.startFrame-preRoll/);
+  assert.match(html, /stage\.startFrame\)\/10/);
+  assert.match(html, /frame>=stage\.holdStartFrame&&frame<stage\.holdEndFrame\)return 1/);
+  assert.match(html, /stage\.endFrame\+8-frame/);
   const changedYear = structuredClone(ir);
   changedYear.content.semantic.eventYearLabel = "1984";
   assert.match(compileAnimationIRToHtml(changedYear).html, /class="small-label">1984<\/text>/);

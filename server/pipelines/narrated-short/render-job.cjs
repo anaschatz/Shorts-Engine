@@ -141,7 +141,7 @@ async function runNarratedRenderJob(context = {}) {
     let ass = null;
     if (alignedContext) {
       jobs.update(job, { progress: 20, step: "compile_captions" });
-      captionManifest = createCaptionManifest({ alignment: alignedContext.alignment, alignmentArtifactId: alignedContext.active.alignmentArtifactId, alignmentHash: alignedContext.active.alignmentHash });
+      captionManifest = createCaptionManifest({ alignment: alignedContext.alignment, alignmentArtifactId: alignedContext.active.alignmentArtifactId, alignmentHash: alignedContext.active.alignmentHash, narration: alignedContext.uploaded });
       captionManifestArtifact = contentArtifacts.createJson({ type: "caption_manifest", projectId: project.id, jobId: job.id, revision: project.input.revision, dependencyHashes: [envelope.contentHash, alignedContext.active.manifestHash, alignedContext.active.audioHash, alignedContext.active.alignmentHash], body: captionManifest });
       const font = dependencies.captionFont || captionFontConfig(dependencies.captionEnv || process.env);
       ass = (dependencies.generateAss || generateAss)(captionManifest, { font });

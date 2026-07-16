@@ -15,7 +15,7 @@ async function runQaOrchestrator(input = {}, dependencies = {}) {
   try {
     const alignment = normalizeAlignment(input.alignment);
     const narration = normalizeNarrationAsset(input.narration);
-    const caption = normalizeCaptionManifest(input.caption, { alignment });
+    const caption = normalizeCaptionManifest(input.caption, { alignment, narration });
     const normalization = normalizeAudioNormalizationReport(input.normalization);
     const analyzer = dependencies.analyzeRenderedVideo || analyzeRenderedVideo;
     const analysis = await analyzer({ outputPath: input.outputPath, timeline: input.timeline, renderProfile: input.renderProfile, signal: input.signal, ffprobeImpl: dependencies.ffprobeJson, ffmpegRunner: dependencies.ffmpegRunner });
