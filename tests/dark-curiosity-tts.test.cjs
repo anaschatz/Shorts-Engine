@@ -31,7 +31,8 @@ test("comprehension pacing is exact, hash-bound, and covers every approved word 
   assert.equal(plan.profile, DARK_CURIOSITY_COMPREHENSION_PROFILE);
   assert.equal(plan.segments.length, 11);
   assert.equal(Object.isFrozen(plan), true); assert.equal(Object.isFrozen(plan.segments), true); assert.equal(Object.isFrozen(plan.segments[0]), true);
-  assert.equal(plan.totalPauseMs, 7850);
+  assert.equal(plan.totalPauseMs, 4680);
+  assert.deepEqual(plan.segments.map((segment) => segment.pauseAfterMs), [600, 500, 100, 180, 600, 80, 200, 650, 450, 120, 1200]);
   assert.deepEqual(plan.segments.map(({ text, speakingRate, pauseAfterMs }) => ({ text, speakingRate, pauseAfterMs })), PROFILE_SEGMENTS.map(({ text, speakingRate, pauseAfterMs }) => ({ text, speakingRate, pauseAfterMs })));
   assert.equal(plan.segments[0].wordStartIndex, 0);
   assert.equal(plan.segments.at(-1).wordEndIndex, 81);
@@ -45,7 +46,7 @@ test("comprehension pacing is exact, hash-bound, and covers every approved word 
 
   const reordered = structuredClone(plan); delete reordered.contentHash; [reordered.segments[2], reordered.segments[3]] = [reordered.segments[3], reordered.segments[2]];
   assert.throws(() => normalizePacingPlan(reordered, { script: script.preparation.spokenText }), { code: "TTS_PACING_INVALID" });
-  const missing = structuredClone(plan); delete missing.contentHash; missing.segments.splice(4, 1); missing.totalPauseMs -= 700;
+  const missing = structuredClone(plan); delete missing.contentHash; const [removed] = missing.segments.splice(4, 1); missing.totalPauseMs -= removed.pauseAfterMs;
   assert.throws(() => normalizePacingPlan(missing, { script: script.preparation.spokenText }), { code: "TTS_PACING_INVALID" });
   const changedPause = structuredClone(plan); delete changedPause.contentHash; changedPause.segments[0].pauseAfterMs += 1; changedPause.totalPauseMs += 1;
   assert.notEqual(normalizePacingPlan(changedPause, { script: script.preparation.spokenText }).contentHash, plan.contentHash);
@@ -197,5 +198,5 @@ test("CLI defaults to free unpaced local Kokoro and requires an explicit Wow pac
   const projectDir = temp(); const result = spawnSync(process.execPath, ["tools/dark-curiosity-tts.mjs", "synthesize", "--fixture", FIXTURE, "--project", projectDir, "--dry-run", "--json"], { cwd: resolve(__dirname, ".."), encoding: "utf8", env: { ...process.env, SHORTSENGINE_TTS_PROVIDER: "", SHORTSENGINE_TTS_MODEL: "", SHORTSENGINE_TTS_VOICE: "" } });
   assert.equal(result.status, 0); const output = JSON.parse(result.stdout); assert.equal(output.provider, "kokoro_local"); assert.equal(output.model, KOKORO_MODEL_ID); assert.equal(output.voiceId, "af_heart"); assert.deepEqual(output.requiredEnvironmentVariables, []); assert.equal(output.pacing, null);
   const paced = spawnSync(process.execPath, ["tools/dark-curiosity-tts.mjs", "synthesize", "--fixture", FIXTURE, "--project", projectDir, "--pacing-profile", DARK_CURIOSITY_COMPREHENSION_PROFILE, "--dry-run", "--json"], { cwd: resolve(__dirname, ".."), encoding: "utf8" });
-  assert.equal(paced.status, 0); const pacedOutput = JSON.parse(paced.stdout); assert.equal(pacedOutput.pacing.profile, DARK_CURIOSITY_COMPREHENSION_PROFILE); assert.equal(pacedOutput.pacing.segmentCount, 11); assert.equal(pacedOutput.pacing.totalPauseMs, 7850); assert.equal(pacedOutput.pacing.semanticBoundaryWordIndices.length, 10);
+  assert.equal(paced.status, 0); const pacedOutput = JSON.parse(paced.stdout); assert.equal(pacedOutput.pacing.profile, DARK_CURIOSITY_COMPREHENSION_PROFILE); assert.equal(pacedOutput.pacing.segmentCount, 11); assert.equal(pacedOutput.pacing.totalPauseMs, 4680); assert.equal(pacedOutput.pacing.semanticBoundaryWordIndices.length, 10);
 });

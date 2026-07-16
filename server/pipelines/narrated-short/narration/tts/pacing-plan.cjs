@@ -7,16 +7,16 @@ const PACING_PLAN_SCHEMA_VERSION = 1;
 const SUPPORTED_PACING_PROFILES = Object.freeze([DARK_CURIOSITY_COMPREHENSION_PROFILE]);
 
 const PROFILE_SEGMENTS = Object.freeze([
-  Object.freeze({ id: "hook_observation", role: "hook", text: "In 1977, one radio signal looked so unusual that an astronomer wrote one word: Wow.", speakingRate: 0.98, pauseAfterMs: 850 }),
-  Object.freeze({ id: "context_frequency_duration", role: "context", text: "It arrived near a frequency researchers considered promising for interstellar communication and lasted seventy-two seconds.", speakingRate: 0.96, pauseAfterMs: 950 }),
-  Object.freeze({ id: "evidence_strength_shape", role: "evidence", text: "Its strength rose and fell", speakingRate: 0.88, pauseAfterMs: 600 }),
-  Object.freeze({ id: "evidence_beam_crossing", role: "evidence", text: "as the telescope beam crossed the source,", speakingRate: 0.9, pauseAfterMs: 650 }),
-  Object.freeze({ id: "evidence_interference_inference", role: "evidence", text: "making ordinary local interference less convincing.", speakingRate: 0.94, pauseAfterMs: 700 }),
-  Object.freeze({ id: "turn_search_setup", role: "turn", text: "But later searches", speakingRate: 0.9, pauseAfterMs: 350 }),
-  Object.freeze({ id: "turn_no_repeat", role: "turn", text: "never verified the same signal again,", speakingRate: 0.9, pauseAfterMs: 650 }),
-  Object.freeze({ id: "turn_no_transmission", role: "turn", text: "and no confirmed transmission has explained it.", speakingRate: 0.94, pauseAfterMs: 750 }),
-  Object.freeze({ id: "payoff_not_aliens", role: "payoff", text: "The honest answer is not aliens.", speakingRate: 0.88, pauseAfterMs: 650 }),
-  Object.freeze({ id: "payoff_candidate", role: "payoff", text: "It is one strong unexplained candidate", speakingRate: 0.92, pauseAfterMs: 500 }),
+  Object.freeze({ id: "hook_observation", role: "hook", text: "In 1977, one radio signal looked so unusual that an astronomer wrote one word: Wow.", speakingRate: 0.98, pauseAfterMs: 600 }),
+  Object.freeze({ id: "context_frequency_duration", role: "context", text: "It arrived near a frequency researchers considered promising for interstellar communication and lasted seventy-two seconds.", speakingRate: 0.96, pauseAfterMs: 500 }),
+  Object.freeze({ id: "evidence_strength_shape", role: "evidence", text: "Its strength rose and fell", speakingRate: 0.88, pauseAfterMs: 100 }),
+  Object.freeze({ id: "evidence_beam_crossing", role: "evidence", text: "as the telescope beam crossed the source,", speakingRate: 0.9, pauseAfterMs: 180 }),
+  Object.freeze({ id: "evidence_interference_inference", role: "evidence", text: "making ordinary local interference less convincing.", speakingRate: 0.94, pauseAfterMs: 600 }),
+  Object.freeze({ id: "turn_search_setup", role: "turn", text: "But later searches", speakingRate: 0.9, pauseAfterMs: 80 }),
+  Object.freeze({ id: "turn_no_repeat", role: "turn", text: "never verified the same signal again,", speakingRate: 0.9, pauseAfterMs: 200 }),
+  Object.freeze({ id: "turn_no_transmission", role: "turn", text: "and no confirmed transmission has explained it.", speakingRate: 0.94, pauseAfterMs: 650 }),
+  Object.freeze({ id: "payoff_not_aliens", role: "payoff", text: "The honest answer is not aliens.", speakingRate: 0.88, pauseAfterMs: 450 }),
+  Object.freeze({ id: "payoff_candidate", role: "payoff", text: "It is one strong unexplained candidate", speakingRate: 0.92, pauseAfterMs: 120 }),
   Object.freeze({ id: "payoff_no_proof", role: "payoff", text: "that left no repeatable proof.", speakingRate: 0.9, pauseAfterMs: 1200 }),
 ]);
 

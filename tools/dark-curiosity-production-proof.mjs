@@ -33,7 +33,15 @@ function sha256File(path) {
 }
 
 function finalSource(result) {
-  return resolve(result.stateRoot, "renders", "narrated", `${result.report.final.jobId}.mp4`);
+  const source = resolve(result.stateRoot, "renders", "narrated", `${result.report.final.jobId}.mp4`);
+  if (!existsSync(source) || sha256File(source) !== result.report.final.outputHash) throw new Error("production_proof_final_binding_mismatch");
+  return source;
+}
+
+function previewSource(result) {
+  const source = resolve(result.stateRoot, "renders", "narrated", `${result.report.preview.jobId}.mp4`);
+  if (!existsSync(source) || sha256File(source) !== result.report.preview.outputHash) throw new Error("production_proof_preview_binding_mismatch");
+  return source;
 }
 
 function singleArtifact(result, artifactType, extension) {
@@ -147,11 +155,13 @@ try {
   const firstAnimationProof = finalAnimationProof(first);
   const secondAnimationProof = finalAnimationProof(second);
   const browserProofsEqual = JSON.stringify(firstAnimationProof) === JSON.stringify(secondAnimationProof);
-  if (!previewHashesEqual || !narrationHashesEqual || !captionHashesEqual || !browserProofsEqual) throw new Error("production_proof_repeat_artifact_mismatch");
+  if (!narrationHashesEqual || !captionHashesEqual || !browserProofsEqual) throw new Error("production_proof_repeat_artifact_mismatch");
+  const previewMediaEquivalence = await compareMediaEquivalence(previewSource(first), previewSource(second));
+  if (!previewMediaEquivalence.passed) throw new Error("production_proof_repeat_preview_media_mismatch");
   const mediaEquivalence = await compareMediaEquivalence(finalSource(first), finalSource(second));
   if (!mediaEquivalence.passed) throw new Error("production_proof_repeat_media_mismatch");
   const canonical = publishCanonical(first);
-  process.stdout.write(`${JSON.stringify({ status: "complete", runs: 2, outputSha256: first.report.final.outputHash, qaPassed: first.report.qaPassed && second.report.qaPassed, narrationDurationSeconds: narration.manifest.audio.durationSeconds, pacing: narration.manifest.pacing, repeatability: { previewHashesEqual, narrationHashesEqual, captionHashesEqual, browserProofsEqual, finalByteHashesEqual, finalByteHashes: [first.report.final.outputHash, second.report.final.outputHash], mediaEquivalent: mediaEquivalence.passed, mediaEquivalence }, canonical, publishApprovalsVerified: true, guardedDownloadsVerified: true }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ status: "complete", runs: 2, outputSha256: first.report.final.outputHash, qaPassed: first.report.qaPassed && second.report.qaPassed, narrationDurationSeconds: narration.manifest.audio.durationSeconds, pacing: narration.manifest.pacing, repeatability: { previewHashesEqual, previewMediaEquivalent: previewMediaEquivalence.passed, previewMediaEquivalence, narrationHashesEqual, captionHashesEqual, browserProofsEqual, finalByteHashesEqual, finalByteHashes: [first.report.final.outputHash, second.report.final.outputHash], mediaEquivalent: mediaEquivalence.passed, mediaEquivalence }, canonical, publishApprovalsVerified: true, guardedDownloadsVerified: true }, null, 2)}\n`);
 } catch (error) {
   process.stderr.write(`${JSON.stringify({ status: "failed", code: String(error?.message || "production_proof_failed").replace(/[^A-Za-z0-9_]/g, "_").toUpperCase().slice(0, 80) })}\n`);
   process.exitCode = 1;

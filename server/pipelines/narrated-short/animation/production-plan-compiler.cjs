@@ -6,7 +6,7 @@ const { normalizeAnimationTimingContext } = require("./timing-contract.cjs");
 
 const PRODUCTION_PROVIDER_ID = "hyperframes_local";
 const PRODUCTION_RUNTIME_VERSION = "0.7.55";
-const PRODUCTION_STYLE_VERSION = "1.7.0";
+const PRODUCTION_STYLE_VERSION = "1.8.0";
 const SEMANTIC_PROFILE_ID = "wow_signal_case_v1";
 const TEMPLATE_VERSION = "1.0.0";
 const OUTFIT_FONT_SHA256 = "8cfe15c2c6de6ef8efff3eedbd52a383ac9ef23d6c23f6cd9f9b838f5f37dc36";
@@ -94,6 +94,7 @@ function buildProductionAnimationPlan(input = {}) {
     turnLater: wordIndex(timing, beats.turn, "later", "timing.turn.later"),
     turnSearches: wordIndex(timing, beats.turn, "searches", "timing.turn.searches"),
     turnNever: wordIndex(timing, beats.turn, "never", "timing.turn.never"),
+    turnSignal: wordIndex(timing, beats.turn, "signal", "timing.turn.signal"),
     turnAgain: wordIndex(timing, beats.turn, "again", "timing.turn.again"),
     turnNo: wordIndex(timing, beats.turn, "no", "timing.turn.no"),
     turnTransmission: wordIndex(timing, beats.turn, "transmission", "timing.turn.transmission"),
@@ -194,7 +195,7 @@ function buildProductionAnimationPlan(input = {}) {
       operations: [
         operation({ op: "morph_path", targetId: "evidence_trace", from: anchor("beat_start", { beatId: scripted.turn.id }), to: anchor("word_end", { wordIndex: cue.turnSearches }), easing: "smoothstep", params: { toShape: "node" }, claimId: claimFor("turn", 0), visualStatement: "Condense the observed curve into one isolated timeline event before later search passes begin." }),
         operation({ op: "stagger", targetId: "search_timeline", from: anchor("word_start", { wordIndex: cue.turnNever }), to: anchor("word_end", { wordIndex: cue.turnAgain }), easing: "ease_in_out_cubic", params: { delayFrames: 5 }, claimId: claimFor("turn", 1), visualStatement: "Reveal multiple later search passes in sequence before stating their result." }),
-        operation({ op: "highlight", targetId: "no_repeat_label", from: anchor("word_end", { wordIndex: cue.turnAgain }), to: anchor("word_start", { wordIndex: cue.turnNo }), easing: "ease_in_out_cubic", params: { strength: 1 }, claimId: claimFor("turn", 2), visualStatement: "State NO VERIFIED REPEAT only after the later search passes have finished." }),
+        operation({ op: "highlight", targetId: "no_repeat_label", from: anchor("word_start", { wordIndex: cue.turnSignal }), to: anchor("word_start", { wordIndex: cue.turnNo }), easing: "ease_in_out_cubic", params: { strength: 1 }, claimId: claimFor("turn", 2), visualStatement: "Land NO VERIFIED REPEAT as the failed search conclusion reaches the words same signal again." }),
         operation({ op: "fade", targetId: "transmission_label", from: anchor("word_start", { wordIndex: cue.turnNo }), to: anchor("word_end", { wordIndex: cue.turnTransmission, offsetFrames: 6 }), easing: "ease_in_out_cubic", params: { from: 0, to: 1 }, claimId: claimFor("turn", 3), visualStatement: "State that no confirmed transmission explains the observation when that limit is narrated." }),
       ], readabilityHolds: settledHold(beats.turn.endFrame, sceneEnd.turn), complexityCost: 14,
     },
