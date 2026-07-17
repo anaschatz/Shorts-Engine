@@ -6,6 +6,8 @@ const HASH_RE = /^[a-f0-9]{64}$/;
 const ALLOWED_PROTOCOLS = new Set(["about:", "data:", "blob:"]);
 const RESOURCE_CLASSES = new Set(["document", "stylesheet", "image", "media", "font", "script", "xhr", "fetch", "websocket", "other"]);
 const ENTITY_RE = /^[a-z][a-z0-9_-]{2,79}$/;
+// Canonicalize single-level Chromium raster rounding while retaining exact hashes for visible frame changes.
+const CANONICAL_SCREENSHOT = Object.freeze({ type: "jpeg", quality: 90 });
 
 export class BrowserSeekError extends Error {
   constructor(code, details = null) {
@@ -295,7 +297,7 @@ export async function runBrowserSeekProof(input, dependencies = {}) {
         return Number(document.documentElement.dataset.renderedFrame);
       }, { requestedFrame: frame, fps: request.fps });
       if (renderedFrame !== frame) throw new BrowserSeekError("BROWSER_SEEK_FRAME_MISMATCH");
-      await page.screenshot({ type: "png", captureBeyondViewport: false, clip: { x: 0, y: 0, width: request.width, height: request.height } });
+      await page.screenshot({ ...CANONICAL_SCREENSHOT, captureBeyondViewport: false, clip: { x: 0, y: 0, width: request.width, height: request.height } });
     }
     const captures = [], geometrySnapshots = [];
     stage = "seek_capture";
@@ -379,8 +381,8 @@ export async function runBrowserSeekProof(input, dependencies = {}) {
       }, { requestedFrame: frame, fps: request.fps });
       if (result.renderedFrame !== frame) throw new BrowserSeekError("BROWSER_SEEK_FRAME_MISMATCH");
       geometrySnapshots.push({ frame, ...result.geometry });
-      const png = await page.screenshot({ type: "png", captureBeyondViewport: false, clip: { x: 0, y: 0, width: request.width, height: request.height } });
-      const hash = sha256(png);
+      const canonicalFrame = await page.screenshot({ ...CANONICAL_SCREENSHOT, captureBeyondViewport: false, clip: { x: 0, y: 0, width: request.width, height: request.height } });
+      const hash = sha256(canonicalFrame);
       if (!HASH_RE.test(hash)) throw new BrowserSeekError("BROWSER_FRAME_HASH_INVALID");
       captures.push(Object.freeze({ sequenceIndex: index, frame, sha256: hash }));
     }

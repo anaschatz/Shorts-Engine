@@ -56,6 +56,7 @@ function mockBrowser() {
   let loads = 0;
   let paintBarrierObserved = false;
   let screenshotCount = 0;
+  const screenshotOptions = [];
   const page = {
     setViewport: async () => {},
     setDefaultTimeout: () => {},
@@ -75,11 +76,16 @@ function mockBrowser() {
       if (String(fn).includes("return Number(document.documentElement.dataset.renderedFrame)")) return renderedFrame;
       return { renderedFrame, geometry: geometry() };
     },
-    screenshot: async () => { screenshotCount += 1; return Buffer.from(`pixels:${renderedFrame}`); },
+    screenshot: async (options) => {
+      screenshotCount += 1;
+      screenshotOptions.push(options);
+      return Buffer.from(`pixels:${renderedFrame}`);
+    },
     close: async () => {},
     get loads() { return loads; },
     get paintBarrierObserved() { return paintBarrierObserved; },
     get screenshotCount() { return screenshotCount; },
+    get screenshotOptions() { return screenshotOptions; },
   };
   return { browser: { newPage: async () => page, close: async () => {} }, page, listeners };
 }
@@ -107,6 +113,13 @@ test("browser harness loads once and hashes N-M-N pixels without accumulated sta
   assert.equal(fixture.page.loads, 1);
   assert.equal(fixture.page.paintBarrierObserved, true);
   assert.equal(fixture.page.screenshotCount, 8);
+  assert.ok(fixture.page.screenshotOptions.every((options) => (
+    options.type === "jpeg"
+    && options.quality === 90
+    && options.captureBeyondViewport === false
+    && options.clip.width === 720
+    && options.clip.height === 1280
+  )));
   assert.deepEqual(result.repeatedFrames.map((entry) => [entry.frame, entry.equal]), [[27, true], [291, true]]);
   assert.equal(result.captures[0].sha256, result.captures[2].sha256);
   assert.equal(result.captures[3].sha256, result.captures[5].sha256);
