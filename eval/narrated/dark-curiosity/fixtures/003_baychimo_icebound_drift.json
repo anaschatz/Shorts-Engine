@@ -192,15 +192,15 @@
       {
         "id": "beat_evidence",
         "role": "evidence",
-        "spokenText": "Over the following years, people sighted and sometimes boarded the ship without a crew as it drifted with Arctic pack ice.",
-        "onScreenText": "Sighted and boarded without a crew",
+        "spokenText": "Over the following years, people saw and sometimes boarded the ship without a crew as it drifted with Arctic pack ice.",
+        "onScreenText": "Seen and boarded without a crew",
         "claimIds": ["claim_drift"]
       },
       {
         "id": "beat_turn",
         "role": "turn",
-        "spokenText": "The company archive records its most recent sighting in 1969, decades after the ship was abandoned.",
-        "onScreenText": "The final archived sighting: 1969",
+        "spokenText": "The latest company archive record dates to 1969, decades after the ship was abandoned.",
+        "onScreenText": "Latest archive record: 1969",
         "claimIds": ["claim_last-sighting"]
       },
       {
@@ -251,7 +251,7 @@
         "durationFrames": 210,
         "operations": [
           { "op": "connect_nodes", "fromId": "pack_ice", "toId": "baychimo", "label": "DRIFT WITHOUT A CREW", "startFrame": 10, "endFrame": 205 },
-          { "op": "show_evidence", "claimId": "claim_drift", "text": "LATER SIGHTINGS AND BOARDINGS", "startFrame": 45, "endFrame": 205 }
+          { "op": "show_evidence", "claimId": "claim_drift", "text": "LATER REPORTS AND BOARDINGS", "startFrame": 45, "endFrame": 205 }
         ]
       },
       {
