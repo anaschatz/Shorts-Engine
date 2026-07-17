@@ -171,6 +171,8 @@ function executeRendererRuntime(ir) {
   vm.runInNewContext(scriptMatch[1], { document, window });
   return {
     renderFrame: window.__renderFrame,
+    timeline: window.__timelines["generic-semantic-proof"],
+    root: document.documentElement,
     stages,
     persistent: elements.get("story-evidence"),
     marker: elements.get("story-evidence-marker"),
@@ -284,6 +286,12 @@ test("generic semantic renderer advances draw and highlight only inside their ow
   assert.equal(hook.drawPath.style.strokeDashoffset, "0");
   assert.equal(hook.stage.dataset.highlightProgress, "0.5000");
   assert.equal(hook.highlightNode.getAttribute("opacity"), "0.5000");
+});
+
+test("generic semantic timeline seek preserves exact integer frames across floating-point seconds", () => {
+  const runtime = executeRendererRuntime(irFixture());
+  runtime.timeline.seek(507 / 30);
+  assert.equal(runtime.root.dataset.renderedFrame, "507");
 });
 
 test("generic semantic renderer rejects unsupported or remotely sourced plan content", () => {

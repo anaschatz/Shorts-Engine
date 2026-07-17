@@ -307,7 +307,7 @@ const stageElements=DATA.stages.map((stage)=>document.getElementById("stage-"+st
 const drawPaths=stageElements.map((element)=>Array.from(element.querySelectorAll(".semantic-draw-path")));
 const highlightNodes=stageElements.map((element)=>Array.from(element.querySelectorAll(".semantic-emphasis,[data-legibility-role]")));
 function renderFrame(rawFrame){
- const frame=Math.max(0,Math.min(DATA.durationFrames-1,Math.floor(Number(rawFrame)||0)));
+ const frame=Math.max(0,Math.min(DATA.durationFrames-1,Math.floor((Number(rawFrame)||0)+1e-7)));
  const channelStates=DATA.stages.map((stage)=>{
   const sceneReveal=ease((frame-stage.startFrame)/stage.fadeFrames,"smoothstep");
   return {
