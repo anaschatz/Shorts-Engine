@@ -11,11 +11,36 @@ const {
   createVerticalRegistry,
   inferVerticalId,
 } = require("../server/pipelines/narrated-short/vertical-registry.cjs");
+const {
+  buildSemanticVisualPlan,
+} = require("../server/pipelines/narrated-short/animation/semantic-visual-planner.cjs");
 
 const FIXTURE_DIR = resolve(__dirname, "..", "eval", "narrated", "dark-curiosity", "fixtures");
+const REAL_PILOT_FIXTURES = Object.freeze([
+  Object.freeze({
+    fileName: "002_gps_week_rollover.json",
+    storyVocabulary: "temporal_anomaly",
+    requiredEntityKinds: ["clock", "timeline"],
+    turnArchetypeId: "timeline_compare_v2",
+    turnEntityKind: "timeline",
+    turnDisclosure: null,
+  }),
+  Object.freeze({
+    fileName: "003_baychimo_icebound_drift.json",
+    storyVocabulary: "maritime_route",
+    requiredEntityKinds: ["arctic_drift", "maritime_route"],
+    turnArchetypeId: "map_route_v2",
+    turnEntityKind: "arctic_drift",
+    turnDisclosure: "Approximate path; not an exact track.",
+  }),
+]);
 
 function fixture() {
   return JSON.parse(readFileSync(resolve(FIXTURE_DIR, "001_wow_signal_mystery.json"), "utf8"));
+}
+
+function productionFixture(fileName) {
+  return JSON.parse(readFileSync(resolve(FIXTURE_DIR, fileName), "utf8"));
 }
 
 function adversarialCases() {
@@ -56,6 +81,56 @@ test("documented mystery fixture compiles deterministically as schema v2", () =>
   assert.equal(first.claimLedger.sources[0].sourceClass, "primary");
   assert.equal(first.storyboard.scenes[2].visualMode, "illustrative_reconstruction");
   assert.equal(first.storyboard.scenes[2].disclosure, "Illustrative signal-strength reconstruction");
+});
+
+test("grounded production fixtures normalize deterministically and retain story-specific visual semantics", () => {
+  for (const expected of REAL_PILOT_FIXTURES) {
+    const first = normalizeDraftBundle(productionFixture(expected.fileName));
+    const second = normalizeDraftBundle(productionFixture(expected.fileName));
+    assert.equal(first.contentHash, second.contentHash, expected.fileName);
+    assert.equal(normalizeDraftBundle(first).contentHash, first.contentHash, expected.fileName);
+    assert.match(first.contentHash, /^[a-f0-9]{64}$/, expected.fileName);
+
+    assert.equal(first.brief.riskClass, "ordinary", expected.fileName);
+    assert.deepEqual(first.brief.riskTags, [], expected.fileName);
+    assert.ok(
+      first.script.beats.every((beat) => beat.claimIds.length > 0),
+      `${expected.fileName} must bind every beat to at least one claim`,
+    );
+    assert.ok(
+      first.claimLedger.claims.every((claim) => claim.riskTags.length === 0),
+      `${expected.fileName} must not introduce claim-level risk tags`,
+    );
+
+    const snapshotHashes = first.claimLedger.sources.map((source) => source.snapshotHash);
+    assert.equal(new Set(snapshotHashes).size, snapshotHashes.length, `${expected.fileName} source snapshots must be distinct`);
+    for (const snapshotHash of snapshotHashes) {
+      assert.match(snapshotHash, /^[a-f0-9]{64}$/, expected.fileName);
+      assert.ok(
+        new Set(snapshotHash).size >= 8 && !/^(?:deadbeef){8}$/.test(snapshotHash),
+        `${expected.fileName} must use a non-placeholder source snapshot hash`,
+      );
+    }
+
+    const timingContext = {
+      contentHash: first.contentHash,
+      draftHash: first.contentHash,
+    };
+    const firstPlan = buildSemanticVisualPlan({ draft: first, timingContext });
+    const secondPlan = buildSemanticVisualPlan({ draft: second, timingContext });
+    assert.deepEqual(firstPlan, secondPlan, expected.fileName);
+    assert.equal(firstPlan.storyVocabulary, expected.storyVocabulary, expected.fileName);
+    assert.ok(
+      expected.requiredEntityKinds.every((kind) => firstPlan.requiredEntityKinds.includes(kind)),
+      `${expected.fileName} must retain its required story-specific entities`,
+    );
+    assert.ok(firstPlan.forbiddenEntityKinds.includes("telescope"), expected.fileName);
+
+    const turn = firstPlan.scenes.find((scene) => scene.role === "turn");
+    assert.equal(turn.archetypeId, expected.turnArchetypeId, expected.fileName);
+    assert.equal(turn.entityKind, expected.turnEntityKind, expected.fileName);
+    assert.equal(turn.disclosure, expected.turnDisclosure, expected.fileName);
+  }
 });
 
 test("Dark Curiosity brief infers its vertical but rejects mismatches and manual-review topics", () => {

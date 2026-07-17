@@ -7,6 +7,7 @@ const {
   STORY_VOCABULARIES,
   classifyStoryVocabulary,
   inferEntityKind,
+  inferStoryEntityKind,
   resolveSceneArchetype,
   sourceOperationIndexes,
 } = require("./scene-archetype-registry.cjs");
@@ -167,7 +168,7 @@ function entityPolicy(storyVocabulary, scenes) {
   return { requiredEntityKinds, forbiddenEntityKinds };
 }
 
-function buildScene({ role, beat, sourceScene, storyVocabulary }) {
+function buildScene({ role, beat, sourceScene, storyVocabulary, storyEntityKind }) {
   const archetypeId = resolveSceneArchetype(sourceScene, storyVocabulary);
   if (!archetypeId || !ARCHETYPE_IDS.includes(archetypeId)) {
     fail(`draft.storyboard.scenes.${sourceScene.id}`, "archetype_not_resolved");
@@ -175,7 +176,7 @@ function buildScene({ role, beat, sourceScene, storyVocabulary }) {
   const operationIndexes = sourceOperationIndexes(sourceScene, archetypeId);
   if (!operationIndexes.length) fail(`draft.storyboard.scenes.${sourceScene.id}.operations`, "source_operation_required");
   const labels = sourceLabels(sourceScene, operationIndexes);
-  const entityKind = inferEntityKind(sourceScene, archetypeId, storyVocabulary);
+  const entityKind = inferEntityKind(sourceScene, archetypeId, storyVocabulary, storyEntityKind);
   if (!entityKind) fail(`draft.storyboard.scenes.${sourceScene.id}`, "entity_kind_not_resolved");
   return {
     id: `visual_${role}`,
@@ -296,11 +297,13 @@ function expectedPlan({ draft, timingContextHash }) {
   const beats = beatBindings(draft);
   const sources = storyboardBindings(draft, beats);
   const storyVocabulary = classifyStoryVocabulary(draft.storyboard);
+  const storyEntityKind = inferStoryEntityKind(draft.storyboard, storyVocabulary);
   const scenes = SCENE_ROLES.map((role) => buildScene({
     role,
     beat: beats.byRole.get(role),
     sourceScene: sources.get(beats.byRole.get(role).id),
     storyVocabulary,
+    storyEntityKind,
   }));
   const policy = entityPolicy(storyVocabulary, scenes);
   return {

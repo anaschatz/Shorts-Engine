@@ -1,0 +1,266 @@
+{
+  "brief": {
+    "schemaVersion": 2,
+    "verticalId": "dark_curiosity",
+    "formatId": "documented_mystery_v1",
+    "language": "en",
+    "audience": "curious adults who value evidence over sensational claims",
+    "topic": "Why some GPS devices showed date problems in 2019",
+    "thesis": "The GPS week counter rolled over as designed; vulnerable receiver software misread the repeated value.",
+    "targetSeconds": 32,
+    "tone": "curious_evidence_first",
+    "riskClass": "ordinary",
+    "riskTags": [],
+    "sourceRefs": ["src_gpsgov", "src_cisa"],
+    "operatorNotes": "Do not imply that GPS time reversed or that every receiver failed."
+  },
+  "claimLedger": {
+    "sources": [
+      {
+        "id": "src_gpsgov",
+        "title": "GPS Week Number Rollover",
+        "publisher": "National Coordination Office for Space-Based Positioning, Navigation, and Timing",
+        "author": "",
+        "url": "https://www.gps.gov/news/gps-week-number-rollover",
+        "publishedAt": "",
+        "verifiedBy": "operator",
+        "verifiedAt": "2026-07-17T15:18:17.000Z",
+        "snapshotHash": "077e005a4baead03cd6b9497aa9b98e004708712a0b785917fdda5988cd86391",
+        "sourceClass": "institutional",
+        "independenceGroup": "gps_national_coordination_office",
+        "evidenceNote": "Official GPS overview of the legacy week counter, the 2019 rollover, affected equipment, and later rollover dates."
+      },
+      {
+        "id": "src_cisa",
+        "title": "Memorandum for U.S. Owners and Operators Using GPS to Obtain UTC Time",
+        "publisher": "Cybersecurity and Infrastructure Security Agency",
+        "author": "",
+        "url": "https://www.cisa.gov/sites/default/files/documents/Memorandum_on_GPS_2019.pdf",
+        "publishedAt": "2018-04-01T00:00:00.000Z",
+        "verifiedBy": "operator",
+        "verifiedAt": "2026-07-17T15:18:17.000Z",
+        "snapshotHash": "69f18c82a6172fcae34c863b621125ed4b6d5ca1a3535f61f66ad2cb2343f082",
+        "sourceClass": "institutional",
+        "independenceGroup": "cisa_dhs",
+        "evidenceNote": "Government technical memorandum describing the ten-bit week field, its reset, and device implementation risks."
+      }
+    ],
+    "claims": [
+      {
+        "id": "claim_rollover",
+        "text": "The GPS week number rolled over in 2019, and some devices that did not handle the event correctly exhibited date problems.",
+        "kind": "supported_fact",
+        "claimType": "verifiable_fact",
+        "verdict": "verified",
+        "riskTags": [],
+        "operatorApproved": true,
+        "sourceLinks": [
+          {
+            "sourceId": "src_gpsgov",
+            "support": "direct",
+            "evidenceExcerpt": "The official overview records the 2019 rollover and resulting problems in some GPS-enabled devices.",
+            "pageOrTimecode": "GPS Week Number Rollover"
+          },
+          {
+            "sourceId": "src_cisa",
+            "support": "corroborating",
+            "evidenceExcerpt": "The memorandum warns that implementations which mishandle the rollover can report unreliable dates.",
+            "pageOrTimecode": "summary"
+          }
+        ]
+      },
+      {
+        "id": "claim_counter",
+        "text": "The legacy civil GPS navigation message stores the week number in a ten-bit field that repeats after 1,024 weeks.",
+        "kind": "supported_fact",
+        "claimType": "verifiable_fact",
+        "verdict": "verified",
+        "riskTags": [],
+        "operatorApproved": true,
+        "sourceLinks": [
+          {
+            "sourceId": "src_gpsgov",
+            "support": "direct",
+            "evidenceExcerpt": "The official overview explains the ten-bit field, its maximum value, and the repeating interval.",
+            "pageOrTimecode": "counter description"
+          },
+          {
+            "sourceId": "src_cisa",
+            "support": "corroborating",
+            "evidenceExcerpt": "The memorandum independently describes the ten-bit parameter and its reset after 1,024 weeks.",
+            "pageOrTimecode": "summary"
+          }
+        ]
+      },
+      {
+        "id": "claim_patches",
+        "text": "Equipment that interpreted the repeated week value incorrectly required software or firmware fixes.",
+        "kind": "supported_fact",
+        "claimType": "verifiable_fact",
+        "verdict": "verified",
+        "riskTags": [],
+        "operatorApproved": true,
+        "sourceLinks": [
+          {
+            "sourceId": "src_gpsgov",
+            "support": "direct",
+            "evidenceExcerpt": "The official guidance states that affected equipment needed software or firmware patches.",
+            "pageOrTimecode": "device guidance"
+          },
+          {
+            "sourceId": "src_cisa",
+            "support": "corroborating",
+            "evidenceExcerpt": "The memorandum explains why receiver implementations, rather than the passage of time, create the ambiguity.",
+            "pageOrTimecode": "implementation guidance"
+          }
+        ]
+      },
+      {
+        "id": "claim_future",
+        "text": "Legacy receivers face another rollover in 2038, while newer civil messages use a larger week field.",
+        "kind": "supported_fact",
+        "claimType": "verifiable_fact",
+        "verdict": "verified",
+        "riskTags": [],
+        "operatorApproved": true,
+        "sourceLinks": [
+          {
+            "sourceId": "src_gpsgov",
+            "support": "direct",
+            "evidenceExcerpt": "The official overview gives the next legacy rollover and explains the larger counter in newer messages.",
+            "pageOrTimecode": "future rollovers"
+          }
+        ]
+      },
+      {
+        "id": "claim_verdict",
+        "text": "The event was a finite counter repeating its value, not time moving backward.",
+        "kind": "analysis",
+        "claimType": "interpretation",
+        "verdict": "qualified",
+        "riskTags": [],
+        "operatorApproved": true,
+        "sourceLinks": [
+          {
+            "sourceId": "src_gpsgov",
+            "support": "direct",
+            "evidenceExcerpt": "The documented mechanism is a numerical week-field rollover in the navigation message.",
+            "pageOrTimecode": "mechanism"
+          },
+          {
+            "sourceId": "src_cisa",
+            "support": "context",
+            "evidenceExcerpt": "The memorandum frames the issue as receiver interpretation of a repeated counter value.",
+            "pageOrTimecode": "summary"
+          }
+        ]
+      }
+    ]
+  },
+  "script": {
+    "title": "The GPS clocks that looked haunted",
+    "estimatedSeconds": 32,
+    "beats": [
+      {
+        "id": "beat_hook",
+        "role": "hook",
+        "spokenText": "On April 6, 2019, the legacy GPS week counter reset to zero, and some devices that handled it incorrectly showed the wrong date.",
+        "onScreenText": "Some GPS dates suddenly looked wrong",
+        "claimIds": ["claim_rollover"]
+      },
+      {
+        "id": "beat_context",
+        "role": "context",
+        "spokenText": "The legacy civil signal stores its week number in ten bits, leaving only a limited set of possible values.",
+        "onScreenText": "A finite counter inside the signal",
+        "claimIds": ["claim_counter"]
+      },
+      {
+        "id": "beat_evidence",
+        "role": "evidence",
+        "spokenText": "That counter covers almost twenty years. When it rolled over, equipment that handled the ambiguity badly needed software patches.",
+        "onScreenText": "The same values returned",
+        "claimIds": ["claim_counter", "claim_patches"]
+      },
+      {
+        "id": "beat_turn",
+        "role": "turn",
+        "spokenText": "Legacy receivers face another rollover in 2038, while newer navigation messages give the week counter more room.",
+        "onScreenText": "The next rollover is already known",
+        "claimIds": ["claim_future"]
+      },
+      {
+        "id": "beat_payoff",
+        "role": "payoff",
+        "spokenText": "The clocks looked haunted, but the mechanism was ordinary. The number reset, not time itself.",
+        "onScreenText": "The number reset. Time did not.",
+        "claimIds": ["claim_verdict"]
+      }
+    ],
+    "provider": {
+      "mode": "manual",
+      "model": "",
+      "promptVersion": "dark_curiosity_manual_v1"
+    }
+  },
+  "storyboard": {
+    "fps": 30,
+    "scenes": [
+      {
+        "id": "scene_hook",
+        "beatIds": ["beat_hook"],
+        "template": "hook_scene",
+        "visualMode": "original_vector",
+        "durationFrames": 150,
+        "operations": [
+          { "op": "set_heading", "text": "A GPS DATE SUDDENLY LOOKED WRONG", "startFrame": 0, "endFrame": 140 },
+          { "op": "camera_push", "scale": 1.12, "startFrame": 20, "endFrame": 145 }
+        ]
+      },
+      {
+        "id": "scene_context",
+        "beatIds": ["beat_context"],
+        "template": "evidence_scene",
+        "visualMode": "original_vector",
+        "durationFrames": 180,
+        "operations": [
+          { "op": "show_evidence", "claimId": "claim_counter", "text": "TEN BITS • FINITE WEEK VALUES", "startFrame": 0, "endFrame": 175 },
+          { "op": "show_source_badge", "sourceId": "src_gpsgov", "text": "OFFICIAL GPS RECORD", "startFrame": 30, "endFrame": 175 }
+        ]
+      },
+      {
+        "id": "scene_evidence",
+        "beatIds": ["beat_evidence"],
+        "template": "system_scale_scene",
+        "visualMode": "original_vector",
+        "durationFrames": 210,
+        "operations": [
+          { "op": "connect_nodes", "fromId": "week_counter", "toId": "calendar_date", "label": "LAST VALUE → ZERO", "startFrame": 10, "endFrame": 205 },
+          { "op": "show_evidence", "claimId": "claim_patches", "text": "OLD SOFTWARE MISREAD THE RESET", "startFrame": 45, "endFrame": 205 }
+        ]
+      },
+      {
+        "id": "scene_turn",
+        "beatIds": ["beat_turn"],
+        "template": "map_timeline_scene",
+        "visualMode": "original_vector",
+        "durationFrames": 180,
+        "operations": [
+          { "op": "advance_timeline", "date": "1999 → 2019 → 2038", "label": "A PREDICTABLE CYCLE", "startFrame": 0, "endFrame": 175 },
+          { "op": "fade_or_blackout", "mode": "blackout", "startFrame": 135, "endFrame": 175 }
+        ]
+      },
+      {
+        "id": "scene_payoff",
+        "beatIds": ["beat_payoff"],
+        "template": "payoff_scene",
+        "visualMode": "original_vector",
+        "durationFrames": 180,
+        "operations": [
+          { "op": "set_heading", "text": "THE NUMBER RESET. TIME DID NOT.", "startFrame": 0, "endFrame": 175 },
+          { "op": "show_uncertainty", "text": "DEVICE INTERPRETATION CAUSED THE WRONG DATE", "startFrame": 45, "endFrame": 175 }
+        ]
+      }
+    ]
+  }
+}

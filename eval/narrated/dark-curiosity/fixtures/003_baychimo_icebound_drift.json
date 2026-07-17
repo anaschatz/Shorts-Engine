@@ -1,0 +1,282 @@
+{
+  "brief": {
+    "schemaVersion": 2,
+    "verticalId": "dark_curiosity",
+    "formatId": "documented_mystery_v1",
+    "language": "en",
+    "audience": "curious adults who value evidence over sensational claims",
+    "topic": "How the abandoned Baychimo kept drifting through Arctic ice",
+    "thesis": "Baychimo's long crewless drift is documented, while the ship's final fate remains unknown.",
+    "targetSeconds": 31,
+    "tone": "curious_evidence_first",
+    "riskClass": "ordinary",
+    "riskTags": [],
+    "sourceRefs": ["src_manitoba", "src_uaf", "src_cambridge"],
+    "operatorNotes": "Treat every route visual as approximate and do not present the ship as supernatural."
+  },
+  "claimLedger": {
+    "sources": [
+      {
+        "id": "src_manitoba",
+        "title": "Baychimo ship history",
+        "publisher": "Archives of Manitoba, Hudson's Bay Company Archives",
+        "author": "",
+        "url": "https://www.gov.mb.ca/chc/archives/_assets/docs/hbca/ships_histories/baychimo.pdf",
+        "publishedAt": "2009-01-01T00:00:00.000Z",
+        "verifiedBy": "operator",
+        "verifiedAt": "2026-07-17T15:18:17.000Z",
+        "snapshotHash": "e3a15b7876f49d0efa83044f64d2d23ae63cc44b5d273b752bfc4905c157a61d",
+        "sourceClass": "institutional",
+        "independenceGroup": "manitoba_hbca",
+        "evidenceNote": "Archival ship history recording the 1931 ice entrapment, disappearance in a blizzard, drift, and latest archived sighting."
+      },
+      {
+        "id": "src_uaf",
+        "title": "Ghost ship artifacts emerge in museum",
+        "publisher": "Geophysical Institute, University of Alaska Fairbanks",
+        "author": "Ned Rozell",
+        "url": "https://www.gi.alaska.edu/alaska-science-forum/ghost-ship-artifacts-emerge-museum",
+        "publishedAt": "2016-03-24T00:00:00.000Z",
+        "verifiedBy": "operator",
+        "verifiedAt": "2026-07-17T15:18:17.000Z",
+        "snapshotHash": "0df332220f62f3cb2132fd84de274049d25d04166db5f6e1751d869e4c34b46e",
+        "sourceClass": "institutional",
+        "independenceGroup": "university_alaska_fairbanks",
+        "evidenceNote": "University account based on museum research describing abandonment, later sightings, boardings, and recovered artifacts."
+      },
+      {
+        "id": "src_cambridge",
+        "title": "Rediscovering lost relationships: Canadian Arctic ethnographic materials recovered from the ghost ship Baychimo",
+        "publisher": "Cambridge University Press, Polar Record",
+        "author": "Joshua D. Reuther and Jason S. Rogers",
+        "url": "https://doi.org/10.1017/S0032247416000115",
+        "publishedAt": "2016-03-07T00:00:00.000Z",
+        "verifiedBy": "operator",
+        "verifiedAt": "2026-07-17T15:18:17.000Z",
+        "snapshotHash": "eb3f818f0547f4c51a50dafcd0604ac74dc4bb874530ba1d77bcb34374c3875e",
+        "sourceClass": "reputable_secondary",
+        "independenceGroup": "cambridge_polar_record",
+        "evidenceNote": "Peer-reviewed account of the abandoned vessel, subsequent boardings, and the route of artifacts recovered from it."
+      }
+    ],
+    "claims": [
+      {
+        "id": "claim_disappearance",
+        "text": "Baychimo was trapped in Arctic ice in 1931 and disappeared from the crew's view during a blizzard.",
+        "kind": "supported_fact",
+        "claimType": "verifiable_fact",
+        "verdict": "verified",
+        "riskTags": [],
+        "operatorApproved": true,
+        "sourceLinks": [
+          {
+            "sourceId": "src_manitoba",
+            "support": "direct",
+            "evidenceExcerpt": "The archival history dates the ice entrapment and records the ship disappearing in a heavy blizzard.",
+            "pageOrTimecode": "history timeline"
+          },
+          {
+            "sourceId": "src_uaf",
+            "support": "corroborating",
+            "evidenceExcerpt": "The university account describes the crew looking out after the storm and finding the ship gone.",
+            "pageOrTimecode": "abandonment"
+          }
+        ]
+      },
+      {
+        "id": "claim_reappearance",
+        "text": "The crew believed the ship had sunk, but local hunters later saw the abandoned steamer near the Alaskan coast.",
+        "kind": "supported_fact",
+        "claimType": "verifiable_fact",
+        "verdict": "verified",
+        "riskTags": [],
+        "operatorApproved": true,
+        "sourceLinks": [
+          {
+            "sourceId": "src_uaf",
+            "support": "direct",
+            "evidenceExcerpt": "The university account records the crew's assumption and the later sighting by Inupiat hunters.",
+            "pageOrTimecode": "first reappearance"
+          }
+        ]
+      },
+      {
+        "id": "claim_drift",
+        "text": "People sighted and sometimes boarded the crewless ship in later years as it drifted with Arctic pack ice.",
+        "kind": "supported_fact",
+        "claimType": "verifiable_fact",
+        "verdict": "verified",
+        "riskTags": [],
+        "operatorApproved": true,
+        "sourceLinks": [
+          {
+            "sourceId": "src_uaf",
+            "support": "direct",
+            "evidenceExcerpt": "The university history records later sightings, boardings, and artifacts removed from the abandoned ship.",
+            "pageOrTimecode": "later sightings"
+          },
+          {
+            "sourceId": "src_cambridge",
+            "support": "corroborating",
+            "evidenceExcerpt": "The peer-reviewed museum study documents later boardings and recovery of material from Baychimo.",
+            "pageOrTimecode": "abstract and history"
+          }
+        ]
+      },
+      {
+        "id": "claim_last-sighting",
+        "text": "Hudson's Bay Company Archives notes 1969 as the most recent sighting in its record.",
+        "kind": "supported_fact",
+        "claimType": "verifiable_fact",
+        "verdict": "verified",
+        "riskTags": [],
+        "operatorApproved": true,
+        "sourceLinks": [
+          {
+            "sourceId": "src_manitoba",
+            "support": "direct",
+            "evidenceExcerpt": "The archive sheet identifies 1969 as its most recent noted sighting.",
+            "pageOrTimecode": "history timeline"
+          },
+          {
+            "sourceId": "src_uaf",
+            "support": "corroborating",
+            "evidenceExcerpt": "The university account also reports a coastal sighting in 1969.",
+            "pageOrTimecode": "final sighting"
+          }
+        ]
+      },
+      {
+        "id": "claim_verdict",
+        "text": "The evidence documents an unusual crewless drift, not a supernatural ship; Baychimo's final fate remains unknown.",
+        "kind": "analysis",
+        "claimType": "interpretation",
+        "verdict": "qualified",
+        "riskTags": [],
+        "operatorApproved": true,
+        "sourceLinks": [
+          {
+            "sourceId": "src_manitoba",
+            "support": "direct",
+            "evidenceExcerpt": "The archival record documents sightings but does not establish what ultimately happened to the vessel.",
+            "pageOrTimecode": "history timeline"
+          },
+          {
+            "sourceId": "src_uaf",
+            "support": "context",
+            "evidenceExcerpt": "The university account separates the physical drift and recovered artifacts from ghost-ship folklore.",
+            "pageOrTimecode": "article"
+          }
+        ]
+      }
+    ]
+  },
+  "script": {
+    "title": "The ship the Arctic would not keep",
+    "estimatedSeconds": 31,
+    "beats": [
+      {
+        "id": "beat_hook",
+        "role": "hook",
+        "spokenText": "In 1931, a crew looked out after a blizzard and found the ship they had left in the ice was gone.",
+        "onScreenText": "Baychimo vanished from the ice",
+        "claimIds": ["claim_disappearance"]
+      },
+      {
+        "id": "beat_context",
+        "role": "context",
+        "spokenText": "They assumed it had sunk, but local hunters soon spotted the abandoned steamer near the Alaskan coast.",
+        "onScreenText": "The abandoned ship reappeared",
+        "claimIds": ["claim_reappearance"]
+      },
+      {
+        "id": "beat_evidence",
+        "role": "evidence",
+        "spokenText": "Over the following years, people sighted and sometimes boarded the ship without a crew as it drifted with Arctic pack ice.",
+        "onScreenText": "Sighted and boarded without a crew",
+        "claimIds": ["claim_drift"]
+      },
+      {
+        "id": "beat_turn",
+        "role": "turn",
+        "spokenText": "The company archive records its most recent sighting in 1969, decades after the ship was abandoned.",
+        "onScreenText": "The final archived sighting: 1969",
+        "claimIds": ["claim_last-sighting"]
+      },
+      {
+        "id": "beat_payoff",
+        "role": "payoff",
+        "spokenText": "The case documents an extraordinary drift, not a supernatural ghost ship. Its final fate remains unknown.",
+        "onScreenText": "Documented drift. Final fate unknown.",
+        "claimIds": ["claim_verdict"]
+      }
+    ],
+    "provider": {
+      "mode": "manual",
+      "model": "",
+      "promptVersion": "dark_curiosity_manual_v1"
+    }
+  },
+  "storyboard": {
+    "fps": 30,
+    "scenes": [
+      {
+        "id": "scene_hook",
+        "beatIds": ["beat_hook"],
+        "template": "hook_scene",
+        "visualMode": "original_vector",
+        "durationFrames": 150,
+        "operations": [
+          { "op": "set_heading", "text": "BAYCHIMO VANISHED FROM THE ICE", "startFrame": 0, "endFrame": 140 },
+          { "op": "camera_push", "scale": 1.12, "startFrame": 20, "endFrame": 145 }
+        ]
+      },
+      {
+        "id": "scene_context",
+        "beatIds": ["beat_context"],
+        "template": "evidence_scene",
+        "visualMode": "original_vector",
+        "durationFrames": 180,
+        "operations": [
+          { "op": "show_evidence", "claimId": "claim_reappearance", "text": "ICEBOUND • 1931 • SEEN AGAIN", "startFrame": 0, "endFrame": 175 },
+          { "op": "show_source_badge", "sourceId": "src_uaf", "text": "UNIVERSITY MUSEUM RECORD", "startFrame": 30, "endFrame": 175 }
+        ]
+      },
+      {
+        "id": "scene_evidence",
+        "beatIds": ["beat_evidence"],
+        "template": "system_scale_scene",
+        "visualMode": "illustrative_reconstruction",
+        "disclosure": "Illustration of pack ice moving the ship.",
+        "durationFrames": 210,
+        "operations": [
+          { "op": "connect_nodes", "fromId": "pack_ice", "toId": "baychimo", "label": "DRIFT WITHOUT A CREW", "startFrame": 10, "endFrame": 205 },
+          { "op": "show_evidence", "claimId": "claim_drift", "text": "LATER SIGHTINGS AND BOARDINGS", "startFrame": 45, "endFrame": 205 }
+        ]
+      },
+      {
+        "id": "scene_turn",
+        "beatIds": ["beat_turn"],
+        "template": "map_timeline_scene",
+        "visualMode": "illustrative_reconstruction",
+        "disclosure": "Approximate path; not an exact track.",
+        "durationFrames": 180,
+        "operations": [
+          { "op": "draw_route", "points": [[0.16, 0.7], [0.36, 0.5], [0.61, 0.34], [0.84, 0.2]], "label": "SIGHTING REGIONS • 1931–1969", "startFrame": 0, "endFrame": 175 },
+          { "op": "fade_or_blackout", "mode": "blackout", "startFrame": 135, "endFrame": 175 }
+        ]
+      },
+      {
+        "id": "scene_payoff",
+        "beatIds": ["beat_payoff"],
+        "template": "payoff_scene",
+        "visualMode": "original_vector",
+        "durationFrames": 180,
+        "operations": [
+          { "op": "set_heading", "text": "DOCUMENTED DRIFT • FATE UNKNOWN", "startFrame": 0, "endFrame": 175 },
+          { "op": "show_uncertainty", "text": "NO EXACT TRACK OR FINAL SITE", "startFrame": 45, "endFrame": 175 }
+        ]
+      }
+    ]
+  }
+}

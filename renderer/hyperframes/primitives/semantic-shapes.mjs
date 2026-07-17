@@ -54,6 +54,7 @@ function normalizedKind(entityKind) {
   const value = String(entityKind || "evidence").trim().toLowerCase();
   const tokens = new Set(value.split(/[^a-z0-9]+/).filter(Boolean));
   if (["clock", "date", "time", "timestamp", "calendar", "temporal"].some((token) => tokens.has(token))) return "temporal";
+  if (["arctic", "icebound", "packice"].some((token) => tokens.has(token))) return "arctic";
   if (["harbour", "harbor", "maritime", "route", "ship", "vessel", "lighthouse", "beacon", "coast"].some((token) => tokens.has(token))) return "maritime";
   if (["radio", "signal", "frequency", "relationship", "network", "transmission", "antenna"].some((token) => tokens.has(token))) return "radio";
   return "evidence";
@@ -102,6 +103,12 @@ const PRIMITIVE_PATHS = Object.freeze({
     coast: pathData(LINE, [[84, 372], [142, 404], [186, 384], [250, 418], [318, 394], [378, 430]], "coast line"),
     link: pathData(HORIZONTAL_LINK, { source: [176, 518], target: [548, 438] }, "maritime link"),
   }),
+  arctic: Object.freeze({
+    packEdge: pathData(LINE, [[84, 690], [146, 660], [208, 676], [270, 640], [342, 664], [414, 624], [486, 646], [562, 604], [632, 622]], "arctic pack edge"),
+    drift: pathData(LINE, [[128, 652], [214, 618], [302, 574], [398, 548], [486, 496], [582, 458]], "arctic drift"),
+    current: pathData(LINE, [[104, 724], [172, 708], [240, 724], [308, 708], [376, 724], [444, 708], [512, 724], [580, 708]], "arctic current"),
+    smoke: pathData(LINE, [[384, 486], [370, 460], [390, 438], [378, 412]], "steamer smoke"),
+  }),
   radio: Object.freeze({
     wave: pathData(LINE, [[112, 520], [168, 520], [202, 466], [246, 574], [294, 438], [346, 600], [402, 476], [452, 548], [500, 520], [596, 520]], "radio wave"),
     relationshipA: pathData(HORIZONTAL_LINK, { source: [154, 520], target: [360, 420] }, "radio relationship"),
@@ -119,17 +126,23 @@ export function semanticPrimitivePaths(entityKind) {
   return PRIMITIVE_PATHS[normalizedKind(entityKind)];
 }
 
-export function semanticRoutePath(points) {
+function semanticRouteCoordinates(points) {
   if (!Array.isArray(points) || points.length < 2 || points.length > 12) {
     throw new TypeError("Semantic route requires between two and twelve normalized points.");
   }
-  const scaled = points.map((point) => {
+  return points.map((point) => {
     if (!Array.isArray(point) || point.length !== 2 || point.some((coordinate) => !Number.isFinite(coordinate) || coordinate < 0 || coordinate > 1)) {
       throw new TypeError("Semantic route contains an invalid normalized point.");
     }
-    return [96 + point[0] * 528, 420 + point[1] * 300];
+    return [
+      Number((96 + point[0] * 528).toFixed(3)),
+      Number((420 + point[1] * 300).toFixed(3)),
+    ];
   });
-  return pathData(LINE, scaled, "storyboard route");
+}
+
+export function semanticRoutePath(points) {
+  return pathData(LINE, semanticRouteCoordinates(points), "storyboard route");
 }
 
 function temporalMotif() {
@@ -170,6 +183,34 @@ function maritimeMotif() {
 </g>`;
 }
 
+function arcticMotif({ showDefaultRoute = true, sightingPoints = null } = {}) {
+  const paths = PRIMITIVE_PATHS.arctic;
+  const markers = Array.isArray(sightingPoints) && sightingPoints.length
+    ? sightingPoints
+    : [[128, 652], [302, 574], [486, 496], [582, 458]];
+  return `<g class="semantic-motif arctic-motif" data-motif-kind="arctic_drift">
+ <path d="${paths.packEdge}" class="semantic-draw-path cool-stroke" data-arctic-feature="pack-ice-edge"/>
+ ${showDefaultRoute ? `<path d="${paths.drift}" class="semantic-draw-path route-stroke" data-arctic-feature="drift-path"/>` : ""}
+ <path d="${paths.current}" class="semantic-draw-path muted-stroke" data-arctic-feature="under-ice-current"/>
+ <g class="pack-ice" data-arctic-feature="pack-ice">
+  <path d="M88 690 L144 664 L198 678 L168 724 L104 728 Z" class="cool-surface semantic-emphasis"/>
+  <path d="M210 676 L272 642 L330 662 L312 718 L242 724 Z" class="secondary-surface semantic-emphasis"/>
+  <path d="M424 626 L486 648 L544 616 L604 632 L584 704 L504 716 L446 688 Z" class="cool-surface semantic-emphasis"/>
+ </g>
+ <g transform="translate(392 548)" class="icebound-steamer semantic-emphasis" data-arctic-feature="steamer">
+  <path d="M-94 14 H92 L62 54 H-66 Z" class="surface semantic-draw-path"/>
+  <rect x="-44" y="-28" width="92" height="42" rx="6" class="secondary-surface"/>
+  <rect x="-18" y="-58" width="28" height="30" rx="3" class="warm-surface"/>
+  <line x1="-52" y1="-28" x2="-52" y2="-66" class="semantic-draw-path muted-stroke"/>
+  <path d="M-52 -66 L-18 -52 L-52 -40 Z" class="accent-fill"/>
+ </g>
+ <path d="${paths.smoke}" class="semantic-draw-path muted-stroke" data-arctic-feature="smoke"/>
+ <g class="sighting-markers" data-arctic-feature="sightings">${markers.map(([x, y], index) => (
+    `<g class="sighting-marker semantic-emphasis" data-sighting-index="${index}" transform="translate(${x} ${y})"><circle r="12" class="warm-surface"/><circle r="4" class="warm-fill"/></g>`
+  )).join("")}</g>
+</g>`;
+}
+
 function radioMotif() {
   const paths = PRIMITIVE_PATHS.radio;
   return `<g class="semantic-motif radio-motif" data-motif-kind="radio_relationship">
@@ -195,9 +236,10 @@ function evidenceMotif() {
 </g>`;
 }
 
-function motifFor(entityKind) {
+function motifFor(entityKind, options = {}) {
   const kind = normalizedKind(entityKind);
   if (kind === "temporal") return temporalMotif();
+  if (kind === "arctic") return arcticMotif(options);
   if (kind === "maritime") return maritimeMotif();
   if (kind === "radio") return radioMotif();
   return evidenceMotif();
@@ -246,16 +288,22 @@ function relationshipMarkup(scenePlan, role) {
 
 function mapRouteMarkup(scenePlan, role) {
   const paths = semanticPrimitivePaths(scenePlan.entityKind);
-  const route = scenePlan.geometry?.points?.length
-    ? semanticRoutePath(scenePlan.geometry.points)
-    : paths.route || paths.wave || paths.pulse;
+  const routePoints = scenePlan.geometry?.points?.length
+    ? semanticRouteCoordinates(scenePlan.geometry.points)
+    : null;
+  const route = routePoints
+    ? pathData(LINE, routePoints, "storyboard route")
+    : paths.route || paths.drift || paths.wave || paths.pulse;
   return `${headerMarkup(scenePlan, role)}
 <g transform="translate(0 18)">
  <rect x="66" y="394" width="588" height="398" rx="30" class="surface" stroke="currentColor"/>
  <path d="M100 430 C192 394 240 458 320 424 C402 390 472 448 618 410" class="thin-line"/>
  <path d="M94 714 C206 650 294 750 404 696 C486 656 548 696 626 660" class="thin-line"/>
  <path d="${route}" class="semantic-draw-path route-stroke"/>
- ${motifFor(scenePlan.entityKind)}
+ ${motifFor(scenePlan.entityKind, {
+    showDefaultRoute: !routePoints,
+    sightingPoints: routePoints,
+  })}
 </g>`;
 }
 

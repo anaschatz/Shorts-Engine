@@ -81,6 +81,10 @@ function sceneText(scene) {
   return scene.operations.map(operationText).join(" ");
 }
 
+function storyboardText(storyboard) {
+  return storyboard.scenes.map(sceneText).join(" ");
+}
+
 function normalizedTerms(value) {
   return ` ${String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()} `;
 }
@@ -118,6 +122,28 @@ function classifyStoryVocabulary(storyboard) {
   return "general_mystery";
 }
 
+function inferStoryEntityKind(storyboard, storyVocabulary) {
+  if (storyVocabulary !== "maritime_route") return null;
+  const text = storyboardText(storyboard);
+  const hasArcticSetting = hasAny(text, [
+    "arctic",
+    "pack ice",
+    "pack_ice",
+    "icebound",
+    "ice bound",
+    "blizzard",
+  ]);
+  const hasDriftingVessel = hasAny(text, [
+    "abandoned ship",
+    "baychimo",
+    "crewless",
+    "drift",
+    "ship without a crew",
+    "steamer",
+  ]);
+  return hasArcticSetting && hasDriftingVessel ? "arctic_drift" : null;
+}
+
 function resolveSceneArchetype(scene, storyVocabulary = "general_mystery") {
   const operationTypes = new Set(scene.operations.map((operation) => operation.op));
 
@@ -148,7 +174,11 @@ function sourceOperationIndexes(scene, archetypeId) {
     .filter((index) => index !== null);
 }
 
-function inferEntityKind(scene, archetypeId, storyVocabulary) {
+function inferEntityKind(scene, archetypeId, storyVocabulary, storyEntityKind = null) {
+  if (
+    storyEntityKind === "arctic_drift"
+    && ["document_record_v2", "relationship_graph_v2", "map_route_v2"].includes(archetypeId)
+  ) return "arctic_drift";
   if (archetypeId === "document_record_v2") return "document_record";
   if (archetypeId === "evidence_card_v2") return "evidence_record";
   if (archetypeId === "bounded_verdict_v2") return "bounded_verdict";
@@ -170,6 +200,7 @@ module.exports = {
   STORY_VOCABULARIES,
   classifyStoryVocabulary,
   inferEntityKind,
+  inferStoryEntityKind,
   resolveSceneArchetype,
   sourceOperationIndexes,
 };
