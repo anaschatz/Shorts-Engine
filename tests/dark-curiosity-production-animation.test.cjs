@@ -22,22 +22,27 @@ const art = (letter) => `art_${letter.repeat(40)}`;
 const hash = (letter) => letter.repeat(64);
 
 function productionFixture(options = {}) {
-  const draft = normalizeDraftBundle(JSON.parse(readFileSync(FIXTURE, "utf8")));
+  const rawDraft = JSON.parse(readFileSync(FIXTURE, "utf8"));
+  if (options.trailingPayoffText) {
+    rawDraft.script.beats.at(-1).spokenText += ` ${options.trailingPayoffText}`;
+    rawDraft.script.estimatedSeconds = Math.min(45, rawDraft.script.estimatedSeconds + 3);
+  }
+  const draft = normalizeDraftBundle(rawDraft);
   const projectId = `prj_${randomUUID()}`;
   const expected = scriptWords(draft.script);
-  const pacingPlan = buildPacingPlan(draft.script);
-  const semanticPausesBefore = options.semanticPausesBefore || new Map(pacingPlan.segments.slice(1).map((segment, index) => [segment.wordStartIndex, pacingPlan.segments[index].pauseAfterMs / 1000]));
+  const pacingPlan = options.useCanonicalPacing === false ? null : buildPacingPlan(draft.script);
+  const semanticPausesBefore = options.semanticPausesBefore || new Map(pacingPlan ? pacingPlan.segments.slice(1).map((segment, index) => [segment.wordStartIndex, pacingPlan.segments[index].pauseAfterMs / 1000]) : []);
   const wordDuration = options.wordDuration ?? 0.31;
   const wordStep = options.wordStep ?? 0.415;
   let cursor = options.cursorStart ?? 0.08;
   const words = expected.map((word, index) => {
     cursor += semanticPausesBefore.get(index) || 0;
     const start = cursor;
-    const end = start + wordDuration;
-    cursor += wordStep;
+    const end = start + (options.wordDurationFor?.(index) ?? wordDuration);
+    cursor += options.wordStepFor?.(index) ?? wordStep;
     return { word: word.text, start, end, probability: 0.99 };
   });
-  const durationSeconds = options.durationSeconds ?? Number((cursor + pacingPlan.segments.at(-1).pauseAfterMs / 1000).toFixed(3));
+  const durationSeconds = options.durationSeconds ?? Number((cursor + (pacingPlan ? pacingPlan.segments.at(-1).pauseAfterMs / 1000 : options.finalPauseSeconds ?? 1.2)).toFixed(3));
   const narration = { media: { durationSeconds }, language: "en", voiceProfileId: "voice", rights: { commercialUseAllowed: true, consentReference: "consent" }, draftArtifactId: art("a"), draftHash: draft.contentHash, scriptHash: draft.script.contentHash, audioArtifactId: art("d"), audioHash: hash("d") };
   const summary = { manifestArtifactId: art("c"), manifestHash: hash("c") };
   const alignment = createAlignment({ project: { id: projectId, input: { revision: 1 } }, draft, narration, narrationSummary: summary, providerResult: { segments: [{ words }] }, provider: { model: "fixture", device: "cpu", computeType: "int8" } });
@@ -147,6 +152,25 @@ test("focus timing allocator preserves full comprehension holds for a compact va
     assert.equal(interval.settleFrame, motion.actualMotionEnd, `${interval.id}:settle`);
     assert.ok(interval.endFrame - interval.settleFrame >= 18, `${interval.id}:hold`);
   }
+  assert.equal(validateAnimationComprehensionPacing(ir).valid, true);
+});
+
+test("final readability hold starts after clamped terminal motion instead of the raw proof word", () => {
+  const value = productionFixture({
+    trailingPayoffText: "Only a recording nobody reproduced.",
+    useCanonicalPacing: false,
+    semanticPausesBefore: new Map([[15, 0.45], [30, 0.45], [48, 0.45], [57, 0.45], [64, 0.45]]),
+    wordDurationFor: (index) => index >= 78 ? 0.1 : 0.31,
+    wordStepFor: (index) => index === 78 || index === 79 ? 0.12 : 0.415,
+  });
+  const ir = compileProductionAnimation({ draft: value.draft, timingContext: value.timingContext, projectId: value.projectId, projectRevision: 1, renderProfile: "preview" }).animationIR;
+  const finalScene = ir.scenes.at(-1);
+  const terminalMotionEnd = Math.max(...finalScene.operations.map((operation) => operation.to.resolvedFrame));
+  const proofWord = value.timingContext.words.find((word) => String(word.text).toLowerCase().replace(/[^a-z]/g, "") === "proof");
+  const finalHold = finalScene.readabilityHolds.at(-1);
+  assert.ok(terminalMotionEnd > proofWord.endFrame - 1);
+  assert.equal(finalHold.startFrame, terminalMotionEnd + 1);
+  assert.ok(finalHold.endFrame - finalHold.startFrame >= MINIMUM_FINAL_HOLD_FRAMES);
   assert.equal(validateAnimationComprehensionPacing(ir).valid, true);
 });
 

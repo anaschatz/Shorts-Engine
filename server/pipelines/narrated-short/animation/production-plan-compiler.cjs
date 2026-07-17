@@ -198,7 +198,8 @@ function buildProductionAnimationPlan(input = {}) {
   const turnTransmissionSettle = clampFrame(wordEndFrame(cue.turnTransmission, 6), turnTransmissionStart + 24, sceneEnd.turn - focusHoldFrames, "timing.turn.transmissionSettle");
 
   const payoffObservationSettle = sceneStart.payoff + 32;
-  const payoffProofSettleMaximum = Math.min(sceneEnd.payoff - 24, beats.payoff.endFrame - 1);
+  const finalReadabilityHoldFrames = 24;
+  const payoffProofSettleMaximum = Math.min(sceneEnd.payoff - finalReadabilityHoldFrames - 1, beats.payoff.endFrame - 1);
   const payoffProofStartMaximum = payoffProofSettleMaximum - 27;
   const payoffCandidateSettleMaximum = payoffProofStartMaximum - focusHoldFrames;
   const payoffCandidateStartMaximum = payoffCandidateSettleMaximum - 24;
@@ -261,8 +262,8 @@ function buildProductionAnimationPlan(input = {}) {
         operation({ op: "fade", targetId: "reasoning_bridge", from: wordStartAnchorAt(cue.payoffNot, payoffRejectionStart, "timing.payoff.rejection.from"), to: wordEndAnchorAt(cue.payoffAliens, payoffRejectionSettle, "timing.payoff.rejection.to"), easing: "ease_in_out_cubic", params: { from: 0, to: 1 }, claimId: claimFor("payoff", 1), visualStatement: "Strike the aliens speculation deliberately, then leave the rejection settled on screen." }),
         operation({ op: "fade", targetId: "payoff_label", from: wordStartAnchorAt(cue.payoffUnexplained, payoffCandidateStart, "timing.payoff.candidate.from"), to: wordEndAnchorAt(cue.payoffCandidate, payoffCandidateSettle, "timing.payoff.candidate.to"), easing: "ease_in_out_cubic", params: { from: 0, to: 1 }, claimId: claimFor("payoff", 2), visualStatement: "Move the surviving observation into the UNEXPLAINED conclusion and let it settle." }),
         operation({ op: "highlight", targetId: "final_evidence_label", from: wordStartAnchorAt(cue.payoffNo, payoffProofStart, "timing.payoff.proof.from"), to: wordEndAnchorAt(cue.payoffProof, payoffProofSettle, "timing.payoff.proof.to"), easing: "ease_in_out_cubic", params: { strength: 1 }, claimId: claimFor("payoff", 3), visualStatement: "Land NO REPEATABLE PROOF on the final spoken phrase." }),
-        operation({ op: "pulse", targetId: "deep_background", from: anchor("beat_start", { beatId: scripted.payoff.id }), to: anchor("word_end", { wordIndex: cue.payoffProof }), easing: "smoothstep", params: { scale: 1.04, opacity: 0.22 }, claimId: claimFor("payoff", 4), visualStatement: "Sustain restrained motion behind the final evidence verdict.", carryPolicy: "persistent" }),
-      ], readabilityHolds: settledHold(timing.words[cue.payoffProof].endFrame, timing.durationFrames), complexityCost: 13,
+        operation({ op: "pulse", targetId: "deep_background", from: anchor("beat_start", { beatId: scripted.payoff.id }), to: wordEndAnchorAt(cue.payoffProof, payoffProofSettle, "timing.payoff.background.to"), easing: "smoothstep", params: { scale: 1.04, opacity: 0.22 }, claimId: claimFor("payoff", 4), visualStatement: "Sustain restrained motion behind the final evidence verdict.", carryPolicy: "persistent" }),
+      ], readabilityHolds: settledHold(payoffProofSettle + 1, timing.durationFrames), complexityCost: 13,
     },
   ];
 
