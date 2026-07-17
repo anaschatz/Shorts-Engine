@@ -50,6 +50,35 @@ function displayText(value, maximum = 38) {
   return text.length <= maximum ? text : `${text.slice(0, Math.max(1, maximum - 1)).trimEnd()}…`;
 }
 
+export function semanticTextLines(value, maximum = 24, maximumLines = 2) {
+  const text = String(value || "").trim().replace(/\s+/g, " ");
+  if (!text || !Number.isInteger(maximum) || maximum < 8 || !Number.isInteger(maximumLines) || maximumLines < 1 || maximumLines > 3) {
+    throw new TypeError("Semantic text wrapping input is invalid.");
+  }
+  const lines = [];
+  let current = "";
+  for (const word of text.split(" ")) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (candidate.length <= maximum) {
+      current = candidate;
+      continue;
+    }
+    if (current) lines.push(current);
+    current = word;
+  }
+  if (current) lines.push(current);
+  if (lines.length <= maximumLines && lines.every((line) => line.length <= maximum)) return Object.freeze(lines);
+  const visible = lines.slice(0, maximumLines);
+  visible[maximumLines - 1] = displayText(lines.slice(maximumLines - 1).join(" "), maximum);
+  return Object.freeze(visible);
+}
+
+function textBlock({ id, x, y, className, role, background, lines, lineHeight, anchor = null }) {
+  const anchorAttribute = anchor ? ` text-anchor="${escapeSvg(anchor)}"` : "";
+  const tspans = lines.map((line, index) => `<tspan x="${x}" dy="${index === 0 ? 0 : lineHeight}">${escapeSvg(line)}</tspan>`).join("");
+  return `<text id="${escapeSvg(id)}" x="${x}" y="${y}" class="${escapeSvg(className)}"${anchorAttribute} data-legibility-role="${escapeSvg(role)}" data-contrast-background="${escapeSvg(background)}">${tspans}</text>`;
+}
+
 function normalizedKind(entityKind) {
   const value = String(entityKind || "evidence").trim().toLowerCase();
   const tokens = new Set(value.split(/[^a-z0-9]+/).filter(Boolean));
@@ -245,21 +274,66 @@ function motifFor(entityKind, options = {}) {
   return evidenceMotif();
 }
 
-function headerMarkup(scenePlan, role) {
-  const secondary = scenePlan.secondaryLabel
-    ? `<text id="scene-secondary-${escapeSvg(role)}" x="72" y="378" class="secondary-label" data-legibility-role="secondary" data-contrast-background="#07111f">${escapeSvg(displayText(scenePlan.secondaryLabel, 44))}</text>`
-    : "";
-  return `<g class="scene-copy">
+function headerLayout(scenePlan, role, { includePrimary = true } = {}) {
+  const headingLines = semanticTextLines(scenePlan.heading, 24, 2);
+  const duplicatePrimary = String(scenePlan.primaryLabel || "").trim().replace(/\s+/g, " ").toLowerCase()
+    === String(scenePlan.heading || "").trim().replace(/\s+/g, " ").toLowerCase();
+  const primaryLines = includePrimary && !duplicatePrimary
+    ? semanticTextLines(scenePlan.primaryLabel, 24, 2)
+    : [];
+  const secondaryLines = scenePlan.secondaryLabel ? semanticTextLines(scenePlan.secondaryLabel, 32, 2) : [];
+  const headingY = 294;
+  const primaryY = headingY + headingLines.length * 38 + 10;
+  const secondaryY = primaryLines.length
+    ? primaryY + primaryLines.length * 36
+    : headingY + headingLines.length * 38 + 10;
+  const lineCount = headingLines.length + primaryLines.length + secondaryLines.length;
+  const contentOffset = Math.max(0, lineCount - 3) * 40;
+  const heading = textBlock({
+    id: `scene-heading-${role}`,
+    x: 72,
+    y: headingY,
+    className: "scene-heading",
+    role: "key",
+    background: "#07111f",
+    lines: headingLines,
+    lineHeight: 38,
+  });
+  const primary = primaryLines.length ? textBlock({
+    id: `scene-primary-${role}`,
+    x: 72,
+    y: primaryY,
+    className: "primary-label",
+    role: "key",
+    background: "#07111f",
+    lines: primaryLines,
+    lineHeight: 36,
+  }) : "";
+  const secondary = secondaryLines.length ? textBlock({
+    id: `scene-secondary-${role}`,
+    x: 72,
+    y: secondaryY,
+    className: "secondary-label",
+    role: "secondary",
+    background: "#07111f",
+    lines: secondaryLines,
+    lineHeight: 32,
+  }) : "";
+  return Object.freeze({
+    contentOffset,
+    markup: `<g class="scene-copy">
  <text x="72" y="246" class="role-label">${escapeSvg(role).toUpperCase()}</text>
- <text id="scene-heading-${escapeSvg(role)}" x="72" y="294" class="scene-heading" data-legibility-role="key" data-contrast-background="#07111f">${escapeSvg(displayText(scenePlan.heading, 34))}</text>
- <text id="scene-primary-${escapeSvg(role)}" x="72" y="342" class="primary-label" data-legibility-role="key" data-contrast-background="#07111f">${escapeSvg(displayText(scenePlan.primaryLabel, 38))}</text>
+ ${heading}
+ ${primary}
  ${secondary}
-</g>`;
+</g>`,
+  });
 }
 
 function documentMarkup(scenePlan, role) {
-  return `${headerMarkup(scenePlan, role)}
-<g transform="translate(0 28)">
+  const header = headerLayout(scenePlan, role);
+  return `${header.markup}
+<g transform="translate(0 ${28 + header.contentOffset})">
  <rect x="92" y="386" width="536" height="396" rx="30" class="surface" stroke="currentColor"/>
  <path d="M548 386 H598 Q628 386 628 416 V466 Z" class="secondary-surface"/>
  <line x1="128" y1="430" x2="474" y2="430" class="semantic-draw-path muted-stroke"/>
@@ -269,8 +343,9 @@ function documentMarkup(scenePlan, role) {
 }
 
 function evidenceCardMarkup(scenePlan, role) {
-  return `${headerMarkup(scenePlan, role)}
-<g transform="translate(0 26)">
+  const header = headerLayout(scenePlan, role);
+  return `${header.markup}
+<g transform="translate(0 ${26 + header.contentOffset})">
  <rect x="76" y="392" width="568" height="382" rx="34" class="surface" stroke="currentColor"/>
  <rect x="76" y="392" width="12" height="382" rx="6" class="accent-fill semantic-emphasis"/>
  <circle cx="592" cy="440" r="17" class="warm-fill semantic-emphasis"/>
@@ -279,8 +354,9 @@ function evidenceCardMarkup(scenePlan, role) {
 }
 
 function relationshipMarkup(scenePlan, role) {
-  return `${headerMarkup(scenePlan, role)}
-<g transform="translate(0 18)">
+  const header = headerLayout(scenePlan, role);
+  return `${header.markup}
+<g transform="translate(0 ${18 + header.contentOffset})">
  <rect x="72" y="394" width="576" height="390" rx="30" class="surface" stroke="currentColor"/>
  ${motifFor(scenePlan.entityKind)}
 </g>`;
@@ -294,8 +370,9 @@ function mapRouteMarkup(scenePlan, role) {
   const route = routePoints
     ? pathData(LINE, routePoints, "storyboard route")
     : paths.route || paths.drift || paths.wave || paths.pulse;
-  return `${headerMarkup(scenePlan, role)}
-<g transform="translate(0 18)">
+  const header = headerLayout(scenePlan, role);
+  return `${header.markup}
+<g transform="translate(0 ${18 + header.contentOffset})">
  <rect x="66" y="394" width="588" height="398" rx="30" class="surface" stroke="currentColor"/>
  <path d="M100 430 C192 394 240 458 320 424 C402 390 472 448 618 410" class="thin-line"/>
  <path d="M94 714 C206 650 294 750 404 696 C486 656 548 696 626 660" class="thin-line"/>
@@ -313,8 +390,9 @@ function timelineMarkup(scenePlan, role) {
   const secondary = scenePlan.secondaryLabel
     ? `<text id="timeline-secondary-${escapeSvg(role)}" x="118" y="626" class="micro-label" data-legibility-role="secondary" data-contrast-background="#0b1527">${escapeSvg(displayText(scenePlan.secondaryLabel, 36))}</text>`
     : "";
-  return `${headerMarkup(scenePlan, role)}
-<g transform="translate(0 12)">
+  const header = headerLayout(scenePlan, role, { includePrimary: false });
+  return `${header.markup}
+<g transform="translate(0 ${12 + header.contentOffset})">
  <rect x="72" y="408" width="576" height="364" rx="30" class="surface" stroke="currentColor"/>
  <line x1="118" y1="500" x2="602" y2="500" class="muted-stroke"/>
  <line x1="118" y1="654" x2="602" y2="654" class="muted-stroke"/>
@@ -330,8 +408,9 @@ function scaleMarkup(scenePlan, role) {
   const kind = normalizedKind(scenePlan.entityKind);
   const leftWidth = kind === "temporal" ? 330 : kind === "maritime" ? 238 : 392;
   const rightWidth = kind === "radio" ? 420 : kind === "maritime" ? 356 : 268;
-  return `${headerMarkup(scenePlan, role)}
-<g transform="translate(0 10)">
+  const header = headerLayout(scenePlan, role, { includePrimary: false });
+  return `${header.markup}
+<g transform="translate(0 ${10 + header.contentOffset})">
  <rect x="72" y="406" width="576" height="366" rx="30" class="surface" stroke="currentColor"/>
  <text id="scale-primary-${escapeSvg(role)}" x="112" y="472" class="micro-label" data-legibility-role="secondary" data-contrast-background="#0b1527">${escapeSvg(displayText(scenePlan.primaryLabel, 36))}</text>
  <rect x="112" y="500" width="468" height="34" rx="17" class="secondary-surface"/>
@@ -347,14 +426,41 @@ function scaleMarkup(scenePlan, role) {
 function verdictMarkup(scenePlan, role) {
   const kind = normalizedKind(scenePlan.entityKind);
   const glyph = kind === "temporal" ? "?" : kind === "maritime" ? "≈" : kind === "radio" ? "≠" : "?";
-  return `${headerMarkup(scenePlan, role)}
-<g transform="translate(360 575)">
+  const header = headerLayout(scenePlan, role, { includePrimary: false });
+  const primaryLines = semanticTextLines(scenePlan.primaryLabel, 24, 2);
+  const primaryY = primaryLines.length === 1 ? 188 : 172;
+  const secondaryLines = scenePlan.secondaryLabel ? semanticTextLines(scenePlan.secondaryLabel, 32, 2) : [];
+  const secondaryY = primaryY + primaryLines.length * 36 + 2;
+  const primary = textBlock({
+    id: `verdict-primary-${role}`,
+    x: 0,
+    y: primaryY,
+    className: "verdict-primary",
+    role: "key",
+    background: "#07111f",
+    lines: primaryLines,
+    lineHeight: 36,
+    anchor: "middle",
+  });
+  const secondary = secondaryLines.length ? textBlock({
+    id: `verdict-secondary-${role}`,
+    x: 0,
+    y: secondaryY,
+    className: "verdict-secondary",
+    role: "secondary",
+    background: "#07111f",
+    lines: secondaryLines,
+    lineHeight: 30,
+    anchor: "middle",
+  }) : "";
+  return `${header.markup}
+<g transform="translate(360 ${575 + header.contentOffset})">
  <path d="${VERDICT_RING}" class="semantic-draw-path warm-stroke"/>
  <circle r="92" class="surface semantic-emphasis"/>
  <text x="0" y="24" text-anchor="middle" class="verdict-glyph">${glyph}</text>
  <path d="M-176 142 H176" class="semantic-draw-path muted-stroke"/>
- <text id="verdict-primary-${escapeSvg(role)}" x="0" y="188" text-anchor="middle" class="verdict-primary" data-legibility-role="key" data-contrast-background="#07111f">${escapeSvg(displayText(scenePlan.primaryLabel, 30))}</text>
- ${scenePlan.secondaryLabel ? `<text id="verdict-secondary-${escapeSvg(role)}" x="0" y="226" text-anchor="middle" class="verdict-secondary" data-legibility-role="secondary" data-contrast-background="#07111f">${escapeSvg(displayText(scenePlan.secondaryLabel, 38))}</text>` : ""}
+ ${primary}
+ ${secondary}
 </g>`;
 }
 

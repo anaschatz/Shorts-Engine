@@ -5,6 +5,7 @@ import {
   archetypeSceneMarkup,
   semanticPrimitivePaths,
   semanticRoutePath,
+  semanticTextLines,
   SUPPORTED_SEMANTIC_ARCHETYPES,
 } from "../renderer/hyperframes/primitives/semantic-shapes.mjs";
 import { compileGenericSemanticAnimationIRToHtml } from "../renderer/hyperframes/generic-semantic-animation.mjs";
@@ -224,6 +225,37 @@ test("all semantic archetypes compile escaped, deterministic SVG markup", () => 
     assert.match(first, /Observed &amp; logged/);
     assert.doesNotMatch(first, /\bundefined\b|\bnull\b/);
   }
+});
+
+test("semantic copy wraps long labels without duplicating or truncating their meaning", () => {
+  assert.deepEqual(
+    semanticTextLines("A GPS DATE SUDDENLY LOOKED WRONG"),
+    ["A GPS DATE SUDDENLY", "LOOKED WRONG"],
+  );
+  assert.deepEqual(
+    semanticTextLines("DEVICE INTERPRETATION CAUSED THE WRONG DATE"),
+    ["DEVICE INTERPRETATION", "CAUSED THE WRONG DATE"],
+  );
+
+  const hook = archetypeSceneMarkup({
+    archetypeId: "document_record_v2",
+    heading: "A GPS DATE SUDDENLY LOOKED WRONG",
+    primaryLabel: "A GPS DATE SUDDENLY LOOKED WRONG",
+    secondaryLabel: null,
+    entityKind: "document_record",
+  }, "hook");
+  assert.match(hook, /<tspan x="72" dy="0">A GPS DATE SUDDENLY<\/tspan><tspan x="72" dy="38">LOOKED WRONG<\/tspan>/);
+  assert.doesNotMatch(hook, /scene-primary-hook/);
+
+  const payoff = archetypeSceneMarkup({
+    archetypeId: "bounded_verdict_v2",
+    heading: "THE NUMBER RESET. TIME DID NOT.",
+    primaryLabel: "DEVICE INTERPRETATION CAUSED THE WRONG DATE",
+    secondaryLabel: null,
+    entityKind: "bounded_verdict",
+  }, "payoff");
+  assert.doesNotMatch(payoff, /scene-primary-payoff/);
+  assert.match(payoff, /<tspan x="0" dy="0">DEVICE INTERPRETATION<\/tspan><tspan x="0" dy="36">CAUSED THE WRONG DATE<\/tspan>/);
 });
 
 test("generic semantic renderer emits five bound offline stages with deterministic frame runtime", () => {
