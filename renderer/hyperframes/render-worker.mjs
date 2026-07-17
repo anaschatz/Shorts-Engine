@@ -9,6 +9,14 @@ import { hyperframesDoctor } from "./doctor.mjs";
 const require = createRequire(import.meta.url);
 const { validateAnimationIR } = require("../../server/pipelines/narrated-short/animation/contract.cjs");
 
+const QUIET_LOGGER = Object.freeze({
+  error() {},
+  warn() {},
+  info() {},
+  debug() {},
+  isLevelEnabled() { return false; },
+});
+
 function emit(event) { process.stdout.write(`${JSON.stringify(event)}\n`); }
 function inside(root, target) { const rel = relative(resolve(root), resolve(target)); return rel && !rel.startsWith("..") && !rel.includes("/../"); }
 
@@ -29,7 +37,7 @@ async function main() {
   if (!inside(stagingDir, htmlPath)) throw new Error("composition_path_invalid");
   await writeFile(htmlPath, composition.html, { encoding: "utf8", mode: 0o600 });
   const config = resolveConfig({ chromePath: doctor.chromePath, concurrency: 1, forceScreenshot: true, disableGpu: false, browserGpuMode: "software", enableBrowserPool: false, verifyRuntime: true, staticFrameDedup: false, debug: false });
-  const job = createRenderJob({ fps: ir.fps, quality: request.quality === "high" ? "high" : "standard", format: "mp4", workers: 1, entryFile: "index.html", producerConfig: config, hdrMode: "force-sdr" });
+  const job = createRenderJob({ fps: ir.fps, quality: request.quality === "high" ? "high" : "standard", format: "mp4", workers: 1, entryFile: "index.html", producerConfig: config, hdrMode: "force-sdr", logger: QUIET_LOGGER });
   const started = performance.now();
   try {
     await executeRenderJob(job, stagingDir, outputPath, (progressJob, message) => { const raw = Number(progressJob.progress || 0); emit({ type: "progress", stage: String(progressJob.currentStage || "rendering").slice(0, 32), percent: Math.max(0, Math.min(1, raw > 1 ? raw / 100 : raw)), message: String(message || "").slice(0, 96) }); });

@@ -47,6 +47,13 @@ test("render worker uses software browser rasterization for bitwise-stable frame
   assert.doesNotMatch(worker, /browserGpuMode:\s*"hardware"/);
 });
 
+test("render worker bounds upstream diagnostics instead of overflowing the provider stderr budget", () => {
+  const worker = readFileSync(join(__dirname, "../renderer/hyperframes/render-worker.mjs"), "utf8");
+  assert.match(worker, /const QUIET_LOGGER = Object\.freeze/);
+  assert.match(worker, /isLevelEnabled\(\) \{ return false; \}/);
+  assert.match(worker, /logger:\s*QUIET_LOGGER/);
+});
+
 test("provider maps child failures safely and cleans partial output", async () => {
   const stagingDir = mkdtempSync(join(tmpdir(), "hf-failure-"));
   const provider = hyperframes.createHyperframesProvider({ spawnImpl() {
