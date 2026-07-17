@@ -162,9 +162,13 @@ function continuousCompositorStub(writeValue) {
   };
 }
 
-test("speech token normalization is deterministic for Unicode punctuation, apostrophes and hyphens", () => {
+test("speech token normalization is deterministic for punctuation, apostrophes, hyphens, and simple number words", () => {
   assert.equal(normalizeSpeechToken("  WOW—Signal! "), "wowsignal");
   assert.equal(normalizeSpeechToken("DON’T"), "dont");
+  assert.equal(normalizeSpeechToken("ten"), "10");
+  assert.equal(normalizeSpeechToken("10"), "10");
+  assert.equal(normalizeSpeechToken("nineteen,"), "19");
+  assert.equal(normalizeSpeechToken("20"), normalizeSpeechToken("twenty"));
   assert.equal(normalizeSpeechToken("seventy-two"), "72");
   assert.equal(normalizeSpeechToken("72"), "72");
 });

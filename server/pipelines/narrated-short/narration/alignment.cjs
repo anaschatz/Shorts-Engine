@@ -4,6 +4,36 @@ const { contentHash } = require("../contracts.cjs");
 const { normalizeNarrationManifest } = require("../narration-contract.cjs");
 
 const FPS = 30;
+const SIMPLE_NUMBER_WORDS = Object.freeze({
+  zero: 0,
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+  thirteen: 13,
+  fourteen: 14,
+  fifteen: 15,
+  sixteen: 16,
+  seventeen: 17,
+  eighteen: 18,
+  nineteen: 19,
+  twenty: 20,
+  thirty: 30,
+  forty: 40,
+  fifty: 50,
+  sixty: 60,
+  seventy: 70,
+  eighty: 80,
+  ninety: 90,
+});
 
 function fail(code, field, details = {}) {
   throw new AppError(code, SAFE_MESSAGES[code] || SAFE_MESSAGES.VALIDATION_ERROR, 409, { field, ...details });
@@ -22,10 +52,10 @@ function normalizeSpeechToken(value) {
     .replace(/[^\p{L}\p{N}]+/gu, "")
     .trim();
   if (raw.includes("-")) {
-    const tens = { twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90 }; const units = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9 };
     const match = raw.replace(/[^a-z-]/g, "").match(/^(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)-(one|two|three|four|five|six|seven|eight|nine)$/);
-    if (match) return String(tens[match[1]] + units[match[2]]);
+    if (match) return String(SIMPLE_NUMBER_WORDS[match[1]] + SIMPLE_NUMBER_WORDS[match[2]]);
   }
+  if (Object.prototype.hasOwnProperty.call(SIMPLE_NUMBER_WORDS, cleaned)) return String(SIMPLE_NUMBER_WORDS[cleaned]);
   return cleaned;
 }
 
