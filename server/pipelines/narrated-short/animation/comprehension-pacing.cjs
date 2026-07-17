@@ -1,4 +1,5 @@
 const { AppError, SAFE_MESSAGES } = require("../../../errors.cjs");
+const { MINIMUM_SETTLE_FRAMES, focusMotionBinding } = require("./focus-director.cjs");
 
 const SEMANTIC_PROFILE_ID = "wow_signal_case_v1";
 const MINIMUM_OPERATION_FRAMES = Object.freeze({
@@ -65,10 +66,36 @@ function validateAnimationComprehensionPacing(ir) {
   const finalHoldFrames = finalHold.endFrame - finalHold.startFrame;
   if (finalHoldFrames < MINIMUM_FINAL_HOLD_FRAMES) fail("scenes.final.readabilityHold.duration", { minimumFrames: MINIMUM_FINAL_HOLD_FRAMES, actualFrames: finalHoldFrames });
 
+  if (ir.renderer?.styleVersion === "1.9.0") {
+    if (!ir.visualStateGraph) fail("visualStateGraph.missing");
+    for (const [index, transition] of ir.visualStateGraph.stateTransitions.entries()) {
+      const actualFrames = transition.toAnchor.resolvedFrame - transition.fromAnchor.resolvedFrame;
+      if (actualFrames < MINIMUM_SETTLE_FRAMES) fail(`visualStateGraph.stateTransitions.${index}.duration`, { minimumFrames: MINIMUM_SETTLE_FRAMES, actualFrames });
+    }
+    for (const [index, interval] of ir.visualStateGraph.focusIntervals.entries()) {
+      const actualFrames = interval.endFrame - interval.settleFrame;
+      if (actualFrames < MINIMUM_SETTLE_FRAMES) fail(`visualStateGraph.focusIntervals.${index}.settle`, { minimumFrames: MINIMUM_SETTLE_FRAMES, actualFrames });
+      const motion = focusMotionBinding(interval, {
+        scenes: ir.scenes,
+        stateTransitions: ir.visualStateGraph.stateTransitions,
+        ambientEntityIds: ir.visualStateGraph.semanticMotionConcurrency?.ambientEntityIds,
+      });
+      if (motion.actualMotionEnd === null) fail(`visualStateGraph.focusIntervals.${index}.motionBinding`, { reason: "motion_missing" });
+      if (interval.settleFrame !== motion.actualMotionEnd) fail(`visualStateGraph.focusIntervals.${index}.settle`, {
+        reason: "motion_end_mismatch",
+        expectedMotionEnd: motion.actualMotionEnd,
+        actualSettleFrame: interval.settleFrame,
+        operationKeys: motion.operationKeys,
+        transitionIds: motion.transitionIds,
+      });
+    }
+  }
+
   return Object.freeze({
     valid: true,
     applicable: true,
     minimumOperationFrames: MINIMUM_OPERATION_FRAMES,
+    minimumSemanticSettleFrames: MINIMUM_SETTLE_FRAMES,
     finalHoldFrames,
   });
 }

@@ -1,5 +1,6 @@
 const { createHash } = require("node:crypto");
 const { AppError, SAFE_MESSAGES } = require("../../../errors.cjs");
+const { validateVisualStateGraph } = require("./visual-state-graph.cjs");
 
 const ANIMATION_IR_SCHEMA_VERSION = 1;
 const ANIMATION_PROFILE = "dark_curiosity_continuous";
@@ -12,6 +13,7 @@ const ALLOWED_ANCHORS = Object.freeze(["absolute", "beat_start", "beat_end", "wo
 const ENTITY_TYPES = Object.freeze([
   "background", "grid", "waveform", "signal_pulse", "beam", "evidence_node", "label", "camera_group",
   "observation_record", "annotation", "frequency_scale", "duration_timer", "beam_graph", "search_timeline", "proof_bridge",
+  "persistent_signal",
 ]);
 const TEMPLATE_FAMILIES = Object.freeze([
   "signal_lab_v1", "mystery_payoff_v1",
@@ -240,7 +242,7 @@ function validateMotionBudget(budget) {
 function validateAnimationIR(input, options = {}) {
   const ir = structuredClone(object(input, "animationIR"));
   rejectExecutableOrRemote(ir);
-  exactKeys(ir, ["schemaVersion", "profile", "profileVersion", "projectId", "projectRevision", "verticalId", "width", "height", "fps", "durationFrames", "draftHash", "alignmentHash", "assetManifestHash", "renderer", "seed", "content", "timingBinding", "sharedEntities", "scenes", "transitions", "motionBudget", "contentHash"], "animationIR");
+  exactKeys(ir, ["schemaVersion", "profile", "profileVersion", "projectId", "projectRevision", "verticalId", "width", "height", "fps", "durationFrames", "draftHash", "alignmentHash", "assetManifestHash", "renderer", "seed", "content", "timingBinding", "sharedEntities", "scenes", "transitions", "motionBudget", "visualStateGraph", "contentHash"], "animationIR");
   if (ir.schemaVersion !== ANIMATION_IR_SCHEMA_VERSION) fail("schemaVersion", "AnimationIR schema version is unsupported.");
   token(ir.profile, "profile", [ANIMATION_PROFILE]);
   text(ir.profileVersion, "profileVersion", { pattern: VERSION_RE });
@@ -324,6 +326,18 @@ function validateAnimationIR(input, options = {}) {
     number(transition.endFrame, `${field}.endFrame`, transition.startFrame + 1, ir.durationFrames, true);
   });
   ir.motionBudget = validateMotionBudget(ir.motionBudget);
+  const requiresVisualStateGraph = ir.renderer.styleVersion === "1.9.0" && ir.content.semantic?.profileId === "wow_signal_case_v1";
+  if (requiresVisualStateGraph && ir.visualStateGraph === undefined) fail("visualStateGraph", "Production semantic animation requires a visual state graph.");
+  if (ir.visualStateGraph !== undefined) {
+    ir.visualStateGraph = validateVisualStateGraph(ir.visualStateGraph, {
+      draftHash: ir.draftHash,
+      alignmentHash: ir.alignmentHash,
+      timingBinding: ir.timingBinding,
+      entityIds,
+      scenes: ir.scenes,
+      durationFrames: ir.durationFrames,
+    });
+  }
   const expectedHash = animationContentHash(ir);
   if (ir.contentHash !== undefined && (!HASH_RE.test(ir.contentHash) || ir.contentHash !== expectedHash)) fail("contentHash", "AnimationIR content hash does not match.");
   ir.contentHash = expectedHash;

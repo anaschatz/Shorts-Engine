@@ -42,13 +42,21 @@ function renderWithSpawn(spawnImpl, workerPath, providerId, request, signal, onP
   if (![irPath, requestPath, outputPath].every((path) => inside(stagingDir, path))) return Promise.reject(safeFailure());
   writeFileSync(irPath, `${JSON.stringify(validated.animationIR, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
   writeFileSync(requestPath, `${JSON.stringify({ stagingDir, irPath, outputPath, quality: request.quality || "standard" })}\n`, { encoding: "utf8", mode: 0o600 });
-  const timeoutMs = Math.max(1000, Math.min(Number(request.timeoutMs || 120000), 600000));
+  const timeoutMs = Math.max(1000, Math.min(Number(request.timeoutMs || 120000), 1800000));
   return new Promise((resolvePromise, reject) => {
-    const child = spawnImpl(process.execPath, [workerPath, "--request", requestPath], { cwd: resolve(__dirname, "../../../../../"), stdio: ["ignore", "pipe", "pipe"], env: { PATH: process.env.PATH || "", HOME: process.env.HOME || "", TMPDIR: process.env.TMPDIR || "/tmp", LANG: "C.UTF-8", HYPERFRAMES_EXTRACT_CACHE_DIR: "off" } });
+    const processGroup = process.platform !== "win32";
+    const child = spawnImpl(process.execPath, [workerPath, "--request", requestPath], { cwd: resolve(__dirname, "../../../../../"), detached: processGroup, stdio: ["ignore", "pipe", "pipe"], env: { PATH: process.env.PATH || "", HOME: process.env.HOME || "", TMPDIR: process.env.TMPDIR || "/tmp", LANG: "C.UTF-8", HYPERFRAMES_EXTRACT_CACHE_DIR: "off" } });
     let stdout = "", stderrBytes = 0, complete = null, settled = false, progressCount = 0, pendingError = null;
     const cleanup = () => { for (const path of [outputPath, join(stagingDir, "index.html")]) rmSync(path, { force: true }); };
     const finishError = (error) => { if (settled) return; settled = true; cleanup(); reject(error); };
-    const stop = (error) => { if (settled || pendingError) return; pendingError = error; child.kill("SIGTERM"); };
+    const stop = (error) => {
+      if (settled || pendingError) return;
+      pendingError = error;
+      if (processGroup && Number.isInteger(child.pid)) {
+        try { process.kill(-child.pid, "SIGTERM"); return; } catch { /* fall back to the direct child below */ }
+      }
+      child.kill("SIGTERM");
+    };
     const timer = setTimeout(() => stop(safeFailure("ANIMATION_RENDER_TIMEOUT")), timeoutMs);
     const abort = () => stop(safeFailure("ANIMATION_RENDER_CANCELLED"));
     if (signal?.aborted) stop(safeFailure("ANIMATION_RENDER_CANCELLED"));

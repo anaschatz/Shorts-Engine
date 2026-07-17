@@ -20,6 +20,21 @@ function bindAnimationTiming(input, timingInput = null) {
       if (operation.to.resolvedFrame <= operation.from.resolvedFrame) throw new AppError("ANIMATION_TIMING_INVALID", "Animation operation timing must have positive duration.", 400, { sceneId: scene.id, op: operation.op });
     }
   }
+  if (plan.visualStateGraph) {
+    const binding = timing || (plan.timingBinding ? { durationFrames: plan.durationFrames, ...plan.timingBinding } : { durationFrames: plan.durationFrames, words: [], beats: [] });
+    const composition = { id: "visual_state_graph", startFrame: 0, endFrame: plan.durationFrames };
+    const bindAnchor = (anchor, field) => ({ ...anchor, resolvedFrame: resolveTimingAnchor(anchor, binding, composition, field) });
+    for (const [index, state] of (plan.visualStateGraph.states || []).entries()) {
+      state.enterAnchor = bindAnchor(state.enterAnchor, `visualStateGraph.states[${index}].enterAnchor`);
+      state.settleAnchor = bindAnchor(state.settleAnchor, `visualStateGraph.states[${index}].settleAnchor`);
+      state.exitAnchor = bindAnchor(state.exitAnchor, `visualStateGraph.states[${index}].exitAnchor`);
+    }
+    for (const [index, transition] of (plan.visualStateGraph.stateTransitions || []).entries()) {
+      transition.fromAnchor = bindAnchor(transition.fromAnchor, `visualStateGraph.stateTransitions[${index}].fromAnchor`);
+      transition.toAnchor = bindAnchor(transition.toAnchor, `visualStateGraph.stateTransitions[${index}].toAnchor`);
+      if (transition.toAnchor.resolvedFrame <= transition.fromAnchor.resolvedFrame) throw new AppError("ANIMATION_TIMING_INVALID", "Animation state transition timing must have positive duration.", 400, { transitionId: transition.id });
+    }
+  }
   return plan;
 }
 

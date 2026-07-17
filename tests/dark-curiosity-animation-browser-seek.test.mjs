@@ -9,6 +9,47 @@ const geometry = (bounds = { x: 100, y: 300, width: 200, height: 120 }) => ({
   entities: [{ entityId: "signal_wave", captionPolicy: "avoid", visible: true, bounds }],
 });
 
+const strictStates = ["observation_record", "frequency_context", "beam_response", "failed_repeat_search", "bounded_candidate"];
+const strictFocusIds = strictStates.map((stateId) => `focus_${stateId}`);
+const strictTransitionIds = ["signal_transition_1", "signal_transition_2", "signal_transition_3", "signal_transition_4"];
+const strictExpectations = {
+  expectedPersistentEntityIds: ["signal_evidence"],
+  expectedVisualStateIds: strictStates,
+  expectedFocusIntervalIds: strictFocusIds,
+  expectedTransitionIds: strictTransitionIds,
+  legibilityProfile: "mobile_720_v1",
+};
+
+function strictSnapshot(frame, stateId, focusIntervalId, transitionId, pathData) {
+  const bounds = { x: 100, y: 300, width: 200, height: 120 };
+  return {
+    frame,
+    semanticRoi: { x: 36, y: 180, width: 648, height: 740 },
+    captionSafeZone: { x: 0, y: 947, width: 720, height: 333 },
+    visualStateId: stateId,
+    transitionId,
+    focusIntervalId,
+    focusPrimaryEntityId: "signal_evidence",
+    entities: [{ entityId: "signal_evidence", captionPolicy: "avoid", visible: true, bounds }],
+    persistentEntities: [{ entityId: "signal_evidence", stateId, representationId: `rep_${stateId}`, transitionId, visible: true, bounds, pathData }],
+    focusTargets: [{ entityId: "signal_evidence", role: "primary", visible: true, bounds }],
+    labels: [
+      { id: "key_label", role: "key", visible: true, fontSize: 32, foreground: "#e2e8f0", background: "#07121f", bounds: { x: 120, y: 500, width: 240, height: 42 } },
+      { id: "secondary_label", role: "secondary", visible: true, fontSize: 24, foreground: "#a5f3fc", background: "#071827", bounds: { x: 120, y: 560, width: 240, height: 32 } },
+    ],
+    pathFollowers: [{ followerId: "signal-evidence-marker", pathId: "signal-evidence-path", visible: true, distance: 0.5 }],
+  };
+}
+
+function strictSnapshots() {
+  let frame = 0;
+  const snapshots = strictStates.map((stateId, index) => strictSnapshot(frame += 3, stateId, strictFocusIds[index], "none", `M100 360 L${200 + index} 360`));
+  strictTransitionIds.forEach((transitionId, index) => {
+    for (let sample = 0; sample < 3; sample += 1) snapshots.push(strictSnapshot(frame += 3, strictStates[index + 1], strictFocusIds[index + 1], transitionId, `M100 ${360 + sample} L${240 + index * 10 + sample} ${360 - sample}`));
+  });
+  return snapshots;
+}
+
 function mockBrowser() {
   const listeners = new Map();
   let renderedFrame = 0;
@@ -62,6 +103,7 @@ test("browser harness loads once and hashes N-M-N pixels without accumulated sta
   const fixture = mockBrowser();
   const result = await runBrowserSeekProof({ html, width: 720, height: 1280, fps: 30, durationFrames: 300, chromePath: "/mock/chrome", seekSequence: [27, 209, 27, 291, 0, 291] }, { launch: async () => fixture.browser });
   assert.equal(result.loadedOnce, true);
+  assert.deepEqual(result.cacheWarmupFrames, [27, 291]);
   assert.equal(fixture.page.loads, 1);
   assert.equal(fixture.page.paintBarrierObserved, true);
   assert.equal(fixture.page.screenshotCount, 8);
@@ -92,6 +134,54 @@ test("geometry audit rejects real clipping and caption-safe collisions", () => {
   const missingFollower = validateGeometrySnapshots([{ frame: 0, ...geometry(), pathFollowers: [] }], 720, 1280, ["signal-dot"]);
   assert.equal(missingFollower.passed, false);
   assert.deepEqual(missingFollower.unobservedPathFollowerIds, ["signal-dot"]);
+});
+
+test("strict geometry audit proves persistent morphs, exclusive focus, and mobile legibility", () => {
+  const result = validateGeometrySnapshots(strictSnapshots(), 720, 1280, ["signal-evidence-marker"], strictExpectations);
+  assert.equal(result.passed, true);
+  assert.deepEqual(result.persistentStateCoverage.signal_evidence, [...strictStates].sort());
+  assert.deepEqual(result.observedTransitionIds, [...strictTransitionIds].sort());
+  assert.deepEqual(result.observedFocusIntervalIds, [...strictFocusIds].sort());
+  assert.equal(result.persistentContinuityViolations.length, 0);
+  assert.equal(result.focusViolations.length, 0);
+  assert.equal(result.primaryRoiViolations.length, 0);
+  assert.equal(result.legibilityViolations.length, 0);
+  assert.equal(result.contrastViolations.length, 0);
+  assert.deepEqual(result.markedLabelIds, ["key_label", "secondary_label"]);
+  assert.deepEqual(result.observedLabelIds, ["key_label", "secondary_label"]);
+  assert.deepEqual(result.unobservedLabelIds, []);
+});
+
+test("strict geometry audit rejects continuity, focus, ROI, path, and typography bypasses", () => {
+  const audit = (mutate) => {
+    const snapshots = structuredClone(strictSnapshots());
+    mutate(snapshots);
+    return validateGeometrySnapshots(snapshots, 720, 1280, ["signal-evidence-marker"], strictExpectations);
+  };
+  assert.ok(audit((snapshots) => snapshots[0].entities.push(structuredClone(snapshots[0].entities[0]))).persistentContinuityViolations.length > 0);
+  assert.ok(audit((snapshots) => { snapshots[0].persistentEntities[0].visible = false; }).persistentContinuityViolations.length > 0);
+  assert.throws(() => audit((snapshots) => { snapshots[0].persistentEntities[0].stateId = "frequency_context"; }), { code: "BROWSER_GEOMETRY_AUDIT_INVALID" });
+  assert.ok(audit((snapshots) => { for (const snapshot of snapshots.filter((entry) => entry.transitionId === "signal_transition_1")) snapshot.persistentEntities[0].pathData = "M100 360 L240 360"; }).persistentContinuityViolations.length > 0);
+  assert.ok(audit((snapshots) => snapshots[0].focusTargets.push({ entityId: "other_primary", role: "primary", visible: true, bounds: { x: 120, y: 320, width: 80, height: 80 } })).focusViolations.length > 0);
+  assert.ok(audit((snapshots) => { snapshots[0].focusTargets[0].visible = false; }).focusViolations.length > 0);
+  assert.ok(audit((snapshots) => { snapshots[0].persistentEntities[0].bounds.x = 0; snapshots[0].focusTargets[0].bounds.x = 0; }).primaryRoiViolations.length > 0);
+  assert.ok(audit((snapshots) => { snapshots[0].pathFollowers[0].distance = 2.25; }).pathFollowerViolations.length > 0);
+  assert.ok(audit((snapshots) => { snapshots[0].labels[0].fontSize = 31; }).legibilityViolations.length > 0);
+  assert.ok(audit((snapshots) => { snapshots[0].labels[1].fontSize = 23; }).legibilityViolations.length > 0);
+  assert.ok(audit((snapshots) => { snapshots[0].labels[0].foreground = snapshots[0].labels[0].background; }).contrastViolations.length > 0);
+  assert.ok(audit((snapshots) => { snapshots[0].labels[0].bounds = { x: 120, y: 960, width: 240, height: 42 }; }).legibilityViolations.length > 0);
+  const hiddenLabel = audit((snapshots) => { for (const snapshot of snapshots) snapshot.labels.find((label) => label.id === "key_label").visible = false; });
+  assert.deepEqual(hiddenLabel.unobservedLabelIds, ["key_label"]);
+  assert.ok(hiddenLabel.legibilityViolations.some((violation) => violation.reason === "label_unobserved" && violation.labelId === "key_label"));
+  assert.ok(audit((snapshots) => { snapshots[1].labels.pop(); }).legibilityViolations.some((violation) => violation.reason === "label_set_changed"));
+  assert.ok(audit((snapshots) => { for (const snapshot of snapshots) snapshot.labels = []; }).legibilityViolations.some((violation) => violation.reason === "labels_unobserved"));
+});
+
+test("browser harness forwards strict persistent expectations into geometry validation", async () => {
+  const fixture = mockBrowser();
+  const result = await runBrowserSeekProof({ html, width: 720, height: 1280, fps: 30, durationFrames: 300, chromePath: "/mock/chrome", seekSequence: [0, 1, 0], expectedPersistentEntityIds: ["signal_evidence"] }, { launch: async () => fixture.browser });
+  assert.equal(result.passed, false);
+  assert.ok(result.geometryAudit.persistentContinuityViolations.length > 0);
 });
 
 test("browser harness rejects invalid sequences before browser launch", async () => {

@@ -65,7 +65,7 @@ function motionInputs(compiled, semanticRoi) {
 
 function qaFor(videoPath, compiled, geometryAudit) {
   const timing = motionInputs(compiled, geometryAudit.semanticRoi);
-  return runBenchmarkQa({ outputPath: videoPath, width: compiled.ir.width, height: compiled.ir.height, expectedFrameCount: compiled.ir.durationFrames, expectedFps: compiled.ir.fps, geometryAudit, readabilityHolds: timing.readabilityHolds, segments: timing.segments });
+  return runBenchmarkQa({ outputPath: videoPath, width: compiled.ir.width, height: compiled.ir.height, expectedFrameCount: compiled.ir.durationFrames, expectedFps: compiled.ir.fps, geometryAudit, readabilityHolds: timing.readabilityHolds, segments: timing.segments, semanticContinuityRequired: compiled.ir.renderer.styleVersion === "1.9.0" });
 }
 
 function motionSummary(metrics) {

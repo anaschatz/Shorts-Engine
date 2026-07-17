@@ -1,4 +1,5 @@
 const { AppError } = require("../../../errors.cjs");
+const { PERSISTENT_ENTITY_ID, VISUAL_STATE_ORDER } = require("./visual-state-graph.cjs");
 
 const SEMANTIC_TEMPLATES = Object.freeze([
   "wow_observation_v1",
@@ -59,6 +60,20 @@ function validateSemanticNarrative(ir) {
     for (const operation of scene.operations) {
       if (operation.carryPolicy === "carry_to_next" && !next.entityIds.includes(operation.targetId)) fail(`scenes[${index}].operations.${operation.targetId}.carryPolicy`);
       if (operation.carryPolicy === "persistent" && semanticScenes.slice(index + 1).some((candidate) => !candidate.entityIds.includes(operation.targetId))) fail(`scenes[${index}].operations.${operation.targetId}.carryPolicy`);
+    }
+  }
+  if (ir.renderer?.styleVersion === "1.9.0") {
+    const graph = ir.visualStateGraph;
+    if (!graph || graph.states.length !== semanticScenes.length || graph.stateTransitions.length !== semanticScenes.length - 1 || ir.transitions.length !== graph.stateTransitions.length) fail("visualStateGraph");
+    for (let index = 0; index < graph.states.length; index += 1) {
+      const state = graph.states[index];
+      const scene = semanticScenes[index];
+      if (state.id !== VISUAL_STATE_ORDER[index] || state.beatId !== scene.semantic.beatId || state.primaryEntityId !== PERSISTENT_ENTITY_ID || !state.carriedEntityIds.includes(PERSISTENT_ENTITY_ID)) fail(`visualStateGraph.states[${index}]`);
+    }
+    for (let index = 0; index < graph.stateTransitions.length; index += 1) {
+      const graphTransition = graph.stateTransitions[index];
+      const sceneTransition = ir.transitions[index];
+      if (!sceneTransition || sceneTransition.fromSceneId !== semanticScenes[index].id || sceneTransition.toSceneId !== semanticScenes[index + 1].id || sceneTransition.sharedEntityId !== PERSISTENT_ENTITY_ID || sceneTransition.startFrame !== graphTransition.fromAnchor.resolvedFrame || sceneTransition.endFrame !== graphTransition.toAnchor.resolvedFrame || graphTransition.fromStateId !== VISUAL_STATE_ORDER[index] || graphTransition.toStateId !== VISUAL_STATE_ORDER[index + 1]) fail(`visualStateGraph.stateTransitions[${index}]`);
     }
   }
   return Object.freeze({ valid: true, mode: "semantic", beatCount: semanticScenes.length, cueCount });

@@ -214,9 +214,22 @@ function evaluateMotionQuality(motion, limits = {}) {
   });
 }
 
+function evaluateGeometryQuality(geometry, semanticContinuityRequired = false) {
+  return Object.freeze({
+    geometryAudit: geometry.passed === true,
+    captionSafeZone: Array.isArray(geometry.captionSafeZoneViolations) && geometry.captionSafeZoneViolations.length === 0,
+    clipping: Array.isArray(geometry.clippedEntities) && geometry.clippedEntities.length === 0,
+    persistentContinuity: !semanticContinuityRequired || (Array.isArray(geometry.persistentContinuityViolations) && geometry.persistentContinuityViolations.length === 0 && Number.isInteger(geometry.persistentObservationCount) && geometry.persistentObservationCount > 0 && Array.isArray(geometry.observedTransitionIds) && geometry.observedTransitionIds.length > 0),
+    focusExclusivity: !semanticContinuityRequired || (Array.isArray(geometry.focusViolations) && geometry.focusViolations.length === 0 && Array.isArray(geometry.observedFocusIntervalIds) && geometry.observedFocusIntervalIds.length > 0),
+    primaryRoi: !semanticContinuityRequired || (Array.isArray(geometry.primaryRoiViolations) && geometry.primaryRoiViolations.length === 0),
+    mobileLegibility: !semanticContinuityRequired || (Array.isArray(geometry.legibilityViolations) && geometry.legibilityViolations.length === 0 && Array.isArray(geometry.contrastViolations) && geometry.contrastViolations.length === 0 && Number.isInteger(geometry.labelObservationCount) && geometry.labelObservationCount > 0 && Array.isArray(geometry.markedLabelIds) && geometry.markedLabelIds.length > 0 && Array.isArray(geometry.observedLabelIds) && JSON.stringify(geometry.markedLabelIds) === JSON.stringify(geometry.observedLabelIds) && Array.isArray(geometry.unobservedLabelIds) && geometry.unobservedLabelIds.length === 0),
+  });
+}
+
 function runBenchmarkQa(input) {
   const technical = probeVisualMaster(input.outputPath);
   const geometry = input.geometryAudit || { passed: false, clippedEntities: [], captionSafeZoneViolations: [], semanticRoi: null };
+  const semanticContinuityRequired = input.semanticContinuityRequired === true;
   const motion = extractConsecutiveMotionMetrics(input.outputPath, { technical, semanticRoi: geometry.semanticRoi, readabilityHolds: input.readabilityHolds || [], segments: input.segments || [], motionThreshold: input.motionThreshold, rollingWindowFrames: 51 });
   const expectedFrames = input.expectedFrameCount || 300, expectedFps = input.expectedFps || 30;
   const checks = {
@@ -227,11 +240,9 @@ function runBenchmarkQa(input) {
     duration: Math.abs(technical.durationSeconds - expectedFrames / expectedFps) < 0.04,
     readableNonBlack: motion.meanLuma > 4,
     ...evaluateMotionQuality(motion),
-    geometryAudit: geometry.passed === true,
-    captionSafeZone: Array.isArray(geometry.captionSafeZoneViolations) && geometry.captionSafeZoneViolations.length === 0,
-    clipping: Array.isArray(geometry.clippedEntities) && geometry.clippedEntities.length === 0,
+    ...evaluateGeometryQuality(geometry, semanticContinuityRequired),
   };
   return Object.freeze({ passed: Object.values(checks).every(Boolean), checks, technical, motion, samples: motion, geometryAudit: geometry, captionSafeZoneViolations: geometry.captionSafeZoneViolations?.length || 0, clippedEntities: geometry.clippedEntities?.length || 0 });
 }
 
-module.exports = { DEFAULT_MOTION_THRESHOLD, analyzeConsecutiveFrames, analyzeSampleFrames, evaluateMotionQuality, extractCheckpointMetrics, extractConsecutiveMotionMetrics, extractRangeMotion, extractSampleMetrics, probeVisualMaster, runBenchmarkQa, writeCheckpointContactSheet, writeContactSheet };
+module.exports = { DEFAULT_MOTION_THRESHOLD, analyzeConsecutiveFrames, analyzeSampleFrames, evaluateGeometryQuality, evaluateMotionQuality, extractCheckpointMetrics, extractConsecutiveMotionMetrics, extractRangeMotion, extractSampleMetrics, probeVisualMaster, runBenchmarkQa, writeCheckpointContactSheet, writeContactSheet };

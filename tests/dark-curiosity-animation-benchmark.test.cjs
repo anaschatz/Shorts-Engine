@@ -4,7 +4,7 @@ const { mkdtempSync, existsSync } = require("node:fs");
 const { join } = require("node:path");
 const { tmpdir } = require("node:os");
 const { spawnSync } = require("node:child_process");
-const { analyzeConsecutiveFrames, analyzeSampleFrames, evaluateMotionQuality } = require("../server/pipelines/narrated-short/animation/benchmark-qa.cjs");
+const { analyzeConsecutiveFrames, analyzeSampleFrames, evaluateGeometryQuality, evaluateMotionQuality } = require("../server/pipelines/narrated-short/animation/benchmark-qa.cjs");
 
 function frames(count, width, height, valueAt) {
   const output = Buffer.alloc(count * width * height);
@@ -50,6 +50,22 @@ test("consecutive motion QA detects late hooks, long stasis and concentrated ene
   assert.equal(evaluateMotionQuality(analyzeConsecutiveFrames(stalled, 2, 2)).contiguousStasis, false);
   const overloaded = frames(300, 2, 2, (frame) => frame < 51 ? (frame % 2 ? 240 : 10) : 10);
   assert.equal(evaluateMotionQuality(analyzeConsecutiveFrames(overloaded, 2, 2)).balancedMotion, false);
+});
+
+test("semantic geometry QA fails closed on missing continuity, focus, ROI, or legibility proof", () => {
+  const base = { passed: true, captionSafeZoneViolations: [], clippedEntities: [] };
+  const missing = evaluateGeometryQuality(base, true);
+  assert.equal(missing.geometryAudit, true);
+  assert.equal(missing.persistentContinuity, false);
+  assert.equal(missing.focusExclusivity, false);
+  assert.equal(missing.primaryRoi, false);
+  assert.equal(missing.mobileLegibility, false);
+
+  const complete = evaluateGeometryQuality({ ...base, persistentContinuityViolations: [], persistentObservationCount: 5, observedTransitionIds: ["transition"], focusViolations: [], observedFocusIntervalIds: ["focus"], primaryRoiViolations: [], legibilityViolations: [], contrastViolations: [], labelObservationCount: 5, markedLabelIds: ["proof_label"], observedLabelIds: ["proof_label"], unobservedLabelIds: [] }, true);
+  assert.ok(Object.values(complete).every(Boolean));
+
+  const hiddenMarkedLabel = evaluateGeometryQuality({ ...base, persistentContinuityViolations: [], persistentObservationCount: 5, observedTransitionIds: ["transition"], focusViolations: [], observedFocusIntervalIds: ["focus"], primaryRoiViolations: [], legibilityViolations: [], contrastViolations: [], labelObservationCount: 4, markedLabelIds: ["hidden_label", "proof_label"], observedLabelIds: ["proof_label"], unobservedLabelIds: ["hidden_label"] }, true);
+  assert.equal(hiddenMarkedLabel.mobileLegibility, false);
 });
 
 test("benchmark CLI defaults to no-mutation dry run", () => {
