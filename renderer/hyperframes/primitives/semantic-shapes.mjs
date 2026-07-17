@@ -174,7 +174,17 @@ export function semanticRoutePath(points) {
   return pathData(LINE, semanticRouteCoordinates(points), "storyboard route");
 }
 
-function temporalMotif() {
+function semanticMotionOverlay(path, motionKey) {
+  const key = escapeSvg(motionKey);
+  return `<path d="${path}" class="semantic-flow-path" data-semantic-motion-path="${key}"/>
+ <g class="semantic-motion-cursor" data-semantic-motion-cursor="${key}" opacity="0">
+  <circle r="18" class="semantic-motion-halo"/>
+  <circle r="9" class="bright-fill"/>
+  <circle r="3" class="warm-fill"/>
+ </g>`;
+}
+
+function temporalMotif({ includeMotionOverlay = true, motionKey = "clock-rollover" } = {}) {
   return `<g class="semantic-motif temporal-motif" data-motif-kind="clock_date" transform="translate(360 478)">
  <rect x="-154" y="-174" width="308" height="102" rx="18" class="surface secondary-surface"/>
  <line x1="-154" y1="-134" x2="154" y2="-134" class="thin-line"/>
@@ -186,18 +196,21 @@ function temporalMotif() {
  <g transform="translate(0 40)">
   <path d="${CLOCK_RING}" class="semantic-draw-path cool-stroke"/>
   <path d="${CLOCK_PROGRESS}" class="semantic-draw-path warm-stroke"/>
-  <line x1="0" y1="0" x2="0" y2="-48" class="clock-hand cool-stroke"/><line x1="0" y1="0" x2="42" y2="18" class="clock-hand warm-stroke"/>
+  <line x1="0" y1="0" x2="0" y2="-48" class="clock-hand cool-stroke" data-semantic-clock-hand="rollover"/>
+  <line x1="0" y1="0" x2="42" y2="18" class="clock-hand warm-stroke" data-semantic-clock-hand="reference"/>
   <circle r="8" class="bright-fill semantic-emphasis"/>
+  ${includeMotionOverlay ? semanticMotionOverlay(CLOCK_RING, motionKey) : ""}
  </g>
 </g>`;
 }
 
-function maritimeMotif() {
+function maritimeMotif({ includeMotionOverlay = true, motionKey = "maritime-route" } = {}) {
   const paths = PRIMITIVE_PATHS.maritime;
   return `<g class="semantic-motif maritime-motif" data-motif-kind="harbor_route">
  <path d="${paths.coast}" class="semantic-draw-path muted-stroke"/>
  <path d="${paths.route}" class="semantic-draw-path route-stroke"/>
  <path d="${paths.wave}" class="semantic-draw-path cool-stroke"/>
+ ${includeMotionOverlay ? semanticMotionOverlay(paths.route, motionKey) : ""}
  <g transform="translate(152 470)" class="lighthouse semantic-emphasis">
   <path d="M-28 124 L-17 6 H17 L28 124 Z" class="surface" stroke="currentColor"/>
   <rect x="-25" y="-24" width="50" height="34" rx="7" class="warm-surface"/>
@@ -212,7 +225,12 @@ function maritimeMotif() {
 </g>`;
 }
 
-function arcticMotif({ showDefaultRoute = true, sightingPoints = null } = {}) {
+function arcticMotif({
+  showDefaultRoute = true,
+  sightingPoints = null,
+  includeMotionOverlay = true,
+  motionKey = "arctic-drift",
+} = {}) {
   const paths = PRIMITIVE_PATHS.arctic;
   const markers = Array.isArray(sightingPoints) && sightingPoints.length
     ? sightingPoints
@@ -221,6 +239,7 @@ function arcticMotif({ showDefaultRoute = true, sightingPoints = null } = {}) {
  <path d="${paths.packEdge}" class="semantic-draw-path cool-stroke" data-arctic-feature="pack-ice-edge"/>
  ${showDefaultRoute ? `<path d="${paths.drift}" class="semantic-draw-path route-stroke" data-arctic-feature="drift-path"/>` : ""}
  <path d="${paths.current}" class="semantic-draw-path muted-stroke" data-arctic-feature="under-ice-current"/>
+ ${includeMotionOverlay ? semanticMotionOverlay(paths.drift, motionKey) : ""}
  <g class="pack-ice" data-arctic-feature="pack-ice">
   <path d="M88 690 L144 664 L198 678 L168 724 L104 728 Z" class="cool-surface semantic-emphasis"/>
   <path d="M210 676 L272 642 L330 662 L312 718 L242 724 Z" class="secondary-surface semantic-emphasis"/>
@@ -240,7 +259,7 @@ function arcticMotif({ showDefaultRoute = true, sightingPoints = null } = {}) {
 </g>`;
 }
 
-function radioMotif() {
+function radioMotif({ includeMotionOverlay = true, motionKey = "radio-signal" } = {}) {
   const paths = PRIMITIVE_PATHS.radio;
   return `<g class="semantic-motif radio-motif" data-motif-kind="radio_relationship">
  <path d="${paths.relationshipA}" class="semantic-draw-path muted-stroke"/>
@@ -251,15 +270,17 @@ function radioMotif() {
  <circle cx="566" cy="520" r="34" class="node cool-surface semantic-emphasis"/>
  <circle cx="360" cy="654" r="29" class="node secondary-surface semantic-emphasis"/>
  <path d="${paths.wave}" class="semantic-draw-path signal-stroke"/>
+ ${includeMotionOverlay ? semanticMotionOverlay(paths.wave, motionKey) : ""}
  <g transform="translate(360 420)"><path d="M-42 -34 Q8 -48 42 -10 Q28 34 -18 46 Q-34 10 -42 -34 Z" class="surface"/><line x1="-18" y1="45" x2="-42" y2="82" class="warm-stroke"/><line x1="-55" y1="82" x2="-29" y2="82" class="warm-stroke"/></g>
 </g>`;
 }
 
-function evidenceMotif() {
+function evidenceMotif({ includeMotionOverlay = true, motionKey = "evidence-pulse" } = {}) {
   const paths = PRIMITIVE_PATHS.evidence;
   return `<g class="semantic-motif evidence-motif" data-motif-kind="evidence">
  <path d="${paths.link}" class="semantic-draw-path muted-stroke"/>
  <path d="${paths.pulse}" class="semantic-draw-path signal-stroke"/>
+ ${includeMotionOverlay ? semanticMotionOverlay(paths.pulse, motionKey) : ""}
  <circle cx="168" cy="522" r="42" class="node cool-surface semantic-emphasis"/>
  <circle cx="552" cy="522" r="42" class="node warm-surface semantic-emphasis"/>
 </g>`;
@@ -267,11 +288,11 @@ function evidenceMotif() {
 
 function motifFor(entityKind, options = {}) {
   const kind = normalizedKind(entityKind);
-  if (kind === "temporal") return temporalMotif();
+  if (kind === "temporal") return temporalMotif(options);
   if (kind === "arctic") return arcticMotif(options);
-  if (kind === "maritime") return maritimeMotif();
-  if (kind === "radio") return radioMotif();
-  return evidenceMotif();
+  if (kind === "maritime") return maritimeMotif(options);
+  if (kind === "radio") return radioMotif(options);
+  return evidenceMotif(options);
 }
 
 function headerLayout(scenePlan, role, { includePrimary = true } = {}) {
@@ -332,33 +353,36 @@ function headerLayout(scenePlan, role, { includePrimary = true } = {}) {
 
 function documentMarkup(scenePlan, role) {
   const header = headerLayout(scenePlan, role);
+  const motionKey = `${role}-${normalizedKind(scenePlan.entityKind)}-record`;
   return `${header.markup}
 <g transform="translate(0 ${28 + header.contentOffset})">
  <rect x="92" y="386" width="536" height="396" rx="30" class="surface" stroke="currentColor"/>
  <path d="M548 386 H598 Q628 386 628 416 V466 Z" class="secondary-surface"/>
  <line x1="128" y1="430" x2="474" y2="430" class="semantic-draw-path muted-stroke"/>
  <line x1="128" y1="458" x2="408" y2="458" class="semantic-draw-path muted-stroke"/>
- ${motifFor(scenePlan.entityKind)}
+ ${motifFor(scenePlan.entityKind, { motionKey })}
 </g>`;
 }
 
 function evidenceCardMarkup(scenePlan, role) {
   const header = headerLayout(scenePlan, role);
+  const motionKey = `${role}-${normalizedKind(scenePlan.entityKind)}-evidence`;
   return `${header.markup}
 <g transform="translate(0 ${26 + header.contentOffset})">
  <rect x="76" y="392" width="568" height="382" rx="34" class="surface" stroke="currentColor"/>
  <rect x="76" y="392" width="12" height="382" rx="6" class="accent-fill semantic-emphasis"/>
  <circle cx="592" cy="440" r="17" class="warm-fill semantic-emphasis"/>
- ${motifFor(scenePlan.entityKind)}
+ ${motifFor(scenePlan.entityKind, { motionKey })}
 </g>`;
 }
 
 function relationshipMarkup(scenePlan, role) {
   const header = headerLayout(scenePlan, role);
+  const motionKey = `${role}-${normalizedKind(scenePlan.entityKind)}-relationship`;
   return `${header.markup}
 <g transform="translate(0 ${18 + header.contentOffset})">
  <rect x="72" y="394" width="576" height="390" rx="30" class="surface" stroke="currentColor"/>
- ${motifFor(scenePlan.entityKind)}
+ ${motifFor(scenePlan.entityKind, { motionKey })}
 </g>`;
 }
 
@@ -377,9 +401,12 @@ function mapRouteMarkup(scenePlan, role) {
  <path d="M100 430 C192 394 240 458 320 424 C402 390 472 448 618 410" class="thin-line"/>
  <path d="M94 714 C206 650 294 750 404 696 C486 656 548 696 626 660" class="thin-line"/>
  <path d="${route}" class="semantic-draw-path route-stroke"/>
+ ${semanticMotionOverlay(route, `${role}-${normalizedKind(scenePlan.entityKind)}-route`)}
  ${motifFor(scenePlan.entityKind, {
     showDefaultRoute: !routePoints,
     sightingPoints: routePoints,
+    includeMotionOverlay: false,
+    motionKey: `${role}-${normalizedKind(scenePlan.entityKind)}-route`,
   })}
 </g>`;
 }
@@ -397,6 +424,7 @@ function timelineMarkup(scenePlan, role) {
  <line x1="118" y1="500" x2="602" y2="500" class="muted-stroke"/>
  <line x1="118" y1="654" x2="602" y2="654" class="muted-stroke"/>
  <path d="${connector}" class="semantic-draw-path route-stroke" opacity=".72"/>
+ ${semanticMotionOverlay(STRAIGHT_LINE([[118, 500], [602, 500]]), `${role}-timeline-comparison`)}
  <circle cx="180" cy="500" r="13" class="cool-fill semantic-emphasis"/><circle cx="540" cy="500" r="13" class="warm-fill semantic-emphasis"/>
  <circle cx="220" cy="654" r="13" class="cool-fill semantic-emphasis"/><circle cx="500" cy="654" r="13" class="warm-fill semantic-emphasis"/>
  <text id="timeline-primary-${escapeSvg(role)}" x="118" y="472" class="micro-label" data-legibility-role="secondary" data-contrast-background="#0b1527">${escapeSvg(displayText(scenePlan.primaryLabel, 36))}</text>
@@ -419,6 +447,7 @@ function scaleMarkup(scenePlan, role) {
  <rect x="112" y="630" width="468" height="34" rx="17" class="secondary-surface"/>
  <rect x="112" y="630" width="${rightWidth}" height="34" rx="17" class="warm-fill semantic-emphasis"/>
  <path d="${STRAIGHT_LINE([[112, 714], [580, 714]])}" class="semantic-draw-path muted-stroke"/>
+ ${semanticMotionOverlay(STRAIGHT_LINE([[112, 714], [580, 714]]), `${role}-scale-comparison`)}
  <g class="scale-ticks">${[112, 190, 268, 346, 424, 502, 580].map((x) => `<line x1="${x}" y1="704" x2="${x}" y2="724" class="thin-line"/>`).join("")}</g>
 </g>`;
 }
@@ -456,6 +485,7 @@ function verdictMarkup(scenePlan, role) {
   return `${header.markup}
 <g transform="translate(360 ${575 + header.contentOffset})">
  <path d="${VERDICT_RING}" class="semantic-draw-path warm-stroke"/>
+ ${semanticMotionOverlay(VERDICT_RING, `${role}-bounded-verdict`)}
  <circle r="92" class="surface semantic-emphasis"/>
  <text x="0" y="24" text-anchor="middle" class="verdict-glyph">${glyph}</text>
  <path d="M-176 142 H176" class="semantic-draw-path muted-stroke"/>

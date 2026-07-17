@@ -106,14 +106,25 @@ function channelTimingFixture() {
 }
 
 class RuntimeElement {
-  constructor({ drawPaths = [], highlightNodes = [], motion = null, scanner = null } = {}) {
+  constructor({
+    drawPaths = [],
+    highlightNodes = [],
+    flowPaths = [],
+    motionCursors = [],
+    clockHands = [],
+    motion = null,
+    pathLength = 480,
+  } = {}) {
     this.attributes = {};
     this.dataset = {};
     this.style = {};
     this.drawPaths = drawPaths;
     this.highlightNodes = highlightNodes;
+    this.flowPaths = flowPaths;
+    this.motionCursors = motionCursors;
+    this.clockHands = clockHands;
     this.motion = motion;
-    this.scanner = scanner;
+    this.pathLength = pathLength;
   }
 
   setAttribute(name, value) {
@@ -126,14 +137,24 @@ class RuntimeElement {
 
   querySelector(selector) {
     if (selector === ".stage-motion") return this.motion;
-    if (selector === ".semantic-scanner") return this.scanner;
     return null;
   }
 
   querySelectorAll(selector) {
     if (selector === ".semantic-draw-path") return this.drawPaths;
     if (selector === ".semantic-emphasis,[data-legibility-role]") return this.highlightNodes;
+    if (selector === ".semantic-flow-path") return this.flowPaths;
+    if (selector === ".semantic-motion-cursor") return this.motionCursors;
+    if (selector === "[data-semantic-clock-hand]") return this.clockHands;
     return [];
+  }
+
+  getTotalLength() {
+    return this.pathLength;
+  }
+
+  getPointAtLength(distance) {
+    return { x: 118 + distance, y: 500 };
   }
 }
 
@@ -147,15 +168,27 @@ function executeRendererRuntime(ir) {
   for (const role of ROLES) {
     const drawPath = new RuntimeElement();
     const highlightNode = new RuntimeElement();
+    const flowPath = new RuntimeElement();
+    const motionCursor = new RuntimeElement();
+    const clockHand = new RuntimeElement();
     const motion = new RuntimeElement();
-    const scanner = new RuntimeElement();
     const stage = new RuntimeElement({
       drawPaths: [drawPath],
       highlightNodes: [highlightNode],
+      flowPaths: [flowPath],
+      motionCursors: [motionCursor],
+      clockHands: role === "hook" ? [clockHand] : [],
       motion,
-      scanner,
     });
-    stages.set(role, { stage, drawPath, highlightNode, motion, scanner });
+    stages.set(role, {
+      stage,
+      drawPath,
+      highlightNode,
+      flowPath,
+      motionCursor,
+      clockHand,
+      motion,
+    });
     elements.set(`stage-${role}`, stage);
   }
   for (const id of [
@@ -276,6 +309,14 @@ test("generic semantic renderer emits five bound offline stages with determinist
   assert.match(first.html, /data-motif-kind="clock_date"/);
   assert.match(first.html, /data-motif-kind="harbor_route"/);
   assert.match(first.html, /data-motif-kind="radio_relationship"/);
+  assert.equal((first.html.match(/class="semantic-flow-path"/g) || []).length, 5);
+  assert.equal((first.html.match(/class="semantic-motion-cursor"/g) || []).length, 5);
+  assert.match(first.html, /data-semantic-motion-path="hook-temporal-record"/);
+  assert.match(first.html, /data-semantic-motion-path="context-timeline-comparison"/);
+  assert.match(first.html, /data-semantic-motion-path="turn-maritime-route"/);
+  assert.match(first.html, /data-semantic-motion-path="payoff-bounded-verdict"/);
+  assert.match(first.html, /data-semantic-clock-hand="rollover"/);
+  assert.doesNotMatch(first.html, /semantic-scanner|analysis-scan/);
   assert.match(first.html, /data-semantic-roi="true"/);
   assert.match(first.html, /data-caption-safe-zone="true"/);
   assert.match(first.html, /id="story-evidence" data-entity-id="story_evidence" data-persistent-entity="true"/);
@@ -304,7 +345,9 @@ test("generic semantic renderer keeps later draw and highlight channels hidden a
   assert.equal(hook.highlightNode.getAttribute("opacity"), "0.0000");
   assert.equal(runtime.persistent.dataset.morphPathProgress, "1.0000");
   assert.equal(runtime.marker.getAttribute("cx"), "144.202");
-  assert.equal(hook.scanner.getAttribute("x1"), "227.126");
+  assert.equal(hook.flowPath.style.strokeDashoffset, "-72.000");
+  assert.equal(hook.motionCursor.getAttribute("transform"), "translate(239.008 500.000)");
+  assert.equal(hook.clockHand.getAttribute("transform"), "rotate(83.193)");
 });
 
 test("generic semantic renderer advances draw and highlight only inside their own windows", () => {
@@ -333,6 +376,31 @@ test("generic semantic activity stays continuous at scene boundaries", () => {
   assert.equal(before, "216.000");
   assert.equal(after, "216.000");
   assert.equal(runtime.persistent.dataset.storyProgress, "0.200000");
+});
+
+test("generic semantic motion freezes throughout readability holds", () => {
+  const ir = irFixture();
+  ir.scenes[0].readabilityHolds = [{ startFrame: 100, endFrame: 120 }];
+  const runtime = executeRendererRuntime(ir);
+  const hook = runtime.stages.get("hook");
+
+  runtime.renderFrame(99);
+  const before = {
+    cursor: hook.motionCursor.getAttribute("transform"),
+    dashOffset: hook.flowPath.style.strokeDashoffset,
+    clockHand: hook.clockHand.getAttribute("transform"),
+    marker: runtime.marker.getAttribute("cx"),
+  };
+  runtime.renderFrame(110);
+  const during = {
+    cursor: hook.motionCursor.getAttribute("transform"),
+    dashOffset: hook.flowPath.style.strokeDashoffset,
+    clockHand: hook.clockHand.getAttribute("transform"),
+    marker: runtime.marker.getAttribute("cx"),
+  };
+
+  assert.deepEqual(during, before);
+  assert.equal(runtime.stages.get("hook").stage.dataset.stageProgress, "0.9244");
 });
 
 test("generic semantic timeline seek preserves exact integer frames across floating-point seconds", () => {

@@ -170,6 +170,24 @@ function normalizePlan(ir) {
       targetId: sourceScene.id,
     })];
     const fadeFrames = Math.max(3, Math.min(Math.round(ir.fps * 0.24), Math.floor((sourceScene.endFrame - sourceScene.startFrame) / 4)));
+    const readabilityHolds = sourceScene.readabilityHolds === undefined ? [] : sourceScene.readabilityHolds;
+    if (!Array.isArray(readabilityHolds) || readabilityHolds.some((hold) => (
+      !hold
+      || !Number.isInteger(hold.startFrame)
+      || !Number.isInteger(hold.endFrame)
+      || hold.startFrame < sourceScene.startFrame
+      || hold.endFrame > sourceScene.endFrame
+      || hold.endFrame <= hold.startFrame
+    ))) {
+      throw new TypeError(`Semantic ${role} readability holds are invalid.`);
+    }
+    const motionEndFrame = readabilityHolds.reduce(
+      (earliest, hold) => Math.min(earliest, hold.startFrame),
+      sourceScene.endFrame,
+    );
+    if (motionEndFrame <= sourceScene.startFrame) {
+      throw new TypeError(`Semantic ${role} readability hold leaves no motion window.`);
+    }
     const geometry = normalizeGeometry(scenePlan.geometry, `Semantic ${role} geometry`);
     const normalized = Object.freeze({
       id: assertSafeText(scenePlan.id, `Semantic ${role} visual state id`),
@@ -187,6 +205,7 @@ function normalizePlan(ir) {
       claimIds: Object.freeze(scenePlan.claimIds.map((claimId) => claimId.trim())),
       startFrame: sourceScene.startFrame,
       endFrame: sourceScene.endFrame,
+      motionEndFrame,
       fadeFrames,
       operations: Object.freeze(operations),
     });
@@ -225,7 +244,6 @@ function stageMarkup(stage, index) {
  data-source-claim-ids="${escapeXml(stage.claimIds.join(","))}"
  data-caption-policy="avoid">
  <g class="stage-motion">${archetypeSceneMarkup(stage, stage.role)}</g>
- <line class="semantic-scanner" x1="92" y1="410" x2="92" y2="790" data-semantic-activity="analysis-scan"/>
 </g>`;
 }
 
@@ -246,6 +264,7 @@ export function compileGenericSemanticAnimationIRToHtml(ir) {
       archetypeId: stage.archetypeId,
       startFrame: stage.startFrame,
       endFrame: stage.endFrame,
+      motionEndFrame: stage.motionEndFrame,
       fadeFrames: stage.fadeFrames,
       operations: stage.operations,
     })),
@@ -265,7 +284,7 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#030712}
 .thin-line{fill:none;stroke:#334155;stroke-width:2}.muted-stroke{fill:none;stroke:#475569;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}.cool-stroke{fill:none;stroke:#22d3ee;stroke-width:6;stroke-linecap:round;stroke-linejoin:round}.warm-stroke{fill:none;stroke:#f59e0b;stroke-width:6;stroke-linecap:round;stroke-linejoin:round}.signal-stroke{fill:none;stroke:#67e8f9;stroke-width:7;stroke-linecap:round;stroke-linejoin:round}.route-stroke{fill:none;stroke:#fbbf24;stroke-width:6;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:10 12}
 .bright-fill{fill:#ecfeff}.cool-fill{fill:#22d3ee}.warm-fill{fill:#f59e0b}.muted-fill{fill:#64748b}.accent-fill{fill:#22d3ee}.beacon-fill{fill:#fbbf24;fill-opacity:.16;stroke:#fbbf24;stroke-width:2}
 .node{stroke-width:2}.clock-hand{stroke-width:7;stroke-linecap:round}.semantic-emphasis{filter:url(#soft-glow)}
-.semantic-scanner{stroke:#22d3ee;stroke-width:3;opacity:.18;filter:url(#soft-glow);pointer-events:none}
+.semantic-flow-path{fill:none;stroke:#67e8f9;stroke-width:5;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:14 18;opacity:.52;filter:url(#soft-glow);pointer-events:none}.semantic-motion-cursor{filter:url(#soft-glow);pointer-events:none}.semantic-motion-halo{fill:#22d3ee;fill-opacity:.22}
 .composition-kicker{fill:#67e8f9;font-size:17px;letter-spacing:4px}.composition-title{fill:#e2e8f0;font-size:30px}.role-label{fill:#67e8f9;font-size:15px;letter-spacing:4px}.scene-heading{fill:#f8fafc;font-size:34px}.primary-label{fill:#fde68a;font-size:32px}.secondary-label{fill:#cbd5e1;font-size:24px}.micro-label{fill:#cbd5e1;font-size:24px;letter-spacing:.4px}.verdict-glyph{fill:#fde68a;font-size:68px}.verdict-primary{fill:#f8fafc;font-size:32px}.verdict-secondary{fill:#cbd5e1;font-size:24px}
 </style></head><body>
 <main id="animation-root" class="composition" data-composition-id="${compositionIdAttribute}" data-start="0" data-duration="${durationSeconds}" data-width="${plan.width}" data-height="${plan.height}">
@@ -304,15 +323,25 @@ const channelProgress=(frame,stage,op,fallback)=>{const operations=stage.operati
 const stageElements=DATA.stages.map((stage)=>document.getElementById("stage-"+stage.role));
 const drawPaths=stageElements.map((element)=>Array.from(element.querySelectorAll(".semantic-draw-path")));
 const highlightNodes=stageElements.map((element)=>Array.from(element.querySelectorAll(".semantic-emphasis,[data-legibility-role]")));
-const scanLines=stageElements.map((element)=>element.querySelector(".semantic-scanner"));
+const motionTracks=stageElements.map((element)=>{
+ const paths=Array.from(element.querySelectorAll(".semantic-flow-path")),cursors=Array.from(element.querySelectorAll(".semantic-motion-cursor"));
+ if(paths.length!==1||cursors.length!==1)throw new Error("Each semantic stage requires exactly one bound motion track.");
+ const path=paths[0],cursor=cursors[0],length=typeof path.getTotalLength==="function"?path.getTotalLength():480;
+ return {path,cursor,length};
+});
+const clockHands=stageElements.map((element)=>Array.from(element.querySelectorAll("[data-semantic-clock-hand]")));
 function renderFrame(rawFrame){
  const frame=Math.max(0,Math.min(DATA.durationFrames-1,Math.floor((Number(rawFrame)||0)+1e-7)));
  const channelStates=DATA.stages.map((stage)=>{
   const sceneReveal=ease((frame-stage.startFrame)/stage.fadeFrames,"smoothstep");
   const stageProgress=clamp((frame-stage.startFrame)/Math.max(1,stage.endFrame-stage.startFrame-1));
+  const semanticFrame=Math.max(stage.startFrame,Math.min(frame,stage.motionEndFrame-1));
+  const semanticMotionProgress=clamp((semanticFrame-stage.startFrame)/Math.max(1,stage.motionEndFrame-stage.startFrame-1));
   return {
    sceneReveal,
    stageProgress,
+   semanticFrame,
+   semanticMotionProgress,
    morphPath:channelProgress(frame,stage,"morph_path",sceneReveal),
    drawPath:channelProgress(frame,stage,"draw_path",sceneReveal),
    highlight:channelProgress(frame,stage,"highlight",sceneReveal),
@@ -332,16 +361,25 @@ function renderFrame(rawFrame){
   element.dataset.stageProgress=channels.stageProgress.toFixed(4);
   const motion=element.querySelector(".stage-motion"),lift=18*(1-channels.sceneReveal),scale=.975+.025*channels.sceneReveal;
   motion.setAttribute("transform","translate(0 "+lift.toFixed(3)+") scale("+scale.toFixed(5)+")");
-  const scannerX=92+536*channels.stageProgress;
-  scanLines[index].setAttribute("x1",scannerX.toFixed(3));scanLines[index].setAttribute("x2",scannerX.toFixed(3));scanLines[index].setAttribute("opacity",(.14+.08*Math.sin(Math.PI*channels.stageProgress)).toFixed(4));
   drawPaths[index].forEach((path)=>{path.style.strokeDasharray="1000";path.style.strokeDashoffset=String(1000*(1-channels.drawPath));});
   highlightNodes[index].forEach((node)=>node.setAttribute("opacity",channels.highlight.toFixed(4)));
+  const track=motionTracks[index],pathPosition=track.length*channels.semanticMotionProgress;
+  const point=typeof track.path.getPointAtLength==="function"
+   ?track.path.getPointAtLength(pathPosition)
+   :{x:118+484*channels.semanticMotionProgress,y:500};
+  track.path.style.strokeDashoffset=(-2.4*(channels.semanticFrame-stage.startFrame)).toFixed(3);
+  track.cursor.setAttribute("transform","translate("+Number(point.x).toFixed(3)+" "+Number(point.y).toFixed(3)+")");
+  track.cursor.setAttribute("opacity",channels.sceneReveal.toFixed(4));
+  clockHands[index].forEach((hand,handIndex)=>{
+   const degrees=(handIndex===0?330:30)*channels.semanticMotionProgress;
+   hand.setAttribute("transform","rotate("+degrees.toFixed(3)+")");
+  });
  });
  const containingStageIndex=DATA.stages.findIndex((stage)=>frame>=stage.startFrame&&frame<stage.endFrame);
  const activeIndex=containingStageIndex>=0?containingStageIndex:DATA.stages.reduce((selected,stage,index)=>frame>=stage.startFrame?index:selected,0);
  const activeStage=DATA.stages[activeIndex]||DATA.stages[0];
  const activeChannels=channelStates[activeIndex]||channelStates[0];
- const persistent=document.getElementById("story-evidence"),evidenceProgress=clamp((activeIndex+activeChannels.stageProgress)/DATA.stages.length);
+ const persistent=document.getElementById("story-evidence"),evidenceProgress=clamp((activeIndex+activeChannels.semanticMotionProgress)/DATA.stages.length);
  persistent.dataset.visualStateId=activeStage.id;persistent.dataset.representationId=activeStage.archetypeId;persistent.dataset.activeTransitionId="none";
  persistent.dataset.morphPathProgress=activeChannels.morphPath.toFixed(4);
  persistent.dataset.storyProgress=evidenceProgress.toFixed(6);
