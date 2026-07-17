@@ -1,4 +1,5 @@
 const { AppError } = require("../../../errors.cjs");
+const { GENERIC_SEMANTIC_PROFILE_ID } = require("./semantic-visual-planner.cjs");
 const { PERSISTENT_ENTITY_ID, VISUAL_STATE_ORDER } = require("./visual-state-graph.cjs");
 
 const SEMANTIC_TEMPLATES = Object.freeze([
@@ -16,7 +17,60 @@ function fail(field) {
   throw new AppError("ANIMATION_SEMANTIC_INVALID", "Animation does not preserve the approved narrative meaning.", 409, { field });
 }
 
+function validateGenericSemanticNarrative(ir) {
+  const plan = ir.content.visualPlan;
+  if (ir.schemaVersion !== 2 || ir.profileVersion !== "1.2.0" || !ir.timingBinding || !plan || plan.scenes.length !== ir.scenes.length) fail("profile");
+  if (ir.content.timelineLabels.some((label) => EDITORIAL_LABELS.has(String(label).toUpperCase()))) fail("content.timelineLabels");
+  if (ir.scenes.length !== SEMANTIC_ROLES.length || ir.timingBinding.beats.length !== SEMANTIC_ROLES.length) fail("scenes");
+
+  const entityById = new Map(ir.sharedEntities.map((entity) => [entity.id, entity]));
+  if (entityById.get("story_evidence")?.type !== "case_evidence") fail("sharedEntities.story_evidence");
+  for (const forbidden of plan.forbiddenEntityKinds) {
+    if (ir.sharedEntities.some((entity) => entity.role === forbidden || entity.type === forbidden)) fail(`sharedEntities.forbidden.${forbidden}`);
+  }
+
+  let cueCount = 0;
+  for (let index = 0; index < ir.scenes.length; index += 1) {
+    const scene = ir.scenes[index];
+    const scenePlan = plan.scenes[index];
+    const beat = ir.timingBinding.beats[index];
+    const role = SEMANTIC_ROLES[index];
+    if (
+      scenePlan.role !== role
+      || scene.semantic?.role !== role
+      || scenePlan.beatId !== beat.beatId
+      || scene.semantic.beatId !== beat.beatId
+      || scene.template !== scenePlan.archetypeId
+      || !scenePlan.sourceOperationIndexes.length
+    ) fail(`scenes[${index}].binding`);
+    const expectedStart = index === 0 ? 0 : beat.startFrame;
+    const expectedEnd = index === ir.scenes.length - 1 ? ir.durationFrames : ir.timingBinding.beats[index + 1].startFrame;
+    if (scene.startFrame !== expectedStart || scene.endFrame !== expectedEnd || beat.startFrame < scene.startFrame || beat.endFrame > scene.endFrame) fail(`scenes[${index}].frames`);
+
+    const claims = new Set(scene.semantic.claimIds);
+    if (JSON.stringify([...claims]) !== JSON.stringify(scenePlan.claimIds)) fail(`scenes[${index}].claims`);
+    const covered = new Set();
+    for (let operationIndex = 0; operationIndex < scene.operations.length; operationIndex += 1) {
+      const operation = scene.operations[operationIndex];
+      if (!claims.has(operation.semanticClaimId) || !operation.visualStatement || !operation.carryPolicy) fail(`scenes[${index}].operations[${operationIndex}].semantic`);
+      if (operation.from.resolvedFrame < beat.startFrame || operation.to.resolvedFrame >= beat.endFrame) fail(`scenes[${index}].operations[${operationIndex}].timing`);
+      covered.add(operation.semanticClaimId);
+      cueCount += 1;
+    }
+    for (const claimId of claims) if (!covered.has(claimId)) fail(`scenes[${index}].claims.${claimId}`);
+    for (const requiredId of ["deep_background", "story_evidence", `${role}_visual`, `${role}_label`]) {
+      if (!scene.entityIds.includes(requiredId)) fail(`scenes[${index}].entityIds.${requiredId}`);
+    }
+    const label = entityById.get(`${role}_label`)?.text;
+    if (!label || ![scenePlan.primaryLabel, scenePlan.heading].filter(Boolean).includes(label)) fail(`scenes[${index}].labelGrounding`);
+  }
+
+  if (ir.transitions.length !== ir.scenes.length - 1 || ir.transitions.some((transition) => transition.sharedEntityId !== "story_evidence")) fail("transitions");
+  return Object.freeze({ valid: true, mode: "semantic_v2", beatCount: ir.scenes.length, cueCount });
+}
+
 function validateSemanticNarrative(ir) {
+  if (ir.content?.semantic?.profileId === GENERIC_SEMANTIC_PROFILE_ID) return validateGenericSemanticNarrative(ir);
   const semanticScenes = ir.scenes.filter((scene) => SEMANTIC_TEMPLATES.includes(scene.template));
   if (!semanticScenes.length) {
     if (ir.profileVersion === "1.1.0" || ir.content.semantic) fail("profile");
@@ -79,4 +133,11 @@ function validateSemanticNarrative(ir) {
   return Object.freeze({ valid: true, mode: "semantic", beatCount: semanticScenes.length, cueCount });
 }
 
-module.exports = { EDITORIAL_LABELS, SEMANTIC_PROFILE_ID, SEMANTIC_ROLES, SEMANTIC_TEMPLATES, validateSemanticNarrative };
+module.exports = {
+  EDITORIAL_LABELS,
+  GENERIC_SEMANTIC_PROFILE_ID,
+  SEMANTIC_PROFILE_ID,
+  SEMANTIC_ROLES,
+  SEMANTIC_TEMPLATES,
+  validateSemanticNarrative,
+};

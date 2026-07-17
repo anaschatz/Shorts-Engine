@@ -3,11 +3,11 @@ const { join, resolve } = require("node:path");
 const { AppError } = require("../../../errors.cjs");
 const { contentHash } = require("../contracts.cjs");
 const { buildProductionTimingContext } = require("./timing-context-builder.cjs");
+const { GENERIC_SEMANTIC_PROFILE_ID } = require("./semantic-visual-planner.cjs");
 const {
   compileProductionAnimation,
   PRODUCTION_PROVIDER_ID,
   PRODUCTION_RUNTIME_VERSION,
-  PRODUCTION_STYLE_VERSION,
 } = require("./production-plan-compiler.cjs");
 const { createAnimationProviderRegistry } = require("./provider-registry.cjs");
 const { createHyperframesProvider } = require("./providers/hyperframes.cjs");
@@ -85,6 +85,60 @@ function readabilityHolds(ir) {
 
 function motionSegments(ir) {
   return ir.scenes.map((scene) => ({ id: scene.id, startFrame: scene.startFrame, endFrame: scene.endFrame }));
+}
+
+function browserQaExpectations(ir, seekSequence) {
+  const repeatedFrames = seekSequence.filter((frame, index) => seekSequence.indexOf(frame) !== index);
+  if (ir.visualStateGraph) {
+    const graph = ir.visualStateGraph;
+    return Object.freeze({
+      cacheWarmupFrames: [...new Set([
+        ...graph.focusIntervals.map((interval) => Math.floor((interval.startFrame + interval.endFrame - 1) / 2)),
+        ...repeatedFrames,
+      ])],
+      pathFollowerIds: ["beam-profile-dot", "signal-evidence-marker"],
+      persistentEntityIds: graph.persistentEntities.map((entity) => entity.browserEntityId),
+      visualStateIds: graph.states.map((state) => state.id),
+      focusIntervalIds: graph.focusIntervals.map((interval) => interval.id),
+      transitionIds: graph.stateTransitions.map((transition) => transition.id),
+    });
+  }
+  if (ir.content?.semantic?.profileId === GENERIC_SEMANTIC_PROFILE_ID) {
+    return Object.freeze({
+      cacheWarmupFrames: [...new Set([
+        ...ir.scenes.map((scene) => Math.floor((scene.startFrame + scene.endFrame - 1) / 2)),
+        ...repeatedFrames,
+      ])],
+      pathFollowerIds: ["story-evidence-marker"],
+      persistentEntityIds: ["story_evidence"],
+      visualStateIds: ir.content.visualPlan.scenes.map((scene) => scene.id),
+      focusIntervalIds: [],
+      transitionIds: [],
+    });
+  }
+  fail("ANIMATION_QA_POLICY_MISSING");
+}
+
+function motionQaGeometryRequirements(ir) {
+  if (ir.visualStateGraph) {
+    return Object.freeze({
+      persistentContinuity: true,
+      transitionContinuity: true,
+      focusExclusivity: true,
+      primaryRoi: true,
+      mobileLegibility: true,
+    });
+  }
+  if (ir.content?.semantic?.profileId === GENERIC_SEMANTIC_PROFILE_ID) {
+    return Object.freeze({
+      persistentContinuity: true,
+      transitionContinuity: false,
+      focusExclusivity: false,
+      primaryRoi: true,
+      mobileLegibility: true,
+    });
+  }
+  fail("ANIMATION_QA_POLICY_MISSING");
 }
 
 function sameValues(left, right) {
@@ -191,10 +245,8 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
     if (rendered.compositionHash !== composition.compositionHash) fail("ANIMATION_OUTPUT_TAMPERED");
     const browserRunner = dependencies.runBrowserSeekProof || (await import("../../../../renderer/hyperframes/browser-seek-harness.mjs")).runBrowserSeekProof;
     const runtimeDoctor = dependencies.chromePath ? null : await (await import("../../../../renderer/hyperframes/doctor.mjs")).hyperframesDoctor();
-    const visualStateGraph = compiled.animationIR.visualStateGraph;
     const seekSequence = safeSeekSequence(compiled.animationIR);
-    const repeatedFrames = seekSequence.filter((frame, index) => seekSequence.indexOf(frame) !== index);
-    const cacheWarmupFrames = [...new Set([...visualStateGraph.focusIntervals.map((interval) => Math.floor((interval.startFrame + interval.endFrame - 1) / 2)), ...repeatedFrames])];
+    const expectations = browserQaExpectations(compiled.animationIR, seekSequence);
     const browser = await browserRunner({
       html: composition.html,
       width: compiled.animationIR.width,
@@ -203,25 +255,36 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
       durationFrames: compiled.animationIR.durationFrames,
       chromePath: dependencies.chromePath || runtimeDoctor.chromePath,
       seekSequence,
-      cacheWarmupFrames,
-      expectedPathFollowerIds: ["beam-profile-dot", "signal-evidence-marker"],
-      expectedPersistentEntityIds: visualStateGraph.persistentEntities.map((entity) => entity.browserEntityId),
-      expectedVisualStateIds: visualStateGraph.states.map((state) => state.id),
-      expectedFocusIntervalIds: visualStateGraph.focusIntervals.map((interval) => interval.id),
-      expectedTransitionIds: visualStateGraph.stateTransitions.map((transition) => transition.id),
+      cacheWarmupFrames: expectations.cacheWarmupFrames,
+      expectedPathFollowerIds: expectations.pathFollowerIds,
+      expectedPersistentEntityIds: expectations.persistentEntityIds,
+      expectedVisualStateIds: expectations.visualStateIds,
+      expectedFocusIntervalIds: expectations.focusIntervalIds,
+      expectedTransitionIds: expectations.transitionIds,
       legibilityProfile: "mobile_720_v1",
     });
     if (!browserResultMeetsPolicy(browser, {
       seekSequence,
-      cacheWarmupFrames,
-      pathFollowerIds: ["beam-profile-dot", "signal-evidence-marker"],
-      persistentEntityIds: visualStateGraph.persistentEntities.map((entity) => entity.browserEntityId),
-      visualStateIds: visualStateGraph.states.map((state) => state.id),
-      focusIntervalIds: visualStateGraph.focusIntervals.map((interval) => interval.id),
-      transitionIds: visualStateGraph.stateTransitions.map((transition) => transition.id),
+      cacheWarmupFrames: expectations.cacheWarmupFrames,
+      pathFollowerIds: expectations.pathFollowerIds,
+      persistentEntityIds: expectations.persistentEntityIds,
+      visualStateIds: expectations.visualStateIds,
+      focusIntervalIds: expectations.focusIntervalIds,
+      transitionIds: expectations.transitionIds,
     })) fail("ANIMATION_QA_BLOCKED");
     const browserProof = publicBrowserProof(browser);
-    const motionQa = publicMotionQa((dependencies.runBenchmarkQa || runBenchmarkQa)({ outputPath: rendered.outputPath, width: compiled.animationIR.width, height: compiled.animationIR.height, expectedFrameCount: compiled.animationIR.durationFrames, expectedFps: compiled.animationIR.fps, geometryAudit: browser.geometryAudit, readabilityHolds: readabilityHolds(compiled.animationIR), segments: motionSegments(compiled.animationIR), semanticContinuityRequired: true }));
+    const motionQa = publicMotionQa((dependencies.runBenchmarkQa || runBenchmarkQa)({
+      outputPath: rendered.outputPath,
+      width: compiled.animationIR.width,
+      height: compiled.animationIR.height,
+      expectedFrameCount: compiled.animationIR.durationFrames,
+      expectedFps: compiled.animationIR.fps,
+      geometryAudit: browser.geometryAudit,
+      readabilityHolds: readabilityHolds(compiled.animationIR),
+      segments: motionSegments(compiled.animationIR),
+      semanticContinuityRequired: true,
+      semanticGeometryRequirements: motionQaGeometryRequirements(compiled.animationIR),
+    }));
     if (!browserProof.passed || !motionQa.passed || browserProof.externalRequestCount !== 0 || browserProof.blockedExternalRequestCount !== 0) fail("ANIMATION_QA_BLOCKED");
     const browserProofHash = contentHash(browserProof);
     const motionProofHash = contentHash(motionQa);
@@ -233,7 +296,7 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
       animationIRHash: irArtifact.envelope.contentHash,
       provider: provider.id,
       runtimeVersion: doctor.runtimeVersion,
-      styleVersion: PRODUCTION_STYLE_VERSION,
+      styleVersion: compiled.animationIR.renderer.styleVersion,
       compositionHash: composition.compositionHash,
       visualMasterSha256: verified.outputSha256,
       browserProofHash,
@@ -252,7 +315,7 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
       animationIRHash: irArtifact.envelope.contentHash,
       provider: provider.id,
       runtimeVersion: doctor.runtimeVersion,
-      styleVersion: PRODUCTION_STYLE_VERSION,
+      styleVersion: compiled.animationIR.renderer.styleVersion,
       compositionHash: composition.compositionHash,
       visualMasterSha256: verified.outputSha256,
       browserProofHash,
@@ -282,4 +345,12 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
   }
 }
 
-module.exports = { browserResultMeetsPolicy, runProductionAnimationRender, safeSeekSequence, publicBrowserProof, publicMotionQa };
+module.exports = {
+  browserQaExpectations,
+  browserResultMeetsPolicy,
+  motionQaGeometryRequirements,
+  runProductionAnimationRender,
+  safeSeekSequence,
+  publicBrowserProof,
+  publicMotionQa,
+};

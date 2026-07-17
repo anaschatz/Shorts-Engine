@@ -13,7 +13,7 @@ const { compileTimeline } = require("./timeline-compiler.cjs");
 const { NARRATED_COMPOSITOR_VERSION, composeNarratedPreview, composeNarratedVisualMaster } = require("./video-compositor.cjs");
 const { runProductionAnimationRender } = require("./animation/render-service.cjs");
 const { buildProductionTimingContext } = require("./animation/timing-context-builder.cjs");
-const { compileProductionAnimation, PRODUCTION_PROVIDER_ID, PRODUCTION_RUNTIME_VERSION, PRODUCTION_STYLE_VERSION } = require("./animation/production-plan-compiler.cjs");
+const { compileProductionAnimation, PRODUCTION_PROVIDER_ID, PRODUCTION_RUNTIME_VERSION } = require("./animation/production-plan-compiler.cjs");
 const { verticalDescriptor } = require("./vertical-registry.cjs");
 const { createCaptionManifest, CAPTION_RENDERER_VERSION, CAPTION_PROFILE_VERSION } = require("./captions/contract.cjs");
 const { captionFontConfig, generateAss } = require("./captions/ass-generator.cjs");
@@ -99,7 +99,7 @@ async function runNarratedRenderJob(context = {}) {
   if (continuousAnimation) {
     const expectedTiming = buildProductionTimingContext({ draft, alignment: alignedContext.alignment, projectId: project.id, projectRevision: project.input.revision, draftArtifactId: payload.approvedDraftArtifactId, draftHash: payload.approvedDraftHash, alignmentHash: alignedContext.active.alignmentHash });
     const expectedAnimation = compileProductionAnimation({ draft, timingContext: expectedTiming, projectId: project.id, projectRevision: project.input.revision, renderProfile: payload.renderProfile });
-    if (payload.timingContextHash !== expectedTiming.contentHash || payload.animationPlanHash !== contentHash(expectedAnimation.plan) || payload.animationIRHash !== expectedAnimation.animationIR.contentHash || payload.animationProvider !== PRODUCTION_PROVIDER_ID || payload.animationRuntimeVersion !== PRODUCTION_RUNTIME_VERSION || payload.animationStyleVersion !== PRODUCTION_STYLE_VERSION) {
+    if (payload.timingContextHash !== expectedTiming.contentHash || payload.animationPlanHash !== contentHash(expectedAnimation.plan) || payload.animationIRHash !== expectedAnimation.animationIR.contentHash || payload.animationProvider !== PRODUCTION_PROVIDER_ID || payload.animationRuntimeVersion !== PRODUCTION_RUNTIME_VERSION || payload.animationStyleVersion !== expectedAnimation.animationIR.renderer.styleVersion) {
       throw new AppError("ANIMATION_BINDING_STALE", "Production animation bindings are stale.", 409);
     }
   }

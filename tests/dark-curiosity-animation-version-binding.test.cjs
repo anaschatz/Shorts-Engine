@@ -21,11 +21,15 @@ const base = {
   animationStyleVersion: "1.9.0",
 };
 
-test("render payload accepts only the complete Hyperframes 1.9.0 animation binding", () => {
+test("render payload accepts complete Hyperframes bindings for legacy and generic semantic styles", () => {
   const normalized = normalizeNarratedJobPayload(base, "render_narrated_short");
   assert.equal(normalized.animationProvider, "hyperframes_local");
   assert.equal(normalized.animationRuntimeVersion, "0.7.55");
   assert.equal(normalized.animationStyleVersion, "1.9.0");
+  assert.equal(
+    normalizeNarratedJobPayload({ ...base, animationStyleVersion: "2.0.0" }, "render_narrated_short").animationStyleVersion,
+    "2.0.0",
+  );
 
   assert.throws(() => normalizeNarratedJobPayload({ ...base, animationStyleVersion: "1.8.0" }, "render_narrated_short"), (error) => error?.code === "VALIDATION_ERROR" && error?.details?.field === "animationVersion");
   const partial = { ...base };

@@ -29,7 +29,7 @@ const { runNarratedRenderJob } = require("../server/pipelines/narrated-short/ren
 const { contentHash } = require("../server/pipelines/narrated-short/contracts.cjs");
 const { buildProductionAnimationPayloadBindings } = require("../server/pipelines/narrated-short/animation/payload-bindings.cjs");
 const { buildProductionTimingContext } = require("../server/pipelines/narrated-short/animation/timing-context-builder.cjs");
-const { compileProductionAnimation, PRODUCTION_PROVIDER_ID, PRODUCTION_RUNTIME_VERSION, PRODUCTION_STYLE_VERSION } = require("../server/pipelines/narrated-short/animation/production-plan-compiler.cjs");
+const { compileProductionAnimation, PRODUCTION_PROVIDER_ID, PRODUCTION_RUNTIME_VERSION } = require("../server/pipelines/narrated-short/animation/production-plan-compiler.cjs");
 
 const FIXTURE = resolve(__dirname, "..", "eval", "narrated", "dark-curiosity", "fixtures", "001_wow_signal_mystery.json");
 test.after(() => rmSync(DATA_DIR, { recursive: true, force: true }));
@@ -130,7 +130,7 @@ function productionAnimationStub() {
       compositionHash: contentHash({ animationIRHash: compiled.animationIR.contentHash }),
       provider: PRODUCTION_PROVIDER_ID,
       runtimeVersion: PRODUCTION_RUNTIME_VERSION,
-      styleVersion: PRODUCTION_STYLE_VERSION,
+      styleVersion: compiled.animationIR.renderer.styleVersion,
     };
     const renderManifestArtifact = create("animation_render_manifest", manifest, [qaArtifact.envelope.contentHash]);
     return { timingContext, animationIR: compiled.animationIR, qa, manifest, timingArtifact, planArtifact, irArtifact, qaArtifact, renderManifestArtifact, visualMasterPath, visualMasterSha256 };

@@ -1,4 +1,5 @@
 const { AppError } = require("../../../errors.cjs");
+const { GENERIC_SEMANTIC_PROFILE_ID } = require("./semantic-visual-planner.cjs");
 
 const REQUIREMENTS = Object.freeze({
   signal_lab_v1: Object.freeze([
@@ -28,9 +29,28 @@ const REQUIREMENTS = Object.freeze({
   ]),
 });
 
+const GENERIC_TEMPLATES = new Set([
+  "document_record_v2",
+  "evidence_card_v2",
+  "relationship_graph_v2",
+  "map_route_v2",
+  "timeline_compare_v2",
+  "scale_compare_v2",
+  "bounded_verdict_v2",
+]);
+
 function validateTemplateOperations(ir) {
   for (const scene of ir.scenes) {
-    const required = REQUIREMENTS[scene.template];
+    const generic = ir.content?.semantic?.profileId === GENERIC_SEMANTIC_PROFILE_ID;
+    const role = scene.semantic?.role;
+    const required = generic && GENERIC_TEMPLATES.has(scene.template) && role
+      ? [
+        ...(role === "hook" ? [["create", "deep_background"]] : []),
+        ["morph_path", "story_evidence"],
+        ["draw_path", `${role}_visual`],
+        ["highlight", `${role}_label`],
+      ]
+      : REQUIREMENTS[scene.template];
     if (!required) throw new AppError("ANIMATION_TEMPLATE_INVALID", "Animation template is unsupported.", 400);
     for (const [op, targetId] of required) {
       const matches = scene.operations.filter((operation) => operation.op === op && operation.targetId === targetId);
@@ -46,4 +66,4 @@ function validateTemplateOperations(ir) {
   return ir;
 }
 
-module.exports = { REQUIREMENTS, validateTemplateOperations };
+module.exports = { GENERIC_TEMPLATES, REQUIREMENTS, validateTemplateOperations };

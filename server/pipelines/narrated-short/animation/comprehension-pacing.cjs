@@ -1,5 +1,6 @@
 const { AppError, SAFE_MESSAGES } = require("../../../errors.cjs");
 const { MINIMUM_SETTLE_FRAMES, focusMotionBinding } = require("./focus-director.cjs");
+const { GENERIC_SEMANTIC_PROFILE_ID } = require("./semantic-visual-planner.cjs");
 
 const SEMANTIC_PROFILE_ID = "wow_signal_case_v1";
 const MINIMUM_OPERATION_FRAMES = Object.freeze({
@@ -34,8 +35,36 @@ function resolvedDuration(operation) {
   return operation.to.resolvedFrame - operation.from.resolvedFrame;
 }
 
+function validateGenericComprehensionPacing(ir) {
+  for (const scene of ir.scenes) {
+    for (const operation of scene.operations) {
+      const minimumFrames = operation.op === "create" ? 18 : 24;
+      const actualFrames = resolvedDuration(operation);
+      if (actualFrames < minimumFrames) fail(`scenes.${scene.id}.operations.${operationKey(operation)}.duration`, { minimumFrames, actualFrames });
+    }
+    if (scene.readabilityHolds.length !== 1) fail(`scenes.${scene.id}.readabilityHolds.count`);
+    const hold = scene.readabilityHolds[0];
+    const overlap = scene.operations.find((operation) => operation.from.resolvedFrame < hold.endFrame && operation.to.resolvedFrame >= hold.startFrame);
+    if (overlap) fail(`scenes.${scene.id}.readabilityHolds.overlap`, { operation: operationKey(overlap) });
+    if (hold.endFrame !== scene.endFrame) fail(`scenes.${scene.id}.readabilityHolds.boundary`);
+    const minimumFrames = scene === ir.scenes.at(-1) ? MINIMUM_FINAL_HOLD_FRAMES : MINIMUM_SCENE_HOLD_FRAMES;
+    const actualFrames = hold.endFrame - hold.startFrame;
+    if (actualFrames < minimumFrames) fail(`scenes.${scene.id}.readabilityHolds.duration`, { minimumFrames, actualFrames });
+  }
+  const finalHold = ir.scenes.at(-1).readabilityHolds[0];
+  return Object.freeze({
+    valid: true,
+    applicable: true,
+    profileId: GENERIC_SEMANTIC_PROFILE_ID,
+    minimumOperationFrames: 24,
+    finalHoldFrames: finalHold.endFrame - finalHold.startFrame,
+  });
+}
+
 function validateAnimationComprehensionPacing(ir) {
-  if (ir?.content?.semantic?.profileId !== SEMANTIC_PROFILE_ID) return Object.freeze({ valid: true, applicable: false });
+  const profileId = ir?.content?.semantic?.profileId;
+  if (profileId === GENERIC_SEMANTIC_PROFILE_ID) return validateGenericComprehensionPacing(ir);
+  if (profileId !== SEMANTIC_PROFILE_ID) return Object.freeze({ valid: true, applicable: false });
 
   const operations = new Map(ir.scenes.flatMap((scene) => scene.operations).map((operation) => [operationKey(operation), operation]));
   for (const [key, minimumFrames] of Object.entries(MINIMUM_OPERATION_FRAMES)) {

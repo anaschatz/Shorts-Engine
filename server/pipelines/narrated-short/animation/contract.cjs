@@ -1,5 +1,9 @@
 const { createHash } = require("node:crypto");
 const { AppError, SAFE_MESSAGES } = require("../../../errors.cjs");
+const {
+  GENERIC_SEMANTIC_PROFILE_ID,
+  normalizeSemanticVisualPlan,
+} = require("./semantic-visual-planner.cjs");
 const { validateVisualStateGraph } = require("./visual-state-graph.cjs");
 
 const ANIMATION_IR_SCHEMA_VERSION = 1;
@@ -13,11 +17,13 @@ const ALLOWED_ANCHORS = Object.freeze(["absolute", "beat_start", "beat_end", "wo
 const ENTITY_TYPES = Object.freeze([
   "background", "grid", "waveform", "signal_pulse", "beam", "evidence_node", "label", "camera_group",
   "observation_record", "annotation", "frequency_scale", "duration_timer", "beam_graph", "search_timeline", "proof_bridge",
-  "persistent_signal",
+  "persistent_signal", "case_evidence", "semantic_visual", "semantic_label",
 ]);
 const TEMPLATE_FAMILIES = Object.freeze([
   "signal_lab_v1", "mystery_payoff_v1",
   "wow_observation_v1", "frequency_duration_v1", "telescope_beam_v1", "repeat_search_v1", "evidence_payoff_v1",
+  "document_record_v2", "evidence_card_v2", "relationship_graph_v2", "map_route_v2",
+  "timeline_compare_v2", "scale_compare_v2", "bounded_verdict_v2",
 ]);
 const HASH_RE = /^[a-f0-9]{64}$/;
 const ID_RE = /^[a-z][a-z0-9_-]{2,79}$/;
@@ -179,7 +185,7 @@ function validateEntity(entity, index) {
 
 function validateContent(content) {
   object(content, "content");
-  exactKeys(content, ["compositionId", "kicker", "titleLines", "metricValue", "metricLabel", "evidenceCode", "evidenceLabel", "reasoningLeft", "reasoningRight", "payoffLines", "timelineLabels", "semantic"], "content");
+  exactKeys(content, ["compositionId", "kicker", "titleLines", "metricValue", "metricLabel", "evidenceCode", "evidenceLabel", "reasoningLeft", "reasoningRight", "payoffLines", "timelineLabels", "semantic", "visualPlan"], "content");
   const lines = (value, field, min, max, length) => {
     if (!Array.isArray(value) || value.length < min || value.length > max) fail(field);
     return value.map((entry, index) => text(entry, `${field}[${index}]`, { max: length }));
@@ -199,10 +205,16 @@ function validateContent(content) {
   };
   if (content.semantic !== undefined) {
     object(content.semantic, "content.semantic");
-    const keys = ["profileId", "eventYearLabel", "eraLabel", "recordLabel", "annotationLabel", "frequencyLabel", "durationValue", "durationUnit", "sourceLabel", "beamTitle", "beamXAxis", "beamYAxis", "interferenceLabel", "disclosureLabel", "repeatRangeLabel", "noRepeatLabel", "transmissionLabel", "observationLabel", "proofLabel", "speculationLabel", "conclusionLabel", "candidateLeadLabel", "candidateNounLabel", "uncertaintyLabel", "finalEvidenceLabel"];
+    const profileId = text(content.semantic.profileId, "content.semantic.profileId", { max: 80, pattern: ID_RE });
+    const keys = profileId === GENERIC_SEMANTIC_PROFILE_ID
+      ? ["profileId", "storyVocabulary", "subjectLabel", "uncertaintyLabel", "finalEvidenceLabel"]
+      : ["profileId", "eventYearLabel", "eraLabel", "recordLabel", "annotationLabel", "frequencyLabel", "durationValue", "durationUnit", "sourceLabel", "beamTitle", "beamXAxis", "beamYAxis", "interferenceLabel", "disclosureLabel", "repeatRangeLabel", "noRepeatLabel", "transmissionLabel", "observationLabel", "proofLabel", "speculationLabel", "conclusionLabel", "candidateLeadLabel", "candidateNounLabel", "uncertaintyLabel", "finalEvidenceLabel"];
     exactKeys(content.semantic, keys, "content.semantic");
     normalized.semantic = Object.fromEntries(keys.map((key) => [key, text(content.semantic[key], `content.semantic.${key}`, { max: 80 })]));
   }
+  if (content.visualPlan !== undefined) normalized.visualPlan = normalizeSemanticVisualPlan(content.visualPlan);
+  if (normalized.semantic?.profileId === GENERIC_SEMANTIC_PROFILE_ID && !normalized.visualPlan) fail("content.visualPlan", "Generic semantic animation requires a grounded visual plan.");
+  if (normalized.visualPlan && normalized.semantic?.profileId !== GENERIC_SEMANTIC_PROFILE_ID) fail("content.visualPlan", "Visual plan profile does not match semantic content.");
   return normalized;
 }
 
@@ -243,7 +255,7 @@ function validateAnimationIR(input, options = {}) {
   const ir = structuredClone(object(input, "animationIR"));
   rejectExecutableOrRemote(ir);
   exactKeys(ir, ["schemaVersion", "profile", "profileVersion", "projectId", "projectRevision", "verticalId", "width", "height", "fps", "durationFrames", "draftHash", "alignmentHash", "assetManifestHash", "renderer", "seed", "content", "timingBinding", "sharedEntities", "scenes", "transitions", "motionBudget", "visualStateGraph", "contentHash"], "animationIR");
-  if (ir.schemaVersion !== ANIMATION_IR_SCHEMA_VERSION) fail("schemaVersion", "AnimationIR schema version is unsupported.");
+  if (![ANIMATION_IR_SCHEMA_VERSION, 2].includes(ir.schemaVersion)) fail("schemaVersion", "AnimationIR schema version is unsupported.");
   token(ir.profile, "profile", [ANIMATION_PROFILE]);
   text(ir.profileVersion, "profileVersion", { pattern: VERSION_RE });
   text(ir.projectId, "projectId", { pattern: ID_RE });
@@ -262,7 +274,17 @@ function validateAnimationIR(input, options = {}) {
   text(ir.renderer.styleVersion, "renderer.styleVersion", { pattern: VERSION_RE });
   number(ir.seed, "seed", 0, 0xffffffff, true);
   ir.content = validateContent(ir.content);
+  const genericSemantic = ir.content.semantic?.profileId === GENERIC_SEMANTIC_PROFILE_ID;
+  if (genericSemantic && (ir.schemaVersion !== 2 || ir.profileVersion !== "1.2.0" || ir.renderer.styleVersion !== "2.0.0")) fail("profileVersion", "Generic semantic animation profile binding is invalid.");
+  if (!genericSemantic && ir.schemaVersion !== ANIMATION_IR_SCHEMA_VERSION) fail("schemaVersion", "AnimationIR v2 requires the generic semantic profile.");
   ir.timingBinding = validateTimingBinding(ir.timingBinding === undefined ? null : ir.timingBinding, ir.durationFrames);
+  if (genericSemantic) {
+    const visualPlan = ir.content.visualPlan;
+    if (visualPlan.draftHash !== ir.draftHash) fail("content.visualPlan.draftHash", "Semantic visual plan is bound to a different approved draft.");
+    if (visualPlan.timingContextHash !== ir.timingBinding?.timingContextHash) fail("content.visualPlan.timingContextHash", "Semantic visual plan is bound to different narration timing.");
+    if (visualPlan.profileId !== ir.content.semantic.profileId) fail("content.visualPlan.profileId", "Semantic visual plan profile binding is invalid.");
+    if (visualPlan.storyVocabulary !== ir.content.semantic.storyVocabulary) fail("content.visualPlan.storyVocabulary", "Semantic visual vocabulary binding is invalid.");
+  }
   if (!Array.isArray(ir.sharedEntities) || !ir.sharedEntities.length || ir.sharedEntities.length > 64) fail("sharedEntities");
   ir.sharedEntities = ir.sharedEntities.map(validateEntity);
   const entityIds = new Set();

@@ -342,7 +342,7 @@ export async function runBrowserSeekProof(input, dependencies = {}) {
             transitionId: entity.dataset.activeTransitionId,
             visible: effectiveOpacity(entity) > 0.01,
             bounds: rect(entity),
-            pathData: entity.querySelector("path#signal-evidence-path")?.getAttribute("d") || "",
+            pathData: entity.querySelector('path[data-persistent-path="true"], path#signal-evidence-path')?.getAttribute("d") || "",
           })),
           focusTargets: [...document.querySelectorAll("[data-focus-target]")].map((entity) => ({
             entityId: entity.dataset.focusTarget,

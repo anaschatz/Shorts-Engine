@@ -214,22 +214,50 @@ function evaluateMotionQuality(motion, limits = {}) {
   });
 }
 
-function evaluateGeometryQuality(geometry, semanticContinuityRequired = false) {
+function normalizeSemanticGeometryRequirements(value = false) {
+  if (value === false || value === undefined) return Object.freeze({
+    persistentContinuity: false,
+    transitionContinuity: false,
+    focusExclusivity: false,
+    primaryRoi: false,
+    mobileLegibility: false,
+  });
+  if (value === true) return Object.freeze({
+    persistentContinuity: true,
+    transitionContinuity: true,
+    focusExclusivity: true,
+    primaryRoi: true,
+    mobileLegibility: true,
+  });
+  const keys = ["persistentContinuity", "transitionContinuity", "focusExclusivity", "primaryRoi", "mobileLegibility"];
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).sort().join("|") !== [...keys].sort().join("|") || keys.some((key) => typeof value[key] !== "boolean")) {
+    throw new AppError("ANIMATION_QA_FAILED", "Animation semantic geometry requirements are invalid.", 500);
+  }
+  if (value.transitionContinuity && !value.persistentContinuity) {
+    throw new AppError("ANIMATION_QA_FAILED", "Animation transition continuity requires persistent continuity.", 500);
+  }
+  return Object.freeze(Object.fromEntries(keys.map((key) => [key, value[key]])));
+}
+
+function evaluateGeometryQuality(geometry, semanticGeometryRequirements = false) {
+  const requirements = normalizeSemanticGeometryRequirements(semanticGeometryRequirements);
   return Object.freeze({
     geometryAudit: geometry.passed === true,
     captionSafeZone: Array.isArray(geometry.captionSafeZoneViolations) && geometry.captionSafeZoneViolations.length === 0,
     clipping: Array.isArray(geometry.clippedEntities) && geometry.clippedEntities.length === 0,
-    persistentContinuity: !semanticContinuityRequired || (Array.isArray(geometry.persistentContinuityViolations) && geometry.persistentContinuityViolations.length === 0 && Number.isInteger(geometry.persistentObservationCount) && geometry.persistentObservationCount > 0 && Array.isArray(geometry.observedTransitionIds) && geometry.observedTransitionIds.length > 0),
-    focusExclusivity: !semanticContinuityRequired || (Array.isArray(geometry.focusViolations) && geometry.focusViolations.length === 0 && Array.isArray(geometry.observedFocusIntervalIds) && geometry.observedFocusIntervalIds.length > 0),
-    primaryRoi: !semanticContinuityRequired || (Array.isArray(geometry.primaryRoiViolations) && geometry.primaryRoiViolations.length === 0),
-    mobileLegibility: !semanticContinuityRequired || (Array.isArray(geometry.legibilityViolations) && geometry.legibilityViolations.length === 0 && Array.isArray(geometry.contrastViolations) && geometry.contrastViolations.length === 0 && Number.isInteger(geometry.labelObservationCount) && geometry.labelObservationCount > 0 && Array.isArray(geometry.markedLabelIds) && geometry.markedLabelIds.length > 0 && Array.isArray(geometry.observedLabelIds) && JSON.stringify(geometry.markedLabelIds) === JSON.stringify(geometry.observedLabelIds) && Array.isArray(geometry.unobservedLabelIds) && geometry.unobservedLabelIds.length === 0),
+    persistentContinuity: !requirements.persistentContinuity || (Array.isArray(geometry.persistentContinuityViolations) && geometry.persistentContinuityViolations.length === 0 && Number.isInteger(geometry.persistentObservationCount) && geometry.persistentObservationCount > 0 && (!requirements.transitionContinuity || (Array.isArray(geometry.observedTransitionIds) && geometry.observedTransitionIds.length > 0))),
+    focusExclusivity: !requirements.focusExclusivity || (Array.isArray(geometry.focusViolations) && geometry.focusViolations.length === 0 && Array.isArray(geometry.observedFocusIntervalIds) && geometry.observedFocusIntervalIds.length > 0),
+    primaryRoi: !requirements.primaryRoi || (Array.isArray(geometry.primaryRoiViolations) && geometry.primaryRoiViolations.length === 0),
+    mobileLegibility: !requirements.mobileLegibility || (Array.isArray(geometry.legibilityViolations) && geometry.legibilityViolations.length === 0 && Array.isArray(geometry.contrastViolations) && geometry.contrastViolations.length === 0 && Number.isInteger(geometry.labelObservationCount) && geometry.labelObservationCount > 0 && Array.isArray(geometry.markedLabelIds) && geometry.markedLabelIds.length > 0 && Array.isArray(geometry.observedLabelIds) && JSON.stringify(geometry.markedLabelIds) === JSON.stringify(geometry.observedLabelIds) && Array.isArray(geometry.unobservedLabelIds) && geometry.unobservedLabelIds.length === 0),
   });
 }
 
 function runBenchmarkQa(input) {
   const technical = probeVisualMaster(input.outputPath);
   const geometry = input.geometryAudit || { passed: false, clippedEntities: [], captionSafeZoneViolations: [], semanticRoi: null };
-  const semanticContinuityRequired = input.semanticContinuityRequired === true;
+  const semanticGeometryRequirements = input.semanticGeometryRequirements === undefined
+    ? input.semanticContinuityRequired === true
+    : input.semanticGeometryRequirements;
   const motion = extractConsecutiveMotionMetrics(input.outputPath, { technical, semanticRoi: geometry.semanticRoi, readabilityHolds: input.readabilityHolds || [], segments: input.segments || [], motionThreshold: input.motionThreshold, rollingWindowFrames: 51 });
   const expectedFrames = input.expectedFrameCount || 300, expectedFps = input.expectedFps || 30;
   const checks = {
@@ -240,9 +268,9 @@ function runBenchmarkQa(input) {
     duration: Math.abs(technical.durationSeconds - expectedFrames / expectedFps) < 0.04,
     readableNonBlack: motion.meanLuma > 4,
     ...evaluateMotionQuality(motion),
-    ...evaluateGeometryQuality(geometry, semanticContinuityRequired),
+    ...evaluateGeometryQuality(geometry, semanticGeometryRequirements),
   };
   return Object.freeze({ passed: Object.values(checks).every(Boolean), checks, technical, motion, samples: motion, geometryAudit: geometry, captionSafeZoneViolations: geometry.captionSafeZoneViolations?.length || 0, clippedEntities: geometry.clippedEntities?.length || 0 });
 }
 
-module.exports = { DEFAULT_MOTION_THRESHOLD, analyzeConsecutiveFrames, analyzeSampleFrames, evaluateGeometryQuality, evaluateMotionQuality, extractCheckpointMetrics, extractConsecutiveMotionMetrics, extractRangeMotion, extractSampleMetrics, probeVisualMaster, runBenchmarkQa, writeCheckpointContactSheet, writeContactSheet };
+module.exports = { DEFAULT_MOTION_THRESHOLD, analyzeConsecutiveFrames, analyzeSampleFrames, evaluateGeometryQuality, evaluateMotionQuality, extractCheckpointMetrics, extractConsecutiveMotionMetrics, extractRangeMotion, extractSampleMetrics, normalizeSemanticGeometryRequirements, probeVisualMaster, runBenchmarkQa, writeCheckpointContactSheet, writeContactSheet };

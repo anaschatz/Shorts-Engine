@@ -1,7 +1,8 @@
 const { AppError } = require("../../../errors.cjs");
 const { contentHash, normalizeDraftBundle } = require("../contracts.cjs");
-const { normalizeSpeechToken } = require("../narration/alignment.cjs");
+const { normalizeSpeechToken, scriptWords } = require("../narration/alignment.cjs");
 const { compileTimingBoundAnimationIR } = require("./compiler.cjs");
+const { buildGenericProductionAnimationPlan } = require("./semantic-production-plan-compiler.cjs");
 const { normalizeAnimationTimingContext } = require("./timing-contract.cjs");
 
 const PRODUCTION_PROVIDER_ID = "hyperframes_local";
@@ -55,7 +56,7 @@ function settledHold(startFrame, endFrame) {
   return endFrame > startFrame ? [{ startFrame, endFrame }] : [];
 }
 
-function buildProductionAnimationPlan(input = {}) {
+function buildWowSignalAnimationPlan(input = {}) {
   const draft = normalizeDraftBundle(input.draft);
   const timing = normalizeAnimationTimingContext(input.timingContext);
   if (draft.verticalId !== "dark_curiosity" || draft.brief.formatId !== "documented_mystery_v1") unsupported("formatId");
@@ -389,6 +390,45 @@ function buildProductionAnimationPlan(input = {}) {
     visualStateGraph,
     motionBudget: { profile: "dark_curiosity", maxCost: 60, maxConcurrentOperations: 8, maxCameraScale: 1.15, maxTravelPxPerFrame: 12, captionSafeZone: { topRatio: 0.74, bottomRatio: 1 } },
   };
+}
+
+function usesLegacyWowSignalStoryboard(draft) {
+  const scripted = Object.fromEntries(draft.script.beats.map((beat) => [beat.role, beat]));
+  const evidenceBeatId = scripted.evidence?.id;
+  const evidenceScene = draft.storyboard.scenes.find((scene) => scene.beatIds.includes(evidenceBeatId));
+  const link = evidenceScene?.operations.find((operation) => operation.op === "connect_nodes");
+  const documentedCase = `${draft.brief.topic} ${draft.brief.thesis}`.toLowerCase().replace(/[^a-z0-9]+/g, " ");
+  return Boolean(
+    documentedCase.includes("wow signal")
+    && link?.fromId === "telescope"
+    && link?.toId === "signal"
+    && /\bastronomer\b/i.test(scripted.hook?.spokenText || "")
+    && /\binterstellar\b/i.test(scripted.context?.spokenText || "")
+    && /\btelescope\b/i.test(scripted.evidence?.spokenText || ""),
+  );
+}
+
+function timingMatchesApprovedScript(draft, timing) {
+  const approvedWords = scriptWords(draft.script);
+  return approvedWords.length === timing.words.length && approvedWords.every(
+    (word, index) => normalizeSpeechToken(word.text) === normalizeSpeechToken(timing.words[index].text),
+  );
+}
+
+function buildProductionAnimationPlan(input = {}) {
+  const draft = normalizeDraftBundle(input.draft);
+  const timingContext = normalizeAnimationTimingContext(input.timingContext);
+  if (draft.verticalId !== "dark_curiosity" || draft.brief.formatId !== "documented_mystery_v1") unsupported("formatId");
+  if (draft.contentHash !== timingContext.draftHash) unsupported("draftHash");
+  if (!timingMatchesApprovedScript(draft, timingContext)) unsupported("timingContext.words");
+  if (usesLegacyWowSignalStoryboard(draft)) {
+    try {
+      return buildWowSignalAnimationPlan({ ...input, draft, timingContext });
+    } catch (error) {
+      if (error?.code !== "ANIMATION_TEMPLATE_INVALID") throw error;
+    }
+  }
+  return buildGenericProductionAnimationPlan({ ...input, draft, timingContext });
 }
 
 function compileProductionAnimation(input = {}) {

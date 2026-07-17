@@ -68,6 +68,38 @@ test("semantic geometry QA fails closed on missing continuity, focus, ROI, or le
   assert.equal(hiddenMarkedLabel.mobileLegibility, false);
 });
 
+test("semantic geometry QA supports transitionless generic scenes without weakening Wow proof", () => {
+  const geometry = {
+    passed: true,
+    captionSafeZoneViolations: [],
+    clippedEntities: [],
+    persistentContinuityViolations: [],
+    persistentObservationCount: 12,
+    observedTransitionIds: [],
+    focusViolations: [],
+    observedFocusIntervalIds: [],
+    primaryRoiViolations: [],
+    legibilityViolations: [],
+    contrastViolations: [],
+    labelObservationCount: 12,
+    markedLabelIds: ["primary_label", "secondary_label"],
+    observedLabelIds: ["primary_label", "secondary_label"],
+    unobservedLabelIds: [],
+  };
+  const generic = evaluateGeometryQuality(geometry, {
+    persistentContinuity: true,
+    transitionContinuity: false,
+    focusExclusivity: false,
+    primaryRoi: true,
+    mobileLegibility: true,
+  });
+  assert.ok(Object.values(generic).every(Boolean));
+
+  const wow = evaluateGeometryQuality(geometry, true);
+  assert.equal(wow.persistentContinuity, false);
+  assert.equal(wow.focusExclusivity, false);
+});
+
 test("benchmark CLI defaults to no-mutation dry run", () => {
   const output = mkdtempSync(join(tmpdir(), "hf-cli-dry-"));
   const target = join(output, "must-not-exist");

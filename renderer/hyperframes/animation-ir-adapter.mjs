@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { compileGenericSemanticAnimationIRToHtml } from "./generic-semantic-animation.mjs";
 import { createOperationSchedule } from "./operation-scheduler.mjs";
 import { createPathMorph, pointsToPath } from "./primitives/path-morph.mjs";
 import { persistentSignalGeometry, persistentSignalPath } from "./primitives/persistent-signal.mjs";
@@ -414,5 +415,10 @@ window.__timelines=window.__timelines||{};window.__timelines[${safeJson(content.
 }
 
 export function compileAnimationIRToHtml(ir) {
-  return ir.profileVersion === "1.1.0" && ir.content?.semantic?.profileId === "wow_signal_case_v1" ? compileSemanticAnimationIRToHtml(ir) : compileLegacyAnimationIRToHtml(ir);
+  if (ir.profileVersion === "1.2.0" && ir.content?.semantic?.profileId === "documented_mystery_semantic_v2") {
+    return compileGenericSemanticAnimationIRToHtml(ir);
+  }
+  return ir.profileVersion === "1.1.0" && ir.content?.semantic?.profileId === "wow_signal_case_v1"
+    ? compileSemanticAnimationIRToHtml(ir)
+    : compileLegacyAnimationIRToHtml(ir);
 }

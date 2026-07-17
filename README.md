@@ -42,7 +42,7 @@ analytics and process design.
 | --- | --- | --- | --- |
 | Football highlights | Rights-cleared match video | Detects goal evidence, rejects disallowed/replay-only events, reconstructs the complete goal phase, follows the action and verifies the final render | A goal-complete 9:16 highlight Short |
 | Motivational edits | Rights-cleared interview or podcast source | Ranks candidate moments, preserves semantic boundaries, applies a controlled editorial style and records experiment metadata | A fast, branded motivational Short |
-| Original animation | Approved brief, claims and narration | Compiles a storyboard and frame-accurate `AnimationIR`, renders continuous vector motion and combines voice, captions and audio | An original narrated animated Short |
+| Original animation | Approved brief, claims and narration | Compiles a source-bound semantic visual plan and frame-accurate `AnimationIR`, renders continuous vector motion and combines voice, captions and audio | An original narrated animated Short |
 
 ## Highlights
 
@@ -58,6 +58,8 @@ analytics and process design.
 - Kinetic captions, narration alignment and audio normalization.
 - Continuous, frame-addressable 2D animation through an engine-owned
   `AnimationIR` and a pinned HyperFrames provider.
+- Storyboard-grounded semantic archetypes for documents, evidence cards,
+  relationship graphs, routes, timelines, comparisons and bounded verdicts.
 - Durable jobs, leases, cancellation, recovery, idempotency and artifact storage.
 - Human approval gates for ambiguous content and private-by-default YouTube
   publishing workflows.
@@ -103,6 +105,15 @@ Approved inputs, versions, hashes and a fixed seed produce a traceable render.
 Animation timing is stored in integer frames, while important intermediate stages
 are preserved as versioned artifacts.
 
+### Narration-grounded visual planning
+
+The Dark Curiosity production path treats the approved storyboard as a semantic
+DSL. Every generated visual records its source scene, source operation indexes,
+beat and claims before it reaches the renderer. The v2 compositor selects a
+visual archetype from those bindings and generates its SVG geometry at compile
+time. This prevents unrelated telescope or signal graphics from leaking into a
+timestamp, harbor route or other documented mystery.
+
 ### Human judgment where it matters
 
 Automation handles repetitive analysis and validation. Content approval,
@@ -121,7 +132,7 @@ not depend on third-party broadcast footage.
 | Application and orchestration | Node.js, CommonJS and ES modules |
 | Media processing | FFmpeg, FFprobe |
 | Browser and visual QA | Playwright, Chromium |
-| Continuous animation | HyperFrames, HTML, SVG and Canvas |
+| Continuous animation | HyperFrames, HTML, SVG, Canvas and pinned `d3-shape` geometry |
 | Transcription and alignment | Faster-Whisper, optional local Python runtimes |
 | Voice generation | Kokoro TTS integration |
 | Video enhancement | Real-ESRGAN NCNN Vulkan, optional |
