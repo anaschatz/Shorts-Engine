@@ -106,13 +106,14 @@ function channelTimingFixture() {
 }
 
 class RuntimeElement {
-  constructor({ drawPaths = [], highlightNodes = [], motion = null } = {}) {
+  constructor({ drawPaths = [], highlightNodes = [], motion = null, scanner = null } = {}) {
     this.attributes = {};
     this.dataset = {};
     this.style = {};
     this.drawPaths = drawPaths;
     this.highlightNodes = highlightNodes;
     this.motion = motion;
+    this.scanner = scanner;
   }
 
   setAttribute(name, value) {
@@ -124,7 +125,9 @@ class RuntimeElement {
   }
 
   querySelector(selector) {
-    return selector === ".stage-motion" ? this.motion : null;
+    if (selector === ".stage-motion") return this.motion;
+    if (selector === ".semantic-scanner") return this.scanner;
+    return null;
   }
 
   querySelectorAll(selector) {
@@ -145,19 +148,19 @@ function executeRendererRuntime(ir) {
     const drawPath = new RuntimeElement();
     const highlightNode = new RuntimeElement();
     const motion = new RuntimeElement();
+    const scanner = new RuntimeElement();
     const stage = new RuntimeElement({
       drawPaths: [drawPath],
       highlightNodes: [highlightNode],
       motion,
+      scanner,
     });
-    stages.set(role, { stage, drawPath, highlightNode, motion });
+    stages.set(role, { stage, drawPath, highlightNode, motion, scanner });
     elements.set(`stage-${role}`, stage);
   }
   for (const id of [
     "story-evidence",
     "story-evidence-marker",
-    "semantic-progress-active",
-    "semantic-progress-cursor",
   ]) {
     elements.set(id, new RuntimeElement());
   }
@@ -300,7 +303,8 @@ test("generic semantic renderer keeps later draw and highlight channels hidden a
   assert.equal(hook.drawPath.style.strokeDashoffset, "1000");
   assert.equal(hook.highlightNode.getAttribute("opacity"), "0.0000");
   assert.equal(runtime.persistent.dataset.morphPathProgress, "1.0000");
-  assert.equal(runtime.marker.getAttribute("cx"), "216.000");
+  assert.equal(runtime.marker.getAttribute("cx"), "144.202");
+  assert.equal(hook.scanner.getAttribute("x1"), "227.126");
 });
 
 test("generic semantic renderer advances draw and highlight only inside their own windows", () => {
@@ -318,6 +322,17 @@ test("generic semantic renderer advances draw and highlight only inside their ow
   assert.equal(hook.drawPath.style.strokeDashoffset, "0");
   assert.equal(hook.stage.dataset.highlightProgress, "0.5000");
   assert.equal(hook.highlightNode.getAttribute("opacity"), "0.5000");
+});
+
+test("generic semantic activity stays continuous at scene boundaries", () => {
+  const runtime = executeRendererRuntime(irFixture());
+  runtime.renderFrame(119);
+  const before = runtime.marker.getAttribute("cx");
+  runtime.renderFrame(120);
+  const after = runtime.marker.getAttribute("cx");
+  assert.equal(before, "216.000");
+  assert.equal(after, "216.000");
+  assert.equal(runtime.persistent.dataset.storyProgress, "0.200000");
 });
 
 test("generic semantic timeline seek preserves exact integer frames across floating-point seconds", () => {
