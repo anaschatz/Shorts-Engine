@@ -3,6 +3,9 @@ const { join, resolve } = require("node:path");
 const { AppError } = require("../../../errors.cjs");
 const { contentHash } = require("../contracts.cjs");
 const { buildProductionTimingContext } = require("./timing-context-builder.cjs");
+const {
+  SEMANTIC_SENTENCE_PROFILE_ID,
+} = require("./semantic-render-profile.cjs");
 const { GENERIC_SEMANTIC_PROFILE_ID } = require("./semantic-visual-planner.cjs");
 const {
   compileProductionAnimation,
@@ -41,6 +44,29 @@ function safeSeekSequence(ir) {
     for (const interval of visualStateGraph.focusIntervals || []) requireFrame(Math.floor((interval.startFrame + interval.endFrame - 1) / 2));
     for (const scene of ir.scenes) requireFrame(Math.floor((scene.startFrame + scene.endFrame - 1) / 2));
     if (mandatory.size > maxUniqueFrames) throw new AppError("ANIMATION_BROWSER_SEEK_BUDGET_EXCEEDED", "Animation browser proof exceeds its safe seek budget.", 409);
+    mandatory.forEach((frame) => selected.add(frame));
+  } else if (ir.content?.semantic?.profileId === SEMANTIC_SENTENCE_PROFILE_ID) {
+    const mandatory = new Set();
+    const requireFrame = (frame) => {
+      if (validFrame(frame)) mandatory.add(frame);
+    };
+    [0, 1, Math.min(6, ir.durationFrames - 1), ir.durationFrames - 1]
+      .forEach(requireFrame);
+    for (const sentence of ir.content.semanticVisualSentencePlan.sentences) {
+      requireFrame(Math.floor(
+        (sentence.wordSpan.startFrame + sentence.wordSpan.endFrame - 1) / 2,
+      ));
+    }
+    for (const scene of ir.scenes) {
+      requireFrame(Math.floor((scene.startFrame + scene.endFrame - 1) / 2));
+    }
+    if (mandatory.size > maxUniqueFrames) {
+      throw new AppError(
+        "ANIMATION_BROWSER_SEEK_BUDGET_EXCEEDED",
+        "Semantic sentence browser proof exceeds its safe seek budget.",
+        409,
+      );
+    }
     mandatory.forEach((frame) => selected.add(frame));
   } else {
     [0, 1, Math.min(6, ir.durationFrames - 1), ir.durationFrames - 1].forEach(add);
@@ -116,6 +142,23 @@ function browserQaExpectations(ir, seekSequence) {
       transitionIds: [],
     });
   }
+  if (ir.content?.semantic?.profileId === SEMANTIC_SENTENCE_PROFILE_ID) {
+    const sentencePlan = ir.content.semanticVisualSentencePlan;
+    const cacheWarmupFrames = [...new Set([
+      ...sentencePlan.sentences.map((sentence) => Math.floor(
+        (sentence.wordSpan.startFrame + sentence.wordSpan.endFrame - 1) / 2,
+      )),
+      ...repeatedFrames,
+    ])].slice(0, 20);
+    return Object.freeze({
+      cacheWarmupFrames,
+      pathFollowerIds: [],
+      persistentEntityIds: [],
+      visualStateIds: sentencePlan.sentences.map((sentence) => sentence.id),
+      focusIntervalIds: [],
+      transitionIds: [],
+    });
+  }
   fail("ANIMATION_QA_POLICY_MISSING");
 }
 
@@ -138,6 +181,15 @@ function motionQaGeometryRequirements(ir) {
       mobileLegibility: true,
     });
   }
+  if (ir.content?.semantic?.profileId === SEMANTIC_SENTENCE_PROFILE_ID) {
+    return Object.freeze({
+      persistentContinuity: false,
+      transitionContinuity: false,
+      focusExclusivity: false,
+      primaryRoi: true,
+      mobileLegibility: true,
+    });
+  }
   fail("ANIMATION_QA_POLICY_MISSING");
 }
 
@@ -152,7 +204,11 @@ function browserResultMeetsPolicy(value, expected) {
   if (JSON.stringify(value.seekSequence) !== JSON.stringify(expected.seekSequence) || JSON.stringify(value.cacheWarmupFrames) !== JSON.stringify(expected.cacheWarmupFrames)) return false;
   if (!Array.isArray(value.captures) || value.captures.length !== expected.seekSequence.length || !Array.isArray(value.repeatedFrames) || !value.repeatedFrames.length || value.repeatedFrames.some((entry) => entry.equal !== true)) return false;
   if (!geometry || geometry.passed !== true || geometry.checkpointCount !== expected.seekSequence.length) return false;
-  if (geometry.persistentObservationCount <= 0 || geometry.pathFollowerObservationCount <= 0 || geometry.labelObservationCount <= 0) return false;
+  if (
+    (expected.persistentEntityIds.length > 0 && geometry.persistentObservationCount <= 0)
+    || (expected.pathFollowerIds.length > 0 && geometry.pathFollowerObservationCount <= 0)
+    || geometry.labelObservationCount <= 0
+  ) return false;
   if (!sameValues(geometry.observedPathFollowerIds, expected.pathFollowerIds) || geometry.unobservedPathFollowerIds?.length !== 0) return false;
   if (!sameValues(geometry.observedTransitionIds, expected.transitionIds) || !sameValues(geometry.observedFocusIntervalIds, expected.focusIntervalIds) || geometry.unobservedFocusIntervalIds?.length !== 0) return false;
   if (!Array.isArray(geometry.markedLabelIds) || !geometry.markedLabelIds.length || !sameValues(geometry.markedLabelIds, geometry.observedLabelIds) || geometry.unobservedLabelIds?.length !== 0) return false;

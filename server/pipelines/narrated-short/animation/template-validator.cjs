@@ -1,4 +1,9 @@
 const { AppError } = require("../../../errors.cjs");
+const {
+  SEMANTIC_SENTENCE_PROFILE_ID,
+  SEMANTIC_SENTENCE_TEMPLATE_ID,
+  SEMANTIC_SENTENCE_TEMPLATE_VERSION,
+} = require("./semantic-render-profile.cjs");
 const { GENERIC_SEMANTIC_PROFILE_ID } = require("./semantic-visual-planner.cjs");
 
 const REQUIREMENTS = Object.freeze({
@@ -40,6 +45,64 @@ const GENERIC_TEMPLATES = new Set([
 ]);
 
 function validateTemplateOperations(ir) {
+  if (ir.content?.semantic?.profileId === SEMANTIC_SENTENCE_PROFILE_ID) {
+    const sentences = ir.content.semanticVisualSentencePlan?.sentences || [];
+    for (const scene of ir.scenes) {
+      if (
+        scene.template !== SEMANTIC_SENTENCE_TEMPLATE_ID
+        || scene.templateVersion !== SEMANTIC_SENTENCE_TEMPLATE_VERSION
+      ) {
+        throw new AppError(
+          "ANIMATION_TEMPLATE_INVALID",
+          "Semantic sentence animation template binding is invalid.",
+          400,
+          { template: scene.template },
+        );
+      }
+      const expected = sentences.filter(
+        (sentence) => sentence.beatId === scene.semantic?.beatId,
+      );
+      if (
+        !expected.length
+        || scene.operations.length !== expected.length
+        || scene.entityIds.length !== expected.length
+      ) {
+        throw new AppError(
+          "ANIMATION_TEMPLATE_OPERATION_INVALID",
+          "Semantic sentence operations do not match their graph-bound sentences.",
+          400,
+          { template: scene.template },
+        );
+      }
+      const expectedIds = new Set(expected.map((sentence) => sentence.id));
+      for (const sentence of expected) {
+        const matches = scene.operations.filter(
+          (operation) => operation.op === "create"
+            && operation.targetId === sentence.id,
+        );
+        if (matches.length !== 1 || !scene.entityIds.includes(sentence.id)) {
+          throw new AppError(
+            "ANIMATION_TEMPLATE_OPERATION_INVALID",
+            "Semantic sentence operations are incomplete or ambiguous.",
+            400,
+            { template: scene.template, targetId: sentence.id },
+          );
+        }
+      }
+      if (
+        scene.operations.some((operation) => !expectedIds.has(operation.targetId))
+        || scene.entityIds.some((entityId) => !expectedIds.has(entityId))
+      ) {
+        throw new AppError(
+          "ANIMATION_TEMPLATE_OPERATION_INVALID",
+          "Semantic sentence template contains an unbound entity.",
+          400,
+          { template: scene.template },
+        );
+      }
+    }
+    return ir;
+  }
   for (const scene of ir.scenes) {
     const generic = ir.content?.semantic?.profileId === GENERIC_SEMANTIC_PROFILE_ID;
     const role = scene.semantic?.role;

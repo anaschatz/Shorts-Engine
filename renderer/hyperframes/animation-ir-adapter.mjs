@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { compileGenericSemanticAnimationIRToHtml } from "./generic-semantic-animation.mjs";
+import { compileSemanticSentenceAnimationIRToHtml } from "./semantic-sentence-animation.mjs";
 import { createOperationSchedule } from "./operation-scheduler.mjs";
 import { createPathMorph, pointsToPath } from "./primitives/path-morph.mjs";
 import { persistentSignalGeometry, persistentSignalPath } from "./primitives/persistent-signal.mjs";
@@ -415,6 +416,26 @@ window.__timelines=window.__timelines||{};window.__timelines[${safeJson(content.
 }
 
 export function compileAnimationIRToHtml(ir) {
+  const semanticSentenceTuple = (
+    ir?.schemaVersion === 3
+    || ir?.profileVersion === "1.3.0"
+    || ir?.renderer?.styleVersion === "3.0.0"
+    || ir?.content?.semantic?.profileId === "dark_curiosity_semantic_sentences_v3"
+  );
+  if (semanticSentenceTuple) {
+    if (
+      ir?.schemaVersion !== 3
+      || ir?.profile !== "dark_curiosity_continuous"
+      || ir?.profileVersion !== "1.3.0"
+      || ir?.renderer?.provider !== "hyperframes_local"
+      || ir?.renderer?.runtimeVersion !== "0.7.55"
+      || ir?.renderer?.styleVersion !== "3.0.0"
+      || ir?.content?.semantic?.profileId !== "dark_curiosity_semantic_sentences_v3"
+    ) {
+      throw new TypeError("Semantic sentence AnimationIR tuple is invalid.");
+    }
+    return compileSemanticSentenceAnimationIRToHtml(ir);
+  }
   if (ir.profileVersion === "1.2.0" && ir.content?.semantic?.profileId === "documented_mystery_semantic_v2") {
     return compileGenericSemanticAnimationIRToHtml(ir);
   }

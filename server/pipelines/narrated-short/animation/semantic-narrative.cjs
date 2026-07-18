@@ -1,5 +1,20 @@
 const { AppError } = require("../../../errors.cjs");
+const {
+  SEMANTIC_SENTENCE_MAX_CLAIMS_PER_BEAT,
+  SEMANTIC_SENTENCE_MAX_SENTENCES_PER_BEAT,
+  SEMANTIC_SENTENCE_MAX_TOTAL_SENTENCES,
+  SEMANTIC_SENTENCE_PROFILE_ID,
+  SEMANTIC_SENTENCE_PROFILE_VERSION,
+  SEMANTIC_SENTENCE_ROLES,
+  SEMANTIC_SENTENCE_SCHEMA_VERSION,
+  SEMANTIC_SENTENCE_STYLE_VERSION,
+  SEMANTIC_SENTENCE_TEMPLATE_ID,
+  SEMANTIC_SENTENCE_TEMPLATE_VERSION,
+} = require("./semantic-render-profile.cjs");
 const { GENERIC_SEMANTIC_PROFILE_ID } = require("./semantic-visual-planner.cjs");
+const {
+  validateSemanticVisualSentencePlanAgainstGraph,
+} = require("./semantic-visual-sentence-planner.cjs");
 const { PERSISTENT_ENTITY_ID, VISUAL_STATE_ORDER } = require("./visual-state-graph.cjs");
 
 const SEMANTIC_TEMPLATES = Object.freeze([
@@ -15,6 +30,144 @@ const EDITORIAL_LABELS = new Set(["HOOK", "CONTEXT", "EVIDENCE", "TURN", "PAYOFF
 
 function fail(field) {
   throw new AppError("ANIMATION_SEMANTIC_INVALID", "Animation does not preserve the approved narrative meaning.", 409, { field });
+}
+
+function orderedUnique(values) {
+  return [...new Set(values)];
+}
+
+function same(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function validateSemanticSentenceNarrative(ir) {
+  const graph = ir.content?.semanticEventGraph;
+  const plan = ir.content?.semanticVisualSentencePlan;
+  if (
+    ir.schemaVersion !== SEMANTIC_SENTENCE_SCHEMA_VERSION
+    || ir.profileVersion !== SEMANTIC_SENTENCE_PROFILE_VERSION
+    || ir.renderer?.styleVersion !== SEMANTIC_SENTENCE_STYLE_VERSION
+    || !ir.timingBinding
+    || !graph
+    || !plan
+  ) fail("profile");
+  validateSemanticVisualSentencePlanAgainstGraph(plan, graph);
+  if (
+    ir.scenes.length !== SEMANTIC_SENTENCE_ROLES.length
+    || ir.timingBinding.beats.length !== SEMANTIC_SENTENCE_ROLES.length
+    || plan.sentences.length < SEMANTIC_SENTENCE_ROLES.length
+    || plan.sentences.length > SEMANTIC_SENTENCE_MAX_TOTAL_SENTENCES
+    || ir.sharedEntities.length !== plan.sentences.length
+    || !same(
+      ir.sharedEntities.map((entity) => entity.id),
+      plan.sentences.map((sentence) => sentence.id),
+    )
+  ) fail("scenes");
+
+  const propositionById = new Map(
+    graph.propositions.map((proposition) => [proposition.id, proposition]),
+  );
+  const entityById = new Map(ir.sharedEntities.map((entity) => [entity.id, entity]));
+  const visitedSentenceIds = new Set();
+
+  for (let index = 0; index < ir.scenes.length; index += 1) {
+    const scene = ir.scenes[index];
+    const beat = ir.timingBinding.beats[index];
+    const role = SEMANTIC_SENTENCE_ROLES[index];
+    const sentences = plan.sentences.filter(
+      (sentence) => sentence.beatId === beat.beatId,
+    );
+    if (
+      !sentences.length
+      || sentences.length > SEMANTIC_SENTENCE_MAX_SENTENCES_PER_BEAT
+      || scene.template !== SEMANTIC_SENTENCE_TEMPLATE_ID
+      || scene.templateVersion !== SEMANTIC_SENTENCE_TEMPLATE_VERSION
+      || scene.semantic?.role !== role
+      || scene.semantic?.beatId !== beat.beatId
+    ) fail(`scenes[${index}].binding`);
+
+    const expectedStart = index === 0 ? 0 : beat.startFrame;
+    const expectedEnd = index === ir.scenes.length - 1
+      ? ir.durationFrames
+      : ir.timingBinding.beats[index + 1].startFrame;
+    if (
+      scene.startFrame !== expectedStart
+      || scene.endFrame !== expectedEnd
+      || beat.startFrame < scene.startFrame
+      || beat.endFrame > scene.endFrame
+    ) fail(`scenes[${index}].frames`);
+
+    const expectedClaimIds = orderedUnique(
+      sentences.flatMap((sentence) => sentence.claimIds),
+    );
+    if (
+      expectedClaimIds.length > SEMANTIC_SENTENCE_MAX_CLAIMS_PER_BEAT
+      || !same(scene.semantic.claimIds, expectedClaimIds)
+      || scene.operations.length !== sentences.length
+      || scene.entityIds.length !== sentences.length
+    ) fail(`scenes[${index}].sentences`);
+
+    for (let sentenceIndex = 0; sentenceIndex < sentences.length; sentenceIndex += 1) {
+      const sentence = sentences[sentenceIndex];
+      const proposition = propositionById.get(sentence.propositionId);
+      const operation = scene.operations[sentenceIndex];
+      const entity = entityById.get(sentence.id);
+      if (
+        !proposition
+        || visitedSentenceIds.has(sentence.id)
+        || sentence.id !== `vs_${proposition.id}`
+        || sentence.beatId !== proposition.beatId
+        || !same(sentence.claimIds, proposition.claimIds)
+        || !same(sentence.wordSpan, proposition.wordSpan)
+      ) fail(`scenes[${index}].sentences[${sentenceIndex}].proposition`);
+      visitedSentenceIds.add(sentence.id);
+
+      if (
+        !entity
+        || entity.type !== "semantic_visual"
+        || entity.role !== sentence.visualIntent.subjectKind
+        || entity.styleToken !== sentence.capability.grammarId
+        || entity.text !== sentence.wordSpan.text
+        || scene.entityIds[sentenceIndex] !== sentence.id
+      ) fail(`scenes[${index}].sentences[${sentenceIndex}].entity`);
+
+      if (
+        operation?.op !== "create"
+        || operation.targetId !== sentence.id
+        || operation.easing !== "linear"
+        || !same(operation.params, { opacity: 1 })
+        || operation.from.anchor !== "word_start"
+        || operation.from.wordIndex !== sentence.wordSpan.startWordIndex
+        || operation.from.resolvedFrame !== sentence.wordSpan.startFrame
+        || operation.to.anchor !== "word_end"
+        || operation.to.wordIndex !== sentence.wordSpan.endWordIndex - 1
+        || operation.to.resolvedFrame !== sentence.wordSpan.endFrame - 1
+        || operation.semanticClaimId !== sentence.claimIds[0]
+        || operation.visualStatement !== sentence.wordSpan.text
+        || operation.carryPolicy !== "clear_at_scene_end"
+      ) fail(`scenes[${index}].sentences[${sentenceIndex}].operation`);
+    }
+
+    const expectedHold = {
+      startFrame: sentences.at(-1).wordSpan.endFrame,
+      endFrame: scene.endFrame,
+    };
+    if (!same(scene.readabilityHolds, [expectedHold])) {
+      fail(`scenes[${index}].readabilityHolds`);
+    }
+  }
+
+  if (
+    visitedSentenceIds.size !== plan.sentences.length
+    || ir.transitions.length !== 0
+  ) fail("sentenceCoverage");
+
+  return Object.freeze({
+    valid: true,
+    mode: "semantic_v3",
+    beatCount: ir.scenes.length,
+    cueCount: plan.sentences.length,
+  });
 }
 
 function validateGenericSemanticNarrative(ir) {
@@ -70,6 +223,9 @@ function validateGenericSemanticNarrative(ir) {
 }
 
 function validateSemanticNarrative(ir) {
+  if (ir.content?.semantic?.profileId === SEMANTIC_SENTENCE_PROFILE_ID) {
+    return validateSemanticSentenceNarrative(ir);
+  }
   if (ir.content?.semantic?.profileId === GENERIC_SEMANTIC_PROFILE_ID) return validateGenericSemanticNarrative(ir);
   const semanticScenes = ir.scenes.filter((scene) => SEMANTIC_TEMPLATES.includes(scene.template));
   if (!semanticScenes.length) {
@@ -139,5 +295,6 @@ module.exports = {
   SEMANTIC_PROFILE_ID,
   SEMANTIC_ROLES,
   SEMANTIC_TEMPLATES,
+  validateSemanticSentenceNarrative,
   validateSemanticNarrative,
 };

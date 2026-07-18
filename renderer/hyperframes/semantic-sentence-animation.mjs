@@ -1,0 +1,661 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import {
+  SUPPORTED_SEMANTIC_SENTENCE_ASSETS,
+  SUPPORTED_SEMANTIC_SENTENCE_GRAMMARS,
+  escapeSemanticSentenceXml,
+  semanticSentenceGeometryKind,
+  semanticSentencePrimitiveMarkup,
+} from "./primitives/semantic-sentence-primitives.mjs";
+
+const require = createRequire(import.meta.url);
+const BASE_WIDTH = 720;
+const BASE_HEIGHT = 1280;
+const FONT_FAMILY = "Outfit";
+const FONT_LICENSE = "SIL Open Font License 1.1";
+const FONT_BYTES = readFileSync(
+  require.resolve("@fontsource/outfit/files/outfit-latin-600-normal.woff2"),
+);
+const FONT_BASE64 = FONT_BYTES.toString("base64");
+const FONT_SHA256 = createHash("sha256").update(FONT_BYTES).digest("hex");
+const REMOTE_URL = /\bhttps?:\/\//i;
+const SAFE_ID = /^[a-z][a-z0-9_-]{1,79}$/;
+const HASH = /^[a-f0-9]{64}$/;
+
+export const SEMANTIC_SENTENCE_ANIMATION_SCHEMA_VERSION = 3;
+export const SEMANTIC_SENTENCE_ANIMATION_PROFILE = "dark_curiosity_continuous";
+export const SEMANTIC_SENTENCE_ANIMATION_PROFILE_VERSION = "1.3.0";
+export const SEMANTIC_SENTENCE_ANIMATION_PROVIDER = "hyperframes_local";
+export const SEMANTIC_SENTENCE_ANIMATION_RUNTIME_VERSION = "0.7.55";
+export const SEMANTIC_SENTENCE_ANIMATION_STYLE_VERSION = "3.0.0";
+export const SEMANTIC_SENTENCE_CONTENT_PROFILE_ID =
+  "dark_curiosity_semantic_sentences_v3";
+export const SEMANTIC_VISUAL_SENTENCE_PLAN_PROFILE_ID =
+  "dark_curiosity_semantic_visual_sentence_plan_v1";
+
+const GRAMMAR_ASSET_BINDINGS = Object.freeze({
+  before_after: Object.freeze(["calendar_card"]),
+  bounded_uncertainty: Object.freeze([
+    "hypothesis_card",
+    "uncertainty_boundary",
+  ]),
+  cause_effect_chain: Object.freeze([
+    "calendar_card",
+    "finite_counter",
+    "mapping_table",
+    "receiver_device",
+  ]),
+  chronology_accumulation: Object.freeze([
+    "archive_record",
+    "timeline_axis",
+  ]),
+  evidence_inspection: Object.freeze(["archive_record"]),
+  finite_cycle: Object.freeze(["finite_counter"]),
+  map_motion: Object.freeze(["vessel", "witness_marker"]),
+  negative_space_absence: Object.freeze(["vessel"]),
+  side_by_side_comparison: Object.freeze([
+    "finite_counter",
+    "hypothesis_card",
+    "timeline_axis",
+    "vessel",
+  ]),
+});
+
+function fail(message) {
+  throw new TypeError(message);
+}
+
+function plainObject(value, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    fail(`${label} must be an object.`);
+  }
+  return value;
+}
+
+function safeText(value, label, {
+  maximum = 240,
+  pattern = null,
+  optional = false,
+} = {}) {
+  if (optional && (value === undefined || value === null || value === "")) return "";
+  if (
+    typeof value !== "string"
+    || !value
+    || value !== value.trim()
+    || value.length > maximum
+    || /[\u0000-\u001f\u007f]/.test(value)
+    || REMOTE_URL.test(value)
+    || (pattern && !pattern.test(value))
+  ) {
+    fail(`${label} must be bounded safe text.`);
+  }
+  return value;
+}
+
+function safeId(value, label) {
+  return safeText(value, label, { maximum: 80, pattern: SAFE_ID });
+}
+
+function hash(value, label) {
+  return safeText(value, label, { maximum: 64, pattern: HASH });
+}
+
+function stableStringify(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+  return `{${Object.keys(value)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+    .join(",")}}`;
+}
+
+function contentHash(value) {
+  const copy = structuredClone(value);
+  delete copy.contentHash;
+  return createHash("sha256").update(stableStringify(copy)).digest("hex");
+}
+
+function integer(value, label, minimum, maximum) {
+  if (!Number.isInteger(value) || value < minimum || value > maximum) {
+    fail(`${label} is out of range.`);
+  }
+  return value;
+}
+
+function stringArray(value, label, {
+  minimum = 0,
+  maximum = 12,
+  pattern = SAFE_ID,
+} = {}) {
+  if (!Array.isArray(value) || value.length < minimum || value.length > maximum) {
+    fail(`${label} must be a bounded array.`);
+  }
+  const normalized = value.map((entry, index) => safeText(
+    entry,
+    `${label}[${index}]`,
+    { maximum: 120, pattern },
+  ));
+  if (new Set(normalized).size !== normalized.length) {
+    fail(`${label} cannot contain duplicates.`);
+  }
+  return Object.freeze(normalized);
+}
+
+function normalizeSentence(input, index, durationFrames) {
+  const sentence = plainObject(input, `Sentence ${index}`);
+  const wordSpan = plainObject(sentence.wordSpan, `Sentence ${index} word span`);
+  const startFrame = integer(
+    wordSpan.startFrame,
+    `Sentence ${index} start frame`,
+    0,
+    durationFrames - 1,
+  );
+  const endFrame = integer(
+    wordSpan.endFrame,
+    `Sentence ${index} end frame`,
+    startFrame + 1,
+    durationFrames,
+  );
+  const capability = plainObject(sentence.capability, `Sentence ${index} capability`);
+  const assetId = safeId(capability.assetId, `Sentence ${index} asset`);
+  const grammarId = safeId(capability.grammarId, `Sentence ${index} grammar`);
+  if (!SUPPORTED_SEMANTIC_SENTENCE_ASSETS.includes(assetId)) {
+    fail(`Sentence ${index} asset is unsupported.`);
+  }
+  if (!SUPPORTED_SEMANTIC_SENTENCE_GRAMMARS.includes(grammarId)) {
+    fail(`Sentence ${index} grammar is unsupported.`);
+  }
+  if (!GRAMMAR_ASSET_BINDINGS[grammarId]?.includes(assetId)) {
+    fail(`Sentence ${index} asset and grammar are incompatible.`);
+  }
+  const visualIntent = plainObject(
+    sentence.visualIntent,
+    `Sentence ${index} visual intent`,
+  );
+  const focusEntity = plainObject(
+    sentence.focusEntity,
+    `Sentence ${index} focus entity`,
+  );
+  const focusEntityId = safeId(
+    visualIntent.focusEntityId,
+    `Sentence ${index} visual focus`,
+  );
+  if (safeId(focusEntity.id, `Sentence ${index} focus entity id`) !== focusEntityId) {
+    fail(`Sentence ${index} visual focus is inconsistent.`);
+  }
+  if (typeof focusEntity.persistent !== "boolean") {
+    fail(`Sentence ${index} persistence flag is invalid.`);
+  }
+  const subjectKind = safeId(
+    visualIntent.subjectKind,
+    `Sentence ${index} subject kind`,
+  );
+  if (
+    safeId(
+      focusEntity.visualSubjectKind,
+      `Sentence ${index} focus subject kind`,
+    ) !== subjectKind
+  ) {
+    fail(`Sentence ${index} visual subject is inconsistent.`);
+  }
+  const normalized = {
+    id: safeId(sentence.id, `Sentence ${index} id`),
+    propositionId: safeId(
+      sentence.propositionId,
+      `Sentence ${index} proposition id`,
+    ),
+    beatId: safeId(sentence.beatId, `Sentence ${index} beat id`),
+    claimIds: stringArray(
+      sentence.claimIds,
+      `Sentence ${index} claim ids`,
+      { minimum: 1, maximum: 6 },
+    ),
+    wordSpan: Object.freeze({
+      startFrame,
+      endFrame,
+      text: safeText(wordSpan.text, `Sentence ${index} narration`, {
+        maximum: 220,
+      }),
+    }),
+    visualIntent: Object.freeze({
+      focusEntityId,
+      predicate: safeId(
+        visualIntent.predicate,
+        `Sentence ${index} predicate`,
+      ),
+      subjectKind,
+      stateTransition: safeId(
+        visualIntent.stateTransition,
+        `Sentence ${index} state transition`,
+      ),
+    }),
+    focusEntity: Object.freeze({
+      id: focusEntityId,
+      visualSubjectKind: subjectKind,
+      persistent: focusEntity.persistent,
+    }),
+    capability: Object.freeze({ assetId, grammarId }),
+  };
+  if (normalized.id !== `vs_${normalized.propositionId}`) {
+    fail(`Sentence ${index} id is not bound to its proposition.`);
+  }
+  return Object.freeze({
+    ...normalized,
+    geometryKind: semanticSentenceGeometryKind(normalized),
+  });
+}
+
+function normalizeTitleLines(input, plan) {
+  const fallback = plan.narrativeShape
+    .replaceAll("_", " ")
+    .toUpperCase();
+  const values = Array.isArray(input) && input.length ? input : [fallback];
+  if (values.length > 2) fail("Composition title has too many lines.");
+  return Object.freeze(values.map((line, index) => safeText(
+    line,
+    `Composition title line ${index}`,
+    { maximum: 48 },
+  )));
+}
+
+function normalizePlan(ir) {
+  plainObject(ir, "AnimationIR");
+  if (
+    ir.schemaVersion !== SEMANTIC_SENTENCE_ANIMATION_SCHEMA_VERSION
+    || ir.profile !== SEMANTIC_SENTENCE_ANIMATION_PROFILE
+    || ir.profileVersion !== SEMANTIC_SENTENCE_ANIMATION_PROFILE_VERSION
+    || ir.renderer?.provider !== SEMANTIC_SENTENCE_ANIMATION_PROVIDER
+    || ir.renderer?.runtimeVersion !== SEMANTIC_SENTENCE_ANIMATION_RUNTIME_VERSION
+    || ir.renderer?.styleVersion !== SEMANTIC_SENTENCE_ANIMATION_STYLE_VERSION
+  ) {
+    fail("Semantic sentence AnimationIR tuple is invalid.");
+  }
+  const width = integer(ir.width, "AnimationIR width", 9, 4320);
+  const height = integer(ir.height, "AnimationIR height", 16, 7680);
+  if (height * 9 !== width * 16) {
+    fail("Semantic sentence animation requires a 9:16 AnimationIR.");
+  }
+  const fps = integer(ir.fps, "AnimationIR fps", 1, 120);
+  const durationFrames = integer(
+    ir.durationFrames,
+    "AnimationIR duration",
+    2,
+    21600,
+  );
+  const content = plainObject(ir.content, "AnimationIR content");
+  const semantic = plainObject(content.semantic, "AnimationIR semantic content");
+  if (semantic.profileId !== SEMANTIC_SENTENCE_CONTENT_PROFILE_ID) {
+    fail("Semantic sentence content profile is invalid.");
+  }
+  const sentencePlan = plainObject(
+    content.semanticVisualSentencePlan,
+    "Semantic visual sentence plan",
+  );
+  if (
+    sentencePlan.schemaVersion !== 1
+    || sentencePlan.profileId !== SEMANTIC_VISUAL_SENTENCE_PLAN_PROFILE_ID
+  ) {
+    fail("Semantic visual sentence plan profile is invalid.");
+  }
+  const suppliedSentencePlanHash = hash(
+    sentencePlan.contentHash,
+    "Sentence plan content hash",
+  );
+  if (contentHash(sentencePlan) !== suppliedSentencePlanHash) {
+    fail("Semantic visual sentence plan hash does not match its content.");
+  }
+  const bindings = plainObject(
+    sentencePlan.bindings,
+    "Semantic visual sentence plan bindings",
+  );
+  const normalizedBindings = Object.freeze({
+    semanticEventGraphHash: hash(
+      bindings.semanticEventGraphHash,
+      "Semantic event graph hash",
+    ),
+    draftHash: hash(bindings.draftHash, "Sentence plan draft hash"),
+    sourceStoryboardHash: hash(
+      bindings.sourceStoryboardHash,
+      "Sentence plan storyboard hash",
+    ),
+    timingContextHash: hash(
+      bindings.timingContextHash,
+      "Sentence plan timing hash",
+    ),
+  });
+  if (ir.draftHash !== undefined && ir.draftHash !== normalizedBindings.draftHash) {
+    fail("Semantic sentence plan is bound to a different draft.");
+  }
+  if (
+    ir.timingBinding?.timingContextHash !== undefined
+    && ir.timingBinding.timingContextHash !== normalizedBindings.timingContextHash
+  ) {
+    fail("Semantic sentence plan is bound to different narration timing.");
+  }
+  const sourceSentences = sentencePlan.sentences;
+  if (!Array.isArray(sourceSentences) || !sourceSentences.length || sourceSentences.length > 96) {
+    fail("Semantic visual sentence plan requires bounded sentences.");
+  }
+  const sentences = sourceSentences.map(
+    (sentence, index) => normalizeSentence(sentence, index, durationFrames),
+  );
+  const ids = new Set();
+  let previousStart = -1;
+  let previousEnd = 0;
+  for (const [index, sentence] of sentences.entries()) {
+    if (ids.has(sentence.id)) fail("Semantic sentence ids must be unique.");
+    ids.add(sentence.id);
+    if (
+      sentence.wordSpan.startFrame <= previousStart
+      || sentence.wordSpan.startFrame < previousEnd
+    ) {
+      fail(`Sentence ${index} timing overlaps or is out of order.`);
+    }
+    previousStart = sentence.wordSpan.startFrame;
+    previousEnd = sentence.wordSpan.endFrame;
+  }
+  if (sentences[0].wordSpan.startFrame !== 0) {
+    fail("The first semantic sentence must start at frame zero.");
+  }
+  const normalizedSentencePlan = Object.freeze({
+    profileId: sentencePlan.profileId,
+    contentHash: suppliedSentencePlanHash,
+    storyFormat: safeId(sentencePlan.storyFormat, "Story format"),
+    narrativeShape: safeId(sentencePlan.narrativeShape, "Narrative shape"),
+    bindings: normalizedBindings,
+    sentences: Object.freeze(sentences),
+  });
+  return Object.freeze({
+    compositionId: safeId(content.compositionId, "Composition id"),
+    width,
+    height,
+    fps,
+    durationFrames,
+    kicker: safeText(content.kicker || "DARK CURIOSITY", "Composition kicker", {
+      maximum: 32,
+    }),
+    titleLines: normalizeTitleLines(content.titleLines, normalizedSentencePlan),
+    animationIRHash: ir.contentHash === undefined
+      ? ""
+      : hash(ir.contentHash, "AnimationIR content hash"),
+    sentencePlan: normalizedSentencePlan,
+    intervals: semanticSentenceRenderIntervals(sentences, durationFrames),
+  });
+}
+
+function safeJson(value) {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026");
+}
+
+export function semanticSentenceRenderIntervals(sentences, durationFrames) {
+  if (!Array.isArray(sentences) || !sentences.length || sentences.length > 96) {
+    fail("Semantic sentence intervals require a bounded sentence list.");
+  }
+  integer(durationFrames, "Semantic sentence duration", 2, 21600);
+  return Object.freeze(sentences.map((sentence, index) => {
+    const startFrame = integer(
+      sentence.wordSpan?.startFrame,
+      `Sentence ${index} interval start`,
+      0,
+      durationFrames - 1,
+    );
+    const semanticEndFrame = integer(
+      sentence.wordSpan?.endFrame,
+      `Sentence ${index} semantic end`,
+      startFrame + 1,
+      durationFrames,
+    );
+    const endFrame = index + 1 < sentences.length
+      ? integer(
+        sentences[index + 1].wordSpan?.startFrame,
+        `Sentence ${index} interval end`,
+        semanticEndFrame,
+        durationFrames - 1,
+      )
+      : durationFrames;
+    if (endFrame <= startFrame) fail(`Sentence ${index} interval is empty.`);
+    return Object.freeze({
+      sentenceId: safeId(sentence.id, `Sentence ${index} interval id`),
+      startFrame,
+      semanticEndFrame,
+      endFrame,
+    });
+  }));
+}
+
+export function activeSemanticSentenceIndexAtFrame(sentences, frame) {
+  if (!Array.isArray(sentences) || !sentences.length) {
+    fail("Active sentence lookup requires sentences.");
+  }
+  if (!Number.isFinite(frame)) fail("Active sentence frame is invalid.");
+  let selected = 0;
+  for (const [index, sentence] of sentences.entries()) {
+    const startFrame = sentence.startFrame ?? sentence.wordSpan?.startFrame;
+    if (!Number.isInteger(startFrame) || startFrame < 0) {
+      fail(`Sentence ${index} start frame is invalid.`);
+    }
+    if (frame >= startFrame) selected = index;
+    else break;
+  }
+  return selected;
+}
+
+export function compileSemanticSentenceAnimationIRToHtml(ir) {
+  const plan = normalizePlan(ir);
+  const compositionId = escapeSemanticSentenceXml(plan.compositionId);
+  const titleMarkup = plan.titleLines.map((line, index) => (
+    `<text x="54" y="${98 + index * 38}" class="composition-title">${
+      escapeSemanticSentenceXml(line)
+    }</text>`
+  )).join("");
+  const sentenceMarkup = plan.sentencePlan.sentences.map(
+    semanticSentencePrimitiveMarkup,
+  ).join("\n");
+  const runtimeData = safeJson({
+    compositionId: plan.compositionId,
+    fps: plan.fps,
+    durationFrames: plan.durationFrames,
+    planHash: plan.sentencePlan.contentHash,
+    intervals: plan.intervals.map((interval, index) => ({
+      ...interval,
+      propositionId: plan.sentencePlan.sentences[index].propositionId,
+      focusEntityId: plan.sentencePlan.sentences[index].focusEntity.id,
+      assetId: plan.sentencePlan.sentences[index].capability.assetId,
+      grammarId: plan.sentencePlan.sentences[index].capability.grammarId,
+      capability: plan.sentencePlan.sentences[index].visualIntent,
+      geometryKind: plan.sentencePlan.sentences[index].geometryKind,
+      claimIds: plan.sentencePlan.sentences[index].claimIds,
+    })),
+  });
+  const durationSeconds = plan.durationFrames / plan.fps;
+  const html = `<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; media-src 'none'; font-src data:; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">
+<meta data-composition-id="${compositionId}" data-width="${plan.width}" data-height="${plan.height}"
+ data-font-sha256="${FONT_SHA256}" data-semantic-sentence-plan-hash="${plan.sentencePlan.contentHash}">
+<style>
+@font-face{font-family:"${FONT_FAMILY}";src:url(data:font/woff2;base64,${FONT_BASE64}) format("woff2");font-style:normal;font-weight:600;font-display:block}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#02050c}
+*{box-sizing:border-box}.composition{width:100vw;height:100vh;overflow:hidden;background:#02050c}
+.composition svg{display:block;width:100%;height:100%;font-family:"${FONT_FAMILY}",sans-serif}
+.semantic-sentence-stage{transform-box:view-box;transform-origin:360px 520px}
+.sentence-surface{fill:#0a1728;stroke:#334155;stroke-width:2.5}.cool-panel{fill:#083344;stroke:#22d3ee;stroke-width:2.5}
+.warm-panel{fill:#422006;stroke:#f59e0b;stroke-width:2.5}.reject-panel{fill:#3f1524;stroke:#fb7185;stroke-width:3}
+.cool-line{fill:none;stroke:#22d3ee;stroke-width:6;stroke-linecap:round;stroke-linejoin:round}
+.warm-line{fill:none;stroke:#f59e0b;stroke-width:6;stroke-linecap:round;stroke-linejoin:round}
+.bright-line{fill:none;stroke:#f8fafc;stroke-width:5;stroke-linecap:round}
+.muted-line{fill:none;stroke:#475569;stroke-width:2.5}.connector-line{fill:none;stroke:#67e8f9;stroke-width:5;stroke-linecap:round;stroke-linejoin:round}
+.warm-fill{fill:#f59e0b}.cool-fill{fill:#22d3ee}.bright-fill{fill:#f8fafc}
+.cool-halo{fill:#22d3ee;fill-opacity:.12;stroke:#22d3ee;stroke-width:3}.warm-halo{fill:#f59e0b;fill-opacity:.12;stroke:#f59e0b;stroke-width:3}
+.reject-halo{fill:#fb7185;fill-opacity:.13;stroke:#fb7185;stroke-width:3}.error-cross{fill:none;stroke:#fb7185;stroke-width:8;stroke-linecap:round}
+.sentence-capability-label{fill:#67e8f9;font-size:17px;letter-spacing:2.4px}.sentence-copy{fill:#f8fafc;font-size:24px}
+.sentence-copy[data-legibility-role="key"]{font-size:32px}.sentence-copy[data-legibility-role="secondary"]{font-size:24px}
+.micro-copy{fill:#cbd5e1;font-size:20px;letter-spacing:1.5px}.composition-kicker{fill:#67e8f9;font-size:17px;letter-spacing:4px}
+.composition-title{fill:#e2e8f0;font-size:30px}.large-value{fill:#fde68a;font-size:48px}.counter-value{fill:#f8fafc;font-size:76px}
+.warm-copy{fill:#fde68a}.counter-cycle{fill:none;stroke:#22d3ee;stroke-width:9;stroke-linecap:round}
+.counter-tick{stroke:#475569;stroke-width:5;stroke-linecap:round}.pointer-line{stroke-width:8}.calendar-cell{fill:#164e63;stroke:#22d3ee;stroke-width:1.5}
+.mapping-grid{opacity:.72}.comparison-glyph{fill:#fde68a;font-size:28px}.semantic-divider{stroke:#334155;stroke-width:2;stroke-dasharray:8 10}
+.ice-line{fill:none;stroke:#a5f3fc;stroke-width:7;stroke-linejoin:round}.secondary-ice{stroke:#155e75;stroke-width:5}
+.vessel-hull{fill:#164e63;stroke:#67e8f9;stroke-width:5}.vessel-structure{fill:none;stroke:#67e8f9;stroke-width:7;stroke-linejoin:round}
+.vessel-window{fill:#fbbf24}.absence-outline{fill:none;stroke:#fb7185;stroke-width:5;stroke-dasharray:14 12}
+.absence-mark{fill:#fecdd3;font-size:34px;letter-spacing:4px}.blizzard-line{fill:none;stroke:#e0f2fe;stroke-width:7;stroke-linecap:round;opacity:.8}
+.map-surface{fill:#061827;stroke:#155e75;stroke-width:3}.coast-line{fill:none;stroke:#0e7490;stroke-width:7}.secondary-coast{stroke:#164e63}
+.map-grid-line{fill:none;stroke:#155e75;stroke-width:1;opacity:.5}.semantic-route-guide{fill:none;stroke:#0e7490;stroke-width:3;stroke-linecap:round}
+.semantic-route-path{fill:none;stroke:#fbbf24;stroke-width:7;stroke-linecap:round;stroke-dasharray:12 11}
+.route-vessel{fill:#164e63;stroke:#ecfeff;stroke-width:4}.route-vessel-detail{fill:none;stroke:#ecfeff;stroke-width:4}
+.chronology-axis{fill:none;stroke:#22d3ee;stroke-width:7;stroke-linecap:round}.chronology-tick{stroke:#64748b;stroke-width:3}
+.timeline-label{fill:#cbd5e1;font-size:19px}.paper-surface{fill:#dbeafe;stroke:#93c5fd;stroke-width:3}
+.paper-heading{fill:#0e7490}.record-line{fill:none;stroke:#64748b;stroke-width:4}.evidence-highlight{fill:#f59e0b;fill-opacity:.18;stroke:#f59e0b;stroke-width:3}
+.magnifier-lens{fill:#083344;fill-opacity:.34;stroke:#67e8f9;stroke-width:8}.magnifier-handle{fill:none;stroke:#67e8f9;stroke-width:18;stroke-linecap:round}
+.semantic-uncertainty-boundary{fill:#082f49;fill-opacity:.24;stroke:#fbbf24;stroke-width:7;stroke-dasharray:18 14}
+.uncertainty-core{fill:#0f172a;stroke:#475569;stroke-width:4}.uncertainty-glyph{fill:#fde68a;font-size:132px}
+.uncertainty-particles{fill:#67e8f9}.caption-scrim{fill:url(#sentence-caption-scrim)}
+</style></head><body>
+<main id="animation-root" class="composition" data-composition-id="${compositionId}"
+ data-start="0" data-duration="${durationSeconds}" data-width="${plan.width}" data-height="${plan.height}"
+ data-semantic-profile-id="${SEMANTIC_SENTENCE_CONTENT_PROFILE_ID}"
+ data-semantic-sentence-plan-hash="${plan.sentencePlan.contentHash}"
+ data-semantic-event-graph-hash="${plan.sentencePlan.bindings.semanticEventGraphHash}">
+<svg viewBox="0 0 ${BASE_WIDTH} ${BASE_HEIGHT}" role="img"
+ aria-label="${escapeSemanticSentenceXml(plan.titleLines.join(" "))}">
+<defs>
+ <radialGradient id="sentence-bg" cx="50%" cy="28%" r="82%">
+  <stop offset="0" stop-color="#10243d"/><stop offset=".58" stop-color="#07111f"/><stop offset="1" stop-color="#02050c"/>
+ </radialGradient>
+ <linearGradient id="sentence-caption-scrim" x1="0" y1="0" x2="0" y2="1">
+  <stop offset="0" stop-color="#02050c" stop-opacity="0"/><stop offset=".38" stop-color="#02050c" stop-opacity=".52"/>
+  <stop offset="1" stop-color="#02050c" stop-opacity=".92"/>
+ </linearGradient>
+ <filter id="sentence-soft-glow" x="-40%" y="-40%" width="180%" height="180%">
+  <feGaussianBlur stdDeviation="3.5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+ </filter>
+</defs>
+<rect width="720" height="1280" fill="url(#sentence-bg)"/>
+<g id="sentence-ambient-grid" opacity=".2" data-qa-layer="ambient">
+ ${Array.from({ length: 14 }, (_, index) => (
+    `<line x1="${48 + index * 48}" y1="180" x2="${48 + index * 48}" y2="914" stroke="#164e63" stroke-width="1"/>`
+  )).join("")}
+ ${Array.from({ length: 16 }, (_, index) => (
+    `<line x1="42" y1="${190 + index * 46}" x2="678" y2="${190 + index * 46}" stroke="#164e63" stroke-width="1"/>`
+  )).join("")}
+</g>
+<rect x="36" y="180" width="648" height="746" fill="none"
+ data-semantic-roi="true" data-geometry-audit="semantic-roi" pointer-events="none"/>
+<g id="semantic-sentence-header" data-entity-id="semantic_sentence_header" data-caption-policy="avoid">
+ <text x="54" y="56" class="composition-kicker">${escapeSemanticSentenceXml(plan.kicker)}</text>
+ ${titleMarkup}
+</g>
+<g id="semantic-sentence-stack">${sentenceMarkup}</g>
+<rect x="0" y="948" width="720" height="332" class="caption-scrim"
+ data-caption-safe-zone="true" pointer-events="none"/>
+</svg></main>
+<script>
+"use strict";
+const DATA=${runtimeData};
+const clamp=(value,min=0,max=1)=>Math.max(min,Math.min(max,value));
+const ease=(value)=>{const x=clamp(value);return x*x*(3-2*x)};
+const stages=DATA.intervals.map((_,index)=>document.getElementById("semantic-sentence-"+index));
+const activeIndexAt=(frame)=>{let selected=0;for(let index=0;index<DATA.intervals.length;index+=1){if(frame>=DATA.intervals[index].startFrame)selected=index;else break}return selected};
+const setOpacity=(element,value)=>{if(element)element.setAttribute("opacity",clamp(value).toFixed(4))};
+function renderFrame(rawFrame){
+ const frame=Math.max(0,Math.min(DATA.durationFrames-1,Math.floor((Number(rawFrame)||0)+1e-7)));
+ const activeIndex=activeIndexAt(frame),active=DATA.intervals[activeIndex],stage=stages[activeIndex];
+ const semanticProgress=ease((frame-active.startFrame)/Math.max(1,active.semanticEndFrame-active.startFrame-1));
+ const revealProgress=ease((frame-active.startFrame)/Math.min(10,Math.max(1,active.semanticEndFrame-active.startFrame-1)));
+ stages.forEach((element,index)=>{
+  const visible=index===activeIndex;
+  element.setAttribute("opacity",visible?"1":"0");
+  element.style.pointerEvents=visible?"auto":"none";
+  element.dataset.focusRole=visible?"primary":"inactive";
+  element.dataset.sentenceProgress=visible?semanticProgress.toFixed(4):"0.0000";
+ });
+ stage.setAttribute("transform","translate(0 "+(16*(1-revealProgress)).toFixed(3)+") scale("+(.98+.02*revealProgress).toFixed(5)+")");
+ stage.querySelectorAll(".semantic-draw").forEach((path)=>{
+  path.style.strokeDasharray="1000";
+  path.style.strokeDashoffset=String(1000*(1-semanticProgress));
+ });
+ stage.querySelectorAll(".semantic-rise").forEach((element,index)=>{
+  const local=ease((semanticProgress-index*.07)/.54);
+  element.setAttribute("opacity",local.toFixed(4));
+  element.setAttribute("transform","translate(0 "+(18*(1-local)).toFixed(3)+")");
+ });
+ const oldCounter=stage.querySelector(".semantic-counter-old"),newCounter=stage.querySelector(".semantic-counter-new");
+ if(oldCounter&&newCounter){
+  const change=ease((semanticProgress-.34)/.34);
+  setOpacity(oldCounter,1-change);setOpacity(newCounter,change);
+  oldCounter.setAttribute("transform","translate(0 "+(-32*change).toFixed(3)+")");
+  newCounter.setAttribute("transform","translate(0 "+(32*(1-change)).toFixed(3)+")");
+  const pointer=stage.querySelector(".semantic-cycle-pointer");
+  pointer?.setAttribute("transform","rotate("+(330*semanticProgress).toFixed(3)+" 360 472)");
+ }
+ const vessel=stage.querySelector(".semantic-vessel-solid"),absence=stage.querySelector(".semantic-vessel-absence");
+ if(vessel&&absence){
+  const vanish=ease((semanticProgress-.28)/.52);
+  setOpacity(vessel,1-vanish);setOpacity(absence,vanish);
+  vessel.setAttribute("transform","translate(0 "+(-12*vanish).toFixed(3)+")");
+  stage.querySelector(".semantic-blizzard")?.setAttribute("transform","translate("+(-30+60*semanticProgress).toFixed(3)+" 0)");
+ }
+ const route=stage.querySelector(".semantic-route-path"),routeMarker=stage.querySelector(".semantic-route-marker");
+ if(route&&routeMarker){
+  const length=typeof route.getTotalLength==="function"?route.getTotalLength():500;
+  const point=typeof route.getPointAtLength==="function"
+   ?route.getPointAtLength(length*semanticProgress)
+   :{x:118+484*semanticProgress,y:566-222*semanticProgress};
+  routeMarker.setAttribute("transform","translate("+Number(point.x).toFixed(3)+" "+Number(point.y).toFixed(3)+")");
+  route.setAttribute("opacity",semanticProgress.toFixed(4));
+  route.style.strokeDashoffset=(-2.6*(frame-active.startFrame)).toFixed(3);
+ }
+ stage.querySelectorAll(".semantic-chronology-dot").forEach((element,index)=>{
+  setOpacity(element,ease((semanticProgress-index*.17)/.28));
+ });
+ const magnifier=stage.querySelector(".semantic-magnifier");
+ if(magnifier)magnifier.setAttribute("transform","translate("+(-90+90*semanticProgress).toFixed(3)+" "+(32*(1-semanticProgress)).toFixed(3)+")");
+ const boundary=stage.querySelector(".semantic-uncertainty-boundary");
+ if(boundary)boundary.style.strokeDashoffset=(-32*semanticProgress).toFixed(3);
+ document.documentElement.dataset.activeVisualStateId=active.sentenceId;
+ document.documentElement.dataset.activeSemanticSentenceId=active.sentenceId;
+ document.documentElement.dataset.activePropositionId=active.propositionId;
+ document.documentElement.dataset.activeAssetId=active.assetId;
+ document.documentElement.dataset.activeGrammarId=active.grammarId;
+ document.documentElement.dataset.activeCapabilityPredicate=active.capability.predicate;
+ document.documentElement.dataset.activeCapabilitySubjectKind=active.capability.subjectKind;
+ document.documentElement.dataset.activeCapabilityStateTransition=active.capability.stateTransition;
+ document.documentElement.dataset.activeClaimIds=active.claimIds.join(",");
+ document.documentElement.dataset.focusPrimaryEntityId=active.focusEntityId;
+ document.documentElement.dataset.renderedFrame=String(frame);
+}
+let currentTime=0,rate=1;
+const timeline={duration:()=>DATA.durationFrames/DATA.fps,time(value){if(value===undefined)return currentTime;currentTime=clamp(Number(value)||0,0,this.duration());renderFrame(currentTime*DATA.fps);return this},totalTime(value){return value===undefined?currentTime:this.time(value)},seek(value){return this.time(value)},pause(){return this},play(){return this},timeScale(value){if(value===undefined)return rate;rate=Number(value)||1;return this},getChildren(){return[]},renderFrame};
+window.__timelines=window.__timelines||{};
+window.__timelines[${safeJson(plan.compositionId)}]=timeline;
+window.__renderFrame=renderFrame;
+renderFrame(0);
+</script></body></html>`;
+  return Object.freeze({
+    html,
+    compositionHash: createHash("sha256").update(html).digest("hex"),
+    font: Object.freeze({
+      family: FONT_FAMILY,
+      sha256: FONT_SHA256,
+      license: FONT_LICENSE,
+      sourcePackage: "@fontsource/outfit",
+    }),
+    profile: Object.freeze({
+      schemaVersion: SEMANTIC_SENTENCE_ANIMATION_SCHEMA_VERSION,
+      profile: SEMANTIC_SENTENCE_ANIMATION_PROFILE,
+      profileVersion: SEMANTIC_SENTENCE_ANIMATION_PROFILE_VERSION,
+      profileId: SEMANTIC_SENTENCE_CONTENT_PROFILE_ID,
+      provider: SEMANTIC_SENTENCE_ANIMATION_PROVIDER,
+      runtimeVersion: SEMANTIC_SENTENCE_ANIMATION_RUNTIME_VERSION,
+      styleVersion: SEMANTIC_SENTENCE_ANIMATION_STYLE_VERSION,
+      sentencePlanHash: plan.sentencePlan.contentHash,
+    }),
+  });
+}

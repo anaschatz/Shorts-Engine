@@ -3,6 +3,13 @@ const { contentHash, normalizeDraftBundle } = require("../contracts.cjs");
 const { normalizeSpeechToken, scriptWords } = require("../narration/alignment.cjs");
 const { compileTimingBoundAnimationIR } = require("./compiler.cjs");
 const { buildGenericProductionAnimationPlan } = require("./semantic-production-plan-compiler.cjs");
+const {
+  SEMANTIC_SENTENCE_PROFILE_ID,
+  SEMANTIC_SENTENCE_PROFILE_TOKEN,
+} = require("./semantic-render-profile.cjs");
+const {
+  buildSemanticSentenceProductionAnimationPlan,
+} = require("./semantic-sentence-production-plan-compiler.cjs");
 const { normalizeAnimationTimingContext } = require("./timing-contract.cjs");
 
 const PRODUCTION_PROVIDER_ID = "hyperframes_local";
@@ -16,6 +23,15 @@ const OPERATION_COUNTS = Object.freeze({ hook: 3, context: 2, evidence: 3, turn:
 
 function unsupported(field) {
   throw new AppError("ANIMATION_TEMPLATE_INVALID", "The approved storyboard cannot be rendered by the production animation grammar.", 409, { field });
+}
+
+function unsupportedAnimationProfile(value) {
+  throw new AppError(
+    "ANIMATION_PROFILE_INVALID",
+    "The requested production animation profile is unsupported.",
+    409,
+    { field: "animationProfile", value: String(value || "") },
+  );
 }
 
 function wrapText(value, maxCharacters = 22, maxLines = 2) {
@@ -421,6 +437,20 @@ function buildProductionAnimationPlan(input = {}) {
   if (draft.verticalId !== "dark_curiosity" || draft.brief.formatId !== "documented_mystery_v1") unsupported("formatId");
   if (draft.contentHash !== timingContext.draftHash) unsupported("draftHash");
   if (!timingMatchesApprovedScript(draft, timingContext)) unsupported("timingContext.words");
+  if (
+    input.animationProfile === SEMANTIC_SENTENCE_PROFILE_TOKEN
+    || input.animationProfile === SEMANTIC_SENTENCE_PROFILE_ID
+  ) {
+    return buildSemanticSentenceProductionAnimationPlan({
+      ...input,
+      draft,
+      timingContext,
+      semanticProfileId: SEMANTIC_SENTENCE_PROFILE_ID,
+    });
+  }
+  if (input.animationProfile !== undefined && input.animationProfile !== null && input.animationProfile !== "") {
+    unsupportedAnimationProfile(input.animationProfile);
+  }
   if (usesLegacyWowSignalStoryboard(draft)) {
     try {
       return buildWowSignalAnimationPlan({ ...input, draft, timingContext });
@@ -444,6 +474,8 @@ module.exports = {
   PRODUCTION_RUNTIME_VERSION,
   PRODUCTION_STYLE_VERSION,
   SEMANTIC_PROFILE_ID,
+  SEMANTIC_SENTENCE_PROFILE_ID,
+  SEMANTIC_SENTENCE_PROFILE_TOKEN,
   buildProductionAnimationPlan,
   compileProductionAnimation,
 };

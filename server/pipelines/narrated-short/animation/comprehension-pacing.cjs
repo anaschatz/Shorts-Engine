@@ -1,5 +1,8 @@
 const { AppError, SAFE_MESSAGES } = require("../../../errors.cjs");
 const { MINIMUM_SETTLE_FRAMES, focusMotionBinding } = require("./focus-director.cjs");
+const {
+  SEMANTIC_SENTENCE_PROFILE_ID,
+} = require("./semantic-render-profile.cjs");
 const { GENERIC_SEMANTIC_PROFILE_ID } = require("./semantic-visual-planner.cjs");
 
 const SEMANTIC_PROFILE_ID = "wow_signal_case_v1";
@@ -22,6 +25,7 @@ const MINIMUM_OPERATION_FRAMES = Object.freeze({
 });
 const MINIMUM_SCENE_HOLD_FRAMES = 12;
 const MINIMUM_FINAL_HOLD_FRAMES = 24;
+const MINIMUM_SEMANTIC_SENTENCE_MOTION_FRAMES = 12;
 
 function fail(field, details = {}) {
   throw new AppError("ANIMATION_PACING_INVALID", SAFE_MESSAGES.ANIMATION_PACING_INVALID, 409, { field, ...details });
@@ -33,6 +37,82 @@ function operationKey(operation) {
 
 function resolvedDuration(operation) {
   return operation.to.resolvedFrame - operation.from.resolvedFrame;
+}
+
+function validateSemanticSentenceComprehensionPacing(ir) {
+  const sentences = ir.content.semanticVisualSentencePlan.sentences;
+  const operationByTargetId = new Map(
+    ir.scenes.flatMap((scene) => scene.operations)
+      .map((operation) => [operation.targetId, operation]),
+  );
+  let minimumVisibleFrames = Number.POSITIVE_INFINITY;
+  let minimumSettledFrames = Number.POSITIVE_INFINITY;
+
+  for (let index = 0; index < sentences.length; index += 1) {
+    const sentence = sentences[index];
+    const operation = operationByTargetId.get(sentence.id);
+    if (!operation) fail(`sentences.${sentence.id}.operation.missing`);
+    const actualFrames = resolvedDuration(operation);
+    if (actualFrames < MINIMUM_SEMANTIC_SENTENCE_MOTION_FRAMES) {
+      fail(`sentences.${sentence.id}.operation.duration`, {
+        minimumFrames: MINIMUM_SEMANTIC_SENTENCE_MOTION_FRAMES,
+        actualFrames,
+      });
+    }
+    const nextStartFrame = index + 1 < sentences.length
+      ? sentences[index + 1].wordSpan.startFrame
+      : ir.durationFrames;
+    const visibleFrames = nextStartFrame - sentence.wordSpan.startFrame;
+    const settledFrames = nextStartFrame - sentence.wordSpan.endFrame;
+    if (visibleFrames <= 0 || settledFrames < 0) {
+      fail(`sentences.${sentence.id}.visibleInterval`, {
+        visibleFrames,
+        settledFrames,
+      });
+    }
+    minimumVisibleFrames = Math.min(minimumVisibleFrames, visibleFrames);
+    minimumSettledFrames = Math.min(minimumSettledFrames, settledFrames);
+  }
+
+  for (const scene of ir.scenes) {
+    if (scene.readabilityHolds.length !== 1) {
+      fail(`scenes.${scene.id}.readabilityHolds.count`);
+    }
+    const hold = scene.readabilityHolds[0];
+    const overlap = scene.operations.find(
+      (operation) => operation.from.resolvedFrame < hold.endFrame
+        && operation.to.resolvedFrame >= hold.startFrame,
+    );
+    if (overlap) {
+      fail(`scenes.${scene.id}.readabilityHolds.overlap`, {
+        operation: operationKey(overlap),
+      });
+    }
+    if (hold.endFrame !== scene.endFrame) {
+      fail(`scenes.${scene.id}.readabilityHolds.boundary`);
+    }
+    const minimumFrames = scene === ir.scenes.at(-1)
+      ? MINIMUM_FINAL_HOLD_FRAMES
+      : MINIMUM_SCENE_HOLD_FRAMES;
+    const actualFrames = hold.endFrame - hold.startFrame;
+    if (actualFrames < minimumFrames) {
+      fail(`scenes.${scene.id}.readabilityHolds.duration`, {
+        minimumFrames,
+        actualFrames,
+      });
+    }
+  }
+
+  return Object.freeze({
+    valid: true,
+    applicable: true,
+    profileId: SEMANTIC_SENTENCE_PROFILE_ID,
+    minimumOperationFrames: MINIMUM_SEMANTIC_SENTENCE_MOTION_FRAMES,
+    minimumVisibleFrames,
+    minimumSettledFrames,
+    finalHoldFrames: ir.durationFrames
+      - ir.scenes.at(-1).readabilityHolds[0].startFrame,
+  });
 }
 
 function validateGenericComprehensionPacing(ir) {
@@ -63,6 +143,9 @@ function validateGenericComprehensionPacing(ir) {
 
 function validateAnimationComprehensionPacing(ir) {
   const profileId = ir?.content?.semantic?.profileId;
+  if (profileId === SEMANTIC_SENTENCE_PROFILE_ID) {
+    return validateSemanticSentenceComprehensionPacing(ir);
+  }
   if (profileId === GENERIC_SEMANTIC_PROFILE_ID) return validateGenericComprehensionPacing(ir);
   if (profileId !== SEMANTIC_PROFILE_ID) return Object.freeze({ valid: true, applicable: false });
 
@@ -133,5 +216,7 @@ module.exports = {
   MINIMUM_FINAL_HOLD_FRAMES,
   MINIMUM_OPERATION_FRAMES,
   MINIMUM_SCENE_HOLD_FRAMES,
+  MINIMUM_SEMANTIC_SENTENCE_MOTION_FRAMES,
   validateAnimationComprehensionPacing,
+  validateSemanticSentenceComprehensionPacing,
 };
