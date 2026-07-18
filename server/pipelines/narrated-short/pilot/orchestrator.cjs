@@ -3,6 +3,7 @@ const { basename } = require("node:path");
 const { createHash } = require("node:crypto");
 const { AppError, SAFE_MESSAGES } = require("../../../errors.cjs");
 const { normalizeDraftBundle } = require("../contracts.cjs");
+const { SEMANTIC_SENTENCE_PROFILE_TOKEN } = require("../animation/semantic-render-profile.cjs");
 const { PILOT_PROFILE, PILOT_PROFILE_VERSION, PILOT_STAGES, PilotStateMachine, normalizePilotReport, pilotRunId } = require("./contract.cjs");
 const { pilotReadiness } = require("./readiness.cjs");
 const { persistPilotReport, readLatestPilotReport } = require("./report-store.cjs");
@@ -19,13 +20,14 @@ function progressEmitter(callback, startedMs, now) {
   };
 }
 
-function reportInput({ runId, status, fixtureId, fixtureHash, readiness, machine, evidence, context, failure, startedAt, startedMs, now }) {
+function reportInput({ runId, status, fixtureId, fixtureHash, animationProfile = null, readiness, machine, evidence, context, failure, startedAt, startedMs, now }) {
   const completedAt = now().toISOString();
-  return { schemaVersion: 1, profile: PILOT_PROFILE, profileVersion: PILOT_PROFILE_VERSION, runId, status, projectId: context.projectId || null, projectRevision: context.projectRevision || null, fixture: { fixtureId, hash: fixtureHash }, ...evidence, completedStages: machine.completed, failure, readiness, technicalFinal: status === "complete", qaPassed: status === "complete", publishable: false, publishApprovalRequired: true, startedAt, completedAt, durationMs: Math.max(0, now().getTime() - startedMs) };
+  return { schemaVersion: 1, profile: PILOT_PROFILE, profileVersion: PILOT_PROFILE_VERSION, runId, status, projectId: context.projectId || null, projectRevision: context.projectRevision || null, fixture: { fixtureId, hash: fixtureHash }, ...(animationProfile ? { animationProfile } : {}), ...evidence, completedStages: machine.completed, failure, readiness, technicalFinal: status === "complete", qaPassed: status === "complete", publishable: false, publishApprovalRequired: true, startedAt, completedAt, durationMs: Math.max(0, now().getTime() - startedMs) };
 }
 
 function verifyReplay(report, input) {
   if (!report || report.runId !== input.runId) return null;
+  if ((report.animationProfile || null) !== (input.animationProfile || null)) return null;
   if (report.status !== "complete" || report.fixture.hash !== input.fixtureHash || report.publishable !== false || report.technicalFinal !== true || !report.final || !report.exportMetadata) throw new AppError("PILOT_CHECKPOINT_INVALID", SAFE_MESSAGES.PILOT_CHECKPOINT_INVALID, 409);
   if (input.verifyCompletedReport && input.verifyCompletedReport(report) !== true) throw new AppError("PILOT_CHECKPOINT_INVALID", SAFE_MESSAGES.PILOT_CHECKPOINT_INVALID, 409);
   return report;
@@ -34,6 +36,12 @@ function verifyReplay(report, input) {
 async function runPilotWorkflow(options = {}, dependencies = {}) {
   const now = dependencies.now || (() => new Date()); const started = now(); const startedAt = started.toISOString(); const startedMs = started.getTime();
   const emitProgress = progressEmitter(dependencies.onProgress, startedMs, now);
+  const animationProfile = options.animationProfile
+    ? String(options.animationProfile).trim().toLowerCase()
+    : null;
+  if (animationProfile !== null && animationProfile !== SEMANTIC_SENTENCE_PROFILE_TOKEN) {
+    throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "animationProfile" });
+  }
   const fixtureBuffer = readFileSync(options.fixturePath); const fixture = normalizeDraftBundle(JSON.parse(fixtureBuffer.toString("utf8"))); const fixtureHash = fixture.contentHash; const fixtureId = basename(options.fixturePath);
   const audioHash = options.audioPath ? sha256(readFileSync(options.audioPath)) : null;
   const runId = pilotRunId({ fixtureHash, audioHash, renderProfile: options.renderProfile, operatorId: options.operatorId });
@@ -43,22 +51,23 @@ async function runPilotWorkflow(options = {}, dependencies = {}) {
   const machine = new PilotStateMachine(); const evidence = emptyEvidence(); const context = { fixture, fixtureHash, audioHash, runId, signal: null };
   machine.transition("fixture_validated");
   if (options.reportOnly) {
-    const report = normalizePilotReport(reportInput({ runId, status: "report_only", fixtureId, fixtureHash, readiness, machine, evidence, context, failure: readiness.blockingReasons.length ? { stage: "readiness", code: "PILOT_READINESS_BLOCKED", nextAction: readiness.nextActions[0] || "provide-required-local-assets" } : null, startedAt, startedMs, now }));
+    const report = normalizePilotReport(reportInput({ runId, status: "report_only", fixtureId, fixtureHash, animationProfile, readiness, machine, evidence, context, failure: readiness.blockingReasons.length ? { stage: "readiness", code: "PILOT_READINESS_BLOCKED", nextAction: readiness.nextActions[0] || "provide-required-local-assets" } : null, startedAt, startedMs, now }));
     return { report: (dependencies.persistPilotReport || persistPilotReport)(report, options.outputDir), replayed: false, exitCode: 0 };
   }
   if (readiness.status !== "ready") {
     machine.fail();
-    const report = normalizePilotReport(reportInput({ runId, status: "failed", fixtureId, fixtureHash, readiness, machine, evidence, context, failure: { stage: "readiness", code: "PILOT_READINESS_BLOCKED", nextAction: readiness.nextActions[0] || "provide-required-local-assets" }, startedAt, startedMs, now }));
+    const report = normalizePilotReport(reportInput({ runId, status: "failed", fixtureId, fixtureHash, animationProfile, readiness, machine, evidence, context, failure: { stage: "readiness", code: "PILOT_READINESS_BLOCKED", nextAction: readiness.nextActions[0] || "provide-required-local-assets" }, startedAt, startedMs, now }));
     return { report: (dependencies.persistPilotReport || persistPilotReport)(report, options.outputDir), replayed: false, exitCode: 1 };
   }
   if (dependencies.preMutationChecks && dependencies.preMutationChecks.ready !== true) {
     machine.fail(); const gate = dependencies.preMutationChecks;
-    const report = normalizePilotReport(reportInput({ runId, status: "failed", fixtureId, fixtureHash, readiness, machine, evidence, context, failure: { stage: "readiness", code: String(gate.code || "PILOT_PREFLIGHT_BLOCKED"), nextAction: String(gate.nextAction || "fix-operator-preflight") }, startedAt, startedMs, now }));
+    const report = normalizePilotReport(reportInput({ runId, status: "failed", fixtureId, fixtureHash, animationProfile, readiness, machine, evidence, context, failure: { stage: "readiness", code: String(gate.code || "PILOT_PREFLIGHT_BLOCKED"), nextAction: String(gate.nextAction || "fix-operator-preflight") }, startedAt, startedMs, now }));
     return { report: (dependencies.persistPilotReport || persistPilotReport)(report, options.outputDir), replayed: false, exitCode: 1 };
   }
   const latest = (dependencies.readLatestPilotReport || readLatestPilotReport)(options.outputDir);
-  if (latest && latest.runId === runId && latest.status === "failed") throw new AppError("PILOT_CHECKPOINT_INVALID", SAFE_MESSAGES.PILOT_CHECKPOINT_INVALID, 409, { nextAction: "inspect-failed-run-before-retry" });
-  const replay = verifyReplay(latest, { runId, fixtureHash, verifyCompletedReport: dependencies.verifyCompletedReport });
+  const latestProfileMatches = latest && (latest.animationProfile || null) === animationProfile;
+  if (latest && latest.runId === runId && latestProfileMatches && latest.status === "failed") throw new AppError("PILOT_CHECKPOINT_INVALID", SAFE_MESSAGES.PILOT_CHECKPOINT_INVALID, 409, { nextAction: "inspect-failed-run-before-retry" });
+  const replay = verifyReplay(latest, { runId, fixtureHash, animationProfile, verifyCompletedReport: dependencies.verifyCompletedReport });
   if (replay) { emitProgress("workflow_replayed", "pilot_complete", replay.completedStages.length); return { report: replay, replayed: true, exitCode: 0 }; }
   if (typeof dependencies.executeStage !== "function") throw new AppError("PIPELINE_HANDLER_UNAVAILABLE", "The pilot execution runtime is unavailable.", 503);
   const controller = new AbortController(); context.signal = controller.signal;
@@ -75,14 +84,14 @@ async function runPilotWorkflow(options = {}, dependencies = {}) {
       machine.transition(stage);
       emitProgress("stage_completed", stage, machine.completed.length);
     }
-    const report = normalizePilotReport(reportInput({ runId, status: "complete", fixtureId, fixtureHash, readiness, machine, evidence, context, failure: null, startedAt, startedMs, now }));
+    const report = normalizePilotReport(reportInput({ runId, status: "complete", fixtureId, fixtureHash, animationProfile, readiness, machine, evidence, context, failure: null, startedAt, startedMs, now }));
     return { report: (dependencies.persistPilotReport || persistPilotReport)(report, options.outputDir), replayed: false, exitCode: 0 };
   } catch (error) {
     try { machine.fail(); } catch { /* retain original failure */ }
     if (typeof dependencies.cleanup === "function") await dependencies.cleanup(context, error);
     const failure = controller.signal.aborted ? { stage: currentStage, code: "JOB_CANCELLED", nextAction: "increase-timeout-or-fix-blocked-stage" } : safeFailure(error, currentStage);
     emitProgress("workflow_failed", currentStage, machine.completed.length, { code: error && error.code, field: error && error.details && error.details.field });
-    const report = normalizePilotReport(reportInput({ runId, status: "failed", fixtureId, fixtureHash, readiness, machine, evidence, context, failure, startedAt, startedMs, now }));
+    const report = normalizePilotReport(reportInput({ runId, status: "failed", fixtureId, fixtureHash, animationProfile, readiness, machine, evidence, context, failure, startedAt, startedMs, now }));
     return { report: (dependencies.persistPilotReport || persistPilotReport)(report, options.outputDir), replayed: false, exitCode: 1 };
   } finally { clearTimeout(timeout); }
 }

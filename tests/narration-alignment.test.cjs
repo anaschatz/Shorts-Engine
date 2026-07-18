@@ -30,6 +30,7 @@ const { contentHash } = require("../server/pipelines/narrated-short/contracts.cj
 const { buildProductionAnimationPayloadBindings } = require("../server/pipelines/narrated-short/animation/payload-bindings.cjs");
 const { buildProductionTimingContext } = require("../server/pipelines/narrated-short/animation/timing-context-builder.cjs");
 const { compileProductionAnimation, PRODUCTION_PROVIDER_ID, PRODUCTION_RUNTIME_VERSION } = require("../server/pipelines/narrated-short/animation/production-plan-compiler.cjs");
+const { SEMANTIC_SENTENCE_PROFILE_TOKEN } = require("../server/pipelines/narrated-short/animation/semantic-render-profile.cjs");
 
 const FIXTURE = resolve(__dirname, "..", "eval", "narrated", "dark-curiosity", "fixtures", "001_wow_signal_mystery.json");
 test.after(() => rmSync(DATA_DIR, { recursive: true, force: true }));
@@ -312,6 +313,145 @@ test("alignment job fails closed for stale bindings and unavailable local model"
   const job = jobs.create({ projectId: ctx.project.id, action: "align_narration", pipelineType: "narrated_short", payload: basePayload });
   jobs.claimJob(job.id, { workerId: `wrk_${randomUUID()}` });
   await assert.rejects(() => runNarrationAlignmentJob({ jobs, job, project: ctx.project, payload: job.payload, dependencies: { ...ctx, alignerEnv: env, probeAlignerRuntime: () => ({ available: false, reason: "model_unavailable" }) } }), (error) => error.code === "NARRATION_ALIGNER_UNAVAILABLE" && !Object.hasOwn(error.details || {}, "reason"));
+});
+
+async function semanticProfileRenderContext() {
+  const ctx = await setup();
+  const jobs = new JobStore({ persist: false, logger: null });
+  const active = ctx.project.input.activeNarration;
+  const alignerEnv = { SHORTSENGINE_LOCAL_WHISPER_MODEL: "fixture" };
+  const alignPayload = {
+    projectRevision: 1,
+    language: "en",
+    approvedDraftArtifactId: active.draftArtifactId,
+    approvedDraftHash: active.draftHash,
+    narrationManifestArtifactId: active.manifestArtifactId,
+    narrationManifestHash: active.manifestHash,
+    audioArtifactId: active.audioArtifactId,
+    audioHash: active.audioHash,
+    scriptHash: active.scriptHash,
+    alignerVersion: fasterWhisperVersion(alignerEnv),
+  };
+  const alignJob = jobs.create({
+    projectId: ctx.project.id,
+    action: "align_narration",
+    pipelineType: "narrated_short",
+    payload: alignPayload,
+  });
+  jobs.claimJob(alignJob.id, { workerId: `wrk_${randomUUID()}` });
+  const aligned = await runNarrationAlignmentJob({
+    jobs,
+    job: alignJob,
+    project: ctx.project,
+    payload: alignJob.payload,
+    dependencies: { ...ctx, alignNarration: async () => providerFor(ctx.draft), alignerEnv },
+  });
+  const current = aligned.project.input.activeNarration;
+  const expectedTiming = buildProductionTimingContext({
+    draft: ctx.draft,
+    alignment: aligned.alignment,
+    projectId: aligned.project.id,
+    projectRevision: aligned.project.input.revision,
+    draftArtifactId: active.draftArtifactId,
+    draftHash: active.draftHash,
+    alignmentHash: current.alignmentHash,
+  });
+  const expectedAnimation = {
+    plan: { schemaVersion: 3, profile: "semantic-v3-job-test" },
+    animationIR: {
+      contentHash: "9".repeat(64),
+      renderer: { styleVersion: "3.0.0" },
+    },
+  };
+  const renderJob = jobs.create({
+    projectId: aligned.project.id,
+    action: "render_narrated_short",
+    pipelineType: "narrated_short",
+    payload: {
+      projectRevision: 1,
+      language: "en",
+      approvedDraftArtifactId: active.draftArtifactId,
+      approvedDraftHash: active.draftHash,
+      renderProfile: "preview",
+      narrationManifestHash: current.manifestHash,
+      audioHash: current.audioHash,
+      alignmentHash: current.alignmentHash,
+      animationProfile: SEMANTIC_SENTENCE_PROFILE_TOKEN,
+      timingContextHash: expectedTiming.contentHash,
+      animationPlanHash: contentHash(expectedAnimation.plan),
+      animationIRHash: expectedAnimation.animationIR.contentHash,
+      animationProvider: PRODUCTION_PROVIDER_ID,
+      animationRuntimeVersion: PRODUCTION_RUNTIME_VERSION,
+      animationStyleVersion: "3.0.0",
+    },
+  });
+  jobs.claimJob(renderJob.id, { workerId: `wrk_${randomUUID()}` });
+  return {
+    aligned,
+    ctx,
+    expectedAnimation,
+    jobs,
+    renderJob,
+    exportRepository: new InMemoryExportRepository({ artifactStore: ctx.artifactStore }),
+  };
+}
+
+test("semantic-v3 render jobs propagate the profile through stale compilation and rendering", async () => {
+  const value = await semanticProfileRenderContext();
+  let compileInput = null;
+  let renderInput = null;
+  await assert.rejects(
+    () => runNarratedRenderJob({
+      jobs: value.jobs,
+      job: value.renderJob,
+      project: value.aligned.project,
+      payload: value.renderJob.payload,
+      exportRepository: value.exportRepository,
+      dependencies: {
+        ...value.ctx,
+        compileProductionAnimation(input) {
+          compileInput = input;
+          return value.expectedAnimation;
+        },
+        async runProductionAnimationRender(input) {
+          renderInput = input;
+          throw new Error("stop-after-profile-propagation");
+        },
+      },
+    }),
+    (error) => error?.message === "stop-after-profile-propagation",
+  );
+  assert.equal(compileInput.animationProfile, "semantic-v3");
+  assert.equal(renderInput.animationProfile, "semantic-v3");
+});
+
+test("semantic-v3 stale bindings are recomputed with semantic-v3 before rendering", async () => {
+  const value = await semanticProfileRenderContext();
+  let compileInput = null;
+  let renderInvoked = false;
+  await assert.rejects(
+    () => runNarratedRenderJob({
+      jobs: value.jobs,
+      job: value.renderJob,
+      project: value.aligned.project,
+      payload: { ...value.renderJob.payload, animationPlanHash: "8".repeat(64) },
+      exportRepository: value.exportRepository,
+      dependencies: {
+        ...value.ctx,
+        compileProductionAnimation(input) {
+          compileInput = input;
+          return value.expectedAnimation;
+        },
+        async runProductionAnimationRender() {
+          renderInvoked = true;
+          throw new Error("renderer-must-not-run");
+        },
+      },
+    }),
+    (error) => error?.code === "ANIMATION_BINDING_STALE",
+  );
+  assert.equal(compileInput.animationProfile, "semantic-v3");
+  assert.equal(renderInvoked, false);
 });
 
 test("final export commits only after passing QA and evidence package; either failure leaves no export", async () => {

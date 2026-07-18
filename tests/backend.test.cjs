@@ -45,12 +45,12 @@ const mp4Header = Buffer.from([
   0x00, 0x00, 0x02, 0x00,
 ]);
 
-function mockRequest({ method = "GET", url = "/", headers = {}, body = Buffer.alloc(0) }) {
+function mockRequest({ method = "GET", url = "/", headers = {}, body = Buffer.alloc(0), remoteAddress = "test-client" }) {
   return {
     method,
     url,
     headers,
-    socket: { remoteAddress: "test-client" },
+    socket: { remoteAddress },
     async *[Symbol.asyncIterator]() {
       if (body.length) yield body;
     },
@@ -237,7 +237,7 @@ function writeBackendReviewRecords(overrides = {}) {
   return ids;
 }
 
-async function postJson(url, payload) {
+async function postJson(url, payload, remoteAddress = "test-client") {
   const body = Buffer.from(JSON.stringify(payload));
   const req = mockRequest({
     method: "POST",
@@ -247,6 +247,7 @@ async function postJson(url, payload) {
       "content-length": String(body.length),
     },
     body,
+    remoteAddress,
   });
   const res = mockResponse();
   await route(req, res);
@@ -1551,9 +1552,37 @@ test("Dark Curiosity API allows drafting but blocks final rendering while the ve
   const unsafeRender = await postJson(`/api/narrated-projects/${projectId}/render`, { audioPath: "/tmp/injected.wav" });
   assert.equal(unsafeRender.res.statusCode, 400);
   assert.equal(unsafeRender.payload.error.code, "VALIDATION_ERROR");
+  const unknownAnimationProfile = await postJson(`/api/narrated-projects/${projectId}/render`, { animationProfile: "semantic-v4" }, "semantic-profile-client");
+  assert.equal(unknownAnimationProfile.res.statusCode, 400);
+  assert.equal(unknownAnimationProfile.payload.error.code, "VALIDATION_ERROR");
+  const semanticRender = await postJson(`/api/narrated-projects/${projectId}/render`, { animationProfile: "semantic-v3" }, "semantic-profile-client");
+  assert.equal(semanticRender.res.statusCode, 409);
+  assert.equal(semanticRender.payload.error.code, "NARRATION_ALIGNMENT_REQUIRED");
   const render = await postJson(`/api/narrated-projects/${projectId}/render`, {});
   assert.equal(render.res.statusCode, 202);
   let renderJob = jobs.get(render.payload.data.job.id);
+  assert.equal(Object.hasOwn(renderJob.payload, "animationProfile"), false);
+  assert.equal(renderJob.idempotencyKey, idempotencyKey("render_narrated_short", {
+    projectId,
+    revision: 1,
+    draftHash: draftJob.contentDraft.contentHash,
+    renderProfile: "final",
+    narrationManifestHash: null,
+    audioHash: null,
+    alignmentHash: null,
+    captionRendererVersion: renderJob.payload.captionRendererVersion,
+    captionProfileVersion: renderJob.payload.captionProfileVersion,
+    audioNormalizationProfileVersion: renderJob.payload.audioNormalizationProfileVersion,
+    compositorVersion: renderJob.payload.compositorVersion,
+    qaProfileVersion: renderJob.payload.qaProfileVersion,
+    evidenceProfileVersion: renderJob.payload.evidenceProfileVersion,
+    timingContextHash: undefined,
+    animationPlanHash: undefined,
+    animationIRHash: undefined,
+    animationProvider: undefined,
+    animationRuntimeVersion: undefined,
+    animationStyleVersion: undefined,
+  }));
   for (let attempt = 0; attempt < 50 && !["completed", "failed"].includes(renderJob.status); attempt += 1) {
     await new Promise((resolveNow) => setImmediate(resolveNow));
     renderJob = jobs.get(renderJob.id);

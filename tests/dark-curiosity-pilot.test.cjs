@@ -4,11 +4,17 @@ const { mkdtempSync, readFileSync, rmSync } = require("node:fs");
 const { join, resolve } = require("node:path");
 const { tmpdir } = require("node:os");
 const { spawnSync } = require("node:child_process");
+const { createHash } = require("node:crypto");
 
 const { parsePilotArgs } = require("../server/pipelines/narrated-short/pilot/cli.cjs");
 const { PILOT_PROFILE, PILOT_PROFILE_VERSION, PILOT_STAGES, PilotStateMachine, normalizePilotReport, pilotRunId } = require("../server/pipelines/narrated-short/pilot/contract.cjs");
+const { animationProfileMatchesEvidence, normalizePilotAnimationProfile, pilotReleaseIdempotencyKey, renderPayload, verifiedAlignedNarrationReuse } = require("../server/pipelines/narrated-short/pilot/local-runtime.cjs");
 const { runPilotWorkflow } = require("../server/pipelines/narrated-short/pilot/orchestrator.cjs");
 const { persistPilotReport, readLatestPilotReport } = require("../server/pipelines/narrated-short/pilot/report-store.cjs");
+const { SEMANTIC_SENTENCE_PROFILE_ID, SEMANTIC_SENTENCE_PROFILE_TOKEN } = require("../server/pipelines/narrated-short/animation/semantic-render-profile.cjs");
+const { normalizeAlignment } = require("../server/pipelines/narrated-short/narration/alignment.cjs");
+const { normalizeNarrationAsset } = require("../server/pipelines/narrated-short/narration/contract.cjs");
+const { idempotencyKey } = require("../server/jobs.cjs");
 
 const FIXTURE = resolve(__dirname, "..", "eval", "narrated", "dark-curiosity", "fixtures", "001_wow_signal_mystery.json");
 const HASH = "a".repeat(64);
@@ -18,6 +24,97 @@ const READY = { status: "ready", environmentReady: true, ffmpeg: true, ffprobe: 
 
 function report(overrides = {}) {
   return { schemaVersion: 1, profile: PILOT_PROFILE, profileVersion: PILOT_PROFILE_VERSION, runId: `pilot_${"1".repeat(40)}`, status: "complete", projectId: "prj_11111111-1111-4111-8111-111111111111", projectRevision: 1, fixture: { fixtureId: "fixture.json", hash: HASH }, approvedDraft: artifact("2"), narrationManifest: artifact("3"), narrationAudio: artifact("4"), narrationAlignment: artifact("5"), preview: job("6"), final: job("7"), qa: { report: artifact("8"), blockingGateCount: 4, blockingPassedCount: 4, blockingFailedCount: 0, warningCount: 0 }, contactSheet: artifact("9"), rightsManifest: artifact("a"), provenanceReport: artifact("b"), exportMetadata: artifact("c"), completedStages: [...PILOT_STAGES], failure: null, readiness: READY, technicalFinal: true, qaPassed: true, publishable: false, publishApprovalRequired: true, startedAt: "2026-01-01T00:00:00.000Z", completedAt: "2026-01-01T00:00:01.000Z", durationMs: 1000, ...overrides };
+}
+
+function alignedNarrationReuseFixture() {
+  const projectId = "prj_11111111-1111-4111-8111-111111111111";
+  const draftArtifactId = `art_${"4".repeat(40)}`;
+  const manifestArtifactId = `art_${"5".repeat(40)}`;
+  const audioArtifactId = `art_${"6".repeat(40)}`;
+  const alignmentArtifactId = `art_${"7".repeat(40)}`;
+  const draftHash = "d".repeat(64);
+  const scriptHash = "e".repeat(64);
+  const audioBuffer = Buffer.from("verified pilot narration audio");
+  const audioHash = createHash("sha256").update(audioBuffer).digest("hex");
+  const manifest = normalizeNarrationAsset({
+    schemaVersion: 1,
+    status: "uploaded_unaligned",
+    projectId,
+    projectRevision: 1,
+    verticalId: "dark_curiosity",
+    draftArtifactId,
+    draftHash,
+    scriptHash,
+    audioArtifactId,
+    audioHash,
+    voiceProfileId: "operator_voice",
+    language: "en",
+    media: { container: "wav", codec: "pcm_s16le", sampleRate: 48000, channels: 1, durationSeconds: 2, bytes: 128 },
+    rights: { commercialUseAllowed: true, ownershipBasis: "self_recorded", rightsHolder: "Operator", consentReference: "consent-v1", licenseReference: null },
+  });
+  const alignment = normalizeAlignment({
+    schemaVersion: 1,
+    status: "aligned",
+    projectId,
+    projectRevision: 1,
+    verticalId: "dark_curiosity",
+    draftArtifactId,
+    draftHash,
+    scriptHash,
+    narrationManifestArtifactId: manifestArtifactId,
+    narrationManifestHash: manifest.contentHash,
+    audioArtifactId,
+    audioHash,
+    language: "en",
+    fps: 30,
+    durationFrames: 60,
+    words: [{ index: 0, text: "Signal", startFrame: 0, endFrame: 30, confidence: 0.99 }],
+    beats: [{ beatId: "beat_hook", wordStartIndex: 0, wordEndIndex: 1, startFrame: 0, endFrame: 30 }],
+    coverage: { expectedWords: 1, alignedWords: 1, exactSequenceMatch: true, coverageRatio: 1 },
+    provider: { mode: "local_faster_whisper", model: "fixture", device: "cpu", computeType: "int8", promptVersion: "narration_alignment_v1" },
+  });
+  const activeNarration = {
+    status: "aligned",
+    projectRevision: 1,
+    manifestArtifactId,
+    manifestHash: manifest.contentHash,
+    audioArtifactId,
+    audioHash,
+    draftArtifactId,
+    draftHash,
+    scriptHash,
+    voiceProfileId: "operator_voice",
+    language: "en",
+    media: manifest.media,
+    rights: { commercialUseAllowed: true, ownershipBasis: "self_recorded", consentDeclared: true, licenseDeclared: false },
+    alignmentArtifactId,
+    alignmentHash: alignment.contentHash,
+    aligned: true,
+    timingReady: true,
+    renderReady: false,
+  };
+  const project = { id: projectId, language: "en", input: { revision: 1, activeNarration } };
+  const envelopes = new Map([
+    [manifestArtifactId, { artifactType: "narration_manifest", projectId, revision: 1, contentHash: manifest.contentHash, body: manifest }],
+    [alignmentArtifactId, { artifactType: "narration_alignment", projectId, revision: 1, contentHash: alignment.contentHash, body: alignment }],
+  ]);
+  const audio = { id: audioArtifactId, type: "narration_audio", ownerProjectId: projectId, checksumSha256: audioHash, status: "available" };
+  const input = {
+    project,
+    projectRevision: 1,
+    draftArtifactId,
+    draftHash,
+    scriptHash,
+    audioHash,
+    contentArtifactRepository: { readJson: (id) => {
+      const value = envelopes.get(id);
+      if (!value) throw new Error("missing");
+      return structuredClone(value);
+    } },
+    artifactRepository: { get: (id) => id === audioArtifactId ? structuredClone(audio) : null },
+    artifactStore: { readArtifact: () => Buffer.from(audioBuffer) },
+  };
+  return { input, envelopes, audio, audioBuffer, activeNarration, manifest, alignment };
 }
 
 test("pilot state machine enforces exact ordering and terminal states", () => {
@@ -33,8 +130,15 @@ test("pilot report is strict, deterministic across runtime timings, and always n
   const first = normalizePilotReport(report());
   const second = normalizePilotReport(report({ startedAt: "2026-02-01T00:00:00.000Z", completedAt: "2026-02-01T00:00:09.000Z", durationMs: 9000 }));
   assert.equal(first.contentHash, second.contentHash);
+  assert.equal(first.contentHash, "fabede24bc3f62a5bfe7552bba434c0a8e06b37965690920fd5f2d5e23e7ed62");
+  assert.equal(Object.hasOwn(first, "animationProfile"), false);
   assert.equal(first.publishable, false);
   assert.equal(first.publishApprovalRequired, true);
+  const semantic = normalizePilotReport(report({ animationProfile: SEMANTIC_SENTENCE_PROFILE_TOKEN }));
+  assert.equal(semantic.animationProfile, SEMANTIC_SENTENCE_PROFILE_TOKEN);
+  assert.notEqual(semantic.contentHash, first.contentHash);
+  assert.throws(() => normalizePilotReport(report({ animationProfile: "unknown" })), { code: "PILOT_REPORT_INVALID" });
+  assert.throws(() => normalizePilotReport(report({ animationProfile: null })), { code: "PILOT_REPORT_INVALID" });
   assert.throws(() => normalizePilotReport({ ...first, readiness: { ...first.readiness, storageKey: "secret" } }), { code: "PILOT_REPORT_INVALID" });
   assert.throws(() => normalizePilotReport({ ...first, completedStages: [...first.completedStages, "pilot_complete"] }), { code: "PILOT_REPORT_INVALID" });
   assert.throws(() => normalizePilotReport({ ...first, final: { ...first.final, outputHash: "bad" } }), { code: "PILOT_REPORT_INVALID" });
@@ -56,7 +160,11 @@ test("pilot CLI validates managed fixture, operator rights, profiles, and output
   const output = join(tmpdir(), "pilot-safe-output");
   const reportOnly = parsePilotArgs(["--fixture", FIXTURE, "--output-dir", output, "--report-only"]);
   assert.equal(reportOnly.reportOnly, true);
+  assert.equal(reportOnly.animationProfile, null);
+  const semantic = parsePilotArgs(["--fixture", FIXTURE, "--output-dir", output, "--report-only", "--animation-profile", "SEMANTIC-V3"]);
+  assert.equal(semantic.animationProfile, SEMANTIC_SENTENCE_PROFILE_TOKEN);
   assert.throws(() => parsePilotArgs(["--fixture", FIXTURE, "--unknown"]), { code: "VALIDATION_ERROR" });
+  assert.throws(() => parsePilotArgs(["--fixture", FIXTURE, "--report-only", "--animation-profile", "semantic-v4"]), { code: "VALIDATION_ERROR" });
   assert.throws(() => parsePilotArgs(["--fixture", "/tmp/fixture.json", "--report-only"]), { code: "PILOT_FIXTURE_UNSAFE" });
   assert.throws(() => parsePilotArgs(["--fixture", FIXTURE]), { code: "PILOT_READINESS_BLOCKED" });
   assert.throws(() => parsePilotArgs(["--fixture", FIXTURE, "--report-only", "--render-profile", "preview"]), { code: "VALIDATION_ERROR" });
@@ -67,6 +175,121 @@ test("pilot run identity changes with audio/configuration and contains no operat
   const first = pilotRunId({ fixtureHash: HASH, audioHash: "b".repeat(64), operatorId: "operator_1" });
   const second = pilotRunId({ fixtureHash: HASH, audioHash: "c".repeat(64), operatorId: "operator_1" });
   assert.notEqual(first, second); assert.match(first, /^pilot_[a-f0-9]{40}$/);
+  assert.equal(pilotRunId({ fixtureHash: HASH, audioHash: "b".repeat(64), operatorId: "operator_1", animationProfile: SEMANTIC_SENTENCE_PROFILE_TOKEN }), first);
+});
+
+test("pilot workflow rejects unknown animation profiles before any stage executes", async () => {
+  let executed = false;
+  await assert.rejects(
+    runPilotWorkflow({
+      fixturePath: FIXTURE,
+      audioPath: null,
+      rightsConfirmed: true,
+      operatorId: "operator_1",
+      outputDir: tmpdir(),
+      renderProfile: "final",
+      animationProfile: "semantic-v4",
+      timeoutMs: 10000,
+      reportOnly: false,
+    }, {
+      executeStage: async () => { executed = true; },
+    }),
+    { code: "VALIDATION_ERROR" },
+  );
+  assert.equal(executed, false);
+});
+
+test("pilot animation profile changes only render identity and matches exact QA evidence", () => {
+  const project = {
+    language: "en",
+    input: {
+      revision: 1,
+      activeNarration: {
+        manifestHash: "1".repeat(64),
+        audioHash: "2".repeat(64),
+        alignmentHash: "3".repeat(64),
+      },
+    },
+  };
+  const approval = { draftArtifactId: `art_${"4".repeat(40)}`, draftHash: "5".repeat(64) };
+  const legacy = renderPayload(project, approval, "final");
+  const sameLegacy = renderPayload(project, approval, "final", null, null);
+  const semantic = renderPayload(project, approval, "final", null, SEMANTIC_SENTENCE_PROFILE_TOKEN);
+  assert.deepEqual(sameLegacy, legacy);
+  assert.equal(Object.hasOwn(legacy, "animationProfile"), false);
+  assert.equal(semantic.animationProfile, SEMANTIC_SENTENCE_PROFILE_TOKEN);
+  assert.notEqual(
+    idempotencyKey("pilot_final", { runId: `pilot_${"6".repeat(40)}`, ...legacy }),
+    idempotencyKey("pilot_final", { runId: `pilot_${"6".repeat(40)}`, ...semantic }),
+  );
+  assert.equal(normalizePilotAnimationProfile(undefined), null);
+  assert.throws(() => normalizePilotAnimationProfile("semantic-v4"), { code: "VALIDATION_ERROR" });
+
+  const semanticQa = { bindings: { animationStyleVersion: "3.0.0" } };
+  const semanticIr = { content: { semantic: { profileId: SEMANTIC_SENTENCE_PROFILE_ID } } };
+  const legacyQa = { bindings: { animationStyleVersion: "2.0.0" } };
+  const legacyIr = { content: { semantic: { profileId: "documented_mystery_semantic_v2" } } };
+  assert.equal(animationProfileMatchesEvidence(SEMANTIC_SENTENCE_PROFILE_TOKEN, semanticQa, semanticIr), true);
+  assert.equal(animationProfileMatchesEvidence(null, semanticQa, semanticIr), false);
+  assert.equal(animationProfileMatchesEvidence(null, legacyQa, legacyIr), true);
+  assert.equal(animationProfileMatchesEvidence(SEMANTIC_SENTENCE_PROFILE_TOKEN, legacyQa, legacyIr), false);
+  assert.equal(animationProfileMatchesEvidence(null, semanticQa, legacyIr), false);
+});
+
+test("pilot reuses only exact, fully verified aligned narration artifacts", () => {
+  const fixture = alignedNarrationReuseFixture();
+  const reused = verifiedAlignedNarrationReuse(fixture.input);
+  assert.deepEqual(reused, {
+    narrationManifest: { artifactId: fixture.activeNarration.manifestArtifactId, hash: fixture.activeNarration.manifestHash },
+    narrationAudio: { artifactId: fixture.activeNarration.audioArtifactId, hash: fixture.activeNarration.audioHash },
+    narrationAlignment: { artifactId: fixture.activeNarration.alignmentArtifactId, hash: fixture.activeNarration.alignmentHash },
+  });
+  assert.equal(Object.isFrozen(reused), true);
+  assert.equal(Object.isFrozen(reused.narrationAlignment), true);
+
+  for (const patch of [
+    { projectRevision: 2 },
+    { draftHash: "0".repeat(64) },
+    { scriptHash: "0".repeat(64) },
+    { audioHash: "0".repeat(64) },
+  ]) {
+    assert.equal(verifiedAlignedNarrationReuse({ ...fixture.input, ...patch }), null);
+  }
+
+  const unaligned = alignedNarrationReuseFixture();
+  unaligned.input.project.input.activeNarration = { ...unaligned.activeNarration, status: "uploaded_unaligned", aligned: false, timingReady: false };
+  assert.equal(verifiedAlignedNarrationReuse(unaligned.input), null);
+
+  const staleManifest = alignedNarrationReuseFixture();
+  staleManifest.envelopes.get(staleManifest.activeNarration.manifestArtifactId).contentHash = "0".repeat(64);
+  assert.equal(verifiedAlignedNarrationReuse(staleManifest.input), null);
+
+  const staleAlignment = alignedNarrationReuseFixture();
+  staleAlignment.envelopes.get(staleAlignment.activeNarration.alignmentArtifactId).body = {
+    ...staleAlignment.alignment,
+    audioHash: "0".repeat(64),
+  };
+  assert.equal(verifiedAlignedNarrationReuse(staleAlignment.input), null);
+
+  const staleAudio = alignedNarrationReuseFixture();
+  staleAudio.input.artifactRepository = { get: () => ({ ...staleAudio.audio, checksumSha256: "0".repeat(64) }) };
+  assert.equal(verifiedAlignedNarrationReuse(staleAudio.input), null);
+
+  const staleAudioBytes = alignedNarrationReuseFixture();
+  staleAudioBytes.input.artifactStore = { readArtifact: () => Buffer.from("tampered narration audio") };
+  assert.equal(verifiedAlignedNarrationReuse(staleAudioBytes.input), null);
+});
+
+test("pilot release idempotency is bound to the exact profiled report", () => {
+  const legacy = normalizePilotReport(report());
+  const semantic = normalizePilotReport(report({ animationProfile: SEMANTIC_SENTENCE_PROFILE_TOKEN }));
+  const legacyKey = pilotReleaseIdempotencyKey(legacy);
+  const semanticKey = pilotReleaseIdempotencyKey(semantic);
+  assert.notEqual(legacyKey, semanticKey);
+  assert.equal(legacyKey, `pilot-release-${legacy.runId}`);
+  assert.match(semanticKey, /^pilot-release-pilot_[a-f0-9]{40}-[a-f0-9]{64}$/);
+  assert.ok(semanticKey.length <= 160);
+  assert.throws(() => pilotReleaseIdempotencyKey({ ...semantic, contentHash: "bad" }), { code: "PILOT_REPORT_INVALID" });
 });
 
 test("pilot orchestrator completes every stage, replays complete reports, and stops on failure", async () => {
@@ -95,6 +318,16 @@ test("pilot orchestrator completes every stage, replays complete reports, and st
     assert.deepEqual(progress.filter((event) => event.event === "stage_completed").map((event) => event.stage), PILOT_STAGES.slice(1));
     const replay = await runPilotWorkflow(options, { ...deps, readLatestPilotReport: () => result.report, verifyCompletedReport: () => true, executeStage: async () => assert.fail("must not execute") });
     assert.equal(replay.replayed, true);
+    seen.length = 0;
+    const semanticOptions = { ...options, animationProfile: SEMANTIC_SENTENCE_PROFILE_TOKEN };
+    const semantic = await runPilotWorkflow(semanticOptions, { ...deps, readLatestPilotReport: () => result.report });
+    assert.equal(semantic.replayed, false);
+    assert.equal(semantic.report.runId, result.report.runId);
+    assert.equal(semantic.report.projectId, result.report.projectId);
+    assert.equal(semantic.report.animationProfile, SEMANTIC_SENTENCE_PROFILE_TOKEN);
+    assert.deepEqual(seen, PILOT_STAGES.slice(1));
+    const semanticReplay = await runPilotWorkflow(semanticOptions, { ...deps, readLatestPilotReport: () => semantic.report, verifyCompletedReport: () => true, executeStage: async () => assert.fail("must not execute") });
+    assert.equal(semanticReplay.replayed, true);
     const failedSeen = [];
     const failed = await runPilotWorkflow(options, { ...deps, readLatestPilotReport: () => null, executeStage: async (stage) => { failedSeen.push(stage); if (stage === "narration_aligned") { const error = new Error("unsafe detail"); error.code = "NARRATION_ALIGNMENT_FAILED"; throw error; } return executeStage(stage); } });
     assert.equal(failed.report.status, "failed"); assert.equal(failed.report.failure.code, "NARRATION_ALIGNMENT_FAILED"); assert.equal(failedSeen.includes("preview_ready"), false);
@@ -111,4 +344,24 @@ test("pilot report-only CLI completes without loading the mutation runtime", () 
   const cli = resolve(__dirname, "..", "demo", "run-dark-curiosity-pilot.mjs"); const output = join(tmpdir(), `pilot-report-only-${process.pid}`);
   try { const run = spawnSync(process.execPath, [cli, "--fixture", FIXTURE, "--output-dir", output, "--report-only"], { encoding: "utf8", timeout: 10000, env: { ...process.env, SHORTSENGINE_LOCAL_WHISPER_MODE: "disabled" } }); assert.equal(run.status, 0); const body = JSON.parse(run.stdout); assert.equal(body.status, "report_only"); assert.equal(body.report.completedStages.at(-1), "fixture_validated"); assert.equal(body.report.projectId, null); assert.doesNotMatch(run.stdout, /storageKey|\/Users|\/private|releaseToken/i); }
   finally { rmSync(output, { recursive: true, force: true }); }
+});
+
+test("pilot report-only CLI records semantic-v3 selection without changing run identity", () => {
+  const cli = resolve(__dirname, "..", "demo", "run-dark-curiosity-pilot.mjs");
+  const legacyOutput = join(tmpdir(), `pilot-report-only-legacy-${process.pid}`);
+  const semanticOutput = join(tmpdir(), `pilot-report-only-semantic-${process.pid}`);
+  try {
+    const legacy = spawnSync(process.execPath, [cli, "--fixture", FIXTURE, "--output-dir", legacyOutput, "--report-only"], { encoding: "utf8", timeout: 10000, env: { ...process.env, SHORTSENGINE_LOCAL_WHISPER_MODE: "disabled" } });
+    const semantic = spawnSync(process.execPath, [cli, "--fixture", FIXTURE, "--output-dir", semanticOutput, "--report-only", "--animation-profile", SEMANTIC_SENTENCE_PROFILE_TOKEN], { encoding: "utf8", timeout: 10000, env: { ...process.env, SHORTSENGINE_LOCAL_WHISPER_MODE: "disabled" } });
+    assert.equal(legacy.status, 0);
+    assert.equal(semantic.status, 0);
+    const legacyBody = JSON.parse(legacy.stdout);
+    const semanticBody = JSON.parse(semantic.stdout);
+    assert.equal(Object.hasOwn(legacyBody.report, "animationProfile"), false);
+    assert.equal(semanticBody.report.animationProfile, SEMANTIC_SENTENCE_PROFILE_TOKEN);
+    assert.equal(semanticBody.report.runId, legacyBody.report.runId);
+  } finally {
+    rmSync(legacyOutput, { recursive: true, force: true });
+    rmSync(semanticOutput, { recursive: true, force: true });
+  }
 });

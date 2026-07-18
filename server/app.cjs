@@ -56,6 +56,7 @@ const { NARRATED_COMPOSITOR_VERSION } = require("./pipelines/narrated-short/vide
 const { QA_PROFILE_VERSION, normalizeQaReport } = require("./pipelines/narrated-short/qa/contract.cjs");
 const { EVIDENCE_PROFILE_VERSION } = require("./pipelines/narrated-short/evidence/contract.cjs");
 const { buildProductionAnimationPayloadBindings } = require("./pipelines/narrated-short/animation/payload-bindings.cjs");
+const { SEMANTIC_SENTENCE_PROFILE_TOKEN } = require("./pipelines/narrated-short/animation/semantic-render-profile.cjs");
 const { publicInvalidationSummary, reviseNarratedProject } = require("./pipelines/narrated-short/invalidation.cjs");
 const { publicQaSummary } = require("./pipelines/narrated-short/qa/qa-orchestrator.cjs");
 const { createPublishApproval, verifyReleaseEligibility } = require("./pipelines/narrated-short/publish/service.cjs");
@@ -1100,9 +1101,31 @@ async function handleRenderNarratedProject(req, res, rid, projectId, principal) 
   validateJsonContentType(req);
   enforceContentLength(req, MAX_JSON_BODY_BYTES);
   const requestPayload = await readJsonBody(req, MAX_JSON_BODY_BYTES);
-  for (const key of Object.keys(requestPayload)) if (key !== "idempotencyKey") throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: key });
+  for (const key of Object.keys(requestPayload)) if (!["idempotencyKey", "animationProfile"].includes(key)) throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: key });
+  const animationProfile = requestPayload.animationProfile === undefined || requestPayload.animationProfile === null || requestPayload.animationProfile === ""
+    ? null
+    : requestPayload.animationProfile;
+  if (animationProfile !== null && animationProfile !== SEMANTIC_SENTENCE_PROFILE_TOKEN) {
+    throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "animationProfile" });
+  }
+  const suppliedIdempotencyKey = requestPayload.idempotencyKey === undefined || requestPayload.idempotencyKey === null || requestPayload.idempotencyKey === ""
+    ? null
+    : sanitizeText(requestPayload.idempotencyKey, 120);
+  if (animationProfile && suppliedIdempotencyKey !== null && !/^[A-Za-z0-9_-]{8,120}$/.test(suppliedIdempotencyKey)) {
+    throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "idempotencyKey" });
+  }
   const approval = contentApprovalRepository.findApproved(project.id, project.input.revision);
   if (!approval) throw new AppError("CONTENT_APPROVAL_REQUIRED", "Approve the narrated draft before rendering.", 409);
+  const activeNarration = project.input.activeNarration;
+  if (animationProfile && (
+    !activeNarration
+    || activeNarration.status !== "aligned"
+    || activeNarration.aligned !== true
+    || activeNarration.timingReady !== true
+    || !activeNarration.alignmentArtifactId
+  )) {
+    throw new AppError("NARRATION_ALIGNMENT_REQUIRED", SAFE_MESSAGES.NARRATION_ALIGNMENT_REQUIRED, 409);
+  }
   const payload = {
     projectRevision: project.input.revision,
     language: project.language,
@@ -1119,8 +1142,9 @@ async function handleRenderNarratedProject(req, res, rid, projectId, principal) 
     qaProfileVersion: QA_PROFILE_VERSION,
     evidenceProfileVersion: EVIDENCE_PROFILE_VERSION,
   };
-  Object.assign(payload, buildProductionAnimationPayloadBindings({ project, approval, renderProfile: approval.renderProfile, contentArtifacts: contentArtifactRepository }));
-  const key = requestPayload.idempotencyKey || idempotencyKey("render_narrated_short", {
+  if (animationProfile) payload.animationProfile = animationProfile;
+  Object.assign(payload, buildProductionAnimationPayloadBindings({ project, approval, renderProfile: approval.renderProfile, animationProfile, contentArtifacts: contentArtifactRepository }));
+  const renderIdentity = {
     projectId: project.id,
     revision: project.input.revision,
     draftHash: approval.draftHash,
@@ -1140,7 +1164,13 @@ async function handleRenderNarratedProject(req, res, rid, projectId, principal) 
     animationProvider: payload.animationProvider,
     animationRuntimeVersion: payload.animationRuntimeVersion,
     animationStyleVersion: payload.animationStyleVersion,
-  });
+  };
+  const key = animationProfile
+    ? idempotencyKey(
+      suppliedIdempotencyKey ? "render_narrated_short_profile_request" : "render_narrated_short",
+      { ...(suppliedIdempotencyKey ? { suppliedIdempotencyKey } : {}), ...renderIdentity, animationProfile },
+    )
+    : requestPayload.idempotencyKey || idempotencyKey("render_narrated_short", renderIdentity);
   const job = jobQueue.create({
     projectId: project.id,
     ownerId: principal.id,
