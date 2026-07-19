@@ -577,9 +577,9 @@ function normalizeEpistemicConstraint(input, index) {
 }
 
 function deepFreeze(value) {
-  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+  if (value && typeof value === "object") {
     for (const child of Object.values(value)) deepFreeze(child);
-    Object.freeze(value);
+    if (!Object.isFrozen(value)) Object.freeze(value);
   }
   return value;
 }

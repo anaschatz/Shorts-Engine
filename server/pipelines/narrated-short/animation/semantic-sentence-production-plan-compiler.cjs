@@ -12,8 +12,11 @@ const {
   normalizeSemanticEventGraph,
 } = require("./semantic-event-validator.cjs");
 const {
-  resolveSemanticEventProfile,
+  findSemanticEventProfile,
 } = require("./semantic-event-profile-registry.cjs");
+const {
+  buildGeneralizedSemanticArtifacts,
+} = require("./generalized-semantic-event-planner.cjs");
 const {
   SEMANTIC_SENTENCE_MAX_CLAIMS_PER_BEAT,
   SEMANTIC_SENTENCE_MAX_SENTENCES_PER_BEAT,
@@ -109,19 +112,39 @@ function exactProfileArtifacts(input) {
   if (draft.contentHash !== timingContext.draftHash) {
     fail("timingContext.draftHash", "draft_hash_mismatch");
   }
-  const profile = resolveSemanticEventProfile({
+  const profile = findSemanticEventProfile({
     profileId: input.semanticProfileId,
     draftHash: draft.contentHash,
     alignmentHash: timingContext.alignmentHash,
   });
-  if (timingContext.contentHash !== profile.timingContextHash) {
-    fail("timingContext.contentHash", "exact_checked_in_timing_required");
+  if (profile) {
+    if (timingContext.contentHash !== profile.timingContextHash) {
+      fail("timingContext.contentHash", "exact_checked_in_timing_required");
+    }
+    const semanticEventGraph = normalizeSemanticEventGraph(buildSemanticEventGraph({
+      draft,
+      timingContext,
+      manifest: profile.manifest,
+    }));
+    const semanticVisualSentencePlan = validateSemanticVisualSentencePlanAgainstGraph(
+      normalizeSemanticVisualSentencePlan(
+        buildSemanticVisualSentencePlan(semanticEventGraph),
+      ),
+      semanticEventGraph,
+    );
+    return {
+      draft,
+      profile,
+      semanticEventGraph,
+      semanticVisualSentencePlan,
+      timingContext,
+    };
   }
-  const semanticEventGraph = normalizeSemanticEventGraph(buildSemanticEventGraph({
+  const generalized = buildGeneralizedSemanticArtifacts({
     draft,
     timingContext,
-    manifest: profile.manifest,
-  }));
+  });
+  const semanticEventGraph = normalizeSemanticEventGraph(generalized.semanticEventGraph);
   const semanticVisualSentencePlan = validateSemanticVisualSentencePlanAgainstGraph(
     normalizeSemanticVisualSentencePlan(
       buildSemanticVisualSentencePlan(semanticEventGraph),
@@ -130,7 +153,18 @@ function exactProfileArtifacts(input) {
   );
   return {
     draft,
-    profile,
+    profile: Object.freeze({
+      id: "generalized_story_visual_intent_v1",
+      profileId: SEMANTIC_SENTENCE_PROFILE_ID,
+      draftHash: draft.contentHash,
+      alignmentHash: timingContext.alignmentHash,
+      timingContextHash: timingContext.contentHash,
+      manifestHash: contentHash({
+        storyIRHash: generalized.storyIR.contentHash,
+        visualIntentGraphHash: generalized.visualIntentGraph.contentHash,
+        semanticEventGraphHash: semanticEventGraph.contentHash,
+      }),
+    }),
     semanticEventGraph,
     semanticVisualSentencePlan,
     timingContext,

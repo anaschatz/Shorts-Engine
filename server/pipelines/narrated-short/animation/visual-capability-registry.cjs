@@ -615,6 +615,7 @@ function selectVisualCapability(input) {
     "carriedAssetIds",
     "excludedAssetIds",
     "excludedGrammarIds",
+    "allowedPairs",
   ], "selection");
   const proposition = normalizeVisualCapabilityProposition(input.proposition);
   const assetIds = Object.keys(SEMANTIC_ASSET_CAPABILITIES);
@@ -634,6 +635,12 @@ function selectVisualCapability(input) {
   const carriedAssetIds = stringList(input.carriedAssetIds, "selection.carriedAssetIds", assetIds);
   const excludedAssetIds = new Set(stringList(input.excludedAssetIds, "selection.excludedAssetIds", assetIds));
   const excludedGrammarIds = new Set(stringList(input.excludedGrammarIds, "selection.excludedGrammarIds", grammarIds));
+  const knownPairs = grammarIds.flatMap((grammarId) => (
+    assetIds.map((assetId) => `${grammarId}:${assetId}`)
+  ));
+  const allowedPairs = input.allowedPairs === undefined
+    ? null
+    : new Set(stringList(input.allowedPairs, "selection.allowedPairs", knownPairs));
   const compatibleAssets = compatibleAssetsForProposition(proposition)
     .filter((assetId) => !excludedAssetIds.has(assetId));
   const compatibleGrammars = compatibleGrammarsForProposition(proposition)
@@ -642,6 +649,7 @@ function selectVisualCapability(input) {
 
   for (const assetId of compatibleAssets) {
     for (const grammarId of compatibleGrammars) {
+      if (allowedPairs && !allowedPairs.has(`${grammarId}:${assetId}`)) continue;
       const evaluation = scoreVisualCapabilityCandidate({
         proposition,
         assetId,

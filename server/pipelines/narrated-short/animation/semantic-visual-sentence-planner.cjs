@@ -15,6 +15,9 @@ const {
   normalizeVisualCapabilityProposition,
   selectVisualCapability,
 } = require("./visual-capability-registry.cjs");
+const {
+  SEMANTIC_SENTENCE_RENDERER_CAPABILITY_PAIRS,
+} = require("./semantic-render-profile.cjs");
 
 const SEMANTIC_VISUAL_SENTENCE_PLAN_SCHEMA_VERSION = 1;
 const SEMANTIC_VISUAL_SENTENCE_PLAN_PROFILE_ID =
@@ -431,6 +434,7 @@ function normalizeSemanticVisualSentencePlan(input) {
       recentGrammarIds: recent(recentGrammarIds),
       recentAssetIds: recent(recentAssetIds),
       carriedAssetIds: continuity.carriedAssetIds,
+      allowedPairs: SEMANTIC_SENTENCE_RENDERER_CAPABILITY_PAIRS,
     });
     const expectedCapability = {
       assetId: selected.assetId,
@@ -641,6 +645,7 @@ function buildSemanticVisualSentencePlan(semanticEventGraph) {
       recentGrammarIds: recent(recentGrammarIds),
       recentAssetIds: recent(recentAssetIds),
       carriedAssetIds: continuity.carriedAssetIds,
+      allowedPairs: SEMANTIC_SENTENCE_RENDERER_CAPABILITY_PAIRS,
     });
     if (focusEntity.persistent) {
       const priorAssetId = persistentAssetByEntity.get(focusEntity.id);

@@ -34,7 +34,7 @@ export const SEMANTIC_SENTENCE_CONTENT_PROFILE_ID =
 export const SEMANTIC_VISUAL_SENTENCE_PLAN_PROFILE_ID =
   "dark_curiosity_semantic_visual_sentence_plan_v1";
 
-const GRAMMAR_ASSET_BINDINGS = Object.freeze({
+export const SUPPORTED_SEMANTIC_SENTENCE_GRAMMAR_ASSET_BINDINGS = Object.freeze({
   before_after: Object.freeze(["calendar_card"]),
   bounded_uncertainty: Object.freeze([
     "hypothesis_card",
@@ -168,7 +168,7 @@ function normalizeSentence(input, index, durationFrames) {
   if (!SUPPORTED_SEMANTIC_SENTENCE_GRAMMARS.includes(grammarId)) {
     fail(`Sentence ${index} grammar is unsupported.`);
   }
-  if (!GRAMMAR_ASSET_BINDINGS[grammarId]?.includes(assetId)) {
+  if (!SUPPORTED_SEMANTIC_SENTENCE_GRAMMAR_ASSET_BINDINGS[grammarId]?.includes(assetId)) {
     fail(`Sentence ${index} asset and grammar are incompatible.`);
   }
   const visualIntent = plainObject(
@@ -356,9 +356,6 @@ function normalizePlan(ir) {
     }
     previousStart = sentence.wordSpan.startFrame;
     previousEnd = sentence.wordSpan.endFrame;
-  }
-  if (sentences[0].wordSpan.startFrame !== 0) {
-    fail("The first semantic sentence must start at frame zero.");
   }
   const normalizedSentencePlan = Object.freeze({
     profileId: sentencePlan.profileId,

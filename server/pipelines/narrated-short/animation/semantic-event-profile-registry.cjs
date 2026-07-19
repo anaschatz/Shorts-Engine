@@ -81,7 +81,7 @@ const PROFILE_BY_KEY = new Map(PROFILES.map((entry) => [
   entry,
 ]));
 
-function resolveSemanticEventProfile(input = {}) {
+function findSemanticEventProfile(input = {}) {
   const { profileId, draftHash, alignmentHash } = input;
   if (profileId !== SEMANTIC_SENTENCE_PROFILE_ID) {
     fail("profileId", "profile_id_not_allowlisted");
@@ -92,7 +92,11 @@ function resolveSemanticEventProfile(input = {}) {
   if (typeof alignmentHash !== "string" || !HASH_PATTERN.test(alignmentHash)) {
     fail("alignmentHash", "hash_required");
   }
-  const profile = PROFILE_BY_KEY.get(registryKey(profileId, draftHash, alignmentHash));
+  return PROFILE_BY_KEY.get(registryKey(profileId, draftHash, alignmentHash)) || null;
+}
+
+function resolveSemanticEventProfile(input = {}) {
+  const profile = findSemanticEventProfile(input);
   if (!profile) fail("profile", "exact_profile_binding_not_found");
   return profile;
 }
@@ -109,6 +113,7 @@ function listSemanticEventProfiles() {
 }
 
 module.exports = {
+  findSemanticEventProfile,
   listSemanticEventProfiles,
   resolveSemanticEventProfile,
 };
