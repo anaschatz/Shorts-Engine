@@ -415,7 +415,7 @@ window.__timelines=window.__timelines||{};window.__timelines[${safeJson(content.
   return Object.freeze({ html, compositionHash: createHash("sha256").update(html).digest("hex"), font: Object.freeze({ family: FONT_FAMILY, sha256: FONT_SHA256, license: FONT_LICENSE, sourcePackage: "@fontsource/outfit" }) });
 }
 
-export function compileAnimationIRToHtml(ir) {
+export function compileAnimationIRToHtml(ir, options = {}) {
   const semanticSentenceTuple = (
     ir?.schemaVersion === 3
     || ir?.profileVersion === "1.3.0"
@@ -434,7 +434,7 @@ export function compileAnimationIRToHtml(ir) {
     ) {
       throw new TypeError("Semantic sentence AnimationIR tuple is invalid.");
     }
-    return compileSemanticSentenceAnimationIRToHtml(ir);
+    return compileSemanticSentenceAnimationIRToHtml(ir, options);
   }
   if (ir.profileVersion === "1.2.0" && ir.content?.semantic?.profileId === "documented_mystery_semantic_v2") {
     return compileGenericSemanticAnimationIRToHtml(ir);

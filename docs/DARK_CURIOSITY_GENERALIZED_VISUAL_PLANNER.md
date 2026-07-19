@@ -6,9 +6,9 @@ The `semantic-v3` path can now compile an approved Dark Curiosity story without
 requiring its exact draft and alignment hashes to exist in the checked-in
 profile registry.
 
-This slice generalizes semantic planning, not unrestricted animation code
-generation. It produces a new grounded sequence of existing, renderer-supported
-visual sentences for each short.
+The generalized path now produces both a grounded visual-sentence sequence and
+story-specific parameters for the renderer's procedural primitives. It does not
+execute model-generated animation code.
 
 ## Pipeline
 
@@ -17,7 +17,7 @@ approved DraftBundle + exact AnimationTimingContext
   -> grounded StoryIR
   -> VisualIntentGraph
   -> validated SemanticEventGraph
-  -> SemanticVisualSentencePlan
+  -> SemanticVisualSentencePlan + grounded primitive parameters
   -> production plan
   -> AnimationIR v3
   -> semantic sentence renderer
@@ -68,6 +68,85 @@ No external model or API is called during compilation. The result is
 deterministic for the same approved draft and alignment and can be safely
 recompiled by queued jobs.
 
+### Grounded primitive parameters
+
+Generalized graphs declare
+`dark_curiosity_grounded_primitive_payload_v1` at graph level and require a
+payload on every proposition. The payload preserves:
+
+- a headline bound to the exact approved `beat.onScreenText`;
+- sentence-specific detail bound to the exact current narration cue;
+- quantities whose values and units retain exact source offsets;
+- one explicit display quantity selected from the current cue, with
+  exact transition targets such as `reset to zero` ranked first, followed by
+  predicate-relevant measures or dates; incidental numbers on negation and
+  uncertainty cues are omitted, and up to eight candidates remain available
+  so a later grounded target cannot be truncated;
+- optional normalized route points bound to the exact approved `draw_route`
+  operation.
+
+Validation deterministically rebuilds StoryIR, VisualIntentGraph, and the
+expected generalized semantic manifest from the approved draft and timing. It
+then compares the full generalized proposition tuple. Fresh hashes therefore
+cannot rebind copy, quantities, state, polarity, or route geometry to another
+beat or operation, and the parameterized profile cannot silently omit only
+some payloads.
+
+The sentence planner converts that payload into
+`dark_curiosity_story_primitive_parameters_v1`. Each parameter block is bound
+to the selected grammar and asset, contains a controlled semantic state token,
+and uses a deterministic geometry seed. Arbitrary SVG paths, HTML, CSS,
+executable content, remote URLs, colors, or unbounded coordinates are not
+accepted.
+
+When approved storyboard route points exist, the map primitive renders those
+bounded layout points in their approved order as a waypoint-preserving
+polyline. Otherwise it renders a seeded illustrative route and marks its
+geometry provenance accordingly. Seeds are limited to non-semantic decoration
+and bounded layout variation: grounded values select semantic marks such as a
+ten-bit counter's ten ticks, while unknown values use neutral geometry.
+
+The renderer and server share the same parameter normalizer. The renderer also
+revalidates sentence plans whenever the graph declares grounded payloads or the
+plan contains parameters. Fully stripping and rehashing a generalized
+graph/plan is also rejected at the contract and renderer boundaries; the only
+unparameterized exceptions are the exact checked graph and sentence-plan
+hashes of the two fixed golden profiles. Grounded copy is XML-escaped,
+quantities retain their value and unit, and bounded semantic excerpts
+prioritize negation and preserve a multiword payoff phrase whenever it fits.
+Cause/effect scenes render distinct calendar, counter, mapping-table, and
+receiver motifs; an affirmative result uses a success path while only rejected
+semantics use the error cross. Quantified cycles keep the exact grounded value
+visible while the semantic state changes; cycles without a quantity switch to
+a symbolic layout with no fake numeric value or numeric ticks. Vessel-absence
+layouts distinguish a repeating loop from a bounded limit. Vessel-absence
+scenes select ice and blizzard motifs independently and only when those words
+occur in the grounded headline or cue, otherwise they use a neutral observation
+field. Parameterized cause and chronology labels use deterministic balanced
+wrapping and final width fitting, including single long words. The exact
+current cue remains visible in the sentence caption while primitive labels stay
+within their legibility budget.
+
+Internal graph/plan consistency is not treated as provenance. Parameterized
+generalized IR requires trusted source validation: compilation and in-process
+composition rebuild the graph against the approved draft and timing context,
+then the controlled render worker receives the normalized approved draft and
+timing context through a separate mode-`0600` staging file rather than the
+mutable render-request payload. The provider passes the expected AnimationIR,
+draft, and timing-context hashes out of band. The worker derives its staging
+root from the request-file path inside a provider-created mode-`0700`, uniquely
+named per-render directory. It accepts one exact argument grammar, requires
+fixed input paths, bounds all input sizes, uses no-follow file handles, and
+checks every expected hash before independently rebuilding and validating the
+graph. Private IR, request, source-context, and composition files are removed
+after use. Successful output verification also requires the exact in-memory
+receipt issued by the same provider instance, so a fabricated or copied
+manifest is not a trust credential. A standalone contract or renderer call
+without the approved source context fails closed; a caller-supplied graph hash
+is never a trust credential. Consequently, changing source text, substituting
+another staged IR, or merely recomputing every public content hash is not
+sufficient to render.
+
 ## Compatibility
 
 The profile registry remains a two-entry exact golden allowlist. Compilation is
@@ -97,10 +176,17 @@ general-mystery case:
 - archive relationship (`general_mystery`).
 
 It verifies determinism, deep immutability, exact word partitioning, distinct
-story-specific intent and grammar sequences, real end-to-end renderer dispatch,
-leading silence, renderer line budgets, semantic negation and movement,
-same-vocabulary semantic variation, registry preservation, renderer capability
-parity, and adversarial contract failures.
+story-specific intent and grammar sequences, grounded visible labels and
+quantities, approved route geometry variance, real end-to-end renderer
+dispatch, leading silence, renderer line budgets, semantic negation and
+movement, same-vocabulary semantic variation, registry preservation, renderer
+contract parity, multiword quantity spans, cue-specific detail, semantic tick
+counts, transition-target quantity ranking with distractors, qualitative cycle
+fallbacks, grounded absence environments, long-token fitting, exact
+nine-grammar coverage, asset-specific cause/effect motifs,
+affirmed-versus-rejected result marks, XML escaping, whole-profile downgrade
+rejection, provider-owned receipts, symlink isolation, worker source-context
+tampering, and fresh-hash adversarial contract failures.
 
 Run it with:
 
@@ -110,13 +196,13 @@ node --test tests/dark-curiosity-generalized-visual-intent-planner.test.cjs
 
 ## Current boundary and next slice
 
-The planner now creates a new semantic animation sequence per short, but the
-renderer primitives still contain several fixed labels, values, and geometry.
-For example, some counters, mappings, dates, and cause/effect labels are
-template constants.
+Generalized shorts now render story-grounded labels, quantities, state values,
+approved route layouts, and deterministic geometry variants. Registry-backed
+GPS and Baychimo profiles intentionally omit the optional parameters and retain
+their exact legacy bytes.
 
-The next slice should add a strictly validated primitive-parameter contract to
-the VisualIntentGraph and AnimationIR, then render story-grounded labels,
-numbers, paths, state values, and geometry. That is the step that turns
-story-specific sequencing into genuinely story-specific procedural animation
-while retaining deterministic rendering and the existing safety gates.
+The remaining boundary is structural novelty: the engine still selects from
+nine validated grammar families. A future slice can introduce a constrained
+scene-composition graph that combines several primitives into a new layout per
+sentence, while keeping the same source bindings, bounded geometry, motion
+budget, and deterministic renderer.

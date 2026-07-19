@@ -1,8 +1,10 @@
 "use strict";
 
 const { normalizeDraftBundle } = require("../contracts.cjs");
+const { stableStringify } = require("./canonical-json.cjs");
 const { normalizeAnimationTimingContext } = require("./timing-contract.cjs");
 const {
+  CHECKED_UNPARAMETERIZED_SEMANTIC_EVENT_GRAPH_HASHES,
   CERTAINTIES,
   ENTITY_KINDS,
   EPISTEMIC_STATUSES,
@@ -11,6 +13,7 @@ const {
   POLARITIES,
   SEMANTIC_EVENT_GRAPH_PROFILE_ID,
   SEMANTIC_EVENT_GRAPH_SCHEMA_VERSION,
+  SEMANTIC_PRIMITIVE_PAYLOAD_PROFILE_ID,
   SEMANTIC_PREDICATES,
   SEMANTIC_ATTRIBUTES,
   SOURCE_REF_TYPES,
@@ -71,7 +74,13 @@ function compareText(left, right) {
 function validateManifestShape(manifest) {
   if (!isPlainObject(manifest)) fail("manifest", "object_required");
   const required = ["narrativeShape", "entities", "propositions"];
-  const allowed = new Set([...required, "storyFormat", "continuity", "epistemicConstraints"]);
+  const allowed = new Set([
+    ...required,
+    "storyFormat",
+    "continuity",
+    "epistemicConstraints",
+    "primitivePayloadProfileId",
+  ]);
   for (const key of Object.keys(manifest)) if (!allowed.has(key)) fail(`manifest.${key}`, "unsupported_field");
   for (const key of required) if (!Object.hasOwn(manifest, key)) fail(`manifest.${key}`, "field_required");
 }
@@ -578,6 +587,94 @@ function validateBindings(graph, draft, timingContext) {
   }
 }
 
+function expectedGeneralizedSemanticManifest(draft, timingContext) {
+  try {
+    const {
+      buildStoryIR,
+      validateStoryIRAgainstDraft,
+    } = require("./story-ir.cjs");
+    const {
+      buildVisualIntentGraph,
+      validateVisualIntentGraphAgainstStoryIR,
+    } = require("./generalized-visual-intent-planner.cjs");
+    const {
+      buildGeneralizedSemanticEventManifest,
+    } = require("./generalized-semantic-event-manifest.cjs");
+    const storyIR = validateStoryIRAgainstDraft(
+      buildStoryIR({ draft, timingContext }),
+      { draft, timingContext },
+    );
+    const visualIntentGraph = validateVisualIntentGraphAgainstStoryIR(
+      buildVisualIntentGraph(storyIR, { draft, timingContext }),
+      storyIR,
+      { draft, timingContext },
+    );
+    return buildGeneralizedSemanticEventManifest(
+      draft,
+      timingContext,
+      visualIntentGraph,
+    );
+  } catch {
+    fail("primitivePayloadProfileId", "expected_payload_derivation_failed");
+  }
+}
+
+function validateGeneralizedSemanticProfile(graph, draft, timingContext) {
+  const hasProfile = graph.primitivePayloadProfileId
+    === SEMANTIC_PRIMITIVE_PAYLOAD_PROFILE_ID;
+  const payloadCount = graph.propositions.filter(
+    (proposition) => proposition.primitivePayload !== undefined,
+  ).length;
+  if (!hasProfile) {
+    if (payloadCount) {
+      fail("propositions.primitivePayload", "payload_profile_marker_required");
+    }
+    if (
+      !CHECKED_UNPARAMETERIZED_SEMANTIC_EVENT_GRAPH_HASHES.includes(
+        graph.contentHash,
+      )
+    ) {
+      fail(
+        "primitivePayloadProfileId",
+        "unparameterized_graph_not_allowlisted",
+      );
+    }
+    return;
+  }
+  if (payloadCount !== graph.propositions.length) {
+    fail("propositions.primitivePayload", "payload_required_for_every_proposition");
+  }
+
+  const manifest = expectedGeneralizedSemanticManifest(draft, timingContext);
+  const expected = normalizeSemanticEventGraph({
+    schemaVersion: SEMANTIC_EVENT_GRAPH_SCHEMA_VERSION,
+    profileId: SEMANTIC_EVENT_GRAPH_PROFILE_ID,
+    primitivePayloadProfileId: manifest.primitivePayloadProfileId,
+    storyFormat: manifest.storyFormat,
+    narrativeShape: manifest.narrativeShape,
+    draftHash: draft.contentHash,
+    sourceStoryboardHash: draft.storyboard.contentHash,
+    timingContextHash: timingContext.contentHash,
+    entities: manifest.entities,
+    propositions: manifest.propositions,
+    continuity: manifest.continuity,
+    epistemicConstraints: manifest.epistemicConstraints,
+  });
+  for (const key of [
+    "storyFormat",
+    "narrativeShape",
+    "entities",
+    "propositions",
+    "continuity",
+    "epistemicConstraints",
+    "primitivePayloadProfileId",
+  ]) {
+    if (stableStringify(graph[key]) !== stableStringify(expected[key])) {
+      fail(key, "generalized_story_binding_mismatch");
+    }
+  }
+}
+
 function validateSemanticEventGraphAgainstDraft(input, context = {}) {
   let draft;
   let timingContext;
@@ -692,6 +789,33 @@ function validateSemanticEventGraphAgainstDraft(input, context = {}) {
         );
       }
     });
+    if (proposition.primitivePayload) {
+      const payloadField = `${field}.primitivePayload`;
+      for (const [name, grounded] of [
+        ["headline", proposition.primitivePayload.headline],
+        ["detail", proposition.primitivePayload.detail],
+      ]) {
+        validateSourceRef(
+          grounded.sourceRef,
+          sourceContext,
+          `${payloadField}.${name}.sourceRef`,
+        );
+        if (grounded.value !== grounded.sourceRef.value) {
+          fail(`${payloadField}.${name}.value`, "source_value_mismatch");
+        }
+      }
+      const geometry = proposition.primitivePayload.geometry;
+      if (geometry) {
+        const scene = sceneById.get(geometry.sourceSceneId);
+        const operation = scene?.operations[geometry.operationIndex];
+        if (
+          !scene
+          || !scene.beatIds.includes(proposition.beatId)
+          || operation?.op !== "draw_route"
+          || stableStringify(operation.points) !== stableStringify(geometry.points)
+        ) fail(`${payloadField}.geometry`, "source_binding_mismatch");
+      }
+    }
     validateSourceRefs(proposition.sourceRefs, sourceContext, `${field}.sourceRefs`);
     const expectedCueRef = cueSourceRef(beat, {
       wordStartIndex: proposition.wordSpan.startWordIndex,
@@ -771,6 +895,7 @@ function validateSemanticEventGraphAgainstDraft(input, context = {}) {
     }
   }
 
+  validateGeneralizedSemanticProfile(graph, draft, timingContext);
   return graph;
 }
 
@@ -796,6 +921,9 @@ function buildSemanticEventGraph(input = {}) {
     draftHash: draft.contentHash,
     sourceStoryboardHash: draft.storyboard.contentHash,
     timingContextHash: timingContext.contentHash,
+    ...(manifest.primitivePayloadProfileId === undefined
+      ? {}
+      : { primitivePayloadProfileId: manifest.primitivePayloadProfileId }),
     entities: manifest.entities,
     propositions: manifest.propositions,
     continuity: manifest.continuity || [],

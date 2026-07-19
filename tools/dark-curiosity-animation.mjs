@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
@@ -26,10 +26,11 @@ function compileFixture(width) {
 async function renderSize(width, outputRoot) {
   const ir = compileFixture(width);
   const runtimeDir = mkdtempSync(join(tmpdir(), `dark-curiosity-animation-${width}-`));
-  const stagedOutput = join(runtimeDir, "wow-signal-visual-master.mp4");
   const contactSheet = join(runtimeDir, "wow-signal-contact-sheet.png");
   try {
-    const result = await provider.render({ animationIR: ir, stagingDir: runtimeDir, outputName: basename(stagedOutput), timeoutMs: 120000, quality: width === 1080 ? "high" : "standard" }, undefined, (event) => process.stderr.write(`render ${width}: ${Math.round(event.percent * 100)}% ${event.stage}\n`));
+    const result = await provider.render({ animationIR: ir, stagingDir: runtimeDir, outputName: "wow-signal-visual-master.mp4", timeoutMs: 120000, quality: width === 1080 ? "high" : "standard" }, undefined, (event) => process.stderr.write(`render ${width}: ${Math.round(event.percent * 100)}% ${event.stage}\n`));
+    provider.verify(result);
+    const stagedOutput = result.outputPath;
     writeContactSheet(stagedOutput, contactSheet);
     const qa = runBenchmarkQa({ outputPath: stagedOutput, width: ir.width, height: ir.height, foregroundMaxY: Math.round(ir.height * 920 / 1280), captionSafeTopRatio: ir.motionBudget.captionSafeZone.topRatio, clippedEntities: 0 });
     if (!qa.passed) throw new Error(`benchmark_qa_failed:${Object.entries(qa.checks).filter(([, passed]) => !passed).map(([name]) => name).join(",")}`);
@@ -48,7 +49,7 @@ async function renderSize(width, outputRoot) {
     };
     const manifestPath = join(finalDir, "visual-master-manifest.json");
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
-    provider.verify({ ...result, outputPath: finalVideo, outputSha256: manifest.outputSha256 });
+    if (manifest.outputSha256 !== result.outputSha256) throw new Error("benchmark_output_copy_mismatch");
     return { manifestPath, videoPath: finalVideo, contactSheetPath: finalContactSheet, metrics: { renderDurationMs: manifest.renderDurationMs, peakMemoryMb: manifest.peakMemoryMb, changedTransitionRatio: qa.samples.changedTransitionRatio, stasisRatio: qa.samples.stasisRatio, motionEnergy: qa.samples.motionEnergy } };
   } finally { rmSync(runtimeDir, { recursive: true, force: true }); }
 }

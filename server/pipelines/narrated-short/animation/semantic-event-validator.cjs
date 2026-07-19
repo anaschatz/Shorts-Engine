@@ -10,6 +10,16 @@ const {
 
 const SEMANTIC_EVENT_GRAPH_SCHEMA_VERSION = 3;
 const SEMANTIC_EVENT_GRAPH_PROFILE_ID = "dark_curiosity_semantic_event_graph_v3";
+const SEMANTIC_PRIMITIVE_PAYLOAD_PROFILE_ID =
+  "dark_curiosity_grounded_primitive_payload_v1";
+const CHECKED_UNPARAMETERIZED_SEMANTIC_EVENT_GRAPH_HASHES = Object.freeze([
+  "e2405560134386bb7d70745a1c89ef059ebaec15495b96d4129eee56d3c7be08",
+  "54383a235b65264c4c8e269d9fd49901de439c8c92e256963179393b87832ab4",
+]);
+const CHECKED_UNPARAMETERIZED_SEMANTIC_SENTENCE_PLAN_HASHES = Object.freeze([
+  "75548c57aa2ce8f101deb35e098f725c6d3faa18dfd2cf8b60b62f948f544341",
+  "24192acffd6dbe70b6cd59f2bdb92ad5b61b5de5c19546b1a6c94edbc58fac28",
+]);
 const HASH_PATTERN = /^[a-f0-9]{64}$/;
 const ID_PATTERN = /^[a-z][a-z0-9_-]{2,79}$/;
 const SEMANTIC_ATTRIBUTE_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,79}$/;
@@ -495,6 +505,83 @@ function normalizeQuantity(input, field) {
   return { value, unit, valueSourceRef, unitSourceRef };
 }
 
+function normalizeGroundedPrimitiveText(input, field) {
+  exactKeys(input, ["value", "sourceRef"], field);
+  const value = text(input.value, `${field}.value`, { max: 160 });
+  const sourceRef = normalizeSourceRef(input.sourceRef, `${field}.sourceRef`);
+  if (sourceRef.value !== value) {
+    fail(`${field}.value`, "primitive_text_must_equal_source_value");
+  }
+  return { value, sourceRef };
+}
+
+function normalizePrimitiveGeometry(input, field) {
+  if (input === null) return null;
+  exactKeys(input, [
+    "kind",
+    "sourceSceneId",
+    "operationIndex",
+    "points",
+  ], field);
+  if (input.kind !== "route_points") fail(`${field}.kind`, "unsupported_value");
+  if (
+    !Array.isArray(input.points)
+    || input.points.length < 2
+    || input.points.length > 12
+  ) fail(`${field}.points`, "route_points_invalid");
+  const points = input.points.map((point, pointIndex) => {
+    if (
+      !Array.isArray(point)
+      || point.length !== 2
+      || point.some((coordinate) => (
+        !Number.isFinite(coordinate)
+        || coordinate < 0
+        || coordinate > 1
+      ))
+    ) fail(`${field}.points[${pointIndex}]`, "point_out_of_range");
+    return [...point];
+  });
+  if (new Set(points.map((point) => stableStringify(point))).size < 2) {
+    fail(`${field}.points`, "geometry_degenerate");
+  }
+  return {
+    kind: input.kind,
+    sourceSceneId: text(input.sourceSceneId, `${field}.sourceSceneId`, {
+      max: 80,
+      pattern: ID_PATTERN,
+    }),
+    operationIndex: integer(
+      input.operationIndex,
+      `${field}.operationIndex`,
+      0,
+      39,
+    ),
+    points,
+  };
+}
+
+function normalizePrimitivePayload(input, field) {
+  exactKeys(input, [
+    "profileId",
+    "headline",
+    "detail",
+    "displayQuantity",
+    "geometry",
+  ], field);
+  if (input.profileId !== SEMANTIC_PRIMITIVE_PAYLOAD_PROFILE_ID) {
+    fail(`${field}.profileId`, "unsupported_profile");
+  }
+  return {
+    profileId: input.profileId,
+    headline: normalizeGroundedPrimitiveText(input.headline, `${field}.headline`),
+    detail: normalizeGroundedPrimitiveText(input.detail, `${field}.detail`),
+    displayQuantity: input.displayQuantity === null
+      ? null
+      : normalizeQuantity(input.displayQuantity, `${field}.displayQuantity`),
+    geometry: normalizePrimitiveGeometry(input.geometry, `${field}.geometry`),
+  };
+}
+
 function normalizeProposition(input, index) {
   const field = `propositions[${index}]`;
   exactKeys(input, [
@@ -515,8 +602,8 @@ function normalizeProposition(input, index) {
     "visualIntent",
     "visualAction",
     "sourceRefs",
-  ], field);
-  return {
+  ], field, ["primitivePayload"]);
+  const normalized = {
     id: text(input.id, `${field}.id`, { max: 80, pattern: ID_PATTERN }),
     beatId: text(input.beatId, `${field}.beatId`, { max: 80, pattern: BEAT_ID_PATTERN }),
     claimIds: uniqueStrings(input.claimIds, `${field}.claimIds`, {
@@ -545,6 +632,13 @@ function normalizeProposition(input, index) {
       maximum: 20,
     }),
   };
+  if (input.primitivePayload !== undefined) {
+    normalized.primitivePayload = normalizePrimitivePayload(
+      input.primitivePayload,
+      `${field}.primitivePayload`,
+    );
+  }
+  return normalized;
 }
 
 function normalizeContinuity(input, index) {
@@ -603,7 +697,7 @@ function normalizeSemanticEventGraph(input) {
     "propositions",
     "continuity",
     "epistemicConstraints",
-  ], "semanticEventGraph", ["contentHash"]);
+  ], "semanticEventGraph", ["contentHash", "primitivePayloadProfileId"]);
   if (input.schemaVersion !== SEMANTIC_EVENT_GRAPH_SCHEMA_VERSION) fail("schemaVersion", "unsupported_schema");
   if (input.profileId !== SEMANTIC_EVENT_GRAPH_PROFILE_ID) fail("profileId", "unsupported_profile");
   const entities = (Array.isArray(input.entities) ? input.entities : fail("entities", "array_required"))
@@ -650,6 +744,14 @@ function normalizeSemanticEventGraph(input) {
     continuity,
     epistemicConstraints,
   };
+  if (input.primitivePayloadProfileId !== undefined) {
+    if (
+      input.primitivePayloadProfileId
+      !== SEMANTIC_PRIMITIVE_PAYLOAD_PROFILE_ID
+    ) fail("primitivePayloadProfileId", "unsupported_profile");
+    normalized.primitivePayloadProfileId =
+      SEMANTIC_PRIMITIVE_PAYLOAD_PROFILE_ID;
+  }
   const contentHash = semanticEventGraphContentHash(normalized);
   if (input.contentHash !== undefined) {
     text(input.contentHash, "contentHash", { max: 64, pattern: HASH_PATTERN });
@@ -659,6 +761,8 @@ function normalizeSemanticEventGraph(input) {
 }
 
 module.exports = {
+  CHECKED_UNPARAMETERIZED_SEMANTIC_EVENT_GRAPH_HASHES,
+  CHECKED_UNPARAMETERIZED_SEMANTIC_SENTENCE_PLAN_HASHES,
   CERTAINTIES,
   ENTITY_KINDS,
   EPISTEMIC_STATUSES,
@@ -668,6 +772,7 @@ module.exports = {
   SEMANTIC_EVENT_GRAPH_PROFILE_ID,
   SEMANTIC_EVENT_GRAPH_SCHEMA_VERSION,
   SEMANTIC_PREDICATES,
+  SEMANTIC_PRIMITIVE_PAYLOAD_PROFILE_ID,
   SEMANTIC_ATTRIBUTES,
   SOURCE_REF_TYPES,
   STORY_FORMATS,

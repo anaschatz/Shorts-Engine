@@ -290,14 +290,24 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
   try {
     const doctor = await provider.doctor();
     if (!doctor.ready || doctor.runtimeVersion !== PRODUCTION_RUNTIME_VERSION) fail("ANIMATION_READINESS_FAILED");
-    const validated = provider.validate(compiled.animationIR);
+    const validated = provider.validate(compiled.animationIR, {
+      semanticSourceContext: {
+        draft: input.draft,
+        timingContext,
+      },
+    });
     const estimate = provider.estimate(validated);
     const renderTimeoutMs = input.timeoutMs || (input.renderProfile === "final" ? 1800000 : 1200000);
     const rendered = await provider.render({ validated, stagingDir, outputName: "visual-master.mp4", quality: input.renderProfile === "final" ? "high" : "standard", timeoutMs: renderTimeoutMs }, input.signal, input.onProgress);
     const verified = provider.verify(rendered);
     if (rendered.animationIRHash !== compiled.animationIR.contentHash || verified.animationIRHash !== compiled.animationIR.contentHash) fail("ANIMATION_OUTPUT_TAMPERED");
     const { compileAnimationIRToHtml } = await import("../../../../renderer/hyperframes/animation-ir-adapter.mjs");
-    const composition = compileAnimationIRToHtml(compiled.animationIR);
+    const composition = compileAnimationIRToHtml(compiled.animationIR, {
+      semanticSourceContext: {
+        draft: input.draft,
+        timingContext,
+      },
+    });
     if (rendered.compositionHash !== composition.compositionHash) fail("ANIMATION_OUTPUT_TAMPERED");
     const browserRunner = dependencies.runBrowserSeekProof || (await import("../../../../renderer/hyperframes/browser-seek-harness.mjs")).runBrowserSeekProof;
     const runtimeDoctor = dependencies.chromePath ? null : await (await import("../../../../renderer/hyperframes/doctor.mjs")).hyperframesDoctor();

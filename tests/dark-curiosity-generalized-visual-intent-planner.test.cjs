@@ -10,8 +10,18 @@ const {
   normalizeDraftBundle,
 } = require("../server/pipelines/narrated-short/contracts.cjs");
 const {
+  validateAnimationIR,
+} = require("../server/pipelines/narrated-short/animation/contract.cjs");
+const {
   buildGeneralizedSemanticArtifacts,
 } = require("../server/pipelines/narrated-short/animation/generalized-semantic-event-planner.cjs");
+const {
+  quantityTokens,
+} = require("../server/pipelines/narrated-short/animation/generalized-semantic-event-manifest.cjs");
+const {
+  normalizeSemanticEventGraph,
+  validateSemanticEventGraphAgainstDraft,
+} = require("../server/pipelines/narrated-short/animation/semantic-event-graph.cjs");
 const {
   buildVisualIntentGraph,
   normalizeVisualIntentGraph,
@@ -33,7 +43,17 @@ const {
 } = require("../server/pipelines/narrated-short/animation/semantic-render-profile.cjs");
 const {
   buildSemanticVisualSentencePlan,
+  normalizeSemanticVisualSentencePlan,
+  semanticVisualSentencePlanContentHash,
+  validateSemanticVisualSentencePlanAgainstGraph,
 } = require("../server/pipelines/narrated-short/animation/semantic-visual-sentence-planner.cjs");
+const {
+  SEMANTIC_PRIMITIVE_PARAMETER_PROFILE_ID,
+  SEMANTIC_PRIMITIVE_PARAMETER_SCHEMA_VERSION,
+  SEMANTIC_PRIMITIVE_PRESET_BY_GRAMMAR,
+  SEMANTIC_PRIMITIVE_STATE_TOKENS,
+  normalizeSemanticPrimitiveParameters,
+} = require("../server/pipelines/narrated-short/animation/semantic-primitive-parameters.cjs");
 const {
   MAX_SEGMENT_CHARACTERS,
   MAX_SEGMENT_LINES,
@@ -182,6 +202,29 @@ function build(id, salt = id) {
   const semantic = buildGeneralizedSemanticArtifacts({ draft, timingContext });
   const sentencePlan = buildSemanticVisualSentencePlan(semantic.semanticEventGraph);
   return { draft, timingContext, storyIR, visualIntentGraph, semantic, sentencePlan };
+}
+
+function compileRaw(raw, salt, projectId) {
+  const draft = normalizeDraftBundle(raw);
+  const timingContext = timingFor(draft, salt);
+  const compiled = compileProductionAnimation({
+    animationProfile: "semantic-v3",
+    projectId,
+    projectRevision: 1,
+    renderProfile: "preview",
+    draft,
+    timingContext,
+  });
+  return { draft, timingContext, compiled };
+}
+
+function rendererSourceOptions(value) {
+  return {
+    semanticSourceContext: {
+      draft: value.draft,
+      timingContext: value.timingContext,
+    },
+  };
 }
 
 function signature(graph) {
@@ -351,7 +394,9 @@ test("semantic-v3 compiles and renders non-registry narration deterministically"
       compiled.animationIR.content.semanticVisualSentencePlan.sentences.length,
       visualIntentGraph.intents.length,
     );
-    const composition = compileAnimationIRToHtml(compiled.animationIR);
+    const composition = compileAnimationIRToHtml(compiled.animationIR, {
+      semanticSourceContext: { draft, timingContext },
+    });
     assert.match(composition.compositionHash, /^[a-f0-9]{64}$/);
     assert.match(composition.html, /data-semantic-profile-id=/);
     for (const sentence of compiled.animationIR.content.semanticVisualSentencePlan.sentences) {
@@ -411,7 +456,9 @@ test("leading narration silence remains exact and renders from frame zero safely
       .wordSpan.startFrame,
     5,
   );
-  const composition = compileAnimationIRToHtml(compiled.animationIR);
+  const composition = compileAnimationIRToHtml(compiled.animationIR, {
+    semanticSourceContext: { draft, timingContext },
+  });
   assert.match(composition.html, /"startFrame":5/);
 });
 
@@ -445,7 +492,9 @@ test("StoryIR segments to the renderer line budget before compilation", async ()
     timingContext,
   });
   assert.match(
-    compileAnimationIRToHtml(compiled.animationIR).compositionHash,
+    compileAnimationIRToHtml(compiled.animationIR, {
+      semanticSourceContext: { draft, timingContext },
+    }).compositionHash,
     /^[a-f0-9]{64}$/,
   );
 });
@@ -612,6 +661,895 @@ test("StoryIR and visual intent contracts fail closed on gaps, bindings, order, 
   );
 });
 
+test("generalized semantic-v3 carries source-bound primitive parameters into visible renderer markup", async () => {
+  const { compileAnimationIRToHtml } = await import(
+    "../renderer/hyperframes/animation-ir-adapter.mjs"
+  );
+  for (const [id] of CASES) {
+    const compiledValue = compileRaw(
+      readRaw(id),
+      `grounded-primitives-${id}`,
+      `prj_grounded_${id}`,
+    );
+    const { compiled } = compiledValue;
+    const graph = compiled.animationIR.content.semanticEventGraph;
+    const plan = compiled.animationIR.content.semanticVisualSentencePlan;
+    assert.equal(
+      semanticVisualSentencePlanContentHash(plan),
+      plan.contentHash,
+      id,
+    );
+    assert.deepEqual(
+      validateSemanticVisualSentencePlanAgainstGraph(plan, graph),
+      plan,
+      id,
+    );
+    for (const sentence of plan.sentences) {
+      const parameters = sentence.primitiveParameters;
+      assert.ok(parameters, `${id}:${sentence.id}`);
+      assert.equal(parameters.profileId, SEMANTIC_PRIMITIVE_PARAMETER_PROFILE_ID);
+      assert.equal(parameters.grammarId, sentence.capability.grammarId);
+      assert.equal(parameters.assetId, sentence.capability.assetId);
+      assert.equal(
+        parameters.geometry.presetId,
+        SEMANTIC_PRIMITIVE_PRESET_BY_GRAMMAR[sentence.capability.grammarId],
+      );
+      assert.equal(parameters.subject.value, parameters.subject.sourceRef.value);
+      assert.equal(parameters.detail.value, parameters.detail.sourceRef.value);
+      if (parameters.quantity) {
+        assert.equal(
+          parameters.quantity.value,
+          parameters.quantity.valueSourceRef.value,
+        );
+        assert.equal(
+          parameters.quantity.unit,
+          parameters.quantity.unitSourceRef?.value || null,
+        );
+      }
+      assert.deepEqual(
+        normalizeSemanticPrimitiveParameters(parameters),
+        parameters,
+      );
+      assertDeepFrozen(parameters, `${id}.${sentence.id}.primitiveParameters`);
+    }
+    const composition = compileAnimationIRToHtml(
+      compiled.animationIR,
+      rendererSourceOptions(compiledValue),
+    );
+    assert.match(composition.html, /data-primitive-parameterized="true"/);
+    assert.doesNotMatch(composition.html, />1023<|>0000<|>DATE<|>INPUT<|>OUTPUT</);
+  }
+});
+
+test("approved storyboard route points produce deterministic, visibly different map geometry", async () => {
+  const primitives = await import(
+    "../renderer/hyperframes/primitives/semantic-sentence-primitives.mjs"
+  );
+  const { compileAnimationIRToHtml } = await import(
+    "../renderer/hyperframes/animation-ir-adapter.mjs"
+  );
+  const rawA = readRaw("003_baychimo_icebound_drift");
+  const rawB = structuredClone(rawA);
+  const routeA = rawA.storyboard.scenes[3].operations[0].points;
+  const routeB = [
+    [0.12, 0.22],
+    [0.35, 0.38],
+    [0.66, 0.64],
+    [0.88, 0.78],
+  ];
+  rawB.storyboard.scenes[3].operations[0].points = routeB;
+  const first = compileRaw(rawA, "grounded-route-a", "prj_grounded_route_a");
+  const repeated = compileRaw(rawA, "grounded-route-a", "prj_grounded_route_a");
+  const second = compileRaw(rawB, "grounded-route-b", "prj_grounded_route_b");
+  const sentenceWithRoute = (compiled) => (
+    compiled.animationIR.content.semanticVisualSentencePlan.sentences.find(
+      (sentence) => (
+        sentence.capability.grammarId === "map_motion"
+        && sentence.primitiveParameters?.geometry.route
+      ),
+    )
+  );
+  const sentenceA = sentenceWithRoute(first.compiled);
+  const repeatedSentence = sentenceWithRoute(repeated.compiled);
+  const sentenceB = sentenceWithRoute(second.compiled);
+  assert.ok(sentenceA);
+  assert.ok(sentenceB);
+  assert.deepEqual(sentenceA.wordSpan, sentenceB.wordSpan);
+  assert.deepEqual(sentenceA.capability, sentenceB.capability);
+  assert.deepEqual(sentenceA.primitiveParameters.geometry.route.points, routeA);
+  assert.deepEqual(sentenceB.primitiveParameters.geometry.route.points, routeB);
+  const indexA = first.compiled.animationIR.content.semanticVisualSentencePlan
+    .sentences.indexOf(sentenceA);
+  const indexB = second.compiled.animationIR.content.semanticVisualSentencePlan
+    .sentences.indexOf(sentenceB);
+  const markupA = primitives.semanticSentencePrimitiveMarkup(sentenceA, indexA);
+  const repeatedMarkup = primitives.semanticSentencePrimitiveMarkup(
+    repeatedSentence,
+    indexA,
+  );
+  const markupB = primitives.semanticSentencePrimitiveMarkup(sentenceB, indexB);
+  const routePath = (markup) => markup.match(
+    /<path d="([^"]+)" pathLength="1" class="semantic-route-path"\/>/,
+  )?.[1];
+  const pathA = routePath(markupA);
+  const pathB = routePath(markupB);
+  assert.ok(pathA);
+  assert.ok(pathB);
+  assert.equal(repeatedMarkup, markupA);
+  assert.notEqual(pathB, pathA);
+  const mappedRouteA = routeA.map(([x, y]) => (
+    `${(62 + x * 596).toFixed(3)} ${(278 + y * 380).toFixed(3)}`
+  ));
+  assert.equal(
+    pathA,
+    mappedRouteA.map(
+      (point, index) => `${index ? "L" : "M"}${point}`,
+    ).join(" "),
+  );
+  assert.equal(sentenceA.primitiveParameters.geometry.direction, "forward");
+  const coordinates = pathB.match(/\d+(?:\.\d+)?/g).map(Number);
+  coordinates.forEach((coordinate, index) => {
+    assert.ok(
+      coordinate >= (index % 2 ? 278 : 62)
+      && coordinate <= (index % 2 ? 658 : 658),
+    );
+  });
+  const compositionA = compileAnimationIRToHtml(
+    first.compiled.animationIR,
+    rendererSourceOptions(first),
+  );
+  const compositionB = compileAnimationIRToHtml(
+    second.compiled.animationIR,
+    rendererSourceOptions(second),
+  );
+  assert.notEqual(
+    first.compiled.animationIR.content.semanticVisualSentencePlan.contentHash,
+    second.compiled.animationIR.content.semanticVisualSentencePlan.contentHash,
+  );
+  assert.notEqual(first.compiled.animationIR.contentHash, second.compiled.animationIR.contentHash);
+  assert.notEqual(compositionA.compositionHash, compositionB.compositionHash);
+});
+
+test("cue-grounded quantities change primitive body content without leaking legacy demo values", async () => {
+  const primitives = await import(
+    "../renderer/hyperframes/primitives/semantic-sentence-primitives.mjs"
+  );
+  const raw72 = readRaw("001_wow_signal_mystery");
+  const raw41 = JSON.parse(
+    JSON.stringify(raw72)
+      .replaceAll("seventy-two", "forty-one")
+      .replaceAll("72", "41"),
+  );
+  const first = compileRaw(raw72, "quantity-72", "prj_quantity_72");
+  const second = compileRaw(raw41, "quantity-41", "prj_quantity_41");
+  const quantified = (compiled, value) => (
+    compiled.animationIR.content.semanticVisualSentencePlan.sentences.find(
+      (sentence) => (
+        sentence.primitiveParameters?.quantity?.value === value
+        && sentence.primitiveParameters.quantity.unit
+          ?.toLocaleLowerCase("en-US") === "seconds"
+      ),
+    )
+  );
+  const sentence72 = quantified(first.compiled, "seventy-two");
+  const sentence41 = quantified(second.compiled, "forty-one");
+  assert.ok(sentence72);
+  assert.ok(sentence41);
+  assert.equal(sentence72.capability.grammarId, sentence41.capability.grammarId);
+  assert.equal(sentence72.capability.assetId, sentence41.capability.assetId);
+  const markup72 = primitives.semanticSentencePrimitiveMarkup(sentence72, 0);
+  const markup41 = primitives.semanticSentencePrimitiveMarkup(sentence41, 0);
+  assert.match(markup72, />SEVENTY-TWO SECONDS/);
+  assert.match(markup41, />FORTY-ONE SECONDS/);
+  assert.notEqual(markup41, markup72);
+  assert.doesNotMatch(markup72, />1023<|>0000<|>DATE<|>INPUT<|>OUTPUT</);
+  assert.doesNotMatch(markup41, />1023<|>0000<|>DATE<|>INPUT<|>OUTPUT</);
+});
+
+test("multiword number phrases keep one exact value span and their unit", () => {
+  const value = "The signal continued for twenty four hours.";
+  const quantities = quantityTokens({
+    sourceType: "beat",
+    sourceId: "beat_context",
+    operationIndex: null,
+    field: "spokenText",
+    startOffset: 0,
+    endOffset: value.length,
+    value,
+  });
+  assert.equal(quantities.length, 1);
+  assert.equal(quantities[0].value, "twenty four");
+  assert.equal(quantities[0].unit, "hours");
+  assert.equal(
+    value.slice(
+      quantities[0].valueSourceRef.startOffset,
+      quantities[0].valueSourceRef.endOffset,
+    ),
+    "twenty four",
+  );
+  assert.equal(
+    value.slice(
+      quantities[0].unitSourceRef.startOffset,
+      quantities[0].unitSourceRef.endOffset,
+    ),
+    "hours",
+  );
+
+  const conjunctionValue = "The archive covers one hundred and twenty years.";
+  const conjunctionQuantities = quantityTokens({
+    sourceType: "beat",
+    sourceId: "beat_evidence",
+    operationIndex: null,
+    field: "spokenText",
+    startOffset: 0,
+    endOffset: conjunctionValue.length,
+    value: conjunctionValue,
+  });
+  assert.equal(conjunctionQuantities.length, 1);
+  assert.equal(
+    conjunctionQuantities[0].value,
+    "one hundred and twenty",
+  );
+  assert.equal(conjunctionQuantities[0].unit, "years");
+});
+
+test("generalized graph semantics cannot be rebound or downgraded with fresh hashes", async () => {
+  const { compileAnimationIRToHtml } = await import(
+    "../renderer/hyperframes/animation-ir-adapter.mjs"
+  );
+  const { compileSemanticSentenceAnimationIRToHtml } = await import(
+    "../renderer/hyperframes/semantic-sentence-animation.mjs"
+  );
+  const wow = compileRaw(
+    readRaw("001_wow_signal_mystery"),
+    "graph-binding-adversarial",
+    "prj_graph_binding_adversarial",
+  );
+  const graph = wow.compiled.animationIR.content.semanticEventGraph;
+  const graphFailure = (mutate, reason = "generalized_story_binding_mismatch") => {
+    const changed = structuredClone(graph);
+    delete changed.contentHash;
+    mutate(changed);
+    assertFailure(
+      () => validateSemanticEventGraphAgainstDraft(changed, {
+        draft: wow.draft,
+        timingContext: wow.timingContext,
+      }),
+      "ANIMATION_SEMANTIC_EVENT_INVALID",
+      reason,
+    );
+  };
+
+  graphFailure((changed) => {
+    changed.propositions[1].primitivePayload.headline = structuredClone(
+      changed.propositions[0].primitivePayload.headline,
+    );
+  });
+  const quantified = graph.propositions.filter(
+    (proposition) => proposition.primitivePayload.displayQuantity,
+  );
+  assert.ok(quantified.length >= 2);
+  graphFailure((changed) => {
+    const donor = changed.propositions.find(
+      (proposition) => proposition.id === quantified[0].id,
+    );
+    const target = changed.propositions.find(
+      (proposition) => proposition.id === quantified[1].id,
+    );
+    target.primitivePayload.displayQuantity = structuredClone(
+      donor.primitivePayload.displayQuantity,
+    );
+  });
+  graphFailure((changed) => {
+    changed.propositions[0].polarity = changed.propositions[0].polarity
+      === "affirmed" ? "negated" : "affirmed";
+  });
+  graphFailure(
+    (changed) => changed.propositions.forEach(
+      (proposition) => delete proposition.primitivePayload,
+    ),
+    "payload_required_for_every_proposition",
+  );
+  graphFailure(
+    (changed) => delete changed.primitivePayloadProfileId,
+    "payload_profile_marker_required",
+  );
+  graphFailure(
+    (changed) => {
+      delete changed.primitivePayloadProfileId;
+      changed.propositions.forEach(
+        (proposition) => delete proposition.primitivePayload,
+      );
+    },
+    "unparameterized_graph_not_allowlisted",
+  );
+
+  assert.throws(
+    () => validateAnimationIR(wow.compiled.animationIR),
+    /trusted validation context/,
+  );
+  assert.equal(
+    validateAnimationIR(
+      wow.compiled.animationIR,
+      rendererSourceOptions(wow),
+    ).contentHash,
+    wow.compiled.animationIR.contentHash,
+  );
+  assert.throws(
+    () => validateAnimationIR(wow.compiled.animationIR, {
+      trustedSemanticEventGraphHash: graph.contentHash,
+    }),
+    /trusted validation context/,
+  );
+  assert.throws(
+    () => compileAnimationIRToHtml(wow.compiled.animationIR),
+    /trusted validation context/,
+  );
+  assert.throws(
+    () => compileAnimationIRToHtml(wow.compiled.animationIR, {
+      trustedSemanticEventGraphHash: graph.contentHash,
+    }),
+    /trusted validation context/,
+  );
+
+  const forgedGraphInput = structuredClone(graph);
+  delete forgedGraphInput.contentHash;
+  const forgedHeadline =
+    forgedGraphInput.propositions[0].primitivePayload.headline;
+  forgedHeadline.value = "FORGED SOURCE";
+  forgedHeadline.sourceRef.value = forgedHeadline.value;
+  forgedHeadline.sourceRef.endOffset =
+    forgedHeadline.sourceRef.startOffset + forgedHeadline.value.length;
+  const forgedGraph = normalizeSemanticEventGraph(forgedGraphInput);
+  const forgedPlan = buildSemanticVisualSentencePlan(forgedGraph);
+  const forgedIR = structuredClone(wow.compiled.animationIR);
+  forgedIR.content.semanticEventGraph = structuredClone(forgedGraph);
+  forgedIR.content.semanticVisualSentencePlan = structuredClone(forgedPlan);
+  forgedIR.content.semantic.semanticEventGraphHash = forgedGraph.contentHash;
+  forgedIR.content.semantic.semanticVisualSentencePlanHash =
+    forgedPlan.contentHash;
+  delete forgedIR.contentHash;
+  assert.throws(
+    () => validateAnimationIR(forgedIR),
+    /trusted validation context/,
+  );
+  assert.throws(
+    () => validateAnimationIR(forgedIR, {
+      trustedSemanticEventGraphHash: graph.contentHash,
+    }),
+    /trusted validation context/,
+  );
+  assert.throws(
+    () => validateAnimationIR(forgedIR, rendererSourceOptions(wow)),
+    { code: "ANIMATION_SEMANTIC_EVENT_INVALID" },
+  );
+  assert.throws(
+    () => compileAnimationIRToHtml(forgedIR),
+    /trusted validation context/,
+  );
+  assert.throws(
+    () => compileAnimationIRToHtml(forgedIR, {
+      trustedSemanticEventGraphHash: graph.contentHash,
+    }),
+    /trusted validation context/,
+  );
+  assert.throws(
+    () => compileAnimationIRToHtml(forgedIR, rendererSourceOptions(wow)),
+    /do not match the trusted context/,
+  );
+
+  const strippedPlanInput = structuredClone(
+    wow.compiled.animationIR.content.semanticVisualSentencePlan,
+  );
+  delete strippedPlanInput.contentHash;
+  strippedPlanInput.sentences.forEach(
+    (sentence) => delete sentence.primitiveParameters,
+  );
+  const strippedPlan = normalizeSemanticVisualSentencePlan(strippedPlanInput);
+  assertFailure(
+    () => validateSemanticVisualSentencePlanAgainstGraph(strippedPlan, graph),
+    "ANIMATION_SEMANTIC_VISUAL_SENTENCE_INVALID",
+    "semantic_event_graph_binding_mismatch",
+  );
+  const strippedIR = structuredClone(wow.compiled.animationIR);
+  strippedIR.content.semanticVisualSentencePlan = structuredClone(strippedPlan);
+  strippedIR.content.semantic.semanticVisualSentencePlanHash =
+    strippedPlan.contentHash;
+  assert.throws(
+    () => compileAnimationIRToHtml(strippedIR, rendererSourceOptions(wow)),
+    /not bound to the embedded graph/,
+  );
+
+  const fullyStrippedGraphInput = structuredClone(graph);
+  delete fullyStrippedGraphInput.contentHash;
+  delete fullyStrippedGraphInput.primitivePayloadProfileId;
+  fullyStrippedGraphInput.propositions.forEach(
+    (proposition) => delete proposition.primitivePayload,
+  );
+  const fullyStrippedGraph = normalizeSemanticEventGraph(
+    fullyStrippedGraphInput,
+  );
+  const fullyStrippedPlanInput = structuredClone(
+    wow.compiled.animationIR.content.semanticVisualSentencePlan,
+  );
+  delete fullyStrippedPlanInput.contentHash;
+  fullyStrippedPlanInput.bindings.semanticEventGraphHash =
+    fullyStrippedGraph.contentHash;
+  fullyStrippedPlanInput.sentences.forEach(
+    (sentence) => delete sentence.primitiveParameters,
+  );
+  const fullyStrippedPlan = normalizeSemanticVisualSentencePlan(
+    fullyStrippedPlanInput,
+  );
+  const fullyStrippedIR = structuredClone(wow.compiled.animationIR);
+  fullyStrippedIR.content.semanticEventGraph =
+    structuredClone(fullyStrippedGraph);
+  fullyStrippedIR.content.semanticVisualSentencePlan =
+    structuredClone(fullyStrippedPlan);
+  fullyStrippedIR.content.semantic.semanticEventGraphHash =
+    fullyStrippedGraph.contentHash;
+  fullyStrippedIR.content.semantic.semanticVisualSentencePlanHash =
+    fullyStrippedPlan.contentHash;
+  fullyStrippedIR.contentHash = undefined;
+  assert.throws(
+    () => validateAnimationIR(fullyStrippedIR),
+    /Unparameterized semantic graph is not an approved checked profile/,
+  );
+  assert.throws(
+    () => compileAnimationIRToHtml(fullyStrippedIR),
+    /Unparameterized semantic graph is not an approved checked profile/,
+  );
+  const graphlessStrippedIR = structuredClone(fullyStrippedIR);
+  delete graphlessStrippedIR.content.semanticEventGraph;
+  assert.throws(
+    () => compileSemanticSentenceAnimationIRToHtml(graphlessStrippedIR),
+    /Graphless sentence plan is not an approved checked profile/,
+  );
+});
+
+test("sentence primitives follow the current cue, preserve units, and use semantic geometry", async () => {
+  const primitives = await import(
+    "../renderer/hyperframes/primitives/semantic-sentence-primitives.mjs"
+  );
+  const gps = compileRaw(
+    readRaw("002_gps_week_rollover"),
+    "cue-primitive-regression",
+    "prj_cue_primitive_regression",
+  );
+  const sentences =
+    gps.compiled.animationIR.content.semanticVisualSentencePlan.sentences;
+  const rollover = sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("2038"),
+  );
+  assert.ok(rollover);
+  assert.equal(rollover.primitiveParameters.quantity.value, "2038");
+  assert.equal(rollover.primitiveParameters.stateToken, "REPEATS");
+
+  const resetToZero = sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("reset to zero"),
+  );
+  assert.ok(resetToZero);
+  assert.equal(resetToZero.capability.grammarId, "finite_cycle");
+  assert.equal(resetToZero.primitiveParameters.quantity.value, "zero");
+  const resetMarkup = primitives.semanticSentencePrimitiveMarkup(
+    resetToZero,
+    sentences.indexOf(resetToZero),
+  );
+  assert.match(resetMarkup, /data-cycle-content="quantity"/);
+  assert.match(
+    resetMarkup,
+    /class="counter-value cycle-quantity"[^>]*>ZERO<\/text>/,
+  );
+
+  const distractorRaw = readRaw("002_gps_week_rollover");
+  distractorRaw.script.beats[0].spokenText =
+    distractorRaw.script.beats[0].spokenText.replace(
+      "the legacy GPS week counter reset to zero",
+      "the legacy GPS week counter waited twenty years, then reset to zero",
+    );
+  const distractorA = compileRaw(
+    distractorRaw,
+    "transition-target-distractors",
+    "prj_transition_target_distractors",
+  );
+  const distractorB = compileRaw(
+    structuredClone(distractorRaw),
+    "transition-target-distractors",
+    "prj_transition_target_distractors",
+  );
+  assert.equal(
+    distractorA.compiled.animationIR.contentHash,
+    distractorB.compiled.animationIR.contentHash,
+  );
+  const distractorReset = distractorA.compiled.animationIR.content
+    .semanticVisualSentencePlan.sentences.find(
+      (sentence) => sentence.wordSpan.text.includes("reset to zero"),
+    );
+  assert.ok(distractorReset);
+  assert.equal(distractorReset.primitiveParameters.quantity.value, "zero");
+  const distractorProposition = distractorA.compiled.animationIR.content
+    .semanticEventGraph.propositions.find(
+      (proposition) => proposition.id === distractorReset.propositionId,
+    );
+  assert.ok(distractorProposition.quantities.length >= 4);
+  assert.ok(distractorProposition.quantities.some(
+    (quantity) => quantity.value === "zero",
+  ));
+
+  const fromToRaw = readRaw("002_gps_week_rollover");
+  fromToRaw.script.beats[0].spokenText =
+    fromToRaw.script.beats[0].spokenText.replace(
+      "counter reset to zero",
+      "counter reset from 1023 to zero",
+    );
+  const fromTo = compileRaw(
+    fromToRaw,
+    "transition-from-to-target",
+    "prj_transition_from_to_target",
+  );
+  const fromToReset = fromTo.compiled.animationIR.content
+    .semanticVisualSentencePlan.sentences.find(
+      (sentence) => sentence.wordSpan.text.includes("reset from 1023 to zero"),
+    );
+  assert.ok(fromToReset);
+  assert.equal(fromToReset.primitiveParameters.quantity.value, "zero");
+
+  const newerMessages = sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("newer navigation messages"),
+  );
+  assert.ok(newerMessages);
+  assert.equal(
+    newerMessages.primitiveParameters.detail.value,
+    newerMessages.wordSpan.text,
+  );
+  assert.equal(
+    newerMessages.primitiveParameters.detail.sourceRef.value,
+    newerMessages.wordSpan.text,
+  );
+  assert.equal(newerMessages.primitiveParameters.quantity, null);
+  const newerMarkup = primitives.semanticSentencePrimitiveMarkup(
+    newerMessages,
+    sentences.indexOf(newerMessages),
+  );
+  assert.doesNotMatch(newerMarkup, />1999<|>2019<|>2038</);
+  assert.doesNotMatch(newerMarkup, />CURRENT</);
+  assert.match(newerMarkup, /COUNTER MORE[\s\S]*ROOM/);
+  assert.match(newerMarkup, /while newer navigation[\s\S]*messages give/);
+
+  const symbolicCycles = sentences.filter((sentence) => (
+    sentence.capability.grammarId === "finite_cycle"
+    && sentence.primitiveParameters.quantity === null
+  ));
+  assert.ok(symbolicCycles.length > 0);
+  for (const sentence of symbolicCycles) {
+    const markup = primitives.semanticSentencePrimitiveMarkup(
+      sentence,
+      sentences.indexOf(sentence),
+    );
+    assert.match(markup, /data-cycle-content="symbolic"/);
+    assert.doesNotMatch(markup, /class="counter-value|class="counter-tick"/);
+    assert.match(markup, new RegExp(`>${sentence.primitiveParameters.stateToken}<`));
+    assert.match(
+      markup,
+      new RegExp(`data-cycle-symbol="${
+        sentence.primitiveParameters.stateToken === "LIMIT"
+          ? "limit"
+          : sentence.primitiveParameters.stateToken === "REPEATS"
+            ? "repeat"
+            : "change"
+      }"`),
+    );
+  }
+
+  const tenBits = sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("ten bits"),
+  );
+  assert.ok(tenBits);
+  assert.equal(tenBits.primitiveParameters.quantity.value, "ten");
+  assert.equal(tenBits.primitiveParameters.quantity.unit, "bits");
+  const tenBitMarkup = primitives.semanticSentencePrimitiveMarkup(
+    tenBits,
+    sentences.indexOf(tenBits),
+  );
+  assert.equal(
+    (tenBitMarkup.match(/class="counter-tick"/g) || []).length,
+    10,
+  );
+  assert.match(tenBitMarkup, /data-cycle-content="quantity"/);
+  assert.match(tenBitMarkup, />TEN BITS</);
+  assert.doesNotMatch(
+    tenBitMarkup,
+    /semantic-cycle-pointer" transform-origin=/,
+  );
+
+  const twentyFourBitRaw = readRaw("002_gps_week_rollover");
+  twentyFourBitRaw.script.beats[1].spokenText =
+    twentyFourBitRaw.script.beats[1].spokenText
+      .replace("ten bits", "twenty four bits");
+  const twentyFourBits = compileRaw(
+    twentyFourBitRaw,
+    "multiword-bit-geometry-regression",
+    "prj_multiword_bit_geometry_regression",
+  );
+  const twentyFourBitSentence = twentyFourBits.compiled.animationIR.content
+    .semanticVisualSentencePlan.sentences.find(
+      (sentence) => sentence.wordSpan.text.includes("twenty four bits"),
+    );
+  assert.ok(twentyFourBitSentence);
+  const twentyFourBitMarkup = primitives.semanticSentencePrimitiveMarkup(
+    twentyFourBitSentence,
+    twentyFourBits.compiled.animationIR.content.semanticVisualSentencePlan
+      .sentences.indexOf(twentyFourBitSentence),
+  );
+  assert.equal(
+    (twentyFourBitMarkup.match(/class="counter-tick"/g) || []).length,
+    24,
+  );
+
+  const hoursRaw = readRaw("002_gps_week_rollover");
+  hoursRaw.script.beats[1].spokenText = hoursRaw.script.beats[1].spokenText
+    .replace("ten bits", "twenty four hours");
+  const hours = compileRaw(
+    hoursRaw,
+    "multiword-unit-render-regression",
+    "prj_multiword_unit_render_regression",
+  );
+  const hourSentence = hours.compiled.animationIR.content
+    .semanticVisualSentencePlan.sentences.find(
+      (sentence) => sentence.wordSpan.text.includes("twenty four hours"),
+    );
+  assert.ok(hourSentence);
+  assert.equal(hourSentence.primitiveParameters.quantity.value, "twenty four");
+  assert.equal(hourSentence.primitiveParameters.quantity.unit, "hours");
+  assert.match(
+    primitives.semanticSentencePrimitiveMarkup(
+      hourSentence,
+      hours.compiled.animationIR.content.semanticVisualSentencePlan
+        .sentences.indexOf(hourSentence),
+    ),
+    /TWENTY FOUR HOURS/,
+  );
+
+  const longQuantityRaw = readRaw("002_gps_week_rollover");
+  longQuantityRaw.script.beats[1].spokenText =
+    longQuantityRaw.script.beats[1].spokenText
+      .replace("ten bits", "one hundred and twenty years");
+  const longQuantity = compileRaw(
+    longQuantityRaw,
+    "long-quantity-render-regression",
+    "prj_long_quantity_render_regression",
+  );
+  const longQuantitySentence = longQuantity.compiled.animationIR.content
+    .semanticVisualSentencePlan.sentences.find(
+      (sentence) => sentence.wordSpan.text.includes(
+        "one hundred and twenty years",
+      ),
+    );
+  assert.ok(longQuantitySentence);
+  const longQuantityMarkup = primitives.semanticSentencePrimitiveMarkup(
+    longQuantitySentence,
+    longQuantity.compiled.animationIR.content.semanticVisualSentencePlan
+      .sentences.indexOf(longQuantitySentence),
+  );
+  assert.match(longQuantityMarkup, /ONE HUNDRED AND TWENTY YEARS/);
+  assert.doesNotMatch(longQuantityMarkup, /ONE … YEARS/);
+
+  for (const [needle, expected] of [
+    ["leaving", /OF POSSIBLE[\s\S]*VALUES/],
+    ["equipment", /SOFTWARE[\s\S]*PATCHES/],
+    ["ordinary", /WAS[\s\S]*ORDINARY/],
+  ]) {
+    const sentence = sentences.find(
+      (candidate) => candidate.wordSpan.text.toLowerCase().includes(needle),
+    );
+    assert.ok(sentence, needle);
+    const markup = primitives.semanticSentencePrimitiveMarkup(
+      sentence,
+      sentences.indexOf(sentence),
+    );
+    assert.match(markup, expected, needle);
+    assert.doesNotMatch(
+      markup,
+      />(?:LEAVING|EQUIPMENT|ORDINARY)</,
+      needle,
+    );
+  }
+
+  const wow = compileRaw(
+    readRaw("001_wow_signal_mystery"),
+    "quantity-priority-regression",
+    "prj_quantity_priority_regression",
+  );
+  const wowSentences = wow.compiled.animationIR.content
+    .semanticVisualSentencePlan.sentences;
+  const yearSentence = wowSentences.find(
+    (sentence) => sentence.wordSpan.text.includes("1977"),
+  );
+  assert.ok(yearSentence);
+  assert.equal(yearSentence.primitiveParameters.quantity.value, "1977");
+  assert.match(
+    primitives.semanticSentencePrimitiveMarkup(
+      yearSentence,
+      wowSentences.indexOf(yearSentence),
+    ),
+    />1977</,
+  );
+  const incidentalOne = wowSentences.find(
+    (sentence) => sentence.wordSpan.text.includes("one strong unexplained"),
+  );
+  assert.ok(incidentalOne);
+  assert.equal(incidentalOne.primitiveParameters.quantity, null);
+  const affirmedCause = wowSentences.find((sentence) => (
+    sentence.capability.grammarId === "cause_effect_chain"
+    && sentence.primitiveParameters.stateToken === "RESULT"
+  ));
+  assert.ok(affirmedCause);
+  const affirmedCauseMarkup = primitives.semanticSentencePrimitiveMarkup(
+    affirmedCause,
+    wowSentences.indexOf(affirmedCause),
+  );
+  assert.match(affirmedCauseMarkup, /data-cause-result="affirmed"/);
+  assert.doesNotMatch(affirmedCauseMarkup, /class="semantic-draw error-cross"/);
+
+  const reversedRoute = structuredClone(
+    compileRaw(
+      readRaw("003_baychimo_icebound_drift"),
+      "route-order-regression",
+      "prj_route_order_regression",
+    ).compiled.animationIR.content.semanticVisualSentencePlan.sentences.find(
+      (sentence) => sentence.primitiveParameters?.geometry.route,
+    ).primitiveParameters,
+  );
+  reversedRoute.geometry.direction = "reverse";
+  assertFailure(
+    () => normalizeSemanticPrimitiveParameters(reversedRoute),
+    "ANIMATION_SEMANTIC_PRIMITIVE_PARAMETERS_INVALID",
+    "approved_route_order_must_be_preserved",
+  );
+
+  const general = compileRaw(
+    readRaw("004_general_word_collision"),
+    "negation-display-regression",
+    "prj_negation_display_regression",
+  );
+  const causation = general.compiled.animationIR.content
+    .semanticVisualSentencePlan.sentences.find(
+      (sentence) => sentence.wordSpan.text.toLowerCase().includes("causation"),
+    );
+  assert.ok(causation);
+  const causationMarkup = primitives.semanticSentencePrimitiveMarkup(
+    causation,
+    general.compiled.animationIR.content.semanticVisualSentencePlan
+      .sentences.indexOf(causation),
+  );
+  assert.match(causationMarkup, /NOT CAUSATION/);
+
+  const baychimo = compileRaw(
+    readRaw("003_baychimo_icebound_drift"),
+    "intact-label-regression",
+    "prj_intact_label_regression",
+  );
+  const reappearance = baychimo.compiled.animationIR.content
+    .semanticVisualSentencePlan.sentences.find(
+      (sentence) => sentence.primitiveParameters.subject.value
+        .toLowerCase().includes("reappeared"),
+    );
+  assert.ok(reappearance);
+  const reappearanceMarkup = primitives.semanticSentencePrimitiveMarkup(
+    reappearance,
+    baychimo.compiled.animationIR.content.semanticVisualSentencePlan
+      .sentences.indexOf(reappearance),
+  );
+  assert.match(reappearanceMarkup, /SHIP[\s\S]*REAPPEARED/);
+  assert.doesNotMatch(reappearanceMarkup, />[A-Z] … REAPPEARED</);
+
+  const disappearance = baychimo.compiled.animationIR.content
+    .semanticVisualSentencePlan.sentences.find(
+      (sentence) => sentence.capability.grammarId === "negative_space_absence",
+    );
+  assert.ok(disappearance);
+  const disappearanceMarkup = primitives.semanticSentencePrimitiveMarkup(
+    disappearance,
+    baychimo.compiled.animationIR.content.semanticVisualSentencePlan
+      .sentences.indexOf(disappearance),
+  );
+  assert.match(disappearanceMarkup, /data-absence-environment="ice_blizzard"/);
+  assert.match(disappearanceMarkup, /class="ice-field"/);
+  assert.match(disappearanceMarkup, /class="semantic-blizzard"/);
+});
+
+test("primitive parameter contracts escape grounded XML and fail closed on tampering", async () => {
+  const primitives = await import(
+    "../renderer/hyperframes/primitives/semantic-sentence-primitives.mjs"
+  );
+  const { compileAnimationIRToHtml } = await import(
+    "../renderer/hyperframes/animation-ir-adapter.mjs"
+  );
+  const wow = compileRaw(
+    readRaw("001_wow_signal_mystery"),
+    "primitive-adversarial",
+    "prj_primitive_adversarial",
+  );
+  const graph = wow.compiled.animationIR.content.semanticEventGraph;
+  const plan = wow.compiled.animationIR.content.semanticVisualSentencePlan;
+  const changedState = structuredClone(plan);
+  delete changedState.contentHash;
+  changedState.sentences[0].primitiveParameters.stateToken = "OBSERVED";
+  const reboundPlan = normalizeSemanticVisualSentencePlan(changedState);
+  assert.equal(
+    reboundPlan.contentHash,
+    semanticVisualSentencePlanContentHash(reboundPlan),
+  );
+  assertFailure(
+    () => validateSemanticVisualSentencePlanAgainstGraph(reboundPlan, graph),
+    "ANIMATION_SEMANTIC_VISUAL_SENTENCE_INVALID",
+    "semantic_event_graph_binding_mismatch",
+  );
+  const reboundIR = structuredClone(wow.compiled.animationIR);
+  reboundIR.content.semanticVisualSentencePlan = structuredClone(reboundPlan);
+  reboundIR.content.semantic.semanticVisualSentencePlanHash =
+    reboundPlan.contentHash;
+  assert.throws(
+    () => compileAnimationIRToHtml(reboundIR, rendererSourceOptions(wow)),
+    /not bound to the embedded graph/,
+  );
+
+  const extraField = structuredClone(plan.sentences[0].primitiveParameters);
+  extraField.svg = "<path/>";
+  assertFailure(
+    () => normalizeSemanticPrimitiveParameters(extraField),
+    "ANIMATION_SEMANTIC_PRIMITIVE_PARAMETERS_INVALID",
+    "unsupported_or_missing_field",
+  );
+
+  const remote = structuredClone(plan.sentences[0].primitiveParameters);
+  remote.subject.value = "https://unsafe.example";
+  remote.subject.sourceRef.value = remote.subject.value;
+  remote.subject.sourceRef.endOffset =
+    remote.subject.sourceRef.startOffset + remote.subject.value.length;
+  assertFailure(
+    () => normalizeSemanticPrimitiveParameters(remote),
+    "ANIMATION_SEMANTIC_PRIMITIVE_PARAMETERS_INVALID",
+    "bounded_safe_text_required",
+  );
+
+  const escapedSentence = structuredClone(plan.sentences[0]);
+  const escapedValue = "Archive A & B <copy>";
+  escapedSentence.primitiveParameters.subject.value = escapedValue;
+  escapedSentence.primitiveParameters.subject.sourceRef.value = escapedValue;
+  escapedSentence.primitiveParameters.subject.sourceRef.endOffset =
+    escapedSentence.primitiveParameters.subject.sourceRef.startOffset
+      + escapedValue.length;
+  const escapedMarkup = primitives.semanticSentencePrimitiveMarkup(
+    escapedSentence,
+    0,
+  );
+  assert.match(escapedMarkup, /ARCHIVE A &amp; B &lt;COPY&gt;/);
+  assert.doesNotMatch(escapedMarkup, /<copy>/i);
+
+  const baychimo = compileRaw(
+    readRaw("003_baychimo_icebound_drift"),
+    "primitive-route-adversarial",
+    "prj_primitive_route_adversarial",
+  );
+  const reboundGraph = structuredClone(
+    baychimo.compiled.animationIR.content.semanticEventGraph,
+  );
+  delete reboundGraph.contentHash;
+  const routeProposition = reboundGraph.propositions.find(
+    (proposition) => proposition.primitivePayload?.geometry,
+  );
+  routeProposition.primitivePayload.geometry.points[0][0] += 0.01;
+  assertFailure(
+    () => validateSemanticEventGraphAgainstDraft(reboundGraph, {
+      draft: baychimo.draft,
+      timingContext: baychimo.timingContext,
+    }),
+    "ANIMATION_SEMANTIC_EVENT_INVALID",
+    "source_binding_mismatch",
+  );
+});
+
 test("the checked profile registry remains a two-entry exact golden allowlist", () => {
   const profiles = listSemanticEventProfiles();
   assert.equal(profiles.length, 2);
@@ -621,6 +1559,172 @@ test("the checked profile registry remains a two-entry exact golden allowlist", 
     assert.equal(resolved.draftHash, profile.draftHash);
     assert.equal(resolved.alignmentHash, profile.alignmentHash);
   }
+});
+
+test("every parameterized grammar branch renders grounded markup", async () => {
+  const primitives = await import(
+    "../renderer/hyperframes/primitives/semantic-sentence-primitives.mjs"
+  );
+  const wow = compileRaw(
+    readRaw("001_wow_signal_mystery"),
+    "parameterized-grammar-matrix",
+    "prj_parameterized_grammar_matrix",
+  );
+  const base = wow.compiled.animationIR.content
+    .semanticVisualSentencePlan.sentences[0];
+  assert.deepEqual(
+    [...SEMANTIC_SENTENCE_RENDERER_GRAMMAR_IDS],
+    [
+      "before_after",
+      "bounded_uncertainty",
+      "cause_effect_chain",
+      "chronology_accumulation",
+      "evidence_inspection",
+      "finite_cycle",
+      "map_motion",
+      "negative_space_absence",
+      "side_by_side_comparison",
+    ],
+  );
+  for (const grammarId of SEMANTIC_SENTENCE_RENDERER_GRAMMAR_IDS) {
+    const sentence = structuredClone(base);
+    const assetId =
+      SEMANTIC_SENTENCE_RENDERER_GRAMMAR_ASSET_BINDINGS[grammarId][0];
+    sentence.capability.grammarId = grammarId;
+    sentence.capability.assetId = assetId;
+    sentence.primitiveParameters.grammarId = grammarId;
+    sentence.primitiveParameters.assetId = assetId;
+    sentence.primitiveParameters.geometry.presetId =
+      SEMANTIC_PRIMITIVE_PRESET_BY_GRAMMAR[grammarId];
+    sentence.primitiveParameters.geometry.direction = "forward";
+    sentence.primitiveParameters.geometry.route = null;
+    const markup = primitives.semanticSentencePrimitiveMarkup(sentence, 0);
+    assert.match(markup, /data-primitive-parameterized="true"/, grammarId);
+    assert.match(markup, /data-geometry-kind="[^"]+"/, grammarId);
+    assert.doesNotMatch(
+      markup,
+      />1023<|>0000<|>DATE<|>INPUT<|>OUTPUT</,
+      grammarId,
+    );
+    if (grammarId === "negative_space_absence") {
+      assert.match(markup, /data-absence-environment="neutral"/);
+      assert.match(markup, /class="absence-neutral-field"/);
+      assert.doesNotMatch(markup, /class="ice-field"|class="semantic-blizzard"/);
+    }
+  }
+
+  const iceOnlyAbsence = structuredClone(base);
+  iceOnlyAbsence.capability.grammarId = "negative_space_absence";
+  iceOnlyAbsence.capability.assetId = "vessel";
+  iceOnlyAbsence.primitiveParameters.grammarId = "negative_space_absence";
+  iceOnlyAbsence.primitiveParameters.assetId = "vessel";
+  iceOnlyAbsence.primitiveParameters.geometry.presetId =
+    SEMANTIC_PRIMITIVE_PRESET_BY_GRAMMAR.negative_space_absence;
+  iceOnlyAbsence.primitiveParameters.geometry.route = null;
+  const iceText = "The vessel vanished beside Arctic pack ice";
+  iceOnlyAbsence.primitiveParameters.detail.value = iceText;
+  iceOnlyAbsence.primitiveParameters.detail.sourceRef.value = iceText;
+  iceOnlyAbsence.primitiveParameters.detail.sourceRef.endOffset =
+    iceOnlyAbsence.primitiveParameters.detail.sourceRef.startOffset
+      + iceText.length;
+  const iceOnlyMarkup = primitives.semanticSentencePrimitiveMarkup(
+    iceOnlyAbsence,
+    0,
+  );
+  assert.match(iceOnlyMarkup, /data-absence-environment="ice"/);
+  assert.match(iceOnlyMarkup, /class="ice-field"/);
+  assert.doesNotMatch(iceOnlyMarkup, /class="semantic-blizzard"/);
+
+  const longCause = structuredClone(base);
+  longCause.capability.grammarId = "cause_effect_chain";
+  longCause.capability.assetId = "mapping_table";
+  longCause.primitiveParameters.grammarId = "cause_effect_chain";
+  longCause.primitiveParameters.assetId = "mapping_table";
+  longCause.primitiveParameters.geometry.presetId =
+    SEMANTIC_PRIMITIVE_PRESET_BY_GRAMMAR.cause_effect_chain;
+  longCause.primitiveParameters.geometry.route = null;
+  const longWord = "Electromagnetically";
+  longCause.primitiveParameters.detail.value = longWord;
+  longCause.primitiveParameters.detail.sourceRef.value = longWord;
+  longCause.primitiveParameters.detail.sourceRef.endOffset =
+    longCause.primitiveParameters.detail.sourceRef.startOffset
+      + longWord.length;
+  const longCauseMarkup = primitives.semanticSentencePrimitiveMarkup(
+    longCause,
+    0,
+  );
+  const causeLines = [...longCauseMarkup.matchAll(
+    /data-cause-detail-line="\d+"[^>]*>([^<]+)<\/text>/g,
+  )].map((match) => match[1]);
+  assert.equal(causeLines.length, 2);
+  assert.equal(causeLines.join(""), longWord.toUpperCase());
+  assert.ok(causeLines.every((line) => Array.from(line).length <= 14));
+
+  const longChronology = structuredClone(base);
+  longChronology.capability.grammarId = "chronology_accumulation";
+  longChronology.capability.assetId = "timeline_axis";
+  longChronology.primitiveParameters.grammarId = "chronology_accumulation";
+  longChronology.primitiveParameters.assetId = "timeline_axis";
+  longChronology.primitiveParameters.geometry.presetId =
+    SEMANTIC_PRIMITIVE_PRESET_BY_GRAMMAR.chronology_accumulation;
+  longChronology.primitiveParameters.geometry.route = null;
+  const chronologyWord = "Counterchronology";
+  for (const binding of [
+    longChronology.primitiveParameters.subject,
+    longChronology.primitiveParameters.detail,
+  ]) {
+    binding.value = chronologyWord;
+    binding.sourceRef.value = chronologyWord;
+    binding.sourceRef.endOffset = binding.sourceRef.startOffset
+      + chronologyWord.length;
+  }
+  const longChronologyMarkup = primitives.semanticSentencePrimitiveMarkup(
+    longChronology,
+    0,
+  );
+  const chronologyLines = [...longChronologyMarkup.matchAll(
+    /data-chronology-label-line="\d+"[^>]*>([^<]+)<\/text>/g,
+  )].map((match) => match[1]);
+  assert.ok(chronologyLines.length >= 4);
+  assert.ok(chronologyLines.every((line) => Array.from(line).length <= 12));
+  const causeAssetMarkups =
+    SEMANTIC_SENTENCE_RENDERER_GRAMMAR_ASSET_BINDINGS
+      .cause_effect_chain.map((assetId) => {
+        const sentence = structuredClone(base);
+        sentence.capability.grammarId = "cause_effect_chain";
+        sentence.capability.assetId = assetId;
+        sentence.primitiveParameters.grammarId = "cause_effect_chain";
+        sentence.primitiveParameters.assetId = assetId;
+        sentence.primitiveParameters.stateToken = "RESULT";
+        sentence.primitiveParameters.geometry.presetId =
+          SEMANTIC_PRIMITIVE_PRESET_BY_GRAMMAR.cause_effect_chain;
+        sentence.primitiveParameters.geometry.direction = "forward";
+        sentence.primitiveParameters.geometry.route = null;
+        const markup = primitives.semanticSentencePrimitiveMarkup(sentence, 0);
+        assert.match(markup, new RegExp(
+          `data-cause-asset-motif="${assetId}"`,
+        ));
+        assert.match(markup, /data-cause-result="affirmed"/);
+        assert.doesNotMatch(markup, /class="semantic-draw error-cross"/);
+        return markup;
+      });
+  assert.equal(new Set(causeAssetMarkups).size, 4);
+  const rejectedCause = structuredClone(base);
+  rejectedCause.capability.grammarId = "cause_effect_chain";
+  rejectedCause.capability.assetId = "mapping_table";
+  rejectedCause.primitiveParameters.grammarId = "cause_effect_chain";
+  rejectedCause.primitiveParameters.assetId = "mapping_table";
+  rejectedCause.primitiveParameters.stateToken = "REJECTED";
+  rejectedCause.primitiveParameters.geometry.presetId =
+    SEMANTIC_PRIMITIVE_PRESET_BY_GRAMMAR.cause_effect_chain;
+  rejectedCause.primitiveParameters.geometry.direction = "reverse";
+  rejectedCause.primitiveParameters.geometry.route = null;
+  const rejectedMarkup = primitives.semanticSentencePrimitiveMarkup(
+    rejectedCause,
+    0,
+  );
+  assert.match(rejectedMarkup, /data-cause-result="rejected"/);
+  assert.match(rejectedMarkup, /class="semantic-draw error-cross"/);
 });
 
 test("server-side generalized capability gates mirror the actual sentence renderer", async () => {
@@ -641,5 +1745,21 @@ test("server-side generalized capability gates mirror the actual sentence render
   assert.deepEqual(
     SEMANTIC_SENTENCE_RENDERER_GRAMMAR_ASSET_BINDINGS,
     renderer.SUPPORTED_SEMANTIC_SENTENCE_GRAMMAR_ASSET_BINDINGS,
+  );
+  assert.equal(
+    primitives.SEMANTIC_PRIMITIVE_PARAMETER_PROFILE_ID,
+    SEMANTIC_PRIMITIVE_PARAMETER_PROFILE_ID,
+  );
+  assert.equal(
+    primitives.SEMANTIC_PRIMITIVE_PARAMETER_SCHEMA_VERSION,
+    SEMANTIC_PRIMITIVE_PARAMETER_SCHEMA_VERSION,
+  );
+  assert.deepEqual(
+    primitives.SEMANTIC_PRIMITIVE_PRESET_BY_GRAMMAR,
+    SEMANTIC_PRIMITIVE_PRESET_BY_GRAMMAR,
+  );
+  assert.deepEqual(
+    primitives.SEMANTIC_PRIMITIVE_STATE_TOKENS,
+    SEMANTIC_PRIMITIVE_STATE_TOKENS,
   );
 });

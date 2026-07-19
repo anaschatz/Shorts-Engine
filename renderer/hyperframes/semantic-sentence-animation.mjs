@@ -5,11 +5,28 @@ import {
   SUPPORTED_SEMANTIC_SENTENCE_ASSETS,
   SUPPORTED_SEMANTIC_SENTENCE_GRAMMARS,
   escapeSemanticSentenceXml,
+  normalizeSemanticPrimitiveParameters,
   semanticSentenceGeometryKind,
   semanticSentencePrimitiveMarkup,
 } from "./primitives/semantic-sentence-primitives.mjs";
 
 const require = createRequire(import.meta.url);
+const {
+  validateSemanticVisualSentencePlanAgainstGraph,
+} = require(
+  "../../server/pipelines/narrated-short/animation/semantic-visual-sentence-planner.cjs",
+);
+const {
+  validateSemanticEventGraphAgainstDraft,
+} = require(
+  "../../server/pipelines/narrated-short/animation/semantic-event-graph.cjs",
+);
+const {
+  CHECKED_UNPARAMETERIZED_SEMANTIC_EVENT_GRAPH_HASHES,
+  CHECKED_UNPARAMETERIZED_SEMANTIC_SENTENCE_PLAN_HASHES,
+} = require(
+  "../../server/pipelines/narrated-short/animation/semantic-event-validator.cjs",
+);
 const BASE_WIDTH = 720;
 const BASE_HEIGHT = 1280;
 const FONT_FAMILY = "Outfit";
@@ -171,6 +188,16 @@ function normalizeSentence(input, index, durationFrames) {
   if (!SUPPORTED_SEMANTIC_SENTENCE_GRAMMAR_ASSET_BINDINGS[grammarId]?.includes(assetId)) {
     fail(`Sentence ${index} asset and grammar are incompatible.`);
   }
+  const primitiveParameters = sentence.primitiveParameters === undefined
+    ? null
+    : normalizeSemanticPrimitiveParameters(sentence.primitiveParameters);
+  if (
+    primitiveParameters
+    && (
+      primitiveParameters.grammarId !== grammarId
+      || primitiveParameters.assetId !== assetId
+    )
+  ) fail(`Sentence ${index} primitive parameters are bound to another capability.`);
   const visualIntent = plainObject(
     sentence.visualIntent,
     `Sentence ${index} visual intent`,
@@ -238,6 +265,7 @@ function normalizeSentence(input, index, durationFrames) {
       persistent: focusEntity.persistent,
     }),
     capability: Object.freeze({ assetId, grammarId }),
+    ...(primitiveParameters ? { primitiveParameters } : {}),
   };
   if (normalized.id !== `vs_${normalized.propositionId}`) {
     fail(`Sentence ${index} id is not bound to its proposition.`);
@@ -261,7 +289,7 @@ function normalizeTitleLines(input, plan) {
   )));
 }
 
-function normalizePlan(ir) {
+function normalizePlan(ir, options = {}) {
   plainObject(ir, "AnimationIR");
   if (
     ir.schemaVersion !== SEMANTIC_SENTENCE_ANIMATION_SCHEMA_VERSION
@@ -307,6 +335,71 @@ function normalizePlan(ir) {
   if (contentHash(sentencePlan) !== suppliedSentencePlanHash) {
     fail("Semantic visual sentence plan hash does not match its content.");
   }
+  const graphDeclaresPrimitivePayloads = (
+    content.semanticEventGraph?.primitivePayloadProfileId !== undefined
+    || content.semanticEventGraph?.propositions?.some(
+      (proposition) => proposition?.primitivePayload !== undefined,
+    )
+  );
+  const planDeclaresPrimitiveParameters = (
+    Array.isArray(sentencePlan.sentences)
+    && sentencePlan.sentences.some(
+      (sentence) => sentence?.primitiveParameters !== undefined,
+    )
+  );
+  const hasEmbeddedSemanticGraph = content.semanticEventGraph !== undefined;
+  const requireGraphlessCheckedProfile =
+    !hasEmbeddedSemanticGraph && !planDeclaresPrimitiveParameters;
+  if (hasEmbeddedSemanticGraph) {
+    if (graphDeclaresPrimitivePayloads) {
+      if (options.semanticSourceContext) {
+        try {
+          validateSemanticEventGraphAgainstDraft(
+            content.semanticEventGraph,
+            options.semanticSourceContext,
+          );
+        } catch {
+          fail(
+            "Generalized semantic source bindings do not match the trusted context.",
+          );
+        }
+      } else {
+        fail(
+          "Generalized semantic source bindings require trusted validation context.",
+        );
+      }
+    }
+    if (
+      !graphDeclaresPrimitivePayloads
+      && !planDeclaresPrimitiveParameters
+      && !CHECKED_UNPARAMETERIZED_SEMANTIC_EVENT_GRAPH_HASHES.includes(
+        content.semanticEventGraph?.contentHash,
+      )
+    ) {
+      fail("Unparameterized semantic graph is not an approved checked profile.");
+    }
+    if (
+      !graphDeclaresPrimitivePayloads
+      && !planDeclaresPrimitiveParameters
+      && !CHECKED_UNPARAMETERIZED_SEMANTIC_SENTENCE_PLAN_HASHES.includes(
+        suppliedSentencePlanHash,
+      )
+    ) {
+      fail(
+        "Unparameterized semantic sentence plan is not an approved checked profile.",
+      );
+    }
+    try {
+      validateSemanticVisualSentencePlanAgainstGraph(
+        sentencePlan,
+        content.semanticEventGraph,
+      );
+    } catch {
+      fail("Semantic primitive parameters are not bound to the embedded graph.");
+    }
+  } else if (planDeclaresPrimitiveParameters) {
+    fail("Semantic primitive parameters require an embedded semantic graph.");
+  }
   const bindings = plainObject(
     sentencePlan.bindings,
     "Semantic visual sentence plan bindings",
@@ -342,6 +435,19 @@ function normalizePlan(ir) {
   const sentences = sourceSentences.map(
     (sentence, index) => normalizeSentence(sentence, index, durationFrames),
   );
+  if (
+    requireGraphlessCheckedProfile
+    && (
+      !CHECKED_UNPARAMETERIZED_SEMANTIC_EVENT_GRAPH_HASHES.includes(
+        normalizedBindings.semanticEventGraphHash,
+      )
+      || !CHECKED_UNPARAMETERIZED_SEMANTIC_SENTENCE_PLAN_HASHES.includes(
+        suppliedSentencePlanHash,
+      )
+    )
+  ) {
+    fail("Graphless sentence plan is not an approved checked profile.");
+  }
   const ids = new Set();
   let previousStart = -1;
   let previousEnd = 0;
@@ -443,8 +549,8 @@ export function activeSemanticSentenceIndexAtFrame(sentences, frame) {
   return selected;
 }
 
-export function compileSemanticSentenceAnimationIRToHtml(ir) {
-  const plan = normalizePlan(ir);
+export function compileSemanticSentenceAnimationIRToHtml(ir, options = {}) {
+  const plan = normalizePlan(ir, options);
   const compositionId = escapeSemanticSentenceXml(plan.compositionId);
   const titleMarkup = plan.titleLines.map((line, index) => (
     `<text x="54" y="${98 + index * 38}" class="composition-title">${

@@ -9,6 +9,8 @@ const {
   validateSemanticVisualSentencePlanAgainstGraph,
 } = require("./semantic-visual-sentence-planner.cjs");
 const {
+  CHECKED_UNPARAMETERIZED_SEMANTIC_EVENT_GRAPH_HASHES,
+  CHECKED_UNPARAMETERIZED_SEMANTIC_SENTENCE_PLAN_HASHES,
   normalizeSemanticEventGraph,
 } = require("./semantic-event-validator.cjs");
 const {
@@ -367,6 +369,51 @@ function validateAnimationIR(input, options = {}) {
   if (semanticSentence) {
     const graph = ir.content.semanticEventGraph;
     const sentencePlan = ir.content.semanticVisualSentencePlan;
+    const graphDeclaresPrimitivePayloads =
+      graph.primitivePayloadProfileId !== undefined;
+    const planDeclaresPrimitiveParameters = sentencePlan.sentences.some(
+      (sentence) => sentence.primitiveParameters !== undefined,
+    );
+    if (
+      !graphDeclaresPrimitivePayloads
+      && !planDeclaresPrimitiveParameters
+      && !CHECKED_UNPARAMETERIZED_SEMANTIC_EVENT_GRAPH_HASHES.includes(
+        graph.contentHash,
+      )
+    ) {
+      fail(
+        "content.semanticEventGraph.primitivePayloadProfileId",
+        "Unparameterized semantic graph is not an approved checked profile.",
+      );
+    }
+    if (
+      !graphDeclaresPrimitivePayloads
+      && !planDeclaresPrimitiveParameters
+      && !CHECKED_UNPARAMETERIZED_SEMANTIC_SENTENCE_PLAN_HASHES.includes(
+        sentencePlan.contentHash,
+      )
+    ) {
+      fail(
+        "content.semanticVisualSentencePlan.contentHash",
+        "Unparameterized semantic sentence plan is not an approved checked profile.",
+      );
+    }
+    if (graphDeclaresPrimitivePayloads) {
+      if (options.semanticSourceContext) {
+        const {
+          validateSemanticEventGraphAgainstDraft,
+        } = require("./semantic-event-graph.cjs");
+        validateSemanticEventGraphAgainstDraft(
+          graph,
+          options.semanticSourceContext,
+        );
+      } else {
+        fail(
+          "content.semanticEventGraph",
+          "Generalized semantic source bindings require trusted validation context.",
+        );
+      }
+    }
     if (!ir.timingBinding) fail("timingBinding", "Semantic sentence animation requires narration timing.");
     if (graph.draftHash !== ir.draftHash) {
       fail("content.semanticEventGraph.draftHash", "Semantic event graph is bound to a different approved draft.");

@@ -1,6 +1,6 @@
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join, relative, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { compileAnimationIRToHtml } from "../renderer/hyperframes/animation-ir-adapter.mjs";
@@ -133,8 +133,9 @@ async function networkProbe(compiled, chromePath) {
 async function renderOnce(compiled, root, label, chromePath) {
   const stagingDir = join(root, label);
   mkdirSync(stagingDir, { recursive: true });
-  const outputPath = join(stagingDir, `wow-signal-browser-seek-${label}.mp4`);
-  const render = await provider.render({ animationIR: compiled.ir, stagingDir, outputName: basename(outputPath), timeoutMs: 120000, quality: "standard" }, undefined, renderProgress(label));
+  const render = await provider.render({ animationIR: compiled.ir, stagingDir, outputName: `wow-signal-browser-seek-${label}.mp4`, timeoutMs: 120000, quality: "standard" }, undefined, renderProgress(label));
+  provider.verify(render);
+  const outputPath = render.outputPath;
   const checkpoints = extractCheckpointMetrics(outputPath, compiled.trace.checkpoints.map((checkpoint) => checkpoint.frame));
   const browser = await runBrowserSeekProof({ html: compiled.composition.html, width: compiled.ir.width, height: compiled.ir.height, fps: compiled.ir.fps, durationFrames: compiled.ir.durationFrames, chromePath, seekSequence: SEEK_SEQUENCE });
   if (!browser.passed || browser.repeatedFrames.length < 5) throw new Error("BROWSER_RANDOM_ACCESS_NONDETERMINISTIC");
@@ -143,7 +144,6 @@ async function renderOnce(compiled, root, label, chromePath) {
     process.stderr.write(`browser seek ${label} QA: ${JSON.stringify({ motion: motionSummary(qa.motion), segments: qa.motion.segmentMetrics, failedChecks: Object.entries(qa.checks).filter(([, passed]) => !passed).map(([key]) => key) })}\n`);
     throw new Error(`BROWSER_SEEK_RENDER_QA_FAILED_${Object.entries(qa.checks).filter(([, passed]) => !passed).map(([key]) => key).join("_")}`);
   }
-  provider.verify({ ...render, outputPath });
   return { outputPath, render, qa, checkpoints, browser };
 }
 

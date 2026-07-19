@@ -18,6 +18,10 @@ const {
 const {
   SEMANTIC_SENTENCE_RENDERER_CAPABILITY_PAIRS,
 } = require("./semantic-render-profile.cjs");
+const {
+  buildSemanticPrimitiveParameters,
+  normalizeSemanticPrimitiveParameters,
+} = require("./semantic-primitive-parameters.cjs");
 
 const SEMANTIC_VISUAL_SENTENCE_PLAN_SCHEMA_VERSION = 1;
 const SEMANTIC_VISUAL_SENTENCE_PLAN_PROFILE_ID =
@@ -264,7 +268,7 @@ function normalizeSentence(input, index) {
     "persistentEntityIds",
     "capability",
     "continuity",
-  ], field);
+  ], field, ["primitiveParameters"]);
   const propositionId = identifier(input.propositionId, `${field}.propositionId`);
   const visualIntent = normalizeVisualIntent(input.visualIntent, `${field}.visualIntent`);
   const focusEntity = normalizeFocusEntity(input.focusEntity, `${field}.focusEntity`);
@@ -290,7 +294,12 @@ function normalizeSentence(input, index) {
   if (focusEntity.persistent !== persistentEntityIds.includes(focusEntity.id)) {
     fail(`${field}.persistentEntityIds`, "focus_persistence_mismatch");
   }
-  return {
+  const capability = normalizeCapability(
+    input.capability,
+    `${field}.capability`,
+    visualIntent,
+  );
+  const normalized = {
     id: identifier(input.id, `${field}.id`),
     propositionId,
     beatId: identifier(input.beatId, `${field}.beatId`),
@@ -305,9 +314,20 @@ function normalizeSentence(input, index) {
     participantEntityIds,
     focusEntity,
     persistentEntityIds,
-    capability: normalizeCapability(input.capability, `${field}.capability`, visualIntent),
+    capability,
     continuity: normalizeContinuity(input.continuity, `${field}.continuity`),
   };
+  if (input.primitiveParameters !== undefined) {
+    const primitiveParameters = normalizeSemanticPrimitiveParameters(
+      input.primitiveParameters,
+    );
+    if (
+      primitiveParameters.grammarId !== capability.grammarId
+      || primitiveParameters.assetId !== capability.assetId
+    ) fail(`${field}.primitiveParameters`, "capability_binding_mismatch");
+    normalized.primitiveParameters = primitiveParameters;
+  }
+  return normalized;
 }
 
 function normalizeBindings(input) {
@@ -519,6 +539,20 @@ function normalizeSemanticVisualSentencePlan(input) {
 function validateSemanticVisualSentencePlanAgainstGraph(input, semanticEventGraph) {
   const graph = normalizeSemanticEventGraph(semanticEventGraph);
   const plan = normalizeSemanticVisualSentencePlan(input);
+  const graphDeclaresPrimitivePayloads =
+    graph.primitivePayloadProfileId !== undefined;
+  const payloadCount = graph.propositions.filter(
+    (proposition) => proposition.primitivePayload !== undefined,
+  ).length;
+  if (
+    (graphDeclaresPrimitivePayloads && payloadCount !== graph.propositions.length)
+    || (!graphDeclaresPrimitivePayloads && payloadCount !== 0)
+  ) {
+    fail(
+      "semanticEventGraph.primitivePayloadProfileId",
+      "semantic_event_graph_binding_mismatch",
+    );
+  }
   const expectedBindings = {
     semanticEventGraphHash: graph.contentHash,
     draftHash: graph.draftHash,
@@ -574,6 +608,24 @@ function validateSemanticVisualSentencePlanAgainstGraph(input, semanticEventGrap
     ];
     for (const [key, expected] of exactBindings) {
       if (!same(sentence[key], expected)) fail(`${field}.${key}`, "semantic_event_graph_binding_mismatch");
+    }
+    if (proposition.primitivePayload) {
+      const expectedPrimitiveParameters = buildSemanticPrimitiveParameters({
+        graphHash: graph.contentHash,
+        proposition,
+        capability: sentence.capability,
+      });
+      if (!same(sentence.primitiveParameters, expectedPrimitiveParameters)) {
+        fail(
+          `${field}.primitiveParameters`,
+          "semantic_event_graph_binding_mismatch",
+        );
+      }
+    } else if (sentence.primitiveParameters !== undefined) {
+      fail(
+        `${field}.primitiveParameters`,
+        "semantic_event_graph_binding_mismatch",
+      );
     }
     for (const entityId of sentence.participantEntityIds) {
       if (!entityById.has(entityId)) fail(`${field}.participantEntityIds`, "entity_not_found");
@@ -663,7 +715,15 @@ function buildSemanticVisualSentencePlan(semanticEventGraph) {
     }
     recentGrammarIds.push(selected.grammarId);
     recentAssetIds.push(selected.assetId);
-    return {
+    const capability = {
+      assetId: selected.assetId,
+      grammarId: selected.grammarId,
+      score: selected.score,
+      semanticScore: selected.semanticScore,
+      continuityScore: selected.continuityScore,
+      noveltyScore: selected.noveltyScore,
+    };
+    const sentence = {
       id: `vs_${proposition.id}`,
       propositionId: proposition.id,
       beatId: proposition.beatId,
@@ -678,16 +738,17 @@ function buildSemanticVisualSentencePlan(semanticEventGraph) {
         persistent: focusEntity.persistent,
       },
       persistentEntityIds,
-      capability: {
-        assetId: selected.assetId,
-        grammarId: selected.grammarId,
-        score: selected.score,
-        semanticScore: selected.semanticScore,
-        continuityScore: selected.continuityScore,
-        noveltyScore: selected.noveltyScore,
-      },
+      capability,
       continuity,
     };
+    if (proposition.primitivePayload) {
+      sentence.primitiveParameters = buildSemanticPrimitiveParameters({
+        graphHash: graph.contentHash,
+        proposition,
+        capability,
+      });
+    }
+    return sentence;
   });
   const persistentEntityBindings = [...persistentSentenceIdsByEntity.entries()]
     .map(([entityId, sentenceIds]) => ({

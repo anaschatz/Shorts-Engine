@@ -22,6 +22,8 @@ const {
 
 const VISUAL_INTENT_GRAPH_SCHEMA_VERSION = 1;
 const VISUAL_INTENT_GRAPH_PROFILE_ID = "dark_curiosity_visual_intent_graph_v1";
+const VISUAL_INTENT_PRIMITIVE_PAYLOAD_PROFILE_ID =
+  "dark_curiosity_grounded_primitive_payload_v1";
 const HASH_PATTERN = /^[a-f0-9]{64}$/;
 const ID_PATTERN = /^[a-z][a-z0-9_-]{2,119}$/;
 const CLAIM_ID_PATTERN = /^claim_[A-Za-z0-9-]{2,72}$/;
@@ -141,16 +143,16 @@ function selectIntentBlueprint(storyIR, beat, segment) {
   if (contains(value, /\b(unexplained|unresolved|unknown|uncertain|mystery|no answer)\b/)) {
     return storyBlueprint(storyIR.storyVocabulary, "uncertainty");
   }
-  if (contains(value, /\b(repeat(?:ed|able)?|again|cycle|every|recurr(?:ed|ing)?|roll(?:ed|s)? over|reset)\b/)) {
+  if (contains(value, /\b(repeat(?:ed|able)?|again|cycle|every|recurr(?:ed|ing)?|roll(?:ed|s)? over|rollovers?|reset)\b/)) {
     return storyBlueprint(storyIR.storyVocabulary, "recurrence");
+  }
+  if (contains(value, /\b(never|vanish(?:ed)?|disappear(?:ed)?|absent|gone|missing|no longer|left no)\b/)) {
+    return storyBlueprint(storyIR.storyVocabulary, "disappearance");
   }
   if (
     storyIR.storyVocabulary === "maritime_route"
     && contains(value, /\b(drift(?:ed|ing)?|move(?:d|ment)?|route|cross(?:ed|ing)?|ice|voyage)\b/)
   ) return storyBlueprint(storyIR.storyVocabulary, "movement");
-  if (contains(value, /\b(never|vanish(?:ed)?|disappear(?:ed)?|absent|no longer|left no)\b/)) {
-    return storyBlueprint(storyIR.storyVocabulary, "disappearance");
-  }
   if (contains(value, /\b(\d+|seconds?|minutes?|hours?|years?|weeks?|bits?|date|counter|frequency)\b/)) {
     return storyBlueprint(storyIR.storyVocabulary, "number");
   }
@@ -347,6 +349,70 @@ function normalizeWordSpan(input, field) {
   };
 }
 
+function normalizePrimitivePayload(input, field) {
+  exactKeys(input, [
+    "profileId",
+    "headline",
+    "detail",
+    "sourceSceneId",
+    "sourceOperationIndexes",
+    "geometry",
+  ], field);
+  if (input.profileId !== VISUAL_INTENT_PRIMITIVE_PAYLOAD_PROFILE_ID) {
+    fail(`${field}.profileId`, "unsupported_profile");
+  }
+  if (
+    !Array.isArray(input.sourceOperationIndexes)
+    || input.sourceOperationIndexes.length < 1
+    || input.sourceOperationIndexes.length > 12
+  ) fail(`${field}.sourceOperationIndexes`, "array_size_invalid");
+  const sourceOperationIndexes = input.sourceOperationIndexes.map((value, index) => (
+    integer(value, `${field}.sourceOperationIndexes[${index}]`, 0, 39)
+  ));
+  if (
+    new Set(sourceOperationIndexes).size !== sourceOperationIndexes.length
+    || sourceOperationIndexes.some((value, index) => (
+      index > 0 && value <= sourceOperationIndexes[index - 1]
+    ))
+  ) fail(`${field}.sourceOperationIndexes`, "ordered_unique_indexes_required");
+  exactKeys(
+    input.geometry,
+    Object.hasOwn(input.geometry, "points") ? ["points"] : [],
+    `${field}.geometry`,
+  );
+  const geometry = {};
+  if (input.geometry.points !== undefined) {
+    if (
+      !Array.isArray(input.geometry.points)
+      || input.geometry.points.length < 2
+      || input.geometry.points.length > 12
+    ) fail(`${field}.geometry.points`, "route_points_invalid");
+    geometry.points = input.geometry.points.map((point, pointIndex) => {
+      if (
+        !Array.isArray(point)
+        || point.length !== 2
+        || point.some((coordinate) => (
+          !Number.isFinite(coordinate)
+          || coordinate < 0
+          || coordinate > 1
+        ))
+      ) fail(`${field}.geometry.points[${pointIndex}]`, "point_out_of_range");
+      return [...point];
+    });
+  }
+  return {
+    profileId: input.profileId,
+    headline: text(input.headline, `${field}.headline`, { max: 120 }),
+    detail: text(input.detail, `${field}.detail`, { max: 160 }),
+    sourceSceneId: text(input.sourceSceneId, `${field}.sourceSceneId`, {
+      max: 80,
+      pattern: ID_PATTERN,
+    }),
+    sourceOperationIndexes,
+    geometry,
+  };
+}
+
 function normalizeIntent(input, index) {
   const field = `visualIntentGraph.intents[${index}]`;
   exactKeys(input, [
@@ -366,6 +432,7 @@ function normalizeIntent(input, index) {
     "visualAction",
     "sourceSceneId",
     "sourceOperationKinds",
+    "primitivePayload",
   ], field);
   const role = text(input.role, `${field}.role`, { max: 20, pattern: ID_PATTERN });
   if (!SEMANTIC_SENTENCE_ROLES.includes(role)) fail(`${field}.role`, "unsupported_value");
@@ -429,6 +496,10 @@ function normalizeIntent(input, index) {
       input.sourceOperationKinds,
       `${field}.sourceOperationKinds`,
       { minimum: 1, maximum: 12, pattern: ID_PATTERN },
+    ),
+    primitivePayload: normalizePrimitivePayload(
+      input.primitivePayload,
+      `${field}.primitivePayload`,
     ),
   };
 }
@@ -670,6 +741,14 @@ function expectedVisualIntentGraph(storyIR) {
       visualAction: `compose_${selected.visualIntent.predicate}`,
       sourceSceneId: beat.source.sceneId,
       sourceOperationKinds: [...beat.source.operationKinds],
+      primitivePayload: {
+        profileId: VISUAL_INTENT_PRIMITIVE_PAYLOAD_PROFILE_ID,
+        headline: beat.source.onScreenText,
+        detail: segment.text,
+        sourceSceneId: beat.source.sceneId,
+        sourceOperationIndexes: [...beat.source.operationIndexes],
+        geometry: structuredClone(beat.source.geometry),
+      },
     }));
   continuity.sort((left, right) => compareText(left.entityId, right.entityId));
   return {
@@ -704,6 +783,7 @@ function validateVisualIntentGraphAgainstStoryIR(input, storyInput, context = {}
 
 module.exports = {
   INTENT_BLUEPRINTS,
+  VISUAL_INTENT_PRIMITIVE_PAYLOAD_PROFILE_ID,
   VISUAL_INTENT_GRAPH_PROFILE_ID,
   VISUAL_INTENT_GRAPH_SCHEMA_VERSION,
   buildVisualIntentGraph,

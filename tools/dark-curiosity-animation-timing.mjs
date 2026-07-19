@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { createPathMorph } from "../renderer/hyperframes/primitives/path-morph.mjs";
@@ -46,10 +46,11 @@ function backwardSeekProof() {
 
 async function renderProof(compiled) {
   const runtimeDir = mkdtempSync(join(tmpdir(), "dark-curiosity-timing-proof-"));
-  const stagedVideo = join(runtimeDir, "wow-signal-timing-proof.mp4");
   const stagedSheet = join(runtimeDir, "wow-signal-timing-checkpoints.png");
   try {
-    const result = await provider.render({ animationIR: compiled.ir, stagingDir: runtimeDir, outputName: basename(stagedVideo), timeoutMs: 120000, quality: "standard" }, undefined, (event) => process.stderr.write(`timing proof: ${Math.round(event.percent * 100)}% ${event.stage}\n`));
+    const result = await provider.render({ animationIR: compiled.ir, stagingDir: runtimeDir, outputName: "wow-signal-timing-proof.mp4", timeoutMs: 120000, quality: "standard" }, undefined, (event) => process.stderr.write(`timing proof: ${Math.round(event.percent * 100)}% ${event.stage}\n`));
+    provider.verify(result);
+    const stagedVideo = result.outputPath;
     const checkpointFrames = compiled.trace.checkpoints.map((item) => item.frame);
     writeCheckpointContactSheet(stagedVideo, stagedSheet, checkpointFrames);
     const qa = runBenchmarkQa({ outputPath: stagedVideo, width: 720, height: 1280, foregroundMaxY: 920, captionSafeTopRatio: compiled.ir.motionBudget.captionSafeZone.topRatio, clippedEntities: 0 });
@@ -86,7 +87,7 @@ async function renderProof(compiled) {
     validateTimingTrace(manifest.timingTrace, compiled.ir);
     const manifestPath = join(OUTPUT_ROOT, "timing-proof-manifest.json");
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
-    provider.verify({ ...result, outputPath: videoPath, outputSha256: manifest.outputSha256 });
+    if (manifest.outputSha256 !== result.outputSha256) throw new Error("timing_proof_output_copy_mismatch");
     return { videoPath, contactSheetPath, manifestPath, metrics: { renderDurationMs: result.renderDurationMs, peakMemoryMb: result.peakMemoryMb, changedTransitionRatio: qa.samples.changedTransitionRatio, stasisRatio: qa.samples.stasisRatio, activeMorphEnergy: activeMotion.motionEnergy, readabilityHoldEnergy: holdMotion.motionEnergy } };
   } finally { rmSync(runtimeDir, { recursive: true, force: true }); }
 }

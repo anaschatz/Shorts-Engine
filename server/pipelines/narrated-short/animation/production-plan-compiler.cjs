@@ -464,7 +464,12 @@ function buildProductionAnimationPlan(input = {}) {
 function compileProductionAnimation(input = {}) {
   const timingContext = normalizeAnimationTimingContext(input.timingContext);
   const plan = buildProductionAnimationPlan({ ...input, timingContext });
-  const animationIR = compileTimingBoundAnimationIR(plan, timingContext);
+  const animationIR = compileTimingBoundAnimationIR(plan, timingContext, {
+    semanticSourceContext: {
+      draft: input.draft,
+      timingContext,
+    },
+  });
   return Object.freeze({ timingContext, plan: Object.freeze(structuredClone(plan)), animationIR });
 }
 

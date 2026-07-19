@@ -68,6 +68,22 @@ const DEFAULT_V2_HASHES = Object.freeze({
     composition: "dabe2d6df7da73596bc3d82f9041b76e1b7e045f1dc94a4ca4ab3b0289253fbc",
   }),
 });
+const SEMANTIC_V3_HASHES = Object.freeze({
+  "002_gps_week_rollover": Object.freeze({
+    graph: "e2405560134386bb7d70745a1c89ef059ebaec15495b96d4129eee56d3c7be08",
+    sentences: "75548c57aa2ce8f101deb35e098f725c6d3faa18dfd2cf8b60b62f948f544341",
+    plan: "361ef45cb3178a41804e1a9c75600e57982548d4a1048f64bf3d905251389759",
+    ir: "9613fe7c2b09c6707eab4b060393d7da9519a1849a454a241c94f48523848ea4",
+    composition: "47302757ce17a264a7720d51fec6dfb5031ddc09c68e8c58aa574df01b3d76a5",
+  }),
+  "003_baychimo_icebound_drift": Object.freeze({
+    graph: "54383a235b65264c4c8e269d9fd49901de439c8c92e256963179393b87832ab4",
+    sentences: "24192acffd6dbe70b6cd59f2bdb92ad5b61b5de5c19546b1a6c94edbc58fac28",
+    plan: "72c75276f42ce8f374b79dc5d2a12828f050ad0c021ea40360a93847e8a64ea0",
+    ir: "5e620f50f3c90c50263a58c91a4a7226b262646161826f5ba486ffa46c447f23",
+    composition: "3d8abb0fe9e83a6206dfb60f7ec98b049eb9ed22977234b4081129a6bc5a8696",
+  }),
+});
 
 function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
@@ -225,6 +241,46 @@ test("both checked profiles compile deterministically into five exact-cue beat s
   }
 });
 
+test("checked semantic-v3 registry outputs remain byte-exact and omit generalized parameters", async () => {
+  const { compileAnimationIRToHtml } = await import(
+    "../renderer/hyperframes/animation-ir-adapter.mjs"
+  );
+  for (const id of CASES) {
+    const value = fixture(id);
+    const compiled = compileProductionAnimation({
+      ...value,
+      animationProfile: SEMANTIC_SENTENCE_PROFILE_TOKEN,
+      projectId: `prj_${id}`,
+      projectRevision: 1,
+      renderProfile: "preview",
+    });
+    const expected = SEMANTIC_V3_HASHES[id];
+    assert.equal(
+      compiled.animationIR.content.semanticEventGraph.contentHash,
+      expected.graph,
+      id,
+    );
+    assert.equal(
+      compiled.animationIR.content.semanticVisualSentencePlan.contentHash,
+      expected.sentences,
+      id,
+    );
+    assert.equal(contentHash(compiled.plan), expected.plan, id);
+    assert.equal(compiled.animationIR.contentHash, expected.ir, id);
+    assert.equal(
+      compileAnimationIRToHtml(compiled.animationIR).compositionHash,
+      expected.composition,
+      id,
+    );
+    assert.ok(
+      compiled.animationIR.content.semanticVisualSentencePlan.sentences.every(
+        (sentence) => sentence.primitiveParameters === undefined,
+      ),
+      id,
+    );
+  }
+});
+
 test("semantic v3 compilation is explicit and rejects non-registry timing", () => {
   const value = fixture(CASES[0]);
   const input = {
@@ -328,6 +384,36 @@ test("semantic-v3 contract validates sentence content against the embedded graph
   assert.throws(
     () => validateAnimationIR(rebound),
     { code: "ANIMATION_SEMANTIC_VISUAL_SENTENCE_INVALID" },
+  );
+});
+
+test("fixed semantic-v3 graphs reject freshly rehashed sentence-plan tampering", async () => {
+  const { compileAnimationIRToHtml } = await import(
+    "../renderer/hyperframes/animation-ir-adapter.mjs"
+  );
+  const value = build(CASES[0]);
+  const compiled = compileProductionAnimation({
+    draft: value.draft,
+    timingContext: value.timingContext,
+    animationProfile: SEMANTIC_SENTENCE_PROFILE_TOKEN,
+    projectId: `prj_${CASES[0]}`,
+    projectRevision: 1,
+    renderProfile: "preview",
+  });
+  const rebound = structuredClone(compiled.animationIR);
+  const plan = rebound.content.semanticVisualSentencePlan;
+  plan.sentences[0].capability.score += 1;
+  delete plan.contentHash;
+  plan.contentHash = semanticVisualSentencePlanContentHash(plan);
+  rebound.content.semantic.semanticVisualSentencePlanHash = plan.contentHash;
+  delete rebound.contentHash;
+  assert.throws(
+    () => validateAnimationIR(rebound),
+    { code: "ANIMATION_SEMANTIC_VISUAL_SENTENCE_INVALID" },
+  );
+  assert.throws(
+    () => compileAnimationIRToHtml(rebound),
+    /Unparameterized semantic sentence plan is not an approved checked profile/,
   );
 });
 

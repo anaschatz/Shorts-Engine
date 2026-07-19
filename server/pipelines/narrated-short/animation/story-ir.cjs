@@ -159,12 +159,53 @@ function normalizeSource(input, field) {
     "template",
     "archetypeId",
     "entityKind",
+    "operationIndexes",
     "operationKinds",
+    "geometry",
     "heading",
     "primaryLabel",
     "secondaryLabel",
     "onScreenText",
   ], field);
+  if (
+    !Array.isArray(input.operationIndexes)
+    || input.operationIndexes.length < 1
+    || input.operationIndexes.length > 12
+  ) fail(`${field}.operationIndexes`, "array_size_invalid");
+  const operationIndexes = input.operationIndexes.map((value, index) => (
+    integer(value, `${field}.operationIndexes[${index}]`, 0, 39)
+  ));
+  if (
+    new Set(operationIndexes).size !== operationIndexes.length
+    || operationIndexes.some((value, index) => (
+      index > 0 && value <= operationIndexes[index - 1]
+    ))
+  ) fail(`${field}.operationIndexes`, "ordered_unique_indexes_required");
+  exactKeys(
+    input.geometry,
+    Object.hasOwn(input.geometry, "points") ? ["points"] : [],
+    `${field}.geometry`,
+  );
+  const geometry = {};
+  if (input.geometry.points !== undefined) {
+    if (
+      !Array.isArray(input.geometry.points)
+      || input.geometry.points.length < 2
+      || input.geometry.points.length > 12
+    ) fail(`${field}.geometry.points`, "route_points_invalid");
+    geometry.points = input.geometry.points.map((point, pointIndex) => {
+      if (
+        !Array.isArray(point)
+        || point.length !== 2
+        || point.some((coordinate) => (
+          !Number.isFinite(coordinate)
+          || coordinate < 0
+          || coordinate > 1
+        ))
+      ) fail(`${field}.geometry.points[${pointIndex}]`, "point_out_of_range");
+      return [...point];
+    });
+  }
   return {
     sceneId: text(input.sceneId, `${field}.sceneId`, { max: 80, pattern: ID_PATTERN }),
     template: text(input.template, `${field}.template`, { max: 80, pattern: ID_PATTERN }),
@@ -176,11 +217,13 @@ function normalizeSource(input, field) {
       max: 80,
       pattern: ID_PATTERN,
     }),
+    operationIndexes,
     operationKinds: stringList(input.operationKinds, `${field}.operationKinds`, {
       minimum: 1,
       maximum: 12,
       pattern: ID_PATTERN,
     }),
+    geometry,
     heading: text(input.heading, `${field}.heading`, { max: 160 }),
     primaryLabel: text(input.primaryLabel, `${field}.primaryLabel`, { max: 160 }),
     secondaryLabel: nullableText(input.secondaryLabel, `${field}.secondaryLabel`, {
@@ -480,7 +523,9 @@ function expectedStoryIR(draft, timingContext) {
         template: sourceScene.template,
         archetypeId: visual.archetypeId,
         entityKind: visual.entityKind,
+        operationIndexes: [...visual.sourceOperationIndexes],
         operationKinds,
+        geometry: structuredClone(visual.geometry),
         heading: visual.heading,
         primaryLabel: visual.primaryLabel,
         secondaryLabel: visual.secondaryLabel,
