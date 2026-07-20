@@ -9,6 +9,10 @@ import {
   semanticSentenceGeometryKind,
   semanticSentencePrimitiveMarkup,
 } from "./primitives/semantic-sentence-primitives.mjs";
+import {
+  SEMANTIC_SCENE_COMPOSITION_PROFILE_ID,
+  normalizeSemanticSceneComposition,
+} from "./primitives/semantic-scene-composition.mjs";
 
 const require = createRequire(import.meta.url);
 const {
@@ -191,6 +195,14 @@ function normalizeSentence(input, index, durationFrames) {
   const primitiveParameters = sentence.primitiveParameters === undefined
     ? null
     : normalizeSemanticPrimitiveParameters(sentence.primitiveParameters);
+  const sceneComposition = sentence.sceneComposition === undefined
+    ? null
+    : normalizeSemanticSceneComposition(sentence.sceneComposition);
+  if (Boolean(primitiveParameters) !== Boolean(sceneComposition)) {
+    fail(
+      `Sentence ${index} primitive parameters and scene composition must be supplied together.`,
+    );
+  }
   if (
     primitiveParameters
     && (
@@ -266,9 +278,16 @@ function normalizeSentence(input, index, durationFrames) {
     }),
     capability: Object.freeze({ assetId, grammarId }),
     ...(primitiveParameters ? { primitiveParameters } : {}),
+    ...(sceneComposition ? { sceneComposition } : {}),
   };
   if (normalized.id !== `vs_${normalized.propositionId}`) {
     fail(`Sentence ${index} id is not bound to its proposition.`);
+  }
+  if (
+    sceneComposition
+    && sceneComposition.id !== `composition_${normalized.propositionId}`
+  ) {
+    fail(`Sentence ${index} scene composition is not bound to its proposition.`);
   }
   return Object.freeze({
     ...normalized,
@@ -347,6 +366,59 @@ function normalizePlan(ir, options = {}) {
       (sentence) => sentence?.primitiveParameters !== undefined,
     )
   );
+  const sourceSentences = sentencePlan.sentences;
+  const compositionProfileId = sentencePlan.sceneCompositionProfileId === undefined
+    ? null
+    : safeId(
+      sentencePlan.sceneCompositionProfileId,
+      "Semantic scene composition profile id",
+    );
+  const planDeclaresSceneCompositions = (
+    Array.isArray(sourceSentences)
+    && sourceSentences.some(
+      (sentence) => sentence?.sceneComposition !== undefined,
+    )
+  );
+  const everySentenceHasPrimitiveParameters = (
+    Array.isArray(sourceSentences)
+    && sourceSentences.length > 0
+    && sourceSentences.every(
+      (sentence) => sentence?.primitiveParameters !== undefined,
+    )
+  );
+  const everySentenceHasSceneComposition = (
+    Array.isArray(sourceSentences)
+    && sourceSentences.length > 0
+    && sourceSentences.every(
+      (sentence) => sentence?.sceneComposition !== undefined,
+    )
+  );
+  if (
+    compositionProfileId !== null
+    && compositionProfileId !== SEMANTIC_SCENE_COMPOSITION_PROFILE_ID
+  ) {
+    fail("Semantic scene composition profile is invalid.");
+  }
+  if (
+    planDeclaresPrimitiveParameters !== planDeclaresSceneCompositions
+    || everySentenceHasPrimitiveParameters !== everySentenceHasSceneComposition
+  ) {
+    fail("Semantic primitive parameters and scene compositions are inconsistent.");
+  }
+  if (
+    compositionProfileId === null
+      ? planDeclaresSceneCompositions
+      : !everySentenceHasSceneComposition
+  ) {
+    fail("Semantic scene composition profile must cover every sentence.");
+  }
+  if (
+    graphDeclaresPrimitivePayloads
+      ? compositionProfileId === null || !everySentenceHasSceneComposition
+      : compositionProfileId !== null || planDeclaresSceneCompositions
+  ) {
+    fail("Semantic scene composition profile does not match the embedded graph.");
+  }
   const hasEmbeddedSemanticGraph = content.semanticEventGraph !== undefined;
   const requireGraphlessCheckedProfile =
     !hasEmbeddedSemanticGraph && !planDeclaresPrimitiveParameters;
@@ -428,7 +500,6 @@ function normalizePlan(ir, options = {}) {
   ) {
     fail("Semantic sentence plan is bound to different narration timing.");
   }
-  const sourceSentences = sentencePlan.sentences;
   if (!Array.isArray(sourceSentences) || !sourceSentences.length || sourceSentences.length > 96) {
     fail("Semantic visual sentence plan requires bounded sentences.");
   }
@@ -470,6 +541,9 @@ function normalizePlan(ir, options = {}) {
     narrativeShape: safeId(sentencePlan.narrativeShape, "Narrative shape"),
     bindings: normalizedBindings,
     sentences: Object.freeze(sentences),
+    ...(compositionProfileId
+      ? { sceneCompositionProfileId: compositionProfileId }
+      : {}),
   });
   return Object.freeze({
     compositionId: safeId(content.compositionId, "Composition id"),
@@ -560,6 +634,41 @@ export function compileSemanticSentenceAnimationIRToHtml(ir, options = {}) {
   const sentenceMarkup = plan.sentencePlan.sentences.map(
     semanticSentencePrimitiveMarkup,
   ).join("\n");
+  const usesSceneComposition = Boolean(
+    plan.sentencePlan.sceneCompositionProfileId,
+  );
+  const sceneCompositionCss = usesSceneComposition ? `
+.semantic-composition-link{fill:none;stroke:#475569;stroke-width:3;stroke-linecap:round;stroke-dasharray:7 9}
+.semantic-composition-link-context{stroke:#22d3ee}.semantic-composition-link-state{stroke:#f59e0b}
+.semantic-support-module{transform-box:fill-box;transform-origin:center}
+.semantic-support-surface{fill:#071827;stroke-width:2.5}
+.semantic-support-cool .semantic-support-surface{stroke:#22d3ee}.semantic-support-warm .semantic-support-surface{fill:#211706;stroke:#f59e0b}
+.semantic-support-reject .semantic-support-surface{fill:#2b101b;stroke:#fb7185}
+.semantic-support-label{fill:#94a3b8;font-size:12px;letter-spacing:2px}
+.semantic-support-value{fill:#e2e8f0;font-size:15px}.semantic-support-quantity{fill:#fde68a;font-size:23px}
+.semantic-support-state{fill:#f8fafc;font-size:18px;letter-spacing:1px}
+.semantic-support-route{fill:none;stroke:#fbbf24;stroke-width:4;stroke-linecap:round;stroke-linejoin:round}
+.semantic-support-route-start{fill:#22d3ee}.semantic-support-route-end{fill:#fbbf24;stroke:#fef3c7;stroke-width:2}` : "";
+  const sceneCompositionProfileAttribute = usesSceneComposition
+    ? `\n data-scene-composition-profile-id="${
+      escapeSemanticSentenceXml(plan.sentencePlan.sceneCompositionProfileId)
+    }"`
+    : "";
+  const sceneCompositionRevealRuntime = usesSceneComposition ? `
+ const sceneComposition=stage.querySelector(".semantic-scene-composition");
+ sceneComposition.querySelectorAll(".semantic-support-module[data-scene-module-id]").forEach((element)=>{
+  const order=Number(element.dataset.revealOrder)||1;
+  const local=ease((semanticProgress-(.05+order*.10))/.30);
+  setOpacity(element,local);
+  element.setAttribute("transform","translate(0 "+(12*(1-local)).toFixed(3)+") scale("+(.96+.04*local).toFixed(4)+")");
+ });
+ sceneComposition.querySelectorAll(".semantic-composition-link").forEach((element,index)=>{
+  setOpacity(element,ease((semanticProgress-(.12+index*.08))/.26));
+ });` : "";
+  const sceneCompositionDatasetRuntime = usesSceneComposition ? `
+ document.documentElement.dataset.activeSceneCompositionId=active.sceneCompositionId;
+ document.documentElement.dataset.activeSceneCompositionLayoutId=active.sceneCompositionLayoutId;
+ document.documentElement.dataset.activeSceneCompositionProfileId=active.sceneCompositionProfileId;` : "";
   const runtimeData = safeJson({
     compositionId: plan.compositionId,
     fps: plan.fps,
@@ -574,6 +683,14 @@ export function compileSemanticSentenceAnimationIRToHtml(ir, options = {}) {
       capability: plan.sentencePlan.sentences[index].visualIntent,
       geometryKind: plan.sentencePlan.sentences[index].geometryKind,
       claimIds: plan.sentencePlan.sentences[index].claimIds,
+      ...(plan.sentencePlan.sentences[index].sceneComposition ? {
+        sceneCompositionId:
+          plan.sentencePlan.sentences[index].sceneComposition.id,
+        sceneCompositionLayoutId:
+          plan.sentencePlan.sentences[index].sceneComposition.layoutId,
+        sceneCompositionProfileId:
+          plan.sentencePlan.sentences[index].sceneComposition.profileId,
+      } : {}),
     })),
   });
   const durationSeconds = plan.durationFrames / plan.fps;
@@ -619,13 +736,13 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#02050c}
 .magnifier-lens{fill:#083344;fill-opacity:.34;stroke:#67e8f9;stroke-width:8}.magnifier-handle{fill:none;stroke:#67e8f9;stroke-width:18;stroke-linecap:round}
 .semantic-uncertainty-boundary{fill:#082f49;fill-opacity:.24;stroke:#fbbf24;stroke-width:7;stroke-dasharray:18 14}
 .uncertainty-core{fill:#0f172a;stroke:#475569;stroke-width:4}.uncertainty-glyph{fill:#fde68a;font-size:132px}
-.uncertainty-particles{fill:#67e8f9}.caption-scrim{fill:url(#sentence-caption-scrim)}
+.uncertainty-particles{fill:#67e8f9}.caption-scrim{fill:url(#sentence-caption-scrim)}${sceneCompositionCss}
 </style></head><body>
 <main id="animation-root" class="composition" data-composition-id="${compositionId}"
  data-start="0" data-duration="${durationSeconds}" data-width="${plan.width}" data-height="${plan.height}"
  data-semantic-profile-id="${SEMANTIC_SENTENCE_CONTENT_PROFILE_ID}"
  data-semantic-sentence-plan-hash="${plan.sentencePlan.contentHash}"
- data-semantic-event-graph-hash="${plan.sentencePlan.bindings.semanticEventGraphHash}">
+ data-semantic-event-graph-hash="${plan.sentencePlan.bindings.semanticEventGraphHash}"${sceneCompositionProfileAttribute}>
 <svg viewBox="0 0 ${BASE_WIDTH} ${BASE_HEIGHT}" role="img"
  aria-label="${escapeSemanticSentenceXml(plan.titleLines.join(" "))}">
 <defs>
@@ -679,7 +796,7 @@ function renderFrame(rawFrame){
   element.dataset.focusRole=visible?"primary":"inactive";
   element.dataset.sentenceProgress=visible?semanticProgress.toFixed(4):"0.0000";
  });
- stage.setAttribute("transform","translate(0 "+(16*(1-revealProgress)).toFixed(3)+") scale("+(.98+.02*revealProgress).toFixed(5)+")");
+ stage.setAttribute("transform","translate(0 "+(16*(1-revealProgress)).toFixed(3)+") scale("+(.98+.02*revealProgress).toFixed(5)+")");${sceneCompositionRevealRuntime}
  stage.querySelectorAll(".semantic-draw").forEach((path)=>{
   path.style.strokeDasharray="1000";
   path.style.strokeDashoffset=String(1000*(1-semanticProgress));
@@ -731,7 +848,7 @@ function renderFrame(rawFrame){
  document.documentElement.dataset.activeCapabilitySubjectKind=active.capability.subjectKind;
  document.documentElement.dataset.activeCapabilityStateTransition=active.capability.stateTransition;
  document.documentElement.dataset.activeClaimIds=active.claimIds.join(",");
- document.documentElement.dataset.focusPrimaryEntityId=active.focusEntityId;
+ document.documentElement.dataset.focusPrimaryEntityId=active.focusEntityId;${sceneCompositionDatasetRuntime}
  document.documentElement.dataset.renderedFrame=String(frame);
 }
 let currentTime=0,rate=1;

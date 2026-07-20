@@ -241,7 +241,7 @@ test("both checked profiles compile deterministically into five exact-cue beat s
   }
 });
 
-test("checked semantic-v3 registry outputs remain byte-exact and omit generalized parameters", async () => {
+test("checked semantic-v3 registry outputs remain byte-exact and omit generalized parameters and compositions", async () => {
   const { compileAnimationIRToHtml } = await import(
     "../renderer/hyperframes/animation-ir-adapter.mjs"
   );
@@ -272,9 +272,18 @@ test("checked semantic-v3 registry outputs remain byte-exact and omit generalize
       expected.composition,
       id,
     );
+    assert.equal(
+      compiled.animationIR.content.semanticVisualSentencePlan
+        .sceneCompositionProfileId,
+      undefined,
+      id,
+    );
     assert.ok(
       compiled.animationIR.content.semanticVisualSentencePlan.sentences.every(
-        (sentence) => sentence.primitiveParameters === undefined,
+        (sentence) => (
+          sentence.primitiveParameters === undefined
+          && sentence.sceneComposition === undefined
+        ),
       ),
       id,
     );

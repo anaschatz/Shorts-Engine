@@ -127,6 +127,38 @@ wrapping and final width fitting, including single long words. The exact
 current cue remains visible in the sentence caption while primitive labels stay
 within their legibility budget.
 
+### Constrained scene composition
+
+Generalized sentences now declare the plan-level
+`dark_curiosity_scene_composition_v1` profile and carry one deterministic
+`sceneComposition` each. Every composition has exactly three bounded modules:
+
+1. one primary module that renders the sentence's selected grammar and asset;
+2. one contextual support module selected from grounded cue detail, display
+   quantity, or an approved storyboard route;
+3. one semantic-state support module.
+
+The modules are connected by two fixed semantic links and placed in one of
+three renderer-owned layouts: `header_strip`, `satellites_left`, or
+`satellites_right`. Layout selection and its bounded variant seed are derived
+from the graph hash, proposition, grounded primitive parameters, and recent
+layout history. Recompiling identical approved inputs therefore produces the
+same composition, while consecutive sentences avoid an immediate layout
+repeat.
+
+The composition contract accepts only controlled IDs, module roles, sources,
+slots, reveal order, links, and the bounded seed. It cannot carry raw SVG,
+paths, executable code, coordinates, colors, CSS, styles, remote resources, or
+new visible copy. All rendered content is dereferenced from the already
+source-bound primitive parameters.
+
+The generalized graph marker and sentence-plan composition-profile marker must
+appear together. Every sentence in that profile must contain both primitive
+parameters and a composition; fixed unparameterized plans must contain neither.
+Validation deterministically rebuilds the expected composition for every
+proposition and rejects partial profiles, reordered modules, unsupported
+topologies, cross-sentence substitutions, or freshly rehashed tampering.
+
 Internal graph/plan consistency is not treated as provenance. Parameterized
 generalized IR requires trusted source validation: compilation and in-process
 composition rebuild the graph against the approved draft and timing context,
@@ -194,15 +226,14 @@ Run it with:
 node --test tests/dark-curiosity-generalized-visual-intent-planner.test.cjs
 ```
 
-## Current boundary and next slice
+## Current implementation boundary
 
 Generalized shorts now render story-grounded labels, quantities, state values,
-approved route layouts, and deterministic geometry variants. Registry-backed
-GPS and Baychimo profiles intentionally omit the optional parameters and retain
-their exact legacy bytes.
+approved route layouts, deterministic geometry variants, and constrained
+three-module scene compositions. This adds structural variation without
+executing generated animation code or allowing arbitrary renderer geometry.
 
-The remaining boundary is structural novelty: the engine still selects from
-nine validated grammar families. A future slice can introduce a constrained
-scene-composition graph that combines several primitives into a new layout per
-sentence, while keeping the same source bindings, bounded geometry, motion
-budget, and deterministic renderer.
+Registry-backed GPS and Baychimo profiles intentionally omit primitive
+parameters, the composition-profile marker, and per-sentence compositions.
+Their checked graph, sentence-plan, production-plan, AnimationIR, and rendered
+composition hashes remain byte-exact.

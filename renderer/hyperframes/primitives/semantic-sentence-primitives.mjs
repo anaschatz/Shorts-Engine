@@ -1,4 +1,8 @@
 import { createRequire } from "node:module";
+import {
+  normalizeSemanticSceneComposition,
+  semanticSceneCompositionMarkup,
+} from "./semantic-scene-composition.mjs";
 
 const require = createRequire(import.meta.url);
 const primitiveParameterContract = require(
@@ -1082,9 +1086,19 @@ function primitiveMarkup(sentence) {
 }
 
 function sentenceWithNormalizedParameters(sentence) {
-  if (sentence.primitiveParameters === undefined) return sentence;
+  const hasPrimitiveParameters = sentence.primitiveParameters !== undefined;
+  const hasSceneComposition = sentence.sceneComposition !== undefined;
+  if (hasPrimitiveParameters !== hasSceneComposition) {
+    throw new TypeError(
+      "Semantic primitive parameters and scene composition must be supplied together.",
+    );
+  }
+  if (!hasPrimitiveParameters) return sentence;
   const primitiveParameters = normalizeSemanticPrimitiveParameters(
     sentence.primitiveParameters,
+  );
+  const sceneComposition = normalizeSemanticSceneComposition(
+    sentence.sceneComposition,
   );
   if (
     primitiveParameters.grammarId !== sentence.capability?.grammarId
@@ -1092,7 +1106,10 @@ function sentenceWithNormalizedParameters(sentence) {
   ) {
     throw new TypeError("Semantic primitive capability binding is invalid.");
   }
-  return { ...sentence, primitiveParameters };
+  if (sceneComposition.id !== `composition_${sentence.propositionId}`) {
+    throw new TypeError("Semantic scene composition proposition binding is invalid.");
+  }
+  return { ...sentence, primitiveParameters, sceneComposition };
 }
 
 export function semanticSentenceGeometryKind(sentence) {
@@ -1124,7 +1141,10 @@ export function semanticSentencePrimitiveMarkup(sentence, index) {
     normalizedSentence.visualIntent.subjectKind,
     normalizedSentence.visualIntent.stateTransition,
   ].join(":");
-  const geometry = primitiveMarkup(normalizedSentence);
+  const primaryGeometry = primitiveMarkup(normalizedSentence);
+  const geometry = normalizedSentence.sceneComposition
+    ? semanticSceneCompositionMarkup(normalizedSentence, primaryGeometry)
+    : primaryGeometry;
   const capabilityLabelMarkup = normalizedSentence.primitiveParameters
     ? `\n  ${escapeSemanticSentenceXml(displayText(
       normalizedSentence.primitiveParameters.subject.value,

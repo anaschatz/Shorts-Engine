@@ -22,6 +22,11 @@ const {
   buildSemanticPrimitiveParameters,
   normalizeSemanticPrimitiveParameters,
 } = require("./semantic-primitive-parameters.cjs");
+const {
+  SEMANTIC_SCENE_COMPOSITION_PROFILE_ID,
+  buildSemanticSceneComposition,
+  normalizeSemanticSceneComposition,
+} = require("./semantic-scene-composition.cjs");
 
 const SEMANTIC_VISUAL_SENTENCE_PLAN_SCHEMA_VERSION = 1;
 const SEMANTIC_VISUAL_SENTENCE_PLAN_PROFILE_ID =
@@ -268,7 +273,7 @@ function normalizeSentence(input, index) {
     "persistentEntityIds",
     "capability",
     "continuity",
-  ], field, ["primitiveParameters"]);
+  ], field, ["primitiveParameters", "sceneComposition"]);
   const propositionId = identifier(input.propositionId, `${field}.propositionId`);
   const visualIntent = normalizeVisualIntent(input.visualIntent, `${field}.visualIntent`);
   const focusEntity = normalizeFocusEntity(input.focusEntity, `${field}.focusEntity`);
@@ -317,7 +322,12 @@ function normalizeSentence(input, index) {
     capability,
     continuity: normalizeContinuity(input.continuity, `${field}.continuity`),
   };
-  if (input.primitiveParameters !== undefined) {
+  const hasPrimitiveParameters = input.primitiveParameters !== undefined;
+  const hasSceneComposition = input.sceneComposition !== undefined;
+  if (hasPrimitiveParameters !== hasSceneComposition) {
+    fail(`${field}.sceneComposition`, "parameter_composition_pair_required");
+  }
+  if (hasPrimitiveParameters) {
     const primitiveParameters = normalizeSemanticPrimitiveParameters(
       input.primitiveParameters,
     );
@@ -326,6 +336,13 @@ function normalizeSentence(input, index) {
       || primitiveParameters.assetId !== capability.assetId
     ) fail(`${field}.primitiveParameters`, "capability_binding_mismatch");
     normalized.primitiveParameters = primitiveParameters;
+    const sceneComposition = normalizeSemanticSceneComposition(
+      input.sceneComposition,
+    );
+    if (sceneComposition.id !== `composition_${propositionId}`) {
+      fail(`${field}.sceneComposition.id`, "proposition_binding_mismatch");
+    }
+    normalized.sceneComposition = sceneComposition;
   }
   return normalized;
 }
@@ -398,7 +415,10 @@ function normalizeSemanticVisualSentencePlan(input) {
     "bindings",
     "sentences",
     "persistentEntityBindings",
-  ], "semanticVisualSentencePlan", ["contentHash"]);
+  ], "semanticVisualSentencePlan", [
+    "contentHash",
+    "sceneCompositionProfileId",
+  ]);
   if (input.schemaVersion !== SEMANTIC_VISUAL_SENTENCE_PLAN_SCHEMA_VERSION) {
     fail("schemaVersion", "unsupported_schema");
   }
@@ -421,6 +441,30 @@ function normalizeSemanticVisualSentencePlan(input) {
   if (new Set(sentences.map((sentence) => sentence.propositionId)).size !== sentences.length) {
     fail("sentences", "duplicate_proposition_ids");
   }
+  const sceneCompositionProfileId = input.sceneCompositionProfileId === undefined
+    ? null
+    : text(input.sceneCompositionProfileId, "sceneCompositionProfileId", {
+      maximum: 120,
+      pattern: ID_PATTERN,
+    });
+  if (
+    sceneCompositionProfileId !== null
+    && sceneCompositionProfileId !== SEMANTIC_SCENE_COMPOSITION_PROFILE_ID
+  ) fail("sceneCompositionProfileId", "unsupported_profile");
+  const parameterizedSentenceCount = sentences.filter(
+    (sentence) => sentence.primitiveParameters !== undefined,
+  ).length;
+  const composedSentenceCount = sentences.filter(
+    (sentence) => sentence.sceneComposition !== undefined,
+  ).length;
+  if (
+    sceneCompositionProfileId !== null
+      ? (
+        parameterizedSentenceCount !== sentences.length
+        || composedSentenceCount !== sentences.length
+      )
+      : (parameterizedSentenceCount !== 0 || composedSentenceCount !== 0)
+  ) fail("sceneCompositionProfileId", "all_or_none_composition_required");
 
   const recentGrammarIds = [];
   const recentAssetIds = [];
@@ -524,6 +568,9 @@ function normalizeSemanticVisualSentencePlan(input) {
     profileId: SEMANTIC_VISUAL_SENTENCE_PLAN_PROFILE_ID,
     storyFormat: identifier(input.storyFormat, "storyFormat"),
     narrativeShape: identifier(input.narrativeShape, "narrativeShape"),
+    ...(sceneCompositionProfileId === null
+      ? {}
+      : { sceneCompositionProfileId }),
     bindings: normalizeBindings(input.bindings),
     sentences,
     persistentEntityBindings,
@@ -553,6 +600,16 @@ function validateSemanticVisualSentencePlanAgainstGraph(input, semanticEventGrap
       "semantic_event_graph_binding_mismatch",
     );
   }
+  if (
+    graphDeclaresPrimitivePayloads
+      ? plan.sceneCompositionProfileId !== SEMANTIC_SCENE_COMPOSITION_PROFILE_ID
+      : plan.sceneCompositionProfileId !== undefined
+  ) {
+    fail(
+      "sceneCompositionProfileId",
+      "semantic_event_graph_binding_mismatch",
+    );
+  }
   const expectedBindings = {
     semanticEventGraphHash: graph.contentHash,
     draftHash: graph.draftHash,
@@ -578,6 +635,7 @@ function validateSemanticVisualSentencePlanAgainstGraph(input, semanticEventGrap
     }
   }
 
+  const recentSceneCompositionLayoutIds = [];
   plan.sentences.forEach((sentence, index) => {
     const field = `sentences[${index}]`;
     const proposition = graph.propositions[index];
@@ -621,9 +679,26 @@ function validateSemanticVisualSentencePlanAgainstGraph(input, semanticEventGrap
           "semantic_event_graph_binding_mismatch",
         );
       }
-    } else if (sentence.primitiveParameters !== undefined) {
+      const expectedSceneComposition = buildSemanticSceneComposition({
+        graphHash: graph.contentHash,
+        propositionId: proposition.id,
+        capability: sentence.capability,
+        primitiveParameters: expectedPrimitiveParameters,
+        recentLayoutIds: recent(recentSceneCompositionLayoutIds),
+      });
+      if (!same(sentence.sceneComposition, expectedSceneComposition)) {
+        fail(
+          `${field}.sceneComposition`,
+          "semantic_event_graph_binding_mismatch",
+        );
+      }
+      recentSceneCompositionLayoutIds.push(expectedSceneComposition.layoutId);
+    } else if (
+      sentence.primitiveParameters !== undefined
+      || sentence.sceneComposition !== undefined
+    ) {
       fail(
-        `${field}.primitiveParameters`,
+        `${field}.sceneComposition`,
         "semantic_event_graph_binding_mismatch",
       );
     }
@@ -662,6 +737,7 @@ function buildSemanticVisualSentencePlan(semanticEventGraph) {
   }
   const recentGrammarIds = [];
   const recentAssetIds = [];
+  const recentSceneCompositionLayoutIds = [];
   const persistentAssetByEntity = new Map();
   const persistentSentenceIdsByEntity = new Map();
   const sentences = graph.propositions.map((proposition, index) => {
@@ -747,6 +823,14 @@ function buildSemanticVisualSentencePlan(semanticEventGraph) {
         proposition,
         capability,
       });
+      sentence.sceneComposition = buildSemanticSceneComposition({
+        graphHash: graph.contentHash,
+        propositionId: proposition.id,
+        capability,
+        primitiveParameters: sentence.primitiveParameters,
+        recentLayoutIds: recent(recentSceneCompositionLayoutIds),
+      });
+      recentSceneCompositionLayoutIds.push(sentence.sceneComposition.layoutId);
     }
     return sentence;
   });
@@ -763,6 +847,9 @@ function buildSemanticVisualSentencePlan(semanticEventGraph) {
     profileId: SEMANTIC_VISUAL_SENTENCE_PLAN_PROFILE_ID,
     storyFormat: graph.storyFormat,
     narrativeShape: graph.narrativeShape,
+    ...(graph.primitivePayloadProfileId === undefined
+      ? {}
+      : { sceneCompositionProfileId: SEMANTIC_SCENE_COMPOSITION_PROFILE_ID }),
     bindings: {
       semanticEventGraphHash: graph.contentHash,
       draftHash: graph.draftHash,

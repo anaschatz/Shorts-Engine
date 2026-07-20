@@ -55,6 +55,13 @@ const {
   normalizeSemanticPrimitiveParameters,
 } = require("../server/pipelines/narrated-short/animation/semantic-primitive-parameters.cjs");
 const {
+  SEMANTIC_SCENE_COMPOSITION_LAYOUT_IDS,
+  SEMANTIC_SCENE_COMPOSITION_MODULE_KINDS,
+  SEMANTIC_SCENE_COMPOSITION_PROFILE_ID,
+  SEMANTIC_SCENE_COMPOSITION_SCHEMA_VERSION,
+  normalizeSemanticSceneComposition,
+} = require("../server/pipelines/narrated-short/animation/semantic-scene-composition.cjs");
+const {
   MAX_SEGMENT_CHARACTERS,
   MAX_SEGMENT_LINES,
   buildStoryIR,
@@ -250,6 +257,20 @@ function assertFailure(action, code, reason) {
     assert.equal(error?.details?.reason, reason);
     return true;
   });
+}
+
+function expectedCompositionSupportKind(primitiveParameters) {
+  if (primitiveParameters.geometry.route) return "route_trace";
+  if (primitiveParameters.quantity) {
+    const displayQuantity = [
+      primitiveParameters.quantity.value,
+      primitiveParameters.quantity.unit,
+    ].filter(Boolean).join(" ").trim();
+    if (displayQuantity && displayQuantity.length <= 32) {
+      return "quantity_badge";
+    }
+  }
+  return "detail_card";
 }
 
 test("three unrelated stories build deterministic grounded StoryIR and visual intent graphs", () => {
@@ -661,6 +682,125 @@ test("StoryIR and visual intent contracts fail closed on gaps, bindings, order, 
   );
 });
 
+test("generalized sentence plans deterministically compose one primary and two grounded supporting modules", () => {
+  const supportKinds = new Set();
+  const layoutIds = new Set();
+  const storyCompositionSignatures = [];
+  const sourceBySupportKind = {
+    detail_card: "cue_detail",
+    quantity_badge: "display_quantity",
+    route_trace: "approved_route",
+  };
+
+  for (const [id] of CASES) {
+    const first = build(id);
+    const repeated = build(id);
+    assert.deepEqual(repeated.sentencePlan, first.sentencePlan, id);
+    assert.equal(
+      first.sentencePlan.sceneCompositionProfileId,
+      SEMANTIC_SCENE_COMPOSITION_PROFILE_ID,
+      id,
+    );
+    assertDeepFrozen(first.sentencePlan, `${id}.sentencePlan`);
+
+    const compositions = first.sentencePlan.sentences.map(
+      (sentence) => sentence.sceneComposition,
+    );
+    assert.ok(compositions.length >= 5, id);
+    for (let index = 0; index < compositions.length; index += 1) {
+      const sentence = first.sentencePlan.sentences[index];
+      const composition = compositions[index];
+      assert.ok(composition, `${id}:${sentence.id}`);
+      assert.deepEqual(
+        normalizeSemanticSceneComposition(composition),
+        composition,
+        `${id}:${sentence.id}`,
+      );
+      assert.equal(
+        composition.schemaVersion,
+        SEMANTIC_SCENE_COMPOSITION_SCHEMA_VERSION,
+      );
+      assert.equal(composition.profileId, SEMANTIC_SCENE_COMPOSITION_PROFILE_ID);
+      assert.equal(composition.id, `composition_${sentence.propositionId}`);
+      assert.ok(SEMANTIC_SCENE_COMPOSITION_LAYOUT_IDS.includes(
+        composition.layoutId,
+      ));
+      assert.equal(composition.modules.length, 3);
+      assert.equal(composition.links.length, 2);
+      assert.deepEqual(composition.modules[0], {
+        id: "module_primary",
+        role: "primary",
+        kind: "primary_geometry",
+        source: "primary_geometry",
+        slot: "primary",
+        revealOrder: 0,
+      });
+
+      const supportKind = expectedCompositionSupportKind(
+        sentence.primitiveParameters,
+      );
+      assert.deepEqual(composition.modules[1], {
+        id: "module_support_a",
+        role: "supporting",
+        kind: supportKind,
+        source: sourceBySupportKind[supportKind],
+        slot: "support_a",
+        revealOrder: 1,
+      });
+      assert.deepEqual(composition.modules[2], {
+        id: "module_support_b",
+        role: "supporting",
+        kind: "state_badge",
+        source: "semantic_state",
+        slot: "support_b",
+        revealOrder: 2,
+      });
+      assert.deepEqual(composition.links, [
+        {
+          fromModuleId: "module_primary",
+          toModuleId: "module_support_a",
+          relation: "context",
+        },
+        {
+          fromModuleId: "module_primary",
+          toModuleId: "module_support_b",
+          relation: "state",
+        },
+      ]);
+      assert.ok(composition.modules.every(
+        (module) => SEMANTIC_SCENE_COMPOSITION_MODULE_KINDS.includes(module.kind),
+      ));
+      assertDeepFrozen(composition, `${id}.${sentence.id}.sceneComposition`);
+      supportKinds.add(supportKind);
+      layoutIds.add(composition.layoutId);
+      if (index > 0) {
+        assert.notEqual(
+          composition.layoutId,
+          compositions[index - 1].layoutId,
+          `${id}: adjacent sentences must not reuse a layout`,
+        );
+      }
+    }
+    storyCompositionSignatures.push(compositions.map(
+      (composition) => `${composition.layoutId}:${composition.variantSeed}`,
+    ));
+  }
+
+  assert.deepEqual(
+    [...supportKinds].sort(),
+    ["detail_card", "quantity_badge", "route_trace"],
+  );
+  assert.ok(layoutIds.size >= 2);
+  for (let left = 0; left < storyCompositionSignatures.length; left += 1) {
+    for (let right = left + 1; right < storyCompositionSignatures.length; right += 1) {
+      assert.notDeepEqual(
+        storyCompositionSignatures[left],
+        storyCompositionSignatures[right],
+      );
+    }
+  }
+});
+
 test("generalized semantic-v3 carries source-bound primitive parameters into visible renderer markup", async () => {
   const { compileAnimationIRToHtml } = await import(
     "../renderer/hyperframes/animation-ir-adapter.mjs"
@@ -674,6 +814,11 @@ test("generalized semantic-v3 carries source-bound primitive parameters into vis
     const { compiled } = compiledValue;
     const graph = compiled.animationIR.content.semanticEventGraph;
     const plan = compiled.animationIR.content.semanticVisualSentencePlan;
+    assert.equal(
+      plan.sceneCompositionProfileId,
+      SEMANTIC_SCENE_COMPOSITION_PROFILE_ID,
+      id,
+    );
     assert.equal(
       semanticVisualSentencePlanContentHash(plan),
       plan.contentHash,
@@ -711,14 +856,207 @@ test("generalized semantic-v3 carries source-bound primitive parameters into vis
         parameters,
       );
       assertDeepFrozen(parameters, `${id}.${sentence.id}.primitiveParameters`);
+      assert.ok(sentence.sceneComposition, `${id}:${sentence.id}`);
+      assert.equal(
+        sentence.sceneComposition.modules[1].kind,
+        expectedCompositionSupportKind(parameters),
+      );
+      assertDeepFrozen(
+        sentence.sceneComposition,
+        `${id}.${sentence.id}.sceneComposition`,
+      );
     }
     const composition = compileAnimationIRToHtml(
       compiled.animationIR,
       rendererSourceOptions(compiledValue),
     );
     assert.match(composition.html, /data-primitive-parameterized="true"/);
+    assert.equal(
+      [...composition.html.matchAll(/class="semantic-scene-composition"/g)].length,
+      plan.sentences.length,
+      id,
+    );
+    assert.equal(
+      [...composition.html.matchAll(/data-scene-module-id="module_primary"/g)].length,
+      plan.sentences.length,
+      id,
+    );
+    assert.equal(
+      [...composition.html.matchAll(/data-scene-module-id="module_support_a"/g)].length,
+      plan.sentences.length,
+      id,
+    );
+    assert.equal(
+      [...composition.html.matchAll(/data-scene-module-id="module_support_b"/g)].length,
+      plan.sentences.length,
+      id,
+    );
+    assert.equal(
+      [...composition.html.matchAll(
+        /<g[^>]+class="[^"]*semantic-support-module[^"]*"[^>]*>/g,
+      )].length,
+      plan.sentences.length * 2,
+      id,
+    );
+    assert.doesNotMatch(
+      composition.html,
+      /\.semantic-support-module\{[^}]*opacity\s*:/,
+      `${id}: CSS cannot override runtime support visibility`,
+    );
+    assert.doesNotMatch(
+      composition.html,
+      /\.semantic-composition-link\{[^}]*opacity\s*:/,
+      `${id}: CSS cannot override runtime link visibility`,
+    );
+    assert.equal(
+      [...composition.html.matchAll(
+        /class="semantic-support-module[^"]*" opacity="0"/g,
+      )].length,
+      plan.sentences.length * 2,
+      id,
+    );
+    for (const sentence of plan.sentences) {
+      const { sceneComposition } = sentence;
+      assert.ok(composition.html.includes(
+        `data-scene-composition-id="${sceneComposition.id}"`,
+      ));
+      assert.ok(composition.html.includes(
+        `data-scene-composition-layout-id="${sceneComposition.layoutId}"`,
+      ));
+      assert.ok(composition.html.includes(
+        `data-scene-composition-profile-id="${sceneComposition.profileId}"`,
+      ));
+    }
     assert.doesNotMatch(composition.html, />1023<|>0000<|>DATE<|>INPUT<|>OUTPUT</);
   }
+});
+
+test("scene composition contracts reject topology injection, stripping, and fresh-hash rebinding", async () => {
+  const { compileAnimationIRToHtml } = await import(
+    "../renderer/hyperframes/animation-ir-adapter.mjs"
+  );
+  const wow = compileRaw(
+    readRaw("001_wow_signal_mystery"),
+    "scene-composition-adversarial",
+    "prj_scene_composition_adversarial",
+  );
+  const graph = wow.compiled.animationIR.content.semanticEventGraph;
+  const plan = wow.compiled.animationIR.content.semanticVisualSentencePlan;
+  const composition = plan.sentences[0].sceneComposition;
+
+  const extraField = structuredClone(composition);
+  extraField.svg = "<path d='M0 0'/><script>unsafe()</script>";
+  assertFailure(
+    () => normalizeSemanticSceneComposition(extraField),
+    "ANIMATION_SEMANTIC_SCENE_COMPOSITION_INVALID",
+    "unsupported_or_missing_field",
+  );
+
+  const fourthModule = structuredClone(composition);
+  fourthModule.modules.push(structuredClone(fourthModule.modules[2]));
+  assertFailure(
+    () => normalizeSemanticSceneComposition(fourthModule),
+    "ANIMATION_SEMANTIC_SCENE_COMPOSITION_INVALID",
+    "exactly_three_modules_required",
+  );
+
+  const thirdLink = structuredClone(composition);
+  thirdLink.links.push(structuredClone(thirdLink.links[1]));
+  assertFailure(
+    () => normalizeSemanticSceneComposition(thirdLink),
+    "ANIMATION_SEMANTIC_SCENE_COMPOSITION_INVALID",
+    "exactly_two_links_required",
+  );
+
+  const rebound = (mutate) => {
+    const changed = structuredClone(plan);
+    delete changed.contentHash;
+    mutate(changed);
+    const normalized = normalizeSemanticVisualSentencePlan(changed);
+    assert.equal(
+      normalized.contentHash,
+      semanticVisualSentencePlanContentHash(normalized),
+    );
+    assertFailure(
+      () => validateSemanticVisualSentencePlanAgainstGraph(normalized, graph),
+      "ANIMATION_SEMANTIC_VISUAL_SENTENCE_INVALID",
+      "semantic_event_graph_binding_mismatch",
+    );
+    return normalized;
+  };
+
+  const changedLayout = rebound((changed) => {
+    const target = changed.sentences[0].sceneComposition;
+    target.layoutId = SEMANTIC_SCENE_COMPOSITION_LAYOUT_IDS.find(
+      (layoutId) => layoutId !== target.layoutId,
+    );
+  });
+  rebound((changed) => {
+    const target = changed.sentences[0].sceneComposition;
+    target.variantSeed = target.variantSeed === 0xffffffff
+      ? target.variantSeed - 1
+      : target.variantSeed + 1;
+  });
+  rebound((changed) => {
+    const target = changed.sentences[0].sceneComposition.modules[1];
+    const replacement = target.kind === "detail_card"
+      ? ["quantity_badge", "display_quantity"]
+      : ["detail_card", "cue_detail"];
+    [target.kind, target.source] = replacement;
+  });
+
+  const reboundIR = structuredClone(wow.compiled.animationIR);
+  reboundIR.content.semanticVisualSentencePlan = structuredClone(changedLayout);
+  reboundIR.content.semantic.semanticVisualSentencePlanHash =
+    changedLayout.contentHash;
+  delete reboundIR.contentHash;
+  assert.throws(
+    () => compileAnimationIRToHtml(reboundIR, rendererSourceOptions(wow)),
+    /not bound to the embedded graph/,
+  );
+
+  const invalidLink = structuredClone(composition);
+  invalidLink.links[0].relation = "state";
+  assertFailure(
+    () => normalizeSemanticSceneComposition(invalidLink),
+    "ANIMATION_SEMANTIC_SCENE_COMPOSITION_INVALID",
+    "link_topology_mismatch",
+  );
+
+  const partialStrip = structuredClone(plan);
+  delete partialStrip.contentHash;
+  delete partialStrip.sentences[0].sceneComposition;
+  assert.throws(
+    () => normalizeSemanticVisualSentencePlan(partialStrip),
+    { code: "ANIMATION_SEMANTIC_VISUAL_SENTENCE_INVALID" },
+  );
+
+  const compositionsOnlyStripped = structuredClone(plan);
+  delete compositionsOnlyStripped.contentHash;
+  delete compositionsOnlyStripped.sceneCompositionProfileId;
+  compositionsOnlyStripped.sentences.forEach(
+    (sentence) => delete sentence.sceneComposition,
+  );
+  assert.throws(
+    () => normalizeSemanticVisualSentencePlan(compositionsOnlyStripped),
+    { code: "ANIMATION_SEMANTIC_VISUAL_SENTENCE_INVALID" },
+  );
+
+  const fullyStrippedInput = structuredClone(plan);
+  delete fullyStrippedInput.contentHash;
+  delete fullyStrippedInput.sceneCompositionProfileId;
+  fullyStrippedInput.sentences.forEach((sentence) => {
+    delete sentence.primitiveParameters;
+    delete sentence.sceneComposition;
+  });
+  const fullyStripped = normalizeSemanticVisualSentencePlan(
+    fullyStrippedInput,
+  );
+  assertFailure(
+    () => validateSemanticVisualSentencePlanAgainstGraph(fullyStripped, graph),
+    "ANIMATION_SEMANTIC_VISUAL_SENTENCE_INVALID",
+    "semantic_event_graph_binding_mismatch",
+  );
 });
 
 test("approved storyboard route points produce deterministic, visibly different map geometry", async () => {
@@ -1042,9 +1380,11 @@ test("generalized graph semantics cannot be rebound or downgraded with fresh has
     wow.compiled.animationIR.content.semanticVisualSentencePlan,
   );
   delete strippedPlanInput.contentHash;
-  strippedPlanInput.sentences.forEach(
-    (sentence) => delete sentence.primitiveParameters,
-  );
+  delete strippedPlanInput.sceneCompositionProfileId;
+  strippedPlanInput.sentences.forEach((sentence) => {
+    delete sentence.primitiveParameters;
+    delete sentence.sceneComposition;
+  });
   const strippedPlan = normalizeSemanticVisualSentencePlan(strippedPlanInput);
   assertFailure(
     () => validateSemanticVisualSentencePlanAgainstGraph(strippedPlan, graph),
@@ -1057,7 +1397,7 @@ test("generalized graph semantics cannot be rebound or downgraded with fresh has
     strippedPlan.contentHash;
   assert.throws(
     () => compileAnimationIRToHtml(strippedIR, rendererSourceOptions(wow)),
-    /not bound to the embedded graph/,
+    /not bound to the embedded graph|composition profile does not match/,
   );
 
   const fullyStrippedGraphInput = structuredClone(graph);
@@ -1075,9 +1415,11 @@ test("generalized graph semantics cannot be rebound or downgraded with fresh has
   delete fullyStrippedPlanInput.contentHash;
   fullyStrippedPlanInput.bindings.semanticEventGraphHash =
     fullyStrippedGraph.contentHash;
-  fullyStrippedPlanInput.sentences.forEach(
-    (sentence) => delete sentence.primitiveParameters,
-  );
+  delete fullyStrippedPlanInput.sceneCompositionProfileId;
+  fullyStrippedPlanInput.sentences.forEach((sentence) => {
+    delete sentence.primitiveParameters;
+    delete sentence.sceneComposition;
+  });
   const fullyStrippedPlan = normalizeSemanticVisualSentencePlan(
     fullyStrippedPlanInput,
   );

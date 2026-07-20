@@ -20,6 +20,9 @@ const {
   SEMANTIC_SENTENCE_STYLE_VERSION,
   SEMANTIC_SENTENCE_TEMPLATE_ID,
 } = require("./semantic-render-profile.cjs");
+const {
+  SEMANTIC_SCENE_COMPOSITION_PROFILE_ID,
+} = require("./semantic-scene-composition.cjs");
 const { validateVisualStateGraph } = require("./visual-state-graph.cjs");
 
 const ANIMATION_IR_SCHEMA_VERSION = 1;
@@ -374,6 +377,49 @@ function validateAnimationIR(input, options = {}) {
     const planDeclaresPrimitiveParameters = sentencePlan.sentences.some(
       (sentence) => sentence.primitiveParameters !== undefined,
     );
+    const planDeclaresSceneCompositions = sentencePlan.sentences.some(
+      (sentence) => sentence.sceneComposition !== undefined,
+    );
+    const planDeclaresSceneCompositionProfile =
+      sentencePlan.sceneCompositionProfileId !== undefined;
+    if (
+      graphDeclaresPrimitivePayloads !== planDeclaresSceneCompositionProfile
+      || (
+        planDeclaresSceneCompositionProfile
+        && sentencePlan.sceneCompositionProfileId
+          !== SEMANTIC_SCENE_COMPOSITION_PROFILE_ID
+      )
+    ) {
+      fail(
+        "content.semanticVisualSentencePlan.sceneCompositionProfileId",
+        "Generalized semantic graphs and scene-composition profiles must be declared together.",
+      );
+    }
+    if (
+      graphDeclaresPrimitivePayloads
+      && !sentencePlan.sentences.every((sentence) => (
+        sentence.primitiveParameters !== undefined
+        && sentence.sceneComposition !== undefined
+      ))
+    ) {
+      fail(
+        "content.semanticVisualSentencePlan.sentences",
+        "Every generalized semantic sentence requires primitive parameters and a scene composition.",
+      );
+    }
+    if (
+      !graphDeclaresPrimitivePayloads
+      && (
+        planDeclaresPrimitiveParameters
+        || planDeclaresSceneCompositions
+        || planDeclaresSceneCompositionProfile
+      )
+    ) {
+      fail(
+        "content.semanticVisualSentencePlan.sentences",
+        "Fixed unparameterized semantic sentences cannot declare generalized composition data.",
+      );
+    }
     if (
       !graphDeclaresPrimitivePayloads
       && !planDeclaresPrimitiveParameters
