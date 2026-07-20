@@ -642,6 +642,66 @@ export function semanticSceneActionStateAtFrame(sceneSchedule, rawFrame) {
   };
 }
 
+export function semanticSceneActionQaPlan(schedule) {
+  plainObject(schedule, "Scene action schedule QA input");
+  if (
+    schedule.profileId !== SEMANTIC_SCENE_ACTION_SCHEDULE_PROFILE_ID
+    || !Array.isArray(schedule.scenes)
+    || !schedule.scenes.length
+    || schedule.scenes.length > 20
+  ) fail("Scene action schedule QA input is invalid.");
+
+  const signatureFrames = new Map();
+  const settledHoldFrames = [];
+  for (const [sceneIndex, scene] of schedule.scenes.entries()) {
+    plainObject(scene, `Scene action QA ${sceneIndex}`);
+    if (!Array.isArray(scene.actions) || !scene.actions.length) {
+      fail(`Scene action QA ${sceneIndex} requires actions.`);
+    }
+    for (const action of scene.actions) {
+      if (!signatureFrames.has(action.signature)) {
+        signatureFrames.set(
+          action.signature,
+          Math.floor((action.startFrame + action.endFrame) / 2),
+        );
+      }
+    }
+    const holdFrame = Math.min(
+      scene.endFrame - 1,
+      Math.max(scene.startFrame, scene.holdStartFrame),
+    );
+    if (holdFrame >= scene.holdStartFrame && holdFrame < scene.endFrame) {
+      settledHoldFrames.push(holdFrame);
+    }
+  }
+
+  const first = schedule.scenes[0];
+  const entry = first.phaseWindows.entry;
+  const develop = first.phaseWindows.develop;
+  const resolve = first.phaseWindows.resolve;
+  const phaseFrames = [
+    entry.startFrame,
+    Math.floor((entry.startFrame + entry.endFrame) / 2),
+    entry.endFrame,
+    Math.floor((develop.startFrame + develop.endFrame) / 2),
+    Math.floor((resolve.startFrame + resolve.endFrame) / 2),
+  ];
+  const expectedActionSignatures = [...signatureFrames.keys()].sort();
+  if (expectedActionSignatures.length > 20) {
+    fail("Scene action QA signature budget exceeded.");
+  }
+  return deepFreeze({
+    scheduleHash: hash(schedule.contentHash, "Scene action schedule QA hash"),
+    expectedActionSignatures,
+    signatureCheckpoints: expectedActionSignatures.map((signature) => ({
+      signature,
+      frame: signatureFrames.get(signature),
+    })),
+    phaseFrames: [...new Set(phaseFrames)],
+    settledHoldFrames: [...new Set(settledHoldFrames)],
+  });
+}
+
 export function semanticSceneActionRuntimeSource() {
   return `const semanticSceneActionStateAtFrame=${
     semanticSceneActionStateAtFrame.toString()

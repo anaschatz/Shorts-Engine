@@ -26,6 +26,7 @@ const {
   validateSemanticAnimationSceneDslPlanAgainstContext,
 } = require("../server/pipelines/narrated-short/animation/semantic-animation-scene-dsl-plan.cjs");
 const {
+  MAX_AGGREGATE_TIMEOUT_MS,
   planSemanticAnimationScenes,
 } = require("../server/pipelines/narrated-short/animation/semantic-animation-scene-plan-service.cjs");
 const {
@@ -124,6 +125,7 @@ function fakePlannerFrom(plan, options = {}) {
     },
     health() {
       return {
+        mode: options.mode || "mock",
         promptProfileId:
           "dark_curiosity_local_scene_planner_prompt_v1",
       };
@@ -427,6 +429,192 @@ test("async service cancellation stops before another scene or artifact", async 
     { code: "JOB_CANCELLED" },
   );
   assert.equal(planner.calls.length, 1);
+});
+
+test("recoverable transport fallback opens the aggregate circuit", async () => {
+  const value = fixture();
+  const deterministic =
+    buildDeterministicSemanticAnimationSceneDslPlan(context(value));
+  const calls = [];
+  const failure = {
+    code: "ANIMATION_LOCAL_LLM_TIMEOUT",
+    phase: "local_scene_planner",
+    retryable: true,
+  };
+  const planner = {
+    id: "local_llm_scene_planner",
+    mode: "openai_compatible",
+    health() {
+      return {
+        mode: "openai_compatible",
+        promptProfileId: deterministic.planner.promptProfileId,
+      };
+    },
+    async planScene(input) {
+      calls.push(input.propositionId);
+      assert.equal(calls.length, 1, "the circuit must prevent retries");
+      const source = deterministic.scenes.find(
+        (scene) => scene.propositionId === input.propositionId,
+      );
+      return {
+        providerId: "deterministic_fallback",
+        modelId: "local-scene-model",
+        promptProfileId: deterministic.planner.promptProfileId,
+        fallbackUsed: true,
+        failure,
+        sceneDsl: source.sceneDsl,
+        rawProviderError: "must-not-be-persisted",
+      };
+    },
+  };
+
+  const result = await planSemanticAnimationScenes({
+    ...context(value),
+    planner,
+  });
+
+  assert.equal(deterministic.scenes.length > 1, true);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(
+    result.scenes.map((scene) => scene.sceneDsl),
+    deterministic.scenes.map((scene) => scene.sceneDsl),
+  );
+  assert.equal(result.summary.fallbackSceneCount, result.scenes.length);
+  assert.deepEqual(result.summary.providerIds, [
+    "deterministic_fallback",
+  ]);
+  for (const scene of result.scenes) {
+    assert.deepEqual(scene.provenance, {
+      providerId: "deterministic_fallback",
+      modelId: "local-scene-model",
+      promptProfileId: deterministic.planner.promptProfileId,
+      fallbackUsed: true,
+      failure,
+    });
+  }
+  assert.equal(
+    JSON.stringify(result).includes("must-not-be-persisted"),
+    false,
+  );
+  assertDeepFrozen(result);
+});
+
+test("non-transport fallback does not open the aggregate circuit", async () => {
+  const value = fixture();
+  const deterministic =
+    buildDeterministicSemanticAnimationSceneDslPlan(context(value));
+  const planner = fakePlannerFrom(deterministic, {
+    providerId: "test_scene_provider",
+  });
+  const originalPlanScene = planner.planScene.bind(planner);
+  planner.planScene = async (input) => {
+    const result = await originalPlanScene(input);
+    if (planner.calls.length !== 1) return result;
+    return {
+      ...result,
+      providerId: "deterministic_fallback",
+      fallbackUsed: true,
+      failure: {
+        code: "ANIMATION_LOCAL_LLM_RESPONSE_INVALID",
+        phase: "local_scene_planner",
+        retryable: true,
+      },
+    };
+  };
+
+  const result = await planSemanticAnimationScenes({
+    ...context(value),
+    planner,
+  });
+
+  assert.equal(planner.calls.length, deterministic.scenes.length);
+  assert.equal(result.summary.fallbackSceneCount, 1);
+  assert.deepEqual(result.summary.providerIds, [
+    "deterministic_fallback",
+    "test_scene_provider",
+  ]);
+});
+
+test("aggregate deadline aborts live work and deterministically completes coverage", async () => {
+  const value = fixture();
+  const deterministic =
+    buildDeterministicSemanticAnimationSceneDslPlan(context(value));
+  const calls = [];
+  let liveRequestAborted = false;
+  const planner = {
+    id: "local_llm_scene_planner",
+    mode: "openai_compatible",
+    health() {
+      return {
+        mode: "openai_compatible",
+        promptProfileId: deterministic.planner.promptProfileId,
+      };
+    },
+    planScene(input) {
+      calls.push(input.propositionId);
+      return new Promise((_resolve, reject) => {
+        input.signal.addEventListener("abort", () => {
+          liveRequestAborted = true;
+          reject(new Error("raw-provider-timeout-detail"));
+        }, { once: true });
+      });
+    },
+  };
+
+  const result = await planSemanticAnimationScenes({
+    ...context(value),
+    planner,
+    aggregateTimeoutMs: 20,
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(liveRequestAborted, true);
+  assert.deepEqual(
+    result.scenes.map((scene) => scene.sceneDsl),
+    deterministic.scenes.map((scene) => scene.sceneDsl),
+  );
+  assert.equal(result.summary.fallbackSceneCount, result.scenes.length);
+  for (const scene of result.scenes) {
+    assert.deepEqual(scene.provenance, {
+      providerId: "deterministic_fallback",
+      modelId: "aggregate-deadline-fallback-v1",
+      promptProfileId: deterministic.planner.promptProfileId,
+      fallbackUsed: true,
+      failure: {
+        code: "ANIMATION_SCENE_PLANNER_AGGREGATE_TIMEOUT",
+        phase: "aggregate_scene_planner",
+        retryable: true,
+      },
+    });
+  }
+  assert.equal(
+    JSON.stringify(result).includes("raw-provider-timeout-detail"),
+    false,
+  );
+  assertDeepFrozen(result);
+});
+
+test("aggregate deadline configuration is strictly bounded", async () => {
+  const value = fixture();
+  const deterministic =
+    buildDeterministicSemanticAnimationSceneDslPlan(context(value));
+  const planner = fakePlannerFrom(deterministic);
+
+  for (const aggregateTimeoutMs of [0, MAX_AGGREGATE_TIMEOUT_MS + 1]) {
+    await assert.rejects(
+      () => planSemanticAnimationScenes({
+        ...context(value),
+        planner,
+        aggregateTimeoutMs,
+      }),
+      (cause) => (
+        cause?.code === "ANIMATION_SCENE_DSL_PLAN_INVALID"
+        && cause?.details?.field === "aggregateTimeoutMs"
+        && cause?.details?.reason === "integer_out_of_range"
+      ),
+    );
+  }
+  assert.equal(planner.calls.length, 0);
 });
 
 test("async service fails closed on a context-mismatched provider scene", async () => {

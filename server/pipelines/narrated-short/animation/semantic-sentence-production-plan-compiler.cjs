@@ -134,7 +134,7 @@ function bindSemanticAnimationSceneDslPlan(input, artifacts) {
   });
 }
 
-function exactProfileArtifacts(input) {
+function sourceProfileArtifacts(input) {
   assertExplicitProfile(input);
   const draft = normalizeDraftBundle(input.draft);
   const timingContext = normalizeAnimationTimingContext(input.timingContext);
@@ -167,7 +167,7 @@ function exactProfileArtifacts(input) {
       ),
       semanticEventGraph,
     );
-    return bindSemanticAnimationSceneDslPlan(input, {
+    return Object.freeze({
       draft,
       profile,
       semanticEventGraph,
@@ -186,7 +186,7 @@ function exactProfileArtifacts(input) {
     ),
     semanticEventGraph,
   );
-  return bindSemanticAnimationSceneDslPlan(input, {
+  return Object.freeze({
     draft,
     profile: Object.freeze({
       id: "generalized_story_visual_intent_v1",
@@ -204,6 +204,13 @@ function exactProfileArtifacts(input) {
     semanticVisualSentencePlan,
     timingContext,
   });
+}
+
+function exactProfileArtifacts(input) {
+  return bindSemanticAnimationSceneDslPlan(
+    input,
+    sourceProfileArtifacts(input),
+  );
 }
 
 function beatProductionScenes(artifacts) {
@@ -473,5 +480,6 @@ function buildSemanticSentenceProductionAnimationPlan(input = {}) {
 
 module.exports = {
   buildSemanticSentenceSourceArtifacts: exactProfileArtifacts,
+  buildSemanticSentencePlanningContext: sourceProfileArtifacts,
   buildSemanticSentenceProductionAnimationPlan,
 };

@@ -317,6 +317,49 @@ function normalizeNarrationAlignmentSummary(value = null) {
   return { artifactId, contentHash, durationFrames: Math.max(30, Math.floor(Number(value.durationFrames || 30))), wordCount: Math.max(1, Math.floor(Number(value.wordCount || 1))), exactSequenceMatch: value.exactSequenceMatch === true };
 }
 
+function normalizeAnimationScenePlanSummary(value = null) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  if (value.required === false) {
+    const reason = sanitizeText(value.reason, 40).toLowerCase();
+    if (reason !== "checked_profile") return null;
+    return { required: false, reason: "checked_profile" };
+  }
+  const artifactId = sanitizeText(value.artifactId, 100);
+  const contentHash = sanitizeText(value.contentHash, 80).toLowerCase();
+  const plannerConfigurationHash = sanitizeText(
+    value.plannerConfigurationHash,
+    80,
+  ).toLowerCase();
+  const plannerMode = sanitizeText(value.plannerMode, 40).toLowerCase();
+  const promptProfileId = sanitizeText(value.promptProfileId, 160);
+  const sceneCount = Number(value.sceneCount);
+  const fallbackSceneCount = Number(value.fallbackSceneCount);
+  if (
+    !/^art_[A-Za-z0-9-]{8,80}$/.test(artifactId)
+    || !/^[a-f0-9]{64}$/.test(contentHash)
+    || !/^[a-f0-9]{64}$/.test(plannerConfigurationHash)
+    || !["disabled", "mock", "openai_compatible"].includes(plannerMode)
+    || !/^[a-z][a-z0-9_-]{1,159}$/.test(promptProfileId)
+    || !Number.isInteger(sceneCount)
+    || sceneCount < 1
+    || sceneCount > 20
+    || !Number.isInteger(fallbackSceneCount)
+    || fallbackSceneCount < 0
+    || fallbackSceneCount > sceneCount
+  ) return null;
+  return {
+    required: true,
+    artifactId,
+    contentHash,
+    sceneCount,
+    fallbackSceneCount,
+    plannerMode,
+    promptProfileId,
+    plannerConfigurationHash,
+    reused: value.reused === true,
+  };
+}
+
 function normalizeTechnicalQaSummary(value = null) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const artifactId = sanitizeText(value.qaReportArtifactId || "", 100);
@@ -1126,6 +1169,7 @@ class JobStore {
       contentDraft: null,
       narratedRender: null,
       narrationAlignment: null,
+      animationScenePlan: null,
       technicalQa: null,
       evidencePackage: null,
       humanReviewGate: null,
@@ -1225,6 +1269,7 @@ class JobStore {
       contentDraft: normalizeContentDraftSummary(job.contentDraft),
       narratedRender: normalizeNarratedRenderSummary(job.narratedRender),
       narrationAlignment: normalizeNarrationAlignmentSummary(job.narrationAlignment),
+      animationScenePlan: normalizeAnimationScenePlanSummary(job.animationScenePlan),
       technicalQa: normalizeTechnicalQaSummary(job.technicalQa),
       evidencePackage: normalizeEvidencePackageSummary(job.evidencePackage),
       humanReviewGate: job.humanReviewGate ? publicHumanReviewGate(job.humanReviewGate) : null,
@@ -1268,6 +1313,7 @@ class JobStore {
       contentDraft: normalizeContentDraftSummary(safe.contentDraft),
       narratedRender: normalizeNarratedRenderSummary(safe.narratedRender),
       narrationAlignment: normalizeNarrationAlignmentSummary(safe.narrationAlignment),
+      animationScenePlan: normalizeAnimationScenePlanSummary(safe.animationScenePlan),
       technicalQa: normalizeTechnicalQaSummary(safe.technicalQa),
       evidencePackage: normalizeEvidencePackageSummary(safe.evidencePackage),
       visualSignals: jsonClone(safe.visualSignals || null),
@@ -1346,6 +1392,7 @@ class JobStore {
       contentDraft: normalizeContentDraftSummary(record.contentDraft),
       narratedRender: normalizeNarratedRenderSummary(record.narratedRender),
       narrationAlignment: normalizeNarrationAlignmentSummary(record.narrationAlignment),
+      animationScenePlan: normalizeAnimationScenePlanSummary(record.animationScenePlan),
       technicalQa: normalizeTechnicalQaSummary(record.technicalQa),
       evidencePackage: normalizeEvidencePackageSummary(record.evidencePackage),
       visualSignals: jsonClone(record.visualSignals || null),
@@ -1661,6 +1708,7 @@ class JobStore {
     if (next.contentDraft) next.contentDraft = normalizeContentDraftSummary(next.contentDraft);
     if (next.narratedRender) next.narratedRender = normalizeNarratedRenderSummary(next.narratedRender);
     if (next.narrationAlignment) next.narrationAlignment = normalizeNarrationAlignmentSummary(next.narrationAlignment);
+    if (next.animationScenePlan) next.animationScenePlan = normalizeAnimationScenePlanSummary(next.animationScenePlan);
     if (next.technicalQa) next.technicalQa = normalizeTechnicalQaSummary(next.technicalQa);
     if (next.evidencePackage) next.evidencePackage = normalizeEvidencePackageSummary(next.evidencePackage);
     if (next.error) next.error = normalizeError(next.error);

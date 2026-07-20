@@ -73,6 +73,58 @@ function normalizeActiveNarration(value = null) {
   };
 }
 
+function normalizeActiveAnimationScenePlan(value = null) {
+  if (value === null || value === undefined) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "input.activeAnimationScenePlan" });
+  }
+  const projectRevision = Number(value.projectRevision);
+  const sceneCount = Number(value.sceneCount);
+  const fallbackSceneCount = Number(value.fallbackSceneCount);
+  if (!Number.isInteger(projectRevision) || projectRevision < 1 || projectRevision > 1_000_000) {
+    throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "input.activeAnimationScenePlan.projectRevision" });
+  }
+  if (!Number.isInteger(sceneCount) || sceneCount < 1 || sceneCount > 20) {
+    throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "input.activeAnimationScenePlan.sceneCount" });
+  }
+  if (!Number.isInteger(fallbackSceneCount) || fallbackSceneCount < 0 || fallbackSceneCount > sceneCount) {
+    throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "input.activeAnimationScenePlan.fallbackSceneCount" });
+  }
+  const plannerMode = sanitizeText(value.plannerMode, 40).toLowerCase();
+  if (!["disabled", "mock", "openai_compatible"].includes(plannerMode)) {
+    throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "input.activeAnimationScenePlan.plannerMode" });
+  }
+  const promptProfileId = sanitizeText(value.promptProfileId, 160);
+  if (!/^[a-z][a-z0-9_-]{1,159}$/.test(promptProfileId)) {
+    throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "input.activeAnimationScenePlan.promptProfileId" });
+  }
+  if (value.status !== "ready" || value.animationProfile !== "semantic-v3") {
+    throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "input.activeAnimationScenePlan.status" });
+  }
+  return {
+    status: "ready",
+    animationProfile: "semantic-v3",
+    projectRevision,
+    planArtifactId: validateArtifactId(value.planArtifactId, "input.activeAnimationScenePlan.planArtifactId"),
+    planHash: validateHash(value.planHash, "input.activeAnimationScenePlan.planHash"),
+    draftArtifactId: validateArtifactId(value.draftArtifactId, "input.activeAnimationScenePlan.draftArtifactId"),
+    draftHash: validateHash(value.draftHash, "input.activeAnimationScenePlan.draftHash"),
+    alignmentArtifactId: validateArtifactId(value.alignmentArtifactId, "input.activeAnimationScenePlan.alignmentArtifactId"),
+    alignmentHash: validateHash(value.alignmentHash, "input.activeAnimationScenePlan.alignmentHash"),
+    timingContextHash: validateHash(value.timingContextHash, "input.activeAnimationScenePlan.timingContextHash"),
+    semanticEventGraphHash: validateHash(value.semanticEventGraphHash, "input.activeAnimationScenePlan.semanticEventGraphHash"),
+    semanticVisualSentencePlanHash: validateHash(value.semanticVisualSentencePlanHash, "input.activeAnimationScenePlan.semanticVisualSentencePlanHash"),
+    plannerMode,
+    promptProfileId,
+    plannerConfigurationHash: validateHash(
+      value.plannerConfigurationHash,
+      "input.activeAnimationScenePlan.plannerConfigurationHash",
+    ),
+    sceneCount,
+    fallbackSceneCount,
+  };
+}
+
 function normalizeLastInvalidation(value = null) {
   if (value === null || value === undefined) return null;
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new AppError("INVALIDATION_STATE_INVALID", SAFE_MESSAGES.INVALIDATION_STATE_INVALID, 409);
@@ -133,6 +185,11 @@ function normalizeProjectInput(record = {}) {
         ? validateArtifactId(record.storyboardArtifactId || record.input.storyboardArtifactId, "input.storyboardArtifactId")
         : null,
       activeNarration: normalizeActiveNarration(record.activeNarration || (record.input && record.input.activeNarration) || null),
+      activeAnimationScenePlan: normalizeActiveAnimationScenePlan(
+        record.activeAnimationScenePlan
+          || (record.input && record.input.activeAnimationScenePlan)
+          || null,
+      ),
       lastInvalidation,
     },
   };
@@ -231,5 +288,6 @@ module.exports = {
   PROJECT_TYPES,
   normalizeProject,
   normalizeActiveNarration,
+  normalizeActiveAnimationScenePlan,
   normalizeLastInvalidation,
 };

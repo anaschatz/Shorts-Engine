@@ -490,6 +490,7 @@ test("semantic-v3 compiles and renders non-registry narration deterministically"
           mode: "mock",
           health() {
             return {
+              mode: "mock",
               promptProfileId:
                 "dark_curiosity_local_scene_planner_prompt_v1",
             };

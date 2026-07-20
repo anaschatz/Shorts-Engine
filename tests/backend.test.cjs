@@ -10,8 +10,10 @@ const TEST_DATA_DIR = mkdtempSync(resolve(TEST_TMP_ROOT, "backend-data-"));
 process.env.MATCHCUTS_DATA_DIR = TEST_DATA_DIR;
 process.env.SHORTSENGINE_AUTH_MODE = "local";
 process.env.SHORTSENGINE_VIDEO_ENHANCEMENT_ENABLED = "0";
+process.env.SHORTSENGINE_LOCAL_LLM_SCENE_PLANNER_MODE = "disabled";
 
 test.after(() => {
+  delete process.env.SHORTSENGINE_LOCAL_LLM_SCENE_PLANNER_MODE;
   rmSync(TEST_DATA_DIR, { recursive: true, force: true });
 });
 
@@ -37,8 +39,24 @@ const {
   MAX_MULTIPART_FIELD_BYTES,
   jobs,
   contentArtifactRepository,
+  persistenceAdapter,
+  projectRepository,
 } = require("../server/app.cjs");
 const { createQaReport, gate } = require("../server/pipelines/narrated-short/qa/contract.cjs");
+const {
+  normalizeDraftBundle,
+} = require("../server/pipelines/narrated-short/contracts.cjs");
+const {
+  createAlignment,
+  scriptWords,
+} = require("../server/pipelines/narrated-short/narration/alignment.cjs");
+const {
+  normalizeNarrationAsset,
+  publicNarrationSummary,
+} = require("../server/pipelines/narrated-short/narration/contract.cjs");
+const {
+  buildPacingPlan,
+} = require("../server/pipelines/narrated-short/narration/tts/pacing-plan.cjs");
 
 const mp4Header = Buffer.from([
   0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d,
@@ -275,6 +293,19 @@ async function getJson(url) {
   const res = mockResponse();
   await route(req, res);
   return { res, payload: JSON.parse(res.body.toString("utf8")) };
+}
+
+async function waitForBackendJob(jobId, attempts = 200) {
+  let job = jobs.get(jobId);
+  for (
+    let attempt = 0;
+    attempt < attempts && !["completed", "failed", "cancelled"].includes(job.status);
+    attempt += 1
+  ) {
+    await new Promise((resolveNow) => setImmediate(resolveNow));
+    job = jobs.get(jobId);
+  }
+  return job;
 }
 
 function writeOcrQaApiFixture(t) {
@@ -1589,6 +1620,342 @@ test("Dark Curiosity API allows drafting but blocks final rendering while the ve
   }
   assert.equal(renderJob.status, "failed");
   assert.equal(renderJob.error.code, "NARRATION_ALIGNMENT_REQUIRED");
+});
+
+test("Dark Curiosity animation preplan API is strict, persisted, and replay-safe", async () => {
+  const fixture = JSON.parse(readFileSync(
+    resolve(
+      __dirname,
+      "..",
+      "eval",
+      "narrated",
+      "dark-curiosity",
+      "fixtures",
+      "001_wow_signal_mystery.json",
+    ),
+    "utf8",
+  ));
+  // Move off the byte-exact checked profile so this fixture exercises the
+  // generalized semantic-v3 preplanning path.
+  fixture.script.title = `${fixture.script.title} Reframed`;
+
+  const created = await postJson(
+    "/api/narrated-projects",
+    fixture,
+    "animation-preplan-create-client",
+  );
+  assert.equal(created.res.statusCode, 201);
+  const projectId = created.payload.data.project.id;
+
+  const unsupportedField = await postJson(
+    `/api/narrated-projects/${projectId}/animation-plan`,
+    {
+      animationProfile: "semantic-v3",
+      providerEndpoint: "http://127.0.0.1:11434/v1/chat/completions",
+    },
+    "animation-preplan-strict-client",
+  );
+  assert.equal(unsupportedField.res.statusCode, 400);
+  assert.equal(unsupportedField.payload.error.code, "VALIDATION_ERROR");
+  assert.doesNotMatch(
+    JSON.stringify(unsupportedField.payload),
+    /127\.0\.0\.1|chat\/completions/i,
+  );
+
+  const unsupportedProfile = await postJson(
+    `/api/narrated-projects/${projectId}/animation-plan`,
+    { animationProfile: "semantic-v4" },
+    "animation-preplan-profile-client",
+  );
+  assert.equal(unsupportedProfile.res.statusCode, 400);
+  assert.equal(unsupportedProfile.payload.error.code, "VALIDATION_ERROR");
+
+  const drafted = await postJson(
+    `/api/narrated-projects/${projectId}/draft`,
+    {},
+    "animation-preplan-draft-client",
+  );
+  assert.equal(drafted.res.statusCode, 202);
+  const draftJob = await waitForBackendJob(drafted.payload.data.job.id);
+  assert.equal(draftJob.status, "completed");
+  const approved = await postJson(
+    `/api/narrated-projects/${projectId}/approve`,
+    {
+      draftArtifactId: draftJob.contentDraft.artifactId,
+      draftHash: draftJob.contentDraft.contentHash,
+      voiceProfileId: "backend_scene_voice",
+      renderProfile: "preview",
+    },
+    "animation-preplan-approve-client",
+  );
+  assert.equal(approved.res.statusCode, 201);
+
+  const unaligned = await postJson(
+    `/api/narrated-projects/${projectId}/animation-plan`,
+    { animationProfile: "semantic-v3" },
+    "animation-preplan-unaligned-client",
+  );
+  assert.equal(unaligned.res.statusCode, 409);
+  assert.equal(
+    unaligned.payload.error.code,
+    "NARRATION_ALIGNMENT_REQUIRED",
+  );
+
+  const approvedDraftEnvelope = contentArtifactRepository.readJson(
+    draftJob.contentDraft.artifactId,
+  );
+  const draft = normalizeDraftBundle(approvedDraftEnvelope.body);
+  const project = projectRepository.get(projectId);
+  const pacingPlan = buildPacingPlan(draft.script);
+  const semanticPausesBefore = new Map(
+    pacingPlan.segments.slice(1).map((segment, index) => [
+      segment.wordStartIndex,
+      pacingPlan.segments[index].pauseAfterMs / 1000,
+    ]),
+  );
+  let wordCursor = 0.08;
+  const timedWords = scriptWords(draft.script).map((word, index) => {
+    wordCursor += semanticPausesBefore.get(index) || 0;
+    const timed = {
+      word: word.text,
+      start: wordCursor,
+      end: wordCursor + 0.31,
+      probability: 0.99,
+    };
+    wordCursor += 0.415;
+    return timed;
+  });
+  const durationSeconds = Number((
+    wordCursor + pacingPlan.segments.at(-1).pauseAfterMs / 1000
+  ).toFixed(3));
+  const audioArtifactId = `art_${projectId.slice(4)}-audio0001`;
+  const audioHash = "a".repeat(64);
+  const narration = normalizeNarrationAsset({
+    schemaVersion: 1,
+    status: "uploaded_unaligned",
+    projectId,
+    projectRevision: project.input.revision,
+    verticalId: "dark_curiosity",
+    draftArtifactId: draftJob.contentDraft.artifactId,
+    draftHash: draftJob.contentDraft.contentHash,
+    scriptHash: draft.script.contentHash,
+    audioArtifactId,
+    audioHash,
+    voiceProfileId: "backend_scene_voice",
+    language: "en",
+    media: {
+      container: "wav",
+      codec: "pcm_s16le",
+      sampleRate: 48000,
+      channels: 1,
+      durationSeconds,
+      bytes: 1024,
+    },
+    rights: {
+      commercialUseAllowed: true,
+      ownershipBasis: "self_recorded",
+      rightsHolder: "Backend fixture operator",
+      consentReference: "backend_scene_voice_consent_v1",
+      licenseReference: null,
+    },
+  });
+  const narrationManifestArtifact = contentArtifactRepository.createJson({
+    type: "narration_manifest",
+    projectId,
+    revision: project.input.revision,
+    dependencyHashes: [
+      draftJob.contentDraft.contentHash,
+      draft.script.contentHash,
+      audioHash,
+    ],
+    body: narration,
+  });
+  const narrationSummary = publicNarrationSummary({
+    manifest: narration,
+    manifestArtifactId: narrationManifestArtifact.artifact.id,
+    manifestHash: narrationManifestArtifact.envelope.contentHash,
+  });
+  const alignment = createAlignment({
+    project,
+    draft,
+    narration,
+    narrationSummary,
+    providerResult: { segments: [{ words: timedWords }] },
+    provider: {
+      model: "backend-fixture",
+      device: "cpu",
+      computeType: "int8",
+    },
+  });
+  const alignmentArtifact = contentArtifactRepository.createJson({
+    type: "narration_alignment",
+    projectId,
+    revision: project.input.revision,
+    dependencyHashes: [
+      draftJob.contentDraft.contentHash,
+      draft.script.contentHash,
+      narrationManifestArtifact.envelope.contentHash,
+      audioHash,
+    ],
+    body: alignment,
+  });
+  const alignedProject = projectRepository.update(projectId, {
+    input: {
+      ...project.input,
+      activeNarration: {
+        ...narrationSummary,
+        status: "aligned",
+        alignmentArtifactId: alignmentArtifact.artifact.id,
+        alignmentHash: alignmentArtifact.envelope.contentHash,
+        aligned: true,
+        timingReady: true,
+        renderReady: false,
+      },
+      activeAnimationScenePlan: null,
+    },
+  });
+  persistenceAdapter.persistProject({ project: alignedProject });
+
+  const request = {
+    animationProfile: "semantic-v3",
+  };
+  const first = await postJson(
+    `/api/narrated-projects/${projectId}/animation-plan`,
+    request,
+    "animation-preplan-replay-client",
+  );
+  const inFlightReplay = await postJson(
+    `/api/narrated-projects/${projectId}/animation-plan`,
+    request,
+    "animation-preplan-replay-client",
+  );
+  assert.equal(first.res.statusCode, 202);
+  assert.equal(inFlightReplay.res.statusCode, 202);
+  assert.equal(
+    inFlightReplay.payload.data.job.id,
+    first.payload.data.job.id,
+  );
+  assert.equal(
+    ["queued", "processing", "completed"].includes(
+      inFlightReplay.payload.data.job.status,
+    ),
+    true,
+  );
+
+  const completedJob = await waitForBackendJob(first.payload.data.job.id);
+  assert.equal(completedJob.status, "completed");
+  assert.equal(completedJob.step, "animation_preplan_ready");
+  const completedReplay = await postJson(
+    `/api/narrated-projects/${projectId}/animation-plan`,
+    request,
+    "animation-preplan-replay-client",
+  );
+  assert.equal(completedReplay.res.statusCode, 202);
+  assert.equal(
+    completedReplay.payload.data.job.id,
+    completedJob.id,
+  );
+  assert.equal(completedReplay.payload.data.job.status, "completed");
+
+  const publicJobResponse = await getJson(`/api/jobs/${completedJob.id}`);
+  assert.equal(publicJobResponse.res.statusCode, 200);
+  const publicPlan = publicJobResponse.payload.data.job.animationScenePlan;
+  assert.equal(publicPlan.required, true);
+  assert.equal(publicPlan.plannerMode, "disabled");
+  assert.equal(publicPlan.sceneCount > 0, true);
+  assert.equal(publicPlan.fallbackSceneCount, publicPlan.sceneCount);
+  assert.match(publicPlan.artifactId, /^art_[A-Za-z0-9-]{8,80}$/);
+  assert.match(publicPlan.contentHash, /^[a-f0-9]{64}$/);
+  assert.match(publicPlan.plannerConfigurationHash, /^[a-f0-9]{64}$/);
+
+  const persistedPlan = contentArtifactRepository.readJson(
+    publicPlan.artifactId,
+  );
+  assert.equal(persistedPlan.artifactType, "animation_scene_dsl_plan");
+  assert.equal(persistedPlan.contentHash, publicPlan.contentHash);
+  assert.equal(persistedPlan.body.contentHash, publicPlan.contentHash);
+  assert.equal(
+    persistedPlan.dependencyHashes.includes(
+      publicPlan.plannerConfigurationHash,
+    ),
+    true,
+  );
+  assert.equal(persistedPlan.body.summary.sceneCount, publicPlan.sceneCount);
+  assert.equal(
+    persistedPlan.body.summary.fallbackSceneCount,
+    publicPlan.fallbackSceneCount,
+  );
+
+  const publicProjectResponse = await getJson(
+    `/api/narrated-projects/${projectId}`,
+  );
+  assert.equal(publicProjectResponse.res.statusCode, 200);
+  const activePlan = publicProjectResponse.payload.data.project.input
+    .activeAnimationScenePlan;
+  assert.equal(activePlan.planArtifactId, publicPlan.artifactId);
+  assert.equal(activePlan.planHash, publicPlan.contentHash);
+  assert.equal(activePlan.plannerMode, "disabled");
+  assert.equal(
+    activePlan.plannerConfigurationHash,
+    publicPlan.plannerConfigurationHash,
+  );
+  assert.equal(activePlan.sceneCount, publicPlan.sceneCount);
+  assert.equal(
+    activePlan.fallbackSceneCount,
+    publicPlan.fallbackSceneCount,
+  );
+
+  const publicJson = JSON.stringify({
+    first: first.payload,
+    inFlightReplay: inFlightReplay.payload,
+    completedReplay: completedReplay.payload,
+    publicJob: publicJobResponse.payload,
+    publicProject: publicProjectResponse.payload,
+    persistedPlan,
+  });
+  assert.doesNotMatch(
+    publicJson,
+    /"(?:path|storageKey|localPath|endpoint|apiKey|rawProviderOutput)"|\/Users\/|\/private\//i,
+  );
+  if (process.env.OPENAI_API_KEY) {
+    assert.equal(publicJson.includes(process.env.OPENAI_API_KEY), false);
+  }
+
+  const exactProject = structuredClone(projectRepository.get(projectId));
+  try {
+    const staleProject = projectRepository.update(projectId, {
+      input: {
+        ...exactProject.input,
+        activeNarration: {
+          ...exactProject.input.activeNarration,
+          alignmentHash: "f".repeat(64),
+        },
+      },
+    });
+    persistenceAdapter.persistProject({ project: staleProject });
+    const stale = await postJson(
+      `/api/narrated-projects/${projectId}/animation-plan`,
+      { animationProfile: "semantic-v3" },
+      "animation-preplan-stale-client",
+    );
+    assert.equal(stale.res.statusCode, 202);
+    assert.notEqual(stale.payload.data.job.id, completedJob.id);
+    const staleJob = await waitForBackendJob(stale.payload.data.job.id);
+    assert.equal(staleJob.status, "failed");
+    assert.equal(staleJob.error.code, "ANIMATION_PREPLAN_STALE");
+    const publicStaleJob = await getJson(`/api/jobs/${staleJob.id}`);
+    assert.equal(publicStaleJob.res.statusCode, 200);
+    assert.equal(
+      publicStaleJob.payload.data.job.error.code,
+      "ANIMATION_PREPLAN_STALE",
+    );
+    assert.doesNotMatch(
+      JSON.stringify(publicStaleJob.payload),
+      /"(?:path|storageKey|localPath|endpoint|rawProviderOutput)"|\/Users\/|\/private\//i,
+    );
+  } finally {
+    persistenceAdapter.persistProject({ project: exactProject });
+  }
 });
 
 test("Dark Curiosity revise API is revisioned, idempotent, strict, and exposes bounded invalidation", async () => {

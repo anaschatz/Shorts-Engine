@@ -286,7 +286,7 @@ test("semantic explanatory geometry locks the frequency cue and every chart mark
   assert.throws(() => semanticCubicPoint([0, 1], 0.5), TypeError);
 });
 
-test("browser seek sampling is hard-capped while retaining every scene midpoint", () => {
+test("browser seek sampling is bounded while retaining every scene midpoint", () => {
   const durationFrames = 1200;
   const scenes = Array.from({ length: 12 }, (_, sceneIndex) => {
     const startFrame = sceneIndex * 100;
@@ -300,8 +300,38 @@ test("browser seek sampling is hard-capped while retaining every scene midpoint"
     };
   });
   const sequence = safeSeekSequence({ durationFrames, profileVersion: "1.0.0", content: {}, scenes });
-  assert.ok(sequence.length <= 39);
+  assert.ok(sequence.length <= 55);
   for (const scene of scenes) assert.ok(sequence.includes(Math.floor((scene.startFrame + scene.endFrame - 1) / 2)));
+});
+
+test("action seek sampling retains the maximum signature and hold proof", () => {
+  const scenes = Array.from({ length: 20 }, (_, index) => ({
+    startFrame: index * 5,
+    endFrame: index * 5 + 5,
+    operations: [],
+  }));
+  const signatureCheckpoints = Array.from({ length: 20 }, (_, index) => ({
+    signature: `signature_${index}`,
+    frame: 10 + index,
+  }));
+  const settledHoldFrames = Array.from({ length: 20 }, (_, index) => 40 + index);
+  const sequence = safeSeekSequence({
+    durationFrames: 120,
+    profileVersion: "1.3.0",
+    content: {
+      semantic: { profileId: "dark_curiosity_semantic_sentences_v3" },
+    },
+    scenes,
+  }, {
+    signatureCheckpoints,
+    phaseFrames: [30, 31, 32, 33, 34],
+    settledHoldFrames,
+  });
+  assert.ok(sequence.length <= 55);
+  for (const checkpoint of signatureCheckpoints) {
+    assert.ok(sequence.includes(checkpoint.frame));
+  }
+  for (const frame of settledHoldFrames) assert.ok(sequence.includes(frame));
 });
 
 test("production plan rejects unsupported formats and changes with content", () => {

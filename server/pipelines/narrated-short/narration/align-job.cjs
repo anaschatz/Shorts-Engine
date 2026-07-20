@@ -56,7 +56,13 @@ async function runNarrationAlignmentJob(context = {}) {
     jobs.update(job, { progress: 75, step: "persist_alignment" });
     const artifact = content.createJson({ type: "narration_alignment", projectId: project.id, jobId: job.id, revision: project.input.revision, dependencyHashes: [payload.approvedDraftHash, payload.scriptHash, payload.narrationManifestHash, payload.audioHash], body: alignment });
     const summary = { ...active, status: "aligned", alignmentArtifactId: artifact.artifact.id, alignmentHash: artifact.envelope.contentHash, aligned: true, timingReady: true, renderReady: false };
-    const updated = projects.update(project.id, { input: { ...project.input, activeNarration: summary } });
+    const updated = projects.update(project.id, {
+      input: {
+        ...project.input,
+        activeNarration: summary,
+        activeAnimationScenePlan: null,
+      },
+    });
     if (dependencies.persistenceAdapter && typeof dependencies.persistenceAdapter.persistProject === "function") dependencies.persistenceAdapter.persistProject({ project: updated });
     jobs.complete(job, { step: "narration_aligned", narrationAlignment: { artifactId: artifact.artifact.id, contentHash: artifact.envelope.contentHash, durationFrames: alignment.durationFrames, wordCount: alignment.words.length, exactSequenceMatch: true } });
     return { artifact, alignment, project: updated };

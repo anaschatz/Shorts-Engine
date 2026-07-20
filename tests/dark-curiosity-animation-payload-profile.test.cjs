@@ -88,6 +88,13 @@ function dependencies(seen) {
       seen.timing = input;
       return { contentHash: "c".repeat(64) };
     },
+    buildSemanticSentencePlanningContext() {
+      return {
+        semanticEventGraph: {
+          primitivePayloadProfileId: "test_generalized_profile",
+        },
+      };
+    },
     compileProductionAnimation(input) {
       seen.compile = input;
       const semantic = input.animationProfile === SEMANTIC_SENTENCE_PROFILE_TOKEN;

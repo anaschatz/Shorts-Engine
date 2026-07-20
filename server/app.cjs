@@ -50,6 +50,7 @@ const { normalizeDraftBundle } = require("./pipelines/narrated-short/contracts.c
 const { fasterWhisperVersion } = require("./adapters/faster-whisper-adapter.cjs");
 const { runNarratedDraftJob } = require("./pipelines/narrated-short/draft-job.cjs");
 const { runNarratedRenderJob } = require("./pipelines/narrated-short/render-job.cjs");
+const { runNarratedAnimationPreplanJob } = require("./pipelines/narrated-short/animation/preplan-job.cjs");
 const { CAPTION_RENDERER_VERSION, CAPTION_PROFILE_VERSION } = require("./pipelines/narrated-short/captions/contract.cjs");
 const { AUDIO_PROFILE_VERSION } = require("./pipelines/narrated-short/audio-normalization.cjs");
 const { NARRATED_COMPOSITOR_VERSION } = require("./pipelines/narrated-short/video-compositor.cjs");
@@ -57,6 +58,8 @@ const { QA_PROFILE_VERSION, normalizeQaReport } = require("./pipelines/narrated-
 const { EVIDENCE_PROFILE_VERSION } = require("./pipelines/narrated-short/evidence/contract.cjs");
 const { buildProductionAnimationPayloadBindings } = require("./pipelines/narrated-short/animation/payload-bindings.cjs");
 const { SEMANTIC_SENTENCE_PROFILE_TOKEN } = require("./pipelines/narrated-short/animation/semantic-render-profile.cjs");
+const { createLocalLlmScenePlanner } = require("./pipelines/narrated-short/animation/providers/local-llm-scene-planner.cjs");
+const { SCENE_PLAN_ARTIFACT_TYPE } = require("./pipelines/narrated-short/animation/scene-plan-artifact.cjs");
 const { publicInvalidationSummary, reviseNarratedProject } = require("./pipelines/narrated-short/invalidation.cjs");
 const { publicQaSummary } = require("./pipelines/narrated-short/qa/qa-orchestrator.cjs");
 const { createPublishApproval, verifyReleaseEligibility } = require("./pipelines/narrated-short/publish/service.cjs");
@@ -220,6 +223,7 @@ const jobWorker = createLocalJobWorker({
     contentApprovalRepository,
     runNarratedDraftJob,
     runNarrationAlignmentJob,
+    runNarratedAnimationPreplanJob,
     runNarratedRenderJob,
     regenerationApprovalRepository,
     approvalOutboxRepository,
@@ -1091,6 +1095,181 @@ async function handleAlignNarration(req, res, rid, projectId, principal) {
   sendOk(res, { job: jobQueue.publicJob(job) }, 202);
 }
 
+async function handlePlanNarratedAnimation(req, res, rid, projectId, principal) {
+  const safeProjectId = validateRouteId(projectId, "prj");
+  if (!generateLimiter.check(clientKey(req))) {
+    throw new AppError("RATE_LIMITED", SAFE_MESSAGES.RATE_LIMITED, 429);
+  }
+  const project = persistenceAdapter.getProject(safeProjectId);
+  if (!project) {
+    throw new AppError("PROJECT_NOT_FOUND", SAFE_MESSAGES.PROJECT_NOT_FOUND, 404);
+  }
+  assertProjectAccess(project, principal);
+  if (project.projectType !== "narrated_short") {
+    throw new AppError("PROJECT_TYPE_MISMATCH", "Project is not a narrated Short.", 409);
+  }
+  validateJsonContentType(req);
+  enforceContentLength(req, MAX_JSON_BODY_BYTES);
+  const requestPayload = await readJsonBody(req, MAX_JSON_BODY_BYTES);
+  if (
+    !requestPayload
+    || typeof requestPayload !== "object"
+    || Array.isArray(requestPayload)
+  ) {
+    throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "body" });
+  }
+  for (const key of Object.keys(requestPayload)) {
+    if (key !== "animationProfile") {
+      throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: key });
+    }
+  }
+  const animationProfile = requestPayload.animationProfile
+    ?? SEMANTIC_SENTENCE_PROFILE_TOKEN;
+  if (animationProfile !== SEMANTIC_SENTENCE_PROFILE_TOKEN) {
+    throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "animationProfile" });
+  }
+  const approval = contentApprovalRepository.findApproved(
+    project.id,
+    project.input.revision,
+  );
+  const active = project.input.activeNarration;
+  if (!approval) {
+    throw new AppError("CONTENT_APPROVAL_REQUIRED", "Approve the narrated draft before animation preplanning.", 409);
+  }
+  if (
+    !active
+    || active.status !== "aligned"
+    || active.aligned !== true
+    || active.timingReady !== true
+    || !active.alignmentArtifactId
+    || active.projectRevision !== project.input.revision
+    || active.draftArtifactId !== approval.draftArtifactId
+    || active.draftHash !== approval.draftHash
+    || !active.alignmentHash
+  ) {
+    throw new AppError("NARRATION_ALIGNMENT_REQUIRED", SAFE_MESSAGES.NARRATION_ALIGNMENT_REQUIRED, 409);
+  }
+  const plannerHealth = createLocalLlmScenePlanner({ env: process.env }).health();
+  if (String(CONFIG.environment).toLowerCase() === "production" && plannerHealth.mode === "mock") {
+    throw new AppError(
+      "ANIMATION_LOCAL_LLM_CONFIG_INVALID",
+      "The local animation scene planner configuration is invalid.",
+      500,
+      { field: "mode" },
+    );
+  }
+  const payload = {
+    projectRevision: project.input.revision,
+    language: project.language,
+    approvedDraftArtifactId: approval.draftArtifactId,
+    approvedDraftHash: approval.draftHash,
+    alignmentArtifactId: active.alignmentArtifactId,
+    alignmentHash: active.alignmentHash,
+    renderProfile: approval.renderProfile,
+    animationProfile,
+    plannerMode: plannerHealth.mode,
+    promptProfileId: plannerHealth.promptProfileId,
+    plannerConfigurationHash: plannerHealth.configurationHash,
+  };
+  const operationKey = idempotencyKey("plan_narrated_animation", {
+    projectId: project.id,
+    ...payload,
+  });
+  const jobsByIdempotencyKey = new Map(
+    jobQueue.all().map((candidate) => [candidate.idempotencyKey, candidate]),
+  );
+  const visitedKeys = new Set();
+  let key = operationKey;
+  while (true) {
+    if (visitedKeys.has(key)) {
+      throw new AppError(
+        "JOB_STATE_INVALID",
+        SAFE_MESSAGES.JOB_STATE_INVALID,
+        409,
+      );
+    }
+    visitedKeys.add(key);
+    const existingJob = jobsByIdempotencyKey.get(key);
+    if (!existingJob) break;
+    const activePlan = project.input.activeAnimationScenePlan;
+    const completedPlanIsActive = Boolean(
+      existingJob.status === "completed"
+      && existingJob.animationScenePlan?.required === true
+      && activePlan
+      && activePlan.planArtifactId
+        === existingJob.animationScenePlan.artifactId
+      && activePlan.planHash === existingJob.animationScenePlan.contentHash
+      && activePlan.draftHash === payload.approvedDraftHash
+      && activePlan.alignmentHash === payload.alignmentHash
+      && activePlan.plannerMode === payload.plannerMode
+      && activePlan.promptProfileId === payload.promptProfileId
+      && activePlan.plannerConfigurationHash
+        === payload.plannerConfigurationHash
+    );
+    if (completedPlanIsActive) {
+      let envelope;
+      try {
+        envelope = contentArtifactRepository.readJson(
+          activePlan.planArtifactId,
+        );
+      } catch {
+        throw new AppError(
+          "ANIMATION_SCENE_PLAN_ARTIFACT_INVALID",
+          "The persisted animation scene plan is invalid or stale.",
+          409,
+          { reason: "active_artifact_unreadable" },
+        );
+      }
+      if (
+        envelope.artifactType !== SCENE_PLAN_ARTIFACT_TYPE
+        || envelope.projectId !== project.id
+        || envelope.revision !== payload.projectRevision
+        || envelope.contentHash !== activePlan.planHash
+        || envelope.body?.contentHash !== activePlan.planHash
+        || !envelope.dependencyHashes.includes(payload.approvedDraftHash)
+        || !envelope.dependencyHashes.includes(payload.alignmentHash)
+        || !envelope.dependencyHashes.includes(
+          payload.plannerConfigurationHash,
+        )
+      ) {
+        throw new AppError(
+          "ANIMATION_SCENE_PLAN_ARTIFACT_INVALID",
+          "The persisted animation scene plan is invalid or stale.",
+          409,
+          { reason: "active_artifact_binding_mismatch" },
+        );
+      }
+    }
+    if (
+      ["queued", "processing"].includes(existingJob.status)
+      || completedPlanIsActive
+      || (
+        existingJob.status === "completed"
+        && existingJob.animationScenePlan?.required === false
+      )
+    ) break;
+    key = idempotencyKey("plan_narrated_animation_retry", {
+      operationKey,
+      previousJobId: existingJob.id,
+    });
+  }
+  const job = jobQueue.create({
+    projectId: project.id,
+    ownerId: principal.id,
+    action: "plan_narrated_animation",
+    pipelineType: "narrated_short",
+    idempotencyKey: key,
+    payload,
+  });
+  if (job.status === "queued") {
+    workerSupervisor.enqueue(
+      jobQueue.enqueue(job, { requestId: rid }),
+      { requestId: rid },
+    );
+  }
+  sendOk(res, { job: jobQueue.publicJob(job) }, 202);
+}
+
 async function handleRenderNarratedProject(req, res, rid, projectId, principal) {
   const safeProjectId = validateRouteId(projectId, "prj");
   if (!generateLimiter.check(clientKey(req))) throw new AppError("RATE_LIMITED", SAFE_MESSAGES.RATE_LIMITED, 429);
@@ -1143,7 +1322,31 @@ async function handleRenderNarratedProject(req, res, rid, projectId, principal) 
     evidenceProfileVersion: EVIDENCE_PROFILE_VERSION,
   };
   if (animationProfile) payload.animationProfile = animationProfile;
-  Object.assign(payload, buildProductionAnimationPayloadBindings({ project, approval, renderProfile: approval.renderProfile, animationProfile, contentArtifacts: contentArtifactRepository }));
+  const renderPlannerHealth = animationProfile
+    ? createLocalLlmScenePlanner({ env: process.env }).health()
+    : null;
+  if (
+    renderPlannerHealth
+    && String(CONFIG.environment).toLowerCase() === "production"
+    && renderPlannerHealth.mode === "mock"
+  ) {
+    throw new AppError(
+      "ANIMATION_LOCAL_LLM_CONFIG_INVALID",
+      "The local animation scene planner configuration is invalid.",
+      500,
+      { field: "mode" },
+    );
+  }
+  Object.assign(payload, buildProductionAnimationPayloadBindings({
+    project,
+    approval,
+    renderProfile: approval.renderProfile,
+    animationProfile,
+    contentArtifacts: contentArtifactRepository,
+  }, {
+    requirePersistedScenePlan: Boolean(renderPlannerHealth),
+    expectedScenePlanner: renderPlannerHealth,
+  }));
   const renderIdentity = {
     projectId: project.id,
     revision: project.input.revision,
@@ -1164,6 +1367,12 @@ async function handleRenderNarratedProject(req, res, rid, projectId, principal) 
     animationProvider: payload.animationProvider,
     animationRuntimeVersion: payload.animationRuntimeVersion,
     animationStyleVersion: payload.animationStyleVersion,
+    ...(payload.animationScenePlanArtifactId
+      ? {
+        animationScenePlanArtifactId: payload.animationScenePlanArtifactId,
+        animationScenePlanHash: payload.animationScenePlanHash,
+      }
+      : {}),
   };
   const key = animationProfile
     ? idempotencyKey(
@@ -2294,6 +2503,8 @@ async function route(req, res) {
     const narratedAlignmentMatch = pathname.match(/^\/api\/narrated-projects\/([^/]+)\/narration\/align$/);
     if (req.method === "POST" && narratedAlignmentMatch) return await handleAlignNarration(req, res, rid, narratedAlignmentMatch[1], principal());
 
+    const narratedAnimationPlanMatch = pathname.match(/^\/api\/narrated-projects\/([^/]+)\/animation-plan$/);
+    if (req.method === "POST" && narratedAnimationPlanMatch) return await handlePlanNarratedAnimation(req, res, rid, narratedAnimationPlanMatch[1], principal());
     const narratedRenderMatch = pathname.match(/^\/api\/narrated-projects\/([^/]+)\/render$/);
     if (req.method === "POST" && narratedRenderMatch) return await handleRenderNarratedProject(req, res, rid, narratedRenderMatch[1], principal());
     const narratedQaMatch = pathname.match(/^\/api\/narrated-projects\/([^/]+)\/qa$/);

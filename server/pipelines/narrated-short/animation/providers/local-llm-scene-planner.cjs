@@ -1,5 +1,6 @@
 "use strict";
 
+const { createHash } = require("node:crypto");
 const { AppError, SAFE_MESSAGES } = require("../../../../errors.cjs");
 const {
   normalizeSemanticEventGraph,
@@ -31,6 +32,8 @@ const DEFAULT_LOCAL_LLM_ENDPOINT =
   "http://127.0.0.1:11434/v1/chat/completions";
 const DEFAULT_LOCAL_LLM_MODEL = "local-scene-planner";
 const DEFAULT_TIMEOUT_MS = 120000;
+const DEFAULT_AGGREGATE_TIMEOUT_MS = 5 * 60 * 1000;
+const MAX_AGGREGATE_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_MAX_RESPONSE_BYTES = 64 * 1024;
 const MAX_REQUEST_BYTES = 32 * 1024;
 const MAX_RESPONSE_BYTES_LIMIT = 256 * 1024;
@@ -181,6 +184,14 @@ function normalizeLocalLlmScenePlannerConfig(options = {}) {
       300000,
       "timeoutMs",
     ),
+    aggregateTimeoutMs: safeInteger(
+      options.aggregateTimeoutMs
+        ?? env.SHORTSENGINE_LOCAL_LLM_AGGREGATE_TIMEOUT_MS,
+      DEFAULT_AGGREGATE_TIMEOUT_MS,
+      1000,
+      MAX_AGGREGATE_TIMEOUT_MS,
+      "aggregateTimeoutMs",
+    ),
     maxResponseBytes: safeInteger(
       options.maxResponseBytes
         ?? env.SHORTSENGINE_LOCAL_LLM_RESPONSE_MAX_BYTES,
@@ -198,6 +209,19 @@ function normalizeLocalLlmScenePlannerConfig(options = {}) {
       "maxTokens",
     ),
   });
+}
+
+function localLlmScenePlannerConfigurationHash(config) {
+  return createHash("sha256").update(JSON.stringify({
+    mode: config.mode,
+    endpoint: config.endpoint,
+    modelId: config.modelId,
+    timeoutMs: config.timeoutMs,
+    aggregateTimeoutMs: config.aggregateTimeoutMs,
+    maxResponseBytes: config.maxResponseBytes,
+    maxTokens: config.maxTokens,
+    promptProfileId: LOCAL_LLM_SCENE_PLANNER_PROMPT_PROFILE_ID,
+  })).digest("hex");
 }
 
 function plannerContext(input = {}) {
@@ -603,6 +627,9 @@ function createLocalLlmScenePlanner(options = {}) {
         networkRequired: config.mode === "openai_compatible",
         loopbackOnly: true,
         apiKeyRequired: false,
+        configurationHash:
+          localLlmScenePlannerConfigurationHash(config),
+        aggregateTimeoutMs: config.aggregateTimeoutMs,
         promptProfileId: LOCAL_LLM_SCENE_PLANNER_PROMPT_PROFILE_ID,
       });
     },
@@ -670,6 +697,7 @@ module.exports = {
   buildLocalScenePlannerPrompt,
   createLocalLlmScenePlanner,
   deterministicProposalForContext,
+  localLlmScenePlannerConfigurationHash,
   normalizeLocalLlmScenePlannerConfig,
   normalizeLoopbackEndpoint,
   readBoundedResponseText,

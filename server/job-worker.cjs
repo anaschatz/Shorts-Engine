@@ -246,6 +246,8 @@ function createLocalJobWorker({
     clipHandler: render,
     narratedDraftHandler: dependencies.runNarratedDraftJob,
     narrationAlignHandler: dependencies.runNarrationAlignmentJob,
+    narratedAnimationPreplanHandler:
+      dependencies.runNarratedAnimationPreplanJob,
     narratedRenderHandler: dependencies.runNarratedRenderJob,
   });
   const renderDependencies = dependencies.renderDependencies || dependencies;

@@ -179,6 +179,60 @@ test("geometry audit rejects real clipping and caption-safe collisions", () => {
   assert.deepEqual(missingFollower.unobservedPathFollowerIds, ["signal-dot"]);
 });
 
+test("geometry audit proves action signatures and clean settled holds", () => {
+  const firstSignature = "create:module_primary:entry:reveal";
+  const secondSignature = "camera:scene:develop:push_primary";
+  const expectations = {
+    expectedActionSignatures: [firstSignature, secondSignature],
+    expectedSettledHoldFrames: [30],
+  };
+  const snapshots = [
+    { frame: 10, ...geometry(), activeSceneActionSignatures: [firstSignature] },
+    { frame: 20, ...geometry(), activeSceneActionSignatures: [secondSignature] },
+    { frame: 30, ...geometry(), activeSceneActionSignatures: [] },
+  ];
+  const passed = validateGeometrySnapshots(
+    snapshots,
+    720,
+    1280,
+    [],
+    expectations,
+  );
+  assert.equal(passed.passed, true);
+  assert.deepEqual(passed.observedActionSignatures, [
+    secondSignature,
+    firstSignature,
+  ].sort());
+  assert.deepEqual(passed.unobservedActionSignatures, []);
+  assert.deepEqual(passed.actionCoverageViolations, []);
+
+  const missing = validateGeometrySnapshots(
+    snapshots.slice(0, 1).concat(snapshots.slice(2)),
+    720,
+    1280,
+    [],
+    expectations,
+  );
+  assert.equal(missing.passed, false);
+  assert.deepEqual(missing.unobservedActionSignatures, [secondSignature]);
+
+  const dirtyHold = validateGeometrySnapshots(
+    snapshots.map((snapshot) => snapshot.frame === 30
+      ? { ...snapshot, activeSceneActionSignatures: [secondSignature] }
+      : snapshot),
+    720,
+    1280,
+    [],
+    expectations,
+  );
+  assert.equal(dirtyHold.passed, false);
+  assert.deepEqual(dirtyHold.actionCoverageViolations, [{
+    frame: 30,
+    reason: "settled_hold_has_active_action",
+    activeSceneActionSignatures: [secondSignature],
+  }]);
+});
+
 test("strict geometry audit proves persistent morphs, exclusive focus, and mobile legibility", () => {
   const result = validateGeometrySnapshots(strictSnapshots(), 720, 1280, ["signal-evidence-marker"], strictExpectations);
   assert.equal(result.passed, true);

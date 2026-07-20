@@ -17,6 +17,7 @@ const JSON_CONTENT_ARTIFACT_TYPES = Object.freeze([
   "audio_normalization_report",
   "timeline_ir",
   "animation_timing_context",
+  "animation_scene_dsl_plan",
   "animation_plan",
   "animation_ir",
   "animation_render_manifest",

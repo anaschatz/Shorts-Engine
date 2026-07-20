@@ -8,10 +8,14 @@ const { createHash } = require("node:crypto");
 
 const { parsePilotArgs } = require("../server/pipelines/narrated-short/pilot/cli.cjs");
 const { PILOT_PROFILE, PILOT_PROFILE_VERSION, PILOT_STAGES, PilotStateMachine, normalizePilotReport, pilotRunId } = require("../server/pipelines/narrated-short/pilot/contract.cjs");
-const { animationProfileMatchesEvidence, normalizePilotAnimationProfile, pilotReleaseIdempotencyKey, renderPayload, verifiedAlignedNarrationReuse } = require("../server/pipelines/narrated-short/pilot/local-runtime.cjs");
+const { animationProfileMatchesEvidence, normalizePilotAnimationProfile, pilotReleaseIdempotencyKey, renderPayload, verifiedAlignedNarrationReuse, verifySemanticAnimationArtifactChain } = require("../server/pipelines/narrated-short/pilot/local-runtime.cjs");
 const { runPilotWorkflow } = require("../server/pipelines/narrated-short/pilot/orchestrator.cjs");
 const { persistPilotReport, readLatestPilotReport } = require("../server/pipelines/narrated-short/pilot/report-store.cjs");
 const { SEMANTIC_SENTENCE_PROFILE_ID, SEMANTIC_SENTENCE_PROFILE_TOKEN } = require("../server/pipelines/narrated-short/animation/semantic-render-profile.cjs");
+const { compileProductionAnimation } = require("../server/pipelines/narrated-short/animation/production-plan-compiler.cjs");
+const { buildSemanticAnimationSceneDslPlanFromScenes } = require("../server/pipelines/narrated-short/animation/semantic-animation-scene-dsl-plan.cjs");
+const { normalizeAnimationTimingContext } = require("../server/pipelines/narrated-short/animation/timing-contract.cjs");
+const { contentHash, normalizeDraftBundle } = require("../server/pipelines/narrated-short/contracts.cjs");
 const { normalizeAlignment } = require("../server/pipelines/narrated-short/narration/alignment.cjs");
 const { normalizeNarrationAsset } = require("../server/pipelines/narrated-short/narration/contract.cjs");
 const { idempotencyKey } = require("../server/jobs.cjs");
@@ -115,6 +119,215 @@ function alignedNarrationReuseFixture() {
     artifactStore: { readArtifact: () => Buffer.from(audioBuffer) },
   };
   return { input, envelopes, audio, audioBuffer, activeNarration, manifest, alignment };
+}
+
+function semanticCompletionChainFixture(generalized) {
+  const rawDraft = JSON.parse(readFileSync(resolve(
+    __dirname,
+    "..",
+    "eval",
+    "narrated",
+    "dark-curiosity",
+    "fixtures",
+    "002_gps_week_rollover.json",
+  ), "utf8"));
+  if (generalized) rawDraft.script.title = `${rawDraft.script.title} Reframed`;
+  const draft = normalizeDraftBundle(rawDraft);
+  const rawTiming = JSON.parse(readFileSync(resolve(
+    __dirname,
+    "..",
+    "eval",
+    "narrated",
+    "dark-curiosity",
+    "semantic-events",
+    "timing",
+    "002_gps_week_rollover.timing.json",
+  ), "utf8"));
+  delete rawTiming.contentHash;
+  rawTiming.draftHash = draft.contentHash;
+  const timingContext = normalizeAnimationTimingContext(rawTiming);
+  const compileInput = {
+    animationProfile: SEMANTIC_SENTENCE_PROFILE_TOKEN,
+    projectId: "prj_11111111-1111-4111-8111-111111111111",
+    projectRevision: 1,
+    renderProfile: "final",
+    draft,
+    timingContext,
+  };
+  let compiled = compileProductionAnimation(compileInput);
+  if (generalized) {
+    const deterministic =
+      compiled.animationIR.content.semanticAnimationSceneDslPlan;
+    const mockPlan = buildSemanticAnimationSceneDslPlanFromScenes({
+      bindings: deterministic.bindings,
+      planner: {
+        plannerId: "pilot_mock_scene_planner",
+        mode: "mock",
+        promptProfileId: deterministic.planner.promptProfileId,
+      },
+      scenes: deterministic.scenes,
+    });
+    compiled = compileProductionAnimation({
+      ...compileInput,
+      semanticAnimationSceneDslPlan: mockPlan,
+    });
+  }
+
+  const animationIr = compiled.animationIR;
+  const graph = animationIr.content.semanticEventGraph;
+  const sentencePlan = animationIr.content.semanticVisualSentencePlan;
+  const scenePlan = animationIr.content.semanticAnimationSceneDslPlan || null;
+  const plannerConfigurationHash = "f".repeat(64);
+  const ids = {
+    timing: "art_pilot-timing-context",
+    plan: "art_pilot-animation-plan",
+    ir: "art_pilot-animation-ir",
+    animationQa: "art_pilot-animation-qa",
+    manifest: "art_pilot-animation-manifest",
+    scenePlan: "art_pilot-scene-plan",
+    draft: "art_pilot-approved-draft",
+    alignment: "art_pilot-alignment",
+  };
+  const hashes = {
+    timing: graph.timingContextHash,
+    plan: contentHash(compiled.plan),
+    ir: animationIr.contentHash,
+    animationQa: "a".repeat(64),
+    visual: "b".repeat(64),
+    composition: "c".repeat(64),
+  };
+  const manifest = {
+    schemaVersion: 1,
+    timingContextArtifactId: ids.timing,
+    timingContextHash: hashes.timing,
+    animationPlanArtifactId: ids.plan,
+    animationPlanHash: hashes.plan,
+    animationIRArtifactId: ids.ir,
+    animationIRHash: hashes.ir,
+    provider: "hyperframes_local",
+    runtimeVersion: "0.7.55",
+    styleVersion: animationIr.renderer.styleVersion,
+    compositionHash: hashes.composition,
+    visualMasterSha256: hashes.visual,
+    browserProofHash: "d".repeat(64),
+    motionProofHash: "e".repeat(64),
+    animationQaArtifactId: ids.animationQa,
+    animationQaHash: hashes.animationQa,
+    ...(scenePlan ? {
+      animationScenePlanArtifactId: ids.scenePlan,
+      animationScenePlanHash: scenePlan.contentHash,
+    } : {}),
+    estimate: { frames: animationIr.durationFrames },
+  };
+  const manifestEnvelope = {
+    artifactType: "animation_render_manifest",
+    projectId: compileInput.projectId,
+    revision: 1,
+    contentHash: contentHash(manifest),
+    dependencyHashes: [...new Set([
+      hashes.timing,
+      hashes.plan,
+      hashes.ir,
+      hashes.animationQa,
+      hashes.visual,
+    ])].sort(),
+    body: manifest,
+  };
+  const bindings = {
+    draftArtifactId: ids.draft,
+    draftHash: animationIr.draftHash,
+    alignmentArtifactId: ids.alignment,
+    alignmentHash: animationIr.alignmentHash,
+    animationTimingContextArtifactId: ids.timing,
+    animationTimingContextHash: hashes.timing,
+    animationPlanArtifactId: ids.plan,
+    animationPlanHash: hashes.plan,
+    animationIRArtifactId: ids.ir,
+    animationIRHash: hashes.ir,
+    animationRenderManifestArtifactId: ids.manifest,
+    animationRenderManifestHash: manifestEnvelope.contentHash,
+    animationQaArtifactId: ids.animationQa,
+    animationQaHash: hashes.animationQa,
+    visualMasterSha256: hashes.visual,
+    animationCompositionHash: hashes.composition,
+    animationProvider: manifest.provider,
+    animationRuntimeVersion: manifest.runtimeVersion,
+    animationStyleVersion: manifest.styleVersion,
+  };
+  const scenePlanEnvelope = scenePlan ? {
+    artifactType: "animation_scene_dsl_plan",
+    projectId: compileInput.projectId,
+    revision: 1,
+    contentHash: scenePlan.contentHash,
+    dependencyHashes: [...new Set([
+      animationIr.draftHash,
+      animationIr.alignmentHash,
+      graph.timingContextHash,
+      graph.contentHash,
+      sentencePlan.contentHash,
+      plannerConfigurationHash,
+    ])].sort(),
+    body: scenePlan,
+  } : null;
+  const envelopes = new Map([[ids.manifest, manifestEnvelope]]);
+  if (scenePlanEnvelope) envelopes.set(ids.scenePlan, scenePlanEnvelope);
+  const project = {
+    id: compileInput.projectId,
+    input: {
+      revision: 1,
+      ...(scenePlan ? {
+        activeAnimationScenePlan: {
+          status: "ready",
+          animationProfile: SEMANTIC_SENTENCE_PROFILE_TOKEN,
+          projectRevision: 1,
+          planArtifactId: ids.scenePlan,
+          planHash: scenePlan.contentHash,
+          draftArtifactId: ids.draft,
+          draftHash: animationIr.draftHash,
+          alignmentArtifactId: ids.alignment,
+          alignmentHash: animationIr.alignmentHash,
+          timingContextHash: graph.timingContextHash,
+          semanticEventGraphHash: graph.contentHash,
+          semanticVisualSentencePlanHash: sentencePlan.contentHash,
+          plannerMode: scenePlan.planner.mode,
+          promptProfileId: scenePlan.planner.promptProfileId,
+          plannerConfigurationHash,
+          sceneCount: scenePlan.summary.sceneCount,
+          fallbackSceneCount: scenePlan.summary.fallbackSceneCount,
+        },
+      } : {}),
+    },
+  };
+  return {
+    animationIrEnvelope: {
+      artifactType: "animation_ir",
+      projectId: compileInput.projectId,
+      revision: 1,
+      contentHash: hashes.ir,
+      body: animationIr,
+    },
+    contentArtifactRepository: {
+      readJson(artifactId) {
+        const envelope = envelopes.get(artifactId);
+        if (!envelope) throw new Error("missing test artifact");
+        return envelope;
+      },
+    },
+    envelopes,
+    manifestEnvelope,
+    project,
+    qaEnvelope: { body: { bindings } },
+    report: {
+      approvedDraft: {
+        artifactId: ids.draft,
+        hash: animationIr.draftHash,
+      },
+      narrationAlignment: {
+        artifactId: ids.alignment,
+        hash: animationIr.alignmentHash,
+      },
+    },
+  };
 }
 
 test("pilot state machine enforces exact ordering and terminal states", () => {
@@ -234,6 +447,45 @@ test("pilot animation profile changes only render identity and matches exact QA 
   assert.equal(animationProfileMatchesEvidence(null, legacyQa, legacyIr), true);
   assert.equal(animationProfileMatchesEvidence(SEMANTIC_SENTENCE_PROFILE_TOKEN, legacyQa, legacyIr), false);
   assert.equal(animationProfileMatchesEvidence(null, semanticQa, legacyIr), false);
+});
+
+test("pilot semantic completion binds QA, render manifest, active plan and exact scene artifact", () => {
+  const verify = (value) => {
+    try {
+      return verifySemanticAnimationArtifactChain(value);
+    } catch {
+      return false;
+    }
+  };
+  assert.equal(verify(semanticCompletionChainFixture(true)), true);
+
+  const staleActive = semanticCompletionChainFixture(true);
+  staleActive.project.input.activeAnimationScenePlan.planHash = "0".repeat(64);
+  assert.equal(verify(staleActive), false);
+
+  const staleConfiguration = semanticCompletionChainFixture(true);
+  staleConfiguration.project.input.activeAnimationScenePlan.plannerConfigurationHash =
+    "0".repeat(64);
+  assert.equal(verify(staleConfiguration), false);
+
+  const wrongManifestPlan = semanticCompletionChainFixture(true);
+  wrongManifestPlan.manifestEnvelope.body.animationScenePlanHash = "0".repeat(64);
+  assert.equal(verify(wrongManifestPlan), false);
+
+  const wrongQaManifest = semanticCompletionChainFixture(true);
+  wrongQaManifest.qaEnvelope.body.bindings.animationRenderManifestHash =
+    "0".repeat(64);
+  assert.equal(verify(wrongQaManifest), false);
+});
+
+test("pilot checked semantic completion forbids but does not require a scene-plan artifact", () => {
+  const checked = semanticCompletionChainFixture(false);
+  assert.equal(verifySemanticAnimationArtifactChain(checked), true);
+
+  checked.manifestEnvelope.body.animationScenePlanArtifactId =
+    "art_unexpected-scene-plan";
+  checked.manifestEnvelope.body.animationScenePlanHash = "0".repeat(64);
+  assert.equal(verifySemanticAnimationArtifactChain(checked), false);
 });
 
 test("pilot reuses only exact, fully verified aligned narration artifacts", () => {

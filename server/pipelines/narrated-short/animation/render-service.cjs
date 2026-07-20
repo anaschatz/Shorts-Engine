@@ -20,8 +20,8 @@ function fail(code = "ANIMATION_RENDER_FAILED") {
   throw new AppError(code, "Production animation rendering failed safely.", code === "ANIMATION_READINESS_FAILED" ? 503 : 409);
 }
 
-function safeSeekSequence(ir) {
-  const maxUniqueFrames = 36;
+function safeSeekSequence(ir, actionQa = null) {
+  const maxUniqueFrames = actionQa ? 52 : 36;
   const selected = new Set();
   const validFrame = (frame) => Number.isInteger(frame) && frame >= 0 && frame < ir.durationFrames;
   const add = (frame) => {
@@ -52,13 +52,37 @@ function safeSeekSequence(ir) {
     };
     [0, 1, Math.min(6, ir.durationFrames - 1), ir.durationFrames - 1]
       .forEach(requireFrame);
-    for (const sentence of ir.content.semanticVisualSentencePlan.sentences) {
-      requireFrame(Math.floor(
-        (sentence.wordSpan.startFrame + sentence.wordSpan.endFrame - 1) / 2,
-      ));
-    }
-    for (const scene of ir.scenes) {
-      requireFrame(Math.floor((scene.startFrame + scene.endFrame - 1) / 2));
+    if (actionQa) {
+      for (const checkpoint of actionQa.signatureCheckpoints || []) {
+        requireFrame(checkpoint.frame);
+      }
+      for (const frame of actionQa.phaseFrames || []) requireFrame(frame);
+      if (mandatory.size > maxUniqueFrames) {
+        throw new AppError(
+          "ANIMATION_BROWSER_SEEK_BUDGET_EXCEEDED",
+          "Semantic action browser proof exceeds its safe seek budget.",
+          409,
+        );
+      }
+      for (const frame of actionQa.settledHoldFrames || []) {
+        requireFrame(frame);
+      }
+      if (mandatory.size > maxUniqueFrames) {
+        throw new AppError(
+          "ANIMATION_BROWSER_SEEK_BUDGET_EXCEEDED",
+          "Semantic action browser proof exceeds its safe seek budget.",
+          409,
+        );
+      }
+    } else {
+      for (const sentence of ir.content.semanticVisualSentencePlan.sentences) {
+        requireFrame(Math.floor(
+          (sentence.wordSpan.startFrame + sentence.wordSpan.endFrame - 1) / 2,
+        ));
+      }
+      for (const scene of ir.scenes) {
+        requireFrame(Math.floor((scene.startFrame + scene.endFrame - 1) / 2));
+      }
     }
     if (mandatory.size > maxUniqueFrames) {
       throw new AppError(
@@ -113,7 +137,7 @@ function motionSegments(ir) {
   return ir.scenes.map((scene) => ({ id: scene.id, startFrame: scene.startFrame, endFrame: scene.endFrame }));
 }
 
-function browserQaExpectations(ir, seekSequence) {
+function browserQaExpectations(ir, seekSequence, actionQa = null) {
   const repeatedFrames = seekSequence.filter((frame, index) => seekSequence.indexOf(frame) !== index);
   if (ir.visualStateGraph) {
     const graph = ir.visualStateGraph;
@@ -145,11 +169,13 @@ function browserQaExpectations(ir, seekSequence) {
   if (ir.content?.semantic?.profileId === SEMANTIC_SENTENCE_PROFILE_ID) {
     const sentencePlan = ir.content.semanticVisualSentencePlan;
     const cacheWarmupFrames = [...new Set([
-      ...sentencePlan.sentences.map((sentence) => Math.floor(
-        (sentence.wordSpan.startFrame + sentence.wordSpan.endFrame - 1) / 2,
-      )),
+      ...(actionQa
+        ? actionQa.signatureCheckpoints.map((checkpoint) => checkpoint.frame)
+        : sentencePlan.sentences.map((sentence) => Math.floor(
+          (sentence.wordSpan.startFrame + sentence.wordSpan.endFrame - 1) / 2,
+        ))),
       ...repeatedFrames,
-    ])].slice(0, 20);
+    ])].filter((frame) => seekSequence.includes(frame)).slice(0, 20);
     return Object.freeze({
       cacheWarmupFrames,
       pathFollowerIds: [],
@@ -157,6 +183,10 @@ function browserQaExpectations(ir, seekSequence) {
       visualStateIds: sentencePlan.sentences.map((sentence) => sentence.id),
       focusIntervalIds: [],
       transitionIds: [],
+      actionSignatures: actionQa?.expectedActionSignatures || [],
+      settledHoldFrames: (actionQa?.settledHoldFrames || []).filter(
+        (frame) => seekSequence.includes(frame),
+      ),
     });
   }
   fail("ANIMATION_QA_POLICY_MISSING");
@@ -210,6 +240,14 @@ function browserResultMeetsPolicy(value, expected) {
     || geometry.labelObservationCount <= 0
   ) return false;
   if (!sameValues(geometry.observedPathFollowerIds, expected.pathFollowerIds) || geometry.unobservedPathFollowerIds?.length !== 0) return false;
+  if (
+    !sameValues(
+      geometry.observedActionSignatures || [],
+      expected.actionSignatures || [],
+    )
+    || (geometry.unobservedActionSignatures || []).length !== 0
+    || (geometry.actionCoverageViolations || []).length !== 0
+  ) return false;
   if (!sameValues(geometry.observedTransitionIds, expected.transitionIds) || !sameValues(geometry.observedFocusIntervalIds, expected.focusIntervalIds) || geometry.unobservedFocusIntervalIds?.length !== 0) return false;
   if (!Array.isArray(geometry.markedLabelIds) || !geometry.markedLabelIds.length || !sameValues(geometry.markedLabelIds, geometry.observedLabelIds) || geometry.unobservedLabelIds?.length !== 0) return false;
   for (const entityId of expected.persistentEntityIds) if (!sameValues(geometry.persistentStateCoverage?.[entityId], expected.visualStateIds)) return false;
@@ -247,6 +285,12 @@ function publicBrowserProof(value) {
       observedTransitionIds: value.geometryAudit.observedTransitionIds || [],
       observedFocusIntervalIds: value.geometryAudit.observedFocusIntervalIds || [],
       unobservedFocusIntervalCount: value.geometryAudit.unobservedFocusIntervalIds?.length || 0,
+      observedActionSignatures:
+        value.geometryAudit.observedActionSignatures || [],
+      unobservedActionSignatureCount:
+        value.geometryAudit.unobservedActionSignatures?.length || 0,
+      actionCoverageViolationCount:
+        value.geometryAudit.actionCoverageViolations?.length || 0,
       clippedEntityCount: value.geometryAudit.clippedEntities.length,
       captionSafeZoneViolationCount: value.geometryAudit.captionSafeZoneViolations.length,
       pathFollowerViolationCount: value.geometryAudit.pathFollowerViolations?.length || 0,
@@ -275,7 +319,45 @@ function publicMotionQa(value) {
 async function runProductionAnimationRender(input = {}, dependencies = {}) {
   const contentArtifacts = input.contentArtifactRepository || dependencies.contentArtifactRepository;
   if (!contentArtifacts || !input.projectId || !input.jobId || !input.draftArtifactId || !input.draftHash || !input.alignmentHash || !input.stagingDir) fail();
+  const scenePlanArtifactBindingCount = [
+    input.animationScenePlanArtifactId,
+    input.animationScenePlanHash,
+  ].filter(Boolean).length;
+  const hasScenePlanArtifact = scenePlanArtifactBindingCount === 2;
+  const hasScenePlan = input.semanticAnimationSceneDslPlan !== undefined
+    && input.semanticAnimationSceneDslPlan !== null;
+  if (
+    scenePlanArtifactBindingCount === 1
+    || hasScenePlanArtifact !== hasScenePlan
+  ) fail("ANIMATION_SCENE_PLAN_ARTIFACT_INVALID");
+  let scenePlanEnvelope = null;
+  if (hasScenePlanArtifact) {
+    try {
+      scenePlanEnvelope = contentArtifacts.readJson(
+        input.animationScenePlanArtifactId,
+      );
+    } catch {
+      fail("ANIMATION_SCENE_PLAN_ARTIFACT_INVALID");
+    }
+    if (
+      scenePlanEnvelope.artifactType !== "animation_scene_dsl_plan"
+      || scenePlanEnvelope.projectId !== input.projectId
+      || scenePlanEnvelope.revision !== input.projectRevision
+      || scenePlanEnvelope.contentHash !== input.animationScenePlanHash
+      || scenePlanEnvelope.body?.contentHash !== input.animationScenePlanHash
+      || input.semanticAnimationSceneDslPlan.contentHash
+        !== input.animationScenePlanHash
+    ) fail("ANIMATION_SCENE_PLAN_ARTIFACT_INVALID");
+  }
   const timingContext = buildProductionTimingContext(input);
+  if (
+    scenePlanEnvelope
+    && ![
+      input.draftHash,
+      input.alignmentHash,
+      timingContext.contentHash,
+    ].every((hash) => scenePlanEnvelope.dependencyHashes?.includes(hash))
+  ) fail("ANIMATION_SCENE_PLAN_ARTIFACT_INVALID");
   const compiled = compileProductionAnimation({ ...input, timingContext });
   const stagingDir = resolve(input.stagingDir, "animation");
   mkdirSync(stagingDir, { recursive: true });
@@ -284,7 +366,12 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
   ])).get(PRODUCTION_PROVIDER_ID);
   const persist = (type, body, dependencyHashes) => contentArtifacts.createJson({ type, projectId: input.projectId, jobId: input.jobId, revision: input.projectRevision, dependencyHashes, body });
   const timingArtifact = persist("animation_timing_context", timingContext, [input.draftHash, input.alignmentHash]);
-  const planArtifact = persist("animation_plan", compiled.plan, [timingArtifact.envelope.contentHash, input.draftHash, input.alignmentHash]);
+  const planArtifact = persist("animation_plan", compiled.plan, [
+    timingArtifact.envelope.contentHash,
+    input.draftHash,
+    input.alignmentHash,
+    ...(hasScenePlanArtifact ? [input.animationScenePlanHash] : []),
+  ]);
   const irArtifact = persist("animation_ir", compiled.animationIR, [timingArtifact.envelope.contentHash, planArtifact.envelope.contentHash]);
   let completed = false;
   try {
@@ -297,10 +384,6 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
       },
     });
     const estimate = provider.estimate(validated);
-    const renderTimeoutMs = input.timeoutMs || (input.renderProfile === "final" ? 1800000 : 1200000);
-    const rendered = await provider.render({ validated, stagingDir, outputName: "visual-master.mp4", quality: input.renderProfile === "final" ? "high" : "standard", timeoutMs: renderTimeoutMs }, input.signal, input.onProgress);
-    const verified = provider.verify(rendered);
-    if (rendered.animationIRHash !== compiled.animationIR.contentHash || verified.animationIRHash !== compiled.animationIR.contentHash) fail("ANIMATION_OUTPUT_TAMPERED");
     const { compileAnimationIRToHtml } = await import("../../../../renderer/hyperframes/animation-ir-adapter.mjs");
     const composition = compileAnimationIRToHtml(compiled.animationIR, {
       semanticSourceContext: {
@@ -308,11 +391,20 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
         timingContext,
       },
     });
+    const actionQa = composition.actionQa || null;
+    const seekSequence = safeSeekSequence(compiled.animationIR, actionQa);
+    const expectations = browserQaExpectations(
+      compiled.animationIR,
+      seekSequence,
+      actionQa,
+    );
+    const renderTimeoutMs = input.timeoutMs || (input.renderProfile === "final" ? 1800000 : 1200000);
+    const rendered = await provider.render({ validated, stagingDir, outputName: "visual-master.mp4", quality: input.renderProfile === "final" ? "high" : "standard", timeoutMs: renderTimeoutMs }, input.signal, input.onProgress);
+    const verified = provider.verify(rendered);
+    if (rendered.animationIRHash !== compiled.animationIR.contentHash || verified.animationIRHash !== compiled.animationIR.contentHash) fail("ANIMATION_OUTPUT_TAMPERED");
     if (rendered.compositionHash !== composition.compositionHash) fail("ANIMATION_OUTPUT_TAMPERED");
     const browserRunner = dependencies.runBrowserSeekProof || (await import("../../../../renderer/hyperframes/browser-seek-harness.mjs")).runBrowserSeekProof;
     const runtimeDoctor = dependencies.chromePath ? null : await (await import("../../../../renderer/hyperframes/doctor.mjs")).hyperframesDoctor();
-    const seekSequence = safeSeekSequence(compiled.animationIR);
-    const expectations = browserQaExpectations(compiled.animationIR, seekSequence);
     const browser = await browserRunner({
       html: composition.html,
       width: compiled.animationIR.width,
@@ -327,6 +419,8 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
       expectedVisualStateIds: expectations.visualStateIds,
       expectedFocusIntervalIds: expectations.focusIntervalIds,
       expectedTransitionIds: expectations.transitionIds,
+      expectedActionSignatures: expectations.actionSignatures || [],
+      expectedSettledHoldFrames: expectations.settledHoldFrames || [],
       legibilityProfile: "mobile_720_v1",
     });
     if (!browserResultMeetsPolicy(browser, {
@@ -337,6 +431,8 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
       visualStateIds: expectations.visualStateIds,
       focusIntervalIds: expectations.focusIntervalIds,
       transitionIds: expectations.transitionIds,
+      actionSignatures: expectations.actionSignatures || [],
+      settledHoldFrames: expectations.settledHoldFrames || [],
     })) fail("ANIMATION_QA_BLOCKED");
     const browserProof = publicBrowserProof(browser);
     const motionQa = publicMotionQa((dependencies.runBenchmarkQa || runBenchmarkQa)({
@@ -367,6 +463,13 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
       visualMasterSha256: verified.outputSha256,
       browserProofHash,
       motionProofHash,
+      ...(hasScenePlanArtifact
+        ? {
+          animationScenePlanArtifactId:
+            input.animationScenePlanArtifactId,
+          animationScenePlanHash: input.animationScenePlanHash,
+        }
+        : {}),
       browser: browserProof,
       motion: motionQa,
     };
@@ -388,6 +491,13 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
       motionProofHash,
       animationQaArtifactId: qaArtifact.artifact.id,
       animationQaHash: qaArtifact.envelope.contentHash,
+      ...(hasScenePlanArtifact
+        ? {
+          animationScenePlanArtifactId:
+            input.animationScenePlanArtifactId,
+          animationScenePlanHash: input.animationScenePlanHash,
+        }
+        : {}),
       estimate,
     };
     const renderManifestArtifact = persist("animation_render_manifest", manifestBody, [timingArtifact.envelope.contentHash, planArtifact.envelope.contentHash, irArtifact.envelope.contentHash, qaArtifact.envelope.contentHash, verified.outputSha256]);

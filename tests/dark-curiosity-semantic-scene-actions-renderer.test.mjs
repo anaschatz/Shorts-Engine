@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   SEMANTIC_SCENE_ACTION_SCHEDULE_PROFILE_ID,
   compileSemanticSceneActionSchedule,
+  semanticSceneActionQaPlan,
   semanticSceneActionRuntimeSource,
   semanticSceneActionStateAtFrame,
 } from "../renderer/hyperframes/semantic-scene-action-schedule.mjs";
@@ -273,6 +274,41 @@ test("all allowlisted actions produce visible bounded frame state and settle", (
     ).semanticTransitionProgress,
     0.5,
   );
+});
+
+test("action QA covers every unique signature and every settled scene hold", () => {
+  const schedule = compileSemanticSceneActionSchedule(fixture());
+  const qa = semanticSceneActionQaPlan(schedule);
+  const expectedSignatures = [...new Set(schedule.scenes.flatMap(
+    (scene) => scene.actions.map((action) => action.signature),
+  ))].sort();
+  assert.deepEqual(qa.expectedActionSignatures, expectedSignatures);
+  assert.equal(qa.signatureCheckpoints.length, expectedSignatures.length);
+  for (const checkpoint of qa.signatureCheckpoints) {
+    const scene = schedule.scenes.find((candidate) => (
+      checkpoint.frame >= candidate.startFrame
+      && checkpoint.frame < candidate.endFrame
+      && candidate.actions.some(
+        (action) => action.signature === checkpoint.signature,
+      )
+    ));
+    assert.ok(scene, checkpoint.signature);
+    assert.ok(
+      semanticSceneActionStateAtFrame(scene, checkpoint.frame)
+        .activeActionSignatures.includes(checkpoint.signature),
+      checkpoint.signature,
+    );
+  }
+  assert.equal(qa.settledHoldFrames.length, schedule.scenes.length);
+  qa.settledHoldFrames.forEach((frame, index) => {
+    assert.deepEqual(
+      semanticSceneActionStateAtFrame(schedule.scenes[index], frame)
+        .activeActionSignatures,
+      [],
+    );
+  });
+  assert.equal(Object.isFrozen(qa), true);
+  assert.equal(qa.scheduleHash, schedule.contentHash);
 });
 
 test("grounded route motion uses deterministic piecewise geometry on random seeks", () => {

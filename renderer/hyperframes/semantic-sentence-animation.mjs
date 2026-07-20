@@ -15,6 +15,7 @@ import {
 } from "./primitives/semantic-scene-composition.mjs";
 import {
   compileSemanticSceneActionSchedule,
+  semanticSceneActionQaPlan,
   semanticSceneActionRuntimeSource,
 } from "./semantic-scene-action-schedule.mjs";
 
@@ -1041,5 +1042,8 @@ renderFrame(0);
         sceneActionScheduleHash: plan.sceneActionSchedule.contentHash,
       } : {}),
     }),
+    ...(usesSceneActions
+      ? { actionQa: semanticSceneActionQaPlan(plan.sceneActionSchedule) }
+      : {}),
   });
 }

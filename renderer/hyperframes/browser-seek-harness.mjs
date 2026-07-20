@@ -6,6 +6,7 @@ const HASH_RE = /^[a-f0-9]{64}$/;
 const ALLOWED_PROTOCOLS = new Set(["about:", "data:", "blob:"]);
 const RESOURCE_CLASSES = new Set(["document", "stylesheet", "image", "media", "font", "script", "xhr", "fetch", "websocket", "other"]);
 const ENTITY_RE = /^[a-z][a-z0-9_-]{2,79}$/;
+const ACTION_SIGNATURE_RE = /^(create|move|transform|highlight|camera):[a-z][a-z0-9_-]{1,79}:(entry|develop|resolve):[a-z][a-z0-9_-]{1,79}$/;
 // Canonicalize single-level Chromium raster rounding while retaining exact hashes for visible frame changes.
 const CANONICAL_SCREENSHOT = Object.freeze({ type: "jpeg", quality: 90 });
 
@@ -31,10 +32,12 @@ function validateRequest(input) {
   const expectedVisualStateIds = input.expectedVisualStateIds === undefined ? [] : input.expectedVisualStateIds;
   const expectedFocusIntervalIds = input.expectedFocusIntervalIds === undefined ? [] : input.expectedFocusIntervalIds;
   const expectedTransitionIds = input.expectedTransitionIds === undefined ? [] : input.expectedTransitionIds;
+  const expectedActionSignatures = input.expectedActionSignatures === undefined ? [] : input.expectedActionSignatures;
+  const expectedSettledHoldFrames = input.expectedSettledHoldFrames === undefined ? [] : input.expectedSettledHoldFrames;
   const legibilityProfile = input.legibilityProfile === undefined ? null : input.legibilityProfile;
   if (typeof chromePath !== "string" || !chromePath || typeof html !== "string") throw new BrowserSeekError("BROWSER_SEEK_REQUEST_INVALID");
   if (![width, height, fps, durationFrames].every(Number.isInteger) || width < 360 || width > 2160 || height < 640 || height > 3840 || fps < 24 || fps > 60 || durationFrames < 30 || durationFrames > 3600) throw new BrowserSeekError("BROWSER_SEEK_REQUEST_INVALID");
-  if (!Array.isArray(seekSequence) || seekSequence.length < 2 || seekSequence.length > 40 || seekSequence.some((frame) => !Number.isInteger(frame) || frame < 0 || frame >= durationFrames)) throw new BrowserSeekError("BROWSER_SEEK_SEQUENCE_INVALID");
+  if (!Array.isArray(seekSequence) || seekSequence.length < 2 || seekSequence.length > 60 || seekSequence.some((frame) => !Number.isInteger(frame) || frame < 0 || frame >= durationFrames)) throw new BrowserSeekError("BROWSER_SEEK_SEQUENCE_INVALID");
   const cacheWarmupFrames = input.cacheWarmupFrames === undefined ? repeatedSeekFrames(seekSequence) : input.cacheWarmupFrames;
   if (!Array.isArray(cacheWarmupFrames) || cacheWarmupFrames.length > 20 || cacheWarmupFrames.some((frame) => !Number.isInteger(frame) || frame < 0 || frame >= durationFrames || !seekSequence.includes(frame)) || new Set(cacheWarmupFrames).size !== cacheWarmupFrames.length) throw new BrowserSeekError("BROWSER_SEEK_SEQUENCE_INVALID");
   if (!Number.isInteger(timeoutMs) || timeoutMs < 5_000 || timeoutMs > 120_000) throw new BrowserSeekError("BROWSER_SEEK_TIMEOUT_INVALID");
@@ -42,8 +45,23 @@ function validateRequest(input) {
   for (const [field, values] of Object.entries({ expectedPersistentEntityIds, expectedVisualStateIds, expectedFocusIntervalIds, expectedTransitionIds })) {
     if (!Array.isArray(values) || values.length > 24 || values.some((id) => !ENTITY_RE.test(id)) || new Set(values).size !== values.length) throw new BrowserSeekError("BROWSER_SEEK_REQUEST_INVALID", { field });
   }
+  if (
+    !Array.isArray(expectedActionSignatures)
+    || expectedActionSignatures.length > 20
+    || expectedActionSignatures.some((value) => !ACTION_SIGNATURE_RE.test(value))
+    || new Set(expectedActionSignatures).size !== expectedActionSignatures.length
+    || !Array.isArray(expectedSettledHoldFrames)
+    || expectedSettledHoldFrames.length > 20
+    || expectedSettledHoldFrames.some((frame) => (
+      !Number.isInteger(frame)
+      || frame < 0
+      || frame >= durationFrames
+      || !seekSequence.includes(frame)
+    ))
+    || new Set(expectedSettledHoldFrames).size !== expectedSettledHoldFrames.length
+  ) throw new BrowserSeekError("BROWSER_SEEK_REQUEST_INVALID");
   if (![null, "mobile_720_v1"].includes(legibilityProfile)) throw new BrowserSeekError("BROWSER_SEEK_REQUEST_INVALID");
-  return { html, width, height, fps, durationFrames, seekSequence, cacheWarmupFrames, chromePath, timeoutMs, expectedPathFollowerIds, expectedPersistentEntityIds, expectedVisualStateIds, expectedFocusIntervalIds, expectedTransitionIds, legibilityProfile };
+  return { html, width, height, fps, durationFrames, seekSequence, cacheWarmupFrames, chromePath, timeoutMs, expectedPathFollowerIds, expectedPersistentEntityIds, expectedVisualStateIds, expectedFocusIntervalIds, expectedTransitionIds, expectedActionSignatures, expectedSettledHoldFrames, legibilityProfile };
 }
 
 function repeatedFrameResults(captures) {
@@ -106,9 +124,12 @@ export function validateGeometrySnapshots(snapshots, width, height, expectedPath
   const expectedVisualStateIds = expectations.expectedVisualStateIds || [];
   const expectedFocusIntervalIds = expectations.expectedFocusIntervalIds || [];
   const expectedTransitionIds = expectations.expectedTransitionIds || [];
+  const expectedActionSignatures = expectations.expectedActionSignatures || [];
+  const expectedSettledHoldFrames = expectations.expectedSettledHoldFrames || [];
   const legibilityProfile = expectations.legibilityProfile || null;
   for (const values of [expectedPersistentEntityIds, expectedVisualStateIds, expectedFocusIntervalIds, expectedTransitionIds]) if (!Array.isArray(values) || values.some((id) => !ENTITY_RE.test(id))) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
-  const clippedEntities = [], captionSafeZoneViolations = [], pathFollowerViolations = [], semanticRouteViolations = [], persistentContinuityViolations = [], focusViolations = [], primaryRoiViolations = [], legibilityViolations = [], contrastViolations = [], checkpoints = [];
+  if (!Array.isArray(expectedActionSignatures) || expectedActionSignatures.some((value) => !ACTION_SIGNATURE_RE.test(value)) || !Array.isArray(expectedSettledHoldFrames) || expectedSettledHoldFrames.some((frame) => !Number.isInteger(frame))) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
+  const clippedEntities = [], captionSafeZoneViolations = [], pathFollowerViolations = [], semanticRouteViolations = [], persistentContinuityViolations = [], focusViolations = [], primaryRoiViolations = [], legibilityViolations = [], contrastViolations = [], actionCoverageViolations = [], checkpoints = [];
   let entityObservationCount = 0, pathFollowerObservationCount = 0, semanticRouteObservationCount = 0, persistentObservationCount = 0, labelObservationCount = 0;
   const observedPathFollowerIds = new Set();
   const observedLabelIds = new Set();
@@ -116,6 +137,8 @@ export function validateGeometrySnapshots(snapshots, width, height, expectedPath
   const persistentStateCoverage = new Map(expectedPersistentEntityIds.map((entityId) => [entityId, new Set()]));
   const observedFocusIntervalIds = new Set();
   const transitionPathHashes = new Map(expectedTransitionIds.map((transitionId) => [transitionId, new Set()]));
+  const observedActionSignatures = new Set();
+  const settledHoldFrameSet = new Set(expectedSettledHoldFrames);
   for (const snapshot of snapshots) {
     if (!snapshot || !Number.isInteger(snapshot.frame) || !Array.isArray(snapshot.entities)) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
     const snapshotRoi = checkedRect(snapshot.semanticRoi, "semanticRoi"), snapshotSafe = checkedRect(snapshot.captionSafeZone, "captionSafeZone");
@@ -296,7 +319,25 @@ export function validateGeometrySnapshots(snapshots, width, height, expectedPath
           opacity: Number(module.opacity.toFixed(4)),
         });
       });
-    checkpoints.push(Object.freeze({ frame: snapshot.frame, visualStateId: snapshot.visualStateId || null, focusIntervalId: snapshot.focusIntervalId || null, visibleEntities: visible, semanticRoutes: visibleSemanticRoutes, sceneActionModules: visibleSceneActionModules }));
+    const activeSceneActionSignatures = snapshot.activeSceneActionSignatures === undefined
+      ? []
+      : snapshot.activeSceneActionSignatures;
+    if (
+      !Array.isArray(activeSceneActionSignatures)
+      || activeSceneActionSignatures.some((value) => !ACTION_SIGNATURE_RE.test(value))
+      || new Set(activeSceneActionSignatures).size !== activeSceneActionSignatures.length
+    ) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
+    activeSceneActionSignatures.forEach((signature) => {
+      observedActionSignatures.add(signature);
+    });
+    if (settledHoldFrameSet.has(snapshot.frame) && activeSceneActionSignatures.length) {
+      actionCoverageViolations.push(Object.freeze({
+        frame: snapshot.frame,
+        reason: "settled_hold_has_active_action",
+        activeSceneActionSignatures: [...activeSceneActionSignatures],
+      }));
+    }
+    checkpoints.push(Object.freeze({ frame: snapshot.frame, visualStateId: snapshot.visualStateId || null, focusIntervalId: snapshot.focusIntervalId || null, visibleEntities: visible, semanticRoutes: visibleSemanticRoutes, sceneActionModules: visibleSceneActionModules, activeSceneActionSignatures: [...activeSceneActionSignatures] }));
   }
   const unobservedPathFollowerIds = expectedPathFollowerIds.filter((id) => !observedPathFollowerIds.has(id));
   const persistentStateCoverageSummary = Object.fromEntries([...persistentStateCoverage.entries()].map(([entityId, states]) => [entityId, [...states].sort()]));
@@ -313,8 +354,17 @@ export function validateGeometrySnapshots(snapshots, width, height, expectedPath
     if (hashes.size < 3) persistentContinuityViolations.push(Object.freeze({ transitionId, reason: "transition_geometry_unproven" }));
     else observedTransitionIds.push(transitionId);
   }
-  const passed = clippedEntities.length === 0 && captionSafeZoneViolations.length === 0 && pathFollowerViolations.length === 0 && semanticRouteViolations.length === 0 && unobservedPathFollowerIds.length === 0 && persistentContinuityViolations.length === 0 && focusViolations.length === 0 && primaryRoiViolations.length === 0 && legibilityViolations.length === 0 && contrastViolations.length === 0;
-  return Object.freeze({ passed, semanticRoi, captionSafeZone, checkpointCount: snapshots.length, entityObservationCount, pathFollowerObservationCount, semanticRouteObservationCount, persistentObservationCount, labelObservationCount, markedLabelIds: markedLabelIdList, observedLabelIds: observedLabelIdList, unobservedLabelIds, observedPathFollowerIds: [...observedPathFollowerIds].sort(), unobservedPathFollowerIds, persistentStateCoverage: persistentStateCoverageSummary, observedTransitionIds: observedTransitionIds.sort(), observedFocusIntervalIds: [...observedFocusIntervalIds].sort(), unobservedFocusIntervalIds, clippedEntities, captionSafeZoneViolations, pathFollowerViolations, semanticRouteViolations, persistentContinuityViolations, focusViolations, primaryRoiViolations, legibilityViolations, contrastViolations, checkpoints });
+  const unobservedActionSignatures = expectedActionSignatures.filter(
+    (signature) => !observedActionSignatures.has(signature),
+  );
+  for (const signature of unobservedActionSignatures) {
+    actionCoverageViolations.push(Object.freeze({
+      signature,
+      reason: "action_signature_unobserved",
+    }));
+  }
+  const passed = clippedEntities.length === 0 && captionSafeZoneViolations.length === 0 && pathFollowerViolations.length === 0 && semanticRouteViolations.length === 0 && unobservedPathFollowerIds.length === 0 && persistentContinuityViolations.length === 0 && focusViolations.length === 0 && primaryRoiViolations.length === 0 && legibilityViolations.length === 0 && contrastViolations.length === 0 && actionCoverageViolations.length === 0;
+  return Object.freeze({ passed, semanticRoi, captionSafeZone, checkpointCount: snapshots.length, entityObservationCount, pathFollowerObservationCount, semanticRouteObservationCount, persistentObservationCount, labelObservationCount, markedLabelIds: markedLabelIdList, observedLabelIds: observedLabelIdList, unobservedLabelIds, observedPathFollowerIds: [...observedPathFollowerIds].sort(), unobservedPathFollowerIds, persistentStateCoverage: persistentStateCoverageSummary, observedTransitionIds: observedTransitionIds.sort(), observedFocusIntervalIds: [...observedFocusIntervalIds].sort(), unobservedFocusIntervalIds, observedActionSignatures: [...observedActionSignatures].sort(), unobservedActionSignatures, clippedEntities, captionSafeZoneViolations, pathFollowerViolations, semanticRouteViolations, persistentContinuityViolations, focusViolations, primaryRoiViolations, legibilityViolations, contrastViolations, actionCoverageViolations, checkpoints });
 }
 
 export async function runBrowserSeekProof(input, dependencies = {}) {
@@ -421,6 +471,9 @@ export async function runBrowserSeekProof(input, dependencies = {}) {
           transitionId: document.documentElement.dataset.activeStateTransitionId || null,
           focusIntervalId: document.documentElement.dataset.focusIntervalId || null,
           focusPrimaryEntityId: document.documentElement.dataset.focusPrimaryEntityId || null,
+          activeSceneActionSignatures: String(
+            document.documentElement.dataset.activeSceneActionSignatures || "",
+          ).split(",").filter(Boolean),
           entities: [...document.querySelectorAll("[data-entity-id]")].map((entity) => ({
             entityId: entity.dataset.entityId,
             captionPolicy: entity.dataset.captionPolicy === "allow" ? "allow" : "avoid",
@@ -544,6 +597,8 @@ export async function runBrowserSeekProof(input, dependencies = {}) {
       expectedVisualStateIds: request.expectedVisualStateIds,
       expectedFocusIntervalIds: request.expectedFocusIntervalIds,
       expectedTransitionIds: request.expectedTransitionIds,
+      expectedActionSignatures: request.expectedActionSignatures,
+      expectedSettledHoldFrames: request.expectedSettledHoldFrames,
       legibilityProfile: request.legibilityProfile,
     });
     return Object.freeze({

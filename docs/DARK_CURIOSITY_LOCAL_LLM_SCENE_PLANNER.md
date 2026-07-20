@@ -2,8 +2,8 @@
 
 ## Status
 
-The first three safe implementation slices for generating different animation
-choreography per semantic sentence are complete. They provide:
+The persisted production preplanning path for generating different animation
+choreography per semantic sentence is implemented. It provides:
 
 - a strict, hashed Animation Scene DSL v1;
 - a deterministic planner that works without a GPU;
@@ -15,19 +15,28 @@ choreography per semantic sentence are complete. They provide:
 - one immutable aggregate Scene DSL Plan covering every parameterized narration
   sentence in exact order;
 - per-scene provider/fallback provenance and aggregate cost accounting;
+- a dedicated `plan_narrated_animation` job, exposed through
+  `POST /api/narrated-projects/:projectId/animation-plan`;
+- an immutable `animation_scene_dsl_plan` artifact whose exact draft,
+  alignment, timing, semantic-plan and planner-configuration dependencies are
+  checked before reuse;
+- an active project pointer plus an exact artifact ID/hash handoff into render
+  enqueue and the render worker;
 - synchronous compiler and AnimationIR binding for generalized semantic-v3
   stories;
 - a deterministic renderer-owned action schedule with distinct
   `entry`/`develop`/`resolve` frame windows and a settled readability hold;
 - visible HyperFrames execution for every DSL v1 operation;
 - real Chromium pixel proofs for action-plan divergence, random-access
-  determinism, approved-route motion and mobile legibility.
+  determinism, approved-route motion, action-signature coverage, settled holds
+  and mobile legibility.
 
 The local LLM is not called from the production animation compiler. The compiler
-is intentionally synchronous and deterministic. When no preplanned aggregate is
-supplied, it builds the same deterministic fallback plan at every hash boundary.
-Checked, unparameterized GPS and Baychimo profiles omit the aggregate and retain
-their existing byte-exact output.
+is intentionally synchronous and deterministic. A generalized semantic-v3
+render must first complete preplanning, even in `disabled` mode; disabled mode
+persists the deterministic fallback aggregate without making a network call.
+Checked, unparameterized GPS and Baychimo profiles do not require or accept a
+Scene DSL Plan and retain their existing byte-exact output.
 
 ## Trust boundary
 
@@ -91,6 +100,15 @@ trusted semantic graph + sentence plan
  full-coverage Scene DSL Plan + provenance
                 |
                 v
+ persisted animation_scene_dsl_plan artifact
+                |
+                v
+ active project pointer (artifact ID + hash)
+                |
+                v
+ render enqueue/worker reload + exact validation
+                |
+                v
  synchronous compiler revalidation + hash binding
                 |
                 v
@@ -98,6 +116,9 @@ trusted semantic graph + sentence plan
                 |
                 v
      HyperFrames SVG action execution
+                |
+                v
+ action signatures + phase/settled-hold browser QA
 ```
 
 ## Configuration
@@ -110,6 +131,7 @@ SHORTSENGINE_LOCAL_LLM_SCENE_PLANNER_MODE=disabled
 SHORTSENGINE_LOCAL_LLM_ENDPOINT=http://127.0.0.1:11434/v1/chat/completions
 SHORTSENGINE_LOCAL_LLM_MODEL=local-scene-planner
 SHORTSENGINE_LOCAL_LLM_TIMEOUT_MS=120000
+SHORTSENGINE_LOCAL_LLM_AGGREGATE_TIMEOUT_MS=300000
 SHORTSENGINE_LOCAL_LLM_RESPONSE_MAX_BYTES=65536
 SHORTSENGINE_LOCAL_LLM_MAX_TOKENS=512
 ```
@@ -118,9 +140,23 @@ Supported modes:
 
 | Mode | Network | Intended use |
 | --- | --- | --- |
-| `disabled` | none | default deterministic fallback |
-| `mock` | none | deterministic provider-path tests |
-| `openai_compatible` | loopback HTTP only | local Ollama/llama.cpp inference |
+| `disabled` | none | persisted deterministic fallback; safe default |
+| `mock` | none | deterministic provider-path tests only; rejected in production |
+| `openai_compatible` | loopback HTTP only | local Ollama/llama.cpp inference with bounded fallback |
+
+For generalized semantic-v3 stories, all three modes use the same persisted
+preplan boundary. `disabled` does not bypass the job or inject an inline plan;
+it makes the job produce the deterministic fallback artifact. `mock` is a test
+mode and is rejected by the production API, preplan worker and render worker.
+`openai_compatible` calls the configured loopback endpoint sequentially, one
+scene at a time. Recoverable provider failures fall back deterministically.
+
+`SHORTSENGINE_LOCAL_LLM_TIMEOUT_MS` bounds one provider request.
+`SHORTSENGINE_LOCAL_LLM_AGGREGATE_TIMEOUT_MS` bounds the complete multi-scene
+operation to `1000..600000` ms. When the aggregate deadline expires, the active
+request is aborted and the current and remaining scenes are completed with the
+deterministic fallback. Caller cancellation still fails the job rather than
+being converted into fallback.
 
 No API key is read or sent. Even if `OPENAI_API_KEY` exists in the process
 environment, this adapter ignores it and never adds authorization, cookie or
@@ -188,10 +224,44 @@ timestamp.
 
 Generalized semantic-v3 compilation requires exactly one context-valid Scene DSL
 for every parameterized sentence. Checked unparameterized semantic profiles
-forbid the aggregate. The aggregate hash is nested in the production animation
-plan and AnimationIR, so the existing persisted `animation_plan` and
-`animation_ir` artifacts bind the complete plan and its provenance without
-adding an unreferenced standalone artifact.
+forbid the aggregate.
+
+## Production preplan and artifact handoff
+
+The production sequence is:
+
+1. The narrated project must have an approved draft and an exact aligned
+   narration for the active project revision.
+2. `POST /api/narrated-projects/:projectId/animation-plan` creates the
+   server-owned `plan_narrated_animation` operation. The request accepts only
+   the supported animation profile; draft, alignment and planner identities are
+   derived by the server.
+3. The worker rebuilds the trusted timing context, semantic event graph and
+   semantic visual sentence plan. It plans scenes sequentially, validates the
+   complete aggregate, and performs a synchronous compiler check before
+   persistence.
+4. The worker writes one content-addressed `animation_scene_dsl_plan` artifact.
+   Its dependency set must exactly match the approved draft hash, alignment
+   hash, timing-context hash, semantic-event-graph hash, semantic-sentence-plan
+   hash and current planner-configuration hash.
+5. The project stores an active pointer containing the artifact ID/hash and the
+   same source and planner bindings. A same-process state check prevents a plan
+   from being installed when the project, approval, narration or active plan
+   changed while the asynchronous planner was running.
+6. Render enqueue recomputes the current planner configuration and resolves the
+   active pointer. The render job payload carries only the trusted scene-plan
+   artifact ID/hash, in addition to the existing animation bindings.
+7. The render worker reloads and revalidates the pointer, artifact envelope,
+   exact dependencies, body hash, semantic context and current planner
+   configuration. The compiler then binds the aggregate hash into the
+   production animation plan and AnimationIR. The render service also requires
+   the plan object and artifact ID/hash as an all-or-none set.
+
+A completed preplan can be reused only while all source and planner bindings
+remain exact. Uploading or realigning narration, revising the story, or changing
+the planner configuration invalidates the active binding and requires a new
+preplan. No endpoint URL, model response, prompt, credential, API key or raw
+provider error enters the render job payload or browser composition.
 
 ## Renderer execution
 
@@ -237,24 +307,35 @@ after camera and module transforms in the real-browser mobile audit.
 Checked unparameterized profiles do not emit the schedule, action CSS, runtime
 or trace attributes. Their pinned HTML composition hashes remain byte-exact.
 
-## Current limitation and next slice
+## Production browser QA
 
-DSL v1 now visibly choreographs the existing three grounded modules, but it
-still does not create new geometry. The asynchronous live planner is also not
-yet a render-enqueue job; production compilation currently uses the
-network-free deterministic aggregate. The next implementation slice should:
+Generalized semantic-v3 composition emits a renderer-owned QA plan. The
+production seek sequence retains a checkpoint for every unique selected action
+signature, bounded entry/develop/resolve phase samples, and a settled-hold frame
+for every scene that has a hold. Browser validation requires every expected
+signature to be observed and requires settled-hold checkpoints to have no
+active action. It also retains random-access repeat frames, mobile typography,
+caption-safe-zone, clipping, route/path and primary-ROI checks.
 
-1. add a dedicated preplanning job that persists a live local-LLM aggregate
-   before render enqueue and passes only its trusted artifact reference/hash;
-2. extend production browser QA sampling from sentence midpoints to explicit
-   action-phase checkpoints and require coverage of every selected action
-   signature;
-3. keep deterministic fallback as the no-GPU and provider-failure path;
-4. add a bounded primitive factory for genuinely new, source-grounded geometry.
+The proof budget is bounded to 52 unique frames plus three deterministic repeat
+captures, below the browser harness limit of 60. Production rendering fails
+closed when mandatory action or hold proof cannot fit the budget or any browser
+or motion gate fails.
 
-The local browser proof already compares actual pixel hashes for two valid
-plans over the same story, rejects any visible marker more than 0.75 px from
-its actual SVG path, verifies approved Baychimo route traversal, and checks
-that non-map grounded routes move the primary module. Production action-phase
-coverage is the remaining gate before the live preplanning job becomes the
-default upstream path.
+## Remaining limitations
+
+DSL v1 choreographs the existing three grounded modules. It still cannot create
+new source-grounded geometry, new primitive types or model-authored renderer
+code. A future bounded primitive factory is required for genuinely new visual
+structures; it must preserve the same allowlist, source-binding and browser-QA
+boundaries.
+
+The preplan worker performs a same-process state recheck before installing the
+active plan, but project persistence does not yet provide an atomic
+compare-and-swap across multiple processes. The SQLite adapter currently uses
+an unconditional project upsert and local-file persistence is also
+last-writer-wins. Until project-level optimistic concurrency is implemented,
+run project-mutating narration/preplan operations through a single writer per
+project. Artifact hashes and render-time validation still fail closed against a
+stale plan, but they do not prevent two separate processes from racing to write
+project state.

@@ -247,21 +247,33 @@ The approval outbox has a worker-ready lifecycle: `pending`, `processing`, `deli
 
 ## Dark Curiosity local scene planner
 
-The scene planner is an optional upstream choreography layer. It is not called
-inside the synchronous animation compiler. See
-`docs/DARK_CURIOSITY_LOCAL_LLM_SCENE_PLANNER.md` for its DSL and trust boundary.
+The scene planner is an upstream preplanning layer. It is not called inside the
+synchronous animation compiler. Generalized semantic-v3 renders must first run
+`POST /api/narrated-projects/:projectId/animation-plan`; even `disabled` mode
+persists a deterministic fallback Scene DSL Plan and hands its exact artifact
+ID/hash to render enqueue. See
+`docs/DARK_CURIOSITY_LOCAL_LLM_SCENE_PLANNER.md` for the persisted artifact
+flow, DSL, trust boundary and concurrency limitation.
 
 | Variable | Required | Default | Allowed values | Secret | Local recommendation | Fail-closed behavior |
 | --- | --- | --- | --- | --- | --- | --- |
-| `SHORTSENGINE_LOCAL_LLM_SCENE_PLANNER_MODE` | No | `disabled` | `disabled`, `mock`, `openai_compatible` | No | Keep `disabled` until a local server is running. | Unknown modes fail configuration; disabled mode makes no network calls. |
+| `SHORTSENGINE_LOCAL_LLM_SCENE_PLANNER_MODE` | No | `disabled` | `disabled`, `mock`, `openai_compatible` | No | Keep `disabled` until a local server is running; use `mock` only in tests. | Unknown modes fail configuration; disabled mode makes no network calls; mock mode is rejected by generalized preplan/render paths in production. |
 | `SHORTSENGINE_LOCAL_LLM_ENDPOINT` | Only for `openai_compatible` | `http://127.0.0.1:11434/v1/chat/completions` | exact literal IPv4/IPv6 loopback OpenAI-compatible endpoint | No | Point to the local Ollama or llama.cpp port. | DNS, LAN/remote hosts, credentials, query, fragment, redirect and alternate paths are rejected. |
 | `SHORTSENGINE_LOCAL_LLM_MODEL` | Only for `openai_compatible` | `local-scene-planner` | bounded local model alias | No | Set to the alias loaded by the local server. | Unsafe or unbounded identifiers fail configuration. |
 | `SHORTSENGINE_LOCAL_LLM_TIMEOUT_MS` | No | `120000` | integer `1000..300000` | No | Keep default initially. | Timeout aborts the request and uses deterministic fallback. |
+| `SHORTSENGINE_LOCAL_LLM_AGGREGATE_TIMEOUT_MS` | No | `300000` | integer `1000..600000` | No | Keep the five-minute bound unless the local model is known to be slower. | The active request is aborted at the aggregate deadline and every remaining scene is completed with deterministic fallback. |
 | `SHORTSENGINE_LOCAL_LLM_RESPONSE_MAX_BYTES` | No | `65536` | integer `1024..262144` | No | Keep default. | Declared or streamed oversized responses are cancelled and rejected. |
 | `SHORTSENGINE_LOCAL_LLM_MAX_TOKENS` | No | `512` | integer `64..1024` | No | Keep the bounded default. | Invalid limits fail configuration. |
 
 This provider requires no API key. It ignores `OPENAI_API_KEY` and never sends
 authorization, cookies or credential headers.
+
+`SHORTSENGINE_LOCAL_LLM_TIMEOUT_MS` bounds each sequential scene request;
+`SHORTSENGINE_LOCAL_LLM_AGGREGATE_TIMEOUT_MS` bounds the complete preplan job.
+Recoverable live-provider failures and aggregate expiry use deterministic
+fallback, while caller cancellation and trusted-context failures fail the job.
+Changing any planner setting changes the planner-configuration hash and makes a
+previous generalized preplan ineligible for render reuse.
 
 ## Football analysis safety
 
