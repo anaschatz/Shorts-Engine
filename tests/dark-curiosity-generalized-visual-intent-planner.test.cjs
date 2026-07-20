@@ -62,6 +62,12 @@ const {
   normalizeSemanticSceneComposition,
 } = require("../server/pipelines/narrated-short/animation/semantic-scene-composition.cjs");
 const {
+  buildDeterministicSemanticAnimationSceneDslPlan,
+} = require("../server/pipelines/narrated-short/animation/semantic-animation-scene-dsl-plan.cjs");
+const {
+  planSemanticAnimationScenes,
+} = require("../server/pipelines/narrated-short/animation/semantic-animation-scene-plan-service.cjs");
+const {
   MAX_SEGMENT_CHARACTERS,
   MAX_SEGMENT_LINES,
   buildStoryIR,
@@ -400,8 +406,78 @@ test("semantic-v3 compiles and renders non-registry narration deterministically"
     };
     const compiled = compileProductionAnimation(input);
     const repeated = compileProductionAnimation(structuredClone(input));
+    const preplanned = compileProductionAnimation({
+      ...structuredClone(input),
+      semanticAnimationSceneDslPlan: structuredClone(
+        compiled.plan.content.semanticAnimationSceneDslPlan,
+      ),
+    });
     assert.equal(repeated.plan.contentHash, compiled.plan.contentHash);
     assert.equal(repeated.animationIR.contentHash, compiled.animationIR.contentHash);
+    assert.equal(
+      preplanned.animationIR.contentHash,
+      compiled.animationIR.contentHash,
+    );
+    if (id === CASES[0][0]) {
+      const defaultScenePlan =
+        compiled.plan.content.semanticAnimationSceneDslPlan;
+      const providerSceneByProposition = new Map(
+        defaultScenePlan.scenes.map(
+          (scene) => [scene.propositionId, scene.sceneDsl],
+        ),
+      );
+      const asyncScenePlan = await planSemanticAnimationScenes({
+        semanticEventGraph:
+          compiled.plan.content.semanticEventGraph,
+        semanticVisualSentencePlan:
+          compiled.plan.content.semanticVisualSentencePlan,
+        planner: {
+          id: "integration_scene_planner",
+          mode: "mock",
+          health() {
+            return {
+              promptProfileId:
+                "dark_curiosity_local_scene_planner_prompt_v1",
+            };
+          },
+          async planScene({ propositionId }) {
+            return {
+              providerId: "integration_scene_provider",
+              modelId: "integration-scene-model-v1",
+              promptProfileId:
+                "dark_curiosity_local_scene_planner_prompt_v1",
+              fallbackUsed: false,
+              failure: null,
+              sceneDsl:
+                providerSceneByProposition.get(propositionId),
+            };
+          },
+        },
+      });
+      const providerCompiled = compileProductionAnimation({
+        ...structuredClone(input),
+        semanticAnimationSceneDslPlan: asyncScenePlan,
+      });
+      assert.notEqual(
+        providerCompiled.animationIR.contentHash,
+        compiled.animationIR.contentHash,
+      );
+      assert.equal(
+        providerCompiled.plan.content.semanticAnimationSceneDslPlan
+          .contentHash,
+        asyncScenePlan.contentHash,
+      );
+      const tamperedScenePlan = structuredClone(asyncScenePlan);
+      tamperedScenePlan.scenes[0].provenance.modelId =
+        "tampered-model";
+      assert.throws(
+        () => compileProductionAnimation({
+          ...structuredClone(input),
+          semanticAnimationSceneDslPlan: tamperedScenePlan,
+        }),
+        { code: "ANIMATION_SCENE_DSL_PLAN_INVALID" },
+      );
+    }
     assert.equal(compiled.animationIR.schemaVersion, 3);
     assert.equal(
       compiled.animationIR.content.semantic.profileId,
@@ -414,6 +490,22 @@ test("semantic-v3 compiles and renders non-registry narration deterministically"
     assert.equal(
       compiled.animationIR.content.semanticVisualSentencePlan.sentences.length,
       visualIntentGraph.intents.length,
+    );
+    const sceneDslPlan =
+      compiled.animationIR.content.semanticAnimationSceneDslPlan;
+    assert.ok(sceneDslPlan);
+    assert.equal(
+      compiled.animationIR.content.semantic.semanticAnimationSceneDslPlanHash,
+      sceneDslPlan.contentHash,
+    );
+    assert.equal(
+      sceneDslPlan.scenes.length,
+      compiled.animationIR.content.semanticVisualSentencePlan.sentences.length,
+    );
+    assert.deepEqual(
+      sceneDslPlan.scenes.map((scene) => scene.propositionId),
+      compiled.animationIR.content.semanticVisualSentencePlan.sentences
+        .map((sentence) => sentence.propositionId),
     );
     const composition = compileAnimationIRToHtml(compiled.animationIR, {
       semanticSourceContext: { draft, timingContext },
@@ -1346,6 +1438,15 @@ test("generalized graph semantics cannot be rebound or downgraded with fresh has
   forgedIR.content.semantic.semanticEventGraphHash = forgedGraph.contentHash;
   forgedIR.content.semantic.semanticVisualSentencePlanHash =
     forgedPlan.contentHash;
+  const forgedSceneDslPlan =
+    buildDeterministicSemanticAnimationSceneDslPlan({
+      semanticEventGraph: forgedGraph,
+      semanticVisualSentencePlan: forgedPlan,
+    });
+  forgedIR.content.semanticAnimationSceneDslPlan =
+    structuredClone(forgedSceneDslPlan);
+  forgedIR.content.semantic.semanticAnimationSceneDslPlanHash =
+    forgedSceneDslPlan.contentHash;
   delete forgedIR.contentHash;
   assert.throws(
     () => validateAnimationIR(forgedIR),
@@ -1432,6 +1533,9 @@ test("generalized graph semantics cannot be rebound or downgraded with fresh has
     fullyStrippedGraph.contentHash;
   fullyStrippedIR.content.semantic.semanticVisualSentencePlanHash =
     fullyStrippedPlan.contentHash;
+  delete fullyStrippedIR.content.semanticAnimationSceneDslPlan;
+  delete fullyStrippedIR.content.semantic
+    .semanticAnimationSceneDslPlanHash;
   fullyStrippedIR.contentHash = undefined;
   assert.throws(
     () => validateAnimationIR(fullyStrippedIR),

@@ -15,6 +15,9 @@ const { GENERIC_SEMANTIC_PROFILE_ID } = require("./semantic-visual-planner.cjs")
 const {
   validateSemanticVisualSentencePlanAgainstGraph,
 } = require("./semantic-visual-sentence-planner.cjs");
+const {
+  validateSemanticAnimationSceneDslPlanAgainstContext,
+} = require("./semantic-animation-scene-dsl-plan.cjs");
 const { PERSISTENT_ENTITY_ID, VISUAL_STATE_ORDER } = require("./visual-state-graph.cjs");
 
 const SEMANTIC_TEMPLATES = Object.freeze([
@@ -43,6 +46,7 @@ function same(left, right) {
 function validateSemanticSentenceNarrative(ir) {
   const graph = ir.content?.semanticEventGraph;
   const plan = ir.content?.semanticVisualSentencePlan;
+  const sceneDslPlan = ir.content?.semanticAnimationSceneDslPlan;
   if (
     ir.schemaVersion !== SEMANTIC_SENTENCE_SCHEMA_VERSION
     || ir.profileVersion !== SEMANTIC_SENTENCE_PROFILE_VERSION
@@ -52,6 +56,20 @@ function validateSemanticSentenceNarrative(ir) {
     || !plan
   ) fail("profile");
   validateSemanticVisualSentencePlanAgainstGraph(plan, graph);
+  const generalized = graph.primitivePayloadProfileId !== undefined;
+  if (generalized !== Boolean(sceneDslPlan)) {
+    fail("semanticAnimationSceneDslPlan");
+  }
+  if (sceneDslPlan) {
+    validateSemanticAnimationSceneDslPlanAgainstContext(sceneDslPlan, {
+      semanticEventGraph: graph,
+      semanticVisualSentencePlan: plan,
+    });
+    if (
+      ir.content.semantic?.semanticAnimationSceneDslPlanHash
+        !== sceneDslPlan.contentHash
+    ) fail("semanticAnimationSceneDslPlanHash");
+  }
   if (
     ir.scenes.length !== SEMANTIC_SENTENCE_ROLES.length
     || ir.timingBinding.beats.length !== SEMANTIC_SENTENCE_ROLES.length

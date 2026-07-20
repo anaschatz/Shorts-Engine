@@ -9,6 +9,10 @@ const {
   validateSemanticVisualSentencePlanAgainstGraph,
 } = require("./semantic-visual-sentence-planner.cjs");
 const {
+  normalizeSemanticAnimationSceneDslPlan,
+  validateSemanticAnimationSceneDslPlanAgainstContext,
+} = require("./semantic-animation-scene-dsl-plan.cjs");
+const {
   CHECKED_UNPARAMETERIZED_SEMANTIC_EVENT_GRAPH_HASHES,
   CHECKED_UNPARAMETERIZED_SEMANTIC_SENTENCE_PLAN_HASHES,
   normalizeSemanticEventGraph,
@@ -221,7 +225,13 @@ function validateContent(content) {
     "timelineLabels",
     "semantic",
     "visualPlan",
-    ...(semanticSentence ? ["semanticEventGraph", "semanticVisualSentencePlan"] : []),
+    ...(semanticSentence
+      ? [
+        "semanticEventGraph",
+        "semanticVisualSentencePlan",
+        "semanticAnimationSceneDslPlan",
+      ]
+      : []),
   ], "content");
   const lines = (value, field, min, max, length) => {
     if (!Array.isArray(value) || value.length < min || value.length > max) fail(field);
@@ -252,6 +262,9 @@ function validateContent(content) {
         "finalEvidenceLabel",
         "semanticEventGraphHash",
         "semanticVisualSentencePlanHash",
+        ...(content.semanticAnimationSceneDslPlan !== undefined
+          ? ["semanticAnimationSceneDslPlanHash"]
+          : []),
       ]
       : profileId === GENERIC_SEMANTIC_PROFILE_ID
         ? ["profileId", "storyVocabulary", "subjectLabel", "uncertaintyLabel", "finalEvidenceLabel"]
@@ -267,6 +280,12 @@ function validateContent(content) {
     normalized.semanticVisualSentencePlan = normalizeSemanticVisualSentencePlan(
       content.semanticVisualSentencePlan,
     );
+  }
+  if (content.semanticAnimationSceneDslPlan !== undefined) {
+    normalized.semanticAnimationSceneDslPlan =
+      normalizeSemanticAnimationSceneDslPlan(
+        content.semanticAnimationSceneDslPlan,
+      );
   }
   if (normalized.semantic?.profileId === GENERIC_SEMANTIC_PROFILE_ID && !normalized.visualPlan) fail("content.visualPlan", "Generic semantic animation requires a grounded visual plan.");
   if (normalized.visualPlan && normalized.semantic?.profileId !== GENERIC_SEMANTIC_PROFILE_ID) fail("content.visualPlan", "Visual plan profile does not match semantic content.");
@@ -285,6 +304,17 @@ function validateContent(content) {
         normalized.semanticVisualSentencePlan,
         normalized.semanticEventGraph,
       );
+    if (normalized.semanticAnimationSceneDslPlan) {
+      normalized.semanticAnimationSceneDslPlan =
+        validateSemanticAnimationSceneDslPlanAgainstContext(
+          normalized.semanticAnimationSceneDslPlan,
+          {
+            semanticEventGraph: normalized.semanticEventGraph,
+            semanticVisualSentencePlan:
+              normalized.semanticVisualSentencePlan,
+          },
+        );
+    }
   }
   return normalized;
 }
@@ -372,6 +402,7 @@ function validateAnimationIR(input, options = {}) {
   if (semanticSentence) {
     const graph = ir.content.semanticEventGraph;
     const sentencePlan = ir.content.semanticVisualSentencePlan;
+    const sceneDslPlan = ir.content.semanticAnimationSceneDslPlan;
     const graphDeclaresPrimitivePayloads =
       graph.primitivePayloadProfileId !== undefined;
     const planDeclaresPrimitiveParameters = sentencePlan.sentences.some(
@@ -393,6 +424,14 @@ function validateAnimationIR(input, options = {}) {
       fail(
         "content.semanticVisualSentencePlan.sceneCompositionProfileId",
         "Generalized semantic graphs and scene-composition profiles must be declared together.",
+      );
+    }
+    if (graphDeclaresPrimitivePayloads !== Boolean(sceneDslPlan)) {
+      fail(
+        "content.semanticAnimationSceneDslPlan",
+        graphDeclaresPrimitivePayloads
+          ? "Every generalized semantic animation requires a Scene DSL plan."
+          : "Checked unparameterized semantic profiles cannot declare a Scene DSL plan.",
       );
     }
     if (
@@ -487,6 +526,11 @@ function validateAnimationIR(input, options = {}) {
     if (
       ir.content.semantic.semanticEventGraphHash !== graph.contentHash
       || ir.content.semantic.semanticVisualSentencePlanHash !== sentencePlan.contentHash
+      || (
+        sceneDslPlan
+        && ir.content.semantic.semanticAnimationSceneDslPlanHash
+          !== sceneDslPlan.contentHash
+      )
     ) {
       fail("content.semantic.semanticEventGraphHash", "Semantic sentence content hashes are inconsistent.");
     }

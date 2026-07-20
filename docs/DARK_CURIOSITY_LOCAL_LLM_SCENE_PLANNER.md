@@ -2,8 +2,8 @@
 
 ## Status
 
-This is the first safe implementation slice for generating different animation
-choreography per semantic sentence. It provides:
+The first two safe implementation slices for generating different animation
+choreography per semantic sentence are complete. They provide:
 
 - a strict, hashed Animation Scene DSL v1;
 - a deterministic planner that works without a GPU;
@@ -11,12 +11,18 @@ choreography per semantic sentence. It provides:
 - an opt-in, loopback-only OpenAI-compatible adapter for a local Ollama or
   llama.cpp server;
 - validation and deterministic fallback for unavailable, timed-out, malformed
-  or unsafe model output.
+  or unsafe model output;
+- one immutable aggregate Scene DSL Plan covering every parameterized narration
+  sentence in exact order;
+- per-scene provider/fallback provenance and aggregate cost accounting;
+- synchronous compiler and AnimationIR binding for generalized semantic-v3
+  stories.
 
 The local LLM is not called from the production animation compiler. The compiler
-is intentionally synchronous and deterministic. A later artifact-binding slice
-will run this planner upstream, persist the validated DSL with its bindings, and
-then let the compiler consume only that canonical artifact.
+is intentionally synchronous and deterministic. When no preplanned aggregate is
+supplied, it builds the same deterministic fallback plan at every hash boundary.
+Checked, unparameterized GPS and Baychimo profiles omit the aggregate and retain
+their existing byte-exact output.
 
 ## Trust boundary
 
@@ -75,6 +81,12 @@ trusted semantic graph + sentence plan
                 |
                 v
    immutable Animation Scene DSL v1
+                |
+                v
+ full-coverage Scene DSL Plan + provenance
+                |
+                v
+ synchronous compiler revalidation + hash binding
 ```
 
 ## Configuration
@@ -140,17 +152,51 @@ response bodies, endpoint URLs and provider errors are not returned.
 Trusted graph/plan errors and caller cancellation do not fall back. They fail
 closed.
 
+## Aggregate planning API
+
+```js
+const {
+  buildSemanticAnimationSceneDslPlan,
+} = require(
+  "./server/pipelines/narrated-short/animation/semantic-animation-scene-plan-service.cjs"
+);
+
+const sceneDslPlan = await buildSemanticAnimationSceneDslPlan({
+  semanticEventGraph,
+  semanticVisualSentencePlan,
+  planner,
+  signal,
+});
+```
+
+The service validates the complete graph and sentence plan before the first
+provider call, plans sentences sequentially for safe local-GPU usage, and
+returns nothing partial after cancellation or failure. The aggregate stores no
+prompt, raw response, narration text, endpoint, credential, latency or
+timestamp.
+
+Generalized semantic-v3 compilation requires exactly one context-valid Scene DSL
+for every parameterized sentence. Checked unparameterized semantic profiles
+forbid the aggregate. The aggregate hash is nested in the production animation
+plan and AnimationIR, so the existing persisted `animation_plan` and
+`animation_ir` artifacts bind the complete plan and its provenance without
+adding an unreferenced standalone artifact.
+
 ## Current limitation and next slice
 
 DSL v1 choreographs the existing three grounded modules; it does not yet create
-new geometry. The next implementation step is an upstream Scene DSL artifact
-service that:
+new geometry. The asynchronous live planner is also not yet a render-enqueue
+job; production compilation currently uses the network-free deterministic
+aggregate. The next implementation slice should:
 
-1. plans every sentence before render enqueue;
-2. persists canonical DSL artifacts and planner provenance;
-3. binds their aggregate hash into the animation request;
-4. makes the synchronous compiler revalidate and consume them;
-5. adds renderer-owned motion windows for the allowlisted actions.
+1. make HyperFrames execute the allowlisted entry/develop/resolve presets using
+   renderer-owned timing windows and coordinates;
+2. add a dedicated preplanning job that persists a live local-LLM aggregate
+   before render enqueue and passes only its trusted artifact reference/hash;
+3. keep deterministic fallback as the no-GPU and provider-failure path;
+4. add visual QA assertions proving that each selected action visibly occurs
+   inside its narration sentence.
 
-Only after that binding is complete should a bounded primitive factory be added
-for genuinely new geometry.
+Only after renderer action execution and preplanning artifact binding are
+complete should a bounded primitive factory be added for genuinely new
+geometry.

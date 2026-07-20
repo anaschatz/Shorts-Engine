@@ -18,6 +18,10 @@ const {
   buildGeneralizedSemanticArtifacts,
 } = require("./generalized-semantic-event-planner.cjs");
 const {
+  buildDeterministicSemanticAnimationSceneDslPlan,
+  validateSemanticAnimationSceneDslPlanAgainstContext,
+} = require("./semantic-animation-scene-dsl-plan.cjs");
+const {
   SEMANTIC_SENTENCE_MAX_CLAIMS_PER_BEAT,
   SEMANTIC_SENTENCE_MAX_SENTENCES_PER_BEAT,
   SEMANTIC_SENTENCE_MAX_TOTAL_SENTENCES,
@@ -99,6 +103,37 @@ function assertProjectBinding(input) {
   }
 }
 
+function bindSemanticAnimationSceneDslPlan(input, artifacts) {
+  const generalized =
+    artifacts.semanticEventGraph.primitivePayloadProfileId !== undefined;
+  const supplied = input.semanticAnimationSceneDslPlan;
+  if (!generalized) {
+    if (supplied !== undefined) {
+      fail(
+        "semanticAnimationSceneDslPlan",
+        "checked_unparameterized_profile_forbids_scene_dsl_plan",
+      );
+    }
+    return artifacts;
+  }
+  const semanticAnimationSceneDslPlan = supplied === undefined
+    ? buildDeterministicSemanticAnimationSceneDslPlan({
+      semanticEventGraph: artifacts.semanticEventGraph,
+      semanticVisualSentencePlan: artifacts.semanticVisualSentencePlan,
+    })
+    : validateSemanticAnimationSceneDslPlanAgainstContext(
+      supplied,
+      {
+        semanticEventGraph: artifacts.semanticEventGraph,
+        semanticVisualSentencePlan: artifacts.semanticVisualSentencePlan,
+      },
+    );
+  return Object.freeze({
+    ...artifacts,
+    semanticAnimationSceneDslPlan,
+  });
+}
+
 function exactProfileArtifacts(input) {
   assertExplicitProfile(input);
   const draft = normalizeDraftBundle(input.draft);
@@ -132,13 +167,13 @@ function exactProfileArtifacts(input) {
       ),
       semanticEventGraph,
     );
-    return {
+    return bindSemanticAnimationSceneDslPlan(input, {
       draft,
       profile,
       semanticEventGraph,
       semanticVisualSentencePlan,
       timingContext,
-    };
+    });
   }
   const generalized = buildGeneralizedSemanticArtifacts({
     draft,
@@ -151,7 +186,7 @@ function exactProfileArtifacts(input) {
     ),
     semanticEventGraph,
   );
-  return {
+  return bindSemanticAnimationSceneDslPlan(input, {
     draft,
     profile: Object.freeze({
       id: "generalized_story_visual_intent_v1",
@@ -168,7 +203,7 @@ function exactProfileArtifacts(input) {
     semanticEventGraph,
     semanticVisualSentencePlan,
     timingContext,
-  };
+  });
 }
 
 function beatProductionScenes(artifacts) {
@@ -292,6 +327,7 @@ function beatProductionScenes(artifacts) {
 function buildContent(artifacts) {
   const {
     draft,
+    semanticAnimationSceneDslPlan,
     semanticEventGraph,
     semanticVisualSentencePlan,
   } = artifacts;
@@ -337,9 +373,18 @@ function buildContent(artifacts) {
       finalEvidenceLabel: bounded(last.wordSpan.text, 80, "FINAL EVIDENCE").toUpperCase(),
       semanticEventGraphHash: semanticEventGraph.contentHash,
       semanticVisualSentencePlanHash: semanticVisualSentencePlan.contentHash,
+      ...(semanticAnimationSceneDslPlan
+        ? {
+          semanticAnimationSceneDslPlanHash:
+            semanticAnimationSceneDslPlan.contentHash,
+        }
+        : {}),
     },
     semanticEventGraph,
     semanticVisualSentencePlan,
+    ...(semanticAnimationSceneDslPlan
+      ? { semanticAnimationSceneDslPlan }
+      : {}),
   };
 }
 
@@ -381,6 +426,12 @@ function buildSemanticSentenceProductionAnimationPlan(input = {}) {
     semanticEventGraphHash: artifacts.semanticEventGraph.contentHash,
     semanticVisualSentencePlanHash:
       artifacts.semanticVisualSentencePlan.contentHash,
+    ...(artifacts.semanticAnimationSceneDslPlan
+      ? {
+        semanticAnimationSceneDslPlanHash:
+          artifacts.semanticAnimationSceneDslPlan.contentHash,
+      }
+      : {}),
   });
   const seed = Number.parseInt(contentHash({
     assetManifestHash,
@@ -421,5 +472,6 @@ function buildSemanticSentenceProductionAnimationPlan(input = {}) {
 }
 
 module.exports = {
+  buildSemanticSentenceSourceArtifacts: exactProfileArtifacts,
   buildSemanticSentenceProductionAnimationPlan,
 };

@@ -278,6 +278,17 @@ test("checked semantic-v3 registry outputs remain byte-exact and omit generalize
       undefined,
       id,
     );
+    assert.equal(
+      compiled.animationIR.content.semanticAnimationSceneDslPlan,
+      undefined,
+      id,
+    );
+    assert.equal(
+      compiled.animationIR.content.semantic
+        .semanticAnimationSceneDslPlanHash,
+      undefined,
+      id,
+    );
     assert.ok(
       compiled.animationIR.content.semanticVisualSentencePlan.sentences.every(
         (sentence) => (
