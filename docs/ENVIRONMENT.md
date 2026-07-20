@@ -245,6 +245,24 @@ The approval outbox has a worker-ready lifecycle: `pending`, `processing`, `deli
 | `SHORTSENGINE_LOCAL_WHISPER_COMPUTE_TYPE` | No | `int8` | Faster-Whisper compute type | No | Keep `int8` for CPU workers. | Invalid runtime settings fail the local attempt safely. |
 | `SHORTSENGINE_LOCAL_WHISPER_TIMEOUT_MS` | No | `180000` | integer `1000..900000` | No | Increase for long CPU transcriptions. | Timed-out subprocesses are terminated. |
 
+## Dark Curiosity local scene planner
+
+The scene planner is an optional upstream choreography layer. It is not called
+inside the synchronous animation compiler. See
+`docs/DARK_CURIOSITY_LOCAL_LLM_SCENE_PLANNER.md` for its DSL and trust boundary.
+
+| Variable | Required | Default | Allowed values | Secret | Local recommendation | Fail-closed behavior |
+| --- | --- | --- | --- | --- | --- | --- |
+| `SHORTSENGINE_LOCAL_LLM_SCENE_PLANNER_MODE` | No | `disabled` | `disabled`, `mock`, `openai_compatible` | No | Keep `disabled` until a local server is running. | Unknown modes fail configuration; disabled mode makes no network calls. |
+| `SHORTSENGINE_LOCAL_LLM_ENDPOINT` | Only for `openai_compatible` | `http://127.0.0.1:11434/v1/chat/completions` | exact literal IPv4/IPv6 loopback OpenAI-compatible endpoint | No | Point to the local Ollama or llama.cpp port. | DNS, LAN/remote hosts, credentials, query, fragment, redirect and alternate paths are rejected. |
+| `SHORTSENGINE_LOCAL_LLM_MODEL` | Only for `openai_compatible` | `local-scene-planner` | bounded local model alias | No | Set to the alias loaded by the local server. | Unsafe or unbounded identifiers fail configuration. |
+| `SHORTSENGINE_LOCAL_LLM_TIMEOUT_MS` | No | `120000` | integer `1000..300000` | No | Keep default initially. | Timeout aborts the request and uses deterministic fallback. |
+| `SHORTSENGINE_LOCAL_LLM_RESPONSE_MAX_BYTES` | No | `65536` | integer `1024..262144` | No | Keep default. | Declared or streamed oversized responses are cancelled and rejected. |
+| `SHORTSENGINE_LOCAL_LLM_MAX_TOKENS` | No | `512` | integer `64..1024` | No | Keep the bounded default. | Invalid limits fail configuration. |
+
+This provider requires no API key. It ignores `OPENAI_API_KEY` and never sends
+authorization, cookies or credential headers.
+
 ## Football analysis safety
 
 Goal classification is evidence-gated. The analysis layer may use sampled visual
