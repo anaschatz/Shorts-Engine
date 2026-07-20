@@ -35,7 +35,7 @@ function strictSnapshot(frame, stateId, focusIntervalId, transitionId, pathData)
     focusTargets: [{ entityId: "signal_evidence", role: "primary", visible: true, bounds }],
     labels: [
       { id: "key_label", role: "key", visible: true, fontSize: 32, foreground: "#e2e8f0", background: "#07121f", bounds: { x: 120, y: 500, width: 240, height: 42 } },
-      { id: "secondary_label", role: "secondary", visible: true, fontSize: 24, foreground: "#a5f3fc", background: "#071827", bounds: { x: 120, y: 560, width: 240, height: 32 } },
+      { id: "secondary_label", role: "secondary", visible: true, fontSize: 24, effectiveFontSize: 24, effectiveFontFloor: 24, glyphCompression: false, foreground: "#a5f3fc", background: "#071827", bounds: { x: 120, y: 560, width: 240, height: 32 } },
     ],
     pathFollowers: [{ followerId: "signal-evidence-marker", pathId: "signal-evidence-path", visible: true, distance: 0.5 }],
   };
@@ -141,6 +141,36 @@ test("geometry audit rejects real clipping and caption-safe collisions", () => {
   const onPath = validateGeometrySnapshots([{ frame: 0, ...geometry(), pathFollowers: [{ followerId: "signal-dot", pathId: "signal-curve", visible: true, distance: 0.8 }] }], 720, 1280);
   assert.equal(onPath.passed, true);
   assert.equal(onPath.pathFollowerObservationCount, 1);
+  const detachedSemanticRoute = validateGeometrySnapshots([{
+    frame: 0,
+    ...geometry(),
+    semanticRoutes: [{
+      routeIndex: 0,
+      visible: true,
+      distance: 1.25,
+      x: 120,
+      y: 560,
+    }],
+  }], 720, 1280);
+  assert.equal(detachedSemanticRoute.passed, false);
+  assert.deepEqual(detachedSemanticRoute.semanticRouteViolations, [{
+    frame: 0,
+    routeIndex: 0,
+    distance: 1.25,
+  }]);
+  const groundedSemanticRoute = validateGeometrySnapshots([{
+    frame: 0,
+    ...geometry(),
+    semanticRoutes: [{
+      routeIndex: 0,
+      visible: true,
+      distance: 0.5,
+      x: 120,
+      y: 560,
+    }],
+  }], 720, 1280);
+  assert.equal(groundedSemanticRoute.passed, true);
+  assert.equal(groundedSemanticRoute.semanticRouteObservationCount, 1);
   const hiddenFollower = validateGeometrySnapshots([{ frame: 0, ...geometry(), pathFollowers: [{ followerId: "signal-dot", pathId: "signal-curve", visible: false, distance: null }] }], 720, 1280, ["signal-dot"]);
   assert.equal(hiddenFollower.passed, false);
   assert.deepEqual(hiddenFollower.unobservedPathFollowerIds, ["signal-dot"]);
@@ -181,6 +211,8 @@ test("strict geometry audit rejects continuity, focus, ROI, path, and typography
   assert.ok(audit((snapshots) => { snapshots[0].pathFollowers[0].distance = 2.25; }).pathFollowerViolations.length > 0);
   assert.ok(audit((snapshots) => { snapshots[0].labels[0].fontSize = 31; }).legibilityViolations.length > 0);
   assert.ok(audit((snapshots) => { snapshots[0].labels[1].fontSize = 23; }).legibilityViolations.length > 0);
+  assert.ok(audit((snapshots) => { snapshots[0].labels[1].effectiveFontSize = 23; }).legibilityViolations.some((violation) => violation.reason === "effective_font_size"));
+  assert.ok(audit((snapshots) => { snapshots[0].labels[1].glyphCompression = true; }).legibilityViolations.some((violation) => violation.reason === "glyph_compression"));
   assert.ok(audit((snapshots) => { snapshots[0].labels[0].foreground = snapshots[0].labels[0].background; }).contrastViolations.length > 0);
   assert.ok(audit((snapshots) => { snapshots[0].labels[0].bounds = { x: 120, y: 960, width: 240, height: 42 }; }).legibilityViolations.length > 0);
   const hiddenLabel = audit((snapshots) => { for (const snapshot of snapshots) snapshot.labels.find((label) => label.id === "key_label").visible = false; });

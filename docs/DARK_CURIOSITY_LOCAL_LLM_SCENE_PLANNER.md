@@ -2,7 +2,7 @@
 
 ## Status
 
-The first two safe implementation slices for generating different animation
+The first three safe implementation slices for generating different animation
 choreography per semantic sentence are complete. They provide:
 
 - a strict, hashed Animation Scene DSL v1;
@@ -16,7 +16,12 @@ choreography per semantic sentence are complete. They provide:
   sentence in exact order;
 - per-scene provider/fallback provenance and aggregate cost accounting;
 - synchronous compiler and AnimationIR binding for generalized semantic-v3
-  stories.
+  stories;
+- a deterministic renderer-owned action schedule with distinct
+  `entry`/`develop`/`resolve` frame windows and a settled readability hold;
+- visible HyperFrames execution for every DSL v1 operation;
+- real Chromium pixel proofs for action-plan divergence, random-access
+  determinism, approved-route motion and mobile legibility.
 
 The local LLM is not called from the production animation compiler. The compiler
 is intentionally synchronous and deterministic. When no preplanned aggregate is
@@ -87,6 +92,12 @@ trusted semantic graph + sentence plan
                 |
                 v
  synchronous compiler revalidation + hash binding
+                |
+                v
+ renderer-owned phase schedule + bounded frame state
+                |
+                v
+     HyperFrames SVG action execution
 ```
 
 ## Configuration
@@ -182,21 +193,68 @@ plan and AnimationIR, so the existing persisted `animation_plan` and
 `animation_ir` artifacts bind the complete plan and its provenance without
 adding an unreferenced standalone artifact.
 
+## Renderer execution
+
+The renderer validates the embedded aggregate again before reading any action.
+It serializes only the allowlisted action schedule and its hashes into the
+composition; planner IDs, model IDs, prompts, fallback diagnostics and provider
+output never enter browser runtime data.
+
+Each sentence receives three contiguous, non-overlapping phase windows.
+Renderer-owned timing reserves at least 12% of one second per phase when the
+sentence duration permits, uses fixed 3:4:3 entry/develop/resolve weighting,
+borrows at most 350 ms of an available narration gap, and preserves at least
+200 ms of settled hold when that gap exists. The schedule is derived from
+validated narration timing and is not model-authored. A one- or two-frame cue
+uses an explicit deterministic overlap schedule instead of failing; a short
+`pulse_once` still reaches one visible peak and settles on the next frame.
+
+The fixed action mappings are:
+
+- `create/reveal`: staggered opacity, vertical settle and scale-in for the
+  primary and two support modules;
+- `move/follow_grounded_route`: deterministic piecewise traversal of approved
+  normalized route points, projected into a bounded primary-module displacement
+  when the scene has no route marker;
+- `transform/semantic_transition`: bounded primary scale, lift and emphasis,
+  with the same action progress driving the actual counter/vessel state swap;
+- `highlight/pulse_once`: one smooth scale/glow envelope that returns to
+  identity;
+- `camera/push_primary|pull_overview`: bounded zoom on the geometry-only camera
+  channel, never on narration copy or captions.
+
+Map primitives without a DSL `move` retain their grammar-owned base traversal,
+but now measure progress on the actual rendered SVG route instead of a
+synthetic diagonal. Approved `move` actions use the validated route schedule.
+Every frame state is recomputed from the requested frame. There is no wall
+clock, incremental transform accumulation, random number or CSS animation.
+Seeking N, then M, then N therefore reproduces the same pixels.
+
+Support values are wrapped or excerpted without `spacingAndGlyphs`
+compression. Their 26/28 px source sizes and 24 px effective floor are checked
+after camera and module transforms in the real-browser mobile audit.
+
+Checked unparameterized profiles do not emit the schedule, action CSS, runtime
+or trace attributes. Their pinned HTML composition hashes remain byte-exact.
+
 ## Current limitation and next slice
 
-DSL v1 choreographs the existing three grounded modules; it does not yet create
-new geometry. The asynchronous live planner is also not yet a render-enqueue
-job; production compilation currently uses the network-free deterministic
-aggregate. The next implementation slice should:
+DSL v1 now visibly choreographs the existing three grounded modules, but it
+still does not create new geometry. The asynchronous live planner is also not
+yet a render-enqueue job; production compilation currently uses the
+network-free deterministic aggregate. The next implementation slice should:
 
-1. make HyperFrames execute the allowlisted entry/develop/resolve presets using
-   renderer-owned timing windows and coordinates;
-2. add a dedicated preplanning job that persists a live local-LLM aggregate
+1. add a dedicated preplanning job that persists a live local-LLM aggregate
    before render enqueue and passes only its trusted artifact reference/hash;
+2. extend production browser QA sampling from sentence midpoints to explicit
+   action-phase checkpoints and require coverage of every selected action
+   signature;
 3. keep deterministic fallback as the no-GPU and provider-failure path;
-4. add visual QA assertions proving that each selected action visibly occurs
-   inside its narration sentence.
+4. add a bounded primitive factory for genuinely new, source-grounded geometry.
 
-Only after renderer action execution and preplanning artifact binding are
-complete should a bounded primitive factory be added for genuinely new
-geometry.
+The local browser proof already compares actual pixel hashes for two valid
+plans over the same story, rejects any visible marker more than 0.75 px from
+its actual SVG path, verifies approved Baychimo route traversal, and checks
+that non-map grounded routes move the primary module. Production action-phase
+coverage is the remaining gate before the live preplanning job becomes the
+default upstream path.

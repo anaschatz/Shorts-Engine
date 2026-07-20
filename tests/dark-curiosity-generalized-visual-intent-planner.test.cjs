@@ -63,7 +63,11 @@ const {
 } = require("../server/pipelines/narrated-short/animation/semantic-scene-composition.cjs");
 const {
   buildDeterministicSemanticAnimationSceneDslPlan,
+  buildSemanticAnimationSceneDslPlanFromScenes,
 } = require("../server/pipelines/narrated-short/animation/semantic-animation-scene-dsl-plan.cjs");
+const {
+  buildSemanticAnimationSceneDsl,
+} = require("../server/pipelines/narrated-short/animation/semantic-animation-scene-dsl.cjs");
 const {
   planSemanticAnimationScenes,
 } = require("../server/pipelines/narrated-short/animation/semantic-animation-scene-plan-service.cjs");
@@ -229,6 +233,56 @@ function compileRaw(raw, salt, projectId) {
     timingContext,
   });
   return { draft, timingContext, compiled };
+}
+
+function alternateSceneDslPlan(compiled) {
+  const defaultPlan =
+    compiled.animationIR.content.semanticAnimationSceneDslPlan;
+  const sentencePlan =
+    compiled.animationIR.content.semanticVisualSentencePlan;
+  const sentenceIndex = sentencePlan.sentences.findIndex(
+    (sentence) => sentence.primitiveParameters.geometry.route === null,
+  );
+  assert.ok(sentenceIndex >= 0);
+  const sentence = sentencePlan.sentences[sentenceIndex];
+  const replacement = buildSemanticAnimationSceneDsl({
+    semanticEventGraphHash:
+      compiled.animationIR.content.semanticEventGraph.contentHash,
+    semanticVisualSentencePlanHash: sentencePlan.contentHash,
+    propositionId: sentence.propositionId,
+    primitiveParameters: sentence.primitiveParameters,
+    sceneComposition: sentence.sceneComposition,
+    proposal: {
+      schemaVersion: 1,
+      actions: [
+        {
+          op: "highlight",
+          target: "module_primary",
+          phase: "develop",
+          preset: "pulse_once",
+        },
+        {
+          op: "camera",
+          target: "scene",
+          phase: "resolve",
+          preset: "pull_overview",
+        },
+      ],
+    },
+  });
+  assert.notDeepEqual(
+    replacement.actions,
+    defaultPlan.scenes[sentenceIndex].sceneDsl.actions,
+  );
+  return buildSemanticAnimationSceneDslPlanFromScenes({
+    bindings: defaultPlan.bindings,
+    planner: defaultPlan.planner,
+    scenes: defaultPlan.scenes.map((scene, index) => ({
+      propositionId: scene.propositionId,
+      provenance: scene.provenance,
+      sceneDsl: index === sentenceIndex ? replacement : scene.sceneDsl,
+    })),
+  });
 }
 
 function rendererSourceOptions(value) {
@@ -526,6 +580,130 @@ test("semantic-v3 compiles and renders non-registry narration deterministically"
   assert.equal(manifestHashes.size, CASES.length);
   assert.equal(irHashes.size, CASES.length);
   assert.equal(compositionHashes.size, CASES.length);
+});
+
+test("Scene DSL actions change visible runtime state and remain renderer-bound", async () => {
+  const { compileAnimationIRToHtml } = await import(
+    "../renderer/hyperframes/animation-ir-adapter.mjs"
+  );
+  const value = compileRaw(
+    readRaw("001_wow_signal_mystery"),
+    "scene-action-renderer",
+    "prj_scene_action_renderer",
+  );
+  const defaultPlan =
+    value.compiled.animationIR.content.semanticAnimationSceneDslPlan;
+  const alternatePlan = alternateSceneDslPlan(value.compiled);
+  const alternate = compileProductionAnimation({
+    animationProfile: "semantic-v3",
+    projectId: "prj_scene_action_renderer",
+    projectRevision: 1,
+    renderProfile: "preview",
+    draft: value.draft,
+    timingContext: value.timingContext,
+    semanticAnimationSceneDslPlan: alternatePlan,
+  });
+  const defaultComposition = compileAnimationIRToHtml(
+    value.compiled.animationIR,
+    rendererSourceOptions(value),
+  );
+  const alternateComposition = compileAnimationIRToHtml(
+    alternate.animationIR,
+    rendererSourceOptions(value),
+  );
+  assert.notEqual(alternatePlan.contentHash, defaultPlan.contentHash);
+  assert.notEqual(
+    alternate.animationIR.contentHash,
+    value.compiled.animationIR.contentHash,
+  );
+  assert.notEqual(
+    alternateComposition.compositionHash,
+    defaultComposition.compositionHash,
+  );
+  assert.equal(
+    alternateComposition.profile.sceneDslPlanHash,
+    alternatePlan.contentHash,
+  );
+  assert.match(
+    alternateComposition.html,
+    new RegExp(`data-semantic-scene-dsl-plan-hash="${
+      alternatePlan.contentHash
+    }"`),
+  );
+  assert.match(
+    alternateComposition.html,
+    /highlight:module_primary:develop:pulse_once/,
+  );
+  assert.match(
+    alternateComposition.html,
+    /camera:scene:resolve:pull_overview/,
+  );
+  assert.match(
+    alternateComposition.html,
+    /semanticSceneActionStateAtFrame/,
+  );
+  assert.match(
+    alternateComposition.html,
+    /activeSceneActionSignatures/,
+  );
+  assert.match(
+    alternateComposition.html,
+    /semanticTransitionProgress/,
+  );
+  assert.match(
+    alternateComposition.html,
+    /routeDisplacement/,
+  );
+  assert.match(
+    alternateComposition.html,
+    /route\.getPointAtLength\(length\*routeActionProgress\)/,
+  );
+  assert.match(
+    alternateComposition.html,
+    /invalid_scene_action_target_count/,
+  );
+  const providerId = alternatePlan.scenes[0].provenance.providerId;
+  const modelId = alternatePlan.scenes[0].provenance.modelId;
+  assert.equal(alternateComposition.html.includes(providerId), false);
+  assert.equal(alternateComposition.html.includes(modelId), false);
+  assert.equal(alternateComposition.html.includes("fallbackUsed"), false);
+
+  const missingPlan = structuredClone(value.compiled.animationIR);
+  delete missingPlan.content.semanticAnimationSceneDslPlan;
+  delete missingPlan.content.semantic.semanticAnimationSceneDslPlanHash;
+  assert.throws(
+    () => compileAnimationIRToHtml(
+      missingPlan,
+      rendererSourceOptions(value),
+    ),
+    /requires a Scene DSL plan/,
+  );
+
+  const staleHash = structuredClone(value.compiled.animationIR);
+  staleHash.content.semantic.semanticAnimationSceneDslPlanHash =
+    "d".repeat(64);
+  assert.throws(
+    () => compileAnimationIRToHtml(staleHash, rendererSourceOptions(value)),
+    /hash does not match semantic content/,
+  );
+
+  const reorderedPlan = buildSemanticAnimationSceneDslPlanFromScenes({
+    bindings: defaultPlan.bindings,
+    planner: defaultPlan.planner,
+    scenes: [
+      defaultPlan.scenes[1],
+      defaultPlan.scenes[0],
+      ...defaultPlan.scenes.slice(2),
+    ],
+  });
+  const reordered = structuredClone(value.compiled.animationIR);
+  reordered.content.semanticAnimationSceneDslPlan = reorderedPlan;
+  reordered.content.semantic.semanticAnimationSceneDslPlanHash =
+    reorderedPlan.contentHash;
+  assert.throws(
+    () => compileAnimationIRToHtml(reordered, rendererSourceOptions(value)),
+    /not grounded in the semantic sentence plan/,
+  );
 });
 
 test("semantic clauses preserve negation and do not erase Baychimo vessel movement", () => {
@@ -1271,6 +1449,18 @@ test("cue-grounded quantities change primitive body content without leaking lega
   const markup41 = primitives.semanticSentencePrimitiveMarkup(sentence41, 0);
   assert.match(markup72, />SEVENTY-TWO SECONDS/);
   assert.match(markup41, />FORTY-ONE SECONDS/);
+  const supportQuantity = (markup) => (
+    [...markup.matchAll(
+      /class="semantic-support-quantity"[\s\S]*?>([^<]+)<\/text>/g,
+    )]
+      .map((match) => match[1])
+      .join("")
+      .replace(/\s/g, "")
+  );
+  assert.equal(supportQuantity(markup72), "seventy-twoseconds");
+  assert.equal(supportQuantity(markup41), "forty-oneseconds");
+  assert.doesNotMatch(markup72, /seventy-…|lengthAdjust="spacingAndGlyphs"/);
+  assert.doesNotMatch(markup41, /forty-…|lengthAdjust="spacingAndGlyphs"/);
   assert.notEqual(markup41, markup72);
   assert.doesNotMatch(markup72, />1023<|>0000<|>DATE<|>INPUT<|>OUTPUT</);
   assert.doesNotMatch(markup41, />1023<|>0000<|>DATE<|>INPUT<|>OUTPUT</);

@@ -1143,8 +1143,15 @@ export function semanticSentencePrimitiveMarkup(sentence, index) {
   ].join(":");
   const primaryGeometry = primitiveMarkup(normalizedSentence);
   const geometry = normalizedSentence.sceneComposition
-    ? semanticSceneCompositionMarkup(normalizedSentence, primaryGeometry)
+    ? semanticSceneCompositionMarkup(
+      normalizedSentence,
+      primaryGeometry,
+      index,
+    )
     : primaryGeometry;
+  const renderedGeometry = normalizedSentence.sceneComposition
+    ? `<g class="semantic-scene-camera-channel">${geometry}</g>`
+    : geometry;
   const capabilityLabelMarkup = normalizedSentence.primitiveParameters
     ? `\n  ${escapeSemanticSentenceXml(displayText(
       normalizedSentence.primitiveParameters.subject.value,
@@ -1181,7 +1188,7 @@ export function semanticSentencePrimitiveMarkup(sentence, index) {
  data-caption-policy="avoid">
  <text x="54" y="218" class="sentence-capability-label"${capabilityFit}>${capabilityLabelMarkup}
  </text>
- ${geometry}
+ ${renderedGeometry}
  <g class="semantic-sentence-copy">${textBlock(lines, index)}</g>
 </g>`;
 }

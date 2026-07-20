@@ -78,6 +78,13 @@ function exactQuantity(parameters) {
     .trim();
 }
 
+function supportMaximumCharacters(box, fontSize) {
+  return Math.max(
+    6,
+    Math.floor((box.width - 28) / (fontSize * 0.52)),
+  );
+}
+
 function excerptLines(value, maximumCharacters, maximumLines = 2) {
   const words = value.trim().split(/\s+/);
   const lines = [];
@@ -111,22 +118,54 @@ function excerptLines(value, maximumCharacters, maximumLines = 2) {
   return Object.freeze(lines.slice(0, maximumLines));
 }
 
+function exactWrappedLines(value, maximumCharacters, maximumLines) {
+  let remaining = value.trim();
+  const lines = [];
+  while (remaining && lines.length < maximumLines) {
+    if (Array.from(remaining).length <= maximumCharacters) {
+      lines.push(remaining);
+      remaining = "";
+      break;
+    }
+    const characters = Array.from(remaining);
+    const candidate = characters.slice(0, maximumCharacters + 1).join("");
+    const whitespaceIndex = candidate.lastIndexOf(" ");
+    const splitIndex = whitespaceIndex > 0
+      ? whitespaceIndex
+      : maximumCharacters;
+    lines.push(characters.slice(0, splitIndex).join("").trimEnd());
+    remaining = characters.slice(splitIndex).join("").trimStart();
+  }
+  if (
+    remaining
+    || lines.join("").replace(/\s/g, "")
+      !== value.trim().replace(/\s/g, "")
+  ) {
+    throw new TypeError("Semantic support text cannot fit without truncation.");
+  }
+  return Object.freeze(lines);
+}
+
 function supportTextMarkup(
   lines,
   box,
   className = "semantic-support-value",
-  baseFontSize = 15,
+  baseFontSize = 26,
+  sentenceIndex = 0,
+  moduleId = "module_support_a",
+  contrastBackground = "#071827",
 ) {
-  const startY = lines.length === 1 ? box.height * .67 : box.height * .57;
+  const lineSpacing = Math.max(27, baseFontSize + 1);
+  const startY = lines.length === 1
+    ? box.height * .7
+    : box.height - 14 - (lines.length - 1) * lineSpacing;
   return lines.map((line, index) => {
-    const availableWidth = box.width - 28;
-    const needsFitting = Array.from(line).length * baseFontSize * .58
-      > availableWidth;
-    const fit = needsFitting
-      ? ` textLength="${availableWidth}" lengthAdjust="spacingAndGlyphs"`
-      : "";
-    return `<text x="${box.width / 2}" y="${(startY + index * 22).toFixed(1)}"
- text-anchor="middle" class="${className}"${fit}>${escapeXml(line)}</text>`;
+    return `<text id="semantic-support-${sentenceIndex}-${escapeXml(moduleId)}-${index}"
+ x="${box.width / 2}" y="${(startY + index * lineSpacing).toFixed(1)}"
+ text-anchor="middle" class="${className}"
+ data-legibility-role="secondary"
+ data-effective-font-floor="24"
+ data-contrast-background="${contrastBackground}">${escapeXml(line)}</text>`;
   }).join("");
 }
 
@@ -144,23 +183,48 @@ function supportSurface(module, box, contentMarkup, tone = "cool") {
 </g>`;
 }
 
-function detailCardMarkup(module, box, parameters) {
+function detailCardMarkup(module, box, parameters, sentenceIndex) {
+  const baseFontSize = 26;
   const lines = excerptLines(
     parameters.detail.value,
-    box.width < 200 ? 17 : 30,
+    supportMaximumCharacters(box, baseFontSize),
   );
   const content = `<text x="16" y="27" class="semantic-support-label">CONTEXT</text>
-  ${supportTextMarkup(lines, box)}`;
+  ${supportTextMarkup(
+    lines,
+    box,
+    "semantic-support-value",
+    baseFontSize,
+    sentenceIndex,
+    module.id,
+  )}`;
   return supportSurface(module, box, content);
 }
 
-function quantityBadgeMarkup(module, box, parameters) {
+function quantityBadgeMarkup(module, box, parameters, sentenceIndex) {
   const quantity = exactQuantity(parameters);
   if (!quantity || quantity.length > 32) {
     throw new TypeError("Semantic quantity support is not grounded.");
   }
+  const baseFontSize = 26;
+  const lines = exactWrappedLines(
+    quantity,
+    Math.max(
+      6,
+      Math.floor((box.width - 28) / (baseFontSize * 0.49)),
+    ),
+    3,
+  );
   const content = `<text x="16" y="27" class="semantic-support-label">MEASURE</text>
-  ${supportTextMarkup([quantity], box, "semantic-support-quantity", 23)}`;
+  ${supportTextMarkup(
+    lines,
+    box,
+    "semantic-support-quantity",
+    baseFontSize,
+    sentenceIndex,
+    module.id,
+    "#211706",
+  )}`;
   return supportSurface(module, box, content, "warm");
 }
 
@@ -187,33 +251,53 @@ function routeTraceMarkup(module, box, parameters) {
   return supportSurface(module, box, content);
 }
 
-function stateBadgeMarkup(module, box, parameters) {
+function stateBadgeMarkup(module, box, parameters, sentenceIndex) {
   const state = parameters.stateToken;
   const tone = NEGATIVE_STATE_TOKENS.has(state) ? "reject" : "cool";
+  const baseFontSize = 26;
+  const lines = excerptLines(
+    state,
+    supportMaximumCharacters(box, baseFontSize),
+  );
   const content = `<text x="16" y="27" class="semantic-support-label">STATE</text>
-  ${supportTextMarkup([state], box, "semantic-support-state", 18)}`;
+  ${supportTextMarkup(
+    lines,
+    box,
+    "semantic-support-state",
+    baseFontSize,
+    sentenceIndex,
+    module.id,
+    tone === "reject" ? "#2b101b" : "#071827",
+  )}`;
   return supportSurface(module, box, content, tone);
 }
 
-function contextSupportMarkup(module, box, parameters) {
+function contextSupportMarkup(module, box, parameters, sentenceIndex) {
   if (module.kind === "route_trace") {
     return routeTraceMarkup(module, box, parameters);
   }
   if (module.kind === "quantity_badge") {
-    return quantityBadgeMarkup(module, box, parameters);
+    return quantityBadgeMarkup(module, box, parameters, sentenceIndex);
   }
   if (module.kind === "detail_card") {
-    return detailCardMarkup(module, box, parameters);
+    return detailCardMarkup(module, box, parameters, sentenceIndex);
   }
   throw new TypeError("Semantic context support kind is unsupported.");
 }
 
-export function semanticSceneCompositionMarkup(sentence, primaryMarkup) {
+export function semanticSceneCompositionMarkup(
+  sentence,
+  primaryMarkup,
+  sentenceIndex = 0,
+) {
   if (!sentence || typeof sentence !== "object" || Array.isArray(sentence)) {
     throw new TypeError("Semantic scene composition sentence is invalid.");
   }
   if (typeof primaryMarkup !== "string" || !primaryMarkup) {
     throw new TypeError("Semantic scene primary markup is invalid.");
+  }
+  if (!Number.isInteger(sentenceIndex) || sentenceIndex < 0 || sentenceIndex > 95) {
+    throw new TypeError("Semantic scene composition sentence index is invalid.");
   }
   const parameters = normalizePrimitiveParameters(sentence.primitiveParameters);
   const composition = normalizeSemanticSceneComposition(sentence.sceneComposition);
@@ -251,7 +335,12 @@ export function semanticSceneCompositionMarkup(sentence, primaryMarkup) {
    data-scene-module-kind="${escapeXml(primary.kind)}"
    data-reveal-order="${primary.revealOrder}">${primaryMarkup}</g>
  </g>
- ${contextSupportMarkup(supportA, layout.supportA, parameters)}
- ${stateBadgeMarkup(supportB, layout.supportB, parameters)}
+ ${contextSupportMarkup(supportA, layout.supportA, parameters, sentenceIndex)}
+ ${stateBadgeMarkup(
+    supportB,
+    layout.supportB,
+    parameters,
+    sentenceIndex,
+  )}
 </g>`;
 }

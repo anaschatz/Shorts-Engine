@@ -108,8 +108,8 @@ export function validateGeometrySnapshots(snapshots, width, height, expectedPath
   const expectedTransitionIds = expectations.expectedTransitionIds || [];
   const legibilityProfile = expectations.legibilityProfile || null;
   for (const values of [expectedPersistentEntityIds, expectedVisualStateIds, expectedFocusIntervalIds, expectedTransitionIds]) if (!Array.isArray(values) || values.some((id) => !ENTITY_RE.test(id))) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
-  const clippedEntities = [], captionSafeZoneViolations = [], pathFollowerViolations = [], persistentContinuityViolations = [], focusViolations = [], primaryRoiViolations = [], legibilityViolations = [], contrastViolations = [], checkpoints = [];
-  let entityObservationCount = 0, pathFollowerObservationCount = 0, persistentObservationCount = 0, labelObservationCount = 0;
+  const clippedEntities = [], captionSafeZoneViolations = [], pathFollowerViolations = [], semanticRouteViolations = [], persistentContinuityViolations = [], focusViolations = [], primaryRoiViolations = [], legibilityViolations = [], contrastViolations = [], checkpoints = [];
+  let entityObservationCount = 0, pathFollowerObservationCount = 0, semanticRouteObservationCount = 0, persistentObservationCount = 0, labelObservationCount = 0;
   const observedPathFollowerIds = new Set();
   const observedLabelIds = new Set();
   let markedLabelIds = null;
@@ -191,6 +191,32 @@ export function validateGeometrySnapshots(snapshots, width, height, expectedPath
         labelObservationCount += 1;
         observedLabelIds.add(label.id);
         if (!Number.isFinite(label.fontSize) || label.fontSize + 0.01 < minimum) legibilityViolations.push(Object.freeze({ frame: snapshot.frame, labelId: label.id, role: label.role, minimum, actual: Number(label.fontSize?.toFixed?.(3) || 0) }));
+        if (label.effectiveFontFloor !== null && label.effectiveFontFloor !== undefined) {
+          if (
+            !Number.isFinite(label.effectiveFontFloor)
+            || label.effectiveFontFloor < minimum
+            || label.effectiveFontFloor > 96
+            || !Number.isFinite(label.effectiveFontSize)
+          ) throw new BrowserSeekError("BROWSER_LEGIBILITY_AUDIT_INVALID");
+          if (label.effectiveFontSize + 0.01 < label.effectiveFontFloor) {
+            legibilityViolations.push(Object.freeze({
+              frame: snapshot.frame,
+              labelId: label.id,
+              role: label.role,
+              minimum: label.effectiveFontFloor,
+              actual: Number(label.effectiveFontSize.toFixed(3)),
+              reason: "effective_font_size",
+            }));
+          }
+          if (label.glyphCompression === true) {
+            legibilityViolations.push(Object.freeze({
+              frame: snapshot.frame,
+              labelId: label.id,
+              role: label.role,
+              reason: "glyph_compression",
+            }));
+          }
+        }
         if (intersects(bounds, captionSafeZone)) legibilityViolations.push(Object.freeze({ frame: snapshot.frame, labelId: label.id, role: label.role, reason: "caption_overlap" }));
         const contrast = contrastRatio(label.foreground, label.background);
         if (contrast < 4.5) contrastViolations.push(Object.freeze({ frame: snapshot.frame, labelId: label.id, contrast: Number(contrast.toFixed(3)) }));
@@ -206,7 +232,71 @@ export function validateGeometrySnapshots(snapshots, width, height, expectedPath
       observedPathFollowerIds.add(follower.followerId);
       if (follower.distance > 1.5) pathFollowerViolations.push(Object.freeze({ frame: snapshot.frame, followerId: follower.followerId, pathId: follower.pathId, distance: Number(follower.distance.toFixed(3)) }));
     }
-    checkpoints.push(Object.freeze({ frame: snapshot.frame, visualStateId: snapshot.visualStateId || null, focusIntervalId: snapshot.focusIntervalId || null, visibleEntities: visible }));
+    const semanticRoutes = snapshot.semanticRoutes === undefined
+      ? []
+      : snapshot.semanticRoutes;
+    if (!Array.isArray(semanticRoutes)) {
+      throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
+    }
+    const visibleSemanticRoutes = [];
+    for (const route of semanticRoutes) {
+      if (
+        !route
+        || !Number.isInteger(route.routeIndex)
+        || route.routeIndex < 0
+        || typeof route.visible !== "boolean"
+      ) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
+      if (!route.visible) continue;
+      if (
+        !Number.isFinite(route.distance)
+        || route.distance < 0
+        || !Number.isFinite(route.x)
+        || !Number.isFinite(route.y)
+      ) {
+        throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
+      }
+      semanticRouteObservationCount += 1;
+      visibleSemanticRoutes.push(Object.freeze({
+        routeIndex: route.routeIndex,
+        x: Number(route.x.toFixed(3)),
+        y: Number(route.y.toFixed(3)),
+        distance: Number(route.distance.toFixed(3)),
+      }));
+      if (route.distance > 0.75) {
+        semanticRouteViolations.push(Object.freeze({
+          frame: snapshot.frame,
+          routeIndex: route.routeIndex,
+          distance: Number(route.distance.toFixed(3)),
+        }));
+      }
+    }
+    const sceneActionModules = snapshot.sceneActionModules === undefined
+      ? []
+      : snapshot.sceneActionModules;
+    if (!Array.isArray(sceneActionModules)) {
+      throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
+    }
+    const visibleSceneActionModules = sceneActionModules
+      .filter((module) => module?.visible === true)
+      .map((module) => {
+        if (
+          !ENTITY_RE.test(module.moduleId || "")
+          || ![
+            module.translateX,
+            module.translateY,
+            module.scale,
+            module.opacity,
+          ].every(Number.isFinite)
+        ) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
+        return Object.freeze({
+          moduleId: module.moduleId,
+          translateX: Number(module.translateX.toFixed(4)),
+          translateY: Number(module.translateY.toFixed(4)),
+          scale: Number(module.scale.toFixed(4)),
+          opacity: Number(module.opacity.toFixed(4)),
+        });
+      });
+    checkpoints.push(Object.freeze({ frame: snapshot.frame, visualStateId: snapshot.visualStateId || null, focusIntervalId: snapshot.focusIntervalId || null, visibleEntities: visible, semanticRoutes: visibleSemanticRoutes, sceneActionModules: visibleSceneActionModules }));
   }
   const unobservedPathFollowerIds = expectedPathFollowerIds.filter((id) => !observedPathFollowerIds.has(id));
   const persistentStateCoverageSummary = Object.fromEntries([...persistentStateCoverage.entries()].map(([entityId, states]) => [entityId, [...states].sort()]));
@@ -223,8 +313,8 @@ export function validateGeometrySnapshots(snapshots, width, height, expectedPath
     if (hashes.size < 3) persistentContinuityViolations.push(Object.freeze({ transitionId, reason: "transition_geometry_unproven" }));
     else observedTransitionIds.push(transitionId);
   }
-  const passed = clippedEntities.length === 0 && captionSafeZoneViolations.length === 0 && pathFollowerViolations.length === 0 && unobservedPathFollowerIds.length === 0 && persistentContinuityViolations.length === 0 && focusViolations.length === 0 && primaryRoiViolations.length === 0 && legibilityViolations.length === 0 && contrastViolations.length === 0;
-  return Object.freeze({ passed, semanticRoi, captionSafeZone, checkpointCount: snapshots.length, entityObservationCount, pathFollowerObservationCount, persistentObservationCount, labelObservationCount, markedLabelIds: markedLabelIdList, observedLabelIds: observedLabelIdList, unobservedLabelIds, observedPathFollowerIds: [...observedPathFollowerIds].sort(), unobservedPathFollowerIds, persistentStateCoverage: persistentStateCoverageSummary, observedTransitionIds: observedTransitionIds.sort(), observedFocusIntervalIds: [...observedFocusIntervalIds].sort(), unobservedFocusIntervalIds, clippedEntities, captionSafeZoneViolations, pathFollowerViolations, persistentContinuityViolations, focusViolations, primaryRoiViolations, legibilityViolations, contrastViolations, checkpoints });
+  const passed = clippedEntities.length === 0 && captionSafeZoneViolations.length === 0 && pathFollowerViolations.length === 0 && semanticRouteViolations.length === 0 && unobservedPathFollowerIds.length === 0 && persistentContinuityViolations.length === 0 && focusViolations.length === 0 && primaryRoiViolations.length === 0 && legibilityViolations.length === 0 && contrastViolations.length === 0;
+  return Object.freeze({ passed, semanticRoi, captionSafeZone, checkpointCount: snapshots.length, entityObservationCount, pathFollowerObservationCount, semanticRouteObservationCount, persistentObservationCount, labelObservationCount, markedLabelIds: markedLabelIdList, observedLabelIds: observedLabelIdList, unobservedLabelIds, observedPathFollowerIds: [...observedPathFollowerIds].sort(), unobservedPathFollowerIds, persistentStateCoverage: persistentStateCoverageSummary, observedTransitionIds: observedTransitionIds.sort(), observedFocusIntervalIds: [...observedFocusIntervalIds].sort(), unobservedFocusIntervalIds, clippedEntities, captionSafeZoneViolations, pathFollowerViolations, semanticRouteViolations, persistentContinuityViolations, focusViolations, primaryRoiViolations, legibilityViolations, contrastViolations, checkpoints });
 }
 
 export async function runBrowserSeekProof(input, dependencies = {}) {
@@ -352,15 +442,30 @@ export async function runBrowserSeekProof(input, dependencies = {}) {
             visible: effectiveOpacity(entity) > 0.01,
             bounds: rect(entity),
           })),
-          labels: [...document.querySelectorAll("[data-legibility-role]")].map((label) => ({
-            id: label.id,
-            role: label.dataset.legibilityRole,
-            visible: effectiveOpacity(label) > 0.01,
-            fontSize: Number.parseFloat(getComputedStyle(label).fontSize),
-            foreground: label.getAttribute("fill") || getComputedStyle(label).fill,
-            background: label.dataset.contrastBackground,
-            bounds: rect(label),
-          })),
+          labels: [...document.querySelectorAll("[data-legibility-role]")].map((label) => {
+            const fontSize = Number.parseFloat(getComputedStyle(label).fontSize);
+            const matrix = typeof label.getScreenCTM === "function"
+              ? label.getScreenCTM()
+              : null;
+            const verticalScale = matrix
+              ? Math.hypot(matrix.c, matrix.d)
+              : 1;
+            return {
+              id: label.id,
+              role: label.dataset.legibilityRole,
+              visible: effectiveOpacity(label) > 0.01,
+              fontSize,
+              effectiveFontSize: fontSize * verticalScale,
+              effectiveFontFloor: label.dataset.effectiveFontFloor === undefined
+                ? null
+                : Number(label.dataset.effectiveFontFloor),
+              glyphCompression:
+                label.getAttribute("lengthAdjust") === "spacingAndGlyphs",
+              foreground: label.getAttribute("fill") || getComputedStyle(label).fill,
+              background: label.dataset.contrastBackground,
+              bounds: rect(label),
+            };
+          }),
           pathFollowers: [...document.querySelectorAll("[data-follow-path-id]")].map((follower) => {
             const pathId = follower.dataset.followPathId || "", path = document.getElementById(pathId), visible = effectiveOpacity(follower) > 0.01;
             const x = Number(follower.getAttribute("cx")), y = Number(follower.getAttribute("cy"));
@@ -376,6 +481,44 @@ export async function runBrowserSeekProof(input, dependencies = {}) {
             }
             return { followerId: follower.id, pathId, visible, distance };
           }),
+          semanticRoutes: [...document.querySelectorAll(".semantic-route-marker")].map((marker, routeIndex) => {
+            const root = marker.closest('[data-geometry-kind="map_motion_route"]');
+            const path = root?.querySelector(".semantic-route-path");
+            const visible = effectiveOpacity(marker) > 0.01;
+            const matrix = marker.transform?.baseVal?.consolidate?.()?.matrix;
+            let distance = null;
+            if (
+              visible
+              && path
+              && matrix
+              && typeof path.getTotalLength === "function"
+            ) {
+              const length = path.getTotalLength();
+              const steps = 1024;
+              let nearest = Number.POSITIVE_INFINITY;
+              for (let sample = 0; sample <= steps; sample += 1) {
+                const point = path.getPointAtLength(length * sample / steps);
+                const delta = Math.hypot(point.x - matrix.e, point.y - matrix.f);
+                if (delta < nearest) nearest = delta;
+              }
+              distance = nearest;
+            }
+            return {
+              routeIndex,
+              visible,
+              distance,
+              x: matrix?.e ?? null,
+              y: matrix?.f ?? null,
+            };
+          }),
+          sceneActionModules: [...document.querySelectorAll("[data-scene-module-id]")].map((module) => ({
+            moduleId: module.dataset.sceneModuleId,
+            visible: effectiveOpacity(module) > 0.01,
+            translateX: Number(module.dataset.sceneActionTranslateX),
+            translateY: Number(module.dataset.sceneActionTranslateY),
+            scale: Number(module.dataset.sceneActionScale),
+            opacity: Number(module.dataset.sceneActionOpacity),
+          })),
         };
         return { renderedFrame: Number(document.documentElement.dataset.renderedFrame), geometry };
       }, { requestedFrame: frame, fps: request.fps });

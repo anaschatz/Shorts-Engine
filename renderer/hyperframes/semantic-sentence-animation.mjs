@@ -13,6 +13,10 @@ import {
   SEMANTIC_SCENE_COMPOSITION_PROFILE_ID,
   normalizeSemanticSceneComposition,
 } from "./primitives/semantic-scene-composition.mjs";
+import {
+  compileSemanticSceneActionSchedule,
+  semanticSceneActionRuntimeSource,
+} from "./semantic-scene-action-schedule.mjs";
 
 const require = createRequire(import.meta.url);
 const {
@@ -30,6 +34,11 @@ const {
   CHECKED_UNPARAMETERIZED_SEMANTIC_SENTENCE_PLAN_HASHES,
 } = require(
   "../../server/pipelines/narrated-short/animation/semantic-event-validator.cjs",
+);
+const {
+  validateSemanticAnimationSceneDslPlanAgainstContext,
+} = require(
+  "../../server/pipelines/narrated-short/animation/semantic-animation-scene-dsl-plan.cjs",
 );
 const BASE_WIDTH = 720;
 const BASE_HEIGHT = 1280;
@@ -354,12 +363,20 @@ function normalizePlan(ir, options = {}) {
   if (contentHash(sentencePlan) !== suppliedSentencePlanHash) {
     fail("Semantic visual sentence plan hash does not match its content.");
   }
-  const graphDeclaresPrimitivePayloads = (
+  const graphDeclaresPrimitivePayloads = Boolean(
     content.semanticEventGraph?.primitivePayloadProfileId !== undefined
     || content.semanticEventGraph?.propositions?.some(
       (proposition) => proposition?.primitivePayload !== undefined,
     )
   );
+  const sourceSceneDslPlan = content.semanticAnimationSceneDslPlan;
+  if (graphDeclaresPrimitivePayloads !== Boolean(sourceSceneDslPlan)) {
+    fail(
+      graphDeclaresPrimitivePayloads
+        ? "Generalized semantic animation requires a Scene DSL plan."
+        : "Checked semantic animation cannot declare a Scene DSL plan.",
+    );
+  }
   const planDeclaresPrimitiveParameters = (
     Array.isArray(sentencePlan.sentences)
     && sentencePlan.sentences.some(
@@ -472,6 +489,30 @@ function normalizePlan(ir, options = {}) {
   } else if (planDeclaresPrimitiveParameters) {
     fail("Semantic primitive parameters require an embedded semantic graph.");
   }
+  let sceneDslPlan = null;
+  if (sourceSceneDslPlan) {
+    const suppliedSceneDslPlanHash = hash(
+      sourceSceneDslPlan.contentHash,
+      "Scene DSL plan content hash",
+    );
+    if (
+      semantic.semanticAnimationSceneDslPlanHash
+        !== suppliedSceneDslPlanHash
+    ) {
+      fail("Scene DSL plan hash does not match semantic content.");
+    }
+    try {
+      sceneDslPlan = validateSemanticAnimationSceneDslPlanAgainstContext(
+        sourceSceneDslPlan,
+        {
+          semanticEventGraph: content.semanticEventGraph,
+          semanticVisualSentencePlan: sentencePlan,
+        },
+      );
+    } catch {
+      fail("Scene DSL plan is not grounded in the semantic sentence plan.");
+    }
+  }
   const bindings = plainObject(
     sentencePlan.bindings,
     "Semantic visual sentence plan bindings",
@@ -545,6 +586,19 @@ function normalizePlan(ir, options = {}) {
       ? { sceneCompositionProfileId: compositionProfileId }
       : {}),
   });
+  const intervals = semanticSentenceRenderIntervals(
+    sentences,
+    durationFrames,
+  );
+  const sceneActionSchedule = sceneDslPlan
+    ? compileSemanticSceneActionSchedule({
+      sceneDslPlan,
+      sentences,
+      intervals,
+      fps,
+      durationFrames,
+    })
+    : null;
   return Object.freeze({
     compositionId: safeId(content.compositionId, "Composition id"),
     width,
@@ -559,7 +613,8 @@ function normalizePlan(ir, options = {}) {
       ? ""
       : hash(ir.contentHash, "AnimationIR content hash"),
     sentencePlan: normalizedSentencePlan,
-    intervals: semanticSentenceRenderIntervals(sentences, durationFrames),
+    intervals,
+    ...(sceneDslPlan ? { sceneDslPlan, sceneActionSchedule } : {}),
   });
 }
 
@@ -637,6 +692,7 @@ export function compileSemanticSentenceAnimationIRToHtml(ir, options = {}) {
   const usesSceneComposition = Boolean(
     plan.sentencePlan.sceneCompositionProfileId,
   );
+  const usesSceneActions = Boolean(plan.sceneActionSchedule);
   const sceneCompositionCss = usesSceneComposition ? `
 .semantic-composition-link{fill:none;stroke:#475569;stroke-width:3;stroke-linecap:round;stroke-dasharray:7 9}
 .semantic-composition-link-context{stroke:#22d3ee}.semantic-composition-link-state{stroke:#f59e0b}
@@ -645,16 +701,30 @@ export function compileSemanticSentenceAnimationIRToHtml(ir, options = {}) {
 .semantic-support-cool .semantic-support-surface{stroke:#22d3ee}.semantic-support-warm .semantic-support-surface{fill:#211706;stroke:#f59e0b}
 .semantic-support-reject .semantic-support-surface{fill:#2b101b;stroke:#fb7185}
 .semantic-support-label{fill:#94a3b8;font-size:12px;letter-spacing:2px}
-.semantic-support-value{fill:#e2e8f0;font-size:15px}.semantic-support-quantity{fill:#fde68a;font-size:23px}
-.semantic-support-state{fill:#f8fafc;font-size:18px;letter-spacing:1px}
+.semantic-support-value{fill:#e2e8f0;font-size:26px}.semantic-support-quantity{fill:#fde68a;font-size:26px}
+.semantic-support-state{fill:#f8fafc;font-size:26px;letter-spacing:1px}
 .semantic-support-route{fill:none;stroke:#fbbf24;stroke-width:4;stroke-linecap:round;stroke-linejoin:round}
 .semantic-support-route-start{fill:#22d3ee}.semantic-support-route-end{fill:#fbbf24;stroke:#fef3c7;stroke-width:2}` : "";
+  const sceneActionCss = usesSceneActions ? `
+.semantic-scene-camera-channel{transform-box:view-box;transform-origin:360px 520px;will-change:transform}
+.semantic-primary-module,.semantic-support-module{transform-box:fill-box;transform-origin:center;will-change:transform,opacity,filter}` : "";
   const sceneCompositionProfileAttribute = usesSceneComposition
     ? `\n data-scene-composition-profile-id="${
       escapeSemanticSentenceXml(plan.sentencePlan.sceneCompositionProfileId)
     }"`
     : "";
-  const sceneCompositionRevealRuntime = usesSceneComposition ? `
+  const sceneActionProfileAttributes = usesSceneActions
+    ? `
+ data-semantic-scene-dsl-plan-hash="${
+      escapeSemanticSentenceXml(plan.sceneDslPlan.contentHash)
+    }"
+ data-semantic-scene-action-schedule-hash="${
+      escapeSemanticSentenceXml(plan.sceneActionSchedule.contentHash)
+    }"`
+    : "";
+  const sceneCompositionRevealRuntime = (
+    usesSceneComposition && !usesSceneActions
+  ) ? `
  const sceneComposition=stage.querySelector(".semantic-scene-composition");
  sceneComposition.querySelectorAll(".semantic-support-module[data-scene-module-id]").forEach((element)=>{
   const order=Number(element.dataset.revealOrder)||1;
@@ -665,15 +735,104 @@ export function compileSemanticSentenceAnimationIRToHtml(ir, options = {}) {
  sceneComposition.querySelectorAll(".semantic-composition-link").forEach((element,index)=>{
   setOpacity(element,ease((semanticProgress-(.12+index*.08))/.26));
  });` : "";
+  const stageTransformRuntime = usesSceneActions ? `
+ const sceneActionState=semanticSceneActionStateAtFrame(active.sceneActionSchedule,frame);
+ stage.setAttribute("transform","translate(0 "+(16*(1-revealProgress)).toFixed(3)+") scale("+(.98+.02*revealProgress).toFixed(5)+")");
+ const cameraChannels=stage.querySelectorAll(".semantic-scene-camera-channel");
+ if(cameraChannels.length!==1)throw new Error("invalid_scene_camera_channel_count");
+ const cameraChannel=cameraChannels[0];
+ cameraChannel.style.transform="scale("+sceneActionState.cameraScale.toFixed(5)+")";
+ const hasVisibleRouteMarker=Boolean(
+  stage.querySelector(".semantic-route-path")
+  &&stage.querySelector(".semantic-route-marker"),
+ );
+ sceneActionState.modules.forEach((moduleState)=>{
+  const elements=stage.querySelectorAll('[data-scene-module-id="'+moduleState.id+'"]');
+  if(elements.length!==1)throw new Error("invalid_scene_action_target_count");
+  const element=elements[0];
+  const routeShift=moduleState.id==="module_primary"
+   &&!hasVisibleRouteMarker
+   &&sceneActionState.routeDisplacement!==null
+   ?sceneActionState.routeDisplacement
+   :{x:0,y:0};
+  const translateX=moduleState.translateX+routeShift.x;
+  const translateY=moduleState.translateY+routeShift.y;
+  setOpacity(element,moduleState.opacity);
+  element.style.transform="translate("+translateX.toFixed(3)+"px,"+translateY.toFixed(3)+"px) scale("+moduleState.scale.toFixed(5)+")";
+  element.style.filter=moduleState.glow>.001
+   ?"drop-shadow(0 0 "+(4+10*moduleState.glow).toFixed(2)+"px rgba(103,232,249,"+(.3+.5*moduleState.glow).toFixed(3)+"))"
+   :"none";
+  element.dataset.sceneActionOpacity=moduleState.opacity.toFixed(4);
+  element.dataset.sceneActionScale=moduleState.scale.toFixed(4);
+  element.dataset.sceneActionGlow=moduleState.glow.toFixed(4);
+  element.dataset.sceneActionTranslateX=translateX.toFixed(4);
+  element.dataset.sceneActionTranslateY=translateY.toFixed(4);
+ });
+ const moduleStateById=Object.fromEntries(
+  sceneActionState.modules.map((moduleState)=>[moduleState.id,moduleState]),
+ );
+ const sceneLinks=stage.querySelectorAll(".semantic-composition-link");
+ if(sceneLinks.length!==2)throw new Error("invalid_scene_link_count");
+ sceneLinks.forEach((element)=>{
+  const fromState=moduleStateById[element.dataset.fromModuleId];
+  const toState=moduleStateById[element.dataset.toModuleId];
+  if(!fromState||!toState)throw new Error("missing_scene_link_target");
+  setOpacity(element,Math.min(fromState.opacity,toState.opacity));
+ });
+ stage.dataset.sceneDslId=active.sceneActionSchedule.sceneDslId;
+ stage.dataset.activeSceneActionIds=sceneActionState.activeActionIds.join(",");
+ stage.dataset.activeSceneActionSignatures=sceneActionState.activeActionSignatures.join(",");
+ stage.dataset.activeSceneActionProgress=sceneActionState.actionStates
+  .filter((action)=>action.active)
+  .map((action)=>action.id+"="+action.progress.toFixed(4))
+  .join(",");` : ` stage.setAttribute("transform","translate(0 "+(16*(1-revealProgress)).toFixed(3)+") scale("+(.98+.02*revealProgress).toFixed(5)+")");`;
+  const routeProgressSetupRuntime = usesSceneActions ? `
+  const routeActionProgress=sceneActionState.routeProgress===null
+   ?semanticProgress
+   :sceneActionState.routeProgress;
+  const routeRevealProgress=sceneActionState.routeProgress===null
+   ?semanticProgress
+   :sceneActionState.routeProgress;` : "";
+  const routeProgressExpression = usesSceneActions
+    ? "routeRevealProgress"
+    : "semanticProgress";
+  const routePointRuntime = usesSceneActions ? `
+  const point=sceneActionState.routePoint!==null
+   ?sceneActionState.routePoint
+   :(typeof route.getPointAtLength==="function"
+    ?route.getPointAtLength(length*routeActionProgress)
+    :{x:118,y:566});` : `
+  const point=typeof route.getPointAtLength==="function"
+   ?route.getPointAtLength(length*semanticProgress)
+   :{x:118+484*semanticProgress,y:566-222*semanticProgress};`;
+  const counterTransitionExpression = usesSceneActions
+    ? "(sceneActionState.semanticTransitionProgress===null?ease((semanticProgress-.34)/.34):sceneActionState.semanticTransitionProgress)"
+    : "ease((semanticProgress-.34)/.34)";
+  const vesselTransitionExpression = usesSceneActions
+    ? "(sceneActionState.semanticTransitionProgress===null?ease((semanticProgress-.28)/.52):sceneActionState.semanticTransitionProgress)"
+    : "ease((semanticProgress-.28)/.52)";
+  const transitionRotationExpression = usesSceneActions
+    ? "(sceneActionState.semanticTransitionProgress===null?semanticProgress:sceneActionState.semanticTransitionProgress)"
+    : "semanticProgress";
   const sceneCompositionDatasetRuntime = usesSceneComposition ? `
  document.documentElement.dataset.activeSceneCompositionId=active.sceneCompositionId;
  document.documentElement.dataset.activeSceneCompositionLayoutId=active.sceneCompositionLayoutId;
  document.documentElement.dataset.activeSceneCompositionProfileId=active.sceneCompositionProfileId;` : "";
+  const sceneActionDatasetRuntime = usesSceneActions ? `
+ document.documentElement.dataset.activeSceneDslId=active.sceneActionSchedule.sceneDslId;
+ document.documentElement.dataset.activeSceneActionIds=sceneActionState.activeActionIds.join(",");
+ document.documentElement.dataset.activeSceneActionSignatures=sceneActionState.activeActionSignatures.join(",");
+ document.documentElement.dataset.semanticSceneDslPlanHash=DATA.sceneDslPlanHash;
+ document.documentElement.dataset.semanticSceneActionScheduleHash=DATA.sceneActionScheduleHash;` : "";
   const runtimeData = safeJson({
     compositionId: plan.compositionId,
     fps: plan.fps,
     durationFrames: plan.durationFrames,
     planHash: plan.sentencePlan.contentHash,
+    ...(usesSceneActions ? {
+      sceneDslPlanHash: plan.sceneDslPlan.contentHash,
+      sceneActionScheduleHash: plan.sceneActionSchedule.contentHash,
+    } : {}),
     intervals: plan.intervals.map((interval, index) => ({
       ...interval,
       propositionId: plan.sentencePlan.sentences[index].propositionId,
@@ -691,6 +850,9 @@ export function compileSemanticSentenceAnimationIRToHtml(ir, options = {}) {
         sceneCompositionProfileId:
           plan.sentencePlan.sentences[index].sceneComposition.profileId,
       } : {}),
+      ...(usesSceneActions ? {
+        sceneActionSchedule: plan.sceneActionSchedule.scenes[index],
+      } : {}),
     })),
   });
   const durationSeconds = plan.durationFrames / plan.fps;
@@ -699,7 +861,7 @@ export function compileSemanticSentenceAnimationIRToHtml(ir, options = {}) {
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; media-src 'none'; font-src data:; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">
 <meta data-composition-id="${compositionId}" data-width="${plan.width}" data-height="${plan.height}"
- data-font-sha256="${FONT_SHA256}" data-semantic-sentence-plan-hash="${plan.sentencePlan.contentHash}">
+ data-font-sha256="${FONT_SHA256}" data-semantic-sentence-plan-hash="${plan.sentencePlan.contentHash}"${sceneActionProfileAttributes}>
 <style>
 @font-face{font-family:"${FONT_FAMILY}";src:url(data:font/woff2;base64,${FONT_BASE64}) format("woff2");font-style:normal;font-weight:600;font-display:block}
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#02050c}
@@ -736,13 +898,13 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#02050c}
 .magnifier-lens{fill:#083344;fill-opacity:.34;stroke:#67e8f9;stroke-width:8}.magnifier-handle{fill:none;stroke:#67e8f9;stroke-width:18;stroke-linecap:round}
 .semantic-uncertainty-boundary{fill:#082f49;fill-opacity:.24;stroke:#fbbf24;stroke-width:7;stroke-dasharray:18 14}
 .uncertainty-core{fill:#0f172a;stroke:#475569;stroke-width:4}.uncertainty-glyph{fill:#fde68a;font-size:132px}
-.uncertainty-particles{fill:#67e8f9}.caption-scrim{fill:url(#sentence-caption-scrim)}${sceneCompositionCss}
+.uncertainty-particles{fill:#67e8f9}.caption-scrim{fill:url(#sentence-caption-scrim)}${sceneCompositionCss}${sceneActionCss}
 </style></head><body>
 <main id="animation-root" class="composition" data-composition-id="${compositionId}"
  data-start="0" data-duration="${durationSeconds}" data-width="${plan.width}" data-height="${plan.height}"
  data-semantic-profile-id="${SEMANTIC_SENTENCE_CONTENT_PROFILE_ID}"
  data-semantic-sentence-plan-hash="${plan.sentencePlan.contentHash}"
- data-semantic-event-graph-hash="${plan.sentencePlan.bindings.semanticEventGraphHash}"${sceneCompositionProfileAttribute}>
+ data-semantic-event-graph-hash="${plan.sentencePlan.bindings.semanticEventGraphHash}"${sceneCompositionProfileAttribute}${sceneActionProfileAttributes}>
 <svg viewBox="0 0 ${BASE_WIDTH} ${BASE_HEIGHT}" role="img"
  aria-label="${escapeSemanticSentenceXml(plan.titleLines.join(" "))}">
 <defs>
@@ -783,7 +945,8 @@ const clamp=(value,min=0,max=1)=>Math.max(min,Math.min(max,value));
 const ease=(value)=>{const x=clamp(value);return x*x*(3-2*x)};
 const stages=DATA.intervals.map((_,index)=>document.getElementById("semantic-sentence-"+index));
 const activeIndexAt=(frame)=>{let selected=0;for(let index=0;index<DATA.intervals.length;index+=1){if(frame>=DATA.intervals[index].startFrame)selected=index;else break}return selected};
-const setOpacity=(element,value)=>{if(element)element.setAttribute("opacity",clamp(value).toFixed(4))};
+const setOpacity=(element,value)=>{if(element)element.setAttribute("opacity",clamp(value).toFixed(4))};${usesSceneActions ? `
+${semanticSceneActionRuntimeSource()}` : ""}
 function renderFrame(rawFrame){
  const frame=Math.max(0,Math.min(DATA.durationFrames-1,Math.floor((Number(rawFrame)||0)+1e-7)));
  const activeIndex=activeIndexAt(frame),active=DATA.intervals[activeIndex],stage=stages[activeIndex];
@@ -796,7 +959,7 @@ function renderFrame(rawFrame){
   element.dataset.focusRole=visible?"primary":"inactive";
   element.dataset.sentenceProgress=visible?semanticProgress.toFixed(4):"0.0000";
  });
- stage.setAttribute("transform","translate(0 "+(16*(1-revealProgress)).toFixed(3)+") scale("+(.98+.02*revealProgress).toFixed(5)+")");${sceneCompositionRevealRuntime}
+${stageTransformRuntime}${sceneCompositionRevealRuntime}
  stage.querySelectorAll(".semantic-draw").forEach((path)=>{
   path.style.strokeDasharray="1000";
   path.style.strokeDashoffset=String(1000*(1-semanticProgress));
@@ -808,28 +971,25 @@ function renderFrame(rawFrame){
  });
  const oldCounter=stage.querySelector(".semantic-counter-old"),newCounter=stage.querySelector(".semantic-counter-new");
  if(oldCounter&&newCounter){
-  const change=ease((semanticProgress-.34)/.34);
+  const change=${counterTransitionExpression};
   setOpacity(oldCounter,1-change);setOpacity(newCounter,change);
   oldCounter.setAttribute("transform","translate(0 "+(-32*change).toFixed(3)+")");
   newCounter.setAttribute("transform","translate(0 "+(32*(1-change)).toFixed(3)+")");
   const pointer=stage.querySelector(".semantic-cycle-pointer");
-  pointer?.setAttribute("transform","rotate("+(330*semanticProgress).toFixed(3)+" 360 472)");
+  pointer?.setAttribute("transform","rotate("+(330*${transitionRotationExpression}).toFixed(3)+" 360 472)");
  }
  const vessel=stage.querySelector(".semantic-vessel-solid"),absence=stage.querySelector(".semantic-vessel-absence");
  if(vessel&&absence){
-  const vanish=ease((semanticProgress-.28)/.52);
+  const vanish=${vesselTransitionExpression};
   setOpacity(vessel,1-vanish);setOpacity(absence,vanish);
   vessel.setAttribute("transform","translate(0 "+(-12*vanish).toFixed(3)+")");
   stage.querySelector(".semantic-blizzard")?.setAttribute("transform","translate("+(-30+60*semanticProgress).toFixed(3)+" 0)");
  }
  const route=stage.querySelector(".semantic-route-path"),routeMarker=stage.querySelector(".semantic-route-marker");
  if(route&&routeMarker){
-  const length=typeof route.getTotalLength==="function"?route.getTotalLength():500;
-  const point=typeof route.getPointAtLength==="function"
-   ?route.getPointAtLength(length*semanticProgress)
-   :{x:118+484*semanticProgress,y:566-222*semanticProgress};
+  const length=typeof route.getTotalLength==="function"?route.getTotalLength():500;${routeProgressSetupRuntime}${routePointRuntime}
   routeMarker.setAttribute("transform","translate("+Number(point.x).toFixed(3)+" "+Number(point.y).toFixed(3)+")");
-  route.setAttribute("opacity",semanticProgress.toFixed(4));
+  route.setAttribute("opacity",${routeProgressExpression}.toFixed(4));
   route.style.strokeDashoffset=(-2.6*(frame-active.startFrame)).toFixed(3);
  }
  stage.querySelectorAll(".semantic-chronology-dot").forEach((element,index)=>{
@@ -848,7 +1008,7 @@ function renderFrame(rawFrame){
  document.documentElement.dataset.activeCapabilitySubjectKind=active.capability.subjectKind;
  document.documentElement.dataset.activeCapabilityStateTransition=active.capability.stateTransition;
  document.documentElement.dataset.activeClaimIds=active.claimIds.join(",");
- document.documentElement.dataset.focusPrimaryEntityId=active.focusEntityId;${sceneCompositionDatasetRuntime}
+ document.documentElement.dataset.focusPrimaryEntityId=active.focusEntityId;${sceneCompositionDatasetRuntime}${sceneActionDatasetRuntime}
  document.documentElement.dataset.renderedFrame=String(frame);
 }
 let currentTime=0,rate=1;
@@ -876,6 +1036,10 @@ renderFrame(0);
       runtimeVersion: SEMANTIC_SENTENCE_ANIMATION_RUNTIME_VERSION,
       styleVersion: SEMANTIC_SENTENCE_ANIMATION_STYLE_VERSION,
       sentencePlanHash: plan.sentencePlan.contentHash,
+      ...(usesSceneActions ? {
+        sceneDslPlanHash: plan.sceneDslPlan.contentHash,
+        sceneActionScheduleHash: plan.sceneActionSchedule.contentHash,
+      } : {}),
     }),
   });
 }
