@@ -6,11 +6,18 @@ const { createLocalJobWorker } = require("../server/job-worker.cjs");
 const { JobStore } = require("../server/jobs.cjs");
 const { createLocalJobQueue } = require("../server/queue/local-job-queue.cjs");
 const { storagePath } = require("../server/storage.cjs");
-const { createWorkerSupervisor } = require("../server/worker-supervisor.cjs");
+const {
+  createWorkerSupervisor,
+  DEFAULT_RETRYABLE_CODES,
+} = require("../server/worker-supervisor.cjs");
 
 const PROJECT_ID = "prj_aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
 const UPLOAD_ID = "upl_bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb";
 const WORKER_ID = "wrk_aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
+
+test("project-state lock contention is retryable by default", () => {
+  assert.equal(DEFAULT_RETRYABLE_CODES.includes("PROJECT_STATE_LOCKED"), true);
+});
 
 function tick() {
   return new Promise((resolve) => setImmediate(resolve));

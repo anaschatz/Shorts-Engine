@@ -481,6 +481,11 @@ class SQLitePersistenceAdapter {
       save: (record) => this.createProject(record),
       get: (projectId) => this.getProject(projectId),
       update: (projectId, patch) => this.updateProject(projectId, patch),
+      compareAndSwap: (projectId, expectedProject, patch) => this.compareAndSwapProject({
+        projectId,
+        expectedProject,
+        patch,
+      }),
       delete: (projectId) => this.deleteProject(projectId),
       all: () => [...this.projectRows.values()],
       publicProject: (project) => this.publicProject(project),
@@ -666,6 +671,80 @@ class SQLitePersistenceAdapter {
       throw new AppError("PROJECT_NOT_FOUND", SAFE_MESSAGES.PROJECT_NOT_FOUND, 404);
     }
     return this.upsertProject(normalizeProject({ ...current, ...patch, id: current.id, updatedAt: nowIso() }));
+  }
+
+  compareAndSwapProject({ projectId, expectedProject, patch = {} } = {}) {
+    const safeProjectId = validateResourceId(projectId, "prj");
+    if (!expectedProject || expectedProject.id !== safeProjectId) {
+      throw new AppError(
+        "VALIDATION_ERROR",
+        SAFE_MESSAGES.VALIDATION_ERROR,
+        400,
+        { field: "expectedProject" },
+      );
+    }
+    const expected = normalizeProject(expectedProject);
+    const next = normalizeProject({
+      ...expected,
+      ...patch,
+      id: safeProjectId,
+      updatedAt: nowIso(),
+    });
+    const result = this.prepare(
+      `UPDATE projects SET
+        uploadId = ?, schemaVersion = ?, projectType = ?, inputJson = ?,
+        language = ?, title = ?, status = ?, ownerId = ?, source = ?,
+        createdAt = ?, updatedAt = ?
+       WHERE id = ?
+         AND uploadId IS ?
+         AND schemaVersion IS ?
+         AND projectType IS ?
+         AND (inputJson IS ? OR (inputJson IS NULL AND ? = 'clip'))
+         AND language IS ?
+         AND title IS ?
+         AND status IS ?
+         AND ownerId IS ?
+         AND source IS ?
+         AND createdAt IS ?
+         AND updatedAt IS ?`,
+    ).run(
+      next.uploadId,
+      next.schemaVersion,
+      next.projectType,
+      stringifyRecord(next.input),
+      next.language,
+      next.title,
+      next.status,
+      next.ownerId || null,
+      next.source,
+      next.createdAt,
+      next.updatedAt,
+      safeProjectId,
+      expected.uploadId,
+      expected.schemaVersion,
+      expected.projectType,
+      stringifyRecord(expected.input),
+      expected.projectType,
+      expected.language,
+      expected.title,
+      expected.status,
+      expected.ownerId || null,
+      expected.source,
+      expected.createdAt,
+      expected.updatedAt,
+    );
+    if (Number(result && result.changes ? result.changes : 0) !== 1) {
+      const row = this.prepare("SELECT * FROM projects WHERE id = ?").get(safeProjectId);
+      if (row) {
+        const current = normalizeProject(row);
+        this.projectRows.set(current.id, current);
+      } else {
+        this.projectRows.delete(safeProjectId);
+      }
+      return null;
+    }
+    this.projectRows.set(next.id, next);
+    return next;
   }
 
   deleteProject(projectId) {

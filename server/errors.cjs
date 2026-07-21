@@ -113,6 +113,7 @@ const SAFE_MESSAGES = Object.freeze({
   OUTBOX_HANDLER_INVALID: "The approval outbox handler returned an invalid result.",
   OUTBOX_STATE_INVALID: "The approval outbox event moved through an invalid state transition.",
   PROJECT_NOT_FOUND: "The requested project was not found.",
+  PROJECT_STATE_LOCKED: "The project state is being updated. Please retry.",
   RATE_LIMITED: "Too many requests. Please wait and retry.",
   RESOURCE_ID_INVALID: "The requested resource id is invalid.",
   RENDER_FAILED: "The video render failed.",

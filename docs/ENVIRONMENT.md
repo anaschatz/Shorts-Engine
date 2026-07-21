@@ -406,4 +406,12 @@ For the first live staging deployment, use a Render Node.js Web Service with:
 
 Render local filesystem storage is ephemeral unless a disk is attached. Treat local/mock-cloud storage as initial staging only; durable staging should move uploads/renders to object storage and use database-backed persistence.
 
+Animation preplan installs use full-project compare-and-swap. SQLite enforces
+the comparison in one conditional database update and is the supported choice
+for multi-process workers. The local adapter serializes base-project JSON writes
+with a fail-fast per-project lock, but it remains a development adapter without
+general transactions or crash durability. Live contention is retryable as
+`PROJECT_STATE_LOCKED`; an orphan `.lock` must be removed only after all local
+workers have stopped.
+
 Never commit real `.env` files, provider keys, cloud credentials, database files, uploads, renders, or generated reports.

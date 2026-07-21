@@ -103,6 +103,23 @@ function preplanStateHash(project, approval) {
   });
 }
 
+function compareAndSwapProject(dependencies, projects, options) {
+  if (
+    dependencies.persistenceAdapter
+    && typeof dependencies.persistenceAdapter.compareAndSwapProject === "function"
+  ) {
+    return dependencies.persistenceAdapter.compareAndSwapProject(options);
+  }
+  if (typeof projects.compareAndSwap === "function") {
+    return projects.compareAndSwap(
+      options.projectId,
+      options.expectedProject,
+      options.patch,
+    );
+  }
+  unavailable();
+}
+
 async function runNarratedAnimationPreplanJob(context = {}) {
   const { jobs, job, project, payload = {}, dependencies = {} } = context;
   const contentArtifacts = dependencies.contentArtifactRepository;
@@ -308,6 +325,7 @@ async function runNarratedAnimationPreplanJob(context = {}) {
     !currentProject
     || preplanStateHash(currentProject, currentApproval) !== planningStateHash
   ) stale("project", "project_changed_during_planning");
+  const installExpectedProject = JSON.parse(JSON.stringify(currentProject));
 
   jobs.update(job, { progress: 75, step: "validate_animation_preplan" });
   const compiled = (dependencies.compileProductionAnimation
@@ -364,16 +382,19 @@ async function runNarratedAnimationPreplanJob(context = {}) {
     sceneCount: scenePlan.summary.sceneCount,
     fallbackSceneCount: scenePlan.summary.fallbackSceneCount,
   };
-  const updatedProject = projects.update(projectId, {
-    input: {
-      ...currentProject.input,
-      activeAnimationScenePlan: active,
+  const updatedProject = compareAndSwapProject(dependencies, projects, {
+    projectId,
+    expectedProject: installExpectedProject,
+    patch: {
+      input: {
+        ...installExpectedProject.input,
+        activeAnimationScenePlan: active,
+      },
     },
   });
-  if (
-    dependencies.persistenceAdapter
-    && typeof dependencies.persistenceAdapter.persistProject === "function"
-  ) dependencies.persistenceAdapter.persistProject({ project: updatedProject });
+  if (!updatedProject) {
+    stale("project", "project_changed_before_install");
+  }
 
   const summary = publicPlanSummary(
     updatedProject.input.activeAnimationScenePlan,

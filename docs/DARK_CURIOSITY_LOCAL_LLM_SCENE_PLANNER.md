@@ -245,9 +245,13 @@ The production sequence is:
    hash, timing-context hash, semantic-event-graph hash, semantic-sentence-plan
    hash and current planner-configuration hash.
 5. The project stores an active pointer containing the artifact ID/hash and the
-   same source and planner bindings. A same-process state check prevents a plan
-   from being installed when the project, approval, narration or active plan
-   changed while the asynchronous planner was running.
+   same source and planner bindings. The worker first rechecks the asynchronous
+   planning inputs, captures an immutable full-project snapshot, and then uses
+   project compare-and-swap to install the pointer. SQLite performs one
+   conditional full-row `UPDATE`; local JSON persistence holds an exclusive
+   per-project lock while it rereads, compares and atomically replaces the
+   project envelope. A changed revision, narration, status or active plan makes
+   the install fail stale instead of overwriting newer state.
 6. Render enqueue recomputes the current planner configuration and resolves the
    active pointer. The render job payload carries only the trusted scene-plan
    artifact ID/hash, in addition to the existing animation bindings.
@@ -330,12 +334,19 @@ code. A future bounded primitive factory is required for genuinely new visual
 structures; it must preserve the same allowlist, source-binding and browser-QA
 boundaries.
 
-The preplan worker performs a same-process state recheck before installing the
-active plan, but project persistence does not yet provide an atomic
-compare-and-swap across multiple processes. The SQLite adapter currently uses
-an unconditional project upsert and local-file persistence is also
-last-writer-wins. Until project-level optimistic concurrency is implemented,
-run project-mutating narration/preplan operations through a single writer per
-project. Artifact hashes and render-time validation still fail closed against a
-stale plan, but they do not prevent two separate processes from racing to write
-project state.
+The active-plan install now uses a full-snapshot project compare-and-swap. A
+failed install can leave a content-addressed scene-plan artifact for normal
+orphan cleanup, but it cannot make that artifact active or renderable.
+
+This CAS covers the project record only. The approval record and artifact write
+are separate resources, so they are not one multi-record transaction. The
+worker still rechecks approval before compiling, and render-time binding
+validation remains mandatory. A future database-backed approval transaction is
+required if approval mutation and active-plan installation must commit as one
+unit.
+
+Local JSON locking is intentionally fail-fast and does not make the local
+adapter generally transactional or crash-durable. A process crash can leave a
+`.lock` file. Live contention surfaces as retryable `PROJECT_STATE_LOCKED`;
+stop all local workers before an operator removes an orphan lock. Use SQLite for
+unattended or multi-process execution.

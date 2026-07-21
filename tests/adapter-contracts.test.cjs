@@ -15,6 +15,7 @@ test.after(() => {
 const { validateArtifactAdapter } = require("../server/adapters/artifact-adapter.cjs");
 const { createDefaultAdapters } = require("../server/adapters/local-persistence-adapter.cjs");
 const { validatePersistenceAdapter } = require("../server/adapters/persistence-adapter.cjs");
+const { withProjectStateLock } = require("../server/repositories/project-state.cjs");
 const { storagePath, writeJsonAtomic } = require("../server/storage.cjs");
 
 const PROJECT_ID = "prj_adapters1111-4111-8111-111111111111";
@@ -49,12 +50,107 @@ test("default local adapters satisfy explicit contracts and expose safe health",
   assert.equal(persistenceHealth.mode, "local");
   assert.equal(persistenceHealth.database, false);
   assert.equal(persistenceHealth.capabilities.createProject, true);
+  assert.equal(persistenceHealth.capabilities.compareAndSwapProject, true);
   assert.equal(persistenceHealth.capabilities.createArtifact, true);
   assert.equal(persistenceHealth.capabilities.restoreState, true);
   assert.equal(persistenceHealth.capabilities.getApprovalOutboxRepository, true);
   assert.equal(persistenceHealth.repositories.artifacts.ready, true);
   assert.equal(persistenceHealth.repositories.approvalOutbox.ready, true);
   assert.doesNotMatch(JSON.stringify({ artifactHealth, persistenceHealth }), /\/Users|\/private|storageKey|outputPath/);
+});
+
+test("local persistence compare-and-swap prevents a stale second writer", () => {
+  const projectId = "prj_adapterscas1-4111-8111-111111111111";
+  const first = createDefaultAdapters().persistenceAdapter;
+  const second = createDefaultAdapters().persistenceAdapter;
+  const seeded = first.persistProject({
+    project: {
+      id: projectId,
+      projectType: "narrated_short",
+      title: "Local CAS",
+      language: "en",
+      status: "awaiting_approval",
+      input: {
+        type: "content_brief",
+        revision: 1,
+        briefArtifactId: "art_local-cas-brief-0001",
+      },
+    },
+  });
+  second.restoreState();
+  const expectedByFirst = JSON.parse(JSON.stringify(seeded));
+  const expectedBySecond = JSON.parse(JSON.stringify(second.getProject(projectId)));
+
+  const winner = first.compareAndSwapProject({
+    projectId,
+    expectedProject: expectedByFirst,
+    patch: {
+      input: { ...expectedByFirst.input, revision: 2 },
+    },
+  });
+  expectedBySecond.updatedAt = winner.updatedAt;
+  const stale = second.compareAndSwapProject({
+    projectId,
+    expectedProject: expectedBySecond,
+    patch: { title: "Stale Local Overwrite", status: "failed" },
+  });
+
+  assert.equal(winner.input.revision, 2);
+  assert.equal(stale, null);
+  assert.equal(second.getProject(projectId).title, "Local CAS");
+  assert.equal(second.getProject(projectId).input.revision, 2);
+
+  const restored = createDefaultAdapters().persistenceAdapter;
+  restored.restoreState();
+  assert.equal(restored.getProject(projectId).title, "Local CAS");
+  assert.equal(restored.getProject(projectId).input.revision, 2);
+});
+
+test("local persistence restores durable cache state when a locked write fails", () => {
+  const projectId = "prj_adapterlock1-4111-8111-111111111111";
+  const adapter = createDefaultAdapters().persistenceAdapter;
+  const seeded = adapter.persistProject({
+    project: {
+      id: projectId,
+      projectType: "narrated_short",
+      title: "Durable Before Lock",
+      language: "en",
+      status: "awaiting_approval",
+      input: {
+        type: "content_brief",
+        revision: 1,
+        briefArtifactId: "art_local-lock-brief-0001",
+      },
+    },
+  });
+  const durableExpected = JSON.parse(JSON.stringify(seeded));
+  withProjectStateLock(projectId, () => {
+    assert.throws(
+      () => adapter.compareAndSwapProject({
+        projectId,
+        expectedProject: durableExpected,
+        patch: { title: "Must Not Install" },
+      }),
+      (error) => error?.code === "PROJECT_STATE_LOCKED"
+        && error?.details?.retryable === true,
+    );
+  });
+  const unpersisted = adapter.updateProject(projectId, {
+    title: "Unpersisted Mutation",
+  });
+
+  withProjectStateLock(projectId, () => {
+    assert.throws(
+      () => adapter.persistProject({ project: unpersisted }),
+      (error) => error?.code === "PROJECT_STATE_LOCKED",
+    );
+  });
+
+  assert.equal(adapter.getProject(projectId).title, durableExpected.title);
+  assert.equal(
+    adapter.getProject(projectId).updatedAt,
+    durableExpected.updatedAt,
+  );
 });
 
 test("adapter contract validation fails closed when required capabilities are missing", () => {

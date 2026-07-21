@@ -10,6 +10,7 @@ const DEFAULT_RETRYABLE_CODES = Object.freeze([
   "TRANSCRIPTION_TIMEOUT",
   "CLOUD_STORAGE_FAILED",
   "DB_TRANSACTION_FAILED",
+  "PROJECT_STATE_LOCKED",
 ]);
 
 function logInfo(logger, payload) {

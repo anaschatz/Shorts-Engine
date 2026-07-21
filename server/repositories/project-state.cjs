@@ -1,22 +1,144 @@
-const { existsSync, readdirSync, statSync } = require("node:fs");
+const {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  statSync,
+  unlinkSync,
+} = require("node:fs");
+const { dirname } = require("node:path");
 const { AppError, SAFE_MESSAGES } = require("../errors.cjs");
+const {
+  normalizeProject,
+  projectSnapshotsEqual,
+} = require("./project-repository.cjs");
+const { nowIso, validateResourceId } = require("./ids.cjs");
 const { storagePath, writeJsonAtomic, readJsonFile } = require("../storage.cjs");
 
 const MAX_PROJECT_STATE_BYTES = 512 * 1024;
 const PROJECT_STATE_FILE_RE = /^prj_[A-Za-z0-9-]{8,80}(?:\.render)?\.json$/;
 
+function withProjectStateLock(projectId, callback) {
+  const safeProjectId = validateResourceId(projectId, "prj");
+  const lockPath = storagePath("projects", `${safeProjectId}.lock`);
+  mkdirSync(dirname(lockPath), { recursive: true });
+  let descriptor;
+  try {
+    descriptor = openSync(lockPath, "wx", 0o600);
+  } catch (error) {
+    if (error && error.code === "EEXIST") {
+      throw new AppError(
+        "PROJECT_STATE_LOCKED",
+        SAFE_MESSAGES.PROJECT_STATE_LOCKED,
+        409,
+      );
+    }
+    throw error;
+  }
+  try {
+    return callback();
+  } finally {
+    try {
+      closeSync(descriptor);
+    } catch {
+      // The exclusive lock file still prevents an unsafe concurrent writer.
+    }
+    try {
+      unlinkSync(lockPath);
+    } catch {
+      // Fail closed on a future write if lock cleanup was interrupted.
+    }
+  }
+}
+
 function persistProjectUploadRecord({ project, upload }) {
   if (!project || !project.id || !upload || !upload.id) {
     throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400);
   }
-  writeJsonAtomic(storagePath("projects", `${project.id}.json`), { project, upload });
+  return withProjectStateLock(project.id, () => {
+    writeJsonAtomic(storagePath("projects", `${project.id}.json`), { project, upload });
+    return project;
+  });
 }
 
 function persistProjectRecord({ project } = {}) {
   if (!project || !project.id || project.projectType !== "narrated_short") {
     throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400);
   }
-  writeJsonAtomic(storagePath("projects", `${project.id}.json`), { project });
+  return withProjectStateLock(project.id, () => {
+    writeJsonAtomic(storagePath("projects", `${project.id}.json`), { project });
+    return project;
+  });
+}
+
+function readPersistedProjectRecord(projectId) {
+  const safeProjectId = validateResourceId(projectId, "prj");
+  const filePath = storagePath("projects", `${safeProjectId}.json`);
+  if (!existsSync(filePath)) return null;
+  try {
+    const envelope = readJsonFile(filePath);
+    return envelope && envelope.project
+      ? normalizeProject(envelope.project)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function compareAndSwapProjectRecord({
+  projectId,
+  expectedProject,
+  patch = {},
+} = {}) {
+  const safeProjectId = validateResourceId(projectId, "prj");
+  if (!expectedProject || expectedProject.id !== safeProjectId) {
+    throw new AppError(
+      "VALIDATION_ERROR",
+      SAFE_MESSAGES.VALIDATION_ERROR,
+      400,
+      { field: "expectedProject" },
+    );
+  }
+  try {
+    return withProjectStateLock(safeProjectId, () => {
+      const filePath = storagePath("projects", `${safeProjectId}.json`);
+      if (!existsSync(filePath)) {
+        return { matched: false, project: null, busy: false };
+      }
+      let envelope;
+      try {
+        envelope = readJsonFile(filePath);
+      } catch {
+        return { matched: false, project: null, busy: false };
+      }
+      if (!envelope || !envelope.project) {
+        return { matched: false, project: null, busy: false };
+      }
+      let current;
+      try {
+        current = normalizeProject(envelope.project);
+      } catch {
+        return { matched: false, project: null, busy: false };
+      }
+      if (!projectSnapshotsEqual(current, expectedProject)) {
+        return { matched: false, project: current, busy: false };
+      }
+      const next = normalizeProject({
+        ...current,
+        ...patch,
+        id: current.id,
+        updatedAt: nowIso(),
+      });
+      writeJsonAtomic(filePath, { ...envelope, project: next });
+      return { matched: true, project: next, busy: false };
+    });
+  } catch (error) {
+    if (error && error.code === "PROJECT_STATE_LOCKED") {
+      return { matched: false, project: null, busy: true };
+    }
+    throw error;
+  }
 }
 
 function persistRenderRecord(record = {}) {
@@ -150,8 +272,11 @@ function loadPersistedProjectState({
 }
 
 module.exports = {
+  compareAndSwapProjectRecord,
   loadPersistedProjectState,
   persistProjectRecord,
   persistProjectUploadRecord,
   persistRenderRecord,
+  readPersistedProjectRecord,
+  withProjectStateLock,
 };

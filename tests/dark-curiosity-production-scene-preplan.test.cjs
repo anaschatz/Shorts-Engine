@@ -544,3 +544,52 @@ test("preplan fails stale without persistence when project state changes during 
     null,
   );
 });
+
+test("preplan compare-and-swap rejects a change at the final install boundary", async () => {
+  const value = setup(true);
+  const counted = countedPlanner("mock");
+  const payload = payloadFor(value, counted.planner);
+  const { job, jobs } = jobFor(value, payload);
+  let compareAndSwapCalls = 0;
+
+  await assert.rejects(
+    () => runNarratedAnimationPreplanJob({
+      jobs,
+      job,
+      project: value.projectRepository.get(value.project.id),
+      payload: job.payload,
+      dependencies: {
+        ...value,
+        scenePlanner: counted.planner,
+        environment: "development",
+        persistenceAdapter: {
+          compareAndSwapProject(options) {
+            compareAndSwapCalls += 1;
+            const current = value.projectRepository.get(value.project.id);
+            value.projectRepository.update(value.project.id, {
+              input: {
+                ...current.input,
+                activeNarration: null,
+                activeAnimationScenePlan: null,
+              },
+            });
+            return value.projectRepository.compareAndSwap(
+              options.projectId,
+              options.expectedProject,
+              options.patch,
+            );
+          },
+        },
+      },
+    }),
+    (error) => error?.code === "ANIMATION_PREPLAN_STALE"
+      && error?.details?.reason === "project_changed_before_install",
+  );
+
+  const current = value.projectRepository.get(value.project.id);
+  assert.equal(compareAndSwapCalls, 1);
+  assert.equal(current.input.activeNarration, null);
+  assert.equal(current.input.activeAnimationScenePlan, null);
+  assert.notEqual(job.status, "completed");
+  assert.equal(job.animationScenePlan, null);
+});

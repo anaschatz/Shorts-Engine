@@ -226,6 +226,14 @@ function normalizeProject(record = {}) {
   };
 }
 
+function projectSnapshotToken(project) {
+  return JSON.stringify(normalizeProject(project));
+}
+
+function projectSnapshotsEqual(left, right) {
+  return projectSnapshotToken(left) === projectSnapshotToken(right);
+}
+
 class InMemoryProjectRepository {
   constructor(options = {}) {
     this.records = options.records || new Map();
@@ -254,6 +262,14 @@ class InMemoryProjectRepository {
     this.records.set(next.id, next);
     Object.assign(current, next);
     return current;
+  }
+
+  compareAndSwap(projectId, expectedProject, patch = {}) {
+    const current = this.get(projectId);
+    if (!current || !projectSnapshotsEqual(current, expectedProject)) {
+      return null;
+    }
+    return this.update(projectId, patch);
   }
 
   delete(projectId) {
@@ -290,4 +306,6 @@ module.exports = {
   normalizeActiveNarration,
   normalizeActiveAnimationScenePlan,
   normalizeLastInvalidation,
+  projectSnapshotToken,
+  projectSnapshotsEqual,
 };
