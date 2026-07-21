@@ -66,11 +66,48 @@ function isPlainObject(value) {
 function exactKeys(value, required, field) {
   if (!isPlainObject(value)) fail(field, "object_required");
   const expected = [...required].sort();
-  const actual = Object.keys(value).sort();
+  const actual = Reflect.ownKeys(value);
+  if (actual.some((key) => typeof key !== "string")) {
+    fail(field, "unsupported_or_missing_field");
+  }
+  for (const key of actual) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (
+      !descriptor
+      || !Object.hasOwn(descriptor, "value")
+      || descriptor.enumerable !== true
+    ) fail(`${field}.${key}`, "plain_data_field_required");
+  }
+  actual.sort();
   if (
     actual.length !== expected.length
     || actual.some((key, index) => key !== expected[index])
   ) fail(field, "unsupported_or_missing_field");
+}
+
+function denseDataArray(value, field, minimum, maximum) {
+  if (!Array.isArray(value) || value.length < minimum || value.length > maximum) {
+    fail(field, "array_size_invalid");
+  }
+  const expected = new Set([
+    "length",
+    ...Array.from({ length: value.length }, (_, index) => String(index)),
+  ]);
+  const keys = Reflect.ownKeys(value);
+  if (keys.some((key) => typeof key !== "string" || !expected.has(key))) {
+    fail(field, "dense_data_array_required");
+  }
+  const entries = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (
+      !descriptor
+      || !Object.hasOwn(descriptor, "value")
+      || descriptor.enumerable !== true
+    ) fail(`${field}[${index}]`, "dense_data_array_required");
+    entries.push(descriptor.value);
+  }
+  return entries;
 }
 
 function text(value, field, options = {}) {
@@ -87,7 +124,12 @@ function text(value, field, options = {}) {
 }
 
 function integer(value, field, minimum, maximum) {
-  if (!Number.isInteger(value) || value < minimum || value > maximum) {
+  if (
+    !Number.isSafeInteger(value)
+    || Object.is(value, -0)
+    || value < minimum
+    || value > maximum
+  ) {
     fail(field, "integer_out_of_range");
   }
   return value;
@@ -178,22 +220,26 @@ function normalizeRoute(input, field) {
   if (input.provenance !== "approved_storyboard_layout") {
     fail(`${field}.provenance`, "unsupported_value");
   }
-  if (
-    !Array.isArray(input.points)
-    || input.points.length < 2
-    || input.points.length > 12
-  ) fail(`${field}.points`, "route_points_invalid");
-  const points = input.points.map((point, pointIndex) => {
-    if (
-      !Array.isArray(point)
-      || point.length !== 2
-      || point.some((coordinate) => (
-        !Number.isFinite(coordinate)
-        || coordinate < 0
-        || coordinate > 1
-      ))
-    ) fail(`${field}.points[${pointIndex}]`, "point_out_of_range");
-    return [...point];
+  const pointInputs = denseDataArray(
+    input.points,
+    `${field}.points`,
+    2,
+    12,
+  );
+  const points = pointInputs.map((point, pointIndex) => {
+    const coordinates = denseDataArray(
+      point,
+      `${field}.points[${pointIndex}]`,
+      2,
+      2,
+    );
+    if (coordinates.some((coordinate) => (
+      !Number.isFinite(coordinate)
+      || Object.is(coordinate, -0)
+      || coordinate < 0
+      || coordinate > 1
+    ))) fail(`${field}.points[${pointIndex}]`, "point_out_of_range");
+    return coordinates;
   });
   if (new Set(points.map((point) => stableStringify(point))).size < 2) {
     fail(`${field}.points`, "geometry_degenerate");

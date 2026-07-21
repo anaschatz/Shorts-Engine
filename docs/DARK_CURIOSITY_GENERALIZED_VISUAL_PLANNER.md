@@ -130,7 +130,7 @@ within their legibility budget.
 ### Constrained scene composition
 
 Generalized sentences now declare the plan-level
-`dark_curiosity_scene_composition_v1` profile and carry one deterministic
+`dark_curiosity_scene_composition_v2` profile and carry one deterministic
 `sceneComposition` each. Every composition has exactly three bounded modules:
 
 1. one primary module that renders the sentence's selected grammar and asset;
@@ -146,18 +146,60 @@ layout history. Recompiling identical approved inputs therefore produces the
 same composition, while consecutive sentences avoid an immediate layout
 repeat.
 
-The composition contract accepts only controlled IDs, module roles, sources,
-slots, reveal order, links, and the bounded seed. It cannot carry raw SVG,
-paths, executable code, coordinates, colors, CSS, styles, remote resources, or
-new visible copy. All rendered content is dereferenced from the already
-source-bound primitive parameters.
+Composition v2 also requires one
+`dark_curiosity_bounded_geometry_blueprint_v1`. The blueprint is a
+server-owned visual derivative, not source geometry and not model output. It
+contains only:
+
+- the semantic recipe selected from the sentence grammar;
+- exact graph, proposition, and primitive-parameter hash bindings;
+- bounded topology controls such as node count, emphasis, orientation,
+  density, and explicit provenance;
+- a complexity cost and canonical content hash.
+
+The deterministic geometry compiler turns that blueprint into
+`dark_curiosity_bounded_geometry_program_v1`: a flat, deeply frozen graph of
+allowlisted circle/square/diamond nodes and line/curve/dwell connections in
+integer `normalized_1000` coordinates. Node, edge, and complexity budgets are
+enforced before hashing. The compiler rejects accessors, sparse arrays,
+symbols, duplicate illustrative points, non-finite or fractional coordinates,
+negative zero,
+self/dangling/duplicate edges, disconnected geometry, unknown roles or tones,
+and fresh-hash context substitutions. It uses SHA-256 bytes and integer layout
+rules only; there is no `Math.random`, wall clock, dynamic module loading, or
+locale-dependent ordering.
+
+Approved storyboard routes retain the exact approved waypoint order and are
+marked `approved_storyboard_layout`. Repeated approved waypoints remain
+distinct ordered nodes and compile to a bounded `dwell` ring instead of being
+dropped or converted into an unvalidated zero-length line. A route whose
+distinct inputs all collapse to one projected point is rejected. Every other
+topology is explicitly marked `deterministic_illustrative`, so procedural
+relationships cannot masquerade as factual map coordinates. The renderer
+re-normalizes the blueprint, recompiles the program, and constructs fixed SVG
+tags and classes itself. Neither artifact can carry raw SVG path data, HTML,
+executable code, text, colors, CSS, styles, transforms, URLs, remote resources,
+or new visible copy.
+
+The bounded layer renders inside the existing primary module, after the legacy
+grammar primitive. This preserves route, counter, vessel, and scene-action
+runtime hooks while adding source-conditioned visual topology. Edges draw
+through the existing deterministic path runtime; nodes reveal in canonical
+order from semantic progress and settle without timers or incremental state.
+The layer does not add a fourth composition module or a new Scene DSL target.
 
 The generalized graph marker and sentence-plan composition-profile marker must
 appear together. Every sentence in that profile must contain both primitive
 parameters and a composition; fixed unparameterized plans must contain neither.
 Validation deterministically rebuilds the expected composition for every
 proposition and rejects partial profiles, reordered modules, unsupported
-topologies, cross-sentence substitutions, or freshly rehashed tampering.
+topologies, blueprint swaps, cross-sentence substitutions, or freshly rehashed
+tampering. The existing Scene DSL composition hash automatically binds the
+blueprint, so the model-facing proposal schema remains enum-only and unchanged.
+
+Checked unparameterized profiles never enter the composition-v2 path and emit
+no blueprint markup, CSS, runtime, or data attributes. Their pinned graph,
+sentence-plan, AnimationIR, and HTML composition hashes remain byte-exact.
 
 Internal graph/plan consistency is not treated as provenance. Parameterized
 generalized IR requires trusted source validation: compilation and in-process

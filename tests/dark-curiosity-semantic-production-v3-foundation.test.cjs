@@ -267,11 +267,9 @@ test("checked semantic-v3 registry outputs remain byte-exact and omit generalize
     );
     assert.equal(contentHash(compiled.plan), expected.plan, id);
     assert.equal(compiled.animationIR.contentHash, expected.ir, id);
-    assert.equal(
-      compileAnimationIRToHtml(compiled.animationIR).compositionHash,
-      expected.composition,
-      id,
-    );
+    const composition = compileAnimationIRToHtml(compiled.animationIR);
+    assert.equal(composition.compositionHash, expected.composition, id);
+    assert.doesNotMatch(composition.html, /data-bounded-geometry-/, id);
     assert.equal(
       compiled.animationIR.content.semanticVisualSentencePlan
         .sceneCompositionProfileId,

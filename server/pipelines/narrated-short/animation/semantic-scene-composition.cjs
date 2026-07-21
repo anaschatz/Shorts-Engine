@@ -7,10 +7,14 @@ const { stableStringify } = require("./canonical-json.cjs");
 const {
   normalizeSemanticPrimitiveParameters,
 } = require("./semantic-primitive-parameters.cjs");
+const {
+  buildSemanticGeometryBlueprint,
+  normalizeSemanticGeometryBlueprint,
+} = require("./semantic-geometry-blueprint.cjs");
 
-const SEMANTIC_SCENE_COMPOSITION_SCHEMA_VERSION = 1;
+const SEMANTIC_SCENE_COMPOSITION_SCHEMA_VERSION = 2;
 const SEMANTIC_SCENE_COMPOSITION_PROFILE_ID =
-  "dark_curiosity_scene_composition_v1";
+  "dark_curiosity_scene_composition_v2";
 const SEMANTIC_SCENE_COMPOSITION_LAYOUT_IDS = Object.freeze([
   "header_strip",
   "satellites_left",
@@ -56,11 +60,48 @@ function isPlainObject(value) {
 function exactKeys(value, required, field) {
   if (!isPlainObject(value)) fail(field, "object_required");
   const expected = [...required].sort();
-  const actual = Object.keys(value).sort();
+  const actual = Reflect.ownKeys(value);
+  if (actual.some((key) => typeof key !== "string")) {
+    fail(`${field}.*`, "unsupported_or_missing_field");
+  }
+  for (const key of actual) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (
+      !descriptor
+      || !Object.hasOwn(descriptor, "value")
+      || descriptor.enumerable !== true
+    ) fail(`${field}.${key}`, "plain_data_field_required");
+  }
+  actual.sort();
   if (
     actual.length !== expected.length
     || actual.some((key, index) => key !== expected[index])
   ) fail(field, "unsupported_or_missing_field");
+}
+
+function denseDataArray(value, field, minimum, maximum) {
+  if (!Array.isArray(value) || value.length < minimum || value.length > maximum) {
+    fail(field, "array_size_invalid");
+  }
+  const expected = new Set([
+    "length",
+    ...Array.from({ length: value.length }, (_, index) => String(index)),
+  ]);
+  const keys = Reflect.ownKeys(value);
+  if (keys.some((key) => typeof key !== "string" || !expected.has(key))) {
+    fail(field, "dense_data_array_required");
+  }
+  const entries = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (
+      !descriptor
+      || !Object.hasOwn(descriptor, "value")
+      || descriptor.enumerable !== true
+    ) fail(`${field}[${index}]`, "dense_data_array_required");
+    entries.push(descriptor.value);
+  }
+  return entries;
 }
 
 function text(value, field, options = {}) {
@@ -76,7 +117,12 @@ function text(value, field, options = {}) {
 }
 
 function integer(value, field, minimum, maximum) {
-  if (!Number.isInteger(value) || value < minimum || value > maximum) {
+  if (
+    !Number.isSafeInteger(value)
+    || Object.is(value, -0)
+    || value < minimum
+    || value > maximum
+  ) {
     fail(field, "integer_out_of_range");
   }
   return value;
@@ -185,6 +231,7 @@ function normalizeSemanticSceneComposition(input) {
     "variantSeed",
     "modules",
     "links",
+    "geometryBlueprint",
   ], "sceneComposition");
   if (input.schemaVersion !== SEMANTIC_SCENE_COMPOSITION_SCHEMA_VERSION) {
     fail("sceneComposition.schemaVersion", "unsupported_schema");
@@ -204,6 +251,13 @@ function normalizeSemanticSceneComposition(input) {
   if (!Array.isArray(input.links) || input.links.length !== 2) {
     fail("sceneComposition.links", "exactly_two_links_required");
   }
+  const modules = denseDataArray(
+    input.modules,
+    "sceneComposition.modules",
+    3,
+    3,
+  );
+  const links = denseDataArray(input.links, "sceneComposition.links", 2, 2);
   return deepFreeze({
     schemaVersion: SEMANTIC_SCENE_COMPOSITION_SCHEMA_VERSION,
     profileId: SEMANTIC_SCENE_COMPOSITION_PROFILE_ID,
@@ -215,8 +269,11 @@ function normalizeSemanticSceneComposition(input) {
       0,
       0xffffffff,
     ),
-    modules: input.modules.map(normalizeModule),
-    links: input.links.map(normalizeLink),
+    modules: modules.map(normalizeModule),
+    links: links.map(normalizeLink),
+    geometryBlueprint: normalizeSemanticGeometryBlueprint(
+      input.geometryBlueprint,
+    ),
   });
 }
 
@@ -224,7 +281,7 @@ function normalizeRecentLayoutIds(value) {
   if (!Array.isArray(value) || value.length > 4) {
     fail("recentLayoutIds", "bounded_array_required");
   }
-  return value.map((layoutId, index) => {
+  return denseDataArray(value, "recentLayoutIds", 0, 4).map((layoutId, index) => {
     const normalized = text(layoutId, `recentLayoutIds[${index}]`, {
       pattern: ID_PATTERN,
     });
@@ -271,10 +328,16 @@ function buildSemanticSceneComposition(input = {}) {
     input.recentLayoutIds || [],
   );
   const supportKind = contextSupportKind(primitiveParameters);
+  const geometryBlueprint = buildSemanticGeometryBlueprint({
+    semanticEventGraphHash: graphHash,
+    propositionId,
+    primitiveParameters,
+  });
   const digest = createHash("sha256").update(stableStringify({
     graphHash,
     propositionId,
     primitiveParameters,
+    geometryBlueprintHash: geometryBlueprint.contentHash,
     supportKind,
     recentLayoutIds,
   })).digest();
@@ -328,6 +391,7 @@ function buildSemanticSceneComposition(input = {}) {
         relation: "state",
       },
     ],
+    geometryBlueprint,
   });
 }
 

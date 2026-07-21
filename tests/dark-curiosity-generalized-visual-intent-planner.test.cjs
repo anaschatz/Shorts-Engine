@@ -59,8 +59,24 @@ const {
   SEMANTIC_SCENE_COMPOSITION_MODULE_KINDS,
   SEMANTIC_SCENE_COMPOSITION_PROFILE_ID,
   SEMANTIC_SCENE_COMPOSITION_SCHEMA_VERSION,
+  buildSemanticSceneComposition,
   normalizeSemanticSceneComposition,
 } = require("../server/pipelines/narrated-short/animation/semantic-scene-composition.cjs");
+const {
+  MAX_GEOMETRY_EDGES,
+  MAX_GEOMETRY_NODES,
+  SEMANTIC_GEOMETRY_BLUEPRINT_PROFILE_ID,
+  SEMANTIC_GEOMETRY_BLUEPRINT_SCHEMA_VERSION,
+  SEMANTIC_GEOMETRY_NODE_RANGE_BY_RECIPE,
+  SEMANTIC_GEOMETRY_PROGRAM_PROFILE_ID,
+  SEMANTIC_GEOMETRY_RECIPE_BY_GRAMMAR,
+  buildSemanticGeometryBlueprint,
+  compileSemanticGeometryProgram,
+  normalizeSemanticGeometryBlueprint,
+  normalizeSemanticGeometryProgram,
+  primitiveParametersHash,
+  validateSemanticGeometryBlueprintAgainstContext,
+} = require("../server/pipelines/narrated-short/animation/semantic-geometry-blueprint.cjs");
 const {
   buildDeterministicSemanticAnimationSceneDslPlan,
   buildSemanticAnimationSceneDslPlanFromScenes,
@@ -331,6 +347,17 @@ function expectedCompositionSupportKind(primitiveParameters) {
     }
   }
   return "detail_card";
+}
+
+function rebindSyntheticGeometryBlueprint(sentence) {
+  const semanticEventGraphHash = sentence.sceneComposition.geometryBlueprint
+    .bindings.semanticEventGraphHash;
+  sentence.sceneComposition.geometryBlueprint = buildSemanticGeometryBlueprint({
+    semanticEventGraphHash,
+    propositionId: sentence.propositionId,
+    primitiveParameters: sentence.primitiveParameters,
+  });
+  return sentence;
 }
 
 test("three unrelated stories build deterministic grounded StoryIR and visual intent graphs", () => {
@@ -1202,6 +1229,610 @@ test("generalized semantic-v3 carries source-bound primitive parameters into vis
   }
 });
 
+test("bounded geometry factory compiles distinct source-bound programs into visible safe markup", async () => {
+  const boundedRenderer = await import(
+    "../renderer/hyperframes/primitives/semantic-bounded-geometry.mjs"
+  );
+  const blueprintHashes = new Set();
+  const programHashes = new Set();
+  const visibleGeometrySignatures = new Set();
+  const recipeIds = new Set();
+  let sentenceCount = 0;
+  let approvedRouteCount = 0;
+
+  for (const [id] of CASES) {
+    const value = compileRaw(
+      readRaw(id),
+      `bounded-geometry-${id}`,
+      `prj_bounded_geometry_${id}`,
+    );
+    const graph = value.compiled.animationIR.content.semanticEventGraph;
+    const plan = value.compiled.animationIR.content.semanticVisualSentencePlan;
+    for (const sentence of plan.sentences) {
+      sentenceCount += 1;
+      const blueprint = sentence.sceneComposition.geometryBlueprint;
+      const context = {
+        semanticEventGraphHash: graph.contentHash,
+        propositionId: sentence.propositionId,
+        primitiveParameters: sentence.primitiveParameters,
+      };
+      assert.equal(
+        blueprint.schemaVersion,
+        SEMANTIC_GEOMETRY_BLUEPRINT_SCHEMA_VERSION,
+      );
+      assert.equal(blueprint.profileId, SEMANTIC_GEOMETRY_BLUEPRINT_PROFILE_ID);
+      assert.equal(
+        blueprint.recipeId,
+        sentence.primitiveParameters.geometry.route
+          ? "route_field_v1"
+          : SEMANTIC_GEOMETRY_RECIPE_BY_GRAMMAR[
+            sentence.primitiveParameters.grammarId
+          ],
+      );
+      if (sentence.primitiveParameters.geometry.route) {
+        const count = sentence.primitiveParameters.geometry.route.points.length;
+        assert.equal(
+          blueprint.controls.density,
+          count <= 4 ? "sparse" : count >= 8 ? "dense" : "balanced",
+        );
+      } else {
+        const [minimumNodes, maximumNodes] =
+          SEMANTIC_GEOMETRY_NODE_RANGE_BY_RECIPE[blueprint.recipeId];
+        assert.equal(
+          blueprint.controls.nodeCount,
+          blueprint.controls.density === "sparse"
+            ? minimumNodes
+            : blueprint.controls.density === "dense"
+              ? maximumNodes
+              : Math.round((minimumNodes + maximumNodes) / 2),
+        );
+      }
+      assert.equal(
+        blueprint.bindings.semanticEventGraphHash,
+        graph.contentHash,
+      );
+      assert.equal(blueprint.bindings.propositionId, sentence.propositionId);
+      assert.equal(
+        blueprint.bindings.primitiveParametersHash,
+        primitiveParametersHash(sentence.primitiveParameters),
+      );
+      assert.deepEqual(
+        validateSemanticGeometryBlueprintAgainstContext(blueprint, context),
+        blueprint,
+      );
+      assert.deepEqual(buildSemanticGeometryBlueprint(context), blueprint);
+
+      const program = compileSemanticGeometryProgram({
+        geometryBlueprint: blueprint,
+        primitiveParameters: sentence.primitiveParameters,
+        propositionId: sentence.propositionId,
+        semanticEventGraphHash: graph.contentHash,
+      });
+      assert.equal(program.profileId, SEMANTIC_GEOMETRY_PROGRAM_PROFILE_ID);
+      assert.equal(program.blueprintHash, blueprint.contentHash);
+      assert.equal(program.nodes.length, blueprint.controls.nodeCount);
+      assert.equal(
+        program.complexityCost,
+        program.nodes.length + program.edges.length,
+      );
+      assert.deepEqual(
+        compileSemanticGeometryProgram({
+          geometryBlueprint: structuredClone(blueprint),
+          primitiveParameters: structuredClone(sentence.primitiveParameters),
+          propositionId: sentence.propositionId,
+          semanticEventGraphHash: graph.contentHash,
+        }),
+        program,
+      );
+      assertDeepFrozen(blueprint, `${id}.${sentence.id}.geometryBlueprint`);
+      assertDeepFrozen(program, `${id}.${sentence.id}.geometryProgram`);
+
+      if (sentence.primitiveParameters.geometry.route) {
+        approvedRouteCount += 1;
+        const expectedPoints = sentence.primitiveParameters.geometry.route.points
+          .map(([x, y]) => [Math.round(x * 1000), Math.round(y * 1000)]);
+        assert.equal(program.provenance, "approved_storyboard_layout");
+        assert.deepEqual(
+          program.nodes.map((node) => [node.x, node.y]),
+          expectedPoints,
+        );
+        assert.deepEqual(
+          program.edges.map((edge) => edge.kind),
+          expectedPoints.slice(1).map((point, index) => (
+            point[0] === expectedPoints[index][0]
+              && point[1] === expectedPoints[index][1]
+              ? "dwell"
+              : "line"
+          )),
+        );
+      } else {
+        assert.equal(program.provenance, "deterministic_illustrative");
+      }
+
+      const markup = boundedRenderer.semanticBoundedGeometryMarkup(sentence);
+      assert.match(markup, /class="semantic-bounded-geometry"/);
+      assert.ok(markup.includes(
+        `data-bounded-geometry-blueprint-hash="${blueprint.contentHash}"`,
+      ));
+      assert.ok(markup.includes(
+        `data-bounded-geometry-program-hash="${program.contentHash}"`,
+      ));
+      assert.equal(
+        [...markup.matchAll(/class="semantic-bounded-node"/g)].length,
+        program.nodes.length,
+      );
+      assert.equal(
+        [...markup.matchAll(/class="semantic-draw semantic-bounded-edge/g)].length,
+        program.edges.length,
+      );
+      assert.equal(
+        [...markup.matchAll(/pathLength="1000"/g)].length,
+        program.edges.length,
+      );
+      assert.doesNotMatch(
+        markup,
+        /<(?:script|foreignObject)|javascript:|\b(?:href|onload|onclick|style)=/i,
+      );
+      assert.doesNotMatch(markup, /NaN|Infinity|undefined/);
+
+      blueprintHashes.add(blueprint.contentHash);
+      programHashes.add(program.contentHash);
+      visibleGeometrySignatures.add(JSON.stringify({
+        nodes: program.nodes,
+        edges: program.edges,
+      }));
+      recipeIds.add(blueprint.recipeId);
+    }
+  }
+
+  assert.equal(blueprintHashes.size, sentenceCount);
+  assert.equal(programHashes.size, sentenceCount);
+  assert.equal(visibleGeometrySignatures.size, sentenceCount);
+  assert.ok(recipeIds.size >= 6);
+  assert.ok(approvedRouteCount >= 1);
+});
+
+test("unresolved state uses the same reject tone in geometry and its state badge", async () => {
+  const sceneRenderer = await import(
+    "../renderer/hyperframes/primitives/semantic-scene-composition.mjs"
+  );
+  const value = compileRaw(
+    readRaw("001_wow_signal_mystery"),
+    "bounded-geometry-unresolved-tone",
+    "prj_bounded_geometry_unresolved_tone",
+  );
+  const graph = value.compiled.animationIR.content.semanticEventGraph;
+  const sentence = value.compiled.animationIR.content
+    .semanticVisualSentencePlan.sentences[0];
+  const primitiveParameters = structuredClone(sentence.primitiveParameters);
+  primitiveParameters.stateToken = "UNRESOLVED";
+  const sceneComposition = buildSemanticSceneComposition({
+    graphHash: graph.contentHash,
+    propositionId: sentence.propositionId,
+    primitiveParameters,
+    capability: sentence.capability,
+    recentLayoutIds: [],
+  });
+  const program = compileSemanticGeometryProgram({
+    geometryBlueprint: sceneComposition.geometryBlueprint,
+    primitiveParameters,
+    propositionId: sentence.propositionId,
+    semanticEventGraphHash: graph.contentHash,
+  });
+  assert.equal(
+    program.nodes[sceneComposition.geometryBlueprint.controls.emphasisIndex]
+      .tone,
+    "reject",
+  );
+
+  let unrelatedGetterExecuted = false;
+  const rendererSentence = {
+    ...sentence,
+    primitiveParameters,
+    sceneComposition,
+  };
+  Object.defineProperty(rendererSentence, "unrelatedProbe", {
+    enumerable: true,
+    get() {
+      unrelatedGetterExecuted = true;
+      throw new Error("unrelated sentence getter must not execute");
+    },
+  });
+  const markup = sceneRenderer.semanticSceneCompositionMarkup(
+    rendererSentence,
+    '<g class="test-primary"/>',
+    0,
+  );
+  assert.equal(unrelatedGetterExecuted, false);
+  assert.match(
+    markup,
+    /class="semantic-support-module semantic-support-reject"/,
+  );
+  assert.match(markup, />UNRESOLVED<\/text>/);
+});
+
+test("bounded geometry contracts reject injection, malformed data, and fresh-hash rebinding", () => {
+  const value = compileRaw(
+    readRaw("001_wow_signal_mystery"),
+    "bounded-geometry-adversarial",
+    "prj_bounded_geometry_adversarial",
+  );
+  const graph = value.compiled.animationIR.content.semanticEventGraph;
+  const plan = value.compiled.animationIR.content.semanticVisualSentencePlan;
+  const sentence = plan.sentences[0];
+  const otherSentence = plan.sentences[1];
+  const blueprint = sentence.sceneComposition.geometryBlueprint;
+  const context = {
+    semanticEventGraphHash: graph.contentHash,
+    propositionId: sentence.propositionId,
+    primitiveParameters: sentence.primitiveParameters,
+  };
+  const program = compileSemanticGeometryProgram({
+    geometryBlueprint: blueprint,
+    primitiveParameters: sentence.primitiveParameters,
+    propositionId: sentence.propositionId,
+    semanticEventGraphHash: graph.contentHash,
+  });
+
+  for (const field of ["svg", "path", "javascript", "style", "href", "onload"]) {
+    const injected = structuredClone(blueprint);
+    injected[field] = field === "svg" ? "<svg onload='unsafe()'/>" : "unsafe";
+    assertFailure(
+      () => normalizeSemanticGeometryBlueprint(injected),
+      "ANIMATION_SEMANTIC_GEOMETRY_INVALID",
+      "unsupported_field",
+    );
+  }
+
+  const controlInjection = structuredClone(blueprint);
+  controlInjection.controls.coordinates = [0, 0];
+  assertFailure(
+    () => normalizeSemanticGeometryBlueprint(controlInjection),
+    "ANIMATION_SEMANTIC_GEOMETRY_INVALID",
+    "unsupported_field",
+  );
+
+  let getterExecuted = false;
+  const accessor = structuredClone(blueprint);
+  Object.defineProperty(accessor, "recipeId", {
+    enumerable: true,
+    get() {
+      getterExecuted = true;
+      return blueprint.recipeId;
+    },
+  });
+  assertFailure(
+    () => normalizeSemanticGeometryBlueprint(accessor),
+    "ANIMATION_SEMANTIC_GEOMETRY_INVALID",
+    "plain_data_field_required",
+  );
+  assert.equal(getterExecuted, false);
+
+  const symbolField = structuredClone(blueprint);
+  symbolField[Symbol("svg")] = "<svg/>";
+  assertFailure(
+    () => normalizeSemanticGeometryBlueprint(symbolField),
+    "ANIMATION_SEMANTIC_GEOMETRY_INVALID",
+    "unsupported_field",
+  );
+
+  const pollutedPrototype = Object.assign(
+    Object.create({ injected: true }),
+    structuredClone(blueprint),
+  );
+  assertFailure(
+    () => normalizeSemanticGeometryBlueprint(pollutedPrototype),
+    "ANIMATION_SEMANTIC_GEOMETRY_INVALID",
+    "plain_object_required",
+  );
+
+  for (const invalidNumber of [NaN, Infinity, -Infinity, -0, 3.5, "4"]) {
+    const invalid = structuredClone(blueprint);
+    delete invalid.contentHash;
+    invalid.controls.nodeCount = invalidNumber;
+    assertFailure(
+      () => normalizeSemanticGeometryBlueprint(invalid),
+      "ANIMATION_SEMANTIC_GEOMETRY_INVALID",
+      "integer_out_of_range",
+    );
+  }
+
+  const wrongHash = structuredClone(blueprint);
+  wrongHash.contentHash = "0".repeat(64);
+  assertFailure(
+    () => normalizeSemanticGeometryBlueprint(wrongHash),
+    "ANIMATION_SEMANTIC_GEOMETRY_INVALID",
+    "content_hash_mismatch",
+  );
+
+  let inheritedGetterExecutions = 0;
+  const inheritedDescriptors = {
+    contentHash: Object.getOwnPropertyDescriptor(
+      Object.prototype,
+      "contentHash",
+    ),
+    propositionId: Object.getOwnPropertyDescriptor(
+      Object.prototype,
+      "propositionId",
+    ),
+    semanticEventGraphHash: Object.getOwnPropertyDescriptor(
+      Object.prototype,
+      "semanticEventGraphHash",
+    ),
+  };
+  try {
+    for (const key of Object.keys(inheritedDescriptors)) {
+      Object.defineProperty(Object.prototype, key, {
+        configurable: true,
+        enumerable: false,
+        get() {
+          inheritedGetterExecutions += 1;
+          throw new Error(`inherited ${key} getter must not execute`);
+        },
+      });
+    }
+    const unhashedBlueprint = structuredClone(blueprint);
+    delete unhashedBlueprint.contentHash;
+    assert.equal(
+      normalizeSemanticGeometryBlueprint(unhashedBlueprint).contentHash,
+      blueprint.contentHash,
+    );
+    const unhashedProgram = structuredClone(program);
+    delete unhashedProgram.contentHash;
+    assert.equal(
+      normalizeSemanticGeometryProgram(unhashedProgram).contentHash,
+      program.contentHash,
+    );
+    assert.deepEqual(
+      compileSemanticGeometryProgram({
+        geometryBlueprint: blueprint,
+        primitiveParameters: sentence.primitiveParameters,
+      }),
+      program,
+    );
+  } finally {
+    for (const [key, descriptor] of Object.entries(inheritedDescriptors)) {
+      if (descriptor) Object.defineProperty(Object.prototype, key, descriptor);
+      else delete Object.prototype[key];
+    }
+  }
+  assert.equal(inheritedGetterExecutions, 0);
+
+  const freshHashMutation = structuredClone(blueprint);
+  delete freshHashMutation.contentHash;
+  freshHashMutation.controls.density =
+    freshHashMutation.controls.density === "dense" ? "sparse" : "dense";
+  const normalizedMutation = normalizeSemanticGeometryBlueprint(
+    freshHashMutation,
+  );
+  assert.notEqual(normalizedMutation.contentHash, blueprint.contentHash);
+  assertFailure(
+    () => validateSemanticGeometryBlueprintAgainstContext(
+      normalizedMutation,
+      context,
+    ),
+    "ANIMATION_SEMANTIC_GEOMETRY_INVALID",
+    "scene_context_binding_mismatch",
+  );
+  assertFailure(
+    () => compileSemanticGeometryProgram({
+      geometryBlueprint: normalizedMutation,
+      primitiveParameters: sentence.primitiveParameters,
+      propositionId: sentence.propositionId,
+      semanticEventGraphHash: graph.contentHash,
+    }),
+    "ANIMATION_SEMANTIC_GEOMETRY_INVALID",
+    "compile_context_binding_mismatch",
+  );
+
+  assertFailure(
+    () => compileSemanticGeometryProgram({
+      geometryBlueprint: blueprint,
+      primitiveParameters: otherSentence.primitiveParameters,
+      propositionId: otherSentence.propositionId,
+      semanticEventGraphHash: graph.contentHash,
+    }),
+    "ANIMATION_SEMANTIC_GEOMETRY_INVALID",
+    "compile_context_binding_mismatch",
+  );
+
+  const routeValue = compileRaw(
+    readRaw("003_baychimo_icebound_drift"),
+    "bounded-geometry-route-adversarial",
+    "prj_bounded_geometry_route_adversarial",
+  );
+  const routeGraph = routeValue.compiled.animationIR.content.semanticEventGraph;
+  const routeSentence = routeValue.compiled.animationIR.content
+    .semanticVisualSentencePlan.sentences.find(
+      (candidate) => candidate.primitiveParameters.geometry.route,
+    );
+  assert.ok(routeSentence);
+  const duplicateRouteParameters = structuredClone(
+    routeSentence.primitiveParameters,
+  );
+  duplicateRouteParameters.geometry.route.points[1] = structuredClone(
+    duplicateRouteParameters.geometry.route.points[0],
+  );
+  const duplicateRouteContext = {
+    semanticEventGraphHash: routeGraph.contentHash,
+    propositionId: routeSentence.propositionId,
+    primitiveParameters: duplicateRouteParameters,
+  };
+  const duplicateRouteBlueprint = buildSemanticGeometryBlueprint(
+    duplicateRouteContext,
+  );
+  const duplicateRouteProgram = compileSemanticGeometryProgram({
+    geometryBlueprint: duplicateRouteBlueprint,
+    ...duplicateRouteContext,
+  });
+  assert.equal(
+    duplicateRouteProgram.nodes.length,
+    duplicateRouteParameters.geometry.route.points.length,
+  );
+  assert.deepEqual(
+    [duplicateRouteProgram.nodes[0].x, duplicateRouteProgram.nodes[0].y],
+    [duplicateRouteProgram.nodes[1].x, duplicateRouteProgram.nodes[1].y],
+  );
+  assert.equal(duplicateRouteProgram.edges[0].kind, "dwell");
+  assert.equal(
+    duplicateRouteProgram.provenance,
+    "approved_storyboard_layout",
+  );
+
+  const quantizedDegenerateRouteParameters = structuredClone(
+    routeSentence.primitiveParameters,
+  );
+  quantizedDegenerateRouteParameters.geometry.route.points = [
+    [0.0001, 0.0001],
+    [0.0002, 0.0002],
+  ];
+  assertFailure(
+    () => buildSemanticGeometryBlueprint({
+      semanticEventGraphHash: routeGraph.contentHash,
+      propositionId: routeSentence.propositionId,
+      primitiveParameters: quantizedDegenerateRouteParameters,
+    }),
+    "ANIMATION_SEMANTIC_GEOMETRY_INVALID",
+    "geometry_degenerate",
+  );
+
+  const sparseRouteParameters = structuredClone(
+    routeSentence.primitiveParameters,
+  );
+  delete sparseRouteParameters.geometry.route.points[1];
+  assertFailure(
+    () => buildSemanticGeometryBlueprint({
+      semanticEventGraphHash: routeGraph.contentHash,
+      propositionId: routeSentence.propositionId,
+      primitiveParameters: sparseRouteParameters,
+    }),
+    "ANIMATION_SEMANTIC_PRIMITIVE_PARAMETERS_INVALID",
+    "dense_data_array_required",
+  );
+
+  let routeGetterExecuted = false;
+  const accessorRouteParameters = structuredClone(
+    routeSentence.primitiveParameters,
+  );
+  Object.defineProperty(
+    accessorRouteParameters.geometry.route.points,
+    "1",
+    {
+      enumerable: true,
+      get() {
+        routeGetterExecuted = true;
+        return routeSentence.primitiveParameters.geometry.route.points[1];
+      },
+    },
+  );
+  assertFailure(
+    () => buildSemanticGeometryBlueprint({
+      semanticEventGraphHash: routeGraph.contentHash,
+      propositionId: routeSentence.propositionId,
+      primitiveParameters: accessorRouteParameters,
+    }),
+    "ANIMATION_SEMANTIC_PRIMITIVE_PARAMETERS_INVALID",
+    "dense_data_array_required",
+  );
+  assert.equal(routeGetterExecuted, false);
+
+  const rawPrimitive = structuredClone(program);
+  rawPrimitive.nodes[0].path = "M0 0 L1 1";
+  assertFailure(
+    () => normalizeSemanticGeometryProgram(rawPrimitive),
+    "ANIMATION_SEMANTIC_GEOMETRY_INVALID",
+    "unsupported_field",
+  );
+
+  for (const invalidCoordinate of [NaN, Infinity, -0, 1000.5, 1001]) {
+    const invalid = structuredClone(program);
+    delete invalid.contentHash;
+    invalid.nodes[0].x = invalidCoordinate;
+    assertFailure(
+      () => normalizeSemanticGeometryProgram(invalid),
+      "ANIMATION_SEMANTIC_GEOMETRY_INVALID",
+      "integer_out_of_range",
+    );
+  }
+
+  const tooManyNodes = structuredClone(program);
+  delete tooManyNodes.contentHash;
+  tooManyNodes.nodes = Array.from(
+    { length: MAX_GEOMETRY_NODES + 1 },
+    (_, index) => ({
+      ...structuredClone(program.nodes[0]),
+      id: `node_${index}`,
+      x: index,
+      revealOrder: Math.min(index, MAX_GEOMETRY_NODES - 1),
+    }),
+  );
+  assertFailure(
+    () => normalizeSemanticGeometryProgram(tooManyNodes),
+    "ANIMATION_SEMANTIC_GEOMETRY_INVALID",
+    "array_size_invalid",
+  );
+
+  const tooManyEdges = structuredClone(program);
+  delete tooManyEdges.contentHash;
+  tooManyEdges.edges = Array.from(
+    { length: MAX_GEOMETRY_EDGES + 1 },
+    (_, index) => ({
+      ...structuredClone(program.edges[0]),
+      id: `edge_${index}`,
+      revealOrder: Math.min(index, MAX_GEOMETRY_EDGES - 1),
+    }),
+  );
+  assertFailure(
+    () => normalizeSemanticGeometryProgram(tooManyEdges),
+    "ANIMATION_SEMANTIC_GEOMETRY_INVALID",
+    "array_size_invalid",
+  );
+
+  const dangling = structuredClone(program);
+  delete dangling.contentHash;
+  dangling.edges[0].toNodeId = "node_missing";
+  assertFailure(
+    () => normalizeSemanticGeometryProgram(dangling),
+    "ANIMATION_SEMANTIC_GEOMETRY_INVALID",
+    "dangling_edge",
+  );
+
+  const selfEdge = structuredClone(program);
+  delete selfEdge.contentHash;
+  selfEdge.edges[0].toNodeId = selfEdge.edges[0].fromNodeId;
+  assertFailure(
+    () => normalizeSemanticGeometryProgram(selfEdge),
+    "ANIMATION_SEMANTIC_GEOMETRY_INVALID",
+    "self_edge",
+  );
+
+  const duplicatePoint = structuredClone(program);
+  delete duplicatePoint.contentHash;
+  duplicatePoint.nodes[1].x = duplicatePoint.nodes[0].x;
+  duplicatePoint.nodes[1].y = duplicatePoint.nodes[0].y;
+  assertFailure(
+    () => normalizeSemanticGeometryProgram(duplicatePoint),
+    "ANIMATION_SEMANTIC_GEOMETRY_INVALID",
+    "duplicate_points",
+  );
+
+  let arrayGetterExecuted = false;
+  const accessorArray = structuredClone(program);
+  Object.defineProperty(accessorArray.nodes, "0", {
+    enumerable: true,
+    get() {
+      arrayGetterExecuted = true;
+      return program.nodes[0];
+    },
+  });
+  assertFailure(
+    () => normalizeSemanticGeometryProgram(accessorArray),
+    "ANIMATION_SEMANTIC_GEOMETRY_INVALID",
+    "dense_data_array_required",
+  );
+  assert.equal(arrayGetterExecuted, false);
+});
+
 test("scene composition contracts reject topology injection, stripping, and fresh-hash rebinding", async () => {
   const { compileAnimationIRToHtml } = await import(
     "../renderer/hyperframes/animation-ir-adapter.mjs"
@@ -1238,6 +1869,51 @@ test("scene composition contracts reject topology injection, stripping, and fres
     "ANIMATION_SEMANTIC_SCENE_COMPOSITION_INVALID",
     "exactly_two_links_required",
   );
+
+  const sparseModules = structuredClone(composition);
+  delete sparseModules.modules[1];
+  assertFailure(
+    () => normalizeSemanticSceneComposition(sparseModules),
+    "ANIMATION_SEMANTIC_SCENE_COMPOSITION_INVALID",
+    "dense_data_array_required",
+  );
+
+  const sparseLinks = structuredClone(composition);
+  delete sparseLinks.links[0];
+  assertFailure(
+    () => normalizeSemanticSceneComposition(sparseLinks),
+    "ANIMATION_SEMANTIC_SCENE_COMPOSITION_INVALID",
+    "dense_data_array_required",
+  );
+
+  let moduleGetterExecuted = false;
+  const accessorModules = structuredClone(composition);
+  Object.defineProperty(accessorModules.modules, "1", {
+    enumerable: true,
+    get() {
+      moduleGetterExecuted = true;
+      return composition.modules[1];
+    },
+  });
+  assertFailure(
+    () => normalizeSemanticSceneComposition(accessorModules),
+    "ANIMATION_SEMANTIC_SCENE_COMPOSITION_INVALID",
+    "dense_data_array_required",
+  );
+  assert.equal(moduleGetterExecuted, false);
+
+  for (const mutate of [
+    (candidate) => { candidate.variantSeed = -0; },
+    (candidate) => { candidate.modules[0].revealOrder = -0; },
+  ]) {
+    const nonCanonicalInteger = structuredClone(composition);
+    mutate(nonCanonicalInteger);
+    assertFailure(
+      () => normalizeSemanticSceneComposition(nonCanonicalInteger),
+      "ANIMATION_SEMANTIC_SCENE_COMPOSITION_INVALID",
+      "integer_out_of_range",
+    );
+  }
 
   const rebound = (mutate) => {
     const changed = structuredClone(plan);
@@ -2157,6 +2833,7 @@ test("primitive parameter contracts escape grounded XML and fail closed on tampe
   escapedSentence.primitiveParameters.subject.sourceRef.endOffset =
     escapedSentence.primitiveParameters.subject.sourceRef.startOffset
       + escapedValue.length;
+  rebindSyntheticGeometryBlueprint(escapedSentence);
   const escapedMarkup = primitives.semanticSentencePrimitiveMarkup(
     escapedSentence,
     0,
@@ -2235,6 +2912,7 @@ test("every parameterized grammar branch renders grounded markup", async () => {
       SEMANTIC_PRIMITIVE_PRESET_BY_GRAMMAR[grammarId];
     sentence.primitiveParameters.geometry.direction = "forward";
     sentence.primitiveParameters.geometry.route = null;
+    rebindSyntheticGeometryBlueprint(sentence);
     const markup = primitives.semanticSentencePrimitiveMarkup(sentence, 0);
     assert.match(markup, /data-primitive-parameterized="true"/, grammarId);
     assert.match(markup, /data-geometry-kind="[^"]+"/, grammarId);
@@ -2264,6 +2942,7 @@ test("every parameterized grammar branch renders grounded markup", async () => {
   iceOnlyAbsence.primitiveParameters.detail.sourceRef.endOffset =
     iceOnlyAbsence.primitiveParameters.detail.sourceRef.startOffset
       + iceText.length;
+  rebindSyntheticGeometryBlueprint(iceOnlyAbsence);
   const iceOnlyMarkup = primitives.semanticSentencePrimitiveMarkup(
     iceOnlyAbsence,
     0,
@@ -2286,6 +2965,7 @@ test("every parameterized grammar branch renders grounded markup", async () => {
   longCause.primitiveParameters.detail.sourceRef.endOffset =
     longCause.primitiveParameters.detail.sourceRef.startOffset
       + longWord.length;
+  rebindSyntheticGeometryBlueprint(longCause);
   const longCauseMarkup = primitives.semanticSentencePrimitiveMarkup(
     longCause,
     0,
@@ -2315,6 +2995,7 @@ test("every parameterized grammar branch renders grounded markup", async () => {
     binding.sourceRef.endOffset = binding.sourceRef.startOffset
       + chronologyWord.length;
   }
+  rebindSyntheticGeometryBlueprint(longChronology);
   const longChronologyMarkup = primitives.semanticSentencePrimitiveMarkup(
     longChronology,
     0,
@@ -2337,6 +3018,7 @@ test("every parameterized grammar branch renders grounded markup", async () => {
           SEMANTIC_PRIMITIVE_PRESET_BY_GRAMMAR.cause_effect_chain;
         sentence.primitiveParameters.geometry.direction = "forward";
         sentence.primitiveParameters.geometry.route = null;
+        rebindSyntheticGeometryBlueprint(sentence);
         const markup = primitives.semanticSentencePrimitiveMarkup(sentence, 0);
         assert.match(markup, new RegExp(
           `data-cause-asset-motif="${assetId}"`,
@@ -2356,6 +3038,7 @@ test("every parameterized grammar branch renders grounded markup", async () => {
     SEMANTIC_PRIMITIVE_PRESET_BY_GRAMMAR.cause_effect_chain;
   rejectedCause.primitiveParameters.geometry.direction = "reverse";
   rejectedCause.primitiveParameters.geometry.route = null;
+  rebindSyntheticGeometryBlueprint(rejectedCause);
   const rejectedMarkup = primitives.semanticSentencePrimitiveMarkup(
     rejectedCause,
     0,

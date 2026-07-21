@@ -1,6 +1,6 @@
 # Dark Curiosity Continuous Animation Architecture
 
-Status: Slice C2 browser-seek determinism benchmark validated; production migration not approved
+Status: Slice D1 bounded semantic geometry factory implemented; production migration not approved
 
 Decision target: `continuous_motion_renderer_v1`
 
@@ -290,6 +290,17 @@ Slice C2 completed on 2026-07-13. A real headless-Chrome harness loads the compi
 - add shared style tokens and three intensity profiles;
 - add asset license/provenance manifests.
 
+Slice D1 completed on 2026-07-21. Generalized scene composition v2 now embeds
+one graph/proposition/primitive-bound geometry blueprint per sentence. A
+server-owned deterministic compiler expands nine grammar-compatible recipes
+into a flat, budgeted node/edge program using only integer normalized
+coordinates and allowlisted roles, shapes, tones, and edge kinds. HyperFrames
+renders that program inside the existing primary module, preserving all prior
+counter, vessel, route, composition, and Scene DSL targets. Approved route
+waypoints retain exact order and provenance; all other seeded layouts are
+explicitly illustrative. The model still cannot author coordinates, SVG,
+styles, labels, timing, or executable renderer code.
+
 ### Slice E — Motion QA
 
 - optical-flow, stasis, jerk, safe-zone, clipping, and deterministic sample gates;
@@ -325,6 +336,15 @@ Slice C1 completed on 2026-07-13. The compiler now resolves absolute, beat-start
 The corrected 720×1280 proof contains exactly 300 H.264/yuv420p frames at 30 fps. It rendered in 14.701 seconds with 160 MiB peak renderer memory. All declared technical, diversity, safe-zone, clipping, semantic-timing, alignment-sensitivity, and morph checks passed. Active morph energy was 0.006095 versus 0.000231 during the readability hold. Sampled stasis was 13.79%, which passes the current 15% bound but is too close to treat the threshold as calibrated.
 
 The Slice C2 proof repeated the complete render twice. The runs completed in 15.495 and 17.085 seconds with 148 and 161 MiB peak memory. Their `TimingContext`, `AnimationIR`, composition, decoded checkpoint, browser random-seek, technical metadata, and MP4 hashes matched. Frames 27, 76, 209, 241, and 291 were each captured twice after out-of-order seeks in a single page load and matched exactly. The valid proof browser observed zero external requests; an injected remote image request was observed and blocked one-for-one. Thirteen malformed timing cases failed before a render attempt and created no partial MP4 artifact.
+
+Slice D1 adds source-distinct procedural topology without widening the model
+trust boundary. Blueprint and compiled-program normalizers reject raw markup or
+code fields, accessors, symbols, polluted prototypes, sparse arrays,
+non-canonical numbers, complexity overflow, degenerate nodes, and invalid edge
+graphs. The sentence validator rebuilds the exact expected composition from
+the trusted graph, so swapping or freshly rehashing a syntactically valid
+blueprint is insufficient. Checked unparameterized profiles bypass the new
+path and retain their pinned HTML hashes.
 
 This result keeps HyperFrames approved for benchmark work, not as the production default. The existing SVG keyframe renderer remains unchanged. The next bounded slice should add pixel/OCR clipping checks plus jerk, continuity, and object-persistence metrics before expanding the remaining template families. Motion thresholds must still be calibrated across at least ten content fixtures. Network counters currently come from the separate proof browser loading the exact compiled composition; the internal HyperFrames capture browser is constrained by CSP and contains no remote assets, but its package API does not yet expose equivalent request telemetry. The lower caption reserve also needs compositional refinement so it remains safe without looking visually empty.
 

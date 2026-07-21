@@ -705,7 +705,8 @@ export function compileSemanticSentenceAnimationIRToHtml(ir, options = {}) {
 .semantic-support-value{fill:#e2e8f0;font-size:26px}.semantic-support-quantity{fill:#fde68a;font-size:26px}
 .semantic-support-state{fill:#f8fafc;font-size:26px;letter-spacing:1px}
 .semantic-support-route{fill:none;stroke:#fbbf24;stroke-width:4;stroke-linecap:round;stroke-linejoin:round}
-.semantic-support-route-start{fill:#22d3ee}.semantic-support-route-end{fill:#fbbf24;stroke:#fef3c7;stroke-width:2}` : "";
+.semantic-support-route-start{fill:#22d3ee}.semantic-support-route-end{fill:#fbbf24;stroke:#fef3c7;stroke-width:2}
+.semantic-bounded-edge{stroke-width:3.25}` : "";
   const sceneActionCss = usesSceneActions ? `
 .semantic-scene-camera-channel{transform-box:view-box;transform-origin:360px 520px;will-change:transform}
 .semantic-primary-module,.semantic-support-module{transform-box:fill-box;transform-origin:center;will-change:transform,opacity,filter}` : "";
@@ -735,6 +736,17 @@ export function compileSemanticSentenceAnimationIRToHtml(ir, options = {}) {
  });
  sceneComposition.querySelectorAll(".semantic-composition-link").forEach((element,index)=>{
   setOpacity(element,ease((semanticProgress-(.12+index*.08))/.26));
+ });` : "";
+  const boundedGeometryRuntime = usesSceneComposition ? `
+ stage.querySelectorAll(".semantic-bounded-edge[data-blueprint-reveal-order]").forEach((element)=>{
+  const order=Number(element.dataset.blueprintRevealOrder)||0;
+  setOpacity(element,ease((semanticProgress-(.06+order*.035))/.38));
+ });
+ stage.querySelectorAll(".semantic-bounded-node[data-blueprint-reveal-order]").forEach((element)=>{
+  const order=Number(element.dataset.blueprintRevealOrder)||0;
+  const local=ease((semanticProgress-(.14+order*.045))/.34);
+  setOpacity(element,local);
+  element.setAttribute("transform","translate(0 "+(10*(1-local)).toFixed(3)+")");
  });` : "";
   const stageTransformRuntime = usesSceneActions ? `
  const sceneActionState=semanticSceneActionStateAtFrame(active.sceneActionSchedule,frame);
@@ -960,7 +972,7 @@ function renderFrame(rawFrame){
   element.dataset.focusRole=visible?"primary":"inactive";
   element.dataset.sentenceProgress=visible?semanticProgress.toFixed(4):"0.0000";
  });
-${stageTransformRuntime}${sceneCompositionRevealRuntime}
+${stageTransformRuntime}${boundedGeometryRuntime}${sceneCompositionRevealRuntime}
  stage.querySelectorAll(".semantic-draw").forEach((path)=>{
   path.style.strokeDasharray="1000";
   path.style.strokeDashoffset=String(1000*(1-semanticProgress));

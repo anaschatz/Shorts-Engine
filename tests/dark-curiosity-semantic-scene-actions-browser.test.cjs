@@ -201,6 +201,15 @@ test("real browser pixels execute distinct Scene DSL actions deterministically",
       + changedScene.phaseWindows.resolve.endFrame
     ) / 2,
   );
+  const boundedInterval = intervals[alternate.sentenceIndex];
+  const boundedStartFrame = boundedInterval.startFrame;
+  const boundedMidFrame = Math.floor(
+    (
+      boundedInterval.startFrame
+      + boundedInterval.semanticEndFrame - 1
+    ) / 2,
+  );
+  const boundedEndFrame = boundedInterval.semanticEndFrame - 1;
   const seekSequence = [
     ...new Set([
       ...intervals.map((interval) => Math.floor(
@@ -211,9 +220,13 @@ test("real browser pixels execute distinct Scene DSL actions deterministically",
       entryEndFrame,
       developFrame,
       resolveFrame,
+      boundedStartFrame,
+      boundedMidFrame,
+      boundedEndFrame,
     ]),
   ].sort((left, right) => left - right);
   seekSequence.push(developFrame);
+  seekSequence.push(boundedMidFrame);
   const doctor = await hyperframesDoctor();
   assert.equal(doctor.ready, true);
   const request = (html) => ({
@@ -245,6 +258,7 @@ test("real browser pixels execute distinct Scene DSL actions deterministically",
   );
   assert.ok(baselineProof.repeatedFrames.every((entry) => entry.equal));
   assert.ok(changedProof.repeatedFrames.every((entry) => entry.equal));
+  assert.ok(changedProof.geometryAudit.boundedGeometryObservationCount > 0);
   assert.notEqual(
     hashAt(changedProof, entryFrame),
     hashAt(changedProof, entryMidFrame),
@@ -261,6 +275,37 @@ test("real browser pixels execute distinct Scene DSL actions deterministically",
     hashAt(baselineProof, resolveFrame),
     hashAt(changedProof, resolveFrame),
   );
+  const boundedAt = (checkpoint) => checkpoint.boundedGeometry.find(
+    (geometry) => geometry.sentenceIndex === alternate.sentenceIndex,
+  );
+  const checkpointsAt = (frame) => changedProof.geometryAudit.checkpoints
+    .filter((checkpoint) => checkpoint.frame === frame);
+  const startGeometry = boundedAt(checkpointsAt(boundedStartFrame)[0]);
+  const midGeometries = checkpointsAt(boundedMidFrame).map(boundedAt);
+  const endGeometry = boundedAt(checkpointsAt(boundedEndFrame)[0]);
+  assert.ok(startGeometry);
+  assert.ok(midGeometries.length >= 2);
+  assert.ok(endGeometry);
+  assert.ok(startGeometry.nodes.every(
+    (node) => node.opacity === 0 && node.translateY === 10,
+  ));
+  assert.ok(startGeometry.edges.every(
+    (edge) => edge.opacity === 0 && edge.dashOffset === 1000,
+  ));
+  assert.ok(midGeometries[0].nodes[0].opacity > 0);
+  assert.ok(midGeometries[0].nodes[0].translateY < 10);
+  assert.ok(midGeometries[0].edges[0].opacity > 0);
+  assert.ok(
+    midGeometries[0].edges[0].dashOffset > 0
+      && midGeometries[0].edges[0].dashOffset < 1000,
+  );
+  assert.ok(endGeometry.nodes.every(
+    (node) => node.opacity > 0.99 && node.translateY < 0.01,
+  ));
+  assert.ok(endGeometry.edges.every(
+    (edge) => edge.opacity > 0.99 && edge.dashOffset < 50,
+  ));
+  assert.deepEqual(midGeometries.at(-1), midGeometries[0]);
 });
 
 test("real browser pixels follow the approved route without seek drift", {

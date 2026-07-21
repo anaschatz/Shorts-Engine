@@ -130,7 +130,7 @@ export function validateGeometrySnapshots(snapshots, width, height, expectedPath
   for (const values of [expectedPersistentEntityIds, expectedVisualStateIds, expectedFocusIntervalIds, expectedTransitionIds]) if (!Array.isArray(values) || values.some((id) => !ENTITY_RE.test(id))) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
   if (!Array.isArray(expectedActionSignatures) || expectedActionSignatures.some((value) => !ACTION_SIGNATURE_RE.test(value)) || !Array.isArray(expectedSettledHoldFrames) || expectedSettledHoldFrames.some((frame) => !Number.isInteger(frame))) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
   const clippedEntities = [], captionSafeZoneViolations = [], pathFollowerViolations = [], semanticRouteViolations = [], persistentContinuityViolations = [], focusViolations = [], primaryRoiViolations = [], legibilityViolations = [], contrastViolations = [], actionCoverageViolations = [], checkpoints = [];
-  let entityObservationCount = 0, pathFollowerObservationCount = 0, semanticRouteObservationCount = 0, persistentObservationCount = 0, labelObservationCount = 0;
+  let entityObservationCount = 0, pathFollowerObservationCount = 0, semanticRouteObservationCount = 0, boundedGeometryObservationCount = 0, persistentObservationCount = 0, labelObservationCount = 0;
   const observedPathFollowerIds = new Set();
   const observedLabelIds = new Set();
   let markedLabelIds = null;
@@ -319,6 +319,88 @@ export function validateGeometrySnapshots(snapshots, width, height, expectedPath
           opacity: Number(module.opacity.toFixed(4)),
         });
       });
+    const boundedGeometryInput = snapshot.boundedGeometry === undefined
+      ? []
+      : snapshot.boundedGeometry;
+    if (!Array.isArray(boundedGeometryInput)) {
+      throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
+    }
+    const boundedGeometry = boundedGeometryInput.map((geometry) => {
+      if (
+        !geometry
+        || !Number.isInteger(geometry.sentenceIndex)
+        || geometry.sentenceIndex < 0
+        || geometry.sentenceIndex > 95
+        || typeof geometry.active !== "boolean"
+        || typeof geometry.visible !== "boolean"
+        || !Array.isArray(geometry.nodes)
+        || !geometry.nodes.length
+        || !Array.isArray(geometry.edges)
+        || !geometry.edges.length
+      ) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
+      const nodes = geometry.nodes.map((node) => {
+        if (
+          !node
+          || !Number.isInteger(node.index)
+          || node.index < 0
+          || node.index > 11
+          || !Number.isFinite(node.opacity)
+          || node.opacity < -0.001
+          || node.opacity > 1.001
+          || (
+            node.translateY !== null
+            && (
+              !Number.isFinite(node.translateY)
+              || node.translateY < -0.01
+              || node.translateY > 10.01
+            )
+          )
+          || (geometry.active && node.translateY === null)
+        ) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
+        return Object.freeze({
+          index: node.index,
+          opacity: Number(node.opacity.toFixed(4)),
+          translateY: node.translateY === null
+            ? null
+            : Number(node.translateY.toFixed(4)),
+        });
+      });
+      const edges = geometry.edges.map((edge) => {
+        if (
+          !edge
+          || !Number.isInteger(edge.index)
+          || edge.index < 0
+          || edge.index > 15
+          || !Number.isFinite(edge.opacity)
+          || edge.opacity < -0.001
+          || edge.opacity > 1.001
+          || !Number.isFinite(edge.dashOffset)
+          || edge.dashOffset < -0.01
+          || edge.dashOffset > 1000.01
+        ) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
+        return Object.freeze({
+          index: edge.index,
+          opacity: Number(edge.opacity.toFixed(4)),
+          dashOffset: Number(edge.dashOffset.toFixed(4)),
+        });
+      });
+      if (
+        new Set(nodes.map((node) => node.index)).size !== nodes.length
+        || new Set(edges.map((edge) => edge.index)).size !== edges.length
+      ) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
+      if (geometry.visible) boundedGeometryObservationCount += 1;
+      return Object.freeze({
+        sentenceIndex: geometry.sentenceIndex,
+        active: geometry.active,
+        visible: geometry.visible,
+        nodes: Object.freeze(nodes),
+        edges: Object.freeze(edges),
+      });
+    });
+    if (
+      new Set(boundedGeometry.map((geometry) => geometry.sentenceIndex)).size
+        !== boundedGeometry.length
+    ) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
     const activeSceneActionSignatures = snapshot.activeSceneActionSignatures === undefined
       ? []
       : snapshot.activeSceneActionSignatures;
@@ -337,7 +419,7 @@ export function validateGeometrySnapshots(snapshots, width, height, expectedPath
         activeSceneActionSignatures: [...activeSceneActionSignatures],
       }));
     }
-    checkpoints.push(Object.freeze({ frame: snapshot.frame, visualStateId: snapshot.visualStateId || null, focusIntervalId: snapshot.focusIntervalId || null, visibleEntities: visible, semanticRoutes: visibleSemanticRoutes, sceneActionModules: visibleSceneActionModules, activeSceneActionSignatures: [...activeSceneActionSignatures] }));
+    checkpoints.push(Object.freeze({ frame: snapshot.frame, visualStateId: snapshot.visualStateId || null, focusIntervalId: snapshot.focusIntervalId || null, visibleEntities: visible, semanticRoutes: visibleSemanticRoutes, sceneActionModules: visibleSceneActionModules, boundedGeometry: Object.freeze(boundedGeometry), activeSceneActionSignatures: [...activeSceneActionSignatures] }));
   }
   const unobservedPathFollowerIds = expectedPathFollowerIds.filter((id) => !observedPathFollowerIds.has(id));
   const persistentStateCoverageSummary = Object.fromEntries([...persistentStateCoverage.entries()].map(([entityId, states]) => [entityId, [...states].sort()]));
@@ -364,7 +446,7 @@ export function validateGeometrySnapshots(snapshots, width, height, expectedPath
     }));
   }
   const passed = clippedEntities.length === 0 && captionSafeZoneViolations.length === 0 && pathFollowerViolations.length === 0 && semanticRouteViolations.length === 0 && unobservedPathFollowerIds.length === 0 && persistentContinuityViolations.length === 0 && focusViolations.length === 0 && primaryRoiViolations.length === 0 && legibilityViolations.length === 0 && contrastViolations.length === 0 && actionCoverageViolations.length === 0;
-  return Object.freeze({ passed, semanticRoi, captionSafeZone, checkpointCount: snapshots.length, entityObservationCount, pathFollowerObservationCount, semanticRouteObservationCount, persistentObservationCount, labelObservationCount, markedLabelIds: markedLabelIdList, observedLabelIds: observedLabelIdList, unobservedLabelIds, observedPathFollowerIds: [...observedPathFollowerIds].sort(), unobservedPathFollowerIds, persistentStateCoverage: persistentStateCoverageSummary, observedTransitionIds: observedTransitionIds.sort(), observedFocusIntervalIds: [...observedFocusIntervalIds].sort(), unobservedFocusIntervalIds, observedActionSignatures: [...observedActionSignatures].sort(), unobservedActionSignatures, clippedEntities, captionSafeZoneViolations, pathFollowerViolations, semanticRouteViolations, persistentContinuityViolations, focusViolations, primaryRoiViolations, legibilityViolations, contrastViolations, actionCoverageViolations, checkpoints });
+  return Object.freeze({ passed, semanticRoi, captionSafeZone, checkpointCount: snapshots.length, entityObservationCount, pathFollowerObservationCount, semanticRouteObservationCount, boundedGeometryObservationCount, persistentObservationCount, labelObservationCount, markedLabelIds: markedLabelIdList, observedLabelIds: observedLabelIdList, unobservedLabelIds, observedPathFollowerIds: [...observedPathFollowerIds].sort(), unobservedPathFollowerIds, persistentStateCoverage: persistentStateCoverageSummary, observedTransitionIds: observedTransitionIds.sort(), observedFocusIntervalIds: [...observedFocusIntervalIds].sort(), unobservedFocusIntervalIds, observedActionSignatures: [...observedActionSignatures].sort(), unobservedActionSignatures, clippedEntities, captionSafeZoneViolations, pathFollowerViolations, semanticRouteViolations, persistentContinuityViolations, focusViolations, primaryRoiViolations, legibilityViolations, contrastViolations, actionCoverageViolations, checkpoints });
 }
 
 export async function runBrowserSeekProof(input, dependencies = {}) {
@@ -571,6 +653,24 @@ export async function runBrowserSeekProof(input, dependencies = {}) {
             translateY: Number(module.dataset.sceneActionTranslateY),
             scale: Number(module.dataset.sceneActionScale),
             opacity: Number(module.dataset.sceneActionOpacity),
+          })),
+          boundedGeometry: [...document.querySelectorAll(".semantic-bounded-geometry")].map((root) => ({
+            sentenceIndex: Number(root.closest("[data-sentence-index]")?.dataset.sentenceIndex),
+            active: root.closest("[data-sentence-id]")?.dataset.sentenceId
+              === document.documentElement.dataset.activeSemanticSentenceId,
+            visible: effectiveOpacity(root) > 0.01,
+            nodes: [...root.querySelectorAll(".semantic-bounded-node")].map((node) => ({
+              index: Number(node.dataset.blueprintNodeIndex),
+              opacity: Number(getComputedStyle(node).opacity),
+              translateY: node.transform?.baseVal?.consolidate?.()?.matrix?.f ?? null,
+            })),
+            edges: [...root.querySelectorAll(".semantic-bounded-edge")].map((edge) => ({
+              index: Number(edge.dataset.blueprintEdgeIndex),
+              opacity: Number(getComputedStyle(edge).opacity),
+              dashOffset: Number.parseFloat(
+                edge.style.strokeDashoffset || getComputedStyle(edge).strokeDashoffset,
+              ),
+            })),
           })),
         };
         return { renderedFrame: Number(document.documentElement.dataset.renderedFrame), geometry };

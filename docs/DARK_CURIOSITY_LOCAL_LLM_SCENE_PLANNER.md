@@ -328,11 +328,20 @@ or motion gate fails.
 
 ## Remaining limitations
 
-DSL v1 choreographs the existing three grounded modules. It still cannot create
-new source-grounded geometry, new primitive types or model-authored renderer
-code. A future bounded primitive factory is required for genuinely new visual
-structures; it must preserve the same allowlist, source-binding and browser-QA
-boundaries.
+DSL v1 still choreographs the existing three grounded modules, but generalized
+scene composition v2 now adds a server-owned bounded geometry factory inside
+the primary module. Each sentence receives a graph/proposition/primitive-bound
+recipe and deterministic node/edge program, so unrelated narration can produce
+distinct visual topology without permitting raw geometry or renderer code from
+the model. Approved route waypoints retain factual provenance; every seeded
+topology is explicitly illustrative.
+
+The local LLM still cannot create primitive types, coordinates, labels, SVG,
+styles, timing, or executable renderer code. It also does not select the
+geometry recipe in this slice: grammar-to-recipe selection is deterministic
+and compiler-owned. A future DSL/profile may let a model choose one recipe enum
+from a context-specific allowlist, but coordinates, topology compilation,
+budgets, source validation, and browser QA must remain renderer-owned.
 
 The active-plan install now uses a full-snapshot project compare-and-swap. A
 failed install can leave a content-addressed scene-plan artifact for normal

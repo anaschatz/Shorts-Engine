@@ -1,4 +1,7 @@
 import { createRequire } from "node:module";
+import {
+  semanticBoundedGeometryMarkup,
+} from "./semantic-bounded-geometry.mjs";
 
 const require = createRequire(import.meta.url);
 const sceneCompositionContract = require(
@@ -313,6 +316,12 @@ export function semanticSceneCompositionMarkup(
   const layout = LAYOUTS[composition.layoutId];
   if (!layout) throw new TypeError("Semantic scene composition layout is invalid.");
   const [primary, supportA, supportB] = composition.modules;
+  const propositionId = sentence.propositionId;
+  const boundedGeometryMarkup = semanticBoundedGeometryMarkup({
+    propositionId,
+    primitiveParameters: parameters,
+    sceneComposition: composition,
+  });
   return `<g class="semantic-scene-composition"
  data-scene-composition-profile-id="${escapeXml(composition.profileId)}"
  data-scene-composition-id="${escapeXml(composition.id)}"
@@ -333,7 +342,8 @@ export function semanticSceneCompositionMarkup(
   <g class="semantic-primary-module"
    data-scene-module-id="${escapeXml(primary.id)}"
    data-scene-module-kind="${escapeXml(primary.kind)}"
-   data-reveal-order="${primary.revealOrder}">${primaryMarkup}</g>
+   data-reveal-order="${primary.revealOrder}">${primaryMarkup}
+   ${boundedGeometryMarkup}</g>
  </g>
  ${contextSupportMarkup(supportA, layout.supportA, parameters, sentenceIndex)}
  ${stateBadgeMarkup(
