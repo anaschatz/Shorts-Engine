@@ -134,6 +134,18 @@ function readabilityHolds(ir) {
 }
 
 function motionSegments(ir) {
+  const sentencePlan = ir.content?.semanticVisualSentencePlan;
+  if (
+    ir.content?.semantic?.profileId === SEMANTIC_SENTENCE_PROFILE_ID
+    && Array.isArray(sentencePlan?.sentences)
+    && sentencePlan.sentences.length > 0
+  ) {
+    return sentencePlan.sentences.map((sentence) => ({
+      id: sentence.id,
+      startFrame: sentence.wordSpan.startFrame,
+      endFrame: sentence.wordSpan.endFrame,
+    }));
+  }
   return ir.scenes.map((scene) => ({ id: scene.id, startFrame: scene.startFrame, endFrame: scene.endFrame }));
 }
 
@@ -151,6 +163,7 @@ function browserQaExpectations(ir, seekSequence, actionQa = null) {
       visualStateIds: graph.states.map((state) => state.id),
       focusIntervalIds: graph.focusIntervals.map((interval) => interval.id),
       transitionIds: graph.stateTransitions.map((transition) => transition.id),
+      boundedGeometrySentenceIndices: [],
     });
   }
   if (ir.content?.semantic?.profileId === GENERIC_SEMANTIC_PROFILE_ID) {
@@ -164,6 +177,7 @@ function browserQaExpectations(ir, seekSequence, actionQa = null) {
       visualStateIds: ir.content.visualPlan.scenes.map((scene) => scene.id),
       focusIntervalIds: [],
       transitionIds: [],
+      boundedGeometrySentenceIndices: [],
     });
   }
   if (ir.content?.semantic?.profileId === SEMANTIC_SENTENCE_PROFILE_ID) {
@@ -187,6 +201,10 @@ function browserQaExpectations(ir, seekSequence, actionQa = null) {
       settledHoldFrames: (actionQa?.settledHoldFrames || []).filter(
         (frame) => seekSequence.includes(frame),
       ),
+      boundedGeometrySentenceIndices:
+        sentencePlan.sceneCompositionProfileId
+          ? sentencePlan.sentences.map((_sentence, index) => index)
+          : [],
     });
   }
   fail("ANIMATION_QA_POLICY_MISSING");
@@ -229,6 +247,8 @@ function sameValues(left, right) {
 
 function browserResultMeetsPolicy(value, expected) {
   const geometry = value?.geometryAudit;
+  const expectedBoundedGeometrySentenceIndices =
+    expected.boundedGeometrySentenceIndices || [];
   if (!value || value.passed !== true || value.loadedOnce !== true || value.pageLoadCount !== 1 || value.stateIsolation?.valid !== true) return false;
   if (value.externalRequestCount !== 0 || value.blockedExternalRequestCount !== 0) return false;
   if (JSON.stringify(value.seekSequence) !== JSON.stringify(expected.seekSequence) || JSON.stringify(value.cacheWarmupFrames) !== JSON.stringify(expected.cacheWarmupFrames)) return false;
@@ -237,6 +257,10 @@ function browserResultMeetsPolicy(value, expected) {
   if (
     (expected.persistentEntityIds.length > 0 && geometry.persistentObservationCount <= 0)
     || (expected.pathFollowerIds.length > 0 && geometry.pathFollowerObservationCount <= 0)
+    || (
+      expectedBoundedGeometrySentenceIndices.length > 0
+      && geometry.boundedGeometryObservationCount <= 0
+    )
     || geometry.labelObservationCount <= 0
   ) return false;
   if (!sameValues(geometry.observedPathFollowerIds, expected.pathFollowerIds) || geometry.unobservedPathFollowerIds?.length !== 0) return false;
@@ -249,9 +273,16 @@ function browserResultMeetsPolicy(value, expected) {
     || (geometry.actionCoverageViolations || []).length !== 0
   ) return false;
   if (!sameValues(geometry.observedTransitionIds, expected.transitionIds) || !sameValues(geometry.observedFocusIntervalIds, expected.focusIntervalIds) || geometry.unobservedFocusIntervalIds?.length !== 0) return false;
+  if (
+    !sameValues(
+      geometry.observedBoundedGeometrySentenceIndices || [],
+      expectedBoundedGeometrySentenceIndices,
+    )
+    || (geometry.unobservedBoundedGeometrySentenceIndices || []).length !== 0
+  ) return false;
   if (!Array.isArray(geometry.markedLabelIds) || !geometry.markedLabelIds.length || !sameValues(geometry.markedLabelIds, geometry.observedLabelIds) || geometry.unobservedLabelIds?.length !== 0) return false;
   for (const entityId of expected.persistentEntityIds) if (!sameValues(geometry.persistentStateCoverage?.[entityId], expected.visualStateIds)) return false;
-  for (const field of ["clippedEntities", "captionSafeZoneViolations", "pathFollowerViolations", "persistentContinuityViolations", "focusViolations", "primaryRoiViolations", "legibilityViolations", "contrastViolations"]) if (!Array.isArray(geometry[field]) || geometry[field].length !== 0) return false;
+  for (const field of ["clippedEntities", "captionSafeZoneViolations", "pathFollowerViolations", "boundedGeometryClippingViolations", "boundedGeometryCaptionSafeZoneViolations", "persistentContinuityViolations", "focusViolations", "primaryRoiViolations", "legibilityViolations", "contrastViolations"]) if (!Array.isArray(geometry[field]) || geometry[field].length !== 0) return false;
   return true;
 }
 
@@ -421,6 +452,8 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
       expectedTransitionIds: expectations.transitionIds,
       expectedActionSignatures: expectations.actionSignatures || [],
       expectedSettledHoldFrames: expectations.settledHoldFrames || [],
+      expectedBoundedGeometrySentenceIndices:
+        expectations.boundedGeometrySentenceIndices || [],
       legibilityProfile: "mobile_720_v1",
     });
     if (!browserResultMeetsPolicy(browser, {
@@ -433,6 +466,8 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
       transitionIds: expectations.transitionIds,
       actionSignatures: expectations.actionSignatures || [],
       settledHoldFrames: expectations.settledHoldFrames || [],
+      boundedGeometrySentenceIndices:
+        expectations.boundedGeometrySentenceIndices || [],
     })) fail("ANIMATION_QA_BLOCKED");
     const browserProof = publicBrowserProof(browser);
     const motionQa = publicMotionQa((dependencies.runBenchmarkQa || runBenchmarkQa)({
@@ -524,6 +559,7 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
 module.exports = {
   browserQaExpectations,
   browserResultMeetsPolicy,
+  motionSegments,
   motionQaGeometryRequirements,
   runProductionAnimationRender,
   safeSeekSequence,

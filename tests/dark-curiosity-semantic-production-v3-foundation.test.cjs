@@ -38,6 +38,7 @@ const {
 const {
   browserQaExpectations,
   browserResultMeetsPolicy,
+  motionSegments,
   motionQaGeometryRequirements,
   safeSeekSequence,
 } = require("../server/pipelines/narrated-short/animation/render-service.cjs");
@@ -435,7 +436,10 @@ test("fixed semantic-v3 graphs reject freshly rehashed sentence-plan tampering",
   );
 });
 
-test("semantic-v3 QA samples every sentence and does not invent continuity geometry", () => {
+test("semantic-v3 QA samples every sentence and does not invent continuity geometry", async () => {
+  const { compileAnimationIRToHtml } = await import(
+    "../renderer/hyperframes/animation-ir-adapter.mjs"
+  );
   for (const id of CASES) {
     const value = fixture(id);
     const { animationIR } = compileProductionAnimation({
@@ -446,20 +450,43 @@ test("semantic-v3 QA samples every sentence and does not invent continuity geome
       renderProfile: "preview",
     });
     const sentences = animationIR.content.semanticVisualSentencePlan.sentences;
-    const seekSequence = safeSeekSequence(animationIR);
+    assert.deepEqual(
+      motionSegments(animationIR),
+      sentences.map((sentence) => ({
+        id: sentence.id,
+        startFrame: sentence.wordSpan.startFrame,
+        endFrame: sentence.wordSpan.endFrame,
+      })),
+      id,
+    );
+    const composition = compileAnimationIRToHtml(animationIR, {
+      semanticSourceContext: {
+        draft: value.draft,
+        timingContext: value.timingContext,
+      },
+    });
+    const seekSequence = safeSeekSequence(animationIR, composition.actionQa);
     const expectations = browserQaExpectations(animationIR, seekSequence);
     for (const sentence of sentences) {
-      assert.ok(seekSequence.includes(Math.floor(
-        (sentence.wordSpan.startFrame + sentence.wordSpan.endFrame - 1) / 2,
+      assert.ok(seekSequence.some((frame) => (
+        frame >= sentence.wordSpan.startFrame
+        && frame < sentence.wordSpan.endFrame
       )), `${id}.${sentence.id}`);
     }
-    assert.ok(seekSequence.length <= 40, id);
+    assert.ok(seekSequence.length <= 55, id);
     assert.ok(expectations.cacheWarmupFrames.length <= 20, id);
     assert.deepEqual(expectations.pathFollowerIds, [], id);
     assert.deepEqual(expectations.persistentEntityIds, [], id);
     assert.deepEqual(
       expectations.visualStateIds,
       sentences.map((sentence) => sentence.id),
+      id,
+    );
+    assert.deepEqual(
+      expectations.boundedGeometrySentenceIndices,
+      animationIR.content.semanticVisualSentencePlan.sceneCompositionProfileId
+        ? sentences.map((_sentence, index) => index)
+        : [],
       id,
     );
     assert.deepEqual(motionQaGeometryRequirements(animationIR), {
@@ -478,8 +505,10 @@ test("semantic-v3 QA samples every sentence and does not invent continuity geome
       visualStateIds: expectations.visualStateIds,
       focusIntervalIds: expectations.focusIntervalIds,
       transitionIds: expectations.transitionIds,
+      boundedGeometrySentenceIndices:
+        expectations.boundedGeometrySentenceIndices,
     };
-    assert.equal(browserResultMeetsPolicy({
+    const validBrowserResult = {
       seekSequence,
       cacheWarmupFrames: expectations.cacheWarmupFrames,
       captures: seekSequence.map((frame) => ({ frame })),
@@ -494,12 +523,17 @@ test("semantic-v3 QA samples every sentence and does not invent continuity geome
         checkpointCount: seekSequence.length,
         persistentObservationCount: 0,
         pathFollowerObservationCount: 0,
+        boundedGeometryObservationCount:
+          expectations.boundedGeometrySentenceIndices.length,
         labelObservationCount: 1,
         markedLabelIds: ["semantic_sentence_label"],
         observedLabelIds: ["semantic_sentence_label"],
         unobservedLabelIds: [],
         observedPathFollowerIds: [],
         unobservedPathFollowerIds: [],
+        observedBoundedGeometrySentenceIndices:
+          expectations.boundedGeometrySentenceIndices,
+        unobservedBoundedGeometrySentenceIndices: [],
         persistentStateCoverage: {},
         observedTransitionIds: [],
         observedFocusIntervalIds: [],
@@ -507,6 +541,8 @@ test("semantic-v3 QA samples every sentence and does not invent continuity geome
         clippedEntities: [],
         captionSafeZoneViolations: [],
         pathFollowerViolations: [],
+        boundedGeometryClippingViolations: [],
+        boundedGeometryCaptionSafeZoneViolations: [],
         persistentContinuityViolations: [],
         focusViolations: [],
         primaryRoiViolations: [],
@@ -514,6 +550,11 @@ test("semantic-v3 QA samples every sentence and does not invent continuity geome
         contrastViolations: [],
       },
       passed: true,
-    }, policy), true, id);
+    };
+    assert.equal(
+      browserResultMeetsPolicy(validBrowserResult, policy),
+      true,
+      id,
+    );
   }
 });

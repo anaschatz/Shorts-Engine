@@ -4,6 +4,9 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { compileAnimationIRToHtml } from "../renderer/hyperframes/animation-ir-adapter.mjs";
+import { runBrowserSeekProof } from "../renderer/hyperframes/browser-seek-harness.mjs";
+import { hyperframesDoctor } from "../renderer/hyperframes/doctor.mjs";
 
 const require = createRequire(import.meta.url);
 const { compileAnimationIR } = require("../server/pipelines/narrated-short/animation/compiler.cjs");
@@ -23,7 +26,7 @@ function compileFixture(width) {
   return compileAnimationIR(input);
 }
 
-async function renderSize(width, outputRoot) {
+async function renderSize(width, outputRoot, chromePath) {
   const ir = compileFixture(width);
   const runtimeDir = mkdtempSync(join(tmpdir(), `dark-curiosity-animation-${width}-`));
   const contactSheet = join(runtimeDir, "wow-signal-contact-sheet.png");
@@ -32,7 +35,44 @@ async function renderSize(width, outputRoot) {
     provider.verify(result);
     const stagedOutput = result.outputPath;
     writeContactSheet(stagedOutput, contactSheet);
-    const qa = runBenchmarkQa({ outputPath: stagedOutput, width: ir.width, height: ir.height, foregroundMaxY: Math.round(ir.height * 920 / 1280), captionSafeTopRatio: ir.motionBudget.captionSafeZone.topRatio, clippedEntities: 0 });
+    const composition = compileAnimationIRToHtml(ir);
+    const checkpointFrames = [...new Set([
+      0,
+      1,
+      ...ir.scenes.flatMap((scene) => [
+        scene.startFrame,
+        Math.floor((scene.startFrame + scene.endFrame - 1) / 2),
+        scene.endFrame - 1,
+      ]),
+      ir.durationFrames - 1,
+    ])].sort((left, right) => left - right);
+    const repeatedFrame = checkpointFrames[Math.floor(checkpointFrames.length / 2)];
+    const seekSequence = [...checkpointFrames, repeatedFrame, 0, repeatedFrame];
+    const browser = await runBrowserSeekProof({
+      html: composition.html,
+      width: ir.width,
+      height: ir.height,
+      fps: ir.fps,
+      durationFrames: ir.durationFrames,
+      chromePath,
+      seekSequence,
+      cacheWarmupFrames: [0, repeatedFrame],
+    });
+    if (!browser.passed) throw new Error("benchmark_browser_qa_failed");
+    const qa = runBenchmarkQa({
+      outputPath: stagedOutput,
+      width: ir.width,
+      height: ir.height,
+      expectedFrameCount: ir.durationFrames,
+      expectedFps: ir.fps,
+      geometryAudit: browser.geometryAudit,
+      readabilityHolds: ir.scenes.flatMap((scene) => scene.readabilityHolds),
+      segments: ir.scenes.map((scene) => ({
+        id: scene.id,
+        startFrame: scene.startFrame,
+        endFrame: scene.endFrame,
+      })),
+    });
     if (!qa.passed) throw new Error(`benchmark_qa_failed:${Object.entries(qa.checks).filter(([, passed]) => !passed).map(([name]) => name).join(",")}`);
     const finalDir = join(outputRoot, `${ir.width}x${ir.height}`);
     mkdirSync(finalDir, { recursive: true });
@@ -65,11 +105,11 @@ export async function runCli(args = process.argv.slice(2)) {
   if (widths.some((width) => ![720, 1080].includes(width))) throw new Error("--width must be 720, 1080, or both.");
   const plans = widths.map((width) => { const ir = compileFixture(width); return { width: ir.width, height: ir.height, fps: ir.fps, frames: ir.durationFrames, animationIRHash: ir.contentHash, estimate: provider.estimate({ animationIR: ir }) }; });
   if (!render) return { mode: "dry-run", mutated: false, provider: provider.id, plans };
-  const doctor = await provider.doctor();
-  if (!doctor.ready) throw new Error("HyperFrames benchmark provider is not ready.");
+  const doctor = await hyperframesDoctor();
+  if (!doctor.ready || !doctor.chromePath) throw new Error("HyperFrames benchmark provider is not ready.");
   const outputRoot = resolve(argValue(args, "--output") || join(ROOT, "data/benchmarks/dark-curiosity-animation/wow-signal"));
   const outputs = [];
-  for (const width of widths) outputs.push(await renderSize(width, outputRoot));
+  for (const width of widths) outputs.push(await renderSize(width, outputRoot, doctor.chromePath));
   return { mode: "render", provider: provider.id, outputs };
 }
 

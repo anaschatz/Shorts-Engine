@@ -4,7 +4,14 @@ const { mkdtempSync, existsSync } = require("node:fs");
 const { join } = require("node:path");
 const { tmpdir } = require("node:os");
 const { spawnSync } = require("node:child_process");
-const { analyzeConsecutiveFrames, analyzeSampleFrames, evaluateGeometryQuality, evaluateMotionQuality } = require("../server/pipelines/narrated-short/animation/benchmark-qa.cjs");
+const {
+  TEMPORAL_MOTION_METRIC_PROFILE_ID,
+  analyzeConsecutiveFrames,
+  analyzeSampleFrames,
+  evaluateGeometryQuality,
+  evaluateMotionQuality,
+  evaluateTemporalMotionQuality,
+} = require("../server/pipelines/narrated-short/animation/benchmark-qa.cjs");
 
 function frames(count, width, height, valueAt) {
   const output = Buffer.alloc(count * width * height);
@@ -50,6 +57,104 @@ test("consecutive motion QA detects late hooks, long stasis and concentrated ene
   assert.equal(evaluateMotionQuality(analyzeConsecutiveFrames(stalled, 2, 2)).contiguousStasis, false);
   const overloaded = frames(300, 2, 2, (frame) => frame < 51 ? (frame % 2 ? 240 : 10) : 10);
   assert.equal(evaluateMotionQuality(analyzeConsecutiveFrames(overloaded, 2, 2)).balancedMotion, false);
+});
+
+test("temporal motion metrics distinguish smooth motion from a one-frame jerk", () => {
+  const smooth = frames(30, 2, 2, (frame, pixel) => 30 + frame + pixel);
+  const smoothMetrics = analyzeConsecutiveFrames(smooth, 2, 2, {
+    segments: [
+      { id: "sentence_0", startFrame: 0, endFrame: 15 },
+      { id: "sentence_1", startFrame: 15, endFrame: 30 },
+    ],
+  });
+  assert.equal(
+    smoothMetrics.temporalMetricProfileId,
+    TEMPORAL_MOTION_METRIC_PROFILE_ID,
+  );
+  assert.equal(smoothMetrics.temporalThresholdStatus, "provisional");
+  assert.equal(smoothMetrics.meanAccelerationEnergy, 0);
+  assert.equal(smoothMetrics.meanJerkEnergy, 0);
+  assert.equal(smoothMetrics.maximumBoundaryJumpRatio, 1);
+  assert.deepEqual(smoothMetrics, analyzeConsecutiveFrames(smooth, 2, 2, {
+    segments: [
+      { id: "sentence_0", startFrame: 0, endFrame: 15 },
+      { id: "sentence_1", startFrame: 15, endFrame: 30 },
+    ],
+  }));
+
+  const teleport = frames(30, 2, 2, (frame, pixel) => (
+    frame === 15 ? 250 - pixel : 30 + frame + pixel
+  ));
+  const teleportMetrics = analyzeConsecutiveFrames(teleport, 2, 2, {
+    segments: [
+      { id: "sentence_0", startFrame: 0, endFrame: 15 },
+      { id: "sentence_1", startFrame: 15, endFrame: 30 },
+    ],
+  });
+  assert.ok(teleportMetrics.jerkEnergyP99 > smoothMetrics.jerkEnergyP99);
+  assert.ok(teleportMetrics.maximumBoundaryJumpRatio > 100);
+  const strict = evaluateTemporalMotionQuality(teleportMetrics, {
+    maximumJerkP99: 0.05,
+    maximumPeakJerk: 0.1,
+    maximumBoundaryJumpRatio: 10,
+  });
+  assert.equal(strict.temporalEvidence, true);
+  assert.equal(strict.jerkInRange, false);
+  assert.equal(strict.sentenceBoundaryContinuity, false);
+
+  const negative = structuredClone(teleportMetrics);
+  negative.jerkEnergyP99 = -0.01;
+  assert.throws(
+    () => evaluateTemporalMotionQuality(negative),
+    { code: "ANIMATION_QA_FAILED" },
+  );
+  const missingBoundaryEvidence = analyzeConsecutiveFrames(
+    smooth,
+    2,
+    2,
+    { segments: [{ id: "only_sentence", startFrame: 0, endFrame: 30 }] },
+  );
+  assert.deepEqual(evaluateTemporalMotionQuality(missingBoundaryEvidence), {
+    temporalEvidence: false,
+    jerkInRange: true,
+    sentenceBoundaryContinuity: false,
+  });
+});
+
+test("temporal motion metrics exclude declared readability holds and reject bad ranges", () => {
+  const motion = frames(20, 2, 2, (frame) => (
+    frame < 16 ? 40 + frame : frame % 2 ? 250 : 5
+  ));
+  const withoutHold = analyzeConsecutiveFrames(motion, 2, 2);
+  const withHold = analyzeConsecutiveFrames(motion, 2, 2, {
+    readabilityHolds: [{ id: "outro_hold", startFrame: 16, endFrame: 20 }],
+  });
+  assert.ok(withHold.peakJerkEnergy < withoutHold.peakJerkEnergy);
+  assert.ok(withHold.jerkEnergyP99 < withoutHold.jerkEnergyP99);
+  assert.throws(
+    () => analyzeConsecutiveFrames(motion, 2, 2, {
+      segments: [{ id: "overflow", startFrame: 0, endFrame: 21 }],
+    }),
+    { code: "ANIMATION_QA_FAILED" },
+  );
+  assert.throws(
+    () => analyzeConsecutiveFrames(motion, 2, 2, {
+      segments: [
+        { id: "duplicate", startFrame: 0, endFrame: 12 },
+        { id: "duplicate", startFrame: 12, endFrame: 20 },
+      ],
+    }),
+    { code: "ANIMATION_QA_FAILED" },
+  );
+  assert.throws(
+    () => analyzeConsecutiveFrames(motion, 2, 2, {
+      segments: [
+        { id: "first", startFrame: 0, endFrame: 12 },
+        { id: "overlap", startFrame: 11, endFrame: 20 },
+      ],
+    }),
+    { code: "ANIMATION_QA_FAILED" },
+  );
 });
 
 test("semantic geometry QA fails closed on missing continuity, focus, ROI, or legibility proof", () => {

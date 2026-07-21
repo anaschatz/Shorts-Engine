@@ -368,6 +368,8 @@ test("generic production render accepts transitionless browser and motion proof 
             clippedEntities: [],
             captionSafeZoneViolations: [],
             pathFollowerViolations: [],
+            boundedGeometryClippingViolations: [],
+            boundedGeometryCaptionSafeZoneViolations: [],
             persistentContinuityViolations: [],
             focusViolations: [],
             primaryRoiViolations: [],
@@ -416,6 +418,14 @@ test("generic production render accepts transitionless browser and motion proof 
       primaryRoi: true,
       mobileLegibility: true,
     });
+    assert.deepEqual(
+      benchmarkRequest.segments,
+      result.animationIR.scenes.map((scene) => ({
+        id: scene.id,
+        startFrame: scene.startFrame,
+        endFrame: scene.endFrame,
+      })),
+    );
     assert.equal(result.qa.motion.checks.persistentContinuity, true);
     assert.equal(result.qa.motion.checks.focusExclusivity, true);
   } finally {

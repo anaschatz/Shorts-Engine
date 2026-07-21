@@ -21,6 +21,9 @@ const {
 const {
   buildSemanticAnimationSceneDslPlanFromScenes,
 } = require("../server/pipelines/narrated-short/animation/semantic-animation-scene-dsl-plan.cjs");
+const {
+  browserQaExpectations,
+} = require("../server/pipelines/narrated-short/animation/render-service.cjs");
 
 const RUN_BROWSER_PROOF =
   process.env.RUN_SEMANTIC_SCENE_ACTION_BROWSER_TEST === "1";
@@ -238,6 +241,9 @@ test("real browser pixels execute distinct Scene DSL actions deterministically",
     chromePath: doctor.chromePath,
     seekSequence,
     cacheWarmupFrames: [developFrame],
+    expectedBoundedGeometrySentenceIndices: sentences.map(
+      (_sentence, index) => index,
+    ),
     legibilityProfile: "mobile_720_v1",
   });
   const baselineProof = await runBrowserSeekProof(
@@ -259,6 +265,14 @@ test("real browser pixels execute distinct Scene DSL actions deterministically",
   assert.ok(baselineProof.repeatedFrames.every((entry) => entry.equal));
   assert.ok(changedProof.repeatedFrames.every((entry) => entry.equal));
   assert.ok(changedProof.geometryAudit.boundedGeometryObservationCount > 0);
+  assert.deepEqual(
+    changedProof.geometryAudit.boundedGeometryClippingViolations,
+    [],
+  );
+  assert.deepEqual(
+    changedProof.geometryAudit.boundedGeometryCaptionSafeZoneViolations,
+    [],
+  );
   assert.notEqual(
     hashAt(changedProof, entryFrame),
     hashAt(changedProof, entryMidFrame),
@@ -413,12 +427,20 @@ test("real browser pixels follow the approved route without seek drift", {
     chromePath: doctor.chromePath,
     seekSequence,
     cacheWarmupFrames: [moveMid],
+    expectedBoundedGeometrySentenceIndices: sentences.map(
+      (_sentence, index) => index,
+    ),
     legibilityProfile: "mobile_720_v1",
   });
   assert.equal(proof.passed, true, JSON.stringify(proof.geometryAudit));
   assert.ok(proof.repeatedFrames.every((entry) => entry.equal));
   assert.ok(proof.geometryAudit.semanticRouteObservationCount > 0);
   assert.deepEqual(proof.geometryAudit.semanticRouteViolations, []);
+  assert.deepEqual(proof.geometryAudit.boundedGeometryClippingViolations, []);
+  assert.deepEqual(
+    proof.geometryAudit.boundedGeometryCaptionSafeZoneViolations,
+    [],
+  );
   assert.notEqual(hashAt(proof, move.startFrame), hashAt(proof, moveMid));
   assert.notEqual(hashAt(proof, moveMid), hashAt(proof, move.endFrame));
   const checkpointAt = (frame) => proof.geometryAudit.checkpoints.find(
@@ -475,5 +497,79 @@ test("real browser pixels follow the approved route without seek drift", {
       x: Number(expectedEnd.x.toFixed(4)),
       y: Number(expectedEnd.y.toFixed(4)),
     },
+  );
+});
+
+test("real browser keeps every GPS sentence geometry inside the safe visual area", {
+  skip: !RUN_BROWSER_PROOF,
+}, async () => {
+  const [
+    { compileAnimationIRToHtml },
+    { semanticSentenceRenderIntervals },
+    { runBrowserSeekProof },
+    { hyperframesDoctor },
+  ] = await Promise.all([
+    import("../renderer/hyperframes/animation-ir-adapter.mjs"),
+    import("../renderer/hyperframes/semantic-sentence-animation.mjs"),
+    import("../renderer/hyperframes/browser-seek-harness.mjs"),
+    import("../renderer/hyperframes/doctor.mjs"),
+  ]);
+  const draft = fixtureDraft("002_gps_week_rollover");
+  const timingContext = timingFor(draft);
+  const compiled = compileProductionAnimation({
+    animationProfile: "semantic-v3",
+    projectId: "prj_scene_action_gps_browser",
+    projectRevision: 1,
+    renderProfile: "preview",
+    draft,
+    timingContext,
+  });
+  const sentences =
+    compiled.animationIR.content.semanticVisualSentencePlan.sentences;
+  const intervals = semanticSentenceRenderIntervals(
+    sentences,
+    compiled.animationIR.durationFrames,
+  );
+  const sentenceMidpoints = intervals.map((interval) => Math.floor(
+    (interval.startFrame + interval.semanticEndFrame - 1) / 2,
+  ));
+  const seekSequence = [...sentenceMidpoints, sentenceMidpoints[0]];
+  const productionExpectations = browserQaExpectations(
+    compiled.animationIR,
+    seekSequence,
+  );
+  assert.deepEqual(
+    productionExpectations.boundedGeometrySentenceIndices,
+    sentences.map((_sentence, index) => index),
+  );
+  const composition = compileAnimationIRToHtml(compiled.animationIR, {
+    semanticSourceContext: { draft, timingContext },
+  });
+  const doctor = await hyperframesDoctor();
+  assert.equal(doctor.ready, true);
+  const proof = await runBrowserSeekProof({
+    html: composition.html,
+    width: compiled.animationIR.width,
+    height: compiled.animationIR.height,
+    fps: compiled.animationIR.fps,
+    durationFrames: compiled.animationIR.durationFrames,
+    chromePath: doctor.chromePath,
+    seekSequence,
+    cacheWarmupFrames: [sentenceMidpoints[0]],
+    expectedBoundedGeometrySentenceIndices: sentences.map(
+      (_sentence, index) => index,
+    ),
+    legibilityProfile: "mobile_720_v1",
+  });
+  assert.equal(proof.passed, true, JSON.stringify(proof.geometryAudit));
+  assert.equal(proof.repeatedFrames.length, 1);
+  assert.equal(proof.repeatedFrames[0].equal, true);
+  assert.ok(
+    proof.geometryAudit.boundedGeometryObservationCount >= sentences.length,
+  );
+  assert.deepEqual(proof.geometryAudit.boundedGeometryClippingViolations, []);
+  assert.deepEqual(
+    proof.geometryAudit.boundedGeometryCaptionSafeZoneViolations,
+    [],
   );
 });

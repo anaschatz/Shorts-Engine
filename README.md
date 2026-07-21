@@ -226,6 +226,7 @@ Useful technical documents:
 
 - [Narrated visual architecture](docs/NARRATED_VISUAL_SHORTS_ARCHITECTURE.md)
 - [Continuous animation architecture](docs/DARK_CURIOSITY_ANIMATION_ARCHITECTURE.md)
+- [Motion-integrity QA](docs/DARK_CURIOSITY_MOTION_INTEGRITY_QA.md)
 - [Motivational growth architecture](docs/BUDGET_FRIENDLY_GROWTH_ARCHITECTURE.md)
 - [Production beta plan](docs/PRODUCTION_BETA.md)
 - [Environment reference](docs/ENVIRONMENT.md)

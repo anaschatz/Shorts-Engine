@@ -179,6 +179,88 @@ test("geometry audit rejects real clipping and caption-safe collisions", () => {
   assert.deepEqual(missingFollower.unobservedPathFollowerIds, ["signal-dot"]);
 });
 
+test("geometry audit proves bounded animation nodes stay inside the semantic ROI", () => {
+  const bounded = (bounds, nodeBounds = bounds) => ({
+    frame: 12,
+    ...geometry(),
+    boundedGeometry: [{
+      sentenceIndex: 2,
+      active: true,
+      visible: true,
+      bounds,
+      nodes: [{
+        index: 0,
+        opacity: 1,
+        translateY: 0,
+        bounds: nodeBounds,
+      }],
+      edges: [{ index: 0, opacity: 1, dashOffset: 0 }],
+    }],
+  });
+  const clean = validateGeometrySnapshots([
+    bounded(
+      { x: 100, y: 260, width: 480, height: 400 },
+      { x: 140, y: 320, width: 30, height: 30 },
+    ),
+  ], 720, 1280, [], {
+    expectedBoundedGeometrySentenceIndices: [2],
+  });
+  assert.equal(clean.passed, true);
+  assert.equal(clean.boundedGeometryObservationCount, 1);
+  assert.deepEqual(clean.boundedGeometryClippingViolations, []);
+  assert.deepEqual(clean.boundedGeometryCaptionSafeZoneViolations, []);
+  assert.deepEqual(clean.observedBoundedGeometrySentenceIndices, [2]);
+  assert.deepEqual(clean.unobservedBoundedGeometrySentenceIndices, []);
+
+  const missing = validateGeometrySnapshots([{
+    frame: 12,
+    ...geometry(),
+    boundedGeometry: [],
+  }], 720, 1280, [], {
+    expectedBoundedGeometrySentenceIndices: [2],
+  });
+  assert.equal(missing.passed, false);
+  assert.deepEqual(missing.observedBoundedGeometrySentenceIndices, []);
+  assert.deepEqual(missing.unobservedBoundedGeometrySentenceIndices, [2]);
+
+  const partial = validateGeometrySnapshots([
+    bounded(
+      { x: 100, y: 260, width: 480, height: 400 },
+      { x: 140, y: 320, width: 30, height: 30 },
+    ),
+  ], 720, 1280, [], {
+    expectedBoundedGeometrySentenceIndices: [2, 3],
+  });
+  assert.equal(partial.passed, false);
+  assert.deepEqual(partial.unobservedBoundedGeometrySentenceIndices, [3]);
+
+  const escapedNode = validateGeometrySnapshots([
+    bounded(
+      { x: 20, y: 260, width: 560, height: 400 },
+      { x: 20, y: 320, width: 30, height: 30 },
+    ),
+  ], 720, 1280);
+  assert.equal(escapedNode.passed, false);
+  assert.ok(escapedNode.boundedGeometryClippingViolations.some(
+    (violation) => violation.target === "node"
+      && violation.reason === "outside_semantic_roi",
+  ));
+  assert.ok(escapedNode.boundedGeometryClippingViolations.some(
+    (violation) => violation.target === "root",
+  ));
+
+  const captionCollision = validateGeometrySnapshots([
+    bounded(
+      { x: 100, y: 900, width: 480, height: 70 },
+      { x: 140, y: 950, width: 30, height: 18 },
+    ),
+  ], 720, 1280);
+  assert.equal(captionCollision.passed, false);
+  assert.ok(captionCollision.boundedGeometryCaptionSafeZoneViolations.some(
+    (violation) => violation.target === "node",
+  ));
+});
+
 test("geometry audit proves action signatures and clean settled holds", () => {
   const firstSignature = "create:module_primary:entry:reveal";
   const secondSignature = "camera:scene:develop:push_primary";

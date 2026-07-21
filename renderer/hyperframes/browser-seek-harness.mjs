@@ -34,6 +34,9 @@ function validateRequest(input) {
   const expectedTransitionIds = input.expectedTransitionIds === undefined ? [] : input.expectedTransitionIds;
   const expectedActionSignatures = input.expectedActionSignatures === undefined ? [] : input.expectedActionSignatures;
   const expectedSettledHoldFrames = input.expectedSettledHoldFrames === undefined ? [] : input.expectedSettledHoldFrames;
+  const expectedBoundedGeometrySentenceIndices = input.expectedBoundedGeometrySentenceIndices === undefined
+    ? []
+    : input.expectedBoundedGeometrySentenceIndices;
   const legibilityProfile = input.legibilityProfile === undefined ? null : input.legibilityProfile;
   if (typeof chromePath !== "string" || !chromePath || typeof html !== "string") throw new BrowserSeekError("BROWSER_SEEK_REQUEST_INVALID");
   if (![width, height, fps, durationFrames].every(Number.isInteger) || width < 360 || width > 2160 || height < 640 || height > 3840 || fps < 24 || fps > 60 || durationFrames < 30 || durationFrames > 3600) throw new BrowserSeekError("BROWSER_SEEK_REQUEST_INVALID");
@@ -60,8 +63,17 @@ function validateRequest(input) {
     ))
     || new Set(expectedSettledHoldFrames).size !== expectedSettledHoldFrames.length
   ) throw new BrowserSeekError("BROWSER_SEEK_REQUEST_INVALID");
+  if (
+    !Array.isArray(expectedBoundedGeometrySentenceIndices)
+    || expectedBoundedGeometrySentenceIndices.length > 96
+    || expectedBoundedGeometrySentenceIndices.some((index) => (
+      !Number.isInteger(index) || index < 0 || index > 95
+    ))
+    || new Set(expectedBoundedGeometrySentenceIndices).size
+      !== expectedBoundedGeometrySentenceIndices.length
+  ) throw new BrowserSeekError("BROWSER_SEEK_REQUEST_INVALID");
   if (![null, "mobile_720_v1"].includes(legibilityProfile)) throw new BrowserSeekError("BROWSER_SEEK_REQUEST_INVALID");
-  return { html, width, height, fps, durationFrames, seekSequence, cacheWarmupFrames, chromePath, timeoutMs, expectedPathFollowerIds, expectedPersistentEntityIds, expectedVisualStateIds, expectedFocusIntervalIds, expectedTransitionIds, expectedActionSignatures, expectedSettledHoldFrames, legibilityProfile };
+  return { html, width, height, fps, durationFrames, seekSequence, cacheWarmupFrames, chromePath, timeoutMs, expectedPathFollowerIds, expectedPersistentEntityIds, expectedVisualStateIds, expectedFocusIntervalIds, expectedTransitionIds, expectedActionSignatures, expectedSettledHoldFrames, expectedBoundedGeometrySentenceIndices, legibilityProfile };
 }
 
 function repeatedFrameResults(captures) {
@@ -126,10 +138,21 @@ export function validateGeometrySnapshots(snapshots, width, height, expectedPath
   const expectedTransitionIds = expectations.expectedTransitionIds || [];
   const expectedActionSignatures = expectations.expectedActionSignatures || [];
   const expectedSettledHoldFrames = expectations.expectedSettledHoldFrames || [];
+  const expectedBoundedGeometrySentenceIndices =
+    expectations.expectedBoundedGeometrySentenceIndices || [];
   const legibilityProfile = expectations.legibilityProfile || null;
   for (const values of [expectedPersistentEntityIds, expectedVisualStateIds, expectedFocusIntervalIds, expectedTransitionIds]) if (!Array.isArray(values) || values.some((id) => !ENTITY_RE.test(id))) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
   if (!Array.isArray(expectedActionSignatures) || expectedActionSignatures.some((value) => !ACTION_SIGNATURE_RE.test(value)) || !Array.isArray(expectedSettledHoldFrames) || expectedSettledHoldFrames.some((frame) => !Number.isInteger(frame))) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
-  const clippedEntities = [], captionSafeZoneViolations = [], pathFollowerViolations = [], semanticRouteViolations = [], persistentContinuityViolations = [], focusViolations = [], primaryRoiViolations = [], legibilityViolations = [], contrastViolations = [], actionCoverageViolations = [], checkpoints = [];
+  if (
+    !Array.isArray(expectedBoundedGeometrySentenceIndices)
+    || expectedBoundedGeometrySentenceIndices.length > 96
+    || expectedBoundedGeometrySentenceIndices.some((index) => (
+      !Number.isInteger(index) || index < 0 || index > 95
+    ))
+    || new Set(expectedBoundedGeometrySentenceIndices).size
+      !== expectedBoundedGeometrySentenceIndices.length
+  ) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
+  const clippedEntities = [], captionSafeZoneViolations = [], pathFollowerViolations = [], semanticRouteViolations = [], boundedGeometryClippingViolations = [], boundedGeometryCaptionSafeZoneViolations = [], persistentContinuityViolations = [], focusViolations = [], primaryRoiViolations = [], legibilityViolations = [], contrastViolations = [], actionCoverageViolations = [], checkpoints = [];
   let entityObservationCount = 0, pathFollowerObservationCount = 0, semanticRouteObservationCount = 0, boundedGeometryObservationCount = 0, persistentObservationCount = 0, labelObservationCount = 0;
   const observedPathFollowerIds = new Set();
   const observedLabelIds = new Set();
@@ -138,6 +161,7 @@ export function validateGeometrySnapshots(snapshots, width, height, expectedPath
   const observedFocusIntervalIds = new Set();
   const transitionPathHashes = new Map(expectedTransitionIds.map((transitionId) => [transitionId, new Set()]));
   const observedActionSignatures = new Set();
+  const observedBoundedGeometrySentenceIndices = new Set();
   const settledHoldFrameSet = new Set(expectedSettledHoldFrames);
   for (const snapshot of snapshots) {
     if (!snapshot || !Number.isInteger(snapshot.frame) || !Array.isArray(snapshot.entities)) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
@@ -338,6 +362,10 @@ export function validateGeometrySnapshots(snapshots, width, height, expectedPath
         || !Array.isArray(geometry.edges)
         || !geometry.edges.length
       ) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
+      const rootBounds = checkedRect(
+        geometry.bounds,
+        `boundedGeometry.${geometry.sentenceIndex}.bounds`,
+      );
       const nodes = geometry.nodes.map((node) => {
         if (
           !node
@@ -357,12 +385,38 @@ export function validateGeometrySnapshots(snapshots, width, height, expectedPath
           )
           || (geometry.active && node.translateY === null)
         ) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
+        const bounds = checkedRect(
+          node.bounds,
+          `boundedGeometry.${geometry.sentenceIndex}.nodes.${node.index}.bounds`,
+        );
+        if (geometry.visible && node.opacity > 0.01) {
+          if (!contains(semanticRoi, bounds)) {
+            boundedGeometryClippingViolations.push(Object.freeze({
+              frame: snapshot.frame,
+              sentenceIndex: geometry.sentenceIndex,
+              nodeIndex: node.index,
+              target: "node",
+              reason: "outside_semantic_roi",
+              bounds,
+            }));
+          }
+          if (intersects(bounds, captionSafeZone)) {
+            boundedGeometryCaptionSafeZoneViolations.push(Object.freeze({
+              frame: snapshot.frame,
+              sentenceIndex: geometry.sentenceIndex,
+              nodeIndex: node.index,
+              target: "node",
+              bounds,
+            }));
+          }
+        }
         return Object.freeze({
           index: node.index,
           opacity: Number(node.opacity.toFixed(4)),
           translateY: node.translateY === null
             ? null
             : Number(node.translateY.toFixed(4)),
+          bounds,
         });
       });
       const edges = geometry.edges.map((edge) => {
@@ -388,11 +442,32 @@ export function validateGeometrySnapshots(snapshots, width, height, expectedPath
         new Set(nodes.map((node) => node.index)).size !== nodes.length
         || new Set(edges.map((edge) => edge.index)).size !== edges.length
       ) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
-      if (geometry.visible) boundedGeometryObservationCount += 1;
+      if (geometry.visible) {
+        boundedGeometryObservationCount += 1;
+        observedBoundedGeometrySentenceIndices.add(geometry.sentenceIndex);
+        if (!contains(semanticRoi, rootBounds)) {
+          boundedGeometryClippingViolations.push(Object.freeze({
+            frame: snapshot.frame,
+            sentenceIndex: geometry.sentenceIndex,
+            target: "root",
+            reason: "outside_semantic_roi",
+            bounds: rootBounds,
+          }));
+        }
+        if (intersects(rootBounds, captionSafeZone)) {
+          boundedGeometryCaptionSafeZoneViolations.push(Object.freeze({
+            frame: snapshot.frame,
+            sentenceIndex: geometry.sentenceIndex,
+            target: "root",
+            bounds: rootBounds,
+          }));
+        }
+      }
       return Object.freeze({
         sentenceIndex: geometry.sentenceIndex,
         active: geometry.active,
         visible: geometry.visible,
+        bounds: rootBounds,
         nodes: Object.freeze(nodes),
         edges: Object.freeze(edges),
       });
@@ -439,14 +514,18 @@ export function validateGeometrySnapshots(snapshots, width, height, expectedPath
   const unobservedActionSignatures = expectedActionSignatures.filter(
     (signature) => !observedActionSignatures.has(signature),
   );
+  const unobservedBoundedGeometrySentenceIndices =
+    expectedBoundedGeometrySentenceIndices.filter(
+      (index) => !observedBoundedGeometrySentenceIndices.has(index),
+    );
   for (const signature of unobservedActionSignatures) {
     actionCoverageViolations.push(Object.freeze({
       signature,
       reason: "action_signature_unobserved",
     }));
   }
-  const passed = clippedEntities.length === 0 && captionSafeZoneViolations.length === 0 && pathFollowerViolations.length === 0 && semanticRouteViolations.length === 0 && unobservedPathFollowerIds.length === 0 && persistentContinuityViolations.length === 0 && focusViolations.length === 0 && primaryRoiViolations.length === 0 && legibilityViolations.length === 0 && contrastViolations.length === 0 && actionCoverageViolations.length === 0;
-  return Object.freeze({ passed, semanticRoi, captionSafeZone, checkpointCount: snapshots.length, entityObservationCount, pathFollowerObservationCount, semanticRouteObservationCount, boundedGeometryObservationCount, persistentObservationCount, labelObservationCount, markedLabelIds: markedLabelIdList, observedLabelIds: observedLabelIdList, unobservedLabelIds, observedPathFollowerIds: [...observedPathFollowerIds].sort(), unobservedPathFollowerIds, persistentStateCoverage: persistentStateCoverageSummary, observedTransitionIds: observedTransitionIds.sort(), observedFocusIntervalIds: [...observedFocusIntervalIds].sort(), unobservedFocusIntervalIds, observedActionSignatures: [...observedActionSignatures].sort(), unobservedActionSignatures, clippedEntities, captionSafeZoneViolations, pathFollowerViolations, semanticRouteViolations, persistentContinuityViolations, focusViolations, primaryRoiViolations, legibilityViolations, contrastViolations, actionCoverageViolations, checkpoints });
+  const passed = clippedEntities.length === 0 && captionSafeZoneViolations.length === 0 && pathFollowerViolations.length === 0 && semanticRouteViolations.length === 0 && boundedGeometryClippingViolations.length === 0 && boundedGeometryCaptionSafeZoneViolations.length === 0 && unobservedBoundedGeometrySentenceIndices.length === 0 && unobservedPathFollowerIds.length === 0 && persistentContinuityViolations.length === 0 && focusViolations.length === 0 && primaryRoiViolations.length === 0 && legibilityViolations.length === 0 && contrastViolations.length === 0 && actionCoverageViolations.length === 0;
+  return Object.freeze({ passed, semanticRoi, captionSafeZone, checkpointCount: snapshots.length, entityObservationCount, pathFollowerObservationCount, semanticRouteObservationCount, boundedGeometryObservationCount, observedBoundedGeometrySentenceIndices: [...observedBoundedGeometrySentenceIndices].sort((left, right) => left - right), unobservedBoundedGeometrySentenceIndices, persistentObservationCount, labelObservationCount, markedLabelIds: markedLabelIdList, observedLabelIds: observedLabelIdList, unobservedLabelIds, observedPathFollowerIds: [...observedPathFollowerIds].sort(), unobservedPathFollowerIds, persistentStateCoverage: persistentStateCoverageSummary, observedTransitionIds: observedTransitionIds.sort(), observedFocusIntervalIds: [...observedFocusIntervalIds].sort(), unobservedFocusIntervalIds, observedActionSignatures: [...observedActionSignatures].sort(), unobservedActionSignatures, clippedEntities, captionSafeZoneViolations, pathFollowerViolations, semanticRouteViolations, boundedGeometryClippingViolations, boundedGeometryCaptionSafeZoneViolations, persistentContinuityViolations, focusViolations, primaryRoiViolations, legibilityViolations, contrastViolations, actionCoverageViolations, checkpoints });
 }
 
 export async function runBrowserSeekProof(input, dependencies = {}) {
@@ -659,10 +738,12 @@ export async function runBrowserSeekProof(input, dependencies = {}) {
             active: root.closest("[data-sentence-id]")?.dataset.sentenceId
               === document.documentElement.dataset.activeSemanticSentenceId,
             visible: effectiveOpacity(root) > 0.01,
+            bounds: rect(root),
             nodes: [...root.querySelectorAll(".semantic-bounded-node")].map((node) => ({
               index: Number(node.dataset.blueprintNodeIndex),
               opacity: Number(getComputedStyle(node).opacity),
               translateY: node.transform?.baseVal?.consolidate?.()?.matrix?.f ?? null,
+              bounds: rect(node),
             })),
             edges: [...root.querySelectorAll(".semantic-bounded-edge")].map((edge) => ({
               index: Number(edge.dataset.blueprintEdgeIndex),
@@ -699,6 +780,8 @@ export async function runBrowserSeekProof(input, dependencies = {}) {
       expectedTransitionIds: request.expectedTransitionIds,
       expectedActionSignatures: request.expectedActionSignatures,
       expectedSettledHoldFrames: request.expectedSettledHoldFrames,
+      expectedBoundedGeometrySentenceIndices:
+        request.expectedBoundedGeometrySentenceIndices,
       legibilityProfile: request.legibilityProfile,
     });
     return Object.freeze({

@@ -1,6 +1,6 @@
 # Dark Curiosity Continuous Animation Architecture
 
-Status: Slice D1 bounded semantic geometry factory implemented; production migration not approved
+Status: Slice E1 provisional temporal Motion QA implemented; production migration not approved
 
 Decision target: `continuous_motion_renderer_v1`
 
@@ -237,7 +237,11 @@ Extend the existing QA with motion-specific gates:
 - `MOTION_OBJECT_PERSISTENCE`: matched semantic entities do not teleport;
 - `MOTION_RENDER_DETERMINISTIC`: sampled-frame hashes match on a repeated proof render.
 
-Use FFmpeg for frame extraction and OpenCV optical flow for metrics. Run a fast sampled preview gate first and full final QA only after approval.
+Slice E1 uses FFmpeg-decoded consecutive grayscale frames for deterministic
+velocity, acceleration, jerk, and sentence-boundary proxies. These are temporal
+luma derivatives, not optical flow. OpenCV optical flow remains a later
+calibration layer for direction-aware camera and object motion. Run a fast
+sampled preview gate first and full final QA only after approval.
 
 ## 10. Repository evaluation
 
@@ -307,6 +311,15 @@ styles, labels, timing, or executable renderer code.
 - visual contact sheets plus short animated proof clips for operator review;
 - calibrate thresholds on at least ten fixtures, including adversarial cases.
 
+Slice E1 completed on 2026-07-21. The benchmark now evaluates every decoded
+semantic-ROI frame, records normalized acceleration and jerk distributions,
+and measures motion discontinuity at semantic sentence boundaries. Semantic-v3
+QA segments follow exact sentence word spans instead of the five coarse beat
+scenes. The browser proof also measures each visible bounded-geometry root and
+node and fails if it leaves the semantic ROI or intersects the caption reserve.
+A strict, deterministic calibration-report contract keeps all new temporal
+thresholds in shadow mode and cannot self-approve production use.
+
 ### Slice F — Pilot switch
 
 - register `motion_canvas_v1` in the renderer provider registry;
@@ -346,7 +359,24 @@ the trusted graph, so swapping or freshly rehashing a syntactically valid
 blueprint is insufficient. Checked unparameterized profiles bypass the new
 path and retain their pinned HTML hashes.
 
-This result keeps HyperFrames approved for benchmark work, not as the production default. The existing SVG keyframe renderer remains unchanged. The next bounded slice should add pixel/OCR clipping checks plus jerk, continuity, and object-persistence metrics before expanding the remaining template families. Motion thresholds must still be calibrated across at least ten content fixtures. Network counters currently come from the separate proof browser loading the exact compiled composition; the internal HyperFrames capture browser is constrained by CSP and contains no remote assets, but its package API does not yet expose equivalent request telemetry. The lower caption reserve also needs compositional refinement so it remains safe without looking visually empty.
+Slice E1 closes the previously unmeasured full-frame jerk and bounded-geometry
+clipping gaps without pretending that the thresholds are calibrated. The
+current real content corpus contains 32 semantic sentence cases across only
+three stories (Wow Signal, GPS rollover, and Baychimo), plus seven synthetic
+engineering controls. The real Chromium proof passes for all three source
+stories, including every GPS sentence midpoint. This is enough to validate the
+measurement path, not enough to approve production thresholds.
+
+This result keeps HyperFrames approved for benchmark work, not as the
+production default. The existing SVG keyframe renderer remains unchanged. The
+next bounded slice should collect decoded-render evidence from at least seven
+additional story-distinct fixtures, then calibrate direction-aware optical
+flow, OCR readability, and true cross-sentence object persistence. Network
+counters currently come from the separate proof browser loading the exact
+compiled composition; the internal HyperFrames capture browser is constrained
+by CSP and contains no remote assets, but its package API does not yet expose
+equivalent request telemetry. The lower caption reserve also needs
+compositional refinement so it remains safe without looking visually empty.
 
 ## Primary references
 
