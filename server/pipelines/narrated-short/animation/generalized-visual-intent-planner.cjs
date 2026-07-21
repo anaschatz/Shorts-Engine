@@ -19,11 +19,23 @@ const {
   compatibleGrammarsForProposition,
   normalizeVisualCapabilityProposition,
 } = require("./visual-capability-registry.cjs");
+const {
+  SAFE_NEUTRAL_CUE_VISUAL_CONCEPT_IDS,
+  groundedNeutralCueVisualConceptIds,
+  semanticBoundedValueRangeClaimMatches,
+  semanticCounterCapacityComparisonClaimMatches,
+  semanticCounterMappingClaimMatches,
+  semanticCounterNotTimeClaimMatches,
+  semanticCounterTemporalErrorClaimMatches,
+  semanticEncodedBitClaimMatches,
+  semanticFiniteCounterWrapClaimMatches,
+  semanticReceiverPatchRequiredClaimMatches,
+} = require("./semantic-visual-concept-registry.cjs");
 
 const VISUAL_INTENT_GRAPH_SCHEMA_VERSION = 1;
 const VISUAL_INTENT_GRAPH_PROFILE_ID = "dark_curiosity_visual_intent_graph_v1";
 const VISUAL_INTENT_PRIMITIVE_PAYLOAD_PROFILE_ID =
-  "dark_curiosity_grounded_primitive_payload_v1";
+  "dark_curiosity_grounded_primitive_payload_v2";
 const HASH_PATTERN = /^[a-f0-9]{64}$/;
 const ID_PATTERN = /^[a-z][a-z0-9_-]{2,119}$/;
 const CLAIM_ID_PATTERN = /^claim_[A-Za-z0-9-]{2,72}$/;
@@ -81,7 +93,192 @@ function contains(textValue, pattern) {
   return pattern.test(String(textValue || "").toLocaleLowerCase("en-US"));
 }
 
-function storyBlueprint(storyVocabulary, semanticKind) {
+function strictCausalClaimMatches(value) {
+  return contains(
+    value,
+    /\b(?:caus(?:e|ed|es|ing)|because(?:\s+of)?|led\s+to|results?(?:ed|ing)?\s+in)\b/,
+  );
+}
+
+function strictModalUncertaintyMatches(value) {
+  const raw = String(value || "");
+  return /\b(?:could|might|remains?\s+possible)\b/i.test(raw)
+    || /\bmay\b/.test(raw);
+}
+
+function strictReportedAssumptionMatches(value) {
+  const context = String(value || "").toLocaleLowerCase("en-US");
+  return /\b[a-z][a-z'’-]{1,30}\s+(?:had\s+)?(?:assumed|believed|thought)\s+(?:a|an|he|it|she|that|the|there|they|this|we)\b/.test(
+    context,
+  )
+    || /\b(?:it|signal|ship|transmission|value|vessel)\s+(?:had\s+been|is|was)\s+(?:assumed|believed|thought)\s+to\b/.test(
+      context,
+    );
+}
+
+function strictSignalNonrecurrenceClaimMatches(value) {
+  const context = String(value || "").toLocaleLowerCase("en-US");
+  const signal = "(?:detections?|signals?|transmissions?)";
+  return new RegExp(
+    `\\b${signal}\\b\\s+(?:did\\s+not|never|was\\s+not|were\\s+not)\\s+(?:appear\\s+again|recur|recurred|repeat|repeated|return|returned)\\b`,
+  ).test(context)
+    || new RegExp(
+      `\\bnever\\s+(?:detected|found|observed|received|verified)\\b.{0,40}\\b(?:the\\s+)?(?:same\\s+)?${signal}\\b(?:.{0,16}\\bagain\\b)?`,
+    ).test(context)
+    || new RegExp(
+      `\\bno\\s+(?:repeat(?:ed|ing)?|recurring)\\s+${signal}\\b`,
+    ).test(context)
+    || new RegExp(
+      `\\bno\\s+${signal}\\b.{0,20}\\b(?:again|recurred|returned)\\b`,
+    ).test(context);
+}
+
+function strictRecurrenceClaimMatches(value) {
+  return contains(
+    value,
+    /\b(?:reappeared|recurred|came\s+back)\b|\b(?:appeared|returned|happened|occurred|was\s+(?:seen|sighted|spotted|observed|detected)|were\s+(?:seen|sighted|spotted|observed|detected))\s+again\b|\bagain\b.{0,32}\b(?:appeared|returned|happened|occurred|came\s+back)\b|\brepeated\b.{0,56}\b(?:again|each|every|twice|thrice|multiple\s+times|\d+\s+times?)\b|\b(?:reset(?:s|ting)?|wrap(?:s|ped|ping)?|roll(?:ed|s)?\s+over)\b.{0,40}\b(?:again|each|every|twice|thrice|multiple\s+times|\d+\s+times?)\b|\brepeated\s+(?:appearances?|detections?|events?|occurrences?|signals?|sightings?|transmissions?|visits?)\b/,
+  );
+}
+
+function neutralCueBlueprint(
+  beat,
+  segmentIndex,
+  cueValue,
+  recentVisualConceptIds = [],
+) {
+  const groundedCandidates = groundedNeutralCueVisualConceptIds(cueValue);
+  const candidates = [
+    ...groundedCandidates,
+    ...SAFE_NEUTRAL_CUE_VISUAL_CONCEPT_IDS,
+  ].filter((candidate, index, values) => values.indexOf(candidate) === index);
+  const recentWindow = recentVisualConceptIds.slice(-4);
+  const previous = recentVisualConceptIds.at(-1) || null;
+  const prospectiveCount = recentVisualConceptIds.length + 1;
+  const dominantAllowance = Math.max(
+    2,
+    Math.floor(prospectiveCount * 0.25),
+  );
+  const occurrenceCount = (candidate, values) => values.reduce(
+    (count, value) => count + (value === candidate ? 1 : 0),
+    0,
+  );
+  const acceptable = (candidate) => (
+    candidate !== previous
+    && occurrenceCount(candidate, recentWindow) < 2
+    && occurrenceCount(candidate, recentVisualConceptIds) + 1
+      <= dominantAllowance
+  );
+  const groundedChoice = groundedCandidates.find(acceptable);
+  const safeChoices = SAFE_NEUTRAL_CUE_VISUAL_CONCEPT_IDS
+    .map((candidate, order) => ({
+      candidate,
+      count: occurrenceCount(candidate, recentVisualConceptIds),
+      order,
+    }))
+    .sort((left, right) => left.count - right.count || left.order - right.order)
+    .map(({ candidate }) => candidate);
+  const visualConceptId = groundedChoice
+    || safeChoices.find(acceptable)
+    || candidates[0];
+  return blueprint(
+    `cue_${beat.role}_${segmentIndex}`,
+    "appearance",
+    "record",
+    "become_visible",
+    "archival_evidence",
+    "appears",
+    "affirmed",
+    visualConceptId,
+  );
+}
+
+function isGpsWeekCounterStory(storyIR) {
+  const groundedText = storyIR.beats.flatMap((beat) => [
+    beat.source.heading,
+    beat.source.primaryLabel,
+    beat.source.secondaryLabel,
+    beat.source.onScreenText,
+    ...beat.segments.map((segment) => segment.text),
+  ]).join(" ").toLocaleLowerCase("en-US");
+  return /\bgps\b/.test(groundedText)
+    && /\b(?:civil signal|counter|rollover|week number|week)\b/.test(
+      groundedText,
+    );
+}
+
+function storyBlueprint(storyVocabulary, semanticKind, gpsWeekCounter = false) {
+  if (semanticKind === "signal_frequency") {
+    return blueprint(
+      "signal_timeline",
+      "comparison",
+      "timeline",
+      "compare_states",
+      "measured_extent",
+      "compares_with",
+      "affirmed",
+      "signal_frequency_band",
+    );
+  }
+  if (semanticKind === "signal_nonrecurrence") {
+    return blueprint(
+      "story_record",
+      "recurrence",
+      "record",
+      "repeat_cycle",
+      "archival_evidence",
+      "reappears",
+      "negated",
+      "signal_nonrecurrence",
+    );
+  }
+  if (semanticKind === "missing_confirmation") {
+    return blueprint(
+      "story_hypothesis",
+      "bounded_uncertainty",
+      "hypothesis",
+      "remain_unresolved",
+      "epistemic_state",
+      "remains_unknown",
+      "affirmed",
+      "missing_confirmation",
+    );
+  }
+  if (semanticKind === "reported_assumption") {
+    return blueprint(
+      "story_hypothesis",
+      "bounded_uncertainty",
+      "hypothesis",
+      "remain_unresolved",
+      "bounded_interpretation",
+      "remains_unknown",
+      "affirmed",
+      "reported_assumption",
+    );
+  }
+  if (semanticKind === "witness_sighting") {
+    return blueprint(
+      "story_observer",
+      "appearance",
+      "observer",
+      "become_visible",
+      "archival_evidence",
+      "appears",
+      "affirmed",
+      "witness_sighting",
+    );
+  }
+  if (semanticKind === "documented_record") {
+    return blueprint(
+      "story_record",
+      "appearance",
+      "record",
+      "become_visible",
+      "archival_evidence",
+      "appears",
+      "affirmed",
+      "documented_record",
+    );
+  }
   if (semanticKind === "negation") {
     return blueprint(
       "story_hypothesis",
@@ -91,6 +288,9 @@ function storyBlueprint(storyVocabulary, semanticKind) {
       "rejected_interpretation",
       "is_not",
       "negated",
+      gpsWeekCounter
+        ? "counter_not_time"
+        : "hypothesis_rejection",
     );
   }
   if (semanticKind === "uncertainty") {
@@ -101,21 +301,159 @@ function storyBlueprint(storyVocabulary, semanticKind) {
       "remain_unresolved",
       "bounded_interpretation",
       "remains_unknown",
+      "affirmed",
+      "bounded_uncertainty",
     );
   }
   if (semanticKind === "disappearance") {
     return storyVocabulary === "maritime_route"
-      ? blueprint("story_vessel", "disappearance", "vessel", "become_absent", "observed_state_change", "disappears")
-      : blueprint("story_record", "last_known_record", "record", "mark_last_known", "temporal_relation", "records");
+      ? blueprint("story_vessel", "disappearance", "vessel", "become_absent", "observed_state_change", "disappears", "affirmed", "vessel_disappearance")
+      : blueprint("story_record", "last_known_record", "record", "mark_last_known", "temporal_relation", "records", "affirmed", "record_disappearance");
   }
   if (semanticKind === "recurrence") {
-    if (storyVocabulary === "temporal_anomaly") {
-      return blueprint("story_counter", "recurrence", "finite_counter", "repeat_cycle", "state_transition", "follows");
+    if (storyVocabulary === "temporal_anomaly" && gpsWeekCounter) {
+      return blueprint("story_counter", "recurrence", "finite_counter", "repeat_cycle", "state_transition", "follows", "affirmed", "finite_counter_wrap");
     }
     if (storyVocabulary === "maritime_route") {
       return blueprint("story_vessel", "recurrence", "vessel", "repeat_cycle", "observed_state_change", "reappears");
     }
     return blueprint("story_record", "recurrence", "record", "repeat_cycle", "archival_evidence", "reappears");
+  }
+  if (semanticKind === "misinterpretation") {
+    if (!gpsWeekCounter) {
+      return blueprint(
+        "story_mapping",
+        "misinterpretation",
+        "mapping",
+        "map_to_incorrect_output",
+        "causal_action",
+        "causes",
+        "affirmed",
+        "source_misinterpretation",
+      );
+    }
+    return blueprint(
+      "story_device",
+      "misinterpretation",
+      "device",
+      "map_to_incorrect_output",
+      "causal_action",
+      "causes",
+      "affirmed",
+      "counter_date_misinterpretation",
+    );
+  }
+  if (semanticKind === "date_misinterpretation") {
+    return blueprint(
+      "time_date",
+      "misinterpretation",
+      "date",
+      "map_to_incorrect_output",
+      "causal_action",
+      "causes",
+      "affirmed",
+      gpsWeekCounter
+        ? "counter_date_misinterpretation"
+        : "date_source_misinterpretation",
+    );
+  }
+  if (semanticKind === "remediation") {
+    if (!gpsWeekCounter) {
+      return blueprint(
+        "story_mapping",
+        "remediation",
+        "mapping",
+        "require_update",
+        "causal_action",
+        "causes",
+        "affirmed",
+        "source_remediation",
+      );
+    }
+    return blueprint(
+      "story_device",
+      "remediation",
+      "device",
+      "require_update",
+      "causal_action",
+      "causes",
+      "affirmed",
+      "receiver_patch_required",
+    );
+  }
+  if (semanticKind === "encoding") {
+    return blueprint(
+      "story_mapping",
+      "mechanism_reveal",
+      "mapping",
+      "reveal_structure",
+      "entity_state",
+      "records",
+      "affirmed",
+      "encoded_bit_register",
+    );
+  }
+  if (semanticKind === "capacity") {
+    return blueprint(
+      "capacity_counter",
+      "capacity_limit",
+      "finite_counter",
+      "reach_capacity",
+      "measured_extent",
+      "limits",
+      "affirmed",
+      "bounded_value_range",
+    );
+  }
+  if (semanticKind === "capacity_comparison") {
+    if (!gpsWeekCounter) {
+      return blueprint(
+        "story_timeline",
+        "comparison",
+        "timeline",
+        "compare_states",
+        "measured_extent",
+        "compares_with",
+        "affirmed",
+        "capacity_comparison",
+      );
+    }
+    return blueprint(
+      "capacity_counter",
+      "comparison",
+      "finite_counter",
+      "compare_states",
+      "measured_extent",
+      "compares_with",
+      "affirmed",
+      "counter_capacity_comparison",
+    );
+  }
+  if (semanticKind === "duration") {
+    return blueprint(
+      "story_timeline",
+      "last_known_record",
+      "timeline",
+      "accumulate_records",
+      "temporal_relation",
+      "records",
+      "affirmed",
+      "duration_timeline",
+    );
+  }
+  if (semanticKind === "future_marker") {
+    return blueprint(
+      "story_timeline",
+      "last_known_record",
+      "timeline",
+      "mark_last_known",
+      "temporal_relation",
+      "records",
+      "affirmed",
+      gpsWeekCounter
+        ? "future_rollover_timeline"
+        : "future_event_timeline",
+    );
   }
   if (semanticKind === "movement") {
     return blueprint("story_vessel", "movement", "vessel", "move_along_path", "observed_state_change", "moves");
@@ -127,7 +465,18 @@ function storyBlueprint(storyVocabulary, semanticKind) {
     return blueprint("story_timeline", "comparison", "timeline", "compare_states", "measured_extent", "measures");
   }
   if (semanticKind === "cause") {
-    return blueprint("story_mapping", "cause_effect", "mapping", "map_input_to_output", "causal_action", "causes");
+    return blueprint(
+      "story_mapping",
+      "cause_effect",
+      "mapping",
+      "map_input_to_output",
+      "causal_action",
+      "causes",
+      "affirmed",
+      gpsWeekCounter
+        ? "counter_mapping_mechanism"
+        : "mapping_cause_effect",
+    );
   }
   if (semanticKind === "chronology") {
     return blueprint("story_timeline", "last_known_record", "timeline", "mark_last_known", "temporal_relation", "records");
@@ -135,41 +484,319 @@ function storyBlueprint(storyVocabulary, semanticKind) {
   return null;
 }
 
-function selectIntentBlueprint(storyIR, beat, segment) {
+function selectIntentBlueprint(
+  storyIR,
+  beat,
+  segment,
+  segmentIndex,
+  recentVisualConceptIds = [],
+) {
   const value = segment.text;
-  if (contains(value, /\b(?:not|never|no)\b/)) {
-    return storyBlueprint(storyIR.storyVocabulary, "negation");
+  const gpsWeekCounter = isGpsWeekCounterStory(storyIR);
+  const previousSegment = Number.isSafeInteger(segmentIndex) && segmentIndex > 0
+    ? beat.segments[segmentIndex - 1]
+    : null;
+  const nextSegment = Number.isSafeInteger(segmentIndex)
+    && segmentIndex + 1 < beat.segments.length
+    ? beat.segments[segmentIndex + 1]
+    : null;
+  const gpsPronounCounterRecurrenceContext = Boolean(
+    gpsWeekCounter
+    && previousSegment
+    && previousSegment.endWordIndex === segment.startWordIndex
+    && /\b(?:that|the|gps|week)\s+(?:week\s+)?counter\b/i.test(
+      previousSegment.text,
+    )
+    && /^\s*(?:when\s+)?it\s+(?:rolled\s+over|reset|wrapped)[,.;!?]?\s*$/i.test(
+      value,
+    ),
+  );
+  const gpsTemporalErrorContext = gpsWeekCounter
+    && semanticCounterTemporalErrorClaimMatches(value);
+  const gpsRecurrenceContext = gpsWeekCounter
+    && semanticFiniteCounterWrapClaimMatches(value);
+  const gpsRemediationContext = gpsWeekCounter
+    && semanticReceiverPatchRequiredClaimMatches(value);
+  const gpsCounterNotTimeContext = gpsWeekCounter
+    && semanticCounterNotTimeClaimMatches(value);
+  const gpsCapacityComparisonContext = gpsWeekCounter
+    && semanticCounterCapacityComparisonClaimMatches(value);
+  const gpsFutureRolloverContext = gpsWeekCounter && (
+    semanticFiniteCounterWrapClaimMatches(value)
+    || contains(
+      value,
+      /\blegacy\s+receivers?\b.{0,24}\bface(?:s|d)?\b.{0,16}\b(?:another\s+)?(?:counter\s+)?rollover\b/,
+    )
+  );
+  const gpsCounterCauseContext = gpsWeekCounter
+    && semanticCounterMappingClaimMatches(value);
+  const capacityComparisonDisqualifiedByNextSegment = Boolean(
+    nextSegment
+    && segment.endWordIndex === nextSegment.startWordIndex
+    && contains(value, /\bmore\s+room\b/)
+    && /^\s*(?:but\s+)?only\s+(?:in|on)\s+(?:the\s+)?(?:printed\s+)?(?:article|document|layout|page)\b/i.test(
+      nextSegment.text,
+    ),
+  );
+  const blueprintFor = (semanticKind, useGpsCounterConcept = false) => storyBlueprint(
+    storyIR.storyVocabulary,
+    semanticKind,
+    useGpsCounterConcept,
+  );
+  const broadSignalNonrecurrenceVocabulary = (
+    storyIR.storyVocabulary === "radio_signal"
+    && contains(value, /\bno\s+(?:repeat\s+button|repeated\s+pattern)\b/)
+  );
+  if (
+    storyIR.storyVocabulary === "radio_signal"
+    && strictSignalNonrecurrenceClaimMatches(value)
+  ) {
+    return storyBlueprint(
+      storyIR.storyVocabulary,
+      "signal_nonrecurrence",
+      false,
+    );
+  }
+  if (broadSignalNonrecurrenceVocabulary) {
+    return neutralCueBlueprint(
+      beat,
+      segmentIndex,
+      value,
+      recentVisualConceptIds,
+    );
+  }
+  if (contains(value, /\b(?:not|never)\b/)) {
+    return blueprintFor("negation", gpsCounterNotTimeContext);
+  }
+  if (
+    storyIR.storyVocabulary === "radio_signal"
+    && contains(
+      value,
+      /\bno\s+(?:(?:confirmed|verified)\s+(?:evidence|signal|transmission|verification)|(?:repeatable|reproducible)\s+(?:evidence|proof|confirmation))\b/,
+    )
+  ) {
+    return storyBlueprint(
+      storyIR.storyVocabulary,
+      "missing_confirmation",
+      false,
+    );
+  }
+  if (contains(value, /\bno\b/)) {
+    return blueprintFor("negation", gpsCounterNotTimeContext);
   }
   if (contains(value, /\b(unexplained|unresolved|unknown|uncertain|mystery|no answer)\b/)) {
-    return storyBlueprint(storyIR.storyVocabulary, "uncertainty");
+    return blueprintFor("uncertainty");
   }
-  if (contains(value, /\b(repeat(?:ed|able)?|again|cycle|every|recurr(?:ed|ing)?|roll(?:ed|s)? over|rollovers?|reset)\b/)) {
-    return storyBlueprint(storyIR.storyVocabulary, "recurrence");
+  if (strictModalUncertaintyMatches(value)) {
+    return blueprintFor("uncertainty");
+  }
+  if (strictReportedAssumptionMatches(value)) {
+    return storyBlueprint(
+      storyIR.storyVocabulary,
+      "reported_assumption",
+      false,
+    );
+  }
+  if (contains(
+    value,
+    /\b(?:less convincing|less likely|weaken(?:ed|s)?|ruled out)\b/,
+  )) {
+    return storyBlueprint(storyIR.storyVocabulary, "negation", false);
+  }
+  if (contains(
+    value,
+    /\b(?:(?:needs?|needed|requires?|required)\b.{0,48}\b(?:(?:software|firmware)\s+)?(?:fix(?:es)?|patch(?:es)?|updates?|upgrades?)|(?:software|firmware)\s+(?:fix(?:es)?|patch(?:es)?|updates?|upgrades?)\b.{0,32}\b(?:needed|required)|must\s+(?:be\s+)?(?:fixed|patched|updated|upgraded))\b/,
+  )) {
+    if (gpsWeekCounter && !gpsRemediationContext) {
+      return neutralCueBlueprint(
+        beat,
+        segmentIndex,
+        value,
+        recentVisualConceptIds,
+      );
+    }
+    return storyBlueprint(
+      storyIR.storyVocabulary,
+      "remediation",
+      gpsRemediationContext,
+    );
+  }
+  if (
+    contains(value, /\b(?:clock|clocks|date|dates|time)\b/)
+    && contains(value, /\b(?:haunted|impossible|incorrect|wrong)\b/)
+  ) {
+    if (gpsWeekCounter && !gpsTemporalErrorContext) {
+      return neutralCueBlueprint(
+        beat,
+        segmentIndex,
+        value,
+        recentVisualConceptIds,
+      );
+    }
+    return storyBlueprint(
+      storyIR.storyVocabulary,
+      contains(value, /\b(?:devices?|equipment|receivers?)\b/)
+        ? "misinterpretation"
+        : "date_misinterpretation",
+      gpsTemporalErrorContext,
+    );
+  }
+  if (contains(
+    value,
+    /\b(?:ambiguity|incorrect(?:ly)?|misread|misreads|misreading|misinterpret(?:ed|s|ation)?|wrong)\b/,
+  )) {
+    return storyBlueprint(
+      storyIR.storyVocabulary,
+      "misinterpretation",
+      false,
+    );
+  }
+  if (gpsCounterCauseContext) {
+    return blueprintFor("cause", true);
+  }
+  if (strictCausalClaimMatches(value)) {
+    return blueprintFor("cause", gpsCounterCauseContext);
+  }
+  if (capacityComparisonDisqualifiedByNextSegment) {
+    return neutralCueBlueprint(
+      beat,
+      segmentIndex,
+      value,
+      recentVisualConceptIds,
+    );
+  }
+  if (contains(
+    value,
+    /\b(?:greater|larger|more|wider)\s+(?:capacity|room|range|values?|bit\s+field)\b|(?:\bnewer\b.{0,48}\blegacy\b|\blegacy\b.{0,48}\bnewer\b).{0,48}\b(?:capacity|counter|messages?|range|room|values?)\b/,
+  )) {
+    return blueprintFor(
+      "capacity_comparison",
+      gpsCapacityComparisonContext,
+    );
+  }
+  if (
+    contains(value, /\b(?:19|20)\d{2}\b/)
+    && (
+      contains(value, /\b(?:future|next|predicted|scheduled|upcoming)\b/)
+      || (
+        contains(value, /\b(?:another|face(?:s|d)?|will)\b/)
+        && contains(
+          value,
+          /\b(?:resets?|resetting|rollovers?|roll(?:ed|s)? over|wrap(?:s|ped|ping)?)\b/,
+        )
+      )
+    )
+  ) {
+    return blueprintFor("future_marker", gpsFutureRolloverContext);
+  }
+  const broadRecurrenceVocabulary = contains(
+    value,
+    /\b(?:repeat(?:ed|able)?|again|cycle|recurr(?:ed|ing)?|rollovers?|roll(?:ed|s)?\s+over|resets?|resetting|wrap(?:s|ped|ping)?)\b/,
+  );
+  if (
+    gpsRecurrenceContext
+    || gpsPronounCounterRecurrenceContext
+    || strictRecurrenceClaimMatches(value)
+  ) {
+    if (gpsPronounCounterRecurrenceContext && !gpsRecurrenceContext) {
+      return blueprint(
+        "story_counter",
+        "recurrence",
+        "finite_counter",
+        "repeat_cycle",
+        "state_transition",
+        "follows",
+        "affirmed",
+        "counter_recurrence",
+      );
+    }
+    if (gpsWeekCounter && !gpsRecurrenceContext) {
+      return neutralCueBlueprint(
+        beat,
+        segmentIndex,
+        value,
+        recentVisualConceptIds,
+      );
+    }
+    return storyBlueprint(
+      storyIR.storyVocabulary,
+      "recurrence",
+      gpsRecurrenceContext,
+    );
+  }
+  if (broadRecurrenceVocabulary) {
+    return neutralCueBlueprint(
+      beat,
+      segmentIndex,
+      value,
+      recentVisualConceptIds,
+    );
+  }
+  if (contains(
+    value,
+    /\b(?:cover(?:s|ed)?|last(?:s|ed)?|span(?:s|ned)?|stretch(?:es|ed)?)\b.{0,56}\b(?:days?|hours?|minutes?|months?|seconds?|weeks?|years?)\b|\b(?:days?|hours?|minutes?|months?|seconds?|weeks?|years?)\b.{0,32}\b(?:apart|later|long)\b|\b(?:\d+|(?:(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|and)(?:[\s-]+(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|and))*))\s+(?:days?|hours?|minutes?|months?|seconds?|weeks?|years?)\b/,
+  )) {
+    return blueprintFor("duration");
+  }
+  if (semanticEncodedBitClaimMatches(value)) {
+    return blueprintFor("encoding");
+  }
+  if (semanticBoundedValueRangeClaimMatches(value)) {
+    return blueprintFor("capacity");
   }
   if (contains(value, /\b(never|vanish(?:ed)?|disappear(?:ed)?|absent|gone|missing|no longer|left no)\b/)) {
-    return storyBlueprint(storyIR.storyVocabulary, "disappearance");
+    return blueprintFor("disappearance");
   }
   if (
     storyIR.storyVocabulary === "maritime_route"
     && contains(value, /\b(drift(?:ed|ing)?|move(?:d|ment)?|route|cross(?:ed|ing)?|ice|voyage)\b/)
-  ) return storyBlueprint(storyIR.storyVocabulary, "movement");
-  if (contains(value, /\b(\d+|seconds?|minutes?|hours?|years?|weeks?|bits?|date|counter|frequency)\b/)) {
-    return storyBlueprint(storyIR.storyVocabulary, "number");
-  }
-  if (contains(value, /\b(caus(?:e|ed|es)|because|through|making|mechanism|interpret(?:ed|ation)?|mapped?|crossed)\b/)) {
-    return storyBlueprint(storyIR.storyVocabulary, "cause");
+  ) return blueprintFor("movement");
+  if (
+    storyIR.storyVocabulary === "radio_signal"
+    && contains(value, /\b(?:frequency|frequencies|signal band|radio band)\b/)
+  ) return blueprintFor("signal_frequency");
+  if (contains(
+    value,
+    /\b(?:decades?|years?|months?|weeks?|days?)\s+(?:after|before|later)\b|\b(?:after|before)\b.{0,36}\b(?:decades?|years?|months?|weeks?|days?)\b/,
+  )) {
+    return blueprintFor("chronology");
   }
   if (
-    beat.source.operationKinds.includes("draw_route")
-    && storyIR.storyVocabulary === "maritime_route"
-  ) return storyBlueprint(storyIR.storyVocabulary, "movement");
-  if (beat.source.operationKinds.includes("advance_timeline")) {
-    return storyBlueprint(storyIR.storyVocabulary, "chronology");
+    contains(value, /\b(?:documented|recorded|verified)\b/)
+    && !contains(value, /\b(?:never|no|not|unverified)\b/)
+    && !contains(
+      value,
+      /\b(?:caus(?:e|ed|es)|because|through|making|mechanism|mapped?|crossed)\b/,
+    )
+  ) {
+    return storyBlueprint(
+      storyIR.storyVocabulary,
+      "documented_record",
+      false,
+    );
   }
-  if (beat.source.operationKinds.includes("connect_nodes")) {
-    return storyBlueprint(storyIR.storyVocabulary, "cause");
+  if (
+    storyIR.storyVocabulary === "maritime_route"
+    && contains(value, /\b(?:observed|saw|sighted|spotted)\b/)
+  ) {
+    return storyBlueprint(
+      storyIR.storyVocabulary,
+      "witness_sighting",
+      false,
+    );
   }
-  return INTENT_BLUEPRINTS[storyIR.storyVocabulary][beat.role];
+  if (contains(value, /\b(?:18|19|20)\d{2}\b/)) {
+    return blueprintFor("chronology");
+  }
+  if (contains(value, /\b\d+\b/)) {
+    return blueprintFor("number");
+  }
+  return neutralCueBlueprint(
+    beat,
+    segmentIndex,
+    value,
+    recentVisualConceptIds,
+  );
 }
 
 function blueprint(
@@ -180,6 +807,7 @@ function blueprint(
   eventKind,
   semanticPredicate,
   polarity = "affirmed",
+  visualConceptId = null,
 ) {
   return Object.freeze({
     entityKey,
@@ -187,6 +815,8 @@ function blueprint(
     eventKind,
     semanticPredicate,
     polarity,
+    visualConceptId: visualConceptId
+      || `semantic_${subjectKind}_${predicate}`,
   });
 }
 
@@ -352,6 +982,7 @@ function normalizeWordSpan(input, field) {
 function normalizePrimitivePayload(input, field) {
   exactKeys(input, [
     "profileId",
+    "visualConceptId",
     "headline",
     "detail",
     "sourceSceneId",
@@ -402,6 +1033,11 @@ function normalizePrimitivePayload(input, field) {
   }
   return {
     profileId: input.profileId,
+    visualConceptId: text(
+      input.visualConceptId,
+      `${field}.visualConceptId`,
+      { max: 80, pattern: ID_PATTERN },
+    ),
     headline: text(input.headline, `${field}.headline`, { max: 120 }),
     detail: text(input.detail, `${field}.detail`, { max: 160 }),
     sourceSceneId: text(input.sourceSceneId, `${field}.sourceSceneId`, {
@@ -675,7 +1311,13 @@ function expectedVisualIntentGraph(storyIR) {
   const usesByEntityKey = new Map();
   for (const beat of storyIR.beats) {
     for (const [segmentIndex, segment] of beat.segments.entries()) {
-      const selected = selectIntentBlueprint(storyIR, beat, segment);
+      const selected = selectIntentBlueprint(
+        storyIR,
+        beat,
+        segment,
+        segmentIndex,
+        planned.map(({ selected: recent }) => recent.visualConceptId),
+      );
       if (!selected) fail(`storyIR.beats.${beat.role}`, "intent_blueprint_missing");
       const use = { beat, segment, segmentIndex, selected };
       planned.push(use);
@@ -743,6 +1385,7 @@ function expectedVisualIntentGraph(storyIR) {
       sourceOperationKinds: [...beat.source.operationKinds],
       primitivePayload: {
         profileId: VISUAL_INTENT_PRIMITIVE_PAYLOAD_PROFILE_ID,
+        visualConceptId: selected.visualConceptId,
         headline: beat.source.onScreenText,
         detail: segment.text,
         sourceSceneId: beat.source.sceneId,

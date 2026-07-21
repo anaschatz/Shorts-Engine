@@ -47,6 +47,20 @@ intent, entity, event, epistemic status, and source scene. Planning uses both th
 story vocabulary and local narration semantics such as recurrence, negation,
 uncertainty, disappearance, chronology, quantities, causality, and movement.
 
+Specialized diagrams use anchored clause templates, not keyword co-occurrence.
+The same grounded clause must establish the actor, action, object or output,
+polarity, and any displayed quantity. A nearby `counter`, `date`, `bits`,
+`mapping`, or `patch` token is therefore insufficient. Ambiguous clauses fail
+closed into a cue-grounded neutral composition. A document, node network, or
+quotation layout is eligible only when the same narration clause explicitly
+supports that metaphor. Otherwise the planner selects among six non-assertive
+abstract presentations (`focus`, `spotlight`, `field`, `ribbon`, `frame`, and
+`bands`) that show
+the exact current cue without inventing a reset, relationship, quotation,
+capacity, date error, or repair. Recent-form history breaks ties by choosing the
+least-used safe presentation while enforcing adjacent, rolling-window, and
+dominant-share limits; narration position does not decide semantic meaning.
+
 The graph validates:
 
 - the StoryIR again against the supplied approved draft and exact timing context;
@@ -71,7 +85,7 @@ recompiled by queued jobs.
 ### Grounded primitive parameters
 
 Generalized graphs declare
-`dark_curiosity_grounded_primitive_payload_v1` at graph level and require a
+`dark_curiosity_grounded_primitive_payload_v2` at graph level and require a
 payload on every proposition. The payload preserves:
 
 - a headline bound to the exact approved `beat.onScreenText`;
@@ -84,6 +98,20 @@ payload on every proposition. The payload preserves:
   so a later grounded target cannot be truncated;
 - optional normalized route points bound to the exact approved `draw_route`
   operation.
+- a clause-local visual concept identifier whose grammar, asset, transition,
+  state, and grounding cues must all agree before a specialized diagram can
+  render.
+
+Specialized renderer labels are also cue-derived. Mapping diagrams no longer
+inject a `LAST→0` transition, capacity comparisons do not invent a
+legacy/newer pair, and remediation diagrams name only the problem actually
+present in the grounded clause. Neutral evidence concepts have distinct visible
+geometry and distinct renderer-form signatures, so the anti-repetition gate
+measures real composition changes rather than renamed copies of one form.
+Neutral concepts are also bound to the evidence grammar and state: a forged
+document, network, or quotation concept is rejected unless its exact cue
+supports that visible metaphor. The renderer defaults unknown neutral input to
+the non-assertive focus form, never to an archival document.
 
 Validation deterministically rebuilds StoryIR, VisualIntentGraph, and the
 expected generalized semantic manifest from the approved draft and timing. It
@@ -93,9 +121,12 @@ beat or operation, and the parameterized profile cannot silently omit only
 some payloads.
 
 The sentence planner converts that payload into
-`dark_curiosity_story_primitive_parameters_v1`. Each parameter block is bound
+`dark_curiosity_story_primitive_parameters_v2`. Each parameter block is bound
 to the selected grammar and asset, contains a controlled semantic state token,
-and uses a deterministic geometry seed. Arbitrary SVG paths, HTML, CSS,
+and uses a deterministic geometry seed. Quantity references must be fully
+contained in the current narration clause and match its exact substring;
+rehashing cannot turn narrated `ten bits` into a different register size or
+`reset to zero` into another target. Arbitrary SVG paths, HTML, CSS,
 executable content, remote URLs, colors, or unbounded coordinates are not
 accepted.
 
@@ -261,6 +292,15 @@ nine-grammar coverage, asset-specific cause/effect motifs,
 affirmed-versus-rejected result marks, XML escaping, whole-profile downgrade
 rejection, provider-owned receipts, symlink isolation, worker source-context
 tampering, and fresh-hash adversarial contract failures.
+The adversarial corpus also covers actor/object collisions such as reset
+buttons, phone numbers, drill bits, newspaper/calendar dates, receiver manuals,
+physical cabinet capacity, transitive reset verbs, and unrelated mapping
+mechanisms. It additionally covers intervening actors, screen-brightness value
+lists, bit labels on physical crates, and reset/repeated-pattern vocabulary in
+non-GPS stories. These cases must reach a visibly neutral grounded evidence
+form, not merely avoid a specialized concept identifier. Five- and
+nine-sentence all-neutral stories must still compile with distinct safe forms
+and pass the same anti-repetition gate used by specialized plans.
 
 Run it with:
 

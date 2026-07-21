@@ -55,6 +55,16 @@ const {
   normalizeSemanticPrimitiveParameters,
 } = require("../server/pipelines/narrated-short/animation/semantic-primitive-parameters.cjs");
 const {
+  semanticBoundedValueRangeClaimMatches,
+  semanticCounterCapacityComparisonClaimMatches,
+  semanticCounterMappingClaimMatches,
+  semanticCounterNotTimeClaimMatches,
+  semanticEncodedBitClaimMatches,
+  semanticNeutralDocumentCueMatches,
+  semanticNeutralNetworkCueMatches,
+  semanticNeutralQuoteCueMatches,
+} = require("../server/pipelines/narrated-short/animation/semantic-visual-concept-registry.cjs");
+const {
   SEMANTIC_SCENE_COMPOSITION_LAYOUT_IDS,
   SEMANTIC_SCENE_COMPOSITION_MODULE_KINDS,
   SEMANTIC_SCENE_COMPOSITION_PROFILE_ID,
@@ -81,6 +91,11 @@ const {
   buildDeterministicSemanticAnimationSceneDslPlan,
   buildSemanticAnimationSceneDslPlanFromScenes,
 } = require("../server/pipelines/narrated-short/animation/semantic-animation-scene-dsl-plan.cjs");
+const {
+  assertSemanticVisualCoherence,
+  buildSemanticVisualCoherenceReport,
+  primaryVisualFormSignature,
+} = require("../server/pipelines/narrated-short/animation/semantic-visual-coherence-qa.cjs");
 const {
   buildSemanticAnimationSceneDsl,
 } = require("../server/pipelines/narrated-short/animation/semantic-animation-scene-dsl.cjs");
@@ -185,6 +200,30 @@ function readRaw(id) {
   raw.storyboard.scenes[3].operations[0].label = "Reports ended";
   raw.storyboard.scenes[4].operations[0].text = "Relationship is not causation";
   raw.storyboard.scenes[4].operations[1].text = "Source unknown";
+  return raw;
+}
+
+function readBaychimoWithGroundedRoute() {
+  const raw = readRaw("003_baychimo_icebound_drift");
+  raw.storyboard.scenes[2].template = "map_timeline_scene";
+  raw.storyboard.scenes[2].operations = structuredClone(
+    raw.storyboard.scenes[3].operations,
+  );
+  raw.storyboard.scenes[2].operations[0].label = "APPROXIMATE DRIFT ROUTE";
+  return raw;
+}
+
+function readGpsWithExplicitCounterMechanism() {
+  const raw = readRaw("002_gps_week_rollover");
+  raw.script.beats[4].spokenText =
+    "The GPS week counter mapping mechanism was ordinary. The number reset, not time itself.";
+  return raw;
+}
+
+function readGpsWithExplicitCounterNotTime() {
+  const raw = readRaw("002_gps_week_rollover");
+  raw.script.beats[4].spokenText =
+    "The counter reset was not time.";
   return raw;
 }
 
@@ -360,6 +399,19 @@ function rebindSyntheticGeometryBlueprint(sentence) {
   return sentence;
 }
 
+function rebindSyntheticSceneComposition(sentence) {
+  const graphHash = sentence.sceneComposition.geometryBlueprint
+    .bindings.semanticEventGraphHash;
+  sentence.sceneComposition = buildSemanticSceneComposition({
+    graphHash,
+    propositionId: sentence.propositionId,
+    primitiveParameters: sentence.primitiveParameters,
+    capability: sentence.capability,
+    recentLayoutIds: [],
+  });
+  return sentence;
+}
+
 test("three unrelated stories build deterministic grounded StoryIR and visual intent graphs", () => {
   const signatures = [];
   const grammarSequences = [];
@@ -425,6 +477,1400 @@ test("three unrelated stories build deterministic grounded StoryIR and visual in
       assert.notDeepEqual(grammarSequences[left], grammarSequences[right]);
     }
   }
+});
+
+test("generic words cannot trigger GPS-only visual concepts in unrelated stories", async () => {
+  const primitives = await import(
+    "../renderer/hyperframes/primitives/semantic-sentence-primitives.mjs"
+  );
+  const buildAdversarialPlan = (raw, salt) => {
+    const draft = normalizeDraftBundle(raw);
+    const timingContext = timingFor(draft, salt);
+    const semantic = buildGeneralizedSemanticArtifacts({
+      draft,
+      timingContext,
+    });
+    return buildSemanticVisualSentencePlan(semantic.semanticEventGraph);
+  };
+  const compileBaychimo = (raw, salt) => buildAdversarialPlan(raw, salt);
+
+  const misreadRaw = readRaw("003_baychimo_icebound_drift");
+  misreadRaw.script.beats[1].spokenText =
+    "The harbor log was misread, but local hunters soon spotted the abandoned steamer near the Alaskan coast.";
+  const misreadPlan = compileBaychimo(
+    misreadRaw,
+    "baychimo-misread-guard",
+  );
+  const misread = misreadPlan.sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("harbor log was misread"),
+  );
+  assert.ok(misread);
+  assert.equal(
+    misread.primitiveParameters.visualConceptId,
+    "source_misinterpretation",
+  );
+  assert.equal(misread.capability.assetId, "mapping_table");
+  assert.doesNotMatch(
+    primitives.semanticSentencePrimitiveMarkup(
+      misread,
+      misreadPlan.sentences.indexOf(misread),
+    ),
+    /WEEK VALUE|GPS VALUE|DATE ERROR|counter_date_misinterpretation/,
+  );
+
+  const updatedRaw = readRaw("003_baychimo_icebound_drift");
+  updatedRaw.script.beats[3].spokenText =
+    "The archive was updated in 1969, decades after the ship was abandoned.";
+  const updatedPlan = compileBaychimo(
+    updatedRaw,
+    "baychimo-updated-guard",
+  );
+  const updated = updatedPlan.sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("archive was updated"),
+  );
+  assert.ok(updated);
+  assert.notEqual(
+    updated.primitiveParameters.visualConceptId,
+    "receiver_patch_required",
+  );
+  assert.doesNotMatch(
+    primitives.semanticSentencePrimitiveMarkup(
+      updated,
+      updatedPlan.sentences.indexOf(updated),
+    ),
+    /SOFTWARE PATCH|UPDATE REQUIRED|receiver_patch_required/,
+  );
+
+  const distanceRaw = readRaw("003_baychimo_icebound_drift");
+  distanceRaw.script.beats[2].spokenText =
+    "Over the following years, people saw the ship at a greater distance from shore as it drifted with Arctic pack ice.";
+  const distancePlan = compileBaychimo(
+    distanceRaw,
+    "baychimo-distance-guard",
+  );
+  const distance = distancePlan.sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("greater distance"),
+  );
+  assert.ok(distance);
+  assert.notEqual(
+    distance.primitiveParameters.visualConceptId,
+    "counter_capacity_comparison",
+  );
+  assert.doesNotMatch(
+    primitives.semanticSentencePrimitiveMarkup(
+      distance,
+      distancePlan.sentences.indexOf(distance),
+    ),
+    /data-comparison-concept="capacity"|>LEGACY<|>MORE ROOM</,
+  );
+
+  const wrongArchiveDateRaw = readRaw("003_baychimo_icebound_drift");
+  wrongArchiveDateRaw.script.beats[1].spokenText =
+    "The date in the harbor log looked wrong, but local hunters still identified the abandoned steamer near the Alaskan coast.";
+  const wrongArchiveDatePlan = compileBaychimo(
+    wrongArchiveDateRaw,
+    "baychimo-wrong-date-guard",
+  );
+  const wrongArchiveDate = wrongArchiveDatePlan.sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("harbor log looked wrong"),
+  );
+  assert.ok(wrongArchiveDate);
+  assert.equal(
+    wrongArchiveDate.primitiveParameters.visualConceptId,
+    "date_source_misinterpretation",
+  );
+  assert.notEqual(
+    wrongArchiveDate.primitiveParameters.visualConceptId,
+    "counter_date_misinterpretation",
+  );
+
+  const futureSightingRaw = readRaw("003_baychimo_icebound_drift");
+  futureSightingRaw.script.beats[3].spokenText =
+    "The archive predicted another sighting in 1969, decades after the ship was abandoned.";
+  const futureSightingPlan = compileBaychimo(
+    futureSightingRaw,
+    "baychimo-future-event-guard",
+  );
+  const futureSighting = futureSightingPlan.sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("another sighting in 1969"),
+  );
+  assert.ok(futureSighting);
+  assert.equal(
+    futureSighting.primitiveParameters.visualConceptId,
+    "future_event_timeline",
+  );
+  assert.notEqual(
+    futureSighting.primitiveParameters.visualConceptId,
+    "future_rollover_timeline",
+  );
+
+  const icePatchesRaw = readRaw("003_baychimo_icebound_drift");
+  icePatchesRaw.script.beats[2].spokenText =
+    "Patches of Arctic ice covered the equipment on the ship while it drifted farther from the Alaskan coast.";
+  const icePatchesPlan = compileBaychimo(
+    icePatchesRaw,
+    "baychimo-ice-patches-guard",
+  );
+  const icePatches = icePatchesPlan.sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("Patches of Arctic ice"),
+  );
+  assert.ok(icePatches);
+  assert.notEqual(
+    icePatches.primitiveParameters.visualConceptId,
+    "source_remediation",
+  );
+  assert.notEqual(
+    icePatches.primitiveParameters.visualConceptId,
+    "receiver_patch_required",
+  );
+
+  const badlyDamagedRaw = readRaw("003_baychimo_icebound_drift");
+  badlyDamagedRaw.script.beats[2].spokenText =
+    "The ship was badly damaged by pack ice while it drifted through Arctic water.";
+  const badlyDamagedPlan = compileBaychimo(
+    badlyDamagedRaw,
+    "baychimo-badly-damaged-guard",
+  );
+  const badlyDamaged = badlyDamagedPlan.sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("badly damaged"),
+  );
+  assert.ok(badlyDamaged);
+  assert.notEqual(
+    badlyDamaged.primitiveParameters.visualConceptId,
+    "source_misinterpretation",
+  );
+
+  for (const [salt, spokenText, phrase] of [
+    [
+      "baychimo-reset-button-is-not-reappearance",
+      "The ship sat beside a reset button on the abandoned control panel.",
+      "reset button",
+    ],
+    [
+      "baychimo-archive-reset-button-is-not-reappearance",
+      "The harbor archive stored a reset button beside a weathered navigation chart.",
+      "archive stored a reset button",
+    ],
+    [
+      "baychimo-repeated-pattern-is-not-reappearance",
+      "The crew discussed a repeated pattern painted on the cabin wall.",
+      "repeated pattern",
+    ],
+  ]) {
+    const raw = readRaw("003_baychimo_icebound_drift");
+    raw.script.beats[2].spokenText = spokenText;
+    const plan = compileBaychimo(raw, salt);
+    const sentence = plan.sentences.find(
+      (candidate) => candidate.wordSpan.text.includes(phrase),
+    );
+    assert.ok(sentence, salt);
+    assert.match(
+      sentence.primitiveParameters.visualConceptId,
+      /^cue_evidence_(?:bands|document|field|focus|frame|network|quote|ribbon|spotlight)$/,
+      salt,
+    );
+    assert.notEqual(
+      sentence.primitiveParameters.visualConceptId,
+      "semantic_vessel_recurrence",
+      salt,
+    );
+    assert.equal(sentence.visualIntent.predicate, "appearance", salt);
+    assert.equal(sentence.visualIntent.stateTransition, "become_visible", salt);
+  }
+
+  const nonGpsTemporalBase = JSON.parse(
+    JSON.stringify(readRaw("002_gps_week_rollover"))
+      .replace(/gps/gi, "system"),
+  );
+  nonGpsTemporalBase.script.beats[0].spokenText =
+    "At midnight, the clock displayed an impossible time, although its oscillator continued normally.";
+  const nonGpsClockPlan = buildAdversarialPlan(
+    nonGpsTemporalBase,
+    "non-gps-impossible-time-guard",
+  );
+  const impossibleTime = nonGpsClockPlan.sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("impossible time"),
+  );
+  assert.ok(impossibleTime);
+  assert.equal(
+    impossibleTime.primitiveParameters.visualConceptId,
+    "date_source_misinterpretation",
+  );
+  const impossibleTimeMarkup = primitives.semanticSentencePrimitiveMarkup(
+    impossibleTime,
+    nonGpsClockPlan.sentences.indexOf(impossibleTime),
+  );
+  assert.doesNotMatch(
+    impossibleTimeMarkup,
+    /data-cause-concept="wrong_date"|DATE ERROR|RECEIVER RULE/,
+  );
+
+  const rememberedYearRaw = structuredClone(nonGpsTemporalBase);
+  rememberedYearRaw.script.beats[3].spokenText =
+    "In 1999 the device will be remembered by engineers, while its clock continued normally.";
+  const rememberedYear = buildAdversarialPlan(
+    rememberedYearRaw,
+    "non-gps-remembered-year-guard",
+  ).sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("will be remembered"),
+  );
+  assert.ok(rememberedYear);
+  assert.notEqual(
+    rememberedYear.primitiveParameters.visualConceptId,
+    "future_rollover_timeline",
+  );
+  assert.notEqual(
+    rememberedYear.primitiveParameters.visualConceptId,
+    "future_event_timeline",
+  );
+
+  const unrelatedGpsCauseRaw = readRaw("002_gps_week_rollover");
+  unrelatedGpsCauseRaw.script.beats[2].spokenText =
+    "Heavy rain caused the launch time to change before the documented event.";
+  const unrelatedGpsCausePlan = buildAdversarialPlan(
+    unrelatedGpsCauseRaw,
+    "gps-unrelated-cause-guard",
+  );
+  const unrelatedGpsCause = unrelatedGpsCausePlan.sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("rain caused the launch time"),
+  );
+  assert.ok(unrelatedGpsCause);
+  assert.equal(
+    unrelatedGpsCause.primitiveParameters.visualConceptId,
+    "mapping_cause_effect",
+  );
+  assert.notEqual(
+    unrelatedGpsCause.primitiveParameters.visualConceptId,
+    "counter_mapping_mechanism",
+  );
+  assert.doesNotMatch(
+    primitives.semanticSentencePrimitiveMarkup(
+      unrelatedGpsCause,
+      unrelatedGpsCausePlan.sentences.indexOf(unrelatedGpsCause),
+    ),
+    /RECEIVER RULE|LAST→0|counter_mapping_mechanism/,
+  );
+
+  const futureCounterRaw = readRaw("002_gps_week_rollover");
+  futureCounterRaw.script.beats[3].spokenText =
+    "The legacy counter will roll over in 2038, while newer navigation messages provide more room.";
+  const futureCounterPlan = buildAdversarialPlan(
+    futureCounterRaw,
+    "gps-will-roll-over-positive-guard",
+  );
+  const futureCounter = futureCounterPlan.sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("will roll over in 2038"),
+  );
+  assert.ok(futureCounter);
+  assert.equal(
+    futureCounter.primitiveParameters.visualConceptId,
+    "future_rollover_timeline",
+  );
+  assert.equal(futureCounter.primitiveParameters.stateToken, "UPCOMING");
+
+  const inspectedCounterRaw = readRaw("002_gps_week_rollover");
+  inspectedCounterRaw.script.beats[3].spokenText =
+    "The GPS counter will be inspected in 2038, while engineers document its current behavior.";
+  const inspectedCounterPlan = buildAdversarialPlan(
+    inspectedCounterRaw,
+    "gps-counter-inspection-is-not-rollover",
+  );
+  const inspectedCounter = inspectedCounterPlan.sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("will be inspected in 2038"),
+  );
+  assert.ok(inspectedCounter);
+  assert.notEqual(
+    inspectedCounter.primitiveParameters.visualConceptId,
+    "future_rollover_timeline",
+  );
+
+  const wrappedCounterRaw = readRaw("002_gps_week_rollover");
+  wrappedCounterRaw.script.beats[0].spokenText =
+    "The legacy GPS week counter wrapped to zero, and some devices displayed the wrong date.";
+  const wrappedCounterPlan = buildAdversarialPlan(
+    wrappedCounterRaw,
+    "gps-wrapped-to-zero-positive-guard",
+  );
+  const wrappedCounter = wrappedCounterPlan.sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("wrapped to zero"),
+  );
+  assert.ok(wrappedCounter);
+  assert.equal(
+    wrappedCounter.primitiveParameters.visualConceptId,
+    "finite_counter_wrap",
+  );
+  assert.match(
+    primitives.semanticSentencePrimitiveMarkup(
+      wrappedCounter,
+      wrappedCounterPlan.sentences.indexOf(wrappedCounter),
+    ),
+    />ZERO</,
+  );
+
+  const encodedIdentifierRaw = readRaw("002_gps_week_rollover");
+  encodedIdentifierRaw.script.beats[1].spokenText =
+    "The receiver encoded its identifier in a field for compatibility.";
+  const encodedIdentifierPlan = buildAdversarialPlan(
+    encodedIdentifierRaw,
+    "gps-encoded-identifier-is-not-bit-register",
+  );
+  const encodedIdentifier = encodedIdentifierPlan.sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("encoded its identifier"),
+  );
+  assert.ok(encodedIdentifier);
+  assert.notEqual(
+    encodedIdentifier.primitiveParameters.visualConceptId,
+    "encoded_bit_register",
+  );
+  assert.doesNotMatch(
+    primitives.semanticSentencePrimitiveMarkup(
+      encodedIdentifier,
+      encodedIdentifierPlan.sentences.indexOf(encodedIdentifier),
+    ),
+    /data-declared-bit-count|data-bit-index|BIT FIELD|TEN BITS/,
+  );
+
+  const competingQuantityRaw = readRaw("002_gps_week_rollover");
+  competingQuantityRaw.script.beats[1].spokenText =
+    "A twenty-year message stores ten bits.";
+  const competingQuantityPlan = buildAdversarialPlan(
+    competingQuantityRaw,
+    "encoded-bits-prefer-bit-quantity",
+  );
+  const competingQuantity = competingQuantityPlan.sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("twenty-year message"),
+  );
+  assert.ok(competingQuantity);
+  assert.equal(
+    competingQuantity.primitiveParameters.visualConceptId,
+    "encoded_bit_register",
+  );
+  assert.equal(competingQuantity.primitiveParameters.quantity.value, "ten");
+  assert.equal(competingQuantity.primitiveParameters.quantity.unit, "bits");
+
+  const receivedUpdatesRaw = readRaw("002_gps_week_rollover");
+  receivedUpdatesRaw.script.beats[2].spokenText =
+    "The receivers received software updates to reduce battery drain.";
+  const receivedUpdatesPlan = buildAdversarialPlan(
+    receivedUpdatesRaw,
+    "gps-completed-update-is-not-required",
+  );
+  const receivedUpdates = receivedUpdatesPlan.sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("reduce battery drain"),
+  );
+  assert.ok(receivedUpdates);
+  assert.notEqual(
+    receivedUpdates.primitiveParameters.visualConceptId,
+    "receiver_patch_required",
+  );
+  assert.doesNotMatch(
+    primitives.semanticSentencePrimitiveMarkup(
+      receivedUpdates,
+      receivedUpdatesPlan.sentences.indexOf(receivedUpdates),
+    ),
+    /AMBIGUITY|UPDATE REQUIRED|SOFTWARE PATCH/,
+  );
+
+  const wrongLocationRaw = readRaw("002_gps_week_rollover");
+  wrongLocationRaw.script.beats[0].spokenText =
+    "The GPS receiver showed the wrong location after startup.";
+  const wrongLocationPlan = buildAdversarialPlan(
+    wrongLocationRaw,
+    "gps-wrong-location-is-not-date-error",
+  );
+  const wrongLocation = wrongLocationPlan.sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("wrong location"),
+  );
+  assert.ok(wrongLocation);
+  assert.equal(
+    wrongLocation.primitiveParameters.visualConceptId,
+    "source_misinterpretation",
+  );
+  assert.doesNotMatch(
+    primitives.semanticSentencePrimitiveMarkup(
+      wrongLocation,
+      wrongLocationPlan.sentences.indexOf(wrongLocation),
+    ),
+    /CLOCK ANOMALY|DATE ERROR|TIME ERROR|WRONG DATE/,
+  );
+
+  const repeatedAlarmRaw = structuredClone(nonGpsTemporalBase);
+  repeatedAlarmRaw.script.beats[0].spokenText =
+    "The alarm repeated every night, while the clock continued normally.";
+  const repeatedAlarmPlan = buildAdversarialPlan(
+    repeatedAlarmRaw,
+    "non-gps-repeated-alarm-guard",
+  );
+  const repeatedAlarm = repeatedAlarmPlan.sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("alarm repeated every night"),
+  );
+  assert.ok(repeatedAlarm);
+  assert.equal(
+    repeatedAlarm.primitiveParameters.visualConceptId,
+    "semantic_record_recurrence",
+  );
+  assert.notEqual(
+    repeatedAlarm.primitiveParameters.visualConceptId,
+    "finite_counter_wrap",
+  );
+  assert.doesNotMatch(
+    primitives.semanticSentencePrimitiveMarkup(
+      repeatedAlarm,
+      repeatedAlarmPlan.sentences.indexOf(repeatedAlarm),
+    ),
+    /LAST VALUE|RESET TO|finite_counter_wrap/,
+  );
+
+  const backupCapacityRaw = structuredClone(nonGpsTemporalBase);
+  backupCapacityRaw.script.beats[3].spokenText =
+    "The backup counter has more capacity than the primary counter, but both clocks use the same oscillator.";
+  const backupCapacityPlan = buildAdversarialPlan(
+    backupCapacityRaw,
+    "non-gps-capacity-comparison-guard",
+  );
+  const backupCapacity = backupCapacityPlan.sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("more capacity"),
+  );
+  assert.ok(backupCapacity);
+  assert.equal(
+    backupCapacity.primitiveParameters.visualConceptId,
+    "capacity_comparison",
+  );
+  assert.notEqual(
+    backupCapacity.primitiveParameters.visualConceptId,
+    "counter_capacity_comparison",
+  );
+  assert.doesNotMatch(
+    primitives.semanticSentencePrimitiveMarkup(
+      backupCapacity,
+      backupCapacityPlan.sentences.indexOf(backupCapacity),
+    ),
+    />LEGACY<|>NEWER<|>MORE ROOM</,
+  );
+
+  const unrelatedGpsCases = [
+    {
+      salt: "gps-negation-is-not-time-negation",
+      beatIndex: 0,
+      spokenText: "GPS receivers did not acquire the signal after startup.",
+      phrase: "not acquire",
+      forbiddenConcept: "counter_not_time",
+      forbiddenMarkup: /COUNTER|NOT TIME|counter_not_time/,
+    },
+    {
+      salt: "gps-calculation-is-not-counter-mapping",
+      beatIndex: 2,
+      spokenText: "GPS positions are calculated through satellite timing.",
+      phrase: "calculated through satellite timing",
+      forbiddenConcept: "counter_mapping_mechanism",
+      forbiddenMarkup: /LAST→0|RECEIVER RULE|counter_mapping_mechanism/,
+    },
+    {
+      salt: "gps-indoor-coverage-is-not-counter-capacity",
+      beatIndex: 1,
+      spokenText: "The GPS signal has limited indoor coverage near concrete walls.",
+      phrase: "limited indoor coverage",
+      forbiddenConcept: "bounded_value_range",
+      forbiddenMarkup: /VALUE RANGE|POSSIBLE VALUES|bounded_value_range/,
+    },
+    {
+      salt: "gps-weekly-self-test-is-not-counter-wrap",
+      beatIndex: 2,
+      spokenText: "The GPS receiver repeated its self-test every week.",
+      phrase: "repeated its self-test every week",
+      forbiddenConcept: "finite_counter_wrap",
+      forbiddenMarkup: /LAST VALUE|RESET TO|finite_counter_wrap/,
+    },
+    {
+      salt: "gps-maintenance-year-is-not-rollover",
+      beatIndex: 3,
+      spokenText: "GPS maintenance is scheduled in 2038 by the operator.",
+      phrase: "maintenance is scheduled in 2038",
+      forbiddenConcept: "future_rollover_timeline",
+      forbiddenMarkup: /future_rollover_timeline/,
+    },
+    {
+      salt: "gps-rover-physical-roll-is-not-counter-wrap",
+      beatIndex: 2,
+      spokenText: "The GPS-equipped rover rolled over on the slope.",
+      phrase: "rover rolled over on the slope",
+      forbiddenConcept: "finite_counter_wrap",
+      forbiddenMarkup: /LAST VALUE|RESET TO|finite_counter_wrap/,
+    },
+    {
+      salt: "gps-future-rover-roll-is-not-counter-rollover",
+      beatIndex: 3,
+      spokenText: "The GPS rover will roll over on the test slope in 2038.",
+      phrase: "rover will roll over",
+      forbiddenConcept: "future_rollover_timeline",
+      forbiddenMarkup: /future_rollover_timeline/,
+    },
+    {
+      salt: "gps-antenna-is-not-counter-mapping",
+      beatIndex: 4,
+      spokenText: "The GPS antenna mechanism was ordinary.",
+      phrase: "antenna mechanism was ordinary",
+      forbiddenConcept: "counter_mapping_mechanism",
+      forbiddenMarkup: /LAST→0|RECEIVER RULE|counter_mapping_mechanism/,
+    },
+    {
+      salt: "gps-future-counter-cannot-rebind-antenna",
+      beatIndex: 4,
+      spokenText: "The GPS antenna mechanism was ordinary. The week counter reset afterward.",
+      phrase: "antenna mechanism was ordinary",
+      forbiddenConcept: "counter_mapping_mechanism",
+      forbiddenMarkup: /LAST→0|RECEIVER RULE|counter_mapping_mechanism/,
+    },
+    {
+      salt: "gps-reception-range-is-not-counter-capacity",
+      beatIndex: 3,
+      spokenText: "Newer GPS receivers have more range outdoors than legacy receivers.",
+      phrase: "more range outdoors",
+      forbiddenConcept: "counter_capacity_comparison",
+      forbiddenMarkup: />LEGACY<|>NEWER<|>MORE ROOM|counter_capacity_comparison/,
+    },
+    {
+      salt: "gps-cabinet-room-is-not-counter-capacity",
+      beatIndex: 3,
+      spokenText: "The week counter sat beside a cabinet with more room.",
+      phrase: "cabinet with more room",
+      forbiddenConcept: "counter_capacity_comparison",
+      forbiddenMarkup: />LEGACY<|>NEWER<|>MORE ROOM|counter_capacity_comparison/,
+    },
+    {
+      salt: "gps-editor-room-is-not-counter-capacity",
+      beatIndex: 3,
+      spokenText: "The editor needed more room near the week counter.",
+      phrase: "editor needed more room",
+      forbiddenConcept: "counter_capacity_comparison",
+      forbiddenMarkup: />LEGACY<|>NEWER<|>MORE ROOM|counter_capacity_comparison/,
+    },
+    {
+      salt: "gps-initialization-time-is-not-counter-time",
+      beatIndex: 0,
+      spokenText: "The receiver did not have time to initialize before the GPS signal arrived.",
+      phrase: "not have time to initialize",
+      forbiddenConcept: "counter_not_time",
+      forbiddenMarkup: /COUNTER|NOT TIME|counter_not_time/,
+    },
+    {
+      salt: "gps-finite-battery-is-not-counter-range",
+      beatIndex: 1,
+      spokenText: "The receiver battery has a finite life.",
+      phrase: "battery has a finite life",
+      forbiddenConcept: "bounded_value_range",
+      forbiddenMarkup: /FINITE VALUE SPACE|POSSIBLE VALUES|bounded_value_range/,
+    },
+    {
+      salt: "gps-finite-battery-capacity-is-not-counter-range",
+      beatIndex: 1,
+      spokenText: "The receiver battery has finite capacity.",
+      phrase: "battery has finite capacity",
+      forbiddenConcept: "bounded_value_range",
+      forbiddenMarkup: /FINITE VALUE SPACE|POSSIBLE VALUES|bounded_value_range/,
+    },
+    {
+      salt: "gps-fixed-set-piece-is-not-counter-range",
+      beatIndex: 1,
+      spokenText: "The fixed set piece remained on the stage.",
+      phrase: "fixed set piece",
+      forbiddenConcept: "bounded_value_range",
+      forbiddenMarkup: /FINITE VALUE SPACE|POSSIBLE VALUES|bounded_value_range/,
+    },
+    {
+      salt: "gps-limited-ruins-field-is-not-counter-range",
+      beatIndex: 1,
+      spokenText: "The limited field of ruins remained unexplored.",
+      phrase: "limited field of ruins",
+      forbiddenConcept: "bounded_value_range",
+      forbiddenMarkup: /FINITE VALUE SPACE|POSSIBLE VALUES|bounded_value_range/,
+    },
+    {
+      salt: "gps-glass-bits-are-not-bit-register",
+      beatIndex: 1,
+      spokenText: "The excavation field contained bits of glass.",
+      phrase: "field contained bits of glass",
+      forbiddenConcept: "encoded_bit_register",
+      forbiddenMarkup: /BIT FIELD|TEN BITS|encoded_bit_register/,
+    },
+    {
+      salt: "gps-hardware-store-is-not-bit-register",
+      beatIndex: 1,
+      spokenText: "The hardware store stores drill bits.",
+      phrase: "hardware store stores drill bits",
+      forbiddenConcept: "encoded_bit_register",
+      forbiddenMarkup: /BIT FIELD|TEN BITS|encoded_bit_register/,
+    },
+    {
+      salt: "gps-advice-bits-are-not-bit-register",
+      beatIndex: 1,
+      spokenText: "Her message contains bits of advice for the receiver.",
+      phrase: "message contains bits of advice",
+      forbiddenConcept: "encoded_bit_register",
+      forbiddenMarkup: /BIT FIELD|TEN BITS|encoded_bit_register/,
+    },
+    {
+      salt: "gps-static-bits-are-not-bit-register",
+      beatIndex: 1,
+      spokenText: "The signal contains bits of static and noise.",
+      phrase: "signal contains bits of static",
+      forbiddenConcept: "encoded_bit_register",
+      forbiddenMarkup: /BIT FIELD|TEN BITS|encoded_bit_register/,
+    },
+    {
+      salt: "gps-a-bit-better-is-not-bit-register",
+      beatIndex: 1,
+      spokenText: "The new message encoding works a bit better.",
+      phrase: "encoding works a bit better",
+      forbiddenConcept: "encoded_bit_register",
+      forbiddenMarkup: /BIT FIELD|TEN BITS|encoded_bit_register/,
+    },
+    {
+      salt: "gps-a-little-bit-better-is-not-bit-register",
+      beatIndex: 1,
+      spokenText: "The new message encoding works a little bit better.",
+      phrase: "encoding works a little bit better",
+      forbiddenConcept: "encoded_bit_register",
+      forbiddenMarkup: /BIT FIELD|TEN BITS|encoded_bit_register/,
+    },
+    {
+      salt: "gps-bits-and-pieces-are-not-bit-register",
+      beatIndex: 1,
+      spokenText: "The message encoding uses bits and pieces from older drafts.",
+      phrase: "encoding uses bits and pieces",
+      forbiddenConcept: "encoded_bit_register",
+      forbiddenMarkup: /BIT FIELD|TEN BITS|encoded_bit_register/,
+    },
+    {
+      salt: "gps-fixed-counter-does-not-inherit-rover-roll",
+      beatIndex: 2,
+      spokenText: "The week counter stayed fixed when the rover rolled over.",
+      phrase: "week counter stayed fixed",
+      forbiddenConcept: "finite_counter_wrap",
+      forbiddenMarkup: /LAST VALUE|RESET TO|finite_counter_wrap/,
+    },
+    {
+      salt: "gps-future-rover-near-counter-is-not-counter-rollover",
+      beatIndex: 3,
+      spokenText: "In 2038, the rover will roll over beside the week counter.",
+      phrase: "rover will roll over",
+      forbiddenConcept: "future_rollover_timeline",
+      forbiddenMarkup: /future_rollover_timeline/,
+    },
+    {
+      salt: "gps-antenna-beside-counter-is-not-mapping",
+      beatIndex: 4,
+      spokenText: "The week counter sat beside an ordinary antenna mechanism.",
+      phrase: "ordinary antenna mechanism",
+      forbiddenConcept: "counter_mapping_mechanism",
+      forbiddenMarkup: /LAST→0|RECEIVER RULE|counter_mapping_mechanism/,
+    },
+    {
+      salt: "gps-receiver-manual-typography-fix-is-not-remediation",
+      beatIndex: 2,
+      spokenText: "The receiver manual mentioned counter ambiguity and needed software fixes for its typography.",
+      phrase: "needed software fixes for its typography",
+      forbiddenConcept: "receiver_patch_required",
+      forbiddenMarkup: /data-cause-concept="software_patch"|>SOFTWARE PATCH<|receiver_patch_required/,
+    },
+    {
+      salt: "gps-newspaper-date-is-not-receiver-error",
+      beatIndex: 0,
+      spokenText: "The receiver sat beside a newspaper with the wrong date.",
+      phrase: "newspaper with the wrong date",
+      forbiddenConcept: "counter_date_misinterpretation",
+      forbiddenMarkup: />GPS VALUE<|>RECEIVER RULE<|counter_date_misinterpretation/,
+    },
+    {
+      salt: "gps-editor-concern-is-not-counter-time",
+      beatIndex: 4,
+      spokenText: "The editor's concern was not time itself, but the budget.",
+      phrase: "not time itself",
+      forbiddenConcept: "counter_not_time",
+      forbiddenMarkup: /NUMBER RESETS|TIME CONTINUES|counter_not_time/,
+    },
+    {
+      salt: "gps-engineer-room-is-not-counter-capacity",
+      beatIndex: 3,
+      spokenText: "Removing the old week counter gives engineers more room in the receiver.",
+      phrase: "gives engineers more room",
+      forbiddenConcept: "counter_capacity_comparison",
+      forbiddenMarkup: />LEGACY<|>NEWER<|>MORE ROOM|counter_capacity_comparison/,
+    },
+    {
+      salt: "gps-editor-diagram-is-not-counter-mapping",
+      beatIndex: 4,
+      spokenText: "The editor mapped the week counter on the diagram.",
+      phrase: "mapped the week counter",
+      forbiddenConcept: "counter_mapping_mechanism",
+      forbiddenMarkup: /LAST→0|RECEIVER RULE|counter_mapping_mechanism/,
+    },
+    {
+      salt: "gps-newspaper-owner-is-not-receiver-date-error",
+      beatIndex: 0,
+      spokenText: "The receiver reported that the newspaper had the wrong date.",
+      phrase: "newspaper had the wrong date",
+      forbiddenConcept: "counter_date_misinterpretation",
+      forbiddenMarkup: />GPS VALUE<|>RECEIVER RULE<|counter_date_misinterpretation/,
+    },
+    {
+      salt: "gps-editor-counter-is-not-receiver-remediation",
+      beatIndex: 2,
+      spokenText: "The receiver required software fixes for a counter in the editor's article.",
+      phrase: "required software fixes",
+      forbiddenConcept: "receiver_patch_required",
+      forbiddenMarkup: /data-cause-concept="software_patch"|>SOFTWARE PATCH<|receiver_patch_required/,
+    },
+    {
+      salt: "gps-reset-button-is-not-counter-wrap",
+      beatIndex: 2,
+      spokenText: "The week counter sat beside a reset button.",
+      phrase: "reset button",
+      forbiddenConcept: "finite_counter_wrap",
+      forbiddenMarkup: /LAST VALUE|RESET TO|finite_counter_wrap/,
+      expectedNeutral: true,
+    },
+    {
+      salt: "gps-cabinet-finite-capacity-is-not-value-range",
+      beatIndex: 1,
+      spokenText: "The week counter sat beside a cabinet with finite capacity.",
+      phrase: "cabinet with finite capacity",
+      forbiddenConcept: "bounded_value_range",
+      forbiddenMarkup: /FINITE VALUE SPACE|POSSIBLE VALUES|bounded_value_range/,
+      expectedNeutral: true,
+    },
+    {
+      salt: "gps-drill-bit-crate-is-not-bit-register",
+      beatIndex: 1,
+      spokenText: "The GPS receiver encoded a crate holding ten drill bits.",
+      phrase: "ten drill bits",
+      forbiddenConcept: "encoded_bit_register",
+      forbiddenMarkup: /BIT FIELD|TEN BITS|encoded_bit_register/,
+      expectedNeutral: true,
+    },
+    {
+      salt: "gps-newspaper-show-is-not-receiver-date-error",
+      beatIndex: 0,
+      spokenText: "The receiver watched as the newspaper showed the wrong date.",
+      phrase: "newspaper showed the wrong date",
+      forbiddenConcept: "counter_date_misinterpretation",
+      forbiddenMarkup: />GPS VALUE<|>RECEIVER RULE<|counter_date_misinterpretation/,
+      expectedNeutral: true,
+    },
+    {
+      salt: "gps-manual-typography-owner-is-not-remediation",
+      beatIndex: 2,
+      spokenText: "The receiver handled the ambiguity near its manual which needed software fixes for typography.",
+      phrase: "manual which needed software fixes",
+      forbiddenConcept: "receiver_patch_required",
+      forbiddenMarkup: /data-cause-concept="software_patch"|>SOFTWARE PATCH<|receiver_patch_required/,
+      expectedNeutral: true,
+    },
+    {
+      salt: "gps-clock-capacity-is-not-legacy-newer-comparison",
+      beatIndex: 3,
+      spokenText: "The GPS counter has more capacity than the clock.",
+      phrase: "more capacity than the clock",
+      forbiddenConcept: "counter_capacity_comparison",
+      forbiddenMarkup: />LEGACY<|>NEWER<|>MORE ROOM|counter_capacity_comparison/,
+    },
+    {
+      salt: "gps-calendar-owner-is-not-receiver-date-error",
+      beatIndex: 0,
+      spokenText: "The receiver watched as the calendar showed the wrong date.",
+      phrase: "calendar showed the wrong date",
+      forbiddenConcept: "counter_date_misinterpretation",
+      forbiddenMarkup: /data-cause-concept="wrong_date"|counter_date_misinterpretation/,
+      expectedNeutral: true,
+    },
+    {
+      salt: "gps-beside-mapping-mechanism-is-not-counter-mapping",
+      beatIndex: 4,
+      spokenText: "The counter sat beside a mapping mechanism.",
+      phrase: "mapping mechanism",
+      forbiddenConcept: "counter_mapping_mechanism",
+      forbiddenMarkup: /data-cause-concept="counter_mapping_mechanism"/,
+      expectedNeutral: true,
+    },
+    {
+      salt: "gps-phone-number-is-not-counter-wrap",
+      beatIndex: 2,
+      spokenText: "The phone number reset itself.",
+      phrase: "phone number reset itself",
+      forbiddenConcept: "finite_counter_wrap",
+      forbiddenMarkup: /data-finite-counter-concept="wrap"|finite_counter_wrap/,
+      expectedNeutral: true,
+    },
+    {
+      salt: "gps-capacity-battery-modifier-is-not-value-range",
+      beatIndex: 1,
+      spokenText: "The counter has a finite capacity battery.",
+      phrase: "finite capacity battery",
+      forbiddenConcept: "bounded_value_range",
+      forbiddenMarkup: /FINITE VALUE SPACE|POSSIBLE VALUES|bounded_value_range/,
+      expectedNeutral: true,
+    },
+    {
+      salt: "gps-receiver-manual-is-not-patch-owner",
+      beatIndex: 2,
+      spokenText: "The receiver manual needed a software update for counter ambiguity.",
+      phrase: "receiver manual needed",
+      forbiddenConcept: "receiver_patch_required",
+      forbiddenMarkup: /data-cause-concept="software_patch"|receiver_patch_required/,
+      expectedNeutral: true,
+    },
+    {
+      salt: "gps-transitive-reset-is-not-counter-wrap",
+      beatIndex: 2,
+      spokenText: "The GPS week counter reset the receiver display.",
+      phrase: "reset the receiver display",
+      forbiddenConcept: "finite_counter_wrap",
+      forbiddenMarkup: /data-finite-counter-concept="wrap"|finite_counter_wrap/,
+      expectedNeutral: true,
+    },
+    {
+      salt: "gps-counter-stored-battery-is-not-value-range",
+      beatIndex: 1,
+      spokenText: "The GPS week counter stores a battery with finite capacity.",
+      phrase: "battery with finite capacity",
+      forbiddenConcept: "bounded_value_range",
+      forbiddenMarkup: /FINITE VALUE SPACE|POSSIBLE VALUES|bounded_value_range/,
+      expectedNeutral: true,
+    },
+    {
+      salt: "gps-clock-owner-is-not-receiver-time-error",
+      beatIndex: 0,
+      spokenText: "The GPS receiver stood beside a clock that showed the wrong time.",
+      phrase: "clock that showed the wrong time",
+      forbiddenConcept: "counter_date_misinterpretation",
+      forbiddenMarkup: /data-cause-concept="wrong_date"|counter_date_misinterpretation/,
+      expectedNeutral: true,
+    },
+    {
+      salt: "gps-remediation-without-receiver-is-generic",
+      beatIndex: 2,
+      spokenText: "Counter ambiguity needed software fixes.",
+      phrase: "ambiguity needed software fixes",
+      forbiddenConcept: "receiver_patch_required",
+      forbiddenMarkup: /data-cause-concept="software_patch"|>SOFTWARE PATCH<|receiver_patch_required/,
+    },
+    {
+      salt: "gps-editor-wrong-date-is-not-counter-error",
+      beatIndex: 0,
+      spokenText: "The report listed the wrong date because the editor mistyped it.",
+      phrase: "report listed the wrong date",
+      forbiddenConcept: "counter_date_misinterpretation",
+      forbiddenMarkup: />GPS VALUE<|>RECEIVER RULE<|counter_date_misinterpretation/,
+    },
+    {
+      salt: "gps-manual-values-are-not-counter-range",
+      beatIndex: 1,
+      spokenText: "The manual listed possible values for screen brightness.",
+      phrase: "possible values for screen brightness",
+      forbiddenConcept: "bounded_value_range",
+      forbiddenMarkup: /FINITE VALUE SPACE|POSSIBLE VALUES|bounded_value_range/,
+      expectedNeutral: true,
+    },
+    {
+      salt: "gps-editor-mapping-is-not-receiver-mapping",
+      beatIndex: 4,
+      spokenText: "The GPS receiver watched as the editor mapped the counter to a chart.",
+      phrase: "editor mapped the counter",
+      forbiddenConcept: "counter_mapping_mechanism",
+      forbiddenMarkup: /LAST→0|RECEIVER RULE|counter_mapping_mechanism/,
+      expectedNeutral: true,
+    },
+    {
+      salt: "gps-crate-label-is-not-bit-register",
+      beatIndex: 1,
+      spokenText: "The receiver stored a crate marked ten bits beside the counter.",
+      phrase: "crate marked ten bits",
+      forbiddenConcept: "encoded_bit_register",
+      forbiddenMarkup: /BIT FIELD|TEN BITS|encoded_bit_register/,
+      expectedNeutral: true,
+    },
+    {
+      salt: "gps-transitive-change-is-not-counter-not-time",
+      beatIndex: 4,
+      spokenText: "The counter changed the display—not time itself.",
+      phrase: "changed the display—not time",
+      forbiddenConcept: "counter_not_time",
+      forbiddenMarkup: /NUMBER RESETS|TIME CONTINUES|counter_not_time/,
+    },
+    {
+      salt: "gps-page-room-is-not-counter-capacity",
+      beatIndex: 3,
+      spokenText: "Newer navigation messages give the week counter more room on the printed page.",
+      phrase: "more room on the printed page",
+      forbiddenConcept: "counter_capacity_comparison",
+      forbiddenMarkup: /data-comparison-concept="capacity"|counter_capacity_comparison/,
+    },
+    {
+      salt: "gps-called-office-is-not-quote",
+      beatIndex: 2,
+      spokenText: "The technician called the office after the reset.",
+      phrase: "called the office",
+      forbiddenConcept: "cue_evidence_quote",
+      forbiddenMarkup: /data-evidence-variant="quote"|[“”]/,
+      expectedNeutral: true,
+    },
+    {
+      salt: "gps-water-flow-is-not-network",
+      beatIndex: 4,
+      spokenText: "Water flowed across the mechanism beneath the receiver.",
+      phrase: "flowed across the mechanism",
+      forbiddenConcept: "cue_evidence_network",
+      forbiddenMarkup: /data-evidence-variant="network"/,
+      expectedNeutral: true,
+    },
+    {
+      salt: "gps-reset-alarm-is-not-counter-not-time",
+      beatIndex: 4,
+      spokenText: "The counter reset alarm was not time.",
+      phrase: "reset alarm was not time",
+      forbiddenConcept: "counter_not_time",
+      forbiddenMarkup: /NUMBER RESETS|TIME CONTINUES|counter_not_time/,
+    },
+    {
+      salt: "gps-wooden-log-is-not-document",
+      beatIndex: 2,
+      spokenText: "A wooden log blocked the narrow forest road.",
+      phrase: "wooden log",
+      forbiddenConcept: "cue_evidence_document",
+      forbiddenMarkup: /data-evidence-variant="document"/,
+      expectedNeutral: true,
+    },
+    {
+      salt: "gps-musical-note-is-not-document",
+      beatIndex: 2,
+      spokenText: "The musician played a single note beneath the stage.",
+      phrase: "single note",
+      forbiddenConcept: "cue_evidence_document",
+      forbiddenMarkup: /data-evidence-variant="document"/,
+      expectedNeutral: true,
+    },
+    {
+      salt: "gps-called-office-colon-is-not-quote",
+      beatIndex: 2,
+      spokenText: "The technician called the office: nobody answered.",
+      phrase: "called the office",
+      forbiddenConcept: "cue_evidence_quote",
+      forbiddenMarkup: /data-evidence-variant="quote"|[“”]/,
+      expectedNeutral: true,
+    },
+    {
+      salt: "gps-physical-bits-are-not-register",
+      beatIndex: 1,
+      spokenText: "The device used ten bits to drill the panel.",
+      phrase: "ten bits to drill",
+      forbiddenConcept: "encoded_bit_register",
+      forbiddenMarkup: /BIT FIELD|TEN BITS|encoded_bit_register/,
+      expectedNeutral: true,
+    },
+    {
+      salt: "gps-page-room-next-clause-is-not-counter-capacity",
+      beatIndex: 3,
+      spokenText: "Newer navigation messages give the week counter more room, but only on the printed page.",
+      phrase: "week counter more room",
+      forbiddenConcept: "counter_capacity_comparison",
+      forbiddenMarkup: /data-comparison-concept="capacity"|counter_capacity_comparison/,
+      expectedNeutral: true,
+    },
+    {
+      salt: "gps-month-may-with-year-is-not-uncertainty",
+      beatIndex: 0,
+      spokenText: "In May 1999, engineers tested the GPS receiver.",
+      phrase: "May 1999",
+      forbiddenConcept: "bounded_uncertainty",
+      forbiddenMarkup: /UNRESOLVED|bounded_uncertainty/,
+    },
+    {
+      salt: "gps-month-may-with-day-is-not-uncertainty",
+      beatIndex: 0,
+      spokenText: "On May 4, 1999, engineers tested the GPS receiver.",
+      phrase: "May 4",
+      forbiddenConcept: "bounded_uncertainty",
+      forbiddenMarkup: /UNRESOLVED|bounded_uncertainty/,
+    },
+    {
+      salt: "gps-month-may-modifier-is-not-uncertainty",
+      beatIndex: 0,
+      spokenText: "The May 1999 test included the GPS receiver.",
+      phrase: "May 1999",
+      forbiddenConcept: "bounded_uncertainty",
+      forbiddenMarkup: /UNRESOLVED|bounded_uncertainty/,
+    },
+    {
+      salt: "gps-thought-experiment-is-not-assumption",
+      beatIndex: 2,
+      spokenText: "The thought experiment used a paper clock.",
+      phrase: "thought experiment",
+      forbiddenConcept: "reported_assumption",
+      forbiddenMarkup: /UNRESOLVED|reported_assumption/,
+      expectedNeutral: true,
+    },
+    {
+      salt: "gps-assumed-name-is-not-assumption",
+      beatIndex: 2,
+      spokenText: "The engineer used an assumed name during the test.",
+      phrase: "assumed name",
+      forbiddenConcept: "reported_assumption",
+      forbiddenMarkup: /UNRESOLVED|reported_assumption/,
+      expectedNeutral: true,
+    },
+    {
+      salt: "gps-believed-value-is-not-assumption",
+      beatIndex: 2,
+      spokenText: "The believed value appeared in the margin.",
+      phrase: "believed value",
+      forbiddenConcept: "reported_assumption",
+      forbiddenMarkup: /UNRESOLVED|reported_assumption/,
+      expectedNeutral: true,
+    },
+    {
+      salt: "gps-time-efficient-is-not-counter-not-time",
+      beatIndex: 4,
+      spokenText: "The counter reset is not time-efficient.",
+      phrase: "not time-efficient",
+      forbiddenConcept: "counter_not_time",
+      forbiddenMarkup: /NUMBER RESETS|TIME CONTINUES|counter_not_time/,
+    },
+    {
+      salt: "gps-manual-lever-is-not-document",
+      beatIndex: 2,
+      spokenText: "The technician pulled a manual lever beside the receiver.",
+      phrase: "manual lever",
+      forbiddenConcept: "cue_evidence_document",
+      forbiddenMarkup: /data-evidence-variant="document"/,
+      expectedNeutral: true,
+    },
+    {
+      salt: "gps-bits-tighten-is-not-register",
+      beatIndex: 1,
+      spokenText: "The device used ten bits to tighten the screws.",
+      phrase: "ten bits to tighten",
+      forbiddenConcept: "encoded_bit_register",
+      forbiddenMarkup: /BIT FIELD|TEN BITS|encoded_bit_register/,
+      expectedNeutral: true,
+    },
+    {
+      salt: "gps-bits-toolbox-is-not-register",
+      beatIndex: 1,
+      spokenText: "The device stored ten bits in its toolbox.",
+      phrase: "ten bits in its toolbox",
+      forbiddenConcept: "encoded_bit_register",
+      forbiddenMarkup: /BIT FIELD|TEN BITS|encoded_bit_register/,
+      expectedNeutral: true,
+    },
+  ];
+  for (const adversarial of unrelatedGpsCases) {
+    const raw = readRaw("002_gps_week_rollover");
+    raw.script.beats[adversarial.beatIndex].spokenText = adversarial.spokenText;
+    const adversarialPlan = buildAdversarialPlan(raw, adversarial.salt);
+    const sentence = adversarialPlan.sentences.find(
+      (candidate) => candidate.wordSpan.text.includes(adversarial.phrase),
+    );
+    assert.ok(sentence, adversarial.salt);
+    assert.notEqual(
+      sentence.primitiveParameters.visualConceptId,
+      adversarial.forbiddenConcept,
+      adversarial.salt,
+    );
+    const markup = primitives.semanticSentencePrimitiveMarkup(
+      sentence,
+      adversarialPlan.sentences.indexOf(sentence),
+    );
+    assert.doesNotMatch(
+      markup,
+      adversarial.forbiddenMarkup,
+      adversarial.salt,
+    );
+    if (adversarial.expectedNeutral) {
+      assert.match(
+        sentence.primitiveParameters.visualConceptId,
+        /^cue_evidence_(?:bands|document|field|focus|frame|network|quote|ribbon|spotlight)$/,
+        adversarial.salt,
+      );
+      assert.equal(sentence.capability.assetId, "archive_record");
+      assert.equal(sentence.capability.grammarId, "evidence_inspection");
+      assert.match(markup, /data-evidence-variant=/, adversarial.salt);
+    }
+  }
+
+  assert.equal(
+    semanticBoundedValueRangeClaimMatches(
+      "The manual listed possible values for screen brightness.",
+    ),
+    false,
+  );
+  assert.equal(
+    semanticCounterMappingClaimMatches(
+      "The GPS receiver watched as the editor mapped the counter to a chart.",
+    ),
+    false,
+  );
+  assert.equal(
+    semanticEncodedBitClaimMatches(
+      "The receiver stored a crate marked ten bits beside the counter.",
+    ),
+    false,
+  );
+  assert.equal(
+    semanticBoundedValueRangeClaimMatches(
+      "leaving only a limited set of possible values.",
+    ),
+    true,
+  );
+  assert.equal(
+    semanticCounterMappingClaimMatches(
+      "The receiver interpreted the week counter as zero.",
+    ),
+    true,
+  );
+  assert.equal(
+    semanticEncodedBitClaimMatches(
+      "The legacy civil signal stores its week number in ten bits.",
+    ),
+    true,
+  );
+  assert.equal(
+    semanticCounterNotTimeClaimMatches(
+      "The counter changed the display—not time itself.",
+    ),
+    false,
+  );
+  assert.equal(
+    semanticCounterCapacityComparisonClaimMatches(
+      "Newer navigation messages give the week counter more room on the printed page.",
+    ),
+    false,
+  );
+  assert.equal(
+    semanticNeutralQuoteCueMatches(
+      "The technician called the office after the reset.",
+    ),
+    false,
+  );
+  assert.equal(
+    semanticNeutralNetworkCueMatches(
+      "Water flowed across the mechanism beneath the receiver.",
+    ),
+    false,
+  );
+  assert.equal(
+    semanticCounterNotTimeClaimMatches(
+      "The counter reset alarm was not time.",
+    ),
+    false,
+  );
+  assert.equal(
+    semanticNeutralDocumentCueMatches(
+      "A wooden log blocked the narrow forest road.",
+    ),
+    false,
+  );
+  assert.equal(
+    semanticNeutralDocumentCueMatches(
+      "The musician played a single note beneath the stage.",
+    ),
+    false,
+  );
+  assert.equal(
+    semanticNeutralQuoteCueMatches(
+      "The technician called the office: nobody answered.",
+    ),
+    false,
+  );
+  assert.equal(
+    semanticEncodedBitClaimMatches(
+      "The device used ten bits to drill the panel.",
+    ),
+    false,
+  );
+  assert.equal(
+    semanticCounterCapacityComparisonClaimMatches(
+      "Newer navigation messages give the week counter more room,",
+    ),
+    false,
+  );
+  assert.equal(
+    semanticCounterNotTimeClaimMatches(
+      "The counter reset is not time-efficient.",
+    ),
+    false,
+  );
+  assert.equal(
+    semanticNeutralDocumentCueMatches(
+      "The technician pulled a manual lever beside the receiver.",
+    ),
+    false,
+  );
+  assert.equal(
+    semanticEncodedBitClaimMatches(
+      "The device used ten bits to tighten the screws.",
+    ),
+    false,
+  );
+  assert.equal(
+    semanticEncodedBitClaimMatches(
+      "The device stored ten bits in its toolbox.",
+    ),
+    false,
+  );
+
+  for (const [salt, spokenText, phrase] of [
+    [
+      "radio-repeat-button-is-not-signal-recurrence",
+      "No repeat button was installed on the radio receiver.",
+      "repeat button",
+    ],
+    [
+      "radio-repeated-pattern-is-not-signal-recurrence",
+      "The archive contained no repeated pattern on the paper chart.",
+      "repeated pattern",
+    ],
+  ]) {
+    const raw = readRaw("001_wow_signal_mystery");
+    raw.script.beats[3].spokenText = spokenText;
+    const plan = buildAdversarialPlan(raw, salt);
+    const sentence = plan.sentences.find(
+      (candidate) => candidate.wordSpan.text.includes(phrase),
+    );
+    assert.ok(sentence, salt);
+    assert.match(
+      sentence.primitiveParameters.visualConceptId,
+      /^cue_evidence_(?:bands|document|field|focus|frame|network|quote|ribbon|spotlight)$/,
+      salt,
+    );
+    assert.notEqual(
+      sentence.primitiveParameters.visualConceptId,
+      "signal_nonrecurrence",
+      salt,
+    );
+    assert.equal(sentence.visualIntent.predicate, "appearance", salt);
+  }
+  const missingProofRaw = readRaw("001_wow_signal_mystery");
+  missingProofRaw.script.beats[3].spokenText =
+    "The candidate left no repeatable proof.";
+  const missingProofPlan = buildAdversarialPlan(
+    missingProofRaw,
+    "radio-missing-repeatable-proof",
+  );
+  const missingProofSentence = missingProofPlan.sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("repeatable proof"),
+  );
+  assert.ok(missingProofSentence);
+  assert.equal(
+    missingProofSentence.primitiveParameters.visualConceptId,
+    "missing_confirmation",
+  );
+  const actualRadioPlan = buildAdversarialPlan(
+    readRaw("001_wow_signal_mystery"),
+    "radio-signal-nonrecurrence-positive",
+  );
+  const actualSignalNonrecurrence = actualRadioPlan.sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("same signal again"),
+  );
+  assert.ok(actualSignalNonrecurrence);
+  assert.equal(
+    actualSignalNonrecurrence.primitiveParameters.visualConceptId,
+    "signal_nonrecurrence",
+  );
+  for (const [salt, spokenText, phrase] of [
+    [
+      "causal-year-precedes-chronology",
+      "In 2019, heavy rain caused a launch delay.",
+      "rain caused a launch delay",
+    ],
+    [
+      "causal-duration-precedes-number",
+      "After 20 years, heavy rain caused a launch delay.",
+      "rain caused a launch delay",
+    ],
+  ]) {
+    const raw = readRaw("002_gps_week_rollover");
+    raw.script.beats[2].spokenText = spokenText;
+    const causalPlan = buildAdversarialPlan(raw, salt);
+    const causalSentence = causalPlan.sentences.find(
+      (candidate) => candidate.wordSpan.text.includes(phrase),
+    );
+    assert.ok(causalSentence, salt);
+    assert.equal(
+      causalSentence.primitiveParameters.visualConceptId,
+      "mapping_cause_effect",
+      salt,
+    );
+    assert.equal(causalSentence.visualIntent.predicate, "cause_effect", salt);
+  }
+
+  const makingNotesRaw = readRaw("002_gps_week_rollover");
+  makingNotesRaw.script.beats[2].spokenText =
+    "In 2019, an engineer was making notes during the inspection.";
+  const makingNotesPlan = buildAdversarialPlan(
+    makingNotesRaw,
+    "making-notes-is-not-causation",
+  );
+  const makingNotes = makingNotesPlan.sentences.find(
+    (candidate) => candidate.wordSpan.text.includes("making notes"),
+  );
+  assert.ok(makingNotes);
+  assert.notEqual(
+    makingNotes.primitiveParameters.visualConceptId,
+    "mapping_cause_effect",
+  );
+  assert.notEqual(makingNotes.visualIntent.predicate, "cause_effect");
+
+  const pluralDatesRaw = readRaw("002_gps_week_rollover");
+  pluralDatesRaw.script.beats[0].spokenText =
+    "Some legacy GPS receivers interpreted the counter incorrectly and showed incorrect dates.";
+  const pluralDatesPlan = buildAdversarialPlan(
+    pluralDatesRaw,
+    "gps-incorrect-dates-positive",
+  );
+  const pluralDates = pluralDatesPlan.sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("incorrect dates"),
+  );
+  assert.ok(pluralDates);
+  assert.equal(
+    pluralDates.primitiveParameters.visualConceptId,
+    "counter_date_misinterpretation",
+  );
+  assert.match(
+    primitives.semanticSentencePrimitiveMarkup(
+      pluralDates,
+      pluralDatesPlan.sentences.indexOf(pluralDates),
+    ),
+    /WRONG DATE/,
+  );
+
+  const realBaychimo = buildAdversarialPlan(
+    readRaw("003_baychimo_icebound_drift"),
+    "baychimo-clause-local-semantics",
+  );
+  const archivedDecadesLater = realBaychimo.sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("decades after"),
+  );
+  assert.ok(archivedDecadesLater);
+  assert.equal(archivedDecadesLater.capability.grammarId, "chronology_accumulation");
+  assert.equal(archivedDecadesLater.capability.assetId, "timeline_axis");
+  assert.notEqual(
+    archivedDecadesLater.primitiveParameters.visualConceptId,
+    "semantic_vessel_movement",
+  );
+  const reportedAssumption = realBaychimo.sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("assumed it had sunk"),
+  );
+  assert.equal(
+    reportedAssumption?.primitiveParameters.visualConceptId,
+    "reported_assumption",
+  );
+  const witnessSighting = realBaychimo.sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("hunters soon spotted"),
+  );
+  assert.equal(
+    witnessSighting?.primitiveParameters.visualConceptId,
+    "witness_sighting",
+  );
 });
 
 test("StoryIR segments partition every aligned word exactly once within renderer limits", () => {
@@ -1099,6 +2545,292 @@ test("generalized sentence plans deterministically compose one primary and two g
   }
 });
 
+test("generalized visual coherence rejects repetitive primary forms before rendering", async () => {
+  const gps = build("002_gps_week_rollover", "semantic-coherence-gps");
+  const report = buildSemanticVisualCoherenceReport(gps.sentencePlan);
+  assert.equal(report.applicable, true);
+  assert.equal(report.passed, true);
+  assert.ok(report.metrics.distinctPrimaryFormCount >= 6);
+  assert.ok(
+    report.metrics.dominantPrimaryFormCount
+      <= report.metrics.dominantPrimaryFormAllowance,
+  );
+  assert.equal(
+    report.contentHash,
+    buildSemanticVisualCoherenceReport(gps.sentencePlan).contentHash,
+  );
+  for (const fixtureId of [
+    "001_wow_signal_mystery",
+    "003_baychimo_icebound_drift",
+    "004_general_word_collision",
+  ]) {
+    const fixtureReport = buildSemanticVisualCoherenceReport(
+      build(fixtureId, `semantic-coherence-${fixtureId}`).sentencePlan,
+    );
+    const minimumDistinctPrimaryForms = fixtureId === "004_general_word_collision"
+      ? 5
+      : 6;
+    assert.equal(fixtureReport.passed, true, fixtureId);
+    assert.ok(
+      fixtureReport.metrics.distinctPrimaryFormCount >= minimumDistinctPrimaryForms,
+      fixtureId,
+    );
+    assert.ok(
+      fixtureReport.metrics.dominantPrimaryFormCount <= 2,
+      fixtureId,
+    );
+  }
+
+  const neutralRaw = readRaw("002_gps_week_rollover");
+  [
+    "A blue shape rested near the edge beneath a soft overhead light.",
+    "A small object stood beneath the pale surface at the quiet center.",
+    "A narrow form occupied the middle beside several muted gray shapes.",
+    "A dark outline remained near the wall under a steady amber glow.",
+    "A quiet room contained one chair beneath a broad band of shadow.",
+  ].forEach((spokenText, index) => {
+    neutralRaw.script.beats[index].spokenText = spokenText;
+  });
+  const neutralCompilation = compileRaw(
+    neutralRaw,
+    "five-neutral-safe-forms",
+    "prj_five_neutral_safe_forms",
+  );
+  const neutralPlan = neutralCompilation.compiled.animationIR.content
+    .semanticVisualSentencePlan;
+  assert.equal(neutralPlan.sentences.length, 5);
+  assert.deepEqual(
+    neutralPlan.sentences.map(
+      (sentence) => sentence.primitiveParameters.visualConceptId,
+    ),
+    [
+      "cue_evidence_focus",
+      "cue_evidence_spotlight",
+      "cue_evidence_field",
+      "cue_evidence_ribbon",
+      "cue_evidence_frame",
+    ],
+  );
+  const neutralReport = buildSemanticVisualCoherenceReport(neutralPlan);
+  assert.equal(neutralReport.passed, true);
+  assert.equal(neutralReport.metrics.distinctPrimaryFormCount, 5);
+  assert.equal(neutralReport.metrics.dominantPrimaryFormCount, 1);
+  assert.equal(
+    neutralCompilation.compiled.animationIR.content
+      .semanticAnimationSceneDslPlan.scenes.length,
+    5,
+  );
+
+  const nineNeutralRaw = readRaw("002_gps_week_rollover");
+  [
+    "A blue shape rested near the edge beneath soft light. A pale outline stood at the quiet center.",
+    "A narrow form occupied the middle under a muted glow. A dark surface filled the lower part of the room.",
+    "A small object stayed beside the wall under steady light. A broad shadow covered the empty space near it.",
+    "A gray shape remained above the floor during a calm pause. A quiet background held the scene in place.",
+    "A simple form rested in the center beneath a dim light.",
+  ].forEach((spokenText, index) => {
+    nineNeutralRaw.script.beats[index].spokenText = spokenText;
+  });
+  const nineNeutralCompilation = compileRaw(
+    nineNeutralRaw,
+    "nine-neutral-safe-forms",
+    "prj_nine_neutral_safe_forms",
+  );
+  const nineNeutralPlan = nineNeutralCompilation.compiled.animationIR.content
+    .semanticVisualSentencePlan;
+  assert.equal(nineNeutralPlan.sentences.length, 9);
+  assert.deepEqual(
+    nineNeutralPlan.sentences.map(
+      (sentence) => sentence.primitiveParameters.visualConceptId,
+    ),
+    [
+      "cue_evidence_focus",
+      "cue_evidence_spotlight",
+      "cue_evidence_field",
+      "cue_evidence_ribbon",
+      "cue_evidence_frame",
+      "cue_evidence_bands",
+      "cue_evidence_focus",
+      "cue_evidence_spotlight",
+      "cue_evidence_field",
+    ],
+  );
+  const nineNeutralReport = buildSemanticVisualCoherenceReport(
+    nineNeutralPlan,
+  );
+  assert.equal(nineNeutralReport.passed, true);
+  assert.equal(nineNeutralReport.metrics.distinctPrimaryFormCount, 6);
+  assert.equal(nineNeutralReport.metrics.dominantPrimaryFormCount, 2);
+  assert.equal(
+    nineNeutralReport.metrics.dominantPrimaryFormAllowance,
+    2,
+  );
+  assert.equal(
+    nineNeutralCompilation.compiled.animationIR.content
+      .semanticAnimationSceneDslPlan.scenes.length,
+    9,
+  );
+  const neutralPrimitives = await import(
+    "../renderer/hyperframes/primitives/semantic-sentence-primitives.mjs"
+  );
+  for (const [index, expectedVariant] of [
+    "focus",
+    "spotlight",
+    "field",
+    "ribbon",
+    "frame",
+    "bands",
+  ].entries()) {
+    assert.match(
+      neutralPrimitives.semanticSentencePrimitiveMarkup(
+        nineNeutralPlan.sentences[index],
+        index,
+      ),
+      new RegExp(`data-evidence-variant="${expectedVariant}"`),
+    );
+  }
+
+  const collapsed = structuredClone(gps.sentencePlan);
+  const repeated = collapsed.sentences[0];
+  collapsed.sentences.forEach((sentence) => {
+    sentence.primitiveParameters.visualConceptId =
+      repeated.primitiveParameters.visualConceptId;
+    sentence.capability.assetId = repeated.capability.assetId;
+    sentence.capability.grammarId = repeated.capability.grammarId;
+    sentence.visualIntent.stateTransition =
+      repeated.visualIntent.stateTransition;
+    sentence.primitiveParameters.stateToken =
+      repeated.primitiveParameters.stateToken;
+    sentence.sceneComposition.geometryBlueprint.recipeId =
+      repeated.sceneComposition.geometryBlueprint.recipeId;
+  });
+  const collapsedReport = buildSemanticVisualCoherenceReport(collapsed);
+  assert.equal(collapsedReport.passed, false);
+  assert.equal(collapsedReport.metrics.distinctPrimaryFormCount, 1);
+  assert.ok(collapsedReport.violations.some(
+    (violation) => (
+      violation.code === "PRIMARY_FORM_DOMINANT_SHARE_EXCEEDED"
+    ),
+  ));
+  assert.throws(
+    () => assertSemanticVisualCoherence(collapsed),
+    (error) => (
+      error.code === "ANIMATION_SEMANTIC_VISUAL_COHERENCE_INVALID"
+      && error.status === 409
+    ),
+  );
+
+  const shortCollapsed = {
+    ...structuredClone(collapsed),
+    sentences: structuredClone(collapsed.sentences.slice(0, 4)),
+  };
+  const shortCollapsedReport = buildSemanticVisualCoherenceReport(
+    shortCollapsed,
+  );
+  assert.equal(shortCollapsedReport.passed, false);
+  assert.ok(shortCollapsedReport.violations.some(
+    (violation) => violation.code === "PRIMARY_FORM_CONSECUTIVE_RUN_EXCEEDED",
+  ));
+
+  const distinctBases = [];
+  for (const sentence of gps.sentencePlan.sentences) {
+    if (distinctBases.some(
+      (candidate) => primaryVisualFormSignature(candidate)
+        === primaryVisualFormSignature(sentence),
+    )) continue;
+    distinctBases.push(sentence);
+    if (distinctBases.length === 3) break;
+  }
+  assert.equal(distinctBases.length, 3);
+  const dominantShortPlan = {
+    ...structuredClone(gps.sentencePlan),
+    sentences: [0, 1, 2, 0, 1, 0].map(
+      (index) => structuredClone(distinctBases[index]),
+    ),
+  };
+  const dominantShortReport = buildSemanticVisualCoherenceReport(
+    dominantShortPlan,
+  );
+  assert.equal(dominantShortReport.passed, false);
+  assert.equal(dominantShortReport.metrics.dominantPrimaryFormCount, 3);
+  assert.ok(dominantShortReport.violations.some(
+    (violation) => violation.code === "PRIMARY_FORM_DOMINANT_SHARE_EXCEEDED",
+  ));
+  const fourSentenceDominantPlan = {
+    ...structuredClone(gps.sentencePlan),
+    sentences: [0, 1, 0, 0].map(
+      (index) => structuredClone(distinctBases[index]),
+    ),
+  };
+  const fourSentenceDominantReport = buildSemanticVisualCoherenceReport(
+    fourSentenceDominantPlan,
+  );
+  assert.equal(fourSentenceDominantReport.passed, false);
+  assert.equal(
+    fourSentenceDominantReport.metrics.dominantPrimaryFormCount,
+    3,
+  );
+  assert.ok(fourSentenceDominantReport.violations.some(
+    (violation) => violation.code === "PRIMARY_FORM_DOMINANT_SHARE_EXCEEDED",
+  ));
+  assert.equal(
+    primaryVisualFormSignature(gps.sentencePlan.sentences[0]),
+    "finite_counter_wrap|finite_counter|finite_cycle|finite_ring_v1",
+  );
+
+  const ordinaryMechanism = gps.sentencePlan.sentences.find(
+    (sentence) => (
+      sentence.wordSpan.text.includes("mechanism was ordinary")
+    ),
+  );
+  assert.ok(ordinaryMechanism);
+  assert.equal(
+    ordinaryMechanism.primitiveParameters.visualConceptId,
+    "cue_evidence_spotlight",
+  );
+  const genericConcepts = [
+    "source_misinterpretation",
+    "source_remediation",
+    "mapping_cause_effect",
+    "source_misinterpretation",
+    "source_remediation",
+    "mapping_cause_effect",
+    "source_misinterpretation",
+    "source_remediation",
+  ];
+  const disguisedGenericRepetition = {
+    sceneCompositionProfileId: gps.sentencePlan.sceneCompositionProfileId,
+    sentences: genericConcepts.map((visualConceptId, index) => {
+      const sentence = structuredClone(ordinaryMechanism);
+      sentence.id = `disguised_generic_${index}`;
+      sentence.primitiveParameters.visualConceptId = visualConceptId;
+      sentence.primitiveParameters.stateToken = "RESULT";
+      return sentence;
+    }),
+  };
+  assert.equal(
+    new Set(disguisedGenericRepetition.sentences.map(
+      primaryVisualFormSignature,
+    )).size,
+    1,
+  );
+  const disguisedReport = buildSemanticVisualCoherenceReport(
+    disguisedGenericRepetition,
+  );
+  assert.equal(disguisedReport.passed, false);
+  assert.equal(disguisedReport.metrics.distinctPrimaryFormCount, 1);
+  assert.throws(
+    () => assertSemanticVisualCoherence(disguisedGenericRepetition),
+    (error) => error.code === "ANIMATION_SEMANTIC_VISUAL_COHERENCE_INVALID",
+  );
+
+  const legacyReport = buildSemanticVisualCoherenceReport({
+    sentences: gps.sentencePlan.sentences,
+  });
+  assert.equal(legacyReport.applicable, false);
+  assert.equal(legacyReport.passed, true);
+});
+
 test("generalized semantic-v3 carries source-bound primitive parameters into visible renderer markup", async () => {
   const { compileAnimationIRToHtml } = await import(
     "../renderer/hyperframes/animation-ir-adapter.mjs"
@@ -1242,7 +2974,9 @@ test("bounded geometry factory compiles distinct source-bound programs into visi
 
   for (const [id] of CASES) {
     const value = compileRaw(
-      readRaw(id),
+      id === "003_baychimo_icebound_drift"
+        ? readBaychimoWithGroundedRoute()
+        : readRaw(id),
       `bounded-geometry-${id}`,
       `prj_bounded_geometry_${id}`,
     );
@@ -1637,7 +3371,7 @@ test("bounded geometry contracts reject injection, malformed data, and fresh-has
   );
 
   const routeValue = compileRaw(
-    readRaw("003_baychimo_icebound_drift"),
+    readBaychimoWithGroundedRoute(),
     "bounded-geometry-route-adversarial",
     "prj_bounded_geometry_route_adversarial",
   );
@@ -2013,16 +3747,16 @@ test("approved storyboard route points produce deterministic, visibly different 
   const { compileAnimationIRToHtml } = await import(
     "../renderer/hyperframes/animation-ir-adapter.mjs"
   );
-  const rawA = readRaw("003_baychimo_icebound_drift");
+  const rawA = readBaychimoWithGroundedRoute();
   const rawB = structuredClone(rawA);
-  const routeA = rawA.storyboard.scenes[3].operations[0].points;
+  const routeA = rawA.storyboard.scenes[2].operations[0].points;
   const routeB = [
     [0.12, 0.22],
     [0.35, 0.38],
     [0.66, 0.64],
     [0.88, 0.78],
   ];
-  rawB.storyboard.scenes[3].operations[0].points = routeB;
+  rawB.storyboard.scenes[2].operations[0].points = routeB;
   const first = compileRaw(rawA, "grounded-route-a", "prj_grounded_route_a");
   const repeated = compileRaw(rawA, "grounded-route-a", "prj_grounded_route_a");
   const second = compileRaw(rawB, "grounded-route-b", "prj_grounded_route_b");
@@ -2188,6 +3922,34 @@ test("multiword number phrases keep one exact value span and their unit", () => 
     "one hundred and twenty",
   );
   assert.equal(conjunctionQuantities[0].unit, "years");
+
+  const hyphenatedValue = "The message uses a 32-bit field.";
+  const hyphenatedQuantities = quantityTokens({
+    sourceType: "beat",
+    sourceId: "beat_hyphenated_bits",
+    operationIndex: null,
+    field: "spokenText",
+    startOffset: 0,
+    endOffset: hyphenatedValue.length,
+    value: hyphenatedValue,
+  });
+  assert.equal(hyphenatedQuantities.length, 1);
+  assert.equal(hyphenatedQuantities[0].value, "32");
+  assert.equal(hyphenatedQuantities[0].unit, "bit");
+  assert.equal(
+    hyphenatedValue.slice(
+      hyphenatedQuantities[0].valueSourceRef.startOffset,
+      hyphenatedQuantities[0].valueSourceRef.endOffset,
+    ),
+    "32",
+  );
+  assert.equal(
+    hyphenatedValue.slice(
+      hyphenatedQuantities[0].unitSourceRef.startOffset,
+      hyphenatedQuantities[0].unitSourceRef.endOffset,
+    ),
+    "bit",
+  );
 });
 
 test("generalized graph semantics cannot be rebound or downgraded with fresh hashes", async () => {
@@ -2236,7 +3998,7 @@ test("generalized graph semantics cannot be rebound or downgraded with fresh has
     target.primitivePayload.displayQuantity = structuredClone(
       donor.primitivePayload.displayQuantity,
     );
-  });
+  }, "concept_grounding_mismatch");
   graphFailure((changed) => {
     changed.propositions[0].polarity = changed.propositions[0].polarity
       === "affirmed" ? "negated" : "affirmed";
@@ -2436,7 +4198,16 @@ test("sentence primitives follow the current cue, preserve units, and use semant
   );
   assert.ok(rollover);
   assert.equal(rollover.primitiveParameters.quantity.value, "2038");
-  assert.equal(rollover.primitiveParameters.stateToken, "REPEATS");
+  assert.equal(rollover.capability.assetId, "timeline_axis");
+  assert.equal(rollover.capability.grammarId, "chronology_accumulation");
+  assert.equal(rollover.primitiveParameters.stateToken, "UPCOMING");
+  assert.match(
+    primitives.semanticSentencePrimitiveMarkup(
+      rollover,
+      sentences.indexOf(rollover),
+    ),
+    /data-geometry-kind="chronology_records"[\s\S]*>2038</,
+  );
 
   const resetToZero = sentences.find(
     (sentence) => sentence.wordSpan.text.includes("reset to zero"),
@@ -2448,10 +4219,29 @@ test("sentence primitives follow the current cue, preserve units, and use semant
     resetToZero,
     sentences.indexOf(resetToZero),
   );
-  assert.match(resetMarkup, /data-cycle-content="quantity"/);
-  assert.match(
-    resetMarkup,
-    /class="counter-value cycle-quantity"[^>]*>ZERO<\/text>/,
+  assert.match(resetMarkup, /data-finite-counter-concept="wrap"/);
+  assert.match(resetMarkup, />LAST VALUE</);
+  assert.match(resetMarkup, />RESET TO</);
+  assert.match(resetMarkup, />ZERO<\/text>/);
+
+  const pronounRollover = sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("When it rolled over"),
+  );
+  assert.ok(pronounRollover);
+  assert.equal(pronounRollover.capability.assetId, "finite_counter");
+  assert.equal(
+    pronounRollover.primitiveParameters.visualConceptId,
+    "counter_recurrence",
+  );
+
+  const numberReset = sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("The number reset"),
+  );
+  assert.ok(numberReset);
+  assert.equal(numberReset.capability.assetId, "finite_counter");
+  assert.equal(
+    numberReset.primitiveParameters.visualConceptId,
+    "finite_counter_wrap",
   );
 
   const distractorRaw = readRaw("002_gps_week_rollover");
@@ -2526,33 +4316,26 @@ test("sentence primitives follow the current cue, preserve units, and use semant
   );
   assert.doesNotMatch(newerMarkup, />1999<|>2019<|>2038</);
   assert.doesNotMatch(newerMarkup, />CURRENT</);
-  assert.match(newerMarkup, /COUNTER MORE[\s\S]*ROOM/);
+  assert.match(newerMarkup, /data-comparison-concept="capacity"/);
+  assert.match(newerMarkup, />WEEK COUNTER</);
+  assert.match(newerMarkup, />NEWER MESSAGE</);
+  assert.match(newerMarkup, />MORE ROOM</);
   assert.match(newerMarkup, /while newer navigation[\s\S]*messages give/);
 
-  const symbolicCycles = sentences.filter((sentence) => (
-    sentence.capability.grammarId === "finite_cycle"
-    && sentence.primitiveParameters.quantity === null
-  ));
-  assert.ok(symbolicCycles.length > 0);
-  for (const sentence of symbolicCycles) {
-    const markup = primitives.semanticSentencePrimitiveMarkup(
-      sentence,
-      sentences.indexOf(sentence),
-    );
-    assert.match(markup, /data-cycle-content="symbolic"/);
-    assert.doesNotMatch(markup, /class="counter-value|class="counter-tick"/);
-    assert.match(markup, new RegExp(`>${sentence.primitiveParameters.stateToken}<`));
-    assert.match(
-      markup,
-      new RegExp(`data-cycle-symbol="${
-        sentence.primitiveParameters.stateToken === "LIMIT"
-          ? "limit"
-          : sentence.primitiveParameters.stateToken === "REPEATS"
-            ? "repeat"
-            : "change"
-      }"`),
-    );
-  }
+  const limitedValues = sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("limited set"),
+  );
+  assert.ok(limitedValues);
+  const limitedValuesMarkup = primitives.semanticSentencePrimitiveMarkup(
+    limitedValues,
+    sentences.indexOf(limitedValues),
+  );
+  assert.match(
+    limitedValuesMarkup,
+    /data-finite-counter-concept="bounded_range"/,
+  );
+  assert.match(limitedValuesMarkup, />FINITE VALUE SPACE</);
+  assert.doesNotMatch(limitedValuesMarkup, /class="counter-cycle"/);
 
   const tenBits = sentences.find(
     (sentence) => sentence.wordSpan.text.includes("ten bits"),
@@ -2565,15 +4348,164 @@ test("sentence primitives follow the current cue, preserve units, and use semant
     sentences.indexOf(tenBits),
   );
   assert.equal(
-    (tenBitMarkup.match(/class="counter-tick"/g) || []).length,
+    (tenBitMarkup.match(/data-bit-index=/g) || []).length,
     10,
   );
-  assert.match(tenBitMarkup, /data-cycle-content="quantity"/);
+  assert.match(tenBitMarkup, /data-cause-concept="bit_register"/);
+  assert.match(tenBitMarkup, />SIGNAL</);
   assert.match(tenBitMarkup, />TEN BITS</);
-  assert.doesNotMatch(
-    tenBitMarkup,
-    /semantic-cycle-pointer" transform-origin=/,
+  assert.doesNotMatch(tenBitMarkup, /class="counter-cycle"/);
+
+  const wrongDate = sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("wrong date"),
   );
+  assert.ok(wrongDate);
+  assert.equal(wrongDate.capability.assetId, "receiver_device");
+  const wrongDateMarkup = primitives.semanticSentencePrimitiveMarkup(
+    wrongDate,
+    sentences.indexOf(wrongDate),
+  );
+  assert.match(wrongDateMarkup, /data-cause-concept="wrong_date"/);
+  assert.match(wrongDateMarkup, />GPS VALUE</);
+  assert.match(wrongDateMarkup, />INTERPRET</);
+  assert.match(wrongDateMarkup, />WRONG DATE</);
+
+  const hauntedClock = sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("clocks looked haunted"),
+  );
+  assert.ok(hauntedClock);
+  const hauntedClockMarkup = primitives.semanticSentencePrimitiveMarkup(
+    hauntedClock,
+    sentences.indexOf(hauntedClock),
+  );
+  assert.equal(
+    hauntedClock.primitiveParameters.visualConceptId,
+    "cue_evidence_focus",
+  );
+  assert.doesNotMatch(
+    hauntedClockMarkup,
+    /data-cause-concept="wrong_date"|>GPS VALUE<|>CLOCK ANOMALY</,
+  );
+  assert.match(hauntedClockMarkup, /data-evidence-variant="focus"/);
+  assert.match(hauntedClockMarkup, /clocks looked haunted/i);
+  assert.doesNotMatch(
+    hauntedClockMarkup,
+    />WRONG DATE|>DATE ERROR|>TIME ERROR/,
+  );
+
+  const softwarePatch = sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("software patches"),
+  );
+  assert.ok(softwarePatch);
+  const softwarePatchMarkup = primitives.semanticSentencePrimitiveMarkup(
+    softwarePatch,
+    sentences.indexOf(softwarePatch),
+  );
+  assert.match(softwarePatchMarkup, /data-cause-concept="software_patch"/);
+  assert.match(softwarePatchMarkup, />AMBIGUITY</);
+  assert.match(softwarePatchMarkup, />SOFTWARE PATCH</);
+  assert.match(softwarePatchMarkup, />UPDATE REQUIRED</);
+
+  const ordinaryMechanism = sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("mechanism was ordinary"),
+  );
+  assert.ok(ordinaryMechanism);
+  const ordinaryMechanismMarkup = primitives.semanticSentencePrimitiveMarkup(
+    ordinaryMechanism,
+    sentences.indexOf(ordinaryMechanism),
+  );
+  assert.doesNotMatch(
+    ordinaryMechanismMarkup,
+    /data-cause-concept="counter_mapping_mechanism"/,
+  );
+  assert.doesNotMatch(
+    ordinaryMechanismMarkup,
+    />COUNTER VALUE|>RECEIVER RULE|>DISPLAY VALUE|>LAST→0/,
+  );
+  assert.match(ordinaryMechanismMarkup, />… WAS ORDINARY\.</);
+
+  const explicitMapping = compileRaw(
+    readGpsWithExplicitCounterMechanism(),
+    "explicit-counter-mapping-regression",
+    "prj_explicit_counter_mapping_regression",
+  );
+  const explicitMappingSentences = explicitMapping.compiled.animationIR.content
+    .semanticVisualSentencePlan.sentences;
+  const explicitMappingSentence = explicitMappingSentences.find(
+    (sentence) => sentence.wordSpan.text.includes("counter mapping mechanism"),
+  );
+  assert.ok(explicitMappingSentence);
+  assert.equal(
+    explicitMappingSentence.primitiveParameters.visualConceptId,
+    "counter_mapping_mechanism",
+  );
+  const explicitMappingMarkup = primitives.semanticSentencePrimitiveMarkup(
+    explicitMappingSentence,
+    explicitMappingSentences.indexOf(explicitMappingSentence),
+  );
+  assert.match(
+    explicitMappingMarkup,
+    /data-cause-concept="counter_mapping_mechanism"/,
+  );
+  assert.match(explicitMappingMarkup, />COUNTER</);
+  assert.match(explicitMappingMarkup, />VALUE</);
+  assert.match(explicitMappingMarkup, />MAPPING RULE</);
+  assert.match(explicitMappingMarkup, />RESULT</);
+  assert.match(
+    explicitMappingMarkup,
+    /counter mapping[\s\S]*mechanism was ordinary/,
+  );
+  assert.doesNotMatch(
+    explicitMappingMarkup,
+    />LAST→0|>RECEIVER RULE|>ORDINARY MAPPING/,
+  );
+
+  const notTime = sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("not time itself"),
+  );
+  assert.ok(notTime);
+  const notTimeMarkup = primitives.semanticSentencePrimitiveMarkup(
+    notTime,
+    sentences.indexOf(notTime),
+  );
+  assert.equal(
+    notTime.primitiveParameters.visualConceptId,
+    "hypothesis_rejection",
+  );
+  assert.doesNotMatch(
+    notTimeMarkup,
+    /data-comparison-concept="counter_vs_time"|>NUMBER RESETS|>TIME CONTINUES/,
+  );
+  assert.match(notTimeMarkup, />NOT TIME ITSELF\.</);
+  assert.match(
+    notTimeMarkup,
+    /class="semantic-bounded-geometry"[\s\S]*opacity="\.16"[\s\S]*data-visual-role="supporting_scaffold"/,
+  );
+
+  const explicitNotTime = compileRaw(
+    readGpsWithExplicitCounterNotTime(),
+    "explicit-counter-not-time-regression",
+    "prj_explicit_counter_not_time_regression",
+  );
+  const explicitNotTimeSentences = explicitNotTime.compiled.animationIR.content
+    .semanticVisualSentencePlan.sentences;
+  const explicitNotTimeSentence = explicitNotTimeSentences.find(
+    (sentence) => (
+      sentence.primitiveParameters.visualConceptId === "counter_not_time"
+    ),
+  );
+  assert.ok(explicitNotTimeSentence);
+  const explicitNotTimeMarkup = primitives.semanticSentencePrimitiveMarkup(
+    explicitNotTimeSentence,
+    explicitNotTimeSentences.indexOf(explicitNotTimeSentence),
+  );
+  assert.match(
+    explicitNotTimeMarkup,
+    /data-comparison-concept="counter_vs_time"/,
+  );
+  assert.match(explicitNotTimeMarkup, />NUMBER RESETS</);
+  assert.match(explicitNotTimeMarkup, />TIME CONTINUES</);
+  assert.match(explicitNotTimeMarkup, />NOT TIME ITSELF</);
 
   const twentyFourBitRaw = readRaw("002_gps_week_rollover");
   twentyFourBitRaw.script.beats[1].spokenText =
@@ -2595,9 +4527,209 @@ test("sentence primitives follow the current cue, preserve units, and use semant
       .sentences.indexOf(twentyFourBitSentence),
   );
   assert.equal(
-    (twentyFourBitMarkup.match(/class="counter-tick"/g) || []).length,
+    (twentyFourBitMarkup.match(/data-bit-index=/g) || []).length,
     24,
   );
+  assert.doesNotMatch(
+    twentyFourBitMarkup,
+    /class="semantic-rise" data-bit-index=/,
+  );
+  const bitCells = [...twentyFourBitMarkup.matchAll(
+    /data-bit-index="(\d+)">\s*<rect x="([0-9.]+)" y="([0-9.]+)" width="([0-9.]+)" height="([0-9.]+)"/g,
+  )].map((match) => ({
+    index: Number(match[1]),
+    x: Number(match[2]),
+    y: Number(match[3]),
+    width: Number(match[4]),
+    height: Number(match[5]),
+  }));
+  assert.equal(bitCells.length, 24);
+  for (const cell of bitCells) {
+    assert.ok(cell.x >= 252, `bit ${cell.index} starts inside its panel`);
+    assert.ok(
+      cell.x + cell.width <= 592,
+      `bit ${cell.index} ends inside its panel`,
+    );
+    assert.ok(cell.y >= 330, `bit ${cell.index} starts below panel top`);
+    assert.ok(
+      cell.y + cell.height <= 520,
+      `bit ${cell.index} clears the quantity label`,
+    );
+  }
+
+  const thirtyTwoBitRaw = readRaw("002_gps_week_rollover");
+  thirtyTwoBitRaw.script.beats[1].spokenText =
+    thirtyTwoBitRaw.script.beats[1].spokenText
+      .replace("ten bits", "thirty two bits");
+  const thirtyTwoBits = compileRaw(
+    thirtyTwoBitRaw,
+    "thirty-two-bit-exact-geometry-regression",
+    "prj_thirty_two_bit_exact_geometry_regression",
+  );
+  const thirtyTwoBitPlan = thirtyTwoBits.compiled.animationIR.content
+    .semanticVisualSentencePlan;
+  const thirtyTwoBitSentence = thirtyTwoBitPlan.sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("thirty two bits"),
+  );
+  assert.ok(thirtyTwoBitSentence);
+  const thirtyTwoBitMarkup = primitives.semanticSentencePrimitiveMarkup(
+    thirtyTwoBitSentence,
+    thirtyTwoBitPlan.sentences.indexOf(thirtyTwoBitSentence),
+  );
+  assert.equal(
+    (thirtyTwoBitMarkup.match(/data-bit-index=/g) || []).length,
+    32,
+  );
+  assert.match(thirtyTwoBitMarkup, /data-bit-render-mode="exact"/);
+  assert.match(thirtyTwoBitMarkup, /data-declared-bit-count="32"/);
+  assert.match(thirtyTwoBitMarkup, />THIRTY TWO BITS</);
+  assert.doesNotMatch(
+    thirtyTwoBitMarkup,
+    /class="micro-copy">[01]<\/text>/,
+  );
+
+  const hyphenatedBitRaw = readRaw("002_gps_week_rollover");
+  hyphenatedBitRaw.script.beats[1].spokenText =
+    hyphenatedBitRaw.script.beats[1].spokenText
+      .replace("ten bits", "a 32-bit field");
+  const hyphenatedBits = compileRaw(
+    hyphenatedBitRaw,
+    "hyphenated-bit-exact-geometry-regression",
+    "prj_hyphenated_bit_exact_geometry_regression",
+  );
+  const hyphenatedBitPlan = hyphenatedBits.compiled.animationIR.content
+    .semanticVisualSentencePlan;
+  const hyphenatedBitSentence = hyphenatedBitPlan.sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("32-bit field"),
+  );
+  assert.ok(hyphenatedBitSentence);
+  assert.equal(hyphenatedBitSentence.primitiveParameters.quantity.value, "32");
+  assert.equal(hyphenatedBitSentence.primitiveParameters.quantity.unit, "bit");
+  const hyphenatedBitMarkup = primitives.semanticSentencePrimitiveMarkup(
+    hyphenatedBitSentence,
+    hyphenatedBitPlan.sentences.indexOf(hyphenatedBitSentence),
+  );
+  assert.equal(
+    (hyphenatedBitMarkup.match(/data-bit-index=/g) || []).length,
+    32,
+  );
+  assert.match(hyphenatedBitMarkup, /data-bit-render-mode="exact"/);
+  assert.match(hyphenatedBitMarkup, /data-declared-bit-count="32"/);
+  assert.match(hyphenatedBitMarkup, />32 BIT</);
+
+  const hundredBitRaw = readRaw("002_gps_week_rollover");
+  hundredBitRaw.script.beats[1].spokenText =
+    hundredBitRaw.script.beats[1].spokenText
+      .replace("ten bits", "one hundred bits");
+  const hundredBits = compileRaw(
+    hundredBitRaw,
+    "hundred-bit-symbolic-geometry-regression",
+    "prj_hundred_bit_symbolic_geometry_regression",
+  );
+  const hundredBitPlan = hundredBits.compiled.animationIR.content
+    .semanticVisualSentencePlan;
+  const hundredBitSentence = hundredBitPlan.sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("one hundred bits"),
+  );
+  assert.ok(hundredBitSentence);
+  const hundredBitMarkup = primitives.semanticSentencePrimitiveMarkup(
+    hundredBitSentence,
+    hundredBitPlan.sentences.indexOf(hundredBitSentence),
+  );
+  assert.match(
+    hundredBitMarkup,
+    /data-bit-render-mode="symbolic_summary"/,
+  );
+  assert.match(hundredBitMarkup, /data-declared-bit-count="100"/);
+  assert.match(hundredBitMarkup, />SYMBOLIC SAMPLE</);
+  assert.match(hundredBitMarkup, />ONE HUNDRED BITS</);
+
+  const unspecifiedBitsRaw = readRaw("002_gps_week_rollover");
+  unspecifiedBitsRaw.script.beats[1].spokenText =
+    unspecifiedBitsRaw.script.beats[1].spokenText
+      .replace("in ten bits", "as bits");
+  const unspecifiedBits = compileRaw(
+    unspecifiedBitsRaw,
+    "unspecified-bit-count-symbolic-geometry",
+    "prj_unspecified_bit_count_symbolic_geometry",
+  );
+  const unspecifiedBitPlan = unspecifiedBits.compiled.animationIR.content
+    .semanticVisualSentencePlan;
+  const unspecifiedBitSentence = unspecifiedBitPlan.sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("week number as bits"),
+  );
+  assert.ok(unspecifiedBitSentence);
+  assert.equal(
+    unspecifiedBitSentence.primitiveParameters.visualConceptId,
+    "encoded_bit_register",
+  );
+  assert.equal(unspecifiedBitSentence.primitiveParameters.quantity, null);
+  const unspecifiedBitMarkup = primitives.semanticSentencePrimitiveMarkup(
+    unspecifiedBitSentence,
+    unspecifiedBitPlan.sentences.indexOf(unspecifiedBitSentence),
+  );
+  assert.match(
+    unspecifiedBitMarkup,
+    /data-bit-render-mode="symbolic_summary"/,
+  );
+  assert.match(
+    unspecifiedBitMarkup,
+    /data-declared-bit-count="unspecified"/,
+  );
+  assert.match(unspecifiedBitMarkup, />SYMBOLIC SAMPLE</);
+  assert.doesNotMatch(unspecifiedBitMarkup, />TEN BITS|data-bit-index="16"/);
+
+  const cadenceRaw = readRaw("002_gps_week_rollover");
+  cadenceRaw.script.beats[0].spokenText =
+    "Every one hundred weeks. The legacy GPS week counter resets to zero. Some devices that handled it incorrectly showed the wrong date.";
+  const cadence = compileRaw(
+    cadenceRaw,
+    "recurrence-cadence-is-not-reset-target",
+    "prj_recurrence_cadence_is_not_reset_target",
+  );
+  const cadencePlan = cadence.compiled.animationIR.content
+    .semanticVisualSentencePlan;
+  const cadenceSentence = cadencePlan.sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("one hundred weeks"),
+  );
+  assert.ok(cadenceSentence);
+  assert.equal(cadenceSentence.primitiveParameters.quantity.value, "zero");
+  assert.equal(cadenceSentence.primitiveParameters.quantity.unit, null);
+  assert.equal(
+    cadenceSentence.primitiveParameters.visualConceptId,
+    "finite_counter_wrap",
+  );
+  const cadenceMarkup = primitives.semanticSentencePrimitiveMarkup(
+    cadenceSentence,
+    cadencePlan.sentences.indexOf(cadenceSentence),
+  );
+  assert.match(cadenceMarkup, />RESET TO</);
+  assert.match(cadenceMarkup, />ZERO</);
+  assert.doesNotMatch(cadenceMarkup, />ONE HUNDRED WEEKS</);
+
+  const pureCadenceRaw = readRaw("002_gps_week_rollover");
+  pureCadenceRaw.script.beats[0].spokenText =
+    "Every one hundred weeks, engineers record a sample for comparison.";
+  const pureCadence = compileRaw(
+    pureCadenceRaw,
+    "pure-cadence-duration-regression",
+    "prj_pure_cadence_duration_regression",
+  );
+  const pureCadencePlan = pureCadence.compiled.animationIR.content
+    .semanticVisualSentencePlan;
+  const pureCadenceSentence = pureCadencePlan.sentences.find(
+    (sentence) => sentence.wordSpan.text.includes("one hundred weeks"),
+  );
+  assert.ok(pureCadenceSentence);
+  assert.equal(
+    pureCadenceSentence.primitiveParameters.visualConceptId,
+    "duration_timeline",
+  );
+  assert.equal(
+    pureCadenceSentence.primitiveParameters.quantity.value,
+    "one hundred",
+  );
+  assert.equal(pureCadenceSentence.primitiveParameters.quantity.unit, "weeks");
 
   const hoursRaw = readRaw("002_gps_week_rollover");
   hoursRaw.script.beats[1].spokenText = hoursRaw.script.beats[1].spokenText
@@ -2648,9 +4780,8 @@ test("sentence primitives follow the current cue, preserve units, and use semant
   assert.doesNotMatch(longQuantityMarkup, /ONE … YEARS/);
 
   for (const [needle, expected] of [
-    ["leaving", /OF POSSIBLE[\s\S]*VALUES/],
-    ["equipment", /SOFTWARE[\s\S]*PATCHES/],
-    ["ordinary", /WAS[\s\S]*ORDINARY/],
+    ["leaving", /FINITE VALUE SPACE/],
+    ["equipment", /SOFTWARE PATCH/],
   ]) {
     const sentence = sentences.find(
       (candidate) => candidate.wordSpan.text.toLowerCase().includes(needle),
@@ -2663,7 +4794,7 @@ test("sentence primitives follow the current cue, preserve units, and use semant
     assert.match(markup, expected, needle);
     assert.doesNotMatch(
       markup,
-      />(?:LEAVING|EQUIPMENT|ORDINARY)</,
+      />(?:LEAVING|EQUIPMENT)</,
       needle,
     );
   }
@@ -2692,21 +4823,29 @@ test("sentence primitives follow the current cue, preserve units, and use semant
   );
   assert.ok(incidentalOne);
   assert.equal(incidentalOne.primitiveParameters.quantity, null);
-  const affirmedCause = wowSentences.find((sentence) => (
+  const affirmedCauseRaw = readRaw("001_wow_signal_mystery");
+  affirmedCauseRaw.script.beats[2].spokenText =
+    "Heavy rain caused a launch delay.";
+  const affirmedCausePlan = compileRaw(
+    affirmedCauseRaw,
+    "affirmed-cause-render-regression",
+    "prj_affirmed_cause_render_regression",
+  ).compiled.animationIR.content.semanticVisualSentencePlan;
+  const affirmedCause = affirmedCausePlan.sentences.find((sentence) => (
     sentence.capability.grammarId === "cause_effect_chain"
     && sentence.primitiveParameters.stateToken === "RESULT"
   ));
   assert.ok(affirmedCause);
   const affirmedCauseMarkup = primitives.semanticSentencePrimitiveMarkup(
     affirmedCause,
-    wowSentences.indexOf(affirmedCause),
+    affirmedCausePlan.sentences.indexOf(affirmedCause),
   );
   assert.match(affirmedCauseMarkup, /data-cause-result="affirmed"/);
   assert.doesNotMatch(affirmedCauseMarkup, /class="semantic-draw error-cross"/);
 
   const reversedRoute = structuredClone(
     compileRaw(
-      readRaw("003_baychimo_icebound_drift"),
+      readBaychimoWithGroundedRoute(),
       "route-order-regression",
       "prj_route_order_regression",
     ).compiled.animationIR.content.semanticVisualSentencePlan.sentences.find(
@@ -2738,7 +4877,7 @@ test("sentence primitives follow the current cue, preserve units, and use semant
   assert.match(causationMarkup, /NOT CAUSATION/);
 
   const baychimo = compileRaw(
-    readRaw("003_baychimo_icebound_drift"),
+    readBaychimoWithGroundedRoute(),
     "intact-label-regression",
     "prj_intact_label_regression",
   );
@@ -2815,6 +4954,484 @@ test("primitive parameter contracts escape grounded XML and fail closed on tampe
     "unsupported_or_missing_field",
   );
 
+  const inheritedLookupId = structuredClone(
+    plan.sentences[0].primitiveParameters,
+  );
+  inheritedLookupId.visualConceptId = "constructor";
+  assert.equal(
+    normalizeSemanticPrimitiveParameters(inheritedLookupId).visualConceptId,
+    "constructor",
+  );
+
+  const misleadingCompletedState = structuredClone(
+    plan.sentences[0].primitiveParameters,
+  );
+  misleadingCompletedState.stateToken = "UPDATED";
+  assertFailure(
+    () => normalizeSemanticPrimitiveParameters(misleadingCompletedState),
+    "ANIMATION_SEMANTIC_PRIMITIVE_PARAMETERS_INVALID",
+    "unsupported_value",
+  );
+
+  const gpsBindings = compileRaw(
+    readRaw("002_gps_week_rollover"),
+    "visual-concept-binding-adversarial",
+    "prj_visual_concept_binding_adversarial",
+  );
+  const gpsBindingPlan = gpsBindings.compiled.animationIR.content
+    .semanticVisualSentencePlan;
+  const neutralFocusSentence = gpsBindingPlan.sentences.find(
+    (sentence) => (
+      sentence.primitiveParameters.visualConceptId === "cue_evidence_focus"
+      && sentence.wordSpan.text.includes("clocks looked haunted")
+    ),
+  );
+  assert.ok(neutralFocusSentence);
+  for (const unsupportedNeutralConcept of [
+    "cue_evidence_document",
+    "cue_evidence_network",
+    "cue_evidence_quote",
+  ]) {
+    const unsupportedNeutral = structuredClone(
+      neutralFocusSentence.primitiveParameters,
+    );
+    unsupportedNeutral.visualConceptId = unsupportedNeutralConcept;
+    assertFailure(
+      () => normalizeSemanticPrimitiveParameters(unsupportedNeutral),
+      "ANIMATION_SEMANTIC_PRIMITIVE_PARAMETERS_INVALID",
+      "concept_grounding_mismatch",
+    );
+  }
+  const mappingBindings = compileRaw(
+    readGpsWithExplicitCounterMechanism(),
+    "visual-concept-mapping-binding-adversarial",
+    "prj_visual_concept_mapping_binding_adversarial",
+  );
+  const mappingBindingSentence = mappingBindings.compiled.animationIR.content
+    .semanticVisualSentencePlan.sentences.find(
+      (sentence) => (
+        sentence.primitiveParameters.visualConceptId
+          === "counter_mapping_mechanism"
+      ),
+  );
+  assert.ok(mappingBindingSentence);
+  const neutralWithSpecializedBinding = structuredClone(
+    mappingBindingSentence.primitiveParameters,
+  );
+  neutralWithSpecializedBinding.visualConceptId = "cue_evidence_focus";
+  assertFailure(
+    () => normalizeSemanticPrimitiveParameters(neutralWithSpecializedBinding),
+    "ANIMATION_SEMANTIC_PRIMITIVE_PARAMETERS_INVALID",
+    "concept_binding_mismatch",
+  );
+  const counterNotTimeBindings = compileRaw(
+    readGpsWithExplicitCounterNotTime(),
+    "visual-concept-counter-not-time-binding-adversarial",
+    "prj_visual_concept_counter_not_time_binding_adversarial",
+  );
+  const counterNotTimeBindingSentence = counterNotTimeBindings.compiled
+    .animationIR.content.semanticVisualSentencePlan.sentences.find(
+      (sentence) => (
+        sentence.primitiveParameters.visualConceptId === "counter_not_time"
+      ),
+    );
+  assert.ok(counterNotTimeBindingSentence);
+  const sourceSentenceForConcept = (visualConceptId) => (
+    visualConceptId === "counter_mapping_mechanism"
+      ? mappingBindingSentence
+      : visualConceptId === "counter_not_time"
+        ? counterNotTimeBindingSentence
+      : gpsBindingPlan.sentences.find(
+        (sentence) => (
+          sentence.primitiveParameters.visualConceptId === visualConceptId
+        ),
+      )
+  );
+  const patchSentence = gpsBindingPlan.sentences.find(
+    (sentence) => (
+      sentence.primitiveParameters.visualConceptId
+        === "receiver_patch_required"
+    ),
+  );
+  assert.ok(patchSentence);
+  const mismatchedPatchAsset = structuredClone(
+    patchSentence.primitiveParameters,
+  );
+  mismatchedPatchAsset.assetId = "mapping_table";
+  assertFailure(
+    () => normalizeSemanticPrimitiveParameters(mismatchedPatchAsset),
+    "ANIMATION_SEMANTIC_PRIMITIVE_PARAMETERS_INVALID",
+    "concept_binding_mismatch",
+  );
+  const mismatchedPatchSentence = structuredClone(patchSentence);
+  mismatchedPatchSentence.capability.assetId = "mapping_table";
+  mismatchedPatchSentence.primitiveParameters.assetId = "mapping_table";
+  assert.throws(
+    () => primitives.semanticSentencePrimitiveMarkup(
+      mismatchedPatchSentence,
+      0,
+    ),
+    /Semantic primitive parameters are invalid/,
+  );
+
+  const changedPatchState = structuredClone(
+    patchSentence.primitiveParameters,
+  );
+  changedPatchState.stateToken = "CHANGED";
+  assertFailure(
+    () => normalizeSemanticPrimitiveParameters(changedPatchState),
+    "ANIMATION_SEMANTIC_PRIMITIVE_PARAMETERS_INVALID",
+    "concept_binding_mismatch",
+  );
+
+  const replaceGroundedDetail = (parameters, value) => {
+    parameters.detail.value = value;
+    parameters.detail.sourceRef.value = value;
+    parameters.detail.sourceRef.endOffset =
+      parameters.detail.sourceRef.startOffset + value.length;
+  };
+  const ungroundedPatch = structuredClone(
+    patchSentence.primitiveParameters,
+  );
+  replaceGroundedDetail(
+    ungroundedPatch,
+    "The receivers received software updates to reduce battery drain.",
+  );
+  assertFailure(
+    () => normalizeSemanticPrimitiveParameters(ungroundedPatch),
+    "ANIMATION_SEMANTIC_PRIMITIVE_PARAMETERS_INVALID",
+    "concept_grounding_mismatch",
+  );
+
+  const bitSentence = gpsBindingPlan.sentences.find(
+    (sentence) => (
+      sentence.primitiveParameters.visualConceptId === "encoded_bit_register"
+    ),
+  );
+  assert.ok(bitSentence);
+  const ungroundedBitRegister = structuredClone(
+    bitSentence.primitiveParameters,
+  );
+  ungroundedBitRegister.quantity = null;
+  replaceGroundedDetail(
+    ungroundedBitRegister,
+    "The receiver encoded its identifier in a field for compatibility.",
+  );
+  assertFailure(
+    () => normalizeSemanticPrimitiveParameters(ungroundedBitRegister),
+    "ANIMATION_SEMANTIC_PRIMITIVE_PARAMETERS_INVALID",
+    "concept_grounding_mismatch",
+  );
+
+  const forgedBitQuantity = structuredClone(
+    bitSentence.primitiveParameters,
+  );
+  forgedBitQuantity.quantity.value = "64";
+  forgedBitQuantity.quantity.valueSourceRef.value = "64";
+  forgedBitQuantity.quantity.valueSourceRef.endOffset =
+    forgedBitQuantity.quantity.valueSourceRef.startOffset + 2;
+  assertFailure(
+    () => normalizeSemanticPrimitiveParameters(forgedBitQuantity),
+    "ANIMATION_SEMANTIC_PRIMITIVE_PARAMETERS_INVALID",
+    "concept_grounding_mismatch",
+  );
+
+  const resetSentence = gpsBindingPlan.sentences.find(
+    (sentence) => (
+      sentence.primitiveParameters.visualConceptId === "finite_counter_wrap"
+      && sentence.primitiveParameters.quantity?.value === "zero"
+    ),
+  );
+  assert.ok(resetSentence);
+  const forgedResetQuantity = structuredClone(
+    resetSentence.primitiveParameters,
+  );
+  forgedResetQuantity.quantity.value = "999";
+  forgedResetQuantity.quantity.valueSourceRef.value = "999";
+  forgedResetQuantity.quantity.valueSourceRef.endOffset =
+    forgedResetQuantity.quantity.valueSourceRef.startOffset + 3;
+  assertFailure(
+    () => normalizeSemanticPrimitiveParameters(forgedResetQuantity),
+    "ANIMATION_SEMANTIC_PRIMITIVE_PARAMETERS_INVALID",
+    "concept_grounding_mismatch",
+  );
+
+  const staleParameterProfile = structuredClone(
+    bitSentence.primitiveParameters,
+  );
+  staleParameterProfile.schemaVersion = 1;
+  staleParameterProfile.profileId =
+    "dark_curiosity_story_primitive_parameters_v1";
+  assertFailure(
+    () => normalizeSemanticPrimitiveParameters(staleParameterProfile),
+    "ANIMATION_SEMANTIC_PRIMITIVE_PARAMETERS_INVALID",
+    "unsupported_schema",
+  );
+
+  const ungroundedSpecializedConcepts = [
+    [
+      "finite_counter_wrap",
+      "The GPS receiver repeated its self-test every week.",
+    ],
+    [
+      "bounded_value_range",
+      "The GPS signal has limited indoor coverage near concrete walls.",
+    ],
+    ["bounded_value_range", "The receiver battery has a finite life."],
+    ["bounded_value_range", "The receiver battery has finite capacity."],
+    ["bounded_value_range", "The fixed set piece remained on the stage."],
+    ["bounded_value_range", "The limited field of ruins remained unexplored."],
+    [
+      "counter_capacity_comparison",
+      "Newer receivers are more reliable than legacy receivers.",
+    ],
+    [
+      "counter_capacity_comparison",
+      "The week counter sat beside a cabinet with more room.",
+    ],
+    [
+      "counter_capacity_comparison",
+      "The editor needed more room near the week counter.",
+    ],
+    [
+      "counter_capacity_comparison",
+      "Removing the old week counter gives engineers more room in the receiver.",
+    ],
+    [
+      "counter_mapping_mechanism",
+      "GPS positions are calculated through satellite timing.",
+    ],
+    [
+      "counter_mapping_mechanism",
+      "The GPS antenna mechanism was ordinary.",
+    ],
+    [
+      "counter_mapping_mechanism",
+      "The editor mapped the week counter on the diagram.",
+    ],
+    [
+      "counter_mapping_mechanism",
+      "The GPS receiver watched as the editor mapped the counter to a chart.",
+    ],
+    [
+      "bounded_value_range",
+      "The manual listed possible values for screen brightness.",
+    ],
+    [
+      "counter_not_time",
+      "GPS receivers did not acquire the signal after startup.",
+    ],
+    ["encoded_bit_register", "The excavation field contained bits of glass."],
+    ["encoded_bit_register", "The hardware store stores drill bits."],
+    [
+      "encoded_bit_register",
+      "Her message contains bits of advice for the receiver.",
+    ],
+    [
+      "encoded_bit_register",
+      "The signal contains bits of static and noise.",
+    ],
+    [
+      "encoded_bit_register",
+      "The new message encoding works a bit better.",
+    ],
+    [
+      "encoded_bit_register",
+      "The new message encoding works a little bit better.",
+    ],
+    [
+      "encoded_bit_register",
+      "The message encoding uses bits and pieces from older drafts.",
+    ],
+    [
+      "finite_counter_wrap",
+      "The week counter stayed fixed when the rover rolled over.",
+    ],
+    [
+      "counter_mapping_mechanism",
+      "The week counter sat beside an ordinary antenna mechanism.",
+    ],
+    [
+      "counter_not_time",
+      "The editor's concern was not time itself, but the budget.",
+    ],
+    [
+      "counter_date_misinterpretation",
+      "The receiver sat beside a newspaper with the wrong date.",
+    ],
+    [
+      "counter_date_misinterpretation",
+      "The receiver reported that the newspaper had the wrong date.",
+    ],
+    [
+      "receiver_patch_required",
+      "The receiver manual mentioned counter ambiguity and needed software fixes for its typography.",
+    ],
+    [
+      "receiver_patch_required",
+      "The receiver required software fixes for a counter in the editor's article.",
+    ],
+    [
+      "finite_counter_wrap",
+      "The week counter sat beside a reset button.",
+    ],
+    [
+      "bounded_value_range",
+      "The week counter sat beside a cabinet with finite capacity.",
+    ],
+    [
+      "encoded_bit_register",
+      "The GPS receiver encoded a crate holding ten drill bits.",
+    ],
+    [
+      "counter_date_misinterpretation",
+      "The receiver watched as the newspaper showed the wrong date.",
+    ],
+    [
+      "receiver_patch_required",
+      "The receiver handled the ambiguity near its manual which needed software fixes for typography.",
+    ],
+    [
+      "counter_capacity_comparison",
+      "The GPS counter has more capacity than the clock.",
+    ],
+    [
+      "counter_date_misinterpretation",
+      "The receiver watched as the calendar showed the wrong date.",
+    ],
+    [
+      "counter_mapping_mechanism",
+      "The counter sat beside a mapping mechanism.",
+    ],
+    ["finite_counter_wrap", "The phone number reset itself."],
+    [
+      "bounded_value_range",
+      "The counter has a finite capacity battery.",
+    ],
+    [
+      "receiver_patch_required",
+      "The receiver manual needed a software update for counter ambiguity.",
+    ],
+    [
+      "finite_counter_wrap",
+      "The GPS week counter reset the receiver display.",
+    ],
+    [
+      "bounded_value_range",
+      "The GPS week counter stores a battery with finite capacity.",
+    ],
+    [
+      "counter_date_misinterpretation",
+      "The GPS receiver stood beside a clock that showed the wrong time.",
+    ],
+    [
+      "counter_date_misinterpretation",
+      "The report listed the wrong date because the editor mistyped it.",
+    ],
+  ];
+  for (const [visualConceptId, ungroundedDetail] of ungroundedSpecializedConcepts) {
+    const sourceSentence = sourceSentenceForConcept(visualConceptId);
+    assert.ok(sourceSentence, visualConceptId);
+    const parameters = structuredClone(sourceSentence.primitiveParameters);
+    parameters.quantity = null;
+    replaceGroundedDetail(parameters, ungroundedDetail);
+    assertFailure(
+      () => normalizeSemanticPrimitiveParameters(parameters),
+      "ANIMATION_SEMANTIC_PRIMITIVE_PARAMETERS_INVALID",
+      "concept_grounding_mismatch",
+    );
+  }
+
+  const negatedSpecializedConcepts = [
+    ["finite_counter_wrap", "The counter did not roll over."],
+    ["finite_counter_wrap", "The counter hasn't rolled over."],
+    ["finite_counter_wrap", "The counter failed to roll over."],
+    ["bounded_value_range", "The counter is not finite."],
+    ["bounded_value_range", "The counter lacks a finite value space."],
+    [
+      "counter_capacity_comparison",
+      "Newer messages do not give the week counter more room.",
+    ],
+    ["counter_mapping_mechanism", "The mechanism was not ordinary."],
+    ["encoded_bit_register", "The signal does not store bits."],
+    [
+      "counter_date_misinterpretation",
+      "The receiver did not show the wrong date.",
+    ],
+    [
+      "receiver_patch_required",
+      "The equipment had software patches that were not required for counter ambiguity.",
+    ],
+    [
+      "receiver_patch_required",
+      "Software patches won’t be required for counter ambiguity.",
+    ],
+    [
+      "counter_capacity_comparison",
+      "Neither newer navigation messages nor the week counter have more room.",
+    ],
+  ];
+  for (const [visualConceptId, negatedDetail] of negatedSpecializedConcepts) {
+    const sourceSentence = sourceSentenceForConcept(visualConceptId);
+    assert.ok(sourceSentence, visualConceptId);
+    const parameters = structuredClone(sourceSentence.primitiveParameters);
+    parameters.quantity = null;
+    replaceGroundedDetail(parameters, negatedDetail);
+    assertFailure(
+      () => normalizeSemanticPrimitiveParameters(parameters),
+      "ANIMATION_SEMANTIC_PRIMITIVE_PARAMETERS_INVALID",
+      "concept_grounding_mismatch",
+    );
+  }
+
+  const temporalErrorSentence = gpsBindingPlan.sentences.find(
+    (sentence) => (
+      sentence.primitiveParameters.visualConceptId
+        === "counter_date_misinterpretation"
+    ),
+  );
+  assert.ok(temporalErrorSentence);
+  const ungroundedTemporalError = structuredClone(
+    temporalErrorSentence.primitiveParameters,
+  );
+  replaceGroundedDetail(
+    ungroundedTemporalError,
+    "The GPS receiver used the wrong antenna during the test.",
+  );
+  assertFailure(
+    () => normalizeSemanticPrimitiveParameters(ungroundedTemporalError),
+    "ANIMATION_SEMANTIC_PRIMITIVE_PARAMETERS_INVALID",
+    "concept_grounding_mismatch",
+  );
+  const ungroundedTemporalSentence = structuredClone(temporalErrorSentence);
+  ungroundedTemporalSentence.primitiveParameters = ungroundedTemporalError;
+  assert.throws(
+    () => primitives.semanticSentencePrimitiveMarkup(
+      ungroundedTemporalSentence,
+      0,
+    ),
+    /Semantic primitive parameters are invalid/,
+  );
+
+  const transitionMismatch = structuredClone(
+    mappingBindings.compiled.animationIR.content.semanticEventGraph,
+  );
+  delete transitionMismatch.contentHash;
+  const ordinaryMapping = transitionMismatch.propositions.find(
+    (proposition) => (
+      proposition.primitivePayload.visualConceptId
+        === "counter_mapping_mechanism"
+    ),
+  );
+  assert.ok(ordinaryMapping);
+  ordinaryMapping.primitivePayload.visualConceptId =
+    "receiver_patch_required";
+  assertFailure(
+    () => normalizeSemanticEventGraph(transitionMismatch),
+    "ANIMATION_SEMANTIC_EVENT_INVALID",
+    "concept_transition_mismatch",
+  );
+
   const remote = structuredClone(plan.sentences[0].primitiveParameters);
   remote.subject.value = "https://unsafe.example";
   remote.subject.sourceRef.value = remote.subject.value;
@@ -2842,7 +5459,7 @@ test("primitive parameter contracts escape grounded XML and fail closed on tampe
   assert.doesNotMatch(escapedMarkup, /<copy>/i);
 
   const baychimo = compileRaw(
-    readRaw("003_baychimo_icebound_drift"),
+    readBaychimoWithGroundedRoute(),
     "primitive-route-adversarial",
     "prj_primitive_route_adversarial",
   );
@@ -2936,13 +5553,14 @@ test("every parameterized grammar branch renders grounded markup", async () => {
   iceOnlyAbsence.primitiveParameters.geometry.presetId =
     SEMANTIC_PRIMITIVE_PRESET_BY_GRAMMAR.negative_space_absence;
   iceOnlyAbsence.primitiveParameters.geometry.route = null;
+  iceOnlyAbsence.primitiveParameters.quantity = null;
   const iceText = "The vessel vanished beside Arctic pack ice";
   iceOnlyAbsence.primitiveParameters.detail.value = iceText;
   iceOnlyAbsence.primitiveParameters.detail.sourceRef.value = iceText;
   iceOnlyAbsence.primitiveParameters.detail.sourceRef.endOffset =
     iceOnlyAbsence.primitiveParameters.detail.sourceRef.startOffset
       + iceText.length;
-  rebindSyntheticGeometryBlueprint(iceOnlyAbsence);
+  rebindSyntheticSceneComposition(iceOnlyAbsence);
   const iceOnlyMarkup = primitives.semanticSentencePrimitiveMarkup(
     iceOnlyAbsence,
     0,
@@ -2959,13 +5577,14 @@ test("every parameterized grammar branch renders grounded markup", async () => {
   longCause.primitiveParameters.geometry.presetId =
     SEMANTIC_PRIMITIVE_PRESET_BY_GRAMMAR.cause_effect_chain;
   longCause.primitiveParameters.geometry.route = null;
+  longCause.primitiveParameters.quantity = null;
   const longWord = "Electromagnetically";
   longCause.primitiveParameters.detail.value = longWord;
   longCause.primitiveParameters.detail.sourceRef.value = longWord;
   longCause.primitiveParameters.detail.sourceRef.endOffset =
     longCause.primitiveParameters.detail.sourceRef.startOffset
       + longWord.length;
-  rebindSyntheticGeometryBlueprint(longCause);
+  rebindSyntheticSceneComposition(longCause);
   const longCauseMarkup = primitives.semanticSentencePrimitiveMarkup(
     longCause,
     0,
@@ -2985,6 +5604,7 @@ test("every parameterized grammar branch renders grounded markup", async () => {
   longChronology.primitiveParameters.geometry.presetId =
     SEMANTIC_PRIMITIVE_PRESET_BY_GRAMMAR.chronology_accumulation;
   longChronology.primitiveParameters.geometry.route = null;
+  longChronology.primitiveParameters.quantity = null;
   const chronologyWord = "Counterchronology";
   for (const binding of [
     longChronology.primitiveParameters.subject,
@@ -2995,7 +5615,7 @@ test("every parameterized grammar branch renders grounded markup", async () => {
     binding.sourceRef.endOffset = binding.sourceRef.startOffset
       + chronologyWord.length;
   }
-  rebindSyntheticGeometryBlueprint(longChronology);
+  rebindSyntheticSceneComposition(longChronology);
   const longChronologyMarkup = primitives.semanticSentencePrimitiveMarkup(
     longChronology,
     0,

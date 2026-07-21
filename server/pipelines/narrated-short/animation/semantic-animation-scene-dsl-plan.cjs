@@ -21,6 +21,9 @@ const {
   validateSemanticVisualSentencePlanAgainstGraph,
 } = require("./semantic-visual-sentence-planner.cjs");
 const {
+  assertSemanticVisualCoherence,
+} = require("./semantic-visual-coherence-qa.cjs");
+const {
   SEMANTIC_SENTENCE_MAX_TOTAL_SENTENCES,
 } = require("./semantic-render-profile.cjs");
 
@@ -413,6 +416,7 @@ function normalizeContext(input) {
       || sentence.sceneComposition === undefined
     ))
   ) fail("context.semanticVisualSentencePlan", "composed_sentence_plan_required");
+  assertSemanticVisualCoherence(sentencePlan);
   return { graph, sentencePlan };
 }
 

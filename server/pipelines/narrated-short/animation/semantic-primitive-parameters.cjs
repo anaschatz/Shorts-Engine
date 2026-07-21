@@ -9,10 +9,15 @@ const {
   SEMANTIC_SENTENCE_RENDERER_GRAMMAR_ASSET_BINDINGS,
   SEMANTIC_SENTENCE_RENDERER_GRAMMAR_IDS,
 } = require("./semantic-render-profile.cjs");
+const {
+  UPCOMING_SEMANTIC_VISUAL_CONCEPT_IDS,
+  semanticVisualConceptBindingMatches,
+  semanticVisualConceptGroundingMatches,
+} = require("./semantic-visual-concept-registry.cjs");
 
-const SEMANTIC_PRIMITIVE_PARAMETER_SCHEMA_VERSION = 1;
+const SEMANTIC_PRIMITIVE_PARAMETER_SCHEMA_VERSION = 2;
 const SEMANTIC_PRIMITIVE_PARAMETER_PROFILE_ID =
-  "dark_curiosity_story_primitive_parameters_v1";
+  "dark_curiosity_story_primitive_parameters_v2";
 const ID_PATTERN = /^[a-z][a-z0-9_-]{1,79}$/;
 const REMOTE_URL = /\bhttps?:\/\//i;
 const SOURCE_REF_TYPES = Object.freeze([
@@ -41,11 +46,14 @@ const SEMANTIC_PRIMITIVE_STATE_TOKENS = Object.freeze([
   "LAST RECORD",
   "LIMIT",
   "OBSERVED",
+  "UPCOMING",
   "RECORDED",
   "REJECTED",
   "REPEATS",
   "RESULT",
   "UNRESOLVED",
+  "UPDATE REQUIRED",
+  "WRONG",
 ]);
 
 function fail(field, reason = "invalid") {
@@ -160,6 +168,10 @@ function normalizeSourceRef(input, field) {
   }
   const startOffset = integer(input.startOffset, `${field}.startOffset`, 0, 2000);
   const endOffset = integer(input.endOffset, `${field}.endOffset`, startOffset + 1, 2000);
+  const value = text(input.value, `${field}.value`, { max: 400 });
+  if (endOffset - startOffset !== value.length) {
+    fail(`${field}.endOffset`, "source_range_length_mismatch");
+  }
   return {
     sourceType,
     sourceId: text(input.sourceId, `${field}.sourceId`, {
@@ -173,7 +185,7 @@ function normalizeSourceRef(input, field) {
     }),
     startOffset,
     endOffset,
-    value: text(input.value, `${field}.value`, { max: 400 }),
+    value,
   };
 }
 
@@ -308,6 +320,7 @@ function normalizeSemanticPrimitiveParameters(input) {
     "profileId",
     "grammarId",
     "assetId",
+    "visualConceptId",
     "subject",
     "detail",
     "quantity",
@@ -334,20 +347,55 @@ function normalizeSemanticPrimitiveParameters(input) {
     || !SEMANTIC_SENTENCE_RENDERER_GRAMMAR_ASSET_BINDINGS[grammarId]
       ?.includes(assetId)
   ) fail("primitiveParameters.capability", "renderer_pair_unsupported");
+  const visualConceptId = text(
+    input.visualConceptId,
+    "primitiveParameters.visualConceptId",
+    { max: 80, pattern: ID_PATTERN },
+  );
   const stateToken = text(input.stateToken, "primitiveParameters.stateToken", {
     max: 24,
   });
   if (!SEMANTIC_PRIMITIVE_STATE_TOKENS.includes(stateToken)) {
     fail("primitiveParameters.stateToken", "unsupported_value");
   }
+  if (!semanticVisualConceptBindingMatches({
+    visualConceptId,
+    grammarId,
+    assetId,
+    stateToken,
+  })) {
+    fail("primitiveParameters.visualConceptId", "concept_binding_mismatch");
+  }
+  const subject = normalizeGroundedText(
+    input.subject,
+    "primitiveParameters.subject",
+  );
+  const detail = normalizeGroundedText(
+    input.detail,
+    "primitiveParameters.detail",
+  );
+  const quantity = normalizeQuantity(
+    input.quantity,
+    "primitiveParameters.quantity",
+  );
+  if (!semanticVisualConceptGroundingMatches({
+    visualConceptId,
+    subjectValue: subject.value,
+    detailValue: detail.value,
+    detailSourceRef: detail.sourceRef,
+    quantity,
+  })) {
+    fail("primitiveParameters.visualConceptId", "concept_grounding_mismatch");
+  }
   return deepFreeze({
     schemaVersion: SEMANTIC_PRIMITIVE_PARAMETER_SCHEMA_VERSION,
     profileId: SEMANTIC_PRIMITIVE_PARAMETER_PROFILE_ID,
     grammarId,
     assetId,
-    subject: normalizeGroundedText(input.subject, "primitiveParameters.subject"),
-    detail: normalizeGroundedText(input.detail, "primitiveParameters.detail"),
-    quantity: normalizeQuantity(input.quantity, "primitiveParameters.quantity"),
+    visualConceptId,
+    subject,
+    detail,
+    quantity,
     stateToken,
     geometry: normalizeGeometry(
       input.geometry,
@@ -368,8 +416,16 @@ function semanticStateToken(proposition) {
   if (transition === "move_along_path") return "IN MOTION";
   if (transition === "reach_capacity") return "LIMIT";
   if (transition === "change_value") return "CHANGED";
+  if (
+    transition === "mark_last_known"
+    && UPCOMING_SEMANTIC_VISUAL_CONCEPT_IDS.includes(
+      proposition.primitivePayload?.visualConceptId,
+    )
+  ) return "UPCOMING";
   if (transition === "mark_last_known") return "LAST RECORD";
   if (transition === "map_input_to_output") return "RESULT";
+  if (transition === "map_to_incorrect_output") return "WRONG";
+  if (transition === "require_update") return "UPDATE REQUIRED";
   if (transition === "compare_states") return "COMPARED";
   if (transition === "become_visible") return "RECORDED";
   return "OBSERVED";
@@ -407,6 +463,7 @@ function buildSemanticPrimitiveParameters(input = {}) {
     profileId: SEMANTIC_PRIMITIVE_PARAMETER_PROFILE_ID,
     grammarId: capability.grammarId,
     assetId: capability.assetId,
+    visualConceptId: proposition.primitivePayload.visualConceptId,
     subject: structuredClone(proposition.primitivePayload.headline),
     detail: structuredClone(proposition.primitivePayload.detail),
     quantity: proposition.primitivePayload.displayQuantity

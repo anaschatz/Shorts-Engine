@@ -7,11 +7,15 @@ const {
   VISUAL_SUBJECT_KINDS,
   normalizeVisualCapabilityProposition,
 } = require("./visual-capability-registry.cjs");
+const {
+  semanticVisualConceptGroundingMatches,
+  semanticVisualConceptTransitionMatches,
+} = require("./semantic-visual-concept-registry.cjs");
 
 const SEMANTIC_EVENT_GRAPH_SCHEMA_VERSION = 3;
 const SEMANTIC_EVENT_GRAPH_PROFILE_ID = "dark_curiosity_semantic_event_graph_v3";
 const SEMANTIC_PRIMITIVE_PAYLOAD_PROFILE_ID =
-  "dark_curiosity_grounded_primitive_payload_v1";
+  "dark_curiosity_grounded_primitive_payload_v2";
 const CHECKED_UNPARAMETERIZED_SEMANTIC_EVENT_GRAPH_HASHES = Object.freeze([
   "e2405560134386bb7d70745a1c89ef059ebaec15495b96d4129eee56d3c7be08",
   "54383a235b65264c4c8e269d9fd49901de439c8c92e256963179393b87832ab4",
@@ -329,6 +333,10 @@ function normalizeSourceRef(input, field) {
   }
   const startOffset = integer(input.startOffset, `${field}.startOffset`, 0, 2000);
   const endOffset = integer(input.endOffset, `${field}.endOffset`, startOffset + 1, 2000);
+  const value = text(input.value, `${field}.value`, { max: 400 });
+  if (endOffset - startOffset !== value.length) {
+    fail(`${field}.endOffset`, "source_range_length_mismatch");
+  }
   return {
     sourceType,
     sourceId: text(input.sourceId, `${field}.sourceId`, { max: 80, pattern: ID_PATTERN }),
@@ -336,7 +344,7 @@ function normalizeSourceRef(input, field) {
     field: text(input.field, `${field}.field`, { max: 80, pattern: /^[A-Za-z][A-Za-z0-9]*$/ }),
     startOffset,
     endOffset,
-    value: text(input.value, `${field}.value`, { max: 400 }),
+    value,
   };
 }
 
@@ -563,6 +571,7 @@ function normalizePrimitiveGeometry(input, field) {
 function normalizePrimitivePayload(input, field) {
   exactKeys(input, [
     "profileId",
+    "visualConceptId",
     "headline",
     "detail",
     "displayQuantity",
@@ -573,6 +582,11 @@ function normalizePrimitivePayload(input, field) {
   }
   return {
     profileId: input.profileId,
+    visualConceptId: text(
+      input.visualConceptId,
+      `${field}.visualConceptId`,
+      { max: 80, pattern: ID_PATTERN },
+    ),
     headline: normalizeGroundedPrimitiveText(input.headline, `${field}.headline`),
     detail: normalizeGroundedPrimitiveText(input.detail, `${field}.detail`),
     displayQuantity: input.displayQuantity === null
@@ -637,6 +651,27 @@ function normalizeProposition(input, index) {
       input.primitivePayload,
       `${field}.primitivePayload`,
     );
+    if (!semanticVisualConceptTransitionMatches(
+      normalized.primitivePayload.visualConceptId,
+      normalized.visualIntent.stateTransition,
+    )) {
+      fail(
+        `${field}.primitivePayload.visualConceptId`,
+        "concept_transition_mismatch",
+      );
+    }
+    if (!semanticVisualConceptGroundingMatches({
+      visualConceptId: normalized.primitivePayload.visualConceptId,
+      subjectValue: normalized.primitivePayload.headline.value,
+      detailValue: normalized.primitivePayload.detail.value,
+      detailSourceRef: normalized.primitivePayload.detail.sourceRef,
+      quantity: normalized.primitivePayload.displayQuantity,
+    })) {
+      fail(
+        `${field}.primitivePayload.visualConceptId`,
+        "concept_grounding_mismatch",
+      );
+    }
   }
   return normalized;
 }

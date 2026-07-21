@@ -8,6 +8,9 @@ const require = createRequire(import.meta.url);
 const primitiveParameterContract = require(
   "../../../server/pipelines/narrated-short/animation/semantic-primitive-parameters.cjs",
 );
+const visualConceptRegistry = require(
+  "../../../server/pipelines/narrated-short/animation/semantic-visual-concept-registry.cjs",
+);
 const REMOTE_URL = /\bhttps?:\/\//i;
 
 export const SEMANTIC_PRIMITIVE_PARAMETER_PROFILE_ID =
@@ -323,6 +326,60 @@ function finiteCounterTickCount(parameters) {
     : 12;
 }
 
+function groundedSemanticContext(parameters) {
+  return `${parameters.subject.value} ${parameters.detail.value}`
+    .toLocaleLowerCase("en-US");
+}
+
+function sameGroundedSource(left, right) {
+  return left && right
+    && left.sourceType === right.sourceType
+    && left.sourceId === right.sourceId
+    && left.operationIndex === right.operationIndex
+    && left.field === right.field;
+}
+
+function groundedResetTarget(parameters) {
+  if (!parameters.quantity) return "ORIGIN";
+  const detailRef = parameters.detail.sourceRef;
+  const valueRef = parameters.quantity.valueSourceRef;
+  if (
+    sameGroundedSource(detailRef, valueRef)
+    && valueRef.startOffset >= detailRef.startOffset
+    && valueRef.startOffset <= detailRef.endOffset
+  ) {
+    const localQuantityStart = valueRef.startOffset - detailRef.startOffset;
+    const beforeQuantity = parameters.detail.value
+      .slice(0, localQuantityStart)
+      .toLocaleLowerCase("en-US");
+    if (
+      /\b(?:reset(?:s|ting)?|wrap(?:s|ped|ping)?|roll(?:ed|s)? over)\b[^,.;!?]{0,36}\b(?:back\s+)?to\s+(?:the\s+)?$/.test(
+        beforeQuantity,
+      )
+    ) return displayQuantity(parameters);
+  }
+  return "ORIGIN";
+}
+
+function rendererVariant(sentence, parameters) {
+  return visualConceptRegistry.semanticVisualConceptRendererVariant({
+    visualConceptId: parameters.visualConceptId,
+    grammarId: sentence.capability.grammarId,
+    assetId: sentence.capability.assetId,
+    stateTransition: sentence.visualIntent.stateTransition,
+    stateToken: parameters.stateToken,
+  });
+}
+
+function finiteCounterConcept(sentence, parameters) {
+  const variant = rendererVariant(sentence, parameters);
+  if (variant === "bounded_value_range") {
+    return "bounded_range";
+  }
+  if (variant === "finite_counter_wrap") return "wrap";
+  return "cycle";
+}
+
 function calendarMonthIndex(parameters) {
   const source = `${parameters.subject.value} ${parameters.detail.value}`
     .toLowerCase();
@@ -448,6 +505,62 @@ function beforeAfterMarkup(sentence) {
 function finiteCounterMarkup(sentence) {
   const parameters = sentence.primitiveParameters;
   if (parameters) {
+    const concept = finiteCounterConcept(sentence, parameters);
+    const subjectValue = displayText(parameters.subject.value, 22);
+    const subject = escapeSemanticSentenceXml(subjectValue);
+    const subjectFit = fitTextAttributes(parameters.subject.value, 22, 500);
+    if (concept === "wrap") {
+      const targetValue = groundedResetTarget(parameters);
+      const target = escapeSemanticSentenceXml(targetValue);
+      const targetFit = fitExactTextAttributes(targetValue, 42, 18, 208);
+      return `<g data-geometry-kind="finite_counter_rollover"
+ data-finite-counter-concept="wrap" data-primitive-parameterized="true"
+ class="semantic-geometry">
+ <rect x="70" y="292" width="580" height="340" rx="34" class="sentence-surface"/>
+ <g class="semantic-counter-old semantic-rise">
+  <rect x="104" y="374" width="200" height="142" rx="24" class="cool-panel"/>
+  <text x="204" y="420" text-anchor="middle" class="micro-copy">LAST VALUE</text>
+  <path d="M142 462 H266" class="semantic-draw cool-line"/>
+  <circle cx="266" cy="462" r="11" class="cool-fill"/>
+ </g>
+ <path d="M310 446 H404 M384 426 L406 446 L384 466"
+  class="semantic-draw connector-line"/>
+ <g class="semantic-counter-new semantic-rise" opacity="0">
+  <rect x="416" y="374" width="200" height="142" rx="24" class="warm-panel"/>
+  <text x="516" y="420" text-anchor="middle" class="micro-copy">RESET TO</text>
+  <text x="516" y="482" text-anchor="middle" class="large-value"${targetFit}>${target}</text>
+ </g>
+ <path d="M520 548 C520 598 204 598 204 538 M186 554 L204 536 L222 554"
+  class="semantic-draw warm-line"/>
+ <text x="360" y="690" text-anchor="middle"
+  class="timeline-label"${subjectFit}>${subject}</text>
+</g>`;
+    }
+    if (concept === "bounded_range") {
+      const cells = Array.from({ length: 7 }, (_, index) => {
+        const x = 104 + index * 74;
+        const tone = index === 6 ? "warm-panel" : "cool-panel";
+        return `<g class="semantic-rise" data-range-index="${index}">
+ <rect x="${x}" y="402" width="54" height="74" rx="12" class="${tone}"/>
+ <circle cx="${x + 27}" cy="439" r="${index === 6 ? 9 : 6}"
+  class="${index === 6 ? "warm-fill" : "cool-fill"}"/>
+</g>`;
+      }).join("");
+      return `<g data-geometry-kind="finite_counter_rollover"
+ data-finite-counter-concept="bounded_range"
+ data-primitive-parameterized="true" class="semantic-geometry">
+ <rect x="70" y="302" width="580" height="326" rx="34" class="sentence-surface"/>
+ <path d="M96 376 V500 M96 376 H116 M96 500 H116
+  M624 376 V500 M604 376 H624 M604 500 H624"
+  class="semantic-draw warm-line"/>
+ ${cells}
+ <text x="104" y="548" class="micro-copy">FIRST</text>
+ <text x="616" y="548" text-anchor="end" class="micro-copy">LAST</text>
+ <text x="360" y="592" text-anchor="middle" class="micro-copy warm-copy">FINITE VALUE SPACE</text>
+ <text x="360" y="690" text-anchor="middle"
+  class="timeline-label"${subjectFit}>${subject}</text>
+</g>`;
+    }
     const tickCount = finiteCounterTickCount(parameters);
     const ticks = Array.from({ length: tickCount }, (_, index) => {
       const angle = (index * (360 / tickCount) - 90) * Math.PI / 180;
@@ -464,8 +577,8 @@ function finiteCounterMarkup(sentence) {
       : null;
     const stateValue = displayText(parameters.stateToken, 12);
     const state = escapeSemanticSentenceXml(stateValue);
-    const subjectValue = displayText(parameters.subject.value, 20);
-    const subject = escapeSemanticSentenceXml(subjectValue);
+    const cycleSubjectValue = displayText(parameters.subject.value, 20);
+    const cycleSubject = escapeSemanticSentenceXml(cycleSubjectValue);
     const detailValue = displayText(parameters.detail.value, 24);
     const detailLines = semanticLabelLines(detailValue, 18);
     const symbolicCycle = stateValue === "LIMIT"
@@ -500,8 +613,9 @@ function finiteCounterMarkup(sentence) {
       quantityValue ? 15 : 24,
       300,
     );
-    const subjectFit = fitTextAttributes(parameters.subject.value, 20, 500);
+    const cycleSubjectFit = fitTextAttributes(parameters.subject.value, 20, 500);
     return `<g data-geometry-kind="finite_counter_rollover"
+ data-finite-counter-concept="cycle"
  data-primitive-parameterized="true"
  data-cycle-content="${quantityValue ? "quantity" : "symbolic"}"
  class="semantic-geometry">
@@ -532,7 +646,7 @@ function finiteCounterMarkup(sentence) {
  <path d="M502 336 C565 390 575 495 528 565" class="semantic-draw connector-line"/>
  <path d="M512 548 L528 568 L548 551" class="semantic-draw connector-line"/>
  <text x="360" y="710" text-anchor="middle"
-  class="timeline-label"${subjectFit}>${subject}</text>
+  class="timeline-label"${cycleSubjectFit}>${cycleSubject}</text>
 </g>`;
   }
   const ticks = Array.from({ length: 12 }, (_, index) => {
@@ -566,9 +680,255 @@ function finiteCounterMarkup(sentence) {
 </g>`;
 }
 
+function causeEffectConcept(sentence, parameters) {
+  const variant = rendererVariant(sentence, parameters);
+  if (!visualConceptRegistry.semanticVisualConceptGroundingMatches({
+    visualConceptId: parameters.visualConceptId,
+    subjectValue: parameters.subject.value,
+    detailValue: parameters.detail.value,
+    detailSourceRef: parameters.detail.sourceRef,
+    quantity: parameters.quantity,
+  })) return "generic";
+  return ({
+    counter_date_misinterpretation: "wrong_date",
+    counter_mapping_mechanism: "counter_mapping_mechanism",
+    encoded_bit_register: "bit_register",
+    receiver_patch_required: "software_patch",
+  })[variant] || "generic";
+}
+
+function bitRegisterCauseEffectMarkup(parameters) {
+  const numericBitCount = parsedNumberPhrase(parameters.quantity?.value || "");
+  const declaredBitCount = Number.isInteger(numericBitCount)
+    && numericBitCount > 0
+    ? numericBitCount
+    : null;
+  const exactBitGeometry = Number.isInteger(declaredBitCount)
+    && declaredBitCount <= 64;
+  const bitCount = exactBitGeometry ? declaredBitCount : 16;
+  const columns = bitCount <= 8 ? bitCount : bitCount <= 32 ? 8 : 16;
+  const rows = Math.ceil(bitCount / columns);
+  const cellGap = columns <= 8 ? 7 : 4;
+  const cellWidth = columns <= 8
+    ? 28
+    : Math.floor((300 - (columns - 1) * cellGap) / columns);
+  const cellHeight = rows <= 2 ? 38 : rows === 3 ? 32 : 28;
+  const rowGap = rows <= 2 ? 16 : rows === 3 ? 12 : 10;
+  const registerHeight = rows * cellHeight + (rows - 1) * rowGap;
+  const registerWidth = columns * cellWidth + (columns - 1) * cellGap;
+  const registerCenterX = 422;
+  const registerStartX = registerCenterX - registerWidth / 2;
+  const registerStartY = 430 - registerHeight / 2;
+  const cells = Array.from({ length: bitCount }, (_, index) => {
+    const row = Math.floor(index / columns);
+    const column = index % columns;
+    const rowColumns = row === rows - 1 && bitCount % columns
+      ? bitCount % columns
+      : columns;
+    const rowWidth = rowColumns * cellWidth + (rowColumns - 1) * cellGap;
+    const x = row === rows - 1
+      ? registerCenterX - rowWidth / 2 + column * (cellWidth + cellGap)
+      : registerStartX + column * (cellWidth + cellGap);
+    const y = registerStartY + row * (cellHeight + rowGap);
+    return `<g data-bit-index="${index}">
+ <rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${cellWidth}" height="${cellHeight}" rx="7"
+  class="${index === bitCount - 1 ? "warm-panel" : "cool-panel"}"/>
+</g>`;
+  }).join("");
+  const quantityValue = displayQuantity(parameters) || "BIT FIELD";
+  const quantity = escapeSemanticSentenceXml(quantityValue);
+  const detailValue = displayText(parameters.detail.value, 30);
+  const detail = escapeSemanticSentenceXml(detailValue);
+  const semanticContext = groundedSemanticContext(parameters);
+  const inputLabel = /\bgps\b/.test(semanticContext)
+    ? "GPS SIGNAL"
+    : /\bsignal\b/.test(semanticContext)
+      ? "SIGNAL"
+      : "ENCODED INPUT";
+  return `<g data-geometry-kind="cause_effect_chain"
+ data-cause-concept="bit_register" data-cause-asset="mapping_table"
+ data-bit-render-mode="${exactBitGeometry ? "exact" : "symbolic_summary"}"
+ data-declared-bit-count="${declaredBitCount === null ? "unspecified" : declaredBitCount}"
+ data-primitive-parameterized="true" class="semantic-geometry">
+ <rect x="64" y="292" width="592" height="350" rx="32" class="sentence-surface"/>
+ <g class="semantic-rise">
+  <path d="M76 438 C98 402 120 474 142 438 C164 402 186 474 208 438"
+   class="semantic-draw cool-line"/>
+  <text x="142" y="504" text-anchor="middle" class="micro-copy">${inputLabel}</text>
+ </g>
+ <path d="M210 438 H250 M232 424 L252 438 L232 452"
+  class="semantic-draw connector-line"/>
+ <g class="semantic-rise">
+  <rect x="252" y="330" width="340" height="238" rx="22" class="cool-panel"/>
+  ${cells}
+  ${exactBitGeometry ? "" : `<text x="422" y="514" text-anchor="middle"
+   class="micro-copy">SYMBOLIC SAMPLE</text>`}
+  <text x="422" y="548" text-anchor="middle" class="micro-copy warm-copy"
+   ${fitExactTextAttributes(quantityValue, 20, 14, 290).trim()}>${quantity}</text>
+ </g>
+ <path d="M594 438 H618 M602 424 L622 438 L602 452"
+  class="semantic-draw connector-line"/>
+ <path d="M628 380 V498 M628 380 H648 M628 498 H648"
+  class="semantic-draw warm-line"/>
+ <text x="360" y="610" text-anchor="middle" class="timeline-label"
+  ${fitExactTextAttributes(detailValue, 19, 13, 520).trim()}>${detail}</text>
+</g>`;
+}
+
+function wrongDateCauseEffectMarkup(sentence, parameters) {
+  const context = groundedSemanticContext(parameters);
+  const temporalErrorKind = visualConceptRegistry.semanticTemporalErrorKind(
+    parameters.detail.value,
+  );
+  const outputLabel = temporalErrorKind === "date_error"
+    ? "WRONG DATE"
+    : temporalErrorKind === "clock_anomaly"
+      ? "CLOCK ANOMALY"
+      : temporalErrorKind === "time_error"
+        ? "TIME ERROR"
+        : null;
+  if (!outputLabel) {
+    throw new TypeError("Temporal error geometry requires grounded output.");
+  }
+  const isCalendar = sentence.capability.assetId === "calendar_card";
+  const inputLabel = /\bweek\b/.test(context)
+    ? "WEEK VALUE"
+    : /\bgps\b/.test(context)
+      ? "GPS VALUE"
+    : /\b(?:clock|time)\b/.test(context)
+      ? "TIME VALUE"
+      : "INPUT VALUE";
+  return `<g data-geometry-kind="cause_effect_chain"
+ data-cause-concept="wrong_date" data-cause-asset="${sentence.capability.assetId}"
+ data-primitive-parameterized="true" class="semantic-geometry">
+ <g class="semantic-rise cause-node">
+  <rect x="64" y="372" width="166" height="168" rx="24" class="cool-panel"/>
+  <path d="M94 430 H200 M94 458 H176 M94 486 H188"
+   class="semantic-draw cool-line"/>
+  <text x="147" y="518" text-anchor="middle" class="micro-copy">${inputLabel}</text>
+ </g>
+ <path d="M230 456 H274 M258 442 L276 456 L258 470"
+  class="semantic-draw connector-line"/>
+ <g class="semantic-rise cause-node">
+  <rect x="276" y="330" width="168" height="252" rx="24" class="sentence-surface"/>
+  ${isCalendar
+    ? `<rect x="316" y="380" width="88" height="104" rx="12" class="cool-panel"/>
+  <path d="M316 410 H404 M338 380 V398 M382 380 V398
+   M332 432 H350 M366 432 H384 M332 456 H350 M366 456 H384"
+   class="semantic-draw cool-line"/>`
+    : `<rect x="326" y="392" width="68" height="82" rx="14" class="cool-panel"/>
+  <circle cx="360" cy="434" r="10" class="cool-fill"/>
+  <path d="M342 382 Q360 362 378 382 M326 368 Q360 330 394 368"
+   class="semantic-draw cool-line"/>`}
+  <text x="360" y="542" text-anchor="middle" class="micro-copy">INTERPRET</text>
+ </g>
+ <path d="M444 456 H488 M472 442 L490 456 L472 470"
+  class="semantic-draw connector-line"/>
+ <g class="semantic-rise cause-node">
+  <rect x="488" y="372" width="168" height="168" rx="24" class="reject-panel"/>
+  <path d="M522 408 H622 M522 436 H594" class="semantic-draw warm-line"/>
+  <path d="M526 466 L616 520 M616 466 L526 520" class="semantic-draw error-cross"/>
+  <text x="572" y="526" text-anchor="middle" class="micro-copy">${outputLabel}</text>
+ </g>
+</g>`;
+}
+
+function softwarePatchCauseEffectMarkup(parameters) {
+  const context = parameters.detail.value.toLocaleLowerCase("en-US");
+  const problemLabel = /\bambiguity\b/.test(context)
+    ? "AMBIGUITY"
+    : /\brollovers?\b/.test(context)
+      ? "ROLLOVER"
+      : /\bwrong\s+date\b/.test(context)
+        ? "WRONG DATE"
+        : /\bweek\s+number\b/.test(context)
+          ? "WEEK NUMBER"
+          : "UPDATE ISSUE";
+  const patchLabel = /\bsoftware patches?\b/i.test(parameters.detail.value)
+    ? "SOFTWARE PATCH"
+    : "UPDATE";
+  return `<g data-geometry-kind="cause_effect_chain"
+ data-cause-concept="software_patch" data-cause-asset="receiver_device"
+ data-primitive-parameterized="true" class="semantic-geometry">
+ <g class="semantic-rise cause-node">
+  <rect x="62" y="372" width="174" height="170" rx="24" class="reject-panel"/>
+  <path d="M94 420 H204 M94 456 H184 M94 492 H198"
+   class="semantic-draw error-cross"/>
+  <text x="149" y="522" text-anchor="middle" class="micro-copy">${problemLabel}</text>
+ </g>
+ <path d="M236 456 H276 M260 442 L278 456 L260 470"
+  class="semantic-draw connector-line"/>
+ <g class="semantic-rise cause-node">
+  <rect x="276" y="326" width="168" height="260" rx="24" class="sentence-surface"/>
+  <rect x="326" y="376" width="68" height="82" rx="14" class="cool-panel"/>
+  <circle cx="360" cy="418" r="10" class="cool-fill"/>
+  <circle cx="402" cy="368" r="28" class="warm-panel"/>
+  <path d="M390 368 H414 M402 356 V380" class="semantic-draw warm-line"/>
+  <text x="360" y="520" text-anchor="middle" class="micro-copy">${patchLabel}</text>
+ </g>
+ <path d="M444 456 H486 M470 442 L488 456 L470 470"
+  class="semantic-draw connector-line"/>
+ <g class="semantic-rise cause-node">
+  <rect x="486" y="372" width="174" height="170" rx="24" class="warm-panel"/>
+  <path d="M522 450 L554 482 L624 408" class="semantic-draw warm-line"/>
+  <text x="573" y="522" text-anchor="middle" class="micro-copy"
+   ${fitExactTextAttributes("UPDATE REQUIRED", 20, 13, 142).trim()}>UPDATE REQUIRED</text>
+ </g>
+</g>`;
+}
+
+function counterMappingMechanismMarkup(parameters) {
+  const groundedDetail = escapeSemanticSentenceXml(
+    displayText(parameters.detail.value, 34),
+  );
+  return `<g data-geometry-kind="cause_effect_chain"
+ data-cause-concept="counter_mapping_mechanism"
+ data-cause-asset="mapping_table" data-primitive-parameterized="true"
+ class="semantic-geometry">
+ <g class="semantic-rise cause-node">
+  <rect x="60" y="370" width="176" height="176" rx="24" class="cool-panel"/>
+  <text x="148" y="414" text-anchor="middle" class="micro-copy">COUNTER</text>
+  <text x="148" y="482" text-anchor="middle" class="large-value">VALUE</text>
+  <path d="M94 510 H202" class="semantic-draw cool-line"/>
+ </g>
+ <path d="M236 456 H276 M260 442 L278 456 L260 470"
+  class="semantic-draw connector-line"/>
+ <g class="semantic-rise cause-node">
+  <rect x="276" y="326" width="168" height="264" rx="24" class="sentence-surface"/>
+  <rect x="320" y="376" width="80" height="92" rx="14" class="cool-panel"/>
+  <path d="M338 400 H382 M338 422 H368 M338 444 H390"
+   class="semantic-draw cool-line"/>
+  <text x="360" y="520" text-anchor="middle" class="micro-copy">MAPPING RULE</text>
+ </g>
+ <path d="M444 456 H484 M468 442 L486 456 L468 470"
+  class="semantic-draw connector-line"/>
+ <g class="semantic-rise cause-node">
+  <rect x="484" y="370" width="176" height="176" rx="24" class="warm-panel"/>
+  <path d="M520 414 H624 M520 444 H596 M520 474 H612"
+   class="semantic-draw warm-line"/>
+  <text x="572" y="522" text-anchor="middle" class="micro-copy">RESULT</text>
+ </g>
+ <text x="360" y="646" text-anchor="middle" class="timeline-label warm-copy"
+  ${fitExactTextAttributes(groundedDetail, 19, 12, 560).trim()}>${groundedDetail}</text>
+</g>`;
+}
+
 function causeEffectMarkup(sentence) {
   const parameters = sentence.primitiveParameters;
   if (parameters) {
+    const concept = causeEffectConcept(sentence, parameters);
+    if (concept === "bit_register") {
+      return bitRegisterCauseEffectMarkup(parameters);
+    }
+    if (concept === "wrong_date") {
+      return wrongDateCauseEffectMarkup(sentence, parameters);
+    }
+    if (concept === "software_patch") {
+      return softwarePatchCauseEffectMarkup(parameters);
+    }
+    if (concept === "counter_mapping_mechanism") {
+      return counterMappingMechanismMarkup(parameters);
+    }
     const subject = escapeSemanticSentenceXml(
       displayText(parameters.subject.value, 14),
     );
@@ -675,6 +1035,84 @@ function comparisonMarkup(sentence) {
   const rejected = sentence.visualIntent.stateTransition === "reject_hypothesis";
   const parameters = sentence.primitiveParameters;
   if (parameters) {
+    const variant = rendererVariant(sentence, parameters);
+    if (
+      variant === "counter_capacity_comparison"
+    ) {
+      const legacyCells = Array.from({ length: 5 }, (_, index) => (
+        `<rect x="${112 + index * 32}" y="430" width="24" height="40" rx="6"
+ class="cool-panel" data-capacity-cell="legacy-${index}"/>`
+      )).join("");
+      const modernCells = Array.from({ length: 10 }, (_, index) => (
+        `<rect x="${408 + (index % 5) * 38}" y="${404 + Math.floor(index / 5) * 58}"
+ width="30" height="42" rx="6" class="${index > 4 ? "warm-panel" : "cool-panel"}"
+ data-capacity-cell="modern-${index}"/>`
+      )).join("");
+      const detailValue = displayText(parameters.detail.value, 28);
+      const detailContext = parameters.detail.value.toLocaleLowerCase("en-US");
+      const leftTitle = /\blegacy\b/.test(detailContext)
+        ? "LEGACY"
+        : /\bweek\s+counter\b/.test(detailContext)
+          ? "WEEK COUNTER"
+          : "COUNTER";
+      const rightTitle = /\bnewer\b/.test(detailContext)
+        ? /\bnavigation\s+messages?\b/.test(detailContext)
+          ? "NEWER MESSAGE"
+          : "NEWER"
+        : "MESSAGE";
+      const comparativeLabel = (
+        detailContext.match(
+          /\b(?:greater|larger|more|wider)\s+(?:capacity|range|values?|bit\s+field|room)\b/,
+        )?.[0] || "CAPACITY"
+      ).toLocaleUpperCase("en-US");
+      return `<g data-geometry-kind="side_by_side_comparison"
+ data-comparison-concept="capacity" data-primitive-parameterized="true"
+ class="semantic-geometry">
+ <g class="semantic-compare-left semantic-rise">
+  <rect x="66" y="320" width="270" height="312" rx="28" class="sentence-surface"/>
+  <text x="201" y="380" text-anchor="middle" class="micro-copy">${leftTitle}</text>
+  ${legacyCells}
+  <path d="M110 504 H280" class="semantic-draw cool-line"/>
+  <path d="M280 486 V522" class="semantic-draw warm-line"/>
+  <text x="201" y="574" text-anchor="middle" class="timeline-label">COUNTER</text>
+ </g>
+ <g class="semantic-compare-right semantic-rise">
+  <rect x="384" y="320" width="270" height="312" rx="28" class="warm-panel"/>
+  <text x="519" y="380" text-anchor="middle" class="micro-copy">${rightTitle}</text>
+  ${modernCells}
+  <path d="M420 520 H618 M596 502 L620 520 L596 538"
+   class="semantic-draw warm-line"/>
+  <text x="519" y="574" text-anchor="middle" class="timeline-label">${comparativeLabel}</text>
+ </g>
+ <text x="360" y="688" text-anchor="middle" class="timeline-label"
+  ${fitExactTextAttributes(detailValue, 19, 13, 560).trim()}>${escapeSemanticSentenceXml(detailValue)}</text>
+</g>`;
+    }
+    if (
+      variant === "counter_not_time"
+    ) {
+      return `<g data-geometry-kind="side_by_side_comparison"
+ data-comparison-concept="counter_vs_time"
+ data-primitive-parameterized="true" class="semantic-geometry">
+ <g class="semantic-compare-left semantic-rise">
+  <rect x="62" y="318" width="274" height="322" rx="30" class="sentence-surface"/>
+  <path d="M132 454 A70 70 0 1 1 244 500
+   M250 476 L244 502 L218 496" class="semantic-draw cool-line"/>
+  <circle cx="194" cy="454" r="12" class="cool-fill"/>
+  <text x="199" y="574" text-anchor="middle" class="micro-copy">NUMBER RESETS</text>
+ </g>
+ <g class="semantic-compare-right semantic-rise">
+  <rect x="384" y="318" width="274" height="322" rx="30" class="warm-panel"/>
+  <path d="M430 462 H610 M578 432 L612 462 L578 492"
+   class="semantic-draw warm-line"/>
+  <circle cx="466" cy="462" r="12" class="warm-fill"/>
+  <text x="521" y="574" text-anchor="middle" class="micro-copy">TIME CONTINUES</text>
+ </g>
+ <circle cx="360" cy="478" r="38" class="reject-panel"/>
+ <text x="360" y="490" text-anchor="middle" class="comparison-glyph">≠</text>
+ <text x="360" y="690" text-anchor="middle" class="timeline-label warm-copy">NOT TIME ITSELF</text>
+</g>`;
+    }
     const subject = escapeSemanticSentenceXml(
       displayText(parameters.subject.value, 16),
     );
@@ -977,8 +1415,166 @@ function evidenceInspectionMarkup(sentence, sentenceIndex) {
     );
     const subjectFit = fitTextAttributes(parameters.subject.value, 18, 158);
     const detailFit = fitTextAttributes(parameters.detail.value, 30, 332);
-    return `<g data-geometry-kind="evidence_inspection"
+    const requestedNeutralVariant = String(parameters.visualConceptId || "")
+      .replace(/^cue_evidence_/, "");
+    const neutralVariant = [
+      "document",
+      "bands",
+      "field",
+      "focus",
+      "frame",
+      "network",
+      "quote",
+      "ribbon",
+      "spotlight",
+    ].includes(requestedNeutralVariant)
+      ? requestedNeutralVariant
+      : "focus";
+    if (neutralVariant === "focus") {
+      return `<g data-geometry-kind="evidence_inspection"
+ data-evidence-variant="focus" data-primitive-parameterized="true"
+ class="semantic-geometry">
+ <circle cx="360" cy="444" r="196" class="sentence-surface"/>
+ <circle cx="360" cy="444" r="138" class="cool-panel"/>
+ <circle cx="360" cy="444" r="72" class="warm-halo"/>
+ <path d="M360 276 V326 M360 562 V612 M192 444 H242 M478 444 H528"
+  class="semantic-draw cool-line"/>
+ <text id="semantic-evidence-${sentenceIndex}-subject" x="360" y="420"
+  text-anchor="middle" class="micro-copy"${subjectFit}
+  data-legibility-role="key" data-contrast-background="#0e7490">${subject}</text>
+ <text id="semantic-evidence-${sentenceIndex}-detail" x="360" y="492"
+  text-anchor="middle" class="timeline-label"${detailFit}
+  data-legibility-role="secondary" data-contrast-background="#071827">${detail}</text>
+</g>`;
+    }
+    if (neutralVariant === "spotlight") {
+      return `<g data-geometry-kind="evidence_inspection"
+ data-evidence-variant="spotlight" data-neutral-grounding="cue_text_only"
  data-primitive-parameterized="true" class="semantic-geometry">
+ <path d="M236 276 H484 L592 620 H128 Z" class="cool-panel" opacity="0.52"/>
+ <ellipse cx="360" cy="558" rx="218" ry="70" class="sentence-surface"/>
+ <ellipse cx="360" cy="558" rx="142" ry="42" class="warm-halo"/>
+ <circle cx="360" cy="356" r="62" class="warm-panel semantic-rise"/>
+ <text id="semantic-evidence-${sentenceIndex}-subject" x="360" y="368"
+  text-anchor="middle" class="micro-copy"${subjectFit}
+  data-legibility-role="key" data-contrast-background="#071827">${subject}</text>
+ <text id="semantic-evidence-${sentenceIndex}-detail" x="360" y="574"
+  text-anchor="middle" class="timeline-label"${detailFit}
+  data-legibility-role="secondary" data-contrast-background="#071827">${detail}</text>
+</g>`;
+    }
+    if (neutralVariant === "field") {
+      return `<g data-geometry-kind="evidence_inspection"
+ data-evidence-variant="field" data-neutral-grounding="cue_text_only"
+ data-primitive-parameterized="true" class="semantic-geometry">
+ <circle cx="154" cy="342" r="18" class="cool-fill semantic-rise"/>
+ <circle cx="566" cy="366" r="28" class="warm-fill semantic-rise"/>
+ <circle cx="116" cy="528" r="12" class="warm-fill semantic-rise"/>
+ <circle cx="602" cy="546" r="16" class="cool-fill semantic-rise"/>
+ <circle cx="226" cy="620" r="22" class="cool-fill semantic-rise"/>
+ <circle cx="506" cy="640" r="10" class="warm-fill semantic-rise"/>
+ <rect x="176" y="318" width="368" height="284" rx="142" class="sentence-surface"/>
+ <rect x="222" y="372" width="276" height="92" rx="42" class="cool-panel"/>
+ <text id="semantic-evidence-${sentenceIndex}-subject" x="360" y="428"
+  text-anchor="middle" class="micro-copy"${subjectFit}
+  data-legibility-role="key" data-contrast-background="#0e7490">${subject}</text>
+ <text id="semantic-evidence-${sentenceIndex}-detail" x="360" y="530"
+  text-anchor="middle" class="timeline-label"${detailFit}
+  data-legibility-role="secondary" data-contrast-background="#071827">${detail}</text>
+</g>`;
+    }
+    if (neutralVariant === "ribbon") {
+      return `<g data-geometry-kind="evidence_inspection"
+ data-evidence-variant="ribbon" data-neutral-grounding="cue_text_only"
+ data-primitive-parameterized="true" class="semantic-geometry">
+ <path d="M82 356 C214 268 278 444 402 348 C500 272 564 306 638 376"
+  class="semantic-draw cool-line"/>
+ <path d="M70 542 C194 642 296 466 414 570 C510 654 578 608 650 526"
+  class="semantic-draw warm-line"/>
+ <rect x="138" y="344" width="444" height="246" rx="44" class="sentence-surface"/>
+ <rect x="202" y="386" width="316" height="72" rx="28" class="warm-panel semantic-rise"/>
+ <text id="semantic-evidence-${sentenceIndex}-subject" x="360" y="432"
+  text-anchor="middle" class="micro-copy"${subjectFit}
+  data-legibility-role="key" data-contrast-background="#071827">${subject}</text>
+ <text id="semantic-evidence-${sentenceIndex}-detail" x="360" y="526"
+  text-anchor="middle" class="timeline-label"${detailFit}
+  data-legibility-role="secondary" data-contrast-background="#071827">${detail}</text>
+</g>`;
+    }
+    if (neutralVariant === "frame") {
+      return `<g data-geometry-kind="evidence_inspection"
+ data-evidence-variant="frame" data-neutral-grounding="cue_text_only"
+ data-primitive-parameterized="true" class="semantic-geometry">
+ <rect x="104" y="286" width="512" height="354" rx="48" class="sentence-surface"/>
+ <rect x="140" y="322" width="440" height="282" rx="34" class="cool-panel"/>
+ <path d="M140 386 H194 V332 M526 332 V386 H580 M140 540 H194 V594 M526 594 V540 H580"
+  class="semantic-draw warm-line"/>
+ <rect x="206" y="382" width="308" height="78" rx="28" class="warm-panel semantic-rise"/>
+ <text id="semantic-evidence-${sentenceIndex}-subject" x="360" y="430"
+  text-anchor="middle" class="micro-copy"${subjectFit}
+  data-legibility-role="key" data-contrast-background="#071827">${subject}</text>
+ <text id="semantic-evidence-${sentenceIndex}-detail" x="360" y="526"
+  text-anchor="middle" class="timeline-label"${detailFit}
+  data-legibility-role="secondary" data-contrast-background="#0e7490">${detail}</text>
+</g>`;
+    }
+    if (neutralVariant === "bands") {
+      return `<g data-geometry-kind="evidence_inspection"
+ data-evidence-variant="bands" data-neutral-grounding="cue_text_only"
+ data-primitive-parameterized="true" class="semantic-geometry">
+ <path d="M92 350 C214 274 506 274 628 350" class="semantic-draw cool-line"/>
+ <path d="M70 420 C210 332 510 332 650 420" class="semantic-draw warm-line"/>
+ <path d="M70 554 C210 642 510 642 650 554" class="semantic-draw warm-line"/>
+ <path d="M92 624 C214 700 506 700 628 624" class="semantic-draw cool-line"/>
+ <rect x="154" y="370" width="412" height="236" rx="108" class="sentence-surface"/>
+ <rect x="216" y="408" width="288" height="72" rx="34" class="cool-panel semantic-rise"/>
+ <text id="semantic-evidence-${sentenceIndex}-subject" x="360" y="454"
+  text-anchor="middle" class="micro-copy"${subjectFit}
+  data-legibility-role="key" data-contrast-background="#0e7490">${subject}</text>
+ <text id="semantic-evidence-${sentenceIndex}-detail" x="360" y="548"
+  text-anchor="middle" class="timeline-label"${detailFit}
+  data-legibility-role="secondary" data-contrast-background="#071827">${detail}</text>
+</g>`;
+    }
+    if (neutralVariant === "network") {
+      return `<g data-geometry-kind="evidence_inspection"
+ data-evidence-variant="network" data-primitive-parameterized="true"
+ class="semantic-geometry">
+ <path d="M174 430 L360 330 L552 430 L360 566 Z M174 430 L552 430"
+  class="semantic-draw connector-line"/>
+ <circle cx="174" cy="430" r="44" class="cool-panel"/>
+ <circle cx="360" cy="330" r="52" class="sentence-surface"/>
+ <circle cx="552" cy="430" r="44" class="cool-panel"/>
+ <circle cx="360" cy="566" r="58" class="warm-panel"/>
+ <circle cx="360" cy="446" r="26" class="warm-fill"/>
+ <text id="semantic-evidence-${sentenceIndex}-subject" x="360" y="350"
+  text-anchor="middle" class="micro-copy"${subjectFit}
+  data-legibility-role="key" data-contrast-background="#071827">${subject}</text>
+ <text id="semantic-evidence-${sentenceIndex}-detail" x="360" y="682"
+  text-anchor="middle" class="timeline-label"${detailFit}
+  data-legibility-role="secondary" data-contrast-background="#071827">${detail}</text>
+</g>`;
+    }
+    if (neutralVariant === "quote") {
+      return `<g data-geometry-kind="evidence_inspection"
+ data-evidence-variant="quote" data-primitive-parameterized="true"
+ class="semantic-geometry">
+ <rect x="82" y="298" width="556" height="338" rx="34" class="sentence-surface"/>
+ <text x="122" y="418" class="counter-value warm-copy">“</text>
+ <text x="598" y="584" text-anchor="end" class="counter-value warm-copy">”</text>
+ <path d="M150 448 H570 M150 502 H526 M150 556 H548"
+  class="semantic-draw cool-line"/>
+ <text id="semantic-evidence-${sentenceIndex}-subject" x="360" y="364"
+  text-anchor="middle" class="micro-copy"${subjectFit}
+  data-legibility-role="key" data-contrast-background="#071827">${subject}</text>
+ <text id="semantic-evidence-${sentenceIndex}-detail" x="360" y="688"
+  text-anchor="middle" class="timeline-label"${detailFit}
+  data-legibility-role="secondary" data-contrast-background="#071827">${detail}</text>
+</g>`;
+    }
+    return `<g data-geometry-kind="evidence_inspection"
+ data-evidence-variant="document" data-primitive-parameterized="true"
+ class="semantic-geometry">
  <g class="semantic-evidence-record semantic-rise">
   <rect x="112" y="288" width="410" height="348" rx="24" class="paper-surface"/>
   <rect x="146" y="332" width="178" height="28" rx="7" class="paper-heading"/>

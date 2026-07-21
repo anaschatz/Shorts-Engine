@@ -95,13 +95,13 @@ function churnId(value, index) {
 }
 
 function rewriteSemanticWords(value, index, seed) {
-  let markerIndex = 0;
-  return value.split(/\s+/).map((word, wordIndex) => {
-    if (wordIndex % 3 !== 1) return word;
-    const marker = `case${index}token${seed}${markerIndex}`;
-    markerIndex += 1;
-    return marker;
-  }).join(" ");
+  const markerCount = Math.max(1, Math.ceil(value.split(/\s+/).length / 3));
+  const markers = Array.from({ length: markerCount }, (_, markerIndex) => (
+    `v${index.toString(36)}${seed}${markerIndex.toString(36)}`
+  )).join(" ");
+  const terminal = value.match(/[.!?]$/)?.[0] || "";
+  const stem = terminal ? value.slice(0, -1) : value;
+  return `${stem} ${markers}${terminal}`;
 }
 
 class MemoryArtifactStore {

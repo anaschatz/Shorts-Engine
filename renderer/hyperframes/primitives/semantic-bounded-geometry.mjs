@@ -156,6 +156,7 @@ export function semanticBoundedGeometryMarkup(sentence) {
   )).join("\n ");
   const nodes = program.nodes.map(nodeMarkup).join("\n ");
   return `<g class="semantic-bounded-geometry" aria-hidden="true" pointer-events="none"
+ opacity=".16" data-visual-role="supporting_scaffold"
  data-bounded-geometry-profile-id="${escapeXml(blueprint.profileId)}"
  data-bounded-geometry-recipe-id="${escapeXml(blueprint.recipeId)}"
  data-bounded-geometry-blueprint-hash="${blueprint.contentHash}"

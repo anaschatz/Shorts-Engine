@@ -706,7 +706,10 @@ export function compileSemanticSentenceAnimationIRToHtml(ir, options = {}) {
 .semantic-support-state{fill:#f8fafc;font-size:26px;letter-spacing:1px}
 .semantic-support-route{fill:none;stroke:#fbbf24;stroke-width:4;stroke-linecap:round;stroke-linejoin:round}
 .semantic-support-route-start{fill:#22d3ee}.semantic-support-route-end{fill:#fbbf24;stroke:#fef3c7;stroke-width:2}
-.semantic-bounded-edge{stroke-width:3.25}` : "";
+.semantic-bounded-edge{stroke-width:3.25}
+.composition[data-scene-composition-profile-id] text[id^="semantic-evidence-"][data-legibility-role="key"]{fill:#f8fafc;font-size:34px;font-weight:600}
+.composition[data-scene-composition-profile-id] text[id^="semantic-evidence-"][data-legibility-role="secondary"]{fill:#f8fafc;font-size:26px}
+.composition[data-scene-composition-profile-id] [data-evidence-variant="document"] text[id^="semantic-evidence-"][data-legibility-role="secondary"]{fill:#0f172a}` : "";
   const sceneActionCss = usesSceneActions ? `
 .semantic-scene-camera-channel{transform-box:view-box;transform-origin:360px 520px;will-change:transform}
 .semantic-primary-module,.semantic-support-module{transform-box:fill-box;transform-origin:center;will-change:transform,opacity,filter}` : "";

@@ -46,6 +46,7 @@ const NEGATIVE_STATE_TOKENS = new Set([
   "ABSENT",
   "REJECTED",
   "UNRESOLVED",
+  "WRONG",
 ]);
 
 function escapeXml(value) {

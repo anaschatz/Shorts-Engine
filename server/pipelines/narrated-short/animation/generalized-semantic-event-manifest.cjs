@@ -160,6 +160,27 @@ function isNumberConnector(tokens, index) {
     && isNumberWordToken(tokens[index + 1] || { normalized: "" });
 }
 
+function hyphenatedQuantityToken(token) {
+  const separatorIndex = token.normalized.lastIndexOf("-");
+  if (separatorIndex <= 0) return null;
+  const numberPart = token.normalized.slice(0, separatorIndex);
+  const unitPart = token.normalized.slice(separatorIndex + 1);
+  if (
+    !QUANTITY_UNITS.has(unitPart)
+    || !(
+      /^\d+$/.test(numberPart)
+      || isNumberWordToken({ normalized: numberPart })
+    )
+  ) return null;
+  const unitStartIndex = token.index + separatorIndex + 1;
+  return {
+    value: token.value.slice(0, separatorIndex),
+    unit: token.value.slice(separatorIndex + 1),
+    valueSourceRefEndIndex: token.index + separatorIndex,
+    unitSourceRefStartIndex: unitStartIndex,
+  };
+}
+
 function quantityTokens(ref) {
   const tokens = [...ref.value.matchAll(/[A-Za-z0-9]+(?:[.,:-][A-Za-z0-9]+)*/g)]
     .map((match) => ({
@@ -171,6 +192,24 @@ function quantityTokens(ref) {
   const output = [];
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index];
+    const hyphenatedQuantity = hyphenatedQuantityToken(token);
+    if (hyphenatedQuantity) {
+      output.push({
+        value: hyphenatedQuantity.value,
+        unit: hyphenatedQuantity.unit,
+        valueSourceRef: fragmentRef(
+          ref,
+          token.index,
+          hyphenatedQuantity.valueSourceRefEndIndex,
+        ),
+        unitSourceRef: fragmentRef(
+          ref,
+          hyphenatedQuantity.unitSourceRefStartIndex,
+          token.endIndex,
+        ),
+      });
+      continue;
+    }
     const numericToken = /^\d/.test(token.normalized);
     const numberWordToken = isNumberWordToken(token);
     if (!numericToken && !numberWordToken) continue;
@@ -228,14 +267,17 @@ const TRANSITION_TARGETS = Object.freeze(new Set([
 ]));
 
 function isTransitionTargetQuantity(quantity, intent, cueRef) {
-  if (!TRANSITION_TARGETS.has(intent.visualIntent.stateTransition)) return false;
   const startOffset = quantity.valueSourceRef.startOffset - cueRef.startOffset;
   if (startOffset < 0 || startOffset > cueRef.value.length) return false;
   const prefix = cueRef.value
     .slice(Math.max(0, startOffset - 64), startOffset)
     .toLocaleLowerCase("en-US");
-  return /\b(?:change(?:d|s)?|reset(?:s)?|return(?:ed|s)?|roll(?:ed|s)?\s+over|wrap(?:ped|s)?)\b(?:(?![.!?;:]).){0,48}\b(?:back\s+)?to\s*$/.test(
+  const linguisticTarget = /\b(?:change(?:d|s)?|reset(?:s)?|return(?:ed|s)?|roll(?:ed|s)?\s+over|wrap(?:ped|s)?)\b(?:(?![.!?;:]).){0,48}\b(?:back\s+)?to\s*$/.test(
     prefix,
+  );
+  return linguisticTarget || (
+    TRANSITION_TARGETS.has(intent.visualIntent.stateTransition)
+    && /\b(?:to|at|from)\s*$/.test(prefix)
   );
 }
 
@@ -244,6 +286,15 @@ function displayQuantityScore(quantity, intent, cueRef) {
   const predicate = intent.visualIntent.predicate;
   const hasExplicitDigits = /\d/.test(quantity.value);
   const hasUnit = Boolean(quantity.unit);
+  if (intent.primitivePayload.visualConceptId === "encoded_bit_register") {
+    if (!/^bits?$/i.test(String(quantity.unit || ""))) return null;
+    return (
+      200 * 1_000_000
+      + (hasExplicitDigits ? 1_000 : 0)
+      + quantity.value.trim().split(/\s+/).length * 100
+      + quantity.value.length
+    );
+  }
   let semanticPriority = 0;
   if (transitionTarget) {
     semanticPriority = 100;
@@ -255,7 +306,9 @@ function displayQuantityScore(quantity, intent, cueRef) {
     semanticPriority = hasUnit ? 90 : 70;
   } else if (["recurrence", "state_change"].includes(predicate)) {
     semanticPriority = hasUnit || hasExplicitDigits ? 80 : 0;
-  } else if (["appearance", "last_known_record"].includes(predicate)) {
+  } else if (predicate === "last_known_record") {
+    semanticPriority = hasUnit ? 90 : hasExplicitDigits ? 70 : 0;
+  } else if (predicate === "appearance") {
     semanticPriority = hasExplicitDigits ? 70 : 0;
   } else if (
     predicate === "comparison"
@@ -361,6 +414,7 @@ function buildGeneralizedSemanticEventManifest(draft, timingContext, visualInten
       sourceRefs: [cueRef],
       primitivePayload: {
         profileId: VISUAL_INTENT_PRIMITIVE_PAYLOAD_PROFILE_ID,
+        visualConceptId: intent.primitivePayload.visualConceptId,
         headline: {
           value: intent.primitivePayload.headline,
           sourceRef: headlineRef,
