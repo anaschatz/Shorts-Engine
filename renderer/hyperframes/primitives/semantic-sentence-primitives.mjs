@@ -963,7 +963,7 @@ function chronologyMarkup(sentence) {
 </g>`;
 }
 
-function evidenceInspectionMarkup(sentence) {
+function evidenceInspectionMarkup(sentence, sentenceIndex) {
   const parameters = sentence.primitiveParameters;
   if (parameters) {
     const seed = parameters.geometry.variantSeed;
@@ -982,14 +982,14 @@ function evidenceInspectionMarkup(sentence) {
  <g class="semantic-evidence-record semantic-rise">
   <rect x="112" y="288" width="410" height="348" rx="24" class="paper-surface"/>
   <rect x="146" y="332" width="178" height="28" rx="7" class="paper-heading"/>
-  <text x="156" y="354" class="micro-copy"${subjectFit}
+  <text id="semantic-evidence-${sentenceIndex}-subject" x="156" y="354" class="micro-copy"${subjectFit}
    fill="#f8fafc" data-legibility-role="key"
    data-contrast-background="#0e7490">${subject}</text>
   <path d="M146 398 H478 M146 444 H478 M146 490 H478 M146 536 H418 M146 582 H382"
    class="record-line"/>
   <rect x="${highlightX}" y="${highlightY}" width="126" height="124" rx="12"
    class="evidence-highlight"/>
-  <text x="156" y="612" class="timeline-label"${detailFit}
+  <text id="semantic-evidence-${sentenceIndex}-detail" x="156" y="612" class="timeline-label"${detailFit}
    fill="#0f172a" data-legibility-role="secondary"
    data-contrast-background="#dbeafe">${detail}</text>
  </g>
@@ -1060,7 +1060,7 @@ function boundedUncertaintyMarkup(sentence) {
 </g>`;
 }
 
-function primitiveMarkup(sentence) {
+function primitiveMarkup(sentence, sentenceIndex = 0) {
   switch (sentence.capability.grammarId) {
     case "before_after":
       return beforeAfterMarkup(sentence);
@@ -1077,7 +1077,7 @@ function primitiveMarkup(sentence) {
     case "chronology_accumulation":
       return chronologyMarkup(sentence);
     case "evidence_inspection":
-      return evidenceInspectionMarkup(sentence);
+      return evidenceInspectionMarkup(sentence, sentenceIndex);
     case "bounded_uncertainty":
       return boundedUncertaintyMarkup(sentence);
     default:
@@ -1141,7 +1141,7 @@ export function semanticSentencePrimitiveMarkup(sentence, index) {
     normalizedSentence.visualIntent.subjectKind,
     normalizedSentence.visualIntent.stateTransition,
   ].join(":");
-  const primaryGeometry = primitiveMarkup(normalizedSentence);
+  const primaryGeometry = primitiveMarkup(normalizedSentence, index);
   const geometry = normalizedSentence.sceneComposition
     ? semanticSceneCompositionMarkup(
       normalizedSentence,

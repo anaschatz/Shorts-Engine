@@ -70,6 +70,28 @@ test("content artifacts are immutable content-addressed JSON envelopes", () => {
   assert.equal(readFileSync(artifactStore.resolve(first.artifact), "utf8").includes("content_brief"), true);
 });
 
+test("motion review and calibration reports use managed JSON artifact types", () => {
+  const artifactStore = new LocalArtifactStore();
+  const artifactIndex = new InMemoryArtifactRepository({ persist: false });
+  const repository = new ContentArtifactRepository({
+    artifactStore,
+    artifactRepository: artifactIndex,
+  });
+  for (const type of [
+    "animation_motion_review",
+    "animation_motion_calibration",
+  ]) {
+    const created = repository.createJson({
+      type,
+      projectId: PROJECT_ID,
+      jobId: JOB_ID,
+      revision: 1,
+      body: { schemaVersion: 1, status: "shadow" },
+    });
+    assert.equal(repository.readJson(created.artifact.id).artifactType, type);
+  }
+});
+
 test("content approvals persist exact revision and draft hash and can be revoked", () => {
   const first = new ContentApprovalRepository({ dir: CONFIG.contentApprovalDir });
   const approved = first.approve({

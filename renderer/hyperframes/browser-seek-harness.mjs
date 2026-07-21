@@ -7,6 +7,12 @@ const ALLOWED_PROTOCOLS = new Set(["about:", "data:", "blob:"]);
 const RESOURCE_CLASSES = new Set(["document", "stylesheet", "image", "media", "font", "script", "xhr", "fetch", "websocket", "other"]);
 const ENTITY_RE = /^[a-z][a-z0-9_-]{2,79}$/;
 const ACTION_SIGNATURE_RE = /^(create|move|transform|highlight|camera):[a-z][a-z0-9_-]{1,79}:(entry|develop|resolve):[a-z][a-z0-9_-]{1,79}$/;
+const MAX_EXPECTED_STATE_IDS = 24;
+const MAX_EXPECTED_SEMANTIC_ROUTE_IDS = 96;
+// A semantic sentence can own up to six copy labels plus geometry/composition labels.
+// The renderer accepts at most 96 sentences, so keep the request bounded above that
+// compiler-owned worst case instead of rejecting valid production compositions.
+const MAX_EXPECTED_LABEL_IDS = 1024;
 // Canonicalize single-level Chromium raster rounding while retaining exact hashes for visible frame changes.
 const CANONICAL_SCREENSHOT = Object.freeze({ type: "jpeg", quality: 90 });
 
@@ -32,6 +38,8 @@ function validateRequest(input) {
   const expectedVisualStateIds = input.expectedVisualStateIds === undefined ? [] : input.expectedVisualStateIds;
   const expectedFocusIntervalIds = input.expectedFocusIntervalIds === undefined ? [] : input.expectedFocusIntervalIds;
   const expectedTransitionIds = input.expectedTransitionIds === undefined ? [] : input.expectedTransitionIds;
+  const expectedSemanticRouteIds = input.expectedSemanticRouteIds === undefined ? [] : input.expectedSemanticRouteIds;
+  const expectedLabelIds = input.expectedLabelIds === undefined ? [] : input.expectedLabelIds;
   const expectedActionSignatures = input.expectedActionSignatures === undefined ? [] : input.expectedActionSignatures;
   const expectedSettledHoldFrames = input.expectedSettledHoldFrames === undefined ? [] : input.expectedSettledHoldFrames;
   const expectedBoundedGeometrySentenceIndices = input.expectedBoundedGeometrySentenceIndices === undefined
@@ -46,8 +54,10 @@ function validateRequest(input) {
   if (!Number.isInteger(timeoutMs) || timeoutMs < 5_000 || timeoutMs > 120_000) throw new BrowserSeekError("BROWSER_SEEK_TIMEOUT_INVALID");
   if (!Array.isArray(expectedPathFollowerIds) || expectedPathFollowerIds.length > 20 || expectedPathFollowerIds.some((id) => !ENTITY_RE.test(id)) || new Set(expectedPathFollowerIds).size !== expectedPathFollowerIds.length) throw new BrowserSeekError("BROWSER_SEEK_REQUEST_INVALID");
   for (const [field, values] of Object.entries({ expectedPersistentEntityIds, expectedVisualStateIds, expectedFocusIntervalIds, expectedTransitionIds })) {
-    if (!Array.isArray(values) || values.length > 24 || values.some((id) => !ENTITY_RE.test(id)) || new Set(values).size !== values.length) throw new BrowserSeekError("BROWSER_SEEK_REQUEST_INVALID", { field });
+    if (!Array.isArray(values) || values.length > MAX_EXPECTED_STATE_IDS || values.some((id) => !ENTITY_RE.test(id)) || new Set(values).size !== values.length) throw new BrowserSeekError("BROWSER_SEEK_REQUEST_INVALID", { field });
   }
+  if (!Array.isArray(expectedSemanticRouteIds) || expectedSemanticRouteIds.length > MAX_EXPECTED_SEMANTIC_ROUTE_IDS || expectedSemanticRouteIds.some((id) => !ENTITY_RE.test(id)) || new Set(expectedSemanticRouteIds).size !== expectedSemanticRouteIds.length) throw new BrowserSeekError("BROWSER_SEEK_REQUEST_INVALID", { field: "expectedSemanticRouteIds" });
+  if (!Array.isArray(expectedLabelIds) || expectedLabelIds.length > MAX_EXPECTED_LABEL_IDS || expectedLabelIds.some((id) => !ENTITY_RE.test(id)) || new Set(expectedLabelIds).size !== expectedLabelIds.length) throw new BrowserSeekError("BROWSER_SEEK_REQUEST_INVALID", { field: "expectedLabelIds" });
   if (
     !Array.isArray(expectedActionSignatures)
     || expectedActionSignatures.length > 20
@@ -73,7 +83,13 @@ function validateRequest(input) {
       !== expectedBoundedGeometrySentenceIndices.length
   ) throw new BrowserSeekError("BROWSER_SEEK_REQUEST_INVALID");
   if (![null, "mobile_720_v1"].includes(legibilityProfile)) throw new BrowserSeekError("BROWSER_SEEK_REQUEST_INVALID");
-  return { html, width, height, fps, durationFrames, seekSequence, cacheWarmupFrames, chromePath, timeoutMs, expectedPathFollowerIds, expectedPersistentEntityIds, expectedVisualStateIds, expectedFocusIntervalIds, expectedTransitionIds, expectedActionSignatures, expectedSettledHoldFrames, expectedBoundedGeometrySentenceIndices, legibilityProfile };
+  const expectedSemanticRoi = input.expectedSemanticRoi === undefined
+    ? null
+    : checkedRect(input.expectedSemanticRoi, "expectedSemanticRoi");
+  const expectedCaptionSafeZone = input.expectedCaptionSafeZone === undefined
+    ? null
+    : checkedRect(input.expectedCaptionSafeZone, "expectedCaptionSafeZone");
+  return { html, width, height, fps, durationFrames, seekSequence, cacheWarmupFrames, chromePath, timeoutMs, expectedPathFollowerIds, expectedPersistentEntityIds, expectedVisualStateIds, expectedFocusIntervalIds, expectedTransitionIds, expectedSemanticRouteIds, expectedLabelIds, expectedActionSignatures, expectedSettledHoldFrames, expectedBoundedGeometrySentenceIndices, expectedSemanticRoi, expectedCaptionSafeZone, legibilityProfile };
 }
 
 function repeatedFrameResults(captures) {
@@ -136,12 +152,20 @@ export function validateGeometrySnapshots(snapshots, width, height, expectedPath
   const expectedVisualStateIds = expectations.expectedVisualStateIds || [];
   const expectedFocusIntervalIds = expectations.expectedFocusIntervalIds || [];
   const expectedTransitionIds = expectations.expectedTransitionIds || [];
+  const expectedSemanticRouteIds = expectations.expectedSemanticRouteIds || [];
+  const expectedLabelIds = expectations.expectedLabelIds || [];
   const expectedActionSignatures = expectations.expectedActionSignatures || [];
   const expectedSettledHoldFrames = expectations.expectedSettledHoldFrames || [];
   const expectedBoundedGeometrySentenceIndices =
     expectations.expectedBoundedGeometrySentenceIndices || [];
   const legibilityProfile = expectations.legibilityProfile || null;
-  for (const values of [expectedPersistentEntityIds, expectedVisualStateIds, expectedFocusIntervalIds, expectedTransitionIds]) if (!Array.isArray(values) || values.some((id) => !ENTITY_RE.test(id))) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
+  for (const values of [expectedPersistentEntityIds, expectedVisualStateIds, expectedFocusIntervalIds, expectedTransitionIds, expectedSemanticRouteIds, expectedLabelIds]) if (!Array.isArray(values) || values.some((id) => !ENTITY_RE.test(id)) || new Set(values).size !== values.length) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
+  const expectedSemanticRoi = expectations.expectedSemanticRoi || null;
+  const expectedCaptionSafeZone = expectations.expectedCaptionSafeZone || null;
+  if (
+    (expectedSemanticRoi && JSON.stringify(checkedRect(expectedSemanticRoi, "expectedSemanticRoi")) !== JSON.stringify(semanticRoi))
+    || (expectedCaptionSafeZone && JSON.stringify(checkedRect(expectedCaptionSafeZone, "expectedCaptionSafeZone")) !== JSON.stringify(captionSafeZone))
+  ) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
   if (!Array.isArray(expectedActionSignatures) || expectedActionSignatures.some((value) => !ACTION_SIGNATURE_RE.test(value)) || !Array.isArray(expectedSettledHoldFrames) || expectedSettledHoldFrames.some((frame) => !Number.isInteger(frame))) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
   if (
     !Array.isArray(expectedBoundedGeometrySentenceIndices)
@@ -155,6 +179,7 @@ export function validateGeometrySnapshots(snapshots, width, height, expectedPath
   const clippedEntities = [], captionSafeZoneViolations = [], pathFollowerViolations = [], semanticRouteViolations = [], boundedGeometryClippingViolations = [], boundedGeometryCaptionSafeZoneViolations = [], persistentContinuityViolations = [], focusViolations = [], primaryRoiViolations = [], legibilityViolations = [], contrastViolations = [], actionCoverageViolations = [], checkpoints = [];
   let entityObservationCount = 0, pathFollowerObservationCount = 0, semanticRouteObservationCount = 0, boundedGeometryObservationCount = 0, persistentObservationCount = 0, labelObservationCount = 0;
   const observedPathFollowerIds = new Set();
+  const observedSemanticRouteIds = new Set();
   const observedLabelIds = new Set();
   let markedLabelIds = null;
   const persistentStateCoverage = new Map(expectedPersistentEntityIds.map((entityId) => [entityId, new Set()]));
@@ -291,6 +316,7 @@ export function validateGeometrySnapshots(snapshots, width, height, expectedPath
         !route
         || !Number.isInteger(route.routeIndex)
         || route.routeIndex < 0
+        || !ENTITY_RE.test(route.routeId || "")
         || typeof route.visible !== "boolean"
       ) throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
       if (!route.visible) continue;
@@ -303,7 +329,9 @@ export function validateGeometrySnapshots(snapshots, width, height, expectedPath
         throw new BrowserSeekError("BROWSER_GEOMETRY_AUDIT_INVALID");
       }
       semanticRouteObservationCount += 1;
+      observedSemanticRouteIds.add(route.routeId);
       visibleSemanticRoutes.push(Object.freeze({
+        routeId: route.routeId,
         routeIndex: route.routeIndex,
         x: Number(route.x.toFixed(3)),
         y: Number(route.y.toFixed(3)),
@@ -312,6 +340,7 @@ export function validateGeometrySnapshots(snapshots, width, height, expectedPath
       if (route.distance > 0.75) {
         semanticRouteViolations.push(Object.freeze({
           frame: snapshot.frame,
+          routeId: route.routeId,
           routeIndex: route.routeIndex,
           distance: Number(route.distance.toFixed(3)),
         }));
@@ -501,6 +530,20 @@ export function validateGeometrySnapshots(snapshots, width, height, expectedPath
   for (const [entityId, states] of persistentStateCoverage.entries()) for (const stateId of expectedVisualStateIds) if (!states.has(stateId)) persistentContinuityViolations.push(Object.freeze({ entityId, stateId, reason: "state_unobserved" }));
   const markedLabelIdList = [...(markedLabelIds || [])].sort();
   const observedLabelIdList = [...observedLabelIds].sort();
+  const observedSemanticRouteIdList = [...observedSemanticRouteIds].sort();
+  const unobservedSemanticRouteIds = expectedSemanticRouteIds.filter(
+    (routeId) => !observedSemanticRouteIds.has(routeId),
+  );
+  if (
+    expectedLabelIds.length > 0
+    && JSON.stringify(markedLabelIdList) !== JSON.stringify([...expectedLabelIds].sort())
+  ) legibilityViolations.push(Object.freeze({ reason: "trusted_label_set_mismatch" }));
+  for (const routeId of unobservedSemanticRouteIds) {
+    semanticRouteViolations.push(Object.freeze({
+      routeId,
+      reason: "semantic_route_unobserved",
+    }));
+  }
   const unobservedLabelIds = markedLabelIdList.filter((labelId) => !observedLabelIds.has(labelId));
   if (legibilityProfile === "mobile_720_v1" && labelObservationCount === 0) legibilityViolations.push(Object.freeze({ reason: "labels_unobserved" }));
   for (const labelId of unobservedLabelIds) legibilityViolations.push(Object.freeze({ labelId, reason: "label_unobserved" }));
@@ -525,7 +568,7 @@ export function validateGeometrySnapshots(snapshots, width, height, expectedPath
     }));
   }
   const passed = clippedEntities.length === 0 && captionSafeZoneViolations.length === 0 && pathFollowerViolations.length === 0 && semanticRouteViolations.length === 0 && boundedGeometryClippingViolations.length === 0 && boundedGeometryCaptionSafeZoneViolations.length === 0 && unobservedBoundedGeometrySentenceIndices.length === 0 && unobservedPathFollowerIds.length === 0 && persistentContinuityViolations.length === 0 && focusViolations.length === 0 && primaryRoiViolations.length === 0 && legibilityViolations.length === 0 && contrastViolations.length === 0 && actionCoverageViolations.length === 0;
-  return Object.freeze({ passed, semanticRoi, captionSafeZone, checkpointCount: snapshots.length, entityObservationCount, pathFollowerObservationCount, semanticRouteObservationCount, boundedGeometryObservationCount, observedBoundedGeometrySentenceIndices: [...observedBoundedGeometrySentenceIndices].sort((left, right) => left - right), unobservedBoundedGeometrySentenceIndices, persistentObservationCount, labelObservationCount, markedLabelIds: markedLabelIdList, observedLabelIds: observedLabelIdList, unobservedLabelIds, observedPathFollowerIds: [...observedPathFollowerIds].sort(), unobservedPathFollowerIds, persistentStateCoverage: persistentStateCoverageSummary, observedTransitionIds: observedTransitionIds.sort(), observedFocusIntervalIds: [...observedFocusIntervalIds].sort(), unobservedFocusIntervalIds, observedActionSignatures: [...observedActionSignatures].sort(), unobservedActionSignatures, clippedEntities, captionSafeZoneViolations, pathFollowerViolations, semanticRouteViolations, boundedGeometryClippingViolations, boundedGeometryCaptionSafeZoneViolations, persistentContinuityViolations, focusViolations, primaryRoiViolations, legibilityViolations, contrastViolations, actionCoverageViolations, checkpoints });
+  return Object.freeze({ passed, semanticRoi, captionSafeZone, checkpointCount: snapshots.length, entityObservationCount, pathFollowerObservationCount, semanticRouteObservationCount, observedSemanticRouteIds: observedSemanticRouteIdList, unobservedSemanticRouteIds, boundedGeometryObservationCount, observedBoundedGeometrySentenceIndices: [...observedBoundedGeometrySentenceIndices].sort((left, right) => left - right), unobservedBoundedGeometrySentenceIndices, persistentObservationCount, labelObservationCount, markedLabelIds: markedLabelIdList, observedLabelIds: observedLabelIdList, unobservedLabelIds, observedPathFollowerIds: [...observedPathFollowerIds].sort(), unobservedPathFollowerIds, persistentStateCoverage: persistentStateCoverageSummary, observedTransitionIds: observedTransitionIds.sort(), observedFocusIntervalIds: [...observedFocusIntervalIds].sort(), unobservedFocusIntervalIds, observedActionSignatures: [...observedActionSignatures].sort(), unobservedActionSignatures, clippedEntities, captionSafeZoneViolations, pathFollowerViolations, semanticRouteViolations, boundedGeometryClippingViolations, boundedGeometryCaptionSafeZoneViolations, persistentContinuityViolations, focusViolations, primaryRoiViolations, legibilityViolations, contrastViolations, actionCoverageViolations, checkpoints });
 }
 
 export async function runBrowserSeekProof(input, dependencies = {}) {
@@ -718,6 +761,7 @@ export async function runBrowserSeekProof(input, dependencies = {}) {
               distance = nearest;
             }
             return {
+              routeId: marker.closest("[data-sentence-id]")?.dataset.sentenceId || "",
               routeIndex,
               visible,
               distance,
@@ -778,10 +822,14 @@ export async function runBrowserSeekProof(input, dependencies = {}) {
       expectedVisualStateIds: request.expectedVisualStateIds,
       expectedFocusIntervalIds: request.expectedFocusIntervalIds,
       expectedTransitionIds: request.expectedTransitionIds,
+      expectedSemanticRouteIds: request.expectedSemanticRouteIds,
+      expectedLabelIds: request.expectedLabelIds,
       expectedActionSignatures: request.expectedActionSignatures,
       expectedSettledHoldFrames: request.expectedSettledHoldFrames,
       expectedBoundedGeometrySentenceIndices:
         request.expectedBoundedGeometrySentenceIndices,
+      expectedSemanticRoi: request.expectedSemanticRoi,
+      expectedCaptionSafeZone: request.expectedCaptionSafeZone,
       legibilityProfile: request.legibilityProfile,
     });
     return Object.freeze({

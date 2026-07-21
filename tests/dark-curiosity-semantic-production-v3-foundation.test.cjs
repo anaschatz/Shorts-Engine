@@ -541,6 +541,7 @@ test("semantic-v3 QA samples every sentence and does not invent continuity geome
         clippedEntities: [],
         captionSafeZoneViolations: [],
         pathFollowerViolations: [],
+        semanticRouteViolations: [],
         boundedGeometryClippingViolations: [],
         boundedGeometryCaptionSafeZoneViolations: [],
         persistentContinuityViolations: [],

@@ -9,7 +9,16 @@ const { resolve } = require("node:path");
 
 const { contentHash, normalizeDraftBundle } = require("../server/pipelines/narrated-short/contracts.cjs");
 const { createAlignment, scriptWords } = require("../server/pipelines/narrated-short/narration/alignment.cjs");
-const { evaluateGeometryQuality } = require("../server/pipelines/narrated-short/animation/benchmark-qa.cjs");
+const {
+  DEFAULT_MOTION_THRESHOLD,
+  MOTION_ANALYSIS_PROFILE_ID,
+  READABILITY_HOLD_POLICY_ID,
+  SEGMENT_POLICY_ID,
+  evaluateGeometryQuality,
+  motionAnalysisConfigurationHash,
+  motionAnalysisDimensions,
+  motionAnalysisRangeHash,
+} = require("../server/pipelines/narrated-short/animation/benchmark-qa.cjs");
 const { buildProductionTimingContext } = require("../server/pipelines/narrated-short/animation/timing-context-builder.cjs");
 const { compileProductionAnimation } = require("../server/pipelines/narrated-short/animation/production-plan-compiler.cjs");
 const { buildProductionAnimationPayloadBindings } = require("../server/pipelines/narrated-short/animation/payload-bindings.cjs");
@@ -21,6 +30,41 @@ const { validateSemanticNarrative } = require("../server/pipelines/narrated-shor
 const FIXTURE = resolve(__dirname, "..", "eval", "narrated", "dark-curiosity", "fixtures", "001_wow_signal_mystery.json");
 const art = (letter) => `art_${letter.repeat(40)}`;
 const hash = (letter) => letter.repeat(64);
+
+function mockMotionEvidence(request) {
+  const dimensions = motionAnalysisDimensions(
+    request.geometryAudit.semanticRoi,
+    { width: request.width, height: request.height },
+  );
+  const readabilityHoldRangesHash = motionAnalysisRangeHash(
+    READABILITY_HOLD_POLICY_ID,
+    request.readabilityHolds,
+  );
+  const segmentRangesHash = motionAnalysisRangeHash(
+    SEGMENT_POLICY_ID,
+    request.segments,
+  );
+  return {
+    motionAnalysisProfileId: MOTION_ANALYSIS_PROFILE_ID,
+    readabilityHoldPolicyId: READABILITY_HOLD_POLICY_ID,
+    segmentPolicyId: SEGMENT_POLICY_ID,
+    analysisWidth: dimensions.width,
+    analysisHeight: dimensions.height,
+    motionThreshold: DEFAULT_MOTION_THRESHOLD,
+    readabilityHoldRangesHash,
+    segmentRangesHash,
+    motionConfigurationHash: motionAnalysisConfigurationHash({
+      motionAnalysisProfileId: MOTION_ANALYSIS_PROFILE_ID,
+      readabilityHoldPolicyId: READABILITY_HOLD_POLICY_ID,
+      segmentPolicyId: SEGMENT_POLICY_ID,
+      analysisWidth: dimensions.width,
+      analysisHeight: dimensions.height,
+      motionThreshold: DEFAULT_MOTION_THRESHOLD,
+      readabilityHoldRangesHash,
+      segmentRangesHash,
+    }),
+  };
+}
 
 function rawStory(kind) {
   const raw = JSON.parse(readFileSync(FIXTURE, "utf8"));
@@ -318,6 +362,7 @@ test("generic production render accepts transitionless browser and motion proof 
   };
   let benchmarkRequest;
   let browserRequest;
+  const alignmentArtifactId = art("d");
   try {
     const result = await runProductionAnimationRender({
       draft: value.draft,
@@ -327,6 +372,7 @@ test("generic production render accepts transitionless browser and motion proof 
       jobId: `job_${randomUUID()}`,
       draftArtifactId: art("a"),
       draftHash: value.draft.contentHash,
+      alignmentArtifactId,
       alignmentHash: value.alignment.contentHash,
       renderProfile: "preview",
       stagingDir,
@@ -349,15 +395,18 @@ test("generic production render accepts transitionless browser and motion proof 
           resourceClasses: [],
           geometryAudit: {
             passed: true,
-            semanticRoi: { x: 0, y: 0, width: 720, height: 900 },
-            captionSafeZone: { x: 0, y: 947, width: 720, height: 333 },
+            semanticRoi: request.expectedSemanticRoi,
+            captionSafeZone: request.expectedCaptionSafeZone,
             checkpointCount: request.seekSequence.length,
             entityObservationCount: 20,
             pathFollowerObservationCount: 8,
+            semanticRouteObservationCount: request.expectedSemanticRouteIds.length,
+            observedSemanticRouteIds: request.expectedSemanticRouteIds,
+            unobservedSemanticRouteIds: [],
             persistentObservationCount: 20,
-            labelObservationCount: 20,
-            markedLabelIds: ["generic_primary_label", "generic_secondary_label"],
-            observedLabelIds: ["generic_primary_label", "generic_secondary_label"],
+            labelObservationCount: request.expectedLabelIds.length,
+            markedLabelIds: request.expectedLabelIds,
+            observedLabelIds: request.expectedLabelIds,
             unobservedLabelIds: [],
             observedPathFollowerIds: request.expectedPathFollowerIds,
             unobservedPathFollowerIds: [],
@@ -368,6 +417,7 @@ test("generic production render accepts transitionless browser and motion proof 
             clippedEntities: [],
             captionSafeZoneViolations: [],
             pathFollowerViolations: [],
+            semanticRouteViolations: [],
             boundedGeometryClippingViolations: [],
             boundedGeometryCaptionSafeZoneViolations: [],
             persistentContinuityViolations: [],
@@ -395,6 +445,11 @@ test("generic production render accepts transitionless browser and motion proof 
             durationSeconds: request.expectedFrameCount / request.expectedFps,
           },
           motion: {
+            temporalMetricProfileId:
+              "dark_curiosity_luma_temporal_motion_v1",
+            temporalThresholdStatus: "provisional",
+            ...mockMotionEvidence(request),
+            decodedFrameSequenceHash: hash("e"),
             firstMeaningfulMotionFrame: 1,
             consecutiveStasisRatio: 0.1,
             maxContiguousStasisFrames: 10,
@@ -409,6 +464,14 @@ test("generic production render accepts transitionless browser and motion proof 
     });
 
     assert.equal(result.qa.status, "passed");
+    assert.equal(result.qa.alignmentArtifactId, alignmentArtifactId);
+    assert.equal(result.qa.renderProfile, "preview");
+    assert.equal(result.qa.renderQuality, "standard");
+    assert.equal(result.qa.motion.motion.analysisWidth, 180);
+    assert.equal(result.qa.motion.motion.analysisHeight, 208);
+    assert.equal(result.manifest.alignmentArtifactId, alignmentArtifactId);
+    assert.equal(result.manifest.renderProfile, "preview");
+    assert.equal(result.manifest.renderQuality, "standard");
     assert.deepEqual(browserRequest.expectedTransitionIds, []);
     assert.deepEqual(browserRequest.expectedFocusIntervalIds, []);
     assert.deepEqual(benchmarkRequest.semanticGeometryRequirements, {

@@ -2,10 +2,18 @@ const { createHash } = require("node:crypto");
 const { spawnSync } = require("node:child_process");
 const { existsSync } = require("node:fs");
 const { AppError } = require("../../../errors.cjs");
+const { contentHash } = require("../contracts.cjs");
 
 const DEFAULT_MOTION_THRESHOLD = 0.0002;
 const TEMPORAL_MOTION_METRIC_PROFILE_ID =
   "dark_curiosity_luma_temporal_motion_v1";
+const MOTION_ANALYSIS_PROFILE_ID =
+  "dark_curiosity_ffmpeg_area_gray_roi_v1";
+const READABILITY_HOLD_POLICY_ID =
+  "animation_ir_readability_holds_v1";
+const SEGMENT_POLICY_ID =
+  "semantic_sentence_or_scene_segments_v1";
+const MOTION_ANALYSIS_WIDTH = 180;
 
 function run(binary, args, options = {}) {
   const result = spawnSync(binary, args, { encoding: options.binary ? null : "utf8", maxBuffer: options.maxBuffer || 128 * 1024 * 1024, timeout: options.timeout || 120000 });
@@ -33,6 +41,61 @@ function normalizedRanges(input, field, maximumFrame = null) {
   if (input === undefined) return [];
   if (!Array.isArray(input) || input.some((range) => !range || !Number.isInteger(range.startFrame) || !Number.isInteger(range.endFrame) || range.startFrame < 0 || range.endFrame <= range.startFrame || (maximumFrame !== null && range.endFrame > maximumFrame))) throw new AppError("ANIMATION_QA_FAILED", `Animation ${field} ranges are invalid.`, 500);
   return input.map((range, index) => ({ id: typeof range.id === "string" && range.id ? range.id : `${field}_${index}`, startFrame: range.startFrame, endFrame: range.endFrame }));
+}
+
+function canonicalHash(value) {
+  return contentHash(value);
+}
+
+function motionAnalysisRangeHash(policyId, ranges) {
+  const field = policyId === READABILITY_HOLD_POLICY_ID
+    ? "readability_hold"
+    : policyId === SEGMENT_POLICY_ID
+      ? "segment"
+      : null;
+  if (!field) {
+    throw new AppError(
+      "ANIMATION_QA_FAILED",
+      "Animation motion range policy is invalid.",
+      500,
+    );
+  }
+  const normalized = normalizedRanges(ranges, field);
+  return canonicalHash({ policyId, ranges: normalized });
+}
+
+function motionAnalysisConfigurationHash(input = {}) {
+  const configuration = {
+    motionAnalysisProfileId: input.motionAnalysisProfileId,
+    readabilityHoldPolicyId: input.readabilityHoldPolicyId,
+    segmentPolicyId: input.segmentPolicyId,
+    analysisWidth: input.analysisWidth,
+    analysisHeight: input.analysisHeight,
+    motionThreshold: input.motionThreshold,
+    readabilityHoldRangesHash: input.readabilityHoldRangesHash,
+    segmentRangesHash: input.segmentRangesHash,
+  };
+  if (
+    configuration.motionAnalysisProfileId !== MOTION_ANALYSIS_PROFILE_ID
+    || configuration.readabilityHoldPolicyId !== READABILITY_HOLD_POLICY_ID
+    || configuration.segmentPolicyId !== SEGMENT_POLICY_ID
+    || !Number.isInteger(configuration.analysisWidth)
+    || configuration.analysisWidth < 1
+    || !Number.isInteger(configuration.analysisHeight)
+    || configuration.analysisHeight < 1
+    || !Number.isFinite(configuration.motionThreshold)
+    || configuration.motionThreshold <= 0
+    || configuration.motionThreshold >= 1
+    || ![configuration.readabilityHoldRangesHash, configuration.segmentRangesHash]
+      .every((value) => /^[a-f0-9]{64}$/.test(value || ""))
+  ) {
+    throw new AppError(
+      "ANIMATION_QA_FAILED",
+      "Animation motion analysis configuration is invalid.",
+      500,
+    );
+  }
+  return canonicalHash(configuration);
 }
 
 function temporalEntries(values, firstFrame, isHeld) {
@@ -80,6 +143,24 @@ function analyzeConsecutiveFrames(buffer, width, height, options = {}) {
       index > 0 && segment.startFrame < segments[index - 1].endFrame
     ))
   ) throw new AppError("ANIMATION_QA_FAILED", "Animation segment ranges are invalid.", 500);
+  const readabilityHoldRangesHash = motionAnalysisRangeHash(
+    READABILITY_HOLD_POLICY_ID,
+    holds,
+  );
+  const segmentRangesHash = motionAnalysisRangeHash(
+    SEGMENT_POLICY_ID,
+    segments,
+  );
+  const motionConfigurationHash = motionAnalysisConfigurationHash({
+    motionAnalysisProfileId: MOTION_ANALYSIS_PROFILE_ID,
+    readabilityHoldPolicyId: READABILITY_HOLD_POLICY_ID,
+    segmentPolicyId: SEGMENT_POLICY_ID,
+    analysisWidth: width,
+    analysisHeight: height,
+    motionThreshold: threshold,
+    readabilityHoldRangesHash,
+    segmentRangesHash,
+  });
   const mask = options.mask;
   if (mask !== undefined && (!Buffer.isBuffer(mask) || mask.length !== frameBytes)) throw new AppError("ANIMATION_QA_FAILED", "Animation semantic mask is invalid.", 500);
   let selectedPixels = frameBytes;
@@ -212,9 +293,28 @@ function analyzeConsecutiveFrames(buffer, width, height, options = {}) {
   });
   const consecutiveStasisRatio = activeEnergies.filter((value) => value < threshold).length / Math.max(1, activeEnergies.length);
   const meanMotionEnergy = totalActiveEnergy / Math.max(1, activeEnergies.length);
+  const decodedFrameSequenceHash = createHash("sha256")
+    .update(JSON.stringify({
+      temporalMetricProfileId: TEMPORAL_MOTION_METRIC_PROFILE_ID,
+      motionAnalysisProfileId: MOTION_ANALYSIS_PROFILE_ID,
+      analysisWidth: width,
+      analysisHeight: height,
+      frameCount: count,
+      sampleHashes: hashes,
+    }))
+    .digest("hex");
   return Object.freeze({
     temporalMetricProfileId: TEMPORAL_MOTION_METRIC_PROFILE_ID,
     temporalThresholdStatus: "provisional",
+    motionAnalysisProfileId: MOTION_ANALYSIS_PROFILE_ID,
+    readabilityHoldPolicyId: READABILITY_HOLD_POLICY_ID,
+    segmentPolicyId: SEGMENT_POLICY_ID,
+    analysisWidth: width,
+    analysisHeight: height,
+    readabilityHoldRangesHash,
+    segmentRangesHash,
+    motionConfigurationHash,
+    decodedFrameSequenceHash,
     frameCount: count,
     transitionCount: energies.length,
     analyzedTransitionCount: activeEnergies.length,
@@ -271,6 +371,13 @@ function analyzeSampleFrames(buffer, width, height, options = {}) {
 
 function normalizedRoi(roi, technical) {
   if (roi === undefined || roi === null) return null;
+  if (
+    !technical
+    || !Number.isFinite(technical.width)
+    || !Number.isFinite(technical.height)
+    || technical.width < 32
+    || technical.height < 32
+  ) throw new AppError("ANIMATION_QA_FAILED", "Animation video dimensions are invalid.", 500);
   if (!roi || ![roi.x, roi.y, roi.width, roi.height].every(Number.isFinite)) throw new AppError("ANIMATION_QA_FAILED", "Animation semantic ROI is invalid.", 500);
   const x = Math.max(0, Math.round(roi.x)), y = Math.max(0, Math.round(roi.y));
   const width = Math.min(technical.width - x, Math.round(roi.width)), height = Math.min(technical.height - y, Math.round(roi.height));
@@ -278,11 +385,23 @@ function normalizedRoi(roi, technical) {
   return { x, y, width, height };
 }
 
+function motionAnalysisDimensions(semanticRoi, technical) {
+  const roi = normalizedRoi(semanticRoi, technical);
+  const width = MOTION_ANALYSIS_WIDTH;
+  const height = roi
+    ? Math.max(2, Math.round((width * roi.height / roi.width) / 2) * 2)
+    : 320;
+  return Object.freeze({
+    semanticRoi: roi ? Object.freeze(roi) : null,
+    width,
+    height,
+  });
+}
+
 function extractConsecutiveMotionMetrics(outputPath, options = {}) {
   const technical = options.technical || probeVisualMaster(outputPath);
-  const roi = normalizedRoi(options.semanticRoi, technical);
-  const width = 180;
-  const height = roi ? Math.max(2, Math.round((width * roi.height / roi.width) / 2) * 2) : 320;
+  const analysis = motionAnalysisDimensions(options.semanticRoi, technical);
+  const { semanticRoi: roi, width, height } = analysis;
   const crop = roi ? `crop=${roi.width}:${roi.height}:${roi.x}:${roi.y},` : "";
   const raw = run("ffmpeg", ["-v", "error", "-i", outputPath, "-vf", `${crop}scale=${width}:${height}:flags=area,format=gray`, "-vsync", "0", "-f", "rawvideo", "-"], { binary: true, maxBuffer: 256 * 1024 * 1024 });
   return analyzeConsecutiveFrames(raw, width, height, options);
@@ -474,4 +593,4 @@ function runBenchmarkQa(input) {
   return Object.freeze({ passed: Object.values(checks).every(Boolean), checks, technical, motion, samples: motion, geometryAudit: geometry, captionSafeZoneViolations: geometry.captionSafeZoneViolations?.length || 0, clippedEntities: geometry.clippedEntities?.length || 0 });
 }
 
-module.exports = { DEFAULT_MOTION_THRESHOLD, TEMPORAL_MOTION_METRIC_PROFILE_ID, analyzeConsecutiveFrames, analyzeSampleFrames, evaluateGeometryQuality, evaluateMotionQuality, evaluateTemporalMotionQuality, extractCheckpointMetrics, extractConsecutiveMotionMetrics, extractRangeMotion, extractSampleMetrics, normalizeSemanticGeometryRequirements, probeVisualMaster, runBenchmarkQa, writeCheckpointContactSheet, writeContactSheet };
+module.exports = { DEFAULT_MOTION_THRESHOLD, MOTION_ANALYSIS_PROFILE_ID, READABILITY_HOLD_POLICY_ID, SEGMENT_POLICY_ID, TEMPORAL_MOTION_METRIC_PROFILE_ID, analyzeConsecutiveFrames, analyzeSampleFrames, evaluateGeometryQuality, evaluateMotionQuality, evaluateTemporalMotionQuality, extractCheckpointMetrics, extractConsecutiveMotionMetrics, extractRangeMotion, extractSampleMetrics, motionAnalysisConfigurationHash, motionAnalysisDimensions, motionAnalysisRangeHash, normalizeSemanticGeometryRequirements, probeVisualMaster, runBenchmarkQa, writeCheckpointContactSheet, writeContactSheet };

@@ -149,11 +149,23 @@ function motionSegments(ir) {
   return ir.scenes.map((scene) => ({ id: scene.id, startFrame: scene.startFrame, endFrame: scene.endFrame }));
 }
 
-function browserQaExpectations(ir, seekSequence, actionQa = null) {
+function browserQaExpectations(
+  ir,
+  seekSequence,
+  actionQa = null,
+  compositionQaPolicy = null,
+) {
   const repeatedFrames = seekSequence.filter((frame, index) => seekSequence.indexOf(frame) !== index);
+  const compositionExpectations = Object.freeze({
+    semanticRoi: compositionQaPolicy?.semanticRoi || null,
+    captionSafeZone: compositionQaPolicy?.captionSafeZone || null,
+    semanticRouteIds: [...(compositionQaPolicy?.semanticRouteIds || [])],
+    labelIds: [...(compositionQaPolicy?.labelIds || [])],
+  });
   if (ir.visualStateGraph) {
     const graph = ir.visualStateGraph;
     return Object.freeze({
+      ...compositionExpectations,
       cacheWarmupFrames: [...new Set([
         ...graph.focusIntervals.map((interval) => Math.floor((interval.startFrame + interval.endFrame - 1) / 2)),
         ...repeatedFrames,
@@ -168,6 +180,7 @@ function browserQaExpectations(ir, seekSequence, actionQa = null) {
   }
   if (ir.content?.semantic?.profileId === GENERIC_SEMANTIC_PROFILE_ID) {
     return Object.freeze({
+      ...compositionExpectations,
       cacheWarmupFrames: [...new Set([
         ...ir.scenes.map((scene) => Math.floor((scene.startFrame + scene.endFrame - 1) / 2)),
         ...repeatedFrames,
@@ -191,6 +204,7 @@ function browserQaExpectations(ir, seekSequence, actionQa = null) {
       ...repeatedFrames,
     ])].filter((frame) => seekSequence.includes(frame)).slice(0, 20);
     return Object.freeze({
+      ...compositionExpectations,
       cacheWarmupFrames,
       pathFollowerIds: [],
       persistentEntityIds: [],
@@ -255,6 +269,13 @@ function browserResultMeetsPolicy(value, expected) {
   if (!Array.isArray(value.captures) || value.captures.length !== expected.seekSequence.length || !Array.isArray(value.repeatedFrames) || !value.repeatedFrames.length || value.repeatedFrames.some((entry) => entry.equal !== true)) return false;
   if (!geometry || geometry.passed !== true || geometry.checkpointCount !== expected.seekSequence.length) return false;
   if (
+    (expected.semanticRoi
+      && JSON.stringify(geometry.semanticRoi) !== JSON.stringify(expected.semanticRoi))
+    || (expected.captionSafeZone
+      && JSON.stringify(geometry.captionSafeZone)
+        !== JSON.stringify(expected.captionSafeZone))
+  ) return false;
+  if (
     (expected.persistentEntityIds.length > 0 && geometry.persistentObservationCount <= 0)
     || (expected.pathFollowerIds.length > 0 && geometry.pathFollowerObservationCount <= 0)
     || (
@@ -281,8 +302,22 @@ function browserResultMeetsPolicy(value, expected) {
     || (geometry.unobservedBoundedGeometrySentenceIndices || []).length !== 0
   ) return false;
   if (!Array.isArray(geometry.markedLabelIds) || !geometry.markedLabelIds.length || !sameValues(geometry.markedLabelIds, geometry.observedLabelIds) || geometry.unobservedLabelIds?.length !== 0) return false;
+  if (
+    (Array.isArray(expected.labelIds)
+      && !sameValues(geometry.markedLabelIds, expected.labelIds))
+    || (Array.isArray(expected.semanticRouteIds)
+      && !sameValues(
+        geometry.observedSemanticRouteIds || [],
+        expected.semanticRouteIds,
+      ))
+    || (Array.isArray(expected.semanticRouteIds)
+      && (geometry.unobservedSemanticRouteIds || []).length !== 0)
+    || (Array.isArray(expected.semanticRouteIds)
+      && expected.semanticRouteIds.length > 0
+      && geometry.semanticRouteObservationCount <= 0)
+  ) return false;
   for (const entityId of expected.persistentEntityIds) if (!sameValues(geometry.persistentStateCoverage?.[entityId], expected.visualStateIds)) return false;
-  for (const field of ["clippedEntities", "captionSafeZoneViolations", "pathFollowerViolations", "boundedGeometryClippingViolations", "boundedGeometryCaptionSafeZoneViolations", "persistentContinuityViolations", "focusViolations", "primaryRoiViolations", "legibilityViolations", "contrastViolations"]) if (!Array.isArray(geometry[field]) || geometry[field].length !== 0) return false;
+  for (const field of ["clippedEntities", "captionSafeZoneViolations", "pathFollowerViolations", "semanticRouteViolations", "boundedGeometryClippingViolations", "boundedGeometryCaptionSafeZoneViolations", "persistentContinuityViolations", "focusViolations", "primaryRoiViolations", "legibilityViolations", "contrastViolations"]) if (!Array.isArray(geometry[field]) || geometry[field].length !== 0) return false;
   return true;
 }
 
@@ -305,6 +340,26 @@ function publicBrowserProof(value) {
       checkpointCount: value.geometryAudit.checkpointCount,
       entityObservationCount: value.geometryAudit.entityObservationCount,
       pathFollowerObservationCount: value.geometryAudit.pathFollowerObservationCount || 0,
+      semanticRouteObservationCount:
+        value.geometryAudit.semanticRouteObservationCount || 0,
+      observedSemanticRouteIds:
+        value.geometryAudit.observedSemanticRouteIds || [],
+      unobservedSemanticRouteCount:
+        value.geometryAudit.unobservedSemanticRouteIds?.length || 0,
+      semanticRouteViolationCount:
+        value.geometryAudit.semanticRouteViolations?.length || 0,
+      boundedGeometryObservationCount:
+        value.geometryAudit.boundedGeometryObservationCount || 0,
+      observedBoundedGeometrySentenceIndices:
+        value.geometryAudit.observedBoundedGeometrySentenceIndices || [],
+      unobservedBoundedGeometrySentenceCount:
+        value.geometryAudit.unobservedBoundedGeometrySentenceIndices?.length
+        || 0,
+      boundedGeometryClippingViolationCount:
+        value.geometryAudit.boundedGeometryClippingViolations?.length || 0,
+      boundedGeometryCaptionSafeZoneViolationCount:
+        value.geometryAudit
+          .boundedGeometryCaptionSafeZoneViolations?.length || 0,
       persistentObservationCount: value.geometryAudit.persistentObservationCount || 0,
       labelObservationCount: value.geometryAudit.labelObservationCount || 0,
       markedLabelIds: value.geometryAudit.markedLabelIds || [],
@@ -349,7 +404,7 @@ function publicMotionQa(value) {
 
 async function runProductionAnimationRender(input = {}, dependencies = {}) {
   const contentArtifacts = input.contentArtifactRepository || dependencies.contentArtifactRepository;
-  if (!contentArtifacts || !input.projectId || !input.jobId || !input.draftArtifactId || !input.draftHash || !input.alignmentHash || !input.stagingDir) fail();
+  if (!contentArtifacts || !input.projectId || !input.jobId || !input.draftArtifactId || !input.draftHash || !input.alignmentArtifactId || !input.alignmentHash || !input.stagingDir) fail();
   const scenePlanArtifactBindingCount = [
     input.animationScenePlanArtifactId,
     input.animationScenePlanHash,
@@ -390,6 +445,8 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
     ].every((hash) => scenePlanEnvelope.dependencyHashes?.includes(hash))
   ) fail("ANIMATION_SCENE_PLAN_ARTIFACT_INVALID");
   const compiled = compileProductionAnimation({ ...input, timingContext });
+  const renderProfile = input.renderProfile === "final" ? "final" : "preview";
+  const renderQuality = renderProfile === "final" ? "high" : "standard";
   const stagingDir = resolve(input.stagingDir, "animation");
   mkdirSync(stagingDir, { recursive: true });
   const provider = (dependencies.providerRegistry || createAnimationProviderRegistry([
@@ -428,9 +485,10 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
       compiled.animationIR,
       seekSequence,
       actionQa,
+      composition.qaPolicy,
     );
     const renderTimeoutMs = input.timeoutMs || (input.renderProfile === "final" ? 1800000 : 1200000);
-    const rendered = await provider.render({ validated, stagingDir, outputName: "visual-master.mp4", quality: input.renderProfile === "final" ? "high" : "standard", timeoutMs: renderTimeoutMs }, input.signal, input.onProgress);
+    const rendered = await provider.render({ validated, stagingDir, outputName: "visual-master.mp4", quality: renderQuality, timeoutMs: renderTimeoutMs }, input.signal, input.onProgress);
     const verified = provider.verify(rendered);
     if (rendered.animationIRHash !== compiled.animationIR.contentHash || verified.animationIRHash !== compiled.animationIR.contentHash) fail("ANIMATION_OUTPUT_TAMPERED");
     if (rendered.compositionHash !== composition.compositionHash) fail("ANIMATION_OUTPUT_TAMPERED");
@@ -450,10 +508,14 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
       expectedVisualStateIds: expectations.visualStateIds,
       expectedFocusIntervalIds: expectations.focusIntervalIds,
       expectedTransitionIds: expectations.transitionIds,
+      expectedSemanticRouteIds: expectations.semanticRouteIds,
+      expectedLabelIds: expectations.labelIds,
       expectedActionSignatures: expectations.actionSignatures || [],
       expectedSettledHoldFrames: expectations.settledHoldFrames || [],
       expectedBoundedGeometrySentenceIndices:
         expectations.boundedGeometrySentenceIndices || [],
+      expectedSemanticRoi: expectations.semanticRoi,
+      expectedCaptionSafeZone: expectations.captionSafeZone,
       legibilityProfile: "mobile_720_v1",
     });
     if (!browserResultMeetsPolicy(browser, {
@@ -464,10 +526,14 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
       visualStateIds: expectations.visualStateIds,
       focusIntervalIds: expectations.focusIntervalIds,
       transitionIds: expectations.transitionIds,
+      semanticRouteIds: expectations.semanticRouteIds,
+      labelIds: expectations.labelIds,
       actionSignatures: expectations.actionSignatures || [],
       settledHoldFrames: expectations.settledHoldFrames || [],
       boundedGeometrySentenceIndices:
         expectations.boundedGeometrySentenceIndices || [],
+      semanticRoi: expectations.semanticRoi,
+      captionSafeZone: expectations.captionSafeZone,
     })) fail("ANIMATION_QA_BLOCKED");
     const browserProof = publicBrowserProof(browser);
     const motionQa = publicMotionQa((dependencies.runBenchmarkQa || runBenchmarkQa)({
@@ -488,12 +554,24 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
     const qaBody = {
       schemaVersion: 1,
       status: "passed",
+      draftArtifactId: input.draftArtifactId,
+      draftHash: input.draftHash,
+      alignmentArtifactId: input.alignmentArtifactId,
+      alignmentHash: input.alignmentHash,
+      timingContextArtifactId: timingArtifact.artifact.id,
       timingContextHash: timingArtifact.envelope.contentHash,
+      animationPlanArtifactId: planArtifact.artifact.id,
       animationPlanHash: planArtifact.envelope.contentHash,
+      animationIRArtifactId: irArtifact.artifact.id,
       animationIRHash: irArtifact.envelope.contentHash,
+      semanticProfileId:
+        compiled.animationIR.content?.semantic?.profileId
+        || compiled.animationIR.profile,
       provider: provider.id,
       runtimeVersion: doctor.runtimeVersion,
       styleVersion: compiled.animationIR.renderer.styleVersion,
+      renderProfile,
+      renderQuality,
       compositionHash: composition.compositionHash,
       visualMasterSha256: verified.outputSha256,
       browserProofHash,
@@ -508,18 +586,37 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
       browser: browserProof,
       motion: motionQa,
     };
-    const qaArtifact = persist("animation_qa_report", qaBody, [timingArtifact.envelope.contentHash, planArtifact.envelope.contentHash, irArtifact.envelope.contentHash, verified.outputSha256, browserProofHash, motionProofHash]);
+    const qaArtifact = persist("animation_qa_report", qaBody, [
+      input.draftHash,
+      input.alignmentHash,
+      timingArtifact.envelope.contentHash,
+      planArtifact.envelope.contentHash,
+      irArtifact.envelope.contentHash,
+      ...(hasScenePlanArtifact ? [input.animationScenePlanHash] : []),
+      verified.outputSha256,
+      browserProofHash,
+      motionProofHash,
+    ]);
     const manifestBody = {
       schemaVersion: 1,
+      draftArtifactId: input.draftArtifactId,
+      draftHash: input.draftHash,
+      alignmentArtifactId: input.alignmentArtifactId,
+      alignmentHash: input.alignmentHash,
       timingContextArtifactId: timingArtifact.artifact.id,
       timingContextHash: timingArtifact.envelope.contentHash,
       animationPlanArtifactId: planArtifact.artifact.id,
       animationPlanHash: planArtifact.envelope.contentHash,
       animationIRArtifactId: irArtifact.artifact.id,
       animationIRHash: irArtifact.envelope.contentHash,
+      semanticProfileId:
+        compiled.animationIR.content?.semantic?.profileId
+        || compiled.animationIR.profile,
       provider: provider.id,
       runtimeVersion: doctor.runtimeVersion,
       styleVersion: compiled.animationIR.renderer.styleVersion,
+      renderProfile,
+      renderQuality,
       compositionHash: composition.compositionHash,
       visualMasterSha256: verified.outputSha256,
       browserProofHash,
@@ -535,7 +632,18 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
         : {}),
       estimate,
     };
-    const renderManifestArtifact = persist("animation_render_manifest", manifestBody, [timingArtifact.envelope.contentHash, planArtifact.envelope.contentHash, irArtifact.envelope.contentHash, qaArtifact.envelope.contentHash, verified.outputSha256]);
+    const renderManifestArtifact = persist("animation_render_manifest", manifestBody, [
+      input.draftHash,
+      input.alignmentHash,
+      timingArtifact.envelope.contentHash,
+      planArtifact.envelope.contentHash,
+      irArtifact.envelope.contentHash,
+      ...(hasScenePlanArtifact ? [input.animationScenePlanHash] : []),
+      qaArtifact.envelope.contentHash,
+      verified.outputSha256,
+      browserProofHash,
+      motionProofHash,
+    ]);
     completed = true;
     return Object.freeze({
       visualMasterPath: rendered.outputPath,

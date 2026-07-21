@@ -1,6 +1,7 @@
 # Dark Curiosity Continuous Animation Architecture
 
-Status: Slice E1 provisional temporal Motion QA implemented; production migration not approved
+Status: Slice E1 temporal Motion QA and Slice E2A repository-bound shadow
+calibration implemented; production migration not approved
 
 Decision target: `continuous_motion_renderer_v1`
 
@@ -320,6 +321,23 @@ node and fails if it leaves the semantic ROI or intersects the caption reserve.
 A strict, deterministic calibration-report contract keeps all new temporal
 thresholds in shadow mode and cannot self-approve production use.
 
+Slice E2A completed on 2026-07-21. Calibration observations are now resolved
+from checksummed managed-artifact IDs rather than caller-supplied envelopes or
+`sourceKind` labels. The resolver rebuilds narration timing, recompiles the
+semantic plan and AnimationIR, verifies the browser/Motion-QA configuration and
+decoded-frame binding, distinguishes substantive story/source identity from
+metadata revisions, and requires one exact render-analysis stratum. Human
+reviews bind to the QA, manifest, MP4, story, and source hashes. Candidate P95
+limits remain shadow-only and are blocked by insufficient evidence, label
+support, pass outliers, hard safety ceilings, or non-separable labels.
+The trusted HTML compiler also owns the canonical semantic ROI, caption zone,
+marked-label IDs, and semantic-route IDs; repository proofs must match all four
+exactly rather than supplying their own crop or claiming zero route violations
+without observing the route.
+The current trust level is explicitly repository-integrity-only: retained MP4
+and source-snapshot bytes are not re-opened during corpus compilation, and
+reviewer hashes are pseudonymous rather than authenticated signatures.
+
 ### Slice F — Pilot switch
 
 - register `motion_canvas_v1` in the renderer provider registry;
@@ -361,17 +379,27 @@ path and retain their pinned HTML hashes.
 
 Slice E1 closes the previously unmeasured full-frame jerk and bounded-geometry
 clipping gaps without pretending that the thresholds are calibrated. The
-current real content corpus contains 32 semantic sentence cases across only
-three stories (Wow Signal, GPS rollover, and Baychimo), plus seven synthetic
-engineering controls. The real Chromium proof passes for all three source
-stories, including every GPS sentence midpoint. This is enough to validate the
-measurement path, not enough to approve production thresholds.
+browser engineering suite covers 32 semantic sentences across only three
+source stories (Wow Signal, GPS rollover, and Baychimo), plus synthetic
+controls. The real Chromium proof passes for all three source stories,
+including every GPS sentence midpoint. These cases validate the measurement
+path; they are not independent calibration observations.
+
+Slice E2A makes that distinction enforceable. There are currently zero
+complete repository-bound production chains: the existing source stories do
+not yet combine an eligible full render, checksum-bound draft/alignment/IR/QA
+chain, manifest, and human review. The legacy Wow MP4 remains a short benchmark
+and cannot be relabeled as corpus evidence. The shadow report is therefore
+correctly blocked today.
 
 This result keeps HyperFrames approved for benchmark work, not as the
 production default. The existing SVG keyframe renderer remains unchanged. The
-next bounded slice should collect decoded-render evidence from at least seven
-additional story-distinct fixtures, then calibrate direction-aware optical
-flow, OCR readability, and true cross-sentence object persistence. Network
+next operational slice should first produce complete chains for the existing
+three stories, then collect at least seven additional source-backed,
+story-distinct chains with exact alignments and human reviews. Only after that
+ten-story corpus exists should the engine evaluate the shadow candidates and
+add direction-aware optical flow, OCR readability, and true cross-sentence
+object persistence. Network
 counters currently come from the separate proof browser loading the exact
 compiled composition; the internal HyperFrames capture browser is constrained
 by CSP and contains no remote assets, but its package API does not yet expose

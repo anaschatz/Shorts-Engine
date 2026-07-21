@@ -22,6 +22,8 @@ const JSON_CONTENT_ARTIFACT_TYPES = Object.freeze([
   "animation_ir",
   "animation_render_manifest",
   "animation_qa_report",
+  "animation_motion_review",
+  "animation_motion_calibration",
   "render_manifest",
   "qa_report",
   "rights_manifest",

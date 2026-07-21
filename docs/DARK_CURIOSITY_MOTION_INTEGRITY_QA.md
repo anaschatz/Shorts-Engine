@@ -1,6 +1,7 @@
 # Dark Curiosity Motion-Integrity QA
 
-Status: Slice E1 implemented in shadow mode; production thresholds not approved
+Status: Slice E1 metrics and Slice E2A artifact-bound shadow calibration
+implemented; production thresholds not approved
 
 Date: 2026-07-21
 
@@ -66,11 +67,35 @@ Current calibration blocker:
 MOTION_CALIBRATION_REAL_FIXTURES_INSUFFICIENT
 ```
 
-There are currently 32 semantic sentence cases across three real stories:
+Slice E2A does not trust that caller-provided classification or raw artifact
+envelopes. Its separate resolver reads checksummed IDs from the managed
+repository, rebuilds timing, recompiles the semantic plan and AnimationIR, and
+derives story/source identity, structural status, and motion metrics from that
+chain. It rejects metadata-only story variants and repeated
+QA/render/output/frame evidence, requires one homogeneous analysis stratum,
+and binds optional human jerk/boundary reviews to the exact MP4 chain. See
+`DARK_CURIOSITY_MOTION_CALIBRATION_CORPUS.md` for the contract and CLI.
+
+This is repository-integrity-only shadow evidence. The current slice binds the
+declared visual-master and source-snapshot digests but does not reopen retained
+MP4/source bytes or authenticate reviewer identity while compiling a corpus.
+It must not be described as independent execution or source attestation.
+
+Every new decoded analysis also records an ordered frame-sequence digest bound
+to its temporal profile, analysis dimensions and frame count. Persisted Motion
+QA keeps that digest while continuing to remove the individual frame hashes.
+
+The browser engineering suite currently covers 32 semantic sentence cases
+across three source stories:
 
 - Wow Signal: 9 sentences;
 - GPS week rollover: 13 sentences;
 - Baychimo: 10 sentences.
+
+Those sentence cases validate the renderer and geometry checker; they are not
+32 independent stories and are not eligible calibration observations. The
+managed repository currently contains zero complete production chains that
+satisfy E2A.
 
 ## Verification
 
@@ -112,13 +137,15 @@ works; they are one benchmark observation, not calibrated production limits.
 
 ## What remains before production gating
 
-1. Add at least seven story-distinct real fixtures and collect decoded-render
-   metrics, not merely synthetic controls.
-2. Calibrate thresholds from distributions and human-reviewed failure labels;
-   do not choose limits from the current three stories alone.
-3. Add direction-aware optical-flow checks for camera and object motion.
-4. Add OCR/readability evidence during low-motion holds.
-5. Add explicit cross-sentence entity identity before claiming object
+1. Produce full artifact-bound semantic-v3 renders for the existing source
+   stories; the legacy 10-second Wow benchmark is not eligible.
+2. Add at least seven story-distinct, source-backed fixtures and collect exact
+   local narration alignments and decoded-render metrics.
+3. Collect hash-bound human jerk and boundary labels; evaluate the E2A P95
+   shadow candidates without promoting them automatically.
+4. Add direction-aware optical-flow checks for camera and object motion.
+5. Add OCR/readability evidence during low-motion holds.
+6. Add explicit cross-sentence entity identity before claiming object
    persistence; sentence-local bounded geometry is not that proof.
-6. Keep the gates in shadow mode until false-positive and false-negative rates
+7. Keep the gates in shadow mode until false-positive and false-negative rates
    are measured on the expanded corpus.

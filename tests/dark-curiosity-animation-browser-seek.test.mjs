@@ -145,6 +145,7 @@ test("geometry audit rejects real clipping and caption-safe collisions", () => {
     frame: 0,
     ...geometry(),
     semanticRoutes: [{
+      routeId: "route_scene_zero",
       routeIndex: 0,
       visible: true,
       distance: 1.25,
@@ -155,6 +156,7 @@ test("geometry audit rejects real clipping and caption-safe collisions", () => {
   assert.equal(detachedSemanticRoute.passed, false);
   assert.deepEqual(detachedSemanticRoute.semanticRouteViolations, [{
     frame: 0,
+    routeId: "route_scene_zero",
     routeIndex: 0,
     distance: 1.25,
   }]);
@@ -162,6 +164,7 @@ test("geometry audit rejects real clipping and caption-safe collisions", () => {
     frame: 0,
     ...geometry(),
     semanticRoutes: [{
+      routeId: "route_scene_zero",
       routeIndex: 0,
       visible: true,
       distance: 0.5,
@@ -375,6 +378,54 @@ test("browser harness rejects invalid sequences before browser launch", async ()
   await assert.rejects(
     runBrowserSeekProof({ html, width: 720, height: 1280, fps: 30, durationFrames: 300, chromePath: "/mock/chrome", seekSequence: [0, 1], timeoutMs: 100 }, { launch: async () => { launched = true; } }),
     { code: "BROWSER_SEEK_TIMEOUT_INVALID" },
+  );
+  assert.equal(launched, false);
+});
+
+test("browser harness accepts compiler-scale label sets while retaining a hard cap", async () => {
+  const compilerLabels = Array.from(
+    { length: 27 },
+    (_, index) => `semantic-label-${index}`,
+  );
+  let launched = false;
+  await assert.rejects(
+    runBrowserSeekProof({
+      html,
+      width: 720,
+      height: 1280,
+      fps: 30,
+      durationFrames: 300,
+      chromePath: "/mock/chrome",
+      seekSequence: [0, 1],
+      expectedLabelIds: compilerLabels,
+    }, {
+      launch: async () => {
+        launched = true;
+        throw new Error("stop after request validation");
+      },
+    }),
+    { code: "BROWSER_SEEK_RUNTIME_FAILED" },
+  );
+  assert.equal(launched, true);
+
+  launched = false;
+  await assert.rejects(
+    runBrowserSeekProof({
+      html,
+      width: 720,
+      height: 1280,
+      fps: 30,
+      durationFrames: 300,
+      chromePath: "/mock/chrome",
+      seekSequence: [0, 1],
+      expectedLabelIds: Array.from(
+        { length: 1025 },
+        (_, index) => `semantic-label-${index}`,
+      ),
+    }, {
+      launch: async () => { launched = true; },
+    }),
+    { code: "BROWSER_SEEK_REQUEST_INVALID" },
   );
   assert.equal(launched, false);
 });

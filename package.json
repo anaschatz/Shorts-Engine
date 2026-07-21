@@ -41,6 +41,7 @@
     "dark-curiosity:kokoro:bootstrap": "node tools/dark-curiosity-kokoro-bootstrap.mjs",
     "dark-curiosity:animation:doctor": "node tools/dark-curiosity-animation.mjs doctor",
     "dark-curiosity:animation:benchmark": "node tools/dark-curiosity-animation.mjs benchmark",
+    "dark-curiosity:motion:corpus": "node tools/dark-curiosity-motion-corpus.mjs",
     "dark-curiosity:animation:timing:doctor": "node tools/dark-curiosity-animation-timing.mjs doctor",
     "dark-curiosity:animation:timing:proof": "node tools/dark-curiosity-animation-timing.mjs proof",
     "dark-curiosity:animation:seek:doctor": "node tools/dark-curiosity-animation-seek.mjs doctor",

@@ -15,6 +15,86 @@ const FONT_LICENSE = "SIL Open Font License 1.1";
 const FONT_BYTES = readFileSync(require.resolve("@fontsource/outfit/files/outfit-latin-600-normal.woff2"));
 const FONT_BASE64 = FONT_BYTES.toString("base64");
 const FONT_SHA256 = createHash("sha256").update(FONT_BYTES).digest("hex");
+const QA_ID = /^[a-z][a-z0-9_-]{2,79}$/;
+
+function scaledQaRect(rect, ir) {
+  const scaleX = ir.width / BASE_WIDTH;
+  const scaleY = ir.height / BASE_HEIGHT;
+  const rounded = (value) => Number(value.toFixed(3));
+  return Object.freeze({
+    x: rounded(rect.x * scaleX),
+    y: rounded(rect.y * scaleY),
+    width: rounded(rect.width * scaleX),
+    height: rounded(rect.height * scaleY),
+  });
+}
+
+function markedAttributeValues(html, markerAttribute, valueAttribute) {
+  const tags = html.match(new RegExp(
+    `<[^>]*\\b${markerAttribute}="[^"]+"[^>]*>`,
+    "g",
+  )) || [];
+  const values = tags.map((tag) => {
+    const match = tag.match(new RegExp(`\\b${valueAttribute}="([^"]+)"`));
+    if (!match || !QA_ID.test(match[1])) {
+      throw new TypeError("Composition QA marker is missing a safe identity.");
+    }
+    return match[1];
+  }).sort();
+  if (new Set(values).size !== values.length) {
+    throw new TypeError("Composition QA marker identities must be unique.");
+  }
+  return Object.freeze(values);
+}
+
+function safeQaIds(values) {
+  const output = [...values].sort();
+  if (
+    output.some((value) => !QA_ID.test(value))
+    || new Set(output).size !== output.length
+  ) throw new TypeError("Composition QA identities are invalid.");
+  return Object.freeze(output);
+}
+
+function compositionQaPolicy(ir, html) {
+  const semanticSentence =
+    ir.profileVersion === "1.3.0"
+    && ir.content?.semantic?.profileId === "dark_curiosity_semantic_sentences_v3";
+  const genericSemantic =
+    ir.profileVersion === "1.2.0"
+    && ir.content?.semantic?.profileId === "documented_mystery_semantic_v2";
+  const base = semanticSentence
+    ? {
+      semanticRoi: { x: 36, y: 180, width: 648, height: 746 },
+      captionSafeZone: { x: 0, y: 948, width: 720, height: 332 },
+    }
+    : genericSemantic
+      ? {
+        semanticRoi: { x: 48, y: 180, width: 624, height: 720 },
+        captionSafeZone: { x: 0, y: 948, width: 720, height: 332 },
+      }
+      : {
+        semanticRoi: { x: 36, y: 180, width: 648, height: 740 },
+        captionSafeZone: { x: 0, y: 947, width: 720, height: 333 },
+      };
+  return Object.freeze({
+    semanticRoi: scaledQaRect(base.semanticRoi, ir),
+    captionSafeZone: scaledQaRect(base.captionSafeZone, ir),
+    labelIds: markedAttributeValues(html, "data-legibility-role", "id"),
+    semanticRouteIds: safeQaIds(semanticSentence
+      ? ir.content.semanticVisualSentencePlan.sentences
+        .filter((sentence) => sentence.capability.grammarId === "map_motion")
+        .map((sentence) => sentence.id)
+      : []),
+  });
+}
+
+function attachCompositionQaPolicy(compiled, ir) {
+  return Object.freeze({
+    ...compiled,
+    qaPolicy: compositionQaPolicy(ir, compiled.html),
+  });
+}
 
 function seededPoints(seed, count) {
   let state = seed >>> 0;
@@ -434,12 +514,19 @@ export function compileAnimationIRToHtml(ir, options = {}) {
     ) {
       throw new TypeError("Semantic sentence AnimationIR tuple is invalid.");
     }
-    return compileSemanticSentenceAnimationIRToHtml(ir, options);
+    return attachCompositionQaPolicy(
+      compileSemanticSentenceAnimationIRToHtml(ir, options),
+      ir,
+    );
   }
   if (ir.profileVersion === "1.2.0" && ir.content?.semantic?.profileId === "documented_mystery_semantic_v2") {
-    return compileGenericSemanticAnimationIRToHtml(ir);
+    return attachCompositionQaPolicy(
+      compileGenericSemanticAnimationIRToHtml(ir),
+      ir,
+    );
   }
-  return ir.profileVersion === "1.1.0" && ir.content?.semantic?.profileId === "wow_signal_case_v1"
+  const compiled = ir.profileVersion === "1.1.0" && ir.content?.semantic?.profileId === "wow_signal_case_v1"
     ? compileSemanticAnimationIRToHtml(ir)
     : compileLegacyAnimationIRToHtml(ir);
+  return attachCompositionQaPolicy(compiled, ir);
 }

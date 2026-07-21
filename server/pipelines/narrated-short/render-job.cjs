@@ -223,6 +223,7 @@ async function runNarratedRenderJob(context = {}) {
         jobId: job.id,
         draftArtifactId: payload.approvedDraftArtifactId,
         draftHash: payload.approvedDraftHash,
+        alignmentArtifactId: alignedContext.active.alignmentArtifactId,
         alignmentHash: alignedContext.active.alignmentHash,
         renderProfile: payload.renderProfile,
         ...(animationProfile ? { animationProfile } : {}),

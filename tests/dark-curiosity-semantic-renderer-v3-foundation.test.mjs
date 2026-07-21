@@ -186,7 +186,21 @@ test("real v3 production AnimationIR dispatches to the sentence renderer without
   const direct = compileSemanticSentenceAnimationIRToHtml(ir);
   const dispatched = compileAnimationIRToHtml(ir);
 
-  assert.deepEqual(dispatched, direct);
+  const { qaPolicy, ...dispatchedComposition } = dispatched;
+  assert.deepEqual(dispatchedComposition, direct);
+  assert.deepEqual(qaPolicy.semanticRoi, {
+    x: 36,
+    y: 180,
+    width: 648,
+    height: 746,
+  });
+  assert.deepEqual(qaPolicy.captionSafeZone, {
+    x: 0,
+    y: 948,
+    width: 720,
+    height: 332,
+  });
+  assert.ok(qaPolicy.labelIds.length > 0);
   assert.equal(direct.profile.schemaVersion, 3);
   assert.equal(direct.profile.profile, "dark_curiosity_continuous");
   assert.equal(direct.profile.profileVersion, "1.3.0");

@@ -16,10 +16,54 @@ const { MINIMUM_FINAL_HOLD_FRAMES, MINIMUM_OPERATION_FRAMES, MINIMUM_SCENE_HOLD_
 const { focusMotionBinding } = require("../server/pipelines/narrated-short/animation/focus-director.cjs");
 const { buildPacingPlan } = require("../server/pipelines/narrated-short/narration/tts/pacing-plan.cjs");
 const { contentHash } = require("../server/pipelines/narrated-short/contracts.cjs");
+const {
+  DEFAULT_MOTION_THRESHOLD,
+  MOTION_ANALYSIS_PROFILE_ID,
+  READABILITY_HOLD_POLICY_ID,
+  SEGMENT_POLICY_ID,
+  motionAnalysisConfigurationHash,
+  motionAnalysisDimensions,
+  motionAnalysisRangeHash,
+} = require("../server/pipelines/narrated-short/animation/benchmark-qa.cjs");
 
 const FIXTURE = resolve(__dirname, "..", "eval", "narrated", "dark-curiosity", "fixtures", "001_wow_signal_mystery.json");
 const art = (letter) => `art_${letter.repeat(40)}`;
 const hash = (letter) => letter.repeat(64);
+
+function mockMotionEvidence(request) {
+  const dimensions = motionAnalysisDimensions(
+    request.geometryAudit.semanticRoi,
+    { width: request.width, height: request.height },
+  );
+  const readabilityHoldRangesHash = motionAnalysisRangeHash(
+    READABILITY_HOLD_POLICY_ID,
+    request.readabilityHolds,
+  );
+  const segmentRangesHash = motionAnalysisRangeHash(
+    SEGMENT_POLICY_ID,
+    request.segments,
+  );
+  return {
+    motionAnalysisProfileId: MOTION_ANALYSIS_PROFILE_ID,
+    readabilityHoldPolicyId: READABILITY_HOLD_POLICY_ID,
+    segmentPolicyId: SEGMENT_POLICY_ID,
+    analysisWidth: dimensions.width,
+    analysisHeight: dimensions.height,
+    motionThreshold: DEFAULT_MOTION_THRESHOLD,
+    readabilityHoldRangesHash,
+    segmentRangesHash,
+    motionConfigurationHash: motionAnalysisConfigurationHash({
+      motionAnalysisProfileId: MOTION_ANALYSIS_PROFILE_ID,
+      readabilityHoldPolicyId: READABILITY_HOLD_POLICY_ID,
+      segmentPolicyId: SEGMENT_POLICY_ID,
+      analysisWidth: dimensions.width,
+      analysisHeight: dimensions.height,
+      motionThreshold: DEFAULT_MOTION_THRESHOLD,
+      readabilityHoldRangesHash,
+      segmentRangesHash,
+    }),
+  };
+}
 
 function productionFixture(options = {}) {
   const rawDraft = JSON.parse(readFileSync(FIXTURE, "utf8"));
@@ -377,6 +421,7 @@ test("browser policy requires complete bounded sentence geometry coverage", () =
       clippedEntities: [],
       captionSafeZoneViolations: [],
       pathFollowerViolations: [],
+      semanticRouteViolations: [],
       boundedGeometryClippingViolations: [],
       boundedGeometryCaptionSafeZoneViolations: [],
       persistentContinuityViolations: [],
@@ -409,6 +454,21 @@ test("production plan rejects unsupported formats and changes with content", () 
   assert.notEqual(normalizeDraftBundle(changed).contentHash, value.draft.contentHash);
 });
 
+test("production render service requires an alignment artifact binding", async () => {
+  await assert.rejects(
+    () => runProductionAnimationRender({
+      projectId: `prj_${randomUUID()}`,
+      jobId: `job_${randomUUID()}`,
+      draftArtifactId: art("a"),
+      draftHash: hash("a"),
+      alignmentHash: hash("b"),
+      stagingDir: tmpdir(),
+      contentArtifactRepository: {},
+    }),
+    { code: "ANIMATION_RENDER_FAILED" },
+  );
+});
+
 test("production render service persists hash-bound artifacts and blocks no QA gate", async () => {
   const value = productionFixture();
   const stagingDir = mkdtempSync(resolve(tmpdir(), "production-animation-"));
@@ -432,19 +492,123 @@ test("production render service persists hash-bound artifacts and blocks no QA g
   let renderRequest;
   let browserRequest;
   let browserResult;
+  const alignmentArtifactId = art("d");
   try {
-    const result = await runProductionAnimationRender({ draft: value.draft, alignment: value.alignment, projectId: value.projectId, projectRevision: 1, jobId: `job_${randomUUID()}`, draftArtifactId: art("a"), draftHash: value.draft.contentHash, alignmentHash: value.alignment.contentHash, renderProfile: "preview", stagingDir, contentArtifactRepository }, {
+    const result = await runProductionAnimationRender({ draft: value.draft, alignment: value.alignment, projectId: value.projectId, projectRevision: 1, jobId: `job_${randomUUID()}`, draftArtifactId: art("a"), draftHash: value.draft.contentHash, alignmentArtifactId, alignmentHash: value.alignment.contentHash, renderProfile: "preview", stagingDir, contentArtifactRepository }, {
       providerRegistry: { get: () => provider },
       chromePath: "/mock/chrome",
-      runBrowserSeekProof: async (request) => { browserRequest = request; return browserResult = { seekSequence: request.seekSequence, cacheWarmupFrames: request.cacheWarmupFrames, captures: request.seekSequence.map((frame, sequenceIndex) => ({ sequenceIndex, frame, sha256: hash("b") })), repeatedFrames: [{ frame: 0, occurrences: 2, sha256: hash("b"), equal: true }], loadedOnce: true, pageLoadCount: 1, stateIsolation: { valid: true }, externalRequestCount: 0, blockedExternalRequestCount: 0, resourceClasses: [], geometryAudit: { passed: true, semanticRoi: { x: 0, y: 0, width: 720, height: 900 }, captionSafeZone: { x: 0, y: 947, width: 720, height: 333 }, checkpointCount: request.seekSequence.length, entityObservationCount: 10, pathFollowerObservationCount: 2, persistentObservationCount: 10, labelObservationCount: 20, markedLabelIds: ["proof_label"], observedLabelIds: ["proof_label"], unobservedLabelIds: [], observedPathFollowerIds: request.expectedPathFollowerIds, unobservedPathFollowerIds: [], persistentStateCoverage: { signal_evidence: request.expectedVisualStateIds }, observedTransitionIds: request.expectedTransitionIds, observedFocusIntervalIds: request.expectedFocusIntervalIds, unobservedFocusIntervalIds: [], clippedEntities: [], captionSafeZoneViolations: [], pathFollowerViolations: [], boundedGeometryClippingViolations: [], boundedGeometryCaptionSafeZoneViolations: [], persistentContinuityViolations: [], focusViolations: [], primaryRoiViolations: [], legibilityViolations: [], contrastViolations: [] }, passed: true }; },
-      runBenchmarkQa: () => ({ passed: true, checks: { immediateHook: true, consecutiveStasis: true, contiguousStasis: true, balancedMotion: true }, technical: { codec: "h264", pixelFormat: "yuv420p", width: 720, height: 1280, fps: 30, frameCount: 1031, durationSeconds: 1031 / 30 }, motion: { firstMeaningfulMotionFrame: 1, consecutiveStasisRatio: 0.1, maxContiguousStasisFrames: 10, maxWindowMotionShare: 0.3, rawMaxWindowMotionShare: 0.35, sampleHashes: [hash("c")] }, clippedEntities: 0, captionSafeZoneViolations: 0 }),
+      runBrowserSeekProof: async (request) => {
+        browserRequest = request;
+        browserResult = {
+          seekSequence: request.seekSequence,
+          cacheWarmupFrames: request.cacheWarmupFrames,
+          captures: request.seekSequence.map((frame, sequenceIndex) => ({
+            sequenceIndex,
+            frame,
+            sha256: hash("b"),
+          })),
+          repeatedFrames: [{
+            frame: 0,
+            occurrences: 2,
+            sha256: hash("b"),
+            equal: true,
+          }],
+          loadedOnce: true,
+          pageLoadCount: 1,
+          stateIsolation: { valid: true },
+          externalRequestCount: 0,
+          blockedExternalRequestCount: 0,
+          resourceClasses: [],
+          geometryAudit: {
+            passed: true,
+            semanticRoi: request.expectedSemanticRoi,
+            captionSafeZone: request.expectedCaptionSafeZone,
+            checkpointCount: request.seekSequence.length,
+            entityObservationCount: 10,
+            pathFollowerObservationCount: 2,
+            semanticRouteObservationCount: request.expectedSemanticRouteIds.length,
+            observedSemanticRouteIds: request.expectedSemanticRouteIds,
+            unobservedSemanticRouteIds: [],
+            persistentObservationCount: 10,
+            labelObservationCount: request.expectedLabelIds.length,
+            markedLabelIds: request.expectedLabelIds,
+            observedLabelIds: request.expectedLabelIds,
+            unobservedLabelIds: [],
+            observedPathFollowerIds: request.expectedPathFollowerIds,
+            unobservedPathFollowerIds: [],
+            persistentStateCoverage: {
+              signal_evidence: request.expectedVisualStateIds,
+            },
+            observedTransitionIds: request.expectedTransitionIds,
+            observedFocusIntervalIds: request.expectedFocusIntervalIds,
+            unobservedFocusIntervalIds: [],
+            clippedEntities: [],
+            captionSafeZoneViolations: [],
+            pathFollowerViolations: [],
+            semanticRouteViolations: [],
+            boundedGeometryClippingViolations: [],
+            boundedGeometryCaptionSafeZoneViolations: [],
+            persistentContinuityViolations: [],
+            focusViolations: [],
+            primaryRoiViolations: [],
+            legibilityViolations: [],
+            contrastViolations: [],
+          },
+          passed: true,
+        };
+        return browserResult;
+      },
+      runBenchmarkQa: (request) => ({ passed: true, checks: { immediateHook: true, consecutiveStasis: true, contiguousStasis: true, balancedMotion: true }, technical: { codec: "h264", pixelFormat: "yuv420p", width: 720, height: 1280, fps: 30, frameCount: 1031, durationSeconds: 1031 / 30 }, motion: { temporalMetricProfileId: "dark_curiosity_luma_temporal_motion_v1", temporalThresholdStatus: "provisional", ...mockMotionEvidence(request), decodedFrameSequenceHash: hash("e"), firstMeaningfulMotionFrame: 1, consecutiveStasisRatio: 0.1, maxContiguousStasisFrames: 10, maxWindowMotionShare: 0.3, rawMaxWindowMotionShare: 0.35, sampleHashes: [hash("c")] }, clippedEntities: 0, captionSafeZoneViolations: 0 }),
     });
     assert.deepEqual(created.map((entry) => entry.type), ["animation_timing_context", "animation_plan", "animation_ir", "animation_qa_report", "animation_render_manifest"]);
     assert.equal(result.manifest.provider, "hyperframes_local");
     assert.equal(result.manifest.animationIRHash, result.irArtifact.envelope.contentHash);
     assert.equal(result.manifest.visualMasterSha256, result.visualMasterSha256);
     assert.equal(result.manifest.animationQaHash, result.qaArtifact.envelope.contentHash);
+    assert.equal(result.qa.draftArtifactId, art("a"));
+    assert.equal(result.qa.draftHash, value.draft.contentHash);
+    assert.equal(result.qa.alignmentArtifactId, alignmentArtifactId);
+    assert.equal(result.qa.alignmentHash, value.alignment.contentHash);
+    assert.equal(result.qa.timingContextArtifactId, result.timingArtifact.artifact.id);
+    assert.equal(result.qa.animationPlanArtifactId, result.planArtifact.artifact.id);
+    assert.equal(result.qa.animationIRArtifactId, result.irArtifact.artifact.id);
+    assert.equal(result.qa.semanticProfileId, "wow_signal_case_v1");
+    assert.equal(result.qa.renderProfile, "preview");
+    assert.equal(result.qa.renderQuality, "standard");
+    assert.equal(result.qa.motion.motion.decodedFrameSequenceHash, hash("e"));
+    assert.equal(result.qa.motion.motion.analysisWidth, 180);
+    assert.equal(result.qa.motion.motion.analysisHeight, 206);
+    assert.equal(Object.hasOwn(result.qa.motion.motion, "sampleHashes"), false);
+    assert.equal(result.manifest.draftArtifactId, art("a"));
+    assert.equal(result.manifest.draftHash, value.draft.contentHash);
+    assert.equal(result.manifest.alignmentArtifactId, alignmentArtifactId);
+    assert.equal(result.manifest.alignmentHash, value.alignment.contentHash);
+    assert.equal(result.manifest.semanticProfileId, "wow_signal_case_v1");
+    assert.equal(result.manifest.renderProfile, "preview");
+    assert.equal(result.manifest.renderQuality, "standard");
+    assert.deepEqual(created[3].dependencyHashes, [
+      value.draft.contentHash,
+      value.alignment.contentHash,
+      result.timingArtifact.envelope.contentHash,
+      result.planArtifact.envelope.contentHash,
+      result.irArtifact.envelope.contentHash,
+      result.visualMasterSha256,
+      result.qa.browserProofHash,
+      result.qa.motionProofHash,
+    ]);
+    assert.deepEqual(created[4].dependencyHashes, [
+      value.draft.contentHash,
+      value.alignment.contentHash,
+      result.timingArtifact.envelope.contentHash,
+      result.planArtifact.envelope.contentHash,
+      result.irArtifact.envelope.contentHash,
+      result.qaArtifact.envelope.contentHash,
+      result.visualMasterSha256,
+      result.qa.browserProofHash,
+      result.qa.motionProofHash,
+    ]);
     assert.equal(renderRequest.timeoutMs, 1200000);
+    assert.equal(renderRequest.quality, "standard");
     assert.deepEqual(browserRequest.expectedPathFollowerIds, ["beam-profile-dot", "signal-evidence-marker"]);
     assert.deepEqual(browserRequest.expectedPersistentEntityIds, ["signal_evidence"]);
     assert.deepEqual(browserRequest.expectedVisualStateIds, result.animationIR.visualStateGraph.states.map((state) => state.id));
@@ -456,9 +620,21 @@ test("production render service persists hash-bound artifacts and blocks no QA g
     assert.equal(result.qa.browser.geometryAudit.focusViolationCount, 0);
     assert.equal(result.qa.browser.geometryAudit.legibilityViolationCount, 0);
     assert.equal(result.qa.browser.geometryAudit.contrastViolationCount, 0);
+    assert.equal(result.qa.browser.geometryAudit.semanticRouteViolationCount, 0);
+    assert.equal(result.qa.browser.geometryAudit.boundedGeometryObservationCount, 0);
+    assert.deepEqual(result.qa.browser.geometryAudit.observedBoundedGeometrySentenceIndices, []);
+    assert.equal(result.qa.browser.geometryAudit.unobservedBoundedGeometrySentenceCount, 0);
+    assert.equal(result.qa.browser.geometryAudit.boundedGeometryClippingViolationCount, 0);
+    assert.equal(result.qa.browser.geometryAudit.boundedGeometryCaptionSafeZoneViolationCount, 0);
     assert.deepEqual(result.qa.browser.cacheWarmupFrames, browserRequest.cacheWarmupFrames);
-    assert.deepEqual(result.qa.browser.geometryAudit.markedLabelIds, ["proof_label"]);
-    assert.deepEqual(result.qa.browser.geometryAudit.observedLabelIds, ["proof_label"]);
+    assert.deepEqual(
+      result.qa.browser.geometryAudit.markedLabelIds,
+      browserRequest.expectedLabelIds,
+    );
+    assert.deepEqual(
+      result.qa.browser.geometryAudit.observedLabelIds,
+      browserRequest.expectedLabelIds,
+    );
     assert.equal(result.qa.browser.geometryAudit.unobservedLabelCount, 0);
     assert.equal(result.qa.browserProofHash, contentHash(result.qa.browser));
     const expectedBrowserPolicy = {
@@ -469,6 +645,10 @@ test("production render service persists hash-bound artifacts and blocks no QA g
       visualStateIds: browserRequest.expectedVisualStateIds,
       focusIntervalIds: browserRequest.expectedFocusIntervalIds,
       transitionIds: browserRequest.expectedTransitionIds,
+      semanticRouteIds: browserRequest.expectedSemanticRouteIds,
+      labelIds: browserRequest.expectedLabelIds,
+      semanticRoi: browserRequest.expectedSemanticRoi,
+      captionSafeZone: browserRequest.expectedCaptionSafeZone,
     };
     assert.equal(browserResultMeetsPolicy(browserResult, expectedBrowserPolicy), true);
     const reorderedWarmup = structuredClone(browserResult);
@@ -479,7 +659,9 @@ test("production render service persists hash-bound artifacts and blocks no QA g
     assert.equal(browserResultMeetsPolicy(missingLabelProof, expectedBrowserPolicy), false);
     const hiddenMarkedLabel = structuredClone(browserResult);
     hiddenMarkedLabel.geometryAudit.observedLabelIds = [];
-    hiddenMarkedLabel.geometryAudit.unobservedLabelIds = ["proof_label"];
+    hiddenMarkedLabel.geometryAudit.unobservedLabelIds = [
+      browserRequest.expectedLabelIds[0],
+    ];
     assert.equal(browserResultMeetsPolicy(hiddenMarkedLabel, expectedBrowserPolicy), false);
   } finally {
     rmSync(stagingDir, { recursive: true, force: true });

@@ -4,13 +4,21 @@ const { mkdtempSync, existsSync } = require("node:fs");
 const { join } = require("node:path");
 const { tmpdir } = require("node:os");
 const { spawnSync } = require("node:child_process");
+const { contentHash } = require("../server/pipelines/narrated-short/contracts.cjs");
 const {
+  DEFAULT_MOTION_THRESHOLD,
+  MOTION_ANALYSIS_PROFILE_ID,
+  READABILITY_HOLD_POLICY_ID,
+  SEGMENT_POLICY_ID,
   TEMPORAL_MOTION_METRIC_PROFILE_ID,
   analyzeConsecutiveFrames,
   analyzeSampleFrames,
   evaluateGeometryQuality,
   evaluateMotionQuality,
   evaluateTemporalMotionQuality,
+  motionAnalysisConfigurationHash,
+  motionAnalysisDimensions,
+  motionAnalysisRangeHash,
 } = require("../server/pipelines/narrated-short/animation/benchmark-qa.cjs");
 
 function frames(count, width, height, valueAt) {
@@ -18,6 +26,24 @@ function frames(count, width, height, valueAt) {
   for (let frame = 0; frame < count; frame += 1) for (let pixel = 0; pixel < width * height; pixel += 1) output[frame * width * height + pixel] = valueAt(frame, pixel);
   return output;
 }
+
+test("motion analysis dimensions reproduce the normalized FFmpeg ROI scale", () => {
+  assert.deepEqual(
+    motionAnalysisDimensions(
+      { x: 0.4, y: 0.6, width: 720.2, height: 899.5 },
+      { width: 720, height: 1280 },
+    ),
+    {
+      semanticRoi: { x: 0, y: 1, width: 720, height: 900 },
+      width: 180,
+      height: 226,
+    },
+  );
+  assert.deepEqual(
+    motionAnalysisDimensions(null, { width: 720, height: 1280 }),
+    { semanticRoi: null, width: 180, height: 320 },
+  );
+});
 
 test("benchmark sample metrics detect diversity, stasis and black frames", () => {
   const moving = Buffer.from([10, 10, 10, 10, 20, 10, 10, 10, 20, 20, 10, 10]);
@@ -72,6 +98,77 @@ test("temporal motion metrics distinguish smooth motion from a one-frame jerk", 
     TEMPORAL_MOTION_METRIC_PROFILE_ID,
   );
   assert.equal(smoothMetrics.temporalThresholdStatus, "provisional");
+  assert.equal(
+    smoothMetrics.motionAnalysisProfileId,
+    MOTION_ANALYSIS_PROFILE_ID,
+  );
+  assert.equal(
+    smoothMetrics.readabilityHoldPolicyId,
+    READABILITY_HOLD_POLICY_ID,
+  );
+  assert.equal(smoothMetrics.segmentPolicyId, SEGMENT_POLICY_ID);
+  assert.equal(smoothMetrics.analysisWidth, 2);
+  assert.equal(smoothMetrics.analysisHeight, 2);
+  assert.equal(smoothMetrics.motionThreshold, DEFAULT_MOTION_THRESHOLD);
+  assert.equal(
+    smoothMetrics.readabilityHoldRangesHash,
+    motionAnalysisRangeHash(READABILITY_HOLD_POLICY_ID, []),
+  );
+  assert.equal(
+    smoothMetrics.segmentRangesHash,
+    motionAnalysisRangeHash(SEGMENT_POLICY_ID, [
+      { id: "sentence_0", startFrame: 0, endFrame: 15 },
+      { id: "sentence_1", startFrame: 15, endFrame: 30 },
+    ]),
+  );
+  assert.equal(
+    smoothMetrics.motionConfigurationHash,
+    motionAnalysisConfigurationHash({
+      motionAnalysisProfileId: MOTION_ANALYSIS_PROFILE_ID,
+      readabilityHoldPolicyId: READABILITY_HOLD_POLICY_ID,
+      segmentPolicyId: SEGMENT_POLICY_ID,
+      analysisWidth: 2,
+      analysisHeight: 2,
+      motionThreshold: DEFAULT_MOTION_THRESHOLD,
+      readabilityHoldRangesHash:
+        smoothMetrics.readabilityHoldRangesHash,
+      segmentRangesHash: smoothMetrics.segmentRangesHash,
+    }),
+  );
+  assert.equal(
+    smoothMetrics.motionConfigurationHash,
+    contentHash({
+      motionAnalysisProfileId: MOTION_ANALYSIS_PROFILE_ID,
+      readabilityHoldPolicyId: READABILITY_HOLD_POLICY_ID,
+      segmentPolicyId: SEGMENT_POLICY_ID,
+      analysisWidth: 2,
+      analysisHeight: 2,
+      motionThreshold: DEFAULT_MOTION_THRESHOLD,
+      readabilityHoldRangesHash:
+        smoothMetrics.readabilityHoldRangesHash,
+      segmentRangesHash: smoothMetrics.segmentRangesHash,
+    }),
+  );
+  assert.notEqual(
+    smoothMetrics.motionConfigurationHash,
+    motionAnalysisConfigurationHash({
+      motionAnalysisProfileId: MOTION_ANALYSIS_PROFILE_ID,
+      readabilityHoldPolicyId: READABILITY_HOLD_POLICY_ID,
+      segmentPolicyId: SEGMENT_POLICY_ID,
+      analysisWidth: 2,
+      analysisHeight: 2,
+      motionThreshold: DEFAULT_MOTION_THRESHOLD * 2,
+      readabilityHoldRangesHash:
+        smoothMetrics.readabilityHoldRangesHash,
+      segmentRangesHash: smoothMetrics.segmentRangesHash,
+    }),
+  );
+  for (const field of [
+    "readabilityHoldRangesHash",
+    "segmentRangesHash",
+    "motionConfigurationHash",
+  ]) assert.match(smoothMetrics[field], /^[a-f0-9]{64}$/);
+  assert.match(smoothMetrics.decodedFrameSequenceHash, /^[a-f0-9]{64}$/);
   assert.equal(smoothMetrics.meanAccelerationEnergy, 0);
   assert.equal(smoothMetrics.meanJerkEnergy, 0);
   assert.equal(smoothMetrics.maximumBoundaryJumpRatio, 1);
@@ -81,6 +178,31 @@ test("temporal motion metrics distinguish smooth motion from a one-frame jerk", 
       { id: "sentence_1", startFrame: 15, endFrame: 30 },
     ],
   }));
+  const reshapedMetrics = analyzeConsecutiveFrames(smooth, 1, 4, {
+    segments: [
+      { id: "sentence_0", startFrame: 0, endFrame: 15 },
+      { id: "sentence_1", startFrame: 15, endFrame: 30 },
+    ],
+  });
+  assert.notEqual(
+    reshapedMetrics.decodedFrameSequenceHash,
+    smoothMetrics.decodedFrameSequenceHash,
+  );
+  const heldMetrics = analyzeConsecutiveFrames(smooth, 2, 2, {
+    readabilityHolds: [{ id: "hold_0", startFrame: 20, endFrame: 25 }],
+    segments: [
+      { id: "sentence_0", startFrame: 0, endFrame: 15 },
+      { id: "sentence_1", startFrame: 15, endFrame: 30 },
+    ],
+  });
+  assert.equal(
+    heldMetrics.decodedFrameSequenceHash,
+    smoothMetrics.decodedFrameSequenceHash,
+  );
+  assert.notEqual(
+    heldMetrics.motionConfigurationHash,
+    smoothMetrics.motionConfigurationHash,
+  );
 
   const teleport = frames(30, 2, 2, (frame, pixel) => (
     frame === 15 ? 250 - pixel : 30 + frame + pixel
@@ -91,6 +213,10 @@ test("temporal motion metrics distinguish smooth motion from a one-frame jerk", 
       { id: "sentence_1", startFrame: 15, endFrame: 30 },
     ],
   });
+  assert.notEqual(
+    teleportMetrics.decodedFrameSequenceHash,
+    smoothMetrics.decodedFrameSequenceHash,
+  );
   assert.ok(teleportMetrics.jerkEnergyP99 > smoothMetrics.jerkEnergyP99);
   assert.ok(teleportMetrics.maximumBoundaryJumpRatio > 100);
   const strict = evaluateTemporalMotionQuality(teleportMetrics, {
