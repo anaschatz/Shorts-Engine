@@ -23,7 +23,7 @@ const { normalizeDraftBundle } = require("../server/pipelines/narrated-short/con
 const { ingestUploadedNarration } = require("../server/pipelines/narrated-short/narration/upload.cjs");
 const { createAlignment, normalizeAlignment, normalizeSpeechToken, scriptWords, alignmentToNarrationManifest } = require("../server/pipelines/narrated-short/narration/alignment.cjs");
 const { runNarrationAlignmentJob } = require("../server/pipelines/narrated-short/narration/align-job.cjs");
-const { fasterWhisperVersion, transcribeWithFasterWhisper } = require("../server/adapters/faster-whisper-adapter.cjs");
+const { fasterWhisperVersion, probeFasterWhisperRuntime, transcribeWithFasterWhisper } = require("../server/adapters/faster-whisper-adapter.cjs");
 const { compileTimeline } = require("../server/pipelines/narrated-short/timeline-compiler.cjs");
 const { runNarratedRenderJob } = require("../server/pipelines/narrated-short/render-job.cjs");
 const { contentHash } = require("../server/pipelines/narrated-short/contracts.cjs");
@@ -174,6 +174,21 @@ test("speech token normalization is deterministic for punctuation, apostrophes, 
   assert.equal(normalizeSpeechToken("20"), normalizeSpeechToken("twenty"));
   assert.equal(normalizeSpeechToken("seventy-two"), "72");
   assert.equal(normalizeSpeechToken("72"), "72");
+});
+
+test("local aligner readiness probes allow bounded native cold starts", () => {
+  const calls = [];
+  const result = probeFasterWhisperRuntime({}, {
+    refresh: true,
+    spawnSync: (command, args, options) => {
+      calls.push({ command, args, options });
+      return { status: 0, stdout: '{"available":true}', stderr: "" };
+    },
+  });
+  assert.equal(result.available, true);
+  assert.deepEqual(calls.map((call) => call.options.timeout), [60_000, 30_000]);
+  assert.equal(calls[0].args.includes("--probe"), true);
+  assert.equal(calls[1].args.includes("--probe-model"), true);
 });
 
 test("alignment requires exact script sequence and rejects missing, extra, reordered and changed words", async () => {

@@ -10,6 +10,7 @@ const REPO_ROOT = resolve(__dirname, "../../../..");
 const VENV_DIR = resolve(REPO_ROOT, ".venv-dark-curiosity");
 const REQUIREMENTS = resolve(REPO_ROOT, "requirements-dark-curiosity-aligner.txt");
 const MODEL_HELPER = resolve(REPO_ROOT, "tools/dark-curiosity-model-bootstrap.py");
+const PACKAGE_VERIFY_TIMEOUT_MS = 60_000;
 function invalid(field) { throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field }); }
 
 function parseBootstrapArgs(argv = []) {
@@ -40,7 +41,7 @@ function runBootstrap(options, dependencies = {}) {
   const execute = dependencies.spawnSync || spawnSync; let changed = false;
   if (options.installPackage) {
     const configuredPython = fasterWhisperConfig(dependencies.env || process.env).pythonBin; const createdNow = !existsSync(VENV_DIR); if (createdNow && !safeRun(configuredPython, ["-m", "venv", VENV_DIR], options.timeoutMs, execute)) { try { rmSync(VENV_DIR, { recursive: true, force: true }); } catch {} throw new AppError("ALIGNER_BOOTSTRAP_FAILED", "The local aligner bootstrap failed.", 503, { nextAction: "inspect-project-python" }); }
-    const python = resolve(VENV_DIR, "bin/python"); const verify = "import importlib.metadata as m; assert m.version('faster-whisper') == '1.2.0'; assert m.version('ctranslate2') == '4.6.0'; assert m.version('requests') == '2.32.5'; import faster_whisper, ctranslate2, requests"; if (!safeRun(python, ["-m", "pip", "install", "--disable-pip-version-check", "--requirement", REQUIREMENTS], options.timeoutMs, execute) || !safeRun(python, ["-c", verify], 15000, execute)) { if (createdNow) try { rmSync(VENV_DIR, { recursive: true, force: true }); } catch {} throw new AppError("ALIGNER_BOOTSTRAP_FAILED", "The local aligner bootstrap failed.", 503, { nextAction: "retry-authorized-package-install" }); }
+    const python = resolve(VENV_DIR, "bin/python"); const verify = "import importlib.metadata as m; assert m.version('faster-whisper') == '1.2.0'; assert m.version('ctranslate2') == '4.6.0'; assert m.version('requests') == '2.32.5'; import faster_whisper, ctranslate2, requests"; if (!safeRun(python, ["-m", "pip", "install", "--disable-pip-version-check", "--requirement", REQUIREMENTS], options.timeoutMs, execute) || !safeRun(python, ["-c", verify], PACKAGE_VERIFY_TIMEOUT_MS, execute)) { if (createdNow) try { rmSync(VENV_DIR, { recursive: true, force: true }); } catch {} throw new AppError("ALIGNER_BOOTSTRAP_FAILED", "The local aligner bootstrap failed.", 503, { nextAction: "retry-authorized-package-install" }); }
     actions.push("installed-pinned-aligner-packages"); changed = true;
   }
   if (options.downloadModel) { const python = resolve(VENV_DIR, "bin/python"); if (!existsSync(python)) throw new AppError("ALIGNER_BOOTSTRAP_FAILED", "The local aligner bootstrap failed.", 503, { nextAction: "install-project-package-first" }); const cache = resolve(CONFIG.dataDir, "models/faster-whisper"); if (!safeRun(python, [MODEL_HELPER, "--model", options.model, "--cache-dir", cache, "--device", options.device, "--compute-type", options.computeType], options.timeoutMs, execute)) throw new AppError("ALIGNER_BOOTSTRAP_FAILED", "The local aligner bootstrap failed.", 503, { nextAction: "retry-authorized-model-acquisition" }); actions.push("acquired-allowlisted-model"); changed = true; }

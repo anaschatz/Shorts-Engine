@@ -131,11 +131,18 @@ function verifySemanticAnimationArtifactChain(input = {}) {
       ([bindingKey, manifestKey]) => bindings[bindingKey] !== manifest[manifestKey],
     )
     || !sameHashSet(manifestEnvelope.dependencyHashes, [
+      manifest.draftHash,
+      manifest.alignmentHash,
       manifest.timingContextHash,
       manifest.animationPlanHash,
       manifest.animationIRHash,
+      ...(manifest.animationScenePlanHash
+        ? [manifest.animationScenePlanHash]
+        : []),
       manifest.animationQaHash,
       manifest.visualMasterSha256,
+      manifest.browserProofHash,
+      manifest.motionProofHash,
     ])
   ) return false;
 
@@ -526,7 +533,13 @@ function createLocalPilotRuntime(options = {}, overrides = {}) {
         const eligibility = verifyReleaseEligibility({ project, request: { releaseToken: created.releaseToken, outputHash: report.final.outputHash } }, { publishApprovalRepository: publishApprovals, contentApprovalRepository: approvals, artifactRepository: artifacts });
         const exportRecord = exports.all().find((value) => value.projectId === project.id && value.artifact && value.artifact.id === eligibility.artifact.id && value.status === "completed");
         if (!exportRecord) throw new AppError("FINAL_DOWNLOAD_BLOCKED", SAFE_MESSAGES.FINAL_DOWNLOAD_BLOCKED, 409);
-        const remaining = Math.max(1, Math.floor((Date.parse(eligibility.expiresAt) - Date.now()) / 1000)); const job = jobs.get(exportRecord.jobId);
+        const remaining = Math.max(1, Math.floor((Date.parse(eligibility.expiresAt) - Date.now()) / 1000));
+        const job = jobs.get(exportRecord.jobId) || {
+          id: exportRecord.jobId,
+          projectId: project.id,
+          status: "completed",
+          exportId: exportRecord.id,
+        };
         const signed = persistenceAdapter.createSignedExportDownload(exportRecord, { job, basePath: "/api/artifacts/download", ttlSeconds: Math.min(300, remaining) });
         if (options.downloadProof) { const outputPath = persistenceAdapter.resolveExportOutputPath(exportRecord); if (createHash("sha256").update(readFileSync(outputPath)).digest("hex") !== report.final.outputHash) throw new AppError("OUTPUT_HASH_MISMATCH", SAFE_MESSAGES.OUTPUT_HASH_MISMATCH, 409); }
         return { contentApprovalId: created.record.body.contentApprovalId, publishApprovalId: created.approval.publishApprovalId, approvalArtifactId: created.approval.approvalArtifactId, approvalArtifactHash: created.approval.approvalArtifactHash, outputHash: eligibility.outputHash, tokenIssued: true, tokenVerified: true, releaseExpiresAt: eligibility.expiresAt, guardedDownloadIssued: Boolean(signed && signed.downloadUrl), downloadExpiresAt: signed.expiresAt, downloadVerified: options.downloadProof === true };

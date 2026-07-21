@@ -23,6 +23,7 @@ const QUIET_LOGGER = Object.freeze({
   debug() {},
   isLevelEnabled() { return false; },
 });
+let failureStage = "startup";
 
 function emit(event) { process.stdout.write(`${JSON.stringify(event)}\n`); }
 function inside(root, target) { const rel = relative(resolve(root), resolve(target)); return rel && !rel.startsWith("..") && !rel.includes("/../"); }
@@ -120,6 +121,7 @@ async function writePrivateFile(path, value) {
 }
 
 async function run(privatePaths) {
+  failureStage = "argument_validation";
   validateArgumentGrammar();
   const requestArgument = argument("--request");
   const expectedAnimationIRHash = argument(
@@ -148,6 +150,7 @@ async function run(privatePaths) {
       )
     )
   ) throw new Error("render_source_binding_invalid");
+  failureStage = "request_validation";
   const requestedPath = resolve(requestArgument);
   const stagingDir = await realpath(dirname(requestedPath));
   const requestPath = resolve(stagingDir, basename(requestedPath));
@@ -186,6 +189,7 @@ async function run(privatePaths) {
   ) throw new Error("render_path_outside_staging");
   let sourceTrust = {};
   if (sourceContextArgument) {
+    failureStage = "source_binding";
     const sourceContextPath = resolve(sourceContextArgument);
     if (
       sourceContextPath
@@ -211,6 +215,7 @@ async function run(privatePaths) {
     ) throw new Error("render_source_binding_invalid");
     sourceTrust = { semanticSourceContext };
   }
+  failureStage = "ir_validation";
   const rawIR = await readAndRemoveJson(irPath, 8_000_000);
   const ir = validateAnimationIR(
     rawIR,
@@ -223,18 +228,23 @@ async function run(privatePaths) {
     ir.contentHash !== expectedAnimationIRHash
     || generalized !== Boolean(sourceContextArgument)
   ) throw new Error("render_source_binding_invalid");
+  failureStage = "composition_compile";
   const composition = compileAnimationIRToHtml(ir, sourceTrust);
+  failureStage = "runtime_doctor";
   const doctor = await hyperframesDoctor();
   if (!doctor.ready) throw new Error("renderer_not_ready");
   const htmlPath = resolve(stagingDir, "index.html");
   if (!inside(stagingDir, htmlPath)) throw new Error("composition_path_invalid");
+  failureStage = "composition_write";
   await writePrivateFile(htmlPath, composition.html);
   await rm(outputPath, { force: true });
   const config = resolveConfig({ chromePath: doctor.chromePath, concurrency: 1, forceScreenshot: true, disableGpu: false, browserGpuMode: "software", enableBrowserPool: false, verifyRuntime: true, staticFrameDedup: false, debug: false });
   const job = createRenderJob({ fps: ir.fps, quality: request.quality === "high" ? "high" : "standard", format: "mp4", workers: 1, entryFile: "index.html", producerConfig: config, hdrMode: "force-sdr", logger: QUIET_LOGGER });
   const started = performance.now();
   try {
+    failureStage = "render_execute";
     await executeRenderJob(job, stagingDir, outputPath, (progressJob, message) => { const raw = Number(progressJob.progress || 0); emit({ type: "progress", stage: String(progressJob.currentStage || "rendering").slice(0, 32), percent: Math.max(0, Math.min(1, raw > 1 ? raw / 100 : raw)), message: String(message || "").slice(0, 96) }); });
+    failureStage = "output_hash";
     const outputSha256 = createHash("sha256")
       .update(await readBoundedFile(outputPath, Number.MAX_SAFE_INTEGER))
       .digest("hex");
@@ -263,4 +273,4 @@ async function main() {
   }
 }
 
-main().catch((error) => { emit({ type: "error", code: error?.name === "RenderCancelledError" ? "RENDER_CANCELLED" : "RENDER_FAILED" }); process.exitCode = 1; });
+main().catch((error) => { emit({ type: "error", code: error?.name === "RenderCancelledError" ? "RENDER_CANCELLED" : "RENDER_FAILED", stage: failureStage }); process.exitCode = 1; });

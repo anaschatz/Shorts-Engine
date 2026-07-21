@@ -198,6 +198,10 @@ function semanticCompletionChainFixture(generalized) {
   };
   const manifest = {
     schemaVersion: 1,
+    draftArtifactId: ids.draft,
+    draftHash: animationIr.draftHash,
+    alignmentArtifactId: ids.alignment,
+    alignmentHash: animationIr.alignmentHash,
     timingContextArtifactId: ids.timing,
     timingContextHash: hashes.timing,
     animationPlanArtifactId: ids.plan,
@@ -225,11 +229,16 @@ function semanticCompletionChainFixture(generalized) {
     revision: 1,
     contentHash: contentHash(manifest),
     dependencyHashes: [...new Set([
+      animationIr.draftHash,
+      animationIr.alignmentHash,
       hashes.timing,
       hashes.plan,
       hashes.ir,
+      ...(scenePlan ? [scenePlan.contentHash] : []),
       hashes.animationQa,
       hashes.visual,
+      manifest.browserProofHash,
+      manifest.motionProofHash,
     ])].sort(),
     body: manifest,
   };
@@ -581,8 +590,11 @@ test("pilot orchestrator completes every stage, replays complete reports, and st
     const semanticReplay = await runPilotWorkflow(semanticOptions, { ...deps, readLatestPilotReport: () => semantic.report, verifyCompletedReport: () => true, executeStage: async () => assert.fail("must not execute") });
     assert.equal(semanticReplay.replayed, true);
     const failedSeen = [];
-    const failed = await runPilotWorkflow(options, { ...deps, readLatestPilotReport: () => null, executeStage: async (stage) => { failedSeen.push(stage); if (stage === "narration_aligned") { const error = new Error("unsafe detail"); error.code = "NARRATION_ALIGNMENT_FAILED"; throw error; } return executeStage(stage); } });
+    const failed = await runPilotWorkflow(options, { ...deps, readLatestPilotReport: () => null, executeStage: async (stage) => { failedSeen.push(stage); if (stage === "narration_aligned") { const error = new Error("unsafe detail"); error.code = "NARRATION_ALIGNMENT_FAILED"; error.details = { workerStage: "composition_compile", rawPath: "/private/must-not-pass" }; throw error; } return executeStage(stage); } });
     assert.equal(failed.report.status, "failed"); assert.equal(failed.report.failure.code, "NARRATION_ALIGNMENT_FAILED"); assert.equal(failedSeen.includes("preview_ready"), false);
+    const failureProgress = progress.findLast((event) => event.event === "workflow_failed");
+    assert.equal(failureProgress.field, "composition_compile");
+    assert.doesNotMatch(JSON.stringify(failureProgress), /must-not-pass/);
   } finally { rmSync(temp, { recursive: true, force: true }); }
 });
 

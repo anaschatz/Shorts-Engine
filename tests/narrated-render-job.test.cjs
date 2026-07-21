@@ -30,6 +30,7 @@ test("narrated render job enforces approval and persists preview artifacts", asy
   const projectRepository = new InMemoryProjectRepository();
   const exportRepository = new InMemoryExportRepository({ artifactStore });
   const jobs = new JobStore({ persist: false, logger: null });
+  const persistedRenderRecords = [];
   const projectId = `prj_${randomUUID()}`;
   const draft = normalizeDraftBundle(JSON.parse(readFileSync(resolve(__dirname, "..", "eval", "narrated", "fixtures", "001_overload_explainer.json"), "utf8")));
   const draftArtifact = contentArtifactRepository.createJson({ type: "approval_bundle", projectId, revision: 1, body: draft });
@@ -81,6 +82,12 @@ test("narrated render job enforces approval and persists preview artifacts", asy
       contentArtifactRepository,
       contentApprovalRepository,
       projectRepository,
+      persistenceAdapter: {
+        persistProject() {},
+        persistRenderRecord(record) {
+          persistedRenderRecords.push(record);
+        },
+      },
       renderNarratedKeyframes: async ({ timelinePath, outputDir }) => {
         const timeline = JSON.parse(readFileSync(timelinePath, "utf8"));
         return {
@@ -113,6 +120,10 @@ test("narrated render job enforces approval and persists preview artifacts", asy
   assert.equal(job.narratedRender.silentPreview, true);
   assert.ok(contentArtifactRepository.readJson(job.narratedRender.manifestArtifactId));
   assert.ok(exportRepository.get(job.exportId));
+  assert.equal(persistedRenderRecords.length, 1);
+  assert.equal(persistedRenderRecords[0].exportId, job.exportId);
+  assert.equal(persistedRenderRecords[0].exportRecord.id, job.exportId);
+  assert.equal(persistedRenderRecords[0].job.status, "completed");
 });
 
 function createDarkRenderContext(renderProfile) {

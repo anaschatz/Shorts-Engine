@@ -52,8 +52,9 @@ test("incompatible Python blocks authorized bootstrap before subprocess mutation
 });
 
 test("authorized package bootstrap verifies every pinned runtime import and ready rerun is idempotent", () => {
-  const calls = []; const options = parseBootstrapArgs(["--install-package", "--yes"]); const result = runBootstrap(options, { doctor: () => ({ status: "package_missing", packageReady: false, modelReady: false }), env: { SHORTSENGINE_LOCAL_WHISPER_PYTHON_BIN: "python3.10" }, spawnSync: (command, args) => { calls.push({ command, args }); return { status: 0, stdout: "", stderr: "" }; } });
+  const calls = []; const options = parseBootstrapArgs(["--install-package", "--yes"]); const result = runBootstrap(options, { doctor: () => ({ status: "package_missing", packageReady: false, modelReady: false }), env: { SHORTSENGINE_LOCAL_WHISPER_PYTHON_BIN: "python3.10" }, spawnSync: (command, args, runOptions) => { calls.push({ command, args, runOptions }); return { status: 0, stdout: "", stderr: "" }; } });
   assert.equal(result.changed, true); const verify = calls.find((call) => call.args[0] === "-c"); assert.match(verify.args[1], /faster-whisper.*1\.2\.0/); assert.match(verify.args[1], /ctranslate2.*4\.6\.0/); assert.match(verify.args[1], /requests.*2\.32\.5/);
+  assert.equal(verify.runOptions.timeout, 60_000);
   let rerunCalled = false; const rerun = runBootstrap(options, { doctor: () => ({ status: "ready" }), spawnSync: () => { rerunCalled = true; } }); assert.equal(rerun.status, "ready"); assert.equal(rerun.changed, false); assert.equal(rerunCalled, false);
 });
 

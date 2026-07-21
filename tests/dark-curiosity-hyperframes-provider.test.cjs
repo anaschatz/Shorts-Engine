@@ -230,8 +230,15 @@ test("provider transports approved generalized source context out of band", asyn
   assert.equal("trustedSemanticEventGraphHash" in requestBody, false);
   assert.equal("sourceValidatedSemanticEventGraphHash" in requestBody, false);
   assert.equal("semanticSourceContext" in requestBody, false);
-  assert.equal(dirname(requestBody.stagingDir), realpathSync(stagingDir));
-  assert.match(basename(requestBody.stagingDir), /^\.hyperframes-render-/);
+  assert.ok([
+    realpathSync(stagingDir),
+    realpathSync(tmpdir()),
+  ].includes(dirname(requestBody.stagingDir)));
+  assert.match(
+    basename(requestBody.stagingDir),
+    /^\.hyperframes-render-/,
+  );
+  assert.equal(existsSync(requestBody.stagingDir), false);
   for (const name of [
     "animation-ir.json",
     "render-request.json",
@@ -447,6 +454,38 @@ test("provider binds worker completion to the validated IR", async () => {
   assert.deepEqual(readdirSync(stagingDir), []);
 });
 
+test("provider preserves only allowlisted worker failure stages", async () => {
+  const stagingDir = mkdtempSync(join(tmpdir(), "hf-safe-stage-"));
+  const provider = hyperframes.createHyperframesProvider({
+    spawnImpl() {
+      const child = fakeChild();
+      process.nextTick(() => {
+        child.stdout.write(`${JSON.stringify({
+          type: "error",
+          code: "RENDER_FAILED",
+          stage: "composition_compile",
+          rawPath: "/private/must-not-pass",
+        })}\n`);
+        child.emit("close", 1);
+      });
+      return child;
+    },
+  });
+  await assert.rejects(
+    provider.render({
+      animationIR: irFixture(),
+      stagingDir,
+      timeoutMs: 2000,
+    }),
+    (error) => (
+      error.code === "ANIMATION_RENDER_FAILED"
+      && error.details?.workerStage === "composition_compile"
+      && !JSON.stringify(error).includes("/private/must-not-pass")
+    ),
+  );
+  assert.deepEqual(readdirSync(stagingDir), []);
+});
+
 test("provider maps synchronous spawn failures and cleans private inputs", async () => {
   const stagingDir = mkdtempSync(join(tmpdir(), "hf-spawn-error-"));
   const provider = hyperframes.createHyperframesProvider({
@@ -462,6 +501,7 @@ test("provider maps synchronous spawn failures and cleans private inputs", async
     }),
     (error) => (
       error.code === "ANIMATION_RENDER_FAILED"
+      && error.details?.renderStage === "worker_spawn"
       && !error.message.includes(stagingDir)
     ),
   );
@@ -488,6 +528,35 @@ test("provider maps child failures safely and cleans partial output", async () =
   } });
   await assert.rejects(provider.render({ animationIR: irFixture(), stagingDir, timeoutMs: 2000 }), (error) => error.code === "ANIMATION_RENDER_FAILED" && !error.message.includes(stagingDir));
   assert.equal(existsSync(jobOutputPath), false);
+  assert.deepEqual(readdirSync(stagingDir), []);
+});
+
+test("provider classifies denied local renderer loopback without raw stderr", async () => {
+  const stagingDir = mkdtempSync(join(tmpdir(), "hf-loopback-denied-"));
+  const provider = hyperframes.createHyperframesProvider({
+    spawnImpl() {
+      const child = fakeChild();
+      process.nextTick(() => {
+        child.stderr.write(
+          "Error: listen EPERM: operation not permitted 127.0.0.1 /private/raw-path",
+        );
+        child.emit("close", 1);
+      });
+      return child;
+    },
+  });
+  await assert.rejects(
+    provider.render({
+      animationIR: irFixture(),
+      stagingDir,
+      timeoutMs: 2000,
+    }),
+    (error) => (
+      error.code === "ANIMATION_RENDER_FAILED"
+      && error.details?.renderStage === "worker_loopback_denied"
+      && !JSON.stringify(error).includes("raw-path")
+    ),
+  );
   assert.deepEqual(readdirSync(stagingDir), []);
 });
 
@@ -564,6 +633,8 @@ test("provider-owned manifest verification rejects fabrication and tampering", a
     stagingDir,
     timeoutMs: 2000,
   });
+  assert.equal(dirname(receipt.stagingDir), realpathSync(stagingDir));
+  assert.equal(dirname(receipt.outputPath), receipt.stagingDir);
   assert.equal(provider.verify(receipt).valid, true);
   assert.throws(
     () => provider.verify({ ...receipt }),

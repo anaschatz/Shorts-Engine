@@ -9,6 +9,8 @@ const { sanitizeText } = require("../media.cjs");
 
 const HELPER_PATH = path.resolve(__dirname, "../../tools/faster-whisper-transcribe.py");
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
+const PACKAGE_PROBE_TIMEOUT_MS = 60_000;
+const MODEL_PROBE_TIMEOUT_MS = 30_000;
 let cachedProbe = null;
 
 function inside(root, candidate) {
@@ -55,15 +57,16 @@ function fasterWhisperVersion(env = process.env) {
 
 function probeFasterWhisperRuntime(env = process.env, options = {}) {
   const config = fasterWhisperConfig(env);
+  const run = options.spawnSync || spawnSync;
   if (config.mode === "disabled") return { available: false, reason: "disabled", config };
   const probeKey = `${config.pythonBin}:${config.helperPath}:${config.cacheDir}:${config.model}:${config.device}:${config.computeType}`;
   if (!options.refresh && cachedProbe && cachedProbe.key === probeKey) {
     return { ...cachedProbe.result, config };
   }
   if (!existsSync(config.helperPath)) return { available: false, reason: "helper_missing", config };
-  const packageProbe = spawnSync(config.pythonBin, [config.helperPath, "--probe", "--cache-dir", config.cacheDir], {
+  const packageProbe = run(config.pythonBin, [config.helperPath, "--probe", "--cache-dir", config.cacheDir], {
     encoding: "utf8",
-    timeout: 5000,
+    timeout: PACKAGE_PROBE_TIMEOUT_MS,
     windowsHide: true,
     maxBuffer: 64 * 1024,
   });
@@ -75,9 +78,9 @@ function probeFasterWhisperRuntime(env = process.env, options = {}) {
     cachedProbe = { key: probeKey, result: probe };
     return { ...probe, config };
   }
-  const result = spawnSync(config.pythonBin, [config.helperPath, "--probe-model", "--model", config.model, "--device", config.device, "--compute-type", config.computeType, "--cache-dir", config.cacheDir], {
+  const result = run(config.pythonBin, [config.helperPath, "--probe-model", "--model", config.model, "--device", config.device, "--compute-type", config.computeType, "--cache-dir", config.cacheDir], {
     encoding: "utf8",
-    timeout: 15000,
+    timeout: MODEL_PROBE_TIMEOUT_MS,
     windowsHide: true,
     maxBuffer: 64 * 1024,
   });

@@ -361,7 +361,7 @@ async function runNarratedRenderJob(context = {}) {
       },
     });
     const createdAt = new Date().toISOString();
-    exportRepository.create({
+    const exportRecord = exportRepository.create({
       id: exportId,
       projectId: project.id,
       jobId: job.id,
@@ -440,6 +440,18 @@ async function runNarratedRenderJob(context = {}) {
       technicalQa: qaSummary,
       evidencePackage: evidenceSummary,
     });
+    if (
+      dependencies.persistenceAdapter
+      && typeof dependencies.persistenceAdapter.persistRenderRecord
+        === "function"
+    ) {
+      dependencies.persistenceAdapter.persistRenderRecord({
+        project: updatedProject,
+        job: jobs.publicJob(job),
+        exportId,
+        exportRecord,
+      });
+    }
     return { exportId, renderManifest, timelineArtifact, committedArtifact, captionManifestArtifact, captionAssArtifact, audioNormalizationArtifact, animationResult, qaArtifact, evidencePackage };
   } catch (error) {
     try { artifactStore.deleteStagingArtifact(outputStage.artifact); } catch { /* best-effort uncommitted output cleanup */ }

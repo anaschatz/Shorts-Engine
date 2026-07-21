@@ -29,9 +29,67 @@ const {
 
 const PROVIDER_ID = "hyperframes_benchmark";
 const WORKER_PATH = resolve(__dirname, "../../../../../renderer/hyperframes/render-worker.mjs");
+const WORKER_FAILURE_STAGES = new Set([
+  "startup",
+  "argument_validation",
+  "request_validation",
+  "source_binding",
+  "ir_validation",
+  "composition_compile",
+  "runtime_doctor",
+  "composition_write",
+  "render_execute",
+  "output_hash",
+]);
+const PROVIDER_FAILURE_STAGES = new Set([
+  "request_validation",
+  "staging_validation",
+  "source_binding",
+  "private_input_write",
+  "worker_spawn",
+  "diagnostic_budget",
+  "worker_process",
+  "worker_signaled",
+  "worker_dependency_missing",
+  "worker_memory_exhausted",
+  "worker_syntax_invalid",
+  "worker_permission_denied",
+  "worker_loopback_denied",
+  "worker_exit_nonzero",
+  "completion_missing",
+  "output_invalid",
+  "output_name_mismatch",
+  "ir_hash_mismatch",
+  "output_hash_invalid",
+  "composition_hash_invalid",
+]);
 
 function inside(root, target) { const value = relative(resolve(root), resolve(target)); return value && !value.startsWith("..") && !value.includes("/../"); }
-function safeFailure(code = "ANIMATION_RENDER_FAILED") { return new AppError(code, code === "ANIMATION_RENDER_CANCELLED" ? "Animation render was cancelled." : "Animation render failed safely.", code === "ANIMATION_RENDER_CANCELLED" ? 409 : 500); }
+function safeFailure(code = "ANIMATION_RENDER_FAILED", details = null) { return new AppError(code, code === "ANIMATION_RENDER_CANCELLED" ? "Animation render was cancelled." : "Animation render failed safely.", code === "ANIMATION_RENDER_CANCELLED" ? 409 : 500, details); }
+function stagedFailure(stage, code = "ANIMATION_RENDER_FAILED") {
+  return safeFailure(
+    code,
+    PROVIDER_FAILURE_STAGES.has(stage) ? { renderStage: stage } : null,
+  );
+}
+
+function classifyWorkerExit(stderr, signalName) {
+  if (signalName) return "worker_signaled";
+  if (/listen EPERM[^\n]*127\.0\.0\.1/i.test(stderr)) {
+    return "worker_loopback_denied";
+  }
+  if (/ERR_MODULE_NOT_FOUND|Cannot find (?:module|package)/i.test(stderr)) {
+    return "worker_dependency_missing";
+  }
+  if (/heap out of memory|FATAL ERROR/i.test(stderr)) {
+    return "worker_memory_exhausted";
+  }
+  if (/SyntaxError/i.test(stderr)) return "worker_syntax_invalid";
+  if (/EACCES|permission denied/i.test(stderr)) {
+    return "worker_permission_denied";
+  }
+  return "worker_exit_nonzero";
+}
 
 function resolveStagingDir(value) {
   try {
@@ -157,7 +215,7 @@ function estimateForProvider(request, providerId) {
 
 function renderWithSpawn(spawnImpl, workerPath, providerId, request, signal, onProgress = () => {}) {
   const validated = request.validated;
-  if (!validated?.animationIR) return Promise.reject(safeFailure());
+  if (!validated?.animationIR) return Promise.reject(stagedFailure("request_validation"));
   let stagingDir;
   let outputName;
   try {
@@ -165,7 +223,7 @@ function renderWithSpawn(spawnImpl, workerPath, providerId, request, signal, onP
     outputName = privateOutputName(request.outputName);
     stagingDir = createRenderStagingDir(stagingRoot);
   } catch (error) {
-    return Promise.reject(error);
+    return Promise.reject(stagedFailure("staging_validation"));
   }
   const irPath = join(stagingDir, "animation-ir.json");
   const requestPath = join(stagingDir, "render-request.json");
@@ -176,11 +234,18 @@ function renderWithSpawn(spawnImpl, workerPath, providerId, request, signal, onP
   if (
     ![...privateInputPaths, htmlPath, outputPath]
       .every((path) => inside(stagingDir, path))
-  ) return Promise.reject(safeFailure());
+  ) {
+    bestEffortRemoveTree(stagingDir);
+    return Promise.reject(stagedFailure("staging_validation"));
+  }
   const generalized =
     Boolean(validated.sourceValidatedSemanticEventGraphHash);
   if (generalized && !request.semanticSourceContext) {
-    return Promise.reject(safeFailure("ANIMATION_SOURCE_BINDING_INVALID"));
+    bestEffortRemoveTree(stagingDir);
+    return Promise.reject(stagedFailure(
+      "source_binding",
+      "ANIMATION_SOURCE_BINDING_INVALID",
+    ));
   }
   try {
     bestEffortRemove([htmlPath, outputPath]);
@@ -204,7 +269,7 @@ function renderWithSpawn(spawnImpl, workerPath, providerId, request, signal, onP
     })}\n`);
   } catch {
     bestEffortRemoveTree(stagingDir);
-    return Promise.reject(safeFailure());
+    return Promise.reject(stagedFailure("private_input_write"));
   }
   const timeoutMs = Math.max(1000, Math.min(Number(request.timeoutMs || 120000), 1800000));
   return new Promise((resolvePromise, reject) => {
@@ -231,10 +296,10 @@ function renderWithSpawn(spawnImpl, workerPath, providerId, request, signal, onP
       child = spawnImpl(process.execPath, workerArgs, { cwd: resolve(__dirname, "../../../../../"), detached: processGroup, stdio: ["ignore", "pipe", "pipe"], env: { PATH: process.env.PATH || "", HOME: process.env.HOME || "", TMPDIR: process.env.TMPDIR || "/tmp", LANG: "C.UTF-8", HYPERFRAMES_EXTRACT_CACHE_DIR: "off" } });
     } catch {
       bestEffortRemoveTree(stagingDir);
-      reject(safeFailure());
+      reject(stagedFailure("worker_spawn"));
       return;
     }
-    let stdout = "", stderrBytes = 0, complete = null, settled = false, progressCount = 0, pendingError = null;
+    let stdout = "", stderr = "", stderrBytes = 0, complete = null, settled = false, progressCount = 0, pendingError = null, workerFailureStage = null;
     let forceKillTimer = null;
     let forceSettleTimer = null;
     const cleanupInputs = () => bestEffortRemove([
@@ -289,18 +354,26 @@ function renderWithSpawn(spawnImpl, workerPath, providerId, request, signal, onP
     signal?.addEventListener("abort", abort, { once: true });
     child.stdout.on("data", (chunk) => {
       stdout += chunk.toString("utf8");
-      if (stdout.length > 65536) return stop(safeFailure());
+      if (stdout.length > 65536) return stop(stagedFailure("diagnostic_budget"));
       const lines = stdout.split("\n"); stdout = lines.pop();
       for (const line of lines) {
         if (!line || line.length > 1024) continue;
         let event; try { event = JSON.parse(line); } catch { continue; }
         if (event.type === "progress" && progressCount++ < 200) onProgress({ stage: event.stage, percent: event.percent });
         if (event.type === "complete") complete = event;
+        if (
+          event.type === "error"
+          && WORKER_FAILURE_STAGES.has(event.stage)
+        ) workerFailureStage = event.stage;
       }
     });
-    child.stderr.on("data", (chunk) => { stderrBytes += chunk.length; if (stderrBytes > 65536) stop(safeFailure()); });
-    child.on("error", () => finishError(safeFailure()));
-    child.on("close", (code) => {
+    child.stderr.on("data", (chunk) => {
+      stderrBytes += chunk.length;
+      if (stderrBytes > 65536) return stop(stagedFailure("diagnostic_budget"));
+      stderr += chunk.toString("utf8");
+    });
+    child.on("error", () => finishError(stagedFailure("worker_process")));
+    child.on("close", (code, signalName) => {
       if (settled) return;
       if (pendingError) return finishError(pendingError);
       let outputValid = false;
@@ -314,15 +387,27 @@ function renderWithSpawn(spawnImpl, workerPath, providerId, request, signal, onP
       } catch {
         outputValid = false;
       }
-      if (
-        code !== 0
-        || !complete
-        || !outputValid
-        || complete.outputFile !== outputName
-        || complete.animationIRHash !== validated.animationIR.contentHash
-        || !/^[a-f0-9]{64}$/.test(complete.outputSha256 || "")
-        || !/^[a-f0-9]{64}$/.test(complete.compositionHash || "")
-      ) return finishError(safeFailure());
+      let closeFailureStage = null;
+      if (code !== 0) {
+        closeFailureStage = classifyWorkerExit(stderr, signalName);
+      }
+      else if (!complete) closeFailureStage = "completion_missing";
+      else if (!outputValid) closeFailureStage = "output_invalid";
+      else if (complete.outputFile !== outputName) {
+        closeFailureStage = "output_name_mismatch";
+      } else if (
+        complete.animationIRHash !== validated.animationIR.contentHash
+      ) closeFailureStage = "ir_hash_mismatch";
+      else if (!/^[a-f0-9]{64}$/.test(complete.outputSha256 || "")) {
+        closeFailureStage = "output_hash_invalid";
+      } else if (!/^[a-f0-9]{64}$/.test(complete.compositionHash || "")) {
+        closeFailureStage = "composition_hash_invalid";
+      }
+      if (closeFailureStage) return finishError(workerFailureStage
+        ? safeFailure("ANIMATION_RENDER_FAILED", {
+          workerStage: workerFailureStage,
+        })
+        : stagedFailure(closeFailureStage));
       settled = true;
       clearLifecycle();
       cleanupInputs();

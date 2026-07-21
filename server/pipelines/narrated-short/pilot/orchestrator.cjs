@@ -90,7 +90,14 @@ async function runPilotWorkflow(options = {}, dependencies = {}) {
     try { machine.fail(); } catch { /* retain original failure */ }
     if (typeof dependencies.cleanup === "function") await dependencies.cleanup(context, error);
     const failure = controller.signal.aborted ? { stage: currentStage, code: "JOB_CANCELLED", nextAction: "increase-timeout-or-fix-blocked-stage" } : safeFailure(error, currentStage);
-    emitProgress("workflow_failed", currentStage, machine.completed.length, { code: error && error.code, field: error && error.details && error.details.field });
+    emitProgress("workflow_failed", currentStage, machine.completed.length, {
+      code: error && error.code,
+      field: error && error.details && (
+        error.details.field
+        || error.details.workerStage
+        || error.details.renderStage
+      ),
+    });
     const report = normalizePilotReport(reportInput({ runId, status: "failed", fixtureId, fixtureHash, animationProfile, readiness, machine, evidence, context, failure, startedAt, startedMs, now }));
     return { report: (dependencies.persistPilotReport || persistPilotReport)(report, options.outputDir), replayed: false, exitCode: 1 };
   } finally { clearTimeout(timeout); }
