@@ -269,7 +269,7 @@ and a clear place for human judgment.
 ## Author
 
 **Anastasis Chatzedakis**<br>
-Second-year student, Department of Management Science and Technology (DET)<br>
+3rd-year student, Department of Management Science and Technology (DET)<br>
 Athens University of Economics and Business (AUEB)
 
 - GitHub: [@anaschatz](https://github.com/anaschatz)
