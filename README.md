@@ -1,144 +1,124 @@
 # ShortsEngine
 
-### An AI-assisted production engine for vertical video
+### Evidence-gated AI video production for vertical content
 
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![FFmpeg](https://img.shields.io/badge/FFmpeg-rendering-007808?logo=ffmpeg&logoColor=white)](https://ffmpeg.org/)
 [![Playwright](https://img.shields.io/badge/Playwright-visual_QA-2EAD33?logo=playwright&logoColor=white)](https://playwright.dev/)
-[![Status](https://img.shields.io/badge/status-production--hardening-orange)](#project-status)
+[![Status](https://img.shields.io/badge/status-production--hardening-F59E0B)](#project-status)
 
-ShortsEngine turns source media or structured ideas into polished, quality-checked
-vertical videos. It currently supports three distinct production workflows:
+ShortsEngine is a production-hardening research project for turning source media
+or structured ideas into reviewable vertical videos. It combines media analysis,
+editorial planning, deterministic rendering, computer-vision-assisted framing and
+final-output verification in one local-first system.
 
-- **Football Shorts** that detect and reconstruct match moments, preserve every
-  counted goal, track the action and protect ball visibility during reframing.
-- **Motivational Shorts** that select strong moments, build fast editorial cuts,
-  generate kinetic typography and package controlled content experiments.
-- **Original Animated Shorts** built from scripts, narration and deterministic
-  vector scenes, without requiring broadcast or stock footage.
+The central engineering idea is simple: **an AI pipeline should not report success
+because its metadata looks correct; the rendered video must support the claim.**
 
-The project was designed and built by
-[Anastasis Chatzedakis](https://github.com/anaschatz), a second-year student in
-the **Department of Management Science and Technology (DET)** at the
-**Athens University of Economics and Business (AUEB)**.
+Built by [Anastasis Chatzedakis](https://github.com/anaschatz), an undergraduate
+student in the Department of Management Science and Technology at the Athens
+University of Economics and Business.
 
-> This is not only a video-editing experiment. It is an engineering project about
-> turning uncertain AI and media inputs into reproducible, reviewable outputs.
+## At A Glance
 
-## Why I Built It
+| | |
+| --- | --- |
+| **Problem** | Producing good short-form video repeatedly requires more than finding a loud moment and applying a center crop. |
+| **Approach** | Separate evidence collection, editorial decisions, rendering and final visual proof behind explicit contracts. |
+| **Primary research track** | Football highlights with scoreboard-aware event discovery, full-phase reconstruction and action-safe reframing. |
+| **Additional workflows** | Motivational edits and original narrated animation. |
+| **Engineering focus** | Validation, deterministic jobs, safe artifact handling, observability, evaluation and fail-closed release gates. |
+| **Current stage** | Strong local prototype and evaluation platform; not yet a finished multi-user SaaS. |
 
-Creating a good Short is easy once. Creating good Shorts repeatedly is a systems
-problem.
+## Product Workflows
 
-ShortsEngine explores that problem end to end: media analysis, editorial
-decision-making, deterministic rendering, visual verification, rights-aware
-publishing and measurable feedback. Building it as a second-year DET student
-allowed me to combine software engineering with operations, product thinking,
-analytics and process design.
+### Football highlights
 
-## Production Workflows
+The football pipeline is designed to find candidate match events, build a stable
+score timeline, reject disallowed or weakly supported events, reconstruct the live
+phase before a goal and verify the final render. Scoreboard OCR is treated as an
+anchor, while visual and audio evidence help locate the actual action.
 
-| Workflow | Input | What the engine does | Output |
-| --- | --- | --- | --- |
-| Football highlights | Rights-cleared match video | Detects goal evidence, rejects disallowed/replay-only events, reconstructs the complete goal phase, follows the action and verifies the final render | A goal-complete 9:16 highlight Short |
-| Motivational edits | Rights-cleared interview or podcast source | Ranks candidate moments, preserves semantic boundaries, applies a controlled editorial style and records experiment metadata | A fast, branded motivational Short |
-| Original animation | Approved brief, claims and narration | Compiles a source-bound semantic visual plan and frame-accurate `AnimationIR`, renders continuous vector motion and combines voice, captions and audio | An original narrated animated Short |
+The active research goal is not merely “detect a goal.” It is to show the buildup,
+finish, payoff and confirmation while keeping the ball and relevant players visible
+in a vertical frame.
 
-## Highlights
+### Motivational edits
 
-- Football-aware event analysis with counted-goal, offside, replay and celebration
-  evidence gates.
-- Ball-safe reframing with a full-frame fallback when a crop cannot prove
-  per-frame ball visibility.
-- FFmpeg rendering, media probing and final MP4 validation.
-- Optional Real-ESRGAN enhancement that runs automatically when the local runtime
-  is available.
-- Automatic local Faster-Whisper transcription with word timestamps and a safe
-  fallback when the model is unavailable.
-- Kinetic captions, narration alignment and audio normalization.
-- Continuous, frame-addressable 2D animation through an engine-owned
-  `AnimationIR` and a pinned HyperFrames provider.
-- Storyboard-grounded semantic archetypes for documents, evidence cards,
-  relationship graphs, routes, timelines, comparisons and bounded verdicts.
-- Durable jobs, leases, cancellation, recovery, idempotency and artifact storage.
-- Human approval gates for ambiguous content and private-by-default YouTube
-  publishing workflows.
-- Automated visual QA, contact sheets, evaluation suites and release evidence.
-- A local autoresearch loop for testing scoped quality improvements against a
-  saved baseline.
+The editorial pipeline ranks candidate moments, protects sentence boundaries,
+generates kinetic captions and records controlled quality experiments against a
+saved baseline.
 
-## How It Works
+### Original narrated animation
+
+The narrated pipeline turns approved scripts and claims into a frame-addressable
+`AnimationIR`, synthesizes narration through an optional local TTS runtime and
+renders continuous vector scenes without depending on broadcast or stock footage.
+
+## Why It Is Different
+
+- **Evidence before claims.** A score change, caption or JSON label is not enough
+  to prove that a rendered video visibly contains a goal.
+- **Fail-closed output gates.** Missing artifacts, unsafe crops, incomplete goal
+  coverage and failed renders block export instead of producing misleading success.
+- **Domain-specific framing.** Football reframing can follow action evidence and
+  fall back to a wider view when tracking confidence is not strong enough.
+- **Local-first AI tooling.** Tests and demos use deterministic providers by
+  default; optional OCR, transcription, enhancement and TTS runtimes stay behind
+  adapters.
+- **Quality is measured.** Evaluation fixtures, visual QA, browser smoke tests and
+  a baseline-driven research loop turn subjective editing changes into reviewable
+  evidence.
+
+## System Architecture
 
 ```mermaid
 flowchart LR
-    A["Source video or content brief"] --> B["Pipeline selection"]
-    B --> C["Football analysis"]
-    B --> D["Motivational selection"]
-    B --> E["Script and storyboard"]
-    C --> F["Edit plan"]
-    D --> F
-    E --> G["AnimationIR"]
-    F --> H["FFmpeg renderer"]
-    G --> I["Continuous animation renderer"]
-    I --> H
-    H --> J["Visual, audio and rights QA"]
-    J --> K{"Approval gate"}
-    K -->|Approved| L["Export or private publish"]
-    K -->|Needs work| M["Review and regenerate"]
+    A["Rights-cleared media or content brief"] --> B["Ingest and validation"]
+    B --> C{"Pipeline router"}
+    C --> D["Football event analysis"]
+    C --> E["Editorial moment selection"]
+    C --> F["Script and AnimationIR"]
+    D --> G["Evidence-backed edit plan"]
+    E --> G
+    F --> H["Animation renderer"]
+    G --> I["FFmpeg renderer"]
+    H --> I
+    I --> J["Rendered video QA"]
+    J --> K{"Release gate"}
+    K -->|Pass| L["Export or private publish"]
+    K -->|Fail| M["Structured review evidence"]
 ```
 
-The workflows share infrastructure, but their domain logic remains isolated.
-Football analysis does not leak into generated animation, and renderer-specific
-APIs do not leak into approved content artifacts.
+The HTTP layer stays thin. Domain logic, providers, repositories, artifact storage,
+jobs and renderers are isolated behind testable boundaries. This keeps external
+tools replaceable and prevents API routes from becoming the workflow engine.
 
-## Engineering Decisions
+## Engineering Highlights
 
-### Fail closed
-
-The engine does not report success when it cannot verify the output. A missing
-goal, unreadable source, unproven crop, invalid artifact or failed render blocks
-the release and returns a reviewable reason.
-
-### Deterministic rendering
-
-Approved inputs, versions, hashes and a fixed seed produce a traceable render.
-Animation timing is stored in integer frames, while important intermediate stages
-are preserved as versioned artifacts.
-
-### Narration-grounded visual planning
-
-The Dark Curiosity production path treats the approved storyboard as a semantic
-DSL. Every generated visual records its source scene, source operation indexes,
-beat and claims before it reaches the renderer. The v2 compositor selects a
-visual archetype from those bindings and generates its SVG geometry at compile
-time. This prevents unrelated telescope or signal graphics from leaking into a
-timestamp, harbor route or other documented mystery.
-
-### Human judgment where it matters
-
-Automation handles repetitive analysis and validation. Content approval,
-ambiguous goals, factual claims and publication remain explicit human decisions.
-
-### Rights-aware by design
-
-YouTube ingest is disabled by default and requires operator confirmation for
-authorized material. Original animation provides a separate workflow that does
-not depend on third-party broadcast footage.
-
-## Tech Stack
-
-| Area | Technology |
+| Area | Implementation |
 | --- | --- |
-| Application and orchestration | Node.js, CommonJS and ES modules |
-| Media processing | FFmpeg, FFprobe |
-| Browser and visual QA | Playwright, Chromium |
-| Continuous animation | HyperFrames, HTML, SVG, Canvas and pinned `d3-shape` geometry |
-| Transcription and alignment | Faster-Whisper, optional local Python runtimes |
-| Voice generation | Kokoro TTS integration |
-| Video enhancement | Real-ESRGAN NCNN Vulkan, optional |
-| Persistence and storage | Repository adapters, SQLite/local storage, S3-shaped adapters |
-| Publishing | YouTube Data API via `google-api-python-client` |
-| Testing | Node test runner, deterministic evaluation fixtures, visual proof tools |
+| Media safety | Extension, MIME, signature, size, duration and FFprobe validation before pipeline entry |
+| Job lifecycle | Durable state transitions, cancellation, leases, retries, recovery and terminal-state protection |
+| Storage | Repository and artifact-store boundaries with path traversal and key validation |
+| Football truth | Score-change timeline, evidence fusion, no-false-goal guards and chronological event binding |
+| Rendering | FFmpeg/FFprobe adapters, bounded execution, edit-plan validation and export gating |
+| Auto-framing | Ball/player/action tracking contracts with conservative wide-safe fallback |
+| Enhancement | Managed Python Real-ESRGAN adapter with Apple MPS support and validated output frame counts |
+| Transcription | Local Faster-Whisper adapter with word timestamps and deterministic fallback |
+| Original animation | Frame-accurate `AnimationIR`, continuous vector rendering and narration alignment |
+| Observability | Structured IDs, bounded progress, safe error codes and sanitized readiness reports |
+| Verification | Node tests, deterministic evals, Playwright browser checks, visual proofs and release reports |
+
+## Capability Maturity
+
+ShortsEngine is explicit about what is stable and what is still being improved.
+
+| Level | Capabilities |
+| --- | --- |
+| **Implemented and tested** | Validated local ingest, repository/artifact boundaries, job lifecycle, deterministic providers, FFmpeg rendering, structured errors, evals and browser smoke checks |
+| **Operator-enabled** | Authorized YouTube ingest, scoreboard OCR, Faster-Whisper, Real-ESRGAN, local TTS, publishing and cloud-adapter checks |
+| **Active product research** | Consistent full-goal recall on varied broadcasts, per-frame ball visibility, scorer tracking, reference-style pacing and larger rights-cleared evaluation sets |
 
 ## Quick Start
 
@@ -149,23 +129,23 @@ not depend on third-party broadcast footage.
 - FFmpeg and FFprobe on `PATH`
 - Playwright Chromium for browser proof checks
 
-Optional local capabilities include `yt-dlp`, Faster-Whisper, Kokoro TTS,
-Real-ESRGAN and OCR. The default test path does not require cloud API keys.
-
-### Run locally
+Optional capabilities include `yt-dlp`, OCR, Faster-Whisper, Real-ESRGAN and
+Kokoro TTS. The default test path does not require cloud API keys.
 
 ```bash
 git clone https://github.com/anaschatz/Shorts-Engine.git
 cd Shorts-Engine
-npm install
+npm ci
 npm run demo:fixture
 npm run dev
 ```
 
-Open [http://localhost:4175](http://localhost:4175). Set `PORT` to use a
-different port.
+Open [http://localhost:4175](http://localhost:4175). The port can be changed with
+`PORT`.
 
-### Validate the engine
+## Validation
+
+Run the core local release checks:
 
 ```bash
 npm run lint
@@ -177,105 +157,97 @@ npm run demo:browser:ci
 npm run release:check
 ```
 
-The repository contains more than 120 focused test files covering media safety,
-goal evidence, rendering, recovery, narrated content, animation timing,
-publishing guards and release behavior.
+The repository currently contains 119 focused test files covering validation,
+media safety, persistence, jobs, provider contracts, football evidence, rendering,
+visual behavior, publishing guards and release workflows.
 
-## Automatic Local Capabilities
+## Research Workflow
 
-### Video enhancement
-
-When the official `realesrgan-ncnn-vulkan` binary and its models are installed,
-the renderer automatically enhances the caption-free visual layer before final
-composition. OCR, tracking and goal verification continue to use the original
-source so enhancement cannot alter their evidence.
-
-### Transcription
-
-Faster-Whisper is detected locally through Python. If its configured model is
-already cached, the engine uses word-level timestamps for captions. It never
-downloads a model during a render.
-
-### Quality research
-
-The autoresearch workflow runs one scoped experiment at a time and compares it
-with a saved baseline:
+ShortsEngine uses a small-experiment loop for quality changes. Evaluation fixtures
+and rubrics remain fixed so an experiment cannot improve its score by changing the
+measurement.
 
 ```bash
 npm run research:short:baseline
-npm run research:short -- --description="describe one focused experiment"
+npm run research:short -- --description="one scoped quality experiment"
 ```
 
-It combines deterministic evaluation, reference review and domain tests before
-recommending whether a change should be kept.
+Each run reports `keep`, `discard` or `crash`, together with the quality score,
+delta, hard-gate failures and guardrail regressions.
+
+## Safe Defaults
+
+- Live YouTube ingest is disabled until an operator explicitly enables it and
+  confirms processing rights.
+- Tests and the local demo do not require cloud API keys.
+- External providers, FFmpeg, OCR, tracking and enhancement stay behind adapters.
+- Public errors and reports exclude secrets, raw provider output, storage keys and
+  absolute local paths.
+- Temporary and partial artifacts are cleaned only inside managed staging areas.
+- Exports remain unavailable until rendering and output validation complete.
+- Ambiguous content can be routed to human review instead of being guessed.
 
 ## Project Structure
 
 ```text
-server/        API, pipelines, jobs, providers, storage and domain logic
-renderer/      Narrated and continuous-animation renderers
-tests/         Unit, integration, contract and visual-behavior tests
-eval/          Deterministic evaluation fixtures and quality rubrics
-demo/          Local proofs, browser checks and human-review tooling
-tools/         Research, publishing, environment and release utilities
-docs/          Architecture, operations, staging and product decisions
-shortresearch/ Local quality baseline and experiment history
+server/         API, domain services, jobs, providers, storage and repositories
+renderer/       Continuous animation and narrated renderers
+tests/          Unit, integration, contract and visual-behavior tests
+eval/           Deterministic fixtures, scoring and reference rubrics
+demo/           Local proofs, browser checks and human-review tools
+tools/          Research, environment, publishing and release utilities
+docs/           Architecture, operations, staging and product decisions
+shortresearch/  Saved baseline and experiment reports
 ```
 
-Useful technical documents:
+Selected technical documents:
 
-- [Narrated visual architecture](docs/NARRATED_VISUAL_SHORTS_ARCHITECTURE.md)
+- [Narrated visual shorts architecture](docs/NARRATED_VISUAL_SHORTS_ARCHITECTURE.md)
 - [Continuous animation architecture](docs/DARK_CURIOSITY_ANIMATION_ARCHITECTURE.md)
-- [Motion-integrity QA](docs/DARK_CURIOSITY_MOTION_INTEGRITY_QA.md)
-- [Artifact-bound motion calibration](docs/DARK_CURIOSITY_MOTION_CALIBRATION_CORPUS.md)
-- [Motivational growth architecture](docs/BUDGET_FRIENDLY_GROWTH_ARCHITECTURE.md)
+- [Growth pipeline architecture](docs/BUDGET_FRIENDLY_GROWTH_ARCHITECTURE.md)
 - [Production beta plan](docs/PRODUCTION_BETA.md)
 - [Environment reference](docs/ENVIRONMENT.md)
+- [Release process](docs/RELEASE.md)
 - [YouTube publishing guide](docs/YOUTUBE_PUBLISHING.md)
 
 ## Project Status
 
-ShortsEngine is a **production-hardening prototype**, not a finished multi-user
-SaaS.
+ShortsEngine is a **production-hardening prototype and applied AI research
+project**, not a finished commercial product.
 
-The local engine already includes separate clip and narrated pipelines,
-deterministic rendering, automated QA, persistence boundaries and guarded
-publishing tools. The next production milestones are:
+The engineering platform is broad and well tested, but live football broadcasts
+remain a difficult open problem: scorebugs vary, camera direction changes rapidly,
+the ball is small, and a correct data record does not guarantee a human-visible
+result. The project therefore keeps strict visual gates and records failures rather
+than claiming universal highlight accuracy.
 
-- PostgreSQL for real multi-user deployment.
-- Durable cloud queues and object storage.
-- Account-based authentication and authorization.
-- A stronger review interface for ambiguous football moments.
-- Production metrics for edit-free pass rate, false-goal rate, render failure
-  rate and cost per video.
-- Evaluation on larger rights-cleared datasets and real audience feedback.
+Next milestones:
 
-## Portfolio Notes
+1. Evaluate goal recall and visible phase coverage on a larger rights-cleared set.
+2. Improve broadcast-independent scorebug localization and temporal OCR stability.
+3. Strengthen ball/scorer tracking without aggressive or distracting crop motion.
+4. Add PostgreSQL, durable queues and object storage for real multi-user operation.
+5. Measure edit-free pass rate, render reliability, latency and cost per video.
 
-This project demonstrates work across:
+## What This Project Demonstrates
 
-- backend architecture and API boundaries;
-- asynchronous job processing and failure recovery;
-- computer vision and media-processing pipelines;
-- deterministic graphics and animation systems;
-- test design for subjective, visual output;
-- product analytics and controlled experimentation;
-- safety, provenance and rights-aware release workflows.
-
-The most important lesson from ShortsEngine has been that useful AI products need
-more than a good model call. They need contracts, evidence, fallbacks, observability
-and a clear place for human judgment.
+- Designing backend boundaries for unreliable AI and media tools.
+- Building asynchronous workflows with recovery, idempotency and safe failure.
+- Combining OCR, audio, vision and timeline evidence without overclaiming certainty.
+- Testing subjective visual output with deterministic metrics and human review.
+- Turning product risks into explicit contracts, observability and release gates.
+- Balancing technical ambition with rights, provenance and operational constraints.
 
 ## Author
 
 **Anastasis Chatzedakis**<br>
-3rd-year student, Department of Management Science and Technology (DET)<br>
-Athens University of Economics and Business (AUEB)
+Undergraduate student, Department of Management Science and Technology<br>
+Athens University of Economics and Business
 
 - GitHub: [@anaschatz](https://github.com/anaschatz)
 - Email: [t8240165@aueb.gr](mailto:t8240165@aueb.gr)
 
 ---
 
-Built in Athens while studying how technology, operations and product decisions
-come together in real systems.
+Built in Athens as a student project about AI systems, media operations and product
+engineering.
