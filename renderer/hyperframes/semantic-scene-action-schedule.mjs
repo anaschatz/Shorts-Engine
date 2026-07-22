@@ -1,4 +1,12 @@
 import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const {
+  semanticSimpleExplainerPresentationTiming,
+} = require(
+  "../../server/pipelines/narrated-short/animation/semantic-simple-explainer.cjs",
+);
 
 export const SEMANTIC_SCENE_ACTION_SCHEDULE_PROFILE_ID =
   "dark_curiosity_semantic_scene_action_schedule_v1";
@@ -419,6 +427,209 @@ export function compileSemanticSceneActionSchedule({
   });
 }
 
+function simpleExplainerReadabilityHolds(
+  group,
+  action,
+  presentationTiming,
+) {
+  const domainStartFrame = group.startFrame + 1;
+  const domainEndFrame = group.endFrame;
+  const actionMotionStartFrame = action.endFrame === action.startFrame
+    ? action.startFrame
+    : action.startFrame + 1;
+  const motionRanges = [
+    {
+      startFrame: group.startFrame + 1,
+      endFrame: presentationTiming.revealSettleFrame + 1,
+    },
+    ...(action.op === "create"
+      ? []
+      : [{
+        startFrame: actionMotionStartFrame,
+        endFrame: action.endFrame + 1,
+      }]),
+    ...(presentationTiming.secondaryRevealStartFrame === null
+      ? []
+      : [{
+        startFrame: presentationTiming.secondaryRevealStartFrame + 1,
+        endFrame: presentationTiming.secondaryRevealSettleFrame + 1,
+      }]),
+  ].map((range) => ({
+    startFrame: Math.max(domainStartFrame, range.startFrame),
+    endFrame: Math.min(domainEndFrame, range.endFrame),
+  })).filter((range) => range.startFrame < range.endFrame)
+    .sort((left, right) => (
+      left.startFrame - right.startFrame
+      || left.endFrame - right.endFrame
+    ));
+  const mergedMotionRanges = [];
+  for (const range of motionRanges) {
+    const previous = mergedMotionRanges.at(-1);
+    if (previous && range.startFrame <= previous.endFrame) {
+      previous.endFrame = Math.max(previous.endFrame, range.endFrame);
+    } else {
+      mergedMotionRanges.push({ ...range });
+    }
+  }
+  const holds = [];
+  let cursor = domainStartFrame;
+  for (const range of mergedMotionRanges) {
+    if (cursor < range.startFrame) {
+      holds.push({ startFrame: cursor, endFrame: range.startFrame });
+    }
+    cursor = Math.max(cursor, range.endFrame);
+  }
+  if (cursor < domainEndFrame) {
+    holds.push({ startFrame: cursor, endFrame: domainEndFrame });
+  }
+  return holds.map((hold, index) => ({
+    id: `${group.id}_static_complement_${index + 1}`,
+    ...hold,
+  }));
+}
+
+export function compileSemanticSimpleExplainerGroupActionSchedule({
+  sceneDslPlan,
+  sentences,
+  visualGroups,
+  fps,
+  durationFrames,
+} = {}) {
+  plainObject(sceneDslPlan, "Simple-explainer Scene DSL plan");
+  if (
+    !Array.isArray(sentences)
+    || !Array.isArray(visualGroups)
+    || !visualGroups.length
+    || visualGroups.length > 20
+    || !Array.isArray(sceneDslPlan.scenes)
+    || sceneDslPlan.scenes.length !== sentences.length
+  ) {
+    fail("Simple-explainer action schedule requires aligned visual groups.");
+  }
+  const selectedScenes = [];
+  const selectedSentences = [];
+  const groupIntervals = [];
+  for (const [groupIndex, groupInput] of visualGroups.entries()) {
+    const group = plainObject(
+      groupInput,
+      `Simple-explainer visual group ${groupIndex}`,
+    );
+    const anchorSentenceIndex = integer(
+      group.anchorSentenceIndex,
+      `Simple-explainer visual group ${groupIndex} anchor`,
+      0,
+      sentences.length - 1,
+    );
+    const sentence = sentences[anchorSentenceIndex];
+    const scene = sceneDslPlan.scenes[anchorSentenceIndex];
+    if (!sentence || !scene) {
+      fail(`Simple-explainer visual group ${groupIndex} driver is unavailable.`);
+    }
+    selectedScenes.push(scene);
+    selectedSentences.push(sentence);
+    groupIntervals.push({
+      sentenceId: sentence.id,
+      startFrame: group.startFrame,
+      semanticEndFrame: group.semanticEndFrame,
+      endFrame: group.endFrame,
+    });
+  }
+  const compiled = compileSemanticSceneActionSchedule({
+    sceneDslPlan: {
+      ...sceneDslPlan,
+      scenes: selectedScenes,
+    },
+    sentences: selectedSentences,
+    intervals: groupIntervals,
+    fps,
+    durationFrames,
+  });
+  const scenes = compiled.scenes.map((scene, groupIndex) => {
+    const group = visualGroups[groupIndex];
+    const { routePoints: compiledRoutePoints, ...sceneWithoutRoute } = scene;
+    const primaryCreate = scene.actions.find((action) => (
+      action.op === "create" && action.target === "module_primary"
+    ));
+    const groundedRouteMove = group.visualKind === "route"
+      ? scene.actions.find((action) => (
+        action.op === "move" && action.target === "module_primary"
+      ))
+      : null;
+    const sourceAction = groundedRouteMove || primaryCreate;
+    if (!sourceAction) {
+      fail(`Simple-explainer visual group ${groupIndex} has no single motion channel.`);
+    }
+    const presentationTiming = semanticSimpleExplainerPresentationTiming({
+      fps: compiled.fps,
+      startFrame: group.startFrame,
+      semanticEndFrame: group.semanticEndFrame,
+      endFrame: group.endFrame,
+      stepStartFrames: group.stepStartFrames,
+    });
+    const selectedAction = sourceAction.op === "move"
+      ? {
+        ...sourceAction,
+        startFrame: Math.max(
+          sourceAction.startFrame,
+          presentationTiming.revealSettleFrame,
+        ),
+      }
+      : sourceAction;
+    if (selectedAction.startFrame > selectedAction.endFrame) {
+      fail(`Simple-explainer visual group ${groupIndex} cannot serialize its motion.`);
+    }
+    const actions = [selectedAction];
+    const hasMoveAction = selectedAction.op === "move";
+    // Benchmark QA ranges are transition-target intervals. The complement
+    // starts after each full-progress frame, so final reveal/action steps and
+    // the scene-boundary transition remain analyzed.
+    const readabilityHolds = simpleExplainerReadabilityHolds(
+      group,
+      selectedAction,
+      presentationTiming,
+    );
+    return {
+      ...sceneWithoutRoute,
+      sentenceIndex: group.anchorSentenceIndex,
+      visualSceneId: safeId(
+        group.id,
+        `Simple-explainer visual group ${groupIndex} id`,
+      ),
+      groupIndex,
+      anchorSentenceIndex: group.anchorSentenceIndex,
+      anchorSentenceId: safeId(
+        group.anchorSentenceId,
+        `Simple-explainer visual group ${groupIndex} anchor id`,
+      ),
+      sentenceIndices: group.sentenceIndices.map((sentenceIndex) => (
+        integer(
+          sentenceIndex,
+          `Simple-explainer visual group ${groupIndex} sentence index`,
+          0,
+          sentences.length - 1,
+        )
+      )),
+      presentationTiming,
+      readabilityHolds,
+      ...(hasMoveAction && compiledRoutePoints
+        ? { routePoints: compiledRoutePoints }
+        : {}),
+      actions,
+    };
+  });
+  const normalized = {
+    profileId: compiled.profileId,
+    bindings: compiled.bindings,
+    fps: compiled.fps,
+    durationFrames: compiled.durationFrames,
+    scenes,
+  };
+  return deepFreeze({
+    ...normalized,
+    contentHash: contentHash(normalized),
+  });
+}
+
 export function semanticSceneActionStateAtFrame(sceneSchedule, rawFrame) {
   if (
     !sceneSchedule
@@ -653,6 +864,8 @@ export function semanticSceneActionQaPlan(schedule) {
 
   const signatureFrames = new Map();
   const settledHoldFrames = [];
+  const readabilityHolds = [];
+  const presentationFrames = [];
   for (const [sceneIndex, scene] of schedule.scenes.entries()) {
     plainObject(scene, `Scene action QA ${sceneIndex}`);
     if (!Array.isArray(scene.actions) || !scene.actions.length) {
@@ -666,6 +879,22 @@ export function semanticSceneActionQaPlan(schedule) {
         );
       }
     }
+    const secondaryStart = scene.presentationTiming?.secondaryRevealStartFrame;
+    const secondarySettle = scene.presentationTiming?.secondaryRevealSettleFrame;
+    if (secondaryStart !== null && secondaryStart !== undefined) {
+      if (
+        !Number.isInteger(secondaryStart)
+        || !Number.isInteger(secondarySettle)
+        || secondaryStart < scene.startFrame
+        || secondarySettle < secondaryStart
+        || secondarySettle > scene.semanticEndFrame
+      ) fail(`Scene action QA ${sceneIndex} secondary timing is invalid.`);
+      presentationFrames.push(
+        secondaryStart,
+        Math.floor((secondaryStart + secondarySettle) / 2),
+        secondarySettle,
+      );
+    }
     const holdFrame = Math.min(
       scene.endFrame - 1,
       Math.max(scene.startFrame, scene.holdStartFrame),
@@ -673,7 +902,42 @@ export function semanticSceneActionQaPlan(schedule) {
     if (holdFrame >= scene.holdStartFrame && holdFrame < scene.endFrame) {
       settledHoldFrames.push(holdFrame);
     }
+    if (scene.readabilityHolds !== undefined) {
+      if (!Array.isArray(scene.readabilityHolds)) {
+        fail(`Scene action QA ${sceneIndex} readability holds are invalid.`);
+      }
+      for (const [holdIndex, holdInput] of scene.readabilityHolds.entries()) {
+        const hold = plainObject(
+          holdInput,
+          `Scene action QA ${sceneIndex} readability hold ${holdIndex}`,
+        );
+        const id = safeId(
+          hold.id,
+          `Scene action QA ${sceneIndex} readability hold ${holdIndex} id`,
+        );
+        const startFrame = integer(
+          hold.startFrame,
+          `Scene action QA ${sceneIndex} readability hold ${holdIndex} start`,
+          scene.startFrame + 1,
+          scene.endFrame - 1,
+        );
+        const endFrame = integer(
+          hold.endFrame,
+          `Scene action QA ${sceneIndex} readability hold ${holdIndex} end`,
+          startFrame + 1,
+          scene.endFrame,
+        );
+        readabilityHolds.push({ id, startFrame, endFrame });
+      }
+    }
   }
+  if (
+    new Set(readabilityHolds.map((hold) => hold.id)).size
+      !== readabilityHolds.length
+    || readabilityHolds.some((hold, index) => (
+      index > 0 && hold.startFrame < readabilityHolds[index - 1].endFrame
+    ))
+  ) fail("Scene action QA readability holds are invalid.");
 
   const first = schedule.scenes[0];
   const entry = first.phaseWindows.entry;
@@ -697,8 +961,9 @@ export function semanticSceneActionQaPlan(schedule) {
       signature,
       frame: signatureFrames.get(signature),
     })),
-    phaseFrames: [...new Set(phaseFrames)],
+    phaseFrames: [...new Set([...phaseFrames, ...presentationFrames])],
     settledHoldFrames: [...new Set(settledHoldFrames)],
+    readabilityHolds,
   });
 }
 

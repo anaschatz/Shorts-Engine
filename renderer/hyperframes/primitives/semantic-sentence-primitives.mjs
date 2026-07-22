@@ -1,5 +1,7 @@
 import { createRequire } from "node:module";
 import {
+  SEMANTIC_SIMPLE_EXPLAINER_PROFILE_ID,
+  SEMANTIC_SIMPLE_EXPLAINER_VISUAL_KINDS,
   normalizeSemanticSceneComposition,
   semanticSceneCompositionMarkup,
 } from "./semantic-scene-composition.mjs";
@@ -213,6 +215,309 @@ function displayText(value, maximum = 24) {
   return `${shortest.slice(0, Math.max(3, maximum - 1))}…`;
 }
 
+const CONCEPT_HEADING_BOUNDARY_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "at",
+  "but",
+  "for",
+  "from",
+  "had",
+  "has",
+  "have",
+  "in",
+  "is",
+  "of",
+  "on",
+  "or",
+  "that",
+  "the",
+  "to",
+  "was",
+  "were",
+  "which",
+  "who",
+  "whose",
+  "with",
+]);
+
+function normalizedConceptHeadingSource(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, " ")
+    .replace(/^(?:AND|BUT|SO|WHILE|YET)\s+/, "")
+    .replace(/^(?:A|AN|THE)\s+/, "")
+    .replace(/[,:;.!?]+$/, "")
+    .trim();
+}
+
+function conceptHeadingTokens(value) {
+  return normalizedConceptHeadingSource(value)
+    .split(" ")
+    .filter(Boolean);
+}
+
+export function semanticConceptHeading(parameters, maximum = 32) {
+  if (
+    !parameters
+    || typeof parameters !== "object"
+    || Array.isArray(parameters)
+    || !Number.isInteger(maximum)
+    || maximum < 18
+    || maximum > 48
+  ) throw new TypeError("Semantic concept heading parameters are invalid.");
+  const detailTokens = conceptHeadingTokens(parameters.detail?.value);
+  const subjectTokens = conceptHeadingTokens(parameters.subject?.value);
+  const tokens = detailTokens.length >= 5 ? detailTokens : subjectTokens;
+  if (!tokens.length) throw new TypeError("Semantic concept heading is empty.");
+  const exact = tokens.join(" ");
+  if (exact.length <= maximum) return exact;
+
+  const candidates = [];
+  for (let headCount = 1; headCount < tokens.length - 1; headCount += 1) {
+    for (
+      let tailCount = 2;
+      tailCount <= tokens.length - headCount - 1;
+      tailCount += 1
+    ) {
+      const head = tokens.slice(0, headCount);
+      const tail = tokens.slice(-tailCount);
+      const candidate = `${head.join(" ")} … ${tail.join(" ")}`;
+      if (candidate.length > maximum) continue;
+      const headBoundary = head.at(-1).toLowerCase().replace(/[^a-z]/g, "");
+      const tailBoundary = tail[0].toLowerCase().replace(/[^a-z]/g, "");
+      const invalidBoundary = CONCEPT_HEADING_BOUNDARY_WORDS.has(headBoundary)
+        || (
+          CONCEPT_HEADING_BOUNDARY_WORDS.has(tailBoundary)
+          && !["a", "an", "the"].includes(tailBoundary)
+        );
+      candidates.push({
+        candidate,
+        score: (
+          (invalidBoundary ? -1_000_000_000 : 0)
+          + (headCount + tailCount) * 10_000
+          + Math.min(headCount, 2) * 100
+          + Math.min(tailCount, 2) * 100
+          + headCount
+        ),
+      });
+    }
+  }
+  candidates.sort((left, right) => (
+    right.score - left.score
+    || left.candidate.localeCompare(right.candidate, "en-US")
+  ));
+  if (candidates.length) return candidates[0].candidate;
+
+  const tail = tokens.at(-1);
+  const headBudget = maximum - tail.length - 3;
+  const head = tokens[0].slice(0, Math.max(3, headBudget));
+  return `${head} … ${tail}`.slice(0, maximum);
+}
+
+function simpleHeadingQuantity(parameters) {
+  const raw = parameters.quantity?.value;
+  if (!raw) return null;
+  const parsed = parsedNumberPhrase(String(raw));
+  return Number.isInteger(parsed)
+    ? String(parsed)
+    : normalizedConceptHeadingSource(raw);
+}
+
+function simpleSourceBoundDuration(parameters, groupText) {
+  const numberWord = [
+    ...Object.keys(SIMPLE_NUMBER_WORDS),
+    "hundred",
+    "thousand",
+  ].join("|");
+  const numberPhrase = `(?:${numberWord})(?:[\\s-]+(?:and[\\s-]+)?(?:${numberWord}))*`;
+  const durationPattern = new RegExp(
+    `\\b(\\d+|${numberPhrase})\\s+(seconds?|minutes?|hours?|days?|weeks?|months?|years?)\\b`,
+    "i",
+  );
+  for (const value of [
+    groupText,
+    parameters.subject?.value,
+    parameters.detail?.value,
+  ]) {
+    const match = String(value || "").match(durationPattern);
+    const parsed = match ? parsedNumberPhrase(match[1]) : null;
+    if (Number.isInteger(parsed)) {
+      return Object.freeze({
+        value: String(parsed),
+        unit: match[2].toLocaleUpperCase("en-US"),
+      });
+    }
+  }
+  if (
+    /^(?:seconds?|minutes?|hours?|days?|weeks?|months?|years?)$/i
+      .test(parameters.quantity?.unit || "")
+  ) {
+    const parsed = parsedNumberPhrase(String(parameters.quantity.value));
+    if (Number.isInteger(parsed)) {
+      return Object.freeze({
+        value: String(parsed),
+        unit: String(parameters.quantity.unit).toLocaleUpperCase("en-US"),
+      });
+    }
+  }
+  return null;
+}
+
+const SIMPLE_EXPLAINER_HEADING_DEFAULT_MAXIMUM = 40;
+const SIMPLE_EXPLAINER_HEADING_RENDER_MAXIMUM = 120;
+const SOURCE_HEADING_NEGATION = /^(?:NO|NOR|NOT|NEVER|NEITHER|NOBODY|NOTHING|NOWHERE|WITHOUT|CANNOT|[A-Z]+N['’ʼ]T)$/;
+const SOURCE_HEADING_OPPOSITE_CUE = /\b(?:FAIL(?:S|ED|ING)? TO|LACK(?:S|ED|ING)?|UNABLE TO)\b/;
+const SOURCE_HEADING_FAIL_CUE = /^FAIL(?:S|ED|ING|URE)?$/;
+const SOURCE_HEADING_LACK_CUE = /^LACK(?:S|ED|ING)?$/;
+const SOURCE_HEADING_TO_CUE = /^(?:UNABLE|REFUS(?:E|ES|ED|ING))$/;
+const SOURCE_HEADING_LEXICAL_POLARITY = /^(?:IMPOSSIBLE|UNLIKELY|UNVERIFIED|UNCONFIRMED|REJECTED|DENIED)$/;
+const SOURCE_HEADING_NUMBER = /^(?:\d+|ZERO|ONE|TWO|THREE|FOUR|FIVE|SIX|SEVEN|EIGHT|NINE|TEN|ELEVEN|TWELVE|THIRTEEN|FOURTEEN|FIFTEEN|SIXTEEN|SEVENTEEN|EIGHTEEN|NINETEEN|TWENTY|THIRTY|FORTY|FIFTY|SIXTY|SEVENTY|EIGHTY|NINETY|HUNDRED|THOUSAND)(?:-[A-Z]+)?$/;
+
+function sourceHeadingLexicalToken(value) {
+  return value.replace(/^[^A-Z0-9]+|[^A-Z0-9]+$/g, "");
+}
+
+function sourceHeadingPolarityCueSpans(tokens) {
+  const lexical = tokens.flatMap((token, tokenIndex) => (
+    token
+      .replace(/[’ʼ]/g, "'")
+      .split(/[^A-Z0-9']+/)
+      .filter(Boolean)
+      .map((word) => Object.freeze({ word, tokenIndex }))
+  ));
+  const spans = [];
+  for (let index = 0; index < lexical.length; index += 1) {
+    const current = lexical[index];
+    if (
+      SOURCE_HEADING_NEGATION.test(current.word)
+      || SOURCE_HEADING_LACK_CUE.test(current.word)
+      || SOURCE_HEADING_LEXICAL_POLARITY.test(current.word)
+    ) {
+      spans.push(Object.freeze({
+        start: current.tokenIndex,
+        end: current.tokenIndex + 1,
+      }));
+    }
+    if (
+      SOURCE_HEADING_FAIL_CUE.test(current.word)
+      || SOURCE_HEADING_TO_CUE.test(current.word)
+    ) {
+      const toIndex = lexical.slice(index + 1, index + 5)
+        .findIndex((entry) => entry.word === "TO");
+      if (toIndex >= 0) {
+        const end = lexical[index + 1 + toIndex].tokenIndex + 1;
+        spans.push(Object.freeze({ start: current.tokenIndex, end }));
+      }
+    }
+  }
+  return Object.freeze(spans.filter((span, index) => (
+    !spans.slice(0, index).some((previous) => (
+      previous.start === span.start && previous.end === span.end
+    ))
+  )));
+}
+
+function sourceLockedHeading(value, maximum) {
+  const normalized = normalizedConceptHeadingSource(value);
+  if (!normalized) throw new TypeError("Semantic simple-explainer heading is empty.");
+  if (normalized.length <= maximum) return normalized;
+  const tokens = normalized.split(/\s+/).filter(Boolean);
+  const polarityCueSpans = sourceHeadingPolarityCueSpans(tokens);
+  const candidates = [];
+  for (let start = 0; start < tokens.length; start += 1) {
+    for (let end = start + 1; end <= tokens.length; end += 1) {
+      const candidateTokens = tokens.slice(start, end);
+      const exact = candidateTokens.join(" ");
+      const candidate = `${start > 0 ? "… " : ""}${exact}${end < tokens.length ? " …" : ""}`;
+      if (candidate.length > maximum) {
+        if (exact.length > maximum) break;
+        continue;
+      }
+      // A shortened proposition may omit context, but it must never omit a
+      // polarity operator. Keeping only an inner "unable/lacking/fail to"
+      // cue while dropping an outer "not" reverses what the narrator said.
+      // If all polarity cues cannot coexist inside the visual budget, there
+      // is no semantically safe heading and the renderer must fail closed.
+      if (polarityCueSpans.some((span) => (
+        span.start < start || span.end > end
+      ))) continue;
+      const lexical = candidateTokens.map(sourceHeadingLexicalToken);
+      const lexicalText = lexical.join(" ");
+      candidates.push({
+        candidate,
+        score: (
+          lexical.filter((item) => SOURCE_HEADING_NEGATION.test(item)).length * 1_000_000
+          + (SOURCE_HEADING_OPPOSITE_CUE.test(lexicalText) ? 1_000_000 : 0)
+          + lexical.filter((item) => SOURCE_HEADING_NUMBER.test(item)).length * 10_000
+          + candidateTokens.length * 100
+          + candidate.length
+          + (start === 0 ? 10 : 0)
+          + (end === tokens.length ? 5 : 0)
+        ),
+        start,
+      });
+    }
+  }
+  candidates.sort((left, right) => (
+    right.score - left.score
+    || left.start - right.start
+    || left.candidate.localeCompare(right.candidate, "en-US")
+  ));
+  if (!candidates.length) {
+    throw new TypeError("Semantic simple-explainer heading has no safe whole-token excerpt.");
+  }
+  return candidates[0].candidate;
+}
+
+function fullSourceLockedHeading(value) {
+  return String(value).trim().toUpperCase().replace(/\s+/g, " ");
+}
+
+export function semanticSimpleExplainerHeading(
+  parameters,
+  groupText,
+  maximum = SIMPLE_EXPLAINER_HEADING_DEFAULT_MAXIMUM,
+) {
+  if (
+    !parameters
+    || typeof parameters !== "object"
+    || Array.isArray(parameters)
+    || typeof groupText !== "string"
+    || !groupText.trim()
+    || groupText.length > 4096
+    || !Number.isInteger(maximum)
+    || maximum < 32
+    || maximum > SIMPLE_EXPLAINER_HEADING_RENDER_MAXIMUM
+  ) throw new TypeError("Semantic simple-explainer heading is invalid.");
+  const proposition = parameters.detail?.sourceRef?.value;
+  if (
+    typeof proposition !== "string"
+    || !proposition.trim()
+    || proposition !== parameters.detail?.value
+    || !groupText.includes(proposition)
+  ) {
+    throw new TypeError(
+      "Semantic simple-explainer heading requires an exact source-bound proposition.",
+    );
+  }
+  if (maximum === SIMPLE_EXPLAINER_HEADING_RENDER_MAXIMUM) {
+    if (proposition.length > SIMPLE_EXPLAINER_HEADING_RENDER_MAXIMUM) {
+      throw new TypeError(
+        "Semantic simple-explainer production heading exceeds its source budget.",
+      );
+    }
+    // Production StoryIR propositions are already hard-bounded to 120 source
+    // characters. Never feed them through the excerpt selector: Unicode case
+    // expansion can increase display length, but must not make the renderer
+    // drop negation, uncertainty, attribution, or any other source token.
+    return fullSourceLockedHeading(proposition);
+  }
+  return sourceLockedHeading(proposition, maximum);
+}
+
 function displayQuantity(parameters) {
   if (!parameters.quantity) return null;
   return [
@@ -260,6 +565,46 @@ function fitExactTextAttributes(
     attributes.push(`textLength="${width}"`, 'lengthAdjust="spacingAndGlyphs"');
   }
   return attributes.length ? ` ${attributes.join(" ")}` : "";
+}
+
+function semanticConceptLabelMarkup(value, sentenceIndex, step = "primary") {
+  if (!['primary', 'secondary'].includes(step)) {
+    throw new TypeError("Semantic concept label step is invalid.");
+  }
+  const lines = semanticSentenceTextLines(value, 38);
+  if (lines.length > 6) {
+    throw new TypeError("Semantic concept label exceeds its visual line budget.");
+  }
+  const longestLine = [...lines].sort(
+    (left, right) => right.length - left.length,
+  )[0];
+  const fit = fitExactTextAttributes(
+    longestLine,
+    lines.length === 1 ? 28 : 24,
+    24,
+    612,
+    lines.length === 1 ? 1.3 : 0.8,
+  );
+  const id = `semantic-concept-${sentenceIndex}${
+    step === "secondary" ? "-secondary" : ""
+  }`;
+  const stepAttributes = ` data-semantic-step-heading="${step}"${
+    step === "secondary" ? ' opacity="0"' : ""
+  }`;
+  if (lines.length === 1) {
+    return `<text id="${id}" x="360" y="210" text-anchor="middle"
+  class="sentence-concept-label"${fit} data-legibility-role="secondary"
+  data-contrast-background="#07111f"${stepAttributes}>${escapeSemanticSentenceXml(value)}</text>`;
+  }
+  const lineHeight = 30;
+  const startY = 210 - (lines.length - 1) * lineHeight;
+  return `<text id="${id}" x="360" y="${startY}" text-anchor="middle"
+  class="sentence-concept-label"${fit} data-multiline="true"
+  data-legibility-role="secondary" data-contrast-background="#07111f"${stepAttributes}>${lines
+    .map((line, index) => `<tspan x="360" y="${startY + index * lineHeight}">${
+      escapeSemanticSentenceXml(line)
+    }</tspan>`)
+    .join("")}</text>`;
 }
 
 const SIMPLE_NUMBER_WORDS = Object.freeze({
@@ -716,7 +1061,7 @@ function bitRegisterCauseEffectMarkup(parameters) {
   const rowGap = rows <= 2 ? 16 : rows === 3 ? 12 : 10;
   const registerHeight = rows * cellHeight + (rows - 1) * rowGap;
   const registerWidth = columns * cellWidth + (columns - 1) * cellGap;
-  const registerCenterX = 422;
+  const registerCenterX = 360;
   const registerStartX = registerCenterX - registerWidth / 2;
   const registerStartY = 430 - registerHeight / 2;
   const cells = Array.from({ length: bitCount }, (_, index) => {
@@ -737,41 +1082,21 @@ function bitRegisterCauseEffectMarkup(parameters) {
   }).join("");
   const quantityValue = displayQuantity(parameters) || "BIT FIELD";
   const quantity = escapeSemanticSentenceXml(quantityValue);
-  const detailValue = displayText(parameters.detail.value, 30);
-  const detail = escapeSemanticSentenceXml(detailValue);
-  const semanticContext = groundedSemanticContext(parameters);
-  const inputLabel = /\bgps\b/.test(semanticContext)
-    ? "GPS SIGNAL"
-    : /\bsignal\b/.test(semanticContext)
-      ? "SIGNAL"
-      : "ENCODED INPUT";
   return `<g data-geometry-kind="cause_effect_chain"
  data-cause-concept="bit_register" data-cause-asset="mapping_table"
  data-bit-render-mode="${exactBitGeometry ? "exact" : "symbolic_summary"}"
  data-declared-bit-count="${declaredBitCount === null ? "unspecified" : declaredBitCount}"
+ data-simple-visible-step-count="1"
  data-primitive-parameterized="true" class="semantic-geometry">
- <rect x="64" y="292" width="592" height="350" rx="32" class="sentence-surface"/>
+ <rect x="100" y="320" width="520" height="294" rx="34" class="sentence-surface"/>
  <g class="semantic-rise">
-  <path d="M76 438 C98 402 120 474 142 438 C164 402 186 474 208 438"
-   class="semantic-draw cool-line"/>
-  <text x="142" y="504" text-anchor="middle" class="micro-copy">${inputLabel}</text>
- </g>
- <path d="M210 438 H250 M232 424 L252 438 L232 452"
-  class="semantic-draw connector-line"/>
- <g class="semantic-rise">
-  <rect x="252" y="330" width="340" height="238" rx="22" class="cool-panel"/>
+  <rect x="164" y="354" width="392" height="196" rx="28" class="cool-panel"/>
   ${cells}
-  ${exactBitGeometry ? "" : `<text x="422" y="514" text-anchor="middle"
+  ${exactBitGeometry ? "" : `<text x="360" y="514" text-anchor="middle"
    class="micro-copy">SYMBOLIC SAMPLE</text>`}
-  <text x="422" y="548" text-anchor="middle" class="micro-copy warm-copy"
-   ${fitExactTextAttributes(quantityValue, 20, 14, 290).trim()}>${quantity}</text>
+  <text x="360" y="590" text-anchor="middle" class="large-value warm-copy"
+   ${fitExactTextAttributes(quantityValue, 42, 24, 420).trim()}>${quantity}</text>
  </g>
- <path d="M594 438 H618 M602 424 L622 438 L602 452"
-  class="semantic-draw connector-line"/>
- <path d="M628 380 V498 M628 380 H648 M628 498 H648"
-  class="semantic-draw warm-line"/>
- <text x="360" y="610" text-anchor="middle" class="timeline-label"
-  ${fitExactTextAttributes(detailValue, 19, 13, 520).trim()}>${detail}</text>
 </g>`;
 }
 
@@ -800,35 +1125,25 @@ function wrongDateCauseEffectMarkup(sentence, parameters) {
       : "INPUT VALUE";
   return `<g data-geometry-kind="cause_effect_chain"
  data-cause-concept="wrong_date" data-cause-asset="${sentence.capability.assetId}"
+ data-simple-visible-step-count="2"
  data-primitive-parameterized="true" class="semantic-geometry">
  <g class="semantic-rise cause-node">
-  <rect x="64" y="372" width="166" height="168" rx="24" class="cool-panel"/>
-  <path d="M94 430 H200 M94 458 H176 M94 486 H188"
+  <rect x="82" y="348" width="232" height="232" rx="30" class="cool-panel"/>
+  <path d="M126 414 H270 M126 450 H238 M126 486 H254"
    class="semantic-draw cool-line"/>
-  <text x="147" y="518" text-anchor="middle" class="micro-copy">${inputLabel}</text>
+  <text x="198" y="548" text-anchor="middle" class="timeline-label">${inputLabel}</text>
  </g>
- <path d="M230 456 H274 M258 442 L276 456 L258 470"
+ <path d="M326 464 H394 M372 442 L398 464 L372 486"
   class="semantic-draw connector-line"/>
  <g class="semantic-rise cause-node">
-  <rect x="276" y="330" width="168" height="252" rx="24" class="sentence-surface"/>
+  <rect x="406" y="348" width="232" height="232" rx="30" class="reject-panel"/>
   ${isCalendar
-    ? `<rect x="316" y="380" width="88" height="104" rx="12" class="cool-panel"/>
-  <path d="M316 410 H404 M338 380 V398 M382 380 V398
-   M332 432 H350 M366 432 H384 M332 456 H350 M366 456 H384"
-   class="semantic-draw cool-line"/>`
-    : `<rect x="326" y="392" width="68" height="82" rx="14" class="cool-panel"/>
-  <circle cx="360" cy="434" r="10" class="cool-fill"/>
-  <path d="M342 382 Q360 362 378 382 M326 368 Q360 330 394 368"
-   class="semantic-draw cool-line"/>`}
-  <text x="360" y="542" text-anchor="middle" class="micro-copy">INTERPRET</text>
- </g>
- <path d="M444 456 H488 M472 442 L490 456 L472 470"
-  class="semantic-draw connector-line"/>
- <g class="semantic-rise cause-node">
-  <rect x="488" y="372" width="168" height="168" rx="24" class="reject-panel"/>
-  <path d="M522 408 H622 M522 436 H594" class="semantic-draw warm-line"/>
-  <path d="M526 466 L616 520 M616 466 L526 520" class="semantic-draw error-cross"/>
-  <text x="572" y="526" text-anchor="middle" class="micro-copy">${outputLabel}</text>
+    ? `<rect x="466" y="390" width="112" height="116" rx="16" class="warm-panel"/>
+  <path d="M466 426 H578 M492 390 V412 M552 390 V412"
+   class="semantic-draw warm-line"/>`
+    : `<path d="M470 414 H574 M470 450 H548" class="semantic-draw warm-line"/>`}
+  <path d="M466 404 L578 516 M578 404 L466 516" class="semantic-draw error-cross"/>
+  <text x="522" y="548" text-anchor="middle" class="timeline-label">${outputLabel}</text>
  </g>
 </g>`;
 }
@@ -849,30 +1164,23 @@ function softwarePatchCauseEffectMarkup(parameters) {
     : "UPDATE";
   return `<g data-geometry-kind="cause_effect_chain"
  data-cause-concept="software_patch" data-cause-asset="receiver_device"
+ data-simple-visible-step-count="2"
  data-primitive-parameterized="true" class="semantic-geometry">
  <g class="semantic-rise cause-node">
-  <rect x="62" y="372" width="174" height="170" rx="24" class="reject-panel"/>
-  <path d="M94 420 H204 M94 456 H184 M94 492 H198"
+  <rect x="82" y="348" width="232" height="232" rx="30" class="reject-panel"/>
+  <path d="M126 410 H270 M126 452 H246 M126 494 H260"
    class="semantic-draw error-cross"/>
-  <text x="149" y="522" text-anchor="middle" class="micro-copy">${problemLabel}</text>
+  <text x="198" y="548" text-anchor="middle" class="timeline-label">${problemLabel}</text>
  </g>
- <path d="M236 456 H276 M260 442 L278 456 L260 470"
+ <path d="M326 464 H394 M372 442 L398 464 L372 486"
   class="semantic-draw connector-line"/>
  <g class="semantic-rise cause-node">
-  <rect x="276" y="326" width="168" height="260" rx="24" class="sentence-surface"/>
-  <rect x="326" y="376" width="68" height="82" rx="14" class="cool-panel"/>
-  <circle cx="360" cy="418" r="10" class="cool-fill"/>
-  <circle cx="402" cy="368" r="28" class="warm-panel"/>
-  <path d="M390 368 H414 M402 356 V380" class="semantic-draw warm-line"/>
-  <text x="360" y="520" text-anchor="middle" class="micro-copy">${patchLabel}</text>
- </g>
- <path d="M444 456 H486 M470 442 L488 456 L470 470"
-  class="semantic-draw connector-line"/>
- <g class="semantic-rise cause-node">
-  <rect x="486" y="372" width="174" height="170" rx="24" class="warm-panel"/>
-  <path d="M522 450 L554 482 L624 408" class="semantic-draw warm-line"/>
-  <text x="573" y="522" text-anchor="middle" class="micro-copy"
-   ${fitExactTextAttributes("UPDATE REQUIRED", 20, 13, 142).trim()}>UPDATE REQUIRED</text>
+  <rect x="406" y="348" width="232" height="232" rx="30" class="warm-panel"/>
+  <rect x="472" y="392" width="100" height="112" rx="18" class="sentence-surface"/>
+  <path d="M492 448 H552 M522 418 V478" class="semantic-draw warm-line"/>
+  <path d="M466 506 L500 536 L580 406" class="semantic-draw warm-line"/>
+  <text x="522" y="548" text-anchor="middle" class="timeline-label"
+   ${fitExactTextAttributes(patchLabel, 22, 15, 188).trim()}>${patchLabel}</text>
  </g>
 </g>`;
 }
@@ -1031,11 +1339,18 @@ function causeEffectMarkup(sentence) {
 </g>`;
 }
 
-function comparisonMarkup(sentence) {
+function comparisonMarkup(sentence, simpleExplainerContext = null) {
   const rejected = sentence.visualIntent.stateTransition === "reject_hypothesis";
   const parameters = sentence.primitiveParameters;
   if (parameters) {
     const variant = rendererVariant(sentence, parameters);
+    const groupedCounterNotTime = Boolean(
+      simpleExplainerContext?.profileId === SEMANTIC_SIMPLE_EXPLAINER_PROFILE_ID
+      && typeof simpleExplainerContext.groupText === "string"
+      && visualConceptRegistry.semanticCounterNotTimeClaimMatches(
+        simpleExplainerContext.groupText,
+      )
+    );
     if (
       variant === "counter_capacity_comparison"
     ) {
@@ -1067,6 +1382,7 @@ function comparisonMarkup(sentence) {
       ).toLocaleUpperCase("en-US");
       return `<g data-geometry-kind="side_by_side_comparison"
  data-comparison-concept="capacity" data-primitive-parameterized="true"
+ data-simple-visible-step-count="2"
  class="semantic-geometry">
  <g class="semantic-compare-left semantic-rise">
   <rect x="66" y="320" width="270" height="312" rx="28" class="sentence-surface"/>
@@ -1090,9 +1406,11 @@ function comparisonMarkup(sentence) {
     }
     if (
       variant === "counter_not_time"
+      || (rejected && groupedCounterNotTime)
     ) {
       return `<g data-geometry-kind="side_by_side_comparison"
  data-comparison-concept="counter_vs_time"
+ data-simple-visible-step-count="2"
  data-primitive-parameterized="true" class="semantic-geometry">
  <g class="semantic-compare-left semantic-rise">
   <rect x="62" y="318" width="274" height="322" rx="30" class="sentence-surface"/>
@@ -1110,7 +1428,6 @@ function comparisonMarkup(sentence) {
  </g>
  <circle cx="360" cy="478" r="38" class="reject-panel"/>
  <text x="360" y="490" text-anchor="middle" class="comparison-glyph">≠</text>
- <text x="360" y="690" text-anchor="middle" class="timeline-label warm-copy">NOT TIME ITSELF</text>
 </g>`;
     }
     const subject = escapeSemanticSentenceXml(
@@ -1656,7 +1973,901 @@ function boundedUncertaintyMarkup(sentence) {
 </g>`;
 }
 
-function primitiveMarkup(sentence, sentenceIndex = 0) {
+function simpleCounterResetMarkup(parameters) {
+  const target = simpleHeadingQuantity(parameters) || "0";
+  return `<g data-geometry-kind="finite_counter_rollover"
+ data-finite-counter-concept="wrap" data-simple-explainer-primary="true" data-simple-focus-root="true"
+ data-simple-visible-step-count="1" data-simple-focal-object-count="1"
+ data-simple-label-count="2" data-primitive-parameterized="true"
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <text x="214" y="466" text-anchor="middle" class="counter-value">LAST</text>
+  <text x="214" y="520" text-anchor="middle" class="micro-copy">COUNTER VALUE</text>
+  <path d="M322 474 H418 M390 446 L422 474 L390 502"
+   class="semantic-draw connector-line"/>
+  <text x="510" y="486" text-anchor="middle" class="counter-value warm-copy">${escapeSemanticSentenceXml(target)}</text>
+  <text x="510" y="540" text-anchor="middle" class="micro-copy">RESET</text>
+ </g>
+</g>`;
+}
+
+function simpleWrongDateMarkup() {
+  return `<g data-geometry-kind="cause_effect_chain"
+ data-cause-concept="wrong_date" data-simple-explainer-primary="true" data-simple-focus-root="true"
+ data-simple-visible-step-count="1" data-simple-focal-object-count="1"
+ data-simple-label-count="1" data-primitive-parameterized="true"
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <rect x="202" y="320" width="316" height="294" rx="34" class="reject-panel"/>
+  <rect x="272" y="374" width="176" height="142" rx="20" class="sentence-surface"/>
+  <path d="M272 418 H448 M310 374 V398 M410 374 V398"
+   class="semantic-draw warm-line"/>
+  <path d="M286 356 L434 536 M434 356 L286 536"
+   class="semantic-draw error-cross"/>
+  <text x="360" y="574" text-anchor="middle" class="micro-copy">WRONG DATE</text>
+ </g>
+</g>`;
+}
+
+function simpleBitRegisterMarkup(parameters, groupText, stepCount) {
+  const declared = parsedNumberPhrase(parameters.quantity?.value || "");
+  const exact = Number.isInteger(declared) && declared > 0 && declared <= 12;
+  const visibleCount = exact ? declared : 8;
+  const cellWidth = 40;
+  const gap = 12;
+  const totalWidth = visibleCount * cellWidth + (visibleCount - 1) * gap;
+  const startX = 360 - totalWidth / 2;
+  const cells = Array.from({ length: visibleCount }, (_, index) => (
+    `<rect x="${(startX + index * (cellWidth + gap)).toFixed(1)}" y="414"
+ width="${cellWidth}" height="58" rx="9" class="cool-panel" data-bit-index="${index}"/>`
+  )).join("");
+  const quantity = displayQuantity(parameters) || "BIT REGISTER";
+  const bounded = stepCount === 2;
+  const boundedLabel = /\bfinite\s+range\b/i.test(groupText)
+    ? "FINITE RANGE"
+    : /\blimited\b/i.test(groupText)
+      ? "LIMITED VALUES"
+      : "BOUNDED RANGE";
+  return `<g data-geometry-kind="cause_effect_chain"
+ data-cause-concept="bit_register" data-simple-explainer-primary="true" data-simple-focus-root="true"
+ data-bit-render-mode="${exact ? "exact" : "symbolic_summary"}"
+ data-declared-bit-count="${Number.isInteger(declared) ? declared : "unspecified"}"
+ data-simple-visible-step-count="${bounded ? 2 : 1}" data-simple-focal-object-count="1"
+ data-simple-label-count="2" data-primitive-parameterized="true"
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  ${cells}
+  ${exact ? "" : `<text x="590" y="454" text-anchor="middle" class="large-value">…</text>`}
+  <text x="360" y="548" text-anchor="middle" class="large-value warm-copy"
+   ${fitExactTextAttributes(quantity, 44, 28, 500).trim()}>${escapeSemanticSentenceXml(quantity)}</text>
+  <text x="360" y="602" text-anchor="middle" class="micro-copy${bounded ? " semantic-step-secondary" : ""}">${bounded ? boundedLabel : "WEEK COUNTER"}</text>
+ </g>
+</g>`;
+}
+
+function simpleDurationYears(groupText) {
+  const context = groupText.toLocaleLowerCase("en-US");
+  const patterns = [
+    /\b(?:counter|cycle|range)\b[^.!?]{0,40}\b(?:covers?|lasts?|spans?)\b[^.!?]{0,24}\b(?:almost|about|around|nearly|roughly)?\s*([a-z\d-]+)\s+years?\b/,
+    /\broll(?:ed|s)?\s+over\b[^.!?]{0,32}\bafter\b[^.!?]{0,16}\b(?:almost|about|around|nearly|roughly)?\s*([a-z\d-]+)\s+years?\b/,
+    /\bafter\b[^.!?]{0,16}\b(?:almost|about|around|nearly|roughly)?\s*([a-z\d-]+)\s+years?\b[^.!?]{0,64}\b(?:counter\b[^.!?]{0,24})?roll(?:ed|s)?\s+over\b/,
+  ];
+  for (const pattern of patterns) {
+    const match = context.match(pattern);
+    if (!match) continue;
+    const value = parsedNumberPhrase(match[1]);
+    if (Number.isInteger(value)) return value;
+  }
+  return null;
+}
+
+function simpleCounterRecurrenceMarkup(groupText, stepCount) {
+  const years = simpleDurationYears(groupText);
+  const duration = years === null ? "FINITE CYCLE" : `~${years} YEARS`;
+  const stagedReset = stepCount === 2;
+  const recurrenceLabel = /\broll(?:ed|s)?\s+over\b/i.test(groupText)
+    ? "THEN THE COUNTER ROLLS OVER"
+    : /\breset(?:s|ting)?\b/i.test(groupText)
+      ? "THEN THE COUNTER RESETS"
+      : "THEN THE CYCLE REPEATS";
+  return `<g data-geometry-kind="finite_counter_rollover"
+ data-finite-counter-concept="recurrence" data-simple-explainer-primary="true" data-simple-focus-root="true"
+ data-simple-visible-step-count="${stagedReset ? 2 : 1}" data-simple-focal-object-count="1"
+ data-simple-label-count="2" data-primitive-parameterized="true"
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <path d="M190 490 A170 150 0 1 1 494 566"
+   class="semantic-draw counter-cycle"/>
+  <text x="360" y="486" text-anchor="middle" class="counter-value warm-copy"
+   ${fitExactTextAttributes(duration, 66, 38, 430).trim()}>${duration}</text>
+  <g${stagedReset ? ' class="semantic-step-secondary"' : ""}>
+   <path d="M470 536 L496 568 L530 544" class="semantic-draw connector-line"/>
+   <text x="360" y="548" text-anchor="middle" class="micro-copy">${recurrenceLabel}</text>
+  </g>
+ </g>
+</g>`;
+}
+
+function simpleSoftwarePatchMarkup() {
+  return `<g data-geometry-kind="cause_effect_chain"
+ data-cause-concept="software_patch" data-simple-renderer-variant="software_patch_card"
+ data-simple-explainer-primary="true" data-simple-focus-root="true"
+ data-simple-visible-step-count="1" data-simple-focal-object-count="1"
+ data-simple-label-count="1" data-primitive-parameterized="true"
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <rect x="212" y="318" width="296" height="294" rx="38" class="sentence-surface"/>
+  <rect x="258" y="366" width="204" height="126" rx="22" class="cool-panel"/>
+  <path d="M292 406 H428 M292 446 H390" class="semantic-draw cool-line"/>
+  <circle cx="462" cy="348" r="54" class="warm-panel"/>
+  <path d="M432 348 L452 368 L494 320" class="semantic-draw warm-line"/>
+  <text x="360" y="558" text-anchor="middle" class="micro-copy">SOFTWARE PATCH</text>
+ </g>
+</g>`;
+}
+
+function simpleFiniteCounterLoopBody() {
+  return `<g data-simple-mechanism="finite_counter_loop">
+   <text x="226" y="500" text-anchor="middle" class="large-value">MAX</text>
+   <path d="M314 478 H430 M400 448 L432 478 L400 508"
+    class="semantic-draw connector-line"/>
+   <text x="500" y="506" text-anchor="middle" class="counter-value warm-copy">0</text>
+   <path d="M500 552 C458 624 266 624 220 552"
+    class="semantic-draw cool-line"/>
+   <path d="M220 552 L250 530 M220 552 L250 574"
+    class="semantic-draw cool-line"/>
+  </g>`;
+}
+
+function simpleFutureRolloverMarkup(parameters) {
+  const value = simpleHeadingQuantity(parameters) || "NEXT";
+  return `<g data-geometry-kind="chronology_records"
+ data-simple-explainer-primary="true" data-simple-focus-root="true" data-simple-visible-step-count="1"
+ data-simple-focal-object-count="1" data-simple-label-count="2"
+ data-primitive-parameterized="true" class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <path d="M126 492 H590 M558 462 L592 492 L558 522"
+   class="semantic-draw chronology-axis"/>
+  <circle cx="486" cy="492" r="18" class="warm-fill"/>
+  <text x="486" y="424" text-anchor="middle" class="counter-value warm-copy"
+   ${fitExactTextAttributes(value, 70, 42, 250).trim()}>${escapeSemanticSentenceXml(value)}</text>
+  <text x="486" y="568" text-anchor="middle" class="micro-copy">NEXT LEGACY ROLLOVER</text>
+ </g>
+</g>`;
+}
+
+function simpleCounterCapacityMarkup() {
+  return `<g data-geometry-kind="side_by_side_comparison"
+ data-comparison-concept="capacity" data-simple-explainer-primary="true" data-simple-focus-root="true"
+ data-simple-visible-step-count="1" data-simple-focal-object-count="1"
+ data-simple-label-count="2" data-primitive-parameterized="true"
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <text x="126" y="408" class="micro-copy">LEGACY</text>
+  <path d="M126 450 H360" class="semantic-draw cool-line"/>
+  <path d="M360 426 V474" class="semantic-draw error-cross"/>
+  <text x="126" y="542" class="micro-copy">NEWER</text>
+  <path d="M126 584 H594 M562 554 L596 584 L562 614"
+   class="semantic-draw warm-line"/>
+ </g>
+</g>`;
+}
+
+function simpleHauntedToOrdinaryMarkup() {
+  return `<g data-geometry-kind="evidence_inspection"
+ data-evidence-variant="ordinary_mechanism"
+ data-simple-renderer-variant="mystery_to_counter_loop"
+ data-simple-explainer-primary="true" data-simple-focus-root="true" data-simple-visible-step-count="2"
+ data-simple-focal-object-count="1" data-simple-label-count="2"
+ data-primitive-parameterized="true" class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <g class="semantic-step-primary-only">
+   <circle cx="360" cy="480" r="126" class="reject-halo"/>
+   <text x="360" y="520" text-anchor="middle" class="counter-value">?</text>
+   <text x="360" y="660" text-anchor="middle" class="micro-copy">LOOKED MYSTERIOUS</text>
+  </g>
+  <g class="semantic-step-secondary">
+   ${simpleFiniteCounterLoopBody()}
+   <text x="360" y="680" text-anchor="middle" class="micro-copy">FINITE COUNTER LOOP</text>
+  </g>
+ </g>
+</g>`;
+}
+
+function simpleCounterNotTimeMarkup() {
+  return `<g data-geometry-kind="side_by_side_comparison"
+ data-comparison-concept="counter_vs_time" data-simple-explainer-primary="true" data-simple-focus-root="true"
+ data-simple-visible-step-count="2" data-simple-focal-object-count="1"
+ data-simple-label-count="2" data-primitive-parameterized="true"
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <g class="semantic-step-primary-only">
+   <path d="M240 482 A120 120 0 1 1 432 568 M438 538 L432 570 L400 560"
+    class="semantic-draw cool-line"/>
+   <text x="360" y="500" text-anchor="middle" class="counter-value warm-copy">0</text>
+   <text x="360" y="660" text-anchor="middle" class="micro-copy">NUMBER RESETS</text>
+  </g>
+  <g class="semantic-step-secondary">
+   <circle cx="300" cy="482" r="104" class="cool-halo"/>
+   <path d="M300 418 V482 L348 514" class="semantic-draw cool-line"/>
+   <path d="M420 482 H594 M562 452 L596 482 L562 512" class="semantic-draw warm-line"/>
+   <text x="420" y="660" text-anchor="middle" class="micro-copy">TIME CONTINUES</text>
+  </g>
+ </g>
+</g>`;
+}
+
+function simpleFrequencyBandMarkup(parameters, groupText, stepCount) {
+  const duration = simpleSourceBoundDuration(parameters, groupText);
+  const includesDuration = stepCount === 2;
+  return `<g data-geometry-kind="side_by_side_comparison"
+ data-simple-renderer-variant="frequency_band"
+ data-simple-explainer-primary="true" data-simple-focus-root="true"
+ data-simple-visible-step-count="${includesDuration ? 2 : 1}" data-simple-focal-object-count="1"
+ data-simple-label-count="${includesDuration ? 2 : 1}" data-primitive-parameterized="true"
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <g${includesDuration ? ' class="semantic-step-primary-only"' : ""}>
+   <rect x="298" y="360" width="124" height="220" rx="34" class="cool-halo"/>
+   <path d="M102 470 C138 408 174 532 210 470 C246 408 282 532 318 470
+    C354 408 390 532 426 470 C462 408 498 532 534 470 C558 436 582 436 610 470"
+    class="semantic-draw cool-line"/>
+   <path d="M326 390 V550 M394 390 V550" class="semantic-draw warm-line"/>
+   <text x="360" y="642" text-anchor="middle" class="micro-copy">PROMISING FREQUENCY BAND</text>
+  </g>
+  ${includesDuration ? `<g class="semantic-step-secondary">
+   <circle cx="360" cy="480" r="130" class="warm-halo"/>
+   <path d="M360 400 V480 L422 520" class="semantic-draw warm-line"/>
+   <text x="360" y="502" text-anchor="middle" class="large-value warm-copy">${escapeSemanticSentenceXml(duration?.value || "DURATION")}</text>
+   <text x="360" y="660" text-anchor="middle" class="micro-copy">${escapeSemanticSentenceXml(duration?.unit || "SIGNAL DURATION")}</text>
+  </g>` : ""}
+ </g>
+</g>`;
+}
+
+function simpleTelescopeBeamMarkup() {
+  return `<g data-geometry-kind="evidence_inspection"
+ data-simple-renderer-variant="telescope_beam_signal"
+ data-simple-explainer-primary="true" data-simple-focus-root="true"
+ data-simple-visible-step-count="1" data-simple-focal-object-count="1"
+ data-simple-label-count="1" data-primitive-parameterized="true"
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <path d="M102 506 C142 450 182 562 222 506 C262 450 302 562 342 506
+   C382 450 422 562 462 506 C502 450 542 562 582 506"
+   class="semantic-draw cool-line"/>
+  <path d="M360 324 V620" class="semantic-draw warm-line"/>
+  <circle cx="360" cy="506" r="24" class="warm-halo"/>
+  <text x="360" y="682" text-anchor="middle" class="micro-copy">TELESCOPE BEAM</text>
+ </g>
+</g>`;
+}
+
+function simpleBeamToInterferenceMarkup() {
+  return `<g data-geometry-kind="side_by_side_comparison"
+ data-simple-renderer-variant="beam_rejects_interference"
+ data-simple-explainer-primary="true" data-simple-focus-root="true"
+ data-simple-visible-step-count="2" data-simple-focal-object-count="1"
+ data-simple-label-count="2" data-primitive-parameterized="true"
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <g class="semantic-step-primary-only">
+   <path d="M108 506 C148 450 188 562 228 506 C268 450 308 562 348 506
+    C388 450 428 562 468 506 C508 450 548 562 588 506"
+    class="semantic-draw cool-line"/>
+   <path d="M360 324 V620" class="semantic-draw warm-line"/>
+   <circle cx="360" cy="506" r="24" class="warm-halo"/>
+   <text x="360" y="682" text-anchor="middle" class="micro-copy">STRENGTH TRACKED THE BEAM</text>
+  </g>
+  <g class="semantic-step-secondary">
+   <circle cx="360" cy="486" r="136" class="reject-halo"/>
+   <path d="M224 486 C258 432 292 540 326 486 C360 432 394 540 428 486 C462 432 496 540 530 486"
+    class="semantic-draw cool-line"/>
+   <path d="M266 382 L454 590 M454 382 L266 590" class="semantic-draw error-cross"/>
+   <text x="360" y="682" text-anchor="middle" class="micro-copy">LOCAL INTERFERENCE LESS LIKELY</text>
+  </g>
+ </g>
+</g>`;
+}
+
+function simpleAssumedSunkMarkup() {
+  return `<g data-geometry-kind="bounded_uncertainty"
+ data-simple-renderer-variant="assumed_sunk"
+ data-simple-explainer-primary="true" data-simple-focus-root="true"
+ data-simple-visible-step-count="1" data-simple-focal-object-count="1"
+ data-simple-label-count="1" data-primitive-parameterized="true"
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <path d="M110 410 H610" class="semantic-draw ice-line"/>
+  <path d="M204 506 L264 458 H458 L520 506 L488 552 H236 Z"
+   class="absence-outline"/>
+  <text x="360" y="530" text-anchor="middle" class="counter-value warm-copy">?</text>
+  <text x="360" y="642" text-anchor="middle" class="micro-copy">ASSUMED SUNK</text>
+ </g>
+</g>`;
+}
+
+function simpleAssumptionToSightingMarkup() {
+  return `<g data-geometry-kind="before_after"
+ data-simple-renderer-variant="assumption_to_sighting"
+ data-simple-explainer-primary="true" data-simple-focus-root="true"
+ data-simple-visible-step-count="2" data-simple-focal-object-count="1"
+ data-simple-label-count="2" data-primitive-parameterized="true"
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <g class="semantic-step-primary-only">
+   <path d="M110 408 H610" class="semantic-draw ice-line"/>
+   <path d="M204 506 L264 458 H458 L520 506 L488 552 H236 Z"
+    class="absence-outline"/>
+   <text x="360" y="530" text-anchor="middle" class="counter-value warm-copy">?</text>
+   <text x="360" y="650" text-anchor="middle" class="micro-copy">ASSUMED SUNK</text>
+  </g>
+  <g class="semantic-step-secondary">
+   <circle cx="360" cy="480" r="152" class="cool-halo"/>
+   <path d="M222 506 L278 458 H438 L494 506 L466 546 H250 Z"
+    class="semantic-draw cool-line"/>
+   <circle cx="360" cy="480" r="22" class="warm-fill"/>
+   <text x="360" y="668" text-anchor="middle" class="micro-copy">SPOTTED AGAIN</text>
+  </g>
+ </g>
+</g>`;
+}
+
+function simpleWitnessSightingMarkup(groupText) {
+  const boarded = /\bboarded\b/i.test(groupText);
+  return `<g data-geometry-kind="evidence_inspection"
+ data-simple-renderer-variant="${boarded ? "boarded_ship" : "ship_sighting"}"
+ data-simple-explainer-primary="true" data-simple-focus-root="true"
+ data-simple-visible-step-count="1" data-simple-focal-object-count="1"
+ data-simple-label-count="1" data-primitive-parameterized="true"
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  ${boarded
+    ? `<path d="M126 506 L190 448 H470 L540 506 L500 558 H164 Z"
+      class="semantic-draw cool-line"/>
+     <rect x="304" y="390" width="112" height="118" rx="14" class="sentence-surface"/>
+     <path d="M174 390 L304 470 M270 430 L308 472 L258 482" class="semantic-draw warm-line"/>`
+    : `<circle cx="360" cy="480" r="152" class="cool-halo"/>
+     <path d="M222 506 L278 458 H438 L494 506 L466 546 H250 Z"
+      class="semantic-draw cool-line"/>
+     <circle cx="360" cy="480" r="22" class="warm-fill"/>`}
+  <text x="360" y="668" text-anchor="middle" class="micro-copy">${boarded ? "BOARDING REPORTED" : "SPOTTED NEAR THE COAST"}</text>
+ </g>
+</g>`;
+}
+
+function simpleMysteriousAppearanceMarkup() {
+  return `<g data-geometry-kind="evidence_inspection"
+ data-simple-renderer-variant="mysterious_appearance"
+ data-simple-explainer-primary="true" data-simple-focus-root="true"
+ data-simple-visible-step-count="1" data-simple-focal-object-count="1"
+ data-simple-label-count="1" data-primitive-parameterized="true"
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <circle cx="360" cy="480" r="126" class="reject-halo"/>
+  <text x="360" y="520" text-anchor="middle" class="counter-value">?</text>
+  <text x="360" y="660" text-anchor="middle" class="micro-copy">LOOKED MYSTERIOUS</text>
+ </g>
+</g>`;
+}
+
+function simpleOrdinaryMechanismMarkup() {
+  return `<g data-geometry-kind="evidence_inspection"
+ data-simple-renderer-variant="ordinary_counter_loop"
+ data-simple-explainer-primary="true" data-simple-focus-root="true"
+ data-simple-visible-step-count="1" data-simple-focal-object-count="1"
+ data-simple-label-count="1" data-primitive-parameterized="true"
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  ${simpleFiniteCounterLoopBody()}
+  <text x="360" y="680" text-anchor="middle" class="micro-copy">FINITE COUNTER LOOP</text>
+ </g>
+</g>`;
+}
+
+function simpleTimeContinuesMarkup() {
+  return `<g data-geometry-kind="side_by_side_comparison"
+ data-simple-renderer-variant="time_continues"
+ data-simple-explainer-primary="true" data-simple-focus-root="true"
+ data-simple-visible-step-count="1" data-simple-focal-object-count="1"
+ data-simple-label-count="1" data-primitive-parameterized="true"
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <circle cx="292" cy="482" r="108" class="cool-halo"/>
+  <path d="M292 414 V482 L346 518" class="semantic-draw cool-line"/>
+  <path d="M410 482 H588 M556 452 L590 482 L556 512" class="semantic-draw warm-line"/>
+  <text x="410" y="650" text-anchor="middle" class="micro-copy">TIME CONTINUES</text>
+ </g>
+</g>`;
+}
+
+function simpleGenericStateLabel(parameters, fallback) {
+  const value = typeof parameters.stateToken === "string"
+    ? parameters.stateToken
+    : fallback;
+  return escapeSemanticSentenceXml(displayText(value || fallback, 18));
+}
+
+function simpleGenericPrimaryMarkup(
+  sentence,
+  parameters,
+  visualKind,
+  groupText,
+  stepCount,
+) {
+  const grammarId = sentence.capability.grammarId;
+  if (!SEMANTIC_SIMPLE_EXPLAINER_VISUAL_KINDS.includes(visualKind)) {
+    throw new TypeError("Semantic simple-explainer visual kind is unsupported.");
+  }
+  const geometryKind = {
+    before_after: "before_after",
+    finite_cycle: "finite_counter_rollover",
+    cause_effect_chain: "cause_effect_chain",
+    side_by_side_comparison: "side_by_side_comparison",
+    negative_space_absence: "negative_space_absence",
+    map_motion: "map_motion_route",
+    chronology_accumulation: "chronology_records",
+    evidence_inspection: "evidence_inspection",
+    bounded_uncertainty: "bounded_uncertainty",
+  }[grammarId];
+  if (!geometryKind) {
+    throw new TypeError("Semantic simple-explainer grammar is unsupported.");
+  }
+  const conceptId = escapeSemanticSentenceXml(
+    parameters.visualConceptId || `generic_${grammarId}`,
+  );
+  const state = simpleGenericStateLabel(parameters, "STATE");
+  const semanticContext = groupText.toLocaleLowerCase("en-US");
+  const yearMatch = groupText.match(/\b(?:18|19|20)\d{2}\b/);
+  const secondsMatch = semanticContext.match(
+    /\b([a-z\d-]+)\s+seconds?\b/,
+  );
+  const secondsValue = secondsMatch
+    ? parsedNumberPhrase(secondsMatch[1])
+    : null;
+  const contextualValue = yearMatch?.[0]
+    || (Number.isInteger(secondsValue) ? `${secondsValue} SECONDS` : null);
+  const quantity = displayQuantity(parameters);
+  const value = escapeSemanticSentenceXml(
+    displayText(contextualValue || quantity || parameters.stateToken || "EVENT", 20),
+  );
+  const metadata = (kind, steps, labels) => `data-simple-explainer-primary="true" data-simple-focus-root="true"
+ data-simple-visual-kind="${kind}" data-simple-concept-id="${conceptId}"
+ data-simple-visible-step-count="${steps}" data-simple-focal-object-count="1"
+ data-simple-label-count="${labels}" data-primitive-parameterized="true"`;
+
+  switch (visualKind) {
+    case "state_change":
+      if (stepCount === 1) {
+        return `<g data-geometry-kind="${geometryKind}" ${metadata(visualKind, 1, 1)}
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <circle cx="360" cy="470" r="112" class="cool-halo"/>
+  <text x="360" y="480" text-anchor="middle" class="micro-copy">${state}</text>
+ </g>
+</g>`;
+      }
+      return `<g data-geometry-kind="${geometryKind}" ${metadata(visualKind, 2, 2)}
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <g class="semantic-step-primary-only">
+   <circle cx="190" cy="470" r="82" class="cool-halo"/>
+   <text x="190" y="480" text-anchor="middle" class="micro-copy">BEFORE</text>
+  </g>
+  <g class="semantic-step-secondary">
+   <path d="M300 470 H416 M386 442 L420 470 L386 498"
+    class="semantic-draw connector-line"/>
+   <circle cx="530" cy="470" r="82" class="warm-halo"/>
+   <text x="530" y="480" text-anchor="middle" class="micro-copy">AFTER</text>
+  </g>
+ </g>
+</g>`;
+    case "cycle":
+      return `<g data-geometry-kind="${geometryKind}" ${metadata(visualKind, 1, 2)}
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <path d="M190 490 A170 150 0 1 1 494 566"
+   class="semantic-draw counter-cycle"/>
+  <path d="M470 536 L496 568 L530 544" class="semantic-draw connector-line"/>
+  <text x="360" y="486" text-anchor="middle" class="counter-value warm-copy"
+   ${fitExactTextAttributes(value, 66, 38, 430).trim()}>${value}</text>
+  <text x="360" y="548" text-anchor="middle" class="micro-copy">FINITE CYCLE</text>
+ </g>
+</g>`;
+    case "cause_effect":
+      if (stepCount === 1) {
+        return `<g data-geometry-kind="${geometryKind}" ${metadata(visualKind, 1, 1)}
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <rect x="218" y="352" width="284" height="244" rx="36" class="cool-panel"/>
+  <text x="360" y="486" text-anchor="middle" class="micro-copy">${state}</text>
+ </g>
+</g>`;
+      }
+      return `<g data-geometry-kind="${geometryKind}" ${metadata(visualKind, 2, 2)}
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <g class="semantic-step-primary-only">
+   <circle cx="184" cy="470" r="72" class="cool-halo"/>
+   <text x="184" y="480" text-anchor="middle" class="micro-copy">CAUSE</text>
+  </g>
+  <g class="semantic-step-secondary">
+   <path d="M284 470 H414 M384 442 L418 470 L384 498"
+    class="semantic-draw connector-line"/>
+   <circle cx="536" cy="470" r="82" class="warm-halo"/>
+   <text x="536" y="480" text-anchor="middle" class="micro-copy">${state}</text>
+  </g>
+ </g>
+</g>`;
+    case "comparison":
+      if (/\bfrequency\b/.test(semanticContext) && Number.isInteger(secondsValue)) {
+        return `<g data-geometry-kind="${geometryKind}" ${metadata(visualKind, 1, 2)}
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <path d="M112 470 C148 408 184 532 220 470 C256 408 292 532 328 470"
+   class="semantic-draw cool-line"/>
+  <text x="220" y="570" text-anchor="middle" class="micro-copy">FREQUENCY</text>
+  <circle cx="520" cy="470" r="92" class="warm-halo"/>
+  <path d="M520 412 V470 L566 500" class="semantic-draw warm-line"/>
+  <text x="520" y="610" text-anchor="middle" class="micro-copy">${secondsValue} SECONDS</text>
+ </g>
+</g>`;
+      }
+      return `<g data-geometry-kind="${geometryKind}" ${metadata(visualKind, 1, 2)}
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <text x="126" y="420" class="micro-copy">CLAIM</text>
+  <path d="M126 462 H344" class="semantic-draw cool-line"/>
+  <path d="M374 462 H594" class="semantic-draw warm-line"/>
+  <text x="594" y="420" text-anchor="end" class="micro-copy">${state}</text>
+  <text x="360" y="482" text-anchor="middle" class="counter-value warm-copy">≠</text>
+ </g>
+</g>`;
+    case "rejection":
+      if (stepCount === 2 && /\bghost\s+ship\b/.test(semanticContext)) {
+        return `<g data-geometry-kind="${geometryKind}" ${metadata(visualKind, 2, 2)}
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <path d="M96 486 L156 438 H298 L348 486 L318 532 H126 Z"
+   class="semantic-draw cool-line"/>
+  <text x="220" y="590" text-anchor="middle" class="micro-copy">DRIFT</text>
+  <g class="semantic-step-secondary">
+   <text x="390" y="504" text-anchor="middle" class="counter-value warm-copy">≠</text>
+   <text x="548" y="500" text-anchor="middle" class="counter-value">?</text>
+   <text x="548" y="590" text-anchor="middle" class="micro-copy">GHOST SHIP</text>
+  </g>
+ </g>
+</g>`;
+      }
+      if (stepCount === 2 && /\baliens?\b/.test(semanticContext)) {
+        return `<g data-geometry-kind="${geometryKind}" ${metadata(visualKind, 2, 2)}
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <circle cx="190" cy="470" r="92" class="cool-halo"/>
+  <text x="190" y="504" text-anchor="middle" class="counter-value">?</text>
+  <g class="semantic-step-secondary">
+   <text x="360" y="500" text-anchor="middle" class="counter-value warm-copy">≠</text>
+   <circle cx="530" cy="470" r="92" class="reject-halo"/>
+   <text x="530" y="480" text-anchor="middle" class="micro-copy">ALIENS</text>
+   <text x="360" y="620" text-anchor="middle" class="micro-copy">NO REPEATABLE PROOF</text>
+  </g>
+ </g>
+</g>`;
+      }
+      if (/\binterference\b/.test(semanticContext)) {
+        return `<g data-geometry-kind="${geometryKind}" ${metadata(visualKind, 1, 1)}
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <circle cx="360" cy="470" r="128" class="reject-halo"/>
+  <path d="M246 470 C276 418 306 522 336 470 C366 418 396 522 426 470 C456 418 486 522 516 470"
+   class="semantic-draw cool-line"/>
+  <path d="M276 372 L444 568 M444 372 L276 568" class="semantic-draw error-cross"/>
+  <text x="360" y="650" text-anchor="middle" class="micro-copy">LOCAL INTERFERENCE</text>
+ </g>
+</g>`;
+      }
+      if (stepCount === 2) {
+        return `<g data-geometry-kind="${geometryKind}" ${metadata(visualKind, 2, 2)}
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <g class="semantic-step-primary-only">
+   <circle cx="360" cy="470" r="112" class="cool-halo"/>
+   <text x="360" y="486" text-anchor="middle" class="micro-copy">CLAIM</text>
+  </g>
+  <g class="semantic-step-secondary">
+   <circle cx="360" cy="470" r="128" class="reject-halo"/>
+   <path d="M270 380 L450 560 M450 380 L270 560" class="semantic-draw error-cross"/>
+   <text x="360" y="650" text-anchor="middle" class="micro-copy">${state}</text>
+  </g>
+ </g>
+</g>`;
+      }
+      return `<g data-geometry-kind="${geometryKind}" ${metadata(visualKind, 1, 1)}
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <circle cx="360" cy="470" r="128" class="reject-halo"/>
+  <path d="M270 380 L450 560 M450 380 L270 560" class="semantic-draw error-cross"/>
+  <text x="360" y="650" text-anchor="middle" class="micro-copy">${state}</text>
+ </g>
+</g>`;
+    case "absence":
+      return `<g data-geometry-kind="${geometryKind}" ${metadata(visualKind, 1, 1)}
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <path d="M180 510 L244 450 H476 L540 510 L502 564 H218 Z"
+   class="semantic-draw absence-outline"/>
+  <path d="M246 418 L474 594" class="semantic-draw error-cross"/>
+  <text x="360" y="650" text-anchor="middle" class="micro-copy">${state}</text>
+ </g>
+</g>`;
+    case "route": {
+      const routePoints = parameterRoutePoints(parameters);
+      const simpleRoutePath = routePath(
+        routePoints,
+        Boolean(parameters.geometry.route),
+      );
+      const routeStart = routePoints[0];
+      const routeEnd = routePoints.at(-1);
+      return `<g data-geometry-kind="${geometryKind}" ${metadata(visualKind, 1, 1)}
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <path d="${simpleRoutePath}"
+   pathLength="1" class="semantic-draw semantic-route-path"/>
+  <circle cx="${routeStart.x.toFixed(3)}" cy="${routeStart.y.toFixed(3)}" r="13" class="cool-fill"/>
+  <g class="semantic-route-marker">
+   <path d="M-24 -4 H18 L28 6 Q20 20 2 22 H-16 Q-28 17 -32 7 Z"
+    class="route-vessel"/>
+   <path d="M-8 -4 V-20 H10 V-4" class="route-vessel-detail"/>
+  </g>
+  <circle cx="${routeEnd.x.toFixed(3)}" cy="${routeEnd.y.toFixed(3)}" r="16" class="warm-halo"/>
+  <text x="360" y="670" text-anchor="middle" class="micro-copy">${state}</text>
+ </g>
+</g>`;
+    }
+    case "timeline":
+      if (stepCount === 2) {
+        return `<g data-geometry-kind="${geometryKind}" ${metadata(visualKind, 2, 2)}
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <path d="M126 492 H590 M558 462 L592 492 L558 522"
+   class="semantic-draw chronology-axis"/>
+  <g class="semantic-step-primary-only">
+   <circle cx="466" cy="492" r="18" class="warm-fill"/>
+   <text x="466" y="424" text-anchor="middle" class="counter-value warm-copy"
+    ${fitExactTextAttributes(value, 70, 42, 280).trim()}>${value}</text>
+   <text x="466" y="568" text-anchor="middle" class="micro-copy">LAST ARCHIVE RECORD</text>
+  </g>
+  <g class="semantic-step-secondary">
+   <circle cx="202" cy="492" r="15" class="cool-fill"/>
+   <text x="202" y="568" text-anchor="middle" class="micro-copy">ABANDONED</text>
+   <circle cx="466" cy="492" r="18" class="warm-fill"/>
+   <text x="466" y="424" text-anchor="middle" class="counter-value warm-copy"
+    ${fitExactTextAttributes(value, 70, 42, 280).trim()}>${value}</text>
+   <text x="466" y="568" text-anchor="middle" class="micro-copy">DECADES LATER</text>
+  </g>
+ </g>
+</g>`;
+      }
+      return `<g data-geometry-kind="${geometryKind}" ${metadata(visualKind, 1, 2)}
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <path d="M126 492 H590 M558 462 L592 492 L558 522"
+   class="semantic-draw chronology-axis"/>
+  <circle cx="466" cy="492" r="18" class="warm-fill"/>
+  <text x="466" y="424" text-anchor="middle" class="counter-value warm-copy"
+   ${fitExactTextAttributes(value, 70, 42, 280).trim()}>${value}</text>
+  <text x="466" y="568" text-anchor="middle" class="micro-copy">${state}</text>
+ </g>
+</g>`;
+    case "evidence":
+      return `<g data-geometry-kind="${geometryKind}" ${metadata(visualKind, 1, 1)}
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <rect x="204" y="330" width="260" height="276" rx="24" class="sentence-surface"/>
+  <path d="M250 398 H418 M250 446 H390 M250 494 H418"
+   class="semantic-draw cool-line"/>
+  <circle cx="466" cy="510" r="74" class="magnifier-lens"/>
+  <path d="M518 562 L578 622" class="semantic-draw magnifier-handle"/>
+  <text x="334" y="662" text-anchor="middle" class="micro-copy">${state}</text>
+ </g>
+</g>`;
+    case "bounded_structure":
+      return `<g data-geometry-kind="${geometryKind}" ${metadata(visualKind, 1, 1)}
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <rect x="152" y="410" width="72" height="72" rx="12" class="cool-panel"/>
+  <rect x="238" y="410" width="72" height="72" rx="12" class="cool-panel"/>
+  <rect x="324" y="410" width="72" height="72" rx="12" class="cool-panel"/>
+  <rect x="410" y="410" width="72" height="72" rx="12" class="cool-panel"/>
+  <rect x="496" y="410" width="72" height="72" rx="12" class="cool-panel"/>
+  <path d="M152 526 H568" class="semantic-draw warm-line"/>
+  <text x="360" y="594" text-anchor="middle" class="micro-copy">${state}</text>
+ </g>
+</g>`;
+    case "uncertainty":
+      if (stepCount === 2) {
+        return `<g data-geometry-kind="${geometryKind}" ${metadata(visualKind, 2, 2)}
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <g class="semantic-step-primary-only">
+   <path d="M160 470 C200 420 240 520 280 470 C320 420 360 520 400 470 C440 420 480 520 520 470"
+    class="semantic-draw cool-line"/>
+   <path d="M270 378 L450 562 M450 378 L270 562" class="semantic-draw error-cross"/>
+   <text x="360" y="650" text-anchor="middle" class="micro-copy">NOT REPEATED</text>
+  </g>
+  <g class="semantic-step-secondary">
+   <circle cx="360" cy="470" r="126" class="uncertainty-core"/>
+   <text x="360" y="510" text-anchor="middle" class="uncertainty-glyph">?</text>
+   <text x="360" y="650" text-anchor="middle" class="micro-copy">NO CONFIRMATION</text>
+  </g>
+ </g>
+</g>`;
+      }
+      return `<g data-geometry-kind="${geometryKind}" ${metadata(visualKind, 1, 1)}
+ class="semantic-geometry">
+ <g class="semantic-rise semantic-simple-object">
+  <circle cx="360" cy="470" r="126" class="uncertainty-core"/>
+  <text x="360" y="510" text-anchor="middle" class="uncertainty-glyph">?</text>
+  <text x="360" y="650" text-anchor="middle" class="micro-copy">${state}</text>
+ </g>
+</g>`;
+    default:
+      throw new TypeError("Semantic simple-explainer visual kind is unsupported.");
+  }
+}
+
+function validatedSimpleExplainerStepMarkup(markup, stepCount) {
+  const declared = markup.match(/data-simple-visible-step-count="(\d+)"/g) || [];
+  const secondaryCount = (
+    markup.match(/class="[^"]*\bsemantic-step-secondary\b[^"]*"/g) || []
+  ).length;
+  if (
+    declared.length !== 1
+    || Number(declared[0].match(/\d+/)?.[0]) !== stepCount
+    || (stepCount === 1 && secondaryCount !== 0)
+    || (stepCount === 2 && secondaryCount < 1)
+  ) {
+    throw new TypeError(
+      "Semantic simple-explainer visual steps do not match narration steps.",
+    );
+  }
+  return markup;
+}
+
+function markSimpleExplainerLabels(markup, sentenceIndex) {
+  let labelIndex = 0;
+  return markup.replace(
+    /<text([^>]*class="[^"]*\bmicro-copy\b[^"]*"[^>]*)>/g,
+    (_match, attributes) => {
+      const id = `semantic-simple-label-${sentenceIndex}-${labelIndex}`;
+      labelIndex += 1;
+      return `<text id="${id}"${attributes} data-legibility-role="secondary" data-contrast-background="#07111f">`;
+    },
+  );
+}
+
+function simpleExplainerPrimaryMarkup(
+  sentence,
+  parameters,
+  simpleExplainerContext,
+  sentenceIndex,
+) {
+  if (
+    simpleExplainerContext?.profileId
+      !== SEMANTIC_SIMPLE_EXPLAINER_PROFILE_ID
+  ) return null;
+  const groupText = simpleExplainerContext.groupText;
+  const stepCount = simpleExplainerContext.stepCount;
+  const pairKey = stepCount === 2
+    ? simpleExplainerContext.visualConceptIds.join(">")
+    : null;
+  const variant = rendererVariant(sentence, parameters);
+  let markup;
+  if (pairKey === "cue_evidence_network>hypothesis_rejection") {
+    markup = simpleBeamToInterferenceMarkup();
+  } else if (pairKey === "reported_assumption>witness_sighting") {
+    markup = simpleAssumptionToSightingMarkup();
+  } else if (pairKey === "cue_evidence_focus>cue_evidence_spotlight") {
+    markup = simpleHauntedToOrdinaryMarkup();
+  } else if (pairKey === "finite_counter_wrap>hypothesis_rejection") {
+    markup = simpleCounterNotTimeMarkup();
+  } else if (pairKey === "signal_frequency_band>duration_timeline") {
+    markup = simpleFrequencyBandMarkup(parameters, groupText, stepCount);
+  } else if (pairKey === "encoded_bit_register>bounded_value_range") {
+    markup = simpleBitRegisterMarkup(parameters, groupText, stepCount);
+  } else if (pairKey === "duration_timeline>counter_recurrence") {
+    markup = simpleCounterRecurrenceMarkup(groupText, stepCount);
+  } else if (
+    parameters.visualConceptId === "signal_frequency_band"
+    && /\bfrequency\b/i.test(groupText)
+  ) {
+    markup = simpleFrequencyBandMarkup(parameters, groupText, stepCount);
+  } else if (
+    parameters.visualConceptId === "cue_evidence_network"
+    && /\btelescope\s+beam\b/i.test(groupText)
+  ) {
+    markup = simpleTelescopeBeamMarkup();
+  } else if (
+    parameters.visualConceptId === "reported_assumption"
+    && /\bsunk\b/i.test(groupText)
+  ) {
+    markup = simpleAssumedSunkMarkup();
+  } else if (parameters.visualConceptId === "witness_sighting") {
+    markup = simpleWitnessSightingMarkup(groupText);
+  } else if (
+    parameters.visualConceptId === "cue_evidence_focus"
+    && /\bhaunted\b/i.test(groupText)
+  ) {
+    markup = simpleMysteriousAppearanceMarkup();
+  } else if (
+    parameters.visualConceptId === "cue_evidence_spotlight"
+    && /\bordinary\b/i.test(groupText)
+  ) {
+    markup = simpleOrdinaryMechanismMarkup();
+  } else if (
+    parameters.visualConceptId === "hypothesis_rejection"
+    && /\bnot\s+time\s+itself\b/i.test(groupText)
+  ) {
+    markup = simpleTimeContinuesMarkup();
+  } else if (variant === "finite_counter_wrap") {
+    markup = simpleCounterResetMarkup(parameters);
+  } else if (
+    parameters.visualConceptId === "counter_recurrence"
+    && /\broll(?:ed|s)?\s+over\b/i.test(groupText)
+  ) {
+    markup = simpleCounterRecurrenceMarkup(groupText, stepCount);
+  } else if (variant === "encoded_bit_register") {
+    markup = simpleBitRegisterMarkup(parameters, groupText, stepCount);
+  } else if (variant === "counter_date_misinterpretation") {
+    markup = simpleWrongDateMarkup();
+  } else if (variant === "receiver_patch_required") {
+    markup = simpleSoftwarePatchMarkup();
+  } else if (
+    parameters.visualConceptId === "future_rollover_timeline"
+    && parameters.quantity
+  ) {
+    markup = simpleFutureRolloverMarkup(parameters);
+  } else if (variant === "counter_capacity_comparison") {
+    markup = simpleCounterCapacityMarkup();
+  } else if (
+    variant === "counter_not_time"
+    || (
+      sentence.visualIntent.stateTransition === "reject_hypothesis"
+      && visualConceptRegistry.semanticCounterNotTimeClaimMatches(groupText)
+    )
+  ) {
+    markup = stepCount === 2
+      ? simpleCounterNotTimeMarkup()
+      : simpleTimeContinuesMarkup();
+  } else {
+    markup = simpleGenericPrimaryMarkup(
+      sentence,
+      parameters,
+      simpleExplainerContext.visualKind,
+      groupText,
+      stepCount,
+    );
+  }
+  return markSimpleExplainerLabels(
+    validatedSimpleExplainerStepMarkup(markup, stepCount),
+    sentenceIndex,
+  );
+}
+
+function primitiveMarkup(
+  sentence,
+  sentenceIndex = 0,
+  simpleExplainerContext = null,
+) {
+  if (sentence.primitiveParameters && simpleExplainerContext) {
+    const simplified = simpleExplainerPrimaryMarkup(
+      sentence,
+      sentence.primitiveParameters,
+      simpleExplainerContext,
+      sentenceIndex,
+    );
+    if (simplified) return simplified;
+  }
   switch (sentence.capability.grammarId) {
     case "before_after":
       return beforeAfterMarkup(sentence);
@@ -1665,7 +2876,7 @@ function primitiveMarkup(sentence, sentenceIndex = 0) {
     case "cause_effect_chain":
       return causeEffectMarkup(sentence);
     case "side_by_side_comparison":
-      return comparisonMarkup(sentence);
+      return comparisonMarkup(sentence, simpleExplainerContext);
     case "negative_space_absence":
       return negativeSpaceVesselMarkup(sentence);
     case "map_motion":
@@ -1716,12 +2927,15 @@ export function semanticSentenceGeometryKind(sentence) {
   return match[1];
 }
 
-export function semanticSentencePrimitiveMarkup(sentence, index) {
+export function semanticSentencePrimitiveMarkup(sentence, index, options = {}) {
   if (!sentence || typeof sentence !== "object" || Array.isArray(sentence)) {
     throw new TypeError("Semantic sentence is invalid.");
   }
   if (!Number.isInteger(index) || index < 0 || index > 95) {
     throw new TypeError("Semantic sentence index is invalid.");
+  }
+  if (!options || typeof options !== "object" || Array.isArray(options)) {
+    throw new TypeError("Semantic sentence presentation options are invalid.");
   }
   if (!SUPPORTED_SEMANTIC_SENTENCE_ASSETS.includes(sentence.capability?.assetId)) {
     throw new TypeError("Semantic sentence asset is unsupported.");
@@ -1737,12 +2951,49 @@ export function semanticSentencePrimitiveMarkup(sentence, index) {
     normalizedSentence.visualIntent.subjectKind,
     normalizedSentence.visualIntent.stateTransition,
   ].join(":");
-  const primaryGeometry = primitiveMarkup(normalizedSentence, index);
+  const simpleExplainerContext = options.simpleExplainerContext || null;
+  if (
+    simpleExplainerContext !== null
+    && (
+      !normalizedSentence.sceneComposition
+      || typeof simpleExplainerContext !== "object"
+      || Array.isArray(simpleExplainerContext)
+      || simpleExplainerContext.profileId
+        !== SEMANTIC_SIMPLE_EXPLAINER_PROFILE_ID
+      || !SEMANTIC_SIMPLE_EXPLAINER_VISUAL_KINDS.includes(
+        simpleExplainerContext.visualKind,
+      )
+      || typeof simpleExplainerContext.groupText !== "string"
+      || !simpleExplainerContext.groupText.trim()
+      || simpleExplainerContext.groupText.length > 4096
+      || ![1, 2].includes(simpleExplainerContext.stepCount)
+      || !Array.isArray(simpleExplainerContext.visualConceptIds)
+      || simpleExplainerContext.visualConceptIds.length
+        !== simpleExplainerContext.stepCount
+      || simpleExplainerContext.visualConceptIds.some((value) => (
+        typeof value !== "string" || !/^[a-z][a-z0-9_-]{1,79}$/.test(value)
+      ))
+      || !Array.isArray(simpleExplainerContext.stepHeadings)
+      || simpleExplainerContext.stepHeadings.length
+        !== simpleExplainerContext.stepCount
+      || simpleExplainerContext.stepHeadings.some((value) => (
+        typeof value !== "string" || !value.trim() || value.length > 512
+      ))
+    )
+  ) throw new TypeError("Semantic simple-explainer context is invalid.");
+  const primaryGeometry = primitiveMarkup(
+    normalizedSentence,
+    index,
+    simpleExplainerContext,
+  );
   const geometry = normalizedSentence.sceneComposition
     ? semanticSceneCompositionMarkup(
       normalizedSentence,
       primaryGeometry,
       index,
+      {
+        presentationProfileId: simpleExplainerContext?.profileId || null,
+      },
     )
     : primaryGeometry;
   const renderedGeometry = normalizedSentence.sceneComposition
@@ -1766,6 +3017,46 @@ export function semanticSentencePrimitiveMarkup(sentence, index) {
       612,
     )
     : "";
+  if (normalizedSentence.sceneComposition) {
+    const conceptLabels = simpleExplainerContext
+      ? simpleExplainerContext.stepHeadings
+      : [semanticConceptHeading(
+        normalizedSentence.primitiveParameters,
+        32,
+      )];
+    const conceptLabelMarkup = conceptLabels.map((conceptLabel, labelIndex) => (
+      semanticConceptLabelMarkup(
+        conceptLabel,
+        index,
+        labelIndex === 0 ? "primary" : "secondary",
+      )
+    )).join("\n ");
+    return `<g id="semantic-sentence-${index}" class="semantic-sentence-stage" opacity="0"
+ data-sentence-index="${index}"
+ data-sentence-id="${escapeSemanticSentenceXml(normalizedSentence.id)}"
+ data-proposition-id="${escapeSemanticSentenceXml(normalizedSentence.propositionId)}"
+ data-source-beat-id="${escapeSemanticSentenceXml(normalizedSentence.beatId)}"
+ data-asset-id="${escapeSemanticSentenceXml(normalizedSentence.capability.assetId)}"
+ data-grammar-id="${escapeSemanticSentenceXml(normalizedSentence.capability.grammarId)}"
+ data-capability="${escapeSemanticSentenceXml(capabilityToken)}"
+ data-capability-predicate="${escapeSemanticSentenceXml(normalizedSentence.visualIntent.predicate)}"
+ data-capability-subject-kind="${escapeSemanticSentenceXml(normalizedSentence.visualIntent.subjectKind)}"
+ data-capability-state-transition="${escapeSemanticSentenceXml(normalizedSentence.visualIntent.stateTransition)}"
+ data-claim-ids="${escapeSemanticSentenceXml(normalizedSentence.claimIds.join(","))}"
+ data-focus-entity-id="${escapeSemanticSentenceXml(normalizedSentence.focusEntity.id)}"
+ data-entity-id="${escapeSemanticSentenceXml(normalizedSentence.focusEntity.id)}"
+ data-focus-target="${escapeSemanticSentenceXml(normalizedSentence.focusEntity.id)}"
+ data-caption-policy="avoid"${simpleExplainerContext
+    ? `
+ data-semantic-presentation-profile-id="${SEMANTIC_SIMPLE_EXPLAINER_PROFILE_ID}"`
+    : ""}>
+ <desc class="semantic-narration-accessibility">${escapeSemanticSentenceXml(
+      normalizedSentence.wordSpan.text,
+    )}</desc>
+ ${conceptLabelMarkup}
+ ${renderedGeometry}
+</g>`;
+  }
   return `<g id="semantic-sentence-${index}" class="semantic-sentence-stage" opacity="0"
  data-sentence-index="${index}"
  data-sentence-id="${escapeSemanticSentenceXml(normalizedSentence.id)}"

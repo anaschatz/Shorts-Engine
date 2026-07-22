@@ -8,6 +8,11 @@ import { createPathMorph, pointsToPath } from "./primitives/path-morph.mjs";
 import { persistentSignalGeometry, persistentSignalPath } from "./primitives/persistent-signal.mjs";
 
 const require = createRequire(import.meta.url);
+const {
+  buildSemanticSimpleExplainerGroups,
+} = require(
+  "../../server/pipelines/narrated-short/animation/semantic-simple-explainer.cjs",
+);
 const BASE_WIDTH = 720;
 const BASE_HEIGHT = 1280;
 const FONT_FAMILY = "Outfit";
@@ -58,7 +63,7 @@ function safeQaIds(values) {
 
 function compositionQaPolicy(ir, html) {
   const semanticSentence =
-    ir.profileVersion === "1.3.0"
+    ir.profileVersion === "1.4.0"
     && ir.content?.semantic?.profileId === "dark_curiosity_semantic_sentences_v3";
   const genericSemantic =
     ir.profileVersion === "1.2.0"
@@ -77,14 +82,26 @@ function compositionQaPolicy(ir, html) {
         semanticRoi: { x: 36, y: 180, width: 648, height: 740 },
         captionSafeZone: { x: 0, y: 947, width: 720, height: 333 },
       };
+  const sentencePlan = semanticSentence
+    ? ir.content.semanticVisualSentencePlan
+    : null;
+  const simpleExplainerGroups = sentencePlan?.sceneCompositionProfileId
+    ? buildSemanticSimpleExplainerGroups(sentencePlan.sentences, {
+      fps: ir.fps,
+    })
+    : null;
   return Object.freeze({
     semanticRoi: scaledQaRect(base.semanticRoi, ir),
     captionSafeZone: scaledQaRect(base.captionSafeZone, ir),
     labelIds: markedAttributeValues(html, "data-legibility-role", "id"),
     semanticRouteIds: safeQaIds(semanticSentence
-      ? ir.content.semanticVisualSentencePlan.sentences
-        .filter((sentence) => sentence.capability.grammarId === "map_motion")
-        .map((sentence) => sentence.id)
+      ? simpleExplainerGroups
+        ? simpleExplainerGroups
+          .filter((group) => group.visualKind === "route")
+          .map((group) => sentencePlan.sentences[group.anchorSentenceIndex].id)
+        : sentencePlan.sentences
+          .filter((sentence) => sentence.capability.grammarId === "map_motion")
+          .map((sentence) => sentence.id)
       : []),
   });
 }
@@ -498,18 +515,18 @@ window.__timelines=window.__timelines||{};window.__timelines[${safeJson(content.
 export function compileAnimationIRToHtml(ir, options = {}) {
   const semanticSentenceTuple = (
     ir?.schemaVersion === 3
-    || ir?.profileVersion === "1.3.0"
-    || ir?.renderer?.styleVersion === "3.0.0"
+    || ir?.profileVersion === "1.4.0"
+    || ir?.renderer?.styleVersion === "3.1.0"
     || ir?.content?.semantic?.profileId === "dark_curiosity_semantic_sentences_v3"
   );
   if (semanticSentenceTuple) {
     if (
       ir?.schemaVersion !== 3
       || ir?.profile !== "dark_curiosity_continuous"
-      || ir?.profileVersion !== "1.3.0"
+      || ir?.profileVersion !== "1.4.0"
       || ir?.renderer?.provider !== "hyperframes_local"
       || ir?.renderer?.runtimeVersion !== "0.7.55"
-      || ir?.renderer?.styleVersion !== "3.0.0"
+      || ir?.renderer?.styleVersion !== "3.1.0"
       || ir?.content?.semantic?.profileId !== "dark_curiosity_semantic_sentences_v3"
     ) {
       throw new TypeError("Semantic sentence AnimationIR tuple is invalid.");

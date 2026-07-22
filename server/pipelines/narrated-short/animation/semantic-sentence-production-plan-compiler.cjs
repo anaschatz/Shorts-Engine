@@ -6,9 +6,6 @@ const {
   normalizeDraftBundle,
 } = require("../contracts.cjs");
 const {
-  buildSemanticEventGraph,
-} = require("./semantic-event-graph.cjs");
-const {
   normalizeSemanticEventGraph,
 } = require("./semantic-event-validator.cjs");
 const {
@@ -147,33 +144,15 @@ function sourceProfileArtifacts(input) {
   if (draft.contentHash !== timingContext.draftHash) {
     fail("timingContext.draftHash", "draft_hash_mismatch");
   }
-  const profile = findSemanticEventProfile({
+  const checkedProfile = findSemanticEventProfile({
     profileId: input.semanticProfileId,
     draftHash: draft.contentHash,
     alignmentHash: timingContext.alignmentHash,
   });
-  if (profile) {
-    if (timingContext.contentHash !== profile.timingContextHash) {
+  if (checkedProfile) {
+    if (timingContext.contentHash !== checkedProfile.timingContextHash) {
       fail("timingContext.contentHash", "exact_checked_in_timing_required");
     }
-    const semanticEventGraph = normalizeSemanticEventGraph(buildSemanticEventGraph({
-      draft,
-      timingContext,
-      manifest: profile.manifest,
-    }));
-    const semanticVisualSentencePlan = validateSemanticVisualSentencePlanAgainstGraph(
-      normalizeSemanticVisualSentencePlan(
-        buildSemanticVisualSentencePlan(semanticEventGraph),
-      ),
-      semanticEventGraph,
-    );
-    return Object.freeze({
-      draft,
-      profile,
-      semanticEventGraph,
-      semanticVisualSentencePlan,
-      timingContext,
-    });
   }
   const generalized = buildGeneralizedSemanticArtifacts({
     draft,
@@ -190,11 +169,13 @@ function sourceProfileArtifacts(input) {
     draft,
     profile: Object.freeze({
       id: "generalized_story_visual_intent_v1",
+      ...(checkedProfile ? { sourceProfileId: checkedProfile.id } : {}),
       profileId: SEMANTIC_SENTENCE_PROFILE_ID,
       draftHash: draft.contentHash,
       alignmentHash: timingContext.alignmentHash,
       timingContextHash: timingContext.contentHash,
       manifestHash: contentHash({
+        sourceProfileManifestHash: checkedProfile?.manifestHash || null,
         storyIRHash: generalized.storyIR.contentHash,
         visualIntentGraphHash: generalized.visualIntentGraph.contentHash,
         semanticEventGraphHash: semanticEventGraph.contentHash,
@@ -428,8 +409,8 @@ function buildSemanticSentenceProductionAnimationPlan(input = {}) {
     renderer: SEMANTIC_SENTENCE_RENDERER,
     templateId: SEMANTIC_SENTENCE_TEMPLATE_ID,
     templateVersion: SEMANTIC_SENTENCE_TEMPLATE_VERSION,
-    registryManifestHash: artifacts.profile.manifestHash,
-    registryTimingContextHash: artifacts.profile.timingContextHash,
+    planningManifestHash: artifacts.profile.manifestHash,
+    planningTimingContextHash: artifacts.profile.timingContextHash,
     semanticEventGraphHash: artifacts.semanticEventGraph.contentHash,
     semanticVisualSentencePlanHash:
       artifacts.semanticVisualSentencePlan.contentHash,

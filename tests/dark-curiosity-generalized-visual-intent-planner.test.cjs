@@ -73,6 +73,10 @@ const {
   normalizeSemanticSceneComposition,
 } = require("../server/pipelines/narrated-short/animation/semantic-scene-composition.cjs");
 const {
+  SEMANTIC_SIMPLE_EXPLAINER_PROFILE_ID,
+  buildSemanticSimpleExplainerGroups,
+} = require("../server/pipelines/narrated-short/animation/semantic-simple-explainer.cjs");
+const {
   MAX_GEOMETRY_EDGES,
   MAX_GEOMETRY_NODES,
   SEMANTIC_GEOMETRY_BLUEPRINT_PROFILE_ID,
@@ -113,6 +117,9 @@ const {
 const {
   normalizeAnimationTimingContext,
 } = require("../server/pipelines/narrated-short/animation/timing-contract.cjs");
+const {
+  motionSegments,
+} = require("../server/pipelines/narrated-short/animation/render-service.cjs");
 
 const ROOT = resolve(__dirname, "..");
 const CASES = Object.freeze([
@@ -288,6 +295,20 @@ function compileRaw(raw, salt, projectId) {
     timingContext,
   });
   return { draft, timingContext, compiled };
+}
+
+function assertHeadingIsSourceSubsequence(source, heading, label = heading) {
+  const lexicalTokens = (value) => (
+    String(value).toLocaleLowerCase("en-US")
+      .match(/[a-z0-9]+(?:['’][a-z0-9]+)?/g) || []
+  );
+  const sourceTokens = lexicalTokens(source);
+  const headingTokens = lexicalTokens(heading);
+  let sourceIndex = -1;
+  for (const token of headingTokens) {
+    sourceIndex = sourceTokens.indexOf(token, sourceIndex + 1);
+    assert.notEqual(sourceIndex, -1, `${label}: invented or reordered token ${token}`);
+  }
 }
 
 function alternateSceneDslPlan(compiled) {
@@ -1580,8 +1601,11 @@ test("generic words cannot trigger GPS-only visual concepts in unrelated stories
       sentence,
       adversarialPlan.sentences.indexOf(sentence),
     );
+    const geometryMarkup = markup
+      .replace(/<desc[^>]*>[\s\S]*?<\/desc>/, "")
+      .replace(/<text id="semantic-concept-\d+"[^>]*>[\s\S]*?<\/text>/, "");
     assert.doesNotMatch(
-      markup,
+      geometryMarkup,
       adversarial.forbiddenMarkup,
       adversarial.salt,
     );
@@ -2056,7 +2080,7 @@ test("semantic-v3 compiles and renders non-registry narration deterministically"
   assert.equal(compositionHashes.size, CASES.length);
 });
 
-test("Scene DSL actions change visible runtime state and remain renderer-bound", async () => {
+test("simple presenter binds Scene DSL provenance but enforces one motion channel", async () => {
   const { compileAnimationIRToHtml } = await import(
     "../renderer/hyperframes/animation-ir-adapter.mjs"
   );
@@ -2104,13 +2128,17 @@ test("Scene DSL actions change visible runtime state and remain renderer-bound",
       alternatePlan.contentHash
     }"`),
   );
-  assert.match(
+  assert.doesNotMatch(
     alternateComposition.html,
     /highlight:module_primary:develop:pulse_once/,
   );
-  assert.match(
+  assert.doesNotMatch(
     alternateComposition.html,
     /camera:scene:resolve:pull_overview/,
+  );
+  assert.match(
+    alternateComposition.html,
+    /create:module_primary:entry:reveal/,
   );
   assert.match(
     alternateComposition.html,
@@ -2835,6 +2863,64 @@ test("generalized semantic-v3 carries source-bound primitive parameters into vis
   const { compileAnimationIRToHtml } = await import(
     "../renderer/hyperframes/animation-ir-adapter.mjs"
   );
+  const {
+    semanticSentenceRenderIntervals,
+    semanticSimpleExplainerVisualGroups,
+  } = await import(
+    "../renderer/hyperframes/semantic-sentence-animation.mjs"
+  );
+  const { semanticSimpleExplainerHeading } = await import(
+    "../renderer/hyperframes/primitives/semantic-sentence-primitives.mjs"
+  );
+  const {
+    compileSemanticSimpleExplainerGroupActionSchedule,
+    semanticSceneActionQaPlan,
+  } = await import(
+    "../renderer/hyperframes/semantic-scene-action-schedule.mjs"
+  );
+  const expectedSimpleGroups = {
+    "001_wow_signal_mystery": {
+      sentenceIndices: [[0], [1, 2], [3, 4], [5, 6], [7, 8]],
+      anchors: [0, 1, 4, 6, 8],
+      visualKinds: [
+        "timeline",
+        "state_change",
+        "rejection",
+        "uncertainty",
+        "rejection",
+      ],
+    },
+    "002_gps_week_rollover": {
+      sentenceIndices: [
+        [0], [1], [2, 3], [4, 5], [6], [7], [8], [9, 10], [11, 12],
+      ],
+      anchors: [0, 1, 2, 5, 6, 7, 8, 10, 12],
+      visualKinds: [
+        "cycle",
+        "cause_effect",
+        "bounded_structure",
+        "cycle",
+        "cause_effect",
+        "timeline",
+        "comparison",
+        "state_change",
+        "state_change",
+      ],
+    },
+    "003_baychimo_icebound_drift": {
+      sentenceIndices: [[0], [1, 2], [3], [4], [5, 6], [7, 8], [9]],
+      anchors: [0, 2, 3, 4, 6, 8, 9],
+      visualKinds: [
+        "absence",
+        "state_change",
+        "evidence",
+        "route",
+        "timeline",
+        "rejection",
+        "uncertainty",
+      ],
+    },
+  };
   for (const [id] of CASES) {
     const compiledValue = compileRaw(
       readRaw(id),
@@ -2900,32 +2986,221 @@ test("generalized semantic-v3 carries source-bound primitive parameters into vis
       compiled.animationIR,
       rendererSourceOptions(compiledValue),
     );
+    const visualGroups = buildSemanticSimpleExplainerGroups(plan.sentences);
+    const timedVisualGroups = semanticSimpleExplainerVisualGroups(
+      plan.sentences,
+      semanticSentenceRenderIntervals(
+        plan.sentences,
+        compiled.animationIR.durationFrames,
+      ),
+      compiled.animationIR.durationFrames,
+    );
+    const groupActionSchedule =
+      compileSemanticSimpleExplainerGroupActionSchedule({
+        sceneDslPlan:
+          compiled.animationIR.content.semanticAnimationSceneDslPlan,
+        sentences: plan.sentences,
+        visualGroups: timedVisualGroups,
+        fps: compiled.animationIR.fps,
+        durationFrames: compiled.animationIR.durationFrames,
+      });
+    assert.ok(visualGroups.length >= 5 && visualGroups.length <= 10, id);
+    assert.deepEqual(
+      timedVisualGroups.map((group) => group.id),
+      visualGroups.map((group) => group.id),
+      id,
+    );
+    assert.equal(timedVisualGroups[0].startFrame, 0, id);
+    assert.equal(
+      timedVisualGroups.at(-1).endFrame,
+      compiled.animationIR.durationFrames,
+      id,
+    );
+    assert.equal(groupActionSchedule.scenes.length, visualGroups.length, id);
+    assert.equal(
+      semanticSceneActionQaPlan(groupActionSchedule).settledHoldFrames.length,
+      visualGroups.length,
+      id,
+    );
+    for (const [index, group] of timedVisualGroups.entries()) {
+      assert.equal(
+        group.startFrame,
+        plan.sentences[group.firstSentenceIndex].wordSpan.startFrame,
+        `${id}:${group.id}:start`,
+      );
+      assert.equal(
+        group.semanticEndFrame,
+        plan.sentences[group.lastSentenceIndex].wordSpan.endFrame,
+        `${id}:${group.id}:semantic-end`,
+      );
+      assert.ok(
+        group.endFrame >= group.semanticEndFrame,
+        `${id}:${group.id}:tail-padding`,
+      );
+      assert.deepEqual(
+        group.stepStartFrames,
+        group.sentenceIndices.map(
+          (sentenceIndex) => plan.sentences[sentenceIndex].wordSpan.startFrame,
+        ),
+        `${id}:${group.id}:narration-step-boundaries`,
+      );
+      if (index > 0) {
+        assert.equal(
+          timedVisualGroups[index - 1].endFrame,
+          group.startFrame,
+          `${id}:${group.id}:contiguous`,
+        );
+      }
+      const actionScene = groupActionSchedule.scenes[index];
+      assert.equal(actionScene.visualSceneId, group.id, `${id}:${group.id}`);
+      assert.equal(
+        actionScene.anchorSentenceIndex,
+        group.anchorSentenceIndex,
+        `${id}:${group.id}:action-anchor`,
+      );
+      assert.equal(
+        actionScene.anchorSentenceId,
+        group.anchorSentenceId,
+        `${id}:${group.id}:action-anchor-id`,
+      );
+      assert.deepEqual(
+        actionScene.sentenceIndices,
+        group.sentenceIndices,
+        `${id}:${group.id}:action-sentences`,
+      );
+      assert.equal(actionScene.startFrame, group.startFrame);
+      assert.equal(actionScene.semanticEndFrame, group.semanticEndFrame);
+      assert.equal(actionScene.endFrame, group.endFrame);
+      assert.equal(
+        actionScene.sceneDslId,
+        compiled.animationIR.content.semanticAnimationSceneDslPlan
+          .scenes[group.anchorSentenceIndex].sceneDsl.id,
+      );
+      assert.ok(actionScene.actions.every((action) => (
+        action.target === "module_primary"
+        && ["create", "move"].includes(action.op)
+        && (action.op !== "move" || group.visualKind === "route")
+      )));
+      assert.equal(
+        actionScene.actions.length,
+        1,
+        `${id}:${group.id}:single-motion-channel`,
+      );
+    }
+    const segments = motionSegments(compiled.animationIR);
+    assert.equal(segments.length, visualGroups.length, id);
+    assert.deepEqual(
+      segments.map((segment) => segment.id),
+      visualGroups.map((group) => group.id),
+      id,
+    );
+    assert.equal(segments[0].startFrame, 0, id);
+    assert.equal(segments.at(-1).endFrame, compiled.animationIR.durationFrames, id);
+    for (const [index, segment] of segments.entries()) {
+      const group = visualGroups[index];
+      assert.equal(
+        segment.startFrame,
+        plan.sentences[group.firstSentenceIndex].wordSpan.startFrame,
+        `${id}:${segment.id}`,
+      );
+      if (index > 0) {
+        assert.equal(
+          segments[index - 1].endFrame,
+          segment.startFrame,
+          `${id}:${segment.id}`,
+        );
+      }
+    }
+    assert.equal(composition.profile.presentationProfileId,
+      SEMANTIC_SIMPLE_EXPLAINER_PROFILE_ID);
+    assert.equal(composition.profile.visualSceneCount, visualGroups.length);
+    assert.match(
+      composition.html,
+      /visual\.endFrame-visual\.startFrame-1/,
+      `${id}: visual motion must settle through the complete scene interval`,
+    );
+    assert.doesNotMatch(
+      composition.html,
+      /visual\.semanticEndFrame-visual\.startFrame-1\)\);\n const semanticProgress/,
+      `${id}: semantic tail padding cannot become a frozen visual gap`,
+    );
+    assert.ok(visualGroups.every((group) => group.sentenceIndices.length >= 1));
+    assert.deepEqual(
+      visualGroups.flatMap((group) => group.sentenceIndices),
+      plan.sentences.map((_sentence, index) => index),
+      id,
+    );
+    assert.ok(
+      visualGroups.every((group) => (
+        group.sentenceIndices.length >= 1
+        && group.sentenceIndices.length <= 2
+      )),
+      id,
+    );
+    const visualKinds = visualGroups.map((group) => group.visualKind);
+    const selectedForms = visualGroups.map((group) => (
+      primaryVisualFormSignature(plan.sentences[group.anchorSentenceIndex])
+    ));
+    assert.ok(selectedForms.every(Boolean), id);
+    const expectedGrouping = expectedSimpleGroups[id];
+    if (expectedGrouping) {
+      assert.ok(
+        timedVisualGroups.every((group) => (
+          group.endFrame - group.startFrame >= 54
+        )),
+        `${id}: every corpus visual must remain readable for at least 1.8 seconds`,
+      );
+      assert.deepEqual(
+        visualGroups.map((group) => group.sentenceIndices),
+        expectedGrouping.sentenceIndices,
+        `${id}: sentence groups`,
+      );
+      assert.deepEqual(
+        visualGroups.map((group) => group.anchorSentenceIndex),
+        expectedGrouping.anchors,
+        `${id}: visual drivers`,
+      );
+      assert.deepEqual(
+        visualKinds,
+        expectedGrouping.visualKinds,
+        `${id}: visual kinds`,
+      );
+      const visualKindCounts = new Map();
+      for (const kind of visualKinds) {
+        visualKindCounts.set(kind, (visualKindCounts.get(kind) || 0) + 1);
+      }
+      assert.ok(Math.max(...visualKindCounts.values()) <= 2, id);
+      assert.ok(
+        new Set(visualKinds).size >= Math.ceil(visualGroups.length * 0.5),
+        `${id}: simple visual-kind floor`,
+      );
+    }
     assert.match(composition.html, /data-primitive-parameterized="true"/);
     assert.equal(
       [...composition.html.matchAll(/class="semantic-scene-composition"/g)].length,
-      plan.sentences.length,
+      visualGroups.length,
       id,
     );
     assert.equal(
       [...composition.html.matchAll(/data-scene-module-id="module_primary"/g)].length,
-      plan.sentences.length,
+      visualGroups.length,
       id,
     );
     assert.equal(
       [...composition.html.matchAll(/data-scene-module-id="module_support_a"/g)].length,
-      plan.sentences.length,
+      visualGroups.length,
       id,
     );
     assert.equal(
       [...composition.html.matchAll(/data-scene-module-id="module_support_b"/g)].length,
-      plan.sentences.length,
+      visualGroups.length,
       id,
     );
     assert.equal(
       [...composition.html.matchAll(
         /<g[^>]+class="[^"]*semantic-support-module[^"]*"[^>]*>/g,
       )].length,
-      plan.sentences.length * 2,
+      visualGroups.length * 2,
       id,
     );
     assert.doesNotMatch(
@@ -2942,10 +3217,346 @@ test("generalized semantic-v3 carries source-bound primitive parameters into vis
       [...composition.html.matchAll(
         /class="semantic-support-module[^"]*" opacity="0"/g,
       )].length,
-      plan.sentences.length * 2,
+      visualGroups.length * 2,
       id,
     );
-    for (const sentence of plan.sentences) {
+    assert.equal(
+      [...composition.html.matchAll(/class="sentence-concept-label"/g)].length,
+      visualGroups.reduce(
+        (count, group) => count + group.sentenceIndices.length,
+        0,
+      ),
+      id,
+    );
+    assert.equal(
+      [...composition.html.matchAll(
+        /data-simple-explainer-primary="true"/g,
+      )].length,
+      visualGroups.length,
+      `${id}: every visual group requires one simple primary`,
+    );
+    assert.equal(
+      [...composition.html.matchAll(/data-simple-focus-root="true"/g)].length,
+      visualGroups.length,
+      `${id}: every visual group requires one focal root`,
+    );
+    assert.equal(
+      [...composition.html.matchAll(/semantic-simple-object/g)].length,
+      visualGroups.length,
+      `${id}: every scene must render exactly one visible object cluster`,
+    );
+    assert.equal(
+      [...composition.html.matchAll(
+        /data-visual-role="nonvisual_scene_topology">\s*<g class="semantic-bounded-geometry"/g,
+      )].length,
+      visualGroups.length,
+      `${id}: provenance geometry must remain inside hidden topology`,
+    );
+    const simpleStepCounts = [...composition.html.matchAll(
+      /data-simple-visible-step-count="(\d+)"/g,
+    )].map((match) => Number(match[1]));
+    const simpleFocalCounts = [...composition.html.matchAll(
+      /data-simple-focal-object-count="(\d+)"/g,
+    )].map((match) => Number(match[1]));
+    const simpleLabelCounts = [...composition.html.matchAll(
+      /data-simple-label-count="(\d+)"/g,
+    )].map((match) => Number(match[1]));
+    assert.equal(simpleStepCounts.length, visualGroups.length, id);
+    assert.equal(simpleFocalCounts.length, visualGroups.length, id);
+    assert.equal(simpleLabelCounts.length, visualGroups.length, id);
+    assert.ok(simpleStepCounts.every((count) => count >= 1 && count <= 2), id);
+    assert.ok(simpleFocalCounts.every((count) => count === 1), id);
+    assert.ok(simpleLabelCounts.every((count) => count <= 2), id);
+    assert.equal(
+      [...composition.html.matchAll(
+        /class="[^"]*semantic-step-secondary[^"]*"/g,
+      )].length,
+      simpleStepCounts.filter((count) => count === 2).length,
+      `${id}: every declared second step requires one timed visual change`,
+    );
+    assert.match(
+      composition.html,
+      /cameraChannel\.style\.transform="none"/,
+      `${id}: simple scenes cannot add camera motion`,
+    );
+    assert.doesNotMatch(
+      composition.html,
+      /beatDrift|will-change:/,
+      `${id}: simple scenes cannot stack ambient compositor motion`,
+    );
+    assert.match(
+      composition.html,
+      /const revealEase=\(value\)=>clamp\(value\)/,
+      `${id}: the focal object must become readable immediately`,
+    );
+    assert.match(
+      composition.html,
+      /const revealProgress=revealEase\(\(frame-visual\.startFrame\)\/visual\.presentationTiming\.revealDurationFrames\)/,
+      `${id}: simple scenes must use the dedicated focal reveal curve`,
+    );
+    assert.match(
+      composition.html,
+      /const presentedOpacity=moduleState\.id==="module_primary"\s*\?revealProgress\s*:moduleState\.opacity/,
+      `${id}: the create action and focal reveal must share one opacity channel`,
+    );
+    assert.match(
+      composition.html,
+      /const translateX=\(simpleCreateAction\?0:moduleState\.translateX\)\+routeShift\.x/,
+      `${id}: create cannot add a second translation channel`,
+    );
+    assert.match(
+      composition.html,
+      /const presentedScale=simpleCreateAction\?1:moduleState\.scale/,
+      `${id}: create cannot add a second scale channel`,
+    );
+    assert.match(
+      composition.html,
+      /setOpacity\(header,0\)/,
+      `${id}: the simple presenter must not compete with a global title`,
+    );
+    assert.doesNotMatch(
+      composition.html,
+      /10\*\(1-secondaryProgress\)|-8\*secondaryProgress/,
+      `${id}: narration-step changes must use opacity only`,
+    );
+    assert.match(
+      composition.html,
+      /const routeActionProgress=sceneActionState\.routeProgress===null\s*\?1\s*:sceneActionState\.routeProgress/,
+      `${id}: an ungrounded route marker must stay static after reveal`,
+    );
+    assert.match(
+      composition.html,
+      /semanticSceneActionStateAtFrame\(visual\.sceneActionSchedule,frame\)/,
+      `${id}: composed visuals must use their group-level action schedule`,
+    );
+    assert.doesNotMatch(
+      composition.html,
+      /semanticSceneActionStateAtFrame\(active\.sceneActionSchedule,frame\)/,
+      `${id}: sentence actions cannot replace a visible group's actions`,
+    );
+    assert.match(
+      composition.html,
+      /const initialStageAttributeState=stages\.map/,
+      `${id}: composed stages require history-independent resets`,
+    );
+    assert.match(
+      composition.html,
+      /restoreInitialStageState\(lastRenderedStageIndex\)/,
+      `${id}: inactive stage state must not survive a random seek`,
+    );
+    assert.match(
+      composition.html,
+      /restoreInitialStageState\(visualIndex\)/,
+      `${id}: every frame must begin from canonical stage attributes`,
+    );
+    assert.match(
+      composition.html,
+      /element\.style\.visibility=visible\?"visible":"hidden"/,
+      `${id}: inactive stages must not participate in Chromium paint`,
+    );
+    assert.equal(
+      composition.actionQa.scheduleHash,
+      groupActionSchedule.contentHash,
+      `${id}: renderer action QA must cover visual groups`,
+    );
+    assert.equal(
+      composition.actionQa.settledHoldFrames.length,
+      visualGroups.length,
+      `${id}: one settled action hold per visual group`,
+    );
+    for (const group of timedVisualGroups) {
+      const timing = group.presentationTiming;
+      assert.ok(timing.revealSettleFrame <= (
+        timing.secondaryRevealStartFrame ?? group.semanticEndFrame
+      ));
+      if (timing.secondaryRevealStartFrame !== null) {
+        assert.ok(timing.secondaryRevealSettleFrame < group.semanticEndFrame);
+        for (const frame of [
+          timing.secondaryRevealStartFrame,
+          Math.floor((
+            timing.secondaryRevealStartFrame
+            + timing.secondaryRevealSettleFrame
+          ) / 2),
+          timing.secondaryRevealSettleFrame,
+        ]) {
+          assert.ok(
+            composition.actionQa.phaseFrames.includes(frame),
+            `${id}:${group.id}: secondary reveal checkpoint ${frame}`,
+          );
+        }
+      }
+    }
+    for (const [index, scene] of groupActionSchedule.scenes.entries()) {
+      const action = scene.actions[0];
+      if (action.op === "move") {
+        assert.ok(
+          action.startFrame >= timedVisualGroups[index]
+            .presentationTiming.revealSettleFrame,
+          `${id}:${scene.visualSceneId}: route starts after reveal`,
+        );
+      }
+    }
+    const expectedHeadingEntries = visualGroups.flatMap((group) => {
+      const groupText = group.sentenceIndices.map(
+        (index) => plan.sentences[index].wordSpan.text,
+      ).join(" ");
+      return group.sentenceIndices.map((sentenceIndex) => {
+        const sentence = plan.sentences[sentenceIndex];
+        return {
+          heading: semanticSimpleExplainerHeading(
+            sentence.primitiveParameters,
+            groupText,
+            120,
+          ),
+          source: sentence.wordSpan.text,
+          parameters: sentence.primitiveParameters,
+          groupText,
+        };
+      });
+    });
+    const expectedConceptHeadings = expectedHeadingEntries.map(
+      (entry) => entry.heading,
+    );
+    const renderedConceptHeadings = [...composition.html.matchAll(
+      /id="semantic-concept-\d+(?:-secondary)?"[^>]*>([\s\S]*?)<\/text>/g,
+    )].map((match) => {
+      const lines = [...match[1].matchAll(/<tspan[^>]*>([^<]*)<\/tspan>/g)]
+        .map((line) => line[1]);
+      return lines.length ? lines.join(" ") : match[1];
+    });
+    assert.deepEqual(renderedConceptHeadings, expectedConceptHeadings, id);
+    const renderedConceptTags = [...composition.html.matchAll(
+      /<text id="semantic-concept-\d+(?:-secondary)?"([^>]*)>/g,
+    )].map((match) => match[1]);
+    assert.equal(renderedConceptTags.length, expectedHeadingEntries.length, id);
+    for (const [index, attributes] of renderedConceptTags.entries()) {
+      assert.doesNotMatch(
+        attributes,
+        /(?:textLength|lengthAdjust)=/,
+        `${id}:heading:${index}:glyph-compression`,
+      );
+      const inlineFontSize = attributes.match(/font-size:(\d+)px/);
+      if (inlineFontSize) {
+        assert.ok(
+          Number(inlineFontSize[1]) >= 24,
+          `${id}:heading:${index}:mobile-font-floor`,
+        );
+      }
+    }
+    const visibleMicroCopyCount = [
+      ...composition.html.matchAll(/class="[^"]*\bmicro-copy\b[^"]*"/g),
+    ].length;
+    const markedMicroCopyCount = [
+      ...composition.html.matchAll(
+        /id="semantic-simple-label-\d+-\d+"[^>]*data-legibility-role="secondary"/g,
+      ),
+    ].length;
+    assert.equal(
+      markedMicroCopyCount,
+      visibleMicroCopyCount,
+      `${id}: every explanatory micro-label must enter mobile legibility QA`,
+    );
+    assert.ok(
+      expectedConceptHeadings.every((heading, index) => (
+        index === 0 || heading !== expectedConceptHeadings[index - 1]
+      )),
+      `${id}: adjacent simple scenes require distinct headings`,
+    );
+    for (const [index, entry] of expectedHeadingEntries.entries()) {
+      const { heading } = entry;
+      assert.equal(heading.length <= 120, true, `${id}:heading:${index}`);
+      assertHeadingIsSourceSubsequence(
+        entry.source,
+        heading,
+        `${id}:heading:${index}:source-binding`,
+      );
+      assert.equal(
+        semanticSimpleExplainerHeading(
+          entry.parameters,
+          entry.groupText,
+          120,
+        ),
+        heading,
+        `${id}:heading:${index}:deterministic`,
+      );
+    }
+    if (id === "002_gps_week_rollover") {
+      assert.deepEqual(
+        visualGroups.map((group) => group.sentenceIndices),
+        [[0], [1], [2, 3], [4, 5], [6], [7], [8], [9, 10], [11, 12]],
+      );
+      assert.deepEqual(
+        visualGroups.map((group) => group.anchorSentenceIndex),
+        [0, 1, 2, 5, 6, 7, 8, 10, 12],
+      );
+      assert.deepEqual(
+        visualGroups.map((group) => (
+          plan.sentences[group.anchorSentenceIndex]
+            .primitiveParameters.visualConceptId
+        )),
+        [
+          "finite_counter_wrap",
+          "counter_date_misinterpretation",
+          "encoded_bit_register",
+          "counter_recurrence",
+          "receiver_patch_required",
+          "future_rollover_timeline",
+          "counter_capacity_comparison",
+          "cue_evidence_spotlight",
+          "hypothesis_rejection",
+        ],
+      );
+      const selectedPrimaryForms = visualGroups.map((group) => (
+        primaryVisualFormSignature(plan.sentences[group.anchorSentenceIndex])
+      ));
+      assert.equal(selectedPrimaryForms.every(Boolean), true);
+      assert.equal(
+        new Set(selectedPrimaryForms).size,
+        selectedPrimaryForms.length,
+        "GPS simple scenes must not repeat a selected primary animation form",
+      );
+      assert.equal(
+        timedVisualGroups.some((group) => (
+          group.endFrame > group.semanticEndFrame
+        )),
+        true,
+        "GPS visual groups must preserve real narration tail padding",
+      );
+      assert.deepEqual(
+        simpleStepCounts,
+        [1, 1, 2, 2, 1, 1, 1, 2, 2],
+      );
+      assert.deepEqual(
+        simpleFocalCounts,
+        Array.from({ length: 9 }, () => 1),
+      );
+      assert.ok(simpleLabelCounts.every((count) => count <= 2));
+      assert.match(
+        composition.html,
+        /data-comparison-concept="counter_vs_time"/,
+      );
+      assert.match(
+        composition.html,
+        /data-simple-renderer-variant="software_patch_card"/,
+      );
+      assert.match(
+        composition.html,
+        /data-simple-renderer-variant="mystery_to_counter_loop"/,
+      );
+      assert.match(
+        composition.html,
+        /data-simple-mechanism="finite_counter_loop"/,
+      );
+      assert.match(composition.html, />FINITE COUNTER LOOP</);
+      assert.doesNotMatch(composition.html, />INTERPRET<|>UPDATE REQUIRED</);
+    }
+    assert.doesNotMatch(composition.html, /class="semantic-sentence-copy"/);
+    assert.doesNotMatch(composition.html,
+      /semantic-support-(?:surface|label|value|quantity|state|route)/);
+    assert.match(composition.html,
+      new RegExp(`data-semantic-presentation-profile-id="${SEMANTIC_SIMPLE_EXPLAINER_PROFILE_ID}"`));
+    for (const group of visualGroups) {
+      const sentence = plan.sentences[group.anchorSentenceIndex];
       const { sceneComposition } = sentence;
       assert.ok(composition.html.includes(
         `data-scene-composition-id="${sceneComposition.id}"`,
@@ -3019,8 +3630,8 @@ test("bounded geometry factory compiles distinct source-bound programs into visi
             : blueprint.controls.density === "dense"
               ? maximumNodes
               : Math.round((minimumNodes + maximumNodes) / 2),
-        );
-      }
+      );
+    }
       assert.equal(
         blueprint.bindings.semanticEventGraphHash,
         graph.contentHash,
@@ -3126,7 +3737,7 @@ test("bounded geometry factory compiles distinct source-bound programs into visi
   assert.ok(approvedRouteCount >= 1);
 });
 
-test("unresolved state uses the same reject tone in geometry and its state badge", async () => {
+test("unresolved state keeps reject geometry while support topology stays nonvisual", async () => {
   const sceneRenderer = await import(
     "../renderer/hyperframes/primitives/semantic-scene-composition.mjs"
   );
@@ -3178,11 +3789,10 @@ test("unresolved state uses the same reject tone in geometry and its state badge
     0,
   );
   assert.equal(unrelatedGetterExecuted, false);
-  assert.match(
-    markup,
-    /class="semantic-support-module semantic-support-reject"/,
-  );
-  assert.match(markup, />UNRESOLVED<\/text>/);
+  assert.match(markup, /data-blueprint-node-tone="reject"/);
+  assert.match(markup, /class="semantic-support-module semantic-support-stub"/);
+  assert.match(markup, /class="semantic-nonvisual-topology" opacity="0"/);
+  assert.doesNotMatch(markup, />UNRESOLVED<\/text>|semantic-support-surface/);
 });
 
 test("bounded geometry contracts reject injection, malformed data, and fresh-hash rebinding", () => {
@@ -3860,21 +4470,723 @@ test("cue-grounded quantities change primitive body content without leaking lega
   const markup41 = primitives.semanticSentencePrimitiveMarkup(sentence41, 0);
   assert.match(markup72, />SEVENTY-TWO SECONDS/);
   assert.match(markup41, />FORTY-ONE SECONDS/);
-  const supportQuantity = (markup) => (
-    [...markup.matchAll(
-      /class="semantic-support-quantity"[\s\S]*?>([^<]+)<\/text>/g,
-    )]
-      .map((match) => match[1])
-      .join("")
-      .replace(/\s/g, "")
-  );
-  assert.equal(supportQuantity(markup72), "seventy-twoseconds");
-  assert.equal(supportQuantity(markup41), "forty-oneseconds");
+  assert.doesNotMatch(markup72, /semantic-support-quantity/);
+  assert.doesNotMatch(markup41, /semantic-support-quantity/);
   assert.doesNotMatch(markup72, /seventy-…|lengthAdjust="spacingAndGlyphs"/);
   assert.doesNotMatch(markup41, /forty-…|lengthAdjust="spacingAndGlyphs"/);
   assert.notEqual(markup41, markup72);
   assert.doesNotMatch(markup72, />1023<|>0000<|>DATE<|>INPUT<|>OUTPUT</);
   assert.doesNotMatch(markup41, />1023<|>0000<|>DATE<|>INPUT<|>OUTPUT</);
+});
+
+test("simple explainer headings and visuals remain source-bound across value substitutions", async () => {
+  const primitives = await import(
+    "../renderer/hyperframes/primitives/semantic-sentence-primitives.mjs"
+  );
+  const renderedGroup = (compiledValue, phrase) => {
+    const sentences = compiledValue.compiled.animationIR.content
+      .semanticVisualSentencePlan.sentences;
+    const group = buildSemanticSimpleExplainerGroups(sentences).find(
+      (candidate) => candidate.sentenceIndices.some(
+        (index) => sentences[index].wordSpan.text.includes(phrase),
+      ),
+    );
+    assert.ok(group, phrase);
+    const anchor = sentences[group.anchorSentenceIndex];
+    const groupSentences = group.sentenceIndices.map((index) => sentences[index]);
+    const groupText = groupSentences.map(
+      (sentence) => sentence.wordSpan.text,
+    ).join(" ");
+    return {
+      heading: primitives.semanticSimpleExplainerHeading(
+        anchor.primitiveParameters,
+        groupText,
+      ),
+      groupText,
+      markup: primitives.semanticSentencePrimitiveMarkup(
+        anchor,
+        group.anchorSentenceIndex,
+        {
+          simpleExplainerContext: {
+            profileId: SEMANTIC_SIMPLE_EXPLAINER_PROFILE_ID,
+            visualKind: group.visualKind,
+            groupText,
+            stepCount: groupSentences.length,
+            visualConceptIds: groupSentences.map(
+              (sentence) => sentence.primitiveParameters.visualConceptId,
+            ),
+            stepHeadings: groupSentences.map((sentence) => (
+              primitives.semanticSimpleExplainerHeading(
+                sentence.primitiveParameters,
+                groupText,
+                120,
+              )
+            )),
+          },
+        },
+      ),
+    };
+  };
+
+  const wow72 = compileRaw(
+    readRaw("001_wow_signal_mystery"),
+    "simple-value-duration-72",
+    "prj_simple_value_duration_72",
+  );
+  const raw41 = JSON.parse(
+    JSON.stringify(readRaw("001_wow_signal_mystery"))
+      .replaceAll("seventy-two", "forty-one")
+      .replaceAll("72", "41"),
+  );
+  const wow41 = compileRaw(
+    raw41,
+    "simple-value-duration-41",
+    "prj_simple_value_duration_41",
+  );
+  const duration72 = renderedGroup(wow72, "frequency");
+  const duration41 = renderedGroup(wow41, "frequency");
+  assertHeadingIsSourceSubsequence(duration72.groupText, duration72.heading);
+  assertHeadingIsSourceSubsequence(duration41.groupText, duration41.heading);
+  assert.match(duration72.markup, />72<\/text>[\s\S]*>SECONDS<\/text>/);
+  assert.match(duration41.markup, />41<\/text>[\s\S]*>SECONDS<\/text>/);
+  assert.doesNotMatch(duration41.markup, />72<\/text>/);
+
+  const baychimo = compileRaw(
+    readRaw("003_baychimo_icebound_drift"),
+    "simple-value-baychimo-1969",
+    "prj_simple_value_baychimo_1969",
+  );
+  const renamedRaw = JSON.parse(
+    JSON.stringify(readRaw("003_baychimo_icebound_drift"))
+      .replaceAll("Baychimo", "Resolute")
+      .replaceAll("BAYCHIMO", "RESOLUTE")
+      .replaceAll("1969", "1987"),
+  );
+  const resolute = compileRaw(
+    renamedRaw,
+    "simple-value-resolute-1987",
+    "prj_simple_value_resolute_1987",
+  );
+  const baychimoAbsence = renderedGroup(baychimo, "ship they had left");
+  const resoluteAbsence = renderedGroup(resolute, "ship they had left");
+  assertHeadingIsSourceSubsequence(
+    baychimoAbsence.groupText,
+    baychimoAbsence.heading,
+  );
+  assertHeadingIsSourceSubsequence(
+    resoluteAbsence.groupText,
+    resoluteAbsence.heading,
+  );
+  const archive1969 = renderedGroup(baychimo, "latest company archive");
+  const archive1987 = renderedGroup(resolute, "latest company archive");
+  assertHeadingIsSourceSubsequence(archive1969.groupText, archive1969.heading);
+  assertHeadingIsSourceSubsequence(archive1987.groupText, archive1987.heading);
+  assert.match(archive1969.markup, />1969</);
+  assert.match(archive1987.markup, />1987</);
+});
+
+test("simple explainer headings are deterministic narration subsequences", async () => {
+  const { semanticSimpleExplainerHeading } = await import(
+    "../renderer/hyperframes/primitives/semantic-sentence-primitives.mjs"
+  );
+  const parameters = (
+    visualConceptId,
+    value,
+    stateToken,
+    detailValue = value,
+  ) => ({
+    visualConceptId,
+    subject: { value },
+    detail: {
+      value: detailValue,
+      sourceRef: { value: detailValue },
+    },
+    stateToken,
+    quantity: null,
+  });
+  const cases = [
+    {
+      conceptId: "signal_frequency_band",
+      source: "The frequency was never considered promising.",
+      forbidden: "A FREQUENCY CONSIDERED PROMISING",
+    },
+    {
+      conceptId: "cue_evidence_network",
+      source: "Local interference caused the signal.",
+      forbidden: "LOCAL INTERFERENCE BECAME LESS LIKELY",
+    },
+    {
+      conceptId: "duration_timeline",
+      source: "The signal did not last 72 seconds.",
+      forbidden: "THE SIGNAL LASTED 72 SECONDS",
+    },
+    {
+      conceptId: "cue_evidence_spotlight",
+      source: "In 1977, the signal did not appear once.",
+      forbidden: "SIGNAL APPEARED ONCE — LAST RECORD",
+    },
+    {
+      conceptId: "assumption_state",
+      source: "The crew had not assumed the ship had sunk.",
+      forbidden: "THE CREW ASSUMED THE SHIP HAD SUNK",
+    },
+    {
+      conceptId: "observation_sequence",
+      source: "Nobody boarded the ship.",
+      forbidden: "PEOPLE SAW AND BOARDED THE SHIP",
+    },
+    {
+      conceptId: "cue_evidence_spotlight",
+      source: "The failure was never haunted.",
+      forbidden: "THE FAILURE LOOKED MYSTERIOUS",
+    },
+    {
+      conceptId: "hypothesis_rejection",
+      source: "The signal repeated twice but was never verified.",
+      forbidden: "IT NEVER REPEATED — UNRESOLVED",
+    },
+    {
+      conceptId: "hypothesis_rejection",
+      source: "The telescope beam crossed the source without the signal strength tracking it.",
+      forbidden: "SIGNAL STRENGTH TRACKED THE BEAM",
+    },
+    {
+      conceptId: "hypothesis_rejection",
+      source: "It was not a supernatural ghost ship, but no drift was documented.",
+      detail: "no drift was documented.",
+      forbidden: "DOCUMENTED DRIFT — NOT A GHOST SHIP",
+    },
+    {
+      conceptId: "route_trace",
+      source: "Without a crew, the vessel drifted toward Hawaii.",
+      forbidden: "EMPTY SHIP DRIFTED WITH ARCTIC ICE",
+    },
+    {
+      conceptId: "observation_sequence",
+      source: "People spotted the abandoned steamer for the first time.",
+      forbidden: "HUNTERS SPOTTED THE SHIP AGAIN",
+    },
+    {
+      conceptId: "assumption_state",
+      source: "They spotted the ship before they assumed it had sunk.",
+      forbidden: "ASSUMED SUNK — THEN SPOTTED AGAIN",
+    },
+    {
+      conceptId: "hypothesis_rejection",
+      source: "The alarm stopped, not time itself.",
+      forbidden: "TIME ITSELF DID NOT RESET",
+    },
+    {
+      conceptId: "future_rollover_timeline",
+      source: "A future rollover is due in 2038.",
+      forbidden: "NEXT LEGACY ROLLOVER: 2038",
+    },
+    {
+      conceptId: "finite_counter_wrap",
+      source: "The value reset to zero.",
+      forbidden: "THE COUNTER RESET TO 0",
+    },
+    {
+      conceptId: "observation_sequence",
+      source: "Sailors boarded the vessel.",
+      forbidden: "SAILORS BOARDED THE SHIP",
+    },
+    {
+      conceptId: "duration_timeline",
+      source: "One signal was near a frequency researchers considered promising. Another signal lasted 72 seconds.",
+      detail: "One signal was near a frequency researchers considered promising.",
+      forbidden: "72 SECONDS NEAR A PROMISING FREQUENCY",
+    },
+    {
+      conceptId: "observation_sequence",
+      source: "People spotted a cargo ship beside an abandoned steamer.",
+      forbidden: "ABANDONED STEAMER WAS SPOTTED",
+    },
+    {
+      conceptId: "counter_recurrence",
+      source: "The counter covers 20 years. Before that, it rolled over.",
+      detail: "The counter covers 20 years.",
+      forbidden: "~20 YEARS, THEN COUNTER ROLLED OVER",
+    },
+  ];
+  for (const [index, value] of cases.entries()) {
+    const input = parameters(
+      value.conceptId,
+      value.source.toLocaleLowerCase("en-US"),
+      "SOURCE_LOCKED",
+      value.detail || value.source,
+    );
+    const heading = semanticSimpleExplainerHeading(input, value.source);
+    assertHeadingIsSourceSubsequence(
+      value.source,
+      heading,
+      `source-locked-heading:${index}`,
+    );
+    assert.equal(heading.length <= 40, true);
+    assert.notEqual(heading, value.forbidden, value.source);
+    assert.equal(
+      semanticSimpleExplainerHeading(input, value.source),
+      heading,
+      `deterministic-heading:${index}`,
+    );
+  }
+
+  const abbreviationSource =
+    "Dr. Smith recorded the signal. It never repeated.";
+  const abbreviationHeading = semanticSimpleExplainerHeading(
+    parameters(
+      "observation_sequence",
+      abbreviationSource,
+      "RECORDED",
+      "Dr. Smith recorded the signal.",
+    ),
+    abbreviationSource,
+  );
+  assertHeadingIsSourceSubsequence(abbreviationSource, abbreviationHeading);
+  assert.match(abbreviationHeading, /DR\. SMITH RECORDED THE SIGNAL/);
+  assert.doesNotMatch(abbreviationHeading, /NEVER REPEATED/);
+
+  const acronymSource = "The U.S. signal vanished. It returned.";
+  const acronymHeading = semanticSimpleExplainerHeading(
+    parameters(
+      "observation_sequence",
+      acronymSource,
+      "RECORDED",
+      "The U.S. signal vanished.",
+    ),
+    acronymSource,
+  );
+  assertHeadingIsSourceSubsequence(acronymSource, acronymHeading);
+  assert.match(acronymHeading, /U\.S\. SIGNAL VANISHED/);
+  assert.doesNotMatch(acronymHeading, /RETURNED/);
+
+  const terminalInitialismSource =
+    "The ship returned to the U.S. Nobody followed.";
+  const terminalInitialismHeading = semanticSimpleExplainerHeading(
+    parameters(
+      "observation_sequence",
+      terminalInitialismSource,
+      "RECORDED",
+      "The ship returned to the U.S.",
+    ),
+    terminalInitialismSource,
+  );
+  assertHeadingIsSourceSubsequence(
+    terminalInitialismSource,
+    terminalInitialismHeading,
+  );
+  assert.match(terminalInitialismHeading, /SHIP RETURNED TO THE U\.S/);
+  assert.doesNotMatch(terminalInitialismHeading, /NOBODY/);
+
+  for (const source of [
+    "The signal, despite repeated claims, didn't actually last seventy two seconds during the test.",
+    "The device couldn't possibly display the wrong date under ordinary conditions.",
+  ]) {
+    const heading = semanticSimpleExplainerHeading(
+      parameters("observation_sequence", source, "REJECTED"),
+      source,
+    );
+    assertHeadingIsSourceSubsequence(source, heading);
+    assert.match(heading, /(?:DIDN'T|COULDN'T)/);
+    assert.match(heading, /…/);
+  }
+
+  for (const [source, required] of [
+    [
+      "The signal appeared to repeat under every preliminary check before failing to repeat during the controlled test.",
+      /FAILING TO/,
+    ],
+    [
+      "The signal seemed well supported by all early reports despite lacking independent verification later.",
+      /LACKING/,
+    ],
+    [
+      "The receiver looked correct in every preview but was unable to display the verified date.",
+      /UNABLE TO/,
+    ],
+  ]) {
+    const heading = semanticSimpleExplainerHeading(
+      parameters("observation_sequence", source, "REJECTED", source),
+      source,
+    );
+    assertHeadingIsSourceSubsequence(source, heading);
+    assert.match(heading, required);
+    assert.match(heading, /…/);
+  }
+
+  const unsafeSeparatedPolaritySources = [
+    "The receiver was not, after many independent checks and careful reviews, unable to display the date.",
+    "The archive did not, according to every investigator who reviewed it, lack a verified chain.",
+    "The signal did not, despite every severe test and independent challenge, fail to repeat.",
+    "Engineers did not find electromagneticinterference capable of making the old receiver unable to show the right date.",
+    "Researchers did not find electromagneticinterference sufficient to leave the archive lacking any chain at all.",
+    "Analysts did not judge electromagneticinterference enough to make the signal fail to repeat in the test.",
+    "The receiver wasnʼt after extensive independent verification unable to display the correct date.",
+    "The archive didnʼt after exhaustive independent review lack a verified chain of custody.",
+    "The signal couldnʼt after weeks of controlled testing fail to repeat in the final trial.",
+    "The signal was not—after extensive independent verification—unable—to display the correct date.",
+  ];
+  for (const source of unsafeSeparatedPolaritySources) {
+    assert.throws(
+      () => semanticSimpleExplainerHeading(
+        parameters("observation_sequence", source, "REJECTED", source),
+        source,
+      ),
+      /no safe whole-token excerpt/,
+      source,
+    );
+  }
+
+  const compactDoubleNegation =
+    "The receiver was not unable to show it.";
+  const compactDoubleNegationHeading = semanticSimpleExplainerHeading(
+    parameters(
+      "observation_sequence",
+      compactDoubleNegation,
+      "REJECTED",
+      compactDoubleNegation,
+    ),
+    compactDoubleNegation,
+  );
+  assertHeadingIsSourceSubsequence(
+    compactDoubleNegation,
+    compactDoubleNegationHeading,
+  );
+  assert.match(compactDoubleNegationHeading, /NOT UNABLE TO/);
+
+  for (const source of [
+    `${"μαΐου ".repeat(12)}το σήμα επαναλήφθηκε αλλά δεν επιβεβαιώθηκε`.trim(),
+    "Oﬃcial records and oﬃce logs and aﬃdavits described the mysterious signal after review as extraterrestrial, allegedly.",
+  ]) {
+    assert.equal(source.length <= 120, true);
+    const heading = semanticSimpleExplainerHeading(
+      parameters("observation_sequence", source, "SOURCE_LOCKED", source),
+      source,
+      120,
+    );
+    assert.equal(heading, source.toUpperCase().replace(/\s+/g, " "));
+    assert.doesNotMatch(heading, /…/);
+  }
+
+  for (const [source, required] of [
+    [
+      "The signal failed repeatedly to appear during the controlled test after seeming completely reliable.",
+      /FAILED REPEATEDLY TO/,
+    ],
+    [
+      "The receiver was unable at first to display the correct date despite later succeeding.",
+      /UNABLE AT FIRST TO/,
+    ],
+    [
+      "The signal appeared credible throughout early review although independent verification remained impossible.",
+      /IMPOSSIBLE/,
+    ],
+    [
+      "The archive remained unverified despite extensive independent review by multiple investigators.",
+      /UNVERIFIED/,
+    ],
+  ]) {
+    const heading = semanticSimpleExplainerHeading(
+      parameters("observation_sequence", source, "SOURCE_LOCKED", source),
+      source,
+    );
+    assertHeadingIsSourceSubsequence(source, heading);
+    assert.match(heading, required);
+    assert.equal(heading.length <= 40, true);
+  }
+
+  const quotedSource =
+    '"The signal vanished." Witnesses searched again.';
+  const quotedHeading = semanticSimpleExplainerHeading(
+    parameters(
+      "observation_sequence",
+      quotedSource,
+      "RECORDED",
+      "The signal vanished.",
+    ),
+    quotedSource,
+  );
+  assertHeadingIsSourceSubsequence(quotedSource, quotedHeading);
+  assert.match(quotedHeading, /SIGNAL VANISHED/);
+  assert.doesNotMatch(quotedHeading, /WITNESSES/);
+
+  for (const [source, detail, forbidden] of [
+    [
+      "The signal appeared。 It never repeated.",
+      "The signal appeared。",
+      /NEVER REPEATED/,
+    ],
+    [
+      "The signal appeared！ Nobody verified it.",
+      "The signal appeared！",
+      /NOBODY VERIFIED/,
+    ],
+    [
+      "The witness said «It vanished.» Nobody returned.",
+      "The witness said «It vanished.»",
+      /NOBODY RETURNED/,
+    ],
+    [
+      "The signal came from Mt. Wilson before it vanished.",
+      "The signal came from Mt. Wilson before it vanished.",
+      /NEVER REPEATED/,
+    ],
+    [
+      "J. Allen recorded the signal before dawn.",
+      "J. Allen recorded the signal before dawn.",
+      /NEVER REPEATED/,
+    ],
+    [
+      "At 3 p.m. NASA detected the burst over Ohio.",
+      "At 3 p.m. NASA detected the burst over Ohio.",
+      /NEVER REPEATED/,
+    ],
+  ]) {
+    const heading = semanticSimpleExplainerHeading(
+      parameters("observation_sequence", source, "RECORDED", detail),
+      source,
+    );
+    assertHeadingIsSourceSubsequence(detail, heading);
+    assert.doesNotMatch(heading, forbidden);
+  }
+
+  assert.throws(
+    () => semanticSimpleExplainerHeading(
+      {},
+      "A report by the U.S. Navy confirmed the signal.",
+    ),
+    /exact source-bound proposition/,
+  );
+  assert.throws(
+    () => semanticSimpleExplainerHeading(
+      parameters(
+        "observation_sequence",
+        "The signal appeared.",
+        "RECORDED",
+        "A different signal appeared.",
+      ),
+      "The signal appeared.",
+    ),
+    /exact source-bound proposition/,
+  );
+
+  assert.throws(
+    () => semanticSimpleExplainerHeading(
+      parameters(
+        "observation_sequence",
+        "Alphaalphabeticalwordlonglonglonglonglonglong Betaalphabeticalwordlonglonglonglonglonglong.",
+        "RECORDED",
+      ),
+      "Alphaalphabeticalwordlonglonglonglonglonglong Betaalphabeticalwordlonglonglonglonglonglong.",
+    ),
+    /no safe whole-token excerpt/,
+  );
+});
+
+test("unverified repeated concepts stay in distinct one-step narration scenes", async () => {
+  const { compileAnimationIRToHtml } = await import(
+    "../renderer/hyperframes/animation-ir-adapter.mjs"
+  );
+  const primitives = await import(
+    "../renderer/hyperframes/primitives/semantic-sentence-primitives.mjs"
+  );
+  const cases = [
+    {
+      visualKind: "state_change",
+      spokenText:
+        "The display changed from green to amber. The display changed from amber to red.",
+    },
+    {
+      visualKind: "cause_effect",
+      spokenText:
+        "Heavy rain caused the launch time to change. Strong wind caused the launch route to change.",
+    },
+  ];
+  for (const [caseIndex, value] of cases.entries()) {
+    const raw = readRaw("002_gps_week_rollover");
+    raw.script.beats[2].spokenText = value.spokenText;
+    const compiledValue = compileRaw(
+      raw,
+      `generic-second-step-${value.visualKind}`,
+      `prj_generic_second_step_${caseIndex}`,
+    );
+    const { animationIR } = compiledValue.compiled;
+    const sentences = animationIR.content.semanticVisualSentencePlan.sentences;
+    const groups = buildSemanticSimpleExplainerGroups(sentences);
+    const beatGroups = groups.filter(
+      (candidate) => candidate.beatId === "beat_evidence",
+    );
+    assert.ok(beatGroups.length >= 2, value.visualKind);
+    for (const group of beatGroups) {
+      assert.equal(group.sentenceIndices.length, 1, value.visualKind);
+      const anchor = sentences[group.anchorSentenceIndex];
+      const groupText = anchor.wordSpan.text;
+      const heading = primitives.semanticSimpleExplainerHeading(
+        anchor.primitiveParameters,
+        groupText,
+        120,
+      );
+      const markup = primitives.semanticSentencePrimitiveMarkup(
+        anchor,
+        group.anchorSentenceIndex,
+        {
+          simpleExplainerContext: {
+            profileId: SEMANTIC_SIMPLE_EXPLAINER_PROFILE_ID,
+            visualKind: group.visualKind,
+            groupText,
+            stepCount: 1,
+            visualConceptIds: [
+              anchor.primitiveParameters.visualConceptId,
+            ],
+            stepHeadings: [heading],
+          },
+        },
+      );
+      assert.match(markup, /data-simple-visible-step-count="1"/);
+      assert.doesNotMatch(markup, /semantic-step-secondary/);
+    }
+    const composition = compileAnimationIRToHtml(
+      animationIR,
+      rendererSourceOptions(compiledValue),
+    );
+    assert.match(
+      composition.html,
+      /const secondaryProgress=secondaryStartFrame!==null/,
+      value.visualKind,
+    );
+  }
+});
+
+test("simple explainer preserves narration order and every validated pair renders two steps", async () => {
+  const { compileAnimationIRToHtml } = await import(
+    "../renderer/hyperframes/animation-ir-adapter.mjs"
+  );
+  const primitives = await import(
+    "../renderer/hyperframes/primitives/semantic-sentence-primitives.mjs"
+  );
+  const markupForGroup = (sentences, group) => {
+    const groupSentences = group.sentenceIndices.map((index) => sentences[index]);
+    const groupText = groupSentences.map(
+      (sentence) => sentence.wordSpan.text,
+    ).join(" ");
+    const anchor = sentences[group.anchorSentenceIndex];
+    return primitives.semanticSentencePrimitiveMarkup(
+      anchor,
+      group.anchorSentenceIndex,
+      {
+        simpleExplainerContext: {
+          profileId: SEMANTIC_SIMPLE_EXPLAINER_PROFILE_ID,
+          visualKind: group.visualKind,
+          groupText,
+          stepCount: groupSentences.length,
+          visualConceptIds: groupSentences.map(
+            (sentence) => sentence.primitiveParameters.visualConceptId,
+          ),
+          stepHeadings: groupSentences.map((sentence) => (
+            primitives.semanticSimpleExplainerHeading(
+              sentence.primitiveParameters,
+              groupText,
+              120,
+            )
+          )),
+        },
+      },
+    );
+  };
+
+  const reverseRaw = readBaychimoWithGroundedRoute();
+  const reverseText =
+    "Local hunters spotted the ship before the crew assumed it had sunk.";
+  reverseRaw.script.beats.find(
+    (beat) => beat.id === "beat_context",
+  ).spokenText = reverseText;
+  reverseRaw.claimLedger.claims.find(
+    (claim) => claim.id === "claim_reappearance",
+  ).text = reverseText;
+  const reverse = compileRaw(
+    reverseRaw,
+    "simple-order-reversal",
+    "prj_simple_order_reversal",
+  );
+  const reverseSentences = reverse.compiled.animationIR.content
+    .semanticVisualSentencePlan.sentences;
+  const reverseGroups = buildSemanticSimpleExplainerGroups(reverseSentences, {
+    fps: reverse.compiled.animationIR.fps,
+  }).filter((group) => group.beatId === "beat_context");
+  assert.ok(reverseGroups.length >= 1);
+  assert.ok(reverseGroups.every((group) => group.sentenceIndices.length === 1));
+  for (const group of reverseGroups) {
+    const markup = markupForGroup(reverseSentences, group);
+    assert.match(markup, /data-simple-visible-step-count="1"/);
+    assert.doesNotMatch(markup, /assumption_to_sighting|SPOTTED AGAIN/);
+  }
+
+  const finiteRaw = readRaw("002_gps_week_rollover");
+  finiteRaw.script.beats.find(
+    (beat) => beat.id === "beat_context",
+  ).spokenText =
+    "The legacy civil signal stores its week number in ten bits, and the counter has a finite range.";
+  const finite = compileRaw(
+    finiteRaw,
+    "simple-finite-range",
+    "prj_simple_finite_range",
+  );
+  const finiteSentences = finite.compiled.animationIR.content
+    .semanticVisualSentencePlan.sentences;
+  const finiteGroup = buildSemanticSimpleExplainerGroups(finiteSentences, {
+    fps: finite.compiled.animationIR.fps,
+  }).find((group) => group.sentenceIndices.some(
+    (index) => finiteSentences[index].wordSpan.text.includes("ten bits"),
+  ));
+  assert.ok(finiteGroup);
+  assert.equal(finiteGroup.sentenceIndices.length, 2);
+  const finiteMarkup = markupForGroup(finiteSentences, finiteGroup);
+  assert.match(finiteMarkup, /data-simple-visible-step-count="2"/);
+  assert.match(finiteMarkup, /semantic-step-secondary/);
+  assert.match(finiteMarkup, />FINITE RANGE<\/text>/);
+  assert.doesNotThrow(() => compileAnimationIRToHtml(
+    finite.compiled.animationIR,
+    rendererSourceOptions(finite),
+  ));
+
+  const durationBase = compileRaw(
+    readRaw("001_wow_signal_mystery"),
+    "simple-duration-unit",
+    "prj_simple_duration_unit",
+  );
+  const durationSentences = durationBase.compiled.animationIR.content
+    .semanticVisualSentencePlan.sentences;
+  const durationGroup = buildSemanticSimpleExplainerGroups(durationSentences, {
+    fps: durationBase.compiled.animationIR.fps,
+  }).find((group) => group.sentenceIndices.map(
+    (index) => durationSentences[index].primitiveParameters.visualConceptId,
+  ).join(">") === "signal_frequency_band>duration_timeline");
+  assert.ok(durationGroup);
+  const durationAnchor = durationSentences[durationGroup.anchorSentenceIndex];
+  const minuteMarkup = primitives.semanticSentencePrimitiveMarkup(
+    durationAnchor,
+    durationGroup.anchorSentenceIndex,
+    {
+      simpleExplainerContext: {
+        profileId: SEMANTIC_SIMPLE_EXPLAINER_PROFILE_ID,
+        visualKind: durationGroup.visualKind,
+        groupText: "A signal arrived near a promising frequency and lasted two minutes.",
+        stepCount: 2,
+        visualConceptIds: ["signal_frequency_band", "duration_timeline"],
+        stepHeadings: ["PROMISING FREQUENCY", "LASTED TWO MINUTES"],
+      },
+    },
+  );
+  assert.match(minuteMarkup, />2<\/text>[\s\S]*>MINUTES<\/text>/);
+
+  const directMarkup = primitives.semanticSentencePrimitiveMarkup(
+    finiteSentences[finiteGroup.anchorSentenceIndex],
+    finiteGroup.anchorSentenceIndex,
+  );
+  assert.doesNotMatch(
+    directMarkup,
+    /data-semantic-presentation-profile-id=/,
+  );
 });
 
 test("multiword number phrases keep one exact value span and their unit", () => {
@@ -4352,7 +5664,8 @@ test("sentence primitives follow the current cue, preserve units, and use semant
     10,
   );
   assert.match(tenBitMarkup, /data-cause-concept="bit_register"/);
-  assert.match(tenBitMarkup, />SIGNAL</);
+  assert.match(tenBitMarkup, /data-simple-visible-step-count="1"/);
+  assert.doesNotMatch(tenBitMarkup, />SIGNAL</);
   assert.match(tenBitMarkup, />TEN BITS</);
   assert.doesNotMatch(tenBitMarkup, /class="counter-cycle"/);
 
@@ -4366,8 +5679,9 @@ test("sentence primitives follow the current cue, preserve units, and use semant
     sentences.indexOf(wrongDate),
   );
   assert.match(wrongDateMarkup, /data-cause-concept="wrong_date"/);
+  assert.match(wrongDateMarkup, /data-simple-visible-step-count="2"/);
   assert.match(wrongDateMarkup, />GPS VALUE</);
-  assert.match(wrongDateMarkup, />INTERPRET</);
+  assert.doesNotMatch(wrongDateMarkup, />INTERPRET</);
   assert.match(wrongDateMarkup, />WRONG DATE</);
 
   const hauntedClock = sentences.find(
@@ -4402,9 +5716,10 @@ test("sentence primitives follow the current cue, preserve units, and use semant
     sentences.indexOf(softwarePatch),
   );
   assert.match(softwarePatchMarkup, /data-cause-concept="software_patch"/);
+  assert.match(softwarePatchMarkup, /data-simple-visible-step-count="2"/);
   assert.match(softwarePatchMarkup, />AMBIGUITY</);
   assert.match(softwarePatchMarkup, />SOFTWARE PATCH</);
-  assert.match(softwarePatchMarkup, />UPDATE REQUIRED</);
+  assert.doesNotMatch(softwarePatchMarkup, />UPDATE REQUIRED</);
 
   const ordinaryMechanism = sentences.find(
     (sentence) => sentence.wordSpan.text.includes("mechanism was ordinary"),
@@ -4479,7 +5794,7 @@ test("sentence primitives follow the current cue, preserve units, and use semant
   assert.match(notTimeMarkup, />NOT TIME ITSELF\.</);
   assert.match(
     notTimeMarkup,
-    /class="semantic-bounded-geometry"[\s\S]*opacity="\.16"[\s\S]*data-visual-role="supporting_scaffold"/,
+    /class="semantic-bounded-geometry"[\s\S]*opacity="\.025"[\s\S]*data-visual-role="supporting_scaffold"/,
   );
 
   const explicitNotTime = compileRaw(
@@ -4505,7 +5820,8 @@ test("sentence primitives follow the current cue, preserve units, and use semant
   );
   assert.match(explicitNotTimeMarkup, />NUMBER RESETS</);
   assert.match(explicitNotTimeMarkup, />TIME CONTINUES</);
-  assert.match(explicitNotTimeMarkup, />NOT TIME ITSELF</);
+  assert.match(explicitNotTimeMarkup, /data-simple-visible-step-count="2"/);
+  assert.doesNotMatch(explicitNotTimeMarkup, />NOT TIME ITSELF</);
 
   const twentyFourBitRaw = readRaw("002_gps_week_rollover");
   twentyFourBitRaw.script.beats[1].spokenText =
@@ -4545,12 +5861,12 @@ test("sentence primitives follow the current cue, preserve units, and use semant
   }));
   assert.equal(bitCells.length, 24);
   for (const cell of bitCells) {
-    assert.ok(cell.x >= 252, `bit ${cell.index} starts inside its panel`);
+    assert.ok(cell.x >= 164, `bit ${cell.index} starts inside its panel`);
     assert.ok(
-      cell.x + cell.width <= 592,
+      cell.x + cell.width <= 556,
       `bit ${cell.index} ends inside its panel`,
     );
-    assert.ok(cell.y >= 330, `bit ${cell.index} starts below panel top`);
+    assert.ok(cell.y >= 354, `bit ${cell.index} starts below panel top`);
     assert.ok(
       cell.y + cell.height <= 520,
       `bit ${cell.index} clears the quantity label`,
@@ -5455,7 +6771,8 @@ test("primitive parameter contracts escape grounded XML and fail closed on tampe
     escapedSentence,
     0,
   );
-  assert.match(escapedMarkup, /ARCHIVE A &amp; B &lt;COPY&gt;/);
+  assert.match(escapedMarkup, /ARCHIVE A &amp;/);
+  assert.match(escapedMarkup, /B &lt;COPY&gt;/);
   assert.doesNotMatch(escapedMarkup, /<copy>/i);
 
   const baychimo = compileRaw(

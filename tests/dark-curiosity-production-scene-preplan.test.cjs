@@ -472,7 +472,7 @@ test("live-mode binding requires the exact server-owned preplan artifact", () =>
       animationIRHash: "3".repeat(64),
       animationProvider: "hyperframes_local",
       animationRuntimeVersion: "0.7.55",
-      animationStyleVersion: "3.0.0",
+      animationStyleVersion: "3.1.0",
       animationScenePlanArtifactId: "art_partial-scene-plan-0001",
     }, "render_narrated_short"),
     (error) => error?.code === "VALIDATION_ERROR"

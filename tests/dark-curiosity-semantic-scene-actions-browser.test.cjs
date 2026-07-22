@@ -23,8 +23,8 @@ const {
 } = require("../server/pipelines/narrated-short/animation/semantic-animation-scene-dsl-plan.cjs");
 const {
   browserQaExpectations,
+  safeSeekSequence,
 } = require("../server/pipelines/narrated-short/animation/render-service.cjs");
-
 const RUN_BROWSER_PROOF =
   process.env.RUN_SEMANTIC_SCENE_ACTION_BROWSER_TEST === "1";
 
@@ -37,6 +37,19 @@ function fixtureDraft(fixtureId = "001_wow_signal_mystery") {
     "dark-curiosity",
     "fixtures",
     `${fixtureId}.json`,
+  ), "utf8")));
+}
+
+function fixtureTiming(fixtureId) {
+  return normalizeAnimationTimingContext(JSON.parse(readFileSync(resolve(
+    __dirname,
+    "..",
+    "eval",
+    "narrated",
+    "dark-curiosity",
+    "semantic-events",
+    "timing",
+    `${fixtureId}.timing.json`,
   ), "utf8")));
 }
 
@@ -129,13 +142,19 @@ function hashAt(result, frame) {
   return result.captures.find((capture) => capture.frame === frame)?.sha256;
 }
 
-test("real browser pixels execute distinct Scene DSL actions deterministically", {
+test("real browser pixels suppress extra Scene DSL motion deterministically", {
   skip: !RUN_BROWSER_PROOF,
 }, async () => {
   const [
     { compileAnimationIRToHtml },
-    { semanticSentenceRenderIntervals },
-    { compileSemanticSceneActionSchedule },
+    {
+      semanticSentenceRenderIntervals,
+      semanticSimpleExplainerVisualGroups,
+    },
+    {
+      compileSemanticSimpleExplainerGroupActionSchedule,
+      semanticSceneActionQaPlan,
+    },
     { runBrowserSeekProof },
     { hyperframesDoctor },
   ] = await Promise.all([
@@ -176,14 +195,24 @@ test("real browser pixels execute distinct Scene DSL actions deterministically",
     sentences,
     changed.animationIR.durationFrames,
   );
-  const schedule = compileSemanticSceneActionSchedule({
-    sceneDslPlan: alternate.plan,
+  const visualGroups = semanticSimpleExplainerVisualGroups(
     sentences,
     intervals,
+    changed.animationIR.durationFrames,
+  );
+  const schedule = compileSemanticSimpleExplainerGroupActionSchedule({
+    sceneDslPlan: alternate.plan,
+    sentences,
+    visualGroups,
     fps: changed.animationIR.fps,
     durationFrames: changed.animationIR.durationFrames,
   });
-  const changedScene = schedule.scenes[alternate.sentenceIndex];
+  const changedGroupIndex = visualGroups.findIndex(
+    (group) => group.anchorSentenceIndex === alternate.sentenceIndex,
+  );
+  assert.ok(changedGroupIndex >= 0);
+  const changedGroup = visualGroups[changedGroupIndex];
+  const changedScene = schedule.scenes[changedGroupIndex];
   const entryFrame = changedScene.phaseWindows.entry.startFrame;
   const entryMidFrame = Math.floor(
     (
@@ -204,20 +233,20 @@ test("real browser pixels execute distinct Scene DSL actions deterministically",
       + changedScene.phaseWindows.resolve.endFrame
     ) / 2,
   );
-  const boundedInterval = intervals[alternate.sentenceIndex];
-  const boundedStartFrame = boundedInterval.startFrame;
+  const boundedStartFrame = changedGroup.startFrame;
   const boundedMidFrame = Math.floor(
     (
-      boundedInterval.startFrame
-      + boundedInterval.semanticEndFrame - 1
+      changedGroup.startFrame
+      + changedGroup.semanticEndFrame - 1
     ) / 2,
   );
-  const boundedEndFrame = boundedInterval.semanticEndFrame - 1;
+  const boundedEndFrame = changedGroup.semanticEndFrame - 1;
   const seekSequence = [
     ...new Set([
-      ...intervals.map((interval) => Math.floor(
-        (interval.startFrame + interval.semanticEndFrame - 1) / 2,
+      ...visualGroups.map((group) => Math.floor(
+        (group.startFrame + group.semanticEndFrame - 1) / 2,
       )),
+      ...semanticSceneActionQaPlan(schedule).phaseFrames,
       entryFrame,
       entryMidFrame,
       entryEndFrame,
@@ -241,9 +270,7 @@ test("real browser pixels execute distinct Scene DSL actions deterministically",
     chromePath: doctor.chromePath,
     seekSequence,
     cacheWarmupFrames: [developFrame],
-    expectedBoundedGeometrySentenceIndices: sentences.map(
-      (_sentence, index) => index,
-    ),
+    expectedBoundedGeometrySentenceIndices: [],
     legibilityProfile: "mobile_720_v1",
   });
   const baselineProof = await runBrowserSeekProof(
@@ -264,7 +291,12 @@ test("real browser pixels execute distinct Scene DSL actions deterministically",
   );
   assert.ok(baselineProof.repeatedFrames.every((entry) => entry.equal));
   assert.ok(changedProof.repeatedFrames.every((entry) => entry.equal));
-  assert.ok(changedProof.geometryAudit.boundedGeometryObservationCount > 0);
+  assert.equal(changedProof.geometryAudit.boundedGeometryObservationCount, 0);
+  assert.ok(changedProof.geometryAudit.checkpoints.every(
+    (checkpoint) => checkpoint.boundedGeometry.every(
+      (geometry) => !geometry.visible,
+    ),
+  ));
   assert.deepEqual(
     changedProof.geometryAudit.boundedGeometryClippingViolations,
     [],
@@ -281,56 +313,40 @@ test("real browser pixels execute distinct Scene DSL actions deterministically",
     hashAt(changedProof, entryMidFrame),
     hashAt(changedProof, entryEndFrame),
   );
-  assert.notEqual(
+  assert.equal(
     hashAt(baselineProof, developFrame),
     hashAt(changedProof, developFrame),
   );
-  assert.notEqual(
+  assert.equal(
     hashAt(baselineProof, resolveFrame),
     hashAt(changedProof, resolveFrame),
   );
-  const boundedAt = (checkpoint) => checkpoint.boundedGeometry.find(
-    (geometry) => geometry.sentenceIndex === alternate.sentenceIndex,
-  );
-  const checkpointsAt = (frame) => changedProof.geometryAudit.checkpoints
-    .filter((checkpoint) => checkpoint.frame === frame);
-  const startGeometry = boundedAt(checkpointsAt(boundedStartFrame)[0]);
-  const midGeometries = checkpointsAt(boundedMidFrame).map(boundedAt);
-  const endGeometry = boundedAt(checkpointsAt(boundedEndFrame)[0]);
-  assert.ok(startGeometry);
-  assert.ok(midGeometries.length >= 2);
-  assert.ok(endGeometry);
-  assert.ok(startGeometry.nodes.every(
-    (node) => node.opacity === 0 && node.translateY === 10,
+  assert.ok(changedProof.geometryAudit.observedActionSignatures.includes(
+    "create:module_primary:entry:reveal",
   ));
-  assert.ok(startGeometry.edges.every(
-    (edge) => edge.opacity === 0 && edge.dashOffset === 1000,
+  assert.equal(changedProof.geometryAudit.observedActionSignatures.includes(
+    "highlight:module_primary:develop:pulse_once",
+  ), false);
+  assert.equal(changedProof.geometryAudit.observedActionSignatures.includes(
+    "camera:scene:resolve:pull_overview",
+  ), false);
+  assert.ok(schedule.scenes.every(
+    (scene) => scene.actions.length === 1,
   ));
-  assert.ok(midGeometries[0].nodes[0].opacity > 0);
-  assert.ok(midGeometries[0].nodes[0].translateY < 10);
-  assert.ok(midGeometries[0].edges[0].opacity > 0);
-  assert.ok(
-    midGeometries[0].edges[0].dashOffset > 0
-      && midGeometries[0].edges[0].dashOffset < 1000,
-  );
-  assert.ok(endGeometry.nodes.every(
-    (node) => node.opacity > 0.99 && node.translateY < 0.01,
-  ));
-  assert.ok(endGeometry.edges.every(
-    (edge) => edge.opacity > 0.99 && edge.dashOffset < 50,
-  ));
-  assert.deepEqual(midGeometries.at(-1), midGeometries[0]);
 });
 
-test("real browser pixels follow the approved route without seek drift", {
+test("real browser keeps an ungrounded route illustration static after reveal", {
   skip: !RUN_BROWSER_PROOF,
 }, async () => {
   const [
     { compileAnimationIRToHtml },
-    { semanticSentenceRenderIntervals },
     {
-      compileSemanticSceneActionSchedule,
-      semanticSceneActionStateAtFrame,
+      semanticSentenceRenderIntervals,
+      semanticSimpleExplainerVisualGroups,
+    },
+    {
+      compileSemanticSimpleExplainerGroupActionSchedule,
+      semanticSceneActionQaPlan,
     },
     { runBrowserSeekProof },
     { hyperframesDoctor },
@@ -342,7 +358,7 @@ test("real browser pixels follow the approved route without seek drift", {
     import("../renderer/hyperframes/doctor.mjs"),
   ]);
   const draft = fixtureDraft("003_baychimo_icebound_drift");
-  const timingContext = timingFor(draft);
+  const timingContext = fixtureTiming("003_baychimo_icebound_drift");
   const compiled = compileProductionAnimation({
     animationProfile: "semantic-v3",
     projectId: "prj_scene_action_route_browser",
@@ -357,62 +373,54 @@ test("real browser pixels follow the approved route without seek drift", {
     sentences,
     compiled.animationIR.durationFrames,
   );
-  const schedule = compileSemanticSceneActionSchedule({
+  const visualGroups = semanticSimpleExplainerVisualGroups(
+    sentences,
+    intervals,
+    compiled.animationIR.durationFrames,
+  );
+  const schedule = compileSemanticSimpleExplainerGroupActionSchedule({
     sceneDslPlan:
       compiled.animationIR.content.semanticAnimationSceneDslPlan,
     sentences,
-    intervals,
+    visualGroups,
     fps: compiled.animationIR.fps,
     durationFrames: compiled.animationIR.durationFrames,
   });
-  const routeIndex = schedule.scenes.findIndex((scene, index) => (
-    sentences[index].capability.grammarId === "map_motion"
-    && scene.actions.some((action) => action.op === "move")
-  ));
+  const routeIndex = visualGroups.findIndex(
+    (group) => group.visualKind === "route",
+  );
   assert.ok(routeIndex >= 0);
   const routeScene = schedule.scenes[routeIndex];
-  const move = routeScene.actions.find((action) => action.op === "move");
-  const moveMid = Math.floor((move.startFrame + move.endFrame) / 2);
-  const nonMapRouteIndex = schedule.scenes.findIndex((scene, index) => (
-    sentences[index].capability.grammarId !== "map_motion"
-    && scene.actions.some((action) => action.op === "move")
-  ));
-  assert.ok(nonMapRouteIndex >= 0);
-  const nonMapRouteScene = schedule.scenes[nonMapRouteIndex];
-  const nonMapMove = nonMapRouteScene.actions.find(
-    (action) => action.op === "move",
+  assert.equal(routeScene.actions.length, 1);
+  assert.equal(routeScene.actions[0].op, "create");
+  assert.ok(schedule.scenes.every((scene, index) => (
+    visualGroups[index].visualKind === "route"
+    || scene.actions.every((action) => action.op !== "move")
+  )));
+  const routeSpan = routeScene.semanticEndFrame - routeScene.startFrame;
+  const routeVisibleStart = Math.min(
+    routeScene.semanticEndFrame - 2,
+    Math.max(
+      routeScene.presentationTiming.revealSettleFrame + 1,
+      routeScene.startFrame + Math.max(3, Math.floor(routeSpan * 0.2)),
+    ),
   );
-  const nonMapMoveMid = Math.floor(
-    (nonMapMove.startFrame + nonMapMove.endFrame) / 2,
+  const routeMid = Math.floor(
+    (routeScene.startFrame + routeScene.semanticEndFrame - 1) / 2,
   );
-  const baseRouteIndex = schedule.scenes.findIndex((scene, index) => (
-    sentences[index].capability.grammarId === "map_motion"
-    && !scene.actions.some((action) => action.op === "move")
-  ));
-  assert.ok(baseRouteIndex >= 0);
-  const baseRouteScene = schedule.scenes[baseRouteIndex];
-  const baseRouteVisibleStart = baseRouteScene.phaseWindows.entry.endFrame;
-  const baseRouteMid = Math.floor(
-    (baseRouteScene.startFrame + baseRouteScene.semanticEndFrame - 1) / 2,
-  );
-  const baseRouteEnd = baseRouteScene.semanticEndFrame - 1;
+  const routeEnd = routeScene.semanticEndFrame - 1;
   const seekSequence = [
     ...new Set([
-      ...intervals.map((interval) => Math.floor(
-        (interval.startFrame + interval.semanticEndFrame - 1) / 2,
+      ...visualGroups.map((group) => Math.floor(
+        (group.startFrame + group.semanticEndFrame - 1) / 2,
       )),
-      move.startFrame,
-      moveMid,
-      move.endFrame,
-      nonMapMove.startFrame,
-      nonMapMoveMid,
-      nonMapMove.endFrame,
-      baseRouteVisibleStart,
-      baseRouteMid,
-      baseRouteEnd,
+      ...semanticSceneActionQaPlan(schedule).phaseFrames,
+      routeVisibleStart,
+      routeMid,
+      routeEnd,
     ]),
   ].sort((left, right) => left - right);
-  seekSequence.push(moveMid);
+  seekSequence.push(routeMid);
   const composition = compileAnimationIRToHtml(compiled.animationIR, {
     semanticSourceContext: { draft, timingContext },
   });
@@ -426,10 +434,8 @@ test("real browser pixels follow the approved route without seek drift", {
     durationFrames: compiled.animationIR.durationFrames,
     chromePath: doctor.chromePath,
     seekSequence,
-    cacheWarmupFrames: [moveMid],
-    expectedBoundedGeometrySentenceIndices: sentences.map(
-      (_sentence, index) => index,
-    ),
+    cacheWarmupFrames: [routeMid],
+    expectedBoundedGeometrySentenceIndices: [],
     legibilityProfile: "mobile_720_v1",
   });
   assert.equal(proof.passed, true, JSON.stringify(proof.geometryAudit));
@@ -441,66 +447,41 @@ test("real browser pixels follow the approved route without seek drift", {
     proof.geometryAudit.boundedGeometryCaptionSafeZoneViolations,
     [],
   );
-  assert.notEqual(hashAt(proof, move.startFrame), hashAt(proof, moveMid));
-  assert.notEqual(hashAt(proof, moveMid), hashAt(proof, move.endFrame));
+  assert.equal(
+    hashAt(proof, routeVisibleStart),
+    hashAt(proof, routeMid),
+  );
+  assert.equal(hashAt(proof, routeMid), hashAt(proof, routeEnd));
   const checkpointAt = (frame) => proof.geometryAudit.checkpoints.find(
     (checkpoint) => checkpoint.frame === frame,
   );
-  const baseRouteAt = (frame) => checkpointAt(frame).semanticRoutes[0];
-  assert.notDeepEqual(
-    {
-      x: baseRouteAt(baseRouteVisibleStart).x,
-      y: baseRouteAt(baseRouteVisibleStart).y,
-    },
-    {
-      x: baseRouteAt(baseRouteMid).x,
-      y: baseRouteAt(baseRouteMid).y,
-    },
-  );
-  assert.notDeepEqual(
-    {
-      x: baseRouteAt(baseRouteMid).x,
-      y: baseRouteAt(baseRouteMid).y,
-    },
-    {
-      x: baseRouteAt(baseRouteEnd).x,
-      y: baseRouteAt(baseRouteEnd).y,
-    },
-  );
-  const primaryAt = (frame) => checkpointAt(frame).sceneActionModules.find(
-    (module) => module.moduleId === "module_primary",
-  );
-  const expectedMid = semanticSceneActionStateAtFrame(
-    nonMapRouteScene,
-    nonMapMoveMid,
-  ).routeDisplacement;
-  const expectedEnd = semanticSceneActionStateAtFrame(
-    nonMapRouteScene,
-    nonMapMove.endFrame,
-  ).routeDisplacement;
+  const routeAt = (frame) => checkpointAt(frame).semanticRoutes[0];
   assert.deepEqual(
     {
-      x: primaryAt(nonMapMoveMid).translateX,
-      y: primaryAt(nonMapMoveMid).translateY,
+      x: routeAt(routeVisibleStart).x,
+      y: routeAt(routeVisibleStart).y,
     },
     {
-      x: Number(expectedMid.x.toFixed(4)),
-      y: Number(expectedMid.y.toFixed(4)),
+      x: routeAt(routeMid).x,
+      y: routeAt(routeMid).y,
     },
   );
   assert.deepEqual(
     {
-      x: primaryAt(nonMapMove.endFrame).translateX,
-      y: primaryAt(nonMapMove.endFrame).translateY,
+      x: routeAt(routeMid).x,
+      y: routeAt(routeMid).y,
     },
     {
-      x: Number(expectedEnd.x.toFixed(4)),
-      y: Number(expectedEnd.y.toFixed(4)),
+      x: routeAt(routeEnd).x,
+      y: routeAt(routeEnd).y,
     },
   );
+  assert.ok(checkpointAt(routeVisibleStart).semanticRoutes[0].distance <= 0.75);
+  assert.ok(checkpointAt(routeMid).semanticRoutes[0].distance <= 0.75);
+  assert.ok(checkpointAt(routeEnd).semanticRoutes[0].distance <= 0.75);
 });
 
-test("real browser keeps every GPS sentence geometry inside the safe visual area", {
+test("real browser keeps GPS simple foregrounds valid while provenance topology stays hidden", {
   skip: !RUN_BROWSER_PROOF,
 }, async () => {
   const [
@@ -515,12 +496,12 @@ test("real browser keeps every GPS sentence geometry inside the safe visual area
     import("../renderer/hyperframes/doctor.mjs"),
   ]);
   const draft = fixtureDraft("002_gps_week_rollover");
-  const timingContext = timingFor(draft);
+  const timingContext = fixtureTiming("002_gps_week_rollover");
   const compiled = compileProductionAnimation({
     animationProfile: "semantic-v3",
     projectId: "prj_scene_action_gps_browser",
     projectRevision: 1,
-    renderProfile: "preview",
+    renderProfile: "final",
     draft,
     timingContext,
   });
@@ -533,18 +514,23 @@ test("real browser keeps every GPS sentence geometry inside the safe visual area
   const sentenceMidpoints = intervals.map((interval) => Math.floor(
     (interval.startFrame + interval.semanticEndFrame - 1) / 2,
   ));
-  const seekSequence = [...sentenceMidpoints, sentenceMidpoints[0]];
-  const productionExpectations = browserQaExpectations(
-    compiled.animationIR,
-    seekSequence,
-  );
-  assert.deepEqual(
-    productionExpectations.boundedGeometrySentenceIndices,
-    sentences.map((_sentence, index) => index),
-  );
   const composition = compileAnimationIRToHtml(compiled.animationIR, {
     semanticSourceContext: { draft, timingContext },
   });
+  const seekSequence = [
+    ...safeSeekSequence(compiled.animationIR, composition.actionQa),
+    sentenceMidpoints[0],
+  ];
+  const productionExpectations = browserQaExpectations(
+    compiled.animationIR,
+    seekSequence,
+    composition.actionQa,
+    composition.qaPolicy,
+  );
+  assert.deepEqual(
+    productionExpectations.boundedGeometrySentenceIndices,
+    [],
+  );
   const doctor = await hyperframesDoctor();
   assert.equal(doctor.ready, true);
   const proof = await runBrowserSeekProof({
@@ -555,18 +541,41 @@ test("real browser keeps every GPS sentence geometry inside the safe visual area
     durationFrames: compiled.animationIR.durationFrames,
     chromePath: doctor.chromePath,
     seekSequence,
-    cacheWarmupFrames: [sentenceMidpoints[0]],
-    expectedBoundedGeometrySentenceIndices: sentences.map(
-      (_sentence, index) => index,
-    ),
+    cacheWarmupFrames: productionExpectations.cacheWarmupFrames,
+    expectedBoundedGeometrySentenceIndices:
+      productionExpectations.boundedGeometrySentenceIndices,
     legibilityProfile: "mobile_720_v1",
   });
   assert.equal(proof.passed, true, JSON.stringify(proof.geometryAudit));
-  assert.equal(proof.repeatedFrames.length, 1);
-  assert.equal(proof.repeatedFrames[0].equal, true);
-  assert.ok(
-    proof.geometryAudit.boundedGeometryObservationCount >= sentences.length,
-  );
+  assert.ok(proof.repeatedFrames.length >= 1);
+  assert.ok(proof.repeatedFrames.every((entry) => entry.equal));
+  assert.equal(proof.geometryAudit.boundedGeometryObservationCount, 0);
+  for (const checkpoint of proof.geometryAudit.checkpoints) {
+    const visibleModuleIds = checkpoint.sceneActionModules.map(
+      (module) => module.moduleId,
+    );
+    assert.ok(
+      visibleModuleIds.length === 0
+        || (
+          visibleModuleIds.length === 1
+          && visibleModuleIds[0] === "module_primary"
+        ),
+      `frame ${checkpoint.frame}: only the focal module may be visible`,
+    );
+    assert.ok(
+      checkpoint.boundedGeometry.every((geometry) => !geometry.visible),
+      `frame ${checkpoint.frame}: provenance topology must stay hidden`,
+    );
+  }
+  assert.ok(proof.geometryAudit.checkpoints.some(
+    (checkpoint) => checkpoint.sceneActionModules.some(
+      (module) => module.moduleId === "module_primary",
+    ),
+  ));
+  assert.ok(proof.geometryAudit.markedLabelIds.every(
+    (labelId) => !labelId.startsWith("semantic-support-")
+      && !labelId.includes("-copy-"),
+  ));
   assert.deepEqual(proof.geometryAudit.boundedGeometryClippingViolations, []);
   assert.deepEqual(
     proof.geometryAudit.boundedGeometryCaptionSafeZoneViolations,

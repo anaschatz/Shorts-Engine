@@ -38,20 +38,20 @@ test("render payload accepts complete Hyperframes bindings for legacy and generi
   assert.throws(() => normalizeNarratedJobPayload(partial, "render_narrated_short"), (error) => error?.code === "VALIDATION_ERROR" && error?.details?.field === "animationVersion");
 });
 
-test("render payload binds style 3.0.0 only to the exact semantic-v3 profile", () => {
+test("render payload binds style 3.1.0 only to the exact semantic-v3 profile", () => {
   const semantic = normalizeNarratedJobPayload({
     ...base,
     animationProfile: SEMANTIC_SENTENCE_PROFILE_TOKEN,
-    animationStyleVersion: "3.0.0",
+    animationStyleVersion: "3.1.0",
   }, "render_narrated_short");
   assert.equal(semantic.animationProfile, "semantic-v3");
-  assert.equal(semantic.animationStyleVersion, "3.0.0");
+  assert.equal(semantic.animationStyleVersion, "3.1.0");
 
   for (const invalid of [
-    { ...base, animationStyleVersion: "3.0.0" },
+    { ...base, animationStyleVersion: "3.1.0" },
     { ...base, animationProfile: SEMANTIC_SENTENCE_PROFILE_TOKEN, animationStyleVersion: "2.0.0" },
-    { ...base, animationProfile: "dark_curiosity_semantic_sentences_v3", animationStyleVersion: "3.0.0" },
-    { ...base, animationProfile: "SEMANTIC-V3", animationStyleVersion: "3.0.0" },
+    { ...base, animationProfile: "dark_curiosity_semantic_sentences_v3", animationStyleVersion: "3.1.0" },
+    { ...base, animationProfile: "SEMANTIC-V3", animationStyleVersion: "3.1.0" },
   ]) {
     assert.throws(
       () => normalizeNarratedJobPayload(invalid, "render_narrated_short"),

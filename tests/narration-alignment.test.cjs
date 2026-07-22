@@ -408,7 +408,7 @@ async function semanticProfileRenderContext() {
     plan: { schemaVersion: 3, profile: "semantic-v3-job-test" },
     animationIR: {
       contentHash: "9".repeat(64),
-      renderer: { styleVersion: "3.0.0" },
+      renderer: { styleVersion: "3.1.0" },
     },
   };
   const renderJob = jobs.create({
@@ -430,7 +430,7 @@ async function semanticProfileRenderContext() {
       animationIRHash: expectedAnimation.animationIR.contentHash,
       animationProvider: PRODUCTION_PROVIDER_ID,
       animationRuntimeVersion: PRODUCTION_RUNTIME_VERSION,
-      animationStyleVersion: "3.0.0",
+      animationStyleVersion: "3.1.0",
       animationScenePlanArtifactId: activeScenePlan.planArtifactId,
       animationScenePlanHash: activeScenePlan.planHash,
     },

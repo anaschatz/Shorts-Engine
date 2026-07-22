@@ -289,7 +289,7 @@ function groundedQuantityMatchesDetail(input = {}) {
 }
 
 function hasOppositeClaimCue(context) {
-  return /\b(?:cannot|never|neither|no|nor|not|without|[a-z]+n['’]t|fail(?:s|ed|ing)?\s+to|lack(?:s|ed|ing)?|unable\s+to)\b/.test(
+  return /\b(?:cannot|never|neither|no|nor|not|without|[a-z]+n['’ʼ]t|fail(?:s|ed|ing)?\s+to|lack(?:s|ed|ing)?|unable\s+to)\b/.test(
     context,
   );
 }

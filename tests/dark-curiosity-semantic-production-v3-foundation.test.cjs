@@ -24,6 +24,7 @@ const {
   SEMANTIC_SENTENCE_TEMPLATE_ID,
 } = require("../server/pipelines/narrated-short/animation/semantic-render-profile.cjs");
 const {
+  buildSemanticSentencePlanningContext,
   buildSemanticSentenceProductionAnimationPlan,
 } = require("../server/pipelines/narrated-short/animation/semantic-sentence-production-plan-compiler.cjs");
 const {
@@ -51,6 +52,10 @@ const {
 const {
   normalizeAnimationTimingContext,
 } = require("../server/pipelines/narrated-short/animation/timing-contract.cjs");
+const {
+  SEMANTIC_SIMPLE_EXPLAINER_PROFILE_ID,
+  buildSemanticSimpleExplainerGroups,
+} = require("../server/pipelines/narrated-short/animation/semantic-simple-explainer.cjs");
 
 const ROOT = resolve(__dirname, "..");
 const CASES = Object.freeze([
@@ -71,18 +76,18 @@ const DEFAULT_V2_HASHES = Object.freeze({
 });
 const SEMANTIC_V3_HASHES = Object.freeze({
   "002_gps_week_rollover": Object.freeze({
-    graph: "e2405560134386bb7d70745a1c89ef059ebaec15495b96d4129eee56d3c7be08",
-    sentences: "75548c57aa2ce8f101deb35e098f725c6d3faa18dfd2cf8b60b62f948f544341",
-    plan: "361ef45cb3178a41804e1a9c75600e57982548d4a1048f64bf3d905251389759",
-    ir: "9613fe7c2b09c6707eab4b060393d7da9519a1849a454a241c94f48523848ea4",
-    composition: "47302757ce17a264a7720d51fec6dfb5031ddc09c68e8c58aa574df01b3d76a5",
+    graph: "46fcf46c25e80e6bc52f5832c2566c2b4b3d93859ccfe01768145859fd37643a",
+    sentences: "093b212932a3d301c6679aece10e4d639e745d704a01f9b65e9b8ac514433136",
+    plan: "7c32a0116976b479b7be459fdef6e9681d475c3fc1e151b5b7866244da04a035",
+    ir: "05932877a422af7f2680ebe9228e2d6564ef073384c6edfc9c2f04267e875791",
+    composition: "f87251c38cbdb6826c27a8b062eaed3f22716c1fa779a78daa88d83b6f2ed3a5",
   }),
   "003_baychimo_icebound_drift": Object.freeze({
-    graph: "54383a235b65264c4c8e269d9fd49901de439c8c92e256963179393b87832ab4",
-    sentences: "24192acffd6dbe70b6cd59f2bdb92ad5b61b5de5c19546b1a6c94edbc58fac28",
-    plan: "72c75276f42ce8f374b79dc5d2a12828f050ad0c021ea40360a93847e8a64ea0",
-    ir: "5e620f50f3c90c50263a58c91a4a7226b262646161826f5ba486ffa46c447f23",
-    composition: "3d8abb0fe9e83a6206dfb60f7ec98b049eb9ed22977234b4081129a6bc5a8696",
+    graph: "1ac7f3493a7deda0a906792d3355ba177448a846096a82d264b25348d7fb94c7",
+    sentences: "5afa08b21434dea5ff2f1b677306a05c3c00733e0608d8375e729c3a5a5f99d1",
+    plan: "4a8ce6c2e48ab3e0d4d89ba89c923cbd7656bf33600303ce6b074cc0a72bfc4c",
+    ir: "b9825e6d9abb8b47163c29c1738299acaa49d98bcf9f91ca0d06ca3dc76582e5",
+    composition: "a3c4af77720dabc13a01080b69d2936b20c18871dd44676e0966e525ff83a8b8",
   }),
 });
 
@@ -231,6 +236,18 @@ test("both checked profiles compile deterministically into five exact-cue beat s
       projectRevision: 1,
       renderProfile: "preview",
     });
+    const checkedProfile = resolveSemanticEventProfile({
+      profileId: SEMANTIC_SENTENCE_PROFILE_ID,
+      draftHash: first.draft.contentHash,
+      alignmentHash: first.timingContext.alignmentHash,
+    });
+    const planningContext = buildSemanticSentencePlanningContext({
+      draft: first.draft,
+      timingContext: first.timingContext,
+      semanticProfileId: SEMANTIC_SENTENCE_PROFILE_ID,
+    });
+    assert.equal(planningContext.profile.id, "generalized_story_visual_intent_v1");
+    assert.equal(planningContext.profile.sourceProfileId, checkedProfile.id);
     assert.deepEqual(compiled.plan, first.plan, id);
     assert.equal(compiled.animationIR.schemaVersion, 3, id);
     assert.equal(
@@ -242,7 +259,7 @@ test("both checked profiles compile deterministically into five exact-cue beat s
   }
 });
 
-test("checked semantic-v3 registry outputs remain byte-exact and omit generalized parameters and compositions", async () => {
+test("checked semantic-v3 sources remain byte-exact on the generalized simple presenter", async () => {
   const { compileAnimationIRToHtml } = await import(
     "../renderer/hyperframes/animation-ir-adapter.mjs"
   );
@@ -268,31 +285,47 @@ test("checked semantic-v3 registry outputs remain byte-exact and omit generalize
     );
     assert.equal(contentHash(compiled.plan), expected.plan, id);
     assert.equal(compiled.animationIR.contentHash, expected.ir, id);
-    const composition = compileAnimationIRToHtml(compiled.animationIR);
+    const composition = compileAnimationIRToHtml(compiled.animationIR, {
+      semanticSourceContext: value,
+    });
     assert.equal(composition.compositionHash, expected.composition, id);
-    assert.doesNotMatch(composition.html, /data-bounded-geometry-/, id);
+    assert.equal(
+      composition.profile.presentationProfileId,
+      SEMANTIC_SIMPLE_EXPLAINER_PROFILE_ID,
+      id,
+    );
+    assert.ok(composition.actionQa, id);
+    const sentencePlan = compiled.animationIR.content.semanticVisualSentencePlan;
+    const simpleGroups = buildSemanticSimpleExplainerGroups(
+      sentencePlan.sentences,
+      { fps: compiled.animationIR.fps },
+    );
+    assert.deepEqual(
+      composition.qaPolicy.semanticRouteIds,
+      simpleGroups
+        .filter((group) => group.visualKind === "route")
+        .map((group) => sentencePlan.sentences[group.anchorSentenceIndex].id)
+        .sort(),
+      `${id}: QA may require only visibly rendered route groups`,
+    );
     assert.equal(
       compiled.animationIR.content.semanticVisualSentencePlan
         .sceneCompositionProfileId,
-      undefined,
+      "dark_curiosity_scene_composition_v2",
       id,
     );
-    assert.equal(
-      compiled.animationIR.content.semanticAnimationSceneDslPlan,
-      undefined,
-      id,
-    );
-    assert.equal(
+    assert.ok(compiled.animationIR.content.semanticAnimationSceneDslPlan, id);
+    assert.match(
       compiled.animationIR.content.semantic
         .semanticAnimationSceneDslPlanHash,
-      undefined,
+      /^[a-f0-9]{64}$/,
       id,
     );
     assert.ok(
       compiled.animationIR.content.semanticVisualSentencePlan.sentences.every(
         (sentence) => (
-          sentence.primitiveParameters === undefined
-          && sentence.sceneComposition === undefined
+          sentence.primitiveParameters !== undefined
+          && sentence.sceneComposition !== undefined
         ),
       ),
       id,
@@ -356,11 +389,21 @@ test("omitting semantic-v3 preserves the existing v2 plan, IR, and composition b
 
 test("semantic-v3 validators reject contradictory operation metadata and extra entities", () => {
   const value = build(CASES[0]);
+  const validationOptions = {
+    semanticSourceContext: {
+      draft: value.draft,
+      timingContext: value.timingContext,
+    },
+  };
   const contradictory = structuredClone(value.plan);
   contradictory.scenes[0].operations[0].easing = "smoothstep";
   contradictory.scenes[0].operations[0].params = { opacity: 0 };
   assert.throws(
-    () => compileTimingBoundAnimationIR(contradictory, value.timingContext),
+    () => compileTimingBoundAnimationIR(
+      contradictory,
+      value.timingContext,
+      validationOptions,
+    ),
     { code: "ANIMATION_SEMANTIC_INVALID" },
   );
 
@@ -374,7 +417,11 @@ test("semantic-v3 validators reject contradictory operation metadata and extra e
     text: "Unused",
   });
   assert.throws(
-    () => compileTimingBoundAnimationIR(extraEntity, value.timingContext),
+    () => compileTimingBoundAnimationIR(
+      extraEntity,
+      value.timingContext,
+      validationOptions,
+    ),
     { code: "ANIMATION_SEMANTIC_INVALID" },
   );
 });
@@ -401,7 +448,12 @@ test("semantic-v3 contract validates sentence content against the embedded graph
   rebound.content.semantic.semanticVisualSentencePlanHash = plan.contentHash;
   delete rebound.contentHash;
   assert.throws(
-    () => validateAnimationIR(rebound),
+    () => validateAnimationIR(rebound, {
+      semanticSourceContext: {
+        draft: value.draft,
+        timingContext: value.timingContext,
+      },
+    }),
     { code: "ANIMATION_SEMANTIC_VISUAL_SENTENCE_INVALID" },
   );
 });
@@ -427,12 +479,22 @@ test("fixed semantic-v3 graphs reject freshly rehashed sentence-plan tampering",
   rebound.content.semantic.semanticVisualSentencePlanHash = plan.contentHash;
   delete rebound.contentHash;
   assert.throws(
-    () => validateAnimationIR(rebound),
+    () => validateAnimationIR(rebound, {
+      semanticSourceContext: {
+        draft: value.draft,
+        timingContext: value.timingContext,
+      },
+    }),
     { code: "ANIMATION_SEMANTIC_VISUAL_SENTENCE_INVALID" },
   );
   assert.throws(
-    () => compileAnimationIRToHtml(rebound),
-    /Unparameterized semantic sentence plan is not an approved checked profile/,
+    () => compileAnimationIRToHtml(rebound, {
+      semanticSourceContext: {
+        draft: value.draft,
+        timingContext: value.timingContext,
+      },
+    }),
+    /Semantic primitive parameters are not bound to the embedded graph/,
   );
 });
 
@@ -450,15 +512,22 @@ test("semantic-v3 QA samples every sentence and does not invent continuity geome
       renderProfile: "preview",
     });
     const sentences = animationIR.content.semanticVisualSentencePlan.sentences;
+    const groups = buildSemanticSimpleExplainerGroups(sentences, {
+      fps: animationIR.fps,
+    });
     assert.deepEqual(
       motionSegments(animationIR),
-      sentences.map((sentence) => ({
-        id: sentence.id,
-        startFrame: sentence.wordSpan.startFrame,
-        endFrame: sentence.wordSpan.endFrame,
+      groups.map((group, index) => ({
+        id: group.id,
+        startFrame: sentences[group.firstSentenceIndex].wordSpan.startFrame,
+        endFrame: index + 1 < groups.length
+          ? sentences[groups[index + 1].firstSentenceIndex]
+            .wordSpan.startFrame
+          : animationIR.durationFrames,
       })),
       id,
     );
+    assert.ok(groups.length < sentences.length, id);
     const composition = compileAnimationIRToHtml(animationIR, {
       semanticSourceContext: {
         draft: value.draft,
@@ -466,7 +535,12 @@ test("semantic-v3 QA samples every sentence and does not invent continuity geome
       },
     });
     const seekSequence = safeSeekSequence(animationIR, composition.actionQa);
-    const expectations = browserQaExpectations(animationIR, seekSequence);
+    const expectations = browserQaExpectations(
+      animationIR,
+      seekSequence,
+      composition.actionQa,
+      composition.qaPolicy,
+    );
     for (const sentence of sentences) {
       assert.ok(seekSequence.some((frame) => (
         frame >= sentence.wordSpan.startFrame
@@ -484,9 +558,7 @@ test("semantic-v3 QA samples every sentence and does not invent continuity geome
     );
     assert.deepEqual(
       expectations.boundedGeometrySentenceIndices,
-      animationIR.content.semanticVisualSentencePlan.sceneCompositionProfileId
-        ? sentences.map((_sentence, index) => index)
-        : [],
+      [],
       id,
     );
     assert.deepEqual(motionQaGeometryRequirements(animationIR), {

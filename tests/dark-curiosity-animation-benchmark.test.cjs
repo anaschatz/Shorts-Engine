@@ -20,6 +20,9 @@ const {
   motionAnalysisDimensions,
   motionAnalysisRangeHash,
 } = require("../server/pipelines/narrated-short/animation/benchmark-qa.cjs");
+const {
+  motionReadabilityHolds,
+} = require("../server/pipelines/narrated-short/animation/render-service.cjs");
 
 function frames(count, width, height, valueAt) {
   const output = Buffer.alloc(count * width * height);
@@ -281,6 +284,54 @@ test("temporal motion metrics exclude declared readability holds and reject bad 
     }),
     { code: "ANIMATION_QA_FAILED" },
   );
+});
+
+test("readability holds use transition-target frame intervals", () => {
+  const settling = frames(8, 1, 1, (frame) => Math.min(frame, 3) * 40);
+  const metrics = analyzeConsecutiveFrames(settling, 1, 1, {
+    // Frame 3 is the final moving transition. Static transitions begin when
+    // frame 4 is compared with the already-settled frame 3.
+    readabilityHolds: [{ id: "static_tail", startFrame: 4, endFrame: 8 }],
+  });
+  assert.equal(metrics.transitionCount, 7);
+  assert.equal(metrics.excludedReadabilityHoldTransitions, 4);
+  assert.equal(metrics.analyzedTransitionCount, 3);
+  assert.ok(metrics.meanMotionEnergy > 0);
+});
+
+test("render motion QA uses presenter-owned static complements", () => {
+  const ir = {
+    content: {
+      semantic: { profileId: "dark_curiosity_semantic_sentences_v3" },
+      semanticVisualSentencePlan: {
+        sceneCompositionProfileId: "dark_curiosity_scene_composition_v2",
+      },
+    },
+    scenes: [{
+      id: "scene_hook",
+      readabilityHolds: [{ startFrame: 20, endFrame: 30 }],
+    }],
+  };
+  const actionHolds = [{
+    id: "simple_scene_hook_static_complement",
+    startFrame: 24,
+    endFrame: 30,
+  }];
+  assert.deepEqual(
+    motionReadabilityHolds(ir, { readabilityHolds: actionHolds }),
+    actionHolds,
+  );
+  assert.throws(
+    () => motionReadabilityHolds(ir, null),
+    { code: "ANIMATION_QA_POLICY_MISSING" },
+  );
+  const legacy = structuredClone(ir);
+  delete legacy.content.semanticVisualSentencePlan.sceneCompositionProfileId;
+  assert.deepEqual(motionReadabilityHolds(legacy), [{
+    id: "scene_hook_hold_0",
+    startFrame: 20,
+    endFrame: 30,
+  }]);
 });
 
 test("semantic geometry QA fails closed on missing continuity, focus, ROI, or legibility proof", () => {

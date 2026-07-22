@@ -4,10 +4,18 @@ import assert from "node:assert/strict";
 import {
   SEMANTIC_SCENE_ACTION_SCHEDULE_PROFILE_ID,
   compileSemanticSceneActionSchedule,
+  compileSemanticSimpleExplainerGroupActionSchedule,
   semanticSceneActionQaPlan,
   semanticSceneActionRuntimeSource,
   semanticSceneActionStateAtFrame,
 } from "../renderer/hyperframes/semantic-scene-action-schedule.mjs";
+import simpleExplainerContract from "../server/pipelines/narrated-short/animation/semantic-simple-explainer.cjs";
+
+const {
+  SIMPLE_EXPLAINER_REVEAL_DURATION_SECONDS,
+  SIMPLE_EXPLAINER_SECONDARY_REVEAL_DURATION_SECONDS,
+  semanticSimpleExplainerPresentationTiming,
+} = simpleExplainerContract;
 
 const HASH_A = "a".repeat(64);
 const HASH_B = "b".repeat(64);
@@ -309,6 +317,97 @@ test("action QA covers every unique signature and every settled scene hold", () 
   });
   assert.equal(Object.isFrozen(qa), true);
   assert.equal(qa.scheduleHash, schedule.contentHash);
+});
+
+test("simple presenter QA excludes only post-settle static transitions", () => {
+  const input = fixture();
+  const sentences = input.sentences.slice(0, 2);
+  const visualGroup = {
+    id: "simple_scene_test",
+    visualKind: "state_change",
+    anchorSentenceIndex: 0,
+    anchorSentenceId: sentences[0].id,
+    sentenceIndices: [0, 1],
+    startFrame: 10,
+    semanticEndFrame: 60,
+    endFrame: 78,
+    stepStartFrames: [10, 42],
+  };
+  const schedule = compileSemanticSimpleExplainerGroupActionSchedule({
+    sceneDslPlan: {
+      ...input.sceneDslPlan,
+      scenes: input.sceneDslPlan.scenes.slice(0, 2),
+    },
+    sentences,
+    visualGroups: [visualGroup],
+    fps: input.fps,
+    durationFrames: 78,
+  });
+  const scene = schedule.scenes[0];
+  const timing = semanticSimpleExplainerPresentationTiming({
+    fps: input.fps,
+    startFrame: visualGroup.startFrame,
+    semanticEndFrame: visualGroup.semanticEndFrame,
+    endFrame: visualGroup.endFrame,
+    stepStartFrames: visualGroup.stepStartFrames,
+  });
+  assert.equal(SIMPLE_EXPLAINER_REVEAL_DURATION_SECONDS, 0.65);
+  assert.equal(SIMPLE_EXPLAINER_SECONDARY_REVEAL_DURATION_SECONDS, 0.42);
+  assert.deepEqual(scene.presentationTiming, timing);
+  const initialFullProgressFrame = timing.revealSettleFrame;
+  assert.deepEqual(semanticSceneActionQaPlan(schedule).readabilityHolds, [
+    {
+      id: "simple_scene_test_static_complement_1",
+      startFrame: initialFullProgressFrame + 1,
+      endFrame: timing.secondaryRevealStartFrame + 1,
+    },
+    {
+      id: "simple_scene_test_static_complement_2",
+      startFrame: timing.secondaryRevealSettleFrame + 1,
+      endFrame: visualGroup.endFrame,
+    },
+  ]);
+});
+
+test("secondary reveal settles on a renderable frame before the next scene", () => {
+  const timing = semanticSimpleExplainerPresentationTiming({
+    fps: 30,
+    startFrame: 0,
+    semanticEndFrame: 33,
+    endFrame: 33,
+    stepStartFrames: [0, 20],
+  });
+  assert.equal(timing.secondaryRevealStartFrame, 20);
+  assert.equal(timing.secondaryRevealDurationFrames, 12);
+  assert.equal(timing.secondaryRevealSettleFrame, 32);
+  assert.ok(timing.secondaryRevealSettleFrame < 33);
+});
+
+test("simple routes without a grounded move remain static after reveal", () => {
+  const input = fixture();
+  const sceneDslPlan = structuredClone(input.sceneDslPlan);
+  sceneDslPlan.scenes[2].sceneDsl.actions = sceneDslPlan.scenes[2]
+    .sceneDsl.actions.filter((action) => action.op !== "move");
+  const schedule = compileSemanticSimpleExplainerGroupActionSchedule({
+    sceneDslPlan,
+    sentences: input.sentences,
+    visualGroups: [{
+      id: "simple_scene_route",
+      visualKind: "route",
+      anchorSentenceIndex: 2,
+      anchorSentenceId: input.sentences[2].id,
+      sentenceIndices: [2],
+      startFrame: 78,
+      semanticEndFrame: 92,
+      endFrame: 120,
+      stepStartFrames: [78],
+    }],
+    fps: input.fps,
+    durationFrames: input.durationFrames,
+  });
+  assert.equal(schedule.scenes[0].actions.length, 1);
+  assert.equal(schedule.scenes[0].actions[0].op, "create");
+  assert.equal(schedule.scenes[0].routePoints, undefined);
 });
 
 test("grounded route motion uses deterministic piecewise geometry on random seeks", () => {

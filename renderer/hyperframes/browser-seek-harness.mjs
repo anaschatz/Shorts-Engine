@@ -780,7 +780,10 @@ export async function runBrowserSeekProof(input, dependencies = {}) {
           boundedGeometry: [...document.querySelectorAll(".semantic-bounded-geometry")].map((root) => ({
             sentenceIndex: Number(root.closest("[data-sentence-index]")?.dataset.sentenceIndex),
             active: root.closest("[data-sentence-id]")?.dataset.sentenceId
-              === document.documentElement.dataset.activeSemanticSentenceId,
+              === (
+                document.documentElement.dataset.activeVisualAnchorSentenceId
+                || document.documentElement.dataset.activeSemanticSentenceId
+              ),
             visible: effectiveOpacity(root) > 0.01,
             bounds: rect(root),
             nodes: [...root.querySelectorAll(".semantic-bounded-node")].map((node) => ({

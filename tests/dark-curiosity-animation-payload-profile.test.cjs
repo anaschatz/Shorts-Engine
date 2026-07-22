@@ -102,7 +102,7 @@ function dependencies(seen) {
         plan: { schemaVersion: semantic ? 3 : 2, profile: semantic ? "semantic" : "v2" },
         animationIR: {
           contentHash: (semantic ? "d" : "e").repeat(64),
-          renderer: { styleVersion: semantic ? "3.0.0" : "2.0.0" },
+          renderer: { styleVersion: semantic ? "3.1.0" : "2.0.0" },
         },
       };
     },
@@ -120,7 +120,7 @@ test("payload bindings pass the exact semantic-v3 token into compilation and per
 
   assert.equal(seen.compile.animationProfile, "semantic-v3");
   assert.equal(bindings.animationProfile, "semantic-v3");
-  assert.equal(bindings.animationStyleVersion, "3.0.0");
+  assert.equal(bindings.animationStyleVersion, "3.1.0");
   assert.equal(bindings.animationPlanHash, contentHash({ schemaVersion: 3, profile: "semantic" }));
   assert.equal(Object.isFrozen(bindings), true);
 });

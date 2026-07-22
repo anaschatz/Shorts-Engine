@@ -15,6 +15,9 @@ const {
 const { createAnimationProviderRegistry } = require("./provider-registry.cjs");
 const { createHyperframesProvider } = require("./providers/hyperframes.cjs");
 const { runBenchmarkQa } = require("./benchmark-qa.cjs");
+const {
+  buildSemanticSimpleExplainerGroups,
+} = require("./semantic-simple-explainer.cjs");
 
 function fail(code = "ANIMATION_RENDER_FAILED") {
   throw new AppError(code, "Production animation rendering failed safely.", code === "ANIMATION_READINESS_FAILED" ? 503 : 409);
@@ -133,6 +136,18 @@ function readabilityHolds(ir) {
   return ir.scenes.flatMap((scene) => scene.readabilityHolds.map((hold, index) => ({ id: `${scene.id}_hold_${index}`, startFrame: hold.startFrame, endFrame: hold.endFrame })));
 }
 
+function motionReadabilityHolds(ir, actionQa = null) {
+  const sentencePlan = ir.content?.semanticVisualSentencePlan;
+  const usesSimplePresenter =
+    ir.content?.semantic?.profileId === SEMANTIC_SENTENCE_PROFILE_ID
+    && Boolean(sentencePlan?.sceneCompositionProfileId);
+  if (!usesSimplePresenter) return readabilityHolds(ir);
+  if (!actionQa || !Array.isArray(actionQa.readabilityHolds)) {
+    fail("ANIMATION_QA_POLICY_MISSING");
+  }
+  return actionQa.readabilityHolds.map((hold) => ({ ...hold }));
+}
+
 function motionSegments(ir) {
   const sentencePlan = ir.content?.semanticVisualSentencePlan;
   if (
@@ -140,7 +155,22 @@ function motionSegments(ir) {
     && Array.isArray(sentencePlan?.sentences)
     && sentencePlan.sentences.length > 0
   ) {
-    return sentencePlan.sentences.map((sentence) => ({
+    const sentences = sentencePlan.sentences;
+    if (sentencePlan.sceneCompositionProfileId) {
+      const groups = buildSemanticSimpleExplainerGroups(sentences, {
+        fps: ir.fps,
+      });
+      return groups.map((group, index) => ({
+        id: group.id,
+        startFrame:
+          sentences[group.firstSentenceIndex].wordSpan.startFrame,
+        endFrame: index + 1 < groups.length
+          ? sentences[groups[index + 1].firstSentenceIndex]
+            .wordSpan.startFrame
+          : ir.durationFrames,
+      }));
+    }
+    return sentences.map((sentence) => ({
       id: sentence.id,
       startFrame: sentence.wordSpan.startFrame,
       endFrame: sentence.wordSpan.endFrame,
@@ -215,10 +245,10 @@ function browserQaExpectations(
       settledHoldFrames: (actionQa?.settledHoldFrames || []).filter(
         (frame) => seekSequence.includes(frame),
       ),
-      boundedGeometrySentenceIndices:
-        sentencePlan.sceneCompositionProfileId
-          ? sentencePlan.sentences.map((_sentence, index) => index)
-          : [],
+      // Composed sentence plans present a deliberately simple foreground.
+      // Their bounded graph remains in the DOM as non-visual provenance, so
+      // browser QA must not require that hidden topology to become visible.
+      boundedGeometrySentenceIndices: [],
     });
   }
   fail("ANIMATION_QA_POLICY_MISSING");
@@ -543,7 +573,10 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
       expectedFrameCount: compiled.animationIR.durationFrames,
       expectedFps: compiled.animationIR.fps,
       geometryAudit: browser.geometryAudit,
-      readabilityHolds: readabilityHolds(compiled.animationIR),
+      readabilityHolds: motionReadabilityHolds(
+        compiled.animationIR,
+        actionQa,
+      ),
       segments: motionSegments(compiled.animationIR),
       semanticContinuityRequired: true,
       semanticGeometryRequirements: motionQaGeometryRequirements(compiled.animationIR),
@@ -667,6 +700,7 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
 module.exports = {
   browserQaExpectations,
   browserResultMeetsPolicy,
+  motionReadabilityHolds,
   motionSegments,
   motionQaGeometryRequirements,
   runProductionAnimationRender,

@@ -10,6 +10,9 @@ const sceneCompositionContract = require(
 const primitiveParameterContract = require(
   "../../../server/pipelines/narrated-short/animation/semantic-primitive-parameters.cjs",
 );
+const simpleExplainerContract = require(
+  "../../../server/pipelines/narrated-short/animation/semantic-simple-explainer.cjs",
+);
 
 export const SEMANTIC_SCENE_COMPOSITION_PROFILE_ID =
   sceneCompositionContract.SEMANTIC_SCENE_COMPOSITION_PROFILE_ID;
@@ -17,6 +20,12 @@ export const SEMANTIC_SCENE_COMPOSITION_SCHEMA_VERSION =
   sceneCompositionContract.SEMANTIC_SCENE_COMPOSITION_SCHEMA_VERSION;
 export const SEMANTIC_SCENE_COMPOSITION_LAYOUT_IDS =
   sceneCompositionContract.SEMANTIC_SCENE_COMPOSITION_LAYOUT_IDS;
+export const SEMANTIC_SIMPLE_EXPLAINER_PROFILE_ID =
+  simpleExplainerContract.SEMANTIC_SIMPLE_EXPLAINER_PROFILE_ID;
+export const SEMANTIC_SIMPLE_EXPLAINER_VISUAL_KINDS =
+  simpleExplainerContract.SEMANTIC_SIMPLE_EXPLAINER_VISUAL_KINDS;
+
+const SIMPLE_PRIMARY_TRANSFORM = "translate(14 54) scale(.96)";
 
 const LAYOUTS = Object.freeze({
   header_strip: Object.freeze({
@@ -289,10 +298,19 @@ function contextSupportMarkup(module, box, parameters, sentenceIndex) {
   throw new TypeError("Semantic context support kind is unsupported.");
 }
 
+function nonVisualModuleStub(module) {
+  return `<g class="semantic-support-module semantic-support-stub" opacity="0"
+ data-scene-module-id="${escapeXml(module.id)}"
+ data-scene-module-kind="${escapeXml(module.kind)}"
+ data-scene-module-source="${escapeXml(module.source)}"
+ data-reveal-order="${module.revealOrder}"/>`;
+}
+
 export function semanticSceneCompositionMarkup(
   sentence,
   primaryMarkup,
   sentenceIndex = 0,
+  options = {},
 ) {
   if (!sentence || typeof sentence !== "object" || Array.isArray(sentence)) {
     throw new TypeError("Semantic scene composition sentence is invalid.");
@@ -303,6 +321,18 @@ export function semanticSceneCompositionMarkup(
   if (!Number.isInteger(sentenceIndex) || sentenceIndex < 0 || sentenceIndex > 95) {
     throw new TypeError("Semantic scene composition sentence index is invalid.");
   }
+  if (!options || typeof options !== "object" || Array.isArray(options)) {
+    throw new TypeError("Semantic scene composition options are invalid.");
+  }
+  const presentationProfileId = options.presentationProfileId ?? null;
+  if (
+    presentationProfileId !== null
+    && presentationProfileId !== SEMANTIC_SIMPLE_EXPLAINER_PROFILE_ID
+  ) {
+    throw new TypeError("Semantic scene presentation profile is invalid.");
+  }
+  const usesSimplePresentation =
+    presentationProfileId === SEMANTIC_SIMPLE_EXPLAINER_PROFILE_ID;
   const parameters = normalizePrimitiveParameters(sentence.primitiveParameters);
   const composition = normalizeSemanticSceneComposition(sentence.sceneComposition);
   if (
@@ -325,10 +355,25 @@ export function semanticSceneCompositionMarkup(
   });
   return `<g class="semantic-scene-composition"
  data-scene-composition-profile-id="${escapeXml(composition.profileId)}"
+${usesSimplePresentation
+    ? ` data-semantic-presentation-profile-id="${SEMANTIC_SIMPLE_EXPLAINER_PROFILE_ID}"`
+    : ""}
  data-scene-composition-id="${escapeXml(composition.id)}"
  data-scene-composition-layout-id="${escapeXml(composition.layoutId)}"
- data-scene-composition-variant-seed="${composition.variantSeed}">
- <g class="semantic-composition-links" aria-hidden="true">
+ data-scene-composition-variant-seed="${composition.variantSeed}"
+ data-visible-module-count="1">
+ <g class="semantic-primary-slot" transform="${SIMPLE_PRIMARY_TRANSFORM}"
+  data-composition-slot="${escapeXml(primary.slot)}">
+  <g class="semantic-primary-module"
+   data-scene-module-id="${escapeXml(primary.id)}"
+   data-scene-module-kind="${escapeXml(primary.kind)}"
+   data-reveal-order="${primary.revealOrder}">${primaryMarkup}
+   ${usesSimplePresentation ? "" : boundedGeometryMarkup}</g>
+ </g>
+ <g class="semantic-nonvisual-topology" opacity="0" aria-hidden="true"
+  pointer-events="none" data-visual-role="nonvisual_scene_topology">
+  ${usesSimplePresentation ? boundedGeometryMarkup : ""}
+  <g class="semantic-composition-links">
   <path d="${layout.contextLink}" pathLength="1" opacity="0"
    class="semantic-composition-link semantic-composition-link-context semantic-draw"
    data-from-module-id="${escapeXml(composition.links[0].fromModuleId)}"
@@ -337,21 +382,9 @@ export function semanticSceneCompositionMarkup(
    class="semantic-composition-link semantic-composition-link-state semantic-draw"
    data-from-module-id="${escapeXml(composition.links[1].fromModuleId)}"
    data-to-module-id="${escapeXml(composition.links[1].toModuleId)}"/>
+  </g>
+  ${nonVisualModuleStub(supportA)}
+  ${nonVisualModuleStub(supportB)}
  </g>
- <g class="semantic-primary-slot" transform="${layout.primaryTransform}"
-  data-composition-slot="${escapeXml(primary.slot)}">
-  <g class="semantic-primary-module"
-   data-scene-module-id="${escapeXml(primary.id)}"
-   data-scene-module-kind="${escapeXml(primary.kind)}"
-   data-reveal-order="${primary.revealOrder}">${primaryMarkup}
-   ${boundedGeometryMarkup}</g>
- </g>
- ${contextSupportMarkup(supportA, layout.supportA, parameters, sentenceIndex)}
- ${stateBadgeMarkup(
-    supportB,
-    layout.supportB,
-    parameters,
-    sentenceIndex,
-  )}
 </g>`;
 }

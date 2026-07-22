@@ -142,7 +142,12 @@ function productionAnimationIR(fixture, projectId) {
     projectRevision: 1,
     renderProfile: "preview",
   });
-  return compileTimingBoundAnimationIR(plan, fixture.timing);
+  return compileTimingBoundAnimationIR(plan, fixture.timing, {
+    semanticSourceContext: {
+      draft: fixture.draft,
+      timingContext: fixture.timing,
+    },
+  });
 }
 
 function attributeValues(html, attribute) {
@@ -183,8 +188,14 @@ test("GPS and Baychimo compile to deterministic, story-specific 9:16 composition
 test("real v3 production AnimationIR dispatches to the sentence renderer without fallback", () => {
   const gps = golden("002_gps_week_rollover.json");
   const ir = productionAnimationIR(gps, "prj_semantic_renderer_gps");
-  const direct = compileSemanticSentenceAnimationIRToHtml(ir);
-  const dispatched = compileAnimationIRToHtml(ir);
+  const sourceOptions = {
+    semanticSourceContext: {
+      draft: gps.draft,
+      timingContext: gps.timing,
+    },
+  };
+  const direct = compileSemanticSentenceAnimationIRToHtml(ir, sourceOptions);
+  const dispatched = compileAnimationIRToHtml(ir, sourceOptions);
 
   const { qaPolicy, ...dispatchedComposition } = dispatched;
   assert.deepEqual(dispatchedComposition, direct);
@@ -203,10 +214,10 @@ test("real v3 production AnimationIR dispatches to the sentence renderer without
   assert.ok(qaPolicy.labelIds.length > 0);
   assert.equal(direct.profile.schemaVersion, 3);
   assert.equal(direct.profile.profile, "dark_curiosity_continuous");
-  assert.equal(direct.profile.profileVersion, "1.3.0");
+  assert.equal(direct.profile.profileVersion, "1.4.0");
   assert.equal(direct.profile.provider, "hyperframes_local");
   assert.equal(direct.profile.runtimeVersion, "0.7.55");
-  assert.equal(direct.profile.styleVersion, "3.0.0");
+  assert.equal(direct.profile.styleVersion, "3.1.0");
   assert.equal(
     direct.profile.sentencePlanHash,
     ir.content.semanticVisualSentencePlan.contentHash,
