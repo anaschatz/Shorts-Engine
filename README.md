@@ -1,92 +1,151 @@
 # ShortsEngine
 
-ShortsEngine is a hardened local prototype for turning football match footage into short-form video. It focuses on safe media ingest, football-aware analysis, edit-plan generation, FFmpeg rendering, evaluation loops and release gates.
+### Evidence-gated AI video production for vertical content
 
-The project is intentionally conservative: if a goal, artifact, provider output or final MP4 cannot be verified, it should fail closed instead of producing a misleading "success" result.
+[![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![FFmpeg](https://img.shields.io/badge/FFmpeg-rendering-007808?logo=ffmpeg&logoColor=white)](https://ffmpeg.org/)
+[![Playwright](https://img.shields.io/badge/Playwright-visual_QA-2EAD33?logo=playwright&logoColor=white)](https://playwright.dev/)
+[![Status](https://img.shields.io/badge/status-production--hardening-F59E0B)](#project-status)
 
-## What It Does
+ShortsEngine is a production-hardening research project for turning source media
+or structured ideas into reviewable vertical videos. It combines media analysis,
+editorial planning, deterministic rendering, computer-vision-assisted framing and
+final-output verification in one local-first system.
 
-- Accepts local video uploads and authorized YouTube URLs.
-- Validates media before it enters the pipeline.
-- Uses deterministic/mock providers by default so local tests do not require API keys.
-- Detects football moments with evidence gates for counted goals, offside/no-goal cases, replay-only clips and celebration-only clips.
-- Generates edit plans for short-form football content.
-- Renders MP4 outputs through FFmpeg.
-- Produces evaluation, demo, browser, OCR, YouTube proof and release reports.
-- Keeps API routes, orchestration, repositories, artifact storage, providers and render logic behind separate boundaries.
+The central engineering idea is simple: **an AI pipeline should not report success
+because its metadata looks correct; the rendered video must support the claim.**
 
-## Current Status
+Built by [Anastasis Chatzedakis](https://github.com/anaschatz), an undergraduate
+student in the Department of Management Science and Technology at the Athens
+University of Economics and Business.
 
-ShortsEngine is a local production-hardening prototype, not a finished production SaaS.
+## At A Glance
 
-The current live YouTube proof path is opt-in and rights-gated. For the latest live YouTube test case, the system failed safely instead of producing a misleading MP4 because scoreboard/OCR evidence did not prove the expected counted goals. The next product milestone is better live scorebug ROI calibration and visible counted-goal proof.
+| | |
+| --- | --- |
+| **Problem** | Producing good short-form video repeatedly requires more than finding a loud moment and applying a center crop. |
+| **Approach** | Separate evidence collection, editorial decisions, rendering and final visual proof behind explicit contracts. |
+| **Primary research track** | Football highlights with scoreboard-aware event discovery, full-phase reconstruction and action-safe reframing. |
+| **Additional workflows** | Motivational edits and original narrated animation. |
+| **Engineering focus** | Validation, deterministic jobs, safe artifact handling, observability, evaluation and fail-closed release gates. |
+| **Current stage** | Strong local prototype and evaluation platform; not yet a finished multi-user SaaS. |
 
-## Safety Defaults
+## Product Workflows
 
-- YouTube ingest is disabled unless explicitly enabled by operator flags.
-- YouTube processing requires rights confirmation.
-- No cookies, tokens or secrets are stored for YouTube ingest.
-- Mock/fallback providers are the default.
-- Real cloud storage, real transcription providers and live external integrations are opt-in.
-- Reports must not include secrets, raw provider output, local absolute paths, storage keys, raw logs or downloaded artifacts.
-- Final video proof should fail if the rendered MP4 cannot prove the expected counted-goal coverage.
+### Football highlights
 
-## Requirements
+The football pipeline is designed to find candidate match events, build a stable
+score timeline, reject disallowed or weakly supported events, reconstruct the live
+phase before a goal and verify the final render. Scoreboard OCR is treated as an
+anchor, while visual and audio evidence help locate the actual action.
 
-- Node.js 18 or newer.
-- npm.
-- FFmpeg and FFprobe available on the system path.
-- Playwright Chromium for browser proof checks.
-- Optional: `yt-dlp` for authorized YouTube ingest.
-- Optional: local OCR runtime such as Tesseract for opt-in OCR experiments.
+The active research goal is not merely “detect a goal.” It is to show the buildup,
+finish, payoff and confirmation while keeping the ball and relevant players visible
+in a vertical frame.
+
+### Motivational edits
+
+The editorial pipeline ranks candidate moments, protects sentence boundaries,
+generates kinetic captions and records controlled quality experiments against a
+saved baseline.
+
+### Original narrated animation
+
+The narrated pipeline turns approved scripts and claims into a frame-addressable
+`AnimationIR`, synthesizes narration through an optional local TTS runtime and
+renders continuous vector scenes without depending on broadcast or stock footage.
+
+## Why It Is Different
+
+- **Evidence before claims.** A score change, caption or JSON label is not enough
+  to prove that a rendered video visibly contains a goal.
+- **Fail-closed output gates.** Missing artifacts, unsafe crops, incomplete goal
+  coverage and failed renders block export instead of producing misleading success.
+- **Domain-specific framing.** Football reframing can follow action evidence and
+  fall back to a wider view when tracking confidence is not strong enough.
+- **Local-first AI tooling.** Tests and demos use deterministic providers by
+  default; optional OCR, transcription, enhancement and TTS runtimes stay behind
+  adapters.
+- **Quality is measured.** Evaluation fixtures, visual QA, browser smoke tests and
+  a baseline-driven research loop turn subjective editing changes into reviewable
+  evidence.
+
+## System Architecture
+
+```mermaid
+flowchart LR
+    A["Rights-cleared media or content brief"] --> B["Ingest and validation"]
+    B --> C{"Pipeline router"}
+    C --> D["Football event analysis"]
+    C --> E["Editorial moment selection"]
+    C --> F["Script and AnimationIR"]
+    D --> G["Evidence-backed edit plan"]
+    E --> G
+    F --> H["Animation renderer"]
+    G --> I["FFmpeg renderer"]
+    H --> I
+    I --> J["Rendered video QA"]
+    J --> K{"Release gate"}
+    K -->|Pass| L["Export or private publish"]
+    K -->|Fail| M["Structured review evidence"]
+```
+
+The HTTP layer stays thin. Domain logic, providers, repositories, artifact storage,
+jobs and renderers are isolated behind testable boundaries. This keeps external
+tools replaceable and prevents API routes from becoming the workflow engine.
+
+## Engineering Highlights
+
+| Area | Implementation |
+| --- | --- |
+| Media safety | Extension, MIME, signature, size, duration and FFprobe validation before pipeline entry |
+| Job lifecycle | Durable state transitions, cancellation, leases, retries, recovery and terminal-state protection |
+| Storage | Repository and artifact-store boundaries with path traversal and key validation |
+| Football truth | Score-change timeline, evidence fusion, no-false-goal guards and chronological event binding |
+| Rendering | FFmpeg/FFprobe adapters, bounded execution, edit-plan validation and export gating |
+| Auto-framing | Ball/player/action tracking contracts with conservative wide-safe fallback |
+| Enhancement | Managed Python Real-ESRGAN adapter with Apple MPS support and validated output frame counts |
+| Transcription | Local Faster-Whisper adapter with word timestamps and deterministic fallback |
+| Original animation | Frame-accurate `AnimationIR`, continuous vector rendering and narration alignment |
+| Observability | Structured IDs, bounded progress, safe error codes and sanitized readiness reports |
+| Verification | Node tests, deterministic evals, Playwright browser checks, visual proofs and release reports |
+
+## Capability Maturity
+
+ShortsEngine is explicit about what is stable and what is still being improved.
+
+| Level | Capabilities |
+| --- | --- |
+| **Implemented and tested** | Validated local ingest, repository/artifact boundaries, job lifecycle, deterministic providers, FFmpeg rendering, structured errors, evals and browser smoke checks |
+| **Operator-enabled** | Authorized YouTube ingest, scoreboard OCR, Faster-Whisper, Real-ESRGAN, local TTS, publishing and cloud-adapter checks |
+| **Active product research** | Consistent full-goal recall on varied broadcasts, per-frame ball visibility, scorer tracking, reference-style pacing and larger rights-cleared evaluation sets |
 
 ## Quick Start
 
-Install dependencies:
+### Requirements
+
+- Node.js 18 or newer
+- npm
+- FFmpeg and FFprobe on `PATH`
+- Playwright Chromium for browser proof checks
+
+Optional capabilities include `yt-dlp`, OCR, Faster-Whisper, Real-ESRGAN and
+Kokoro TTS. The default test path does not require cloud API keys.
 
 ```bash
-npm install
-```
-
-Create deterministic demo fixtures:
-
-```bash
+git clone https://github.com/anaschatz/Shorts-Engine.git
+cd Shorts-Engine
+npm ci
 npm run demo:fixture
-```
-
-Run the local app:
-
-```bash
 npm run dev
 ```
 
-Open:
+Open [http://localhost:4175](http://localhost:4175). The port can be changed with
+`PORT`.
 
-```text
-http://localhost:4175
-```
+## Validation
 
-The default port is `4175`. You can override it with `PORT`.
-
-## Optional Real-ESRGAN Enhancement
-
-Video enhancement is automatic when the official `realesrgan-ncnn-vulkan` portable runtime and its models are installed. It never changes the source used for OCR, tracking or goal verification. With the binary on `PATH` and its `models` directory beside it, the normal command is enough:
-
-```bash
-npm run dev
-```
-
-The renderer automatically enhances a caption-free `540x960` visual layer to `1080x1920`, then composes the original scorebug, captions, effects and audio. When the runtime is unavailable it uses the normal FFmpeg path. Absolute binary/model paths and mandatory mode remain available through the variables in `docs/ENVIRONMENT.md`.
-
-## Automatic Local Transcription
-
-Faster-Whisper is auto-detected through `python3`. When the Python package and the configured model are already available locally, the engine uses it automatically and preserves word timestamps for kinetic captions. It never downloads a model during a render. If the runtime or cached model is unavailable, automatic mode keeps the existing safe transcription fallback and the job continues normally. Configuration and mandatory mode are documented in `docs/ENVIRONMENT.md`.
-
-Reliable FFmpeg scene cuts are also fed into the dynamic crop planner automatically. Ball and player tracking resets at a real cut instead of carrying camera motion from the previous shot; estimated scene boundaries are ignored.
-
-## Core Validation
-
-Run the main local checks:
+Run the core local release checks:
 
 ```bash
 npm run lint
@@ -94,152 +153,101 @@ npm run build
 npm test
 npm run eval
 npm run eval:reference
-npm run brain:health
-```
-
-Run demo and browser proof checks:
-
-```bash
-npm run demo:fixture
-npm run demo:smoke
-npm run demo:browser
 npm run demo:browser:ci
-```
-
-Run release/report gates:
-
-```bash
-npm run ci:reports
 npm run release:check
 ```
 
-Run the local autoresearch quality loop:
+The repository currently contains 119 focused test files covering validation,
+media safety, persistence, jobs, provider contracts, football evidence, rendering,
+visual behavior, publishing guards and release workflows.
+
+## Research Workflow
+
+ShortsEngine uses a small-experiment loop for quality changes. Evaluation fixtures
+and rubrics remain fixed so an experiment cannot improve its score by changing the
+measurement.
 
 ```bash
 npm run research:short:baseline
-npm run research:short -- --description="one scoped experiment"
+npm run research:short -- --description="one scoped quality experiment"
 ```
 
-The loop is documented in `shortresearch/program.md`. It compares the current tree against a saved local baseline using eval, reference review and focused domain tests, then records whether the experiment should be kept or discarded.
+Each run reports `keep`, `discard` or `crash`, together with the quality score,
+delta, hard-gate failures and guardrail regressions.
 
-## YouTube Link Proof
+## Safe Defaults
 
-YouTube ingest is deliberately locked by default. Only run live YouTube proof for videos you have the right to process.
-
-Check readiness:
-
-```bash
-npm run youtube:doctor
-```
-
-Run an operator-approved proof:
-
-```bash
-SHORTSENGINE_YOUTUBE_INGEST_ENABLED=1 \
-SHORTSENGINE_YOUTUBE_LIVE_E2E=1 \
-SHORTSENGINE_YOUTUBE_LIVE_E2E_RIGHTS_CONFIRMED=1 \
-SHORTSENGINE_YOUTUBE_LIVE_E2E_URL="https://www.youtube.com/watch?v=VIDEO_ID" \
-SHORTSENGINE_YOUTUBE_SMOKE_ALLOWED_IDS="VIDEO_ID" \
-npm run youtube:proof:operator
-```
-
-For counted-goal proof runs, add the expected goal count:
-
-```bash
-SHORTSENGINE_YOUTUBE_LIVE_E2E_EXPECTED_COUNTED_GOALS=5
-```
-
-The proof writes safe JSON reports under `demo/results/`. It should only produce an MP4 when the final output gate passes. If evidence is missing, the report should explain the failed phase, failure code, missing goal numbers or windows, and next action.
-
-If the downloader cannot complete a long authorized source inside the bounded timeout, use the operator-approved source cache: place a rights-cleared `<VIDEO_ID>.mp4` under `data/source-cache`, enable `SHORTSENGINE_SOURCE_CACHE_ENABLED=1`, and rerun the same proof. See [docs/YOUTUBE_INGEST_MANUAL_SMOKE.md](docs/YOUTUBE_INGEST_MANUAL_SMOKE.md) for the full cache contract and checksum option.
-
-## OCR And Goal Evidence
-
-Scoreboard/OCR evidence is support-only. It can help identify counted goals, disallowed goals and score changes, but it must not confirm a goal without matching football action evidence.
-
-Useful OCR commands:
-
-```bash
-npm run ocr:doctor
-npm run ocr:smoke
-npm run ocr:qa:review
-```
-
-Local OCR is opt-in. Missing OCR runtime should not break default tests.
+- Live YouTube ingest is disabled until an operator explicitly enables it and
+  confirms processing rights.
+- Tests and the local demo do not require cloud API keys.
+- External providers, FFmpeg, OCR, tracking and enhancement stay behind adapters.
+- Public errors and reports exclude secrets, raw provider output, storage keys and
+  absolute local paths.
+- Temporary and partial artifacts are cleaned only inside managed staging areas.
+- Exports remain unavailable until rendering and output validation complete.
+- Ambiguous content can be routed to human review instead of being guessed.
 
 ## Project Structure
 
 ```text
-server/        API, orchestration, media, rendering, providers, storage and domain logic
-tests/         Node test suite and static contract tests
-eval/          Deterministic evaluation fixtures, scoring and reference rubrics
-demo/          Local proof runners, browser smoke, YouTube proof and report tooling
-docs/          Operator docs, environment contract, release and staging notes
-tools/         Release, environment, GitHub, YouTube and validation utilities
-viking-brain/  OpenViking project memory, resources and skills
-data/          Local runtime storage, ignored/generated by normal development
+server/         API, domain services, jobs, providers, storage and repositories
+renderer/       Continuous animation and narrated renderers
+tests/          Unit, integration, contract and visual-behavior tests
+eval/           Deterministic fixtures, scoring and reference rubrics
+demo/           Local proofs, browser checks and human-review tools
+tools/          Research, environment, publishing and release utilities
+docs/           Architecture, operations, staging and product decisions
+shortresearch/  Saved baseline and experiment reports
 ```
 
-## Important Scripts
+Selected technical documents:
 
-```text
-npm run dev                 Start the local server
-npm run lint                Static lint and safety checks
-npm run build               Build smoke check
-npm test                    Full test suite
-npm run eval                Deterministic quality evaluation
-npm run eval:beta           20-50 match production-beta benchmark
-npm run eval:reference      Reference-style football quality evaluation
-npm run youtube:doctor      YouTube ingest readiness check
-npm run youtube:proof       Local YouTube proof alias
-npm run youtube:proof:operator
-npm run demo:browser:ci     Browser release proof
-npm run ci:reports          Validate generated report safety
-npm run research:short      Run the local autoresearch quality gate
-npm run research:short:baseline
-npm run release:check       Local release gate
-```
+- [Narrated visual shorts architecture](docs/NARRATED_VISUAL_SHORTS_ARCHITECTURE.md)
+- [Continuous animation architecture](docs/DARK_CURIOSITY_ANIMATION_ARCHITECTURE.md)
+- [Growth pipeline architecture](docs/BUDGET_FRIENDLY_GROWTH_ARCHITECTURE.md)
+- [Production beta plan](docs/PRODUCTION_BETA.md)
+- [Environment reference](docs/ENVIRONMENT.md)
+- [Release process](docs/RELEASE.md)
+- [YouTube publishing guide](docs/YOUTUBE_PUBLISHING.md)
 
-## GitHub And CI
+## Project Status
 
-The repository CI is expected to run lint, build, tests, eval, reference eval, brain health, demo smoke, browser smoke and release gates. Failure artifacts should be uploaded only when a CI run fails, and reports must stay sanitized.
+ShortsEngine is a **production-hardening prototype and applied AI research
+project**, not a finished commercial product.
 
-Remote CI proof uses GitHub CLI in read-only mode:
+The engineering platform is broad and well tested, but live football broadcasts
+remain a difficult open problem: scorebugs vary, camera direction changes rapidly,
+the ball is small, and a correct data record does not guarantee a human-visible
+result. The project therefore keeps strict visual gates and records failures rather
+than claiming universal highlight accuracy.
 
-```bash
-npm run github:setup
-gh auth status
-npm run github:doctor
-npm run remote:ci
-npm run remote:ci:proof
-```
+Next milestones:
 
-The proof must verify the exact pushed commit. It must not download raw logs or artifacts.
+1. Evaluate goal recall and visible phase coverage on a larger rights-cleared set.
+2. Improve broadcast-independent scorebug localization and temporal OCR stability.
+3. Strengthen ball/scorer tracking without aggressive or distracting crop motion.
+4. Add PostgreSQL, durable queues and object storage for real multi-user operation.
+5. Measure edit-free pass rate, render reliability, latency and cost per video.
 
-## Environment
+## What This Project Demonstrates
 
-Copy or inspect `.env.example` if present, then use documented environment variables only. See:
+- Designing backend boundaries for unreliable AI and media tools.
+- Building asynchronous workflows with recovery, idempotency and safe failure.
+- Combining OCR, audio, vision and timeline evidence without overclaiming certainty.
+- Testing subjective visual output with deterministic metrics and human review.
+- Turning product risks into explicit contracts, observability and release gates.
+- Balancing technical ambition with rights, provenance and operational constraints.
 
-- `docs/ENVIRONMENT.md`
-- `demo/CI.md`
-- `docs/RELEASE.md`
-- `docs/YOUTUBE_INGEST_MANUAL_SMOKE.md`
+## Author
 
-Do not commit secrets, cookies, API keys, local storage, rendered MP4s, downloads, reports with raw logs, or generated runtime artifacts.
+**Anastasis Chatzedakis**<br>
+Undergraduate student, Department of Management Science and Technology<br>
+Athens University of Economics and Business
 
-## Known Limitations
+- GitHub: [@anaschatz](https://github.com/anaschatz)
+- Email: [t8240165@aueb.gr](mailto:t8240165@aueb.gr)
 
-- Live YouTube proof still depends on reliable scorebug/OCR framing and can fail if the scoreboard ROI is not readable.
-- The system should prefer safe failure over a misleading proof video.
-- Real provider-backed transcription, OCR and cloud storage are opt-in and not required for the default local test suite.
-- Generated football shorts are still being tuned against reference examples for full phase coverage, pacing, captions and visible goal reconstruction.
+---
 
-## Roadmap
-
-- Real scorebug ROI calibration from live YouTube QA artifacts.
-- Stronger counted-goal verification against rendered MP4 segments.
-- Better multi-goal pacing and smoother transitions.
-- More reliable full goal phase reconstruction.
-- Provider-backed vision/tracking with deterministic fallback.
-- Human review loop for ambiguous football moments.
-- Production deployment with database and object-storage adapters.
+Built in Athens as a student project about AI systems, media operations and product
+engineering.
