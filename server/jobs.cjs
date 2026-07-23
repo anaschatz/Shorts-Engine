@@ -1,4 +1,4 @@
-const { randomUUID, createHash } = require("node:crypto");
+const { randomUUID } = require("node:crypto");
 const { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } = require("node:fs");
 const { basename, dirname, isAbsolute, join, relative, resolve } = require("node:path");
 const { CONFIG } = require("./config.cjs");
@@ -7,23 +7,10 @@ const { AppError, SAFE_MESSAGES, redactForLogs } = require("./errors.cjs");
 const { publicHumanReviewGate } = require("./human-review-gate.cjs");
 const { normalizeNarratedJobPayload, pipelineTypeForAction } = require("./pipelines/pipeline-registry.cjs");
 const { normalizeSmokeSource } = require("./staging-smoke-metadata.cjs");
+const { idempotencyKey } = require("./shared/core/idempotency.cjs");
 
 function nowIso() {
   return new Date().toISOString();
-}
-
-function stableStringify(value) {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  return `{${Object.keys(value)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
-    .join(",")}}`;
-}
-
-function idempotencyKey(action, payload) {
-  const hash = createHash("sha256").update(stableStringify(payload || {})).digest("hex").slice(0, 20);
-  return `${action}-${hash}`;
 }
 
 const JOB_STATUSES = Object.freeze(["queued", "processing", "completed", "failed", "cancelled"]);
@@ -1014,6 +1001,7 @@ function normalizePayload(payload, options = {}) {
     expectedFinalScore: /^\d{1,2}-\d{1,2}$/.test(String(payload.expectedFinalScore || ""))
       ? String(payload.expectedFinalScore)
       : null,
+    rightsConfirmed: payload.rightsConfirmed === true,
     source: normalizeSmokeSource(payload.source),
   };
   if (payload.approvedEditPlan) normalized.approvedEditPlan = safePayloadObject(payload.approvedEditPlan);
@@ -1030,6 +1018,18 @@ function normalizePayload(payload, options = {}) {
       operatorNote: sanitizeText(approval.operatorNote || "", 500),
     };
   }
+  if (payload.footballReviewApproval) {
+    const approval = safePayloadObject(payload.footballReviewApproval, 4000);
+    normalized.footballReviewApproval = {
+      reviewId: sanitizeText(approval.reviewId || "", 80),
+      reviewVersion: Math.max(1, Math.floor(Number(approval.reviewVersion || 1))),
+      candidateId: sanitizeText(approval.candidateId || "", 80),
+      sourceRevision: sanitizeText(approval.sourceRevision || "", 80).toLowerCase(),
+      projectRevision: Math.max(1, Math.floor(Number(approval.projectRevision || 1))),
+      reviewedAt: sanitizeText(approval.reviewedAt || "", 48),
+      reviewerId: sanitizeText(approval.reviewerId || "", 80),
+    };
+  }
   return normalized;
 }
 
@@ -1044,6 +1044,15 @@ function publicPayload(payload) {
       stylePreset: sanitizeText(safe.approvedEditPlan.stylePreset || "", 80),
       captionCount: Array.isArray(safe.approvedEditPlan.captions) ? safe.approvedEditPlan.captions.length : 0,
       animationCueCount: Array.isArray(safe.approvedEditPlan.animationCues) ? safe.approvedEditPlan.animationCues.length : 0,
+    };
+  }
+  if (safe.footballReviewApproval) {
+    safe.footballReviewApproval = {
+      reviewId: sanitizeText(safe.footballReviewApproval.reviewId || "", 80),
+      reviewVersion: Math.max(1, Math.floor(Number(safe.footballReviewApproval.reviewVersion || 1))),
+      candidateId: sanitizeText(safe.footballReviewApproval.candidateId || "", 80),
+      projectRevision: Math.max(1, Math.floor(Number(safe.footballReviewApproval.projectRevision || 1))),
+      reviewedAt: sanitizeText(safe.footballReviewApproval.reviewedAt || "", 48),
     };
   }
   return safe;

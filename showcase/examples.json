@@ -1,0 +1,189 @@
+{
+  "schema_version": 1,
+  "verified_at": "2026-07-23",
+  "channel": {
+    "title": "Budget Friendly",
+    "url": "https://www.youtube.com/@BudgetFriendlyShorts",
+    "canonical_url": "https://www.youtube.com/channel/UCBNdKTcn3nDfBG-2bVy4x2w",
+    "verification_status": "verified_public",
+    "attribution_scope": "Only the individually documented 2026 examples are attributed to ShortsEngine workflows; the rest of the channel is not attributed."
+  },
+  "examples": [
+    {
+      "id": "motivational-cynicism-2026",
+      "title": "Why Cynicism Never Helps You | Andrew Huberman #Shorts",
+      "workflow": "motivational",
+      "public_url": "https://www.youtube.com/shorts/3sQmO4611mo",
+      "verification_url": "https://www.youtube.com/shorts/3sQmO4611mo",
+      "public_url_status": "verified_public",
+      "artifact_status": "verified_public_page",
+      "engine_version": {
+        "shortsengine_commit": "not_recorded",
+        "components": [
+          "not_recorded"
+        ]
+      },
+      "provenance_status": "not_recorded",
+      "source_rights_status": {
+        "status": "pending",
+        "disclosure": "pending"
+      },
+      "generation_mode": "operator_supplied_workflow_attribution",
+      "automatic_pipeline_stages": [
+        "not_recorded"
+      ],
+      "known_human_interventions": [
+        "not_recorded"
+      ],
+      "render_duration_seconds": "not_recorded",
+      "output": {
+        "duration_seconds": 19,
+        "dimensions": {
+          "width": 405,
+          "height": 720,
+          "evidence_source": "youtube_page_metadata"
+        },
+        "frame_rate": "not_recorded",
+        "video_codec": "not_recorded",
+        "audio_codec": "not_recorded"
+      },
+      "quality_gates_executed": [
+        "not_recorded"
+      ],
+      "final_verification": {
+        "status": "verified_public_page",
+        "evidence": [
+          "YouTube returned a canonical Shorts URL and video metadata.",
+          "The public page reported a 19-second duration and 405x720 dimensions."
+        ]
+      },
+      "technical_summary": "Public motivational Short verified from YouTube page metadata. The workflow attribution is operator supplied; a matching ShortsEngine job record, render manifest and quality report were not recorded in the inspected repository evidence."
+    },
+    {
+      "id": "football-supplied-short-2026",
+      "title": "unknown",
+      "workflow": "football",
+      "public_url": "pending",
+      "verification_url": "https://www.youtube.com/shorts/1yubCngacLk",
+      "public_url_status": "unavailable_at_verification",
+      "artifact_status": "public_url_unavailable",
+      "engine_version": {
+        "shortsengine_commit": "not_recorded",
+        "components": [
+          "not_recorded"
+        ]
+      },
+      "provenance_status": "not_recorded",
+      "source_rights_status": {
+        "status": "pending",
+        "disclosure": "pending"
+      },
+      "generation_mode": "operator_supplied_workflow_attribution",
+      "automatic_pipeline_stages": [
+        "not_recorded"
+      ],
+      "known_human_interventions": [
+        "not_recorded"
+      ],
+      "render_duration_seconds": "not_recorded",
+      "output": {
+        "duration_seconds": "unknown",
+        "dimensions": {
+          "width": "unknown",
+          "height": "unknown",
+          "evidence_source": "unavailable"
+        },
+        "frame_rate": "unknown",
+        "video_codec": "unknown",
+        "audio_codec": "unknown"
+      },
+      "quality_gates_executed": [
+        "not_recorded"
+      ],
+      "final_verification": {
+        "status": "public_page_unavailable",
+        "evidence": [
+          "YouTube displayed Video unavailable for the supplied Shorts URL on 2026-07-23.",
+          "No public title or media metadata could be verified."
+        ]
+      },
+      "technical_summary": "The supplied football workflow attribution is retained, but the URL was unavailable during verification. No output-specific job, event-evidence, framing, caption, render or final-QA record is claimed."
+    },
+    {
+      "id": "narrated-gps-clocks-2026",
+      "title": "The GPS clocks that looked haunted",
+      "workflow": "narrated-animation",
+      "public_url": "pending",
+      "verification_url": "pending",
+      "public_url_status": "pending",
+      "artifact_status": "verified_local_technical_final",
+      "engine_version": {
+        "shortsengine_commit": "not_recorded",
+        "components": [
+          "renderer 2.0.0",
+          "Hyperframes runtime 0.7.55",
+          "animation style 3.1.0",
+          "narrated compositor v2",
+          "QA profile 1.1.0"
+        ]
+      },
+      "provenance_status": "verified_repository_bundle",
+      "source_rights_status": {
+        "status": "verified_from_rights_manifest",
+        "disclosure": "Institutional factual sources; original engine-generated SVG visuals; self-recorded narration with recorded commercial-use permission."
+      },
+      "generation_mode": "narrated_animation_with_uploaded_aligned_self_recorded_narration",
+      "automatic_pipeline_stages": [
+        "content brief and claim-ledger binding",
+        "script and five-beat storyboard generation",
+        "narration timing alignment",
+        "semantic scene planning",
+        "AnimationIR generation",
+        "continuous vector animation rendering",
+        "caption generation and burn-in",
+        "audio normalization and composition",
+        "animation, media, content, timeline and rights QA",
+        "provenance and release-evidence packaging"
+      ],
+      "known_human_interventions": [
+        "operator approval of the revision-1 content bundle",
+        "operator-provided self-recorded narration",
+        "operator publish approval for guarded local release",
+        "no public upload performed"
+      ],
+      "render_duration_seconds": "not_recorded",
+      "pipeline_duration_seconds": 301.027,
+      "output": {
+        "duration_seconds": 41.1,
+        "dimensions": {
+          "width": 1080,
+          "height": 1920,
+          "evidence_source": "ffprobe_and_render_manifest"
+        },
+        "frame_rate": 30,
+        "video_codec": "h264_high_yuv420p",
+        "audio_codec": "aac_lc_48000hz_mono",
+        "sha256": "08142ce5471488400fe8b2e394aba4e94da1b32ea5cee2a13d6fa9fd6fedde8a"
+      },
+      "quality_gates_executed": [
+        "animation QA passed",
+        "browser state-isolation and repeated-frame determinism checks passed",
+        "semantic geometry, label coverage and caption-safe-zone checks passed",
+        "50 of 50 blocking technical QA gates passed",
+        "H.264/AAC container, duration, dimensions, frame rate and pixel format verified",
+        "narration rights, visual-asset rights and source bindings verified",
+        "technical evidence package completed"
+      ],
+      "final_verification": {
+        "status": "verified_local_technical_final_publication_pending",
+        "evidence": [
+          "MP4 ftyp signature and ISO Base Media container verified.",
+          "FFprobe and the render manifest agree on 41.1 seconds, 1080x1920 and 30 fps.",
+          "The completed render job, AnimationIR, render manifest, narration manifest, provenance report, rights manifest and QA reports bind to the same output hash.",
+          "Artifact metadata marks the output technicalFinal true, publishable false and publishApprovalRequired true."
+        ]
+      },
+      "technical_summary": "Repository-backed narrated animation with approved content, aligned self-recorded narration, five semantic story beats, frame-addressable AnimationIR, continuous local vector rendering, burned captions, deterministic browser proof and a complete 50-gate technical QA package. The public URL and producing Git commit were not recorded."
+    }
+  ]
+}

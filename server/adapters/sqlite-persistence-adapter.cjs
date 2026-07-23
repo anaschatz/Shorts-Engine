@@ -25,7 +25,7 @@ try {
 
 const SQLITE_AVAILABLE = Boolean(DatabaseSync);
 
-const LATEST_SCHEMA_VERSION = 6;
+const LATEST_SCHEMA_VERSION = 7;
 const MIGRATIONS = Object.freeze([
   {
     version: 1,
@@ -260,6 +260,72 @@ const MIGRATIONS = Object.freeze([
       CREATE INDEX IF NOT EXISTS idx_projects_type ON projects (projectType);
     `,
   },
+  {
+    version: 7,
+    name: "football_candidate_review",
+    sql: `
+      CREATE TABLE IF NOT EXISTS football_reviews (
+        id TEXT PRIMARY KEY,
+        projectId TEXT NOT NULL,
+        ownerId TEXT NOT NULL,
+        sourceJobId TEXT NOT NULL,
+        sourceUploadId TEXT NOT NULL,
+        sourceRevision TEXT NOT NULL,
+        projectRevision INTEGER NOT NULL,
+        version INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        selectedCandidateId TEXT,
+        reviewerId TEXT,
+        reviewedAt TEXT,
+        renderJobId TEXT,
+        regenerationJobId TEXT,
+        decisionIdempotencyKey TEXT UNIQUE,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        recordJson TEXT NOT NULL,
+        UNIQUE(projectId, sourceJobId, sourceRevision)
+      );
+      CREATE TABLE IF NOT EXISTS football_review_candidates (
+        id TEXT PRIMARY KEY,
+        reviewId TEXT NOT NULL,
+        sourceStart REAL NOT NULL,
+        sourceEnd REAL NOT NULL,
+        confidence REAL NOT NULL,
+        reasonCodesJson TEXT NOT NULL,
+        evidenceJson TEXT NOT NULL,
+        framingJson TEXT NOT NULL,
+        editPlanJson TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        FOREIGN KEY(reviewId) REFERENCES football_reviews(id) ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS football_review_audit (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        reviewId TEXT NOT NULL,
+        sequence INTEGER NOT NULL,
+        eventType TEXT NOT NULL,
+        actorId TEXT,
+        fromStatus TEXT,
+        toStatus TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        candidateId TEXT,
+        renderJobId TEXT,
+        reasonCode TEXT,
+        createdAt TEXT NOT NULL,
+        UNIQUE(reviewId, sequence),
+        FOREIGN KEY(reviewId) REFERENCES football_reviews(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_football_reviews_owner
+        ON football_reviews (ownerId, updatedAt);
+      CREATE INDEX IF NOT EXISTS idx_football_reviews_source
+        ON football_reviews (projectId, sourceJobId, sourceRevision);
+      CREATE INDEX IF NOT EXISTS idx_football_reviews_status
+        ON football_reviews (status, updatedAt);
+      CREATE INDEX IF NOT EXISTS idx_football_review_candidates_review
+        ON football_review_candidates (reviewId);
+      CREATE INDEX IF NOT EXISTS idx_football_review_audit_review
+        ON football_review_audit (reviewId, sequence);
+    `,
+  },
 ]);
 
 const HEALTH_TABLES = Object.freeze(new Set([
@@ -272,6 +338,9 @@ const HEALTH_TABLES = Object.freeze(new Set([
   "regeneration_drafts",
   "regeneration_approvals",
   "approval_outbox",
+  "football_reviews",
+  "football_review_candidates",
+  "football_review_audit",
 ]));
 
 function safeJsonParse(value, fallback = null) {
@@ -1749,6 +1818,7 @@ class SQLitePersistenceAdapter {
       regenerationDrafts: this.repositoryHealth("regeneration_drafts", { repository: "sqlite-regeneration-drafts", durable: true }),
       regenerationApprovals: this.repositoryHealth("regeneration_approvals", { repository: "sqlite-regeneration-approvals", durable: true }),
       approvalOutbox: this.approvalOutboxHealth(),
+      footballReviews: this.repositoryHealth("football_reviews", { repository: "sqlite-football-reviews", durable: true }),
     };
     return {
       ready: migrations.ready && Object.values(repositories).every((entry) => entry.ready),

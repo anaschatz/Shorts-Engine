@@ -58,7 +58,7 @@ const ARTIFACT_TYPES = Object.freeze([
 ]);
 const ARTIFACT_STATUSES = Object.freeze(["staging", "available", "missing", "deleted"]);
 const TEMP_ARTIFACT_TYPES = Object.freeze(["extracted_audio", "audio", "subtitle_temp", "subtitles", "render_temp", "scene_keyframe"]);
-const DOWNLOAD_ARTIFACT_TYPES = Object.freeze(["rendered_video", "render", "export"]);
+const DOWNLOAD_ARTIFACT_TYPES = Object.freeze(["upload", "rendered_video", "render", "export"]);
 const DEFAULT_SIGNED_DOWNLOAD_TTL_SECONDS = 5 * 60;
 const DEFAULT_MAX_SIGNED_DOWNLOAD_TOKENS = 500;
 const MAX_READ_ARTIFACT_BYTES = 25 * 1024 * 1024;

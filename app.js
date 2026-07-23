@@ -135,6 +135,16 @@
     reviewApprovalStatus: "#reviewApprovalStatus",
     reviewApprovalSummary: "#reviewApprovalSummary",
     reviewRegenerationDetails: "#reviewRegenerationDetails",
+    footballReviewPanel: "#footballReviewPanel",
+    footballReviewStatus: "#footballReviewStatus",
+    footballReviewSummary: "#footballReviewSummary",
+    footballReviewRefreshBtn: "#footballReviewRefreshBtn",
+    footballReviewCandidates: "#footballReviewCandidates",
+    footballReviewNote: "#footballReviewNote",
+    footballReviewApproveBtn: "#footballReviewApproveBtn",
+    footballReviewRejectBtn: "#footballReviewRejectBtn",
+    footballReviewRegenerateBtn: "#footballReviewRegenerateBtn",
+    footballReviewError: "#footballReviewError",
   });
 
   const state = {
@@ -192,6 +202,12 @@
           error: null,
         },
       },
+      football: {
+        status: "empty",
+        review: null,
+        selectedCandidateId: null,
+        error: null,
+      },
     },
     moments: Core.validateAiOutput(DEFAULT_MOMENTS).data || [],
     rateLimiters: {
@@ -202,6 +218,7 @@
   let youtubeAutoValidateTimer = null;
   let youtubeValidationRequestId = 0;
 
+  installFootballReviewPanel();
   const els = resolveElements();
   if (!els) return;
 
@@ -235,6 +252,126 @@
       review: null,
       error: null,
     };
+  }
+
+  function idleFootballReviewState() {
+    return {
+      status: "empty",
+      review: null,
+      selectedCandidateId: null,
+      error: null,
+    };
+  }
+
+  function installFootballReviewPanel() {
+    const parent = document.querySelector("#reviewPanel");
+    if (!parent || document.querySelector("#footballReviewPanel")) return;
+    const panel = document.createElement("section");
+    panel.id = "footballReviewPanel";
+    panel.className = "football-review-panel";
+    panel.dataset.status = "empty";
+    panel.setAttribute("aria-labelledby", "footballReviewTitle");
+    const heading = document.createElement("div");
+    heading.className = "football-review-heading";
+    const headingCopy = document.createElement("div");
+    const eyebrow = document.createElement("p");
+    eyebrow.className = "eyebrow";
+    eyebrow.textContent = "Football evidence review";
+    const title = document.createElement("strong");
+    title.id = "footballReviewTitle";
+    title.textContent = "Uncertain moment candidates";
+    const status = document.createElement("span");
+    status.id = "footballReviewStatus";
+    status.className = "football-review-status";
+    status.setAttribute("role", "status");
+    status.setAttribute("aria-live", "polite");
+    status.textContent = "No review waiting";
+    headingCopy.append(eyebrow, title, status);
+    const refresh = document.createElement("button");
+    refresh.id = "footballReviewRefreshBtn";
+    refresh.className = "secondary-btn compact-btn";
+    refresh.type = "button";
+    refresh.textContent = "Refresh";
+    heading.append(headingCopy, refresh);
+
+    const summary = document.createElement("p");
+    summary.id = "footballReviewSummary";
+    summary.className = "football-review-summary";
+    summary.textContent = "Candidates appear here only when the football evidence gate needs an owner decision.";
+    const candidates = document.createElement("fieldset");
+    candidates.id = "footballReviewCandidates";
+    candidates.className = "football-review-candidates";
+    candidates.setAttribute("aria-describedby", "footballReviewSummary");
+
+    const note = document.createElement("label");
+    note.className = "football-review-note";
+    const noteLabel = document.createElement("span");
+    noteLabel.textContent = "Optional reviewer note";
+    const noteInput = document.createElement("textarea");
+    noteInput.id = "footballReviewNote";
+    noteInput.rows = 2;
+    noteInput.maxLength = 280;
+    noteInput.placeholder = "Briefly record why this candidate is safest.";
+    const noteHelp = document.createElement("small");
+    noteHelp.textContent = "Up to 280 characters. Stored in the review audit.";
+    note.append(noteLabel, noteInput, noteHelp);
+
+    const error = document.createElement("p");
+    error.id = "footballReviewError";
+    error.className = "field-error";
+    error.setAttribute("role", "alert");
+    error.setAttribute("aria-live", "assertive");
+    error.hidden = true;
+
+    const actions = document.createElement("div");
+    actions.className = "football-review-actions";
+    const actionSpecs = [
+      ["footballReviewApproveBtn", "primary-btn compact-btn", "Approve selected"],
+      ["footballReviewRegenerateBtn", "secondary-btn compact-btn", "Regenerate candidates"],
+      ["footballReviewRejectBtn", "secondary-btn compact-btn football-review-reject", "Reject all"],
+    ];
+    actionSpecs.forEach(([id, className, label]) => {
+      const button = document.createElement("button");
+      button.id = id;
+      button.className = className;
+      button.type = "button";
+      button.disabled = true;
+      button.textContent = label;
+      actions.appendChild(button);
+    });
+    panel.append(heading, summary, candidates, note, error, actions);
+    parent.prepend(panel);
+    const style = document.createElement("style");
+    style.textContent = `
+      .football-review-panel{display:grid;gap:16px;margin:0 0 20px;padding:20px;border:1px solid rgba(255,255,255,.1);border-radius:18px;background:rgba(15,23,42,.72)}
+      .football-review-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+      .football-review-heading>div{display:grid;gap:4px}
+      .football-review-status{font-size:13px;color:rgba(255,255,255,.68)}
+      .football-review-summary{max-width:72ch;margin:0;color:rgba(255,255,255,.72);line-height:1.55}
+      .football-review-candidates{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;padding:0;margin:0;border:0;min-width:0}
+      .football-review-candidates:empty{display:none}
+      .football-review-candidate{position:relative;display:grid;gap:10px;padding:12px;border:1px solid rgba(255,255,255,.1);border-radius:14px;background:rgba(255,255,255,.035);cursor:pointer;transition:border-color 180ms ease,background-color 180ms ease}
+      .football-review-candidate:hover{border-color:rgba(236,72,153,.52)}
+      .football-review-candidate:focus-within{outline:3px solid rgba(236,72,153,.4);outline-offset:2px}
+      .football-review-candidate[data-selected="true"]{border-color:#ec4899;background:rgba(236,72,153,.1)}
+      .football-review-candidate input{position:absolute;top:14px;right:14px;width:20px;height:20px;accent-color:#ec4899}
+      .football-review-candidate video{width:100%;aspect-ratio:16/9;border-radius:10px;background:#020617;object-fit:contain}
+      .football-review-candidate strong{padding-right:28px}
+      .football-review-candidate-meta{display:flex;flex-wrap:wrap;gap:6px;font-size:12px;color:rgba(255,255,255,.72)}
+      .football-review-chip{padding:4px 7px;border-radius:999px;background:rgba(37,99,235,.18);border:1px solid rgba(96,165,250,.25)}
+      .football-review-reasons{margin:0;font-size:12px;line-height:1.5;color:rgba(255,255,255,.62)}
+      .football-review-note{display:grid;gap:6px}
+      .football-review-note textarea{min-height:64px;resize:vertical}
+      .football-review-note small{color:rgba(255,255,255,.58)}
+      .football-review-actions{display:flex;flex-wrap:wrap;gap:10px}
+      .football-review-actions button{min-height:44px}
+      .football-review-reject{margin-left:auto;border-color:rgba(220,38,38,.48)!important;color:#fecaca!important}
+      .football-review-skeleton{height:180px;border-radius:14px;background:linear-gradient(90deg,rgba(255,255,255,.04),rgba(255,255,255,.1),rgba(255,255,255,.04));background-size:200% 100%;animation:football-review-pulse 1.2s ease-in-out infinite}
+      @keyframes football-review-pulse{to{background-position:-200% 0}}
+      @media(max-width:640px){.football-review-panel{padding:16px}.football-review-heading{align-items:stretch;flex-direction:column}.football-review-candidates{grid-template-columns:1fr}.football-review-actions{display:grid}.football-review-reject{margin-left:0}}
+      @media(prefers-reduced-motion:reduce){.football-review-candidate{transition:none}.football-review-skeleton{animation:none}}
+    `;
+    document.head.appendChild(style);
   }
 
   function resolveElements() {
@@ -541,6 +678,7 @@
     );
     els.momentList.setAttribute("aria-busy", busy ? "true" : "false");
     renderReviewPanel();
+    renderFootballReviewPanel();
     renderYouTubeIngestStatus(youtubeUi);
   }
 
@@ -552,10 +690,12 @@
       human: idleHumanReviewState(),
       ocrQa: idleOcrQaReviewState(),
       regeneration: idleRegenerationState(),
+      football: idleFootballReviewState(),
     };
     clearHumanReviewError();
     clearOcrQaError();
     renderReviewPanel();
+    renderFootballReviewPanel();
     renderOcrQaReviewPanel();
   }
 
@@ -998,6 +1138,277 @@
       showSafeError(response, "ocr-qa-review-submit");
     } finally {
       renderOcrQaReviewPanel();
+    }
+  }
+
+  function mergeFootballReviewPreviews(nextReview, previousReview) {
+    if (!nextReview || !previousReview) return nextReview;
+    const previews = new Map((previousReview.candidates || []).map((candidate) => [candidate.id, candidate.preview]));
+    return {
+      ...nextReview,
+      candidates: (nextReview.candidates || []).map((candidate) => ({
+        ...candidate,
+        preview: candidate.preview || previews.get(candidate.id) || null,
+      })),
+    };
+  }
+
+  function footballReviewStateLabel(review, uiStatus) {
+    if (uiStatus === "loading") return "Loading candidates";
+    if (uiStatus === "submitting") return "Saving decision";
+    if (uiStatus === "stale") return "Review is stale";
+    if (uiStatus === "failed") return "Review unavailable";
+    if (!review) return "No review waiting";
+    const labels = {
+      pending: "Owner decision required",
+      approved: "Candidate approved",
+      rejected: "All candidates rejected",
+      regeneration_requested: "Regeneration requested",
+      render_queued: "Approved render queued",
+      render_processing: "Approved render processing",
+      render_completed: "Approved render completed",
+      render_failed: "Approved render failed",
+      cancelled: "Approved render cancelled",
+    };
+    return labels[review.status] || "Review updated";
+  }
+
+  function renderFootballReviewPanel() {
+    const football = state.review.football || idleFootballReviewState();
+    const review = football.review;
+    const busy = ["loading", "submitting"].includes(football.status);
+    const pending = Boolean(review && review.status === "pending" && !busy);
+    els.footballReviewPanel.dataset.status = football.status;
+    els.footballReviewPanel.setAttribute("aria-busy", busy ? "true" : "false");
+    els.footballReviewStatus.textContent = footballReviewStateLabel(review, football.status);
+    els.footballReviewRefreshBtn.disabled = busy || !state.activeProject;
+    els.footballReviewCandidates.replaceChildren();
+    els.footballReviewError.hidden = !football.error;
+    els.footballReviewError.textContent = football.error ? football.error.message : "";
+    els.footballReviewNote.disabled = !pending;
+    if (document.activeElement !== els.footballReviewNote) {
+      els.footballReviewNote.value = review && review.note ? review.note : "";
+    }
+    els.footballReviewApproveBtn.disabled = !pending || !football.selectedCandidateId;
+    els.footballReviewRejectBtn.disabled = !pending;
+    els.footballReviewRegenerateBtn.disabled = !pending;
+
+    if (football.status === "loading") {
+      els.footballReviewSummary.textContent = "Loading bounded candidate windows and their football evidence.";
+      for (let index = 0; index < 2; index += 1) {
+        const skeleton = document.createElement("div");
+        skeleton.className = "football-review-skeleton";
+        skeleton.setAttribute("aria-hidden", "true");
+        els.footballReviewCandidates.appendChild(skeleton);
+      }
+      return;
+    }
+    if (football.status === "stale") {
+      els.footballReviewSummary.textContent = "The project or source revision changed. Refresh before making another decision.";
+      return;
+    }
+    if (football.status === "failed") {
+      els.footballReviewSummary.textContent = "Candidates could not be loaded safely. Use Refresh to retry against the current project revision.";
+      return;
+    }
+    if (!review) {
+      els.footballReviewSummary.textContent = state.activeProject
+        ? "No uncertain football moment is waiting. A review will appear when the evidence gate blocks automatic approval."
+        : "Upload a football source to begin. Uncertain moments will appear here for owner review.";
+      return;
+    }
+
+    const candidates = Array.isArray(review.candidates) ? review.candidates : [];
+    els.footballReviewSummary.textContent = review.status === "pending"
+      ? `${candidates.length} candidate clips are bounded to the same source revision. Select one, reject all, or request regeneration.`
+      : review.status === "rejected"
+        ? "Every candidate is rejected and remains blocked from download or publication."
+        : review.status === "regeneration_requested"
+          ? "A new analysis job is queued. These candidates remain non-publishable."
+          : review.status === "render_queued" || review.status === "render_processing"
+            ? "The approved candidate is moving through the render queue. The rejected alternatives remain blocked."
+            : "This review is read-only because a decision has already been recorded.";
+
+    candidates.forEach((candidate, index) => {
+      const label = document.createElement("label");
+      label.className = "football-review-candidate";
+      const selected = football.selectedCandidateId === candidate.id || review.selectedCandidateId === candidate.id;
+      label.dataset.selected = selected ? "true" : "false";
+      const input = document.createElement("input");
+      input.type = "radio";
+      input.name = "football-review-candidate";
+      input.value = candidate.id;
+      input.checked = selected;
+      input.disabled = !pending;
+      input.setAttribute("aria-label", `Select candidate ${index + 1}`);
+      input.addEventListener("change", () => {
+        state.review.football.selectedCandidateId = candidate.id;
+        renderFootballReviewPanel();
+      });
+      const video = document.createElement("video");
+      video.controls = true;
+      video.preload = "metadata";
+      video.setAttribute("playsinline", "");
+      video.setAttribute("aria-label", `Candidate ${index + 1} preview from ${formatTime(candidate.sourceStart)} to ${formatTime(candidate.sourceEnd)}`);
+      if (candidate.preview && candidate.preview.url) video.src = candidate.preview.url;
+      const title = document.createElement("strong");
+      title.textContent = `Candidate ${index + 1} · ${formatTime(candidate.sourceStart)}–${formatTime(candidate.sourceEnd)}`;
+      const meta = document.createElement("div");
+      meta.className = "football-review-candidate-meta";
+      [
+        `${Math.round(Number(candidate.confidence || 0) * 100)}% confidence`,
+        `${candidate.framing && candidate.framing.status || "framing unknown"}`,
+        `${Number(candidate.durationSeconds || 0).toFixed(1)}s`,
+      ].forEach((value) => {
+        const chip = document.createElement("span");
+        chip.className = "football-review-chip";
+        chip.textContent = value.replace(/_/g, " ");
+        meta.appendChild(chip);
+      });
+      const evidence = document.createElement("p");
+      evidence.className = "football-review-reasons";
+      const reasons = Array.isArray(candidate.reasonCodes) ? candidate.reasonCodes.slice(0, 5) : [];
+      evidence.textContent = reasons.length
+        ? `Evidence: ${reasons.map((reason) => reason.replace(/_/g, " ")).join(" · ")}`
+        : "Evidence summary is unavailable; approval remains fail-closed.";
+      label.append(input, video, title, meta, evidence);
+      els.footballReviewCandidates.appendChild(label);
+    });
+  }
+
+  async function refreshFootballReview() {
+    if (!state.activeProject) {
+      state.review.football = idleFootballReviewState();
+      renderFootballReviewPanel();
+      return;
+    }
+    state.review.football = {
+      ...state.review.football,
+      status: "loading",
+      error: null,
+    };
+    renderFootballReviewPanel();
+    try {
+      const data = await apiFetch(`/api/projects/${state.activeProject.id}/football-review`);
+      state.review.football = data.review
+        ? {
+            status: "ready",
+            review: data.review,
+            selectedCandidateId: data.review.selectedCandidateId || null,
+            error: null,
+          }
+        : idleFootballReviewState();
+    } catch (error) {
+      const response = safeErrorResponse(error);
+      state.review.football = {
+        ...state.review.football,
+        status: response.error.code === "FOOTBALL_REVIEW_STALE" ? "stale" : "failed",
+        error: { code: response.error.code, message: response.error.message },
+      };
+    } finally {
+      renderFootballReviewPanel();
+    }
+  }
+
+  async function createFootballReviewForJob(job) {
+    if (!state.activeProject || !job) return;
+    state.review.football = {
+      status: "loading",
+      review: null,
+      selectedCandidateId: null,
+      error: null,
+    };
+    renderFootballReviewPanel();
+    try {
+      const data = await apiFetch(`/api/projects/${state.activeProject.id}/football-reviews`, {
+        method: "POST",
+        body: JSON.stringify({
+          sourceJobId: job.id,
+          expectedRevision: Number(state.activeProject.input && state.activeProject.input.revision || 1),
+        }),
+      });
+      state.review.football = {
+        status: "ready",
+        review: data.review,
+        selectedCandidateId: null,
+        error: null,
+      };
+      showToast("This football moment needs an owner decision before download.", "warning");
+    } catch (error) {
+      const response = safeErrorResponse(error);
+      state.review.football = {
+        status: response.error.code === "FOOTBALL_REVIEW_STALE" ? "stale" : "failed",
+        review: null,
+        selectedCandidateId: null,
+        error: { code: response.error.code, message: response.error.message },
+      };
+      showSafeError(response, "football-review-create");
+    } finally {
+      renderFootballReviewPanel();
+      updateActionStates();
+    }
+  }
+
+  async function submitFootballReviewDecision(action) {
+    const football = state.review.football;
+    const review = football && football.review;
+    if (!review || review.status !== "pending") return;
+    const candidateId = action === "select" ? football.selectedCandidateId : null;
+    if (action === "select" && !candidateId) {
+      football.error = { code: "VALIDATION_ERROR", message: "Select one candidate before approval." };
+      renderFootballReviewPanel();
+      return;
+    }
+    if (action === "reject_all" && !window.confirm("Reject all candidates? They will remain blocked from download and publication.")) return;
+    const previousReview = review;
+    state.review.football = { ...football, status: "submitting", error: null };
+    renderFootballReviewPanel();
+    try {
+      const data = await apiFetch(`/api/projects/${state.activeProject.id}/football-reviews/${review.id}/decision`, {
+        method: "POST",
+        body: JSON.stringify({
+          action,
+          candidateId,
+          note: els.footballReviewNote.value.slice(0, 280),
+          expectedVersion: review.version,
+          expectedSourceRevision: review.sourceRevision,
+          idempotencyKey: Core.createIdempotencyKey(`football-review-${action}`, {
+            reviewId: review.id,
+            version: review.version,
+            candidateId,
+          }),
+        }),
+      });
+      const nextReview = mergeFootballReviewPreviews(data.review, previousReview);
+      state.review.football = {
+        status: "ready",
+        review: nextReview,
+        selectedCandidateId: nextReview.selectedCandidateId || candidateId,
+        error: null,
+      };
+      if (data.job) {
+        state.activeJob = data.job;
+        updateProgress(data.job);
+        if (["queued", "processing"].includes(data.job.status)) pollJob(data.job.id);
+      }
+      showToast(
+        action === "select" ? "Approved candidate queued for rendering."
+          : action === "regenerate" ? "Candidate regeneration queued."
+            : "All candidates rejected and blocked.",
+        action === "reject_all" ? "warning" : "success",
+      );
+    } catch (error) {
+      const response = safeErrorResponse(error);
+      state.review.football = {
+        ...state.review.football,
+        status: response.error.code === "FOOTBALL_REVIEW_STALE" ? "stale" : "failed",
+        review: previousReview,
+        error: { code: response.error.code, message: response.error.message },
+      };
+      showSafeError(response, "football-review-decision");
+    } finally {
+      renderFootballReviewPanel();
+      updateActionStates();
     }
   }
 
@@ -1779,10 +2190,30 @@
       return;
     }
     const { exportId, editPlan, candidatePlans } = exportReady.data;
+    if (job.humanReviewGate && job.humanReviewGate.requiresReview === true) {
+      resetReviewState();
+      state.generated = false;
+      state.exportId = null;
+      state.downloadUrl = null;
+      els.downloadLink.hidden = true;
+      els.downloadLink.href = "#";
+      state.moments = Core.validateAiOutput(momentsFromCandidatePlans(candidatePlans, editPlan)).data || state.moments;
+      els.momentCount.textContent = String(state.moments.length);
+      els.shortCount.textContent = "0";
+      setProjectStatus("review", "Owner review required");
+      setButtonContent(els.generateBtn, "Review candidates", "bolt");
+      setButtonContent(els.exportBtn, "Review required", "download");
+      renderMoments();
+      selectMoment(0);
+      updateActionStates();
+      createFootballReviewForJob(job);
+      return;
+    }
     state.generated = true;
     state.exportId = exportId;
     state.downloadUrl = `/api/exports/${exportId}/download`;
     const completedApproval = job.payload && job.payload.regenerationApproval;
+    const completedFootballApproval = job.payload && job.payload.footballReviewApproval;
     if (completedApproval && state.review && state.review.regeneration) {
       state.review = {
         ...state.review,
@@ -1799,6 +2230,16 @@
           },
         },
       };
+    } else if (completedFootballApproval && state.review && state.review.football) {
+      state.review.football = {
+        ...state.review.football,
+        status: "ready",
+        review: state.review.football.review
+          ? { ...state.review.football.review, status: "render_completed", renderJobId: job.id }
+          : null,
+        error: null,
+      };
+      refreshFootballReview();
     } else {
       resetReviewState();
     }
@@ -1821,6 +2262,17 @@
   }
 
   function handleJobFailed(job) {
+    if (job && job.payload && job.payload.footballReviewApproval && state.review && state.review.football) {
+      state.review.football = {
+        ...state.review.football,
+        status: "failed",
+        review: state.review.football.review
+          ? { ...state.review.football.review, status: "render_failed", renderJobId: job.id }
+          : null,
+        error: job.error || { code: "RENDER_FAILED", message: "The approved football candidate failed to render." },
+      };
+      renderFootballReviewPanel();
+    }
     if (job && job.payload && job.payload.regenerationApproval && state.review && state.review.regeneration) {
       state.review = {
         ...state.review,
@@ -2135,6 +2587,7 @@
         human: idleHumanReviewState(),
         ocrQa: idleOcrQaReviewState(),
         regeneration: idleRegenerationState(),
+        football: idleFootballReviewState(),
       },
       moments: Core.validateAiOutput(DEFAULT_MOMENTS).data || [],
     });
@@ -2247,6 +2700,10 @@
     els.reviewRegisterBtn.addEventListener("click", handleReviewRegister);
     els.reviewRegenerateBtn.addEventListener("click", handleReviewRegenerationPlan);
     els.reviewApproveBtn.addEventListener("click", handleReviewRegenerationApproval);
+    els.footballReviewRefreshBtn.addEventListener("click", refreshFootballReview);
+    els.footballReviewApproveBtn.addEventListener("click", () => submitFootballReviewDecision("select"));
+    els.footballReviewRegenerateBtn.addEventListener("click", () => submitFootballReviewDecision("regenerate"));
+    els.footballReviewRejectBtn.addEventListener("click", () => submitFootballReviewDecision("reject_all"));
     els.humanReviewForm.addEventListener("submit", handleHumanReviewSubmit);
     els.humanGeneratedRef.addEventListener("input", () => validateHumanReviewForm({ refreshPreview: true }));
     els.humanReferenceRef.addEventListener("input", () => validateHumanReviewForm({ refreshPreview: true }));
@@ -2278,6 +2735,7 @@
   function init() {
     bindEvents();
     renderHumanReviewControls();
+    renderFootballReviewPanel();
     renderMoments();
     selectMoment(0);
     setButtonContent(els.generateBtn, "Generate shorts", "bolt");
