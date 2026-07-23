@@ -214,10 +214,10 @@ test("real v3 production AnimationIR dispatches to the sentence renderer without
   assert.ok(qaPolicy.labelIds.length > 0);
   assert.equal(direct.profile.schemaVersion, 3);
   assert.equal(direct.profile.profile, "dark_curiosity_continuous");
-  assert.equal(direct.profile.profileVersion, "1.4.0");
+  assert.equal(direct.profile.profileVersion, "1.5.0");
   assert.equal(direct.profile.provider, "hyperframes_local");
   assert.equal(direct.profile.runtimeVersion, "0.7.55");
-  assert.equal(direct.profile.styleVersion, "3.1.0");
+  assert.equal(direct.profile.styleVersion, "3.2.0");
   assert.equal(
     direct.profile.sentencePlanHash,
     ir.content.semanticVisualSentencePlan.contentHash,

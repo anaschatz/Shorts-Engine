@@ -447,7 +447,7 @@ test("pilot animation profile changes only render identity and matches exact QA 
   assert.equal(normalizePilotAnimationProfile(undefined), null);
   assert.throws(() => normalizePilotAnimationProfile("semantic-v4"), { code: "VALIDATION_ERROR" });
 
-  const semanticQa = { bindings: { animationStyleVersion: "3.1.0" } };
+  const semanticQa = { bindings: { animationStyleVersion: "3.2.0" } };
   const semanticIr = { content: { semantic: { profileId: SEMANTIC_SENTENCE_PROFILE_ID } } };
   const legacyQa = { bindings: { animationStyleVersion: "2.0.0" } };
   const legacyIr = { content: { semantic: { profileId: "documented_mystery_semantic_v2" } } };

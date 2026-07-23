@@ -65,10 +65,10 @@ const HASH = /^[a-f0-9]{64}$/;
 
 export const SEMANTIC_SENTENCE_ANIMATION_SCHEMA_VERSION = 3;
 export const SEMANTIC_SENTENCE_ANIMATION_PROFILE = "dark_curiosity_continuous";
-export const SEMANTIC_SENTENCE_ANIMATION_PROFILE_VERSION = "1.4.0";
+export const SEMANTIC_SENTENCE_ANIMATION_PROFILE_VERSION = "1.5.0";
 export const SEMANTIC_SENTENCE_ANIMATION_PROVIDER = "hyperframes_local";
 export const SEMANTIC_SENTENCE_ANIMATION_RUNTIME_VERSION = "0.7.55";
-export const SEMANTIC_SENTENCE_ANIMATION_STYLE_VERSION = "3.1.0";
+export const SEMANTIC_SENTENCE_ANIMATION_STYLE_VERSION = "3.2.0";
 export const SEMANTIC_SENTENCE_CONTENT_PROFILE_ID =
   "dark_curiosity_semantic_sentences_v3";
 export const SEMANTIC_VISUAL_SENTENCE_PLAN_PROFILE_ID =
@@ -1025,6 +1025,56 @@ const restoreInitialStageState=(index)=>{
  }
  restoreInitialStageState(visualIndex);
  lastRenderedStageIndex=visualIndex;` : "";
+  const simpleAutoLayoutRuntime = usesSceneComposition ? `
+const SIMPLE_LAYOUT_PROFILES=Object.freeze({
+ absence:{width:500,height:360,maxScale:1.12},
+ bounded_structure:{width:540,height:320,maxScale:1.14},
+ cause_effect:{width:500,height:360,maxScale:1.14},
+ comparison:{width:540,height:360,maxScale:1.08},
+ cycle:{width:500,height:360,maxScale:1.10},
+ evidence:{width:480,height:360,maxScale:1.08},
+ rejection:{width:500,height:360,maxScale:1.10},
+ route:{width:540,height:360,maxScale:1.05},
+ state_change:{width:500,height:340,maxScale:1.14},
+ timeline:{width:540,height:320,maxScale:1.10},
+ uncertainty:{width:500,height:360,maxScale:1.10},
+});
+const layoutSemanticSimpleStage=(stage,visualKind)=>{
+ const layoutFrame=stage.querySelector('[data-semantic-auto-layout="focus"]');
+ const focus=layoutFrame?.querySelector(".semantic-geometry");
+ const profile=SIMPLE_LAYOUT_PROFILES[visualKind];
+ if(!layoutFrame||!focus||!profile||typeof focus.getBBox!=="function"){
+  throw new Error("invalid_semantic_focus_layout");
+ }
+ layoutFrame.removeAttribute("transform");
+ const bounds=focus.getBBox();
+ if(
+  !Number.isFinite(bounds.x)||!Number.isFinite(bounds.y)
+  ||!Number.isFinite(bounds.width)||!Number.isFinite(bounds.height)
+  ||bounds.width<1||bounds.height<1
+ )throw new Error("invalid_semantic_focus_bounds");
+ const scale=clamp(
+  Math.min(profile.width/bounds.width,profile.height/bounds.height),
+  .82,
+  profile.maxScale,
+ );
+ const centerX=bounds.x+bounds.width/2;
+ const centerY=bounds.y+bounds.height/2;
+ layoutFrame.setAttribute(
+  "transform",
+  "translate(360 490) scale("+scale.toFixed(5)+") translate("
+   +(-centerX).toFixed(3)+" "+(-centerY).toFixed(3)+")",
+ );
+ layoutFrame.dataset.semanticLayoutScale=scale.toFixed(5);
+ layoutFrame.dataset.semanticLayoutCenterX=centerX.toFixed(3);
+ layoutFrame.dataset.semanticLayoutCenterY=centerY.toFixed(3);
+ layoutFrame.dataset.semanticLayoutVisualKind=visualKind;
+};` : "";
+  const simpleAutoLayoutAtFrameRuntime = usesSceneComposition ? `
+ layoutSemanticSimpleStage(stage,visual.visualKind);
+ const atmosphere=stage.querySelector(".semantic-scene-atmosphere");
+ if(!atmosphere)throw new Error("missing_semantic_scene_atmosphere");
+ setOpacity(atmosphere,.72+.28*revealProgress);` : "";
   const stageVisibilityRuntime = usesSceneComposition
     ? '\n  element.style.visibility=visible?"visible":"hidden";'
     : "";
@@ -1168,9 +1218,10 @@ const revealEase=(value)=>clamp(value);` : ""}
 ${stageCollectionRuntime}${stageResetRuntime}
 const setOpacity=(element,value)=>{if(element)element.setAttribute("opacity",clamp(value).toFixed(4))};${usesSceneActions ? `
 ${semanticSceneActionRuntimeSource()}` : ""}
+${simpleAutoLayoutRuntime}
 function renderFrame(rawFrame){
  const frame=Math.max(0,Math.min(DATA.durationFrames-1,Math.floor((Number(rawFrame)||0)+1e-7)));
-${stageSelectionRuntime}${stageResetAtFrameRuntime}
+${stageSelectionRuntime}${stageResetAtFrameRuntime}${simpleAutoLayoutAtFrameRuntime}
  stages.forEach((element,index)=>{
   const visible=index===${usesSceneComposition ? "visualIndex" : "activeIndex"};
   element.setAttribute("opacity",visible?"1":"0");

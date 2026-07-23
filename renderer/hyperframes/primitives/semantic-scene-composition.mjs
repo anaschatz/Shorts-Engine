@@ -367,7 +367,11 @@ ${usesSimplePresentation
   <g class="semantic-primary-module"
    data-scene-module-id="${escapeXml(primary.id)}"
    data-scene-module-kind="${escapeXml(primary.kind)}"
-   data-reveal-order="${primary.revealOrder}">${primaryMarkup}
+   data-reveal-order="${primary.revealOrder}">
+   ${usesSimplePresentation
+    ? `<g class="semantic-primary-layout-frame"
+     data-semantic-auto-layout="focus">${primaryMarkup}</g>`
+    : primaryMarkup}
    ${usesSimplePresentation ? "" : boundedGeometryMarkup}</g>
  </g>
  <g class="semantic-nonvisual-topology" opacity="0" aria-hidden="true"

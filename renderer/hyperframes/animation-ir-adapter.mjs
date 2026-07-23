@@ -63,7 +63,7 @@ function safeQaIds(values) {
 
 function compositionQaPolicy(ir, html) {
   const semanticSentence =
-    ir.profileVersion === "1.4.0"
+    ir.profileVersion === "1.5.0"
     && ir.content?.semantic?.profileId === "dark_curiosity_semantic_sentences_v3";
   const genericSemantic =
     ir.profileVersion === "1.2.0"
@@ -515,18 +515,18 @@ window.__timelines=window.__timelines||{};window.__timelines[${safeJson(content.
 export function compileAnimationIRToHtml(ir, options = {}) {
   const semanticSentenceTuple = (
     ir?.schemaVersion === 3
-    || ir?.profileVersion === "1.4.0"
-    || ir?.renderer?.styleVersion === "3.1.0"
+    || ir?.profileVersion === "1.5.0"
+    || ir?.renderer?.styleVersion === "3.2.0"
     || ir?.content?.semantic?.profileId === "dark_curiosity_semantic_sentences_v3"
   );
   if (semanticSentenceTuple) {
     if (
       ir?.schemaVersion !== 3
       || ir?.profile !== "dark_curiosity_continuous"
-      || ir?.profileVersion !== "1.4.0"
+      || ir?.profileVersion !== "1.5.0"
       || ir?.renderer?.provider !== "hyperframes_local"
       || ir?.renderer?.runtimeVersion !== "0.7.55"
-      || ir?.renderer?.styleVersion !== "3.1.0"
+      || ir?.renderer?.styleVersion !== "3.2.0"
       || ir?.content?.semantic?.profileId !== "dark_curiosity_semantic_sentences_v3"
     ) {
       throw new TypeError("Semantic sentence AnimationIR tuple is invalid.");

@@ -361,7 +361,7 @@ test("action seek sampling retains the maximum signature and hold proof", () => 
   const settledHoldFrames = Array.from({ length: 20 }, (_, index) => 40 + index);
   const sequence = safeSeekSequence({
     durationFrames: 120,
-    profileVersion: "1.4.0",
+    profileVersion: "1.5.0",
     content: {
       semantic: { profileId: "dark_curiosity_semantic_sentences_v3" },
     },

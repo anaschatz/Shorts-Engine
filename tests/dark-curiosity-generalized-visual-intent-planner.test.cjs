@@ -3247,6 +3247,42 @@ test("generalized semantic-v3 carries source-bound primitive parameters into vis
     );
     assert.equal(
       [...composition.html.matchAll(
+        /class="semantic-primary-layout-frame"/g,
+      )].length,
+      visualGroups.length,
+      `${id}: every focal cluster requires its own auto-layout frame`,
+    );
+    assert.equal(
+      [...composition.html.matchAll(
+        /class="semantic-scene-atmosphere"/g,
+      )].length,
+      visualGroups.length,
+      `${id}: every scene requires a meaning-bound atmosphere`,
+    );
+    assert.deepEqual(
+      [...composition.html.matchAll(
+        /data-scene-atmosphere="([^"]+)"/g,
+      )].map((match) => match[1]),
+      visualGroups.map((group) => group.visualKind),
+      `${id}: atmosphere order must remain bound to semantic scene order`,
+    );
+    assert.match(
+      composition.html,
+      /const layoutSemanticSimpleStage=\(stage,visualKind\)=>/,
+      `${id}: the renderer must measure each focal cluster independently`,
+    );
+    assert.match(
+      composition.html,
+      /Math\.min\(profile\.width\/bounds\.width,profile\.height\/bounds\.height\)/,
+      `${id}: focal sizing must fit both safe dimensions`,
+    );
+    assert.match(
+      composition.html,
+      /translate\(360 490\) scale\(/,
+      `${id}: focal clusters must target the visual center`,
+    );
+    assert.equal(
+      [...composition.html.matchAll(
         /data-visual-role="nonvisual_scene_topology">\s*<g class="semantic-bounded-geometry"/g,
       )].length,
       visualGroups.length,

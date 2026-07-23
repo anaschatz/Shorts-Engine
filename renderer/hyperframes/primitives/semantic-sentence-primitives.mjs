@@ -2126,12 +2126,12 @@ function simpleFutureRolloverMarkup(parameters) {
  data-simple-focal-object-count="1" data-simple-label-count="2"
  data-primitive-parameterized="true" class="semantic-geometry">
  <g class="semantic-rise semantic-simple-object">
-  <path d="M126 492 H590 M558 462 L592 492 L558 522"
+  <path d="M104 492 H616 M584 462 L618 492 L584 522"
    class="semantic-draw chronology-axis"/>
-  <circle cx="486" cy="492" r="18" class="warm-fill"/>
-  <text x="486" y="424" text-anchor="middle" class="counter-value warm-copy"
+  <circle cx="360" cy="492" r="18" class="warm-fill"/>
+  <text x="360" y="412" text-anchor="middle" class="counter-value warm-copy"
    ${fitExactTextAttributes(value, 70, 42, 250).trim()}>${escapeSemanticSentenceXml(value)}</text>
-  <text x="486" y="568" text-anchor="middle" class="micro-copy">NEXT LEGACY ROLLOVER</text>
+  <text x="360" y="574" text-anchor="middle" class="micro-copy">NEXT LEGACY ROLLOVER</text>
  </g>
 </g>`;
 }
@@ -2143,11 +2143,11 @@ function simpleCounterCapacityMarkup() {
  data-simple-label-count="2" data-primitive-parameterized="true"
  class="semantic-geometry">
  <g class="semantic-rise semantic-simple-object">
-  <text x="126" y="408" class="micro-copy">LEGACY</text>
-  <path d="M126 450 H360" class="semantic-draw cool-line"/>
-  <path d="M360 426 V474" class="semantic-draw error-cross"/>
-  <text x="126" y="542" class="micro-copy">NEWER</text>
-  <path d="M126 584 H594 M562 554 L596 584 L562 614"
+  <text x="118" y="424" class="micro-copy">LEGACY</text>
+  <path d="M244 416 H426" class="semantic-draw cool-line"/>
+  <path d="M426 392 V440" class="semantic-draw error-cross"/>
+  <text x="118" y="566" class="micro-copy">NEWER</text>
+  <path d="M244 558 H594 M562 528 L596 558 L562 588"
    class="semantic-draw warm-line"/>
  </g>
 </g>`;
@@ -2373,10 +2373,10 @@ function simpleTimeContinuesMarkup() {
  data-simple-label-count="1" data-primitive-parameterized="true"
  class="semantic-geometry">
  <g class="semantic-rise semantic-simple-object">
-  <circle cx="292" cy="482" r="108" class="cool-halo"/>
-  <path d="M292 414 V482 L346 518" class="semantic-draw cool-line"/>
-  <path d="M410 482 H588 M556 452 L590 482 L556 512" class="semantic-draw warm-line"/>
-  <text x="410" y="650" text-anchor="middle" class="micro-copy">TIME CONTINUES</text>
+  <circle cx="268" cy="482" r="104" class="cool-halo"/>
+  <path d="M268 416 V482 L320 516" class="semantic-draw cool-line"/>
+  <path d="M390 482 H566 M534 452 L568 482 L534 512" class="semantic-draw warm-line"/>
+  <text x="360" y="646" text-anchor="middle" class="micro-copy">TIME CONTINUES</text>
  </g>
 </g>`;
 }
@@ -2746,6 +2746,129 @@ function markSimpleExplainerLabels(markup, sentenceIndex) {
   );
 }
 
+const SIMPLE_EXPLAINER_ATMOSPHERES = Object.freeze({
+  absence: Object.freeze({
+    base: "#080e17",
+    accent: "#64748b",
+    secondary: "#fb7185",
+    motif: "fog",
+  }),
+  bounded_structure: Object.freeze({
+    base: "#03161a",
+    accent: "#2dd4bf",
+    secondary: "#22d3ee",
+    motif: "columns",
+  }),
+  cause_effect: Object.freeze({
+    base: "#170b12",
+    accent: "#fb7185",
+    secondary: "#f59e0b",
+    motif: "flow",
+  }),
+  comparison: Object.freeze({
+    base: "#111006",
+    accent: "#22d3ee",
+    secondary: "#f59e0b",
+    motif: "split",
+  }),
+  cycle: Object.freeze({
+    base: "#0d0b20",
+    accent: "#8b5cf6",
+    secondary: "#22d3ee",
+    motif: "rings",
+  }),
+  evidence: Object.freeze({
+    base: "#06140f",
+    accent: "#34d399",
+    secondary: "#22d3ee",
+    motif: "spotlight",
+  }),
+  rejection: Object.freeze({
+    base: "#19090f",
+    accent: "#fb7185",
+    secondary: "#f59e0b",
+    motif: "cross",
+  }),
+  route: Object.freeze({
+    base: "#061418",
+    accent: "#2dd4bf",
+    secondary: "#f59e0b",
+    motif: "contours",
+  }),
+  state_change: Object.freeze({
+    base: "#07151d",
+    accent: "#38bdf8",
+    secondary: "#f59e0b",
+    motif: "transition",
+  }),
+  timeline: Object.freeze({
+    base: "#171106",
+    accent: "#f59e0b",
+    secondary: "#22d3ee",
+    motif: "horizon",
+  }),
+  uncertainty: Object.freeze({
+    base: "#120b1c",
+    accent: "#a78bfa",
+    secondary: "#fbbf24",
+    motif: "orbit",
+  }),
+});
+
+function semanticSimpleExplainerAtmosphereMarkup(visualKind, sentenceIndex) {
+  const atmosphere = SIMPLE_EXPLAINER_ATMOSPHERES[visualKind];
+  if (!atmosphere) {
+    throw new TypeError("Semantic simple-explainer atmosphere is unsupported.");
+  }
+  const common = `class="semantic-scene-atmosphere"
+ data-scene-atmosphere="${visualKind}" data-atmosphere-motif="${atmosphere.motif}"
+ data-qa-layer="ambient" pointer-events="none"`;
+  const field = `<rect width="720" height="948" fill="${atmosphere.base}"/>
+ <circle cx="360" cy="432" r="360" fill="${atmosphere.accent}" opacity=".055"/>
+ <circle cx="360" cy="520" r="235" fill="${atmosphere.secondary}" opacity=".035"/>`;
+  const motifs = {
+    fog: `<path d="M28 372 C132 316 224 418 374 362 C486 320 584 342 692 286
+ M28 582 C112 522 238 632 400 560 C528 502 612 548 692 484"
+ fill="none" stroke="${atmosphere.accent}" stroke-width="42" opacity=".045"/>`,
+    columns: Array.from({ length: 7 }, (_, index) => (
+      `<rect x="${78 + index * 92}" y="${244 + (index % 2) * 24}"
+ width="46" height="430" rx="23" fill="${atmosphere.accent}" opacity=".035"/>`
+    )).join(""),
+    flow: `<path d="M28 690 L260 390 L424 554 L692 218"
+ fill="none" stroke="${atmosphere.accent}" stroke-width="46" opacity=".045"/>
+ <path d="M34 720 L334 420 L498 584 L686 324"
+ fill="none" stroke="${atmosphere.secondary}" stroke-width="3" opacity=".18"/>`,
+    split: `<rect x="0" y="176" width="360" height="650" fill="${atmosphere.accent}" opacity=".035"/>
+ <rect x="360" y="176" width="360" height="650" fill="${atmosphere.secondary}" opacity=".04"/>
+ <line x1="360" y1="222" x2="360" y2="790" stroke="#e2e8f0" stroke-width="1" opacity=".09"/>`,
+    rings: `<circle cx="360" cy="486" r="278" fill="none" stroke="${atmosphere.accent}" stroke-width="2" opacity=".11"/>
+ <circle cx="360" cy="486" r="214" fill="none" stroke="${atmosphere.secondary}" stroke-width="2" opacity=".08"/>
+ <circle cx="360" cy="486" r="154" fill="none" stroke="${atmosphere.accent}" stroke-width="2" opacity=".08"/>`,
+    spotlight: `<path d="M258 150 H462 L584 828 H136 Z" fill="${atmosphere.accent}" opacity=".035"/>
+ <circle cx="360" cy="490" r="196" fill="none" stroke="${atmosphere.accent}" stroke-width="2" opacity=".12"/>`,
+    cross: `<path d="M124 292 L596 764 M596 292 L124 764"
+ fill="none" stroke="${atmosphere.accent}" stroke-width="28" opacity=".035"/>`,
+    contours: `<path d="M12 326 C118 248 214 382 346 318 C488 250 602 346 708 278
+ M12 472 C118 394 230 526 372 456 C508 390 616 484 708 416
+ M12 622 C126 546 242 666 390 606 C526 550 626 628 708 572"
+ fill="none" stroke="${atmosphere.accent}" stroke-width="3" opacity=".11"/>`,
+    transition: `<circle cx="232" cy="488" r="210" fill="${atmosphere.accent}" opacity=".04"/>
+ <circle cx="488" cy="488" r="210" fill="${atmosphere.secondary}" opacity=".034"/>`,
+    horizon: `<path d="M42 356 H678 M42 472 H678 M42 588 H678 M42 704 H678"
+ fill="none" stroke="${atmosphere.accent}" stroke-width="2" opacity=".10"/>
+ <path d="M88 768 C232 682 484 682 632 768" fill="none"
+ stroke="${atmosphere.secondary}" stroke-width="3" opacity=".09"/>`,
+    orbit: `<ellipse cx="360" cy="492" rx="286" ry="184" fill="none"
+ stroke="${atmosphere.accent}" stroke-width="2" opacity=".11" transform="rotate(-12 360 492)"/>
+ <ellipse cx="360" cy="492" rx="220" ry="286" fill="none"
+ stroke="${atmosphere.secondary}" stroke-width="2" opacity=".075" transform="rotate(24 360 492)"/>`,
+  };
+  return `<g id="semantic-atmosphere-${sentenceIndex}" ${common}>
+ ${field}
+ ${motifs[atmosphere.motif]}
+</g>`;
+}
+
 function simpleExplainerPrimaryMarkup(
   sentence,
   parameters,
@@ -3031,6 +3154,12 @@ export function semanticSentencePrimitiveMarkup(sentence, index, options = {}) {
         labelIndex === 0 ? "primary" : "secondary",
       )
     )).join("\n ");
+    const atmosphereMarkup = simpleExplainerContext
+      ? semanticSimpleExplainerAtmosphereMarkup(
+        simpleExplainerContext.visualKind,
+        index,
+      )
+      : "";
     return `<g id="semantic-sentence-${index}" class="semantic-sentence-stage" opacity="0"
  data-sentence-index="${index}"
  data-sentence-id="${escapeSemanticSentenceXml(normalizedSentence.id)}"
@@ -3053,6 +3182,7 @@ export function semanticSentencePrimitiveMarkup(sentence, index, options = {}) {
  <desc class="semantic-narration-accessibility">${escapeSemanticSentenceXml(
       normalizedSentence.wordSpan.text,
     )}</desc>
+ ${atmosphereMarkup}
  ${conceptLabelMarkup}
  ${renderedGeometry}
 </g>`;
