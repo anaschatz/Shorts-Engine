@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "artifactType": "BudgetFriendlyGrowthReplayManifest",
+  "description": "Offline replay set built from six real 2026 production runs. Candidate universes and human-approved top-three labels are loaded from already-paid local artifacts.",
+  "datasets": [
+    {
+      "id": "ayi_2026_07_19",
+      "source_id": "AyiWKXTd9aY",
+      "candidate_path": "output/pilot-bf-AyiWKXTd9aY-2026-07-19/ranking-curated.json",
+      "candidate_key": "candidates",
+      "transcript_path": "output/pilot-bf-AyiWKXTd9aY-2026-07-19/source_AyiWKXTd9aY_1080p.transcript.reviewed.json",
+      "positive_path": "output/pilot-bf-AyiWKXTd9aY-2026-07-19/ranking-curated.json",
+      "positive_key": "candidates"
+    },
+    {
+      "id": "jk_2026_07_18",
+      "source_id": "Jk9uJRMvBIA",
+      "candidate_path": "output/pilot-bf-Jk9uJRMvBIA-2026-07-18/discovery-result.json",
+      "candidate_key": "highlights",
+      "transcript_path": "output/pilot-bf-Jk9uJRMvBIA-2026-07-18/discovery-result.json",
+      "transcript_key": "transcript",
+      "positive_path": "output/pilot-bf-Jk9uJRMvBIA-2026-07-18/ranking-curated.json",
+      "positive_key": "candidates"
+    },
+    {
+      "id": "vsg_2026_07_17",
+      "source_id": "VSG9hY_t-rs",
+      "candidate_path": "output/pilot-bf-VSG9hY_t-rs-2026-07-17/discovery-result.json",
+      "candidate_key": "highlights",
+      "transcript_path": "output/pilot-bf-VSG9hY_t-rs-2026-07-17/discovery-result.json",
+      "transcript_key": "transcript",
+      "positive_path": "output/pilot-bf-VSG9hY_t-rs-2026-07-17/ranking.json",
+      "positive_key": "candidates"
+    },
+    {
+      "id": "hwm_2026_07_21",
+      "source_id": "HwmwyBgzj8c",
+      "candidate_path": "output/pilot-bf-HwmwyBgzj8c-2026-07-21/discovery-result.json",
+      "candidate_key": "highlights",
+      "transcript_path": "output/pilot-bf-HwmwyBgzj8c-2026-07-21/discovery-result.json",
+      "transcript_key": "transcript",
+      "positive_path": "output/production/bf-hwmwybgzj8c-2026-07-21-batch/ranking-curated.json",
+      "positive_key": "candidates"
+    },
+    {
+      "id": "aivp_2026_07_21",
+      "source_id": "aivpDPCP7Q8",
+      "candidate_path": "output/run-aivpDPCP7Q8-2026-07-21/result.json",
+      "candidate_key": "highlights",
+      "transcript_path": "output/run-aivpDPCP7Q8-2026-07-21/result.json",
+      "transcript_key": "transcript",
+      "positive_path": "output/run-aivpDPCP7Q8-2026-07-21/result.json",
+      "positive_key": "selected_candidates",
+      "positive_all": true
+    },
+    {
+      "id": "lam_2026_07_22",
+      "source_id": "LAmGfokvgzA",
+      "candidate_path": "output/run-LAmGfokvgzA-2026-07-22/result.json",
+      "candidate_key": "highlights",
+      "transcript_path": "output/run-LAmGfokvgzA-2026-07-22/result.json",
+      "transcript_key": "transcript",
+      "positive_path": "output/run-LAmGfokvgzA-2026-07-22/result.json",
+      "positive_key": "selected_candidates",
+      "positive_all": true
+    }
+  ]
+}

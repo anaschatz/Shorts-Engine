@@ -1,0 +1,117 @@
+{
+  "acceptanceGates": [
+    {
+      "actual": 1,
+      "code": "SOURCE_COVERAGE",
+      "expected": ">=5 sources",
+      "passed": false
+    },
+    {
+      "actual": 14,
+      "code": "CANDIDATE_COVERAGE",
+      "expected": ">=30 candidates",
+      "passed": false
+    },
+    {
+      "actual": 3,
+      "code": "HUMAN_POSITIVE_COVERAGE",
+      "expected": ">=12 human-approved positives",
+      "passed": false
+    },
+    {
+      "actual": 0.0,
+      "code": "POSITIVE_LABEL_MATCH_COVERAGE",
+      "expected": ">=0.90",
+      "passed": false
+    },
+    {
+      "actual": 1.0,
+      "code": "HOOK_PROMPT_EVIDENCE_COVERAGE",
+      "expected": ">=0.80",
+      "passed": true
+    },
+    {
+      "actual": 0.0,
+      "code": "CLOSURE_HUMAN_POSITIVE_RECALL",
+      "expected": ">=0.80",
+      "passed": false
+    },
+    {
+      "actual": 0.0,
+      "code": "CLOSURE_SHADOW_TOP_K_PRECISION",
+      "expected": ">=0.60",
+      "passed": false
+    },
+    {
+      "actual": 1.0,
+      "code": "CLOSURE_SHADOW_TOP_K_FILL_RATE",
+      "expected": ">=0.80",
+      "passed": true
+    }
+  ],
+  "aggregate": {
+    "candidate_count": 14,
+    "closure_shadow_full_batch_source_rate": 1.0,
+    "closure_shadow_top_k_fill_rate": 1.0,
+    "closure_shadow_top_k_human_positive_rate": 0.0,
+    "closure_shadow_top_k_slot_hit_rate": 0.0,
+    "full_v2_acceptance_rate": 0.0714,
+    "full_v2_eligible_count": 1,
+    "full_v2_human_positive_recall": 0.0,
+    "hook_prompt_evaluable_count": 14,
+    "hook_prompt_evidence_coverage": 1.0,
+    "human_positive_count": 3,
+    "human_positive_match_coverage": 0.0,
+    "human_positive_matched_count": 0,
+    "potential_false_negative_count": 3,
+    "semantic_closure_acceptance_rate": 0.6429,
+    "semantic_closure_human_positive_recall": 0.0,
+    "semantic_closure_pass_count": 9,
+    "source_count": 1,
+    "v1_human_positive_recall": 0.0
+  },
+  "artifactType": "BudgetFriendlyGrowthShadowRun",
+  "cacheNamespace": "bf-growth-shadow-hook-gate-v2.1.0",
+  "contentHash": "4fbc2012b40732d7c9be9545ec09f5749efefac8e5b47a013ccacac2a51a8b6e",
+  "execution": {
+    "elapsedSeconds": 0.774,
+    "llmCalls": 0,
+    "productionPolicyMutations": 0,
+    "renders": 0,
+    "sourceCount": 1,
+    "successfulResponseCacheEntries": 7,
+    "uploads": 0
+  },
+  "humanReviewItemCount": 3,
+  "humanReviewMarkdown": "research/shadow-runs/hook-gate-v2.1-pilot/human-review-queue.md",
+  "humanReviewQueue": "research/shadow-runs/hook-gate-v2.1-pilot/human-review-queue.json",
+  "humanReviewedCount": 0,
+  "policyVersion": "bf-growth-shadow-v1.0.0",
+  "productionApprovalRecommended": false,
+  "replayManifest": "research/shadow-runs/hook-gate-v2.1-pilot/replay-manifest.json",
+  "replayMarkdown": "research/shadow-runs/hook-gate-v2.1-pilot/growth-v2-shadow-replay.md",
+  "replayReport": "research/shadow-runs/hook-gate-v2.1-pilot/growth-v2-shadow-replay.json",
+  "schemaVersion": 1,
+  "selectionProfile": "motivational_tension_micro_v2",
+  "sourceErrorCount": 0,
+  "sources": [
+    {
+      "batchDecision": {
+        "complete": false,
+        "eligible_count": 1,
+        "selected_count": 1,
+        "target_count": 3
+      },
+      "candidateArtifact": "research/shadow-runs/hook-gate-v2.1-pilot/candidates/vsg_2026_07_17.json",
+      "candidateCount": 14,
+      "datasetId": "vsg_2026_07_17",
+      "elapsedSeconds": 0.014,
+      "error": null,
+      "hookEvidenceCompleteCount": 14,
+      "llmCalls": 0,
+      "newSuccessfulResponseCacheEntries": 0,
+      "sourceId": "VSG9hY_t-rs",
+      "successfulResponseCacheEntries": 7
+    }
+  ]
+}

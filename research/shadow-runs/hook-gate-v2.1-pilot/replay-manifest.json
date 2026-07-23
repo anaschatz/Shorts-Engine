@@ -1,0 +1,18 @@
+{
+  "artifactType": "BudgetFriendlyGrowthShadowReplayManifest",
+  "datasets": [
+    {
+      "append_unmatched_positives": false,
+      "candidate_key": "result.highlights",
+      "candidate_path": "research/shadow-runs/hook-gate-v2.1-pilot/candidates/vsg_2026_07_17.json",
+      "id": "vsg_2026_07_17",
+      "positive_key": "candidates",
+      "positive_path": "output/pilot-bf-VSG9hY_t-rs-2026-07-17/ranking.json",
+      "source_id": "VSG9hY_t-rs",
+      "transcript_key": "transcript",
+      "transcript_path": "output/pilot-bf-VSG9hY_t-rs-2026-07-17/discovery-result.json"
+    }
+  ],
+  "schemaVersion": 1,
+  "shadowPolicyVersion": "bf-growth-shadow-v1.0.0"
+}
