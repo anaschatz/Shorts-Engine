@@ -260,7 +260,7 @@ Next milestones:
 
 ## Author
 
-**Anastasis Chatzedakis**<br>
+**Anastasis Chatzidakis**<br>
 Undergraduate student, Department of Management Science and Technology<br>
 Athens University of Economics and Business
 
