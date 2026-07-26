@@ -9,6 +9,7 @@ const { AppError, SAFE_MESSAGES } = require("../errors.cjs");
 
 const LOGIN_COOKIE = "__Host-shortsen_login";
 const SESSION_COOKIE = "__Host-shortsen_session";
+const CSRF_COOKIE = "__Host-shortsen_csrf";
 const LOGIN_TTL_MS = 10 * 60 * 1000;
 const MAX_COOKIE_BYTES = 4096;
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
@@ -75,9 +76,9 @@ function cookie(name, value, options = {}) {
     `${name}=${encodeURIComponent(String(value || ""))}`,
     "Path=/",
     "Secure",
-    "HttpOnly",
-    "SameSite=Lax",
   ];
+  if (options.httpOnly !== false) parts.push("HttpOnly");
+  parts.push("SameSite=Lax");
   if (Number.isInteger(options.maxAgeSeconds)) {
     parts.push(`Max-Age=${Math.max(0, options.maxAgeSeconds)}`);
   }
@@ -278,6 +279,10 @@ class OidcAuthAdapter {
         cookie(SESSION_COOKIE, sessionToken, {
           maxAgeSeconds: Math.floor(this.config.sessionAbsoluteTtlMs / 1000),
         }),
+        cookie(CSRF_COOKIE, csrfToken, {
+          httpOnly: false,
+          maxAgeSeconds: Math.floor(this.config.sessionAbsoluteTtlMs / 1000),
+        }),
         expireCookie(LOGIN_COOKIE),
       ],
     };
@@ -317,7 +322,14 @@ class OidcAuthAdapter {
         userId,
       });
     }
-    return { setCookie: expireCookie(SESSION_COOKIE) };
+    const setCookies = [
+      expireCookie(SESSION_COOKIE),
+      expireCookie(CSRF_COOKIE, { httpOnly: false }),
+    ];
+    return {
+      setCookie: setCookies[0],
+      setCookies,
+    };
   }
 
   sessionTokenFromCookie(cookieHeader) {
@@ -326,6 +338,10 @@ class OidcAuthAdapter {
 
   loginTransactionFromCookie(cookieHeader) {
     return readCookie(cookieHeader, LOGIN_COOKIE);
+  }
+
+  csrfTokenFromCookie(cookieHeader) {
+    return readCookie(cookieHeader, CSRF_COOKIE);
   }
 
   async health() {
@@ -348,6 +364,7 @@ async function createOidcAuthAdapter(options = {}) {
 }
 
 module.exports = {
+  CSRF_COOKIE,
   LOGIN_COOKIE,
   LOGIN_TTL_MS,
   OidcAuthAdapter,

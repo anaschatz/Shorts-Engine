@@ -76,6 +76,12 @@ function createAsyncJobQueue(queue) {
       }
       return { job: result, replayed: false };
     },
+    async get(jobId, ownerId) {
+      return await requireMethod(queue, "get")(jobId, ownerId);
+    },
+    async cancel(jobOrId, options) {
+      return await requireMethod(queue, "cancel")(jobOrId, options);
+    },
     async readiness() {
       return await requireMethod(queue, "health")();
     },

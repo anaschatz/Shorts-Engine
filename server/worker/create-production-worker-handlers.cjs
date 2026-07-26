@@ -3,11 +3,13 @@ const { AppError, SAFE_MESSAGES } = require("../errors.cjs");
 function createProductionWorkerHandlers(options = {}) {
   const {
     approvedRenderService,
+    footballAnalysisService,
     previewBatchService,
     uploadValidationService,
   } = options;
   if (
     !approvedRenderService
+    || !footballAnalysisService
     || !previewBatchService
     || !uploadValidationService
   ) {
@@ -25,6 +27,9 @@ function createProductionWorkerHandlers(options = {}) {
         uploadId: job.uploadId,
         signal: context.signal,
       });
+    },
+    async analyze_football(job, context) {
+      return await footballAnalysisService.analyze(job, context);
     },
     async football_review_preview_batch(job, context) {
       await context.update({ progress: 5, step: "rendering_review_previews" });

@@ -14,6 +14,12 @@ test("production worker handlers route bounded job identity into each service", 
         return { status: "available" };
       },
     },
+    footballAnalysisService: {
+      async analyze(job, context) {
+        calls.push({ method: "analysis", job, context });
+        return { reviewId: "fbr_test" };
+      },
+    },
     previewBatchService: {
       async renderBatch(input) {
         calls.push({ method: "preview", input });
@@ -47,6 +53,10 @@ test("production worker handlers route bounded job identity into each service", 
     { status: "available" },
   );
   assert.deepEqual(
+    await handlers.analyze_football(base, context),
+    { reviewId: "fbr_test" },
+  );
+  assert.deepEqual(
     await handlers.football_review_preview_batch(base, context),
     { readyPreviewCount: 4 },
   );
@@ -56,10 +66,11 @@ test("production worker handlers route bounded job identity into each service", 
   );
   assert.equal(calls[0].input.ownerId, base.ownerId);
   assert.equal(calls[0].input.uploadId, base.uploadId);
-  assert.equal(calls[1].input.reviewId, base.payload.reviewId);
-  assert.equal(calls[1].input.jobId, base.id);
-  assert.equal(calls[2].job, base);
-  assert.equal(calls[2].context, context);
+  assert.equal(calls[1].job, base);
+  assert.equal(calls[2].input.reviewId, base.payload.reviewId);
+  assert.equal(calls[2].input.jobId, base.id);
+  assert.equal(calls[3].job, base);
+  assert.equal(calls[3].context, context);
   assert.deepEqual(updates, [
     { progress: 5, step: "validating_upload" },
     { progress: 5, step: "rendering_review_previews" },

@@ -121,6 +121,9 @@ async function createRuntime(options = {}) {
       FootballApprovedRenderService,
     } = require("../pipelines/football/review/approved-render-service.cjs");
     const {
+      FootballAnalysisService,
+    } = require("../pipelines/football/analysis-service.cjs");
+    const {
       MultipartUploadService,
     } = require("../storage/multipart-upload-service.cjs");
     const {
@@ -133,11 +136,13 @@ async function createRuntime(options = {}) {
     services.uploads = new MultipartUploadService({
       persistence: persistenceAdapter,
       store: artifactAdapter,
+      jobQueue: queue,
       clock,
     });
     services.uploadValidation = new UploadValidationService({
       persistence: persistenceAdapter,
       store: artifactAdapter,
+      jobQueue: queue,
     });
     services.footballPreviews = new FootballPreviewBatchService({
       persistence: persistenceAdapter,
@@ -149,6 +154,11 @@ async function createRuntime(options = {}) {
       persistence: persistenceAdapter,
       store: artifactAdapter,
       clock,
+    });
+    services.footballAnalysis = new FootballAnalysisService({
+      persistence: persistenceAdapter,
+      reviewRepository: services.footballReviews,
+      store: artifactAdapter,
     });
   }
   let worker = null;
@@ -167,6 +177,7 @@ async function createRuntime(options = {}) {
     if (
       !Object.keys(handlers).length
       && services.uploadValidation
+      && services.footballAnalysis
       && services.footballPreviews
       && services.footballApprovedRender
     ) {
@@ -175,6 +186,7 @@ async function createRuntime(options = {}) {
       } = require("../worker/create-production-worker-handlers.cjs");
       handlers = createProductionWorkerHandlers({
         approvedRenderService: services.footballApprovedRender,
+        footballAnalysisService: services.footballAnalysis,
         previewBatchService: services.footballPreviews,
         uploadValidationService: services.uploadValidation,
       });

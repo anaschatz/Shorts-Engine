@@ -115,6 +115,7 @@ class MultipartUploadService {
   constructor(options = {}) {
     this.persistence = options.persistence;
     this.store = options.store;
+    this.jobQueue = options.jobQueue || null;
     this.clock = options.clock || { now: () => Date.now() };
     this.randomBytes = options.randomBytes || randomBytes;
     this.randomUUID = options.randomUUID || randomUUID;
@@ -278,10 +279,44 @@ class MultipartUploadService {
           422,
         );
       }
-      const completed = await persistenceMethod(
-        this.persistence,
-        "markMultipartUploadComplete",
-      )({ ownerId, uploadId });
+      let validationJob = null;
+      let completed;
+      if (
+        this.jobQueue
+        && typeof this.jobQueue.enqueueInTransaction === "function"
+        && this.persistence
+        && typeof this.persistence.withTransaction === "function"
+        && typeof this.persistence.markMultipartUploadCompleteInTransaction === "function"
+      ) {
+        const result = await this.persistence.withTransaction(async (transaction) => {
+          const upload = await this.persistence.markMultipartUploadCompleteInTransaction(
+            transaction,
+            { ownerId, uploadId },
+          );
+          if (!upload) return null;
+          const queued = await this.jobQueue.enqueueInTransaction(transaction, {
+            ownerId,
+            projectId: upload.projectId,
+            uploadId,
+            action: "validate_upload",
+            pipelineType: "football",
+            payload: {
+              uploadSessionId: upload.id,
+              artifactId: upload.artifactId,
+            },
+          }, {
+            idempotencyKey: `validate-upload-${uploadId}`,
+          });
+          return { upload, job: queued.job };
+        });
+        completed = result && result.upload;
+        validationJob = result && result.job;
+      } else {
+        completed = await persistenceMethod(
+          this.persistence,
+          "markMultipartUploadComplete",
+        )({ ownerId, uploadId });
+      }
       if (!completed) throw new Error("multipart completion state failed");
       return {
         upload: {
@@ -291,8 +326,9 @@ class MultipartUploadService {
           contentType: head.contentType,
         },
         validation: {
-          status: "queued",
+          status: validationJob ? "queued" : "pending",
           jobType: "validate_upload",
+          jobId: validationJob && validationJob.id || null,
         },
       };
     } catch (error) {

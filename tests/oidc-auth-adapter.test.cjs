@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 
 const {
+  CSRF_COOKIE,
   LOGIN_COOKIE,
   OidcAuthAdapter,
   SESSION_COOKIE,
@@ -185,12 +186,19 @@ test("OIDC callback persists only session hashes and never provider tokens", asy
   assert.equal(completed.principal.id, "usr_test");
   assert.equal(completed.principal.authMode, "oidc");
   assert.equal(completed.returnTo, "/");
-  assert.equal(completed.setCookies.length, 2);
+  assert.equal(completed.setCookies.length, 3);
   assert.match(completed.setCookies[0], new RegExp(`^${SESSION_COOKIE}=`));
   assert.match(completed.setCookies[0], /Secure; HttpOnly; SameSite=Lax/);
-  assert.match(completed.setCookies[1], /Max-Age=0/);
+  assert.match(completed.setCookies[1], new RegExp(`^${CSRF_COOKIE}=`));
+  assert.match(completed.setCookies[1], /Secure; SameSite=Lax/);
+  assert.doesNotMatch(completed.setCookies[1], /HttpOnly/);
+  assert.match(completed.setCookies[2], /Max-Age=0/);
 
   const sessionToken = cookieValue(completed.setCookies[0], SESSION_COOKIE);
+  assert.equal(
+    cookieValue(completed.setCookies[1], CSRF_COOKIE),
+    completed.csrfToken,
+  );
   assert.equal(persistence.sessionRecord.tokenHash, digest(sessionToken));
   assert.equal(persistence.sessionRecord.csrfTokenHash, digest(completed.csrfToken));
   assert.equal(persistence.sessionRecord.expiresAt, new Date(30_800_000).toISOString());
@@ -282,6 +290,10 @@ test("session resolution, CSRF origin binding and logout use only hashed tokens"
     csrfToken: completed.csrfToken,
     session,
   }), true);
+  assert.equal(
+    adapter.csrfTokenFromCookie(completed.setCookies[1]),
+    completed.csrfToken,
+  );
   assert.equal(adapter.assertCsrf({
     method: "GET",
     origin: "",
@@ -313,6 +325,8 @@ test("session resolution, CSRF origin binding and logout use only hashed tokens"
   });
   assert.match(loggedOut.setCookie, new RegExp(`^${SESSION_COOKIE}=`));
   assert.match(loggedOut.setCookie, /Max-Age=0/);
+  assert.equal(loggedOut.setCookies.length, 2);
+  assert.match(loggedOut.setCookies[1], new RegExp(`^${CSRF_COOKIE}=`));
   assert.equal(persistence.calls.at(-1).record.tokenHash, digest(sessionToken));
   assert.doesNotMatch(JSON.stringify(persistence.calls.at(-1)), new RegExp(sessionToken));
 });

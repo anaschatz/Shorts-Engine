@@ -521,9 +521,15 @@ class PostgresPersistenceAdapter {
     return mapUploadSession(result.rows[0]);
   }
 
-  async markMultipartUploadComplete({ ownerId, uploadId }) {
-    return await this.withTransaction(async (transaction) => {
-      const completed = await transaction.query(
+  async markMultipartUploadCompleteInTransaction(transaction, { ownerId, uploadId }) {
+    if (!transaction || typeof transaction.query !== "function") {
+      throw new AppError(
+        "ADAPTER_CONTRACT_INVALID",
+        SAFE_MESSAGES.ADAPTER_CONTRACT_INVALID,
+        500,
+      );
+    }
+    const completed = await transaction.query(
         `UPDATE upload_sessions AS session
          SET status = 'completed', updated_at = clock_timestamp()
          FROM uploads, artifacts
@@ -540,21 +546,29 @@ class PostgresPersistenceAdapter {
            artifacts.storage_key,
            artifacts.content_type`,
         [uploadId, ownerId],
-      );
-      if (!completed.rowCount) return null;
-      await transaction.query(
+    );
+    if (!completed.rowCount) return null;
+    await transaction.query(
         `UPDATE uploads
          SET status = 'validating', updated_at = clock_timestamp()
          WHERE id = $1 AND owner_id = $2`,
         [uploadId, ownerId],
-      );
-      await transaction.query(
+    );
+    await transaction.query(
         `UPDATE artifacts
          SET status = 'validating', updated_at = clock_timestamp()
          WHERE id = $1 AND owner_id = $2`,
         [completed.rows[0].artifact_id, ownerId],
+    );
+    return mapUploadSession(completed.rows[0]);
+  }
+
+  async markMultipartUploadComplete({ ownerId, uploadId }) {
+    return await this.withTransaction(async (transaction) => {
+      return await this.markMultipartUploadCompleteInTransaction(
+        transaction,
+        { ownerId, uploadId },
       );
-      return mapUploadSession(completed.rows[0]);
     });
   }
 
@@ -611,16 +625,22 @@ class PostgresPersistenceAdapter {
     });
   }
 
-  async publishValidatedUpload({
+  async publishValidatedUploadInTransaction(transaction, {
     ownerId,
     uploadId,
     checksumSha256,
     byteSize,
     metadata = {},
   }) {
-    return await this.withTransaction(async (transaction) => {
-      const upload = await transaction.query(
-        `UPDATE uploads
+    if (!transaction || typeof transaction.query !== "function") {
+      throw new AppError(
+        "ADAPTER_CONTRACT_INVALID",
+        SAFE_MESSAGES.ADAPTER_CONTRACT_INVALID,
+        500,
+      );
+    }
+    const upload = await transaction.query(
+      `UPDATE uploads
          SET
            status = 'available',
            checksum_sha256 = $3,
@@ -631,11 +651,29 @@ class PostgresPersistenceAdapter {
            AND owner_id = $2
            AND status = 'validating'
          RETURNING artifact_id, project_id`,
-        [uploadId, ownerId, checksumSha256, byteSize, JSON.stringify(metadata)],
+      [uploadId, ownerId, checksumSha256, byteSize, JSON.stringify(metadata)],
+    );
+    if (!upload.rowCount) {
+      const replay = await transaction.query(
+        `SELECT upload.project_id
+         FROM uploads AS upload
+         JOIN artifacts AS artifact
+           ON artifact.id = upload.artifact_id
+          AND artifact.owner_id = upload.owner_id
+         WHERE upload.id = $1
+           AND upload.owner_id = $2
+           AND upload.status = 'available'
+           AND artifact.status = 'available'
+           AND upload.checksum_sha256 = $3
+           AND artifact.checksum_sha256 = $3
+           AND upload.byte_size = $4
+           AND artifact.byte_size = $4`,
+        [uploadId, ownerId, checksumSha256, byteSize],
       );
-      if (!upload.rowCount) return false;
-      await transaction.query(
-        `UPDATE artifacts
+      return replay.rowCount > 0;
+    }
+    await transaction.query(
+      `UPDATE artifacts
          SET
            status = 'available',
            checksum_sha256 = $3,
@@ -645,21 +683,29 @@ class PostgresPersistenceAdapter {
          WHERE id = $1
            AND owner_id = $2
            AND status = 'validating'`,
-        [
-          upload.rows[0].artifact_id,
-          ownerId,
-          checksumSha256,
-          byteSize,
-          JSON.stringify(metadata),
-        ],
-      );
-      await transaction.query(
-        `UPDATE projects
+      [
+        upload.rows[0].artifact_id,
+        ownerId,
+        checksumSha256,
+        byteSize,
+        JSON.stringify(metadata),
+      ],
+    );
+    await transaction.query(
+      `UPDATE projects
          SET status = 'ready', updated_at = clock_timestamp()
          WHERE id = $1 AND owner_id = $2`,
-        [upload.rows[0].project_id, ownerId],
+      [upload.rows[0].project_id, ownerId],
+    );
+    return true;
+  }
+
+  async publishValidatedUpload(record) {
+    return await this.withTransaction(async (transaction) => {
+      return await this.publishValidatedUploadInTransaction(
+        transaction,
+        record,
       );
-      return true;
     });
   }
 
