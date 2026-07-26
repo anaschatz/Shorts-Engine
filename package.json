@@ -106,7 +106,7 @@
     "visual:goal:qa": "node demo/run-visual-goal-qa.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "devDependencies": {
     "playwright": "^1.61.0"

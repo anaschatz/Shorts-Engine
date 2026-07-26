@@ -28,9 +28,9 @@ the starting state, not a description of the final runtime.
 
 The motivational adapter in
 `server/pipelines/motivational-source-short/python-worker-adapter.cjs` invokes
-`AI-Youtube-Shorts-Generator/main.py`, not root `main.py`. Its legacy JSON
-payload is hash-bound but contains absolute paths and exposes internal artifact
-shapes. This is the principal contract-drift risk.
+the tracked root `main.py`. Its legacy JSON payload is hash-bound but contains
+absolute paths and exposes internal artifact shapes. This remains the principal
+contract-drift risk.
 
 ## Entrypoints
 

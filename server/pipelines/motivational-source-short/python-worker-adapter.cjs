@@ -23,7 +23,7 @@ const {
 } = require("./contracts.cjs");
 
 const REPOSITORY_ROOT = resolve(__dirname, "../../..");
-const ENGINE_ROOT = join(REPOSITORY_ROOT, "AI-Youtube-Shorts-Generator");
+const ENGINE_ROOT = REPOSITORY_ROOT;
 const ENGINE_MAIN = join(ENGINE_ROOT, "main.py");
 const DEFAULT_VENV_PYTHON = join(ENGINE_ROOT, ".venv", "bin", "python");
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
