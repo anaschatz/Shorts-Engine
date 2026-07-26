@@ -37,11 +37,23 @@ child.on("error", (error) => {
 child.on("close", (code, signal) => {
   const successful = !signal && code === 0;
   if (successful) {
-    const commitSha = String(process.env.GITHUB_SHA || execFileSync(
+    const commitSha = String(execFileSync(
       "git",
       ["rev-parse", "HEAD"],
       { encoding: "utf8" },
-    )).trim();
+    )).trim().toLowerCase();
+    const expectedCommitSha = String(
+      process.env.SHORTSENGINE_PROOF_COMMIT_SHA || commitSha,
+    ).trim().toLowerCase();
+    if (
+      !/^[a-f0-9]{40}$/.test(commitSha)
+      || !/^[a-f0-9]{40}$/.test(expectedCommitSha)
+      || commitSha !== expectedCommitSha
+    ) {
+      console.error("Production integration proof commit binding failed.");
+      process.exitCode = 1;
+      return;
+    }
     const report = {
       schemaVersion: 1,
       proofType: "stage2_reduced_local_integration",

@@ -19,6 +19,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Credential scan
         uses: gitleaks/gitleaks-action@v2
@@ -44,6 +45,8 @@ jobs:
 
       - name: Run migrations, multi-worker queue and object-storage integration
         run: npm run integration:production
+        env:
+          SHORTSENGINE_PROOF_COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Upload sanitized reduced proof
         if: success()

@@ -268,4 +268,18 @@ test("migration 0007 defines durable attempts, quotas, costs, metrics and owners
   assert.match(queueSource, /quota_rejection_total/);
   assert.match(queueSource, /queue_depth/);
   assert.match(queueSource, /INSERT INTO job_attempts/);
+
+  const proofRunner = readFileSync("scripts/run-production-integration.mjs", "utf8");
+  const proofWorkflow = readFileSync(
+    ".github/workflows/production-integration.yml",
+    "utf8",
+  );
+  assert.match(proofRunner, /git",\s*\["rev-parse", "HEAD"\]/);
+  assert.match(proofRunner, /SHORTSENGINE_PROOF_COMMIT_SHA/);
+  assert.match(proofRunner, /commitSha !== expectedCommitSha/);
+  assert.doesNotMatch(proofRunner, /process\.env\.GITHUB_SHA\s*\|\|/);
+  assert.match(
+    proofWorkflow,
+    /ref:\s*\$\{\{\s*github\.event\.pull_request\.head\.sha\s*\|\|\s*github\.sha\s*\}\}/,
+  );
 });
