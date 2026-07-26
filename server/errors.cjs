@@ -17,7 +17,6 @@ const SAFE_MESSAGES = Object.freeze({
   BAD_JSON: "Invalid JSON request body.",
   CANCEL_NOT_SUPPORTED: "This job cannot be cancelled anymore.",
   CLOUD_STORAGE_FAILED: "The cloud storage operation failed.",
-  CONFIGURATION_INVALID: "The server configuration is invalid.",
   DB_MIGRATION_FAILED: "The database schema is not ready.",
   DB_TRANSACTION_FAILED: "The database transaction failed.",
   EXPORT_NOT_FOUND: "The requested export was not found.",
