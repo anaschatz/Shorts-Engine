@@ -102,10 +102,69 @@ async function createRuntime(options = {}) {
 
   const asyncQueue = createAsyncJobQueue(queue);
   const observability = options.observability || createMemoryObservabilityAdapter();
+  const services = {};
+  if (
+    config.persistenceMode === "postgres"
+    && config.storageMode === "r2"
+    && persistenceAdapter
+    && typeof persistenceAdapter.withTransaction === "function"
+    && queue
+    && typeof queue.enqueueInTransaction === "function"
+  ) {
+    const {
+      PostgresFootballReviewRepository,
+    } = require("../pipelines/football/review/postgres-review-repository.cjs");
+    const {
+      FootballPreviewBatchService,
+    } = require("../pipelines/football/review/preview-batch-service.cjs");
+    const {
+      FootballApprovedRenderService,
+    } = require("../pipelines/football/review/approved-render-service.cjs");
+    const {
+      FootballAnalysisService,
+    } = require("../pipelines/football/analysis-service.cjs");
+    const {
+      MultipartUploadService,
+    } = require("../storage/multipart-upload-service.cjs");
+    const {
+      UploadValidationService,
+    } = require("../storage/upload-validation-service.cjs");
+    services.footballReviews = new PostgresFootballReviewRepository({
+      persistenceAdapter,
+      jobQueue: queue,
+    });
+    services.uploads = new MultipartUploadService({
+      persistence: persistenceAdapter,
+      store: artifactAdapter,
+      jobQueue: queue,
+      clock,
+    });
+    services.uploadValidation = new UploadValidationService({
+      persistence: persistenceAdapter,
+      store: artifactAdapter,
+      jobQueue: queue,
+    });
+    services.footballPreviews = new FootballPreviewBatchService({
+      persistence: persistenceAdapter,
+      reviewRepository: services.footballReviews,
+      store: artifactAdapter,
+      clock,
+    });
+    services.footballApprovedRender = new FootballApprovedRenderService({
+      persistence: persistenceAdapter,
+      store: artifactAdapter,
+      clock,
+    });
+    services.footballAnalysis = new FootballAnalysisService({
+      persistence: persistenceAdapter,
+      reviewRepository: services.footballReviews,
+      store: artifactAdapter,
+    });
+  }
   let worker = null;
   if (config.role === "worker") {
     const { DistributedWorkerRunner } = require("../worker/distributed-worker-runner.cjs");
-    const handlers = typeof factories.createWorkerHandlers === "function"
+    let handlers = typeof factories.createWorkerHandlers === "function"
       ? await factories.createWorkerHandlers({
         artifactAdapter,
         config,
@@ -115,6 +174,23 @@ async function createRuntime(options = {}) {
         queue,
       })
       : options.workerHandlers || {};
+    if (
+      !Object.keys(handlers).length
+      && services.uploadValidation
+      && services.footballAnalysis
+      && services.footballPreviews
+      && services.footballApprovedRender
+    ) {
+      const {
+        createProductionWorkerHandlers,
+      } = require("../worker/create-production-worker-handlers.cjs");
+      handlers = createProductionWorkerHandlers({
+        approvedRenderService: services.footballApprovedRender,
+        footballAnalysisService: services.footballAnalysis,
+        previewBatchService: services.footballPreviews,
+        uploadValidationService: services.uploadValidation,
+      });
+    }
     worker = new DistributedWorkerRunner({
       queue,
       handlers,
@@ -137,6 +213,7 @@ async function createRuntime(options = {}) {
     auth,
     observability,
     worker,
+    services: Object.freeze(services),
     clock,
     random,
     async start() {

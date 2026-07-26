@@ -56,10 +56,26 @@ function safeValidationError(error) {
   );
 }
 
+const TERMINAL_VALIDATION_CODES = new Set([
+  "FILE_SIGNATURE_MISMATCH",
+  "FILE_SIGNATURE_UNSUPPORTED",
+  "FILE_TYPE_UNSUPPORTED",
+  "FILE_TOO_LARGE",
+  "FILE_TOO_SMALL",
+  "VIDEO_DURATION_INVALID",
+  "VIDEO_TOO_LONG",
+  "VIDEO_TOO_SHORT",
+]);
+
+function terminalValidationError(error) {
+  return error instanceof AppError && TERMINAL_VALIDATION_CODES.has(error.code);
+}
+
 class UploadValidationService {
   constructor(options = {}) {
     this.persistence = options.persistence;
     this.store = options.store;
+    this.jobQueue = options.jobQueue || null;
     this.probeMedia = options.probeMedia || probeMedia;
     this.validateSignature = options.validateSignature || validateSignature;
     this.randomUUID = options.randomUUID || randomUUID;
@@ -144,10 +160,7 @@ class UploadValidationService {
       );
       const media = await this.probeMedia(stagePath);
       assertNotCancelled(signal);
-      const published = await persistenceMethod(
-        this.persistence,
-        "publishValidatedUpload",
-      )({
+      const publishRecord = {
         ownerId,
         uploadId,
         checksumSha256,
@@ -161,7 +174,48 @@ class UploadValidationService {
           videoCodec: media.videoCodec,
           audioCodec: media.audioCodec,
         },
-      });
+      };
+      let analysisJob = null;
+      let published;
+      if (
+        this.jobQueue
+        && typeof this.jobQueue.enqueueInTransaction === "function"
+        && this.persistence
+        && typeof this.persistence.withTransaction === "function"
+        && typeof this.persistence.publishValidatedUploadInTransaction === "function"
+      ) {
+        const result = await this.persistence.withTransaction(async (transaction) => {
+          const available = await this.persistence.publishValidatedUploadInTransaction(
+            transaction,
+            publishRecord,
+          );
+          if (!available) return null;
+          const queued = await this.jobQueue.enqueueInTransaction(transaction, {
+            ownerId,
+            projectId: session.projectId,
+            uploadId,
+            action: "analyze_football",
+            pipelineType: "football",
+            payload: {
+              sourceValidation: {
+                checksumSha256,
+                byteSize: bytes,
+              },
+              rightsConfirmed: true,
+            },
+          }, {
+            idempotencyKey: `analyze-football-${uploadId}`,
+          });
+          return { published: available, job: queued.job };
+        });
+        published = Boolean(result && result.published);
+        analysisJob = result && result.job;
+      } else {
+        published = await persistenceMethod(
+          this.persistence,
+          "publishValidatedUpload",
+        )(publishRecord);
+      }
       if (!published) {
         throw new AppError(
           "PROJECT_STATE_LOCKED",
@@ -175,16 +229,20 @@ class UploadValidationService {
         checksumSha256,
         byteSize: bytes,
         media,
+        analysisJobId: analysisJob && analysisJob.id || null,
       };
     } catch (error) {
       const safeError = safeValidationError(error);
-      await persistenceMethod(this.persistence, "failMultipartUpload")({
-        ownerId,
-        uploadId,
-        operationId: `sop_${this.randomUUID()}`,
-        operation: "delete_object",
-        errorCode: safeError.code,
-      }).catch(() => {});
+      if (terminalValidationError(safeError)) {
+        safeError.retryable = false;
+        await persistenceMethod(this.persistence, "failMultipartUpload")({
+          ownerId,
+          uploadId,
+          operationId: `sop_${this.randomUUID()}`,
+          operation: "delete_object",
+          errorCode: safeError.code,
+        }).catch(() => {});
+      }
       throw safeError;
     } finally {
       if (fileHandle) await fileHandle.close().catch(() => {});
@@ -197,4 +255,5 @@ module.exports = {
   HEADER_CAPTURE_BYTES,
   UploadValidationService,
   readableBody,
+  terminalValidationError,
 };

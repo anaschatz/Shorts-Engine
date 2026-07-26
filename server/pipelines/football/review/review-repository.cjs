@@ -413,4 +413,6 @@ module.exports = {
   REVIEW_STATUSES,
   normalizeReview,
   validateReviewId,
+  validateSourceRevision,
+  validateVersion,
 };

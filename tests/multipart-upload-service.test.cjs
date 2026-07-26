@@ -164,6 +164,7 @@ function service(options = {}) {
   return new MultipartUploadService({
     persistence: options.persistence || fakePersistence(),
     store: options.store || fakeStore(),
+    jobQueue: options.jobQueue || null,
     clock: { now: () => Date.parse("2026-07-26T12:00:00.000Z") },
     randomBytes: deterministicBytes,
     randomUUID: deterministicUuid(),
@@ -281,6 +282,60 @@ test("completed upload verifies exact object size before entering validation", a
   assert.equal(
     persistence.calls.some((call) => call.method === "markMultipartUploadComplete"),
     true,
+  );
+});
+
+test("production upload completion atomically records validation state and enqueues its job", async () => {
+  const persistence = fakePersistence();
+  const originalComplete = persistence.markMultipartUploadComplete.bind(persistence);
+  const transaction = { query() {} };
+  persistence.withTransaction = async (callback) => await callback(transaction);
+  persistence.markMultipartUploadCompleteInTransaction = async (received, record) => {
+    assert.equal(received, transaction);
+    return await originalComplete(record);
+  };
+  const queueCalls = [];
+  const jobQueue = {
+    async enqueueInTransaction(received, record, options) {
+      assert.equal(received, transaction);
+      queueCalls.push({ record, options });
+      return {
+        job: { id: "job_validation123" },
+        replayed: false,
+      };
+    },
+  };
+  const uploadService = service({
+    persistence,
+    store: fakeStore(),
+    jobQueue,
+  });
+  const created = await uploadService.createUpload({
+    ownerId: "usr_test",
+    contentType: "video/mp4",
+    byteSize: 6 * 1024 * 1024,
+    rightsConfirmed: true,
+  });
+  const completed = await uploadService.completeUpload({
+    ownerId: "usr_test",
+    uploadId: created.upload.id,
+    parts: [
+      { partNumber: 1, etag: "etag-one" },
+      { partNumber: 2, etag: "etag-two" },
+    ],
+  });
+  assert.deepEqual(completed.validation, {
+    status: "queued",
+    jobType: "validate_upload",
+    jobId: "job_validation123",
+  });
+  assert.equal(queueCalls[0].record.ownerId, "usr_test");
+  assert.equal(queueCalls[0].record.projectId, created.project.id);
+  assert.equal(queueCalls[0].record.uploadId, created.upload.id);
+  assert.equal(queueCalls[0].record.action, "validate_upload");
+  assert.equal(
+    queueCalls[0].options.idempotencyKey,
+    `validate-upload-${created.upload.id}`,
   );
 });
 
