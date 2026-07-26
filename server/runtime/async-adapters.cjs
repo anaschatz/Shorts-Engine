@@ -65,10 +65,16 @@ function createAsyncJobQueue(queue) {
           replayed: false,
         };
       }
-      return {
-        job: await requireMethod(queue, "enqueue")(input, options),
-        replayed: false,
-      };
+      const result = await requireMethod(queue, "enqueue")(input, options);
+      if (
+        result
+        && typeof result === "object"
+        && result.job
+        && typeof result.replayed === "boolean"
+      ) {
+        return result;
+      }
+      return { job: result, replayed: false };
     },
     async readiness() {
       return await requireMethod(queue, "health")();

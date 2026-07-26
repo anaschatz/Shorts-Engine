@@ -80,6 +80,7 @@ function mapJob(row) {
     leaseId: row.lease_id || null,
     leaseExpiresAt: row.lease_expires_at ? new Date(row.lease_expires_at).toISOString() : null,
     lastHeartbeatAt: row.last_heartbeat_at ? new Date(row.last_heartbeat_at).toISOString() : null,
+    cancelRequestedAt: row.cancel_requested_at ? new Date(row.cancel_requested_at).toISOString() : null,
     payload: safeJson(row.payload_json),
     result: safeJson(row.result_json, null),
     error: row.error_code

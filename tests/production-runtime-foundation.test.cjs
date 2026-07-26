@@ -244,6 +244,79 @@ test("migrate runtime executes canonical migrations without initializing OIDC", 
   await runtime.close();
 });
 
+test("worker runtime starts distributed claims only during its lifecycle", async () => {
+  let claims = 0;
+  let queueClosed = 0;
+  const config = {
+    ...loadRuntimeConfig(productionEnvironment()),
+    role: "worker",
+    worker: {
+      leaseMs: 60_000,
+      heartbeatMs: 20_000,
+      pollMs: 100,
+    },
+  };
+  const queue = {
+    backend: "postgres",
+    workerId: "runtime-worker",
+    async claimNext() {
+      claims += 1;
+      return null;
+    },
+    async health() {
+      return { ready: true, backend: "postgres" };
+    },
+    async close() {
+      queueClosed += 1;
+    },
+  };
+  const runtime = await createRuntime({
+    config,
+    logger: null,
+    workerHandlers: {
+      async validate_upload() {},
+    },
+    factories: {
+      async createPostgresPersistenceAdapter() {
+        return {
+          mode: "postgres",
+          async health() {
+            return { ready: true, mode: "postgres" };
+          },
+          async close() {},
+        };
+      },
+      async createPostgresJobQueue() {
+        return queue;
+      },
+      async createOidcAuthAdapter() {
+        return {
+          async health() {
+            return { ready: true, mode: "oidc" };
+          },
+        };
+      },
+      async createR2ArtifactStore() {
+        return {
+          async health() {
+            return { ready: true, mode: "r2" };
+          },
+          async close() {},
+        };
+      },
+    },
+  });
+  assert.equal(claims, 0);
+  assert.equal(runtime.worker.health().running, false);
+  assert.equal(await runtime.start(), true);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(claims >= 1);
+  assert.equal(runtime.worker.health().acceptingClaims, true);
+  assert.equal(await runtime.close(), true);
+  assert.equal(runtime.worker.health().acceptingClaims, false);
+  assert.equal(queueClosed, 1);
+});
+
 test("importing the legacy app no longer starts the worker supervisor", () => {
   const output = execFileSync(
     process.execPath,

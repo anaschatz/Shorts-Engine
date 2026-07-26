@@ -102,6 +102,28 @@ async function createRuntime(options = {}) {
 
   const asyncQueue = createAsyncJobQueue(queue);
   const observability = options.observability || createMemoryObservabilityAdapter();
+  let worker = null;
+  if (config.role === "worker") {
+    const { DistributedWorkerRunner } = require("../worker/distributed-worker-runner.cjs");
+    const handlers = typeof factories.createWorkerHandlers === "function"
+      ? await factories.createWorkerHandlers({
+        artifactAdapter,
+        config,
+        logger,
+        observability,
+        persistence: asyncPersistence,
+        queue,
+      })
+      : options.workerHandlers || {};
+    worker = new DistributedWorkerRunner({
+      queue,
+      handlers,
+      workerId: options.workerId || queue.workerId,
+      heartbeatMs: config.worker.heartbeatMs,
+      leaseMs: config.worker.leaseMs,
+      pollMs: config.worker.pollMs,
+    });
+  }
   let started = false;
   let closed = false;
 
@@ -114,6 +136,7 @@ async function createRuntime(options = {}) {
     queue: asyncQueue,
     auth,
     observability,
+    worker,
     clock,
     random,
     async start() {
@@ -129,6 +152,7 @@ async function createRuntime(options = {}) {
       ) {
         await auth.initialize();
       }
+      if (worker) await worker.start();
       started = true;
       return true;
     },
@@ -145,6 +169,9 @@ async function createRuntime(options = {}) {
         storageHealth,
       ]);
       const telemetry = await observability.health();
+      const workerHealth = worker
+        ? worker.health()
+        : { ready: true, configured: false };
       return {
         ready: Boolean(
           persistence.ready
@@ -152,6 +179,7 @@ async function createRuntime(options = {}) {
           && authentication.ready
           && storage.ready
           && telemetry.ready
+          && workerHealth.ready
         ),
         role: config.role,
         adapters: {
@@ -160,12 +188,14 @@ async function createRuntime(options = {}) {
           auth: authentication,
           storage,
           observability: telemetry,
+          worker: workerHealth,
         },
       };
     },
     async close() {
       if (closed) return false;
       closed = true;
+      if (worker) await worker.stop();
       await Promise.allSettled([
         asyncQueue.close(),
         asyncPersistence.close(),
