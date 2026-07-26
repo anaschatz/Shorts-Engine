@@ -36,6 +36,12 @@ jobs:
       - name: Start disposable PostgreSQL and S3-compatible services
         run: docker compose -f compose.production-test.yml up -d --wait
 
+      - name: Show disposable service diagnostics
+        if: failure()
+        run: |
+          docker compose -f compose.production-test.yml ps
+          docker compose -f compose.production-test.yml logs --no-color --tail=200
+
       - name: Run migrations, multi-worker queue and object-storage integration
         run: npm run integration:production
 
