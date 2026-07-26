@@ -262,6 +262,7 @@ test("migration 0007 defines durable attempts, quotas, costs, metrics and owners
 
   const queueSource = readFileSync("server/queue/postgres-job-queue.cjs", "utf8");
   assert.match(queueSource, /FOR UPDATE OF job, owner SKIP LOCKED/);
+  assert.match(queueSource, /pg_advisory_xact_lock/);
   assert.match(queueSource, /globalConcurrency/);
   assert.match(queueSource, /quota_policies/);
   assert.match(queueSource, /quota_rejection_total/);

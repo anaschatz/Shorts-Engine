@@ -11,6 +11,8 @@ const RENDER_ACTIONS = new Set([
   "render_motivational_source_short",
 ]);
 const MAX_RETRY_DELAY_MS = 60_000;
+const CLAIM_CAPACITY_LOCK_NAMESPACE = 741_929;
+const CLAIM_CAPACITY_LOCK_KEY = 1;
 
 function stableValue(value) {
   if (Array.isArray(value)) return value.map(stableValue);
@@ -100,6 +102,13 @@ class PostgresJobQueue {
       );
     }
     return await this.persistence.withTransaction(callback);
+  }
+
+  async acquireClaimCapacityLock(transaction) {
+    await transaction.query(
+      "SELECT pg_advisory_xact_lock($1, $2)",
+      [CLAIM_CAPACITY_LOCK_NAMESPACE, CLAIM_CAPACITY_LOCK_KEY],
+    );
   }
 
   async recordClaim(transaction, row) {
@@ -590,6 +599,7 @@ class PostgresJobQueue {
     const leaseId = `lease_${this.randomUUID()}`;
     const leaseMs = Number(options.leaseMs || this.leaseMs);
     return await this.withTransaction(async (transaction) => {
+      await this.acquireClaimCapacityLock(transaction);
       await this.finalizeExpiredCancellations(transaction);
       await this.moveExpiredExhaustedToDlq(transaction);
       const claimed = await transaction.query(
@@ -682,6 +692,7 @@ class PostgresJobQueue {
     const leaseId = `lease_${this.randomUUID()}`;
     const leaseMs = Number(options.leaseMs || this.leaseMs);
     return await this.withTransaction(async (transaction) => {
+      await this.acquireClaimCapacityLock(transaction);
       await this.finalizeExpiredCancellations(transaction);
       await this.moveExpiredExhaustedToDlq(transaction);
       const locked = await transaction.query(
