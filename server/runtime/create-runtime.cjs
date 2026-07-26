@@ -101,7 +101,29 @@ async function createRuntime(options = {}) {
   }
 
   const asyncQueue = createAsyncJobQueue(queue);
-  const observability = options.observability || createMemoryObservabilityAdapter();
+  let observability = options.observability;
+  if (!observability && config.telemetryMode === "postgres") {
+    if (typeof factories.createPostgresObservabilityAdapter === "function") {
+      observability = await factories.createPostgresObservabilityAdapter({
+        persistence: persistenceAdapter,
+        clock,
+        logger,
+      });
+    } else {
+      const {
+        createPostgresObservabilityAdapter,
+      } = require("../observability/postgres-observability-adapter.cjs");
+      observability = createPostgresObservabilityAdapter({
+        persistence: persistenceAdapter,
+        clock,
+        logger,
+      });
+    }
+  }
+  if (!observability) observability = createMemoryObservabilityAdapter();
+  if (queue && Object.prototype.hasOwnProperty.call(queue, "observability")) {
+    queue.observability = observability;
+  }
   const services = {};
   if (
     config.persistenceMode === "postgres"
@@ -138,11 +160,14 @@ async function createRuntime(options = {}) {
       store: artifactAdapter,
       jobQueue: queue,
       clock,
+      maxUploadBytes: config.quotas.maxUploadBytes,
+      uploadSessionTtlMs: config.storage.stagingRetentionHours * 60 * 60 * 1000,
     });
     services.uploadValidation = new UploadValidationService({
       persistence: persistenceAdapter,
       store: artifactAdapter,
       jobQueue: queue,
+      maxVideoDurationSeconds: config.quotas.maxVideoDurationSeconds,
     });
     services.footballPreviews = new FootballPreviewBatchService({
       persistence: persistenceAdapter,
@@ -198,6 +223,14 @@ async function createRuntime(options = {}) {
       heartbeatMs: config.worker.heartbeatMs,
       leaseMs: config.worker.leaseMs,
       pollMs: config.worker.pollMs,
+      clock,
+      observability,
+      processingTimeouts: {
+        analyze_football: config.rendering.analysisTimeoutMs,
+        football_review_preview_batch: config.rendering.renderTimeoutMs,
+        render_approved_football: config.rendering.renderTimeoutMs,
+        validate_upload: config.rendering.analysisTimeoutMs,
+      },
     });
   }
   let started = false;

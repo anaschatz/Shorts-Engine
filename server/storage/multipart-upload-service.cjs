@@ -44,9 +44,9 @@ function checksum(value) {
   return normalized;
 }
 
-function positiveByteSize(value) {
+function positiveByteSize(value, maximum = MAX_UPLOAD_BYTES) {
   const size = Number(value);
-  if (!Number.isSafeInteger(size) || size < 1 || size > MAX_UPLOAD_BYTES) {
+  if (!Number.isSafeInteger(size) || size < 1 || size > maximum) {
     throw new AppError("FILE_TOO_LARGE", SAFE_MESSAGES.FILE_TOO_LARGE, 413);
   }
   return size;
@@ -124,6 +124,13 @@ class MultipartUploadService {
       || (this.store && this.store.partSizeBytes)
       || 16 * 1024 * 1024,
     );
+    this.maxUploadBytes = Math.min(
+      MAX_UPLOAD_BYTES,
+      Number(options.maxUploadBytes || MAX_UPLOAD_BYTES),
+    );
+    this.uploadSessionTtlMs = Number(
+      options.uploadSessionTtlMs || UPLOAD_SESSION_TTL_MS,
+    );
   }
 
   async createUpload(input) {
@@ -144,7 +151,15 @@ class MultipartUploadService {
       );
     }
     const ownerId = String(input.ownerId || "");
-    const expectedByteSize = positiveByteSize(input.byteSize);
+    const quotaPolicy = this.persistence
+      && typeof this.persistence.getQuotaPolicy === "function"
+      ? await this.persistence.getQuotaPolicy(ownerId)
+      : null;
+    const uploadLimit = Math.min(
+      this.maxUploadBytes,
+      Number(quotaPolicy && quotaPolicy.uploadSizeLimitBytes || this.maxUploadBytes),
+    );
+    const expectedByteSize = positiveByteSize(input.byteSize, uploadLimit);
     const expectedParts = Math.ceil(expectedByteSize / this.partSizeBytes);
     if (expectedParts < 1 || expectedParts > MAX_PARTS) {
       throw new AppError("FILE_TOO_LARGE", SAFE_MESSAGES.FILE_TOO_LARGE, 413);
@@ -181,8 +196,8 @@ class MultipartUploadService {
         partSizeBytes: this.partSizeBytes,
         expectedParts,
         storageKey,
-        expiresAt: new Date(this.clock.now() + UPLOAD_SESSION_TTL_MS).toISOString(),
-        retentionUntil: new Date(this.clock.now() + UPLOAD_SESSION_TTL_MS).toISOString(),
+        expiresAt: new Date(this.clock.now() + this.uploadSessionTtlMs).toISOString(),
+        retentionUntil: new Date(this.clock.now() + this.uploadSessionTtlMs).toISOString(),
         artifactMetadata: { validation: "pending" },
         uploadMetadata: { rightsConfirmed: true },
         source: { type: "direct_upload", rightsConfirmed: true },

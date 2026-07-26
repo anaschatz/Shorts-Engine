@@ -66,8 +66,8 @@ function createMigrationHarness(options = {}) {
 
 test("canonical PostgreSQL migration chain is contiguous and transaction-free", () => {
   const migrations = discoverMigrations();
-  assert.deepEqual(migrations.map((migration) => migration.version), [1, 2, 3, 4, 5, 6]);
-  assert.equal(new Set(migrations.map((migration) => migration.checksum)).size, 6);
+  assert.deepEqual(migrations.map((migration) => migration.version), [1, 2, 3, 4, 5, 6, 7]);
+  assert.equal(new Set(migrations.map((migration) => migration.checksum)).size, 7);
   for (const migration of migrations) {
     assert.match(migration.fileName, /^\d{4}_[a-z0-9_]+\.sql$/);
     assert.doesNotMatch(migration.sql, /\b(?:BEGIN|COMMIT|ROLLBACK)\s*;/i);
@@ -83,12 +83,12 @@ test("migration runner applies each migration in its own transaction and reruns 
     migrations,
   });
   assert.deepEqual(summary, {
-    discovered: 6,
-    applied: 6,
-    currentVersion: 6,
+    discovered: 7,
+    applied: 7,
+    currentVersion: 7,
   });
-  assert.equal(first.calls.filter((call) => call.sql === "BEGIN").length, 6);
-  assert.equal(first.calls.filter((call) => call.sql === "COMMIT").length, 6);
+  assert.equal(first.calls.filter((call) => call.sql === "BEGIN").length, 7);
+  assert.equal(first.calls.filter((call) => call.sql === "COMMIT").length, 7);
   assert.equal(first.calls.filter((call) => call.sql === "ROLLBACK").length, 0);
   assert.equal(first.released, true);
 
@@ -99,9 +99,9 @@ test("migration runner applies each migration in its own transaction and reruns 
     migrations,
   });
   assert.deepEqual(rerun, {
-    discovered: 6,
+    discovered: 7,
     applied: 0,
-    currentVersion: 6,
+    currentVersion: 7,
   });
   assert.equal(second.calls.filter((call) => call.sql === "BEGIN").length, 0);
   assert.equal(second.released, true);

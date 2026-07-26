@@ -5,6 +5,7 @@ const PERSISTENCE_MODES = Object.freeze(["local", "sqlite", "postgres"]);
 const QUEUE_MODES = Object.freeze(["local-jobstore", "postgres"]);
 const AUTH_MODES = Object.freeze(["local", "operator", "oidc"]);
 const STORAGE_MODES = Object.freeze(["local", "mock-cloud", "s3", "r2"]);
+const TELEMETRY_MODES = Object.freeze(["memory", "postgres"]);
 const STRICT_ENVIRONMENTS = Object.freeze(["staging", "production"]);
 
 function invalidConfiguration(field) {
@@ -27,6 +28,14 @@ function enumValue(value, allowed, fallback, field) {
 function boundedInteger(value, fallback, { min, max, field }) {
   const number = value === undefined || value === null || value === "" ? fallback : Number(value);
   if (!Number.isInteger(number) || number < min || number > max) invalidConfiguration(field);
+  return number;
+}
+
+function boundedNumber(value, fallback, { min, max, field }) {
+  const number = value === undefined || value === null || value === "" ? fallback : Number(value);
+  if (!Number.isFinite(number) || number < min || number > max) {
+    invalidConfiguration(field);
+  }
   return number;
 }
 
@@ -119,12 +128,21 @@ function loadRuntimeConfig(env = process.env) {
     "local",
     "MATCHCUTS_STORAGE_ADAPTER",
   );
+  const telemetryMode = enumValue(
+    env.SHORTSENGINE_TELEMETRY_ADAPTER,
+    TELEMETRY_MODES,
+    strict ? "postgres" : "memory",
+    "SHORTSENGINE_TELEMETRY_ADAPTER",
+  );
 
   if (strict) {
     if (persistenceMode !== "postgres") invalidConfiguration("MATCHCUTS_PERSISTENCE_ADAPTER");
     if (queueMode !== "postgres") invalidConfiguration("MATCHCUTS_QUEUE_ADAPTER");
     if (authMode !== "oidc") invalidConfiguration("SHORTSENGINE_AUTH_MODE");
     if (storageMode !== "r2") invalidConfiguration("MATCHCUTS_STORAGE_ADAPTER");
+    if (telemetryMode !== "postgres") {
+      invalidConfiguration("SHORTSENGINE_TELEMETRY_ADAPTER");
+    }
   }
   if (persistenceMode === "postgres" && queueMode !== "postgres") {
     invalidConfiguration("MATCHCUTS_QUEUE_ADAPTER");
@@ -240,9 +258,55 @@ function loadRuntimeConfig(env = process.env) {
       max: 900,
       field: "MATCHCUTS_UPLOAD_PART_URL_TTL_SECONDS",
     }),
+    stagingRetentionHours: boundedInteger(env.MATCHCUTS_STAGING_RETENTION_HOURS, 24, {
+      min: 1,
+      max: 168,
+      field: "MATCHCUTS_STAGING_RETENTION_HOURS",
+    }),
+    previewRetentionHours: boundedInteger(env.MATCHCUTS_PREVIEW_RETENTION_HOURS, 24, {
+      min: 1,
+      max: 168,
+      field: "MATCHCUTS_PREVIEW_RETENTION_HOURS",
+    }),
+    exportRetentionDays: boundedInteger(env.MATCHCUTS_EXPORT_RETENTION_DAYS, 30, {
+      min: 1,
+      max: 365,
+      field: "MATCHCUTS_EXPORT_RETENTION_DAYS",
+    }),
   });
   if (cloudStorageRequired && storageMode === "s3" && !storage.region) {
     invalidConfiguration("MATCHCUTS_STORAGE_REGION");
+  }
+
+  const worker = Object.freeze({
+    leaseMs: boundedInteger(env.MATCHCUTS_WORKER_LEASE_MS, 60000, {
+      min: 10000,
+      max: 15 * 60 * 1000,
+      field: "MATCHCUTS_WORKER_LEASE_MS",
+    }),
+    heartbeatMs: boundedInteger(env.MATCHCUTS_WORKER_HEARTBEAT_MS, 20000, {
+      min: 1000,
+      max: 5 * 60 * 1000,
+      field: "MATCHCUTS_WORKER_HEARTBEAT_MS",
+    }),
+    pollMs: boundedInteger(env.MATCHCUTS_WORKER_POLL_INTERVAL_MS, 1000, {
+      min: 100,
+      max: 60000,
+      field: "MATCHCUTS_WORKER_POLL_INTERVAL_MS",
+    }),
+    maxAttempts: boundedInteger(env.MATCHCUTS_JOB_MAX_ATTEMPTS, 4, {
+      min: 1,
+      max: 10,
+      field: "MATCHCUTS_JOB_MAX_ATTEMPTS",
+    }),
+    retryBaseMs: boundedInteger(env.MATCHCUTS_RETRY_BASE_MS, 1000, {
+      min: 100,
+      max: 60000,
+      field: "MATCHCUTS_RETRY_BASE_MS",
+    }),
+  });
+  if (worker.heartbeatMs * 2 >= worker.leaseMs) {
+    invalidConfiguration("MATCHCUTS_WORKER_HEARTBEAT_MS");
   }
 
   return Object.freeze({
@@ -253,24 +317,70 @@ function loadRuntimeConfig(env = process.env) {
     queueMode,
     authMode,
     storageMode,
+    telemetryMode,
     postgres,
     oidc,
     storage,
-    worker: Object.freeze({
-      leaseMs: boundedInteger(env.MATCHCUTS_WORKER_LEASE_MS, 60000, {
-        min: 10000,
-        max: 15 * 60 * 1000,
-        field: "MATCHCUTS_WORKER_LEASE_MS",
+    worker,
+    quotas: Object.freeze({
+      maxUploadBytes: boundedInteger(env.SHORTSENGINE_MAX_UPLOAD_BYTES, 5 * 1024 * 1024 * 1024, {
+        min: 1024 * 1024,
+        max: 20 * 1024 * 1024 * 1024,
+        field: "SHORTSENGINE_MAX_UPLOAD_BYTES",
       }),
-      heartbeatMs: boundedInteger(env.MATCHCUTS_WORKER_HEARTBEAT_MS, 20000, {
-        min: 1000,
-        max: 5 * 60 * 1000,
-        field: "MATCHCUTS_WORKER_HEARTBEAT_MS",
+      maxVideoDurationSeconds: boundedInteger(
+        env.SHORTSENGINE_MAX_VIDEO_DURATION_SECONDS,
+        4 * 60 * 60,
+        {
+          min: 30,
+          max: 24 * 60 * 60,
+          field: "SHORTSENGINE_MAX_VIDEO_DURATION_SECONDS",
+        },
+      ),
+      dailyRenderLimit: boundedInteger(env.SHORTSENGINE_DAILY_RENDER_LIMIT, 20, {
+        min: 1,
+        max: 10000,
+        field: "SHORTSENGINE_DAILY_RENDER_LIMIT",
       }),
-      pollMs: boundedInteger(env.MATCHCUTS_WORKER_POLL_INTERVAL_MS, 1000, {
-        min: 100,
-        max: 60000,
-        field: "MATCHCUTS_WORKER_POLL_INTERVAL_MS",
+      monthlyRenderLimit: boundedInteger(env.SHORTSENGINE_MONTHLY_RENDER_LIMIT, 400, {
+        min: 1,
+        max: 100000,
+        field: "SHORTSENGINE_MONTHLY_RENDER_LIMIT",
+      }),
+      perUserConcurrency: boundedInteger(env.SHORTSENGINE_USER_CONCURRENCY_LIMIT, 2, {
+        min: 1,
+        max: 32,
+        field: "SHORTSENGINE_USER_CONCURRENCY_LIMIT",
+      }),
+      globalConcurrency: boundedInteger(env.SHORTSENGINE_GLOBAL_CONCURRENCY_LIMIT, 8, {
+        min: 1,
+        max: 256,
+        field: "SHORTSENGINE_GLOBAL_CONCURRENCY_LIMIT",
+      }),
+      providerBudgetUsd: boundedNumber(env.SHORTSENGINE_PROVIDER_MONTHLY_BUDGET_USD, 100, {
+        min: 0,
+        max: 1_000_000,
+        field: "SHORTSENGINE_PROVIDER_MONTHLY_BUDGET_USD",
+      }),
+    }),
+    rendering: Object.freeze({
+      analysisTimeoutMs: boundedInteger(env.SHORTSENGINE_ANALYSIS_TIMEOUT_MS, 15 * 60 * 1000, {
+        min: 30 * 1000,
+        max: 2 * 60 * 60 * 1000,
+        field: "SHORTSENGINE_ANALYSIS_TIMEOUT_MS",
+      }),
+      renderTimeoutMs: boundedInteger(env.SHORTSENGINE_RENDER_TIMEOUT_MS, 30 * 60 * 1000, {
+        min: 60 * 1000,
+        max: 4 * 60 * 60 * 1000,
+        field: "SHORTSENGINE_RENDER_TIMEOUT_MS",
+      }),
+    }),
+    telemetry: Object.freeze({
+      mode: telemetryMode,
+      metricRetentionDays: boundedInteger(env.SHORTSENGINE_METRIC_RETENTION_DAYS, 30, {
+        min: 1,
+        max: 365,
+        field: "SHORTSENGINE_METRIC_RETENTION_DAYS",
       }),
     }),
   });
@@ -286,6 +396,7 @@ function publicRuntimeConfig(config) {
       queue: config.queueMode,
       auth: config.authMode,
       storage: config.storageMode,
+      telemetry: config.telemetryMode,
     },
     configured: {
       database: Boolean(config.postgres && config.postgres.url),
@@ -312,6 +423,7 @@ module.exports = {
   PROCESS_ROLES,
   QUEUE_MODES,
   STORAGE_MODES,
+  TELEMETRY_MODES,
   loadRuntimeConfig,
   publicRuntimeConfig,
 };

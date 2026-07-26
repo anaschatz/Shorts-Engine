@@ -79,6 +79,9 @@ class UploadValidationService {
     this.probeMedia = options.probeMedia || probeMedia;
     this.validateSignature = options.validateSignature || validateSignature;
     this.randomUUID = options.randomUUID || randomUUID;
+    this.maxVideoDurationSeconds = Number(
+      options.maxVideoDurationSeconds || 4 * 60 * 60,
+    );
     this.stagingRoot = options.stagingRoot
       || join(tmpdir(), "shortsengine-upload-validation");
   }
@@ -92,6 +95,17 @@ class UploadValidationService {
     if (!session || session.status !== "completed") {
       throw new AppError("UPLOAD_NOT_FOUND", SAFE_MESSAGES.UPLOAD_NOT_FOUND, 404);
     }
+    const quotaPolicy = this.persistence
+      && typeof this.persistence.getQuotaPolicy === "function"
+      ? await this.persistence.getQuotaPolicy(ownerId)
+      : null;
+    const videoDurationLimitSeconds = Math.min(
+      this.maxVideoDurationSeconds,
+      Number(
+        quotaPolicy && quotaPolicy.videoDurationLimitSeconds
+        || this.maxVideoDurationSeconds,
+      ),
+    );
     const extension = CONTENT_TYPE_EXTENSIONS[session.contentType];
     if (!extension) {
       throw new AppError(
@@ -160,6 +174,20 @@ class UploadValidationService {
       );
       const media = await this.probeMedia(stagePath);
       assertNotCancelled(signal);
+      if (!Number.isFinite(Number(media.durationSeconds)) || Number(media.durationSeconds) <= 0) {
+        throw new AppError(
+          "VIDEO_DURATION_INVALID",
+          SAFE_MESSAGES.VIDEO_DURATION_INVALID,
+          422,
+        );
+      }
+      if (Number(media.durationSeconds) > videoDurationLimitSeconds) {
+        throw new AppError(
+          "VIDEO_TOO_LONG",
+          SAFE_MESSAGES.VIDEO_TOO_LONG,
+          422,
+        );
+      }
       const publishRecord = {
         ownerId,
         uploadId,

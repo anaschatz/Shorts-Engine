@@ -58,6 +58,7 @@
     "github:doctor": "node tools/release/check-github-cli.mjs",
     "github:setup": "node tools/release/print-github-cli-setup.mjs",
     "integration:cloud": "node scripts/run-real-cloud-integration.mjs",
+    "integration:production": "node scripts/run-production-integration.mjs",
     "lint": "node tests/static-lint.mjs",
     "outbox:drain": "node tools/outbox-drain.mjs",
     "outbox:health": "node tools/outbox-health.mjs",

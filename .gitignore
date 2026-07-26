@@ -28,9 +28,13 @@ shortresearch/latest.json
 shortresearch/results.tsv
 shortresearch/runs/
 release/results/*.json
+output/performance/
+viking-brain/sessions/inbox/*.jsonl
 *.refresh-backup-*
 *.unreadable-*
 *.previous-*
+* 2.*
+* 3.*
 viking-brain/trajectories/
 *.log
 .DS_Store

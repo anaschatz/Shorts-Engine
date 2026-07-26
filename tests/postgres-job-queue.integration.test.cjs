@@ -247,10 +247,18 @@ test("PostgreSQL queue provides multi-worker claims, fencing, retries, DLQ and q
       "cancelled",
     );
 
+    await persistence.upsertQuotaPolicy(ownerB, {
+      dailyRenderLimit: 1,
+      monthlyRenderLimit: 10,
+      concurrentJobLimit: 1,
+      providerBudgetUsd: 10,
+    });
+    const quotaPolicy = await persistence.getQuotaPolicy(ownerB);
+    assert.equal(quotaPolicy.dailyRenderLimit, 1);
     const quotaQueue = new PostgresJobQueue({
       persistenceAdapter: persistence,
       config: { worker: { leaseMs: 60_000 } },
-      dailyRenderQuota: 1,
+      dailyRenderQuota: 10,
     });
     const quotaJob = await quotaQueue.enqueue({
       ownerId: ownerB,
@@ -268,6 +276,7 @@ test("PostgreSQL queue provides multi-worker claims, fencing, retries, DLQ and q
       (error) => error.code === "RENDER_QUOTA_EXCEEDED",
     );
     await quotaQueue.cancel(quotaJob.job.id, { ownerId: ownerB });
+    await persistence.query("DELETE FROM quota_policies WHERE owner_id = $1", [ownerB]);
 
     const concurrencyQueue = new PostgresJobQueue({
       persistenceAdapter: persistence,
@@ -296,7 +305,87 @@ test("PostgreSQL queue provides multi-worker claims, fencing, retries, DLQ and q
     const activeRender = activeClaims[0];
     assert.ok([renderOne.job.id, renderTwo.job.id].includes(activeRender.job.id));
     await concurrencyQueue.complete(activeRender.job, {}, activeRender.lease);
-    assert.ok(await concurrencyQueue.claimNext());
+    const secondRender = await concurrencyQueue.claimNext();
+    assert.ok(secondRender);
+    await concurrencyQueue.complete(secondRender.job, {}, secondRender.lease);
+
+    const globalQueueA = new PostgresJobQueue({
+      persistenceAdapter: persistence,
+      config: { worker: { leaseMs: 60_000 } },
+      dailyRenderQuota: 10,
+      ownerConcurrency: 2,
+      globalConcurrency: 1,
+    });
+    const globalQueueB = new PostgresJobQueue({
+      persistenceAdapter: persistence,
+      config: { worker: { leaseMs: 60_000 } },
+      dailyRenderQuota: 10,
+      ownerConcurrency: 2,
+      globalConcurrency: 1,
+    });
+    await globalQueueA.enqueue({
+      ownerId: ownerA,
+      projectId: projectA,
+      action: "render",
+      pipelineType: "football",
+    });
+    await globalQueueB.enqueue({
+      ownerId: ownerB,
+      projectId: projectB,
+      action: "render",
+      pipelineType: "football",
+    });
+    const globalClaims = await Promise.all([
+      globalQueueA.claimNext({ workerId: "global-a" }),
+      globalQueueB.claimNext({ workerId: "global-b" }),
+    ]);
+    assert.equal(globalClaims.filter(Boolean).length, 1);
+    const globalFirst = globalClaims.find(Boolean);
+    await persistence.recordUsage({
+      ownerId: globalFirst.job.ownerId,
+      jobId: globalFirst.job.id,
+      provider: "integration-provider",
+      operation: "render",
+      unitType: "tokens",
+      unitCount: 100,
+      durationMs: 25,
+      providerCostUsd: 0.01,
+      computeCostUsd: 0.005,
+      estimated: false,
+    });
+    await globalQueueA.complete(globalFirst.job, {}, globalFirst.lease);
+    const globalSecond = await globalQueueB.claimNext({ workerId: "global-b" });
+    assert.ok(globalSecond);
+    await globalQueueB.complete(globalSecond.job, {}, globalSecond.lease);
+
+    const attemptHistory = await persistence.query(
+      `SELECT status, worker_id, lease_id
+       FROM job_attempts
+       WHERE job_id = $1
+       ORDER BY attempt`,
+      [globalFirst.job.id],
+    );
+    assert.equal(attemptHistory.rows.length, 1);
+    assert.equal(attemptHistory.rows[0].status, "completed");
+    assert.ok(attemptHistory.rows[0].worker_id);
+    assert.ok(attemptHistory.rows[0].lease_id);
+
+    const costRecord = await persistence.query(
+      `SELECT
+         completed,
+         cost_coverage,
+         provider_usage_json,
+         token_usage,
+         final_cost_usd
+       FROM job_cost_records
+       WHERE job_id = $1`,
+      [globalFirst.job.id],
+    );
+    assert.equal(costRecord.rowCount, 1);
+    assert.equal(costRecord.rows[0].completed, true);
+    assert.equal(Number(costRecord.rows[0].token_usage), 100);
+    assert.equal(costRecord.rows[0].provider_usage_json.length, 1);
+    assert.equal(Number(costRecord.rows[0].final_cost_usd), 0.015);
     const health = await concurrencyQueue.health();
     assert.equal(health.ready, true);
     assert.equal(health.workerRuntime.multiWorkerSafe, true);

@@ -303,18 +303,25 @@ class PostgresPersistenceAdapter {
 
   async createProject(record) {
     const result = await this.query(
-      `INSERT INTO projects(
-         id, owner_id, schema_version, project_type, upload_id,
-         title, language, status, input_json, source_json, source_revision,
-         created_at, updated_at
+      `WITH inserted AS (
+         INSERT INTO projects(
+           id, owner_id, schema_version, project_type, upload_id,
+           title, language, status, input_json, source_json, source_revision,
+           created_at, updated_at
+         )
+         VALUES (
+           $1, $2, $3, $4, $5,
+           $6, $7, $8, $9::jsonb, $10::jsonb, $11,
+           COALESCE($12::timestamptz, clock_timestamp()),
+           COALESCE($13::timestamptz, clock_timestamp())
+         )
+         RETURNING *
+       ), membership AS (
+         INSERT INTO project_memberships(project_id, user_id, role)
+         SELECT id, owner_id, 'owner' FROM inserted
+         ON CONFLICT (project_id, user_id) DO NOTHING
        )
-       VALUES (
-         $1, $2, $3, $4, $5,
-         $6, $7, $8, $9::jsonb, $10::jsonb, $11,
-         COALESCE($12::timestamptz, clock_timestamp()),
-         COALESCE($13::timestamptz, clock_timestamp())
-       )
-       RETURNING *`,
+       SELECT * FROM inserted`,
       [
         record.id,
         record.ownerId,
@@ -1168,6 +1175,171 @@ class PostgresPersistenceAdapter {
     };
   }
 
+  async recordMetric(record) {
+    const result = await this.query(
+      `INSERT INTO metric_events(
+         metric_name, metric_kind, metric_value, labels_json
+       )
+       VALUES ($1, $2, $3, $4::jsonb)
+       RETURNING id`,
+      [
+        String(record.metricName || "").slice(0, 100),
+        record.kind,
+        Number(record.value),
+        JSON.stringify(record.labels || {}),
+      ],
+    );
+    return result.rowCount > 0;
+  }
+
+  async getQuotaPolicy(ownerId) {
+    const result = await this.query(
+      `SELECT
+         owner_id,
+         daily_render_limit,
+         monthly_render_limit,
+         concurrent_job_limit,
+         provider_budget_usd,
+         upload_size_limit_bytes,
+         video_duration_limit_seconds,
+         updated_at
+       FROM quota_policies
+       WHERE owner_id = $1`,
+      [ownerId],
+    );
+    if (!result.rowCount) return null;
+    const row = result.rows[0];
+    return {
+      ownerId: row.owner_id,
+      dailyRenderLimit: row.daily_render_limit,
+      monthlyRenderLimit: row.monthly_render_limit,
+      concurrentJobLimit: row.concurrent_job_limit,
+      providerBudgetUsd: row.provider_budget_usd === null
+        ? null
+        : Number(row.provider_budget_usd),
+      uploadSizeLimitBytes: row.upload_size_limit_bytes === null
+        ? null
+        : Number(row.upload_size_limit_bytes),
+      videoDurationLimitSeconds: row.video_duration_limit_seconds,
+      updatedAt: new Date(row.updated_at).toISOString(),
+    };
+  }
+
+  async upsertQuotaPolicy(ownerId, policy = {}) {
+    const result = await this.query(
+      `INSERT INTO quota_policies(
+         owner_id,
+         daily_render_limit,
+         monthly_render_limit,
+         concurrent_job_limit,
+         provider_budget_usd,
+         upload_size_limit_bytes,
+         video_duration_limit_seconds
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (owner_id)
+       DO UPDATE SET
+         daily_render_limit = EXCLUDED.daily_render_limit,
+         monthly_render_limit = EXCLUDED.monthly_render_limit,
+         concurrent_job_limit = EXCLUDED.concurrent_job_limit,
+         provider_budget_usd = EXCLUDED.provider_budget_usd,
+         upload_size_limit_bytes = EXCLUDED.upload_size_limit_bytes,
+         video_duration_limit_seconds = EXCLUDED.video_duration_limit_seconds,
+         updated_at = clock_timestamp()
+       RETURNING owner_id`,
+      [
+        ownerId,
+        policy.dailyRenderLimit ?? null,
+        policy.monthlyRenderLimit ?? null,
+        policy.concurrentJobLimit ?? null,
+        policy.providerBudgetUsd ?? null,
+        policy.uploadSizeLimitBytes ?? null,
+        policy.videoDurationLimitSeconds ?? null,
+      ],
+    );
+    return result.rowCount > 0;
+  }
+
+  async getJobCost(jobId) {
+    const result = await this.query(
+      `SELECT event_count, priced_event_count, total_cost_usd
+       FROM job_cost_rollups
+       WHERE job_id = $1`,
+      [jobId],
+    );
+    if (!result.rowCount) {
+      return { totalUsd: null, pricedEvents: 0, totalEvents: 0, coverage: 0 };
+    }
+    const row = result.rows[0];
+    const totalEvents = Number(row.event_count || 0);
+    const pricedEvents = Number(row.priced_event_count || 0);
+    return {
+      totalUsd: row.total_cost_usd === null ? null : Number(row.total_cost_usd),
+      pricedEvents,
+      totalEvents,
+      coverage: totalEvents ? pricedEvents / totalEvents : 0,
+    };
+  }
+
+  async upsertJobCostRecord(record) {
+    const result = await this.query(
+      `INSERT INTO job_cost_records(
+         job_id, owner_id, pipeline_type,
+         analysis_duration_ms, render_duration_ms, queue_wait_ms, retry_count,
+         provider_usage_json, token_usage, tts_duration_ms,
+         generated_asset_count, storage_bytes,
+         estimated_cost_usd, final_cost_usd, cost_coverage,
+         failure_category, completed, updated_at
+       )
+       VALUES (
+         $1, $2, $3,
+         $4, $5, $6, $7,
+         $8::jsonb, $9, $10,
+         $11, $12,
+         $13, $14, $15,
+         $16, $17, clock_timestamp()
+       )
+       ON CONFLICT (job_id)
+       DO UPDATE SET
+         analysis_duration_ms = EXCLUDED.analysis_duration_ms,
+         render_duration_ms = EXCLUDED.render_duration_ms,
+         queue_wait_ms = EXCLUDED.queue_wait_ms,
+         retry_count = EXCLUDED.retry_count,
+         provider_usage_json = EXCLUDED.provider_usage_json,
+         token_usage = EXCLUDED.token_usage,
+         tts_duration_ms = EXCLUDED.tts_duration_ms,
+         generated_asset_count = EXCLUDED.generated_asset_count,
+         storage_bytes = EXCLUDED.storage_bytes,
+         estimated_cost_usd = EXCLUDED.estimated_cost_usd,
+         final_cost_usd = EXCLUDED.final_cost_usd,
+         cost_coverage = EXCLUDED.cost_coverage,
+         failure_category = EXCLUDED.failure_category,
+         completed = EXCLUDED.completed,
+         updated_at = clock_timestamp()
+       RETURNING job_id`,
+      [
+        record.jobId,
+        record.ownerId,
+        record.pipelineType,
+        record.analysisDurationMs ?? null,
+        record.renderDurationMs ?? null,
+        record.queueWaitMs ?? null,
+        Number(record.retryCount || 0),
+        JSON.stringify(record.providerUsage || {}),
+        record.tokenUsage ?? null,
+        record.ttsDurationMs ?? null,
+        record.generatedAssetCount ?? null,
+        record.storageBytes ?? null,
+        record.estimatedCostUsd ?? null,
+        record.finalCostUsd ?? null,
+        Number(record.costCoverage || 0),
+        record.failureCategory || null,
+        record.completed === true,
+      ],
+    );
+    return result.rowCount > 0;
+  }
+
   async getJobOwnedBy(jobId, ownerId) {
     const result = await this.query(
       "SELECT * FROM jobs WHERE id = $1 AND owner_id = $2",
@@ -1184,14 +1356,14 @@ class PostgresPersistenceAdapter {
            COALESCE((SELECT max(version) FROM schema_migrations), 0) AS version`,
       );
       return {
-        ready: Number(result.rows[0].version || 0) >= 6,
+        ready: Number(result.rows[0].version || 0) >= 7,
         adapter: "postgres-persistence",
         mode: "postgres",
         database: true,
         transactions: true,
         migrations: {
           currentVersion: Number(result.rows[0].version || 0),
-          requiredVersion: 6,
+          requiredVersion: 7,
         },
       };
     } catch {

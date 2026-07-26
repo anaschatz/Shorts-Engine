@@ -6,6 +6,7 @@ const RENDER_ACTIONS = new Set([
   "generate",
   "render",
   "render_approved_candidate",
+  "render_approved_football",
   "render_narrated_short",
   "render_motivational_source_short",
 ]);
@@ -66,6 +67,7 @@ class PostgresJobQueue {
   constructor(options = {}) {
     this.persistence = options.persistenceAdapter;
     this.config = options.config || {};
+    this.observability = options.observability || null;
     this.workerId = options.workerId || `wrk_${randomUUID()}`;
     this.randomUUID = options.randomUUID || randomUUID;
     this.backend = "postgres";
@@ -75,10 +77,18 @@ class PostgresJobQueue {
       || 60_000,
     );
     this.maxAttempts = Number(
-      options.maxAttempts ?? (Number(options.maxRetries ?? 3) + 1),
+      options.maxAttempts
+      ?? (this.config.worker && this.config.worker.maxAttempts)
+      ?? (Number(options.maxRetries ?? 3) + 1),
     );
-    this.dailyRenderQuota = Number(options.dailyRenderQuota || 20);
-    this.ownerConcurrency = Number(options.ownerConcurrency || 2);
+    const quotas = this.config.quotas || {};
+    this.dailyRenderQuota = Number(options.dailyRenderQuota || quotas.dailyRenderLimit || 20);
+    this.monthlyRenderQuota = Number(options.monthlyRenderQuota || quotas.monthlyRenderLimit || 400);
+    this.ownerConcurrency = Number(options.ownerConcurrency || quotas.perUserConcurrency || 2);
+    this.globalConcurrency = Number(options.globalConcurrency || quotas.globalConcurrency || 8);
+    this.providerBudgetUsd = Number(
+      options.providerBudgetUsd ?? quotas.providerBudgetUsd ?? 100,
+    );
   }
 
   async withTransaction(callback) {
@@ -90,6 +100,195 @@ class PostgresJobQueue {
       );
     }
     return await this.persistence.withTransaction(callback);
+  }
+
+  async recordClaim(transaction, row) {
+    await transaction.query(
+      `UPDATE job_attempts
+       SET
+         status = 'lease_expired',
+         finished_at = clock_timestamp(),
+         processing_duration_ms = GREATEST(
+           0,
+           floor(EXTRACT(EPOCH FROM (clock_timestamp() - started_at)) * 1000)::bigint
+         )
+       WHERE job_id = $1
+         AND status = 'processing'
+         AND attempt < $2`,
+      [row.id, row.attempt],
+    );
+    await transaction.query(
+      `INSERT INTO job_attempts(
+         job_id, attempt, worker_id, lease_id, status,
+         started_at, last_heartbeat_at, queue_wait_ms
+       )
+       VALUES (
+         $1, $2, $3, $4, 'processing',
+         clock_timestamp(), clock_timestamp(),
+         GREATEST(
+           0,
+           floor(EXTRACT(EPOCH FROM (clock_timestamp() - $5::timestamptz)) * 1000)::bigint
+         )
+       )
+       ON CONFLICT (job_id, attempt)
+       DO UPDATE SET
+         worker_id = EXCLUDED.worker_id,
+         lease_id = EXCLUDED.lease_id,
+         status = 'processing',
+         started_at = clock_timestamp(),
+         last_heartbeat_at = clock_timestamp(),
+         finished_at = NULL,
+         error_code = NULL,
+         failure_category = NULL`,
+      [
+        row.id,
+        row.attempt,
+        row.worker_id,
+        row.lease_id,
+        row.created_at,
+      ],
+    );
+  }
+
+  async finishAttempt(transaction, fencing, status, errorCode = null) {
+    await transaction.query(
+      `UPDATE job_attempts
+       SET
+         status = $5,
+         finished_at = clock_timestamp(),
+         error_code = $6,
+         failure_category = $6,
+         processing_duration_ms = GREATEST(
+           0,
+           floor(EXTRACT(EPOCH FROM (clock_timestamp() - started_at)) * 1000)::bigint
+         )
+       WHERE job_id = $1
+         AND worker_id = $2
+         AND lease_id = $3
+         AND attempt = $4
+         AND status = 'processing'`,
+      [
+        fencing.jobId,
+        fencing.workerId,
+        fencing.leaseId,
+        fencing.attempt,
+        status,
+        errorCode,
+      ],
+    );
+  }
+
+  async recordJobCost(transaction, row) {
+    await transaction.query(
+      `INSERT INTO job_cost_records(
+         job_id, owner_id, pipeline_type,
+         analysis_duration_ms, render_duration_ms, queue_wait_ms, retry_count,
+         provider_usage_json, token_usage, tts_duration_ms,
+         generated_asset_count, storage_bytes,
+         estimated_cost_usd, final_cost_usd, cost_coverage,
+         failure_category, completed, updated_at
+       )
+       SELECT
+         job.id,
+         job.owner_id,
+         job.pipeline_type,
+         CASE
+           WHEN job.action LIKE 'analyze_%' THEN attempts.processing_ms
+           ELSE NULL
+         END,
+         CASE
+           WHEN job.action = ANY($2::text[]) THEN attempts.processing_ms
+           ELSE NULL
+         END,
+         attempts.queue_wait_ms,
+         GREATEST(0, job.attempt - 1),
+         costs.usage_json,
+         costs.token_usage,
+         costs.tts_duration_ms,
+         artifacts.generated_asset_count,
+         artifacts.storage_bytes,
+         costs.total_cost_usd,
+         CASE WHEN costs.coverage = 1 THEN costs.total_cost_usd ELSE NULL END,
+         costs.coverage,
+         job.error_code,
+         job.status = 'completed',
+         clock_timestamp()
+       FROM jobs AS job
+       LEFT JOIN LATERAL (
+         SELECT
+           sum(processing_duration_ms)::bigint AS processing_ms,
+           min(queue_wait_ms)::bigint AS queue_wait_ms
+         FROM job_attempts
+         WHERE job_id = job.id
+       ) AS attempts ON true
+       LEFT JOIN LATERAL (
+         SELECT
+           coalesce(
+             jsonb_agg(
+               jsonb_build_object(
+                 'provider', provider,
+                 'operation', operation,
+                 'unitType', unit_type,
+                 'unitCount', unit_count,
+                 'durationMs', duration_ms,
+                 'retryCount', retry_count,
+                 'estimated', estimated
+               )
+               ORDER BY created_at, id
+             ),
+             '[]'::jsonb
+           ) AS usage_json,
+           floor(coalesce(sum(unit_count) FILTER (
+             WHERE unit_type IN ('token', 'tokens')
+           ), 0))::bigint AS token_usage,
+           coalesce(sum(duration_ms) FILTER (
+             WHERE operation LIKE '%tts%'
+                OR unit_type IN ('audio_second', 'audio_seconds')
+           ), 0)::bigint AS tts_duration_ms,
+           CASE
+             WHEN count(*) = 0 THEN NULL
+             ELSE sum(coalesce(provider_cost_usd, 0) + coalesce(compute_cost_usd, 0))
+           END AS total_cost_usd,
+           CASE
+             WHEN count(*) = 0 THEN 0
+             ELSE count(*) FILTER (
+               WHERE provider_cost_usd IS NOT NULL OR compute_cost_usd IS NOT NULL
+             )::numeric / count(*)::numeric
+           END AS coverage
+         FROM provider_usage_events
+         WHERE job_id = job.id
+       ) AS costs ON true
+       LEFT JOIN LATERAL (
+         SELECT
+           count(*) FILTER (
+             WHERE status = 'available'
+           )::integer AS generated_asset_count,
+           coalesce(sum(byte_size) FILTER (
+             WHERE status = 'available'
+           ), 0)::bigint AS storage_bytes
+         FROM artifacts
+         WHERE owner_job_id = job.id
+       ) AS artifacts ON true
+       WHERE job.id = $1
+       ON CONFLICT (job_id)
+       DO UPDATE SET
+         analysis_duration_ms = EXCLUDED.analysis_duration_ms,
+         render_duration_ms = EXCLUDED.render_duration_ms,
+         queue_wait_ms = EXCLUDED.queue_wait_ms,
+         retry_count = EXCLUDED.retry_count,
+         provider_usage_json = EXCLUDED.provider_usage_json,
+         token_usage = EXCLUDED.token_usage,
+         tts_duration_ms = EXCLUDED.tts_duration_ms,
+         generated_asset_count = EXCLUDED.generated_asset_count,
+         storage_bytes = EXCLUDED.storage_bytes,
+         estimated_cost_usd = EXCLUDED.estimated_cost_usd,
+         final_cost_usd = EXCLUDED.final_cost_usd,
+         cost_coverage = EXCLUDED.cost_coverage,
+         failure_category = EXCLUDED.failure_category,
+         completed = EXCLUDED.completed,
+         updated_at = clock_timestamp()`,
+      [row.id, [...RENDER_ACTIONS]],
+    );
   }
 
   async enqueue(record, options = {}) {
@@ -168,15 +367,71 @@ class PostgresJobQueue {
           "SELECT pg_advisory_xact_lock(hashtext($1))",
           [`render-quota:${ownerId}`],
       );
+      const policy = await transaction.query(
+        `SELECT
+           daily_render_limit,
+           monthly_render_limit,
+           provider_budget_usd
+         FROM quota_policies
+         WHERE owner_id = $1`,
+        [ownerId],
+      );
+      const ownerPolicy = policy.rows[0] || {};
+      const dailyLimit = Number(
+        ownerPolicy.daily_render_limit ?? this.dailyRenderQuota,
+      );
+      const monthlyLimit = Number(
+        ownerPolicy.monthly_render_limit ?? this.monthlyRenderQuota,
+      );
+      const providerBudgetUsd = Number(
+        ownerPolicy.provider_budget_usd ?? this.providerBudgetUsd,
+      );
       const quota = await transaction.query(
-          `SELECT count(*)::integer AS count
+          `SELECT
+             count(*) FILTER (
+               WHERE created_at >= date_trunc('day', clock_timestamp())
+             )::integer AS daily_count,
+             count(*) FILTER (
+               WHERE created_at >= date_trunc('month', clock_timestamp())
+             )::integer AS monthly_count
            FROM jobs
            WHERE owner_id = $1
              AND action = ANY($2::text[])
-             AND created_at >= date_trunc('day', clock_timestamp())`,
+             AND created_at >= date_trunc('month', clock_timestamp())`,
           [ownerId, [...RENDER_ACTIONS]],
       );
-      if (Number(quota.rows[0].count) >= this.dailyRenderQuota) {
+      if (
+        Number(quota.rows[0].daily_count) >= dailyLimit
+        || Number(quota.rows[0].monthly_count) >= monthlyLimit
+      ) {
+        if (this.observability) {
+          this.observability.increment("quota_rejection_total", {
+            pipeline: pipelineType.toLowerCase(),
+            category: "render_count",
+          });
+        }
+        throw new AppError(
+          "RENDER_QUOTA_EXCEEDED",
+          SAFE_MESSAGES.RENDER_QUOTA_EXCEEDED,
+          429,
+        );
+      }
+      const budget = await transaction.query(
+        `SELECT coalesce(sum(
+           coalesce(provider_cost_usd, 0) + coalesce(compute_cost_usd, 0)
+         ), 0) AS attributed_cost_usd
+         FROM provider_usage_events
+         WHERE owner_id = $1
+           AND created_at >= date_trunc('month', clock_timestamp())`,
+        [ownerId],
+      );
+      if (Number(budget.rows[0].attributed_cost_usd || 0) >= providerBudgetUsd) {
+        if (this.observability) {
+          this.observability.increment("quota_rejection_total", {
+            pipeline: pipelineType.toLowerCase(),
+            category: "provider_budget",
+          });
+        }
         throw new AppError(
           "RENDER_QUOTA_EXCEEDED",
           SAFE_MESSAGES.RENDER_QUOTA_EXCEEDED,
@@ -246,6 +501,20 @@ class PostgresJobQueue {
     );
     for (const row of exhausted.rows) {
       await transaction.query(
+        `UPDATE job_attempts
+         SET
+           status = 'failed',
+           finished_at = clock_timestamp(),
+           error_code = $3,
+           failure_category = $3,
+           processing_duration_ms = GREATEST(
+             0,
+             floor(EXTRACT(EPOCH FROM (clock_timestamp() - started_at)) * 1000)::bigint
+           )
+         WHERE job_id = $1 AND attempt = $2 AND status = 'processing'`,
+        [row.id, row.attempt, row.error_code || "JOB_STALE"],
+      );
+      await transaction.query(
         `INSERT INTO job_dead_letters(
            job_id, owner_id, final_error_code, attempts, record_json
          )
@@ -296,8 +565,23 @@ class PostgresJobQueue {
          lease_expires_at = NULL,
          updated_at = clock_timestamp()
        FROM expired
-       WHERE job.id = expired.id`,
+       WHERE job.id = expired.id
+       RETURNING job.id, job.attempt`,
     );
+    for (const row of result.rows) {
+      await transaction.query(
+        `UPDATE job_attempts
+         SET
+           status = 'cancelled',
+           finished_at = clock_timestamp(),
+           processing_duration_ms = GREATEST(
+             0,
+             floor(EXTRACT(EPOCH FROM (clock_timestamp() - started_at)) * 1000)::bigint
+           )
+         WHERE job_id = $1 AND attempt = $2 AND status = 'processing'`,
+        [row.id, row.attempt],
+      );
+    }
     return result.rowCount;
   }
 
@@ -326,6 +610,12 @@ class PostgresJobQueue {
            )
            AND job.cancel_requested_at IS NULL
            AND (
+             SELECT count(*)
+             FROM jobs AS global_active
+             WHERE global_active.status = 'processing'
+               AND global_active.lease_expires_at > clock_timestamp()
+           ) < $6
+           AND (
              NOT (job.action = ANY($4::text[]))
              OR (
                SELECT count(*)
@@ -334,7 +624,14 @@ class PostgresJobQueue {
                  AND active.status = 'processing'
                  AND active.lease_expires_at > clock_timestamp()
                  AND active.action = ANY($4::text[])
-             ) < $5
+             ) < coalesce(
+               (
+                 SELECT concurrent_job_limit
+                 FROM quota_policies
+                 WHERE owner_id = job.owner_id
+               ),
+               $5
+             )
            )
            ORDER BY job.created_at, job.id
            FOR UPDATE OF job, owner SKIP LOCKED
@@ -354,9 +651,17 @@ class PostgresJobQueue {
          FROM candidate
          WHERE job.id = candidate.id
          RETURNING job.*`,
-        [workerId, leaseId, leaseMs, [...RENDER_ACTIONS], this.ownerConcurrency],
+        [
+          workerId,
+          leaseId,
+          leaseMs,
+          [...RENDER_ACTIONS],
+          this.ownerConcurrency,
+          this.globalConcurrency,
+        ],
       );
       if (!claimed.rowCount) return null;
+      await this.recordClaim(transaction, claimed.rows[0]);
       const job = mapJob(claimed.rows[0]);
       return {
         job,
@@ -380,13 +685,30 @@ class PostgresJobQueue {
       await this.finalizeExpiredCancellations(transaction);
       await this.moveExpiredExhaustedToDlq(transaction);
       const locked = await transaction.query(
-        `SELECT job.action, job.owner_id
+        `SELECT
+           job.action,
+           job.owner_id,
+           coalesce(policy.concurrent_job_limit, $2) AS concurrent_job_limit
          FROM jobs AS job
          JOIN users AS owner ON owner.id = job.owner_id
+         LEFT JOIN quota_policies AS policy ON policy.owner_id = job.owner_id
          WHERE job.id = $1
          FOR UPDATE OF job, owner`,
-        [jobId],
+        [jobId, this.ownerConcurrency],
       );
+      const globalActive = await transaction.query(
+        `SELECT count(*)::integer AS count
+         FROM jobs
+         WHERE status = 'processing'
+           AND lease_expires_at > clock_timestamp()`,
+      );
+      if (Number(globalActive.rows[0].count) >= this.globalConcurrency) {
+        throw new AppError(
+          "JOB_LEASE_INVALID",
+          SAFE_MESSAGES.JOB_LEASE_INVALID,
+          409,
+        );
+      }
       if (locked.rowCount && RENDER_ACTIONS.has(locked.rows[0].action)) {
         const active = await transaction.query(
           `SELECT count(*)::integer AS count
@@ -397,7 +719,10 @@ class PostgresJobQueue {
              AND action = ANY($2::text[])`,
           [locked.rows[0].owner_id, [...RENDER_ACTIONS]],
         );
-        if (Number(active.rows[0].count) >= this.ownerConcurrency) {
+        if (
+          Number(active.rows[0].count)
+          >= Number(locked.rows[0].concurrent_job_limit)
+        ) {
           throw new AppError(
             "JOB_LEASE_INVALID",
             SAFE_MESSAGES.JOB_LEASE_INVALID,
@@ -436,6 +761,7 @@ class PostgresJobQueue {
       if (!claimed.rowCount) {
         throw new AppError("JOB_LEASE_INVALID", SAFE_MESSAGES.JOB_LEASE_INVALID, 409);
       }
+      await this.recordClaim(transaction, claimed.rows[0]);
       const job = mapJob(claimed.rows[0]);
       return {
         job,
@@ -453,31 +779,48 @@ class PostgresJobQueue {
   async heartbeat(jobOrId, lease, options = {}) {
     const fencing = leaseInput(jobOrId, lease);
     const leaseMs = Number(options.leaseMs || this.leaseMs);
-    const result = await this.persistence.query(
-      `UPDATE jobs
-       SET
-         lease_expires_at = clock_timestamp() + ($5::bigint * interval '1 millisecond'),
-         last_heartbeat_at = clock_timestamp(),
-         updated_at = clock_timestamp()
-       WHERE id = $1
-         AND status = 'processing'
-         AND worker_id = $2
-         AND lease_id = $3
-         AND attempt = $4
-         AND lease_expires_at > clock_timestamp()
-       RETURNING *`,
-      [
-        fencing.jobId,
-        fencing.workerId,
-        fencing.leaseId,
-        fencing.attempt,
-        leaseMs,
-      ],
-    );
-    if (!result.rowCount) {
-      throw new AppError("JOB_LEASE_INVALID", SAFE_MESSAGES.JOB_LEASE_INVALID, 409);
-    }
-    return mapJob(result.rows[0]);
+    return await this.withTransaction(async (transaction) => {
+      const result = await transaction.query(
+        `UPDATE jobs
+         SET
+           lease_expires_at = clock_timestamp() + ($5::bigint * interval '1 millisecond'),
+           last_heartbeat_at = clock_timestamp(),
+           updated_at = clock_timestamp()
+         WHERE id = $1
+           AND status = 'processing'
+           AND worker_id = $2
+           AND lease_id = $3
+           AND attempt = $4
+           AND lease_expires_at > clock_timestamp()
+         RETURNING *`,
+        [
+          fencing.jobId,
+          fencing.workerId,
+          fencing.leaseId,
+          fencing.attempt,
+          leaseMs,
+        ],
+      );
+      if (!result.rowCount) {
+        throw new AppError("JOB_LEASE_INVALID", SAFE_MESSAGES.JOB_LEASE_INVALID, 409);
+      }
+      await transaction.query(
+        `UPDATE job_attempts
+         SET last_heartbeat_at = clock_timestamp()
+         WHERE job_id = $1
+           AND worker_id = $2
+           AND lease_id = $3
+           AND attempt = $4
+           AND status = 'processing'`,
+        [
+          fencing.jobId,
+          fencing.workerId,
+          fencing.leaseId,
+          fencing.attempt,
+        ],
+      );
+      return mapJob(result.rows[0]);
+    });
   }
 
   async update(jobOrId, patch = {}, lease) {
@@ -568,6 +911,12 @@ class PostgresJobQueue {
     if (!result.rowCount) {
       throw new AppError("JOB_LEASE_INVALID", SAFE_MESSAGES.JOB_LEASE_INVALID, 409);
     }
+    await this.finishAttempt(
+      transaction,
+      fencing,
+      result.rows[0].status === "completed" ? "completed" : "cancelled",
+    );
+    await this.recordJobCost(transaction, result.rows[0]);
     return mapJob(result.rows[0]);
   }
 
@@ -643,6 +992,31 @@ class PostgresJobQueue {
         throw new AppError("JOB_LEASE_INVALID", SAFE_MESSAGES.JOB_LEASE_INVALID, 409);
       }
       const row = result.rows[0];
+      await this.finishAttempt(
+        transaction,
+        fencing,
+        row.status === "queued"
+          ? "retry_scheduled"
+          : row.status === "cancelled"
+            ? "cancelled"
+            : "failed",
+        row.status === "cancelled" ? null : code,
+      );
+      await transaction.query(
+        `INSERT INTO audit_events(
+           actor_type, action, resource_type, resource_id, safe_metadata
+         )
+         VALUES ('system', $2, 'job', $1, $3::jsonb)`,
+        [
+          row.id,
+          row.status === "queued" ? "job.retry_scheduled" : "job.dead_letter",
+          JSON.stringify({
+            attempt: Number(row.attempt),
+            errorCode: code,
+            retryDelayMs: row.status === "queued" ? delayMs : null,
+          }),
+        ],
+      );
       if (row.status === "failed") {
         await transaction.query(
           `INSERT INTO job_dead_letters(
@@ -669,6 +1043,7 @@ class PostgresJobQueue {
             }),
           ],
         );
+        await this.recordJobCost(transaction, row);
       }
       return mapJob(row);
     });
@@ -715,6 +1090,23 @@ class PostgresJobQueue {
       if (!result.rowCount) {
         throw new AppError("JOB_LEASE_INVALID", SAFE_MESSAGES.JOB_LEASE_INVALID, 409);
       }
+      await this.finishAttempt(
+        transaction,
+        fencing,
+        result.rows[0].status === "cancelled" ? "cancelled" : "failed",
+        result.rows[0].status === "cancelled" ? null : code,
+      );
+      await transaction.query(
+        `INSERT INTO audit_events(
+           actor_type, action, resource_type, resource_id, safe_metadata
+         )
+         VALUES ('system', 'job.failed', 'job', $1, $2::jsonb)`,
+        [
+          result.rows[0].id,
+          JSON.stringify({ attempt: fencing.attempt, errorCode: code }),
+        ],
+      );
+      await this.recordJobCost(transaction, result.rows[0]);
       return mapJob(result.rows[0]);
     });
   }
@@ -722,56 +1114,76 @@ class PostgresJobQueue {
   async cancel(jobOrId, options = {}) {
     const jobId = String(jobOrId && jobOrId.id || jobOrId || "");
     const ownerId = String(options.ownerId || "");
-    const result = await this.persistence.query(
-      `UPDATE jobs
-       SET
-         status = CASE WHEN status = 'queued' THEN 'cancelled' ELSE status END,
-         step = CASE WHEN status = 'queued' THEN 'cancelled' ELSE step END,
-         cancel_requested_at = clock_timestamp(),
-         updated_at = clock_timestamp()
-       WHERE id = $1
-         AND owner_id = $2
-         AND status IN ('queued', 'processing')
-       RETURNING *`,
-      [jobId, ownerId],
-    );
-    if (!result.rowCount) {
-      throw new AppError("JOB_NOT_FOUND", SAFE_MESSAGES.JOB_NOT_FOUND, 404);
-    }
-    return mapJob(result.rows[0]);
+    return await this.withTransaction(async (transaction) => {
+      const result = await transaction.query(
+        `UPDATE jobs
+         SET
+           status = CASE WHEN status = 'queued' THEN 'cancelled' ELSE status END,
+           step = CASE WHEN status = 'queued' THEN 'cancelled' ELSE step END,
+           cancel_requested_at = clock_timestamp(),
+           updated_at = clock_timestamp()
+         WHERE id = $1
+           AND owner_id = $2
+           AND status IN ('queued', 'processing')
+         RETURNING *`,
+        [jobId, ownerId],
+      );
+      if (!result.rowCount) {
+        throw new AppError("JOB_NOT_FOUND", SAFE_MESSAGES.JOB_NOT_FOUND, 404);
+      }
+      await transaction.query(
+        `INSERT INTO audit_events(
+           actor_user_id, actor_type, action, resource_type, resource_id, safe_metadata
+         )
+         VALUES ($1, 'user', 'job.cancel_requested', 'job', $2, $3::jsonb)`,
+        [
+          ownerId,
+          jobId,
+          JSON.stringify({ previousStatus: result.rows[0].status }),
+        ],
+      );
+      if (result.rows[0].status === "cancelled") {
+        await this.recordJobCost(transaction, result.rows[0]);
+      }
+      return mapJob(result.rows[0]);
+    });
   }
 
   async acknowledgeCancellation(jobOrId, lease) {
     const fencing = leaseInput(jobOrId, lease);
-    const result = await this.persistence.query(
-      `UPDATE jobs
-       SET
-         status = 'cancelled',
-         step = 'cancelled',
-         completed_at = clock_timestamp(),
-         worker_id = NULL,
-         lease_id = NULL,
-         lease_expires_at = NULL,
-         updated_at = clock_timestamp()
-       WHERE id = $1
-         AND status = 'processing'
-         AND cancel_requested_at IS NOT NULL
-         AND worker_id = $2
-         AND lease_id = $3
-         AND attempt = $4
-         AND lease_expires_at > clock_timestamp()
-       RETURNING *`,
-      [
-        fencing.jobId,
-        fencing.workerId,
-        fencing.leaseId,
-        fencing.attempt,
-      ],
-    );
-    if (!result.rowCount) {
-      throw new AppError("JOB_LEASE_INVALID", SAFE_MESSAGES.JOB_LEASE_INVALID, 409);
-    }
-    return mapJob(result.rows[0]);
+    return await this.withTransaction(async (transaction) => {
+      const result = await transaction.query(
+        `UPDATE jobs
+         SET
+           status = 'cancelled',
+           step = 'cancelled',
+           completed_at = clock_timestamp(),
+           worker_id = NULL,
+           lease_id = NULL,
+           lease_expires_at = NULL,
+           updated_at = clock_timestamp()
+         WHERE id = $1
+           AND status = 'processing'
+           AND cancel_requested_at IS NOT NULL
+           AND worker_id = $2
+           AND lease_id = $3
+           AND attempt = $4
+           AND lease_expires_at > clock_timestamp()
+         RETURNING *`,
+        [
+          fencing.jobId,
+          fencing.workerId,
+          fencing.leaseId,
+          fencing.attempt,
+        ],
+      );
+      if (!result.rowCount) {
+        throw new AppError("JOB_LEASE_INVALID", SAFE_MESSAGES.JOB_LEASE_INVALID, 409);
+      }
+      await this.finishAttempt(transaction, fencing, "cancelled");
+      await this.recordJobCost(transaction, result.rows[0]);
+      return mapJob(result.rows[0]);
+    });
   }
 
   async get(jobId, ownerId) {
@@ -870,6 +1282,14 @@ class PostgresJobQueue {
          FROM jobs`,
       );
       const row = result.rows[0];
+      if (this.observability) {
+        this.observability.observe("queue_depth", Number(row.queued || 0), {
+          outcome: "queued",
+        });
+        this.observability.observe("queue_depth", Number(row.processing || 0), {
+          outcome: "processing",
+        });
+      }
       return {
         ready: true,
         adapter: "postgres-job-queue",

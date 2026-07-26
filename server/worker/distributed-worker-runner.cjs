@@ -46,6 +46,16 @@ class DistributedWorkerRunner {
     this.heartbeatMs = Math.max(1000, Number(options.heartbeatMs || 20_000));
     this.leaseMs = Math.max(10_000, Number(options.leaseMs || 60_000));
     this.pollMs = Math.max(100, Number(options.pollMs || 1000));
+    this.clock = options.clock || { now: () => Date.now() };
+    this.observability = options.observability || null;
+    this.processingTimeouts = Object.freeze(
+      Object.fromEntries(
+        Object.entries(options.processingTimeouts || {}).map(([action, value]) => [
+          String(action),
+          Math.max(10, Number(value || 30_000)),
+        ]),
+      ),
+    );
     this.running = false;
     this.acceptingClaims = false;
     this.inFlight = new Set();
@@ -66,11 +76,28 @@ class DistributedWorkerRunner {
 
   async processClaim(claim) {
     const { job, lease } = claim;
+    const processingStartedAt = this.clock.now();
+    let metricOutcome = "failed";
     const controller = new AbortController();
     let heartbeatTimer = null;
+    let processingTimer = null;
     let heartbeatInFlight = false;
     let leaseLost = false;
+    let timedOut = false;
     let completedByHandler = null;
+    const processingTimeoutMs = this.processingTimeouts[job.action] || null;
+    if (processingTimeoutMs) {
+      processingTimer = setTimeout(() => {
+        timedOut = true;
+        const timeout = new AppError(
+          "JOB_TIMEOUT",
+          SAFE_MESSAGES.JOB_TIMEOUT || SAFE_MESSAGES.RENDER_FAILED,
+          504,
+        );
+        timeout.retryable = true;
+        controller.abort(timeout);
+      }, processingTimeoutMs);
+    }
     const heartbeat = async () => {
       if (heartbeatInFlight || controller.signal.aborted) return;
       heartbeatInFlight = true;
@@ -121,17 +148,22 @@ class DistributedWorkerRunner {
           return completedByHandler;
         },
       });
-      if (leaseLost) return { status: "lease_lost", jobId: job.id };
+      if (leaseLost) {
+        metricOutcome = "lease_lost";
+        return { status: "lease_lost", jobId: job.id };
+      }
       if (completedByHandler) {
+        metricOutcome = completedByHandler.status === "cancelled"
+          ? "cancelled"
+          : "completed";
         return {
-          status: completedByHandler.status === "cancelled"
-            ? "cancelled"
-            : "completed",
+          status: metricOutcome,
           jobId: job.id,
         };
       }
       if (controller.signal.aborted) {
         await this.queue.acknowledgeCancellation(job, lease);
+        metricOutcome = "cancelled";
         return { status: "cancelled", jobId: job.id };
       }
       const completed = await this.queue.complete(
@@ -139,39 +171,107 @@ class DistributedWorkerRunner {
         { result: result || {} },
         lease,
       );
+      metricOutcome = completed.status === "cancelled" ? "cancelled" : "completed";
       return {
-        status: completed.status === "cancelled" ? "cancelled" : "completed",
+        status: metricOutcome,
         jobId: job.id,
       };
     } catch (error) {
       if (leaseLost || error && error.code === "JOB_LEASE_INVALID") {
+        metricOutcome = "lease_lost";
         return { status: "lease_lost", jobId: job.id };
+      }
+      if (timedOut) {
+        const timeout = new AppError(
+          "JOB_TIMEOUT",
+          SAFE_MESSAGES.JOB_TIMEOUT || SAFE_MESSAGES.RENDER_FAILED,
+          504,
+        );
+        timeout.retryable = true;
+        const retried = await this.queue.retry(job, timeout, lease);
+        metricOutcome = retried.status === "failed" ? "dead_letter" : "retry_scheduled";
+        return {
+          status: metricOutcome,
+          jobId: job.id,
+        };
       }
       if (
         controller.signal.aborted
         || error && error.code === "JOB_CANCELLED"
       ) {
         await this.queue.acknowledgeCancellation(job, lease);
+        metricOutcome = "cancelled";
         return { status: "cancelled", jobId: job.id };
       }
       if (error && error.retryable === false) {
         const failed = await this.queue.fail(job, error, lease);
+        metricOutcome = failed.status === "cancelled" ? "cancelled" : "failed";
         return {
-          status: failed.status === "cancelled" ? "cancelled" : "failed",
+          status: metricOutcome,
           jobId: job.id,
         };
       }
       const retried = await this.queue.retry(job, error, lease);
+      metricOutcome = retried.status === "cancelled"
+        ? "cancelled"
+        : retried.status === "failed"
+          ? "dead_letter"
+          : "retry_scheduled";
       return {
-        status: retried.status === "cancelled"
-          ? "cancelled"
-          : retried.status === "failed"
-            ? "dead_letter"
-            : "retry_scheduled",
+        status: metricOutcome,
         jobId: job.id,
       };
     } finally {
       if (heartbeatTimer) clearInterval(heartbeatTimer);
+      if (processingTimer) clearTimeout(processingTimer);
+      await this.recordProcessingMetrics(
+        job,
+        metricOutcome,
+        processingStartedAt,
+      ).catch(() => {});
+    }
+  }
+
+  async recordProcessingMetrics(job, outcome, startedAt) {
+    if (!this.observability) return;
+    const labels = {
+      pipeline: String(job.action || job.pipelineType || "unknown").toLowerCase(),
+      outcome,
+    };
+    this.observability.observe(
+      "processing_time_ms",
+      Math.max(0, this.clock.now() - startedAt),
+      labels,
+    );
+    if (outcome === "completed") {
+      this.observability.increment("render_success_total", labels);
+    } else if (outcome === "retry_scheduled") {
+      this.observability.increment("retry_total", labels);
+    } else if (outcome === "dead_letter") {
+      this.observability.increment("dead_letter_total", labels);
+      this.observability.increment("render_failure_total", labels);
+    } else if (outcome === "failed" || outcome === "lease_lost") {
+      this.observability.increment("render_failure_total", labels);
+    }
+    if (
+      ["completed", "failed", "dead_letter"].includes(outcome)
+      && typeof this.observability.jobCost === "function"
+    ) {
+      const cost = await this.observability.jobCost({ jobId: job.id });
+      if (
+        cost
+        && Number(cost.totalEvents) > 0
+        && cost.totalUsd !== null
+        && Number.isFinite(Number(cost.totalUsd))
+      ) {
+        this.observability.observe(
+          outcome === "completed"
+            ? "completed_video_cost_usd"
+            : "failed_video_cost_usd",
+          Number(cost.totalUsd),
+          labels,
+        );
+      }
     }
   }
 
@@ -182,6 +282,18 @@ class DistributedWorkerRunner {
       leaseMs: this.leaseMs,
     });
     if (!claim) return { claimed: false };
+    const createdAtMs = Date.parse(claim.job.createdAt || "");
+    if (this.observability && Number.isFinite(createdAtMs)) {
+      this.observability.observe(
+        "queue_wait_ms",
+        Math.max(0, this.clock.now() - createdAtMs),
+        {
+          pipeline: String(
+            claim.job.action || claim.job.pipelineType || "unknown",
+          ).toLowerCase(),
+        },
+      );
+    }
     const work = this.processClaim(claim);
     this.inFlight.add(work);
     try {

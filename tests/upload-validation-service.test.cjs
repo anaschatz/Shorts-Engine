@@ -132,6 +132,41 @@ test("upload validation streams SHA-256, checks signature, probes media and publ
   );
 });
 
+test("upload validation enforces the owner duration policy server-side", async (t) => {
+  const buffer = mp4Bytes();
+  const persistence = persistenceFor(buffer);
+  persistence.getQuotaPolicy = async () => ({
+    videoDurationLimitSeconds: 10,
+  });
+  const service = new UploadValidationService({
+    persistence,
+    store: storeFor(buffer),
+    maxVideoDurationSeconds: 60,
+    stagingRoot: stagingRoot(t),
+    randomUUID: () => "00000000-0000-4000-8000-000000000006",
+    async probeMedia() {
+      return {
+        durationSeconds: 11,
+        width: 1920,
+        height: 1080,
+        hasAudio: true,
+        videoCodec: "h264",
+        audioCodec: "aac",
+      };
+    },
+  });
+  await assert.rejects(
+    service.validateUpload({
+      ownerId: "usr_test",
+      uploadId: "upl_test",
+    }),
+    (error) => error.code === "VIDEO_TOO_LONG",
+  );
+  assert.ok(persistence.calls.some(
+    (call) => call.method === "failMultipartUpload",
+  ));
+});
+
 test("upload validation checksum mismatch fails safely and queues object deletion", async (t) => {
   const buffer = mp4Bytes();
   const persistence = persistenceFor(buffer, {
