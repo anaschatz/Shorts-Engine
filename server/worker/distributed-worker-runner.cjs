@@ -70,6 +70,7 @@ class DistributedWorkerRunner {
     let heartbeatTimer = null;
     let heartbeatInFlight = false;
     let leaseLost = false;
+    let completedByHandler = null;
     const heartbeat = async () => {
       if (heartbeatInFlight || controller.signal.aborted) return;
       heartbeatInFlight = true;
@@ -103,8 +104,32 @@ class DistributedWorkerRunner {
         async update(patch) {
           return await queue.update(job, patch, lease);
         },
+        async completeAtomically(completionResult, mutation) {
+          if (completedByHandler) {
+            throw new AppError(
+              "JOB_STATE_INVALID",
+              SAFE_MESSAGES.JOB_STATE_INVALID,
+              409,
+            );
+          }
+          completedByHandler = await queue.completeAtomically(
+            job,
+            { result: completionResult || {} },
+            lease,
+            mutation,
+          );
+          return completedByHandler;
+        },
       });
       if (leaseLost) return { status: "lease_lost", jobId: job.id };
+      if (completedByHandler) {
+        return {
+          status: completedByHandler.status === "cancelled"
+            ? "cancelled"
+            : "completed",
+          jobId: job.id,
+        };
+      }
       if (controller.signal.aborted) {
         await this.queue.acknowledgeCancellation(job, lease);
         return { status: "cancelled", jobId: job.id };

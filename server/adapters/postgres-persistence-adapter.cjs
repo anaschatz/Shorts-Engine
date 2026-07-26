@@ -704,6 +704,129 @@ class PostgresPersistenceAdapter {
     };
   }
 
+  async beginRenderArtifact(record) {
+    const result = await this.query(
+      `INSERT INTO artifacts(
+         id, owner_id, owner_project_id, owner_job_id, type, status,
+         storage_key, content_type, retention_until, metadata_json
+       )
+       SELECT
+         $1, job.owner_id, job.project_id, job.id, 'export', 'staging',
+         $7, 'video/mp4', $8, $9::jsonb
+       FROM jobs AS job
+       WHERE job.id = $2
+         AND job.owner_id = $3
+         AND job.project_id = $4
+         AND job.status = 'processing'
+         AND job.worker_id = $5
+         AND job.lease_id = $6
+         AND job.lease_expires_at > clock_timestamp()
+       RETURNING id`,
+      [
+        record.artifactId,
+        record.jobId,
+        record.ownerId,
+        record.projectId,
+        record.workerId,
+        record.leaseId,
+        record.storageKey,
+        record.retentionUntil || null,
+        JSON.stringify(record.metadata || {}),
+      ],
+    );
+    return result.rowCount > 0;
+  }
+
+  async publishRenderExportInTransaction(transaction, record) {
+    const artifact = await transaction.query(
+      `UPDATE artifacts
+       SET
+         status = 'available',
+         checksum_sha256 = $3,
+         byte_size = $4,
+         metadata_json = metadata_json || $5::jsonb,
+         updated_at = clock_timestamp()
+       WHERE id = $1
+         AND owner_id = $2
+         AND owner_project_id = $6
+         AND owner_job_id = $7
+         AND status = 'staging'
+       RETURNING id`,
+      [
+        record.artifactId,
+        record.ownerId,
+        record.checksumSha256,
+        record.byteSize,
+        JSON.stringify(record.metadata || {}),
+        record.projectId,
+        record.jobId,
+      ],
+    );
+    if (!artifact.rowCount) {
+      throw new AppError(
+        "PROJECT_STATE_LOCKED",
+        SAFE_MESSAGES.PROJECT_STATE_LOCKED,
+        409,
+      );
+    }
+    const exported = await transaction.query(
+      `INSERT INTO exports(
+         id, owner_id, project_id, job_id, artifact_id,
+         file_name, status
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, 'completed')
+       RETURNING id`,
+      [
+        record.exportId,
+        record.ownerId,
+        record.projectId,
+        record.jobId,
+        record.artifactId,
+        record.fileName,
+      ],
+    );
+    await transaction.query(
+      `UPDATE projects
+       SET status = 'completed', updated_at = clock_timestamp()
+       WHERE id = $1 AND owner_id = $2`,
+      [record.projectId, record.ownerId],
+    );
+    return exported.rowCount > 0;
+  }
+
+  async failRenderArtifact({
+    ownerId,
+    artifactId,
+    operationId,
+    errorCode = "RENDER_FAILED",
+  }) {
+    return await this.withTransaction(async (transaction) => {
+      const artifact = await transaction.query(
+        `UPDATE artifacts
+         SET status = 'delete_pending', updated_at = clock_timestamp()
+         WHERE id = $1
+           AND owner_id = $2
+           AND status IN ('staging', 'failed', 'available')
+         RETURNING id`,
+        [artifactId, ownerId],
+      );
+      if (!artifact.rowCount) return false;
+      await transaction.query(
+        `INSERT INTO storage_operations(
+           id, owner_id, artifact_id, operation, status,
+           next_attempt_at, error_code
+         )
+         VALUES (
+           $1, $2, $3, 'delete_object', 'queued',
+           clock_timestamp(), $4
+         )
+         ON CONFLICT (id) DO NOTHING`,
+        [operationId, ownerId, artifactId, errorCode],
+      );
+      return true;
+    });
+  }
+
   async createDeliveryGrant(record) {
     const result = await this.query(
       `INSERT INTO delivery_grants(

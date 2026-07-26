@@ -511,8 +511,22 @@ class PostgresJobQueue {
   }
 
   async complete(jobOrId, patch = {}, lease) {
+    return await this.withTransaction(
+      async (transaction) => await this.completeInTransaction(
+        transaction,
+        jobOrId,
+        patch,
+        lease,
+      ),
+    );
+  }
+
+  async completeInTransaction(transaction, jobOrId, patch = {}, lease) {
+    if (!transaction || typeof transaction.query !== "function") {
+      throw new TypeError("completeInTransaction requires an active PostgreSQL transaction");
+    }
     const fencing = leaseInput(jobOrId, lease);
-    const result = await this.persistence.query(
+    const result = await transaction.query(
       `UPDATE jobs
        SET
          status = CASE
@@ -555,6 +569,24 @@ class PostgresJobQueue {
       throw new AppError("JOB_LEASE_INVALID", SAFE_MESSAGES.JOB_LEASE_INVALID, 409);
     }
     return mapJob(result.rows[0]);
+  }
+
+  async completeAtomically(jobOrId, patch = {}, lease, mutation) {
+    if (typeof mutation !== "function") {
+      throw new TypeError("completeAtomically requires a transaction mutation");
+    }
+    return await this.withTransaction(async (transaction) => {
+      const completed = await this.completeInTransaction(
+        transaction,
+        jobOrId,
+        patch,
+        lease,
+      );
+      if (completed.status === "completed") {
+        await mutation(transaction, completed);
+      }
+      return completed;
+    });
   }
 
   async retry(jobOrId, error, lease, options = {}) {
