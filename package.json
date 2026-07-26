@@ -109,6 +109,8 @@
   },
   "dependencies": {
     "@hyperframes/producer": "0.7.55",
-    "d3-shape": "3.2.0"
+    "d3-shape": "3.2.0",
+    "openid-client": "5.7.1",
+    "pg": "8.13.3"
   }
 }

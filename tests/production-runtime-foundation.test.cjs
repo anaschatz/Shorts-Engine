@@ -126,6 +126,103 @@ test("createRuntime exposes async lifecycle without starting work on constructio
   assert.equal(await runtime.close(), true);
 });
 
+test("production runtime defers OIDC discovery until the web lifecycle starts", async () => {
+  let authInitializations = 0;
+  const runtime = await createRuntime({
+    config: loadRuntimeConfig(productionEnvironment()),
+    logger: null,
+    factories: {
+      async createPostgresPersistenceAdapter() {
+        return {
+          mode: "postgres",
+          async health() {
+            return { ready: true, mode: "postgres" };
+          },
+          async close() {},
+        };
+      },
+      async createPostgresJobQueue() {
+        return {
+          backend: "postgres",
+          async health() {
+            return { ready: true, backend: "postgres" };
+          },
+          async close() {},
+        };
+      },
+      async createOidcAuthAdapter(options) {
+        assert.equal(options.initialize, false);
+        return {
+          async initialize() {
+            authInitializations += 1;
+          },
+          async health() {
+            return { ready: authInitializations > 0, mode: "oidc" };
+          },
+        };
+      },
+    },
+  });
+  assert.equal(authInitializations, 0);
+  assert.equal((await runtime.readiness()).ready, false);
+  assert.equal(await runtime.start(), true);
+  assert.equal(authInitializations, 1);
+  assert.equal((await runtime.readiness()).ready, true);
+  assert.equal(await runtime.start(), false);
+  assert.equal(authInitializations, 1);
+  await runtime.close();
+});
+
+test("migrate runtime executes canonical migrations without initializing OIDC", async () => {
+  let migrations = 0;
+  let authInitializations = 0;
+  const config = {
+    ...loadRuntimeConfig(productionEnvironment()),
+    role: "migrate",
+  };
+  const runtime = await createRuntime({
+    config,
+    logger: null,
+    factories: {
+      async createPostgresPersistenceAdapter() {
+        return {
+          mode: "postgres",
+          async migrate() {
+            migrations += 1;
+          },
+          async health() {
+            return { ready: true, mode: "postgres" };
+          },
+          async close() {},
+        };
+      },
+      async createPostgresJobQueue() {
+        return {
+          backend: "postgres",
+          async health() {
+            return { ready: true, backend: "postgres" };
+          },
+          async close() {},
+        };
+      },
+      async createOidcAuthAdapter() {
+        return {
+          async initialize() {
+            authInitializations += 1;
+          },
+          async health() {
+            return { ready: true, mode: "oidc" };
+          },
+        };
+      },
+    },
+  });
+  await runtime.start();
+  assert.equal(migrations, 1);
+  assert.equal(authInitializations, 0);
+  await runtime.close();
+});
+
 test("importing the legacy app no longer starts the worker supervisor", () => {
   const output = execFileSync(
     process.execPath,

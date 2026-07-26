@@ -32,6 +32,33 @@ async function createRuntime(options = {}) {
   }
 
   const asyncPersistence = createAsyncPersistenceAdapter(persistenceAdapter);
+  let auth;
+  if (config.authMode === "oidc") {
+    if (typeof factories.createOidcAuthAdapter === "function") {
+      auth = await factories.createOidcAuthAdapter({
+        config,
+        persistence: asyncPersistence,
+        logger,
+        clock,
+        initialize: false,
+      });
+    } else {
+      const { createOidcAuthAdapter } = require("../auth/oidc-auth-adapter.cjs");
+      auth = await createOidcAuthAdapter({
+        config,
+        persistence: asyncPersistence,
+        logger,
+        clock,
+        initialize: false,
+      });
+    }
+  } else {
+    auth = options.authAdapter || {
+      async health() {
+        return { ready: true, mode: config.authMode };
+      },
+    };
+  }
   let queue;
   if (config.queueMode === "postgres") {
     if (typeof factories.createPostgresJobQueue !== "function") {
@@ -73,27 +100,45 @@ async function createRuntime(options = {}) {
     artifactAdapter,
     persistence: asyncPersistence,
     queue: asyncQueue,
+    auth,
     observability,
     clock,
     random,
     async start() {
       if (closed) throw new Error("Runtime is closed.");
       if (started) return false;
+      if (config.role === "migrate") {
+        await asyncPersistence.call("migrate");
+      }
+      if (
+        config.role === "web"
+        && config.authMode === "oidc"
+        && typeof auth.initialize === "function"
+      ) {
+        await auth.initialize();
+      }
       started = true;
       return true;
     },
     async readiness() {
-      const [persistence, jobQueue] = await Promise.all([
+      const [persistence, jobQueue, authentication] = await Promise.all([
         asyncPersistence.readiness(),
         asyncQueue.readiness(),
+        auth.health(),
       ]);
       const telemetry = await observability.health();
       return {
-        ready: Boolean(persistence.ready && jobQueue.ready && telemetry.ready),
+        ready: Boolean(
+          persistence.ready
+          && jobQueue.ready
+          && authentication.ready
+          && telemetry.ready
+        ),
         role: config.role,
         adapters: {
           persistence,
           queue: jobQueue,
+          auth: authentication,
           observability: telemetry,
         },
       };
