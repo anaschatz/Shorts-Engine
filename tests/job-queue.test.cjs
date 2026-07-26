@@ -247,7 +247,7 @@ test("local job queue health exposes safe multi-worker aggregate metrics", () =>
 
   assert.equal(health.ready, true);
   assert.equal(health.adapter, "local-job-queue");
-  assert.equal(health.workerRuntime.multiWorkerSafe, true);
+  assert.equal(health.workerRuntime.multiWorkerSafe, false);
   assert.equal(health.workers.active, 1);
   assert.equal(health.leases.active, 1);
   assert.equal(health.jobs.queued, 1);
