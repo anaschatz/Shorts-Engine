@@ -1,5 +1,32 @@
 const { createHash } = require("node:crypto");
 const { AppError, SAFE_MESSAGES } = require("../../../errors.cjs");
+const {
+  GENERIC_SEMANTIC_PROFILE_ID,
+  normalizeSemanticVisualPlan,
+} = require("./semantic-visual-planner.cjs");
+const {
+  normalizeSemanticVisualSentencePlan,
+  validateSemanticVisualSentencePlanAgainstGraph,
+} = require("./semantic-visual-sentence-planner.cjs");
+const {
+  normalizeSemanticAnimationSceneDslPlan,
+  validateSemanticAnimationSceneDslPlanAgainstContext,
+} = require("./semantic-animation-scene-dsl-plan.cjs");
+const {
+  CHECKED_UNPARAMETERIZED_SEMANTIC_EVENT_GRAPH_HASHES,
+  CHECKED_UNPARAMETERIZED_SEMANTIC_SENTENCE_PLAN_HASHES,
+  normalizeSemanticEventGraph,
+} = require("./semantic-event-validator.cjs");
+const {
+  SEMANTIC_SENTENCE_PROFILE_ID,
+  SEMANTIC_SENTENCE_PROFILE_VERSION,
+  SEMANTIC_SENTENCE_RENDERER,
+  SEMANTIC_SENTENCE_STYLE_VERSION,
+  SEMANTIC_SENTENCE_TEMPLATE_ID,
+} = require("./semantic-render-profile.cjs");
+const {
+  SEMANTIC_SCENE_COMPOSITION_PROFILE_ID,
+} = require("./semantic-scene-composition.cjs");
 const { validateVisualStateGraph } = require("./visual-state-graph.cjs");
 
 const ANIMATION_IR_SCHEMA_VERSION = 1;
@@ -13,11 +40,15 @@ const ALLOWED_ANCHORS = Object.freeze(["absolute", "beat_start", "beat_end", "wo
 const ENTITY_TYPES = Object.freeze([
   "background", "grid", "waveform", "signal_pulse", "beam", "evidence_node", "label", "camera_group",
   "observation_record", "annotation", "frequency_scale", "duration_timer", "beam_graph", "search_timeline", "proof_bridge",
-  "persistent_signal",
+  "persistent_signal", "case_evidence", "semantic_visual", "semantic_label",
+  "semantic_story_thread", "semantic_sentence",
 ]);
 const TEMPLATE_FAMILIES = Object.freeze([
   "signal_lab_v1", "mystery_payoff_v1",
   "wow_observation_v1", "frequency_duration_v1", "telescope_beam_v1", "repeat_search_v1", "evidence_payoff_v1",
+  "document_record_v2", "evidence_card_v2", "relationship_graph_v2", "map_route_v2",
+  "timeline_compare_v2", "scale_compare_v2", "bounded_verdict_v2",
+  SEMANTIC_SENTENCE_TEMPLATE_ID,
 ]);
 const HASH_RE = /^[a-f0-9]{64}$/;
 const ID_RE = /^[a-z][a-z0-9_-]{2,79}$/;
@@ -179,7 +210,29 @@ function validateEntity(entity, index) {
 
 function validateContent(content) {
   object(content, "content");
-  exactKeys(content, ["compositionId", "kicker", "titleLines", "metricValue", "metricLabel", "evidenceCode", "evidenceLabel", "reasoningLeft", "reasoningRight", "payoffLines", "timelineLabels", "semantic"], "content");
+  const semanticSentence = content.semantic?.profileId === SEMANTIC_SENTENCE_PROFILE_ID;
+  exactKeys(content, [
+    "compositionId",
+    "kicker",
+    "titleLines",
+    "metricValue",
+    "metricLabel",
+    "evidenceCode",
+    "evidenceLabel",
+    "reasoningLeft",
+    "reasoningRight",
+    "payoffLines",
+    "timelineLabels",
+    "semantic",
+    "visualPlan",
+    ...(semanticSentence
+      ? [
+        "semanticEventGraph",
+        "semanticVisualSentencePlan",
+        "semanticAnimationSceneDslPlan",
+      ]
+      : []),
+  ], "content");
   const lines = (value, field, min, max, length) => {
     if (!Array.isArray(value) || value.length < min || value.length > max) fail(field);
     return value.map((entry, index) => text(entry, `${field}[${index}]`, { max: length }));
@@ -199,9 +252,69 @@ function validateContent(content) {
   };
   if (content.semantic !== undefined) {
     object(content.semantic, "content.semantic");
-    const keys = ["profileId", "eventYearLabel", "eraLabel", "recordLabel", "annotationLabel", "frequencyLabel", "durationValue", "durationUnit", "sourceLabel", "beamTitle", "beamXAxis", "beamYAxis", "interferenceLabel", "disclosureLabel", "repeatRangeLabel", "noRepeatLabel", "transmissionLabel", "observationLabel", "proofLabel", "speculationLabel", "conclusionLabel", "candidateLeadLabel", "candidateNounLabel", "uncertaintyLabel", "finalEvidenceLabel"];
+    const profileId = text(content.semantic.profileId, "content.semantic.profileId", { max: 80, pattern: ID_RE });
+    const keys = profileId === SEMANTIC_SENTENCE_PROFILE_ID
+      ? [
+        "profileId",
+        "narrativeShape",
+        "subjectLabel",
+        "uncertaintyLabel",
+        "finalEvidenceLabel",
+        "semanticEventGraphHash",
+        "semanticVisualSentencePlanHash",
+        ...(content.semanticAnimationSceneDslPlan !== undefined
+          ? ["semanticAnimationSceneDslPlanHash"]
+          : []),
+      ]
+      : profileId === GENERIC_SEMANTIC_PROFILE_ID
+        ? ["profileId", "storyVocabulary", "subjectLabel", "uncertaintyLabel", "finalEvidenceLabel"]
+        : ["profileId", "eventYearLabel", "eraLabel", "recordLabel", "annotationLabel", "frequencyLabel", "durationValue", "durationUnit", "sourceLabel", "beamTitle", "beamXAxis", "beamYAxis", "interferenceLabel", "disclosureLabel", "repeatRangeLabel", "noRepeatLabel", "transmissionLabel", "observationLabel", "proofLabel", "speculationLabel", "conclusionLabel", "candidateLeadLabel", "candidateNounLabel", "uncertaintyLabel", "finalEvidenceLabel"];
     exactKeys(content.semantic, keys, "content.semantic");
     normalized.semantic = Object.fromEntries(keys.map((key) => [key, text(content.semantic[key], `content.semantic.${key}`, { max: 80 })]));
+  }
+  if (content.visualPlan !== undefined) normalized.visualPlan = normalizeSemanticVisualPlan(content.visualPlan);
+  if (content.semanticEventGraph !== undefined) {
+    normalized.semanticEventGraph = normalizeSemanticEventGraph(content.semanticEventGraph);
+  }
+  if (content.semanticVisualSentencePlan !== undefined) {
+    normalized.semanticVisualSentencePlan = normalizeSemanticVisualSentencePlan(
+      content.semanticVisualSentencePlan,
+    );
+  }
+  if (content.semanticAnimationSceneDslPlan !== undefined) {
+    normalized.semanticAnimationSceneDslPlan =
+      normalizeSemanticAnimationSceneDslPlan(
+        content.semanticAnimationSceneDslPlan,
+      );
+  }
+  if (normalized.semantic?.profileId === GENERIC_SEMANTIC_PROFILE_ID && !normalized.visualPlan) fail("content.visualPlan", "Generic semantic animation requires a grounded visual plan.");
+  if (normalized.visualPlan && normalized.semantic?.profileId !== GENERIC_SEMANTIC_PROFILE_ID) fail("content.visualPlan", "Visual plan profile does not match semantic content.");
+  if (
+    normalized.semantic?.profileId === SEMANTIC_SENTENCE_PROFILE_ID
+    && (!normalized.semanticEventGraph || !normalized.semanticVisualSentencePlan)
+  ) {
+    fail(
+      "content.semanticEventGraph",
+      "Semantic sentence animation requires a graph and sentence plan.",
+    );
+  }
+  if (normalized.semantic?.profileId === SEMANTIC_SENTENCE_PROFILE_ID) {
+    normalized.semanticVisualSentencePlan =
+      validateSemanticVisualSentencePlanAgainstGraph(
+        normalized.semanticVisualSentencePlan,
+        normalized.semanticEventGraph,
+      );
+    if (normalized.semanticAnimationSceneDslPlan) {
+      normalized.semanticAnimationSceneDslPlan =
+        validateSemanticAnimationSceneDslPlanAgainstContext(
+          normalized.semanticAnimationSceneDslPlan,
+          {
+            semanticEventGraph: normalized.semanticEventGraph,
+            semanticVisualSentencePlan:
+              normalized.semanticVisualSentencePlan,
+          },
+        );
+    }
   }
   return normalized;
 }
@@ -243,7 +356,7 @@ function validateAnimationIR(input, options = {}) {
   const ir = structuredClone(object(input, "animationIR"));
   rejectExecutableOrRemote(ir);
   exactKeys(ir, ["schemaVersion", "profile", "profileVersion", "projectId", "projectRevision", "verticalId", "width", "height", "fps", "durationFrames", "draftHash", "alignmentHash", "assetManifestHash", "renderer", "seed", "content", "timingBinding", "sharedEntities", "scenes", "transitions", "motionBudget", "visualStateGraph", "contentHash"], "animationIR");
-  if (ir.schemaVersion !== ANIMATION_IR_SCHEMA_VERSION) fail("schemaVersion", "AnimationIR schema version is unsupported.");
+  if (![ANIMATION_IR_SCHEMA_VERSION, 2, 3].includes(ir.schemaVersion)) fail("schemaVersion", "AnimationIR schema version is unsupported.");
   token(ir.profile, "profile", [ANIMATION_PROFILE]);
   text(ir.profileVersion, "profileVersion", { pattern: VERSION_RE });
   text(ir.projectId, "projectId", { pattern: ID_RE });
@@ -262,7 +375,166 @@ function validateAnimationIR(input, options = {}) {
   text(ir.renderer.styleVersion, "renderer.styleVersion", { pattern: VERSION_RE });
   number(ir.seed, "seed", 0, 0xffffffff, true);
   ir.content = validateContent(ir.content);
+  const genericSemantic = ir.content.semantic?.profileId === GENERIC_SEMANTIC_PROFILE_ID;
+  const semanticSentence = ir.content.semantic?.profileId === SEMANTIC_SENTENCE_PROFILE_ID;
+  if (genericSemantic && (ir.schemaVersion !== 2 || ir.profileVersion !== "1.2.0" || ir.renderer.styleVersion !== "2.0.0")) fail("profileVersion", "Generic semantic animation profile binding is invalid.");
+  if (
+    semanticSentence
+    && (
+      ir.schemaVersion !== 3
+      || ir.profileVersion !== SEMANTIC_SENTENCE_PROFILE_VERSION
+      || ir.renderer.styleVersion !== SEMANTIC_SENTENCE_STYLE_VERSION
+      || ir.renderer.provider !== SEMANTIC_SENTENCE_RENDERER.provider
+      || ir.renderer.runtimeVersion !== SEMANTIC_SENTENCE_RENDERER.runtimeVersion
+    )
+  ) fail("profileVersion", "Semantic sentence animation profile binding is invalid.");
+  if (!genericSemantic && !semanticSentence && ir.schemaVersion !== ANIMATION_IR_SCHEMA_VERSION) {
+    fail("schemaVersion", "AnimationIR schema requires its exact semantic profile binding.");
+  }
   ir.timingBinding = validateTimingBinding(ir.timingBinding === undefined ? null : ir.timingBinding, ir.durationFrames);
+  if (genericSemantic) {
+    const visualPlan = ir.content.visualPlan;
+    if (visualPlan.draftHash !== ir.draftHash) fail("content.visualPlan.draftHash", "Semantic visual plan is bound to a different approved draft.");
+    if (visualPlan.timingContextHash !== ir.timingBinding?.timingContextHash) fail("content.visualPlan.timingContextHash", "Semantic visual plan is bound to different narration timing.");
+    if (visualPlan.profileId !== ir.content.semantic.profileId) fail("content.visualPlan.profileId", "Semantic visual plan profile binding is invalid.");
+    if (visualPlan.storyVocabulary !== ir.content.semantic.storyVocabulary) fail("content.visualPlan.storyVocabulary", "Semantic visual vocabulary binding is invalid.");
+  }
+  if (semanticSentence) {
+    const graph = ir.content.semanticEventGraph;
+    const sentencePlan = ir.content.semanticVisualSentencePlan;
+    const sceneDslPlan = ir.content.semanticAnimationSceneDslPlan;
+    const graphDeclaresPrimitivePayloads =
+      graph.primitivePayloadProfileId !== undefined;
+    const planDeclaresPrimitiveParameters = sentencePlan.sentences.some(
+      (sentence) => sentence.primitiveParameters !== undefined,
+    );
+    const planDeclaresSceneCompositions = sentencePlan.sentences.some(
+      (sentence) => sentence.sceneComposition !== undefined,
+    );
+    const planDeclaresSceneCompositionProfile =
+      sentencePlan.sceneCompositionProfileId !== undefined;
+    if (
+      graphDeclaresPrimitivePayloads !== planDeclaresSceneCompositionProfile
+      || (
+        planDeclaresSceneCompositionProfile
+        && sentencePlan.sceneCompositionProfileId
+          !== SEMANTIC_SCENE_COMPOSITION_PROFILE_ID
+      )
+    ) {
+      fail(
+        "content.semanticVisualSentencePlan.sceneCompositionProfileId",
+        "Generalized semantic graphs and scene-composition profiles must be declared together.",
+      );
+    }
+    if (graphDeclaresPrimitivePayloads !== Boolean(sceneDslPlan)) {
+      fail(
+        "content.semanticAnimationSceneDslPlan",
+        graphDeclaresPrimitivePayloads
+          ? "Every generalized semantic animation requires a Scene DSL plan."
+          : "Checked unparameterized semantic profiles cannot declare a Scene DSL plan.",
+      );
+    }
+    if (
+      graphDeclaresPrimitivePayloads
+      && !sentencePlan.sentences.every((sentence) => (
+        sentence.primitiveParameters !== undefined
+        && sentence.sceneComposition !== undefined
+      ))
+    ) {
+      fail(
+        "content.semanticVisualSentencePlan.sentences",
+        "Every generalized semantic sentence requires primitive parameters and a scene composition.",
+      );
+    }
+    if (
+      !graphDeclaresPrimitivePayloads
+      && (
+        planDeclaresPrimitiveParameters
+        || planDeclaresSceneCompositions
+        || planDeclaresSceneCompositionProfile
+      )
+    ) {
+      fail(
+        "content.semanticVisualSentencePlan.sentences",
+        "Fixed unparameterized semantic sentences cannot declare generalized composition data.",
+      );
+    }
+    if (
+      !graphDeclaresPrimitivePayloads
+      && !planDeclaresPrimitiveParameters
+      && !CHECKED_UNPARAMETERIZED_SEMANTIC_EVENT_GRAPH_HASHES.includes(
+        graph.contentHash,
+      )
+    ) {
+      fail(
+        "content.semanticEventGraph.primitivePayloadProfileId",
+        "Unparameterized semantic graph is not an approved checked profile.",
+      );
+    }
+    if (
+      !graphDeclaresPrimitivePayloads
+      && !planDeclaresPrimitiveParameters
+      && !CHECKED_UNPARAMETERIZED_SEMANTIC_SENTENCE_PLAN_HASHES.includes(
+        sentencePlan.contentHash,
+      )
+    ) {
+      fail(
+        "content.semanticVisualSentencePlan.contentHash",
+        "Unparameterized semantic sentence plan is not an approved checked profile.",
+      );
+    }
+    if (graphDeclaresPrimitivePayloads) {
+      if (options.semanticSourceContext) {
+        const {
+          validateSemanticEventGraphAgainstDraft,
+        } = require("./semantic-event-graph.cjs");
+        validateSemanticEventGraphAgainstDraft(
+          graph,
+          options.semanticSourceContext,
+        );
+      } else {
+        fail(
+          "content.semanticEventGraph",
+          "Generalized semantic source bindings require trusted validation context.",
+        );
+      }
+    }
+    if (!ir.timingBinding) fail("timingBinding", "Semantic sentence animation requires narration timing.");
+    if (graph.draftHash !== ir.draftHash) {
+      fail("content.semanticEventGraph.draftHash", "Semantic event graph is bound to a different approved draft.");
+    }
+    if (graph.timingContextHash !== ir.timingBinding.timingContextHash) {
+      fail("content.semanticEventGraph.timingContextHash", "Semantic event graph is bound to different narration timing.");
+    }
+    if (sentencePlan.bindings.semanticEventGraphHash !== graph.contentHash) {
+      fail("content.semanticVisualSentencePlan.bindings.semanticEventGraphHash", "Semantic sentence plan is bound to a different graph.");
+    }
+    if (
+      sentencePlan.bindings.draftHash !== ir.draftHash
+      || sentencePlan.bindings.sourceStoryboardHash !== graph.sourceStoryboardHash
+      || sentencePlan.bindings.timingContextHash !== ir.timingBinding.timingContextHash
+    ) {
+      fail("content.semanticVisualSentencePlan.bindings", "Semantic sentence plan bindings are inconsistent.");
+    }
+    if (
+      sentencePlan.storyFormat !== graph.storyFormat
+      || sentencePlan.narrativeShape !== graph.narrativeShape
+      || ir.content.semantic.narrativeShape !== graph.narrativeShape
+    ) {
+      fail("content.semanticVisualSentencePlan.narrativeShape", "Semantic sentence narrative bindings are inconsistent.");
+    }
+    if (
+      ir.content.semantic.semanticEventGraphHash !== graph.contentHash
+      || ir.content.semantic.semanticVisualSentencePlanHash !== sentencePlan.contentHash
+      || (
+        sceneDslPlan
+        && ir.content.semantic.semanticAnimationSceneDslPlanHash
+          !== sceneDslPlan.contentHash
+      )
+    ) {
+      fail("content.semantic.semanticEventGraphHash", "Semantic sentence content hashes are inconsistent.");
+    }
+  }
   if (!Array.isArray(ir.sharedEntities) || !ir.sharedEntities.length || ir.sharedEntities.length > 64) fail("sharedEntities");
   ir.sharedEntities = ir.sharedEntities.map(validateEntity);
   const entityIds = new Set();

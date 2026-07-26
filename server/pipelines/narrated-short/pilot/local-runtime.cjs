@@ -10,8 +10,11 @@ const { ContentApprovalRepository } = require("../../../repositories/content-app
 const { PublishApprovalRepository } = require("../../../repositories/publish-approval-repository.cjs");
 const { runNarratedDraftJob } = require("../draft-job.cjs");
 const { runNarrationAlignmentJob } = require("../narration/align-job.cjs");
-const { ingestUploadedNarration } = require("../narration/upload.cjs");
+const { normalizeAlignment } = require("../narration/alignment.cjs");
+const { normalizeNarrationAsset } = require("../narration/contract.cjs");
+const { ingestUploadedNarration, MAX_NARRATION_BYTES } = require("../narration/upload.cjs");
 const { runNarratedRenderJob } = require("../render-job.cjs");
+const { runNarratedAnimationPreplanJob } = require("../animation/preplan-job.cjs");
 const { createPublishApproval, verifyReleaseEligibility } = require("../publish/service.cjs");
 const { revokeFailedReleaseProof } = require("./release-proof.cjs");
 const { CAPTION_RENDERER_VERSION, CAPTION_PROFILE_VERSION } = require("../captions/contract.cjs");
@@ -20,19 +23,306 @@ const { NARRATED_COMPOSITOR_VERSION } = require("../video-compositor.cjs");
 const { QA_PROFILE_VERSION } = require("../qa/contract.cjs");
 const { EVIDENCE_PROFILE_VERSION } = require("../evidence/contract.cjs");
 const { buildProductionAnimationPayloadBindings } = require("../animation/payload-bindings.cjs");
+const { createLocalLlmScenePlanner } = require("../animation/providers/local-llm-scene-planner.cjs");
+const {
+  readAnimationScenePlanArtifact,
+} = require("../animation/scene-plan-artifact.cjs");
+const {
+  semanticAnimationSceneDslPlanContentHash,
+} = require("../animation/semantic-animation-scene-dsl-plan.cjs");
+const {
+  SEMANTIC_SENTENCE_PROFILE_ID,
+  SEMANTIC_SENTENCE_PROFILE_TOKEN,
+  SEMANTIC_SENTENCE_STYLE_VERSION,
+} = require("../animation/semantic-render-profile.cjs");
 
 function deterministicUuid(hash) { const chars = hash.slice(0, 32).split(""); chars[12] = "4"; chars[16] = ["8", "9", "a", "b"][parseInt(chars[16], 16) % 4]; const value = chars.join(""); return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`; }
 function startJob(jobs, input) { const job = jobs.create(input); if (job.status === "queued") jobs.update(job, { status: "processing", progress: 1, step: "pilot_dispatch" }); return job; }
 function ref(artifactId, hash) { return artifactId && hash ? { artifactId, hash } : null; }
+function normalizePilotAnimationProfile(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized !== SEMANTIC_SENTENCE_PROFILE_TOKEN) {
+    throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "animationProfile" });
+  }
+  return normalized;
+}
+function pilotReleaseIdempotencyKey(report) {
+  const runId = String(report && report.runId || "");
+  if (!/^pilot_[a-f0-9]{40}$/.test(runId)) {
+    throw new AppError("PILOT_REPORT_INVALID", SAFE_MESSAGES.PILOT_REPORT_INVALID, 409);
+  }
+  if (!report || report.animationProfile !== SEMANTIC_SENTENCE_PROFILE_TOKEN) {
+    return `pilot-release-${runId}`;
+  }
+  const reportHash = String(report.contentHash || "").toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(reportHash)) {
+    throw new AppError("PILOT_REPORT_INVALID", SAFE_MESSAGES.PILOT_REPORT_INVALID, 409);
+  }
+  return `pilot-release-${runId}-${reportHash}`;
+}
+function animationProfileMatchesEvidence(animationProfile, qaReport, animationIr) {
+  const selectedAnimationProfile = normalizePilotAnimationProfile(animationProfile);
+  const styleVersion = qaReport && qaReport.bindings && qaReport.bindings.animationStyleVersion;
+  const profileId = animationIr && animationIr.content && animationIr.content.semantic && animationIr.content.semantic.profileId;
+  if (!styleVersion || !profileId) return false;
+  if (selectedAnimationProfile === SEMANTIC_SENTENCE_PROFILE_TOKEN) {
+    return styleVersion === SEMANTIC_SENTENCE_STYLE_VERSION && profileId === SEMANTIC_SENTENCE_PROFILE_ID;
+  }
+  return styleVersion !== SEMANTIC_SENTENCE_STYLE_VERSION && profileId !== SEMANTIC_SENTENCE_PROFILE_ID;
+}
 
-function renderPayload(project, approval, profile, contentArtifacts = null) {
+const QA_TO_ANIMATION_MANIFEST_BINDINGS = Object.freeze([
+  Object.freeze(["animationTimingContextArtifactId", "timingContextArtifactId"]),
+  Object.freeze(["animationTimingContextHash", "timingContextHash"]),
+  Object.freeze(["animationPlanArtifactId", "animationPlanArtifactId"]),
+  Object.freeze(["animationPlanHash", "animationPlanHash"]),
+  Object.freeze(["animationIRArtifactId", "animationIRArtifactId"]),
+  Object.freeze(["animationIRHash", "animationIRHash"]),
+  Object.freeze(["animationQaArtifactId", "animationQaArtifactId"]),
+  Object.freeze(["animationQaHash", "animationQaHash"]),
+  Object.freeze(["visualMasterSha256", "visualMasterSha256"]),
+  Object.freeze(["animationCompositionHash", "compositionHash"]),
+  Object.freeze(["animationProvider", "provider"]),
+  Object.freeze(["animationRuntimeVersion", "runtimeVersion"]),
+  Object.freeze(["animationStyleVersion", "styleVersion"]),
+]);
+
+function sameHashSet(actual, expected) {
+  if (!Array.isArray(actual) || !Array.isArray(expected)) return false;
+  const left = [...new Set(actual)].sort();
+  const right = [...new Set(expected)].sort();
+  return left.length === right.length
+    && left.every((value, index) => value === right[index]);
+}
+
+function verifySemanticAnimationArtifactChain(input = {}) {
+  const {
+    animationIrEnvelope,
+    contentArtifactRepository,
+    project,
+    qaEnvelope,
+    report,
+  } = input;
+  const bindings = qaEnvelope?.body?.bindings;
+  if (
+    !bindings
+    || !project
+    || !animationIrEnvelope
+    || animationIrEnvelope.artifactType !== "animation_ir"
+    || animationIrEnvelope.projectId !== project.id
+    || animationIrEnvelope.revision !== project.input.revision
+    || animationIrEnvelope.contentHash !== bindings.animationIRHash
+  ) return false;
+
+  const manifestEnvelope = contentArtifactRepository.readJson(
+    bindings.animationRenderManifestArtifactId,
+  );
+  if (
+    manifestEnvelope.artifactType !== "animation_render_manifest"
+    || manifestEnvelope.projectId !== project.id
+    || manifestEnvelope.revision !== project.input.revision
+    || manifestEnvelope.contentHash !== bindings.animationRenderManifestHash
+  ) return false;
+  const manifest = manifestEnvelope.body;
+  if (
+    !manifest
+    || QA_TO_ANIMATION_MANIFEST_BINDINGS.some(
+      ([bindingKey, manifestKey]) => bindings[bindingKey] !== manifest[manifestKey],
+    )
+    || !sameHashSet(manifestEnvelope.dependencyHashes, [
+      manifest.timingContextHash,
+      manifest.animationPlanHash,
+      manifest.animationIRHash,
+      manifest.animationQaHash,
+      manifest.visualMasterSha256,
+    ])
+  ) return false;
+
+  const animationIr = animationIrEnvelope.body;
+  const semantic = animationIr?.content?.semantic;
+  const semanticEventGraph = animationIr?.content?.semanticEventGraph;
+  const semanticVisualSentencePlan =
+    animationIr?.content?.semanticVisualSentencePlan;
+  if (
+    !semantic
+    || !semanticEventGraph
+    || !semanticVisualSentencePlan
+    || semantic.semanticEventGraphHash !== semanticEventGraph.contentHash
+    || semantic.semanticVisualSentencePlanHash
+      !== semanticVisualSentencePlan.contentHash
+    || semanticEventGraph.draftHash !== animationIr.draftHash
+    || semanticVisualSentencePlan.bindings?.draftHash !== animationIr.draftHash
+    || semanticEventGraph.timingContextHash
+      !== semanticVisualSentencePlan.bindings?.timingContextHash
+    || semanticEventGraph.timingContextHash !== manifest.timingContextHash
+    || animationIr.draftHash !== bindings.draftHash
+    || animationIr.alignmentHash !== bindings.alignmentHash
+    || bindings.draftArtifactId !== report.approvedDraft.artifactId
+    || bindings.draftHash !== report.approvedDraft.hash
+    || bindings.alignmentArtifactId !== report.narrationAlignment.artifactId
+    || bindings.alignmentHash !== report.narrationAlignment.hash
+  ) return false;
+
+  const generalized =
+    semanticEventGraph.primitivePayloadProfileId !== undefined;
+  const embeddedScenePlan =
+    animationIr.content.semanticAnimationSceneDslPlan || null;
+  const manifestScenePlanArtifactId =
+    manifest.animationScenePlanArtifactId || null;
+  const manifestScenePlanHash = manifest.animationScenePlanHash || null;
+  if (!generalized) {
+    return embeddedScenePlan === null
+      && semantic.semanticAnimationSceneDslPlanHash === undefined
+      && manifestScenePlanArtifactId === null
+      && manifestScenePlanHash === null;
+  }
+  if (
+    !embeddedScenePlan
+    || !manifestScenePlanArtifactId
+    || !manifestScenePlanHash
+    || embeddedScenePlan.contentHash !== manifestScenePlanHash
+    || semanticAnimationSceneDslPlanContentHash(embeddedScenePlan)
+      !== manifestScenePlanHash
+    || semantic.semanticAnimationSceneDslPlanHash !== manifestScenePlanHash
+  ) return false;
+
+  const active = project.input.activeAnimationScenePlan;
+  if (
+    !active
+    || active.status !== "ready"
+    || active.animationProfile !== SEMANTIC_SENTENCE_PROFILE_TOKEN
+    || active.projectRevision !== project.input.revision
+    || active.planArtifactId !== manifestScenePlanArtifactId
+    || active.planHash !== manifestScenePlanHash
+    || active.draftArtifactId !== bindings.draftArtifactId
+    || active.draftHash !== animationIr.draftHash
+    || active.alignmentArtifactId !== bindings.alignmentArtifactId
+    || active.alignmentHash !== animationIr.alignmentHash
+    || active.timingContextHash !== semanticEventGraph.timingContextHash
+    || active.semanticEventGraphHash !== semanticEventGraph.contentHash
+    || active.semanticVisualSentencePlanHash
+      !== semanticVisualSentencePlan.contentHash
+  ) return false;
+
+  const resolved = readAnimationScenePlanArtifact({
+    contentArtifactRepository,
+    artifactId: manifestScenePlanArtifactId,
+    artifactHash: manifestScenePlanHash,
+    projectId: project.id,
+    projectRevision: project.input.revision,
+    draftHash: animationIr.draftHash,
+    alignmentHash: animationIr.alignmentHash,
+    timingContext: { contentHash: semanticEventGraph.timingContextHash },
+    semanticEventGraph,
+    semanticVisualSentencePlan,
+    plannerMode: active.plannerMode,
+    promptProfileId: active.promptProfileId,
+    plannerConfigurationHash: active.plannerConfigurationHash,
+    sceneCount: active.sceneCount,
+    fallbackSceneCount: active.fallbackSceneCount,
+  });
+  return resolved.scenePlan.contentHash === embeddedScenePlan.contentHash;
+}
+function verifiedAlignedNarrationReuse(input = {}) {
+  const {
+    project,
+    projectRevision,
+    draftArtifactId,
+    draftHash,
+    scriptHash,
+    audioHash,
+    contentArtifactRepository: content,
+    artifactRepository: artifacts,
+    artifactStore,
+  } = input;
+  const active = project && project.input && project.input.activeNarration;
+  if (
+    !project
+    || !content
+    || !artifacts
+    || !artifactStore
+    || !active
+    || active.status !== "aligned"
+    || active.aligned !== true
+    || active.timingReady !== true
+    || project.input.revision !== projectRevision
+    || active.projectRevision !== projectRevision
+    || active.draftArtifactId !== draftArtifactId
+    || active.draftHash !== draftHash
+    || active.scriptHash !== scriptHash
+    || active.audioHash !== audioHash
+  ) return null;
+  try {
+    const manifestEnvelope = content.readJson(active.manifestArtifactId);
+    if (
+      manifestEnvelope.artifactType !== "narration_manifest"
+      || manifestEnvelope.projectId !== project.id
+      || manifestEnvelope.revision !== projectRevision
+      || manifestEnvelope.contentHash !== active.manifestHash
+    ) return null;
+    const manifest = normalizeNarrationAsset(manifestEnvelope.body);
+    if (
+      manifest.projectId !== project.id
+      || manifest.projectRevision !== projectRevision
+      || manifest.draftArtifactId !== draftArtifactId
+      || manifest.draftHash !== draftHash
+      || manifest.scriptHash !== scriptHash
+      || manifest.audioArtifactId !== active.audioArtifactId
+      || manifest.audioHash !== audioHash
+      || manifest.language !== project.language
+      || manifest.voiceProfileId !== active.voiceProfileId
+    ) return null;
+    const audio = artifacts.get(active.audioArtifactId);
+    if (
+      !audio
+      || audio.type !== "narration_audio"
+      || audio.ownerProjectId !== project.id
+      || audio.checksumSha256 !== audioHash
+      || audio.status !== "available"
+    ) return null;
+    const audioBuffer = artifactStore.readArtifact(audio, { maxBytes: MAX_NARRATION_BYTES });
+    if (!Buffer.isBuffer(audioBuffer) || createHash("sha256").update(audioBuffer).digest("hex") !== audioHash) return null;
+    const alignmentEnvelope = content.readJson(active.alignmentArtifactId);
+    if (
+      alignmentEnvelope.artifactType !== "narration_alignment"
+      || alignmentEnvelope.projectId !== project.id
+      || alignmentEnvelope.revision !== projectRevision
+      || alignmentEnvelope.contentHash !== active.alignmentHash
+    ) return null;
+    const alignment = normalizeAlignment(alignmentEnvelope.body);
+    if (
+      alignment.projectId !== project.id
+      || alignment.projectRevision !== projectRevision
+      || alignment.draftArtifactId !== draftArtifactId
+      || alignment.draftHash !== draftHash
+      || alignment.scriptHash !== scriptHash
+      || alignment.narrationManifestArtifactId !== active.manifestArtifactId
+      || alignment.narrationManifestHash !== active.manifestHash
+      || alignment.audioArtifactId !== active.audioArtifactId
+      || alignment.audioHash !== audioHash
+      || alignment.language !== project.language
+    ) return null;
+    return Object.freeze({
+      narrationManifest: Object.freeze(ref(active.manifestArtifactId, active.manifestHash)),
+      narrationAudio: Object.freeze(ref(active.audioArtifactId, active.audioHash)),
+      narrationAlignment: Object.freeze(ref(active.alignmentArtifactId, active.alignmentHash)),
+    });
+  } catch {
+    return null;
+  }
+}
+
+function renderPayload(project, approval, profile, contentArtifacts = null, animationProfile = null, bindingDependencies = {}) {
+  const selectedAnimationProfile = normalizePilotAnimationProfile(animationProfile);
   const active = project.input.activeNarration;
-  const payload = { projectRevision: project.input.revision, language: project.language, approvedDraftArtifactId: approval.draftArtifactId, approvedDraftHash: approval.draftHash, renderProfile: profile, narrationManifestHash: active && active.manifestHash, audioHash: active && active.audioHash, alignmentHash: active && active.alignmentHash, captionRendererVersion: CAPTION_RENDERER_VERSION, captionProfileVersion: CAPTION_PROFILE_VERSION, audioNormalizationProfileVersion: AUDIO_PROFILE_VERSION, compositorVersion: NARRATED_COMPOSITOR_VERSION, qaProfileVersion: QA_PROFILE_VERSION, evidenceProfileVersion: EVIDENCE_PROFILE_VERSION };
-  Object.assign(payload, buildProductionAnimationPayloadBindings({ project, approval, renderProfile: profile, contentArtifacts }));
+  const payload = { projectRevision: project.input.revision, language: project.language, approvedDraftArtifactId: approval.draftArtifactId, approvedDraftHash: approval.draftHash, renderProfile: profile, ...(selectedAnimationProfile ? { animationProfile: selectedAnimationProfile } : {}), narrationManifestHash: active && active.manifestHash, audioHash: active && active.audioHash, alignmentHash: active && active.alignmentHash, captionRendererVersion: CAPTION_RENDERER_VERSION, captionProfileVersion: CAPTION_PROFILE_VERSION, audioNormalizationProfileVersion: AUDIO_PROFILE_VERSION, compositorVersion: NARRATED_COMPOSITOR_VERSION, qaProfileVersion: QA_PROFILE_VERSION, evidenceProfileVersion: EVIDENCE_PROFILE_VERSION };
+  Object.assign(payload, buildProductionAnimationPayloadBindings({ project, approval, renderProfile: profile, animationProfile: selectedAnimationProfile, contentArtifacts }, bindingDependencies));
   return payload;
 }
 
 function createLocalPilotRuntime(options = {}, overrides = {}) {
+  const animationProfile = normalizePilotAnimationProfile(options.animationProfile);
   const adapters = overrides.adapters || createDefaultAdapters(); const { artifactAdapter, persistenceAdapter } = adapters;
   if (typeof persistenceAdapter.restoreState === "function") persistenceAdapter.restoreState();
   const projects = persistenceAdapter.projectRepository; const artifacts = persistenceAdapter.artifactRepository; const exports = persistenceAdapter.exportRepository;
@@ -43,9 +333,73 @@ function createLocalPilotRuntime(options = {}, overrides = {}) {
   const deps = { artifactStore: artifactAdapter, artifactRepository: artifacts, contentArtifactRepository: content, contentApprovalRepository: approvals, projectRepository: projects, persistenceAdapter, ...overrides.dependencies };
 
   async function executeRender(context, profile) {
-    const project = projects.get(context.projectId); const approval = approvals.findApproved(project.id, project.input.revision); if (!approval) throw new AppError("ACTIVE_APPROVAL_REQUIRED", SAFE_MESSAGES.ACTIVE_APPROVAL_REQUIRED, 409);
-    const payload = renderPayload(project, approval, profile, content); const job = startJob(jobs, { projectId: project.id, ownerId: options.operatorId, action: "render_narrated_short", pipelineType: "narrated_short", idempotencyKey: idempotencyKey(`pilot_${profile}`, { runId: context.runId, ...payload }), payload });
-    const result = await runNarratedRenderJob({ jobs, job, project, payload: job.payload, dependencies: deps, exportRepository: exports });
+    let project = projects.get(context.projectId); const approval = approvals.findApproved(project.id, project.input.revision); if (!approval) throw new AppError("ACTIVE_APPROVAL_REQUIRED", SAFE_MESSAGES.ACTIVE_APPROVAL_REQUIRED, 409);
+    const scenePlanner = animationProfile
+      ? deps.scenePlanner || createLocalLlmScenePlanner({
+        ...(deps.localLlmScenePlannerOptions || {}),
+        env: deps.scenePlannerEnv || process.env,
+      })
+      : null;
+    const plannerHealth = scenePlanner ? scenePlanner.health() : null;
+    if (animationProfile) {
+      const active = project.input.activeNarration;
+      const preplanPayload = {
+        projectRevision: project.input.revision,
+        language: project.language,
+        approvedDraftArtifactId: approval.draftArtifactId,
+        approvedDraftHash: approval.draftHash,
+        alignmentArtifactId: active.alignmentArtifactId,
+        alignmentHash: active.alignmentHash,
+        renderProfile: approval.renderProfile,
+        animationProfile,
+        plannerMode: plannerHealth.mode,
+        promptProfileId: plannerHealth.promptProfileId,
+        plannerConfigurationHash: plannerHealth.configurationHash,
+      };
+      const preplanJob = startJob(jobs, {
+        projectId: project.id,
+        ownerId: options.operatorId,
+        action: "plan_narrated_animation",
+        pipelineType: "narrated_short",
+        idempotencyKey: idempotencyKey("pilot_animation_preplan", {
+          runId: context.runId,
+          ...preplanPayload,
+        }),
+        payload: preplanPayload,
+      });
+      if (preplanJob.status === "failed" || preplanJob.status === "cancelled") {
+        throw new AppError(
+          "PILOT_CHECKPOINT_INVALID",
+          SAFE_MESSAGES.PILOT_CHECKPOINT_INVALID,
+          409,
+        );
+      }
+      if (preplanJob.status !== "completed") {
+        await runNarratedAnimationPreplanJob({
+          jobs,
+          job: preplanJob,
+          project,
+          payload: preplanJob.payload,
+          dependencies: { ...deps, scenePlanner },
+        });
+      }
+      project = projects.get(context.projectId);
+    }
+    const payload = renderPayload(project, approval, profile, content, animationProfile, {
+      requirePersistedScenePlan: Boolean(plannerHealth),
+      expectedScenePlanner: plannerHealth,
+    }); const job = startJob(jobs, { projectId: project.id, ownerId: options.operatorId, action: "render_narrated_short", pipelineType: "narrated_short", idempotencyKey: idempotencyKey(`pilot_${profile}`, { runId: context.runId, ...payload }), payload });
+    const result = await runNarratedRenderJob({
+      jobs,
+      job,
+      project,
+      payload: job.payload,
+      dependencies: {
+        ...deps,
+        ...(plannerHealth ? { scenePlannerHealth: plannerHealth } : {}),
+      },
+      exportRepository: exports,
+    });
     return { job, result };
   }
 
@@ -76,7 +430,20 @@ function createLocalPilotRuntime(options = {}, overrides = {}) {
         approvals.approve({ projectId: context.projectId, projectRevision: context.projectRevision, draftArtifactId: context.draftArtifactId, draftHash: context.draftHash, voiceProfileId: "voice_operator_v1", renderProfile: "final", operatorNote: "Dark Curiosity pilot approval" }); return {};
       }
       if (stage === "narration_uploaded") {
-        const project = projects.get(context.projectId); let ttsProvenance = null;
+        const project = projects.get(context.projectId);
+        const reused = verifiedAlignedNarrationReuse({
+          project,
+          projectRevision: context.projectRevision,
+          draftArtifactId: context.draftArtifactId,
+          draftHash: context.draftHash,
+          scriptHash: context.fixture.script.contentHash,
+          audioHash: context.audioHash,
+          contentArtifactRepository: content,
+          artifactRepository: artifacts,
+          artifactStore: artifactAdapter,
+        });
+        if (reused) return { evidence: { narrationManifest: reused.narrationManifest, narrationAudio: reused.narrationAudio } };
+        let ttsProvenance = null;
         const sidecar = join(dirname(options.audioPath), "narration.provenance.json");
         if (existsSync(sidecar)) {
           const { verifyTtsNarration } = require("../narration/tts/service.cjs");
@@ -87,7 +454,20 @@ function createLocalPilotRuntime(options = {}, overrides = {}) {
         return { evidence: { narrationManifest: ref(uploaded.manifestArtifact.artifact.id, uploaded.manifestArtifact.envelope.contentHash), narrationAudio: ref(uploaded.audioArtifact.id, uploaded.audioArtifact.checksumSha256) } };
       }
       if (stage === "narration_aligned") {
-        const project = projects.get(context.projectId); const active = project.input.activeNarration; const payload = { projectRevision: project.input.revision, language: project.language, approvedDraftArtifactId: context.draftArtifactId, approvedDraftHash: context.draftHash, narrationManifestArtifactId: active.manifestArtifactId, narrationManifestHash: active.manifestHash, audioArtifactId: active.audioArtifactId, audioHash: active.audioHash, scriptHash: active.scriptHash, alignerVersion: fasterWhisperVersion(process.env) };
+        const project = projects.get(context.projectId);
+        const reused = verifiedAlignedNarrationReuse({
+          project,
+          projectRevision: context.projectRevision,
+          draftArtifactId: context.draftArtifactId,
+          draftHash: context.draftHash,
+          scriptHash: context.fixture.script.contentHash,
+          audioHash: context.audioHash,
+          contentArtifactRepository: content,
+          artifactRepository: artifacts,
+          artifactStore: artifactAdapter,
+        });
+        if (reused) return { evidence: { narrationAlignment: reused.narrationAlignment } };
+        const active = project.input.activeNarration; const payload = { projectRevision: project.input.revision, language: project.language, approvedDraftArtifactId: context.draftArtifactId, approvedDraftHash: context.draftHash, narrationManifestArtifactId: active.manifestArtifactId, narrationManifestHash: active.manifestHash, audioArtifactId: active.audioArtifactId, audioHash: active.audioHash, scriptHash: active.scriptHash, alignerVersion: fasterWhisperVersion(process.env) };
         const job = startJob(jobs, { projectId: project.id, ownerId: options.operatorId, action: "align_narration", pipelineType: "narrated_short", idempotencyKey: idempotencyKey("pilot_align", { runId: context.runId, ...payload }), payload }); const aligned = await runNarrationAlignmentJob({ jobs, job, project, payload: job.payload, dependencies: deps });
         return { evidence: { narrationAlignment: ref(aligned.artifact.artifact.id, aligned.artifact.envelope.contentHash) } };
       }
@@ -107,10 +487,33 @@ function createLocalPilotRuntime(options = {}, overrides = {}) {
       throw new AppError("PILOT_STATE_INVALID", SAFE_MESSAGES.PILOT_STATE_INVALID, 409, { stage });
     },
     verifyCompletedReport(report) {
+      if ((report.animationProfile || null) !== animationProfile) return false;
       const artifact = report.final && artifacts.get(report.final.exportArtifactId); const project = report.projectId && projects.get(report.projectId);
       if (!artifact || artifact.status !== "available" || artifact.checksumSha256 !== report.final.outputHash || !project || project.input.revision !== report.projectRevision) return false;
       const typed = [[report.approvedDraft, "approval_bundle"], [report.narrationManifest, "narration_manifest"], [report.narrationAlignment, "narration_alignment"], [report.qa && report.qa.report, "qa_report"], [report.rightsManifest, "rights_manifest"], [report.provenanceReport, "provenance_report"], [report.exportMetadata, "export_metadata"]];
-      try { for (const [reference, type] of typed) { const envelope = content.readJson(reference.artifactId); if (envelope.artifactType !== type || envelope.projectId !== project.id || envelope.revision !== project.input.revision || envelope.contentHash !== reference.hash) return false; } } catch { return false; }
+      try {
+        for (const [reference, type] of typed) {
+          const envelope = content.readJson(reference.artifactId);
+          if (envelope.artifactType !== type || envelope.projectId !== project.id || envelope.revision !== project.input.revision || envelope.contentHash !== reference.hash) return false;
+        }
+        const qaEnvelope = content.readJson(report.qa.report.artifactId);
+        const animationIrArtifactId = qaEnvelope.body && qaEnvelope.body.bindings && qaEnvelope.body.bindings.animationIRArtifactId;
+        const animationIrHash = qaEnvelope.body && qaEnvelope.body.bindings && qaEnvelope.body.bindings.animationIRHash;
+        if (!animationIrArtifactId || !animationIrHash) return false;
+        const animationIrEnvelope = content.readJson(animationIrArtifactId);
+        if (animationIrEnvelope.artifactType !== "animation_ir" || animationIrEnvelope.projectId !== project.id || animationIrEnvelope.revision !== project.input.revision || animationIrEnvelope.contentHash !== animationIrHash) return false;
+        if (!animationProfileMatchesEvidence(animationProfile, qaEnvelope.body, animationIrEnvelope.body)) return false;
+        if (
+          animationProfile === SEMANTIC_SENTENCE_PROFILE_TOKEN
+          && !verifySemanticAnimationArtifactChain({
+            animationIrEnvelope,
+            contentArtifactRepository: content,
+            project,
+            qaEnvelope,
+            report,
+          })
+        ) return false;
+      } catch { return false; }
       const audio = artifacts.get(report.narrationAudio.artifactId); const contact = artifacts.get(report.contactSheet.artifactId);
       return Boolean(audio && audio.ownerProjectId === project.id && audio.checksumSha256 === report.narrationAudio.hash && contact && contact.ownerProjectId === project.id && contact.checksumSha256 === report.contactSheet.hash);
     },
@@ -118,7 +521,7 @@ function createLocalPilotRuntime(options = {}, overrides = {}) {
       if (!this.verifyCompletedReport(report)) throw new AppError("PILOT_CHECKPOINT_INVALID", SAFE_MESSAGES.PILOT_CHECKPOINT_INVALID, 409);
       const project = projects.get(report.projectId); let created = null;
       try {
-        created = createPublishApproval({ project, operatorId: options.operatorId, request: { expectedRevision: report.projectRevision, finalOutputHash: report.final.outputHash, qaReportArtifactId: report.qa.report.artifactId, qaReportHash: report.qa.report.hash, exportMetadataArtifactId: report.exportMetadata.artifactId, exportMetadataHash: report.exportMetadata.hash, operatorDecision: "approve", warningAcknowledgements: [], operatorNote: "Explicit Dark Curiosity operator release proof", idempotencyKey: `pilot-release-${report.runId}` } }, { publishApprovalRepository: publishApprovals, contentArtifactRepository: content, contentApprovalRepository: approvals, artifactRepository: artifacts, exportRepository: exports });
+        created = createPublishApproval({ project, operatorId: options.operatorId, request: { expectedRevision: report.projectRevision, finalOutputHash: report.final.outputHash, qaReportArtifactId: report.qa.report.artifactId, qaReportHash: report.qa.report.hash, exportMetadataArtifactId: report.exportMetadata.artifactId, exportMetadataHash: report.exportMetadata.hash, operatorDecision: "approve", warningAcknowledgements: [], operatorNote: "Explicit Dark Curiosity operator release proof", idempotencyKey: pilotReleaseIdempotencyKey(report) } }, { publishApprovalRepository: publishApprovals, contentArtifactRepository: content, contentApprovalRepository: approvals, artifactRepository: artifacts, exportRepository: exports });
         if (!created.releaseToken) throw new AppError("RELEASE_TOKEN_INVALID", SAFE_MESSAGES.RELEASE_TOKEN_INVALID, 403);
         const eligibility = verifyReleaseEligibility({ project, request: { releaseToken: created.releaseToken, outputHash: report.final.outputHash } }, { publishApprovalRepository: publishApprovals, contentApprovalRepository: approvals, artifactRepository: artifacts });
         const exportRecord = exports.all().find((value) => value.projectId === project.id && value.artifact && value.artifact.id === eligibility.artifact.id && value.status === "completed");
@@ -132,4 +535,4 @@ function createLocalPilotRuntime(options = {}, overrides = {}) {
   };
 }
 
-module.exports = { createLocalPilotRuntime, deterministicUuid, renderPayload };
+module.exports = { animationProfileMatchesEvidence, createLocalPilotRuntime, deterministicUuid, normalizePilotAnimationProfile, pilotReleaseIdempotencyKey, renderPayload, verifiedAlignedNarrationReuse, verifySemanticAnimationArtifactChain };

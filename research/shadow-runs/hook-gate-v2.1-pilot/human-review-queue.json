@@ -1,0 +1,74 @@
+{
+  "artifactType": "BudgetFriendlyGrowthShadowHumanReviewQueue",
+  "instructions": "Set humanDecision to approve or reject and add concise humanReasons. Full-V2 items estimate precision; closure-shadow near misses help detect an over-strict hook gate.",
+  "items": [
+    {
+      "closingExactQuote": "That's the success comes when you say, I like this enough for other people to see it.",
+      "closureReasons": [],
+      "closureStatus": "pass",
+      "fullV2Eligible": true,
+      "hookPayoffPhrase": "Just because I like it, that doesn't give it any value",
+      "hookReasons": [],
+      "hookSignalPhrase": "Just because I like it",
+      "hookStatus": "pass",
+      "humanDecision": null,
+      "humanReasons": [],
+      "openingExactQuote": "Just because I like it, that doesn't give it any value",
+      "priority": "full_v2_eligible",
+      "reviewId": "vsg_2026_07_17:000",
+      "sourceId": "VSG9hY_t-rs",
+      "speechDurationSeconds": 11.28,
+      "speechEndTime": 6357.09,
+      "speechStartTime": 6345.81,
+      "title": "The Only Metric for Success"
+    },
+    {
+      "closingExactQuote": "There's no creativity, there's no building in the absence of safety, then it just becomes survival.",
+      "closureReasons": [],
+      "closureStatus": "pass",
+      "fullV2Eligible": false,
+      "hookPayoffPhrase": "Safety is really about the ability to predict outcomes",
+      "hookReasons": [
+        "hook_gate_signal_after_1s"
+      ],
+      "hookSignalPhrase": "Safety is really about the ability to",
+      "hookStatus": "reject",
+      "humanDecision": null,
+      "humanReasons": [],
+      "openingExactQuote": "Safety is really about the ability to",
+      "priority": "closure_shadow_near_miss",
+      "reviewId": "vsg_2026_07_17:002",
+      "sourceId": "VSG9hY_t-rs",
+      "speechDurationSeconds": 27.22,
+      "speechEndTime": 285.0,
+      "speechStartTime": 257.78,
+      "title": "Why Your Brain Needs Safety to Create"
+    },
+    {
+      "closingExactQuote": "Shifting one's perception to a particular location as opposed to just wherever the mind may take it.",
+      "closureReasons": [],
+      "closureStatus": "pass",
+      "fullV2Eligible": false,
+      "hookPayoffPhrase": "Yoganidra is that practice",
+      "hookReasons": [
+        "hook_gate_opening_unaligned",
+        "hook_gate_signal_unaligned"
+      ],
+      "hookSignalPhrase": "If ever there was a powerful practice",
+      "hookStatus": "reject",
+      "humanDecision": null,
+      "humanReasons": [],
+      "openingExactQuote": "If ever there was a powerful practice",
+      "priority": "closure_shadow_near_miss",
+      "reviewId": "vsg_2026_07_17:008",
+      "sourceId": "VSG9hY_t-rs",
+      "speechDurationSeconds": 23.5,
+      "speechEndTime": 2665.54,
+      "speechStartTime": 2642.04,
+      "title": "The Most Powerful Practice for Turning Off Thoughts"
+    }
+  ],
+  "policyVersion": "bf-growth-shadow-v1.0.0",
+  "reviewedCount": 0,
+  "schemaVersion": 1
+}

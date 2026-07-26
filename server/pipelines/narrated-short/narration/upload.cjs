@@ -218,7 +218,11 @@ async function ingestUploadedNarration(input = {}, dependencyInput = {}) {
       manifestHash: manifestArtifact.envelope.contentHash,
     });
     const updatedProject = dependencies.projectRepository.update(project.id, {
-      input: { ...project.input, activeNarration: summary },
+      input: {
+        ...project.input,
+        activeNarration: summary,
+        activeAnimationScenePlan: null,
+      },
     });
     if (dependencies.persistenceAdapter && typeof dependencies.persistenceAdapter.persistProject === "function") {
       dependencies.persistenceAdapter.persistProject({ project: updatedProject });

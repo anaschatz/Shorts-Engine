@@ -1,0 +1,855 @@
+{
+  "schemaVersion": 3,
+  "artifactType": "semantic_event_graph",
+  "id": "seg_002_gps_week_rollover",
+  "verticalId": "dark_curiosity",
+  "narrativeShape": "mechanism_reveal_v1",
+  "language": "en",
+  "sourceBindings": {
+    "fixturePath": "eval/narrated/dark-curiosity/fixtures/002_gps_week_rollover.json",
+    "approvedDraftHash": "766e7eb651af9c27729c6b73fc668183b541269c77e15db488152991c81446f4",
+    "alignmentHash": "5a175d6d7929767b4cee247c0fecc7159535803832d70a70cc92272fe1672418",
+    "fps": 30,
+    "durationFrames": 1233,
+    "wordCount": 93
+  },
+  "entities": [
+    {
+      "id": "rollover_date",
+      "kind": "calendar_date",
+      "visualSubjectKind": "date",
+      "label": "April 6, 2019",
+      "persistent": false,
+      "claimIds": [
+        "claim_rollover"
+      ]
+    },
+    {
+      "id": "legacy_gps_week_counter",
+      "kind": "finite_counter",
+      "visualSubjectKind": "finite_counter",
+      "label": "legacy GPS week counter",
+      "persistent": true,
+      "claimIds": [
+        "claim_rollover",
+        "claim_counter",
+        "claim_future",
+        "claim_verdict"
+      ]
+    },
+    {
+      "id": "legacy_civil_signal",
+      "kind": "navigation_signal",
+      "visualSubjectKind": "mapping",
+      "label": "legacy civil GPS navigation message",
+      "persistent": true,
+      "claimIds": [
+        "claim_counter"
+      ]
+    },
+    {
+      "id": "week_number_field",
+      "kind": "bit_field",
+      "visualSubjectKind": "finite_counter",
+      "label": "ten-bit field",
+      "persistent": true,
+      "claimIds": [
+        "claim_counter",
+        "claim_future"
+      ]
+    },
+    {
+      "id": "affected_devices",
+      "kind": "device_group",
+      "visualSubjectKind": "device",
+      "label": "some devices",
+      "persistent": true,
+      "claimIds": [
+        "claim_rollover",
+        "claim_patches"
+      ]
+    },
+    {
+      "id": "legacy_receivers",
+      "kind": "receiver_group",
+      "visualSubjectKind": "device",
+      "label": "legacy receivers",
+      "persistent": true,
+      "claimIds": [
+        "claim_future"
+      ]
+    },
+    {
+      "id": "receiver_software",
+      "kind": "software_interpreter",
+      "visualSubjectKind": "mapping",
+      "label": "receiver software",
+      "persistent": true,
+      "claimIds": [
+        "claim_rollover",
+        "claim_patches",
+        "claim_verdict"
+      ]
+    },
+    {
+      "id": "reported_date",
+      "kind": "device_output",
+      "visualSubjectKind": "date",
+      "label": "the wrong date",
+      "persistent": true,
+      "claimIds": [
+        "claim_rollover",
+        "claim_verdict"
+      ]
+    },
+    {
+      "id": "software_patch",
+      "kind": "software_fix",
+      "visualSubjectKind": "evidence",
+      "label": "software patch",
+      "persistent": false,
+      "claimIds": [
+        "claim_patches"
+      ]
+    },
+    {
+      "id": "newer_navigation_messages",
+      "kind": "navigation_message_family",
+      "visualSubjectKind": "mapping",
+      "label": "newer navigation messages",
+      "persistent": true,
+      "claimIds": [
+        "claim_future"
+      ]
+    },
+    {
+      "id": "newer_week_number_field",
+      "kind": "bit_field",
+      "visualSubjectKind": "finite_counter",
+      "label": "a larger week field",
+      "persistent": true,
+      "claimIds": [
+        "claim_future"
+      ]
+    },
+    {
+      "id": "time",
+      "kind": "temporal_progression",
+      "visualSubjectKind": "timeline",
+      "label": "time",
+      "persistent": true,
+      "claimIds": [
+        "claim_verdict"
+      ]
+    }
+  ],
+  "beats": [
+    {
+      "beatId": "beat_hook",
+      "role": "hook",
+      "wordSpan": {
+        "startIndex": 0,
+        "endIndexExclusive": 23
+      },
+      "frameSpan": {
+        "startFrame": 0,
+        "endFrame": 278
+      },
+      "propositions": [
+        {
+          "id": "gps_hook_date",
+          "kind": "event_context",
+          "subjectEntityId": "legacy_gps_week_counter",
+        "predicate": "rollover_occurred_on",
+          "objectEntityIds": [
+            "rollover_date"
+          ],
+          "polarity": "affirmed",
+        "epistemicStatus": "supported_fact",
+        "visualIntent": {
+          "focusEntityId": "rollover_date",
+          "predicate": "state_change",
+          "subjectKind": "date",
+          "stateTransition": "change_value"
+        },
+          "claimIds": [
+            "claim_rollover"
+          ],
+          "cue": {
+            "wordStartIndex": 0,
+            "wordEndIndexExclusive": 4,
+            "startFrame": 0,
+            "endFrame": 60,
+            "text": "On April 6, 2019,"
+          },
+          "visualAction": {
+            "operation": "set_date_context",
+            "focusEntityIds": [
+              "rollover_date"
+            ]
+          }
+        },
+        {
+          "id": "gps_hook_counter_reset",
+          "kind": "state_transition",
+          "subjectEntityId": "legacy_gps_week_counter",
+        "predicate": "reset_to_zero",
+          "objectEntityIds": [],
+          "polarity": "affirmed",
+        "epistemicStatus": "supported_fact",
+        "visualIntent": {
+          "focusEntityId": "legacy_gps_week_counter",
+          "predicate": "state_change",
+          "subjectKind": "finite_counter",
+          "stateTransition": "wrap_to_origin"
+        },
+          "stateBefore": {
+            "cyclePosition": "last_value"
+          },
+          "stateAfter": {
+            "cyclePosition": "zero"
+          },
+          "claimIds": [
+            "claim_rollover"
+          ],
+          "cue": {
+            "wordStartIndex": 4,
+            "wordEndIndexExclusive": 12,
+            "startFrame": 78,
+            "endFrame": 162,
+            "text": "the legacy GPS week counter reset to zero,"
+          },
+          "visualAction": {
+            "operation": "roll_counter_to_zero",
+            "focusEntityIds": [
+              "legacy_gps_week_counter"
+            ]
+          }
+        },
+        {
+          "id": "gps_hook_incorrect_handling",
+          "kind": "causal_action",
+          "subjectEntityId": "receiver_software",
+        "predicate": "handled_rollover_incorrectly_in_some_devices",
+          "objectEntityIds": [
+            "legacy_gps_week_counter",
+            "affected_devices"
+          ],
+          "polarity": "affirmed",
+        "epistemicStatus": "supported_fact",
+        "visualIntent": {
+          "focusEntityId": "receiver_software",
+          "predicate": "misinterpretation",
+          "subjectKind": "mapping",
+          "stateTransition": "map_to_incorrect_output"
+        },
+          "claimIds": [
+            "claim_rollover"
+          ],
+          "cue": {
+            "wordStartIndex": 12,
+            "wordEndIndexExclusive": 19,
+            "startFrame": 170,
+            "endFrame": 245,
+            "text": "and some devices that handled it incorrectly"
+          },
+          "visualAction": {
+            "operation": "route_repeated_value_through_receiver",
+            "focusEntityIds": [
+              "legacy_gps_week_counter",
+              "receiver_software",
+              "affected_devices"
+            ]
+          }
+        },
+        {
+          "id": "gps_hook_wrong_date",
+          "kind": "state_transition",
+          "subjectEntityId": "reported_date",
+        "predicate": "became_incorrect",
+          "objectEntityIds": [
+            "affected_devices"
+          ],
+          "polarity": "affirmed",
+        "epistemicStatus": "supported_fact",
+        "visualIntent": {
+          "focusEntityId": "reported_date",
+          "predicate": "misinterpretation",
+          "subjectKind": "date",
+          "stateTransition": "map_to_incorrect_output"
+        },
+          "stateBefore": {
+            "correctness": "not_asserted"
+          },
+          "stateAfter": {
+            "correctness": "wrong"
+          },
+          "claimIds": [
+            "claim_rollover"
+          ],
+          "cue": {
+            "wordStartIndex": 19,
+            "wordEndIndexExclusive": 23,
+            "startFrame": 245,
+            "endFrame": 278,
+            "text": "showed the wrong date."
+          },
+          "visualAction": {
+            "operation": "show_incorrect_device_date",
+            "focusEntityIds": [
+              "affected_devices",
+              "reported_date"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "beatId": "beat_context",
+      "role": "context",
+      "wordSpan": {
+        "startIndex": 23,
+        "endIndexExclusive": 42
+      },
+      "frameSpan": {
+        "startFrame": 297,
+        "endFrame": 493
+      },
+      "propositions": [
+        {
+          "id": "gps_context_ten_bit_storage",
+          "kind": "structural_relation",
+          "subjectEntityId": "legacy_civil_signal",
+        "predicate": "stores_week_number_in_field",
+          "objectEntityIds": [
+            "week_number_field"
+          ],
+          "polarity": "affirmed",
+        "epistemicStatus": "supported_fact",
+        "visualIntent": {
+          "focusEntityId": "legacy_civil_signal",
+          "predicate": "mechanism_reveal",
+          "subjectKind": "mapping",
+          "stateTransition": "reveal_structure"
+        },
+          "attributes": {
+            "bitWidth": 10
+          },
+          "quantities": [
+            {
+              "value": "ten",
+              "unit": "bits"
+            }
+          ],
+          "claimIds": [
+            "claim_counter"
+          ],
+          "cue": {
+            "wordStartIndex": 23,
+            "wordEndIndexExclusive": 34,
+            "startFrame": 297,
+            "endFrame": 402,
+            "text": "The legacy civil signal stores its week number in ten bits,"
+          },
+          "visualAction": {
+            "operation": "reveal_ten_bit_week_field",
+            "focusEntityIds": [
+              "legacy_civil_signal",
+              "week_number_field"
+            ]
+          }
+        },
+        {
+          "id": "gps_context_finite_values",
+          "kind": "constraint",
+          "subjectEntityId": "week_number_field",
+        "predicate": "allows_only_a_limited_value_set",
+          "objectEntityIds": [],
+          "polarity": "affirmed",
+        "epistemicStatus": "supported_fact",
+        "visualIntent": {
+          "focusEntityId": "week_number_field",
+          "predicate": "capacity_limit",
+          "subjectKind": "finite_counter",
+          "stateTransition": "reach_capacity"
+        },
+          "stateAfter": {
+            "valueSpace": "finite"
+          },
+          "claimIds": [
+            "claim_counter"
+          ],
+          "cue": {
+            "wordStartIndex": 34,
+            "wordEndIndexExclusive": 42,
+            "startFrame": 412,
+            "endFrame": 493,
+            "text": "leaving only a limited set of possible values."
+          },
+          "visualAction": {
+            "operation": "bound_week_value_space",
+            "focusEntityIds": [
+              "week_number_field",
+              "legacy_gps_week_counter"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "beatId": "beat_evidence",
+      "role": "evidence",
+      "wordSpan": {
+        "startIndex": 42,
+        "endIndexExclusive": 61
+      },
+      "frameSpan": {
+        "startFrame": 507,
+        "endFrame": 740
+      },
+      "propositions": [
+        {
+          "id": "gps_evidence_cycle_duration",
+          "kind": "measured_extent",
+          "subjectEntityId": "legacy_gps_week_counter",
+        "predicate": "covers_duration",
+          "objectEntityIds": [],
+          "polarity": "affirmed",
+        "epistemicStatus": "supported_fact",
+        "visualIntent": {
+          "focusEntityId": "legacy_gps_week_counter",
+          "predicate": "recurrence",
+          "subjectKind": "finite_counter",
+          "stateTransition": "repeat_cycle"
+        },
+          "attributes": {
+            "duration": "almost_twenty_years",
+            "precision": "approximate"
+          },
+          "quantities": [
+            {
+              "value": "almost twenty",
+              "unit": "years"
+            }
+          ],
+          "claimIds": [
+            "claim_counter"
+          ],
+          "cue": {
+            "wordStartIndex": 42,
+            "wordEndIndexExclusive": 48,
+            "startFrame": 507,
+            "endFrame": 573,
+            "text": "That counter covers almost twenty years."
+          },
+          "visualAction": {
+            "operation": "fill_finite_counter_cycle",
+            "focusEntityIds": [
+              "legacy_gps_week_counter"
+            ]
+          }
+        },
+        {
+          "id": "gps_evidence_rollover",
+          "kind": "state_transition",
+          "subjectEntityId": "legacy_gps_week_counter",
+        "predicate": "rolled_over",
+          "objectEntityIds": [],
+          "polarity": "affirmed",
+        "epistemicStatus": "supported_fact",
+        "visualIntent": {
+          "focusEntityId": "legacy_gps_week_counter",
+          "predicate": "state_change",
+          "subjectKind": "finite_counter",
+          "stateTransition": "wrap_to_origin"
+        },
+          "stateBefore": {
+            "cyclePosition": "last_value"
+          },
+          "stateAfter": {
+            "cyclePosition": "zero"
+          },
+          "claimIds": [
+            "claim_counter"
+          ],
+          "cue": {
+            "wordStartIndex": 48,
+            "wordEndIndexExclusive": 52,
+            "startFrame": 588,
+            "endFrame": 614,
+            "text": "When it rolled over,"
+          },
+          "visualAction": {
+            "operation": "roll_counter",
+            "focusEntityIds": [
+              "legacy_gps_week_counter"
+            ]
+          }
+        },
+        {
+          "id": "gps_evidence_ambiguity_handling",
+          "kind": "causal_action",
+          "subjectEntityId": "receiver_software",
+        "predicate": "handled_repeated_value_ambiguity_badly",
+          "objectEntityIds": [
+            "legacy_gps_week_counter",
+            "affected_devices"
+          ],
+          "polarity": "affirmed",
+        "epistemicStatus": "supported_fact",
+        "visualIntent": {
+          "focusEntityId": "receiver_software",
+          "predicate": "misinterpretation",
+          "subjectKind": "mapping",
+          "stateTransition": "map_to_incorrect_output"
+        },
+          "claimIds": [
+            "claim_patches"
+          ],
+          "cue": {
+            "wordStartIndex": 52,
+            "wordEndIndexExclusive": 58,
+            "startFrame": 627,
+            "endFrame": 697,
+            "text": "equipment that handled the ambiguity badly"
+          },
+          "visualAction": {
+            "operation": "compare_receiver_interpretations",
+            "focusEntityIds": [
+              "receiver_software",
+              "reported_date"
+            ]
+          }
+        },
+        {
+          "id": "gps_evidence_patch_requirement",
+          "kind": "remediation_requirement",
+          "subjectEntityId": "affected_devices",
+        "predicate": "required_software_patches",
+          "objectEntityIds": [
+            "software_patch"
+          ],
+          "polarity": "affirmed",
+        "epistemicStatus": "supported_fact",
+        "visualIntent": {
+          "focusEntityId": "affected_devices",
+          "predicate": "remediation",
+          "subjectKind": "device",
+          "stateTransition": "require_update"
+        },
+          "claimIds": [
+            "claim_patches"
+          ],
+          "cue": {
+            "wordStartIndex": 58,
+            "wordEndIndexExclusive": 61,
+            "startFrame": 697,
+            "endFrame": 740,
+            "text": "needed software patches."
+          },
+          "visualAction": {
+            "operation": "show_patch_requirement",
+            "focusEntityIds": [
+              "affected_devices",
+              "software_patch"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "beatId": "beat_turn",
+      "role": "turn",
+      "wordSpan": {
+        "startIndex": 61,
+        "endIndexExclusive": 78
+      },
+      "frameSpan": {
+        "startFrame": 757,
+        "endFrame": 1007
+      },
+      "propositions": [
+        {
+          "id": "gps_turn_legacy_2038",
+          "kind": "future_event",
+          "subjectEntityId": "legacy_receivers",
+        "predicate": "face_another_rollover_in_2038",
+          "objectEntityIds": [
+            "legacy_gps_week_counter"
+          ],
+          "polarity": "affirmed",
+        "epistemicStatus": "supported_fact",
+        "visualIntent": {
+          "focusEntityId": "legacy_gps_week_counter",
+          "predicate": "recurrence",
+          "subjectKind": "finite_counter",
+          "stateTransition": "repeat_cycle"
+        },
+          "attributes": {
+            "year": 2038
+          },
+          "quantities": [
+            {
+              "value": "2038",
+              "unit": null
+            }
+          ],
+          "claimIds": [
+            "claim_future"
+          ],
+          "cue": {
+            "wordStartIndex": 61,
+            "wordEndIndexExclusive": 68,
+            "startFrame": 757,
+            "endFrame": 873,
+            "text": "Legacy receivers face another rollover in 2038,"
+          },
+          "visualAction": {
+            "operation": "mark_legacy_rollover_boundary",
+            "focusEntityIds": [
+              "legacy_gps_week_counter",
+              "legacy_receivers"
+            ]
+          }
+        },
+        {
+          "id": "gps_turn_newer_messages",
+          "kind": "capacity_comparison",
+          "subjectEntityId": "newer_navigation_messages",
+        "predicate": "give_week_counter_more_room",
+          "objectEntityIds": [
+            "newer_week_number_field"
+          ],
+          "polarity": "affirmed",
+        "epistemicStatus": "supported_fact",
+        "visualIntent": {
+          "focusEntityId": "newer_week_number_field",
+          "predicate": "comparison",
+          "subjectKind": "finite_counter",
+          "stateTransition": "compare_states"
+        },
+          "stateAfter": {
+            "relativeCapacity": "greater_than_legacy"
+          },
+          "claimIds": [
+            "claim_future"
+          ],
+          "cue": {
+            "wordStartIndex": 68,
+            "wordEndIndexExclusive": 78,
+            "startFrame": 873,
+            "endFrame": 1007,
+            "text": "while newer navigation messages give the week counter more room."
+          },
+          "visualAction": {
+            "operation": "compare_legacy_and_newer_counter_capacity",
+            "focusEntityIds": [
+              "legacy_gps_week_counter",
+              "newer_navigation_messages",
+              "week_number_field",
+              "newer_week_number_field"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "beatId": "beat_payoff",
+      "role": "payoff",
+      "wordSpan": {
+        "startIndex": 78,
+        "endIndexExclusive": 93
+      },
+      "frameSpan": {
+        "startFrame": 1023,
+        "endFrame": 1194
+      },
+      "propositions": [
+        {
+          "id": "gps_payoff_haunted_appearance",
+          "kind": "rhetorical_appearance",
+          "subjectEntityId": "reported_date",
+        "predicate": "looked_haunted",
+          "objectEntityIds": [],
+          "polarity": "affirmed",
+        "epistemicStatus": "rhetorical_appearance",
+        "visualIntent": {
+          "focusEntityId": "reported_date",
+          "predicate": "misinterpretation",
+          "subjectKind": "date",
+          "stateTransition": "map_to_incorrect_output"
+        },
+          "claimIds": [
+            "claim_verdict"
+          ],
+          "cue": {
+            "wordStartIndex": 78,
+            "wordEndIndexExclusive": 82,
+            "startFrame": 1023,
+            "endFrame": 1058,
+            "text": "The clocks looked haunted,"
+          },
+          "visualAction": {
+            "operation": "present_then_strip_haunted_appearance",
+            "focusEntityIds": [
+              "reported_date"
+            ]
+          }
+        },
+        {
+          "id": "gps_payoff_ordinary_mechanism",
+          "kind": "bounded_interpretation",
+          "subjectEntityId": "legacy_gps_week_counter",
+        "predicate": "had_an_ordinary_mechanism",
+          "objectEntityIds": [
+            "receiver_software"
+          ],
+          "polarity": "affirmed",
+        "epistemicStatus": "qualified_analysis",
+        "visualIntent": {
+          "focusEntityId": "legacy_gps_week_counter",
+          "predicate": "mechanism_reveal",
+          "subjectKind": "finite_counter",
+          "stateTransition": "reveal_structure"
+        },
+          "claimIds": [
+            "claim_verdict"
+          ],
+          "cue": {
+            "wordStartIndex": 82,
+            "wordEndIndexExclusive": 87,
+            "startFrame": 1063,
+            "endFrame": 1113,
+            "text": "but the mechanism was ordinary."
+          },
+          "visualAction": {
+            "operation": "reveal_counter_receiver_mechanism",
+            "focusEntityIds": [
+              "legacy_gps_week_counter",
+              "receiver_software"
+            ]
+          }
+        },
+        {
+          "id": "gps_payoff_number_reset",
+          "kind": "state_transition",
+          "subjectEntityId": "legacy_gps_week_counter",
+        "predicate": "number_reset",
+          "objectEntityIds": [],
+          "polarity": "affirmed",
+        "epistemicStatus": "qualified_analysis",
+        "visualIntent": {
+          "focusEntityId": "legacy_gps_week_counter",
+          "predicate": "state_change",
+          "subjectKind": "finite_counter",
+          "stateTransition": "wrap_to_origin"
+        },
+          "stateBefore": {
+            "cyclePosition": "last_value"
+          },
+          "stateAfter": {
+            "cyclePosition": "zero"
+          },
+          "claimIds": [
+            "claim_verdict"
+          ],
+          "cue": {
+            "wordStartIndex": 87,
+            "wordEndIndexExclusive": 90,
+            "startFrame": 1129,
+            "endFrame": 1161,
+            "text": "The number reset,"
+          },
+          "visualAction": {
+            "operation": "show_counter_reset",
+            "focusEntityIds": [
+              "legacy_gps_week_counter"
+            ]
+          }
+        },
+        {
+          "id": "gps_payoff_time_did_not_reset",
+          "kind": "negated_state_transition",
+          "subjectEntityId": "time",
+        "predicate": "reset_or_move_backward",
+          "objectEntityIds": [],
+          "polarity": "negated",
+        "epistemicStatus": "qualified_analysis",
+        "visualIntent": {
+          "focusEntityId": "time",
+          "predicate": "comparison",
+          "subjectKind": "timeline",
+          "stateTransition": "compare_states"
+        },
+          "stateBefore": {
+            "direction": "forward"
+          },
+          "stateAfter": {
+            "direction": "forward"
+          },
+          "claimIds": [
+            "claim_verdict"
+          ],
+          "cue": {
+            "wordStartIndex": 90,
+            "wordEndIndexExclusive": 93,
+            "startFrame": 1168,
+            "endFrame": 1194,
+            "text": "not time itself."
+          },
+          "visualAction": {
+            "operation": "contrast_counter_reset_with_continuing_time",
+            "focusEntityIds": [
+              "legacy_gps_week_counter",
+              "time"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "continuity": [
+    {
+      "entityId": "legacy_gps_week_counter",
+      "beatIds": [
+        "beat_hook",
+        "beat_context",
+        "beat_evidence",
+        "beat_turn",
+        "beat_payoff"
+      ],
+      "rule": "Preserve one counter identity while its representation changes from field to cycle to comparison."
+    },
+    {
+      "entityId": "time",
+      "beatIds": [
+        "beat_payoff"
+      ],
+      "rule": "Keep the time axis moving forward while the finite counter returns to zero."
+    }
+  ],
+  "epistemicConstraints": [
+    {
+      "id": "gps_no_time_reversal",
+      "rule": "Never depict time itself reversing or resetting.",
+      "claimIds": [
+        "claim_verdict"
+      ]
+    },
+    {
+      "id": "gps_not_every_device",
+      "rule": "Depict only some devices as affected; never imply that every GPS receiver failed.",
+      "claimIds": [
+        "claim_rollover"
+      ]
+    },
+    {
+      "id": "gps_receiver_interpretation_scope",
+      "rule": "Bind the wrong reported date to receiver interpretation of the repeated value, not to the passage of time.",
+      "claimIds": [
+        "claim_patches",
+        "claim_verdict"
+      ]
+    }
+  ]
+}

@@ -19,10 +19,15 @@ const { createLocalJobWorker, restoreExportsFromCompletedJobs } = require("../se
 const { JobStore } = require("../server/jobs.cjs");
 const { InMemoryExportRepository } = require("../server/repositories/export-repository.cjs");
 const { InMemoryProjectRepository } = require("../server/repositories/project-repository.cjs");
-const { loadPersistedProjectState } = require("../server/repositories/project-state.cjs");
+const {
+  compareAndSwapProjectRecord,
+  loadPersistedProjectState,
+  persistProjectUploadRecord,
+  withProjectStateLock,
+} = require("../server/repositories/project-state.cjs");
 const { InMemoryUploadRepository } = require("../server/repositories/upload-repository.cjs");
 const { LocalArtifactStore } = require("../server/storage/artifact-store.cjs");
-const { storagePath, writeJsonAtomic } = require("../server/storage.cjs");
+const { readJsonFile, storagePath, writeJsonAtomic } = require("../server/storage.cjs");
 
 const PROJECT_ID = "prj_11111111-1111-4111-8111-111111111111";
 const UPLOAD_ID = "upl_22222222-2222-4222-8222-222222222222";
@@ -124,6 +129,74 @@ test("repositories create public records without leaking internal paths", () => 
     );
   } finally {
     cleanup(uploadPath);
+  }
+});
+
+test("in-memory project compare-and-swap rejects a reused stale snapshot", () => {
+  const projects = new InMemoryProjectRepository();
+  const created = projects.create({
+    id: PROJECT_ID,
+    uploadId: UPLOAD_ID,
+    title: "CAS Derby",
+    status: "draft",
+  });
+  const expected = JSON.parse(JSON.stringify(created));
+
+  const winner = projects.compareAndSwap(PROJECT_ID, expected, {
+    title: "CAS Winner",
+    status: "processing",
+  });
+  const stale = projects.compareAndSwap(PROJECT_ID, expected, {
+    title: "Stale Overwrite",
+    status: "failed",
+  });
+
+  assert.equal(winner.title, "CAS Winner");
+  assert.equal(stale, null);
+  assert.equal(projects.get(PROJECT_ID).title, "CAS Winner");
+  assert.equal(projects.get(PROJECT_ID).status, "processing");
+});
+
+test("local project CAS fails closed on a live lock and preserves clip upload metadata", () => {
+  const projectId = "prj_localcas11-1111-4111-8111-111111111111";
+  const uploadId = "upl_localcas22-2222-4222-8222-222222222222";
+  const projects = new InMemoryProjectRepository();
+  const project = projects.create({
+    id: projectId,
+    uploadId,
+    title: "Locked Clip",
+    status: "draft",
+  });
+  const upload = {
+    id: uploadId,
+    projectId,
+    marker: { preserve: "exactly" },
+  };
+  const recordPath = storagePath("projects", `${projectId}.json`);
+  persistProjectUploadRecord({ project, upload });
+
+  try {
+    withProjectStateLock(projectId, () => {
+      const busy = compareAndSwapProjectRecord({
+        projectId,
+        expectedProject: JSON.parse(JSON.stringify(project)),
+        patch: { title: "Must Not Install" },
+      });
+      assert.equal(busy.matched, false);
+      assert.equal(busy.busy, true);
+    });
+    const swapped = compareAndSwapProjectRecord({
+      projectId,
+      expectedProject: JSON.parse(JSON.stringify(project)),
+      patch: { title: "Safe Clip Update" },
+    });
+    const envelope = readJsonFile(recordPath);
+
+    assert.equal(swapped.matched, true);
+    assert.equal(envelope.project.title, "Safe Clip Update");
+    assert.deepEqual(envelope.upload, upload);
+  } finally {
+    cleanup(recordPath);
   }
 });
 

@@ -8,13 +8,34 @@ const { spawnSync } = require("node:child_process");
 const { TTS_PROVENANCE_SCHEMA_V2, TTS_PROVENANCE_SCHEMA_V3, normalizeSynthesisRequest, normalizeTtsProvenance, sha256 } = require("../server/pipelines/narrated-short/narration/tts/contract.cjs");
 const { createKokoroTtsProvider, createMockTtsProvider, createOpenAiTtsProvider, deterministicMockWav } = require("../server/pipelines/narrated-short/narration/tts/providers.cjs");
 const { KOKORO_LICENSE_REFERENCE, KOKORO_MODEL_ID, doctor: kokoroDoctor } = require("../server/pipelines/narrated-short/narration/tts/kokoro-runtime.cjs");
-const { inspectTtsNarration, scriptInfo, synthesizeTtsNarration, verifyTtsNarration } = require("../server/pipelines/narrated-short/narration/tts/service.cjs");
-const { DARK_CURIOSITY_COMPREHENSION_PROFILE, PROFILE_SEGMENTS, buildPacingPlan, normalizePacingPlan, pacingSummary } = require("../server/pipelines/narrated-short/narration/tts/pacing-plan.cjs");
+const { inspectTtsNarration, pacingPlanFor, scriptInfo, synthesizeTtsNarration, verifyTtsNarration } = require("../server/pipelines/narrated-short/narration/tts/service.cjs");
+const { DARK_CURIOSITY_COMPREHENSION_PROFILE, GENERIC_ROLE_PACING, MAX_PLAN_SEGMENTS, PROFILE_SEGMENTS, buildPacingPlan, normalizePacingPlan, pacingSummary } = require("../server/pipelines/narrated-short/narration/tts/pacing-plan.cjs");
 const { evaluateTtsNarrationRelease } = require("../server/pipelines/narrated-short/publish/publish-guard.cjs");
 
 const FIXTURE = resolve(__dirname, "..", "eval/narrated/dark-curiosity/fixtures/001_wow_signal_mystery.json");
+const GPS_FIXTURE = resolve(__dirname, "..", "eval/narrated/dark-curiosity/fixtures/002_gps_week_rollover.json");
+const BAYCHIMO_FIXTURE = resolve(__dirname, "..", "eval/narrated/dark-curiosity/fixtures/003_baychimo_icebound_drift.json");
 const dirs = []; function temp() { const value = mkdtempSync(join(tmpdir(), "dark-tts-")); dirs.push(value); return value; }
 test.after(() => dirs.forEach((value) => rmSync(value, { recursive: true, force: true })));
+
+function fiveBeatScript(texts, idSuffix = "") {
+  const roles = ["hook", "context", "evidence", "turn", "payoff"];
+  return {
+    beats: roles.map((role, index) => ({
+      id: `beat_${role}${idSuffix}`,
+      role,
+      spokenText: texts[index],
+    })),
+  };
+}
+
+const TIMESTAMP_SCRIPT = fiveBeatScript([
+  "In 1994, a desert receiver printed a message carrying tomorrow's date before midnight had passed.",
+  "The paper log showed today's receipt time beside a header dated exactly one day later.",
+  "The station clock and the printed timestamp disagreed, while the original recorder showed no obvious interruption.",
+  "Later tests repeated the same window, but none produced another message from the following day.",
+  "The timestamp remains unexplained, but one anomalous date is not evidence that information travelled backward.",
+]);
 
 test("provider-neutral request rejects cloned, impersonated, custom production voices, and invalid rates", () => {
   const base = { script: "Approved exact script.", provider: "openai", model: "gpt-4o-mini-tts", voiceId: "coral", language: "en", speakingRate: 1 };
@@ -29,6 +50,7 @@ test("comprehension pacing is exact, hash-bound, and covers every approved word 
   const script = scriptInfo(FIXTURE);
   const plan = buildPacingPlan(script.draft.script);
   assert.equal(plan.profile, DARK_CURIOSITY_COMPREHENSION_PROFILE);
+  assert.equal(plan.contentHash, "9cdeec57c2e5691b89b7e258785e59c80c249de035dce53964b69ad6755b3f3e");
   assert.equal(plan.segments.length, 11);
   assert.equal(Object.isFrozen(plan), true); assert.equal(Object.isFrozen(plan.segments), true); assert.equal(Object.isFrozen(plan.segments[0]), true);
   assert.equal(plan.totalPauseMs, 4680);
@@ -50,6 +72,93 @@ test("comprehension pacing is exact, hash-bound, and covers every approved word 
   assert.throws(() => normalizePacingPlan(missing, { script: script.preparation.spokenText }), { code: "TTS_PACING_INVALID" });
   const changedPause = structuredClone(plan); delete changedPause.contentHash; changedPause.segments[0].pauseAfterMs += 1; changedPause.totalPauseMs += 1;
   assert.notEqual(normalizePacingPlan(changedPause, { script: script.preparation.spokenText }).contentHash, plan.contentHash);
+});
+
+test("generic comprehension pacing follows five-beat semantics without depending on Wow wording", () => {
+  const first = buildPacingPlan(TIMESTAMP_SCRIPT);
+  const second = buildPacingPlan(structuredClone(TIMESTAMP_SCRIPT));
+  assert.deepEqual(first, second);
+  assert.equal(first.segments.length, 5);
+  assert.equal(first.totalPauseMs, 2670);
+  assert.deepEqual(first.segments.map((segment) => segment.id), [
+    "hook_01", "context_01", "evidence_01", "turn_01", "payoff_01",
+  ]);
+  assert.deepEqual(first.segments.map((segment) => segment.text), [
+    "In 1994, a desert receiver printed a message carrying tomorrow's date before midnight had passed.",
+    "The paper log showed today's receipt time beside a header dated exactly one day later.",
+    "The station clock and the printed timestamp disagreed, while the original recorder showed no obvious interruption.",
+    "Later tests repeated the same window, but none produced another message from the following day.",
+    "The timestamp remains unexplained, but one anomalous date is not evidence that information travelled backward.",
+  ]);
+  assert.deepEqual(first.segments.map((segment) => segment.pauseAfterMs), [450, 350, 450, 520, 900]);
+  for (const beat of TIMESTAMP_SCRIPT.beats) {
+    const segments = first.segments.filter((segment) => segment.beatId === beat.id);
+    assert.ok(segments.length >= 1 && segments.length <= 3);
+    assert.ok(segments.every((segment) => segment.speakingRate === GENERIC_ROLE_PACING[beat.role].speakingRate));
+  }
+  const spokenText = TIMESTAMP_SCRIPT.beats.map((beat) => beat.spokenText).join(" ");
+  assert.equal(first.segments.map((segment) => segment.text).join(" "), spokenText);
+  assert.equal(normalizePacingPlan(first, { script: spokenText }).contentHash, first.contentHash);
+  assert.deepEqual(pacingPlanFor({ draft: { script: TIMESTAMP_SCRIPT } }, { provider: "kokoro_local", pacingProfile: DARK_CURIOSITY_COMPREHENSION_PROFILE }), first);
+
+  const paraphrase = structuredClone(TIMESTAMP_SCRIPT);
+  paraphrase.beats[4].spokenText = "The timestamp is unresolved, yet a single date mismatch cannot demonstrate backward communication.";
+  assert.notEqual(buildPacingPlan(paraphrase).contentHash, first.contentHash);
+});
+
+test("generic pacing stays bounded and deterministic for punctuation-dense five-beat scripts", () => {
+  const denseBeat = Array.from({ length: 10 }, (_value, index) => `idea${index + 1} remains open${index === 9 ? "." : ","}`).join(" ");
+  const script = fiveBeatScript(Array.from({ length: 5 }, () => denseBeat), "-dense");
+  const plan = buildPacingPlan(script);
+  assert.equal(plan.segments.length, 10);
+  assert.ok(plan.segments.length <= MAX_PLAN_SEGMENTS);
+  assert.deepEqual(plan, buildPacingPlan(structuredClone(script)));
+  for (const beat of script.beats) assert.equal(plan.segments.filter((segment) => segment.beatId === beat.id).length, 2);
+  assert.equal(plan.segments.map((segment) => segment.text).join(" "), script.beats.map((beat) => beat.spokenText).join(" "));
+});
+
+test("real GPS and Baychimo scripts keep short clauses connected and avoid payoff micro-fragments", () => {
+  const cases = [
+    { name: "GPS", path: GPS_FIXTURE },
+    { name: "Baychimo", path: BAYCHIMO_FIXTURE },
+  ];
+  for (const fixtureCase of cases) {
+    const script = JSON.parse(readFileSync(fixtureCase.path, "utf8")).script;
+    const plan = buildPacingPlan(script);
+    assert.deepEqual(plan, buildPacingPlan(structuredClone(script)), `${fixtureCase.name} pacing must be deterministic`);
+    assert.equal(plan.segments.map((segment) => segment.text).join(" "), script.beats.map((beat) => beat.spokenText).join(" "));
+    for (const beat of script.beats) {
+      const segments = plan.segments.filter((segment) => segment.beatId === beat.id);
+      assert.ok(segments.length >= 1 && segments.length <= 3, `${fixtureCase.name} ${beat.role} must use one to three segments`);
+      if (beat.spokenText.split(/\s+/).length <= 18) {
+        assert.equal(segments.length, 1, `${fixtureCase.name} ${beat.role} must not split a short beat`);
+      }
+      assert.ok(segments.every((segment) => segment.text.split(/\s+/).length >= 3), `${fixtureCase.name} ${beat.role} must not create micro-fragments`);
+    }
+    const payoffSegments = plan.segments.filter((segment) => segment.beatId === "beat_payoff");
+    assert.equal(payoffSegments.length, 1, `${fixtureCase.name} payoff must remain a single thought`);
+  }
+});
+
+test("clause starters without punctuation do not create gaps inside short beats", () => {
+  const script = fiveBeatScript([
+    "A receiver warmed slowly and its status light remained steady.",
+    "The operator watched as the final check completed normally.",
+    "The record stayed open but no second anomaly appeared.",
+    "The team waited while another receiver repeated the same test.",
+    "The mystery remains and the evidence still sets a clear limit.",
+  ], "-short-clauses");
+  const plan = buildPacingPlan(script);
+  assert.equal(plan.segments.length, 5);
+  assert.deepEqual(plan.segments.map((segment) => segment.text), script.beats.map((beat) => beat.spokenText));
+  assert.ok(plan.segments.every((segment) => !/^(?:and|as)\b/i.test(segment.text)));
+});
+
+test("comprehension pacing rejects noncanonical five-beat shape before synthesis", () => {
+  const missing = structuredClone(TIMESTAMP_SCRIPT); missing.beats.pop();
+  assert.throws(() => buildPacingPlan(missing), (error) => error.code === "TTS_PACING_INVALID" && error.details.expectedBeatCount === 5);
+  const reordered = structuredClone(TIMESTAMP_SCRIPT); [reordered.beats[1], reordered.beats[2]] = [reordered.beats[2], reordered.beats[1]];
+  assert.throws(() => buildPacingPlan(reordered), (error) => error.code === "TTS_PACING_INVALID" && error.details.expectedRole === "context");
 });
 
 test("Kokoro local request uses an allowlisted voice, production model, and no API credential", async () => {

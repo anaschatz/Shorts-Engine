@@ -29,7 +29,10 @@ const { runNarratedRenderJob } = require("../server/pipelines/narrated-short/ren
 const { contentHash } = require("../server/pipelines/narrated-short/contracts.cjs");
 const { buildProductionAnimationPayloadBindings } = require("../server/pipelines/narrated-short/animation/payload-bindings.cjs");
 const { buildProductionTimingContext } = require("../server/pipelines/narrated-short/animation/timing-context-builder.cjs");
-const { compileProductionAnimation, PRODUCTION_PROVIDER_ID, PRODUCTION_RUNTIME_VERSION, PRODUCTION_STYLE_VERSION } = require("../server/pipelines/narrated-short/animation/production-plan-compiler.cjs");
+const { compileProductionAnimation, PRODUCTION_PROVIDER_ID, PRODUCTION_RUNTIME_VERSION } = require("../server/pipelines/narrated-short/animation/production-plan-compiler.cjs");
+const { SEMANTIC_SENTENCE_PROFILE_TOKEN } = require("../server/pipelines/narrated-short/animation/semantic-render-profile.cjs");
+const { runNarratedAnimationPreplanJob } = require("../server/pipelines/narrated-short/animation/preplan-job.cjs");
+const { createLocalLlmScenePlanner } = require("../server/pipelines/narrated-short/animation/providers/local-llm-scene-planner.cjs");
 
 const FIXTURE = resolve(__dirname, "..", "eval", "narrated", "dark-curiosity", "fixtures", "001_wow_signal_mystery.json");
 test.after(() => rmSync(DATA_DIR, { recursive: true, force: true }));
@@ -130,7 +133,7 @@ function productionAnimationStub() {
       compositionHash: contentHash({ animationIRHash: compiled.animationIR.contentHash }),
       provider: PRODUCTION_PROVIDER_ID,
       runtimeVersion: PRODUCTION_RUNTIME_VERSION,
-      styleVersion: PRODUCTION_STYLE_VERSION,
+      styleVersion: compiled.animationIR.renderer.styleVersion,
     };
     const renderManifestArtifact = create("animation_render_manifest", manifest, [qaArtifact.envelope.contentHash]);
     return { timingContext, animationIR: compiled.animationIR, qa, manifest, timingArtifact, planArtifact, irArtifact, qaArtifact, renderManifestArtifact, visualMasterPath, visualMasterSha256 };
@@ -162,9 +165,13 @@ function continuousCompositorStub(writeValue) {
   };
 }
 
-test("speech token normalization is deterministic for Unicode punctuation, apostrophes and hyphens", () => {
+test("speech token normalization is deterministic for punctuation, apostrophes, hyphens, and simple number words", () => {
   assert.equal(normalizeSpeechToken("  WOW—Signal! "), "wowsignal");
   assert.equal(normalizeSpeechToken("DON’T"), "dont");
+  assert.equal(normalizeSpeechToken("ten"), "10");
+  assert.equal(normalizeSpeechToken("10"), "10");
+  assert.equal(normalizeSpeechToken("nineteen,"), "19");
+  assert.equal(normalizeSpeechToken("20"), normalizeSpeechToken("twenty"));
   assert.equal(normalizeSpeechToken("seventy-two"), "72");
   assert.equal(normalizeSpeechToken("72"), "72");
 });
@@ -308,6 +315,195 @@ test("alignment job fails closed for stale bindings and unavailable local model"
   const job = jobs.create({ projectId: ctx.project.id, action: "align_narration", pipelineType: "narrated_short", payload: basePayload });
   jobs.claimJob(job.id, { workerId: `wrk_${randomUUID()}` });
   await assert.rejects(() => runNarrationAlignmentJob({ jobs, job, project: ctx.project, payload: job.payload, dependencies: { ...ctx, alignerEnv: env, probeAlignerRuntime: () => ({ available: false, reason: "model_unavailable" }) } }), (error) => error.code === "NARRATION_ALIGNER_UNAVAILABLE" && !Object.hasOwn(error.details || {}, "reason"));
+});
+
+async function semanticProfileRenderContext() {
+  const ctx = await setup();
+  const jobs = new JobStore({ persist: false, logger: null });
+  const active = ctx.project.input.activeNarration;
+  const alignerEnv = { SHORTSENGINE_LOCAL_WHISPER_MODEL: "fixture" };
+  const alignPayload = {
+    projectRevision: 1,
+    language: "en",
+    approvedDraftArtifactId: active.draftArtifactId,
+    approvedDraftHash: active.draftHash,
+    narrationManifestArtifactId: active.manifestArtifactId,
+    narrationManifestHash: active.manifestHash,
+    audioArtifactId: active.audioArtifactId,
+    audioHash: active.audioHash,
+    scriptHash: active.scriptHash,
+    alignerVersion: fasterWhisperVersion(alignerEnv),
+  };
+  const alignJob = jobs.create({
+    projectId: ctx.project.id,
+    action: "align_narration",
+    pipelineType: "narrated_short",
+    payload: alignPayload,
+  });
+  jobs.claimJob(alignJob.id, { workerId: `wrk_${randomUUID()}` });
+  const aligned = await runNarrationAlignmentJob({
+    jobs,
+    job: alignJob,
+    project: ctx.project,
+    payload: alignJob.payload,
+    dependencies: { ...ctx, alignNarration: async () => providerFor(ctx.draft), alignerEnv },
+  });
+  const current = aligned.project.input.activeNarration;
+  const expectedTiming = buildProductionTimingContext({
+    draft: ctx.draft,
+    alignment: aligned.alignment,
+    projectId: aligned.project.id,
+    projectRevision: aligned.project.input.revision,
+    draftArtifactId: active.draftArtifactId,
+    draftHash: active.draftHash,
+    alignmentHash: current.alignmentHash,
+  });
+  const scenePlanner = createLocalLlmScenePlanner({ mode: "disabled", env: {} });
+  const scenePlannerHealth = scenePlanner.health();
+  const preplanPayload = {
+    projectRevision: 1,
+    language: "en",
+    approvedDraftArtifactId: active.draftArtifactId,
+    approvedDraftHash: active.draftHash,
+    alignmentArtifactId: current.alignmentArtifactId,
+    alignmentHash: current.alignmentHash,
+    renderProfile: "preview",
+    animationProfile: SEMANTIC_SENTENCE_PROFILE_TOKEN,
+    plannerMode: scenePlannerHealth.mode,
+    promptProfileId: scenePlannerHealth.promptProfileId,
+    plannerConfigurationHash: scenePlannerHealth.configurationHash,
+  };
+  const preplanJob = jobs.create({
+    projectId: aligned.project.id,
+    action: "plan_narrated_animation",
+    pipelineType: "narrated_short",
+    payload: preplanPayload,
+  });
+  jobs.claimJob(preplanJob.id, { workerId: `wrk_${randomUUID()}` });
+  const preplanned = await runNarratedAnimationPreplanJob({
+    jobs,
+    job: preplanJob,
+    project: aligned.project,
+    payload: preplanJob.payload,
+    dependencies: { ...ctx, scenePlanner },
+  });
+  const plannedProject = preplanned.project;
+  const activeScenePlan = plannedProject.input.activeAnimationScenePlan;
+  const expectedAnimation = {
+    plan: { schemaVersion: 3, profile: "semantic-v3-job-test" },
+    animationIR: {
+      contentHash: "9".repeat(64),
+      renderer: { styleVersion: "3.0.0" },
+    },
+  };
+  const renderJob = jobs.create({
+    projectId: plannedProject.id,
+    action: "render_narrated_short",
+    pipelineType: "narrated_short",
+    payload: {
+      projectRevision: 1,
+      language: "en",
+      approvedDraftArtifactId: active.draftArtifactId,
+      approvedDraftHash: active.draftHash,
+      renderProfile: "preview",
+      narrationManifestHash: current.manifestHash,
+      audioHash: current.audioHash,
+      alignmentHash: current.alignmentHash,
+      animationProfile: SEMANTIC_SENTENCE_PROFILE_TOKEN,
+      timingContextHash: expectedTiming.contentHash,
+      animationPlanHash: contentHash(expectedAnimation.plan),
+      animationIRHash: expectedAnimation.animationIR.contentHash,
+      animationProvider: PRODUCTION_PROVIDER_ID,
+      animationRuntimeVersion: PRODUCTION_RUNTIME_VERSION,
+      animationStyleVersion: "3.0.0",
+      animationScenePlanArtifactId: activeScenePlan.planArtifactId,
+      animationScenePlanHash: activeScenePlan.planHash,
+    },
+  });
+  jobs.claimJob(renderJob.id, { workerId: `wrk_${randomUUID()}` });
+  return {
+    aligned: { ...aligned, project: plannedProject },
+    ctx,
+    expectedAnimation,
+    jobs,
+    renderJob,
+    scenePlannerHealth,
+    scenePlanHash: activeScenePlan.planHash,
+    exportRepository: new InMemoryExportRepository({ artifactStore: ctx.artifactStore }),
+  };
+}
+
+test("semantic-v3 render jobs propagate the profile through stale compilation and rendering", async () => {
+  const value = await semanticProfileRenderContext();
+  let compileInput = null;
+  let renderInput = null;
+  await assert.rejects(
+    () => runNarratedRenderJob({
+      jobs: value.jobs,
+      job: value.renderJob,
+      project: value.aligned.project,
+      payload: value.renderJob.payload,
+      exportRepository: value.exportRepository,
+      dependencies: {
+        ...value.ctx,
+        scenePlannerHealth: value.scenePlannerHealth,
+        compileProductionAnimation(input) {
+          compileInput = input;
+          return value.expectedAnimation;
+        },
+        async runProductionAnimationRender(input) {
+          renderInput = input;
+          throw new Error("stop-after-profile-propagation");
+        },
+      },
+    }),
+    (error) => error?.message === "stop-after-profile-propagation",
+  );
+  assert.equal(compileInput.animationProfile, "semantic-v3");
+  assert.equal(renderInput.animationProfile, "semantic-v3");
+  assert.equal(
+    compileInput.semanticAnimationSceneDslPlan.contentHash,
+    value.scenePlanHash,
+  );
+  assert.equal(
+    renderInput.semanticAnimationSceneDslPlan.contentHash,
+    value.scenePlanHash,
+  );
+  assert.equal(renderInput.animationScenePlanHash, value.scenePlanHash);
+});
+
+test("semantic-v3 stale bindings are recomputed with semantic-v3 before rendering", async () => {
+  const value = await semanticProfileRenderContext();
+  let compileInput = null;
+  let renderInvoked = false;
+  await assert.rejects(
+    () => runNarratedRenderJob({
+      jobs: value.jobs,
+      job: value.renderJob,
+      project: value.aligned.project,
+      payload: { ...value.renderJob.payload, animationPlanHash: "8".repeat(64) },
+      exportRepository: value.exportRepository,
+      dependencies: {
+        ...value.ctx,
+        scenePlannerHealth: value.scenePlannerHealth,
+        compileProductionAnimation(input) {
+          compileInput = input;
+          return value.expectedAnimation;
+        },
+        async runProductionAnimationRender() {
+          renderInvoked = true;
+          throw new Error("renderer-must-not-run");
+        },
+      },
+    }),
+    (error) => error?.code === "ANIMATION_BINDING_STALE",
+  );
+  assert.equal(compileInput.animationProfile, "semantic-v3");
+  assert.equal(
+    compileInput.semanticAnimationSceneDslPlan.contentHash,
+    value.scenePlanHash,
+  );
+  assert.equal(renderInvoked, false);
 });
 
 test("final export commits only after passing QA and evidence package; either failure leaves no export", async () => {

@@ -1,0 +1,839 @@
+{
+  "schemaVersion": 3,
+  "artifactType": "semantic_event_graph",
+  "id": "seg_003_baychimo_icebound_drift",
+  "verticalId": "dark_curiosity",
+  "narrativeShape": "historical_reconstruction_v1",
+  "language": "en",
+  "sourceBindings": {
+    "fixturePath": "eval/narrated/dark-curiosity/fixtures/003_baychimo_icebound_drift.json",
+    "approvedDraftHash": "d056def5df87798ed5c6a912263b923465c13b836ca4d293529f647c9ae1577a",
+    "alignmentHash": "ff4dd9547d563f396aff90234faaf28eafcf10bb003b7b7a82717b8617d3ccc0",
+    "fps": 30,
+    "durationFrames": 1068,
+    "wordCount": 89
+  },
+  "entities": [
+    {
+      "id": "year_1931",
+      "kind": "calendar_year",
+      "visualSubjectKind": "date",
+      "label": "1931",
+      "persistent": false,
+      "claimIds": [
+        "claim_disappearance"
+      ]
+    },
+    {
+      "id": "baychimo",
+      "kind": "steamship",
+      "visualSubjectKind": "vessel",
+      "label": "Baychimo",
+      "persistent": true,
+      "claimIds": [
+        "claim_disappearance",
+        "claim_reappearance",
+        "claim_drift",
+        "claim_last-sighting",
+        "claim_verdict"
+      ]
+    },
+    {
+      "id": "baychimo_crew",
+      "kind": "crew_group",
+      "visualSubjectKind": "observer",
+      "label": "the crew",
+      "persistent": false,
+      "claimIds": [
+        "claim_disappearance",
+        "claim_reappearance"
+      ]
+    },
+    {
+      "id": "blizzard",
+      "kind": "weather_event",
+      "visualSubjectKind": "environment",
+      "label": "blizzard",
+      "persistent": false,
+      "claimIds": [
+        "claim_disappearance"
+      ]
+    },
+    {
+      "id": "arctic_ice",
+      "kind": "ice_environment",
+      "visualSubjectKind": "environment",
+      "label": "Arctic ice",
+      "persistent": true,
+      "claimIds": [
+        "claim_disappearance",
+        "claim_drift"
+      ]
+    },
+    {
+      "id": "sinking_assumption",
+      "kind": "hypothesis",
+      "visualSubjectKind": "hypothesis",
+      "label": "the ship had sunk",
+      "persistent": false,
+      "claimIds": [
+        "claim_reappearance"
+      ]
+    },
+    {
+      "id": "local_hunters",
+      "kind": "observer_group",
+      "visualSubjectKind": "observer",
+      "label": "local hunters",
+      "persistent": false,
+      "claimIds": [
+        "claim_reappearance"
+      ]
+    },
+    {
+      "id": "alaskan_coast",
+      "kind": "coastal_region",
+      "visualSubjectKind": "route",
+      "label": "the Alaskan coast",
+      "persistent": false,
+      "claimIds": [
+        "claim_reappearance"
+      ]
+    },
+    {
+      "id": "later_observers",
+      "kind": "observer_group",
+      "visualSubjectKind": "observer",
+      "label": "People",
+      "persistent": false,
+      "claimIds": [
+        "claim_drift"
+      ]
+    },
+    {
+      "id": "arctic_pack_ice",
+      "kind": "moving_ice_environment",
+      "visualSubjectKind": "environment",
+      "label": "Arctic pack ice",
+      "persistent": true,
+      "claimIds": [
+        "claim_drift"
+      ]
+    },
+    {
+      "id": "company_archive_record",
+      "kind": "archival_record",
+      "visualSubjectKind": "record",
+      "label": "company archive record",
+      "persistent": true,
+      "claimIds": [
+        "claim_last-sighting",
+        "claim_verdict"
+      ]
+    },
+    {
+      "id": "supernatural_ghost_ship_interpretation",
+      "kind": "rejected_interpretation",
+      "visualSubjectKind": "hypothesis",
+      "label": "supernatural ghost ship",
+      "persistent": false,
+      "claimIds": [
+        "claim_verdict"
+      ]
+    },
+    {
+      "id": "baychimo_final_fate",
+      "kind": "unknown_outcome",
+      "visualSubjectKind": "unknown_region",
+      "label": "Baychimo's final fate",
+      "persistent": true,
+      "claimIds": [
+        "claim_verdict"
+      ]
+    }
+  ],
+  "beats": [
+    {
+      "beatId": "beat_hook",
+      "role": "hook",
+      "wordSpan": {
+        "startIndex": 0,
+        "endIndexExclusive": 21
+      },
+      "frameSpan": {
+        "startFrame": 0,
+        "endFrame": 180
+      },
+      "propositions": [
+        {
+          "id": "baychimo_hook_year",
+          "kind": "event_context",
+          "subjectEntityId": "baychimo",
+        "predicate": "event_occurred_in",
+          "objectEntityIds": [
+            "year_1931"
+          ],
+          "polarity": "affirmed",
+        "epistemicStatus": "supported_fact",
+        "visualIntent": {
+          "focusEntityId": "year_1931",
+          "predicate": "state_change",
+          "subjectKind": "date",
+          "stateTransition": "change_value"
+        },
+          "quantities": [
+            {
+              "value": "1931",
+              "unit": null
+            }
+          ],
+          "claimIds": [
+            "claim_disappearance"
+          ],
+          "cue": {
+            "wordStartIndex": 0,
+            "wordEndIndexExclusive": 2,
+            "startFrame": 0,
+            "endFrame": 36,
+            "text": "In 1931,"
+          },
+          "visualAction": {
+            "operation": "set_year_context",
+            "focusEntityIds": [
+              "year_1931"
+            ]
+          }
+        },
+        {
+          "id": "baychimo_hook_crew_observation",
+          "kind": "observation_action",
+          "subjectEntityId": "baychimo_crew",
+        "predicate": "looked_out_after",
+          "objectEntityIds": [
+            "blizzard"
+          ],
+          "polarity": "affirmed",
+        "epistemicStatus": "supported_fact",
+        "visualIntent": {
+          "focusEntityId": "baychimo_crew",
+          "predicate": "appearance",
+          "subjectKind": "observer",
+          "stateTransition": "become_visible"
+        },
+          "claimIds": [
+            "claim_disappearance"
+          ],
+          "cue": {
+            "wordStartIndex": 2,
+            "wordEndIndexExclusive": 9,
+            "startFrame": 52,
+            "endFrame": 100,
+            "text": "a crew looked out after a blizzard"
+          },
+          "visualAction": {
+            "operation": "occlude_then_clear_with_blizzard",
+            "focusEntityIds": [
+              "baychimo_crew",
+              "blizzard",
+              "arctic_ice"
+            ]
+          }
+        },
+        {
+          "id": "baychimo_hook_observed_absence",
+          "kind": "observed_state_change",
+          "subjectEntityId": "baychimo_crew",
+        "predicate": "found_ship_absent_from_last_seen_ice",
+          "objectEntityIds": [
+            "baychimo",
+            "arctic_ice"
+          ],
+          "polarity": "affirmed",
+        "epistemicStatus": "supported_fact",
+        "visualIntent": {
+          "focusEntityId": "baychimo",
+          "predicate": "disappearance",
+          "subjectKind": "vessel",
+          "stateTransition": "occlude_then_absent"
+        },
+          "stateBefore": {
+            "baychimoVisibilityAtLastSeenIce": "present"
+          },
+          "stateAfter": {
+            "baychimoVisibilityAtLastSeenIce": "not_observed"
+          },
+          "claimIds": [
+            "claim_disappearance"
+          ],
+          "cue": {
+            "wordStartIndex": 9,
+            "wordEndIndexExclusive": 21,
+            "startFrame": 100,
+            "endFrame": 180,
+            "text": "and found the ship they had left in the ice was gone."
+          },
+          "visualAction": {
+            "operation": "reveal_empty_last_seen_position",
+            "focusEntityIds": [
+              "baychimo",
+              "arctic_ice",
+              "baychimo_crew"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "beatId": "beat_context",
+      "role": "context",
+      "wordSpan": {
+        "startIndex": 21,
+        "endIndexExclusive": 38
+      },
+      "frameSpan": {
+        "startFrame": 199,
+        "endFrame": 375
+      },
+      "propositions": [
+        {
+          "id": "baychimo_context_sinking_assumption",
+          "kind": "attributed_hypothesis",
+          "subjectEntityId": "baychimo_crew",
+        "predicate": "assumed",
+          "objectEntityIds": [
+            "sinking_assumption"
+          ],
+          "polarity": "affirmed",
+        "epistemicStatus": "historical_assumption",
+        "visualIntent": {
+          "focusEntityId": "sinking_assumption",
+          "predicate": "bounded_uncertainty",
+          "subjectKind": "hypothesis",
+          "stateTransition": "remain_unresolved"
+        },
+          "claimIds": [
+            "claim_reappearance"
+          ],
+          "cue": {
+            "wordStartIndex": 21,
+            "wordEndIndexExclusive": 26,
+            "startFrame": 199,
+            "endFrame": 231,
+            "text": "They assumed it had sunk,"
+          },
+          "visualAction": {
+            "operation": "mark_sinking_as_assumption",
+            "focusEntityIds": [
+              "baychimo_crew",
+              "sinking_assumption"
+            ]
+          }
+        },
+        {
+          "id": "baychimo_context_hunter_sighting",
+          "kind": "observation_action",
+          "subjectEntityId": "local_hunters",
+        "predicate": "spotted_abandoned_ship_near",
+          "objectEntityIds": [
+            "baychimo",
+            "alaskan_coast"
+          ],
+          "polarity": "affirmed",
+        "epistemicStatus": "supported_fact",
+        "visualIntent": {
+          "focusEntityId": "baychimo",
+          "predicate": "appearance",
+          "subjectKind": "vessel",
+          "stateTransition": "become_visible"
+        },
+          "stateAfter": {
+            "baychimoObservation": "seen_abandoned_near_coast"
+          },
+          "claimIds": [
+            "claim_reappearance"
+          ],
+          "cue": {
+            "wordStartIndex": 26,
+            "wordEndIndexExclusive": 38,
+            "startFrame": 246,
+            "endFrame": 375,
+            "text": "but local hunters soon spotted the abandoned steamer near the Alaskan coast."
+          },
+          "visualAction": {
+            "operation": "replace_assumption_with_documented_sighting",
+            "focusEntityIds": [
+              "local_hunters",
+              "baychimo",
+              "alaskan_coast",
+              "sinking_assumption"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "beatId": "beat_evidence",
+      "role": "evidence",
+      "wordSpan": {
+        "startIndex": 38,
+        "endIndexExclusive": 59
+      },
+      "frameSpan": {
+        "startFrame": 388,
+        "endFrame": 598
+      },
+      "propositions": [
+        {
+          "id": "baychimo_evidence_later_years",
+          "kind": "time_context",
+          "subjectEntityId": "baychimo",
+        "predicate": "continued_into_following_years",
+          "objectEntityIds": [],
+          "polarity": "affirmed",
+        "epistemicStatus": "supported_fact",
+        "visualIntent": {
+          "focusEntityId": "baychimo",
+          "predicate": "recurrence",
+          "subjectKind": "vessel",
+          "stateTransition": "repeat_cycle"
+        },
+          "claimIds": [
+            "claim_drift"
+          ],
+          "cue": {
+            "wordStartIndex": 38,
+            "wordEndIndexExclusive": 42,
+            "startFrame": 388,
+            "endFrame": 428,
+            "text": "Over the following years,"
+          },
+          "visualAction": {
+            "operation": "advance_undated_later_years",
+            "focusEntityIds": [
+              "baychimo"
+            ]
+          }
+        },
+        {
+          "id": "baychimo_evidence_sightings",
+          "kind": "repeated_observation",
+          "subjectEntityId": "later_observers",
+        "predicate": "saw",
+          "objectEntityIds": [
+            "baychimo"
+          ],
+          "polarity": "affirmed",
+        "epistemicStatus": "supported_fact",
+        "visualIntent": {
+          "focusEntityId": "baychimo",
+          "predicate": "recurrence",
+          "subjectKind": "vessel",
+          "stateTransition": "repeat_cycle"
+        },
+          "attributes": {
+            "frequency": "repeated_unspecified"
+          },
+          "claimIds": [
+            "claim_drift"
+          ],
+          "cue": {
+            "wordStartIndex": 42,
+            "wordEndIndexExclusive": 44,
+            "startFrame": 436,
+            "endFrame": 453,
+            "text": "people saw"
+          },
+          "visualAction": {
+            "operation": "add_repeated_sighting_markers",
+            "focusEntityIds": [
+              "later_observers",
+              "baychimo"
+            ]
+          }
+        },
+        {
+          "id": "baychimo_evidence_boardings",
+          "kind": "repeated_action",
+          "subjectEntityId": "later_observers",
+        "predicate": "sometimes_boarded",
+          "objectEntityIds": [
+            "baychimo"
+          ],
+          "polarity": "affirmed",
+        "epistemicStatus": "supported_fact",
+        "visualIntent": {
+          "focusEntityId": "baychimo",
+          "predicate": "recurrence",
+          "subjectKind": "vessel",
+          "stateTransition": "repeat_cycle"
+        },
+          "attributes": {
+            "frequency": "sometimes"
+          },
+          "claimIds": [
+            "claim_drift"
+          ],
+          "cue": {
+            "wordStartIndex": 44,
+            "wordEndIndexExclusive": 49,
+            "startFrame": 453,
+            "endFrame": 509,
+            "text": "and sometimes boarded the ship"
+          },
+          "visualAction": {
+            "operation": "show_boarding_action",
+            "focusEntityIds": [
+              "later_observers",
+              "baychimo"
+            ]
+          }
+        },
+        {
+          "id": "baychimo_evidence_without_crew",
+          "kind": "entity_state",
+          "subjectEntityId": "baychimo",
+        "predicate": "had_no_crew_aboard",
+          "objectEntityIds": [],
+          "polarity": "affirmed",
+        "epistemicStatus": "supported_fact",
+        "visualIntent": {
+          "focusEntityId": "baychimo",
+          "predicate": "comparison",
+          "subjectKind": "vessel",
+          "stateTransition": "compare_states"
+        },
+          "stateAfter": {
+            "crewAboard": false
+          },
+          "claimIds": [
+            "claim_drift"
+          ],
+          "cue": {
+            "wordStartIndex": 49,
+            "wordEndIndexExclusive": 52,
+            "startFrame": 509,
+            "endFrame": 529,
+            "text": "without a crew"
+          },
+          "visualAction": {
+            "operation": "reveal_empty_crew_state",
+            "focusEntityIds": [
+              "baychimo"
+            ]
+          }
+        },
+        {
+          "id": "baychimo_evidence_pack_ice_drift",
+          "kind": "coupled_motion",
+          "subjectEntityId": "baychimo",
+        "predicate": "drifted_with",
+          "objectEntityIds": [
+            "arctic_pack_ice"
+          ],
+          "polarity": "affirmed",
+        "epistemicStatus": "supported_fact",
+        "visualIntent": {
+          "focusEntityId": "baychimo",
+          "predicate": "movement",
+          "subjectKind": "vessel",
+          "stateTransition": "move_along_path"
+        },
+          "stateAfter": {
+            "motionCarrier": "arctic_pack_ice"
+          },
+          "claimIds": [
+            "claim_drift"
+          ],
+          "cue": {
+            "wordStartIndex": 52,
+            "wordEndIndexExclusive": 59,
+            "startFrame": 529,
+            "endFrame": 598,
+            "text": "as it drifted with Arctic pack ice."
+          },
+          "visualAction": {
+            "operation": "move_ship_with_pack_ice",
+            "focusEntityIds": [
+              "baychimo",
+              "arctic_pack_ice"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "beatId": "beat_turn",
+      "role": "turn",
+      "wordSpan": {
+        "startIndex": 59,
+        "endIndexExclusive": 73
+      },
+      "frameSpan": {
+        "startFrame": 616,
+        "endFrame": 803
+      },
+      "propositions": [
+        {
+          "id": "baychimo_turn_latest_record",
+          "kind": "archival_evidence",
+          "subjectEntityId": "company_archive_record",
+        "predicate": "latest_record_dates_to_1969",
+          "objectEntityIds": [
+            "baychimo"
+          ],
+          "polarity": "affirmed",
+        "epistemicStatus": "supported_fact",
+        "visualIntent": {
+          "focusEntityId": "company_archive_record",
+          "predicate": "last_known_record",
+          "subjectKind": "record",
+          "stateTransition": "mark_last_known"
+        },
+          "attributes": {
+            "year": 1969
+          },
+          "quantities": [
+            {
+              "value": "1969",
+              "unit": null
+            }
+          ],
+          "claimIds": [
+            "claim_last-sighting"
+          ],
+          "cue": {
+            "wordStartIndex": 59,
+            "wordEndIndexExclusive": 67,
+            "startFrame": 616,
+            "endFrame": 727,
+            "text": "The latest company archive record dates to 1969,"
+          },
+          "visualAction": {
+            "operation": "stamp_latest_archive_record",
+            "focusEntityIds": [
+              "company_archive_record",
+              "baychimo"
+            ]
+          }
+        },
+        {
+          "id": "baychimo_turn_decades_after_abandonment",
+          "kind": "temporal_relation",
+          "subjectEntityId": "company_archive_record",
+        "predicate": "occurred_decades_after_ship_was_abandoned",
+          "objectEntityIds": [
+            "baychimo"
+          ],
+          "polarity": "affirmed",
+        "epistemicStatus": "supported_fact",
+        "visualIntent": {
+          "focusEntityId": "company_archive_record",
+          "predicate": "last_known_record",
+          "subjectKind": "record",
+          "stateTransition": "accumulate_records"
+        },
+          "attributes": {
+            "elapsedTime": "decades"
+          },
+          "quantities": [
+            {
+              "value": "decades",
+              "unit": null
+            }
+          ],
+          "claimIds": [
+            "claim_last-sighting"
+          ],
+          "cue": {
+            "wordStartIndex": 67,
+            "wordEndIndexExclusive": 73,
+            "startFrame": 749,
+            "endFrame": 803,
+            "text": "decades after the ship was abandoned."
+          },
+          "visualAction": {
+            "operation": "span_abandonment_to_latest_record",
+            "focusEntityIds": [
+              "baychimo",
+              "company_archive_record"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "beatId": "beat_payoff",
+      "role": "payoff",
+      "wordSpan": {
+        "startIndex": 73,
+        "endIndexExclusive": 89
+      },
+      "frameSpan": {
+        "startFrame": 818,
+        "endFrame": 1031
+      },
+      "propositions": [
+        {
+          "id": "baychimo_payoff_documented_drift",
+          "kind": "bounded_interpretation",
+          "subjectEntityId": "company_archive_record",
+        "predicate": "documents_extraordinary_drift",
+          "objectEntityIds": [
+            "baychimo",
+            "arctic_pack_ice"
+          ],
+          "polarity": "affirmed",
+        "epistemicStatus": "qualified_analysis",
+        "visualIntent": {
+          "focusEntityId": "company_archive_record",
+          "predicate": "appearance",
+          "subjectKind": "record",
+          "stateTransition": "become_visible"
+        },
+          "claimIds": [
+            "claim_verdict"
+          ],
+          "cue": {
+            "wordStartIndex": 73,
+            "wordEndIndexExclusive": 79,
+            "startFrame": 818,
+            "endFrame": 899,
+            "text": "The case documents an extraordinary drift,"
+          },
+          "visualAction": {
+            "operation": "bound_documented_drift_evidence",
+            "focusEntityIds": [
+              "company_archive_record",
+              "baychimo",
+              "arctic_pack_ice"
+            ]
+          }
+        },
+        {
+          "id": "baychimo_payoff_not_supernatural",
+          "kind": "rejected_interpretation",
+          "subjectEntityId": "baychimo",
+        "predicate": "was_a_supernatural_ghost_ship",
+          "objectEntityIds": [
+            "supernatural_ghost_ship_interpretation"
+          ],
+          "polarity": "negated",
+        "epistemicStatus": "qualified_analysis",
+        "visualIntent": {
+          "focusEntityId": "supernatural_ghost_ship_interpretation",
+          "predicate": "negation",
+          "subjectKind": "hypothesis",
+          "stateTransition": "reject_hypothesis"
+        },
+          "claimIds": [
+            "claim_verdict"
+          ],
+          "cue": {
+            "wordStartIndex": 79,
+            "wordEndIndexExclusive": 84,
+            "startFrame": 910,
+            "endFrame": 959,
+            "text": "not a supernatural ghost ship."
+          },
+          "visualAction": {
+            "operation": "reject_supernatural_interpretation",
+            "focusEntityIds": [
+              "baychimo",
+              "supernatural_ghost_ship_interpretation"
+            ]
+          }
+        },
+        {
+          "id": "baychimo_payoff_unknown_fate",
+          "kind": "epistemic_state",
+          "subjectEntityId": "baychimo_final_fate",
+        "predicate": "remains_unknown",
+          "objectEntityIds": [
+            "baychimo"
+          ],
+          "polarity": "affirmed",
+        "epistemicStatus": "unknown",
+        "visualIntent": {
+          "focusEntityId": "baychimo_final_fate",
+          "predicate": "bounded_uncertainty",
+          "subjectKind": "unknown_region",
+          "stateTransition": "remain_unresolved"
+        },
+          "stateAfter": {
+            "knowledgeStatus": "unknown"
+          },
+          "claimIds": [
+            "claim_verdict"
+          ],
+          "cue": {
+            "wordStartIndex": 84,
+            "wordEndIndexExclusive": 89,
+            "startFrame": 973,
+            "endFrame": 1031,
+            "text": "Its final fate remains unknown."
+          },
+          "visualAction": {
+            "operation": "fade_beyond_last_documented_record",
+            "focusEntityIds": [
+              "company_archive_record",
+              "baychimo_final_fate"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "continuity": [
+    {
+      "entityId": "baychimo",
+      "beatIds": [
+        "beat_hook",
+        "beat_context",
+        "beat_evidence",
+        "beat_turn",
+        "beat_payoff"
+      ],
+      "rule": "Preserve one ship identity through absence, reappearance, later sightings, drift, and the final evidence boundary."
+    },
+    {
+      "entityId": "arctic_pack_ice",
+      "beatIds": [
+        "beat_evidence",
+        "beat_payoff"
+      ],
+      "rule": "Move the ship with the pack ice when illustrating documented drift; do not animate an unsupported exact route."
+    }
+  ],
+  "epistemicConstraints": [
+    {
+      "id": "baychimo_absence_not_supernatural_disappearance",
+      "rule": "Depict the ship as absent from the crew's view after the blizzard, not as physically dematerializing.",
+      "claimIds": [
+        "claim_disappearance"
+      ]
+    },
+    {
+      "id": "baychimo_sinking_is_assumption",
+      "rule": "Treat sinking only as the crew's assumption and visibly supersede it with the later sighting.",
+      "claimIds": [
+        "claim_reappearance"
+      ]
+    },
+    {
+      "id": "baychimo_no_exact_route",
+      "rule": "Do not present an exact route, exact track, or final site.",
+      "claimIds": [
+        "claim_drift",
+        "claim_last-sighting",
+        "claim_verdict"
+      ]
+    },
+    {
+      "id": "baychimo_unknown_scope",
+      "rule": "Apply uncertainty only to the ship's final fate after the documented sightings, not to the documented drift itself.",
+      "claimIds": [
+        "claim_verdict"
+      ]
+    }
+  ]
+}

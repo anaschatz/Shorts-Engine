@@ -1,0 +1,1029 @@
+{
+  "acceptanceGates": [
+    {
+      "actual": 1,
+      "code": "SOURCE_COVERAGE",
+      "expected": ">=5 sources",
+      "passed": false
+    },
+    {
+      "actual": 14,
+      "code": "CANDIDATE_COVERAGE",
+      "expected": ">=30 candidates",
+      "passed": false
+    },
+    {
+      "actual": 3,
+      "code": "HUMAN_POSITIVE_COVERAGE",
+      "expected": ">=12 human-approved positives",
+      "passed": false
+    },
+    {
+      "actual": 0.0,
+      "code": "POSITIVE_LABEL_MATCH_COVERAGE",
+      "expected": ">=0.90",
+      "passed": false
+    },
+    {
+      "actual": 1.0,
+      "code": "HOOK_PROMPT_EVIDENCE_COVERAGE",
+      "expected": ">=0.80",
+      "passed": true
+    },
+    {
+      "actual": 0.0,
+      "code": "CLOSURE_HUMAN_POSITIVE_RECALL",
+      "expected": ">=0.80",
+      "passed": false
+    },
+    {
+      "actual": 0.0,
+      "code": "CLOSURE_SHADOW_TOP_K_PRECISION",
+      "expected": ">=0.60",
+      "passed": false
+    },
+    {
+      "actual": 1.0,
+      "code": "CLOSURE_SHADOW_TOP_K_FILL_RATE",
+      "expected": ">=0.80",
+      "passed": true
+    }
+  ],
+  "aggregate": {
+    "candidate_count": 14,
+    "closure_shadow_full_batch_source_rate": 1.0,
+    "closure_shadow_top_k_fill_rate": 1.0,
+    "closure_shadow_top_k_human_positive_rate": 0.0,
+    "closure_shadow_top_k_slot_hit_rate": 0.0,
+    "full_v2_acceptance_rate": 0.0714,
+    "full_v2_eligible_count": 1,
+    "full_v2_human_positive_recall": 0.0,
+    "hook_prompt_evaluable_count": 14,
+    "hook_prompt_evidence_coverage": 1.0,
+    "human_positive_count": 3,
+    "human_positive_match_coverage": 0.0,
+    "human_positive_matched_count": 0,
+    "potential_false_negative_count": 3,
+    "semantic_closure_acceptance_rate": 0.6429,
+    "semantic_closure_human_positive_recall": 0.0,
+    "semantic_closure_pass_count": 9,
+    "source_count": 1,
+    "v1_human_positive_recall": 0.0
+  },
+  "artifactType": "BudgetFriendlyGrowthReplayReport",
+  "contentHash": "7f2be3cb7205dae010186625604ab3932104b677e0d9b5d69e9d2ef8a04e0671",
+  "datasets": [
+    {
+      "candidate_path": "research/shadow-runs/hook-gate-v2.1-pilot/candidates/vsg_2026_07_17.json",
+      "candidates": [
+        {
+          "closure_shadow": {
+            "eligible": true,
+            "reasons": [],
+            "score": 80.376,
+            "top_k": true
+          },
+          "full_v2": {
+            "eligible": true,
+            "reasons": [],
+            "score": 80.376,
+            "top_k": true
+          },
+          "hook_gate": {
+            "evidence_complete": true,
+            "reasons": [],
+            "status": "pass"
+          },
+          "human_positive": false,
+          "human_positive_appended": false,
+          "human_positive_match_score": 0.0,
+          "original_eligible": true,
+          "original_score": 85.0,
+          "original_selected": false,
+          "replay_id": "vsg_2026_07_17:000",
+          "semantic_closure": {
+            "duration_bucket": "short_complete",
+            "duration_fit_score": 84.057,
+            "eligible": true,
+            "planned_natural_tail_seconds": 0.232,
+            "reasons": [],
+            "status": "pass"
+          },
+          "speech_duration_seconds": 11.28,
+          "speech_end_time": 6357.09,
+          "speech_start_time": 6345.81,
+          "title": "The Only Metric for Success",
+          "v1_replay": {
+            "eligible": true,
+            "reasons": [],
+            "score": 82.17,
+            "top_k": true
+          }
+        },
+        {
+          "closure_shadow": {
+            "eligible": false,
+            "reasons": [
+              "hook_payoff_too_late"
+            ],
+            "score": 77.909,
+            "top_k": false
+          },
+          "full_v2": {
+            "eligible": false,
+            "reasons": [
+              "hook_gate_external_antecedent",
+              "hook_gate_signal_after_1s",
+              "hook_gate_payoff_after_3s",
+              "hook_payoff_too_late"
+            ],
+            "score": 77.909,
+            "top_k": false
+          },
+          "hook_gate": {
+            "evidence_complete": true,
+            "reasons": [
+              "hook_gate_external_antecedent",
+              "hook_gate_signal_after_1s",
+              "hook_gate_payoff_after_3s"
+            ],
+            "status": "reject"
+          },
+          "human_positive": false,
+          "human_positive_appended": false,
+          "human_positive_match_score": 0.0,
+          "original_eligible": true,
+          "original_score": 95.0,
+          "original_selected": false,
+          "replay_id": "vsg_2026_07_17:001",
+          "semantic_closure": {
+            "duration_bucket": "short_complete",
+            "duration_fit_score": 94.514,
+            "eligible": true,
+            "planned_natural_tail_seconds": 0.06,
+            "reasons": [],
+            "status": "pass"
+          },
+          "speech_duration_seconds": 13.72,
+          "speech_end_time": 4094.4,
+          "speech_start_time": 4080.68,
+          "title": "The Brain Area That Controls Willpower",
+          "v1_replay": {
+            "eligible": false,
+            "reasons": [
+              "hook_payoff_too_late"
+            ],
+            "score": 78.364,
+            "top_k": false
+          }
+        },
+        {
+          "closure_shadow": {
+            "eligible": true,
+            "reasons": [],
+            "score": 76.949,
+            "top_k": true
+          },
+          "full_v2": {
+            "eligible": false,
+            "reasons": [
+              "hook_gate_signal_after_1s"
+            ],
+            "score": 76.949,
+            "top_k": false
+          },
+          "hook_gate": {
+            "evidence_complete": true,
+            "reasons": [
+              "hook_gate_signal_after_1s"
+            ],
+            "status": "reject"
+          },
+          "human_positive": false,
+          "human_positive_appended": false,
+          "human_positive_match_score": 0.0,
+          "original_eligible": true,
+          "original_score": 88.0,
+          "original_selected": false,
+          "replay_id": "vsg_2026_07_17:002",
+          "semantic_closure": {
+            "duration_bucket": "strong_evidence_only",
+            "duration_fit_score": 66.68,
+            "eligible": true,
+            "planned_natural_tail_seconds": 0.52,
+            "reasons": [],
+            "status": "pass"
+          },
+          "speech_duration_seconds": 27.22,
+          "speech_end_time": 285.0,
+          "speech_start_time": 257.78,
+          "title": "Why Your Brain Needs Safety to Create",
+          "v1_replay": {
+            "eligible": false,
+            "reasons": [
+              "duration_over_limit",
+              "micro_duration_over_22s"
+            ],
+            "score": 69.448,
+            "top_k": false
+          }
+        },
+        {
+          "closure_shadow": {
+            "eligible": false,
+            "reasons": [
+              "hook_payoff_too_late"
+            ],
+            "score": 75.529,
+            "top_k": false
+          },
+          "full_v2": {
+            "eligible": false,
+            "reasons": [
+              "hook_gate_signal_after_1s",
+              "hook_gate_payoff_after_3s",
+              "hook_payoff_too_late"
+            ],
+            "score": 75.529,
+            "top_k": false
+          },
+          "hook_gate": {
+            "evidence_complete": true,
+            "reasons": [
+              "hook_gate_signal_after_1s",
+              "hook_gate_payoff_after_3s"
+            ],
+            "status": "reject"
+          },
+          "human_positive": false,
+          "human_positive_appended": false,
+          "human_positive_match_score": 0.0,
+          "original_eligible": true,
+          "original_score": 92.0,
+          "original_selected": false,
+          "replay_id": "vsg_2026_07_17:003",
+          "semantic_closure": {
+            "duration_bucket": "preferred",
+            "duration_fit_score": 100.0,
+            "eligible": true,
+            "planned_natural_tail_seconds": 0.68,
+            "reasons": [],
+            "status": "pass"
+          },
+          "speech_duration_seconds": 18.66,
+          "speech_end_time": 6247.23,
+          "speech_start_time": 6228.57,
+          "title": "Why You Don't Feel Safe",
+          "v1_replay": {
+            "eligible": false,
+            "reasons": [
+              "hook_payoff_too_late"
+            ],
+            "score": 73.94,
+            "top_k": false
+          }
+        },
+        {
+          "closure_shadow": {
+            "eligible": false,
+            "reasons": [
+              "closure_required_continuation_missing",
+              "closure_model_incomplete_ending",
+              "closure_duration_over_hard_max",
+              "semantic_continuation_required",
+              "incomplete_ending",
+              "duration_over_limit",
+              "micro_duration_over_30s"
+            ],
+            "score": 74.355,
+            "top_k": false
+          },
+          "full_v2": {
+            "eligible": false,
+            "reasons": [
+              "hook_gate_signal_after_1s",
+              "hook_gate_payoff_after_3s",
+              "closure_required_continuation_missing",
+              "closure_model_incomplete_ending",
+              "closure_duration_over_hard_max",
+              "semantic_continuation_required",
+              "incomplete_ending",
+              "duration_over_limit",
+              "micro_duration_over_30s"
+            ],
+            "score": 74.355,
+            "top_k": false
+          },
+          "hook_gate": {
+            "evidence_complete": true,
+            "reasons": [
+              "hook_gate_signal_after_1s",
+              "hook_gate_payoff_after_3s"
+            ],
+            "status": "reject"
+          },
+          "human_positive": false,
+          "human_positive_appended": false,
+          "human_positive_match_score": 0.0,
+          "original_eligible": true,
+          "original_score": 95.0,
+          "original_selected": false,
+          "replay_id": "vsg_2026_07_17:004",
+          "semantic_closure": {
+            "duration_bucket": "over_hard_limit",
+            "duration_fit_score": 0.0,
+            "eligible": false,
+            "planned_natural_tail_seconds": 0.28,
+            "reasons": [
+              "closure_required_continuation_missing",
+              "closure_model_incomplete_ending",
+              "closure_duration_over_hard_max"
+            ],
+            "status": "reject"
+          },
+          "speech_duration_seconds": 36.66,
+          "speech_end_time": 2198.32,
+          "speech_start_time": 2161.66,
+          "title": "Why You Have Repetitive Thoughts",
+          "v1_replay": {
+            "eligible": false,
+            "reasons": [
+              "semantic_continuation_required",
+              "incomplete_ending",
+              "duration_over_limit",
+              "micro_duration_over_22s"
+            ],
+            "score": 74.355,
+            "top_k": false
+          }
+        },
+        {
+          "closure_shadow": {
+            "eligible": false,
+            "reasons": [
+              "closure_duration_over_hard_max",
+              "duration_over_limit",
+              "micro_duration_over_30s"
+            ],
+            "score": 72.554,
+            "top_k": false
+          },
+          "full_v2": {
+            "eligible": false,
+            "reasons": [
+              "hook_gate_signal_after_1s",
+              "hook_gate_payoff_after_3s",
+              "closure_duration_over_hard_max",
+              "duration_over_limit",
+              "micro_duration_over_30s"
+            ],
+            "score": 72.554,
+            "top_k": false
+          },
+          "hook_gate": {
+            "evidence_complete": true,
+            "reasons": [
+              "hook_gate_signal_after_1s",
+              "hook_gate_payoff_after_3s"
+            ],
+            "status": "reject"
+          },
+          "human_positive": false,
+          "human_positive_appended": false,
+          "human_positive_match_score": 0.0,
+          "original_eligible": true,
+          "original_score": 90.0,
+          "original_selected": false,
+          "replay_id": "vsg_2026_07_17:005",
+          "semantic_closure": {
+            "duration_bucket": "over_hard_limit",
+            "duration_fit_score": 0.0,
+            "eligible": false,
+            "planned_natural_tail_seconds": 0.75,
+            "reasons": [
+              "closure_duration_over_hard_max"
+            ],
+            "status": "reject"
+          },
+          "speech_duration_seconds": 50.46,
+          "speech_end_time": 1729.84,
+          "speech_start_time": 1679.38,
+          "title": "The Nervous System Loves Predictability",
+          "v1_replay": {
+            "eligible": false,
+            "reasons": [
+              "duration_over_limit",
+              "micro_duration_over_22s"
+            ],
+            "score": 72.554,
+            "top_k": false
+          }
+        },
+        {
+          "closure_shadow": {
+            "eligible": false,
+            "reasons": [
+              "hook_payoff_too_late"
+            ],
+            "score": 72.352,
+            "top_k": false
+          },
+          "full_v2": {
+            "eligible": false,
+            "reasons": [
+              "hook_gate_signal_after_1s",
+              "hook_gate_payoff_after_3s",
+              "hook_payoff_too_late"
+            ],
+            "score": 72.352,
+            "top_k": false
+          },
+          "hook_gate": {
+            "evidence_complete": true,
+            "reasons": [
+              "hook_gate_signal_after_1s",
+              "hook_gate_payoff_after_3s"
+            ],
+            "status": "reject"
+          },
+          "human_positive": false,
+          "human_positive_appended": false,
+          "human_positive_match_score": 0.0,
+          "original_eligible": true,
+          "original_score": 95.0,
+          "original_selected": false,
+          "replay_id": "vsg_2026_07_17:006",
+          "semantic_closure": {
+            "duration_bucket": "short_complete",
+            "duration_fit_score": 96.314,
+            "eligible": true,
+            "planned_natural_tail_seconds": 0.2,
+            "reasons": [],
+            "status": "pass"
+          },
+          "speech_duration_seconds": 14.14,
+          "speech_end_time": 2731.08,
+          "speech_start_time": 2716.94,
+          "title": "How to Control Your Heart Rate",
+          "v1_replay": {
+            "eligible": false,
+            "reasons": [
+              "hook_payoff_too_late"
+            ],
+            "score": 72.51,
+            "top_k": false
+          }
+        },
+        {
+          "closure_shadow": {
+            "eligible": false,
+            "reasons": [
+              "unaligned_hook_payoff"
+            ],
+            "score": 72.313,
+            "top_k": false
+          },
+          "full_v2": {
+            "eligible": false,
+            "reasons": [
+              "hook_gate_signal_after_1s",
+              "hook_gate_payoff_unaligned",
+              "unaligned_hook_payoff"
+            ],
+            "score": 72.313,
+            "top_k": false
+          },
+          "hook_gate": {
+            "evidence_complete": true,
+            "reasons": [
+              "hook_gate_signal_after_1s",
+              "hook_gate_payoff_unaligned"
+            ],
+            "status": "reject"
+          },
+          "human_positive": false,
+          "human_positive_appended": false,
+          "human_positive_match_score": 0.0,
+          "original_eligible": true,
+          "original_score": 95.0,
+          "original_selected": false,
+          "replay_id": "vsg_2026_07_17:007",
+          "semantic_closure": {
+            "duration_bucket": "preferred",
+            "duration_fit_score": 100.0,
+            "eligible": true,
+            "planned_natural_tail_seconds": 0.22,
+            "reasons": [],
+            "status": "pass"
+          },
+          "speech_duration_seconds": 20.52,
+          "speech_end_time": 845.8,
+          "speech_start_time": 825.28,
+          "title": "The Simple Text That Fixes Loneliness",
+          "v1_replay": {
+            "eligible": false,
+            "reasons": [
+              "unaligned_hook_payoff"
+            ],
+            "score": 69.416,
+            "top_k": false
+          }
+        },
+        {
+          "closure_shadow": {
+            "eligible": true,
+            "reasons": [],
+            "score": 70.933,
+            "top_k": true
+          },
+          "full_v2": {
+            "eligible": false,
+            "reasons": [
+              "hook_gate_opening_unaligned",
+              "hook_gate_signal_unaligned"
+            ],
+            "score": 70.933,
+            "top_k": false
+          },
+          "hook_gate": {
+            "evidence_complete": true,
+            "reasons": [
+              "hook_gate_opening_unaligned",
+              "hook_gate_signal_unaligned"
+            ],
+            "status": "reject"
+          },
+          "human_positive": false,
+          "human_positive_appended": false,
+          "human_positive_match_score": 0.0,
+          "original_eligible": true,
+          "original_score": 88.0,
+          "original_selected": false,
+          "replay_id": "vsg_2026_07_17:008",
+          "semantic_closure": {
+            "duration_bucket": "soft_penalty",
+            "duration_fit_score": 87.5,
+            "eligible": true,
+            "planned_natural_tail_seconds": 0.56,
+            "reasons": [],
+            "status": "pass"
+          },
+          "speech_duration_seconds": 23.5,
+          "speech_end_time": 2665.54,
+          "speech_start_time": 2642.04,
+          "title": "The Most Powerful Practice for Turning Off Thoughts",
+          "v1_replay": {
+            "eligible": false,
+            "reasons": [
+              "duration_over_limit",
+              "micro_duration_over_22s"
+            ],
+            "score": 61.089,
+            "top_k": false
+          }
+        },
+        {
+          "closure_shadow": {
+            "eligible": false,
+            "reasons": [
+              "unaligned_hook_payoff"
+            ],
+            "score": 69.47,
+            "top_k": false
+          },
+          "full_v2": {
+            "eligible": false,
+            "reasons": [
+              "hook_gate_signal_unaligned",
+              "hook_gate_payoff_unaligned",
+              "unaligned_hook_payoff"
+            ],
+            "score": 69.47,
+            "top_k": false
+          },
+          "hook_gate": {
+            "evidence_complete": true,
+            "reasons": [
+              "hook_gate_signal_unaligned",
+              "hook_gate_payoff_unaligned"
+            ],
+            "status": "reject"
+          },
+          "human_positive": false,
+          "human_positive_appended": false,
+          "human_positive_match_score": 0.0,
+          "original_eligible": true,
+          "original_score": 88.0,
+          "original_selected": false,
+          "replay_id": "vsg_2026_07_17:009",
+          "semantic_closure": {
+            "duration_bucket": "preferred",
+            "duration_fit_score": 100.0,
+            "eligible": true,
+            "planned_natural_tail_seconds": 0.42,
+            "reasons": [],
+            "status": "pass"
+          },
+          "speech_duration_seconds": 17.92,
+          "speech_end_time": 4835.83,
+          "speech_start_time": 4817.91,
+          "title": "Social Media Is An Emotional Evacuation",
+          "v1_replay": {
+            "eligible": false,
+            "reasons": [
+              "unaligned_hook_payoff"
+            ],
+            "score": 68.363,
+            "top_k": false
+          }
+        },
+        {
+          "closure_shadow": {
+            "eligible": false,
+            "reasons": [
+              "closure_duration_over_hard_max",
+              "duration_over_limit",
+              "micro_duration_over_30s"
+            ],
+            "score": 68.063,
+            "top_k": false
+          },
+          "full_v2": {
+            "eligible": false,
+            "reasons": [
+              "hook_gate_signal_after_1s",
+              "closure_duration_over_hard_max",
+              "duration_over_limit",
+              "micro_duration_over_30s"
+            ],
+            "score": 68.063,
+            "top_k": false
+          },
+          "hook_gate": {
+            "evidence_complete": true,
+            "reasons": [
+              "hook_gate_signal_after_1s"
+            ],
+            "status": "reject"
+          },
+          "human_positive": false,
+          "human_positive_appended": false,
+          "human_positive_match_score": 0.0,
+          "original_eligible": true,
+          "original_score": 92.0,
+          "original_selected": false,
+          "replay_id": "vsg_2026_07_17:010",
+          "semantic_closure": {
+            "duration_bucket": "over_hard_limit",
+            "duration_fit_score": 0.0,
+            "eligible": false,
+            "planned_natural_tail_seconds": 0.75,
+            "reasons": [
+              "closure_duration_over_hard_max"
+            ],
+            "status": "reject"
+          },
+          "speech_duration_seconds": 30.84,
+          "speech_end_time": 4816.95,
+          "speech_start_time": 4786.11,
+          "title": "Email Is A Public To-Do List",
+          "v1_replay": {
+            "eligible": false,
+            "reasons": [
+              "duration_over_limit",
+              "micro_duration_over_22s"
+            ],
+            "score": 68.063,
+            "top_k": false
+          }
+        },
+        {
+          "closure_shadow": {
+            "eligible": true,
+            "reasons": [],
+            "score": 67.37,
+            "top_k": false
+          },
+          "full_v2": {
+            "eligible": false,
+            "reasons": [
+              "hook_gate_signal_after_1s",
+              "hook_gate_payoff_after_3s"
+            ],
+            "score": 67.37,
+            "top_k": false
+          },
+          "hook_gate": {
+            "evidence_complete": true,
+            "reasons": [
+              "hook_gate_signal_after_1s",
+              "hook_gate_payoff_after_3s"
+            ],
+            "status": "reject"
+          },
+          "human_positive": false,
+          "human_positive_appended": false,
+          "human_positive_match_score": 0.0,
+          "original_eligible": true,
+          "original_score": 88.0,
+          "original_selected": false,
+          "replay_id": "vsg_2026_07_17:011",
+          "semantic_closure": {
+            "duration_bucket": "preferred",
+            "duration_fit_score": 100.0,
+            "eligible": true,
+            "planned_natural_tail_seconds": 0.04,
+            "reasons": [],
+            "status": "pass"
+          },
+          "speech_duration_seconds": 16.46,
+          "speech_end_time": 5864.71,
+          "speech_start_time": 5848.25,
+          "title": "The Secret to Reading People's Energy",
+          "v1_replay": {
+            "eligible": true,
+            "reasons": [],
+            "score": 66.591,
+            "top_k": true
+          }
+        },
+        {
+          "closure_shadow": {
+            "eligible": false,
+            "reasons": [
+              "closure_exact_quote_unaligned",
+              "closure_takeaway_boundary_unaligned",
+              "closure_duration_over_hard_max",
+              "unaligned_takeaway",
+              "duration_over_limit",
+              "micro_duration_over_30s"
+            ],
+            "score": 64.228,
+            "top_k": false
+          },
+          "full_v2": {
+            "eligible": false,
+            "reasons": [
+              "closure_exact_quote_unaligned",
+              "closure_takeaway_boundary_unaligned",
+              "closure_duration_over_hard_max",
+              "unaligned_takeaway",
+              "duration_over_limit",
+              "micro_duration_over_30s"
+            ],
+            "score": 64.228,
+            "top_k": false
+          },
+          "hook_gate": {
+            "evidence_complete": true,
+            "reasons": [],
+            "status": "pass"
+          },
+          "human_positive": false,
+          "human_positive_appended": false,
+          "human_positive_match_score": 0.0,
+          "original_eligible": true,
+          "original_score": 95.0,
+          "original_selected": false,
+          "replay_id": "vsg_2026_07_17:012",
+          "semantic_closure": {
+            "duration_bucket": "over_hard_limit",
+            "duration_fit_score": 0.0,
+            "eligible": false,
+            "planned_natural_tail_seconds": 0.75,
+            "reasons": [
+              "closure_exact_quote_unaligned",
+              "closure_takeaway_boundary_unaligned",
+              "closure_duration_over_hard_max"
+            ],
+            "status": "reject"
+          },
+          "speech_duration_seconds": 40.38,
+          "speech_end_time": 3939.44,
+          "speech_start_time": 3899.06,
+          "title": "The Secret to Willpower and Tenacity",
+          "v1_replay": {
+            "eligible": false,
+            "reasons": [
+              "unaligned_takeaway",
+              "duration_over_limit",
+              "micro_duration_over_22s"
+            ],
+            "score": 64.228,
+            "top_k": false
+          }
+        },
+        {
+          "closure_shadow": {
+            "eligible": false,
+            "reasons": [
+              "closure_duration_over_hard_max",
+              "hook_payoff_too_late",
+              "duration_over_limit",
+              "micro_duration_over_30s"
+            ],
+            "score": 63.352,
+            "top_k": false
+          },
+          "full_v2": {
+            "eligible": false,
+            "reasons": [
+              "hook_gate_signal_after_1s",
+              "hook_gate_payoff_after_3s",
+              "closure_duration_over_hard_max",
+              "hook_payoff_too_late",
+              "duration_over_limit",
+              "micro_duration_over_30s"
+            ],
+            "score": 63.352,
+            "top_k": false
+          },
+          "hook_gate": {
+            "evidence_complete": true,
+            "reasons": [
+              "hook_gate_signal_after_1s",
+              "hook_gate_payoff_after_3s"
+            ],
+            "status": "reject"
+          },
+          "human_positive": false,
+          "human_positive_appended": false,
+          "human_positive_match_score": 0.0,
+          "original_eligible": true,
+          "original_score": 94.0,
+          "original_selected": false,
+          "replay_id": "vsg_2026_07_17:013",
+          "semantic_closure": {
+            "duration_bucket": "over_hard_limit",
+            "duration_fit_score": 0.0,
+            "eligible": false,
+            "planned_natural_tail_seconds": 0.75,
+            "reasons": [
+              "closure_duration_over_hard_max"
+            ],
+            "status": "reject"
+          },
+          "speech_duration_seconds": 41.04,
+          "speech_end_time": 5327.57,
+          "speech_start_time": 5286.53,
+          "title": "The Secret To True Safety",
+          "v1_replay": {
+            "eligible": false,
+            "reasons": [
+              "hook_payoff_too_late",
+              "duration_over_limit",
+              "micro_duration_over_22s"
+            ],
+            "score": 63.352,
+            "top_k": false
+          }
+        }
+      ],
+      "dataset_id": "vsg_2026_07_17",
+      "metrics": {
+        "candidate_count": 14,
+        "closure_shadow_eligible_count": 4,
+        "closure_shadow_human_positive_top_k_recall": 0.0,
+        "closure_shadow_top_k_fill_rate": 1.0,
+        "closure_shadow_top_k_human_positive_count": 0,
+        "closure_shadow_top_k_human_positive_rate": 0.0,
+        "closure_shadow_top_k_planned_slots": 3,
+        "closure_shadow_top_k_selected_count": 3,
+        "closure_shadow_top_k_slot_hit_rate": 0.0,
+        "full_v2_eligible_count": 1,
+        "full_v2_human_positive_pass_count": 0,
+        "full_v2_human_positive_recall": 0.0,
+        "hook_prompt_evaluable_count": 14,
+        "hook_prompt_evidence_coverage": 1.0,
+        "hook_status_counts": {
+          "pass": 2,
+          "reject": 12
+        },
+        "human_positive_appended_count": 0,
+        "human_positive_count": 3,
+        "human_positive_match_coverage": 0.0,
+        "human_positive_matched_count": 0,
+        "human_positive_unmatched_count": 3,
+        "semantic_closure_acceptance_rate": 0.6429,
+        "semantic_closure_human_positive_pass_count": 0,
+        "semantic_closure_human_positive_recall": 0.0,
+        "semantic_closure_status_counts": {
+          "pass": 9,
+          "reject": 5
+        },
+        "v1_human_positive_pass_count": 0,
+        "v1_human_positive_recall": 0.0,
+        "v1_replay_eligible_count": 2,
+        "v1_vs_closure_shadow_top_k_overlap": 0.5
+      },
+      "potential_false_negatives": [
+        {
+          "reasons": [
+            "human_positive_interval_not_discovered"
+          ],
+          "replay_id": null,
+          "speech_end_time": 4277.62,
+          "speech_start_time": 4263.56,
+          "status": "not_discovered",
+          "title": "The Hardest Part of Love"
+        },
+        {
+          "reasons": [
+            "human_positive_interval_not_discovered"
+          ],
+          "replay_id": null,
+          "speech_end_time": 4649.43,
+          "speech_start_time": 4632.21,
+          "status": "not_discovered",
+          "title": "The Truth About Cynicism"
+        },
+        {
+          "reasons": [
+            "human_positive_interval_not_discovered"
+          ],
+          "replay_id": null,
+          "speech_end_time": 544.88,
+          "speech_start_time": 523.9,
+          "status": "not_discovered",
+          "title": "The Unique Power of Friendship"
+        }
+      ],
+      "reason_counts": {
+        "closure_shadow": {
+          "closure_duration_over_hard_max": 5,
+          "closure_exact_quote_unaligned": 1,
+          "closure_model_incomplete_ending": 1,
+          "closure_required_continuation_missing": 1,
+          "closure_takeaway_boundary_unaligned": 1,
+          "duration_over_limit": 5,
+          "hook_payoff_too_late": 4,
+          "incomplete_ending": 1,
+          "micro_duration_over_30s": 5,
+          "semantic_continuation_required": 1,
+          "unaligned_hook_payoff": 2,
+          "unaligned_takeaway": 1
+        },
+        "full_v2": {
+          "closure_duration_over_hard_max": 5,
+          "closure_exact_quote_unaligned": 1,
+          "closure_model_incomplete_ending": 1,
+          "closure_required_continuation_missing": 1,
+          "closure_takeaway_boundary_unaligned": 1,
+          "duration_over_limit": 5,
+          "hook_gate_external_antecedent": 1,
+          "hook_gate_opening_unaligned": 1,
+          "hook_gate_payoff_after_3s": 7,
+          "hook_gate_payoff_unaligned": 2,
+          "hook_gate_signal_after_1s": 10,
+          "hook_gate_signal_unaligned": 2,
+          "hook_payoff_too_late": 4,
+          "incomplete_ending": 1,
+          "micro_duration_over_30s": 5,
+          "semantic_continuation_required": 1,
+          "unaligned_hook_payoff": 2,
+          "unaligned_takeaway": 1
+        },
+        "hook_gate": {
+          "hook_gate_external_antecedent": 1,
+          "hook_gate_opening_unaligned": 1,
+          "hook_gate_payoff_after_3s": 7,
+          "hook_gate_payoff_unaligned": 2,
+          "hook_gate_signal_after_1s": 10,
+          "hook_gate_signal_unaligned": 2
+        },
+        "semantic_closure": {
+          "closure_duration_over_hard_max": 5,
+          "closure_exact_quote_unaligned": 1,
+          "closure_model_incomplete_ending": 1,
+          "closure_required_continuation_missing": 1,
+          "closure_takeaway_boundary_unaligned": 1
+        }
+      },
+      "source_id": "VSG9hY_t-rs",
+      "top_k": {
+        "closure_shadow_ids": [
+          "vsg_2026_07_17:000",
+          "vsg_2026_07_17:002",
+          "vsg_2026_07_17:008"
+        ],
+        "full_v2_ids": [
+          "vsg_2026_07_17:000"
+        ],
+        "k": 3,
+        "v1_replay_ids": [
+          "vsg_2026_07_17:000",
+          "vsg_2026_07_17:011"
+        ]
+      },
+      "transcript_path": "output/pilot-bf-VSG9hY_t-rs-2026-07-17/discovery-result.json"
+    }
+  ],
+  "limitations": [],
+  "llmCalls": 0,
+  "offlineOnly": true,
+  "policyVersion": "bf-growth-replay-v1.0.0",
+  "productionApprovalRecommended": false,
+  "renders": 0,
+  "schemaVersion": 1,
+  "topK": 3
+}

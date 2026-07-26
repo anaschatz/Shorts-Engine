@@ -1,6 +1,7 @@
 # Dark Curiosity Continuous Animation Architecture
 
-Status: Slice C2 browser-seek determinism benchmark validated; production migration not approved
+Status: Slice E1 temporal Motion QA and Slice E2A repository-bound shadow
+calibration implemented; production migration not approved
 
 Decision target: `continuous_motion_renderer_v1`
 
@@ -237,7 +238,11 @@ Extend the existing QA with motion-specific gates:
 - `MOTION_OBJECT_PERSISTENCE`: matched semantic entities do not teleport;
 - `MOTION_RENDER_DETERMINISTIC`: sampled-frame hashes match on a repeated proof render.
 
-Use FFmpeg for frame extraction and OpenCV optical flow for metrics. Run a fast sampled preview gate first and full final QA only after approval.
+Slice E1 uses FFmpeg-decoded consecutive grayscale frames for deterministic
+velocity, acceleration, jerk, and sentence-boundary proxies. These are temporal
+luma derivatives, not optical flow. OpenCV optical flow remains a later
+calibration layer for direction-aware camera and object motion. Run a fast
+sampled preview gate first and full final QA only after approval.
 
 ## 10. Repository evaluation
 
@@ -290,11 +295,48 @@ Slice C2 completed on 2026-07-13. A real headless-Chrome harness loads the compi
 - add shared style tokens and three intensity profiles;
 - add asset license/provenance manifests.
 
+Slice D1 completed on 2026-07-21. Generalized scene composition v2 now embeds
+one graph/proposition/primitive-bound geometry blueprint per sentence. A
+server-owned deterministic compiler expands nine grammar-compatible recipes
+into a flat, budgeted node/edge program using only integer normalized
+coordinates and allowlisted roles, shapes, tones, and edge kinds. HyperFrames
+renders that program inside the existing primary module, preserving all prior
+counter, vessel, route, composition, and Scene DSL targets. Approved route
+waypoints retain exact order and provenance; all other seeded layouts are
+explicitly illustrative. The model still cannot author coordinates, SVG,
+styles, labels, timing, or executable renderer code.
+
 ### Slice E — Motion QA
 
 - optical-flow, stasis, jerk, safe-zone, clipping, and deterministic sample gates;
 - visual contact sheets plus short animated proof clips for operator review;
 - calibrate thresholds on at least ten fixtures, including adversarial cases.
+
+Slice E1 completed on 2026-07-21. The benchmark now evaluates every decoded
+semantic-ROI frame, records normalized acceleration and jerk distributions,
+and measures motion discontinuity at semantic sentence boundaries. Semantic-v3
+QA segments follow exact sentence word spans instead of the five coarse beat
+scenes. The browser proof also measures each visible bounded-geometry root and
+node and fails if it leaves the semantic ROI or intersects the caption reserve.
+A strict, deterministic calibration-report contract keeps all new temporal
+thresholds in shadow mode and cannot self-approve production use.
+
+Slice E2A completed on 2026-07-21. Calibration observations are now resolved
+from checksummed managed-artifact IDs rather than caller-supplied envelopes or
+`sourceKind` labels. The resolver rebuilds narration timing, recompiles the
+semantic plan and AnimationIR, verifies the browser/Motion-QA configuration and
+decoded-frame binding, distinguishes substantive story/source identity from
+metadata revisions, and requires one exact render-analysis stratum. Human
+reviews bind to the QA, manifest, MP4, story, and source hashes. Candidate P95
+limits remain shadow-only and are blocked by insufficient evidence, label
+support, pass outliers, hard safety ceilings, or non-separable labels.
+The trusted HTML compiler also owns the canonical semantic ROI, caption zone,
+marked-label IDs, and semantic-route IDs; repository proofs must match all four
+exactly rather than supplying their own crop or claiming zero route violations
+without observing the route.
+The current trust level is explicitly repository-integrity-only: retained MP4
+and source-snapshot bytes are not re-opened during corpus compilation, and
+reviewer hashes are pseudonymous rather than authenticated signatures.
 
 ### Slice F — Pilot switch
 
@@ -326,7 +368,43 @@ The corrected 720×1280 proof contains exactly 300 H.264/yuv420p frames at 30 fp
 
 The Slice C2 proof repeated the complete render twice. The runs completed in 15.495 and 17.085 seconds with 148 and 161 MiB peak memory. Their `TimingContext`, `AnimationIR`, composition, decoded checkpoint, browser random-seek, technical metadata, and MP4 hashes matched. Frames 27, 76, 209, 241, and 291 were each captured twice after out-of-order seeks in a single page load and matched exactly. The valid proof browser observed zero external requests; an injected remote image request was observed and blocked one-for-one. Thirteen malformed timing cases failed before a render attempt and created no partial MP4 artifact.
 
-This result keeps HyperFrames approved for benchmark work, not as the production default. The existing SVG keyframe renderer remains unchanged. The next bounded slice should add pixel/OCR clipping checks plus jerk, continuity, and object-persistence metrics before expanding the remaining template families. Motion thresholds must still be calibrated across at least ten content fixtures. Network counters currently come from the separate proof browser loading the exact compiled composition; the internal HyperFrames capture browser is constrained by CSP and contains no remote assets, but its package API does not yet expose equivalent request telemetry. The lower caption reserve also needs compositional refinement so it remains safe without looking visually empty.
+Slice D1 adds source-distinct procedural topology without widening the model
+trust boundary. Blueprint and compiled-program normalizers reject raw markup or
+code fields, accessors, symbols, polluted prototypes, sparse arrays,
+non-canonical numbers, complexity overflow, degenerate nodes, and invalid edge
+graphs. The sentence validator rebuilds the exact expected composition from
+the trusted graph, so swapping or freshly rehashing a syntactically valid
+blueprint is insufficient. Checked unparameterized profiles bypass the new
+path and retain their pinned HTML hashes.
+
+Slice E1 closes the previously unmeasured full-frame jerk and bounded-geometry
+clipping gaps without pretending that the thresholds are calibrated. The
+browser engineering suite covers 32 semantic sentences across only three
+source stories (Wow Signal, GPS rollover, and Baychimo), plus synthetic
+controls. The real Chromium proof passes for all three source stories,
+including every GPS sentence midpoint. These cases validate the measurement
+path; they are not independent calibration observations.
+
+Slice E2A makes that distinction enforceable. There are currently zero
+complete repository-bound production chains: the existing source stories do
+not yet combine an eligible full render, checksum-bound draft/alignment/IR/QA
+chain, manifest, and human review. The legacy Wow MP4 remains a short benchmark
+and cannot be relabeled as corpus evidence. The shadow report is therefore
+correctly blocked today.
+
+This result keeps HyperFrames approved for benchmark work, not as the
+production default. The existing SVG keyframe renderer remains unchanged. The
+next operational slice should first produce complete chains for the existing
+three stories, then collect at least seven additional source-backed,
+story-distinct chains with exact alignments and human reviews. Only after that
+ten-story corpus exists should the engine evaluate the shadow candidates and
+add direction-aware optical flow, OCR readability, and true cross-sentence
+object persistence. Network
+counters currently come from the separate proof browser loading the exact
+compiled composition; the internal HyperFrames capture browser is constrained
+by CSP and contains no remote assets, but its package API does not yet expose
+equivalent request telemetry. The lower caption reserve also needs
+compositional refinement so it remains safe without looking visually empty.
 
 ## Primary references
 

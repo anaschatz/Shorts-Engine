@@ -4,6 +4,7 @@ const PERSISTENCE_ADAPTER_METHODS = Object.freeze([
   "createProject",
   "getProject",
   "updateProject",
+  "compareAndSwapProject",
   "publicProject",
   "createUpload",
   "getUpload",

@@ -1,15 +1,20 @@
 const { InMemoryExportRepository } = require("../repositories/export-repository.cjs");
 const { InMemoryArtifactRepository } = require("../repositories/artifact-repository.cjs");
 const { ApprovalOutboxRepository } = require("../repositories/approval-outbox-repository.cjs");
-const { InMemoryProjectRepository } = require("../repositories/project-repository.cjs");
+const {
+  InMemoryProjectRepository,
+  normalizeProject,
+} = require("../repositories/project-repository.cjs");
 const { RegenerationApprovalRepository } = require("../repositories/regeneration-approval-repository.cjs");
 const { RegenerationDraftRepository } = require("../repositories/regeneration-draft-repository.cjs");
 const { CONFIG, validatePersistenceAdapterMode } = require("../config.cjs");
 const {
+  compareAndSwapProjectRecord,
   loadPersistedProjectState,
   persistProjectRecord,
   persistProjectUploadRecord,
   persistRenderRecord,
+  readPersistedProjectRecord,
 } = require("../repositories/project-state.cjs");
 const { InMemoryUploadRepository } = require("../repositories/upload-repository.cjs");
 const { sanitizeText, validateResourceId } = require("../repositories/ids.cjs");
@@ -93,14 +98,43 @@ class LocalPersistenceAdapter {
     return this.projectRepository.update(projectId, patch);
   }
 
+  compareAndSwapProject({ projectId, expectedProject, patch = {} } = {}) {
+    const result = compareAndSwapProjectRecord({
+      projectId,
+      expectedProject,
+      patch,
+    });
+    if (result.busy) {
+      throw new AppError(
+        "PROJECT_STATE_LOCKED",
+        SAFE_MESSAGES.PROJECT_STATE_LOCKED,
+        409,
+        { retryable: true },
+      );
+    }
+    if (result.project) {
+      const refreshed = this.projectRepository.save(result.project);
+      return result.matched ? refreshed : null;
+    }
+    this.projectRepository.delete(projectId);
+    return null;
+  }
+
   publicProject(project) {
     return this.projectRepository.publicProject(project);
   }
 
   persistProject({ project } = {}) {
-    const projectRecord = this.createProject(project);
-    persistProjectRecord({ project: projectRecord });
-    return projectRecord;
+    const projectRecord = normalizeProject(project);
+    try {
+      persistProjectRecord({ project: projectRecord });
+    } catch (error) {
+      const durableProject = readPersistedProjectRecord(projectRecord.id);
+      if (durableProject) this.projectRepository.save(durableProject);
+      else this.projectRepository.delete(projectRecord.id);
+      throw error;
+    }
+    return this.projectRepository.save(projectRecord);
   }
 
   createUpload(record) {

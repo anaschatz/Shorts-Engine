@@ -13,7 +13,12 @@ const { compileTimeline } = require("./timeline-compiler.cjs");
 const { NARRATED_COMPOSITOR_VERSION, composeNarratedPreview, composeNarratedVisualMaster } = require("./video-compositor.cjs");
 const { runProductionAnimationRender } = require("./animation/render-service.cjs");
 const { buildProductionTimingContext } = require("./animation/timing-context-builder.cjs");
-const { compileProductionAnimation, PRODUCTION_PROVIDER_ID, PRODUCTION_RUNTIME_VERSION, PRODUCTION_STYLE_VERSION } = require("./animation/production-plan-compiler.cjs");
+const { compileProductionAnimation, PRODUCTION_PROVIDER_ID, PRODUCTION_RUNTIME_VERSION } = require("./animation/production-plan-compiler.cjs");
+const { SEMANTIC_SENTENCE_PROFILE_TOKEN, SEMANTIC_SENTENCE_STYLE_VERSION } = require("./animation/semantic-render-profile.cjs");
+const { createLocalLlmScenePlanner } = require("./animation/providers/local-llm-scene-planner.cjs");
+const {
+  resolveAnimationScenePlanBinding,
+} = require("./animation/scene-plan-artifact.cjs");
 const { verticalDescriptor } = require("./vertical-registry.cjs");
 const { createCaptionManifest, CAPTION_RENDERER_VERSION, CAPTION_PROFILE_VERSION } = require("./captions/contract.cjs");
 const { captionFontConfig, generateAss } = require("./captions/ass-generator.cjs");
@@ -32,6 +37,11 @@ function persistProject(dependencies, project) {
 
 async function runNarratedRenderJob(context = {}) {
   const { jobs, job, project, payload = {}, dependencies = {}, exportRepository } = context;
+  const requestedAnimationProfile = payload.animationProfile;
+  const hasAnimationProfile = requestedAnimationProfile !== undefined && requestedAnimationProfile !== null && requestedAnimationProfile !== "";
+  const animationProfile = hasAnimationProfile ? requestedAnimationProfile : null;
+  if (hasAnimationProfile && animationProfile !== SEMANTIC_SENTENCE_PROFILE_TOKEN) throw new AppError("VALIDATION_ERROR", "Narrated animation profile is invalid.", 409, { field: "animationProfile" });
+  if ((animationProfile && payload.animationStyleVersion !== SEMANTIC_SENTENCE_STYLE_VERSION) || (!animationProfile && payload.animationStyleVersion === SEMANTIC_SENTENCE_STYLE_VERSION)) throw new AppError("VALIDATION_ERROR", "Narrated animation versions are invalid.", 409, { field: "animationVersion" });
   const contentArtifacts = dependencies.contentArtifactRepository;
   const approvals = dependencies.contentApprovalRepository;
   const projectRepository = dependencies.projectRepository;
@@ -59,10 +69,12 @@ async function runNarratedRenderJob(context = {}) {
   const renderer = dependencies.renderNarratedKeyframes || renderNarratedKeyframes;
   const compositor = dependencies.composeNarratedPreview || composeNarratedPreview;
   const animationRenderer = dependencies.runProductionAnimationRender || runProductionAnimationRender;
+  const animationCompiler = dependencies.compileProductionAnimation || compileProductionAnimation;
   const continuousCompositor = dependencies.composeNarratedVisualMaster || composeNarratedVisualMaster;
   const draft = normalizeDraftBundle(envelope.body);
   const vertical = verticalDescriptor(draft.verticalId, draft.brief.formatId);
   const continuousAnimation = draft.verticalId === "dark_curiosity";
+  if (animationProfile && !continuousAnimation) throw new AppError("VALIDATION_ERROR", "Narrated animation profile is invalid.", 409, { field: "animationProfile" });
   if (!["available", "preview_available"].includes(vertical.renderCapability)) {
     throw new AppError("VERTICAL_RENDERER_UNAVAILABLE", "The approved content vertical does not have a render implementation yet.", 503, {
       verticalId: vertical.verticalId,
@@ -96,10 +108,60 @@ async function runNarratedRenderJob(context = {}) {
     alignedContext = { active, alignment, uploaded, audioArtifact };
   }
   if ((payload.renderProfile === "final" || continuousAnimation) && !alignedContext) throw new AppError("NARRATION_ALIGNMENT_REQUIRED", "Exact narration alignment is required before rendering this output.", 409);
+  let scenePlanBinding = null;
   if (continuousAnimation) {
     const expectedTiming = buildProductionTimingContext({ draft, alignment: alignedContext.alignment, projectId: project.id, projectRevision: project.input.revision, draftArtifactId: payload.approvedDraftArtifactId, draftHash: payload.approvedDraftHash, alignmentHash: alignedContext.active.alignmentHash });
-    const expectedAnimation = compileProductionAnimation({ draft, timingContext: expectedTiming, projectId: project.id, projectRevision: project.input.revision, renderProfile: payload.renderProfile });
-    if (payload.timingContextHash !== expectedTiming.contentHash || payload.animationPlanHash !== contentHash(expectedAnimation.plan) || payload.animationIRHash !== expectedAnimation.animationIR.contentHash || payload.animationProvider !== PRODUCTION_PROVIDER_ID || payload.animationRuntimeVersion !== PRODUCTION_RUNTIME_VERSION || payload.animationStyleVersion !== PRODUCTION_STYLE_VERSION) {
+    const scenePlannerHealth = animationProfile
+      ? dependencies.scenePlannerHealth
+        || createLocalLlmScenePlanner({
+          env: dependencies.scenePlannerEnv || process.env,
+        }).health()
+      : null;
+    const production = String(
+      dependencies.environment
+        || process.env.SHORTSENGINE_ENVIRONMENT
+        || process.env.NODE_ENV
+        || "development",
+    ).trim().toLowerCase() === "production";
+    if (production && scenePlannerHealth?.mode === "mock") {
+      throw new AppError(
+        "ANIMATION_LOCAL_LLM_CONFIG_INVALID",
+        "The local animation scene planner configuration is invalid.",
+        500,
+        { field: "mode" },
+      );
+    }
+    scenePlanBinding = animationProfile
+      ? resolveAnimationScenePlanBinding({
+        project,
+        projectRevision: project.input.revision,
+        draft,
+        timingContext: expectedTiming,
+        draftArtifactId: payload.approvedDraftArtifactId,
+        draftHash: payload.approvedDraftHash,
+        alignmentArtifactId: alignedContext.active.alignmentArtifactId,
+        alignmentHash: alignedContext.active.alignmentHash,
+        artifactId: payload.animationScenePlanArtifactId || null,
+        artifactHash: payload.animationScenePlanHash || null,
+        contentArtifactRepository: contentArtifacts,
+        requirePersisted: true,
+        expectedPlanner: scenePlannerHealth,
+        buildSemanticSentencePlanningContext:
+          dependencies.buildSemanticSentencePlanningContext,
+      })
+      : null;
+    const expectedAnimation = animationCompiler({
+      draft,
+      timingContext: expectedTiming,
+      projectId: project.id,
+      projectRevision: project.input.revision,
+      renderProfile: payload.renderProfile,
+      ...(animationProfile ? { animationProfile } : {}),
+      ...(scenePlanBinding?.scenePlan
+        ? { semanticAnimationSceneDslPlan: scenePlanBinding.scenePlan }
+        : {}),
+    });
+    if (payload.timingContextHash !== expectedTiming.contentHash || payload.animationPlanHash !== contentHash(expectedAnimation.plan) || payload.animationIRHash !== expectedAnimation.animationIR.contentHash || payload.animationProvider !== PRODUCTION_PROVIDER_ID || payload.animationRuntimeVersion !== PRODUCTION_RUNTIME_VERSION || payload.animationStyleVersion !== expectedAnimation.animationIR.renderer.styleVersion) {
       throw new AppError("ANIMATION_BINDING_STALE", "Production animation bindings are stale.", 409);
     }
   }
@@ -161,8 +223,18 @@ async function runNarratedRenderJob(context = {}) {
         jobId: job.id,
         draftArtifactId: payload.approvedDraftArtifactId,
         draftHash: payload.approvedDraftHash,
+        alignmentArtifactId: alignedContext.active.alignmentArtifactId,
         alignmentHash: alignedContext.active.alignmentHash,
         renderProfile: payload.renderProfile,
+        ...(animationProfile ? { animationProfile } : {}),
+        ...(scenePlanBinding?.scenePlan
+          ? {
+            semanticAnimationSceneDslPlan: scenePlanBinding.scenePlan,
+            animationScenePlanArtifactId:
+              payload.animationScenePlanArtifactId,
+            animationScenePlanHash: payload.animationScenePlanHash,
+          }
+          : {}),
         stagingDir: tempRoot,
         contentArtifactRepository: contentArtifacts,
         signal: job._controller && job._controller.signal,

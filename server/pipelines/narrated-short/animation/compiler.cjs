@@ -15,8 +15,8 @@ function compileAnimationIR(input, options = {}) {
   return compiled;
 }
 
-function compileTimingBoundAnimationIR(input, timingContext) {
-  return compileAnimationIR(input, { timingContext });
+function compileTimingBoundAnimationIR(input, timingContext, options = {}) {
+  return compileAnimationIR(input, { ...options, timingContext });
 }
 
 module.exports = { compileAnimationIR, compileTimingBoundAnimationIR };

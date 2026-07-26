@@ -1,7 +1,15 @@
 const { AppError } = require("../../../errors.cjs");
 const { contentHash, normalizeDraftBundle } = require("../contracts.cjs");
-const { normalizeSpeechToken } = require("../narration/alignment.cjs");
+const { normalizeSpeechToken, scriptWords } = require("../narration/alignment.cjs");
 const { compileTimingBoundAnimationIR } = require("./compiler.cjs");
+const { buildGenericProductionAnimationPlan } = require("./semantic-production-plan-compiler.cjs");
+const {
+  SEMANTIC_SENTENCE_PROFILE_ID,
+  SEMANTIC_SENTENCE_PROFILE_TOKEN,
+} = require("./semantic-render-profile.cjs");
+const {
+  buildSemanticSentenceProductionAnimationPlan,
+} = require("./semantic-sentence-production-plan-compiler.cjs");
 const { normalizeAnimationTimingContext } = require("./timing-contract.cjs");
 
 const PRODUCTION_PROVIDER_ID = "hyperframes_local";
@@ -15,6 +23,15 @@ const OPERATION_COUNTS = Object.freeze({ hook: 3, context: 2, evidence: 3, turn:
 
 function unsupported(field) {
   throw new AppError("ANIMATION_TEMPLATE_INVALID", "The approved storyboard cannot be rendered by the production animation grammar.", 409, { field });
+}
+
+function unsupportedAnimationProfile(value) {
+  throw new AppError(
+    "ANIMATION_PROFILE_INVALID",
+    "The requested production animation profile is unsupported.",
+    409,
+    { field: "animationProfile", value: String(value || "") },
+  );
 }
 
 function wrapText(value, maxCharacters = 22, maxLines = 2) {
@@ -55,7 +72,7 @@ function settledHold(startFrame, endFrame) {
   return endFrame > startFrame ? [{ startFrame, endFrame }] : [];
 }
 
-function buildProductionAnimationPlan(input = {}) {
+function buildWowSignalAnimationPlan(input = {}) {
   const draft = normalizeDraftBundle(input.draft);
   const timing = normalizeAnimationTimingContext(input.timingContext);
   if (draft.verticalId !== "dark_curiosity" || draft.brief.formatId !== "documented_mystery_v1") unsupported("formatId");
@@ -391,10 +408,68 @@ function buildProductionAnimationPlan(input = {}) {
   };
 }
 
+function usesLegacyWowSignalStoryboard(draft) {
+  const scripted = Object.fromEntries(draft.script.beats.map((beat) => [beat.role, beat]));
+  const evidenceBeatId = scripted.evidence?.id;
+  const evidenceScene = draft.storyboard.scenes.find((scene) => scene.beatIds.includes(evidenceBeatId));
+  const link = evidenceScene?.operations.find((operation) => operation.op === "connect_nodes");
+  const documentedCase = `${draft.brief.topic} ${draft.brief.thesis}`.toLowerCase().replace(/[^a-z0-9]+/g, " ");
+  return Boolean(
+    documentedCase.includes("wow signal")
+    && link?.fromId === "telescope"
+    && link?.toId === "signal"
+    && /\bastronomer\b/i.test(scripted.hook?.spokenText || "")
+    && /\binterstellar\b/i.test(scripted.context?.spokenText || "")
+    && /\btelescope\b/i.test(scripted.evidence?.spokenText || ""),
+  );
+}
+
+function timingMatchesApprovedScript(draft, timing) {
+  const approvedWords = scriptWords(draft.script);
+  return approvedWords.length === timing.words.length && approvedWords.every(
+    (word, index) => normalizeSpeechToken(word.text) === normalizeSpeechToken(timing.words[index].text),
+  );
+}
+
+function buildProductionAnimationPlan(input = {}) {
+  const draft = normalizeDraftBundle(input.draft);
+  const timingContext = normalizeAnimationTimingContext(input.timingContext);
+  if (draft.verticalId !== "dark_curiosity" || draft.brief.formatId !== "documented_mystery_v1") unsupported("formatId");
+  if (draft.contentHash !== timingContext.draftHash) unsupported("draftHash");
+  if (!timingMatchesApprovedScript(draft, timingContext)) unsupported("timingContext.words");
+  if (
+    input.animationProfile === SEMANTIC_SENTENCE_PROFILE_TOKEN
+    || input.animationProfile === SEMANTIC_SENTENCE_PROFILE_ID
+  ) {
+    return buildSemanticSentenceProductionAnimationPlan({
+      ...input,
+      draft,
+      timingContext,
+      semanticProfileId: SEMANTIC_SENTENCE_PROFILE_ID,
+    });
+  }
+  if (input.animationProfile !== undefined && input.animationProfile !== null && input.animationProfile !== "") {
+    unsupportedAnimationProfile(input.animationProfile);
+  }
+  if (usesLegacyWowSignalStoryboard(draft)) {
+    try {
+      return buildWowSignalAnimationPlan({ ...input, draft, timingContext });
+    } catch (error) {
+      if (error?.code !== "ANIMATION_TEMPLATE_INVALID") throw error;
+    }
+  }
+  return buildGenericProductionAnimationPlan({ ...input, draft, timingContext });
+}
+
 function compileProductionAnimation(input = {}) {
   const timingContext = normalizeAnimationTimingContext(input.timingContext);
   const plan = buildProductionAnimationPlan({ ...input, timingContext });
-  const animationIR = compileTimingBoundAnimationIR(plan, timingContext);
+  const animationIR = compileTimingBoundAnimationIR(plan, timingContext, {
+    semanticSourceContext: {
+      draft: input.draft,
+      timingContext,
+    },
+  });
   return Object.freeze({ timingContext, plan: Object.freeze(structuredClone(plan)), animationIR });
 }
 
@@ -404,6 +479,8 @@ module.exports = {
   PRODUCTION_RUNTIME_VERSION,
   PRODUCTION_STYLE_VERSION,
   SEMANTIC_PROFILE_ID,
+  SEMANTIC_SENTENCE_PROFILE_ID,
+  SEMANTIC_SENTENCE_PROFILE_TOKEN,
   buildProductionAnimationPlan,
   compileProductionAnimation,
 };

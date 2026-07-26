@@ -1,0 +1,185 @@
+{
+  "fixtures": [
+    {
+      "id": "motivational_podcast_discipline",
+      "category": "motivational_podcast",
+      "duration": 260.0,
+      "video_metadata": {
+        "width": 1920,
+        "height": 1080,
+        "fps": 30.0,
+        "layout": "speaker",
+        "visual_cache": "synthetic:motivational_podcast_v1"
+      },
+      "transcript": {
+        "duration": 260.0,
+        "segments": [
+          {
+            "start": 24.0,
+            "end": 56.0,
+            "text": "Discipline creates freedom. When your health, time, and money are under control, you stop living at the mercy of every impulse. That control is what gives you options."
+          },
+          {
+            "start": 92.0,
+            "end": 120.0,
+            "text": "Hard work changes your identity before it changes your results. Keeping one promise to yourself makes the next promise easier to keep."
+          },
+          {
+            "start": 145.0,
+            "end": 170.0,
+            "text": "The biggest mistake people make is this. There are two reasons why, and the first one is"
+          },
+          {
+            "start": 220.0,
+            "end": 246.0,
+            "text": "Subscribe to the show, leave a review, and follow the channel for the next episode."
+          }
+        ]
+      },
+      "accepted_intervals": [
+        {"id": "discipline_freedom", "start": 24.0, "end": 56.0},
+        {"id": "identity_promises", "start": 92.0, "end": 120.0}
+      ],
+      "rejected_intervals": [
+        {"id": "open_loop", "start": 145.0, "end": 170.0, "reason": "incomplete_ending"},
+        {"id": "podcast_promo", "start": 220.0, "end": 246.0, "reason": "promotional_outro"}
+      ],
+      "preferred_top_candidate": "discipline_freedom",
+      "pairwise_preferences": [
+        ["discipline_freedom", "identity_promises"],
+        ["identity_promises", "open_loop"],
+        ["discipline_freedom", "podcast_promo"]
+      ],
+      "candidates": [
+        {
+          "id": "discipline_freedom",
+          "title": "Discipline Creates Freedom",
+          "topic": "discipline and freedom",
+          "thesis": "Self-control creates practical freedom.",
+          "start_time": 24.0,
+          "end_time": 56.0,
+          "speech_start_time": 24.0,
+          "speech_end_time": 56.0,
+          "score": 94,
+          "hook_score": 98,
+          "standalone_score": 97,
+          "development_score": 94,
+          "takeaway_score": 97,
+          "emotional_conviction_score": 91,
+          "quotability_score": 96,
+          "closure_score": 98,
+          "title_fit_score": 99,
+          "boundary_quality_score": 100,
+          "has_hook": true,
+          "has_development": true,
+          "has_takeaway": true,
+          "has_complete_ending": true,
+          "is_promotional": false,
+          "is_outro": false,
+          "requires_previous_context": false,
+          "is_standalone_one_liner": false,
+          "boundary_complete": true,
+          "visual_subject_coverage_score": 65,
+          "caption_readability_score": 96,
+          "render_decode_ok": true
+        },
+        {
+          "id": "identity_promises",
+          "title": "Keep One Promise",
+          "topic": "identity and consistency",
+          "thesis": "Consistent action changes identity before results.",
+          "start_time": 92.0,
+          "end_time": 120.0,
+          "speech_start_time": 92.0,
+          "speech_end_time": 120.0,
+          "score": 90,
+          "hook_score": 92,
+          "standalone_score": 95,
+          "development_score": 90,
+          "takeaway_score": 91,
+          "emotional_conviction_score": 88,
+          "quotability_score": 92,
+          "closure_score": 95,
+          "title_fit_score": 96,
+          "boundary_quality_score": 100,
+          "has_hook": true,
+          "has_development": true,
+          "has_takeaway": true,
+          "has_complete_ending": true,
+          "is_promotional": false,
+          "is_outro": false,
+          "requires_previous_context": false,
+          "is_standalone_one_liner": false,
+          "boundary_complete": true,
+          "visual_subject_coverage_score": 61,
+          "caption_readability_score": 95,
+          "render_decode_ok": true
+        },
+        {
+          "id": "open_loop",
+          "title": "The Biggest Mistake",
+          "topic": "common mistakes",
+          "thesis": "The speaker begins a list but does not complete it.",
+          "start_time": 145.0,
+          "end_time": 170.0,
+          "speech_start_time": 145.0,
+          "speech_end_time": 170.0,
+          "score": 97,
+          "hook_score": 98,
+          "standalone_score": 55,
+          "development_score": 30,
+          "takeaway_score": 10,
+          "emotional_conviction_score": 86,
+          "quotability_score": 65,
+          "closure_score": 5,
+          "title_fit_score": 80,
+          "boundary_quality_score": 45,
+          "has_hook": true,
+          "has_development": false,
+          "has_takeaway": false,
+          "has_complete_ending": false,
+          "is_promotional": false,
+          "is_outro": false,
+          "requires_previous_context": false,
+          "is_standalone_one_liner": false,
+          "boundary_complete": false,
+          "visual_subject_coverage_score": 68,
+          "caption_readability_score": 92,
+          "render_decode_ok": true
+        },
+        {
+          "id": "podcast_promo",
+          "title": "Follow the Show",
+          "topic": "channel promotion",
+          "thesis": "A promotional call to action.",
+          "start_time": 220.0,
+          "end_time": 246.0,
+          "speech_start_time": 220.0,
+          "speech_end_time": 246.0,
+          "score": 99,
+          "hook_score": 90,
+          "standalone_score": 95,
+          "development_score": 20,
+          "takeaway_score": 20,
+          "emotional_conviction_score": 88,
+          "quotability_score": 20,
+          "closure_score": 90,
+          "title_fit_score": 95,
+          "boundary_quality_score": 100,
+          "has_hook": true,
+          "has_development": true,
+          "has_takeaway": true,
+          "has_complete_ending": true,
+          "is_promotional": true,
+          "is_outro": true,
+          "requires_previous_context": false,
+          "is_standalone_one_liner": false,
+          "boundary_complete": true,
+          "visual_subject_coverage_score": 65,
+          "caption_readability_score": 96,
+          "render_decode_ok": true
+        }
+      ]
+    }
+  ]
+}

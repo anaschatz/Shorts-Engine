@@ -175,6 +175,58 @@ sqliteTest("sqlite project and upload records persist through repository facades
   }
 });
 
+sqliteTest("sqlite project compare-and-swap is atomic across adapter instances", () => {
+  const { adapter: first, artifactAdapter, databasePath: dbPath } = makeAdapter();
+  const projectId = id("prj");
+  let second = null;
+  try {
+    const seeded = first.createProject({
+      id: projectId,
+      projectType: "narrated_short",
+      title: "SQLite CAS",
+      language: "en",
+      status: "awaiting_approval",
+      input: {
+        type: "content_brief",
+        revision: 1,
+        briefArtifactId: "art_sqlite-cas-brief-0001",
+      },
+    });
+    second = new SQLitePersistenceAdapter({
+      artifactAdapter,
+      databasePath: dbPath,
+    });
+    const expectedByFirst = JSON.parse(JSON.stringify(seeded));
+    const expectedBySecond = JSON.parse(JSON.stringify(
+      second.getProject(projectId),
+    ));
+
+    const winner = first.projectRepository.compareAndSwap(
+      projectId,
+      expectedByFirst,
+      {
+        input: { ...expectedByFirst.input, revision: 2 },
+      },
+    );
+    expectedBySecond.updatedAt = winner.updatedAt;
+    const stale = second.compareAndSwapProject({
+      projectId,
+      expectedProject: expectedBySecond,
+      patch: { title: "Stale SQLite Overwrite", status: "failed" },
+    });
+
+    assert.equal(winner.input.revision, 2);
+    assert.equal(stale, null);
+    assert.equal(second.getProject(projectId).title, "SQLite CAS");
+    assert.equal(second.getProject(projectId).input.revision, 2);
+    assert.equal(first.health().capabilities.compareAndSwapProject, true);
+  } finally {
+    closeAdapter(second);
+    closeAdapter(first);
+    cleanupDatabase(dbPath);
+  }
+});
+
 sqliteTest("sqlite preserves narrated revision invalidation state across recovery", () => {
   const { adapter, artifactAdapter, databasePath: dbPath } = makeAdapter();
   const projectId = id("prj");

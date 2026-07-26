@@ -1,6 +1,7 @@
 const { AppError, SAFE_MESSAGES } = require("../../../errors.cjs");
 const { sanitizeText, validateResourceId } = require("../../../repositories/ids.cjs");
 const { contentHash } = require("../contracts.cjs");
+const { SEMANTIC_SENTENCE_PROFILE_TOKEN } = require("../animation/semantic-render-profile.cjs");
 
 const PILOT_PROFILE = "dark_curiosity_pilot_report_v1";
 const PILOT_PROFILE_VERSION = "1.0.0";
@@ -66,10 +67,15 @@ function technicalBody(input) {
 }
 
 function normalizePilotReport(input = {}) {
-  exact(input, ["schemaVersion", "profile", "profileVersion", "runId", "status", "projectId", "projectRevision", "fixture", "approvedDraft", "narrationManifest", "narrationAudio", "narrationAlignment", "preview", "final", "qa", "contactSheet", "rightsManifest", "provenanceReport", "exportMetadata", "completedStages", "failure", "readiness", "technicalFinal", "qaPassed", "publishable", "publishApprovalRequired", "startedAt", "completedAt", "durationMs", "contentHash"], "pilotReport");
+  exact(input, ["schemaVersion", "profile", "profileVersion", "runId", "status", "projectId", "projectRevision", "fixture", "animationProfile", "approvedDraft", "narrationManifest", "narrationAudio", "narrationAlignment", "preview", "final", "qa", "contactSheet", "rightsManifest", "provenanceReport", "exportMetadata", "completedStages", "failure", "readiness", "technicalFinal", "qaPassed", "publishable", "publishApprovalRequired", "startedAt", "completedAt", "durationMs", "contentHash"], "pilotReport");
   if (Number(input.schemaVersion) !== 1 || input.profile !== PILOT_PROFILE || input.profileVersion !== PILOT_PROFILE_VERSION) invalid("profile");
   const runId = sanitizeText(input.runId, 80).toLowerCase(); if (!/^pilot_[a-f0-9]{40}$/.test(runId)) invalid("runId");
   const status = sanitizeText(input.status, 24).toLowerCase(); if (!PILOT_STATUSES.includes(status)) invalid("status");
+  const hasAnimationProfile = Object.prototype.hasOwnProperty.call(input, "animationProfile");
+  const animationProfile = hasAnimationProfile
+    ? sanitizeText(input.animationProfile, 40).toLowerCase()
+    : null;
+  if (hasAnimationProfile && animationProfile !== SEMANTIC_SENTENCE_PROFILE_TOKEN) invalid("animationProfile");
   const projectId = input.projectId ? validateResourceId(input.projectId, "prj") : null;
   const projectRevision = input.projectRevision == null ? null : Number(input.projectRevision); if (projectRevision !== null && (!Number.isInteger(projectRevision) || projectRevision < 1)) invalid("projectRevision");
   exact(input.fixture, ["fixtureId", "hash"], "fixture"); const fixture = { fixtureId: sanitizeText(input.fixture.fixtureId, 100), hash: safeHash(input.fixture.hash, "fixture.hash") }; if (!/^[A-Za-z0-9._-]{1,100}$/.test(fixture.fixtureId)) invalid("fixture.fixtureId");
@@ -77,7 +83,7 @@ function normalizePilotReport(input = {}) {
   if (completedStages.length > PILOT_STAGES.length || new Set(completedStages).size !== completedStages.length || completedStages.some((stage, index) => stage !== PILOT_STAGES[index])) invalid("completedStages");
   const startedAt = sanitizeText(input.startedAt, 40); const completedAt = sanitizeText(input.completedAt, 40); const durationMs = Number(input.durationMs);
   if (!Number.isFinite(Date.parse(startedAt)) || !Number.isFinite(Date.parse(completedAt)) || !Number.isInteger(durationMs) || durationMs < 0 || durationMs > 86400000) invalid("runtime");
-  const normalized = { schemaVersion: 1, profile: PILOT_PROFILE, profileVersion: PILOT_PROFILE_VERSION, runId, status, projectId, projectRevision, fixture, approvedDraft: artifactRef(input.approvedDraft, "approvedDraft"), narrationManifest: artifactRef(input.narrationManifest, "narrationManifest"), narrationAudio: artifactRef(input.narrationAudio, "narrationAudio"), narrationAlignment: artifactRef(input.narrationAlignment, "narrationAlignment"), preview: jobOutput(input.preview, "preview"), final: jobOutput(input.final, "final"), qa: qaSummary(input.qa), contactSheet: artifactRef(input.contactSheet, "contactSheet"), rightsManifest: artifactRef(input.rightsManifest, "rightsManifest"), provenanceReport: artifactRef(input.provenanceReport, "provenanceReport"), exportMetadata: artifactRef(input.exportMetadata, "exportMetadata"), completedStages, failure: failureSummary(input.failure, status), readiness: normalizeReadiness(input.readiness), technicalFinal: input.technicalFinal === true, qaPassed: input.qaPassed === true, publishable: false, publishApprovalRequired: true, startedAt, completedAt, durationMs };
+  const normalized = { schemaVersion: 1, profile: PILOT_PROFILE, profileVersion: PILOT_PROFILE_VERSION, runId, status, projectId, projectRevision, fixture, ...(animationProfile ? { animationProfile } : {}), approvedDraft: artifactRef(input.approvedDraft, "approvedDraft"), narrationManifest: artifactRef(input.narrationManifest, "narrationManifest"), narrationAudio: artifactRef(input.narrationAudio, "narrationAudio"), narrationAlignment: artifactRef(input.narrationAlignment, "narrationAlignment"), preview: jobOutput(input.preview, "preview"), final: jobOutput(input.final, "final"), qa: qaSummary(input.qa), contactSheet: artifactRef(input.contactSheet, "contactSheet"), rightsManifest: artifactRef(input.rightsManifest, "rightsManifest"), provenanceReport: artifactRef(input.provenanceReport, "provenanceReport"), exportMetadata: artifactRef(input.exportMetadata, "exportMetadata"), completedStages, failure: failureSummary(input.failure, status), readiness: normalizeReadiness(input.readiness), technicalFinal: input.technicalFinal === true, qaPassed: input.qaPassed === true, publishable: false, publishApprovalRequired: true, startedAt, completedAt, durationMs };
   if (input.publishable !== false || input.publishApprovalRequired !== true) invalid("publishable");
   if (status === "complete" && (!normalized.technicalFinal || !normalized.qaPassed || completedStages.at(-1) !== "pilot_complete" || !normalized.final || !normalized.exportMetadata)) invalid("status");
   if (status !== "complete" && (normalized.technicalFinal || normalized.qaPassed)) invalid("technicalFinal");

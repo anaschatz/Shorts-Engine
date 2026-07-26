@@ -35,7 +35,7 @@ function strictSnapshot(frame, stateId, focusIntervalId, transitionId, pathData)
     focusTargets: [{ entityId: "signal_evidence", role: "primary", visible: true, bounds }],
     labels: [
       { id: "key_label", role: "key", visible: true, fontSize: 32, foreground: "#e2e8f0", background: "#07121f", bounds: { x: 120, y: 500, width: 240, height: 42 } },
-      { id: "secondary_label", role: "secondary", visible: true, fontSize: 24, foreground: "#a5f3fc", background: "#071827", bounds: { x: 120, y: 560, width: 240, height: 32 } },
+      { id: "secondary_label", role: "secondary", visible: true, fontSize: 24, effectiveFontSize: 24, effectiveFontFloor: 24, glyphCompression: false, foreground: "#a5f3fc", background: "#071827", bounds: { x: 120, y: 560, width: 240, height: 32 } },
     ],
     pathFollowers: [{ followerId: "signal-evidence-marker", pathId: "signal-evidence-path", visible: true, distance: 0.5 }],
   };
@@ -56,6 +56,7 @@ function mockBrowser() {
   let loads = 0;
   let paintBarrierObserved = false;
   let screenshotCount = 0;
+  const screenshotOptions = [];
   const page = {
     setViewport: async () => {},
     setDefaultTimeout: () => {},
@@ -75,11 +76,16 @@ function mockBrowser() {
       if (String(fn).includes("return Number(document.documentElement.dataset.renderedFrame)")) return renderedFrame;
       return { renderedFrame, geometry: geometry() };
     },
-    screenshot: async () => { screenshotCount += 1; return Buffer.from(`pixels:${renderedFrame}`); },
+    screenshot: async (options) => {
+      screenshotCount += 1;
+      screenshotOptions.push(options);
+      return Buffer.from(`pixels:${renderedFrame}`);
+    },
     close: async () => {},
     get loads() { return loads; },
     get paintBarrierObserved() { return paintBarrierObserved; },
     get screenshotCount() { return screenshotCount; },
+    get screenshotOptions() { return screenshotOptions; },
   };
   return { browser: { newPage: async () => page, close: async () => {} }, page, listeners };
 }
@@ -107,6 +113,13 @@ test("browser harness loads once and hashes N-M-N pixels without accumulated sta
   assert.equal(fixture.page.loads, 1);
   assert.equal(fixture.page.paintBarrierObserved, true);
   assert.equal(fixture.page.screenshotCount, 8);
+  assert.ok(fixture.page.screenshotOptions.every((options) => (
+    options.type === "jpeg"
+    && options.quality === 90
+    && options.captureBeyondViewport === false
+    && options.clip.width === 720
+    && options.clip.height === 1280
+  )));
   assert.deepEqual(result.repeatedFrames.map((entry) => [entry.frame, entry.equal]), [[27, true], [291, true]]);
   assert.equal(result.captures[0].sha256, result.captures[2].sha256);
   assert.equal(result.captures[3].sha256, result.captures[5].sha256);
@@ -128,12 +141,181 @@ test("geometry audit rejects real clipping and caption-safe collisions", () => {
   const onPath = validateGeometrySnapshots([{ frame: 0, ...geometry(), pathFollowers: [{ followerId: "signal-dot", pathId: "signal-curve", visible: true, distance: 0.8 }] }], 720, 1280);
   assert.equal(onPath.passed, true);
   assert.equal(onPath.pathFollowerObservationCount, 1);
+  const detachedSemanticRoute = validateGeometrySnapshots([{
+    frame: 0,
+    ...geometry(),
+    semanticRoutes: [{
+      routeId: "route_scene_zero",
+      routeIndex: 0,
+      visible: true,
+      distance: 1.25,
+      x: 120,
+      y: 560,
+    }],
+  }], 720, 1280);
+  assert.equal(detachedSemanticRoute.passed, false);
+  assert.deepEqual(detachedSemanticRoute.semanticRouteViolations, [{
+    frame: 0,
+    routeId: "route_scene_zero",
+    routeIndex: 0,
+    distance: 1.25,
+  }]);
+  const groundedSemanticRoute = validateGeometrySnapshots([{
+    frame: 0,
+    ...geometry(),
+    semanticRoutes: [{
+      routeId: "route_scene_zero",
+      routeIndex: 0,
+      visible: true,
+      distance: 0.5,
+      x: 120,
+      y: 560,
+    }],
+  }], 720, 1280);
+  assert.equal(groundedSemanticRoute.passed, true);
+  assert.equal(groundedSemanticRoute.semanticRouteObservationCount, 1);
   const hiddenFollower = validateGeometrySnapshots([{ frame: 0, ...geometry(), pathFollowers: [{ followerId: "signal-dot", pathId: "signal-curve", visible: false, distance: null }] }], 720, 1280, ["signal-dot"]);
   assert.equal(hiddenFollower.passed, false);
   assert.deepEqual(hiddenFollower.unobservedPathFollowerIds, ["signal-dot"]);
   const missingFollower = validateGeometrySnapshots([{ frame: 0, ...geometry(), pathFollowers: [] }], 720, 1280, ["signal-dot"]);
   assert.equal(missingFollower.passed, false);
   assert.deepEqual(missingFollower.unobservedPathFollowerIds, ["signal-dot"]);
+});
+
+test("geometry audit proves bounded animation nodes stay inside the semantic ROI", () => {
+  const bounded = (bounds, nodeBounds = bounds) => ({
+    frame: 12,
+    ...geometry(),
+    boundedGeometry: [{
+      sentenceIndex: 2,
+      active: true,
+      visible: true,
+      bounds,
+      nodes: [{
+        index: 0,
+        opacity: 1,
+        translateY: 0,
+        bounds: nodeBounds,
+      }],
+      edges: [{ index: 0, opacity: 1, dashOffset: 0 }],
+    }],
+  });
+  const clean = validateGeometrySnapshots([
+    bounded(
+      { x: 100, y: 260, width: 480, height: 400 },
+      { x: 140, y: 320, width: 30, height: 30 },
+    ),
+  ], 720, 1280, [], {
+    expectedBoundedGeometrySentenceIndices: [2],
+  });
+  assert.equal(clean.passed, true);
+  assert.equal(clean.boundedGeometryObservationCount, 1);
+  assert.deepEqual(clean.boundedGeometryClippingViolations, []);
+  assert.deepEqual(clean.boundedGeometryCaptionSafeZoneViolations, []);
+  assert.deepEqual(clean.observedBoundedGeometrySentenceIndices, [2]);
+  assert.deepEqual(clean.unobservedBoundedGeometrySentenceIndices, []);
+
+  const missing = validateGeometrySnapshots([{
+    frame: 12,
+    ...geometry(),
+    boundedGeometry: [],
+  }], 720, 1280, [], {
+    expectedBoundedGeometrySentenceIndices: [2],
+  });
+  assert.equal(missing.passed, false);
+  assert.deepEqual(missing.observedBoundedGeometrySentenceIndices, []);
+  assert.deepEqual(missing.unobservedBoundedGeometrySentenceIndices, [2]);
+
+  const partial = validateGeometrySnapshots([
+    bounded(
+      { x: 100, y: 260, width: 480, height: 400 },
+      { x: 140, y: 320, width: 30, height: 30 },
+    ),
+  ], 720, 1280, [], {
+    expectedBoundedGeometrySentenceIndices: [2, 3],
+  });
+  assert.equal(partial.passed, false);
+  assert.deepEqual(partial.unobservedBoundedGeometrySentenceIndices, [3]);
+
+  const escapedNode = validateGeometrySnapshots([
+    bounded(
+      { x: 20, y: 260, width: 560, height: 400 },
+      { x: 20, y: 320, width: 30, height: 30 },
+    ),
+  ], 720, 1280);
+  assert.equal(escapedNode.passed, false);
+  assert.ok(escapedNode.boundedGeometryClippingViolations.some(
+    (violation) => violation.target === "node"
+      && violation.reason === "outside_semantic_roi",
+  ));
+  assert.ok(escapedNode.boundedGeometryClippingViolations.some(
+    (violation) => violation.target === "root",
+  ));
+
+  const captionCollision = validateGeometrySnapshots([
+    bounded(
+      { x: 100, y: 900, width: 480, height: 70 },
+      { x: 140, y: 950, width: 30, height: 18 },
+    ),
+  ], 720, 1280);
+  assert.equal(captionCollision.passed, false);
+  assert.ok(captionCollision.boundedGeometryCaptionSafeZoneViolations.some(
+    (violation) => violation.target === "node",
+  ));
+});
+
+test("geometry audit proves action signatures and clean settled holds", () => {
+  const firstSignature = "create:module_primary:entry:reveal";
+  const secondSignature = "camera:scene:develop:push_primary";
+  const expectations = {
+    expectedActionSignatures: [firstSignature, secondSignature],
+    expectedSettledHoldFrames: [30],
+  };
+  const snapshots = [
+    { frame: 10, ...geometry(), activeSceneActionSignatures: [firstSignature] },
+    { frame: 20, ...geometry(), activeSceneActionSignatures: [secondSignature] },
+    { frame: 30, ...geometry(), activeSceneActionSignatures: [] },
+  ];
+  const passed = validateGeometrySnapshots(
+    snapshots,
+    720,
+    1280,
+    [],
+    expectations,
+  );
+  assert.equal(passed.passed, true);
+  assert.deepEqual(passed.observedActionSignatures, [
+    secondSignature,
+    firstSignature,
+  ].sort());
+  assert.deepEqual(passed.unobservedActionSignatures, []);
+  assert.deepEqual(passed.actionCoverageViolations, []);
+
+  const missing = validateGeometrySnapshots(
+    snapshots.slice(0, 1).concat(snapshots.slice(2)),
+    720,
+    1280,
+    [],
+    expectations,
+  );
+  assert.equal(missing.passed, false);
+  assert.deepEqual(missing.unobservedActionSignatures, [secondSignature]);
+
+  const dirtyHold = validateGeometrySnapshots(
+    snapshots.map((snapshot) => snapshot.frame === 30
+      ? { ...snapshot, activeSceneActionSignatures: [secondSignature] }
+      : snapshot),
+    720,
+    1280,
+    [],
+    expectations,
+  );
+  assert.equal(dirtyHold.passed, false);
+  assert.deepEqual(dirtyHold.actionCoverageViolations, [{
+    frame: 30,
+    reason: "settled_hold_has_active_action",
+    activeSceneActionSignatures: [secondSignature],
+  }]);
 });
 
 test("strict geometry audit proves persistent morphs, exclusive focus, and mobile legibility", () => {
@@ -168,6 +350,8 @@ test("strict geometry audit rejects continuity, focus, ROI, path, and typography
   assert.ok(audit((snapshots) => { snapshots[0].pathFollowers[0].distance = 2.25; }).pathFollowerViolations.length > 0);
   assert.ok(audit((snapshots) => { snapshots[0].labels[0].fontSize = 31; }).legibilityViolations.length > 0);
   assert.ok(audit((snapshots) => { snapshots[0].labels[1].fontSize = 23; }).legibilityViolations.length > 0);
+  assert.ok(audit((snapshots) => { snapshots[0].labels[1].effectiveFontSize = 23; }).legibilityViolations.some((violation) => violation.reason === "effective_font_size"));
+  assert.ok(audit((snapshots) => { snapshots[0].labels[1].glyphCompression = true; }).legibilityViolations.some((violation) => violation.reason === "glyph_compression"));
   assert.ok(audit((snapshots) => { snapshots[0].labels[0].foreground = snapshots[0].labels[0].background; }).contrastViolations.length > 0);
   assert.ok(audit((snapshots) => { snapshots[0].labels[0].bounds = { x: 120, y: 960, width: 240, height: 42 }; }).legibilityViolations.length > 0);
   const hiddenLabel = audit((snapshots) => { for (const snapshot of snapshots) snapshot.labels.find((label) => label.id === "key_label").visible = false; });
@@ -194,6 +378,54 @@ test("browser harness rejects invalid sequences before browser launch", async ()
   await assert.rejects(
     runBrowserSeekProof({ html, width: 720, height: 1280, fps: 30, durationFrames: 300, chromePath: "/mock/chrome", seekSequence: [0, 1], timeoutMs: 100 }, { launch: async () => { launched = true; } }),
     { code: "BROWSER_SEEK_TIMEOUT_INVALID" },
+  );
+  assert.equal(launched, false);
+});
+
+test("browser harness accepts compiler-scale label sets while retaining a hard cap", async () => {
+  const compilerLabels = Array.from(
+    { length: 27 },
+    (_, index) => `semantic-label-${index}`,
+  );
+  let launched = false;
+  await assert.rejects(
+    runBrowserSeekProof({
+      html,
+      width: 720,
+      height: 1280,
+      fps: 30,
+      durationFrames: 300,
+      chromePath: "/mock/chrome",
+      seekSequence: [0, 1],
+      expectedLabelIds: compilerLabels,
+    }, {
+      launch: async () => {
+        launched = true;
+        throw new Error("stop after request validation");
+      },
+    }),
+    { code: "BROWSER_SEEK_RUNTIME_FAILED" },
+  );
+  assert.equal(launched, true);
+
+  launched = false;
+  await assert.rejects(
+    runBrowserSeekProof({
+      html,
+      width: 720,
+      height: 1280,
+      fps: 30,
+      durationFrames: 300,
+      chromePath: "/mock/chrome",
+      seekSequence: [0, 1],
+      expectedLabelIds: Array.from(
+        { length: 1025 },
+        (_, index) => `semantic-label-${index}`,
+      ),
+    }, {
+      launch: async () => { launched = true; },
+    }),
+    { code: "BROWSER_SEEK_REQUEST_INVALID" },
   );
   assert.equal(launched, false);
 });

@@ -1,13 +1,27 @@
 const { AppError, SAFE_MESSAGES } = require("../errors.cjs");
 const { sanitizeText } = require("../repositories/ids.cjs");
+const { SEMANTIC_SENTENCE_PROFILE_TOKEN, SEMANTIC_SENTENCE_STYLE_VERSION } = require("./narrated-short/animation/semantic-render-profile.cjs");
+const {
+  ACTION: MOTIVATIONAL_ACTION,
+  PIPELINE_TYPE: MOTIVATIONAL_PIPELINE_TYPE,
+} = require("./motivational-source-short/contracts.cjs");
 
-const PIPELINE_TYPES = Object.freeze(["clip", "narrated_short"]);
-const NARRATED_ACTIONS = Object.freeze(["draft_narrated_short", "align_narration", "render_narrated_short"]);
+const PIPELINE_TYPES = Object.freeze(["clip", "narrated_short", MOTIVATIONAL_PIPELINE_TYPE]);
+const NARRATED_ACTIONS = Object.freeze([
+  "draft_narrated_short",
+  "align_narration",
+  "plan_narrated_animation",
+  "render_narrated_short",
+]);
 const RENDER_PROFILES = Object.freeze(["preview", "final"]);
 
 function pipelineTypeForAction(action, explicitType = null) {
   const safeAction = sanitizeText(action || "generate", 60).toLowerCase();
-  const inferred = NARRATED_ACTIONS.includes(safeAction) ? "narrated_short" : "clip";
+  const inferred = safeAction === MOTIVATIONAL_ACTION
+    ? MOTIVATIONAL_PIPELINE_TYPE
+    : NARRATED_ACTIONS.includes(safeAction)
+      ? "narrated_short"
+      : "clip";
   if (explicitType === null || explicitType === undefined || explicitType === "") return inferred;
   const safeType = sanitizeText(explicitType, 40).toLowerCase();
   if (!PIPELINE_TYPES.includes(safeType) || safeType !== inferred) {
@@ -75,6 +89,32 @@ function normalizeNarratedJobPayload(payload = {}, action) {
     if (!/^local_faster_whisper_[a-f0-9]{16}$/.test(normalized.alignerVersion)) {
       throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "alignerVersion" });
     }
+  } else if (safeAction === "plan_narrated_animation") {
+    normalized.approvedDraftArtifactId = normalizeArtifactId(payload.approvedDraftArtifactId, "approvedDraftArtifactId");
+    normalized.approvedDraftHash = normalizeHash(payload.approvedDraftHash, "approvedDraftHash");
+    normalized.alignmentArtifactId = normalizeArtifactId(payload.alignmentArtifactId, "alignmentArtifactId");
+    normalized.alignmentHash = normalizeHash(payload.alignmentHash, "alignmentHash");
+    const renderProfile = sanitizeText(payload.renderProfile || "preview", 24).toLowerCase();
+    if (!RENDER_PROFILES.includes(renderProfile)) {
+      throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "renderProfile" });
+    }
+    normalized.renderProfile = renderProfile;
+    if (payload.animationProfile !== SEMANTIC_SENTENCE_PROFILE_TOKEN) {
+      throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "animationProfile" });
+    }
+    normalized.animationProfile = SEMANTIC_SENTENCE_PROFILE_TOKEN;
+    normalized.plannerMode = sanitizeText(payload.plannerMode, 40).toLowerCase();
+    if (!["disabled", "mock", "openai_compatible"].includes(normalized.plannerMode)) {
+      throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "plannerMode" });
+    }
+    normalized.promptProfileId = sanitizeText(payload.promptProfileId, 160);
+    if (!/^[a-z][a-z0-9_-]{1,159}$/.test(normalized.promptProfileId)) {
+      throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "promptProfileId" });
+    }
+    normalized.plannerConfigurationHash = normalizeHash(
+      payload.plannerConfigurationHash,
+      "plannerConfigurationHash",
+    );
   } else {
     normalized.approvedDraftArtifactId = normalizeArtifactId(payload.approvedDraftArtifactId, "approvedDraftArtifactId");
     normalized.approvedDraftHash = normalizeHash(payload.approvedDraftHash, "approvedDraftHash");
@@ -92,6 +132,11 @@ function normalizeNarratedJobPayload(payload = {}, action) {
     normalized.compositorVersion = sanitizeText(payload.compositorVersion || "narrated_compositor_v2", 60).toLowerCase();
     normalized.qaProfileVersion = sanitizeText(payload.qaProfileVersion || "1.1.0", 20).toLowerCase();
     normalized.evidenceProfileVersion = sanitizeText(payload.evidenceProfileVersion || "1.0.0", 20).toLowerCase();
+    const hasAnimationProfile = payload.animationProfile !== undefined && payload.animationProfile !== null && payload.animationProfile !== "";
+    if (hasAnimationProfile) {
+      if (payload.animationProfile !== SEMANTIC_SENTENCE_PROFILE_TOKEN) throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "animationProfile" });
+      normalized.animationProfile = SEMANTIC_SENTENCE_PROFILE_TOKEN;
+    }
     const animationBindingKeys = ["timingContextHash", "animationPlanHash", "animationIRHash", "animationProvider", "animationRuntimeVersion", "animationStyleVersion"];
     const animationBindingCount = animationBindingKeys.filter((key) => payload[key] !== undefined && payload[key] !== null).length;
     const hasAnimationBindings = animationBindingCount > 0;
@@ -103,8 +148,30 @@ function normalizeNarratedJobPayload(payload = {}, action) {
       normalized.animationProvider = sanitizeText(payload.animationProvider, 80).toLowerCase();
       normalized.animationRuntimeVersion = sanitizeText(payload.animationRuntimeVersion, 24).toLowerCase();
       normalized.animationStyleVersion = sanitizeText(payload.animationStyleVersion, 24).toLowerCase();
-      if (normalized.animationProvider !== "hyperframes_local" || normalized.animationRuntimeVersion !== "0.7.55" || normalized.animationStyleVersion !== "1.9.0") throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "animationVersion" });
+      const allowedStyleVersions = hasAnimationProfile ? [SEMANTIC_SENTENCE_STYLE_VERSION] : ["1.9.0", "2.0.0"];
+      if (normalized.animationProvider !== "hyperframes_local" || normalized.animationRuntimeVersion !== "0.7.55" || !allowedStyleVersions.includes(normalized.animationStyleVersion)) throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "animationVersion" });
     }
+    const scenePlanBindingKeys = [
+      "animationScenePlanArtifactId",
+      "animationScenePlanHash",
+    ];
+    const scenePlanBindingCount = scenePlanBindingKeys.filter(
+      (key) => payload[key] !== undefined && payload[key] !== null,
+    ).length;
+    if (scenePlanBindingCount > 0) {
+      if (!hasAnimationProfile || scenePlanBindingCount !== scenePlanBindingKeys.length) {
+        throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "animationScenePlan" });
+      }
+      normalized.animationScenePlanArtifactId = normalizeArtifactId(
+        payload.animationScenePlanArtifactId,
+        "animationScenePlanArtifactId",
+      );
+      normalized.animationScenePlanHash = normalizeHash(
+        payload.animationScenePlanHash,
+        "animationScenePlanHash",
+      );
+    }
+    if (hasAnimationProfile && !hasAnimationBindings) throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "animationProfile" });
     if (normalized.captionRendererVersion !== "ass_caption_v1" || normalized.captionProfileVersion !== "1.1.0" || normalized.audioNormalizationProfileVersion !== "1.0.0" || normalized.compositorVersion !== "narrated_compositor_v2" || normalized.qaProfileVersion !== "1.1.0" || normalized.evidenceProfileVersion !== "1.0.0") {
       throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "renderVersion" });
     }
@@ -133,7 +200,12 @@ function createPipelineRegistry(options = {}) {
     ["clip", options.clipHandler || unavailableHandler("clip")],
     ["draft_narrated_short", options.narratedDraftHandler || unavailableHandler("draft_narrated_short")],
     ["align_narration", options.narrationAlignHandler || unavailableHandler("align_narration")],
+    ["plan_narrated_animation", options.narratedAnimationPreplanHandler || unavailableHandler("plan_narrated_animation")],
     ["render_narrated_short", options.narratedRenderHandler || unavailableHandler("render_narrated_short")],
+    [
+      MOTIVATIONAL_ACTION,
+      options.motivationalSourceShortHandler || unavailableHandler(MOTIVATIONAL_ACTION),
+    ],
   ]);
   return {
     descriptorForJob,

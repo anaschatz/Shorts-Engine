@@ -2,8 +2,18 @@ const { createHash } = require("node:crypto");
 const { spawnSync } = require("node:child_process");
 const { existsSync } = require("node:fs");
 const { AppError } = require("../../../errors.cjs");
+const { contentHash } = require("../contracts.cjs");
 
 const DEFAULT_MOTION_THRESHOLD = 0.0002;
+const TEMPORAL_MOTION_METRIC_PROFILE_ID =
+  "dark_curiosity_luma_temporal_motion_v1";
+const MOTION_ANALYSIS_PROFILE_ID =
+  "dark_curiosity_ffmpeg_area_gray_roi_v1";
+const READABILITY_HOLD_POLICY_ID =
+  "animation_ir_readability_holds_v1";
+const SEGMENT_POLICY_ID =
+  "semantic_sentence_or_scene_segments_v1";
+const MOTION_ANALYSIS_WIDTH = 180;
 
 function run(binary, args, options = {}) {
   const result = spawnSync(binary, args, { encoding: options.binary ? null : "utf8", maxBuffer: options.maxBuffer || 128 * 1024 * 1024, timeout: options.timeout || 120000 });
@@ -27,10 +37,90 @@ function percentile(values, ratio) {
   return ordered[lower] + (ordered[upper] - ordered[lower]) * (position - lower);
 }
 
-function normalizedRanges(input, field) {
+function normalizedRanges(input, field, maximumFrame = null) {
   if (input === undefined) return [];
-  if (!Array.isArray(input) || input.some((range) => !range || !Number.isInteger(range.startFrame) || !Number.isInteger(range.endFrame) || range.startFrame < 0 || range.endFrame <= range.startFrame)) throw new AppError("ANIMATION_QA_FAILED", `Animation ${field} ranges are invalid.`, 500);
+  if (!Array.isArray(input) || input.some((range) => !range || !Number.isInteger(range.startFrame) || !Number.isInteger(range.endFrame) || range.startFrame < 0 || range.endFrame <= range.startFrame || (maximumFrame !== null && range.endFrame > maximumFrame))) throw new AppError("ANIMATION_QA_FAILED", `Animation ${field} ranges are invalid.`, 500);
   return input.map((range, index) => ({ id: typeof range.id === "string" && range.id ? range.id : `${field}_${index}`, startFrame: range.startFrame, endFrame: range.endFrame }));
+}
+
+function canonicalHash(value) {
+  return contentHash(value);
+}
+
+function motionAnalysisRangeHash(policyId, ranges) {
+  const field = policyId === READABILITY_HOLD_POLICY_ID
+    ? "readability_hold"
+    : policyId === SEGMENT_POLICY_ID
+      ? "segment"
+      : null;
+  if (!field) {
+    throw new AppError(
+      "ANIMATION_QA_FAILED",
+      "Animation motion range policy is invalid.",
+      500,
+    );
+  }
+  const normalized = normalizedRanges(ranges, field);
+  return canonicalHash({ policyId, ranges: normalized });
+}
+
+function motionAnalysisConfigurationHash(input = {}) {
+  const configuration = {
+    motionAnalysisProfileId: input.motionAnalysisProfileId,
+    readabilityHoldPolicyId: input.readabilityHoldPolicyId,
+    segmentPolicyId: input.segmentPolicyId,
+    analysisWidth: input.analysisWidth,
+    analysisHeight: input.analysisHeight,
+    motionThreshold: input.motionThreshold,
+    readabilityHoldRangesHash: input.readabilityHoldRangesHash,
+    segmentRangesHash: input.segmentRangesHash,
+  };
+  if (
+    configuration.motionAnalysisProfileId !== MOTION_ANALYSIS_PROFILE_ID
+    || configuration.readabilityHoldPolicyId !== READABILITY_HOLD_POLICY_ID
+    || configuration.segmentPolicyId !== SEGMENT_POLICY_ID
+    || !Number.isInteger(configuration.analysisWidth)
+    || configuration.analysisWidth < 1
+    || !Number.isInteger(configuration.analysisHeight)
+    || configuration.analysisHeight < 1
+    || !Number.isFinite(configuration.motionThreshold)
+    || configuration.motionThreshold <= 0
+    || configuration.motionThreshold >= 1
+    || ![configuration.readabilityHoldRangesHash, configuration.segmentRangesHash]
+      .every((value) => /^[a-f0-9]{64}$/.test(value || ""))
+  ) {
+    throw new AppError(
+      "ANIMATION_QA_FAILED",
+      "Animation motion analysis configuration is invalid.",
+      500,
+    );
+  }
+  return canonicalHash(configuration);
+}
+
+function temporalEntries(values, firstFrame, isHeld) {
+  return values.map((energy, index) => ({
+    energy,
+    frame: index + firstFrame,
+  })).filter((entry) => !isHeld(entry.frame));
+}
+
+function peak(values, firstFrame) {
+  if (!values.length) return { energy: 0, frame: null };
+  const energy = Math.max(...values);
+  return { energy, frame: values.indexOf(energy) + firstFrame };
+}
+
+function peakEntries(entries) {
+  if (!entries.length) return { energy: 0, frame: null };
+  return entries.reduce((maximum, entry) => (
+    entry.energy > maximum.energy ? entry : maximum
+  ));
+}
+
+function mean(values) {
+  return values.reduce((sum, value) => sum + value, 0)
+    / Math.max(1, values.length);
 }
 
 function analyzeConsecutiveFrames(buffer, width, height, options = {}) {
@@ -41,8 +131,36 @@ function analyzeConsecutiveFrames(buffer, width, height, options = {}) {
   const threshold = options.motionThreshold === undefined ? DEFAULT_MOTION_THRESHOLD : Number(options.motionThreshold);
   const rollingWindowFrames = options.rollingWindowFrames === undefined ? Math.min(51, count - 1) : options.rollingWindowFrames;
   if (!Number.isFinite(threshold) || threshold <= 0 || threshold >= 1 || !Number.isInteger(rollingWindowFrames) || rollingWindowFrames < 2 || rollingWindowFrames > count) throw new AppError("ANIMATION_QA_FAILED", "Animation motion analysis options are invalid.", 500);
-  const holds = normalizedRanges(options.readabilityHolds, "readability_hold");
-  const segments = normalizedRanges(options.segments, "segment");
+  const holds = normalizedRanges(
+    options.readabilityHolds,
+    "readability_hold",
+    count,
+  );
+  const segments = normalizedRanges(options.segments, "segment", count);
+  if (
+    new Set(segments.map((segment) => segment.id)).size !== segments.length
+    || segments.some((segment, index) => (
+      index > 0 && segment.startFrame < segments[index - 1].endFrame
+    ))
+  ) throw new AppError("ANIMATION_QA_FAILED", "Animation segment ranges are invalid.", 500);
+  const readabilityHoldRangesHash = motionAnalysisRangeHash(
+    READABILITY_HOLD_POLICY_ID,
+    holds,
+  );
+  const segmentRangesHash = motionAnalysisRangeHash(
+    SEGMENT_POLICY_ID,
+    segments,
+  );
+  const motionConfigurationHash = motionAnalysisConfigurationHash({
+    motionAnalysisProfileId: MOTION_ANALYSIS_PROFILE_ID,
+    readabilityHoldPolicyId: READABILITY_HOLD_POLICY_ID,
+    segmentPolicyId: SEGMENT_POLICY_ID,
+    analysisWidth: width,
+    analysisHeight: height,
+    motionThreshold: threshold,
+    readabilityHoldRangesHash,
+    segmentRangesHash,
+  });
   const mask = options.mask;
   if (mask !== undefined && (!Buffer.isBuffer(mask) || mask.length !== frameBytes)) throw new AppError("ANIMATION_QA_FAILED", "Animation semantic mask is invalid.", 500);
   let selectedPixels = frameBytes;
@@ -53,22 +171,65 @@ function analyzeConsecutiveFrames(buffer, width, height, options = {}) {
   }
   const isHeld = (frame) => holds.some((range) => frame >= range.startFrame && frame < range.endFrame);
   const hashes = [], means = [], energies = [];
+  const accelerationEnergies = [], jerkEnergies = [];
   let previous = null;
+  let previousVelocity = null;
+  let previousAcceleration = null;
   for (let index = 0; index < count; index += 1) {
     const frame = buffer.subarray(index * frameBytes, (index + 1) * frameBytes);
     hashes.push(createHash("sha256").update(frame).digest("hex"));
-    let sum = 0, difference = 0;
+    const velocity = previous ? new Int16Array(frameBytes) : null;
+    const acceleration = previousVelocity
+      ? new Int16Array(frameBytes)
+      : null;
+    let sum = 0, difference = 0, accelerationDifference = 0;
+    let jerkDifference = 0;
     for (let pixel = 0; pixel < frame.length; pixel += 1) {
       if (mask && !mask[pixel]) continue;
       sum += frame[pixel];
-      if (previous) difference += Math.abs(frame[pixel] - previous[pixel]);
+      if (previous) {
+        const currentVelocity = frame[pixel] - previous[pixel];
+        velocity[pixel] = currentVelocity;
+        difference += Math.abs(currentVelocity);
+        if (previousVelocity) {
+          const currentAcceleration = currentVelocity
+            - previousVelocity[pixel];
+          acceleration[pixel] = currentAcceleration;
+          accelerationDifference += Math.abs(currentAcceleration);
+          if (previousAcceleration) {
+            jerkDifference += Math.abs(
+              currentAcceleration - previousAcceleration[pixel],
+            );
+          }
+        }
+      }
     }
     means.push(sum / selectedPixels);
     if (previous) energies.push(difference / (selectedPixels * 255));
+    if (previousVelocity) {
+      accelerationEnergies.push(
+        accelerationDifference / (selectedPixels * 510),
+      );
+    }
+    if (previousAcceleration) {
+      jerkEnergies.push(jerkDifference / (selectedPixels * 1020));
+    }
     previous = frame;
+    previousVelocity = velocity;
+    previousAcceleration = acceleration;
   }
-  const activeTransitions = energies.map((energy, index) => ({ energy, frame: index + 1 })).filter((entry) => !isHeld(entry.frame));
+  const activeTransitions = temporalEntries(energies, 1, isHeld);
+  const activeAccelerations = temporalEntries(
+    accelerationEnergies,
+    2,
+    isHeld,
+  );
+  const activeJerks = temporalEntries(jerkEnergies, 3, isHeld);
   const activeEnergies = activeTransitions.map((entry) => entry.energy);
+  const activeAccelerationEnergies = activeAccelerations.map(
+    (entry) => entry.energy,
+  );
+  const activeJerkEnergies = activeJerks.map((entry) => entry.energy);
   const firstMeaningful = energies.findIndex((energy) => energy >= threshold);
   let currentStasis = 0, maxContiguousStasisFrames = 0;
   for (let index = 0; index < energies.length; index += 1) {
@@ -96,16 +257,64 @@ function analyzeConsecutiveFrames(buffer, width, height, options = {}) {
   };
   const rawWindow = rollingShare((energy) => energy);
   const perceptualWindow = rollingShare((energy) => Math.sqrt(energy));
-  const peakMotionEnergy = Math.max(...energies);
-  const peakMotionFrame = energies.indexOf(peakMotionEnergy) + 1;
+  const peakMotion = peak(energies, 1);
+  const peakAcceleration = peakEntries(activeAccelerations);
+  const peakJerk = peakEntries(activeJerks);
   const segmentMetrics = segments.map((segment) => {
     const entries = activeTransitions.filter((entry) => entry.frame >= segment.startFrame && entry.frame < segment.endFrame);
     const values = entries.map((entry) => entry.energy);
-    return Object.freeze({ id: segment.id, startFrame: segment.startFrame, endFrame: segment.endFrame, transitionCount: values.length, totalMotionEnergy: values.reduce((sum, value) => sum + value, 0), meanMotionEnergy: values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length), stasisRatio: values.filter((value) => value < threshold).length / Math.max(1, values.length) });
+    const accelerationValues = activeAccelerations
+      .filter((entry) => entry.frame >= segment.startFrame && entry.frame < segment.endFrame)
+      .map((entry) => entry.energy);
+    const jerkValues = activeJerks
+      .filter((entry) => entry.frame >= segment.startFrame && entry.frame < segment.endFrame)
+      .map((entry) => entry.energy);
+    return Object.freeze({ id: segment.id, startFrame: segment.startFrame, endFrame: segment.endFrame, transitionCount: values.length, totalMotionEnergy: values.reduce((sum, value) => sum + value, 0), meanMotionEnergy: mean(values), stasisRatio: values.filter((value) => value < threshold).length / Math.max(1, values.length), meanAccelerationEnergy: mean(accelerationValues), accelerationEnergyP99: percentile(accelerationValues, 0.99), meanJerkEnergy: mean(jerkValues), jerkEnergyP99: percentile(jerkValues, 0.99), peakJerkEnergy: jerkValues.length ? Math.max(...jerkValues) : 0 });
+  });
+  const boundaryFrames = segments.slice(1).map((segment) => segment.startFrame);
+  const boundaryMetrics = boundaryFrames.map((frame) => {
+    const motionEnergy = energies[frame - 1] || 0;
+    const accelerationEnergy = accelerationEnergies[frame - 2] || 0;
+    const jerkEnergy = jerkEnergies[frame - 3] || 0;
+    const local = activeTransitions.filter((entry) => (
+      entry.frame >= Math.max(1, frame - 6)
+      && entry.frame <= Math.min(count - 1, frame + 6)
+      && entry.frame !== frame
+    )).map((entry) => entry.energy);
+    const localBaseline = percentile(local, 0.5);
+    return Object.freeze({
+      frame,
+      motionEnergy,
+      accelerationEnergy,
+      jerkEnergy,
+      localBaseline,
+      jumpRatio: motionEnergy / Math.max(threshold, localBaseline),
+    });
   });
   const consecutiveStasisRatio = activeEnergies.filter((value) => value < threshold).length / Math.max(1, activeEnergies.length);
   const meanMotionEnergy = totalActiveEnergy / Math.max(1, activeEnergies.length);
+  const decodedFrameSequenceHash = createHash("sha256")
+    .update(JSON.stringify({
+      temporalMetricProfileId: TEMPORAL_MOTION_METRIC_PROFILE_ID,
+      motionAnalysisProfileId: MOTION_ANALYSIS_PROFILE_ID,
+      analysisWidth: width,
+      analysisHeight: height,
+      frameCount: count,
+      sampleHashes: hashes,
+    }))
+    .digest("hex");
   return Object.freeze({
+    temporalMetricProfileId: TEMPORAL_MOTION_METRIC_PROFILE_ID,
+    temporalThresholdStatus: "provisional",
+    motionAnalysisProfileId: MOTION_ANALYSIS_PROFILE_ID,
+    readabilityHoldPolicyId: READABILITY_HOLD_POLICY_ID,
+    segmentPolicyId: SEGMENT_POLICY_ID,
+    analysisWidth: width,
+    analysisHeight: height,
+    readabilityHoldRangesHash,
+    segmentRangesHash,
+    motionConfigurationHash,
+    decodedFrameSequenceHash,
     frameCount: count,
     transitionCount: energies.length,
     analyzedTransitionCount: activeEnergies.length,
@@ -119,8 +328,24 @@ function analyzeConsecutiveFrames(buffer, width, height, options = {}) {
     motionEnergyP50: percentile(activeEnergies, 0.5),
     motionEnergyP90: percentile(activeEnergies, 0.9),
     motionEnergyP99: percentile(activeEnergies, 0.99),
-    peakMotionEnergy,
-    peakMotionFrame,
+    peakMotionEnergy: peakMotion.energy,
+    peakMotionFrame: peakMotion.frame,
+    meanAccelerationEnergy: mean(activeAccelerationEnergies),
+    analyzedAccelerationTransitionCount: activeAccelerationEnergies.length,
+    accelerationEnergyP90: percentile(activeAccelerationEnergies, 0.9),
+    accelerationEnergyP99: percentile(activeAccelerationEnergies, 0.99),
+    peakAccelerationEnergy: peakAcceleration.energy,
+    peakAccelerationFrame: peakAcceleration.frame,
+    meanJerkEnergy: mean(activeJerkEnergies),
+    analyzedJerkTransitionCount: activeJerkEnergies.length,
+    jerkEnergyP90: percentile(activeJerkEnergies, 0.9),
+    jerkEnergyP99: percentile(activeJerkEnergies, 0.99),
+    peakJerkEnergy: peakJerk.energy,
+    peakJerkFrame: peakJerk.frame,
+    boundaryMetrics,
+    maximumBoundaryJumpRatio: boundaryMetrics.length
+      ? Math.max(...boundaryMetrics.map((entry) => entry.jumpRatio))
+      : 0,
     segmentMetrics,
     rollingWindowFrames,
     windowEnergyTransform: "sqrt",
@@ -146,6 +371,13 @@ function analyzeSampleFrames(buffer, width, height, options = {}) {
 
 function normalizedRoi(roi, technical) {
   if (roi === undefined || roi === null) return null;
+  if (
+    !technical
+    || !Number.isFinite(technical.width)
+    || !Number.isFinite(technical.height)
+    || technical.width < 32
+    || technical.height < 32
+  ) throw new AppError("ANIMATION_QA_FAILED", "Animation video dimensions are invalid.", 500);
   if (!roi || ![roi.x, roi.y, roi.width, roi.height].every(Number.isFinite)) throw new AppError("ANIMATION_QA_FAILED", "Animation semantic ROI is invalid.", 500);
   const x = Math.max(0, Math.round(roi.x)), y = Math.max(0, Math.round(roi.y));
   const width = Math.min(technical.width - x, Math.round(roi.width)), height = Math.min(technical.height - y, Math.round(roi.height));
@@ -153,11 +385,23 @@ function normalizedRoi(roi, technical) {
   return { x, y, width, height };
 }
 
+function motionAnalysisDimensions(semanticRoi, technical) {
+  const roi = normalizedRoi(semanticRoi, technical);
+  const width = MOTION_ANALYSIS_WIDTH;
+  const height = roi
+    ? Math.max(2, Math.round((width * roi.height / roi.width) / 2) * 2)
+    : 320;
+  return Object.freeze({
+    semanticRoi: roi ? Object.freeze(roi) : null,
+    width,
+    height,
+  });
+}
+
 function extractConsecutiveMotionMetrics(outputPath, options = {}) {
   const technical = options.technical || probeVisualMaster(outputPath);
-  const roi = normalizedRoi(options.semanticRoi, technical);
-  const width = 180;
-  const height = roi ? Math.max(2, Math.round((width * roi.height / roi.width) / 2) * 2) : 320;
+  const analysis = motionAnalysisDimensions(options.semanticRoi, technical);
+  const { semanticRoi: roi, width, height } = analysis;
   const crop = roi ? `crop=${roi.width}:${roi.height}:${roi.x}:${roi.y},` : "";
   const raw = run("ffmpeg", ["-v", "error", "-i", outputPath, "-vf", `${crop}scale=${width}:${height}:flags=area,format=gray`, "-vsync", "0", "-f", "rawvideo", "-"], { binary: true, maxBuffer: 256 * 1024 * 1024 });
   return analyzeConsecutiveFrames(raw, width, height, options);
@@ -214,22 +458,123 @@ function evaluateMotionQuality(motion, limits = {}) {
   });
 }
 
-function evaluateGeometryQuality(geometry, semanticContinuityRequired = false) {
+function evaluateTemporalMotionQuality(motion, limits = {}) {
+  const maximumJerkP99 = limits.maximumJerkP99 ?? 0.18;
+  const maximumPeakJerk = limits.maximumPeakJerk ?? 0.45;
+  const maximumBoundaryJumpRatio = limits.maximumBoundaryJumpRatio ?? 30;
+  if (
+    ![maximumJerkP99, maximumPeakJerk, maximumBoundaryJumpRatio]
+      .every(Number.isFinite)
+    || maximumJerkP99 <= 0
+    || maximumPeakJerk <= 0
+    || maximumBoundaryJumpRatio <= 1
+    || !motion
+    || motion.temporalMetricProfileId !== TEMPORAL_MOTION_METRIC_PROFILE_ID
+    || motion.temporalThresholdStatus !== "provisional"
+    || ![
+      motion.jerkEnergyP99,
+      motion.peakJerkEnergy,
+      motion.maximumBoundaryJumpRatio,
+    ].every((value) => (
+      Number.isFinite(value)
+      && value >= 0
+      && value <= Number.MAX_SAFE_INTEGER
+      && !Object.is(value, -0)
+    ))
+    || motion.jerkEnergyP99 > 1
+    || motion.peakJerkEnergy > 1
+    || motion.jerkEnergyP99 > motion.peakJerkEnergy
+    || !Number.isInteger(motion.analyzedJerkTransitionCount)
+    || motion.analyzedJerkTransitionCount < 0
+    || !Array.isArray(motion.boundaryMetrics)
+    || !Array.isArray(motion.segmentMetrics)
+  ) throw new AppError("ANIMATION_QA_FAILED", "Animation temporal motion evidence is invalid.", 500);
+  const boundaryMetricsValid = motion.boundaryMetrics.every((entry, index) => (
+    entry
+    && Number.isInteger(entry.frame)
+    && entry.frame >= 1
+    && (index === 0 || entry.frame > motion.boundaryMetrics[index - 1].frame)
+    && [
+      entry.motionEnergy,
+      entry.accelerationEnergy,
+      entry.jerkEnergy,
+      entry.localBaseline,
+      entry.jumpRatio,
+    ].every((value) => (
+      Number.isFinite(value)
+      && value >= 0
+      && value <= Number.MAX_SAFE_INTEGER
+      && !Object.is(value, -0)
+    ))
+  ));
+  if (!boundaryMetricsValid) {
+    throw new AppError("ANIMATION_QA_FAILED", "Animation temporal motion evidence is invalid.", 500);
+  }
+  const expectedBoundaryCount = Math.max(0, motion.segmentMetrics.length - 1);
+  const boundaryMaximum = motion.boundaryMetrics.length
+    ? Math.max(...motion.boundaryMetrics.map((entry) => entry.jumpRatio))
+    : 0;
+  if (
+    motion.boundaryMetrics.length !== expectedBoundaryCount
+    || Math.abs(boundaryMaximum - motion.maximumBoundaryJumpRatio) > 1e-12
+  ) throw new AppError("ANIMATION_QA_FAILED", "Animation temporal motion evidence is invalid.", 500);
+  const jerkEvidence = motion.analyzedJerkTransitionCount > 0;
+  const sentenceBoundaryEvidence = expectedBoundaryCount > 0;
+  return Object.freeze({
+    temporalEvidence: jerkEvidence && sentenceBoundaryEvidence,
+    jerkInRange: jerkEvidence
+      && motion.jerkEnergyP99 <= maximumJerkP99
+      && motion.peakJerkEnergy <= maximumPeakJerk,
+    sentenceBoundaryContinuity:
+      sentenceBoundaryEvidence
+      && motion.maximumBoundaryJumpRatio <= maximumBoundaryJumpRatio,
+  });
+}
+
+function normalizeSemanticGeometryRequirements(value = false) {
+  if (value === false || value === undefined) return Object.freeze({
+    persistentContinuity: false,
+    transitionContinuity: false,
+    focusExclusivity: false,
+    primaryRoi: false,
+    mobileLegibility: false,
+  });
+  if (value === true) return Object.freeze({
+    persistentContinuity: true,
+    transitionContinuity: true,
+    focusExclusivity: true,
+    primaryRoi: true,
+    mobileLegibility: true,
+  });
+  const keys = ["persistentContinuity", "transitionContinuity", "focusExclusivity", "primaryRoi", "mobileLegibility"];
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).sort().join("|") !== [...keys].sort().join("|") || keys.some((key) => typeof value[key] !== "boolean")) {
+    throw new AppError("ANIMATION_QA_FAILED", "Animation semantic geometry requirements are invalid.", 500);
+  }
+  if (value.transitionContinuity && !value.persistentContinuity) {
+    throw new AppError("ANIMATION_QA_FAILED", "Animation transition continuity requires persistent continuity.", 500);
+  }
+  return Object.freeze(Object.fromEntries(keys.map((key) => [key, value[key]])));
+}
+
+function evaluateGeometryQuality(geometry, semanticGeometryRequirements = false) {
+  const requirements = normalizeSemanticGeometryRequirements(semanticGeometryRequirements);
   return Object.freeze({
     geometryAudit: geometry.passed === true,
     captionSafeZone: Array.isArray(geometry.captionSafeZoneViolations) && geometry.captionSafeZoneViolations.length === 0,
     clipping: Array.isArray(geometry.clippedEntities) && geometry.clippedEntities.length === 0,
-    persistentContinuity: !semanticContinuityRequired || (Array.isArray(geometry.persistentContinuityViolations) && geometry.persistentContinuityViolations.length === 0 && Number.isInteger(geometry.persistentObservationCount) && geometry.persistentObservationCount > 0 && Array.isArray(geometry.observedTransitionIds) && geometry.observedTransitionIds.length > 0),
-    focusExclusivity: !semanticContinuityRequired || (Array.isArray(geometry.focusViolations) && geometry.focusViolations.length === 0 && Array.isArray(geometry.observedFocusIntervalIds) && geometry.observedFocusIntervalIds.length > 0),
-    primaryRoi: !semanticContinuityRequired || (Array.isArray(geometry.primaryRoiViolations) && geometry.primaryRoiViolations.length === 0),
-    mobileLegibility: !semanticContinuityRequired || (Array.isArray(geometry.legibilityViolations) && geometry.legibilityViolations.length === 0 && Array.isArray(geometry.contrastViolations) && geometry.contrastViolations.length === 0 && Number.isInteger(geometry.labelObservationCount) && geometry.labelObservationCount > 0 && Array.isArray(geometry.markedLabelIds) && geometry.markedLabelIds.length > 0 && Array.isArray(geometry.observedLabelIds) && JSON.stringify(geometry.markedLabelIds) === JSON.stringify(geometry.observedLabelIds) && Array.isArray(geometry.unobservedLabelIds) && geometry.unobservedLabelIds.length === 0),
+    persistentContinuity: !requirements.persistentContinuity || (Array.isArray(geometry.persistentContinuityViolations) && geometry.persistentContinuityViolations.length === 0 && Number.isInteger(geometry.persistentObservationCount) && geometry.persistentObservationCount > 0 && (!requirements.transitionContinuity || (Array.isArray(geometry.observedTransitionIds) && geometry.observedTransitionIds.length > 0))),
+    focusExclusivity: !requirements.focusExclusivity || (Array.isArray(geometry.focusViolations) && geometry.focusViolations.length === 0 && Array.isArray(geometry.observedFocusIntervalIds) && geometry.observedFocusIntervalIds.length > 0),
+    primaryRoi: !requirements.primaryRoi || (Array.isArray(geometry.primaryRoiViolations) && geometry.primaryRoiViolations.length === 0),
+    mobileLegibility: !requirements.mobileLegibility || (Array.isArray(geometry.legibilityViolations) && geometry.legibilityViolations.length === 0 && Array.isArray(geometry.contrastViolations) && geometry.contrastViolations.length === 0 && Number.isInteger(geometry.labelObservationCount) && geometry.labelObservationCount > 0 && Array.isArray(geometry.markedLabelIds) && geometry.markedLabelIds.length > 0 && Array.isArray(geometry.observedLabelIds) && JSON.stringify(geometry.markedLabelIds) === JSON.stringify(geometry.observedLabelIds) && Array.isArray(geometry.unobservedLabelIds) && geometry.unobservedLabelIds.length === 0),
   });
 }
 
 function runBenchmarkQa(input) {
   const technical = probeVisualMaster(input.outputPath);
   const geometry = input.geometryAudit || { passed: false, clippedEntities: [], captionSafeZoneViolations: [], semanticRoi: null };
-  const semanticContinuityRequired = input.semanticContinuityRequired === true;
+  const semanticGeometryRequirements = input.semanticGeometryRequirements === undefined
+    ? input.semanticContinuityRequired === true
+    : input.semanticGeometryRequirements;
   const motion = extractConsecutiveMotionMetrics(input.outputPath, { technical, semanticRoi: geometry.semanticRoi, readabilityHolds: input.readabilityHolds || [], segments: input.segments || [], motionThreshold: input.motionThreshold, rollingWindowFrames: 51 });
   const expectedFrames = input.expectedFrameCount || 300, expectedFps = input.expectedFps || 30;
   const checks = {
@@ -240,9 +585,12 @@ function runBenchmarkQa(input) {
     duration: Math.abs(technical.durationSeconds - expectedFrames / expectedFps) < 0.04,
     readableNonBlack: motion.meanLuma > 4,
     ...evaluateMotionQuality(motion),
-    ...evaluateGeometryQuality(geometry, semanticContinuityRequired),
+    ...(input.temporalMotionLimits
+      ? evaluateTemporalMotionQuality(motion, input.temporalMotionLimits)
+      : {}),
+    ...evaluateGeometryQuality(geometry, semanticGeometryRequirements),
   };
   return Object.freeze({ passed: Object.values(checks).every(Boolean), checks, technical, motion, samples: motion, geometryAudit: geometry, captionSafeZoneViolations: geometry.captionSafeZoneViolations?.length || 0, clippedEntities: geometry.clippedEntities?.length || 0 });
 }
 
-module.exports = { DEFAULT_MOTION_THRESHOLD, analyzeConsecutiveFrames, analyzeSampleFrames, evaluateGeometryQuality, evaluateMotionQuality, extractCheckpointMetrics, extractConsecutiveMotionMetrics, extractRangeMotion, extractSampleMetrics, probeVisualMaster, runBenchmarkQa, writeCheckpointContactSheet, writeContactSheet };
+module.exports = { DEFAULT_MOTION_THRESHOLD, MOTION_ANALYSIS_PROFILE_ID, READABILITY_HOLD_POLICY_ID, SEGMENT_POLICY_ID, TEMPORAL_MOTION_METRIC_PROFILE_ID, analyzeConsecutiveFrames, analyzeSampleFrames, evaluateGeometryQuality, evaluateMotionQuality, evaluateTemporalMotionQuality, extractCheckpointMetrics, extractConsecutiveMotionMetrics, extractRangeMotion, extractSampleMetrics, motionAnalysisConfigurationHash, motionAnalysisDimensions, motionAnalysisRangeHash, normalizeSemanticGeometryRequirements, probeVisualMaster, runBenchmarkQa, writeCheckpointContactSheet, writeContactSheet };

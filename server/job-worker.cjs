@@ -48,16 +48,6 @@ function createWorkerId() {
   return `wrk_${randomUUID()}`;
 }
 
-function motivationalSourceShortHandlerFor(dependencies = {}) {
-  if (typeof dependencies.runMotivationalSourceShortJob === "function") {
-    return dependencies.runMotivationalSourceShortJob;
-  }
-  // The current Python bridge is discovery-only: it does not return the sealed
-  // RenderManifest + CreativeQa + AudioQa production artifact set. Keep the
-  // registered job handler unavailable until a production handler is injected.
-  return null;
-}
-
 function terminalStatus(status) {
   return ["completed", "failed", "cancelled"].includes(status);
 }
@@ -261,8 +251,11 @@ function createLocalJobWorker({
     clipHandler: render,
     narratedDraftHandler: dependencies.runNarratedDraftJob,
     narrationAlignHandler: dependencies.runNarrationAlignmentJob,
+    narratedAnimationPreplanHandler:
+      dependencies.runNarratedAnimationPreplanJob,
     narratedRenderHandler: dependencies.runNarratedRenderJob,
-    motivationalSourceShortHandler: motivationalSourceShortHandlerFor(dependencies),
+    motivationalSourceShortHandler:
+      dependencies.runMotivationalSourceShortJob,
   });
   const renderDependencies = dependencies.renderDependencies || dependencies;
   const workerId = dependencies.workerId || createWorkerId();
@@ -311,7 +304,7 @@ function createLocalJobWorker({
     const leasedJobs = createLeaseBoundJobs(jobQueue, claim.lease);
     let heartbeat = { stop() {} };
     let pipelineMetric = metricPipeline(job.pipelineType);
-    let executionStartedAt = nowMs();
+    const executionStartedAt = nowMs();
     running.add(job.id);
     if (metrics && Number.isFinite(Date.parse(job.createdAt))) {
       metrics.observe("queue_latency_ms", Math.max(0, executionStartedAt - Date.parse(job.createdAt)), {

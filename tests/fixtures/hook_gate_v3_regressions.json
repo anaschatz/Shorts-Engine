@@ -1,0 +1,32 @@
+{
+  "cases": [
+    {
+      "id": "current_vinh_abstract",
+      "speaker": "Vinh Giang",
+      "text": "What makes us really nervous is being self-conscious.",
+      "expectedStatus": "reject",
+      "expectedFamily": "common_belief_challenge"
+    },
+    {
+      "id": "liking_vs_loving_winner",
+      "speaker": "Jay Shetty",
+      "text": "When you like a flower, you pluck it. But when you love a flower, you water it daily.",
+      "expectedStatus": "pass",
+      "expectedFamily": "visual_metaphor"
+    },
+    {
+      "id": "mel_robbins_gossip",
+      "speaker": "Mel Robbins",
+      "text": "The people gossiping about you are already behind you.",
+      "expectedStatus": "pass",
+      "expectedFamily": "surprising_consequence"
+    },
+    {
+      "id": "vinh_direct_rule",
+      "speaker": "Vinh Giang",
+      "text": "If you're nervous, stop thinking about yourself.",
+      "expectedStatus": "pass",
+      "expectedFamily": "concrete_rule"
+    }
+  ]
+}
