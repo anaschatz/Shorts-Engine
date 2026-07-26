@@ -27,6 +27,14 @@ from .hook_gate import (
     evaluate_hook_gate_v2,
     normalize_hook_gate_v2_fields,
 )
+from .hook_gate_v3 import (
+    BF_FEED_STOP_POLICY_VERSION,
+    HOOK_GATE_V3_PROMPT,
+    HOOK_GATE_V3_PROMPT_VERSION,
+    HOOK_GATE_V3_RESPONSE_CONTRACT,
+    evaluate_hook_gate_v3_cached,
+    transcript_word_timing_hash,
+)
 from .motivational_closure import (
     SEMANTIC_CLOSURE_DECISION_VERSION,
     evaluate_motivational_closure_v1,
@@ -45,8 +53,17 @@ MOTIVATIONAL_TENSION_MICRO_V2 = getattr(
     "MOTIVATIONAL_TENSION_MICRO_V2",
     "motivational_tension_micro_v2",
 )
+BF_FEED_STOP_V1 = getattr(
+    _profiles,
+    "BF_FEED_STOP_V1",
+    BF_FEED_STOP_POLICY_VERSION,
+)
 MICRO_SELECTION_PROFILES = frozenset(
-    {MOTIVATIONAL_TENSION_MICRO_V1, MOTIVATIONAL_TENSION_MICRO_V2}
+    {
+        MOTIVATIONAL_TENSION_MICRO_V1,
+        MOTIVATIONAL_TENSION_MICRO_V2,
+        BF_FEED_STOP_V1,
+    }
 )
 
 
@@ -153,6 +170,31 @@ SELECTION_PROFILE_GUIDANCE = {
         + "\n"
         + MOTIVATIONAL_TENSION_MICRO_V2_CLOSURE_GUIDANCE
     ),
+    BF_FEED_STOP_V1: (
+        HOOK_GATE_V3_PROMPT
+        + "\n\n"
+        + MOTIVATIONAL_TENSION_MICRO_V2_GUIDANCE.replace(
+            "Prefer a complete 15-21 second point",
+            "Prefer a complete 12-17 second point",
+        ).replace(
+            "8-30 seconds",
+            "8-24 seconds",
+        )
+        + "\n"
+        + MOTIVATIONAL_TENSION_MICRO_V2_CLOSURE_GUIDANCE.replace(
+            "15-21 seconds",
+            "12-17 seconds",
+        ).replace(
+            "22-25 seconds",
+            "17-21 seconds",
+        ).replace(
+            "25-30 second",
+            "21-24 second",
+        ).replace(
+            "30 seconds",
+            "24 seconds",
+        )
+    ),
 }
 
 
@@ -184,6 +226,22 @@ REFINEMENT_INSTRUCTIONS_V2 = (
     .replace(
         "If the original hook and takeaway are more than 20 seconds apart, choose a later self-contained hook or an earlier complete resolving line.",
         "If the original hook and complete takeaway are more than 30 seconds apart, choose a later self-contained hook or an earlier complete resolving line.",
+    )
+)
+
+REFINEMENT_INSTRUCTIONS_V3 = (
+    REFINEMENT_INSTRUCTIONS_V2
+    .replace(
+        "8.0-30.0 seconds inclusive. Prefer 15-21 seconds; 22-25 seconds receives a soft penalty and 25-30 seconds requires exceptional evidence.",
+        "8.0-24.0 seconds inclusive. Prefer 12-17 seconds; 17-21 seconds is allowed for a complete payoff and 21-24 seconds requires explicit review.",
+    )
+    .replace(
+        "Prefer 15-21 seconds.",
+        "Prefer 12-17 seconds.",
+    )
+    .replace(
+        "more than 30 seconds apart",
+        "more than 24 seconds apart",
     )
 )
 
@@ -397,12 +455,33 @@ def _sanitize_highlights(
             if end <= start:
                 continue
 
-        hook_gate_fields = (
-            normalize_hook_gate_v2_fields(item)
-            if _normalized_selection_profile(selection_profile)
-            == MOTIVATIONAL_TENSION_MICRO_V2
-            else {}
-        )
+        normalized_profile = _normalized_selection_profile(selection_profile)
+        if normalized_profile == MOTIVATIONAL_TENSION_MICRO_V2:
+            hook_gate_fields = normalize_hook_gate_v2_fields(item)
+        elif normalized_profile == BF_FEED_STOP_V1:
+            hook_gate_fields = {
+                "opening_exact_quote": str(
+                    item.get("opening_exact_quote")
+                    or item.get("hook_sentence")
+                    or ""
+                ).strip(),
+                "hook_family": str(item.get("hook_family") or "").strip(),
+                "contains_host_setup": _coerce_bool(
+                    item.get("contains_host_setup")
+                ),
+                "repeated_setup_before_mechanism": _coerce_bool(
+                    item.get("repeated_setup_before_mechanism")
+                ),
+                "begins_on_complete_word_boundary": _coerce_bool(
+                    item.get("begins_on_complete_word_boundary"),
+                    default=True,
+                ),
+                "hook_gate_review_reason": str(
+                    item.get("hook_gate_review_reason") or ""
+                ).strip(),
+            }
+        else:
+            hook_gate_fields = {}
 
         cleaned.append(
             {
@@ -652,6 +731,8 @@ def _build_highlight_prompt(
         # Keep the V1 base JSON example byte-stable, then make the V2 extension
         # the final authoritative response instruction for unstructured LLMs.
         system = f"{system}\n\n{HOOK_GATE_V2_RESPONSE_CONTRACT}"
+    elif normalized_selection_profile == BF_FEED_STOP_V1:
+        system = f"{system}\n\n{HOOK_GATE_V3_RESPONSE_CONTRACT}"
     return f"{system}\n\nTranscript:\n{transcript_text}", normalized_selection_profile
 
 
@@ -843,10 +924,13 @@ def _discovery_prompt_contract(
     )
     # Preserve the exact legacy contract for v1 and non-versioned callers.
     # New prompt families are isolated to their own cache lineage.
-    if normalized_selection_profile == MOTIVATIONAL_TENSION_MICRO_V2:
+    if normalized_selection_profile in {
+        MOTIVATIONAL_TENSION_MICRO_V2,
+        BF_FEED_STOP_V1,
+    }:
         selection_guidance = {
-            MOTIVATIONAL_TENSION_MICRO_V2: SELECTION_PROFILE_GUIDANCE[
-                MOTIVATIONAL_TENSION_MICRO_V2
+            normalized_selection_profile: SELECTION_PROFILE_GUIDANCE[
+                normalized_selection_profile
             ]
         }
     else:
@@ -862,7 +946,9 @@ def _discovery_prompt_contract(
         "contentGuidance": CONTENT_TYPE_GUIDANCE,
         "selectionGuidance": selection_guidance,
         "refinementInstructions": (
-            REFINEMENT_INSTRUCTIONS_V2
+            REFINEMENT_INSTRUCTIONS_V3
+            if normalized_selection_profile == BF_FEED_STOP_V1
+            else REFINEMENT_INSTRUCTIONS_V2
             if normalized_selection_profile == MOTIVATIONAL_TENSION_MICRO_V2
             else REFINEMENT_INSTRUCTIONS
         ),
@@ -874,6 +960,11 @@ def _discovery_prompt_contract(
     }
     if normalized_selection_profile == MOTIVATIONAL_TENSION_MICRO_V2:
         payload["hookGatePromptVersion"] = HOOK_GATE_PROMPT_VERSION
+        payload["semanticClosureDecisionVersion"] = (
+            SEMANTIC_CLOSURE_DECISION_VERSION
+        )
+    elif normalized_selection_profile == BF_FEED_STOP_V1:
+        payload["hookGatePromptVersion"] = HOOK_GATE_V3_PROMPT_VERSION
         payload["semanticClosureDecisionVersion"] = (
             SEMANTIC_CLOSURE_DECISION_VERSION
         )
@@ -903,12 +994,13 @@ def _discovery_cache_path(
         "selectionProfile": _normalized_selection_profile(selection_profile),
         "cacheNamespace": str(cache_namespace or ""),
     }
-    if (
-        _normalized_selection_profile(selection_profile)
-        == MOTIVATIONAL_TENSION_MICRO_V2
-    ):
+    if _normalized_selection_profile(selection_profile) in {
+        MOTIVATIONAL_TENSION_MICRO_V2,
+        BF_FEED_STOP_V1,
+    }:
+        normalized_profile = _normalized_selection_profile(selection_profile)
         selection_contract = _profiles.SELECTION_PROFILES[
-            MOTIVATIONAL_TENSION_MICRO_V2
+            normalized_profile
         ]
         contract["decisionPolicyVersion"] = {
             "hookGate": str(
@@ -1077,7 +1169,12 @@ def _global_candidate_is_qualified(
 
     if not _is_micro_selection_profile(selection_profile):
         return True
-    if not 8.0 <= speech_duration <= 22.0:
+    hard_max = (
+        24.0
+        if _normalized_selection_profile(selection_profile) == BF_FEED_STOP_V1
+        else 22.0
+    )
+    if not 8.0 <= speech_duration <= hard_max:
         return False
     semantic_ok = (
         _coerce_bool(highlight.get("has_semantic_tension"))
@@ -1359,10 +1456,12 @@ def _build_refinement_prompt(
         selection_profile,
     )
     system_prompt = empty_prompt.rsplit("\n\nTranscript:\n", 1)[0]
+    normalized_profile = _normalized_selection_profile(selection_profile)
     refinement_instructions = (
-        REFINEMENT_INSTRUCTIONS_V2
-        if _normalized_selection_profile(selection_profile)
-        == MOTIVATIONAL_TENSION_MICRO_V2
+        REFINEMENT_INSTRUCTIONS_V3
+        if normalized_profile == BF_FEED_STOP_V1
+        else REFINEMENT_INSTRUCTIONS_V2
+        if normalized_profile == MOTIVATIONAL_TENSION_MICRO_V2
         else REFINEMENT_INSTRUCTIONS
     )
     return (
@@ -1547,6 +1646,10 @@ def call_highlight_api(
         if normalized_selection_profile == MOTIVATIONAL_TENSION_MICRO_V2
         else ""
     )
+    if normalized_selection_profile == BF_FEED_STOP_V1:
+        hook_gate_retry_fields = (
+            " opening_exact_quote, hook_payoff_phrase, hook_family,"
+        )
     last_error = "unknown"
 
     for attempt in range(1, MAX_HIGHLIGHT_API_ATTEMPTS + 1):
@@ -1968,7 +2071,10 @@ def _hook_gate_v2_policy(highlight: Dict) -> Optional[Dict]:
         or highlight.get("selection_policy_version")
         or ""
     ).strip().lower()
-    if selection_profile != MOTIVATIONAL_TENSION_MICRO_V2:
+    if selection_profile not in {
+        MOTIVATIONAL_TENSION_MICRO_V2,
+        BF_FEED_STOP_V1,
+    }:
         return None
     return _profiles.SELECTION_PROFILES.get(selection_profile, {})
 
@@ -1978,12 +2084,32 @@ def _apply_growth_v2_decisions(
     transcript: Dict,
     hook_gate_words: List[Dict],
     policy: Dict,
+    transcript_hash: Optional[str] = None,
 ) -> Dict:
-    item = evaluate_hook_gate_v2(
-        dict(highlight),
-        timed_words=hook_gate_words,
-        policy=policy,
-    )
+    selection_profile = str(
+        highlight.get("selection_profile")
+        or highlight.get("selection_policy_version")
+        or ""
+    ).strip().lower()
+    if selection_profile == BF_FEED_STOP_V1:
+        item = evaluate_hook_gate_v3_cached(
+            dict(highlight),
+            timed_words=hook_gate_words,
+            policy=policy,
+            transcript_hash=(
+                transcript_hash or transcript_word_timing_hash(hook_gate_words)
+            ),
+        )
+    elif selection_profile == MOTIVATIONAL_TENSION_MICRO_V2:
+        item = evaluate_hook_gate_v2(
+            dict(highlight),
+            timed_words=hook_gate_words,
+            policy=policy,
+        )
+    else:
+        raise ValueError(
+            "versioned hook decision requested without a known selection profile"
+        )
     return evaluate_motivational_closure_v1(
         item,
         transcript=transcript,
@@ -1998,6 +2124,11 @@ def align_motivational_boundaries(
     """Anchor motivational cuts to the exact reported hook and takeaway words."""
     words = _timed_transcript_words(transcript)
     hook_gate_words = _raw_timed_transcript_words(transcript)
+    hook_gate_transcript_hash = (
+        transcript_word_timing_hash(hook_gate_words)
+        if hook_gate_words
+        else None
+    )
     if not words:
         return [
             _apply_growth_v2_decisions(
@@ -2005,6 +2136,7 @@ def align_motivational_boundaries(
                 transcript=transcript,
                 hook_gate_words=hook_gate_words,
                 policy=policy,
+                transcript_hash=hook_gate_transcript_hash,
             )
             if (policy := _hook_gate_v2_policy(highlight)) is not None
             else highlight
@@ -2091,6 +2223,7 @@ def align_motivational_boundaries(
                     transcript=transcript,
                     hook_gate_words=hook_gate_words,
                     policy=growth_v2_policy,
+                    transcript_hash=hook_gate_transcript_hash,
                 )
             aligned.append(item)
             continue
@@ -2148,6 +2281,22 @@ def align_motivational_boundaries(
             speech_start - HIGHLIGHT_PADDING_SECONDS,
             0.0,
         )
+        if (
+            str(
+                item.get("selection_profile")
+                or item.get("selection_policy_version")
+                or ""
+            ).strip().lower()
+            == BF_FEED_STOP_V1
+        ):
+            # This is the actual editorial render boundary: no more than 80ms
+            # of authentic lead, and never enough room to admit the previous
+            # spoken word.
+            item["render_start_time"] = max(
+                previous_end,
+                speech_start - 0.08,
+                0.0,
+            )
         item["end_time"] = min(
             next_start,
             speech_end + HIGHLIGHT_PADDING_SECONDS,
@@ -2202,6 +2351,7 @@ def align_motivational_boundaries(
                 transcript=transcript,
                 hook_gate_words=hook_gate_words,
                 policy=growth_v2_policy,
+                transcript_hash=hook_gate_transcript_hash,
             )
         aligned.append(item)
     return aligned

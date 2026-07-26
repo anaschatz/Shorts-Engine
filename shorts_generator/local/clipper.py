@@ -55,10 +55,20 @@ from ..profiles import (
     BF_SMOOTH_TAIL_V3,
     BF_SMOOTH_TAIL_V4,
     BF_SMOOTH_TAIL_V5,
+    BF_WINNER_LAYOUT_V1,
+    BF_WINNER_PACKAGING_V1,
     BUDGET_FRIENDLY_CAPTION_STYLE,
     MOTIVATIONAL_MUSIC_DRIVING,
     MOTIVATIONAL_MUSIC_REFLECTIVE,
     MOTIVATIONAL_MUSIC_WARM,
+)
+from ..winner_packaging import (
+    COMPACT_CAPTION_PROFILE,
+    FULL_BLEED_LAYOUT_PROFILE,
+    LIVE_TAIL_PROFILE,
+    duration_packaging_decision,
+    evaluate_winner_packaging_evidence,
+    normalize_caption_tokens,
 )
 
 
@@ -94,6 +104,7 @@ MOTIVATIONAL_CAPTION_BLOCK_GAP = 8
 MOTIVATIONAL_MAX_HERO_PHRASES = 4
 BF_EDITORIAL_INSET_RENDER_PROFILE = BF_EDITORIAL_INSET_V1
 BF_EDITORIAL_INSET_LAYOUT = "editorial_inset"
+BF_FULL_BLEED_FACE_LAYOUT = FULL_BLEED_LAYOUT_PROFILE
 BF_EDITORIAL_INSET_MAX_WIDTH_RATIO = 0.94
 BF_EDITORIAL_INSET_MAX_HEIGHT_RATIO = 0.36
 BF_EDITORIAL_INSET_CORNER_RADIUS_RATIO = 0.18
@@ -110,6 +121,7 @@ BF_EDITORIAL_YOUTUBE_TAIL_MAX_SECONDS = 1.35
 BF_EDITORIAL_SMOOTH_TAIL_SECONDS = 0.85
 BF_EDITORIAL_SMOOTH_TAIL_MIN_SECONDS = 0.80
 BF_EDITORIAL_SMOOTH_TAIL_MAX_SECONDS = 0.90
+BF_SHORT_BRAND_TAIL_VARIANT_SECONDS = 0.40
 BF_EDITORIAL_MAX_NATURAL_TAIL_SECONDS = 0.75
 BF_EDITORIAL_NEXT_SPEECH_SAFETY_SECONDS = 0.04
 BF_EDITORIAL_TAIL_CROSSFADE_SECONDS = 0.30
@@ -331,11 +343,24 @@ def _run_realesrgan_process(command: List[str]):
 
 
 def _is_bf_editorial_profile(value: Optional[str]) -> bool:
-    """Return whether a value selects the versioned inset renderer."""
+    """Return whether a value selects a versioned Budget Friendly renderer."""
     return str(value or "").strip().lower() in {
         BF_EDITORIAL_INSET_V1,
         BF_EDITORIAL_INSET_V2,
+        BF_WINNER_LAYOUT_V1,
+        BF_WINNER_PACKAGING_V1,
     }
+
+
+def _is_winner_packaging_profile(value: Optional[str]) -> bool:
+    return str(value or "").strip().lower() in {
+        BF_WINNER_LAYOUT_V1,
+        BF_WINNER_PACKAGING_V1,
+    }
+
+
+def _is_combined_winner_packaging_profile(value: Optional[str]) -> bool:
+    return str(value or "").strip().lower() == BF_WINNER_PACKAGING_V1
 
 
 def _uses_editorial_caption_style(
@@ -537,6 +562,7 @@ def _bf_editorial_tail_plan(
             BF_SMOOTH_TAIL_V4,
             BF_SMOOTH_TAIL_V5,
             BF_NATURAL_TAIL_V6,
+            LIVE_TAIL_PROFILE,
         }:
             raise ValueError(
                 "verified visual safe-end timing is supported only by "
@@ -565,8 +591,14 @@ def _bf_editorial_tail_plan(
         BF_SMOOTH_TAIL_V4,
         BF_SMOOTH_TAIL_V5,
         BF_NATURAL_TAIL_V6,
+        LIVE_TAIL_PROFILE,
     }:
-        if profile == BF_NATURAL_TAIL_V6:
+        if profile == LIVE_TAIL_PROFILE:
+            authentic_source_margin = min(
+                0.90,
+                available_source_tail,
+            )
+        elif profile == BF_NATURAL_TAIL_V6:
             if planned_tail_end > safe_source_end + 0.001:
                 raise ValueError(
                     "planned natural-tail endpoint crosses the next-speech "
@@ -592,7 +624,17 @@ def _bf_editorial_tail_plan(
             }
             else BF_EDITORIAL_SMOOTH_V3_VISUAL_FADE_SECONDS
         )
-        if profile == BF_NATURAL_TAIL_V6:
+        if profile == LIVE_TAIL_PROFILE:
+            # The fade overlays the final moving source frames.  It neither
+            # creates a repeated frame nor extends the endpoint.
+            post_source_settle = 0.0
+            transition_tail = BF_EDITORIAL_SMOOTH_VISUAL_FADE_SECONDS
+            brand_tail_start = clean_source_end
+            transition_start = max(
+                acoustic_speech_end,
+                clean_source_end - transition_tail,
+            )
+        elif profile == BF_NATURAL_TAIL_V6:
             # The complete point and every available breath/reaction frame
             # remain live and full-strength. The fade starts only after the
             # sealed authentic source endpoint; no repeated settle frame.
@@ -630,7 +672,7 @@ def _bf_editorial_tail_plan(
                 BF_EDITORIAL_SMOOTH_AUDIO_FADE_SECONDS,
                 authentic_source_margin,
             )
-            if profile == BF_NATURAL_TAIL_V6
+            if profile in {BF_NATURAL_TAIL_V6, LIVE_TAIL_PROFILE}
             else min(
                 BF_EDITORIAL_SMOOTH_AUDIO_FADE_SECONDS,
                 max(
@@ -733,6 +775,7 @@ def _bf_editorial_tail_plan(
                     BF_SMOOTH_TAIL_V3,
                     BF_SMOOTH_TAIL_V4,
                     BF_SMOOTH_TAIL_V5,
+                    LIVE_TAIL_PROFILE,
                 }
                 else 0.0
             )
@@ -1829,6 +1872,8 @@ def _build_word_cues(
             )
 
     words.sort(key=lambda cue: (cue["start"], cue["end"]))
+    if _is_combined_winner_packaging_profile(render_profile):
+        words = normalize_caption_tokens(words)
     cues = []
     bf_editorial_style = _is_bf_editorial_profile(render_profile) or (
         _is_bf_editorial_profile(caption_style)
@@ -1840,6 +1885,9 @@ def _build_word_cues(
     groups = _group_caption_words(
         words,
         min_words=(
+            2
+            if _is_combined_winner_packaging_profile(render_profile)
+            else
             BF_EDITORIAL_MIN_PHRASE_WORDS
             if bf_editorial_style
             else 2
@@ -1847,6 +1895,9 @@ def _build_word_cues(
             else CAPTION_MIN_PHRASE_WORDS
         ),
         max_words=(
+            6
+            if _is_combined_winner_packaging_profile(render_profile)
+            else
             BF_EDITORIAL_MAX_PHRASE_WORDS
             if bf_editorial_style
             else 6
@@ -2542,7 +2593,18 @@ class _CaptionRenderer:
                 ]
                 if len(visible_faces) == 1:
                     side_face = visible_faces[0]
-            if sentence_id is not None:
+            if (
+                _is_winner_packaging_profile(self.render_profile)
+                and protected_boxes
+            ):
+                y = _choose_editorial_caption_top(
+                    (image.width, image.height),
+                    (int(math.ceil(max_line_width)) + 12, block_height + 8),
+                    image.height * self.vertical_position_ratio,
+                    safe_box=safe_box,
+                    protected_boxes=protected_boxes,
+                )
+            elif sentence_id is not None:
                 if side_face is not None:
                     track_offset = max(
                         -1.0,
@@ -3147,6 +3209,7 @@ def _motivational_audio_filter(
     brand_tail_transition_seconds: Optional[float] = None,
     brand_tail_audio_transition_seconds: Optional[float] = None,
     brand_tail_music_release_seconds: Optional[float] = None,
+    loudness_lra_target: float = 7.0,
 ) -> str:
     music_fade_start = max(0.0, duration - MOTIVATIONAL_MUSIC_FADE_OUT_SECONDS)
     output_fade_start = max(0.0, duration - ENDING_FADE_SECONDS)
@@ -3203,7 +3266,7 @@ def _motivational_audio_filter(
     final_mix += "[aout]"
     speech_filter = (
         f"[1:a]aresample=48000,loudnorm=I={LOCAL_AUDIO_LOUDNESS}:"
-        f"LRA=7:TP={LOCAL_AUDIO_TRUE_PEAK}"
+        f"LRA={float(loudness_lra_target):g}:TP={LOCAL_AUDIO_TRUE_PEAK}"
     )
     if speech_end_seconds is not None:
         speech_end = max(0.0, min(duration, float(speech_end_seconds)))
@@ -3265,9 +3328,13 @@ def _raw_video_command(
     brand_tail_transition_seconds: Optional[float] = None,
     brand_tail_audio_transition_seconds: Optional[float] = None,
     brand_tail_music_release_seconds: Optional[float] = None,
+    audio_lra_target: float = 7.0,
 ) -> List[str]:
     width, height = output_size
-    loudness_filter = f"loudnorm=I={LOCAL_AUDIO_LOUDNESS}:LRA=7:TP={LOCAL_AUDIO_TRUE_PEAK}"
+    loudness_filter = (
+        f"loudnorm=I={LOCAL_AUDIO_LOUDNESS}:"
+        f"LRA={float(audio_lra_target):g}:TP={LOCAL_AUDIO_TRUE_PEAK}"
+    )
     fade_start = max(0.0, float(duration or 0.0) - ENDING_FADE_SECONDS)
     audio_filter = loudness_filter
     video_filter = None
@@ -3321,6 +3388,7 @@ def _raw_video_command(
                     brand_tail_music_release_seconds=(
                         brand_tail_music_release_seconds
                     ),
+                    loudness_lra_target=audio_lra_target,
                 ),
                 "-map", "[aout]",
             ]
@@ -3481,6 +3549,46 @@ def _probe_duration(path: str) -> float:
         text=True,
     )
     return float(result.stdout.strip())
+
+
+def _detect_hard_source_cuts(
+    source_path: str,
+    duration: float,
+    *,
+    threshold: float = 0.18,
+) -> List[float]:
+    """Return authentic camera-cut timestamps from FFmpeg scene evidence."""
+    command = [
+        "ffmpeg",
+        "-hide_banner",
+        "-i",
+        source_path,
+        "-vf",
+        (
+            f"select='gt(scene,{float(threshold):.3f})',"
+            "metadata=print:key=lavfi.scene_score"
+        ),
+        "-an",
+        "-f",
+        "null",
+        "-",
+    ]
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return []
+    detected: List[float] = []
+    for raw in re.findall(r"pts_time:([0-9]+(?:\.[0-9]+)?)", result.stderr):
+        timestamp = float(raw)
+        if not 0.10 < timestamp < float(duration) - 0.10:
+            continue
+        if detected and timestamp - detected[-1] < 0.50:
+            continue
+        detected.append(timestamp)
+    return detected
 
 
 def _visual_analysis_cache_key(
@@ -3811,6 +3919,7 @@ def _detect_clip_layout(
             candidates.append((sample_index, box))
         if layout_hint in {
             BF_EDITORIAL_INSET_LAYOUT,
+            BF_FULL_BLEED_FACE_LAYOUT,
             "motivational_editorial",
         }:
             for box in _detect_profile_faces(
@@ -3835,6 +3944,13 @@ def _detect_clip_layout(
             sample_count,
         ) or _classify_speaker_candidates(candidates, frame_size, sample_count)
         return BF_EDITORIAL_INSET_LAYOUT, speaker
+    if layout_hint == BF_FULL_BLEED_FACE_LAYOUT:
+        speaker = _classify_speaker_candidates(
+            profile_candidates,
+            frame_size,
+            sample_count,
+        ) or _classify_speaker_candidates(candidates, frame_size, sample_count)
+        return BF_FULL_BLEED_FACE_LAYOUT, speaker
     if layout_hint == "motivational_editorial":
         speaker = _classify_speaker_candidates(
             profile_candidates,
@@ -4082,6 +4198,59 @@ def _aspect_crop(
     x0 = max(0, min(src_width - crop_width, int(center_x - crop_width / 2)))
     y0 = max(0, min(src_height - crop_height, int(center_y - crop_height / 2)))
     return frame[y0:y0 + crop_height, x0:x0 + crop_width]
+
+
+def _winner_full_bleed_geometry(
+    frame_size: Tuple[int, int],
+    face_box: Optional[BBox],
+    target_ratio: float,
+) -> BBox:
+    """Return the exact source crop used by the winner full-bleed renderer."""
+    src_width, src_height = frame_size
+    if not face_box:
+        center_x, center_y = src_width / 2, src_height / 2
+        zoom = 1.0
+    else:
+        x, y, width, height = face_box
+        base_crop_height = (
+            src_height
+            if target_ratio < src_width / max(1, src_height)
+            else src_width / target_ratio
+        )
+        current_ratio = height / max(1.0, base_crop_height)
+        target_face_ratio = 0.47
+        zoom = max(
+            1.0,
+            min(2.25, target_face_ratio / max(0.001, current_ratio)),
+        )
+        center_x = x + width / 2
+        center_y = y + height / 2 + height * 0.10
+    if target_ratio < src_width / max(1, src_height):
+        crop_height = int(src_height / zoom)
+        crop_width = int(crop_height * target_ratio)
+    else:
+        crop_width = int(src_width / zoom)
+        crop_height = int(crop_width / target_ratio)
+    crop_width = max(2, min(src_width, crop_width))
+    crop_height = max(2, min(src_height, crop_height))
+    x0 = max(0, min(src_width - crop_width, int(center_x - crop_width / 2)))
+    y0 = max(0, min(src_height - crop_height, int(center_y - crop_height / 2)))
+    return x0, y0, crop_width, crop_height
+
+
+def _winner_full_bleed_crop(
+    frame,
+    face_box: Optional[BBox],
+    target_ratio: float,
+):
+    """Single-resample source crop with a stable 35–60% face-height target."""
+    src_height, src_width = frame.shape[:2]
+    x, y, width, height = _winner_full_bleed_geometry(
+        (src_width, src_height),
+        face_box,
+        target_ratio,
+    )
+    return frame[y:y + height, x:x + width]
 
 
 def _crop_safe_center(
@@ -4699,6 +4868,35 @@ def _draw_bf_brand_tail(
     return canvas
 
 
+def _overlay_bf_live_mark(cv2, frame, progress: float):
+    """Place a restrained BF mark over live source without obscuring the face."""
+    output = frame.copy()
+    height, width = output.shape[:2]
+    progress = max(0.0, min(1.0, float(progress)))
+    eased = progress * progress * (3.0 - 2.0 * progress)
+    font = cv2.FONT_HERSHEY_DUPLEX
+    scale = max(0.55, width / 1080.0 * 0.85)
+    thickness = max(1, int(round(width / 540.0)))
+    text = BF_EDITORIAL_BRAND_MARK
+    (text_width, text_height), _ = cv2.getTextSize(
+        text, font, scale, thickness
+    )
+    x = max(20, width - text_width - int(width * 0.055))
+    y = max(text_height + 20, height - int(height * 0.055))
+    overlay = output.copy()
+    cv2.putText(
+        overlay,
+        text,
+        (x, y),
+        font,
+        scale,
+        (245, 245, 245),
+        thickness,
+        cv2.LINE_AA,
+    )
+    return cv2.addWeighted(output, 1.0 - 0.72 * eased, overlay, 0.72 * eased, 0.0)
+
+
 def _resolve_bf_brand_tail_seconds(
     render_profile: Optional[str],
     brand_tail_profile: Optional[str] = None,
@@ -4708,6 +4906,8 @@ def _resolve_bf_brand_tail_seconds(
         return 0.0
     profile = str(brand_tail_profile or BF_REFERENCE_TAIL_V2).strip().lower()
     if profile in {"none", "off", "disabled"}:
+        return 0.0
+    if profile == LIVE_TAIL_PROFILE:
         return 0.0
     if profile == BF_REFERENCE_TAIL_V2:
         requested = (
@@ -4730,6 +4930,14 @@ def _resolve_bf_brand_tail_seconds(
             if requested_seconds is None
             else float(requested_seconds)
         )
+        # The production default remains 0.85s. The sole short-tail variant is
+        # an explicit 0.40s request under the unchanged natural-tail-v6 ending;
+        # all other requests retain the established 0.80-0.90s clamp.
+        if (
+            profile == BF_NATURAL_TAIL_V6
+            and abs(requested - BF_SHORT_BRAND_TAIL_VARIANT_SECONDS) <= 0.0001
+        ):
+            return BF_SHORT_BRAND_TAIL_VARIANT_SECONDS
         return max(
             BF_EDITORIAL_SMOOTH_TAIL_MIN_SECONDS,
             min(BF_EDITORIAL_SMOOTH_TAIL_MAX_SECONDS, requested),
@@ -4739,6 +4947,19 @@ def _resolve_bf_brand_tail_seconds(
     if requested_seconds is not None:
         return max(0.2, min(0.4, float(requested_seconds)))
     return 0.30
+
+
+def _require_realesrgan_runtime(
+    requested: bool,
+    runtime: Optional[Tuple[str, str]],
+) -> bool:
+    """Fail closed when real enhancement was requested but is unavailable."""
+    if requested and runtime is None:
+        raise RuntimeError(
+            "Real-ESRGAN is enabled but its runtime/models are unavailable. "
+            "Set LOCAL_REAL_ESRGAN_PATH to the bundled runtime directory."
+        )
+    return bool(runtime)
 
 
 def _draw_context_overlay(cv2, frame, text: str):
@@ -5044,6 +5265,7 @@ def _reframe_vertical(
         raise RuntimeError(f"could not open {in_path}")
 
     bf_editorial_profile = _is_bf_editorial_profile(render_profile)
+    winner_packaging_profile = _is_winner_packaging_profile(render_profile)
     src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
@@ -5059,6 +5281,15 @@ def _reframe_vertical(
         source_duration,
         float(output_duration) if output_duration is not None else source_duration,
     )
+    packaging_decision = (
+        duration_packaging_decision(clip_duration)
+        if winner_packaging_profile
+        else None
+    )
+    winner_full_bleed_enabled = bool(
+        packaging_decision
+        and packaging_decision["layoutProfile"] == FULL_BLEED_LAYOUT_PROFILE
+    )
     target_frame_count = max(
         frame_count,
         int(round(clip_duration * fps)),
@@ -5068,7 +5299,11 @@ def _reframe_vertical(
         aspect_ratio,
         render_profile=render_profile,
     )
-    if bf_editorial_profile:
+    if winner_full_bleed_enabled:
+        layout_hint = BF_FULL_BLEED_FACE_LAYOUT
+    elif winner_packaging_profile:
+        layout_hint = BF_EDITORIAL_INSET_LAYOUT
+    elif bf_editorial_profile:
         layout_hint = BF_EDITORIAL_INSET_LAYOUT
 
     face_cascade = cv2.CascadeClassifier(
@@ -5079,9 +5314,29 @@ def _reframe_vertical(
     )
     if profile_face_cascade.empty():
         profile_face_cascade = None
+    auto_source_cuts: List[float] = []
+    if winner_packaging_profile and not shot_change_times:
+        auto_source_cuts = _detect_hard_source_cuts(
+            in_path,
+            source_duration,
+        )
+        if auto_source_cuts:
+            shot_change_times = auto_source_cuts
+            print(
+                "[clip/local] source-native camera cuts: "
+                + ", ".join(f"{value:.2f}s" for value in auto_source_cuts),
+                flush=True,
+            )
     cached_visual_analysis = _read_visual_analysis_cache(
         visual_analysis_cache_key,
     )
+    if (
+        cached_visual_analysis is not None
+        and auto_source_cuts
+        and len(cached_visual_analysis.get("locked_speaker_plan") or [])
+        != len(auto_source_cuts) + 1
+    ):
+        cached_visual_analysis = None
     if cached_visual_analysis is not None:
         layout = cached_visual_analysis["layout"]
         tracked_face = cached_visual_analysis["tracked_face"]
@@ -5099,6 +5354,7 @@ def _reframe_vertical(
         print(f"[clip/local] visual layout: {layout}", flush=True)
     reference_editorial = (
         bf_editorial_profile
+        and not winner_full_bleed_enabled
         and layout == BF_EDITORIAL_INSET_LAYOUT
     )
     editorial_composer = (
@@ -5135,7 +5391,11 @@ def _reframe_vertical(
             int(output_width * 0.95),
             int(output_height * 0.88),
         )
-        if layout in {"editorial_speaker", BF_EDITORIAL_INSET_LAYOUT}
+        if layout in {
+            "editorial_speaker",
+            BF_EDITORIAL_INSET_LAYOUT,
+            BF_FULL_BLEED_FACE_LAYOUT,
+        }
         else None
     )
     motion_tracker = (
@@ -5144,6 +5404,7 @@ def _reframe_vertical(
         else None
     )
     detection_interval = max(1, int(fps / FACE_DETECTION_HZ))
+    bounded_shot_changes = shot_change_times
     if cached_visual_analysis is not None:
         locked_speaker_plan = cached_visual_analysis["locked_speaker_plan"]
     else:
@@ -5155,13 +5416,14 @@ def _reframe_vertical(
                 (src_w, src_h),
                 fps,
                 source_duration,
-                shot_change_times,
+                bounded_shot_changes,
                 initial_face=tracked_face,
                 profile_face_cascade=(
                     profile_face_cascade
                     if layout in {
                         "editorial_speaker",
                         BF_EDITORIAL_INSET_LAYOUT,
+                        BF_FULL_BLEED_FACE_LAYOUT,
                     }
                     else None
                 ),
@@ -5170,6 +5432,7 @@ def _reframe_vertical(
                 "stable_speaker",
                 "editorial_speaker",
                 BF_EDITORIAL_INSET_LAYOUT,
+                BF_FULL_BLEED_FACE_LAYOUT,
             }
             else []
         )
@@ -5179,6 +5442,18 @@ def _reframe_vertical(
             tracked_face,
             locked_speaker_plan,
         )
+    if (
+        winner_packaging_profile
+        and tracked_face is not None
+        and len(locked_speaker_plan) == 1
+    ):
+        # A single source shot must keep the authentic opening subject. Haar
+        # can occasionally form a persistent false-positive cluster around a
+        # microphone/logo; switching to it creates a visibly unsafe crop.
+        locked_speaker_plan[0] = {
+            **locked_speaker_plan[0],
+            "bbox": tracked_face,
+        }
     if locked_speaker_plan:
         print(
             f"[clip/local] shot-locked speaker plan: {len(locked_speaker_plan)} shots",
@@ -5194,7 +5469,11 @@ def _reframe_vertical(
                 CAPTION_SPLIT_VERTICAL_POSITION_RATIO
                 if layout == "split"
                 else MOTIVATIONAL_CAPTION_VERTICAL_POSITION_RATIO
-                if layout in {"editorial_speaker", BF_EDITORIAL_INSET_LAYOUT}
+                if layout in {
+                    "editorial_speaker",
+                    BF_EDITORIAL_INSET_LAYOUT,
+                    BF_FULL_BLEED_FACE_LAYOUT,
+                }
                 else CAPTION_VERTICAL_POSITION_RATIO
             ),
             caption_style=caption_style,
@@ -5229,6 +5508,16 @@ def _reframe_vertical(
                 (output_width, output_height),
                 tracked_face,
                 gameplay_center=gameplay_center,
+            )
+        elif layout == BF_FULL_BLEED_FACE_LAYOUT:
+            shot_face = _locked_speaker_bbox_at(
+                locked_speaker_plan,
+                frame_index / fps,
+            )
+            cropped = _winner_full_bleed_crop(
+                frame,
+                shot_face or tracked_face,
+                target_ratio,
             )
         elif layout in {"editorial_speaker", BF_EDITORIAL_INSET_LAYOUT}:
             if reference_editorial:
@@ -5290,6 +5579,16 @@ def _reframe_vertical(
         return cropped
 
     enhancer_requested = bool(LOCAL_REAL_ESRGAN)
+    if enhancer_requested and winner_packaging_profile:
+        # Full-bleed treatment performs exactly one deterministic resize from
+        # the source crop. Per-frame super-resolution would add another
+        # resample and make A/B render time depend on an optional runtime.
+        print(
+            "[clip/local] Real-ESRGAN bypassed: winner full-bleed uses "
+            "single-resample source geometry",
+            flush=True,
+        )
+        enhancer_requested = False
     if (
         enhancer_requested
         and reference_editorial
@@ -5322,11 +5621,10 @@ def _reframe_vertical(
     )
     if enhancer_requested and enhancer_runtime is None:
         cap.release()
-        raise RuntimeError(
-            "Real-ESRGAN is enabled but its runtime/models are unavailable. "
-            "Set LOCAL_REAL_ESRGAN_PATH to the bundled runtime directory."
-        )
-    use_enhancer = bool(enhancer_runtime)
+    use_enhancer = _require_realesrgan_runtime(
+        enhancer_requested,
+        enhancer_runtime,
+    )
     selected_music_profile = _resolve_motivational_music_profile(music_profile)
     music_path = _resolve_motivational_music_track(
         background_music,
@@ -5358,10 +5656,12 @@ def _reframe_vertical(
     )
     brand_tail_start = max(0.0, clip_duration - resolved_brand_tail_seconds)
     resolved_tail_profile = str(brand_tail_profile or "").strip().lower()
+    live_tail_profile = resolved_tail_profile == LIVE_TAIL_PROFILE
     smooth_tail_profile = resolved_tail_profile in {
         BF_SMOOTH_TAIL_V3,
         BF_SMOOTH_TAIL_V4,
         BF_SMOOTH_TAIL_V5,
+        LIVE_TAIL_PROFILE,
     }
     visual_transition_limit = (
         (
@@ -5430,6 +5730,11 @@ def _reframe_vertical(
                 brand_tail_music_release_seconds=(
                     brand_tail_music_release_seconds
                 ),
+                audio_lra_target=(
+                    2.5
+                    if _is_combined_winner_packaging_profile(render_profile)
+                    else 7.0
+                ),
             ),
             stdin=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -5441,7 +5746,11 @@ def _reframe_vertical(
         caption_index = 0
         initial_editorial_face = (
             _locked_speaker_bbox_at(locked_speaker_plan, 0.0) or tracked_face
-            if layout in {"editorial_speaker", BF_EDITORIAL_INSET_LAYOUT}
+            if layout in {
+                "editorial_speaker",
+                BF_EDITORIAL_INSET_LAYOUT,
+                BF_FULL_BLEED_FACE_LAYOUT,
+            }
             else None
         )
         if initial_editorial_face:
@@ -5449,6 +5758,17 @@ def _reframe_vertical(
                 mapped_initial_face = _map_editorial_bbox(
                     initial_editorial_face,
                     (src_w, src_h),
+                    (output_width, output_height),
+                )
+            elif layout == BF_FULL_BLEED_FACE_LAYOUT:
+                initial_crop_box = _winner_full_bleed_geometry(
+                    (src_w, src_h),
+                    initial_editorial_face,
+                    target_ratio,
+                )
+                mapped_initial_face = _map_bbox_to_crop(
+                    initial_editorial_face,
+                    initial_crop_box,
                     (output_width, output_height),
                 )
             else:
@@ -5492,7 +5812,11 @@ def _reframe_vertical(
                     reference_weight=enhancement_reference_blend,
                 )
             elapsed = frame_index / fps
-            if bf_editorial_profile and not reference_editorial:
+            if (
+                bf_editorial_profile
+                and not reference_editorial
+                and not _is_combined_winner_packaging_profile(render_profile)
+            ):
                 cropped = _apply_bf_editorial_grade(cv2, cropped)
             elif caption_style == BUDGET_FRIENDLY_CAPTION_STYLE:
                 cropped = _apply_motivational_grade(cv2, cropped)
@@ -5539,7 +5863,11 @@ def _reframe_vertical(
                     )
             persistent_editorial = (
                 _uses_editorial_caption_style(caption_style, render_profile)
-                and layout in {"editorial_speaker", BF_EDITORIAL_INSET_LAYOUT}
+                and layout in {
+                    "editorial_speaker",
+                    BF_EDITORIAL_INSET_LAYOUT,
+                    BF_FULL_BLEED_FACE_LAYOUT,
+                }
             )
             if persistent_editorial:
                 active_caption_cues = sorted(
@@ -5599,7 +5927,11 @@ def _reframe_vertical(
                 )
             if caption_renderer and active_caption_cues:
                 if (
-                    layout in {"editorial_speaker", BF_EDITORIAL_INSET_LAYOUT}
+                    layout in {
+                        "editorial_speaker",
+                        BF_EDITORIAL_INSET_LAYOUT,
+                        BF_FULL_BLEED_FACE_LAYOUT,
+                    }
                     and frame_index - caption_face_last_detection_frame >= detection_interval
                 ):
                     caption_face_last_detection_frame = frame_index
@@ -5612,6 +5944,17 @@ def _reframe_vertical(
                             mapped_source_face = _map_editorial_bbox(
                                 source_face,
                                 (src_w, src_h),
+                                (output_width, output_height),
+                            )
+                        elif layout == BF_FULL_BLEED_FACE_LAYOUT:
+                            source_crop_box = _winner_full_bleed_geometry(
+                                (src_w, src_h),
+                                source_face,
+                                target_ratio,
+                            )
+                            mapped_source_face = _map_bbox_to_crop(
+                                source_face,
+                                source_crop_box,
                                 (output_width, output_height),
                             )
                         else:
@@ -5657,6 +6000,32 @@ def _reframe_vertical(
                     transition_progress,
                     0.0,
                 )
+            if live_tail_profile:
+                mark_start = max(0.0, clip_duration - 0.25)
+                if elapsed >= mark_start:
+                    cropped = _overlay_bf_live_mark(
+                        cv2,
+                        cropped,
+                        (elapsed - mark_start) / 0.25,
+                    )
+                fade_start = max(0.0, clip_duration - 0.13)
+                if elapsed >= fade_start:
+                    fade_progress = min(
+                        1.0,
+                        max(0.0, (elapsed - fade_start) / 0.13),
+                    )
+                    fade_progress = (
+                        fade_progress
+                        * fade_progress
+                        * (3.0 - 2.0 * fade_progress)
+                    )
+                    cropped = cv2.addWeighted(
+                        cropped,
+                        1.0 - fade_progress,
+                        cropped * 0,
+                        fade_progress,
+                        0.0,
+                    )
             try:
                 encoder.stdin.write(cropped.tobytes())
             except BrokenPipeError as error:
@@ -6642,6 +7011,13 @@ def crop_highlights_local(
                     if h.get("brand_tail_profile")
                     else brand_tail_profile
                 )
+                if (
+                    _is_combined_winner_packaging_profile(
+                        resolved_render_profile
+                    )
+                    and not resolved_brand_tail_profile
+                ):
+                    resolved_brand_tail_profile = LIVE_TAIL_PROFILE
                 requested_brand_tail_seconds = (
                     float(h["brand_tail_seconds"])
                     if h.get("brand_tail_seconds") is not None
@@ -6651,7 +7027,11 @@ def crop_highlights_local(
                     str(h["caption_style"])
                     if h.get("caption_style")
                     else (
-                        BF_EDITORIAL_INSET_RENDER_PROFILE
+                        COMPACT_CAPTION_PROFILE
+                        if _is_combined_winner_packaging_profile(
+                            resolved_render_profile
+                        )
+                        else BF_EDITORIAL_INSET_RENDER_PROFILE
                         if _is_bf_editorial_profile(resolved_render_profile)
                         else None
                     )
@@ -6752,7 +7132,7 @@ def crop_highlights_local(
                     output_max_seconds = (
                         BF_GROWTH_V2_OUTPUT_MAX_SECONDS
                         if resolved_brand_tail_profile
-                        == BF_NATURAL_TAIL_V6
+                        in {BF_NATURAL_TAIL_V6, LIVE_TAIL_PROFILE}
                         else BF_EDITORIAL_OUTPUT_MAX_SECONDS
                     )
                     if resolved_render_duration > output_max_seconds + 0.001:
@@ -6768,7 +7148,10 @@ def crop_highlights_local(
                     caption_display_end = (
                         requested_render_end - resolved_brand_tail_seconds
                     )
-                    if caption_end > caption_display_end + 0.001:
+                    if (
+                        resolved_brand_tail_profile != LIVE_TAIL_PROFILE
+                        and caption_end > caption_display_end + 0.001
+                    ):
                         raise RuntimeError(
                             "bf_editorial_inset_v1 requires at least 0.20s of "
                             "post-speech source time for the BF. tail"
@@ -6799,14 +7182,22 @@ def crop_highlights_local(
                         resolved_brand_tail_seconds,
                         available_post_speech_seconds,
                     )
-                    if resolved_brand_tail_seconds < 0.20:
+                    if (
+                        resolved_brand_tail_profile != LIVE_TAIL_PROFILE
+                        and resolved_brand_tail_seconds < 0.20
+                    ):
                         raise RuntimeError(
                             "bf_editorial_inset_v1 requires at least 0.20s of "
                             "post-speech source time for the BF. tail"
                         )
-                    brand_tail_start_seconds = max(
-                        semantic_end_seconds,
-                        resolved_render_duration - resolved_brand_tail_seconds,
+                    brand_tail_start_seconds = (
+                        max(0.0, resolved_render_duration - 0.25)
+                        if resolved_brand_tail_profile == LIVE_TAIL_PROFILE
+                        else max(
+                            semantic_end_seconds,
+                            resolved_render_duration
+                            - resolved_brand_tail_seconds,
+                        )
                     )
                     first_visible_text_seconds = (
                         min(float(cue["start"]) for cue in qa_cues)
@@ -6845,7 +7236,12 @@ def crop_highlights_local(
                         for cue in phrases_by_id.values()
                     )
                     brand_tail_event = {
-                        "type": "brand_tail",
+                        "type": (
+                            "live_tail_mark"
+                            if resolved_brand_tail_profile
+                            == LIVE_TAIL_PROFILE
+                            else "brand_tail"
+                        ),
                         "profile": (
                             resolved_brand_tail_profile
                             or BF_REFERENCE_TAIL_V2
@@ -6861,10 +7257,67 @@ def crop_highlights_local(
                     }
                     render_metadata = {
                         "render_profile": resolved_render_profile,
-                        "layout_profile": BF_EDITORIAL_INSET_LAYOUT,
-                        "grade_profile": "high_contrast_grayscale_v1",
-                        "typography_profile": "kinetic_editorial_v1",
+                        "layout_profile": (
+                            duration_packaging_decision(
+                                resolved_render_duration
+                            )["layoutProfile"]
+                            if _is_winner_packaging_profile(
+                                resolved_render_profile
+                            )
+                            else BF_EDITORIAL_INSET_LAYOUT
+                        ),
+                        "grade_profile": (
+                            "source_authentic_grade_v1"
+                            if _is_combined_winner_packaging_profile(
+                                resolved_render_profile
+                            )
+                            else "high_contrast_grayscale_v1"
+                        ),
+                        "typography_profile": (
+                            COMPACT_CAPTION_PROFILE
+                            if _is_combined_winner_packaging_profile(
+                                resolved_render_profile
+                            )
+                            else "kinetic_editorial_v1"
+                        ),
                         "artificial_cut_limit": 0,
+                        "winner_packaging_decision": (
+                            duration_packaging_decision(
+                                resolved_render_duration
+                            )
+                            if _is_winner_packaging_profile(
+                                resolved_render_profile
+                            )
+                            else None
+                        ),
+                        "opening_source_time_seconds": 0.0,
+                        "opening_first_speech_seconds": (
+                            round(
+                                max(
+                                    0.0,
+                                    float(h.get("speech_start_time") or actual_render_start)
+                                    - actual_render_start,
+                                ),
+                                3,
+                            )
+                        ),
+                        "opening_full_bleed_seconds": (
+                            round(min(1.5, resolved_render_duration), 3)
+                            if _is_winner_packaging_profile(
+                                resolved_render_profile
+                            )
+                            and resolved_render_duration <= 24.0
+                            else 0.0
+                        ),
+                        "single_resample": bool(
+                            _is_winner_packaging_profile(
+                                resolved_render_profile
+                            )
+                        ),
+                        "reframe_count": min(
+                            2,
+                            len(h.get("source_scene_change_times") or []),
+                        ),
                         "brand_tail_profile": (
                             resolved_brand_tail_profile or BF_REFERENCE_TAIL_V2
                         ),
@@ -7167,6 +7620,35 @@ def crop_highlights_local(
                         else None
                     ),
                 )
+                if _is_winner_packaging_profile(resolved_render_profile):
+                    render_metadata["winner_packaging_qa_report"] = (
+                        evaluate_winner_packaging_evidence(
+                            {
+                                "renderProfile": resolved_render_profile,
+                                "durationSeconds": resolved_render_duration,
+                                "layoutProfile": render_metadata.get(
+                                    "layout_profile"
+                                ),
+                                "openingSourceTimeSeconds": render_metadata.get(
+                                    "opening_source_time_seconds"
+                                ),
+                                "firstSpeechSeconds": render_metadata.get(
+                                    "opening_first_speech_seconds"
+                                ),
+                                "openingFullBleedSeconds": render_metadata.get(
+                                    "opening_full_bleed_seconds"
+                                ),
+                                "reframeCount": render_metadata.get(
+                                    "reframe_count"
+                                ),
+                                "freezeHoldSeconds": render_metadata.get(
+                                    "freeze_hold_seconds"
+                                ),
+                                "blackCardSeconds": 0.0,
+                                "captionAfterSpeech": False,
+                            }
+                        )
+                    )
             results.append({**h, **render_metadata, "clip_url": out_path})
         except Exception as e:
             print(f"[clip/local] {i} failed: {e}", flush=True)

@@ -16,8 +16,17 @@ MOTIVATIONAL_TENSION_MICRO_V2 = getattr(
     "MOTIVATIONAL_TENSION_MICRO_V2",
     "motivational_tension_micro_v2",
 )
+BF_FEED_STOP_V1 = getattr(
+    _profiles,
+    "BF_FEED_STOP_V1",
+    "bf_feed_stop_v1",
+)
 MICRO_SELECTION_PROFILES = frozenset(
-    {MOTIVATIONAL_TENSION_MICRO_V1, MOTIVATIONAL_TENSION_MICRO_V2}
+    {
+        MOTIVATIONAL_TENSION_MICRO_V1,
+        MOTIVATIONAL_TENSION_MICRO_V2,
+        BF_FEED_STOP_V1,
+    }
 )
 
 
@@ -618,6 +627,7 @@ def rank_highlights(
     hook_gate_v2 = (
         normalized_selection_profile == MOTIVATIONAL_TENSION_MICRO_V2
     )
+    hook_gate_v3 = normalized_selection_profile == BF_FEED_STOP_V1
     educational_semantics = normalized_content_type in {"tutorial", "lecture"}
     gaming_content = normalized_content_type == "gaming"
     motivational_content = (
@@ -671,11 +681,11 @@ def rank_highlights(
                 + 0.18 * v2_duration_fit
             )
         rejection_reasons = []
-        if hook_gate_v2:
+        if hook_gate_v2 or hook_gate_v3:
             gate_status = str(item.get("hook_gate_status") or "").strip().lower()
             expected_decision_version = str(
                 _profiles.SELECTION_PROFILES[
-                    MOTIVATIONAL_TENSION_MICRO_V2
+                    normalized_selection_profile
                 ].get("hook_gate_decision_version")
                 or ""
             )
@@ -710,7 +720,7 @@ def rank_highlights(
             ).strip().lower()
             expected_closure_version = str(
                 _profiles.SELECTION_PROFILES[
-                    MOTIVATIONAL_TENSION_MICRO_V2
+                    normalized_selection_profile
                 ].get("semantic_closure_decision_version")
                 or ""
             )
@@ -821,9 +831,16 @@ def rank_highlights(
                 rejection_reasons.append("unaligned_hook_payoff")
             if item.get("takeaway_boundary_aligned") is False:
                 rejection_reasons.append("unaligned_takeaway")
+            measured_payoff_latency = (
+                item.get("firstPayoffSeconds")
+                if hook_gate_v3
+                else item.get("hook_payoff_latency_seconds")
+            )
+            payoff_latency_limit = 6.0 if hook_gate_v3 else 5.0
             if (
-                item.get("hook_payoff_latency_seconds") is not None
-                and _number(item.get("hook_payoff_latency_seconds"), 99.0) > 5.0
+                measured_payoff_latency is not None
+                and _number(measured_payoff_latency, 99.0)
+                > payoff_latency_limit
             ):
                 rejection_reasons.append("hook_payoff_too_late")
             if (
@@ -835,7 +852,7 @@ def rank_highlights(
                 rejection_reasons.append("generated_cuts_not_allowed")
             if motivational.get("ends_with_connector"):
                 rejection_reasons.append("incomplete_ending_connector")
-        if micro_selection:
+        if micro_selection and not hook_gate_v3:
             tension_dimensions = (
                 _number(micro_components.get("semantic_tension_score")),
                 _number(micro_components.get("contrast_score")),
@@ -907,7 +924,9 @@ def rank_highlights(
                 rejection_reasons.append("micro_duration_under_8s")
             if duration > micro_hard_max:
                 rejection_reasons.append(
-                    "micro_duration_over_30s"
+                    "micro_duration_over_24s"
+                    if hook_gate_v3
+                    else "micro_duration_over_30s"
                     if hook_gate_v2
                     else "micro_duration_over_22s"
                 )
@@ -1123,6 +1142,13 @@ def rank_highlights(
             final_score += 2.0
         if duration_total > 0 and _number(item.get("start_time")) / duration_total >= 0.90:
             final_score -= 2.0
+        if hook_gate_v3:
+            # V3 is the authoritative semantic ranking. Rendering metadata and
+            # legacy model scores cannot perturb the feed-stop order.
+            final_score = _number(item.get("hookGateScore"), -1.0)
+            if final_score < 0.0:
+                rejection_reasons.append("hook_gate_v3_score_missing")
+                final_score = 0.0
 
         item.update(promotion)
         item.update(gaming)
@@ -1197,7 +1223,12 @@ def rank_highlights(
                 -float(item["final_score"]),
                 -_number(item.get("micro_semantic_score")),
                 -_number(item.get("reaction_tail_compatibility_score")),
-                _number(item.get("hook_payoff_latency_seconds"), 999.0),
+                _number(
+                    item.get("firstPayoffSeconds")
+                    if hook_gate_v3
+                    else item.get("hook_payoff_latency_seconds"),
+                    999.0,
+                ),
                 float(item.get("start_time", 0.0)),
             )
         )
@@ -1268,12 +1299,28 @@ def select_diverse_highlights(
     limit: int,
     max_temporal_overlap_ratio: float = BATCH_MAX_TEMPORAL_OVERLAP_RATIO,
     max_token_overlap_ratio: float = BATCH_MAX_TOKEN_OVERLAP_RATIO,
+    recent_topics: Optional[Set[str]] = None,
 ) -> List[Dict]:
     """Select a ranked batch while suppressing duplicate moments and stories."""
     if limit <= 0:
         return []
 
     selected: List[Dict] = []
+    deferred_same_family: List[Dict] = []
+    normalized_recent_topics = {
+        re.sub(r"\W+", " ", str(topic).lower()).strip()
+        for topic in (recent_topics or set())
+        if str(topic).strip()
+    }
+    feed_stop_policy = any(
+        str(
+            item.get("selection_policy_version")
+            or item.get("selection_profile")
+            or ""
+        ).strip().lower()
+        == BF_FEED_STOP_V1
+        for item in ranked
+    )
     for item in ranked:
         item["selected_for_render"] = False
         item.pop("output_rank", None)
@@ -1281,12 +1328,23 @@ def select_diverse_highlights(
         if item.get("rejected"):
             continue
 
-        exclusion_reason = None
+        item_topic = re.sub(
+            r"\W+",
+            " ",
+            str(item.get("topic") or "").lower(),
+        ).strip()
+        exclusion_reason = (
+            "repeats_recent_upload_topic"
+            if item_topic in normalized_recent_topics
+            and item.get("materially_stronger_than_recent") is not True
+            else None
+        )
         for kept in selected:
+            if exclusion_reason:
+                break
             if _temporal_overlap_ratio(item, kept) > max_temporal_overlap_ratio:
                 exclusion_reason = "overlaps_higher_ranked_clip"
                 break
-            item_topic = re.sub(r"\W+", " ", str(item.get("topic") or "").lower()).strip()
             kept_topic = re.sub(r"\W+", " ", str(kept.get("topic") or "").lower()).strip()
             if item_topic and item_topic == kept_topic:
                 exclusion_reason = "duplicates_higher_ranked_topic"
@@ -1298,11 +1356,59 @@ def select_diverse_highlights(
         if exclusion_reason:
             item["batch_exclusion_reason"] = exclusion_reason
             continue
+        if feed_stop_policy:
+            family = str(
+                item.get("hookFamily") or item.get("hook_family") or ""
+            ).strip().lower()
+            selected_families = {
+                str(
+                    kept.get("hookFamily") or kept.get("hook_family") or ""
+                ).strip().lower()
+                for kept in selected
+            }
+            if family and family in selected_families:
+                item["batch_exclusion_reason"] = (
+                    "duplicates_higher_ranked_hook_family"
+                )
+                deferred_same_family.append(item)
+                continue
 
         item["selected_for_render"] = True
         item["output_rank"] = len(selected) + 1
         selected.append(item)
         if len(selected) >= limit:
             break
+
+    # Family diversity is preferred, not a reason to return fewer good ideas.
+    for item in deferred_same_family:
+        if len(selected) >= limit:
+            break
+        if any(
+            _temporal_overlap_ratio(item, kept) > max_temporal_overlap_ratio
+            or _token_overlap_ratio(item, kept) > max_token_overlap_ratio
+            or (
+                re.sub(
+                    r"\W+",
+                    " ",
+                    str(item.get("topic") or "").lower(),
+                ).strip()
+                and re.sub(
+                    r"\W+",
+                    " ",
+                    str(item.get("topic") or "").lower(),
+                ).strip()
+                == re.sub(
+                    r"\W+",
+                    " ",
+                    str(kept.get("topic") or "").lower(),
+                ).strip()
+            )
+            for kept in selected
+        ):
+            continue
+        item.pop("batch_exclusion_reason", None)
+        item["selected_for_render"] = True
+        item["output_rank"] = len(selected) + 1
+        selected.append(item)
 
     return selected

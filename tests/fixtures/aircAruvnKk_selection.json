@@ -1,0 +1,33 @@
+{
+  "video_id": "aircAruvnKk",
+  "hard_reject": [
+    {
+      "start": 986.7,
+      "end": 1010.7,
+      "reason": "promotional_outro"
+    }
+  ],
+  "preferred": [
+    {
+      "start": 760.7,
+      "end": 804.6,
+      "topic": "manual neural network tuning thought experiment"
+    }
+  ],
+  "acceptable": [
+    {"start": 0.0, "end": 48.0},
+    {"start": 346.0, "end": 405.0}
+  ],
+  "preferred_educational_composite": {
+    "target_duration_seconds": [75.0, 80.0],
+    "hard_max_duration_seconds": 90.0,
+    "source_beats": [
+      {"role": "hook", "start": 4.06, "end": 13.62},
+      {"role": "definition", "start": 167.30, "end": 180.34},
+      {"role": "demonstration", "start": 303.64, "end": 322.02},
+      {"role": "connection_mechanism", "start": 548.56, "end": 565.26},
+      {"role": "activation_transform", "start": 624.08, "end": 631.78},
+      {"role": "payoff", "start": 649.10, "end": 656.16}
+    ]
+  }
+}

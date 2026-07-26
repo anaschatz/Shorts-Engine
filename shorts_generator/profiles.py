@@ -19,6 +19,11 @@ from .hook_gate import (
     HOOK_PAYOFF_MAX_LATENCY_SECONDS,
     HOOK_SIGNAL_MAX_LATENCY_SECONDS,
 )
+from .hook_gate_v3 import (
+    BF_FEED_STOP_POLICY_VERSION,
+    HOOK_GATE_V3_DECISION_VERSION,
+    HOOK_GATE_V3_PROMPT_VERSION,
+)
 from .motivational_closure import (
     CLOSURE_HARD_MAX_SECONDS,
     CLOSURE_HARD_MIN_SECONDS,
@@ -33,22 +38,34 @@ from .motivational_closure import (
     POST_SOURCE_FADE_SECONDS,
     SEMANTIC_CLOSURE_DECISION_VERSION,
 )
+from .winner_packaging import (
+    COMPACT_CAPTION_PROFILE,
+    DENSE_DIALOGUE_AUDIO_PROFILE,
+    FULL_BLEED_LAYOUT_PROFILE,
+    LIVE_TAIL_PROFILE,
+    WINNER_PACKAGING_DECISION_VERSION,
+    WINNER_PACKAGING_PROFILE,
+)
 
 
 MOTIVATIONAL_PODCAST = "motivational_podcast"
 BUDGET_FRIENDLY_CAPTION_STYLE = "budget_friendly_v2"
 MOTIVATIONAL_TENSION_MICRO_V1 = "motivational_tension_micro_v1"
 MOTIVATIONAL_TENSION_MICRO_V2 = "motivational_tension_micro_v2"
+BF_FEED_STOP_V1 = BF_FEED_STOP_POLICY_VERSION
 BF_EDITORIAL_INSET_V1 = "bf_editorial_inset_v1"
 BF_EDITORIAL_INSET_V2 = "bf_editorial_inset_v2"
 BF_EDITORIAL_INSET_STYLE = BF_EDITORIAL_INSET_V1
 BF_VIRAL_MICRO_V1 = "bf_viral_micro_v1"
 BF_GROWTH_V2 = "bf_growth_v2"
+BF_FEED_STOP_FORMAT_V1 = "bf_feed_stop_format_v1"
 BF_REFERENCE_TAIL_V2 = "bf_reference_tail_v2"
 BF_SMOOTH_TAIL_V3 = "bf_smooth_tail_v3"
 BF_SMOOTH_TAIL_V4 = "bf_smooth_tail_v4"
 BF_SMOOTH_TAIL_V5 = "bf_smooth_tail_v5"
 BF_NATURAL_TAIL_V6 = "bf_natural_tail_v6"
+BF_WINNER_PACKAGING_V1 = WINNER_PACKAGING_PROFILE
+BF_WINNER_LAYOUT_V1 = "bf_winner_layout_v1"
 
 # Descriptive aliases make call sites readable while keeping one canonical ID.
 MOTIVATIONAL_TENSION_MICRO = MOTIVATIONAL_TENSION_MICRO_V1
@@ -150,6 +167,49 @@ SELECTION_PROFILES: Dict[str, Dict] = {
         "post_source_fade_seconds": POST_SOURCE_FADE_SECONDS,
         "production_approval": False,
     },
+    # Opt-in HookGate V3 policy. Rendering remains independently frozen to
+    # bf_editorial_inset_v2 by the caller/profile bundle.
+    BF_FEED_STOP_V1: {
+        "content_profile": MOTIVATIONAL_PODCAST,
+        "preferred_min_seconds": 12.0,
+        "preferred_max_seconds": 17.0,
+        "strong_min_seconds": 12.0,
+        "strong_max_seconds": 21.0,
+        "hard_min_seconds": 8.0,
+        "hard_max_seconds": 24.0,
+        "explicit_review_min_seconds": 21.0,
+        "source_cut_limit": 2,
+        "semantic_completion_source_cut_allowance": 1,
+        "artificial_cut_limit": 0,
+        "hook_gate_prompt_version": HOOK_GATE_V3_PROMPT_VERSION,
+        "hook_gate_decision_version": HOOK_GATE_V3_DECISION_VERSION,
+        "hook_gate_minimum_score": 80.0,
+        "hook_context_dependence_max": 15.0,
+        "hook_abstraction_max": 35.0,
+        "hook_signal_max_latency_seconds": 2.0,
+        "hook_payoff_max_latency_seconds": 6.0,
+        "hook_opening_start_tolerance_seconds": 0.10,
+        "semantic_closure_decision_version": (
+            SEMANTIC_CLOSURE_DECISION_VERSION
+        ),
+        "natural_tail_policy_version": NATURAL_TAIL_POLICY_VERSION,
+        "closure_hard_min_seconds": 8.0,
+        "closure_preferred_min_seconds": 12.0,
+        "closure_preferred_max_seconds": 17.0,
+        "closure_soft_max_seconds": 21.0,
+        "closure_hard_max_seconds": 24.0,
+        "closure_strong_evidence_min_score": (
+            CLOSURE_STRONG_EVIDENCE_MIN_SCORE
+        ),
+        "closure_word_end_tolerance_seconds": (
+            CLOSURE_WORD_END_TOLERANCE_SECONDS
+        ),
+        "natural_tail_min_seconds": 0.35,
+        "natural_tail_max_seconds": 0.55,
+        "next_speech_safety_seconds": NEXT_SPEECH_SAFETY_SECONDS,
+        "post_source_fade_seconds": POST_SOURCE_FADE_SECONDS,
+        "production_approval": False,
+    },
 }
 
 
@@ -229,6 +289,71 @@ RENDER_PROFILES: Dict[str, Dict] = {
         "tail_audio_fade_max_seconds": 0.04,
         "render_duration_max_seconds": 31.5,
     },
+    # Opt-in packaging treatment. It shares the sealed semantic selection
+    # contract with growth-v2 but owns every visual/audio component ID so
+    # legacy render caches and defaults remain untouched.
+    BF_WINNER_PACKAGING_V1: {
+        "content_profile": MOTIVATIONAL_PODCAST,
+        "local_only": True,
+        "layout_hint": FULL_BLEED_LAYOUT_PROFILE,
+        "caption_style": COMPACT_CAPTION_PROFILE,
+        "style_version": BF_WINNER_PACKAGING_V1,
+        "packaging_decision_version": WINNER_PACKAGING_DECISION_VERSION,
+        "layout_version": FULL_BLEED_LAYOUT_PROFILE,
+        "grade_version": "source_authentic_grade_v1",
+        "type_plan_version": COMPACT_CAPTION_PROFILE,
+        "brand_tail_version": LIVE_TAIL_PROFILE,
+        "music_version": DENSE_DIALOGUE_AUDIO_PROFILE,
+        "canvas_width": 1080,
+        "canvas_height": 1920,
+        "canvas_fps": 30,
+        "source_cut_limit": 2,
+        "artificial_cut_limit": 0,
+        "youtube_brand_tail_default_seconds": 0.0,
+        "youtube_brand_tail_min_seconds": 0.0,
+        "youtube_brand_tail_max_seconds": 0.0,
+        "post_speech_reaction_min_seconds": 0.80,
+        "post_speech_reaction_max_seconds": 1.10,
+        "post_source_settle_max_seconds": 0.0,
+        "tail_crossfade_max_seconds": 0.16,
+        "tail_audio_fade_max_seconds": 0.04,
+        "render_duration_max_seconds": 31.5,
+        "opening_source_authentic": True,
+        "first_speech_max_seconds": 0.10,
+        "full_bleed_opening_min_seconds": 1.50,
+        "face_height_min_ratio": 0.35,
+        "face_height_max_ratio": 0.60,
+        "production_approval": False,
+    },
+    # First rollout isolates layout only. Captions, ending, grade, and audio
+    # remain the growth-v2 control components.
+    BF_WINNER_LAYOUT_V1: {
+        "content_profile": MOTIVATIONAL_PODCAST,
+        "local_only": True,
+        "layout_hint": FULL_BLEED_LAYOUT_PROFILE,
+        "caption_style": BF_EDITORIAL_INSET_V2,
+        "style_version": BF_WINNER_LAYOUT_V1,
+        "packaging_decision_version": WINNER_PACKAGING_DECISION_VERSION,
+        "layout_version": FULL_BLEED_LAYOUT_PROFILE,
+        "grade_version": "high_contrast_grayscale_v1",
+        "type_plan_version": "kinetic_editorial_v1",
+        "brand_tail_version": BF_NATURAL_TAIL_V6,
+        "music_version": "licensed_low_bed_v1",
+        "canvas_width": 1080,
+        "canvas_height": 1920,
+        "canvas_fps": 30,
+        "source_cut_limit": 2,
+        "artificial_cut_limit": 0,
+        "youtube_brand_tail_default_seconds": 0.85,
+        "youtube_brand_tail_min_seconds": 0.80,
+        "youtube_brand_tail_max_seconds": 0.90,
+        "post_speech_reaction_max_seconds": NATURAL_TAIL_MAX_SECONDS,
+        "post_source_settle_max_seconds": 0.0,
+        "tail_crossfade_max_seconds": POST_SOURCE_FADE_SECONDS,
+        "tail_audio_fade_max_seconds": 0.04,
+        "render_duration_max_seconds": 31.5,
+        "production_approval": False,
+    },
 }
 
 
@@ -243,6 +368,21 @@ FORMAT_PROFILES: Dict[str, Dict] = {
         "content_profile": MOTIVATIONAL_PODCAST,
         "selection_profile": MOTIVATIONAL_TENSION_MICRO_V2,
         "render_profile": BF_EDITORIAL_INSET_V2,
+        "local_only": True,
+        "production_approval": False,
+    },
+    BF_FEED_STOP_FORMAT_V1: {
+        "content_profile": MOTIVATIONAL_PODCAST,
+        "selection_profile": BF_FEED_STOP_V1,
+        "render_profile": BF_EDITORIAL_INSET_V2,
+        "local_only": True,
+        "production_approval": False,
+        "rendering_frozen": True,
+    },
+    BF_WINNER_PACKAGING_V1: {
+        "content_profile": MOTIVATIONAL_PODCAST,
+        "selection_profile": MOTIVATIONAL_TENSION_MICRO_V2,
+        "render_profile": BF_WINNER_PACKAGING_V1,
         "local_only": True,
         "production_approval": False,
     },
@@ -339,6 +479,7 @@ def profile_manifest_metadata(resolved_profiles: Optional[Dict]) -> Dict:
                 key: render_contract[key]
                 for key in (
                     "style_version",
+                    "packaging_decision_version",
                     "layout_version",
                     "grade_version",
                     "type_plan_version",
@@ -405,6 +546,24 @@ def profile_manifest_metadata(resolved_profiles: Optional[Dict]) -> Dict:
                 selection_contract.get("production_approval", False)
             ),
         }
+        optional_hook_contract = {
+            "minimum_score": selection_contract.get(
+                "hook_gate_minimum_score"
+            ),
+            "maximum_context_dependence": selection_contract.get(
+                "hook_context_dependence_max"
+            ),
+            "maximum_abstraction_score": selection_contract.get(
+                "hook_abstraction_max"
+            ),
+        }
+        immutable_contract["hook_gate"].update(
+            {
+                key: value
+                for key, value in optional_hook_contract.items()
+                if value is not None
+            }
+        )
     if selection_contract.get("semantic_closure_decision_version"):
         immutable_contract["semantic_closure"] = {
             "decision_version": selection_contract[
@@ -475,7 +634,11 @@ def profile_manifest_metadata(resolved_profiles: Optional[Dict]) -> Dict:
             ),
             "freeze_allowed": False,
         }
-        if render_id == BF_EDITORIAL_INSET_V2:
+        if render_id in {
+            BF_EDITORIAL_INSET_V2,
+            BF_WINNER_LAYOUT_V1,
+            BF_WINNER_PACKAGING_V1,
+        }:
             immutable_contract["tail_policy"].update(
                 {
                     "semantic_closure_seal_required": True,
@@ -573,7 +736,12 @@ def render_settings_for_content(
         "enhancement_reference_blend": profile["enhancement_reference_blend"],
         "background_music": profile["background_music"],
     }
-    if render_id in {BF_EDITORIAL_INSET_V1, BF_EDITORIAL_INSET_V2}:
+    if render_id in {
+        BF_EDITORIAL_INSET_V1,
+        BF_EDITORIAL_INSET_V2,
+        BF_WINNER_LAYOUT_V1,
+        BF_WINNER_PACKAGING_V1,
+    }:
         settings.update(
             {
                 "grade_profile": render_contract["grade_version"],
