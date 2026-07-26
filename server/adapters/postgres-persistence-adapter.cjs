@@ -663,6 +663,47 @@ class PostgresPersistenceAdapter {
     });
   }
 
+  async getAvailableUploadArtifactOwnedBy(uploadId, ownerId) {
+    const result = await this.query(
+      `SELECT
+         upload.id AS upload_id,
+         upload.project_id,
+         upload.metadata_json AS upload_metadata_json,
+         artifact.id AS artifact_id,
+         artifact.storage_key,
+         artifact.content_type,
+         artifact.byte_size,
+         artifact.checksum_sha256,
+         artifact.metadata_json AS artifact_metadata_json
+       FROM uploads AS upload
+       JOIN artifacts AS artifact
+         ON artifact.id = upload.artifact_id
+        AND artifact.owner_id = upload.owner_id
+       WHERE upload.id = $1
+         AND upload.owner_id = $2
+         AND upload.status = 'available'
+         AND artifact.status = 'available'`,
+      [uploadId, ownerId],
+    );
+    if (!result.rowCount) return null;
+    const row = result.rows[0];
+    return {
+      uploadId: row.upload_id,
+      projectId: row.project_id,
+      artifactId: row.artifact_id,
+      storageKey: row.storage_key,
+      contentType: row.content_type,
+      byteSize: Number(row.byte_size),
+      checksumSha256: row.checksum_sha256
+        ? String(row.checksum_sha256).trim()
+        : null,
+      metadata: {
+        ...safeJson(row.artifact_metadata_json),
+        ...safeJson(row.upload_metadata_json),
+      },
+    };
+  }
+
   async createDeliveryGrant(record) {
     const result = await this.query(
       `INSERT INTO delivery_grants(
