@@ -1,0 +1,9 @@
+# Synthetic idempotency key used by the production web contract test.
+520641bc449da9f1466365aaabd05a18fc3e25f7:tests/production-web-app.test.cjs:generic-api-key:245
+520641bc449da9f1466365aaabd05a18fc3e25f7:tests/production-web-app.test.cjs:generic-api-key:252
+a52e0220a7b54b720d2fe0072667df51b26a1259:tests/production-web-app.test.cjs:generic-api-key:245
+a52e0220a7b54b720d2fe0072667df51b26a1259:tests/production-web-app.test.cjs:generic-api-key:252
+
+# Fixed animation geometry identifiers; these are not authentication tokens.
+e0ecd37402553b1d2a3f9f52e9dd766e3abac5c4:renderer/hyperframes/primitives/persistent-signal.mjs:generic-api-key:15
+e0ecd37402553b1d2a3f9f52e9dd766e3abac5c4:renderer/hyperframes/primitives/persistent-signal.mjs:generic-api-key:16
