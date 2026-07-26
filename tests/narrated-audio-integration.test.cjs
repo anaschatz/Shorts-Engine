@@ -40,7 +40,7 @@ test("real FFmpeg burns managed ASS and muxes normalized managed PCM narration",
     const wavPath = join(root, "voice.wav");
     const framePath = join(root, "frame.png");
     assert.equal(spawnSync(CONFIG.ffmpegBin, ["-y", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=3", "-ac", "1", "-c:a", "pcm_s16le", wavPath], { stdio: "ignore" }).status, 0);
-    assert.equal(spawnSync(CONFIG.ffmpegBin, ["-y", "-f", "lavfi", "-i", "color=c=0x111827:s=720x1280", "-frames:v", "1", framePath], { stdio: "ignore" }).status, 0);
+    assert.equal(spawnSync(CONFIG.ffmpegBin, ["-y", "-f", "lavfi", "-i", "color=c=0x334155:s=720x1280", "-frames:v", "1", framePath], { stdio: "ignore" }).status, 0);
     const artifactStore = new LocalArtifactAdapter();
     const artifactRepository = new InMemoryArtifactRepository({ persist: false });
     const contentArtifactRepository = new ContentArtifactRepository({ artifactStore, artifactRepository });

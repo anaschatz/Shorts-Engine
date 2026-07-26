@@ -37,8 +37,8 @@ function sourceArtifacts({ project, draft, contentArtifacts }) {
   }));
 }
 
-function createBindings({ project, approval, draftEnvelope, outputHash, qaArtifact }) {
-  return {
+function createBindings({ project, approval, draftEnvelope, outputHash, qaArtifact, qaReport = null }) {
+  const bindings = {
     projectId: project.id,
     projectRevision: project.input.revision,
     approvalId: approval.approvalId,
@@ -48,6 +48,10 @@ function createBindings({ project, approval, draftEnvelope, outputHash, qaArtifa
     qaReportArtifactId: qaArtifact.artifact.id,
     qaReportHash: qaArtifact.envelope.contentHash,
   };
+  if (qaReport && qaReport.bindings && qaReport.bindings.animationIRHash) {
+    for (const key of ["animationTimingContextArtifactId", "animationTimingContextHash", "animationPlanArtifactId", "animationPlanHash", "animationIRArtifactId", "animationIRHash", "animationRenderManifestArtifactId", "animationRenderManifestHash", "animationQaArtifactId", "animationQaHash", "visualMasterSha256", "animationCompositionHash", "animationProvider", "animationRuntimeVersion", "animationStyleVersion"]) bindings[key] = qaReport.bindings[key];
+  }
+  return bindings;
 }
 
 function createRightsBody({ bindings, active, narration, draft, fontId }) {
@@ -81,11 +85,11 @@ function validateEvidencePackage(input = {}) {
 }
 
 async function generateEvidencePackage(input = {}, dependencies = {}) {
-  const { project, approval, draftEnvelope, draft, active, narration, alignmentArtifact, captionManifestArtifact, captionAssArtifact, normalizationArtifact, timelineArtifact, qaArtifact, qaReport, qaAnalysis, outputHash, outputPath, timeline, artifactStore, artifactRepository, contentArtifacts, jobId, fontId = "managed_caption_font" } = input;
+  const { project, approval, draftEnvelope, draft, active, narration, alignmentArtifact, captionManifestArtifact, captionAssArtifact, normalizationArtifact, timelineArtifact, animation, qaArtifact, qaReport, qaAnalysis, outputHash, outputPath, timeline, artifactStore, artifactRepository, contentArtifacts, jobId, fontId = "managed_caption_font" } = input;
   if (!project || !approval || !draftEnvelope || !draft || !active || !qaArtifact || !contentArtifacts) blocked("EVIDENCE_PACKAGE_INCOMPLETE", "inputs");
   const qa = normalizeQaReport(qaReport);
   if (qa.status !== "passed") blocked("TECHNICAL_EXPORT_BLOCKED", "qa_report");
-  const bindings = createBindings({ project, approval, draftEnvelope, outputHash, qaArtifact });
+  const bindings = createBindings({ project, approval, draftEnvelope, outputHash, qaArtifact, qaReport: qa });
   if (qa.contentHash !== bindings.qaReportHash || qa.bindings.outputHash !== outputHash) blocked("EVIDENCE_PACKAGE_HASH_MISMATCH", "qa_report");
   const sources = sourceArtifacts({ project, draft, contentArtifacts });
   const contactGenerator = dependencies.generateContactSheet || generateContactSheet;
@@ -111,7 +115,20 @@ async function generateEvidencePackage(input = {}, dependencies = {}) {
     artifactRef("contact_sheet", contact.artifact.id, contact.artifact.checksumSha256),
     artifactRef("final_output", null, outputHash),
   ];
-  const provenance = normalizeProvenanceReport({ schemaVersion: 1, status: "complete", profile: PROVENANCE_PROFILE, profileVersion: EVIDENCE_PROFILE_VERSION, bindings, dependencies: dependenciesList, versions: { renderer: RENDERER_VERSION, compositor: NARRATED_COMPOSITOR_VERSION, captionRenderer: CAPTION_RENDERER_VERSION, audioNormalization: AUDIO_PROFILE_VERSION, qaProfile: QA_PROFILE_VERSION, template: TEMPLATE_VERSION, font: fontId } });
+  if (bindings.animationIRHash) {
+    if (!animation || animation.manifest.animationIRHash !== bindings.animationIRHash || animation.visualMasterSha256 !== bindings.visualMasterSha256) blocked("EVIDENCE_PACKAGE_BINDING_STALE", "animation");
+    dependenciesList.push(
+      artifactRef("animation_timing_context", animation.timingArtifact.artifact.id, animation.timingArtifact.envelope.contentHash),
+      artifactRef("animation_plan", animation.planArtifact.artifact.id, animation.planArtifact.envelope.contentHash),
+      artifactRef("animation_ir", animation.irArtifact.artifact.id, animation.irArtifact.envelope.contentHash),
+      artifactRef("animation_render_manifest", animation.renderManifestArtifact.artifact.id, animation.renderManifestArtifact.envelope.contentHash),
+      artifactRef("animation_qa_report", animation.qaArtifact.artifact.id, animation.qaArtifact.envelope.contentHash),
+      artifactRef("visual_master", null, animation.visualMasterSha256),
+    );
+  }
+  const provenanceVersions = { renderer: RENDERER_VERSION, compositor: NARRATED_COMPOSITOR_VERSION, captionRenderer: CAPTION_RENDERER_VERSION, audioNormalization: AUDIO_PROFILE_VERSION, qaProfile: QA_PROFILE_VERSION, template: TEMPLATE_VERSION, font: fontId };
+  if (bindings.animationIRHash) Object.assign(provenanceVersions, { animationProvider: bindings.animationProvider, animationRuntime: bindings.animationRuntimeVersion, animationStyle: bindings.animationStyleVersion });
+  const provenance = normalizeProvenanceReport({ schemaVersion: 1, status: "complete", profile: PROVENANCE_PROFILE, profileVersion: EVIDENCE_PROFILE_VERSION, bindings, dependencies: dependenciesList, versions: provenanceVersions });
   const provenanceArtifact = contentArtifacts.createJson({ type: "provenance_report", projectId: project.id, jobId, revision: project.input.revision, dependencyHashes: dependenciesList.map((value) => value.hash), body: provenance });
   const illustrative = rights.disclosures.illustrativeReconstructionUsed;
   const metadata = normalizeExportMetadata({ schemaVersion: 1, status: "complete", profile: EXPORT_METADATA_PROFILE, profileVersion: EVIDENCE_PROFILE_VERSION, bindings, verticalId: "dark_curiosity", formatId: draft.brief.formatId, renderProfile: "final", media: { durationSeconds: qaAnalysis.durationSeconds, width: qaAnalysis.width, height: qaAnalysis.height, fps: qaAnalysis.fps, videoCodec: qaAnalysis.videoCodec, audioCodec: qaAnalysis.audioCodec, pixelFormat: qaAnalysis.pixelFormat, audioSampleRate: qaAnalysis.audioSampleRate }, qa: { profile: QA_PROFILE, profileVersion: QA_PROFILE_VERSION, reportArtifactId: qaArtifact.artifact.id, reportHash: qaArtifact.envelope.contentHash }, package: { rightsManifestArtifactId: rightsArtifact.artifact.id, rightsManifestHash: rightsArtifact.envelope.contentHash, provenanceReportArtifactId: provenanceArtifact.artifact.id, provenanceReportHash: provenanceArtifact.envelope.contentHash, contactSheetArtifactId: contact.artifact.id, contactSheetHash: contact.artifact.checksumSha256 }, disclosures: { aiDisclosureRequired: illustrative, illustrativeReconstructionUsed: illustrative }, technicalFinal: true, qaPassed: true, publishable: false, publishApprovalRequired: true });

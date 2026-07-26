@@ -6,6 +6,7 @@ const { tmpdir } = require("node:os");
 const { spawnSync } = require("node:child_process");
 
 const { alignerDoctor, createNarrationPreparation, loadFixture, narrationPreflight, narrationRehearsal } = require("../server/pipelines/narrated-short/pilot/operator-tools.cjs");
+const { modelCacheDir } = require("../server/adapters/faster-whisper-adapter.cjs");
 const { discoverCompatiblePython, parseBootstrapArgs, runBootstrap } = require("../server/pipelines/narrated-short/pilot/bootstrap.cjs");
 const { scriptWords } = require("../server/pipelines/narrated-short/narration/alignment.cjs");
 const { runPilotWorkflow } = require("../server/pipelines/narrated-short/pilot/orchestrator.cjs");
@@ -24,6 +25,12 @@ test("aligner doctor exposes only bounded states for disabled, missing Python, p
   assert.equal(alignerDoctor({}, { spawnSync: python, probeRuntime: () => ({ available: false, reason: "package_missing" }) }).status, "package_missing");
   assert.equal(alignerDoctor({}, { spawnSync: python, probeRuntime: () => ({ available: false, reason: "model_unavailable" }) }).status, "model_missing");
   const ready = alignerDoctor({}, { spawnSync: python, probeRuntime: () => ({ available: true }) }); assert.equal(ready.status, "ready"); assert.doesNotMatch(JSON.stringify(ready), /\/Users|traceback|stdout|stderr|secret/i);
+});
+
+test("Whisper model cache override is restricted to managed repo data or temporary storage", () => {
+  const managed = resolve(__dirname, "..", "data", "models", "faster-whisper");
+  assert.equal(modelCacheDir({ SHORTSENGINE_LOCAL_WHISPER_CACHE_DIR: managed }), managed);
+  assert.throws(() => modelCacheDir({ SHORTSENGINE_LOCAL_WHISPER_CACHE_DIR: "/etc/whisper-model" }), /Invalid local Whisper cache directory/);
 });
 
 test("bootstrap is dry-run by default and mutations require explicit authorization", () => {

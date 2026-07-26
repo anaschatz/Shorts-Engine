@@ -19,6 +19,42 @@ Built by [Anastasis Chatzedakis](https://github.com/anaschatz), an undergraduate
 student in the Department of Management Science and Technology at the Athens
 University of Economics and Business.
 
+## Real Generated Outputs
+
+These specific outputs are used as evidence for ShortsEngine's documented 2026
+workflows. Evidence depth differs by example, so the public showcase separates
+live-page verification from repository-backed render and provenance records.
+
+### Why Cynicism Never Helps You
+
+![Actual frame from the verified public motivational Short](showcase/assets/motivational-cynicism.jpg)
+
+Verified public motivational Short from the **Budget Friendly** channel. The
+preview above is the video's actual public thumbnail, stored in the repository
+so the output is visible directly inside this README.
+
+### The GPS clocks that looked haunted
+
+<p align="center">
+  <img
+    src="showcase/assets/gps-clocks-preview.gif"
+    alt="Animated preview from the verified GPS clocks narrated-animation render"
+    width="270"
+  />
+</p>
+
+![Five actual frames from the verified GPS clocks render](showcase/assets/gps-clocks-contact-sheet.png)
+
+Verified local narrated-animation technical final: 41.1 seconds, 1080×1920,
+30 fps, H.264/AAC. Both previews were extracted from the SHA-256-verified final
+render; public upload is pending.
+
+The supplied football Short was unavailable during the latest verification, so
+no screenshot is shown until a verifiable output artifact is available.
+
+See [SHOWCASE.md](SHOWCASE.md) for output metadata, provenance boundaries,
+quality evidence and publication status.
+
 ## At A Glance
 
 | | |

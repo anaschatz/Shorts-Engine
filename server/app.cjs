@@ -55,6 +55,7 @@ const { AUDIO_PROFILE_VERSION } = require("./pipelines/narrated-short/audio-norm
 const { NARRATED_COMPOSITOR_VERSION } = require("./pipelines/narrated-short/video-compositor.cjs");
 const { QA_PROFILE_VERSION, normalizeQaReport } = require("./pipelines/narrated-short/qa/contract.cjs");
 const { EVIDENCE_PROFILE_VERSION } = require("./pipelines/narrated-short/evidence/contract.cjs");
+const { buildProductionAnimationPayloadBindings } = require("./pipelines/narrated-short/animation/payload-bindings.cjs");
 const { publicInvalidationSummary, reviseNarratedProject } = require("./pipelines/narrated-short/invalidation.cjs");
 const { publicQaSummary } = require("./pipelines/narrated-short/qa/qa-orchestrator.cjs");
 const { createPublishApproval, verifyReleaseEligibility } = require("./pipelines/narrated-short/publish/service.cjs");
@@ -77,6 +78,11 @@ const {
   storageHealth,
 } = require("./storage.cjs");
 const { createDefaultAdapters } = require("./adapters/local-persistence-adapter.cjs");
+const { FootballReviewRepository } = require("./pipelines/football/review/review-repository.cjs");
+const { createFootballReviewService } = require("./pipelines/football/review/review-service.cjs");
+const { createExecutionControls } = require("./shared/core/execution-controls.cjs");
+const { createMetricsCollector } = require("./shared/core/metrics.cjs");
+const { createAnalysisCache } = require("./shared/core/analysis-cache.cjs");
 
 ensureDataDirs();
 
@@ -100,6 +106,8 @@ const contentApprovalRepository = new ContentApprovalRepository();
 contentApprovalRepository.recover();
 const publishApprovalRepository = new PublishApprovalRepository();
 publishApprovalRepository.recover();
+const footballReviewRepository = new FootballReviewRepository();
+const restoredFootballReviews = footballReviewRepository.restore();
 const jobs = new JobStore({
   persist: true,
   logger: console,
@@ -107,6 +115,19 @@ const jobs = new JobStore({
   maxAttempts: CONFIG.workerRetryMaxAttempts,
 });
 const jobQueue = createLocalJobQueue({ jobs, logger: console });
+const metrics = createMetricsCollector();
+const analysisCache = createAnalysisCache({
+  metrics,
+  ttlMs: CONFIG.analysisCacheTtlMs,
+  maxEntries: CONFIG.analysisCacheMaxEntries,
+});
+const executionControls = createExecutionControls({
+  jobsProvider: () => jobs.all(),
+  perUserDailyQuota: CONFIG.renderQuotaPerUserPerDay,
+  perUserConcurrency: CONFIG.renderConcurrencyPerUser,
+  globalConcurrency: CONFIG.renderConcurrencyGlobal,
+  errorFactory: (code, status, details) => new AppError(code, SAFE_MESSAGES[code], status, details),
+});
 const uploadLimiter = createRateLimiter({ limit: 12, windowMs: 60 * 1000 });
 const generateLimiter = createRateLimiter({ limit: 20, windowMs: 60 * 1000 });
 const youtubeValidateLimiter = createRateLimiter({ limit: 30, windowMs: 60 * 1000 });
@@ -221,6 +242,9 @@ const jobWorker = createLocalJobWorker({
     runNarratedRenderJob,
     regenerationApprovalRepository,
     approvalOutboxRepository,
+    footballReviewRepository,
+    analysisCache,
+    metrics,
     persistenceAdapter,
     persistRenderRecord: (record) => persistenceAdapter.persistRenderRecord(record),
   },
@@ -241,10 +265,21 @@ const workerSupervisor = createWorkerSupervisor({
   worker: jobWorker,
   logger: console,
 });
+const footballReviewService = createFootballReviewService({
+  artifactAdapter,
+  footballReviewRepository,
+  jobQueue,
+  projectRepository,
+  uploadRepository,
+  workerSupervisor,
+  executionControls,
+});
 const recoveredExports = restoreExportsFromCompletedJobs({ jobs, exportRepository, artifactStore, logger: console });
 const recoveredApprovalAudits = recoverApprovalAudits({
   regenerationApprovalRepository,
   approvalOutboxRepository,
+  footballReviewRepository,
+  footballReviewService,
   jobs,
   logger: console,
   requestId: "startup_recovery",
@@ -270,6 +305,13 @@ if (
     approvals: restoredApprovalAudits,
     outbox: restoredApprovalOutbox,
   })));
+}
+if (restoredFootballReviews.records > 0 || restoredFootballReviews.ignored > 0) {
+  console.info(JSON.stringify({
+    level: "info",
+    event: "football_reviews_rehydrated",
+    ...restoredFootballReviews,
+  }));
 }
 const { queued: queuedOnStartup } = workerSupervisor.start({ requestId: "startup_recovery" });
 if (queuedOnStartup > 0) {
@@ -617,6 +659,7 @@ async function handleHealth(req, res, rid) {
     regenerationDrafts: regenerationDraftRepository.health(),
     regenerationApprovals: regenerationApprovalRepository.health(),
     approvalOutbox: approvalOutboxRepository.health(),
+    footballReviews: footballReviewRepository.health(),
   };
   const adapters = {
     artifacts,
@@ -636,11 +679,17 @@ async function handleHealth(req, res, rid) {
   const worker = jobWorker.health();
   const supervisor = workerSupervisor.health();
   const queue = jobQueue.health();
+  const controls = executionControls.health();
+  const cache = analysisCache.health();
+  const observability = metrics.health();
   const releaseReadiness = createReleaseReadiness({ rootDir: CONFIG.rootDir });
   const productionBeta = createProductionBetaReadiness({
     persistence: adapters.persistence,
     artifacts,
     queue,
+    executionControls: controls,
+    analysisCache: cache,
+    observability,
     auth,
     evaluation: loadBetaEvaluationSummary({ rootDir: CONFIG.rootDir }),
     humanReviewGateAvailable: true,
@@ -677,6 +726,9 @@ async function handleHealth(req, res, rid) {
     adapters,
     jobs: jobs.health(),
     queue,
+    executionControls: controls,
+    analysisCache: cache,
+    observability,
     outbox,
     worker,
     supervisor,
@@ -1118,6 +1170,7 @@ async function handleRenderNarratedProject(req, res, rid, projectId, principal) 
     qaProfileVersion: QA_PROFILE_VERSION,
     evidenceProfileVersion: EVIDENCE_PROFILE_VERSION,
   };
+  Object.assign(payload, buildProductionAnimationPayloadBindings({ project, approval, renderProfile: approval.renderProfile, contentArtifacts: contentArtifactRepository }));
   const key = requestPayload.idempotencyKey || idempotencyKey("render_narrated_short", {
     projectId: project.id,
     revision: project.input.revision,
@@ -1132,6 +1185,12 @@ async function handleRenderNarratedProject(req, res, rid, projectId, principal) 
     compositorVersion: payload.compositorVersion,
     qaProfileVersion: payload.qaProfileVersion,
     evidenceProfileVersion: payload.evidenceProfileVersion,
+    timingContextHash: payload.timingContextHash,
+    animationPlanHash: payload.animationPlanHash,
+    animationIRHash: payload.animationIRHash,
+    animationProvider: payload.animationProvider,
+    animationRuntimeVersion: payload.animationRuntimeVersion,
+    animationStyleVersion: payload.animationStyleVersion,
   });
   const job = jobQueue.create({
     projectId: project.id,
@@ -1197,6 +1256,133 @@ async function handleFinalDownloadUrl(req, res, projectId, principal) {
   sendOk(res, { eligible: true, projectId: eligibility.projectId, projectRevision: eligibility.projectRevision, outputHash: eligibility.outputHash, publishApprovalId: eligibility.publishApprovalId, downloadUrl: signed.downloadUrl, expiresAt: signed.expiresAt, ttlSeconds: signed.ttlSeconds });
 }
 
+async function handleCreateFootballReview(req, res, rid, projectId, principal) {
+  if (!reviewLimiter.check(clientKey(req))) {
+    throw new AppError("RATE_LIMITED", SAFE_MESSAGES.RATE_LIMITED, 429);
+  }
+  const safeProjectId = validateRouteId(projectId, "prj");
+  const project = persistenceAdapter.getProject(safeProjectId);
+  if (!project) throw new AppError("PROJECT_NOT_FOUND", SAFE_MESSAGES.PROJECT_NOT_FOUND, 404);
+  assertProjectAccess(project, principal);
+  validateJsonContentType(req);
+  enforceContentLength(req, MAX_JSON_BODY_BYTES);
+  const payload = await readJsonBody(req, MAX_JSON_BODY_BYTES);
+  const allowed = new Set(["sourceJobId", "expectedRevision"]);
+  for (const key of Object.keys(payload)) {
+    if (!allowed.has(key)) {
+      throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: key });
+    }
+  }
+  const sourceJob = jobQueue.get(validateRouteId(payload.sourceJobId, "job"));
+  if (!sourceJob) throw new AppError("JOB_NOT_FOUND", SAFE_MESSAGES.JOB_NOT_FOUND, 404);
+  assertJobAccess(sourceJob, principal);
+  const result = footballReviewService.createReview({
+    projectId: safeProjectId,
+    sourceJobId: sourceJob.id,
+    expectedRevision: payload.expectedRevision,
+    ownerId: principal.id,
+  });
+  const review = footballReviewService.publicReview({
+    projectId: safeProjectId,
+    reviewId: result.review.id,
+    ttlSeconds: 120,
+  });
+  console.info(JSON.stringify(redactForLogs({
+    level: "info",
+    event: "football_review_created",
+    requestId: rid,
+    projectId: safeProjectId,
+    sourceJobId: sourceJob.id,
+    reviewId: review.id,
+    reviewVersion: review.version,
+    candidateCount: review.candidateCount,
+    replayed: result.replayed,
+    principal: publicPrincipal(principal),
+  })));
+  sendOk(res, { status: review.status, review, replayed: result.replayed }, result.replayed ? 200 : 201);
+}
+
+async function handleGetFootballReview(req, res, projectId, url, principal) {
+  const safeProjectId = validateRouteId(projectId, "prj");
+  const project = persistenceAdapter.getProject(safeProjectId);
+  if (!project) throw new AppError("PROJECT_NOT_FOUND", SAFE_MESSAGES.PROJECT_NOT_FOUND, 404);
+  assertProjectAccess(project, principal);
+  const reviewId = url.searchParams.get("reviewId");
+  try {
+    const review = footballReviewService.publicReview({
+      projectId: safeProjectId,
+      reviewId: reviewId ? validateRouteId(reviewId, "fbr") : null,
+      ttlSeconds: 120,
+    });
+    sendOk(res, { status: review.status, review });
+  } catch (error) {
+    if (error && error.code === "FOOTBALL_REVIEW_NOT_FOUND" && !reviewId) {
+      sendOk(res, { status: "empty", review: null });
+      return;
+    }
+    throw error;
+  }
+}
+
+async function handleFootballReviewDecision(req, res, rid, projectId, reviewId, principal) {
+  if (!reviewLimiter.check(clientKey(req))) {
+    throw new AppError("RATE_LIMITED", SAFE_MESSAGES.RATE_LIMITED, 429);
+  }
+  const safeProjectId = validateRouteId(projectId, "prj");
+  const safeReviewId = validateRouteId(reviewId, "fbr");
+  const project = persistenceAdapter.getProject(safeProjectId);
+  if (!project) throw new AppError("PROJECT_NOT_FOUND", SAFE_MESSAGES.PROJECT_NOT_FOUND, 404);
+  assertProjectAccess(project, principal);
+  validateJsonContentType(req);
+  enforceContentLength(req, MAX_JSON_BODY_BYTES);
+  const payload = await readJsonBody(req, MAX_JSON_BODY_BYTES);
+  const allowed = new Set([
+    "expectedVersion",
+    "expectedSourceRevision",
+    "action",
+    "candidateId",
+    "note",
+    "idempotencyKey",
+  ]);
+  for (const key of Object.keys(payload)) {
+    if (!allowed.has(key)) {
+      throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: key });
+    }
+  }
+  const result = footballReviewService.decide({
+    projectId: safeProjectId,
+    reviewId: safeReviewId,
+    reviewerId: principal.id,
+    expectedVersion: payload.expectedVersion,
+    expectedSourceRevision: payload.expectedSourceRevision,
+    action: payload.action,
+    candidateId: payload.candidateId,
+    note: payload.note,
+    idempotencyKey: payload.idempotencyKey,
+    requestId: rid,
+  });
+  console.info(JSON.stringify(redactForLogs({
+    level: "info",
+    event: "football_review_decided",
+    requestId: rid,
+    projectId: safeProjectId,
+    reviewId: safeReviewId,
+    reviewVersion: result.review.version,
+    decision: result.review.decision,
+    selectedCandidateId: result.review.selectedCandidateId,
+    renderJobId: result.review.renderJobId,
+    regenerationJobId: result.review.regenerationJobId,
+    replayed: result.replayed,
+    principal: publicPrincipal(principal),
+  })));
+  sendOk(res, {
+    status: result.review.status,
+    review: result.publicReview,
+    job: result.publicJob,
+    replayed: result.replayed,
+  }, result.replayed ? 200 : 202);
+}
+
 async function handleGenerate(req, res, rid, projectId, principal) {
   const safeProjectId = validateRouteId(projectId, "prj");
   if (!generateLimiter.check(clientKey(req))) {
@@ -1227,6 +1413,10 @@ async function handleGenerate(req, res, rid, projectId, principal) {
     expectedCountedGoals: validatedPayload.expectedCountedGoals,
     expectedFinalScore: validatedPayload.expectedFinalScore,
     title: validatedPayload.title,
+  });
+  executionControls.assertCanEnqueue({
+    ownerId: principal.id,
+    idempotencyKey: key,
   });
   const job = jobQueue.create({
     projectId: safeProjectId,
@@ -1268,6 +1458,7 @@ function completedExportDescriptor(exportId, principal) {
   assertExportAccess(record, principal);
   const job = jobQueue.get(record.jobId);
   assertJobAccess(job, principal);
+  footballReviewService.assertExportAllowed(job);
   if (job && job.pipelineType === "narrated_short" && job.narratedRender && job.narratedRender.technicalFinal === true) throw new AppError("FINAL_DOWNLOAD_BLOCKED", SAFE_MESSAGES.FINAL_DOWNLOAD_BLOCKED, 409, { nextAction: "create-and-use-current-release-token" });
   return persistenceAdapter.getExportDownloadDescriptor(record, { job });
 }
@@ -1636,7 +1827,29 @@ async function handleReviewRegenerationApproval(req, res, rid, principal) {
 
 async function handleSignedArtifactDownload(req, res, url, principal) {
   const artifact = artifactAdapter.validateSignedDownloadToken(url.searchParams.get("token"));
-  if (!artifact || !artifact.id || !String(artifact.id).startsWith("exp_")) {
+  if (!artifact || !artifact.id) {
+    throw new AppError("ARTIFACT_TOKEN_INVALID", SAFE_MESSAGES.ARTIFACT_TOKEN_INVALID, 404);
+  }
+  if (String(artifact.id).startsWith("upl_") && artifact.type === "upload") {
+    const upload = persistenceAdapter.getUpload(artifact.id);
+    if (!upload || !upload.artifact || upload.artifact.id !== artifact.id) {
+      throw new AppError("ARTIFACT_TOKEN_INVALID", SAFE_MESSAGES.ARTIFACT_TOKEN_INVALID, 404);
+    }
+    assertUploadAccess(upload, principal);
+    const metadata = artifactAdapter.getArtifactMetadata(upload.artifact);
+    const stream = artifactAdapter.createReadStream(upload.artifact);
+    res.writeHead(200, {
+      ...SAFE_RESPONSE_HEADERS,
+      "content-type": upload.mimeType || metadata.contentType || "video/mp4",
+      "content-length": metadata.size,
+      "content-disposition": `inline; filename="${safeDownloadFileName(upload.originalFilename, "football-review-source.mp4")}"`,
+      "accept-ranges": "none",
+    });
+    stream.on("error", () => res.destroy());
+    stream.pipe(res);
+    return;
+  }
+  if (!String(artifact.id).startsWith("exp_")) {
     throw new AppError("ARTIFACT_TOKEN_INVALID", SAFE_MESSAGES.ARTIFACT_TOKEN_INVALID, 404);
   }
   const descriptor = completedExportDescriptor(artifact.id, principal);
@@ -2241,6 +2454,26 @@ async function route(req, res) {
     if (req.method === "POST" && pathname === "/api/review/regeneration-plan") return await handleReviewRegenerationPlan(req, res, rid, principal());
     if (req.method === "POST" && pathname === "/api/review/regeneration-approval") return await handleReviewRegenerationApproval(req, res, rid, principal());
 
+    const footballReviewCollectionMatch = pathname.match(/^\/api\/projects\/([^/]+)\/football-reviews$/);
+    if (req.method === "POST" && footballReviewCollectionMatch) {
+      return await handleCreateFootballReview(req, res, rid, footballReviewCollectionMatch[1], principal());
+    }
+    const footballReviewLatestMatch = pathname.match(/^\/api\/projects\/([^/]+)\/football-review$/);
+    if (req.method === "GET" && footballReviewLatestMatch) {
+      return await handleGetFootballReview(req, res, footballReviewLatestMatch[1], url, principal());
+    }
+    const footballReviewDecisionMatch = pathname.match(/^\/api\/projects\/([^/]+)\/football-reviews\/([^/]+)\/decision$/);
+    if (req.method === "POST" && footballReviewDecisionMatch) {
+      return await handleFootballReviewDecision(
+        req,
+        res,
+        rid,
+        footballReviewDecisionMatch[1],
+        footballReviewDecisionMatch[2],
+        principal(),
+      );
+    }
+
     const narratedDraftMatch = pathname.match(/^\/api\/narrated-projects\/([^/]+)\/draft$/);
     if (req.method === "POST" && narratedDraftMatch) return await handleDraftNarratedProject(req, res, rid, narratedDraftMatch[1], principal());
 
@@ -2419,6 +2652,11 @@ module.exports = {
   approvalOutboxRepository,
   contentArtifactRepository,
   contentApprovalRepository,
+  footballReviewRepository,
+  footballReviewService,
+  analysisCache,
+  executionControls,
+  metrics,
   artifactCleanupWorker,
   outboxWorker,
   workerSupervisor,

@@ -38,6 +38,11 @@ const ARTIFACT_TYPES = Object.freeze([
   "caption_ass",
   "audio_normalization_report",
   "timeline_ir",
+  "animation_timing_context",
+  "animation_plan",
+  "animation_ir",
+  "animation_render_manifest",
+  "animation_qa_report",
   "scene_keyframe",
   "render_manifest",
   "qa_report",
@@ -50,7 +55,7 @@ const ARTIFACT_TYPES = Object.freeze([
 ]);
 const ARTIFACT_STATUSES = Object.freeze(["staging", "available", "missing", "deleted"]);
 const TEMP_ARTIFACT_TYPES = Object.freeze(["extracted_audio", "audio", "subtitle_temp", "subtitles", "render_temp", "scene_keyframe"]);
-const DOWNLOAD_ARTIFACT_TYPES = Object.freeze(["rendered_video", "render", "export"]);
+const DOWNLOAD_ARTIFACT_TYPES = Object.freeze(["upload", "rendered_video", "render", "export"]);
 const DEFAULT_SIGNED_DOWNLOAD_TTL_SECONDS = 5 * 60;
 const DEFAULT_MAX_SIGNED_DOWNLOAD_TOKENS = 500;
 const MAX_READ_ARTIFACT_BYTES = 25 * 1024 * 1024;
@@ -78,6 +83,11 @@ const AREA_BY_TYPE = Object.freeze({
   caption_ass: "artifacts",
   audio_normalization_report: "artifacts",
   timeline_ir: "artifacts",
+  animation_timing_context: "artifacts",
+  animation_plan: "artifacts",
+  animation_ir: "artifacts",
+  animation_render_manifest: "artifacts",
+  animation_qa_report: "artifacts",
   scene_keyframe: "artifacts",
   render_manifest: "artifacts",
   qa_report: "artifacts",
@@ -112,6 +122,11 @@ const CONTENT_TYPE_BY_TYPE = Object.freeze({
   caption_ass: "text/x-ass",
   audio_normalization_report: "application/json",
   timeline_ir: "application/json",
+  animation_timing_context: "application/json",
+  animation_plan: "application/json",
+  animation_ir: "application/json",
+  animation_render_manifest: "application/json",
+  animation_qa_report: "application/json",
   scene_keyframe: "image/png",
   render_manifest: "application/json",
   qa_report: "application/json",

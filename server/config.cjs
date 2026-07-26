@@ -35,6 +35,7 @@ const CONTENT_APPROVAL_DIR = join(DATA_DIR, "content-approvals");
 const REVIEW_DRAFT_DIR = join(DATA_DIR, "review-drafts");
 const REVIEW_APPROVAL_DIR = join(DATA_DIR, "review-approvals");
 const REVIEW_APPROVAL_OUTBOX_DIR = join(DATA_DIR, "review-approval-outbox");
+const FOOTBALL_REVIEW_DIR = join(DATA_DIR, "football-reviews");
 const DB_DIR = join(DATA_DIR, "db");
 const TMP_DIR = join(DATA_DIR, "tmp");
 const STAGING_DIR = join(TMP_DIR, "staging");
@@ -491,6 +492,36 @@ const WORKER_RETRY_MAX_ATTEMPTS = validatePositiveIntegerConfig(process.env.MATC
   min: 1,
   max: 10,
 });
+const RENDER_QUOTA_PER_USER_PER_DAY = validatePositiveIntegerConfig(process.env.MATCHCUTS_RENDER_QUOTA_PER_USER_PER_DAY, {
+  name: "per-user daily render quota",
+  fallback: 20,
+  min: 1,
+  max: 100_000,
+});
+const RENDER_CONCURRENCY_PER_USER = validatePositiveIntegerConfig(process.env.MATCHCUTS_RENDER_CONCURRENCY_PER_USER, {
+  name: "per-user render concurrency",
+  fallback: 2,
+  min: 1,
+  max: 1000,
+});
+const RENDER_CONCURRENCY_GLOBAL = validatePositiveIntegerConfig(process.env.MATCHCUTS_RENDER_CONCURRENCY_GLOBAL, {
+  name: "global render concurrency",
+  fallback: 4,
+  min: 1,
+  max: 10_000,
+});
+const ANALYSIS_CACHE_TTL_MS = validatePositiveIntegerConfig(process.env.MATCHCUTS_ANALYSIS_CACHE_TTL_MS, {
+  name: "analysis cache ttl",
+  fallback: 24 * 60 * 60 * 1000,
+  min: 1000,
+  max: 30 * 24 * 60 * 60 * 1000,
+});
+const ANALYSIS_CACHE_MAX_ENTRIES = validatePositiveIntegerConfig(process.env.MATCHCUTS_ANALYSIS_CACHE_MAX_ENTRIES, {
+  name: "analysis cache maximum entries",
+  fallback: 500,
+  min: 1,
+  max: 10_000,
+});
 if (WORKER_RETRY_INITIAL_DELAY_MS > WORKER_RETRY_MAX_DELAY_MS) {
   throw new Error("Invalid worker retry delay configuration.");
 }
@@ -508,6 +539,7 @@ const CONFIG = Object.freeze({
   reviewDraftDir: REVIEW_DRAFT_DIR,
   reviewApprovalDir: REVIEW_APPROVAL_DIR,
   reviewApprovalOutboxDir: REVIEW_APPROVAL_OUTBOX_DIR,
+  footballReviewDir: FOOTBALL_REVIEW_DIR,
   dbDir: DB_DIR,
   tmpDir: TMP_DIR,
   stagingDir: STAGING_DIR,
@@ -542,12 +574,17 @@ const CONFIG = Object.freeze({
   workerRetryInitialDelayMs: WORKER_RETRY_INITIAL_DELAY_MS,
   workerRetryMaxDelayMs: WORKER_RETRY_MAX_DELAY_MS,
   workerRetryMaxAttempts: WORKER_RETRY_MAX_ATTEMPTS,
+  renderQuotaPerUserPerDay: RENDER_QUOTA_PER_USER_PER_DAY,
+  renderConcurrencyPerUser: RENDER_CONCURRENCY_PER_USER,
+  renderConcurrencyGlobal: RENDER_CONCURRENCY_GLOBAL,
+  analysisCacheTtlMs: ANALYSIS_CACHE_TTL_MS,
+  analysisCacheMaxEntries: ANALYSIS_CACHE_MAX_ENTRIES,
   allowedExtensions: Object.freeze(["mp4", "mov", "webm"]),
   allowedMimeTypes: Object.freeze(["video/mp4", "video/quicktime", "video/webm"]),
 });
 
 function ensureDataDirs() {
-  for (const dir of [DATA_DIR, UPLOAD_DIR, AUDIO_DIR, RENDER_DIR, PROJECT_DIR, JOB_DIR, ARTIFACT_DIR, CONTENT_APPROVAL_DIR, REVIEW_DRAFT_DIR, REVIEW_APPROVAL_DIR, REVIEW_APPROVAL_OUTBOX_DIR, DB_DIR, TMP_DIR, STAGING_DIR, SOURCE_CACHE_DIR]) {
+  for (const dir of [DATA_DIR, UPLOAD_DIR, AUDIO_DIR, RENDER_DIR, PROJECT_DIR, JOB_DIR, ARTIFACT_DIR, CONTENT_APPROVAL_DIR, REVIEW_DRAFT_DIR, REVIEW_APPROVAL_DIR, REVIEW_APPROVAL_OUTBOX_DIR, FOOTBALL_REVIEW_DIR, DB_DIR, TMP_DIR, STAGING_DIR, SOURCE_CACHE_DIR]) {
     mkdirSync(dir, { recursive: true });
   }
 }

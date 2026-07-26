@@ -19,14 +19,17 @@ const { AUDIO_PROFILE_VERSION } = require("../audio-normalization.cjs");
 const { NARRATED_COMPOSITOR_VERSION } = require("../video-compositor.cjs");
 const { QA_PROFILE_VERSION } = require("../qa/contract.cjs");
 const { EVIDENCE_PROFILE_VERSION } = require("../evidence/contract.cjs");
+const { buildProductionAnimationPayloadBindings } = require("../animation/payload-bindings.cjs");
 
 function deterministicUuid(hash) { const chars = hash.slice(0, 32).split(""); chars[12] = "4"; chars[16] = ["8", "9", "a", "b"][parseInt(chars[16], 16) % 4]; const value = chars.join(""); return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`; }
 function startJob(jobs, input) { const job = jobs.create(input); if (job.status === "queued") jobs.update(job, { status: "processing", progress: 1, step: "pilot_dispatch" }); return job; }
 function ref(artifactId, hash) { return artifactId && hash ? { artifactId, hash } : null; }
 
-function renderPayload(project, approval, profile) {
+function renderPayload(project, approval, profile, contentArtifacts = null) {
   const active = project.input.activeNarration;
-  return { projectRevision: project.input.revision, language: project.language, approvedDraftArtifactId: approval.draftArtifactId, approvedDraftHash: approval.draftHash, renderProfile: profile, narrationManifestHash: active && active.manifestHash, audioHash: active && active.audioHash, alignmentHash: active && active.alignmentHash, captionRendererVersion: CAPTION_RENDERER_VERSION, captionProfileVersion: CAPTION_PROFILE_VERSION, audioNormalizationProfileVersion: AUDIO_PROFILE_VERSION, compositorVersion: NARRATED_COMPOSITOR_VERSION, qaProfileVersion: QA_PROFILE_VERSION, evidenceProfileVersion: EVIDENCE_PROFILE_VERSION };
+  const payload = { projectRevision: project.input.revision, language: project.language, approvedDraftArtifactId: approval.draftArtifactId, approvedDraftHash: approval.draftHash, renderProfile: profile, narrationManifestHash: active && active.manifestHash, audioHash: active && active.audioHash, alignmentHash: active && active.alignmentHash, captionRendererVersion: CAPTION_RENDERER_VERSION, captionProfileVersion: CAPTION_PROFILE_VERSION, audioNormalizationProfileVersion: AUDIO_PROFILE_VERSION, compositorVersion: NARRATED_COMPOSITOR_VERSION, qaProfileVersion: QA_PROFILE_VERSION, evidenceProfileVersion: EVIDENCE_PROFILE_VERSION };
+  Object.assign(payload, buildProductionAnimationPayloadBindings({ project, approval, renderProfile: profile, contentArtifacts }));
+  return payload;
 }
 
 function createLocalPilotRuntime(options = {}, overrides = {}) {
@@ -41,7 +44,7 @@ function createLocalPilotRuntime(options = {}, overrides = {}) {
 
   async function executeRender(context, profile) {
     const project = projects.get(context.projectId); const approval = approvals.findApproved(project.id, project.input.revision); if (!approval) throw new AppError("ACTIVE_APPROVAL_REQUIRED", SAFE_MESSAGES.ACTIVE_APPROVAL_REQUIRED, 409);
-    const payload = renderPayload(project, approval, profile); const job = startJob(jobs, { projectId: project.id, ownerId: options.operatorId, action: "render_narrated_short", pipelineType: "narrated_short", idempotencyKey: idempotencyKey(`pilot_${profile}`, { runId: context.runId, ...payload }), payload });
+    const payload = renderPayload(project, approval, profile, content); const job = startJob(jobs, { projectId: project.id, ownerId: options.operatorId, action: "render_narrated_short", pipelineType: "narrated_short", idempotencyKey: idempotencyKey(`pilot_${profile}`, { runId: context.runId, ...payload }), payload });
     const result = await runNarratedRenderJob({ jobs, job, project, payload: job.payload, dependencies: deps, exportRepository: exports });
     return { job, result };
   }

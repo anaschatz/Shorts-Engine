@@ -1,6 +1,7 @@
 const { spawn, spawnSync } = require("node:child_process");
 const { createHash } = require("node:crypto");
 const { existsSync } = require("node:fs");
+const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { CONFIG } = require("../config.cjs");
 const { AppError, SAFE_MESSAGES } = require("../errors.cjs");
@@ -9,6 +10,22 @@ const { sanitizeText } = require("../media.cjs");
 const HELPER_PATH = path.resolve(__dirname, "../../tools/faster-whisper-transcribe.py");
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 let cachedProbe = null;
+
+function inside(root, candidate) {
+  const relative = path.relative(path.resolve(root), path.resolve(candidate));
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function modelCacheDir(env = process.env) {
+  const fallback = path.resolve(CONFIG.dataDir, "models/faster-whisper");
+  const configured = String(env.SHORTSENGINE_LOCAL_WHISPER_CACHE_DIR || "").trim();
+  if (!configured) return fallback;
+  if (configured.length > 500 || configured.includes("\u0000")) throw new Error("Invalid local Whisper cache directory.");
+  const resolved = path.resolve(configured);
+  const repoData = path.resolve(__dirname, "../../data");
+  if (![repoData, tmpdir(), CONFIG.dataDir].some((root) => inside(root, resolved))) throw new Error("Invalid local Whisper cache directory.");
+  return resolved;
+}
 
 function modeFromEnv(env = process.env) {
   const value = String(env.SHORTSENGINE_LOCAL_WHISPER_MODE || "auto").trim().toLowerCase();
@@ -26,7 +43,7 @@ function fasterWhisperConfig(env = process.env) {
     computeType: String(env.SHORTSENGINE_LOCAL_WHISPER_COMPUTE_TYPE || "int8").trim(),
     timeoutMs: Math.max(1000, Math.min(900000, Number(env.SHORTSENGINE_LOCAL_WHISPER_TIMEOUT_MS || 180000))),
     helperPath: HELPER_PATH,
-    cacheDir: path.resolve(CONFIG.dataDir, "models/faster-whisper"),
+    cacheDir: modelCacheDir(env),
   };
 }
 
@@ -170,6 +187,7 @@ function transcribeWithFasterWhisper({ audioPath, language = "auto", env = proce
 module.exports = {
   fasterWhisperConfig,
   fasterWhisperVersion,
+  modelCacheDir,
   probeFasterWhisperRuntime,
   transcribeWithFasterWhisper,
 };

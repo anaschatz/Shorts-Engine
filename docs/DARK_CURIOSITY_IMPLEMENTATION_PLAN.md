@@ -1,8 +1,8 @@
 # Dark Curiosity Engine — Implementation and Validation Plan
 
-Status: implementation-ready plan
+Status: core pilot implemented; continuous-animation Slice C2 validated separately
 Owner model: one operator, one YouTube channel, YouTube-only revenue
-Last updated: 2026-07-11
+Last updated: 2026-07-13
 
 ## 1. Decision
 
@@ -75,6 +75,38 @@ The existing implementation already provides the infrastructure foundation:
 - the complete repository test suite is green.
 
 The current narrated contracts and SVG renderer are football-specific, and the render job uses estimated silent timing. These are the primary product gaps—not queues, persistence, upload infrastructure, or another orchestration framework.
+
+Continuous-animation Slice A now adds a separate, non-production benchmark path:
+
+- strict provider-neutral `AnimationIR v1` and motion budget;
+- isolated `hyperframes_benchmark` provider using `@hyperframes/producer` 0.7.55;
+- engine-owned SVG/custom interpolation with no generated renderer code, GSAP, CDN, or remote assets;
+- 300-frame 720×1280 and 1080×1920 Wow Signal proofs with manifests and motion QA;
+- unchanged production pilot and unchanged default SVG keyframe renderer.
+
+Continuous-animation Slice C1 extends only that benchmark path:
+
+- strict alignment-bound `TimingContext` plus absolute, beat, and word anchor resolution;
+- deterministic semantic-plan compilation with twelve fully resolved operations;
+- an IR-driven HyperFrames schedule with no hardcoded event frames in the choreography adapter;
+- a real deterministic 128-point waveform-to-evidence-node path morph;
+- a corrected 720×1280 timing proof, seven semantic checkpoints, alignment-sensitivity evidence, and backward-seek state proof;
+- unchanged production pilot, publishing gates, and default SVG keyframe renderer.
+
+The real timing proof passed its declared QA at 300 frames/30 fps, 14.701 seconds render time, 160 MiB peak memory, and 13.79% sampled stasis. The stasis result is within the current bound but too close to its limit to count as calibrated across content.
+
+Continuous-animation Slice C2 validates browser random access and malformed-input containment without changing production:
+
+- one real Chrome page loads the compiled composition once and seeks through an 11-frame out-of-order sequence;
+- five semantic frames reproduce byte-identical PNG captures after returning from later or earlier frames;
+- two complete 720×1280 renders match at IR, composition, decoded-checkpoint, browser-seek, technical-metadata, and MP4 hashes;
+- the valid proof browser records zero external requests, while an injected remote image request is blocked one-for-one;
+- thirteen adversarial timing plans fail before render with stable bounded error codes and no partial MP4;
+- bounded browser startup/navigation timeouts and safe launch-failure reduction prevent raw runtime leakage.
+
+The final runs completed in 15.495 and 17.085 seconds with 148 and 161 MiB peak memory. Both retained 13.79% sampled stasis. This validates the renderer's random-access determinism for one fixture; it does not validate long-form pacing, broader template quality, human preference, or channel economics.
+
+This does not raise the product-readiness estimate by itself. It proves renderer feasibility, not content-market fit, 30–40 second pacing, aligned narration choreography, or repeatable human preference.
 
 Strict readiness estimate:
 

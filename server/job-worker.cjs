@@ -40,6 +40,7 @@ function payloadForJob(job, project) {
   if (job.payload && job.payload.source) payload.source = job.payload.source;
   if (job.payload && job.payload.approvedEditPlan) payload.approvedEditPlan = job.payload.approvedEditPlan;
   if (job.payload && job.payload.regenerationApproval) payload.regenerationApproval = job.payload.regenerationApproval;
+  if (job.payload && job.payload.footballReviewApproval) payload.footballReviewApproval = job.payload.footballReviewApproval;
   return payload;
 }
 
@@ -47,8 +48,22 @@ function createWorkerId() {
   return `wrk_${randomUUID()}`;
 }
 
+function motivationalSourceShortHandlerFor(dependencies = {}) {
+  if (typeof dependencies.runMotivationalSourceShortJob === "function") {
+    return dependencies.runMotivationalSourceShortJob;
+  }
+  // The current Python bridge is discovery-only: it does not return the sealed
+  // RenderManifest + CreativeQa + AudioQa production artifact set. Keep the
+  // registered job handler unavailable until a production handler is injected.
+  return null;
+}
+
 function terminalStatus(status) {
   return ["completed", "failed", "cancelled"].includes(status);
+}
+
+function metricPipeline(value) {
+  return ["clip", "narrated_short", "motivational_source_short"].includes(value) ? value : "unknown";
 }
 
 function heartbeatIntervalMs(input, leaseDurationMs) {
@@ -247,6 +262,7 @@ function createLocalJobWorker({
     narratedDraftHandler: dependencies.runNarratedDraftJob,
     narrationAlignHandler: dependencies.runNarrationAlignmentJob,
     narratedRenderHandler: dependencies.runNarratedRenderJob,
+    motivationalSourceShortHandler: motivationalSourceShortHandlerFor(dependencies),
   });
   const renderDependencies = dependencies.renderDependencies || dependencies;
   const workerId = dependencies.workerId || createWorkerId();
@@ -255,6 +271,7 @@ function createLocalJobWorker({
   const heartbeatMs = heartbeatIntervalMs(dependencies.heartbeatIntervalMs, leaseMs);
   const setHeartbeatInterval = dependencies.setHeartbeatInterval || setInterval;
   const clearHeartbeatInterval = dependencies.clearHeartbeatInterval || clearInterval;
+  const metrics = dependencies.metrics || null;
 
   function safeFail(leasedJobs, job, error, requestId) {
     if (!job || terminalStatus(job.status)) return;
@@ -293,7 +310,16 @@ function createLocalJobWorker({
     }
     const leasedJobs = createLeaseBoundJobs(jobQueue, claim.lease);
     let heartbeat = { stop() {} };
+    let pipelineMetric = metricPipeline(job.pipelineType);
+    let executionStartedAt = nowMs();
     running.add(job.id);
+    if (metrics && Number.isFinite(Date.parse(job.createdAt))) {
+      metrics.observe("queue_latency_ms", Math.max(0, executionStartedAt - Date.parse(job.createdAt)), {
+        pipeline: pipelineMetric,
+        outcome: "success",
+        stage: "queue",
+      });
+    }
     logInfo(logger, {
       event: "worker_started",
       requestId,
@@ -308,10 +334,12 @@ function createLocalJobWorker({
       const project = getRecord(projectRepository, projects, job.projectId);
       if (!project) {
         leasedJobs.fail(job, new AppError("PROJECT_NOT_FOUND", SAFE_MESSAGES.PROJECT_NOT_FOUND, 404));
+        if (metrics) metrics.increment("job_failures_total", { pipeline: pipelineMetric, outcome: "failure", stage: "queue" });
         logInfo(logger, { event: "worker_failed", requestId, jobId: job.id, projectId: job.projectId, workerId, leaseId: claim.lease.leaseId, code: "PROJECT_NOT_FOUND" });
         return job;
       }
       const pipeline = pipelineRegistry.resolve(job);
+      pipelineMetric = metricPipeline(pipeline.pipelineType);
       const upload = pipeline.requiresUpload
         ? job.uploadId
           ? getRecord(uploadRepository, uploads, job.uploadId)
@@ -321,6 +349,7 @@ function createLocalJobWorker({
         : null;
       if (pipeline.requiresUpload && !upload) {
         leasedJobs.fail(job, new AppError("UPLOAD_NOT_FOUND", SAFE_MESSAGES.UPLOAD_NOT_FOUND, 404));
+        if (metrics) metrics.increment("job_failures_total", { pipeline: pipelineMetric, outcome: "failure", stage: "queue" });
         logInfo(logger, { event: "worker_failed", requestId, jobId: job.id, projectId: job.projectId, workerId, leaseId: claim.lease.leaseId, code: "UPLOAD_NOT_FOUND" });
         return job;
       }
@@ -350,6 +379,13 @@ function createLocalJobWorker({
         requestId,
         dependencies: { artifactStore, exportRepository, projectRepository, ...renderDependencies },
       });
+      if (metrics) {
+        metrics.observe("render_duration_ms", Math.max(0, nowMs() - executionStartedAt), {
+          pipeline: pipelineMetric,
+          outcome: job.status === "cancelled" ? "cancelled" : "success",
+          stage: "render",
+        });
+      }
       logInfo(logger, { event: "worker_finished", requestId, jobId: job.id, projectId: job.projectId, workerId, leaseId: claim.lease.leaseId, status: job.status });
       return job;
     } catch (error) {
@@ -363,6 +399,7 @@ function createLocalJobWorker({
           workerId,
         });
         if (scheduled) {
+          if (metrics) metrics.increment("job_retries_total", { pipeline: pipelineMetric, outcome: "failure", stage: "queue" });
           logInfo(logger, {
             event: "worker_retry_delegated",
             requestId,
@@ -376,6 +413,13 @@ function createLocalJobWorker({
         }
       }
       safeFail(leasedJobs, job, error, requestId);
+      if (metrics) {
+        metrics.increment("job_failures_total", {
+          pipeline: pipelineMetric,
+          outcome: error && error.code === "JOB_CANCELLED" ? "cancelled" : "failure",
+          stage: "render",
+        });
+      }
       logInfo(logger, {
         event: "worker_failed",
         requestId,

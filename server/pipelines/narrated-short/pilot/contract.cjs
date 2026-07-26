@@ -15,6 +15,7 @@ function invalid(field) { throw new AppError("PILOT_REPORT_INVALID", SAFE_MESSAG
 function exact(value, keys, field) { if (!value || typeof value !== "object" || Array.isArray(value)) invalid(field); const allowed = new Set(keys); for (const key of Object.keys(value)) if (!allowed.has(key)) invalid(`${field}.${key}`); }
 function safeHash(value, field, optional = false) { if (optional && !value) return null; const safe = sanitizeText(value, 80).toLowerCase().replace(/^sha256:/, ""); if (!/^[a-f0-9]{64}$/.test(safe)) invalid(field); return safe; }
 function safeArtifactId(value, field, optional = false) { if (optional && !value) return null; const safe = sanitizeText(value, 100); if (!/^art_[A-Za-z0-9-]{8,80}$/.test(safe)) invalid(field); return safe; }
+function safeExportArtifactId(value, field, optional = false) { if (optional && !value) return null; const safe = sanitizeText(value, 100); if (!/^(?:art|exp)_[A-Za-z0-9-]{8,80}$/.test(safe)) invalid(field); return safe; }
 function safeJobId(value, field) { const safe = sanitizeText(value, 100); if (!/^job_[A-Za-z0-9-]{8,80}$/.test(safe)) invalid(field); return safe; }
 
 function artifactRef(value, field, optional = true) {
@@ -28,7 +29,7 @@ function jobOutput(value, field) {
   exact(value, ["jobId", "exportArtifactId", "outputHash", "status"], field);
   const status = sanitizeText(value.status, 24).toLowerCase();
   if (!["completed", "failed"].includes(status)) invalid(`${field}.status`);
-  return { jobId: safeJobId(value.jobId, `${field}.jobId`), exportArtifactId: safeArtifactId(value.exportArtifactId, `${field}.exportArtifactId`, status === "failed"), outputHash: safeHash(value.outputHash, `${field}.outputHash`, status === "failed"), status };
+  return { jobId: safeJobId(value.jobId, `${field}.jobId`), exportArtifactId: safeExportArtifactId(value.exportArtifactId, `${field}.exportArtifactId`, status === "failed"), outputHash: safeHash(value.outputHash, `${field}.outputHash`, status === "failed"), status };
 }
 
 function normalizeReadiness(value) {

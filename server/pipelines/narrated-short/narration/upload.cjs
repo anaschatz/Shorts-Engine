@@ -5,6 +5,7 @@ const { ffprobeJson, sha256 } = require("../../../media.cjs");
 const { sanitizeText } = require("../../../repositories/ids.cjs");
 const { normalizeDraftBundle, contentHash } = require("../contracts.cjs");
 const { normalizeNarrationAsset, normalizeNarrationRights, publicNarrationSummary, PCM_CODECS } = require("./contract.cjs");
+const { buildPacingPlan, pacingSummaryMatchesPlan } = require("./tts/pacing-plan.cjs");
 
 const NARRATION_FILE_FIELD = "narration";
 const MAX_NARRATION_BYTES = 32 * 1024 * 1024;
@@ -143,10 +144,15 @@ async function ingestUploadedNarration(input = {}, dependencyInput = {}) {
   const audioHash = sha256(candidate.buffer);
   let ttsProvenance = null;
   if (fields.ttsProvenance !== undefined && fields.ttsProvenance !== null) {
-    const { normalizeTtsProvenance, sha256: ttsSha256 } = require("./tts/contract.cjs");
+    const { normalizeTtsProvenance, sha256: ttsSha256, TTS_PROVENANCE_SCHEMA_V3 } = require("./tts/contract.cjs");
     ttsProvenance = normalizeTtsProvenance(fields.ttsProvenance);
     const exactSpokenScript = draft.script.beats.map((beat) => beat.spokenText).join(" ");
     if (ttsProvenance.audio.sha256 !== audioHash || ttsProvenance.script.sha256 !== ttsSha256(exactSpokenScript)) narrationError("TTS_PROVENANCE_MISMATCH", 409, "ttsProvenance");
+    if (ttsProvenance.pacing) {
+      let expectedPacing;
+      try { expectedPacing = buildPacingPlan(draft.script, { profile: ttsProvenance.pacing.profile }); } catch { narrationError("TTS_PROVENANCE_MISMATCH", 409, "ttsProvenance.pacing"); }
+      if (!pacingSummaryMatchesPlan(ttsProvenance.pacing, expectedPacing, { requireSemanticBoundaries: ttsProvenance.schemaVersion === TTS_PROVENANCE_SCHEMA_V3 })) narrationError("TTS_PROVENANCE_MISMATCH", 409, "ttsProvenance.pacing");
+    }
     if (rights.ownershipBasis !== "ai_generated_licensed") narrationError("NARRATION_RIGHTS_REQUIRED", 400, "ownershipBasis");
   }
   const identityHash = contentHash({ projectId: project.id, revision: project.input.revision, draftHash: approval.draftHash, audioHash });

@@ -1,29 +1,23 @@
-const { randomUUID, createHash } = require("node:crypto");
+const { randomUUID } = require("node:crypto");
 const { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } = require("node:fs");
 const { basename, dirname, isAbsolute, join, relative, resolve } = require("node:path");
 const { CONFIG } = require("./config.cjs");
 const { normalizeOwnerId } = require("./auth.cjs");
 const { AppError, SAFE_MESSAGES, redactForLogs } = require("./errors.cjs");
 const { publicHumanReviewGate } = require("./human-review-gate.cjs");
-const { normalizeNarratedJobPayload, pipelineTypeForAction } = require("./pipelines/pipeline-registry.cjs");
+const {
+  normalizeMotivationalSourceShortJobPayload,
+  normalizeNarratedJobPayload,
+  pipelineTypeForAction,
+} = require("./pipelines/pipeline-registry.cjs");
+const {
+  normalizeWorkerResult: normalizeMotivationalWorkerResult,
+} = require("./pipelines/motivational-source-short/contracts.cjs");
 const { normalizeSmokeSource } = require("./staging-smoke-metadata.cjs");
+const { idempotencyKey } = require("./shared/core/idempotency.cjs");
 
 function nowIso() {
   return new Date().toISOString();
-}
-
-function stableStringify(value) {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  return `{${Object.keys(value)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
-    .join(",")}}`;
-}
-
-function idempotencyKey(action, payload) {
-  const hash = createHash("sha256").update(stableStringify(payload || {})).digest("hex").slice(0, 20);
-  return `${action}-${hash}`;
 }
 
 const JOB_STATUSES = Object.freeze(["queued", "processing", "completed", "failed", "cancelled"]);
@@ -953,6 +947,9 @@ function normalizeCompositionMode(value) {
 function normalizePayload(payload, options = {}) {
   if (!payload || typeof payload !== "object") return null;
   const pipelineType = pipelineTypeForAction(options.action || "generate", options.pipelineType);
+  if (pipelineType === "motivational_source_short") {
+    return normalizeMotivationalSourceShortJobPayload(payload);
+  }
   if (pipelineType === "narrated_short") {
     return normalizeNarratedJobPayload(payload, options.action);
   }
@@ -971,6 +968,7 @@ function normalizePayload(payload, options = {}) {
     expectedFinalScore: /^\d{1,2}-\d{1,2}$/.test(String(payload.expectedFinalScore || ""))
       ? String(payload.expectedFinalScore)
       : null,
+    rightsConfirmed: payload.rightsConfirmed === true,
     source: normalizeSmokeSource(payload.source),
   };
   if (payload.approvedEditPlan) normalized.approvedEditPlan = safePayloadObject(payload.approvedEditPlan);
@@ -987,12 +985,62 @@ function normalizePayload(payload, options = {}) {
       operatorNote: sanitizeText(approval.operatorNote || "", 500),
     };
   }
+  if (payload.footballReviewApproval) {
+    const approval = safePayloadObject(payload.footballReviewApproval, 4000);
+    normalized.footballReviewApproval = {
+      reviewId: sanitizeText(approval.reviewId || "", 80),
+      reviewVersion: Math.max(1, Math.floor(Number(approval.reviewVersion || 1))),
+      candidateId: sanitizeText(approval.candidateId || "", 80),
+      sourceRevision: sanitizeText(approval.sourceRevision || "", 80).toLowerCase(),
+      projectRevision: Math.max(1, Math.floor(Number(approval.projectRevision || 1))),
+      reviewedAt: sanitizeText(approval.reviewedAt || "", 48),
+      reviewerId: sanitizeText(approval.reviewerId || "", 80),
+    };
+  }
   return normalized;
 }
 
 function publicPayload(payload) {
   if (!payload || typeof payload !== "object") return payload;
   const safe = jsonClone(payload);
+  if (
+    safe.profiles
+    && safe.profiles.formatProfile === "bf_viral_micro_v1"
+    && safe.sourceHash
+    && safe.rightsManifestHash
+    && safe.candidateDecisionHash
+  ) {
+    delete safe.sourcePath;
+    if (safe.candidateDecision) {
+      safe.candidateDecision = {
+        artifactType: safe.candidateDecision.artifactType,
+        decisionId: safe.candidateDecision.decisionId,
+        candidateHash: safe.candidateDecision.candidateHash,
+        decision: safe.candidateDecision.decision,
+        contentHash: safe.candidateDecision.contentHash,
+      };
+    }
+    if (safe.experimentManifest) {
+      safe.experimentManifest = {
+        artifactType: safe.experimentManifest.artifactType,
+        manifestId: safe.experimentManifest.manifestId,
+        experimentId: safe.experimentManifest.experimentId,
+        cohortId: safe.experimentManifest.cohortId,
+        treatmentId: safe.experimentManifest.treatmentId,
+        contentHash: safe.experimentManifest.contentHash,
+      };
+    }
+    if (safe.transcriptManifest) {
+      safe.transcriptManifest = {
+        artifactType: safe.transcriptManifest.artifactType,
+        modelId: safe.transcriptManifest.modelId,
+        language: safe.transcriptManifest.language,
+        durationSeconds: safe.transcriptManifest.durationSeconds,
+        transcriptHash: safe.transcriptManifest.transcriptHash,
+        contentHash: safe.transcriptManifest.contentHash,
+      };
+    }
+  }
   if (safe.approvedEditPlan) {
     safe.approvedEditPlan = {
       aspectRatio: sanitizeText(safe.approvedEditPlan.aspectRatio || "", 20),
@@ -1003,7 +1051,43 @@ function publicPayload(payload) {
       animationCueCount: Array.isArray(safe.approvedEditPlan.animationCues) ? safe.approvedEditPlan.animationCues.length : 0,
     };
   }
+  if (safe.footballReviewApproval) {
+    safe.footballReviewApproval = {
+      reviewId: sanitizeText(safe.footballReviewApproval.reviewId || "", 80),
+      reviewVersion: Math.max(1, Math.floor(Number(safe.footballReviewApproval.reviewVersion || 1))),
+      candidateId: sanitizeText(safe.footballReviewApproval.candidateId || "", 80),
+      projectRevision: Math.max(1, Math.floor(Number(safe.footballReviewApproval.projectRevision || 1))),
+      reviewedAt: sanitizeText(safe.footballReviewApproval.reviewedAt || "", 48),
+    };
+  }
   return safe;
+}
+
+function publicMotivationalRenderSummary(value) {
+  if (!value) return null;
+  const normalized = normalizeMotivationalWorkerResult(value);
+  return {
+    schemaVersion: normalized.schemaVersion,
+    pipelineType: normalized.pipelineType,
+    action: normalized.action,
+    status: normalized.status,
+    profiles: normalized.profiles,
+    sourceHash: normalized.sourceHash,
+    rightsManifestHash: normalized.rightsManifestHash,
+    candidateDecisionHash: normalized.candidateDecisionHash,
+    candidateHash: normalized.candidateHash,
+    experimentManifestHash: normalized.experimentManifestHash,
+    transcriptManifestHash: normalized.transcriptManifestHash,
+    output: {
+      outputHash: normalized.output.outputHash,
+      sizeBytes: normalized.output.sizeBytes,
+      outputRank: normalized.output.outputRank,
+      durationSeconds: normalized.output.durationSeconds,
+    },
+    ranking: { manifestHash: normalized.ranking.manifestHash },
+    completedAt: normalized.completedAt,
+    contentHash: normalized.contentHash,
+  };
 }
 
 function atomicWriteJson(filePath, payload) {
@@ -1125,6 +1209,7 @@ class JobStore {
       mediaSignals: null,
       contentDraft: null,
       narratedRender: null,
+      motivationalRender: null,
       narrationAlignment: null,
       technicalQa: null,
       evidencePackage: null,
@@ -1185,6 +1270,9 @@ class JobStore {
     delete publicSafe.claimedAt;
     delete publicSafe.leaseExpiresAt;
     if (publicSafe.payload) publicSafe.payload = publicPayload(publicSafe.payload);
+    if (publicSafe.motivationalRender) {
+      publicSafe.motivationalRender = publicMotivationalRenderSummary(publicSafe.motivationalRender);
+    }
     if (publicSafe.renderedGoalProof) publicSafe.renderedGoalProof = publicRenderedGoalProofSummary(publicSafe.renderedGoalProof);
     if (publicSafe.editPlan && typeof publicSafe.editPlan === "object" && !Array.isArray(publicSafe.editPlan)) {
       if (publicSafe.editPlan.renderedGoalProof) {
@@ -1224,6 +1312,7 @@ class JobStore {
       matchEventTruth: job.matchEventTruth || null,
       contentDraft: normalizeContentDraftSummary(job.contentDraft),
       narratedRender: normalizeNarratedRenderSummary(job.narratedRender),
+      motivationalRender: publicMotivationalRenderSummary(job.motivationalRender),
       narrationAlignment: normalizeNarrationAlignmentSummary(job.narrationAlignment),
       technicalQa: normalizeTechnicalQaSummary(job.technicalQa),
       evidencePackage: normalizeEvidencePackageSummary(job.evidencePackage),
@@ -1267,6 +1356,9 @@ class JobStore {
       mediaSignals: jsonClone(safe.mediaSignals || null),
       contentDraft: normalizeContentDraftSummary(safe.contentDraft),
       narratedRender: normalizeNarratedRenderSummary(safe.narratedRender),
+      motivationalRender: safe.motivationalRender
+        ? normalizeMotivationalWorkerResult(safe.motivationalRender, safe.payload)
+        : null,
       narrationAlignment: normalizeNarrationAlignmentSummary(safe.narrationAlignment),
       technicalQa: normalizeTechnicalQaSummary(safe.technicalQa),
       evidencePackage: normalizeEvidencePackageSummary(safe.evidencePackage),
@@ -1345,6 +1437,9 @@ class JobStore {
       mediaSignals: jsonClone(record.mediaSignals || null),
       contentDraft: normalizeContentDraftSummary(record.contentDraft),
       narratedRender: normalizeNarratedRenderSummary(record.narratedRender),
+      motivationalRender: record.motivationalRender
+        ? normalizeMotivationalWorkerResult(record.motivationalRender, record.payload)
+        : null,
       narrationAlignment: normalizeNarrationAlignmentSummary(record.narrationAlignment),
       technicalQa: normalizeTechnicalQaSummary(record.technicalQa),
       evidencePackage: normalizeEvidencePackageSummary(record.evidencePackage),
@@ -1660,6 +1755,9 @@ class JobStore {
     if (next.payload) next.payload = normalizePayload(next.payload, { action: job.action, pipelineType: job.pipelineType });
     if (next.contentDraft) next.contentDraft = normalizeContentDraftSummary(next.contentDraft);
     if (next.narratedRender) next.narratedRender = normalizeNarratedRenderSummary(next.narratedRender);
+    if (next.motivationalRender) {
+      next.motivationalRender = normalizeMotivationalWorkerResult(next.motivationalRender, job.payload);
+    }
     if (next.narrationAlignment) next.narrationAlignment = normalizeNarrationAlignmentSummary(next.narrationAlignment);
     if (next.technicalQa) next.technicalQa = normalizeTechnicalQaSummary(next.technicalQa);
     if (next.evidencePackage) next.evidencePackage = normalizeEvidencePackageSummary(next.evidencePackage);

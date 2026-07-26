@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "fps": 30,
+  "durationFrames": 300,
+  "alignmentHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "draftHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "words": [
+    { "index": 0, "text": "In", "startFrame": 0, "endFrame": 10 },
+    { "index": 1, "text": "1977", "startFrame": 12, "endFrame": 26 },
+    { "index": 2, "text": "one", "startFrame": 28, "endFrame": 38 },
+    { "index": 3, "text": "radio", "startFrame": 40, "endFrame": 53 },
+    { "index": 4, "text": "signal", "startFrame": 55, "endFrame": 70 },
+    { "index": 5, "text": "rose", "startFrame": 72, "endFrame": 86 },
+    { "index": 6, "text": "from", "startFrame": 88, "endFrame": 98 },
+    { "index": 7, "text": "the", "startFrame": 100, "endFrame": 108 },
+    { "index": 8, "text": "noise", "startFrame": 110, "endFrame": 125 },
+    { "index": 9, "text": "crossed", "startFrame": 127, "endFrame": 144 },
+    { "index": 10, "text": "both", "startFrame": 146, "endFrame": 158 },
+    { "index": 11, "text": "beams", "startFrame": 160, "endFrame": 176 },
+    { "index": 12, "text": "then", "startFrame": 178, "endFrame": 188 },
+    { "index": 13, "text": "vanished", "startFrame": 190, "endFrame": 207 },
+    { "index": 14, "text": "leaving", "startFrame": 209, "endFrame": 223 },
+    { "index": 15, "text": "only", "startFrame": 225, "endFrame": 230 },
+    { "index": 16, "text": "one", "startFrame": 230, "endFrame": 239 },
+    { "index": 17, "text": "honest", "startFrame": 241, "endFrame": 253 },
+    { "index": 18, "text": "conclusion", "startFrame": 255, "endFrame": 270 },
+    { "index": 19, "text": "unexplained", "startFrame": 272, "endFrame": 284 },
+    { "index": 20, "text": "is", "startFrame": 286, "endFrame": 290 },
+    { "index": 21, "text": "not", "startFrame": 292, "endFrame": 296 },
+    { "index": 22, "text": "proof", "startFrame": 297, "endFrame": 300 }
+  ],
+  "beats": [
+    { "beatId": "beat_observe", "wordStartIndex": 0, "wordEndIndex": 6, "startFrame": 0, "endFrame": 86 },
+    { "beatId": "beat_signal", "wordStartIndex": 6, "wordEndIndex": 12, "startFrame": 88, "endFrame": 176 },
+    { "beatId": "beat_evidence", "wordStartIndex": 12, "wordEndIndex": 16, "startFrame": 178, "endFrame": 230 },
+    { "beatId": "beat_payoff", "wordStartIndex": 16, "wordEndIndex": 23, "startFrame": 230, "endFrame": 300 }
+  ],
+  "contentHash": "888847e723a033c2d3a6c5e376739e8c7de46463143328d5f90f0e2c19cce01b"
+}

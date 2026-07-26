@@ -1,0 +1,418 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { createOperationSchedule } from "./operation-scheduler.mjs";
+import { createPathMorph, pointsToPath } from "./primitives/path-morph.mjs";
+import { persistentSignalGeometry, persistentSignalPath } from "./primitives/persistent-signal.mjs";
+
+const require = createRequire(import.meta.url);
+const BASE_WIDTH = 720;
+const BASE_HEIGHT = 1280;
+const FONT_FAMILY = "Outfit";
+const FONT_LICENSE = "SIL Open Font License 1.1";
+const FONT_BYTES = readFileSync(require.resolve("@fontsource/outfit/files/outfit-latin-600-normal.woff2"));
+const FONT_BASE64 = FONT_BYTES.toString("base64");
+const FONT_SHA256 = createHash("sha256").update(FONT_BYTES).digest("hex");
+
+function seededPoints(seed, count) {
+  let state = seed >>> 0;
+  const points = [];
+  for (let index = 0; index < count; index += 1) {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    const x = 30 + (state / 0xffffffff) * 660;
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    const y = 40 + (state / 0xffffffff) * 880;
+    points.push({ x: x.toFixed(2), y: y.toFixed(2), r: (0.5 + (index % 4) * 0.35).toFixed(2) });
+  }
+  return points;
+}
+
+function safeJson(value) {
+  return JSON.stringify(value).replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/&/g, "\\u0026");
+}
+
+function escapeXml(value) {
+  return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+}
+
+export const SEMANTIC_BEAM_PROFILE = Object.freeze([120, 455, 220, 455, 238, 300, 365, 300, 492, 300, 510, 455, 610, 455]);
+export const SEMANTIC_EVIDENCE_MORPH_SOURCE = Object.freeze([120, 720, 220, 720, 238, 560, 365, 560, 492, 560, 510, 720, 610, 720]);
+export const SEMANTIC_EVIDENCE_MORPH_TARGET = Object.freeze([110, 545, 122, 545, 132, 385, 140, 385, 148, 385, 155, 545, 174, 545]);
+
+function semanticCubicPath(values) {
+  if (!Array.isArray(values) || values.length !== 14 || values.some((value) => !Number.isFinite(value))) throw new TypeError("Semantic cubic path input is invalid.");
+  return `M${values[0]} ${values[1]} C${values[2]} ${values[3]} ${values[4]} ${values[5]} ${values[6]} ${values[7]} C${values[8]} ${values[9]} ${values[10]} ${values[11]} ${values[12]} ${values[13]}`;
+}
+
+export function semanticCubicPoint(values, progress) {
+  if (!Array.isArray(values) || values.length !== 14 || values.some((value) => !Number.isFinite(value)) || !Number.isFinite(progress)) throw new TypeError("Semantic cubic path input is invalid.");
+  const bounded = Math.max(0, Math.min(1, progress));
+  const second = bounded > 0.5;
+  const t = second ? (bounded - 0.5) * 2 : bounded * 2;
+  const offset = second ? 6 : 0;
+  const oneMinus = 1 - t;
+  const coordinate = (axis) => {
+    const start = values[offset + axis];
+    const controlA = values[offset + 2 + axis];
+    const controlB = values[offset + 4 + axis];
+    const end = values[offset + 6 + axis];
+    return (oneMinus ** 3) * start + 3 * (oneMinus ** 2) * t * controlA + 3 * oneMinus * (t ** 2) * controlB + (t ** 3) * end;
+  };
+  return Object.freeze({ x: Number(coordinate(0).toFixed(3)), y: Number(coordinate(1).toFixed(3)) });
+}
+
+export function semanticFrequencyCursorX(progress) {
+  if (!Number.isFinite(progress)) throw new TypeError("Semantic frequency progress is invalid.");
+  const arrival = Math.max(0, Math.min(1, progress / 0.62));
+  const eased = 1 - ((1 - arrival) ** 3);
+  return Number((100 + 260 * eased).toFixed(3));
+}
+
+export function semanticEvidenceMorphPath(progress) {
+  if (!Number.isFinite(progress)) throw new TypeError("Semantic evidence morph progress is invalid.");
+  const t = Math.max(0, Math.min(1, progress));
+  const values = SEMANTIC_EVIDENCE_MORPH_SOURCE.map((value, index) => value + (SEMANTIC_EVIDENCE_MORPH_TARGET[index] - value) * t).map((value) => Number(value.toFixed(3)));
+  return semanticCubicPath(values);
+}
+
+function compileLegacyAnimationIRToHtml(ir) {
+  const content = ir.content;
+  const compositionId = escapeXml(content.compositionId);
+  const titleLines = content.titleLines.map((line, index) => `<text x="54" y="${121 + index * 47}" fill="#f1f5f9" class="title">${escapeXml(line)}</text>`).join("");
+  const payoffStartY = content.payoffLines.length === 1 ? 714 : 690;
+  const payoffLines = content.payoffLines.map((line, index) => `<text x="360" y="${payoffStartY + index * 48}" text-anchor="middle" fill="${index === 0 ? "#fde68a" : "#cbd5e1"}" font-size="${index === 0 ? 42 : 26}" letter-spacing="${index === 0 ? 0 : 3}">${escapeXml(line)}</text>`).join("");
+  const timelineLabels = content.timelineLabels.map((line, index, values) => {
+    const x = values.length === 1 ? 360 : 84 + index * (552 / (values.length - 1));
+    const anchor = index === 0 ? "start" : index === values.length - 1 ? "end" : "middle";
+    return `<text x="${x.toFixed(2)}" y="912" text-anchor="${anchor}">${escapeXml(line)}</text>`;
+  }).join("");
+  const stars = seededPoints(ir.seed, 54).map((point) => `<circle cx="${point.x}" cy="${point.y}" r="${point.r}"/>`).join("");
+  const schedule = createOperationSchedule(ir);
+  const morph = createPathMorph();
+  const path = pointsToPath(morph.source);
+  const finalHold = ir.scenes.at(-1)?.readabilityHolds?.at(-1);
+  const timelineEndFrame = finalHold?.endFrame === ir.durationFrames ? finalHold.startFrame : ir.durationFrames - 1;
+  const runtimeData = safeJson({ fps: ir.fps, durationFrames: ir.durationFrames, timelineEndFrame, seed: ir.seed, contentHash: ir.contentHash, schedule, morph: { pointCount: morph.pointCount, source: morph.source, target: morph.target } });
+  const durationSeconds = ir.durationFrames / ir.fps;
+  const html = `<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; media-src 'none'; font-src data:; object-src 'none'; frame-src 'none'">
+<meta data-composition-id="${compositionId}" data-width="${ir.width}" data-height="${ir.height}" data-font-sha256="${FONT_SHA256}">
+<style>
+@font-face{font-family:"${FONT_FAMILY}";src:url(data:font/woff2;base64,${FONT_BASE64}) format("woff2");font-style:normal;font-weight:600;font-display:block}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#02040b}*{box-sizing:border-box}.composition{width:100vw;height:100vh;overflow:hidden;background:#02040b}.composition svg{display:block;width:100%;height:100%;font-family:"${FONT_FAMILY}",sans-serif}.stars{fill:#a5f3fc}.grid-line{stroke:#164e63;stroke-width:1}.kicker{font-size:18px;letter-spacing:4px;font-weight:600}.label{font-size:20px;letter-spacing:2px;font-weight:600}.title{font-size:44px;font-weight:600}.axis{font-size:14px;letter-spacing:2px;font-weight:600}
+</style></head><body>
+<main id="animation-root" class="composition" data-composition-id="${compositionId}" data-start="0" data-duration="${durationSeconds}" data-width="${ir.width}" data-height="${ir.height}">
+<svg viewBox="0 0 ${BASE_WIDTH} ${BASE_HEIGHT}" role="img" aria-label="${escapeXml(content.titleLines.join(" "))}">
+<defs>
+ <radialGradient id="bg" cx="50%" cy="31%" r="82%"><stop offset="0" stop-color="#10243d"/><stop offset="0.54" stop-color="#07121f"/><stop offset="1" stop-color="#02040b"/></radialGradient>
+ <linearGradient id="signal" x1="0" x2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset="0.55" stop-color="#ecfeff"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+ <linearGradient id="caption-scrim" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#02040b" stop-opacity="0"/><stop offset="0.48" stop-color="#02040b" stop-opacity=".34"/><stop offset="1" stop-color="#02040b" stop-opacity=".68"/></linearGradient>
+ <radialGradient id="payoff" cx="50%" cy="50%" r="60%"><stop offset="0" stop-color="#fbbf24" stop-opacity=".20"/><stop offset="1" stop-color="#fbbf24" stop-opacity="0"/></radialGradient>
+ <filter id="glow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="7" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+ <pattern id="grid-pattern" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" class="grid-line" opacity=".48"/></pattern>
+</defs>
+<rect width="720" height="1280" fill="url(#bg)"/>
+<rect id="ambient-wash" width="720" height="1280" fill="#0e7490" opacity=".025"/>
+<g id="ambient-stars" class="stars" opacity=".18" data-qa-layer="ambient">${stars}</g>
+<rect x="36" y="180" width="648" height="740" fill="none" data-semantic-roi="true" pointer-events="none"/>
+<g id="header" data-entity-id="explanation_header" data-caption-policy="avoid"><text x="54" y="70" fill="#67e8f9" class="kicker">${escapeXml(content.kicker)}</text>${titleLines}</g>
+<g id="camera-stage">
+ <g id="grid-group" data-entity-id="signal_grid" data-caption-policy="avoid">
+  <rect id="grid" x="42" y="210" width="636" height="610" rx="28" fill="#071827" stroke="#164e63" stroke-width="2"/>
+  <rect id="ambient-grid-layer" x="42" y="210" width="636" height="610" rx="28" fill="url(#grid-pattern)"/>
+  <line x1="70" y1="515" x2="650" y2="515" stroke="#155e75" stroke-width="2" opacity=".78"/>
+  <line x1="360" y1="238" x2="360" y2="792" stroke="#155e75" stroke-width="2" opacity=".58"/>
+  <text x="72" y="246" fill="#64748b" class="axis">${escapeXml(content.timelineLabels[0])}</text>
+  <text x="648" y="795" text-anchor="end" fill="#64748b" class="axis">${escapeXml(content.timelineLabels.at(-1))}</text>
+ </g>
+ <g id="scan-sweep" data-entity-id="frequency_sweep" data-caption-policy="avoid"><line id="sweep-line" x1="74" y1="236" x2="74" y2="790" stroke="#67e8f9" stroke-width="4" filter="url(#glow)"/><circle id="sweep-dot" cx="74" cy="515" r="10" fill="#ecfeff" filter="url(#glow)"/></g>
+ <g id="frequency-label" opacity="0" data-entity-id="primary_metric" data-caption-policy="avoid"><rect x="238" y="250" width="244" height="52" rx="26" fill="#083344" stroke="#22d3ee" stroke-width="2"/><text x="360" y="284" text-anchor="middle" fill="#cffafe" class="label">${escapeXml(content.metricValue)}</text></g>
+ <path id="beam-a" data-entity-id="beam_alpha" data-caption-policy="avoid" d="M78 732 C220 338 500 338 642 732" fill="none" stroke="#8b5cf6" stroke-width="8" opacity="0" filter="url(#glow)"/>
+ <path id="beam-b" data-entity-id="beam_beta" data-caption-policy="avoid" d="M78 338 C220 732 500 732 642 338" fill="none" stroke="#f59e0b" stroke-width="8" opacity="0" filter="url(#glow)"/>
+ <g id="duration-bracket" opacity="0" data-entity-id="metric_context" data-caption-policy="avoid"><line id="duration-line" x1="174" y1="748" x2="546" y2="748" stroke="#67e8f9" stroke-width="4" stroke-dasharray="372" stroke-dashoffset="372"/><line x1="174" y1="733" x2="174" y2="763" stroke="#67e8f9" stroke-width="4"/><line x1="546" y1="733" x2="546" y2="763" stroke="#67e8f9" stroke-width="4"/><circle id="duration-cursor" cx="174" cy="748" r="12" fill="#ecfeff" filter="url(#glow)"/><text x="360" y="790" text-anchor="middle" fill="#cffafe" font-size="16">${escapeXml(content.metricLabel)}</text></g>
+ <circle id="pulse-halo" data-entity-id="signal_pulse" data-caption-policy="avoid" cx="360" cy="515" r="34" fill="none" stroke="#67e8f9" stroke-width="6" opacity="0"/>
+ <circle id="pulse-core" cx="360" cy="515" r="10" fill="#ecfeff" opacity="0" filter="url(#glow)"/>
+ <path id="wave-glow" d="${path}" fill="none" stroke="#22d3ee" stroke-width="14" opacity="0" filter="url(#glow)"/>
+ <path id="wave" data-entity-id="signal_wave" data-caption-policy="avoid" d="${path}" pathLength="1000" fill="none" stroke="url(#signal)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="1000" stroke-dashoffset="1000"/>
+ <g id="evidence-label" opacity="0" data-entity-id="evidence_node" data-caption-policy="avoid"><text x="360" y="506" text-anchor="middle" fill="#ecfeff" font-size="16" letter-spacing="2">${escapeXml(content.evidenceLabel)}</text><text x="360" y="542" text-anchor="middle" fill="#67e8f9" font-size="24">${escapeXml(content.evidenceCode)}</text></g>
+ <g id="reasoning-bridge" opacity="0" data-entity-id="reasoning_bridge" data-caption-policy="avoid"><line id="reason-left" x1="360" y1="610" x2="360" y2="610" stroke="#67e8f9" stroke-width="4"/><line id="reason-right" x1="360" y1="610" x2="360" y2="610" stroke="#fbbf24" stroke-width="4"/><circle id="reason-left-dot" cx="360" cy="610" r="8" fill="#67e8f9"/><circle id="reason-right-dot" cx="360" cy="610" r="8" fill="#fbbf24"/><text x="150" y="658" text-anchor="middle" fill="#cffafe" font-size="16" letter-spacing="1">${escapeXml(content.reasoningLeft)}</text><text id="reason-not-equal" x="360" y="660" text-anchor="middle" fill="#fde68a" font-size="34">≠</text><text x="570" y="658" text-anchor="middle" fill="#fde68a" font-size="18" letter-spacing="2">${escapeXml(content.reasoningRight)}</text></g>
+ <g id="payoff-panel" opacity="0" data-entity-id="payoff_label" data-caption-policy="avoid"><circle id="payoff-field" cx="360" cy="515" r="110" fill="url(#payoff)"/>${payoffLines}<line id="payoff-line" x1="222" y1="790" x2="498" y2="790" stroke="#fbbf24" stroke-width="3" stroke-dasharray="276" stroke-dashoffset="276"/></g>
+</g>
+<g id="narrative-timeline" data-entity-id="narrative_timeline" data-caption-policy="avoid">
+ <line x1="84" y1="870" x2="636" y2="870" stroke="#164e63" stroke-width="4"/>
+ <line id="timeline-active" x1="84" y1="870" x2="84" y2="870" stroke="#22d3ee" stroke-width="4"/>
+ <g fill="#64748b" font-size="13" letter-spacing="1">${timelineLabels}</g>
+ <g id="timeline-cursor"><rect x="-62" y="838" width="124" height="64" rx="22" fill="#22d3ee" fill-opacity=".16" stroke="#67e8f9" stroke-opacity=".58" stroke-width="2"/><line x1="0" y1="838" x2="0" y2="902" stroke="#67e8f9" stroke-width="6" filter="url(#glow)"/><circle cx="0" cy="870" r="11" fill="#ecfeff" filter="url(#glow)"/></g>
+</g>
+<rect x="0" y="947" width="720" height="333" fill="url(#caption-scrim)" data-caption-safe-zone="true" pointer-events="none"/>
+</svg></main>
+<script>
+"use strict";
+const DATA=${runtimeData};
+const byId=(id)=>document.getElementById(id);
+const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,v));
+const ease=(value,name)=>{const x=clamp(value);if(name==="linear")return x;if(name==="smoothstep")return x*x*(3-2*x);if(name==="ease_in_cubic")return x*x*x;if(name==="ease_out_cubic")return 1-Math.pow(1-x,3);if(name==="ease_in_out_cubic")return x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2;throw new Error("unsupported_easing")};
+const progress=(frame,key)=>{const op=DATA.schedule[key];if(!op)throw new Error("missing_operation");return ease((frame-op.startFrame)/Math.max(1,op.endFrame-op.startFrame),op.easing)};
+const pulseEnvelope=(frame,key)=>{const p=progress(frame,key);return p<=.38?p/.38:Math.max(0,1-(p-.38)/.62)};
+const morphPath=(value)=>DATA.morph.source.map((point,index)=>{const target=DATA.morph.target[index];const x=point.x+(target.x-point.x)*value,y=point.y+(target.y-point.y)*value;return(index?"L":"M")+x.toFixed(3)+" "+y.toFixed(3)}).join(" ");
+const scaleAround=(scale)=>"translate("+(360*(1-scale)).toFixed(3)+" "+(515*(1-scale)).toFixed(3)+") scale("+scale.toFixed(5)+")";
+function renderFrame(rawFrame){
+ const frame=Math.max(0,Math.min(DATA.durationFrames-1,Math.floor(rawFrame+1e-7)));
+ byId("ambient-wash").setAttribute("opacity",(.015+.035*(1+Math.sin(frame*.11))).toFixed(4));byId("ambient-stars").setAttribute("transform","translate("+(1.8*Math.sin(frame*.023)).toFixed(3)+" "+(1.4*Math.cos(frame*.031)).toFixed(3)+")");byId("ambient-stars").setAttribute("opacity",(.16+.055*(1+Math.sin(frame*.043))).toFixed(4));
+ const gridCreate=progress(frame,"create:signal_grid"),transition=progress(frame,"transition_match:evidence_node");
+ const sweepX=74+572*gridCreate;byId("scan-sweep").setAttribute("opacity",((1-gridCreate)*(1-.8*transition)).toFixed(4));byId("sweep-line").setAttribute("x1",sweepX.toFixed(3));byId("sweep-line").setAttribute("x2",sweepX.toFixed(3));byId("sweep-dot").setAttribute("cx",sweepX.toFixed(3));
+ const draw=progress(frame,"draw_path:signal_wave");byId("wave").style.strokeDashoffset=String(1000*(1-draw));byId("wave-glow").setAttribute("opacity",(.16*draw*(1-.55*transition)).toFixed(4));
+ const measure=progress(frame,"pulse:signal_pulse"),pulse=pulseEnvelope(frame,"pulse:signal_pulse");byId("frequency-label").setAttribute("opacity",measure.toFixed(4));byId("duration-bracket").setAttribute("opacity",measure.toFixed(4));byId("duration-line").style.strokeDashoffset=String(372*(1-measure));byId("duration-cursor").setAttribute("cx",String(174+372*measure));
+ byId("pulse-core").setAttribute("opacity",pulse.toFixed(4));byId("pulse-core").setAttribute("r",String(8+10*pulse));const haloScale=1+(DATA.schedule["pulse:signal_pulse"].params.scale-1)*pulse;byId("pulse-halo").setAttribute("opacity",(pulse*DATA.schedule["pulse:signal_pulse"].params.opacity).toFixed(4));byId("pulse-halo").setAttribute("transform",scaleAround(haloScale));
+ const beamA=progress(frame,"draw_path:beam_alpha"),beamB=progress(frame,"draw_path:beam_beta"),beamVisibility=1-transition;byId("beam-a").setAttribute("opacity",(.58*beamA*beamVisibility).toFixed(4));byId("beam-b").setAttribute("opacity",(.52*beamB*beamVisibility).toFixed(4));byId("beam-a").style.strokeDasharray="900";byId("beam-b").style.strokeDasharray="900";byId("beam-a").style.strokeDashoffset=String(900*(1-beamA));byId("beam-b").style.strokeDashoffset=String(900*(1-beamB));
+ const push=progress(frame,"camera_push:camera_stage"),zoom=1+(DATA.schedule["camera_push:camera_stage"].params.scale-1)*push;
+ const morph=progress(frame,"morph_path:signal_wave"),morphed=morphPath(morph);byId("wave").setAttribute("d",morphed);byId("wave-glow").setAttribute("d",morphed);
+ const evidenceReveal=clamp((frame-DATA.schedule["morph_path:signal_wave"].endFrame)/7),condensedOpacity=1-.85*morph+.85*evidenceReveal,condensedWidth=6-4.5*morph+4.5*evidenceReveal;byId("wave").setAttribute("opacity",condensedOpacity.toFixed(4));byId("wave").setAttribute("stroke-width",condensedWidth.toFixed(3));byId("wave-glow").setAttribute("opacity",(.08*draw*(1-.90*morph+.90*evidenceReveal)*(1-.55*transition)).toFixed(4));byId("evidence-label").setAttribute("opacity",(evidenceReveal*(1-.28*transition)).toFixed(4));
+ const evidenceScale=progress(frame,"scale:evidence_node"),nodeScale=(1+(DATA.schedule["scale:evidence_node"].params.to-1)*evidenceScale)*zoom;const nodeTransform=scaleAround(nodeScale);byId("wave").setAttribute("transform",nodeTransform);byId("wave-glow").setAttribute("transform",nodeTransform);byId("evidence-label").setAttribute("transform",nodeTransform);
+ const payoff=progress(frame,"fade:payoff_label"),fieldPulse=pulseEnvelope(frame,"pulse:deep_background"),payoffScale=.82+.18*payoff,payoffLift=28*(1-payoff);byId("payoff-panel").setAttribute("opacity",payoff.toFixed(4));byId("payoff-panel").setAttribute("transform","translate(0 "+payoffLift.toFixed(3)+") "+scaleAround(payoffScale));byId("payoff-field").setAttribute("r",String(110+135*fieldPulse));byId("payoff-line").style.strokeDashoffset=String(276*(1-payoff));byId("header").setAttribute("opacity",(1-.82*transition).toFixed(4));
+ const reasoningVisibility=transition*(1-payoff),reasonLeft=360-210*transition,reasonRight=360+210*transition;byId("reasoning-bridge").setAttribute("opacity",reasoningVisibility.toFixed(4));byId("reason-left").setAttribute("x2",reasonLeft.toFixed(3));byId("reason-right").setAttribute("x2",reasonRight.toFixed(3));byId("reason-left-dot").setAttribute("cx",reasonLeft.toFixed(3));byId("reason-right-dot").setAttribute("cx",reasonRight.toFixed(3));byId("reason-not-equal").setAttribute("opacity",evidenceScale.toFixed(4));
+ const narrativeProgress=clamp(frame/Math.max(1,DATA.timelineEndFrame)),cursorX=84+552*narrativeProgress;byId("timeline-active").setAttribute("x2",cursorX.toFixed(3));byId("timeline-cursor").setAttribute("transform","translate("+cursorX.toFixed(3)+" 0)");
+ document.documentElement.dataset.renderedFrame=String(frame);
+}
+let currentTime=0,rate=1;
+const timeline={duration:()=>DATA.durationFrames/DATA.fps,time(value){if(value===undefined)return currentTime;currentTime=clamp(Number(value)||0,0,this.duration());renderFrame(currentTime*DATA.fps);return this},totalTime(value){return value===undefined?currentTime:this.time(value)},seek(value){return this.time(value)},pause(){return this},play(){return this},timeScale(value){if(value===undefined)return rate;rate=Number(value)||1;return this},getChildren(){return[]}};
+window.__timelines=window.__timelines||{};window.__timelines[${safeJson(content.compositionId)}]=timeline;renderFrame(0);
+</script></body></html>`;
+  return Object.freeze({ html, compositionHash: createHash("sha256").update(html).digest("hex"), font: Object.freeze({ family: FONT_FAMILY, sha256: FONT_SHA256, license: FONT_LICENSE, sourcePackage: "@fontsource/outfit" }) });
+}
+
+function compileSemanticAnimationIRToHtml(ir) {
+  const content = ir.content;
+  const semantic = content.semantic;
+  const compositionId = escapeXml(content.compositionId);
+  const titleLines = content.titleLines.map((line, index) => `<text x="54" y="${108 + index * 39}" fill="#e2e8f0" font-size="${index === 0 ? 34 : 31}" font-weight="600">${escapeXml(line)}</text>`).join("");
+  const stars = seededPoints(ir.seed, 54).map((point) => `<circle cx="${point.x}" cy="${point.y}" r="${point.r}"/>`).join("");
+  const schedule = createOperationSchedule(ir);
+  const visualStateGraph = ir.visualStateGraph;
+  if (!visualStateGraph || ir.renderer.styleVersion !== "1.9.0") throw new TypeError("Semantic visual state graph is unavailable.");
+  const persistentEntity = visualStateGraph.persistentEntities.find((entity) => entity.id === "signal_evidence");
+  if (!persistentEntity) throw new TypeError("Persistent signal evidence is unavailable.");
+  const persistentRepresentations = persistentEntity.representations.map((representation) => ({
+    ...representation,
+    points: persistentSignalGeometry(representation.geometryToken, representation.pointCount),
+  }));
+  const initialPersistentPath = persistentSignalPath(persistentRepresentations[0].points);
+  const stages = Object.fromEntries(ir.scenes.map((scene) => {
+    const hold = scene.readabilityHolds.at(-1);
+    return [scene.id.replace(/^scene_/, ""), {
+      startFrame: scene.startFrame,
+      endFrame: scene.endFrame,
+      beatId: scene.semantic.beatId,
+      holdStartFrame: hold?.startFrame ?? null,
+      holdEndFrame: hold?.endFrame ?? null,
+    }];
+  }));
+  const beamProfilePath = semanticCubicPath(SEMANTIC_BEAM_PROFILE);
+  const evidenceSourcePath = semanticEvidenceMorphPath(0);
+  const evidenceTargetPath = semanticEvidenceMorphPath(1);
+  const finalHold = ir.scenes.at(-1)?.readabilityHolds?.at(-1);
+  const timelineEndFrame = finalHold?.endFrame === ir.durationFrames ? finalHold.startFrame : ir.durationFrames - 1;
+  const runtimeVisualStateGraph = {
+    states: visualStateGraph.states.map((state, index) => ({ id: state.id, enterFrame: state.enterAnchor.resolvedFrame, settleFrame: state.settleAnchor.resolvedFrame, exitFrame: state.exitAnchor.resolvedFrame, representationId: persistentRepresentations[index].id })),
+    transitions: visualStateGraph.stateTransitions.map((transition) => ({ id: transition.id, fromStateId: transition.fromStateId, toStateId: transition.toStateId, startFrame: transition.fromAnchor.resolvedFrame, endFrame: transition.toAnchor.resolvedFrame, easing: transition.easing, continuityBindingId: transition.continuityBindingId })),
+    continuityBindings: visualStateGraph.continuityBindings,
+    focusIntervals: visualStateGraph.focusIntervals,
+    representations: persistentRepresentations,
+  };
+  const runtimeData = safeJson({ fps: ir.fps, durationFrames: ir.durationFrames, timelineEndFrame, seed: ir.seed, contentHash: ir.contentHash, schedule, stages, transitions: ir.transitions, visualStateGraph: runtimeVisualStateGraph, beamProfile: SEMANTIC_BEAM_PROFILE, evidenceMorph: { source: SEMANTIC_EVIDENCE_MORPH_SOURCE, target: SEMANTIC_EVIDENCE_MORPH_TARGET } });
+  const durationSeconds = ir.durationFrames / ir.fps;
+  const html = `<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; media-src 'none'; font-src data:; object-src 'none'; frame-src 'none'">
+<meta data-composition-id="${compositionId}" data-width="${ir.width}" data-height="${ir.height}" data-font-sha256="${FONT_SHA256}">
+<style>
+@font-face{font-family:"${FONT_FAMILY}";src:url(data:font/woff2;base64,${FONT_BASE64}) format("woff2");font-style:normal;font-weight:600;font-display:block}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#02040b}*{box-sizing:border-box}.composition{width:100vw;height:100vh;overflow:hidden;background:#02040b}.composition svg{display:block;width:100%;height:100%;font-family:"${FONT_FAMILY}",sans-serif}.stars{fill:#a5f3fc}.stage-title{font-size:32px;font-weight:600;letter-spacing:1px}.small-label{font-size:24px;font-weight:600;letter-spacing:1px}.semantic-copy{font-size:24px;font-weight:600;letter-spacing:1px}
+</style></head><body>
+<main id="animation-root" class="composition" data-composition-id="${compositionId}" data-start="0" data-duration="${durationSeconds}" data-width="${ir.width}" data-height="${ir.height}">
+<svg viewBox="0 0 ${BASE_WIDTH} ${BASE_HEIGHT}" role="img" aria-label="${escapeXml(content.titleLines.join(" "))}">
+<defs>
+ <radialGradient id="semantic-bg" cx="50%" cy="31%" r="82%"><stop offset="0" stop-color="#10243d"/><stop offset="0.54" stop-color="#07121f"/><stop offset="1" stop-color="#02040b"/></radialGradient>
+ <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e2e8f0"/><stop offset="1" stop-color="#cbd5e1"/></linearGradient>
+ <radialGradient id="verdict-gradient" cx="50%" cy="50%" r="65%"><stop offset="0" stop-color="#f59e0b" stop-opacity=".22"/><stop offset="1" stop-color="#f59e0b" stop-opacity="0"/></radialGradient>
+ <linearGradient id="caption-scrim-semantic" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#02040b" stop-opacity="0"/><stop offset=".48" stop-color="#02040b" stop-opacity=".34"/><stop offset="1" stop-color="#02040b" stop-opacity=".68"/></linearGradient>
+ <filter id="semantic-glow" x="-70%" y="-70%" width="240%" height="240%"><feGaussianBlur stdDeviation="5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+ <clipPath id="record-clip"><rect id="record-clip-rect" x="80" y="220" width="0" height="600"/></clipPath>
+ <clipPath id="beam-profile-clip"><rect id="beam-profile-clip-rect" x="120" y="280" width="0" height="195"/></clipPath>
+ <clipPath id="signal-trace-clip"><rect id="signal-trace-clip-rect" x="120" y="520" width="0" height="225"/></clipPath>
+</defs>
+<rect width="720" height="1280" fill="url(#semantic-bg)"/>
+<rect id="semantic-ambient-wash" width="720" height="1280" fill="#0e7490" opacity=".025"/>
+<g id="semantic-ambient-stars" class="stars" opacity=".18" data-qa-layer="ambient">${stars}</g>
+<rect x="36" y="180" width="648" height="740" fill="none" data-semantic-roi="true" pointer-events="none"/>
+<g id="semantic-header" data-caption-policy="avoid"><text x="54" y="60" fill="#67e8f9" font-size="17" letter-spacing="4">${escapeXml(content.kicker)}</text>${titleLines}</g>
+
+<g id="stage-hook" opacity="0" data-semantic-beat-id="${escapeXml(stages.hook.beatId)}">
+ <g id="hook-record" clip-path="url(#record-clip)" data-entity-id="observation_record" data-focus-target="observation_record" data-caption-policy="avoid" data-semantic-cue-id="hook_record" data-semantic-beat-id="${escapeXml(stages.hook.beatId)}" data-semantic-kind="supporting_visual">
+  <rect x="80" y="220" width="560" height="600" rx="22" fill="url(#paper)"/>
+  <text id="label-record-era" x="112" y="268" fill="#0f172a" class="small-label" data-legibility-role="secondary" data-contrast-background="#e2e8f0">${escapeXml(semantic.eraLabel)}</text>
+  <text id="label-record-claim" x="112" y="310" fill="#334155" font-size="24" data-legibility-role="secondary" data-contrast-background="#e2e8f0">${escapeXml(semantic.recordLabel)}</text>
+  <g stroke="#94a3b8" stroke-width="2" opacity=".72"><line x1="112" y1="350" x2="608" y2="350"/><line x1="112" y1="405" x2="608" y2="405"/><line x1="112" y1="460" x2="608" y2="460"/><line x1="112" y1="515" x2="608" y2="515"/><line x1="112" y1="570" x2="608" y2="570"/><line x1="112" y1="625" x2="608" y2="625"/><line x1="112" y1="680" x2="608" y2="680"/><line x1="112" y1="735" x2="608" y2="735"/></g>
+  <rect id="record-anomaly-column" x="332" y="326" width="56" height="438" rx="10" fill="#22d3ee" fill-opacity=".16" stroke="#0891b2" stroke-width="3"/>
+  <path id="record-trace" d="M112 625 L168 608 L218 632 L272 601 L326 622 L360 360 L394 620 L448 599 L506 631 L560 606 L608 620" fill="none" stroke="#64748b" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity=".34" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100"/>
+  <line id="record-scan-line" x1="100" y1="360" x2="620" y2="360" stroke="#f59e0b" stroke-width="3" opacity=".62"/>
+ </g>
+ <g id="wow-mark" opacity="0" data-entity-id="wow_annotation" data-focus-target="wow_annotation" data-caption-policy="avoid" data-semantic-cue-id="wow_annotation" data-semantic-beat-id="${escapeXml(stages.hook.beatId)}" data-semantic-kind="audience_text">
+  <text id="label-wow" x="474" y="500" fill="#78350f" font-size="54" font-style="italic" font-weight="700" text-anchor="middle" transform="rotate(-8 474 500)" data-legibility-role="key" data-contrast-background="#cbd5e1">${escapeXml(semantic.annotationLabel)}</text>
+  <ellipse id="wow-ring" cx="474" cy="480" rx="105" ry="62" fill="none" stroke="#78350f" stroke-width="6" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100" transform="rotate(-8 474 480)"/>
+ </g>
+</g>
+
+<g id="stage-context" opacity="0" data-semantic-beat-id="${escapeXml(stages.context.beatId)}">
+ <g id="frequency-panel" data-entity-id="frequency_scale" data-focus-target="frequency_scale" data-caption-policy="avoid" data-semantic-cue-id="frequency_context" data-semantic-beat-id="${escapeXml(stages.context.beatId)}" data-semantic-kind="supporting_visual">
+  <text id="label-frequency-title" x="360" y="225" text-anchor="middle" fill="#e2e8f0" class="stage-title" data-legibility-role="key" data-contrast-background="#07121f">${escapeXml(semantic.frequencyLabel)}</text>
+  <rect x="64" y="255" width="592" height="292" rx="24" fill="#071827" stroke="#155e75" stroke-width="2"/>
+  <line x1="100" y1="455" x2="620" y2="455" stroke="#64748b" stroke-width="3"/>
+  <g stroke="#475569" stroke-width="2"><line x1="100" y1="435" x2="100" y2="475"/><line x1="204" y1="441" x2="204" y2="469"/><line x1="308" y1="435" x2="308" y2="475"/><line x1="412" y1="435" x2="412" y2="475"/><line x1="516" y1="441" x2="516" y2="469"/><line x1="620" y1="435" x2="620" y2="475"/></g>
+  <rect id="notable-band" x="334" y="292" width="52" height="182" rx="14" fill="#22d3ee" fill-opacity=".20" stroke="#67e8f9" stroke-width="3" opacity="0"/>
+  <g id="frequency-band-label" opacity="0"><path d="M300 492 Q300 510 320 510 H400 Q420 510 420 492" fill="none" stroke="#67e8f9" stroke-width="3"/><text id="label-frequency-band" x="360" y="540" text-anchor="middle" fill="#cffafe" font-size="24" data-legibility-role="secondary" data-contrast-background="#071827">${escapeXml(semantic.sourceLabel)}</text></g>
+ </g>
+ <g id="duration-display" opacity="0" data-entity-id="duration_timer" data-focus-target="duration_timer" data-caption-policy="avoid" data-semantic-cue-id="duration_72_seconds" data-semantic-beat-id="${escapeXml(stages.context.beatId)}" data-semantic-kind="evidence_text">
+  <circle cx="360" cy="700" r="112" fill="#082f49" fill-opacity=".36" stroke="#164e63" stroke-width="12"/>
+  <circle id="duration-ring" cx="360" cy="700" r="112" fill="none" stroke="#22d3ee" stroke-width="12" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100" transform="rotate(-90 360 700)" filter="url(#semantic-glow)"/>
+  <text id="label-duration-value" x="360" y="698" text-anchor="middle" fill="#ecfeff" font-size="82" data-legibility-role="key" data-contrast-background="#082f49">${escapeXml(semantic.durationValue)}</text>
+  <text id="label-duration-unit" x="360" y="744" text-anchor="middle" fill="#fbbf24" class="small-label" data-legibility-role="secondary" data-contrast-background="#082f49">${escapeXml(semantic.durationUnit)}</text>
+ </g>
+</g>
+
+<g id="stage-evidence" opacity="0" data-semantic-beat-id="${escapeXml(stages.evidence.beatId)}">
+ <g id="beam-panel" data-entity-id="beam_graph" data-focus-target="beam_graph" data-caption-policy="avoid" data-semantic-cue-id="beam_graph" data-semantic-beat-id="${escapeXml(stages.evidence.beatId)}" data-semantic-kind="supporting_visual">
+  <text id="label-beam-title" x="360" y="225" text-anchor="middle" fill="#e2e8f0" class="stage-title" data-legibility-role="key" data-contrast-background="#07121f">TELESCOPE BEAM RESPONSE</text>
+  <g id="beam-cause-panel">
+   <rect x="74" y="245" width="572" height="235" rx="24" fill="#0b1324" stroke="#4c1d95" stroke-width="2"/>
+   <text id="label-beam-profile" x="102" y="286" fill="#ddd6fe" font-size="24" data-legibility-role="secondary" data-contrast-background="#0b1324">TELESCOPE BEAM PROFILE</text>
+   <line id="beam-source-track" x1="120" y1="455" x2="610" y2="455" stroke="#475569" stroke-width="3"/>
+   <path id="beam-reference" d="${beamProfilePath}" fill="none" stroke="#a78bfa" stroke-width="8" stroke-linecap="round" clip-path="url(#beam-profile-clip)"/>
+   <line id="beam-sample-line" x1="120" y1="455" x2="120" y2="455" stroke="#fbbf24" stroke-width="3"/>
+   <circle id="beam-source-marker" cx="120" cy="455" r="10" fill="#fbbf24" stroke="#fef3c7" stroke-width="3"/>
+   <circle id="beam-profile-dot" data-follow-path-id="beam-reference" cx="120" cy="455" r="9" fill="#ddd6fe" stroke="#8b5cf6" stroke-width="4"/>
+  </g>
+ </g>
+ <g id="evidence-signal" data-entity-id="evidence_trace" data-focus-target="evidence_trace" data-caption-policy="avoid" data-semantic-cue-id="beam_signal_trace" data-semantic-beat-id="${escapeXml(stages.evidence.beatId)}" data-semantic-kind="supporting_visual">
+  <g id="signal-response-panel">
+   <rect x="74" y="500" width="572" height="270" rx="24" fill="#071827" stroke="#155e75" stroke-width="2"/>
+   <text id="label-signal-strength" x="102" y="542" fill="#a5f3fc" font-size="24" data-legibility-role="secondary" data-contrast-background="#071827">MEASURED SIGNAL STRENGTH</text>
+   <line x1="120" y1="720" x2="610" y2="720" stroke="#475569" stroke-width="3"/>
+   <path id="signal-strength-ghost" d="${evidenceSourcePath}" fill="none" stroke="#155e75" stroke-width="7" opacity=".44"/>
+  </g>
+  <line id="beam-guide" x1="120" y1="455" x2="120" y2="720" stroke="#c4b5fd" stroke-width="3" stroke-dasharray="9 8" opacity="0"/>
+ </g>
+ <g id="interference-note" opacity="0" data-entity-id="interference_label" data-focus-target="interference_label" data-caption-policy="avoid" data-semantic-cue-id="interference_inference" data-semantic-beat-id="${escapeXml(stages.evidence.beatId)}" data-semantic-kind="evidence_text">
+  <rect x="88" y="780" width="544" height="108" rx="30" fill="#082f49" stroke="#22d3ee" stroke-width="3"/>
+  <circle cx="122" cy="818" r="10" fill="#22d3ee"/><text id="label-beam-match" x="146" y="827" fill="#cffafe" font-size="24" data-legibility-role="secondary" data-contrast-background="#082f49">BEAM-SHAPED MATCH</text>
+  <text id="label-interference" x="360" y="867" text-anchor="middle" fill="#fde68a" font-size="24" data-legibility-role="secondary" data-contrast-background="#082f49">LOCAL INTERFERENCE LESS CONVINCING</text>
+ </g>
+</g>
+
+<g id="stage-turn" opacity="0" data-semantic-beat-id="${escapeXml(stages.turn.beatId)}">
+ <g id="search-history" data-entity-id="search_timeline" data-focus-target="search_timeline" data-caption-policy="avoid" data-semantic-cue-id="later_searches" data-semantic-beat-id="${escapeXml(stages.turn.beatId)}" data-semantic-kind="primary_visual">
+  <text id="label-repeat-range" x="360" y="235" text-anchor="middle" fill="#e2e8f0" class="stage-title" data-legibility-role="key" data-contrast-background="#07121f">${escapeXml(semantic.repeatRangeLabel)}</text>
+  <rect x="70" y="280" width="580" height="430" rx="26" fill="#071827" stroke="#155e75" stroke-width="2"/>
+  <line x1="104" y1="545" x2="616" y2="545" stroke="#475569" stroke-width="5"/>
+  <line id="search-active-line" x1="104" y1="545" x2="104" y2="545" stroke="#22d3ee" stroke-width="5"/>
+  <text id="label-event-year" x="140" y="590" text-anchor="middle" fill="#a5f3fc" class="small-label" data-legibility-role="secondary" data-contrast-background="#071827">${escapeXml(semantic.eventYearLabel)}</text>
+  <g id="search-pass-1" opacity="0"><circle id="search-ring-1" cx="280" cy="545" r="38" fill="none" stroke="#475569" stroke-width="3"/><path id="search-flat-1" d="M250 545 H310" stroke="#94a3b8" stroke-width="5"/></g>
+  <g id="search-pass-2" opacity="0"><circle id="search-ring-2" cx="390" cy="545" r="38" fill="none" stroke="#475569" stroke-width="3"/><path id="search-flat-2" d="M360 545 H420" stroke="#94a3b8" stroke-width="5"/></g>
+  <g id="search-pass-3" opacity="0"><circle id="search-ring-3" cx="500" cy="545" r="38" fill="none" stroke="#475569" stroke-width="3"/><path id="search-flat-3" d="M470 545 H530" stroke="#94a3b8" stroke-width="5"/></g>
+  <g id="search-pass-4" opacity="0"><circle id="search-ring-4" cx="600" cy="545" r="30" fill="none" stroke="#475569" stroke-width="3"/><path id="search-flat-4" d="M577 545 H623" stroke="#94a3b8" stroke-width="5"/></g>
+  <text id="label-later-searches" x="445" y="638" text-anchor="middle" fill="#cbd5e1" font-size="24" data-legibility-role="secondary" data-contrast-background="#071827">FOUR LATER SEARCHES</text>
+  <text id="label-zero-repeats" x="445" y="676" text-anchor="middle" fill="#fde68a" font-size="24" data-legibility-role="secondary" data-contrast-background="#071827">ZERO REPEATS</text>
+ </g>
+ <g id="no-repeat-note" opacity="0" data-entity-id="no_repeat_label" data-focus-target="no_repeat_label" data-caption-policy="avoid" data-semantic-cue-id="no_verified_repeat" data-semantic-beat-id="${escapeXml(stages.turn.beatId)}" data-semantic-kind="evidence_text"><text id="label-no-repeat" x="360" y="778" text-anchor="middle" fill="#fbbf24" font-size="39" filter="url(#semantic-glow)" data-legibility-role="key" data-contrast-background="#07121f">${escapeXml(semantic.noRepeatLabel)}</text></g>
+ <g id="transmission-note" opacity="0" data-entity-id="transmission_label" data-focus-target="transmission_label" data-caption-policy="avoid" data-semantic-cue-id="no_confirmed_transmission" data-semantic-beat-id="${escapeXml(stages.turn.beatId)}" data-semantic-kind="evidence_text">
+  <rect x="96" y="748" width="528" height="112" rx="30" fill="#0b1324" stroke="#67e8f9" stroke-width="3"/>
+  <g transform="translate(132 770)" stroke="#67e8f9" fill="none" stroke-width="4"><line x1="25" y1="18" x2="25" y2="62"/><path d="M10 28 Q-2 40 10 52 M40 28 Q52 40 40 52"/><line x1="5" y1="66" x2="45" y2="66"/></g>
+  <path id="transmission-break" d="M198 804 H242 M258 804 H302" stroke="#fb7185" stroke-width="5"/><path d="M242 790 L258 818" stroke="#fb7185" stroke-width="6"/>
+  <text id="label-no-confirmed" x="462" y="798" text-anchor="middle" fill="#e2e8f0" font-size="32" data-legibility-role="key" data-contrast-background="#0b1324">NO CONFIRMED</text><text id="label-transmission" x="462" y="836" text-anchor="middle" fill="#67e8f9" font-size="32" data-legibility-role="key" data-contrast-background="#0b1324">TRANSMISSION</text>
+ </g>
+</g>
+
+<g id="signal-evidence" data-entity-id="signal_evidence" data-focus-target="signal_evidence" data-persistent-entity="true" data-caption-policy="avoid" data-semantic-cue-id="persistent_signal_evidence" data-semantic-kind="primary_visual">
+ <path id="signal-evidence-glow" d="${initialPersistentPath}" fill="none" stroke="#22d3ee" stroke-width="15" stroke-linecap="round" stroke-linejoin="round" opacity=".16" filter="url(#semantic-glow)"/>
+ <path id="signal-evidence-path" d="${initialPersistentPath}" fill="none" stroke="#22d3ee" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+ <circle id="signal-evidence-marker" data-follow-path-id="signal-evidence-path" cx="360" cy="360" r="11" fill="#ecfeff" stroke="#22d3ee" stroke-width="5" filter="url(#semantic-glow)"/>
+</g>
+
+<g id="stage-payoff" opacity="0" data-semantic-beat-id="${escapeXml(stages.payoff.beatId)}">
+ <circle id="verdict-field" cx="360" cy="610" r="110" fill="url(#verdict-gradient)"/>
+ <g id="observation-chip" data-entity-id="evidence_node" data-focus-target="evidence_node" data-caption-policy="avoid" data-semantic-cue-id="single_observation" data-semantic-beat-id="${escapeXml(stages.payoff.beatId)}" data-semantic-kind="supporting_visual">
+  <rect x="146" y="280" width="428" height="112" rx="28" fill="#083344" stroke="#22d3ee" stroke-width="4"/><circle cx="198" cy="326" r="13" fill="#67e8f9"/><text id="label-one-observation" x="382" y="337" text-anchor="middle" fill="#cffafe" font-size="32" data-legibility-role="key" data-contrast-background="#083344">${escapeXml(semantic.observationLabel)}</text>
+  <path id="honest-answer-arrow" d="M360 395 V445" stroke="#67e8f9" stroke-width="5"/><path d="M348 433 L360 447 L372 433" fill="none" stroke="#67e8f9" stroke-width="5"/>
+ </g>
+ <g id="reasoning-verdict" opacity="0" data-entity-id="reasoning_bridge" data-focus-target="reasoning_bridge" data-caption-policy="avoid" data-semantic-cue-id="not_aliens" data-semantic-beat-id="${escapeXml(stages.payoff.beatId)}" data-semantic-kind="primary_visual">
+  <rect x="196" y="455" width="328" height="116" rx="30" fill="#3f1d2e" stroke="#fb7185" stroke-width="4"/><text id="label-speculation" x="360" y="526" text-anchor="middle" fill="#fecdd3" font-size="36" data-legibility-role="key" data-contrast-background="#3f1d2e">${escapeXml(semantic.speculationLabel)}</text>
+  <line id="aliens-strike-a" x1="222" y1="476" x2="498" y2="550" stroke="#fb7185" stroke-width="10" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100"/><line id="aliens-strike-b" x1="498" y1="476" x2="222" y2="550" stroke="#fb7185" stroke-width="10" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100"/>
+ </g>
+ <g id="bounded-conclusion" opacity="0" data-entity-id="payoff_label" data-focus-target="payoff_label" data-caption-policy="avoid" data-semantic-cue-id="unexplained_conclusion" data-semantic-beat-id="${escapeXml(stages.payoff.beatId)}" data-semantic-kind="audience_text">
+  <circle cx="360" cy="610" r="154" fill="#082f49" fill-opacity=".18" stroke="#f59e0b" stroke-opacity=".34" stroke-width="4"/><text id="label-candidate-lead" x="360" y="580" text-anchor="middle" fill="#fde68a" font-size="32" data-legibility-role="key" data-contrast-background="#07121f">${escapeXml(semantic.candidateLeadLabel)}</text><text id="label-candidate-noun" x="360" y="630" text-anchor="middle" fill="#ecfeff" font-size="42" data-legibility-role="key" data-contrast-background="#07121f">${escapeXml(semantic.candidateNounLabel)}</text><text id="label-uncertainty" x="360" y="680" text-anchor="middle" fill="#cbd5e1" font-size="24" data-legibility-role="secondary" data-contrast-background="#07121f">${escapeXml(semantic.uncertaintyLabel)}</text>
+ </g>
+ <g id="final-proof-note" opacity="0" data-entity-id="final_evidence_label" data-focus-target="final_evidence_label" data-caption-policy="avoid" data-semantic-cue-id="no_repeatable_proof" data-semantic-beat-id="${escapeXml(stages.payoff.beatId)}" data-semantic-kind="evidence_text">
+  <rect x="76" y="540" width="568" height="218" rx="34" fill="#0b1324" fill-opacity=".94" stroke="#f59e0b" stroke-width="4"/><text id="label-unexplained-not-proof" x="360" y="591" text-anchor="middle" fill="#cbd5e1" font-size="32" data-legibility-role="key" data-contrast-background="#0b1324">UNEXPLAINED <tspan fill="#fbbf24" font-size="38">≠</tspan> PROOF</text><text id="label-no-repeatable" x="360" y="651" text-anchor="middle" fill="#fde68a" font-size="38" data-legibility-role="key" data-contrast-background="#0b1324">NO REPEATABLE</text><text id="label-proof" x="360" y="708" text-anchor="middle" fill="#fbbf24" font-size="54" filter="url(#semantic-glow)" data-legibility-role="key" data-contrast-background="#0b1324">PROOF</text><line id="final-proof-line" x1="170" y1="730" x2="550" y2="730" stroke="#f59e0b" stroke-width="5" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100"/>
+ </g>
+</g>
+
+<rect x="0" y="947" width="720" height="333" fill="url(#caption-scrim-semantic)" data-caption-safe-zone="true" pointer-events="none"/>
+</svg></main>
+<script>
+"use strict";
+const DATA=${runtimeData};
+const byId=(id)=>document.getElementById(id);
+const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,v));
+const ease=(value,name)=>{const x=clamp(value);if(name==="linear")return x;if(name==="smoothstep")return x*x*(3-2*x);if(name==="ease_in_cubic")return x*x*x;if(name==="ease_out_cubic")return 1-Math.pow(1-x,3);if(name==="ease_in_out_cubic")return x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2;throw new Error("unsupported_easing")};
+const progress=(frame,key)=>{const op=DATA.schedule[key];if(!op)throw new Error("missing_operation");return ease((frame-op.startFrame)/Math.max(1,op.endFrame-op.startFrame),op.easing)};
+const cueReveal=(frame,key)=>{const op=DATA.schedule[key];if(!op)throw new Error("missing_operation");const operationFrames=Math.max(1,op.endFrame-op.startFrame),revealFrames=Math.min(operationFrames,14);return clamp((frame-op.startFrame)/revealFrames)};
+const cubicPoint=(values,value)=>{const bounded=clamp(value),second=bounded>.5,t=second?(bounded-.5)*2:bounded*2,offset=second?6:0,one=1-t,coordinate=(axis)=>one*one*one*values[offset+axis]+3*one*one*t*values[offset+2+axis]+3*one*t*t*values[offset+4+axis]+t*t*t*values[offset+6+axis];return{x:coordinate(0),y:coordinate(1)}};
+const frequencyCursorX=(value)=>{const arrival=clamp(value/.62),eased=1-Math.pow(1-arrival,3);return 100+260*eased};
+const scaleAt=(cx,cy,scale)=>"translate("+(cx*(1-scale)).toFixed(3)+" "+(cy*(1-scale)).toFixed(3)+") scale("+scale.toFixed(5)+")";
+const morphPath=(value)=>{const t=clamp(value),p=DATA.evidenceMorph.source.map((entry,index)=>entry+(DATA.evidenceMorph.target[index]-entry)*t);return "M"+p[0]+" "+p[1]+" C"+p[2]+" "+p[3]+" "+p[4]+" "+p[5]+" "+p[6]+" "+p[7]+" C"+p[8]+" "+p[9]+" "+p[10]+" "+p[11]+" "+p[12]+" "+p[13]};
+const stageOpacity=(frame,key)=>{const stage=DATA.stages[key],isFinal=stage?.endFrame===DATA.durationFrames,exitEnd=stage?.endFrame+(isFinal?0:8);if(!stage||frame<stage.startFrame||frame>=exitEnd)return 0;const enter=stage.startFrame===0?1:ease((frame-stage.startFrame)/10,"ease_out_cubic");if(stage.holdStartFrame!==null&&frame>=stage.holdStartFrame&&frame<stage.holdEndFrame)return 1;if(frame<stage.endFrame||isFinal)return enter;return Math.min(enter,ease((stage.endFrame+8-frame)/8,"smoothstep"))};
+const VSG=DATA.visualStateGraph;
+const REPRESENTATIONS=Object.fromEntries(VSG.representations.map((representation)=>[representation.id,representation]));
+const persistentPath=(points)=>points.map((point,index)=>(index?"L":"M")+Number(point.x).toFixed(3)+" "+Number(point.y).toFixed(3)).join(" ");
+const persistentPoint=(points,value)=>{const bounded=clamp(value)*(points.length-1),index=Math.min(points.length-2,Math.floor(bounded)),local=bounded-index;return{x:points[index].x+(points[index+1].x-points[index].x)*local,y:points[index].y+(points[index+1].y-points[index].y)*local}};
+const interpolatePersistent=(from,to,value)=>{const bounded=clamp(value);return from.map((point,index)=>({x:point.x+(to[index].x-point.x)*bounded,y:point.y+(to[index].y-point.y)*bounded}))};
+const visualStateAt=(frame)=>{let active=VSG.states[0];for(const state of VSG.states)if(frame>=state.enterFrame)active=state;return active};
+const stateTransitionAt=(frame)=>VSG.transitions.find((transition)=>frame>=transition.startFrame&&frame<=transition.endFrame)||null;
+const focusAt=(frame)=>VSG.focusIntervals.find((interval)=>frame>=interval.startFrame&&frame<interval.endFrame)||VSG.focusIntervals.at(-1);
+let ACTIVE_FOCUS=VSG.focusIntervals[0];
+const focusWeight=(entityId)=>entityId===ACTIVE_FOCUS.primaryEntityId?1:ACTIVE_FOCUS.supportingEntityIds.includes(entityId)?ACTIVE_FOCUS.supportingOpacity:ACTIVE_FOCUS.dimmedOpacity;
+const focusedOpacity=(id,value,entityId)=>byId(id).setAttribute("opacity",(clamp(value)*focusWeight(entityId)).toFixed(4));
+const applyFocusRoles=()=>{document.querySelectorAll("[data-focus-target]").forEach((element)=>{const entityId=element.dataset.focusTarget;element.dataset.focusRole=entityId===ACTIVE_FOCUS.primaryEntityId?"primary":ACTIVE_FOCUS.supportingEntityIds.includes(entityId)?"supporting":"dimmed"})};
+function renderFrame(rawFrame){
+ const frame=Math.max(0,Math.min(DATA.durationFrames-1,Math.floor(rawFrame+1e-7)));
+ ACTIVE_FOCUS=focusAt(frame);applyFocusRoles();
+ const stageKeys=["hook","context","evidence","turn","payoff"],stageValues=stageKeys.map((key)=>stageOpacity(frame,key));stageKeys.forEach((key,index)=>byId("stage-"+key).setAttribute("opacity",stageValues[index].toFixed(4)));
+ byId("semantic-header").setAttribute("opacity",(.38+.62*stageValues[0]).toFixed(4));
+ byId("semantic-ambient-wash").setAttribute("opacity",(.015+.035*(1+Math.sin(frame*.11))).toFixed(4));byId("semantic-ambient-stars").setAttribute("transform","translate("+(1.8*Math.sin(frame*.023)).toFixed(3)+" "+(1.4*Math.cos(frame*.031)).toFixed(3)+")");byId("semantic-ambient-stars").setAttribute("opacity",(.16+.055*(1+Math.sin(frame*.043))).toFixed(4));
+
+ const record=progress(frame,"draw_path:observation_record"),wow=progress(frame,"highlight:wow_annotation"),wowVisibility=Math.max(wow,cueReveal(frame,"highlight:wow_annotation",5,1));byId("record-clip-rect").setAttribute("width",String(560*record));byId("record-trace").style.strokeDashoffset=String(100*(1-record));byId("record-anomaly-column").setAttribute("opacity",(.22+.78*record).toFixed(4));const scanY=535+185*Math.sin(frame*.055);byId("record-scan-line").setAttribute("y1",scanY.toFixed(3));byId("record-scan-line").setAttribute("y2",scanY.toFixed(3));focusedOpacity("hook-record",1-.58*wowVisibility,"observation_record");focusedOpacity("wow-mark",wowVisibility,"wow_annotation");byId("wow-mark").setAttribute("transform",scaleAt(474,480,.92+.08*wowVisibility));byId("wow-mark").setAttribute("filter",wowVisibility>.1?"url(#semantic-glow)":"none");byId("wow-ring").style.strokeDashoffset=String(100*(1-wow));
+
+ const frequency=progress(frame,"create:frequency_scale"),timer=progress(frame,"pulse:duration_timer"),timerVisibility=Math.max(timer,cueReveal(frame,"pulse:duration_timer",5,1)),bandVisibility=clamp((frequency-.22)/.28);byId("notable-band").setAttribute("opacity",bandVisibility.toFixed(4));byId("notable-band").setAttribute("filter",bandVisibility>.2?"url(#semantic-glow)":"none");byId("frequency-band-label").setAttribute("opacity",bandVisibility.toFixed(4));focusedOpacity("frequency-panel",1-.72*timerVisibility,"frequency_scale");focusedOpacity("duration-display",timerVisibility,"duration_timer");byId("duration-display").setAttribute("transform",scaleAt(360,700,.92+.08*timerVisibility));byId("duration-ring").style.strokeDashoffset=String(100*(1-timer));
+
+ const beam=progress(frame,"draw_path:beam_graph"),trace=progress(frame,"trace_signal:evidence_trace"),interference=progress(frame,"highlight:interference_label"),beamVisibility=Math.max(beam,cueReveal(frame,"draw_path:beam_graph",4,1)),interferenceVisibility=Math.max(interference,cueReveal(frame,"highlight:interference_label",5,1)),tracePoint=cubicPoint(DATA.evidenceMorph.source,trace),beamPoint=cubicPoint(DATA.beamProfile,beam),responsePoint=cubicPoint(DATA.evidenceMorph.source,beam);byId("beam-profile-clip-rect").setAttribute("width",Math.max(0,beamPoint.x-120).toFixed(3));byId("beam-profile-dot").setAttribute("cx",beamPoint.x.toFixed(3));byId("beam-profile-dot").setAttribute("cy",beamPoint.y.toFixed(3));byId("beam-profile-dot").setAttribute("opacity",(beamVisibility*(1-interferenceVisibility)).toFixed(4));byId("beam-source-marker").setAttribute("cx",beamPoint.x.toFixed(3));byId("beam-source-marker").setAttribute("opacity",(beamVisibility*(1-interferenceVisibility)).toFixed(4));byId("beam-sample-line").setAttribute("x1",beamPoint.x.toFixed(3));byId("beam-sample-line").setAttribute("x2",beamPoint.x.toFixed(3));byId("beam-sample-line").setAttribute("y1",beamPoint.y.toFixed(3));byId("beam-sample-line").setAttribute("y2","455");byId("beam-sample-line").setAttribute("opacity",(beamVisibility*(1-interferenceVisibility)).toFixed(4));byId("beam-guide").setAttribute("x1",beamPoint.x.toFixed(3));byId("beam-guide").setAttribute("x2",responsePoint.x.toFixed(3));byId("beam-guide").setAttribute("y1",beamPoint.y.toFixed(3));byId("beam-guide").setAttribute("y2",responsePoint.y.toFixed(3));byId("beam-guide").setAttribute("opacity",(beamVisibility*(1-interferenceVisibility)).toFixed(4));focusedOpacity("beam-panel",(.24+.76*beamVisibility)*(1-.74*interferenceVisibility),"beam_graph");focusedOpacity("evidence-signal",1,"evidence_trace");byId("signal-response-panel").setAttribute("opacity",(1-.74*interferenceVisibility).toFixed(4));focusedOpacity("interference-note",interferenceVisibility,"interference_label");byId("interference-note").setAttribute("transform",scaleAt(360,834,.94+.06*interferenceVisibility));
+
+ const searches=progress(frame,"stagger:search_timeline"),noRepeat=progress(frame,"highlight:no_repeat_label"),transmission=progress(frame,"fade:transmission_label"),searchVisibility=Math.max(searches,cueReveal(frame,"stagger:search_timeline",4,1)),noRepeatVisibility=Math.max(noRepeat,cueReveal(frame,"highlight:no_repeat_label",4,1)),transmissionVisibility=Math.max(transmission,cueReveal(frame,"fade:transmission_label",4,1));byId("search-active-line").setAttribute("x2",String(104+512*searches));[1,2,3,4].forEach((index)=>{const local=clamp((searchVisibility-(index-1)*.19)/.22),flash=Math.sin(Math.PI*clamp(local/.82)),center=[0,280,390,500,600][index],scale=1+.12*flash;byId("search-pass-"+index).setAttribute("opacity",local.toFixed(4));byId("search-pass-"+index).setAttribute("transform",scaleAt(center,545,scale));byId("search-ring-"+index).setAttribute("stroke",flash>.08?"#67e8f9":"#475569");byId("search-ring-"+index).setAttribute("stroke-width",(3+3*flash).toFixed(3));byId("search-flat-"+index).setAttribute("stroke",flash>.08?"#ecfeff":"#94a3b8")});focusedOpacity("search-history",1-.72*Math.max(noRepeatVisibility,transmissionVisibility),"search_timeline");focusedOpacity("no-repeat-note",noRepeatVisibility*(1-.82*transmissionVisibility),"no_repeat_label");byId("no-repeat-note").setAttribute("transform",scaleAt(360,778,.94+.06*noRepeatVisibility));focusedOpacity("transmission-note",transmissionVisibility,"transmission_label");byId("transmission-note").setAttribute("transform",scaleAt(360,804,.94+.06*transmissionVisibility));
+
+ const transition=progress(frame,"transition_match:evidence_node"),reasoning=progress(frame,"fade:reasoning_bridge"),payoff=progress(frame,"fade:payoff_label"),finalProof=progress(frame,"highlight:final_evidence_label"),reasoningFocus=Math.max(reasoning,cueReveal(frame,"fade:reasoning_bridge",4,1)),payoffFocus=Math.max(payoff,cueReveal(frame,"fade:payoff_label",3,1)),finalProofFocus=Math.max(finalProof,cueReveal(frame,"highlight:final_evidence_label",3,1)),fieldPulse=progress(frame,"pulse:deep_background"),observationVisibility=Math.max(.14,1-.72*payoffFocus-.14*finalProofFocus),reasoningVisibility=reasoningFocus*(1-.9*payoffFocus),candidateVisibility=Math.max(payoffFocus,.08)*(1-.84*finalProofFocus);focusedOpacity("observation-chip",observationVisibility,"evidence_node");byId("observation-chip").setAttribute("transform",scaleAt(360,350,.96+.04*transition));focusedOpacity("reasoning-verdict",reasoningVisibility,"reasoning_bridge");byId("reasoning-verdict").setAttribute("transform",scaleAt(360,515,.92+.08*reasoningFocus));byId("aliens-strike-a").style.strokeDashoffset=String(100*(1-reasoning));byId("aliens-strike-b").style.strokeDashoffset=String(100*(1-reasoning));focusedOpacity("bounded-conclusion",candidateVisibility,"payoff_label");byId("bounded-conclusion").setAttribute("transform",scaleAt(360,610,.91+.09*payoffFocus));focusedOpacity("final-proof-note",finalProofFocus,"final_evidence_label");byId("final-proof-note").setAttribute("transform",scaleAt(360,650,.91+.09*finalProofFocus));byId("final-proof-line").style.strokeDashoffset=String(100*(1-finalProof));byId("verdict-field").setAttribute("r",String(110+120*Math.sin(Math.PI*fieldPulse)));byId("verdict-field").setAttribute("opacity",(1-.7*finalProofFocus).toFixed(4));
+ const activeState=visualStateAt(frame),activeTransition=stateTransitionAt(frame),markerByState={observation_record:.5,frequency_context:.5,beam_response:beam,failed_repeat_search:.07,bounded_candidate:.5};let representation=REPRESENTATIONS[activeState.representationId],signalPoints=representation.points,markerProgress=markerByState[activeState.id],representationId=representation.id;if(activeTransition){const binding=VSG.continuityBindings.find((entry)=>entry.id===activeTransition.continuityBindingId),fromRepresentation=REPRESENTATIONS[binding.fromRepresentationId],toRepresentation=REPRESENTATIONS[binding.toRepresentationId],raw=(frame-activeTransition.startFrame)/Math.max(1,activeTransition.endFrame-activeTransition.startFrame),amount=ease(raw,activeTransition.easing);signalPoints=interpolatePersistent(fromRepresentation.points,toRepresentation.points,amount);markerProgress=markerByState[activeTransition.fromStateId]+(markerByState[activeTransition.toStateId]-markerByState[activeTransition.fromStateId])*amount;representationId=binding.fromRepresentationId+"__"+binding.toRepresentationId}const signalPath=persistentPath(signalPoints),signalMarker=persistentPoint(signalPoints,markerProgress);byId("signal-evidence-path").setAttribute("d",signalPath);byId("signal-evidence-glow").setAttribute("d",signalPath);byId("signal-evidence-marker").setAttribute("cx",signalMarker.x.toFixed(3));byId("signal-evidence-marker").setAttribute("cy",signalMarker.y.toFixed(3));const signalReveal=activeState.id==="observation_record"?Math.max(.08,record):1;focusedOpacity("signal-evidence",signalReveal,"signal_evidence");byId("signal-evidence").dataset.visualStateId=activeState.id;byId("signal-evidence").dataset.representationId=representationId;byId("signal-evidence").dataset.activeTransitionId=activeTransition?.id||"none";
+ document.documentElement.dataset.semanticTraceProgress=trace.toFixed(6);document.documentElement.dataset.semanticTraceX=tracePoint.x.toFixed(3);document.documentElement.dataset.semanticTraceY=tracePoint.y.toFixed(3);document.documentElement.dataset.activeVisualStateId=activeState.id;document.documentElement.dataset.activeStateTransitionId=activeTransition?.id||"none";document.documentElement.dataset.focusIntervalId=ACTIVE_FOCUS.id;document.documentElement.dataset.focusPrimaryEntityId=ACTIVE_FOCUS.primaryEntityId;
+ document.documentElement.dataset.renderedFrame=String(frame);
+}
+let currentTime=0,rate=1;
+const timeline={duration:()=>DATA.durationFrames/DATA.fps,time(value){if(value===undefined)return currentTime;currentTime=clamp(Number(value)||0,0,this.duration());renderFrame(currentTime*DATA.fps);return this},totalTime(value){return value===undefined?currentTime:this.time(value)},seek(value){return this.time(value)},pause(){return this},play(){return this},timeScale(value){if(value===undefined)return rate;rate=Number(value)||1;return this},getChildren(){return[]}};
+window.__timelines=window.__timelines||{};window.__timelines[${safeJson(content.compositionId)}]=timeline;renderFrame(0);
+</script></body></html>`;
+  return Object.freeze({ html, compositionHash: createHash("sha256").update(html).digest("hex"), font: Object.freeze({ family: FONT_FAMILY, sha256: FONT_SHA256, license: FONT_LICENSE, sourcePackage: "@fontsource/outfit" }) });
+}
+
+export function compileAnimationIRToHtml(ir) {
+  return ir.profileVersion === "1.1.0" && ir.content?.semantic?.profileId === "wow_signal_case_v1" ? compileSemanticAnimationIRToHtml(ir) : compileLegacyAnimationIRToHtml(ir);
+}

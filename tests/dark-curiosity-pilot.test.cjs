@@ -38,6 +38,9 @@ test("pilot report is strict, deterministic across runtime timings, and always n
   assert.throws(() => normalizePilotReport({ ...first, readiness: { ...first.readiness, storageKey: "secret" } }), { code: "PILOT_REPORT_INVALID" });
   assert.throws(() => normalizePilotReport({ ...first, completedStages: [...first.completedStages, "pilot_complete"] }), { code: "PILOT_REPORT_INVALID" });
   assert.throws(() => normalizePilotReport({ ...first, final: { ...first.final, outputHash: "bad" } }), { code: "PILOT_REPORT_INVALID" });
+  const exportBacked = normalizePilotReport(report({ preview: { ...job("6"), exportArtifactId: "exp_11111111-1111-4111-8111-111111111111" }, final: { ...job("7"), exportArtifactId: "exp_22222222-2222-4222-8222-222222222222" } }));
+  assert.match(exportBacked.final.exportArtifactId, /^exp_/);
+  assert.throws(() => normalizePilotReport(report({ final: { ...job("7"), exportArtifactId: "upload_unsafe" } })), { code: "PILOT_REPORT_INVALID" });
 });
 
 test("pilot report store atomically updates latest with a validated bounded report", () => {
@@ -83,9 +86,13 @@ test("pilot orchestrator completes every stage, replays complete reports, and st
     return {};
   };
   try {
-    const deps = { pilotReadiness: () => READY, executeStage, persistPilotReport: (value) => value, readLatestPilotReport: () => null };
+    const progress = [];
+    const deps = { pilotReadiness: () => READY, executeStage, persistPilotReport: (value) => value, readLatestPilotReport: () => null, onProgress: (event) => progress.push(event) };
     const result = await runPilotWorkflow(options, deps);
     assert.equal(result.report.status, "complete"); assert.deepEqual(seen, PILOT_STAGES.slice(1)); assert.equal(result.report.publishable, false);
+    assert.equal(progress[0].event, "readiness_started");
+    assert.deepEqual(progress.filter((event) => event.event === "stage_started").map((event) => event.stage), PILOT_STAGES.slice(1));
+    assert.deepEqual(progress.filter((event) => event.event === "stage_completed").map((event) => event.stage), PILOT_STAGES.slice(1));
     const replay = await runPilotWorkflow(options, { ...deps, readLatestPilotReport: () => result.report, verifyCompletedReport: () => true, executeStage: async () => assert.fail("must not execute") });
     assert.equal(replay.replayed, true);
     const failedSeen = [];

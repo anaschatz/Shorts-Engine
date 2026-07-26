@@ -27,6 +27,7 @@
     "demo:smoke": "node demo/run-smoke.mjs",
     "demo:youtube:live": "node demo/run-youtube-live-e2e.mjs",
     "dark-curiosity:pilot": "node demo/run-dark-curiosity-pilot.mjs",
+    "dark-curiosity:production:proof": "node tools/dark-curiosity-production-proof.mjs",
     "dark-curiosity:aligner:doctor": "node tools/dark-curiosity-aligner-doctor.mjs",
     "dark-curiosity:aligner:bootstrap": "node tools/dark-curiosity-aligner-bootstrap.mjs",
     "dark-curiosity:narration:prepare": "node tools/dark-curiosity-narration.mjs prepare",
@@ -38,6 +39,12 @@
     "dark-curiosity:tts:verify": "node tools/dark-curiosity-tts.mjs verify",
     "dark-curiosity:kokoro:doctor": "node tools/dark-curiosity-kokoro-doctor.mjs",
     "dark-curiosity:kokoro:bootstrap": "node tools/dark-curiosity-kokoro-bootstrap.mjs",
+    "dark-curiosity:animation:doctor": "node tools/dark-curiosity-animation.mjs doctor",
+    "dark-curiosity:animation:benchmark": "node tools/dark-curiosity-animation.mjs benchmark",
+    "dark-curiosity:animation:timing:doctor": "node tools/dark-curiosity-animation-timing.mjs doctor",
+    "dark-curiosity:animation:timing:proof": "node tools/dark-curiosity-animation-timing.mjs proof",
+    "dark-curiosity:animation:seek:doctor": "node tools/dark-curiosity-animation-seek.mjs doctor",
+    "dark-curiosity:animation:seek:proof": "node tools/dark-curiosity-animation-seek.mjs proof",
     "dev": "node server/app.cjs",
     "env:check": "node tools/release/check-environment.mjs",
     "eval": "node eval/run-eval.mjs",
@@ -98,5 +105,8 @@
   },
   "devDependencies": {
     "playwright": "^1.61.0"
+  },
+  "dependencies": {
+    "@hyperframes/producer": "0.7.55"
   }
 }

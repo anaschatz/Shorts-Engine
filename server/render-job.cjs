@@ -1610,6 +1610,17 @@ function assertPipelineContext({ job, project, upload, payload, deps }) {
           approvedBy: sanitizeText(payload.regenerationApproval.approvedBy || "", 80),
         }
       : null,
+    footballReviewApproval: payload.footballReviewApproval && typeof payload.footballReviewApproval === "object"
+      ? {
+          reviewId: sanitizeText(payload.footballReviewApproval.reviewId || "", 80),
+          reviewVersion: Math.max(1, Math.floor(Number(payload.footballReviewApproval.reviewVersion || 1))),
+          candidateId: sanitizeText(payload.footballReviewApproval.candidateId || "", 80),
+          sourceRevision: sanitizeText(payload.footballReviewApproval.sourceRevision || "", 80).toLowerCase(),
+          projectRevision: Math.max(1, Math.floor(Number(payload.footballReviewApproval.projectRevision || 1))),
+          reviewedAt: sanitizeText(payload.footballReviewApproval.reviewedAt || "", 48),
+          reviewerId: sanitizeText(payload.footballReviewApproval.reviewerId || "", 80),
+        }
+      : null,
   };
 }
 
@@ -4158,6 +4169,19 @@ function updateApprovalAudit({ deps, context, job, projectId, requestId, status,
   }
 }
 
+function updateFootballReviewAudit({ deps, context, job, status, error }) {
+  const repository = deps && deps.footballReviewRepository;
+  const approval = context && context.footballReviewApproval;
+  if (!repository || !approval || !approval.reviewId) return null;
+  return repository.markJob(approval.reviewId, {
+    kind: "render",
+    jobId: job.id,
+    actorId: approval.reviewerId,
+    status,
+    reasonCode: error && error.code,
+  });
+}
+
 function transcriptFromApprovedPlan(plan, context) {
   const captions = Array.isArray(plan.captions)
     ? plan.captions.map((caption) => ({
@@ -4283,6 +4307,12 @@ async function runRenderJob(options) {
         job,
         projectId: project.id,
         requestId,
+        status: "render_processing",
+      });
+      updateFootballReviewAudit({
+        deps,
+        context,
+        job,
         status: "render_processing",
       });
       updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 72, step: "approved_edit_plan" });
@@ -4802,7 +4832,30 @@ async function runRenderJob(options) {
       updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 66, step: "plan_story", substep: "football_story_planning", longSource: longSourceRuntime, scorebugFirst: longSourceRuntime });
 
       updateJobStep({ jobs, job, projectId: project.id, requestId, logger: deps.logger, progress: 72, step: "create_edit_plan", substep: "build_edit_plan", longSource: longSourceRuntime, scorebugFirst: longSourceRuntime });
-      candidatePlans = deps.createCandidateEditPlans({
+      const candidatePlanCacheDescriptor = deps.analysisCache && upload && upload.checksumSha256
+        ? {
+            sourceChecksum: upload.checksumSha256,
+            pipelineVersion: "football-candidate-planner-v1",
+            evidenceContractVersion: "football-match-evidence-v1",
+            configuration: {
+              preset: context.preset,
+              title: context.title,
+              language: context.language,
+              styleTarget: context.styleTarget,
+              editIntensity: context.editIntensity,
+              stylePreset: context.stylePreset,
+              compositionMode: context.compositionMode,
+              goalSelectionMode: context.goalSelectionMode,
+              moments: highlightResult.moments,
+              matchEventTruth,
+            },
+          }
+        : null;
+      const cachedCandidatePlans = candidatePlanCacheDescriptor
+        ? deps.analysisCache.get(candidatePlanCacheDescriptor)
+        : null;
+      const candidatePlanningStartedAt = Date.now();
+      candidatePlans = cachedCandidatePlans || deps.createCandidateEditPlans({
         moments: highlightResult.moments,
         metadata: {
           ...context.metadata,
@@ -4822,6 +4875,28 @@ async function runRenderJob(options) {
         stylePreset: context.stylePreset,
         compositionMode: context.compositionMode,
       });
+      if (!cachedCandidatePlans && candidatePlanCacheDescriptor && Array.isArray(candidatePlans) && candidatePlans.length > 0) {
+        deps.analysisCache.put(candidatePlanCacheDescriptor, candidatePlans);
+      }
+      if (deps.metrics) {
+        deps.metrics.observe("analysis_duration_ms", Date.now() - candidatePlanningStartedAt, {
+          pipeline: "clip",
+          outcome: cachedCandidatePlans ? "hit" : "success",
+          stage: "analysis",
+        });
+      }
+      if (cachedCandidatePlans) {
+        updateJobStep({
+          jobs,
+          job,
+          projectId: project.id,
+          requestId,
+          logger: deps.logger,
+          progress: 72,
+          step: "analysis_cache_hit",
+          substep: "reuse_candidate_plans",
+        });
+      }
       if (!Array.isArray(candidatePlans) || candidatePlans.length === 0) {
         const code = context.goalSelectionMode === "valid_goals_only" ? "NO_VALID_GOALS_FOUND" : "AI_OUTPUT_INVALID";
         if (context.goalSelectionMode === "valid_goals_only") {
@@ -5561,8 +5636,12 @@ async function runRenderJob(options) {
     }
 
     humanReviewGate = humanReviewGate || createHumanReviewGate(matchEventTruth || {}, {
-      approved: Boolean(context.regenerationApproval),
-      source: context.regenerationApproval ? "regeneration_approval" : "match_event_truth",
+      approved: Boolean(context.regenerationApproval || context.footballReviewApproval),
+      source: context.footballReviewApproval
+        ? "football_review_approval"
+        : context.regenerationApproval
+          ? "regeneration_approval"
+          : "match_event_truth",
     });
     editPlan.humanReviewGate = publicHumanReviewGate(humanReviewGate);
 
@@ -5613,6 +5692,12 @@ async function runRenderJob(options) {
         source: context.source,
         createdAt: nowIso(),
       },
+    });
+    updateFootballReviewAudit({
+      deps,
+      context,
+      job,
+      status: "render_completed",
     });
     jobs.complete(job, {
       outputPath: context.outputStage.permanentLocal ? context.outputPath : null,
@@ -5719,6 +5804,11 @@ async function runRenderJob(options) {
         status: "cancelled",
         error,
       });
+      try {
+        updateFootballReviewAudit({ deps, context, job, status: "cancelled", error });
+      } catch {
+        // The cancellation remains fail-closed even if the secondary audit write is unavailable.
+      }
       return;
     }
     failJob({ jobs, job, project, error, logger: deps.logger, requestId });
@@ -5731,6 +5821,11 @@ async function runRenderJob(options) {
       status: "render_failed",
       error,
     });
+    try {
+      updateFootballReviewAudit({ deps, context, job, status: "render_failed", error });
+    } catch {
+      // The failed job remains non-downloadable if the secondary audit write is unavailable.
+    }
   } finally {
     if (sampledFrames && typeof deps.cleanupSampledFrames === "function") {
       const cleanupResult = deps.cleanupSampledFrames({

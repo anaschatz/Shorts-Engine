@@ -220,30 +220,12 @@ function createDarkRenderContext(renderProfile) {
   };
 }
 
-test("Dark Curiosity render job persists a non-publishable silent 720x1280 preview", async () => {
+test("Dark Curiosity render job rejects an estimated silent preview", async () => {
   const context = createDarkRenderContext("preview");
-  await runNarratedRenderJob({ ...context, payload: context.job.payload });
-
-  assert.equal(context.job.status, "completed");
-  assert.equal(context.job.narratedRender.silentPreview, true);
-  assert.equal(context.job.narratedRender.previewOnly, true);
-  assert.equal(context.job.narratedRender.publishable, false);
-  assert.equal(context.job.narratedRender.narrationStatus, "uploaded_unaligned");
-  assert.equal(context.job.narratedRender.narrationUsed, false);
-  assert.equal(context.job.narratedRender.narrationTimingUsed, false);
-  assert.equal(context.job.narratedRender.audioIncluded, false);
-  assert.equal(context.job.narratedRender.timingMode, "estimated_silent");
-  const publicJob = context.jobs.publicJob(context.job);
-  assert.equal(publicJob.narratedRender.previewOnly, true);
-  assert.equal(publicJob.narratedRender.publishable, false);
-  assert.equal(publicJob.outputPath, undefined);
-  const manifest = context.dependencies.contentArtifactRepository.readJson(context.job.narratedRender.manifestArtifactId);
-  assert.equal(manifest.body.width, 720);
-  assert.equal(manifest.body.height, 1280);
-  assert.equal(manifest.body.previewOnly, true);
-  assert.equal(manifest.body.publishable, false);
-  assert.equal(manifest.body.narrationStatus, "uploaded_unaligned");
-  assert.equal(manifest.body.narrationUsed, false);
+  await assert.rejects(
+    () => runNarratedRenderJob({ ...context, payload: context.job.payload }),
+    (error) => error.code === "NARRATION_ALIGNMENT_REQUIRED" && error.status === 409,
+  );
 });
 
 test("Dark Curiosity render job rejects final output before invoking a renderer", async () => {

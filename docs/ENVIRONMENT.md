@@ -199,6 +199,11 @@ Action-aware framing is deterministic and safe by default. Optional OpenCV track
 | `MATCHCUTS_WORKER_RETRY_INITIAL_DELAY_MS` | No | `1000` | integer `0..600000` | No | Keep default. | Invalid retry delay fails readiness. |
 | `MATCHCUTS_WORKER_RETRY_MAX_DELAY_MS` | No | `30000` | integer `0..3600000` | No | Keep default. | Initial delay greater than max delay fails readiness. |
 | `MATCHCUTS_WORKER_RETRY_MAX_ATTEMPTS` | No | `2` | integer `1..10` | No | Keep low in staging. | Invalid attempts fail readiness. |
+| `MATCHCUTS_RENDER_QUOTA_PER_USER_PER_DAY` | No | `20` | integer `1..100000` | No | Start low and raise from measured usage. | New non-idempotent render requests return `RENDER_QUOTA_EXCEEDED` after the UTC-day limit; replays remain safe. |
+| `MATCHCUTS_RENDER_CONCURRENCY_PER_USER` | No | `2` | integer `1..1000` | No | Keep at or below available render slots. | New non-idempotent render requests return `RENDER_CONCURRENCY_EXCEEDED` at the owner limit. |
+| `MATCHCUTS_RENDER_CONCURRENCY_GLOBAL` | No | `4` | integer `1..10000` | No | Set from measured CPU/GPU capacity. | New non-idempotent render requests return `RENDER_CONCURRENCY_EXCEEDED` at the global limit. |
+| `MATCHCUTS_ANALYSIS_CACHE_TTL_MS` | No | `86400000` | integer `1000..2592000000` | No | Keep bounded; shorten while analysis contracts are changing quickly. | Invalid TTL fails startup. Cache keys include source checksum, pipeline version, evidence-contract version and settings. |
+| `MATCHCUTS_ANALYSIS_CACHE_MAX_ENTRIES` | No | `500` | integer `1..10000` | No | Size from staging memory observations. | Invalid size fails startup; the in-process cache evicts oldest entries. |
 | `MATCHCUTS_ARTIFACT_CLEANUP_INTERVAL_MS` | No | `0` | integer `0..86400000` | No | Keep disabled until cleanup policy is reviewed. | Invalid interval fails readiness. |
 
 ## Storage/artifact adapter
