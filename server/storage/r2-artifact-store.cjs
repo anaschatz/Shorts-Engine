@@ -132,24 +132,6 @@ function publicHead(result) {
   };
 }
 
-function safeObjectMetadata(value = {}) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  const entries = Object.entries(value).slice(0, 16).map(([key, item]) => {
-    const safeKey = String(key || "").toLowerCase();
-    const safeValue = String(item || "");
-    if (
-      !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(safeKey)
-      || !safeValue
-      || safeValue.length > 256
-      || /[\u0000-\u001f\u007f]/.test(safeValue)
-    ) {
-      throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400);
-    }
-    return [safeKey, safeValue];
-  });
-  return Object.fromEntries(entries);
-}
-
 class R2ArtifactStore {
   constructor(options = {}) {
     const sdk = options.sdk || require("@aws-sdk/client-s3");
@@ -284,14 +266,7 @@ class R2ArtifactStore {
     };
   }
 
-  async putObjectStream({
-    storageKey,
-    body,
-    byteSize,
-    contentType,
-    metadata,
-    signal,
-  }) {
+  async putObjectStream({ storageKey, body, byteSize, contentType, signal }) {
     const key = validateStorageKey(storageKey);
     const size = Number(byteSize);
     if (!Number.isInteger(size) || size < 0) {
@@ -303,7 +278,6 @@ class R2ArtifactStore {
       Body: body,
       ContentLength: size,
       ContentType: String(contentType || "application/octet-stream"),
-      Metadata: safeObjectMetadata(metadata),
     }), { abortSignal: signal });
     return await this.headObject(key);
   }
@@ -364,6 +338,5 @@ module.exports = {
   createR2ArtifactStore,
   normalizeCompletedParts,
   rangeHeader,
-  safeObjectMetadata,
   validateStorageKey,
 };

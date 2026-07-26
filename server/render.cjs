@@ -84,17 +84,6 @@ const RENDER_PROFILES = Object.freeze({
     segmentMode: "fast_fade_transcode",
     outputFrameRate: "30",
   },
-  review_preview: {
-    name: "review_preview",
-    preset: "veryfast",
-    videoBitrate: "1500k",
-    audioBitrate: "96k",
-    maxVerticalHeight: 960,
-    maxSquareSize: 540,
-    blurredBackground: false,
-    segmentMode: "fast_fade_transcode",
-    outputFrameRate: "24",
-  },
 });
 
 function assTime(seconds) {
@@ -1493,16 +1482,8 @@ async function renderSingleWindowShort({
     "libx264",
     "-preset",
     profile.preset,
-    ...(profile.videoBitrate
-      ? [
-          "-b:v",
-          profile.videoBitrate,
-          "-maxrate",
-          "1800k",
-          "-bufsize",
-          "3000k",
-        ]
-      : ["-crf", profile.crf]),
+    "-crf",
+    profile.crf,
     ...(profile.outputFrameRate ? ["-r", profile.outputFrameRate] : []),
   ];
   const args = [

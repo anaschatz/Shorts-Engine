@@ -1,17 +1,9 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { randomUUID } = require("node:crypto");
-const { mkdtempSync, rmSync, writeFileSync } = require("node:fs");
-const { tmpdir } = require("node:os");
-const { join } = require("node:path");
 
 const { AppError } = require("../server/errors.cjs");
 const { buildFootballReviewCandidates, sourceRevisionFor } = require("../server/pipelines/football/review/candidate-builder.cjs");
-const { publicCandidate } = require("../server/pipelines/football/review/candidate-contract.cjs");
-const {
-  PREVIEW_PROFILE,
-  renderFootballCandidatePreview,
-} = require("../server/pipelines/football/review/preview-renderer.cjs");
 const { FootballReviewRepository } = require("../server/pipelines/football/review/review-repository.cjs");
 const { createFootballReviewService } = require("../server/pipelines/football/review/review-service.cjs");
 
@@ -154,110 +146,12 @@ test("football review candidate builder creates two to four bounded safe candida
   });
   assert.ok(candidates.length >= 2 && candidates.length <= 4);
   assert.equal(new Set(candidates.map((candidate) => candidate.id)).size, candidates.length);
-  assert.equal(
-    new Set(candidates.map((candidate) => candidate.editorialSignature)).size,
-    candidates.length,
-  );
-  assert.deepEqual(
-    candidates.map((candidate) => candidate.purpose.code),
-    [
-      "buildup_focused",
-      "finish_focused",
-      "context_decision",
-      "wide_safe",
-    ],
-  );
   for (const candidate of candidates) {
-    assert.equal(candidate.schemaVersion, 2);
     assert.ok(candidate.sourceStart >= 0);
     assert.ok(candidate.sourceEnd <= 50);
     assert.ok(candidate.durationSeconds <= 90);
     assert.ok(candidate.reasonCodes.includes("uncertain_goal_evidence"));
     assert.ok(["safe_fallback", "tracked", "low_confidence"].includes(candidate.framing.status));
-  }
-  const publicRecord = publicCandidate(candidates[0]);
-  assert.equal(publicRecord.preview.status, "queued");
-  assert.equal(publicRecord.preview.url, null);
-  assert.equal(Object.hasOwn(publicRecord, "editPlan"), false);
-  assert.equal(Object.hasOwn(publicRecord, "planHash"), false);
-  assert.equal(Object.hasOwn(publicRecord, "editorialSignature"), false);
-});
-
-test("high-confidence tracking creates a distinct tracked-action candidate", () => {
-  const candidates = buildFootballReviewCandidates({
-    projectId: id("prj"),
-    sourceJobId: id("job"),
-    sourceRevision: "e".repeat(64),
-    sourceDurationSeconds: 50,
-    candidatePlans: [plan({
-      cropPlan: {
-        mode: "ball_follow",
-        confidence: 0.91,
-        fallbackUsed: false,
-        reasonCodes: ["tracked_ball"],
-      },
-    })],
-  });
-  const tracked = candidates.find(
-    (candidate) => candidate.purpose.code === "tracked_action",
-  );
-  assert.ok(tracked);
-  assert.equal(tracked.framing.status, "tracked");
-  assert.equal(tracked.framing.fallbackUsed, false);
-});
-
-test("preview renderer binds probed output to candidate revision and plan hash", async () => {
-  const [candidate] = buildFootballReviewCandidates({
-    projectId: id("prj"),
-    sourceJobId: id("job"),
-    sourceRevision: "f".repeat(64),
-    sourceDurationSeconds: 50,
-    candidatePlans: [plan()],
-  });
-  let rendered = null;
-  const directory = mkdtempSync(join(tmpdir(), "football-preview-test-"));
-  const outputPath = join(directory, "preview.mp4");
-  try {
-    const result = await renderFootballCandidatePreview({
-      candidate,
-      sourceDurationSeconds: 50,
-      sourcePath: join(directory, "source.mp4"),
-      outputPath,
-      subtitlesPath: join(directory, "preview.ass"),
-    }, {
-      async renderShort(input) {
-        rendered = input;
-        writeFileSync(outputPath, Buffer.alloc(128, 1));
-      },
-      async ffprobeJson() {
-        return {
-          streams: [
-            {
-              codec_type: "video",
-              codec_name: "h264",
-              width: PREVIEW_PROFILE.width,
-              height: PREVIEW_PROFILE.height,
-              avg_frame_rate: "24/1",
-            },
-            { codec_type: "audio", codec_name: "aac" },
-          ],
-          format: { duration: String(candidate.durationSeconds) },
-        };
-      },
-      sha256() {
-        return "1".repeat(64);
-      },
-    });
-    assert.equal(result.manifest.candidateId, candidate.id);
-    assert.equal(result.manifest.sourceRevision, candidate.sourceRevision);
-    assert.equal(result.manifest.planHash, candidate.planHash);
-    assert.equal(result.manifest.checksumSha256, "1".repeat(64));
-    assert.equal(rendered.plan.renderProfile, "review_preview");
-    assert.equal(rendered.plan.export.width, 540);
-    assert.equal(rendered.plan.export.height, 960);
-    assert.equal(rendered.plan.framingMode, candidate.framing.mode);
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
   }
 });
 

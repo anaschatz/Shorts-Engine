@@ -56,17 +56,6 @@ function queueHarness(overrides = {}) {
         status: overrides.completeStatus || "completed",
       };
     },
-    async completeAtomically(job, patch, lease, mutation) {
-      calls.push({ method: "completeAtomically", job, patch, lease });
-      const completed = {
-        ...job,
-        status: overrides.completeStatus || "completed",
-      };
-      if (completed.status === "completed") {
-        await mutation({ query() {} }, completed);
-      }
-      return completed;
-    },
     async retry(job, error, lease) {
       calls.push({ method: "retry", job, error, lease });
       return { ...job, status: overrides.retryStatus || "queued" };
@@ -192,34 +181,6 @@ test("completion observes a cancellation that races after the last heartbeat", a
   assert.deepEqual(
     queue.calls.map((entry) => entry.method),
     ["claimNext", "complete"],
-  );
-});
-
-test("handler-owned atomic completion runs its mutation once and skips ordinary completion", async () => {
-  const queue = queueHarness();
-  let mutations = 0;
-  const runner = new DistributedWorkerRunner({
-    queue,
-    workerId: "worker-a",
-    handlers: {
-      async validate_upload(job, context) {
-        await context.completeAtomically(
-          { exportId: "exp_test" },
-          async (transaction, completed) => {
-            assert.equal(typeof transaction.query, "function");
-            assert.equal(completed.status, "completed");
-            mutations += 1;
-          },
-        );
-        return { ignoredAfterAtomicCompletion: true };
-      },
-    },
-  });
-  assert.equal((await runner.runOnce()).status, "completed");
-  assert.equal(mutations, 1);
-  assert.deepEqual(
-    queue.calls.map((entry) => entry.method),
-    ["claimNext", "completeAtomically"],
   );
 });
 

@@ -93,15 +93,6 @@ class PostgresJobQueue {
   }
 
   async enqueue(record, options = {}) {
-    return await this.withTransaction(
-      async (transaction) => await this.enqueueInTransaction(transaction, record, options),
-    );
-  }
-
-  async enqueueInTransaction(transaction, record, options = {}) {
-    if (!transaction || typeof transaction.query !== "function") {
-      throw new TypeError("enqueueInTransaction requires an active PostgreSQL transaction");
-    }
     const ownerId = String(record && record.ownerId || "");
     const projectId = String(record && record.projectId || "");
     const action = String(record && record.action || "generate");
@@ -115,8 +106,9 @@ class PostgresJobQueue {
       pipelineType,
       payload: record.payload || {},
     }));
-    if (key) {
-      const reserved = await transaction.query(
+    return await this.withTransaction(async (transaction) => {
+      if (key) {
+        const reserved = await transaction.query(
           `INSERT INTO idempotency_records(
              owner_id, scope, key, request_hash, resource_type
            )
@@ -124,69 +116,69 @@ class PostgresJobQueue {
            ON CONFLICT (owner_id, scope, key) DO NOTHING
            RETURNING owner_id`,
           [ownerId, `job:${action}`, key, hash],
-      );
-      if (!reserved.rowCount) {
-        const existing = await transaction.query(
+        );
+        if (!reserved.rowCount) {
+          const existing = await transaction.query(
             `SELECT request_hash, resource_id
              FROM idempotency_records
              WHERE owner_id = $1 AND scope = $2 AND key = $3
              FOR UPDATE`,
             [ownerId, `job:${action}`, key],
-        );
-        const row = existing.rows[0];
-        if (!row || String(row.request_hash).trim() !== hash) {
-          throw new AppError(
-            "IDEMPOTENCY_CONFLICT",
-            SAFE_MESSAGES.IDEMPOTENCY_CONFLICT,
-            409,
           );
-        }
-        if (!row.resource_id) {
-          throw new AppError(
-            "PROJECT_STATE_LOCKED",
-            SAFE_MESSAGES.PROJECT_STATE_LOCKED,
-            409,
-          );
-        }
-        const replay = await transaction.query(
+          const row = existing.rows[0];
+          if (!row || String(row.request_hash).trim() !== hash) {
+            throw new AppError(
+              "IDEMPOTENCY_CONFLICT",
+              SAFE_MESSAGES.IDEMPOTENCY_CONFLICT,
+              409,
+            );
+          }
+          if (!row.resource_id) {
+            throw new AppError(
+              "PROJECT_STATE_LOCKED",
+              SAFE_MESSAGES.PROJECT_STATE_LOCKED,
+              409,
+            );
+          }
+          const replay = await transaction.query(
             "SELECT * FROM jobs WHERE id = $1 AND owner_id = $2",
             [row.resource_id, ownerId],
-        );
-        if (!replay.rowCount) {
-          throw new AppError(
-            "PROJECT_STATE_LOCKED",
-            SAFE_MESSAGES.PROJECT_STATE_LOCKED,
-            409,
           );
+          if (!replay.rowCount) {
+            throw new AppError(
+              "PROJECT_STATE_LOCKED",
+              SAFE_MESSAGES.PROJECT_STATE_LOCKED,
+              409,
+            );
+          }
+          return { job: mapJob(replay.rows[0]), replayed: true };
         }
-        return { job: mapJob(replay.rows[0]), replayed: true };
       }
-    }
 
-    if (RENDER_ACTIONS.has(action)) {
-      await transaction.query(
+      if (RENDER_ACTIONS.has(action)) {
+        await transaction.query(
           "SELECT pg_advisory_xact_lock(hashtext($1))",
           [`render-quota:${ownerId}`],
-      );
-      const quota = await transaction.query(
+        );
+        const quota = await transaction.query(
           `SELECT count(*)::integer AS count
            FROM jobs
            WHERE owner_id = $1
              AND action = ANY($2::text[])
              AND created_at >= date_trunc('day', clock_timestamp())`,
           [ownerId, [...RENDER_ACTIONS]],
-      );
-      if (Number(quota.rows[0].count) >= this.dailyRenderQuota) {
-        throw new AppError(
-          "RENDER_QUOTA_EXCEEDED",
-          SAFE_MESSAGES.RENDER_QUOTA_EXCEEDED,
-          429,
         );
+        if (Number(quota.rows[0].count) >= this.dailyRenderQuota) {
+          throw new AppError(
+            "RENDER_QUOTA_EXCEEDED",
+            SAFE_MESSAGES.RENDER_QUOTA_EXCEEDED,
+            429,
+          );
+        }
       }
-    }
 
-    const jobId = String(record.id || `job_${this.randomUUID()}`);
-    const inserted = await transaction.query(
+      const jobId = String(record.id || `job_${this.randomUUID()}`);
+      const inserted = await transaction.query(
         `INSERT INTO jobs(
            id, owner_id, project_id, upload_id, action, pipeline_type,
            status, progress, step, max_attempts, payload_json, traceparent
@@ -207,16 +199,17 @@ class PostgresJobQueue {
           JSON.stringify(record.payload || {}),
           record.traceparent || null,
         ],
-    );
-    if (key) {
-      await transaction.query(
+      );
+      if (key) {
+        await transaction.query(
           `UPDATE idempotency_records
            SET resource_id = $4
            WHERE owner_id = $1 AND scope = $2 AND key = $3`,
           [ownerId, `job:${action}`, key, jobId],
-      );
-    }
-    return { job: mapJob(inserted.rows[0]), replayed: false };
+        );
+      }
+      return { job: mapJob(inserted.rows[0]), replayed: false };
+    });
   }
 
   async moveExpiredExhaustedToDlq(transaction) {
@@ -511,22 +504,8 @@ class PostgresJobQueue {
   }
 
   async complete(jobOrId, patch = {}, lease) {
-    return await this.withTransaction(
-      async (transaction) => await this.completeInTransaction(
-        transaction,
-        jobOrId,
-        patch,
-        lease,
-      ),
-    );
-  }
-
-  async completeInTransaction(transaction, jobOrId, patch = {}, lease) {
-    if (!transaction || typeof transaction.query !== "function") {
-      throw new TypeError("completeInTransaction requires an active PostgreSQL transaction");
-    }
     const fencing = leaseInput(jobOrId, lease);
-    const result = await transaction.query(
+    const result = await this.persistence.query(
       `UPDATE jobs
        SET
          status = CASE
@@ -569,24 +548,6 @@ class PostgresJobQueue {
       throw new AppError("JOB_LEASE_INVALID", SAFE_MESSAGES.JOB_LEASE_INVALID, 409);
     }
     return mapJob(result.rows[0]);
-  }
-
-  async completeAtomically(jobOrId, patch = {}, lease, mutation) {
-    if (typeof mutation !== "function") {
-      throw new TypeError("completeAtomically requires a transaction mutation");
-    }
-    return await this.withTransaction(async (transaction) => {
-      const completed = await this.completeInTransaction(
-        transaction,
-        jobOrId,
-        patch,
-        lease,
-      );
-      if (completed.status === "completed") {
-        await mutation(transaction, completed);
-      }
-      return completed;
-    });
   }
 
   async retry(jobOrId, error, lease, options = {}) {
@@ -943,6 +904,5 @@ module.exports = {
   RENDER_ACTIONS,
   createPostgresJobQueue,
   deterministicRetryDelayMs,
-  mapJob,
   requestHash,
 };

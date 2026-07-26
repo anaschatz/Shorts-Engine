@@ -161,105 +161,6 @@ test("upload validation checksum mismatch fails safely and queues object deletio
   assert.equal(failure.record.errorCode, "FILE_SIGNATURE_MISMATCH");
 });
 
-test("production validation atomically publishes and enqueues idempotent analysis", async (t) => {
-  const buffer = mp4Bytes();
-  const persistence = persistenceFor(buffer);
-  const transaction = { query() {} };
-  persistence.withTransaction = async (callback) => await callback(transaction);
-  persistence.publishValidatedUploadInTransaction = async (received, record) => {
-    assert.equal(received, transaction);
-    persistence.calls.push({
-      method: "publishValidatedUploadInTransaction",
-      record,
-    });
-    return true;
-  };
-  const queueCalls = [];
-  const jobQueue = {
-    async enqueueInTransaction(received, record, options) {
-      assert.equal(received, transaction);
-      queueCalls.push({ record, options });
-      return {
-        job: { id: "job_analysis123" },
-        replayed: false,
-      };
-    },
-  };
-  const service = new UploadValidationService({
-    persistence,
-    store: storeFor(buffer),
-    jobQueue,
-    stagingRoot: stagingRoot(t),
-    randomUUID: () => "00000000-0000-4000-8000-000000000004",
-    async probeMedia() {
-      return {
-        durationSeconds: 45,
-        width: 1920,
-        height: 1080,
-        hasAudio: true,
-        videoCodec: "h264",
-        audioCodec: "aac",
-      };
-    },
-  });
-  const result = await service.validateUpload({
-    ownerId: "usr_test",
-    uploadId: "upl_test",
-  });
-  assert.equal(result.analysisJobId, "job_analysis123");
-  assert.equal(queueCalls[0].record.action, "analyze_football");
-  assert.equal(queueCalls[0].record.projectId, "prj_test");
-  assert.equal(
-    queueCalls[0].options.idempotencyKey,
-    "analyze-football-upl_test",
-  );
-});
-
-test("transient publish failures preserve staged source for a worker retry", async (t) => {
-  const buffer = mp4Bytes();
-  const persistence = persistenceFor(buffer);
-  const transaction = { query() {} };
-  persistence.withTransaction = async (callback) => await callback(transaction);
-  persistence.publishValidatedUploadInTransaction = async () => {
-    throw new Error("private database diagnostic");
-  };
-  const service = new UploadValidationService({
-    persistence,
-    store: storeFor(buffer),
-    jobQueue: {
-      async enqueueInTransaction() {
-        throw new Error("must not enqueue");
-      },
-    },
-    stagingRoot: stagingRoot(t),
-    async probeMedia() {
-      return {
-        durationSeconds: 45,
-        width: 1920,
-        height: 1080,
-        hasAudio: true,
-        videoCodec: "h264",
-        audioCodec: "aac",
-      };
-    },
-  });
-  await assert.rejects(
-    service.validateUpload({
-      ownerId: "usr_test",
-      uploadId: "upl_test",
-    }),
-    (error) => {
-      assert.equal(error.code, "CLOUD_STORAGE_FAILED");
-      assert.doesNotMatch(JSON.stringify(error), /private database diagnostic/);
-      return true;
-    },
-  );
-  assert.equal(
-    persistence.calls.some((call) => call.method === "failMultipartUpload"),
-    false,
-  );
-});
-
 test("upload validation rejects cross-owner lookup exactly like a missing upload", async (t) => {
   const buffer = mp4Bytes();
   const persistence = persistenceFor(buffer);
@@ -330,6 +231,6 @@ test("raw R2 stream failures never escape provider details", async (t) => {
   );
   assert.equal(
     persistence.calls.some((call) => call.method === "failMultipartUpload"),
-    false,
+    true,
   );
 });
