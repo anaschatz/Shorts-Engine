@@ -14,11 +14,24 @@ async function executable(path) {
   try { await access(path, constants.X_OK); return true; } catch { return false; }
 }
 
+export async function playwrightChromiumPath() {
+  try {
+    const { chromium } = await import("playwright");
+    return chromium.executablePath();
+  } catch {
+    return null;
+  }
+}
+
 export async function hyperframesDoctor() {
   let packageVersion = null;
   try { packageVersion = JSON.parse(await readFile(join(dirname(fileURLToPath(import.meta.resolve("@hyperframes/producer"))), "../package.json"), "utf8")).version; } catch {}
   let chromePath = null;
-  for (const candidate of CHROME_CANDIDATES) if (await executable(candidate)) { chromePath = candidate; break; }
+  const chromeCandidates = [
+    ...CHROME_CANDIDATES,
+    await playwrightChromiumPath(),
+  ].filter(Boolean);
+  for (const candidate of chromeCandidates) if (await executable(candidate)) { chromePath = candidate; break; }
   const ffmpeg = spawnSync("ffmpeg", ["-version"], { encoding: "utf8", timeout: 5000 });
   const ffprobe = spawnSync("ffprobe", ["-version"], { encoding: "utf8", timeout: 5000 });
   const nodeMajor = Number(process.versions.node.split(".")[0]);

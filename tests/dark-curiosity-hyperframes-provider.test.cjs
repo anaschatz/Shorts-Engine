@@ -103,6 +103,13 @@ test("HyperFrames doctor reports pinned local runtime without secrets", async ()
   assert.equal("chromePath" in report, false);
 });
 
+test("HyperFrames doctor resolves the installed Playwright Chromium runtime", async () => {
+  const { playwrightChromiumPath } = await import("../renderer/hyperframes/doctor.mjs");
+  const chromePath = await playwrightChromiumPath();
+  assert.equal(typeof chromePath, "string");
+  assert.equal(existsSync(chromePath), true);
+});
+
 test("engine-owned composition is deterministic and blocks remote runtime", async () => {
   const { compileAnimationIRToHtml } = await import("../renderer/hyperframes/animation-ir-adapter.mjs");
   const first = compileAnimationIRToHtml(irFixture());
