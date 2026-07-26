@@ -28,6 +28,10 @@ function productionEnvironment(overrides = {}) {
     SHORTSENGINE_OIDC_REDIRECT_URI: "https://app.example/auth/callback",
     SHORTSENGINE_PUBLIC_BASE_URL: "https://app.example/",
     SHORTSENGINE_SESSION_SECRET: "s".repeat(48),
+    MATCHCUTS_STORAGE_BUCKET: "shortsengine-production",
+    MATCHCUTS_STORAGE_ENDPOINT: "https://account-id.r2.cloudflarestorage.com",
+    MATCHCUTS_STORAGE_ACCESS_KEY_ID: "test-access-key",
+    MATCHCUTS_STORAGE_SECRET_ACCESS_KEY: "test-secret-access-key",
     ...overrides,
   };
 }
@@ -57,9 +61,10 @@ test("public runtime config exposes readiness booleans without connection or OID
   assert.equal(publicConfig.adapters.persistence, "postgres");
   assert.equal(publicConfig.configured.database, true);
   assert.equal(publicConfig.configured.oidc, true);
+  assert.equal(publicConfig.configured.storage, true);
   assert.doesNotMatch(
     serialized,
-    /runtime-user|runtime-password|client-secret|ssssssss|postgresql:|tenant\.example/,
+    /runtime-user|runtime-password|client-secret|test-access-key|test-secret|ssssssss|postgresql:|tenant\.example|cloudflarestorage/,
   );
 });
 
@@ -161,6 +166,14 @@ test("production runtime defers OIDC discovery until the web lifecycle starts", 
           },
         };
       },
+      async createR2ArtifactStore() {
+        return {
+          async health() {
+            return { ready: true, mode: "r2" };
+          },
+          async close() {},
+        };
+      },
     },
   });
   assert.equal(authInitializations, 0);
@@ -213,6 +226,14 @@ test("migrate runtime executes canonical migrations without initializing OIDC", 
           async health() {
             return { ready: true, mode: "oidc" };
           },
+        };
+      },
+      async createR2ArtifactStore() {
+        return {
+          async health() {
+            return { ready: true, mode: "r2" };
+          },
+          async close() {},
         };
       },
     },

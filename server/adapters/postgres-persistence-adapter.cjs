@@ -91,6 +91,30 @@ function mapJob(row) {
   };
 }
 
+function mapUploadSession(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    ownerId: row.owner_id,
+    uploadId: row.upload_id,
+    artifactId: row.artifact_id,
+    projectId: row.project_id || null,
+    providerUploadId: row.provider_upload_id || null,
+    status: row.status,
+    partSizeBytes: Number(row.part_size_bytes),
+    expectedParts: Number(row.expected_parts),
+    expectedByteSize: Number(row.expected_byte_size),
+    expectedChecksumSha256: row.expected_checksum_sha256
+      ? String(row.expected_checksum_sha256).trim()
+      : null,
+    storageKey: row.storage_key || null,
+    contentType: row.content_type || null,
+    expiresAt: new Date(row.expires_at).toISOString(),
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
+  };
+}
+
 class PostgresPersistenceAdapter {
   constructor(options = {}) {
     this.config = options.config;
@@ -348,6 +372,484 @@ class PostgresPersistenceAdapter {
     return mapProject(result.rows[0]);
   }
 
+  async createMultipartUploadSession(record) {
+    return await this.withTransaction(async (transaction) => {
+      await transaction.createProject({
+        id: record.projectId,
+        ownerId: record.ownerId,
+        projectType: record.projectType || "clip",
+        title: record.title || "ShortsEngine Short",
+        language: record.language || null,
+        status: "uploading",
+        input: record.projectInput || {},
+      });
+      await transaction.query(
+        `INSERT INTO artifacts(
+           id, owner_id, owner_project_id, type, status, storage_key,
+           content_type, byte_size, checksum_sha256, retention_until, metadata_json
+         )
+         VALUES (
+           $1, $2, $3, 'upload', 'staging', $4,
+           $5, $6, $7, $8, $9::jsonb
+         )`,
+        [
+          record.artifactId,
+          record.ownerId,
+          record.projectId,
+          record.storageKey,
+          record.contentType,
+          record.expectedByteSize,
+          record.expectedChecksumSha256 || null,
+          record.retentionUntil || null,
+          JSON.stringify(record.artifactMetadata || {}),
+        ],
+      );
+      await transaction.query(
+        `INSERT INTO uploads(
+           id, owner_id, project_id, artifact_id, status,
+           original_filename, mime_type, byte_size, checksum_sha256,
+           metadata_json, source_json
+         )
+         VALUES (
+           $1, $2, $3, $4, 'staging',
+           $5, $6, $7, $8, $9::jsonb, $10::jsonb
+         )`,
+        [
+          record.uploadId,
+          record.ownerId,
+          record.projectId,
+          record.artifactId,
+          record.originalFilename,
+          record.contentType,
+          record.expectedByteSize,
+          record.expectedChecksumSha256 || null,
+          JSON.stringify(record.uploadMetadata || {}),
+          record.source ? JSON.stringify(record.source) : null,
+        ],
+      );
+      await transaction.query(
+        `UPDATE projects
+         SET upload_id = $3, updated_at = clock_timestamp()
+         WHERE id = $1 AND owner_id = $2`,
+        [record.projectId, record.ownerId, record.uploadId],
+      );
+      const created = await transaction.query(
+        `INSERT INTO upload_sessions(
+           id, owner_id, upload_id, artifact_id, status,
+           part_size_bytes, expected_parts, expected_byte_size,
+           expected_checksum_sha256, expires_at
+         )
+         VALUES (
+           $1, $2, $3, $4, 'created',
+           $5, $6, $7, $8, $9
+         )
+         RETURNING *`,
+        [
+          record.sessionId,
+          record.ownerId,
+          record.uploadId,
+          record.artifactId,
+          record.partSizeBytes,
+          record.expectedParts,
+          record.expectedByteSize,
+          record.expectedChecksumSha256 || null,
+          record.expiresAt,
+        ],
+      );
+      return mapUploadSession({
+        ...created.rows[0],
+        project_id: record.projectId,
+        storage_key: record.storageKey,
+        content_type: record.contentType,
+      });
+    });
+  }
+
+  async attachMultipartUpload({ ownerId, uploadId, providerUploadId }) {
+    return await this.withTransaction(async (transaction) => {
+      const attached = await transaction.query(
+        `UPDATE upload_sessions AS session
+         SET
+           provider_upload_id = $3,
+           status = 'uploading',
+           updated_at = clock_timestamp()
+         FROM uploads, artifacts
+         WHERE session.upload_id = $1
+           AND session.owner_id = $2
+           AND session.status = 'created'
+           AND uploads.id = session.upload_id
+           AND uploads.owner_id = session.owner_id
+           AND artifacts.id = session.artifact_id
+           AND artifacts.owner_id = session.owner_id
+         RETURNING
+           session.*,
+           uploads.project_id,
+           artifacts.storage_key,
+           artifacts.content_type`,
+        [uploadId, ownerId, providerUploadId],
+      );
+      if (!attached.rowCount) return null;
+      await transaction.query(
+        `UPDATE uploads
+         SET status = 'uploading', updated_at = clock_timestamp()
+         WHERE id = $1 AND owner_id = $2 AND status = 'staging'`,
+        [uploadId, ownerId],
+      );
+      return mapUploadSession(attached.rows[0]);
+    });
+  }
+
+  async getMultipartUploadOwnedBy(uploadId, ownerId) {
+    const result = await this.query(
+      `SELECT
+         session.*,
+         uploads.project_id,
+         artifacts.storage_key,
+         artifacts.content_type
+       FROM upload_sessions AS session
+       JOIN uploads
+         ON uploads.id = session.upload_id
+        AND uploads.owner_id = session.owner_id
+       JOIN artifacts
+         ON artifacts.id = session.artifact_id
+        AND artifacts.owner_id = session.owner_id
+       WHERE session.upload_id = $1
+         AND session.owner_id = $2`,
+      [uploadId, ownerId],
+    );
+    return mapUploadSession(result.rows[0]);
+  }
+
+  async markMultipartUploadComplete({ ownerId, uploadId }) {
+    return await this.withTransaction(async (transaction) => {
+      const completed = await transaction.query(
+        `UPDATE upload_sessions AS session
+         SET status = 'completed', updated_at = clock_timestamp()
+         FROM uploads, artifacts
+         WHERE session.upload_id = $1
+           AND session.owner_id = $2
+           AND session.status IN ('uploading', 'completing')
+           AND uploads.id = session.upload_id
+           AND uploads.owner_id = session.owner_id
+           AND artifacts.id = session.artifact_id
+           AND artifacts.owner_id = session.owner_id
+         RETURNING
+           session.*,
+           uploads.project_id,
+           artifacts.storage_key,
+           artifacts.content_type`,
+        [uploadId, ownerId],
+      );
+      if (!completed.rowCount) return null;
+      await transaction.query(
+        `UPDATE uploads
+         SET status = 'validating', updated_at = clock_timestamp()
+         WHERE id = $1 AND owner_id = $2`,
+        [uploadId, ownerId],
+      );
+      await transaction.query(
+        `UPDATE artifacts
+         SET status = 'validating', updated_at = clock_timestamp()
+         WHERE id = $1 AND owner_id = $2`,
+        [completed.rows[0].artifact_id, ownerId],
+      );
+      return mapUploadSession(completed.rows[0]);
+    });
+  }
+
+  async failMultipartUpload({
+    ownerId,
+    uploadId,
+    operationId,
+    operation = "abort_multipart",
+    errorCode = "CLOUD_STORAGE_FAILED",
+  }) {
+    return await this.withTransaction(async (transaction) => {
+      const failed = await transaction.query(
+        `UPDATE upload_sessions
+         SET status = 'failed', updated_at = clock_timestamp()
+         WHERE upload_id = $1
+           AND owner_id = $2
+           AND status NOT IN ('aborted')
+         RETURNING id, artifact_id, provider_upload_id`,
+        [uploadId, ownerId],
+      );
+      if (!failed.rowCount) return false;
+      const row = failed.rows[0];
+      await transaction.query(
+        `UPDATE uploads
+         SET status = 'failed', updated_at = clock_timestamp()
+         WHERE id = $1 AND owner_id = $2`,
+        [uploadId, ownerId],
+      );
+      await transaction.query(
+        `UPDATE artifacts
+         SET status = 'failed', updated_at = clock_timestamp()
+         WHERE id = $1 AND owner_id = $2`,
+        [row.artifact_id, ownerId],
+      );
+      if (row.provider_upload_id || operation === "delete_object") {
+        await transaction.query(
+          `INSERT INTO storage_operations(
+             id, owner_id, artifact_id, upload_session_id,
+             operation, status, next_attempt_at, error_code
+           )
+           VALUES ($1, $2, $3, $4, $5, 'queued', clock_timestamp(), $6)
+           ON CONFLICT (id) DO NOTHING`,
+          [
+            operationId,
+            ownerId,
+            row.artifact_id,
+            row.id,
+            operation,
+            errorCode,
+          ],
+        );
+      }
+      return true;
+    });
+  }
+
+  async publishValidatedUpload({
+    ownerId,
+    uploadId,
+    checksumSha256,
+    byteSize,
+    metadata = {},
+  }) {
+    return await this.withTransaction(async (transaction) => {
+      const upload = await transaction.query(
+        `UPDATE uploads
+         SET
+           status = 'available',
+           checksum_sha256 = $3,
+           byte_size = $4,
+           metadata_json = metadata_json || $5::jsonb,
+           updated_at = clock_timestamp()
+         WHERE id = $1
+           AND owner_id = $2
+           AND status = 'validating'
+         RETURNING artifact_id, project_id`,
+        [uploadId, ownerId, checksumSha256, byteSize, JSON.stringify(metadata)],
+      );
+      if (!upload.rowCount) return false;
+      await transaction.query(
+        `UPDATE artifacts
+         SET
+           status = 'available',
+           checksum_sha256 = $3,
+           byte_size = $4,
+           metadata_json = metadata_json || $5::jsonb,
+           updated_at = clock_timestamp()
+         WHERE id = $1
+           AND owner_id = $2
+           AND status = 'validating'`,
+        [
+          upload.rows[0].artifact_id,
+          ownerId,
+          checksumSha256,
+          byteSize,
+          JSON.stringify(metadata),
+        ],
+      );
+      await transaction.query(
+        `UPDATE projects
+         SET status = 'ready', updated_at = clock_timestamp()
+         WHERE id = $1 AND owner_id = $2`,
+        [upload.rows[0].project_id, ownerId],
+      );
+      return true;
+    });
+  }
+
+  async createDeliveryGrant(record) {
+    const result = await this.query(
+      `INSERT INTO delivery_grants(
+         id, owner_id, artifact_id, token_hash, purpose, expires_at
+       )
+       SELECT $1, $2, artifact.id, $4, $5, $6
+       FROM artifacts AS artifact
+       WHERE artifact.id = $3
+         AND artifact.owner_id = $2
+         AND artifact.status = 'available'
+         AND (
+           ($5 = 'preview' AND artifact.type = 'preview')
+           OR ($5 = 'export' AND artifact.type = 'export')
+         )
+       RETURNING id, artifact_id, purpose, expires_at`,
+      [
+        record.id,
+        record.ownerId,
+        record.artifactId,
+        record.tokenHash,
+        record.purpose,
+        record.expiresAt,
+      ],
+    );
+    if (!result.rowCount) return null;
+    return {
+      id: result.rows[0].id,
+      artifactId: result.rows[0].artifact_id,
+      purpose: result.rows[0].purpose,
+      expiresAt: new Date(result.rows[0].expires_at).toISOString(),
+    };
+  }
+
+  async resolveDeliveryGrant({ ownerId, tokenHash }) {
+    const result = await this.query(
+      `SELECT
+         grant.id,
+         grant.purpose,
+         grant.expires_at,
+         artifact.id AS artifact_id,
+         artifact.storage_key,
+         artifact.content_type,
+         artifact.byte_size,
+         artifact.checksum_sha256
+       FROM delivery_grants AS grant
+       JOIN artifacts AS artifact
+         ON artifact.id = grant.artifact_id
+        AND artifact.owner_id = grant.owner_id
+       WHERE grant.token_hash = $1
+         AND grant.owner_id = $2
+         AND grant.revoked_at IS NULL
+         AND grant.expires_at > clock_timestamp()
+         AND artifact.status = 'available'`,
+      [tokenHash, ownerId],
+    );
+    if (!result.rowCount) return null;
+    const row = result.rows[0];
+    return {
+      id: row.id,
+      purpose: row.purpose,
+      expiresAt: new Date(row.expires_at).toISOString(),
+      artifact: {
+        id: row.artifact_id,
+        storageKey: row.storage_key,
+        contentType: row.content_type,
+        byteSize: Number(row.byte_size),
+        checksumSha256: row.checksum_sha256
+          ? String(row.checksum_sha256).trim()
+          : null,
+      },
+    };
+  }
+
+  async claimStorageOperation({ leaseId, leaseMs = 60_000 }) {
+    return await this.withTransaction(async (transaction) => {
+      const result = await transaction.query(
+         `WITH candidate AS (
+           SELECT
+             operation.id,
+             artifact.storage_key,
+             session.provider_upload_id
+           FROM storage_operations AS operation
+           JOIN artifacts AS artifact
+             ON artifact.id = operation.artifact_id
+            AND artifact.owner_id = operation.owner_id
+           LEFT JOIN upload_sessions AS session
+             ON session.id = operation.upload_session_id
+           WHERE (
+             operation.status = 'queued'
+             AND (
+               operation.next_attempt_at IS NULL
+               OR operation.next_attempt_at <= clock_timestamp()
+             )
+           ) OR (
+             operation.status = 'processing'
+             AND operation.lease_expires_at <= clock_timestamp()
+           )
+           ORDER BY operation.next_attempt_at NULLS FIRST, operation.created_at, operation.id
+           FOR UPDATE OF operation SKIP LOCKED
+           LIMIT 1
+         )
+         UPDATE storage_operations AS operation
+         SET
+           status = 'processing',
+           attempt = operation.attempt + 1,
+           lease_id = $1,
+           lease_expires_at = clock_timestamp() + ($2::bigint * interval '1 millisecond'),
+           updated_at = clock_timestamp()
+         FROM candidate
+         WHERE operation.id = candidate.id
+         RETURNING
+           operation.id,
+           operation.owner_id,
+           operation.operation,
+           operation.attempt,
+           operation.max_attempts,
+           operation.lease_id,
+           operation.lease_expires_at,
+           candidate.storage_key,
+           candidate.provider_upload_id`,
+        [leaseId, leaseMs],
+      );
+      if (!result.rowCount) return null;
+      const row = result.rows[0];
+      return {
+        id: row.id,
+        ownerId: row.owner_id,
+        operation: row.operation,
+        attempt: Number(row.attempt),
+        maxAttempts: Number(row.max_attempts),
+        leaseId: row.lease_id,
+        leaseExpiresAt: new Date(row.lease_expires_at).toISOString(),
+        storageKey: row.storage_key,
+        providerUploadId: row.provider_upload_id || null,
+      };
+    });
+  }
+
+  async completeStorageOperation({ operationId, leaseId }) {
+    const result = await this.query(
+      `UPDATE storage_operations
+       SET
+         status = 'completed',
+         lease_id = NULL,
+         lease_expires_at = NULL,
+         error_code = NULL,
+         updated_at = clock_timestamp()
+       WHERE id = $1
+         AND status = 'processing'
+         AND lease_id = $2
+         AND lease_expires_at > clock_timestamp()
+       RETURNING id`,
+      [operationId, leaseId],
+    );
+    return result.rowCount > 0;
+  }
+
+  async failStorageOperation({
+    operationId,
+    leaseId,
+    errorCode = "CLOUD_STORAGE_FAILED",
+    retryDelayMs = 1000,
+  }) {
+    const result = await this.query(
+      `UPDATE storage_operations
+       SET
+         status = CASE
+           WHEN attempt >= max_attempts THEN 'dead_letter'
+           ELSE 'queued'
+         END,
+         next_attempt_at = CASE
+           WHEN attempt >= max_attempts THEN NULL
+           ELSE clock_timestamp() + ($4::bigint * interval '1 millisecond')
+         END,
+         lease_id = NULL,
+         lease_expires_at = NULL,
+         error_code = $3,
+         updated_at = clock_timestamp()
+       WHERE id = $1
+         AND status = 'processing'
+         AND lease_id = $2
+         AND lease_expires_at > clock_timestamp()
+       RETURNING status`,
+      [operationId, leaseId, errorCode, retryDelayMs],
+    );
+    return result.rowCount ? result.rows[0].status : null;
+  }
+
   async reserveIdempotency({ ownerId, scope, key, requestHash, resourceType = null, resourceId = null }) {
     const inserted = await this.query(
       `INSERT INTO idempotency_records(
@@ -514,4 +1016,5 @@ module.exports = {
   createPostgresPool,
   mapJob,
   mapProject,
+  mapUploadSession,
 };

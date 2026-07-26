@@ -102,12 +102,14 @@
     "visual:goal:qa": "node demo/run-visual-goal-qa.mjs"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "devDependencies": {
     "playwright": "^1.61.0"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "3.1095.0",
+    "@aws-sdk/s3-request-presigner": "3.1095.0",
     "@hyperframes/producer": "0.7.55",
     "d3-shape": "3.2.0",
     "openid-client": "5.7.1",

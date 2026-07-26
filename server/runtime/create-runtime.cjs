@@ -32,6 +32,18 @@ async function createRuntime(options = {}) {
   }
 
   const asyncPersistence = createAsyncPersistenceAdapter(persistenceAdapter);
+  if (config.storageMode === "r2") {
+    if (typeof factories.createR2ArtifactStore === "function") {
+      artifactAdapter = await factories.createR2ArtifactStore({
+        config,
+        logger,
+        clock,
+      });
+    } else {
+      const { createR2ArtifactStore } = require("../storage/r2-artifact-store.cjs");
+      artifactAdapter = createR2ArtifactStore({ config, logger, clock });
+    }
+  }
   let auth;
   if (config.authMode === "oidc") {
     if (typeof factories.createOidcAuthAdapter === "function") {
@@ -121,10 +133,16 @@ async function createRuntime(options = {}) {
       return true;
     },
     async readiness() {
-      const [persistence, jobQueue, authentication] = await Promise.all([
+      const storageHealth = artifactAdapter && typeof artifactAdapter.readiness === "function"
+        ? artifactAdapter.readiness()
+        : artifactAdapter && typeof artifactAdapter.health === "function"
+          ? artifactAdapter.health()
+          : { ready: false, mode: "unconfigured" };
+      const [persistence, jobQueue, authentication, storage] = await Promise.all([
         asyncPersistence.readiness(),
         asyncQueue.readiness(),
         auth.health(),
+        storageHealth,
       ]);
       const telemetry = await observability.health();
       return {
@@ -132,6 +150,7 @@ async function createRuntime(options = {}) {
           persistence.ready
           && jobQueue.ready
           && authentication.ready
+          && storage.ready
           && telemetry.ready
         ),
         role: config.role,
@@ -139,6 +158,7 @@ async function createRuntime(options = {}) {
           persistence,
           queue: jobQueue,
           auth: authentication,
+          storage,
           observability: telemetry,
         },
       };
@@ -149,6 +169,9 @@ async function createRuntime(options = {}) {
       await Promise.allSettled([
         asyncQueue.close(),
         asyncPersistence.close(),
+        artifactAdapter && typeof artifactAdapter.close === "function"
+          ? artifactAdapter.close()
+          : Promise.resolve(false),
         observability.shutdown(),
       ]);
       return true;

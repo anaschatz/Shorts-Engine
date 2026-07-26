@@ -72,6 +72,15 @@ function requiredSecret(value, field, minimumLength = 16) {
   return raw;
 }
 
+function storageBucket(value, required) {
+  const raw = String(value || "").trim();
+  if (!raw && !required) return "";
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{1,120}$/.test(raw)) {
+    invalidConfiguration("MATCHCUTS_STORAGE_BUCKET");
+  }
+  return raw;
+}
+
 function loadRuntimeConfig(env = process.env) {
   const environment = enumValue(
     env.SHORTSENGINE_ENVIRONMENT || env.NODE_ENV,
@@ -115,7 +124,7 @@ function loadRuntimeConfig(env = process.env) {
     if (persistenceMode !== "postgres") invalidConfiguration("MATCHCUTS_PERSISTENCE_ADAPTER");
     if (queueMode !== "postgres") invalidConfiguration("MATCHCUTS_QUEUE_ADAPTER");
     if (authMode !== "oidc") invalidConfiguration("SHORTSENGINE_AUTH_MODE");
-    if (!["s3", "r2"].includes(storageMode)) invalidConfiguration("MATCHCUTS_STORAGE_ADAPTER");
+    if (storageMode !== "r2") invalidConfiguration("MATCHCUTS_STORAGE_ADAPTER");
   }
   if (persistenceMode === "postgres" && queueMode !== "postgres") {
     invalidConfiguration("MATCHCUTS_QUEUE_ADAPTER");
@@ -188,6 +197,54 @@ function loadRuntimeConfig(env = process.env) {
     }),
   });
 
+  const cloudStorageRequired = ["s3", "r2"].includes(storageMode);
+  const storageEndpoint = String(env.MATCHCUTS_STORAGE_ENDPOINT || "").trim();
+  let endpoint = "";
+  if (storageEndpoint) {
+    let parsed;
+    try {
+      parsed = new URL(storageEndpoint);
+    } catch {
+      invalidConfiguration("MATCHCUTS_STORAGE_ENDPOINT");
+    }
+    if (
+      !["http:", "https:"].includes(parsed.protocol)
+      || parsed.username
+      || parsed.password
+      || parsed.hash
+      || (strict && parsed.protocol !== "https:")
+    ) {
+      invalidConfiguration("MATCHCUTS_STORAGE_ENDPOINT");
+    }
+    endpoint = parsed.toString().replace(/\/$/, "");
+  }
+  if (storageMode === "r2" && !endpoint) invalidConfiguration("MATCHCUTS_STORAGE_ENDPOINT");
+  const storage = Object.freeze({
+    bucket: storageBucket(env.MATCHCUTS_STORAGE_BUCKET, cloudStorageRequired),
+    region: String(env.MATCHCUTS_STORAGE_REGION || (storageMode === "r2" ? "auto" : "")).trim(),
+    endpoint,
+    accessKeyId: cloudStorageRequired
+      ? requiredSecret(env.MATCHCUTS_STORAGE_ACCESS_KEY_ID, "MATCHCUTS_STORAGE_ACCESS_KEY_ID", 3)
+      : "",
+    secretAccessKey: cloudStorageRequired
+      ? requiredSecret(env.MATCHCUTS_STORAGE_SECRET_ACCESS_KEY, "MATCHCUTS_STORAGE_SECRET_ACCESS_KEY", 8)
+      : "",
+    sessionToken: String(env.MATCHCUTS_STORAGE_SESSION_TOKEN || ""),
+    partSizeBytes: boundedInteger(env.MATCHCUTS_MULTIPART_PART_SIZE_BYTES, 16 * 1024 * 1024, {
+      min: 5 * 1024 * 1024,
+      max: 512 * 1024 * 1024,
+      field: "MATCHCUTS_MULTIPART_PART_SIZE_BYTES",
+    }),
+    presignTtlSeconds: boundedInteger(env.MATCHCUTS_UPLOAD_PART_URL_TTL_SECONDS, 600, {
+      min: 60,
+      max: 900,
+      field: "MATCHCUTS_UPLOAD_PART_URL_TTL_SECONDS",
+    }),
+  });
+  if (cloudStorageRequired && storageMode === "s3" && !storage.region) {
+    invalidConfiguration("MATCHCUTS_STORAGE_REGION");
+  }
+
   return Object.freeze({
     environment,
     strict,
@@ -198,6 +255,7 @@ function loadRuntimeConfig(env = process.env) {
     storageMode,
     postgres,
     oidc,
+    storage,
     worker: Object.freeze({
       leaseMs: boundedInteger(env.MATCHCUTS_WORKER_LEASE_MS, 60000, {
         min: 10000,
@@ -237,6 +295,12 @@ function publicRuntimeConfig(config) {
         && config.oidc.clientId
         && config.oidc.redirectUri
         && config.oidc.sessionSecret
+      ),
+      storage: Boolean(
+        config.storage
+        && config.storage.bucket
+        && config.storage.accessKeyId
+        && config.storage.secretAccessKey
       ),
     },
   };
