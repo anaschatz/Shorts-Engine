@@ -250,6 +250,9 @@ class ProductionWorkflowTests(unittest.TestCase):
             ), patch(
                 "shorts_generator.config.LOCAL_REAL_ESRGAN",
                 False,
+            ), patch(
+                "shorts_generator.local.clipper._resolve_motivational_music_track",
+                return_value=None,
             ):
                 with self.assertRaisesRegex(
                     ArtifactBindingError,

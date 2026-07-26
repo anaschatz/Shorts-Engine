@@ -1,0 +1,87 @@
+{
+  "fixture_version": 1,
+  "fixtures": [
+    {
+      "id": "gaming_facecam_heist", "category": "gaming", "duration": 180.0,
+      "video_metadata": {"width": 1920, "height": 1080, "fps": 60.0, "layout": "facecam_split", "visual_cache": "synthetic:gta_heist_v1"},
+      "transcript": {"duration": 180.0, "segments": [
+        {"start": 0.0, "end": 24.0, "text": "Subscribe and hit the bell before we start this stream."},
+        {"start": 40.0, "end": 76.0, "text": "The plan is to block the bridge, switch cars, and escape before the police helicopter arrives."},
+        {"start": 82.0, "end": 128.0, "text": "The helicopter found us. I have one exit left. We jump the barrier now, land on the train, and the entire chase flips in our favor."}
+      ]},
+      "accepted_intervals": [{"id": "heist_escape", "start": 82.0, "end": 128.0}],
+      "rejected_intervals": [{"id": "stream_cta", "start": 0.0, "end": 24.0, "reason": "promotional_intro"}],
+      "preferred_top_candidate": "heist_escape",
+      "pairwise_preferences": [["heist_escape", "heist_setup"], ["heist_escape", "stream_cta"]],
+      "candidates": [
+        {"id": "stream_cta", "title": "Before We Start", "start_time": 0.0, "end_time": 24.0, "score": 96, "hook_score": 90, "standalone_score": 75, "payoff_score": 20, "educational_value_score": 10, "visual_action_score": 20, "measured_visual_action_score": 12, "boundary_quality_score": 100, "is_promotional": false, "is_outro": false, "requires_previous_context": false, "is_standalone_one_liner": false, "boundary_complete": true, "caption_readability_score": 88, "render_decode_ok": true},
+        {"id": "heist_setup", "title": "The Plan", "start_time": 40.0, "end_time": 76.0, "score": 82, "hook_score": 72, "standalone_score": 75, "payoff_score": 60, "educational_value_score": 30, "visual_action_score": 70, "measured_visual_action_score": 68, "boundary_quality_score": 100, "is_promotional": false, "is_outro": false, "requires_previous_context": false, "is_standalone_one_liner": false, "boundary_complete": true, "caption_readability_score": 90, "render_decode_ok": true},
+        {"id": "heist_escape", "title": "One Exit Left", "start_time": 82.0, "end_time": 128.0, "score": 91, "hook_score": 96, "standalone_score": 94, "payoff_score": 96, "educational_value_score": 35, "visual_action_score": 98, "measured_visual_action_score": 96, "boundary_quality_score": 100, "is_promotional": false, "is_outro": false, "requires_previous_context": false, "is_standalone_one_liner": false, "boundary_complete": true, "caption_readability_score": 91, "render_decode_ok": true}
+      ]
+    },
+    {
+      "id": "gameplay_car_chase", "category": "gaming", "duration": 150.0,
+      "video_metadata": {"width": 1920, "height": 1080, "fps": 60.0, "layout": "motion", "visual_cache": "synthetic:car_chase_v1"},
+      "transcript": {"duration": 150.0, "segments": [
+        {"start": 12.0, "end": 45.0, "text": "We are choosing upgrades in the garage before the race begins."},
+        {"start": 55.0, "end": 103.0, "text": "The rival pushes us off the road, but the shortcut through the tunnel puts us back in first on the final corner."}
+      ]},
+      "accepted_intervals": [{"id": "tunnel_comeback", "start": 55.0, "end": 103.0}],
+      "rejected_intervals": [{"id": "garage_menu", "start": 12.0, "end": 45.0, "reason": "low_visual_action"}],
+      "preferred_top_candidate": "tunnel_comeback",
+      "pairwise_preferences": [["tunnel_comeback", "garage_menu"]],
+      "candidates": [
+        {"id": "garage_menu", "title": "Best Upgrade", "start_time": 12.0, "end_time": 45.0, "score": 88, "hook_score": 78, "standalone_score": 80, "payoff_score": 58, "educational_value_score": 25, "visual_action_score": 20, "measured_visual_action_score": 8, "boundary_quality_score": 100, "is_promotional": false, "is_outro": false, "requires_previous_context": false, "is_standalone_one_liner": false, "boundary_complete": true, "caption_readability_score": 94, "render_decode_ok": true},
+        {"id": "tunnel_comeback", "title": "The Final-Corner Comeback", "start_time": 55.0, "end_time": 103.0, "score": 90, "hook_score": 94, "standalone_score": 92, "payoff_score": 97, "educational_value_score": 20, "visual_action_score": 99, "measured_visual_action_score": 98, "boundary_quality_score": 100, "is_promotional": false, "is_outro": false, "requires_previous_context": false, "is_standalone_one_liner": false, "boundary_complete": true, "caption_readability_score": 90, "render_decode_ok": true}
+      ]
+    },
+    {
+      "id": "football_counterattack", "category": "sports", "duration": 140.0,
+      "video_metadata": {"width": 1920, "height": 1080, "fps": 50.0, "layout": "motion", "visual_cache": "synthetic:football_counter_v1"},
+      "transcript": {"duration": 140.0, "segments": [
+        {"start": 8.0, "end": 35.0, "text": "Tonight's match is sponsored by our betting partner. Use the link below."},
+        {"start": 62.0, "end": 102.0, "text": "The keeper saves it, the counter starts immediately, three passes split the defense, and the winger finishes at the far post."}
+      ]},
+      "accepted_intervals": [{"id": "three_pass_goal", "start": 62.0, "end": 102.0}],
+      "rejected_intervals": [{"id": "betting_sponsor", "start": 8.0, "end": 35.0, "reason": "sponsorship"}],
+      "preferred_top_candidate": "three_pass_goal",
+      "pairwise_preferences": [["three_pass_goal", "betting_sponsor"]],
+      "candidates": [
+        {"id": "betting_sponsor", "title": "Match Partner", "start_time": 8.0, "end_time": 35.0, "score": 90, "hook_score": 65, "standalone_score": 70, "payoff_score": 20, "educational_value_score": 5, "visual_action_score": 15, "measured_visual_action_score": 10, "boundary_quality_score": 100, "is_promotional": true, "is_outro": false, "requires_previous_context": false, "is_standalone_one_liner": false, "boundary_complete": true, "caption_readability_score": 90, "render_decode_ok": true},
+        {"id": "three_pass_goal", "title": "From Save to Goal", "start_time": 62.0, "end_time": 102.0, "score": 94, "hook_score": 95, "standalone_score": 96, "payoff_score": 98, "educational_value_score": 25, "visual_action_score": 100, "measured_visual_action_score": 99, "boundary_quality_score": 100, "is_promotional": false, "is_outro": false, "requires_previous_context": false, "is_standalone_one_liner": false, "boundary_complete": true, "caption_readability_score": 89, "render_decode_ok": true}
+      ]
+    },
+    {
+      "id": "podcast_confession", "category": "podcast", "duration": 240.0,
+      "video_metadata": {"width": 1920, "height": 1080, "fps": 30.0, "layout": "speaker", "visual_cache": "synthetic:podcast_v1"},
+      "transcript": {"duration": 240.0, "segments": [
+        {"start": 95.0, "end": 151.0, "text": "I kept telling everyone the company was fine. The truth was I had one week of payroll left, and admitting that changed every decision I made next."},
+        {"start": 205.0, "end": 232.0, "text": "Subscribe to the show, leave a review, and follow the channel for the next episode."}
+      ]},
+      "accepted_intervals": [{"id": "payroll_confession", "start": 95.0, "end": 151.0}],
+      "rejected_intervals": [{"id": "podcast_cta", "start": 205.0, "end": 232.0, "reason": "promotional_outro"}],
+      "preferred_top_candidate": "payroll_confession",
+      "pairwise_preferences": [["payroll_confession", "podcast_cta"]],
+      "candidates": [
+        {"id": "payroll_confession", "title": "One Week of Payroll", "start_time": 95.0, "end_time": 151.0, "score": 94, "hook_score": 96, "standalone_score": 95, "payoff_score": 96, "educational_value_score": 82, "visual_action_score": 45, "measured_visual_action_score": 38, "boundary_quality_score": 100, "is_promotional": false, "is_outro": false, "requires_previous_context": false, "is_standalone_one_liner": false, "boundary_complete": true, "caption_readability_score": 96, "render_decode_ok": true},
+        {"id": "podcast_cta", "title": "Follow the Show", "start_time": 205.0, "end_time": 232.0, "score": 92, "hook_score": 82, "standalone_score": 75, "payoff_score": 15, "educational_value_score": 5, "visual_action_score": 30, "measured_visual_action_score": 25, "boundary_quality_score": 100, "is_promotional": false, "is_outro": false, "requires_previous_context": false, "is_standalone_one_liner": false, "boundary_complete": true, "caption_readability_score": 95, "render_decode_ok": true}
+      ]
+    },
+    {
+      "id": "commentary_argument", "category": "commentary", "duration": 210.0,
+      "video_metadata": {"width": 1280, "height": 720, "fps": 30.0, "layout": "speaker", "visual_cache": "synthetic:commentary_v1"},
+      "transcript": {"duration": 210.0, "segments": [
+        {"start": 45.0, "end": 98.0, "text": "The popular explanation sounds convincing, but it reverses cause and effect. The data changed first, and the policy followed six months later."},
+        {"start": 130.0, "end": 160.0, "text": "This segment is brought to you by our sponsor. Use my code at checkout."}
+      ]},
+      "accepted_intervals": [{"id": "cause_effect", "start": 45.0, "end": 98.0}],
+      "rejected_intervals": [{"id": "sponsor_read", "start": 130.0, "end": 160.0, "reason": "sponsorship"}],
+      "preferred_top_candidate": "cause_effect",
+      "pairwise_preferences": [["cause_effect", "sponsor_read"]],
+      "candidates": [
+        {"id": "cause_effect", "title": "Cause and Effect Reversed", "start_time": 45.0, "end_time": 98.0, "score": 93, "hook_score": 94, "standalone_score": 94, "payoff_score": 93, "educational_value_score": 90, "visual_action_score": 45, "measured_visual_action_score": 42, "boundary_quality_score": 100, "is_promotional": false, "is_outro": false, "requires_previous_context": false, "is_standalone_one_liner": false, "boundary_complete": true, "caption_readability_score": 95, "render_decode_ok": true},
+        {"id": "sponsor_read", "title": "Sponsor Offer", "start_time": 130.0, "end_time": 160.0, "score": 89, "hook_score": 75, "standalone_score": 70, "payoff_score": 20, "educational_value_score": 5, "visual_action_score": 35, "measured_visual_action_score": 30, "boundary_quality_score": 100, "is_promotional": true, "is_outro": false, "requires_previous_context": false, "is_standalone_one_liner": false, "boundary_complete": true, "caption_readability_score": 94, "render_decode_ok": true}
+      ]
+    }
+  ]
+}

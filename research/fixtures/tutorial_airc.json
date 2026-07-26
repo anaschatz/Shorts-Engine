@@ -1,0 +1,68 @@
+{
+  "fixture_version": 1,
+  "id": "tutorial_aircAruvnKk",
+  "video_id": "aircAruvnKk",
+  "category": "tutorial",
+  "duration": 1106.78,
+  "video_metadata": {
+    "width": 640,
+    "height": 360,
+    "fps": 30.0,
+    "transcript_cache": "output/source_aircAruvnKk.srt",
+    "video_cache": "output/source_aircAruvnKk.mp4"
+  },
+  "transcript": {
+    "duration": 1106.78,
+    "segments": [
+      {"start": 0.0, "end": 49.04, "text": "This is a 3. Your brain recognizes many different images as the same idea, while programming a computer to do this is remarkably difficult."},
+      {"start": 349.18, "end": 401.1, "text": "When humans recognize digits, we piece together loops and lines. A layered network can learn combinations of those useful subcomponents."},
+      {"start": 761.22, "end": 812.84, "text": "One thought experiment that is fun and horrifying is setting thousands of weights and biases by hand. Understanding them gives you a way to improve the network and challenge your assumptions."},
+      {"start": 986.7, "end": 1010.7, "text": "Subscribe to stay notified. Most viewers do not receive notifications, so subscribe to prime the YouTube algorithm to recommend this channel. Stay posted for more."}
+    ]
+  },
+  "accepted_intervals": [
+    {"id": "brain_vs_computer", "start": 0.0, "end": 49.04},
+    {"id": "manual_tuning", "start": 761.22, "end": 812.84},
+    {"id": "pattern_layers", "start": 349.18, "end": 401.1}
+  ],
+  "rejected_intervals": [
+    {"id": "promotional_outro", "start": 986.7, "end": 1010.7, "reason": "promotional_outro"}
+  ],
+  "preferred_top_candidate": "manual_tuning",
+  "pairwise_preferences": [
+    ["manual_tuning", "brain_vs_computer"],
+    ["manual_tuning", "promotional_outro"],
+    ["brain_vs_computer", "promotional_outro"],
+    ["pattern_layers", "promotional_outro"]
+  ],
+  "candidates": [
+    {
+      "id": "brain_vs_computer", "title": "The Brain vs. The Computer", "start_time": 0.0, "end_time": 49.04,
+      "speech_start_time": 0.0, "speech_end_time": 48.16, "score": 92, "hook_score": 95, "standalone_score": 88,
+      "payoff_score": 90, "educational_value_score": 92, "visual_action_score": 85, "measured_visual_action_score": 10.929,
+      "boundary_quality_score": 100, "is_promotional": false, "is_outro": false, "requires_previous_context": false,
+      "is_standalone_one_liner": false, "boundary_complete": true, "caption_readability_score": 92, "render_decode_ok": true
+    },
+    {
+      "id": "manual_tuning", "title": "The 13,000 Knobs", "start_time": 761.22, "end_time": 812.84,
+      "speech_start_time": 762.42, "speech_end_time": 812.84, "score": 89, "hook_score": 90, "standalone_score": 85,
+      "payoff_score": 85, "educational_value_score": 92, "visual_action_score": 80, "measured_visual_action_score": 23.864,
+      "boundary_quality_score": 100, "is_promotional": false, "is_outro": false, "requires_previous_context": false,
+      "is_standalone_one_liner": false, "boundary_complete": true, "caption_readability_score": 92, "render_decode_ok": true
+    },
+    {
+      "id": "pattern_layers", "title": "How We Recognize Patterns", "start_time": 349.18, "end_time": 401.1,
+      "speech_start_time": 349.18, "speech_end_time": 401.1, "score": 88, "hook_score": 86, "standalone_score": 88,
+      "payoff_score": 89, "educational_value_score": 94, "visual_action_score": 75, "measured_visual_action_score": 15.91,
+      "boundary_quality_score": 100, "is_promotional": false, "is_outro": false, "requires_previous_context": false,
+      "is_standalone_one_liner": false, "boundary_complete": true, "caption_readability_score": 91, "render_decode_ok": true
+    },
+    {
+      "id": "promotional_outro", "title": "YouTube Algorithm Hack", "start_time": 986.7, "end_time": 1010.7,
+      "speech_start_time": 986.7, "speech_end_time": 1010.7, "score": 95, "hook_score": 96, "standalone_score": 90,
+      "payoff_score": 88, "educational_value_score": 55, "visual_action_score": 65, "measured_visual_action_score": 8.0,
+      "boundary_quality_score": 100, "is_promotional": false, "is_outro": false, "requires_previous_context": false,
+      "is_standalone_one_liner": false, "boundary_complete": true, "caption_readability_score": 90, "render_decode_ok": true
+    }
+  ]
+}
