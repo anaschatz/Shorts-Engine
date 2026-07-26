@@ -318,11 +318,29 @@ if (restoredFootballReviews.records > 0 || restoredFootballReviews.ignored > 0) 
     ...restoredFootballReviews,
   }));
 }
-const { queued: queuedOnStartup } = workerSupervisor.start({ requestId: "startup_recovery" });
-if (queuedOnStartup > 0) {
-  console.info(JSON.stringify({ level: "info", event: "supervisor_recovered_queue", queued: queuedOnStartup }));
+let workersStarted = false;
+
+function startWorkers(options = {}) {
+  if (workersStarted) {
+    return {
+      started: false,
+      alreadyRunning: true,
+      queued: Number(workerSupervisor.health().queue && workerSupervisor.health().queue.queued || 0),
+    };
+  }
+  const requestId = options.requestId || "startup_recovery";
+  const { queued } = workerSupervisor.start({ requestId });
+  artifactCleanupWorker.start({ dryRun: options.cleanupDryRun !== false });
+  workersStarted = true;
+  if (queued > 0) {
+    console.info(JSON.stringify({
+      level: "info",
+      event: "supervisor_recovered_queue",
+      queued,
+    }));
+  }
+  return { started: true, alreadyRunning: false, queued };
 }
-artifactCleanupWorker.start({ dryRun: true });
 
 function clientKey(req) {
   return req.socket.remoteAddress || "local";
@@ -2783,7 +2801,13 @@ async function route(req, res) {
   }
 }
 
-function createAppServer() {
+function createAppServer(options = {}) {
+  if (options.startWorkers !== false) {
+    startWorkers({
+      requestId: options.requestId || "app_server_start",
+      cleanupDryRun: options.cleanupDryRun,
+    });
+  }
   return createServer(route);
 }
 
@@ -2819,7 +2843,11 @@ function attachServerErrorHandler(server, options = {}) {
 }
 
 function startServer(port = CONFIG.port, options = {}) {
-  const server = createAppServer();
+  const server = createAppServer({
+    startWorkers: options.startWorkers !== false,
+    requestId: options.requestId || "server_start",
+    cleanupDryRun: options.cleanupDryRun,
+  });
   const logger = options.logger || console;
   attachServerErrorHandler(server, {
     logger,
@@ -2838,7 +2866,10 @@ function startServer(port = CONFIG.port, options = {}) {
 }
 
 async function stopWorkers(options = {}) {
-  return workerSupervisor.stop(options);
+  artifactCleanupWorker.stop();
+  const summary = await workerSupervisor.stop(options);
+  workersStarted = false;
+  return summary;
 }
 
 if (require.main === module) {
@@ -2901,5 +2932,6 @@ module.exports = {
   artifactCleanupWorker,
   outboxWorker,
   workerSupervisor,
+  startWorkers,
   stopWorkers,
 };
