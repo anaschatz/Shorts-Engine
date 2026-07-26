@@ -14,7 +14,6 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from research.eval import evaluate
-from research.live_eval import run_live_eval
 
 
 RESEARCH_DIR = ROOT / "research"
@@ -172,6 +171,10 @@ def main() -> int:
             reason = "offline_quality_improved"
 
     if status == "keep" and args.live:
+        # Keep deterministic/offline research runnable from the core
+        # dependency set. Live evaluation owns the optional video/LLM stack.
+        from research.live_eval import run_live_eval
+
         live_run_dir = RUNS_DIR / run_id
         try:
             for repeat in range(args.live_repeats):

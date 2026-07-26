@@ -3,6 +3,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from shorts_generator import config as config_module
+from shorts_generator import production_workflow as production_workflow_module
 from shorts_generator.artifact_contracts import (
     ArtifactBindingError,
     build_candidate_decision,
@@ -11,6 +13,8 @@ from shorts_generator.artifact_contracts import (
     file_sha256,
 )
 from shorts_generator.experiment import build_experiment_manifest
+from shorts_generator.local import clipper as clipper_module
+from shorts_generator.local import visual_features as visual_features_module
 from shorts_generator.production_workflow import (
     _prepare_verified_candidate,
     _probe_video_frame_size_ffprobe,
@@ -23,17 +27,20 @@ from shorts_generator.production_workflow import (
 class ProductionWorkflowTests(unittest.TestCase):
     def test_gpu_scheduling_is_used_only_for_low_resolution_source_panels(self):
         with (
-            patch("shorts_generator.config.LOCAL_REAL_ESRGAN", True),
-            patch(
-                "shorts_generator.local.clipper.LOCAL_REAL_ESRGAN_BYPASS_HIGH_RES",
+            patch.object(config_module, "LOCAL_REAL_ESRGAN", True),
+            patch.object(
+                clipper_module,
+                "LOCAL_REAL_ESRGAN_BYPASS_HIGH_RES",
                 True,
             ),
-            patch(
-                "shorts_generator.local.clipper.LOCAL_REAL_ESRGAN_MIN_PANEL_COVERAGE",
+            patch.object(
+                clipper_module,
+                "LOCAL_REAL_ESRGAN_MIN_PANEL_COVERAGE",
                 0.90,
             ),
-            patch(
-                "shorts_generator.production_workflow._probe_video_frame_size_ffprobe",
+            patch.object(
+                production_workflow_module,
+                "_probe_video_frame_size_ffprobe",
                 return_value=(1920, 1080),
             ) as probe,
         ):
@@ -66,11 +73,13 @@ class ProductionWorkflowTests(unittest.TestCase):
             "speech_end_time": 10.3,
         }
 
-        with patch(
-            "shorts_generator.production_workflow.build_edit_plan",
+        with patch.object(
+            production_workflow_module,
+            "build_edit_plan",
             return_value={"artifactType": "EditPlan"},
-        ), patch(
-            "shorts_generator.local.clipper._build_word_cues",
+        ), patch.object(
+            clipper_module,
+            "_build_word_cues",
             return_value=[],
         ) as build_word_cues:
             requested = _prepare_verified_candidate(
@@ -220,14 +229,17 @@ class ProductionWorkflowTests(unittest.TestCase):
                 **wrong_audio_payload,
                 "contentHash": content_hash(wrong_audio_payload),
             }
-            with patch(
-                "shorts_generator.local.clipper.crop_highlights_local",
+            with patch.object(
+                clipper_module,
+                "crop_highlights_local",
                 return_value=[short],
-            ) as renderer, patch(
-                "shorts_generator.local.visual_features.analyze_rendered_cut_metrics",
+            ) as renderer, patch.object(
+                visual_features_module,
+                "analyze_rendered_cut_metrics",
                 side_effect=lambda values: values,
-            ), patch(
-                "shorts_generator.production_workflow._probe_video",
+            ), patch.object(
+                production_workflow_module,
+                "_probe_video",
                 return_value={
                     "fps": 30.0,
                     "frameCount": 351,
@@ -235,23 +247,29 @@ class ProductionWorkflowTests(unittest.TestCase):
                     "width": 1080,
                     "height": 1920,
                 },
-            ), patch(
-                "shorts_generator.production_workflow.evaluate_editorial_render",
+            ), patch.object(
+                production_workflow_module,
+                "evaluate_editorial_render",
                 side_effect=creative_qa,
-            ), patch(
-                "shorts_generator.production_workflow.evaluate_audio_delivery",
+            ), patch.object(
+                production_workflow_module,
+                "evaluate_audio_delivery",
                 return_value=wrong_audio_qa,
-            ) as audio_check, patch(
-                "shorts_generator.config.LOCAL_RENDER_CACHE",
+            ) as audio_check, patch.object(
+                config_module,
+                "LOCAL_RENDER_CACHE",
                 True,
-            ), patch(
-                "shorts_generator.config.LOCAL_RENDER_CACHE_DIR",
+            ), patch.object(
+                config_module,
+                "LOCAL_RENDER_CACHE_DIR",
                 str(Path(directory) / "render-cache"),
-            ), patch(
-                "shorts_generator.config.LOCAL_REAL_ESRGAN",
+            ), patch.object(
+                config_module,
+                "LOCAL_REAL_ESRGAN",
                 False,
-            ), patch(
-                "shorts_generator.local.clipper._resolve_motivational_music_track",
+            ), patch.object(
+                clipper_module,
+                "_resolve_motivational_music_track",
                 return_value=None,
             ):
                 with self.assertRaisesRegex(
@@ -300,8 +318,9 @@ class BatchProductionWorkflowTests(unittest.TestCase):
     def setUp(self):
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.directory = self.temporary_directory.name
-        self.render_cache_patch = patch(
-            "shorts_generator.config.LOCAL_RENDER_CACHE_DIR",
+        self.render_cache_patch = patch.object(
+            config_module,
+            "LOCAL_RENDER_CACHE_DIR",
             str(Path(self.directory) / "render-cache"),
         )
         self.render_cache_patch.start()
@@ -385,11 +404,13 @@ class BatchProductionWorkflowTests(unittest.TestCase):
                 raise RuntimeError("synthetic render failure")
             return {"candidateDecision": decision}
 
-        with patch(
-            "shorts_generator.production_workflow.file_sha256",
+        with patch.object(
+            production_workflow_module,
+            "file_sha256",
             wraps=file_sha256,
-        ) as source_hasher, patch(
-            "shorts_generator.production_workflow._render_prepared_candidate",
+        ) as source_hasher, patch.object(
+            production_workflow_module,
+            "_render_prepared_candidate",
             side_effect=render_side_effect,
         ) as renderer:
             result = render_approved_candidates(
@@ -442,8 +463,9 @@ class BatchProductionWorkflowTests(unittest.TestCase):
             "contentHash": content_hash(wrong_source_body),
         }
 
-        with patch(
-            "shorts_generator.production_workflow._render_prepared_candidate",
+        with patch.object(
+            production_workflow_module,
+            "_render_prepared_candidate",
             return_value={"candidateDecision": valid_decision},
         ) as renderer:
             result = render_approved_candidates(
@@ -490,11 +512,13 @@ class BatchProductionWorkflowTests(unittest.TestCase):
                 "short": short,
             }
 
-        with patch(
-            "shorts_generator.local.clipper.crop_highlights_local",
+        with patch.object(
+            clipper_module,
+            "crop_highlights_local",
             side_effect=crop_side_effect,
-        ) as renderer, patch(
-            "shorts_generator.production_workflow._finalize_rendered_candidate",
+        ) as renderer, patch.object(
+            production_workflow_module,
+            "_finalize_rendered_candidate",
             side_effect=finalize_side_effect,
         ) as finalizer:
             result = render_approved_candidates(
@@ -593,14 +617,17 @@ class BatchProductionWorkflowTests(unittest.TestCase):
             }
             return {**payload, "contentHash": content_hash(payload)}
 
-        with patch(
-            "shorts_generator.local.clipper.crop_highlights_local",
+        with patch.object(
+            clipper_module,
+            "crop_highlights_local",
             side_effect=crop_side_effect,
-        ), patch(
-            "shorts_generator.local.visual_features.analyze_rendered_cut_metrics",
+        ), patch.object(
+            visual_features_module,
+            "analyze_rendered_cut_metrics",
             side_effect=lambda shorts: shorts,
-        ), patch(
-            "shorts_generator.production_workflow._probe_video",
+        ), patch.object(
+            production_workflow_module,
+            "_probe_video",
             return_value={
                 "fps": 30.0,
                 "frameCount": 351,
@@ -608,11 +635,13 @@ class BatchProductionWorkflowTests(unittest.TestCase):
                 "width": 1080,
                 "height": 1920,
             },
-        ), patch(
-            "shorts_generator.production_workflow.evaluate_editorial_render",
+        ), patch.object(
+            production_workflow_module,
+            "evaluate_editorial_render",
             side_effect=creative_qa,
-        ), patch(
-            "shorts_generator.production_workflow.evaluate_audio_delivery",
+        ), patch.object(
+            production_workflow_module,
+            "evaluate_audio_delivery",
             side_effect=audio_qa,
         ):
             result = render_approved_candidates(
@@ -647,8 +676,9 @@ class BatchProductionWorkflowTests(unittest.TestCase):
 
     def test_batch_rejects_stale_shared_transcript_before_rendering(self):
         decision, experiment = self._job(0)
-        with patch(
-            "shorts_generator.production_workflow._prepare_verified_candidate",
+        with patch.object(
+            production_workflow_module,
+            "_prepare_verified_candidate",
         ) as renderer:
             with self.assertRaisesRegex(
                 ArtifactBindingError,

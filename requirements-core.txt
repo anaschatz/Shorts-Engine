@@ -1,0 +1,3 @@
+# Core/API runtime. Verified with CPython 3.13.
+requests==2.34.2
+python-dotenv==1.1.1

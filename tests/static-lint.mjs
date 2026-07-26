@@ -58,6 +58,7 @@ const ciDocs = readFileSync("demo/CI.md", "utf8");
 const releaseDocs = readFileSync("docs/RELEASE.md", "utf8");
 const githubWorkflow = readFileSync(".github/workflows/ci.yml", "utf8");
 const stagingWorkflow = readFileSync(".github/workflows/staging.yml", "utf8");
+const nodeTestRunner = readFileSync("scripts/run-node-tests.mjs", "utf8");
 const packageJson = readFileSync("package.json", "utf8");
 const gitignore = readFileSync(".gitignore", "utf8");
 
@@ -339,7 +340,9 @@ assert.match(browserSmoke, /manualChecklistRequired/, "browser smoke should docu
 assert.match(browserSmoke, /api_demo_smoke_passed/, "browser smoke should include the API E2E fallback");
 assert.match(browserSmoke, /findSensitiveLeak/, "browser smoke should fail closed with safe leak metadata");
 assert.match(packageJson, /"demo:browser:e2e": "node demo\/run-playwright-smoke\.mjs"/, "package should expose the Playwright browser E2E script");
-assert.match(packageJson, /--test-timeout=120000/, "npm test should have a bounded timeout instead of hanging silently");
+assert.match(packageJson, /"test": "node scripts\/run-node-tests\.mjs"/, "npm test should use the bounded suite runner");
+assert.match(nodeTestRunner, /DEFAULT_TIMEOUT_MS = 30 \* 60 \* 1000/, "Node tests should have a suite-level timeout");
+assert.doesNotMatch(nodeTestRunner, /--test-timeout/, "Node tests should not start per-file timeouts while files are queued serially");
 assert.match(packageJson, /"branch:doctor": "node tools\/release\/check-branch-protection\.mjs"/, "package should expose branch policy doctor");
 assert.match(packageJson, /"branch:proof": "node tools\/release\/write-branch-protection-proof\.mjs"/, "package should expose branch policy proof generation");
 assert.match(packageJson, /"branch:setup": "node tools\/release\/print-branch-ruleset-setup\.mjs"/, "package should expose branch ruleset setup guidance");

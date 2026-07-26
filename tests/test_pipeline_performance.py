@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from shorts_generator import config as config_module
 from shorts_generator.pipeline import generate_shorts
 
 
@@ -24,10 +25,7 @@ class PipelinePerformanceTests(unittest.TestCase):
                     "shorts_generator.pipeline._run_api",
                     return_value=expected,
                 ) as run_api,
-                patch(
-                    "shorts_generator.config.LOCAL_PERFORMANCE_REPORT_DIR",
-                    directory,
-                ),
+                patch.object(config_module, "LOCAL_PERFORMANCE_REPORT_DIR", directory),
             ):
                 result = generate_shorts(
                     "https://example.test/source",
@@ -57,10 +55,7 @@ class PipelinePerformanceTests(unittest.TestCase):
                     "shorts_generator.pipeline._run_api",
                     side_effect=RuntimeError("synthetic failure"),
                 ),
-                patch(
-                    "shorts_generator.config.LOCAL_PERFORMANCE_REPORT_DIR",
-                    directory,
-                ),
+                patch.object(config_module, "LOCAL_PERFORMANCE_REPORT_DIR", directory),
             ):
                 with self.assertRaisesRegex(RuntimeError, "synthetic failure"):
                     generate_shorts(

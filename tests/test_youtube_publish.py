@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,8 +14,28 @@ SPEC.loader.exec_module(MODULE)
 
 
 class YouTubePublishTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.fixture_root = Path(self.temporary_directory.name)
+        source_manifest = ROOT / "publishing" / "youtube-fifa20.json"
+        fixture_manifest = self.fixture_root / "publishing" / source_manifest.name
+        fixture_manifest.parent.mkdir(parents=True)
+        shutil.copyfile(source_manifest, fixture_manifest)
+        payload = json.loads(fixture_manifest.read_text(encoding="utf-8"))
+        for item in payload["items"]:
+            media = self.fixture_root / item["file"]
+            media.parent.mkdir(parents=True, exist_ok=True)
+            media.write_bytes(b"test-mp4-placeholder")
+        self.fixture_manifest = fixture_manifest
+
+    def tearDown(self):
+        self.temporary_directory.cleanup()
+
     def test_fifa_manifest_has_twenty_unique_valid_items(self):
-        manifest, items = MODULE.validate_manifest(ROOT / "publishing" / "youtube-fifa20.json")
+        manifest, items = MODULE.validate_manifest(
+            self.fixture_manifest,
+            root=self.fixture_root,
+        )
         self.assertEqual(manifest["defaultPrivacy"], "private")
         self.assertEqual(len(items), 20)
         self.assertEqual(len({item["id"] for item in items}), 20)
@@ -25,14 +46,20 @@ class YouTubePublishTests(unittest.TestCase):
             self.assertIn("#Football", item["description"])
 
     def test_video_body_uses_sports_category_and_requested_privacy(self):
-        _, items = MODULE.validate_manifest(ROOT / "publishing" / "youtube-fifa20.json")
+        _, items = MODULE.validate_manifest(
+            self.fixture_manifest,
+            root=self.fixture_root,
+        )
         body = MODULE.build_video_body(items[0], "unlisted")
         self.assertEqual(body["snippet"]["categoryId"], "17")
         self.assertEqual(body["status"]["privacyStatus"], "unlisted")
         self.assertFalse(body["status"]["selfDeclaredMadeForKids"])
 
     def test_public_visibility_requires_explicit_confirmation(self):
-        _, items = MODULE.validate_manifest(ROOT / "publishing" / "youtube-fifa20.json")
+        _, items = MODULE.validate_manifest(
+            self.fixture_manifest,
+            root=self.fixture_root,
+        )
         with self.assertRaises(MODULE.PublishError):
             MODULE.validate_visibility(items, "public", True, False)
         with self.assertRaises(MODULE.PublishError):

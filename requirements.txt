@@ -1,2 +1,2 @@
-requests>=2.31
-python-dotenv>=1.0
+# Compatibility entrypoint for the core/API runtime.
+-r requirements-core.txt

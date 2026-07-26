@@ -1,0 +1,165 @@
+{
+  "analysisRequest": {
+    "schemaVersion": 1,
+    "requestId": "request.analysis.001",
+    "operation": "analysis",
+    "source": {
+      "artifactId": "artifact.source.001",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "options": {
+      "contentType": "football",
+      "language": "en",
+      "maxCandidates": 4
+    }
+  },
+  "analysisResult": {
+    "schemaVersion": 1,
+    "requestId": "request.analysis.001",
+    "operation": "analysis",
+    "status": "succeeded",
+    "candidates": [
+      {
+        "schemaVersion": 1,
+        "candidateId": "candidate.001",
+        "sourceArtifactId": "artifact.source.001",
+        "startMs": 12000,
+        "endMs": 31000,
+        "contentType": "football",
+        "rankingScore": 91.5,
+        "evidence": ["ACTION_SEQUENCE", "SUBJECT_VISIBLE"]
+      }
+    ],
+    "hookGate": [
+      {
+        "schemaVersion": 1,
+        "candidateId": "candidate.001",
+        "gateVersion": "hook-gate-v3",
+        "decision": "pass",
+        "reasonCodes": [],
+        "metrics": {
+          "boundaryCompleteness": 96,
+          "captionReadability": 94,
+          "visualSubjectCoverage": 91,
+          "latencyMs": 38,
+          "estimatedCostUsd": 0
+        }
+      }
+    ],
+    "artifact": {
+      "schemaVersion": 1,
+      "artifactId": "artifact.analysis.001",
+      "kind": "analysis",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "sizeBytes": 4096,
+      "media": {
+        "mimeType": "application/json"
+      }
+    }
+  },
+  "renderRequest": {
+    "schemaVersion": 1,
+    "requestId": "request.render.001",
+    "operation": "render",
+    "source": {
+      "artifactId": "artifact.source.001",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "candidate": {
+      "schemaVersion": 1,
+      "candidateId": "candidate.001",
+      "sourceArtifactId": "artifact.source.001",
+      "startMs": 12000,
+      "endMs": 31000,
+      "contentType": "football",
+      "rankingScore": 91.5,
+      "evidence": ["ACTION_SEQUENCE", "SUBJECT_VISIBLE"]
+    },
+    "hookGate": {
+      "schemaVersion": 1,
+      "candidateId": "candidate.001",
+      "gateVersion": "hook-gate-v3",
+      "decision": "pass",
+      "reasonCodes": [],
+      "metrics": {
+        "boundaryCompleteness": 96,
+        "captionReadability": 94,
+        "visualSubjectCoverage": 91
+      }
+    },
+    "profile": {
+      "formatProfile": "football_vertical_v1",
+      "selectionProfile": "football_editorial_v1",
+      "renderProfile": "football_action_v1"
+    }
+  },
+  "renderResult": {
+    "schemaVersion": 1,
+    "requestId": "request.render.001",
+    "operation": "render",
+    "status": "succeeded",
+    "artifact": {
+      "schemaVersion": 1,
+      "artifactId": "artifact.render.001",
+      "kind": "render",
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "sizeBytes": 2500000,
+      "media": {
+        "mimeType": "video/mp4",
+        "durationMs": 19000,
+        "width": 1080,
+        "height": 1920
+      }
+    },
+    "qa": {
+      "passed": true,
+      "codes": []
+    }
+  },
+  "candidate": {
+    "schemaVersion": 1,
+    "candidateId": "candidate.001",
+    "sourceArtifactId": "artifact.source.001",
+    "startMs": 12000,
+    "endMs": 31000,
+    "contentType": "football",
+    "rankingScore": 91.5,
+    "evidence": ["ACTION_SEQUENCE", "SUBJECT_VISIBLE"]
+  },
+  "hookGateDecision": {
+    "schemaVersion": 1,
+    "candidateId": "candidate.001",
+    "gateVersion": "hook-gate-v3",
+    "decision": "pass",
+    "reasonCodes": [],
+    "metrics": {
+      "boundaryCompleteness": 96,
+      "captionReadability": 94,
+      "visualSubjectCoverage": 91
+    }
+  },
+  "artifactManifest": {
+    "schemaVersion": 1,
+    "artifactId": "artifact.render.001",
+    "kind": "render",
+    "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "sizeBytes": 2500000,
+    "media": {
+      "mimeType": "video/mp4",
+      "durationMs": 19000,
+      "width": 1080,
+      "height": 1920
+    }
+  },
+  "errorResponse": {
+    "schemaVersion": 1,
+    "requestId": "request.render.001",
+    "status": "error",
+    "error": {
+      "code": "MEDIA_QA_FAILED",
+      "message": "The rendered artifact did not pass media QA.",
+      "retryable": false,
+      "field": "artifact"
+    }
+  }
+}

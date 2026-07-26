@@ -21,6 +21,10 @@ from .artifact_contracts import (
 )
 from .audio_qa import evaluate_audio_delivery
 from .editorial_qa import evaluate_editorial_render
+from .media_probe import (
+    probe_rendered_video as _probe_video,
+    probe_video_frame_size_ffprobe as _probe_video_frame_size_ffprobe,
+)
 from .profiles import (
     BF_EDITORIAL_INSET_V1,
     BF_SMOOTH_TAIL_V5,
@@ -87,46 +91,6 @@ def _real_esrgan_enabled() -> bool:
     from .config import LOCAL_REAL_ESRGAN
 
     return bool(LOCAL_REAL_ESRGAN)
-
-
-def _probe_video_frame_size_ffprobe(
-    source_path: str,
-    runner=None,
-) -> Optional[Tuple[int, int]]:
-    """Read the first video stream dimensions without importing OpenCV."""
-    run = runner or subprocess.run
-    try:
-        result = run(
-            [
-                "ffprobe",
-                "-v",
-                "error",
-                "-select_streams",
-                "v:0",
-                "-show_entries",
-                "stream=width,height",
-                "-of",
-                "json",
-                source_path,
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        payload = json.loads(result.stdout or "{}")
-        streams = payload.get("streams") if isinstance(payload, dict) else None
-        stream = streams[0] if isinstance(streams, list) and streams else None
-        width = int(stream.get("width", 0)) if isinstance(stream, dict) else 0
-        height = int(stream.get("height", 0)) if isinstance(stream, dict) else 0
-    except (
-        FileNotFoundError,
-        subprocess.CalledProcessError,
-        TypeError,
-        ValueError,
-        json.JSONDecodeError,
-    ):
-        return None
-    return (width, height) if width > 0 and height > 0 else None
 
 
 def _real_esrgan_required_for_source(source_path: str) -> bool:
@@ -379,30 +343,6 @@ def _store_render_cache(
         )
     except (OSError, TypeError, ValueError, RenderCacheError) as error:
         print(f"[production] render cache store skipped: {error}", flush=True)
-
-
-def _probe_video(path: str) -> Dict:
-    try:
-        import cv2  # type: ignore
-    except ImportError as error:  # pragma: no cover
-        raise RuntimeError("opencv-python is required for production render probing") from error
-    cap = cv2.VideoCapture(path)
-    if not cap.isOpened():
-        raise ArtifactBindingError("render output cannot be opened")
-    try:
-        fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
-        frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
-    finally:
-        cap.release()
-    return {
-        "fps": fps,
-        "frameCount": frames,
-        "durationSeconds": frames / fps if fps > 0 else 0.0,
-        "width": width,
-        "height": height,
-    }
 
 
 def _prepare_verified_candidate(
