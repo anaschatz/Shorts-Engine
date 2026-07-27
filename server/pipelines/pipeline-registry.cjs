@@ -1,6 +1,14 @@
 const { AppError, SAFE_MESSAGES } = require("../errors.cjs");
 const { sanitizeText } = require("../repositories/ids.cjs");
-const { SEMANTIC_SENTENCE_PROFILE_TOKEN, SEMANTIC_SENTENCE_STYLE_VERSION } = require("./narrated-short/animation/semantic-render-profile.cjs");
+const {
+  EDUCATIONAL_EXPLAINER_PROFILE_TOKEN,
+  SEMANTIC_SENTENCE_STYLE_VERSION,
+  isSupportedAnimationProfile,
+} = require("./narrated-short/animation/semantic-render-profile.cjs");
+const {
+  EDUCATIONAL_EXPLAINER_STYLE_VERSION,
+  REFERENCE_STYLE_SPEC_ID,
+} = require("./narrated-short/animation/educational-explainer-profile.cjs");
 const {
   ACTION: MOTIVATIONAL_ACTION,
   PIPELINE_TYPE: MOTIVATIONAL_PIPELINE_TYPE,
@@ -99,10 +107,19 @@ function normalizeNarratedJobPayload(payload = {}, action) {
       throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "renderProfile" });
     }
     normalized.renderProfile = renderProfile;
-    if (payload.animationProfile !== SEMANTIC_SENTENCE_PROFILE_TOKEN) {
+    if (!isSupportedAnimationProfile(payload.animationProfile)) {
       throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "animationProfile" });
     }
-    normalized.animationProfile = SEMANTIC_SENTENCE_PROFILE_TOKEN;
+    normalized.animationProfile = payload.animationProfile;
+    if (normalized.animationProfile === EDUCATIONAL_EXPLAINER_PROFILE_TOKEN) {
+      normalized.styleSpecId = sanitizeText(
+        payload.styleSpecId || REFERENCE_STYLE_SPEC_ID,
+        80,
+      ).toLowerCase();
+      if (normalized.styleSpecId !== REFERENCE_STYLE_SPEC_ID) {
+        throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "styleSpecId" });
+      }
+    }
     normalized.plannerMode = sanitizeText(payload.plannerMode, 40).toLowerCase();
     if (!["disabled", "mock", "openai_compatible"].includes(normalized.plannerMode)) {
       throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "plannerMode" });
@@ -134,8 +151,15 @@ function normalizeNarratedJobPayload(payload = {}, action) {
     normalized.evidenceProfileVersion = sanitizeText(payload.evidenceProfileVersion || "1.0.0", 20).toLowerCase();
     const hasAnimationProfile = payload.animationProfile !== undefined && payload.animationProfile !== null && payload.animationProfile !== "";
     if (hasAnimationProfile) {
-      if (payload.animationProfile !== SEMANTIC_SENTENCE_PROFILE_TOKEN) throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "animationProfile" });
-      normalized.animationProfile = SEMANTIC_SENTENCE_PROFILE_TOKEN;
+      if (!isSupportedAnimationProfile(payload.animationProfile)) throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "animationProfile" });
+      normalized.animationProfile = payload.animationProfile;
+      if (normalized.animationProfile === EDUCATIONAL_EXPLAINER_PROFILE_TOKEN) {
+        normalized.styleSpecId = sanitizeText(
+          payload.styleSpecId || REFERENCE_STYLE_SPEC_ID,
+          80,
+        ).toLowerCase();
+        if (normalized.styleSpecId !== REFERENCE_STYLE_SPEC_ID) throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "styleSpecId" });
+      }
     }
     const animationBindingKeys = ["timingContextHash", "animationPlanHash", "animationIRHash", "animationProvider", "animationRuntimeVersion", "animationStyleVersion"];
     const animationBindingCount = animationBindingKeys.filter((key) => payload[key] !== undefined && payload[key] !== null).length;
@@ -148,9 +172,36 @@ function normalizeNarratedJobPayload(payload = {}, action) {
       normalized.animationProvider = sanitizeText(payload.animationProvider, 80).toLowerCase();
       normalized.animationRuntimeVersion = sanitizeText(payload.animationRuntimeVersion, 24).toLowerCase();
       normalized.animationStyleVersion = sanitizeText(payload.animationStyleVersion, 24).toLowerCase();
-      const allowedStyleVersions = hasAnimationProfile ? [SEMANTIC_SENTENCE_STYLE_VERSION] : ["1.9.0", "2.0.0"];
+      const allowedStyleVersions = hasAnimationProfile
+        ? (
+          normalized.animationProfile === EDUCATIONAL_EXPLAINER_PROFILE_TOKEN
+            ? [EDUCATIONAL_EXPLAINER_STYLE_VERSION]
+            : [SEMANTIC_SENTENCE_STYLE_VERSION]
+        )
+        : ["1.9.0", "2.0.0"];
       if (normalized.animationProvider !== "hyperframes_local" || normalized.animationRuntimeVersion !== "0.7.55" || !allowedStyleVersions.includes(normalized.animationStyleVersion)) throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "animationVersion" });
     }
+    const educationalBindingKeys = [
+      "referenceStyleSpecHash",
+      "narrativeBeatGraphHash",
+      "directorPlanHash",
+      "audioIRHash",
+      "assetManifestV2Hash",
+    ];
+    const educationalBindingCount = educationalBindingKeys.filter(
+      (key) => payload[key] !== undefined && payload[key] !== null,
+    ).length;
+    if (educationalBindingCount > 0) {
+      if (
+        normalized.animationProfile !== EDUCATIONAL_EXPLAINER_PROFILE_TOKEN
+        || educationalBindingCount !== educationalBindingKeys.length
+      ) throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "educationalExplainerBindings" });
+      for (const key of educationalBindingKeys) normalized[key] = normalizeHash(payload[key], key);
+    }
+    if (
+      normalized.animationProfile === EDUCATIONAL_EXPLAINER_PROFILE_TOKEN
+      && educationalBindingCount !== educationalBindingKeys.length
+    ) throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "educationalExplainerBindings" });
     const scenePlanBindingKeys = [
       "animationScenePlanArtifactId",
       "animationScenePlanHash",

@@ -57,7 +57,14 @@ const { NARRATED_COMPOSITOR_VERSION } = require("./pipelines/narrated-short/vide
 const { QA_PROFILE_VERSION, normalizeQaReport } = require("./pipelines/narrated-short/qa/contract.cjs");
 const { EVIDENCE_PROFILE_VERSION } = require("./pipelines/narrated-short/evidence/contract.cjs");
 const { buildProductionAnimationPayloadBindings } = require("./pipelines/narrated-short/animation/payload-bindings.cjs");
-const { SEMANTIC_SENTENCE_PROFILE_TOKEN } = require("./pipelines/narrated-short/animation/semantic-render-profile.cjs");
+const {
+  EDUCATIONAL_EXPLAINER_PROFILE_TOKEN,
+  SEMANTIC_SENTENCE_PROFILE_TOKEN,
+  isSupportedAnimationProfile,
+} = require("./pipelines/narrated-short/animation/semantic-render-profile.cjs");
+const {
+  REFERENCE_STYLE_SPEC_ID,
+} = require("./pipelines/narrated-short/animation/educational-explainer-profile.cjs");
 const { createLocalLlmScenePlanner } = require("./pipelines/narrated-short/animation/providers/local-llm-scene-planner.cjs");
 const { SCENE_PLAN_ARTIFACT_TYPE } = require("./pipelines/narrated-short/animation/scene-plan-artifact.cjs");
 const { publicInvalidationSummary, reviseNarratedProject } = require("./pipelines/narrated-short/invalidation.cjs");
@@ -1188,14 +1195,21 @@ async function handlePlanNarratedAnimation(req, res, rid, projectId, principal) 
     throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "body" });
   }
   for (const key of Object.keys(requestPayload)) {
-    if (key !== "animationProfile") {
+    if (!["animationProfile", "styleSpecId"].includes(key)) {
       throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: key });
     }
   }
   const animationProfile = requestPayload.animationProfile
     ?? SEMANTIC_SENTENCE_PROFILE_TOKEN;
-  if (animationProfile !== SEMANTIC_SENTENCE_PROFILE_TOKEN) {
+  if (!isSupportedAnimationProfile(animationProfile)) {
     throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "animationProfile" });
+  }
+  if (
+    animationProfile === EDUCATIONAL_EXPLAINER_PROFILE_TOKEN
+    && requestPayload.styleSpecId !== undefined
+    && requestPayload.styleSpecId !== REFERENCE_STYLE_SPEC_ID
+  ) {
+    throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "styleSpecId" });
   }
   const approval = contentApprovalRepository.findApproved(
     project.id,
@@ -1236,6 +1250,11 @@ async function handlePlanNarratedAnimation(req, res, rid, projectId, principal) 
     alignmentHash: active.alignmentHash,
     renderProfile: approval.renderProfile,
     animationProfile,
+    ...(animationProfile === EDUCATIONAL_EXPLAINER_PROFILE_TOKEN
+      ? {
+        styleSpecId: requestPayload.styleSpecId || REFERENCE_STYLE_SPEC_ID,
+      }
+      : {}),
     plannerMode: plannerHealth.mode,
     promptProfileId: plannerHealth.promptProfileId,
     plannerConfigurationHash: plannerHealth.configurationHash,
@@ -1265,6 +1284,7 @@ async function handlePlanNarratedAnimation(req, res, rid, projectId, principal) 
       existingJob.status === "completed"
       && existingJob.animationScenePlan?.required === true
       && activePlan
+      && activePlan.animationProfile === payload.animationProfile
       && activePlan.planArtifactId
         === existingJob.animationScenePlan.artifactId
       && activePlan.planHash === existingJob.animationScenePlan.contentHash
@@ -1349,11 +1369,11 @@ async function handleRenderNarratedProject(req, res, rid, projectId, principal) 
   validateJsonContentType(req);
   enforceContentLength(req, MAX_JSON_BODY_BYTES);
   const requestPayload = await readJsonBody(req, MAX_JSON_BODY_BYTES);
-  for (const key of Object.keys(requestPayload)) if (!["idempotencyKey", "animationProfile"].includes(key)) throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: key });
+  for (const key of Object.keys(requestPayload)) if (!["idempotencyKey", "animationProfile", "styleSpecId"].includes(key)) throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: key });
   const animationProfile = requestPayload.animationProfile === undefined || requestPayload.animationProfile === null || requestPayload.animationProfile === ""
     ? null
     : requestPayload.animationProfile;
-  if (animationProfile !== null && animationProfile !== SEMANTIC_SENTENCE_PROFILE_TOKEN) {
+  if (animationProfile !== null && !isSupportedAnimationProfile(animationProfile)) {
     throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "animationProfile" });
   }
   const suppliedIdempotencyKey = requestPayload.idempotencyKey === undefined || requestPayload.idempotencyKey === null || requestPayload.idempotencyKey === ""
@@ -1391,6 +1411,13 @@ async function handleRenderNarratedProject(req, res, rid, projectId, principal) 
     evidenceProfileVersion: EVIDENCE_PROFILE_VERSION,
   };
   if (animationProfile) payload.animationProfile = animationProfile;
+  if (animationProfile === EDUCATIONAL_EXPLAINER_PROFILE_TOKEN) {
+    const styleSpecId = requestPayload.styleSpecId || REFERENCE_STYLE_SPEC_ID;
+    if (styleSpecId !== REFERENCE_STYLE_SPEC_ID) {
+      throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "styleSpecId" });
+    }
+    payload.styleSpecId = styleSpecId;
+  }
   const renderPlannerHealth = animationProfile
     ? createLocalLlmScenePlanner({ env: process.env }).health()
     : null;
@@ -1436,6 +1463,16 @@ async function handleRenderNarratedProject(req, res, rid, projectId, principal) 
     animationProvider: payload.animationProvider,
     animationRuntimeVersion: payload.animationRuntimeVersion,
     animationStyleVersion: payload.animationStyleVersion,
+    ...(payload.styleSpecId
+      ? {
+        styleSpecId: payload.styleSpecId,
+        referenceStyleSpecHash: payload.referenceStyleSpecHash,
+        narrativeBeatGraphHash: payload.narrativeBeatGraphHash,
+        directorPlanHash: payload.directorPlanHash,
+        audioIRHash: payload.audioIRHash,
+        assetManifestV2Hash: payload.assetManifestV2Hash,
+      }
+      : {}),
     ...(payload.animationScenePlanArtifactId
       ? {
         animationScenePlanArtifactId: payload.animationScenePlanArtifactId,

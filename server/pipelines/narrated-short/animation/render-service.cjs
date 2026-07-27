@@ -15,6 +15,7 @@ const {
 const { createAnimationProviderRegistry } = require("./provider-registry.cjs");
 const { createHyperframesProvider } = require("./providers/hyperframes.cjs");
 const { runBenchmarkQa } = require("./benchmark-qa.cjs");
+const { runEducationalPerceptualQa } = require("./perceptual-qa.cjs");
 
 function fail(code = "ANIMATION_RENDER_FAILED") {
   throw new AppError(code, "Production animation rendering failed safely.", code === "ANIMATION_READINESS_FAILED" ? 503 : 409);
@@ -207,10 +208,18 @@ function browserQaExpectations(
       ...compositionExpectations,
       cacheWarmupFrames,
       pathFollowerIds: [],
-      persistentEntityIds: [],
+      persistentEntityIds: ir.content.educationalExplainer
+        ? ["promise_header", "story_thread"]
+        : [],
       visualStateIds: sentencePlan.sentences.map((sentence) => sentence.id),
       focusIntervalIds: [],
-      transitionIds: [],
+      transitionIds: ir.content.educationalExplainer
+        ? [...new Set(
+          ir.content.educationalExplainer.directorPlan.microbeats.map(
+            (cue) => cue.transition,
+          ),
+        )]
+        : [],
       actionSignatures: actionQa?.expectedActionSignatures || [],
       settledHoldFrames: (actionQa?.settledHoldFrames || []).filter(
         (frame) => seekSequence.includes(frame),
@@ -245,8 +254,8 @@ function motionQaGeometryRequirements(ir) {
   }
   if (ir.content?.semantic?.profileId === SEMANTIC_SENTENCE_PROFILE_ID) {
     return Object.freeze({
-      persistentContinuity: false,
-      transitionContinuity: false,
+      persistentContinuity: Boolean(ir.content.educationalExplainer),
+      transitionContinuity: Boolean(ir.content.educationalExplainer),
       focusExclusivity: false,
       primaryRoi: true,
       mobileLegibility: true,
@@ -461,6 +470,39 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
     ...(hasScenePlanArtifact ? [input.animationScenePlanHash] : []),
   ]);
   const irArtifact = persist("animation_ir", compiled.animationIR, [timingArtifact.envelope.contentHash, planArtifact.envelope.contentHash]);
+  const educationalArtifacts = compiled.referenceStyleSpec
+    ? {
+      referenceStyleSpec: persist(
+        "reference_style_spec",
+        compiled.referenceStyleSpec,
+        [input.draftHash],
+      ),
+      narrativeBeatGraph: persist(
+        "narrative_beat_graph",
+        compiled.narrativeBeatGraph,
+        [input.draftHash, input.alignmentHash, timingArtifact.envelope.contentHash],
+      ),
+      assetManifest: persist(
+        "animation_asset_manifest_v2",
+        compiled.assetManifest,
+        [compiled.referenceStyleSpec.contentHash],
+      ),
+      directorPlan: persist(
+        "animation_director_plan",
+        compiled.directorPlan,
+        [
+          compiled.referenceStyleSpec.contentHash,
+          compiled.narrativeBeatGraph.contentHash,
+          compiled.assetManifest.contentHash,
+        ],
+      ),
+      audioIR: persist(
+        "animation_audio_ir",
+        compiled.audioIR,
+        [compiled.assetManifest.contentHash, input.alignmentHash],
+      ),
+    }
+    : null;
   let completed = false;
   try {
     const doctor = await provider.doctor();
@@ -549,6 +591,10 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
       semanticGeometryRequirements: motionQaGeometryRequirements(compiled.animationIR),
     }));
     if (!browserProof.passed || !motionQa.passed || browserProof.externalRequestCount !== 0 || browserProof.blockedExternalRequestCount !== 0) fail("ANIMATION_QA_BLOCKED");
+    const perceptualQa = runEducationalPerceptualQa(compiled);
+    if (perceptualQa.applicable && perceptualQa.status !== "passed") {
+      fail("ANIMATION_QA_BLOCKED");
+    }
     const browserProofHash = contentHash(browserProof);
     const motionProofHash = contentHash(motionQa);
     const qaBody = {
@@ -576,6 +622,21 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
       visualMasterSha256: verified.outputSha256,
       browserProofHash,
       motionProofHash,
+      ...(perceptualQa.applicable ? { perceptualQa } : {}),
+      ...(educationalArtifacts
+        ? {
+          referenceStyleSpecArtifactId: educationalArtifacts.referenceStyleSpec.artifact.id,
+          referenceStyleSpecHash: educationalArtifacts.referenceStyleSpec.envelope.contentHash,
+          narrativeBeatGraphArtifactId: educationalArtifacts.narrativeBeatGraph.artifact.id,
+          narrativeBeatGraphHash: educationalArtifacts.narrativeBeatGraph.envelope.contentHash,
+          directorPlanArtifactId: educationalArtifacts.directorPlan.artifact.id,
+          directorPlanHash: educationalArtifacts.directorPlan.envelope.contentHash,
+          audioIRArtifactId: educationalArtifacts.audioIR.artifact.id,
+          audioIRHash: educationalArtifacts.audioIR.envelope.contentHash,
+          assetManifestV2ArtifactId: educationalArtifacts.assetManifest.artifact.id,
+          assetManifestV2Hash: educationalArtifacts.assetManifest.envelope.contentHash,
+        }
+        : {}),
       ...(hasScenePlanArtifact
         ? {
           animationScenePlanArtifactId:
@@ -592,10 +653,16 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
       timingArtifact.envelope.contentHash,
       planArtifact.envelope.contentHash,
       irArtifact.envelope.contentHash,
+      ...(educationalArtifacts
+        ? Object.values(educationalArtifacts).map(
+          (artifact) => artifact.envelope.contentHash,
+        )
+        : []),
       ...(hasScenePlanArtifact ? [input.animationScenePlanHash] : []),
       verified.outputSha256,
       browserProofHash,
       motionProofHash,
+      ...(perceptualQa.contentHash ? [perceptualQa.contentHash] : []),
     ]);
     const manifestBody = {
       schemaVersion: 1,
@@ -621,6 +688,21 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
       visualMasterSha256: verified.outputSha256,
       browserProofHash,
       motionProofHash,
+      ...(perceptualQa.applicable ? { perceptualQa } : {}),
+      ...(educationalArtifacts
+        ? {
+          referenceStyleSpecArtifactId: educationalArtifacts.referenceStyleSpec.artifact.id,
+          referenceStyleSpecHash: educationalArtifacts.referenceStyleSpec.envelope.contentHash,
+          narrativeBeatGraphArtifactId: educationalArtifacts.narrativeBeatGraph.artifact.id,
+          narrativeBeatGraphHash: educationalArtifacts.narrativeBeatGraph.envelope.contentHash,
+          directorPlanArtifactId: educationalArtifacts.directorPlan.artifact.id,
+          directorPlanHash: educationalArtifacts.directorPlan.envelope.contentHash,
+          audioIRArtifactId: educationalArtifacts.audioIR.artifact.id,
+          audioIRHash: educationalArtifacts.audioIR.envelope.contentHash,
+          assetManifestV2ArtifactId: educationalArtifacts.assetManifest.artifact.id,
+          assetManifestV2Hash: educationalArtifacts.assetManifest.envelope.contentHash,
+        }
+        : {}),
       animationQaArtifactId: qaArtifact.artifact.id,
       animationQaHash: qaArtifact.envelope.contentHash,
       ...(hasScenePlanArtifact
@@ -638,11 +720,17 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
       timingArtifact.envelope.contentHash,
       planArtifact.envelope.contentHash,
       irArtifact.envelope.contentHash,
+      ...(educationalArtifacts
+        ? Object.values(educationalArtifacts).map(
+          (artifact) => artifact.envelope.contentHash,
+        )
+        : []),
       ...(hasScenePlanArtifact ? [input.animationScenePlanHash] : []),
       qaArtifact.envelope.contentHash,
       verified.outputSha256,
       browserProofHash,
       motionProofHash,
+      ...(perceptualQa.contentHash ? [perceptualQa.contentHash] : []),
     ]);
     completed = true;
     return Object.freeze({
@@ -654,6 +742,7 @@ async function runProductionAnimationRender(input = {}, dependencies = {}) {
       timingArtifact,
       planArtifact,
       irArtifact,
+      educationalArtifacts,
       qaArtifact,
       qa: qaBody,
       renderManifestArtifact,

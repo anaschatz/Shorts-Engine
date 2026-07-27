@@ -49,6 +49,22 @@ Verified local narrated-animation technical final: 41.1 seconds, 1080×1920,
 30 fps, H.264/AAC. Both previews were extracted from the SHA-256-verified final
 render; public upload is pending.
 
+### Educational Explainer v1 — golden segment
+
+<p align="center">
+  <img
+    src="showcase/assets/educational-explainer-golden.gif"
+    alt="Animated twelve-second golden segment produced by the Educational Explainer v1 HyperFrames profile"
+    width="270"
+  />
+</p>
+
+This is an inline animated render—not a link to an external player. It exercises
+the new promise-first overview, persistent visual thread, original line-art
+recipes, semantic typography, focus transitions and narration-bound microbeats.
+The profile remains opt-in while the ten-chain production calibration gate is
+completed.
+
 The supplied football Short was unavailable during the latest verification, so
 no screenshot is shown until a verifiable output artifact is available.
 
@@ -90,6 +106,10 @@ saved baseline.
 The narrated pipeline turns approved scripts and claims into a frame-addressable
 `AnimationIR`, synthesizes narration through an optional local TTS runtime and
 renders continuous vector scenes without depending on broadcast or stock footage.
+Its opt-in `educational-explainer-v1` path adds `ReferenceStyleSpec`,
+`NarrativeBeatGraph`, `DirectorPlan`, `AnimationIR v4`, `AudioIR` and a
+rights-bound `AssetManifest v2`; see
+[the architecture contract](docs/EDUCATIONAL_EXPLAINER_ARCHITECTURE.md).
 
 ## Why It Is Different
 
@@ -142,7 +162,7 @@ tools replaceable and prevents API routes from becoming the workflow engine.
 | Auto-framing | Ball/player/action tracking contracts with conservative wide-safe fallback |
 | Enhancement | Managed Python Real-ESRGAN adapter with Apple MPS support and validated output frame counts |
 | Transcription | Local Faster-Whisper adapter with word timestamps and deterministic fallback |
-| Original animation | Frame-accurate `AnimationIR`, continuous vector rendering and narration alignment |
+| Original animation | Frame-accurate `AnimationIR v4`, continuous vector rendering, narration alignment, persistent entities and semantic typography |
 | Observability | Structured IDs, bounded progress, safe error codes and sanitized readiness reports |
 | Verification | Node tests, deterministic evals, Playwright browser checks, visual proofs and release reports |
 

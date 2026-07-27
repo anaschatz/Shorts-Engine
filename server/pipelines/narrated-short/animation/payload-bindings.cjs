@@ -3,17 +3,20 @@ const { normalizeDraftBundle, contentHash } = require("../contracts.cjs");
 const { normalizeAlignment } = require("../narration/alignment.cjs");
 const { buildProductionTimingContext } = require("./timing-context-builder.cjs");
 const { compileProductionAnimation, PRODUCTION_PROVIDER_ID, PRODUCTION_RUNTIME_VERSION } = require("./production-plan-compiler.cjs");
-const { SEMANTIC_SENTENCE_PROFILE_TOKEN } = require("./semantic-render-profile.cjs");
+const {
+  EDUCATIONAL_EXPLAINER_PROFILE_TOKEN,
+  isSupportedAnimationProfile,
+} = require("./semantic-render-profile.cjs");
 const {
   resolveAnimationScenePlanBinding,
 } = require("./scene-plan-artifact.cjs");
 
 function explicitAnimationProfile(value) {
   if (value === undefined || value === null || value === "") return null;
-  if (value !== SEMANTIC_SENTENCE_PROFILE_TOKEN) {
+  if (!isSupportedAnimationProfile(value)) {
     throw new AppError("ANIMATION_PROFILE_INVALID", "The requested production animation profile is unsupported.", 409, { field: "animationProfile" });
   }
-  return SEMANTIC_SENTENCE_PROFILE_TOKEN;
+  return value;
 }
 
 function buildProductionAnimationPayloadBindings({ project, approval, renderProfile, animationProfile: requestedAnimationProfile, contentArtifacts }, dependencies = {}) {
@@ -45,6 +48,7 @@ function buildProductionAnimationPayloadBindings({ project, approval, renderProf
       requirePersisted:
         dependencies.requirePersistedScenePlan === true,
       expectedPlanner: dependencies.expectedScenePlanner || null,
+      animationProfile,
       buildSemanticSentencePlanningContext:
         dependencies.buildSemanticSentencePlanningContext,
     })
@@ -62,6 +66,14 @@ function buildProductionAnimationPayloadBindings({ project, approval, renderProf
   });
   const bindings = { timingContextHash: timingContext.contentHash, animationPlanHash: contentHash(animation.plan), animationIRHash: animation.animationIR.contentHash, animationProvider: PRODUCTION_PROVIDER_ID, animationRuntimeVersion: PRODUCTION_RUNTIME_VERSION, animationStyleVersion: animation.animationIR.renderer.styleVersion };
   if (animationProfile) bindings.animationProfile = animationProfile;
+  if (animationProfile === EDUCATIONAL_EXPLAINER_PROFILE_TOKEN) {
+    bindings.styleSpecId = animation.referenceStyleSpec.id;
+    bindings.referenceStyleSpecHash = animation.referenceStyleSpec.contentHash;
+    bindings.narrativeBeatGraphHash = animation.narrativeBeatGraph.contentHash;
+    bindings.directorPlanHash = animation.directorPlan.contentHash;
+    bindings.audioIRHash = animation.audioIR.contentHash;
+    bindings.assetManifestV2Hash = animation.assetManifest.contentHash;
+  }
   if (scenePlanBinding?.scenePlan) {
     bindings.animationScenePlanArtifactId = activeScenePlan.planArtifactId;
     bindings.animationScenePlanHash = activeScenePlan.planHash;

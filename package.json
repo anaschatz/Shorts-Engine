@@ -57,6 +57,7 @@
     "feedback:summary": "node eval/run-feedback-summary.mjs",
     "github:doctor": "node tools/release/check-github-cli.mjs",
     "github:setup": "node tools/release/print-github-cli-setup.mjs",
+    "golden:educational-explainer": "node tools/render-educational-explainer-golden.mjs --confirm-write",
     "integration:cloud": "node scripts/run-real-cloud-integration.mjs",
     "integration:production": "node scripts/run-production-integration.mjs",
     "lint": "node tests/static-lint.mjs",

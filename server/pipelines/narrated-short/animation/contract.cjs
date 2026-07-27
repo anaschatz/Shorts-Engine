@@ -27,6 +27,19 @@ const {
 const {
   SEMANTIC_SCENE_COMPOSITION_PROFILE_ID,
 } = require("./semantic-scene-composition.cjs");
+const {
+  EDUCATIONAL_EXPLAINER_PROFILE_VERSION,
+  EDUCATIONAL_EXPLAINER_RENDERER,
+  EDUCATIONAL_EXPLAINER_SCHEMA_VERSION,
+  EDUCATIONAL_EXPLAINER_TEMPLATE_ID,
+  EDUCATIONAL_EXPLAINER_TEMPLATE_VERSION,
+  REFERENCE_STYLE_SPEC_ID,
+  validateAudioIR,
+  validateDirectorPlan,
+  validateEducationalAssetManifest,
+  validateNarrativeBeatGraph,
+  validateReferenceStyleSpec,
+} = require("./educational-explainer-profile.cjs");
 const { validateVisualStateGraph } = require("./visual-state-graph.cjs");
 
 const ANIMATION_IR_SCHEMA_VERSION = 1;
@@ -42,6 +55,7 @@ const ENTITY_TYPES = Object.freeze([
   "observation_record", "annotation", "frequency_scale", "duration_timer", "beam_graph", "search_timeline", "proof_bridge",
   "persistent_signal", "case_evidence", "semantic_visual", "semantic_label",
   "semantic_story_thread", "semantic_sentence",
+  "promise_header", "story_thread",
 ]);
 const TEMPLATE_FAMILIES = Object.freeze([
   "signal_lab_v1", "mystery_payoff_v1",
@@ -49,6 +63,7 @@ const TEMPLATE_FAMILIES = Object.freeze([
   "document_record_v2", "evidence_card_v2", "relationship_graph_v2", "map_route_v2",
   "timeline_compare_v2", "scale_compare_v2", "bounded_verdict_v2",
   SEMANTIC_SENTENCE_TEMPLATE_ID,
+  EDUCATIONAL_EXPLAINER_TEMPLATE_ID,
 ]);
 const HASH_RE = /^[a-f0-9]{64}$/;
 const ID_RE = /^[a-z][a-z0-9_-]{2,79}$/;
@@ -232,6 +247,7 @@ function validateContent(content) {
         "semanticAnimationSceneDslPlan",
       ]
       : []),
+    ...(content.educationalExplainer ? ["educationalExplainer"] : []),
   ], "content");
   const lines = (value, field, min, max, length) => {
     if (!Array.isArray(value) || value.length < min || value.length > max) fail(field);
@@ -286,6 +302,29 @@ function validateContent(content) {
       normalizeSemanticAnimationSceneDslPlan(
         content.semanticAnimationSceneDslPlan,
       );
+  }
+  if (content.educationalExplainer !== undefined) {
+    object(content.educationalExplainer, "content.educationalExplainer");
+    exactKeys(content.educationalExplainer, [
+      "schemaVersion",
+      "styleSpecId",
+      "referenceStyleSpec",
+      "narrativeBeatGraph",
+      "directorPlan",
+      "audioIR",
+      "assetManifest",
+    ], "content.educationalExplainer");
+    if (content.educationalExplainer.schemaVersion !== 1) fail("content.educationalExplainer.schemaVersion");
+    if (content.educationalExplainer.styleSpecId !== REFERENCE_STYLE_SPEC_ID) fail("content.educationalExplainer.styleSpecId");
+    normalized.educationalExplainer = {
+      schemaVersion: 1,
+      styleSpecId: REFERENCE_STYLE_SPEC_ID,
+      referenceStyleSpec: validateReferenceStyleSpec(content.educationalExplainer.referenceStyleSpec),
+      narrativeBeatGraph: validateNarrativeBeatGraph(content.educationalExplainer.narrativeBeatGraph),
+      directorPlan: validateDirectorPlan(content.educationalExplainer.directorPlan),
+      audioIR: validateAudioIR(content.educationalExplainer.audioIR),
+      assetManifest: validateEducationalAssetManifest(content.educationalExplainer.assetManifest),
+    };
   }
   if (normalized.semantic?.profileId === GENERIC_SEMANTIC_PROFILE_ID && !normalized.visualPlan) fail("content.visualPlan", "Generic semantic animation requires a grounded visual plan.");
   if (normalized.visualPlan && normalized.semantic?.profileId !== GENERIC_SEMANTIC_PROFILE_ID) fail("content.visualPlan", "Visual plan profile does not match semantic content.");
@@ -356,7 +395,7 @@ function validateAnimationIR(input, options = {}) {
   const ir = structuredClone(object(input, "animationIR"));
   rejectExecutableOrRemote(ir);
   exactKeys(ir, ["schemaVersion", "profile", "profileVersion", "projectId", "projectRevision", "verticalId", "width", "height", "fps", "durationFrames", "draftHash", "alignmentHash", "assetManifestHash", "renderer", "seed", "content", "timingBinding", "sharedEntities", "scenes", "transitions", "motionBudget", "visualStateGraph", "contentHash"], "animationIR");
-  if (![ANIMATION_IR_SCHEMA_VERSION, 2, 3].includes(ir.schemaVersion)) fail("schemaVersion", "AnimationIR schema version is unsupported.");
+  if (![ANIMATION_IR_SCHEMA_VERSION, 2, 3, EDUCATIONAL_EXPLAINER_SCHEMA_VERSION].includes(ir.schemaVersion)) fail("schemaVersion", "AnimationIR schema version is unsupported.");
   token(ir.profile, "profile", [ANIMATION_PROFILE]);
   text(ir.profileVersion, "profileVersion", { pattern: VERSION_RE });
   text(ir.projectId, "projectId", { pattern: ID_RE });
@@ -377,9 +416,11 @@ function validateAnimationIR(input, options = {}) {
   ir.content = validateContent(ir.content);
   const genericSemantic = ir.content.semantic?.profileId === GENERIC_SEMANTIC_PROFILE_ID;
   const semanticSentence = ir.content.semantic?.profileId === SEMANTIC_SENTENCE_PROFILE_ID;
+  const educationalExplainer = Boolean(ir.content.educationalExplainer);
   if (genericSemantic && (ir.schemaVersion !== 2 || ir.profileVersion !== "1.2.0" || ir.renderer.styleVersion !== "2.0.0")) fail("profileVersion", "Generic semantic animation profile binding is invalid.");
   if (
     semanticSentence
+    && !educationalExplainer
     && (
       ir.schemaVersion !== 3
       || ir.profileVersion !== SEMANTIC_SENTENCE_PROFILE_VERSION
@@ -388,7 +429,17 @@ function validateAnimationIR(input, options = {}) {
       || ir.renderer.runtimeVersion !== SEMANTIC_SENTENCE_RENDERER.runtimeVersion
     )
   ) fail("profileVersion", "Semantic sentence animation profile binding is invalid.");
-  if (!genericSemantic && !semanticSentence && ir.schemaVersion !== ANIMATION_IR_SCHEMA_VERSION) {
+  if (
+    educationalExplainer
+    && (
+      ir.schemaVersion !== EDUCATIONAL_EXPLAINER_SCHEMA_VERSION
+      || ir.profileVersion !== EDUCATIONAL_EXPLAINER_PROFILE_VERSION
+      || ir.renderer.styleVersion !== EDUCATIONAL_EXPLAINER_RENDERER.styleVersion
+      || ir.renderer.provider !== EDUCATIONAL_EXPLAINER_RENDERER.provider
+      || ir.renderer.runtimeVersion !== EDUCATIONAL_EXPLAINER_RENDERER.runtimeVersion
+    )
+  ) fail("profileVersion", "Educational explainer animation profile binding is invalid.");
+  if (!genericSemantic && !semanticSentence && !educationalExplainer && ir.schemaVersion !== ANIMATION_IR_SCHEMA_VERSION) {
     fail("schemaVersion", "AnimationIR schema requires its exact semantic profile binding.");
   }
   ir.timingBinding = validateTimingBinding(ir.timingBinding === undefined ? null : ir.timingBinding, ir.durationFrames);
@@ -534,6 +585,24 @@ function validateAnimationIR(input, options = {}) {
     ) {
       fail("content.semantic.semanticEventGraphHash", "Semantic sentence content hashes are inconsistent.");
     }
+    if (educationalExplainer) {
+      const educational = ir.content.educationalExplainer;
+      const bindings = educational.directorPlan.bindings;
+      if (
+        educational.referenceStyleSpec.id !== educational.styleSpecId
+        || educational.narrativeBeatGraph.draftHash !== ir.draftHash
+        || educational.narrativeBeatGraph.timingContextHash !== ir.timingBinding.timingContextHash
+        || educational.narrativeBeatGraph.durationFrames !== ir.durationFrames
+        || bindings.draftHash !== ir.draftHash
+        || bindings.sentencePlanHash !== sentencePlan.contentHash
+        || bindings.beatGraphHash !== educational.narrativeBeatGraph.contentHash
+        || bindings.styleSpecHash !== educational.referenceStyleSpec.contentHash
+        || bindings.assetManifestHash !== educational.assetManifest.contentHash
+        || educational.audioIR.assetManifestHash !== educational.assetManifest.contentHash
+        || educational.audioIR.durationFrames !== ir.durationFrames
+        || ir.assetManifestHash !== educational.assetManifest.contentHash
+      ) fail("content.educationalExplainer", "Educational explainer artifact bindings are inconsistent.");
+    }
   }
   if (!Array.isArray(ir.sharedEntities) || !ir.sharedEntities.length || ir.sharedEntities.length > 64) fail("sharedEntities");
   ir.sharedEntities = ir.sharedEntities.map(validateEntity);
@@ -554,6 +623,13 @@ function validateAnimationIR(input, options = {}) {
     if (scene.startFrame !== lastEnd) fail(`${field}.startFrame`, "Animation scenes must be contiguous and non-overlapping.");
     lastEnd = scene.endFrame;
     token(scene.template, `${field}.template`, TEMPLATE_FAMILIES);
+    if (
+      educationalExplainer
+      && (
+        scene.template !== EDUCATIONAL_EXPLAINER_TEMPLATE_ID
+        || scene.templateVersion !== EDUCATIONAL_EXPLAINER_TEMPLATE_VERSION
+      )
+    ) fail(`${field}.template`, "Educational explainer template binding is invalid.");
     if (scene.semantic !== undefined) validateSceneSemantic(scene.semantic, `${field}.semantic`);
     text(scene.templateVersion, `${field}.templateVersion`, { pattern: VERSION_RE });
     if (!Array.isArray(scene.entityIds) || !scene.entityIds.length) fail(`${field}.entityIds`);

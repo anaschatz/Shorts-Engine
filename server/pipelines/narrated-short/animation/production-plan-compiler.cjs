@@ -10,6 +10,13 @@ const {
 const {
   buildSemanticSentenceProductionAnimationPlan,
 } = require("./semantic-sentence-production-plan-compiler.cjs");
+const {
+  buildEducationalExplainerProductionAnimationPlan,
+} = require("./educational-explainer-production-plan.cjs");
+const {
+  EDUCATIONAL_EXPLAINER_PROFILE_ID,
+  EDUCATIONAL_EXPLAINER_PROFILE_TOKEN,
+} = require("./educational-explainer-profile.cjs");
 const { normalizeAnimationTimingContext } = require("./timing-contract.cjs");
 
 const PRODUCTION_PROVIDER_ID = "hyperframes_local";
@@ -438,6 +445,16 @@ function buildProductionAnimationPlan(input = {}) {
   if (draft.contentHash !== timingContext.draftHash) unsupported("draftHash");
   if (!timingMatchesApprovedScript(draft, timingContext)) unsupported("timingContext.words");
   if (
+    input.animationProfile === EDUCATIONAL_EXPLAINER_PROFILE_TOKEN
+    || input.animationProfile === EDUCATIONAL_EXPLAINER_PROFILE_ID
+  ) {
+    return buildEducationalExplainerProductionAnimationPlan({
+      ...input,
+      draft,
+      timingContext,
+    });
+  }
+  if (
     input.animationProfile === SEMANTIC_SENTENCE_PROFILE_TOKEN
     || input.animationProfile === SEMANTIC_SENTENCE_PROFILE_ID
   ) {
@@ -470,7 +487,21 @@ function compileProductionAnimation(input = {}) {
       timingContext,
     },
   });
-  return Object.freeze({ timingContext, plan: Object.freeze(structuredClone(plan)), animationIR });
+  const educational = animationIR.content.educationalExplainer;
+  return Object.freeze({
+    timingContext,
+    plan: Object.freeze(structuredClone(plan)),
+    animationIR,
+    ...(educational
+      ? {
+        referenceStyleSpec: educational.referenceStyleSpec,
+        narrativeBeatGraph: educational.narrativeBeatGraph,
+        directorPlan: educational.directorPlan,
+        audioIR: educational.audioIR,
+        assetManifest: educational.assetManifest,
+      }
+      : {}),
+  });
 }
 
 module.exports = {
@@ -481,6 +512,8 @@ module.exports = {
   SEMANTIC_PROFILE_ID,
   SEMANTIC_SENTENCE_PROFILE_ID,
   SEMANTIC_SENTENCE_PROFILE_TOKEN,
+  EDUCATIONAL_EXPLAINER_PROFILE_ID,
+  EDUCATIONAL_EXPLAINER_PROFILE_TOKEN,
   buildProductionAnimationPlan,
   compileProductionAnimation,
 };

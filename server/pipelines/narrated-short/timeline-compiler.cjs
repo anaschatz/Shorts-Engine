@@ -91,7 +91,7 @@ function compileTimeline(input = {}) {
     narration: narration.contentHash,
   });
   const timeline = {
-    schemaVersion: vertical.schemaVersion,
+    schemaVersion: input.animationBindings ? 2 : vertical.schemaVersion,
     verticalId: vertical.verticalId,
     formatId: bundle.brief.formatId,
     timingMode: input.timingMode || (narration.providerMode === "uploaded_aligned" ? "uploaded_aligned" : "estimated_silent"),
@@ -107,13 +107,42 @@ function compileTimeline(input = {}) {
     tracks: [
       { type: "background", zIndex: 0, clips: [{ id: "background", startFrame: 0, endFrame: narration.durationFrames }] },
       { type: vertical.timelineTrackType, zIndex: 10, clips: visualClips },
+      ...(input.animationBindings
+        ? [{
+          type: "semantic_typography",
+          zIndex: 24,
+          clips: captions.map((caption) => ({
+            ...caption,
+            id: `semantic_${caption.beatId}`,
+          })),
+        }]
+        : []),
       { type: "caption", zIndex: 30, clips: captions },
       { type: "narration", zIndex: 50, clips: [{ id: "narration", startFrame: 0, endFrame: narration.durationFrames, audioArtifactId: narration.audioArtifactId }] },
+      ...(input.animationBindings
+        ? [{
+          type: "audio_graph",
+          zIndex: 60,
+          clips: [{
+            id: "audio_ir",
+            startFrame: 0,
+            endFrame: narration.durationFrames,
+            audioIRHash: input.animationBindings.audioIRHash,
+          }],
+        }]
+        : []),
     ],
     beatTimings,
     templateVersions: templateVersionsFor(vertical.verticalId, visualClips.map((clip) => clip.template), bundle.brief.formatId),
     assetManifestHash: input.assetManifestHash || "0".repeat(64),
     seed: Number.parseInt(seedSource.slice(0, 8), 16),
+    ...(input.animationBindings
+      ? {
+        animationProfile: input.animationProfile,
+        styleSpecId: input.styleSpecId,
+        animationBindings: { ...input.animationBindings },
+      }
+      : {}),
   };
   if (![720, 1080].includes(timeline.width) || ![1280, 1920].includes(timeline.height) || timeline.height / timeline.width !== 16 / 9) {
     throw new AppError("TIMELINE_INVALID", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "dimensions" });
