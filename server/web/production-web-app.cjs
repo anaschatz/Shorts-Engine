@@ -158,7 +158,7 @@ function createProductionWebApp(options = {}) {
         sendOk(res, { status: "ok", role: runtime.role });
         return;
       }
-      if (method === "GET" && pathname === "/readyz") {
+      if (method === "GET" && (pathname === "/readyz" || pathname === "/health")) {
         const readiness = await runtime.readiness();
         sendOk(res, readiness, readiness.ready ? 200 : 503);
         return;

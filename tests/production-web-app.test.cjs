@@ -175,6 +175,24 @@ async function invoke(app, req) {
   };
 }
 
+test("Render health endpoint reports runtime readiness and fails closed", async () => {
+  const ready = await invoke(
+    createProductionWebApp({ runtime: runtime() }),
+    request("GET", "/health"),
+  );
+  assert.equal(ready.status, 200);
+  assert.equal(ready.json.data.ready, true);
+
+  const unavailableRuntime = runtime();
+  unavailableRuntime.readiness = async () => ({ ready: false, role: "web" });
+  const unavailable = await invoke(
+    createProductionWebApp({ runtime: unavailableRuntime }),
+    request("GET", "/health"),
+  );
+  assert.equal(unavailable.status, 503);
+  assert.equal(unavailable.json.data.ready, false);
+});
+
 test("production API resolves a session and returns only public runtime config", async () => {
   const rt = runtime();
   const app = createProductionWebApp({ runtime: rt });

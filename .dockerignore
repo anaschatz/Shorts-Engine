@@ -1,0 +1,32 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+node_modules
+coverage
+.pytest_cache
+__pycache__
+*.pyc
+*.pyo
+*.log
+*.sqlite
+*.sqlite3
+*.db
+data
+var
+tmp
+output
+outputs
+release/results
+demo/results
+eval/results
+models
+vendor
+*.mp4
+*.mov
+*.mkv
+*.wav
+*.mp3
+* 2.*
+* 3.*
