@@ -80,6 +80,21 @@ function healthPayload(overrides = {}) {
   };
 }
 
+function productionHealthPayload(ready = true) {
+  return {
+    ok: true,
+    data: {
+      ready,
+      role: "web",
+      adapters: Object.fromEntries(
+        ["persistence", "queue", "auth", "storage", "observability", "worker"]
+          .map((name) => [name, { ready: true }]),
+      ),
+    },
+    requestId: "req_staging_smoke",
+  };
+}
+
 function okFetch(payload = healthPayload()) {
   return async () => new Response(JSON.stringify(payload), {
     status: 200,
@@ -737,10 +752,10 @@ test("staging URL validation rejects private and link-local IPs unless explicit 
   assert.equal(validateStagingUrl("http://10.0.0.5", { required: true, allowLocal: true }).hostType, "private");
 });
 
-test("staging workflow contract is protected and does not publish artifacts", () => {
+test("staging workflow is fail-closed and publishes only sanitized readiness", () => {
   const workflow = verifyStagingWorkflowContract(STAGING_WORKFLOW);
   assert.equal(workflow.environment, "staging");
-  assert.equal(workflow.artifactUploadDefault, false);
+  assert.equal(workflow.artifactUploadDefault, true);
   assert.equal(workflow.browserRuntimeSkipAllowed, false);
   assert.equal(workflow.realCloudIntegrationDefault, false);
 });
@@ -758,6 +773,20 @@ test("staging smoke validates deployed health response safely", async () => {
   assert.equal(summary.health.status, "ready");
   assert.equal(summary.target.hostType, "remote");
   assert.equal(findSensitiveLeak(summary), null);
+});
+
+test("staging smoke accepts the production composition-root health contract", async () => {
+  const summary = await checkStagingSmoke({
+    env: {
+      SHORTSENGINE_STAGING_URL: "https://staging.example.test",
+      SHORTSENGINE_STAGING_SMOKE_RETRIES: "0",
+    },
+    fetchImpl: okFetch(productionHealthPayload()),
+    nowMs: Date.parse("2026-06-15T19:30:00.000Z"),
+  });
+  assert.equal(summary.health.service, "shortsengine-production");
+  assert.equal(summary.health.ready, true);
+  assert.equal(summary.health.sectionsChecked.length, 6);
 });
 
 test("staging smoke rejects missing URL and keeps safe errors", async () => {

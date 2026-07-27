@@ -251,9 +251,7 @@ function verifyStagingWorkflowContract(workflowText) {
   assert(/environment:[\s\S]*name:\s*staging/.test(workflowText), "STAGING_WORKFLOW_ENVIRONMENT_MISSING", "Staging workflow must use the staging GitHub Environment.");
   assert(/npm ci/.test(workflowText), "STAGING_WORKFLOW_INSTALL_INVALID", "Staging workflow must install dependencies deterministically when lockfile exists.");
   assert(/npm install/.test(workflowText), "STAGING_WORKFLOW_INSTALL_INVALID", "Staging workflow must retain npm install fallback.");
-  assert(/npm run env:check/.test(workflowText), "STAGING_WORKFLOW_ENV_CHECK_MISSING", "Staging workflow must run env:check.");
-  assert(/npm run staging:check/.test(workflowText), "STAGING_WORKFLOW_CHECK_MISSING", "Staging workflow must run staging:check.");
-  assert(/npm run render:check/.test(workflowText), "STAGING_WORKFLOW_RENDER_CHECK_MISSING", "Staging workflow must run Render configuration readiness.");
+  assert(/npm run staging:production:check/.test(workflowText), "STAGING_WORKFLOW_CHECK_MISSING", "Staging workflow must run strict production staging readiness.");
   assert(/npm run staging:deploy/.test(workflowText), "STAGING_WORKFLOW_DEPLOY_MISSING", "Staging workflow must run provider-specific deploy safely.");
   assert(/npm run staging:smoke/.test(workflowText), "STAGING_WORKFLOW_SMOKE_MISSING", "Staging workflow must include deployed staging smoke.");
   assert(/SHORTSENGINE_STAGING_DEPLOY_PROVIDER/.test(workflowText), "STAGING_WORKFLOW_PROVIDER_GUARD_MISSING", "Staging workflow must guard deploy provider configuration.");
@@ -261,13 +259,14 @@ function verifyStagingWorkflowContract(workflowText) {
   assert(/Provider-specific staging deploy/.test(workflowText), "STAGING_WORKFLOW_PROVIDER_STEP_MISSING", "Staging workflow must include a provider-specific deploy step.");
   assert(!/SHORTSENGINE_BROWSER_E2E_ALLOW_SKIP/.test(workflowText), "STAGING_WORKFLOW_BROWSER_SKIP_UNSAFE", "Staging workflow must not allow browser runtime skips.");
   assert(!/integration:cloud|MATCHCUTS_RUN_REAL_CLOUD_TESTS/.test(workflowText), "STAGING_WORKFLOW_CLOUD_UNSAFE", "Staging workflow must not run real cloud integration by default.");
-  assert(!/uses:\s*actions\/upload-artifact@v4/.test(workflowText), "STAGING_WORKFLOW_ARTIFACT_UPLOAD_UNSAFE", "Staging workflow must not upload artifacts by default.");
+  assert(/uses:\s*actions\/upload-artifact@v4[\s\S]*path:\s*release\/results\/staging-credentials-readiness\.json/.test(workflowText), "STAGING_WORKFLOW_ARTIFACT_INVALID", "Staging workflow may upload only the sanitized readiness report.");
+  assert(!/\|\|\s*['"](?:sqlite|local|mock|none|operator|memory)['"]/.test(workflowText), "STAGING_WORKFLOW_FALLBACK_UNSAFE", "Staging workflow must not contain non-production adapter fallbacks.");
   assert(!/(AKIA[A-Z0-9]{12,}|sk-[A-Za-z0-9_-]{20,}|Bearer\s+[A-Za-z0-9._-]{10,})/.test(workflowText), "STAGING_WORKFLOW_SECRET_LEAK", "Staging workflow appears to contain a hardcoded secret.");
   return {
     workflow: STAGING_WORKFLOW_RELATIVE_PATH,
     environment: "staging",
     triggers: ["workflow_dispatch", "workflow_run:ShortsEngine CI"],
-    artifactUploadDefault: false,
+    artifactUploadDefault: true,
     realCloudIntegrationDefault: false,
     browserRuntimeSkipAllowed: false,
   };

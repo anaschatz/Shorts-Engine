@@ -1,5 +1,53 @@
 # ShortsEngine Staging Deployment Contract
 
+## Production-beta staging contract
+
+The canonical infrastructure is [`render.yaml`](../render.yaml). It provisions one
+managed PostgreSQL database, one web service, two independent worker services, and
+runs `SHORTSENGINE_PROCESS_ROLE=migrate node server/migrate-entry.cjs` as the web
+service pre-deploy migration. All three services build the same
+`Dockerfile.production` image with Node.js 22, Chromium, `ffmpeg`, and `ffprobe`.
+The production web readiness endpoint is `/health`; it returns `503` unless every
+configured adapter is ready.
+
+The protected GitHub Environment named `staging` must define the following names.
+No values belong in Git or in readiness reports:
+
+- `DATABASE_URL`
+- `SHORTSENGINE_OIDC_ISSUER_URL`
+- `SHORTSENGINE_OIDC_CLIENT_ID`
+- `SHORTSENGINE_OIDC_CLIENT_SECRET`
+- `SHORTSENGINE_OIDC_REDIRECT_URI`
+- `SHORTSENGINE_PUBLIC_BASE_URL`
+- `SHORTSENGINE_SESSION_SECRET`
+- `MATCHCUTS_STORAGE_BUCKET`
+- `MATCHCUTS_STORAGE_ENDPOINT`
+- `MATCHCUTS_STORAGE_ACCESS_KEY_ID`
+- `MATCHCUTS_STORAGE_SECRET_ACCESS_KEY`
+- `SHORTSENGINE_STAGING_SERVICE_ID`
+- `SHORTSENGINE_STAGING_URL`
+- `SHORTSENGINE_STAGING_DEPLOY_TOKEN`
+
+`MATCHCUTS_STORAGE_SESSION_TOKEN` and the OTLP endpoint/headers are optional only
+when the selected providers genuinely require them. Without a real OTLP backend,
+the proof retains the blocker `OTLP_BACKEND_NOT_PROVED`.
+
+Run `npm run staging:production:check` before any deployment. The command has no
+network side effects, validates the strict `postgres/postgres/r2/oidc/postgres`
+runtime contract, binds the result to the exact Git SHA, and writes only the
+sanitized, 24-hour report
+`release/results/staging-credentials-readiness.json`. Missing protected
+configuration stops the workflow with `STAGING_CREDENTIALS_REQUIRED`. The
+workflow never falls back to SQLite, local storage, mock authentication, a mock
+provider, or memory telemetry.
+
+The historical `npm run staging:check` and `npm run render:check` commands below
+remain useful for local readiness diagnostics. They are not deployed staging
+proof and cannot satisfy a production gate. `PRODUCTION-READY` is forbidden until
+the exact deployed SHA passes the real two-user OIDC, private R2 multipart,
+two-worker lease recovery, preview/approval/render, Range delivery, restart,
+isolation, cost, observability, and cleanup proof.
+
 This milestone prepares ShortsEngine for a real Render staging deployment while keeping the default readiness-only and safe: no production deploy, no hardcoded credentials, no cloud integration by default and no video uploads during deployed smoke.
 
 Run:

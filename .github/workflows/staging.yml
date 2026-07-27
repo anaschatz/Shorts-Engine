@@ -6,8 +6,7 @@ on:
     workflows:
       - ShortsEngine CI
     branches:
-      - main
-      - master
+      - codex/production-beta-vertical-slice
     types:
       - completed
 
@@ -16,34 +15,49 @@ permissions:
 
 jobs:
   staging-readiness:
-    name: Staging readiness
+    name: Production staging readiness
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     environment:
       name: staging
 
     env:
       CI: "true"
-      MATCHCUTS_TRANSCRIPTION_PROVIDER: ${{ vars.MATCHCUTS_TRANSCRIPTION_PROVIDER || 'mock' }}
-      MATCHCUTS_PERSISTENCE_ADAPTER: ${{ vars.MATCHCUTS_PERSISTENCE_ADAPTER || 'sqlite' }}
-      MATCHCUTS_STORAGE_ADAPTER: ${{ vars.MATCHCUTS_STORAGE_ADAPTER || 'local' }}
-      SHORTSENGINE_DEPLOY_TARGET: ${{ vars.SHORTSENGINE_DEPLOY_TARGET || 'local' }}
-      SHORTSENGINE_STAGING_DEPLOY_PROVIDER: ${{ vars.SHORTSENGINE_STAGING_DEPLOY_PROVIDER || 'none' }}
-      SHORTSENGINE_STAGING_SERVICE_ID: ${{ vars.SHORTSENGINE_STAGING_SERVICE_ID }}
-      SHORTSENGINE_STAGING_URL: ${{ vars.SHORTSENGINE_STAGING_URL }}
-      SHORTSENGINE_STAGING_DEPLOY_TOKEN: ${{ secrets.SHORTSENGINE_STAGING_DEPLOY_TOKEN }}
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      SHORTSENGINE_ENVIRONMENT: staging
+      SHORTSENGINE_PROCESS_ROLE: web
+      MATCHCUTS_PERSISTENCE_ADAPTER: postgres
+      MATCHCUTS_QUEUE_ADAPTER: postgres
+      MATCHCUTS_STORAGE_ADAPTER: r2
+      SHORTSENGINE_AUTH_MODE: oidc
+      SHORTSENGINE_TELEMETRY_ADAPTER: postgres
+      MATCHCUTS_POSTGRES_SSL_MODE: require
+      SHORTSENGINE_DEPLOY_TARGET: staging
+      SHORTSENGINE_STAGING_DEPLOY_PROVIDER: render
+      SHORTSENGINE_PROOF_COMMIT_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SHORTSENGINE_OIDC_ISSUER_URL: ${{ vars.SHORTSENGINE_OIDC_ISSUER_URL }}
+      SHORTSENGINE_OIDC_CLIENT_ID: ${{ vars.SHORTSENGINE_OIDC_CLIENT_ID }}
+      SHORTSENGINE_OIDC_CLIENT_SECRET: ${{ secrets.SHORTSENGINE_OIDC_CLIENT_SECRET }}
+      SHORTSENGINE_OIDC_REDIRECT_URI: ${{ vars.SHORTSENGINE_OIDC_REDIRECT_URI }}
+      SHORTSENGINE_PUBLIC_BASE_URL: ${{ vars.SHORTSENGINE_PUBLIC_BASE_URL }}
+      SHORTSENGINE_SESSION_SECRET: ${{ secrets.SHORTSENGINE_SESSION_SECRET }}
       MATCHCUTS_STORAGE_BUCKET: ${{ vars.MATCHCUTS_STORAGE_BUCKET }}
-      MATCHCUTS_STORAGE_REGION: ${{ vars.MATCHCUTS_STORAGE_REGION }}
       MATCHCUTS_STORAGE_ENDPOINT: ${{ vars.MATCHCUTS_STORAGE_ENDPOINT }}
+      MATCHCUTS_STORAGE_REGION: auto
       MATCHCUTS_STORAGE_ACCESS_KEY_ID: ${{ secrets.MATCHCUTS_STORAGE_ACCESS_KEY_ID }}
       MATCHCUTS_STORAGE_SECRET_ACCESS_KEY: ${{ secrets.MATCHCUTS_STORAGE_SECRET_ACCESS_KEY }}
       MATCHCUTS_STORAGE_SESSION_TOKEN: ${{ secrets.MATCHCUTS_STORAGE_SESSION_TOKEN }}
+      SHORTSENGINE_STAGING_SERVICE_ID: ${{ vars.SHORTSENGINE_STAGING_SERVICE_ID }}
+      SHORTSENGINE_STAGING_URL: ${{ vars.SHORTSENGINE_STAGING_URL }}
+      SHORTSENGINE_STAGING_DEPLOY_TOKEN: ${{ secrets.SHORTSENGINE_STAGING_DEPLOY_TOKEN }}
+      SHORTSENGINE_OTLP_ENDPOINT: ${{ vars.SHORTSENGINE_OTLP_ENDPOINT }}
 
     steps:
-      - name: Checkout
+      - name: Checkout exact proved commit
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -61,18 +75,20 @@ jobs:
             npm install
           fi
 
-      - name: Environment readiness
-        run: npm run env:check
+      - name: Strict production staging configuration
+        run: npm run staging:production:check
 
-      - name: Staging readiness
-        run: npm run staging:check
-
-      - name: Render staging configuration readiness
-        run: npm run render:check
+      - name: Upload sanitized staging readiness
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-credentials-readiness
+          path: release/results/staging-credentials-readiness.json
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Provider-specific staging deploy
         run: npm run staging:deploy
 
       - name: Deployed staging smoke
-        if: env.SHORTSENGINE_STAGING_URL != ''
         run: npm run staging:smoke
