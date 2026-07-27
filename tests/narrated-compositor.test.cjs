@@ -90,6 +90,48 @@ test("continuous visual-master compositor preserves animation and produces exact
   }
 });
 
+test("educational visual-master compositor uses semantic typography with sidecar captions", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "narrated-educational-audio-"));
+  const calls = [];
+  const loudness = JSON.stringify({ input_i: "-22.10", input_tp: "-4.20", input_lra: "3.10", input_thresh: "-32.20", output_i: "-16.02", output_tp: "-1.60", output_lra: "3.00", target_offset: "0.02" });
+  const audioIR = {
+    schemaVersion: 1,
+    profile: "educational_audio_ir_v1",
+    profileVersion: "1.0.0",
+    fps: 30,
+    durationFrames: 90,
+    assetManifestHash: "a".repeat(64),
+    tracks: [
+      { id: "voice", type: "narration", enabled: true, clips: [{ id: "bound_narration", startFrame: 0, endFrame: 90, gainDb: 0 }] },
+      { id: "music", type: "music_bed", enabled: false, clips: [] },
+      { id: "sfx", type: "sound_effects", enabled: true, clips: [{ id: "audio_micro_hook_01", assetId: "sfx_soft_tick", startFrame: 0, gainDb: -22 }] },
+    ],
+    mix: { integratedLufs: -16, truePeakDbtp: -1.5, narrationDuckingDb: -8, attackMs: 20, releaseMs: 180 },
+  };
+  const { contentHash } = require("../server/pipelines/narrated-short/contracts.cjs");
+  audioIR.contentHash = contentHash(audioIR);
+  try {
+    const timeline = { contentHash: "d".repeat(64), fps: 30, width: 1080, height: 1920, totalFrames: 90 };
+    const result = await composeNarratedVisualMaster({
+      timeline,
+      visualMasterPath: join(dir, "visual-master.mp4"),
+      outputPath: join(dir, "final.mp4"),
+      audioPath: join(dir, "voice.wav"),
+      audioIR,
+      renderProfile: "final",
+      ffmpegRunner: async (args) => { calls.push(args); return { stderr: calls.length === 1 ? loudness : "" }; },
+      ffprobeJson: async () => ({ streams: [{ codec_type: "video", codec_name: "h264", width: 1080, height: 1920, avg_frame_rate: "30/1" }, { codec_type: "audio", codec_name: "aac", sample_rate: "48000" }], format: { duration: "3.000" } }),
+    });
+    assert.equal(calls.length, 2);
+    assert.doesNotMatch(calls[1][calls[1].indexOf("-vf") + 1], /ass=/);
+    assert.ok(calls[1].includes("-filter_complex"));
+    assert.equal(result.captionsBurned, false);
+    assert.equal(result.audioGraphApplied, true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("narrated compositor rejects keyframes from another timeline", async () => {
   await assert.rejects(() => composeNarratedPreview({
     timeline: { contentHash: "a".repeat(64) },

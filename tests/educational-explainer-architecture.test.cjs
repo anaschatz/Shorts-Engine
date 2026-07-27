@@ -122,8 +122,10 @@ test("HyperFrames compiles the exact v4 tuple with integrated semantic typograph
   assert.match(first.html, /data-entity-id="promise_header"/);
   assert.match(first.html, /data-entity-id="story_thread"/);
   assert.match(first.html, /data-legibility-role="semantic_phrase"/);
+  assert.match(first.html, /<tspan x="360" dy="38">/);
   assert.match(first.html, /data-reference-style-spec-hash=/);
   assert.match(first.html, /activeVisualEventId/);
+  assert.match(first.html, /previous=index===cueIndex-1/);
   assert.equal(first.qaPolicy.semanticRoi.width, 648);
   assert.ok(first.qaPolicy.labelIds.length >= compiled.narrativeBeatGraph.microbeats.length * 2);
 });

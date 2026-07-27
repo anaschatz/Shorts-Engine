@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "id": "educational_line_art_reference_v1",
+  "profile": "educational_line_art",
+  "version": "1.0.0",
+  "benchmarkRef": "instagram_dzt2g_htwco",
+  "canvas": {
+    "aspectRatio": "9:16",
+    "width": 1080,
+    "height": 1920,
+    "fps": 30
+  },
+  "palette": {
+    "background": "#030303",
+    "primary": "#f8fafc",
+    "muted": "#94a3b8",
+    "accent": "#a78bfa",
+    "signal": "#ef4444",
+    "support": "#60a5fa"
+  },
+  "regions": {
+    "persistentHeader": {
+      "top": 0.07,
+      "bottom": 0.19
+    },
+    "semanticStage": {
+      "top": 0.22,
+      "bottom": 0.76
+    },
+    "semanticPhrase": {
+      "top": 0.76,
+      "bottom": 0.89
+    },
+    "platformSafeBottom": 0.91
+  },
+  "typography": {
+    "promise": {
+      "family": "Outfit",
+      "weight": 600,
+      "size": 70,
+      "maxLines": 2
+    },
+    "section": {
+      "family": "Outfit",
+      "weight": 700,
+      "size": 56,
+      "maxLines": 2
+    },
+    "phrase": {
+      "family": "Outfit",
+      "weight": 500,
+      "size": 38,
+      "maxLines": 2
+    },
+    "label": {
+      "family": "Outfit",
+      "weight": 500,
+      "size": 25,
+      "maxLines": 2
+    }
+  },
+  "pacing": {
+    "overviewCompleteBySeconds": 3,
+    "firstSectionBySeconds": 6,
+    "meaningfulChangeMinSeconds": 1.5,
+    "meaningfulChangeMaxSeconds": 3,
+    "sectionMinSeconds": 8,
+    "sectionMaxSeconds": 24
+  },
+  "layouts": [
+    "overview_grid",
+    "diagram_focus",
+    "split_explain",
+    "story_scene",
+    "cta_network"
+  ],
+  "recipes": [
+    "line_chart",
+    "branching_tree",
+    "process_flow",
+    "evidence_lens",
+    "timeline",
+    "comparison",
+    "map_route",
+    "counter",
+    "formula",
+    "story_scene"
+  ],
+  "transitions": [
+    "draw_reveal",
+    "match_morph",
+    "focus_lens",
+    "mask_wipe",
+    "scale_focus"
+  ],
+  "captionPolicy": {
+    "mode": "integrated_semantic_with_ass_fallback",
+    "fullTranscriptArtifact": true,
+    "duplicateBurnedText": false
+  },
+  "audioPolicy": {
+    "finalIntegratedLufs": -16,
+    "truePeakDbtp": -1.5,
+    "musicBedEnabled": false,
+    "sparseSfxEnabled": true,
+    "maxSfxPerMicrobeat": 1
+  },
+  "contentHash": "f5b929bd6ad4e2b02d4bf940029270cadb3eb15718fe07923ce2e0e7ed39aa65"
+}

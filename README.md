@@ -65,6 +65,36 @@ recipes, semantic typography, focus transitions and narration-bound microbeats.
 The profile remains opt-in while the ten-chain production calibration gate is
 completed.
 
+### Educational Explainer v1 — first complete production chain
+
+<p align="center">
+  <video
+    src="showcase/assets/educational-explainer-production-001.mp4"
+    poster="showcase/assets/educational-explainer-production-001-contact-sheet.png"
+    width="360"
+    controls
+    playsinline
+  ></video>
+</p>
+
+<p align="center">
+  <img
+    src="showcase/assets/educational-explainer-production-001-preview.gif"
+    alt="Animated preview from the first complete Educational Explainer v1 production chain"
+    width="270"
+  />
+</p>
+
+![Five actual frames from the first complete Educational Explainer v1 production chain](showcase/assets/educational-explainer-production-001-contact-sheet.png)
+
+The full MP4 is embedded above rather than represented by an external player
+link. This 45-second Wow Signal explainer is 1080×1920 at 30 fps with H.264/AAC,
+rights-cleared local Kokoro narration, exact transformed word anchors,
+engine-generated SFX, integrated semantic typography and a WebVTT transcript
+sidecar. Perceptual QA and all ten rendered-video technical gates passed. It
+remains a calibration candidate—not a publishable release—until the required
+human creative review is recorded.
+
 The supplied football Short was unavailable during the latest verification, so
 no screenshot is shown until a verifiable output artifact is available.
 

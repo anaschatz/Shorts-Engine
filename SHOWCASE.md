@@ -5,13 +5,14 @@ available. A public page proves availability and public metadata; it does not by
 itself prove the internal pipeline. Repository-backed claims require matching job,
 render, provenance and quality artifacts.
 
-Verification date: **2026-07-23**.
+Verification date: **2026-07-27**.
 
 | Output | Workflow | Public link | Automation | Human edits | Quality proof | Engine version |
 | --- | --- | --- | --- | --- | --- | --- |
 | Why Cynicism Never Helps You \| Andrew Huberman #Shorts | Motivational | [Verified public Short](https://www.youtube.com/shorts/3sQmO4611mo) | Not recorded in inspected provenance | Not recorded | Public page and metadata only; no matching QA bundle recorded | Not recorded |
 | Football example | Football | [Supplied URL — unavailable at verification](https://www.youtube.com/shorts/1yubCngacLk) | Not recorded | Not recorded | YouTube returned “Video unavailable”; no output metadata or QA bundle verified | Not recorded |
 | The GPS clocks that looked haunted | Narrated animation | Verified local output — public upload pending | Script-to-render stages recorded; approval and narration were operator inputs | Content approval, self-recorded narration, guarded-release approval; no public upload | Animation QA passed; 50/50 blocking technical gates passed; provenance and rights packages complete | Renderer 2.0.0; Hyperframes 0.7.55; animation style 3.1.0; producing Git SHA not recorded |
+| The signal that appeared once | Educational explainer calibration | Repository-embedded MP4; public upload not authorized | Script, alignment, direction, animation, audio mix, composition and QA are recorded | Engine calibration review; final human creative score pending | Perceptual QA and 10/10 rendered-video gates passed; full hash-bound evidence bundle included | HyperFrames 0.7.55; Educational Explainer 1.4.0; style 4.0.0 |
 
 The [Budget Friendly channel](https://www.youtube.com/@BudgetFriendlyShorts) was
 verified as a public channel named **Budget Friendly**. Only the individually
@@ -86,6 +87,38 @@ This is a technical final, not a public publication. Artifact metadata records
 The exact producing Git SHA was not written into the evidence package; component
 versions are recorded, so no producing commit is inferred from later repository
 history.
+
+## Educational explainer production calibration
+
+Calibration ID: `educational_explainer_production_001`
+
+**The signal that appeared once** is the first complete 45-second production
+chain for the opt-in `educational-explainer-v1` profile. Its MP4, animated
+preview and contact sheet are stored in the repository and embedded directly in
+the README.
+
+The chain reuses an approved Wow Signal script and a rights-cleared local Kokoro
+narration. Its verified word alignment is transformed by a uniform, pitch-safe
+timing stretch plus bounded readability pauses. The resulting frame clock binds
+the `NarrativeBeatGraph`, `DirectorPlan`, `AnimationIR v4`, `AudioIR v1` and
+`AssetManifest v2`.
+
+HyperFrames rendered 1,350 continuous frames at 1080×1920 and 30 fps. The
+deterministic compositor added normalized narration and two engine-generated
+sound effects without burning a duplicate transcript; the complete transcript
+is exported as WebVTT. FFprobe confirmed H.264 High/YUV420P video and mono AAC
+audio at 48 kHz. Perceptual QA passed promise visibility, three-second overview,
+first-section timing, visual cadence, narration anchors, contrast, continuity,
+rights and deterministic-binding checks. All ten rendered-video technical gates
+also passed.
+
+The final MP4 SHA-256 is
+`4e969f02a84cab1db657201ce5c8749e1298f965a3cf0e3135778e08fcfc3d0c`.
+The complete machine-readable evidence is in
+[the calibration QA report](showcase/evidence/educational-explainer-production-001/qa-report.json).
+Its release state is deliberately `technical_gate_passed_human_review_pending`;
+it is not authorized for publication until clarity, hierarchy, pacing, polish
+and originality each receive a recorded human score of at least 4/5.
 
 ## Automation and intervention vocabulary
 

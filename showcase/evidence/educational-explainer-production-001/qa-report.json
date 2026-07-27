@@ -1,0 +1,266 @@
+{
+  "schemaVersion": 1,
+  "sampleId": "educational_explainer_production_001",
+  "status": "technical_gate_passed_human_review_pending",
+  "publishable": false,
+  "publishBlockers": [
+    "HUMAN_CREATIVE_REVIEW_REQUIRED"
+  ],
+  "output": {
+    "path": "showcase/assets/educational-explainer-production-001.mp4",
+    "sha256": "4e969f02a84cab1db657201ce5c8749e1298f965a3cf0e3135778e08fcfc3d0c",
+    "bytes": 3858529,
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "durationSeconds": 45,
+    "videoCodec": "h264",
+    "audioCodec": "aac"
+  },
+  "sourceNarration": {
+    "provider": "kokoro_local",
+    "model": "kokoro-v1.0-onnx-f32",
+    "voiceId": "af_heart",
+    "sourceAudioHash": "7fb1c8e50dc132674facf372da28eb45b71e2002365e870f83fc3c1c3e30f28f",
+    "sourceAlignmentHash": "803933bbd00cdd22131790351ec0540a9141a5aaafe8d008181d8bb38a3fb694",
+    "commercialUseAllowed": true,
+    "licenseReference": "Apache-2.0:hexgrad/Kokoro-82M-v1.0",
+    "transformation": {
+      "type": "uniform_atempo_with_readability_pauses_v1",
+      "atempo": 0.78343465,
+      "baseAudioFrames": 1316,
+      "insertedPauseFrames": 10,
+      "finalHoldFrames": 24,
+      "targetFrames": 1350
+    }
+  },
+  "bindings": {
+    "draftHash": "67036a35f5336d70cff06e5851cb1b1993783b06825269dae64d1f02ae221f69",
+    "timingContextHash": "cb058b4ef22f04fd9d8ffd6c107cd327b646df8cd3e015adef716a0fc0a0afbc",
+    "referenceStyleSpecHash": "f5b929bd6ad4e2b02d4bf940029270cadb3eb15718fe07923ce2e0e7ed39aa65",
+    "narrativeBeatGraphHash": "ec905b64ee2eca769780b4c5f890dcd26a75d62d00904504fd39863f4b6224ef",
+    "directorPlanHash": "bb38641d2f21aa3e47643e44bb3a41c66e41acbc17dcd2d51b76b07128f87c8b",
+    "animationIRHash": "856528eb48b03bb9b91a200e1004751828aa691a13d25689eb290cc283d018f8",
+    "audioIRHash": "0e0b55586d0190d01a84dc3b0e6a53a89a8702e590dc7a7b28eed84e4a447cae",
+    "assetManifestV2Hash": "4318c2b1eb03fef35195f224519d271d3cd320ae0ef4052c9c6e04ede0870366",
+    "visualMasterHash": "993ece48d6a6d73e096b138d1c3084164a5503cd452e47a05cb96953410cfdae",
+    "compositionHash": "a94f8dc7b77839865b9e85b310ff1e296d30d567c35f245816f545519e6a6d35"
+  },
+  "qa": {
+    "perceptual": {
+      "schemaVersion": 1,
+      "applicable": true,
+      "profile": "educational_perceptual_qa_v1",
+      "status": "passed",
+      "checks": {
+        "promiseVisibleFromFrameZero": true,
+        "overviewCompleteByThreeSeconds": true,
+        "firstSectionBySixSeconds": true,
+        "meaningfulChangeCadence": true,
+        "exactNarrationAnchors": true,
+        "primaryTextContrast": true,
+        "accentContrast": true,
+        "persistentEntityContinuity": true,
+        "rightsAndProvenance": true,
+        "deterministicBindings": true
+      },
+      "metrics": {
+        "primaryTextContrast": 19.712,
+        "accentContrast": 7.579,
+        "maximumVisualEventGapSeconds": 2.467,
+        "microbeatCount": 9,
+        "visualEventCount": 23,
+        "persistentEntityCount": 2
+      },
+      "bindings": {
+        "animationIRHash": "856528eb48b03bb9b91a200e1004751828aa691a13d25689eb290cc283d018f8",
+        "referenceStyleSpecHash": "f5b929bd6ad4e2b02d4bf940029270cadb3eb15718fe07923ce2e0e7ed39aa65",
+        "narrativeBeatGraphHash": "ec905b64ee2eca769780b4c5f890dcd26a75d62d00904504fd39863f4b6224ef",
+        "directorPlanHash": "bb38641d2f21aa3e47643e44bb3a41c66e41acbc17dcd2d51b76b07128f87c8b",
+        "audioIRHash": "0e0b55586d0190d01a84dc3b0e6a53a89a8702e590dc7a7b28eed84e4a447cae",
+        "assetManifestHash": "4318c2b1eb03fef35195f224519d271d3cd320ae0ef4052c9c6e04ede0870366"
+      },
+      "contentHash": "b90dde84987cf942555437e1b20ca859f88c3d47fdb13bbf45beaa4d87c9011c"
+    },
+    "technicalAnalysis": {
+      "size": 3858529,
+      "durationSeconds": 45,
+      "videoCount": 1,
+      "audioCount": 1,
+      "width": 1080,
+      "height": 1920,
+      "fps": 30,
+      "videoCodec": "h264",
+      "pixelFormat": "yuv420p",
+      "audioCodec": "aac",
+      "audioSampleRate": 48000,
+      "detector": {
+        "black": {
+          "ratio": 0,
+          "longestSeconds": 0
+        },
+        "freeze": {
+          "ratio": 0.2815,
+          "longestSeconds": 5.6333
+        },
+        "silence": {
+          "ratio": 0,
+          "longestSeconds": 0
+        }
+      }
+    },
+    "technicalGates": [
+      {
+        "code": "VIDEO_FILE_READABLE",
+        "category": "rendered_video",
+        "severity": "blocking",
+        "passed": true,
+        "details": {
+          "expected": true,
+          "actual": true
+        }
+      },
+      {
+        "code": "VIDEO_CONTAINER_VALID",
+        "category": "rendered_video",
+        "severity": "blocking",
+        "passed": true,
+        "details": {
+          "expected": 2,
+          "actual": 2
+        }
+      },
+      {
+        "code": "VIDEO_DIMENSIONS_VALID",
+        "category": "rendered_video",
+        "severity": "blocking",
+        "passed": true,
+        "details": {
+          "expected": "1080x1920",
+          "actual": "1080x1920"
+        }
+      },
+      {
+        "code": "VIDEO_FPS_VALID",
+        "category": "rendered_video",
+        "severity": "blocking",
+        "passed": true,
+        "details": {
+          "expected": 30,
+          "actual": 30
+        }
+      },
+      {
+        "code": "VIDEO_CODEC_VALID",
+        "category": "rendered_video",
+        "severity": "blocking",
+        "passed": true,
+        "details": {
+          "expected": "h264+aac",
+          "actual": "h264+aac"
+        }
+      },
+      {
+        "code": "VIDEO_PIXEL_FORMAT_VALID",
+        "category": "rendered_video",
+        "severity": "blocking",
+        "passed": true,
+        "details": {
+          "expected": "yuv420p",
+          "actual": "yuv420p"
+        }
+      },
+      {
+        "code": "VIDEO_DURATION_MATCH",
+        "category": "rendered_video",
+        "severity": "blocking",
+        "passed": true,
+        "details": {
+          "expected": 45,
+          "actual": 45
+        }
+      },
+      {
+        "code": "VIDEO_BLACK_OUTPUT_ABSENT",
+        "category": "rendered_video",
+        "severity": "blocking",
+        "passed": true,
+        "details": {
+          "ratio": 0,
+          "seconds": 0
+        }
+      },
+      {
+        "code": "VIDEO_EXCESSIVE_FREEZE_ABSENT",
+        "category": "rendered_video",
+        "severity": "blocking",
+        "passed": true,
+        "details": {
+          "ratio": 0.2815,
+          "seconds": 5.6333
+        }
+      },
+      {
+        "code": "VIDEO_AUDIO_NOT_SILENT",
+        "category": "rendered_video",
+        "severity": "blocking",
+        "passed": true,
+        "details": {
+          "ratio": 0,
+          "seconds": 0
+        }
+      }
+    ],
+    "technicalGatePassed": true,
+    "captions": {
+      "mode": "integrated_semantic_typography",
+      "burnedTranscript": false,
+      "sidecarPath": "showcase/evidence/educational-explainer-production-001/transcript.vtt"
+    },
+    "humanReview": {
+      "status": "pending",
+      "requiredDimensions": [
+        "clarity",
+        "hierarchy",
+        "pacing",
+        "polish",
+        "originality"
+      ],
+      "minimumScore": 4
+    }
+  },
+  "compositor": {
+    "schemaVersion": 1,
+    "outputPath": "showcase/assets/educational-explainer-production-001.mp4",
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "totalFrames": 1350,
+    "durationSeconds": 45,
+    "audioIncluded": true,
+    "captionsIncluded": false,
+    "captionsBurned": false,
+    "audioNormalized": true,
+    "audioCodec": "aac",
+    "audioSampleRate": 48000,
+    "renderProfile": "final",
+    "timelineHash": "4bd09262a42ec262b7a6c078c1158ee330a21f4e20a23ae367a89ef11bd19df0",
+    "visualMasterInput": true,
+    "audioGraphApplied": true,
+    "audioIRHash": "0e0b55586d0190d01a84dc3b0e6a53a89a8702e590dc7a7b28eed84e4a447cae",
+    "loudness": {
+      "input": {
+        "integratedLoudness": -22.54,
+        "truePeak": -3.31,
+        "loudnessRange": 3.4,
+        "threshold": -32.83
+      },
+      "output": {
+        "integratedLoudness": -16.65,
+        "truePeak": -1.5,
+        "loudnessRange": 2.7
+      },
+      "offset": 0.65
+    }
+  }
+}

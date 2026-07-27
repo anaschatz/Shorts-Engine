@@ -1,0 +1,128 @@
+{
+  "schemaVersion": 2,
+  "profile": "educational_asset_manifest_v2",
+  "profileVersion": "2.0.0",
+  "assets": [
+    {
+      "id": "outfit_font",
+      "type": "font",
+      "origin": "licensed_local",
+      "fileHash": "3dfe3c7fc47a87b98c24c7109e75ae4d199d417ce1ea8bff27b84eb24814ea2d",
+      "licenseId": "sil_ofl_1_1",
+      "commercialUseAllowed": true,
+      "allowedUsage": [
+        "short_form_video"
+      ],
+      "definition": "outfit_600_ofl_v1"
+    },
+    {
+      "id": "line_person",
+      "type": "svg_primitive",
+      "origin": "generated_by_engine",
+      "fileHash": "6469efb8541f67d09679c7a0b50ab0f3b2fc73c8a2dcd3cf6aa34929acad0b02",
+      "licenseId": "first_party_engine_generated",
+      "commercialUseAllowed": true,
+      "allowedUsage": [
+        "short_form_video"
+      ],
+      "definition": "person_head_body_limbs_v1"
+    },
+    {
+      "id": "line_chart",
+      "type": "svg_primitive",
+      "origin": "generated_by_engine",
+      "fileHash": "bc3916e849da64e2a9045b5da0c261b180ccb9c545287e75a6fdf55a5f53458f",
+      "licenseId": "first_party_engine_generated",
+      "commercialUseAllowed": true,
+      "allowedUsage": [
+        "short_form_video"
+      ],
+      "definition": "axes_points_trend_v1"
+    },
+    {
+      "id": "line_arrow",
+      "type": "svg_primitive",
+      "origin": "generated_by_engine",
+      "fileHash": "dea408d85ce623c5530eafa42487646c2babf8b863b83a07313da14012ffb327",
+      "licenseId": "first_party_engine_generated",
+      "commercialUseAllowed": true,
+      "allowedUsage": [
+        "short_form_video"
+      ],
+      "definition": "connector_arrow_v1"
+    },
+    {
+      "id": "line_database",
+      "type": "svg_primitive",
+      "origin": "generated_by_engine",
+      "fileHash": "d7f44228dfa66fe8a2a41545f85ff2cf699a4782878c06dffccfd805c423ddae",
+      "licenseId": "first_party_engine_generated",
+      "commercialUseAllowed": true,
+      "allowedUsage": [
+        "short_form_video"
+      ],
+      "definition": "database_stack_v1"
+    },
+    {
+      "id": "line_network",
+      "type": "svg_primitive",
+      "origin": "generated_by_engine",
+      "fileHash": "a88c2726ac1930881289fc66ea059b08ac752eacde4afd725621f864d6c06c04",
+      "licenseId": "first_party_engine_generated",
+      "commercialUseAllowed": true,
+      "allowedUsage": [
+        "short_form_video"
+      ],
+      "definition": "hub_spoke_network_v1"
+    },
+    {
+      "id": "line_formula",
+      "type": "svg_primitive",
+      "origin": "generated_by_engine",
+      "fileHash": "7bc7d8aa7f45fe8333ca75b23723f4b9c5290ba85b5fdeb88a3abf35e31c670d",
+      "licenseId": "first_party_engine_generated",
+      "commercialUseAllowed": true,
+      "allowedUsage": [
+        "short_form_video"
+      ],
+      "definition": "formula_panel_v1"
+    },
+    {
+      "id": "line_focus_lens",
+      "type": "svg_primitive",
+      "origin": "generated_by_engine",
+      "fileHash": "5059ac26e3eb40912e69a0f470b77b56120edab3b12bd23032184ea1fc47aeef",
+      "licenseId": "first_party_engine_generated",
+      "commercialUseAllowed": true,
+      "allowedUsage": [
+        "short_form_video"
+      ],
+      "definition": "focus_lens_v1"
+    },
+    {
+      "id": "sfx_soft_tick",
+      "type": "generated_audio",
+      "origin": "generated_by_engine",
+      "fileHash": "6f772efc49d193ef7d778c5477c0c1de62dcf6825698d1c7fd57491b47f846d9",
+      "licenseId": "first_party_engine_generated",
+      "commercialUseAllowed": true,
+      "allowedUsage": [
+        "short_form_video"
+      ],
+      "definition": "sine_tick_880hz_v1"
+    },
+    {
+      "id": "sfx_soft_whoosh",
+      "type": "generated_audio",
+      "origin": "generated_by_engine",
+      "fileHash": "b5b23cf1c65bc429fc1d160a5e1cad3b2e3c4ec71d3611fe78406b4db194c0fd",
+      "licenseId": "first_party_engine_generated",
+      "commercialUseAllowed": true,
+      "allowedUsage": [
+        "short_form_video"
+      ],
+      "definition": "filtered_noise_whoosh_v1"
+    }
+  ],
+  "contentHash": "4318c2b1eb03fef35195f224519d271d3cd320ae0ef4052c9c6e04ede0870366"
+}

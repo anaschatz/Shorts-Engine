@@ -143,8 +143,9 @@ async function composeNarratedPreview(input = {}) {
 async function composeNarratedVisualMaster(input = {}) {
   const { timeline, visualMasterPath, outputPath, audioPath = null, assPath = null, font = null, audioIR = null, signal } = input;
   if (!timeline || !visualMasterPath || !outputPath) throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400);
-  if (Boolean(audioPath) !== Boolean(assPath)) throw new AppError("CAPTION_ALIGNMENT_REQUIRED", SAFE_MESSAGES.CAPTION_ALIGNMENT_REQUIRED, 409);
-  if (audioPath && (!font || !font.fontsDir)) throw new AppError("CAPTION_FONT_UNAVAILABLE", SAFE_MESSAGES.CAPTION_FONT_UNAVAILABLE, 409);
+  if (assPath && !audioPath) throw new AppError("CAPTION_ALIGNMENT_REQUIRED", SAFE_MESSAGES.CAPTION_ALIGNMENT_REQUIRED, 409);
+  if (audioPath && !assPath && !audioIR) throw new AppError("CAPTION_ALIGNMENT_REQUIRED", SAFE_MESSAGES.CAPTION_ALIGNMENT_REQUIRED, 409);
+  if (assPath && (!font || !font.fontsDir)) throw new AppError("CAPTION_FONT_UNAVAILABLE", SAFE_MESSAGES.CAPTION_FONT_UNAVAILABLE, 409);
   if (audioIR && !audioPath) throw new AppError("AUDIO_NORMALIZATION_FAILED", SAFE_MESSAGES.AUDIO_NORMALIZATION_FAILED, 409);
   const normalizedAudioIR = audioIR ? validateAudioIR(audioIR) : null;
   if (

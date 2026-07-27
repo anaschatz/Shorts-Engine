@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "profile": "educational_audio_ir_v1",
+  "profileVersion": "1.0.0",
+  "fps": 30,
+  "durationFrames": 1350,
+  "assetManifestHash": "4318c2b1eb03fef35195f224519d271d3cd320ae0ef4052c9c6e04ede0870366",
+  "tracks": [
+    {
+      "id": "voice",
+      "type": "narration",
+      "enabled": true,
+      "clips": [
+        {
+          "id": "bound_narration",
+          "startFrame": 0,
+          "endFrame": 1350,
+          "gainDb": 0
+        }
+      ]
+    },
+    {
+      "id": "music",
+      "type": "music_bed",
+      "enabled": false,
+      "clips": []
+    },
+    {
+      "id": "sfx",
+      "type": "sound_effects",
+      "enabled": true,
+      "clips": [
+        {
+          "id": "audio_micro_hook_01",
+          "assetId": "sfx_soft_tick",
+          "startFrame": 0,
+          "gainDb": -22
+        },
+        {
+          "id": "audio_micro_payoff_02",
+          "assetId": "sfx_soft_whoosh",
+          "startFrame": 1104,
+          "gainDb": -18
+        }
+      ]
+    }
+  ],
+  "mix": {
+    "integratedLufs": -16,
+    "truePeakDbtp": -1.5,
+    "narrationDuckingDb": -8,
+    "attackMs": 20,
+    "releaseMs": 180
+  },
+  "contentHash": "0e0b55586d0190d01a84dc3b0e6a53a89a8702e590dc7a7b28eed84e4a447cae"
+}

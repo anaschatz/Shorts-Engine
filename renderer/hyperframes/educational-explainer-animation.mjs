@@ -34,6 +34,39 @@ function bounded(value, maximum = 72) {
     : `${normalized.slice(0, maximum - 1).trim()}…`;
 }
 
+function wrappedLines(value, maximumCharacters = 34, maximumLines = 2) {
+  const words = bounded(value, maximumCharacters * maximumLines + 8)
+    .split(/\s+/)
+    .filter(Boolean);
+  const lines = [];
+  let truncated = false;
+  for (const word of words) {
+    const current = lines.at(-1);
+    if (!current) {
+      lines.push(word);
+    } else if (current.length + word.length + 1 <= maximumCharacters) {
+      lines[lines.length - 1] = `${current} ${word}`;
+    } else if (lines.length < maximumLines) {
+      lines.push(word);
+    } else {
+      truncated = true;
+      break;
+    }
+  }
+  if (truncated && lines.length) {
+    lines[lines.length - 1] = `${lines.at(-1).slice(0, maximumCharacters - 1).trim()}…`;
+  }
+  return lines;
+}
+
+function semanticPhraseMarkup(value) {
+  return wrappedLines(value)
+    .map((line, index) => (
+      `<tspan x="360" dy="${index === 0 ? 0 : 38}">${escapeXml(line)}</tspan>`
+    ))
+    .join("");
+}
+
 function visualMarkup(cue, index) {
   const accent = cue.accentTone === "signal" ? "#ef4444" : "#a78bfa";
   const offset = index % 3;
@@ -81,7 +114,7 @@ export function compileEducationalExplainerAnimationIRToHtml(ir) {
 <g id="visual_${cue.id}" class="visual-state" data-visual-state-id="${cue.id}" data-recipe="${cue.recipe}" data-transition="${cue.transition}" opacity="0">
   <g class="recipe-stage">${visualMarkup(cue, index)}</g>
   <text id="${cue.id}_label" x="360" y="744" class="object-label" text-anchor="middle" data-legibility-role="object_label">${escapeXml(bounded(cue.typography.label.toUpperCase(), 34))}</text>
-  <text id="${cue.id}_phrase" x="360" y="855" class="semantic-phrase" text-anchor="middle" data-legibility-role="semantic_phrase">${escapeXml(bounded(cue.typography.semanticPhrase, 76))}</text>
+  <text id="${cue.id}_phrase" x="360" y="835" class="semantic-phrase" text-anchor="middle" data-legibility-role="semantic_phrase">${semanticPhraseMarkup(cue.typography.semanticPhrase)}</text>
 </g>`).join("");
   const overview = directorPlan.sections.map((section, index) => {
     const x = 94 + (index % 3) * 220;
@@ -167,10 +200,10 @@ const ease=(v)=>{const x=clamp(v);return x*x*(3-2*x)};
 const activeCue=(frame)=>DATA.cues.find((cue)=>frame>=cue.startFrame&&frame<cue.endFrame)||DATA.cues.at(-1);
 const activeVisualEvent=(frame)=>{let active=DATA.visualEvents[0];for(const event of DATA.visualEvents)if(frame>=event.frame)active=event;return active};
 function renderFrame(rawFrame){
- const frame=Math.max(0,Math.min(DATA.durationFrames-1,Math.floor(rawFrame+1e-7))),overviewProgress=clamp(frame/Math.max(1,DATA.overviewFrames)),cue=activeCue(frame),visualEvent=activeVisualEvent(frame),cueProgress=ease((frame-cue.startFrame)/Math.max(1,Math.min(18,cue.endFrame-cue.startFrame))),focusShift=visualEvent.type==="focus_shift"?1:0;
+ const frame=Math.max(0,Math.min(DATA.durationFrames-1,Math.floor(rawFrame+1e-7))),overviewProgress=clamp(frame/Math.max(1,DATA.overviewFrames)),cue=activeCue(frame),cueIndex=DATA.cues.findIndex((entry)=>entry.id===cue.id),visualEvent=activeVisualEvent(frame),cueProgress=ease((frame-cue.startFrame)/Math.max(1,Math.min(18,cue.endFrame-cue.startFrame))),focusShift=visualEvent.type==="focus_shift"?1:0;
  byId("overview").setAttribute("opacity",String(1-overviewProgress));
  byId("overview").setAttribute("transform","translate(0 "+(-24*overviewProgress).toFixed(3)+") scale("+(1-.04*overviewProgress).toFixed(4)+")");
- document.querySelectorAll(".visual-state").forEach((node)=>{const active=node.id==="visual_"+cue.id;node.setAttribute("opacity",active?cueProgress.toFixed(4):"0");node.setAttribute("filter",active&&cueProgress<.65?"url(#focus-blur)":"none");node.setAttribute("transform",active?"translate("+(focusShift*8).toFixed(3)+" "+(22*(1-cueProgress)-focusShift*6).toFixed(3)+") scale("+(0.94+.06*cueProgress+.025*focusShift).toFixed(4)+")":"scale(.94)");node.querySelectorAll(".draw-path").forEach((path)=>{path.style.strokeDashoffset=active?String(100*(1-cueProgress)):"100"})});
+ document.querySelectorAll(".visual-state").forEach((node,index)=>{const active=index===cueIndex,previous=index===cueIndex-1&&cueIndex>0,opacity=active?cueProgress:previous?1-cueProgress:0;node.setAttribute("opacity",opacity.toFixed(4));node.setAttribute("filter",active&&cueProgress<.65?"url(#focus-blur)":"none");node.setAttribute("transform",active?"translate("+(focusShift*8).toFixed(3)+" "+(22*(1-cueProgress)-focusShift*6).toFixed(3)+") scale("+(0.94+.06*cueProgress+.025*focusShift).toFixed(4)+")":previous?"scale("+(1+.018*cueProgress).toFixed(4)+")":"scale(.94)");node.querySelectorAll(".draw-path").forEach((path)=>{path.style.strokeDashoffset=active?String(100*(1-cueProgress)):previous?"0":"100"})});
  byId("section_title").textContent=DATA.sectionTitles[cue.sectionId]||"EXPLAINER";
  const storyProgress=clamp(frame/Math.max(1,DATA.durationFrames-1)),x=90+540*storyProgress;byId("thread_progress").setAttribute("x2",x.toFixed(3));byId("thread_cursor").setAttribute("cx",x.toFixed(3));
  byId("ambient-orbit").setAttribute("transform","rotate("+((frame*.06)%360).toFixed(3)+" 360 560)");
