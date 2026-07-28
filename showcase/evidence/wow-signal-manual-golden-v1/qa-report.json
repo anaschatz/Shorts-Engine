@@ -1,0 +1,281 @@
+{
+  "schemaVersion": 1,
+  "sampleId": "wow_signal_manual_golden_v1",
+  "status": "technical_gate_passed_human_review_pending",
+  "publishable": false,
+  "publishBlockers": [
+    "HUMAN_CREATIVE_REVIEW_REQUIRED"
+  ],
+  "output": {
+    "path": "showcase/assets/wow-signal-manual-golden-v1.mp4",
+    "sha256": "c88cee73a75310de135c16c19a6e7c45ab6a364c901583c89735e4ffb432bb0f",
+    "bytes": 741388,
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "frameCount": 360,
+    "durationSeconds": 12,
+    "videoCodec": "h264",
+    "pixelFormat": "yuv420p",
+    "audioCodec": "aac",
+    "audioSampleRate": 48000
+  },
+  "sourceNarration": {
+    "path": "data/audio/narration/prj_d0801ca2-53ce-43b3-8faa-cee2893dc01c/e9ad1ddeca26289753a0fcb75b117935c98dac03188129d3139580a13f1297c9.wav",
+    "sha256": "7fb1c8e50dc132674facf372da28eb45b71e2002365e870f83fc3c1c3e30f28f",
+    "speed": 1,
+    "transformation": "aligned_natural_speed_splice_v1",
+    "edits": [
+      {
+        "type": "silence",
+        "outputStartFrame": 0,
+        "outputEndFrame": 12
+      },
+      {
+        "type": "source",
+        "sourceStartFrame": 0,
+        "sourceEndFrame": 190,
+        "outputStartFrame": 12,
+        "outputEndFrame": 202
+      },
+      {
+        "type": "silence",
+        "outputStartFrame": 202,
+        "outputEndFrame": 210
+      },
+      {
+        "type": "source",
+        "sourceStartFrame": 198,
+        "sourceEndFrame": 216,
+        "outputStartFrame": 210,
+        "outputEndFrame": 228
+      },
+      {
+        "type": "source",
+        "sourceStartFrame": 363,
+        "sourceEndFrame": 409,
+        "outputStartFrame": 228,
+        "outputEndFrame": 274
+      },
+      {
+        "type": "silence",
+        "outputStartFrame": 274,
+        "outputEndFrame": 360
+      }
+    ],
+    "rights": {
+      "commercialUseAllowed": true,
+      "provider": "kokoro_local",
+      "model": "kokoro-v1.0-onnx-f32",
+      "voiceId": "af_heart",
+      "licenseReference": "Apache-2.0:hexgrad/Kokoro-82M-v1.0"
+    }
+  },
+  "bindings": {
+    "fixturePath": "eval/narrated/dark-curiosity/golden/001_wow_signal_manual_segment.json",
+    "fixtureHash": "aabd91d70d06ff10a741b4db74800a73467a0a14117f6b028e002901788b6273",
+    "compositionHash": "bf70039988e1eb6bf2238915c28abf06fef9dc4a4b0937fe33893bd7bb88c2c6",
+    "fontHash": "8cfe15c2c6de6ef8efff3eedbd52a383ac9ef23d6c23f6cd9f9b838f5f37dc36",
+    "narrationHash": "f08dd9821adc2b7a75541813ca8f26819c20d10761949e89a0720f7d716427c4",
+    "transcriptHash": "13771b1770b66389e0130c18cad9a17831736a364a0b5195025d40eb9296d78a",
+    "contactSheetHash": "9ddf5e90dcd5682e0892d2d248145bea66997d7d697fd75e94c057c6b8225933",
+    "sampledRendererFrameHashes": {
+      "0": "3ebaa66b17f97d2f05ad00fed0932422a41fa055a199c8577b0fa57d973ccdfb",
+      "45": "5650b4f8a3453818b9b5318dd0a8c63701414cb36fc5f505f2aa6d59991d702e",
+      "78": "47766cac6fead53a5f877f5d2282a2b289902ea24ed97b282c17847d5e4949c0",
+      "84": "f8d494dacada3ed34c1d58d90b74cdfd837e717c0dfb1fd5ac36a1a4db4c593a",
+      "90": "615208355e077046192ed62e88096174c84282626fa140c0e2c59fc613c56f61",
+      "120": "d3dd9578aae8a64d736335800a9e28c106d8baa37d1e8058564b98a7a422e28f",
+      "135": "48b1c7579ffecbf2a77d1b604b0cf8ac55254aee74ae491a507d542ae3e8b81b",
+      "150": "34bb70a08bdf3219e830234b04aaaf768e94bf58b8f99f4ebf2dcba0c70c98b2",
+      "180": "091443778cd115b0e1fb53f13b4affe168634829856f04aa8e12bf8186f38355",
+      "198": "1f9dc2e1499c7f241672a69bb3dc720eaa634aac9cca03756053d83d86ad8b72",
+      "210": "8440cea678e00b1ed104e4641d3b9ec893604f736245f3dd67dc7a4d10333d76",
+      "225": "940342f08ec090389199cfe6deff79a5c37b15b8c6ca10319a97e30a6cd6855a",
+      "239": "ba4ecd0052e15d90f25fd0681ab1ce65a804c2e583824fe08997e290b89caff7",
+      "270": "0d70f308504136de4e0c4c5a8da5c110ab7740db278e6038faa37847d76fbeea",
+      "274": "a47a6dcc196572ccc5cc302cdfe4a72d9b2d08250782d150dc534eaf8d28d70d",
+      "315": "a47a6dcc196572ccc5cc302cdfe4a72d9b2d08250782d150dc534eaf8d28d70d",
+      "359": "a47a6dcc196572ccc5cc302cdfe4a72d9b2d08250782d150dc534eaf8d28d70d"
+    },
+    "finalBoundaryFrameHashes": {
+      "0": "4e1aa4193bb4809c0f815cedcd6a8959e19f0c4800ab8a15da0e303b8a7957b2",
+      "78": "3d027ba4e0bf9d0ca26b73415ff7009c0e14281b946f685b6ac62f4c5e085404",
+      "84": "5a27b5aeec9e8a01c2acffd4479ac08330808042c95905df66be09ccd3934ba8",
+      "120": "f4fed253c2f2037c6be73d2f4ab4d6ecb676ccc35d4b55c440c6db0106a15089",
+      "150": "d0d4cc61fd27dcf30d1432b9b047459cf9690be89637e49278c767b13d597253",
+      "198": "3ef603f92be467c96f01c03064776a25599c21ae80669d03b8a5d13c49b23b7e",
+      "210": "6557bd235415fe4c9159e7e9496155d83415852850307d0a79f010625fac88f5",
+      "239": "e381181d282f913b2814c36d6b7cd07e258527280bba968077e989a12a6a3903",
+      "274": "f5eab5829c68f003f0fd07586823f3d993804e490f6a51643cf19e6081a86da6",
+      "359": "6d7098d58edcca9f99207de2afb976a5e92d5f841bd5b2c0243167c0501f6663"
+    }
+  },
+  "qa": {
+    "technicalChecks": {
+      "dimensions": true,
+      "fps": true,
+      "frameCount": true,
+      "duration": true,
+      "codecs": true,
+      "pixelFormat": true,
+      "audioSampleRate": true,
+      "noBlackGaps": true,
+      "maximumFreezeUnderThreeSeconds": true,
+      "titleFromFrameZero": true,
+      "overviewCompleteByThreeSeconds": true,
+      "wowAlignmentWithinTwoFrames": true,
+      "durationAlignmentWithinTwoFrames": true,
+      "naturalNarrationSpeed": true,
+      "sidecarPresent": true,
+      "noForbiddenUi": true,
+      "noInternalLabels": true,
+      "noRemoteAssets": true
+    },
+    "detector": {
+      "black": {
+        "ratio": 0,
+        "longestSeconds": 0
+      },
+      "freeze": {
+        "ratio": 0.55,
+        "longestSeconds": 2.5333
+      }
+    },
+    "anchors": {
+      "wow": {
+        "wordStartFrame": 195,
+        "wordEndFrame": 202,
+        "visualLandFrame": 198,
+        "withinTwoFrames": true
+      },
+      "seventyTwoSeconds": {
+        "wordStartFrame": 239,
+        "visualRevealFrame": 239,
+        "withinTwoFrames": true
+      }
+    },
+    "renderedMeaningfulChanges": [
+      {
+        "id": "telescope_draw",
+        "frame": 0,
+        "seconds": 0,
+        "meaning": "Radio telescope begins drawing.",
+        "renderedDifferenceYAverage": 0.0055
+      },
+      {
+        "id": "signal_arrival",
+        "frame": 42,
+        "seconds": 1.4,
+        "meaning": "Signal path starts travelling toward the telescope.",
+        "renderedDifferenceYAverage": 0.0071
+      },
+      {
+        "id": "overview_complete",
+        "frame": 78,
+        "seconds": 2.6,
+        "meaning": "Telescope, trace and Wow annotation are connected in one overview.",
+        "renderedDifferenceYAverage": 1.8991
+      },
+      {
+        "id": "trace_focus",
+        "frame": 84,
+        "seconds": 2.8,
+        "meaning": "Focus moves into the signal-strength trace.",
+        "renderedDifferenceYAverage": 2.0521
+      },
+      {
+        "id": "peak_reveal",
+        "frame": 120,
+        "seconds": 4,
+        "meaning": "The unusual signal peak is highlighted.",
+        "renderedDifferenceYAverage": 0.0129
+      },
+      {
+        "id": "printout_annotation",
+        "frame": 150,
+        "seconds": 5,
+        "meaning": "The trace resolves into a printout and the red evidence circle begins.",
+        "renderedDifferenceYAverage": 0.0154
+      },
+      {
+        "id": "wow_written",
+        "frame": 198,
+        "seconds": 6.6,
+        "meaning": "The handwritten Wow lands on the spoken word.",
+        "renderedDifferenceYAverage": 3.7616
+      },
+      {
+        "id": "duration_morph",
+        "frame": 210,
+        "seconds": 7,
+        "meaning": "The same trace starts morphing into a time axis.",
+        "renderedDifferenceYAverage": 0.3838
+      },
+      {
+        "id": "duration_reveal",
+        "frame": 239,
+        "seconds": 7.967,
+        "meaning": "72 seconds appears on the matching narration anchor.",
+        "renderedDifferenceYAverage": 1.0534
+      },
+      {
+        "id": "final_composition",
+        "frame": 274,
+        "seconds": 9.133,
+        "meaning": "Trace, duration and Wow annotation settle into the final evidence composition.",
+        "renderedDifferenceYAverage": 4.292
+      }
+    ],
+    "maximumStoryboardGapSeconds": 1.6,
+    "captions": {
+      "burnedTranscript": false,
+      "visibleTextAllowlist": [
+        "The signal that appeared once",
+        "signal strength",
+        "Wow!",
+        "72 seconds"
+      ],
+      "sidecarPath": "showcase/evidence/wow-signal-manual-golden-v1/transcript.vtt"
+    },
+    "safeRegions": {
+      "title": {
+        "top": 72,
+        "bottom": 190,
+        "passed": true
+      },
+      "semanticStage": {
+        "top": 250,
+        "bottom": 1490,
+        "passed": true
+      },
+      "platformSafeBottom": 1760,
+      "clippingDetected": false
+    },
+    "humanReview": {
+      "status": "pending",
+      "dimensions": [
+        "clarity",
+        "hierarchy",
+        "pacing",
+        "polish",
+        "originality"
+      ],
+      "minimumScore": 4
+    }
+  },
+  "artifacts": {
+    "contactSheetPath": "showcase/assets/wow-signal-manual-golden-v1-contact-sheet.png",
+    "storyboardEvidencePath": "showcase/evidence/wow-signal-manual-golden-v1/storyboard-evidence.md",
+    "boundaryFramesPath": "showcase/evidence/wow-signal-manual-golden-v1/boundary-frames",
+    "transcriptPath": "showcase/evidence/wow-signal-manual-golden-v1/transcript.vtt"
+  },
+  "selfReview": {
+    "status": "author_review_only_human_gate_pending",
+    "clarity": "Each visual is tied to signal arrival, strength, annotation, or duration.",
+    "hierarchy": "The persistent title is subordinate to one central evidence object.",
+    "pacing": "Storyboard changes are at most 2.8 seconds apart; no synthetic focus events are counted.",
+    "polish": "Continuous draw-on and one persistent trace replace generic cards and ghosted crossfades.",
+    "originality": "All geometry is original engine-owned SVG line art."
+  }
+}

@@ -1,0 +1,161 @@
+{
+  "schemaVersion": 1,
+  "id": "wow_signal_manual_golden_v1",
+  "profile": "educational_explainer_manual_golden_v1",
+  "title": "The signal that appeared once",
+  "narration": "In 1977, one radio signal looked so unusual that an astronomer wrote one word: Wow. It lasted seventy-two seconds.",
+  "fps": 30,
+  "width": 1080,
+  "height": 1920,
+  "durationFrames": 360,
+  "audio": {
+    "sourcePath": "data/audio/narration/prj_d0801ca2-53ce-43b3-8faa-cee2893dc01c/e9ad1ddeca26289753a0fcb75b117935c98dac03188129d3139580a13f1297c9.wav",
+    "sourceSha256": "7fb1c8e50dc132674facf372da28eb45b71e2002365e870f83fc3c1c3e30f28f",
+    "speed": 1,
+    "edits": [
+      {
+        "type": "silence",
+        "outputStartFrame": 0,
+        "outputEndFrame": 12
+      },
+      {
+        "type": "source",
+        "sourceStartFrame": 0,
+        "sourceEndFrame": 190,
+        "outputStartFrame": 12,
+        "outputEndFrame": 202
+      },
+      {
+        "type": "silence",
+        "outputStartFrame": 202,
+        "outputEndFrame": 210
+      },
+      {
+        "type": "source",
+        "sourceStartFrame": 198,
+        "sourceEndFrame": 216,
+        "outputStartFrame": 210,
+        "outputEndFrame": 228
+      },
+      {
+        "type": "source",
+        "sourceStartFrame": 363,
+        "sourceEndFrame": 409,
+        "outputStartFrame": 228,
+        "outputEndFrame": 274
+      },
+      {
+        "type": "silence",
+        "outputStartFrame": 274,
+        "outputEndFrame": 360
+      }
+    ]
+  },
+  "anchors": {
+    "signalArrivalFrame": 78,
+    "unusualFrame": 108,
+    "printoutFrame": 135,
+    "wowWordStartFrame": 195,
+    "wowWordEndFrame": 202,
+    "wowWriteLandFrame": 198,
+    "durationMorphStartFrame": 210,
+    "seventyTwoWordStartFrame": 239,
+    "seventyTwoRevealFrame": 239,
+    "speechEndFrame": 274
+  },
+  "storyboard": [
+    {
+      "id": "promise_overview",
+      "startFrame": 0,
+      "endFrame": 84,
+      "communicates": "The signal arrives from the sky at a radio telescope, with a preview of the trace and the handwritten annotation."
+    },
+    {
+      "id": "unusual_signal",
+      "startFrame": 84,
+      "endFrame": 135,
+      "communicates": "Signal strength rises and falls into an unusual peak."
+    },
+    {
+      "id": "wow_annotation",
+      "startFrame": 135,
+      "endFrame": 210,
+      "communicates": "The trace becomes a printout; an astronomer circles it and writes Wow."
+    },
+    {
+      "id": "seventy_two_seconds",
+      "startFrame": 210,
+      "endFrame": 360,
+      "communicates": "The persistent trace becomes a 72-second duration axis and resolves with the Wow annotation."
+    }
+  ],
+  "meaningfulChanges": [
+    {
+      "id": "telescope_draw",
+      "frame": 0,
+      "meaning": "Radio telescope begins drawing."
+    },
+    {
+      "id": "signal_arrival",
+      "frame": 42,
+      "meaning": "Signal path starts travelling toward the telescope."
+    },
+    {
+      "id": "overview_complete",
+      "frame": 78,
+      "meaning": "Telescope, trace and Wow annotation are connected in one overview."
+    },
+    {
+      "id": "trace_focus",
+      "frame": 84,
+      "meaning": "Focus moves into the signal-strength trace."
+    },
+    {
+      "id": "peak_reveal",
+      "frame": 120,
+      "meaning": "The unusual signal peak is highlighted."
+    },
+    {
+      "id": "printout_annotation",
+      "frame": 150,
+      "meaning": "The trace resolves into a printout and the red evidence circle begins."
+    },
+    {
+      "id": "wow_written",
+      "frame": 198,
+      "meaning": "The handwritten Wow lands on the spoken word."
+    },
+    {
+      "id": "duration_morph",
+      "frame": 210,
+      "meaning": "The same trace starts morphing into a time axis."
+    },
+    {
+      "id": "duration_reveal",
+      "frame": 239,
+      "meaning": "72 seconds appears on the matching narration anchor."
+    },
+    {
+      "id": "final_composition",
+      "frame": 274,
+      "meaning": "Trace, duration and Wow annotation settle into the final evidence composition."
+    }
+  ],
+  "visibleTextAllowlist": [
+    "The signal that appeared once",
+    "signal strength",
+    "Wow!",
+    "72 seconds"
+  ],
+  "humanReview": {
+    "status": "pending",
+    "dimensions": [
+      "clarity",
+      "hierarchy",
+      "pacing",
+      "polish",
+      "originality"
+    ],
+    "minimumScore": 4
+  }
+}

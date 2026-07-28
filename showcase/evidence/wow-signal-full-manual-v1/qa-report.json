@@ -1,0 +1,421 @@
+{
+  "schemaVersion": 1,
+  "sampleId": "wow_signal_full_manual_v1",
+  "status": "technical_gate_passed_human_review_pending",
+  "publishable": false,
+  "publishBlockers": [
+    "HUMAN_CREATIVE_REVIEW_REQUIRED"
+  ],
+  "output": {
+    "path": "showcase/assets/wow-signal-full-manual-v1.mp4",
+    "sha256": "be871e480b900be3a6ac08dd0331624c489178835c51b7c48b2ccdd38b5d208c",
+    "bytes": 2001309,
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "frameCount": 1031,
+    "durationSeconds": 34.366016,
+    "videoCodec": "h264",
+    "pixelFormat": "yuv420p",
+    "audioCodec": "aac",
+    "audioSampleRate": 48000
+  },
+  "sourceNarration": {
+    "path": "data/audio/narration/prj_d0801ca2-53ce-43b3-8faa-cee2893dc01c/e9ad1ddeca26289753a0fcb75b117935c98dac03188129d3139580a13f1297c9.wav",
+    "sourceSha256": "7fb1c8e50dc132674facf372da28eb45b71e2002365e870f83fc3c1c3e30f28f",
+    "evidenceSha256": "7fb1c8e50dc132674facf372da28eb45b71e2002365e870f83fc3c1c3e30f28f",
+    "speed": 1,
+    "completeSourceUsed": true,
+    "removedSentenceCount": 0,
+    "transformation": "complete_source_loudness_normalization_only",
+    "rights": {
+      "commercialUseAllowed": true,
+      "provider": "kokoro_local",
+      "model": "kokoro-v1.0-onnx-f32",
+      "voiceId": "af_heart",
+      "licenseReference": "Apache-2.0:hexgrad/Kokoro-82M-v1.0"
+    }
+  },
+  "alignment": {
+    "path": "data/artifacts/content/prj_d0801ca2-53ce-43b3-8faa-cee2893dc01c/narration_alignment/039dc4368f9b84bf6be2293bd0974731e6135ab3865190927bb87010cd832aa8.json",
+    "contentHash": "803933bbd00cdd22131790351ec0540a9141a5aaafe8d008181d8bb38a3fb694",
+    "durationFrames": 1031,
+    "wordCount": 81,
+    "beatCount": 5,
+    "anchors": {
+      "wow": {
+        "wordStartFrame": 183,
+        "wordEndFrame": 190,
+        "visualLandFrame": 187,
+        "withinTwoFrames": true
+      },
+      "seventyTwoSeconds": {
+        "wordStartFrame": 374,
+        "visualRevealFrame": 374,
+        "withinTwoFrames": true
+      }
+    }
+  },
+  "bindings": {
+    "fixturePath": "eval/narrated/dark-curiosity/golden/002_wow_signal_full_manual.json",
+    "fixtureHash": "4ab89f5284318d7b4e71d54b038e26119ce582a92d1eea3bfc5b80ec3697449a",
+    "compositionHash": "d858695452e6b0d4c6fa5a802023dd1b1060736ada8304cd037ceafec47a050d",
+    "fontHash": "8cfe15c2c6de6ef8efff3eedbd52a383ac9ef23d6c23f6cd9f9b838f5f37dc36",
+    "narrationHash": "7fb1c8e50dc132674facf372da28eb45b71e2002365e870f83fc3c1c3e30f28f",
+    "transcriptHash": "e6f50838c2f1dabdfd6912a4d93135efd7da2fba0906d77fb830ecc989fe25d9",
+    "contactSheetHash": "43b9158c75dad805bf852d97fc918a67d081ce2e29b631ac9a2a2e80d1867e83",
+    "sampledRendererFrameHashes": {
+      "0": "d40817dbc557794c1e837b160f03dde1adc6baf1ee66b3875faa4a5c6c727d8b",
+      "45": "83c0befd07638d0cc08991b409ad29c8ea167980050049992980cc879ef3a5bb",
+      "78": "ffc272628c02b8bd3af2b37b6f91a09c3fac25b4fdc0aec6cb85056cd689b605",
+      "90": "ddf0ed00adf032d9e324df18b0da57e8b2054abc3ff91a7db6f50467bec785dc",
+      "135": "627ef6e42437a2c976203cd4e5d70f8035365fe92cc9431f2fd10062507fda70",
+      "180": "60aa8fd4cca0d4f8516d3b8a2ecb58e91779e6e206a0515a8967942780456032",
+      "187": "60aa8fd4cca0d4f8516d3b8a2ecb58e91779e6e206a0515a8967942780456032",
+      "225": "35b6274673498c1ae914b5f0deec51aa0718853f59452f0949cc5b00a52c4ac7",
+      "238": "35b6274673498c1ae914b5f0deec51aa0718853f59452f0949cc5b00a52c4ac7",
+      "270": "9160e921c60d8b67df40316afd6e7b50fc9c8236b6f55d7fd9eb790d2e43b2e6",
+      "299": "4b94a70fb96ebae920ad6e454a105c3b968ff29da05f53134cf397e5e34db396",
+      "315": "3a49741029b59ee7f12167eb05bee8e84744b505bf96f5e10d0151650e4f69f3",
+      "360": "1e664a765259c7cc5c20f313896479d1a8f07c4d3164fd51fe477fd97d2dbb14",
+      "374": "1013c67543a778d2d80e41e64f4086a9a0113fbee4838db24607e7ca73525cf3",
+      "405": "b450f60dd7dee1ed3fd7d1aff734ded91c2a5f57b97e87ab986921a234979ca9",
+      "426": "28336c4beb2025d53de82d291fc73516cd3cb8a6ba162b0a4850428986077101",
+      "450": "2543da813b0dee53718e3d7ec528075c6f4dd9bd09fc1793322b379628b73f9e",
+      "495": "8657736309a21d977b5072637d04ea02e92555ff6f6a1f9e157bce1633f328a1",
+      "498": "6653a7fe1937c1f43fe70215497e4f683784e87b1d9ad44a36e530280d3adc85",
+      "540": "da572c8c4e5d3fee3632c7b4177aec80fd0a4082864f4062a604a159884b0731",
+      "547": "da572c8c4e5d3fee3632c7b4177aec80fd0a4082864f4062a604a159884b0731",
+      "585": "49002fdaa50092fb02d12ac07c093225ad6aa06a01d1f619f3d561ad841224f0",
+      "630": "5c0d8baf5bc30cdb5345e99ba33523d3421781fee25cf07a3bd59b888cd4158d",
+      "649": "005b5d741fba477c217cf11726d76a768f56839c4ebcb96eb8410f431c39f715",
+      "675": "37be1eebb15052a0036cc309271c710e8e127374508e47684460c88d75e99d71",
+      "720": "3048de5f8b639c54ea650d5ff539838482958054b375edb427ca4cb5a898f878",
+      "754": "4ce2e1bec7247d9b51a580c1f221028e30eab53ad0fabc0b2ed74027c8b81380",
+      "765": "536c4efabbd58b00d0a84043d7e51146d1d395ba2c98adf6fa532958ccabd075",
+      "810": "c4d95a931873a82528ada668f29467e1a9d0506fb9976d06bb7cc28e5b0d27b6",
+      "825": "4a9097efd788a27615f519bf1c2e9af89581430a4dd4c9d476bb06cb075a0034",
+      "855": "3963e515eb1e316649f9013a54cbcf67872782805c121d59e5536141710f4291",
+      "857": "f0357cf5f0c53aea89ad8582b1e86fa3c4b654eabd331e8ae6ce2cc29629b89e",
+      "886": "981acc95aa0b324f5fab2be91eb104462f106142cef383515c8b758f33c54e1c",
+      "900": "f453b22dbeb5aba6a4d4e848fd50eb62fbb92661df2f86fe144b071df5ac0aba",
+      "924": "979726e08992797e2caba9e7b0260195a68e8009ee4aa9422bf41748cf18ddf7",
+      "945": "7e3c1d723fe59fb7f61123ef9c3dc848b9fe89d81ed77ed2cafb1000799543cd",
+      "988": "35634292bf32796db9aeb4d1ea9f54907022a814c64ec59765c86e5966a8220b",
+      "990": "57386dc33fb25aa689bd4559676bfb4bbc0235a7cd693824f625c150d6b0f244",
+      "1030": "ea58fbc198834adbdcf3a6587671ad03b879ee491f3a89d9197c3e6f505067a4"
+    },
+    "finalBoundaryFrameHashes": {
+      "0": "d4b244a7bd6603a20973035af7840d36e5e810d649ce4572eb1c2045472c65a6",
+      "78": "e5d9ffde816027afbe8e804cc78108b91eb285caadb9df2cc0d52c85665940cf",
+      "187": "73ac779e88ccb2279fc89265aeaae52a06bed08104c812dc204ffaecd18a6c9e",
+      "238": "a896738cf262aa55c13d59ff1e0a6aa1a386a2b0a34a2e8fefd19cec93bf81a3",
+      "299": "cecf0663cd24555183d3b4bb625994e46077a8905ef5fdc32429b8ddc8714540",
+      "374": "4859287fa6ca0a0799615d25a3bed5282ed085c7e091dadc7da395262683c100",
+      "426": "050cacb96e7d4cdf56a8263fdbc7289bc91b44098bcb5182f965acd3a0e9dc95",
+      "498": "a85e6263e46bc242c0ddda9936c2f633b9d0f8e4c73a39161443e58f714ec77c",
+      "547": "aae7b4ad238f2a560e5270069ff9cc35d084367d58d0c3c1c4f1d9520b091078",
+      "649": "581a3ca9db0f5a904faf8cf759e929eb22677682b890b3b4de6a9af641339943",
+      "754": "9329d84b0a8d03d6288b517de8c9704ba01ff8af82ac2323a8968545bdb6562b",
+      "825": "90420acd51ef311ee8f7bf41a2bfd3307df32aafe041568f4220816a78abb1d4",
+      "857": "0380435d1b084e8ef5d283267567a33d30fa1fa7a5ae985871c86f97c21201cf",
+      "886": "585b717bf2e23afa98485b02ce56e56af957bfbb946db7afb5e60af4633c768c",
+      "924": "08f295bd6ea3d2ab29ad4a1ad912e2cf6e6734b5c9cded90f3e9d5b48a2e2d70",
+      "988": "5788505f77fc9cb00dd8e30fbafbc4e3f487c48bd860f7962f322a585e755d88",
+      "1030": "03ce5d0cdf46217b9941e6f6717e6c4b1e61531460f19fcb4bcbbb52b049fced"
+    }
+  },
+  "qa": {
+    "technicalChecks": {
+      "dimensions": true,
+      "fps": true,
+      "frameCount": true,
+      "duration": true,
+      "codecs": true,
+      "pixelFormat": true,
+      "audioSampleRate": true,
+      "completeSourceAudio": true,
+      "naturalNarrationSpeed": true,
+      "noRemovedSentences": true,
+      "noBlackGaps": true,
+      "maximumFreezeUnderThreeSeconds": true,
+      "titleVisibleThroughout": true,
+      "overviewCompleteByThreeSeconds": true,
+      "wowAlignmentWithinTwoFrames": true,
+      "durationAlignmentWithinTwoFrames": true,
+      "sidecarPresent": true,
+      "noForbiddenUi": true,
+      "noInternalLabels": true,
+      "noRemoteAssets": true
+    },
+    "detector": {
+      "black": {
+        "ratio": 0,
+        "longestSeconds": 0
+      },
+      "freeze": {
+        "ratio": 0.6916,
+        "longestSeconds": 2.6667
+      }
+    },
+    "renderedMeaningfulChanges": [
+      {
+        "id": "telescope_draw",
+        "frame": 0,
+        "seconds": 0,
+        "meaning": "Radio telescope begins drawing.",
+        "renderedDifferenceYAverage": 0.0257
+      },
+      {
+        "id": "signal_arrival",
+        "frame": 42,
+        "seconds": 1.4,
+        "meaning": "Signal starts travelling from the sky.",
+        "renderedDifferenceYAverage": 0.007
+      },
+      {
+        "id": "overview_complete",
+        "frame": 78,
+        "seconds": 2.6,
+        "meaning": "Telescope, signal trace and Wow annotation form the story overview.",
+        "renderedDifferenceYAverage": 0.0136
+      },
+      {
+        "id": "trace_focus",
+        "frame": 96,
+        "seconds": 3.2,
+        "meaning": "Focus moves into the observed signal trace.",
+        "renderedDifferenceYAverage": 8.4394
+      },
+      {
+        "id": "printout_reveal",
+        "frame": 139,
+        "seconds": 4.633,
+        "meaning": "The trace resolves into the observation printout.",
+        "renderedDifferenceYAverage": 0.0456
+      },
+      {
+        "id": "wow_written",
+        "frame": 187,
+        "seconds": 6.233,
+        "meaning": "The handwritten Wow lands on the spoken word.",
+        "renderedDifferenceYAverage": 4.7261
+      },
+      {
+        "id": "frequency_scale",
+        "frame": 198,
+        "seconds": 6.6,
+        "meaning": "The observation transitions into frequency context.",
+        "renderedDifferenceYAverage": 4.3885
+      },
+      {
+        "id": "frequency_region",
+        "frame": 238,
+        "seconds": 7.933,
+        "meaning": "A narrow frequency region is highlighted.",
+        "renderedDifferenceYAverage": 6.9927
+      },
+      {
+        "id": "frequency_significance",
+        "frame": 299,
+        "seconds": 9.967,
+        "meaning": "The highlighted region connects back to the observing telescope.",
+        "renderedDifferenceYAverage": 0.0038
+      },
+      {
+        "id": "duration_morph",
+        "frame": 345,
+        "seconds": 11.5,
+        "meaning": "The observation begins morphing into a duration axis.",
+        "renderedDifferenceYAverage": 1.1461
+      },
+      {
+        "id": "duration_reveal",
+        "frame": 374,
+        "seconds": 12.467,
+        "meaning": "72 seconds appears on the corresponding narration anchor.",
+        "renderedDifferenceYAverage": 0.8194
+      },
+      {
+        "id": "duration_complete",
+        "frame": 409,
+        "seconds": 13.633,
+        "meaning": "The measured 72-second traversal completes.",
+        "renderedDifferenceYAverage": 0.0108
+      },
+      {
+        "id": "beam_setup",
+        "frame": 426,
+        "seconds": 14.2,
+        "meaning": "A fixed source and telescope beam establish the mechanism.",
+        "renderedDifferenceYAverage": 0.7405
+      },
+      {
+        "id": "strength_response",
+        "frame": 468,
+        "seconds": 15.6,
+        "meaning": "The observed strength begins responding to beam position.",
+        "renderedDifferenceYAverage": 0.0956
+      },
+      {
+        "id": "beam_peak",
+        "frame": 498,
+        "seconds": 16.6,
+        "meaning": "Beam center and signal peak coincide.",
+        "renderedDifferenceYAverage": 0.3644
+      },
+      {
+        "id": "interference_enters",
+        "frame": 547,
+        "seconds": 18.233,
+        "meaning": "A local interference trace enters for evidence comparison.",
+        "renderedDifferenceYAverage": 2.2666
+      },
+      {
+        "id": "interference_mismatch",
+        "frame": 584,
+        "seconds": 19.467,
+        "meaning": "The jagged local trace visibly fails to match the beam curve.",
+        "renderedDifferenceYAverage": 0.1101
+      },
+      {
+        "id": "interference_recedes",
+        "frame": 632,
+        "seconds": 21.067,
+        "meaning": "The weaker interference explanation loses emphasis.",
+        "renderedDifferenceYAverage": 0.1243
+      },
+      {
+        "id": "later_scans_begin",
+        "frame": 649,
+        "seconds": 21.633,
+        "meaning": "Later telescope scans begin.",
+        "renderedDifferenceYAverage": 0.3909
+      },
+      {
+        "id": "empty_scan_two",
+        "frame": 690,
+        "seconds": 23,
+        "meaning": "A second completed scan remains empty.",
+        "renderedDifferenceYAverage": 0.1129
+      },
+      {
+        "id": "empty_scan_three",
+        "frame": 728,
+        "seconds": 24.267,
+        "meaning": "A third completed scan remains empty.",
+        "renderedDifferenceYAverage": 0.0961
+      },
+      {
+        "id": "match_attempt",
+        "frame": 754,
+        "seconds": 25.133,
+        "meaning": "Completed scans are tested against the original observation.",
+        "renderedDifferenceYAverage": 2.8935
+      },
+      {
+        "id": "no_match",
+        "frame": 801,
+        "seconds": 26.7,
+        "meaning": "No confirmed transmission matches the original.",
+        "renderedDifferenceYAverage": 0.033
+      },
+      {
+        "id": "honest_answer",
+        "frame": 825,
+        "seconds": 27.5,
+        "meaning": "Speculative branches withdraw from the observed evidence.",
+        "renderedDifferenceYAverage": 0.8286
+      },
+      {
+        "id": "not_proof",
+        "frame": 863,
+        "seconds": 28.767,
+        "meaning": "The evidence resolves to not proof.",
+        "renderedDifferenceYAverage": 0.0555
+      },
+      {
+        "id": "final_candidate",
+        "frame": 886,
+        "seconds": 29.533,
+        "meaning": "The original observation returns as the sole strong candidate.",
+        "renderedDifferenceYAverage": 0.1724
+      },
+      {
+        "id": "unexplained",
+        "frame": 924,
+        "seconds": 30.8,
+        "meaning": "Unexplained appears beside the original evidence.",
+        "renderedDifferenceYAverage": 0.0323
+      },
+      {
+        "id": "empty_repeats",
+        "frame": 968,
+        "seconds": 32.267,
+        "meaning": "Empty repeat scans settle beneath the observation.",
+        "renderedDifferenceYAverage": 0.0394
+      },
+      {
+        "id": "no_verified_repeat",
+        "frame": 1016,
+        "seconds": 33.867,
+        "meaning": "No verified repeat completes the final composition.",
+        "renderedDifferenceYAverage": 2.6524
+      }
+    ],
+    "maximumStoryboardGapSeconds": 2.033,
+    "captions": {
+      "burnedTranscript": false,
+      "visibleTextAllowlist": [
+        "The signal that appeared once",
+        "signal strength",
+        "Wow!",
+        "frequency",
+        "72 seconds",
+        "not proof",
+        "unexplained",
+        "no verified repeat"
+      ],
+      "sidecarPath": "showcase/evidence/wow-signal-full-manual-v1/transcript.vtt"
+    },
+    "safeRegions": {
+      "title": {
+        "top": 72,
+        "bottom": 220,
+        "passed": true
+      },
+      "semanticStage": {
+        "top": 250,
+        "bottom": 1600,
+        "passed": true
+      },
+      "platformSafeBottom": 1760,
+      "clippingDetected": false
+    },
+    "humanReview": {
+      "status": "pending",
+      "dimensions": [
+        "clarity",
+        "hierarchy",
+        "pacing",
+        "polish",
+        "originality"
+      ],
+      "minimumScore": 4
+    }
+  },
+  "artifacts": {
+    "contactSheetPath": "showcase/assets/wow-signal-full-manual-v1-contact-sheet.png",
+    "storyboardEvidencePath": "showcase/evidence/wow-signal-full-manual-v1/storyboard-evidence.md",
+    "boundaryFramesPath": "showcase/evidence/wow-signal-full-manual-v1/boundary-frames",
+    "transcriptPath": "showcase/evidence/wow-signal-full-manual-v1/transcript.vtt"
+  },
+  "selfReview": {
+    "status": "author_review_only_human_gate_pending",
+    "clarity": "Each sequence explains one claim through a story-owned signal, telescope, scan, or evidence object.",
+    "hierarchy": "The persistent promise remains above one dominant semantic stage.",
+    "pacing": "Declared semantic changes are at most three seconds apart and are backed by rendered frame differences.",
+    "polish": "The signal trace persists through frequency, duration, beam, search, and conclusion states without generic slides.",
+    "originality": "All visual geometry is deterministic original SVG line art."
+  }
+}
