@@ -7,3 +7,7 @@ a52e0220a7b54b720d2fe0072667df51b26a1259:tests/production-web-app.test.cjs:gener
 # Fixed animation geometry identifiers; these are not authentication tokens.
 e0ecd37402553b1d2a3f9f52e9dd766e3abac5c4:renderer/hyperframes/primitives/persistent-signal.mjs:generic-api-key:15
 e0ecd37402553b1d2a3f9f52e9dd766e3abac5c4:renderer/hyperframes/primitives/persistent-signal.mjs:generic-api-key:16
+
+# Fixed educational animation profile name; this is not an authentication token.
+7333254d2e6ecc1807f210419b43e416cc413dca:server/pipelines/narrated-short/animation/educational-explainer-profile.cjs:generic-api-key:6
+7333254d2e6ecc1807f210419b43e416cc413dca:server/pipelines/narrated-short/animation/semantic-render-profile.cjs:generic-api-key:13
