@@ -1,3 +1,4 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -40,6 +41,8 @@ from shorts_generator.local.clipper import (
     _motivational_audio_filter,
     _output_dimensions,
     _prewarm_bf_editorial_realesrgan_cache,
+    _prune_lossless_cut_cache,
+    _prune_realesrgan_cache,
     _read_realesrgan_cache_frame,
     _realesrgan_cache_key,
     _realesrgan_cache_path,
@@ -106,6 +109,62 @@ class BfEditorialInsetProfileTests(unittest.TestCase):
             fps=BF_EDITORIAL_OUTPUT_FPS,
         )
         self.assertIn("fps=30", command)
+
+    def test_lossless_cut_command_preserves_exact_ffmpeg_contract(self):
+        self.assertEqual(
+            _cut_subclip_command(
+                "source.mp4",
+                1.25,
+                11.75,
+                "cut.mkv",
+                fps=30.0,
+            ),
+            [
+                "ffmpeg",
+                "-y",
+                "-loglevel",
+                "error",
+                "-ss",
+                "1.250",
+                "-i",
+                "source.mp4",
+                "-t",
+                "10.500",
+                "-vf",
+                "fps=30",
+                "-c:v",
+                "ffv1",
+                "-level",
+                "3",
+                "-c:a",
+                "pcm_s16le",
+                "cut.mkv",
+            ],
+        )
+
+    def test_cache_pruners_evict_oldest_entries_to_ninety_percent_target(self):
+        for extension, prune in (
+            ("png", lambda root: _prune_realesrgan_cache(root, 100)),
+            ("mkv", lambda root: _prune_lossless_cut_cache(root, 100)),
+        ):
+            with self.subTest(extension=extension):
+                with tempfile.TemporaryDirectory() as temporary_dir:
+                    cache_dir = Path(temporary_dir)
+                    entries = []
+                    for index in range(3):
+                        path = cache_dir / f"{index:02x}" / f"entry-{index}.{extension}"
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        path.write_bytes(bytes([index]) * 60)
+                        timestamp_ns = 1_700_000_000_000_000_000 + index
+                        os.utime(path, ns=(timestamp_ns, timestamp_ns))
+                        entries.append(path)
+
+                    removed, remaining_bytes = prune(cache_dir)
+
+                    self.assertEqual((removed, remaining_bytes), (2, 60))
+                    self.assertFalse(entries[0].exists())
+                    self.assertFalse(entries[1].exists())
+                    self.assertTrue(entries[2].exists())
 
     def test_panel_geometry_and_radius_match_reference_contract(self):
         source = np.full((1080, 1920, 3), 235, dtype=np.uint8)
