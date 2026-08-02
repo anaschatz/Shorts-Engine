@@ -29,6 +29,12 @@ const {
   normalizeVisualProgramV1,
   visualProgramContentHash,
 } = require("./visual-program-contract.cjs");
+const {
+  normalizeVisualRecipePlanV1,
+} = require("./visual-recipe-plan-contract.cjs");
+const {
+  compileVisualRecipePlanV1,
+} = require("./visual-recipe-plan-compiler.cjs");
 
 const ADAPTER_PROFILE_ID = "generalized_visual_program_animation_adapter_v1";
 const HASH_RE = /^[a-f0-9]{64}$/;
@@ -192,28 +198,122 @@ function absoluteAnchor(frame) {
   return { anchor: "absolute", frame, resolvedFrame: frame };
 }
 
-function createOperation({ targetId, startFrame, endFrame, claimId, purpose, carryPolicy }) {
-  const operationEnd = Math.min(endFrame - 1, startFrame + 12);
+function operation({ op, targetId, startFrame, endFrame, params, claimId, purpose, carryPolicy }) {
   return {
-    op: "create",
+    op,
     targetId,
     from: absoluteAnchor(startFrame),
-    to: absoluteAnchor(Math.max(startFrame + 1, operationEnd)),
+    to: absoluteAnchor(endFrame),
     easing: "ease_out_cubic",
-    params: { opacity: 1 },
+    params,
     ...(claimId ? { semanticClaimId: claimId } : {}),
     visualStatement: purpose,
     carryPolicy,
   };
 }
 
-function buildAnimationIR({ visualProgram, storyIR, timingContext, projectId, projectRevision }) {
+const RECIPE_OPERATIONS = Object.freeze({
+  finite_cycle: Object.freeze([
+    ["pulse", { scale: 1.08, opacity: 1 }],
+    ["morph_path", { toShape: "node" }],
+  ]),
+  cause_effect: Object.freeze([
+    ["draw_path", { direction: "left_to_right" }],
+    ["move", { x: 24, y: 0 }],
+  ]),
+  comparison: Object.freeze([
+    ["scale", { from: 0.82, to: 1 }],
+    ["highlight", { strength: 1 }],
+  ]),
+  evidence_inspection: Object.freeze([
+    ["scale", { from: 0.9, to: 1 }],
+    ["highlight", { strength: 1 }],
+  ]),
+  bounded_uncertainty: Object.freeze([
+    ["fade", { from: 0.35, to: 1 }],
+    ["highlight", { strength: 0.8 }],
+  ]),
+  map_route: Object.freeze([
+    ["draw_path", { direction: "left_to_right" }],
+    ["move", { x: 28, y: -12 }],
+  ]),
+  negative_space_absence: Object.freeze([
+    ["fade", { from: 1, to: 0.45 }],
+    ["highlight", { strength: 0.75 }],
+  ]),
+  chronology: Object.freeze([
+    ["draw_path", { direction: "left_to_right" }],
+    ["pulse", { scale: 1.06, opacity: 1 }],
+  ]),
+});
+
+function recipeOperations(recipeScene, visualScene, claimId) {
+  const [enter, develop, reveal, resolve] = recipeScene.phases;
+  const profile = RECIPE_OPERATIONS[recipeScene.recipeId];
+  const operations = [operation({
+    op: "create",
+    targetId: visualScene.primary.entityId,
+    startFrame: enter.startFrame,
+    endFrame: enter.endFrame,
+    params: { opacity: 1 },
+    claimId,
+    purpose: visualScene.purpose,
+    carryPolicy: visualScene.primary.recipeId === "finite_cycle" ? "carry_to_next" : "clear_at_scene_end",
+  })];
+  if (visualScene.helper) {
+    operations.push(operation({
+      op: "fade",
+      targetId: visualScene.helper.entityId,
+      startFrame: enter.startFrame,
+      endFrame: enter.endFrame,
+      params: { from: 0, to: 1 },
+      claimId: visualScene.helper.dataRefs[0],
+      purpose: visualScene.purpose,
+      carryPolicy: "clear_at_scene_end",
+    }));
+  }
+  operations.push(operation({
+    op: profile[0][0],
+    targetId: visualScene.primary.entityId,
+    startFrame: develop.startFrame,
+    endFrame: develop.endFrame,
+    params: profile[0][1],
+    claimId,
+    purpose: visualScene.purpose,
+    carryPolicy: "clear_at_scene_end",
+  }));
+  operations.push(operation({
+    op: profile[1][0],
+    targetId: visualScene.primary.entityId,
+    startFrame: reveal.startFrame,
+    endFrame: reveal.endFrame,
+    params: profile[1][1],
+    claimId,
+    purpose: visualScene.purpose,
+    carryPolicy: "clear_at_scene_end",
+  }));
+  if (recipeScene.transition) {
+    operations.push(operation({
+      op: "transition_match",
+      targetId: "story_thread",
+      startFrame: resolve.startFrame,
+      endFrame: resolve.endFrame,
+      params: { toEntityId: visualScene.primary.entityId },
+      claimId,
+      purpose: visualScene.purpose,
+      carryPolicy: "persistent",
+    }));
+  }
+  return operations;
+}
+
+function buildAnimationIR({ visualProgram, visualRecipePlan, storyIR, timingContext, projectId, projectRevision }) {
   if (typeof projectId !== "string" || !ID_RE.test(projectId)) fail("projectId", "invalid_project_id");
   if (!Number.isInteger(projectRevision) || projectRevision < 1 || projectRevision > 1_000_000) {
     fail("projectRevision", "invalid_project_revision");
   }
   const storyBeatById = new Map(storyIR.beats.map((beat) => [beat.beatId, beat]));
-  const adapterBindingHash = hash(`${VISUAL_RECIPE_REGISTRY_HASH}:${visualProgram.contentHash}`);
+  const adapterBindingHash = hash(`${VISUAL_RECIPE_REGISTRY_HASH}:${visualProgram.contentHash}:${visualRecipePlan.contentHash}`);
   const sharedEntities = [
     { id: "background", type: "background", role: "background_field", layer: 0, styleToken: VISUAL_STYLE_TOKEN_ID },
     { id: "story_thread", type: "story_thread", role: "narrative_continuity", layer: 1, styleToken: VISUAL_STYLE_TOKEN_ID },
@@ -234,7 +334,7 @@ function buildAnimationIR({ visualProgram, storyIR, timingContext, projectId, pr
       }] : []),
     ]),
   ];
-  const scenes = visualProgram.scenes.map((scene) => {
+  const scenes = visualProgram.scenes.map((scene, sceneIndex) => {
     const beats = scene.narrationBeatIds.map((beatId) => storyBeatById.get(beatId));
     const claimIds = [...new Set(beats.flatMap((beat) => beat.claimIds))].slice(0, 8);
     const entityIds = ["background", "story_thread", scene.primary.entityId];
@@ -247,32 +347,7 @@ function buildAnimationIR({ visualProgram, storyIR, timingContext, projectId, pr
       template: scene.primary.template,
       templateVersion: scene.primary.templateVersion,
       entityIds,
-      operations: [
-        createOperation({
-          targetId: "story_thread",
-          startFrame: scene.startFrame,
-          endFrame: scene.endFrame,
-          claimId: firstClaim,
-          purpose: scene.purpose,
-          carryPolicy: "persistent",
-        }),
-        createOperation({
-          targetId: scene.primary.entityId,
-          startFrame: scene.startFrame,
-          endFrame: scene.endFrame,
-          claimId: firstClaim,
-          purpose: scene.purpose,
-          carryPolicy: "clear_at_scene_end",
-        }),
-        ...(scene.helper ? [createOperation({
-          targetId: scene.helper.entityId,
-          startFrame: scene.startFrame,
-          endFrame: scene.endFrame,
-          claimId: scene.helper.dataRefs[0],
-          purpose: scene.purpose,
-          carryPolicy: "clear_at_scene_end",
-        })] : []),
-      ],
+      operations: recipeOperations(visualRecipePlan.scenes[sceneIndex], scene, firstClaim),
       readabilityHolds: [scene.readabilityHold],
       complexityCost: scene.primary.complexityCost,
       semantic: {
@@ -290,8 +365,8 @@ function buildAnimationIR({ visualProgram, storyIR, timingContext, projectId, pr
       fromSceneId: scene.id,
       toSceneId: next.id,
       sharedEntityId: "story_thread",
-      startFrame: Math.max(0, boundary - 6),
-      endFrame: Math.min(timingContext.durationFrames, boundary + 6),
+      startFrame: boundary,
+      endFrame: Math.min(next.readabilityHold.startFrame, boundary + 6),
     };
   });
   const labels = visualProgram.scenes.map((scene) => scene.primary.recipeId).slice(0, 6);
@@ -336,7 +411,7 @@ function buildAnimationIR({ visualProgram, storyIR, timingContext, projectId, pr
     motionBudget: {
       profile: "calm_explainer",
       maxCost: 180,
-      maxConcurrentOperations: 4,
+      maxConcurrentOperations: 2,
       maxCameraScale: 1.12,
       maxTravelPxPerFrame: 8,
       captionSafeZone: { topRatio: 0.68, bottomRatio: 0.9 },
@@ -352,19 +427,32 @@ function adapterContentHash(value) {
 }
 
 function validateGeneralizedVisualProgramAnimationAdapterV1(input, trustedContext = {}) {
-  exactKeys(input, ["schemaVersion", "profile", "bindings", "visualProgram", "animationIR", "contentHash"], "adapter");
+  exactKeys(input, ["schemaVersion", "profile", "bindings", "visualProgram", "visualRecipePlan", "animationIR", "contentHash"], "adapter");
   if (input.schemaVersion !== 1 || input.profile !== ADAPTER_PROFILE_ID) fail("adapter.profile", "unsupported_adapter");
-  exactKeys(input.bindings, ["visualProgramHash", "animationIRHash", "recipeRegistryHash", "adapterBindingHash"], "adapter.bindings");
+  exactKeys(input.bindings, ["visualProgramHash", "visualRecipePlanHash", "animationIRHash", "recipeRegistryHash", "adapterBindingHash"], "adapter.bindings");
   for (const [key, value] of Object.entries(input.bindings)) {
     if (typeof value !== "string" || !HASH_RE.test(value)) fail(`adapter.bindings.${key}`, "invalid_hash");
   }
   const visualProgram = normalizeVisualProgramV1(input.visualProgram);
-  const animationIR = validateAnimationIR(input.animationIR);
   if (!trustedContext.storyIR || !trustedContext.timingContext) {
     fail("adapter.trustedContext", "trusted_context_required");
   }
   const storyIR = normalizeStoryIR(trustedContext.storyIR);
   const timingContext = normalizeAnimationTimingContext(trustedContext.timingContext);
+  let visualRecipePlan;
+  try {
+    visualRecipePlan = normalizeVisualRecipePlanV1(input.visualRecipePlan, {
+      visualProgram,
+      storyIR,
+      timingContext,
+    });
+  } catch (error) {
+    if (error?.code === "GENERALIZED_VISUAL_RECIPE_PLAN_INVALID") {
+      fail("adapter.visualRecipePlan", "recipe_plan_binding_mismatch");
+    }
+    throw error;
+  }
+  const animationIR = validateAnimationIR(input.animationIR);
   if (
     visualProgram.bindings.storyIrHash !== storyIR.contentHash
     || visualProgram.bindings.timingContextHash !== timingContext.contentHash
@@ -376,9 +464,10 @@ function validateGeneralizedVisualProgramAnimationAdapterV1(input, trustedContex
     || animationIR.durationFrames !== timingContext.durationFrames
     || animationIR.fps !== timingContext.fps
   ) fail("adapter.trustedContext", "trusted_context_binding_mismatch");
-  const adapterBindingHash = hash(`${VISUAL_RECIPE_REGISTRY_HASH}:${visualProgram.contentHash}`);
+  const adapterBindingHash = hash(`${VISUAL_RECIPE_REGISTRY_HASH}:${visualProgram.contentHash}:${visualRecipePlan.contentHash}`);
   if (
     input.bindings.visualProgramHash !== visualProgram.contentHash
+    || input.bindings.visualRecipePlanHash !== visualRecipePlan.contentHash
     || input.bindings.animationIRHash !== animationIR.contentHash
     || input.bindings.recipeRegistryHash !== VISUAL_RECIPE_REGISTRY_HASH
     || input.bindings.adapterBindingHash !== adapterBindingHash
@@ -389,6 +478,7 @@ function validateGeneralizedVisualProgramAnimationAdapterV1(input, trustedContex
     profile: ADAPTER_PROFILE_ID,
     bindings: { ...input.bindings },
     visualProgram,
+    visualRecipePlan,
     animationIR,
   };
   const expectedHash = adapterContentHash(normalized);
@@ -408,24 +498,28 @@ function compileGeneralizedVisualProgramV1({
   const proposal = normalizeVisualProgramProposalV1(rawProposal);
   validateInputs(storyIR, timingContext, proposal);
   const visualProgram = buildVisualProgram({ storyIR, timingContext, proposal });
+  const visualRecipePlan = compileVisualRecipePlanV1({ visualProgram, storyIR, timingContext });
   const animationIR = buildAnimationIR({
     visualProgram,
+    visualRecipePlan,
     storyIR,
     timingContext,
     projectId,
     projectRevision,
   });
-  const adapterBindingHash = hash(`${VISUAL_RECIPE_REGISTRY_HASH}:${visualProgram.contentHash}`);
+  const adapterBindingHash = hash(`${VISUAL_RECIPE_REGISTRY_HASH}:${visualProgram.contentHash}:${visualRecipePlan.contentHash}`);
   const adapter = {
     schemaVersion: 1,
     profile: ADAPTER_PROFILE_ID,
     bindings: {
       visualProgramHash: visualProgram.contentHash,
+      visualRecipePlanHash: visualRecipePlan.contentHash,
       animationIRHash: animationContentHash(animationIR),
       recipeRegistryHash: VISUAL_RECIPE_REGISTRY_HASH,
       adapterBindingHash,
     },
     visualProgram,
+    visualRecipePlan,
     animationIR,
   };
   return validateGeneralizedVisualProgramAnimationAdapterV1(
