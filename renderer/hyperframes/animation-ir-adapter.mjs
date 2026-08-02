@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { compileGenericSemanticAnimationIRToHtml } from "./generic-semantic-animation.mjs";
 import { compileSemanticSentenceAnimationIRToHtml } from "./semantic-sentence-animation.mjs";
 import { compileEducationalExplainerAnimationIRToHtml } from "./educational-explainer-animation.mjs";
+import { compileGeneralizedVisualRecipeAdapterToHtml } from "./generalized-visual-recipes-v1.mjs";
 import { createOperationSchedule } from "./operation-scheduler.mjs";
 import { createPathMorph, pointsToPath } from "./primitives/path-morph.mjs";
 import { persistentSignalGeometry, persistentSignalPath } from "./primitives/persistent-signal.mjs";
@@ -561,4 +562,11 @@ export function compileAnimationIRToHtml(ir, options = {}) {
     ? compileSemanticAnimationIRToHtml(ir)
     : compileLegacyAnimationIRToHtml(ir);
   return attachCompositionQaPolicy(compiled, ir);
+}
+
+export function compileGeneralizedVisualProgramAdapterToHtml(
+  adapter,
+  trustedContext = {},
+) {
+  return compileGeneralizedVisualRecipeAdapterToHtml(adapter, trustedContext);
 }
