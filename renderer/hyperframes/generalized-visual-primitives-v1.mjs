@@ -46,27 +46,27 @@ function pathFromPoints(points) {
 }
 
 function fittedLines(text, size, maximumWidth, maximumLines) {
-  const limit = Math.max(8, Math.floor(maximumWidth / (size * 0.56)));
   const words = text.split(/\s+/);
+  const target = Math.max(8, Math.ceil((text.length + maximumLines - 1) / maximumLines));
   const lines = [];
   for (const word of words) {
     const current = lines.at(-1) || "";
-    if (!current || `${current} ${word}`.length > limit) lines.push(word);
+    const remainingSlots = maximumLines - lines.length;
+    if (!current || (lines.length < maximumLines && `${current} ${word}`.length > target && remainingSlots > 0)) lines.push(word);
     else lines[lines.length - 1] = `${current} ${word}`;
   }
-  if (lines.length > maximumLines) {
-    const remainder = lines.slice(maximumLines - 1).join(" ");
-    lines.splice(maximumLines - 1, Infinity, remainder);
-  }
-  return { lines, limit };
+  const longest = Math.max(...lines.map((line) => line.length));
+  const effectiveSize = Math.max(18, Math.min(size, maximumWidth / Math.max(1, longest * .56)));
+  const limit = Math.max(8, Math.floor(maximumWidth / (effectiveSize * .56)));
+  return { lines, limit, effectiveSize };
 }
 
 function label(value, x, y, size, cssClass = "grounded-copy", anchor = "middle", maximumWidth = 720, maximumLines = 2) {
   const text = String(value || "").trim();
   if (!text || text.length > 160) throw new TypeError("Grounded label is invalid.");
-  const { lines, limit } = fittedLines(text, size, maximumWidth, maximumLines);
-  const startY = y - ((lines.length - 1) * size * 0.58);
-  return `<text x="${n(x)}" y="${n(startY)}" font-size="${n(size)}" text-anchor="${anchor}" class="${cssClass}" data-text-fit="${lines.length}">${lines.map((line, index) => `<tspan x="${n(x)}" dy="${index ? n(size * 1.16) : 0}"${line.length > limit ? ` textLength="${n(maximumWidth)}" lengthAdjust="spacingAndGlyphs"` : ""}>${escapeXml(line)}</tspan>`).join("")}</text>`;
+  const { lines, limit, effectiveSize } = fittedLines(text, size, maximumWidth, maximumLines);
+  const startY = y - ((lines.length - 1) * effectiveSize * 0.58);
+  return `<text x="${n(x)}" y="${n(startY)}" font-size="${n(effectiveSize)}" text-anchor="${anchor}" class="${cssClass}" data-text-fit="${lines.length}" data-requested-font-size="${n(size)}">${lines.map((line, index) => `<tspan x="${n(x)}" dy="${index ? n(effectiveSize * 1.16) : 0}"${line.length > limit ? ` textLength="${n(maximumWidth)}" lengthAdjust="spacingAndGlyphs"` : ""}>${escapeXml(line)}</tspan>`).join("")}</text>`;
 }
 
 function panel(scene, role = "primary_panel") {
@@ -78,12 +78,15 @@ function groundedLabels(scene) {
   const bounds = scene.layout.primary.bounds;
   const center = bounds.x + bounds.width / 2;
   const headingY = bounds.y + 62;
-  const secondary = scene.grounded.secondaryLabel
+  const primary = scene.grounded.primaryLabel !== scene.grounded.heading
+    ? label(scene.grounded.primaryLabel, center, bounds.y + bounds.height - 118, 34, "grounded-copy", "middle", bounds.width - 96, 2)
+    : "";
+  const secondary = scene.grounded.secondaryLabel && scene.grounded.secondaryLabel !== scene.grounded.heading && scene.grounded.secondaryLabel !== scene.grounded.primaryLabel
     ? label(scene.grounded.secondaryLabel, center, bounds.y + bounds.height - 58, 28, "secondary-copy", "middle", bounds.width - 96, 2)
     : "";
   return `<g ${attrs("grounded_label", "grounded_story_copy", bounds)} data-legibility-role="key">
-    ${label(scene.grounded.heading, center, headingY, 38, "heading-copy", "middle", bounds.width - 240, 2)}
-    ${label(scene.grounded.primaryLabel, center, bounds.y + bounds.height - 118, 34, "grounded-copy", "middle", bounds.width - 96, 2)}
+    ${label(scene.grounded.heading, bounds.x + 38, headingY, 36, "heading-copy", "start", bounds.width - 286, 2)}
+    ${primary}
     ${secondary}
   </g>`;
 }
@@ -124,10 +127,10 @@ function finiteCycle(scene) {
   const y = b.y + 188;
   const cells = Array.from({ length: 4 }, (_, index) => {
     const x = startX + index * (cellWidth + gap);
-    return `<g data-cycle-cell="${index}"><rect x="${n(x)}" y="${n(y)}" width="${cellWidth}" height="168" rx="28" class="counter-cell"/><circle cx="${n(x + cellWidth / 2)}" cy="${n(y + 58)}" r="18" class="counter-dot"/><path d="M${n(x + 34)} ${n(y + 116)}H${n(x + 98)}" class="accent-stroke"/></g>`;
+    return `<g data-cycle-cell="${index}"${index ? ' data-reveal="reveal"' : ""}><rect x="${n(x)}" y="${n(y)}" width="${cellWidth}" height="168" rx="28" class="counter-cell"/><circle cx="${n(x + cellWidth / 2)}" cy="${n(y + 58)}" r="18" class="counter-dot"/><path d="M${n(x + 34)} ${n(y + 116)}H${n(x + 98)}" class="accent-stroke"/></g>`;
   }).join("");
   const bounds = { x: startX, y, width: total, height: 168 };
-  return `${panel(scene)}<g ${attrs("counter_cells", "persistent_cycle_counter", bounds)}>${cells}<path data-draw-path="true" pathLength="100" d="M${n(b.x + 170)} ${n(y + 226)}C${n(b.x + 260)} ${n(y + 300)} ${n(b.x + b.width - 260)} ${n(y + 300)} ${n(b.x + b.width - 170)} ${n(y + 226)}" class="line-art cycle-arrow"/><path d="M${n(b.x + b.width - 202)} ${n(y + 210)}L${n(b.x + b.width - 170)} ${n(y + 226)} ${n(b.x + b.width - 196)} ${n(y + 250)}" class="line-art"/></g>`;
+  return `${panel(scene)}<g ${attrs("counter_cells", "persistent_cycle_counter", bounds)}>${cells}<path data-draw-path="true" pathLength="100" d="M${n(b.x + 170)} ${n(y + 226)}C${n(b.x + 260)} ${n(y + 300)} ${n(b.x + b.width - 260)} ${n(y + 300)} ${n(b.x + b.width - 170)} ${n(y + 226)}" class="line-art cycle-arrow"/><path d="M${n(b.x + b.width - 202)} ${n(y + 210)}L${n(b.x + b.width - 170)} ${n(y + 226)} ${n(b.x + b.width - 196)} ${n(y + 250)}" class="line-art"/><g data-reveal="reveal">${label("ROLLOVER", b.x + b.width / 2, y + 270, 18, "semantic-copy")}</g></g>`;
 }
 
 function causeEffect(scene) {
@@ -137,7 +140,8 @@ function causeEffect(scene) {
   const dash = scene.grounded.certainty === "verified" ? "" : ' stroke-dasharray="14 12"';
   return `${panel(scene)}<g ${attrs("directional_connector", "qualified_direction", nodeBounds)}>
     <circle cx="${left.x}" cy="${left.y}" r="78" class="node-surface"/>
-    <circle cx="${right.x}" cy="${right.y}" r="78" class="node-surface reveal-node" data-reveal="reveal"/>
+    ${label("INPUT", left.x, left.y + 7, 18, "semantic-copy")}
+    <g data-reveal="reveal"><circle cx="${right.x}" cy="${right.y}" r="78" class="node-surface reveal-node"/>${label("RESULT", right.x, right.y + 7, 18, "semantic-copy")}</g>
     <path data-draw-path="true" pathLength="100" d="M${left.x + 82} ${left.y}H${right.x - 94}" class="accent-stroke"${dash}/>
     <path d="M${right.x - 120} ${right.y - 24}L${right.x - 88} ${right.y} ${right.x - 120} ${right.y + 24}" class="accent-stroke"${dash}/>
   </g>`;
@@ -151,6 +155,7 @@ function comparison(scene) {
   return `${panel(scene)}<g ${attrs("comparison_baseline", "common_baseline", bounds)}>
     <path d="M${points[0].x} ${baselineY}H${points.at(-1).x}" class="line-art baseline"/>
     ${points.slice(1).map((point, index) => `<g ${attrs("bounded_marker", `comparison_marker_${index + 1}`, { x: point.x - 28, y: point.y - 28, width: 56, height: baselineY - point.y + 56 }, 'data-reveal="reveal"')}><line x1="${point.x}" y1="${baselineY}" x2="${point.x}" y2="${point.y}" class="accent-stroke"/><circle cx="${point.x}" cy="${point.y}" r="22" class="marker-fill"/></g>`).join("")}
+    ${label("COMMON BASELINE", (points[0].x + points.at(-1).x) / 2, baselineY + 54, 18, "semantic-copy")}
   </g>`;
 }
 
@@ -158,7 +163,7 @@ function evidenceInspection(scene) {
   const b = scene.layout.primary.bounds;
   const doc = { x: b.x + 94, y: b.y + 86, width: b.width - 248, height: b.height - 250 };
   const lens = { x: doc.x + doc.width - 112, y: doc.y + doc.height - 118, width: 210, height: 210 };
-  return `${panel(scene)}<g ${attrs("document", "evidence_document", doc)}><rect x="${doc.x}" y="${doc.y}" width="${doc.width}" height="${doc.height}" rx="24" class="paper-surface"/><path d="M${doc.x + 48} ${doc.y + 74}H${doc.x + doc.width - 48}M${doc.x + 48} ${doc.y + 132}H${doc.x + doc.width - 94}M${doc.x + 48} ${doc.y + 190}H${doc.x + doc.width - 62}" class="document-lines"/></g><g ${attrs("inspection_lens", "inspection_focus", lens, 'data-reveal="reveal"')}><circle cx="${lens.x + 84}" cy="${lens.y + 84}" r="74" class="lens-ring"/><line x1="${lens.x + 138}" y1="${lens.y + 138}" x2="${lens.x + 198}" y2="${lens.y + 198}" class="accent-stroke"/></g>`;
+  return `${panel(scene)}<g ${attrs("document", "evidence_document", doc)}><rect x="${doc.x}" y="${doc.y}" width="${doc.width}" height="${doc.height}" rx="24" class="paper-surface"/>${label("EVIDENCE", doc.x + doc.width / 2, doc.y + 52, 18, "paper-semantic-copy")}<path d="M${doc.x + 48} ${doc.y + 92}H${doc.x + doc.width - 48}M${doc.x + 48} ${doc.y + 150}H${doc.x + doc.width - 94}M${doc.x + 48} ${doc.y + 208}H${doc.x + doc.width - 62}" class="document-lines"/></g><g ${attrs("inspection_lens", "inspection_focus", lens, 'data-reveal="reveal"')}><circle cx="${lens.x + 84}" cy="${lens.y + 84}" r="74" class="lens-ring"/><line x1="${lens.x + 138}" y1="${lens.y + 138}" x2="${lens.x + 198}" y2="${lens.y + 198}" class="accent-stroke"/></g>`;
 }
 
 function boundedUncertainty(scene) {
@@ -168,7 +173,7 @@ function boundedUncertainty(scene) {
   return `${panel(scene)}<g data-uncertainty-regions="true">${points.map((point, index) => {
     const region = { x: b.x + 40 + index * (regionWidth + 24), y: b.y + 138, width: regionWidth, height: 248 };
     const classes = ["observed-region", "inferred-region", "unknown-region"];
-    return `<g ${attrs("uncertainty_region", `certainty_region_${index + 1}`, region, index ? 'data-reveal="reveal"' : "")}><rect x="${region.x}" y="${region.y}" width="${region.width}" height="${region.height}" rx="32" class="${classes[index]}"/><circle cx="${region.x + region.width / 2}" cy="${region.y + 92}" r="32" class="region-symbol"/><path d="M${region.x + 44} ${region.y + 174}H${region.x + region.width - 44}" class="line-art"/></g>`;
+    return `<g ${attrs("uncertainty_region", `certainty_region_${index + 1}`, region, index ? 'data-reveal="reveal"' : "")}><rect x="${region.x}" y="${region.y}" width="${region.width}" height="${region.height}" rx="32" class="${classes[index]}"/><circle cx="${region.x + region.width / 2}" cy="${region.y + 82}" r="28" class="region-symbol"/>${label(["OBSERVED", "INFERRED", "UNKNOWN"][index], region.x + region.width / 2, region.y + 158, 18, "semantic-copy", "middle", region.width - 28, 1)}<path d="M${region.x + 44} ${region.y + 190}H${region.x + region.width - 44}" class="line-art"/></g>`;
   }).join("")}</g>`;
 }
 
@@ -183,14 +188,14 @@ function negativeSpace(scene) {
   const b = scene.layout.primary.bounds;
   const points = scene.layout.geometry.points;
   const outline = pathFromPoints([...points, points[0]]);
-  return `${panel(scene)}<g ${attrs("expected_object_outline", "expected_presence_context", b)}><path d="${outline}" class="expected-outline"/><circle cx="${b.x + b.width / 2}" cy="${b.y + b.height / 2}" r="142" class="search-field"/><path data-draw-path="true" pathLength="100" d="M${b.x + 94} ${b.y + 118}L${b.x + b.width - 94} ${b.y + b.height - 118}M${b.x + b.width - 94} ${b.y + 118}L${b.x + 94} ${b.y + b.height - 118}" class="search-rays"/><circle data-reveal="reveal" cx="${b.x + b.width / 2}" cy="${b.y + b.height / 2}" r="46" class="absence-center"/></g>`;
+  return `${panel(scene)}<g ${attrs("expected_object_outline", "expected_presence_context", b)}><path d="${outline}" class="expected-outline"/>${label("EXPECTED", b.x + b.width / 2, b.y + 150, 18, "semantic-copy")}<circle cx="${b.x + b.width / 2}" cy="${b.y + b.height / 2}" r="142" class="search-field"/><path data-draw-path="true" pathLength="100" d="M${b.x + 94} ${b.y + 118}L${b.x + b.width - 94} ${b.y + b.height - 118}M${b.x + b.width - 94} ${b.y + 118}L${b.x + 94} ${b.y + b.height - 118}" class="search-rays"/><g data-reveal="reveal"><circle cx="${b.x + b.width / 2}" cy="${b.y + b.height / 2}" r="46" class="absence-center"/>${label("ABSENT", b.x + b.width / 2, b.y + b.height / 2 + 7, 18, "semantic-copy")}</g></g>`;
 }
 
 function chronology(scene) {
   const b = scene.layout.primary.bounds;
   const points = scene.layout.geometry.points;
   const axis = { x: points[0].x, y: points[0].y - 46, width: points.at(-1).x - points[0].x, height: 92 };
-  return `${panel(scene)}<g ${attrs("chronology_axis", "ordered_chronology", axis)}><path data-draw-path="true" pathLength="100" d="M${points[0].x} ${points[0].y}H${points.at(-1).x}" class="accent-stroke"/>${points.map((point, index) => `<g ${attrs("chronology_event_marker", `chronology_event_${index + 1}`, { x: point.x - 24, y: point.y - 24, width: 48, height: 48 }, index ? 'data-reveal="reveal"' : "")} data-chronology-index="${index}"><circle cx="${point.x}" cy="${point.y}" r="${index === 2 ? 22 : 14}" class="${index === 2 ? "marker-fill active-chronology" : "route-dot"}"/><line x1="${point.x}" y1="${point.y - 42}" x2="${point.x}" y2="${point.y + 42}" class="line-art"/></g>`).join("")}</g>`;
+  return `${panel(scene)}<g ${attrs("chronology_axis", "ordered_chronology", axis)}><path data-draw-path="true" pathLength="100" d="M${points[0].x} ${points[0].y}H${points.at(-1).x}" class="accent-stroke"/>${points.map((point, index) => `<g ${attrs("chronology_event_marker", `chronology_event_${index + 1}`, { x: point.x - 24, y: point.y - 24, width: 48, height: 48 }, index ? 'data-reveal="reveal"' : "")} data-chronology-index="${index}"><circle cx="${point.x}" cy="${point.y}" r="${index === 2 ? 22 : 14}" class="${index === 2 ? "marker-fill active-chronology" : "route-dot"}"/><line x1="${point.x}" y1="${point.y - 42}" x2="${point.x}" y2="${point.y + 42}" class="line-art"/></g>`).join("")}${label("EARLIER", points[0].x, points[0].y - 76, 18, "semantic-copy")}${label("LATER", points.at(-1).x, points.at(-1).y - 76, 18, "semantic-copy")}</g>`;
 }
 
 const RECIPE_RENDERERS = Object.freeze({
