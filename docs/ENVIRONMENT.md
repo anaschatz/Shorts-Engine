@@ -23,7 +23,7 @@ Protected API routes require an authenticated operator principal unless a demo/t
 | Variable | Required | Default | Allowed values | Secret | Staging recommendation | Fail-closed behavior |
 | --- | --- | --- | --- | --- | --- | --- |
 | `SHORTSENGINE_ENVIRONMENT` | No | `NODE_ENV` or `development` | `development`, `test`, `local`, `staging`, `production` | No | Set `staging` or `production` in deployed environments. | Invalid values fall back to development validation; staging/production still reject local anonymous auth. |
-| `SHORTSENGINE_AUTH_MODE` | No | `operator` | `operator`, `local` | No | Use `operator`. Use `local` only in explicit local demo/test scripts. | Unknown modes fail startup; `local` fails startup in staging/production. |
+| `SHORTSENGINE_AUTH_MODE` | No | `operator` | legacy app: `operator`, `local`; production composition root: `oidc` | No | Use `oidc` with the production entrypoint. Use `local` only in explicit local demo/test scripts. | Strict staging/production requires `oidc`; development auth cannot start there. |
 | `SHORTSENGINE_OPERATOR_ID` | No | `operator` | safe owner id, `3..80` chars | No | Set a stable deployment/operator owner id. | Invalid ids fail startup/readiness. |
 | `SHORTSENGINE_OPERATOR_AUTH_TOKEN` | Required for operator mode in staging/production | empty | strong bearer token, at least 24 bytes, no whitespace/control chars | Yes | Store only in the platform secret manager. | Missing token makes protected routes return `AUTH_CONFIG_MISSING`; missing in staging/production fails startup. Weak/example tokens fail startup. |
 
@@ -225,9 +225,17 @@ Action-aware framing is deterministic and safe by default. Optional OpenCV track
 
 ## Persistence adapter
 
+The table below documents the legacy/local application bootstrap. The production
+composition root additionally supports and requires `postgres`, together with
+`MATCHCUTS_QUEUE_ADAPTER=postgres`, `SHORTSENGINE_AUTH_MODE=oidc`,
+`MATCHCUTS_STORAGE_ADAPTER=r2` and `SHORTSENGINE_TELEMETRY_ADAPTER=postgres`.
+`DATABASE_URL` and the corresponding OIDC/R2 credentials are mandatory; missing
+configuration stops startup. Use `npm run staging:production:check` and
+[`STAGING_DEPLOYMENT.md`](STAGING_DEPLOYMENT.md) as the canonical deployed profile.
+
 | Variable | Required | Default | Allowed values | Secret | Staging recommendation | Fail-closed behavior |
 | --- | --- | --- | --- | --- | --- | --- |
-| `MATCHCUTS_PERSISTENCE_ADAPTER` | No | `local` | `local`, `sqlite` | No | Use `sqlite` for staging-like durable behavior. | Unsupported adapter fails readiness. |
+| `MATCHCUTS_PERSISTENCE_ADAPTER` | No | `local` | local bootstrap: `local`, `sqlite`; production root: `postgres` | No | Use `postgres` for deployed staging; `sqlite` is development-only. | Strict staging/production rejects every value except `postgres`. |
 | `MATCHCUTS_SQLITE_FILE` | No | `shortsengine.sqlite` | filename ending `.sqlite`, `.sqlite3`, or `.db` | No | Use a simple filename only. | Traversal, separators or invalid extension fail readiness. |
 
 When `sqlite` is enabled, the adapter owns projects, uploads, artifacts, exports, jobs, regeneration draft audits, regeneration approvals and approval outbox rows behind the same repository boundary used by local defaults. Approval audit/outbox rows store only safe identifiers, lifecycle statuses, timestamps and error codes; they must not include raw edit plans, captions, provider output, local paths, storage keys or secrets. `/health` reports aggregate repository readiness and outbox counts only.
@@ -393,9 +401,13 @@ The UI never displays raw OCR text, full frames, local absolute paths, storage k
 23. Inspect failure-only artifacts only if a gate fails.
 24. Configure GitHub branch protection as documented in `docs/RELEASE.md` and GitHub Environment protection as documented in `docs/STAGING_DEPLOYMENT.md`.
 
-## Render Staging Runtime
+## Historical local Render smoke runtime
 
-For the first live staging deployment, use a Render Node.js Web Service with:
+The settings below describe the older single-service smoke environment. They are
+kept only for local compatibility and do not satisfy the production-beta gate.
+For a live deployment use `render.yaml` and `docs/STAGING_DEPLOYMENT.md`.
+
+For the historical smoke environment, use a Render Node.js Web Service with:
 
 - Build command: `npm ci`
 - Start command: `npm start`
@@ -409,7 +421,9 @@ For the first live staging deployment, use a Render Node.js Web Service with:
 
 `npm run render:manual` prints the safe live setup checklist. `npm run render:proof` executes the local readiness chain in provider `none` mode so no Render API call is made.
 
-Render local filesystem storage is ephemeral unless a disk is attached. Treat local/mock-cloud storage as initial staging only; durable staging should move uploads/renders to object storage and use database-backed persistence.
+Render local filesystem storage is ephemeral unless a disk is attached. This
+local/mock-cloud profile is diagnostic only. Production-beta staging requires R2
+and PostgreSQL and fails closed instead of falling back to it.
 
 Animation preplan installs use full-project compare-and-swap. SQLite enforces
 the comparison in one conditional database update and is the supported choice

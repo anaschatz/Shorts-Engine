@@ -94,7 +94,7 @@ Place the licensed local file in the workspace or provide its source URL plus th
 rights basis. Then run discovery only:
 
 ```bash
-cd "/Users/anastaseschatzedakes/Desktop/short form /AI-Youtube-Shorts-Generator"
+cd "/path/to/AI-Youtube-Shorts-Generator"
 export LOCAL_OUTPUT_DIR="$PWD/output/pilot-bf-<source>-<date>"
 
 .venv/bin/python main.py "<SOURCE_URL_OR_LOCAL_PATH>" \

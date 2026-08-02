@@ -47,7 +47,7 @@ When you are ready to use the full OpenViking server:
 4. Add this project as a resource:
 
 ```bash
-ov add-resource "/Users/anastaseschatzedakes/Desktop/short form " --wait
+ov add-resource "/path/to/Shorts-Engine" --wait
 ov tree viking://resources -L 3
 ov find "upload validation idempotency export jobs"
 ```
