@@ -97,7 +97,7 @@ export function renderGeneralizedVisualHelper(scene) {
   return `<g data-helper="true" data-reveal="reveal">
     <rect ${attrs("panel_frame", "single_helper", b)} x="${b.x}" y="${b.y}" width="${b.width}" height="${b.height}" rx="28" class="helper-surface"/>
     <g ${attrs("grounded_label", "helper_grounded_copy", b)} data-legibility-role="secondary">
-      ${label(scene.grounded.onScreenText, b.x + b.width / 2, b.y + b.height / 2 + 10, 26, "helper-copy", "middle", b.width - 56, 3)}
+      ${label(scene.grounded.onScreenText, b.x + b.width / 2, b.y + b.height / 2 + 10, 30, "helper-copy", "middle", b.width - 64, 2)}
     </g>
   </g>`;
 }
@@ -149,13 +149,29 @@ function causeEffect(scene) {
 
 function comparison(scene) {
   const b = scene.layout.primary.bounds;
-  const points = scene.layout.geometry.points;
-  const baselineY = Math.max(...points.map((point) => point.y));
-  const bounds = { x: points[0].x - 30, y: Math.min(...points.map((point) => point.y)) - 42, width: points.at(-1).x - points[0].x + 60, height: baselineY - Math.min(...points.map((point) => point.y)) + 84 };
-  return `${panel(scene)}<g ${attrs("comparison_baseline", "common_baseline", bounds)}>
-    <path d="M${points[0].x} ${baselineY}H${points.at(-1).x}" class="line-art baseline"/>
-    ${points.slice(1).map((point, index) => `<g ${attrs("bounded_marker", `comparison_marker_${index + 1}`, { x: point.x - 28, y: point.y - 28, width: 56, height: baselineY - point.y + 56 }, 'data-reveal="reveal"')}><line x1="${point.x}" y1="${baselineY}" x2="${point.x}" y2="${point.y}" class="accent-stroke"/><circle cx="${point.x}" cy="${point.y}" r="22" class="marker-fill"/></g>`).join("")}
-    ${label("COMMON BASELINE", (points[0].x + points.at(-1).x) / 2, baselineY + 54, 18, "semantic-copy")}
+  const gap = 76;
+  const cardWidth = Math.floor((b.width - 120 - gap) / 2);
+  const cardHeight = 250;
+  const y = b.y + 166;
+  const left = { x: b.x + 60, y, width: cardWidth, height: cardHeight };
+  const right = { x: left.x + cardWidth + gap, y, width: cardWidth, height: cardHeight };
+  const centerY = y + cardHeight / 2;
+  return `${panel(scene)}<g ${attrs("comparison_baseline", "paired_state_comparison", { x: left.x, y, width: right.x + right.width - left.x, height: cardHeight })}>
+    <g ${attrs("bounded_marker", "reference_state", left)}>
+      <rect x="${left.x}" y="${left.y}" width="${left.width}" height="${left.height}" rx="32" class="counter-cell"/>
+      ${label("BEFORE", left.x + left.width / 2, left.y + 55, 20, "semantic-copy")}
+      <rect x="${left.x + 62}" y="${left.y + 112}" width="${left.width - 124}" height="62" rx="31" class="observed-region"/>
+      <circle cx="${left.x + 92}" cy="${left.y + 143}" r="19" class="route-dot"/>
+    </g>
+    <path data-draw-path="true" pathLength="100" d="M${left.x + left.width + 14} ${centerY}H${right.x - 22}" class="accent-stroke"/>
+    <path d="M${right.x - 48} ${centerY - 22}L${right.x - 18} ${centerY} ${right.x - 48} ${centerY + 22}" class="accent-stroke"/>
+    <g ${attrs("bounded_marker", "result_state", right, 'data-reveal="reveal"')}>
+      <rect x="${right.x}" y="${right.y}" width="${right.width}" height="${right.height}" rx="32" class="node-surface"/>
+      ${label("AFTER", right.x + right.width / 2, right.y + 55, 20, "semantic-copy")}
+      <rect x="${right.x + 62}" y="${right.y + 94}" width="${right.width - 124}" height="98" rx="49" class="observed-region"/>
+      <circle cx="${right.x + right.width - 92}" cy="${right.y + 143}" r="25" class="marker-fill"/>
+    </g>
+    ${label("STATE CHANGE", b.x + b.width / 2, y + cardHeight + 48, 20, "semantic-copy")}
   </g>`;
 }
 
@@ -193,9 +209,27 @@ function negativeSpace(scene) {
 
 function chronology(scene) {
   const b = scene.layout.primary.bounds;
-  const points = scene.layout.geometry.points;
-  const axis = { x: points[0].x, y: points[0].y - 46, width: points.at(-1).x - points[0].x, height: 92 };
-  return `${panel(scene)}<g ${attrs("chronology_axis", "ordered_chronology", axis)}><path data-draw-path="true" pathLength="100" d="M${points[0].x} ${points[0].y}H${points.at(-1).x}" class="accent-stroke"/>${points.map((point, index) => `<g ${attrs("chronology_event_marker", `chronology_event_${index + 1}`, { x: point.x - 24, y: point.y - 24, width: 48, height: 48 }, index ? 'data-reveal="reveal"' : "")} data-chronology-index="${index}"><circle cx="${point.x}" cy="${point.y}" r="${index === 2 ? 22 : 14}" class="${index === 2 ? "marker-fill active-chronology" : "route-dot"}"/><line x1="${point.x}" y1="${point.y - 42}" x2="${point.x}" y2="${point.y + 42}" class="line-art"/></g>`).join("")}${label("EARLIER", points[0].x, points[0].y - 76, 18, "semantic-copy")}${label("LATER", points.at(-1).x, points.at(-1).y - 76, 18, "semantic-copy")}</g>`;
+  const axisY = b.y + 326;
+  const xs = [b.x + 120, b.x + b.width / 2, b.x + b.width - 120];
+  const cardWidth = 190;
+  const cardHeight = 112;
+  const labels = ["START", "TURN", "NOW"];
+  const axis = { x: xs[0], y: b.y + 138, width: xs[2] - xs[0], height: 258 };
+  return `${panel(scene)}<g ${attrs("chronology_axis", "ordered_chronology", axis)}>
+    <path data-draw-path="true" pathLength="100" d="M${xs[0] - 38} ${axisY}H${xs[2] + 46}" class="accent-stroke"/>
+    <path d="M${xs[2] + 18} ${axisY - 20}L${xs[2] + 48} ${axisY} ${xs[2] + 18} ${axisY + 20}" class="accent-stroke"/>
+    ${xs.map((x, index) => {
+      const card = { x: x - cardWidth / 2, y: b.y + 140, width: cardWidth, height: cardHeight };
+      return `<g ${attrs("chronology_event_marker", `chronology_event_${index + 1}`, card, index ? 'data-reveal="reveal"' : "")} data-chronology-index="${index}">
+        <rect x="${card.x}" y="${card.y}" width="${card.width}" height="${card.height}" rx="26" class="${index === 2 ? "node-surface active-chronology" : "counter-cell"}"/>
+        ${label(labels[index], x, card.y + 66, index === 2 ? 24 : 20, index === 2 ? "heading-copy" : "semantic-copy")}
+        <line x1="${x}" y1="${card.y + card.height}" x2="${x}" y2="${axisY - 22}" class="line-art"/>
+        <circle cx="${x}" cy="${axisY}" r="${index === 2 ? 24 : 17}" class="${index === 2 ? "marker-fill active-chronology" : "route-dot"}"/>
+      </g>`;
+    }).join("")}
+    ${label("EARLIER", xs[0], axisY + 64, 18, "semantic-copy")}
+    ${label("LATER", xs[2], axisY + 64, 18, "semantic-copy")}
+  </g>`;
 }
 
 const RECIPE_RENDERERS = Object.freeze({
