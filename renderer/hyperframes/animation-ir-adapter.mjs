@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { compileGenericSemanticAnimationIRToHtml } from "./generic-semantic-animation.mjs";
 import { compileSemanticSentenceAnimationIRToHtml } from "./semantic-sentence-animation.mjs";
+import { compileEducationalExplainerAnimationIRToHtml } from "./educational-explainer-animation.mjs";
+import { compileGeneralizedVisualRecipeAdapterToHtml } from "./generalized-visual-recipes-v1.mjs";
 import { createOperationSchedule } from "./operation-scheduler.mjs";
 import { createPathMorph, pointsToPath } from "./primitives/path-morph.mjs";
 import { persistentSignalGeometry, persistentSignalPath } from "./primitives/persistent-signal.mjs";
@@ -57,13 +59,21 @@ function safeQaIds(values) {
 }
 
 function compositionQaPolicy(ir, html) {
+  const educationalExplainer =
+    ir.profileVersion === "1.4.0"
+    && ir.content?.educationalExplainer?.styleSpecId === "educational_line_art_reference_v1";
   const semanticSentence =
     ir.profileVersion === "1.3.0"
     && ir.content?.semantic?.profileId === "dark_curiosity_semantic_sentences_v3";
   const genericSemantic =
     ir.profileVersion === "1.2.0"
     && ir.content?.semantic?.profileId === "documented_mystery_semantic_v2";
-  const base = semanticSentence
+  const base = educationalExplainer
+    ? {
+      semanticRoi: { x: 36, y: 180, width: 648, height: 720 },
+      captionSafeZone: { x: 0, y: 972, width: 720, height: 308 },
+    }
+    : semanticSentence
     ? {
       semanticRoi: { x: 36, y: 180, width: 648, height: 746 },
       captionSafeZone: { x: 0, y: 948, width: 720, height: 332 },
@@ -496,6 +506,29 @@ window.__timelines=window.__timelines||{};window.__timelines[${safeJson(content.
 }
 
 export function compileAnimationIRToHtml(ir, options = {}) {
+  const educationalTuple = (
+    ir?.schemaVersion === 4
+    || ir?.profileVersion === "1.4.0"
+    || ir?.renderer?.styleVersion === "4.0.0"
+    || ir?.content?.educationalExplainer !== undefined
+  );
+  if (educationalTuple) {
+    if (
+      ir?.schemaVersion !== 4
+      || ir?.profile !== "dark_curiosity_continuous"
+      || ir?.profileVersion !== "1.4.0"
+      || ir?.renderer?.provider !== "hyperframes_local"
+      || ir?.renderer?.runtimeVersion !== "0.7.55"
+      || ir?.renderer?.styleVersion !== "4.0.0"
+      || ir?.content?.educationalExplainer?.styleSpecId !== "educational_line_art_reference_v1"
+    ) {
+      throw new TypeError("Educational explainer AnimationIR tuple is invalid.");
+    }
+    return attachCompositionQaPolicy(
+      compileEducationalExplainerAnimationIRToHtml(ir, options),
+      ir,
+    );
+  }
   const semanticSentenceTuple = (
     ir?.schemaVersion === 3
     || ir?.profileVersion === "1.3.0"
@@ -529,4 +562,11 @@ export function compileAnimationIRToHtml(ir, options = {}) {
     ? compileSemanticAnimationIRToHtml(ir)
     : compileLegacyAnimationIRToHtml(ir);
   return attachCompositionQaPolicy(compiled, ir);
+}
+
+export function compileGeneralizedVisualProgramAdapterToHtml(
+  adapter,
+  trustedContext = {},
+) {
+  return compileGeneralizedVisualRecipeAdapterToHtml(adapter, trustedContext);
 }

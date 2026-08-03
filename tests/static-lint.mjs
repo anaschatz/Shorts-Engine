@@ -58,6 +58,7 @@ const ciDocs = readFileSync("demo/CI.md", "utf8");
 const releaseDocs = readFileSync("docs/RELEASE.md", "utf8");
 const githubWorkflow = readFileSync(".github/workflows/ci.yml", "utf8");
 const stagingWorkflow = readFileSync(".github/workflows/staging.yml", "utf8");
+const nodeTestRunner = readFileSync("scripts/run-node-tests.mjs", "utf8");
 const packageJson = readFileSync("package.json", "utf8");
 const gitignore = readFileSync(".gitignore", "utf8");
 
@@ -339,7 +340,9 @@ assert.match(browserSmoke, /manualChecklistRequired/, "browser smoke should docu
 assert.match(browserSmoke, /api_demo_smoke_passed/, "browser smoke should include the API E2E fallback");
 assert.match(browserSmoke, /findSensitiveLeak/, "browser smoke should fail closed with safe leak metadata");
 assert.match(packageJson, /"demo:browser:e2e": "node demo\/run-playwright-smoke\.mjs"/, "package should expose the Playwright browser E2E script");
-assert.match(packageJson, /--test-timeout=120000/, "npm test should have a bounded timeout instead of hanging silently");
+assert.match(packageJson, /"test": "node scripts\/run-node-tests\.mjs"/, "npm test should use the bounded suite runner");
+assert.match(nodeTestRunner, /DEFAULT_TIMEOUT_MS = 30 \* 60 \* 1000/, "Node tests should have a suite-level timeout");
+assert.doesNotMatch(nodeTestRunner, /--test-timeout/, "Node tests should not start per-file timeouts while files are queued serially");
 assert.match(packageJson, /"branch:doctor": "node tools\/release\/check-branch-protection\.mjs"/, "package should expose branch policy doctor");
 assert.match(packageJson, /"branch:proof": "node tools\/release\/write-branch-protection-proof\.mjs"/, "package should expose branch policy proof generation");
 assert.match(packageJson, /"branch:setup": "node tools\/release\/print-branch-ruleset-setup\.mjs"/, "package should expose branch ruleset setup guidance");
@@ -355,6 +358,7 @@ assert.match(packageJson, /"render:check": "node tools\/release\/check-render-st
 assert.match(packageJson, /"render:manual": "node tools\/release\/print-render-staging-checklist\.mjs"/, "package should expose the live Render manual checklist");
 assert.match(packageJson, /"render:proof": "node tools\/release\/render-staging-proof\.mjs"/, "package should expose the no-network Render staging proof");
 assert.match(packageJson, /"staging:check": "node tools\/release\/check-staging-readiness\.mjs"/, "package should expose staging readiness validation");
+assert.match(packageJson, /"staging:production:check": "node tools\/release\/check-production-staging-readiness\.mjs"/, "package should expose strict production staging validation");
 assert.match(packageJson, /"staging:deploy": "node tools\/release\/staging-deploy\.mjs"/, "package should expose provider-specific staging deploy");
 assert.match(packageJson, /"staging:smoke": "node tools\/release\/check-staging-smoke\.mjs"/, "package should expose deployed staging smoke");
 assert.match(packageJson, /"staging:smoke:full": "node tools\/release\/check-staging-full-smoke\.mjs"/, "package should expose opt-in full staging smoke");
@@ -884,16 +888,15 @@ assert.doesNotMatch(stagingDocs, /sk-[A-Za-z0-9_-]{20,}|AKIA[A-Z0-9]{12,}|Bearer
 assert.match(stagingWorkflow, /workflow_dispatch:/, "staging workflow should support manual dispatch");
 assert.match(stagingWorkflow, /workflow_run:[\s\S]*ShortsEngine CI/, "staging workflow should run after successful CI");
 assert.match(stagingWorkflow, /environment:[\s\S]*name:\s*staging/, "staging workflow should use GitHub Environment staging");
-assert.match(stagingWorkflow, /npm run env:check/, "staging workflow should run env readiness");
-assert.match(stagingWorkflow, /npm run staging:check/, "staging workflow should run staging readiness");
-assert.match(stagingWorkflow, /npm run render:check/, "staging workflow should run Render staging configuration readiness");
+assert.match(stagingWorkflow, /npm run staging:production:check/, "staging workflow should run strict production staging readiness");
 assert.match(stagingWorkflow, /npm run staging:deploy/, "staging workflow should run provider-specific staging deploy");
 assert.match(stagingWorkflow, /npm run staging:smoke/, "staging workflow should include deployed smoke");
 assert.match(stagingWorkflow, /Provider-specific staging deploy/, "staging workflow should name the provider-specific deploy step");
 assert.match(stagingWorkflow, /SHORTSENGINE_STAGING_SERVICE_ID/, "staging workflow should expose the Render service id variable");
 assert.doesNotMatch(stagingWorkflow, /SHORTSENGINE_BROWSER_E2E_ALLOW_SKIP/, "staging workflow must not skip required browser/runtime checks");
 assert.doesNotMatch(stagingWorkflow, /integration:cloud|MATCHCUTS_RUN_REAL_CLOUD_TESTS/, "staging workflow must not run real cloud integration by default");
-assert.doesNotMatch(stagingWorkflow, /uses:\s*actions\/upload-artifact@v4/, "staging workflow should not upload artifacts by default");
+assert.match(stagingWorkflow, /uses:\s*actions\/upload-artifact@v4[\s\S]*release\/results\/staging-credentials-readiness\.json/, "staging workflow should upload only the sanitized readiness report");
+assert.doesNotMatch(stagingWorkflow, /\|\|\s*['"](?:sqlite|local|mock|none|operator|memory)['"]/, "staging workflow should not use local or mock adapter fallbacks");
 assert.doesNotMatch(stagingWorkflow, /node_modules|data\/(?:uploads|renders|db|jobs|artifacts)|var\/|\.env|AKIA[A-Z0-9]{12,}|sk-[A-Za-z0-9_-]{20,}|Bearer\s+[A-Za-z0-9._-]{10,}/i, "staging workflow must not include unsafe local state or hardcoded secrets");
 
 assert.match(css, /\[hidden\]\s*{[^}]*display:\s*none\s*!important/s, "hidden controls must not be overridden by display styles");

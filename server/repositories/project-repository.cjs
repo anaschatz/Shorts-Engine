@@ -98,12 +98,15 @@ function normalizeActiveAnimationScenePlan(value = null) {
   if (!/^[a-z][a-z0-9_-]{1,159}$/.test(promptProfileId)) {
     throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "input.activeAnimationScenePlan.promptProfileId" });
   }
-  if (value.status !== "ready" || value.animationProfile !== "semantic-v3") {
+  if (
+    value.status !== "ready"
+    || !["semantic-v3", "educational-explainer-v1"].includes(value.animationProfile)
+  ) {
     throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400, { field: "input.activeAnimationScenePlan.status" });
   }
   return {
     status: "ready",
-    animationProfile: "semantic-v3",
+    animationProfile: value.animationProfile,
     projectRevision,
     planArtifactId: validateArtifactId(value.planArtifactId, "input.activeAnimationScenePlan.planArtifactId"),
     planHash: validateHash(value.planHash, "input.activeAnimationScenePlan.planHash"),

@@ -1,0 +1,150 @@
+{
+  "schemaVersion": 1,
+  "id": "wow_signal_full_manual_v1",
+  "profile": "educational_explainer_full_manual_v1",
+  "title": "The signal that appeared once",
+  "narration": "In 1977, one radio signal looked so unusual that an astronomer wrote one word: Wow. It arrived near a frequency researchers considered promising for interstellar communication and lasted seventy-two seconds. Its strength rose and fell as the telescope beam crossed the source, making ordinary local interference less convincing. But later searches never verified the same signal again, and no confirmed transmission has explained it. The honest answer is not aliens. It is one strong unexplained candidate that left no repeatable proof.",
+  "fps": 30,
+  "width": 1080,
+  "height": 1920,
+  "durationFrames": 1031,
+  "audio": {
+    "sourcePath": "data/audio/narration/prj_d0801ca2-53ce-43b3-8faa-cee2893dc01c/e9ad1ddeca26289753a0fcb75b117935c98dac03188129d3139580a13f1297c9.wav",
+    "sourceSha256": "7fb1c8e50dc132674facf372da28eb45b71e2002365e870f83fc3c1c3e30f28f",
+    "speed": 1,
+    "transformation": "complete_source_loudness_normalization_only"
+  },
+  "alignment": {
+    "path": "data/artifacts/content/prj_d0801ca2-53ce-43b3-8faa-cee2893dc01c/narration_alignment/039dc4368f9b84bf6be2293bd0974731e6135ab3865190927bb87010cd832aa8.json",
+    "contentHash": "803933bbd00cdd22131790351ec0540a9141a5aaafe8d008181d8bb38a3fb694"
+  },
+  "anchors": {
+    "overviewCompleteFrame": 78,
+    "wowWordStartFrame": 183,
+    "wowWordEndFrame": 190,
+    "wowWriteLandFrame": 187,
+    "frequencyStartFrame": 238,
+    "durationMorphStartFrame": 345,
+    "seventyTwoWordStartFrame": 374,
+    "seventyTwoRevealFrame": 374,
+    "beamSequenceStartFrame": 426,
+    "beamPeakFrame": 498,
+    "interferenceStartFrame": 547,
+    "searchStartFrame": 649,
+    "noTransmissionFrame": 754,
+    "honestAnswerFrame": 825,
+    "notAliensFrame": 857,
+    "finalCandidateFrame": 886,
+    "unexplainedFrame": 924,
+    "noRepeatFrame": 988,
+    "speechEndFrame": 1025
+  },
+  "storyboard": [
+    {
+      "id": "arrival_overview",
+      "startFrame": 0,
+      "endFrame": 96,
+      "communicates": "A radio signal arrives from the sky at the telescope; the trace and Wow annotation preview the evidence chain."
+    },
+    {
+      "id": "unusual_signal_wow",
+      "startFrame": 96,
+      "endFrame": 198,
+      "communicates": "The unusual rise-and-fall trace becomes the circled printout and handwritten Wow annotation."
+    },
+    {
+      "id": "frequency_context",
+      "startFrame": 198,
+      "endFrame": 345,
+      "communicates": "The observation occupies a narrow highlighted frequency region connected back to the telescope."
+    },
+    {
+      "id": "seventy_two_seconds",
+      "startFrame": 345,
+      "endFrame": 426,
+      "communicates": "The persistent observation becomes a measured 72-second duration axis."
+    },
+    {
+      "id": "beam_mechanism",
+      "startFrame": 426,
+      "endFrame": 547,
+      "communicates": "A telescope beam crosses one fixed source while the bound signal-strength trace rises and falls."
+    },
+    {
+      "id": "interference_inference",
+      "startFrame": 547,
+      "endFrame": 649,
+      "communicates": "A local jagged interference pattern fails to match the smooth beam response and loses emphasis."
+    },
+    {
+      "id": "later_searches",
+      "startFrame": 649,
+      "endFrame": 754,
+      "communicates": "Multiple later telescope scans complete without reproducing the original peak."
+    },
+    {
+      "id": "no_confirmed_transmission",
+      "startFrame": 754,
+      "endFrame": 825,
+      "communicates": "The completed scans accumulate, but none matches the documented observation."
+    },
+    {
+      "id": "honest_conclusion",
+      "startFrame": 825,
+      "endFrame": 886,
+      "communicates": "Speculative branches withdraw, leaving only the original observation and the conclusion not proof."
+    },
+    {
+      "id": "unexplained_no_repeat",
+      "startFrame": 886,
+      "endFrame": 1031,
+      "communicates": "One strong unexplained observation remains above several empty repeat scans."
+    }
+  ],
+  "meaningfulChanges": [
+    { "id": "telescope_draw", "frame": 0, "meaning": "Radio telescope begins drawing." },
+    { "id": "signal_arrival", "frame": 42, "meaning": "Signal starts travelling from the sky." },
+    { "id": "overview_complete", "frame": 78, "meaning": "Telescope, signal trace and Wow annotation form the story overview." },
+    { "id": "trace_focus", "frame": 96, "meaning": "Focus moves into the observed signal trace." },
+    { "id": "printout_reveal", "frame": 139, "meaning": "The trace resolves into the observation printout." },
+    { "id": "wow_written", "frame": 187, "meaning": "The handwritten Wow lands on the spoken word." },
+    { "id": "frequency_scale", "frame": 198, "meaning": "The observation transitions into frequency context." },
+    { "id": "frequency_region", "frame": 238, "meaning": "A narrow frequency region is highlighted." },
+    { "id": "frequency_significance", "frame": 299, "meaning": "The highlighted region connects back to the observing telescope." },
+    { "id": "duration_morph", "frame": 345, "meaning": "The observation begins morphing into a duration axis." },
+    { "id": "duration_reveal", "frame": 374, "meaning": "72 seconds appears on the corresponding narration anchor." },
+    { "id": "duration_complete", "frame": 409, "meaning": "The measured 72-second traversal completes." },
+    { "id": "beam_setup", "frame": 426, "meaning": "A fixed source and telescope beam establish the mechanism." },
+    { "id": "strength_response", "frame": 468, "meaning": "The observed strength begins responding to beam position." },
+    { "id": "beam_peak", "frame": 498, "meaning": "Beam center and signal peak coincide." },
+    { "id": "interference_enters", "frame": 547, "meaning": "A local interference trace enters for evidence comparison." },
+    { "id": "interference_mismatch", "frame": 584, "meaning": "The jagged local trace visibly fails to match the beam curve." },
+    { "id": "interference_recedes", "frame": 632, "meaning": "The weaker interference explanation loses emphasis." },
+    { "id": "later_scans_begin", "frame": 649, "meaning": "Later telescope scans begin." },
+    { "id": "empty_scan_two", "frame": 690, "meaning": "A second completed scan remains empty." },
+    { "id": "empty_scan_three", "frame": 728, "meaning": "A third completed scan remains empty." },
+    { "id": "match_attempt", "frame": 754, "meaning": "Completed scans are tested against the original observation." },
+    { "id": "no_match", "frame": 801, "meaning": "No confirmed transmission matches the original." },
+    { "id": "honest_answer", "frame": 825, "meaning": "Speculative branches withdraw from the observed evidence." },
+    { "id": "not_proof", "frame": 863, "meaning": "The evidence resolves to not proof." },
+    { "id": "final_candidate", "frame": 886, "meaning": "The original observation returns as the sole strong candidate." },
+    { "id": "unexplained", "frame": 924, "meaning": "Unexplained appears beside the original evidence." },
+    { "id": "empty_repeats", "frame": 968, "meaning": "Empty repeat scans settle beneath the observation." },
+    { "id": "no_verified_repeat", "frame": 1016, "meaning": "No verified repeat completes the final composition." }
+  ],
+  "visibleTextAllowlist": [
+    "The signal that appeared once",
+    "signal strength",
+    "Wow!",
+    "frequency",
+    "72 seconds",
+    "not proof",
+    "unexplained",
+    "no verified repeat"
+  ],
+  "humanReview": {
+    "status": "pending",
+    "dimensions": ["clarity", "hierarchy", "pacing", "polish", "originality"],
+    "minimumScore": 4
+  }
+}

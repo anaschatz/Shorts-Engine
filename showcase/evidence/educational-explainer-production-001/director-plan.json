@@ -1,0 +1,361 @@
+{
+  "schemaVersion": 1,
+  "profile": "educational_director_plan_v1",
+  "profileVersion": "1.0.0",
+  "bindings": {
+    "draftHash": "67036a35f5336d70cff06e5851cb1b1993783b06825269dae64d1f02ae221f69",
+    "sentencePlanHash": "5ad974fbd731644bb1ca2799a0b86181bea9ca0a79242d078c0d228a7fa67b0c",
+    "beatGraphHash": "ec905b64ee2eca769780b4c5f890dcd26a75d62d00904504fd39863f4b6224ef",
+    "styleSpecHash": "f5b929bd6ad4e2b02d4bf940029270cadb3eb15718fe07923ce2e0e7ed39aa65",
+    "assetManifestHash": "4318c2b1eb03fef35195f224519d271d3cd320ae0ef4052c9c6e04ede0870366"
+  },
+  "promise": {
+    "title": "The signal that appeared once",
+    "persistentFromFrame": 0,
+    "persistentToFrame": 1350
+  },
+  "sections": [
+    {
+      "id": "direction_hook",
+      "sectionId": "section_hook",
+      "layout": "overview_grid",
+      "persistentEntityIds": [
+        "promise_header",
+        "story_thread"
+      ],
+      "microbeatIds": [
+        "micro_hook_01"
+      ]
+    },
+    {
+      "id": "direction_context",
+      "sectionId": "section_context",
+      "layout": "diagram_focus",
+      "persistentEntityIds": [
+        "promise_header",
+        "story_thread"
+      ],
+      "microbeatIds": [
+        "micro_context_01",
+        "micro_context_02"
+      ]
+    },
+    {
+      "id": "direction_evidence",
+      "sectionId": "section_evidence",
+      "layout": "split_explain",
+      "persistentEntityIds": [
+        "promise_header",
+        "story_thread"
+      ],
+      "microbeatIds": [
+        "micro_evidence_01",
+        "micro_evidence_02"
+      ]
+    },
+    {
+      "id": "direction_turn",
+      "sectionId": "section_turn",
+      "layout": "story_scene",
+      "persistentEntityIds": [
+        "promise_header",
+        "story_thread"
+      ],
+      "microbeatIds": [
+        "micro_turn_01",
+        "micro_turn_02"
+      ]
+    },
+    {
+      "id": "direction_payoff",
+      "sectionId": "section_payoff",
+      "layout": "cta_network",
+      "persistentEntityIds": [
+        "promise_header",
+        "story_thread"
+      ],
+      "microbeatIds": [
+        "micro_payoff_01",
+        "micro_payoff_02"
+      ]
+    }
+  ],
+  "microbeats": [
+    {
+      "id": "cue_micro_hook_01",
+      "microbeatId": "micro_hook_01",
+      "recipe": "comparison",
+      "transition": "draw_reveal",
+      "focusEntityId": "entity_story_timeline",
+      "assetId": "timeline_axis",
+      "accentTone": "accent",
+      "typography": {
+        "sectionTitle": "A signal appeared once",
+        "semanticPhrase": "In 1977, one radio signal looked so unusual that an astronomer wrote one word: Wow.",
+        "label": "timeline axis"
+      },
+      "audioCue": "sfx_soft_tick"
+    },
+    {
+      "id": "cue_micro_context_01",
+      "microbeatId": "micro_context_01",
+      "recipe": "comparison",
+      "transition": "match_morph",
+      "focusEntityId": "entity_story_timeline",
+      "assetId": "timeline_axis",
+      "accentTone": "accent",
+      "typography": {
+        "sectionTitle": "72 seconds near a notable frequency",
+        "semanticPhrase": "It arrived near a frequency researchers considered promising for interstellar communication and lasted",
+        "label": "timeline axis"
+      },
+      "audioCue": null
+    },
+    {
+      "id": "cue_micro_context_02",
+      "microbeatId": "micro_context_02",
+      "recipe": "comparison",
+      "transition": "focus_lens",
+      "focusEntityId": "entity_story_timeline",
+      "assetId": "timeline_axis",
+      "accentTone": "accent",
+      "typography": {
+        "sectionTitle": "72 seconds near a notable frequency",
+        "semanticPhrase": "seventy-two seconds.",
+        "label": "timeline axis"
+      },
+      "audioCue": null
+    },
+    {
+      "id": "cue_micro_evidence_01",
+      "microbeatId": "micro_evidence_01",
+      "recipe": "process_flow",
+      "transition": "mask_wipe",
+      "focusEntityId": "entity_story_mapping",
+      "assetId": "mapping_table",
+      "accentTone": "accent",
+      "typography": {
+        "sectionTitle": "The signal followed the telescope beam",
+        "semanticPhrase": "Its strength rose and fell as the telescope beam crossed the source,",
+        "label": "mapping table"
+      },
+      "audioCue": null
+    },
+    {
+      "id": "cue_micro_evidence_02",
+      "microbeatId": "micro_evidence_02",
+      "recipe": "process_flow",
+      "transition": "scale_focus",
+      "focusEntityId": "entity_story_mapping",
+      "assetId": "mapping_table",
+      "accentTone": "accent",
+      "typography": {
+        "sectionTitle": "The signal followed the telescope beam",
+        "semanticPhrase": "making ordinary local interference less convincing.",
+        "label": "mapping table"
+      },
+      "audioCue": null
+    },
+    {
+      "id": "cue_micro_turn_01",
+      "microbeatId": "micro_turn_01",
+      "recipe": "comparison",
+      "transition": "draw_reveal",
+      "focusEntityId": "entity_story_hypothesis",
+      "assetId": "hypothesis_card",
+      "accentTone": "accent",
+      "typography": {
+        "sectionTitle": "It never repeated",
+        "semanticPhrase": "But later searches never verified the same signal again,",
+        "label": "hypothesis card"
+      },
+      "audioCue": null
+    },
+    {
+      "id": "cue_micro_turn_02",
+      "microbeatId": "micro_turn_02",
+      "recipe": "comparison",
+      "transition": "match_morph",
+      "focusEntityId": "entity_story_hypothesis",
+      "assetId": "hypothesis_card",
+      "accentTone": "accent",
+      "typography": {
+        "sectionTitle": "It never repeated",
+        "semanticPhrase": "and no confirmed transmission has explained it.",
+        "label": "hypothesis card"
+      },
+      "audioCue": null
+    },
+    {
+      "id": "cue_micro_payoff_01",
+      "microbeatId": "micro_payoff_01",
+      "recipe": "formula",
+      "transition": "focus_lens",
+      "focusEntityId": "entity_signal_hypothesis",
+      "assetId": "hypothesis_card",
+      "accentTone": "signal",
+      "typography": {
+        "sectionTitle": "Unexplained is not proof",
+        "semanticPhrase": "The honest answer is",
+        "label": "hypothesis card"
+      },
+      "audioCue": null
+    },
+    {
+      "id": "cue_micro_payoff_02",
+      "microbeatId": "micro_payoff_02",
+      "recipe": "comparison",
+      "transition": "mask_wipe",
+      "focusEntityId": "entity_story_hypothesis",
+      "assetId": "hypothesis_card",
+      "accentTone": "signal",
+      "typography": {
+        "sectionTitle": "Unexplained is not proof",
+        "semanticPhrase": "not aliens. It is one strong unexplained candidate that left no repeatable proof.",
+        "label": "hypothesis card"
+      },
+      "audioCue": "sfx_soft_whoosh"
+    }
+  ],
+  "visualEvents": [
+    {
+      "id": "visual_event_001",
+      "microbeatId": "micro_hook_01",
+      "frame": 0,
+      "type": "state_change"
+    },
+    {
+      "id": "visual_event_002",
+      "microbeatId": "micro_hook_01",
+      "frame": 74,
+      "type": "focus_shift"
+    },
+    {
+      "id": "visual_event_003",
+      "microbeatId": "micro_hook_01",
+      "frame": 148,
+      "type": "focus_shift"
+    },
+    {
+      "id": "visual_event_004",
+      "microbeatId": "micro_hook_01",
+      "frame": 222,
+      "type": "focus_shift"
+    },
+    {
+      "id": "visual_event_005",
+      "microbeatId": "micro_context_01",
+      "frame": 255,
+      "type": "state_change"
+    },
+    {
+      "id": "visual_event_006",
+      "microbeatId": "micro_context_01",
+      "frame": 329,
+      "type": "focus_shift"
+    },
+    {
+      "id": "visual_event_007",
+      "microbeatId": "micro_context_01",
+      "frame": 403,
+      "type": "focus_shift"
+    },
+    {
+      "id": "visual_event_008",
+      "microbeatId": "micro_context_01",
+      "frame": 477,
+      "type": "focus_shift"
+    },
+    {
+      "id": "visual_event_009",
+      "microbeatId": "micro_context_02",
+      "frame": 479,
+      "type": "state_change"
+    },
+    {
+      "id": "visual_event_010",
+      "microbeatId": "micro_evidence_01",
+      "frame": 546,
+      "type": "state_change"
+    },
+    {
+      "id": "visual_event_011",
+      "microbeatId": "micro_evidence_01",
+      "frame": 620,
+      "type": "focus_shift"
+    },
+    {
+      "id": "visual_event_012",
+      "microbeatId": "micro_evidence_01",
+      "frame": 694,
+      "type": "focus_shift"
+    },
+    {
+      "id": "visual_event_013",
+      "microbeatId": "micro_evidence_02",
+      "frame": 700,
+      "type": "state_change"
+    },
+    {
+      "id": "visual_event_014",
+      "microbeatId": "micro_evidence_02",
+      "frame": 774,
+      "type": "focus_shift"
+    },
+    {
+      "id": "visual_event_015",
+      "microbeatId": "micro_turn_01",
+      "frame": 830,
+      "type": "state_change"
+    },
+    {
+      "id": "visual_event_016",
+      "microbeatId": "micro_turn_01",
+      "frame": 904,
+      "type": "focus_shift"
+    },
+    {
+      "id": "visual_event_017",
+      "microbeatId": "micro_turn_02",
+      "frame": 944,
+      "type": "state_change"
+    },
+    {
+      "id": "visual_event_018",
+      "microbeatId": "micro_turn_02",
+      "frame": 1018,
+      "type": "focus_shift"
+    },
+    {
+      "id": "visual_event_019",
+      "microbeatId": "micro_payoff_01",
+      "frame": 1063,
+      "type": "state_change"
+    },
+    {
+      "id": "visual_event_020",
+      "microbeatId": "micro_payoff_02",
+      "frame": 1104,
+      "type": "state_change"
+    },
+    {
+      "id": "visual_event_021",
+      "microbeatId": "micro_payoff_02",
+      "frame": 1178,
+      "type": "focus_shift"
+    },
+    {
+      "id": "visual_event_022",
+      "microbeatId": "micro_payoff_02",
+      "frame": 1252,
+      "type": "focus_shift"
+    },
+    {
+      "id": "visual_event_023",
+      "microbeatId": "micro_payoff_02",
+      "frame": 1326,
+      "type": "focus_shift"
+    }
+  ],
+  "contentHash": "bb38641d2f21aa3e47643e44bb3a41c66e41acbc17dcd2d51b76b07128f87c8b"
+}

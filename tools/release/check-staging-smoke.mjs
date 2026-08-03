@@ -55,6 +55,30 @@ function validateHealthPayload(payload) {
   if (!payload || typeof payload !== "object" || payload.ok !== true || !payload.data || typeof payload.data !== "object") {
     throw new StagingSmokeError("STAGING_HEALTH_SHAPE_INVALID", "Staging health response shape is invalid.");
   }
+  if (typeof payload.data.ready === "boolean" && payload.data.role === "web") {
+    if (!payload.data.adapters || typeof payload.data.adapters !== "object") {
+      throw new StagingSmokeError("STAGING_HEALTH_SECTION_MISSING", "Production staging health is missing adapter readiness.");
+    }
+    const requiredAdapters = ["persistence", "queue", "auth", "storage", "observability", "worker"];
+    if (requiredAdapters.some((name) => !payload.data.adapters[name] || typeof payload.data.adapters[name] !== "object")) {
+      throw new StagingSmokeError("STAGING_HEALTH_SECTION_MISSING", "Production staging health is missing required adapters.");
+    }
+    const leak = findSensitiveLeak(payload);
+    if (leak) {
+      throw new StagingSmokeError("STAGING_HEALTH_LEAK", "Staging health response contains sensitive data.", {
+        leakCode: leak.code,
+        leakPath: leak.path,
+      });
+    }
+    return {
+      service: "shortsengine-production",
+      status: payload.data.ready ? "ready" : "degraded",
+      ready: payload.data.ready,
+      degraded: !payload.data.ready,
+      requestIdPresent: typeof payload.requestId === "string" && payload.requestId.length > 0,
+      sectionsChecked: requiredAdapters,
+    };
+  }
   const status = payload.data.status;
   if (!["ready", "degraded"].includes(status)) {
     throw new StagingSmokeError("STAGING_HEALTH_STATUS_INVALID", "Staging health status is invalid.");

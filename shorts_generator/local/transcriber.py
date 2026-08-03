@@ -8,7 +8,6 @@ import hashlib
 import os
 import re
 import subprocess
-import tempfile
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
@@ -18,6 +17,7 @@ from ..config import (
     LOCAL_WHISPER_DEVICE,
     LOCAL_WHISPER_MODEL,
 )
+from ..atomic_file import atomic_write_text as _write_text_atomically
 
 
 TRANSCRIPT_CACHE_SCHEMA_VERSION = 3
@@ -28,22 +28,7 @@ FFMPEG_DECODE_ENV = "LOCAL_WHISPER_FFMPEG_DECODE"
 
 def _atomic_write_text(path: Path, content: str) -> None:
     """Atomically replace a small cache file in its destination directory."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary_name = tempfile.mkstemp(
-        dir=str(path.parent),
-        prefix=f".{path.name}.",
-        suffix=".tmp",
-    )
-    temporary_path = Path(temporary_name)
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            handle.write(content)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary_path, path)
-    except BaseException:
-        temporary_path.unlink(missing_ok=True)
-        raise
+    _write_text_atomically(path, content)
 
 
 def _source_stat_fingerprint(path: Path) -> Dict:

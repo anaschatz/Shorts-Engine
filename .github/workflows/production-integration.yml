@@ -1,0 +1,61 @@
+name: Production integration
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-s3-multi-worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Credential scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install locked Node dependencies
+        run: npm ci
+
+      - name: Start disposable PostgreSQL and S3-compatible services
+        run: docker compose -f compose.production-test.yml up -d --wait
+
+      - name: Show disposable service diagnostics
+        if: failure()
+        run: |
+          docker compose -f compose.production-test.yml ps
+          docker compose -f compose.production-test.yml logs --no-color --tail=200
+
+      - name: Run migrations, multi-worker queue and object-storage integration
+        run: npm run integration:production
+        env:
+          SHORTSENGINE_PROOF_COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Upload sanitized reduced proof
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage2-local-integration-proof
+          path: release/results/stage2-local-integration-proof.json
+          if-no-files-found: error
+
+      - name: Stop disposable services
+        if: always()
+        run: docker compose -f compose.production-test.yml down --volumes

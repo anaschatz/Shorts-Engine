@@ -70,6 +70,7 @@ from ..winner_packaging import (
     evaluate_winner_packaging_evidence,
     normalize_caption_tokens,
 )
+from .bounded_file_cache import prune_bounded_cache
 
 
 CAPTION_FONT_SIZE = 50
@@ -3052,32 +3053,7 @@ def _prune_realesrgan_cache(
     max_bytes: int = REAL_ESRGAN_CACHE_MAX_BYTES,
 ) -> Tuple[int, int]:
     """Remove least-recently-used PNGs only after the configured budget is exceeded."""
-    if not cache_dir.is_dir():
-        return 0, 0
-    entries = []
-    total_bytes = 0
-    for path in cache_dir.glob("*/*.png"):
-        try:
-            stat = path.stat()
-        except OSError:
-            continue
-        total_bytes += stat.st_size
-        entries.append((stat.st_mtime_ns, stat.st_size, path))
-    if total_bytes <= max_bytes:
-        return 0, total_bytes
-
-    target_bytes = int(max_bytes * 0.90)
-    removed = 0
-    for _, size, path in sorted(entries):
-        try:
-            path.unlink()
-        except OSError:
-            continue
-        total_bytes -= size
-        removed += 1
-        if total_bytes <= target_bytes:
-            break
-    return removed, total_bytes
+    return prune_bounded_cache(cache_dir, "*/*.png", max_bytes)
 
 
 def _blend_realesrgan_reference(
@@ -5150,32 +5126,7 @@ def _prune_lossless_cut_cache(
 ) -> Tuple[int, int]:
     cache_dir = cache_dir or LOSSLESS_CUT_CACHE_DIR
     max_bytes = max_bytes or LOSSLESS_CUT_CACHE_MAX_BYTES
-    if not cache_dir.is_dir():
-        return 0, 0
-    entries = []
-    total_bytes = 0
-    for path in cache_dir.glob("*/*.mkv"):
-        try:
-            stat = path.stat()
-        except OSError:
-            continue
-        entries.append((stat.st_mtime_ns, stat.st_size, path))
-        total_bytes += stat.st_size
-    if total_bytes <= max_bytes:
-        return 0, total_bytes
-
-    target_bytes = int(max_bytes * 0.90)
-    removed = 0
-    for _, size, path in sorted(entries):
-        try:
-            path.unlink()
-        except OSError:
-            continue
-        total_bytes -= size
-        removed += 1
-        if total_bytes <= target_bytes:
-            break
-    return removed, total_bytes
+    return prune_bounded_cache(cache_dir, "*/*.mkv", max_bytes)
 
 
 def _get_or_create_lossless_cut(

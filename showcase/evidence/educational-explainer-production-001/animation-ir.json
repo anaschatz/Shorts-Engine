@@ -1,0 +1,4924 @@
+{
+  "schemaVersion": 4,
+  "profile": "dark_curiosity_continuous",
+  "profileVersion": "1.4.0",
+  "projectId": "prj_educational_explainer_production_001",
+  "projectRevision": 1,
+  "verticalId": "dark_curiosity",
+  "width": 1080,
+  "height": 1920,
+  "fps": 30,
+  "durationFrames": 1350,
+  "draftHash": "67036a35f5336d70cff06e5851cb1b1993783b06825269dae64d1f02ae221f69",
+  "alignmentHash": "66bf1d555b431b44290e8b511e8249743849d09add3a3f5bbb0b3d8fd5919c42",
+  "assetManifestHash": "4318c2b1eb03fef35195f224519d271d3cd320ae0ef4052c9c6e04ede0870366",
+  "renderer": {
+    "provider": "hyperframes_local",
+    "runtimeVersion": "0.7.55",
+    "styleVersion": "4.0.0"
+  },
+  "seed": 1305363183,
+  "content": {
+    "compositionId": "edu_bb38641d2f21aa3e47643e44",
+    "kicker": "VISUAL EXPLAINER",
+    "titleLines": [
+      "THE SIGNAL THAT",
+      "APPEARED ONCE"
+    ],
+    "metricValue": "1977",
+    "metricLabel": "IT ARRIVED NEAR A FREQUENCY RESEARCHERS CONSIDERED PROMISING FOR INTERST",
+    "evidenceCode": "MAPPING_TABLE",
+    "evidenceLabel": "ITS STRENGTH ROSE AND FELL AS THE TELESCOPE BEAM CROSSED THE SOURCE,",
+    "reasoningLeft": "THE HONEST ANSWER IS",
+    "reasoningRight": "NOT ALIENS. IT IS ONE STRONG UNEXPLAINED CANDIDATE",
+    "payoffLines": [
+      "NOT ALIENS. IT IS ONE",
+      "STRONG UNEXPLAINED CANDIDATE THAT LEFT NO REPEATAB"
+    ],
+    "timelineLabels": [
+      "IN 1977, ONE RADIO SIGNA",
+      "IT ARRIVED NEAR A FREQUE",
+      "ITS STRENGTH ROSE AND FE",
+      "BUT LATER SEARCHES NEVER",
+      "THE HONEST ANSWER IS"
+    ],
+    "semantic": {
+      "profileId": "dark_curiosity_semantic_sentences_v3",
+      "narrativeShape": "investigation_trail_v1",
+      "subjectLabel": "THE SIGNAL THAT APPEARED ONCE",
+      "uncertaintyLabel": "NOT ALIENS. IT IS ONE STRONG UNEXPLAINED CANDIDATE THAT LEFT NO REPEATABLE PROOF",
+      "finalEvidenceLabel": "NOT ALIENS. IT IS ONE STRONG UNEXPLAINED CANDIDATE THAT LEFT NO REPEATABLE PROOF",
+      "semanticEventGraphHash": "f0a235a5169d732bcbacb05ff4f9ddb95ac8ec794b6d441cc5ff10012993e5d9",
+      "semanticVisualSentencePlanHash": "5ad974fbd731644bb1ca2799a0b86181bea9ca0a79242d078c0d228a7fa67b0c",
+      "semanticAnimationSceneDslPlanHash": "352290335c819060c77f5a9ae7c224042d7a2ec07d10f4430be20a7b19e8f12b"
+    },
+    "semanticEventGraph": {
+      "schemaVersion": 3,
+      "profileId": "dark_curiosity_semantic_event_graph_v3",
+      "storyFormat": "documented_mystery_v1",
+      "narrativeShape": "investigation_trail_v1",
+      "draftHash": "67036a35f5336d70cff06e5851cb1b1993783b06825269dae64d1f02ae221f69",
+      "sourceStoryboardHash": "35439c861e39b0810a3c13528f85749403aee788aac4d552ceef04d434544184",
+      "timingContextHash": "cb058b4ef22f04fd9d8ffd6c107cd327b646df8cd3e015adef716a0fc0a0afbc",
+      "entities": [
+        {
+          "id": "entity_signal_hypothesis",
+          "kind": "hypothesis",
+          "visualSubjectKind": "hypothesis",
+          "label": "Unexplained is not proof",
+          "persistent": false,
+          "claimIds": [
+            "claim_conclusion"
+          ],
+          "sourceRefs": [
+            {
+              "sourceType": "beat",
+              "sourceId": "beat_payoff",
+              "operationIndex": null,
+              "field": "onScreenText",
+              "startOffset": 0,
+              "endOffset": 24,
+              "value": "Unexplained is not proof"
+            }
+          ]
+        },
+        {
+          "id": "entity_story_hypothesis",
+          "kind": "hypothesis",
+          "visualSubjectKind": "hypothesis",
+          "label": "It never repeated",
+          "persistent": true,
+          "claimIds": [
+            "claim_conclusion",
+            "claim_not-repeated"
+          ],
+          "sourceRefs": [
+            {
+              "sourceType": "beat",
+              "sourceId": "beat_turn",
+              "operationIndex": null,
+              "field": "onScreenText",
+              "startOffset": 0,
+              "endOffset": 17,
+              "value": "It never repeated"
+            }
+          ]
+        },
+        {
+          "id": "entity_story_mapping",
+          "kind": "mapping",
+          "visualSubjectKind": "mapping",
+          "label": "The signal followed the telescope beam",
+          "persistent": true,
+          "claimIds": [
+            "claim_beam-shape"
+          ],
+          "sourceRefs": [
+            {
+              "sourceType": "beat",
+              "sourceId": "beat_evidence",
+              "operationIndex": null,
+              "field": "onScreenText",
+              "startOffset": 0,
+              "endOffset": 38,
+              "value": "The signal followed the telescope beam"
+            }
+          ]
+        },
+        {
+          "id": "entity_story_timeline",
+          "kind": "timeline",
+          "visualSubjectKind": "timeline",
+          "label": "A signal appeared once",
+          "persistent": true,
+          "claimIds": [
+            "claim_frequency",
+            "claim_recorded"
+          ],
+          "sourceRefs": [
+            {
+              "sourceType": "beat",
+              "sourceId": "beat_hook",
+              "operationIndex": null,
+              "field": "onScreenText",
+              "startOffset": 0,
+              "endOffset": 22,
+              "value": "A signal appeared once"
+            }
+          ]
+        }
+      ],
+      "propositions": [
+        {
+          "id": "proposition_hook_0",
+          "beatId": "beat_hook",
+          "claimIds": [
+            "claim_recorded"
+          ],
+          "wordSpan": {
+            "startWordIndex": 0,
+            "endWordIndex": 15,
+            "startFrame": 0,
+            "endFrame": 243,
+            "text": "In 1977, one radio signal looked so unusual that an astronomer wrote one word: Wow."
+          },
+          "eventKind": "measured_extent",
+          "predicate": "measures",
+          "polarity": "affirmed",
+          "epistemicStatus": "supported_fact",
+          "subject": {
+            "entityId": "entity_story_timeline"
+          },
+          "object": {
+            "entityIds": [],
+            "value": null,
+            "sourceRef": null
+          },
+          "state": {
+            "before": [],
+            "after": []
+          },
+          "attributes": [],
+          "quantities": [
+            {
+              "value": "1977",
+              "unit": null,
+              "valueSourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_hook",
+                "operationIndex": null,
+                "field": "spokenText",
+                "startOffset": 3,
+                "endOffset": 7,
+                "value": "1977"
+              },
+              "unitSourceRef": null
+            },
+            {
+              "value": "one",
+              "unit": null,
+              "valueSourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_hook",
+                "operationIndex": null,
+                "field": "spokenText",
+                "startOffset": 9,
+                "endOffset": 12,
+                "value": "one"
+              },
+              "unitSourceRef": null
+            },
+            {
+              "value": "one",
+              "unit": null,
+              "valueSourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_hook",
+                "operationIndex": null,
+                "field": "spokenText",
+                "startOffset": 69,
+                "endOffset": 72,
+                "value": "one"
+              },
+              "unitSourceRef": null
+            }
+          ],
+          "certainty": "verified",
+          "visualIntent": {
+            "focusEntityId": "entity_story_timeline",
+            "predicate": "comparison",
+            "subjectKind": "timeline",
+            "stateTransition": "compare_states"
+          },
+          "visualAction": {
+            "operation": "compose_comparison",
+            "focusEntityIds": [
+              "entity_story_timeline"
+            ]
+          },
+          "sourceRefs": [
+            {
+              "sourceType": "beat",
+              "sourceId": "beat_hook",
+              "operationIndex": null,
+              "field": "spokenText",
+              "startOffset": 0,
+              "endOffset": 83,
+              "value": "In 1977, one radio signal looked so unusual that an astronomer wrote one word: Wow."
+            }
+          ],
+          "primitivePayload": {
+            "profileId": "dark_curiosity_grounded_primitive_payload_v1",
+            "headline": {
+              "value": "A signal appeared once",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_hook",
+                "operationIndex": null,
+                "field": "onScreenText",
+                "startOffset": 0,
+                "endOffset": 22,
+                "value": "A signal appeared once"
+              }
+            },
+            "detail": {
+              "value": "In 1977, one radio signal looked so unusual that an astronomer wrote one word: Wow.",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_hook",
+                "operationIndex": null,
+                "field": "spokenText",
+                "startOffset": 0,
+                "endOffset": 83,
+                "value": "In 1977, one radio signal looked so unusual that an astronomer wrote one word: Wow."
+              }
+            },
+            "displayQuantity": {
+              "value": "1977",
+              "unit": null,
+              "valueSourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_hook",
+                "operationIndex": null,
+                "field": "spokenText",
+                "startOffset": 3,
+                "endOffset": 7,
+                "value": "1977"
+              },
+              "unitSourceRef": null
+            },
+            "geometry": null
+          }
+        },
+        {
+          "id": "proposition_context_0",
+          "beatId": "beat_context",
+          "claimIds": [
+            "claim_frequency"
+          ],
+          "wordSpan": {
+            "startWordIndex": 15,
+            "endWordIndex": 28,
+            "startFrame": 255,
+            "endFrame": 479,
+            "text": "It arrived near a frequency researchers considered promising for interstellar communication and lasted"
+          },
+          "eventKind": "measured_extent",
+          "predicate": "measures",
+          "polarity": "affirmed",
+          "epistemicStatus": "supported_fact",
+          "subject": {
+            "entityId": "entity_story_timeline"
+          },
+          "object": {
+            "entityIds": [],
+            "value": null,
+            "sourceRef": null
+          },
+          "state": {
+            "before": [],
+            "after": []
+          },
+          "attributes": [],
+          "quantities": [
+            {
+              "value": "72",
+              "unit": "seconds",
+              "valueSourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_context",
+                "operationIndex": null,
+                "field": "onScreenText",
+                "startOffset": 0,
+                "endOffset": 2,
+                "value": "72"
+              },
+              "unitSourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_context",
+                "operationIndex": null,
+                "field": "onScreenText",
+                "startOffset": 3,
+                "endOffset": 10,
+                "value": "seconds"
+              }
+            }
+          ],
+          "certainty": "verified",
+          "visualIntent": {
+            "focusEntityId": "entity_story_timeline",
+            "predicate": "comparison",
+            "subjectKind": "timeline",
+            "stateTransition": "compare_states"
+          },
+          "visualAction": {
+            "operation": "compose_comparison",
+            "focusEntityIds": [
+              "entity_story_timeline"
+            ]
+          },
+          "sourceRefs": [
+            {
+              "sourceType": "beat",
+              "sourceId": "beat_context",
+              "operationIndex": null,
+              "field": "spokenText",
+              "startOffset": 0,
+              "endOffset": 102,
+              "value": "It arrived near a frequency researchers considered promising for interstellar communication and lasted"
+            }
+          ],
+          "primitivePayload": {
+            "profileId": "dark_curiosity_grounded_primitive_payload_v1",
+            "headline": {
+              "value": "72 seconds near a notable frequency",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_context",
+                "operationIndex": null,
+                "field": "onScreenText",
+                "startOffset": 0,
+                "endOffset": 35,
+                "value": "72 seconds near a notable frequency"
+              }
+            },
+            "detail": {
+              "value": "It arrived near a frequency researchers considered promising for interstellar communication and lasted",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_context",
+                "operationIndex": null,
+                "field": "spokenText",
+                "startOffset": 0,
+                "endOffset": 102,
+                "value": "It arrived near a frequency researchers considered promising for interstellar communication and lasted"
+              }
+            },
+            "displayQuantity": null,
+            "geometry": null
+          }
+        },
+        {
+          "id": "proposition_context_1",
+          "beatId": "beat_context",
+          "claimIds": [
+            "claim_frequency"
+          ],
+          "wordSpan": {
+            "startWordIndex": 28,
+            "endWordIndex": 30,
+            "startFrame": 479,
+            "endFrame": 524,
+            "text": "seventy-two seconds."
+          },
+          "eventKind": "measured_extent",
+          "predicate": "measures",
+          "polarity": "affirmed",
+          "epistemicStatus": "supported_fact",
+          "subject": {
+            "entityId": "entity_story_timeline"
+          },
+          "object": {
+            "entityIds": [],
+            "value": null,
+            "sourceRef": null
+          },
+          "state": {
+            "before": [],
+            "after": []
+          },
+          "attributes": [],
+          "quantities": [
+            {
+              "value": "72",
+              "unit": "seconds",
+              "valueSourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_context",
+                "operationIndex": null,
+                "field": "onScreenText",
+                "startOffset": 0,
+                "endOffset": 2,
+                "value": "72"
+              },
+              "unitSourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_context",
+                "operationIndex": null,
+                "field": "onScreenText",
+                "startOffset": 3,
+                "endOffset": 10,
+                "value": "seconds"
+              }
+            },
+            {
+              "value": "seventy-two",
+              "unit": "seconds",
+              "valueSourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_context",
+                "operationIndex": null,
+                "field": "spokenText",
+                "startOffset": 103,
+                "endOffset": 114,
+                "value": "seventy-two"
+              },
+              "unitSourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_context",
+                "operationIndex": null,
+                "field": "spokenText",
+                "startOffset": 115,
+                "endOffset": 122,
+                "value": "seconds"
+              }
+            }
+          ],
+          "certainty": "verified",
+          "visualIntent": {
+            "focusEntityId": "entity_story_timeline",
+            "predicate": "comparison",
+            "subjectKind": "timeline",
+            "stateTransition": "compare_states"
+          },
+          "visualAction": {
+            "operation": "compose_comparison",
+            "focusEntityIds": [
+              "entity_story_timeline"
+            ]
+          },
+          "sourceRefs": [
+            {
+              "sourceType": "beat",
+              "sourceId": "beat_context",
+              "operationIndex": null,
+              "field": "spokenText",
+              "startOffset": 103,
+              "endOffset": 123,
+              "value": "seventy-two seconds."
+            }
+          ],
+          "primitivePayload": {
+            "profileId": "dark_curiosity_grounded_primitive_payload_v1",
+            "headline": {
+              "value": "72 seconds near a notable frequency",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_context",
+                "operationIndex": null,
+                "field": "onScreenText",
+                "startOffset": 0,
+                "endOffset": 35,
+                "value": "72 seconds near a notable frequency"
+              }
+            },
+            "detail": {
+              "value": "seventy-two seconds.",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_context",
+                "operationIndex": null,
+                "field": "spokenText",
+                "startOffset": 103,
+                "endOffset": 123,
+                "value": "seventy-two seconds."
+              }
+            },
+            "displayQuantity": {
+              "value": "seventy-two",
+              "unit": "seconds",
+              "valueSourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_context",
+                "operationIndex": null,
+                "field": "spokenText",
+                "startOffset": 103,
+                "endOffset": 114,
+                "value": "seventy-two"
+              },
+              "unitSourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_context",
+                "operationIndex": null,
+                "field": "spokenText",
+                "startOffset": 115,
+                "endOffset": 122,
+                "value": "seconds"
+              }
+            },
+            "geometry": null
+          }
+        },
+        {
+          "id": "proposition_evidence_0",
+          "beatId": "beat_evidence",
+          "claimIds": [
+            "claim_beam-shape"
+          ],
+          "wordSpan": {
+            "startWordIndex": 30,
+            "endWordIndex": 42,
+            "startFrame": 546,
+            "endFrame": 681,
+            "text": "Its strength rose and fell as the telescope beam crossed the source,"
+          },
+          "eventKind": "causal_action",
+          "predicate": "causes",
+          "polarity": "affirmed",
+          "epistemicStatus": "qualified_analysis",
+          "subject": {
+            "entityId": "entity_story_mapping"
+          },
+          "object": {
+            "entityIds": [],
+            "value": null,
+            "sourceRef": null
+          },
+          "state": {
+            "before": [],
+            "after": []
+          },
+          "attributes": [],
+          "quantities": [],
+          "certainty": "qualified",
+          "visualIntent": {
+            "focusEntityId": "entity_story_mapping",
+            "predicate": "cause_effect",
+            "subjectKind": "mapping",
+            "stateTransition": "map_input_to_output"
+          },
+          "visualAction": {
+            "operation": "compose_cause_effect",
+            "focusEntityIds": [
+              "entity_story_mapping"
+            ]
+          },
+          "sourceRefs": [
+            {
+              "sourceType": "beat",
+              "sourceId": "beat_evidence",
+              "operationIndex": null,
+              "field": "spokenText",
+              "startOffset": 0,
+              "endOffset": 68,
+              "value": "Its strength rose and fell as the telescope beam crossed the source,"
+            }
+          ],
+          "primitivePayload": {
+            "profileId": "dark_curiosity_grounded_primitive_payload_v1",
+            "headline": {
+              "value": "The signal followed the telescope beam",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_evidence",
+                "operationIndex": null,
+                "field": "onScreenText",
+                "startOffset": 0,
+                "endOffset": 38,
+                "value": "The signal followed the telescope beam"
+              }
+            },
+            "detail": {
+              "value": "Its strength rose and fell as the telescope beam crossed the source,",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_evidence",
+                "operationIndex": null,
+                "field": "spokenText",
+                "startOffset": 0,
+                "endOffset": 68,
+                "value": "Its strength rose and fell as the telescope beam crossed the source,"
+              }
+            },
+            "displayQuantity": null,
+            "geometry": null
+          }
+        },
+        {
+          "id": "proposition_evidence_1",
+          "beatId": "beat_evidence",
+          "claimIds": [
+            "claim_beam-shape"
+          ],
+          "wordSpan": {
+            "startWordIndex": 42,
+            "endWordIndex": 48,
+            "startFrame": 700,
+            "endFrame": 809,
+            "text": "making ordinary local interference less convincing."
+          },
+          "eventKind": "causal_action",
+          "predicate": "causes",
+          "polarity": "affirmed",
+          "epistemicStatus": "qualified_analysis",
+          "subject": {
+            "entityId": "entity_story_mapping"
+          },
+          "object": {
+            "entityIds": [],
+            "value": null,
+            "sourceRef": null
+          },
+          "state": {
+            "before": [],
+            "after": []
+          },
+          "attributes": [],
+          "quantities": [],
+          "certainty": "qualified",
+          "visualIntent": {
+            "focusEntityId": "entity_story_mapping",
+            "predicate": "cause_effect",
+            "subjectKind": "mapping",
+            "stateTransition": "map_input_to_output"
+          },
+          "visualAction": {
+            "operation": "compose_cause_effect",
+            "focusEntityIds": [
+              "entity_story_mapping"
+            ]
+          },
+          "sourceRefs": [
+            {
+              "sourceType": "beat",
+              "sourceId": "beat_evidence",
+              "operationIndex": null,
+              "field": "spokenText",
+              "startOffset": 69,
+              "endOffset": 120,
+              "value": "making ordinary local interference less convincing."
+            }
+          ],
+          "primitivePayload": {
+            "profileId": "dark_curiosity_grounded_primitive_payload_v1",
+            "headline": {
+              "value": "The signal followed the telescope beam",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_evidence",
+                "operationIndex": null,
+                "field": "onScreenText",
+                "startOffset": 0,
+                "endOffset": 38,
+                "value": "The signal followed the telescope beam"
+              }
+            },
+            "detail": {
+              "value": "making ordinary local interference less convincing.",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_evidence",
+                "operationIndex": null,
+                "field": "spokenText",
+                "startOffset": 69,
+                "endOffset": 120,
+                "value": "making ordinary local interference less convincing."
+              }
+            },
+            "displayQuantity": null,
+            "geometry": null
+          }
+        },
+        {
+          "id": "proposition_turn_0",
+          "beatId": "beat_turn",
+          "claimIds": [
+            "claim_not-repeated"
+          ],
+          "wordSpan": {
+            "startWordIndex": 48,
+            "endWordIndex": 57,
+            "startFrame": 830,
+            "endFrame": 944,
+            "text": "But later searches never verified the same signal again,"
+          },
+          "eventKind": "rejected_interpretation",
+          "predicate": "is_not",
+          "polarity": "negated",
+          "epistemicStatus": "supported_fact",
+          "subject": {
+            "entityId": "entity_story_hypothesis"
+          },
+          "object": {
+            "entityIds": [],
+            "value": null,
+            "sourceRef": null
+          },
+          "state": {
+            "before": [],
+            "after": []
+          },
+          "attributes": [],
+          "quantities": [],
+          "certainty": "verified",
+          "visualIntent": {
+            "focusEntityId": "entity_story_hypothesis",
+            "predicate": "negation",
+            "subjectKind": "hypothesis",
+            "stateTransition": "reject_hypothesis"
+          },
+          "visualAction": {
+            "operation": "compose_negation",
+            "focusEntityIds": [
+              "entity_story_hypothesis"
+            ]
+          },
+          "sourceRefs": [
+            {
+              "sourceType": "beat",
+              "sourceId": "beat_turn",
+              "operationIndex": null,
+              "field": "spokenText",
+              "startOffset": 0,
+              "endOffset": 56,
+              "value": "But later searches never verified the same signal again,"
+            }
+          ],
+          "primitivePayload": {
+            "profileId": "dark_curiosity_grounded_primitive_payload_v1",
+            "headline": {
+              "value": "It never repeated",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_turn",
+                "operationIndex": null,
+                "field": "onScreenText",
+                "startOffset": 0,
+                "endOffset": 17,
+                "value": "It never repeated"
+              }
+            },
+            "detail": {
+              "value": "But later searches never verified the same signal again,",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_turn",
+                "operationIndex": null,
+                "field": "spokenText",
+                "startOffset": 0,
+                "endOffset": 56,
+                "value": "But later searches never verified the same signal again,"
+              }
+            },
+            "displayQuantity": null,
+            "geometry": null
+          }
+        },
+        {
+          "id": "proposition_turn_1",
+          "beatId": "beat_turn",
+          "claimIds": [
+            "claim_not-repeated"
+          ],
+          "wordSpan": {
+            "startWordIndex": 57,
+            "endWordIndex": 64,
+            "startFrame": 944,
+            "endFrame": 1051,
+            "text": "and no confirmed transmission has explained it."
+          },
+          "eventKind": "rejected_interpretation",
+          "predicate": "is_not",
+          "polarity": "negated",
+          "epistemicStatus": "supported_fact",
+          "subject": {
+            "entityId": "entity_story_hypothesis"
+          },
+          "object": {
+            "entityIds": [],
+            "value": null,
+            "sourceRef": null
+          },
+          "state": {
+            "before": [],
+            "after": []
+          },
+          "attributes": [],
+          "quantities": [],
+          "certainty": "verified",
+          "visualIntent": {
+            "focusEntityId": "entity_story_hypothesis",
+            "predicate": "negation",
+            "subjectKind": "hypothesis",
+            "stateTransition": "reject_hypothesis"
+          },
+          "visualAction": {
+            "operation": "compose_negation",
+            "focusEntityIds": [
+              "entity_story_hypothesis"
+            ]
+          },
+          "sourceRefs": [
+            {
+              "sourceType": "beat",
+              "sourceId": "beat_turn",
+              "operationIndex": null,
+              "field": "spokenText",
+              "startOffset": 57,
+              "endOffset": 104,
+              "value": "and no confirmed transmission has explained it."
+            }
+          ],
+          "primitivePayload": {
+            "profileId": "dark_curiosity_grounded_primitive_payload_v1",
+            "headline": {
+              "value": "It never repeated",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_turn",
+                "operationIndex": null,
+                "field": "onScreenText",
+                "startOffset": 0,
+                "endOffset": 17,
+                "value": "It never repeated"
+              }
+            },
+            "detail": {
+              "value": "and no confirmed transmission has explained it.",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_turn",
+                "operationIndex": null,
+                "field": "spokenText",
+                "startOffset": 57,
+                "endOffset": 104,
+                "value": "and no confirmed transmission has explained it."
+              }
+            },
+            "displayQuantity": null,
+            "geometry": null
+          }
+        },
+        {
+          "id": "proposition_payoff_0",
+          "beatId": "beat_payoff",
+          "claimIds": [
+            "claim_conclusion"
+          ],
+          "wordSpan": {
+            "startWordIndex": 64,
+            "endWordIndex": 68,
+            "startFrame": 1063,
+            "endFrame": 1104,
+            "text": "The honest answer is"
+          },
+          "eventKind": "bounded_interpretation",
+          "predicate": "remains_unknown",
+          "polarity": "affirmed",
+          "epistemicStatus": "qualified_analysis",
+          "subject": {
+            "entityId": "entity_signal_hypothesis"
+          },
+          "object": {
+            "entityIds": [],
+            "value": null,
+            "sourceRef": null
+          },
+          "state": {
+            "before": [],
+            "after": []
+          },
+          "attributes": [],
+          "quantities": [],
+          "certainty": "qualified",
+          "visualIntent": {
+            "focusEntityId": "entity_signal_hypothesis",
+            "predicate": "bounded_uncertainty",
+            "subjectKind": "hypothesis",
+            "stateTransition": "remain_unresolved"
+          },
+          "visualAction": {
+            "operation": "compose_bounded_uncertainty",
+            "focusEntityIds": [
+              "entity_signal_hypothesis"
+            ]
+          },
+          "sourceRefs": [
+            {
+              "sourceType": "beat",
+              "sourceId": "beat_payoff",
+              "operationIndex": null,
+              "field": "spokenText",
+              "startOffset": 0,
+              "endOffset": 20,
+              "value": "The honest answer is"
+            }
+          ],
+          "primitivePayload": {
+            "profileId": "dark_curiosity_grounded_primitive_payload_v1",
+            "headline": {
+              "value": "Unexplained is not proof",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_payoff",
+                "operationIndex": null,
+                "field": "onScreenText",
+                "startOffset": 0,
+                "endOffset": 24,
+                "value": "Unexplained is not proof"
+              }
+            },
+            "detail": {
+              "value": "The honest answer is",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_payoff",
+                "operationIndex": null,
+                "field": "spokenText",
+                "startOffset": 0,
+                "endOffset": 20,
+                "value": "The honest answer is"
+              }
+            },
+            "displayQuantity": null,
+            "geometry": null
+          }
+        },
+        {
+          "id": "proposition_payoff_1",
+          "beatId": "beat_payoff",
+          "claimIds": [
+            "claim_conclusion"
+          ],
+          "wordSpan": {
+            "startWordIndex": 68,
+            "endWordIndex": 81,
+            "startFrame": 1104,
+            "endFrame": 1318,
+            "text": "not aliens. It is one strong unexplained candidate that left no repeatable proof."
+          },
+          "eventKind": "rejected_interpretation",
+          "predicate": "is_not",
+          "polarity": "negated",
+          "epistemicStatus": "qualified_analysis",
+          "subject": {
+            "entityId": "entity_story_hypothesis"
+          },
+          "object": {
+            "entityIds": [],
+            "value": null,
+            "sourceRef": null
+          },
+          "state": {
+            "before": [],
+            "after": []
+          },
+          "attributes": [],
+          "quantities": [
+            {
+              "value": "one",
+              "unit": null,
+              "valueSourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_payoff",
+                "operationIndex": null,
+                "field": "spokenText",
+                "startOffset": 39,
+                "endOffset": 42,
+                "value": "one"
+              },
+              "unitSourceRef": null
+            }
+          ],
+          "certainty": "qualified",
+          "visualIntent": {
+            "focusEntityId": "entity_story_hypothesis",
+            "predicate": "negation",
+            "subjectKind": "hypothesis",
+            "stateTransition": "reject_hypothesis"
+          },
+          "visualAction": {
+            "operation": "compose_negation",
+            "focusEntityIds": [
+              "entity_story_hypothesis"
+            ]
+          },
+          "sourceRefs": [
+            {
+              "sourceType": "beat",
+              "sourceId": "beat_payoff",
+              "operationIndex": null,
+              "field": "spokenText",
+              "startOffset": 21,
+              "endOffset": 102,
+              "value": "not aliens. It is one strong unexplained candidate that left no repeatable proof."
+            }
+          ],
+          "primitivePayload": {
+            "profileId": "dark_curiosity_grounded_primitive_payload_v1",
+            "headline": {
+              "value": "Unexplained is not proof",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_payoff",
+                "operationIndex": null,
+                "field": "onScreenText",
+                "startOffset": 0,
+                "endOffset": 24,
+                "value": "Unexplained is not proof"
+              }
+            },
+            "detail": {
+              "value": "not aliens. It is one strong unexplained candidate that left no repeatable proof.",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_payoff",
+                "operationIndex": null,
+                "field": "spokenText",
+                "startOffset": 21,
+                "endOffset": 102,
+                "value": "not aliens. It is one strong unexplained candidate that left no repeatable proof."
+              }
+            },
+            "displayQuantity": null,
+            "geometry": null
+          }
+        }
+      ],
+      "continuity": [
+        {
+          "entityId": "entity_story_hypothesis",
+          "beatIds": [
+            "beat_turn",
+            "beat_payoff"
+          ],
+          "rule": "Preserve one grounded visual identity across every referenced narration beat."
+        },
+        {
+          "entityId": "entity_story_timeline",
+          "beatIds": [
+            "beat_hook",
+            "beat_context"
+          ],
+          "rule": "Preserve one grounded visual identity across every referenced narration beat."
+        }
+      ],
+      "epistemicConstraints": [
+        {
+          "id": "constraint_evidence_0",
+          "rule": "Preserve the approved uncertainty and do not convert interpretation into fact.",
+          "claimIds": [
+            "claim_beam-shape"
+          ]
+        },
+        {
+          "id": "constraint_evidence_1",
+          "rule": "Preserve the approved uncertainty and do not convert interpretation into fact.",
+          "claimIds": [
+            "claim_beam-shape"
+          ]
+        },
+        {
+          "id": "constraint_payoff_0",
+          "rule": "Preserve the approved uncertainty and do not convert interpretation into fact.",
+          "claimIds": [
+            "claim_conclusion"
+          ]
+        },
+        {
+          "id": "constraint_payoff_1",
+          "rule": "Preserve the approved uncertainty and do not convert interpretation into fact.",
+          "claimIds": [
+            "claim_conclusion"
+          ]
+        }
+      ],
+      "primitivePayloadProfileId": "dark_curiosity_grounded_primitive_payload_v1",
+      "contentHash": "f0a235a5169d732bcbacb05ff4f9ddb95ac8ec794b6d441cc5ff10012993e5d9"
+    },
+    "semanticVisualSentencePlan": {
+      "schemaVersion": 1,
+      "profileId": "dark_curiosity_semantic_visual_sentence_plan_v1",
+      "storyFormat": "documented_mystery_v1",
+      "narrativeShape": "investigation_trail_v1",
+      "sceneCompositionProfileId": "dark_curiosity_scene_composition_v2",
+      "bindings": {
+        "semanticEventGraphHash": "f0a235a5169d732bcbacb05ff4f9ddb95ac8ec794b6d441cc5ff10012993e5d9",
+        "draftHash": "67036a35f5336d70cff06e5851cb1b1993783b06825269dae64d1f02ae221f69",
+        "sourceStoryboardHash": "35439c861e39b0810a3c13528f85749403aee788aac4d552ceef04d434544184",
+        "timingContextHash": "cb058b4ef22f04fd9d8ffd6c107cd327b646df8cd3e015adef716a0fc0a0afbc"
+      },
+      "sentences": [
+        {
+          "id": "vs_proposition_hook_0",
+          "propositionId": "proposition_hook_0",
+          "beatId": "beat_hook",
+          "claimIds": [
+            "claim_recorded"
+          ],
+          "wordSpan": {
+            "startWordIndex": 0,
+            "endWordIndex": 15,
+            "startFrame": 0,
+            "endFrame": 243,
+            "text": "In 1977, one radio signal looked so unusual that an astronomer wrote one word: Wow."
+          },
+          "sourceRefs": [
+            {
+              "sourceType": "beat",
+              "sourceId": "beat_hook",
+              "operationIndex": null,
+              "field": "spokenText",
+              "startOffset": 0,
+              "endOffset": 83,
+              "value": "In 1977, one radio signal looked so unusual that an astronomer wrote one word: Wow."
+            }
+          ],
+          "visualIntent": {
+            "focusEntityId": "entity_story_timeline",
+            "predicate": "comparison",
+            "subjectKind": "timeline",
+            "stateTransition": "compare_states"
+          },
+          "participantEntityIds": [
+            "entity_story_timeline"
+          ],
+          "focusEntity": {
+            "id": "entity_story_timeline",
+            "visualSubjectKind": "timeline",
+            "persistent": true
+          },
+          "persistentEntityIds": [
+            "entity_story_timeline"
+          ],
+          "capability": {
+            "assetId": "timeline_axis",
+            "grammarId": "side_by_side_comparison",
+            "score": 200030,
+            "semanticScore": 200,
+            "continuityScore": 0,
+            "noveltyScore": 30
+          },
+          "continuity": {
+            "carriedEntityIds": [],
+            "carriedAssetIds": []
+          },
+          "primitiveParameters": {
+            "schemaVersion": 1,
+            "profileId": "dark_curiosity_story_primitive_parameters_v1",
+            "grammarId": "side_by_side_comparison",
+            "assetId": "timeline_axis",
+            "subject": {
+              "value": "A signal appeared once",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_hook",
+                "operationIndex": null,
+                "field": "onScreenText",
+                "startOffset": 0,
+                "endOffset": 22,
+                "value": "A signal appeared once"
+              }
+            },
+            "detail": {
+              "value": "In 1977, one radio signal looked so unusual that an astronomer wrote one word: Wow.",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_hook",
+                "operationIndex": null,
+                "field": "spokenText",
+                "startOffset": 0,
+                "endOffset": 83,
+                "value": "In 1977, one radio signal looked so unusual that an astronomer wrote one word: Wow."
+              }
+            },
+            "quantity": {
+              "value": "1977",
+              "unit": null,
+              "valueSourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_hook",
+                "operationIndex": null,
+                "field": "spokenText",
+                "startOffset": 3,
+                "endOffset": 7,
+                "value": "1977"
+              },
+              "unitSourceRef": null
+            },
+            "stateToken": "COMPARED",
+            "geometry": {
+              "presetId": "grounded_comparison_v1",
+              "variantSeed": 2859328669,
+              "direction": "forward",
+              "route": null
+            }
+          },
+          "sceneComposition": {
+            "schemaVersion": 2,
+            "profileId": "dark_curiosity_scene_composition_v2",
+            "id": "composition_proposition_hook_0",
+            "layoutId": "header_strip",
+            "variantSeed": 873776391,
+            "modules": [
+              {
+                "id": "module_primary",
+                "role": "primary",
+                "kind": "primary_geometry",
+                "source": "primary_geometry",
+                "slot": "primary",
+                "revealOrder": 0
+              },
+              {
+                "id": "module_support_a",
+                "role": "supporting",
+                "kind": "quantity_badge",
+                "source": "display_quantity",
+                "slot": "support_a",
+                "revealOrder": 1
+              },
+              {
+                "id": "module_support_b",
+                "role": "supporting",
+                "kind": "state_badge",
+                "source": "semantic_state",
+                "slot": "support_b",
+                "revealOrder": 2
+              }
+            ],
+            "links": [
+              {
+                "fromModuleId": "module_primary",
+                "toModuleId": "module_support_a",
+                "relation": "context"
+              },
+              {
+                "fromModuleId": "module_primary",
+                "toModuleId": "module_support_b",
+                "relation": "state"
+              }
+            ],
+            "geometryBlueprint": {
+              "schemaVersion": 1,
+              "profileId": "dark_curiosity_bounded_geometry_blueprint_v1",
+              "recipeId": "comparison_balance_v1",
+              "bindings": {
+                "semanticEventGraphHash": "f0a235a5169d732bcbacb05ff4f9ddb95ac8ec794b6d441cc5ff10012993e5d9",
+                "propositionId": "proposition_hook_0",
+                "primitiveParametersHash": "52a3c56c12d0b84492f9d074b0e48c06bf435d7290ef9441c5ad049b6f940bae"
+              },
+              "controls": {
+                "nodeCount": 6,
+                "emphasisIndex": 5,
+                "orientation": "forward",
+                "density": "dense",
+                "provenance": "deterministic_illustrative"
+              },
+              "complexityCost": 12,
+              "contentHash": "abad4ea2be1fac8c3115c24b78300f472a5a560b3b7649ba331d8e60df62699b"
+            }
+          }
+        },
+        {
+          "id": "vs_proposition_context_0",
+          "propositionId": "proposition_context_0",
+          "beatId": "beat_context",
+          "claimIds": [
+            "claim_frequency"
+          ],
+          "wordSpan": {
+            "startWordIndex": 15,
+            "endWordIndex": 28,
+            "startFrame": 255,
+            "endFrame": 479,
+            "text": "It arrived near a frequency researchers considered promising for interstellar communication and lasted"
+          },
+          "sourceRefs": [
+            {
+              "sourceType": "beat",
+              "sourceId": "beat_context",
+              "operationIndex": null,
+              "field": "spokenText",
+              "startOffset": 0,
+              "endOffset": 102,
+              "value": "It arrived near a frequency researchers considered promising for interstellar communication and lasted"
+            }
+          ],
+          "visualIntent": {
+            "focusEntityId": "entity_story_timeline",
+            "predicate": "comparison",
+            "subjectKind": "timeline",
+            "stateTransition": "compare_states"
+          },
+          "participantEntityIds": [
+            "entity_story_timeline"
+          ],
+          "focusEntity": {
+            "id": "entity_story_timeline",
+            "visualSubjectKind": "timeline",
+            "persistent": true
+          },
+          "persistentEntityIds": [
+            "entity_story_timeline"
+          ],
+          "capability": {
+            "assetId": "timeline_axis",
+            "grammarId": "side_by_side_comparison",
+            "score": 200305,
+            "semanticScore": 200,
+            "continuityScore": 30,
+            "noveltyScore": 5
+          },
+          "continuity": {
+            "carriedEntityIds": [
+              "entity_story_timeline"
+            ],
+            "carriedAssetIds": [
+              "timeline_axis"
+            ]
+          },
+          "primitiveParameters": {
+            "schemaVersion": 1,
+            "profileId": "dark_curiosity_story_primitive_parameters_v1",
+            "grammarId": "side_by_side_comparison",
+            "assetId": "timeline_axis",
+            "subject": {
+              "value": "72 seconds near a notable frequency",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_context",
+                "operationIndex": null,
+                "field": "onScreenText",
+                "startOffset": 0,
+                "endOffset": 35,
+                "value": "72 seconds near a notable frequency"
+              }
+            },
+            "detail": {
+              "value": "It arrived near a frequency researchers considered promising for interstellar communication and lasted",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_context",
+                "operationIndex": null,
+                "field": "spokenText",
+                "startOffset": 0,
+                "endOffset": 102,
+                "value": "It arrived near a frequency researchers considered promising for interstellar communication and lasted"
+              }
+            },
+            "quantity": null,
+            "stateToken": "COMPARED",
+            "geometry": {
+              "presetId": "grounded_comparison_v1",
+              "variantSeed": 738607557,
+              "direction": "forward",
+              "route": null
+            }
+          },
+          "sceneComposition": {
+            "schemaVersion": 2,
+            "profileId": "dark_curiosity_scene_composition_v2",
+            "id": "composition_proposition_context_0",
+            "layoutId": "satellites_left",
+            "variantSeed": 117948120,
+            "modules": [
+              {
+                "id": "module_primary",
+                "role": "primary",
+                "kind": "primary_geometry",
+                "source": "primary_geometry",
+                "slot": "primary",
+                "revealOrder": 0
+              },
+              {
+                "id": "module_support_a",
+                "role": "supporting",
+                "kind": "detail_card",
+                "source": "cue_detail",
+                "slot": "support_a",
+                "revealOrder": 1
+              },
+              {
+                "id": "module_support_b",
+                "role": "supporting",
+                "kind": "state_badge",
+                "source": "semantic_state",
+                "slot": "support_b",
+                "revealOrder": 2
+              }
+            ],
+            "links": [
+              {
+                "fromModuleId": "module_primary",
+                "toModuleId": "module_support_a",
+                "relation": "context"
+              },
+              {
+                "fromModuleId": "module_primary",
+                "toModuleId": "module_support_b",
+                "relation": "state"
+              }
+            ],
+            "geometryBlueprint": {
+              "schemaVersion": 1,
+              "profileId": "dark_curiosity_bounded_geometry_blueprint_v1",
+              "recipeId": "comparison_balance_v1",
+              "bindings": {
+                "semanticEventGraphHash": "f0a235a5169d732bcbacb05ff4f9ddb95ac8ec794b6d441cc5ff10012993e5d9",
+                "propositionId": "proposition_context_0",
+                "primitiveParametersHash": "2db00bb512a031e6208199bcb896b219172dffbc4b40360e17ab8606abf956b5"
+              },
+              "controls": {
+                "nodeCount": 5,
+                "emphasisIndex": 4,
+                "orientation": "forward",
+                "density": "balanced",
+                "provenance": "deterministic_illustrative"
+              },
+              "complexityCost": 10,
+              "contentHash": "c19e890ffa710b59d8d48f7763814634a2fefcb9fd5a35e08c4e341900775782"
+            }
+          }
+        },
+        {
+          "id": "vs_proposition_context_1",
+          "propositionId": "proposition_context_1",
+          "beatId": "beat_context",
+          "claimIds": [
+            "claim_frequency"
+          ],
+          "wordSpan": {
+            "startWordIndex": 28,
+            "endWordIndex": 30,
+            "startFrame": 479,
+            "endFrame": 524,
+            "text": "seventy-two seconds."
+          },
+          "sourceRefs": [
+            {
+              "sourceType": "beat",
+              "sourceId": "beat_context",
+              "operationIndex": null,
+              "field": "spokenText",
+              "startOffset": 103,
+              "endOffset": 123,
+              "value": "seventy-two seconds."
+            }
+          ],
+          "visualIntent": {
+            "focusEntityId": "entity_story_timeline",
+            "predicate": "comparison",
+            "subjectKind": "timeline",
+            "stateTransition": "compare_states"
+          },
+          "participantEntityIds": [
+            "entity_story_timeline"
+          ],
+          "focusEntity": {
+            "id": "entity_story_timeline",
+            "visualSubjectKind": "timeline",
+            "persistent": true
+          },
+          "persistentEntityIds": [
+            "entity_story_timeline"
+          ],
+          "capability": {
+            "assetId": "timeline_axis",
+            "grammarId": "side_by_side_comparison",
+            "score": 200300,
+            "semanticScore": 200,
+            "continuityScore": 30,
+            "noveltyScore": 0
+          },
+          "continuity": {
+            "carriedEntityIds": [
+              "entity_story_timeline"
+            ],
+            "carriedAssetIds": [
+              "timeline_axis"
+            ]
+          },
+          "primitiveParameters": {
+            "schemaVersion": 1,
+            "profileId": "dark_curiosity_story_primitive_parameters_v1",
+            "grammarId": "side_by_side_comparison",
+            "assetId": "timeline_axis",
+            "subject": {
+              "value": "72 seconds near a notable frequency",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_context",
+                "operationIndex": null,
+                "field": "onScreenText",
+                "startOffset": 0,
+                "endOffset": 35,
+                "value": "72 seconds near a notable frequency"
+              }
+            },
+            "detail": {
+              "value": "seventy-two seconds.",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_context",
+                "operationIndex": null,
+                "field": "spokenText",
+                "startOffset": 103,
+                "endOffset": 123,
+                "value": "seventy-two seconds."
+              }
+            },
+            "quantity": {
+              "value": "seventy-two",
+              "unit": "seconds",
+              "valueSourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_context",
+                "operationIndex": null,
+                "field": "spokenText",
+                "startOffset": 103,
+                "endOffset": 114,
+                "value": "seventy-two"
+              },
+              "unitSourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_context",
+                "operationIndex": null,
+                "field": "spokenText",
+                "startOffset": 115,
+                "endOffset": 122,
+                "value": "seconds"
+              }
+            },
+            "stateToken": "COMPARED",
+            "geometry": {
+              "presetId": "grounded_comparison_v1",
+              "variantSeed": 1533365546,
+              "direction": "forward",
+              "route": null
+            }
+          },
+          "sceneComposition": {
+            "schemaVersion": 2,
+            "profileId": "dark_curiosity_scene_composition_v2",
+            "id": "composition_proposition_context_1",
+            "layoutId": "satellites_right",
+            "variantSeed": 3893297547,
+            "modules": [
+              {
+                "id": "module_primary",
+                "role": "primary",
+                "kind": "primary_geometry",
+                "source": "primary_geometry",
+                "slot": "primary",
+                "revealOrder": 0
+              },
+              {
+                "id": "module_support_a",
+                "role": "supporting",
+                "kind": "quantity_badge",
+                "source": "display_quantity",
+                "slot": "support_a",
+                "revealOrder": 1
+              },
+              {
+                "id": "module_support_b",
+                "role": "supporting",
+                "kind": "state_badge",
+                "source": "semantic_state",
+                "slot": "support_b",
+                "revealOrder": 2
+              }
+            ],
+            "links": [
+              {
+                "fromModuleId": "module_primary",
+                "toModuleId": "module_support_a",
+                "relation": "context"
+              },
+              {
+                "fromModuleId": "module_primary",
+                "toModuleId": "module_support_b",
+                "relation": "state"
+              }
+            ],
+            "geometryBlueprint": {
+              "schemaVersion": 1,
+              "profileId": "dark_curiosity_bounded_geometry_blueprint_v1",
+              "recipeId": "comparison_balance_v1",
+              "bindings": {
+                "semanticEventGraphHash": "f0a235a5169d732bcbacb05ff4f9ddb95ac8ec794b6d441cc5ff10012993e5d9",
+                "propositionId": "proposition_context_1",
+                "primitiveParametersHash": "6719b886953f536f33063eb70e2f967056c08d8d75eda899f7a5d711b6854497"
+              },
+              "controls": {
+                "nodeCount": 4,
+                "emphasisIndex": 3,
+                "orientation": "forward",
+                "density": "sparse",
+                "provenance": "deterministic_illustrative"
+              },
+              "complexityCost": 8,
+              "contentHash": "0ad9ceb9d59bcea3b466533f604c7eaab8bb8eb98844c145e3bdf39da3dd2bbd"
+            }
+          }
+        },
+        {
+          "id": "vs_proposition_evidence_0",
+          "propositionId": "proposition_evidence_0",
+          "beatId": "beat_evidence",
+          "claimIds": [
+            "claim_beam-shape"
+          ],
+          "wordSpan": {
+            "startWordIndex": 30,
+            "endWordIndex": 42,
+            "startFrame": 546,
+            "endFrame": 681,
+            "text": "Its strength rose and fell as the telescope beam crossed the source,"
+          },
+          "sourceRefs": [
+            {
+              "sourceType": "beat",
+              "sourceId": "beat_evidence",
+              "operationIndex": null,
+              "field": "spokenText",
+              "startOffset": 0,
+              "endOffset": 68,
+              "value": "Its strength rose and fell as the telescope beam crossed the source,"
+            }
+          ],
+          "visualIntent": {
+            "focusEntityId": "entity_story_mapping",
+            "predicate": "cause_effect",
+            "subjectKind": "mapping",
+            "stateTransition": "map_input_to_output"
+          },
+          "participantEntityIds": [
+            "entity_story_mapping"
+          ],
+          "focusEntity": {
+            "id": "entity_story_mapping",
+            "visualSubjectKind": "mapping",
+            "persistent": true
+          },
+          "persistentEntityIds": [
+            "entity_story_mapping"
+          ],
+          "capability": {
+            "assetId": "mapping_table",
+            "grammarId": "cause_effect_chain",
+            "score": 200030,
+            "semanticScore": 200,
+            "continuityScore": 0,
+            "noveltyScore": 30
+          },
+          "continuity": {
+            "carriedEntityIds": [],
+            "carriedAssetIds": []
+          },
+          "primitiveParameters": {
+            "schemaVersion": 1,
+            "profileId": "dark_curiosity_story_primitive_parameters_v1",
+            "grammarId": "cause_effect_chain",
+            "assetId": "mapping_table",
+            "subject": {
+              "value": "The signal followed the telescope beam",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_evidence",
+                "operationIndex": null,
+                "field": "onScreenText",
+                "startOffset": 0,
+                "endOffset": 38,
+                "value": "The signal followed the telescope beam"
+              }
+            },
+            "detail": {
+              "value": "Its strength rose and fell as the telescope beam crossed the source,",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_evidence",
+                "operationIndex": null,
+                "field": "spokenText",
+                "startOffset": 0,
+                "endOffset": 68,
+                "value": "Its strength rose and fell as the telescope beam crossed the source,"
+              }
+            },
+            "quantity": null,
+            "stateToken": "RESULT",
+            "geometry": {
+              "presetId": "grounded_cause_effect_v1",
+              "variantSeed": 2457630739,
+              "direction": "forward",
+              "route": null
+            }
+          },
+          "sceneComposition": {
+            "schemaVersion": 2,
+            "profileId": "dark_curiosity_scene_composition_v2",
+            "id": "composition_proposition_evidence_0",
+            "layoutId": "header_strip",
+            "variantSeed": 3345017946,
+            "modules": [
+              {
+                "id": "module_primary",
+                "role": "primary",
+                "kind": "primary_geometry",
+                "source": "primary_geometry",
+                "slot": "primary",
+                "revealOrder": 0
+              },
+              {
+                "id": "module_support_a",
+                "role": "supporting",
+                "kind": "detail_card",
+                "source": "cue_detail",
+                "slot": "support_a",
+                "revealOrder": 1
+              },
+              {
+                "id": "module_support_b",
+                "role": "supporting",
+                "kind": "state_badge",
+                "source": "semantic_state",
+                "slot": "support_b",
+                "revealOrder": 2
+              }
+            ],
+            "links": [
+              {
+                "fromModuleId": "module_primary",
+                "toModuleId": "module_support_a",
+                "relation": "context"
+              },
+              {
+                "fromModuleId": "module_primary",
+                "toModuleId": "module_support_b",
+                "relation": "state"
+              }
+            ],
+            "geometryBlueprint": {
+              "schemaVersion": 1,
+              "profileId": "dark_curiosity_bounded_geometry_blueprint_v1",
+              "recipeId": "causal_flow_v1",
+              "bindings": {
+                "semanticEventGraphHash": "f0a235a5169d732bcbacb05ff4f9ddb95ac8ec794b6d441cc5ff10012993e5d9",
+                "propositionId": "proposition_evidence_0",
+                "primitiveParametersHash": "78d7ab2ae069d98d46e0d763ad94d85a8afb1c7ad95c4f4ce573e46ddf0a4c35"
+              },
+              "controls": {
+                "nodeCount": 3,
+                "emphasisIndex": 2,
+                "orientation": "forward",
+                "density": "sparse",
+                "provenance": "deterministic_illustrative"
+              },
+              "complexityCost": 5,
+              "contentHash": "dd0a9d58bf23b5ad05870fff254ab1d6707ea4c421e934c1c2253f90b42bb248"
+            }
+          }
+        },
+        {
+          "id": "vs_proposition_evidence_1",
+          "propositionId": "proposition_evidence_1",
+          "beatId": "beat_evidence",
+          "claimIds": [
+            "claim_beam-shape"
+          ],
+          "wordSpan": {
+            "startWordIndex": 42,
+            "endWordIndex": 48,
+            "startFrame": 700,
+            "endFrame": 809,
+            "text": "making ordinary local interference less convincing."
+          },
+          "sourceRefs": [
+            {
+              "sourceType": "beat",
+              "sourceId": "beat_evidence",
+              "operationIndex": null,
+              "field": "spokenText",
+              "startOffset": 69,
+              "endOffset": 120,
+              "value": "making ordinary local interference less convincing."
+            }
+          ],
+          "visualIntent": {
+            "focusEntityId": "entity_story_mapping",
+            "predicate": "cause_effect",
+            "subjectKind": "mapping",
+            "stateTransition": "map_input_to_output"
+          },
+          "participantEntityIds": [
+            "entity_story_mapping"
+          ],
+          "focusEntity": {
+            "id": "entity_story_mapping",
+            "visualSubjectKind": "mapping",
+            "persistent": true
+          },
+          "persistentEntityIds": [
+            "entity_story_mapping"
+          ],
+          "capability": {
+            "assetId": "mapping_table",
+            "grammarId": "cause_effect_chain",
+            "score": 200305,
+            "semanticScore": 200,
+            "continuityScore": 30,
+            "noveltyScore": 5
+          },
+          "continuity": {
+            "carriedEntityIds": [
+              "entity_story_mapping"
+            ],
+            "carriedAssetIds": [
+              "mapping_table"
+            ]
+          },
+          "primitiveParameters": {
+            "schemaVersion": 1,
+            "profileId": "dark_curiosity_story_primitive_parameters_v1",
+            "grammarId": "cause_effect_chain",
+            "assetId": "mapping_table",
+            "subject": {
+              "value": "The signal followed the telescope beam",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_evidence",
+                "operationIndex": null,
+                "field": "onScreenText",
+                "startOffset": 0,
+                "endOffset": 38,
+                "value": "The signal followed the telescope beam"
+              }
+            },
+            "detail": {
+              "value": "making ordinary local interference less convincing.",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_evidence",
+                "operationIndex": null,
+                "field": "spokenText",
+                "startOffset": 69,
+                "endOffset": 120,
+                "value": "making ordinary local interference less convincing."
+              }
+            },
+            "quantity": null,
+            "stateToken": "RESULT",
+            "geometry": {
+              "presetId": "grounded_cause_effect_v1",
+              "variantSeed": 3182551112,
+              "direction": "forward",
+              "route": null
+            }
+          },
+          "sceneComposition": {
+            "schemaVersion": 2,
+            "profileId": "dark_curiosity_scene_composition_v2",
+            "id": "composition_proposition_evidence_1",
+            "layoutId": "satellites_right",
+            "variantSeed": 1568611247,
+            "modules": [
+              {
+                "id": "module_primary",
+                "role": "primary",
+                "kind": "primary_geometry",
+                "source": "primary_geometry",
+                "slot": "primary",
+                "revealOrder": 0
+              },
+              {
+                "id": "module_support_a",
+                "role": "supporting",
+                "kind": "detail_card",
+                "source": "cue_detail",
+                "slot": "support_a",
+                "revealOrder": 1
+              },
+              {
+                "id": "module_support_b",
+                "role": "supporting",
+                "kind": "state_badge",
+                "source": "semantic_state",
+                "slot": "support_b",
+                "revealOrder": 2
+              }
+            ],
+            "links": [
+              {
+                "fromModuleId": "module_primary",
+                "toModuleId": "module_support_a",
+                "relation": "context"
+              },
+              {
+                "fromModuleId": "module_primary",
+                "toModuleId": "module_support_b",
+                "relation": "state"
+              }
+            ],
+            "geometryBlueprint": {
+              "schemaVersion": 1,
+              "profileId": "dark_curiosity_bounded_geometry_blueprint_v1",
+              "recipeId": "causal_flow_v1",
+              "bindings": {
+                "semanticEventGraphHash": "f0a235a5169d732bcbacb05ff4f9ddb95ac8ec794b6d441cc5ff10012993e5d9",
+                "propositionId": "proposition_evidence_1",
+                "primitiveParametersHash": "badd9417e9745e5faff03a8e9468c6d6d42f75bf6e343098062f38c877088324"
+              },
+              "controls": {
+                "nodeCount": 5,
+                "emphasisIndex": 4,
+                "orientation": "forward",
+                "density": "dense",
+                "provenance": "deterministic_illustrative"
+              },
+              "complexityCost": 9,
+              "contentHash": "f3e3da7e53d72bb9b0f6c7c351ed5d55c85f085f1c3f880f7bdc35b24c29684e"
+            }
+          }
+        },
+        {
+          "id": "vs_proposition_turn_0",
+          "propositionId": "proposition_turn_0",
+          "beatId": "beat_turn",
+          "claimIds": [
+            "claim_not-repeated"
+          ],
+          "wordSpan": {
+            "startWordIndex": 48,
+            "endWordIndex": 57,
+            "startFrame": 830,
+            "endFrame": 944,
+            "text": "But later searches never verified the same signal again,"
+          },
+          "sourceRefs": [
+            {
+              "sourceType": "beat",
+              "sourceId": "beat_turn",
+              "operationIndex": null,
+              "field": "spokenText",
+              "startOffset": 0,
+              "endOffset": 56,
+              "value": "But later searches never verified the same signal again,"
+            }
+          ],
+          "visualIntent": {
+            "focusEntityId": "entity_story_hypothesis",
+            "predicate": "negation",
+            "subjectKind": "hypothesis",
+            "stateTransition": "reject_hypothesis"
+          },
+          "participantEntityIds": [
+            "entity_story_hypothesis"
+          ],
+          "focusEntity": {
+            "id": "entity_story_hypothesis",
+            "visualSubjectKind": "hypothesis",
+            "persistent": true
+          },
+          "persistentEntityIds": [
+            "entity_story_hypothesis"
+          ],
+          "capability": {
+            "assetId": "hypothesis_card",
+            "grammarId": "side_by_side_comparison",
+            "score": 200020,
+            "semanticScore": 200,
+            "continuityScore": 0,
+            "noveltyScore": 20
+          },
+          "continuity": {
+            "carriedEntityIds": [],
+            "carriedAssetIds": []
+          },
+          "primitiveParameters": {
+            "schemaVersion": 1,
+            "profileId": "dark_curiosity_story_primitive_parameters_v1",
+            "grammarId": "side_by_side_comparison",
+            "assetId": "hypothesis_card",
+            "subject": {
+              "value": "It never repeated",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_turn",
+                "operationIndex": null,
+                "field": "onScreenText",
+                "startOffset": 0,
+                "endOffset": 17,
+                "value": "It never repeated"
+              }
+            },
+            "detail": {
+              "value": "But later searches never verified the same signal again,",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_turn",
+                "operationIndex": null,
+                "field": "spokenText",
+                "startOffset": 0,
+                "endOffset": 56,
+                "value": "But later searches never verified the same signal again,"
+              }
+            },
+            "quantity": null,
+            "stateToken": "REJECTED",
+            "geometry": {
+              "presetId": "grounded_comparison_v1",
+              "variantSeed": 1278253534,
+              "direction": "reverse",
+              "route": null
+            }
+          },
+          "sceneComposition": {
+            "schemaVersion": 2,
+            "profileId": "dark_curiosity_scene_composition_v2",
+            "id": "composition_proposition_turn_0",
+            "layoutId": "header_strip",
+            "variantSeed": 987948684,
+            "modules": [
+              {
+                "id": "module_primary",
+                "role": "primary",
+                "kind": "primary_geometry",
+                "source": "primary_geometry",
+                "slot": "primary",
+                "revealOrder": 0
+              },
+              {
+                "id": "module_support_a",
+                "role": "supporting",
+                "kind": "detail_card",
+                "source": "cue_detail",
+                "slot": "support_a",
+                "revealOrder": 1
+              },
+              {
+                "id": "module_support_b",
+                "role": "supporting",
+                "kind": "state_badge",
+                "source": "semantic_state",
+                "slot": "support_b",
+                "revealOrder": 2
+              }
+            ],
+            "links": [
+              {
+                "fromModuleId": "module_primary",
+                "toModuleId": "module_support_a",
+                "relation": "context"
+              },
+              {
+                "fromModuleId": "module_primary",
+                "toModuleId": "module_support_b",
+                "relation": "state"
+              }
+            ],
+            "geometryBlueprint": {
+              "schemaVersion": 1,
+              "profileId": "dark_curiosity_bounded_geometry_blueprint_v1",
+              "recipeId": "comparison_balance_v1",
+              "bindings": {
+                "semanticEventGraphHash": "f0a235a5169d732bcbacb05ff4f9ddb95ac8ec794b6d441cc5ff10012993e5d9",
+                "propositionId": "proposition_turn_0",
+                "primitiveParametersHash": "6ded649ce90942ef4afa0c31dc2a2899267ef1da07777e0c68034637380d48ab"
+              },
+              "controls": {
+                "nodeCount": 5,
+                "emphasisIndex": 0,
+                "orientation": "reverse",
+                "density": "balanced",
+                "provenance": "deterministic_illustrative"
+              },
+              "complexityCost": 10,
+              "contentHash": "76069241df0f70c69c07c94d8a73ad1002cedb6c2d27d1a1a2d99f6c5f49e05b"
+            }
+          }
+        },
+        {
+          "id": "vs_proposition_turn_1",
+          "propositionId": "proposition_turn_1",
+          "beatId": "beat_turn",
+          "claimIds": [
+            "claim_not-repeated"
+          ],
+          "wordSpan": {
+            "startWordIndex": 57,
+            "endWordIndex": 64,
+            "startFrame": 944,
+            "endFrame": 1051,
+            "text": "and no confirmed transmission has explained it."
+          },
+          "sourceRefs": [
+            {
+              "sourceType": "beat",
+              "sourceId": "beat_turn",
+              "operationIndex": null,
+              "field": "spokenText",
+              "startOffset": 57,
+              "endOffset": 104,
+              "value": "and no confirmed transmission has explained it."
+            }
+          ],
+          "visualIntent": {
+            "focusEntityId": "entity_story_hypothesis",
+            "predicate": "negation",
+            "subjectKind": "hypothesis",
+            "stateTransition": "reject_hypothesis"
+          },
+          "participantEntityIds": [
+            "entity_story_hypothesis"
+          ],
+          "focusEntity": {
+            "id": "entity_story_hypothesis",
+            "visualSubjectKind": "hypothesis",
+            "persistent": true
+          },
+          "persistentEntityIds": [
+            "entity_story_hypothesis"
+          ],
+          "capability": {
+            "assetId": "hypothesis_card",
+            "grammarId": "side_by_side_comparison",
+            "score": 200300,
+            "semanticScore": 200,
+            "continuityScore": 30,
+            "noveltyScore": 0
+          },
+          "continuity": {
+            "carriedEntityIds": [
+              "entity_story_hypothesis"
+            ],
+            "carriedAssetIds": [
+              "hypothesis_card"
+            ]
+          },
+          "primitiveParameters": {
+            "schemaVersion": 1,
+            "profileId": "dark_curiosity_story_primitive_parameters_v1",
+            "grammarId": "side_by_side_comparison",
+            "assetId": "hypothesis_card",
+            "subject": {
+              "value": "It never repeated",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_turn",
+                "operationIndex": null,
+                "field": "onScreenText",
+                "startOffset": 0,
+                "endOffset": 17,
+                "value": "It never repeated"
+              }
+            },
+            "detail": {
+              "value": "and no confirmed transmission has explained it.",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_turn",
+                "operationIndex": null,
+                "field": "spokenText",
+                "startOffset": 57,
+                "endOffset": 104,
+                "value": "and no confirmed transmission has explained it."
+              }
+            },
+            "quantity": null,
+            "stateToken": "REJECTED",
+            "geometry": {
+              "presetId": "grounded_comparison_v1",
+              "variantSeed": 3010573250,
+              "direction": "reverse",
+              "route": null
+            }
+          },
+          "sceneComposition": {
+            "schemaVersion": 2,
+            "profileId": "dark_curiosity_scene_composition_v2",
+            "id": "composition_proposition_turn_1",
+            "layoutId": "satellites_left",
+            "variantSeed": 2608297390,
+            "modules": [
+              {
+                "id": "module_primary",
+                "role": "primary",
+                "kind": "primary_geometry",
+                "source": "primary_geometry",
+                "slot": "primary",
+                "revealOrder": 0
+              },
+              {
+                "id": "module_support_a",
+                "role": "supporting",
+                "kind": "detail_card",
+                "source": "cue_detail",
+                "slot": "support_a",
+                "revealOrder": 1
+              },
+              {
+                "id": "module_support_b",
+                "role": "supporting",
+                "kind": "state_badge",
+                "source": "semantic_state",
+                "slot": "support_b",
+                "revealOrder": 2
+              }
+            ],
+            "links": [
+              {
+                "fromModuleId": "module_primary",
+                "toModuleId": "module_support_a",
+                "relation": "context"
+              },
+              {
+                "fromModuleId": "module_primary",
+                "toModuleId": "module_support_b",
+                "relation": "state"
+              }
+            ],
+            "geometryBlueprint": {
+              "schemaVersion": 1,
+              "profileId": "dark_curiosity_bounded_geometry_blueprint_v1",
+              "recipeId": "comparison_balance_v1",
+              "bindings": {
+                "semanticEventGraphHash": "f0a235a5169d732bcbacb05ff4f9ddb95ac8ec794b6d441cc5ff10012993e5d9",
+                "propositionId": "proposition_turn_1",
+                "primitiveParametersHash": "7df299cb1d3c8b2a5b7b1f24759d5ca440b18c7944fab45a21ae4cf3c8cbfbc8"
+              },
+              "controls": {
+                "nodeCount": 6,
+                "emphasisIndex": 0,
+                "orientation": "reverse",
+                "density": "dense",
+                "provenance": "deterministic_illustrative"
+              },
+              "complexityCost": 12,
+              "contentHash": "d2e141bd72c72de04b6e3375a3ab850ff9e31939d38e7b818db1aeefd2b6a295"
+            }
+          }
+        },
+        {
+          "id": "vs_proposition_payoff_0",
+          "propositionId": "proposition_payoff_0",
+          "beatId": "beat_payoff",
+          "claimIds": [
+            "claim_conclusion"
+          ],
+          "wordSpan": {
+            "startWordIndex": 64,
+            "endWordIndex": 68,
+            "startFrame": 1063,
+            "endFrame": 1104,
+            "text": "The honest answer is"
+          },
+          "sourceRefs": [
+            {
+              "sourceType": "beat",
+              "sourceId": "beat_payoff",
+              "operationIndex": null,
+              "field": "spokenText",
+              "startOffset": 0,
+              "endOffset": 20,
+              "value": "The honest answer is"
+            }
+          ],
+          "visualIntent": {
+            "focusEntityId": "entity_signal_hypothesis",
+            "predicate": "bounded_uncertainty",
+            "subjectKind": "hypothesis",
+            "stateTransition": "remain_unresolved"
+          },
+          "participantEntityIds": [
+            "entity_signal_hypothesis"
+          ],
+          "focusEntity": {
+            "id": "entity_signal_hypothesis",
+            "visualSubjectKind": "hypothesis",
+            "persistent": false
+          },
+          "persistentEntityIds": [
+            "entity_story_hypothesis"
+          ],
+          "capability": {
+            "assetId": "hypothesis_card",
+            "grammarId": "bounded_uncertainty",
+            "score": 200320,
+            "semanticScore": 200,
+            "continuityScore": 30,
+            "noveltyScore": 20
+          },
+          "continuity": {
+            "carriedEntityIds": [
+              "entity_story_hypothesis"
+            ],
+            "carriedAssetIds": [
+              "hypothesis_card"
+            ]
+          },
+          "primitiveParameters": {
+            "schemaVersion": 1,
+            "profileId": "dark_curiosity_story_primitive_parameters_v1",
+            "grammarId": "bounded_uncertainty",
+            "assetId": "hypothesis_card",
+            "subject": {
+              "value": "Unexplained is not proof",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_payoff",
+                "operationIndex": null,
+                "field": "onScreenText",
+                "startOffset": 0,
+                "endOffset": 24,
+                "value": "Unexplained is not proof"
+              }
+            },
+            "detail": {
+              "value": "The honest answer is",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_payoff",
+                "operationIndex": null,
+                "field": "spokenText",
+                "startOffset": 0,
+                "endOffset": 20,
+                "value": "The honest answer is"
+              }
+            },
+            "quantity": null,
+            "stateToken": "UNRESOLVED",
+            "geometry": {
+              "presetId": "grounded_uncertainty_v1",
+              "variantSeed": 1018575265,
+              "direction": "forward",
+              "route": null
+            }
+          },
+          "sceneComposition": {
+            "schemaVersion": 2,
+            "profileId": "dark_curiosity_scene_composition_v2",
+            "id": "composition_proposition_payoff_0",
+            "layoutId": "header_strip",
+            "variantSeed": 4069354492,
+            "modules": [
+              {
+                "id": "module_primary",
+                "role": "primary",
+                "kind": "primary_geometry",
+                "source": "primary_geometry",
+                "slot": "primary",
+                "revealOrder": 0
+              },
+              {
+                "id": "module_support_a",
+                "role": "supporting",
+                "kind": "detail_card",
+                "source": "cue_detail",
+                "slot": "support_a",
+                "revealOrder": 1
+              },
+              {
+                "id": "module_support_b",
+                "role": "supporting",
+                "kind": "state_badge",
+                "source": "semantic_state",
+                "slot": "support_b",
+                "revealOrder": 2
+              }
+            ],
+            "links": [
+              {
+                "fromModuleId": "module_primary",
+                "toModuleId": "module_support_a",
+                "relation": "context"
+              },
+              {
+                "fromModuleId": "module_primary",
+                "toModuleId": "module_support_b",
+                "relation": "state"
+              }
+            ],
+            "geometryBlueprint": {
+              "schemaVersion": 1,
+              "profileId": "dark_curiosity_bounded_geometry_blueprint_v1",
+              "recipeId": "bounded_orbit_v1",
+              "bindings": {
+                "semanticEventGraphHash": "f0a235a5169d732bcbacb05ff4f9ddb95ac8ec794b6d441cc5ff10012993e5d9",
+                "propositionId": "proposition_payoff_0",
+                "primitiveParametersHash": "dcf467bd9d2324004da6f7c072e51ce60bb321ef871a919d53128fe0701c93b8"
+              },
+              "controls": {
+                "nodeCount": 8,
+                "emphasisIndex": 7,
+                "orientation": "radial",
+                "density": "dense",
+                "provenance": "deterministic_illustrative"
+              },
+              "complexityCost": 16,
+              "contentHash": "fe1401c91e89ae7f2f175b6df56f2ae2f91cab3ed15922d1dedf84cacbd0a09b"
+            }
+          }
+        },
+        {
+          "id": "vs_proposition_payoff_1",
+          "propositionId": "proposition_payoff_1",
+          "beatId": "beat_payoff",
+          "claimIds": [
+            "claim_conclusion"
+          ],
+          "wordSpan": {
+            "startWordIndex": 68,
+            "endWordIndex": 81,
+            "startFrame": 1104,
+            "endFrame": 1318,
+            "text": "not aliens. It is one strong unexplained candidate that left no repeatable proof."
+          },
+          "sourceRefs": [
+            {
+              "sourceType": "beat",
+              "sourceId": "beat_payoff",
+              "operationIndex": null,
+              "field": "spokenText",
+              "startOffset": 21,
+              "endOffset": 102,
+              "value": "not aliens. It is one strong unexplained candidate that left no repeatable proof."
+            }
+          ],
+          "visualIntent": {
+            "focusEntityId": "entity_story_hypothesis",
+            "predicate": "negation",
+            "subjectKind": "hypothesis",
+            "stateTransition": "reject_hypothesis"
+          },
+          "participantEntityIds": [
+            "entity_story_hypothesis"
+          ],
+          "focusEntity": {
+            "id": "entity_story_hypothesis",
+            "visualSubjectKind": "hypothesis",
+            "persistent": true
+          },
+          "persistentEntityIds": [
+            "entity_story_hypothesis"
+          ],
+          "capability": {
+            "assetId": "hypothesis_card",
+            "grammarId": "side_by_side_comparison",
+            "score": 200310,
+            "semanticScore": 200,
+            "continuityScore": 30,
+            "noveltyScore": 10
+          },
+          "continuity": {
+            "carriedEntityIds": [
+              "entity_story_hypothesis"
+            ],
+            "carriedAssetIds": [
+              "hypothesis_card"
+            ]
+          },
+          "primitiveParameters": {
+            "schemaVersion": 1,
+            "profileId": "dark_curiosity_story_primitive_parameters_v1",
+            "grammarId": "side_by_side_comparison",
+            "assetId": "hypothesis_card",
+            "subject": {
+              "value": "Unexplained is not proof",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_payoff",
+                "operationIndex": null,
+                "field": "onScreenText",
+                "startOffset": 0,
+                "endOffset": 24,
+                "value": "Unexplained is not proof"
+              }
+            },
+            "detail": {
+              "value": "not aliens. It is one strong unexplained candidate that left no repeatable proof.",
+              "sourceRef": {
+                "sourceType": "beat",
+                "sourceId": "beat_payoff",
+                "operationIndex": null,
+                "field": "spokenText",
+                "startOffset": 21,
+                "endOffset": 102,
+                "value": "not aliens. It is one strong unexplained candidate that left no repeatable proof."
+              }
+            },
+            "quantity": null,
+            "stateToken": "REJECTED",
+            "geometry": {
+              "presetId": "grounded_comparison_v1",
+              "variantSeed": 3269871469,
+              "direction": "reverse",
+              "route": null
+            }
+          },
+          "sceneComposition": {
+            "schemaVersion": 2,
+            "profileId": "dark_curiosity_scene_composition_v2",
+            "id": "composition_proposition_payoff_1",
+            "layoutId": "satellites_right",
+            "variantSeed": 1052445691,
+            "modules": [
+              {
+                "id": "module_primary",
+                "role": "primary",
+                "kind": "primary_geometry",
+                "source": "primary_geometry",
+                "slot": "primary",
+                "revealOrder": 0
+              },
+              {
+                "id": "module_support_a",
+                "role": "supporting",
+                "kind": "detail_card",
+                "source": "cue_detail",
+                "slot": "support_a",
+                "revealOrder": 1
+              },
+              {
+                "id": "module_support_b",
+                "role": "supporting",
+                "kind": "state_badge",
+                "source": "semantic_state",
+                "slot": "support_b",
+                "revealOrder": 2
+              }
+            ],
+            "links": [
+              {
+                "fromModuleId": "module_primary",
+                "toModuleId": "module_support_a",
+                "relation": "context"
+              },
+              {
+                "fromModuleId": "module_primary",
+                "toModuleId": "module_support_b",
+                "relation": "state"
+              }
+            ],
+            "geometryBlueprint": {
+              "schemaVersion": 1,
+              "profileId": "dark_curiosity_bounded_geometry_blueprint_v1",
+              "recipeId": "comparison_balance_v1",
+              "bindings": {
+                "semanticEventGraphHash": "f0a235a5169d732bcbacb05ff4f9ddb95ac8ec794b6d441cc5ff10012993e5d9",
+                "propositionId": "proposition_payoff_1",
+                "primitiveParametersHash": "95c4e15d1921c504ddc13bd2a53c508e4c5aa1d1aa886c4b46d9ef28f408ef13"
+              },
+              "controls": {
+                "nodeCount": 6,
+                "emphasisIndex": 0,
+                "orientation": "reverse",
+                "density": "dense",
+                "provenance": "deterministic_illustrative"
+              },
+              "complexityCost": 12,
+              "contentHash": "53693c6ca0c5fc3548c2ec8bed8ce7af69494112458551b39c2005f91f2c0ed7"
+            }
+          }
+        }
+      ],
+      "persistentEntityBindings": [
+        {
+          "entityId": "entity_story_hypothesis",
+          "visualSubjectKind": "hypothesis",
+          "assetId": "hypothesis_card",
+          "sentenceIds": [
+            "vs_proposition_turn_0",
+            "vs_proposition_turn_1",
+            "vs_proposition_payoff_1"
+          ]
+        },
+        {
+          "entityId": "entity_story_mapping",
+          "visualSubjectKind": "mapping",
+          "assetId": "mapping_table",
+          "sentenceIds": [
+            "vs_proposition_evidence_0",
+            "vs_proposition_evidence_1"
+          ]
+        },
+        {
+          "entityId": "entity_story_timeline",
+          "visualSubjectKind": "timeline",
+          "assetId": "timeline_axis",
+          "sentenceIds": [
+            "vs_proposition_hook_0",
+            "vs_proposition_context_0",
+            "vs_proposition_context_1"
+          ]
+        }
+      ],
+      "contentHash": "5ad974fbd731644bb1ca2799a0b86181bea9ca0a79242d078c0d228a7fa67b0c"
+    },
+    "semanticAnimationSceneDslPlan": {
+      "schemaVersion": 1,
+      "profileId": "dark_curiosity_animation_scene_dsl_plan_v1",
+      "bindings": {
+        "semanticEventGraphHash": "f0a235a5169d732bcbacb05ff4f9ddb95ac8ec794b6d441cc5ff10012993e5d9",
+        "semanticVisualSentencePlanHash": "5ad974fbd731644bb1ca2799a0b86181bea9ca0a79242d078c0d228a7fa67b0c",
+        "draftHash": "67036a35f5336d70cff06e5851cb1b1993783b06825269dae64d1f02ae221f69",
+        "sourceStoryboardHash": "35439c861e39b0810a3c13528f85749403aee788aac4d552ceef04d434544184",
+        "timingContextHash": "cb058b4ef22f04fd9d8ffd6c107cd327b646df8cd3e015adef716a0fc0a0afbc"
+      },
+      "planner": {
+        "plannerId": "deterministic_semantic_scene_planner",
+        "mode": "deterministic",
+        "promptProfileId": "dark_curiosity_local_scene_planner_prompt_v1"
+      },
+      "scenes": [
+        {
+          "propositionId": "proposition_hook_0",
+          "provenance": {
+            "providerId": "deterministic_scene_planner",
+            "modelId": "deterministic-scene-planner-v1",
+            "promptProfileId": "dark_curiosity_local_scene_planner_prompt_v1",
+            "fallbackUsed": false,
+            "failure": null
+          },
+          "sceneDsl": {
+            "schemaVersion": 1,
+            "profileId": "dark_curiosity_animation_scene_dsl_v1",
+            "id": "scene_dsl_proposition_hook_0",
+            "bindings": {
+              "semanticEventGraphHash": "f0a235a5169d732bcbacb05ff4f9ddb95ac8ec794b6d441cc5ff10012993e5d9",
+              "semanticVisualSentencePlanHash": "5ad974fbd731644bb1ca2799a0b86181bea9ca0a79242d078c0d228a7fa67b0c",
+              "propositionId": "proposition_hook_0",
+              "primitiveParametersHash": "52a3c56c12d0b84492f9d074b0e48c06bf435d7290ef9441c5ad049b6f940bae",
+              "sceneCompositionHash": "b12e546e23cb630f1bd07ed75fa415238ed5e90b869cc69e049851ab02ad3264"
+            },
+            "actions": [
+              {
+                "op": "create",
+                "target": "module_primary",
+                "phase": "entry",
+                "preset": "reveal"
+              },
+              {
+                "op": "create",
+                "target": "module_support_a",
+                "phase": "entry",
+                "preset": "reveal"
+              },
+              {
+                "op": "create",
+                "target": "module_support_b",
+                "phase": "entry",
+                "preset": "reveal"
+              },
+              {
+                "op": "highlight",
+                "target": "module_support_b",
+                "phase": "develop",
+                "preset": "pulse_once"
+              },
+              {
+                "op": "transform",
+                "target": "module_primary",
+                "phase": "resolve",
+                "preset": "semantic_transition"
+              }
+            ],
+            "computedCost": 9,
+            "contentHash": "8623bb636df1c01e68e896cba0139b16748db4fa6990ab424ce3134195f2f35a"
+          }
+        },
+        {
+          "propositionId": "proposition_context_0",
+          "provenance": {
+            "providerId": "deterministic_scene_planner",
+            "modelId": "deterministic-scene-planner-v1",
+            "promptProfileId": "dark_curiosity_local_scene_planner_prompt_v1",
+            "fallbackUsed": false,
+            "failure": null
+          },
+          "sceneDsl": {
+            "schemaVersion": 1,
+            "profileId": "dark_curiosity_animation_scene_dsl_v1",
+            "id": "scene_dsl_proposition_context_0",
+            "bindings": {
+              "semanticEventGraphHash": "f0a235a5169d732bcbacb05ff4f9ddb95ac8ec794b6d441cc5ff10012993e5d9",
+              "semanticVisualSentencePlanHash": "5ad974fbd731644bb1ca2799a0b86181bea9ca0a79242d078c0d228a7fa67b0c",
+              "propositionId": "proposition_context_0",
+              "primitiveParametersHash": "2db00bb512a031e6208199bcb896b219172dffbc4b40360e17ab8606abf956b5",
+              "sceneCompositionHash": "86e0830e367705ec4c8d407a55000632ba5859a47553e1125dff37ec09a209a9"
+            },
+            "actions": [
+              {
+                "op": "create",
+                "target": "module_primary",
+                "phase": "entry",
+                "preset": "reveal"
+              },
+              {
+                "op": "create",
+                "target": "module_support_a",
+                "phase": "entry",
+                "preset": "reveal"
+              },
+              {
+                "op": "create",
+                "target": "module_support_b",
+                "phase": "entry",
+                "preset": "reveal"
+              },
+              {
+                "op": "camera",
+                "target": "scene",
+                "phase": "develop",
+                "preset": "push_primary"
+              },
+              {
+                "op": "highlight",
+                "target": "module_primary",
+                "phase": "resolve",
+                "preset": "pulse_once"
+              }
+            ],
+            "computedCost": 9,
+            "contentHash": "1a970aff134d9b91971a6a73bed441c615592d4149cdf99e0ee10ee03b2cf073"
+          }
+        },
+        {
+          "propositionId": "proposition_context_1",
+          "provenance": {
+            "providerId": "deterministic_scene_planner",
+            "modelId": "deterministic-scene-planner-v1",
+            "promptProfileId": "dark_curiosity_local_scene_planner_prompt_v1",
+            "fallbackUsed": false,
+            "failure": null
+          },
+          "sceneDsl": {
+            "schemaVersion": 1,
+            "profileId": "dark_curiosity_animation_scene_dsl_v1",
+            "id": "scene_dsl_proposition_context_1",
+            "bindings": {
+              "semanticEventGraphHash": "f0a235a5169d732bcbacb05ff4f9ddb95ac8ec794b6d441cc5ff10012993e5d9",
+              "semanticVisualSentencePlanHash": "5ad974fbd731644bb1ca2799a0b86181bea9ca0a79242d078c0d228a7fa67b0c",
+              "propositionId": "proposition_context_1",
+              "primitiveParametersHash": "6719b886953f536f33063eb70e2f967056c08d8d75eda899f7a5d711b6854497",
+              "sceneCompositionHash": "410fe18e4cc24be1beb29d011f2be2b97226bcbde20a1094950c3745e354b40c"
+            },
+            "actions": [
+              {
+                "op": "create",
+                "target": "module_primary",
+                "phase": "entry",
+                "preset": "reveal"
+              },
+              {
+                "op": "create",
+                "target": "module_support_a",
+                "phase": "entry",
+                "preset": "reveal"
+              },
+              {
+                "op": "create",
+                "target": "module_support_b",
+                "phase": "entry",
+                "preset": "reveal"
+              },
+              {
+                "op": "highlight",
+                "target": "module_support_a",
+                "phase": "develop",
+                "preset": "pulse_once"
+              },
+              {
+                "op": "transform",
+                "target": "module_primary",
+                "phase": "resolve",
+                "preset": "semantic_transition"
+              }
+            ],
+            "computedCost": 9,
+            "contentHash": "6eb9d4aa3da61edf53b3c3a8073fde432d11af295ac297f344c706b9ef20ea6f"
+          }
+        },
+        {
+          "propositionId": "proposition_evidence_0",
+          "provenance": {
+            "providerId": "deterministic_scene_planner",
+            "modelId": "deterministic-scene-planner-v1",
+            "promptProfileId": "dark_curiosity_local_scene_planner_prompt_v1",
+            "fallbackUsed": false,
+            "failure": null
+          },
+          "sceneDsl": {
+            "schemaVersion": 1,
+            "profileId": "dark_curiosity_animation_scene_dsl_v1",
+            "id": "scene_dsl_proposition_evidence_0",
+            "bindings": {
+              "semanticEventGraphHash": "f0a235a5169d732bcbacb05ff4f9ddb95ac8ec794b6d441cc5ff10012993e5d9",
+              "semanticVisualSentencePlanHash": "5ad974fbd731644bb1ca2799a0b86181bea9ca0a79242d078c0d228a7fa67b0c",
+              "propositionId": "proposition_evidence_0",
+              "primitiveParametersHash": "78d7ab2ae069d98d46e0d763ad94d85a8afb1c7ad95c4f4ce573e46ddf0a4c35",
+              "sceneCompositionHash": "1451829c690f692f90f4fcaa335f83449dcd1b942f5e4a99b73d73b8c005cb51"
+            },
+            "actions": [
+              {
+                "op": "create",
+                "target": "module_primary",
+                "phase": "entry",
+                "preset": "reveal"
+              },
+              {
+                "op": "create",
+                "target": "module_support_a",
+                "phase": "entry",
+                "preset": "reveal"
+              },
+              {
+                "op": "create",
+                "target": "module_support_b",
+                "phase": "entry",
+                "preset": "reveal"
+              },
+              {
+                "op": "highlight",
+                "target": "module_support_b",
+                "phase": "develop",
+                "preset": "pulse_once"
+              },
+              {
+                "op": "transform",
+                "target": "module_primary",
+                "phase": "resolve",
+                "preset": "semantic_transition"
+              }
+            ],
+            "computedCost": 9,
+            "contentHash": "603fc74ca5595fe60f8733323ee0196880f3c6cc7725fbe54362046874743458"
+          }
+        },
+        {
+          "propositionId": "proposition_evidence_1",
+          "provenance": {
+            "providerId": "deterministic_scene_planner",
+            "modelId": "deterministic-scene-planner-v1",
+            "promptProfileId": "dark_curiosity_local_scene_planner_prompt_v1",
+            "fallbackUsed": false,
+            "failure": null
+          },
+          "sceneDsl": {
+            "schemaVersion": 1,
+            "profileId": "dark_curiosity_animation_scene_dsl_v1",
+            "id": "scene_dsl_proposition_evidence_1",
+            "bindings": {
+              "semanticEventGraphHash": "f0a235a5169d732bcbacb05ff4f9ddb95ac8ec794b6d441cc5ff10012993e5d9",
+              "semanticVisualSentencePlanHash": "5ad974fbd731644bb1ca2799a0b86181bea9ca0a79242d078c0d228a7fa67b0c",
+              "propositionId": "proposition_evidence_1",
+              "primitiveParametersHash": "badd9417e9745e5faff03a8e9468c6d6d42f75bf6e343098062f38c877088324",
+              "sceneCompositionHash": "0aba5589b9f2bd4574dba683c4954c1716fe1e70eec871dfe5893b85adc61383"
+            },
+            "actions": [
+              {
+                "op": "create",
+                "target": "module_primary",
+                "phase": "entry",
+                "preset": "reveal"
+              },
+              {
+                "op": "create",
+                "target": "module_support_a",
+                "phase": "entry",
+                "preset": "reveal"
+              },
+              {
+                "op": "create",
+                "target": "module_support_b",
+                "phase": "entry",
+                "preset": "reveal"
+              },
+              {
+                "op": "camera",
+                "target": "scene",
+                "phase": "develop",
+                "preset": "push_primary"
+              },
+              {
+                "op": "highlight",
+                "target": "module_primary",
+                "phase": "resolve",
+                "preset": "pulse_once"
+              }
+            ],
+            "computedCost": 9,
+            "contentHash": "39e5b2c06e06eaa73772451cdcec24cd2813cf28e8a3f23440dc0c242d050ec2"
+          }
+        },
+        {
+          "propositionId": "proposition_turn_0",
+          "provenance": {
+            "providerId": "deterministic_scene_planner",
+            "modelId": "deterministic-scene-planner-v1",
+            "promptProfileId": "dark_curiosity_local_scene_planner_prompt_v1",
+            "fallbackUsed": false,
+            "failure": null
+          },
+          "sceneDsl": {
+            "schemaVersion": 1,
+            "profileId": "dark_curiosity_animation_scene_dsl_v1",
+            "id": "scene_dsl_proposition_turn_0",
+            "bindings": {
+              "semanticEventGraphHash": "f0a235a5169d732bcbacb05ff4f9ddb95ac8ec794b6d441cc5ff10012993e5d9",
+              "semanticVisualSentencePlanHash": "5ad974fbd731644bb1ca2799a0b86181bea9ca0a79242d078c0d228a7fa67b0c",
+              "propositionId": "proposition_turn_0",
+              "primitiveParametersHash": "6ded649ce90942ef4afa0c31dc2a2899267ef1da07777e0c68034637380d48ab",
+              "sceneCompositionHash": "8f3bd9f41116a95048af4490b8603f2e0855e0617a8d635994b04fa3a57eb3b0"
+            },
+            "actions": [
+              {
+                "op": "create",
+                "target": "module_primary",
+                "phase": "entry",
+                "preset": "reveal"
+              },
+              {
+                "op": "create",
+                "target": "module_support_a",
+                "phase": "entry",
+                "preset": "reveal"
+              },
+              {
+                "op": "create",
+                "target": "module_support_b",
+                "phase": "entry",
+                "preset": "reveal"
+              },
+              {
+                "op": "camera",
+                "target": "scene",
+                "phase": "develop",
+                "preset": "push_primary"
+              },
+              {
+                "op": "highlight",
+                "target": "module_primary",
+                "phase": "resolve",
+                "preset": "pulse_once"
+              }
+            ],
+            "computedCost": 9,
+            "contentHash": "888a615cd65b12dc567e544b7b48028e0cf64f2436ca909f93407b49368dc808"
+          }
+        },
+        {
+          "propositionId": "proposition_turn_1",
+          "provenance": {
+            "providerId": "deterministic_scene_planner",
+            "modelId": "deterministic-scene-planner-v1",
+            "promptProfileId": "dark_curiosity_local_scene_planner_prompt_v1",
+            "fallbackUsed": false,
+            "failure": null
+          },
+          "sceneDsl": {
+            "schemaVersion": 1,
+            "profileId": "dark_curiosity_animation_scene_dsl_v1",
+            "id": "scene_dsl_proposition_turn_1",
+            "bindings": {
+              "semanticEventGraphHash": "f0a235a5169d732bcbacb05ff4f9ddb95ac8ec794b6d441cc5ff10012993e5d9",
+              "semanticVisualSentencePlanHash": "5ad974fbd731644bb1ca2799a0b86181bea9ca0a79242d078c0d228a7fa67b0c",
+              "propositionId": "proposition_turn_1",
+              "primitiveParametersHash": "7df299cb1d3c8b2a5b7b1f24759d5ca440b18c7944fab45a21ae4cf3c8cbfbc8",
+              "sceneCompositionHash": "dfec748f6851ba8c0c1e4855f8123259c4f25dc93c365f6ec3f837984a035bd3"
+            },
+            "actions": [
+              {
+                "op": "create",
+                "target": "module_primary",
+                "phase": "entry",
+                "preset": "reveal"
+              },
+              {
+                "op": "create",
+                "target": "module_support_a",
+                "phase": "entry",
+                "preset": "reveal"
+              },
+              {
+                "op": "create",
+                "target": "module_support_b",
+                "phase": "entry",
+                "preset": "reveal"
+              },
+              {
+                "op": "camera",
+                "target": "scene",
+                "phase": "develop",
+                "preset": "push_primary"
+              },
+              {
+                "op": "highlight",
+                "target": "module_primary",
+                "phase": "resolve",
+                "preset": "pulse_once"
+              }
+            ],
+            "computedCost": 9,
+            "contentHash": "5a12d1ff01952e9e55b9fd8ad67011cb55e6fde3590cb8e952f08b16d332e86c"
+          }
+        },
+        {
+          "propositionId": "proposition_payoff_0",
+          "provenance": {
+            "providerId": "deterministic_scene_planner",
+            "modelId": "deterministic-scene-planner-v1",
+            "promptProfileId": "dark_curiosity_local_scene_planner_prompt_v1",
+            "fallbackUsed": false,
+            "failure": null
+          },
+          "sceneDsl": {
+            "schemaVersion": 1,
+            "profileId": "dark_curiosity_animation_scene_dsl_v1",
+            "id": "scene_dsl_proposition_payoff_0",
+            "bindings": {
+              "semanticEventGraphHash": "f0a235a5169d732bcbacb05ff4f9ddb95ac8ec794b6d441cc5ff10012993e5d9",
+              "semanticVisualSentencePlanHash": "5ad974fbd731644bb1ca2799a0b86181bea9ca0a79242d078c0d228a7fa67b0c",
+              "propositionId": "proposition_payoff_0",
+              "primitiveParametersHash": "dcf467bd9d2324004da6f7c072e51ce60bb321ef871a919d53128fe0701c93b8",
+              "sceneCompositionHash": "2f35bc7598ab24d8afd8b18eb076d2186864715d010f8e6601e82ac69497f494"
+            },
+            "actions": [
+              {
+                "op": "create",
+                "target": "module_primary",
+                "phase": "entry",
+                "preset": "reveal"
+              },
+              {
+                "op": "create",
+                "target": "module_support_a",
+                "phase": "entry",
+                "preset": "reveal"
+              },
+              {
+                "op": "create",
+                "target": "module_support_b",
+                "phase": "entry",
+                "preset": "reveal"
+              },
+              {
+                "op": "camera",
+                "target": "scene",
+                "phase": "develop",
+                "preset": "pull_overview"
+              },
+              {
+                "op": "highlight",
+                "target": "module_support_b",
+                "phase": "resolve",
+                "preset": "pulse_once"
+              }
+            ],
+            "computedCost": 9,
+            "contentHash": "4568fc048de037b1ce431e74bb7e67dfa51524a8a2050e16a88e6d7141e10ee9"
+          }
+        },
+        {
+          "propositionId": "proposition_payoff_1",
+          "provenance": {
+            "providerId": "deterministic_scene_planner",
+            "modelId": "deterministic-scene-planner-v1",
+            "promptProfileId": "dark_curiosity_local_scene_planner_prompt_v1",
+            "fallbackUsed": false,
+            "failure": null
+          },
+          "sceneDsl": {
+            "schemaVersion": 1,
+            "profileId": "dark_curiosity_animation_scene_dsl_v1",
+            "id": "scene_dsl_proposition_payoff_1",
+            "bindings": {
+              "semanticEventGraphHash": "f0a235a5169d732bcbacb05ff4f9ddb95ac8ec794b6d441cc5ff10012993e5d9",
+              "semanticVisualSentencePlanHash": "5ad974fbd731644bb1ca2799a0b86181bea9ca0a79242d078c0d228a7fa67b0c",
+              "propositionId": "proposition_payoff_1",
+              "primitiveParametersHash": "95c4e15d1921c504ddc13bd2a53c508e4c5aa1d1aa886c4b46d9ef28f408ef13",
+              "sceneCompositionHash": "700ee1589b37fa9089e30638c5ddf01a7cddafb57573265e2e826ed57338a5ee"
+            },
+            "actions": [
+              {
+                "op": "create",
+                "target": "module_primary",
+                "phase": "entry",
+                "preset": "reveal"
+              },
+              {
+                "op": "create",
+                "target": "module_support_a",
+                "phase": "entry",
+                "preset": "reveal"
+              },
+              {
+                "op": "create",
+                "target": "module_support_b",
+                "phase": "entry",
+                "preset": "reveal"
+              },
+              {
+                "op": "highlight",
+                "target": "module_support_b",
+                "phase": "develop",
+                "preset": "pulse_once"
+              },
+              {
+                "op": "transform",
+                "target": "module_primary",
+                "phase": "resolve",
+                "preset": "semantic_transition"
+              }
+            ],
+            "computedCost": 9,
+            "contentHash": "befadd47e339294ea48f2d05aefb0da7db0f9cdce96602b85e290c0d736da6de"
+          }
+        }
+      ],
+      "summary": {
+        "sceneCount": 9,
+        "fallbackSceneCount": 0,
+        "totalComputedCost": 81,
+        "maximumSceneCost": 9,
+        "providerIds": [
+          "deterministic_scene_planner"
+        ]
+      },
+      "contentHash": "352290335c819060c77f5a9ae7c224042d7a2ec07d10f4430be20a7b19e8f12b"
+    },
+    "educationalExplainer": {
+      "schemaVersion": 1,
+      "styleSpecId": "educational_line_art_reference_v1",
+      "referenceStyleSpec": {
+        "schemaVersion": 1,
+        "id": "educational_line_art_reference_v1",
+        "profile": "educational_line_art",
+        "version": "1.0.0",
+        "benchmarkRef": "instagram_dzt2g_htwco",
+        "canvas": {
+          "aspectRatio": "9:16",
+          "width": 1080,
+          "height": 1920,
+          "fps": 30
+        },
+        "palette": {
+          "background": "#030303",
+          "primary": "#f8fafc",
+          "muted": "#94a3b8",
+          "accent": "#a78bfa",
+          "signal": "#ef4444",
+          "support": "#60a5fa"
+        },
+        "regions": {
+          "persistentHeader": {
+            "top": 0.07,
+            "bottom": 0.19
+          },
+          "semanticStage": {
+            "top": 0.22,
+            "bottom": 0.76
+          },
+          "semanticPhrase": {
+            "top": 0.76,
+            "bottom": 0.89
+          },
+          "platformSafeBottom": 0.91
+        },
+        "typography": {
+          "promise": {
+            "family": "Outfit",
+            "weight": 600,
+            "size": 70,
+            "maxLines": 2
+          },
+          "section": {
+            "family": "Outfit",
+            "weight": 700,
+            "size": 56,
+            "maxLines": 2
+          },
+          "phrase": {
+            "family": "Outfit",
+            "weight": 500,
+            "size": 38,
+            "maxLines": 2
+          },
+          "label": {
+            "family": "Outfit",
+            "weight": 500,
+            "size": 25,
+            "maxLines": 2
+          }
+        },
+        "pacing": {
+          "overviewCompleteBySeconds": 3,
+          "firstSectionBySeconds": 6,
+          "meaningfulChangeMinSeconds": 1.5,
+          "meaningfulChangeMaxSeconds": 3,
+          "sectionMinSeconds": 8,
+          "sectionMaxSeconds": 24
+        },
+        "layouts": [
+          "overview_grid",
+          "diagram_focus",
+          "split_explain",
+          "story_scene",
+          "cta_network"
+        ],
+        "recipes": [
+          "line_chart",
+          "branching_tree",
+          "process_flow",
+          "evidence_lens",
+          "timeline",
+          "comparison",
+          "map_route",
+          "counter",
+          "formula",
+          "story_scene"
+        ],
+        "transitions": [
+          "draw_reveal",
+          "match_morph",
+          "focus_lens",
+          "mask_wipe",
+          "scale_focus"
+        ],
+        "captionPolicy": {
+          "mode": "integrated_semantic_with_ass_fallback",
+          "fullTranscriptArtifact": true,
+          "duplicateBurnedText": false
+        },
+        "audioPolicy": {
+          "finalIntegratedLufs": -16,
+          "truePeakDbtp": -1.5,
+          "musicBedEnabled": false,
+          "sparseSfxEnabled": true,
+          "maxSfxPerMicrobeat": 1
+        },
+        "contentHash": "f5b929bd6ad4e2b02d4bf940029270cadb3eb15718fe07923ce2e0e7ed39aa65"
+      },
+      "narrativeBeatGraph": {
+        "schemaVersion": 1,
+        "profile": "narrative_beat_graph_v1",
+        "profileVersion": "1.0.0",
+        "draftHash": "67036a35f5336d70cff06e5851cb1b1993783b06825269dae64d1f02ae221f69",
+        "timingContextHash": "cb058b4ef22f04fd9d8ffd6c107cd327b646df8cd3e015adef716a0fc0a0afbc",
+        "durationFrames": 1350,
+        "fps": 30,
+        "sections": [
+          {
+            "id": "section_hook",
+            "role": "hook",
+            "beatId": "beat_hook",
+            "startFrame": 0,
+            "endFrame": 255,
+            "microbeatIds": [
+              "micro_hook_01"
+            ]
+          },
+          {
+            "id": "section_context",
+            "role": "context",
+            "beatId": "beat_context",
+            "startFrame": 255,
+            "endFrame": 546,
+            "microbeatIds": [
+              "micro_context_01",
+              "micro_context_02"
+            ]
+          },
+          {
+            "id": "section_evidence",
+            "role": "evidence",
+            "beatId": "beat_evidence",
+            "startFrame": 546,
+            "endFrame": 830,
+            "microbeatIds": [
+              "micro_evidence_01",
+              "micro_evidence_02"
+            ]
+          },
+          {
+            "id": "section_turn",
+            "role": "turn",
+            "beatId": "beat_turn",
+            "startFrame": 830,
+            "endFrame": 1063,
+            "microbeatIds": [
+              "micro_turn_01",
+              "micro_turn_02"
+            ]
+          },
+          {
+            "id": "section_payoff",
+            "role": "payoff",
+            "beatId": "beat_payoff",
+            "startFrame": 1063,
+            "endFrame": 1350,
+            "microbeatIds": [
+              "micro_payoff_01",
+              "micro_payoff_02"
+            ]
+          }
+        ],
+        "microbeats": [
+          {
+            "id": "micro_hook_01",
+            "sectionId": "section_hook",
+            "type": "setup",
+            "sentenceId": "vs_proposition_hook_0",
+            "startFrame": 0,
+            "endFrame": 243,
+            "wordStartIndex": 0,
+            "wordEndIndex": 15,
+            "semanticText": "In 1977, one radio signal looked so unusual that an astronomer wrote one word: Wow."
+          },
+          {
+            "id": "micro_context_01",
+            "sectionId": "section_context",
+            "type": "setup",
+            "sentenceId": "vs_proposition_context_0",
+            "startFrame": 255,
+            "endFrame": 479,
+            "wordStartIndex": 15,
+            "wordEndIndex": 28,
+            "semanticText": "It arrived near a frequency researchers considered promising for interstellar communication and lasted"
+          },
+          {
+            "id": "micro_context_02",
+            "sectionId": "section_context",
+            "type": "setup",
+            "sentenceId": "vs_proposition_context_1",
+            "startFrame": 479,
+            "endFrame": 524,
+            "wordStartIndex": 28,
+            "wordEndIndex": 30,
+            "semanticText": "seventy-two seconds."
+          },
+          {
+            "id": "micro_evidence_01",
+            "sectionId": "section_evidence",
+            "type": "mechanism",
+            "sentenceId": "vs_proposition_evidence_0",
+            "startFrame": 546,
+            "endFrame": 681,
+            "wordStartIndex": 30,
+            "wordEndIndex": 42,
+            "semanticText": "Its strength rose and fell as the telescope beam crossed the source,"
+          },
+          {
+            "id": "micro_evidence_02",
+            "sectionId": "section_evidence",
+            "type": "mechanism",
+            "sentenceId": "vs_proposition_evidence_1",
+            "startFrame": 700,
+            "endFrame": 809,
+            "wordStartIndex": 42,
+            "wordEndIndex": 48,
+            "semanticText": "making ordinary local interference less convincing."
+          },
+          {
+            "id": "micro_turn_01",
+            "sectionId": "section_turn",
+            "type": "example",
+            "sentenceId": "vs_proposition_turn_0",
+            "startFrame": 830,
+            "endFrame": 944,
+            "wordStartIndex": 48,
+            "wordEndIndex": 57,
+            "semanticText": "But later searches never verified the same signal again,"
+          },
+          {
+            "id": "micro_turn_02",
+            "sectionId": "section_turn",
+            "type": "example",
+            "sentenceId": "vs_proposition_turn_1",
+            "startFrame": 944,
+            "endFrame": 1051,
+            "wordStartIndex": 57,
+            "wordEndIndex": 64,
+            "semanticText": "and no confirmed transmission has explained it."
+          },
+          {
+            "id": "micro_payoff_01",
+            "sectionId": "section_payoff",
+            "type": "payoff",
+            "sentenceId": "vs_proposition_payoff_0",
+            "startFrame": 1063,
+            "endFrame": 1104,
+            "wordStartIndex": 64,
+            "wordEndIndex": 68,
+            "semanticText": "The honest answer is"
+          },
+          {
+            "id": "micro_payoff_02",
+            "sectionId": "section_payoff",
+            "type": "payoff",
+            "sentenceId": "vs_proposition_payoff_1",
+            "startFrame": 1104,
+            "endFrame": 1318,
+            "wordStartIndex": 68,
+            "wordEndIndex": 81,
+            "semanticText": "not aliens. It is one strong unexplained candidate that left no repeatable proof."
+          }
+        ],
+        "contentHash": "ec905b64ee2eca769780b4c5f890dcd26a75d62d00904504fd39863f4b6224ef"
+      },
+      "directorPlan": {
+        "schemaVersion": 1,
+        "profile": "educational_director_plan_v1",
+        "profileVersion": "1.0.0",
+        "bindings": {
+          "draftHash": "67036a35f5336d70cff06e5851cb1b1993783b06825269dae64d1f02ae221f69",
+          "sentencePlanHash": "5ad974fbd731644bb1ca2799a0b86181bea9ca0a79242d078c0d228a7fa67b0c",
+          "beatGraphHash": "ec905b64ee2eca769780b4c5f890dcd26a75d62d00904504fd39863f4b6224ef",
+          "styleSpecHash": "f5b929bd6ad4e2b02d4bf940029270cadb3eb15718fe07923ce2e0e7ed39aa65",
+          "assetManifestHash": "4318c2b1eb03fef35195f224519d271d3cd320ae0ef4052c9c6e04ede0870366"
+        },
+        "promise": {
+          "title": "The signal that appeared once",
+          "persistentFromFrame": 0,
+          "persistentToFrame": 1350
+        },
+        "sections": [
+          {
+            "id": "direction_hook",
+            "sectionId": "section_hook",
+            "layout": "overview_grid",
+            "persistentEntityIds": [
+              "promise_header",
+              "story_thread"
+            ],
+            "microbeatIds": [
+              "micro_hook_01"
+            ]
+          },
+          {
+            "id": "direction_context",
+            "sectionId": "section_context",
+            "layout": "diagram_focus",
+            "persistentEntityIds": [
+              "promise_header",
+              "story_thread"
+            ],
+            "microbeatIds": [
+              "micro_context_01",
+              "micro_context_02"
+            ]
+          },
+          {
+            "id": "direction_evidence",
+            "sectionId": "section_evidence",
+            "layout": "split_explain",
+            "persistentEntityIds": [
+              "promise_header",
+              "story_thread"
+            ],
+            "microbeatIds": [
+              "micro_evidence_01",
+              "micro_evidence_02"
+            ]
+          },
+          {
+            "id": "direction_turn",
+            "sectionId": "section_turn",
+            "layout": "story_scene",
+            "persistentEntityIds": [
+              "promise_header",
+              "story_thread"
+            ],
+            "microbeatIds": [
+              "micro_turn_01",
+              "micro_turn_02"
+            ]
+          },
+          {
+            "id": "direction_payoff",
+            "sectionId": "section_payoff",
+            "layout": "cta_network",
+            "persistentEntityIds": [
+              "promise_header",
+              "story_thread"
+            ],
+            "microbeatIds": [
+              "micro_payoff_01",
+              "micro_payoff_02"
+            ]
+          }
+        ],
+        "microbeats": [
+          {
+            "id": "cue_micro_hook_01",
+            "microbeatId": "micro_hook_01",
+            "recipe": "comparison",
+            "transition": "draw_reveal",
+            "focusEntityId": "entity_story_timeline",
+            "assetId": "timeline_axis",
+            "accentTone": "accent",
+            "typography": {
+              "sectionTitle": "A signal appeared once",
+              "semanticPhrase": "In 1977, one radio signal looked so unusual that an astronomer wrote one word: Wow.",
+              "label": "timeline axis"
+            },
+            "audioCue": "sfx_soft_tick"
+          },
+          {
+            "id": "cue_micro_context_01",
+            "microbeatId": "micro_context_01",
+            "recipe": "comparison",
+            "transition": "match_morph",
+            "focusEntityId": "entity_story_timeline",
+            "assetId": "timeline_axis",
+            "accentTone": "accent",
+            "typography": {
+              "sectionTitle": "72 seconds near a notable frequency",
+              "semanticPhrase": "It arrived near a frequency researchers considered promising for interstellar communication and lasted",
+              "label": "timeline axis"
+            },
+            "audioCue": null
+          },
+          {
+            "id": "cue_micro_context_02",
+            "microbeatId": "micro_context_02",
+            "recipe": "comparison",
+            "transition": "focus_lens",
+            "focusEntityId": "entity_story_timeline",
+            "assetId": "timeline_axis",
+            "accentTone": "accent",
+            "typography": {
+              "sectionTitle": "72 seconds near a notable frequency",
+              "semanticPhrase": "seventy-two seconds.",
+              "label": "timeline axis"
+            },
+            "audioCue": null
+          },
+          {
+            "id": "cue_micro_evidence_01",
+            "microbeatId": "micro_evidence_01",
+            "recipe": "process_flow",
+            "transition": "mask_wipe",
+            "focusEntityId": "entity_story_mapping",
+            "assetId": "mapping_table",
+            "accentTone": "accent",
+            "typography": {
+              "sectionTitle": "The signal followed the telescope beam",
+              "semanticPhrase": "Its strength rose and fell as the telescope beam crossed the source,",
+              "label": "mapping table"
+            },
+            "audioCue": null
+          },
+          {
+            "id": "cue_micro_evidence_02",
+            "microbeatId": "micro_evidence_02",
+            "recipe": "process_flow",
+            "transition": "scale_focus",
+            "focusEntityId": "entity_story_mapping",
+            "assetId": "mapping_table",
+            "accentTone": "accent",
+            "typography": {
+              "sectionTitle": "The signal followed the telescope beam",
+              "semanticPhrase": "making ordinary local interference less convincing.",
+              "label": "mapping table"
+            },
+            "audioCue": null
+          },
+          {
+            "id": "cue_micro_turn_01",
+            "microbeatId": "micro_turn_01",
+            "recipe": "comparison",
+            "transition": "draw_reveal",
+            "focusEntityId": "entity_story_hypothesis",
+            "assetId": "hypothesis_card",
+            "accentTone": "accent",
+            "typography": {
+              "sectionTitle": "It never repeated",
+              "semanticPhrase": "But later searches never verified the same signal again,",
+              "label": "hypothesis card"
+            },
+            "audioCue": null
+          },
+          {
+            "id": "cue_micro_turn_02",
+            "microbeatId": "micro_turn_02",
+            "recipe": "comparison",
+            "transition": "match_morph",
+            "focusEntityId": "entity_story_hypothesis",
+            "assetId": "hypothesis_card",
+            "accentTone": "accent",
+            "typography": {
+              "sectionTitle": "It never repeated",
+              "semanticPhrase": "and no confirmed transmission has explained it.",
+              "label": "hypothesis card"
+            },
+            "audioCue": null
+          },
+          {
+            "id": "cue_micro_payoff_01",
+            "microbeatId": "micro_payoff_01",
+            "recipe": "formula",
+            "transition": "focus_lens",
+            "focusEntityId": "entity_signal_hypothesis",
+            "assetId": "hypothesis_card",
+            "accentTone": "signal",
+            "typography": {
+              "sectionTitle": "Unexplained is not proof",
+              "semanticPhrase": "The honest answer is",
+              "label": "hypothesis card"
+            },
+            "audioCue": null
+          },
+          {
+            "id": "cue_micro_payoff_02",
+            "microbeatId": "micro_payoff_02",
+            "recipe": "comparison",
+            "transition": "mask_wipe",
+            "focusEntityId": "entity_story_hypothesis",
+            "assetId": "hypothesis_card",
+            "accentTone": "signal",
+            "typography": {
+              "sectionTitle": "Unexplained is not proof",
+              "semanticPhrase": "not aliens. It is one strong unexplained candidate that left no repeatable proof.",
+              "label": "hypothesis card"
+            },
+            "audioCue": "sfx_soft_whoosh"
+          }
+        ],
+        "visualEvents": [
+          {
+            "id": "visual_event_001",
+            "microbeatId": "micro_hook_01",
+            "frame": 0,
+            "type": "state_change"
+          },
+          {
+            "id": "visual_event_002",
+            "microbeatId": "micro_hook_01",
+            "frame": 74,
+            "type": "focus_shift"
+          },
+          {
+            "id": "visual_event_003",
+            "microbeatId": "micro_hook_01",
+            "frame": 148,
+            "type": "focus_shift"
+          },
+          {
+            "id": "visual_event_004",
+            "microbeatId": "micro_hook_01",
+            "frame": 222,
+            "type": "focus_shift"
+          },
+          {
+            "id": "visual_event_005",
+            "microbeatId": "micro_context_01",
+            "frame": 255,
+            "type": "state_change"
+          },
+          {
+            "id": "visual_event_006",
+            "microbeatId": "micro_context_01",
+            "frame": 329,
+            "type": "focus_shift"
+          },
+          {
+            "id": "visual_event_007",
+            "microbeatId": "micro_context_01",
+            "frame": 403,
+            "type": "focus_shift"
+          },
+          {
+            "id": "visual_event_008",
+            "microbeatId": "micro_context_01",
+            "frame": 477,
+            "type": "focus_shift"
+          },
+          {
+            "id": "visual_event_009",
+            "microbeatId": "micro_context_02",
+            "frame": 479,
+            "type": "state_change"
+          },
+          {
+            "id": "visual_event_010",
+            "microbeatId": "micro_evidence_01",
+            "frame": 546,
+            "type": "state_change"
+          },
+          {
+            "id": "visual_event_011",
+            "microbeatId": "micro_evidence_01",
+            "frame": 620,
+            "type": "focus_shift"
+          },
+          {
+            "id": "visual_event_012",
+            "microbeatId": "micro_evidence_01",
+            "frame": 694,
+            "type": "focus_shift"
+          },
+          {
+            "id": "visual_event_013",
+            "microbeatId": "micro_evidence_02",
+            "frame": 700,
+            "type": "state_change"
+          },
+          {
+            "id": "visual_event_014",
+            "microbeatId": "micro_evidence_02",
+            "frame": 774,
+            "type": "focus_shift"
+          },
+          {
+            "id": "visual_event_015",
+            "microbeatId": "micro_turn_01",
+            "frame": 830,
+            "type": "state_change"
+          },
+          {
+            "id": "visual_event_016",
+            "microbeatId": "micro_turn_01",
+            "frame": 904,
+            "type": "focus_shift"
+          },
+          {
+            "id": "visual_event_017",
+            "microbeatId": "micro_turn_02",
+            "frame": 944,
+            "type": "state_change"
+          },
+          {
+            "id": "visual_event_018",
+            "microbeatId": "micro_turn_02",
+            "frame": 1018,
+            "type": "focus_shift"
+          },
+          {
+            "id": "visual_event_019",
+            "microbeatId": "micro_payoff_01",
+            "frame": 1063,
+            "type": "state_change"
+          },
+          {
+            "id": "visual_event_020",
+            "microbeatId": "micro_payoff_02",
+            "frame": 1104,
+            "type": "state_change"
+          },
+          {
+            "id": "visual_event_021",
+            "microbeatId": "micro_payoff_02",
+            "frame": 1178,
+            "type": "focus_shift"
+          },
+          {
+            "id": "visual_event_022",
+            "microbeatId": "micro_payoff_02",
+            "frame": 1252,
+            "type": "focus_shift"
+          },
+          {
+            "id": "visual_event_023",
+            "microbeatId": "micro_payoff_02",
+            "frame": 1326,
+            "type": "focus_shift"
+          }
+        ],
+        "contentHash": "bb38641d2f21aa3e47643e44bb3a41c66e41acbc17dcd2d51b76b07128f87c8b"
+      },
+      "audioIR": {
+        "schemaVersion": 1,
+        "profile": "educational_audio_ir_v1",
+        "profileVersion": "1.0.0",
+        "fps": 30,
+        "durationFrames": 1350,
+        "assetManifestHash": "4318c2b1eb03fef35195f224519d271d3cd320ae0ef4052c9c6e04ede0870366",
+        "tracks": [
+          {
+            "id": "voice",
+            "type": "narration",
+            "enabled": true,
+            "clips": [
+              {
+                "id": "bound_narration",
+                "startFrame": 0,
+                "endFrame": 1350,
+                "gainDb": 0
+              }
+            ]
+          },
+          {
+            "id": "music",
+            "type": "music_bed",
+            "enabled": false,
+            "clips": []
+          },
+          {
+            "id": "sfx",
+            "type": "sound_effects",
+            "enabled": true,
+            "clips": [
+              {
+                "id": "audio_micro_hook_01",
+                "assetId": "sfx_soft_tick",
+                "startFrame": 0,
+                "gainDb": -22
+              },
+              {
+                "id": "audio_micro_payoff_02",
+                "assetId": "sfx_soft_whoosh",
+                "startFrame": 1104,
+                "gainDb": -18
+              }
+            ]
+          }
+        ],
+        "mix": {
+          "integratedLufs": -16,
+          "truePeakDbtp": -1.5,
+          "narrationDuckingDb": -8,
+          "attackMs": 20,
+          "releaseMs": 180
+        },
+        "contentHash": "0e0b55586d0190d01a84dc3b0e6a53a89a8702e590dc7a7b28eed84e4a447cae"
+      },
+      "assetManifest": {
+        "schemaVersion": 2,
+        "profile": "educational_asset_manifest_v2",
+        "profileVersion": "2.0.0",
+        "assets": [
+          {
+            "id": "outfit_font",
+            "type": "font",
+            "origin": "licensed_local",
+            "fileHash": "3dfe3c7fc47a87b98c24c7109e75ae4d199d417ce1ea8bff27b84eb24814ea2d",
+            "licenseId": "sil_ofl_1_1",
+            "commercialUseAllowed": true,
+            "allowedUsage": [
+              "short_form_video"
+            ],
+            "definition": "outfit_600_ofl_v1"
+          },
+          {
+            "id": "line_person",
+            "type": "svg_primitive",
+            "origin": "generated_by_engine",
+            "fileHash": "6469efb8541f67d09679c7a0b50ab0f3b2fc73c8a2dcd3cf6aa34929acad0b02",
+            "licenseId": "first_party_engine_generated",
+            "commercialUseAllowed": true,
+            "allowedUsage": [
+              "short_form_video"
+            ],
+            "definition": "person_head_body_limbs_v1"
+          },
+          {
+            "id": "line_chart",
+            "type": "svg_primitive",
+            "origin": "generated_by_engine",
+            "fileHash": "bc3916e849da64e2a9045b5da0c261b180ccb9c545287e75a6fdf55a5f53458f",
+            "licenseId": "first_party_engine_generated",
+            "commercialUseAllowed": true,
+            "allowedUsage": [
+              "short_form_video"
+            ],
+            "definition": "axes_points_trend_v1"
+          },
+          {
+            "id": "line_arrow",
+            "type": "svg_primitive",
+            "origin": "generated_by_engine",
+            "fileHash": "dea408d85ce623c5530eafa42487646c2babf8b863b83a07313da14012ffb327",
+            "licenseId": "first_party_engine_generated",
+            "commercialUseAllowed": true,
+            "allowedUsage": [
+              "short_form_video"
+            ],
+            "definition": "connector_arrow_v1"
+          },
+          {
+            "id": "line_database",
+            "type": "svg_primitive",
+            "origin": "generated_by_engine",
+            "fileHash": "d7f44228dfa66fe8a2a41545f85ff2cf699a4782878c06dffccfd805c423ddae",
+            "licenseId": "first_party_engine_generated",
+            "commercialUseAllowed": true,
+            "allowedUsage": [
+              "short_form_video"
+            ],
+            "definition": "database_stack_v1"
+          },
+          {
+            "id": "line_network",
+            "type": "svg_primitive",
+            "origin": "generated_by_engine",
+            "fileHash": "a88c2726ac1930881289fc66ea059b08ac752eacde4afd725621f864d6c06c04",
+            "licenseId": "first_party_engine_generated",
+            "commercialUseAllowed": true,
+            "allowedUsage": [
+              "short_form_video"
+            ],
+            "definition": "hub_spoke_network_v1"
+          },
+          {
+            "id": "line_formula",
+            "type": "svg_primitive",
+            "origin": "generated_by_engine",
+            "fileHash": "7bc7d8aa7f45fe8333ca75b23723f4b9c5290ba85b5fdeb88a3abf35e31c670d",
+            "licenseId": "first_party_engine_generated",
+            "commercialUseAllowed": true,
+            "allowedUsage": [
+              "short_form_video"
+            ],
+            "definition": "formula_panel_v1"
+          },
+          {
+            "id": "line_focus_lens",
+            "type": "svg_primitive",
+            "origin": "generated_by_engine",
+            "fileHash": "5059ac26e3eb40912e69a0f470b77b56120edab3b12bd23032184ea1fc47aeef",
+            "licenseId": "first_party_engine_generated",
+            "commercialUseAllowed": true,
+            "allowedUsage": [
+              "short_form_video"
+            ],
+            "definition": "focus_lens_v1"
+          },
+          {
+            "id": "sfx_soft_tick",
+            "type": "generated_audio",
+            "origin": "generated_by_engine",
+            "fileHash": "6f772efc49d193ef7d778c5477c0c1de62dcf6825698d1c7fd57491b47f846d9",
+            "licenseId": "first_party_engine_generated",
+            "commercialUseAllowed": true,
+            "allowedUsage": [
+              "short_form_video"
+            ],
+            "definition": "sine_tick_880hz_v1"
+          },
+          {
+            "id": "sfx_soft_whoosh",
+            "type": "generated_audio",
+            "origin": "generated_by_engine",
+            "fileHash": "b5b23cf1c65bc429fc1d160a5e1cad3b2e3c4ec71d3611fe78406b4db194c0fd",
+            "licenseId": "first_party_engine_generated",
+            "commercialUseAllowed": true,
+            "allowedUsage": [
+              "short_form_video"
+            ],
+            "definition": "filtered_noise_whoosh_v1"
+          }
+        ],
+        "contentHash": "4318c2b1eb03fef35195f224519d271d3cd320ae0ef4052c9c6e04ede0870366"
+      }
+    }
+  },
+  "sharedEntities": [
+    {
+      "id": "vs_proposition_hook_0",
+      "type": "semantic_visual",
+      "role": "timeline",
+      "layer": 2,
+      "styleToken": "side_by_side_comparison",
+      "text": "In 1977, one radio signal looked so unusual that an astronomer wrote one word: Wow."
+    },
+    {
+      "id": "vs_proposition_context_0",
+      "type": "semantic_visual",
+      "role": "timeline",
+      "layer": 3,
+      "styleToken": "side_by_side_comparison",
+      "text": "It arrived near a frequency researchers considered promising for interstellar communication and lasted"
+    },
+    {
+      "id": "vs_proposition_context_1",
+      "type": "semantic_visual",
+      "role": "timeline",
+      "layer": 4,
+      "styleToken": "side_by_side_comparison",
+      "text": "seventy-two seconds."
+    },
+    {
+      "id": "vs_proposition_evidence_0",
+      "type": "semantic_visual",
+      "role": "mapping",
+      "layer": 5,
+      "styleToken": "cause_effect_chain",
+      "text": "Its strength rose and fell as the telescope beam crossed the source,"
+    },
+    {
+      "id": "vs_proposition_evidence_1",
+      "type": "semantic_visual",
+      "role": "mapping",
+      "layer": 6,
+      "styleToken": "cause_effect_chain",
+      "text": "making ordinary local interference less convincing."
+    },
+    {
+      "id": "vs_proposition_turn_0",
+      "type": "semantic_visual",
+      "role": "hypothesis",
+      "layer": 7,
+      "styleToken": "side_by_side_comparison",
+      "text": "But later searches never verified the same signal again,"
+    },
+    {
+      "id": "vs_proposition_turn_1",
+      "type": "semantic_visual",
+      "role": "hypothesis",
+      "layer": 2,
+      "styleToken": "side_by_side_comparison",
+      "text": "and no confirmed transmission has explained it."
+    },
+    {
+      "id": "vs_proposition_payoff_0",
+      "type": "semantic_visual",
+      "role": "hypothesis",
+      "layer": 3,
+      "styleToken": "bounded_uncertainty",
+      "text": "The honest answer is"
+    },
+    {
+      "id": "vs_proposition_payoff_1",
+      "type": "semantic_visual",
+      "role": "hypothesis",
+      "layer": 4,
+      "styleToken": "side_by_side_comparison",
+      "text": "not aliens. It is one strong unexplained candidate that left no repeatable proof."
+    },
+    {
+      "id": "promise_header",
+      "type": "promise_header",
+      "role": "narrative_promise",
+      "layer": 9,
+      "styleToken": "persistent_promise",
+      "text": "The signal that appeared once"
+    },
+    {
+      "id": "story_thread",
+      "type": "story_thread",
+      "role": "cross_scene_continuity",
+      "layer": 3,
+      "styleToken": "line_art_thread"
+    }
+  ],
+  "scenes": [
+    {
+      "id": "scene_hook",
+      "startFrame": 0,
+      "endFrame": 255,
+      "template": "educational_explainer_stage_v1",
+      "templateVersion": "1.0.0",
+      "semantic": {
+        "beatId": "beat_hook",
+        "role": "hook",
+        "claimIds": [
+          "claim_recorded"
+        ],
+        "visualStatement": "Render 1 exact graph-bound narration sentences."
+      },
+      "entityIds": [
+        "vs_proposition_hook_0",
+        "promise_header",
+        "story_thread"
+      ],
+      "operations": [
+        {
+          "op": "create",
+          "targetId": "vs_proposition_hook_0",
+          "from": {
+            "anchor": "word_start",
+            "wordIndex": 0,
+            "resolvedFrame": 0
+          },
+          "to": {
+            "anchor": "word_end",
+            "wordIndex": 14,
+            "resolvedFrame": 242
+          },
+          "easing": "linear",
+          "params": {
+            "opacity": 1
+          },
+          "semanticClaimId": "claim_recorded",
+          "visualStatement": "In 1977, one radio signal looked so unusual that an astronomer wrote one word: Wow.",
+          "carryPolicy": "clear_at_scene_end"
+        }
+      ],
+      "readabilityHolds": [
+        {
+          "startFrame": 243,
+          "endFrame": 255
+        }
+      ],
+      "complexityCost": 1
+    },
+    {
+      "id": "scene_context",
+      "startFrame": 255,
+      "endFrame": 546,
+      "template": "educational_explainer_stage_v1",
+      "templateVersion": "1.0.0",
+      "semantic": {
+        "beatId": "beat_context",
+        "role": "context",
+        "claimIds": [
+          "claim_frequency"
+        ],
+        "visualStatement": "Render 2 exact graph-bound narration sentences."
+      },
+      "entityIds": [
+        "vs_proposition_context_0",
+        "vs_proposition_context_1",
+        "promise_header",
+        "story_thread"
+      ],
+      "operations": [
+        {
+          "op": "create",
+          "targetId": "vs_proposition_context_0",
+          "from": {
+            "anchor": "word_start",
+            "wordIndex": 15,
+            "resolvedFrame": 255
+          },
+          "to": {
+            "anchor": "word_end",
+            "wordIndex": 27,
+            "resolvedFrame": 478
+          },
+          "easing": "linear",
+          "params": {
+            "opacity": 1
+          },
+          "semanticClaimId": "claim_frequency",
+          "visualStatement": "It arrived near a frequency researchers considered promising for interstellar communication and lasted",
+          "carryPolicy": "clear_at_scene_end"
+        },
+        {
+          "op": "create",
+          "targetId": "vs_proposition_context_1",
+          "from": {
+            "anchor": "word_start",
+            "wordIndex": 28,
+            "resolvedFrame": 479
+          },
+          "to": {
+            "anchor": "word_end",
+            "wordIndex": 29,
+            "resolvedFrame": 523
+          },
+          "easing": "linear",
+          "params": {
+            "opacity": 1
+          },
+          "semanticClaimId": "claim_frequency",
+          "visualStatement": "seventy-two seconds.",
+          "carryPolicy": "clear_at_scene_end"
+        }
+      ],
+      "readabilityHolds": [
+        {
+          "startFrame": 524,
+          "endFrame": 546
+        }
+      ],
+      "complexityCost": 2
+    },
+    {
+      "id": "scene_evidence",
+      "startFrame": 546,
+      "endFrame": 830,
+      "template": "educational_explainer_stage_v1",
+      "templateVersion": "1.0.0",
+      "semantic": {
+        "beatId": "beat_evidence",
+        "role": "evidence",
+        "claimIds": [
+          "claim_beam-shape"
+        ],
+        "visualStatement": "Render 2 exact graph-bound narration sentences."
+      },
+      "entityIds": [
+        "vs_proposition_evidence_0",
+        "vs_proposition_evidence_1",
+        "promise_header",
+        "story_thread"
+      ],
+      "operations": [
+        {
+          "op": "create",
+          "targetId": "vs_proposition_evidence_0",
+          "from": {
+            "anchor": "word_start",
+            "wordIndex": 30,
+            "resolvedFrame": 546
+          },
+          "to": {
+            "anchor": "word_end",
+            "wordIndex": 41,
+            "resolvedFrame": 680
+          },
+          "easing": "linear",
+          "params": {
+            "opacity": 1
+          },
+          "semanticClaimId": "claim_beam-shape",
+          "visualStatement": "Its strength rose and fell as the telescope beam crossed the source,",
+          "carryPolicy": "clear_at_scene_end"
+        },
+        {
+          "op": "create",
+          "targetId": "vs_proposition_evidence_1",
+          "from": {
+            "anchor": "word_start",
+            "wordIndex": 42,
+            "resolvedFrame": 700
+          },
+          "to": {
+            "anchor": "word_end",
+            "wordIndex": 47,
+            "resolvedFrame": 808
+          },
+          "easing": "linear",
+          "params": {
+            "opacity": 1
+          },
+          "semanticClaimId": "claim_beam-shape",
+          "visualStatement": "making ordinary local interference less convincing.",
+          "carryPolicy": "clear_at_scene_end"
+        }
+      ],
+      "readabilityHolds": [
+        {
+          "startFrame": 809,
+          "endFrame": 830
+        }
+      ],
+      "complexityCost": 2
+    },
+    {
+      "id": "scene_turn",
+      "startFrame": 830,
+      "endFrame": 1063,
+      "template": "educational_explainer_stage_v1",
+      "templateVersion": "1.0.0",
+      "semantic": {
+        "beatId": "beat_turn",
+        "role": "turn",
+        "claimIds": [
+          "claim_not-repeated"
+        ],
+        "visualStatement": "Render 2 exact graph-bound narration sentences."
+      },
+      "entityIds": [
+        "vs_proposition_turn_0",
+        "vs_proposition_turn_1",
+        "promise_header",
+        "story_thread"
+      ],
+      "operations": [
+        {
+          "op": "create",
+          "targetId": "vs_proposition_turn_0",
+          "from": {
+            "anchor": "word_start",
+            "wordIndex": 48,
+            "resolvedFrame": 830
+          },
+          "to": {
+            "anchor": "word_end",
+            "wordIndex": 56,
+            "resolvedFrame": 943
+          },
+          "easing": "linear",
+          "params": {
+            "opacity": 1
+          },
+          "semanticClaimId": "claim_not-repeated",
+          "visualStatement": "But later searches never verified the same signal again,",
+          "carryPolicy": "clear_at_scene_end"
+        },
+        {
+          "op": "create",
+          "targetId": "vs_proposition_turn_1",
+          "from": {
+            "anchor": "word_start",
+            "wordIndex": 57,
+            "resolvedFrame": 944
+          },
+          "to": {
+            "anchor": "word_end",
+            "wordIndex": 63,
+            "resolvedFrame": 1050
+          },
+          "easing": "linear",
+          "params": {
+            "opacity": 1
+          },
+          "semanticClaimId": "claim_not-repeated",
+          "visualStatement": "and no confirmed transmission has explained it.",
+          "carryPolicy": "clear_at_scene_end"
+        }
+      ],
+      "readabilityHolds": [
+        {
+          "startFrame": 1051,
+          "endFrame": 1063
+        }
+      ],
+      "complexityCost": 2
+    },
+    {
+      "id": "scene_payoff",
+      "startFrame": 1063,
+      "endFrame": 1350,
+      "template": "educational_explainer_stage_v1",
+      "templateVersion": "1.0.0",
+      "semantic": {
+        "beatId": "beat_payoff",
+        "role": "payoff",
+        "claimIds": [
+          "claim_conclusion"
+        ],
+        "visualStatement": "Render 2 exact graph-bound narration sentences."
+      },
+      "entityIds": [
+        "vs_proposition_payoff_0",
+        "vs_proposition_payoff_1",
+        "promise_header",
+        "story_thread"
+      ],
+      "operations": [
+        {
+          "op": "create",
+          "targetId": "vs_proposition_payoff_0",
+          "from": {
+            "anchor": "word_start",
+            "wordIndex": 64,
+            "resolvedFrame": 1063
+          },
+          "to": {
+            "anchor": "word_end",
+            "wordIndex": 67,
+            "resolvedFrame": 1103
+          },
+          "easing": "linear",
+          "params": {
+            "opacity": 1
+          },
+          "semanticClaimId": "claim_conclusion",
+          "visualStatement": "The honest answer is",
+          "carryPolicy": "clear_at_scene_end"
+        },
+        {
+          "op": "create",
+          "targetId": "vs_proposition_payoff_1",
+          "from": {
+            "anchor": "word_start",
+            "wordIndex": 68,
+            "resolvedFrame": 1104
+          },
+          "to": {
+            "anchor": "word_end",
+            "wordIndex": 80,
+            "resolvedFrame": 1317
+          },
+          "easing": "linear",
+          "params": {
+            "opacity": 1
+          },
+          "semanticClaimId": "claim_conclusion",
+          "visualStatement": "not aliens. It is one strong unexplained candidate that left no repeatable proof.",
+          "carryPolicy": "clear_at_scene_end"
+        }
+      ],
+      "readabilityHolds": [
+        {
+          "startFrame": 1318,
+          "endFrame": 1350
+        }
+      ],
+      "complexityCost": 2
+    }
+  ],
+  "transitions": [
+    {
+      "fromSceneId": "scene_hook",
+      "toSceneId": "scene_context",
+      "sharedEntityId": "story_thread",
+      "startFrame": 247,
+      "endFrame": 255
+    },
+    {
+      "fromSceneId": "scene_context",
+      "toSceneId": "scene_evidence",
+      "sharedEntityId": "story_thread",
+      "startFrame": 538,
+      "endFrame": 546
+    },
+    {
+      "fromSceneId": "scene_evidence",
+      "toSceneId": "scene_turn",
+      "sharedEntityId": "story_thread",
+      "startFrame": 822,
+      "endFrame": 830
+    },
+    {
+      "fromSceneId": "scene_turn",
+      "toSceneId": "scene_payoff",
+      "sharedEntityId": "story_thread",
+      "startFrame": 1055,
+      "endFrame": 1063
+    }
+  ],
+  "motionBudget": {
+    "profile": "calm_explainer",
+    "maxCost": 20,
+    "maxConcurrentOperations": 2,
+    "maxCameraScale": 1.12,
+    "maxTravelPxPerFrame": 10,
+    "captionSafeZone": {
+      "topRatio": 0.76,
+      "bottomRatio": 1
+    }
+  },
+  "contentHash": "856528eb48b03bb9b91a200e1004751828aa691a13d25689eb290cc283d018f8",
+  "timingBinding": {
+    "schemaVersion": 1,
+    "timingContextHash": "cb058b4ef22f04fd9d8ffd6c107cd327b646df8cd3e015adef716a0fc0a0afbc",
+    "words": [
+      {
+        "index": 0,
+        "startFrame": 0,
+        "endFrame": 4
+      },
+      {
+        "index": 1,
+        "startFrame": 4,
+        "endFrame": 33
+      },
+      {
+        "index": 2,
+        "startFrame": 66,
+        "endFrame": 73
+      },
+      {
+        "index": 3,
+        "startFrame": 73,
+        "endFrame": 84
+      },
+      {
+        "index": 4,
+        "startFrame": 84,
+        "endFrame": 102
+      },
+      {
+        "index": 5,
+        "startFrame": 102,
+        "endFrame": 114
+      },
+      {
+        "index": 6,
+        "startFrame": 114,
+        "endFrame": 123
+      },
+      {
+        "index": 7,
+        "startFrame": 123,
+        "endFrame": 142
+      },
+      {
+        "index": 8,
+        "startFrame": 142,
+        "endFrame": 153
+      },
+      {
+        "index": 9,
+        "startFrame": 153,
+        "endFrame": 157
+      },
+      {
+        "index": 10,
+        "startFrame": 157,
+        "endFrame": 177
+      },
+      {
+        "index": 11,
+        "startFrame": 177,
+        "endFrame": 186
+      },
+      {
+        "index": 12,
+        "startFrame": 186,
+        "endFrame": 199
+      },
+      {
+        "index": 13,
+        "startFrame": 199,
+        "endFrame": 209
+      },
+      {
+        "index": 14,
+        "startFrame": 234,
+        "endFrame": 243
+      },
+      {
+        "index": 15,
+        "startFrame": 255,
+        "endFrame": 278
+      },
+      {
+        "index": 16,
+        "startFrame": 278,
+        "endFrame": 290
+      },
+      {
+        "index": 17,
+        "startFrame": 290,
+        "endFrame": 301
+      },
+      {
+        "index": 18,
+        "startFrame": 301,
+        "endFrame": 306
+      },
+      {
+        "index": 19,
+        "startFrame": 306,
+        "endFrame": 321
+      },
+      {
+        "index": 20,
+        "startFrame": 321,
+        "endFrame": 343
+      },
+      {
+        "index": 21,
+        "startFrame": 343,
+        "endFrame": 365
+      },
+      {
+        "index": 22,
+        "startFrame": 365,
+        "endFrame": 384
+      },
+      {
+        "index": 23,
+        "startFrame": 384,
+        "endFrame": 395
+      },
+      {
+        "index": 24,
+        "startFrame": 395,
+        "endFrame": 418
+      },
+      {
+        "index": 25,
+        "startFrame": 418,
+        "endFrame": 442
+      },
+      {
+        "index": 26,
+        "startFrame": 442,
+        "endFrame": 465
+      },
+      {
+        "index": 27,
+        "startFrame": 465,
+        "endFrame": 479
+      },
+      {
+        "index": 28,
+        "startFrame": 479,
+        "endFrame": 502
+      },
+      {
+        "index": 29,
+        "startFrame": 502,
+        "endFrame": 524
+      },
+      {
+        "index": 30,
+        "startFrame": 546,
+        "endFrame": 553
+      },
+      {
+        "index": 31,
+        "startFrame": 553,
+        "endFrame": 564
+      },
+      {
+        "index": 32,
+        "startFrame": 564,
+        "endFrame": 576
+      },
+      {
+        "index": 33,
+        "startFrame": 576,
+        "endFrame": 590
+      },
+      {
+        "index": 34,
+        "startFrame": 590,
+        "endFrame": 599
+      },
+      {
+        "index": 35,
+        "startFrame": 599,
+        "endFrame": 616
+      },
+      {
+        "index": 36,
+        "startFrame": 616,
+        "endFrame": 621
+      },
+      {
+        "index": 37,
+        "startFrame": 621,
+        "endFrame": 638
+      },
+      {
+        "index": 38,
+        "startFrame": 638,
+        "endFrame": 650
+      },
+      {
+        "index": 39,
+        "startFrame": 650,
+        "endFrame": 663
+      },
+      {
+        "index": 40,
+        "startFrame": 663,
+        "endFrame": 671
+      },
+      {
+        "index": 41,
+        "startFrame": 671,
+        "endFrame": 681
+      },
+      {
+        "index": 42,
+        "startFrame": 700,
+        "endFrame": 709
+      },
+      {
+        "index": 43,
+        "startFrame": 709,
+        "endFrame": 726
+      },
+      {
+        "index": 44,
+        "startFrame": 726,
+        "endFrame": 747
+      },
+      {
+        "index": 45,
+        "startFrame": 747,
+        "endFrame": 772
+      },
+      {
+        "index": 46,
+        "startFrame": 772,
+        "endFrame": 787
+      },
+      {
+        "index": 47,
+        "startFrame": 787,
+        "endFrame": 809
+      },
+      {
+        "index": 48,
+        "startFrame": 830,
+        "endFrame": 841
+      },
+      {
+        "index": 49,
+        "startFrame": 841,
+        "endFrame": 848
+      },
+      {
+        "index": 50,
+        "startFrame": 848,
+        "endFrame": 866
+      },
+      {
+        "index": 51,
+        "startFrame": 866,
+        "endFrame": 883
+      },
+      {
+        "index": 52,
+        "startFrame": 883,
+        "endFrame": 901
+      },
+      {
+        "index": 53,
+        "startFrame": 901,
+        "endFrame": 910
+      },
+      {
+        "index": 54,
+        "startFrame": 910,
+        "endFrame": 918
+      },
+      {
+        "index": 55,
+        "startFrame": 918,
+        "endFrame": 931
+      },
+      {
+        "index": 56,
+        "startFrame": 931,
+        "endFrame": 944
+      },
+      {
+        "index": 57,
+        "startFrame": 944,
+        "endFrame": 964
+      },
+      {
+        "index": 58,
+        "startFrame": 964,
+        "endFrame": 971
+      },
+      {
+        "index": 59,
+        "startFrame": 971,
+        "endFrame": 990
+      },
+      {
+        "index": 60,
+        "startFrame": 990,
+        "endFrame": 1015
+      },
+      {
+        "index": 61,
+        "startFrame": 1015,
+        "endFrame": 1024
+      },
+      {
+        "index": 62,
+        "startFrame": 1024,
+        "endFrame": 1042
+      },
+      {
+        "index": 63,
+        "startFrame": 1042,
+        "endFrame": 1051
+      },
+      {
+        "index": 64,
+        "startFrame": 1063,
+        "endFrame": 1067
+      },
+      {
+        "index": 65,
+        "startFrame": 1067,
+        "endFrame": 1077
+      },
+      {
+        "index": 66,
+        "startFrame": 1077,
+        "endFrame": 1095
+      },
+      {
+        "index": 67,
+        "startFrame": 1095,
+        "endFrame": 1104
+      },
+      {
+        "index": 68,
+        "startFrame": 1104,
+        "endFrame": 1112
+      },
+      {
+        "index": 69,
+        "startFrame": 1112,
+        "endFrame": 1126
+      },
+      {
+        "index": 70,
+        "startFrame": 1141,
+        "endFrame": 1158
+      },
+      {
+        "index": 71,
+        "startFrame": 1158,
+        "endFrame": 1163
+      },
+      {
+        "index": 72,
+        "startFrame": 1163,
+        "endFrame": 1172
+      },
+      {
+        "index": 73,
+        "startFrame": 1172,
+        "endFrame": 1189
+      },
+      {
+        "index": 74,
+        "startFrame": 1189,
+        "endFrame": 1226
+      },
+      {
+        "index": 75,
+        "startFrame": 1226,
+        "endFrame": 1246
+      },
+      {
+        "index": 76,
+        "startFrame": 1246,
+        "endFrame": 1263
+      },
+      {
+        "index": 77,
+        "startFrame": 1263,
+        "endFrame": 1271
+      },
+      {
+        "index": 78,
+        "startFrame": 1271,
+        "endFrame": 1284
+      },
+      {
+        "index": 79,
+        "startFrame": 1284,
+        "endFrame": 1307
+      },
+      {
+        "index": 80,
+        "startFrame": 1307,
+        "endFrame": 1318
+      }
+    ],
+    "beats": [
+      {
+        "beatId": "beat_hook",
+        "wordStartIndex": 0,
+        "wordEndIndex": 15,
+        "startFrame": 0,
+        "endFrame": 243
+      },
+      {
+        "beatId": "beat_context",
+        "wordStartIndex": 15,
+        "wordEndIndex": 30,
+        "startFrame": 255,
+        "endFrame": 524
+      },
+      {
+        "beatId": "beat_evidence",
+        "wordStartIndex": 30,
+        "wordEndIndex": 48,
+        "startFrame": 546,
+        "endFrame": 809
+      },
+      {
+        "beatId": "beat_turn",
+        "wordStartIndex": 48,
+        "wordEndIndex": 64,
+        "startFrame": 830,
+        "endFrame": 1051
+      },
+      {
+        "beatId": "beat_payoff",
+        "wordStartIndex": 64,
+        "wordEndIndex": 81,
+        "startFrame": 1063,
+        "endFrame": 1318
+      }
+    ]
+  }
+}

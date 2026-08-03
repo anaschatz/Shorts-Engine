@@ -1,0 +1,533 @@
+{
+  "schemaVersion": 1,
+  "fps": 30,
+  "durationFrames": 1350,
+  "alignmentHash": "66bf1d555b431b44290e8b511e8249743849d09add3a3f5bbb0b3d8fd5919c42",
+  "draftHash": "67036a35f5336d70cff06e5851cb1b1993783b06825269dae64d1f02ae221f69",
+  "words": [
+    {
+      "index": 0,
+      "text": "In",
+      "startFrame": 0,
+      "endFrame": 4
+    },
+    {
+      "index": 1,
+      "text": "1977,",
+      "startFrame": 4,
+      "endFrame": 33
+    },
+    {
+      "index": 2,
+      "text": "one",
+      "startFrame": 66,
+      "endFrame": 73
+    },
+    {
+      "index": 3,
+      "text": "radio",
+      "startFrame": 73,
+      "endFrame": 84
+    },
+    {
+      "index": 4,
+      "text": "signal",
+      "startFrame": 84,
+      "endFrame": 102
+    },
+    {
+      "index": 5,
+      "text": "looked",
+      "startFrame": 102,
+      "endFrame": 114
+    },
+    {
+      "index": 6,
+      "text": "so",
+      "startFrame": 114,
+      "endFrame": 123
+    },
+    {
+      "index": 7,
+      "text": "unusual",
+      "startFrame": 123,
+      "endFrame": 142
+    },
+    {
+      "index": 8,
+      "text": "that",
+      "startFrame": 142,
+      "endFrame": 153
+    },
+    {
+      "index": 9,
+      "text": "an",
+      "startFrame": 153,
+      "endFrame": 157
+    },
+    {
+      "index": 10,
+      "text": "astronomer",
+      "startFrame": 157,
+      "endFrame": 177
+    },
+    {
+      "index": 11,
+      "text": "wrote",
+      "startFrame": 177,
+      "endFrame": 186
+    },
+    {
+      "index": 12,
+      "text": "one",
+      "startFrame": 186,
+      "endFrame": 199
+    },
+    {
+      "index": 13,
+      "text": "word:",
+      "startFrame": 199,
+      "endFrame": 209
+    },
+    {
+      "index": 14,
+      "text": "Wow.",
+      "startFrame": 234,
+      "endFrame": 243
+    },
+    {
+      "index": 15,
+      "text": "It",
+      "startFrame": 255,
+      "endFrame": 278
+    },
+    {
+      "index": 16,
+      "text": "arrived",
+      "startFrame": 278,
+      "endFrame": 290
+    },
+    {
+      "index": 17,
+      "text": "near",
+      "startFrame": 290,
+      "endFrame": 301
+    },
+    {
+      "index": 18,
+      "text": "a",
+      "startFrame": 301,
+      "endFrame": 306
+    },
+    {
+      "index": 19,
+      "text": "frequency",
+      "startFrame": 306,
+      "endFrame": 321
+    },
+    {
+      "index": 20,
+      "text": "researchers",
+      "startFrame": 321,
+      "endFrame": 343
+    },
+    {
+      "index": 21,
+      "text": "considered",
+      "startFrame": 343,
+      "endFrame": 365
+    },
+    {
+      "index": 22,
+      "text": "promising",
+      "startFrame": 365,
+      "endFrame": 384
+    },
+    {
+      "index": 23,
+      "text": "for",
+      "startFrame": 384,
+      "endFrame": 395
+    },
+    {
+      "index": 24,
+      "text": "interstellar",
+      "startFrame": 395,
+      "endFrame": 418
+    },
+    {
+      "index": 25,
+      "text": "communication",
+      "startFrame": 418,
+      "endFrame": 442
+    },
+    {
+      "index": 26,
+      "text": "and",
+      "startFrame": 442,
+      "endFrame": 465
+    },
+    {
+      "index": 27,
+      "text": "lasted",
+      "startFrame": 465,
+      "endFrame": 479
+    },
+    {
+      "index": 28,
+      "text": "seventy-two",
+      "startFrame": 479,
+      "endFrame": 502
+    },
+    {
+      "index": 29,
+      "text": "seconds.",
+      "startFrame": 502,
+      "endFrame": 524
+    },
+    {
+      "index": 30,
+      "text": "Its",
+      "startFrame": 546,
+      "endFrame": 553
+    },
+    {
+      "index": 31,
+      "text": "strength",
+      "startFrame": 553,
+      "endFrame": 564
+    },
+    {
+      "index": 32,
+      "text": "rose",
+      "startFrame": 564,
+      "endFrame": 576
+    },
+    {
+      "index": 33,
+      "text": "and",
+      "startFrame": 576,
+      "endFrame": 590
+    },
+    {
+      "index": 34,
+      "text": "fell",
+      "startFrame": 590,
+      "endFrame": 599
+    },
+    {
+      "index": 35,
+      "text": "as",
+      "startFrame": 599,
+      "endFrame": 616
+    },
+    {
+      "index": 36,
+      "text": "the",
+      "startFrame": 616,
+      "endFrame": 621
+    },
+    {
+      "index": 37,
+      "text": "telescope",
+      "startFrame": 621,
+      "endFrame": 638
+    },
+    {
+      "index": 38,
+      "text": "beam",
+      "startFrame": 638,
+      "endFrame": 650
+    },
+    {
+      "index": 39,
+      "text": "crossed",
+      "startFrame": 650,
+      "endFrame": 663
+    },
+    {
+      "index": 40,
+      "text": "the",
+      "startFrame": 663,
+      "endFrame": 671
+    },
+    {
+      "index": 41,
+      "text": "source,",
+      "startFrame": 671,
+      "endFrame": 681
+    },
+    {
+      "index": 42,
+      "text": "making",
+      "startFrame": 700,
+      "endFrame": 709
+    },
+    {
+      "index": 43,
+      "text": "ordinary",
+      "startFrame": 709,
+      "endFrame": 726
+    },
+    {
+      "index": 44,
+      "text": "local",
+      "startFrame": 726,
+      "endFrame": 747
+    },
+    {
+      "index": 45,
+      "text": "interference",
+      "startFrame": 747,
+      "endFrame": 772
+    },
+    {
+      "index": 46,
+      "text": "less",
+      "startFrame": 772,
+      "endFrame": 787
+    },
+    {
+      "index": 47,
+      "text": "convincing.",
+      "startFrame": 787,
+      "endFrame": 809
+    },
+    {
+      "index": 48,
+      "text": "But",
+      "startFrame": 830,
+      "endFrame": 841
+    },
+    {
+      "index": 49,
+      "text": "later",
+      "startFrame": 841,
+      "endFrame": 848
+    },
+    {
+      "index": 50,
+      "text": "searches",
+      "startFrame": 848,
+      "endFrame": 866
+    },
+    {
+      "index": 51,
+      "text": "never",
+      "startFrame": 866,
+      "endFrame": 883
+    },
+    {
+      "index": 52,
+      "text": "verified",
+      "startFrame": 883,
+      "endFrame": 901
+    },
+    {
+      "index": 53,
+      "text": "the",
+      "startFrame": 901,
+      "endFrame": 910
+    },
+    {
+      "index": 54,
+      "text": "same",
+      "startFrame": 910,
+      "endFrame": 918
+    },
+    {
+      "index": 55,
+      "text": "signal",
+      "startFrame": 918,
+      "endFrame": 931
+    },
+    {
+      "index": 56,
+      "text": "again,",
+      "startFrame": 931,
+      "endFrame": 944
+    },
+    {
+      "index": 57,
+      "text": "and",
+      "startFrame": 944,
+      "endFrame": 964
+    },
+    {
+      "index": 58,
+      "text": "no",
+      "startFrame": 964,
+      "endFrame": 971
+    },
+    {
+      "index": 59,
+      "text": "confirmed",
+      "startFrame": 971,
+      "endFrame": 990
+    },
+    {
+      "index": 60,
+      "text": "transmission",
+      "startFrame": 990,
+      "endFrame": 1015
+    },
+    {
+      "index": 61,
+      "text": "has",
+      "startFrame": 1015,
+      "endFrame": 1024
+    },
+    {
+      "index": 62,
+      "text": "explained",
+      "startFrame": 1024,
+      "endFrame": 1042
+    },
+    {
+      "index": 63,
+      "text": "it.",
+      "startFrame": 1042,
+      "endFrame": 1051
+    },
+    {
+      "index": 64,
+      "text": "The",
+      "startFrame": 1063,
+      "endFrame": 1067
+    },
+    {
+      "index": 65,
+      "text": "honest",
+      "startFrame": 1067,
+      "endFrame": 1077
+    },
+    {
+      "index": 66,
+      "text": "answer",
+      "startFrame": 1077,
+      "endFrame": 1095
+    },
+    {
+      "index": 67,
+      "text": "is",
+      "startFrame": 1095,
+      "endFrame": 1104
+    },
+    {
+      "index": 68,
+      "text": "not",
+      "startFrame": 1104,
+      "endFrame": 1112
+    },
+    {
+      "index": 69,
+      "text": "aliens.",
+      "startFrame": 1112,
+      "endFrame": 1126
+    },
+    {
+      "index": 70,
+      "text": "It",
+      "startFrame": 1141,
+      "endFrame": 1158
+    },
+    {
+      "index": 71,
+      "text": "is",
+      "startFrame": 1158,
+      "endFrame": 1163
+    },
+    {
+      "index": 72,
+      "text": "one",
+      "startFrame": 1163,
+      "endFrame": 1172
+    },
+    {
+      "index": 73,
+      "text": "strong",
+      "startFrame": 1172,
+      "endFrame": 1189
+    },
+    {
+      "index": 74,
+      "text": "unexplained",
+      "startFrame": 1189,
+      "endFrame": 1226
+    },
+    {
+      "index": 75,
+      "text": "candidate",
+      "startFrame": 1226,
+      "endFrame": 1246
+    },
+    {
+      "index": 76,
+      "text": "that",
+      "startFrame": 1246,
+      "endFrame": 1263
+    },
+    {
+      "index": 77,
+      "text": "left",
+      "startFrame": 1263,
+      "endFrame": 1271
+    },
+    {
+      "index": 78,
+      "text": "no",
+      "startFrame": 1271,
+      "endFrame": 1284
+    },
+    {
+      "index": 79,
+      "text": "repeatable",
+      "startFrame": 1284,
+      "endFrame": 1307
+    },
+    {
+      "index": 80,
+      "text": "proof.",
+      "startFrame": 1307,
+      "endFrame": 1318
+    }
+  ],
+  "beats": [
+    {
+      "beatId": "beat_hook",
+      "wordStartIndex": 0,
+      "wordEndIndex": 15,
+      "startFrame": 0,
+      "endFrame": 243
+    },
+    {
+      "beatId": "beat_context",
+      "wordStartIndex": 15,
+      "wordEndIndex": 30,
+      "startFrame": 255,
+      "endFrame": 524
+    },
+    {
+      "beatId": "beat_evidence",
+      "wordStartIndex": 30,
+      "wordEndIndex": 48,
+      "startFrame": 546,
+      "endFrame": 809
+    },
+    {
+      "beatId": "beat_turn",
+      "wordStartIndex": 48,
+      "wordEndIndex": 64,
+      "startFrame": 830,
+      "endFrame": 1051
+    },
+    {
+      "beatId": "beat_payoff",
+      "wordStartIndex": 64,
+      "wordEndIndex": 81,
+      "startFrame": 1063,
+      "endFrame": 1318
+    }
+  ],
+  "contentHash": "cb058b4ef22f04fd9d8ffd6c107cd327b646df8cd3e015adef716a0fc0a0afbc"
+}

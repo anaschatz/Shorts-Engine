@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from shorts_generator import config as config_module
 from shorts_generator.config import _default_local_cache_dir
 from shorts_generator.local.downloader import (
     _av1_fallback_format_for,
@@ -18,11 +19,8 @@ from shorts_generator.performance import PerformanceTelemetry
 class ResolutionCacheTests(unittest.TestCase):
     def test_macos_default_cache_is_outside_the_desktop(self):
         with (
-            patch("shorts_generator.config.sys.platform", "darwin"),
-            patch(
-                "shorts_generator.config.Path.home",
-                return_value=Path("/Users/example"),
-            ),
+            patch.object(config_module.sys, "platform", "darwin"),
+            patch.object(config_module.Path, "home", return_value=Path("/Users/example")),
         ):
             cache_dir = _default_local_cache_dir()
 

@@ -60,8 +60,10 @@ class LocalJobQueue {
       projectId,
       uploadId,
       action,
+      pipelineType: record.pipelineType || null,
       idempotencyKey,
       payload: record.payload || null,
+      ownerId: record.ownerId || null,
     });
     logInfo(this.logger, {
       event: "queue_job_created",
@@ -283,7 +285,7 @@ class LocalJobQueue {
       durable: Boolean(storeHealth.persisted),
       capabilities: queueCapabilities(this),
       workerRuntime: {
-        multiWorkerSafe: true,
+        multiWorkerSafe: false,
         leaseBasedClaims: true,
         staleLeaseReclaim: true,
       },

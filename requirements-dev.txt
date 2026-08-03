@@ -1,0 +1,5 @@
+# Development and the complete Python test suite.
+#
+# unittest is part of the standard library. Keeping this file as a composition
+# root makes clean CI/local installation explicit and reproducible.
+-r requirements-local-video.txt

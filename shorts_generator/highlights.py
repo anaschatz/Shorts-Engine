@@ -14,12 +14,12 @@ import hashlib
 import json
 import os
 import re
-import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from . import profiles as _profiles
+from .atomic_file import atomic_write_text
 from .hook_gate import (
     HOOK_GATE_PROMPT_VERSION,
     HOOK_GATE_V2_PROMPT,
@@ -806,24 +806,7 @@ def _cached_highlight_request(
 
 def _atomic_write_json(path: Path, payload: Dict) -> None:
     """Atomically replace a JSON cache entry so concurrent runs never see half a file."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{path.name}.",
-        suffix=".tmp",
-        dir=str(path.parent),
-    )
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=2, sort_keys=True)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary_name, path)
-    except BaseException:
-        try:
-            os.unlink(temporary_name)
-        except OSError:
-            pass
-        raise
+    atomic_write_text(path, json.dumps(payload, indent=2, sort_keys=True))
 
 
 def _valid_sha256(value: object) -> Optional[str]:

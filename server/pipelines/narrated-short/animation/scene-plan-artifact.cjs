@@ -6,7 +6,7 @@ const {
 } = require("./semantic-animation-scene-dsl-plan.cjs");
 const {
   SEMANTIC_SENTENCE_PROFILE_ID,
-  SEMANTIC_SENTENCE_PROFILE_TOKEN,
+  isSupportedAnimationProfile,
 } = require("./semantic-render-profile.cjs");
 const {
   buildSemanticSentencePlanningContext,
@@ -133,7 +133,8 @@ function resolveAnimationScenePlanBinding(input = {}) {
   if (
     !active
     || active.status !== "ready"
-    || active.animationProfile !== SEMANTIC_SENTENCE_PROFILE_TOKEN
+    || !isSupportedAnimationProfile(active.animationProfile)
+    || active.animationProfile !== input.animationProfile
     || active.projectRevision !== input.projectRevision
     || active.planArtifactId !== artifactId
     || active.planHash !== artifactHash

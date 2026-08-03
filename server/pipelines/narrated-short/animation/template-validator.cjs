@@ -5,6 +5,10 @@ const {
   SEMANTIC_SENTENCE_TEMPLATE_VERSION,
 } = require("./semantic-render-profile.cjs");
 const { GENERIC_SEMANTIC_PROFILE_ID } = require("./semantic-visual-planner.cjs");
+const {
+  EDUCATIONAL_EXPLAINER_TEMPLATE_ID,
+  EDUCATIONAL_EXPLAINER_TEMPLATE_VERSION,
+} = require("./educational-explainer-profile.cjs");
 
 const REQUIREMENTS = Object.freeze({
   signal_lab_v1: Object.freeze([
@@ -46,11 +50,20 @@ const GENERIC_TEMPLATES = new Set([
 
 function validateTemplateOperations(ir) {
   if (ir.content?.semantic?.profileId === SEMANTIC_SENTENCE_PROFILE_ID) {
+    const educational = Boolean(ir.content.educationalExplainer);
     const sentences = ir.content.semanticVisualSentencePlan?.sentences || [];
     for (const scene of ir.scenes) {
       if (
-        scene.template !== SEMANTIC_SENTENCE_TEMPLATE_ID
-        || scene.templateVersion !== SEMANTIC_SENTENCE_TEMPLATE_VERSION
+        scene.template !== (
+          educational
+            ? EDUCATIONAL_EXPLAINER_TEMPLATE_ID
+            : SEMANTIC_SENTENCE_TEMPLATE_ID
+        )
+        || scene.templateVersion !== (
+          educational
+            ? EDUCATIONAL_EXPLAINER_TEMPLATE_VERSION
+            : SEMANTIC_SENTENCE_TEMPLATE_VERSION
+        )
       ) {
         throw new AppError(
           "ANIMATION_TEMPLATE_INVALID",
@@ -65,7 +78,7 @@ function validateTemplateOperations(ir) {
       if (
         !expected.length
         || scene.operations.length !== expected.length
-        || scene.entityIds.length !== expected.length
+        || scene.entityIds.length !== expected.length + (educational ? 2 : 0)
       ) {
         throw new AppError(
           "ANIMATION_TEMPLATE_OPERATION_INVALID",
@@ -91,7 +104,10 @@ function validateTemplateOperations(ir) {
       }
       if (
         scene.operations.some((operation) => !expectedIds.has(operation.targetId))
-        || scene.entityIds.some((entityId) => !expectedIds.has(entityId))
+        || scene.entityIds.some((entityId) => (
+          !expectedIds.has(entityId)
+          && !(educational && ["promise_header", "story_thread"].includes(entityId))
+        ))
       ) {
         throw new AppError(
           "ANIMATION_TEMPLATE_OPERATION_INVALID",

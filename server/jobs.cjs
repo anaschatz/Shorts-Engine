@@ -5,7 +5,14 @@ const { CONFIG } = require("./config.cjs");
 const { normalizeOwnerId } = require("./auth.cjs");
 const { AppError, SAFE_MESSAGES, redactForLogs } = require("./errors.cjs");
 const { publicHumanReviewGate } = require("./human-review-gate.cjs");
-const { normalizeNarratedJobPayload, pipelineTypeForAction } = require("./pipelines/pipeline-registry.cjs");
+const {
+  normalizeNarratedJobPayload,
+  pipelineTypeForAction,
+} = require("./pipelines/pipeline-registry.cjs");
+const {
+  normalizeMotivationalSourceShortJobPayload,
+  normalizeWorkerResult: normalizeMotivationalWorkerResult,
+} = require("./pipelines/motivational-source-short/contracts.cjs");
 const { normalizeSmokeSource } = require("./staging-smoke-metadata.cjs");
 const { idempotencyKey } = require("./shared/core/idempotency.cjs");
 
@@ -983,6 +990,9 @@ function normalizeCompositionMode(value) {
 function normalizePayload(payload, options = {}) {
   if (!payload || typeof payload !== "object") return null;
   const pipelineType = pipelineTypeForAction(options.action || "generate", options.pipelineType);
+  if (pipelineType === "motivational_source_short") {
+    return normalizeMotivationalSourceShortJobPayload(payload);
+  }
   if (pipelineType === "narrated_short") {
     return normalizeNarratedJobPayload(payload, options.action);
   }
@@ -1036,6 +1046,44 @@ function normalizePayload(payload, options = {}) {
 function publicPayload(payload) {
   if (!payload || typeof payload !== "object") return payload;
   const safe = jsonClone(payload);
+  if (
+    safe.profiles
+    && safe.profiles.formatProfile === "bf_viral_micro_v1"
+    && safe.sourceHash
+    && safe.rightsManifestHash
+    && safe.candidateDecisionHash
+  ) {
+    delete safe.sourcePath;
+    if (safe.candidateDecision) {
+      safe.candidateDecision = {
+        artifactType: safe.candidateDecision.artifactType,
+        decisionId: safe.candidateDecision.decisionId,
+        candidateHash: safe.candidateDecision.candidateHash,
+        decision: safe.candidateDecision.decision,
+        contentHash: safe.candidateDecision.contentHash,
+      };
+    }
+    if (safe.experimentManifest) {
+      safe.experimentManifest = {
+        artifactType: safe.experimentManifest.artifactType,
+        manifestId: safe.experimentManifest.manifestId,
+        experimentId: safe.experimentManifest.experimentId,
+        cohortId: safe.experimentManifest.cohortId,
+        treatmentId: safe.experimentManifest.treatmentId,
+        contentHash: safe.experimentManifest.contentHash,
+      };
+    }
+    if (safe.transcriptManifest) {
+      safe.transcriptManifest = {
+        artifactType: safe.transcriptManifest.artifactType,
+        modelId: safe.transcriptManifest.modelId,
+        language: safe.transcriptManifest.language,
+        durationSeconds: safe.transcriptManifest.durationSeconds,
+        transcriptHash: safe.transcriptManifest.transcriptHash,
+        contentHash: safe.transcriptManifest.contentHash,
+      };
+    }
+  }
   if (safe.approvedEditPlan) {
     safe.approvedEditPlan = {
       aspectRatio: sanitizeText(safe.approvedEditPlan.aspectRatio || "", 20),
@@ -1056,6 +1104,33 @@ function publicPayload(payload) {
     };
   }
   return safe;
+}
+
+function publicMotivationalRenderSummary(value) {
+  if (!value) return null;
+  const normalized = normalizeMotivationalWorkerResult(value);
+  return {
+    schemaVersion: normalized.schemaVersion,
+    pipelineType: normalized.pipelineType,
+    action: normalized.action,
+    status: normalized.status,
+    profiles: normalized.profiles,
+    sourceHash: normalized.sourceHash,
+    rightsManifestHash: normalized.rightsManifestHash,
+    candidateDecisionHash: normalized.candidateDecisionHash,
+    candidateHash: normalized.candidateHash,
+    experimentManifestHash: normalized.experimentManifestHash,
+    transcriptManifestHash: normalized.transcriptManifestHash,
+    output: {
+      outputHash: normalized.output.outputHash,
+      sizeBytes: normalized.output.sizeBytes,
+      outputRank: normalized.output.outputRank,
+      durationSeconds: normalized.output.durationSeconds,
+    },
+    ranking: { manifestHash: normalized.ranking.manifestHash },
+    completedAt: normalized.completedAt,
+    contentHash: normalized.contentHash,
+  };
 }
 
 function atomicWriteJson(filePath, payload) {
@@ -1177,6 +1252,7 @@ class JobStore {
       mediaSignals: null,
       contentDraft: null,
       narratedRender: null,
+      motivationalRender: null,
       narrationAlignment: null,
       animationScenePlan: null,
       technicalQa: null,
@@ -1238,6 +1314,9 @@ class JobStore {
     delete publicSafe.claimedAt;
     delete publicSafe.leaseExpiresAt;
     if (publicSafe.payload) publicSafe.payload = publicPayload(publicSafe.payload);
+    if (publicSafe.motivationalRender) {
+      publicSafe.motivationalRender = publicMotivationalRenderSummary(publicSafe.motivationalRender);
+    }
     if (publicSafe.renderedGoalProof) publicSafe.renderedGoalProof = publicRenderedGoalProofSummary(publicSafe.renderedGoalProof);
     if (publicSafe.editPlan && typeof publicSafe.editPlan === "object" && !Array.isArray(publicSafe.editPlan)) {
       if (publicSafe.editPlan.renderedGoalProof) {
@@ -1277,6 +1356,7 @@ class JobStore {
       matchEventTruth: job.matchEventTruth || null,
       contentDraft: normalizeContentDraftSummary(job.contentDraft),
       narratedRender: normalizeNarratedRenderSummary(job.narratedRender),
+      motivationalRender: publicMotivationalRenderSummary(job.motivationalRender),
       narrationAlignment: normalizeNarrationAlignmentSummary(job.narrationAlignment),
       animationScenePlan: normalizeAnimationScenePlanSummary(job.animationScenePlan),
       technicalQa: normalizeTechnicalQaSummary(job.technicalQa),
@@ -1321,6 +1401,9 @@ class JobStore {
       mediaSignals: jsonClone(safe.mediaSignals || null),
       contentDraft: normalizeContentDraftSummary(safe.contentDraft),
       narratedRender: normalizeNarratedRenderSummary(safe.narratedRender),
+      motivationalRender: safe.motivationalRender
+        ? normalizeMotivationalWorkerResult(safe.motivationalRender, safe.payload)
+        : null,
       narrationAlignment: normalizeNarrationAlignmentSummary(safe.narrationAlignment),
       animationScenePlan: normalizeAnimationScenePlanSummary(safe.animationScenePlan),
       technicalQa: normalizeTechnicalQaSummary(safe.technicalQa),
@@ -1400,6 +1483,9 @@ class JobStore {
       mediaSignals: jsonClone(record.mediaSignals || null),
       contentDraft: normalizeContentDraftSummary(record.contentDraft),
       narratedRender: normalizeNarratedRenderSummary(record.narratedRender),
+      motivationalRender: record.motivationalRender
+        ? normalizeMotivationalWorkerResult(record.motivationalRender, record.payload)
+        : null,
       narrationAlignment: normalizeNarrationAlignmentSummary(record.narrationAlignment),
       animationScenePlan: normalizeAnimationScenePlanSummary(record.animationScenePlan),
       technicalQa: normalizeTechnicalQaSummary(record.technicalQa),
@@ -1716,6 +1802,9 @@ class JobStore {
     if (next.payload) next.payload = normalizePayload(next.payload, { action: job.action, pipelineType: job.pipelineType });
     if (next.contentDraft) next.contentDraft = normalizeContentDraftSummary(next.contentDraft);
     if (next.narratedRender) next.narratedRender = normalizeNarratedRenderSummary(next.narratedRender);
+    if (next.motivationalRender) {
+      next.motivationalRender = normalizeMotivationalWorkerResult(next.motivationalRender, job.payload);
+    }
     if (next.narrationAlignment) next.narrationAlignment = normalizeNarrationAlignmentSummary(next.narrationAlignment);
     if (next.animationScenePlan) next.animationScenePlan = normalizeAnimationScenePlanSummary(next.animationScenePlan);
     if (next.technicalQa) next.technicalQa = normalizeTechnicalQaSummary(next.technicalQa);

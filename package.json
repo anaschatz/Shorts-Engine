@@ -57,7 +57,12 @@
     "feedback:summary": "node eval/run-feedback-summary.mjs",
     "github:doctor": "node tools/release/check-github-cli.mjs",
     "github:setup": "node tools/release/print-github-cli-setup.mjs",
+    "golden:educational-explainer": "node tools/render-educational-explainer-golden.mjs --confirm-write",
+    "golden:wow-signal": "node tools/render-wow-signal-golden-segment.mjs --confirm-write",
+    "golden:wow-signal:full": "node tools/render-wow-signal-full-manual.mjs --confirm-write",
+    "production-sample:educational-explainer": "node tools/render-educational-explainer-production-sample.mjs --confirm-write",
     "integration:cloud": "node scripts/run-real-cloud-integration.mjs",
+    "integration:production": "node scripts/run-production-integration.mjs",
     "lint": "node tests/static-lint.mjs",
     "outbox:drain": "node tools/outbox-drain.mjs",
     "outbox:health": "node tools/outbox-health.mjs",
@@ -81,12 +86,16 @@
     "reference:style:qa": "node demo/run-reference-style-qa.mjs",
     "review:summary": "node eval/run-review-summary.mjs",
     "staging:check": "node tools/release/check-staging-readiness.mjs",
+    "staging:production:check": "node tools/release/check-production-staging-readiness.mjs",
     "staging:deploy": "node tools/release/staging-deploy.mjs",
     "staging:smoke:cleanup": "node tools/release/cleanup-staging-full-smoke.mjs",
     "staging:smoke:full": "node tools/release/check-staging-full-smoke.mjs",
     "staging:smoke": "node tools/release/check-staging-smoke.mjs",
     "start": "node server/app.cjs",
-    "test": "node --test --test-concurrency=1 --test-timeout=120000 tests/*.test.js tests/*.test.mjs tests/*.test.cjs",
+    "start:migrate": "node server/migrate-entry.cjs",
+    "start:production": "node server/production-entry.cjs",
+    "start:worker": "node server/worker-entry.cjs",
+    "test": "node scripts/run-node-tests.mjs",
     "youtube:doctor": "node tools/release/check-youtube-ingest.mjs",
     "youtube:publish:auth": ".venv-youtube/bin/python -u tools/youtube_publish.py auth",
     "youtube:publish:import-client": ".venv-youtube/bin/python tools/youtube_publish.py import-client",
@@ -102,13 +111,17 @@
     "visual:goal:qa": "node demo/run-visual-goal-qa.mjs"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "devDependencies": {
     "playwright": "^1.61.0"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "3.1095.0",
+    "@aws-sdk/s3-request-presigner": "3.1095.0",
     "@hyperframes/producer": "0.7.55",
-    "d3-shape": "3.2.0"
+    "d3-shape": "3.2.0",
+    "openid-client": "5.7.1",
+    "pg": "8.13.3"
   }
 }

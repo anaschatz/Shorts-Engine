@@ -4,6 +4,9 @@ const { runFfmpeg } = require("../../render.cjs");
 const { ffprobeJson } = require("../../media.cjs");
 const { AppError, SAFE_MESSAGES } = require("../../errors.cjs");
 const { firstPassFilter, parseLoudnormMeasurement, secondPassFilter } = require("./audio-normalization.cjs");
+const {
+  validateAudioIR,
+} = require("./animation/educational-explainer-profile.cjs");
 
 const NARRATED_COMPOSITOR_VERSION = "narrated_compositor_v2";
 
@@ -25,6 +28,27 @@ function validateManifest(timeline, manifest) {
 
 function filterPath(value) {
   return resolve(value).replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
+}
+
+function deterministicAudioGraph(audioIR, loudness) {
+  const normalized = validateAudioIR(audioIR);
+  const sfx = normalized.tracks.find((track) => track.type === "sound_effects");
+  const chains = [`[1:a:0]${secondPassFilter(loudness)}[voice]`];
+  const inputs = ["[voice]"];
+  for (const [index, clip] of sfx.clips.entries()) {
+    const delayMs = Math.round((clip.startFrame / normalized.fps) * 1000);
+    const source = clip.assetId === "sfx_soft_whoosh"
+      ? "anoisesrc=color=pink:sample_rate=48000:duration=0.35,lowpass=f=1200,afade=t=in:st=0:d=0.08,afade=t=out:st=0.18:d=0.17"
+      : "sine=frequency=880:sample_rate=48000:duration=0.09,afade=t=out:st=0.04:d=0.05";
+    chains.push(
+      `${source},volume=${clip.gainDb}dB,adelay=${delayMs}|${delayMs}[sfx${index}]`,
+    );
+    inputs.push(`[sfx${index}]`);
+  }
+  chains.push(
+    `${inputs.join("")}amix=inputs=${inputs.length}:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.8414[mixed_audio]`,
+  );
+  return chains.join(";");
 }
 
 function validateComposedPreview(probe, timeline, expectAudio) {
@@ -117,10 +141,20 @@ async function composeNarratedPreview(input = {}) {
 }
 
 async function composeNarratedVisualMaster(input = {}) {
-  const { timeline, visualMasterPath, outputPath, audioPath = null, assPath = null, font = null, signal } = input;
+  const { timeline, visualMasterPath, outputPath, audioPath = null, assPath = null, font = null, audioIR = null, signal } = input;
   if (!timeline || !visualMasterPath || !outputPath) throw new AppError("VALIDATION_ERROR", SAFE_MESSAGES.VALIDATION_ERROR, 400);
-  if (Boolean(audioPath) !== Boolean(assPath)) throw new AppError("CAPTION_ALIGNMENT_REQUIRED", SAFE_MESSAGES.CAPTION_ALIGNMENT_REQUIRED, 409);
-  if (audioPath && (!font || !font.fontsDir)) throw new AppError("CAPTION_FONT_UNAVAILABLE", SAFE_MESSAGES.CAPTION_FONT_UNAVAILABLE, 409);
+  if (assPath && !audioPath) throw new AppError("CAPTION_ALIGNMENT_REQUIRED", SAFE_MESSAGES.CAPTION_ALIGNMENT_REQUIRED, 409);
+  if (audioPath && !assPath && !audioIR) throw new AppError("CAPTION_ALIGNMENT_REQUIRED", SAFE_MESSAGES.CAPTION_ALIGNMENT_REQUIRED, 409);
+  if (assPath && (!font || !font.fontsDir)) throw new AppError("CAPTION_FONT_UNAVAILABLE", SAFE_MESSAGES.CAPTION_FONT_UNAVAILABLE, 409);
+  if (audioIR && !audioPath) throw new AppError("AUDIO_NORMALIZATION_FAILED", SAFE_MESSAGES.AUDIO_NORMALIZATION_FAILED, 409);
+  const normalizedAudioIR = audioIR ? validateAudioIR(audioIR) : null;
+  if (
+    normalizedAudioIR
+    && (
+      normalizedAudioIR.fps !== timeline.fps
+      || normalizedAudioIR.durationFrames !== timeline.totalFrames
+    )
+  ) throw new AppError("AUDIO_NORMALIZATION_FAILED", SAFE_MESSAGES.AUDIO_NORMALIZATION_FAILED, 409);
   const runner = input.ffmpegRunner || runFfmpeg;
   let loudness = null;
   if (audioPath) {
@@ -139,7 +173,20 @@ async function composeNarratedVisualMaster(input = {}) {
   if (assPath) videoFilter.push(`ass=filename='${filterPath(assPath)}':fontsdir='${filterPath(font.fontsDir)}'`);
   videoFilter.push("format=yuv420p");
   args.push("-vf", videoFilter.join(","), "-map", "0:v:0", "-c:v", "libx264", "-preset", input.renderProfile === "final" ? "medium" : "veryfast", "-crf", input.renderProfile === "final" ? "18" : "22", "-r", String(timeline.fps));
-  if (audioPath) args.push("-map", "1:a:0", "-af", secondPassFilter(loudness), "-c:a", "aac", "-ar", "48000", "-b:a", "192k");
+  if (audioPath && normalizedAudioIR) {
+    args.push(
+      "-filter_complex",
+      deterministicAudioGraph(normalizedAudioIR, loudness),
+      "-map",
+      "[mixed_audio]",
+      "-c:a",
+      "aac",
+      "-ar",
+      "48000",
+      "-b:a",
+      "192k",
+    );
+  } else if (audioPath) args.push("-map", "1:a:0", "-af", secondPassFilter(loudness), "-c:a", "aac", "-ar", "48000", "-b:a", "192k");
   else args.push("-an");
   args.push("-t", expectedDuration, "-movflags", "+faststart", resolve(outputPath));
   try {
@@ -163,6 +210,8 @@ async function composeNarratedVisualMaster(input = {}) {
       renderProfile: input.renderProfile === "final" ? "final" : "preview",
       timelineHash: timeline.contentHash,
       visualMasterInput: true,
+      audioGraphApplied: Boolean(normalizedAudioIR),
+      audioIRHash: normalizedAudioIR?.contentHash || null,
       loudness,
     };
   } catch (error) {
@@ -171,4 +220,4 @@ async function composeNarratedVisualMaster(input = {}) {
   }
 }
 
-module.exports = { NARRATED_COMPOSITOR_VERSION, composeNarratedPreview, composeNarratedVisualMaster, filterPath, validateComposedPreview, validateKeyframeManifest: validateManifest };
+module.exports = { NARRATED_COMPOSITOR_VERSION, composeNarratedPreview, composeNarratedVisualMaster, deterministicAudioGraph, filterPath, validateComposedPreview, validateKeyframeManifest: validateManifest };

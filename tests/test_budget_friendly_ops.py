@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import budget_friendly_ops as ops
+from shorts_generator import youtube_uploader as youtube_uploader_module
 from shorts_generator.artifact_contracts import candidate_hash, content_hash, file_sha256
 from shorts_generator.pipeline import build_ranking_manifest
 from shorts_generator.profiles import BF_VIRAL_MICRO_V1, resolve_profile_bundle
@@ -348,8 +349,9 @@ class BudgetFriendlyOpsTests(unittest.TestCase):
                 ops,
                 "read_json",
                 side_effect=lambda path: documents[path],
-            ), patch(
-                "shorts_generator.youtube_uploader.get_authenticated_service",
+            ), patch.object(
+                youtube_uploader_module,
+                "get_authenticated_service",
             ) as authenticate:
                 with self.assertRaisesRegex(ValueError, "another render"):
                     ops.command_publish(args)
@@ -367,8 +369,9 @@ class BudgetFriendlyOpsTests(unittest.TestCase):
                 "channel-123",
             ]
         )
-        with patch(
-            "shorts_generator.youtube_uploader.get_authenticated_service",
+        with patch.object(
+            youtube_uploader_module,
+            "get_authenticated_service",
         ) as authenticate:
             with self.assertRaisesRegex(ValueError, "requires --confirm-public"):
                 args.handler(args)
@@ -405,20 +408,24 @@ class BudgetFriendlyOpsTests(unittest.TestCase):
                 ]
             )
             youtube = object()
-            with patch(
-                "shorts_generator.youtube_uploader.get_authenticated_service",
+            with patch.object(
+                youtube_uploader_module,
+                "get_authenticated_service",
                 return_value=youtube,
-            ), patch(
-                "shorts_generator.youtube_uploader.verify_authenticated_channel",
+            ), patch.object(
+                youtube_uploader_module,
+                "verify_authenticated_channel",
                 return_value={"id": "channel-123"},
-            ) as verify_channel, patch(
-                "shorts_generator.youtube_uploader.update_video_privacy",
+            ) as verify_channel, patch.object(
+                youtube_uploader_module,
+                "update_video_privacy",
                 return_value={
                     "video_id": "video-123",
                     "privacy_status": "public",
                 },
-            ) as update_privacy, patch(
-                "shorts_generator.youtube_uploader.upload_video",
+            ) as update_privacy, patch.object(
+                youtube_uploader_module,
+                "upload_video",
             ) as upload_video:
                 release = args.handler(args)
 

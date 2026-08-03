@@ -1,4 +1,6 @@
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,6 +11,23 @@ from research.runner import _best_reference_report
 
 
 class ResearchEvalTests(unittest.TestCase):
+    def test_offline_runner_import_does_not_load_live_evaluation(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import sys; import research.runner; "
+                    "assert 'research.live_eval' not in sys.modules"
+                ),
+            ],
+            cwd=Path(__file__).resolve().parents[1],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_reference_set_covers_all_required_categories(self):
         categories = {fixture["category"] for fixture in load_fixtures()}
         self.assertTrue(

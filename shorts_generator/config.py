@@ -2,7 +2,13 @@ import os
 import sys
 from pathlib import Path
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:
+    # Loading a .env file is a developer convenience, not a prerequisite for
+    # importing the core package or running deterministic/offline evaluation.
+    def load_dotenv(*_args, **_kwargs):
+        return False
 
 load_dotenv()
 

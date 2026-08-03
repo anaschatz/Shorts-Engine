@@ -242,6 +242,33 @@ function validateGenericSemanticNarrative(ir) {
 
 function validateSemanticNarrative(ir) {
   if (ir.content?.semantic?.profileId === SEMANTIC_SENTENCE_PROFILE_ID) {
+    if (ir.content.educationalExplainer) {
+      const projected = {
+        ...ir,
+        schemaVersion: SEMANTIC_SENTENCE_SCHEMA_VERSION,
+        profileVersion: SEMANTIC_SENTENCE_PROFILE_VERSION,
+        renderer: { ...ir.renderer, styleVersion: SEMANTIC_SENTENCE_STYLE_VERSION },
+        sharedEntities: ir.sharedEntities.filter(
+          (entity) => !["promise_header", "story_thread"].includes(entity.id),
+        ),
+        scenes: ir.scenes.map((scene) => ({
+          ...scene,
+          template: SEMANTIC_SENTENCE_TEMPLATE_ID,
+          templateVersion: SEMANTIC_SENTENCE_TEMPLATE_VERSION,
+          entityIds: scene.entityIds.filter(
+            (id) => !["promise_header", "story_thread"].includes(id),
+          ),
+        })),
+        transitions: [],
+      };
+      const validated = validateSemanticSentenceNarrative(projected);
+      return Object.freeze({
+        ...validated,
+        mode: "educational_explainer_v1",
+        persistentEntityCount: 2,
+        transitionCount: ir.transitions.length,
+      });
+    }
     return validateSemanticSentenceNarrative(ir);
   }
   if (ir.content?.semantic?.profileId === GENERIC_SEMANTIC_PROFILE_ID) return validateGenericSemanticNarrative(ir);

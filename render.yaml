@@ -1,0 +1,178 @@
+databases:
+  - name: shortsengine-staging-postgres
+    plan: basic-256mb
+    region: oregon
+    databaseName: shortsengine
+    user: shortsengine
+    ipAllowList: []
+
+services:
+  - type: web
+    name: shortsengine-staging-web
+    runtime: docker
+    plan: starter
+    region: oregon
+    branch: main
+    autoDeployTrigger: checksPass
+    dockerfilePath: ./Dockerfile.production
+    dockerCommand: node server/production-entry.cjs
+    preDeployCommand: SHORTSENGINE_PROCESS_ROLE=migrate node server/migrate-entry.cjs
+    healthCheckPath: /health
+    maxShutdownDelaySeconds: 90
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SHORTSENGINE_ENVIRONMENT
+        value: staging
+      - key: SHORTSENGINE_PROCESS_ROLE
+        value: web
+      - key: MATCHCUTS_PERSISTENCE_ADAPTER
+        value: postgres
+      - key: MATCHCUTS_QUEUE_ADAPTER
+        value: postgres
+      - key: MATCHCUTS_STORAGE_ADAPTER
+        value: r2
+      - key: SHORTSENGINE_AUTH_MODE
+        value: oidc
+      - key: SHORTSENGINE_TELEMETRY_ADAPTER
+        value: postgres
+      - key: MATCHCUTS_POSTGRES_SSL_MODE
+        value: require
+      - key: DATABASE_URL
+        fromDatabase:
+          name: shortsengine-staging-postgres
+          property: connectionString
+      - key: SHORTSENGINE_OIDC_ISSUER_URL
+        sync: false
+      - key: SHORTSENGINE_OIDC_CLIENT_ID
+        sync: false
+      - key: SHORTSENGINE_OIDC_CLIENT_SECRET
+        sync: false
+      - key: SHORTSENGINE_OIDC_REDIRECT_URI
+        sync: false
+      - key: SHORTSENGINE_PUBLIC_BASE_URL
+        sync: false
+      - key: SHORTSENGINE_SESSION_SECRET
+        generateValue: true
+      - key: MATCHCUTS_STORAGE_BUCKET
+        sync: false
+      - key: MATCHCUTS_STORAGE_ENDPOINT
+        sync: false
+      - key: MATCHCUTS_STORAGE_REGION
+        value: auto
+      - key: MATCHCUTS_STORAGE_ACCESS_KEY_ID
+        sync: false
+      - key: MATCHCUTS_STORAGE_SECRET_ACCESS_KEY
+        sync: false
+
+  - type: worker
+    name: shortsengine-staging-worker-a
+    runtime: docker
+    plan: starter
+    region: oregon
+    branch: main
+    autoDeployTrigger: checksPass
+    dockerfilePath: ./Dockerfile.production
+    dockerCommand: node server/worker-entry.cjs
+    maxShutdownDelaySeconds: 90
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SHORTSENGINE_ENVIRONMENT
+        value: staging
+      - key: SHORTSENGINE_PROCESS_ROLE
+        value: worker
+      - key: MATCHCUTS_PERSISTENCE_ADAPTER
+        value: postgres
+      - key: MATCHCUTS_QUEUE_ADAPTER
+        value: postgres
+      - key: MATCHCUTS_STORAGE_ADAPTER
+        value: r2
+      - key: SHORTSENGINE_AUTH_MODE
+        value: oidc
+      - key: SHORTSENGINE_TELEMETRY_ADAPTER
+        value: postgres
+      - key: MATCHCUTS_POSTGRES_SSL_MODE
+        value: require
+      - key: DATABASE_URL
+        fromDatabase:
+          name: shortsengine-staging-postgres
+          property: connectionString
+      - key: SHORTSENGINE_OIDC_ISSUER_URL
+        sync: false
+      - key: SHORTSENGINE_OIDC_CLIENT_ID
+        sync: false
+      - key: SHORTSENGINE_OIDC_CLIENT_SECRET
+        sync: false
+      - key: SHORTSENGINE_OIDC_REDIRECT_URI
+        sync: false
+      - key: SHORTSENGINE_PUBLIC_BASE_URL
+        sync: false
+      - key: SHORTSENGINE_SESSION_SECRET
+        generateValue: true
+      - key: MATCHCUTS_STORAGE_BUCKET
+        sync: false
+      - key: MATCHCUTS_STORAGE_ENDPOINT
+        sync: false
+      - key: MATCHCUTS_STORAGE_REGION
+        value: auto
+      - key: MATCHCUTS_STORAGE_ACCESS_KEY_ID
+        sync: false
+      - key: MATCHCUTS_STORAGE_SECRET_ACCESS_KEY
+        sync: false
+
+  - type: worker
+    name: shortsengine-staging-worker-b
+    runtime: docker
+    plan: starter
+    region: oregon
+    branch: main
+    autoDeployTrigger: checksPass
+    dockerfilePath: ./Dockerfile.production
+    dockerCommand: node server/worker-entry.cjs
+    maxShutdownDelaySeconds: 90
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SHORTSENGINE_ENVIRONMENT
+        value: staging
+      - key: SHORTSENGINE_PROCESS_ROLE
+        value: worker
+      - key: MATCHCUTS_PERSISTENCE_ADAPTER
+        value: postgres
+      - key: MATCHCUTS_QUEUE_ADAPTER
+        value: postgres
+      - key: MATCHCUTS_STORAGE_ADAPTER
+        value: r2
+      - key: SHORTSENGINE_AUTH_MODE
+        value: oidc
+      - key: SHORTSENGINE_TELEMETRY_ADAPTER
+        value: postgres
+      - key: MATCHCUTS_POSTGRES_SSL_MODE
+        value: require
+      - key: DATABASE_URL
+        fromDatabase:
+          name: shortsengine-staging-postgres
+          property: connectionString
+      - key: SHORTSENGINE_OIDC_ISSUER_URL
+        sync: false
+      - key: SHORTSENGINE_OIDC_CLIENT_ID
+        sync: false
+      - key: SHORTSENGINE_OIDC_CLIENT_SECRET
+        sync: false
+      - key: SHORTSENGINE_OIDC_REDIRECT_URI
+        sync: false
+      - key: SHORTSENGINE_PUBLIC_BASE_URL
+        sync: false
+      - key: SHORTSENGINE_SESSION_SECRET
+        generateValue: true
+      - key: MATCHCUTS_STORAGE_BUCKET
+        sync: false
+      - key: MATCHCUTS_STORAGE_ENDPOINT
+        sync: false
+      - key: MATCHCUTS_STORAGE_REGION
+        value: auto
+      - key: MATCHCUTS_STORAGE_ACCESS_KEY_ID
+        sync: false
+      - key: MATCHCUTS_STORAGE_SECRET_ACCESS_KEY
+        sync: false

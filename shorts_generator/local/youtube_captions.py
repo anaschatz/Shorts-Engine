@@ -13,14 +13,13 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import os
 import re
 import statistics
 import subprocess
-import tempfile
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional, Tuple
 
+from ..atomic_file import atomic_write_text
 from .downloader import _extract_youtube_video_id, _import_ytdlp
 
 
@@ -36,22 +35,10 @@ _NON_SPEECH_PIECE_RE = re.compile(
 
 
 def _atomic_write_json(path: Path, value: Dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary_name = tempfile.mkstemp(
-        dir=str(path.parent),
-        prefix=f".{path.name}.",
-        suffix=".tmp",
+    atomic_write_text(
+        path,
+        json.dumps(value, ensure_ascii=False, separators=(",", ":")),
     )
-    temporary = Path(temporary_name)
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            json.dump(value, handle, ensure_ascii=False, separators=(",", ":"))
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-    except BaseException:
-        temporary.unlink(missing_ok=True)
-        raise
 
 
 def _caption_cache_path(

@@ -254,6 +254,8 @@ function createLocalJobWorker({
     narratedAnimationPreplanHandler:
       dependencies.runNarratedAnimationPreplanJob,
     narratedRenderHandler: dependencies.runNarratedRenderJob,
+    motivationalSourceShortHandler:
+      dependencies.runMotivationalSourceShortJob,
   });
   const renderDependencies = dependencies.renderDependencies || dependencies;
   const workerId = dependencies.workerId || createWorkerId();

@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "artifactType": "narration_manifest",
+  "projectId": "prj_d0801ca2-53ce-43b3-8faa-cee2893dc01c",
+  "ownerJobId": null,
+  "revision": 1,
+  "contentHash": "6175b97281144eb5e8af76835b4264cd2198671ec654cac5a7c333686f3286cd",
+  "dependencyHashes": [
+    "56b66861d277fe5938eec5e08ca046f0d41f68f99fbbab579f4222816da32c85",
+    "67036a35f5336d70cff06e5851cb1b1993783b06825269dae64d1f02ae221f69",
+    "7fb1c8e50dc132674facf372da28eb45b71e2002365e870f83fc3c1c3e30f28f"
+  ],
+  "createdAt": "2026-07-12T20:12:52.099Z",
+  "body": {
+    "schemaVersion": 1,
+    "status": "uploaded_unaligned",
+    "projectId": "prj_d0801ca2-53ce-43b3-8faa-cee2893dc01c",
+    "projectRevision": 1,
+    "verticalId": "dark_curiosity",
+    "draftArtifactId": "art_39a989b4d98facc01466c813bce688ddce16cf3e",
+    "draftHash": "67036a35f5336d70cff06e5851cb1b1993783b06825269dae64d1f02ae221f69",
+    "scriptHash": "56b66861d277fe5938eec5e08ca046f0d41f68f99fbbab579f4222816da32c85",
+    "audioArtifactId": "art_e9ad1ddeca26289753a0fcb75b117935c98dac03",
+    "audioHash": "7fb1c8e50dc132674facf372da28eb45b71e2002365e870f83fc3c1c3e30f28f",
+    "voiceProfileId": "tts_kokoro_local_af_heart",
+    "language": "en",
+    "media": {
+      "container": "wav",
+      "codec": "pcm_s16le",
+      "sampleRate": 48000,
+      "channels": 1,
+      "durationSeconds": 34.3467,
+      "bytes": 3297358
+    },
+    "rights": {
+      "commercialUseAllowed": true,
+      "ownershipBasis": "ai_generated_licensed",
+      "rightsHolder": "local_operator",
+      "consentReference": "local_operator",
+      "licenseReference": "Apache-2.0:hexgrad/Kokoro-82M-v1.0"
+    },
+    "ttsProvenance": {
+      "schemaVersion": "dark_curiosity_tts_provenance_v1",
+      "projectId": "dcp_67036a35f5336d70cff06e58",
+      "runId": "tts_99c6f38e9536d2590695ca8649daa823",
+      "script": {
+        "path": "eval/narrated/dark-curiosity/fixtures/001_wow_signal_mystery.json",
+        "sha256": "9b9dba48e468b4f60fd55af0216169db1bd0e5e710d5b35cf24f82ff9387fc5a",
+        "approvalReference": "fixture:67036a35f5336d70cff06e5851cb1b1993783b06825269dae64d1f02ae221f69",
+        "approved": true
+      },
+      "provider": "kokoro_local",
+      "model": "kokoro-v1.0-onnx-f32",
+      "voiceId": "af_heart",
+      "language": "en",
+      "speakingRate": 1,
+      "synthesizedAt": "2026-07-12T18:49:44.591Z",
+      "providerRequestId": "local_9b9dba48e468b4f60fd55af0",
+      "license": {
+        "termsReference": "Apache-2.0:hexgrad/Kokoro-82M-v1.0",
+        "commercialUseAttested": true,
+        "attestedBy": "local_operator"
+      },
+      "voiceCloned": false,
+      "impersonated": false,
+      "audio": {
+        "path": "narration.wav",
+        "sha256": "7fb1c8e50dc132674facf372da28eb45b71e2002365e870f83fc3c1c3e30f28f",
+        "container": "wav",
+        "codec": "pcm_s16le",
+        "sampleRate": 48000,
+        "channels": 1,
+        "durationSeconds": 34.3467,
+        "bytes": 3297358,
+        "validated": true
+      },
+      "dryRun": false,
+      "publishable": true,
+      "blockerCodes": [],
+      "contentHash": "31ad86daa1bdc10c5cb86db7f9a3418b1b0a94f7a2191ad6edc5b4afb8dd4b45"
+    },
+    "contentHash": "6175b97281144eb5e8af76835b4264cd2198671ec654cac5a7c333686f3286cd"
+  }
+}

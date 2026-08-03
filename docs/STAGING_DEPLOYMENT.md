@@ -1,5 +1,53 @@
 # ShortsEngine Staging Deployment Contract
 
+## Production-beta staging contract
+
+The canonical infrastructure is [`render.yaml`](../render.yaml). It provisions one
+managed PostgreSQL database, one web service, two independent worker services, and
+runs `SHORTSENGINE_PROCESS_ROLE=migrate node server/migrate-entry.cjs` as the web
+service pre-deploy migration. All three services build the same
+`Dockerfile.production` image with Node.js 22, Chromium, `ffmpeg`, and `ffprobe`.
+The production web readiness endpoint is `/health`; it returns `503` unless every
+configured adapter is ready.
+
+The protected GitHub Environment named `staging` must define the following names.
+No values belong in Git or in readiness reports:
+
+- `DATABASE_URL`
+- `SHORTSENGINE_OIDC_ISSUER_URL`
+- `SHORTSENGINE_OIDC_CLIENT_ID`
+- `SHORTSENGINE_OIDC_CLIENT_SECRET`
+- `SHORTSENGINE_OIDC_REDIRECT_URI`
+- `SHORTSENGINE_PUBLIC_BASE_URL`
+- `SHORTSENGINE_SESSION_SECRET`
+- `MATCHCUTS_STORAGE_BUCKET`
+- `MATCHCUTS_STORAGE_ENDPOINT`
+- `MATCHCUTS_STORAGE_ACCESS_KEY_ID`
+- `MATCHCUTS_STORAGE_SECRET_ACCESS_KEY`
+- `SHORTSENGINE_STAGING_SERVICE_ID`
+- `SHORTSENGINE_STAGING_URL`
+- `SHORTSENGINE_STAGING_DEPLOY_TOKEN`
+
+`MATCHCUTS_STORAGE_SESSION_TOKEN` and the OTLP endpoint/headers are optional only
+when the selected providers genuinely require them. Without a real OTLP backend,
+the proof retains the blocker `OTLP_BACKEND_NOT_PROVED`.
+
+Run `npm run staging:production:check` before any deployment. The command has no
+network side effects, validates the strict `postgres/postgres/r2/oidc/postgres`
+runtime contract, binds the result to the exact Git SHA, and writes only the
+sanitized, 24-hour report
+`release/results/staging-credentials-readiness.json`. Missing protected
+configuration stops the workflow with `STAGING_CREDENTIALS_REQUIRED`. The
+workflow never falls back to SQLite, local storage, mock authentication, a mock
+provider, or memory telemetry.
+
+The historical `npm run staging:check` and `npm run render:check` commands below
+remain useful for local readiness diagnostics. They are not deployed staging
+proof and cannot satisfy a production gate. `PRODUCTION-READY` is forbidden until
+the exact deployed SHA passes the real two-user OIDC, private R2 multipart,
+two-worker lease recovery, preview/approval/render, Range delivery, restart,
+isolation, cost, observability, and cleanup proof.
+
 This milestone prepares ShortsEngine for a real Render staging deployment while keeping the default readiness-only and safe: no production deploy, no hardcoded credentials, no cloud integration by default and no video uploads during deployed smoke.
 
 Run:
@@ -72,9 +120,9 @@ Only configure these if the staging environment intentionally uses the related a
 
 Do not commit `.env` files or copy secret values into docs, logs, reports or issue comments.
 
-## Expected Runtime Modes
+## Legacy readiness-only runtime modes
 
-Safe readiness-only defaults:
+These values exercise the historical no-deploy diagnostics only:
 
 - `MATCHCUTS_TRANSCRIPTION_PROVIDER=mock`
 - `MATCHCUTS_STORAGE_ADAPTER=local`
@@ -82,7 +130,9 @@ Safe readiness-only defaults:
 - `MATCHCUTS_RUN_REAL_CLOUD_TESTS=0`
 - `SHORTSENGINE_STAGING_DEPLOY_PROVIDER=none`
 
-Object storage and real AI provider modes remain opt-in and fail closed when required credentials are missing.
+They cannot satisfy the production-beta gate. The strict profile at the top of
+this document requires PostgreSQL, R2, OIDC and durable PostgreSQL telemetry and
+fails closed when any required credential is missing.
 
 ## Render Provider Contract
 
@@ -110,9 +160,11 @@ Render provider responses are read with a bounded body limit, parsed as JSON onl
 - mock transcription remains the safe default unless a real provider is explicitly configured
 - output stays sanitized and never includes token values or raw provider data
 
-## Render Service Setup
+## Legacy single-service Render setup
 
-Create a Render Web Service connected to this GitHub repository.
+This section describes the historical diagnostic service used by
+`render:check`. Do not use it as the production-beta topology; deploy the
+`render.yaml` Blueprint described at the top of this document.
 
 Recommended service settings:
 
@@ -125,7 +177,7 @@ Recommended service settings:
 - Node version: use the repository `engines.node` value unless you intentionally pin a newer version in Render settings.
 - Required system tools: `ffmpeg` and `ffprobe` must be available to render real clips. If they are missing, `/health` should report degraded readiness and render jobs should fail safely.
 
-Recommended Render environment variables for initial staging:
+Legacy diagnostic environment variables:
 
 - `MATCHCUTS_TRANSCRIPTION_PROVIDER=mock`
 - `MATCHCUTS_PERSISTENCE_ADAPTER=sqlite`
@@ -133,7 +185,10 @@ Recommended Render environment variables for initial staging:
 - Leave `OPENAI_API_KEY` empty until real-provider staging is intentional.
 - Let Render provide `PORT`; do not hardcode it.
 
-Local filesystem storage on Render should be treated as ephemeral unless a Render disk is explicitly attached. Initial staging can use local or mock-cloud storage to prove deployment and health, but durable uploads/renders need object storage and database-backed persistence in a later milestone.
+Local filesystem storage on Render is ephemeral unless a disk is explicitly
+attached. A local/mock-cloud diagnostic can prove only basic deployment and
+health. The production-beta milestone already implements durable PostgreSQL/R2;
+it still needs external exact-SHA proof with those adapters.
 
 After the service exists:
 
@@ -238,10 +293,10 @@ Full smoke is not part of the default CI/release gate because it uploads media, 
 
 Each full smoke request marks created project, upload, job, artifact and export records with the safe source marker `staging-full-smoke` plus a `staging_full_` idempotency prefix. Cleanup must use those markers and ownership links; titles and filenames are not enough.
 
-Durability interpretation:
+Legacy smoke durability interpretation:
 
 - `ephemeral-staging`: local/mock storage or local filesystem-backed SQLite can prove the flow, but not restart durability on Render.
-- `durable-capable`: object storage plus database-backed persistence are reported as configured capabilities.
+- `durable-capable`: object storage plus database-backed persistence are reported as configured capabilities, but this label is not external production proof.
 
 Do not claim production durability from a Render local filesystem proof. Use object storage and database-backed persistence before relying on deployed staging artifacts across restarts.
 

@@ -1,0 +1,167 @@
+{
+  "schemaVersion": 1,
+  "profile": "narrative_beat_graph_v1",
+  "profileVersion": "1.0.0",
+  "draftHash": "67036a35f5336d70cff06e5851cb1b1993783b06825269dae64d1f02ae221f69",
+  "timingContextHash": "cb058b4ef22f04fd9d8ffd6c107cd327b646df8cd3e015adef716a0fc0a0afbc",
+  "durationFrames": 1350,
+  "fps": 30,
+  "sections": [
+    {
+      "id": "section_hook",
+      "role": "hook",
+      "beatId": "beat_hook",
+      "startFrame": 0,
+      "endFrame": 255,
+      "microbeatIds": [
+        "micro_hook_01"
+      ]
+    },
+    {
+      "id": "section_context",
+      "role": "context",
+      "beatId": "beat_context",
+      "startFrame": 255,
+      "endFrame": 546,
+      "microbeatIds": [
+        "micro_context_01",
+        "micro_context_02"
+      ]
+    },
+    {
+      "id": "section_evidence",
+      "role": "evidence",
+      "beatId": "beat_evidence",
+      "startFrame": 546,
+      "endFrame": 830,
+      "microbeatIds": [
+        "micro_evidence_01",
+        "micro_evidence_02"
+      ]
+    },
+    {
+      "id": "section_turn",
+      "role": "turn",
+      "beatId": "beat_turn",
+      "startFrame": 830,
+      "endFrame": 1063,
+      "microbeatIds": [
+        "micro_turn_01",
+        "micro_turn_02"
+      ]
+    },
+    {
+      "id": "section_payoff",
+      "role": "payoff",
+      "beatId": "beat_payoff",
+      "startFrame": 1063,
+      "endFrame": 1350,
+      "microbeatIds": [
+        "micro_payoff_01",
+        "micro_payoff_02"
+      ]
+    }
+  ],
+  "microbeats": [
+    {
+      "id": "micro_hook_01",
+      "sectionId": "section_hook",
+      "type": "setup",
+      "sentenceId": "vs_proposition_hook_0",
+      "startFrame": 0,
+      "endFrame": 243,
+      "wordStartIndex": 0,
+      "wordEndIndex": 15,
+      "semanticText": "In 1977, one radio signal looked so unusual that an astronomer wrote one word: Wow."
+    },
+    {
+      "id": "micro_context_01",
+      "sectionId": "section_context",
+      "type": "setup",
+      "sentenceId": "vs_proposition_context_0",
+      "startFrame": 255,
+      "endFrame": 479,
+      "wordStartIndex": 15,
+      "wordEndIndex": 28,
+      "semanticText": "It arrived near a frequency researchers considered promising for interstellar communication and lasted"
+    },
+    {
+      "id": "micro_context_02",
+      "sectionId": "section_context",
+      "type": "setup",
+      "sentenceId": "vs_proposition_context_1",
+      "startFrame": 479,
+      "endFrame": 524,
+      "wordStartIndex": 28,
+      "wordEndIndex": 30,
+      "semanticText": "seventy-two seconds."
+    },
+    {
+      "id": "micro_evidence_01",
+      "sectionId": "section_evidence",
+      "type": "mechanism",
+      "sentenceId": "vs_proposition_evidence_0",
+      "startFrame": 546,
+      "endFrame": 681,
+      "wordStartIndex": 30,
+      "wordEndIndex": 42,
+      "semanticText": "Its strength rose and fell as the telescope beam crossed the source,"
+    },
+    {
+      "id": "micro_evidence_02",
+      "sectionId": "section_evidence",
+      "type": "mechanism",
+      "sentenceId": "vs_proposition_evidence_1",
+      "startFrame": 700,
+      "endFrame": 809,
+      "wordStartIndex": 42,
+      "wordEndIndex": 48,
+      "semanticText": "making ordinary local interference less convincing."
+    },
+    {
+      "id": "micro_turn_01",
+      "sectionId": "section_turn",
+      "type": "example",
+      "sentenceId": "vs_proposition_turn_0",
+      "startFrame": 830,
+      "endFrame": 944,
+      "wordStartIndex": 48,
+      "wordEndIndex": 57,
+      "semanticText": "But later searches never verified the same signal again,"
+    },
+    {
+      "id": "micro_turn_02",
+      "sectionId": "section_turn",
+      "type": "example",
+      "sentenceId": "vs_proposition_turn_1",
+      "startFrame": 944,
+      "endFrame": 1051,
+      "wordStartIndex": 57,
+      "wordEndIndex": 64,
+      "semanticText": "and no confirmed transmission has explained it."
+    },
+    {
+      "id": "micro_payoff_01",
+      "sectionId": "section_payoff",
+      "type": "payoff",
+      "sentenceId": "vs_proposition_payoff_0",
+      "startFrame": 1063,
+      "endFrame": 1104,
+      "wordStartIndex": 64,
+      "wordEndIndex": 68,
+      "semanticText": "The honest answer is"
+    },
+    {
+      "id": "micro_payoff_02",
+      "sectionId": "section_payoff",
+      "type": "payoff",
+      "sentenceId": "vs_proposition_payoff_1",
+      "startFrame": 1104,
+      "endFrame": 1318,
+      "wordStartIndex": 68,
+      "wordEndIndex": 81,
+      "semanticText": "not aliens. It is one strong unexplained candidate that left no repeatable proof."
+    }
+  ],
+  "contentHash": "ec905b64ee2eca769780b4c5f890dcd26a75d62d00904504fd39863f4b6224ef"
+}

@@ -612,7 +612,7 @@ test("API health returns structured status", async () => {
   assert.equal(typeof payload.data.jobs.statuses.queued, "number");
   assert.equal(typeof payload.data.jobs.staleProcessing, "number");
   assert.equal(payload.data.queue.adapter, "local-job-queue");
-  assert.equal(payload.data.queue.workerRuntime.multiWorkerSafe, true);
+  assert.equal(payload.data.queue.workerRuntime.multiWorkerSafe, false);
   assert.equal(typeof payload.data.queue.workers.active, "number");
   assert.equal(typeof payload.data.queue.leases.active, "number");
   assert.equal(typeof payload.data.queue.jobs.retryScheduled, "number");

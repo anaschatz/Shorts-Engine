@@ -12,7 +12,7 @@ const {
 } = require("./production-plan-compiler.cjs");
 const {
   SEMANTIC_SENTENCE_PROFILE_ID,
-  SEMANTIC_SENTENCE_PROFILE_TOKEN,
+  isSupportedAnimationProfile,
 } = require("./semantic-render-profile.cjs");
 const {
   buildSemanticSentencePlanningContext,
@@ -55,7 +55,7 @@ function exactActivePlan(active, expected) {
   return Boolean(
     active
     && active.status === "ready"
-    && active.animationProfile === SEMANTIC_SENTENCE_PROFILE_TOKEN
+    && active.animationProfile === expected.animationProfile
     && active.projectRevision === expected.projectRevision
     && active.draftArtifactId === expected.draftArtifactId
     && active.draftHash === expected.draftHash
@@ -129,7 +129,7 @@ async function runNarratedAnimationPreplanJob(context = {}) {
     unavailable();
   }
   if (
-    payload.animationProfile !== SEMANTIC_SENTENCE_PROFILE_TOKEN
+    !isSupportedAnimationProfile(payload.animationProfile)
     || project.projectType !== "narrated_short"
     || project.input.revision !== payload.projectRevision
   ) stale("projectRevision");
@@ -245,6 +245,7 @@ async function runNarratedAnimationPreplanJob(context = {}) {
   ) stale("planner", "planner_configuration_changed");
 
   const expected = {
+    animationProfile: payload.animationProfile,
     projectRevision: project.input.revision,
     draftArtifactId: payload.approvedDraftArtifactId,
     draftHash: payload.approvedDraftHash,
@@ -335,7 +336,7 @@ async function runNarratedAnimationPreplanJob(context = {}) {
     projectId,
     projectRevision,
     renderProfile: payload.renderProfile,
-    animationProfile: SEMANTIC_SENTENCE_PROFILE_TOKEN,
+    animationProfile: payload.animationProfile,
     semanticAnimationSceneDslPlan: scenePlan,
   });
   if (
@@ -364,7 +365,7 @@ async function runNarratedAnimationPreplanJob(context = {}) {
   }
   const active = {
     status: "ready",
-    animationProfile: SEMANTIC_SENTENCE_PROFILE_TOKEN,
+    animationProfile: payload.animationProfile,
     projectRevision,
     planArtifactId: artifact.artifact.id,
     planHash: artifact.envelope.contentHash,

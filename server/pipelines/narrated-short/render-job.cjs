@@ -14,7 +14,15 @@ const { NARRATED_COMPOSITOR_VERSION, composeNarratedPreview, composeNarratedVisu
 const { runProductionAnimationRender } = require("./animation/render-service.cjs");
 const { buildProductionTimingContext } = require("./animation/timing-context-builder.cjs");
 const { compileProductionAnimation, PRODUCTION_PROVIDER_ID, PRODUCTION_RUNTIME_VERSION } = require("./animation/production-plan-compiler.cjs");
-const { SEMANTIC_SENTENCE_PROFILE_TOKEN, SEMANTIC_SENTENCE_STYLE_VERSION } = require("./animation/semantic-render-profile.cjs");
+const {
+  EDUCATIONAL_EXPLAINER_PROFILE_TOKEN,
+  SEMANTIC_SENTENCE_STYLE_VERSION,
+  isSupportedAnimationProfile,
+} = require("./animation/semantic-render-profile.cjs");
+const {
+  EDUCATIONAL_EXPLAINER_STYLE_VERSION,
+  REFERENCE_STYLE_SPEC_ID,
+} = require("./animation/educational-explainer-profile.cjs");
 const { createLocalLlmScenePlanner } = require("./animation/providers/local-llm-scene-planner.cjs");
 const {
   resolveAnimationScenePlanBinding,
@@ -40,8 +48,15 @@ async function runNarratedRenderJob(context = {}) {
   const requestedAnimationProfile = payload.animationProfile;
   const hasAnimationProfile = requestedAnimationProfile !== undefined && requestedAnimationProfile !== null && requestedAnimationProfile !== "";
   const animationProfile = hasAnimationProfile ? requestedAnimationProfile : null;
-  if (hasAnimationProfile && animationProfile !== SEMANTIC_SENTENCE_PROFILE_TOKEN) throw new AppError("VALIDATION_ERROR", "Narrated animation profile is invalid.", 409, { field: "animationProfile" });
-  if ((animationProfile && payload.animationStyleVersion !== SEMANTIC_SENTENCE_STYLE_VERSION) || (!animationProfile && payload.animationStyleVersion === SEMANTIC_SENTENCE_STYLE_VERSION)) throw new AppError("VALIDATION_ERROR", "Narrated animation versions are invalid.", 409, { field: "animationVersion" });
+  if (hasAnimationProfile && !isSupportedAnimationProfile(animationProfile)) throw new AppError("VALIDATION_ERROR", "Narrated animation profile is invalid.", 409, { field: "animationProfile" });
+  const expectedStyleVersion = animationProfile === EDUCATIONAL_EXPLAINER_PROFILE_TOKEN
+    ? EDUCATIONAL_EXPLAINER_STYLE_VERSION
+    : SEMANTIC_SENTENCE_STYLE_VERSION;
+  if ((animationProfile && payload.animationStyleVersion !== expectedStyleVersion) || (!animationProfile && [SEMANTIC_SENTENCE_STYLE_VERSION, EDUCATIONAL_EXPLAINER_STYLE_VERSION].includes(payload.animationStyleVersion))) throw new AppError("VALIDATION_ERROR", "Narrated animation versions are invalid.", 409, { field: "animationVersion" });
+  if (
+    animationProfile === EDUCATIONAL_EXPLAINER_PROFILE_TOKEN
+    && payload.styleSpecId !== REFERENCE_STYLE_SPEC_ID
+  ) throw new AppError("VALIDATION_ERROR", "Narrated animation style specification is invalid.", 409, { field: "styleSpecId" });
   const contentArtifacts = dependencies.contentArtifactRepository;
   const approvals = dependencies.contentApprovalRepository;
   const projectRepository = dependencies.projectRepository;
@@ -109,6 +124,7 @@ async function runNarratedRenderJob(context = {}) {
   }
   if ((payload.renderProfile === "final" || continuousAnimation) && !alignedContext) throw new AppError("NARRATION_ALIGNMENT_REQUIRED", "Exact narration alignment is required before rendering this output.", 409);
   let scenePlanBinding = null;
+  let expectedAnimation = null;
   if (continuousAnimation) {
     const expectedTiming = buildProductionTimingContext({ draft, alignment: alignedContext.alignment, projectId: project.id, projectRevision: project.input.revision, draftArtifactId: payload.approvedDraftArtifactId, draftHash: payload.approvedDraftHash, alignmentHash: alignedContext.active.alignmentHash });
     const scenePlannerHealth = animationProfile
@@ -146,11 +162,12 @@ async function runNarratedRenderJob(context = {}) {
         contentArtifactRepository: contentArtifacts,
         requirePersisted: true,
         expectedPlanner: scenePlannerHealth,
+        animationProfile,
         buildSemanticSentencePlanningContext:
           dependencies.buildSemanticSentencePlanningContext,
       })
       : null;
-    const expectedAnimation = animationCompiler({
+    expectedAnimation = animationCompiler({
       draft,
       timingContext: expectedTiming,
       projectId: project.id,
@@ -164,9 +181,36 @@ async function runNarratedRenderJob(context = {}) {
     if (payload.timingContextHash !== expectedTiming.contentHash || payload.animationPlanHash !== contentHash(expectedAnimation.plan) || payload.animationIRHash !== expectedAnimation.animationIR.contentHash || payload.animationProvider !== PRODUCTION_PROVIDER_ID || payload.animationRuntimeVersion !== PRODUCTION_RUNTIME_VERSION || payload.animationStyleVersion !== expectedAnimation.animationIR.renderer.styleVersion) {
       throw new AppError("ANIMATION_BINDING_STALE", "Production animation bindings are stale.", 409);
     }
+    if (
+      animationProfile === EDUCATIONAL_EXPLAINER_PROFILE_TOKEN
+      && (
+        payload.referenceStyleSpecHash !== expectedAnimation.referenceStyleSpec.contentHash
+        || payload.narrativeBeatGraphHash !== expectedAnimation.narrativeBeatGraph.contentHash
+        || payload.directorPlanHash !== expectedAnimation.directorPlan.contentHash
+        || payload.audioIRHash !== expectedAnimation.audioIR.contentHash
+        || payload.assetManifestV2Hash !== expectedAnimation.assetManifest.contentHash
+      )
+    ) throw new AppError("ANIMATION_BINDING_STALE", "Educational explainer bindings are stale.", 409);
   }
   const dimensions = payload.renderProfile === "final" ? { width: 1080, height: 1920 } : { width: 720, height: 1280 };
-  const timeline = compileTimeline({ draftBundle: draft, narrationManifest: narration, ...timing, ...dimensions });
+  const timeline = compileTimeline({
+    draftBundle: draft,
+    narrationManifest: narration,
+    ...timing,
+    ...dimensions,
+    ...(expectedAnimation?.directorPlan
+      ? {
+        animationProfile,
+        styleSpecId: payload.styleSpecId,
+        animationBindings: {
+          animationIRHash: expectedAnimation.animationIR.contentHash,
+          directorPlanHash: expectedAnimation.directorPlan.contentHash,
+          audioIRHash: expectedAnimation.audioIR.contentHash,
+          assetManifestHash: expectedAnimation.assetManifest.contentHash,
+        },
+      }
+      : {}),
+  });
   const tempRoot = mkdtempSync(join(CONFIG.tmpDir, `narrated-${job.id}-`));
   const timelinePath = join(tempRoot, "timeline.json");
   const draftPath = join(tempRoot, "draft.json");
@@ -254,7 +298,7 @@ async function runNarratedRenderJob(context = {}) {
     }
     jobs.update(job, { progress: 65, step: "compose_preview" });
     const renderResult = continuousAnimation
-      ? await continuousCompositor({ timeline, visualMasterPath: animationResult.visualMasterPath, outputPath: outputStage.localPath, renderProfile: payload.renderProfile, audioPath: audioStage && audioStage.localPath, assPath: assStage && assStage.localPath, font: ass && ass.font, signal: job._controller && job._controller.signal })
+      ? await continuousCompositor({ timeline, visualMasterPath: animationResult.visualMasterPath, outputPath: outputStage.localPath, renderProfile: payload.renderProfile, audioPath: audioStage && audioStage.localPath, assPath: assStage && assStage.localPath, font: ass && ass.font, audioIR: expectedAnimation?.audioIR || null, signal: job._controller && job._controller.signal })
       : await compositor({ timeline, keyframeManifest: keyframes, outputPath: outputStage.localPath, renderProfile: payload.renderProfile, audioPath: audioStage && audioStage.localPath, assPath: assStage && assStage.localPath, font: ass && ass.font, signal: job._controller && job._controller.signal });
     if (alignedContext && (!renderResult.audioIncluded || !renderResult.captionsIncluded || !renderResult.captionsBurned || !renderResult.audioNormalized || !renderResult.loudness)) throw new AppError("NARRATED_COMPOSITION_FAILED", "Narrated preview composition failed.", 409);
     let audioNormalizationArtifact = null;
