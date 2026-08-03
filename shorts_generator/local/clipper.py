@@ -71,6 +71,11 @@ from ..winner_packaging import (
     normalize_caption_tokens,
 )
 from .bounded_file_cache import prune_bounded_cache
+from .lossless_cut_planning import (
+    build_lossless_cut_cache_key,
+    build_lossless_cut_cache_path,
+    build_lossless_cut_command,
+)
 
 
 CAPTION_FONT_SIZE = 50
@@ -5060,17 +5065,7 @@ def _cut_subclip_command(
     out_path: str,
     fps: float = LOCAL_OUTPUT_FPS,
 ) -> List[str]:
-    duration = max(0.001, end - start)
-    return [
-        "ffmpeg", "-y", "-loglevel", "error",
-        "-ss", f"{start:.3f}",
-        "-i", source_path,
-        "-t", f"{duration:.3f}",
-        "-vf", f"fps={float(fps):g}",
-        "-c:v", "ffv1", "-level", "3",
-        "-c:a", "pcm_s16le",
-        out_path,
-    ]
+    return build_lossless_cut_command(source_path, start, end, out_path, fps)
 
 
 def _cut_subclip(
@@ -5102,22 +5097,17 @@ def _lossless_cut_cache_key(
         )
     except OSError:
         source_identity = (str(source), 0, 0)
-    payload = json.dumps(
-        {
-            "schema": LOSSLESS_CUT_CACHE_SCHEMA,
-            "source": source_identity,
-            "start": round(float(start), 6),
-            "end": round(float(end), 6),
-            "fps": round(float(fps), 6),
-        },
-        sort_keys=True,
-        separators=(",", ":"),
+    return build_lossless_cut_cache_key(
+        LOSSLESS_CUT_CACHE_SCHEMA,
+        source_identity,
+        start,
+        end,
+        fps,
     )
-    return hashlib.blake2b(payload.encode("utf-8"), digest_size=24).hexdigest()
 
 
 def _lossless_cut_cache_path(cache_key: str) -> Path:
-    return LOSSLESS_CUT_CACHE_DIR / cache_key[:2] / f"{cache_key}.mkv"
+    return build_lossless_cut_cache_path(LOSSLESS_CUT_CACHE_DIR, cache_key)
 
 
 def _prune_lossless_cut_cache(
