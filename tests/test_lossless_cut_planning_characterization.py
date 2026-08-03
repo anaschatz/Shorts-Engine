@@ -145,11 +145,11 @@ class LosslessCutPlanningCharacterizationTests(unittest.TestCase):
         self.assertEqual(first, second)
 
     def test_cache_path_uses_two_character_shard_and_mkv_extension(self):
-        key = "0123456789abcdef" * 3
+        cache_digest = "ab" * 24
         with patch.object(clipper, "LOSSLESS_CUT_CACHE_DIR", Path("cache root")):
             self.assertEqual(
-                clipper._lossless_cut_cache_path(key),
-                Path("cache root") / "01" / f"{key}.mkv",
+                clipper._lossless_cut_cache_path(cache_digest),
+                Path("cache root") / "ab" / f"{cache_digest}.mkv",
             )
 
     def test_cache_hit_touches_logs_and_skips_execution(self):
