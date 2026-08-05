@@ -71,6 +71,7 @@ from ..winner_packaging import (
     normalize_caption_tokens,
 )
 from .bounded_file_cache import prune_bounded_cache
+from .lossless_cut_config import parse_lossless_cut_config
 from .lossless_cut_planning import (
     build_lossless_cut_cache_key,
     build_lossless_cut_cache_path,
@@ -311,20 +312,10 @@ VISUAL_ANALYSIS_CACHE_DIR = Path(
     )
 ).expanduser()
 VISUAL_ANALYSIS_CACHE_SCHEMA = "visual-analysis-v1"
-LOSSLESS_CUT_CACHE_ENABLED = os.getenv(
-    "LOCAL_LOSSLESS_CUT_CACHE",
-    "true",
-).strip().lower() in {"1", "true", "yes", "on"}
-LOSSLESS_CUT_CACHE_DIR = Path(
-    os.getenv(
-        "LOCAL_LOSSLESS_CUT_CACHE_DIR",
-        str(Path(LOCAL_CACHE_DIR) / "lossless-cuts-v1"),
-    )
-).expanduser()
-LOSSLESS_CUT_CACHE_MAX_BYTES = max(
-    2 * 1024**3,
-    int(float(os.getenv("LOCAL_LOSSLESS_CUT_CACHE_MAX_GB", "20")) * 1024**3),
-)
+_LOSSLESS_CUT_CONFIG = parse_lossless_cut_config(os.environ, LOCAL_CACHE_DIR)
+LOSSLESS_CUT_CACHE_ENABLED = _LOSSLESS_CUT_CONFIG.enabled
+LOSSLESS_CUT_CACHE_DIR = _LOSSLESS_CUT_CONFIG.directory
+LOSSLESS_CUT_CACHE_MAX_BYTES = _LOSSLESS_CUT_CONFIG.max_bytes
 LOSSLESS_CUT_CACHE_SCHEMA = "lossless-cut-v1"
 
 BBox = Tuple[int, int, int, int]
