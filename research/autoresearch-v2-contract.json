@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "artifactType": "BudgetFriendlyAutoresearchContract",
+  "contractVersion": "bf-autoresearch-v2.0.0",
+  "experimentId": "bf-semantic-closure-autoresearch-v2",
+  "evaluationLane": "semantic_closure",
+  "replayManifest": "research/fixtures/bf_growth_replay_2026.json",
+  "topK": 3,
+  "dataReadinessGates": {
+    "minimumSources": 5,
+    "minimumCandidates": 30,
+    "minimumHumanPositives": 12,
+    "minimumPositiveLabelMatchCoverage": 0.9
+  },
+  "keepRules": {
+    "minimumClosurePositivePassCount": 11,
+    "minimumTopKKnownPositiveHitCount": 7,
+    "minimumTopKFilledSlotCount": 9,
+    "minimumSourceSuccessAtKCount": 4,
+    "minimumKnownPositiveHitRateAmongSelected": 0.6,
+    "minimumAdditionalKnownPositiveCount": 1,
+    "maximumSelectedIncompleteEndingCount": 0,
+    "maximumSelectedContextDependentCount": 0,
+    "maximumSelectedPromotionalCount": 0
+  },
+  "graduationRules": {
+    "minimumClosurePositivePassCount": 15,
+    "minimumTopKFilledSlotCount": 15,
+    "minimumSourceSuccessAtKCount": 5,
+    "minimumKnownPositiveHitRateAmongSelected": 0.6
+  },
+  "editableScope": [
+    "shorts_generator/highlights.py",
+    "shorts_generator/motivational_closure.py",
+    "shorts_generator/profiles.py",
+    "shorts_generator/ranker.py",
+    "shorts_generator/semantic_closure.py"
+  ],
+  "protectedScope": [
+    "research/autoresearch-v2-contract.json",
+    "research/autoresearch_v2.py",
+    "research/fixture_pack_v2.py",
+    "research/historical_replay_integrity_v2.py",
+    "research/offline_test_runner.py",
+    "research/runner_v2.py",
+    "research/fixtures/bf_growth_replay_2026.json",
+    "research/replay/budget-friendly-growth-v2-replay.json",
+    "shorts_generator/growth_replay.py"
+  ],
+  "fastTestModules": [
+    "tests.test_autoresearch_v2",
+    "tests.test_growth_replay",
+    "tests.test_growth_shadow",
+    "tests.test_highlights_and_captions",
+    "tests.test_hook_gate_decision_v2",
+    "tests.test_hook_gate_v2",
+    "tests.test_motivational_closure_v1",
+    "tests.test_ranker",
+    "tests.test_semantic_closure",
+    "tests.test_versioned_profiles"
+  ],
+  "fullTestCommand": [
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "tests",
+    "-q"
+  ],
+  "offlineExcludedTestModules": [
+    "test_youtube_publish"
+  ]
+}

@@ -2,6 +2,59 @@
 
 This loop improves selection and rendering quality through small, measurable experiments.
 
+## Budget Friendly Autoresearch V2
+
+The current Budget Friendly lane is versioned separately from the legacy
+blended-score loop below. Its first causal experiment surface is semantic
+closure and closure-aware top-3 selection; HookGate, editing, Real-ESRGAN,
+runtime, and live YouTube outcomes are intentionally separate lanes.
+
+Inspect the historical evidence that survived deletion of the old outputs:
+
+```bash
+.venv/bin/python research/historical_replay_integrity_v2.py \
+  --output research/autoresearch-v2/historical-integrity.json
+```
+
+Check whether the raw replay corpus is available:
+
+```bash
+.venv/bin/python research/fixture_pack_v2.py --preflight
+```
+
+Once every referenced candidate/transcript/positive artifact exists, seal a
+self-contained corpus and point `replayManifest` in the V2 contract to its
+generated `manifest.json`:
+
+```bash
+.venv/bin/python research/fixture_pack_v2.py
+.venv/bin/python research/runner_v2.py --baseline
+```
+
+Run exactly one scoped hypothesis after a compatible baseline exists:
+
+```bash
+.venv/bin/python research/runner_v2.py \
+  --hypothesis "one precise semantic-closure change"
+```
+
+The V2 runner fails closed when evidence is absent or changed. It content-hashes
+the engine/research source inventory, declared fast tests, and sealed replay
+inputs. It rejects protected/out-of-scope changes, runs the fast lane first,
+evaluates the replay twice for determinism, and runs the full suite only for a
+baseline or an integer-evidence winner. Test processes have empty credentials,
+redirected output/cache/home paths, and an enforced outbound-network boundary.
+The replay evaluator additionally forbids subprocesses and filesystem writes.
+The versioned offline lane excludes only `test_youtube_publish`, whose fixtures
+are intentionally gitignored rights-approved media; that manual publishing
+integration remains outside Autoresearch.
+
+Current data status (2026-08-06): the sealed historical report is valid, but
+the six-source raw replay is not runnable because 18 manifest references map
+to 10 missing unique files. The tool records this as
+`crash/replay_artifacts_missing`; it never presents the frozen historical
+report as evidence for a new engine change.
+
 ## Objective
 
 Maximize:

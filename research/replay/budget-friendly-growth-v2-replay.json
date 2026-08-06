@@ -71,7 +71,7 @@
     "v1_human_positive_recall": 0.3889
   },
   "artifactType": "BudgetFriendlyGrowthReplayReport",
-  "contentHash": "c649386b31b737def6981cd029baa96b51b0840514ebdf2e0599b6f7acd8f15e",
+  "contentHash": "167e319b1b40bb312f6b005b9c4234bce6aa48493db3dbc645aa8940b85cb7ca",
   "datasets": [
     {
       "candidate_path": "output/pilot-bf-AyiWKXTd9aY-2026-07-19/ranking-curated.json",

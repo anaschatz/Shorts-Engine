@@ -27,6 +27,11 @@ shortresearch/baseline.json
 shortresearch/latest.json
 shortresearch/results.tsv
 shortresearch/runs/
+research/autoresearch-v2/baseline.json
+research/autoresearch-v2/latest.json
+research/autoresearch-v2/results.tsv
+research/autoresearch-v2/runs/
+youtube_token*.json
 release/results/*.json
 output/performance/
 viking-brain/sessions/inbox/*.jsonl

@@ -1,0 +1,94 @@
+{
+  "artifactType": "BudgetFriendlyHistoricalReplayIntegrityV2",
+  "contentHash": "b79375df5bb17011aa324ff23f6e72cd64effaac84e3d8e24c632c7bfcc5e33d",
+  "counts": {
+    "appendedPositiveCount": 1,
+    "candidateCount": 95,
+    "closurePositivePassCount": 11,
+    "fullBatchSourceCount": 2,
+    "hookEvidenceCount": 0,
+    "humanPositiveCount": 18,
+    "matchedPositiveCount": 17,
+    "sourceCount": 6,
+    "sourceSuccessAtKCount": 4,
+    "topKFilledSlotCount": 9,
+    "topKKnownPositiveHitCount": 7
+  },
+  "engineChangeEvaluationAllowed": false,
+  "historicalEvidenceValid": true,
+  "historicalReplayHash": "167e319b1b40bb312f6b005b9c4234bce6aa48493db3dbc645aa8940b85cb7ca",
+  "hookGate": {
+    "candidateCount": 95,
+    "evidenceCount": 0,
+    "status": "not_evaluable"
+  },
+  "integrityVersion": "bf-historical-replay-integrity-v2.0.0",
+  "parityChecks": {
+    "appendedPositiveCount": {
+      "actual": 1,
+      "expected": 1,
+      "passed": true
+    },
+    "candidateCount": {
+      "actual": 95,
+      "expected": 95,
+      "passed": true
+    },
+    "closurePositivePassCount": {
+      "actual": 11,
+      "expected": 11,
+      "passed": true
+    },
+    "fullBatchSourceCount": {
+      "actual": 2,
+      "expected": 2,
+      "passed": true
+    },
+    "hookEvidenceCount": {
+      "actual": 0,
+      "expected": 0,
+      "passed": true
+    },
+    "humanPositiveCount": {
+      "actual": 18,
+      "expected": 18,
+      "passed": true
+    },
+    "matchedPositiveCount": {
+      "actual": 17,
+      "expected": 17,
+      "passed": true
+    },
+    "sourceCount": {
+      "actual": 6,
+      "expected": 6,
+      "passed": true
+    },
+    "sourceSuccessAtKCount": {
+      "actual": 4,
+      "expected": 4,
+      "passed": true
+    },
+    "topKFilledSlotCount": {
+      "actual": 9,
+      "expected": 9,
+      "passed": true
+    },
+    "topKKnownPositiveHitCount": {
+      "actual": 7,
+      "expected": 7,
+      "passed": true
+    }
+  },
+  "rates": {
+    "closurePositiveRecall": 0.611111,
+    "knownPositiveHitRateAmongSelected": 0.777778,
+    "macroNdcgAtK": 0.440413,
+    "sourceSuccessAtKRate": 0.666667,
+    "topKFillRate": 0.5,
+    "topKKnownPositiveRecall": 0.388889
+  },
+  "reason": "raw_candidate_and_timed_transcript_artifacts_are_missing",
+  "rerunnable": false,
+  "schemaVersion": 1
+}
