@@ -65,8 +65,17 @@ separate from render output and caches. Inspect the inbox without mutating it:
   --preflight
 ```
 
+The sealed status keeps two different facts separate. `replayable=true` means
+that at least one valid, explicitly approved source can be replayed;
+`activationReady=true` means the frozen contract thresholds are all satisfied:
+at least 5 distinct sources, 30 candidates, 12 distinct human-approved
+candidates, and 90% exact positive-label match coverage. Repeated approval
+events for the same candidate remain provenance and never increase the human
+positive count. An empty inbox returns structured zero counts instead of a
+traceback. Preflight exits with status 2 until activation is ready.
+
 Freeze a reviewed snapshot into a new directory (the command refuses to
-overwrite an existing pack):
+overwrite an existing pack and refuses an under-threshold capture inbox):
 
 ```bash
 .venv/bin/python research/fixture_pack_v2.py \

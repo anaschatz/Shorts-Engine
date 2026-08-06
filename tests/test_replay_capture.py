@@ -1,13 +1,20 @@
+import io
 import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
+from research.autoresearch_v2 import verify_local_seal
 from research.fixture_pack_v2 import (
+    CaptureActivationUnavailable,
     _portable_capture_candidate,
+    assess_capture_data_readiness,
+    build_capture_activation_readiness,
     build_fixture_pack_from_captures,
     ingest_capture_artifacts,
+    main as fixture_pack_main,
 )
 from shorts_generator import config as config_module
 from shorts_generator.artifact_contracts import (
@@ -100,6 +107,24 @@ def candidate_body(rank, start, end, title, *, selected=False):
     }
 
 
+def readiness_contract(
+    *,
+    minimum_sources=5,
+    minimum_candidates=30,
+    minimum_human_positives=12,
+    minimum_match_coverage=0.9,
+):
+    return {
+        "contractVersion": "bf-autoresearch-v2.0.0",
+        "dataReadinessGates": {
+            "minimumSources": minimum_sources,
+            "minimumCandidates": minimum_candidates,
+            "minimumHumanPositives": minimum_human_positives,
+            "minimumPositiveLabelMatchCoverage": minimum_match_coverage,
+        },
+    }
+
+
 class ReplayCaptureTests(unittest.TestCase):
     def test_default_evidence_root_is_durable_app_data_not_cache_or_output(self):
         with patch.object(config_module.sys, "platform", "darwin"), patch.object(
@@ -133,6 +158,78 @@ class ReplayCaptureTests(unittest.TestCase):
         self.assertEqual(
             linux_root,
             Path("/home/example/.local/share/shorts-engine"),
+        )
+
+    def test_empty_capture_preflight_is_sealed_and_reports_exact_deficits(self):
+        with tempfile.TemporaryDirectory() as directory:
+            capture_dir = Path(directory) / "missing-inbox"
+            report = assess_capture_data_readiness(
+                capture_dir,
+                readiness_contract(),
+            )
+
+        self.assertFalse(report["replayable"])
+        self.assertFalse(report["activationReady"])
+        self.assertEqual(report["sourceCount"], 0)
+        self.assertEqual(report["candidateCount"], 0)
+        self.assertEqual(report["humanPositiveCount"], 0)
+        self.assertEqual(report["positiveLabelMatchCoverage"], 0.0)
+        self.assertEqual(
+            {gate["code"]: gate["deficit"] for gate in report["dataReadinessGates"]},
+            {
+                "SOURCE_COVERAGE": 5,
+                "CANDIDATE_COVERAGE": 30,
+                "HUMAN_POSITIVE_COVERAGE": 12,
+                "POSITIVE_LABEL_MATCH_COVERAGE": 0.9,
+            },
+        )
+        verify_local_seal(report, "BudgetFriendlyAutoresearchCaptureReadiness")
+
+    def test_empty_capture_cli_refuses_preflight_and_promotion_without_a_traceback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            capture_dir = Path(directory) / "evidence"
+            for preflight in (True, False):
+                output_dir = Path(directory) / f"pack-{preflight}"
+                stream = io.StringIO()
+                argv = [
+                    "fixture_pack_v2.py",
+                    "--capture-dir",
+                    str(capture_dir),
+                    "--output-dir",
+                    str(output_dir),
+                ]
+                if preflight:
+                    argv.append("--preflight")
+                with patch("sys.argv", argv), redirect_stdout(stream):
+                    exit_code = fixture_pack_main()
+                report = json.loads(stream.getvalue())
+
+                self.assertEqual(exit_code, 2)
+                self.assertFalse(report["activationReady"])
+                self.assertFalse(output_dir.exists())
+                verify_local_seal(
+                    report,
+                    "BudgetFriendlyAutoresearchCaptureReadiness",
+                )
+
+    def test_label_only_capture_inbox_is_an_integrity_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            capture_dir = Path(directory) / "evidence"
+            label_dir = capture_dir / "labels" / ("a" * 64)
+            label_dir.mkdir(parents=True)
+            (label_dir / f"{'b' * 64}.json").write_text("{}", encoding="utf-8")
+
+            report = assess_capture_data_readiness(
+                capture_dir,
+                readiness_contract(),
+            )
+
+        self.assertFalse(report["replayable"])
+        self.assertFalse(report["activationReady"])
+        self.assertEqual(report["labelArtifactCount"], 1)
+        self.assertEqual(
+            report["integrityError"],
+            "capture inbox has label artifacts but no dataset artifacts",
         )
 
     def setUp(self):
@@ -371,6 +468,11 @@ class ReplayCaptureTests(unittest.TestCase):
             dataset_paths=dataset_paths,
             label_paths=label_paths,
             output_dir=self.root / "pack",
+            activation_contract=readiness_contract(
+                minimum_sources=1,
+                minimum_candidates=2,
+                minimum_human_positives=1,
+            ),
         )
         dataset_id = self.ranking["contentHash"]
         packed_dataset = json.loads(
@@ -396,6 +498,7 @@ class ReplayCaptureTests(unittest.TestCase):
         )
 
         self.assertEqual(report["approvedLabelCount"], 1)
+        self.assertRegex(report["captureReadinessHash"], r"^[0-9a-f]{64}$")
         self.assertTrue(verification["verified"])
         self.assertEqual(report["skippedOrphanDatasetCount"], 0)
         self.assertEqual(packed_dataset["transcript"], exact_transcript())
@@ -419,6 +522,144 @@ class ReplayCaptureTests(unittest.TestCase):
         self.assertEqual(packed_labels["labels"][0]["matchScore"], 1.0)
         self.assertFalse(replay_dataset["candidates"][0]["_replay_human_positive"])
         self.assertTrue(replay_dataset["candidates"][1]["_replay_human_positive"])
+
+    def test_capture_readiness_counts_unique_approval_not_repeated_events(self):
+        evidence = self.root / "evidence"
+        archive_approved_candidate(
+            self.ranking,
+            self.decision(0),
+            approved_rank=1,
+            evidence_dir=evidence,
+        )
+        archive_approved_candidate(
+            self.ranking,
+            self.decision(
+                0,
+                reviewer="operator_2",
+                decided_at="2026-08-06T12:10:00Z",
+            ),
+            approved_rank=1,
+            evidence_dir=evidence,
+        )
+
+        report = assess_capture_data_readiness(evidence, readiness_contract())
+        gates = {gate["code"]: gate for gate in report["dataReadinessGates"]}
+
+        self.assertTrue(report["replayable"])
+        self.assertFalse(report["activationReady"])
+        self.assertEqual(report["sourceCount"], 1)
+        self.assertEqual(report["candidateCount"], 2)
+        self.assertEqual(report["humanPositiveCount"], 1)
+        self.assertEqual(report["humanPositiveMatchedCount"], 1)
+        self.assertEqual(report["approvalEventCount"], 2)
+        self.assertEqual(report["positiveLabelMatchCoverage"], 1.0)
+        self.assertEqual(gates["SOURCE_COVERAGE"]["deficit"], 4)
+        self.assertEqual(gates["CANDIDATE_COVERAGE"]["deficit"], 28)
+        self.assertEqual(gates["HUMAN_POSITIVE_COVERAGE"]["deficit"], 11)
+        self.assertEqual(gates["POSITIVE_LABEL_MATCH_COVERAGE"]["deficit"], 0.0)
+        verify_local_seal(report, "BudgetFriendlyAutoresearchCaptureReadiness")
+
+    def test_pack_builder_rechecks_the_exact_snapshot_before_writing(self):
+        evidence = self.root / "evidence"
+        archive_approved_candidate(
+            self.ranking,
+            self.decision(0),
+            approved_rank=1,
+            evidence_dir=evidence,
+        )
+        dataset_paths = list((evidence / "datasets").glob("*.json"))
+        label_paths = list((evidence / "labels").glob("*/*.json"))
+        output_dir = self.root / "under-threshold-pack"
+
+        with self.assertRaises(CaptureActivationUnavailable) as raised:
+            build_fixture_pack_from_captures(
+                root=self.root,
+                dataset_paths=dataset_paths,
+                label_paths=label_paths,
+                output_dir=output_dir,
+                activation_contract=readiness_contract(),
+            )
+
+        self.assertFalse(output_dir.exists())
+        self.assertTrue(raised.exception.report["replayable"])
+        self.assertFalse(raised.exception.report["activationReady"])
+        verify_local_seal(
+            raised.exception.report,
+            "BudgetFriendlyAutoresearchCaptureReadiness",
+        )
+
+    def test_capture_readiness_activates_only_at_all_exact_thresholds(self):
+        approved_counts = [3, 3, 2, 2, 2]
+        prepared = []
+        for source_index, approved_count in enumerate(approved_counts):
+            candidates = [
+                {"candidate_hash": f"{100 + source_index * 10 + index:064x}"}
+                for index in range(6)
+            ]
+            prepared.append(
+                {
+                    "sourceId": f"youtube:source-{source_index}",
+                    "sourceHash": f"{source_index + 1:064x}",
+                    "candidates": candidates,
+                    "approvedCandidateHashes": [
+                        candidate["candidate_hash"]
+                        for candidate in candidates[:approved_count]
+                    ],
+                    "approvalEventCount": approved_count,
+                }
+            )
+        diagnostics = {
+            "capturedDatasetCount": 5,
+            "promotableDatasetCount": 5,
+            "skippedOrphanDatasetCount": 0,
+            "skippedOrphanDatasetIds": [],
+        }
+
+        report = build_capture_activation_readiness(
+            prepared=prepared,
+            diagnostics=diagnostics,
+            contract=readiness_contract(),
+        )
+
+        self.assertTrue(report["replayable"])
+        self.assertTrue(report["activationReady"])
+        self.assertEqual(report["sourceCount"], 5)
+        self.assertEqual(report["candidateCount"], 30)
+        self.assertEqual(report["humanPositiveCount"], 12)
+        self.assertEqual(report["failedGateCodes"], [])
+        self.assertTrue(all(gate["passed"] for gate in report["dataReadinessGates"]))
+        verify_local_seal(report, "BudgetFriendlyAutoresearchCaptureReadiness")
+
+    def test_capture_readiness_rejects_invalid_gate_values(self):
+        invalid_values = [True, 0, -1, 1.5]
+        diagnostics = {
+            "capturedDatasetCount": 0,
+            "promotableDatasetCount": 0,
+            "skippedOrphanDatasetCount": 0,
+            "skippedOrphanDatasetIds": [],
+        }
+        for value in invalid_values:
+            invalid = readiness_contract(minimum_sources=value)
+            with self.subTest(value=value), self.assertRaisesRegex(
+                ValueError,
+                "minimumSources",
+            ):
+                build_capture_activation_readiness(
+                    prepared=[],
+                    diagnostics=diagnostics,
+                    contract=invalid,
+                )
+        for value in (True, -0.1, 1.1, float("nan")):
+            invalid = readiness_contract(minimum_match_coverage=value)
+            with self.subTest(coverage=value), self.assertRaisesRegex(
+                ValueError,
+                "minimumPositiveLabelMatchCoverage",
+            ):
+                build_capture_activation_readiness(
+                    prepared=[],
+                    diagnostics=diagnostics,
+                    contract=invalid,
+                )
 
     def test_orphan_dataset_is_skipped_and_reported_without_blocking_labels(self):
         dataset = build_replay_capture_dataset(self.ranking)
@@ -455,6 +696,17 @@ class ReplayCaptureTests(unittest.TestCase):
             diagnostics["skippedOrphanDatasetIds"],
             [orphan["datasetId"]],
         )
+        readiness = build_capture_activation_readiness(
+            prepared=prepared,
+            diagnostics=diagnostics,
+            contract=readiness_contract(),
+            dataset_artifact_count=2,
+            label_artifact_count=1,
+        )
+        self.assertEqual(readiness["sourceCount"], 1)
+        self.assertEqual(readiness["candidateCount"], 2)
+        self.assertEqual(readiness["humanPositiveCount"], 1)
+        self.assertEqual(readiness["skippedOrphanDatasetCount"], 1)
 
     def test_portable_projection_preserves_safe_errors_and_rejects_hidden_paths(self):
         portable = _portable_capture_candidate(

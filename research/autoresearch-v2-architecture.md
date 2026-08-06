@@ -128,6 +128,19 @@ instead of silently changing candidate identity. Semantic prompt evidence and
 unrounded transcript metadata remain unchanged:
 
 ```bash
+python3 research/fixture_pack_v2.py --capture-dir --preflight
+```
+
+This produces a sealed point-in-time readiness report. `replayable` only says
+that one or more verified sources can run; `activationReady` additionally
+requires the contract gates of 5 sources, 30 candidates, 12 distinct human
+positives, and at least 90% exact label matching. Exact capture coverage is
+1.0 only after at least one verified positive exists; it is 0.0 for an empty
+inbox. Multiple approval events for one candidate do not inflate the human
+positive count. The CLI refuses to freeze an under-threshold inbox, preventing
+an incomplete immutable pack from occupying the intended output directory.
+
+```bash
 python3 research/fixture_pack_v2.py \
   --capture-dir \
   --output-dir research/fixtures/bf-autoresearch-v2-pack-YYYYMMDD

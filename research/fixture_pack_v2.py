@@ -10,6 +10,7 @@ import argparse
 import copy
 import hashlib
 import json
+import math
 import re
 import shutil
 import sys
@@ -40,6 +41,7 @@ LABELS_VERSION = "bf-replay-labels-v2.0.0"
 PACK_VERSION = "bf-replay-pack-v2.0.0"
 LEGACY_LABEL_BINDING_MODE = "legacy_interval_v1"
 EXACT_LABEL_BINDING_MODE = "candidate_hash_exact_v1"
+CAPTURE_READINESS_ARTIFACT_TYPE = "BudgetFriendlyAutoresearchCaptureReadiness"
 
 _RUNTIME_FIELDS = {
     "contentHash",
@@ -74,6 +76,12 @@ _WINDOWS_ABSOLUTE_PATH = re.compile(
 _POSIX_ABSOLUTE_PATH = re.compile(
     r"(?:^|[\s\"'=(])/(?!/)[^\s\"']+"
 )
+
+
+class CaptureActivationUnavailable(ValueError):
+    def __init__(self, report: Mapping[str, object]):
+        super().__init__("capture snapshot does not meet activation gates")
+        self.report = dict(report)
 
 
 def _canonical_hash(value: object) -> str:
@@ -390,11 +398,17 @@ def build_fixture_pack(
 
 def discover_capture_paths(capture_dir: Path) -> Tuple[list[Path], list[Path]]:
     """Discover content-addressed capture objects without trusting filenames."""
-    dataset_paths = sorted((capture_dir / "datasets").glob("*.json"))
-    label_paths = sorted((capture_dir / "labels").glob("*/*.json"))
+    dataset_paths, label_paths = _capture_paths(capture_dir)
     if not dataset_paths:
         raise ValueError("capture inbox has no dataset artifacts")
     return dataset_paths, label_paths
+
+
+def _capture_paths(capture_dir: Path) -> Tuple[list[Path], list[Path]]:
+    return (
+        sorted((capture_dir / "datasets").glob("*.json")),
+        sorted((capture_dir / "labels").glob("*/*.json")),
+    )
 
 
 def _read_artifacts(paths: Sequence[Path]) -> list[Dict]:
@@ -537,12 +551,233 @@ def ingest_capture_artifacts(
     return prepared
 
 
+def _capture_gate_policy(contract: Mapping[str, object]) -> Dict[str, object]:
+    raw = contract.get("dataReadinessGates")
+    if not isinstance(raw, Mapping):
+        raise ValueError("capture readiness requires dataReadinessGates")
+    policy: Dict[str, object] = {}
+    for key in (
+        "minimumSources",
+        "minimumCandidates",
+        "minimumHumanPositives",
+    ):
+        value = raw.get(key)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise ValueError(f"{key} must be an integer greater than zero")
+        policy[key] = value
+    coverage = raw.get("minimumPositiveLabelMatchCoverage")
+    if (
+        isinstance(coverage, bool)
+        or not isinstance(coverage, (int, float))
+        or not math.isfinite(float(coverage))
+        or not 0.0 <= float(coverage) <= 1.0
+    ):
+        raise ValueError(
+            "minimumPositiveLabelMatchCoverage must be finite and between 0 and 1"
+        )
+    policy["minimumPositiveLabelMatchCoverage"] = float(coverage)
+    return policy
+
+
+def build_capture_activation_readiness(
+    *,
+    prepared: Sequence[Mapping[str, object]],
+    diagnostics: Mapping[str, object],
+    contract: Mapping[str, object],
+    integrity_error: str | None = None,
+    dataset_artifact_count: int | None = None,
+    label_artifact_count: int | None = None,
+) -> Dict[str, object]:
+    """Measure exact approval evidence against the frozen activation gates."""
+    policy = _capture_gate_policy(contract)
+    source_count = len(prepared)
+    candidate_count = 0
+    human_positive_hashes = set()
+    matched_positive_hashes = set()
+    approval_event_count = 0
+    seen_source_ids = set()
+    seen_source_hashes = set()
+    for item in prepared:
+        source_id = str(item.get("sourceId") or "").strip()
+        source_hash = str(item.get("sourceHash") or "").strip()
+        if not source_id or not source_hash:
+            raise ValueError("prepared capture source identity is incomplete")
+        if source_id in seen_source_ids or source_hash in seen_source_hashes:
+            raise ValueError("prepared capture sources must be unique")
+        seen_source_ids.add(source_id)
+        seen_source_hashes.add(source_hash)
+        candidates = [
+            candidate
+            for candidate in item.get("candidates") or []
+            if isinstance(candidate, Mapping)
+        ]
+        if len(candidates) != len(item.get("candidates") or []):
+            raise ValueError("prepared capture candidates must be objects")
+        candidate_hashes = {
+            str(candidate.get("candidate_hash") or "").strip()
+            for candidate in candidates
+        }
+        if "" in candidate_hashes or len(candidate_hashes) != len(candidates):
+            raise ValueError("prepared capture candidate hashes must be unique")
+        approved_hashes = {
+            str(value or "").strip()
+            for value in item.get("approvedCandidateHashes") or []
+        }
+        if "" in approved_hashes:
+            raise ValueError("prepared capture approval hash is empty")
+        unmatched = approved_hashes - candidate_hashes
+        if unmatched:
+            raise ValueError("prepared capture approval is not in candidate universe")
+        if not approved_hashes:
+            raise ValueError("prepared capture requires a human-positive candidate")
+        duplicate_positives = human_positive_hashes & approved_hashes
+        if duplicate_positives:
+            raise ValueError("prepared capture reuses a human-positive candidate")
+        human_positive_hashes.update(approved_hashes)
+        matched_positive_hashes.update(approved_hashes & candidate_hashes)
+        candidate_count += len(candidates)
+        event_count = item.get("approvalEventCount")
+        if (
+            isinstance(event_count, bool)
+            or not isinstance(event_count, int)
+            or event_count < 0
+        ):
+            raise ValueError("prepared capture approvalEventCount is invalid")
+        if event_count < len(approved_hashes):
+            raise ValueError("prepared capture has fewer events than human positives")
+        approval_event_count += event_count
+    human_positive_count = len(human_positive_hashes)
+    matched_positive_count = len(matched_positive_hashes)
+    positive_match_coverage = (
+        round(matched_positive_count / human_positive_count, 6)
+        if human_positive_count
+        else 0.0
+    )
+    captured_dataset_count = int(diagnostics.get("capturedDatasetCount") or 0)
+    promotable_dataset_count = int(diagnostics.get("promotableDatasetCount") or 0)
+    skipped_orphan_count = int(diagnostics.get("skippedOrphanDatasetCount") or 0)
+    if promotable_dataset_count != source_count:
+        raise ValueError("capture diagnostics promotable count is inconsistent")
+    if captured_dataset_count != promotable_dataset_count + skipped_orphan_count:
+        raise ValueError("capture diagnostics dataset counts are inconsistent")
+
+    def gate(code: str, actual: int | float, expected: int | float) -> Dict[str, object]:
+        deficit = max(0.0, float(expected) - float(actual))
+        if isinstance(actual, int) and isinstance(expected, int):
+            normalized_deficit: int | float = int(deficit)
+        else:
+            normalized_deficit = round(deficit, 6)
+        return {
+            "code": code,
+            "actual": actual,
+            "expected": expected,
+            "deficit": normalized_deficit,
+            "passed": actual >= expected,
+        }
+
+    gates = [
+        gate("SOURCE_COVERAGE", source_count, int(policy["minimumSources"])),
+        gate(
+            "CANDIDATE_COVERAGE",
+            candidate_count,
+            int(policy["minimumCandidates"]),
+        ),
+        gate(
+            "HUMAN_POSITIVE_COVERAGE",
+            human_positive_count,
+            int(policy["minimumHumanPositives"]),
+        ),
+        gate(
+            "POSITIVE_LABEL_MATCH_COVERAGE",
+            positive_match_coverage,
+            float(policy["minimumPositiveLabelMatchCoverage"]),
+        ),
+    ]
+    replayable = bool(prepared) and integrity_error is None
+    activation_ready = replayable and all(item["passed"] for item in gates)
+    payload = {
+        "schemaVersion": 1,
+        "artifactType": CAPTURE_READINESS_ARTIFACT_TYPE,
+        "contractVersion": str(contract.get("contractVersion") or ""),
+        "labelBindingMode": EXACT_LABEL_BINDING_MODE,
+        "datasetArtifactCount": (
+            int(dataset_artifact_count)
+            if dataset_artifact_count is not None
+            else int(diagnostics.get("capturedDatasetCount") or 0)
+        ),
+        "labelArtifactCount": (
+            int(label_artifact_count)
+            if label_artifact_count is not None
+            else approval_event_count
+        ),
+        "sourceCount": source_count,
+        "candidateCount": candidate_count,
+        "humanPositiveCount": human_positive_count,
+        "humanPositiveMatchedCount": matched_positive_count,
+        "positiveLabelMatchCoverage": positive_match_coverage,
+        "approvalEventCount": approval_event_count,
+        "capturedDatasetCount": captured_dataset_count,
+        "promotableDatasetCount": promotable_dataset_count,
+        "skippedOrphanDatasetCount": skipped_orphan_count,
+        "skippedOrphanDatasetIds": sorted(
+            str(value) for value in diagnostics.get("skippedOrphanDatasetIds") or []
+        ),
+        "integrityError": integrity_error,
+        "replayable": replayable,
+        "activationReady": activation_ready,
+        "dataReadinessGates": gates,
+        "failedGateCodes": [
+            str(item["code"]) for item in gates if item["passed"] is not True
+        ],
+    }
+    return _seal(payload)
+
+
+def assess_capture_data_readiness(
+    capture_dir: Path,
+    contract: Mapping[str, object],
+) -> Dict[str, object]:
+    """Inspect a mutable capture inbox without promoting or mutating it."""
+    dataset_paths, label_paths = _capture_paths(capture_dir)
+    diagnostics: Dict[str, object] = {
+        "capturedDatasetCount": len(dataset_paths),
+        "promotableDatasetCount": 0,
+        "skippedOrphanDatasetCount": len(dataset_paths),
+        "skippedOrphanDatasetIds": [],
+    }
+    prepared: list[Dict] = []
+    integrity_error = None
+    if not dataset_paths and label_paths:
+        integrity_error = "capture inbox has label artifacts but no dataset artifacts"
+    elif dataset_paths:
+        try:
+            prepared = ingest_capture_artifacts(
+                dataset_artifacts=_read_artifacts(dataset_paths),
+                label_artifacts=_read_artifacts(label_paths),
+                diagnostics=diagnostics,
+            )
+        except (OSError, TypeError, ValueError, KeyError) as error:
+            message = str(error)
+            for capture_root in {str(capture_dir), str(capture_dir.resolve())}:
+                message = message.replace(capture_root, "<capture-dir>")
+            integrity_error = f"{type(error).__name__}: {message}"
+    return build_capture_activation_readiness(
+        prepared=prepared,
+        diagnostics=diagnostics,
+        contract=contract,
+        integrity_error=integrity_error,
+        dataset_artifact_count=len(dataset_paths),
+        label_artifact_count=len(label_paths),
+    )
+
+
 def build_fixture_pack_from_captures(
     *,
     root: Path,
     dataset_paths: Sequence[Path],
     label_paths: Sequence[Path],
     output_dir: Path,
+    activation_contract: Mapping[str, object] | None = None,
 ) -> Dict[str, object]:
     """Promote an append-only approval inbox into one frozen replay pack."""
     ingestion_diagnostics: Dict[str, object] = {}
@@ -553,6 +788,17 @@ def build_fixture_pack_from_captures(
     )
     if not prepared:
         raise ValueError("capture snapshot has no promotable labeled datasets")
+    activation_readiness = None
+    if activation_contract is not None:
+        activation_readiness = build_capture_activation_readiness(
+            prepared=prepared,
+            diagnostics=ingestion_diagnostics,
+            contract=activation_contract,
+            dataset_artifact_count=len(dataset_paths),
+            label_artifact_count=len(label_paths),
+        )
+        if activation_readiness["activationReady"] is not True:
+            raise CaptureActivationUnavailable(activation_readiness)
     if output_dir.exists():
         raise FileExistsError(f"fixture pack already exists: {output_dir}")
     output_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -767,7 +1013,7 @@ def build_fixture_pack_from_captures(
                 encoding="utf-8",
             )
         shutil.move(staging.as_posix(), output_dir.as_posix())
-    return {
+    report = {
         "outputDir": _relative(root, output_dir),
         "corpusHash": corpus["contentHash"],
         "labelsHash": labels["contentHash"],
@@ -785,6 +1031,9 @@ def build_fixture_pack_from_captures(
             "skippedOrphanDatasetIds"
         ],
     }
+    if activation_readiness is not None:
+        report["captureReadinessHash"] = activation_readiness["contentHash"]
+    return report
 
 
 def _arguments() -> argparse.Namespace:
@@ -818,46 +1067,26 @@ def _arguments() -> argparse.Namespace:
 def main() -> int:
     args = _arguments()
     root = Path(__file__).resolve().parents[1]
+    contract = load_autoresearch_contract(args.contract)
     if args.capture_dir is not None:
+        readiness = assess_capture_data_readiness(args.capture_dir, contract)
+        if args.preflight or readiness["activationReady"] is not True:
+            print(json.dumps(readiness, indent=2, sort_keys=True))
+            return 0 if readiness["activationReady"] is True else 2
         dataset_paths, label_paths = discover_capture_paths(args.capture_dir)
-        ingestion_diagnostics: Dict[str, object] = {}
-        prepared = ingest_capture_artifacts(
-            dataset_artifacts=_read_artifacts(dataset_paths),
-            label_artifacts=_read_artifacts(label_paths),
-            diagnostics=ingestion_diagnostics,
-        )
-        if args.preflight:
-            print(
-                json.dumps(
-                    {
-                        "replayable": bool(prepared),
-                        "datasetCount": len(prepared),
-                        "candidateCount": sum(
-                            len(item["candidates"]) for item in prepared
-                        ),
-                        "approvedLabelCount": sum(
-                            len(item["approvedCandidateHashes"])
-                            for item in prepared
-                        ),
-                        "approvalEventCount": sum(
-                            item["approvalEventCount"] for item in prepared
-                        ),
-                        **ingestion_diagnostics,
-                    },
-                    indent=2,
-                    sort_keys=True,
-                )
+        try:
+            report = build_fixture_pack_from_captures(
+                root=root,
+                dataset_paths=dataset_paths,
+                label_paths=label_paths,
+                output_dir=args.output_dir,
+                activation_contract=contract,
             )
-            return 0 if prepared else 2
-        report = build_fixture_pack_from_captures(
-            root=root,
-            dataset_paths=dataset_paths,
-            label_paths=label_paths,
-            output_dir=args.output_dir,
-        )
+        except CaptureActivationUnavailable as error:
+            print(json.dumps(error.report, indent=2, sort_keys=True))
+            return 2
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0
-    contract = load_autoresearch_contract(args.contract)
     readiness = assess_replay_data_readiness(root, contract)
     if readiness["replayable"] is not True:
         print(json.dumps(readiness, indent=2, sort_keys=True))
