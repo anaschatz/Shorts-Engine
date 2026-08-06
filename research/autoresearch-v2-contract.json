@@ -45,10 +45,18 @@
     "research/runner_v2.py",
     "research/fixtures/bf_growth_replay_2026.json",
     "research/replay/budget-friendly-growth-v2-replay.json",
-    "shorts_generator/growth_replay.py"
+    "budget_friendly_ops.py",
+    "shorts_generator/artifact_contracts.py",
+    "shorts_generator/config.py",
+    "shorts_generator/pipeline.py",
+    "shorts_generator/replay_capture.py",
+    "shorts_generator/growth_replay.py",
+    "tools/replay_growth_v2.py"
   ],
   "fastTestModules": [
     "tests.test_autoresearch_v2",
+    "tests.test_artifact_contracts",
+    "tests.test_budget_friendly_ops",
     "tests.test_growth_replay",
     "tests.test_growth_shadow",
     "tests.test_highlights_and_captions",
@@ -56,6 +64,7 @@
     "tests.test_hook_gate_v2",
     "tests.test_motivational_closure_v1",
     "tests.test_ranker",
+    "tests.test_replay_capture",
     "tests.test_semantic_closure",
     "tests.test_versioned_profiles"
   ],

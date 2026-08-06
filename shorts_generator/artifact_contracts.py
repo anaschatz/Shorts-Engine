@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import unicodedata
 from pathlib import Path
 from typing import Dict, Iterable, Optional
 
@@ -35,6 +36,9 @@ VOLATILE_CANDIDATE_FIELDS = frozenset(
         "cache_path",
         "candidate_cache_path",
         "transcript_cache_path",
+        # Derived presentation of the already-recorded HookGate measurements.
+        # Ranking manifests may attach it after candidate identity is sealed.
+        "hookGateReport",
     }
 )
 ALLOWED_RIGHTS_STATUSES = frozenset({"owned", "licensed", "permission_granted"})
@@ -42,6 +46,8 @@ PRODUCTION_CONTENT_PROFILE = "motivational_podcast"
 PRODUCTION_SELECTION_PROFILE = "motivational_tension_micro_v1"
 PRODUCTION_RENDER_PROFILE = "bf_editorial_inset_v1"
 PRODUCTION_FORMAT_PROFILE = "bf_viral_micro_v1"
+REPLAY_TRANSCRIPT_MANIFEST_TYPE = "BudgetFriendlyReplayTranscriptManifestV2"
+REPLAY_TRANSCRIPT_MANIFEST_VERSION = "bf-replay-transcript-v2.0.0"
 
 
 class ArtifactBindingError(ValueError):
@@ -94,6 +100,244 @@ def verify_seal(artifact: Dict, artifact_type: Optional[str] = None) -> Dict:
     if declared != content_hash(artifact):
         raise ArtifactBindingError("artifact contentHash does not match its body")
     return artifact
+
+
+def _strict_json_snapshot(value: object, field: str) -> object:
+    """Return one portable JSON value without stringifying unsupported types."""
+    try:
+        encoded = json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            allow_nan=False,
+        )
+    except (TypeError, ValueError) as error:
+        raise ArtifactBindingError(f"{field} must be strict JSON") from error
+    return json.loads(encoded)
+
+
+def _finite_timestamp(value: object, field: str) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as error:
+        raise ArtifactBindingError(f"{field} must be a finite timestamp") from error
+    if not math.isfinite(number):
+        raise ArtifactBindingError(f"{field} must be a finite timestamp")
+    return number
+
+
+def _normalized_transcript_text(value: str) -> str:
+    """Compare lexical content without rewriting captured punctuation/casing."""
+    normalized = unicodedata.normalize("NFKC", value).casefold()
+    return "".join(character for character in normalized if character.isalnum())
+
+
+def validate_timed_transcript(
+    transcript: Dict,
+    *,
+    require_timed_words: bool = False,
+) -> Dict:
+    """Validate and detach an exact JSON transcript without rounding metadata."""
+    if not isinstance(transcript, dict):
+        raise ArtifactBindingError("transcript must be an object")
+    snapshot = _strict_json_snapshot(transcript, "transcript")
+    if not isinstance(snapshot, dict):
+        raise ArtifactBindingError("transcript must be an object")
+    segments = snapshot.get("segments")
+    if not isinstance(segments, list) or not segments:
+        raise ArtifactBindingError("transcript must contain a non-empty segments list")
+    duration = _finite_timestamp(snapshot.get("duration"), "transcript.duration")
+    if duration <= 0.0:
+        raise ArtifactBindingError("transcript.duration must be positive")
+
+    previous_segment_start = -1.0
+    previous_word_start = -1.0
+    timed_word_count = 0
+    speech_segment_count = 0
+    fully_timed_speech_segment_count = 0
+    for segment_index, segment in enumerate(segments):
+        if not isinstance(segment, dict):
+            raise ArtifactBindingError(
+                f"transcript.segments[{segment_index}] must be an object"
+            )
+        start = _finite_timestamp(
+            segment.get("start"),
+            f"transcript.segments[{segment_index}].start",
+        )
+        end = _finite_timestamp(
+            segment.get("end"),
+            f"transcript.segments[{segment_index}].end",
+        )
+        if start < 0.0 or end < start or end > duration + 0.001:
+            raise ArtifactBindingError(
+                f"transcript.segments[{segment_index}] interval is invalid"
+            )
+        if require_timed_words and start + 1e-9 < previous_segment_start:
+            raise ArtifactBindingError("transcript segments are not monotonic")
+        previous_segment_start = start
+
+        raw_text = segment.get("text")
+        if not isinstance(raw_text, str):
+            raise ArtifactBindingError(
+                f"transcript.segments[{segment_index}].text must be a string"
+            )
+        text = raw_text.strip()
+        if text and end <= start:
+            raise ArtifactBindingError(
+                "transcript speech segments must have positive duration"
+            )
+        words = segment.get("words")
+        if words is not None and not isinstance(words, list):
+            raise ArtifactBindingError(
+                f"transcript.segments[{segment_index}].words must be a list"
+            )
+        speech_segment_count += bool(text)
+        segment_timed_words = 0
+        segment_tokens = []
+        for word_index, word in enumerate(words or []):
+            if not isinstance(word, dict):
+                raise ArtifactBindingError(
+                    "transcript word timing entries must be objects"
+                )
+            raw_token = (
+                word.get("word")
+                if word.get("word") is not None
+                else word.get("text")
+            )
+            if not isinstance(raw_token, str):
+                raise ArtifactBindingError(
+                    "transcript word timing tokens must be strings"
+                )
+            token = raw_token.strip()
+            word_start = _finite_timestamp(
+                word.get("start"),
+                (
+                    f"transcript.segments[{segment_index}]"
+                    f".words[{word_index}].start"
+                ),
+            )
+            word_end = _finite_timestamp(
+                word.get("end"),
+                (
+                    f"transcript.segments[{segment_index}]"
+                    f".words[{word_index}].end"
+                ),
+            )
+            if (
+                not token
+                or word_start < 0.0
+                or word_end <= word_start
+                or word_end > duration + 0.001
+            ):
+                raise ArtifactBindingError("transcript word timing is invalid")
+            if word_start < start - 0.001 or word_end > end + 0.001:
+                raise ArtifactBindingError(
+                    "transcript word timing is outside its segment interval"
+                )
+            if require_timed_words and word_start + 1e-9 < previous_word_start:
+                raise ArtifactBindingError("transcript word timings are not monotonic")
+            previous_word_start = word_start
+            segment_tokens.append(token)
+            segment_timed_words += 1
+            timed_word_count += 1
+        if segment_timed_words and _normalized_transcript_text(
+            " ".join(segment_tokens)
+        ) != _normalized_transcript_text(raw_text):
+            raise ArtifactBindingError(
+                "transcript word tokens do not match their segment text"
+            )
+        if text and segment_timed_words:
+            fully_timed_speech_segment_count += 1
+
+    if require_timed_words and (
+        timed_word_count == 0
+        or speech_segment_count == 0
+        or fully_timed_speech_segment_count != speech_segment_count
+    ):
+        raise ArtifactBindingError(
+            "replay capture requires exact word timings for every speech segment"
+        )
+    return snapshot
+
+
+def transcript_timing_hash(transcript: Dict) -> str:
+    """Hash exact segment/word timing values without timestamp coercion."""
+    snapshot = validate_timed_transcript(transcript)
+    timing = {
+        "duration": snapshot["duration"],
+        "segments": [
+            {
+                "start": segment["start"],
+                "end": segment["end"],
+                "words": [
+                    {
+                        key: word[key]
+                        for key in sorted(word)
+                    }
+                    for word in (segment.get("words") or [])
+                ],
+            }
+            for segment in snapshot["segments"]
+        ],
+    }
+    return content_hash(timing)
+
+
+def build_replay_transcript_manifest(transcript: Dict, source_hash: str) -> Dict:
+    """Seal the exact JSON transcript to immutable source bytes."""
+    source_hash = _hash(source_hash, "sourceHash")
+    snapshot = validate_timed_transcript(transcript)
+    payload = {
+        "schemaVersion": 1,
+        "artifactType": REPLAY_TRANSCRIPT_MANIFEST_TYPE,
+        "manifestVersion": REPLAY_TRANSCRIPT_MANIFEST_VERSION,
+        "sourceHash": source_hash,
+        "durationSeconds": snapshot["duration"],
+        "transcriptHash": content_hash(snapshot),
+        "transcriptTimingHash": transcript_timing_hash(snapshot),
+        "transcript": snapshot,
+    }
+    return _seal(payload)
+
+
+def verify_replay_transcript_manifest(
+    artifact: Dict,
+    *,
+    source_hash: Optional[str] = None,
+    require_timed_words: bool = False,
+) -> Dict:
+    """Verify a transcript seal, exact hashes, optional source, and timings."""
+    manifest = verify_seal(artifact, REPLAY_TRANSCRIPT_MANIFEST_TYPE)
+    if (
+        manifest.get("schemaVersion") != 1
+        or manifest.get("manifestVersion") != REPLAY_TRANSCRIPT_MANIFEST_VERSION
+    ):
+        raise ArtifactBindingError("unsupported replay transcript manifest schema")
+    declared_source_hash = _hash(manifest.get("sourceHash"), "sourceHash")
+    if source_hash is not None and declared_source_hash != _hash(
+        source_hash,
+        "sourceHash",
+    ):
+        raise ArtifactBindingError("transcript manifest references another source")
+    transcript = validate_timed_transcript(
+        manifest.get("transcript"),
+        require_timed_words=require_timed_words,
+    )
+    if manifest.get("durationSeconds") != transcript.get("duration"):
+        raise ArtifactBindingError("transcript manifest duration is stale")
+    if _hash(manifest.get("transcriptHash"), "transcriptHash") != content_hash(
+        transcript
+    ):
+        raise ArtifactBindingError("transcriptHash does not match transcript")
+    if _hash(
+        manifest.get("transcriptTimingHash"),
+        "transcriptTimingHash",
+    ) != transcript_timing_hash(transcript):
+        raise ArtifactBindingError(
+            "transcriptTimingHash does not match exact word timings"
+        )
+    return manifest
 
 
 def normalized_candidate(candidate: Dict) -> Dict:

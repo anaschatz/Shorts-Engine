@@ -188,6 +188,9 @@ def _test_lane(
                 "PYTHONNOUSERSITE": "1",
                 "AUTORESEARCH_ACTIVITY_REPORT": str(activity_report),
                 "LOCAL_OUTPUT_DIR": str(sandbox_root / "output"),
+                "LOCAL_AUTORESEARCH_EVIDENCE_DIR": str(
+                    sandbox_root / "approval-evidence"
+                ),
                 "LOCAL_PERFORMANCE_REPORT_DIR": str(sandbox_root / "performance"),
                 "LOCAL_CACHE_DIR": str(sandbox_root / "cache"),
                 "LOCAL_WORK_DIR": str(sandbox_root / "work"),
@@ -449,7 +452,11 @@ def execute(
     evidence_comparison = None
 
     if data_readiness["replayable"] is not True:
-        reason = "replay_artifacts_missing"
+        reason = (
+            "replay_integrity_invalid"
+            if data_readiness.get("integrityError")
+            else "replay_artifacts_missing"
+        )
     elif not baseline and reference is None:
         reason = "compatible_v2_baseline_missing"
     else:
@@ -476,7 +483,11 @@ def execute(
                     second = evaluate_budget_friendly_selection(root, contract)
                 except ReplayDataUnavailable as error:
                     data_readiness = error.report
-                    reason = "replay_artifacts_missing"
+                    reason = (
+                        "replay_integrity_invalid"
+                        if data_readiness.get("integrityError")
+                        else "replay_artifacts_missing"
+                    )
                 else:
                     evaluation = first
                     if first != second:

@@ -1,11 +1,18 @@
+import hashlib
 import json
 import tempfile
 import unittest
 from pathlib import Path
 
+from shorts_generator.artifact_contracts import (
+    build_candidate_decision,
+    build_replay_transcript_manifest,
+    candidate_hash,
+)
 from shorts_generator.growth_replay import (
     build_growth_replay_report,
     load_replay_dataset,
+    verify_replay_pack,
 )
 
 
@@ -81,7 +88,199 @@ def _candidate(title, selected=False):
         "stop_scroll_score": 92,
         "selected_for_render": selected,
         "rejected": False,
+        "rejection_reasons": [],
+        "content_profile": "motivational_podcast",
+        "selection_profile": "motivational_tension_micro_v1",
+        "render_profile": "bf_editorial_inset_v1",
+        "format_profile": "bf_viral_micro_v1",
+        "source_cut_count": 0,
     }
+
+
+def _canonical_hash(value):
+    encoded = json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _seal(payload):
+    body = dict(payload)
+    body.pop("contentHash", None)
+    return {**body, "contentHash": _canonical_hash(body)}
+
+
+def _write_exact_v2_pack(root):
+    pack = root / "pack"
+    (pack / "datasets").mkdir(parents=True)
+    (pack / "labels").mkdir(parents=True)
+    source_hash = "a" * 64
+    ranking_hash = "b" * 64
+    capture_dataset_hash = "3" * 64
+    source_id = "youtube:source-1"
+    transcript = _transcript()
+    transcript_manifest = build_replay_transcript_manifest(
+        transcript,
+        source_hash,
+    )
+    first_body = _candidate("First overlapping candidate")
+    second_body = _candidate("Approved overlapping candidate")
+    first_body["selection_rank"] = 1
+    second_body["selection_rank"] = 2
+    first = {
+        **first_body,
+        "candidate_hash": candidate_hash(first_body, source_hash),
+    }
+    second = {
+        **second_body,
+        "candidate_hash": candidate_hash(second_body, source_hash),
+    }
+    decision = build_candidate_decision(
+        second,
+        source_hash,
+        reviewer="operator_1",
+        decided_at="2026-08-06T12:00:00Z",
+        ranking_manifest_hash=ranking_hash,
+    )
+    capture_label = _seal(
+        {
+            "schemaVersion": 1,
+            "artifactType": "BudgetFriendlyReplayCaptureLabelV2",
+            "labelVersion": "bf-replay-capture-label-v2.0.0",
+            "decision": "approved",
+            "labelSemantics": "explicit_human_approval",
+            "datasetId": ranking_hash,
+            "datasetHash": capture_dataset_hash,
+            "rankingManifestHash": ranking_hash,
+            "sourceHash": source_hash,
+            "candidateHash": second["candidate_hash"],
+            "candidateDecisionHash": decision["contentHash"],
+            "candidateDecision": decision,
+            "approvedRank": 2,
+            "reviewer": decision["reviewer"],
+            "decidedAt": decision["decidedAt"],
+            "notes": decision.get("notes", ""),
+        }
+    )
+    dataset = _seal(
+        {
+            "schemaVersion": 1,
+            "artifactType": "BudgetFriendlyReplayDatasetV2",
+            "packVersion": "bf-replay-pack-v2.0.0",
+            "datasetId": ranking_hash,
+            "sourceId": source_id,
+            "candidates": [first, second],
+            "transcript": transcript,
+            "captureProvenance": {
+                "sourceHash": source_hash,
+                "rankingManifestHash": ranking_hash,
+                "captureDatasetHash": capture_dataset_hash,
+                "replayTranscriptManifestHash": transcript_manifest["contentHash"],
+                "transcriptHash": transcript_manifest["transcriptHash"],
+                "transcriptTimingHash": transcript_manifest["transcriptTimingHash"],
+                "engineSelectedCandidateHashes": [],
+                "engineSelectionSemantics": "unknown_not_human_label",
+            },
+        }
+    )
+    labels = _seal(
+        {
+            "schemaVersion": 1,
+            "artifactType": "BudgetFriendlyReplayDatasetLabelsV2",
+            "labelsVersion": "bf-replay-labels-v2.0.0",
+            "datasetId": ranking_hash,
+            "sourceId": source_id,
+            "labelSemantics": "explicit_human_approval",
+            "positives": [second],
+            "labels": [
+                {
+                    "labelId": _canonical_hash(
+                        [ranking_hash, second["candidate_hash"], "approved"]
+                    ),
+                    "decision": "approved",
+                    "candidateHash": second["candidate_hash"],
+                    "candidate": second,
+                    "matchScore": 1.0,
+                    "matchStatus": "hash_bound",
+                    "provenance": {
+                        "captureDatasetHash": capture_dataset_hash,
+                        "captureLabelHashes": [capture_label["contentHash"]],
+                        "captureLabels": [capture_label],
+                    },
+                }
+            ],
+        }
+    )
+    dataset_path = pack / "datasets/dataset-1.json"
+    labels_path = pack / "labels/dataset-1.json"
+    dataset_path.write_text(json.dumps(dataset), encoding="utf-8")
+    labels_path.write_text(json.dumps(labels), encoding="utf-8")
+    corpus = _seal(
+        {
+            "schemaVersion": 1,
+            "artifactType": "BudgetFriendlyReplayCorpusV2",
+            "corpusVersion": "bf-replay-corpus-v2.0.0",
+            "datasetCount": 1,
+            "datasets": [
+                {
+                    "datasetId": ranking_hash,
+                    "sourceId": source_id,
+                    "candidateCount": 2,
+                    "datasetHash": dataset["contentHash"],
+                }
+            ],
+        }
+    )
+    label_index = _seal(
+        {
+            "schemaVersion": 1,
+            "artifactType": "BudgetFriendlyReplayLabelsV2",
+            "labelsVersion": "bf-replay-labels-v2.0.0",
+            "datasets": [
+                {
+                    "datasetId": ranking_hash,
+                    "approvedCount": 1,
+                    "labelsHash": labels["contentHash"],
+                }
+            ],
+        }
+    )
+    (pack / "corpus.json").write_text(json.dumps(corpus), encoding="utf-8")
+    (pack / "labels.json").write_text(json.dumps(label_index), encoding="utf-8")
+    spec = {
+        "id": ranking_hash,
+        "source_id": source_id,
+        "candidate_path": "pack/datasets/dataset-1.json",
+        "candidate_key": "candidates",
+        "transcript_path": "pack/datasets/dataset-1.json",
+        "transcript_key": "transcript",
+        "positive_path": "pack/labels/dataset-1.json",
+        "positive_key": "positives",
+        "positive_all": True,
+        "append_unmatched_positives": False,
+        "candidate_identity_key": "candidate_hash",
+        "label_binding_mode": "candidate_hash_exact_v1",
+        "candidate_artifact_hash": dataset["contentHash"],
+        "positive_artifact_hash": labels["contentHash"],
+    }
+    manifest = _seal(
+        {
+            "schemaVersion": 1,
+            "artifactType": "BudgetFriendlyReplayManifestV2",
+            "packVersion": "bf-replay-pack-v2.0.0",
+            "labelBindingMode": "candidate_hash_exact_v1",
+            "corpusHash": corpus["contentHash"],
+            "labelsHash": label_index["contentHash"],
+            "datasets": [spec],
+        }
+    )
+    manifest_path = pack / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    return manifest, manifest_path, spec
 
 
 class GrowthReplayTests(unittest.TestCase):
@@ -237,6 +436,166 @@ class GrowthReplayTests(unittest.TestCase):
             report["datasets"][0]["potential_false_negatives"][0]["status"],
             "not_discovered",
         )
+
+    def test_v2_pack_binds_overlapping_positive_by_exact_candidate_hash(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, manifest_path, spec = _write_exact_v2_pack(root)
+
+            verification = verify_replay_pack(
+                manifest,
+                root,
+                manifest_path=manifest_path,
+            )
+            dataset = load_replay_dataset(spec, root)
+
+        self.assertTrue(verification["verified"])
+        self.assertEqual(len(dataset["candidates"]), 2)
+        self.assertFalse(dataset["candidates"][0]["_replay_human_positive"])
+        self.assertTrue(dataset["candidates"][1]["_replay_human_positive"])
+        self.assertEqual(
+            dataset["candidates"][1]["_replay_positive_match_kind"],
+            "exact_identity",
+        )
+
+    def test_v2_pack_requires_and_binds_the_on_disk_manifest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, manifest_path, _ = _write_exact_v2_pack(root)
+
+            with self.assertRaisesRegex(ValueError, "requires manifest_path"):
+                verify_replay_pack(manifest, root)
+
+            different = json.loads(json.dumps(manifest))
+            different["description"] = "a different sealed manifest"
+            manifest_path.write_text(json.dumps(_seal(different)), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "does not match supplied"):
+                verify_replay_pack(
+                    manifest,
+                    root,
+                    manifest_path=manifest_path,
+                )
+
+    def test_exact_positive_body_must_match_candidate_universe(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, manifest_path, _ = _write_exact_v2_pack(root)
+            labels_path = root / manifest["datasets"][0]["positive_path"]
+            labels = json.loads(labels_path.read_text(encoding="utf-8"))
+            labels["positives"][0]["title"] = "Mutated positive body"
+            labels = _seal(labels)
+            labels_path.write_text(json.dumps(labels), encoding="utf-8")
+            manifest["datasets"][0]["positive_artifact_hash"] = labels[
+                "contentHash"
+            ]
+
+            label_index_path = manifest_path.parent / "labels.json"
+            label_index = json.loads(label_index_path.read_text(encoding="utf-8"))
+            label_index["datasets"][0]["labelsHash"] = labels["contentHash"]
+            label_index = _seal(label_index)
+            label_index_path.write_text(json.dumps(label_index), encoding="utf-8")
+            manifest["labelsHash"] = label_index["contentHash"]
+            manifest = _seal(manifest)
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "body differs"):
+                verify_replay_pack(
+                    manifest,
+                    root,
+                    manifest_path=manifest_path,
+                )
+
+    def test_exact_positive_requires_explicit_human_approval_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _, _, spec = _write_exact_v2_pack(root)
+            labels_path = root / spec["positive_path"]
+            labels = json.loads(labels_path.read_text(encoding="utf-8"))
+            labels["labels"] = []
+            labels = _seal(labels)
+            labels_path.write_text(json.dumps(labels), encoding="utf-8")
+            spec = {
+                **spec,
+                "positive_artifact_hash": labels["contentHash"],
+            }
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "one detailed approval label each",
+            ):
+                load_replay_dataset(spec, root)
+
+    def test_exact_dataset_without_a_human_positive_is_not_replayable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _, _, spec = _write_exact_v2_pack(root)
+            labels_path = root / spec["positive_path"]
+            labels = json.loads(labels_path.read_text(encoding="utf-8"))
+            labels["positives"] = []
+            labels["labels"] = []
+            labels = _seal(labels)
+            labels_path.write_text(json.dumps(labels), encoding="utf-8")
+            spec = {
+                **spec,
+                "positive_artifact_hash": labels["contentHash"],
+            }
+
+            with self.assertRaisesRegex(ValueError, "human-approved positive"):
+                load_replay_dataset(spec, root)
+
+    def test_exact_positive_requires_embedded_sealed_capture_event(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _, _, spec = _write_exact_v2_pack(root)
+            labels_path = root / spec["positive_path"]
+            labels = json.loads(labels_path.read_text(encoding="utf-8"))
+            labels["labels"][0]["provenance"].pop("captureLabels")
+            labels = _seal(labels)
+            labels_path.write_text(json.dumps(labels), encoding="utf-8")
+            spec = {
+                **spec,
+                "positive_artifact_hash": labels["contentHash"],
+            }
+
+            with self.assertRaisesRegex(ValueError, "event bodies are incomplete"):
+                load_replay_dataset(spec, root)
+
+    def test_exact_dataset_recomputes_candidate_identity_from_source_hash(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _, _, spec = _write_exact_v2_pack(root)
+            dataset_path = root / spec["candidate_path"]
+            dataset = json.loads(dataset_path.read_text(encoding="utf-8"))
+            dataset["candidates"][0]["title"] = "Forged after capture"
+            dataset = _seal(dataset)
+            dataset_path.write_text(json.dumps(dataset), encoding="utf-8")
+            spec = {
+                **spec,
+                "candidate_artifact_hash": dataset["contentHash"],
+            }
+
+            with self.assertRaisesRegex(ValueError, r"candidate\[0\] hash is stale"):
+                load_replay_dataset(spec, root)
+
+    def test_v2_pack_cannot_downgrade_or_omit_exact_binding_contract(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, manifest_path, _ = _write_exact_v2_pack(root)
+            downgraded = json.loads(json.dumps(manifest))
+            downgraded["artifactType"] = "BudgetFriendlyGrowthReplayManifest"
+            downgraded = _seal(downgraded)
+            missing_identity = json.loads(json.dumps(manifest))
+            missing_identity["datasets"][0].pop("candidate_identity_key")
+            missing_identity = _seal(missing_identity)
+
+            with self.assertRaisesRegex(ValueError, "downgraded V2"):
+                verify_replay_pack(downgraded, root, manifest_path=manifest_path)
+            with self.assertRaisesRegex(ValueError, "candidate_hash identity"):
+                verify_replay_pack(
+                    missing_identity,
+                    root,
+                    manifest_path=manifest_path,
+                )
 
 
 if __name__ == "__main__":

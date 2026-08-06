@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .artifact_contracts import (
     VOLATILE_CANDIDATE_FIELDS,
+    build_replay_transcript_manifest,
     candidate_hash,
     content_hash,
     file_sha256,
@@ -183,6 +184,7 @@ def build_ranking_manifest(
     shorts: List[Dict],
     profiles: Optional[Dict] = None,
     source_hash: Optional[str] = None,
+    transcript: Optional[Dict] = None,
 ) -> Dict:
     """Build a provenance-safe record of every ranking and render outcome."""
     normalized_source_hash = str(source_hash or "").strip().lower().removeprefix("sha256:")
@@ -239,6 +241,11 @@ def build_ranking_manifest(
     }
     if profiles is not None:
         payload["profiles"] = profile_manifest_metadata(profiles)
+    if transcript is not None:
+        payload["replayTranscriptManifest"] = build_replay_transcript_manifest(
+            transcript,
+            normalized_source_hash,
+        )
     return {**payload, "contentHash": content_hash(payload)}
 
 
@@ -993,6 +1000,7 @@ def _run_local(
                 top,
                 profiles=resolved_profiles,
                 source_hash=source_hash,
+                transcript=transcript,
             )
             manifest_path = write_local_ranking_manifest(manifest, LOCAL_OUTPUT_DIR)
     else:
@@ -1121,6 +1129,7 @@ def _run_local(
                     final_shorts,
                     profiles=resolved_profiles,
                     source_hash=source_hash,
+                    transcript=transcript,
                 )
                 staged_manifest_path = write_local_ranking_manifest(
                     manifest,

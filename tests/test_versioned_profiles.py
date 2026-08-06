@@ -196,6 +196,23 @@ class VersionedProfileTests(unittest.TestCase):
             [{"output_rank": 1, "clip_url": "/output/short.mp4"}],
             profiles=profiles,
             source_hash="a" * 64,
+            transcript={
+                "duration": 12.5,
+                "segments": [
+                    {
+                        "start": 0.0,
+                        "end": 12.0,
+                        "text": "A complete exact thought.",
+                        "words": [
+                            {
+                                "word": "A complete exact thought.",
+                                "start": 0.0,
+                                "end": 12.0,
+                            }
+                        ],
+                    }
+                ],
+            },
         )
 
         metadata = manifest["profiles"]
@@ -203,6 +220,14 @@ class VersionedProfileTests(unittest.TestCase):
         self.assertEqual(manifest["schemaVersion"], 1)
         self.assertEqual(manifest["artifactType"], "RankingManifest")
         self.assertEqual(manifest["sourceHash"], "a" * 64)
+        self.assertEqual(
+            manifest["replayTranscriptManifest"]["sourceHash"],
+            "a" * 64,
+        )
+        verify_seal(
+            manifest["replayTranscriptManifest"],
+            "BudgetFriendlyReplayTranscriptManifestV2",
+        )
         verify_seal(manifest, "RankingManifest")
         self.assertEqual(contract["format_profile"], BF_VIRAL_MICRO_V1)
         self.assertEqual(

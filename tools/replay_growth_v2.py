@@ -43,6 +43,7 @@ def main() -> int:
         manifest,
         root=repo_root,
         top_k=max(1, args.top_k),
+        manifest_path=args.manifest,
     )
 
     args.output_dir.mkdir(parents=True, exist_ok=True)

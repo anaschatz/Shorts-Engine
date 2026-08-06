@@ -131,6 +131,23 @@ class BudgetFriendlyOpsTests(unittest.TestCase):
                 [],
                 profiles=resolve_profile_bundle(format_profile=BF_VIRAL_MICRO_V1),
                 source_hash=source_hash,
+                transcript={
+                    "duration": 12.0,
+                    "segments": [
+                        {
+                            "start": 0.0,
+                            "end": 11.75,
+                            "text": "A tested tension hook with a complete takeaway.",
+                            "words": [
+                                {
+                                    "word": "A tested tension hook with a complete takeaway.",
+                                    "start": 0.0,
+                                    "end": 11.75,
+                                }
+                            ],
+                        }
+                    ],
+                },
             )
             ranking_path = Path(directory) / "ranking.json"
             ops.write_json(
@@ -151,15 +168,27 @@ class BudgetFriendlyOpsTests(unittest.TestCase):
                     "operator_1",
                     "--decided-at",
                     "2026-07-16T12:00:00Z",
+                    "--evidence-dir",
+                    str(Path(directory) / "evidence"),
                     "--output",
                     str(output),
                 ]
             )
             decision = args.handler(args)
+            output_exists = output.is_file()
+            dataset_count = len(
+                list((output.parent / "evidence/datasets").glob("*.json"))
+            )
+            label_count = len(
+                list((output.parent / "evidence/labels").glob("*/*.json"))
+            )
 
         self.assertEqual(decision["artifactType"], "CandidateDecision")
         self.assertEqual(len(decision["candidateHash"]), 64)
         self.assertEqual(decision["rankingManifestHash"], ranking["contentHash"])
+        self.assertTrue(output_exists)
+        self.assertEqual(dataset_count, 1)
+        self.assertEqual(label_count, 1)
 
     def test_approve_rejects_legacy_unsealed_candidate_json(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -189,6 +218,101 @@ class BudgetFriendlyOpsTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValueError, "expected RankingManifest"):
                 args.handler(args)
+
+    def test_approve_output_cannot_overwrite_append_only_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            evidence = root / "evidence"
+            immutable = evidence / "datasets" / "immutable.json"
+            immutable.parent.mkdir(parents=True)
+            immutable.write_text('{"sealed":true}\n', encoding="utf-8")
+            args = ops.build_parser().parse_args(
+                [
+                    "approve-candidate",
+                    "--candidate-json",
+                    str(root / "ranking.json"),
+                    "--rank",
+                    "1",
+                    "--source",
+                    str(root / "source.mp4"),
+                    "--reviewer",
+                    "operator_1",
+                    "--decided-at",
+                    "2026-08-06T12:00:00Z",
+                    "--evidence-dir",
+                    str(evidence),
+                    "--output",
+                    str(immutable),
+                ]
+            )
+
+            with self.assertRaisesRegex(ValueError, "outside the append-only"):
+                args.handler(args)
+
+            self.assertEqual(
+                immutable.read_text(encoding="utf-8"),
+                '{"sealed":true}\n',
+            )
+
+    def test_approve_rejects_ranking_without_bound_transcript_before_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            source.write_bytes(b"source")
+            source_hash = file_sha256(str(source))
+            candidate_body = {
+                "start_time": 1.0,
+                "end_time": 11.75,
+                "candidate_text": "A complete approved thought.",
+                "content_profile": "motivational_podcast",
+                "selection_profile": "motivational_tension_micro_v1",
+                "render_profile": "bf_editorial_inset_v1",
+                "format_profile": "bf_viral_micro_v1",
+                "selection_rank": 1,
+                "rejected": False,
+                "rejection_reasons": [],
+                "source_cut_count": 0,
+            }
+            candidate = {
+                **candidate_body,
+                "candidate_hash": candidate_hash(candidate_body, source_hash),
+            }
+            ranking = build_ranking_manifest(
+                "https://example.test/source",
+                str(source),
+                "motivational_podcast",
+                [candidate],
+                [],
+                profiles=resolve_profile_bundle(format_profile=BF_VIRAL_MICRO_V1),
+                source_hash=source_hash,
+            )
+            ranking_path = root / "ranking.json"
+            output = root / "decision.json"
+            ops.write_json(str(ranking_path), ranking)
+            args = ops.build_parser().parse_args(
+                [
+                    "approve-candidate",
+                    "--candidate-json",
+                    str(ranking_path),
+                    "--rank",
+                    "1",
+                    "--source",
+                    str(source),
+                    "--reviewer",
+                    "operator_1",
+                    "--decided-at",
+                    "2026-08-06T12:00:00Z",
+                    "--evidence-dir",
+                    str(root / "evidence"),
+                    "--output",
+                    str(output),
+                ]
+            )
+
+            with self.assertRaisesRegex(ValueError, "artifact must be an object"):
+                args.handler(args)
+            self.assertFalse(output.exists())
+            self.assertFalse((root / "evidence").exists())
 
     def test_originality_rejects_tampered_candidate_decision(self):
         source_hash = "a" * 64

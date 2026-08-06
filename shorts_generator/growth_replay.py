@@ -16,6 +16,13 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
+from .artifact_contracts import (
+    build_candidate_decision,
+    build_replay_transcript_manifest,
+    candidate_hash,
+    normalized_candidate,
+    validate_timed_transcript,
+)
 from .highlights import align_motivational_boundaries
 from .hook_gate import HOOK_GATE_DECISION_VERSION
 from .profiles import (
@@ -29,6 +36,354 @@ from .ranker import rank_highlights, select_diverse_highlights
 GROWTH_REPLAY_SCHEMA_VERSION = 1
 GROWTH_REPLAY_POLICY_VERSION = "bf-growth-replay-v1.0.0"
 DEFAULT_TOP_K = 3
+REPLAY_PACK_MANIFEST_TYPE = "BudgetFriendlyReplayManifestV2"
+REPLAY_PACK_DATASET_TYPE = "BudgetFriendlyReplayDatasetV2"
+REPLAY_PACK_LABELS_TYPE = "BudgetFriendlyReplayDatasetLabelsV2"
+REPLAY_PACK_CORPUS_TYPE = "BudgetFriendlyReplayCorpusV2"
+REPLAY_PACK_LABEL_INDEX_TYPE = "BudgetFriendlyReplayLabelsV2"
+REPLAY_PACK_VERSION = "bf-replay-pack-v2.0.0"
+REPLAY_CORPUS_VERSION = "bf-replay-corpus-v2.0.0"
+REPLAY_LABELS_VERSION = "bf-replay-labels-v2.0.0"
+LEGACY_LABEL_BINDING_MODE = "legacy_interval_v1"
+EXACT_LABEL_BINDING_MODE = "candidate_hash_exact_v1"
+EXPLICIT_HUMAN_LABEL_SEMANTICS = "explicit_human_approval"
+CAPTURE_LABEL_ARTIFACT_TYPE = "BudgetFriendlyReplayCaptureLabelV2"
+CAPTURE_LABEL_VERSION = "bf-replay-capture-label-v2.0.0"
+LABEL_BINDING_MODES = frozenset(
+    {LEGACY_LABEL_BINDING_MODE, EXACT_LABEL_BINDING_MODE}
+)
+
+
+def _artifact_hash(value: object) -> str:
+    if isinstance(value, dict):
+        value = {key: item for key, item in value.items() if key != "contentHash"}
+    try:
+        encoded = json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError) as error:
+        raise ValueError("replay artifact must be strict JSON") from error
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _sha256(value: object, field: str) -> str:
+    normalized = str(value or "").strip().lower()
+    if (
+        len(normalized) != 64
+        or any(character not in "0123456789abcdef" for character in normalized)
+        or normalized == "0" * 64
+    ):
+        raise ValueError(f"{field} must be a sha256 hash")
+    return normalized
+
+
+def _verify_artifact(
+    document: object,
+    artifact_type: str,
+    *,
+    expected_hash: Optional[str] = None,
+) -> Dict:
+    if not isinstance(document, dict) or document.get("artifactType") != artifact_type:
+        raise ValueError(f"expected {artifact_type}")
+    declared = _sha256(document.get("contentHash"), f"{artifact_type}.contentHash")
+    if declared != _artifact_hash(document):
+        raise ValueError(f"{artifact_type} seal is invalid")
+    if expected_hash is not None and declared != _sha256(
+        expected_hash,
+        f"expected {artifact_type} hash",
+    ):
+        raise ValueError(f"{artifact_type} hash does not match replay manifest")
+    return document
+
+
+def _resolve_pack_path(root: Path, value: object, field: str) -> Path:
+    path = Path(str(value or ""))
+    if not str(value or "").strip() or path.is_absolute():
+        raise ValueError(f"{field} must be a repository-relative path")
+    resolved_root = root.resolve()
+    resolved = (resolved_root / path).resolve()
+    try:
+        resolved.relative_to(resolved_root)
+    except ValueError as error:
+        raise ValueError(f"{field} escapes the replay root") from error
+    return resolved
+
+
+def _looks_like_v2_spec(spec: object) -> bool:
+    return isinstance(spec, dict) and any(
+        field in spec
+        for field in (
+            "candidate_artifact_hash",
+            "positive_artifact_hash",
+            "candidate_identity_key",
+            "label_binding_mode",
+        )
+    )
+
+
+def _looks_like_v2_pack(manifest: Dict) -> bool:
+    artifact_type = str(manifest.get("artifactType") or "")
+    if artifact_type.startswith("BudgetFriendlyReplayManifest"):
+        return True
+    if any(
+        field in manifest
+        for field in (
+            "contentHash",
+            "packVersion",
+            "corpusHash",
+            "labelsHash",
+            "labelBindingMode",
+        )
+    ):
+        return True
+    return any(_looks_like_v2_spec(spec) for spec in (manifest.get("datasets") or []))
+
+
+def _validate_v2_spec_contract(
+    spec: Dict,
+    *,
+    expected_binding_mode: Optional[str] = None,
+    context: str,
+) -> str:
+    binding_mode = str(spec.get("label_binding_mode") or "").strip()
+    if binding_mode not in LABEL_BINDING_MODES:
+        raise ValueError(f"{context}: V2 label_binding_mode is invalid")
+    if expected_binding_mode is not None and binding_mode != expected_binding_mode:
+        raise ValueError(f"{context}: label binding mode differs from manifest")
+    _sha256(spec.get("candidate_artifact_hash"), f"{context}.candidate_artifact_hash")
+    _sha256(spec.get("positive_artifact_hash"), f"{context}.positive_artifact_hash")
+    required_shape = {
+        "candidate_key": "candidates",
+        "transcript_key": "transcript",
+        "positive_key": "positives",
+    }
+    for field, expected in required_shape.items():
+        if spec.get(field) != expected:
+            raise ValueError(f"{context}: V2 {field} must be {expected!r}")
+    for field in ("candidate_path", "transcript_path", "positive_path"):
+        if not str(spec.get(field) or "").strip():
+            raise ValueError(f"{context}: V2 {field} is required")
+    if spec.get("positive_all") is not True:
+        raise ValueError(f"{context}: V2 positives must all be explicit labels")
+    if binding_mode == EXACT_LABEL_BINDING_MODE:
+        if spec.get("candidate_identity_key") != "candidate_hash":
+            raise ValueError(f"{context}: exact labels require candidate_hash identity")
+        if spec.get("append_unmatched_positives") is not False:
+            raise ValueError(f"{context}: exact labels forbid appended positives")
+    else:
+        if str(spec.get("candidate_identity_key") or "").strip():
+            raise ValueError(f"{context}: legacy interval labels forbid exact identity")
+        if spec.get("append_unmatched_positives") is not True:
+            raise ValueError(f"{context}: legacy interval labels must append unmatched positives")
+    return binding_mode
+
+
+def verify_replay_pack(
+    manifest: Dict,
+    root: Path,
+    *,
+    manifest_path: Optional[Path] = None,
+) -> Dict:
+    """Verify every V2 pack seal and cross-hash before replay or baseline."""
+    if manifest.get("artifactType") != REPLAY_PACK_MANIFEST_TYPE:
+        if _looks_like_v2_pack(manifest):
+            raise ValueError("invalid or downgraded V2 replay pack manifest")
+        return {"verified": False, "legacy": True}
+    if manifest_path is None:
+        raise ValueError("V2 replay pack verification requires manifest_path")
+    _verify_artifact(manifest, REPLAY_PACK_MANIFEST_TYPE)
+    if (
+        manifest.get("schemaVersion") != 1
+        or manifest.get("packVersion") != REPLAY_PACK_VERSION
+    ):
+        raise ValueError("unsupported V2 replay pack schema")
+    binding_mode = str(manifest.get("labelBindingMode") or "").strip()
+    if binding_mode not in LABEL_BINDING_MODES:
+        raise ValueError("V2 replay pack labelBindingMode is invalid")
+    corpus_hash = _sha256(manifest.get("corpusHash"), "replay manifest corpusHash")
+    labels_hash = _sha256(manifest.get("labelsHash"), "replay manifest labelsHash")
+    specs = manifest.get("datasets")
+    if not isinstance(specs, list) or not specs:
+        raise ValueError("sealed replay pack has no datasets")
+    dataset_records = []
+    seen_dataset_ids = set()
+    seen_source_ids = set()
+    seen_source_hashes = set()
+    seen_capture_label_hashes = set()
+    for index, spec in enumerate(specs):
+        if not isinstance(spec, dict):
+            raise ValueError("sealed replay pack dataset spec is invalid")
+        _validate_v2_spec_contract(
+            spec,
+            expected_binding_mode=binding_mode,
+            context=f"datasets[{index}]",
+        )
+        dataset_id = str(spec.get("id") or "").strip()
+        source_id = str(spec.get("source_id") or "").strip()
+        if not dataset_id or dataset_id in seen_dataset_ids:
+            raise ValueError("sealed replay pack dataset ids are invalid")
+        if not source_id or source_id in seen_source_ids:
+            raise ValueError("sealed replay pack must contain unique sources")
+        seen_dataset_ids.add(dataset_id)
+        seen_source_ids.add(source_id)
+        candidate_path = _resolve_pack_path(
+            root,
+            spec.get("candidate_path"),
+            f"datasets[{index}].candidate_path",
+        )
+        transcript_path = _resolve_pack_path(
+            root,
+            spec.get("transcript_path"),
+            f"datasets[{index}].transcript_path",
+        )
+        positive_path = _resolve_pack_path(
+            root,
+            spec.get("positive_path"),
+            f"datasets[{index}].positive_path",
+        )
+        if transcript_path != candidate_path:
+            raise ValueError("V2 replay transcript must be sealed with its dataset")
+        dataset = _verify_artifact(
+            _load_json(candidate_path),
+            REPLAY_PACK_DATASET_TYPE,
+            expected_hash=str(spec["candidate_artifact_hash"]),
+        )
+        labels = _verify_artifact(
+            _load_json(positive_path),
+            REPLAY_PACK_LABELS_TYPE,
+            expected_hash=str(spec["positive_artifact_hash"]),
+        )
+        if (
+            dataset.get("schemaVersion") != 1
+            or dataset.get("packVersion") != REPLAY_PACK_VERSION
+            or labels.get("schemaVersion") != 1
+            or labels.get("labelsVersion") != REPLAY_LABELS_VERSION
+        ):
+            raise ValueError("unsupported sealed replay dataset schema")
+        if (
+            dataset.get("datasetId") != dataset_id
+            or labels.get("datasetId") != dataset_id
+            or dataset.get("sourceId") != source_id
+            or labels.get("sourceId") != source_id
+        ):
+            raise ValueError("sealed replay dataset identity is stale")
+        candidates = _nested(dataset, str(spec.get("candidate_key") or "candidates"))
+        transcript = _nested(dataset, str(spec.get("transcript_key") or "transcript"))
+        positives = _nested(labels, str(spec.get("positive_key") or "positives"))
+        if not isinstance(candidates, list) or not isinstance(positives, list):
+            raise ValueError("sealed replay candidate/positive payload is invalid")
+        if not isinstance(transcript, dict) or not isinstance(
+            transcript.get("segments"),
+            list,
+        ):
+            raise ValueError("sealed replay transcript payload is invalid")
+        if binding_mode == EXACT_LABEL_BINDING_MODE:
+            exact_source_hash = _validate_exact_capture_provenance(
+                dataset,
+                candidates,
+                transcript,
+                context=f"datasets[{index}]",
+            )
+            if exact_source_hash in seen_source_hashes:
+                raise ValueError(
+                    "sealed exact replay pack must contain unique source hashes"
+                )
+            seen_source_hashes.add(exact_source_hash)
+            _validate_exact_positive_bodies(
+                candidates,
+                positives,
+                context=f"datasets[{index}]",
+            )
+            exact_label_hashes = _validate_exact_human_label_evidence(
+                dataset,
+                labels,
+                candidates,
+                positives,
+                context=f"datasets[{index}]",
+            )
+            if seen_capture_label_hashes.intersection(exact_label_hashes):
+                raise ValueError(
+                    "one capture approval event cannot be reused across replay datasets"
+                )
+            seen_capture_label_hashes.update(exact_label_hashes)
+        dataset_records.append(
+            {
+                "datasetId": dataset_id,
+                "sourceId": source_id,
+                "candidateCount": len(candidates),
+                "approvedCount": len(positives),
+                "datasetHash": dataset["contentHash"],
+                "labelsHash": labels["contentHash"],
+            }
+        )
+
+    resolved_manifest = manifest_path.resolve()
+    try:
+        resolved_manifest.relative_to(root.resolve())
+    except ValueError as error:
+        raise ValueError("replay manifest escapes the replay root") from error
+    on_disk_manifest = _verify_artifact(
+        _load_json(resolved_manifest),
+        REPLAY_PACK_MANIFEST_TYPE,
+    )
+    if on_disk_manifest != manifest:
+        raise ValueError("replay manifest path does not match supplied manifest")
+    corpus = _verify_artifact(
+        _load_json(resolved_manifest.parent / "corpus.json"),
+        REPLAY_PACK_CORPUS_TYPE,
+        expected_hash=corpus_hash,
+    )
+    label_index = _verify_artifact(
+        _load_json(resolved_manifest.parent / "labels.json"),
+        REPLAY_PACK_LABEL_INDEX_TYPE,
+        expected_hash=labels_hash,
+    )
+    if (
+        corpus.get("schemaVersion") != 1
+        or corpus.get("corpusVersion") != REPLAY_CORPUS_VERSION
+        or label_index.get("schemaVersion") != 1
+        or label_index.get("labelsVersion") != REPLAY_LABELS_VERSION
+    ):
+        raise ValueError("unsupported replay pack index schema")
+    corpus_summaries = {
+        str(item.get("datasetId")): item
+        for item in (corpus.get("datasets") or [])
+        if isinstance(item, dict)
+    }
+    label_summaries = {
+        str(item.get("datasetId")): item
+        for item in (label_index.get("datasets") or [])
+        if isinstance(item, dict)
+    }
+    if (
+        corpus.get("datasetCount") != len(dataset_records)
+        or len(corpus_summaries) != len(dataset_records)
+        or len(label_summaries) != len(dataset_records)
+    ):
+        raise ValueError("replay pack index counts are stale")
+    for record in dataset_records:
+        corpus_summary = corpus_summaries.get(record["datasetId"], {})
+        label_summary = label_summaries.get(record["datasetId"], {})
+        if (
+            corpus_summary.get("sourceId") != record["sourceId"]
+            or corpus_summary.get("candidateCount") != record["candidateCount"]
+            or corpus_summary.get("datasetHash") != record["datasetHash"]
+            or label_summary.get("approvedCount") != record["approvedCount"]
+            or label_summary.get("labelsHash") != record["labelsHash"]
+        ):
+            raise ValueError("replay pack indexes do not match sealed datasets")
+    return {
+        "verified": True,
+        "legacy": False,
+        "datasetCount": len(dataset_records),
+        "sourceCount": len(seen_source_ids),
+        "candidateCount": sum(item["candidateCount"] for item in dataset_records),
+        "approvedCount": sum(item["approvedCount"] for item in dataset_records),
+    }
 
 
 def _number(value: object, default: float = 0.0) -> float:
@@ -140,10 +495,382 @@ def _mark_human_positives(
     return result, unmatched
 
 
+def _identity_value(candidate: Dict, key: str, context: str) -> str:
+    value = str(candidate.get(key) or "").strip().lower()
+    if not value:
+        raise ValueError(f"{context}: candidate identity {key!r} is missing")
+    if key == "candidate_hash" and (
+        len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise ValueError(f"{context}: candidate_hash is invalid")
+    return value
+
+
+def _validate_exact_positive_bodies(
+    candidates: Sequence[Dict],
+    positives: Sequence[Dict],
+    *,
+    context: str,
+) -> None:
+    """Require each hash-bound positive to be the exact captured candidate."""
+    candidate_by_identity: Dict[str, Dict] = {}
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            raise ValueError(f"{context}: candidate record must be an object")
+        identity = _identity_value(candidate, "candidate_hash", context)
+        if identity in candidate_by_identity:
+            raise ValueError(f"{context}: duplicate candidate identity {identity}")
+        candidate_by_identity[identity] = candidate
+    positive_identities = set()
+    for positive in positives:
+        if not isinstance(positive, dict):
+            raise ValueError(f"{context}: positive record must be an object")
+        identity = _identity_value(positive, "candidate_hash", context)
+        if identity in positive_identities:
+            raise ValueError(f"{context}: duplicate positive identity {identity}")
+        positive_identities.add(identity)
+        candidate = candidate_by_identity.get(identity)
+        if candidate is None:
+            raise ValueError(
+                f"{context}: explicit positive identity is absent from candidate universe"
+            )
+        if positive != candidate:
+            raise ValueError(
+                f"{context}: positive candidate body differs from candidate universe"
+            )
+
+
+def _validate_exact_human_label_evidence(
+    dataset: Dict,
+    labels_document: Dict,
+    candidates: Sequence[Dict],
+    positives: Sequence[Dict],
+    *,
+    context: str,
+) -> set[str]:
+    """Prove every exact positive has one explicit, hash-bound approval record."""
+    if not positives:
+        raise ValueError(
+            f"{context}: exact replay datasets require a human-approved positive"
+        )
+    if labels_document.get("labelSemantics") != EXPLICIT_HUMAN_LABEL_SEMANTICS:
+        raise ValueError(
+            f"{context}: exact labels require explicit human-approval semantics"
+        )
+    detailed_labels = labels_document.get("labels")
+    if not isinstance(detailed_labels, list) or len(detailed_labels) != len(positives):
+        raise ValueError(
+            f"{context}: exact positives require one detailed approval label each"
+        )
+
+    capture_provenance = dataset.get("captureProvenance")
+    if not isinstance(capture_provenance, dict):
+        raise ValueError(f"{context}: exact replay dataset lacks capture provenance")
+    capture_dataset_hash = _sha256(
+        capture_provenance.get("captureDatasetHash"),
+        f"{context}.captureDatasetHash",
+    )
+    source_hash = _sha256(
+        capture_provenance.get("sourceHash"),
+        f"{context}.sourceHash",
+    )
+    ranking_hash = _sha256(
+        capture_provenance.get("rankingManifestHash"),
+        f"{context}.rankingManifestHash",
+    )
+    observed_capture_label_hashes: set[str] = set()
+
+    for index, (positive, label) in enumerate(zip(positives, detailed_labels)):
+        label_context = f"{context}.labels[{index}]"
+        if not isinstance(label, dict):
+            raise ValueError(f"{label_context}: approval label must be an object")
+        identity = _identity_value(positive, "candidate_hash", context)
+        if (
+            label.get("decision") != "approved"
+            or label.get("matchStatus") != "hash_bound"
+            or label.get("candidateHash") != identity
+            or label.get("candidate") != positive
+        ):
+            raise ValueError(
+                f"{label_context}: approval label is not bound to its exact positive"
+            )
+        match_score = label.get("matchScore")
+        if (
+            isinstance(match_score, bool)
+            or not isinstance(match_score, (int, float))
+            or float(match_score) != 1.0
+        ):
+            raise ValueError(f"{label_context}: exact approval matchScore must be 1.0")
+        expected_label_id = _artifact_hash(
+            [dataset.get("datasetId"), identity, "approved"]
+        )
+        if label.get("labelId") != expected_label_id:
+            raise ValueError(f"{label_context}: approval labelId is stale")
+        provenance = label.get("provenance")
+        if not isinstance(provenance, dict):
+            raise ValueError(f"{label_context}: approval provenance is missing")
+        if _sha256(
+            provenance.get("captureDatasetHash"),
+            f"{label_context}.captureDatasetHash",
+        ) != capture_dataset_hash:
+            raise ValueError(
+                f"{label_context}: approval references another capture dataset"
+            )
+        event_hashes = provenance.get("captureLabelHashes")
+        if not isinstance(event_hashes, list) or not event_hashes:
+            raise ValueError(
+                f"{label_context}: approval requires a capture label event"
+            )
+        normalized_event_hashes = [
+            _sha256(value, f"{label_context}.captureLabelHashes")
+            for value in event_hashes
+        ]
+        if (
+            len(normalized_event_hashes) != len(set(normalized_event_hashes))
+            or normalized_event_hashes != sorted(normalized_event_hashes)
+        ):
+            raise ValueError(
+                f"{label_context}: capture label event hashes must be unique and sorted"
+            )
+        capture_labels = provenance.get("captureLabels")
+        if not isinstance(capture_labels, list) or len(capture_labels) != len(
+            normalized_event_hashes
+        ):
+            raise ValueError(
+                f"{label_context}: capture label event bodies are incomplete"
+            )
+        verified_event_hashes = []
+        for event_index, (event, expected_event_hash) in enumerate(
+            zip(capture_labels, normalized_event_hashes)
+        ):
+            event_context = f"{label_context}.captureLabels[{event_index}]"
+            capture_label = _verify_artifact(
+                event,
+                CAPTURE_LABEL_ARTIFACT_TYPE,
+                expected_hash=expected_event_hash,
+            )
+            if (
+                capture_label.get("schemaVersion") != 1
+                or capture_label.get("labelVersion") != CAPTURE_LABEL_VERSION
+                or capture_label.get("decision") != "approved"
+                or capture_label.get("labelSemantics")
+                != EXPLICIT_HUMAN_LABEL_SEMANTICS
+                or capture_label.get("datasetId") != ranking_hash
+                or capture_label.get("datasetHash") != capture_dataset_hash
+                or capture_label.get("rankingManifestHash") != ranking_hash
+                or capture_label.get("sourceHash") != source_hash
+                or capture_label.get("candidateHash") != identity
+            ):
+                raise ValueError(
+                    f"{event_context}: capture approval binding is invalid"
+                )
+            decision_hash = _sha256(
+                capture_label.get("candidateDecisionHash"),
+                f"{event_context}.candidateDecisionHash",
+            )
+            decision = _verify_artifact(
+                capture_label.get("candidateDecision"),
+                "CandidateDecision",
+                expected_hash=decision_hash,
+            )
+            try:
+                rebuilt_decision = build_candidate_decision(
+                    {
+                        **decision.get("candidate"),
+                        "candidate_hash": identity,
+                    },
+                    source_hash,
+                    reviewer=str(decision.get("reviewer") or ""),
+                    decided_at=str(decision.get("decidedAt") or ""),
+                    ranking_manifest_hash=ranking_hash,
+                    notes=str(decision.get("notes") or ""),
+                )
+            except (TypeError, ValueError) as error:
+                raise ValueError(
+                    f"{event_context}: CandidateDecision is not canonical"
+                ) from error
+            if (
+                rebuilt_decision != decision
+                or decision.get("schemaVersion") != 1
+                or decision.get("decision") != "approved"
+                or decision.get("rankingManifestHash") != ranking_hash
+                or decision.get("sourceHash") != source_hash
+                or decision.get("candidateHash") != identity
+                or decision.get("candidate") != normalized_candidate(positive)
+                or candidate_hash(decision.get("candidate"), source_hash) != identity
+                or capture_label.get("reviewer") != decision.get("reviewer")
+                or capture_label.get("decidedAt") != decision.get("decidedAt")
+                or capture_label.get("notes") != decision.get("notes", "")
+            ):
+                raise ValueError(
+                    f"{event_context}: CandidateDecision binding is invalid"
+                )
+            approved_rank = capture_label.get("approvedRank")
+            candidate_rank = positive.get(
+                "selection_rank",
+                positive.get("output_rank"),
+            )
+            if (
+                isinstance(approved_rank, bool)
+                or not isinstance(approved_rank, int)
+                or approved_rank < 1
+                or isinstance(candidate_rank, bool)
+                or not isinstance(candidate_rank, int)
+                or approved_rank != candidate_rank
+            ):
+                raise ValueError(
+                    f"{event_context}: approved rank is not exactly candidate-bound"
+                )
+            verified_event_hashes.append(str(capture_label["contentHash"]))
+        if verified_event_hashes != normalized_event_hashes:
+            raise ValueError(f"{label_context}: capture label hashes are stale")
+        reused = observed_capture_label_hashes.intersection(verified_event_hashes)
+        if reused:
+            raise ValueError(
+                f"{label_context}: one approval event cannot label multiple positives"
+            )
+        observed_capture_label_hashes.update(verified_event_hashes)
+    return observed_capture_label_hashes
+
+
+def _validate_exact_capture_provenance(
+    dataset: Dict,
+    candidates: Sequence[Dict],
+    transcript: Dict,
+    *,
+    context: str,
+) -> str:
+    """Recompute the exact identities used by source-coverage and label metrics."""
+    provenance = dataset.get("captureProvenance")
+    if not isinstance(provenance, dict):
+        raise ValueError(f"{context}: exact replay dataset lacks capture provenance")
+    source_hash = _sha256(
+        provenance.get("sourceHash"),
+        f"{context}.sourceHash",
+    )
+    ranking_hash = _sha256(
+        provenance.get("rankingManifestHash"),
+        f"{context}.rankingManifestHash",
+    )
+    _sha256(
+        provenance.get("captureDatasetHash"),
+        f"{context}.captureDatasetHash",
+    )
+    if dataset.get("datasetId") != ranking_hash:
+        raise ValueError(f"{context}: datasetId is not ranking-manifest bound")
+
+    exact_transcript = validate_timed_transcript(
+        transcript,
+        require_timed_words=True,
+    )
+    transcript_manifest = build_replay_transcript_manifest(
+        exact_transcript,
+        source_hash,
+    )
+    expected_transcript_hashes = {
+        "replayTranscriptManifestHash": transcript_manifest["contentHash"],
+        "transcriptHash": transcript_manifest["transcriptHash"],
+        "transcriptTimingHash": transcript_manifest["transcriptTimingHash"],
+    }
+    for field, expected in expected_transcript_hashes.items():
+        if _sha256(provenance.get(field), f"{context}.{field}") != expected:
+            raise ValueError(f"{context}: {field} is not bound to the transcript")
+
+    candidate_hashes = []
+    for index, candidate in enumerate(candidates):
+        if not isinstance(candidate, dict):
+            raise ValueError(f"{context}: candidate record must be an object")
+        declared = _identity_value(candidate, "candidate_hash", context)
+        try:
+            actual = candidate_hash(candidate, source_hash)
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                f"{context}: candidate[{index}] identity cannot be recomputed"
+            ) from error
+        if declared != actual:
+            raise ValueError(f"{context}: candidate[{index}] hash is stale")
+        candidate_hashes.append(declared)
+
+    selected = provenance.get("engineSelectedCandidateHashes")
+    if (
+        not isinstance(selected, list)
+        or len(selected) != len(set(selected))
+        or any(value not in candidate_hashes for value in selected)
+        or selected != [value for value in candidate_hashes if value in selected]
+    ):
+        raise ValueError(f"{context}: engine-selected candidate provenance is invalid")
+    if provenance.get("engineSelectionSemantics") != "unknown_not_human_label":
+        raise ValueError(f"{context}: engine selections cannot be human labels")
+    return source_hash
+
+
+def _mark_human_positives_by_identity(
+    candidates: Sequence[Dict],
+    positives: Sequence[Dict],
+    *,
+    identity_key: str,
+    context: str,
+) -> Tuple[List[Dict], List[Dict]]:
+    """Bind positives exactly; never dedupe or fall back to interval overlap."""
+    _validate_exact_positive_bodies(candidates, positives, context=context)
+    result = []
+    indexes: Dict[str, int] = {}
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        item = deepcopy(candidate)
+        identity = _identity_value(item, identity_key, context)
+        if identity in indexes:
+            raise ValueError(f"{context}: duplicate candidate identity {identity}")
+        indexes[identity] = len(result)
+        item["_replay_human_positive"] = False
+        item["_replay_positive_match_score"] = 0.0
+        result.append(item)
+
+    positive_identities = set()
+    unmatched = []
+    for positive in positives:
+        if not isinstance(positive, dict):
+            continue
+        identity = _identity_value(positive, identity_key, context)
+        if identity in positive_identities:
+            raise ValueError(f"{context}: duplicate positive identity {identity}")
+        positive_identities.add(identity)
+        index = indexes.get(identity)
+        if index is None:
+            unmatched.append(deepcopy(positive))
+            continue
+        result[index]["_replay_human_positive"] = True
+        result[index]["_replay_positive_match_score"] = 1.0
+        result[index]["_replay_positive_match_kind"] = "exact_identity"
+    if unmatched:
+        raise ValueError(
+            f"{context}: explicit positive identity is absent from candidate universe"
+        )
+    return result, []
+
+
 def load_replay_dataset(spec: Dict, root: Path) -> Dict:
     """Load one manifest entry without invoking external services."""
-    candidate_path = _resolve_path(root, str(spec["candidate_path"]))
+    binding_mode: Optional[str] = None
+    if _looks_like_v2_spec(spec):
+        binding_mode = _validate_v2_spec_contract(
+            spec,
+            context=str(spec.get("id") or "replay dataset"),
+        )
+    candidate_path = (
+        _resolve_pack_path(root, spec.get("candidate_path"), "candidate_path")
+        if binding_mode is not None
+        else _resolve_path(root, str(spec["candidate_path"]))
+    )
     candidate_document = _load_json(candidate_path)
+    if binding_mode is not None:
+        candidate_document = _verify_artifact(
+            candidate_document,
+            REPLAY_PACK_DATASET_TYPE,
+            expected_hash=str(spec["candidate_artifact_hash"]),
+        )
     candidate_value = _nested(
         candidate_document,
         str(spec.get("candidate_key") or "candidates"),
@@ -151,9 +878,11 @@ def load_replay_dataset(spec: Dict, root: Path) -> Dict:
     if not isinstance(candidate_value, list):
         raise TypeError(f"{candidate_path}: candidate payload must be a list")
 
-    transcript_path = _resolve_path(
-        root,
-        str(spec.get("transcript_path") or spec["candidate_path"]),
+    transcript_value = spec.get("transcript_path") or spec["candidate_path"]
+    transcript_path = (
+        _resolve_pack_path(root, transcript_value, "transcript_path")
+        if binding_mode is not None
+        else _resolve_path(root, str(transcript_value))
     )
     transcript_document = (
         candidate_document
@@ -171,14 +900,25 @@ def load_replay_dataset(spec: Dict, root: Path) -> Dict:
         raise TypeError(f"{transcript_path}: transcript must contain segments")
 
     positives: List[Dict] = []
+    positive_document: object = None
     positive_path_value = spec.get("positive_path")
     if positive_path_value:
-        positive_path = _resolve_path(root, str(positive_path_value))
+        positive_path = (
+            _resolve_pack_path(root, positive_path_value, "positive_path")
+            if binding_mode is not None
+            else _resolve_path(root, str(positive_path_value))
+        )
         positive_document = (
             candidate_document
             if positive_path == candidate_path
             else _load_json(positive_path)
         )
+        if binding_mode is not None:
+            positive_document = _verify_artifact(
+                positive_document,
+                REPLAY_PACK_LABELS_TYPE,
+                expected_hash=str(spec["positive_artifact_hash"]),
+            )
         positive_value = _nested(
             positive_document,
             str(spec.get("positive_key") or "candidates"),
@@ -216,14 +956,40 @@ def load_replay_dataset(spec: Dict, root: Path) -> Dict:
             )
         ]
 
-    candidates, unmatched_positives = _mark_human_positives(
-        _dedupe_candidates(candidate_value),
-        positives,
-        append_unmatched=bool(
-            spec.get("append_unmatched_positives", True)
-        ),
-    )
     dataset_id = str(spec.get("id") or candidate_path.stem)
+    if binding_mode == EXACT_LABEL_BINDING_MODE:
+        if not isinstance(candidate_document, dict) or not isinstance(
+            positive_document,
+            dict,
+        ):
+            raise ValueError(f"{dataset_id}: exact replay artifacts are invalid")
+        _validate_exact_capture_provenance(
+            candidate_document,
+            candidate_value,
+            transcript,
+            context=dataset_id,
+        )
+        _validate_exact_human_label_evidence(
+            candidate_document,
+            positive_document,
+            candidate_value,
+            positives,
+            context=dataset_id,
+        )
+        candidates, unmatched_positives = _mark_human_positives_by_identity(
+            candidate_value,
+            positives,
+            identity_key="candidate_hash",
+            context=dataset_id,
+        )
+    else:
+        candidates, unmatched_positives = _mark_human_positives(
+            _dedupe_candidates(candidate_value),
+            positives,
+            append_unmatched=bool(
+                spec.get("append_unmatched_positives", True)
+            ),
+        )
     for index, candidate in enumerate(candidates):
         candidate["_replay_id"] = f"{dataset_id}:{index:03d}"
         candidate["_replay_dataset_id"] = dataset_id
@@ -725,7 +1491,13 @@ def build_growth_replay_report(
     manifest: Dict,
     root: Path,
     top_k: int = DEFAULT_TOP_K,
+    manifest_path: Optional[Path] = None,
 ) -> Dict:
+    verify_replay_pack(
+        manifest,
+        root,
+        manifest_path=manifest_path,
+    )
     specs = manifest.get("datasets")
     if not isinstance(specs, list) or not specs:
         raise ValueError("replay manifest requires at least one dataset")
@@ -775,7 +1547,12 @@ def build_growth_replay_report(
         >= dataset["metrics"]["closure_shadow_top_k_planned_slots"]
         for dataset in datasets
     )
-    source_count = len(datasets)
+    source_count = len(
+        {
+            str(dataset.get("source_id") or dataset.get("dataset_id") or "")
+            for dataset in datasets
+        }
+    )
     aggregate = {
         "source_count": source_count,
         "candidate_count": candidate_count,
@@ -1042,4 +1819,5 @@ __all__ = [
     "evaluate_replay_dataset",
     "load_replay_dataset",
     "render_growth_replay_markdown",
+    "verify_replay_pack",
 ]

@@ -9,9 +9,13 @@ from shorts_generator.artifact_contracts import (
     build_publish_manifest,
     build_render_manifest,
     build_rights_manifest,
+    build_replay_transcript_manifest,
     candidate_hash,
     content_hash,
+    transcript_timing_hash,
+    validate_timed_transcript,
     verify_seal,
+    verify_replay_transcript_manifest,
 )
 from shorts_generator.experiment import build_experiment_manifest
 from shorts_generator.originality import evaluate_originality
@@ -56,6 +60,184 @@ class ArtifactContractsTests(unittest.TestCase):
         self.assertEqual(first["contentHash"], second["contentHash"])
         self.assertEqual(first["candidateHash"], candidate_hash(candidate(), SOURCE_HASH))
         self.assertIs(verify_seal(first, "CandidateDecision"), first)
+
+    def test_transcript_manifest_preserves_exact_json_and_binds_source(self):
+        transcript = {
+            "duration": 12.123456789,
+            "language": "en",
+            "segments": [
+                {
+                    "start": 0.000000123,
+                    "end": 12.000000321,
+                    "text": "One exact thought.",
+                    "speaker": "speaker-a",
+                    "words": [
+                        {
+                            "word": "One exact thought.",
+                            "start": 0.000000123,
+                            "end": 12.000000321,
+                            "confidence": 0.987654321,
+                        }
+                    ],
+                }
+            ],
+        }
+        manifest = build_replay_transcript_manifest(transcript, SOURCE_HASH)
+        transcript["segments"][0]["words"][0]["start"] = 9.0
+
+        self.assertEqual(
+            manifest["transcript"]["segments"][0]["words"][0]["start"],
+            0.000000123,
+        )
+        self.assertEqual(
+            manifest["transcriptTimingHash"],
+            transcript_timing_hash(manifest["transcript"]),
+        )
+        self.assertIs(
+            verify_replay_transcript_manifest(
+                manifest,
+                source_hash=SOURCE_HASH,
+                require_timed_words=True,
+            ),
+            manifest,
+        )
+        with self.assertRaisesRegex(ArtifactBindingError, "another source"):
+            verify_replay_transcript_manifest(manifest, source_hash="b" * 64)
+
+    def test_timed_transcript_accepts_case_and_punctuation_variants_without_mutation(self):
+        transcript = {
+            "duration": 3.0,
+            "segments": [
+                {
+                    "start": 0.1,
+                    "end": 2.8,
+                    "text": "Don’t STOP—now!",
+                    "words": [
+                        {"word": "don't", "start": 0.1, "end": 0.8},
+                        {"word": "stop", "start": 0.9, "end": 1.6},
+                        {"word": "NOW", "start": 1.7, "end": 2.8},
+                    ],
+                }
+            ],
+        }
+
+        snapshot = validate_timed_transcript(
+            transcript,
+            require_timed_words=True,
+        )
+
+        self.assertEqual(snapshot, transcript)
+        self.assertEqual(snapshot["segments"][0]["text"], "Don’t STOP—now!")
+
+    def test_timed_transcript_requires_string_segment_text_and_word_tokens(self):
+        base = {
+            "duration": 2.0,
+            "segments": [
+                {
+                    "start": 0.0,
+                    "end": 1.5,
+                    "text": "One thought.",
+                    "words": [
+                        {"word": "One", "start": 0.0, "end": 0.5},
+                        {"word": "thought.", "start": 0.6, "end": 1.5},
+                    ],
+                }
+            ],
+        }
+        non_string_text = {
+            **base,
+            "segments": [{**base["segments"][0], "text": 123}],
+        }
+        non_string_token = {
+            **base,
+            "segments": [
+                {
+                    **base["segments"][0],
+                    "words": [
+                        {"word": 1, "start": 0.0, "end": 0.5},
+                        base["segments"][0]["words"][1],
+                    ],
+                }
+            ],
+        }
+
+        with self.assertRaisesRegex(ArtifactBindingError, "text must be a string"):
+            validate_timed_transcript(non_string_text, require_timed_words=True)
+        with self.assertRaisesRegex(ArtifactBindingError, "tokens must be strings"):
+            validate_timed_transcript(non_string_token, require_timed_words=True)
+
+    def test_timed_transcript_requires_positive_speech_duration_and_segment_containment(self):
+        zero_duration = {
+            "duration": 2.0,
+            "segments": [
+                {
+                    "start": 1.0,
+                    "end": 1.0,
+                    "text": "One",
+                    "words": [{"word": "One", "start": 1.0, "end": 1.1}],
+                }
+            ],
+        }
+        word_outside_segment = {
+            "duration": 2.0,
+            "segments": [
+                {
+                    "start": 0.5,
+                    "end": 1.5,
+                    "text": "One thought.",
+                    "words": [
+                        {"word": "One", "start": 0.4, "end": 0.8},
+                        {"word": "thought.", "start": 0.9, "end": 1.5},
+                    ],
+                }
+            ],
+        }
+        word_ending_after_segment = {
+            "duration": 2.0,
+            "segments": [
+                {
+                    "start": 0.5,
+                    "end": 1.5,
+                    "text": "One thought.",
+                    "words": [
+                        {"word": "One", "start": 0.5, "end": 0.8},
+                        {"word": "thought.", "start": 0.9, "end": 1.6},
+                    ],
+                }
+            ],
+        }
+
+        with self.assertRaisesRegex(ArtifactBindingError, "positive duration"):
+            validate_timed_transcript(zero_duration, require_timed_words=True)
+        with self.assertRaisesRegex(ArtifactBindingError, "outside its segment"):
+            validate_timed_transcript(
+                word_outside_segment,
+                require_timed_words=True,
+            )
+        with self.assertRaisesRegex(ArtifactBindingError, "outside its segment"):
+            validate_timed_transcript(
+                word_ending_after_segment,
+                require_timed_words=True,
+            )
+
+    def test_timed_transcript_rejects_partial_or_wrong_word_lists(self):
+        transcript = {
+            "duration": 3.0,
+            "segments": [
+                {
+                    "start": 0.0,
+                    "end": 2.5,
+                    "text": "The complete point.",
+                    "words": [
+                        {"word": "The", "start": 0.0, "end": 0.5},
+                        {"word": "wrong", "start": 0.6, "end": 1.2},
+                    ],
+                }
+            ],
+        }
+
+        with self.assertRaisesRegex(ArtifactBindingError, "do not match"):
+            validate_timed_transcript(transcript, require_timed_words=True)
 
     def test_verified_visual_boundary_changes_candidate_and_cache_identity(self):
         body = {

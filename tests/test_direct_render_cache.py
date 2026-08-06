@@ -1,4 +1,5 @@
 import copy
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -490,6 +491,13 @@ class DirectLocalPipelineCacheIntegrationTests(unittest.TestCase):
             self.assertEqual(
                 Path(cached_success["shorts"][0]["clip_url"]).read_bytes(),
                 b"exact-render",
+            )
+            ranking = json.loads(
+                (output_dir / "ranking.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                ranking["replayTranscriptManifest"]["transcript"],
+                transcript,
             )
 
 

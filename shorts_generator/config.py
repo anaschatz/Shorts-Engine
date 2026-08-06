@@ -23,6 +23,19 @@ def _default_local_cache_dir() -> Path:
     base = Path(os.getenv("XDG_CACHE_HOME", Path.home() / ".cache"))
     return base / "shorts-engine"
 
+
+def _default_local_data_dir() -> Path:
+    """Return a durable app-data root, separate from caches and render output."""
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "Shorts-Engine"
+    if os.name == "nt":
+        configured = os.getenv("LOCALAPPDATA", "").strip()
+        base = Path(configured) if configured else Path.home() / "AppData" / "Local"
+        return base / "Shorts-Engine" / "Data"
+    configured = os.getenv("XDG_DATA_HOME", "").strip()
+    base = Path(configured) if configured else Path.home() / ".local" / "share"
+    return base / "shorts-engine"
+
 MUAPI_API_KEY = os.getenv("MUAPI_API_KEY", "").strip()
 MUAPI_BASE_URL = os.getenv("MUAPI_BASE_URL", "https://api.muapi.ai/api/v1").rstrip("/")
 
@@ -42,6 +55,16 @@ LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai").strip().lower()
 LOCAL_WHISPER_MODEL = os.getenv("LOCAL_WHISPER_MODEL", "base")
 LOCAL_WHISPER_DEVICE = os.getenv("LOCAL_WHISPER_DEVICE", "auto")  # auto / cpu / cuda
 LOCAL_OUTPUT_DIR = os.getenv("LOCAL_OUTPUT_DIR", "output")
+_configured_autoresearch_evidence_dir = os.getenv(
+    "LOCAL_AUTORESEARCH_EVIDENCE_DIR",
+    "",
+).strip()
+LOCAL_AUTORESEARCH_EVIDENCE_DIR = str(
+    Path(
+        _configured_autoresearch_evidence_dir
+        or (_default_local_data_dir() / "autoresearch-evidence-v2")
+    ).expanduser()
+)
 LOCAL_PERFORMANCE_REPORT_DIR = str(
     Path(
         os.getenv(

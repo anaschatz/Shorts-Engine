@@ -55,6 +55,32 @@ to 10 missing unique files. The tool records this as
 `crash/replay_artifacts_missing`; it never presents the frozen historical
 report as evidence for a new engine change.
 
+New reviewed approvals now create durable replay evidence automatically. The
+default `LOCAL_AUTORESEARCH_EVIDENCE_DIR` lives in OS application data and is
+separate from render output and caches. Inspect the inbox without mutating it:
+
+```bash
+.venv/bin/python research/fixture_pack_v2.py \
+  --capture-dir \
+  --preflight
+```
+
+Freeze a reviewed snapshot into a new directory (the command refuses to
+overwrite an existing pack):
+
+```bash
+.venv/bin/python research/fixture_pack_v2.py \
+  --capture-dir \
+  --output-dir research/fixtures/bf-autoresearch-v2-pack-YYYYMMDD
+```
+
+Auto-selected candidates are preserved only as provenance. The fixture pack
+creates positives solely from hash-bound explicit human approvals, and leaves
+all unapproved candidates unknown. Each exact positive carries its sealed
+capture-label and canonical `CandidateDecision` proof; replay recomputes its
+source, transcript and candidate identities before counting it. Interrupted
+unlabeled captures are reported and skipped, never promoted as evidence.
+
 ## Objective
 
 Maximize:

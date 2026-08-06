@@ -206,6 +206,38 @@ class AutoresearchEvaluationV2Tests(unittest.TestCase):
         self.assertEqual(first["renders"], 0)
         verify_local_seal(first, "BudgetFriendlyAutoresearchEvaluation")
 
+    def test_real_evaluation_entry_verifies_v2_pack_indexes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_manifest, _ = write_source_fixture(root)
+            build_fixture_pack(
+                root=root,
+                source_manifest=source_manifest,
+                output_dir=root / "pack",
+            )
+            corpus_path = root / "pack/corpus.json"
+            corpus = json.loads(corpus_path.read_text(encoding="utf-8"))
+            corpus["datasetCount"] = 2
+            corpus_path.write_text(json.dumps(corpus), encoding="utf-8")
+
+            readiness = assess_replay_data_readiness(
+                root,
+                contract("pack/manifest.json"),
+            )
+            self.assertFalse(readiness["replayable"])
+            self.assertIn("seal is invalid", readiness["integrityError"])
+            verify_local_seal(
+                readiness,
+                "BudgetFriendlyAutoresearchDataReadiness",
+            )
+
+            with self.assertRaises(ReplayDataUnavailable) as raised:
+                evaluate_budget_friendly_selection(
+                    root,
+                    contract("pack/manifest.json"),
+                )
+            self.assertIn("seal is invalid", raised.exception.report["integrityError"])
+
     def test_offline_boundary_denies_network_subprocess_and_writes(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "forbidden.txt"
@@ -296,6 +328,14 @@ class FixturePackV2Tests(unittest.TestCase):
         self.assertNotIn("selected_for_render", dataset["candidates"][0])
         self.assertFalse(
             Path(packed_manifest["datasets"][0]["candidate_path"]).is_absolute()
+        )
+        self.assertEqual(
+            packed_manifest["labelBindingMode"],
+            "legacy_interval_v1",
+        )
+        self.assertEqual(
+            packed_manifest["datasets"][0]["label_binding_mode"],
+            "legacy_interval_v1",
         )
         verify_local_seal(corpus, "BudgetFriendlyReplayCorpusV2")
         verify_local_seal(labels, "BudgetFriendlyReplayLabelsV2")
@@ -399,6 +439,36 @@ class AutoresearchRunnerV2Tests(unittest.TestCase):
         self.assertIsNone(report["testLanes"]["fast"])
         self.assertGreater(report["dataReadiness"]["missingArtifactCount"], 0)
         verify_local_seal(report, "BudgetFriendlyAutoresearchRunV2")
+
+    def test_runner_distinguishes_invalid_replay_integrity_from_missing_data(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            invalid = {
+                "replayable": False,
+                "integrityError": "ValueError: replay pack seal is invalid",
+                "missingArtifactCount": 0,
+            }
+            with patch(
+                "research.runner_v2.assess_replay_data_readiness",
+                return_value=invalid,
+            ), patch(
+                "research.runner_v2.workspace_source_fingerprints",
+                return_value={"fixture": "sealed"},
+            ), patch(
+                "research.runner_v2.git_workspace_state",
+                return_value={"head": None, "trackedDirty": None},
+            ):
+                report = execute(
+                    root=ROOT,
+                    contract_path=ROOT / "research/autoresearch-v2-contract.json",
+                    output_dir=output,
+                    baseline=True,
+                    hypothesis="",
+                )
+
+        self.assertEqual(report["status"], "crash")
+        self.assertEqual(report["reason"], "replay_integrity_invalid")
+        self.assertIsNone(report["testLanes"]["fast"])
 
     def test_workspace_fingerprint_is_content_based(self):
         with tempfile.TemporaryDirectory() as directory:

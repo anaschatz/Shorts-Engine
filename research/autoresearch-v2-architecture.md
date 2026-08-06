@@ -85,6 +85,66 @@ manifest references resolve to 10 unique missing files, so V2 correctly stops
 before testing or evaluation until those files are restored or replaced by a
 new sealed replay pack.
 
+## Durable approval capture
+
+New local rankings embed one sealed
+`BudgetFriendlyReplayTranscriptManifestV2`. This replay-only artifact is
+deliberately distinct from the production control-plane `TranscriptManifest`,
+whose cross-runtime schema is different. It keeps the complete strict-JSON
+transcript, unknown metadata, and unrounded word timings, and binds them to the
+source bytes. Because the ranking itself is sealed,
+`CandidateDecision.rankingManifestHash` now transitively binds the human
+approval to the exact transcript and complete ordered candidate universe.
+
+`approve-candidate` automatically writes two append-only, content-addressed
+objects under `LOCAL_AUTORESEARCH_EVIDENCE_DIR`:
+
+- `datasets/<rankingManifestHash>.json` contains the complete sealed
+  `RankingManifest`, exact transcript, and all candidates in original order;
+- `labels/<rankingManifestHash>/<candidateDecisionHash>.json` contains the
+  exact sealed human approval and its approved rank.
+
+The default evidence root is durable OS app data, never `output/` and never a
+cache. An identical retry is idempotent. A filename collision with different
+content, stale source/ranking/candidate binding, missing word timing, NaN,
+reversed/non-monotonic timing, or a label without a matching candidate fails
+closed before the operator command reports success. A dataset may safely exist
+without a label after an interrupted write; such a dataset is not promotable
+and cannot become a positive.
+
+Engine choices are stored with semantics `unknown_not_human_label`. Only an
+explicit sealed `CandidateDecision` produces the label semantics
+`explicit_human_approval`; every other candidate remains unknown rather than
+being inferred rejected.
+
+The inbox never mutates the active research corpus. Promotion is an explicit
+offline step that verifies every nested seal and exact hash join, skips and
+reports interrupted datasets that have no approval, collapses multiple
+approval events for the same candidate into one positive, and embeds the
+sealed capture labels and canonical `CandidateDecision` events in the frozen
+pack. Only hash-volatile top-level cache/output fields are removed from the
+portable candidate projection; a hidden nested or absolute path fails closed
+instead of silently changing candidate identity. Semantic prompt evidence and
+unrounded transcript metadata remain unchanged:
+
+```bash
+python3 research/fixture_pack_v2.py \
+  --capture-dir \
+  --output-dir research/fixtures/bf-autoresearch-v2-pack-YYYYMMDD
+```
+
+Only after review should `replayManifest` point at that frozen pack. Trials
+never read the mutable inbox directly.
+
+Every frozen V2 pack declares one label-binding mode. Migrated historical
+packs use `legacy_interval_v1`; new approval captures use
+`candidate_hash_exact_v1`. Exact packs recompute source, transcript and
+candidate identities, require at least one explicit human positive per source,
+reject reused approval events or duplicate source hashes, and verify the
+manifest, corpus index, label index, datasets and labels before any metric is
+calculated. Missing files report `replay_artifacts_missing`; present but
+invalid evidence reports `replay_integrity_invalid`.
+
 ## Status meanings
 
 - `baseline`: sealed comparison point;

@@ -18,7 +18,10 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, Iterable, Mapping, Optional, Sequence
 
-from shorts_generator.growth_replay import build_growth_replay_report
+from shorts_generator.growth_replay import (
+    build_growth_replay_report,
+    verify_replay_pack,
+)
 
 
 AUTORESEARCH_V2_VERSION = "bf-autoresearch-v2.0.0"
@@ -51,6 +54,12 @@ def _file_hash(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _safe_integrity_error(error: BaseException, root: Path) -> str:
+    """Keep diagnostics useful without persisting a machine-local repo path."""
+    message = str(error).replace(str(root.resolve()), "<repo>")
+    return f"{type(error).__name__}: {message}"
 
 
 def _seal(payload: Mapping[str, object]) -> Dict[str, object]:
@@ -328,11 +337,16 @@ def assess_replay_data_readiness(
     manifest_path = root / manifest_relative
     missing = []
     datasets = []
+    integrity_error = None
     if not manifest_path.is_file():
         missing.append(manifest_relative)
         manifest = None
     else:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            manifest = None
+            integrity_error = _safe_integrity_error(error, root)
     if isinstance(manifest, Mapping):
         for index, spec in enumerate(manifest.get("datasets") or []):
             if not isinstance(spec, Mapping):
@@ -361,6 +375,15 @@ def assess_replay_data_readiness(
                     "ready": all(item["exists"] for item in declared_paths),
                 }
             )
+    if isinstance(manifest, Mapping) and not missing:
+        try:
+            verify_replay_pack(
+                dict(manifest),
+                root,
+                manifest_path=manifest_path,
+            )
+        except (OSError, TypeError, ValueError, KeyError) as error:
+            integrity_error = _safe_integrity_error(error, root)
     payload = {
         "schemaVersion": 1,
         "artifactType": "BudgetFriendlyAutoresearchDataReadiness",
@@ -373,7 +396,8 @@ def assess_replay_data_readiness(
         "readyDatasetCount": sum(item["ready"] for item in datasets),
         "missingArtifactCount": len(set(missing)),
         "missingArtifacts": sorted(set(missing)),
-        "replayable": bool(datasets) and not missing,
+        "integrityError": integrity_error,
+        "replayable": bool(datasets) and not missing and integrity_error is None,
         "datasets": datasets,
     }
     return _seal(payload)
@@ -538,6 +562,7 @@ def evaluate_budget_friendly_selection(
             manifest,
             root=root,
             top_k=max(1, int(contract["topK"])),
+            manifest_path=manifest_path,
         )
     aggregate = replay["aggregate"]
     approved_outcomes, counts = _known_positive_outcomes(replay)

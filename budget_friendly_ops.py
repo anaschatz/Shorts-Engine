@@ -18,6 +18,7 @@ from shorts_generator.artifact_contracts import (
     verify_seal,
 )
 from shorts_generator.config import (
+    LOCAL_AUTORESEARCH_EVIDENCE_DIR,
     LOCAL_PERFORMANCE_REPORT_DIR,
     LOCAL_RENDER_WORKERS,
 )
@@ -42,6 +43,7 @@ from shorts_generator.profiles import (
     profile_manifest_metadata,
     resolve_profile_bundle,
 )
+from shorts_generator.replay_capture import archive_approved_candidate
 from shorts_generator.publisher import (
     PublishReceiptStore,
     publish_idempotency_key,
@@ -150,6 +152,16 @@ def candidate_from_file(
 
 
 def command_approve(args) -> dict:
+    evidence_root = Path(args.evidence_dir).expanduser().resolve()
+    decision_output = Path(args.output).expanduser().resolve()
+    try:
+        decision_output.relative_to(evidence_root)
+    except ValueError:
+        pass
+    else:
+        raise ValueError(
+            "--output must be outside the append-only Autoresearch evidence root"
+        )
     ranking, candidate, source_hash = candidate_from_file(
         args.candidate_json,
         args.rank,
@@ -162,6 +174,12 @@ def command_approve(args) -> dict:
         decided_at=args.decided_at,
         ranking_manifest_hash=ranking["contentHash"],
         notes=args.notes,
+    )
+    archive_approved_candidate(
+        ranking,
+        decision,
+        approved_rank=args.rank,
+        evidence_dir=evidence_root,
     )
     write_json(args.output, decision)
     return decision
@@ -453,6 +471,14 @@ def build_parser() -> argparse.ArgumentParser:
     approve.add_argument("--reviewer", required=True)
     approve.add_argument("--decided-at", required=True)
     approve.add_argument("--notes", default="")
+    approve.add_argument(
+        "--evidence-dir",
+        default=LOCAL_AUTORESEARCH_EVIDENCE_DIR,
+        help=(
+            "Durable append-only Autoresearch approval evidence root "
+            "(separate from output and caches)."
+        ),
+    )
     approve.add_argument("--output", required=True)
     approve.set_defaults(handler=command_approve)
 
