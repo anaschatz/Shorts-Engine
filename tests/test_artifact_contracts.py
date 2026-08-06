@@ -73,8 +73,20 @@ class ArtifactContractsTests(unittest.TestCase):
                     "speaker": "speaker-a",
                     "words": [
                         {
-                            "word": "One exact thought.",
+                            "word": "One",
                             "start": 0.000000123,
+                            "end": 3.000000123,
+                            "confidence": 0.987654321,
+                        },
+                        {
+                            "word": "exact",
+                            "start": 3.100000123,
+                            "end": 7.000000123,
+                            "confidence": 0.987654321,
+                        },
+                        {
+                            "word": "thought.",
+                            "start": 7.100000123,
                             "end": 12.000000321,
                             "confidence": 0.987654321,
                         }

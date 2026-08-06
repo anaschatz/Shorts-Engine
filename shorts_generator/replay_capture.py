@@ -424,7 +424,7 @@ def _fsync_directory(path: Path) -> None:
         os.close(descriptor)
 
 
-def _write_immutable_json(path: Path, artifact: Dict) -> bool:
+def write_immutable_json(path: Path, artifact: Dict) -> bool:
     """Create one complete content-addressed file; identical retries are safe."""
     snapshot = _strict_snapshot(artifact, "capture artifact")
     encoded = (
@@ -498,8 +498,8 @@ def archive_approved_candidate(
         / dataset["rankingManifestHash"]
         / f"{label['candidateDecisionHash']}.json"
     )
-    dataset_created = _write_immutable_json(dataset_path, dataset)
-    label_created = _write_immutable_json(label_path, label)
+    dataset_created = write_immutable_json(dataset_path, dataset)
+    label_created = write_immutable_json(label_path, label)
     return {
         "schemaVersion": 1,
         "artifactType": "BudgetFriendlyReplayCaptureReceiptV2",

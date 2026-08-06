@@ -205,8 +205,23 @@ class VersionedProfileTests(unittest.TestCase):
                         "text": "A complete exact thought.",
                         "words": [
                             {
-                                "word": "A complete exact thought.",
+                                "word": "A",
                                 "start": 0.0,
+                                "end": 1.0,
+                            },
+                            {
+                                "word": "complete",
+                                "start": 1.1,
+                                "end": 5.0,
+                            },
+                            {
+                                "word": "exact",
+                                "start": 5.1,
+                                "end": 8.0,
+                            },
+                            {
+                                "word": "thought.",
+                                "start": 8.1,
                                 "end": 12.0,
                             }
                         ],

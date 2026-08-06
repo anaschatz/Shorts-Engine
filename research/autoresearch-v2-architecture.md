@@ -117,6 +117,17 @@ explicit sealed `CandidateDecision` produces the label semantics
 `explicit_human_approval`; every other candidate remains unknown rather than
 being inferred rejected.
 
+Legacy sealed rankings may be resealed with an exact surviving source and
+strict word-timed transcript through `bind-replay-transcript`. This creates a
+new review-only ranking, records the old ranking hash, and verifies that the
+complete candidate universe is replay-compatible. It creates zero labels and
+never promotes an old engine selection; a new explicit `approve-candidate`
+decision remains required. Raw caches must carry matching source-hash or
+YouTube-video provenance, genuine one-token word timings, and candidate text
+inside every declared speech interval. The review ranking is created with an
+exclusive immutable write, so a concurrent or conflicting file cannot be
+overwritten.
+
 The inbox never mutates the active research corpus. Promotion is an explicit
 offline step that verifies every nested seal and exact hash join, skips and
 reports interrupted datasets that have no approval, collapses multiple

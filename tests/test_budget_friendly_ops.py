@@ -12,7 +12,305 @@ from shorts_generator.profiles import BF_VIRAL_MICRO_V1, resolve_profile_bundle
 from shorts_generator.publisher import PublishReceiptStore
 
 
+def replay_backfill_transcript(
+    text,
+    source_hash,
+    *,
+    multiword_token=False,
+    include_provenance=True,
+):
+    tokens = [text] if multiword_token else text.split()
+    step = 11.75 / len(tokens)
+    transcript = {
+        "duration": 12.0,
+        "segments": [
+            {
+                "start": 0.0,
+                "end": 11.75,
+                "text": text,
+                "words": [
+                    {
+                        "word": token,
+                        "start": round(index * step, 6),
+                        "end": round((index + 1) * step, 6),
+                    }
+                    for index, token in enumerate(tokens)
+                ],
+            }
+        ],
+    }
+    if include_provenance:
+        transcript["_cache"] = {
+            "schema_version": 3,
+            "source_sha256": source_hash,
+            "model": "fixture",
+            "language": "en",
+        }
+    return transcript
+
+
 class BudgetFriendlyOpsTests(unittest.TestCase):
+    def test_bind_replay_transcript_accepts_only_canonical_youtube_cache_metadata(self):
+        transcript = replay_backfill_transcript(
+            " ".join(f"word{index}" for index in range(24)),
+            "unused",
+        )
+        transcript["_cache"] = {
+            "schema_version": 1,
+            "parser_version": "json3-words-v1",
+            "provider": "automatic_captions",
+            "video_id": "legacy123",
+            "requested_language": "en",
+            "track_language": "en-orig",
+        }
+
+        ops._verify_backfill_transcript_provenance(
+            transcript,
+            source_input="https://www.youtube.com/watch?v=legacy123",
+            source_hash="a" * 64,
+        )
+        transcript["_cache"]["parser_version"] = "stale-parser"
+        with self.assertRaisesRegex(ValueError, "cache provenance is incompatible"):
+            ops._verify_backfill_transcript_provenance(
+                transcript,
+                source_input="https://www.youtube.com/watch?v=legacy123",
+                source_hash="a" * 64,
+            )
+
+    def test_bind_replay_transcript_reseals_legacy_ranking_without_a_label(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            source.write_bytes(b"source")
+            source_hash = file_sha256(str(source))
+            candidate_body = {
+                "start_time": 0.0,
+                "end_time": 11.75,
+                "speech_start_time": 0.0,
+                "speech_end_time": 11.75,
+                "title": "Review this exact candidate",
+                "candidate_text": "Pressure creates choices and boundaries protect peace.",
+                "content_profile": "motivational_podcast",
+                "selection_profile": "motivational_tension_micro_v1",
+                "render_profile": "bf_editorial_inset_v1",
+                "format_profile": "bf_viral_micro_v1",
+                "selection_rank": 1,
+                "selected_for_render": True,
+                "rejected": False,
+                "rejection_reasons": [],
+                "source_cut_count": 0,
+            }
+            candidate = {
+                **candidate_body,
+                "candidate_hash": candidate_hash(candidate_body, source_hash),
+            }
+            legacy = build_ranking_manifest(
+                "https://www.youtube.com/watch?v=legacy123",
+                str(source),
+                "motivational_podcast",
+                [candidate],
+                [candidate],
+                profiles=resolve_profile_bundle(format_profile=BF_VIRAL_MICRO_V1),
+                source_hash=source_hash,
+            )
+            transcript = replay_backfill_transcript(
+                "Pressure creates choices and boundaries protect peace.",
+                source_hash,
+            )
+            ranking_path = root / "legacy-ranking.json"
+            transcript_path = root / "transcript.json"
+            output = root / "review-ranking.json"
+            evidence = root / "evidence"
+            ops.write_json(str(ranking_path), legacy)
+            ops.write_json(str(transcript_path), transcript)
+            args = ops.build_parser().parse_args(
+                [
+                    "bind-replay-transcript",
+                    "--ranking",
+                    str(ranking_path),
+                    "--source",
+                    str(source),
+                    "--transcript",
+                    str(transcript_path),
+                    "--evidence-dir",
+                    str(evidence),
+                    "--output",
+                    str(output),
+                ]
+            )
+
+            result = args.handler(args)
+            replay_ranking = ops.read_json(str(output))
+            retry = args.handler(args)
+            collision_output = root / "owned-by-user.json"
+            collision_output.write_text('{"owner":"user"}\n', encoding="utf-8")
+            collision_args = ops.build_parser().parse_args(
+                [
+                    "bind-replay-transcript",
+                    "--ranking",
+                    str(ranking_path),
+                    "--source",
+                    str(source),
+                    "--transcript",
+                    str(transcript_path),
+                    "--evidence-dir",
+                    str(evidence),
+                    "--output",
+                    str(collision_output),
+                ]
+            )
+            with self.assertRaisesRegex(
+                ValueError,
+                "immutable capture collision",
+            ):
+                collision_args.handler(collision_args)
+            collision_body = collision_output.read_text(encoding="utf-8")
+
+        self.assertEqual(result["legacyRankingManifestHash"], legacy["contentHash"])
+        self.assertTrue(result["created"])
+        self.assertFalse(retry["created"])
+        self.assertEqual(collision_body, '{"owner":"user"}\n')
+        self.assertEqual(result["rankingManifestHash"], replay_ranking["contentHash"])
+        self.assertEqual(result["candidateCount"], 1)
+        self.assertEqual(result["engineSelectedCandidateCount"], 1)
+        self.assertEqual(result["engineSelectionSemantics"], "unknown_not_human_label")
+        self.assertEqual(result["humanPositiveCount"], 0)
+        self.assertTrue(result["approvalRequired"])
+        self.assertEqual(
+            replay_ranking["replayBackfillProvenance"]["legacyRankingManifestHash"],
+            legacy["contentHash"],
+        )
+        self.assertEqual(
+            replay_ranking["replayTranscriptManifest"]["sourceHash"],
+            source_hash,
+        )
+        ops.verify_seal(replay_ranking, "RankingManifest")
+        self.assertFalse(evidence.exists())
+
+    def test_bind_replay_transcript_rejects_unprovenanced_unrelated_and_multiword_data(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            source.write_bytes(b"source")
+            source_hash = file_sha256(str(source))
+            candidate_text = "Pressure creates choices and boundaries protect peace."
+            candidate_body = {
+                "start_time": 0.0,
+                "end_time": 11.75,
+                "speech_start_time": 0.0,
+                "speech_end_time": 11.75,
+                "candidate_text": candidate_text,
+            }
+            candidate = {
+                **candidate_body,
+                "candidate_hash": candidate_hash(candidate_body, source_hash),
+            }
+            legacy = build_ranking_manifest(
+                "https://www.youtube.com/watch?v=legacy123",
+                str(source),
+                "motivational_podcast",
+                [candidate],
+                [],
+                source_hash=source_hash,
+            )
+            ranking_path = root / "legacy-ranking.json"
+            ops.write_json(str(ranking_path), legacy)
+            cases = [
+                (
+                    "unprovenanced",
+                    replay_backfill_transcript(
+                        candidate_text,
+                        source_hash,
+                        include_provenance=False,
+                    ),
+                    "lacks verifiable cache provenance",
+                ),
+                (
+                    "unrelated",
+                    replay_backfill_transcript(
+                        "Completely unrelated words occupy this exact interval.",
+                        source_hash,
+                    ),
+                    "text is not supported by its timed interval",
+                ),
+                (
+                    "multiword",
+                    replay_backfill_transcript(
+                        candidate_text,
+                        source_hash,
+                        multiword_token=True,
+                    ),
+                    "word timing tokens must not contain whitespace",
+                ),
+            ]
+            for name, transcript, error_pattern in cases:
+                transcript_path = root / f"{name}.json"
+                output = root / f"{name}-ranking.json"
+                ops.write_json(str(transcript_path), transcript)
+                args = ops.build_parser().parse_args(
+                    [
+                        "bind-replay-transcript",
+                        "--ranking",
+                        str(ranking_path),
+                        "--source",
+                        str(source),
+                        "--transcript",
+                        str(transcript_path),
+                        "--output",
+                        str(output),
+                    ]
+                )
+
+                with self.subTest(name=name), self.assertRaisesRegex(
+                    ValueError,
+                    error_pattern,
+                ):
+                    args.handler(args)
+                self.assertFalse(output.exists())
+
+    def test_bind_replay_transcript_rejects_wrong_source_and_preserves_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            other_source = root / "other.mp4"
+            source.write_bytes(b"source")
+            other_source.write_bytes(b"other")
+            legacy = build_ranking_manifest(
+                "https://www.youtube.com/watch?v=legacy123",
+                str(source),
+                "motivational_podcast",
+                [],
+                [],
+                profiles=resolve_profile_bundle(format_profile=BF_VIRAL_MICRO_V1),
+                source_hash=file_sha256(str(source)),
+            )
+            ranking_path = root / "legacy-ranking.json"
+            transcript_path = root / "transcript.json"
+            output = root / "review-ranking.json"
+            ops.write_json(str(ranking_path), legacy)
+            ops.write_json(str(transcript_path), {"duration": 1.0, "segments": []})
+            args = ops.build_parser().parse_args(
+                [
+                    "bind-replay-transcript",
+                    "--ranking",
+                    str(ranking_path),
+                    "--source",
+                    str(other_source),
+                    "--transcript",
+                    str(transcript_path),
+                    "--output",
+                    str(output),
+                ]
+            )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "not bound to the supplied source",
+            ):
+                args.handler(args)
+
+            self.assertFalse(output.exists())
+
     def test_render_approved_batch_cli_preserves_order_and_writes_bundles(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -131,23 +429,10 @@ class BudgetFriendlyOpsTests(unittest.TestCase):
                 [],
                 profiles=resolve_profile_bundle(format_profile=BF_VIRAL_MICRO_V1),
                 source_hash=source_hash,
-                transcript={
-                    "duration": 12.0,
-                    "segments": [
-                        {
-                            "start": 0.0,
-                            "end": 11.75,
-                            "text": "A tested tension hook with a complete takeaway.",
-                            "words": [
-                                {
-                                    "word": "A tested tension hook with a complete takeaway.",
-                                    "start": 0.0,
-                                    "end": 11.75,
-                                }
-                            ],
-                        }
-                    ],
-                },
+                transcript=replay_backfill_transcript(
+                    "A tested tension hook with a complete takeaway.",
+                    source_hash,
+                ),
             )
             ranking_path = Path(directory) / "ranking.json"
             ops.write_json(

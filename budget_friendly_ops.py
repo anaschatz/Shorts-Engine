@@ -6,15 +6,19 @@ import argparse
 import json
 import os
 import tempfile
+import unicodedata
 from pathlib import Path
 
 from shorts_generator.artifact_contracts import (
     ArtifactBindingError,
     build_candidate_decision,
     build_publish_manifest,
+    build_replay_transcript_manifest,
     build_rights_manifest,
     candidate_hash,
+    content_hash,
     file_sha256,
+    verify_replay_transcript_manifest,
     verify_seal,
 )
 from shorts_generator.config import (
@@ -31,6 +35,10 @@ from shorts_generator.growth_analytics import (
 )
 from shorts_generator.originality import evaluate_originality
 from shorts_generator.performance import PerformanceTelemetry
+from shorts_generator.local.downloader import _extract_youtube_video_id
+from shorts_generator.local.youtube_captions import (
+    _cache_matches as _youtube_caption_cache_matches,
+)
 from shorts_generator.production_workflow import (
     render_approved_candidate,
     render_approved_candidates,
@@ -43,7 +51,11 @@ from shorts_generator.profiles import (
     profile_manifest_metadata,
     resolve_profile_bundle,
 )
-from shorts_generator.replay_capture import archive_approved_candidate
+from shorts_generator.replay_capture import (
+    archive_approved_candidate,
+    build_replay_capture_dataset,
+    write_immutable_json,
+)
 from shorts_generator.publisher import (
     PublishReceiptStore,
     publish_idempotency_key,
@@ -149,6 +161,159 @@ def candidate_from_file(
     if declared_candidate_hash != candidate_hash(candidate, source_hash):
         raise ArtifactBindingError("ranking candidate hash is stale")
     return ranking, candidate, source_hash
+
+
+def _normalize_backfill_text(value: object) -> str:
+    normalized = unicodedata.normalize("NFKC", str(value or "")).casefold()
+    return "".join(character for character in normalized if character.isalnum())
+
+
+def _verify_backfill_transcript_provenance(
+    transcript: dict,
+    *,
+    source_input: str,
+    source_hash: str,
+) -> None:
+    cache = transcript.get("_cache")
+    if not isinstance(cache, dict):
+        raise ArtifactBindingError("raw transcript lacks verifiable cache provenance")
+    cached_source_hash = str(cache.get("source_sha256") or "").strip().lower()
+    if cached_source_hash:
+        if cache.get("schema_version") != 3 or cached_source_hash != source_hash:
+            raise ArtifactBindingError("transcript cache references another source")
+        return
+    video_id = _extract_youtube_video_id(source_input)
+    if (
+        not video_id
+        or not str(cache.get("provider") or "").strip()
+        or not str(cache.get("track_language") or "").strip()
+        or not _youtube_caption_cache_matches(
+            transcript,
+            video_id,
+            str(cache.get("requested_language") or "auto"),
+        )
+    ):
+        raise ArtifactBindingError("raw transcript cache provenance is incompatible")
+
+
+def _verify_backfill_candidate_text(
+    ranking: dict,
+    transcript: dict,
+) -> None:
+    timed_words = []
+    for segment in transcript.get("segments") or []:
+        for word in segment.get("words") or []:
+            token = str(word.get("word") or word.get("text") or "").strip()
+            if any(character.isspace() for character in token):
+                raise ArtifactBindingError(
+                    "replay backfill word tokens must not contain whitespace"
+                )
+            timed_words.append(word)
+    for index, candidate in enumerate(ranking.get("candidates") or []):
+        speech_start = float(
+            candidate.get("speech_start_time", candidate.get("start_time"))
+        )
+        speech_end = float(
+            candidate.get("speech_end_time", candidate.get("end_time"))
+        )
+        interval_text = " ".join(
+            str(word.get("word") or word.get("text") or "")
+            for word in timed_words
+            if float(word.get("end") or 0.0) >= speech_start - 0.05
+            and float(word.get("start") or 0.0) <= speech_end + 0.05
+        )
+        expected = _normalize_backfill_text(candidate.get("candidate_text"))
+        observed = _normalize_backfill_text(interval_text)
+        if not expected or expected not in observed:
+            raise ArtifactBindingError(
+                f"ranking candidate[{index}] text is not supported by its timed interval"
+            )
+
+
+def command_bind_replay_transcript(args) -> dict:
+    """Create a new replay-capable ranking without inventing a human label."""
+    output = Path(args.output).expanduser().resolve()
+    evidence_root = Path(args.evidence_dir).expanduser().resolve()
+    try:
+        output.relative_to(evidence_root)
+    except ValueError:
+        pass
+    else:
+        raise ValueError(
+            "--output must be outside the append-only Autoresearch evidence root"
+        )
+
+    ranking = verify_seal(read_json(args.ranking), "RankingManifest")
+    if ranking.get("schemaVersion") != 1:
+        raise ArtifactBindingError("unsupported RankingManifest schema")
+    if ranking.get("replayTranscriptManifest") is not None:
+        raise ArtifactBindingError("ranking already has a replay transcript manifest")
+    source_path = Path(args.source).expanduser().resolve()
+    source_hash = file_sha256(str(source_path))
+    if ranking.get("sourceHash") != source_hash:
+        raise ArtifactBindingError("ranking manifest is not bound to the supplied source")
+    source = ranking.get("source")
+    if not isinstance(source, dict) or not str(source.get("input") or "").strip():
+        raise ArtifactBindingError("ranking manifest source is invalid")
+
+    transcript_document = read_json(args.transcript)
+    if transcript_document.get("artifactType") == "BudgetFriendlyReplayTranscriptManifestV2":
+        transcript_manifest = verify_replay_transcript_manifest(
+            transcript_document,
+            source_hash=source_hash,
+            require_timed_words=True,
+        )
+    else:
+        _verify_backfill_transcript_provenance(
+            transcript_document,
+            source_input=str(source["input"]),
+            source_hash=source_hash,
+        )
+        transcript_manifest = build_replay_transcript_manifest(
+            transcript_document,
+            source_hash,
+        )
+    verified_transcript = verify_replay_transcript_manifest(
+        transcript_manifest,
+        source_hash=source_hash,
+        require_timed_words=True,
+    )["transcript"]
+    _verify_backfill_candidate_text(ranking, verified_transcript)
+
+    ranking_body = {
+        key: value for key, value in ranking.items() if key != "contentHash"
+    }
+    ranking_body["source"] = {
+        **source,
+        "local_path": str(source_path),
+    }
+    ranking_body["replayTranscriptManifest"] = transcript_manifest
+    ranking_body["replayBackfillProvenance"] = {
+        "method": "bind_exact_transcript_v1",
+        "legacyRankingManifestHash": ranking["contentHash"],
+        "humanLabelSemantics": "unknown_not_human_label",
+    }
+    replay_ranking = {
+        **ranking_body,
+        "contentHash": content_hash(ranking_body),
+    }
+    capture_dataset = build_replay_capture_dataset(replay_ranking)
+    created = write_immutable_json(output, replay_ranking)
+    return {
+        "rankingPath": str(output),
+        "created": created,
+        "legacyRankingManifestHash": ranking["contentHash"],
+        "rankingManifestHash": replay_ranking["contentHash"],
+        "replayTranscriptManifestHash": transcript_manifest["contentHash"],
+        "captureDatasetHash": capture_dataset["contentHash"],
+        "candidateCount": len(capture_dataset["candidates"]),
+        "engineSelectedCandidateCount": len(
+            capture_dataset["engineSelectedCandidateHashes"]
+        ),
+        "engineSelectionSemantics": capture_dataset["engineSelectionSemantics"],
+        "humanPositiveCount": 0,
+        "approvalRequired": True,
+    }
 
 
 def command_approve(args) -> dict:
@@ -463,6 +628,18 @@ def command_import_csv(args) -> dict:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
+
+    bind_replay = sub.add_parser("bind-replay-transcript")
+    bind_replay.add_argument("--ranking", required=True)
+    bind_replay.add_argument("--source", required=True)
+    bind_replay.add_argument("--transcript", required=True)
+    bind_replay.add_argument(
+        "--evidence-dir",
+        default=LOCAL_AUTORESEARCH_EVIDENCE_DIR,
+        help="Append-only evidence root, which may not contain this review artifact.",
+    )
+    bind_replay.add_argument("--output", required=True)
+    bind_replay.set_defaults(handler=command_bind_replay_transcript)
 
     approve = sub.add_parser("approve-candidate")
     approve.add_argument("--candidate-json", required=True)

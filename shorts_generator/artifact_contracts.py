@@ -210,6 +210,12 @@ def validate_timed_transcript(
                     "transcript word timing tokens must be strings"
                 )
             token = raw_token.strip()
+            if require_timed_words and any(
+                character.isspace() for character in token
+            ):
+                raise ArtifactBindingError(
+                    "replay word timing tokens must not contain whitespace"
+                )
             word_start = _finite_timestamp(
                 word.get("start"),
                 (

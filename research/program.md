@@ -74,6 +74,26 @@ events for the same candidate remain provenance and never increase the human
 positive count. An empty inbox returns structured zero counts instead of a
 traceback. Preflight exits with status 2 until activation is ready.
 
+An old sealed ranking can be reused only when its exact source bytes and a
+strict word-timed transcript still exist. Bind those artifacts into a new
+review-only ranking without downloading, rendering, or creating a label:
+
+```bash
+python budget_friendly_ops.py bind-replay-transcript \
+  --ranking <legacy-ranking.json> \
+  --source <exact-source.mp4> \
+  --transcript <exact-timed-transcript.json> \
+  --output <new-review-ranking.json>
+```
+
+The command verifies every candidate against the transcript and source,
+records the legacy ranking hash, and preserves engine selections only as
+`unknown_not_human_label`. A separate explicit `approve-candidate` review is
+still mandatory before anything enters the evidence inbox. Raw transcripts
+must be a recognized source-hash cache or a JSON3 YouTube cache for the exact
+source video; every candidate text must occur inside its declared timed-word
+interval. Output creation is immutable and identical retries are idempotent.
+
 Freeze a reviewed snapshot into a new directory (the command refuses to
 overwrite an existing pack and refuses an under-threshold capture inbox):
 

@@ -61,10 +61,16 @@ def exact_transcript():
                         "confidence": 0.991234567,
                     },
                     {
-                        "word": "creates choices.",
+                        "word": "creates",
                         "start": 1.345678912,
-                        "end": 9.876543219,
+                        "end": 4.876543219,
                         "confidence": 0.981234567,
+                    },
+                    {
+                        "word": "choices.",
+                        "start": 4.976543219,
+                        "end": 9.876543219,
+                        "confidence": 0.976234567,
                     },
                     {
                         "word": "Boundaries",
@@ -73,10 +79,16 @@ def exact_transcript():
                         "confidence": 0.971234567,
                     },
                     {
-                        "word": "protect peace.",
+                        "word": "protect",
                         "start": 12.456789123,
-                        "end": 21.876543219,
+                        "end": 16.876543219,
                         "confidence": 0.961234567,
+                    },
+                    {
+                        "word": "peace.",
+                        "start": 16.976543219,
+                        "end": 21.876543219,
+                        "confidence": 0.951234567,
                     },
                 ],
             }
