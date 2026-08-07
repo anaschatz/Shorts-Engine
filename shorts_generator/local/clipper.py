@@ -87,6 +87,11 @@ from ..winner_packaging import (
     normalize_caption_tokens,
 )
 from .bounded_file_cache import prune_bounded_cache
+from .caption_render_planning import (
+    build_caption_render_plan,
+    editorial_kinetic_state,
+    select_active_caption_cues,
+)
 from .lossless_cut_config import parse_lossless_cut_config
 from .lossless_cut_planning import (
     build_lossless_cut_cache_key,
@@ -2209,39 +2214,12 @@ def _editorial_caption_lane(
 
 def _editorial_kinetic_state(cue: Dict, elapsed: float) -> Dict[str, float]:
     """Return restrained phrase-level fade, scale and mask-reveal values."""
-    phrase_start = float(cue.get("phrase_start", cue.get("start", 0.0)))
-    entry_progress = max(
-        0.0,
-        min(
-            1.0,
-            (float(elapsed) - phrase_start)
-            / max(0.001, BF_EDITORIAL_KINETIC_ENTRY_SECONDS),
-        ),
+    return editorial_kinetic_state(
+        cue,
+        elapsed,
+        entry_seconds=BF_EDITORIAL_KINETIC_ENTRY_SECONDS,
+        exit_seconds=BF_EDITORIAL_KINETIC_EXIT_SECONDS,
     )
-    eased = entry_progress * entry_progress * (3.0 - 2.0 * entry_progress)
-    words = list(cue.get("words") or [])
-    is_complete_phrase = bool(words) and int(
-        cue.get("visible_word_count", len(words))
-    ) >= len(words)
-    exit_progress = 1.0
-    if is_complete_phrase:
-        exit_progress = max(
-            0.0,
-            min(
-                1.0,
-                (float(cue.get("end", elapsed)) - float(elapsed))
-                / max(0.001, BF_EDITORIAL_KINETIC_EXIT_SECONDS),
-            ),
-        )
-    exit_eased = exit_progress * exit_progress * (3.0 - 2.0 * exit_progress)
-    return {
-        "progress": entry_progress,
-        "exit_progress": exit_progress,
-        "opacity": (0.35 + 0.65 * eased) * exit_eased,
-        "scale": 0.98 + 0.02 * eased,
-        # Keep complete glyphs visible; partial letter masks read as jitter.
-        "mask_reveal": 1.0,
-    }
 
 
 def _blend_caption_kinetic_roi(
@@ -2753,83 +2731,31 @@ class _CaptionRenderer:
         import cv2  # type: ignore
         import numpy as np
 
-        if isinstance(cue, dict):
-            words = [str(word).strip() for word in cue.get("words", [])]
-            active_index = int(cue.get("active_index", 0))
-            emphasis_index = int(cue.get("emphasis_index", active_index))
-            visible_word_count = max(
-                0,
-                min(len(words), int(cue.get("visible_word_count", len(words)))),
+        kinetic_state = (
+            _editorial_kinetic_state(
+                cue,
+                float(cue.get("_render_elapsed", cue.get("start", 0.0))),
             )
-            phrase_id_value = cue.get("phrase_id")
-            phrase_id = (
-                int(phrase_id_value)
-                if phrase_id_value is not None
-                else None
-            )
-            sentence_id_value = cue.get("sentence_id")
-            sentence_id = (
-                int(sentence_id_value)
-                if sentence_id_value is not None
-                else None
-            )
-            sentence_phrase_index = int(cue.get("sentence_phrase_index", 0))
-            sentence_phrase_count = max(
-                1,
-                int(cue.get("sentence_phrase_count", 1)),
-            )
-            caption_track_progress_value = cue.get("caption_track_progress")
-            caption_track_progress = (
-                float(caption_track_progress_value)
-                if caption_track_progress_value is not None
-                else None
-            )
-            typography = {
-                "variant": str(cue.get("typography_variant") or "statement"),
-                "base_scale": float(cue.get("typography_base_scale", 1.0)),
-                "anchor_scale": float(cue.get("typography_anchor_scale", 1.2)),
-                "accent_style": str(cue.get("typography_accent_style") or "serif"),
-                "body_style": str(cue.get("typography_body_style") or "support"),
-                "secondary_index": int(cue.get("typography_secondary_index", -1)),
-                "secondary_scale": float(cue.get("typography_secondary_scale", 0.78)),
-                "secondary_style": str(cue.get("typography_secondary_style") or "base"),
-            }
-            kinetic_state = (
-                _editorial_kinetic_state(
-                    cue,
-                    float(cue.get("_render_elapsed", cue.get("start", 0.0))),
-                )
-                if self.bf_editorial_style
-                else None
-            )
-            if kinetic_state:
-                typography["base_scale"] *= kinetic_state["scale"]
-        else:
-            words = str(cue).strip().split()
-            active_index = 0
-            emphasis_index = 0
-            visible_word_count = len(words)
-            phrase_id = None
-            sentence_id = None
-            sentence_phrase_index = 0
-            sentence_phrase_count = 1
-            caption_track_progress = None
-            typography = {
-                "variant": "statement",
-                "base_scale": 1.0,
-                "anchor_scale": 1.2,
-                "accent_style": "serif",
-                "body_style": "support",
-                "secondary_index": -1,
-                "secondary_scale": 0.78,
-                "secondary_style": "base",
-            }
-            kinetic_state = None
-        if not self.editorial_style:
-            words = [word.upper() for word in words]
-        words = [word for word in words if word]
+            if isinstance(cue, dict) and self.bf_editorial_style
+            else None
+        )
+        render_plan = build_caption_render_plan(
+            cue,
+            editorial_style=self.editorial_style,
+            kinetic_state=kinetic_state,
+        )
+        words = list(render_plan.words)
         if not words:
             return frame
+        active_index = render_plan.active_index
+        emphasis_index = render_plan.emphasis_index
+        visible_word_count = render_plan.visible_word_count
+        phrase_id = render_plan.phrase_id
+        sentence_id = render_plan.sentence_id
+        sentence_phrase_index = render_plan.sentence_phrase_index
+        sentence_phrase_count = render_plan.sentence_phrase_count
+        caption_track_progress = render_plan.caption_track_progress
+        typography = render_plan.typography
         image = self.Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
         draw = self.ImageDraw.Draw(image)
         if self.editorial_style:
@@ -6101,62 +6027,14 @@ def _reframe_vertical(
                     BF_FULL_BLEED_FACE_LAYOUT,
                 }
             )
-            if persistent_editorial:
-                active_caption_cues = sorted(
-                    (
-                        cue
-                        for cue in caption_cues
-                        if float(cue["start"]) <= elapsed < float(cue["end"])
-                    ),
-                    key=lambda cue: (
-                        int(cue.get("sentence_phrase_index", 0)),
-                        int(cue.get("phrase_id", 0)),
-                    ),
-                )
-                if len(active_caption_cues) > 1:
-                    cues_by_track = {}
-                    for cue in active_caption_cues:
-                        track_key = (
-                            int(cue.get("sentence_id", -1)),
-                            int(cue.get("caption_track_slot", 1)),
-                        )
-                        previous = cues_by_track.get(track_key)
-                        if previous is None or float(cue["start"]) >= float(
-                            previous["start"]
-                        ):
-                            cues_by_track[track_key] = cue
-                    active_caption_cues = sorted(
-                        cues_by_track.values(),
-                        key=lambda cue: (
-                            int(cue.get("sentence_phrase_index", 0)),
-                            int(cue.get("phrase_id", 0)),
-                        ),
-                    )
-                    if len(active_caption_cues) > 2:
-                        active_caption_cues = sorted(
-                            sorted(
-                                active_caption_cues,
-                                key=lambda cue: float(cue["start"]),
-                            )[-2:],
-                            key=lambda cue: (
-                                int(cue.get("sentence_phrase_index", 0)),
-                                int(cue.get("phrase_id", 0)),
-                            ),
-                        )
-            else:
-                while (
-                    caption_index < len(caption_cues)
-                    and elapsed >= float(caption_cues[caption_index]["end"])
-                ):
-                    caption_index += 1
-                active_caption_cues = (
-                    [caption_cues[caption_index]]
-                    if (
-                        caption_index < len(caption_cues)
-                        and float(caption_cues[caption_index]["start"]) <= elapsed
-                    )
-                    else []
-                )
+            caption_selection = select_active_caption_cues(
+                caption_cues,
+                elapsed,
+                persistent_editorial=persistent_editorial,
+                start_index=caption_index,
+            )
+            active_caption_cues = list(caption_selection.cues)
+            caption_index = caption_selection.next_index
             if caption_renderer and active_caption_cues:
                 if (
                     layout in {
