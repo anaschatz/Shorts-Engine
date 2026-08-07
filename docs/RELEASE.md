@@ -192,9 +192,14 @@ npm run remote:ci
 npm run remote:ci:proof
 ```
 
-## Staging Environment Gate
+## Historical staging diagnostics
 
-The staging workflow lives at `.github/workflows/staging.yml` and uses the GitHub Environment named `staging`.
+The workflow described in this section is retained for legacy readiness diagnostics.
+It is not production-beta deployment proof. The canonical strict deployment is
+`render.yaml` plus [`STAGING_DEPLOYMENT.md`](STAGING_DEPLOYMENT.md), and must run
+`npm run staging:production:check` for the exact commit.
+
+The historical staging workflow lives at `.github/workflows/staging.yml` and uses the GitHub Environment named `staging`.
 
 It runs after `ShortsEngine CI` completes successfully or when manually dispatched. By default it is readiness-only: provider `none` passes the env/staging checks and records that no deploy occurred.
 
@@ -208,7 +213,10 @@ Render is the first provider-specific path. To enable it, configure the GitHub E
 
 Unsupported providers, missing service ids, missing tokens and unsafe staging URLs fail closed with safe structured errors.
 
-The Render service should be a Node.js Web Service with build command `npm ci`, start command `npm start`, and health check path `/health`. Render should provide `PORT`; keep `MATCHCUTS_TRANSCRIPTION_PROVIDER=mock`, `MATCHCUTS_PERSISTENCE_ADAPTER=sqlite`, and `MATCHCUTS_STORAGE_ADAPTER=local` or `mock-cloud` for initial staging.
+The historical diagnostic service may use the local bootstrap described below.
+It must never be reported as production-beta staging. The strict deployment uses
+the separate migrate/web/worker entrypoints, PostgreSQL, R2 and OIDC defined in
+`render.yaml`.
 
 Run the staging workflow with manual dispatch first. Inspect the workflow status and the safe summaries from `env:check`, `staging:check`, `render:check`, `staging:deploy` and `staging:smoke`.
 

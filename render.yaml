@@ -12,7 +12,7 @@ services:
     runtime: docker
     plan: starter
     region: oregon
-    branch: codex/production-beta-vertical-slice
+    branch: main
     autoDeployTrigger: checksPass
     dockerfilePath: ./Dockerfile.production
     dockerCommand: node server/production-entry.cjs
@@ -70,7 +70,7 @@ services:
     runtime: docker
     plan: starter
     region: oregon
-    branch: codex/production-beta-vertical-slice
+    branch: main
     autoDeployTrigger: checksPass
     dockerfilePath: ./Dockerfile.production
     dockerCommand: node server/worker-entry.cjs
@@ -126,7 +126,7 @@ services:
     runtime: docker
     plan: starter
     region: oregon
-    branch: codex/production-beta-vertical-slice
+    branch: main
     autoDeployTrigger: checksPass
     dockerfilePath: ./Dockerfile.production
     dockerCommand: node server/worker-entry.cjs

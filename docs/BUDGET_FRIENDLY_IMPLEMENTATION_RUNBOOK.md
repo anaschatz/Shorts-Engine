@@ -27,7 +27,7 @@ This is the operator path for one reviewed Budget Friendly Short. It freezes the
 Run from the media-worker directory:
 
 ```bash
-cd "/Users/anastaseschatzedakes/Desktop/short form /AI-Youtube-Shorts-Generator"
+cd "/path/to/AI-Youtube-Shorts-Generator"
 source .venv/bin/activate
 command -v python ffmpeg ffprobe jq
 python -m unittest discover -s tests -v

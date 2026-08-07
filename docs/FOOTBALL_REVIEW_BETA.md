@@ -1,6 +1,6 @@
 # Football Human Review Beta
 
-This slice adds a fail-closed football review path between uncertain analysis and a downloadable render. It is intended for local and single-instance staging validation. It is not a claim that ShortsEngine is production-ready.
+This slice adds a fail-closed football review path between uncertain analysis and a downloadable render. It is implemented for local development and the distributed production-beta runtime. It is not a claim that ShortsEngine is fully production-ready.
 
 ## Contract
 
@@ -23,30 +23,29 @@ MATCHCUTS_ANALYSIS_CACHE_TTL_MS=86400000
 MATCHCUTS_ANALYSIS_CACHE_MAX_ENTRIES=500
 ```
 
-The active local/SQLite runtime enforces the quota and concurrency limits before direct generation, approved rendering and regeneration. Idempotent replay is checked first so a retry does not consume another slot. Candidate-plan caching is invalidated by the source SHA-256, planner version, evidence-contract version and material settings. `/health` reports only bounded cache/control/metrics health; it does not expose owner ids, source paths, tokens or high-cardinality labels.
+The local/SQLite adapters and PostgreSQL production runtime enforce quota and concurrency limits before direct generation, approved rendering and regeneration. Idempotent replay is checked first so a retry does not consume another slot. Candidate-plan caching is invalidated by the source SHA-256, planner version, evidence-contract version and material settings. `/health` reports only bounded cache/control/metrics health; it does not expose owner ids, source paths, tokens or high-cardinality labels.
 
-Metrics currently live in-process and cover queue latency, candidate-analysis duration, render duration, failures, retries and cache requests/hits. They are a safe instrumentation seam, not a durable telemetry backend. Provider billing integration is still required before `estimated_cost_usd` can be considered authoritative.
+The production runtime persists bounded usage/cost events and exposes bounded metrics; tests use a no-network memory adapter. Unknown provider rates remain unknown rather than being recorded as zero. A real external telemetry exporter and provider price coverage still require staging proof.
 
 ## Staging validation
 
-1. Use `SHORTSENGINE_ENVIRONMENT=staging`, `SHORTSENGINE_AUTH_MODE=operator`, a strong secret-managed operator token, `MATCHCUTS_PERSISTENCE_ADAPTER=sqlite`, and object storage or an attached persistent disk.
-2. Apply the SQLite migration through normal server startup and verify schema version 7. The PostgreSQL SQL file under `server/migrations/postgres/` is design groundwork only; there is no selectable PostgreSQL persistence/queue adapter yet.
-3. Start with conservative render limits and call `GET /health`. Confirm the football review repository, execution controls, analysis cache and observability report ready.
+1. Configure the strict staging profile from `docs/STAGING_DEPLOYMENT.md`: PostgreSQL persistence/queue, R2, OIDC and PostgreSQL telemetry.
+2. Run the migration entrypoint and verify the immutable PostgreSQL migration chain before starting web or workers.
+3. Start the web service and two independent workers with conservative render limits. Call `GET /health` and require ready status.
 4. Upload a rights-cleared football fixture and generate a clip that produces `humanReviewGate.requiresReview: true`.
 5. Verify the original export endpoint returns `FOOTBALL_REVIEW_REQUIRED`.
 6. Create the review with the current project revision. Verify two to four candidates, bounded timestamps, no raw edit plan, and working short-lived preview delivery.
 7. Submit a selection with `expectedVersion`, `expectedSourceRevision`, `candidateId` and a unique idempotency key. Replay the identical request and confirm the same render job id. Change the body while reusing the key and confirm a conflict.
 8. Repeat with `reject_all` and verify no render is queued. Repeat with `regenerate` and verify a new analysis job is linked.
 9. Mutate the project revision or replace the source checksum before deciding and confirm the stale write is rejected.
-10. Attempt the same review with another operator principal and confirm every read/write/download fails ownership checks.
+10. Attempt the same review with a second OIDC user and confirm every read/write/download returns the same non-enumerating response as a missing resource.
 11. Let the approved render complete. Confirm only that approved render downloads, then inspect the durable review audit and job linkage.
 12. Saturate per-user and global limits and confirm new work returns a safe `429` while an idempotent replay still succeeds.
 13. Run the repository test, lint, build, release-readiness and staging smoke commands. Treat any skipped browser, object-storage, authentication or distributed-worker proof as an unclosed release risk.
 
 ## Remaining production blockers
 
-- The runtime queue is the existing single-process durable lease queue. The PostgreSQL `FOR UPDATE SKIP LOCKED` schema is not wired to a queue adapter, so multi-instance claiming has not been proven.
-- Football review persistence is durable file storage in local mode. SQLite review tables exist as migration scaffolding but the review repository is not yet backed by transactional SQLite/PostgreSQL writes.
-- Metrics and analysis cache are process-local. They reset on restart and do not coordinate across instances.
-- OIDC/multi-user identity, managed database failover, object-storage integration, distributed cancellation/retry/dead-letter operations, and cost attribution still need staging proof.
-- Preview playback in operator mode needs a browser authentication flow or a principal-bound delivery mechanism validated end to end.
+- Real external OIDC login, managed PostgreSQL, private R2 and deployed Range delivery still need exact-SHA staging proof.
+- Two deployed workers must demonstrate lease loss/recovery, retries, cancellation and dead-letter operation outside disposable CI.
+- A real telemetry backend and provider price-book coverage must be verified; unknown cost is intentionally not reported as zero.
+- Browser preview, approval and final download must be exercised end to end with two real users after a web restart.

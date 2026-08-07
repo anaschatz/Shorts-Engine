@@ -120,9 +120,9 @@ Only configure these if the staging environment intentionally uses the related a
 
 Do not commit `.env` files or copy secret values into docs, logs, reports or issue comments.
 
-## Expected Runtime Modes
+## Legacy readiness-only runtime modes
 
-Safe readiness-only defaults:
+These values exercise the historical no-deploy diagnostics only:
 
 - `MATCHCUTS_TRANSCRIPTION_PROVIDER=mock`
 - `MATCHCUTS_STORAGE_ADAPTER=local`
@@ -130,7 +130,9 @@ Safe readiness-only defaults:
 - `MATCHCUTS_RUN_REAL_CLOUD_TESTS=0`
 - `SHORTSENGINE_STAGING_DEPLOY_PROVIDER=none`
 
-Object storage and real AI provider modes remain opt-in and fail closed when required credentials are missing.
+They cannot satisfy the production-beta gate. The strict profile at the top of
+this document requires PostgreSQL, R2, OIDC and durable PostgreSQL telemetry and
+fails closed when any required credential is missing.
 
 ## Render Provider Contract
 
@@ -158,9 +160,11 @@ Render provider responses are read with a bounded body limit, parsed as JSON onl
 - mock transcription remains the safe default unless a real provider is explicitly configured
 - output stays sanitized and never includes token values or raw provider data
 
-## Render Service Setup
+## Legacy single-service Render setup
 
-Create a Render Web Service connected to this GitHub repository.
+This section describes the historical diagnostic service used by
+`render:check`. Do not use it as the production-beta topology; deploy the
+`render.yaml` Blueprint described at the top of this document.
 
 Recommended service settings:
 
@@ -173,7 +177,7 @@ Recommended service settings:
 - Node version: use the repository `engines.node` value unless you intentionally pin a newer version in Render settings.
 - Required system tools: `ffmpeg` and `ffprobe` must be available to render real clips. If they are missing, `/health` should report degraded readiness and render jobs should fail safely.
 
-Recommended Render environment variables for initial staging:
+Legacy diagnostic environment variables:
 
 - `MATCHCUTS_TRANSCRIPTION_PROVIDER=mock`
 - `MATCHCUTS_PERSISTENCE_ADAPTER=sqlite`
@@ -181,7 +185,10 @@ Recommended Render environment variables for initial staging:
 - Leave `OPENAI_API_KEY` empty until real-provider staging is intentional.
 - Let Render provide `PORT`; do not hardcode it.
 
-Local filesystem storage on Render should be treated as ephemeral unless a Render disk is explicitly attached. Initial staging can use local or mock-cloud storage to prove deployment and health, but durable uploads/renders need object storage and database-backed persistence in a later milestone.
+Local filesystem storage on Render is ephemeral unless a disk is explicitly
+attached. A local/mock-cloud diagnostic can prove only basic deployment and
+health. The production-beta milestone already implements durable PostgreSQL/R2;
+it still needs external exact-SHA proof with those adapters.
 
 After the service exists:
 
@@ -286,10 +293,10 @@ Full smoke is not part of the default CI/release gate because it uploads media, 
 
 Each full smoke request marks created project, upload, job, artifact and export records with the safe source marker `staging-full-smoke` plus a `staging_full_` idempotency prefix. Cleanup must use those markers and ownership links; titles and filenames are not enough.
 
-Durability interpretation:
+Legacy smoke durability interpretation:
 
 - `ephemeral-staging`: local/mock storage or local filesystem-backed SQLite can prove the flow, but not restart durability on Render.
-- `durable-capable`: object storage plus database-backed persistence are reported as configured capabilities.
+- `durable-capable`: object storage plus database-backed persistence are reported as configured capabilities, but this label is not external production proof.
 
 Do not claim production durability from a Render local filesystem proof. Use object storage and database-backed persistence before relying on deployed staging artifacts across restarts.
 

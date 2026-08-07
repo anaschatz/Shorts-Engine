@@ -7,7 +7,7 @@
 [![Playwright](https://img.shields.io/badge/Playwright-visual_QA-2EAD33?logo=playwright&logoColor=white)](https://playwright.dev/)
 [![Status](https://img.shields.io/badge/status-production--hardening-F59E0B)](#project-status)
 
-ShortsEngine is a production-hardening research project for turning source media
+ShortsEngine is a production-beta, production-hardening project for turning source media
 or structured ideas into reviewable vertical videos. It combines media analysis,
 editorial planning, deterministic rendering, computer-vision-assisted framing and
 final-output verification in one local-first system.
@@ -110,7 +110,7 @@ quality evidence and publication status.
 | **Primary research track** | Football highlights with scoreboard-aware event discovery, full-phase reconstruction and action-safe reframing. |
 | **Additional workflows** | Motivational edits and original narrated animation. |
 | **Engineering focus** | Validation, deterministic jobs, safe artifact handling, observability, evaluation and fail-closed release gates. |
-| **Current stage** | Strong local prototype and evaluation platform; not yet a finished multi-user SaaS. |
+| **Current stage** | Integration-proven production beta; real managed staging and external OIDC proof are still pending. |
 
 ## Product Workflows
 
@@ -160,7 +160,11 @@ rights-bound `AssetManifest v2`; see
 
 ```mermaid
 flowchart LR
-    A["Rights-cleared media or content brief"] --> B["Ingest and validation"]
+    U["Authenticated user"] --> A["Rights-cleared media or content brief"]
+    U <--> O["OIDC session boundary"]
+    A --> B["Multipart ingest and validation"]
+    B <--> P[("PostgreSQL")]
+    B <--> S[("S3 / R2 artifacts")]
     B --> C{"Pipeline router"}
     C --> D["Football event analysis"]
     C --> E["Editorial moment selection"]
@@ -174,6 +178,10 @@ flowchart LR
     J --> K{"Release gate"}
     K -->|Pass| L["Export or private publish"]
     K -->|Fail| M["Structured review evidence"]
+    W1["Worker A"] --> P
+    W2["Worker B"] --> P
+    W1 <--> S
+    W2 <--> S
 ```
 
 The HTTP layer stays thin. Domain logic, providers, repositories, artifact storage,
@@ -186,14 +194,17 @@ tools replaceable and prevents API routes from becoming the workflow engine.
 | --- | --- |
 | Media safety | Extension, MIME, signature, size, duration and FFprobe validation before pipeline entry |
 | Job lifecycle | Durable state transitions, cancellation, leases, retries, recovery and terminal-state protection |
-| Storage | Repository and artifact-store boundaries with path traversal and key validation |
+| Production persistence | PostgreSQL repositories, scoped idempotency, immutable checksummed migrations and owner isolation |
+| Distributed work | PostgreSQL `SKIP LOCKED` claims, fenced leases, heartbeat, retry, cancellation and dead-letter recovery |
+| Storage | Local development plus S3/R2 multipart artifacts, validation, cleanup operations and session-bound delivery |
+| Identity | OIDC Authorization Code + PKCE, hashed sessions, CSRF checks and non-enumerating owner boundaries |
 | Football truth | Score-change timeline, evidence fusion, no-false-goal guards and chronological event binding |
 | Rendering | FFmpeg/FFprobe adapters, bounded execution, edit-plan validation and export gating |
 | Auto-framing | Ball/player/action tracking contracts with conservative wide-safe fallback |
 | Enhancement | Managed Python Real-ESRGAN adapter with Apple MPS support and validated output frame counts |
 | Transcription | Local Faster-Whisper adapter with word timestamps and deterministic fallback |
 | Original animation | Frame-accurate `AnimationIR v4`, continuous vector rendering, narration alignment, persistent entities and semantic typography |
-| Observability | Structured IDs, bounded progress, safe error codes and sanitized readiness reports |
+| Observability | Structured traces, bounded metrics, durable usage/cost events and sanitized readiness reports |
 | Verification | Node tests, deterministic evals, Playwright browser checks, visual proofs and release reports |
 
 ## Capability Maturity
@@ -202,8 +213,9 @@ ShortsEngine is explicit about what is stable and what is still being improved.
 
 | Level | Capabilities |
 | --- | --- |
-| **Implemented and tested** | Validated local ingest, repository/artifact boundaries, job lifecycle, deterministic providers, FFmpeg rendering, structured errors, evals and browser smoke checks |
-| **Operator-enabled** | Authorized YouTube ingest, scoreboard OCR, Faster-Whisper, Real-ESRGAN, local TTS, publishing and cloud-adapter checks |
+| **Implemented** | PostgreSQL persistence and queue, OIDC sessions, multipart S3/R2 artifacts, owner isolation, football previews/approval, FFmpeg rendering, usage ledger and fail-closed production configuration |
+| **Integration-tested** | Disposable PostgreSQL/S3 multi-worker claims, lease recovery, retries/cancellation, ownership isolation, shared storage, review transactions and durable cost schema |
+| **External proof pending** | Real managed staging, a real external OIDC provider, private R2 delivery, deployed restart/recovery and live telemetry export |
 | **Active product research** | Consistent full-goal recall on varied broadcasts, per-frame ball visibility, scorer tracking, reference-style pacing and larger rights-cleared evaluation sets |
 
 ## Quick Start
@@ -228,6 +240,18 @@ npm run dev
 
 Open [http://localhost:4175](http://localhost:4175). The port can be changed with
 `PORT`.
+
+Production-beta deployments use the separate web, worker and migration entrypoints
+from [`render.yaml`](render.yaml). Validate the strict
+`postgres/postgres/r2/oidc/postgres` profile before deploying:
+
+```bash
+npm run staging:production:check
+npm run integration:production
+```
+
+See [the staging contract](docs/STAGING_DEPLOYMENT.md). These commands do not
+replace exact-commit proof against real managed services.
 
 ## Validation
 
@@ -298,8 +322,9 @@ Selected technical documents:
 
 ## Project Status
 
-ShortsEngine is a **production-hardening prototype and applied AI research
-project**, not a finished commercial product.
+ShortsEngine is an **integration-proven production beta and applied AI research
+project**, not a finished commercial product and not yet externally proven for
+production traffic.
 
 The engineering platform is broad and well tested, but live football broadcasts
 remain a difficult open problem: scorebugs vary, camera direction changes rapidly,
@@ -312,7 +337,8 @@ Next milestones:
 1. Evaluate goal recall and visible phase coverage on a larger rights-cleared set.
 2. Improve broadcast-independent scorebug localization and temporal OCR stability.
 3. Strengthen ball/scorer tracking without aggressive or distracting crop motion.
-4. Add PostgreSQL, durable queues and object storage for real multi-user operation.
+4. Prove the exact release commit on managed PostgreSQL, private R2, external OIDC,
+   two deployed workers and durable telemetry.
 5. Measure edit-free pass rate, render reliability, latency and cost per video.
 
 ## What This Project Demonstrates
