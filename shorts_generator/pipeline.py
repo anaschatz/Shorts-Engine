@@ -840,6 +840,7 @@ def _run_local(
             cache_dir=LOCAL_CANDIDATE_CACHE_DIR,
             cache_namespace=f"{LLM_PROVIDER}:{model_name}:{LLM_RESPONSE_SCHEMA_VERSION}",
             telemetry=telemetry,
+            allow_incomplete_batch=select_only,
         )
     candidates: List[Dict] = highlights_result.get("highlights", [])
     if not candidates:
@@ -1199,6 +1200,7 @@ def _run_api(
             profile_override=resolved_profiles.get("content_profile"),
             selection_profile=resolved_profiles.get("selection_profile"),
             telemetry=telemetry,
+            allow_incomplete_batch=select_only,
         )
     candidates: List[Dict] = highlights_result.get("highlights", [])
     if not candidates:

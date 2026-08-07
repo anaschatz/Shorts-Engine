@@ -198,6 +198,7 @@ def _verify_backfill_transcript_provenance(
             transcript,
             video_id,
             str(cache.get("requested_language") or "auto"),
+            allow_legacy_parser=True,
         )
     ):
         raise ArtifactBindingError("raw transcript cache provenance is incompatible")
