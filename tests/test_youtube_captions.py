@@ -11,6 +11,10 @@ from shorts_generator.local.youtube_captions import (
     parse_json3_transcript,
     transcribe_youtube_captions,
 )
+from shorts_generator.artifact_contracts import (
+    build_replay_transcript_manifest,
+    verify_replay_transcript_manifest,
+)
 from shorts_generator.performance import PerformanceTelemetry
 
 
@@ -126,6 +130,90 @@ class YoutubeCaptionTranscriptTests(unittest.TestCase):
         self.assertNotIn("[Music]", tokens)
         self.assertIn("Actual", tokens)
         self.assertIn("speech", tokens)
+
+    def test_json3_parser_stabilizes_overlapping_event_word_order_for_replay(self):
+        payload = {
+            "events": [
+                {
+                    "tStartMs": 1000,
+                    "dDurationMs": 1000,
+                    "segs": [
+                        {"utf8": "going", "tOffsetMs": 0},
+                        {"utf8": " to", "tOffsetMs": 600},
+                    ],
+                },
+                {
+                    "tStartMs": 1500,
+                    "dDurationMs": 1000,
+                    "segs": [
+                        {"utf8": "experience", "tOffsetMs": 0},
+                        {"utf8": " more", "tOffsetMs": 500},
+                    ],
+                },
+            ]
+        }
+
+        transcript = parse_json3_transcript(payload, media_duration=3.0)
+        starts = [
+            word["start"]
+            for segment in transcript["segments"]
+            for word in segment["words"]
+        ]
+        flattened_words = sorted(
+            [
+                word
+                for segment in transcript["segments"]
+                for word in segment["words"]
+            ],
+            key=lambda word: (word["start"], word["end"]),
+        )
+        manifest = build_replay_transcript_manifest(
+            transcript,
+            "a" * 64,
+        )
+
+        self.assertEqual(starts, sorted(starts))
+        self.assertEqual(len(starts), len(set(starts)))
+        self.assertEqual(
+            [word["word"] for word in flattened_words],
+            ["going", "to", "experience", "more"],
+        )
+        self.assertTrue(
+            all(
+                word["end"] > word["start"]
+                for word in flattened_words
+            )
+        )
+        verify_replay_transcript_manifest(
+            manifest,
+            source_hash="a" * 64,
+            require_timed_words=True,
+        )
+
+    def test_json3_parser_rejects_overlap_that_cannot_preserve_word_interval(self):
+        payload = {
+            "events": [
+                {
+                    "tStartMs": 1000,
+                    "dDurationMs": 3000,
+                    "segs": [
+                        {"utf8": "first", "tOffsetMs": 0},
+                        {"utf8": "point", "tOffsetMs": 1800},
+                    ],
+                },
+                {
+                    "tStartMs": 1500,
+                    "dDurationMs": 1000,
+                    "segs": [
+                        {"utf8": "overlap", "tOffsetMs": 0},
+                        {"utf8": "ends", "tOffsetMs": 500},
+                    ],
+                },
+            ]
+        }
+
+        with self.assertRaisesRegex(ValueError, "overlap beyond a safe"):
+            parse_json3_transcript(payload, media_duration=5.0)
 
     def test_track_selection_prefers_word_timed_original_auto_then_manual(self):
         info = {

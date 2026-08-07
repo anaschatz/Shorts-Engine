@@ -5,7 +5,7 @@ from contextlib import redirect_stderr
 from unittest.mock import patch
 
 import main as cli
-from shorts_generator.pipeline import _run_api, generate_shorts
+from shorts_generator.pipeline import _run_api, _run_local, generate_shorts
 from shorts_generator.profiles import resolve_profile_bundle
 
 
@@ -35,7 +35,7 @@ class SelectOnlyTests(unittest.TestCase):
                 "highlights": [candidate],
                 "content_info": {"content_type": "other"},
             },
-        ), patch(
+        ) as discover, patch(
             "shorts_generator.pipeline.rank_highlights",
             return_value=[candidate],
         ), patch(
@@ -53,10 +53,44 @@ class SelectOnlyTests(unittest.TestCase):
             )
 
         crop.assert_not_called()
+        self.assertTrue(discover.call_args.kwargs["allow_incomplete_batch"])
         self.assertEqual(result["shorts"], [])
         self.assertEqual(result["selected_candidates"], selected)
         self.assertTrue(result["ranking"]["selection_only"])
         self.assertEqual(result["ranking"]["rendered_count"], 0)
+
+    def test_local_selection_only_requests_incomplete_candidate_evidence(self):
+        class DiscoveryReached(RuntimeError):
+            pass
+
+        transcript = {
+            "duration": 60.0,
+            "segments": [
+                {"start": 0.0, "end": 12.0, "text": "A complete thought."}
+            ],
+        }
+        with patch(
+            "shorts_generator.local.downloader.download_youtube_local",
+            return_value="/tmp/source.mp4",
+        ), patch(
+            "shorts_generator.pipeline.get_highlights",
+            side_effect=DiscoveryReached,
+        ) as discover:
+            with self.assertRaises(DiscoveryReached):
+                _run_local(
+                    "/tmp/source.mp4",
+                    3,
+                    "9:16",
+                    "1080",
+                    "en",
+                    resolve_profile_bundle(
+                        format_profile="bf_feed_stop_format_v1"
+                    ),
+                    approved_transcript=transcript,
+                    select_only=True,
+                )
+
+        self.assertTrue(discover.call_args.kwargs["allow_incomplete_batch"])
 
     def test_approved_render_cannot_be_selection_only(self):
         with self.assertRaisesRegex(ValueError, "cannot use select_only"):

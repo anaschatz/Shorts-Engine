@@ -2355,8 +2355,9 @@ def get_highlights(
 
     `llm_fn` swaps the underlying LLM. Defaults to MuAPI gpt-5-mini; local
     mode passes in a local LLM-backed callable. ``allow_incomplete_batch`` is
-    reserved for non-production shadow evaluation: it returns every evaluated
-    candidate instead of raising when fewer than ``num_clips`` survive.
+    reserved for non-production selection-only and shadow evaluation: it
+    returns every evaluated candidate instead of raising when fewer than
+    ``num_clips`` survive.
     """
     llm_fn = llm_fn or call_muapi_llm
     duration = _coerce_float(transcript.get("duration"), default=0.0)

@@ -24,7 +24,8 @@ from .downloader import _extract_youtube_video_id, _import_ytdlp
 
 
 YOUTUBE_CAPTION_CACHE_SCHEMA_VERSION = 1
-YOUTUBE_CAPTION_PARSER_VERSION = "json3-words-v1"
+YOUTUBE_CAPTION_PARSER_VERSION = "json3-words-v2"
+LEGACY_YOUTUBE_CAPTION_PARSER_VERSIONS = frozenset({"json3-words-v1"})
 MAX_CAPTION_BYTES = 32 * 1024 * 1024
 _WORD_RE = re.compile(r"\S+")
 _NON_SPEECH_TOKEN_RE = re.compile(r"^(?:>>+|[>♪♫]+|\[[^\]]+\]|\([^)]*(?:music|applause|laughter)[^)]*\))$", re.IGNORECASE)
@@ -298,6 +299,27 @@ def parse_json3_transcript(
         last_caption_end = max(last_caption_end, float(segment["end"]))
 
     segments.sort(key=lambda segment: (segment["start"], segment["end"]))
+    # YouTube ASR events can overlap by a few frames even when their lexical
+    # order is correct. Preserve every token and its end time, but minimally
+    # advance a reversed start so the flattened replay transcript remains
+    # deterministic, strictly ordered, and lexically stable. If an overlap is
+    # too large to retain a positive word interval, reject this caption track;
+    # the caller will fall back to the exact-word Whisper path.
+    previous_word_start = -1.0
+    for segment in segments:
+        for word in segment["words"]:
+            word_start = float(word["start"])
+            word_end = float(word["end"])
+            if word_start <= previous_word_start:
+                word_start = round(previous_word_start + 0.001, 3)
+            if word_start >= word_end:
+                raise ValueError(
+                    "JSON3 caption events overlap beyond a safe word interval"
+                )
+            word["start"] = word_start
+            previous_word_start = float(word["start"])
+        segment["start"] = segment["words"][0]["start"]
+        segment["end"] = segment["words"][-1]["end"]
     duration = max(float(media_duration or 0.0), last_caption_end)
     return {"duration": duration, "segments": segments}
 
@@ -327,15 +349,22 @@ def _cache_matches(
     transcript: Dict,
     video_id: str,
     requested_language: Optional[str],
+    *,
+    allow_legacy_parser: bool = False,
 ) -> bool:
     metadata = transcript.get("_cache")
     if not isinstance(metadata, dict):
         return False
     expected_language = str(requested_language or "auto").strip().lower()
     passed, _ = _caption_quality(transcript)
+    parser_version = metadata.get("parser_version")
+    parser_matches = parser_version == YOUTUBE_CAPTION_PARSER_VERSION or (
+        allow_legacy_parser
+        and parser_version in LEGACY_YOUTUBE_CAPTION_PARSER_VERSIONS
+    )
     return (
         metadata.get("schema_version") == YOUTUBE_CAPTION_CACHE_SCHEMA_VERSION
-        and metadata.get("parser_version") == YOUTUBE_CAPTION_PARSER_VERSION
+        and parser_matches
         and metadata.get("video_id") == video_id
         and metadata.get("requested_language") == expected_language
         and passed
