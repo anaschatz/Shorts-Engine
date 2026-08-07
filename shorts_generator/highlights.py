@@ -293,7 +293,7 @@ HIGHLIGHT_PADDING_SECONDS = 1.75
 SILENCE_BOUNDARY_SECONDS = 0.75
 SENTENCE_END_RE = re.compile(r"[.!?][\"')\]]?\s*$")
 DISCOVERY_CACHE_SCHEMA_VERSION = 1
-DISCOVERY_ALGORITHM_VERSION = "timed-long-context-v6"
+DISCOVERY_ALGORITHM_VERSION = "timed-long-context-v7"
 DISCOVERY_CACHE_DIRECTORY = "discovery-v6"
 GLOBAL_CANDIDATE_CACHE_SCHEMA_VERSION = 1
 # Keep this stable when only the deterministic decision policy changes.  The
