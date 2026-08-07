@@ -61,6 +61,39 @@ class ArtifactContractsTests(unittest.TestCase):
         self.assertEqual(first["candidateHash"], candidate_hash(candidate(), SOURCE_HASH))
         self.assertIs(verify_seal(first, "CandidateDecision"), first)
 
+    def test_feed_stop_candidate_decision_preserves_exact_review_profile(self):
+        body = {
+            key: value
+            for key, value in candidate().items()
+            if key != "candidate_hash"
+        }
+        body.update(
+            {
+                "end_time": 33.0,
+                "selection_profile": "bf_feed_stop_v1",
+                "render_profile": "bf_editorial_inset_v2",
+                "format_profile": "bf_feed_stop_format_v1",
+            }
+        )
+        feed_stop = {
+            **body,
+            "candidate_hash": candidate_hash(body, SOURCE_HASH),
+        }
+
+        decision = build_candidate_decision(
+            feed_stop,
+            SOURCE_HASH,
+            reviewer="operator_1",
+            decided_at="2026-08-07T12:00:00Z",
+            ranking_manifest_hash=RANKING_HASH,
+        )
+
+        self.assertEqual(decision["contentProfile"], "motivational_podcast")
+        self.assertEqual(decision["selectionProfile"], "bf_feed_stop_v1")
+        self.assertEqual(decision["renderProfile"], "bf_editorial_inset_v2")
+        self.assertEqual(decision["formatProfile"], "bf_feed_stop_format_v1")
+        self.assertIs(verify_seal(decision, "CandidateDecision"), decision)
+
     def test_transcript_manifest_preserves_exact_json_and_binds_source(self):
         transcript = {
             "duration": 12.123456789,

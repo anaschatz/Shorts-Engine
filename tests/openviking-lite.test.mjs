@@ -1,6 +1,7 @@
-import test, { before } from "node:test";
+import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
 
 import {
   BRAIN_ROOT,
@@ -15,9 +16,15 @@ import {
 } from "../tools/openviking-lite.mjs";
 
 let initResult;
+const SESSION_ID = `test-openviking-lite-${process.pid}`;
 
 before(() => {
   initResult = initBrain({ refresh: true });
+});
+
+after(() => {
+  rmSync(join(BRAIN_ROOT, "sessions", "inbox", `${SESSION_ID}.jsonl`), { force: true });
+  rmSync(join(BRAIN_ROOT, "agent", "matchcuts-ai", "memories", "sessions", `${SESSION_ID}.md`), { force: true });
 });
 
 test("tokenization supports English and Greek terms", () => {
@@ -63,16 +70,16 @@ test("recursive retrieval returns relevant resources and writes trajectory files
 
 test("session add and commit creates durable agent memory", () => {
   sessionAdd({
-    sessionId: "test-openviking-lite",
+    sessionId: SESSION_ID,
     role: "user",
     text: "We hardened app.js and hardening.js with upload validation and safe job states.",
   });
   sessionAdd({
-    sessionId: "test-openviking-lite",
+    sessionId: SESSION_ID,
     role: "assistant",
     text: "Remember to inspect viking-brain/trajectories when retrieval quality is poor.",
   });
-  const committed = sessionCommit("test-openviking-lite");
+  const committed = sessionCommit(SESSION_ID);
   assert.equal(existsSync(committed.target), true);
   const memory = readFileSync(committed.target, "utf8");
   assert.match(memory, /upload validation/);

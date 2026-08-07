@@ -19,12 +19,57 @@ from shorts_generator.production_workflow import (
     _prepare_verified_candidate,
     _probe_video_frame_size_ffprobe,
     _real_esrgan_required_for_source,
+    _verify_production_job,
     render_approved_candidate,
     render_approved_candidates,
 )
 
 
 class ProductionWorkflowTests(unittest.TestCase):
+    def test_feed_stop_review_decision_cannot_authorize_production_render(self):
+        source_hash = "a" * 64
+        candidate_body = {
+            "start_time": 0.0,
+            "end_time": 12.0,
+            "candidate_text": "Approval is a trap choose a standard instead",
+            "content_profile": "motivational_podcast",
+            "selection_profile": "bf_feed_stop_v1",
+            "render_profile": "bf_editorial_inset_v2",
+            "format_profile": "bf_feed_stop_format_v1",
+            "rejected": False,
+            "rejection_reasons": [],
+            "source_cut_count": 0,
+        }
+        candidate = {
+            **candidate_body,
+            "candidate_hash": candidate_hash(candidate_body, source_hash),
+        }
+        decision = build_candidate_decision(
+            candidate,
+            source_hash,
+            reviewer="operator_1",
+            decided_at="2026-08-07T12:00:00Z",
+            ranking_manifest_hash="d" * 64,
+        )
+        experiment = build_experiment_manifest(
+            experiment_id="feed_stop_review_only",
+            cohort_id="contradiction",
+            treatment_id="feed_stop_v1",
+            candidate_hash=decision["candidateHash"],
+            hypothesis="Feed-stop review candidate remains research-only.",
+            primary_variable="hook_family",
+            pillar="boundaries",
+            duration_seconds=12.0,
+            declared_at="2026-08-07T12:05:00Z",
+            decision_due_at="2026-08-14T12:05:00Z",
+        )
+
+        with self.assertRaisesRegex(
+            ArtifactBindingError,
+            "does not authorize the production profile",
+        ):
+            _verify_production_job(decision, experiment)
+
     def test_gpu_scheduling_is_used_only_for_low_resolution_source_panels(self):
         with (
             patch.object(config_module, "LOCAL_REAL_ESRGAN", True),

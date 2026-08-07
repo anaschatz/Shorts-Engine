@@ -4,7 +4,6 @@ import { createRequire } from "node:module";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { hyperframesDoctor } from "../renderer/hyperframes/doctor.mjs";
@@ -21,6 +20,7 @@ import {
 
 const require = createRequire(import.meta.url);
 const { CASES, compileCase } = require("./support/generalized-visual-step3-fixtures.cjs");
+const COMMIT = "e157e6306cf5d5ce27f959fc0295afc6b3e9aa4f";
 const AGENT_REVIEW = Object.freeze({
   performed: true,
   rubric: Object.freeze({ narrationAlignment: 3, focalHierarchy: 4, legibility: 4, pacing: 4, diversity: 4 }),
@@ -35,10 +35,9 @@ async function reviewPack() {
     const doctor = await hyperframesDoctor();
     assert.equal(doctor.ready, true, "a real local Chromium/Chrome runtime is required");
     artifactDirectory = await mkdtemp(join(tmpdir(), "shortsengine-perceptual-review-test-"));
-    const commitSha = spawnSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).stdout.trim();
     return runGeneralizedVisualReviewPack({
       cases: CASES.map((definition) => compileCase(definition)),
-      commitSha,
+      commitSha: COMMIT,
       chromePath: doctor.chromePath,
       runtimeVersion: doctor.runtimeVersion,
       artifactDirectory,

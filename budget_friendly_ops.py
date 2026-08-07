@@ -11,6 +11,8 @@ from pathlib import Path
 
 from shorts_generator.artifact_contracts import (
     ArtifactBindingError,
+    CANDIDATE_DECISION_PROFILE_RULES,
+    CANDIDATE_PROFILE_FIELDS,
     build_candidate_decision,
     build_publish_manifest,
     build_replay_transcript_manifest,
@@ -44,10 +46,6 @@ from shorts_generator.production_workflow import (
     render_approved_candidates,
 )
 from shorts_generator.profiles import (
-    BF_EDITORIAL_INSET_V1,
-    BF_VIRAL_MICRO_V1,
-    MOTIVATIONAL_PODCAST,
-    MOTIVATIONAL_TENSION_MICRO_V1,
     profile_manifest_metadata,
     resolve_profile_bundle,
 )
@@ -124,11 +122,23 @@ def candidate_from_file(
     source_hash = file_sha256(source_path)
     if ranking.get("sourceHash") != source_hash:
         raise ArtifactBindingError("ranking manifest is not bound to the supplied source")
-    expected_profiles = profile_manifest_metadata(
-        resolve_profile_bundle(format_profile=BF_VIRAL_MICRO_V1)
+    profile_contracts = tuple(
+        (
+            profile_tuple,
+            profile_manifest_metadata(
+                resolve_profile_bundle(format_profile=profile_tuple[3])
+            ),
+        )
+        for profile_tuple in CANDIDATE_DECISION_PROFILE_RULES
     )
-    if ranking.get("profiles") != expected_profiles:
-        raise ArtifactBindingError("ranking manifest does not freeze the production profile")
+    matching_contracts = [
+        item for item in profile_contracts if ranking.get("profiles") == item[1]
+    ]
+    if len(matching_contracts) != 1:
+        raise ArtifactBindingError(
+            "ranking manifest does not freeze an approved review profile"
+        )
+    expected_profile_tuple = matching_contracts[0][0]
     candidates = ranking.get("candidates")
     if not isinstance(candidates, list):
         raise ArtifactBindingError("ranking manifest candidates are invalid")
@@ -148,12 +158,9 @@ def candidate_from_file(
     candidate = matches[0]
     if candidate.get("rejected") is not False or candidate.get("rejection_reasons"):
         raise ArtifactBindingError("only an eligible non-rejected ranking candidate can be approved")
-    expected_candidate_profiles = {
-        "content_profile": MOTIVATIONAL_PODCAST,
-        "selection_profile": MOTIVATIONAL_TENSION_MICRO_V1,
-        "render_profile": BF_EDITORIAL_INSET_V1,
-        "format_profile": BF_VIRAL_MICRO_V1,
-    }
+    expected_candidate_profiles = dict(
+        zip(CANDIDATE_PROFILE_FIELDS, expected_profile_tuple)
+    )
     for field, expected in expected_candidate_profiles.items():
         if str(candidate.get(field) or "").strip().lower() != expected:
             raise ArtifactBindingError(f"ranking candidate {field} is incompatible")

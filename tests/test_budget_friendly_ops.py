@@ -6,10 +6,24 @@ from unittest.mock import patch
 
 import budget_friendly_ops as ops
 from shorts_generator import youtube_uploader as youtube_uploader_module
-from shorts_generator.artifact_contracts import candidate_hash, content_hash, file_sha256
+from shorts_generator.artifact_contracts import (
+    ArtifactBindingError,
+    candidate_hash,
+    content_hash,
+    file_sha256,
+)
 from shorts_generator.pipeline import build_ranking_manifest
-from shorts_generator.profiles import BF_VIRAL_MICRO_V1, resolve_profile_bundle
+from shorts_generator.profiles import (
+    BF_FEED_STOP_FORMAT_V1,
+    BF_GROWTH_V2,
+    BF_VIRAL_MICRO_V1,
+    resolve_profile_bundle,
+)
 from shorts_generator.publisher import PublishReceiptStore
+from shorts_generator.replay_capture import (
+    verify_replay_capture_dataset,
+    verify_replay_capture_label,
+)
 
 
 def replay_backfill_transcript(
@@ -474,6 +488,183 @@ class BudgetFriendlyOpsTests(unittest.TestCase):
         self.assertTrue(output_exists)
         self.assertEqual(dataset_count, 1)
         self.assertEqual(label_count, 1)
+
+    def test_approve_candidate_cli_accepts_exact_feed_stop_replay_ranking(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            source.write_bytes(b"feed-stop-source")
+            source_hash = file_sha256(str(source))
+            candidate_body = {
+                "start_time": 0.0,
+                "end_time": 11.75,
+                "speech_start_time": 0.0,
+                "speech_end_time": 11.5,
+                "title": "Stop seeking approval",
+                "hook_sentence": "Approval is a trap.",
+                "final_takeaway_sentence": "Choose your standard instead.",
+                "candidate_text": "Approval is a trap choose your standard instead",
+                "content_profile": "motivational_podcast",
+                "selection_profile": "bf_feed_stop_v1",
+                "render_profile": "bf_editorial_inset_v2",
+                "format_profile": "bf_feed_stop_format_v1",
+                "selection_rank": 1,
+                "rejected": False,
+                "rejection_reasons": [],
+                "source_cut_count": 0,
+            }
+            candidate = {
+                **candidate_body,
+                "candidate_hash": candidate_hash(candidate_body, source_hash),
+            }
+            ranking = build_ranking_manifest(
+                "https://example.test/feed-stop-source",
+                str(source),
+                "motivational_podcast",
+                [candidate],
+                [candidate],
+                profiles=resolve_profile_bundle(
+                    format_profile=BF_FEED_STOP_FORMAT_V1
+                ),
+                source_hash=source_hash,
+                transcript=replay_backfill_transcript(
+                    "Approval is a trap choose your standard instead",
+                    source_hash,
+                ),
+            )
+            ranking_path = root / "ranking.json"
+            decision_path = root / "decision.json"
+            evidence = root / "evidence"
+            ops.write_json(str(ranking_path), ranking)
+            args = ops.build_parser().parse_args(
+                [
+                    "approve-candidate",
+                    "--candidate-json",
+                    str(ranking_path),
+                    "--rank",
+                    "1",
+                    "--source",
+                    str(source),
+                    "--reviewer",
+                    "operator_1",
+                    "--decided-at",
+                    "2026-08-07T12:00:00Z",
+                    "--evidence-dir",
+                    str(evidence),
+                    "--output",
+                    str(decision_path),
+                ]
+            )
+
+            decision = args.handler(args)
+            dataset_path = next((evidence / "datasets").glob("*.json"))
+            label_path = next((evidence / "labels").glob("*/*.json"))
+            dataset = verify_replay_capture_dataset(
+                ops.read_json(str(dataset_path))
+            )
+            label = verify_replay_capture_label(
+                ops.read_json(str(label_path)),
+                dataset,
+            )
+
+        self.assertEqual(
+            (
+                decision["contentProfile"],
+                decision["selectionProfile"],
+                decision["renderProfile"],
+                decision["formatProfile"],
+            ),
+            (
+                "motivational_podcast",
+                "bf_feed_stop_v1",
+                "bf_editorial_inset_v2",
+                "bf_feed_stop_format_v1",
+            ),
+        )
+        self.assertEqual(label["candidateDecision"], decision)
+        self.assertEqual(label["labelSemantics"], "explicit_human_approval")
+        self.assertEqual(dataset["rankingManifestHash"], ranking["contentHash"])
+
+    def test_approve_rejects_unallowlisted_and_mixed_profile_contracts(self):
+        cases = (
+            (BF_GROWTH_V2, BF_GROWTH_V2),
+            (BF_FEED_STOP_FORMAT_V1, BF_VIRAL_MICRO_V1),
+        )
+        for ranking_format, candidate_format in cases:
+            with self.subTest(
+                ranking_format=ranking_format,
+                candidate_format=candidate_format,
+            ), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                source = root / "source.mp4"
+                source.write_bytes(b"profile-source")
+                source_hash = file_sha256(str(source))
+                candidate_bundle = resolve_profile_bundle(
+                    format_profile=candidate_format
+                )
+                candidate_body = {
+                    "start_time": 0.0,
+                    "end_time": 11.75,
+                    "candidate_text": "One complete review candidate",
+                    "content_profile": candidate_bundle["content_profile"],
+                    "selection_profile": candidate_bundle["selection_profile"],
+                    "render_profile": candidate_bundle["render_profile"],
+                    "format_profile": candidate_bundle["format_profile"],
+                    "selection_rank": 1,
+                    "rejected": False,
+                    "rejection_reasons": [],
+                    "source_cut_count": 0,
+                }
+                candidate = {
+                    **candidate_body,
+                    "candidate_hash": candidate_hash(
+                        candidate_body,
+                        source_hash,
+                    ),
+                }
+                ranking = build_ranking_manifest(
+                    "https://example.test/profile-source",
+                    str(source),
+                    "motivational_podcast",
+                    [candidate],
+                    [],
+                    profiles=resolve_profile_bundle(
+                        format_profile=ranking_format
+                    ),
+                    source_hash=source_hash,
+                    transcript=replay_backfill_transcript(
+                        "One complete review candidate",
+                        source_hash,
+                    ),
+                )
+                ranking_path = root / "ranking.json"
+                output = root / "decision.json"
+                evidence = root / "evidence"
+                ops.write_json(str(ranking_path), ranking)
+                args = ops.build_parser().parse_args(
+                    [
+                        "approve-candidate",
+                        "--candidate-json",
+                        str(ranking_path),
+                        "--rank",
+                        "1",
+                        "--source",
+                        str(source),
+                        "--reviewer",
+                        "operator_1",
+                        "--decided-at",
+                        "2026-08-07T12:00:00Z",
+                        "--evidence-dir",
+                        str(evidence),
+                        "--output",
+                        str(output),
+                    ]
+                )
+
+                with self.assertRaises(ArtifactBindingError):
+                    args.handler(args)
+                self.assertFalse(output.exists())
+                self.assertFalse(evidence.exists())
 
     def test_approve_rejects_legacy_unsealed_candidate_json(self):
         with tempfile.TemporaryDirectory() as directory:

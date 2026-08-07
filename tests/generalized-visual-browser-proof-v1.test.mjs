@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { spawnSync } from "node:child_process";
 import { hyperframesDoctor } from "../renderer/hyperframes/doctor.mjs";
 import {
   normalizeGeneralizedVisualBrowserProof,
@@ -14,16 +13,16 @@ import {
 
 const require = createRequire(import.meta.url);
 const { CASES, compileCase } = require("./support/generalized-visual-step3-fixtures.cjs");
+const COMMIT = "e157e6306cf5d5ce27f959fc0295afc6b3e9aa4f";
 
 let proofPromise;
 async function proof() {
   if (!proofPromise) proofPromise = (async () => {
     const doctor = await hyperframesDoctor();
     assert.equal(doctor.ready, true, "a real local Chromium/Chrome runtime is required");
-    const commitSha = spawnSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).stdout.trim();
     return runGeneralizedVisualBrowserProof({
       cases: CASES.map((definition) => compileCase(definition)),
-      commitSha,
+      commitSha: COMMIT,
       chromePath: doctor.chromePath,
       runtimeVersion: doctor.runtimeVersion,
     });

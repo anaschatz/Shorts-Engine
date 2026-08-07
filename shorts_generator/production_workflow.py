@@ -14,8 +14,10 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from .artifact_contracts import (
     ArtifactBindingError,
+    PRODUCTION_CANDIDATE_PROFILE_TUPLE,
     build_edit_plan,
     build_render_manifest,
+    candidate_profile_tuple,
     file_sha256,
     verify_seal,
 )
@@ -51,6 +53,20 @@ def _verify_production_job(
     experiment = verify_seal(experiment_manifest, "ExperimentManifest")
     if experiment["candidateHash"] != decision["candidateHash"]:
         raise ArtifactBindingError("experiment references another candidate")
+    decision_profile_tuple = (
+        str(decision.get("contentProfile") or "").strip().lower(),
+        str(decision.get("selectionProfile") or "").strip().lower(),
+        str(decision.get("renderProfile") or "").strip().lower(),
+        str(decision.get("formatProfile") or "").strip().lower(),
+    )
+    if (
+        decision_profile_tuple != PRODUCTION_CANDIDATE_PROFILE_TUPLE
+        or candidate_profile_tuple(decision.get("candidate"))
+        != PRODUCTION_CANDIDATE_PROFILE_TUPLE
+    ):
+        raise ArtifactBindingError(
+            "candidate decision does not authorize the production profile"
+        )
     if (
         experiment.get("formatProfile") != BF_VIRAL_MICRO_V1
         or experiment.get("selectionProfile") != MOTIVATIONAL_TENSION_MICRO_V1

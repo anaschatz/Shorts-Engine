@@ -114,9 +114,9 @@ Important files:
 
 Source files:
 
-- \`/Users/anastaseschatzedakes/Desktop/short form /index.html\`
-- \`/Users/anastaseschatzedakes/Desktop/short form /styles.css\`
-- \`/Users/anastaseschatzedakes/Desktop/short form /app.js\`
+- \`index.html\`
+- \`styles.css\`
+- \`app.js\`
 
 Behavioral contract:
 

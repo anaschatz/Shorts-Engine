@@ -14,6 +14,9 @@ from pathlib import Path
 from typing import Dict, Iterable, Optional
 
 from .profiles import (
+    BF_EDITORIAL_INSET_V2,
+    BF_FEED_STOP_FORMAT_V1,
+    BF_FEED_STOP_V1,
     BF_REFERENCE_TAIL_V2,
     BF_SMOOTH_TAIL_V3,
     BF_SMOOTH_TAIL_V4,
@@ -46,6 +49,37 @@ PRODUCTION_CONTENT_PROFILE = "motivational_podcast"
 PRODUCTION_SELECTION_PROFILE = "motivational_tension_micro_v1"
 PRODUCTION_RENDER_PROFILE = "bf_editorial_inset_v1"
 PRODUCTION_FORMAT_PROFILE = "bf_viral_micro_v1"
+PRODUCTION_CANDIDATE_PROFILE_TUPLE = (
+    PRODUCTION_CONTENT_PROFILE,
+    PRODUCTION_SELECTION_PROFILE,
+    PRODUCTION_RENDER_PROFILE,
+    PRODUCTION_FORMAT_PROFILE,
+)
+FEED_STOP_REPLAY_PROFILE_TUPLE = (
+    PRODUCTION_CONTENT_PROFILE,
+    BF_FEED_STOP_V1,
+    BF_EDITORIAL_INSET_V2,
+    BF_FEED_STOP_FORMAT_V1,
+)
+# CandidateDecision is also the canonical explicit-human label consumed by
+# Autoresearch replay.  Admission here does not grant render authorization;
+# production_workflow independently requires PRODUCTION_CANDIDATE_PROFILE_TUPLE.
+CANDIDATE_DECISION_PROFILE_RULES = {
+    PRODUCTION_CANDIDATE_PROFILE_TUPLE: {
+        "minimum_speech_seconds": 8.0,
+        "maximum_speech_seconds": 22.0,
+    },
+    FEED_STOP_REPLAY_PROFILE_TUPLE: {
+        "minimum_speech_seconds": 8.0,
+        "maximum_speech_seconds": 24.0,
+    },
+}
+CANDIDATE_PROFILE_FIELDS = (
+    "content_profile",
+    "selection_profile",
+    "render_profile",
+    "format_profile",
+)
 REPLAY_TRANSCRIPT_MANIFEST_TYPE = "BudgetFriendlyReplayTranscriptManifestV2"
 REPLAY_TRANSCRIPT_MANIFEST_VERSION = "bf-replay-transcript-v2.0.0"
 
@@ -371,6 +405,16 @@ def candidate_hash(candidate: Dict, source_hash: str) -> str:
     )
 
 
+def candidate_profile_tuple(candidate: Dict) -> tuple[str, str, str, str]:
+    """Return the normalized, indivisible profile contract for a candidate."""
+    if not isinstance(candidate, dict):
+        raise ArtifactBindingError("candidate must be an object")
+    return tuple(
+        str(candidate.get(field) or "").strip().lower()
+        for field in CANDIDATE_PROFILE_FIELDS
+    )
+
+
 def _semantic_source_cut_limit(candidate: Dict, source_cuts: Iterable[float]) -> int:
     cuts = sorted(float(value) for value in source_cuts)
     if not candidate.get("semantic_completion_source_cut_exception"):
@@ -416,15 +460,12 @@ def build_candidate_decision(
     normalized = normalized_candidate(candidate)
     if normalized.get("rejected") is not False or normalized.get("rejection_reasons"):
         raise ArtifactBindingError("only an eligible non-rejected candidate can be approved")
-    expected_profiles = {
-        "content_profile": PRODUCTION_CONTENT_PROFILE,
-        "selection_profile": PRODUCTION_SELECTION_PROFILE,
-        "render_profile": PRODUCTION_RENDER_PROFILE,
-        "format_profile": PRODUCTION_FORMAT_PROFILE,
-    }
-    for field, expected in expected_profiles.items():
-        if str(normalized.get(field) or "").strip().lower() != expected:
-            raise ArtifactBindingError(f"candidate.{field} does not match the production profile")
+    profile_tuple = candidate_profile_tuple(normalized)
+    profile_rules = CANDIDATE_DECISION_PROFILE_RULES.get(profile_tuple)
+    if profile_rules is None:
+        raise ArtifactBindingError(
+            "candidate profile tuple is not approved for a CandidateDecision"
+        )
     speech_start = normalized.get("speech_start_time")
     speech_end = normalized.get("speech_end_time")
     duration = (
@@ -432,7 +473,11 @@ def build_candidate_decision(
         if speech_start is not None and speech_end is not None
         else float(normalized["end_time"]) - float(normalized["start_time"])
     )
-    if not 8.0 <= duration <= 22.0:
+    if not (
+        profile_rules["minimum_speech_seconds"]
+        <= duration
+        <= profile_rules["maximum_speech_seconds"]
+    ):
         raise ArtifactBindingError("candidate duration is outside the approved micro profile")
     source_cuts = normalized.get("source_scene_change_times") or []
     source_cut_limit = _semantic_source_cut_limit(normalized, source_cuts)
@@ -452,10 +497,10 @@ def build_candidate_decision(
             "rankingManifestHash": ranking_manifest_hash,
             "sourceHash": source_hash,
             "candidateHash": actual_candidate_hash,
-            "contentProfile": PRODUCTION_CONTENT_PROFILE,
-            "selectionProfile": PRODUCTION_SELECTION_PROFILE,
-            "renderProfile": PRODUCTION_RENDER_PROFILE,
-            "formatProfile": PRODUCTION_FORMAT_PROFILE,
+            "contentProfile": profile_tuple[0],
+            "selectionProfile": profile_tuple[1],
+            "renderProfile": profile_tuple[2],
+            "formatProfile": profile_tuple[3],
             "candidate": normalized,
             "reviewer": reviewer,
             "decidedAt": decided_at,
@@ -1111,6 +1156,10 @@ def build_publish_manifest(
 __all__ = [
     "ALLOWED_RIGHTS_STATUSES",
     "ArtifactBindingError",
+    "CANDIDATE_DECISION_PROFILE_RULES",
+    "CANDIDATE_PROFILE_FIELDS",
+    "FEED_STOP_REPLAY_PROFILE_TUPLE",
+    "PRODUCTION_CANDIDATE_PROFILE_TUPLE",
     "build_candidate_decision",
     "build_edit_plan",
     "build_publish_manifest",
@@ -1118,6 +1167,7 @@ __all__ = [
     "build_rights_manifest",
     "build_source_asset_manifest",
     "candidate_hash",
+    "candidate_profile_tuple",
     "canonical_json",
     "content_hash",
     "file_sha256",
